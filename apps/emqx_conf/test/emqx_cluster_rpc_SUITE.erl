@@ -225,6 +225,16 @@ t_fast_forward_commit(_Config) ->
         tnx_ids(List2)),
     ok.
 
+t_handler_unexpected_msg(_Config) ->
+    Handler = emqx_cluster_rpc_handler,
+    OldPid = erlang:whereis(Handler),
+    ok = gen_server:cast(Handler, unexpected_cast_msg),
+    ignore = gen_server:call(Handler, unexpected_cast_msg),
+    erlang:send(Handler, unexpected_info_msg),
+    NewPid = erlang:whereis(Handler),
+    ?assertEqual(OldPid, NewPid),
+    ok.
+
 tnx_ids(Status) ->
     lists:sort(lists:map(fun(#{tnx_id := TnxId, node := Node}) ->
         {Node, TnxId} end, Status)).
@@ -234,6 +244,7 @@ start() ->
     {ok, Pid2} = emqx_cluster_rpc:start_link({node(), ?NODE2}, ?NODE2, 500),
     {ok, Pid3} = emqx_cluster_rpc:start_link({node(), ?NODE3}, ?NODE3, 500),
     {ok, Pid4} = emqx_cluster_rpc_handler:start_link(100, 500),
+    true = erlang:register(emqx_cluster_rpc_handler, Pid4),
     {ok, [Pid1, Pid2, Pid3, Pid4]}.
 
 stop() ->
@@ -243,7 +254,8 @@ stop() ->
              P ->
                  erlang:unlink(P),
                  erlang:exit(P, kill)
-         end end || N <- [?NODE1, ?NODE2, ?NODE3]].
+         end end || N <- [?NODE1, ?NODE2, ?NODE3]],
+    gen_server:stop(emqx_cluster_rpc_handler, normal, 5000).
 
 receive_msg(0, _Msg) -> ok;
 receive_msg(Count, Msg) when Count > 0 ->

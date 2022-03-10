@@ -67,7 +67,10 @@ schema("/trace") ->
             description => "Create new trace",
             'requestBody' => delete([status, log_size], fields(trace)),
             responses => #{
-                200 => hoconsc:ref(trace)
+                200 => hoconsc:ref(trace),
+                400 => emqx_dashboard_swagger:error_codes(['ALREADY_EXISTS',
+                    'DUPLICATE_CONDITION', 'INVALID_PARAMS'],
+                    <<"trace name already exists">>)
             }
         },
         delete => #{
@@ -274,7 +277,7 @@ trace(post, #{body := Param}) ->
             }};
         {error, Reason} ->
             {400, #{
-                code => 'INCORRECT_PARAMS',
+                code => 'INVALID_PARAMS',
                 message => ?TO_BIN(Reason)
             }}
     end;

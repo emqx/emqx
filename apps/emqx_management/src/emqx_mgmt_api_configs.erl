@@ -136,22 +136,19 @@ find_schema(Path) ->
     Configs = config_list(),
     lists:keyfind(list_to_binary(Root), 1, Configs).
 
-%% we load all configs from emqx_conf_schema, some of them are defined as local ref
-%% we need redirect to emqx_conf_schema.
-%% such as hoconsc:ref("node") to hoconsc:ref(emqx_conf_schema, "node")
-fields(Field) -> emqx_conf_schema:fields(Field).
+%% we load all configs from emqx_*_schema, some of them are defined as local ref
+%% we need redirect to emqx_*_schema.
+%% such as hoconsc:ref("node") to hoconsc:ref(emqx_*_schema, "node")
+fields(Field) ->
+    Mod = emqx_conf:schema_module(),
+    apply(Mod, fields, [Field]).
 
 %%%==============================================================================================
 %% HTTP API Callbacks
 config(get, _Params, Req) ->
     Path = conf_path(Req),
-    case emqx_map_lib:deep_find(Path, get_full_config()) of
-        {ok, Conf} ->
-            {200, Conf};
-        {not_found, _, _} ->
-            {404, #{code => 'NOT_FOUND',
-                message => <<(list_to_binary(Path))/binary, " not found">>}}
-    end;
+    {ok, Conf} = emqx_map_lib:deep_find(Path, get_full_config()),
+    {200, Conf};
 
 config(put, #{body := Body}, Req) ->
     Path = conf_path(Req),
@@ -195,7 +192,9 @@ conf_path_reset(Req) ->
     string:lexemes(Path, "/ ").
 
 get_full_config() ->
-        emqx_config:fill_defaults(emqx:get_raw_config([])).
+        emqx_config:fill_defaults(
+            maps:without(?EXCLUDES,
+                emqx:get_raw_config([]))).
 
 conf_path_from_querystr(Req) ->
     case proplists:get_value(<<"conf_path">>, cowboy_req:parse_qs(Req)) of
@@ -204,7 +203,8 @@ conf_path_from_querystr(Req) ->
     end.
 
 config_list() ->
-    Roots = hocon_schema:roots(emqx_conf_schema),
+    Mod = emqx_conf:schema_module(),
+    Roots = hocon_schema:roots(Mod),
     lists:foldl(fun(Key, Acc) -> lists:keydelete(Key, 1, Acc) end, Roots, ?EXCLUDES).
 
 conf_path(Req) ->
