@@ -76,20 +76,36 @@ t_api(_) ->
         request( post
                , uri(["authorization", "sources", "built-in-database", "username"])
                , [?USERNAME_RULES_EXAMPLE]),
+
     {ok, 200, Request1} =
         request( get
                , uri(["authorization", "sources", "built-in-database", "username"])
-               , []),
-    {ok, 200, Request2} =
-        request( get
-               , uri(["authorization", "sources", "built-in-database", "username", "user1"])
                , []),
     #{<<"data">> := [#{<<"username">> := <<"user1">>, <<"rules">> := Rules1}],
       <<"meta">> := #{<<"count">> := 1,
                       <<"limit">> := 100,
                       <<"page">> := 1}} = jsx:decode(Request1),
-    #{<<"username">> := <<"user1">>, <<"rules">> := Rules1} = jsx:decode(Request2),
     ?assertEqual(3, length(Rules1)),
+
+    {ok, 200, Request1_1} =
+        request( get
+               , uri([ "authorization"
+                     , "sources"
+                     , "built-in-database"
+                     , "username?page=1&limit=20&like_username=noexist"])
+               , []),
+    #{<<"data">> := [],
+      <<"meta">> := #{<<"count">> := 0,
+                      <<"limit">> := 20,
+                      <<"page">> := 1}} = jsx:decode(Request1_1),
+
+
+    {ok, 200, Request2} =
+        request( get
+               , uri(["authorization", "sources", "built-in-database", "username", "user1"])
+               , []),
+    #{<<"username">> := <<"user1">>, <<"rules">> := Rules1} = jsx:decode(Request2),
+
 
     {ok, 204, _} =
         request( put

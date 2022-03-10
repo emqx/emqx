@@ -20,9 +20,9 @@
 -include_lib("stdlib/include/ms_transform.hrl").
 -include_lib("emqx/include/logger.hrl").
 
--define(ACL_SHARDED, emqx_acl_sharded).
+-include("emqx_authz.hrl").
 
--define(ACL_TABLE, emqx_acl).
+-define(ACL_SHARDED, emqx_acl_sharded).
 
 %% To save some space, use an integer for label, 0 for 'all', {1, Username} and {2, ClientId}.
 -define(ACL_TABLE_ALL, 0).
@@ -114,10 +114,12 @@ authorize(#{username := Username,
 %% Management API
 %%--------------------------------------------------------------------
 
+%% Init
 -spec(init_tables() -> ok).
 init_tables() ->
     ok = mria_rlog:wait_for_shards([?ACL_SHARDED], infinity).
 
+%% @doc Update authz rules
 -spec(store_rules(who(), rules()) -> ok).
 store_rules({username, Username}, Rules) ->
     Record = #emqx_acl{who = {?ACL_TABLE_USERNAME, Username}, rules = normalize_rules(Rules)},
@@ -129,6 +131,7 @@ store_rules(all, Rules) ->
     Record = #emqx_acl{who = ?ACL_TABLE_ALL, rules = normalize_rules(Rules)},
     mria:dirty_write(Record).
 
+%% @doc Clean all authz rules for (username & clientid & all)
 -spec(purge_rules() -> ok).
 purge_rules() ->
     ok = lists:foreach(
@@ -137,6 +140,7 @@ purge_rules() ->
            end,
            mnesia:dirty_all_keys(?ACL_TABLE)).
 
+%% @doc Get one record
 -spec(get_rules(who()) -> {ok, rules()} | not_found).
 get_rules({username, Username}) ->
     do_get_rules({?ACL_TABLE_USERNAME, Username});
@@ -145,6 +149,7 @@ get_rules({clientid, Clientid}) ->
 get_rules(all) ->
     do_get_rules(?ACL_TABLE_ALL).
 
+%% @doc Delete one record
 -spec(delete_rules(who()) -> ok).
 delete_rules({username, Username}) ->
     mria:dirty_delete(?ACL_TABLE, {?ACL_TABLE_USERNAME, Username});
@@ -153,21 +158,19 @@ delete_rules({clientid, Clientid}) ->
 delete_rules(all) ->
     mria:dirty_delete(?ACL_TABLE, ?ACL_TABLE_ALL).
 
--spec(list_username_rules() -> {mria:table(), ets:match_spec()}).
+-spec(list_username_rules() -> ets:match_spec()).
 list_username_rules() ->
-    MatchSpec = ets:fun2ms(
-                  fun(#emqx_acl{who = {?ACL_TABLE_USERNAME, Username}, rules = Rules}) ->
-                          [{username, Username}, {rules, Rules}]
-                  end),
-    {?ACL_TABLE, MatchSpec}.
+    ets:fun2ms(
+      fun(#emqx_acl{who = {?ACL_TABLE_USERNAME, Username}, rules = Rules}) ->
+              [{username, Username}, {rules, Rules}]
+      end).
 
--spec(list_clientid_rules() -> {mria:table(), ets:match_spec()}).
+-spec(list_clientid_rules() -> ets:match_spec()).
 list_clientid_rules() ->
-    MatchSpec = ets:fun2ms(
-                  fun(#emqx_acl{who = {?ACL_TABLE_CLIENTID, Clientid}, rules = Rules}) ->
-                          [{clientid, Clientid}, {rules, Rules}]
-                  end),
-    {?ACL_TABLE, MatchSpec}.
+    ets:fun2ms(
+      fun(#emqx_acl{who = {?ACL_TABLE_CLIENTID, Clientid}, rules = Rules}) ->
+              [{clientid, Clientid}, {rules, Rules}]
+      end).
 
 -spec(record_count() -> non_neg_integer()).
 record_count() ->

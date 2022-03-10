@@ -378,8 +378,8 @@ lookup_user(ChainName, AuthenticatorID, UserID) ->
     call({lookup_user, ChainName, AuthenticatorID, UserID}).
 
 -spec list_users(chain_name(), authenticator_id(), map()) -> {ok, [user_info()]} | {error, term()}.
-list_users(ChainName, AuthenticatorID, Params) ->
-    call({list_users, ChainName, AuthenticatorID, Params}).
+list_users(ChainName, AuthenticatorID, FuzzyParams) ->
+    call({list_users, ChainName, AuthenticatorID, FuzzyParams}).
 
 %%--------------------------------------------------------------------
 %% gen_server callbacks
@@ -476,8 +476,8 @@ handle_call({lookup_user, ChainName, AuthenticatorID, UserID}, _From, State) ->
     Reply = call_authenticator(ChainName, AuthenticatorID, lookup_user, [UserID]),
     reply(Reply, State);
 
-handle_call({list_users, ChainName, AuthenticatorID, PageParams}, _From, State) ->
-    Reply = call_authenticator(ChainName, AuthenticatorID, list_users, [PageParams]),
+handle_call({list_users, ChainName, AuthenticatorID, FuzzyParams}, _From, State) ->
+    Reply = call_authenticator(ChainName, AuthenticatorID, list_users, [FuzzyParams]),
     reply(Reply, State);
 
 handle_call(Req, _From, State) ->

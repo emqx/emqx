@@ -22,8 +22,14 @@
 -include_lib("emqx/include/logger.hrl").
 -include_lib("typerefl/include/types.hrl").
 
--define(FORMAT_USERNAME_FUN, {?MODULE, format_by_username}).
--define(FORMAT_CLIENTID_FUN, {?MODULE, format_by_clientid}).
+-import(hoconsc, [mk/1, mk/2, ref/1, ref/2, array/1, enum/1]).
+
+-define(QUERY_USERNAME_FUN, {?MODULE, query_username}).
+-define(QUERY_CLIENTID_FUN, {?MODULE, query_clientid}).
+
+-define(ACL_USERNAME_QSCHEMA, [{<<"like_username">>, binary}]).
+-define(ACL_CLIENTID_QSCHEMA, [{<<"like_clientid">>, binary}]).
+
 
 -export([ api_spec/0
         , paths/0
@@ -40,8 +46,11 @@
         , purge/2
         ]).
 
--export([ format_by_username/1
-        , format_by_clientid/1]).
+%% query funs
+-export([ query_username/4
+        , query_clientid/4]).
+
+-export([format_result/1]).
 
 -define(BAD_REQUEST, 'BAD_REQUEST').
 -define(NOT_FOUND, 'NOT_FOUND').
@@ -68,178 +77,191 @@ paths() ->
 %%--------------------------------------------------------------------
 
 schema("/authorization/sources/built-in-database/username") ->
-    #{
-        'operationId' => users,
-        get => #{
-            tags => [<<"authorization">>],
-            description => <<"Show the list of record for username">>,
-            parameters => [ hoconsc:ref(emqx_dashboard_swagger, page)
-                          , hoconsc:ref(emqx_dashboard_swagger, limit)],
-            responses => #{
-                200 => swagger_with_example( {username_response_data, ?TYPE_REF}
-                                           , {username, ?PAGE_QUERY_EXAMPLE})
+    #{ 'operationId' => users
+     , get =>
+           #{ tags => [<<"authorization">>]
+            , description => <<"Show the list of record for username">>
+            , parameters =>
+                  [ ref(emqx_dashboard_swagger, page)
+                  , ref(emqx_dashboard_swagger, limit)
+                  , { like_username
+                    , mk( binary(), #{ in => query
+                                     , required => false
+                                     , desc => <<"Fuzzy search `username` as substring">>})}
+                  ]
+            , responses =>
+                  #{ 200 => swagger_with_example( {username_response_data, ?TYPE_REF}
+                                                , {username, ?PAGE_QUERY_EXAMPLE})
             }
-        },
-        post => #{
-            tags => [<<"authorization">>],
-            description => <<"Add new records for username">>,
-            'requestBody' => swagger_with_example( {rules_for_username, ?TYPE_ARRAY}
-                                                 , {username, ?POST_ARRAY_EXAMPLE}),
-            responses => #{
-                204 => <<"Created">>,
-                400 => emqx_dashboard_swagger:error_codes( [?BAD_REQUEST]
-                                                         , <<"Bad username or bad rule schema">>)
+        }
+     , post =>
+           #{ tags => [<<"authorization">>]
+            , description => <<"Add new records for username">>
+            , 'requestBody' => swagger_with_example( {rules_for_username, ?TYPE_ARRAY}
+                                                   , {username, ?POST_ARRAY_EXAMPLE})
+            , responses =>
+                  #{ 204 => <<"Created">>
+                   , 400 => emqx_dashboard_swagger:error_codes(
+                              [?BAD_REQUEST], <<"Bad username or bad rule schema">>)
             }
         }
     };
 schema("/authorization/sources/built-in-database/clientid") ->
-    #{
-        'operationId' => clients,
-        get => #{
-            tags => [<<"authorization">>],
-            description => <<"Show the list of record for clientid">>,
-            parameters => [ hoconsc:ref(emqx_dashboard_swagger, page)
-                          , hoconsc:ref(emqx_dashboard_swagger, limit)],
-            responses => #{
-                200 => swagger_with_example( {clientid_response_data, ?TYPE_REF}
-                                           , {clientid, ?PAGE_QUERY_EXAMPLE})
+    #{ 'operationId' => clients
+     , get =>
+           #{ tags => [<<"authorization">>]
+            , description => <<"Show the list of record for clientid">>
+            , parameters =>
+                  [ ref(emqx_dashboard_swagger, page)
+                  , ref(emqx_dashboard_swagger, limit)
+                  , { like_clientid
+                    , mk( binary()
+                        , #{ in => query
+                           , required => false
+                           , desc => <<"Fuzzy search `clientid` as substring">>})
+                    }
+                  ]
+            , responses =>
+                  #{ 200 => swagger_with_example( {clientid_response_data, ?TYPE_REF}
+                                                , {clientid, ?PAGE_QUERY_EXAMPLE})
+                   }
             }
-        },
-        post => #{
-            tags => [<<"authorization">>],
-            description => <<"Add new records for clientid">>,
-            'requestBody' => swagger_with_example( {rules_for_clientid, ?TYPE_ARRAY}
-                                                 , {clientid, ?POST_ARRAY_EXAMPLE}),
-            responses => #{
-                204 => <<"Created">>,
-                400 => emqx_dashboard_swagger:error_codes( [?BAD_REQUEST]
-                                                         , <<"Bad clientid or bad rule schema">>)
+     , post =>
+           #{ tags => [<<"authorization">>]
+            , description => <<"Add new records for clientid">>
+            , 'requestBody' => swagger_with_example( {rules_for_clientid, ?TYPE_ARRAY}
+                                                   , {clientid, ?POST_ARRAY_EXAMPLE})
+            , responses =>
+                  #{ 204 => <<"Created">>
+                   , 400 => emqx_dashboard_swagger:error_codes(
+                              [?BAD_REQUEST], <<"Bad clientid or bad rule schema">>)
+                   }
             }
-        }
-    };
+     };
 schema("/authorization/sources/built-in-database/username/:username") ->
-    #{
-        'operationId' => user,
-        get => #{
-            tags => [<<"authorization">>],
-            description => <<"Get record info for username">>,
-            parameters => [hoconsc:ref(username)],
-            responses => #{
-                200 => swagger_with_example( {rules_for_username, ?TYPE_REF}
-                                           , {username, ?PUT_MAP_EXAMPLE}),
-                404 => emqx_dashboard_swagger:error_codes([?NOT_FOUND], <<"Not Found">>)
+    #{ 'operationId' => user
+     , get =>
+           #{ tags => [<<"authorization">>]
+            , description => <<"Get record info for username">>
+            , parameters => [ref(username)]
+            , responses =>
+                  #{ 200 => swagger_with_example( {rules_for_username, ?TYPE_REF}
+                                                , {username, ?PUT_MAP_EXAMPLE})
+                   , 404 => emqx_dashboard_swagger:error_codes(
+                              [?NOT_FOUND], <<"Not Found">>)
+                   }
             }
-        },
-        put => #{
-            tags => [<<"authorization">>],
-            description => <<"Set record for username">>,
-            parameters => [hoconsc:ref(username)],
-            'requestBody' => swagger_with_example( {rules_for_username, ?TYPE_REF}
-                                                 , {username, ?PUT_MAP_EXAMPLE}),
-            responses => #{
-                204 => <<"Updated">>,
-                400 => emqx_dashboard_swagger:error_codes( [?BAD_REQUEST]
-                                                         , <<"Bad username or bad rule schema">>)
+     , put =>
+           #{ tags => [<<"authorization">>]
+            , description => <<"Set record for username">>
+            , parameters => [ref(username)]
+            , 'requestBody' => swagger_with_example( {rules_for_username, ?TYPE_REF}
+                                                   , {username, ?PUT_MAP_EXAMPLE})
+            , responses =>
+                  #{ 204 => <<"Updated">>
+                   , 400 => emqx_dashboard_swagger:error_codes(
+                              [?BAD_REQUEST], <<"Bad username or bad rule schema">>)
+                   }
             }
-        },
-        delete => #{
-            tags => [<<"authorization">>],
-            description => <<"Delete one record for username">>,
-            parameters => [hoconsc:ref(username)],
-            responses => #{
-                204 => <<"Deleted">>,
-                400 => emqx_dashboard_swagger:error_codes([?BAD_REQUEST], <<"Bad username">>)
+     , delete =>
+           #{ tags => [<<"authorization">>]
+            , description => <<"Delete one record for username">>
+            , parameters => [ref(username)]
+            , responses =>
+                  #{ 204 => <<"Deleted">>
+                   , 400 => emqx_dashboard_swagger:error_codes(
+                              [?BAD_REQUEST], <<"Bad username">>)
+                   }
             }
-        }
-    };
+     };
 schema("/authorization/sources/built-in-database/clientid/:clientid") ->
-    #{
-        'operationId' => client,
-        get => #{
-            tags => [<<"authorization">>],
-            description => <<"Get record info for clientid">>,
-            parameters => [hoconsc:ref(clientid)],
-            responses => #{
-                200 => swagger_with_example( {rules_for_clientid, ?TYPE_REF}
-                                           , {clientid, ?PUT_MAP_EXAMPLE}),
-                404 => emqx_dashboard_swagger:error_codes([?NOT_FOUND], <<"Not Found">>)
+    #{ 'operationId' => client
+     , get =>
+           #{ tags => [<<"authorization">>]
+            , description => <<"Get record info for clientid">>
+            , parameters => [ref(clientid)]
+            , responses =>
+                  #{ 200 => swagger_with_example( {rules_for_clientid, ?TYPE_REF}
+                                                , {clientid, ?PUT_MAP_EXAMPLE})
+                   , 404 => emqx_dashboard_swagger:error_codes(
+                              [?NOT_FOUND], <<"Not Found">>)
+                   }
+            },
+       put =>
+           #{ tags => [<<"authorization">>]
+            , description => <<"Set record for clientid">>
+            , parameters => [ref(clientid)]
+            , 'requestBody' => swagger_with_example( {rules_for_clientid, ?TYPE_REF}
+                                                   , {clientid, ?PUT_MAP_EXAMPLE})
+            , responses =>
+                  #{ 204 => <<"Updated">>
+                   , 400 => emqx_dashboard_swagger:error_codes(
+                              [?BAD_REQUEST], <<"Bad clientid or bad rule schema">>)
+                   }
             }
-        },
-        put => #{
-            tags => [<<"authorization">>],
-            description => <<"Set record for clientid">>,
-            parameters => [hoconsc:ref(clientid)],
-            'requestBody' => swagger_with_example( {rules_for_clientid, ?TYPE_REF}
-                                                 , {clientid, ?PUT_MAP_EXAMPLE}),
-            responses => #{
-                204 => <<"Updated">>,
-                400 => emqx_dashboard_swagger:error_codes(
-                         [?BAD_REQUEST], <<"Bad clientid or bad rule schema">>)
+     , delete =>
+           #{ tags => [<<"authorization">>]
+            , description => <<"Delete one record for clientid">>
+            , parameters => [ref(clientid)]
+            , responses =>
+                  #{ 204 => <<"Deleted">>
+                   , 400 => emqx_dashboard_swagger:error_codes(
+                              [?BAD_REQUEST], <<"Bad clientid">>)
+                   }
             }
-        },
-        delete => #{
-            tags => [<<"authorization">>],
-            description => <<"Delete one record for clientid">>,
-            parameters => [hoconsc:ref(clientid)],
-            responses => #{
-                204 => <<"Deleted">>,
-                400 => emqx_dashboard_swagger:error_codes([?BAD_REQUEST], <<"Bad clientid">>)
-            }
-        }
-    };
+     };
 schema("/authorization/sources/built-in-database/all") ->
-    #{
-        'operationId' => all,
-        get => #{
-            tags => [<<"authorization">>],
-            description => <<"Show the list of rules for all">>,
-            responses => #{
-                200 => swagger_with_example({rules_for_all, ?TYPE_REF}, {all, ?PUT_MAP_EXAMPLE})
+    #{ 'operationId' => all
+     , get =>
+           #{ tags => [<<"authorization">>]
+            , description => <<"Show the list of rules for all">>
+            , responses =>
+                  #{200 => swagger_with_example({rules, ?TYPE_REF}, {all, ?PUT_MAP_EXAMPLE})}
             }
-        },
-        put => #{
-            tags => [<<"authorization">>],
-            description => <<"Set the list of rules for all">>,
-            'requestBody' =>
-                swagger_with_example({rules_for_all, ?TYPE_REF}, {all, ?PUT_MAP_EXAMPLE}),
-            responses => #{
-                204 => <<"Created">>,
-                400 => emqx_dashboard_swagger:error_codes([?BAD_REQUEST], <<"Bad rule schema">>)
+     , put =>
+           #{ tags => [<<"authorization">>]
+            , description => <<"Set the list of rules for all">>
+            , 'requestBody' =>
+                  swagger_with_example({rules, ?TYPE_REF}, {all, ?PUT_MAP_EXAMPLE})
+            , responses =>
+                  #{ 204 => <<"Created">>
+                   , 400 => emqx_dashboard_swagger:error_codes(
+                              [?BAD_REQUEST], <<"Bad rule schema">>)
+                   }
             }
-        }
-    };
+     };
 schema("/authorization/sources/built-in-database/purge-all") ->
-    #{
-        'operationId' => purge,
-        delete => #{
-            tags => [<<"authorization">>],
-            description => <<"Purge all records">>,
-            responses => #{
-                204 => <<"Deleted">>,
-                400 => emqx_dashboard_swagger:error_codes([?BAD_REQUEST], <<"Bad Request">>)
+    #{ 'operationId' => purge
+     , delete =>
+           #{ tags => [<<"authorization">>]
+            , description => <<"Purge all records">>
+            , responses =>
+                  #{ 204 => <<"Deleted">>
+                   , 400 => emqx_dashboard_swagger:error_codes(
+                              [?BAD_REQUEST], <<"Bad Request">>)
+                   }
             }
-        }
-    }.
+     }.
 
 fields(rule_item) ->
-    [ {topic, hoconsc:mk(string(),
+    [ {topic, mk(string(),
         #{ required => true
          , desc => <<"Rule on specific topic">>
          , example => <<"test/topic/1">>
          })}
-    , {permission, hoconsc:mk(hoconsc:enum([allow, deny]),
+    , {permission, mk(enum([allow, deny]),
         #{ desc => <<"Permission">>
          , required => true
          , example => allow
          })}
-    , {action, hoconsc:mk(hoconsc:enum([publish, subscribe, all]),
+    , {action, mk(enum([publish, subscribe, all]),
         #{ required => true
          , example => publish
          , desc => <<"Authorized action">>
          })}
     ];
 fields(clientid) ->
-    [ {clientid, hoconsc:mk(binary(),
+    [ {clientid, mk(binary(),
         #{ in => path
          , required => true
          , desc => <<"ClientID">>
@@ -247,50 +269,51 @@ fields(clientid) ->
          })}
     ];
 fields(username) ->
-    [ {username, hoconsc:mk(binary(),
+    [ {username, mk(binary(),
         #{ in => path
          , required => true
          , desc => <<"Username">>
          , example => <<"user1">>})}
     ];
 fields(rules_for_username) ->
-    [ {rules, hoconsc:mk(hoconsc:array(hoconsc:ref(rule_item)), #{})}
-    ] ++ fields(username);
+    fields(rules)
+        ++ fields(username);
 fields(username_response_data) ->
-    [ {data, hoconsc:mk(hoconsc:array(hoconsc:ref(rules_for_username)), #{})}
-    , {meta, hoconsc:ref(meta)}
+    [ {data, mk(array(ref(rules_for_username)), #{})}
+    , {meta, ref(meta)}
     ];
 fields(rules_for_clientid) ->
-    [ {rules, hoconsc:mk(hoconsc:array(hoconsc:ref(rule_item)), #{})}
-    ] ++ fields(clientid);
+    fields(rules)
+        ++ fields(clientid);
 fields(clientid_response_data) ->
-    [ {data, hoconsc:mk(hoconsc:array(hoconsc:ref(rules_for_clientid)), #{})}
-    , {meta, hoconsc:ref(meta)}
+    [ {data, mk(array(ref(rules_for_clientid)), #{})}
+    , {meta, ref(meta)}
     ];
-fields(rules_for_all) ->
-    [ {rules, hoconsc:mk(hoconsc:array(hoconsc:ref(rule_item)), #{})}
-    ];
+fields(rules) ->
+    [{rules, mk(array(ref(rule_item)))}];
 fields(meta) ->
     emqx_dashboard_swagger:fields(page)
         ++ emqx_dashboard_swagger:fields(limit)
-        ++ [{count, hoconsc:mk(integer(), #{example => 1})}].
+        ++ [{count, mk(integer(), #{example => 1})}].
 
 %%--------------------------------------------------------------------
 %% HTTP API
 %%--------------------------------------------------------------------
 
-users(get, #{query_string := PageParams}) ->
-    {Table, MatchSpec} = emqx_authz_mnesia:list_username_rules(),
-    {200, emqx_mgmt_api:paginate(Table, MatchSpec, PageParams, ?FORMAT_USERNAME_FUN)};
+users(get, #{query_string := QueryString}) ->
+    Response = emqx_mgmt_api:node_query(node(), QueryString,
+                                        ?ACL_TABLE, ?ACL_USERNAME_QSCHEMA, ?QUERY_USERNAME_FUN),
+    emqx_mgmt_util:generate_response(Response);
 users(post, #{body := Body}) when is_list(Body) ->
     lists:foreach(fun(#{<<"username">> := Username, <<"rules">> := Rules}) ->
                           emqx_authz_mnesia:store_rules({username, Username}, format_rules(Rules))
                   end, Body),
     {204}.
 
-clients(get, #{query_string := PageParams}) ->
-    {Table, MatchSpec} = emqx_authz_mnesia:list_clientid_rules(),
-    {200, emqx_mgmt_api:paginate(Table, MatchSpec, PageParams, ?FORMAT_CLIENTID_FUN)};
+clients(get, #{query_string := QueryString}) ->
+    Response = emqx_mgmt_api:node_query(node(), QueryString,
+                                        ?ACL_TABLE, ?ACL_CLIENTID_QSCHEMA, ?QUERY_CLIENTID_FUN),
+    emqx_mgmt_util:generate_response(Response);
 clients(post, #{body := Body}) when is_list(Body) ->
     lists:foreach(fun(#{<<"clientid">> := Clientid, <<"rules">> := Rules}) ->
                           emqx_authz_mnesia:store_rules({clientid, Clientid}, format_rules(Rules))
@@ -365,6 +388,54 @@ purge(delete, _) ->
                    }}
     end.
 
+%%--------------------------------------------------------------------
+%% Query Functions
+
+query_username(Tab, {_QString, []}, Continuation, Limit) ->
+    Ms = emqx_authz_mnesia:list_username_rules(),
+    emqx_mgmt_api:select_table_with_count(Tab, Ms, Continuation, Limit,
+                                          fun format_result/1);
+
+query_username(Tab, {_QString, FuzzyQString}, Continuation, Limit) ->
+    Ms = emqx_authz_mnesia:list_username_rules(),
+    FuzzyFilterFun = fuzzy_filter_fun(FuzzyQString),
+    emqx_mgmt_api:select_table_with_count(Tab, {Ms, FuzzyFilterFun}, Continuation, Limit,
+                                          fun format_result/1).
+
+query_clientid(Tab, {_QString, []}, Continuation, Limit) ->
+    Ms = emqx_authz_mnesia:list_clientid_rules(),
+    emqx_mgmt_api:select_table_with_count(Tab, Ms, Continuation, Limit,
+                                          fun format_result/1);
+
+query_clientid(Tab, {_QString, FuzzyQString}, Continuation, Limit) ->
+    Ms = emqx_authz_mnesia:list_clientid_rules(),
+    FuzzyFilterFun = fuzzy_filter_fun(FuzzyQString),
+    emqx_mgmt_api:select_table_with_count(Tab, {Ms, FuzzyFilterFun}, Continuation, Limit,
+                                          fun format_result/1).
+
+%%--------------------------------------------------------------------
+%% Match funcs
+
+%% Fuzzy username funcs
+fuzzy_filter_fun(Fuzzy) ->
+    fun(MsRaws) when is_list(MsRaws) ->
+        lists:filter( fun(E) -> run_fuzzy_filter(E, Fuzzy) end
+                    , MsRaws)
+    end.
+
+run_fuzzy_filter(_, []) ->
+    true;
+run_fuzzy_filter( E = [{username, Username}, _Rule]
+                , [{username, like, UsernameSubStr} | Fuzzy]) ->
+    binary:match(Username, UsernameSubStr) /= nomatch andalso run_fuzzy_filter(E, Fuzzy);
+run_fuzzy_filter( E = [{clientid, ClientId}, _Rule]
+                , [{clientid, like, ClientIdSubStr} | Fuzzy]) ->
+    binary:match(ClientId, ClientIdSubStr) /= nomatch andalso run_fuzzy_filter(E, Fuzzy).
+
+%%--------------------------------------------------------------------
+%% format funcs
+
+%% format rule from api
 format_rules(Rules) when is_list(Rules) ->
     lists:foldl(fun(#{<<"topic">> := Topic,
                       <<"action">> := Action,
@@ -374,14 +445,15 @@ format_rules(Rules) when is_list(Rules) ->
                    AccIn ++ [{ atom(Permission), atom(Action), Topic }]
                 end, [], Rules).
 
-format_by_username([{username, Username}, {rules, Rules}]) ->
+%% format result from mnesia tab
+format_result([{username, Username}, {rules, Rules}]) ->
     #{username => Username,
       rules => [ #{topic => Topic,
                    action => Action,
                    permission => Permission
                   } || {Permission, Action, Topic} <- Rules]
-     }.
-format_by_clientid([{clientid, Clientid}, {rules, Rules}]) ->
+     };
+format_result([{clientid, Clientid}, {rules, Rules}]) ->
     #{clientid => Clientid,
       rules => [ #{topic => Topic,
                    action => Action,
@@ -402,8 +474,8 @@ atom(A) when is_atom(A) -> A.
 swagger_with_example({Ref, TypeP}, {_Name, _Type} = Example) ->
     emqx_dashboard_swagger:schema_with_examples(
       case TypeP of
-          ?TYPE_REF -> hoconsc:ref(?MODULE, Ref);
-          ?TYPE_ARRAY -> hoconsc:array(hoconsc:ref(?MODULE, Ref))
+          ?TYPE_REF -> ref(?MODULE, Ref);
+          ?TYPE_ARRAY -> array(ref(?MODULE, Ref))
       end,
       rules_example(Example)).
 
