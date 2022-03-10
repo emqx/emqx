@@ -48,6 +48,8 @@
         , get_delayed_message/1
         , delete_delayed_message/1
         , post_config_update/5
+        , cluster_list/1
+        , cluster_query/4
         ]).
 
 -export([format_delayed/1]).
@@ -129,6 +131,13 @@ set_max_delayed_messages(Max) ->
 
 list(Params) ->
     emqx_mgmt_api:paginate(?TAB, Params, ?FORMAT_FUN).
+
+cluster_list(Params) ->
+    emqx_mgmt_api:cluster_query(Params, ?TAB, [], {?MODULE, cluster_query}).
+
+cluster_query(Table, _QsSpec, Continuation, Limit) ->
+    Ms = [{'$1', [], ['$1']}],
+    emqx_mgmt_api:select_table_with_count(Table, Ms, Continuation, Limit, fun format_delayed/1).
 
 format_delayed(Delayed) ->
     format_delayed(Delayed, false).

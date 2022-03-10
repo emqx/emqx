@@ -160,7 +160,7 @@ status(put, #{body := Body}) ->
     update_config(Body).
 
 delayed_messages(get, #{query_string := Qs}) ->
-    {200, emqx_delayed:list(Qs)}.
+    {200, emqx_delayed:cluster_list(Qs)}.
 
 delayed_message(get, #{bindings := #{msgid := Id}}) ->
     case emqx_delayed:get_delayed_message(Id) of
