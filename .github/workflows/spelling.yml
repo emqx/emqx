@@ -21,7 +21,7 @@ jobs:
         - ubuntu20.04
     steps:
     - uses: actions/checkout@v2
-    - uses: actions/download-artifact@v2
+    - uses: dawidd6/action-download-artifact@v2
       with:
         name:  ${{ matrix.profile }}-${{ matrix.otp }}-${{ matrix.os }}
         workflow: build_slim_packages.yaml
