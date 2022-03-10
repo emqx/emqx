@@ -79,7 +79,13 @@ init_per_testcase(_, Config) ->
     {ok, _} = emqx_cluster_rpc:start_link(node(), emqx_cluster_rpc, 1000),
     Config.
 end_per_testcase(_, _Config) ->
+    clear_resources(),
     ok.
+
+clear_resources() ->
+    lists:foreach(fun(#{type := Type, name := Name}) ->
+            ok = emqx_bridge:remove(Type, Name)
+        end, emqx_bridge:list()).
 
 %%------------------------------------------------------------------------------
 %% HTTP server for testing

@@ -225,7 +225,7 @@ create(Type, Name, Conf) ->
                             <<"emqx_bridge">>,
                             emqx_bridge:resource_type(Type),
                             parse_confs(Type, Name, Conf),
-                            #{waiting_connect_complete => 5000}) of
+                            #{}) of
         {ok, already_created} -> maybe_disable_bridge(Type, Name, Conf);
         {ok, _} -> maybe_disable_bridge(Type, Name, Conf);
         {error, Reason} -> {error, Reason}
@@ -272,7 +272,7 @@ recreate(Type, Name, Conf) ->
     emqx_resource:recreate_local(resource_id(Type, Name),
         emqx_bridge:resource_type(Type),
         parse_confs(Type, Name, Conf),
-        #{waiting_connect_complete => 5000}).
+        #{}).
 
 create_dry_run(Type, Conf) ->
     Conf0 = Conf#{<<"ingress">> => #{<<"remote_topic">> => <<"t">>}},

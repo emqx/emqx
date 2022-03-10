@@ -56,7 +56,7 @@ init(#{query := SQL0} = Source) ->
             ?RESOURCE_GROUP,
             emqx_connector_pgsql,
             Source#{named_queries => #{ResourceID => SQL}},
-            #{waiting_connect_complete => 5000}) of
+            #{}) of
         {ok, _} ->
             Source#{annotations =>
                         #{id => ResourceID,

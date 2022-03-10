@@ -85,7 +85,7 @@ create(#{password_hash_algorithm := Algorithm,
                                     ?RESOURCE_GROUP,
                                     emqx_connector_mysql,
                                     Config,
-                                    #{waiting_connect_complete => 5000}) of
+                                    #{}) of
         {ok, already_created} ->
             {ok, State};
         {ok, _} ->
