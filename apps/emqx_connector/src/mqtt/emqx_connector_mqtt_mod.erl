@@ -213,16 +213,15 @@ maybe_publish_to_local_broker(#{topic := Topic} = Msg, #{remote_topic := SubTopi
 
 format_msg_received(#{dup := Dup, payload := Payload, properties := Props,
         qos := QoS, retain := Retain, topic := Topic}) ->
-    #{event => '$bridges/mqtt',
-      id => emqx_guid:to_hexstr(emqx_guid:gen()),
-      payload => Payload,
-      topic => Topic,
-      qos => QoS,
-      dup => Dup,
-      retain => Retain,
-      pub_props => printable_maps(Props),
-      timestamp => erlang:system_time(millisecond)
-    }.
+    #{ id => emqx_guid:to_hexstr(emqx_guid:gen())
+     , payload => Payload
+     , topic => Topic
+     , qos => QoS
+     , dup => Dup
+     , retain => Retain
+     , pub_props => printable_maps(Props)
+     , message_received_at => erlang:system_time(millisecond)
+     }.
 
 printable_maps(undefined) -> #{};
 printable_maps(Headers) ->
