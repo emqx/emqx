@@ -107,6 +107,10 @@ t_monitor_api_error(_) ->
         request(["monitor", "nodes", 'emqx@127.0.0.2']),
     {error, {400, #{<<"code">> := <<"BAD_RPC">>}}} =
         request(["monitor_current", "nodes", 'emqx@127.0.0.2']),
+    {error, {400, #{<<"code">> := <<"BAD_REQUEST">>}}} =
+        request(["monitor"], "latest=0"),
+    {error, {400, #{<<"code">> := <<"BAD_REQUEST">>}}} =
+        request(["monitor"], "latest=-1"),
     ok.
 
 request(Path) ->
