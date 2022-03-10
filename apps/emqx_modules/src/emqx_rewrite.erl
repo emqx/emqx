@@ -52,9 +52,7 @@ enable() ->
 
 disable() ->
     emqx_conf:remove_handler([rewrite]),
-    emqx_hooks:del('client.subscribe', {?MODULE, rewrite_subscribe}),
-    emqx_hooks:del('client.unsubscribe', {?MODULE, rewrite_unsubscribe}),
-    emqx_hooks:del('message.publish', {?MODULE, rewrite_publish}),
+    unregister_hook(),
     ok.
 
 list() ->
@@ -67,7 +65,7 @@ update(Rules0) ->
 post_config_update(_KeyPath, _Config, Rules, _OldConf, _AppEnvs) ->
     register_hook(Rules).
 
-register_hook([]) -> disable();
+register_hook([]) -> unregister_hook();
 register_hook(Rules) ->
     {PubRules, SubRules, ErrRules} = compile(Rules),
     emqx_hooks:put('client.subscribe', {?MODULE, rewrite_subscribe, [SubRules]}),
@@ -79,6 +77,11 @@ register_hook(Rules) ->
             ?SLOG(error, #{rewrite_rule_re_complie_failed => ErrRules}),
             {error, ErrRules}
     end.
+
+unregister_hook() ->
+    emqx_hooks:del('client.subscribe', {?MODULE, rewrite_subscribe}),
+    emqx_hooks:del('client.unsubscribe', {?MODULE, rewrite_unsubscribe}),
+    emqx_hooks:del('message.publish', {?MODULE, rewrite_publish}).
 
 rewrite_subscribe(_ClientInfo, _Properties, TopicFilters, Rules) ->
     {ok, [{match_and_rewrite(Topic, Rules), Opts} || {Topic, Opts} <- TopicFilters]}.
