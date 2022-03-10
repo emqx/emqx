@@ -75,20 +75,16 @@ samplers() ->
     format(do_sample(all, infinity)).
 
 samplers(NodeOrCluster, Latest) ->
-    Time =
-        case Latest of
-            infinity ->
-                infinity;
-            Latest when is_integer(Latest) ->
-                Now = erlang:system_time(millisecond),
-                Now - (Latest * 1000)
-        end,
+    Time = latest2time(Latest),
     case format(do_sample(NodeOrCluster, Time)) of
         {badrpc, Reason} ->
             {badrpc, Reason};
         List when is_list(List) ->
             granularity_adapter(List)
     end.
+
+latest2time(infinity) -> infinity;
+latest2time(Latest) -> erlang:system_time(millisecond) - (Latest * 1000).
 
 %% When the number of samples exceeds 1000, it affects the rendering speed of dashboard UI.
 %% granularity_adapter is an oversampling of the samples.

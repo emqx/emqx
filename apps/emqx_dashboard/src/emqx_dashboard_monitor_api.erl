@@ -91,7 +91,7 @@ parameter_latest() ->
         example => 5 * 60,
         description => <<"The latest N seconds data. Like 300 for 5 min.">>
     },
-    {latest, hoconsc:mk(integer(), Info)}.
+    {latest, hoconsc:mk(range(1, inf), Info)}.
 
 parameter_node() ->
     Info = #{
@@ -117,7 +117,7 @@ fields(sampler_current) ->
 %% API
 
 monitor(get, #{query_string := QS, bindings := Bindings}) ->
-    Latest = maps:get(<<"latest">>, QS, 1000),
+    Latest = maps:get(<<"latest">>, QS, infinity),
     Node = binary_to_atom(maps:get(node, Bindings, <<"all">>)),
     case emqx_dashboard_monitor:samplers(Node, Latest) of
         {badrpc, {Node, Reason}} ->
