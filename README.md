@@ -78,7 +78,7 @@ Or change to the installation root directory if emqx is installed from a release
 ./bin/emqx stop
 ```
 
-To view the dashboard after running, use your browser to open: http://localhost:18083
+To view the dashboard after running, use your browser to open: http://localhost:18083 (default user/password = admin/public)
 
 ## Test
 
