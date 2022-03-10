@@ -753,6 +753,7 @@ serialize_and_inc_stats_fun(#state{
 send(IoData, State = #state{socket = Socket,
                             chann_mod = ChannMod,
                             channel = Channel}) ->
+    ?SLOG(debug, #{msg => "SEND_data", data => IoData}),
     Ctx = ChannMod:info(ctx, Channel),
     Oct = iolist_size(IoData),
     ok = emqx_gateway_ctx:metrics_inc(Ctx, 'bytes.sent', Oct),

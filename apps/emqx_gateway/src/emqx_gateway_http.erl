@@ -74,8 +74,10 @@
          , listeners => []
          }.
 
--elvis([{elvis_style, god_modules, disable}]).
--elvis([{elvis_style, no_nested_try_catch, disable}]).
+-elvis([ {elvis_style, god_modules, disable}
+       , {elvis_style, no_nested_try_catch, disable}
+       , {elvis_style, invalid_dynamic_call, disable}
+       ]).
 
 -define(DEFAULT_CALL_TIMEOUT, 15000).
 
@@ -255,48 +257,39 @@ kickout_client(GwName, ClientId) ->
     -> {error, any()}
      | {ok, list()}.
 list_client_subscriptions(GwName, ClientId) ->
-    with_channel(GwName, ClientId,
-        fun(Pid) ->
-            case emqx_gateway_conn:call(
-                   Pid,
-                   subscriptions, ?DEFAULT_CALL_TIMEOUT) of
-                {ok, Subs} ->
-                    {ok, lists:map(fun({Topic, SubOpts}) ->
-                        SubOpts#{topic => Topic}
-                    end, Subs)};
-                {error, Reason} ->
-                    {error, Reason}
-            end
-        end).
+    case client_call(GwName, ClientId, subscriptions) of
+        {error, Reason} -> {error, Reason};
+        {ok, Subs} ->
+            {ok, lists:map(fun({Topic, SubOpts}) ->
+                     SubOpts#{topic => Topic}
+                 end, Subs)}
+    end.
 
 -spec client_subscribe(gateway_name(), emqx_types:clientid(),
                        emqx_types:topic(), emqx_types:subopts())
     -> {error, any()}
      | {ok, {emqx_types:topic(), emqx_types:subopts()}}.
 client_subscribe(GwName, ClientId, Topic, SubOpts) ->
-    with_channel(GwName, ClientId,
-        fun(Pid) ->
-            emqx_gateway_conn:call(
-              Pid, {subscribe, Topic, SubOpts},
-              ?DEFAULT_CALL_TIMEOUT
-             )
-        end).
+    client_call(GwName, ClientId, {subscribe, Topic, SubOpts}).
 
 -spec client_unsubscribe(gateway_name(),
                          emqx_types:clientid(), emqx_types:topic())
     -> {error, any()}
      | ok.
 client_unsubscribe(GwName, ClientId, Topic) ->
-    with_channel(GwName, ClientId,
-        fun(Pid) ->
-            emqx_gateway_conn:call(
-              Pid, {unsubscribe, Topic}, ?DEFAULT_CALL_TIMEOUT)
-        end).
+    client_call(GwName, ClientId, {unsubscribe, Topic}).
 
-with_channel(GwName, ClientId, Fun) ->
-    case emqx_gateway_cm:with_channel(GwName, ClientId, Fun) of
-        undefined -> {error, not_found};
+client_call(GwName, ClientId, Req) ->
+    try emqx_gateway_cm:call(
+          GwName, ClientId,
+          Req, ?DEFAULT_CALL_TIMEOUT) of
+        undefined ->
+            {error, not_found};
         Res -> Res
+    catch throw : noproc ->
+              {error, not_found};
+          throw : {badrpc, Reason} ->
+              {error, {badrpc, Reason}}
     end.
 
 %%--------------------------------------------------------------------
