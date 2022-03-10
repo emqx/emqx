@@ -42,3 +42,11 @@ erlang.mk
 etc/emqx.conf.rendered
 Mnesia.*/
 .stamp
+erlang_ls.config
+# Emacs Backup files
+*~
+# Emacs temporary files
+.#*
+*#
+# For direnv
+.envrc

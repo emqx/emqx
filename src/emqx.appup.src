@@ -159,6 +159,7 @@
    ]},
    {<<"4.2.10">>, [
      {load_module, emqx_channel, brutal_purge, soft_purge, []},
+     {load_module, emqx_frame, brutal_purge, soft_purge, []},
      {load_module, emqx_app, brutal_purge, soft_purge, []},
      {load_module, emqx_os_mon, brutal_purge, soft_purge, []},
      {load_module, emqx_alarm, brutal_purge, soft_purge, []}
@@ -323,6 +324,7 @@
    ]},
    {<<"4.2.10">>, [
      {load_module, emqx_channel, brutal_purge, soft_purge, []},
+     {load_module, emqx_frame, brutal_purge, soft_purge, []},
      {load_module, emqx_app, brutal_purge, soft_purge, []},
      {load_module, emqx_os_mon, brutal_purge, soft_purge, []},
      {load_module, emqx_alarm, brutal_purge, soft_purge, []}
