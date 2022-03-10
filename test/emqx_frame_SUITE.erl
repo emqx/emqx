@@ -45,6 +45,7 @@ groups() ->
        t_parse_frame_too_large,
        t_parse_frame_malformed_variable_byte_integer,
        t_parse_frame_variable_byte_integer,
+       t_parse_malformed_utf8_string,
        t_parse_frame_proxy_protocol %% proxy_protocol_config_disabled packet.
       ]},
      {connect, [parallel],
@@ -143,6 +144,23 @@ t_parse_frame_variable_byte_integer(_) ->
     Bin = <<2#10010011, 2#10000000, 2#10001000, 2#10011001, 2#10101101, 2#00110010>>,
     ?catch_error(malformed_variable_byte_integer,
         emqx_frame:parse_variable_byte_integer(Bin)).
+
+t_parse_malformed_utf8_string(_) ->
+    MalformedPacket = <<16,31,0,4,
+                        %% Specification name, should be "MQTT"
+                        %% 77,81,84,84,
+                        %% malformed 1-Byte UTF-8 in (U+0000 .. U+001F] && [U+007F])
+                        16#00,16#01,16#1F,16#7F,
+
+                        4,194,0,60,
+                        0,4,101,109,
+                        113,120,0,5,
+                        97,100,109,105,
+                        110,0,6,112,
+                        117,98,108,105,
+                        99>>,
+    ParseState = emqx_frame:initial_parse_state(#{strict_mode => true}),
+    ?catch_error(utf8_string_invalid, emqx_frame:parse(MalformedPacket, ParseState)).
 
 t_parse_frame_proxy_protocol(_) ->
     BinList = [ <<"PROXY TCP4 ">>, <<"PROXY TCP6 ">>, <<"PROXY UNKNOWN">>
