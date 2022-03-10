@@ -1,5 +1,9 @@
 name: Check emqx app standalone
 
+## apps/emqx can be used as a rebar/mix dependency
+## in other project, so we need to make sure apps/emqx
+## as an Erlang/Elixir app works standalone
+
 on:
   push:
     branches:
