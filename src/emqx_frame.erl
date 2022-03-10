@@ -78,6 +78,10 @@
 
 -dialyzer({no_match, [serialize_utf8_string/2]}).
 
+-ifdef(TEST).
+-export([parse_variable_byte_integer/1]).
+-endif.
+
 %%--------------------------------------------------------------------
 %% Init Parse State
 %%--------------------------------------------------------------------
