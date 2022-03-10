@@ -107,7 +107,7 @@ slow_subs(get, _) ->
     SortedL = lists:sort(SortFun, RankL),
     SortedL2 = lists:sublist(SortedL, ?MAX_SIZE),
 
-    {200, SortedL2}.
+    {200, #{data => SortedL2}}.
 
 get_history() ->
     Node = node(),
