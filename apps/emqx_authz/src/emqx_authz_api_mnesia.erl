@@ -65,18 +65,18 @@ api_spec() ->
     emqx_dashboard_swagger:spec(?MODULE, #{check_schema => true}).
 
 paths() ->
-    [ "/authorization/sources/built-in-database/username"
-    , "/authorization/sources/built-in-database/clientid"
-    , "/authorization/sources/built-in-database/username/:username"
-    , "/authorization/sources/built-in-database/clientid/:clientid"
-    , "/authorization/sources/built-in-database/all"
-    , "/authorization/sources/built-in-database/purge-all"].
+    [ "/authorization/sources/built_in_database/username"
+    , "/authorization/sources/built_in_database/clientid"
+    , "/authorization/sources/built_in_database/username/:username"
+    , "/authorization/sources/built_in_database/clientid/:clientid"
+    , "/authorization/sources/built_in_database/all"
+    , "/authorization/sources/built_in_database/purge-all"].
 
 %%--------------------------------------------------------------------
 %% Schema for each URI
 %%--------------------------------------------------------------------
 
-schema("/authorization/sources/built-in-database/username") ->
+schema("/authorization/sources/built_in_database/username") ->
     #{ 'operationId' => users
      , get =>
            #{ tags => [<<"authorization">>]
@@ -106,7 +106,7 @@ schema("/authorization/sources/built-in-database/username") ->
             }
         }
     };
-schema("/authorization/sources/built-in-database/clientid") ->
+schema("/authorization/sources/built_in_database/clientid") ->
     #{ 'operationId' => clients
      , get =>
            #{ tags => [<<"authorization">>]
@@ -138,7 +138,7 @@ schema("/authorization/sources/built-in-database/clientid") ->
                    }
             }
      };
-schema("/authorization/sources/built-in-database/username/:username") ->
+schema("/authorization/sources/built_in_database/username/:username") ->
     #{ 'operationId' => user
      , get =>
            #{ tags => [<<"authorization">>]
@@ -176,7 +176,7 @@ schema("/authorization/sources/built-in-database/username/:username") ->
                    }
             }
      };
-schema("/authorization/sources/built-in-database/clientid/:clientid") ->
+schema("/authorization/sources/built_in_database/clientid/:clientid") ->
     #{ 'operationId' => client
      , get =>
            #{ tags => [<<"authorization">>]
@@ -214,7 +214,7 @@ schema("/authorization/sources/built-in-database/clientid/:clientid") ->
                    }
             }
      };
-schema("/authorization/sources/built-in-database/all") ->
+schema("/authorization/sources/built_in_database/all") ->
     #{ 'operationId' => all
      , get =>
            #{ tags => [<<"authorization">>]
@@ -235,7 +235,7 @@ schema("/authorization/sources/built-in-database/all") ->
                    }
             }
      };
-schema("/authorization/sources/built-in-database/purge-all") ->
+schema("/authorization/sources/built_in_database/purge-all") ->
     #{ 'operationId' => purge
      , delete =>
            #{ tags => [<<"authorization">>]
@@ -389,17 +389,17 @@ all(post, #{body := #{<<"rules">> := Rules}}) ->
     {204}.
 
 purge(delete, _) ->
-    case emqx_authz_api_sources:get_raw_source(<<"built-in-database">>) of
+    case emqx_authz_api_sources:get_raw_source(<<"built_in_database">>) of
         [#{<<"enable">> := false}] ->
             ok = emqx_authz_mnesia:purge_rules(),
             {204};
         [#{<<"enable">> := true}] ->
             {400, #{code => <<"BAD_REQUEST">>,
                     message =>
-                        <<"'built-in-database' type source must be disabled before purge.">>}};
+                        <<"'built_in_database' type source must be disabled before purge.">>}};
         [] ->
             {404, #{code => <<"BAD_REQUEST">>,
-                    message => <<"'built-in-database' type source is not found.">>
+                    message => <<"'built_in_database' type source is not found.">>
                    }}
     end.
 
@@ -513,7 +513,7 @@ rules_example({ExampleName, ExampleType}) ->
                 [Example]
         end,
     #{
-        'password-based:built-in-database' => #{
+        'password_based:built_in_database' => #{
             summary => Summary,
             value   => Value
         }

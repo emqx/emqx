@@ -124,7 +124,7 @@ EMQX can be configured with:
 <br>
 <ul>
 <li><code>[]</code>: The default value, it allows *ALL* logins</li>
-<li>one: For example <code>{enable:true,backend:\"built-in-database\",mechanism=\"password-based\"}
+<li>one: For example <code>{enable:true,backend:\"built_in_database\",mechanism=\"password_based\"}
 </code></li>
 <li>chain: An array of structs.</li>
 </ul>
@@ -255,7 +255,7 @@ fields("authorization") ->
            , desc => """
 Default access control action if the user or client matches no ACL rules,
 or if no such user or client is found by the configurable authorization
-sources such as built-in-database, an HTTP API, or a query against PostgreSQL.
+sources such as built_in_database, an HTTP API, or a query against PostgreSQL.
 Find more details in 'authorization.sources' config.
 """
            })}

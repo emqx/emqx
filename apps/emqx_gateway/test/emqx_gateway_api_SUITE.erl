@@ -190,8 +190,8 @@ t_authn(_) ->
     {201, _} = request(post, "/gateway", GwConf),
     {204, _} = request(get, "/gateway/stomp/authentication"),
 
-    AuthConf = #{mechanism => <<"password-based">>,
-                 backend => <<"built-in-database">>,
+    AuthConf = #{mechanism => <<"password_based">>,
+                 backend => <<"built_in_database">>,
                  user_id_type => <<"clientid">>
                 },
     {201, _} = request(post, "/gateway/stomp/authentication", AuthConf),
@@ -213,8 +213,8 @@ t_authn_data_mgmt(_) ->
     {201, _} = request(post, "/gateway", GwConf),
     {204, _} = request(get, "/gateway/stomp/authentication"),
 
-    AuthConf = #{mechanism => <<"password-based">>,
-                 backend => <<"built-in-database">>,
+    AuthConf = #{mechanism => <<"password_based">>,
+                 backend => <<"built_in_database">>,
                  user_id_type => <<"clientid">>
                 },
     {201, _} = request(post, "/gateway/stomp/authentication", AuthConf),
@@ -291,8 +291,8 @@ t_listeners_authn(_) ->
     {200, ConfResp} = request(get, "/gateway/stomp"),
     assert_confs(GwConf, ConfResp),
 
-    AuthConf = #{mechanism => <<"password-based">>,
-                 backend => <<"built-in-database">>,
+    AuthConf = #{mechanism => <<"password_based">>,
+                 backend => <<"built_in_database">>,
                  user_id_type => <<"clientid">>
                 },
     Path = "/gateway/stomp/listeners/stomp:tcp:def/authentication",
@@ -322,8 +322,8 @@ t_listeners_authn_data_mgmt(_) ->
     {200, ConfResp} = request(get, "/gateway/stomp"),
     assert_confs(GwConf, ConfResp),
 
-    AuthConf = #{mechanism => <<"password-based">>,
-                 backend => <<"built-in-database">>,
+    AuthConf = #{mechanism => <<"password_based">>,
+                 backend => <<"built_in_database">>,
                  user_id_type => <<"clientid">>
                 },
     Path = "/gateway/stomp/listeners/stomp:tcp:def/authentication",

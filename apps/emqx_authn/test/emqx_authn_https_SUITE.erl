@@ -124,7 +124,7 @@ raw_https_auth_config(SpecificSSLOpts) ->
                 emqx_authn_test_lib:client_ssl_cert_opts(),
                 #{enable => <<"true">>}),
     #{
-        mechanism => <<"password-based">>,
+        mechanism => <<"password_based">>,
         enable => <<"true">>,
 
         backend => <<"http">>,

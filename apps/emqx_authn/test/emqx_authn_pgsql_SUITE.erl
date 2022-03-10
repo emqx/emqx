@@ -27,7 +27,7 @@
 
 -define(PGSQL_HOST, "pgsql").
 -define(PGSQL_RESOURCE, <<"emqx_authn_pgsql_SUITE">>).
--define(ResourceID, <<"password-based:postgresql">>).
+-define(ResourceID, <<"password_based:postgresql">>).
 
 -define(PATH, [authentication]).
 
@@ -191,7 +191,7 @@ t_update(_Config) ->
     % We update with config with correct query, provider should update and work properly
     {ok, _} = emqx:update_config(
                 ?PATH,
-                {update_authenticator, ?GLOBAL, <<"password-based:postgresql">>, CorrectConfig}),
+                {update_authenticator, ?GLOBAL, <<"password_based:postgresql">>, CorrectConfig}),
 
     {ok,_} = emqx_access_control:authenticate(
                #{username => <<"plain">>,
@@ -243,7 +243,7 @@ test_is_superuser({Field, Value, ExpectedValue}) ->
     Config = maps:put(query, Query, raw_pgsql_auth_config()),
     {ok, _} = emqx:update_config(
                 ?PATH,
-                {update_authenticator, ?GLOBAL, <<"password-based:postgresql">>, Config}),
+                {update_authenticator, ?GLOBAL, <<"password_based:postgresql">>, Config}),
 
     Credentials = #{
                     listener => 'tcp:default',
@@ -262,7 +262,7 @@ test_is_superuser({Field, Value, ExpectedValue}) ->
 
 raw_pgsql_auth_config() ->
     #{
-      mechanism => <<"password-based">>,
+      mechanism => <<"password_based">>,
       password_hash_algorithm => #{name => <<"plain">>,
                                    salt_position => <<"suffix">>},
       enable => <<"true">>,

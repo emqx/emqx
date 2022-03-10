@@ -58,7 +58,7 @@ end_per_testcase(_Case, Config) ->
 t_create(_Config) ->
     ValidConfig = #{
         <<"mechanism">> => <<"scram">>,
-        <<"backend">> => <<"built-in-database">>,
+        <<"backend">> => <<"built_in_database">>,
         <<"algorithm">> => <<"sha512">>,
         <<"iteration_count">> => <<"4096">>
     },
@@ -73,7 +73,7 @@ t_create(_Config) ->
 t_create_invalid(_Config) ->
     InvalidConfig = #{
                       <<"mechanism">> => <<"scram">>,
-                      <<"backend">> => <<"built-in-database">>,
+                      <<"backend">> => <<"built_in_database">>,
                       <<"algorithm">> => <<"sha271828">>,
                       <<"iteration_count">> => <<"4096">>
                      },
@@ -339,7 +339,7 @@ test_is_superuser(UserInfo, ExpectedIsSuperuser) ->
 config() ->
     #{
       mechanism => <<"scram">>,
-      backend => <<"built-in-database">>,
+      backend => <<"built_in_database">>,
       algorithm => sha512,
       iteration_count => 4096
      }.
@@ -347,7 +347,7 @@ config() ->
 raw_config(Algorithm) ->
     #{
         <<"mechanism">> => <<"scram">>,
-        <<"backend">> => <<"built-in-database">>,
+        <<"backend">> => <<"built_in_database">>,
         <<"algorithm">> => atom_to_binary(Algorithm),
         <<"iteration_count">> => <<"4096">>
     }.

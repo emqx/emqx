@@ -40,13 +40,13 @@ roots() -> [{config, #{type => hoconsc:union([
                                               hoconsc:ref(?MODULE, type2)])}}].
 
 fields(type1) ->
-    [ {mechanism,               {enum, ['password-based']}}
-    , {backend,                 {enum, ['built-in-database']}}
+    [ {mechanism,               {enum, ['password_based']}}
+    , {backend,                 {enum, ['built_in_database']}}
     , {enable,                  fun enable/1}
     ];
 
 fields(type2) ->
-    [ {mechanism,               {enum, ['password-based']}}
+    [ {mechanism,               {enum, ['password_based']}}
     , {backend,                 {enum, ['mysql']}}
     , {enable,                  fun enable/1}
     ].
@@ -117,13 +117,13 @@ t_chain(Config) when is_list(Config) ->
 
 
 t_authenticator({'init', Config}) ->
-    [{"auth1", {'password-based', 'built-in-database'}},
-     {"auth2", {'password-based', mysql}} | Config];
+    [{"auth1", {'password_based', 'built_in_database'}},
+     {"auth2", {'password_based', mysql}} | Config];
 
 t_authenticator(Config) when is_list(Config) ->
     ChainName = 'test',
-    AuthenticatorConfig1 = #{mechanism => 'password-based',
-                             backend => 'built-in-database',
+    AuthenticatorConfig1 = #{mechanism => 'password_based',
+                             backend => 'built_in_database',
                              enable => true},
 
     % Create an authenticator when the authentication chain does not exist
@@ -140,7 +140,7 @@ t_authenticator(Config) when is_list(Config) ->
 
     AuthNType1 = ?config("auth1"),
     register_provider(AuthNType1, ?MODULE),
-    ID1 = <<"password-based:built-in-database">>,
+    ID1 = <<"password_based:built_in_database">>,
 
     % CRUD of authencaticator
     ?assertMatch(
@@ -169,8 +169,8 @@ t_authenticator(Config) when is_list(Config) ->
     % Multiple authenticators exist at the same time
     AuthNType2 = ?config("auth2"),
     register_provider(AuthNType2, ?MODULE),
-    ID2 = <<"password-based:mysql">>,
-    AuthenticatorConfig2 = #{mechanism => 'password-based',
+    ID2 = <<"password_based:mysql">>,
+    AuthenticatorConfig2 = #{mechanism => 'password_based',
                              backend => mysql,
                              enable => true},
 
@@ -202,7 +202,7 @@ t_authenticator({'end', Config}) ->
 
 t_authenticate({init, Config}) ->
     [{listener_id, 'tcp:default'},
-     {authn_type, {'password-based', 'built-in-database'}} | Config];
+     {authn_type, {'password_based', 'built_in_database'}} | Config];
 
 t_authenticate(Config) when is_list(Config) ->
     ListenerID = ?config(listener_id),
@@ -216,8 +216,8 @@ t_authenticate(Config) when is_list(Config) ->
 
     register_provider(AuthNType, ?MODULE),
 
-    AuthenticatorConfig = #{mechanism => 'password-based',
-                            backend => 'built-in-database',
+    AuthenticatorConfig = #{mechanism => 'password_based',
+                            backend => 'built_in_database',
                             enable => true},
     ?AUTHN:create_chain(ListenerID),
     ?assertMatch({ok, _}, ?AUTHN:create_authenticator(ListenerID, AuthenticatorConfig)),
@@ -238,8 +238,8 @@ t_authenticate({'end', Config}) ->
 
 t_update_config({init, Config}) ->
     Global = 'mqtt:global',
-    AuthNType1 = {'password-based', 'built-in-database'},
-    AuthNType2 = {'password-based', mysql},
+    AuthNType1 = {'password_based', 'built_in_database'},
+    AuthNType2 = {'password_based', mysql},
     [{global, Global},
      {"auth1", AuthNType1},
      {"auth2", AuthNType2} | Config];
@@ -249,14 +249,14 @@ t_update_config(Config) when is_list(Config) ->
     ok = register_provider(?config("auth1"), ?MODULE),
     ok = register_provider(?config("auth2"), ?MODULE),
     Global = ?config(global),
-    AuthenticatorConfig1 = #{<<"mechanism">> => <<"password-based">>,
-                             <<"backend">> => <<"built-in-database">>,
+    AuthenticatorConfig1 = #{<<"mechanism">> => <<"password_based">>,
+                             <<"backend">> => <<"built_in_database">>,
                              <<"enable">> => true},
-    AuthenticatorConfig2 = #{<<"mechanism">> => <<"password-based">>,
+    AuthenticatorConfig2 = #{<<"mechanism">> => <<"password_based">>,
                              <<"backend">> => <<"mysql">>,
                              <<"enable">> => true},
-    ID1 = <<"password-based:built-in-database">>,
-    ID2 = <<"password-based:mysql">>,
+    ID1 = <<"password_based:built_in_database">>,
+    ID2 = <<"password_based:mysql">>,
 
     ?assertMatch({ok, []}, ?AUTHN:list_chains()),
 
@@ -391,7 +391,7 @@ t_convert_certs(Config) when is_list(Config) ->
                   , {<<"cacertfile">>, "cacert.pem"}
                   ]),
 
-    CertsDir = certs_dir(Config, [Global, <<"password-based:built-in-database">>]),
+    CertsDir = certs_dir(Config, [Global, <<"password_based:built_in_database">>]),
     #{<<"ssl">> := NCerts} = convert_certs(CertsDir, #{<<"ssl">> => Certs}),
 
     Certs2 = certs([ {<<"keyfile">>, "key.pem"}

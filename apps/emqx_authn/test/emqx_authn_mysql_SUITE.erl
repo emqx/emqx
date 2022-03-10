@@ -28,7 +28,7 @@
 -define(MYSQL_RESOURCE, <<"emqx_authn_mysql_SUITE">>).
 
 -define(PATH, [authentication]).
--define(ResourceID, <<"password-based:mysql">>).
+-define(ResourceID, <<"password_based:mysql">>).
 
 all() ->
     [{group, require_seeds}, t_create, t_create_invalid].
@@ -190,7 +190,7 @@ t_update(_Config) ->
     % We update with config with correct query, provider should update and work properly
     {ok, _} = emqx:update_config(
                 ?PATH,
-                {update_authenticator, ?GLOBAL, <<"password-based:mysql">>, CorrectConfig}),
+                {update_authenticator, ?GLOBAL, <<"password_based:mysql">>, CorrectConfig}),
 
     {ok,_} = emqx_access_control:authenticate(
                #{username => <<"plain">>,
@@ -205,7 +205,7 @@ t_update(_Config) ->
 
 raw_mysql_auth_config() ->
     #{
-      mechanism => <<"password-based">>,
+      mechanism => <<"password_based">>,
       password_hash_algorithm => #{name => <<"plain">>,
                                    salt_position => <<"suffix">>},
       enable => <<"true">>,

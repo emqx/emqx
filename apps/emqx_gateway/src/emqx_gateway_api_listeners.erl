@@ -709,8 +709,8 @@ examples_listener() ->
              , max_connections => 1024000
              , max_conn_rate => 1000
              , authentication =>
-                #{ backend => <<"built-in-database">>
-                 , mechanism => <<"password-based">>
+                #{ backend => <<"built_in_database">>
+                 , mechanism => <<"password_based">>
                  , password_hash_algorithm =>
                     #{ name => <<"sha256">>
                      }

@@ -114,7 +114,7 @@ raw_redis_auth_config(SpecificSSLOpts) ->
                 emqx_authn_test_lib:client_ssl_cert_opts(),
                 #{enable => <<"true">>}),
     #{
-      mechanism => <<"password-based">>,
+      mechanism => <<"password_based">>,
       password_hash_algorithm => #{name => <<"plain">>,
                                    salt_position => <<"suffix">>},
       enable => <<"true">>,

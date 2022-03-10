@@ -35,8 +35,8 @@ fields(http) ->
         ++ maps:to_list(maps:without([ base_url
                                      , pool_type],
                                      maps:from_list(emqx_connector_http:fields(config))));
-fields('built-in-database') ->
-    authz_common_fields('built-in-database');
+fields('built_in_database') ->
+    authz_common_fields('built_in_database');
 fields(mongo_single) ->
     authz_mongo_common_fields()
     ++ emqx_connector_mongo:fields(single);
@@ -170,7 +170,7 @@ authz_sources_types(Type) ->
     end
         ++
         [ http
-        , 'built-in-database'
+        , 'built_in_database'
         , mysql
         , postgresql
         , file].

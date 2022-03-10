@@ -26,10 +26,10 @@ authenticator_example(Id) ->
     Example.
 
 http_example() ->
-    authenticator_example('password-based:http').
+    authenticator_example('password_based:http').
 
 built_in_database_example() ->
-    authenticator_example('password-based:built-in-database').
+    authenticator_example('password_based:built_in_database').
 
 jwt_example() ->
     authenticator_example(jwt).
