@@ -361,7 +361,7 @@ create_resource(Context, #{type := DB} = Config) ->
            <<"emqx_retainer">>,
            list_to_existing_atom(io_lib:format("~ts_~ts", [emqx_connector, DB])),
            Config,
-           #{waiting_connect_complete => 5000}) of
+           #{}) of
         {ok, already_created} ->
             Context#{resource_id => ResourceID};
         {ok, _} ->

@@ -33,6 +33,7 @@
 -export([ '/bridges'/2
         , '/bridges/:id'/2
         , '/bridges/:id/operation/:operation'/2
+        , '/nodes/:node/bridges/:id/operation/:operation'/2
         ]).
 
 -export([ lookup_from_local_node/2
@@ -74,7 +75,8 @@ namespace() -> "bridge".
 api_spec() ->
     emqx_dashboard_swagger:spec(?MODULE, #{check_schema => false}).
 
-paths() -> ["/bridges", "/bridges/:id", "/bridges/:id/operation/:operation"].
+paths() -> ["/bridges", "/bridges/:id", "/bridges/:id/operation/:operation",
+            "/nodes/:node/bridges/:id/operation/:operation"].
 
 error_schema(Code, Message) when is_atom(Code) ->
     error_schema([Code], Message);
@@ -87,11 +89,28 @@ get_response_body_schema() ->
     emqx_dashboard_swagger:schema_with_examples(emqx_bridge_schema:get_response(),
         bridge_info_examples(get)).
 
-param_path_operation() ->
-    {operation, mk(enum([start, stop, restart]),
+param_path_operation_cluster() ->
+    {operation, mk(enum([enable, disable, stop, restart]),
         #{ in => path
          , required => true
          , example => <<"start">>
+         , desc => <<"Operations can be one of: enable, disable, start, stop, restart">>
+         })}.
+
+param_path_operation_on_node() ->
+    {operation, mk(enum([stop, restart]),
+        #{ in => path
+         , required => true
+         , example => <<"start">>
+         , desc => <<"Operations can be one of: start, stop, restart">>
+         })}.
+
+param_path_node() ->
+    {node, mk(binary(),
+        #{ in => path
+         , required => true
+         , example => <<"emqx@127.0.0.1">>
+         , desc => <<"The bridge Id. Must be of format {type}:{name}">>
          })}.
 
 param_path_id() ->
@@ -219,7 +238,7 @@ schema("/bridges") ->
                             bridge_info_examples(post)),
             responses => #{
                 201 => get_response_body_schema(),
-                400 => error_schema('BAD_REQUEST', "Create bridge failed")
+                400 => error_schema('ALREADY_EXISTS', "Bridge already exists")
             }
         }
     };
@@ -267,11 +286,32 @@ schema("/bridges/:id/operation/:operation") ->
         'operationId' => '/bridges/:id/operation/:operation',
         post => #{
             tags => [<<"bridges">>],
-            summary => <<"Start/Stop/Restart Bridge">>,
-            description => <<"Start/Stop/Restart bridges on a specific node.">>,
+            summary => <<"Enable/Disable/Stop/Restart Bridge">>,
+            description => <<"Enable/Disable/Stop/Restart bridges on all nodes"
+                " in the cluster.">>,
             parameters => [
                 param_path_id(),
-                param_path_operation()
+                param_path_operation_cluster()
+            ],
+            responses => #{
+                500 => error_schema('INTERNAL_ERROR', "Operation Failed"),
+                200 => <<"Operation success">>
+            }
+        }
+    };
+
+schema("/nodes/:node/bridges/:id/operation/:operation") ->
+    #{
+        'operationId' => '/nodes/:node/bridges/:id/operation/:operation',
+        post => #{
+            tags => [<<"bridges">>],
+            summary => <<"Stop/Restart Bridge">>,
+            description => <<"Stop/Restart bridges on a specific node.\n"
+                "NOTE: It's not allowed to disable/enable bridges on a single node.">>,
+            parameters => [
+                param_path_node(),
+                param_path_id(),
+                param_path_operation_on_node()
             ],
             responses => #{
                 500 => error_schema('INTERNAL_ERROR', "Operation Failed"),
@@ -341,23 +381,51 @@ lookup_from_local_node(BridgeType, BridgeName) ->
 
 '/bridges/:id/operation/:operation'(post, #{bindings :=
         #{id := Id, operation := Op}}) ->
-    ?TRY_PARSE_ID(Id, case operation_to_conf_req(Op) of
+    ?TRY_PARSE_ID(Id, case operation_func(Op) of
         invalid -> {400, error_msg('BAD_REQUEST', <<"invalid operation">>)};
-        UpReq ->
+        OperFunc when OperFunc == enable; OperFunc == disable ->
             case emqx_conf:update(emqx_bridge:config_key_path() ++ [BridgeType, BridgeName],
-                    {UpReq, BridgeType, BridgeName}, #{override_to => cluster}) of
+                    {OperFunc, BridgeType, BridgeName}, #{override_to => cluster}) of
                 {ok, _} -> {200};
                 {error, {pre_config_update, _, bridge_not_found}} ->
                     {404, error_msg('NOT_FOUND', <<"bridge not found">>)};
                 {error, Reason} ->
                     {500, error_msg('INTERNAL_ERROR', Reason)}
+            end;
+        OperFunc ->
+            Nodes = mria_mnesia:running_nodes(),
+            operation_to_all_nodes(Nodes, OperFunc, BridgeType, BridgeName)
+    end).
+
+'/nodes/:node/bridges/:id/operation/:operation'(post, #{bindings :=
+        #{id := Id, operation := Op}}) ->
+    ?TRY_PARSE_ID(Id, case operation_func(Op) of
+        invalid -> {400, error_msg('BAD_REQUEST', <<"invalid operation">>)};
+        OperFunc when OperFunc == restart; OperFunc == stop ->
+            case emqx_bridge:OperFunc(BridgeType, BridgeName) of
+                ok -> {200};
+                {error, Reason} ->
+                    {500, error_msg('INTERNAL_ERROR', Reason)}
             end
     end).
 
-operation_to_conf_req(<<"start">>) -> start;
-operation_to_conf_req(<<"stop">>) -> stop;
-operation_to_conf_req(<<"restart">>) -> restart;
-operation_to_conf_req(_) -> invalid.
+operation_func(<<"stop">>) -> stop;
+operation_func(<<"restart">>) -> restart;
+operation_func(<<"enable">>) -> enable;
+operation_func(<<"disable">>) -> disable;
+operation_func(_) -> invalid.
+
+operation_to_all_nodes(Nodes, OperFunc, BridgeType, BridgeName) ->
+    RpcFunc = case OperFunc of
+        restart -> restart_bridges_to_all_nodes;
+        stop -> stop_bridges_to_all_nodes
+    end,
+    case is_ok(emqx_bridge_proto_v1:RpcFunc(Nodes, BridgeType, BridgeName)) of
+        {ok, _} ->
+            {200};
+        {error, ErrL} ->
+            {500, error_msg('INTERNAL_ERROR', ErrL)}
+    end.
 
 ensure_bridge_created(BridgeType, BridgeName, Conf) ->
     case emqx_conf:update(emqx_bridge:config_key_path() ++ [BridgeType, BridgeName],
@@ -437,7 +505,7 @@ format_metrics(#{
 
 
 is_ok(ResL) ->
-    case lists:filter(fun({ok, _}) -> false; (_) -> true end, ResL) of
+    case lists:filter(fun({ok, _}) -> false; (ok) -> false; (_) -> true end, ResL) of
         [] -> {ok, [Res || {ok, Res} <- ResL]};
         ErrL -> {error, ErrL}
     end.

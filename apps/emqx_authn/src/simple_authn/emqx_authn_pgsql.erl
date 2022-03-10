@@ -81,7 +81,7 @@ create(#{query := Query0,
               resource_id => ResourceId},
     case emqx_resource:create_local(ResourceId, ?RESOURCE_GROUP, emqx_connector_pgsql,
                                     Config#{named_queries => #{ResourceId => Query}},
-                                    #{waiting_connect_complete => 5000}) of
+                                    #{}) of
         {ok, already_created} ->
             {ok, State};
         {ok, _} ->

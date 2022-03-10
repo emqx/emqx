@@ -178,14 +178,17 @@ do_recreate(InstId, ResourceType, NewConfig, Opts) ->
             {error, not_found}
     end.
 
-wait_for_resource_ready(InstId, 0) ->
-    force_lookup(InstId);
-wait_for_resource_ready(InstId, Retry) ->
+wait_for_resource_ready(InstId, WaitTime) ->
+    do_wait_for_resource_ready(InstId, WaitTime div 100).
+
+do_wait_for_resource_ready(_InstId, 0) ->
+    timeout;
+do_wait_for_resource_ready(InstId, Retry) ->
     case force_lookup(InstId) of
-        #{status := connected} = Data -> Data;
+        #{status := connected} -> ok;
         _ ->
             timer:sleep(100),
-            wait_for_resource_ready(InstId, Retry-1)
+            do_wait_for_resource_ready(InstId, Retry-1)
     end.
 
 do_create(InstId, Group, ResourceType, Config, Opts) ->
@@ -197,8 +200,7 @@ do_create(InstId, Group, ResourceType, Config, Opts) ->
                 ok ->
                     ok = emqx_plugin_libs_metrics:create_metrics(resource_metrics, InstId,
                             [matched, success, failed, exception], [matched]),
-                    WaitTime = maps:get(waiting_connect_complete , Opts, 0),
-                    {ok, wait_for_resource_ready(InstId, WaitTime div 100)};
+                    {ok, force_lookup(InstId)};
                 Error ->
                     Error
             end
@@ -252,6 +254,7 @@ do_start(InstId, Group, ResourceType, Config, Opts) when is_binary(InstId) ->
     spawn(fun() ->
             start_and_check(InstId, Group, ResourceType, Config, Opts, InitData)
         end),
+    _ = wait_for_resource_ready(InstId, maps:get(wait_for_resource_ready, Opts, 5000)),
     ok.
 
 start_and_check(InstId, Group, ResourceType, Config, Opts, Data) ->

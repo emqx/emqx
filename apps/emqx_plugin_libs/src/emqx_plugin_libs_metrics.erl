@@ -157,6 +157,8 @@ init(Name) ->
     persistent_term:put(?CntrRef(Name), #{}),
     {ok, #state{}}.
 
+handle_call({get_rate, _Id}, _From, State = #state{rates = undefined}) ->
+    {reply, #{}, State};
 handle_call({get_rate, Id}, _From, State = #state{rates = Rates}) ->
     {reply, case maps:get(Id, Rates, undefined) of
                 undefined -> #{};

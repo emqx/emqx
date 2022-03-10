@@ -50,7 +50,6 @@
         , remove/2
         , update/2
         , update/3
-        , start/2
         , stop/2
         , restart/2
         ]).
@@ -208,12 +207,10 @@ lookup(Type, Name, RawConf) ->
                    raw_config => RawConf}}
     end.
 
-start(Type, Name) ->
-    restart(Type, Name).
-
 stop(Type, Name) ->
     emqx_resource:stop(resource_id(Type, Name)).
 
+%% we don't provide 'start', as we want an already started bridge to be restarted.
 restart(Type, Name) ->
     emqx_resource:restart(resource_id(Type, Name)).
 
@@ -228,7 +225,7 @@ create(Type, Name, Conf) ->
                             <<"emqx_bridge">>,
                             emqx_bridge:resource_type(Type),
                             parse_confs(Type, Name, Conf),
-                            #{waiting_connect_complete => 5000}) of
+                            #{}) of
         {ok, already_created} -> maybe_disable_bridge(Type, Name, Conf);
         {ok, _} -> maybe_disable_bridge(Type, Name, Conf);
         {error, Reason} -> {error, Reason}
@@ -263,8 +260,8 @@ update(Type, Name, {OldConf, Conf}) ->
             %% we don't need to recreate the bridge if this config change is only to
             %% toggole the config 'bridge.{type}.{name}.enable'
             case maps:get(enable, Conf, true) of
-                false -> stop(Type, Name);
-                true -> start(Type, Name)
+                true -> restart(Type, Name);
+                false -> stop(Type, Name)
             end
     end.
 
@@ -275,7 +272,7 @@ recreate(Type, Name, Conf) ->
     emqx_resource:recreate_local(resource_id(Type, Name),
         emqx_bridge:resource_type(Type),
         parse_confs(Type, Name, Conf),
-        #{waiting_connect_complete => 5000}).
+        #{}).
 
 create_dry_run(Type, Conf) ->
     Conf0 = Conf#{<<"ingress">> => #{<<"remote_topic">> => <<"t">>}},
