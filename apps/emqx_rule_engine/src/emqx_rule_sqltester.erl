@@ -84,8 +84,8 @@ echo_action(Data, Envs) ->
 fill_default_values(Event, Context) ->
     maps:merge(envs_examp(Event), Context).
 
-envs_examp(EVENT_TOPIC) ->
-    EventName = emqx_rule_events:event_name(EVENT_TOPIC),
+envs_examp(EventTopic) ->
+    EventName = emqx_rule_events:event_name(EventTopic),
     emqx_rule_maps:atom_key_map(
         maps:from_list(
             emqx_rule_events:columns_with_exam(EventName))).

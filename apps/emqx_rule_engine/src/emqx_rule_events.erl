@@ -448,7 +448,7 @@ event_info_session_unsubscribed() ->
     ).
 event_info_bridge_mqtt()->
     event_info_common(
-        <<"$bridges/mqtt:my_mqtt_bridge">>,
+        <<"$bridges/mqtt:*">>,
         {<<"MQTT bridge message">>, <<"MQTT 桥接消息"/utf8>>},
         {<<"received a message from MQTT bridge">>, <<"收到来自 MQTT 桥接的消息"/utf8>>},
         <<"SELECT * FROM \"$bridges/mqtt:my_mqtt_bridge\" WHERE topic =~ 't/#'">>
