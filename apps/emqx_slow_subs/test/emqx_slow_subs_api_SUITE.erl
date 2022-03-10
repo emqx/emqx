@@ -98,7 +98,7 @@ t_get_history(_) ->
 
     {ok, Data} = request_api(get, api_path(["slow_subscriptions"]), "_page=1&_limit=10",
                              auth_header_()),
-    [First | _] = emqx_json:decode(Data, [return_maps]),
+    #{<<"data">> := [First | _]} = emqx_json:decode(Data, [return_maps]),
 
     ?assertMatch(#{<<"clientid">> := <<"test_5">>,
                    <<"topic">> := <<"topic">>,
