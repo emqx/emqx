@@ -205,10 +205,10 @@ schema("/connectors/:id") ->
     end.
 
 '/connectors'(get, _Request) ->
-    {200, [format_resp(Conn) || Conn <- emqx_connector:list()]};
+    {200, [format_resp(Conn) || Conn <- emqx_connector:list_raw()]};
 
 '/connectors'(post, #{body := #{<<"type">> := ConnType, <<"name">> := ConnName} = Params}) ->
-    case emqx_connector:lookup(ConnType, ConnName) of
+    case emqx_connector:lookup_raw(ConnType, ConnName) of
         {ok, _} ->
             {400, error_msg('ALREADY_EXISTS', <<"connector already exists">>)};
         {error, not_found} ->
@@ -218,13 +218,13 @@ schema("/connectors/:id") ->
                     {201, format_resp(RawConf#{<<"type">> => ConnType,
                                                <<"name">> => ConnName})};
                 {error, Error} ->
-                    {400, error_msg('ALREADY_EXISTS', Error)}
+                    {400, error_msg('BAD_REQUEST', Error)}
             end
     end.
 
 '/connectors/:id'(get, #{bindings := #{id := Id}}) ->
     ?TRY_PARSE_ID(Id,
-        case emqx_connector:lookup(ConnType, ConnName) of
+        case emqx_connector:lookup_raw(ConnType, ConnName) of
             {ok, Conf} ->
                 {200, format_resp(Conf)};
             {error, not_found} ->
@@ -234,7 +234,7 @@ schema("/connectors/:id") ->
 '/connectors/:id'(put, #{bindings := #{id := Id}, body := Params0}) ->
     Params = filter_out_request_body(Params0),
     ?TRY_PARSE_ID(Id,
-        case emqx_connector:lookup(ConnType, ConnName) of
+        case emqx_connector:lookup_raw(ConnType, ConnName) of
             {ok, _} ->
                 case emqx_connector:update(ConnType, ConnName, Params) of
                     {ok, #{raw_config := RawConf}} ->
@@ -249,7 +249,7 @@ schema("/connectors/:id") ->
 
 '/connectors/:id'(delete, #{bindings := #{id := Id}}) ->
     ?TRY_PARSE_ID(Id,
-        case emqx_connector:lookup(ConnType, ConnName) of
+        case emqx_connector:lookup_raw(ConnType, ConnName) of
             {ok, _} ->
                 case emqx_connector:delete(ConnType, ConnName) of
                     {ok, _} ->
