@@ -29,10 +29,7 @@
 introduced_in() ->
     "5.0.0".
 
--type key() :: atom() | binary() | [byte()].
-
--spec lookup_from_all_nodes([node()], key(), key()) ->
+-spec lookup_from_all_nodes([node()], atom(), binary()) ->
           emqx_rpc:erpc_multicall().
 lookup_from_all_nodes(Nodes, ChainName, AuthenticatorID) ->
     erpc:multicall(Nodes, emqx_authn_api, lookup_from_local_node, [ChainName, AuthenticatorID], ?TIMEOUT).
-

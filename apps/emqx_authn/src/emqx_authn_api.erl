@@ -827,7 +827,7 @@ aggregate_metrics([HeadMetrics | AllMetrics]) ->
             end
         end,
     Fun = fun (ElemMap, AccMap) ->
-        emqx_map_lib:merge_with(CombinerFun(CombinerFun), ElemMap, AccMap) end,
+        emqx_map_lib:merge_with(CombinerFun, ElemMap, AccMap) end,
     lists:foldl(Fun, HeadMetrics, AllMetrics).
 
 make_result_map(ResList) ->
@@ -863,8 +863,6 @@ restructure_map(#{counters := #{failed := Failed, matched := Match, success := S
 restructure_map(Error) ->
      Error.
 
-error_msg(Code, Msg) when is_binary(Msg) ->
-              #{code => Code, message => Msg};
 error_msg(Code, Msg) ->
               #{code => Code, message => bin(io_lib:format("~p", [Msg]))}.
 

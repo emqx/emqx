@@ -166,7 +166,7 @@ test_authenticator(PathPrefix) ->
                      ValidConfig0),
     {ok, 200, Res} = request(
                      get,
-                     uri(PathPrefix ++ [?CONF_NS, "password-based:http"])),
+                     uri(PathPrefix ++ [?CONF_NS, "password_based:http"])),
     {ok, RList} = emqx_json:safe_decode(Res),
     Snd = fun ({_, Val}) -> Val end,
     LookupVal = fun LookupV(List, RestJson) ->

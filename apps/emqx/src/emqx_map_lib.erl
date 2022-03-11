@@ -174,12 +174,6 @@ covert_keys_to_atom(BinKeyMap, Conv) ->
 
 %% copy from maps.erl OTP24.0
 -compile({inline, [error_with_info/2]}).
--spec merge_with(Combiner, Map1, Map2) -> Map3 when
-    Map1 :: #{Key1 => Value1},
-    Map2 :: #{Key2 => Value2},
-    Combiner :: fun((Key1, Value1, Value2) -> CombineResult),
-    Map3 :: #{Key1 => CombineResult, Key1 => Value1, Key2 => Value2}.
-
 merge_with(Combiner, Map1, Map2) when is_map(Map1),
                                  is_map(Map2),
                                  is_function(Combiner, 3) ->
@@ -217,11 +211,10 @@ error_type_merge_intersect(M1, M2, Combiner) when is_function(Combiner, 3) ->
 error_type_merge_intersect(_M1, _M2, _Combiner) ->
     badarg.
 
-error_with_info(Reason, Args) ->
-    erlang:error(Reason, Args, [{error_info, #{module => erl_stdlib_errors}}]).
+error_with_info(_, _) ->
+    {error_info, #{module => erl_stdlib_errors}}.
 
 error_type_two_maps(M1, M2) when is_map(M1) ->
     {badmap, M2};
 error_type_two_maps(M1, _M2) ->
     {badmap, M1}.
-
