@@ -28,6 +28,8 @@
         , egress_desc/0
         ]).
 
+-export([non_empty_string/1]).
+
 -import(emqx_schema, [mk_duration/2]).
 
 roots() ->
@@ -101,6 +103,7 @@ fields("ingress") ->
     [ {remote_topic,
         sc(binary(),
            #{ required => true
+            , validator => fun ?MODULE:non_empty_string/1
             , desc => "Receive messages from which topic of the remote broker"
             })}
     , {remote_qos,
@@ -110,7 +113,8 @@ fields("ingress") ->
             })}
     , {local_topic,
         sc(binary(),
-           #{ desc => """
+           #{ validator => fun ?MODULE:non_empty_string/1
+            , desc => """
 Send messages to which topic of the local broker.<br>
 Template with variables is allowed.
 """
@@ -135,10 +139,12 @@ fields("egress") ->
     [ {local_topic,
         sc(binary(),
            #{ desc => "The local topic to be forwarded to the remote broker"
+            , validator => fun ?MODULE:non_empty_string/1
             })}
     , {remote_topic,
         sc(binary(),
            #{ default => <<"${topic}">>
+            , validator => fun ?MODULE:non_empty_string/1
             , desc => """
 Forward to which topic of the remote broker.<br>
 Template with variables is allowed.
@@ -232,6 +238,11 @@ Template with variables is allowed."""
 
 qos() ->
     hoconsc:union([emqx_schema:qos(), binary()]).
+
+non_empty_string(<<>>) -> {error, empty_string_not_allowed};
+non_empty_string("") -> {error, empty_string_not_allowed};
+non_empty_string(S) when is_binary(S); is_list(S) -> ok;
+non_empty_string(_) -> {error, invalid_string}.
 
 sc(Type, Meta) -> hoconsc:mk(Type, Meta).
 ref(Field) -> hoconsc:ref(?MODULE, Field).
