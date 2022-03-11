@@ -368,6 +368,25 @@ t_cli(_) ->
     [?assertMatch({match, _}, re:run(Value, "mgmt"))
      || Value <- emqx_mgmt_cli:mgmt([""])].
 
+t_backup_file(_)->
+    Filename = <<"test.json">>,
+    BadFilename = <<"bad.notjson">>,
+    Bin = emqx_json:encode(#{a => b}),
+    BadBin = <<"[bad json]">>,
+
+    {error, bad_filename} = emqx_mgmt_data_backup:upload_backup_file(BadFilename, Bin),
+    {error, bad_json} = emqx_mgmt_data_backup:upload_backup_file(Filename, BadBin),
+
+    ok = emqx_mgmt_data_backup:upload_backup_file(Filename, Bin),
+    {ok, #{file := <<"{\"a\":\"b\"}">>, filename := <<"test.json">>}} =
+        emqx_mgmt_data_backup:read_backup_file(Filename),
+    [{_, FileInfoList}] = emqx_mgmt_data_backup:list_backup_file(),
+    Filename = proplists:get_value(filename, FileInfoList),
+    ok = emqx_mgmt_data_backup:delete_backup_file(Filename),
+
+    {error, not_found} = emqx_mgmt_data_backup:delete_backup_file(BadFilename),
+    ok.
+
 mock_print() ->
     catch meck:unload(emqx_ctl),
     meck:new(emqx_ctl, [non_strict, passthrough]),

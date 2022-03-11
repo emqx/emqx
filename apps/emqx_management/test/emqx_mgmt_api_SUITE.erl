@@ -689,6 +689,7 @@ t_data(_) ->
     ok = emqx_dashboard_admin:mnesia(boot),
     application:ensure_all_started(emqx_rule_engine),
     application:ensure_all_started(emqx_dashboard),
+    emqx_mgmt_data_backup:delete_all_backup_file(),
     {ok, Data} = request_api(post, api_path(["data","export"]), [], auth_header_(), [#{}]),
     #{<<"filename">> := Filename, <<"node">> := Node} = emqx_ct_http:get_http_data(Data),
     {ok, DataList} = request_api(get, api_path(["data","export"]), auth_header_()),
@@ -701,6 +702,8 @@ t_data(_) ->
     ?assertMatch({ok, _},
         request_api(post, api_path(["data","import"]), [], auth_header_(),
             #{<<"filename">> => Filename})),
+    _ = emqx_mgmt_data_backup:delete_backup_file(Filename),
+    emqx_mgmt_data_backup:delete_all_backup_file(),
     application:stop(emqx_rule_engine),
     application:stop(emqx_dashboard),
     ok.
@@ -710,13 +713,16 @@ t_data_import_content(_) ->
     ok = emqx_dashboard_admin:mnesia(boot),
     application:ensure_all_started(emqx_rule_engine),
     application:ensure_all_started(emqx_dashboard),
+    emqx_mgmt_data_backup:delete_all_backup_file(),
     {ok, Data} = request_api(post, api_path(["data","export"]), [], auth_header_(), [#{}]),
     #{<<"filename">> := Filename} = emqx_ct_http:get_http_data(Data),
-    Dir = emqx:get_env(data_dir),
+    Dir = emqx_mgmt_data_backup:backup_dir(),
     {ok, Bin} = file:read_file(filename:join(Dir, Filename)),
     Content = emqx_json:decode(Bin),
     ?assertMatch({ok, "{\"code\":0}"},
         request_api(post, api_path(["data","import"]), [], auth_header_(), Content)),
+    
+    emqx_mgmt_data_backup:delete_all_backup_file(),
     application:stop(emqx_rule_engine),
     application:stop(emqx_dashboard).
 
