@@ -30,7 +30,6 @@
 -define(BAD_REQUEST, 'BAD_REQUEST').
 -define(NOT_FOUND, 'NOT_FOUND').
 -define(CONFLICT, 'CONFLICT').
--define(TIMEOUT, 15000).
 
 % Swagger
 
@@ -61,7 +60,7 @@
         , listener_authenticator_users/2
         , listener_authenticator_user/2
         , lookup_from_local_node/2
-        , lookup_from_all_node/2
+        , lookup_from_all_nodes/2
         ]).
 
 -export([ authenticator_examples/0
@@ -757,20 +756,14 @@ list_authenticator(ConfKeyPath, AuthenticatorID) ->
     AuthenticatorsConfig = get_raw_config_with_defaults(ConfKeyPath),
     case find_config(AuthenticatorID, AuthenticatorsConfig) of
         {ok, AuthenticatorConfig} ->
-            {200, maps:put(id, AuthenticatorID, convert_certs(AuthenticatorConfig))};
+            Status_And_Metrics = lookup_from_all_nodes(?GLOBAL, AuthenticatorID),
+            Fun = fun ({Key, Val}, Map) -> maps:put(Key, Val, Map) end,
+            AppendList = [{id, AuthenticatorID}, {status_and_metrics, Status_And_Metrics}],
+            {200, lists:foldl(Fun, convert_certs(AuthenticatorConfig), AppendList)};
         {error, Reason} ->
             serialize_error(Reason)
     end.
 
-%% example:
-%%
-%% emqx_authn_api:lookup_from_local_node('mqtt:global', <<"password-based:http">>)
-%%
-%% {ok,{'emqx@127.0.0.1',connecting,
-%%      #{counters =>
-%%            #{exception => 0,failed => 0,matched => 0,success => 0},
-%%        rate =>
-%%            #{matched => #{current => 0.0,last5m => 0.0,max => 0.0}}}}}
 lookup_from_local_node(ChainName, AuthenticatorID) ->
     NodeId = node(self()),
     case emqx_authentication:lookup_authenticator(ChainName, AuthenticatorID) of
@@ -796,39 +789,19 @@ resource_provider() ->
       emqx_authn_http
     ].
 
-%% example:
-%%
-%% emqx_authn_api:lookup_from_all_node('mqtt:global', <<"password-based:http">>)
-%%
-%% #{aggregate_metrics =>
-%%       #{counters =>
-%%             #{exception => 0,failed => 0,matched => 0,success => 0},
-%%         rate =>
-%%             #{matched => #{current => 0.0,last5m => 0.0,max => 0.0}}},
-%%   aggregate_status => connecting,all_node_error => #{},
-%%   all_node_metrics =>
-%%       #{'emqx@127.0.0.1' =>
-%%             #{counters =>
-%%                   #{exception => 0,failed => 0,matched => 0,success => 0},
-%%               rate =>
-%%                   #{matched => #{current => 0.0,last5m => 0.0,max => 0.0}}}},
-%%   all_node_state => #{'emqx@127.0.0.1' => connecting}}
-lookup_from_all_node(ChainName, AuthenticatorID) ->
+lookup_from_all_nodes(ChainName, AuthenticatorID) ->
     Nodes = mria_mnesia:running_nodes(),
-    case is_ok(erpc:multicall(Nodes,
-                              emqx_authn_api,
-                              lookup_from_local_node,
-                              [ChainName, AuthenticatorID],
-                              ?TIMEOUT)) of
+    case is_ok(emqx_authn_proto_v1:lookup_from_all_nodes(Nodes, ChainName, AuthenticatorID)) of
         {ok, ResList} ->
             {StatusMap, MetricsMap, ErrorMap} = make_result_map(ResList),
             AggregateStatus = aggregate_status(maps:values(StatusMap)),
             AggregateMetrics = aggregate_metrics(maps:values(MetricsMap)),
-            #{all_node_state => StatusMap,
-              all_node_metrics => MetricsMap,
-              all_node_error => ErrorMap,
-              aggregate_status => AggregateStatus,
-              aggregate_metrics => AggregateMetrics
+            Fun = fun(_, V1) -> restructure_map(V1) end,
+            #{node_status => StatusMap,
+              node_metrics => maps:map(Fun, MetricsMap),
+              node_error => ErrorMap,
+              status => AggregateStatus,
+              metrics => restructure_map(AggregateMetrics)
             };
         {error, ErrL} ->
             {error_msg('INTERNAL_ERROR', ErrL)}
@@ -851,12 +824,13 @@ aggregate_metrics([HeadMetrics | AllMetrics]) ->
         fun (FixVal) ->
             fun (_, Val1, Val2) ->
                 case erlang:is_map(Val1) of
-                    true -> maps:merge_with(FixVal(FixVal), Val1, Val2);
+                    true -> emqx_map_lib:merge_with(FixVal(FixVal), Val1, Val2);
                     false -> Val1 + Val2
                 end
             end
         end,
-    Fun = fun (ElemMap, AccMap) -> maps:merge_with(CombinerFun(CombinerFun), ElemMap, AccMap) end,
+    Fun = fun (ElemMap, AccMap) ->
+        emqx_map_lib:merge_with(CombinerFun(CombinerFun), ElemMap, AccMap) end,
     lists:foldl(Fun, HeadMetrics, AllMetrics).
 
 make_result_map(ResList) ->
@@ -877,10 +851,18 @@ make_result_map(ResList) ->
         end,
     lists:foldl(Fun, {maps:new(), maps:new(), maps:new()}, ResList).
 
-
-
-
-
+restructure_map(#{counters := #{failed := Failed, matched := Match, success := Succ},
+                  rate := #{matched := #{current := Rate, last5m := Rate5m, max := RateMax}
+                           }
+                 }
+               ) ->
+    #{matched => Match,
+      success => Succ,
+      failed => Failed,
+      rate => Rate,
+      rate_last5m => Rate5m,
+      rate_max => RateMax
+     }.
 
 error_msg(Code, Msg) when is_binary(Msg) ->
               #{code => Code, message => Msg};
