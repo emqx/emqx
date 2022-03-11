@@ -16,8 +16,9 @@
 
 %% Bad Request
 -define(BAD_REQUEST,              'BAD_REQUEST').
+-define(NOT_MATCH,                'NOT_MATCH').
 
--define(ALREADY_EXISTS,          'ALREADY_EXISTS').
+-define(ALREADY_EXISTS,           'ALREADY_EXISTS').
 -define(BAD_CONFIG_SCHEMA,        'BAD_CONFIG_SCHEMA').
 -define(BAD_LISTENER_ID,          'BAD_LISTENER_ID').
 -define(BAD_NODE_NAME,            'BAD_NODE_NAME').
@@ -49,7 +50,8 @@
 %% All codes
 -define(ERROR_CODES,
     [ {'BAD_REQUEST',               <<"Request parameters are not legal">>}
-    , {'ALREADY_EXISTS',           <<"Resource already existed">>}
+    , {'NOT_MATCH',                 <<"Conditions are not matched">>}
+    , {'ALREADY_EXISTS',            <<"Resource already existed">>}
     , {'BAD_CONFIG_SCHEMA',         <<"Configuration data is not legal">>}
     , {'BAD_LISTENER_ID',           <<"Bad listener ID">>}
     , {'BAD_NODE_NAME',             <<"Bad Node Name">>}
