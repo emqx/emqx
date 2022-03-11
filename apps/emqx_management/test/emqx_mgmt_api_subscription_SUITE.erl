@@ -82,4 +82,20 @@ t_subscription_api(_) ->
     SubscriptionsList2 = maps:get(<<"data">>, DataTopic2),
     ?assertEqual(length(SubscriptionsList2), 1),
 
+    MatchQs = uri_string:compose_query([
+                                        {"clientid", ?CLIENTID},
+                                        {"node", atom_to_list(node())},
+                                        {"qos", "0"},
+                                        {"match_topic", "t/#"}
+                                       ]),
+
+    {ok, MatchRes} = emqx_mgmt_api_test_util:request_api(get, Path, MatchQs, Headers),
+    MatchData = emqx_json:decode(MatchRes, [return_maps]),
+    MatchMeta = maps:get(<<"meta">>, MatchData),
+    ?assertEqual(1, maps:get(<<"page">>, MatchMeta)),
+    ?assertEqual(emqx_mgmt:max_row_limit(), maps:get(<<"limit">>, MatchMeta)),
+    ?assertEqual(2, maps:get(<<"count">>, MatchMeta)),
+    MatchSubs = maps:get(<<"data">>, MatchData),
+    ?assertEqual(length(MatchSubs), 2),
+
     emqtt:disconnect(Client).
