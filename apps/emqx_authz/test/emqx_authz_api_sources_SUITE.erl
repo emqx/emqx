@@ -119,6 +119,9 @@ end_per_suite(_Config) ->
                 #{<<"no_match">> => <<"allow">>,
                   <<"cache">> => #{<<"enable">> => <<"true">>},
                   <<"sources">> => []}),
+    %% resource and connector should be stop first,
+    %% or authz_[mysql|pgsql|redis..]_SUITE would be failed
+    ok = stop_apps([emqx_resource, emqx_connector]),
     emqx_common_test_helpers:stop_apps([emqx_dashboard, emqx_authz, emqx_conf]),
     meck:unload(emqx_resource),
     ok.
@@ -357,3 +360,6 @@ auth_header_() ->
     {"Authorization", "Bearer " ++ binary_to_list(Token)}.
 
 data_dir() -> emqx:data_dir().
+
+stop_apps(Apps) ->
+    lists:foreach(fun application:stop/1, Apps).

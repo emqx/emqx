@@ -30,6 +30,7 @@ all() ->
     emqx_common_test_helpers:all(?MODULE).
 
 init_per_suite(Config) ->
+    ok = stop_apps([emqx_resource, emqx_connector, cowboy]),
     ok = emqx_common_test_helpers:start_apps(
            [emqx_conf, emqx_authz],
            fun set_special_configs/1
