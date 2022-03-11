@@ -15,10 +15,11 @@
 -spec check_params(map(), tag()) -> {ok, map()} | {error, term()}.
 check_params(Params, Tag) ->
     BTag = atom_to_binary(Tag),
-    case emqx_hocon:check(?MODULE, #{BTag => Params}) of
-        {ok, #{Tag := Checked}} ->
-            {ok, Checked};
-        {error, Reason} ->
+    Opts = #{atom_key => true, required => false},
+    try hocon_tconf:check_plain(?MODULE, #{BTag => Params}, Opts, [Tag]) of
+        #{Tag := Checked} -> {ok, Checked}
+    catch
+        throw : Reason ->
             ?SLOG(error, #{msg => "check_rule_params_failed",
                            reason => Reason
                           }),

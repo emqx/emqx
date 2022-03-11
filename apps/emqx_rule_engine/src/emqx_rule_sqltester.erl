@@ -24,19 +24,23 @@
 
 -spec test(#{sql := binary(), context := map()}) -> {ok, map() | list()} | {error, nomatch}.
 test(#{sql := Sql, context := Context}) ->
-    {ok, Select} = emqx_rule_sqlparser:parse(Sql),
-    InTopic = maps:get(topic, Context, <<>>),
-    EventTopics = emqx_rule_sqlparser:select_from(Select),
-    case lists:all(fun is_publish_topic/1, EventTopics) of
-        true ->
-            %% test if the topic matches the topic filters in the rule
-            case emqx_plugin_libs_rule:can_topic_match_oneof(InTopic, EventTopics) of
-                true -> test_rule(Sql, Select, Context, EventTopics);
-                false -> {error, nomatch}
+    case emqx_rule_sqlparser:parse(Sql) of
+        {ok, Select} ->
+            InTopic = maps:get(topic, Context, <<>>),
+            EventTopics = emqx_rule_sqlparser:select_from(Select),
+            case lists:all(fun is_publish_topic/1, EventTopics) of
+                true ->
+                    %% test if the topic matches the topic filters in the rule
+                    case emqx_plugin_libs_rule:can_topic_match_oneof(InTopic, EventTopics) of
+                        true -> test_rule(Sql, Select, Context, EventTopics);
+                        false -> {error, nomatch}
+                    end;
+                false ->
+                    %% the rule is for both publish and events, test it directly
+                    test_rule(Sql, Select, Context, EventTopics)
             end;
-        false ->
-            %% the rule is for both publish and events, test it directly
-            test_rule(Sql, Select, Context, EventTopics)
+        {error, Reason} ->
+            {error, Reason}
     end.
 
 test_rule(Sql, Select, Context, EventTopics) ->
