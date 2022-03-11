@@ -68,6 +68,35 @@ t_update(_Config) ->
     ?assertMatch(#{<<"vm">> := #{<<"busy_port">> := false}}, SysMon4),
     ok.
 
+t_zones(_Config) ->
+    {ok, Zones} = get_zones(),
+    ZonesKeys = lists:map(fun({K, _}) -> K end, hocon_schema:roots(emqx_zone_schema)),
+    ?assertEqual(lists:usort(ZonesKeys), lists:usort(maps:keys(Zones))),
+    ?assertEqual(emqx_config:get_zone_conf(no_default, [mqtt, max_qos_allowed]),
+        emqx_map_lib:deep_get([<<"mqtt">>, <<"max_qos_allowed">>], Zones)),
+    NewZones = emqx_map_lib:deep_put([<<"mqtt">>, <<"max_qos_allowed">>], Zones, 1),
+    {ok, #{}} = update_zones(NewZones),
+    ?assertEqual(1, emqx_config:get_zone_conf(no_default, [mqtt, max_qos_allowed])),
+
+    BadZones = emqx_map_lib:deep_put([<<"mqtt">>, <<"max_qos_allowed">>], Zones, 3),
+    ?assertMatch({error, {"HTTP/1.1", 400, _}}, update_zones(BadZones)),
+    ok.
+
+get_zones() ->
+    Path = emqx_mgmt_api_test_util:api_path(["configs", "global_zone"]),
+    case emqx_mgmt_api_test_util:request_api(get, Path) of
+        {ok, Res} -> {ok, emqx_json:decode(Res, [return_maps])};
+        Error -> Error
+    end.
+
+update_zones(Change) ->
+    AuthHeader = emqx_mgmt_api_test_util:auth_header_(),
+    UpdatePath = emqx_mgmt_api_test_util:api_path(["configs", "global_zone"]),
+    case emqx_mgmt_api_test_util:request_api(put, UpdatePath, "", AuthHeader, Change) of
+        {ok, Update} -> {ok, emqx_json:decode(Update, [return_maps])};
+        Error -> Error
+    end.
+
 get_config(Name) ->
     Path = emqx_mgmt_api_test_util:api_path(["configs", Name]),
     case emqx_mgmt_api_test_util:request_api(get, Path) of

@@ -38,9 +38,7 @@
 -type bar_separated_list() :: list().
 -type ip_port() :: tuple().
 -type cipher() :: map().
--type qos() :: integer().
 
--typerefl_from_string({qos/0, emqx_schema, to_qos}).
 -typerefl_from_string({duration/0, emqx_schema, to_duration}).
 -typerefl_from_string({duration_s/0, emqx_schema, to_duration_s}).
 -typerefl_from_string({duration_ms/0, emqx_schema, to_duration_ms}).
@@ -59,12 +57,14 @@
         , validations/0
         ]).
 
+-export([ qos/0]).
+
 % workaround: prevent being recognized as unused functions
 -export([to_duration/1, to_duration_s/1, to_duration_ms/1,
          mk_duration/2, to_bytesize/1, to_wordsize/1,
          to_percent/1, to_comma_separated_list/1,
          to_bar_separated_list/1, to_ip_port/1,
-         to_erl_cipher_suite/1, to_qos/1,
+         to_erl_cipher_suite/1,
          to_comma_separated_atoms/1
         ]).
 
@@ -73,7 +73,7 @@
 -reflect_type([ duration/0, duration_s/0, duration_ms/0,
                 bytesize/0, wordsize/0, percent/0, file/0,
                 comma_separated_list/0, bar_separated_list/0, ip_port/0,
-                cipher/0, qos/0,
+                cipher/0,
                 comma_separated_atoms/0
                 ]).
 
@@ -1558,12 +1558,6 @@ to_comma_separated_atoms(Str) ->
 to_bar_separated_list(Str) ->
     {ok, string:tokens(Str, "| ")}.
 
-to_qos(Str) ->
-    case string:to_integer(Str) of
-        {Num, []} when Num >= 0 andalso Num =< 2 -> {ok, Num};
-        _ -> {error, Str}
-    end.
-
 to_ip_port(Str) ->
     case string:tokens(Str, ": ") of
         [Ip, Port] ->
@@ -1688,3 +1682,7 @@ When authenticating a login (username, client ID, etc.) the authenticators are c
 in the configured order.<br>
 """])
      }.
+
+-spec qos() -> typerefl:type().
+qos() ->
+    typerefl:alias("qos", typerefl:union([0, 1, 2])).
