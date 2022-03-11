@@ -74,11 +74,10 @@ fields(file) ->
                  , example => <<"acl.conf">>}}];
 fields(position) ->
     [ { position
-      , mk( hoconsc:union([binary(), map()])
+      , mk( string()
           , #{ desc => <<"Where to place the source">>
              , required => true
-             , in => body
-             , example => #{<<"before">> => <<"file">>}})}].
+             , in => body})}].
 
 %%------------------------------------------------------------------------------
 %% http type funcs

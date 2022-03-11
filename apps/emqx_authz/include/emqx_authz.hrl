@@ -34,10 +34,10 @@
 -define(CMD_APPEND, append).
 -define(CMD_MOVE, move).
 
--define(CMD_MOVE_TOP, <<"top">>).
--define(CMD_MOVE_BOTTOM, <<"bottom">>).
--define(CMD_MOVE_BEFORE(Before), {<<"before">>, Before}).
--define(CMD_MOVE_AFTER(After), {<<"after">>, After}).
+-define(CMD_MOVE_TOP, top).
+-define(CMD_MOVE_BOTTOM, bottom).
+-define(CMD_MOVE_BEFORE(Before), {before, Before}).
+-define(CMD_MOVE_AFTER(After), {'after', After}).
 
 -define(CONF_KEY_PATH, [authorization, sources]).
 

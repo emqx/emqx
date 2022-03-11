@@ -110,10 +110,10 @@ lookup(Type) ->
     {Source, _Front, _Rear} = take(Type),
     Source.
 
-move(Type, #{<<"before">> := Before}) ->
+move(Type, {before, Before}) ->
     emqx_authz_utils:update_config(
       ?CONF_KEY_PATH, {?CMD_MOVE, type(Type), ?CMD_MOVE_BEFORE(type(Before))});
-move(Type, #{<<"after">> := After}) ->
+move(Type, {'after', After}) ->
     emqx_authz_utils:update_config(
       ?CONF_KEY_PATH, {?CMD_MOVE, type(Type), ?CMD_MOVE_AFTER(type(After))});
 move(Type, Position) ->
@@ -334,7 +334,7 @@ take(Type, Sources) ->
     {Front, Rear} =  lists:splitwith(fun(T) -> type(T) =/= type(Type) end, Sources),
     case Rear =:= [] of
         true ->
-            error({authz_source_of_type_not_found, Type});
+            error({not_found_source, Type});
         _ ->
             {hd(Rear), Front, tl(Rear)}
     end.
