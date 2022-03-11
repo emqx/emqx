@@ -537,7 +537,7 @@ t_ingress_mqtt_bridge_with_rules(_) ->
      } = jsx:decode(Rule1),
     %% we also check if the outputs of the rule is triggered
     ?assertMatch(#{inspect := #{
-        event := '$bridges/mqtt',
+        event := <<"$bridges/mqtt", _/binary>>,
         id := MsgId,
         payload := Payload,
         topic := RemoteTopic,

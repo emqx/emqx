@@ -69,6 +69,7 @@ get_selected_data(Selected, _Envs, _Args) ->
     Selected.
 
 is_publish_topic(<<"$events/", _/binary>>) -> false;
+is_publish_topic(<<"$bridges/", _/binary>>) -> false;
 is_publish_topic(_Topic) -> true.
 
 flatten([]) -> [];
@@ -83,21 +84,8 @@ echo_action(Data, Envs) ->
 fill_default_values(Event, Context) ->
     maps:merge(envs_examp(Event), Context).
 
-envs_examp(<<"$events/", _/binary>> = EVENT_TOPIC) ->
-    EventName = emqx_rule_events:event_name(EVENT_TOPIC),
+envs_examp(EventTopic) ->
+    EventName = emqx_rule_events:event_name(EventTopic),
     emqx_rule_maps:atom_key_map(
         maps:from_list(
-            emqx_rule_events:columns_with_exam(EventName)));
-envs_examp(_) ->
-    #{id => emqx_guid:to_hexstr(emqx_guid:gen()),
-      clientid => <<"c_emqx">>,
-      username => <<"u_emqx">>,
-      payload => <<"{\"id\": 1, \"name\": \"ha\"}">>,
-      peerhost => <<"127.0.0.1">>,
-      topic => <<"t/a">>,
-      qos => 1,
-      flags => #{sys => true, event => true},
-      publish_received_at => emqx_plugin_libs_rule:now_ms(),
-      timestamp => emqx_plugin_libs_rule:now_ms(),
-      node => node()
-    }.
+            emqx_rule_events:columns_with_exam(EventName))).
