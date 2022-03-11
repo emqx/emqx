@@ -269,6 +269,14 @@ move_source(post, #{bindings := #{type := Type}, body := #{<<"position">> := Pos
 %% Internal functions
 %%--------------------------------------------------------------------
 
+lookup_from_local_node(ResourceId) ->
+    NodeId = node(self()),
+    case emqx_resource:get_instance(ResourceId) of
+        {error, not_found} -> {error, {NodeId, not_found_resource}};
+        {ok, _, #{ status := Status, metrics := Metrics }} ->
+            {ok, {NodeId, Status, Metrics}}
+    end
+
 get_raw_sources() ->
     RawSources = emqx:get_raw_config([authorization, sources], []),
     Schema = #{roots => emqx_authz_schema:fields("authorization"), fields => #{}},
