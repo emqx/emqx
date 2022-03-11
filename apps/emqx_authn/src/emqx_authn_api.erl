@@ -59,6 +59,8 @@
         , authenticator_user/2
         , listener_authenticator_users/2
         , listener_authenticator_user/2
+        , lookup_from_local_node/2
+        , lookup_from_all_nodes/2
         ]).
 
 -export([ authenticator_examples/0
@@ -550,7 +552,7 @@ authenticators(get, _Params) ->
     list_authenticators([authentication]).
 
 authenticator(get, #{bindings := #{id := AuthenticatorID}}) ->
-    list_authenticator([authentication], AuthenticatorID);
+    list_authenticator(?GLOBAL, [authentication], AuthenticatorID);
 
 authenticator(put, #{bindings := #{id := AuthenticatorID}, body := Config}) ->
     update_authenticator([authentication], ?GLOBAL, AuthenticatorID, Config);
@@ -574,8 +576,8 @@ listener_authenticators(get, #{bindings := #{listener_id := ListenerID}}) ->
 
 listener_authenticator(get, #{bindings := #{listener_id := ListenerID, id := AuthenticatorID}}) ->
     with_listener(ListenerID,
-                  fun(Type, Name, _) ->
-                        list_authenticator([listeners, Type, Name, authentication],
+                  fun(Type, Name, ChainName) ->
+                        list_authenticator(ChainName, [listeners, Type, Name, authentication],
                                        AuthenticatorID)
                   end);
 listener_authenticator(put,
@@ -750,13 +752,127 @@ list_authenticators(ConfKeyPath) ->
                         || AuthenticatorConfig <- AuthenticatorsConfig],
     {200, NAuthenticators}.
 
-list_authenticator(ConfKeyPath, AuthenticatorID) ->
+list_authenticator(ChainName, ConfKeyPath, AuthenticatorID) ->
     AuthenticatorsConfig = get_raw_config_with_defaults(ConfKeyPath),
     case find_config(AuthenticatorID, AuthenticatorsConfig) of
         {ok, AuthenticatorConfig} ->
-            {200, maps:put(id, AuthenticatorID, convert_certs(AuthenticatorConfig))};
+            StatusAndMetrics = lookup_from_all_nodes(ChainName, AuthenticatorID),
+            Fun = fun ({Key, Val}, Map) -> maps:put(Key, Val, Map) end,
+            AppendList = [{id, AuthenticatorID}, {status_and_metrics, StatusAndMetrics}],
+            {200, lists:foldl(Fun, convert_certs(AuthenticatorConfig), AppendList)};
         {error, Reason} ->
             serialize_error(Reason)
+    end.
+
+lookup_from_local_node(ChainName, AuthenticatorID) ->
+    NodeId = node(self()),
+    case emqx_authentication:lookup_authenticator(ChainName, AuthenticatorID) of
+        {ok, #{provider := Provider, state := State}} ->
+            case lists:member(Provider, resource_provider()) of
+                false -> {error, {NodeId, resource_unsupport_metrics_and_status}};
+                true ->
+                    #{resource_id := ResourceId} = State,
+                    case emqx_resource:get_instance(ResourceId) of
+                        {error, not_found} -> {error, {NodeId, not_found_resource}};
+                        {ok, _, #{ status := Status, metrics := Metrics }} ->
+                            {ok, {NodeId, Status, Metrics}}
+                    end
+            end;
+        {error, Reason} -> {error, {NodeId, Reason}}
+    end.
+
+resource_provider() ->
+    [ emqx_authn_mysql,
+      emqx_authn_pgsql,
+      emqx_authn_mongodb,
+      emqx_authn_redis,
+      emqx_authn_http
+    ].
+
+lookup_from_all_nodes(ChainName, AuthenticatorID) ->
+    Nodes = mria_mnesia:running_nodes(),
+    case is_ok(emqx_authn_proto_v1:lookup_from_all_nodes(Nodes, ChainName, AuthenticatorID)) of
+        {ok, ResList} ->
+            {StatusMap, MetricsMap, ErrorMap} = make_result_map(ResList),
+            AggregateStatus = aggregate_status(maps:values(StatusMap)),
+            AggregateMetrics = aggregate_metrics(maps:values(MetricsMap)),
+            Fun = fun(_, V1) -> restructure_map(V1) end,
+            #{node_status => StatusMap,
+              node_metrics => maps:map(Fun, MetricsMap),
+              node_error => ErrorMap,
+              status => AggregateStatus,
+              metrics => restructure_map(AggregateMetrics)
+            };
+        {error, ErrL} ->
+            {error_msg('INTERNAL_ERROR', ErrL)}
+    end.
+
+aggregate_status([]) -> error_some_strange_happen;
+aggregate_status(AllStatus) ->
+    Head = fun ([A | _]) -> A end,
+    HeadVal = Head(AllStatus),
+    AllRes = lists:all(fun (Val) -> Val == HeadVal end, AllStatus),
+    case AllRes of
+        true -> HeadVal;
+        false -> inconsistent
+    end.
+
+aggregate_metrics([]) -> error_some_strange_happen;
+aggregate_metrics([HeadMetrics | AllMetrics]) ->
+    CombinerFun =
+        fun ComFun(Val1, Val2) ->
+            case erlang:is_map(Val1) of
+                true -> emqx_map_lib:merge_with(ComFun, Val1, Val2);
+                false -> Val1 + Val2
+            end
+        end,
+    Fun = fun (ElemMap, AccMap) ->
+        emqx_map_lib:merge_with(CombinerFun, ElemMap, AccMap) end,
+    lists:foldl(Fun, HeadMetrics, AllMetrics).
+
+make_result_map(ResList) ->
+    Fun =
+        fun(Elem, {StatusMap, MetricsMap, ErrorMap}) ->
+            case Elem of
+                {ok, {NodeId, Status, Metrics}} ->
+                    {maps:put(NodeId, Status, StatusMap),
+                     maps:put(NodeId, Metrics, MetricsMap),
+                     ErrorMap
+                    };
+                {error, {NodeId, Reason}} ->
+                    {StatusMap,
+                     MetricsMap,
+                     maps:put(NodeId, Reason, ErrorMap)
+                    }
+            end
+        end,
+    lists:foldl(Fun, {maps:new(), maps:new(), maps:new()}, ResList).
+
+restructure_map(#{counters := #{failed := Failed, matched := Match, success := Succ},
+                  rate := #{matched := #{current := Rate, last5m := Rate5m, max := RateMax}
+                           }
+                 }
+               ) ->
+    #{matched => Match,
+      success => Succ,
+      failed => Failed,
+      rate => Rate,
+      rate_last5m => Rate5m,
+      rate_max => RateMax
+     };
+restructure_map(Error) ->
+     Error.
+
+error_msg(Code, Msg) ->
+              #{code => Code, message => bin(io_lib:format("~p", [Msg]))}.
+
+bin(S) when is_list(S) ->
+    list_to_binary(S).
+
+is_ok(ResL) ->
+    case lists:filter(fun({ok, _}) -> false; (_) -> true end, ResL) of
+        [] -> {ok, [Res || {ok, Res} <- ResL]};
+        ErrL -> {error, ErrL}
     end.
 
 update_authenticator(ConfKeyPath, ChainName, AuthenticatorID, Config) ->
