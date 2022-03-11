@@ -540,6 +540,48 @@ latest_vm_args() {
     fi
 }
 
+# backward compabible with 4.x
+tr_log_to_env() {
+    local log_to=${EMQX_LOG__TO:-undefined}
+    # unset because it's unknown to 5.0
+    unset EMQX_LOG__TO
+    case "${log_to}" in
+        console)
+            export EMQX_LOG__CONSOLE_HANDLER__ENABLE='true'
+            export EMQX_LOG__FILE_HANDLERS__DEFAULT__ENABLE='false'
+            ;;
+        file)
+            export EMQX_LOG__CONSOLE_HANDLER__ENABLE='false'
+            export EMQX_LOG__FILE_HANDLERS__DEFAULT__ENABLE='true'
+            ;;
+        both)
+            export EMQX_LOG__CONSOLE_HANDLER__ENABLE='true'
+            export EMQX_LOG__FILE_HANDLERS__DEFAULT__ENABLE='true'
+            ;;
+        default)
+            # want to use config file defaults, do nothing
+            ;;
+        undefined)
+            # value not set, do nothing
+            ;;
+        *)
+            echoerr "Unknown environment value for EMQX_LOG__TO=${log_to} discarded"
+            ;;
+    esac
+}
+
+maybe_log_to_console() {
+    if [ "${EMQX_LOG__TO:-}" = 'default' ]; then
+        # want to use config file defaults, do nothing
+        unset EMQX_LOG__TO
+    else
+        tr_log_to_env
+        # ensure defaults
+        export EMQX_LOG__CONSOLE_HANDLER__ENABLE="${EMQX_LOG__CONSOLE_HANDLER__ENABLE:-true}"
+        export EMQX_LOG__FILE_HANDLERS__DEFAULT__ENABLE="${EMQX_LOG__FILE_HANDLERS__DEFAULT__ENABLE:-false}"
+    fi
+}
+
 ## IS_BOOT_COMMAND is set for later to inspect node name and cookie from hocon config (or env variable)
 case "${COMMAND}" in
     start|console|console_clean|foreground)
@@ -621,7 +663,7 @@ case "${COMMAND}" in
 
         # this flag passes down to console mode
         # so we know it's intended to be run in daemon mode
-        export _EMQX_START_MODE="$COMMAND"
+        export _EMQX_START_DAEMON_MODE=1
 
         case "$COMMAND" in
             start)
@@ -764,8 +806,10 @@ case "${COMMAND}" in
         esac
 
         # set before generate_config
-        if [ "${_EMQX_START_MODE:-}" = '' ]; then
-            export EMQX_LOG__CONSOLE_HANDLER__ENABLE="${EMQX_LOG__CONSOLE_HANDLER__ENABLE:-true}"
+        if [ "${_EMQX_START_DAEMON_MODE:-}" = 1 ]; then
+            tr_log_to_env
+        else
+            maybe_log_to_console
         fi
 
         #generate app.config and vm.args
@@ -815,8 +859,7 @@ case "${COMMAND}" in
         # start up the release in the foreground for use by runit
         # or other supervision services
 
-        # set before generate_config
-        export EMQX_LOG__CONSOLE_HANDLER__ENABLE="${EMQX_LOG__CONSOLE_HANDLER__ENABLE:-true}"
+        maybe_log_to_console
 
         #generate app.config and vm.args
         generate_config "$NAME_TYPE" "$NAME"

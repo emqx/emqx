@@ -5,13 +5,34 @@ After=network.target
 [Service]
 User=emqx
 Group=emqx
-Type=forking
+
+# The ExecStart= is foreground, so 'simple' here
+Type=simple
 Environment=HOME=/var/lib/emqx
-ExecStart=/usr/bin/emqx start
+
+# Enable logging to file
+Environment=EMQX_LOG__TO=default
+
+# Start 'foregroun' but not 'start' (daemon) mode.
+# Because systemd monitor/restarts 'simple' services
+ExecStart=/usr/bin/emqx foreground
+
+# Give EMQX enough file descriptors
 LimitNOFILE=1048576
-ExecStop=/usr/bin/emqx stop
+
+# ExecStop is commented out so systemd will send a SIGTERM when 'systemctl stop'.
+# SIGTERM is handled by EMQX and it then performs a graceful shutdown
+# It's better than command 'emqx stop' because it needs to ping the node
+# ExecStop=/usr/bin/emqx stop
+
+# Wait long enough before force kill for graceful shutdown
+TimeoutStopSec=120s
+
 Restart=on-failure
-RestartSec=5s
+
+# Do not restart immediately so the peer nodes in the cluster have
+# enough time to handle the 'DOWN' events of this node
+RestartSec=120s
 
 [Install]
 WantedBy=multi-user.target
