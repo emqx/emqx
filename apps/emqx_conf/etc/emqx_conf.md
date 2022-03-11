@@ -196,7 +196,7 @@ e.g. `authentication.1={...}` is parsed as `authentication={"1": {...}}`
 Indexed-map arrays can be used to override list arrays:
 
 ```
-authentication=[{enable=true, backend="built-in-database", mechanism="password-based"}]
+authentication=[{enable=true, backend="built_in_database", mechanism="password_based"}]
 # we can disable this authentication provider with:
 authentication.1.enable=false
 ```
@@ -204,7 +204,7 @@ However, list arrays do not get recursively merged into indexed-map arrays.
 e.g.
 
 ```
-authentication=[{enable=true, backend="built-in-database", mechanism="password-based"}]
+authentication=[{enable=true, backend="built_in_database", mechanism="password_based"}]
 ## below value will replace the whole array, but not to override just one field.
 authentication=[{enable=true}]
 ```

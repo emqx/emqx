@@ -28,7 +28,7 @@
 -define(REDIS_RESOURCE, <<"emqx_authn_redis_SUITE">>).
 
 -define(PATH, [authentication]).
--define(ResourceID, <<"password-based:redis">>).
+-define(ResourceID, <<"password_based:redis">>).
 
 all() ->
     [{group, require_seeds}, t_create, t_create_invalid].
@@ -207,7 +207,7 @@ t_update(_Config) ->
     % We update with config with correct query, provider should update and work properly
     {ok, _} = emqx:update_config(
                 ?PATH,
-                {update_authenticator, ?GLOBAL, <<"password-based:redis">>, CorrectConfig}),
+                {update_authenticator, ?GLOBAL, <<"password_based:redis">>, CorrectConfig}),
 
     {ok,_} = emqx_access_control:authenticate(
                #{username => <<"plain">>,
@@ -222,7 +222,7 @@ t_update(_Config) ->
 
 raw_redis_auth_config() ->
     #{
-      mechanism => <<"password-based">>,
+      mechanism => <<"password_based">>,
       password_hash_algorithm => #{name => <<"plain">>,
                                    salt_position => <<"suffix">>},
       enable => <<"true">>,

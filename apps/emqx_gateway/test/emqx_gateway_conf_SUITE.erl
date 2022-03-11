@@ -226,13 +226,13 @@ asClqpnHT8/VJYTD7Kqj0fouTTZf0zkig/y+2XERppd8k+pSKjUCPQ==
             }
          }).
 -define(CONF_STOMP_AUTHN_1,
-        #{ <<"mechanism">> => <<"password-based">>,
-           <<"backend">> => <<"built-in-database">>,
+        #{ <<"mechanism">> => <<"password_based">>,
+           <<"backend">> => <<"built_in_database">>,
            <<"user_id_type">> => <<"clientid">>
          }).
 -define(CONF_STOMP_AUTHN_2,
-        #{ <<"mechanism">> => <<"password-based">>,
-           <<"backend">> => <<"built-in-database">>,
+        #{ <<"mechanism">> => <<"password_based">>,
+           <<"backend">> => <<"built_in_database">>,
            <<"user_id_type">> => <<"username">>
          }).
 

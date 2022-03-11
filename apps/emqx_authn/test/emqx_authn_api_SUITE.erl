@@ -155,7 +155,7 @@ test_authenticators(PathPrefix) ->
                      InvalidConfig1),
 
     ?assertAuthenticatorsMatch(
-       [#{<<"mechanism">> := <<"password-based">>, <<"backend">> := <<"http">>}],
+       [#{<<"mechanism">> := <<"password_based">>, <<"backend">> := <<"http">>}],
        PathPrefix ++ [?CONF_NS]).
 
 test_authenticator(PathPrefix) ->
@@ -166,49 +166,49 @@ test_authenticator(PathPrefix) ->
                      ValidConfig0),
     {ok, 200, _} = request(
                      get,
-                     uri(PathPrefix ++ [?CONF_NS, "password-based:http"])),
+                     uri(PathPrefix ++ [?CONF_NS, "password_based:http"])),
 
     {ok, 404, _} = request(
                      get,
-                     uri(PathPrefix ++ [?CONF_NS, "password-based:redis"])),
+                     uri(PathPrefix ++ [?CONF_NS, "password_based:redis"])),
 
 
     {ok, 404, _} = request(
                      put,
-                     uri(PathPrefix ++ [?CONF_NS, "password-based:built-in-database"]),
+                     uri(PathPrefix ++ [?CONF_NS, "password_based:built_in_database"]),
                      emqx_authn_test_lib:built_in_database_example()),
 
     InvalidConfig0 = ValidConfig0#{method => <<"delete">>},
     {ok, 400, _} = request(
                      put,
-                     uri(PathPrefix ++ [?CONF_NS, "password-based:http"]),
+                     uri(PathPrefix ++ [?CONF_NS, "password_based:http"]),
                      InvalidConfig0),
 
     InvalidConfig1 = ValidConfig0#{method => <<"get">>,
                                   headers => #{<<"content-type">> => <<"application/json">>}},
     {ok, 400, _} = request(
                      put,
-                     uri(PathPrefix ++ [?CONF_NS, "password-based:http"]),
+                     uri(PathPrefix ++ [?CONF_NS, "password_based:http"]),
                      InvalidConfig1),
 
     ValidConfig1 = ValidConfig0#{pool_size => 9},
     {ok, 200, _} = request(
                      put,
-                     uri(PathPrefix ++ [?CONF_NS, "password-based:http"]),
+                     uri(PathPrefix ++ [?CONF_NS, "password_based:http"]),
                      ValidConfig1),
 
     {ok, 404, _} = request(
                      delete,
-                     uri(PathPrefix ++ [?CONF_NS, "password-based:redis"])),
+                     uri(PathPrefix ++ [?CONF_NS, "password_based:redis"])),
 
     {ok, 204, _} = request(
                      delete,
-                     uri(PathPrefix ++ [?CONF_NS, "password-based:http"])),
+                     uri(PathPrefix ++ [?CONF_NS, "password_based:http"])),
 
     ?assertAuthenticatorsMatch([], PathPrefix ++ [?CONF_NS]).
 
 test_authenticator_users(PathPrefix) ->
-    UsersUri = uri(PathPrefix ++ [?CONF_NS, "password-based:built-in-database", "users"]),
+    UsersUri = uri(PathPrefix ++ [?CONF_NS, "password_based:built_in_database", "users"]),
 
     {ok, 200, _} = request(
                      post,
@@ -263,7 +263,7 @@ test_authenticator_users(PathPrefix) ->
        lists:usort([ UserId || #{<<"user_id">> := UserId} <- Page1Users ++ Page2Users])).
 
 test_authenticator_user(PathPrefix) ->
-    UsersUri = uri(PathPrefix ++ [?CONF_NS, "password-based:built-in-database", "users"]),
+    UsersUri = uri(PathPrefix ++ [?CONF_NS, "password_based:built_in_database", "users"]),
 
     {ok, 200, _} = request(
                      post,
@@ -318,9 +318,9 @@ test_authenticator_move(PathPrefix) ->
 
     ?assertAuthenticatorsMatch(
        [
-        #{<<"mechanism">> := <<"password-based">>, <<"backend">> := <<"http">>},
+        #{<<"mechanism">> := <<"password_based">>, <<"backend">> := <<"http">>},
         #{<<"mechanism">> := <<"jwt">>},
-        #{<<"mechanism">> := <<"password-based">>, <<"backend">> := <<"built-in-database">>}
+        #{<<"mechanism">> := <<"password_based">>, <<"backend">> := <<"built_in_database">>}
        ],
        PathPrefix ++ [?CONF_NS]),
 
@@ -344,12 +344,12 @@ test_authenticator_move(PathPrefix) ->
     {ok, 404, _} = request(
                      post,
                      uri(PathPrefix ++ [?CONF_NS, "jwt", "move"]),
-                     #{position => <<"before:password-based:redis">>}),
+                     #{position => <<"before:password_based:redis">>}),
 
     {ok, 404, _} = request(
                      post,
                      uri(PathPrefix ++ [?CONF_NS, "jwt", "move"]),
-                     #{position => <<"before:password-based:redis">>}),
+                     #{position => <<"before:password_based:redis">>}),
 
     % Valid moves
 
@@ -361,8 +361,8 @@ test_authenticator_move(PathPrefix) ->
     ?assertAuthenticatorsMatch(
        [
         #{<<"mechanism">> := <<"jwt">>},
-        #{<<"mechanism">> := <<"password-based">>, <<"backend">> := <<"http">>},
-        #{<<"mechanism">> := <<"password-based">>, <<"backend">> := <<"built-in-database">>}
+        #{<<"mechanism">> := <<"password_based">>, <<"backend">> := <<"http">>},
+        #{<<"mechanism">> := <<"password_based">>, <<"backend">> := <<"built_in_database">>}
        ],
        PathPrefix ++ [?CONF_NS]),
 
@@ -373,8 +373,8 @@ test_authenticator_move(PathPrefix) ->
 
     ?assertAuthenticatorsMatch(
        [
-        #{<<"mechanism">> := <<"password-based">>, <<"backend">> := <<"http">>},
-        #{<<"mechanism">> := <<"password-based">>, <<"backend">> := <<"built-in-database">>},
+        #{<<"mechanism">> := <<"password_based">>, <<"backend">> := <<"http">>},
+        #{<<"mechanism">> := <<"password_based">>, <<"backend">> := <<"built_in_database">>},
         #{<<"mechanism">> := <<"jwt">>}
        ],
        PathPrefix ++ [?CONF_NS]),
@@ -382,20 +382,20 @@ test_authenticator_move(PathPrefix) ->
     {ok, 204, _} = request(
                      post,
                      uri(PathPrefix ++ [?CONF_NS, "jwt", "move"]),
-                     #{position => <<"before:password-based:built-in-database">>}),
+                     #{position => <<"before:password_based:built_in_database">>}),
 
     ?assertAuthenticatorsMatch(
        [
-        #{<<"mechanism">> := <<"password-based">>, <<"backend">> := <<"http">>},
+        #{<<"mechanism">> := <<"password_based">>, <<"backend">> := <<"http">>},
         #{<<"mechanism">> := <<"jwt">>},
-        #{<<"mechanism">> := <<"password-based">>, <<"backend">> := <<"built-in-database">>}
+        #{<<"mechanism">> := <<"password_based">>, <<"backend">> := <<"built_in_database">>}
        ],
        PathPrefix ++ [?CONF_NS]).
 
 test_authenticator_import_users(PathPrefix) ->
     ImportUri = uri(
                   PathPrefix ++
-                  [?CONF_NS, "password-based:built-in-database", "import_users"]),
+                  [?CONF_NS, "password_based:built_in_database", "import_users"]),
 
 
     {ok, 200, _} = request(

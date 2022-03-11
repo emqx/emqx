@@ -125,7 +125,7 @@ t_normalize_rules(_Config) ->
 raw_mnesia_authz_config() ->
     #{
         <<"enable">> => <<"true">>,
-        <<"type">> => <<"built-in-database">>
+        <<"type">> => <<"built_in_database">>
     }.
 
 setup_client_samples(ClientInfo, Samples, Key) ->

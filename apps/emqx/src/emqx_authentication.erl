@@ -59,7 +59,7 @@
         , move_authenticator/3
         ]).
 
-%% APIs for observer built-in-database
+%% APIs for observer built_in_database
 -export([ import_users/3
         , add_user/3
         , delete_user/3
@@ -266,7 +266,7 @@ stop() ->
 %% @doc Register authentication providers.
 %% A provider is a tuple of `AuthNType' the module which implements
 %% the authenticator callbacks.
-%% For example, ``[{{'password-based', redis}, emqx_authn_redis}]''
+%% For example, ``[{{'password_based', redis}, emqx_authn_redis}]''
 %% NOTE: Later registered provider may override earlier registered if they
 %% happen to clash the same `AuthNType'.
 -spec register_providers([{authn_type(), module()}]) -> ok.

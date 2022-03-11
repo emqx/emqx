@@ -87,7 +87,7 @@ roots() -> [?CONF_NS].
 
 fields(?CONF_NS) ->
     [ {mechanism, emqx_authn_schema:mechanism('scram')}
-    , {backend, emqx_authn_schema:backend('built-in-database')}
+    , {backend, emqx_authn_schema:backend('built_in_database')}
     , {algorithm, fun algorithm/1}
     , {iteration_count, fun iteration_count/1}
     ] ++ emqx_authn_schema:common_fields().

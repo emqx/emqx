@@ -27,7 +27,7 @@
 -define(PGSQL_HOST, "pgsql-tls").
 
 -define(PATH, [authentication]).
--define(ResourceID, <<"password-based:postgresql">>).
+-define(ResourceID, <<"password_based:postgresql">>).
 
 all() ->
     emqx_common_test_helpers:all(?MODULE).
@@ -116,7 +116,7 @@ raw_pgsql_auth_config(SpecificSSLOpts) ->
                 emqx_authn_test_lib:client_ssl_cert_opts(),
                 #{enable => <<"true">>}),
     #{
-      mechanism => <<"password-based">>,
+      mechanism => <<"password_based">>,
       password_hash_algorithm => #{name => <<"plain">>,
                                    salt_position => <<"suffix">>},
       enable => <<"true">>,

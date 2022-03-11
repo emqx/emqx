@@ -27,8 +27,8 @@ gateway.stomp {
   }
 
   authentication: {
-    mechanism = password-based
-    backend = built-in-database
+    mechanism = password_based
+    backend = built_in_database
     user_id_type = clientid
   }
 
@@ -43,8 +43,8 @@ gateway.stomp {
     ]
 
    authentication: {
-     mechanism = password-based
-     backend = built-in-database
+     mechanism = password_based
+     backend = built_in_database
      user_id_type = username
    }
 

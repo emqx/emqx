@@ -964,21 +964,21 @@ authenticator_array_example() ->
 
 authenticator_examples() ->
     #{
-        'password-based:built-in-database' => #{
-            summary => <<"Built-in password-based authentication">>,
+        'password_based:built_in_database' => #{
+            summary => <<"Built-in password_based authentication">>,
             value => #{
-                mechanism => <<"password-based">>,
-                backend => <<"built-in-database">>,
+                mechanism => <<"password_based">>,
+                backend => <<"built_in_database">>,
                 user_id_type => <<"username">>,
                 password_hash_algorithm => #{
                     name => <<"sha256">>
                 }
             }
         },
-        'password-based:http' => #{
-            summary => <<"Password-based authentication through external HTTP API">>,
+        'password_based:http' => #{
+            summary => <<"password_based authentication through external HTTP API">>,
             value => #{
-                mechanism => <<"password-based">>,
+                mechanism => <<"password_based">>,
                 backend => <<"http">>,
                 method => <<"post">>,
                 url => <<"http://127.0.0.1:18083">>,
@@ -1009,10 +1009,10 @@ authenticator_examples() ->
                 }
             }
         },
-        'password-based:mongodb' => #{
-            summary => <<"Password-based authentication with MongoDB backend">>,
+        'password_based:mongodb' => #{
+            summary => <<"password_based authentication with MongoDB backend">>,
             value => #{
-                mechanism => <<"password-based">>,
+                mechanism => <<"password_based">>,
                 backend => <<"mongodb">>,
                 server => <<"127.0.0.1:27017">>,
                 database => example,
@@ -1027,10 +1027,10 @@ authenticator_examples() ->
                 salt_position => <<"prefix">>
             }
         },
-        'password-based:redis' => #{
-            summary => <<"Password-based authentication with Redis backend">>,
+        'password_based:redis' => #{
+            summary => <<"password_based authentication with Redis backend">>,
             value => #{
-                mechanism => <<"password-based">>,
+                mechanism => <<"password_based">>,
                 backend => <<"redis">>,
                 server => <<"127.0.0.1:6379">>,
                 database => 0,
@@ -1091,10 +1091,10 @@ request_move_examples() ->
                 position => <<"bottom">>
             }
         },
-        'move_before_password-based:built-in-database' => #{
+        'move_before_password_based:built_in_database' => #{
             summary => <<"Move authenticator to the position preceding some other authenticator">>,
             value => #{
-                position => <<"before:password-based:built-in-database">>
+                position => <<"before:password_based:built_in_database">>
             }
         }
     }.

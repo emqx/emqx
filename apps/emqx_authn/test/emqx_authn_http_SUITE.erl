@@ -179,7 +179,7 @@ t_update(_Config) ->
     % We update with config with correct query, provider should update and work properly
     {ok, _} = emqx:update_config(
                 ?PATH,
-                {update_authenticator, ?GLOBAL, <<"password-based:http">>, CorrectConfig}),
+                {update_authenticator, ?GLOBAL, <<"password_based:http">>, CorrectConfig}),
 
     {ok,_} = emqx_access_control:authenticate(?CREDENTIALS).
 
@@ -240,7 +240,7 @@ test_is_superuser({Kind, Value, ExpectedValue}) ->
 
 raw_http_auth_config() ->
     #{
-        mechanism => <<"password-based">>,
+        mechanism => <<"password_based">>,
         enable => <<"true">>,
 
         backend => <<"http">>,

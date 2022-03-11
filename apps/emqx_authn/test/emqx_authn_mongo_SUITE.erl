@@ -177,7 +177,7 @@ t_update(_Config) ->
     % We update with config with correct selector, provider should update and work properly
     {ok, _} = emqx:update_config(
                 ?PATH,
-                {update_authenticator, ?GLOBAL, <<"password-based:mongodb">>, CorrectConfig}),
+                {update_authenticator, ?GLOBAL, <<"password_based:mongodb">>, CorrectConfig}),
 
     {ok,_} = emqx_access_control:authenticate(
                #{username => <<"plain">>,
@@ -238,7 +238,7 @@ test_is_superuser({Value, ExpectedValue}) ->
 
 raw_mongo_auth_config() ->
     #{
-      mechanism => <<"password-based">>,
+      mechanism => <<"password_based">>,
       password_hash_algorithm => #{name => <<"plain">>,
                                    salt_position => <<"suffix">>},
       enable => <<"true">>,
@@ -309,7 +309,8 @@ user_seeds() ->
 
      #{data => #{
                  username => <<"bcrypt">>,
-                 password_hash => <<"$2b$12$wtY3h20mUjjmeaClpqZVveDWGlHzCGsvuThMlneGHA7wVeFYyns2u">>,
+                 password_hash =>
+                     <<"$2b$12$wtY3h20mUjjmeaClpqZVveDWGlHzCGsvuThMlneGHA7wVeFYyns2u">>,
                  salt => <<"$2b$12$wtY3h20mUjjmeaClpqZVve">>,
                  is_superuser => 0
                 },
@@ -325,7 +326,8 @@ user_seeds() ->
 
      #{data => #{
                  username => <<"bcrypt0">>,
-                 password_hash => <<"$2b$12$wtY3h20mUjjmeaClpqZVveDWGlHzCGsvuThMlneGHA7wVeFYyns2u">>,
+                 password_hash =>
+                     <<"$2b$12$wtY3h20mUjjmeaClpqZVveDWGlHzCGsvuThMlneGHA7wVeFYyns2u">>,
                  salt => <<"$2b$12$wtY3h20mUjjmeaClpqZVve">>,
                  is_superuser => <<"0">>
                 },
@@ -343,7 +345,8 @@ user_seeds() ->
 
      #{data => #{
                  username => <<"bcrypt1">>,
-                 password_hash => <<"$2b$12$wtY3h20mUjjmeaClpqZVveDWGlHzCGsvuThMlneGHA7wVeFYyns2u">>,
+                 password_hash =>
+                     <<"$2b$12$wtY3h20mUjjmeaClpqZVveDWGlHzCGsvuThMlneGHA7wVeFYyns2u">>,
                  salt => <<"$2b$12$wtY3h20mUjjmeaClpqZVve">>,
                  is_superuser => <<"0">>
                 },
@@ -360,7 +363,8 @@ user_seeds() ->
 
      #{data => #{
                  username => <<"bcrypt2">>,
-                 password_hash => <<"$2b$12$wtY3h20mUjjmeaClpqZVveDWGlHzCGsvuThMlneGHA7wVeFYyns2u">>,
+                 password_hash =>
+                     <<"$2b$12$wtY3h20mUjjmeaClpqZVveDWGlHzCGsvuThMlneGHA7wVeFYyns2u">>,
                  salt => <<"$2b$12$wtY3h20mUjjmeaClpqZVve">>,
                  is_superuser => <<"0">>
                 },

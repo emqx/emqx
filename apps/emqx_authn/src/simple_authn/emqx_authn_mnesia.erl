@@ -93,8 +93,8 @@ namespace() -> "authn-builtin_db".
 roots() -> [?CONF_NS].
 
 fields(?CONF_NS) ->
-    [ {mechanism, emqx_authn_schema:mechanism('password-based')}
-    , {backend, emqx_authn_schema:backend('built-in-database')}
+    [ {mechanism, emqx_authn_schema:mechanism('password_based')}
+    , {backend, emqx_authn_schema:backend('built_in_database')}
     , {user_id_type, fun user_id_type/1}
     , {password_hash_algorithm, fun emqx_authn_password_hashing:type_rw/1}
     ] ++ emqx_authn_schema:common_fields().

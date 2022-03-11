@@ -53,8 +53,8 @@ end_per_testcase(_Case, Config) ->
 
 t_check_schema(_Config) ->
     ConfigOk = #{
-        <<"mechanism">> => <<"password-based">>,
-        <<"backend">> => <<"built-in-database">>,
+        <<"mechanism">> => <<"password_based">>,
+        <<"backend">> => <<"built_in_database">>,
         <<"user_id_type">> => <<"username">>,
         <<"password_hash_algorithm">> => #{
             <<"name">> => <<"bcrypt">>,
@@ -65,8 +65,8 @@ t_check_schema(_Config) ->
     hocon_tconf:check_plain(emqx_authn_mnesia, ?CONF(ConfigOk)),
 
     ConfigNotOk = #{
-        <<"mechanism">> => <<"password-based">>,
-        <<"backend">> => <<"built-in-database">>,
+        <<"mechanism">> => <<"password_based">>,
+        <<"backend">> => <<"built_in_database">>,
         <<"user_id_type">> => <<"username">>,
         <<"password_hash_algorithm">> => #{
             <<"name">> => <<"md6">>

@@ -56,7 +56,7 @@ fields('sharded-cluster') ->
     common_fields() ++ emqx_connector_mongo:fields(sharded).
 
 common_fields() ->
-    [ {mechanism, emqx_authn_schema:mechanism('password-based')}
+    [ {mechanism, emqx_authn_schema:mechanism('password_based')}
     , {backend, emqx_authn_schema:backend(mongodb)}
     , {collection, fun collection/1}
     , {selector, fun selector/1}

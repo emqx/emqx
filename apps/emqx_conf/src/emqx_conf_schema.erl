@@ -959,7 +959,7 @@ In EMQX, MQTT client access control is extremely flexible.<br>
 An out-of-the-box set of authorization data sources are supported.
 For example,<br>
 'file' source is to support concise and yet generic ACL rules in a file;<br>
-'built-in-database' source can be used to store per-client customizable rule sets,
+'built_in_database' source can be used to store per-client customizable rule sets,
 natively in the EMQX node;<br>
 'http' source to make EMQX call an external HTTP API to make the decision;<br>
 'PostgreSQL' etc. to look up clients or rules from external databases;<br>

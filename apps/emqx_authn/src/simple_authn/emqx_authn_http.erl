@@ -60,7 +60,7 @@ fields(post) ->
     ] ++ common_fields().
 
 common_fields() ->
-    [ {mechanism, emqx_authn_schema:mechanism('password-based')}
+    [ {mechanism, emqx_authn_schema:mechanism('password_based')}
     , {backend, emqx_authn_schema:backend(http)}
     , {url, fun url/1}
     , {body, map([{fuzzy, term(), binary()}])}

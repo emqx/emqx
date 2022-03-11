@@ -113,7 +113,7 @@ fields(http_post) ->
     , {headers, fun headers/1}
     ] ++ http_common_fields();
 fields(mnesia) ->
-    [ {type, #{type => 'built-in-database'}}
+    [ {type, #{type => 'built_in_database'}}
     , {enable, #{type => boolean(),
                  default => true}}
     ];

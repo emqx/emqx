@@ -44,7 +44,7 @@ namespace() -> "authn-mysql".
 roots() -> [?CONF_NS].
 
 fields(?CONF_NS) ->
-    [ {mechanism, emqx_authn_schema:mechanism('password-based')}
+    [ {mechanism, emqx_authn_schema:mechanism('password_based')}
     , {backend, emqx_authn_schema:backend(mysql)}
     , {password_hash_algorithm, fun emqx_authn_password_hashing:type_ro/1}
     , {query, fun query/1}

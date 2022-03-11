@@ -94,7 +94,7 @@ dry_run(_Source) -> ok.
 
 authorize(#{username := Username,
             clientid := Clientid
-           } = Client, PubSub, Topic, #{type := 'built-in-database'}) ->
+           } = Client, PubSub, Topic, #{type := 'built_in_database'}) ->
 
     Rules = case mnesia:dirty_read(?ACL_TABLE, {?ACL_TABLE_CLIENTID, Clientid}) of
                 [] -> [];

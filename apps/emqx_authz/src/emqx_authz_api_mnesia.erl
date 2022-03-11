@@ -65,18 +65,18 @@ api_spec() ->
     emqx_dashboard_swagger:spec(?MODULE, #{check_schema => true}).
 
 paths() ->
-    [ "/authorization/sources/built-in-database/username"
-    , "/authorization/sources/built-in-database/clientid"
-    , "/authorization/sources/built-in-database/username/:username"
-    , "/authorization/sources/built-in-database/clientid/:clientid"
-    , "/authorization/sources/built-in-database/all"
-    , "/authorization/sources/built-in-database/purge-all"].
+    [ "/authorization/sources/built_in_database/username"
+    , "/authorization/sources/built_in_database/clientid"
+    , "/authorization/sources/built_in_database/username/:username"
+    , "/authorization/sources/built_in_database/clientid/:clientid"
+    , "/authorization/sources/built_in_database/all"
+    , "/authorization/sources/built_in_database/purge-all"].
 
 %%--------------------------------------------------------------------
 %% Schema for each URI
 %%--------------------------------------------------------------------
 
-schema("/authorization/sources/built-in-database/username") ->
+schema("/authorization/sources/built_in_database/username") ->
     #{ 'operationId' => users
      , get =>
            #{ tags => [<<"authorization">>]
@@ -106,7 +106,7 @@ schema("/authorization/sources/built-in-database/username") ->
             }
         }
     };
-schema("/authorization/sources/built-in-database/clientid") ->
+schema("/authorization/sources/built_in_database/clientid") ->
     #{ 'operationId' => clients
      , get =>
            #{ tags => [<<"authorization">>]
@@ -138,7 +138,7 @@ schema("/authorization/sources/built-in-database/clientid") ->
                    }
             }
      };
-schema("/authorization/sources/built-in-database/username/:username") ->
+schema("/authorization/sources/built_in_database/username/:username") ->
     #{ 'operationId' => user
      , get =>
            #{ tags => [<<"authorization">>]
@@ -171,10 +171,12 @@ schema("/authorization/sources/built-in-database/username/:username") ->
                   #{ 204 => <<"Deleted">>
                    , 400 => emqx_dashboard_swagger:error_codes(
                               [?BAD_REQUEST], <<"Bad username">>)
+                   , 404 => emqx_dashboard_swagger:error_codes(
+                              [?NOT_FOUND], <<"Username Not Found">>)
                    }
             }
      };
-schema("/authorization/sources/built-in-database/clientid/:clientid") ->
+schema("/authorization/sources/built_in_database/clientid/:clientid") ->
     #{ 'operationId' => client
      , get =>
            #{ tags => [<<"authorization">>]
@@ -207,10 +209,12 @@ schema("/authorization/sources/built-in-database/clientid/:clientid") ->
                   #{ 204 => <<"Deleted">>
                    , 400 => emqx_dashboard_swagger:error_codes(
                               [?BAD_REQUEST], <<"Bad clientid">>)
+                   , 404 => emqx_dashboard_swagger:error_codes(
+                              [?NOT_FOUND], <<"ClientID Not Found">>)
                    }
             }
      };
-schema("/authorization/sources/built-in-database/all") ->
+schema("/authorization/sources/built_in_database/all") ->
     #{ 'operationId' => all
      , get =>
            #{ tags => [<<"authorization">>]
@@ -218,19 +222,20 @@ schema("/authorization/sources/built-in-database/all") ->
             , responses =>
                   #{200 => swagger_with_example({rules, ?TYPE_REF}, {all, ?PUT_MAP_EXAMPLE})}
             }
-     , put =>
+     , post =>
            #{ tags => [<<"authorization">>]
-            , description => <<"Set the list of rules for all">>
+            , description => <<"Create/Update the list of rules for all. "
+                               "Set a empty list to clean up rules">>
             , 'requestBody' =>
                   swagger_with_example({rules, ?TYPE_REF}, {all, ?PUT_MAP_EXAMPLE})
             , responses =>
-                  #{ 204 => <<"Created">>
+                  #{ 204 => <<"Updated">>
                    , 400 => emqx_dashboard_swagger:error_codes(
                               [?BAD_REQUEST], <<"Bad rule schema">>)
                    }
             }
      };
-schema("/authorization/sources/built-in-database/purge-all") ->
+schema("/authorization/sources/built_in_database/purge-all") ->
     #{ 'operationId' => purge
      , delete =>
            #{ tags => [<<"authorization">>]
@@ -315,8 +320,8 @@ clients(get, #{query_string := QueryString}) ->
                                         ?ACL_TABLE, ?ACL_CLIENTID_QSCHEMA, ?QUERY_CLIENTID_FUN),
     emqx_mgmt_util:generate_response(Response);
 clients(post, #{body := Body}) when is_list(Body) ->
-    lists:foreach(fun(#{<<"clientid">> := Clientid, <<"rules">> := Rules}) ->
-                          emqx_authz_mnesia:store_rules({clientid, Clientid}, format_rules(Rules))
+    lists:foreach(fun(#{<<"clientid">> := ClientID, <<"rules">> := Rules}) ->
+                          emqx_authz_mnesia:store_rules({clientid, ClientID}, format_rules(Rules))
                   end, Body),
     {204}.
 
@@ -332,31 +337,41 @@ user(get, #{bindings := #{username := Username}}) ->
             }
     end;
 user(put, #{bindings := #{username := Username},
-              body := #{<<"username">> := Username, <<"rules">> := Rules}}) ->
+            body := #{<<"username">> := Username, <<"rules">> := Rules}}) ->
     emqx_authz_mnesia:store_rules({username, Username}, format_rules(Rules)),
     {204};
 user(delete, #{bindings := #{username := Username}}) ->
-    emqx_authz_mnesia:delete_rules({username, Username}),
-    {204}.
+    case emqx_authz_mnesia:get_rules({username, Username}) of
+        not_found ->
+            {404, #{code => <<"NOT_FOUND">>, message => <<"Username Not Found">>}};
+        {ok, _Rules} ->
+            emqx_authz_mnesia:delete_rules({username, Username}),
+            {204}
+    end.
 
-client(get, #{bindings := #{clientid := Clientid}}) ->
-    case emqx_authz_mnesia:get_rules({clientid, Clientid}) of
+client(get, #{bindings := #{clientid := ClientID}}) ->
+    case emqx_authz_mnesia:get_rules({clientid, ClientID}) of
         not_found -> {404, #{code => <<"NOT_FOUND">>, message => <<"Not Found">>}};
         {ok, Rules} ->
-            {200, #{clientid => Clientid,
+            {200, #{clientid => ClientID,
                     rules => [ #{topic => Topic,
                                  action => Action,
                                  permission => Permission
                                 } || {Permission, Action, Topic} <- Rules]}
             }
     end;
-client(put, #{bindings := #{clientid := Clientid},
-              body := #{<<"clientid">> := Clientid, <<"rules">> := Rules}}) ->
-    emqx_authz_mnesia:store_rules({clientid, Clientid}, format_rules(Rules)),
+client(put, #{bindings := #{clientid := ClientID},
+              body := #{<<"clientid">> := ClientID, <<"rules">> := Rules}}) ->
+    emqx_authz_mnesia:store_rules({clientid, ClientID}, format_rules(Rules)),
     {204};
-client(delete, #{bindings := #{clientid := Clientid}}) ->
-    emqx_authz_mnesia:delete_rules({clientid, Clientid}),
-    {204}.
+client(delete, #{bindings := #{clientid := ClientID}}) ->
+    case emqx_authz_mnesia:get_rules({clientid, ClientID}) of
+        not_found ->
+            {404, #{code => <<"NOT_FOUND">>, message => <<"ClientID Not Found">>}};
+        {ok, _Rules} ->
+            emqx_authz_mnesia:delete_rules({clientid, ClientID}),
+            {204}
+    end.
 
 all(get, _) ->
     case emqx_authz_mnesia:get_rules(all) of
@@ -369,22 +384,22 @@ all(get, _) ->
                                 } || {Permission, Action, Topic} <- Rules]}
             }
     end;
-all(put, #{body := #{<<"rules">> := Rules}}) ->
+all(post, #{body := #{<<"rules">> := Rules}}) ->
     emqx_authz_mnesia:store_rules(all, format_rules(Rules)),
     {204}.
 
 purge(delete, _) ->
-    case emqx_authz_api_sources:get_raw_source(<<"built-in-database">>) of
+    case emqx_authz_api_sources:get_raw_source(<<"built_in_database">>) of
         [#{<<"enable">> := false}] ->
             ok = emqx_authz_mnesia:purge_rules(),
             {204};
         [#{<<"enable">> := true}] ->
             {400, #{code => <<"BAD_REQUEST">>,
                     message =>
-                        <<"'built-in-database' type source must be disabled before purge.">>}};
+                        <<"'built_in_database' type source must be disabled before purge.">>}};
         [] ->
             {404, #{code => <<"BAD_REQUEST">>,
-                    message => <<"'built-in-database' type source is not found.">>
+                    message => <<"'built_in_database' type source is not found.">>
                    }}
     end.
 
@@ -453,8 +468,8 @@ format_result([{username, Username}, {rules, Rules}]) ->
                    permission => Permission
                   } || {Permission, Action, Topic} <- Rules]
      };
-format_result([{clientid, Clientid}, {rules, Rules}]) ->
-    #{clientid => Clientid,
+format_result([{clientid, ClientID}, {rules, Rules}]) ->
+    #{clientid => ClientID,
       rules => [ #{topic => Topic,
                    action => Action,
                    permission => Permission
@@ -498,7 +513,7 @@ rules_example({ExampleName, ExampleType}) ->
                 [Example]
         end,
     #{
-        'password-based:built-in-database' => #{
+        'password_based:built_in_database' => #{
             summary => Summary,
             value   => Value
         }
