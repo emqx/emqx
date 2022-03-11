@@ -28,18 +28,23 @@
 -export_type([token_bucket_limiter/0]).
 
 %% a token bucket limiter with a limiter server's bucket reference
--type token_bucket_limiter() :: #{ tokens := non_neg_integer()  %% the number of tokens currently available
+-type token_bucket_limiter() :: #{ %% the number of tokens currently available
+                                   tokens := non_neg_integer()
                                  , rate := decimal()
                                  , capacity := decimal()
                                  , lasttime := millisecond()
-                                 , max_retry_time := non_neg_integer()      %% @see emqx_limiter_schema
-                                 , failure_strategy := failure_strategy()   %% @see emqx_limiter_schema
+                                   %% @see emqx_limiter_schema
+                                 , max_retry_time := non_neg_integer()
+                                   %% @see emqx_limiter_schema
+                                 , failure_strategy := failure_strategy()
                                  , divisible := boolean()               %% @see emqx_limiter_schema
                                  , low_water_mark := non_neg_integer()  %% @see emqx_limiter_schema
                                  , bucket := bucket() %% the limiter server's bucket
 
                                    %% retry contenxt
-                                 , retry_ctx => undefined                %% undefined meaning there is no retry context or no need to retry
+                                   %% undefined meaning no retry context or no need to retry
+
+                                 , retry_ctx => undefined
                                  | retry_context(token_bucket_limiter()) %% the retry context
                                  , atom => any() %% allow to add other keys
                                  }.

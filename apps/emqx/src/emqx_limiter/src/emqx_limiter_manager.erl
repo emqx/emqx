@@ -24,7 +24,8 @@
 %% API
 -export([ start_link/0, start_server/1, find_bucket/1
         , find_bucket/2, insert_bucket/2, insert_bucket/3
-        , make_path/2, make_path/3, restart_server/1]).
+        , make_path/2, restart_server/1
+        ]).
 
 %% gen_server callbacks
 -export([init/1, handle_call/3, handle_cast/2, handle_info/2,
@@ -34,9 +35,7 @@
 
 -type path() :: list(atom()).
 -type limiter_type() :: emqx_limiter_schema:limiter_type().
--type zone_name() :: emqx_limiter_schema:zone_name().
 -type bucket_name() :: emqx_limiter_schema:bucket_name().
--type bucket_path() :: emqx_limiter_schema:bucket_path().
 
 %% counter record in ets table
 -record(bucket, { path :: path()
@@ -58,10 +57,10 @@ start_server(Type) ->
 restart_server(Type) ->
     emqx_limiter_server_sup:restart(Type).
 
--spec find_bucket(limiter_type(), bucket_path()) ->
+-spec find_bucket(limiter_type(), bucket_name()) ->
           {ok, bucket_ref()} | undefined.
-find_bucket(Type, BucketPath) ->
-    find_bucket(make_path(Type, BucketPath)).
+find_bucket(Type, BucketName) ->
+    find_bucket(make_path(Type, BucketName)).
 
 -spec find_bucket(path()) -> {ok, bucket_ref()} | undefined.
 find_bucket(Path) ->
@@ -73,26 +72,19 @@ find_bucket(Path) ->
     end.
 
 -spec insert_bucket(limiter_type(),
-                    bucket_path(),
+                    bucket_name(),
                     bucket_ref()) -> boolean().
-insert_bucket(Type, BucketPath, Bucket) ->
-    inner_insert_bucket(make_path(Type, BucketPath), Bucket).
+insert_bucket(Type, BucketName, Bucket) ->
+    inner_insert_bucket(make_path(Type, BucketName), Bucket).
 
 
 -spec insert_bucket(path(), bucket_ref()) -> true.
 insert_bucket(Path, Bucket) ->
     inner_insert_bucket(Path, Bucket).
 
--spec make_path(limiter_type(), bucket_path()) -> path().
-make_path(Type, BucketPath) ->
-    [Type | BucketPath].
-
--spec make_path(limiter_type(), zone_name(), bucket_name()) -> path().
-make_path(shared, _GroupName, BucketName) ->
-    [shared, BucketName];
-
-make_path(Type, GroupName, BucketName) ->
-    [Type, GroupName, BucketName].
+-spec make_path(limiter_type(), bucket_name()) -> path().
+make_path(Type, BucketName) ->
+    [Type | BucketName].
 
 %%--------------------------------------------------------------------
 %% @doc

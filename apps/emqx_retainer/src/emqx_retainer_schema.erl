@@ -29,7 +29,7 @@ fields(mnesia_config) ->
 fields(flow_control) ->
     [ {batch_read_number, sc(integer(), 0, fun is_pos_integer/1)}
     , {batch_deliver_number, sc(range(0, 1000), 0)}
-    , {limiter_bucket_name, sc(atom(), retainer)}
+    , {limiter, sc(emqx_schema:map("limiter's type", atom()), #{})}
     ].
 
 %%--------------------------------------------------------------------

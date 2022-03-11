@@ -30,7 +30,10 @@
 -export_type([container/0, check_result/0]).
 
 -type container() :: #{ limiter_type() => undefined | limiter()
-                      , retry_key() => undefined | retry_context() | future()  %% the retry context of the limiter
+                        %% the retry context of the limiter
+                      , retry_key() => undefined
+                      | retry_context()
+                      | future()
                       , retry_ctx := undefined | any()  %% the retry context of the container
                       }.
 
@@ -62,7 +65,8 @@ new(Types) ->
 %% @doc generate a container
 %% according to the type of limiter and the bucket name configuration of the limiter
 %% @end
--spec get_limiter_by_names(list(limiter_type()), #{limiter_type() => emqx_limiter_schema:bucket_name()}) -> container().
+-spec get_limiter_by_names(list(limiter_type()),
+                           #{limiter_type() => emqx_limiter_schema:bucket_name()}) -> container().
 get_limiter_by_names(Types, BucketNames) ->
     Init = fun(Type, Acc) ->
                    Limiter = emqx_limiter_server:connect(Type, BucketNames),

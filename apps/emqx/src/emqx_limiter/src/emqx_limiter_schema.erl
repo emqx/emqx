@@ -20,7 +20,8 @@
 
 -export([ roots/0, fields/1, to_rate/1, to_capacity/1
         , minimum_period/0, to_burst_rate/1, to_initial/1
-        , namespace/0, to_bucket_path/1, default_group_name/0]).
+        , namespace/0, get_bucket_cfg_path/2
+        ]).
 
 -define(KILOBYTE, 1024).
 
@@ -31,7 +32,6 @@
                       | shared.
 
 -type bucket_name() :: atom().
--type zone_name() :: atom().
 -type rate() :: infinity | float().
 -type burst_rate() :: 0 | float().
 -type capacity() :: infinity | number().    %% the capacity of the token bucket
@@ -47,17 +47,15 @@
 -typerefl_from_string({burst_rate/0, ?MODULE, to_burst_rate}).
 -typerefl_from_string({capacity/0, ?MODULE, to_capacity}).
 -typerefl_from_string({initial/0, ?MODULE, to_initial}).
--typerefl_from_string({bucket_path/0, ?MODULE, to_bucket_path}).
 
 -reflect_type([ rate/0
               , burst_rate/0
               , capacity/0
               , initial/0
               , failure_strategy/0
-              , bucket_path/0
               ]).
 
--export_type([limiter_type/0, bucket_name/0, zone_name/0]).
+-export_type([limiter_type/0, bucket_name/0, bucket_path/0]).
 
 -import(emqx_schema, [sc/2, map/2]).
 -define(UNIT_TIME_IN_MS, 1000).
@@ -67,38 +65,24 @@ namespace() -> limiter.
 roots() -> [limiter].
 
 fields(limiter) ->
-    [ {bytes_in, sc(ref(limiter_opts), #{})}
-    , {message_in, sc(ref(limiter_opts), #{})}
-    , {connection, sc(ref(limiter_opts), #{})}
-    , {message_routing, sc(ref(limiter_opts), #{})}
-    , {shared, sc(ref(shared_opts),
-                  #{description =>
-                        <<"Some functions that do not need to use global and zone scope,"
-                          "them can shared use this type">>})}
+    [ {bytes_in, sc(ref(limiter_opts), #{description => <<"Limiter of message publish bytes">>})}
+    , {message_in, sc(ref(limiter_opts), #{description => <<"Message publish limiter">>})}
+    , {connection, sc(ref(limiter_opts), #{description => <<"Connection limiter">>})}
+    , {message_routing, sc(ref(limiter_opts), #{description => <<"Deliver limiter">>})}
+    , {batch, sc(ref(limiter_opts),
+                 #{description => <<"Internal batch operation limiter">>})}
     ];
 
 fields(limiter_opts) ->
-    fields(rate_burst) ++ %% the node global limit
-        [ {group, sc(map("group name", ref(group_opts)), #{})}
-        ];
-
-fields(group_opts) ->
-    fields(rate_burst) ++  %% the group limite
-        [ {bucket, sc(map("bucket name", ref(bucket_opts)), #{})}
-        ];
-
-fields(rate_burst) ->
     [ {rate, sc(rate(), #{default => "infinity"})}
     , {burst, sc(burst_rate(), #{default => "0/0s"})}
+    , {bucket, sc(map("bucket name", ref(bucket_opts)), #{})}
     ];
-
-fields(shared_opts) ->
-    [{bucket, sc(map("bucket name", ref(bucket_opts)), #{})}];
 
 fields(bucket_opts) ->
     [ {rate, sc(rate(), #{})}
-    , {initial, sc(initial(), #{default => "0"})}
     , {capacity, sc(capacity(), #{})}
+    , {initial, sc(initial(), #{default => "0"})}
     , {per_client, sc(ref(client_bucket),
                       #{default => #{},
                         desc => "The rate limit for each user of the bucket,"
@@ -137,9 +121,9 @@ minimum_period() ->
 to_rate(Str) ->
     to_rate(Str, true, false).
 
-%% default group name for shared type limiter
-default_group_name() ->
-    '_default'.
+-spec get_bucket_cfg_path(limiter_type(), bucket_name()) -> bucket_path().
+get_bucket_cfg_path(Type, BucketName) ->
+    [limiter, Type, bucket, BucketName].
 
 %%--------------------------------------------------------------------
 %% Internal functions
@@ -213,14 +197,3 @@ apply_unit("kb", Val) -> Val * ?KILOBYTE;
 apply_unit("mb", Val) -> Val * ?KILOBYTE * ?KILOBYTE;
 apply_unit("gb", Val) -> Val * ?KILOBYTE * ?KILOBYTE * ?KILOBYTE;
 apply_unit(Unit, _) -> throw("invalid unit:" ++ Unit).
-
-to_bucket_path(Str) ->
-    Dirs = [erlang:list_to_atom(string:trim(T)) || T <- string:tokens(Str, ".")],
-    case Dirs of
-        [_Group, _Bucket] = Path ->
-            {ok, Path};
-        [_Bucket] = Path ->
-            {ok, Path};
-        _ ->
-            {error, Str}
-    end.
