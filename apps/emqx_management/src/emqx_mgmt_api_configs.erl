@@ -17,12 +17,17 @@
 -module(emqx_mgmt_api_configs).
 
 -include_lib("hocon/include/hoconsc.hrl").
+-include_lib("emqx/include/logger.hrl").
 -behaviour(minirest_api).
 
 -export([api_spec/0, namespace/0]).
 -export([paths/0, schema/1, fields/1]).
 
--export([config/3, config_reset/3, configs/3, get_full_config/0]).
+-export([ config/3
+        , config_reset/3
+        , configs/3
+        , get_full_config/0
+        , global_zone_configs/3]).
 
 -export([gen_schema/1]).
 
@@ -51,7 +56,8 @@
     <<"event_message">>,
     <<"prometheus">>,
     <<"telemetry">>
-]).
+    ] ++ global_zone_roots()
+).
 
 api_spec() ->
     emqx_dashboard_swagger:spec(?MODULE, #{check_schema => true}).
@@ -59,7 +65,7 @@ api_spec() ->
 namespace() -> "configuration".
 
 paths() ->
-    ["/configs", "/configs_reset/:rootname"] ++
+    ["/configs", "/configs_reset/:rootname", "/configs/global_zone"] ++
     lists:map(fun({Name, _Type}) -> ?PREFIX ++ binary_to_list(Name) end, config_list()).
 
 schema("/configs") ->
@@ -101,6 +107,25 @@ schema("/configs_reset/:rootname") ->
             responses => #{
                 200 => <<"Rest config successfully">>,
                 400 => emqx_dashboard_swagger:error_codes(['NO_DEFAULT_VALUE', 'REST_FAILED'])
+            }
+        }
+    };
+schema("/configs/global_zone") ->
+    Schema = global_zone_schema(),
+    #{
+        'operationId' => global_zone_configs,
+        get => #{
+            tags => [conf],
+            description => <<"Get the global zone configs">>,
+            responses => #{200 => Schema}
+        },
+        put => #{
+            tags => [conf],
+            description => <<"Update globbal zone configs">>,
+            'requestBody' => Schema,
+            responses => #{
+                200 => Schema,
+                400 => emqx_dashboard_swagger:error_codes(['UPDATE_FAILED'])
             }
         }
     };
@@ -159,6 +184,28 @@ config(put, #{body := Body}, Req) ->
             {400, #{code => 'UPDATE_FAILED', message => ?ERR_MSG(Reason)}}
     end.
 
+global_zone_configs(get, _Params, _Req) ->
+    Paths = global_zone_roots(),
+    Zones = lists:foldl(fun(Path, Acc) -> Acc#{Path => get_config_with_default([Path])} end,
+        #{}, Paths),
+    {200, Zones};
+global_zone_configs(put, #{body := Body}, _Req) ->
+    Res =
+        maps:fold(fun(Path, Value, Acc) ->
+            case emqx:update_config([Path], Value, #{rawconf_with_defaults => true}) of
+                {ok, #{raw_config := RawConf}} ->
+                    Acc#{Path => RawConf};
+                {error, Reason} ->
+                    ?SLOG(error, #{msg => "update global zone failed", reason => Reason,
+                        path => Path, value => Value}),
+                    Acc
+            end
+                  end, #{}, Body),
+    case maps:size(Res) =:= maps:size(Body) of
+        true -> {200, Res};
+        false -> {400, #{code => 'UPDATE_FAILED'}}
+    end.
+
 config_reset(post, _Params, Req) ->
     %% reset the config specified by the query string param 'conf_path'
     Path = conf_path_reset(Req) ++ conf_path_from_querystr(Req),
@@ -192,9 +239,12 @@ conf_path_reset(Req) ->
     string:lexemes(Path, "/ ").
 
 get_full_config() ->
-        emqx_config:fill_defaults(
-            maps:without(?EXCLUDES,
-                emqx:get_raw_config([]))).
+    emqx_config:fill_defaults(
+        maps:without(?EXCLUDES,
+            emqx:get_raw_config([]))).
+
+get_config_with_default(Path) ->
+    emqx_config:fill_defaults(emqx:get_raw_config(Path)).
 
 conf_path_from_querystr(Req) ->
     case proplists:get_value(<<"conf_path">>, cowboy_req:parse_qs(Req)) of
@@ -235,3 +285,10 @@ gen_schema(_Conf) ->
 
 with_default_value(Type, Value) ->
     Type#{example => emqx_map_lib:binary_string(Value)}.
+
+global_zone_roots() ->
+    lists:map(fun({K, _}) -> K end, global_zone_schema()).
+
+global_zone_schema() ->
+    Roots = hocon_schema:roots(emqx_zone_schema),
+    lists:map(fun({RootKey, {_Root, Schema}}) -> {RootKey, Schema} end, Roots).
