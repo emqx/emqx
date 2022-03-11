@@ -53,13 +53,6 @@ jobs:
       run: |
         scripts/get-dep-refs.sh
         make clean-all
-    - name: load rocksdb cache
-      uses: actions/cache@v2
-      with:
-        path: |
-          _build/default/lib/rocksdb/
-          deps/rocksdb/
-        key: ${{ matrix.os }}-${{ matrix.elixir }}-${{ matrix.otp }}-amd64-${{ steps.deps-refs.outputs.DEP_ROCKSDB_REF }}
     - name: load quicer cache
       uses: actions/cache@v2
       with:
@@ -174,11 +167,6 @@ jobs:
         sudo cp rebar3 /usr/local/bin/rebar3
         scripts/get-dep-refs.sh
         make clean-all
-    - name: load rocksdb cache
-      uses: actions/cache@v2
-      with:
-        path: _build/default/lib/rocksdb/
-        key: ${{ matrix.macos }}-${{ matrix.otp }}-macos-${{ steps.deps-refs.outputs.DEP_ROCKSDB_REF }}
     - name: load quicer cache
       uses: actions/cache@v2
       with:

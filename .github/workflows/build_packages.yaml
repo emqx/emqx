@@ -25,7 +25,6 @@ jobs:
     container: "ghcr.io/emqx/emqx-builder/5.0-8:1.13.3-24.2.1-1-ubuntu20.04"
 
     outputs:
-      DEP_ROCKSDB_REF: ${{ steps.deps-refs.outputs.DEP_ROCKSDB_REF }}
       DEP_QUICER_REF: ${{ steps.deps-refs.outputs.DEP_QUICER_REF }}
 
     steps:
@@ -144,11 +143,6 @@ jobs:
         kerl build ${{ matrix.otp }}
         kerl install ${{ matrix.otp }} $HOME/.kerl/${{ matrix.otp }}
 
-    - name: load rocksdb cache
-      uses: actions/cache@v2
-      with:
-        path: source/_build/default/lib/rocksdb/
-        key: ${{ matrix.os }}-${{ matrix.otp }}-${{ matrix.arch }}-${{ needs.prepare.outputs.DEP_ROCKSDB_REF }}
     - name: load quicer cache
       uses: actions/cache@v2
       with:
@@ -282,13 +276,6 @@ jobs:
         path: .
     - name: unzip source code
       run: unzip -q source.zip
-    - name: load rocksdb cache
-      uses: actions/cache@v2
-      with:
-        path: |
-          source/_build/default/lib/rocksdb/
-          source/deps/rocksdb/
-        key: ${{ matrix.os }}-${{ matrix.otp }}-${{ matrix.arch }}-${{ needs.prepare.outputs.DEP_ROCKSDB_REF }}
     - name: load quicer cache
       uses: actions/cache@v2
       with:
@@ -390,13 +377,6 @@ jobs:
 
     - uses: docker/setup-buildx-action@v1
 
-    - name: load rocksdb cache
-      uses: actions/cache@v2
-      with:
-        path: |
-          source/_build/default/lib/rocksdb/
-          source/deps/rocksdb//
-        key: ${{ matrix.os }}-${{ matrix.otp }}-${{ matrix.arch }}-${{ needs.prepare.outputs.DEP_ROCKSDB_REF }}
     - name: load quicer cache
       uses: actions/cache@v2
       with:

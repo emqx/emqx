@@ -7,5 +7,4 @@ get_ref() {
 }
 
 rebar3 get-deps
-echo "::set-output name=DEP_ROCKSDB_REF::$(get_ref rocksdb)"
 echo "::set-output name=DEP_QUICER_REF::$(get_ref quicer)"
