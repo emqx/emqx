@@ -820,13 +820,10 @@ aggregate_status(AllStatus) ->
 aggregate_metrics([]) -> error_some_strange_happen;
 aggregate_metrics([HeadMetrics | AllMetrics]) ->
     CombinerFun =
-        %% use fixpoint reference self
-        fun (FixVal) ->
-            fun (_, Val1, Val2) ->
-                case erlang:is_map(Val1) of
-                    true -> emqx_map_lib:merge_with(FixVal(FixVal), Val1, Val2);
-                    false -> Val1 + Val2
-                end
+        fun ComFun(Val1, Val2) ->
+            case erlang:is_map(Val1) of
+                true -> emqx_map_lib:merge_with(ComFun, Val1, Val2);
+                false -> Val1 + Val2
             end
         end,
     Fun = fun (ElemMap, AccMap) ->

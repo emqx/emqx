@@ -35,3 +35,4 @@ introduced_in() ->
           emqx_rpc:erpc_multicall().
 lookup_from_all_nodes(Nodes, ChainName, AuthenticatorID) ->
     erpc:multicall(Nodes, emqx_authn_api, lookup_from_local_node, [ChainName, AuthenticatorID], ?TIMEOUT).
+

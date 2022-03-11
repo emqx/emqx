@@ -224,3 +224,4 @@ error_type_two_maps(M1, M2) when is_map(M1) ->
     {badmap, M2};
 error_type_two_maps(M1, _M2) ->
     {badmap, M1}.
+

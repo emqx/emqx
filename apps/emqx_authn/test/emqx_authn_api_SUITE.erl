@@ -169,16 +169,13 @@ test_authenticator(PathPrefix) ->
                      uri(PathPrefix ++ [?CONF_NS, "password-based:http"])),
     {ok, RList} = emqx_json:safe_decode(Res),
     Snd = fun ({_, Val}) -> Val end,
-    LookupVal =
-        fun(FixVal) ->
-            fun(List, RestJson) ->
-                case List of
-                    [Name] -> Snd(lists:keyfind(Name, 1, RestJson));
-                    [Name | NS] -> (FixVal(FixVal))(NS, Snd(lists:keyfind(Name, 1, RestJson)))
-                end
+    LookupVal = fun LookupV(List, RestJson) ->
+            case List of
+                [Name] -> Snd(lists:keyfind(Name, 1, RestJson));
+                [Name | NS] -> LookupV(NS, Snd(lists:keyfind(Name, 1, RestJson)))
             end
         end,
-    LookFun = fun (List) -> (LookupVal(LookupVal))(List, RList) end,
+    LookFun = fun (List) -> LookupVal(List, RList) end,
     MetricsList = [{<<"failed">>, 0},
                    {<<"matched">>, 0},
                    {<<"rate">>, 0.0},
