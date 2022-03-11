@@ -34,6 +34,7 @@ groups() ->
     [].
 
 init_per_suite(Config) ->
+    ok = stop_apps([emqx_resource, emqx_connector]),
     case emqx_common_test_helpers:is_tcp_server_available(?MONGO_HOST, ?MONGO_DEFAULT_PORT) of
         true ->
             ok = emqx_common_test_helpers:start_apps(
