@@ -178,7 +178,7 @@ test_authenticator(PathPrefix) ->
                 end
             end
         end,
-    LookFun = fun (List) -> (LookupVal(LookupVal)) (List, RList) end,
+    LookFun = fun (List) -> (LookupVal(LookupVal))(List, RList) end,
     MetricsList = [{<<"failed">>, 0},
                    {<<"matched">>, 0},
                    {<<"rate">>, 0.0},

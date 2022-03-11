@@ -756,9 +756,9 @@ list_authenticator(ChainName, ConfKeyPath, AuthenticatorID) ->
     AuthenticatorsConfig = get_raw_config_with_defaults(ConfKeyPath),
     case find_config(AuthenticatorID, AuthenticatorsConfig) of
         {ok, AuthenticatorConfig} ->
-            Status_And_Metrics = lookup_from_all_nodes(ChainName, AuthenticatorID),
+            StatusAndMetrics = lookup_from_all_nodes(ChainName, AuthenticatorID),
             Fun = fun ({Key, Val}, Map) -> maps:put(Key, Val, Map) end,
-            AppendList = [{id, AuthenticatorID}, {status_and_metrics, Status_And_Metrics}],
+            AppendList = [{id, AuthenticatorID}, {status_and_metrics, StatusAndMetrics}],
             {200, lists:foldl(Fun, convert_certs(AuthenticatorConfig), AppendList)};
         {error, Reason} ->
             serialize_error(Reason)

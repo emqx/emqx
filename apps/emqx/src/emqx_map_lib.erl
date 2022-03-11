@@ -186,13 +186,13 @@ merge_with(Combiner, Map1, Map2) when is_map(Map1),
     case map_size(Map1) > map_size(Map2) of
         true ->
             Iterator = maps:iterator(Map2),
-            merge_with_1(maps:next(Iterator),
+            merge_with_t(maps:next(Iterator),
                          Map1,
                          Map2,
                          Combiner);
         false ->
             Iterator = maps:iterator(Map1),
-            merge_with_1(maps:next(Iterator),
+            merge_with_t(maps:next(Iterator),
                          Map2,
                          Map1,
                          fun(K, V1, V2) -> Combiner(K, V2, V1) end)
@@ -201,15 +201,15 @@ merge_with(Combiner, Map1, Map2) ->
     error_with_info(error_type_merge_intersect(Map1, Map2, Combiner),
                     [Combiner, Map1, Map2]).
 
-merge_with_1({K, V2, Iterator}, Map1, Map2, Combiner) ->
+merge_with_t({K, V2, Iterator}, Map1, Map2, Combiner) ->
     case Map1 of
         #{ K := V1 } ->
             NewMap1 = Map1#{ K := Combiner(K, V1, V2) },
-            merge_with_1(maps:next(Iterator), NewMap1, Map2, Combiner);
+            merge_with_t(maps:next(Iterator), NewMap1, Map2, Combiner);
         #{ } ->
-            merge_with_1(maps:next(Iterator), maps:put(K, V2, Map1), Map2, Combiner)
+            merge_with_t(maps:next(Iterator), maps:put(K, V2, Map1), Map2, Combiner)
     end;
-merge_with_1(none, Result, _, _) ->
+merge_with_t(none, Result, _, _) ->
     Result.
 
 error_type_merge_intersect(M1, M2, Combiner) when is_function(Combiner, 3) ->
