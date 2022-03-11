@@ -586,11 +586,7 @@ fields("log") ->
     ];
 
 fields("console_handler") ->
-    [ {"enable",
-       sc(boolean(),
-          #{ default => false
-           })}
-    ] ++ log_handler_common_confs();
+    log_handler_common_confs();
 
 fields("log_file_handler") ->
     [ {"file",
@@ -704,12 +700,20 @@ tr_cluster_discovery(Conf) ->
 tr_logger_level(Conf) ->
     ConsoleLevel = conf_get("log.console_handler.level", Conf, undefined),
     FileLevels = [conf_get("level", SubConf) || {_, SubConf}
-                    <- maps:to_list(conf_get("log.file_handlers", Conf, #{}))],
+                    <- logger_file_handlers(Conf)],
     case FileLevels ++ [ConsoleLevel || ConsoleLevel =/= undefined] of
         [] -> warning; %% warning is the default level we should use
         Levels ->
             least_severe_log_level(Levels)
     end.
+
+logger_file_handlers(Conf) ->
+    Handlers = maps:to_list(conf_get("log.file_handlers", Conf, #{})),
+    lists:filter(fun({_Name, Opts}) ->
+                         B = conf_get("enable", Opts),
+                         true = is_boolean(B),
+                         B
+                 end, Handlers).
 
 tr_logger(Conf) ->
     %% For the default logger that outputs to console
@@ -743,12 +747,15 @@ tr_logger(Conf) ->
                 filters => log_filter(SubConf),
                 filesync_repeat_interval => no_repeat
             }}
-        end || {HandlerName, SubConf} <- maps:to_list(conf_get("log.file_handlers", Conf, #{}))],
-
+        end || {HandlerName, SubConf} <- logger_file_handlers(Conf)],
     [{handler, default, undefined}] ++ ConsoleHandler ++ FileHandlers.
 
 log_handler_common_confs() ->
-    [ {"level",
+    [ {"enable",
+       sc(boolean(),
+          #{ default => false
+           })}
+    , {"level",
        sc(log_level(),
           #{ default => warning
            , desc => "Global log level. This includes the primary log level "
