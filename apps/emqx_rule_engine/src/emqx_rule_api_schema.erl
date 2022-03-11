@@ -72,6 +72,7 @@ fields("rule_test") ->
                                    , ref("ctx_dropped")
                                    , ref("ctx_connected")
                                    , ref("ctx_disconnected")
+                                   , ref("ctx_bridge_mqtt")
                                    ]),
         #{desc => "The context of the event for testing",
           default => #{}})}
@@ -204,7 +205,20 @@ fields("ctx_disconnected") ->
     , {"sockname", sc(binary(), #{desc => "The IP Address and Port of the Local Listener"})}
     , {"disconnected_at", sc(integer(), #{
         desc => "The Time that this Client is Disconnected"})}
-    ].
+    ];
+
+fields("ctx_bridge_mqtt") ->
+    [ {"event_type", sc('$bridges/mqtt:*', #{desc => "Event Type", required => true})}
+    , {"id", sc(binary(), #{desc => "Message ID"})}
+    , {"payload", sc(binary(), #{desc => "The Message Payload"})}
+    , {"topic", sc(binary(), #{desc => "Message Topic"})}
+    , {"server", sc(binary(), #{desc => "The IP address (or hostname) and port of the MQTT broker,"
+        " in IP:Port format"})}
+    , {"dup", sc(binary(), #{desc => "The DUP flag of the MQTT message"})}
+    , {"retain", sc(binary(), #{desc => "If is a retain message"})}
+    , {"message_received_at", sc(integer(), #{
+        desc => "The Time that this Message is Received"})}
+    ] ++ [qos()].
 
 qos() ->
     {"qos", sc(emqx_schema:qos(), #{desc => "The Message QoS"})}.

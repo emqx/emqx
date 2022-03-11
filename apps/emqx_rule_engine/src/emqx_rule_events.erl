@@ -607,7 +607,7 @@ columns_with_exam(<<"$bridges/mqtt", _/binary>> = EventName) ->
     [ {<<"event">>, EventName}
     , {<<"id">>, emqx_guid:to_hexstr(emqx_guid:gen())}
     , {<<"payload">>, <<"{\"msg\": \"hello\"}">>}
-    , {<<"peerhost">>, <<"192.168.0.10">>}
+    , {<<"server">>, <<"192.168.0.10:1883">>}
     , {<<"topic">>, <<"t/a">>}
     , {<<"qos">>, 1}
     , {<<"dup">>, false}
