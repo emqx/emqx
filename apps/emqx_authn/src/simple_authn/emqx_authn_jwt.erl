@@ -215,7 +215,7 @@ create2(#{use_jwks := false,
           algorithm := 'public-key',
           certificate := Certificate,
           verify_claims := VerifyClaims}) ->
-    JWK = jose_jwk:from_pem_file(Certificate),
+    JWK = create_jwk_from_pem_or_file(Certificate),
     {ok, #{jwk => JWK,
            verify_claims => VerifyClaims}};
 
@@ -227,6 +227,16 @@ create2(#{use_jwks := true,
                    verify_claims => VerifyClaims}};
         {error, Reason} ->
             {error, Reason}
+    end.
+
+create_jwk_from_pem_or_file(CertfileOrFilePath)
+  when is_binary(CertfileOrFilePath);
+       is_list(CertfileOrFilePath) ->
+    case filelib:is_file(CertfileOrFilePath) of
+        true ->
+            jose_jwk:from_pem_file(CertfileOrFilePath);
+        false ->
+            jose_jwk:from_pem(iolist_to_binary(CertfileOrFilePath))
     end.
 
 connector_opts(#{ssl := #{enable := Enable} = SSL} = Config) ->
