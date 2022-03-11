@@ -164,10 +164,38 @@ test_authenticator(PathPrefix) ->
                      post,
                      uri(PathPrefix ++ [?CONF_NS]),
                      ValidConfig0),
-    {ok, 200, _} = request(
+    {ok, 200, Res} = request(
                      get,
-                     uri(PathPrefix ++ [?CONF_NS, "password_based:http"])),
-
+                     uri(PathPrefix ++ [?CONF_NS, "password-based:http"])),
+    {ok, RList} = emqx_json:safe_decode(Res),
+    Snd = fun ({_, Val}) -> Val end,
+    LookupVal =
+        fun(FixVal) ->
+            fun(List, RestJson) ->
+                case List of
+                    [Name] -> Snd(lists:keyfind(Name, 1, RestJson));
+                    [Name | NS] -> (FixVal(FixVal))(NS, Snd(lists:keyfind(Name, 1, RestJson)))
+                end
+            end
+        end,
+    LookFun = fun (List) -> (LookupVal(LookupVal)) (List, RList) end,
+    MetricsList = [{<<"failed">>, 0},
+                   {<<"matched">>, 0},
+                   {<<"rate">>, 0.0},
+                   {<<"rate_last5m">>, 0.0},
+                   {<<"rate_max">>, 0.0},
+                   {<<"success">>, 0}],
+    EqualFun = fun ({M, V}) ->
+                   ?assertEqual(V, LookFun([<<"status_and_metrics">>,
+                                            <<"metrics">>,
+                                            M]
+                                          )
+                               ) end,
+    lists:map(EqualFun, MetricsList),
+    ?assertEqual(<<"connected">>,
+                 LookFun([<<"status_and_metrics">>,
+                          <<"status">>
+                         ])),
     {ok, 404, _} = request(
                      get,
                      uri(PathPrefix ++ [?CONF_NS, "password_based:redis"])),

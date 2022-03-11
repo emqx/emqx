@@ -552,7 +552,7 @@ authenticators(get, _Params) ->
     list_authenticators([authentication]).
 
 authenticator(get, #{bindings := #{id := AuthenticatorID}}) ->
-    list_authenticator([authentication], AuthenticatorID);
+    list_authenticator(?GLOBAL, [authentication], AuthenticatorID);
 
 authenticator(put, #{bindings := #{id := AuthenticatorID}, body := Config}) ->
     update_authenticator([authentication], ?GLOBAL, AuthenticatorID, Config);
@@ -576,8 +576,8 @@ listener_authenticators(get, #{bindings := #{listener_id := ListenerID}}) ->
 
 listener_authenticator(get, #{bindings := #{listener_id := ListenerID, id := AuthenticatorID}}) ->
     with_listener(ListenerID,
-                  fun(Type, Name, _) ->
-                        list_authenticator([listeners, Type, Name, authentication],
+                  fun(Type, Name, ChainName) ->
+                        list_authenticator(ChainName, [listeners, Type, Name, authentication],
                                        AuthenticatorID)
                   end);
 listener_authenticator(put,
@@ -752,11 +752,11 @@ list_authenticators(ConfKeyPath) ->
                         || AuthenticatorConfig <- AuthenticatorsConfig],
     {200, NAuthenticators}.
 
-list_authenticator(ConfKeyPath, AuthenticatorID) ->
+list_authenticator(ChainName, ConfKeyPath, AuthenticatorID) ->
     AuthenticatorsConfig = get_raw_config_with_defaults(ConfKeyPath),
     case find_config(AuthenticatorID, AuthenticatorsConfig) of
         {ok, AuthenticatorConfig} ->
-            Status_And_Metrics = lookup_from_all_nodes(?GLOBAL, AuthenticatorID),
+            Status_And_Metrics = lookup_from_all_nodes(ChainName, AuthenticatorID),
             Fun = fun ({Key, Val}, Map) -> maps:put(Key, Val, Map) end,
             AppendList = [{id, AuthenticatorID}, {status_and_metrics, Status_And_Metrics}],
             {200, lists:foldl(Fun, convert_certs(AuthenticatorConfig), AppendList)};
@@ -862,7 +862,9 @@ restructure_map(#{counters := #{failed := Failed, matched := Match, success := S
       rate => Rate,
       rate_last5m => Rate5m,
       rate_max => RateMax
-     }.
+     };
+restructure_map(Error) ->
+     Error.
 
 error_msg(Code, Msg) when is_binary(Msg) ->
               #{code => Code, message => Msg};
