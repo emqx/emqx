@@ -22,7 +22,7 @@
         , get_selected_data/3
         ]).
 
--spec test(#{sql := binary(), context := map()}) -> {ok, map() | list()} | {error, nomatch}.
+-spec test(#{sql := binary(), context := map()}) -> {ok, map() | list()} | {error, term()}.
 test(#{sql := Sql, context := Context}) ->
     case emqx_rule_sqlparser:parse(Sql) of
         {ok, Select} ->

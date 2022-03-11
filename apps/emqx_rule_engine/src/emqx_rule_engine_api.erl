@@ -86,7 +86,7 @@ api_spec() ->
 paths() -> ["/rule_events", "/rule_test", "/rules", "/rules/:id"].
 
 error_schema(Code, Message) when is_atom(Code) ->
-    emqx_dashboard_swagger:error_codes([Code], Message).
+    emqx_dashboard_swagger:error_codes([Code], list_to_binary(Message)).
 
 rule_creation_schema() ->
     ref(emqx_rule_api_schema, "rule_creation").
