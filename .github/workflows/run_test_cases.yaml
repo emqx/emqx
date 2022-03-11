@@ -37,11 +37,6 @@ jobs:
           run: |
             scripts/get-dep-refs.sh
             make clean-all
-        - name: load rocksdb cache
-          uses: actions/cache@v2
-          with:
-            path: source/_build/default/lib/rocksdb/
-            key: ${{ matrix.os }}-${{ matrix.otp }}-${{ matrix.arch }}-${{ steps.deps-refs.outputs.DEP_ROCKSDB_REF }}
         - name: load quicer cache
           uses: actions/cache@v2
           with:
@@ -131,11 +126,6 @@ jobs:
         run: |
           scripts/get-dep-refs.sh
           make clean-all
-      - name: load rocksdb cache
-        uses: actions/cache@v2
-        with:
-          path: source/_build/default/lib/rocksdb/
-          key: ${{ matrix.os }}-${{ matrix.otp }}-${{ matrix.arch }}-${{ steps.deps-refs.outputs.DEP_ROCKSDB_REF }}
       - name: load quicer cache
         uses: actions/cache@v2
         with:
