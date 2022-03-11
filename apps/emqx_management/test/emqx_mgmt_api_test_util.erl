@@ -104,7 +104,8 @@ api_path(Parts)->
     ?SERVER ++ filename:join([?BASE_PATH | Parts]).
 
 %% Usage:
-%% upload_request(<<"site.com/api/upload">>, <<"path/to/file.png">>, <<"upload">>, <<"image/png">>, [], <<"some-token">>)
+%% upload_request(<<"site.com/api/upload">>, <<"path/to/file.png">>,
+%% <<"upload">>, <<"image/png">>, [], <<"some-token">>)
 %%
 %% Usage with RequestData:
 %% Payload = [{upload_type, <<"user_picture">>}],
@@ -112,8 +113,10 @@ api_path(Parts)->
 %% RequestData = [
 %%     {<<"payload">>, PayloadContent}
 %% ]
-%% upload_request(<<"site.com/api/upload">>, <<"path/to/file.png">>, <<"upload">>, <<"image/png">>, RequestData, <<"some-token">>)
--spec upload_request(URL, FilePath, Name, MimeType, RequestData, AuthorizationToken) -> {ok, binary()} | {error, list()} when
+%% upload_request(<<"site.com/api/upload">>, <<"path/to/file.png">>,
+%% <<"upload">>, <<"image/png">>, RequestData, <<"some-token">>)
+-spec upload_request(URL, FilePath, Name, MimeType, RequestData, AuthorizationToken) ->
+    {ok, binary()} | {error, list()} when
     URL:: binary(),
     FilePath:: binary(),
     Name:: binary(),
@@ -125,7 +128,8 @@ upload_request(URL, FilePath, Name, MimeType, RequestData, AuthorizationToken) -
     Filename = filename:basename(FilePath),
     {ok, Data} = file:read_file(FilePath),
     Boundary = emqx_guid:to_base62(emqx_guid:gen()),
-    RequestBody = format_multipart_formdata(Data, RequestData, Name, [Filename], MimeType, Boundary),
+    RequestBody = format_multipart_formdata(Data, RequestData, Name,
+        [Filename], MimeType, Boundary),
     ContentType = "multipart/form-data; boundary=" ++ binary_to_list(Boundary),
     ContentLength = integer_to_list(length(binary_to_list(RequestBody))),
     Headers = [
@@ -140,7 +144,8 @@ upload_request(URL, FilePath, Name, MimeType, RequestData, AuthorizationToken) -
     inets:start(),
     httpc:request(Method, {URL, Headers, ContentType, RequestBody}, HTTPOptions, Options).
 
--spec format_multipart_formdata(Data, Params, Name, FileNames, MimeType, Boundary) -> binary() when
+-spec format_multipart_formdata(Data, Params, Name, FileNames, MimeType, Boundary) ->
+    binary() when
     Data:: binary(),
     Params:: list(),
     Name:: binary(),
@@ -154,7 +159,8 @@ format_multipart_formdata(Data, Params, Name, FileNames, MimeType, Boundary) ->
         erlang:iolist_to_binary([
             Acc,
             StartBoundary, LineSeparator,
-            <<"Content-Disposition: form-data; name=\"">>, Key, <<"\"">>, LineSeparator, LineSeparator,
+            <<"Content-Disposition: form-data; name=\"">>, Key, <<"\"">>,
+            LineSeparator, LineSeparator,
             Value, LineSeparator
         ])
                              end, <<"">>, Params),
@@ -162,7 +168,8 @@ format_multipart_formdata(Data, Params, Name, FileNames, MimeType, Boundary) ->
         erlang:iolist_to_binary([
             Acc,
             StartBoundary, LineSeparator,
-            <<"Content-Disposition: form-data; name=\"">>, Name, <<"\"; filename=\"">>, FileName, <<"\"">>, LineSeparator,
+            <<"Content-Disposition: form-data; name=\"">>, Name, <<"\"; filename=\"">>,
+            FileName, <<"\"">>, LineSeparator,
             <<"Content-Type: ">>, MimeType, LineSeparator, LineSeparator,
             Data,
             LineSeparator

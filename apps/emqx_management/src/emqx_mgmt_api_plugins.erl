@@ -77,7 +77,8 @@ schema("/plugins/install") ->
         'operationId' => upload_install,
         post => #{
             description => "Install a plugin(plugin-vsn.tar.gz)."
-            "Follow [emqx-plugin-template](https://github.com/emqx/emqx-plugin-template) to develop plugin.",
+            "Follow [emqx-plugin-template](https://github.com/emqx/emqx-plugin-template) "
+            "to develop plugin.",
             'requestBody' => #{
                 content => #{
                     'multipart/form-data' => #{
@@ -97,7 +98,7 @@ schema("/plugins/:name") ->
             parameters => [hoconsc:ref(name)],
             responses => #{
                 200 => hoconsc:ref(plugin),
-                404 => emqx_dashboard_swagger:error_codes(['NOT_FOUND'], "Plugin Not Found")
+                404 => emqx_dashboard_swagger:error_codes(['NOT_FOUND'], <<"Plugin Not Found">>)
             }
         },
         delete => #{
@@ -105,7 +106,7 @@ schema("/plugins/:name") ->
             parameters => [hoconsc:ref(name)],
             responses => #{
                 204 => <<"Uninstall successfully">>,
-                404 => emqx_dashboard_swagger:error_codes(['NOT_FOUND'], "Plugin Not Found")
+                404 => emqx_dashboard_swagger:error_codes(['NOT_FOUND'], <<"Plugin Not Found">>)
             }
         }
     };
@@ -121,7 +122,7 @@ schema("/plugins/:name/:action") ->
                 {action, hoconsc:mk(hoconsc:enum([start, stop]), #{desc => "Action", in => path})}],
             responses => #{
                 200 => <<"OK">>,
-                404 => emqx_dashboard_swagger:error_codes(['NOT_FOUND'], "Plugin Not Found")
+                404 => emqx_dashboard_swagger:error_codes(['NOT_FOUND'], <<"Plugin Not Found">>)
             }
         }
     };
@@ -142,7 +143,7 @@ fields(plugin) ->
             #{
                 desc => "Name-Vsn: without .tar.gz",
                 validator => fun ?MODULE:validate_name/1,
-                nullable => false,
+                required => true,
                 example => "emqx_plugin_template-5.0-rc.1"})
         },
         {author, hoconsc:mk(list(string()), #{example => [<<"EMQ X Team">>]})},
@@ -151,7 +152,8 @@ fields(plugin) ->
         {compatibility, hoconsc:mk(map(), #{example => #{<<"emqx">> => <<"~>5.0">>}})},
         {git_commit_or_build_date, hoconsc:mk(string(), #{
             example => "2021-12-25",
-            desc => "Last git commit date by `git log -1 --pretty=format:'%cd' --date=format:'%Y-%m-%d`."
+            desc => "Last git commit date by `git log -1 --pretty=format:'%cd' "
+                "--date=format:'%Y-%m-%d`.\n"
             " If the last commit date is not available, the build date will be presented."
         })},
         {functionality, hoconsc:mk(hoconsc:array(string()), #{example => [<<"Demo">>]})},
@@ -159,25 +161,26 @@ fields(plugin) ->
         {metadata_vsn, hoconsc:mk(string(), #{example => "0.1.0"})},
         {rel_vsn, hoconsc:mk(binary(),
             #{desc => "Plugins release version",
-                nullable => false,
+                required => true,
                 example => <<"5.0-rc.1">>})
         },
         {rel_apps, hoconsc:mk(hoconsc:array(binary()),
             #{desc => "Aplications in plugin.",
-                nullable => false,
+                required => true,
                 example => [<<"emqx_plugin_template-5.0.0">>, <<"map_sets-1.1.0">>]})
         },
         {repo, hoconsc:mk(string(), #{example => "https://github.com/emqx/emqx-plugin-template"})},
         {description, hoconsc:mk(binary(),
             #{desc => "Plugin description.",
-                nullable => false,
+                required => true,
                 example => "This is an demo plugin description"})
         },
-        {running_status, hoconsc:mk(hoconsc:array(hoconsc:ref(running_status)), #{nullable => false})},
+        {running_status, hoconsc:mk(hoconsc:array(hoconsc:ref(running_status)),
+            #{required => true})},
         {readme, hoconsc:mk(binary(), #{
             example => "This is an demo plugin.",
             desc => "only return when `GET /plugins/{name}`.",
-            nullable => true})}
+            required => false})}
     ];
 fields(name) ->
     [{name, hoconsc:mk(binary(),
@@ -199,9 +202,10 @@ fields(position) ->
         #{
             desc => """
              Enable auto-boot at position in the boot list, where Position could be
-             'top', 'bottom', or 'before:other-vsn', 'after:other-vsn' to specify a relative position.
+             'top', 'bottom', or 'before:other-vsn', 'after:other-vsn'
+             to specify a relative position.
             """,
-            nullable => true
+            required => false
         })}];
 fields(running_status) ->
     [
@@ -265,7 +269,8 @@ upload_install(post, #{body := #{<<"plugin">> := Plugin}}) when is_map(Plugin) -
 upload_install(post, #{} = Body) ->
     io:format("~p~n", [Body]),
     {400, #{code => 'BAD_FORM_DATA',
-        message => <<"form-data should be `plugin=@packagename-vsn.tar.gz;type=application/x-gzip`">>}
+        message =>
+        <<"form-data should be `plugin=@packagename-vsn.tar.gz;type=application/x-gzip`">>}
     }.
 
 plugin(get, #{bindings := #{name := Name}}) ->
@@ -315,28 +320,29 @@ describe_package(Name) ->
 delete_package(Name) ->
     case emqx_plugins:ensure_stopped(Name) of
         ok ->
-            emqx_plugins:ensure_disabled(Name),
-            emqx_plugins:purge(Name),
-            emqx_plugins:delete_package(Name);
+            _ = emqx_plugins:ensure_disabled(Name),
+            _ = emqx_plugins:purge(Name),
+            _ = emqx_plugins:delete_package(Name);
         Error -> Error
     end.
 
 %% for RPC plugin update
 ensure_action(Name, start) ->
-    emqx_plugins:ensure_enabled(Name),
-    emqx_plugins:ensure_started(Name);
+    _ = emqx_plugins:ensure_enabled(Name),
+    _ = emqx_plugins:ensure_started(Name);
 ensure_action(Name, stop) ->
-    emqx_plugins:ensure_stopped(Name),
-    emqx_plugins:ensure_disabled(Name);
+    _ = emqx_plugins:ensure_stopped(Name),
+    _ = emqx_plugins:ensure_disabled(Name);
 ensure_action(Name, restart) ->
-    emqx_plugins:ensure_enabled(Name),
-    emqx_plugins:restart(Name).
+    _ = emqx_plugins:ensure_enabled(Name),
+    _ = emqx_plugins:restart(Name).
 
 cluster_call(Mod, Fun, Args, Timeout) ->
     Nodes = mria_mnesia:running_nodes(),
     {GoodRes, BadNodes} = rpc:multicall(Nodes, Mod, Fun, Args, Timeout),
     BadNodes =/= [] andalso
-        ?SLOG(error, #{msg => "rpc_call_failed", bad_nodes => BadNodes, mfa => {Mod, Fun, length(Args)}}),
+        ?SLOG(error, #{msg => "rpc_call_failed", bad_nodes => BadNodes,
+            mfa => {Mod, Fun, length(Args)}}),
     GoodRes.
 
 cluster_rpc(Mod, Fun, Args) ->
@@ -358,14 +364,18 @@ return(_, {error, Reason}) ->
 
 parse_position(#{<<"position">> := <<"top">>}, _) -> front;
 parse_position(#{<<"position">> := <<"bottom">>}, _) -> rear;
-parse_position(#{<<"position">> := <<"before:", Name/binary>>}, Name) -> {error, <<"Can't before:self">>};
-parse_position(#{<<"position">> := <<"after:", Name/binary>>}, Name) -> {error, <<"Can't after:self">>};
-parse_position(#{<<"position">> := <<"before:", Before/binary>>}, _Name) -> {before, binary_to_list(Before)};
-parse_position(#{<<"position">> := <<"after:", After/binary>>}, _Name) -> {behind, binary_to_list(After)};
+parse_position(#{<<"position">> := <<"before:", Name/binary>>}, Name) ->
+    {error, <<"Can't before:self">>};
+parse_position(#{<<"position">> := <<"after:", Name/binary>>}, Name) ->
+    {error, <<"Can't after:self">>};
+parse_position(#{<<"position">> := <<"before:", Before/binary>>}, _Name) ->
+    {before, binary_to_list(Before)};
+parse_position(#{<<"position">> := <<"after:", After/binary>>}, _Name) ->
+    {behind, binary_to_list(After)};
 parse_position(Position, _) -> {error, iolist_to_binary(io_lib:format("~p", [Position]))}.
 
 format_plugins(List) ->
-    StatusMap = emqx_plugins_monitor:aggregate_status(List),
+    StatusMap = aggregate_status(List),
     SortFun = fun({_N1, P1}, {_N2, P2}) -> length(P1) > length(P2) end,
     SortList = lists:sort(SortFun, List),
     pack_status_in_order(SortList, StatusMap).
@@ -390,3 +400,21 @@ pack_plugin_in_order([Plugin0 | Plugins], Acc, StatusAcc) ->
         error ->
             pack_plugin_in_order(Plugins, Acc, StatusAcc)
     end.
+
+aggregate_status(List) -> aggregate_status(List, #{}).
+
+aggregate_status([], Acc) -> Acc;
+aggregate_status([{Node, Plugins} | List], Acc) ->
+    NewAcc =
+        lists:foldl(fun(Plugin, SubAcc) ->
+            #{<<"name">> := Name, <<"rel_vsn">> := Vsn} = Plugin,
+            Key = {Name, Vsn},
+            Value = #{node => Node, status => plugin_status(Plugin)},
+            SubAcc#{Key => [Value | maps:get(Key, Acc, [])]}
+                    end, Acc, Plugins),
+    aggregate_status(List, NewAcc).
+
+% running_status: running loaded, stopped
+%% config_status: not_configured disable enable
+plugin_status(#{running_status := running}) -> running;
+plugin_status(_) -> stopped.
