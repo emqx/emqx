@@ -58,13 +58,13 @@
 -export_type([metrics/0, handler_name/0, metric_id/0]).
 
 -type rate() :: #{
-    current => float(),
-    max => float(),
-    last5m => float()
+    current := float(),
+    max := float(),
+    last5m := float()
 }.
 -type metrics() :: #{
-    counters => #{atom() => integer()},
-    rate => #{atom() => rate()}
+    counters := #{atom() => integer()},
+    rate := #{atom() => rate()}
 }.
 -type handler_name() :: atom().
 -type metric_id() :: binary().
@@ -158,10 +158,10 @@ init(Name) ->
     {ok, #state{}}.
 
 handle_call({get_rate, _Id}, _From, State = #state{rates = undefined}) ->
-    {reply, #{}, State};
+    {reply, make_rate(0, 0, 0), State};
 handle_call({get_rate, Id}, _From, State = #state{rates = Rates}) ->
     {reply, case maps:get(Id, Rates, undefined) of
-                undefined -> #{};
+                undefined -> make_rate(0, 0, 0);
                 RatesPerId -> format_rates_of_id(RatesPerId)
             end, State};
 
@@ -303,7 +303,13 @@ format_rates_of_id(RatesPerId) ->
         end, RatesPerId).
 
 format_rate(#rate{max = Max, current = Current, last5m = Last5Min}) ->
-    #{max => precision(Max, 2), current => precision(Current, 2), last5m => precision(Last5Min, 2)}.
+    make_rate(Current, Max, Last5Min).
+
+make_rate(Current, Max, Last5Min) ->
+    #{ current => precision(Current, 2)
+     , max => precision(Max, 2)
+     , last5m => precision(Last5Min, 2)
+     }.
 
 precision(Float, N) ->
     Base = math:pow(10, N),
