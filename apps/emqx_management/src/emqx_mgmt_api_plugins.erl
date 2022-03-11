@@ -20,7 +20,7 @@
 -include_lib("kernel/include/file.hrl").
 -include_lib("typerefl/include/types.hrl").
 -include_lib("emqx/include/logger.hrl").
--include_lib("emqx_plugins/include/emqx_plugins.hrl").
+%%-include_lib("emqx_plugins/include/emqx_plugins.hrl").
 
 -export([ api_spec/0
         , fields/1
@@ -37,6 +37,7 @@
         ]).
 
 -export([ validate_name/1
+        , get_plugins/0
         , install_package/2
         , delete_package/1
         , describe_package/1
@@ -251,15 +252,18 @@ validate_name(Name) ->
 
 %% API CallBack Begin
 list_plugins(get, _) ->
-    Plugins = cluster_call(emqx_plugins_monitor, get_plugins, [], 15000),
+    {Plugins, []} = emqx_mgmt_api_plugins_proto_v1:get_plugins(),
     {200, format_plugins(Plugins)}.
+
+get_plugins() ->
+    {node(), emqx_plugins:list()}.
 
 upload_install(post, #{body := #{<<"plugin">> := Plugin}}) when is_map(Plugin) ->
     [{FileName, Bin}] = maps:to_list(maps:without([type], Plugin)),
     %% File bin is too large, we use rpc:multicall instead of cluster_rpc:multicall
     %% TODO what happened when a new node join in?
     %% emqx_plugins_monitor should copy plugins from other core node when boot-up.
-    Res = cluster_call(?MODULE, install_package, [FileName, Bin], 25000),
+    {Res, _} = emqx_mgmt_api_plugins_proto_v1:install_package(FileName, Bin),
     case lists:filter(fun(R) -> R =/= ok end, Res) of
         [] -> {200};
         [{error, Reason} | _] ->
@@ -274,17 +278,19 @@ upload_install(post, #{} = Body) ->
     }.
 
 plugin(get, #{bindings := #{name := Name}}) ->
-    Plugins = cluster_call(?MODULE, describe_package, [Name], 10000),
+    {Plugins, _} = emqx_mgmt_api_plugins_proto_v1:describe_package(Name),
     case format_plugins(Plugins) of
         [Plugin] -> {200, Plugin};
         [] -> {404, #{code => 'NOT_FOUND', message => Name}}
     end;
 
 plugin(delete, #{bindings := #{name := Name}}) ->
-    return(204, cluster_rpc(?MODULE, delete_package, [Name])).
+    {ok, _TnxId, Res} = emqx_mgmt_api_plugins_proto_v1:delete_package(Name),
+    return(204, Res).
 
 update_plugin(put, #{bindings := #{name := Name, action := Action}}) ->
-    return(204, cluster_rpc(?MODULE, ensure_action, [Name, Action])).
+    {ok, _TnxId, Res} = emqx_mgmt_api_plugins_proto_v1:ensure_action(Name, Action),
+    return(204, Res).
 
 update_boot_order(post, #{bindings := #{name := Name}, body := Body}) ->
     case parse_position(Body, Name) of
@@ -336,24 +342,6 @@ ensure_action(Name, stop) ->
 ensure_action(Name, restart) ->
     _ = emqx_plugins:ensure_enabled(Name),
     _ = emqx_plugins:restart(Name).
-
-cluster_call(Mod, Fun, Args, Timeout) ->
-    Nodes = mria_mnesia:running_nodes(),
-    {GoodRes, BadNodes} = rpc:multicall(Nodes, Mod, Fun, Args, Timeout),
-    BadNodes =/= [] andalso
-        ?SLOG(error, #{msg => "rpc_call_failed", bad_nodes => BadNodes,
-            mfa => {Mod, Fun, length(Args)}}),
-    GoodRes.
-
-cluster_rpc(Mod, Fun, Args) ->
-    case emqx_cluster_rpc:multicall(Mod, Fun, Args, all, 30000) of
-        {ok, _TnxId, Res} -> Res;
-        {retry, TnxId, Res, Node} ->
-            ?SLOG(error, #{msg => "failed_to_update_plugin_in_cluster", nodes => Node,
-                tnx_id => TnxId, mfa => {Mod, Fun, Args}}),
-            Res;
-        {error, Error} -> Error
-    end.
 
 return(Code, ok) -> {Code};
 return(Code, {ok, Result}) -> {Code, Result};
