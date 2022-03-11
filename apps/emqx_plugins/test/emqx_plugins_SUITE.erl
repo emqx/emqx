@@ -349,7 +349,7 @@ t_elixir_plugin(Config) ->
     ok = emqx_plugins:ensure_installed(NameVsn),
     %% idempotent
     ok = emqx_plugins:ensure_installed(NameVsn),
-    {ok, Info} = emqx_plugins:read_plugin(NameVsn),
+    {ok, Info} = emqx_plugins:read_plugin(NameVsn, #{}),
     ?assertEqual([Info], emqx_plugins:list()),
     %% start
     ok = emqx_plugins:ensure_started(NameVsn),
