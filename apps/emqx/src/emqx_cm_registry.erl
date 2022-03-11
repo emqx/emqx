@@ -122,10 +122,11 @@ handle_cast(Msg, State) ->
     {noreply, State}.
 
 handle_info({membership, {mnesia, down, Node}}, State) ->
-    global:trans({?LOCK, self()},
-                 fun() ->
-                     mria:transaction(?CM_SHARD, fun cleanup_channels/1, [Node])
-                 end),
+    cleanup_channels(Node),
+    {noreply, State};
+
+handle_info({membership, {node, down, Node}}, State) ->
+    cleanup_channels(Node),
     {noreply, State};
 
 handle_info({membership, _Event}, State) ->
@@ -146,6 +147,12 @@ code_change(_OldVsn, State, _Extra) ->
 %%--------------------------------------------------------------------
 
 cleanup_channels(Node) ->
+    global:trans({?LOCK, self()},
+                 fun() ->
+                     mria:transaction(?CM_SHARD, fun do_cleanup_channels/1, [Node])
+                 end).
+
+do_cleanup_channels(Node) ->
     Pat = [{#channel{pid = '$1', _ = '_'}, [{'==', {node, '$1'}, Node}], ['$_']}],
     lists:foreach(fun delete_channel/1, mnesia:select(?TAB, Pat, write)).
 

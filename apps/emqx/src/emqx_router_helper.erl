@@ -21,6 +21,7 @@
 -include("emqx.hrl").
 -include("logger.hrl").
 -include("types.hrl").
+-include_lib("snabbkaffe/include/snabbkaffe.hrl").
 
 
 %% Mnesia bootstrap
@@ -91,6 +92,7 @@ monitor(Node) when is_atom(Node) ->
 %%--------------------------------------------------------------------
 
 init([]) ->
+    process_flag(trap_exit, true),
     ok = ekka:monitor(membership),
     _ = mria:wait_for_tables([?ROUTING_NODE]),
     {ok, _} = mnesia:subscribe({table, ?ROUTING_NODE, simple}),
@@ -136,9 +138,13 @@ handle_info({nodedown, Node}, State = #{nodes := Nodes}) ->
                      mria:transaction(?ROUTE_SHARD, fun cleanup_routes/1, [Node])
                  end),
     ok = mria:dirty_delete(?ROUTING_NODE, Node),
+    ?tp(emqx_router_helper_cleanup_done, #{node => Node}),
     {noreply, State#{nodes := lists:delete(Node, Nodes)}, hibernate};
 
 handle_info({membership, {mnesia, down, Node}}, State) ->
+    handle_info({nodedown, Node}, State);
+
+handle_info({membership, {node, down, Node}}, State) ->
     handle_info({nodedown, Node}, State);
 
 handle_info({membership, _Event}, State) ->

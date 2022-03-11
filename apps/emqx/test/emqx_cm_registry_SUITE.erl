@@ -65,7 +65,7 @@ t_register_unregister_channel(_) ->
     emqx_cm_registry:unregister_channel(ClientId),
     ?assertEqual([], emqx_cm_registry:lookup_channels(ClientId)).
 
-t_cleanup_channels(_) ->
+t_cleanup_channels_mnesia_down(_) ->
     ClientId = <<"clientid">>,
     ClientId2 = <<"clientid2">>,
     emqx_cm_registry:register_channel(ClientId),
@@ -76,3 +76,13 @@ t_cleanup_channels(_) ->
     ?assertEqual([], emqx_cm_registry:lookup_channels(ClientId)),
     ?assertEqual([], emqx_cm_registry:lookup_channels(ClientId2)).
 
+t_cleanup_channels_node_down(_) ->
+    ClientId = <<"clientid">>,
+    ClientId2 = <<"clientid2">>,
+    emqx_cm_registry:register_channel(ClientId),
+    emqx_cm_registry:register_channel(ClientId2),
+    ?assertEqual([self()], emqx_cm_registry:lookup_channels(ClientId)),
+    emqx_cm_registry ! {membership, {node, down, node()}},
+    ct:sleep(100),
+    ?assertEqual([], emqx_cm_registry:lookup_channels(ClientId)),
+    ?assertEqual([], emqx_cm_registry:lookup_channels(ClientId2)).
