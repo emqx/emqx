@@ -64,6 +64,8 @@
 -export([ sources/2
         , source/2
         , move_source/2
+        , lookup_from_local_node/1
+        , lookup_from_all_nodes/1
         ]).
 
 api_spec() ->
@@ -226,7 +228,12 @@ source(get, #{bindings := #{type := Type}}) ->
                             message => bin(Reason)}}
             end;
         [Source] ->
-            {200, read_certs(Source)}
+            case emqx_authz:lookup(Type) of
+                #{annotations := #{id := ResourceId }} ->
+                    StatusAndMetrics = lookup_from_all_nodes(ResourceId),
+                    {200, maps:put(status_and_metrics, StatusAndMetrics, read_certs(Source))};
+                _ -> {200, maps:put(status_and_metrics, resource_not_found, read_certs(Source))}
+            end
     end;
 source(put, #{bindings := #{type := <<"file">>}, body := #{<<"type">> := <<"file">>,
                                                            <<"rules">> := Rules,
@@ -275,7 +282,93 @@ lookup_from_local_node(ResourceId) ->
         {error, not_found} -> {error, {NodeId, not_found_resource}};
         {ok, _, #{ status := Status, metrics := Metrics }} ->
             {ok, {NodeId, Status, Metrics}}
-    end
+    end.
+
+lookup_from_all_nodes(ResourceId) ->
+    Nodes = mria_mnesia:running_nodes(),
+    case is_ok(emqx_authz_proto_v1:lookup_from_all_nodes(Nodes, ResourceId)) of
+        {ok, ResList} ->
+            {StatusMap, MetricsMap, ErrorMap} = make_result_map(ResList),
+            AggregateStatus = aggregate_status(maps:values(StatusMap)),
+            AggregateMetrics = aggregate_metrics(maps:values(MetricsMap)),
+            Fun = fun(_, V1) -> restructure_map(V1) end,
+            #{node_status => StatusMap,
+              node_metrics => maps:map(Fun, MetricsMap),
+              node_error => ErrorMap,
+              status => AggregateStatus,
+              metrics => restructure_map(AggregateMetrics)
+             };
+        {error, ErrL} ->
+            {error_msg('INTERNAL_ERROR', ErrL)}
+    end.
+
+aggregate_status([]) -> error_some_strange_happen;
+aggregate_status(AllStatus) ->
+    Head = fun ([A | _]) -> A end,
+    HeadVal = Head(AllStatus),
+    AllRes = lists:all(fun (Val) -> Val == HeadVal end, AllStatus),
+    case AllRes of
+        true -> HeadVal;
+        false -> inconsistent
+    end.
+
+aggregate_metrics([]) -> error_some_strange_happen;
+aggregate_metrics([HeadMetrics | AllMetrics]) ->
+    CombinerFun =
+        fun CombFun(Val1, Val2) ->
+            case erlang:is_map(Val1) of
+                true -> emqx_map_lib:merge_with(CombFun, Val1, Val2);
+                false -> Val1 + Val2
+            end
+        end,
+    Fun = fun (ElemMap, AccMap) ->
+        emqx_map_lib:merge_with(CombinerFun, ElemMap, AccMap) end,
+    lists:foldl(Fun, HeadMetrics, AllMetrics).
+
+make_result_map(ResList) ->
+    Fun =
+        fun(Elem, {StatusMap, MetricsMap, ErrorMap}) ->
+            case Elem of
+                {ok, {NodeId, Status, Metrics}} ->
+                    {maps:put(NodeId, Status, StatusMap),
+                     maps:put(NodeId, Metrics, MetricsMap),
+                     ErrorMap
+                    };
+                {error, {NodeId, Reason}} ->
+                    {StatusMap,
+                     MetricsMap,
+                     maps:put(NodeId, Reason, ErrorMap)
+                    }
+            end
+        end,
+    lists:foldl(Fun, {maps:new(), maps:new(), maps:new()}, ResList).
+
+restructure_map(#{counters := #{failed := Failed, matched := Match, success := Succ},
+                  rate := #{matched := #{current := Rate, last5m := Rate5m, max := RateMax}
+                           }
+                 }
+               ) ->
+    #{matched => Match,
+      success => Succ,
+      failed => Failed,
+      rate => Rate,
+      rate_last5m => Rate5m,
+      rate_max => RateMax
+     };
+restructure_map(Error) ->
+     Error.
+
+error_msg(Code, Msg) ->
+              #{code => Code, message => bin_t(io_lib:format("~p", [Msg]))}.
+
+bin_t(S) when is_list(S) ->
+    list_to_binary(S).
+
+is_ok(ResL) ->
+    case lists:filter(fun({ok, _}) -> false; (_) -> true end, ResL) of
+        [] -> {ok, [Res || {ok, Res} <- ResL]};
+        ErrL -> {error, ErrL}
+    end.
 
 get_raw_sources() ->
     RawSources = emqx:get_raw_config([authorization, sources], []),
