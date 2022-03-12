@@ -159,7 +159,7 @@ write_info_file(Config, NameVsn, Content) ->
     ok = file:write_file(InfoFile, Content).
 
 t_position({init, Config}) ->
-    Package = build_demo_plugin_package(),
+    #{package := Package} = build_demo_plugin_package(),
     NameVsn = filename:basename(Package, ?PACKAGE_SUFFIX),
     [{name_vsn, NameVsn} | Config];
 t_position({'end', _Config}) -> ok;
