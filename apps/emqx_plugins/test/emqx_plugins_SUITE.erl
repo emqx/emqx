@@ -63,6 +63,7 @@ build_demo_plugin_package() ->
        , git_url => "https://github.com/emqx/emqx-plugin-template.git"
        , vsn => ?EMQX_PLUGIN_TEMPLATE_VSN
        , workdir => "demo_src"
+       , shdir => emqx_plugins:install_dir()
        }).
 
 build_demo_plugin_package(#{ target_path := TargetPath
@@ -70,8 +71,8 @@ build_demo_plugin_package(#{ target_path := TargetPath
                            , git_url := GitUrl
                            , vsn := PluginVsn
                            , workdir := DemoWorkDir
+                           , shdir := WorkDir
                            } = Opts) ->
-    WorkDir = emqx_plugins:install_dir(),
     BuildSh = filename:join([WorkDir, "build-demo-plugin.sh"]),
     Cmd = string:join([ BuildSh
                       , PluginVsn
@@ -333,6 +334,7 @@ t_elixir_plugin({init, Config}) ->
          , git_url => "https://github.com/emqx/emqx-elixir-plugin.git"
          , vsn => ?EMQX_ELIXIR_PLUGIN_TEMPLATE_VSN
          , workdir => "demo_src_elixir"
+         , shdir => emqx_plugins:install_dir()
          },
     Opts = #{package := Package} = build_demo_plugin_package(Opts0),
     NameVsn = filename:basename(Package, ?PACKAGE_SUFFIX),

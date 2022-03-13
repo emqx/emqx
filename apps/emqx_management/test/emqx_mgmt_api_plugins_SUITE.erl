@@ -32,8 +32,9 @@ init_per_suite(Config) ->
     DemoShDir1 = string:replace(WorkDir, "emqx_mgmt_api_plugins", "emqx_plugins"),
     DemoShDir = string:replace(DemoShDir1, "emqx_management", "emqx_plugins"),
     OrigInstallDir = emqx_plugins:get_config(install_dir, undefined),
+    ok = filelib:ensure_dir(DemoShDir),
     emqx_mgmt_api_test_util:init_suite([emqx_conf, emqx_plugins]),
-    emqx_plugins:put_config(install_dir, WorkDir),
+    emqx_plugins:put_config(install_dir, DemoShDir),
 
     [{demo_sh_dir, DemoShDir}, {orig_install_dir, OrigInstallDir} | Config].
 
@@ -50,6 +51,7 @@ end_per_suite(Config) ->
 t_plugins(Config) ->
     DemoShDir = proplists:get_value(demo_sh_dir, Config),
     PackagePath = build_demo_plugin_package(DemoShDir),
+    ct:pal("package_location:~p install dir:~p", [PackagePath, emqx_plugins:install_dir()]),
     NameVsn = filename:basename(PackagePath, ?PACKAGE_SUFFIX),
     ok = install_plugin(PackagePath),
     {ok, StopRes} = describe_plugins(NameVsn),
@@ -108,21 +110,10 @@ uninstall_plugin(Name) ->
 
 
 build_demo_plugin_package(Dir) ->
-    BuildSh = filename:join([Dir, "build-demo-plugin.sh"]),
-    case emqx_run_sh:do(BuildSh ++ " " ++ ?EMQX_PLUGIN_TEMPLATE_VSN,
-        [{cd, Dir}]) of
-        {ok, _} ->
-            FileName = "emqx_plugin_template-" ++ ?EMQX_PLUGIN_TEMPLATE_VSN ++ ?PACKAGE_SUFFIX,
-            Pkg = filename:join([Dir, FileName]),
-            case filelib:is_regular(Pkg) of
-                true ->
-                    PluginPath = "./" ++ FileName,
-                    _ = os:cmd("mv " ++ Pkg ++ " " ++ PluginPath),
-                    true = filelib:is_regular(PluginPath),
-                    PluginPath;
-                false -> error(#{reason => unexpected_build_result, not_found => Pkg})
-            end;
-        {error, {Rc, Output}} ->
-            io:format(user, "failed_to_build_demo_plugin, Exit = ~p, Output:~n~ts\n", [Rc, Output]),
-            error(failed_to_build_demo_plugin)
-    end.
+    #{package := Pkg} = emqx_plugins_SUITE:build_demo_plugin_package(),
+    FileName = "emqx_plugin_template-" ++ ?EMQX_PLUGIN_TEMPLATE_VSN ++ ?PACKAGE_SUFFIX,
+    PluginPath = "./" ++ FileName,
+    Pkg = filename:join([Dir, FileName]),
+    _ = os:cmd("cp " ++ Pkg ++ " " ++ PluginPath),
+    true = filelib:is_regular(PluginPath),
+    PluginPath.
