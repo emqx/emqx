@@ -201,11 +201,7 @@ t_api(_) ->
                            {<<"rate_last5m">>, 0.0},
                            {<<"rate_max">>, 0.0},
                            {<<"success">>, 0}],
-            lists:map(EqualFun(RList), MetricsList),
-            ?assertEqual(<<"connecting">>,
-                         LookupVal([<<"status_and_metrics">>,
-                                    <<"status">>
-                                   ], RList))
+            lists:map(EqualFun(RList), MetricsList)
         end,
 
     {ok, 200, Result2} = request(get, uri(["authorization", "sources"]), []),
