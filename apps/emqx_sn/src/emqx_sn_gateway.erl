@@ -683,8 +683,29 @@ terminate(Reason, _StateName, #state{channel  = Channel}) ->
     emqx_channel:terminate(Reason, Channel),
     ok.
 
-code_change(_Vsn, StateName, State, _Extra) ->
-    {ok, StateName, State}.
+%% in the emqx_sn:v4.3.6, we have added two new fields in the state last:
+%%  - waiting_sync_topics
+%%  - previous_outgoings_and_state
+code_change({down, _Vsn}, StateName, State, [ToVsn]) ->
+    case re:run(ToVsn, "4\\.3\\.[2-5]") of
+        {match, _} ->
+            NState0 = lists:droplast(lists:droplast(tuple_to_list(State))),
+            NState = list_to_tuple(lists:reverse(NState0)),
+            {ok, StateName, NState};
+        _ ->
+            {ok, StateName, State}
+    end;
+
+code_change(_Vsn, StateName, State, [FromVsn]) ->
+    case re:run(FromVsn, "4\\.3\\.[2-5]") of
+        {match, _} ->
+            NState = list_to_tuple(
+                       tuple_to_list(State) ++ [[], undefined]
+                      ),
+            {ok, StateName, NState};
+        _ ->
+            {ok, StateName, State}
+    end.
 
 %%--------------------------------------------------------------------
 %% Handle Call/Info
