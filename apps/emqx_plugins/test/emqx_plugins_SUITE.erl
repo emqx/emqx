@@ -74,13 +74,14 @@ build_demo_plugin_package(#{ target_path := TargetPath
                            , shdir := WorkDir
                            } = Opts) ->
     BuildSh = filename:join([WorkDir, "build-demo-plugin.sh"]),
+    ArtifactDownloadURL = artifact_download_url(Opts),
     Cmd = string:join([ BuildSh
                       , PluginVsn
                       , TargetPath
                       , ReleaseName
                       , GitUrl
                       , DemoWorkDir
-                      ],
+                      ] ++ [ArtifactDownloadURL || ArtifactDownloadURL =/= undefined],
                       " "),
     case emqx_run_sh:do(Cmd, [{cd, WorkDir}]) of
         {ok, _} ->
@@ -335,6 +336,7 @@ t_elixir_plugin({init, Config}) ->
          , vsn => ?EMQX_ELIXIR_PLUGIN_TEMPLATE_VSN
          , workdir => "demo_src_elixir"
          , shdir => emqx_plugins:install_dir()
+         , release_tag => "0.1.0-1"
          },
     Opts = #{package := Package} = build_demo_plugin_package(Opts0),
     NameVsn = filename:basename(Package, ?PACKAGE_SUFFIX),
@@ -398,3 +400,19 @@ make_tar(Cwd, NameWithVsn) ->
     after
         file:set_cwd(OriginalCwd)
     end.
+
+artifact_download_url(#{ release_name := ReleaseName
+                       , git_url := GitURL
+                       , vsn := PluginVsn
+                       , release_tag := ReleaseTag
+                       }) ->
+    TargetFilename = ReleaseName ++ "-" ++ PluginVsn ++ ".tar.gz",
+    BaseURL = re:replace(GitURL, "\\.git$", "", [{return, list}]),
+    BaseURL ++ filename:join([ "/"
+                             , "releases"
+                             , "download"
+                             , ReleaseTag
+                             , TargetFilename
+                             ]);
+artifact_download_url(_Opts) ->
+    undefined.
