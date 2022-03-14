@@ -186,8 +186,7 @@ t_api(_) ->
     EqualFun = fun (RList) ->
                    fun ({M, V}) ->
                        ?assertEqual(V,
-                                    LookupVal([<<"status_and_metrics">>,
-                                               <<"metrics">>, M],
+                                    LookupVal([<<"metrics">>, M],
                                              RList)
                                    )
                    end
@@ -218,10 +217,6 @@ t_api(_) ->
     {ok, 204, _} = request(put, uri(["authorization", "sources", "http"]),
                            ?SOURCE1#{<<"enable">> := false}),
     {ok, 200, Result3} = request(get, uri(["authorization", "sources", "http"]), []),
-    {ok, RList3} = emqx_json:safe_decode(Result3),
-    ?assertEqual(<<"resource_not_found">>,
-                 LookupVal([<<"status_and_metrics">>
-                           ], RList3)),
     ?assertMatch(#{<<"type">> := <<"http">>, <<"enable">> := false}, jsx:decode(Result3)),
 
     Keyfile = emqx_common_test_helpers:app_path(

@@ -183,15 +183,13 @@ test_authenticator(PathPrefix) ->
                    {<<"rate_max">>, 0.0},
                    {<<"success">>, 0}],
     EqualFun = fun ({M, V}) ->
-                   ?assertEqual(V, LookFun([<<"status_and_metrics">>,
-                                            <<"metrics">>,
+                   ?assertEqual(V, LookFun([<<"metrics">>,
                                             M]
                                           )
                                ) end,
     lists:map(EqualFun, MetricsList),
     ?assertEqual(<<"connected">>,
-                 LookFun([<<"status_and_metrics">>,
-                          <<"status">>
+                 LookFun([<<"status">>
                          ])),
     {ok, 404, _} = request(
                      get,

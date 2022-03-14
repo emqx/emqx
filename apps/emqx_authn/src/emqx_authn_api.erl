@@ -756,10 +756,13 @@ list_authenticator(ChainName, ConfKeyPath, AuthenticatorID) ->
     AuthenticatorsConfig = get_raw_config_with_defaults(ConfKeyPath),
     case find_config(AuthenticatorID, AuthenticatorsConfig) of
         {ok, AuthenticatorConfig} ->
-            StatusAndMetrics = lookup_from_all_nodes(ChainName, AuthenticatorID),
-            Fun = fun ({Key, Val}, Map) -> maps:put(Key, Val, Map) end,
-            AppendList = [{id, AuthenticatorID}, {status_and_metrics, StatusAndMetrics}],
-            {200, lists:foldl(Fun, convert_certs(AuthenticatorConfig), AppendList)};
+            case lookup_from_all_nodes(ChainName, AuthenticatorID) of
+                {ok, StatusAndMetrics} ->
+                    Fun = fun ({Key, Val}, Map) -> maps:put(Key, Val, Map) end,
+                    AppendList = [{id, AuthenticatorID} | maps:to_list(StatusAndMetrics)],
+                    {200, lists:foldl(Fun, convert_certs(AuthenticatorConfig), AppendList)};
+                {error, ErrorMsg} -> {500, ErrorMsg}
+            end;
         {error, Reason} ->
             serialize_error(Reason)
     end.
@@ -797,14 +800,15 @@ lookup_from_all_nodes(ChainName, AuthenticatorID) ->
             AggregateStatus = aggregate_status(maps:values(StatusMap)),
             AggregateMetrics = aggregate_metrics(maps:values(MetricsMap)),
             Fun = fun(_, V1) -> restructure_map(V1) end,
-            #{node_status => StatusMap,
-              node_metrics => maps:map(Fun, MetricsMap),
-              node_error => ErrorMap,
-              status => AggregateStatus,
-              metrics => restructure_map(AggregateMetrics)
+            {ok, #{node_status => StatusMap,
+                   node_metrics => maps:map(Fun, MetricsMap),
+                   node_error => ErrorMap,
+                   status => AggregateStatus,
+                   metrics => restructure_map(AggregateMetrics)
+                  }
             };
         {error, ErrL} ->
-            {error_msg('INTERNAL_ERROR', ErrL)}
+            {error, error_msg('INTERNAL_ERROR', ErrL)}
     end.
 
 aggregate_status([]) -> error_some_strange_happen;
