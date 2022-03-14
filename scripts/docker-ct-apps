@@ -1,0 +1,4 @@
+# apps need docker-compose to run CT
+apps/emqx_authn
+apps/emqx_authz
+apps/emqx_connector

@@ -56,14 +56,39 @@ jobs:
             name: coverdata
             path: _build/test/cover
 
-    run_common_test:
+    find_apps:
+        runs-on: ubuntu-20.04
+        container: ghcr.io/emqx/emqx-builder/5.0-8:1.13.3-24.2.1-1-ubuntu20.04
+        outputs:
+          fast_ct_apps: ${{ steps.run_find_apps.outputs.fast_ct_apps }}
+          docker_ct_apps: ${{ steps.run_find_apps.outputs.docker_ct_apps }}
+        defaults:
+          run:
+            shell: bash
+        steps:
+        - uses: actions/checkout@v2
+        - name: find apps
+          id: run_find_apps
+          run: |
+            fast_ct_apps="$(./scripts/find-apps.sh --ct fast --json)"
+            docker_ct_apps="$(./scripts/find-apps.sh --ct docker --json)"
+            echo "::set-output name=fast_ct_apps::$fast_ct_apps"
+            echo "::set-output name=docker_ct_apps::$docker_ct_apps"
+
+    ct_docker:
+        needs: find_apps
         strategy:
+          fail-fast: false
           matrix:
+            app_name: ${{ fromJson(needs.find_apps.outputs.docker_ct_apps) }}
             otp_release:
               - "erlang23"
               - "erlang24"
 
         runs-on: ubuntu-20.04
+        defaults:
+          run:
+            shell: bash
 
         steps:
         - uses: actions/checkout@v2
@@ -85,10 +110,11 @@ jobs:
                 -f .ci/docker-compose-file/docker-compose-redis-single-tls.yaml \
                 -f .ci/docker-compose-file/docker-compose.yaml \
                 up -d --build
-          # produces ct.coverdata
+
+          # produces <app-name>.coverdata
         - name: run common test
           run: |
-            docker exec -i ${{ matrix.otp_release }} bash -c "make ct"
+            docker exec -i ${{ matrix.otp_release }} bash -c "make ${{ matrix.app_name }}-ct"
         - uses: actions/upload-artifact@v1
           if: matrix.otp_release == 'erlang24'
           with:
@@ -100,11 +126,48 @@ jobs:
             name: logs_${{ matrix.otp_release }}
             path: _build/test/logs
 
+    ct:
+        needs: find_apps
+        strategy:
+          fail-fast: false
+          matrix:
+            app_name: ${{ fromJson(needs.find_apps.outputs.fast_ct_apps) }}
+            otp:
+              - 24.2.1-1
+            elixir:
+              - 1.13.3
+            os:
+              - ubuntu20.04
+            arch:
+              - amd64
+        runs-on: ubuntu-20.04
+        container: "ghcr.io/emqx/emqx-builder/5.0-8:${{ matrix.elixir }}-${{ matrix.otp }}-${{ matrix.os }}"
+        defaults:
+          run:
+            shell: bash
+
+        steps:
+        - uses: actions/checkout@v2
+          # produces <app-name>.coverdata
+        - name: run common test
+          run: |
+            make ${{ matrix.app_name }}-ct
+        - uses: actions/upload-artifact@v1
+          if: matrix.otp == '24.2.1-1'
+          with:
+            name: coverdata
+            path: _build/test/cover
+        - uses: actions/upload-artifact@v1
+          if: failure()
+          with:
+            name: logs_${{ matrix.otp_release }}
+            path: _build/test/logs
 
     make_cover:
       needs:
         - eunit_and_proper
-        - run_common_test
+        - ct
+        - ct_docker
       strategy:
         matrix:
           otp:
