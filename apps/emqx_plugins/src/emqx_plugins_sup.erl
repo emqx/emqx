@@ -26,5 +26,21 @@ start_link() ->
     supervisor:start_link({local, ?MODULE}, ?MODULE, []).
 
 init([]) ->
-    Children = [],
-    {ok, {{one_for_one, 10, 10}, Children}}.
+    %% TODO: Add monitor plugins change.
+    Monitor = emqx_plugins_monitor,
+    _Children = [
+        #{id => Monitor,
+            start => {Monitor, start_link, []},
+            restart => permanent,
+            shutdown => brutal_kill,
+            type => worker,
+            modules => [Monitor]
+        }
+    ],
+    SupFlags =
+        #{
+            strategy => one_for_one,
+            intensity => 100,
+            period => 10
+        },
+    {ok, {SupFlags, []}}.

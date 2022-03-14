@@ -23,8 +23,8 @@
         ]).
 
 start(_Type, _Args) ->
-    {ok, Sup} = emqx_plugins_sup:start_link(),
     ok = emqx_plugins:ensure_started(), %% load all pre-configured
+    {ok, Sup} = emqx_plugins_sup:start_link(),
     {ok, Sup}.
 
 stop(_State) ->

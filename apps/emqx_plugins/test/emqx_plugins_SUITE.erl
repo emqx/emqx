@@ -63,6 +63,7 @@ build_demo_plugin_package() ->
        , git_url => "https://github.com/emqx/emqx-plugin-template.git"
        , vsn => ?EMQX_PLUGIN_TEMPLATE_VSN
        , workdir => "demo_src"
+       , shdir => emqx_plugins:install_dir()
        }).
 
 build_demo_plugin_package(#{ target_path := TargetPath
@@ -70,8 +71,8 @@ build_demo_plugin_package(#{ target_path := TargetPath
                            , git_url := GitUrl
                            , vsn := PluginVsn
                            , workdir := DemoWorkDir
+                           , shdir := WorkDir
                            } = Opts) ->
-    WorkDir = emqx_plugins:install_dir(),
     BuildSh = filename:join([WorkDir, "build-demo-plugin.sh"]),
     Cmd = string:join([ BuildSh
                       , PluginVsn
@@ -115,8 +116,8 @@ t_demo_install_start_stop_uninstall(Config) ->
     ok = emqx_plugins:ensure_installed(NameVsn),
     %% idempotent
     ok = emqx_plugins:ensure_installed(NameVsn),
-    {ok, Info} = emqx_plugins:read_plugin(NameVsn),
-    ?assertEqual([Info], emqx_plugins:list()),
+    {ok, Info} = emqx_plugins:describe(NameVsn),
+    ?assertEqual([maps:without([readme], Info)], emqx_plugins:list()),
     %% start
     ok = emqx_plugins:ensure_started(NameVsn),
     ok = assert_app_running(emqx_plugin_template, true),
@@ -157,6 +158,39 @@ write_info_file(Config, NameVsn, Content) ->
     InfoFile = filename:join([WorkDir, NameVsn, "release.json"]),
     ok = filelib:ensure_dir(InfoFile),
     ok = file:write_file(InfoFile, Content).
+
+t_position({init, Config}) ->
+    #{package := Package} = build_demo_plugin_package(),
+    NameVsn = filename:basename(Package, ?PACKAGE_SUFFIX),
+    [{name_vsn, NameVsn} | Config];
+t_position({'end', _Config}) -> ok;
+t_position(Config) ->
+    NameVsn = proplists:get_value(name_vsn, Config),
+    ok = emqx_plugins:ensure_installed(NameVsn),
+    ok = emqx_plugins:ensure_enabled(NameVsn),
+    FakeInfo = "name=position, rel_vsn=\"2\", rel_apps=[\"position-9\"],"
+    "description=\"desc fake position app\"",
+    PosApp2 = <<"position-2">>,
+    ok = write_info_file(Config, PosApp2, FakeInfo),
+    %% fake a disabled plugin in config
+    ok = emqx_plugins:ensure_state(PosApp2, {before, NameVsn}, false),
+    ListFun = fun() ->
+        lists:map(fun(
+            #{<<"name">> := Name, <<"rel_vsn">> := Vsn}) ->
+            <<Name/binary, "-", Vsn/binary>>
+                  end, emqx_plugins:list())
+              end,
+    ?assertEqual([PosApp2, list_to_binary(NameVsn)], ListFun()),
+    emqx_plugins:ensure_enabled(PosApp2, {behind, NameVsn}),
+    ?assertEqual([list_to_binary(NameVsn), PosApp2], ListFun()),
+
+    ok = emqx_plugins:ensure_stopped(),
+    ok = emqx_plugins:ensure_disabled(NameVsn),
+    ok = emqx_plugins:ensure_disabled(PosApp2),
+    ok = emqx_plugins:ensure_uninstalled(NameVsn),
+    ok = emqx_plugins:ensure_uninstalled(PosApp2),
+    ?assertEqual([], emqx_plugins:list()),
+    ok.
 
 t_start_restart_and_stop({init, Config}) ->
     #{package := Package} = build_demo_plugin_package(),
@@ -283,12 +317,12 @@ t_bad_info_json(Config) ->
     ?assertMatch({error, #{error := "bad_info_file",
                            return := {parse_error, _}
                           }},
-                 emqx_plugins:read_plugin(NameVsn)),
+                 emqx_plugins:describe(NameVsn)),
     ok = write_info_file(Config, NameVsn, "{\"bad\": \"obj\"}"),
     ?assertMatch({error, #{error := "bad_info_file_content",
                            mandatory_fields := _
                           }},
-                 emqx_plugins:read_plugin(NameVsn)),
+                 emqx_plugins:describe(NameVsn)),
     ?assertEqual([], emqx_plugins:list()),
     emqx_plugins:purge(NameVsn),
     ok.
@@ -300,6 +334,7 @@ t_elixir_plugin({init, Config}) ->
          , git_url => "https://github.com/emqx/emqx-elixir-plugin.git"
          , vsn => ?EMQX_ELIXIR_PLUGIN_TEMPLATE_VSN
          , workdir => "demo_src_elixir"
+         , shdir => emqx_plugins:install_dir()
          },
     Opts = #{package := Package} = build_demo_plugin_package(Opts0),
     NameVsn = filename:basename(Package, ?PACKAGE_SUFFIX),
@@ -316,7 +351,7 @@ t_elixir_plugin(Config) ->
     ok = emqx_plugins:ensure_installed(NameVsn),
     %% idempotent
     ok = emqx_plugins:ensure_installed(NameVsn),
-    {ok, Info} = emqx_plugins:read_plugin(NameVsn),
+    {ok, Info} = emqx_plugins:read_plugin(NameVsn, #{}),
     ?assertEqual([Info], emqx_plugins:list()),
     %% start
     ok = emqx_plugins:ensure_started(NameVsn),

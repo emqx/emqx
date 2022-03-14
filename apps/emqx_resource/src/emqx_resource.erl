@@ -41,7 +41,7 @@
         ]).
 
 %% Sync resource instances and files
-%% provisional solution: rpc:multical to all the nodes for creating/updating/removing
+%% provisional solution: rpc:multicall to all the nodes for creating/updating/removing
 %% todo: replicate operations
 -export([ create/4 %% store the config and start the instance
         , create/5

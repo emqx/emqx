@@ -66,6 +66,7 @@ state_fields() ->
 root_fields() ->
     [ {states, fun states/1}
     , {install_dir, fun install_dir/1}
+    , {check_interval, fun check_interval/1}
     ].
 
 states(type) -> hoconsc:array(hoconsc:ref(?MODULE, state));
@@ -86,4 +87,12 @@ the subdirectory named as <code>emqx_foo_bar-0.1.0</code>.
 <br>
 NOTE: For security reasons, this directory should **NOT** be writable
 by anyone except <code>emqx</code> (or any user which runs EMQX).
+""".
+
+check_interval(type) -> emqx_schema:duration();
+check_interval(default) -> "5s";
+check_interval(T) when T =/= desc -> undefined;
+check_interval(desc) -> """
+Check interval: check if the status of the plugins in the cluster is consistent, <br>
+if the results of 3 consecutive checks are not consistent, then alarm.
 """.

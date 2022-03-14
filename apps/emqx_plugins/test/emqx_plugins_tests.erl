@@ -45,7 +45,7 @@ read_plugin_test() ->
             try
                 ok = write_file(InfoFile, FakeInfo),
                 ?assertMatch({error, #{error := "bad_rel_apps"}},
-                             emqx_plugins:read_plugin(NameVsn))
+                             emqx_plugins:read_plugin(NameVsn, #{}))
             after
                 emqx_plugins:purge(NameVsn)
             end
@@ -100,4 +100,3 @@ purge_test() ->
             ok = file:write_file(Dir, "a"),
             ?assertEqual(ok, emqx_plugins:purge("a-1"))
         end).
-

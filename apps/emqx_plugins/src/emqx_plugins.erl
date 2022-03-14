@@ -24,6 +24,7 @@
         , ensure_enabled/1
         , ensure_enabled/2
         , ensure_disabled/1
+        , purge/1
         , delete_package/1
         ]).
 
@@ -43,6 +44,9 @@
 %% internal
 -export([ do_ensure_started/1
         ]).
+-export([
+         install_dir/0
+        ]).
 
 -ifdef(TEST).
 -compile(export_all).
@@ -55,7 +59,7 @@
 
 -type name_vsn() :: binary() | string(). %% "my_plugin-0.1.0"
 -type plugin() :: map(). %% the parse result of the JSON info file
--type position() :: no_move | front | rear | {before, name_vsn()}.
+-type position() :: no_move | front | rear | {before, name_vsn()} | {behind, name_vsn()}.
 
 %%--------------------------------------------------------------------
 %% APIs
@@ -63,12 +67,12 @@
 
 %% @doc Describe a plugin.
 -spec describe(name_vsn()) -> {ok, plugin()} | {error, any()}.
-describe(NameVsn) -> read_plugin(NameVsn).
+describe(NameVsn) -> read_plugin(NameVsn, #{fill_readme => true}).
 
 %% @doc Install a .tar.gz package placed in install_dir.
 -spec ensure_installed(name_vsn()) -> ok | {error, any()}.
 ensure_installed(NameVsn) ->
-    case read_plugin(NameVsn) of
+    case read_plugin(NameVsn, #{}) of
         {ok, _} ->
             ok;
         {error, _} ->
@@ -80,7 +84,7 @@ do_ensure_installed(NameVsn) ->
     TarGz = pkg_file(NameVsn),
     case erl_tar:extract(TarGz, [{cwd, install_dir()}, compressed]) of
         ok ->
-            case read_plugin(NameVsn) of
+            case read_plugin(NameVsn, #{}) of
                 {ok, _} -> ok;
                 {error, Reason} ->
                     ?SLOG(warning, Reason#{msg => "failed_to_read_after_install"}),
@@ -103,7 +107,7 @@ do_ensure_installed(NameVsn) ->
 %% If a plugin is running, or enabled, error is returned.
 -spec ensure_uninstalled(name_vsn()) -> ok | {error, any()}.
 ensure_uninstalled(NameVsn) ->
-    case read_plugin(NameVsn) of
+    case read_plugin(NameVsn, #{}) of
         {ok, #{running_status := RunningSt}} when RunningSt =/= stopped ->
             {error, #{reason => "bad_plugin_running_status",
                       hint => "stop_the_plugin_first"
@@ -134,7 +138,7 @@ ensure_disabled(NameVsn) ->
 ensure_state(NameVsn, Position, State) when is_binary(NameVsn) ->
     ensure_state(binary_to_list(NameVsn), Position, State);
 ensure_state(NameVsn, Position, State) ->
-    case read_plugin(NameVsn) of
+    case read_plugin(NameVsn, #{}) of
         {ok, _} ->
             Item = #{ name_vsn => NameVsn
                     , enable => State
@@ -166,7 +170,7 @@ add_new_configured(Configured, front, Item) ->
     [Item | Configured];
 add_new_configured(Configured, rear, Item) ->
     Configured ++ [Item];
-add_new_configured(Configured, {before, NameVsn}, Item) ->
+add_new_configured(Configured, {Action, NameVsn}, Item) ->
     SplitFun = fun(#{name_vsn := Nv}) -> bin(Nv) =/= bin(NameVsn) end,
     {Front, Rear} = lists:splitwith(SplitFun, Configured),
     Rear =:= [] andalso
@@ -174,7 +178,13 @@ add_new_configured(Configured, {before, NameVsn}, Item) ->
                 hint => "maybe_install_and_configure",
                 name_vsn => NameVsn
                }),
-    Front ++ [Item | Rear].
+    case Action of
+        before -> Front ++ [Item | Rear];
+        behind ->
+            [Anchor | Rear0] = Rear,
+            Front ++ [Anchor, Item | Rear0]
+    end.
+
 
 %% @doc Delete the package file.
 -spec delete_package(name_vsn()) -> ok.
@@ -259,7 +269,7 @@ list() ->
     Pattern = filename:join([install_dir(), "*", "release.json"]),
     All = lists:filtermap(
             fun(JsonFile) ->
-                    case read_plugin({file, JsonFile}) of
+                    case read_plugin({file, JsonFile}, #{}) of
                         {ok, Info} ->
                             {true, Info};
                         {error, Reason} ->
@@ -314,26 +324,36 @@ tryit(WhichOp, F) ->
 
 %% read plugin info from the JSON file
 %% returns {ok, Info} or {error, Reason}
-read_plugin(NameVsn) ->
+read_plugin(NameVsn, Options) ->
     tryit("read_plugin_info",
-          fun() -> {ok, do_read_plugin(NameVsn)} end).
+          fun() -> {ok, do_read_plugin(NameVsn, Options)} end).
 
-do_read_plugin({file, InfoFile}) ->
+do_read_plugin(Plugin) -> do_read_plugin(Plugin, #{}).
+
+do_read_plugin({file, InfoFile}, Options) ->
     [_, NameVsn | _] = lists:reverse(filename:split(InfoFile)),
     case hocon:load(InfoFile, #{format => richmap}) of
         {ok, RichMap} ->
-            Info = check_plugin(hocon_maps:ensure_plain(RichMap), NameVsn, InfoFile),
-            maps:merge(Info, plugin_status(NameVsn));
+            Info0 = check_plugin(hocon_maps:ensure_plain(RichMap), NameVsn, InfoFile),
+            Info1 = plugins_readme(NameVsn, Options, Info0),
+            plugin_status(NameVsn, Info1);
         {error, Reason} ->
             throw(#{error => "bad_info_file",
                     path => InfoFile,
                     return => Reason
                    })
     end;
-do_read_plugin(NameVsn) ->
-    do_read_plugin({file, info_file(NameVsn)}).
+do_read_plugin(NameVsn, Options) ->
+    do_read_plugin({file, info_file(NameVsn)}, Options).
 
-plugin_status(NameVsn) ->
+plugins_readme(NameVsn, #{fill_readme := true}, Info) ->
+    case file:read_file(readme_file(NameVsn)) of
+        {ok, Bin} -> Info#{readme => Bin};
+        _ -> Info#{readme => <<>>}
+    end;
+plugins_readme(_NameVsn, _Options, Info) -> Info.
+
+plugin_status(NameVsn, Info) ->
     {AppName, _AppVsn} = parse_name_vsn(NameVsn),
     RunningSt =
         case application:get_key(AppName, vsn) of
@@ -357,9 +377,9 @@ plugin_status(NameVsn) ->
                  [true] -> enabled;
                  [false] -> disabled
              end,
-    #{ running_status => RunningSt
-     , config_status => ConfSt
-     }.
+    Info#{ running_status => RunningSt
+         , config_status => ConfSt
+    }.
 
 bin(A) when is_atom(A) -> atom_to_binary(A, utf8);
 bin(L) when is_list(L) -> unicode:characters_to_binary(L, utf8);
@@ -591,6 +611,9 @@ dir(NameVsn) ->
 
 info_file(NameVsn) ->
     filename:join([dir(NameVsn), "release.json"]).
+
+readme_file(NameVsn) ->
+    filename:join([dir(NameVsn), "README.md"]).
 
 running_apps() ->
     lists:map(fun({N, _, V}) ->

@@ -7,14 +7,15 @@
 {emqx_dashboard,1}.
 {emqx_exhook,1}.
 {emqx_gateway_cm,1}.
-{emqx_license,1}.
 {emqx_management,1}.
+{emqx_mgmt_api_plugins,1}.
+{emqx_license,1}.
 {emqx_mgmt_trace,1}.
 {emqx_persistent_session,1}.
 {emqx_plugin_libs,1}.
 {emqx_prometheus,1}.
 {emqx_resource,1}.
+{emqx_slow_subs,1}.
 {emqx_statsd,1}.
 {emqx_telemetry,1}.
 {emqx_topic_metrics,1}.
-{emqx_slow_subs,1}.
