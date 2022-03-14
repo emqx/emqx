@@ -28,4 +28,10 @@
 %% and emqx_conf_schema for an examples
 -define(EMQX_AUTHENTICATION_SCHEMA_MODULE_PT_KEY, emqx_authentication_schema_module).
 
+%% authentication move cmd
+-define(CMD_MOVE_TOP, top).
+-define(CMD_MOVE_BOTTOM, bottom).
+-define(CMD_MOVE_BEFORE(Before), {before, Before}).
+-define(CMD_MOVE_AFTER(After), {'after', After}).
+
 -endif.

@@ -87,24 +87,36 @@ do_pre_config_update({update_authenticator, ChainName, AuthenticatorID, Config},
 do_pre_config_update({move_authenticator, _ChainName, AuthenticatorID, Position}, OldConfig) ->
     case split_by_id(AuthenticatorID, OldConfig) of
         {error, Reason} -> {error, Reason};
-        {ok, Part1, [Found | Part2]} ->
+        {ok, BeforeFound, [Found | AfterFound]} ->
             case Position of
-                top ->
-                    {ok, [Found | Part1] ++ Part2};
-                bottom ->
-                    {ok, Part1 ++ Part2 ++ [Found]};
-                {before, Before} ->
-                    case split_by_id(Before, Part1 ++ Part2) of
+                ?CMD_MOVE_TOP ->
+                    {ok, [Found | BeforeFound] ++ AfterFound};
+                ?CMD_MOVE_BOTTOM ->
+                    {ok, BeforeFound ++ AfterFound ++ [Found]};
+                ?CMD_MOVE_BEFORE(BeforeRelatedID) ->
+                    case split_by_id(BeforeRelatedID, BeforeFound ++ AfterFound) of
                         {error, Reason} ->
                             {error, Reason};
-                        {ok, NPart1, [NFound | NPart2]} ->
-                            {ok, NPart1 ++ [Found, NFound | NPart2]}
+                        {ok, BeforeNFound, [FoundRelated | AfterNFound]} ->
+                            {ok, BeforeNFound ++ [Found, FoundRelated | AfterNFound]}
+                    end;
+                ?CMD_MOVE_AFTER(AfterRelatedID) ->
+                    case split_by_id(AfterRelatedID, BeforeFound ++ AfterFound) of
+                        {error, Reason} ->
+                            {error, Reason};
+                        {ok, BeforeNFound, [FoundRelated | AfterNFound]} ->
+                            {ok, BeforeNFound ++ [FoundRelated, Found | AfterNFound]}
                     end
             end
     end.
 
--spec post_config_update(list(atom()), update_request(), map() | list(), emqx_config:raw_config(), emqx_config:app_envs())
-    -> ok | {ok, map()} | {error, term()}.
+-spec post_config_update(list(atom()),
+                         update_request(),
+                         map() | list(),
+                         emqx_config:raw_config(),
+                         emqx_config:app_envs()
+                        )
+                        -> ok | {ok, map()} | {error, term()}.
 post_config_update(_, UpdateReq, NewConfig, OldConfig, AppEnvs) ->
     do_post_config_update(UpdateReq, check_configs(to_list(NewConfig)), OldConfig, AppEnvs).
 
@@ -112,7 +124,8 @@ do_post_config_update({create_authenticator, ChainName, Config}, NewConfig, _Old
     NConfig = get_authenticator_config(authenticator_id(Config), NewConfig),
     _ = emqx_authentication:create_chain(ChainName),
     emqx_authentication:create_authenticator(ChainName, NConfig);
-do_post_config_update({delete_authenticator, ChainName, AuthenticatorID}, _NewConfig, OldConfig, _AppEnvs) ->
+do_post_config_update({delete_authenticator, ChainName, AuthenticatorID},
+                      _NewConfig, OldConfig, _AppEnvs) ->
     case emqx_authentication:delete_authenticator(ChainName, AuthenticatorID) of
         ok ->
             Config = get_authenticator_config(AuthenticatorID, to_list(OldConfig)),
@@ -121,14 +134,16 @@ do_post_config_update({delete_authenticator, ChainName, AuthenticatorID}, _NewCo
         {error, Reason} ->
             {error, Reason}
     end;
-do_post_config_update({update_authenticator, ChainName, AuthenticatorID, Config}, NewConfig, _OldConfig, _AppEnvs) ->
+do_post_config_update({update_authenticator, ChainName, AuthenticatorID, Config},
+                      NewConfig, _OldConfig, _AppEnvs) ->
     case get_authenticator_config(authenticator_id(Config), NewConfig) of
         {error, not_found} ->
             {error, {not_found, {authenticator, AuthenticatorID}}};
         NConfig ->
             emqx_authentication:update_authenticator(ChainName, AuthenticatorID, NConfig)
     end;
-do_post_config_update({move_authenticator, ChainName, AuthenticatorID, Position}, _NewConfig, _OldConfig, _AppEnvs) ->
+do_post_config_update({move_authenticator, ChainName, AuthenticatorID, Position},
+                      _NewConfig, _OldConfig, _AppEnvs) ->
     emqx_authentication:move_authenticator(ChainName, AuthenticatorID, Position).
 
 check_configs(Configs) ->

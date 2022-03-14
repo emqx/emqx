@@ -1060,11 +1060,17 @@ serialize_error(Reason) ->
             message => binfmt("~p", [Reason])}}.
 
 parse_position(<<"top">>) ->
-    {ok, top};
+    {ok, ?CMD_MOVE_TOP};
 parse_position(<<"bottom">>) ->
-    {ok, bottom};
+    {ok, ?CMD_MOVE_BOTTOM};
+parse_position(<<"before:">>) ->
+    {error, {invalid_parameter, position}};
+parse_position(<<"after:">>) ->
+    {error, {invalid_parameter, position}};
 parse_position(<<"before:", Before/binary>>) ->
-    {ok, {before, Before}};
+    {ok, ?CMD_MOVE_BEFORE(Before)};
+parse_position(<<"after:", After/binary>>) ->
+    {ok, ?CMD_MOVE_AFTER(After)};
 parse_position(_) ->
     {error, {invalid_parameter, position}}.
 
