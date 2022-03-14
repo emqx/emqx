@@ -84,6 +84,10 @@ jobs:
       with:
         name: ${{ matrix.profile}}-${{ matrix.otp }}-${{ matrix.os }}
         path: _packages/${{ matrix.profile}}/*.tar.gz
+    - uses: actions/upload-artifact@v2
+      with:
+        name: "${{ matrix.profile }}_schema_dump"
+        path: _build/*/lib/emqx_dashboard/priv/www/static/schema.json
 
   windows:
     runs-on: windows-2019
@@ -204,3 +208,25 @@ jobs:
       with:
         name: macos
         path: _packages/**/*.tar.gz
+
+  spellcheck:
+    needs: linux
+    strategy:
+      matrix:
+        profile:
+        - emqx-edge
+        - emqx
+        - emqx-enterprise
+    runs-on: ubuntu-20.04
+    container: "ghcr.io/iequ1/emqx-schema-validate:0.2.1"
+    steps:
+    - uses: actions/download-artifact@v2
+      name: Download schema dump
+      with:
+        name: "${{ matrix.profile }}_schema_dump"
+        path: /tmp/
+    - name: Run spellcheck
+      run: |
+        cd /LanguageTool
+        bash start.sh > /dev/null &
+        ./emqx_schema_validate /tmp/${{ matrix.profile }}/lib/emqx_dashboard/priv/www/static/schema.json

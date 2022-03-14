@@ -306,10 +306,10 @@ fields("node") ->
              desc =>
 """
 Path to the persistent data directory.
-Possible auto-created sub-directories are:
+Possible auto-created subdirectories are:
   - `mnesia/\<node_name>`: EMQX's built-in database directory.
     For example, `mnesia/emqx@127.0.0.1`.
-    There should be only one such sub directory.
+    There should be only one such subdirectory.
     Meaning, in case the node is to be renamed (to e.g. `emqx@10.0.1.1`),
     the old dir should be deleted first.
   - `configs`: Generated configs at boot time, and cluster/local override configs.
@@ -433,7 +433,7 @@ to <code>rlog</code>.
 List of core nodes that the replicant will connect to.<br/>
 Note: this parameter only takes effect when the <code>backend</code> is set
 to <code>rlog</code> and the <code>role</code> is set to <code>replicant</code>.<br/>
-This values needs to be defined for manual or static cluster discovery mechanisms.<br/>
+This value needs to be defined for manual or static cluster discovery mechanisms.<br/>
 If an automatic cluster discovery mechanism is being used (such as <code>etcd</code>),
 there is no need to set this value.
 """
