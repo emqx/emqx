@@ -136,7 +136,7 @@ t_add(Cfg) ->
 t_move_top(_) ->
     Result = request_api(post, api_path(["exhooks", "default", "move"]), "",
                          auth_header_(),
-                         #{position => top, related => <<>>}),
+                         #{position => <<"top">>}),
 
     ?assertMatch({ok, <<>>}, Result),
     ?assertMatch([<<"default">>, <<"test1">>], emqx_exhook_mgr:running()).
@@ -144,7 +144,7 @@ t_move_top(_) ->
 t_move_bottom(_) ->
     Result = request_api(post, api_path(["exhooks", "default", "move"]), "",
                          auth_header_(),
-                         #{position => bottom, related => <<>>}),
+                         #{position => <<"bottom">>}),
 
     ?assertMatch({ok, <<>>}, Result),
     ?assertMatch([<<"test1">>, <<"default">>], emqx_exhook_mgr:running()).
@@ -152,7 +152,7 @@ t_move_bottom(_) ->
 t_move_before(_) ->
     Result = request_api(post, api_path(["exhooks", "default", "move"]), "",
                          auth_header_(),
-                         #{position => before, related => <<"test1">>}),
+                         #{position => <<"before:test1">>}),
 
     ?assertMatch({ok, <<>>}, Result),
     ?assertMatch([<<"default">>, <<"test1">>], emqx_exhook_mgr:running()).
@@ -160,7 +160,7 @@ t_move_before(_) ->
 t_move_after(_) ->
     Result = request_api(post, api_path(["exhooks", "default", "move"]), "",
                          auth_header_(),
-                         #{position => 'after', related => <<"test1">>}),
+                         #{position => <<"after:test1">>}),
 
     ?assertMatch({ok, <<>>}, Result),
     ?assertMatch([<<"test1">>, <<"default">>], emqx_exhook_mgr:running()).
