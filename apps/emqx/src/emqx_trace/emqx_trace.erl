@@ -229,8 +229,8 @@ format(Traces) ->
 init([]) ->
     ok = mria:wait_for_tables([?TRACE]),
     erlang:process_flag(trap_exit, true),
-    ok = filelib:ensure_dir(trace_dir()),
-    ok = filelib:ensure_dir(zip_dir()),
+    ok = filelib:ensure_dir(filename:join([trace_dir(), dummy])),
+    ok = filelib:ensure_dir(filename:join([zip_dir(), dummy])),
     {ok, _} = mnesia:subscribe({table, ?TRACE, simple}),
     Traces = get_enable_trace(),
     TRef = update_trace(Traces),
@@ -493,10 +493,10 @@ to_system_second(Sec) ->
     {ok, erlang:max(Now, Sec)}.
 
 zip_dir() ->
-    trace_dir() ++ "zip/".
+    filename:join([trace_dir(), "zip"]).
 
 trace_dir() ->
-    filename:join(emqx:data_dir(), "trace") ++ "/".
+    filename:join(emqx:data_dir(), "trace").
 
 log_file(Name, Start) ->
     filename:join(trace_dir(), filename(Name, Start)).
