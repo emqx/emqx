@@ -7,11 +7,18 @@ User=emqx
 Group=emqx
 Type=forking
 Environment=HOME=/var/lib/emqx
-ExecStart=/usr/bin/emqx start
+
+# Must use a 'bash' wrap for some OS
+# errno=13 'Permission denied'
+# Cannot create FIFO ... for writing
+ExecStart=bash /usr/bin/emqx start
+
 LimitNOFILE=1048576
-ExecStop=/usr/bin/emqx stop
+ExecStop=bash /usr/bin/emqx stop
 Restart=on-failure
-RestartSec=5s
+
+# When clustered, give the peers enough time to get this node's 'DOWN' event
+RestartSec=60s
 
 [Install]
 WantedBy=multi-user.target

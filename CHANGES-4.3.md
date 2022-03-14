@@ -26,6 +26,7 @@ File format:
 * `topic` parameter in bridge configuration can have `${node}` substitution (just like in `clientid` parameter)
 * Add UTF-8 string validity check in `strict_mode` for MQTT packet.
   When set to true, invalid UTF-8 strings will cause the client to be disconnected. i.e. client ID, topic name. [#7261]
+* Changed systemd service restart delay from 10 seconds to 60 seconds.
 
 ### Bug fixes
 
@@ -40,6 +41,7 @@ File format:
 * Fix rpc get node info maybe crash when other nodes is not ready.
 * Fix false alert level log “cannot_find_plugins” caused by duplicate plugin names in `loaded_plugins` files.
 * Prompt user how to change the dashboard's initial default password when emqx start.
+* Fix errno=13 'Permission denied' Cannot create FIFO boot error in Amazon Linux 2022 (el8 package)
 
 ## v4.3.12
 ### Important changes
