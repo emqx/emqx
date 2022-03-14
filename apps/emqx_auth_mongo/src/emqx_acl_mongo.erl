@@ -35,6 +35,9 @@ check_acl(ClientInfo, PubSub, Topic, _AclResult, Env = #{aclquery := AclQuery}) 
             maps:from_list(emqx_auth_mongo:replvars(Selector, ClientInfo))
         end, SelectorList),
     case emqx_auth_mongo:query_multi(Pool, Coll, SelectorMapList) of
+        {error, Reason} ->
+            ?LOG(error, "[MongoDB] check_acl error: ~0p", [Reason]),
+            ok;
         [] -> ok;
         Rows ->
             try match(ClientInfo, Topic, topics(PubSub, Rows)) of
