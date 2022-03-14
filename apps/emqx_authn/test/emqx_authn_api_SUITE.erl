@@ -347,7 +347,7 @@ test_authenticator_move(PathPrefix) ->
        ],
        PathPrefix ++ [?CONF_NS]),
 
-    % Invalid moves
+    %% Invalid moves
 
     {ok, 400, _} = request(
                      post,
@@ -374,8 +374,9 @@ test_authenticator_move(PathPrefix) ->
                      uri(PathPrefix ++ [?CONF_NS, "jwt", "move"]),
                      #{position => <<"before:password_based:redis">>}),
 
-    % Valid moves
+    %% Valid moves
 
+    %% test top
     {ok, 204, _} = request(
                      post,
                      uri(PathPrefix ++ [?CONF_NS, "jwt", "move"]),
@@ -389,6 +390,7 @@ test_authenticator_move(PathPrefix) ->
        ],
        PathPrefix ++ [?CONF_NS]),
 
+    %% test bottom
     {ok, 204, _} = request(
                      post,
                      uri(PathPrefix ++ [?CONF_NS, "jwt", "move"]),
@@ -402,6 +404,7 @@ test_authenticator_move(PathPrefix) ->
        ],
        PathPrefix ++ [?CONF_NS]),
 
+    %% test before
     {ok, 204, _} = request(
                      post,
                      uri(PathPrefix ++ [?CONF_NS, "jwt", "move"]),
@@ -412,6 +415,20 @@ test_authenticator_move(PathPrefix) ->
         #{<<"mechanism">> := <<"password_based">>, <<"backend">> := <<"http">>},
         #{<<"mechanism">> := <<"jwt">>},
         #{<<"mechanism">> := <<"password_based">>, <<"backend">> := <<"built_in_database">>}
+       ],
+       PathPrefix ++ [?CONF_NS]),
+
+    %% test after
+    {ok, 204, _} = request(
+                     post,
+                     uri(PathPrefix ++ [?CONF_NS, "password_based%3Abuilt_in_database", "move"]),
+                     #{position => <<"after:password_based:http">>}),
+
+    ?assertAuthenticatorsMatch(
+       [
+         #{<<"mechanism">> := <<"password_based">>, <<"backend">> := <<"http">>},
+         #{<<"mechanism">> := <<"password_based">>, <<"backend">> := <<"built_in_database">>},
+         #{<<"mechanism">> := <<"jwt">>}
        ],
        PathPrefix ++ [?CONF_NS]).
 
