@@ -344,7 +344,7 @@ internal_format(#emqx_monit{time = Time, data = Data}) ->
 count_map(M1, M2) ->
     Fun =
         fun(Key, Map) ->
-            Map#{key => maps:get(Key, M1) + maps:get(Key, M2)}
+            Map#{Key => maps:get(Key, M1) + maps:get(Key, M2)}
         end,
     lists:foldl(Fun, #{}, ?SAMPLER_LIST).
 
