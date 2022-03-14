@@ -17,5 +17,11 @@ find_app() {
     "$FIND" "${appdir}" -mindepth 1 -maxdepth 1 -type d
 }
 
-find_app 'apps'
-find_app 'lib-ee'
+CE="$(find_app 'apps')"
+EE="$(find_app 'lib-ee')"
+
+if [ "${1:-}" = 'json' ]; then
+    echo -e "${CE}\n${EE} " | xargs | tr -d '\n' | jq -R -s -c 'split(" ")'
+else
+    echo -e "${CE}\n${EE}"
+fi
