@@ -129,7 +129,8 @@ fields("cluster") ->
        sc(boolean(),
           #{ mapping => "ekka.cluster_autoheal"
            , default => true
-           , desc => "If <code>true</code>, the node will try to heal network partitions automatically."
+           , desc => "If <code>true</code>, the node will try to heal network partitions
+ automatically."
            })}
     , {"proto_dist",
        sc(hoconsc:enum([inet_tcp, inet6_tcp, inet_tls]),
@@ -138,8 +139,8 @@ fields("cluster") ->
            })}
     , {"static",
        sc(ref(cluster_static),
-          #{ desc => "Service discovery via static nodes. The new node joins the cluster by connecting
- to one of the bootstrap nodes."
+          #{ desc => "Service discovery via static nodes. The new node joins the cluster by
+ connecting to one of the bootstrap nodes."
            })}
     , {"mcast",
        sc(ref(cluster_mcast),
