@@ -233,7 +233,9 @@ source(get, #{bindings := #{type := Type}}) ->
                     case lookup_from_all_nodes(ResourceId) of
                         {ok, StatusAndMetrics} ->
                             Fun = fun ({Key, Val}, Map) -> maps:put(Key, Val, Map) end,
-                            {200, lists:foldl(Fun, read_certs(Source), maps:to_list(StatusAndMetrics))};
+                            {200, lists:foldl(Fun,
+                                              read_certs(Source),
+                                              maps:to_list(StatusAndMetrics))};
                         {error, ErrorMsg} -> {500, ErrorMsg}
                     end;
                 _ -> {200, read_certs(Source)}
