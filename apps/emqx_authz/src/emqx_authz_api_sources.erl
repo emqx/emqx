@@ -230,9 +230,12 @@ source(get, #{bindings := #{type := Type}}) ->
         [Source] ->
             case emqx_authz:lookup(Type) of
                 #{annotations := #{id := ResourceId }} ->
-                    StatusAndMetrics = lookup_from_all_nodes(ResourceId),
-                    {200, maps:put(status_and_metrics, StatusAndMetrics, read_certs(Source))};
-                _ -> {200, maps:put(status_and_metrics, resource_not_found, read_certs(Source))}
+                    case lookup_from_all_nodes(ResourceId) of
+                        {ok, StatusAndMetrics} ->
+                            {200, maps:merge(read_certs(Source), StatusAndMetrics)};
+                        {error, ErrorMsg} -> {500, ErrorMsg}
+                    end;
+                _ -> {200, read_certs(Source)}
             end
     end;
 source(put, #{bindings := #{type := <<"file">>}, body := #{<<"type">> := <<"file">>,
@@ -292,14 +295,15 @@ lookup_from_all_nodes(ResourceId) ->
             AggregateStatus = aggregate_status(maps:values(StatusMap)),
             AggregateMetrics = aggregate_metrics(maps:values(MetricsMap)),
             Fun = fun(_, V1) -> restructure_map(V1) end,
-            #{node_status => StatusMap,
-              node_metrics => maps:map(Fun, MetricsMap),
-              node_error => ErrorMap,
-              status => AggregateStatus,
-              metrics => restructure_map(AggregateMetrics)
-             };
+            {ok, #{node_status => StatusMap,
+                   node_metrics => maps:map(Fun, MetricsMap),
+                   node_error => ErrorMap,
+                   status => AggregateStatus,
+                   metrics => restructure_map(AggregateMetrics)
+                  }
+            };
         {error, ErrL} ->
-            {error_msg('INTERNAL_ERROR', ErrL)}
+            {error, error_msg('INTERNAL_ERROR', ErrL)}
     end.
 
 aggregate_status([]) -> error_some_strange_happen;
