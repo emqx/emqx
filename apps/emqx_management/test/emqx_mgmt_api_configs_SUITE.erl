@@ -24,11 +24,11 @@ all() ->
     emqx_common_test_helpers:all(?MODULE).
 
 init_per_suite(Config) ->
-    emqx_mgmt_api_test_util:init_suite(),
+    emqx_mgmt_api_test_util:init_suite([emqx_conf]),
     Config.
 
 end_per_suite(_) ->
-    emqx_mgmt_api_test_util:end_suite().
+    emqx_mgmt_api_test_util:end_suite([emqx_conf]).
 
 t_get(_Config) ->
     {ok, Configs} = get_configs(),
@@ -66,6 +66,16 @@ t_update(_Config) ->
     ?assertMatch({error, {"HTTP/1.1", 400, _}}, reset_config(<<"sysmon">>, "")),
     {ok, SysMon4} = get_config(<<"sysmon">>),
     ?assertMatch(#{<<"vm">> := #{<<"busy_port">> := false}}, SysMon4),
+    ok.
+
+t_log(_Config) ->
+    {ok, Log} = get_config("log"),
+    File = "log/emqx-test.log",
+    Log1 = emqx_map_lib:deep_put([<<"file_handlers">>, <<"default">>, <<"enable">>], Log, true),
+    Log2 = emqx_map_lib:deep_put([<<"file_handlers">>, <<"default">>, <<"file">>], Log1, File),
+    {ok, #{}} = update_config(<<"log">>, Log2),
+    {ok, Log3} = logger:get_handler_config(default),
+    ?assertMatch(#{config := #{file := File}}, Log3),
     ok.
 
 t_zones(_Config) ->

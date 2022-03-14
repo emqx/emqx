@@ -772,7 +772,7 @@ tr_logger(Conf) ->
     %% For the file logger
     FileHandlers =
         [begin
-         {handler, binary_to_atom(HandlerName, latin1), logger_disk_log_h, #{
+         {handler, to_atom(HandlerName), logger_disk_log_h, #{
                 level => conf_get("level", SubConf),
                 config => (log_handler_conf(SubConf)) #{
                     type => case conf_get("rotation.enable", SubConf) of
@@ -846,7 +846,7 @@ log_handler_common_confs() ->
           #{ default => error
            })}
     , {"max_depth",
-       sc(hoconsc:union([unlimited, integer()]),
+       sc(hoconsc:union([unlimited, non_neg_integer()]),
           #{ default => 100
            , desc => "Maximum depth for Erlang term log formatting "
                      "and Erlang process message queue inspection."

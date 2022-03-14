@@ -234,7 +234,7 @@ check_and_save_configs(SchemaModule, ConfKeyPath, Handlers, NewRawConf, Override
         UpdateArgs, Opts) ->
     OldConf = emqx_config:get_root(ConfKeyPath),
     Schema = schema(SchemaModule, ConfKeyPath),
-    {AppEnvs, #{root := NewConf}} = emqx_config:check_config(Schema, #{<<"root">> => NewRawConf}),
+    {AppEnvs, NewConf} = emqx_config:check_config(Schema, NewRawConf),
     case do_post_config_update(ConfKeyPath, Handlers, OldConf, NewConf, AppEnvs, UpdateArgs, #{}) of
         {ok, Result0} ->
             remove_from_local_if_cluster_change(ConfKeyPath, Opts),
@@ -403,7 +403,7 @@ schema(SchemaModule, [RootKey | _]) ->
             {_, {Ref, ?REF(Ref)}} -> {Ref, ?R_REF(SchemaModule, Ref)};
             {_, Field0} -> Field0
         end,
-    #{roots => [root], fields => #{root => [Field]}}.
+    #{roots => [Field]}.
 
 load_prev_handlers() ->
     Handlers = application:get_env(emqx, ?MODULE, #{}),

@@ -32,7 +32,7 @@ prop_opts_input() ->
     [{keyfile, prop_file_or_content()},
      {certfile, prop_file_or_content()},
      {cacertfile, prop_file_or_content()},
-     {verify, proper_types:boolean()},
+     {verify, proper_types:oneof([verify_none, verify_peer])},
      {versions, prop_tls_versions()},
      {ciphers, prop_tls_ciphers()},
      {other, proper_types:binary()}].

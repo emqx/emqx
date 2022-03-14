@@ -18,19 +18,7 @@
 
 -compile({no_auto_import, [error/1]}).
 
--behaviour(gen_server).
--behaviour(emqx_config_handler).
 -elvis([{elvis_style, god_modules, disable}]).
-
-%% gen_server callbacks
--export([ start_link/0
-        , init/1
-        , handle_call/3
-        , handle_cast/2
-        , handle_info/2
-        , terminate/2
-        , code_change/3
-        ]).
 
 %% Logs
 -export([ debug/1
@@ -71,8 +59,6 @@
         , stop_log_handler/1
         ]).
 
--export([post_config_update/5]).
-
 -type(peername_str() :: list()).
 -type(logger_dst() :: file:filename() | console | unknown).
 -type(logger_handler_info() :: #{
@@ -84,49 +70,6 @@
       }).
 
 -define(STOPPED_HANDLERS, {?MODULE, stopped_handlers}).
--define(CONF_PATH, [log]).
-
-start_link() ->
-    gen_server:start_link({local, ?MODULE}, ?MODULE, [], []).
-
-%%--------------------------------------------------------------------
-%% gen_server callbacks
-%%--------------------------------------------------------------------
-init([]) ->
-    ok = emqx_config_handler:add_handler(?CONF_PATH, ?MODULE),
-    {ok, #{}}.
-
-handle_call({update_config, AppEnvs}, _From, State) ->
-    OldEnvs = application:get_env(kernel, logger, []),
-    NewEnvs = proplists:get_value(logger, proplists:get_value(kernel, AppEnvs, []), []),
-    ok = application:set_env(kernel, logger, NewEnvs),
-    _ = [logger:remove_handler(HandlerId) || {handler, HandlerId, _Mod, _Conf} <- OldEnvs],
-    _ = [logger:add_handler(HandlerId, Mod, Conf) || {handler, HandlerId, Mod, Conf} <- NewEnvs],
-    ok = tune_primary_log_level(),
-    {reply, ok, State};
-
-handle_call(_Req, _From, State) ->
-    {reply, ignored, State}.
-
-handle_cast(_Msg, State) ->
-    {noreply, State}.
-
-handle_info(_Info, State) ->
-    {noreply, State}.
-
-terminate(_Reason, _State) ->
-    ok = emqx_config_handler:remove_handler(?CONF_PATH),
-    ok.
-
-code_change(_OldVsn, State, _Extra) ->
-    {ok, State}.
-
-
-%%--------------------------------------------------------------------
-%% emqx_config_handler callbacks
-%%--------------------------------------------------------------------
-post_config_update(_, _Req, _NewConf, _OldConf, AppEnvs) ->
-    gen_server:call(?MODULE, {update_config, AppEnvs}, 5000).
 
 %%--------------------------------------------------------------------
 %% APIs

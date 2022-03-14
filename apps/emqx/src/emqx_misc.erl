@@ -138,13 +138,14 @@ apply_fun(Fun, Input, State) ->
         {arity, 2} -> Fun(Input, State)
     end.
 
--spec(start_timer(integer(), term()) -> reference()).
+-spec(start_timer(integer() | atom(), term()) -> maybe(reference())).
 start_timer(Interval, Msg) ->
     start_timer(Interval, self(), Msg).
 
--spec(start_timer(integer(), pid() | atom(), term()) -> reference()).
-start_timer(Interval, Dest, Msg) ->
-    erlang:start_timer(erlang:ceil(Interval), Dest, Msg).
+-spec(start_timer(integer() | atom(), pid() | atom(), term()) -> maybe(reference())).
+start_timer(Interval, Dest, Msg) when is_number(Interval) ->
+    erlang:start_timer(erlang:ceil(Interval), Dest, Msg);
+start_timer(_Atom, _Dest, _Msg) -> undefined.
 
 -spec(cancel_timer(maybe(reference())) -> ok).
 cancel_timer(Timer) when is_reference(Timer) ->

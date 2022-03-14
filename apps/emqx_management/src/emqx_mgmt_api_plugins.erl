@@ -88,7 +88,10 @@ schema("/plugins/install") ->
                             properties => #{
                                 plugin => #{type => string, format => binary}}},
                         encoding => #{plugin => #{'contentType' => 'application/gzip'}}}}},
-            responses => #{200 => <<"OK">>}
+            responses => #{
+                200 => <<"OK">>,
+                400 => emqx_dashboard_swagger:error_codes(['UNEXPECTED_ERROR','ALREADY_INSTALLED'])
+            }
         }
     };
 schema("/plugins/:name") ->
@@ -263,15 +266,29 @@ upload_install(post, #{body := #{<<"plugin">> := Plugin}}) when is_map(Plugin) -
     %% File bin is too large, we use rpc:multicall instead of cluster_rpc:multicall
     %% TODO what happened when a new node join in?
     %% emqx_plugins_monitor should copy plugins from other core node when boot-up.
-    {Res, _} = emqx_mgmt_api_plugins_proto_v1:install_package(FileName, Bin),
-    case lists:filter(fun(R) -> R =/= ok end, Res) of
-        [] -> {200};
-        [{error, Reason} | _] ->
-            {400, #{code => 'UNEXPECTED_ERROR',
-                message => iolist_to_binary(io_lib:format("~p", [Reason]))}}
+    case emqx_plugins:describe(string:trim(FileName, trailing, ".tar.gz")) of
+        {error, #{error := "bad_info_file", return := {enoent, _}}} ->
+            {AppName, _Vsn} = emqx_plugins:parse_name_vsn(FileName),
+            AppDir = filename:join(emqx_plugins:install_dir(), AppName),
+            case filelib:wildcard(AppDir ++ "*.tar.gz") of
+                [] ->
+                    {Res, _} = emqx_mgmt_api_plugins_proto_v1:install_package(FileName, Bin),
+                    case lists:filter(fun(R) -> R =/= ok end, Res) of
+                        [] -> {200};
+                        [{error, Reason} | _] ->
+                            {400, #{code => 'UNEXPECTED_ERROR',
+                                message => iolist_to_binary(io_lib:format("~p", [Reason]))}}
+                    end;
+                OtherVsn ->
+                    {400, #{code => 'ALREADY_INSTALLED',
+                        message => iolist_to_binary(io_lib:format("~p already installed",
+                            [OtherVsn]))}}
+            end;
+        {ok, _} ->
+            {400, #{code => 'ALREADY_INSTALLED',
+                message => iolist_to_binary(io_lib:format("~p is already installed", [FileName]))}}
     end;
-upload_install(post, #{} = Body) ->
-    io:format("~p~n", [Body]),
+upload_install(post, #{}) ->
     {400, #{code => 'BAD_FORM_DATA',
         message =>
         <<"form-data should be `plugin=@packagename-vsn.tar.gz;type=application/x-gzip`">>}
@@ -309,7 +326,6 @@ update_boot_order(post, #{bindings := #{name := Name}, body := Body}) ->
 %% For RPC upload_install/2
 install_package(FileName, Bin) ->
     File = filename:join(emqx_plugins:install_dir(), FileName),
-    io:format("xx:~p~n", [File]),
     ok = file:write_file(File, Bin),
     PackageName = string:trim(FileName, trailing, ".tar.gz"),
     emqx_plugins:ensure_installed(PackageName).

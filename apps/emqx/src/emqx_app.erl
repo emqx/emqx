@@ -47,11 +47,13 @@ start(_Type, _Args) ->
     {ok, Sup} = emqx_sup:start_link(),
     ok = maybe_start_listeners(),
     ok = emqx_alarm_handler:load(),
+    emqx_config:add_handlers(),
     register(emqx, self()),
     {ok, Sup}.
 
 prep_stop(_State) ->
     ok = emqx_alarm_handler:unload(),
+    emqx_config:remove_handlers(),
     emqx_boot:is_enabled(listeners)
       andalso emqx_listeners:stop().
 

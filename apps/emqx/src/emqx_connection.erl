@@ -91,7 +91,7 @@
           %% Stats Timer
           stats_timer :: disabled | maybe(reference()),
           %% Idle Timeout
-          idle_timeout :: integer(),
+          idle_timeout :: integer() | infinity,
           %% Idle Timer
           idle_timer :: maybe(reference()),
           %% Zone name

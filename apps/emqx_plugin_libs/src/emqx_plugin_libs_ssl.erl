@@ -29,7 +29,7 @@
 %% <<"certfile">> => file_input()
 %% <<"cafile">> => file_input() %% backward compatible
 %% <<"cacertfile">> => file_input()
-%% <<"verify">> => boolean()
+%% <<"verify">> => verify_none | verify_peer
 %% <<"tls_versions">> => binary()
 %% <<"ciphers">> => binary()
 -type opts_key() :: binary() | atom().
