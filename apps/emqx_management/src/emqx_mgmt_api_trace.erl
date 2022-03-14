@@ -321,7 +321,8 @@ download_trace_log(get, #{bindings := #{name := Name}}) ->
             TraceFiles = collect_trace_file(TraceLog),
             ZipDir = emqx_trace:zip_dir(),
             Zips = group_trace_file(ZipDir, TraceLog, TraceFiles),
-            ZipFileName = ZipDir ++ binary_to_list(Name) ++ ".zip",
+            FileName = binary_to_list(Name) ++ ".zip",
+            ZipFileName = filename:join([ZipDir, FileName]),
             {ok, ZipFile} = zip:zip(ZipFileName, Zips, [{cwd, ZipDir}]),
             %% emqx_trace:delete_files_after_send(ZipFileName, Zips),
             %% TODO use file replace file_binary.(delete file after send is not ready now).
@@ -340,9 +341,10 @@ group_trace_file(ZipDir, TraceLog, TraceFiles) ->
     lists:foldl(fun(Res, Acc) ->
         case Res of
             {ok, Node, Bin} ->
-                ZipName = ZipDir ++ Node ++ "-" ++ TraceLog,
+                FileName = Node ++ "-" ++ TraceLog,
+                ZipName = filename:join([ZipDir, FileName]),
                 case file:write_file(ZipName, Bin) of
-                    ok -> [Node ++ "-" ++ TraceLog | Acc];
+                    ok -> [FileName | Acc];
                     _ -> Acc
                 end;
             {error, Node, Reason} ->
