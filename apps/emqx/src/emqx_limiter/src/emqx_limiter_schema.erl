@@ -29,7 +29,7 @@
                       | message_in
                       | connection
                       | message_routing
-                      | shared.
+                      | batch.
 
 -type bucket_name() :: atom().
 -type rate() :: infinity | float().
@@ -142,7 +142,7 @@ to_rate(Str, CanInfinity, CanZero) ->
             {ok, Val} = to_capacity(QuotaStr),
             check_capacity(Str, Val, CanZero,
                            fun(Quota) ->
-                                   Quota * minimum_period() / ?UNIT_TIME_IN_MS
+                                   {ok, Quota * minimum_period() / ?UNIT_TIME_IN_MS}
                            end);
         [QuotaStr, Interval] ->
             {ok, Val} = to_capacity(QuotaStr),

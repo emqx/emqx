@@ -22,7 +22,7 @@
 
 %% API
 -export([ make_token_bucket_limiter/2, make_ref_limiter/2, check/2
-        , consume/2, set_retry/2, retry/1, make_infinity_limiter/1
+        , consume/2, set_retry/2, retry/1, make_infinity_limiter/0
         , make_future/1, available/1
         ]).
 -export_type([token_bucket_limiter/0]).
@@ -108,6 +108,8 @@
 
 -import(emqx_limiter_decimal, [sub/2, mul/2, floor_div/2, add/2]).
 
+-elvis([{elvis_style, no_if_expression, disable}]).
+
 %%--------------------------------------------------------------------
 %%  API
 %%--------------------------------------------------------------------
@@ -124,8 +126,8 @@ make_token_bucket_limiter(Cfg, Bucket) ->
 make_ref_limiter(Cfg, Bucket) when Bucket =/= infinity ->
     Cfg#{bucket => Bucket}.
 
--spec make_infinity_limiter(limiter_bucket_cfg()) -> infinity.
-make_infinity_limiter(_) ->
+-spec make_infinity_limiter() -> infinity.
+make_infinity_limiter() ->
     infinity.
 
 %% @doc request some tokens
@@ -252,12 +254,11 @@ try_consume(_, _, Limiter) ->
 
 -spec do_check(acquire_type(Limiter), Limiter) -> inner_check_result(Limiter)
               when Limiter :: limiter().
-do_check(Need, #{tokens := Tokens} = Limiter) ->
-    if Need =< Tokens ->
-            do_check_with_parent_limiter(Need, Limiter);
-       true ->
-            do_reset(Need, Limiter)
-    end;
+do_check(Need, #{tokens := Tokens} = Limiter) when Need =< Tokens ->
+    do_check_with_parent_limiter(Need, Limiter);
+
+do_check(Need, #{tokens := _} = Limiter) ->
+    do_reset(Need, Limiter);
 
 do_check(Need, #{divisible := Divisible,
                  bucket := Bucket} = Ref) ->
@@ -280,7 +281,8 @@ on_failure(throw, Limiter) ->
     Message = io_lib:format("limiter consume failed, limiter:~p~n", [Limiter]),
     erlang:throw({rate_check_fail, Message}).
 
--spec do_check_with_parent_limiter(pos_integer(), token_bucket_limiter()) -> inner_check_result(token_bucket_limiter()).
+-spec do_check_with_parent_limiter(pos_integer(), token_bucket_limiter()) ->
+          inner_check_result(token_bucket_limiter()).
 do_check_with_parent_limiter(Need,
                              #{tokens := Tokens,
                                divisible := Divisible,
@@ -306,15 +308,16 @@ do_reset(Need,
            capacity := Capacity} = Limiter) ->
     Now = ?NOW,
     Tokens2 = apply_elapsed_time(Rate, Now - LastTime, Tokens, Capacity),
-    if Tokens2 >= Need ->
+    Available = erlang:floor(Tokens2),
+    if Available >= Need ->
             Limiter2 = Limiter#{tokens := Tokens2, lasttime := Now},
             do_check_with_parent_limiter(Need, Limiter2);
-       Divisible andalso Tokens2 > 0 ->
+       Divisible andalso Available > 0 ->
             %% must be allocated here, because may be Need > Capacity
             return_pause(Rate,
                          partial,
                          fun do_reset/2,
-                         Need - Tokens2,
+                         Need - Available,
                          Limiter#{tokens := 0, lasttime := Now});
        true ->
             return_pause(Rate, pause, fun do_reset/2, Need, Limiter)
@@ -331,8 +334,8 @@ return_pause(Rate, PauseType, Fun, Diff, Limiter) ->
     Pause = emqx_misc:clamp(Val, ?MINIMUM_PAUSE, ?MAXIMUM_PAUSE),
     {PauseType, Pause, make_retry_context(Fun, Diff), Limiter}.
 
--spec make_retry_context(undefined | retry_fun(Limiter), non_neg_integer()) -> retry_context(Limiter)
-              when Limiter :: limiter().
+-spec make_retry_context(undefined | retry_fun(Limiter), non_neg_integer()) ->
+          retry_context(Limiter) when Limiter :: limiter().
 make_retry_context(Fun, Diff) ->
     #{continuation => Fun, diff => Diff}.
 

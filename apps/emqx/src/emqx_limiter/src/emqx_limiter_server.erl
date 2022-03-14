@@ -34,7 +34,7 @@
          terminate/2, code_change/3, format_status/2]).
 
 -export([ start_link/1, connect/2, info/1
-        , name/1, get_initial_val/1
+        , name/1, get_initial_val/1, update_config/1
         ]).
 
 -type root() :: #{ rate := rate()             %% number of tokens generated per period
@@ -85,7 +85,7 @@
           emqx_htb_limiter:limiter().
 %% If no bucket path is set in config, there will be no limit
 connect(_Type, undefined) ->
-    emqx_htb_limiter:make_infinity_limiter(undefined);
+    emqx_htb_limiter:make_infinity_limiter();
 
 connect(Type, BucketName) when is_atom(BucketName) ->
     CfgPath = emqx_limiter_schema:get_bucket_cfg_path(Type, BucketName),
@@ -101,7 +101,7 @@ connect(Type, BucketName) when is_atom(BucketName) ->
                     if CliRate < AggrRate orelse CliSize < AggrSize ->
                             emqx_htb_limiter:make_token_bucket_limiter(Cfg, Bucket);
                        Bucket =:= infinity ->
-                            emqx_htb_limiter:make_infinity_limiter(Cfg);
+                            emqx_htb_limiter:make_infinity_limiter();
                        true ->
                             emqx_htb_limiter:make_ref_limiter(Cfg, Bucket)
                     end;
@@ -122,6 +122,10 @@ info(Type) ->
 name(Type) ->
     erlang:list_to_atom(io_lib:format("~s_~s", [?MODULE, Type])).
 
+-spec update_config(limiter_type()) -> ok.
+update_config(Type) ->
+    ?CALL(Type).
+
 %%--------------------------------------------------------------------
 %% @doc
 %% Starts the server
@@ -130,6 +134,7 @@ name(Type) ->
 -spec start_link(limiter_type()) -> _.
 start_link(Type) ->
     gen_server:start_link({local, name(Type)}, ?MODULE, [Type], []).
+
 
 %%--------------------------------------------------------------------
 %%% gen_server callbacks
@@ -147,16 +152,10 @@ start_link(Type) ->
           {stop, Reason :: term()} |
           ignore.
 init([Type]) ->
-    State = #{ type => Type
-             , root => undefined
-             , counter => undefined
-             , index => 1
-             , buckets => #{}
-             },
-    State2 = init_tree(Type, State),
-    #{root := #{period := Perido}} = State2,
+    State = init_tree(Type),
+    #{root := #{period := Perido}} = State,
     oscillate(Perido),
-    {ok, State2}.
+    {ok, State}.
 
 %%--------------------------------------------------------------------
 %% @private
@@ -175,6 +174,10 @@ init([Type]) ->
           {stop, Reason :: term(), NewState :: term()}.
 handle_call(info, _From, State) ->
     {reply, State, State};
+
+handle_call(update_config, _From, #{type := Type}) ->
+    NewState = init_tree(Type),
+    {reply, ok, NewState};
 
 handle_call(Req, _From, State) ->
     ?SLOG(error, #{msg => "unexpected_call", call => Req}),
@@ -362,10 +365,11 @@ maybe_burst(State) ->
 dispatch_burst([], _, State) ->
     State;
 
-dispatch_burst(Empties, InFlow, #{consumed := Consumed, buckets := Buckets} = State) ->
+dispatch_burst(Empties, InFlow,
+               #{root := #{consumed := Consumed} = Root, buckets := Buckets} = State) ->
     EachFlow = InFlow / erlang:length(Empties),
     {Alloced, Buckets2} = dispatch_burst_to_buckets(Empties, EachFlow, 0, Buckets),
-    State#{consumed := Consumed + Alloced, buckets := Buckets2}.
+    State#{root := Root#{consumed := Consumed + Alloced}, buckets := Buckets2}.
 
 -spec dispatch_burst_to_buckets(list(bucket()),
                                 float(),
@@ -385,8 +389,15 @@ dispatch_burst_to_buckets([Bucket | T], InFlow, Alloced, Buckets) ->
 dispatch_burst_to_buckets([], _, Alloced, Buckets) ->
     {Alloced, Buckets}.
 
--spec init_tree(emqx_limiter_schema:limiter_type(), state()) -> state().
-init_tree(Type, State) ->
+-spec init_tree(emqx_limiter_schema:limiter_type()) -> state().
+init_tree(Type) ->
+    State = #{ type => Type
+             , root => undefined
+             , counter => undefined
+             , index => 1
+             , buckets => #{}
+             },
+
     #{bucket := Buckets} = Cfg = emqx:get_config([limiter, Type]),
     {Factor, Root} = make_root(Cfg),
     {CounterNum, DelayBuckets} = make_bucket(maps:to_list(Buckets), Type, Cfg, Factor, 1, []),

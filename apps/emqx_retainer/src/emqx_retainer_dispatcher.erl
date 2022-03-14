@@ -198,14 +198,15 @@ dispatch(Context, Pid, Topic, Cursor, Limiter) ->
     Mod = emqx_retainer:get_backend_module(),
     case Cursor =/= undefined orelse emqx_topic:wildcard(Topic) of
         false ->
-            {ok, Result} = Mod:read_message(Context, Topic),
+            {ok, Result} = erlang:apply(Mod, read_message, [Context, Topic]),
             deliver(Result, Context, Pid, Topic, undefined, Limiter);
         true  ->
-            {ok, Result, NewCursor} =  Mod:match_messages(Context, Topic, Cursor),
+            {ok, Result, NewCursor} = erlang:apply(Mod, match_messages, [Context, Topic, Cursor]),
             deliver(Result, Context, Pid, Topic, NewCursor, Limiter)
     end.
 
--spec deliver(list(emqx_types:message()), context(), pid(), topic(), cursor(), limiter()) -> {ok, limiter()}.
+-spec deliver(list(emqx_types:message()), context(), pid(), topic(), cursor(), limiter()) ->
+          {ok, limiter()}.
 deliver([], _Context, _Pid, _Topic, undefined, Limiter) ->
     {ok, Limiter};
 
