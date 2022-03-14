@@ -176,6 +176,34 @@ t_api(_) ->
                            [?SOURCE2, ?SOURCE3, ?SOURCE4, ?SOURCE5, ?SOURCE6]),
     {ok, 204, _} = request(post, uri(["authorization", "sources"]), ?SOURCE1),
 
+    Snd = fun ({_, Val}) -> Val end,
+    LookupVal = fun LookupV(List, RestJson) ->
+                        case List of
+                            [Name] -> Snd(lists:keyfind(Name, 1, RestJson));
+                            [Name | NS] -> LookupV(NS, Snd(lists:keyfind(Name, 1, RestJson)))
+                        end
+                end,
+    EqualFun = fun (RList) ->
+                   fun ({M, V}) ->
+                       ?assertEqual(V,
+                                    LookupVal([<<"status_and_metrics">>,
+                                               <<"metrics">>, M],
+                                             RList)
+                                   )
+                   end
+               end,
+    AssertFun =
+        fun (ResultJson) ->
+            {ok, RList} = emqx_json:safe_decode(ResultJson),
+            MetricsList = [{<<"failed">>, 0},
+                           {<<"matched">>, 0},
+                           {<<"rate">>, 0.0},
+                           {<<"rate_last5m">>, 0.0},
+                           {<<"rate_max">>, 0.0},
+                           {<<"success">>, 0}],
+            lists:map(EqualFun(RList), MetricsList)
+        end,
+
     {ok, 200, Result2} = request(get, uri(["authorization", "sources"]), []),
     Sources = get_sources(Result2),
     ?assertMatch([ #{<<"type">> := <<"http">>}
@@ -190,6 +218,10 @@ t_api(_) ->
     {ok, 204, _} = request(put, uri(["authorization", "sources", "http"]),
                            ?SOURCE1#{<<"enable">> := false}),
     {ok, 200, Result3} = request(get, uri(["authorization", "sources", "http"]), []),
+    {ok, RList3} = emqx_json:safe_decode(Result3),
+    ?assertEqual(<<"resource_not_found">>,
+                 LookupVal([<<"status_and_metrics">>
+                           ], RList3)),
     ?assertMatch(#{<<"type">> := <<"http">>, <<"enable">> := false}, jsx:decode(Result3)),
 
     Keyfile = emqx_common_test_helpers:app_path(
@@ -211,6 +243,7 @@ t_api(_) ->
                                          <<"verify">> => <<"verify_none">>
                                         }}),
     {ok, 200, Result4} = request(get, uri(["authorization", "sources", "mongodb"]), []),
+    AssertFun(Result4),
     ?assertMatch(#{<<"type">> := <<"mongodb">>,
                    <<"ssl">> := #{<<"enable">> := <<"true">>,
                                   <<"cacertfile">> := ?MATCH_CERT,
@@ -233,6 +266,7 @@ t_api(_) ->
                                          <<"verify">> => <<"verify_none">>
                                         }}),
     {ok, 200, Result5} = request(get, uri(["authorization", "sources", "mongodb"]), []),
+    AssertFun(Result5),
     ?assertMatch(#{<<"type">> := <<"mongodb">>,
                    <<"ssl">> := #{<<"enable">> := <<"true">>,
                                   <<"cacertfile">> := ?MATCH_CERT,
