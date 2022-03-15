@@ -324,6 +324,8 @@ process_old_action({add_module, Module}) ->
     [Module];
 process_old_action({delete_module, Module}) ->
     [Module];
+process_old_action({update, Module, _Change}) ->
+    [Module];
 process_old_action(LoadModule) when is_tuple(LoadModule) andalso
                                     element(1, LoadModule) =:= load_module ->
     element(2, LoadModule);
