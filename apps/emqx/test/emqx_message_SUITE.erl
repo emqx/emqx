@@ -159,63 +159,71 @@ t_is_expired(_) ->
 %     error('TODO').
 
 t_to_packet(_) ->
-    Pkt = #mqtt_packet{header   = #mqtt_packet_header{type   = ?PUBLISH,
-                                                      qos    = ?QOS_0,
-                                                      retain = false,
-                                                      dup    = false
-                                                     },
-                       variable = #mqtt_packet_publish{topic_name = <<"topic">>,
-                                                       packet_id  = 10,
-                                                       properties = #{}
-                                                      },
-                       payload  = <<"payload">>
-                      },
+    Pkt = #mqtt_packet{
+        header = #mqtt_packet_header{
+            type = ?PUBLISH,
+            qos = ?QOS_0,
+            retain = false,
+            dup = false
+        },
+        variable = #mqtt_packet_publish{
+            topic_name = <<"topic">>,
+            packet_id = 10,
+            properties = #{}
+        },
+        payload = <<"payload">>
+    },
     Msg = emqx_message:make(<<"clientid">>, ?QOS_0, <<"topic">>, <<"payload">>),
     ?assertEqual(Pkt, emqx_message:to_packet(10, Msg)).
 
 t_to_packet_with_props(_) ->
     Props = #{'Subscription-Identifier' => 1},
-    Pkt = #mqtt_packet{header   = #mqtt_packet_header{type   = ?PUBLISH,
-                                                      qos    = ?QOS_0,
-                                                      retain = false,
-                                                      dup    = false
-                                                     },
-                       variable = #mqtt_packet_publish{topic_name = <<"topic">>,
-                                                       packet_id  = 10,
-                                                       properties = Props
-                                                      },
-                       payload  = <<"payload">>
-                      },
+    Pkt = #mqtt_packet{
+        header = #mqtt_packet_header{
+            type = ?PUBLISH,
+            qos = ?QOS_0,
+            retain = false,
+            dup = false
+        },
+        variable = #mqtt_packet_publish{
+            topic_name = <<"topic">>,
+            packet_id = 10,
+            properties = Props
+        },
+        payload = <<"payload">>
+    },
     Msg = emqx_message:make(<<"clientid">>, ?QOS_0, <<"topic">>, <<"payload">>),
     Msg1 = emqx_message:set_header(properties, #{'Subscription-Identifier' => 1}, Msg),
     ?assertEqual(Pkt, emqx_message:to_packet(10, Msg1)).
 
 t_to_map(_) ->
     Msg = emqx_message:make(<<"clientid">>, ?QOS_1, <<"topic">>, <<"payload">>),
-    List = [{id, emqx_message:id(Msg)},
-            {qos, ?QOS_1},
-            {from, <<"clientid">>},
-            {flags, #{}},
-            {headers, #{}},
-            {topic, <<"topic">>},
-            {payload, <<"payload">>},
-            {timestamp, emqx_message:timestamp(Msg)},
-            {extra, []}
-           ],
+    List = [
+        {id, emqx_message:id(Msg)},
+        {qos, ?QOS_1},
+        {from, <<"clientid">>},
+        {flags, #{}},
+        {headers, #{}},
+        {topic, <<"topic">>},
+        {payload, <<"payload">>},
+        {timestamp, emqx_message:timestamp(Msg)},
+        {extra, []}
+    ],
     ?assertEqual(List, emqx_message:to_list(Msg)),
     ?assertEqual(maps:from_list(List), emqx_message:to_map(Msg)).
 
 t_from_map(_) ->
     Msg = emqx_message:make(<<"clientid">>, ?QOS_1, <<"topic">>, <<"payload">>),
-    Map = #{id => emqx_message:id(Msg),
-            qos => ?QOS_1,
-            from => <<"clientid">>,
-            flags => #{},
-            headers => #{},
-            topic => <<"topic">>,
-            payload => <<"payload">>,
-            timestamp => emqx_message:timestamp(Msg),
-            extra => []
-           },
+    Map = #{
+        id => emqx_message:id(Msg),
+        qos => ?QOS_1,
+        from => <<"clientid">>,
+        flags => #{},
+        headers => #{},
+        topic => <<"topic">>,
+        payload => <<"payload">>,
+        timestamp => emqx_message:timestamp(Msg),
+        extra => []
+    },
     ?assertEqual(Map, emqx_message:to_map(Msg)),
     ?assertEqual(Msg, emqx_message:from_map(emqx_message:to_map(Msg))).

@@ -22,36 +22,39 @@
 -include_lib("eunit/include/eunit.hrl").
 -include_lib("emqx/include/emqx_placeholder.hrl").
 
--import(emqx_topic,
-        [ wildcard/1
-        , match/2
-        , validate/1
-        , prepend/2
-        , join/1
-        , words/1
-        , systop/1
-        , feed_var/3
-        , parse/1
-        , parse/2
-        ]).
+-import(
+    emqx_topic,
+    [
+        wildcard/1,
+        match/2,
+        validate/1,
+        prepend/2,
+        join/1,
+        words/1,
+        systop/1,
+        feed_var/3,
+        parse/1,
+        parse/2
+    ]
+).
 
 -define(N, 100000).
 
 all() -> emqx_common_test_helpers:all(?MODULE).
 
 t_wildcard(_) ->
-    true  = wildcard(<<"a/b/#">>),
-    true  = wildcard(<<"a/+/#">>),
+    true = wildcard(<<"a/b/#">>),
+    true = wildcard(<<"a/+/#">>),
     false = wildcard(<<"">>),
     false = wildcard(<<"a/b/c">>).
 
 t_match1(_) ->
-    true  = match(<<"a/b/c">>, <<"a/b/+">>),
-    true  = match(<<"a/b/c">>, <<"a/#">>),
-    true  = match(<<"abcd/ef/g">>, <<"#">>),
-    true  = match(<<"abc/de/f">>, <<"abc/de/f">>),
-    true  = match(<<"abc">>, <<"+">>),
-    true  = match(<<"a/b/c">>, <<"a/b/c">>),
+    true = match(<<"a/b/c">>, <<"a/b/+">>),
+    true = match(<<"a/b/c">>, <<"a/#">>),
+    true = match(<<"abcd/ef/g">>, <<"#">>),
+    true = match(<<"abc/de/f">>, <<"abc/de/f">>),
+    true = match(<<"abc">>, <<"+">>),
+    true = match(<<"a/b/c">>, <<"a/b/c">>),
     false = match(<<"a/b/c">>, <<"a/c/d">>),
     false = match(<<"$share/x/y">>, <<"+">>),
     false = match(<<"$share/x/y">>, <<"+/x/y">>),
@@ -61,17 +64,17 @@ t_match1(_) ->
     false = match(<<"house">>, <<"house/+">>).
 
 t_match2(_) ->
-    true  = match(<<"sport/tennis/player1">>, <<"sport/tennis/player1/#">>),
-    true  = match(<<"sport/tennis/player1/ranking">>, <<"sport/tennis/player1/#">>),
-    true  = match(<<"sport/tennis/player1/score/wimbledon">>, <<"sport/tennis/player1/#">>),
-    true  = match(<<"sport">>, <<"sport/#">>),
-    true  = match(<<"sport">>, <<"#">>),
-    true  = match(<<"/sport/football/score/1">>, <<"#">>),
-    true  = match(<<"Topic/C">>, <<"+/+">>),
-    true  = match(<<"TopicA/B">>, <<"+/+">>),
-    true  = match(<<"TopicA/C">>, <<"+/+">>),
-    true  = match(<<"abc">>, <<"+">>),
-    true  = match(<<"a/b/c">>, <<"a/b/c">>),
+    true = match(<<"sport/tennis/player1">>, <<"sport/tennis/player1/#">>),
+    true = match(<<"sport/tennis/player1/ranking">>, <<"sport/tennis/player1/#">>),
+    true = match(<<"sport/tennis/player1/score/wimbledon">>, <<"sport/tennis/player1/#">>),
+    true = match(<<"sport">>, <<"sport/#">>),
+    true = match(<<"sport">>, <<"#">>),
+    true = match(<<"/sport/football/score/1">>, <<"#">>),
+    true = match(<<"Topic/C">>, <<"+/+">>),
+    true = match(<<"TopicA/B">>, <<"+/+">>),
+    true = match(<<"TopicA/C">>, <<"+/+">>),
+    true = match(<<"abc">>, <<"+">>),
+    true = match(<<"a/b/c">>, <<"a/b/c">>),
     false = match(<<"a/b/c">>, <<"a/c/d">>),
     false = match(<<"$share/x/y">>, <<"+">>),
     false = match(<<"$share/x/y">>, <<"+/x/y">>),
@@ -88,28 +91,28 @@ t_match3(_) ->
     true = match(<<"device/60019423a83c/dust/type">>, <<"device/60019423a83c/#">>).
 
 t_sigle_level_match(_) ->
-    true  = match(<<"sport/tennis/player1">>, <<"sport/tennis/+">>),
+    true = match(<<"sport/tennis/player1">>, <<"sport/tennis/+">>),
     false = match(<<"sport/tennis/player1/ranking">>, <<"sport/tennis/+">>),
     false = match(<<"sport">>, <<"sport/+">>),
-    true  = match(<<"sport/">>, <<"sport/+">>),
-    true  = match(<<"/finance">>, <<"+/+">>),
-    true  = match(<<"/finance">>, <<"/+">>),
+    true = match(<<"sport/">>, <<"sport/+">>),
+    true = match(<<"/finance">>, <<"+/+">>),
+    true = match(<<"/finance">>, <<"/+">>),
     false = match(<<"/finance">>, <<"+">>),
-    true  = match(<<"/devices/$dev1">>, <<"/devices/+">>),
-    true  = match(<<"/devices/$dev1/online">>, <<"/devices/+/online">>).
+    true = match(<<"/devices/$dev1">>, <<"/devices/+">>),
+    true = match(<<"/devices/$dev1/online">>, <<"/devices/+/online">>).
 
 t_sys_match(_) ->
-    true  = match(<<"$SYS/broker/clients/testclient">>, <<"$SYS/#">>),
-    true  = match(<<"$SYS/broker">>, <<"$SYS/+">>),
+    true = match(<<"$SYS/broker/clients/testclient">>, <<"$SYS/#">>),
+    true = match(<<"$SYS/broker">>, <<"$SYS/+">>),
     false = match(<<"$SYS/broker">>, <<"+/+">>),
     false = match(<<"$SYS/broker">>, <<"#">>).
 
 't_#_match'(_) ->
-    true  = match(<<"a/b/c">>, <<"#">>),
-    true  = match(<<"a/b/c">>, <<"+/#">>),
+    true = match(<<"a/b/c">>, <<"#">>),
+    true = match(<<"a/b/c">>, <<"+/#">>),
     false = match(<<"$SYS/brokers">>, <<"#">>),
-    true  = match(<<"a/b/$c">>, <<"a/b/#">>),
-    true  = match(<<"a/b/$c">>, <<"a/#">>).
+    true = match(<<"a/b/$c">>, <<"a/b/#">>),
+    true = match(<<"a/b/$c">>, <<"a/#">>).
 
 t_match_perf(_) ->
     true = match(<<"a/b/ccc">>, <<"a/#">>),
@@ -154,8 +157,10 @@ t_levels(_) ->
     ?assertEqual(4, emqx_topic:levels(<<"a/b/c/d">>)).
 
 t_tokens(_) ->
-    ?assertEqual([<<"a">>, <<"b">>, <<"+">>, <<"#">>],
-                 emqx_topic:tokens(<<"a/b/+/#">>)).
+    ?assertEqual(
+        [<<"a">>, <<"b">>, <<"+">>, <<"#">>],
+        emqx_topic:tokens(<<"a/b/+/#">>)
+    ).
 
 t_words(_) ->
     Topic = <<"/abkc/19383/+/akakdkkdkak/#">>,
@@ -178,30 +183,50 @@ t_systop(_) ->
     SysTop1 = iolist_to_binary(["$SYS/brokers/", atom_to_list(node()), "/xyz"]),
     ?assertEqual(SysTop1, systop('xyz')),
     SysTop2 = iolist_to_binary(["$SYS/brokers/", atom_to_list(node()), "/abc"]),
-    ?assertEqual(SysTop2,systop(<<"abc">>)).
+    ?assertEqual(SysTop2, systop(<<"abc">>)).
 
 t_feed_var(_) ->
-    ?assertEqual(<<"$queue/client/clientId">>,
-                 feed_var(<<"$c">>, <<"clientId">>, <<"$queue/client/$c">>)),
-    ?assertEqual(<<"username/test/client/x">>,
-                 feed_var( ?PH_USERNAME, <<"test">>
-                         , <<"username/", ?PH_USERNAME/binary, "/client/x">>)),
-    ?assertEqual(<<"username/test/client/clientId">>,
-                 feed_var( ?PH_CLIENTID, <<"clientId">>
-                         , <<"username/test/client/", ?PH_CLIENTID/binary>>)).
+    ?assertEqual(
+        <<"$queue/client/clientId">>,
+        feed_var(<<"$c">>, <<"clientId">>, <<"$queue/client/$c">>)
+    ),
+    ?assertEqual(
+        <<"username/test/client/x">>,
+        feed_var(
+            ?PH_USERNAME,
+            <<"test">>,
+            <<"username/", ?PH_USERNAME/binary, "/client/x">>
+        )
+    ),
+    ?assertEqual(
+        <<"username/test/client/clientId">>,
+        feed_var(
+            ?PH_CLIENTID,
+            <<"clientId">>,
+            <<"username/test/client/", ?PH_CLIENTID/binary>>
+        )
+    ).
 
 long_topic() ->
     iolist_to_binary([[integer_to_list(I), "/"] || I <- lists:seq(0, 66666)]).
 
 t_parse(_) ->
-    ?assertError({invalid_topic_filter, <<"$queue/t">>},
-                 parse(<<"$queue/t">>, #{share => <<"g">>})),
-    ?assertError({invalid_topic_filter, <<"$share/g/t">>},
-                 parse(<<"$share/g/t">>, #{share => <<"g">>})),
-    ?assertError({invalid_topic_filter, <<"$share/t">>},
-                 parse(<<"$share/t">>)),
-    ?assertError({invalid_topic_filter, <<"$share/+/t">>},
-                 parse(<<"$share/+/t">>)),
+    ?assertError(
+        {invalid_topic_filter, <<"$queue/t">>},
+        parse(<<"$queue/t">>, #{share => <<"g">>})
+    ),
+    ?assertError(
+        {invalid_topic_filter, <<"$share/g/t">>},
+        parse(<<"$share/g/t">>, #{share => <<"g">>})
+    ),
+    ?assertError(
+        {invalid_topic_filter, <<"$share/t">>},
+        parse(<<"$share/t">>)
+    ),
+    ?assertError(
+        {invalid_topic_filter, <<"$share/+/t">>},
+        parse(<<"$share/+/t">>)
+    ),
     ?assertEqual({<<"a/b/+/#">>, #{}}, parse(<<"a/b/+/#">>)),
     ?assertEqual({<<"a/b/+/#">>, #{qos => 1}}, parse({<<"a/b/+/#">>, #{qos => 1}})),
     ?assertEqual({<<"topic">>, #{share => <<"$queue">>}}, parse(<<"$queue/topic">>)),
@@ -213,9 +238,14 @@ t_parse(_) ->
     ?assertEqual({<<"$fastlane/topic">>, #{}}, parse(<<"$fastlane/topic">>)).
 
 bench(Case, Fun, Args) ->
-    {Time, ok} = timer:tc(fun lists:foreach/2,
-                          [fun(_) -> apply(Fun, Args) end,
-                           lists:seq(1, ?N)
-                          ]),
-    ct:pal("Time consumed by ~ts: ~.3f(us)~nCall ~ts per second: ~w",
-           [Case, Time/?N, Case, (?N * 1000000) div Time]).
+    {Time, ok} = timer:tc(
+        fun lists:foreach/2,
+        [
+            fun(_) -> apply(Fun, Args) end,
+            lists:seq(1, ?N)
+        ]
+    ),
+    ct:pal(
+        "Time consumed by ~ts: ~.3f(us)~nCall ~ts per second: ~w",
+        [Case, Time / ?N, Case, (?N * 1000000) div Time]
+    ).

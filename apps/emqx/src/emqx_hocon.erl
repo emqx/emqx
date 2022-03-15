@@ -17,22 +17,22 @@
 %% @doc HOCON schema help module
 -module(emqx_hocon).
 
--export([ format_path/1
-        , check/2
-        ]).
+-export([
+    format_path/1,
+    check/2
+]).
 
 %% @doc Format hocon config field path to dot-separated string in iolist format.
 -spec format_path([atom() | string() | binary()]) -> iolist().
 format_path([]) -> "";
 format_path([Name]) -> iol(Name);
-format_path([Name | Rest]) ->
-    [iol(Name) , "." | format_path(Rest)].
+format_path([Name | Rest]) -> [iol(Name), "." | format_path(Rest)].
 
 %% @doc Plain check the input config.
 %% The input can either be `richmap' or plain `map'.
 %% Always return plain map with atom keys.
 -spec check(module(), hocon:config() | iodata()) ->
-        {ok, hocon:config()} | {error, any()}.
+    {ok, hocon:config()} | {error, any()}.
 check(SchemaModule, Conf) when is_map(Conf) ->
     %% TODO: remove required
     %% fields should state required or not in their schema
@@ -40,7 +40,7 @@ check(SchemaModule, Conf) when is_map(Conf) ->
     try
         {ok, hocon_tconf:check_plain(SchemaModule, Conf, Opts)}
     catch
-        throw : Reason ->
+        throw:Reason ->
             {error, Reason}
     end;
 check(SchemaModule, HoconText) ->

@@ -28,22 +28,27 @@
 
 -include("types.hrl").
 
--export([ init/1
-        , run/2
-        , run/3
-        , info/1
-        , reset/1
-        ]).
+-export([
+    init/1,
+    run/2,
+    run/3,
+    info/1,
+    reset/1
+]).
 
 -export_type([opts/0, gc_state/0]).
 
--type(opts() :: #{count => integer(),
-                  bytes => integer()}).
+-type opts() :: #{
+    count => integer(),
+    bytes => integer()
+}.
 
--type(st() :: #{cnt => {integer(), integer()},
-                oct => {integer(), integer()}}).
+-type st() :: #{
+    cnt => {integer(), integer()},
+    oct => {integer(), integer()}
+}.
 
--opaque(gc_state() :: {gc_state, st()}).
+-opaque gc_state() :: {gc_state, st()}.
 
 -define(GCS(St), {gc_state, St}).
 
@@ -51,27 +56,27 @@
 -define(ENABLED(X), (is_integer(X) andalso X > 0)).
 
 %% @doc Initialize force GC state.
--spec(init(opts()) -> gc_state()).
+-spec init(opts()) -> gc_state().
 init(#{count := Count, bytes := Bytes}) ->
     Cnt = [{cnt, {Count, Count}} || ?ENABLED(Count)],
     Oct = [{oct, {Bytes, Bytes}} || ?ENABLED(Bytes)],
     ?GCS(maps:from_list(Cnt ++ Oct)).
 
 %% @doc Try to run GC based on reduntions of count or bytes.
--spec(run(#{cnt := pos_integer(), oct := pos_integer()}, gc_state())
-      -> {boolean(), gc_state()}).
+-spec run(#{cnt := pos_integer(), oct := pos_integer()}, gc_state()) ->
+    {boolean(), gc_state()}.
 run(#{cnt := Cnt, oct := Oct}, GcSt) ->
     run(Cnt, Oct, GcSt).
 
--spec(run(pos_integer(), pos_integer(), gc_state())
-      -> {boolean(), gc_state()}).
+-spec run(pos_integer(), pos_integer(), gc_state()) ->
+    {boolean(), gc_state()}.
 run(Cnt, Oct, ?GCS(St)) ->
     {Res, St1} = do_run([{cnt, Cnt}, {oct, Oct}], St),
     {Res, ?GCS(St1)}.
 
 do_run([], St) ->
     {false, St};
-do_run([{K, N}|T], St) ->
+do_run([{K, N} | T], St) ->
     case dec(K, N, St) of
         {true, St1} ->
             erlang:garbage_collect(),
@@ -81,11 +86,11 @@ do_run([{K, N}|T], St) ->
     end.
 
 %% @doc Info of GC state.
--spec(info(maybe(gc_state())) -> maybe(map())).
+-spec info(maybe(gc_state())) -> maybe(map()).
 info(?GCS(St)) -> St.
 
 %% @doc Reset counters to zero.
--spec(reset(maybe(gc_state())) -> gc_state()).
+-spec reset(maybe(gc_state())) -> gc_state().
 reset(?GCS(St)) ->
     ?GCS(do_reset(St)).
 
@@ -93,7 +98,7 @@ reset(?GCS(St)) ->
 %% Internal functions
 %%--------------------------------------------------------------------
 
--spec(dec(cnt | oct, pos_integer(), st()) -> {boolean(), st()}).
+-spec dec(cnt | oct, pos_integer(), st()) -> {boolean(), st()}.
 dec(Key, Num, St) ->
     case maps:get(Key, St, ?disabled) of
         ?disabled ->
@@ -113,4 +118,3 @@ do_reset(Key, St) ->
         ?disabled -> St;
         {Init, _} -> maps:put(Key, {Init, Init}, St)
     end.
-

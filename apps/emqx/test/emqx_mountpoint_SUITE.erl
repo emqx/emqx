@@ -19,11 +19,14 @@
 -compile(export_all).
 -compile(nowarn_export_all).
 
--import(emqx_mountpoint,
-        [ mount/2
-        , unmount/2
-        , replvar/2
-        ]).
+-import(
+    emqx_mountpoint,
+    [
+        mount/2,
+        unmount/2,
+        replvar/2
+    ]
+).
 
 -include_lib("emqx/include/emqx.hrl").
 -include_lib("eunit/include/eunit.hrl").
@@ -36,12 +39,18 @@ t_mount(_) ->
     ?assertEqual(<<"topic">>, mount(undefined, <<"topic">>)),
     ?assertEqual(Msg, mount(undefined, Msg)),
     ?assertEqual(TopicFilters, mount(undefined, TopicFilters)),
-    ?assertEqual(<<"device/1/topic">>,
-                 mount(<<"device/1/">>, <<"topic">>)),
-    ?assertEqual(Msg#message{topic = <<"device/1/topic">>},
-                 mount(<<"device/1/">>, Msg)),
-    ?assertEqual([{<<"device/1/topic">>, #{qos => 2}}],
-                 mount(<<"device/1/">>, TopicFilters)).
+    ?assertEqual(
+        <<"device/1/topic">>,
+        mount(<<"device/1/">>, <<"topic">>)
+    ),
+    ?assertEqual(
+        Msg#message{topic = <<"device/1/topic">>},
+        mount(<<"device/1/">>, Msg)
+    ),
+    ?assertEqual(
+        [{<<"device/1/topic">>, #{qos => 2}}],
+        mount(<<"device/1/">>, TopicFilters)
+    ).
 
 t_unmount(_) ->
     Msg = emqx_message:make(<<"clientid">>, <<"device/1/topic">>, <<"payload">>),
@@ -54,14 +63,23 @@ t_unmount(_) ->
 
 t_replvar(_) ->
     ?assertEqual(undefined, replvar(undefined, #{})),
-    ?assertEqual(<<"mount/user/clientid/">>,
-                 replvar(<<"mount/${username}/${clientid}/">>,
-                         #{clientid => <<"clientid">>,
-                           username => <<"user">>
-                          })),
-    ?assertEqual(<<"mount/${username}/clientid/">>,
-                 replvar(<<"mount/${username}/${clientid}/">>,
-                         #{clientid => <<"clientid">>,
-                           username => undefined
-                          })).
-
+    ?assertEqual(
+        <<"mount/user/clientid/">>,
+        replvar(
+            <<"mount/${username}/${clientid}/">>,
+            #{
+                clientid => <<"clientid">>,
+                username => <<"user">>
+            }
+        )
+    ),
+    ?assertEqual(
+        <<"mount/${username}/clientid/">>,
+        replvar(
+            <<"mount/${username}/${clientid}/">>,
+            #{
+                clientid => <<"clientid">>,
+                username => undefined
+            }
+        )
+    ).

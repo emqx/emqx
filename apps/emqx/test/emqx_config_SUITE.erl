@@ -32,20 +32,30 @@ end_per_suite(_Config) ->
 
 t_fill_default_values(_) ->
     Conf = #{
-      <<"broker">> => #{
-        <<"perf">> => #{},
-        <<"route_batch_clean">> => false}
+        <<"broker">> => #{
+            <<"perf">> => #{},
+            <<"route_batch_clean">> => false
+        }
     },
     WithDefaults = emqx_config:fill_defaults(Conf),
-    ?assertMatch(#{<<"broker">> :=
-      #{<<"enable_session_registry">> := true,
-        <<"perf">> :=
-            #{<<"route_lock_type">> := key,
-              <<"trie_compaction">> := true},
-        <<"route_batch_clean">> := false,
-        <<"session_locking_strategy">> := quorum,
-        <<"shared_dispatch_ack_enabled">> := false,
-        <<"shared_subscription_strategy">> := round_robin}}, WithDefaults),
+    ?assertMatch(
+        #{
+            <<"broker">> :=
+                #{
+                    <<"enable_session_registry">> := true,
+                    <<"perf">> :=
+                        #{
+                            <<"route_lock_type">> := key,
+                            <<"trie_compaction">> := true
+                        },
+                    <<"route_batch_clean">> := false,
+                    <<"session_locking_strategy">> := quorum,
+                    <<"shared_dispatch_ack_enabled">> := false,
+                    <<"shared_subscription_strategy">> := round_robin
+                }
+        },
+        WithDefaults
+    ),
     %% ensure JSON compatible
     _ = emqx_json:encode(WithDefaults),
     ok.

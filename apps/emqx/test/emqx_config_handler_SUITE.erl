@@ -45,8 +45,10 @@ t_handler(_Config) ->
     BadCallBackMod = emqx,
     RootKey = sysmon,
     %% bad
-    ?assertError(#{msg := "bad_emqx_config_handler_callback", module := BadCallBackMod},
-        emqx_config_handler:add_handler([RootKey], BadCallBackMod)),
+    ?assertError(
+        #{msg := "bad_emqx_config_handler_callback", module := BadCallBackMod},
+        emqx_config_handler:add_handler([RootKey], BadCallBackMod)
+    ),
     %% simple
     ok = emqx_config_handler:add_handler([RootKey], ?MODULE),
     #{handlers := Handlers0} = emqx_config_handler:info(),
@@ -79,19 +81,25 @@ t_handler(_Config) ->
 
 t_conflict_handler(_Config) ->
     ok = emqx_config_handler:add_handler([sysmon, '?', '?'], ?MODULE),
-    ?assertMatch({error, {conflict, _}},
-        emqx_config_handler:add_handler([sysmon, '?', cpu_check_interval], ?MODULE)),
+    ?assertMatch(
+        {error, {conflict, _}},
+        emqx_config_handler:add_handler([sysmon, '?', cpu_check_interval], ?MODULE)
+    ),
     ok = emqx_config_handler:remove_handler([sysmon, '?', '?']),
 
     ok = emqx_config_handler:add_handler([sysmon, '?', cpu_check_interval], ?MODULE),
-    ?assertMatch({error, {conflict, _}},
-        emqx_config_handler:add_handler([sysmon, '?', '?'], ?MODULE)),
+    ?assertMatch(
+        {error, {conflict, _}},
+        emqx_config_handler:add_handler([sysmon, '?', '?'], ?MODULE)
+    ),
     ok = emqx_config_handler:remove_handler([sysmon, '?', cpu_check_interval]),
 
     %% override
     ok = emqx_config_handler:add_handler([sysmon], emqx_logger),
-    ?assertMatch(#{handlers := #{sysmon := #{{mod} := emqx_logger}}},
-        emqx_config_handler:info()),
+    ?assertMatch(
+        #{handlers := #{sysmon := #{{mod} := emqx_logger}}},
+        emqx_config_handler:info()
+    ),
     ok.
 
 t_root_key_update(_Config) ->
@@ -100,20 +108,31 @@ t_root_key_update(_Config) ->
     ok = emqx_config_handler:add_handler(PathKey, ?MODULE),
     %% update
     Old = #{<<"os">> := OS} = emqx:get_raw_config(PathKey),
-    {ok, Res} = emqx:update_config(PathKey,
-        Old#{<<"os">> => OS#{<<"cpu_check_interval">> => <<"12s">>}}, Opts),
-    ?assertMatch(#{config := #{os := #{cpu_check_interval := 12000}},
-        post_config_update := #{?MODULE := ok},
-        raw_config := #{<<"os">> := #{<<"cpu_check_interval">> := <<"12s">>}}},
-        Res),
+    {ok, Res} = emqx:update_config(
+        PathKey,
+        Old#{<<"os">> => OS#{<<"cpu_check_interval">> => <<"12s">>}},
+        Opts
+    ),
+    ?assertMatch(
+        #{
+            config := #{os := #{cpu_check_interval := 12000}},
+            post_config_update := #{?MODULE := ok},
+            raw_config := #{<<"os">> := #{<<"cpu_check_interval">> := <<"12s">>}}
+        },
+        Res
+    ),
     ?assertMatch(#{os := #{cpu_check_interval := 12000}}, emqx:get_config(PathKey)),
 
     %% update sub key
     SubKey = PathKey ++ [os, cpu_high_watermark],
-    ?assertEqual({ok,#{config => 0.81,
-        post_config_update => #{?MODULE => ok},
-        raw_config => <<"81%">>}},
-        emqx:update_config(SubKey, "81%", Opts)),
+    ?assertEqual(
+        {ok, #{
+            config => 0.81,
+            post_config_update => #{?MODULE => ok},
+            raw_config => <<"81%">>
+        }},
+        emqx:update_config(SubKey, "81%", Opts)
+    ),
     ?assertEqual(0.81, emqx:get_config(SubKey)),
     ?assertEqual("81%", emqx:get_raw_config(SubKey)),
     %% remove
@@ -128,32 +147,47 @@ t_sub_key_update_remove(_Config) ->
     Opts = #{},
     ok = emqx_config_handler:add_handler(KeyPath, ?MODULE),
     {ok, Res} = emqx:update_config(KeyPath, <<"60s">>, Opts),
-    ?assertMatch(#{config := 60000,
-        post_config_update := #{?MODULE := ok},
-        raw_config :=  <<"60s">>},
-        Res),
+    ?assertMatch(
+        #{
+            config := 60000,
+            post_config_update := #{?MODULE := ok},
+            raw_config := <<"60s">>
+        },
+        Res
+    ),
     ?assertMatch(60000, emqx:get_config(KeyPath)),
 
     KeyPath2 = [sysmon, os, cpu_low_watermark],
     ok = emqx_config_handler:add_handler(KeyPath2, ?MODULE),
     {ok, Res1} = emqx:update_config(KeyPath2, <<"40%">>, Opts),
-    ?assertMatch(#{config := 0.4,
-        post_config_update := #{},
-        raw_config :=  <<"40%">>},
-        Res1),
+    ?assertMatch(
+        #{
+            config := 0.4,
+            post_config_update := #{},
+            raw_config := <<"40%">>
+        },
+        Res1
+    ),
     ?assertMatch(0.4, emqx:get_config(KeyPath2)),
 
     %% remove
-    ?assertEqual({ok,#{post_config_update => #{emqx_config_handler_SUITE => ok}}},
-        emqx:remove_config(KeyPath)),
+    ?assertEqual(
+        {ok, #{post_config_update => #{emqx_config_handler_SUITE => ok}}},
+        emqx:remove_config(KeyPath)
+    ),
     ?assertError({config_not_found, KeyPath}, emqx:get_raw_config(KeyPath)),
     OSKey = maps:keys(emqx:get_raw_config([sysmon, os])),
     ?assertEqual(false, lists:member(<<"cpu_check_interval">>, OSKey)),
     ?assert(length(OSKey) > 0),
 
-    ?assertEqual({ok,#{config => 60000,
-        post_config_update => #{?MODULE => ok},
-        raw_config => <<"60s">>}}, emqx:reset_config(KeyPath, Opts)),
+    ?assertEqual(
+        {ok, #{
+            config => 60000,
+            post_config_update => #{?MODULE => ok},
+            raw_config => <<"60s">>
+        }},
+        emqx:reset_config(KeyPath, Opts)
+    ),
     OSKey1 = maps:keys(emqx:get_raw_config([sysmon, os])),
     ?assertEqual(true, lists:member(<<"cpu_check_interval">>, OSKey1)),
     ?assert(length(OSKey1) > 1),
@@ -196,13 +230,19 @@ t_callback_crash(_Config) ->
     ok.
 
 t_pre_callback_error(_Config) ->
-    callback_error([sysmon, os, mem_check_interval], <<"100s">>,
-        {error, {pre_config_update, ?MODULE, pre_config_update_error}}),
+    callback_error(
+        [sysmon, os, mem_check_interval],
+        <<"100s">>,
+        {error, {pre_config_update, ?MODULE, pre_config_update_error}}
+    ),
     ok.
 
-t_post_update_error(_Config)  ->
-    callback_error([sysmon, os, sysmem_high_watermark], <<"60%">>,
-        {error, {post_config_update, ?MODULE, post_config_update_error}}),
+t_post_update_error(_Config) ->
+    callback_error(
+        [sysmon, os, sysmem_high_watermark],
+        <<"60%">>,
+        {error, {post_config_update, ?MODULE, post_config_update_error}}
+    ),
     ok.
 
 t_handler_root() ->
@@ -212,13 +252,19 @@ t_handler_root() ->
     ok = emqx_config_handler:add_handler(RootKey, ?MODULE),
     %% update
     Old = #{<<"sysmon">> := #{<<"os">> := OS}} = emqx:get_raw_config(RootKey),
-    {ok, Res} = emqx:update_config(RootKey,
+    {ok, Res} = emqx:update_config(
+        RootKey,
         Old#{<<"sysmon">> => #{<<"os">> => OS#{<<"cpu_check_interval">> => <<"12s">>}}},
-        Opts),
-    ?assertMatch(#{config := #{os := #{cpu_check_interval := 12000}},
-        post_config_update := #{?MODULE := ok},
-        raw_config := #{<<"os">> := #{<<"cpu_check_interval">> := <<"12s">>}}},
-        Res),
+        Opts
+    ),
+    ?assertMatch(
+        #{
+            config := #{os := #{cpu_check_interval := 12000}},
+            post_config_update := #{?MODULE := ok},
+            raw_config := #{<<"os">> := #{<<"cpu_check_interval">> := <<"12s">>}}
+        },
+        Res
+    ),
     ?assertMatch(#{sysmon := #{os := #{cpu_check_interval := 12000}}}, emqx:get_config(RootKey)),
     ok = emqx_config_handler:remove_handler(RootKey),
     ok.
@@ -250,26 +296,33 @@ t_update_sub(_Config) ->
     %% update sub key
     #{<<"os">> := OS1} = emqx:get_raw_config(PathKey),
     {ok, Res} = emqx:update_config(PathKey ++ [os, cpu_check_interval], <<"120s">>, Opts),
-    ?assertMatch(#{config := 120000,
-        post_config_update := #{?MODULE := ok},
-        raw_config := <<"120s">>},
-        Res),
+    ?assertMatch(
+        #{
+            config := 120000,
+            post_config_update := #{?MODULE := ok},
+            raw_config := <<"120s">>
+        },
+        Res
+    ),
     ?assertMatch(#{os := #{cpu_check_interval := 120000}}, emqx:get_config(PathKey)),
     #{<<"os">> := OS2} = emqx:get_raw_config(PathKey),
     ?assertEqual(lists:sort(maps:keys(OS1)), lists:sort(maps:keys(OS2))),
 
     %% update sub key
     SubKey = PathKey ++ [os, cpu_high_watermark],
-    ?assertEqual({ok,#{config => 0.81,
-        post_config_update => #{?MODULE => ok},
-        raw_config => <<"81%">>}},
-        emqx:update_config(SubKey, "81%", Opts)),
+    ?assertEqual(
+        {ok, #{
+            config => 0.81,
+            post_config_update => #{?MODULE => ok},
+            raw_config => <<"81%">>
+        }},
+        emqx:update_config(SubKey, "81%", Opts)
+    ),
     ?assertEqual(0.81, emqx:get_config(SubKey)),
     ?assertEqual("81%", emqx:get_raw_config(SubKey)),
 
     ok = emqx_config_handler:remove_handler(PathKey),
     ok.
-
 
 pre_config_update([sysmon], UpdateReq, _RawConf) ->
     {ok, UpdateReq};
@@ -300,10 +353,11 @@ wait_for_new_pid() ->
         undefined ->
             ct:sleep(10),
             wait_for_new_pid();
-        Pid -> Pid
+        Pid ->
+            Pid
     end.
 
-callback_error(FailedPath, Update, Error)  ->
+callback_error(FailedPath, Update, Error) ->
     Opts = #{rawconf_with_defaults => true},
     ok = emqx_config_handler:add_handler(FailedPath, ?MODULE),
     Old = emqx:get_raw_config(FailedPath),

@@ -27,27 +27,29 @@ t_load(_Config) ->
     ?assertMatch([{load1, _}, {load5, _}, {load15, _}], emqx_vm:loads()).
 
 t_systeminfo(_Config) ->
-    ?assertEqual(emqx_vm:system_info_keys(),
-                 [Key || {Key, _} <- emqx_vm:get_system_info()]),
+    ?assertEqual(
+        emqx_vm:system_info_keys(),
+        [Key || {Key, _} <- emqx_vm:get_system_info()]
+    ),
     ?assertEqual(undefined, emqx_vm:get_system_info(undefined)).
 
 t_mem_info(_Config) ->
     application:ensure_all_started(os_mon),
     MemInfo = emqx_vm:mem_info(),
-    [{total_memory, _}, {used_memory, _}]= MemInfo,
+    [{total_memory, _}, {used_memory, _}] = MemInfo,
     application:stop(os_mon).
 
 t_process_info(_Config) ->
     ProcessInfo = emqx_vm:get_process_info(),
-    ?assertEqual(emqx_vm:process_info_keys(), [K || {K, _V}<- ProcessInfo]).
+    ?assertEqual(emqx_vm:process_info_keys(), [K || {K, _V} <- ProcessInfo]).
 
 t_process_gc(_Config) ->
     GcInfo = emqx_vm:get_process_gc_info(),
-    ?assertEqual(emqx_vm:process_gc_info_keys(), [K || {K, _V}<- GcInfo]).
+    ?assertEqual(emqx_vm:process_gc_info_keys(), [K || {K, _V} <- GcInfo]).
 
 t_get_ets_list(_Config) ->
     ets:new(test, [named_table]),
-    Ets =  emqx_vm:get_ets_list(),
+    Ets = emqx_vm:get_ets_list(),
     true = lists:member(test, Ets).
 
 t_get_ets_info(_Config) ->
@@ -57,12 +59,19 @@ t_get_ets_info(_Config) ->
     test = proplists:get_value(name, EtsInfo),
     Tid = proplists:get_value(id, EtsInfo),
     EtsInfos = emqx_vm:get_ets_info(),
-    ?assertEqual(true, lists:foldl(fun(Info, Acc) ->
-                           case proplists:get_value(id, Info) of
-                               Tid -> true;
-                               _ -> Acc
-                           end
-                       end, false, EtsInfos)).
+    ?assertEqual(
+        true,
+        lists:foldl(
+            fun(Info, Acc) ->
+                case proplists:get_value(id, Info) of
+                    Tid -> true;
+                    _ -> Acc
+                end
+            end,
+            false,
+            EtsInfos
+        )
+    ).
 
 t_scheduler_usage(_Config) ->
     emqx_vm:scheduler_usage(5000).
@@ -93,4 +102,3 @@ do_recv(Sock) ->
         {error, closed} ->
             ok
     end.
-

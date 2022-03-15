@@ -28,13 +28,14 @@
 -export([detect/1]).
 
 %% gen_server callbacks
--export([ init/1
-        , handle_call/3
-        , handle_cast/2
-        , handle_info/2
-        , terminate/2
-        , code_change/3
-        ]).
+-export([
+    init/1,
+    handle_call/3,
+    handle_cast/2,
+    handle_info/2,
+    terminate/2,
+    code_change/3
+]).
 
 %% Tab
 -define(FLAPPING_TAB, ?MODULE).
@@ -42,31 +43,31 @@
 -define(FLAPPING_THRESHOLD, 30).
 -define(FLAPPING_DURATION, 60000).
 -define(FLAPPING_BANNED_INTERVAL, 300000).
--define(DEFAULT_DETECT_POLICY,
-        #{max_count => ?FLAPPING_THRESHOLD,
-          window_time => ?FLAPPING_DURATION,
-          ban_time => ?FLAPPING_BANNED_INTERVAL
-         }).
+-define(DEFAULT_DETECT_POLICY, #{
+    max_count => ?FLAPPING_THRESHOLD,
+    window_time => ?FLAPPING_DURATION,
+    ban_time => ?FLAPPING_BANNED_INTERVAL
+}).
 
 -record(flapping, {
-          clientid   :: emqx_types:clientid(),
-          peerhost   :: emqx_types:peerhost(),
-          started_at :: pos_integer(),
-          detect_cnt :: integer()
-         }).
+    clientid :: emqx_types:clientid(),
+    peerhost :: emqx_types:peerhost(),
+    started_at :: pos_integer(),
+    detect_cnt :: integer()
+}).
 
--opaque(flapping() :: #flapping{}).
+-opaque flapping() :: #flapping{}.
 
 -export_type([flapping/0]).
 
--spec(start_link() -> emqx_types:startlink_ret()).
+-spec start_link() -> emqx_types:startlink_ret().
 start_link() ->
     gen_server:start_link({local, ?MODULE}, ?MODULE, [], []).
 
 stop() -> gen_server:stop(?MODULE).
 
 %% @doc Detect flapping when a MQTT client disconnected.
--spec(detect(emqx_types:clientinfo()) -> boolean()).
+-spec detect(emqx_types:clientinfo()) -> boolean().
 detect(#{clientid := ClientId, peerhost := PeerHost, zone := Zone}) ->
     Policy = #{max_count := Threshold} = get_policy(Zone),
     %% The initial flapping record sets the detect_cnt to 0.
@@ -83,7 +84,8 @@ detect(#{clientid := ClientId, peerhost := PeerHost, zone := Zone}) ->
                 [Flapping] ->
                     ok = gen_server:cast(?MODULE, {detected, Flapping, Policy}),
                     true;
-                [] -> false
+                [] ->
+                    false
             end
     end.
 
@@ -97,11 +99,13 @@ now_diff(TS) -> erlang:system_time(millisecond) - TS.
 %%--------------------------------------------------------------------
 
 init([]) ->
-    ok = emqx_tables:new(?FLAPPING_TAB, [public, set,
-                                         {keypos, #flapping.clientid},
-                                         {read_concurrency, true},
-                                         {write_concurrency, true}
-                                        ]),
+    ok = emqx_tables:new(?FLAPPING_TAB, [
+        public,
+        set,
+        {keypos, #flapping.clientid},
+        {read_concurrency, true},
+        {write_concurrency, true}
+    ]),
     start_timers(),
     {ok, #{}, hibernate}.
 
@@ -109,49 +113,65 @@ handle_call(Req, _From, State) ->
     ?SLOG(error, #{msg => "unexpected_call", call => Req}),
     {reply, ignored, State}.
 
-handle_cast({detected, #flapping{clientid   = ClientId,
-                                 peerhost   = PeerHost,
-                                 started_at = StartedAt,
-                                 detect_cnt = DetectCnt},
-             #{window_time := WindTime, ban_time := Interval}}, State) ->
+handle_cast(
+    {detected,
+        #flapping{
+            clientid = ClientId,
+            peerhost = PeerHost,
+            started_at = StartedAt,
+            detect_cnt = DetectCnt
+        },
+        #{window_time := WindTime, ban_time := Interval}},
+    State
+) ->
     case now_diff(StartedAt) < WindTime of
-        true -> %% Flapping happened:(
-            ?SLOG(warning, #{
-                msg => "flapping_detected",
-                peer_host => fmt_host(PeerHost),
-                detect_cnt => DetectCnt,
-                wind_time_in_ms => WindTime
-            }, #{clientid => ClientId}),
+        %% Flapping happened:(
+        true ->
+            ?SLOG(
+                warning,
+                #{
+                    msg => "flapping_detected",
+                    peer_host => fmt_host(PeerHost),
+                    detect_cnt => DetectCnt,
+                    wind_time_in_ms => WindTime
+                },
+                #{clientid => ClientId}
+            ),
             Now = erlang:system_time(second),
-            Banned = #banned{who    = {clientid, ClientId},
-                             by     = <<"flapping detector">>,
-                             reason = <<"flapping is detected">>,
-                             at     = Now,
-                             until  = Now + (Interval div 1000)},
+            Banned = #banned{
+                who = {clientid, ClientId},
+                by = <<"flapping detector">>,
+                reason = <<"flapping is detected">>,
+                at = Now,
+                until = Now + (Interval div 1000)
+            },
             {ok, _} = emqx_banned:create(Banned),
             ok;
         false ->
-            ?SLOG(warning, #{
-                msg => "client_disconnected",
-                peer_host => fmt_host(PeerHost),
-                detect_cnt => DetectCnt,
-                interval => Interval
-            }, #{clientid => ClientId})
+            ?SLOG(
+                warning,
+                #{
+                    msg => "client_disconnected",
+                    peer_host => fmt_host(PeerHost),
+                    detect_cnt => DetectCnt,
+                    interval => Interval
+                },
+                #{clientid => ClientId}
+            )
     end,
     {noreply, State};
-
 handle_cast(Msg, State) ->
     ?SLOG(error, #{msg => "unexpected_cast", cast => Msg}),
     {noreply, State}.
 
 handle_info({timeout, _TRef, {garbage_collect, Zone}}, State) ->
-    Timestamp = erlang:system_time(millisecond)
-                - maps:get(window_time, get_policy(Zone)),
-    MatchSpec = [{{'_', '_', '_', '$1', '_'},[{'<', '$1', Timestamp}], [true]}],
+    Timestamp =
+        erlang:system_time(millisecond) -
+            maps:get(window_time, get_policy(Zone)),
+    MatchSpec = [{{'_', '_', '_', '$1', '_'}, [{'<', '$1', Timestamp}], [true]}],
     ets:select_delete(?FLAPPING_TAB, MatchSpec),
     start_timer(Zone),
     {noreply, State, hibernate};
-
 handle_info(Info, State) ->
     ?SLOG(error, #{msg => "unexpected_info", info => Info}),
     {noreply, State}.
@@ -167,11 +187,16 @@ start_timer(Zone) ->
     emqx_misc:start_timer(WindTime, {garbage_collect, Zone}).
 
 start_timers() ->
-    lists:foreach(fun({Zone, _ZoneConf}) ->
+    lists:foreach(
+        fun({Zone, _ZoneConf}) ->
             start_timer(Zone)
-        end, maps:to_list(emqx:get_config([zones], #{}))).
+        end,
+        maps:to_list(emqx:get_config([zones], #{}))
+    ).
 
 fmt_host(PeerHost) ->
-    try inet:ntoa(PeerHost)
-    catch _:_ -> PeerHost
+    try
+        inet:ntoa(PeerHost)
+    catch
+        _:_ -> PeerHost
     end.

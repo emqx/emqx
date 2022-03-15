@@ -35,11 +35,12 @@ t_info(_) ->
     5 = ?Q:info(max_len, Q),
     0 = ?Q:info(len, Q),
     0 = ?Q:info(dropped, Q),
-    #{store_qos0 := true,
-      max_len    := 5,
-      len        := 0,
-      dropped    := 0
-     } = ?Q:info(Q).
+    #{
+        store_qos0 := true,
+        max_len := 5,
+        len := 0,
+        dropped := 0
+    } = ?Q:info(Q).
 
 t_in(_) ->
     Opts = #{max_len => 5, store_qos0 => true},
@@ -91,23 +92,29 @@ t_infinity_simple_mqueue(_) ->
     ?assert(?Q:is_empty(Q)),
     ?assertEqual(0, ?Q:max_len(Q)),
     Qx = lists:foldl(
-           fun(I, AccQ) ->
-                   {_, NewQ} = ?Q:in(#message{qos = 1, payload = iolist_to_binary([I])}, AccQ),
-                   NewQ
-            end, Q, lists:seq(1, 255)),
+        fun(I, AccQ) ->
+            {_, NewQ} = ?Q:in(#message{qos = 1, payload = iolist_to_binary([I])}, AccQ),
+            NewQ
+        end,
+        Q,
+        lists:seq(1, 255)
+    ),
     ?assertEqual(255, ?Q:len(Qx)),
     ?assertEqual([{len, 255}, {max_len, 0}, {dropped, 0}], ?Q:stats(Qx)),
     {{value, V}, _Qy} = ?Q:out(Qx),
     ?assertEqual(<<1>>, V#message.payload).
 
 t_priority_mqueue(_) ->
-    Opts = #{max_len => 3,
-             priorities =>
-                #{<<"t1">> => 1,
-                  <<"t2">> => 2,
-                  <<"t3">> => 3
-                 },
-             store_qos0 => false},
+    Opts = #{
+        max_len => 3,
+        priorities =>
+            #{
+                <<"t1">> => 1,
+                <<"t2">> => 2,
+                <<"t3">> => 3
+            },
+        store_qos0 => false
+    },
     Q = ?Q:init(Opts),
     ?assertEqual(3, ?Q:max_len(Q)),
     ?assert(?Q:is_empty(Q)),
@@ -128,104 +135,136 @@ t_priority_mqueue_conservation(_) ->
     true = proper:quickcheck(conservation_prop()).
 
 t_priority_order(_) ->
-    Opts = #{max_len => 5,
-             shift_multiplier => 1,
-             priorities =>
-                 #{<<"t1">> => 0,
-                   <<"t2">> => 1,
-                   <<"t3">> => 2
-                  },
-            store_qos0 => false
+    Opts = #{
+        max_len => 5,
+        shift_multiplier => 1,
+        priorities =>
+            #{
+                <<"t1">> => 0,
+                <<"t2">> => 1,
+                <<"t3">> => 2
             },
-    Messages = [{Topic, Message} ||
-                   Topic <- [<<"t1">>, <<"t2">>, <<"t3">>],
-                   Message <- lists:seq(1, 10)],
-    Q = lists:foldl(fun({Topic, Message}, Q) ->
-                            element(2, ?Q:in(#message{topic = Topic, qos = 1, payload = Message}, Q))
-                    end,
-                    ?Q:init(Opts),
-                    Messages),
-    ?assertMatch([{<<"t3">>, 6},
-                  {<<"t3">>, 7},
-                  {<<"t3">>, 8},
+        store_qos0 => false
+    },
+    Messages = [
+        {Topic, Message}
+     || Topic <- [<<"t1">>, <<"t2">>, <<"t3">>],
+        Message <- lists:seq(1, 10)
+    ],
+    Q = lists:foldl(
+        fun({Topic, Message}, Q) ->
+            element(2, ?Q:in(#message{topic = Topic, qos = 1, payload = Message}, Q))
+        end,
+        ?Q:init(Opts),
+        Messages
+    ),
+    ?assertMatch(
+        [
+            {<<"t3">>, 6},
+            {<<"t3">>, 7},
+            {<<"t3">>, 8},
 
-                  {<<"t2">>, 6},
-                  {<<"t2">>, 7},
+            {<<"t2">>, 6},
+            {<<"t2">>, 7},
 
-                  {<<"t1">>, 6},
+            {<<"t1">>, 6},
 
-                  {<<"t3">>, 9},
-                  {<<"t3">>, 10},
+            {<<"t3">>, 9},
+            {<<"t3">>, 10},
 
-                  {<<"t2">>, 8},
+            {<<"t2">>, 8},
 
-                  %% Note: for performance reasons we don't reset the
-                  %% counter when we run out of messages with the
-                  %% current prio, so next is t1:
-                  {<<"t1">>, 7},
+            %% Note: for performance reasons we don't reset the
+            %% counter when we run out of messages with the
+            %% current prio, so next is t1:
+            {<<"t1">>, 7},
 
-                  {<<"t2">>, 9},
-                  {<<"t2">>, 10},
+            {<<"t2">>, 9},
+            {<<"t2">>, 10},
 
-                  {<<"t1">>, 8},
-                  {<<"t1">>, 9},
-                  {<<"t1">>, 10}
-                 ], drain(Q)).
+            {<<"t1">>, 8},
+            {<<"t1">>, 9},
+            {<<"t1">>, 10}
+        ],
+        drain(Q)
+    ).
 
 t_priority_order2(_) ->
-    Opts = #{max_len => 5,
-             shift_multiplier => 2,
-             priorities =>
-                 #{<<"t1">> => 0,
-                   <<"t2">> => 1
-                  },
-            store_qos0 => false
+    Opts = #{
+        max_len => 5,
+        shift_multiplier => 2,
+        priorities =>
+            #{
+                <<"t1">> => 0,
+                <<"t2">> => 1
             },
-    Messages = [{Topic, Message} ||
-                   Topic <- [<<"t1">>, <<"t2">>],
-                   Message <- lists:seq(1, 10)],
-    Q = lists:foldl(fun({Topic, Message}, Q) ->
-                            element(2, ?Q:in(#message{topic = Topic, qos = 1, payload = Message}, Q))
-                    end,
-                    ?Q:init(Opts),
-                    Messages),
-    ?assertMatch([{<<"t2">>, 6},
-                  {<<"t2">>, 7},
-                  {<<"t2">>, 8},
-                  {<<"t2">>, 9},
+        store_qos0 => false
+    },
+    Messages = [
+        {Topic, Message}
+     || Topic <- [<<"t1">>, <<"t2">>],
+        Message <- lists:seq(1, 10)
+    ],
+    Q = lists:foldl(
+        fun({Topic, Message}, Q) ->
+            element(2, ?Q:in(#message{topic = Topic, qos = 1, payload = Message}, Q))
+        end,
+        ?Q:init(Opts),
+        Messages
+    ),
+    ?assertMatch(
+        [
+            {<<"t2">>, 6},
+            {<<"t2">>, 7},
+            {<<"t2">>, 8},
+            {<<"t2">>, 9},
 
-                  {<<"t1">>, 6},
-                  {<<"t1">>, 7},
+            {<<"t1">>, 6},
+            {<<"t1">>, 7},
 
-                  {<<"t2">>, 10},
+            {<<"t2">>, 10},
 
-                  {<<"t1">>, 8},
-                  {<<"t1">>, 9},
-                  {<<"t1">>, 10}
-                 ], drain(Q)).
+            {<<"t1">>, 8},
+            {<<"t1">>, 9},
+            {<<"t1">>, 10}
+        ],
+        drain(Q)
+    ).
 
 t_infinity_priority_mqueue(_) ->
-    Opts = #{max_len => 0,
-             priorities =>
-                #{<<"t">> => 1,
-                  <<"t1">> => 2
-                 },
-                store_qos0 => false},
+    Opts = #{
+        max_len => 0,
+        priorities =>
+            #{
+                <<"t">> => 1,
+                <<"t1">> => 2
+            },
+        store_qos0 => false
+    },
     Q = ?Q:init(Opts),
     ?assertEqual(0, ?Q:max_len(Q)),
-    Qx = lists:foldl(fun(I, AccQ) ->
-                             {undefined, AccQ1} = ?Q:in(#message{topic = <<"t1">>, qos = 1, payload = iolist_to_binary([I])}, AccQ),
-                             {undefined, AccQ2} = ?Q:in(#message{topic = <<"t">>, qos = 1, payload = iolist_to_binary([I])}, AccQ1),
-                             AccQ2
-                     end, Q, lists:seq(1, 255)),
+    Qx = lists:foldl(
+        fun(I, AccQ) ->
+            {undefined, AccQ1} = ?Q:in(
+                #message{topic = <<"t1">>, qos = 1, payload = iolist_to_binary([I])}, AccQ
+            ),
+            {undefined, AccQ2} = ?Q:in(
+                #message{topic = <<"t">>, qos = 1, payload = iolist_to_binary([I])}, AccQ1
+            ),
+            AccQ2
+        end,
+        Q,
+        lists:seq(1, 255)
+    ),
     ?assertEqual(510, ?Q:len(Qx)),
     ?assertEqual([{len, 510}, {max_len, 0}, {dropped, 0}], ?Q:stats(Qx)).
 
 %%TODO: fixme later
 t_length_priority_mqueue(_) ->
-    Opts = #{max_len => 2,
-             store_qos0 => false
-            },
+    Opts = #{
+        max_len => 2,
+        store_qos0 => false
+    },
     Q = ?Q:init(Opts),
     2 = ?Q:max_len(Q),
     {_, Q1} = ?Q:in(#message{topic = <<"x">>, qos = 1, payload = <<1>>}, Q),
@@ -244,34 +283,43 @@ t_dropped(_) ->
     ?assertEqual(1, ?Q:dropped(Q2)).
 
 conservation_prop() ->
-    ?FORALL({Priorities, Messages},
-            ?LET(Priorities, topic_priorities(),
-                 {Priorities, messages(Priorities)}),
-            try
-                Opts = #{max_len => 0,
-                         priorities => maps:from_list(Priorities),
-                         store_qos0 => false},
-                %% Put messages in
-                Q1 = lists:foldl(fun({Topic, Message}, Q) ->
-                                         element(2, ?Q:in(#message{topic = Topic, qos = 1, payload = Message}, Q))
-                                 end,
-                                 ?Q:init(Opts),
-                                 Messages),
-                %% Collect messages
-                Got = lists:sort(drain(Q1)),
-                Expected = lists:sort(Messages),
-                case Expected =:= Got of
-                    true ->
-                        true;
-                    false ->
-                        ct:pal("Mismatch: expected ~p~nGot ~p~n", [Expected, Got]),
-                        false
-                end
-            catch
-                EC:Err:Stack ->
-                    ct:pal("Error: ~p", [{EC, Err, Stack}]),
+    ?FORALL(
+        {Priorities, Messages},
+        ?LET(
+            Priorities,
+            topic_priorities(),
+            {Priorities, messages(Priorities)}
+        ),
+        try
+            Opts = #{
+                max_len => 0,
+                priorities => maps:from_list(Priorities),
+                store_qos0 => false
+            },
+            %% Put messages in
+            Q1 = lists:foldl(
+                fun({Topic, Message}, Q) ->
+                    element(2, ?Q:in(#message{topic = Topic, qos = 1, payload = Message}, Q))
+                end,
+                ?Q:init(Opts),
+                Messages
+            ),
+            %% Collect messages
+            Got = lists:sort(drain(Q1)),
+            Expected = lists:sort(Messages),
+            case Expected =:= Got of
+                true ->
+                    true;
+                false ->
+                    ct:pal("Mismatch: expected ~p~nGot ~p~n", [Expected, Got]),
                     false
-            end).
+            end
+        catch
+            EC:Err:Stack ->
+                ct:pal("Error: ~p", [{EC, Err, Stack}]),
+                false
+        end
+    ).
 
 %% Proper generators:
 
@@ -295,5 +343,5 @@ drain(Q) ->
         {empty, _} ->
             [];
         {{value, #message{topic = T, payload = P}}, Q1} ->
-            [{T, P}|drain(Q1)]
+            [{T, P} | drain(Q1)]
     end.

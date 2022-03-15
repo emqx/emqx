@@ -24,146 +24,250 @@
 -include_lib("eunit/include/eunit.hrl").
 -include_lib("common_test/include/ct.hrl").
 
-
 all() ->
     emqx_common_test_helpers:all(?MODULE).
 
 force_gc_conf() ->
-    #{bytes => 16777216,count => 16000,enable => true}.
+    #{bytes => 16777216, count => 16000, enable => true}.
 
 force_shutdown_conf() ->
-    #{enable => true,max_heap_size => 4194304, max_message_queue_len => 1000}.
+    #{enable => true, max_heap_size => 4194304, max_message_queue_len => 1000}.
 
 rate_limit_conf() ->
-    #{conn_bytes_in => ["100KB","10s"],
-      conn_messages_in => ["100","10s"],
-      max_conn_rate => 1000,
-      quota =>
-       #{conn_messages_routing => infinity,
-         overall_messages_routing => infinity}}.
+    #{
+        conn_bytes_in => ["100KB", "10s"],
+        conn_messages_in => ["100", "10s"],
+        max_conn_rate => 1000,
+        quota =>
+            #{
+                conn_messages_routing => infinity,
+                overall_messages_routing => infinity
+            }
+    }.
 
 rpc_conf() ->
-    #{async_batch_size => 256,authentication_timeout => 5000,
-      call_receive_timeout => 15000,connect_timeout => 5000,
-      mode => async,port_discovery => stateless,
-      send_timeout => 5000,socket_buffer => 1048576,
-      socket_keepalive_count => 9,socket_keepalive_idle => 900,
-      socket_keepalive_interval => 75,socket_recbuf => 1048576,
-      socket_sndbuf => 1048576,tcp_client_num => 1,
-      tcp_server_port => 5369}.
+    #{
+        async_batch_size => 256,
+        authentication_timeout => 5000,
+        call_receive_timeout => 15000,
+        connect_timeout => 5000,
+        mode => async,
+        port_discovery => stateless,
+        send_timeout => 5000,
+        socket_buffer => 1048576,
+        socket_keepalive_count => 9,
+        socket_keepalive_idle => 900,
+        socket_keepalive_interval => 75,
+        socket_recbuf => 1048576,
+        socket_sndbuf => 1048576,
+        tcp_client_num => 1,
+        tcp_server_port => 5369
+    }.
 
 mqtt_conf() ->
-    #{await_rel_timeout => 300000,idle_timeout => 15000,
-      ignore_loop_deliver => false,keepalive_backoff => 0.75,
-      max_awaiting_rel => 100,max_clientid_len => 65535,
-      max_inflight => 32,max_mqueue_len => 1000,
-      max_packet_size => 1048576,max_qos_allowed => 2,
-      max_subscriptions => infinity,max_topic_alias => 65535,
-      max_topic_levels => 128,mqueue_default_priority => lowest,
-      mqueue_priorities => disabled,mqueue_store_qos0 => true,
-      peer_cert_as_clientid => disabled,
-      peer_cert_as_username => disabled,
-      response_information => [],retain_available => true,
-      retry_interval => 30000,server_keepalive => disabled,
-      session_expiry_interval => 7200000,
-      shared_subscription => true,strict_mode => false,
-      upgrade_qos => false,use_username_as_clientid => false,
-      wildcard_subscription => true}.
-
+    #{
+        await_rel_timeout => 300000,
+        idle_timeout => 15000,
+        ignore_loop_deliver => false,
+        keepalive_backoff => 0.75,
+        max_awaiting_rel => 100,
+        max_clientid_len => 65535,
+        max_inflight => 32,
+        max_mqueue_len => 1000,
+        max_packet_size => 1048576,
+        max_qos_allowed => 2,
+        max_subscriptions => infinity,
+        max_topic_alias => 65535,
+        max_topic_levels => 128,
+        mqueue_default_priority => lowest,
+        mqueue_priorities => disabled,
+        mqueue_store_qos0 => true,
+        peer_cert_as_clientid => disabled,
+        peer_cert_as_username => disabled,
+        response_information => [],
+        retain_available => true,
+        retry_interval => 30000,
+        server_keepalive => disabled,
+        session_expiry_interval => 7200000,
+        shared_subscription => true,
+        strict_mode => false,
+        upgrade_qos => false,
+        use_username_as_clientid => false,
+        wildcard_subscription => true
+    }.
 
 listener_mqtt_tcp_conf() ->
-    #{acceptors => 16,
-      zone => default,
-      access_rules => ["allow all"],
-      bind => {{0,0,0,0},1883},
-      max_connections => 1024000,mountpoint => <<>>,
-      proxy_protocol => false,proxy_protocol_timeout => 3000,
-      tcp => #{
-        active_n => 100,backlog => 1024,buffer => 4096,
-        high_watermark => 1048576,nodelay => false,
-        reuseaddr => true,send_timeout => 15000,
-        send_timeout_close => true}}.
+    #{
+        acceptors => 16,
+        zone => default,
+        access_rules => ["allow all"],
+        bind => {{0, 0, 0, 0}, 1883},
+        max_connections => 1024000,
+        mountpoint => <<>>,
+        proxy_protocol => false,
+        proxy_protocol_timeout => 3000,
+        tcp => #{
+            active_n => 100,
+            backlog => 1024,
+            buffer => 4096,
+            high_watermark => 1048576,
+            nodelay => false,
+            reuseaddr => true,
+            send_timeout => 15000,
+            send_timeout_close => true
+        }
+    }.
 
 listener_mqtt_ws_conf() ->
-    #{acceptors => 16,
-      zone => default,
-      access_rules => ["allow all"],
-      bind => {{0,0,0,0},8083},
-      max_connections => 1024000,mountpoint => <<>>,
-      proxy_protocol => false,proxy_protocol_timeout => 3000,
-      tcp =>
-          #{active_n => 100,backlog => 1024,buffer => 4096,
-            high_watermark => 1048576,nodelay => false,
-            reuseaddr => true,send_timeout => 15000,
-            send_timeout_close => true},
-      websocket =>
-          #{allow_origin_absence => true,check_origin_enable => false,
-            check_origins => [],compress => false,
-            deflate_opts =>
-                #{client_max_window_bits => 15,mem_level => 8,
-                    server_max_window_bits => 15},
-            fail_if_no_subprotocol => true,idle_timeout => 86400000,
-            max_frame_size => infinity,mqtt_path => "/mqtt",
-            mqtt_piggyback => multiple,
-            proxy_address_header => "x-forwarded-for",
-            proxy_port_header => "x-forwarded-port",
-            supported_subprotocols =>
-                ["mqtt","mqtt-v3","mqtt-v3.1.1","mqtt-v5"]}}.
+    #{
+        acceptors => 16,
+        zone => default,
+        access_rules => ["allow all"],
+        bind => {{0, 0, 0, 0}, 8083},
+        max_connections => 1024000,
+        mountpoint => <<>>,
+        proxy_protocol => false,
+        proxy_protocol_timeout => 3000,
+        tcp =>
+            #{
+                active_n => 100,
+                backlog => 1024,
+                buffer => 4096,
+                high_watermark => 1048576,
+                nodelay => false,
+                reuseaddr => true,
+                send_timeout => 15000,
+                send_timeout_close => true
+            },
+        websocket =>
+            #{
+                allow_origin_absence => true,
+                check_origin_enable => false,
+                check_origins => [],
+                compress => false,
+                deflate_opts =>
+                    #{
+                        client_max_window_bits => 15,
+                        mem_level => 8,
+                        server_max_window_bits => 15
+                    },
+                fail_if_no_subprotocol => true,
+                idle_timeout => 86400000,
+                max_frame_size => infinity,
+                mqtt_path => "/mqtt",
+                mqtt_piggyback => multiple,
+                proxy_address_header => "x-forwarded-for",
+                proxy_port_header => "x-forwarded-port",
+                supported_subprotocols =>
+                    ["mqtt", "mqtt-v3", "mqtt-v3.1.1", "mqtt-v5"]
+            }
+    }.
 
 listeners_conf() ->
-    #{tcp => #{default => listener_mqtt_tcp_conf()},
-      ws => #{default => listener_mqtt_ws_conf()}
+    #{
+        tcp => #{default => listener_mqtt_tcp_conf()},
+        ws => #{default => listener_mqtt_ws_conf()}
     }.
 
 limiter_conf() ->
-    #{bytes_in =>
-        #{bucket =>
-                #{default =>
-                    #{aggregated =>
-                            #{capacity => infinity,initial => 0,rate => infinity},
-                        per_client =>
-                            #{capacity => infinity,divisible => false,
-                            failure_strategy => force,initial => 0,low_water_mark => 0,
-                            max_retry_time => 5000,rate => infinity},
-                        zone => default}},
-            global => #{burst => 0,rate => infinity},
-            zone => #{default => #{burst => 0,rate => infinity}}},
-      connection =>
-        #{bucket =>
-                #{default =>
-                    #{aggregated =>
-                            #{capacity => infinity,initial => 0,rate => infinity},
-                        per_client =>
-                            #{capacity => infinity,divisible => false,
-                            failure_strategy => force,initial => 0,low_water_mark => 0,
-                            max_retry_time => 5000,rate => infinity},
-                        zone => default}},
-            global => #{burst => 0,rate => infinity},
-            zone => #{default => #{burst => 0,rate => infinity}}},
-      message_in =>
-        #{bucket =>
-                #{default =>
-                    #{aggregated =>
-                            #{capacity => infinity,initial => 0,rate => infinity},
-                        per_client =>
-                            #{capacity => infinity,divisible => false,
-                            failure_strategy => force,initial => 0,low_water_mark => 0,
-                            max_retry_time => 5000,rate => infinity},
-                        zone => default}},
-            global => #{burst => 0,rate => infinity},
-            zone => #{default => #{burst => 0,rate => infinity}}},
-      message_routing =>
-        #{bucket =>
-                #{default =>
-                    #{aggregated =>
-                            #{capacity => infinity,initial => 0,rate => infinity},
-                        per_client =>
-                            #{capacity => infinity,divisible => false,
-                            failure_strategy => force,initial => 0,low_water_mark => 0,
-                            max_retry_time => 5000,rate => infinity},
-                        zone => default}},
-            global => #{burst => 0,rate => infinity},
-            zone => #{default => #{burst => 0,rate => infinity}}}}.
+    #{
+        bytes_in =>
+            #{
+                bucket =>
+                    #{
+                        default =>
+                            #{
+                                aggregated =>
+                                    #{capacity => infinity, initial => 0, rate => infinity},
+                                per_client =>
+                                    #{
+                                        capacity => infinity,
+                                        divisible => false,
+                                        failure_strategy => force,
+                                        initial => 0,
+                                        low_water_mark => 0,
+                                        max_retry_time => 5000,
+                                        rate => infinity
+                                    },
+                                zone => default
+                            }
+                    },
+                global => #{burst => 0, rate => infinity},
+                zone => #{default => #{burst => 0, rate => infinity}}
+            },
+        connection =>
+            #{
+                bucket =>
+                    #{
+                        default =>
+                            #{
+                                aggregated =>
+                                    #{capacity => infinity, initial => 0, rate => infinity},
+                                per_client =>
+                                    #{
+                                        capacity => infinity,
+                                        divisible => false,
+                                        failure_strategy => force,
+                                        initial => 0,
+                                        low_water_mark => 0,
+                                        max_retry_time => 5000,
+                                        rate => infinity
+                                    },
+                                zone => default
+                            }
+                    },
+                global => #{burst => 0, rate => infinity},
+                zone => #{default => #{burst => 0, rate => infinity}}
+            },
+        message_in =>
+            #{
+                bucket =>
+                    #{
+                        default =>
+                            #{
+                                aggregated =>
+                                    #{capacity => infinity, initial => 0, rate => infinity},
+                                per_client =>
+                                    #{
+                                        capacity => infinity,
+                                        divisible => false,
+                                        failure_strategy => force,
+                                        initial => 0,
+                                        low_water_mark => 0,
+                                        max_retry_time => 5000,
+                                        rate => infinity
+                                    },
+                                zone => default
+                            }
+                    },
+                global => #{burst => 0, rate => infinity},
+                zone => #{default => #{burst => 0, rate => infinity}}
+            },
+        message_routing =>
+            #{
+                bucket =>
+                    #{
+                        default =>
+                            #{
+                                aggregated =>
+                                    #{capacity => infinity, initial => 0, rate => infinity},
+                                per_client =>
+                                    #{
+                                        capacity => infinity,
+                                        divisible => false,
+                                        failure_strategy => force,
+                                        initial => 0,
+                                        low_water_mark => 0,
+                                        max_retry_time => 5000,
+                                        rate => infinity
+                                    },
+                                zone => default
+                            }
+                    },
+                global => #{burst => 0, rate => infinity},
+                zone => #{default => #{burst => 0, rate => infinity}}
+            }
+    }.
 
 stats_conf() ->
     #{enable => true}.
@@ -172,15 +276,16 @@ zone_conf() ->
     #{}.
 
 basic_conf() ->
-    #{rate_limit => rate_limit_conf(),
-      force_gc => force_gc_conf(),
-      force_shutdown => force_shutdown_conf(),
-      mqtt => mqtt_conf(),
-      rpc => rpc_conf(),
-      stats => stats_conf(),
-      listeners => listeners_conf(),
-      zones => zone_conf(),
-      limiter => limiter_conf()
+    #{
+        rate_limit => rate_limit_conf(),
+        force_gc => force_gc_conf(),
+        force_shutdown => force_shutdown_conf(),
+        mqtt => mqtt_conf(),
+        rpc => rpc_conf(),
+        stats => stats_conf(),
+        listeners => listeners_conf(),
+        zones => zone_conf(),
+        limiter => limiter_conf()
     }.
 
 set_test_listener_confs() ->
@@ -199,8 +304,11 @@ init_per_suite(Config) ->
     ok = meck:expect(emqx_cm, mark_channel_disconnected, fun(_) -> ok end),
     %% Access Control Meck
     ok = meck:new(emqx_access_control, [passthrough, no_history, no_link]),
-    ok = meck:expect(emqx_access_control, authenticate,
-                     fun(_) -> {ok, #{is_superuser => false}} end),
+    ok = meck:expect(
+        emqx_access_control,
+        authenticate,
+        fun(_) -> {ok, #{is_superuser => false}} end
+    ),
     ok = meck:expect(emqx_access_control, authorize, fun(_, _, _) -> allow end),
     %% Broker Meck
     ok = meck:new(emqx_broker, [passthrough, no_history, no_link]),
@@ -220,20 +328,21 @@ init_per_suite(Config) ->
     Config.
 
 end_per_suite(_Config) ->
-    meck:unload([emqx_access_control,
-                 emqx_metrics,
-                 emqx_session,
-                 emqx_broker,
-                 emqx_hooks,
-                 emqx_cm,
-                 emqx_banned
-                ]).
+    meck:unload([
+        emqx_access_control,
+        emqx_metrics,
+        emqx_session,
+        emqx_broker,
+        emqx_hooks,
+        emqx_cm,
+        emqx_banned
+    ]).
 
 init_per_testcase(TestCase, Config) ->
     OldConf = set_test_listener_confs(),
     emqx_common_test_helpers:start_apps([]),
     modify_limiter(TestCase, OldConf),
-    [{config, OldConf}|Config].
+    [{config, OldConf} | Config].
 
 end_per_testcase(_TestCase, Config) ->
     emqx_config:put(?config(config, Config)),
@@ -254,15 +363,20 @@ modify_limiter(TestCase, NewConf) ->
 modify_limiter(#{limiter := Limiter} = NewConf) ->
     #{message_routing := #{bucket := Bucket} = Routing} = Limiter,
     #{default := #{per_client := Client} = Default} = Bucket,
-    Client2 = Client#{rate := 5,
-                      initial := 0,
-                      capacity := 5,
-                      low_water_mark := 1},
-    Default2 = Default#{per_client := Client2,
-                        aggregated := #{rate => 10,
-                                        initial => 0,
-                                        capacity => 10
-                                       }},
+    Client2 = Client#{
+        rate := 5,
+        initial := 0,
+        capacity := 5,
+        low_water_mark := 1
+    },
+    Default2 = Default#{
+        per_client := Client2,
+        aggregated := #{
+            rate => 10,
+            initial => 0,
+            capacity => 10
+        }
+    },
     Bucket2 = Bucket#{default := Default2},
     Routing2 = Routing#{bucket := Bucket2},
 
@@ -276,39 +390,50 @@ modify_limiter(#{limiter := Limiter} = NewConf) ->
 %%--------------------------------------------------------------------
 
 t_chan_info(_) ->
-    #{conn_state := connected,
-      clientinfo := ClientInfo
-     } = emqx_channel:info(channel()),
+    #{
+        conn_state := connected,
+        clientinfo := ClientInfo
+    } = emqx_channel:info(channel()),
     ?assertEqual(clientinfo(), ClientInfo).
 
 t_chan_caps(_) ->
-    ?assertMatch(#{
-       max_clientid_len := 65535,
-       max_qos_allowed := 2,
-       max_topic_alias := 65535,
-       max_topic_levels := Level,
-       retain_available := true,
-       shared_subscription := true,
-       subscription_identifiers := true,
-       wildcard_subscription := true
-    } when is_integer(Level), emqx_channel:caps(channel())).
+    ?assertMatch(
+        #{
+            max_clientid_len := 65535,
+            max_qos_allowed := 2,
+            max_topic_alias := 65535,
+            max_topic_levels := Level,
+            retain_available := true,
+            shared_subscription := true,
+            subscription_identifiers := true,
+            wildcard_subscription := true
+        } when is_integer(Level),
+        emqx_channel:caps(channel())
+    ).
 
 %%--------------------------------------------------------------------
 %% Test cases for channel handle_in
 %%--------------------------------------------------------------------
 
 t_handle_in_connect_packet_sucess(_) ->
-    ok = meck:expect(emqx_cm, open_session,
-                     fun(true, _ClientInfo, _ConnInfo) ->
-                             {ok, #{session => session(), present => false}}
-                     end),
+    ok = meck:expect(
+        emqx_cm,
+        open_session,
+        fun(true, _ClientInfo, _ConnInfo) ->
+            {ok, #{session => session(), present => false}}
+        end
+    ),
     IdleChannel = channel(#{conn_state => idle}),
     {ok, [{event, connected}, {connack, ?CONNACK_PACKET(?RC_SUCCESS, 0, _)}], Channel} =
         emqx_channel:handle_in(?CONNECT_PACKET(connpkt()), IdleChannel),
     ClientInfo = emqx_channel:info(clientinfo, Channel),
-    ?assertMatch(#{clientid := <<"clientid">>,
-                   username := <<"username">>
-                  }, ClientInfo),
+    ?assertMatch(
+        #{
+            clientid := <<"clientid">>,
+            username := <<"username">>
+        },
+        ClientInfo
+    ),
     ?assertEqual(connected, emqx_channel:info(conn_state, Channel)).
 
 t_handle_in_unexpected_connect_packet(_) ->
@@ -342,9 +467,9 @@ t_handle_in_unexpected_packet(_) ->
 
 t_handle_in_continue_auth(_) ->
     Properties = #{
-                'Authentication-Method' => <<"failed_auth_method">>,
-                'Authentication-Data' => <<"failed_auth_data">>
-                },
+        'Authentication-Method' => <<"failed_auth_method">>,
+        'Authentication-Data' => <<"failed_auth_data">>
+    },
 
     Channel1 = channel(#{conn_state => connected}),
     {ok, [{outgoing, ?DISCONNECT_PACKET(?RC_PROTOCOL_ERROR)}, {close, protocol_error}], Channel1} =
@@ -356,24 +481,33 @@ t_handle_in_continue_auth(_) ->
 
     {ok, [{event, connected}, {connack, ?CONNACK_PACKET(?RC_SUCCESS)}], _} =
         emqx_channel:handle_in(
-          ?AUTH_PACKET(?RC_CONTINUE_AUTHENTICATION, Properties), Channel3).
+            ?AUTH_PACKET(?RC_CONTINUE_AUTHENTICATION, Properties), Channel3
+        ).
 
 t_handle_in_re_auth(_) ->
     Properties = #{
-                'Authentication-Method' => <<"failed_auth_method">>,
-                'Authentication-Data' => <<"failed_auth_data">>
-                },
-    {ok, [{outgoing, ?DISCONNECT_PACKET(?RC_BAD_AUTHENTICATION_METHOD)},
-          {close, bad_authentication_method}], _} =
+        'Authentication-Method' => <<"failed_auth_method">>,
+        'Authentication-Data' => <<"failed_auth_data">>
+    },
+    {ok,
+        [
+            {outgoing, ?DISCONNECT_PACKET(?RC_BAD_AUTHENTICATION_METHOD)},
+            {close, bad_authentication_method}
+        ],
+        _} =
         emqx_channel:handle_in(
-          ?AUTH_PACKET(?RC_RE_AUTHENTICATE,Properties),
-          channel()
+            ?AUTH_PACKET(?RC_RE_AUTHENTICATE, Properties),
+            channel()
         ),
-    {ok, [{outgoing, ?DISCONNECT_PACKET(?RC_BAD_AUTHENTICATION_METHOD)},
-          {close, bad_authentication_method}], _} =
+    {ok,
+        [
+            {outgoing, ?DISCONNECT_PACKET(?RC_BAD_AUTHENTICATION_METHOD)},
+            {close, bad_authentication_method}
+        ],
+        _} =
         emqx_channel:handle_in(
-          ?AUTH_PACKET(?RC_RE_AUTHENTICATE,Properties),
-          channel(#{conninfo => #{proto_ver => ?MQTT_PROTO_V5, conn_props => undefined}})
+            ?AUTH_PACKET(?RC_RE_AUTHENTICATE, Properties),
+            channel(#{conninfo => #{proto_ver => ?MQTT_PROTO_V5, conn_props => undefined}})
         ),
 
     Channel1 = channel(),
@@ -382,7 +516,7 @@ t_handle_in_re_auth(_) ->
 
     {ok, ?AUTH_PACKET(?RC_SUCCESS), _} =
         emqx_channel:handle_in(
-          ?AUTH_PACKET(?RC_RE_AUTHENTICATE,Properties), Channel2
+            ?AUTH_PACKET(?RC_RE_AUTHENTICATE, Properties), Channel2
         ).
 
 t_handle_in_qos0_publish(_) ->
@@ -421,84 +555,109 @@ t_handle_in_qos2_publish_with_error_return(_) ->
     {ok, ?PUBREC_PACKET(2, ?RC_NO_MATCHING_SUBSCRIBERS), Channel1} =
         emqx_channel:handle_in(Publish2, Channel),
     Publish3 = ?PUBLISH_PACKET(?QOS_2, <<"topic">>, 3, <<"payload">>),
-    {ok, [{outgoing, ?DISCONNECT_PACKET(?RC_RECEIVE_MAXIMUM_EXCEEDED)},
-          {close, receive_maximum_exceeded}], Channel1} =
+    {ok,
+        [
+            {outgoing, ?DISCONNECT_PACKET(?RC_RECEIVE_MAXIMUM_EXCEEDED)},
+            {close, receive_maximum_exceeded}
+        ],
+        Channel1} =
         emqx_channel:handle_in(Publish3, Channel1).
 
 t_handle_in_puback_ok(_) ->
     Msg = emqx_message:make(<<"t">>, <<"payload">>),
-    ok = meck:expect(emqx_session, puback,
-                     fun(_, _PacketId, Session) -> {ok, Msg, Session} end),
+    ok = meck:expect(
+        emqx_session,
+        puback,
+        fun(_, _PacketId, Session) -> {ok, Msg, Session} end
+    ),
     Channel = channel(#{conn_state => connected}),
     {ok, _NChannel} = emqx_channel:handle_in(?PUBACK_PACKET(1, ?RC_SUCCESS), Channel).
-    % ?assertEqual(#{puback_in => 1}, emqx_channel:info(pub_stats, NChannel)).
+% ?assertEqual(#{puback_in => 1}, emqx_channel:info(pub_stats, NChannel)).
 
 t_handle_in_puback_id_in_use(_) ->
-    ok = meck:expect(emqx_session, puback,
-                     fun(_, _, _Session) ->
-                             {error, ?RC_PACKET_IDENTIFIER_IN_USE}
-                     end),
+    ok = meck:expect(
+        emqx_session,
+        puback,
+        fun(_, _, _Session) ->
+            {error, ?RC_PACKET_IDENTIFIER_IN_USE}
+        end
+    ),
     {ok, _Channel} = emqx_channel:handle_in(?PUBACK_PACKET(1, ?RC_SUCCESS), channel()).
-    % ?assertEqual(#{puback_in => 1}, emqx_channel:info(pub_stats, Channel)).
+% ?assertEqual(#{puback_in => 1}, emqx_channel:info(pub_stats, Channel)).
 
 t_handle_in_puback_id_not_found(_) ->
-    ok = meck:expect(emqx_session, puback,
-                     fun(_, _, _Session) ->
-                             {error, ?RC_PACKET_IDENTIFIER_NOT_FOUND}
-                     end),
+    ok = meck:expect(
+        emqx_session,
+        puback,
+        fun(_, _, _Session) ->
+            {error, ?RC_PACKET_IDENTIFIER_NOT_FOUND}
+        end
+    ),
     {ok, _Channel} = emqx_channel:handle_in(?PUBACK_PACKET(1, ?RC_SUCCESS), channel()).
-    % ?assertEqual(#{puback_in => 1}, emqx_channel:info(pub_stats, Channel)).
+% ?assertEqual(#{puback_in => 1}, emqx_channel:info(pub_stats, Channel)).
 
 t_bad_receive_maximum(_) ->
-    ok = meck:expect(emqx_cm, open_session,
-                     fun(true, _ClientInfo, _ConnInfo) ->
-                             {ok, #{session => session(), present => false}}
-                     end),
+    ok = meck:expect(
+        emqx_cm,
+        open_session,
+        fun(true, _ClientInfo, _ConnInfo) ->
+            {ok, #{session => session(), present => false}}
+        end
+    ),
     emqx_config:put_zone_conf(default, [mqtt, response_information], test),
     C1 = channel(#{conn_state => idle}),
     {shutdown, protocol_error, _, _} =
         emqx_channel:handle_in(
-          ?CONNECT_PACKET(connpkt(#{'Receive-Maximum' => 0})),
-          C1
+            ?CONNECT_PACKET(connpkt(#{'Receive-Maximum' => 0})),
+            C1
         ).
 
 t_override_client_receive_maximum(_) ->
-    ok = meck:expect(emqx_cm, open_session,
-                     fun(true, _ClientInfo, _ConnInfo) ->
-                             {ok, #{session => session(), present => false}}
-                     end),
+    ok = meck:expect(
+        emqx_cm,
+        open_session,
+        fun(true, _ClientInfo, _ConnInfo) ->
+            {ok, #{session => session(), present => false}}
+        end
+    ),
     emqx_config:put_zone_conf(default, [mqtt, response_information], test),
     emqx_config:put_zone_conf(default, [mqtt, max_inflight], 0),
     C1 = channel(#{conn_state => idle}),
     ClientCapacity = 2,
     {ok, [{event, connected}, _ConnAck], C2} =
         emqx_channel:handle_in(
-          ?CONNECT_PACKET(connpkt(#{'Receive-Maximum' => ClientCapacity})),
-          C1
+            ?CONNECT_PACKET(connpkt(#{'Receive-Maximum' => ClientCapacity})),
+            C1
         ),
     ConnInfo = emqx_channel:info(conninfo, C2),
     ?assertEqual(ClientCapacity, maps:get(receive_maximum, ConnInfo)).
 
 t_handle_in_pubrec_ok(_) ->
-    Msg = emqx_message:make(test,?QOS_2, <<"t">>, <<"payload">>),
+    Msg = emqx_message:make(test, ?QOS_2, <<"t">>, <<"payload">>),
     ok = meck:expect(emqx_session, pubrec, fun(_, _, Session) -> {ok, Msg, Session} end),
     Channel = channel(#{conn_state => connected}),
     {ok, ?PUBREL_PACKET(1, ?RC_SUCCESS), _Channel1} =
         emqx_channel:handle_in(?PUBREC_PACKET(1, ?RC_SUCCESS), Channel).
 
 t_handle_in_pubrec_id_in_use(_) ->
-    ok = meck:expect(emqx_session, pubrec,
-                     fun(_, _, _Session) ->
-                             {error, ?RC_PACKET_IDENTIFIER_IN_USE}
-                     end),
+    ok = meck:expect(
+        emqx_session,
+        pubrec,
+        fun(_, _, _Session) ->
+            {error, ?RC_PACKET_IDENTIFIER_IN_USE}
+        end
+    ),
     {ok, ?PUBREL_PACKET(1, ?RC_PACKET_IDENTIFIER_IN_USE), _Channel} =
         emqx_channel:handle_in(?PUBREC_PACKET(1, ?RC_SUCCESS), channel()).
 
 t_handle_in_pubrec_id_not_found(_) ->
-    ok = meck:expect(emqx_session, pubrec,
-                     fun(_, _, _Session) ->
-                             {error, ?RC_PACKET_IDENTIFIER_NOT_FOUND}
-                     end),
+    ok = meck:expect(
+        emqx_session,
+        pubrec,
+        fun(_, _, _Session) ->
+            {error, ?RC_PACKET_IDENTIFIER_NOT_FOUND}
+        end
+    ),
     {ok, ?PUBREL_PACKET(1, ?RC_PACKET_IDENTIFIER_NOT_FOUND), _Channel} =
         emqx_channel:handle_in(?PUBREC_PACKET(1, ?RC_SUCCESS), channel()).
 
@@ -509,29 +668,38 @@ t_handle_in_pubrel_ok(_) ->
         emqx_channel:handle_in(?PUBREL_PACKET(1, ?RC_SUCCESS), Channel).
 
 t_handle_in_pubrel_not_found_error(_) ->
-    ok = meck:expect(emqx_session, pubrel,
-                     fun(_, _PacketId, _Session) ->
-                             {error, ?RC_PACKET_IDENTIFIER_NOT_FOUND}
-                     end),
+    ok = meck:expect(
+        emqx_session,
+        pubrel,
+        fun(_, _PacketId, _Session) ->
+            {error, ?RC_PACKET_IDENTIFIER_NOT_FOUND}
+        end
+    ),
     {ok, ?PUBCOMP_PACKET(1, ?RC_PACKET_IDENTIFIER_NOT_FOUND), _Channel} =
         emqx_channel:handle_in(?PUBREL_PACKET(1, ?RC_SUCCESS), channel()).
 
 t_handle_in_pubcomp_ok(_) ->
     ok = meck:expect(emqx_session, pubcomp, fun(_, _, Session) -> {ok, Session} end),
     {ok, _Channel} = emqx_channel:handle_in(?PUBCOMP_PACKET(1, ?RC_SUCCESS), channel()).
-    % ?assertEqual(#{pubcomp_in => 1}, emqx_channel:info(pub_stats, Channel)).
+% ?assertEqual(#{pubcomp_in => 1}, emqx_channel:info(pub_stats, Channel)).
 
 t_handle_in_pubcomp_not_found_error(_) ->
-    ok = meck:expect(emqx_session, pubcomp,
-                     fun(_, _PacketId, _Session) ->
-                             {error, ?RC_PACKET_IDENTIFIER_NOT_FOUND}
-                     end),
+    ok = meck:expect(
+        emqx_session,
+        pubcomp,
+        fun(_, _PacketId, _Session) ->
+            {error, ?RC_PACKET_IDENTIFIER_NOT_FOUND}
+        end
+    ),
     Channel = channel(#{conn_state => connected}),
     {ok, _Channel1} = emqx_channel:handle_in(?PUBCOMP_PACKET(1, ?RC_SUCCESS), Channel).
 
 t_handle_in_subscribe(_) ->
-    ok = meck:expect(emqx_session, subscribe,
-                     fun(_, _, _, Session) -> {ok, Session} end),
+    ok = meck:expect(
+        emqx_session,
+        subscribe,
+        fun(_, _, _, Session) -> {ok, Session} end
+    ),
     Channel = channel(#{conn_state => connected}),
     TopicFilters = [{<<"+">>, ?DEFAULT_SUBOPTS}],
     Subscribe = ?SUBSCRIBE_PACKET(1, #{}, TopicFilters),
@@ -539,10 +707,13 @@ t_handle_in_subscribe(_) ->
     {ok, Replies, _Chan} = emqx_channel:handle_in(Subscribe, Channel).
 
 t_handle_in_unsubscribe(_) ->
-    ok = meck:expect(emqx_session, unsubscribe,
-                     fun(_, _, _, Session) ->
-                             {ok, Session}
-                     end),
+    ok = meck:expect(
+        emqx_session,
+        unsubscribe,
+        fun(_, _, _, Session) ->
+            {ok, Session}
+        end
+    ),
     Channel = channel(#{conn_state => connected}),
     {ok, [{outgoing, ?UNSUBACK_PACKET(1)}, {event, updated}], _Chan} =
         emqx_channel:handle_in(?UNSUBSCRIBE_PACKET(1, #{}, [<<"+">>]), Channel).
@@ -567,7 +738,7 @@ t_handle_in_frame_error(_) ->
     IdleChannel = channel(#{conn_state => idle}),
     {shutdown, frame_too_large, _Chan} =
         emqx_channel:handle_in({frame_error, frame_too_large}, IdleChannel),
-    ConnectingChan =  channel(#{conn_state => connecting}),
+    ConnectingChan = channel(#{conn_state => connecting}),
     ConnackPacket = ?CONNACK_PACKET(?RC_PACKET_TOO_LARGE),
     {shutdown, frame_too_large, ConnackPacket, _} =
         emqx_channel:handle_in({frame_error, frame_too_large}, ConnectingChan),
@@ -585,10 +756,13 @@ t_handle_in_expected_packet(_) ->
         emqx_channel:handle_in(packet, channel()).
 
 t_process_connect(_) ->
-    ok = meck:expect(emqx_cm, open_session,
-                     fun(true, _ClientInfo, _ConnInfo) ->
-                             {ok, #{session => session(), present => false}}
-                     end),
+    ok = meck:expect(
+        emqx_cm,
+        open_session,
+        fun(true, _ClientInfo, _ConnInfo) ->
+            {ok, #{session => session(), present => false}}
+        end
+    ),
     {ok, [{event, connected}, {connack, ?CONNACK_PACKET(?RC_SUCCESS)}], _Chan} =
         emqx_channel:process_connect(#{}, channel(#{conn_state => idle})).
 
@@ -605,7 +779,7 @@ t_process_publish_qos1(_) ->
 
 t_process_subscribe(_) ->
     ok = meck:expect(emqx_session, subscribe, fun(_, _, _, Session) -> {ok, Session} end),
-    TopicFilters = [ TopicFilter = {<<"+">>, ?DEFAULT_SUBOPTS}],
+    TopicFilters = [TopicFilter = {<<"+">>, ?DEFAULT_SUBOPTS}],
     {[{TopicFilter, ?RC_SUCCESS}], _Channel} =
         emqx_channel:process_subscribe(TopicFilters, #{}, channel()).
 
@@ -615,18 +789,19 @@ t_process_unsubscribe(_) ->
     {[?RC_SUCCESS], _Channel} = emqx_channel:process_unsubscribe(TopicFilters, #{}, channel()).
 
 t_quota_qos0(_) ->
-    esockd_limiter:start_link(), Cnter = counters:new(1, []),
+    esockd_limiter:start_link(),
+    Cnter = counters:new(1, []),
     ok = meck:expect(emqx_broker, publish, fun(_) -> [{node(), <<"topic">>, {ok, 4}}] end),
     ok = meck:expect(
-           emqx_metrics,
-           inc,
-           fun('packets.publish.dropped') -> counters:add(Cnter, 1, 1) end
-         ),
+        emqx_metrics,
+        inc,
+        fun('packets.publish.dropped') -> counters:add(Cnter, 1, 1) end
+    ),
     ok = meck:expect(
-           emqx_metrics,
-           val,
-           fun('packets.publish.dropped') -> counters:get(Cnter, 1) end
-          ),
+        emqx_metrics,
+        val,
+        fun('packets.publish.dropped') -> counters:get(Cnter, 1) end
+    ),
     Chann = channel(#{conn_state => connected, quota => quota()}),
     Pub = ?PUBLISH_PACKET(?QOS_0, <<"topic">>, undefined, <<"payload">>),
 
@@ -683,7 +858,7 @@ t_handle_deliver(_) ->
     Msg1 = emqx_message:make(test, ?QOS_2, <<"t2">>, <<"qos2">>),
     Delivers = [{deliver, <<"+">>, Msg0}, {deliver, <<"+">>, Msg1}],
     {ok, {outgoing, Packets}, _Ch} = emqx_channel:handle_deliver(Delivers, channel()),
-    ?assertEqual([?QOS_1, ?QOS_2], [emqx_packet:qos(Pkt)|| Pkt <- Packets]).
+    ?assertEqual([?QOS_1, ?QOS_2], [emqx_packet:qos(Pkt) || Pkt <- Packets]).
 
 t_handle_deliver_nl(_) ->
     ClientInfo = clientinfo(#{clientid => <<"clientid">>}),
@@ -707,8 +882,8 @@ t_handle_out_publish(_) ->
 
 t_handle_out_publish_1(_) ->
     Msg = emqx_message:make(<<"clientid">>, ?QOS_1, <<"t">>, <<"payload">>),
-    {ok, {outgoing, [?PUBLISH_PACKET(?QOS_1, <<"t">>, 1, <<"payload">>)]}, _Chan}
-        = emqx_channel:handle_out(publish, [{1, Msg}], channel()).
+    {ok, {outgoing, [?PUBLISH_PACKET(?QOS_1, <<"t">>, 1, <<"payload">>)]}, _Chan} =
+        emqx_channel:handle_out(publish, [{1, Msg}], channel()).
 
 t_handle_out_connack_sucess(_) ->
     {ok, [{event, connected}, {connack, ?CONNACK_PACKET(?RC_SUCCESS, 0, _)}], Channel} =
@@ -716,30 +891,39 @@ t_handle_out_connack_sucess(_) ->
     ?assertEqual(connected, emqx_channel:info(conn_state, Channel)).
 
 t_handle_out_connack_response_information(_) ->
-    ok = meck:expect(emqx_cm, open_session,
-                     fun(true, _ClientInfo, _ConnInfo) ->
-                             {ok, #{session => session(), present => false}}
-                     end),
+    ok = meck:expect(
+        emqx_cm,
+        open_session,
+        fun(true, _ClientInfo, _ConnInfo) ->
+            {ok, #{session => session(), present => false}}
+        end
+    ),
     emqx_config:put_zone_conf(default, [mqtt, response_information], test),
     IdleChannel = channel(#{conn_state => idle}),
-    {ok, [{event, connected},
-          {connack, ?CONNACK_PACKET(?RC_SUCCESS, 0, #{'Response-Information' := test})}],
-     _} = emqx_channel:handle_in(
-            ?CONNECT_PACKET(connpkt(#{'Request-Response-Information' => 1})),
-            IdleChannel
-          ).
+    {ok,
+        [
+            {event, connected},
+            {connack, ?CONNACK_PACKET(?RC_SUCCESS, 0, #{'Response-Information' := test})}
+        ],
+        _} = emqx_channel:handle_in(
+        ?CONNECT_PACKET(connpkt(#{'Request-Response-Information' => 1})),
+        IdleChannel
+    ).
 
 t_handle_out_connack_not_response_information(_) ->
-    ok = meck:expect(emqx_cm, open_session,
-                     fun(true, _ClientInfo, _ConnInfo) ->
-                             {ok, #{session => session(), present => false}}
-                     end),
+    ok = meck:expect(
+        emqx_cm,
+        open_session,
+        fun(true, _ClientInfo, _ConnInfo) ->
+            {ok, #{session => session(), present => false}}
+        end
+    ),
     emqx_config:put_zone_conf(default, [mqtt, response_information], test),
     IdleChannel = channel(#{conn_state => idle}),
     {ok, [{event, connected}, {connack, ?CONNACK_PACKET(?RC_SUCCESS, 0, AckProps)}], _} =
         emqx_channel:handle_in(
-          ?CONNECT_PACKET(connpkt(#{'Request-Response-Information' => 0})),
-          IdleChannel
+            ?CONNECT_PACKET(connpkt(#{'Request-Response-Information' => 0})),
+            IdleChannel
         ),
     ?assertEqual(false, maps:is_key('Response-Information', AckProps)).
 
@@ -806,9 +990,9 @@ t_handle_call_takeover_end(_) ->
 
 t_handle_call_quota(_) ->
     {reply, ok, _Chan} = emqx_channel:handle_call(
-                           {quota, default},
-                           channel()
-                         ).
+        {quota, default},
+        channel()
+    ).
 
 t_handle_call_unexpected(_) ->
     {reply, ignored, _Chan} = emqx_channel:handle_call(unexpected_req, channel()).
@@ -887,58 +1071,78 @@ t_process_alias_inexistent_alias(_) ->
     Publish = #mqtt_packet_publish{topic_name = <<>>, properties = #{'Topic-Alias' => 1}},
     Channel = channel(),
     ?assertEqual(
-      {error, ?RC_PROTOCOL_ERROR},
-      emqx_channel:process_alias(#mqtt_packet{variable = Publish}, Channel)).
+        {error, ?RC_PROTOCOL_ERROR},
+        emqx_channel:process_alias(#mqtt_packet{variable = Publish}, Channel)
+    ).
 
 t_packing_alias(_) ->
-    Packet1 = #mqtt_packet{variable = #mqtt_packet_publish{
-                                         topic_name = <<"x">>,
-                                         properties = #{'User-Property' => [{<<"k">>, <<"v">>}]}
-                                        }},
+    Packet1 = #mqtt_packet{
+        variable = #mqtt_packet_publish{
+            topic_name = <<"x">>,
+            properties = #{'User-Property' => [{<<"k">>, <<"v">>}]}
+        }
+    },
     Packet2 = #mqtt_packet{variable = #mqtt_packet_publish{topic_name = <<"y">>}},
     Channel = emqx_channel:set_field(alias_maximum, #{outbound => 1}, channel()),
 
     {RePacket1, NChannel1} = emqx_channel:packing_alias(Packet1, Channel),
-    ?assertEqual(#mqtt_packet{variable = #mqtt_packet_publish{
-                                            topic_name = <<"x">>,
-                                            properties = #{
-                                                'Topic-Alias' => 1,
-                                                'User-Property' => [{<<"k">>, <<"v">>}]
-                                             }
-                                           }}, RePacket1),
+    ?assertEqual(
+        #mqtt_packet{
+            variable = #mqtt_packet_publish{
+                topic_name = <<"x">>,
+                properties = #{
+                    'Topic-Alias' => 1,
+                    'User-Property' => [{<<"k">>, <<"v">>}]
+                }
+            }
+        },
+        RePacket1
+    ),
 
     {RePacket2, NChannel2} = emqx_channel:packing_alias(Packet1, NChannel1),
-    ?assertEqual(#mqtt_packet{variable = #mqtt_packet_publish{
-                                            topic_name = <<>>,
-                                            properties = #{
-                                                'Topic-Alias' => 1,
-                                                'User-Property' => [{<<"k">>, <<"v">>}]
-                                             }}}, RePacket2),
+    ?assertEqual(
+        #mqtt_packet{
+            variable = #mqtt_packet_publish{
+                topic_name = <<>>,
+                properties = #{
+                    'Topic-Alias' => 1,
+                    'User-Property' => [{<<"k">>, <<"v">>}]
+                }
+            }
+        },
+        RePacket2
+    ),
 
     {RePacket3, _} = emqx_channel:packing_alias(Packet2, NChannel2),
     ?assertEqual(
-       #mqtt_packet{variable = #mqtt_packet_publish{topic_name = <<"y">>, properties = #{}}},
-       RePacket3
+        #mqtt_packet{variable = #mqtt_packet_publish{topic_name = <<"y">>, properties = #{}}},
+        RePacket3
     ),
 
-    ?assertMatch({#mqtt_packet{variable = #mqtt_packet_publish{topic_name = <<"z">>}}, _},
-                 emqx_channel:packing_alias(
-                   #mqtt_packet{variable = #mqtt_packet_publish{topic_name = <<"z">>}},
-                   channel())).
+    ?assertMatch(
+        {#mqtt_packet{variable = #mqtt_packet_publish{topic_name = <<"z">>}}, _},
+        emqx_channel:packing_alias(
+            #mqtt_packet{variable = #mqtt_packet_publish{topic_name = <<"z">>}},
+            channel()
+        )
+    ).
 
 t_packing_alias_inexistent_alias(_) ->
     Publish = #mqtt_packet_publish{topic_name = <<>>, properties = #{'Topic-Alias' => 1}},
     Channel = channel(),
     Packet = #mqtt_packet{variable = Publish},
     ExpectedChannel = emqx_channel:set_field(
-                        topic_aliases,
-                        #{ inbound => #{}
-                         , outbound => #{<<>> => 1}
-                         },
-                        Channel),
+        topic_aliases,
+        #{
+            inbound => #{},
+            outbound => #{<<>> => 1}
+        },
+        Channel
+    ),
     ?assertEqual(
-      {Packet, ExpectedChannel},
-      emqx_channel:packing_alias(Packet, Channel)).
+        {Packet, ExpectedChannel},
+        emqx_channel:packing_alias(Packet, Channel)
+    ).
 
 t_check_pub_authz(_) ->
     emqx_config:put_zone_conf(default, [authorization, enable], true),
@@ -957,24 +1161,32 @@ t_check_sub_authzs(_) ->
 
 t_enrich_connack_caps(_) ->
     ok = meck:new(emqx_mqtt_caps, [passthrough, no_history]),
-    ok = meck:expect(emqx_mqtt_caps, get_caps,
-                     fun(_Zone) ->
-                        #{max_packet_size => 1024,
-                          max_qos_allowed => ?QOS_2,
-                          retain_available => true,
-                          max_topic_alias => 10,
-                          shared_subscription => true,
-                          wildcard_subscription => true
-                         }
-                     end),
+    ok = meck:expect(
+        emqx_mqtt_caps,
+        get_caps,
+        fun(_Zone) ->
+            #{
+                max_packet_size => 1024,
+                max_qos_allowed => ?QOS_2,
+                retain_available => true,
+                max_topic_alias => 10,
+                shared_subscription => true,
+                wildcard_subscription => true
+            }
+        end
+    ),
     AckProps = emqx_channel:enrich_connack_caps(#{}, channel()),
-    ?assertMatch(#{'Retain-Available' := 1,
-                   'Maximum-Packet-Size' := 1024,
-                   'Topic-Alias-Maximum' := 10,
-                   'Wildcard-Subscription-Available' := 1,
-                   'Subscription-Identifier-Available' := 1,
-                   'Shared-Subscription-Available' := 1
-                  }, AckProps),
+    ?assertMatch(
+        #{
+            'Retain-Available' := 1,
+            'Maximum-Packet-Size' := 1024,
+            'Topic-Alias-Maximum' := 10,
+            'Wildcard-Subscription-Available' := 1,
+            'Subscription-Identifier-Available' := 1,
+            'Shared-Subscription-Available' := 1
+        },
+        AckProps
+    ),
     ok = meck:unload(emqx_mqtt_caps).
 
 %%--------------------------------------------------------------------
@@ -988,19 +1200,22 @@ t_terminate(_) ->
 
 t_ws_cookie_init(_) ->
     WsCookie = [{<<"session_id">>, <<"xyz">>}],
-    ConnInfo = #{socktype => ws,
-                 peername => {{127,0,0,1}, 3456},
-                 sockname => {{127,0,0,1}, 1883},
-                 peercert => nossl,
-                 conn_mod => emqx_ws_connection,
-                 ws_cookie => WsCookie
-                },
+    ConnInfo = #{
+        socktype => ws,
+        peername => {{127, 0, 0, 1}, 3456},
+        sockname => {{127, 0, 0, 1}, 1883},
+        peercert => nossl,
+        conn_mod => emqx_ws_connection,
+        ws_cookie => WsCookie
+    },
     Channel = emqx_channel:init(
-                ConnInfo,
-                #{zone => default,
-                  limiter => limiter_cfg(),
-                  listener => {tcp, default}
-                 }),
+        ConnInfo,
+        #{
+            zone => default,
+            limiter => limiter_cfg(),
+            listener => {tcp, default}
+        }
+    ),
     ?assertMatch(#{ws_cookie := WsCookie}, emqx_channel:info(clientinfo, Channel)).
 
 %%--------------------------------------------------------------------
@@ -1009,45 +1224,58 @@ t_ws_cookie_init(_) ->
 
 channel() -> channel(#{}).
 channel(InitFields) ->
-    ConnInfo = #{peername => {{127,0,0,1}, 3456},
-                 sockname => {{127,0,0,1}, 1883},
-                 conn_mod => emqx_connection,
-                 proto_name => <<"MQTT">>,
-                 proto_ver => ?MQTT_PROTO_V5,
-                 clean_start => true,
-                 keepalive => 30,
-                 clientid => <<"clientid">>,
-                 username => <<"username">>,
-                 conn_props => #{},
-                 receive_maximum => 100,
-                 expiry_interval => 0
-                },
-    maps:fold(fun(Field, Value, Channel) ->
-                      emqx_channel:set_field(Field, Value, Channel)
-              end,
-              emqx_channel:init(
-                ConnInfo,
-                #{zone => default,
-                  limiter => limiter_cfg(),
-                  listener => {tcp, default}
-                 }),
-              maps:merge(#{clientinfo => clientinfo(),
-                           session    => session(),
-                           conn_state => connected
-                          }, InitFields)).
+    ConnInfo = #{
+        peername => {{127, 0, 0, 1}, 3456},
+        sockname => {{127, 0, 0, 1}, 1883},
+        conn_mod => emqx_connection,
+        proto_name => <<"MQTT">>,
+        proto_ver => ?MQTT_PROTO_V5,
+        clean_start => true,
+        keepalive => 30,
+        clientid => <<"clientid">>,
+        username => <<"username">>,
+        conn_props => #{},
+        receive_maximum => 100,
+        expiry_interval => 0
+    },
+    maps:fold(
+        fun(Field, Value, Channel) ->
+            emqx_channel:set_field(Field, Value, Channel)
+        end,
+        emqx_channel:init(
+            ConnInfo,
+            #{
+                zone => default,
+                limiter => limiter_cfg(),
+                listener => {tcp, default}
+            }
+        ),
+        maps:merge(
+            #{
+                clientinfo => clientinfo(),
+                session => session(),
+                conn_state => connected
+            },
+            InitFields
+        )
+    ).
 
 clientinfo() -> clientinfo(#{}).
 clientinfo(InitProps) ->
-    maps:merge(#{zone       => default,
-                 listener   => {tcp, default},
-                 protocol   => mqtt,
-                 peerhost   => {127,0,0,1},
-                 clientid   => <<"clientid">>,
-                 username   => <<"username">>,
-                 is_superuser => false,
-                 peercert   => undefined,
-                 mountpoint => undefined
-                }, InitProps).
+    maps:merge(
+        #{
+            zone => default,
+            listener => {tcp, default},
+            protocol => mqtt,
+            peerhost => {127, 0, 0, 1},
+            clientid => <<"clientid">>,
+            username => <<"username">>,
+            is_superuser => false,
+            peercert => undefined,
+            mountpoint => undefined
+        },
+        InitProps
+    ).
 
 topic_filters() ->
     [{<<"+">>, ?DEFAULT_SUBOPTS}, {<<"#">>, ?DEFAULT_SUBOPTS}].
@@ -1055,24 +1283,26 @@ topic_filters() ->
 connpkt() -> connpkt(#{}).
 connpkt(Props) ->
     #mqtt_packet_connect{
-       proto_name  = <<"MQTT">>,
-       proto_ver   = ?MQTT_PROTO_V4,
-       is_bridge   = false,
-       clean_start = true,
-       keepalive   = 30,
-       properties  = Props,
-       clientid    = <<"clientid">>,
-       username    = <<"username">>,
-       password    = <<"passwd">>
-      }.
+        proto_name = <<"MQTT">>,
+        proto_ver = ?MQTT_PROTO_V4,
+        is_bridge = false,
+        clean_start = true,
+        keepalive = 30,
+        properties = Props,
+        clientid = <<"clientid">>,
+        username = <<"username">>,
+        password = <<"passwd">>
+    }.
 
 session() -> session(#{}).
 session(InitFields) when is_map(InitFields) ->
-    maps:fold(fun(Field, Value, Session) ->
-                      emqx_session:set_field(Field, Value, Session)
-              end,
-              emqx_session:init(#{max_inflight => 0}),
-              InitFields).
+    maps:fold(
+        fun(Field, Value, Session) ->
+            emqx_session:set_field(Field, Value, Session)
+        end,
+        emqx_session:init(#{max_inflight => 0}),
+        InitFields
+    ).
 
 %% conn: 5/s; overall: 10/s
 quota() ->

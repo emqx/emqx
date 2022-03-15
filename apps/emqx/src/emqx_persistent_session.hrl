@@ -23,13 +23,17 @@
 -define(MSG_TAB_DISC, emqx_persistent_msg_disc).
 -define(MSG_TAB_RAM, emqx_persistent_msg_ram).
 
--record(session_store, { client_id        :: binary()
-                       , expiry_interval  :: non_neg_integer()
-                       , ts               :: non_neg_integer()
-                       , session          :: emqx_session:session()}).
+-record(session_store, {
+    client_id :: binary(),
+    expiry_interval :: non_neg_integer(),
+    ts :: non_neg_integer(),
+    session :: emqx_session:session()
+}).
 
--record(session_msg, {key      :: emqx_persistent_session:sess_msg_key(),
-                      val = [] :: []}).
+-record(session_msg, {
+    key :: emqx_persistent_session:sess_msg_key(),
+    val = [] :: []
+}).
 
 -define(db_backend_key, [persistent_session_store, db_backend]).
 -define(is_enabled_key, [persistent_session_store, enabled]).

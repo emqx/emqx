@@ -20,25 +20,26 @@
 
 -include("logger.hrl").
 
-
 -export([start_link/0]).
 
--export([ get_mem_check_interval/0
-        , set_mem_check_interval/1
-        , get_sysmem_high_watermark/0
-        , set_sysmem_high_watermark/1
-        , get_procmem_high_watermark/0
-        , set_procmem_high_watermark/1
-        ]).
+-export([
+    get_mem_check_interval/0,
+    set_mem_check_interval/1,
+    get_sysmem_high_watermark/0,
+    set_sysmem_high_watermark/1,
+    get_procmem_high_watermark/0,
+    set_procmem_high_watermark/1
+]).
 
 %% gen_server callbacks
--export([ init/1
-        , handle_call/3
-        , handle_cast/2
-        , handle_info/2
-        , terminate/2
-        , code_change/3
-        ]).
+-export([
+    init/1,
+    handle_call/3,
+    handle_cast/2,
+    handle_info/2,
+    terminate/2,
+    code_change/3
+]).
 
 -include("emqx.hrl").
 
@@ -93,41 +94,47 @@ handle_call(Req, _From, State) ->
     {reply, {error, {unexpected_call, Req}}, State}.
 
 handle_cast(Msg, State) ->
-    ?SLOG(error, #{msg => "unexpected_cast", cast=> Msg}),
+    ?SLOG(error, #{msg => "unexpected_cast", cast => Msg}),
     {noreply, State}.
 
 handle_info({timeout, _Timer, check}, State) ->
     CPUHighWatermark = emqx:get_config([sysmon, os, cpu_high_watermark]) * 100,
     CPULowWatermark = emqx:get_config([sysmon, os, cpu_low_watermark]) * 100,
-    _ = case emqx_vm:cpu_util() of %% TODO: should be improved?
-        0 -> ok;
-        Busy when Busy > CPUHighWatermark ->
-            Usage = list_to_binary(io_lib:format("~.2f%", [Busy])),
-            Message = <<Usage/binary, " cpu usage">>,
-            emqx_alarm:activate(high_cpu_usage,
-                #{
-                    usage => Usage,
-                    high_watermark => CPUHighWatermark,
-                    low_watermark => CPULowWatermark
-                },
-                Message),
-            start_check_timer();
-        Busy when Busy < CPULowWatermark ->
-            Usage = list_to_binary(io_lib:format("~.2f%", [Busy])),
-            Message = <<Usage/binary, " cpu usage">>,
-            emqx_alarm:deactivate(high_cpu_usage,
-                #{
-                    usage => Usage,
-                    high_watermark => CPUHighWatermark,
-                    low_watermark => CPULowWatermark
-                },
-                Message),
-            start_check_timer();
-        _Busy ->
-            start_check_timer()
-    end,
+    %% TODO: should be improved?
+    _ =
+        case emqx_vm:cpu_util() of
+            0 ->
+                ok;
+            Busy when Busy > CPUHighWatermark ->
+                Usage = list_to_binary(io_lib:format("~.2f%", [Busy])),
+                Message = <<Usage/binary, " cpu usage">>,
+                emqx_alarm:activate(
+                    high_cpu_usage,
+                    #{
+                        usage => Usage,
+                        high_watermark => CPUHighWatermark,
+                        low_watermark => CPULowWatermark
+                    },
+                    Message
+                ),
+                start_check_timer();
+            Busy when Busy < CPULowWatermark ->
+                Usage = list_to_binary(io_lib:format("~.2f%", [Busy])),
+                Message = <<Usage/binary, " cpu usage">>,
+                emqx_alarm:deactivate(
+                    high_cpu_usage,
+                    #{
+                        usage => Usage,
+                        high_watermark => CPUHighWatermark,
+                        low_watermark => CPULowWatermark
+                    },
+                    Message
+                ),
+                start_check_timer();
+            _Busy ->
+                start_check_timer()
+        end,
     {noreply, State};
-
 handle_info(Info, State) ->
     ?SLOG(error, #{msg => "unexpected_info", info => Info}),
     {noreply, State}.
@@ -157,10 +164,11 @@ start_check_timer() ->
 %% so it can only be checked again at startup.
 ensure_system_memory_alarm(HW) ->
     case erlang:whereis(memsup) of
-        undefined -> ok;
+        undefined ->
+            ok;
         _Pid ->
             {Total, Allocated, _Worst} = memsup:get_memory_data(),
-            case Total =/= 0 andalso Allocated/Total * 100 > HW of
+            case Total =/= 0 andalso Allocated / Total * 100 > HW of
                 true -> emqx_alarm:activate(high_system_memory_usage, #{high_watermark => HW});
                 false -> ok
             end

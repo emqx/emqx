@@ -24,13 +24,14 @@
 -export([start_link/0]).
 
 %% gen_server callbacks
--export([ init/1
-        , handle_call/3
-        , handle_cast/2
-        , handle_info/2
-        , terminate/2
-        , code_change/3
-        ]).
+-export([
+    init/1,
+    handle_call/3,
+    handle_cast/2,
+    handle_info/2,
+    terminate/2,
+    code_change/3
+]).
 
 -define(VM_MON, ?MODULE).
 
@@ -62,29 +63,34 @@ handle_info({timeout, _Timer, check}, State) ->
     ProcessCount = erlang:system_info(process_count),
     case ProcessCount / erlang:system_info(process_limit) of
         Percent when Percent > ProcHighWatermark ->
-            Usage = io_lib:format("~p%", [Percent*100]),
+            Usage = io_lib:format("~p%", [Percent * 100]),
             Message = [Usage, " process usage"],
-            emqx_alarm:activate(too_many_processes,
+            emqx_alarm:activate(
+                too_many_processes,
                 #{
                     usage => Usage,
                     high_watermark => ProcHighWatermark,
-                    low_watermark => ProcLowWatermark},
-                Message);
+                    low_watermark => ProcLowWatermark
+                },
+                Message
+            );
         Percent when Percent < ProcLowWatermark ->
-            Usage = io_lib:format("~p%", [Percent*100]),
+            Usage = io_lib:format("~p%", [Percent * 100]),
             Message = [Usage, " process usage"],
-            emqx_alarm:deactivate(too_many_processes,
+            emqx_alarm:deactivate(
+                too_many_processes,
                 #{
                     usage => Usage,
                     high_watermark => ProcHighWatermark,
-                    low_watermark => ProcLowWatermark},
-                Message);
+                    low_watermark => ProcLowWatermark
+                },
+                Message
+            );
         _Precent ->
             ok
     end,
     start_check_timer(),
     {noreply, State};
-
 handle_info(Info, State) ->
     ?SLOG(error, #{msg => "unexpected_info", info => Info}),
     {noreply, State}.

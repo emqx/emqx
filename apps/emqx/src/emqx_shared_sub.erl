@@ -23,7 +23,6 @@
 -include("logger.hrl").
 -include("types.hrl").
 
-
 %% Mnesia bootstrap
 -export([mnesia/1]).
 
@@ -32,38 +31,43 @@
 %% APIs
 -export([start_link/0]).
 
--export([ subscribe/3
-        , unsubscribe/3
-        ]).
+-export([
+    subscribe/3,
+    unsubscribe/3
+]).
 
 -export([dispatch/3]).
 
--export([ maybe_ack/1
-        , maybe_nack_dropped/1
-        , nack_no_connection/1
-        , is_ack_required/1
-        ]).
+-export([
+    maybe_ack/1,
+    maybe_nack_dropped/1,
+    nack_no_connection/1,
+    is_ack_required/1
+]).
 
 %% for testing
 -export([subscribers/2]).
 
 %% gen_server callbacks
--export([ init/1
-        , handle_call/3
-        , handle_cast/2
-        , handle_info/2
-        , terminate/2
-        , code_change/3
-        ]).
+-export([
+    init/1,
+    handle_call/3,
+    handle_cast/2,
+    handle_info/2,
+    terminate/2,
+    code_change/3
+]).
 
 -export_type([strategy/0]).
 
--type strategy() :: random
-                  | round_robin
-                  | sticky
-                  | hash %% same as hash_clientid, backward compatible
-                  | hash_clientid
-                  | hash_topic.
+-type strategy() ::
+    random
+    | round_robin
+    | sticky
+    %% same as hash_clientid, backward compatible
+    | hash
+    | hash_clientid
+    | hash_topic.
 
 -define(SERVER, ?MODULE).
 -define(TAB, emqx_shared_subscription).
@@ -85,33 +89,34 @@
 
 mnesia(boot) ->
     ok = mria:create_table(?TAB, [
-                {type, bag},
-                {rlog_shard, ?SHARED_SUB_SHARD},
-                {storage, ram_copies},
-                {record_name, emqx_shared_subscription},
-                {attributes, record_info(fields, emqx_shared_subscription)}]).
+        {type, bag},
+        {rlog_shard, ?SHARED_SUB_SHARD},
+        {storage, ram_copies},
+        {record_name, emqx_shared_subscription},
+        {attributes, record_info(fields, emqx_shared_subscription)}
+    ]).
 
 %%--------------------------------------------------------------------
 %% API
 %%--------------------------------------------------------------------
 
--spec(start_link() -> startlink_ret()).
+-spec start_link() -> startlink_ret().
 start_link() ->
     gen_server:start_link({local, ?SERVER}, ?MODULE, [], []).
 
--spec(subscribe(emqx_types:group(), emqx_types:topic(), pid()) -> ok).
+-spec subscribe(emqx_types:group(), emqx_types:topic(), pid()) -> ok.
 subscribe(Group, Topic, SubPid) when is_pid(SubPid) ->
     gen_server:call(?SERVER, {subscribe, Group, Topic, SubPid}).
 
--spec(unsubscribe(emqx_types:group(), emqx_types:topic(), pid()) -> ok).
+-spec unsubscribe(emqx_types:group(), emqx_types:topic(), pid()) -> ok.
 unsubscribe(Group, Topic, SubPid) when is_pid(SubPid) ->
     gen_server:call(?SERVER, {unsubscribe, Group, Topic, SubPid}).
 
 record(Group, Topic, SubPid) ->
     #emqx_shared_subscription{group = Group, topic = Topic, subpid = SubPid}.
 
--spec(dispatch(emqx_types:group(), emqx_types:topic(), emqx_types:delivery())
-      -> emqx_types:deliver_result()).
+-spec dispatch(emqx_types:group(), emqx_types:topic(), emqx_types:delivery()) ->
+    emqx_types:deliver_result().
 dispatch(Group, Topic, Delivery) ->
     dispatch(Group, Topic, Delivery, _FailedSubs = []).
 
@@ -122,18 +127,19 @@ dispatch(Group, Topic, Delivery = #delivery{message = Msg}, FailedSubs) ->
             {error, no_subscribers};
         {Type, SubPid} ->
             case do_dispatch(SubPid, Topic, Msg, Type) of
-                ok -> {ok, 1};
+                ok ->
+                    {ok, 1};
                 {error, _Reason} ->
                     %% Failed to dispatch to this sub, try next.
                     dispatch(Group, Topic, Delivery, [SubPid | FailedSubs])
             end
     end.
 
--spec(strategy() -> strategy()).
+-spec strategy() -> strategy().
 strategy() ->
     emqx:get_config([broker, shared_subscription_strategy]).
 
--spec(ack_enabled() -> boolean()).
+-spec ack_enabled() -> boolean().
 ack_enabled() ->
     emqx:get_config([broker, shared_dispatch_ack_enabled]).
 
@@ -167,10 +173,11 @@ dispatch_with_ack(SubPid, Topic, Msg) ->
     Ref = erlang:monitor(process, SubPid),
     Sender = self(),
     _ = erlang:send(SubPid, {deliver, Topic, with_ack_ref(Msg, {Sender, Ref})}),
-    Timeout = case Msg#message.qos of
-                  ?QOS_1 -> timer:seconds(?SHARED_SUB_QOS1_DISPATCH_TIMEOUT_SECONDS);
-                  ?QOS_2 -> infinity
-              end,
+    Timeout =
+        case Msg#message.qos of
+            ?QOS_1 -> timer:seconds(?SHARED_SUB_QOS1_DISPATCH_TIMEOUT_SECONDS);
+            ?QOS_2 -> infinity
+        end,
     try
         receive
             {Ref, ?ACK} ->
@@ -180,9 +187,8 @@ dispatch_with_ack(SubPid, Topic, Msg) ->
                 {error, Reason};
             {'DOWN', Ref, process, SubPid, Reason} ->
                 {error, Reason}
-        after
-            Timeout ->
-                {error, timeout}
+        after Timeout ->
+            {error, timeout}
         end
     after
         _ = erlang:demonitor(Ref, [flush])
@@ -197,11 +203,11 @@ without_ack_ref(Msg) ->
 get_ack_ref(Msg) ->
     emqx_message:get_header(shared_dispatch_ack, Msg, ?NO_ACK).
 
--spec(is_ack_required(emqx_types:message()) -> boolean()).
+-spec is_ack_required(emqx_types:message()) -> boolean().
 is_ack_required(Msg) -> ?NO_ACK =/= get_ack_ref(Msg).
 
 %% @doc Negative ack dropped message due to inflight window or message queue being full.
--spec(maybe_nack_dropped(emqx_types:message()) -> ok).
+-spec maybe_nack_dropped(emqx_types:message()) -> ok.
 maybe_nack_dropped(Msg) ->
     case get_ack_ref(Msg) of
         ?NO_ACK -> ok;
@@ -211,17 +217,17 @@ maybe_nack_dropped(Msg) ->
 %% @doc Negative ack message due to connection down.
 %% Assuming this function is always called when ack is required
 %% i.e is_ack_required returned true.
--spec(nack_no_connection(emqx_types:message()) -> ok).
+-spec nack_no_connection(emqx_types:message()) -> ok.
 nack_no_connection(Msg) ->
     {Sender, Ref} = get_ack_ref(Msg),
     nack(Sender, Ref, no_connection).
 
--spec(nack(pid(), reference(), dropped | no_connection) -> ok).
+-spec nack(pid(), reference(), dropped | no_connection) -> ok.
 nack(Sender, Ref, Reason) ->
     erlang:send(Sender, {Ref, ?NACK(Reason)}),
     ok.
 
--spec(maybe_ack(emqx_types:message()) -> emqx_types:message()).
+-spec maybe_ack(emqx_types:message()) -> emqx_types:message().
 maybe_ack(Msg) ->
     case get_ack_ref(Msg) of
         ?NO_ACK ->
@@ -262,7 +268,8 @@ do_pick(Strategy, ClientId, SourceTopic, Group, Topic, FailedSubs) ->
             {fresh, pick_subscriber(Group, Topic, Strategy, ClientId, SourceTopic, Subs)}
     end.
 
-pick_subscriber(_Group, _Topic, _Strategy, _ClientId, _SourceTopic, [Sub]) -> Sub;
+pick_subscriber(_Group, _Topic, _Strategy, _ClientId, _SourceTopic, [Sub]) ->
+    Sub;
 pick_subscriber(Group, Topic, Strategy, ClientId, SourceTopic, Subs) ->
     Nth = do_pick_subscriber(Group, Topic, Strategy, ClientId, SourceTopic, length(Subs)),
     lists:nth(Nth, Subs).
@@ -277,10 +284,11 @@ do_pick_subscriber(_Group, _Topic, hash_clientid, ClientId, _SourceTopic, Count)
 do_pick_subscriber(_Group, _Topic, hash_topic, _ClientId, SourceTopic, Count) ->
     1 + erlang:phash2(SourceTopic) rem Count;
 do_pick_subscriber(Group, Topic, round_robin, _ClientId, _SourceTopic, Count) ->
-    Rem = case erlang:get({shared_sub_round_robin, Group, Topic}) of
-              undefined -> rand:uniform(Count) - 1;
-              N -> (N + 1) rem Count
-          end,
+    Rem =
+        case erlang:get({shared_sub_round_robin, Group, Topic}) of
+            undefined -> rand:uniform(Count) - 1;
+            N -> (N + 1) rem Count
+        end,
     _ = erlang:put({shared_sub_round_robin, Group, Topic}, Rem),
     Rem + 1.
 
@@ -301,26 +309,27 @@ init([]) ->
 
 init_monitors() ->
     mnesia:foldl(
-      fun(#emqx_shared_subscription{subpid = SubPid}, Mon) ->
-          emqx_pmon:monitor(SubPid, Mon)
-      end, emqx_pmon:new(), ?TAB).
+        fun(#emqx_shared_subscription{subpid = SubPid}, Mon) ->
+            emqx_pmon:monitor(SubPid, Mon)
+        end,
+        emqx_pmon:new(),
+        ?TAB
+    ).
 
 handle_call({subscribe, Group, Topic, SubPid}, _From, State = #state{pmon = PMon}) ->
     mria:dirty_write(?TAB, record(Group, Topic, SubPid)),
     case ets:member(?SHARED_SUBS, {Group, Topic}) of
-        true  -> ok;
+        true -> ok;
         false -> ok = emqx_router:do_add_route(Topic, {Group, node()})
     end,
     ok = maybe_insert_alive_tab(SubPid),
     true = ets:insert(?SHARED_SUBS, {{Group, Topic}, SubPid}),
     {reply, ok, update_stats(State#state{pmon = emqx_pmon:monitor(SubPid, PMon)})};
-
 handle_call({unsubscribe, Group, Topic, SubPid}, _From, State) ->
     mria:dirty_delete_object(?TAB, record(Group, Topic, SubPid)),
     true = ets:delete_object(?SHARED_SUBS, {{Group, Topic}, SubPid}),
     delete_route_if_needed({Group, Topic}),
     {reply, ok, State};
-
 handle_call(Req, _From, State) ->
     ?SLOG(error, #{msg => "unexpected_call", req => Req}),
     {reply, ignored, State}.
@@ -332,7 +341,6 @@ handle_cast(Msg, State) ->
 handle_info({mnesia_table_event, {write, NewRecord, _}}, State = #state{pmon = PMon}) ->
     #emqx_shared_subscription{subpid = SubPid} = NewRecord,
     {noreply, update_stats(State#state{pmon = emqx_pmon:monitor(SubPid, PMon)})};
-
 %% The subscriber may have subscribed multiple topics, so we need to keep monitoring the PID until
 %% it `unsubscribed` the last topic.
 %% The trick is we don't demonitor the subscriber here, and (after a long time) it will eventually
@@ -343,12 +351,10 @@ handle_info({mnesia_table_event, {write, NewRecord, _}}, State = #state{pmon = P
 
 handle_info({mnesia_table_event, _Event}, State) ->
     {noreply, State};
-
 handle_info({'DOWN', _MRef, process, SubPid, Reason}, State = #state{pmon = PMon}) ->
     ?SLOG(info, #{msg => "shared_subscriber_down", sub_pid => SubPid, reason => Reason}),
     cleanup_down(SubPid),
     {noreply, update_stats(State#state{pmon = emqx_pmon:erase(SubPid, PMon)})};
-
 handle_info(_Info, State) ->
     {noreply, State}.
 
@@ -364,7 +370,9 @@ code_change(_OldVsn, State, _Extra) ->
 
 %% keep track of alive remote pids
 maybe_insert_alive_tab(Pid) when ?IS_LOCAL_PID(Pid) -> ok;
-maybe_insert_alive_tab(Pid) when is_pid(Pid) -> ets:insert(?ALIVE_SUBS, {Pid}), ok.
+maybe_insert_alive_tab(Pid) when is_pid(Pid) ->
+    ets:insert(?ALIVE_SUBS, {Pid}),
+    ok.
 
 cleanup_down(SubPid) ->
     ?IS_LOCAL_PID(SubPid) orelse ets:delete(?ALIVE_SUBS, SubPid),
@@ -373,13 +381,16 @@ cleanup_down(SubPid) ->
             ok = mria:dirty_delete_object(?TAB, Record),
             true = ets:delete_object(?SHARED_SUBS, {{Group, Topic}, SubPid}),
             delete_route_if_needed({Group, Topic})
-        end, mnesia:dirty_match_object(#emqx_shared_subscription{_ = '_', subpid = SubPid})).
+        end,
+        mnesia:dirty_match_object(#emqx_shared_subscription{_ = '_', subpid = SubPid})
+    ).
 
 update_stats(State) ->
-    emqx_stats:setstat('subscriptions.shared.count',
-                       'subscriptions.shared.max',
-                       ets:info(?TAB, size)
-                      ),
+    emqx_stats:setstat(
+        'subscriptions.shared.count',
+        'subscriptions.shared.max',
+        ets:info(?TAB, size)
+    ),
     State.
 
 %% Return 'true' if the subscriber process is alive AND not in the failed list

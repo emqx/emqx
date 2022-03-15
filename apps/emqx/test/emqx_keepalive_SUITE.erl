@@ -29,9 +29,14 @@ t_check(_) ->
     ?assertEqual(0, emqx_keepalive:info(statval, Keepalive)),
     ?assertEqual(0, emqx_keepalive:info(repeat, Keepalive)),
     Info = emqx_keepalive:info(Keepalive),
-    ?assertEqual(#{interval => 60,
-                   statval  => 0,
-                   repeat   => 0}, Info),
+    ?assertEqual(
+        #{
+            interval => 60,
+            statval => 0,
+            repeat => 0
+        },
+        Info
+    ),
     {ok, Keepalive1} = emqx_keepalive:check(1, Keepalive),
     ?assertEqual(1, emqx_keepalive:info(statval, Keepalive1)),
     ?assertEqual(0, emqx_keepalive:info(repeat, Keepalive1)),

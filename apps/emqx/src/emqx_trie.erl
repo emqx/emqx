@@ -19,26 +19,29 @@
 -include("emqx.hrl").
 
 %% Mnesia bootstrap
--export([ mnesia/1
-        , create_session_trie/1
-        ]).
+-export([
+    mnesia/1,
+    create_session_trie/1
+]).
 
 -boot_mnesia({mnesia, [boot]}).
 
 %% Trie APIs
--export([ insert/1
-        , insert_session/1
-        , match/1
-        , match_session/1
-        , delete/1
-        , delete_session/1
-        ]).
+-export([
+    insert/1,
+    insert_session/1,
+    match/1,
+    match_session/1,
+    delete/1,
+    delete_session/1
+]).
 
--export([ empty/0
-        , empty_session/0
-        , lock_tables/0
-        , lock_session_tables/0
-        ]).
+-export([
+    empty/0,
+    empty_session/0,
+    lock_tables/0,
+    lock_session_tables/0
+]).
 
 -export([is_compact/0, set_compact/1]).
 
@@ -52,79 +55,98 @@
 -define(PREFIX(Prefix), {Prefix, 0}).
 -define(TOPIC(Topic), {Topic, 1}).
 
--record(?TRIE,
-        { key :: ?TOPIC(binary()) | ?PREFIX(binary())
-        , count = 0 :: non_neg_integer()
-        }).
+-record(?TRIE, {
+    key :: ?TOPIC(binary()) | ?PREFIX(binary()),
+    count = 0 :: non_neg_integer()
+}).
 
 %%--------------------------------------------------------------------
 %% Mnesia bootstrap
 %%--------------------------------------------------------------------
 
 %% @doc Create or replicate topics table.
--spec(mnesia(boot | copy) -> ok).
+-spec mnesia(boot | copy) -> ok.
 mnesia(boot) ->
     %% Optimize storage
-    StoreProps = [{ets, [{read_concurrency, true},
-                         {write_concurrency, true}
-                        ]}],
+    StoreProps = [
+        {ets, [
+            {read_concurrency, true},
+            {write_concurrency, true}
+        ]}
+    ],
     ok = mria:create_table(?TRIE, [
-                {rlog_shard, ?ROUTE_SHARD},
-                {record_name, ?TRIE},
-                {attributes, record_info(fields, ?TRIE)},
-                {type, ordered_set},
-                {storage_properties, StoreProps}]).
+        {rlog_shard, ?ROUTE_SHARD},
+        {record_name, ?TRIE},
+        {attributes, record_info(fields, ?TRIE)},
+        {type, ordered_set},
+        {storage_properties, StoreProps}
+    ]).
 
 create_session_trie(disc) ->
-    StoreProps = [{ets, [{read_concurrency, true},
-                         {write_concurrency, true}
-                        ]}],
-    ok = mria:create_table(?SESSION_DISC_TRIE,
-                           [{rlog_shard, ?ROUTE_SHARD},
-                            {storage, disc_copies},
-                            {record_name, ?TRIE},
-                            {attributes, record_info(fields, ?TRIE)},
-                            {type, ordered_set},
-                            {storage_properties, StoreProps}]);
+    StoreProps = [
+        {ets, [
+            {read_concurrency, true},
+            {write_concurrency, true}
+        ]}
+    ],
+    ok = mria:create_table(
+        ?SESSION_DISC_TRIE,
+        [
+            {rlog_shard, ?ROUTE_SHARD},
+            {storage, disc_copies},
+            {record_name, ?TRIE},
+            {attributes, record_info(fields, ?TRIE)},
+            {type, ordered_set},
+            {storage_properties, StoreProps}
+        ]
+    );
 create_session_trie(ram) ->
-    StoreProps = [{ets, [{read_concurrency, true},
-                         {write_concurrency, true}
-                        ]}],
-    ok = mria:create_table(?SESSION_RAM_TRIE,
-                           [{rlog_shard, ?ROUTE_SHARD},
-                            {storage, ram_copies},
-                            {record_name, ?TRIE},
-                            {attributes, record_info(fields, ?TRIE)},
-                            {type, ordered_set},
-                            {storage_properties, StoreProps}]).
+    StoreProps = [
+        {ets, [
+            {read_concurrency, true},
+            {write_concurrency, true}
+        ]}
+    ],
+    ok = mria:create_table(
+        ?SESSION_RAM_TRIE,
+        [
+            {rlog_shard, ?ROUTE_SHARD},
+            {storage, ram_copies},
+            {record_name, ?TRIE},
+            {attributes, record_info(fields, ?TRIE)},
+            {type, ordered_set},
+            {storage_properties, StoreProps}
+        ]
+    ).
 
 %%--------------------------------------------------------------------
 %% Topics APIs
 %%--------------------------------------------------------------------
 
 %% @doc Insert a topic filter into the trie.
--spec(insert(emqx_types:topic()) -> ok).
+-spec insert(emqx_types:topic()) -> ok.
 insert(Topic) when is_binary(Topic) ->
     insert(Topic, ?TRIE).
 
--spec(insert_session(emqx_topic:topic()) -> ok).
+-spec insert_session(emqx_topic:topic()) -> ok.
 insert_session(Topic) when is_binary(Topic) ->
     insert(Topic, session_trie()).
 
 insert(Topic, Trie) when is_binary(Topic) ->
     {TopicKey, PrefixKeys} = make_keys(Topic),
     case mnesia:wread({Trie, TopicKey}) of
-        [_] -> ok; %% already inserted
+        %% already inserted
+        [_] -> ok;
         [] -> lists:foreach(fun(Key) -> insert_key(Key, Trie) end, [TopicKey | PrefixKeys])
     end.
 
 %% @doc Delete a topic filter from the trie.
--spec(delete(emqx_types:topic()) -> ok).
+-spec delete(emqx_types:topic()) -> ok.
 delete(Topic) when is_binary(Topic) ->
     delete(Topic, ?TRIE).
 
 %% @doc Delete a topic filter from the trie.
--spec(delete_session(emqx_topic:topic()) -> ok).
+-spec delete_session(emqx_topic:topic()) -> ok.
 delete_session(Topic) when is_binary(Topic) ->
     delete(Topic, session_trie()).
 
@@ -136,11 +158,11 @@ delete(Topic, Trie) when is_binary(Topic) ->
     end.
 
 %% @doc Find trie nodes that matches the topic name.
--spec(match(emqx_types:topic()) -> list(emqx_types:topic())).
+-spec match(emqx_types:topic()) -> list(emqx_types:topic()).
 match(Topic) when is_binary(Topic) ->
     match(Topic, ?TRIE).
 
--spec(match_session(emqx_topic:topic()) -> list(emqx_topic:topic())).
+-spec match_session(emqx_topic:topic()) -> list(emqx_topic:topic()).
 match_session(Topic) when is_binary(Topic) ->
     match(Topic, session_trie()).
 
@@ -161,7 +183,7 @@ match(Topic, Trie) when is_binary(Topic) ->
     end.
 
 %% @doc Is the trie empty?
--spec(empty() -> boolean()).
+-spec empty() -> boolean().
 empty() -> empty(?TRIE).
 
 empty_session() ->
@@ -184,9 +206,8 @@ lock_session_tables() ->
 session_trie() ->
     case emqx_persistent_session:storage_type() of
         disc -> ?SESSION_DISC_TRIE;
-        ram  -> ?SESSION_RAM_TRIE
+        ram -> ?SESSION_RAM_TRIE
     end.
-
 
 make_keys(Topic) ->
     Words = emqx_topic:words(Topic),
@@ -207,8 +228,10 @@ compact(Words) ->
 do_compact(Words) ->
     do_compact(Words, empty, []).
 
-do_compact([], empty, Acc) -> lists:reverse(Acc);
-do_compact([], Seg, Acc) -> lists:reverse([Seg | Acc]);
+do_compact([], empty, Acc) ->
+    lists:reverse(Acc);
+do_compact([], Seg, Acc) ->
+    lists:reverse([Seg | Acc]);
 do_compact([Word | Words], Seg, Acc) when Word =:= '+' orelse Word =:= '#' ->
     do_compact(Words, empty, [join(Seg, Word) | Acc]);
 do_compact([Word | Words], Seg, Acc) ->
@@ -221,8 +244,10 @@ join(empty, Word) -> Word;
 join(Prefix, Word) -> emqx_topic:join([Prefix, Word]).
 
 make_prefixes(Words) ->
-    lists:map(fun emqx_topic:join/1,
-              make_prefixes(compact(Words), [], [])).
+    lists:map(
+        fun emqx_topic:join/1,
+        make_prefixes(compact(Words), [], [])
+    ).
 
 make_prefixes([_LastWord], _Prefix, Acc) ->
     lists:map(fun lists:reverse/1, Acc);
@@ -232,12 +257,13 @@ make_prefixes([H | T], Prefix0, Acc0) ->
     make_prefixes(T, Prefix, Acc).
 
 insert_key(Key, Trie) ->
-    T = case mnesia:wread({Trie, Key}) of
+    T =
+        case mnesia:wread({Trie, Key}) of
             [#?TRIE{count = C} = T1] ->
                 T1#?TRIE{count = C + 1};
-             [] ->
+            [] ->
                 #?TRIE{key = Key, count = 1}
-         end,
+        end,
     ok = mnesia:write(Trie, T, write).
 
 delete_key(Key, Trie) ->
@@ -252,7 +278,7 @@ delete_key(Key, Trie) ->
 
 %% micro-optimization: no need to lookup when topic is not wildcard
 %% because we only insert wildcards to emqx_trie
-lookup_topic(_Topic,_Trie, false) -> [];
+lookup_topic(_Topic, _Trie, false) -> [];
 lookup_topic(Topic, Trie, true) -> lookup_topic(Topic, Trie).
 
 lookup_topic(Topic, Trie) when is_binary(Topic) ->
@@ -261,7 +287,9 @@ lookup_topic(Topic, Trie) when is_binary(Topic) ->
         [] -> []
     end.
 
-has_prefix(empty, _Trie) -> true; %% this is the virtual tree root
+%% this is the virtual tree root
+has_prefix(empty, _Trie) ->
+    true;
 has_prefix(Prefix, Trie) ->
     case ets:lookup(Trie, ?PREFIX(Prefix)) of
         [#?TRIE{count = C}] -> C > 0;
@@ -286,9 +314,11 @@ do_match(Words, Prefix, Trie) ->
     end.
 
 match_no_compact([], Topic, Trie, IsWildcard, Acc) ->
-    'match_#'(Topic, Trie) ++ %% try match foo/+/# or foo/bar/#
-    lookup_topic(Topic, Trie, IsWildcard) ++ %% e.g. foo/+
-    Acc;
+    %% try match foo/+/# or foo/bar/#
+    'match_#'(Topic, Trie) ++
+        %% e.g. foo/+
+        lookup_topic(Topic, Trie, IsWildcard) ++
+        Acc;
 match_no_compact([Word | Words], Prefix, Trie, IsWildcard, Acc0) ->
     case has_prefix(Prefix, Trie) of
         true ->
@@ -312,9 +342,11 @@ match_no_compact([Word | Words], Prefix, Trie, IsWildcard, Acc0) ->
     end.
 
 match_compact([], Topic, Trie, IsWildcard, Acc) ->
-    'match_#'(Topic, Trie) ++ %% try match foo/bar/#
-    lookup_topic(Topic, Trie, IsWildcard) ++ %% try match foo/bar
-    Acc;
+    %% try match foo/bar/#
+    'match_#'(Topic, Trie) ++
+        %% try match foo/bar
+        lookup_topic(Topic, Trie, IsWildcard) ++
+        Acc;
 match_compact([Word | Words], Prefix, Trie, IsWildcard, Acc0) ->
     Acc1 = 'match_#'(Prefix, Trie) ++ Acc0,
     Acc = match_compact(Words, join(Prefix, Word), Trie, IsWildcard, Acc1),
@@ -342,22 +374,21 @@ set_compact(Bool) ->
 -include_lib("eunit/include/eunit.hrl").
 
 make_keys_test_() ->
-    [{"no compact", fun() -> with_compact_flag(false, fun make_keys_no_compact/0) end},
-     {"compact", fun() -> with_compact_flag(true, fun make_keys_compact/0) end}
+    [
+        {"no compact", fun() -> with_compact_flag(false, fun make_keys_no_compact/0) end},
+        {"compact", fun() -> with_compact_flag(true, fun make_keys_compact/0) end}
     ].
 
 make_keys_no_compact() ->
     ?assertEqual({?TOPIC(<<"#">>), []}, make_keys(<<"#">>)),
-    ?assertEqual({?TOPIC(<<"a/+">>),
-                  [?PREFIX(<<"a">>)]}, make_keys(<<"a/+">>)),
+    ?assertEqual({?TOPIC(<<"a/+">>), [?PREFIX(<<"a">>)]}, make_keys(<<"a/+">>)),
     ?assertEqual({?TOPIC(<<"+">>), []}, make_keys(<<"+">>)).
 
 make_keys_compact() ->
     ?assertEqual({?TOPIC(<<"#">>), []}, make_keys(<<"#">>)),
     ?assertEqual({?TOPIC(<<"a/+">>), []}, make_keys(<<"a/+">>)),
     ?assertEqual({?TOPIC(<<"+">>), []}, make_keys(<<"+">>)),
-    ?assertEqual({?TOPIC(<<"a/+/c">>),
-                  [?PREFIX(<<"a/+">>)]}, make_keys(<<"a/+/c">>)).
+    ?assertEqual({?TOPIC(<<"a/+/c">>), [?PREFIX(<<"a/+">>)]}, make_keys(<<"a/+/c">>)).
 
 words(T) -> emqx_topic:words(T).
 
@@ -366,19 +397,24 @@ make_prefixes_t(Topic) -> make_prefixes(words(Topic)).
 with_compact_flag(IsCompact, F) ->
     OldV = is_compact(),
     set_compact(IsCompact),
-    try F()
-    after set_compact(OldV)
+    try
+        F()
+    after
+        set_compact(OldV)
     end.
 
 make_prefixes_test_() ->
-    [{"no compact", fun() -> with_compact_flag(false, fun make_prefixes_no_compact/0) end},
-     {"compact", fun() -> with_compact_flag(true, fun make_prefixes_compact/0) end}
+    [
+        {"no compact", fun() -> with_compact_flag(false, fun make_prefixes_no_compact/0) end},
+        {"compact", fun() -> with_compact_flag(true, fun make_prefixes_compact/0) end}
     ].
 
 make_prefixes_no_compact() ->
     ?assertEqual([<<"a/b">>, <<"a">>], make_prefixes_t(<<"a/b/+">>)),
-    ?assertEqual([<<"a/b/+/c">>, <<"a/b/+">>, <<"a/b">>, <<"a">>],
-                 make_prefixes_t(<<"a/b/+/c/#">>)).
+    ?assertEqual(
+        [<<"a/b/+/c">>, <<"a/b/+">>, <<"a/b">>, <<"a">>],
+        make_prefixes_t(<<"a/b/+/c/#">>)
+    ).
 
 make_prefixes_compact() ->
     ?assertEqual([], make_prefixes_t(<<"a/b/+">>)),
@@ -389,10 +425,13 @@ do_compact_test() ->
     ?assertEqual([<<"/#">>], do_compact(words(<<"/#">>))),
     ?assertEqual([<<"a/b/+">>, <<"c">>], do_compact(words(<<"a/b/+/c">>))),
     ?assertEqual([<<"a/+">>, <<"+">>, <<"b">>], do_compact(words(<<"a/+/+/b">>))),
-    ?assertEqual([<<"a/+">>, <<"+">>, <<"+">>, <<"+">>, <<"b">>],
-                 do_compact(words(<<"a/+/+/+/+/b">>))),
+    ?assertEqual(
+        [<<"a/+">>, <<"+">>, <<"+">>, <<"+">>, <<"b">>],
+        do_compact(words(<<"a/+/+/+/+/b">>))
+    ),
     ok.
 
 clear_tables() -> mria:clear_table(?TRIE).
 
--endif. % TEST
+% TEST
+-endif.

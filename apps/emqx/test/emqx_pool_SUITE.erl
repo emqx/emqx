@@ -22,20 +22,22 @@
 -include_lib("eunit/include/eunit.hrl").
 
 all() ->
-    [{group, submit},
-     {group, async_submit},
-     t_unexpected
+    [
+        {group, submit},
+        {group, async_submit},
+        t_unexpected
     ].
 
 groups() ->
-    [{submit, [sequence],
-      [t_submit_mfa,
-       t_submit_fa
-      ]},
-     {async_submit, [sequence],
-      [t_async_submit_mfa,
-       t_async_submit_crash
-      ]}
+    [
+        {submit, [sequence], [
+            t_submit_mfa,
+            t_submit_fa
+        ]},
+        {async_submit, [sequence], [
+            t_async_submit_mfa,
+            t_async_submit_crash
+        ]}
     ].
 
 init_per_suite(Config) ->
@@ -48,7 +50,7 @@ end_per_suite(_Config) ->
 
 init_per_testcase(_, Config) ->
     {ok, Sup} = emqx_pool_sup:start_link(),
-    [{pool_sup, Sup}|Config].
+    [{pool_sup, Sup} | Config].
 
 end_per_testcase(_, Config) ->
     Sup = proplists:get_value(pool_sup, Config),
@@ -61,11 +63,11 @@ t_submit_mfa(_Config) ->
 
 t_submit_fa(_Config) ->
     Fun = fun(X) ->
-              case X rem 2 of
-                  0 -> {true, X div 2};
-                  _ -> false
-              end
-          end,
+        case X rem 2 of
+            0 -> {true, X div 2};
+            _ -> false
+        end
+    end,
     Result = emqx_pool:submit(Fun, [2]),
     ?assertEqual({true, 1}, Result).
 
@@ -84,7 +86,7 @@ t_unexpected(_) ->
     ok = gen_server:stop(Pid).
 
 test_mfa() ->
-    lists:foldl(fun(X, Sum) -> X + Sum end, 0, [1,2,3,4,5]).
+    lists:foldl(fun(X, Sum) -> X + Sum end, 0, [1, 2, 3, 4, 5]).
 
 % t_async_submit(_) ->
 %     error('TODO').

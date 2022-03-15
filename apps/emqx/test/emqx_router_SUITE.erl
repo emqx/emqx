@@ -83,11 +83,15 @@ t_match_routes(_) ->
     ?R:add_route(<<"a/+/c">>, node()),
     ?R:add_route(<<"a/b/#">>, node()),
     ?R:add_route(<<"#">>, node()),
-    ?assertEqual([#route{topic = <<"#">>, dest = node()},
-                  #route{topic = <<"a/+/c">>, dest = node()},
-                  #route{topic = <<"a/b/#">>, dest = node()},
-                  #route{topic = <<"a/b/c">>, dest = node()}],
-                 lists:sort(?R:match_routes(<<"a/b/c">>))),
+    ?assertEqual(
+        [
+            #route{topic = <<"#">>, dest = node()},
+            #route{topic = <<"a/+/c">>, dest = node()},
+            #route{topic = <<"a/b/#">>, dest = node()},
+            #route{topic = <<"a/b/c">>, dest = node()}
+        ],
+        lists:sort(?R:match_routes(<<"a/b/c">>))
+    ),
     ?R:delete_route(<<"a/b/c">>, node()),
     ?R:delete_route(<<"a/+/c">>, node()),
     ?R:delete_route(<<"a/b/#">>, node()),
@@ -111,5 +115,7 @@ t_unexpected(_) ->
     Router ! bad_info.
 
 clear_tables() ->
-    lists:foreach(fun mnesia:clear_table/1,
-                  [emqx_route, emqx_trie, emqx_trie_node]).
+    lists:foreach(
+        fun mnesia:clear_table/1,
+        [emqx_route, emqx_trie, emqx_trie_node]
+    ).

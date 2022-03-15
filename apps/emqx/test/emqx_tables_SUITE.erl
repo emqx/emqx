@@ -42,4 +42,3 @@ t_delete(_) ->
     ok = emqx_tables:delete(?TAB),
     ok = emqx_tables:delete(?TAB),
     ?assertEqual(undefined, ets:info(?TAB, name)).
-

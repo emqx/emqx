@@ -23,8 +23,9 @@
 -include_lib("eunit/include/eunit.hrl").
 
 all() ->
-    [{group, compact},
-     {group, not_compact}
+    [
+        {group, compact},
+        {group, not_compact}
     ].
 
 groups() ->
@@ -60,39 +61,38 @@ end_per_testcase(_TestCase, _Config) ->
 
 t_insert(_) ->
     Fun = fun() ->
-              ?TRIE:insert(<<"sensor/1/metric/2">>),
-              ?TRIE:insert(<<"sensor/+/#">>),
-              ?TRIE:insert(<<"sensor/#">>)
-          end,
+        ?TRIE:insert(<<"sensor/1/metric/2">>),
+        ?TRIE:insert(<<"sensor/+/#">>),
+        ?TRIE:insert(<<"sensor/#">>)
+    end,
     ?assertEqual({atomic, ok}, trans(Fun)),
     ?assertEqual([<<"sensor/#">>], ?TRIE:match(<<"sensor">>)).
 
 t_match(_) ->
     Machted = [<<"sensor/#">>, <<"sensor/+/#">>],
     trans(fun() ->
-              ?TRIE:insert(<<"sensor/1/metric/2">>),
-              ?TRIE:insert(<<"sensor/+/#">>),
-              ?TRIE:insert(<<"sensor/#">>)
-            end),
+        ?TRIE:insert(<<"sensor/1/metric/2">>),
+        ?TRIE:insert(<<"sensor/+/#">>),
+        ?TRIE:insert(<<"sensor/#">>)
+    end),
     ?assertEqual(Machted, lists:sort(?TRIE:match(<<"sensor/1">>))).
 
 t_match_invalid(_) ->
     trans(fun() ->
-              ?TRIE:insert(<<"sensor/1/metric/2">>),
-              ?TRIE:insert(<<"sensor/+/#">>),
-              ?TRIE:insert(<<"sensor/#">>)
-            end),
+        ?TRIE:insert(<<"sensor/1/metric/2">>),
+        ?TRIE:insert(<<"sensor/+/#">>),
+        ?TRIE:insert(<<"sensor/#">>)
+    end),
     ?assertEqual([], lists:sort(?TRIE:match(<<"sensor/+">>))),
     ?assertEqual([], lists:sort(?TRIE:match(<<"#">>))).
-
 
 t_match2(_) ->
     Matched = [<<"#">>, <<"+/#">>, <<"+/+/#">>],
     trans(fun() ->
-              ?TRIE:insert(<<"#">>),
-              ?TRIE:insert(<<"+/#">>),
-              ?TRIE:insert(<<"+/+/#">>)
-          end),
+        ?TRIE:insert(<<"#">>),
+        ?TRIE:insert(<<"+/#">>),
+        ?TRIE:insert(<<"+/+/#">>)
+    end),
     ?assertEqual(Matched, lists:sort(?TRIE:match(<<"a/b/c">>))),
     ?assertEqual([], ?TRIE:match(<<"$SYS/broker/zenmq">>)).
 
@@ -117,8 +117,10 @@ t_match5(_) ->
     Topics = [<<"#">>, <<T/binary, "/#">>, <<T/binary, "/+">>],
     trans(fun() -> lists:foreach(fun emqx_trie:insert/1, Topics) end),
     ?assertEqual([<<"#">>, <<T/binary, "/#">>], lists:sort(emqx_trie:match(T))),
-    ?assertEqual([<<"#">>, <<T/binary, "/#">>, <<T/binary, "/+">>],
-                 lists:sort(emqx_trie:match(<<T/binary, "/1">>))).
+    ?assertEqual(
+        [<<"#">>, <<T/binary, "/#">>, <<T/binary, "/+">>],
+        lists:sort(emqx_trie:match(<<T/binary, "/1">>))
+    ).
 
 t_match6(_) ->
     T = <<"a/b/c/d/e/f/g/h/i/j/k/l/m/n/o/p/q/r/s/t/u/v/w/x/y/z">>,
@@ -141,45 +143,45 @@ t_empty(_) ->
 
 t_delete(_) ->
     trans(fun() ->
-              ?TRIE:insert(<<"sensor/1/#">>),
-              ?TRIE:insert(<<"sensor/1/metric/2">>),
-              ?TRIE:insert(<<"sensor/1/metric/3">>)
-          end),
+        ?TRIE:insert(<<"sensor/1/#">>),
+        ?TRIE:insert(<<"sensor/1/metric/2">>),
+        ?TRIE:insert(<<"sensor/1/metric/3">>)
+    end),
     trans(fun() ->
-              ?TRIE:delete(<<"sensor/1/metric/2">>),
-              ?TRIE:delete(<<"sensor/1/metric">>),
-              ?TRIE:delete(<<"sensor/1/metric">>)
-          end),
+        ?TRIE:delete(<<"sensor/1/metric/2">>),
+        ?TRIE:delete(<<"sensor/1/metric">>),
+        ?TRIE:delete(<<"sensor/1/metric">>)
+    end),
     ?assertEqual([<<"sensor/1/#">>], ?TRIE:match(<<"sensor/1/x">>)).
 
 t_delete2(_) ->
     trans(fun() ->
-              ?TRIE:insert(<<"sensor">>),
-              ?TRIE:insert(<<"sensor/1/metric/2">>),
-              ?TRIE:insert(<<"sensor/+/metric/3">>)
-          end),
+        ?TRIE:insert(<<"sensor">>),
+        ?TRIE:insert(<<"sensor/1/metric/2">>),
+        ?TRIE:insert(<<"sensor/+/metric/3">>)
+    end),
     trans(fun() ->
-              ?TRIE:delete(<<"sensor">>),
-              ?TRIE:delete(<<"sensor/1/metric/2">>),
-              ?TRIE:delete(<<"sensor/+/metric/3">>),
-              ?TRIE:delete(<<"sensor/+/metric/3">>)
-          end),
+        ?TRIE:delete(<<"sensor">>),
+        ?TRIE:delete(<<"sensor/1/metric/2">>),
+        ?TRIE:delete(<<"sensor/+/metric/3">>),
+        ?TRIE:delete(<<"sensor/+/metric/3">>)
+    end),
     ?assertEqual([], ?TRIE:match(<<"sensor">>)),
     ?assertEqual([], ?TRIE:match(<<"sensor/1">>)).
 
 t_delete3(_) ->
     trans(fun() ->
-              ?TRIE:insert(<<"sensor/+">>),
-              ?TRIE:insert(<<"sensor/+/metric/2">>),
-              ?TRIE:insert(<<"sensor/+/metric/3">>)
-          end),
+        ?TRIE:insert(<<"sensor/+">>),
+        ?TRIE:insert(<<"sensor/+/metric/2">>),
+        ?TRIE:insert(<<"sensor/+/metric/3">>)
+    end),
     trans(fun() ->
-              ?TRIE:delete(<<"sensor/+/metric/2">>),
-              ?TRIE:delete(<<"sensor/+/metric/3">>),
-              ?TRIE:delete(<<"sensor">>),
-              ?TRIE:delete(<<"sensor/+">>),
-              ?TRIE:delete(<<"sensor/+/unknown">>)
-          end),
+        ?TRIE:delete(<<"sensor/+/metric/2">>),
+        ?TRIE:delete(<<"sensor/+/metric/3">>),
+        ?TRIE:delete(<<"sensor">>),
+        ?TRIE:delete(<<"sensor/+">>),
+        ?TRIE:delete(<<"sensor/+/unknown">>)
+    end),
     ?assertEqual([], ?TRIE:match(<<"sensor">>)),
     ?assertEqual([], ?TRIE:lookup_topic(<<"sensor/+">>, ?TRIE)).
 

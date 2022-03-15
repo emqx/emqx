@@ -25,55 +25,54 @@
 -include_lib("eunit/include/eunit.hrl").
 -include_lib("common_test/include/ct.hrl").
 
--define(TOPICS, [<<"TopicA">>,
-                 <<"TopicA/B">>,
-                 <<"Topic/C">>,
-                 <<"TopicA/C">>,
-                 <<"/TopicA">>
-                ]).
+-define(TOPICS, [
+    <<"TopicA">>,
+    <<"TopicA/B">>,
+    <<"Topic/C">>,
+    <<"TopicA/C">>,
+    <<"/TopicA">>
+]).
 
--define(WILD_TOPICS, [<<"TopicA/+">>,
-                      <<"+/C">>,
-                      <<"#">>,
-                      <<"/#">>,
-                      <<"/+">>,
-                      <<"+/+">>,
-                      <<"TopicA/#">>
-                     ]).
-
+-define(WILD_TOPICS, [
+    <<"TopicA/+">>,
+    <<"+/C">>,
+    <<"#">>,
+    <<"/#">>,
+    <<"/+">>,
+    <<"+/+">>,
+    <<"TopicA/#">>
+]).
 
 all() ->
-    [{group, mqttv3},
-     {group, mqttv4},
-     {group, mqttv5},
-     {group, others}
+    [
+        {group, mqttv3},
+        {group, mqttv4},
+        {group, mqttv5},
+        {group, others}
     ].
 
 groups() ->
-    [{mqttv3, [non_parallel_tests],
-      [t_basic_v3
-      ]},
-     {mqttv4, [non_parallel_tests],
-      [t_basic_v4,
-       t_cm,
-       t_cm_registry,
-       %% t_will_message,
-       %% t_offline_message_queueing,
-       t_overlapping_subscriptions,
-       %% t_keepalive,
-       %% t_redelivery_on_reconnect,
-       %% subscribe_failure_test,
-       t_dollar_topics
-      ]},
-     {mqttv5, [non_parallel_tests],
-      [t_basic_with_props_v5
-      ]},
-     {others, [non_parallel_tests],
-      [t_username_as_clientid,
-       t_certcn_as_clientid_default_config_tls,
-       t_certcn_as_clientid_tlsv1_3,
-       t_certcn_as_clientid_tlsv1_2
-      ]}
+    [
+        {mqttv3, [non_parallel_tests], [t_basic_v3]},
+        {mqttv4, [non_parallel_tests], [
+            t_basic_v4,
+            t_cm,
+            t_cm_registry,
+            %% t_will_message,
+            %% t_offline_message_queueing,
+            t_overlapping_subscriptions,
+            %% t_keepalive,
+            %% t_redelivery_on_reconnect,
+            %% subscribe_failure_test,
+            t_dollar_topics
+        ]},
+        {mqttv5, [non_parallel_tests], [t_basic_with_props_v5]},
+        {others, [non_parallel_tests], [
+            t_username_as_clientid,
+            t_certcn_as_clientid_default_config_tls,
+            t_certcn_as_clientid_tlsv1_3,
+            t_certcn_as_clientid_tlsv1_2
+        ]}
     ].
 
 init_per_suite(Config) ->
@@ -121,10 +120,12 @@ t_cm_registry(_) ->
     Pid ! <<"Unexpected info">>.
 
 t_will_message(_Config) ->
-    {ok, C1} = emqtt:start_link([{clean_start, true},
-                                       {will_topic, nth(3, ?TOPICS)},
-                                       {will_payload, <<"client disconnected">>},
-                                       {keepalive, 1}]),
+    {ok, C1} = emqtt:start_link([
+        {clean_start, true},
+        {will_topic, nth(3, ?TOPICS)},
+        {will_payload, <<"client disconnected">>},
+        {keepalive, 1}
+    ]),
     {ok, _} = emqtt:connect(C1),
 
     {ok, C2} = emqtt:start_link(),
@@ -139,14 +140,18 @@ t_will_message(_Config) ->
     ct:pal("Will message test succeeded").
 
 t_offline_message_queueing(_) ->
-    {ok, C1} = emqtt:start_link([{clean_start, false},
-                                       {clientid, <<"c1">>}]),
+    {ok, C1} = emqtt:start_link([
+        {clean_start, false},
+        {clientid, <<"c1">>}
+    ]),
     {ok, _} = emqtt:connect(C1),
 
     {ok, _, [2]} = emqtt:subscribe(C1, nth(6, ?WILD_TOPICS), 2),
     ok = emqtt:disconnect(C1),
-    {ok, C2} = emqtt:start_link([{clean_start, true},
-                                       {clientid, <<"c2">>}]),
+    {ok, C2} = emqtt:start_link([
+        {clean_start, true},
+        {clientid, <<"c2">>}
+    ]),
     {ok, _} = emqtt:connect(C2),
 
     ok = emqtt:publish(C2, nth(2, ?TOPICS), <<"qos 0">>, 0),
@@ -165,8 +170,10 @@ t_overlapping_subscriptions(_) ->
     {ok, C} = emqtt:start_link([]),
     {ok, _} = emqtt:connect(C),
 
-    {ok, _, [2, 1]} = emqtt:subscribe(C, [{nth(7, ?WILD_TOPICS), 2},
-                                                {nth(1, ?WILD_TOPICS), 1}]),
+    {ok, _, [2, 1]} = emqtt:subscribe(C, [
+        {nth(7, ?WILD_TOPICS), 2},
+        {nth(1, ?WILD_TOPICS), 1}
+    ]),
     timer:sleep(10),
     {ok, _} = emqtt:publish(C, nth(4, ?TOPICS), <<"overlapping topic filters">>, 2),
     timer:sleep(10),
@@ -175,12 +182,17 @@ t_overlapping_subscriptions(_) ->
     ?assert(lists:member(Num, [1, 2])),
     if
         Num == 1 ->
-            ct:pal("This server is publishing one message for all
-                   matching overlapping subscriptions, not one for each.");
+            ct:pal(
+                "This server is publishing one message for all\n"
+                "                   matching overlapping subscriptions, not one for each."
+            );
         Num == 2 ->
-            ct:pal("This server is publishing one message per each
-                    matching overlapping subscription.");
-        true -> ok
+            ct:pal(
+                "This server is publishing one message per each\n"
+                "                    matching overlapping subscription."
+            );
+        true ->
+            ok
     end,
     emqtt:disconnect(C).
 
@@ -208,10 +220,18 @@ t_redelivery_on_reconnect(_) ->
     {ok, _, [2]} = emqtt:subscribe(C1, nth(7, ?WILD_TOPICS), 2),
     timer:sleep(10),
     ok = emqtt:pause(C1),
-    {ok, _} = emqtt:publish(C1, nth(2, ?TOPICS), <<>>,
-                                  [{qos, 1}, {retain, false}]),
-    {ok, _} = emqtt:publish(C1, nth(4, ?TOPICS), <<>>,
-                                  [{qos, 2}, {retain, false}]),
+    {ok, _} = emqtt:publish(
+        C1,
+        nth(2, ?TOPICS),
+        <<>>,
+        [{qos, 1}, {retain, false}]
+    ),
+    {ok, _} = emqtt:publish(
+        C1,
+        nth(4, ?TOPICS),
+        <<>>,
+        [{qos, 2}, {retain, false}]
+    ),
     timer:sleep(10),
     ok = emqtt:disconnect(C1),
     ?assertEqual(0, length(recv_msgs(2))),
@@ -231,13 +251,19 @@ t_redelivery_on_reconnect(_) ->
 
 t_dollar_topics(_) ->
     ct:pal("$ topics test starting"),
-    {ok, C} = emqtt:start_link([{clean_start, true},
-                                      {keepalive, 0}]),
+    {ok, C} = emqtt:start_link([
+        {clean_start, true},
+        {keepalive, 0}
+    ]),
     {ok, _} = emqtt:connect(C),
 
     {ok, _, [1]} = emqtt:subscribe(C, nth(6, ?WILD_TOPICS), 1),
-    {ok, _} = emqtt:publish(C, << <<"$">>/binary, (nth(2, ?TOPICS))/binary>>,
-                                  <<"test">>, [{qos, 1}, {retain, false}]),
+    {ok, _} = emqtt:publish(
+        C,
+        <<<<"$">>/binary, (nth(2, ?TOPICS))/binary>>,
+        <<"test">>,
+        [{qos, 1}, {retain, false}]
+    ),
     timer:sleep(10),
     ?assertEqual(0, length(recv_msgs(1))),
     ok = emqtt:disconnect(C),
@@ -248,9 +274,10 @@ t_dollar_topics(_) ->
 %%--------------------------------------------------------------------
 
 t_basic_with_props_v5(_) ->
-    t_basic([{proto_ver, v5},
-             {properties, #{'Receive-Maximum' => 4}}
-            ]).
+    t_basic([
+        {proto_ver, v5},
+        {properties, #{'Receive-Maximum' => 4}}
+    ]).
 
 %%--------------------------------------------------------------------
 %% General test cases.
@@ -285,8 +312,6 @@ t_certcn_as_clientid_tlsv1_3(_) ->
 t_certcn_as_clientid_tlsv1_2(_) ->
     tls_certcn_as_clientid('tlsv1.2').
 
-
-
 %%--------------------------------------------------------------------
 %% Helper functions
 %%--------------------------------------------------------------------
@@ -299,22 +324,22 @@ recv_msgs(0, Msgs) ->
 recv_msgs(Count, Msgs) ->
     receive
         {publish, Msg} ->
-            recv_msgs(Count-1, [Msg|Msgs]);
-        _Other -> recv_msgs(Count, Msgs) %%TODO:: remove the branch?
+            recv_msgs(Count - 1, [Msg | Msgs]);
+        %%TODO:: remove the branch?
+        _Other ->
+            recv_msgs(Count, Msgs)
     after 100 ->
         Msgs
     end.
 
-
-confirm_tls_version( Client, RequiredProtocol ) ->
+confirm_tls_version(Client, RequiredProtocol) ->
     Info = emqtt:info(Client),
-    SocketInfo = proplists:get_value( socket, Info ),
+    SocketInfo = proplists:get_value(socket, Info),
     %% emqtt_sock has #ssl_socket.ssl
-    SSLSocket = element( 3, SocketInfo ),
-    { ok, SSLInfo } = ssl:connection_information(SSLSocket),
-    Protocol = proplists:get_value( protocol, SSLInfo ),
+    SSLSocket = element(3, SocketInfo),
+    {ok, SSLInfo} = ssl:connection_information(SSLSocket),
+    Protocol = proplists:get_value(protocol, SSLInfo),
     RequiredProtocol = Protocol.
-
 
 tls_certcn_as_clientid(default = TLSVsn) ->
     tls_certcn_as_clientid(TLSVsn, 'tlsv1.3');
@@ -328,5 +353,5 @@ tls_certcn_as_clientid(TLSVsn, RequiredTLSVsn) ->
     {ok, Client} = emqtt:start_link([{port, 8883}, {ssl, true}, {ssl_opts, SslConf}]),
     {ok, _} = emqtt:connect(Client),
     #{clientinfo := #{clientid := CN}} = emqx_cm:get_chan_info(CN),
-    confirm_tls_version( Client, RequiredTLSVsn ),
+    confirm_tls_version(Client, RequiredTLSVsn),
     emqtt:disconnect(Client).

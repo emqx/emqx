@@ -22,42 +22,46 @@
 -include("types.hrl").
 -include_lib("stdlib/include/ms_transform.hrl").
 
-
--export([ start_link/0
-        , stop/0
-        ]).
+-export([
+    start_link/0,
+    stop/0
+]).
 
 %% Hooks API
--export([ add/2
-        , add/3
-        , add/4
-        , put/2
-        , put/3
-        , put/4
-        , del/2
-        , run/2
-        , run_fold/3
-        , lookup/1
-        ]).
+-export([
+    add/2,
+    add/3,
+    add/4,
+    put/2,
+    put/3,
+    put/4,
+    del/2,
+    run/2,
+    run_fold/3,
+    lookup/1
+]).
 
--export([ callback_action/1
-        , callback_filter/1
-        , callback_priority/1
-        ]).
+-export([
+    callback_action/1,
+    callback_filter/1,
+    callback_priority/1
+]).
 
 %% gen_server Function Exports
--export([ init/1
-        , handle_call/3
-        , handle_cast/2
-        , handle_info/2
-        , terminate/2
-        , code_change/3
-        ]).
+-export([
+    init/1,
+    handle_call/3,
+    handle_cast/2,
+    handle_info/2,
+    terminate/2,
+    code_change/3
+]).
 
--export_type([ hookpoint/0
-             , action/0
-             , filter/0
-             ]).
+-export_type([
+    hookpoint/0,
+    action/0,
+    filter/0
+]).
 
 %% Multiple callbacks can be registered on a hookpoint.
 %% The execution order depends on the priority value:
@@ -67,32 +71,36 @@
 %%   - The execution order is the adding order of callbacks if they have
 %%     equal priority values.
 
--type(hookpoint() :: atom() | binary()).
--type(action() :: {module(), atom(), [term()] | undefined}).
--type(filter() :: {module(), atom(), [term()] | undefined}).
+-type hookpoint() :: atom() | binary().
+-type action() :: {module(), atom(), [term()] | undefined}.
+-type filter() :: {module(), atom(), [term()] | undefined}.
 
 -record(callback, {
-          action :: action(),
-          filter :: maybe(filter()),
-          priority :: integer()
-         }).
+    action :: action(),
+    filter :: maybe(filter()),
+    priority :: integer()
+}).
 
--type(callback() :: #callback{}).
+-type callback() :: #callback{}.
 
 -record(hook, {
-          name :: hookpoint(),
-          callbacks :: list(#callback{})
-         }).
+    name :: hookpoint(),
+    callbacks :: list(#callback{})
+}).
 
 -define(TAB, ?MODULE).
 -define(SERVER, ?MODULE).
 
--spec(start_link() -> startlink_ret()).
+-spec start_link() -> startlink_ret().
 start_link() ->
-    gen_server:start_link({local, ?SERVER},
-                          ?MODULE, [], [{hibernate_after, 1000}]).
+    gen_server:start_link(
+        {local, ?SERVER},
+        ?MODULE,
+        [],
+        [{hibernate_after, 1000}]
+    ).
 
--spec(stop() -> ok).
+-spec stop() -> ok.
 stop() ->
     gen_server:stop(?SERVER, normal, infinity).
 
@@ -107,65 +115,63 @@ callback_action(#callback{action = A}) -> A.
 callback_filter(#callback{filter = F}) -> F.
 
 %% @doc Get callback priority.
-callback_priority(#callback{priority= P}) -> P.
+callback_priority(#callback{priority = P}) -> P.
 
 %%--------------------------------------------------------------------
 %% Hooks API
 %%--------------------------------------------------------------------
 
 %% @doc Register a callback
--spec(add(hookpoint(), action() | callback()) -> ok_or_error(already_exists)).
+-spec add(hookpoint(), action() | callback()) -> ok_or_error(already_exists).
 add(HookPoint, Callback) when is_record(Callback, callback) ->
     gen_server:call(?SERVER, {add, HookPoint, Callback}, infinity);
 add(HookPoint, Action) when is_function(Action); is_tuple(Action) ->
     add(HookPoint, #callback{action = Action, priority = 0}).
 
--spec(add(hookpoint(), action(), filter() | integer() | list())
-      -> ok_or_error(already_exists)).
+-spec add(hookpoint(), action(), filter() | integer() | list()) ->
+    ok_or_error(already_exists).
 add(HookPoint, Action, {_M, _F, _A} = Filter) ->
     add(HookPoint, #callback{action = Action, filter = Filter, priority = 0});
 add(HookPoint, Action, Priority) when is_integer(Priority) ->
     add(HookPoint, #callback{action = Action, priority = Priority}).
 
--spec(add(hookpoint(), action(), filter(), integer())
-      -> ok_or_error(already_exists)).
+-spec add(hookpoint(), action(), filter(), integer()) ->
+    ok_or_error(already_exists).
 add(HookPoint, Action, Filter, Priority) when is_integer(Priority) ->
     add(HookPoint, #callback{action = Action, filter = Filter, priority = Priority}).
 
 %% @doc Like add/2, it register a callback, discard 'already_exists' error.
--spec(put(hookpoint(), action() | callback()) -> ok).
+-spec put(hookpoint(), action() | callback()) -> ok.
 put(HookPoint, Callback) when is_record(Callback, callback) ->
     case add(HookPoint, Callback) of
         ok -> ok;
-        {error, already_exists} ->
-            gen_server:call(?SERVER, {put, HookPoint, Callback}, infinity)
+        {error, already_exists} -> gen_server:call(?SERVER, {put, HookPoint, Callback}, infinity)
     end;
 put(HookPoint, Action) when is_function(Action); is_tuple(Action) ->
     ?MODULE:put(HookPoint, #callback{action = Action, priority = 0}).
 
--spec(put(hookpoint(), action(), filter() | integer() | list()) -> ok).
+-spec put(hookpoint(), action(), filter() | integer() | list()) -> ok.
 put(HookPoint, Action, {_M, _F, _A} = Filter) ->
     ?MODULE:put(HookPoint, #callback{action = Action, filter = Filter, priority = 0});
 put(HookPoint, Action, Priority) when is_integer(Priority) ->
     ?MODULE:put(HookPoint, #callback{action = Action, priority = Priority}).
 
--spec(put(hookpoint(), action(), filter(), integer()) -> ok).
+-spec put(hookpoint(), action(), filter(), integer()) -> ok.
 put(HookPoint, Action, Filter, Priority) when is_integer(Priority) ->
     ?MODULE:put(HookPoint, #callback{action = Action, filter = Filter, priority = Priority}).
 
-
 %% @doc Unregister a callback.
--spec(del(hookpoint(), action() | {module(), atom()}) -> ok).
+-spec del(hookpoint(), action() | {module(), atom()}) -> ok.
 del(HookPoint, Action) ->
     gen_server:cast(?SERVER, {del, HookPoint, Action}).
 
 %% @doc Run hooks.
--spec(run(hookpoint(), list(Arg::term())) -> ok).
+-spec run(hookpoint(), list(Arg :: term())) -> ok.
 run(HookPoint, Args) ->
     do_run(lookup(HookPoint), Args).
 
 %% @doc Run hooks with Accumulator.
--spec(run_fold(hookpoint(), list(Arg::term()), Acc::term()) -> Acc::term()).
+-spec run_fold(hookpoint(), list(Arg :: term()), Acc :: term()) -> Acc :: term().
 run_fold(HookPoint, Args, Acc) ->
     do_run_fold(lookup(HookPoint), Args, Acc).
 
@@ -187,9 +193,9 @@ do_run_fold([#callback{action = Action, filter = Filter} | Callbacks], Args, Acc
         %% stop the hook chain
         stop -> Acc;
         %% stop the hook chain with NewAcc
-        {stop, NewAcc}   -> NewAcc;
+        {stop, NewAcc} -> NewAcc;
         %% continue the hook chain with NewAcc
-        {ok, NewAcc}   -> do_run_fold(Callbacks, Args, NewAcc);
+        {ok, NewAcc} -> do_run_fold(Callbacks, Args, NewAcc);
         %% continue the hook chain, in following cases:
         %%   - the filter validation failed with 'false'
         %%   - the callback returns any term other than 'stop' or {'stop', NewAcc}
@@ -198,10 +204,9 @@ do_run_fold([#callback{action = Action, filter = Filter} | Callbacks], Args, Acc
 do_run_fold([], _Args, Acc) ->
     Acc.
 
--spec(filter_passed(filter(), Args::term()) -> true | false).
+-spec filter_passed(filter(), Args :: term()) -> true | false.
 filter_passed(undefined, _Args) -> true;
-filter_passed(Filter, Args) ->
-    execute(Filter, Args).
+filter_passed(Filter, Args) -> execute(Filter, Args).
 
 safe_execute({M, F, A}, Args) ->
     try execute({M, F, A}, Args) of
@@ -222,12 +227,13 @@ execute({M, F, A}, Args) ->
     erlang:apply(M, F, Args ++ A).
 
 %% @doc Lookup callbacks.
--spec(lookup(hookpoint()) -> [callback()]).
+-spec lookup(hookpoint()) -> [callback()].
 lookup(HookPoint) ->
     case ets:lookup(?TAB, HookPoint) of
         [#hook{callbacks = Callbacks}] ->
             Callbacks;
-        [] -> []
+        [] ->
+            []
     end.
 
 %%--------------------------------------------------------------------
@@ -239,19 +245,23 @@ init([]) ->
     {ok, #{}}.
 
 handle_call({add, HookPoint, Callback = #callback{action = {M, F, _}}}, _From, State) ->
-    Reply = case lists:any(fun (#callback{action = {M0, F0, _}}) ->
-                                 M0 =:= M andalso F0 =:= F
-                           end, Callbacks = lookup(HookPoint)) of
-                true -> {error, already_exists};
-                false -> insert_hook(HookPoint, add_callback(Callback, Callbacks))
-            end,
+    Reply =
+        case
+            lists:any(
+                fun(#callback{action = {M0, F0, _}}) ->
+                    M0 =:= M andalso F0 =:= F
+                end,
+                Callbacks = lookup(HookPoint)
+            )
+        of
+            true -> {error, already_exists};
+            false -> insert_hook(HookPoint, add_callback(Callback, Callbacks))
+        end,
     {reply, Reply, State};
-
 handle_call({put, HookPoint, Callback = #callback{action = {M, F, _}}}, _From, State) ->
     Callbacks = del_callback({M, F}, lookup(HookPoint)),
     Reply = update_hook(HookPoint, add_callback(Callback, Callbacks)),
     {reply, Reply, State};
-
 handle_call(Req, _From, State) ->
     ?SLOG(error, #{msg => "unexpected_call", req => Req}),
     {reply, ignored, State}.
@@ -264,7 +274,6 @@ handle_cast({del, HookPoint, Action}, State) ->
             insert_hook(HookPoint, Callbacks)
     end,
     {noreply, State};
-
 handle_cast(Msg, State) ->
     ?SLOG(error, #{msg => "unexpected_cast", req => Msg}),
     {noreply, State}.
@@ -284,9 +293,10 @@ code_change(_OldVsn, State, _Extra) ->
 %%------------------------------------------------------------------------------
 
 insert_hook(HookPoint, Callbacks) ->
-    ets:insert(?TAB, #hook{name = HookPoint, callbacks = Callbacks}), ok.
+    ets:insert(?TAB, #hook{name = HookPoint, callbacks = Callbacks}),
+    ok.
 update_hook(HookPoint, Callbacks) ->
-    Ms = ets:fun2ms(fun ({hook, K, V}) when K =:= HookPoint -> {hook, K, Callbacks} end),
+    Ms = ets:fun2ms(fun({hook, K, V}) when K =:= HookPoint -> {hook, K, Callbacks} end),
     ets:select_replace(emqx_hooks, Ms),
     ok.
 
@@ -295,11 +305,17 @@ add_callback(C, Callbacks) ->
 
 add_callback(C, [], Acc) ->
     lists:reverse([C | Acc]);
-add_callback(C1 = #callback{priority = P1}, [C2 = #callback{priority = P2} | More], Acc)
-    when P1 < P2 ->
+add_callback(C1 = #callback{priority = P1}, [C2 = #callback{priority = P2} | More], Acc) when
+    P1 < P2
+->
     add_callback(C1, More, [C2 | Acc]);
-add_callback(C1 = #callback{priority = P1, action = MFA1}, [C2 = #callback{priority = P2, action = MFA2} | More], Acc)
-    when P1 =:= P2 andalso MFA1 >= MFA2 ->
+add_callback(
+    C1 = #callback{priority = P1, action = MFA1},
+    [C2 = #callback{priority = P2, action = MFA2} | More],
+    Acc
+) when
+    P1 =:= P2 andalso MFA1 >= MFA2
+->
     add_callback(C1, More, [C2 | Acc]);
 add_callback(C1, More, Acc) ->
     lists:append(lists:reverse(Acc), [C1 | More]).

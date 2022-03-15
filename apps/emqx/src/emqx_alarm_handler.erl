@@ -22,18 +22,19 @@
 -include("logger.hrl").
 -include_lib("lc/include/lc.hrl").
 
-
 %% gen_event callbacks
--export([ init/1
-        , handle_event/2
-        , handle_call/2
-        , handle_info/2
-        , terminate/2
-        ]).
+-export([
+    init/1,
+    handle_event/2,
+    handle_call/2,
+    handle_info/2,
+    terminate/2
+]).
 
--export([ load/0
-        , unload/0
-        ]).
+-export([
+    load/0,
+    unload/0
+]).
 
 %%--------------------------------------------------------------------
 %% API
@@ -52,43 +53,44 @@ unload() ->
 
 init({_Args, {alarm_handler, _ExistingAlarms}}) ->
     {ok, []};
-
 init(_) ->
     {ok, []}.
 
 handle_event({set_alarm, {system_memory_high_watermark, []}}, State) ->
     HighWatermark = emqx_os_mon:get_sysmem_high_watermark(),
     Message = to_bin("System memory usage is higher than ~p%", [HighWatermark]),
-    emqx_alarm:activate(high_system_memory_usage,
-        #{high_watermark => HighWatermark}, Message),
+    emqx_alarm:activate(
+        high_system_memory_usage,
+        #{high_watermark => HighWatermark},
+        Message
+    ),
     {ok, State};
-
 handle_event({set_alarm, {process_memory_high_watermark, Pid}}, State) ->
     HighWatermark = emqx_os_mon:get_procmem_high_watermark(),
     Message = to_bin("Process memory usage is higher than ~p%", [HighWatermark]),
-    emqx_alarm:activate(high_process_memory_usage,
-        #{pid => list_to_binary(pid_to_list(Pid)),
-          high_watermark => HighWatermark}, Message),
+    emqx_alarm:activate(
+        high_process_memory_usage,
+        #{
+            pid => list_to_binary(pid_to_list(Pid)),
+            high_watermark => HighWatermark
+        },
+        Message
+    ),
     {ok, State};
-
 handle_event({clear_alarm, system_memory_high_watermark}, State) ->
     _ = emqx_alarm:deactivate(high_system_memory_usage),
     {ok, State};
-
 handle_event({clear_alarm, process_memory_high_watermark}, State) ->
     _ = emqx_alarm:deactivate(high_process_memory_usage),
     {ok, State};
-
 handle_event({set_alarm, {?LC_ALARM_ID_RUNQ, Info}}, State) ->
     #{node := Node, runq_length := Len} = Info,
     Message = to_bin("VM is overloaded on node: ~p: ~p", [Node, Len]),
     emqx_alarm:activate(runq_overload, Info, Message),
     {ok, State};
-
 handle_event({clear_alarm, ?LC_ALARM_ID_RUNQ}, State) ->
     _ = emqx_alarm:deactivate(runq_overload),
     {ok, State};
-
 handle_event(_, State) ->
     {ok, State}.
 

@@ -17,14 +17,14 @@
 -module(emqx_quic_connection).
 
 %% Callbacks
--export([ init/1
-        , new_conn/2
-        , connected/2
-        , shutdown/2
-        ]).
+-export([
+    init/1,
+    new_conn/2,
+    connected/2,
+    shutdown/2
+]).
 
 -type cb_state() :: map() | proplists:proplist().
-
 
 -spec init(cb_state()) -> cb_state().
 init(ConnOpts) when is_list(ConnOpts) ->

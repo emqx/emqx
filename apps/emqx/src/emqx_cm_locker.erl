@@ -21,46 +21,53 @@
 
 -export([start_link/0]).
 
--export([ trans/2
-        , trans/3
-        , lock/1
-        , lock/2
-        , unlock/1
-        ]).
+-export([
+    trans/2,
+    trans/3,
+    lock/1,
+    lock/2,
+    unlock/1
+]).
 
--spec(start_link() -> startlink_ret()).
+-spec start_link() -> startlink_ret().
 start_link() ->
     ekka_locker:start_link(?MODULE).
 
--spec(trans(emqx_types:clientid(), fun(([node()]) -> any())) -> any()).
+-spec trans(emqx_types:clientid(), fun(([node()]) -> any())) -> any().
 trans(ClientId, Fun) ->
     trans(ClientId, Fun, undefined).
 
--spec(trans(maybe(emqx_types:clientid()),
-            fun(([node()])-> any()), ekka_locker:piggyback()) -> any()).
+-spec trans(
+    maybe(emqx_types:clientid()),
+    fun(([node()]) -> any()),
+    ekka_locker:piggyback()
+) -> any().
 trans(undefined, Fun, _Piggyback) ->
     Fun([]);
 trans(ClientId, Fun, Piggyback) ->
     case lock(ClientId, Piggyback) of
         {true, Nodes} ->
-            try Fun(Nodes) after unlock(ClientId) end;
+            try
+                Fun(Nodes)
+            after
+                unlock(ClientId)
+            end;
         {false, _Nodes} ->
             {error, client_id_unavailable}
     end.
 
--spec(lock(emqx_types:clientid()) -> ekka_locker:lock_result()).
+-spec lock(emqx_types:clientid()) -> ekka_locker:lock_result().
 lock(ClientId) ->
     ekka_locker:acquire(?MODULE, ClientId, strategy()).
 
--spec(lock(emqx_types:clientid(), ekka_locker:piggyback()) -> ekka_locker:lock_result()).
+-spec lock(emqx_types:clientid(), ekka_locker:piggyback()) -> ekka_locker:lock_result().
 lock(ClientId, Piggyback) ->
     ekka_locker:acquire(?MODULE, ClientId, strategy(), Piggyback).
 
--spec(unlock(emqx_types:clientid()) -> {boolean(), [node()]}).
+-spec unlock(emqx_types:clientid()) -> {boolean(), [node()]}.
 unlock(ClientId) ->
     ekka_locker:release(?MODULE, ClientId, strategy()).
 
--spec(strategy() -> local | leader | quorum | all).
+-spec strategy() -> local | leader | quorum | all.
 strategy() ->
     emqx:get_config([broker, session_locking_strategy]).
-

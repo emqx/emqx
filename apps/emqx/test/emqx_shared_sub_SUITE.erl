@@ -26,8 +26,10 @@
 -define(SUITE, ?MODULE).
 
 -define(wait(For, Timeout),
-        emqx_common_test_helpers:wait_for(
-          ?FUNCTION_NAME, ?LINE, fun() -> For end, Timeout)).
+    emqx_common_test_helpers:wait_for(
+        ?FUNCTION_NAME, ?LINE, fun() -> For end, Timeout
+    )
+).
 
 -define(ack, shared_sub_ack).
 -define(no_ack, no_ack).
@@ -49,20 +51,39 @@ t_maybe_nack_dropped(_) ->
     ?assertEqual(ok, emqx_shared_sub:maybe_nack_dropped(#message{headers = #{}})),
     Msg = #message{headers = #{shared_dispatch_ack => {self(), for_test}}},
     ?assertEqual(ok, emqx_shared_sub:maybe_nack_dropped(Msg)),
-    ?assertEqual(ok,receive {for_test, {shared_sub_nack, dropped}} -> ok after 100 -> timeout end).
+    ?assertEqual(
+        ok,
+        receive
+            {for_test, {shared_sub_nack, dropped}} -> ok
+        after 100 -> timeout
+        end
+    ).
 
 t_nack_no_connection(_) ->
     Msg = #message{headers = #{shared_dispatch_ack => {self(), for_test}}},
     ?assertEqual(ok, emqx_shared_sub:nack_no_connection(Msg)),
-    ?assertEqual(ok,receive {for_test, {shared_sub_nack, no_connection}} -> ok
-                    after 100 -> timeout end).
+    ?assertEqual(
+        ok,
+        receive
+            {for_test, {shared_sub_nack, no_connection}} -> ok
+        after 100 -> timeout
+        end
+    ).
 
 t_maybe_ack(_) ->
     ?assertEqual(#message{headers = #{}}, emqx_shared_sub:maybe_ack(#message{headers = #{}})),
     Msg = #message{headers = #{shared_dispatch_ack => {self(), for_test}}},
-    ?assertEqual(#message{headers = #{shared_dispatch_ack => ?no_ack}},
-                 emqx_shared_sub:maybe_ack(Msg)),
-    ?assertEqual(ok,receive {for_test, ?ack} -> ok after 100 -> timeout end).
+    ?assertEqual(
+        #message{headers = #{shared_dispatch_ack => ?no_ack}},
+        emqx_shared_sub:maybe_ack(Msg)
+    ),
+    ?assertEqual(
+        ok,
+        receive
+            {for_test, ?ack} -> ok
+        after 100 -> timeout
+        end
+    ).
 
 % t_subscribers(_) ->
 %     error('TODO').
@@ -79,12 +100,14 @@ t_random_basic(_) ->
     ?assertEqual(true, subscribed(<<"group1">>, Topic, self())),
     emqx:publish(MsgQoS2),
     receive
-        {deliver, Topic0, #message{from = ClientId0,
-                                   payload = Payload0}} = M->
-        ct:pal("==== received: ~p", [M]),
-        ?assertEqual(Topic, Topic0),
-        ?assertEqual(ClientId, ClientId0),
-        ?assertEqual(Payload, Payload0)
+        {deliver, Topic0, #message{
+            from = ClientId0,
+            payload = Payload0
+        }} = M ->
+            ct:pal("==== received: ~p", [M]),
+            ?assertEqual(Topic, Topic0),
+            ?assertEqual(ClientId, ClientId0),
+            ?assertEqual(Payload, Payload0)
     after 1000 -> ct:fail(waiting_basic_failed)
     end,
     ok.
@@ -118,12 +141,12 @@ t_no_connection_nack(_) ->
     %% wait for the subscriptions to show up
     ct:sleep(200),
     MkPayload = fun(PacketId) ->
-                    iolist_to_binary(["hello-", integer_to_list(PacketId)])
-                end,
+        iolist_to_binary(["hello-", integer_to_list(PacketId)])
+    end,
     SendF = fun(PacketId) ->
-                M = emqx_message:make(Publisher, QoS, Topic, MkPayload(PacketId)),
-                emqx:publish(M#message{id = PacketId})
-            end,
+        M = emqx_message:make(Publisher, QoS, Topic, MkPayload(PacketId)),
+        emqx:publish(M#message{id = PacketId})
+    end,
     SendF(1),
     timer:sleep(200),
     %% This is the connection which was picked by broker to dispatch (sticky) for 1st message
@@ -198,19 +221,25 @@ t_hash_topic(_) ->
     emqx:publish(Message1),
     Me = self(),
     WaitF = fun(ExpectedPayload) ->
-                    case last_message(ExpectedPayload, [ConnPid1, ConnPid2]) of
-                        {true, Pid} ->
-                            Me ! {subscriber, Pid},
-                            true;
-                        Other ->
-                            Other
-                    end
-            end,
+        case last_message(ExpectedPayload, [ConnPid1, ConnPid2]) of
+            {true, Pid} ->
+                Me ! {subscriber, Pid},
+                true;
+            Other ->
+                Other
+        end
+    end,
     WaitF(<<"hello1">>),
-    UsedSubPid1 = receive {subscriber, P1} -> P1 end,
+    UsedSubPid1 =
+        receive
+            {subscriber, P1} -> P1
+        end,
     emqx_broker:publish(Message2),
     WaitF(<<"hello2">>),
-    UsedSubPid2 = receive {subscriber, P2} -> P2 end,
+    UsedSubPid2 =
+        receive
+            {subscriber, P2} -> P2
+        end,
     ?assert(UsedSubPid1 =/= UsedSubPid2),
     emqtt:stop(ConnPid1),
     emqtt:stop(ConnPid2),
@@ -262,19 +291,25 @@ test_two_messages(Strategy, WithAck) ->
     emqx:publish(Message1),
     Me = self(),
     WaitF = fun(ExpectedPayload) ->
-                    case last_message(ExpectedPayload, [ConnPid1, ConnPid2]) of
-                        {true, Pid} ->
-                            Me ! {subscriber, Pid},
-                            true;
-                        Other ->
-                            Other
-                    end
-            end,
+        case last_message(ExpectedPayload, [ConnPid1, ConnPid2]) of
+            {true, Pid} ->
+                Me ! {subscriber, Pid},
+                true;
+            Other ->
+                Other
+        end
+    end,
     WaitF(<<"hello1">>),
-    UsedSubPid1 = receive {subscriber, P1} -> P1 end,
+    UsedSubPid1 =
+        receive
+            {subscriber, P1} -> P1
+        end,
     emqx_broker:publish(Message2),
     WaitF(<<"hello2">>),
-    UsedSubPid2 = receive {subscriber, P2} -> P2 end,
+    UsedSubPid2 =
+        receive
+            {subscriber, P2} -> P2
+        end,
     case Strategy of
         sticky -> ?assert(UsedSubPid1 =:= UsedSubPid2);
         round_robin -> ?assert(UsedSubPid1 =/= UsedSubPid2);
@@ -297,11 +332,15 @@ last_message(ExpectedPayload, Pids) ->
 t_dispatch(_) ->
     ok = ensure_config(random),
     Topic = <<"foo">>,
-    ?assertEqual({error, no_subscribers},
-                 emqx_shared_sub:dispatch(<<"group1">>, Topic, #delivery{message = #message{}})),
+    ?assertEqual(
+        {error, no_subscribers},
+        emqx_shared_sub:dispatch(<<"group1">>, Topic, #delivery{message = #message{}})
+    ),
     emqx:subscribe(Topic, #{qos => 2, share => <<"group1">>}),
-    ?assertEqual({ok, 1},
-                 emqx_shared_sub:dispatch(<<"group1">>, Topic, #delivery{message = #message{}})).
+    ?assertEqual(
+        {ok, 1},
+        emqx_shared_sub:dispatch(<<"group1">>, Topic, #delivery{message = #message{}})
+    ).
 
 % t_unsubscribe(_) ->
 %     error('TODO').
@@ -337,9 +376,10 @@ recv_msgs(0, Msgs) ->
 recv_msgs(Count, Msgs) ->
     receive
         {publish, Msg} ->
-            recv_msgs(Count-1, [Msg|Msgs]);
-        _Other -> recv_msgs(Count, Msgs) %%TODO:: remove the branch?
+            recv_msgs(Count - 1, [Msg | Msgs]);
+        %%TODO:: remove the branch?
+        _Other ->
+            recv_msgs(Count, Msgs)
     after 100 ->
         Msgs
     end.
-

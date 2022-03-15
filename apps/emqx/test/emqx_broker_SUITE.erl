@@ -29,26 +29,30 @@
 -include_lib("emqx/include/emqx_mqtt.hrl").
 
 all() ->
-    [ {group, all_cases}
-    , {group, connected_client_count_group}
+    [
+        {group, all_cases},
+        {group, connected_client_count_group}
     ].
 
 groups() ->
     TCs = emqx_common_test_helpers:all(?MODULE),
-    ConnClientTCs = [ t_connected_client_count_persistent
-                    , t_connected_client_count_anonymous
-                    , t_connected_client_count_transient_takeover
-                    , t_connected_client_stats
-                    ],
+    ConnClientTCs = [
+        t_connected_client_count_persistent,
+        t_connected_client_count_anonymous,
+        t_connected_client_count_transient_takeover,
+        t_connected_client_stats
+    ],
     OtherTCs = TCs -- ConnClientTCs,
-    [ {all_cases, [], OtherTCs}
-    , {connected_client_count_group, [ {group, tcp}
-                                     , {group, ws}
-                                     , {group, quic}
-                                     ]}
-    , {tcp, [], ConnClientTCs}
-    , {ws, [], ConnClientTCs}
-    , {quic, [], ConnClientTCs}
+    [
+        {all_cases, [], OtherTCs},
+        {connected_client_count_group, [
+            {group, tcp},
+            {group, ws},
+            {group, quic}
+        ]},
+        {tcp, [], ConnClientTCs},
+        {ws, [], ConnClientTCs},
+        {quic, [], ConnClientTCs}
     ].
 
 init_per_group(connected_client_count_group, Config) ->
@@ -60,19 +64,22 @@ init_per_group(tcp, Config) ->
 init_per_group(ws, Config) ->
     emqx_common_test_helpers:boot_modules(all),
     emqx_common_test_helpers:start_apps([]),
-    [ {ssl, false}
-    , {enable_websocket, true}
-    , {conn_fun, ws_connect}
-    , {port, 8083}
-    , {host, "localhost"}
-    | Config
+    [
+        {ssl, false},
+        {enable_websocket, true},
+        {conn_fun, ws_connect},
+        {port, 8083},
+        {host, "localhost"}
+        | Config
     ];
 init_per_group(quic, Config) ->
     emqx_common_test_helpers:boot_modules(all),
     emqx_common_test_helpers:start_apps([]),
-    [ {conn_fun, quic_connect}
-    , {port, 14567}
-    | Config];
+    [
+        {conn_fun, quic_connect},
+        {port, 14567}
+        | Config
+    ];
 init_per_group(_Group, Config) ->
     emqx_common_test_helpers:boot_modules(all),
     emqx_common_test_helpers:start_apps([]),
@@ -102,31 +109,29 @@ end_per_testcase(Case, Config) ->
 t_stats_fun({init, Config}) ->
     Parent = self(),
     F = fun Loop() ->
-                N1 = emqx_stats:getstat('subscribers.count'),
-                N2 = emqx_stats:getstat('subscriptions.count'),
-                N3 = emqx_stats:getstat('suboptions.count'),
-                case N1 + N2 + N3 =:= 0 of
-                    true ->
-                        Parent ! {ready, self()},
-                        exit(normal);
-                    false ->
-                        receive
-                            stop ->
-                                exit(normal)
-                        after
-                            100 ->
-                                Loop()
-                        end
+        N1 = emqx_stats:getstat('subscribers.count'),
+        N2 = emqx_stats:getstat('subscriptions.count'),
+        N3 = emqx_stats:getstat('suboptions.count'),
+        case N1 + N2 + N3 =:= 0 of
+            true ->
+                Parent ! {ready, self()},
+                exit(normal);
+            false ->
+                receive
+                    stop ->
+                        exit(normal)
+                after 100 ->
+                    Loop()
                 end
-        end,
+        end
+    end,
     Pid = spawn_link(F),
     receive
-        {ready, P} when P =:= Pid->
+        {ready, P} when P =:= Pid ->
             Config
-    after
-        5000 ->
-            Pid ! stop,
-            ct:fail("timedout_waiting_for_sub_stats_to_reach_zero")
+    after 5000 ->
+        Pid ! stop,
+        ct:fail("timedout_waiting_for_sub_stats_to_reach_zero")
     end;
 t_stats_fun(Config) when is_list(Config) ->
     ok = emqx_broker:subscribe(<<"topic">>, <<"clientid">>),
@@ -163,25 +168,34 @@ t_subscribed_2(Config) when is_list(Config) ->
 t_subscribed_2({'end', _Config}) ->
     emqx_broker:unsubscribe(<<"topic">>).
 
-t_subopts({init, Config}) -> Config;
+t_subopts({init, Config}) ->
+    Config;
 t_subopts(Config) when is_list(Config) ->
     ?assertEqual(false, emqx_broker:set_subopts(<<"topic">>, #{qos => 1})),
     ?assertEqual(undefined, emqx_broker:get_subopts(self(), <<"topic">>)),
     ?assertEqual(undefined, emqx_broker:get_subopts(<<"clientid">>, <<"topic">>)),
     emqx_broker:subscribe(<<"topic">>, <<"clientid">>, #{qos => 1}),
     timer:sleep(200),
-    ?assertEqual(#{nl => 0, qos => 1, rap => 0, rh => 0, subid => <<"clientid">>},
-                 emqx_broker:get_subopts(self(), <<"topic">>)),
-    ?assertEqual(#{nl => 0, qos => 1, rap => 0, rh => 0, subid => <<"clientid">>},
-                 emqx_broker:get_subopts(<<"clientid">>,<<"topic">>)),
+    ?assertEqual(
+        #{nl => 0, qos => 1, rap => 0, rh => 0, subid => <<"clientid">>},
+        emqx_broker:get_subopts(self(), <<"topic">>)
+    ),
+    ?assertEqual(
+        #{nl => 0, qos => 1, rap => 0, rh => 0, subid => <<"clientid">>},
+        emqx_broker:get_subopts(<<"clientid">>, <<"topic">>)
+    ),
 
     emqx_broker:subscribe(<<"topic">>, <<"clientid">>, #{qos => 2}),
-    ?assertEqual(#{nl => 0, qos => 2, rap => 0, rh => 0, subid => <<"clientid">>},
-                 emqx_broker:get_subopts(self(), <<"topic">>)),
+    ?assertEqual(
+        #{nl => 0, qos => 2, rap => 0, rh => 0, subid => <<"clientid">>},
+        emqx_broker:get_subopts(self(), <<"topic">>)
+    ),
 
     ?assertEqual(true, emqx_broker:set_subopts(<<"topic">>, #{qos => 0})),
-    ?assertEqual(#{nl => 0, qos => 0, rap => 0, rh => 0, subid => <<"clientid">>},
-                 emqx_broker:get_subopts(self(), <<"topic">>));
+    ?assertEqual(
+        #{nl => 0, qos => 0, rap => 0, rh => 0, subid => <<"clientid">>},
+        emqx_broker:get_subopts(self(), <<"topic">>)
+    );
 t_subopts({'end', _Config}) ->
     emqx_broker:unsubscribe(<<"topic">>).
 
@@ -194,12 +208,19 @@ t_topics(Config) when is_list(Config) ->
     ok = emqx_broker:subscribe(T2, <<"clientId">>),
     ok = emqx_broker:subscribe(T3, <<"clientId">>),
     Topics1 = emqx_broker:topics(),
-    ?assertEqual(true, lists:foldl(fun(Topic, Acc) ->
-                                       case lists:member(Topic, Topics1) of
-                                           true -> Acc;
-                                           false -> false
-                                       end
-                                   end, true, Topics));
+    ?assertEqual(
+        true,
+        lists:foldl(
+            fun(Topic, Acc) ->
+                case lists:member(Topic, Topics1) of
+                    true -> Acc;
+                    false -> false
+                end
+            end,
+            true,
+            Topics
+        )
+    );
 t_topics({'end', Config}) ->
     Topics = proplists:get_value(topics, Config),
     lists:foreach(fun(T) -> emqx_broker:unsubscribe(T) end, Topics).
@@ -217,10 +238,14 @@ t_subscriptions({init, Config}) ->
     Config;
 t_subscriptions(Config) when is_list(Config) ->
     ct:sleep(100),
-    ?assertEqual(#{nl => 0, qos => 1, rap => 0, rh => 0, subid => <<"clientid">>},
-                 proplists:get_value(<<"topic">>, emqx_broker:subscriptions(self()))),
-    ?assertEqual(#{nl => 0, qos => 1, rap => 0, rh => 0, subid => <<"clientid">>},
-                 proplists:get_value(<<"topic">>, emqx_broker:subscriptions(<<"clientid">>)));
+    ?assertEqual(
+        #{nl => 0, qos => 1, rap => 0, rh => 0, subid => <<"clientid">>},
+        proplists:get_value(<<"topic">>, emqx_broker:subscriptions(self()))
+    ),
+    ?assertEqual(
+        #{nl => 0, qos => 1, rap => 0, rh => 0, subid => <<"clientid">>},
+        proplists:get_value(<<"topic">>, emqx_broker:subscriptions(<<"clientid">>))
+    );
 t_subscriptions({'end', _Config}) ->
     emqx_broker:unsubscribe(<<"topic">>).
 
@@ -238,12 +263,15 @@ t_sub_pub(Config) when is_list(Config) ->
                 false
         after 100 ->
             false
-        end);
+        end
+    );
 t_sub_pub({'end', _Config}) ->
     ok = emqx_broker:unsubscribe(<<"topic">>).
 
-t_nosub_pub({init, Config}) -> Config;
-t_nosub_pub({'end', _Config}) -> ok;
+t_nosub_pub({init, Config}) ->
+    Config;
+t_nosub_pub({'end', _Config}) ->
+    ok;
 t_nosub_pub(Config) when is_list(Config) ->
     ?assertEqual(0, emqx_metrics:val('messages.dropped')),
     emqx_broker:publish(emqx_message:make(ct, <<"topic">>, <<"hello">>)),
@@ -255,20 +283,24 @@ t_shared_subscribe({init, Config}) ->
     Config;
 t_shared_subscribe(Config) when is_list(Config) ->
     emqx_broker:safe_publish(emqx_message:make(ct, <<"topic">>, <<"hello">>)),
-    ?assert(receive
-                {deliver, <<"topic">>, #message{payload = <<"hello">>}} ->
-                    true;
-                Msg ->
-                    ct:pal("Msg: ~p", [Msg]),
-                    false
-            after 100 ->
+    ?assert(
+        receive
+            {deliver, <<"topic">>, #message{payload = <<"hello">>}} ->
+                true;
+            Msg ->
+                ct:pal("Msg: ~p", [Msg]),
                 false
-            end);
+        after 100 ->
+            false
+        end
+    );
 t_shared_subscribe({'end', _Config}) ->
     emqx_broker:unsubscribe(<<"$share/group/topic">>).
 
-t_shared_subscribe_2({init, Config}) -> Config;
-t_shared_subscribe_2({'end', _Config}) -> ok;
+t_shared_subscribe_2({init, Config}) ->
+    Config;
+t_shared_subscribe_2({'end', _Config}) ->
+    ok;
 t_shared_subscribe_2(_) ->
     {ok, ConnPid} = emqtt:start_link([{clean_start, true}, {clientid, <<"clientid">>}]),
     {ok, _} = emqtt:connect(ConnPid),
@@ -282,16 +314,26 @@ t_shared_subscribe_2(_) ->
     ok = emqtt:publish(ConnPid, <<"topic">>, <<"hello">>, 0),
     Msgs = recv_msgs(2),
     ?assertEqual(2, length(Msgs)),
-    ?assertEqual(true, lists:foldl(fun(#{payload := <<"hello">>, topic := <<"topic">>}, Acc) ->
-                                       Acc;
-                                      (_, _) ->
-                                       false
-                                   end, true, Msgs)),
+    ?assertEqual(
+        true,
+        lists:foldl(
+            fun
+                (#{payload := <<"hello">>, topic := <<"topic">>}, Acc) ->
+                    Acc;
+                (_, _) ->
+                    false
+            end,
+            true,
+            Msgs
+        )
+    ),
     emqtt:disconnect(ConnPid),
     emqtt:disconnect(ConnPid2).
 
-t_shared_subscribe_3({init, Config}) -> Config;
-t_shared_subscribe_3({'end', _Config}) -> ok;
+t_shared_subscribe_3({init, Config}) ->
+    Config;
+t_shared_subscribe_3({'end', _Config}) ->
+    ok;
 t_shared_subscribe_3(_) ->
     {ok, ConnPid} = emqtt:start_link([{clean_start, true}, {clientid, <<"clientid">>}]),
     {ok, _} = emqtt:connect(ConnPid),
@@ -324,7 +366,8 @@ t_shard(Config) when is_list(Config) ->
                 false
         after 100 ->
             false
-        end);
+        end
+    );
 t_shard({'end', _Config}) ->
     emqx_broker:unsubscribe(<<"topic">>),
     ok = meck:unload(emqx_broker_helper).
@@ -339,56 +382,63 @@ t_connected_client_count_persistent(Config) when is_list(Config) ->
     ConnFun = ?config(conn_fun, Config),
     ClientID = <<"clientid">>,
     ?assertEqual(0, emqx_cm:get_connected_client_count()),
-    {ok, ConnPid0} = emqtt:start_link([ {clean_start, false}
-                                      , {clientid, ClientID}
-                                      | Config]),
+    {ok, ConnPid0} = emqtt:start_link([
+        {clean_start, false},
+        {clientid, ClientID}
+        | Config
+    ]),
     {{ok, _}, {ok, [_]}} = wait_for_events(
-                             fun() -> emqtt:ConnFun(ConnPid0) end,
-                             [emqx_cm_connected_client_count_inc]
-                            ),
+        fun() -> emqtt:ConnFun(ConnPid0) end,
+        [emqx_cm_connected_client_count_inc]
+    ),
     timer:sleep(10),
     ?assertEqual(1, emqx_cm:get_connected_client_count()),
     {ok, {ok, [_]}} = wait_for_events(
-                        fun() -> emqtt:disconnect(ConnPid0) end,
-                        [emqx_cm_connected_client_count_dec]
-                       ),
+        fun() -> emqtt:disconnect(ConnPid0) end,
+        [emqx_cm_connected_client_count_dec]
+    ),
     timer:sleep(10),
     ?assertEqual(0, emqx_cm:get_connected_client_count()),
     %% reconnecting
-    {ok, ConnPid1} = emqtt:start_link([ {clean_start, false}
-                                      , {clientid, ClientID}
-                                      | Config
-                                      ]),
+    {ok, ConnPid1} = emqtt:start_link([
+        {clean_start, false},
+        {clientid, ClientID}
+        | Config
+    ]),
     {{ok, _}, {ok, [_]}} = wait_for_events(
-                             fun() -> emqtt:ConnFun(ConnPid1) end,
-                             [emqx_cm_connected_client_count_inc]
-                            ),
+        fun() -> emqtt:ConnFun(ConnPid1) end,
+        [emqx_cm_connected_client_count_inc]
+    ),
     ?assertEqual(1, emqx_cm:get_connected_client_count()),
     %% taking over
-    {ok, ConnPid2} = emqtt:start_link([ {clean_start, false}
-                                      , {clientid, ClientID}
-                                      | Config
-                                      ]),
+    {ok, ConnPid2} = emqtt:start_link([
+        {clean_start, false},
+        {clientid, ClientID}
+        | Config
+    ]),
     {{ok, _}, {ok, [_, _]}} = wait_for_events(
-                             fun() -> emqtt:ConnFun(ConnPid2) end,
-                             [ emqx_cm_connected_client_count_inc
-                             , emqx_cm_connected_client_count_dec
-                             ],
-                             500
-                            ),
+        fun() -> emqtt:ConnFun(ConnPid2) end,
+        [
+            emqx_cm_connected_client_count_inc,
+            emqx_cm_connected_client_count_dec
+        ],
+        500
+    ),
     ?assertEqual(1, emqx_cm:get_connected_client_count()),
     %% abnormal exit of channel process
     ChanPids = emqx_cm:all_channels(),
     {ok, {ok, [_, _]}} = wait_for_events(
-                           fun() ->
-                                   lists:foreach(
-                                     fun(ChanPid) -> exit(ChanPid, kill) end,
-                                     ChanPids)
-                           end,
-                           [ emqx_cm_connected_client_count_dec
-                           , emqx_cm_process_down
-                           ]
-                          ),
+        fun() ->
+            lists:foreach(
+                fun(ChanPid) -> exit(ChanPid, kill) end,
+                ChanPids
+            )
+        end,
+        [
+            emqx_cm_connected_client_count_dec,
+            emqx_cm_process_down
+        ]
+    ),
     ?assertEqual(0, emqx_cm:get_connected_client_count()),
     ok;
 t_connected_client_count_persistent({'end', _Config}) ->
@@ -405,57 +455,66 @@ t_connected_client_count_anonymous(Config) when is_list(Config) ->
     ConnFun = ?config(conn_fun, Config),
     ?assertEqual(0, emqx_cm:get_connected_client_count()),
     %% first client
-    {ok, ConnPid0} = emqtt:start_link([ {clean_start, true}
-                                      | Config]),
+    {ok, ConnPid0} = emqtt:start_link([
+        {clean_start, true}
+        | Config
+    ]),
     {{ok, _}, {ok, [_]}} = wait_for_events(
-                             fun() -> emqtt:ConnFun(ConnPid0) end,
-                             [emqx_cm_connected_client_count_inc]
-                            ),
+        fun() -> emqtt:ConnFun(ConnPid0) end,
+        [emqx_cm_connected_client_count_inc]
+    ),
     ?assertEqual(1, emqx_cm:get_connected_client_count()),
     %% second client
-    {ok, ConnPid1} = emqtt:start_link([ {clean_start, true}
-                                      | Config]),
+    {ok, ConnPid1} = emqtt:start_link([
+        {clean_start, true}
+        | Config
+    ]),
     {{ok, _}, {ok, [_]}} = wait_for_events(
-                             fun() -> emqtt:ConnFun(ConnPid1) end,
-                             [emqx_cm_connected_client_count_inc]
-                            ),
+        fun() -> emqtt:ConnFun(ConnPid1) end,
+        [emqx_cm_connected_client_count_inc]
+    ),
     ?assertEqual(2, emqx_cm:get_connected_client_count()),
     %% when first client disconnects, shouldn't affect the second
     {ok, {ok, [_, _]}} = wait_for_events(
-                        fun() -> emqtt:disconnect(ConnPid0) end,
-                        [ emqx_cm_connected_client_count_dec
-                        , emqx_cm_process_down
-                        ]
-                       ),
+        fun() -> emqtt:disconnect(ConnPid0) end,
+        [
+            emqx_cm_connected_client_count_dec,
+            emqx_cm_process_down
+        ]
+    ),
     ?assertEqual(1, emqx_cm:get_connected_client_count()),
     %% reconnecting
-    {ok, ConnPid2} = emqtt:start_link([ {clean_start, true}
-                                      | Config
-                                      ]),
+    {ok, ConnPid2} = emqtt:start_link([
+        {clean_start, true}
+        | Config
+    ]),
     {{ok, _}, {ok, [_]}} = wait_for_events(
-                             fun() -> emqtt:ConnFun(ConnPid2) end,
-                             [emqx_cm_connected_client_count_inc]
-                            ),
+        fun() -> emqtt:ConnFun(ConnPid2) end,
+        [emqx_cm_connected_client_count_inc]
+    ),
     ?assertEqual(2, emqx_cm:get_connected_client_count()),
     {ok, {ok, [_, _]}} = wait_for_events(
-                           fun() -> emqtt:disconnect(ConnPid1) end,
-                           [ emqx_cm_connected_client_count_dec
-                           , emqx_cm_process_down
-                           ]
-                          ),
+        fun() -> emqtt:disconnect(ConnPid1) end,
+        [
+            emqx_cm_connected_client_count_dec,
+            emqx_cm_process_down
+        ]
+    ),
     ?assertEqual(1, emqx_cm:get_connected_client_count()),
     %% abnormal exit of channel process
     Chans = emqx_cm:all_channels(),
     {ok, {ok, [_, _]}} = wait_for_events(
-                           fun() ->
-                                   lists:foreach(
-                                     fun(ChanPid) -> exit(ChanPid, kill) end,
-                                     Chans)
-                           end,
-                           [ emqx_cm_connected_client_count_dec
-                           , emqx_cm_process_down
-                           ]
-                          ),
+        fun() ->
+            lists:foreach(
+                fun(ChanPid) -> exit(ChanPid, kill) end,
+                Chans
+            )
+        end,
+        [
+            emqx_cm_connected_client_count_dec,
+            emqx_cm_process_down
+        ]
+    ),
     ?assertEqual(0, emqx_cm:get_connected_client_count()),
     ok;
 t_connected_client_count_anonymous({'end', _Config}) ->
@@ -475,32 +534,38 @@ t_connected_client_count_transient_takeover(Config) when is_list(Config) ->
     NumClients = 20,
     {ok, {ok, [_, _]}} =
         wait_for_events(
-          fun() ->
-                  lists:foreach(
+            fun() ->
+                lists:foreach(
                     fun(_) ->
-                            spawn(
-                              fun() ->
-                                      {ok, ConnPid} =
-                                          emqtt:start_link([ {clean_start, true}
-                                                           , {clientid, ClientID}
-                                                           | Config]),
-                                      %% don't assert the result: most of them fail
-                                      %% during the race
-                                      emqtt:ConnFun(ConnPid),
-                                      ok
-                              end),
-                            ok
+                        spawn(
+                            fun() ->
+                                {ok, ConnPid} =
+                                    emqtt:start_link([
+                                        {clean_start, true},
+                                        {clientid, ClientID}
+                                        | Config
+                                    ]),
+                                %% don't assert the result: most of them fail
+                                %% during the race
+                                emqtt:ConnFun(ConnPid),
+                                ok
+                            end
+                        ),
+                        ok
                     end,
-                    lists:seq(1, NumClients))
-          end,
-          %% there can be only one channel that wins the race for the
-          %% lock for this client id.  we also expect a decrement
-          %% event because the client dies along with the ephemeral
-          %% process.
-          [ emqx_cm_connected_client_count_inc
-          , emqx_cm_connected_client_count_dec
-          ],
-          1000),
+                    lists:seq(1, NumClients)
+                )
+            end,
+            %% there can be only one channel that wins the race for the
+            %% lock for this client id.  we also expect a decrement
+            %% event because the client dies along with the ephemeral
+            %% process.
+            [
+                emqx_cm_connected_client_count_inc,
+                emqx_cm_connected_client_count_dec
+            ],
+            1000
+        ),
     %% Since more than one pair of inc/dec may be emitted, we need to
     %% wait for full stabilization
     timer:sleep(100),
@@ -508,28 +573,30 @@ t_connected_client_count_transient_takeover(Config) when is_list(Config) ->
     %% ephemeral processes above, and all should be dead now.
     ?assertEqual(0, emqx_cm:get_connected_client_count()),
     %% connecting again
-    {ok, ConnPid1} = emqtt:start_link([ {clean_start, true}
-                                      , {clientid, ClientID}
-                                      | Config
-                                      ]),
+    {ok, ConnPid1} = emqtt:start_link([
+        {clean_start, true},
+        {clientid, ClientID}
+        | Config
+    ]),
     {{ok, _}, {ok, [_]}} =
         wait_for_events(
-          fun() -> emqtt:ConnFun(ConnPid1) end,
-          [emqx_cm_connected_client_count_inc]
-         ),
+            fun() -> emqtt:ConnFun(ConnPid1) end,
+            [emqx_cm_connected_client_count_inc]
+        ),
     ?assertEqual(1, emqx_cm:get_connected_client_count()),
     %% abnormal exit of channel process
     [ChanPid] = emqx_cm:all_channels(),
     {ok, {ok, [_, _]}} =
         wait_for_events(
-          fun() ->
-                  exit(ChanPid, kill),
-                  ok
-          end,
-          [ emqx_cm_connected_client_count_dec
-          , emqx_cm_process_down
-          ]
-         ),
+            fun() ->
+                exit(ChanPid, kill),
+                ok
+            end,
+            [
+                emqx_cm_connected_client_count_dec,
+                emqx_cm_process_down
+            ]
+        ),
     ?assertEqual(0, emqx_cm:get_connected_client_count()),
     ok;
 t_connected_client_count_transient_takeover({'end', _Config}) ->
@@ -546,34 +613,43 @@ t_connected_client_stats(Config) when is_list(Config) ->
     ?assertEqual(0, emqx_cm:get_connected_client_count()),
     ?assertEqual(0, emqx_stats:getstat('live_connections.count')),
     ?assertEqual(0, emqx_stats:getstat('live_connections.max')),
-    {ok, ConnPid} = emqtt:start_link([ {clean_start, true}
-                                     , {clientid, <<"clientid">>}
-                                     | Config
-                                     ]),
+    {ok, ConnPid} = emqtt:start_link([
+        {clean_start, true},
+        {clientid, <<"clientid">>}
+        | Config
+    ]),
     {{ok, _}, {ok, [_]}} = wait_for_events(
-                             fun() -> emqtt:ConnFun(ConnPid) end,
-                             [emqx_cm_connected_client_count_inc]
-                            ),
+        fun() -> emqtt:ConnFun(ConnPid) end,
+        [emqx_cm_connected_client_count_inc]
+    ),
     timer:sleep(20),
     %% ensure stats are synchronized
     {_, {ok, [_]}} = wait_for_stats(
-                       fun emqx_cm:stats_fun/0,
-                       [#{count_stat => 'live_connections.count',
-                          max_stat => 'live_connections.max'}]
-                      ),
+        fun emqx_cm:stats_fun/0,
+        [
+            #{
+                count_stat => 'live_connections.count',
+                max_stat => 'live_connections.max'
+            }
+        ]
+    ),
     ?assertEqual(1, emqx_stats:getstat('live_connections.count')),
     ?assertEqual(1, emqx_stats:getstat('live_connections.max')),
     {ok, {ok, [_]}} = wait_for_events(
-                        fun() -> emqtt:disconnect(ConnPid) end,
-                        [emqx_cm_connected_client_count_dec]
-                       ),
+        fun() -> emqtt:disconnect(ConnPid) end,
+        [emqx_cm_connected_client_count_dec]
+    ),
     timer:sleep(20),
     %% ensure stats are synchronized
     {_, {ok, [_]}} = wait_for_stats(
-                       fun emqx_cm:stats_fun/0,
-                       [#{count_stat => 'live_connections.count',
-                          max_stat => 'live_connections.max'}]
-                      ),
+        fun emqx_cm:stats_fun/0,
+        [
+            #{
+                count_stat => 'live_connections.count',
+                max_stat => 'live_connections.max'
+            }
+        ]
+    ),
     ?assertEqual(0, emqx_stats:getstat('live_connections.count')),
     ?assertEqual(1, emqx_stats:getstat('live_connections.max')),
     ok;
@@ -604,8 +680,8 @@ wait_for_events(Action, Kinds) ->
 
 wait_for_events(Action, Kinds, Timeout) ->
     Predicate = fun(#{?snk_kind := K}) ->
-                        lists:member(K, Kinds)
-                end,
+        lists:member(K, Kinds)
+    end,
     N = length(Kinds),
     {ok, Sub} = snabbkaffe_collector:subscribe(Predicate, N, Timeout, 0),
     Res = Action(),
@@ -617,15 +693,19 @@ wait_for_events(Action, Kinds, Timeout) ->
     end.
 
 wait_for_stats(Action, Stats) ->
-    Predicate = fun(Event = #{?snk_kind := emqx_stats_setstat}) ->
-                        Stat = maps:with(
-                                 [ count_stat
-                                 , max_stat
-                                 ], Event),
-                        lists:member(Stat, Stats);
-                   (_) ->
-                        false
-                end,
+    Predicate = fun
+        (Event = #{?snk_kind := emqx_stats_setstat}) ->
+            Stat = maps:with(
+                [
+                    count_stat,
+                    max_stat
+                ],
+                Event
+            ),
+            lists:member(Stat, Stats);
+        (_) ->
+            false
+    end,
     N = length(Stats),
     Timeout = 500,
     {ok, Sub} = snabbkaffe_collector:subscribe(Predicate, N, Timeout, 0),
@@ -645,8 +725,9 @@ recv_msgs(0, Msgs) ->
 recv_msgs(Count, Msgs) ->
     receive
         {publish, Msg} ->
-            recv_msgs(Count-1, [Msg|Msgs]);
-        _Other -> recv_msgs(Count, Msgs)
+            recv_msgs(Count - 1, [Msg | Msgs]);
+        _Other ->
+            recv_msgs(Count, Msgs)
     after 100 ->
         Msgs
     end.

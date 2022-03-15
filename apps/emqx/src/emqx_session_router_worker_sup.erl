@@ -18,22 +18,25 @@
 
 -behaviour(supervisor).
 
--export([ start_link/1
-        ]).
+-export([start_link/1]).
 
--export([ abort_worker/1
-        , start_worker/2
-        ]).
+-export([
+    abort_worker/1,
+    start_worker/2
+]).
 
--export([ init/1
-        ]).
+-export([init/1]).
 
 start_link(SessionTab) ->
     supervisor:start_link({local, ?MODULE}, ?MODULE, SessionTab).
 
 start_worker(SessionID, RemotePid) ->
-    supervisor:start_child(?MODULE, [#{ session_id => SessionID
-                                      , remote_pid => RemotePid}]).
+    supervisor:start_child(?MODULE, [
+        #{
+            session_id => SessionID,
+            remote_pid => RemotePid
+        }
+    ]).
 
 abort_worker(Pid) ->
     supervisor:terminate_child(?MODULE, Pid).
@@ -44,14 +47,18 @@ abort_worker(Pid) ->
 
 init(SessionTab) ->
     %% Resume worker
-    Worker = #{id => session_router_worker,
-               start => {emqx_session_router_worker, start_link, [SessionTab]},
-               restart => transient,
-               shutdown => 2000,
-               type => worker,
-               modules => [emqx_session_router_worker]},
-    Spec = #{ strategy  => simple_one_for_one
-            , intensity => 1
-            , period    => 5},
+    Worker = #{
+        id => session_router_worker,
+        start => {emqx_session_router_worker, start_link, [SessionTab]},
+        restart => transient,
+        shutdown => 2000,
+        type => worker,
+        modules => [emqx_session_router_worker]
+    },
+    Spec = #{
+        strategy => simple_one_for_one,
+        intensity => 1,
+        period => 5
+    },
 
     {ok, {Spec, [Worker]}}.

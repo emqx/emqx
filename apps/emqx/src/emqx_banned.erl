@@ -22,7 +22,6 @@
 -include("logger.hrl").
 -include("types.hrl").
 
-
 %% Mnesia bootstrap
 -export([mnesia/1]).
 
@@ -30,23 +29,25 @@
 
 -export([start_link/0, stop/0]).
 
--export([ check/1
-        , create/1
-        , look_up/1
-        , delete/1
-        , info/1
-        , format/1
-        , parse/1
-        ]).
+-export([
+    check/1,
+    create/1,
+    look_up/1,
+    delete/1,
+    info/1,
+    format/1,
+    parse/1
+]).
 
 %% gen_server callbacks
--export([ init/1
-        , handle_call/3
-        , handle_cast/2
-        , handle_info/2
-        , terminate/2
-        , code_change/3
-        ]).
+-export([
+    init/1,
+    handle_call/3,
+    handle_cast/2,
+    handle_info/2,
+    terminate/2,
+    code_change/3
+]).
 
 -elvis([{elvis_style, state_record_and_type, disable}]).
 
@@ -63,68 +64,71 @@
 
 mnesia(boot) ->
     ok = mria:create_table(?BANNED_TAB, [
-                {type, set},
-                {rlog_shard, ?COMMON_SHARD},
-                {storage, disc_copies},
-                {record_name, banned},
-                {attributes, record_info(fields, banned)},
-                {storage_properties, [{ets, [{read_concurrency, true}]}]}]).
+        {type, set},
+        {rlog_shard, ?COMMON_SHARD},
+        {storage, disc_copies},
+        {record_name, banned},
+        {attributes, record_info(fields, banned)},
+        {storage_properties, [{ets, [{read_concurrency, true}]}]}
+    ]).
 
 %% @doc Start the banned server.
--spec(start_link() -> startlink_ret()).
+-spec start_link() -> startlink_ret().
 start_link() ->
     gen_server:start_link({local, ?MODULE}, ?MODULE, [], []).
 
 %% for tests
--spec(stop() -> ok).
+-spec stop() -> ok.
 stop() -> gen_server:stop(?MODULE).
 
--spec(check(emqx_types:clientinfo()) -> boolean()).
+-spec check(emqx_types:clientinfo()) -> boolean().
 check(ClientInfo) ->
-    do_check({clientid, maps:get(clientid, ClientInfo, undefined)})
-        orelse do_check({username, maps:get(username, ClientInfo, undefined)})
-            orelse do_check({peerhost, maps:get(peerhost, ClientInfo, undefined)}).
+    do_check({clientid, maps:get(clientid, ClientInfo, undefined)}) orelse
+        do_check({username, maps:get(username, ClientInfo, undefined)}) orelse
+        do_check({peerhost, maps:get(peerhost, ClientInfo, undefined)}).
 
 do_check({_, undefined}) ->
     false;
 do_check(Who) when is_tuple(Who) ->
     case mnesia:dirty_read(?BANNED_TAB, Who) of
         [] -> false;
-        [#banned{until = Until}] ->
-            Until > erlang:system_time(second)
+        [#banned{until = Until}] -> Until > erlang:system_time(second)
     end.
 
-format(#banned{who = Who0,
-               by = By,
-               reason = Reason,
-               at = At,
-               until = Until}) ->
+format(#banned{
+    who = Who0,
+    by = By,
+    reason = Reason,
+    at = At,
+    until = Until
+}) ->
     {As, Who} = maybe_format_host(Who0),
     #{
-        as     => As,
-        who    => Who,
-        by     => By,
+        as => As,
+        who => Who,
+        by => By,
         reason => Reason,
-        at     => to_rfc3339(At),
-        until  => to_rfc3339(Until)
+        at => to_rfc3339(At),
+        until => to_rfc3339(Until)
     }.
 
 parse(Params) ->
     case pares_who(Params) of
-        {error, Reason} -> {error, Reason};
-        Who  ->
-            By     = maps:get(<<"by">>, Params, <<"mgmt_api">>),
+        {error, Reason} ->
+            {error, Reason};
+        Who ->
+            By = maps:get(<<"by">>, Params, <<"mgmt_api">>),
             Reason = maps:get(<<"reason">>, Params, <<"">>),
-            At     = maps:get(<<"at">>, Params, erlang:system_time(second)),
-            Until  = maps:get(<<"until">>, Params, At + 5 * 60),
+            At = maps:get(<<"at">>, Params, erlang:system_time(second)),
+            Until = maps:get(<<"until">>, Params, At + 5 * 60),
             case Until > erlang:system_time(second) of
                 true ->
                     #banned{
-                        who    = Who,
-                        by     = By,
+                        who = Who,
+                        by = By,
                         reason = Reason,
-                        at     = At,
-                        until  = Until
+                        at = At,
+                        until = Until
                     };
                 false ->
                     ErrorReason =
@@ -151,13 +155,15 @@ maybe_format_host({As, Who}) ->
 to_rfc3339(Timestamp) ->
     list_to_binary(calendar:system_time_to_rfc3339(Timestamp, [{unit, second}])).
 
--spec(create(emqx_types:banned() | map()) ->
-    {ok, emqx_types:banned()} | {error, {already_exist, emqx_types:banned()}}).
-create(#{who    := Who,
-         by     := By,
-         reason := Reason,
-         at     := At,
-         until  := Until}) ->
+-spec create(emqx_types:banned() | map()) ->
+    {ok, emqx_types:banned()} | {error, {already_exist, emqx_types:banned()}}.
+create(#{
+    who := Who,
+    by := By,
+    reason := Reason,
+    at := At,
+    until := Until
+}) ->
     Banned = #banned{
         who = Who,
         by = By,
@@ -166,8 +172,7 @@ create(#{who    := Who,
         until = Until
     },
     create(Banned);
-
-create(Banned = #banned{who = Who})  ->
+create(Banned = #banned{who = Who}) ->
     case look_up(Who) of
         [] ->
             mria:dirty_write(?BANNED_TAB, Banned),
@@ -176,8 +181,10 @@ create(Banned = #banned{who = Who})  ->
             %% Don't support shorten or extend the until time by overwrite.
             %% We don't support update api yet, user must delete then create new one.
             case Until > erlang:system_time(second) of
-                true -> {error, {already_exist, OldBanned}};
-                false -> %% overwrite expired one is ok.
+                true ->
+                    {error, {already_exist, OldBanned}};
+                %% overwrite expired one is ok.
+                false ->
                     mria:dirty_write(?BANNED_TAB, Banned),
                     {ok, Banned}
             end
@@ -188,10 +195,12 @@ look_up(Who) when is_map(Who) ->
 look_up(Who) ->
     mnesia:dirty_read(?BANNED_TAB, Who).
 
--spec(delete({clientid, emqx_types:clientid()}
-           | {username, emqx_types:username()}
-           | {peerhost, emqx_types:peerhost()}) -> ok).
-delete(Who) when is_map(Who)->
+-spec delete(
+    {clientid, emqx_types:clientid()}
+    | {username, emqx_types:username()}
+    | {peerhost, emqx_types:peerhost()}
+) -> ok.
+delete(Who) when is_map(Who) ->
     delete(pares_who(Who));
 delete(Who) ->
     mria:dirty_delete(?BANNED_TAB, Who).
@@ -217,7 +226,6 @@ handle_cast(Msg, State) ->
 handle_info({timeout, TRef, expire}, State = #{expiry_timer := TRef}) ->
     _ = mria:transaction(?COMMON_SHARD, fun expire_banned_items/1, [erlang:system_time(second)]),
     {noreply, ensure_expiry_timer(State), hibernate};
-
 handle_info(Info, State) ->
     ?SLOG(error, #{msg => "unexpected_info", info => Info}),
     {noreply, State}.
@@ -242,7 +250,12 @@ ensure_expiry_timer(State) ->
 
 expire_banned_items(Now) ->
     mnesia:foldl(
-      fun(B = #banned{until = Until}, _Acc) when Until < Now ->
-              mnesia:delete_object(?BANNED_TAB, B, sticky_write);
-         (_, _Acc) -> ok
-      end, ok, ?BANNED_TAB).
+        fun
+            (B = #banned{until = Until}, _Acc) when Until < Now ->
+                mnesia:delete_object(?BANNED_TAB, B, sticky_write);
+            (_, _Acc) ->
+                ok
+        end,
+        ok,
+        ?BANNED_TAB
+    ).

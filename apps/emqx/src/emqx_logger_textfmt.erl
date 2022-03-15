@@ -44,8 +44,9 @@ try_format_unicode(Char) ->
                 {incomplete, _, _} -> error;
                 Binary -> Binary
             end
-        catch _:_ ->
-            error
+        catch
+            _:_ ->
+                error
         end,
     case List of
         error -> io_lib:format("~0p", [Char]);
@@ -54,15 +55,18 @@ try_format_unicode(Char) ->
 
 enrich_report_mfa(Report, #{mfa := Mfa, line := Line}) ->
     Report#{mfa => mfa(Mfa), line => Line};
-enrich_report_mfa(Report, _) -> Report.
+enrich_report_mfa(Report, _) ->
+    Report.
 
 enrich_report_clientid(Report, #{clientid := ClientId}) ->
     Report#{clientid => try_format_unicode(ClientId)};
-enrich_report_clientid(Report, _) -> Report.
+enrich_report_clientid(Report, _) ->
+    Report.
 
 enrich_report_peername(Report, #{peername := Peername}) ->
     Report#{peername => Peername};
-enrich_report_peername(Report, _) -> Report.
+enrich_report_peername(Report, _) ->
+    Report.
 
 %% clientid and peername always in emqx_conn's process metadata.
 %% topic can be put in meta using ?SLOG/3, or put in msg's report by ?SLOG/2
@@ -70,7 +74,8 @@ enrich_report_topic(Report, #{topic := Topic}) ->
     Report#{topic => try_format_unicode(Topic)};
 enrich_report_topic(Report = #{topic := Topic}, _) ->
     Report#{topic => try_format_unicode(Topic)};
-enrich_report_topic(Report, _) -> Report.
+enrich_report_topic(Report, _) ->
+    Report.
 
 enrich_mfa({Fmt, Args}, #{mfa := Mfa, line := Line}) when is_list(Fmt) ->
     {Fmt ++ " mfa: ~ts line: ~w", Args ++ [mfa(Mfa), Line]};
@@ -78,7 +83,7 @@ enrich_mfa(Msg, _) ->
     Msg.
 
 enrich_client_info({Fmt, Args}, #{clientid := ClientId, peername := Peer}) when is_list(Fmt) ->
-    {" ~ts@~ts " ++ Fmt, [ClientId, Peer | Args] };
+    {" ~ts@~ts " ++ Fmt, [ClientId, Peer | Args]};
 enrich_client_info({Fmt, Args}, #{clientid := ClientId}) when is_list(Fmt) ->
     {" ~ts " ++ Fmt, [ClientId | Args]};
 enrich_client_info({Fmt, Args}, #{peername := Peer}) when is_list(Fmt) ->

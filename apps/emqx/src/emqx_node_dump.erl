@@ -17,14 +17,16 @@
 %% Collection of functions for creating node dumps
 -module(emqx_node_dump).
 
--export([ sys_info/0
-        , app_env_dump/0
-        ]).
+-export([
+    sys_info/0,
+    app_env_dump/0
+]).
 
 sys_info() ->
-    #{ release     => emqx_app:get_release()
-     , otp_version => emqx_vm:get_otp_version()
-     }.
+    #{
+        release => emqx_app:get_release(),
+        otp_version => emqx_vm:get_otp_version()
+    }.
 
 app_env_dump() ->
     censor(ets:tab2list(ac_tab)).
@@ -37,13 +39,13 @@ censor([_ | Rest]) ->
     censor(Rest).
 
 censor(Path, {Key, Val}) when is_atom(Key) ->
-    {Key, censor([Key|Path], Val)};
+    {Key, censor([Key | Path], Val)};
 censor(Path, M) when is_map(M) ->
     Fun = fun(Key, Val) ->
-                  censor([Key|Path], Val)
-          end,
+        censor([Key | Path], Val)
+    end,
     maps:map(Fun, M);
-censor(Path, L = [Fst|_]) when is_tuple(Fst) ->
+censor(Path, L = [Fst | _]) when is_tuple(Fst) ->
     [censor(Path, I) || I <- L];
 censor([Key | _], Val) ->
     case is_sensitive(Key) of
@@ -58,12 +60,14 @@ is_sensitive(Key) when is_list(Key) ->
         Bin ->
             is_sensitive(Bin)
     catch
-        _ : _ ->
+        _:_ ->
             false
     end;
 is_sensitive(Key) when is_binary(Key) ->
-    lists:any(fun(Pattern) -> re:run(Key, Pattern) =/= nomatch end,
-              ["passwd", "password", "secret"]);
+    lists:any(
+        fun(Pattern) -> re:run(Key, Pattern) =/= nomatch end,
+        ["passwd", "password", "secret"]
+    );
 is_sensitive(Key) when is_tuple(Key) ->
     false.
 
@@ -77,11 +81,14 @@ obfuscate_value(_Val) ->
 -include_lib("eunit/include/eunit.hrl").
 
 censor_test() ->
-    ?assertMatch( [{{env, emqx, listeners}, #{password := <<"********">>}}]
-                , censor([foo, {{env, emqx, listeners}, #{password => <<"secret">>}}, {app, bar}])
-                ),
-    ?assertMatch( [{{env, emqx, listeners}, [{foo, 1}, {password, "********"}]}]
-                , censor([{{env, emqx, listeners}, [{foo, 1}, {password, "secret"}]}])
-                ).
+    ?assertMatch(
+        [{{env, emqx, listeners}, #{password := <<"********">>}}],
+        censor([foo, {{env, emqx, listeners}, #{password => <<"secret">>}}, {app, bar}])
+    ),
+    ?assertMatch(
+        [{{env, emqx, listeners}, [{foo, 1}, {password, "********"}]}],
+        censor([{{env, emqx, listeners}, [{foo, 1}, {password, "secret"}]}])
+    ).
 
--endif. %% TEST
+%% TEST
+-endif.

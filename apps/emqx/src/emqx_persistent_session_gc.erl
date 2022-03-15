@@ -23,17 +23,19 @@
 -export([start_link/0]).
 
 %% gen_server callbacks
--export([ init/1
-        , handle_call/3
-        , handle_cast/2
-        , handle_info/2
-        , terminate/2
-        ]).
+-export([
+    init/1,
+    handle_call/3,
+    handle_cast/2,
+    handle_info/2,
+    terminate/2
+]).
 
 -ifdef(TEST).
--export([ session_gc_worker/2
-        , message_gc_worker/0
-        ]).
+-export([
+    session_gc_worker/2,
+    message_gc_worker/0
+]).
 -endif.
 
 -define(SERVER, ?MODULE).
@@ -85,14 +87,18 @@ terminate(_Reason, _State) ->
 
 start_session_gc_timer(State) ->
     Interval = emqx_config:get([persistent_session_store, session_message_gc_interval]),
-    State#{ session_gc_timer => erlang:start_timer(Interval, self(), session_gc_timeout)}.
+    State#{session_gc_timer => erlang:start_timer(Interval, self(), session_gc_timeout)}.
 
-session_gc_timeout(Ref, #{ session_gc_timer := R } = State) when R =:= Ref ->
+session_gc_timeout(Ref, #{session_gc_timer := R} = State) when R =:= Ref ->
     %% Prevent overlapping processes.
     GCPid = maps:get(session_gc_pid, State, undefined),
     case GCPid =/= undefined andalso erlang:is_process_alive(GCPid) of
-        true  -> start_session_gc_timer(State);
-        false -> start_session_gc_timer(State#{ session_gc_pid => proc_lib:spawn_link(fun session_gc_worker/0)})
+        true ->
+            start_session_gc_timer(State);
+        false ->
+            start_session_gc_timer(State#{
+                session_gc_pid => proc_lib:spawn_link(fun session_gc_worker/0)
+            })
     end;
 session_gc_timeout(_Ref, State) ->
     State.
@@ -105,13 +111,13 @@ session_gc_worker(delete, Key) ->
 session_gc_worker(marker, Key) ->
     TS = emqx_persistent_session:session_message_info(timestamp, Key),
     case TS + ?MARKER_GRACE_PERIOD < erlang:system_time(microsecond) of
-        true  -> emqx_persistent_session:delete_session_message(Key);
+        true -> emqx_persistent_session:delete_session_message(Key);
         false -> ok
     end;
 session_gc_worker(abandoned, Key) ->
     TS = emqx_persistent_session:session_message_info(timestamp, Key),
     case TS + ?ABANDONED_GRACE_PERIOD < erlang:system_time(microsecond) of
-        true  -> emqx_persistent_session:delete_session_message(Key);
+        true -> emqx_persistent_session:delete_session_message(Key);
         false -> ok
     end.
 
@@ -124,14 +130,18 @@ session_gc_worker(abandoned, Key) ->
 %% We sacrifice space for simplicity at this point.
 start_message_gc_timer(State) ->
     Interval = emqx_config:get([persistent_session_store, session_message_gc_interval]),
-    State#{ message_gc_timer => erlang:start_timer(Interval, self(), message_gc_timeout)}.
+    State#{message_gc_timer => erlang:start_timer(Interval, self(), message_gc_timeout)}.
 
-message_gc_timeout(Ref, #{ message_gc_timer := R } = State) when R =:= Ref ->
+message_gc_timeout(Ref, #{message_gc_timer := R} = State) when R =:= Ref ->
     %% Prevent overlapping processes.
     GCPid = maps:get(message_gc_pid, State, undefined),
     case GCPid =/= undefined andalso erlang:is_process_alive(GCPid) of
-        true  -> start_message_gc_timer(State);
-        false -> start_message_gc_timer(State#{ message_gc_pid => proc_lib:spawn_link(fun message_gc_worker/0)})
+        true ->
+            start_message_gc_timer(State);
+        false ->
+            start_message_gc_timer(State#{
+                message_gc_pid => proc_lib:spawn_link(fun message_gc_worker/0)
+            })
     end;
 message_gc_timeout(_Ref, State) ->
     State.

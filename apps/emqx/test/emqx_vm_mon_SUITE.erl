@@ -27,10 +27,11 @@ init_per_testcase(t_alarms, Config) ->
     emqx_common_test_helpers:boot_modules(all),
     emqx_common_test_helpers:start_apps([]),
     emqx_config:put([sysmon, vm], #{
-            process_high_watermark => 0,
-            process_low_watermark => 0,
-            process_check_interval => 100 %% 1s
-        }),
+        process_high_watermark => 0,
+        process_low_watermark => 0,
+        %% 1s
+        process_check_interval => 100
+    }),
     ok = supervisor:terminate_child(emqx_sys_sup, emqx_vm_mon),
     {ok, _} = supervisor:restart_child(emqx_sys_sup, emqx_vm_mon),
     Config;

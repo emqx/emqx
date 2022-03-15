@@ -40,4 +40,3 @@ t_is_enabled(_) ->
     ?assert(emqx_boot:is_enabled(router)),
     ?assert(emqx_boot:is_enabled(broker)),
     ?assert(emqx_boot:is_enabled(listeners)).
-

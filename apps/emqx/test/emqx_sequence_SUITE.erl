@@ -21,11 +21,14 @@
 
 -include_lib("eunit/include/eunit.hrl").
 
--import(emqx_sequence,
-        [ nextval/2
-        , currval/2
-        , reclaim/2
-        ]).
+-import(
+    emqx_sequence,
+    [
+        nextval/2,
+        currval/2,
+        reclaim/2
+    ]
+).
 
 all() -> emqx_common_test_helpers:all(?MODULE).
 
@@ -61,4 +64,3 @@ t_generate(_) ->
     ?assertEqual(false, ets:member(seqtab, key)),
     ?assert(emqx_sequence:delete(seqtab)),
     ?assertNot(emqx_sequence:delete(seqtab)).
-

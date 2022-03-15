@@ -17,10 +17,11 @@
 -module(emqx_authz_test_mod).
 
 %% Authorization callbacks
--export([ init/1
-        , authorize/2
-        , description/0
-        ]).
+-export([
+    init/1,
+    authorize/2,
+    description/0
+]).
 
 init(AuthzOpts) ->
     {ok, AuthzOpts}.
@@ -30,4 +31,3 @@ authorize({_User, _PubSub, _Topic}, _State) ->
 
 description() ->
     "Test Authorization Mod".
-
