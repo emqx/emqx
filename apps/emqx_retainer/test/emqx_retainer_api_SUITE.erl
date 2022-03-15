@@ -22,17 +22,25 @@
 -include_lib("eunit/include/eunit.hrl").
 -include_lib("common_test/include/ct.hrl").
 
+-define(CLUSTER_RPC_SHARD, emqx_cluster_rpc_shard).
+
 -import(emqx_mgmt_api_test_util, [request_api/2, request_api/5, api_path/1, auth_header_/0]).
 
 all() ->
     emqx_common_test_helpers:all(?MODULE).
 
 init_per_suite(Config) ->
+    application:load(emqx_conf),
+    ok = ekka:start(),
+    ok = mria_rlog:wait_for_shards([?CLUSTER_RPC_SHARD], infinity),
     emqx_retainer_SUITE:load_base_conf(),
     emqx_mgmt_api_test_util:init_suite([emqx_retainer]),
     Config.
 
 end_per_suite(Config) ->
+    ekka:stop(),
+    mria:stop(),
+    mria_mnesia:delete_schema(),
     emqx_mgmt_api_test_util:end_suite([emqx_retainer]),
     Config.
 
