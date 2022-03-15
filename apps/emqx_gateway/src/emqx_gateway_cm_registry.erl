@@ -64,7 +64,7 @@ tabname(Name) ->
 register_channel(Name, ClientId) when is_binary(ClientId) ->
     register_channel(Name, {ClientId, self()});
 
-register_channel(Name, {ClientId, ChanPid}) 
+register_channel(Name, {ClientId, ChanPid})
   when is_binary(ClientId), is_pid(ChanPid) ->
     mria:dirty_write(tabname(Name), record(ClientId, ChanPid)).
 
@@ -113,12 +113,11 @@ handle_cast(Msg, State) ->
     {noreply, State}.
 
 handle_info({membership, {mnesia, down, Node}}, State = #{name := Name}) ->
-    Tab = tabname(Name),
-    global:trans(
-      {?LOCK, self()},
-      fun() ->
-        mria:transaction(?CM_SHARD, fun cleanup_channels/2, [Node, Tab])
-      end),
+    cleanup_channels(Node, Name),
+    {noreply, State};
+
+handle_info({membership, {node, down, Node}}, State = #{name := Name}) ->
+    cleanup_channels(Node, Name),
     {noreply, State};
 
 handle_info({membership, _Event}, State) ->
@@ -138,7 +137,15 @@ code_change(_OldVsn, State, _Extra) ->
 %% Internal functions
 %%--------------------------------------------------------------------
 
-cleanup_channels(Node, Tab) ->
+cleanup_channels(Node, Name) ->
+    Tab = tabname(Name),
+    global:trans(
+      {?LOCK, self()},
+      fun() ->
+        mria:transaction(?CM_SHARD, fun do_cleanup_channels/2, [Node, Tab])
+      end).
+
+do_cleanup_channels(Node, Tab) ->
     Pat = [{#channel{pid = '$1', _ = '_'}, [{'==', {node, '$1'}, Node}], ['$_']}],
     lists:foreach(fun(Chan) ->
         mnesia:delete_object(Tab, Chan, write)
