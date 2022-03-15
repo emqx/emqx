@@ -977,7 +977,9 @@ handle_call({quota, Policy}, Channel) ->
     reply(ok, Channel#channel{quota = Quota});
 
 handle_call({keepalive, Interval}, Channel = #channel{keepalive = KeepAlive,
-    conninfo = ConnInfo}) ->
+    conninfo = ConnInfo, timers = Timers}) ->
+    AliveTimer = maps:get(alive_timer, Timers, undefined),
+    emqx_misc:cancel_timer(AliveTimer),
     ClientId = info(clientid, Channel),
     NKeepalive = emqx_keepalive:set(interval, Interval * 1000, KeepAlive),
     NConnInfo = maps:put(keepalive, Interval, ConnInfo),

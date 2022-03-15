@@ -257,7 +257,7 @@ set_keepalive(#{clientid := ClientId}, Params) ->
         undefined ->
             minirest:return({error, ?ERROR7, params_not_found});
         Interval0 ->
-            Interval = binary_to_integer(Interval0),
+            Interval = to_integer(Interval0),
             case emqx_mgmt:set_keepalive(emqx_mgmt_util:urldecode(ClientId), Interval) of
                 ok -> minirest:return();
                 {error, not_found} -> minirest:return({error, ?ERROR12, not_found});
@@ -265,6 +265,9 @@ set_keepalive(#{clientid := ClientId}, Params) ->
                 {error, Reason} -> minirest:return({error, ?ERROR1, Reason})
             end
     end.
+
+to_integer(Int)when is_integer(Int) -> Int;
+to_integer(Bin) when is_binary(Bin) -> binary_to_integer(Bin).
 
 %% @private
 %% S = 100,1s
