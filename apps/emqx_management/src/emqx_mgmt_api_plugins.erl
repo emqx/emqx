@@ -353,9 +353,13 @@ return(_, {error, Reason}) ->
 parse_position(#{<<"position">> := <<"front">>}, _) -> front;
 parse_position(#{<<"position">> := <<"rear">>}, _) -> rear;
 parse_position(#{<<"position">> := <<"before:", Name/binary>>}, Name) ->
-    {error, <<"Can't before:self">>};
+    {error, <<"Invalid parameter. Cannot be placed before itself">>};
 parse_position(#{<<"position">> := <<"after:", Name/binary>>}, Name) ->
-    {error, <<"Can't after:self">>};
+    {error, <<"Invalid parameter. Cannot be placed after itself">>};
+parse_position(#{<<"position">> := <<"before:">>}, _Name) ->
+    {error, <<"Invalid parameter. Cannot be placed before an empty target">>};
+parse_position(#{<<"position">> := <<"after:">>}, _Name) ->
+    {error, <<"Invalid parameter. Cannot be placed after an empty target">>};
 parse_position(#{<<"position">> := <<"before:", Before/binary>>}, _Name) ->
     {before, binary_to_list(Before)};
 parse_position(#{<<"position">> := <<"after:", After/binary>>}, _Name) ->

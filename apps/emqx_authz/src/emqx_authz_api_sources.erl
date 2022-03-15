@@ -506,16 +506,16 @@ parse_position(<<"front">>) ->
     {ok, ?CMD_MOVE_FRONT};
 parse_position(<<"rear">>) ->
     {ok, ?CMD_MOVE_REAR};
+parse_position(<<"before:">>) ->
+    {error, <<"Invalid parameter. Cannot be placed before an empty target">>};
+parse_position(<<"after:">>) ->
+    {error, <<"Invalid parameter. Cannot be placed after an empty target">>};
 parse_position(<<"before:", Before/binary>>) ->
     {ok, ?CMD_MOVE_BEFORE(Before)};
 parse_position(<<"after:", After/binary>>) ->
     {ok, ?CMD_MOVE_AFTER(After)};
-parse_position(<<"before:">>) ->
-    {error, {invalid_parameter, position}};
-parse_position(<<"after:">>) ->
-    {error, {invalid_parameter, position}};
 parse_position(_) ->
-    {error, {invalid_parameter, position}}.
+    {error, <<"Invalid parameter. Unknow position">>}.
 
 position_example() ->
     #{ front =>
