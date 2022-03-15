@@ -61,7 +61,7 @@ defmodule EMQXUmbrella.MixProject do
       {:ecpool, github: "emqx/ecpool", tag: "0.5.2"},
       {:replayq, "0.3.3", override: true},
       {:pbkdf2, github: "emqx/erlang-pbkdf2", tag: "2.0.4", override: true},
-      {:emqtt, github: "emqx/emqtt", tag: "1.4.3", override: true},
+      {:emqtt, github: "emqx/emqtt", tag: "1.4.8", override: true},
       {:rulesql, github: "emqx/rulesql", tag: "0.1.4"},
       {:observer_cli, "1.7.1"},
       {:system_monitor, github: "ieQu1/system_monitor", tag: "3.0.2"},
