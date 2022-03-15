@@ -458,8 +458,11 @@ jobs:
     - name: Docker push to aws ecr
       if: matrix.profile == 'emqx' && matrix.arch == 'amd64' && startsWith(github.ref, 'refs/tags/')
       run: |
-        IsPushLatest=${{ github.event_name == 'release' && !github.event.release.prerelease }};
-        scripts/docker-create-push-manifests.sh "${{ steps.login-ecr.outputs.registry }}/${{ steps.meta.outputs.tags }}" "$IsPushLatest"
+        for tag in $(echo ${{ steps.meta.outputs.json }} | jq  -c '.tags[]'); do
+          docker pull "$tag"
+          docker tag "$tag" "${{ steps.login-ecr.outputs.registry }}/$tag"
+          docker push "${{ steps.login-ecr.outputs.registry }}/$tag"
+        done
 
   docker-push-multi-arch-manifest:
     # note, we only run on amd64
