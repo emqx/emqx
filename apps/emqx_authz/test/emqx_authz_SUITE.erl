@@ -186,7 +186,7 @@ t_move_source(_) ->
                  , #{type := file}
                  ], emqx_authz:lookup()),
 
-    {ok, _} = emqx_authz:move(postgresql, <<"top">>),
+    {ok, _} = emqx_authz:move(postgresql, ?CMD_MOVE_FRONT),
     ?assertMatch([ #{type := postgresql}
                  , #{type := http}
                  , #{type := mongodb}
@@ -195,7 +195,7 @@ t_move_source(_) ->
                  , #{type := file}
                  ], emqx_authz:lookup()),
 
-    {ok, _} = emqx_authz:move(http, <<"bottom">>),
+    {ok, _} = emqx_authz:move(http, ?CMD_MOVE_REAR),
     ?assertMatch([ #{type := postgresql}
                  , #{type := mongodb}
                  , #{type := mysql}
@@ -204,7 +204,7 @@ t_move_source(_) ->
                  , #{type := http}
                  ], emqx_authz:lookup()),
 
-    {ok, _} = emqx_authz:move(mysql, #{<<"before">> => postgresql}),
+    {ok, _} = emqx_authz:move(mysql, ?CMD_MOVE_BEFORE(postgresql)),
     ?assertMatch([ #{type := mysql}
                  , #{type := postgresql}
                  , #{type := mongodb}
@@ -213,7 +213,7 @@ t_move_source(_) ->
                  , #{type := http}
                  ], emqx_authz:lookup()),
 
-    {ok, _} = emqx_authz:move(mongodb, #{<<"after">> => http}),
+    {ok, _} = emqx_authz:move(mongodb, ?CMD_MOVE_AFTER(http)),
     ?assertMatch([ #{type := mysql}
                  , #{type := postgresql}
                  , #{type := redis}

@@ -18,6 +18,7 @@
 
 -behaviour(minirest_api).
 
+-include("emqx_exhook.hrl").
 -include_lib("typerefl/include/types.hrl").
 -include_lib("emqx/include/logger.hrl").
 
@@ -104,10 +105,14 @@ schema("/exhooks/:name/hooks") ->
 schema("/exhooks/:name/move") ->
     #{'operationId' => move,
       post => #{tags => ?TAGS,
-                description => <<"Move the server">>,
+                description =>
+                    <<"Move the server.\n",
+                      "NOTE: The position should be \"front|rear|before:{name}|after:{name}\"\n">>,
                 parameters => params_server_name_in_path(),
-                'requestBody' => mk(ref(move_req), #{}),
-                responses => #{200 => <<>>,
+                'requestBody' => emqx_dashboard_swagger:schema_with_examples(
+                                   ref(move_req),
+                                   position_example()),
+                responses => #{204 => <<"No Content">>,
                                400 => error_codes([?BAD_REQUEST], <<"Bad Request">>),
                                500 => error_codes([?BAD_RPC], <<"Bad RPC">>)
                               }
@@ -115,12 +120,8 @@ schema("/exhooks/:name/move") ->
      }.
 
 fields(move_req) ->
-    [ {position, mk(enum([top, bottom, before, 'after']), #{})}
-    , {related, mk(string(), #{desc => <<"Relative position of movement">>,
-                               default => <<>>,
-                               example => <<>>
-                              })}
-    ];
+    [{position, mk(string(), #{ desc => <<"The target position to be moved.">>
+                              , example => <<"front">>})}];
 
 fields(detail_server_info) ->
     [ {metrics, mk(ref(metrics), #{})}
@@ -210,7 +211,8 @@ action_with_name(put, #{bindings := #{name := Name}, body := Body}) ->
                    }};
         {ok, {error, Reason}} ->
             {400, #{code => <<"BAD_REQUEST">>,
-                    message => unicode:characters_to_binary(io_lib:format("Error Reason:~p~n", [Reason]))
+                    message => unicode:characters_to_binary(
+                                 io_lib:format("Error Reason:~p~n", [Reason]))
                    }};
         {ok, _} ->
             {200};
@@ -231,20 +233,26 @@ action_with_name(delete, #{bindings := #{name := Name}}) ->
                    }}
     end.
 
-move(post, #{bindings := #{name := Name}, body := Body}) ->
-    #{<<"position">> := PositionT, <<"related">> := Related} = Body,
-    Position = erlang:binary_to_atom(PositionT),
-    case emqx_exhook_mgr:update_config([exhook, servers],
-                                       {move, Name, Position, Related}) of
-        {ok, ok} ->
-            {200};
-        {ok, not_found} ->
+move(post, #{bindings := #{name := Name}, body := #{<<"position">> := RawPosition}}) ->
+    case parse_position(RawPosition) of
+        {ok, Position} ->
+            case emqx_exhook_mgr:update_config([exhook, servers],
+                                               {move, Name, Position}) of
+                {ok, ok} ->
+                    {204};
+                {ok, not_found} ->
+                    %% TODO: unify status code
+                    {400, #{code => <<"BAD_REQUEST">>,
+                            message => <<"Server not found">>
+                           }};
+                {error, Error} ->
+                    {500, #{code => <<"BAD_RPC">>,
+                            message => Error
+                           }}
+            end;
+        {error, invalid_position} ->
             {400, #{code => <<"BAD_REQUEST">>,
-                    message => <<"Server not found">>
-                   }};
-        {error, Error} ->
-            {500, #{code => <<"BAD_RPC">>,
-                    message => Error
+                    message => <<"Invalid Position">>
                    }}
     end.
 
@@ -297,11 +305,12 @@ fill_cluster_server_info([{Node, {error, _}} | T], StatusL, MetricsL, ServerName
 
 fill_cluster_server_info([{Node, Result} | T], StatusL, MetricsL, ServerName, Default) ->
     #{status := Status, metrics := Metrics} = Result,
-    fill_cluster_server_info(T,
-                             [#{node => Node, status => maps:get(ServerName, Status, error)} | StatusL],
-                             [#{node => Node, metrics => maps:get(ServerName, Metrics, Default)} | MetricsL],
-                             ServerName,
-                             Default);
+    fill_cluster_server_info(
+      T,
+      [#{node => Node, status => maps:get(ServerName, Status, error)} | StatusL],
+      [#{node => Node, metrics => maps:get(ServerName, Metrics, Default)} | MetricsL],
+      ServerName,
+      Default);
 
 fill_cluster_server_info([], StatusL, MetricsL, ServerName, _) ->
     Metrics = emqx_exhook_metrics:metrics_aggregate_by_key(metrics, MetricsL),
@@ -350,7 +359,9 @@ get_nodes_server_hooks_info(Name) ->
     case emqx_exhook_mgr:hooks(Name) of
         [] -> [];
         Hooks ->
-            AllInfos = call_cluster(fun(Nodes) -> emqx_exhook_proto_v1:server_hooks_metrics(Nodes, Name) end),
+            AllInfos = call_cluster(fun(Nodes) ->
+                                            emqx_exhook_proto_v1:server_hooks_metrics(Nodes, Name)
+                                    end),
             Default = emqx_exhook_metrics:new_metrics_info(),
             get_nodes_server_hooks_info(Hooks, AllInfos, Default, [])
     end.
@@ -385,3 +396,38 @@ call_cluster(Fun) ->
     Nodes = mria_mnesia:running_nodes(),
     Ret = Fun(Nodes),
     lists:zip(Nodes, lists:map(fun emqx_rpc:unwrap_erpc/1, Ret)).
+
+
+%%--------------------------------------------------------------------
+%% Internal Funcs
+%%--------------------------------------------------------------------
+
+position_example() ->
+    #{ front =>
+           #{ summary => <<"absolute position 'front'">>
+            , value => #{<<"position">> => <<"front">>}}
+     , rear =>
+           #{ summary => <<"absolute position 'rear'">>
+            , value => #{<<"position">> => <<"rear">>}}
+     , related_before =>
+           #{ summary => <<"relative position 'before'">>
+            , value => #{<<"position">> => <<"before:default">>}}
+     , related_after =>
+           #{ summary => <<"relative position 'after'">>
+            , value => #{<<"position">> => <<"after:default">>}}
+     }.
+
+parse_position(<<"front">>) ->
+    {ok, ?CMD_MOVE_FRONT};
+parse_position(<<"rear">>) ->
+    {ok, ?CMD_MOVE_REAR};
+parse_position(<<"before:">>) ->
+    {error, invalid_position};
+parse_position(<<"after:">>) ->
+    {error, invalid_position};
+parse_position(<<"before:", Related/binary>>) ->
+    {ok, ?CMD_MOVE_BEFORE(Related)};
+parse_position(<<"after:", Related/binary>>) ->
+    {ok, ?CMD_MOVE_AFTER(Related)};
+parse_position(_) ->
+    {error, invalid_position}.

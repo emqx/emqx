@@ -74,10 +74,10 @@
 -type server() :: server_options().
 -type server_options() :: map().
 
--type move_direct() :: top
-                     | bottom
-                     | before
-                     | 'after'.
+-type position() :: front
+                  | rear
+                  | {before, binary()}
+                  | {'after', binary()}.
 
 -type orders() :: #{server_name() => integer()}.
 
@@ -157,8 +157,8 @@ pre_config_update(_, {delete, ToDelete}, OldConf) ->
     {ok, lists:dropwhile(fun(#{<<"name">> := Name}) -> Name =:= ToDelete end,
                          OldConf)};
 
-pre_config_update(_, {move, Name, Position, Relate}, OldConf) ->
-    case do_move(Name, Position, Relate, OldConf) of
+pre_config_update(_, {move, Name, Position}, OldConf) ->
+    case do_move(Name, Position, OldConf) of
         not_found -> {error, not_found};
         NewConf -> {ok, NewConf}
     end;
@@ -226,7 +226,7 @@ handle_call(list, _From, State = #{running := Running,
 
     {reply, OrderServers, State};
 
-handle_call({update_config, {move, _Name, _Direct, _Related}, NewConfL},
+handle_call({update_config, {move, _Name, _Position}, NewConfL},
             _From,
             State) ->
     Orders = reorder(NewConfL),
@@ -461,39 +461,39 @@ clean_reload_timer(Name, State = #{trefs := TRefs}) ->
             State#{trefs := NTRefs}
     end.
 
--spec do_move(binary(), move_direct(), binary(), list(server_options())) ->
+-spec do_move(binary(), position(), list(server_options())) ->
           not_found | list(server_options()).
-do_move(Name, Direct, ToName, ConfL) ->
-    move(ConfL, Name, Direct, ToName, []).
+do_move(Name, Position, ConfL) ->
+    move(ConfL, Name, Position, []).
 
-move([#{<<"name">> := Name} = Server | T], Name, Direct, ToName, HeadL) ->
-    move_to(Direct, ToName, Server, lists:reverse(HeadL) ++ T);
+move([#{<<"name">> := Name} = Server | T], Name, Position, HeadL) ->
+    move_to(Position, Server, lists:reverse(HeadL) ++ T);
 
-move([Server | T], Name, Direct, ToName, HeadL) ->
-    move(T, Name, Direct, ToName, [Server | HeadL]);
+move([Server | T], Name, Position, HeadL) ->
+    move(T, Name, Position, [Server | HeadL]);
 
-move([], _Name, _Direct, _ToName, _HeadL) ->
+move([], _Name, _Position, _HeadL) ->
     not_found.
 
-move_to(top, _, Server, ServerL) ->
+move_to(?CMD_MOVE_FRONT, Server, ServerL) ->
     [Server | ServerL];
 
-move_to(bottom, _, Server, ServerL) ->
+move_to(?CMD_MOVE_REAR, Server, ServerL) ->
     ServerL ++ [Server];
 
-move_to(Direct, ToName, Server, ServerL) ->
-    move_to(ServerL, Direct, ToName, Server, []).
+move_to(Position, Server, ServerL) ->
+    move_to(ServerL, Position, Server, []).
 
-move_to([#{<<"name">> := Name} | _] = T, before, Name, Server, HeadL) ->
+move_to([#{<<"name">> := Name} | _] = T, ?CMD_MOVE_BEFORE(Name), Server, HeadL) ->
     lists:reverse(HeadL) ++ [Server | T];
 
-move_to([#{<<"name">> := Name} = H | T], 'after', Name, Server, HeadL) ->
+move_to([#{<<"name">> := Name} = H | T], ?CMD_MOVE_AFTER(Name), Server, HeadL) ->
     lists:reverse(HeadL) ++ [H, Server | T];
 
-move_to([H | T], Direct, Name, Server, HeadL) ->
-    move_to(T, Direct, Name, Server, [H | HeadL]);
+move_to([H | T], Position, Server, HeadL) ->
+    move_to(T, Position, Server, [H | HeadL]);
 
-move_to([], _Direct, _Name, _Server, _HeadL) ->
+move_to([], _Position, _Server, _HeadL) ->
     not_found.
 
 -spec reorder(list(server_options())) -> orders().

@@ -262,14 +262,25 @@ move_source(Method, #{bindings := #{type := Type} = Bindings } = Req)
   when is_atom(Type) ->
     move_source(Method, Req#{bindings => Bindings#{type => atom_to_binary(Type, utf8)}});
 move_source(post, #{bindings := #{type := Type}, body := #{<<"position">> := Position}}) ->
-    case emqx_authz:move(Type, Position) of
-        {ok, _} -> {204};
-        {error, not_found_source} ->
-            {404, #{code => <<"NOT_FOUND">>,
-                    message => <<"source ", Type/binary, " not found">>}};
-        {error, {emqx_conf_schema, _}} ->
-            {400, #{code => <<"BAD_REQUEST">>,
-                    message => <<"BAD_SCHEMA">>}};
+    case parse_position(Position)  of
+        {ok, NPosition} ->
+            try emqx_authz:move(Type, NPosition) of
+                {ok, _} -> {204};
+                {error, {not_found_source, _Type}} ->
+                    {404, #{code => <<"NOT_FOUND">>,
+                            message => <<"source ", Type/binary, " not found">>}};
+                {error, {emqx_conf_schema, _}} ->
+                    {400, #{code => <<"BAD_REQUEST">>,
+                            message => <<"BAD_SCHEMA">>}};
+                {error, Reason} ->
+                    {400, #{code => <<"BAD_REQUEST">>,
+                            message => bin(Reason)}}
+            catch
+                error : {unknown_authz_source_type, Unknown} ->
+                    NUnknown = bin(Unknown),
+                    {400, #{code => <<"BAD_REQUEST">>,
+                            message => <<"Unknown authz Source Type: ", NUnknown/binary>>}}
+            end;
         {error, Reason} ->
             {400, #{code => <<"BAD_REQUEST">>,
                     message => bin(Reason)}}
@@ -457,8 +468,6 @@ do_write_file(Filename, Bytes) ->
            error(Reason)
     end.
 
-bin(Term) -> erlang:iolist_to_binary(io_lib:format("~p", [Term])).
-
 acl_conf_file() ->
     emqx_authz:acl_conf_file().
 
@@ -468,8 +477,37 @@ parameters_field() ->
       }
     ].
 
+parse_position(<<"front">>) ->
+    {ok, ?CMD_MOVE_FRONT};
+parse_position(<<"rear">>) ->
+    {ok, ?CMD_MOVE_REAR};
+parse_position(<<"before:", Before/binary>>) ->
+    {ok, ?CMD_MOVE_BEFORE(Before)};
+parse_position(<<"after:", After/binary>>) ->
+    {ok, ?CMD_MOVE_AFTER(After)};
+parse_position(<<"before:">>) ->
+    {error, {invalid_parameter, position}};
+parse_position(<<"after:">>) ->
+    {error, {invalid_parameter, position}};
+parse_position(_) ->
+    {error, {invalid_parameter, position}}.
+
 position_example() ->
-    #{<<"position">> => #{<<"before">> => <<"file">>}}.
+    #{ front =>
+          #{ summary => <<"front example">>
+           , value => #{<<"position">> => <<"front">>}}
+     , rear =>
+          #{ summary => <<"rear example">>
+           , value => #{<<"position">> => <<"rear">>}}
+     , relative_before =>
+          #{ summary => <<"relative example">>
+           , value => #{<<"position">> => <<"before:file">>}}
+     , relative_after =>
+          #{ summary => <<"relative example">>
+           , value => #{<<"position">> => <<"after:file">>}}
+     }.
 
 authz_sources_types(Type) ->
     emqx_authz_api_schema:authz_sources_types(Type).
+
+bin(Term) -> erlang:iolist_to_binary(io_lib:format("~p", [Term])).

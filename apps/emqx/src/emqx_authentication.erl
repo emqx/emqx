@@ -100,7 +100,7 @@
 
 -type chain_name() :: atom().
 -type authenticator_id() :: binary().
--type position() :: top | bottom | {before, authenticator_id()}.
+-type position() :: front | rear | {before, authenticator_id()} | {'after', authenticator_id()}.
 -type authn_type() :: atom() | {atom(), atom()}.
 -type provider() :: module().
 
@@ -695,21 +695,29 @@ do_move_authenticator(ID, Authenticators, Position) ->
             {error, {not_found, {authenticator, ID}}};
         {value, Authenticator, NAuthenticators} ->
             case Position of
-                top ->
+                ?CMD_MOVE_FRONT ->
                     {ok, [Authenticator | NAuthenticators]};
-                bottom ->
+                ?CMD_MOVE_REAR ->
                     {ok, NAuthenticators ++ [Authenticator]};
-                {before, ID0} ->
-                    insert(Authenticator, NAuthenticators, ID0, [])
+                ?CMD_MOVE_BEFORE(RelatedID) ->
+                    insert(Authenticator, NAuthenticators, ?CMD_MOVE_BEFORE(RelatedID), []);
+                ?CMD_MOVE_AFTER(RelatedID) ->
+                    insert(Authenticator, NAuthenticators, ?CMD_MOVE_AFTER(RelatedID), [])
             end
     end.
 
-insert(_, [], ID, _) ->
-    {error, {not_found, {authenticator, ID}}};
-insert(Authenticator, [#authenticator{id = ID} | _] = Authenticators, ID, Acc) ->
-    {ok, lists:reverse(Acc) ++ [Authenticator | Authenticators]};
-insert(Authenticator, [Authenticator0 | More], ID, Acc) ->
-    insert(Authenticator, More, ID, [Authenticator0 | Acc]).
+insert(_, [], {_, RelatedID}, _) ->
+    {error, {not_found, {authenticator, RelatedID}}};
+insert(Authenticator, [#authenticator{id = RelatedID} = Related | Rest],
+       {Relative, RelatedID}, Acc) ->
+    case Relative of
+        before ->
+            {ok, lists:reverse(Acc) ++ [Authenticator, Related | Rest]};
+        'after' ->
+            {ok, lists:reverse(Acc) ++ [Related, Authenticator | Rest]}
+    end;
+insert(Authenticator, [Authenticator0 | More], {Relative, RelatedID}, Acc) ->
+    insert(Authenticator, More, {Relative, RelatedID}, [Authenticator0 | Acc]).
 
 update_chain(ChainName, UpdateFun) ->
     case ets:lookup(?CHAINS_TAB, ChainName) of
