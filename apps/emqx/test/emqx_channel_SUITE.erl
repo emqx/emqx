@@ -912,7 +912,27 @@ t_handle_call_kick(_) ->
     {shutdown, kicked, ok, _} = emqx_channel:handle_call(kick, Channelv4),
     {shutdown, kicked, ok,
      ?DISCONNECT_PACKET(?RC_ADMINISTRATIVE_ACTION),
-     _} = emqx_channel:handle_call(kick, Channelv5).
+     _} = emqx_channel:handle_call(kick, Channelv5),
+
+    DisconnectedChannelv5 = channel(#{conn_state => disconnected}),
+    DisconnectedChannelv4 = v4(DisconnectedChannelv5),
+
+    {shutdown, kicked, ok, _} = emqx_channel:handle_call(kick, DisconnectedChannelv5),
+    {shutdown, kicked, ok, _} = emqx_channel:handle_call(kick, DisconnectedChannelv4).
+
+t_handle_kicked_publish_will_msg(_) ->
+    Self = self(),
+    ok = meck:expect(emqx_broker, publish, fun(M) -> Self ! {pub, M} end),
+
+    Msg = emqx_message:make(test, <<"will_topic">>, <<"will_payload">>),
+
+    {shutdown, kicked, ok,
+     ?DISCONNECT_PACKET(?RC_ADMINISTRATIVE_ACTION),
+     _} = emqx_channel:handle_call(kick, channel(#{will_msg => Msg})),
+    receive
+        {pub, Msg} -> ok
+    after 200 -> ?assert(true)
+    end.
 
 t_handle_call_discard(_) ->
     Packet = ?DISCONNECT_PACKET(?RC_SESSION_TAKEN_OVER),

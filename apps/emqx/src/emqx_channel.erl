@@ -1141,10 +1141,18 @@ return_sub_unsub_ack(Packet, Channel) ->
     {reply, Reply :: term(), channel()}
     | {shutdown, Reason :: term(), Reply :: term(), channel()}
     | {shutdown, Reason :: term(), Reply :: term(), emqx_types:packet(), channel()}.
-handle_call(kick, Channel) ->
-    Channel1 = ensure_disconnected(kicked, Channel),
-    case Channel1 of
-        ?IS_MQTT_V5 ->
+handle_call(kick, Channel = #channel{
+                               conn_state = ConnState,
+                               will_msg = WillMsg,
+                               conninfo = #{proto_ver := ProtoVer}
+                              }) ->
+    (WillMsg =/= undefined) andalso publish_will_msg(WillMsg),
+    Channel1 = case ConnState of
+                   connected -> ensure_disconnected(kicked, Channel);
+                   _ -> Channel
+               end,
+    case ProtoVer == ?MQTT_PROTO_V5 andalso ConnState == connected of
+        true ->
             shutdown(kicked, ok,
                      ?DISCONNECT_PACKET(?RC_ADMINISTRATIVE_ACTION), Channel1);
         _ ->
@@ -1227,7 +1235,7 @@ handle_info(
 ->
     emqx_config:get_zone_conf(Zone, [flapping_detect, enable]) andalso
         emqx_flapping:detect(ClientInfo),
-    Channel1 = ensure_disconnected(Reason, mabye_publish_will_msg(Channel)),
+    Channel1 = ensure_disconnected(Reason, maybe_publish_will_msg(Channel)),
     case maybe_shutdown(Reason, Channel1) of
         {ok, Channel2} -> {ok, {event, disconnected}, Channel2};
         Shutdown -> Shutdown
@@ -2051,9 +2059,9 @@ ensure_disconnected(
 %%--------------------------------------------------------------------
 %% Maybe Publish will msg
 
-mabye_publish_will_msg(Channel = #channel{will_msg = undefined}) ->
+maybe_publish_will_msg(Channel = #channel{will_msg = undefined}) ->
     Channel;
-mabye_publish_will_msg(Channel = #channel{will_msg = WillMsg}) ->
+maybe_publish_will_msg(Channel = #channel{will_msg = WillMsg}) ->
     case will_delay_interval(WillMsg) of
         0 ->
             ok = publish_will_msg(WillMsg),
@@ -2063,10 +2071,10 @@ mabye_publish_will_msg(Channel = #channel{will_msg = WillMsg}) ->
     end.
 
 will_delay_interval(WillMsg) ->
-    maps:get('Will-Delay-Interval', emqx_message:get_header(properties, WillMsg), 0).
+    maps:get('Will-Delay-Interval',
+             emqx_message:get_header(properties, WillMsg, #{}), 0).
 
 publish_will_msg(Msg) ->
-    %% TODO check if we should discard result here
     _ = emqx_broker:publish(Msg),
     ok.
 
