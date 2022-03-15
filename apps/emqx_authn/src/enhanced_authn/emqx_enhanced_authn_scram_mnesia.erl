@@ -42,10 +42,14 @@
         , list_users/2
         ]).
 
--export([format_user_info/1]).
+-export([ query/4
+        , format_user_info/1
+        , group_match_spec/1]).
 
 -define(TAB, ?MODULE).
--define(FORMAT_FUN, {?MODULE, format_user_info}).
+-define(AUTHN_QSCHEMA, [ {<<"like_username">>, binary}
+                       , {<<"user_group">>, binary}]).
+-define(QUERY_FUN, {?MODULE, query}).
 
 -type(user_group() :: binary()).
 
@@ -201,9 +205,39 @@ lookup_user(UserID, #{user_group := UserGroup}) ->
             {error, not_found}
     end.
 
-list_users(PageParams, #{user_group := UserGroup}) ->
-    MatchSpec = group_match_spec(UserGroup),
-    {ok, emqx_mgmt_api:paginate(?TAB, MatchSpec, PageParams, ?FORMAT_FUN)}.
+list_users(QueryString, #{user_group := UserGroup}) ->
+    NQueryString = QueryString#{<<"user_group">> => UserGroup},
+    emqx_mgmt_api:node_query(node(), NQueryString, ?TAB, ?AUTHN_QSCHEMA, ?QUERY_FUN).
+
+%%--------------------------------------------------------------------
+%% Query Functions
+
+query(Tab, {QString, []}, Continuation, Limit) ->
+    Ms = ms_from_qstring(QString),
+    emqx_mgmt_api:select_table_with_count(Tab, Ms, Continuation, Limit,
+                                          fun format_user_info/1);
+
+query(Tab, {QString, FuzzyQString}, Continuation, Limit) ->
+    Ms = ms_from_qstring(QString),
+    FuzzyFilterFun = fuzzy_filter_fun(FuzzyQString),
+    emqx_mgmt_api:select_table_with_count(Tab, {Ms, FuzzyFilterFun}, Continuation, Limit,
+                                          fun format_user_info/1).
+
+%%--------------------------------------------------------------------
+%% Match funcs
+
+%% Fuzzy username funcs
+fuzzy_filter_fun(Fuzzy) ->
+    fun(MsRaws) when is_list(MsRaws) ->
+        lists:filter( fun(E) -> run_fuzzy_filter(E, Fuzzy) end
+                    , MsRaws)
+    end.
+
+run_fuzzy_filter(_, []) ->
+    true;
+run_fuzzy_filter( E = #user_info{user_id = {_, UserID}}
+                , [{username, like, UsernameSubStr} | Fuzzy]) ->
+    binary:match(UserID, UsernameSubStr) /= nomatch andalso run_fuzzy_filter(E, Fuzzy).
 
 %%------------------------------------------------------------------------------
 %% Internal functions
@@ -279,6 +313,14 @@ trans(Fun, Args) ->
 
 format_user_info(#user_info{user_id = {_, UserID}, is_superuser = IsSuperuser}) ->
     #{user_id => UserID, is_superuser => IsSuperuser}.
+
+ms_from_qstring(QString) ->
+    [Ms] = lists:foldl(fun({user_group, '=:=', UserGroup}, AccIn) ->
+                               [group_match_spec(UserGroup) | AccIn];
+                          (_, AccIn) ->
+                               AccIn
+                       end, [], QString),
+    Ms.
 
 group_match_spec(UserGroup) ->
     ets:fun2ms(
