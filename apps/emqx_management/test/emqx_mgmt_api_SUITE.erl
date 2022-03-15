@@ -719,9 +719,10 @@ t_data_import_content(_) ->
     Dir = emqx_mgmt_data_backup:backup_dir(),
     {ok, Bin} = file:read_file(filename:join(Dir, Filename)),
     Content = emqx_json:decode(Bin),
+    ct:pal("Content:::: ~p~n", [Content]),
     ?assertMatch({ok, "{\"code\":0}"},
         request_api(post, api_path(["data","import"]), [], auth_header_(), Content)),
-    
+
     emqx_mgmt_data_backup:delete_all_backup_file(),
     application:stop(emqx_rule_engine),
     application:stop(emqx_dashboard).
