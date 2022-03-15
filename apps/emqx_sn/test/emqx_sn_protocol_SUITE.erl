@@ -79,6 +79,12 @@ set_special_confs(emqx_sn) ->
 set_special_confs(_App) ->
     ok.
 
+restart_emqx_sn(#{subs_resume := Bool}) ->
+    application:set_env(emqx_sn, subs_resume, Bool),
+    _ = application:stop(emqx_sn),
+    _ = application:ensure_all_started(emqx_sn),
+    ok.
+
 %%--------------------------------------------------------------------
 %% Test cases
 %%--------------------------------------------------------------------
@@ -1624,7 +1630,7 @@ t_broadcast_test1(_) ->
     gen_udp:close(Socket).
 
 t_register_subs_resume_on(_) ->
-    application:set_env(emqx_sn, subs_resume, true),
+    restart_emqx_sn(#{subs_resume => true}),
     MsgId = 1,
     {ok, Socket} = gen_udp:open(0, [binary]),
     send_connect_msg(Socket, <<"test">>, 0),
@@ -1710,8 +1716,6 @@ t_register_subs_resume_on(_) ->
     %% no more messages
     ?assertEqual(udp_receive_timeout, receive_response(NSocket)),
 
-    application:set_env(emqx_sn, subs_resume, false),
-
     gen_udp:close(NSocket),
     {ok, NSocket1} = gen_udp:open(0, [binary]),
     send_connect_msg(NSocket1, <<"test">>),
@@ -1719,7 +1723,8 @@ t_register_subs_resume_on(_) ->
                  receive_response(NSocket1)),
     send_disconnect_msg(NSocket1, undefined),
     ?assertMatch(<<2, ?SN_DISCONNECT>>, receive_response(NSocket1)),
-    gen_udp:close(NSocket1).
+    gen_udp:close(NSocket1),
+    restart_emqx_sn(#{subs_resume => false}).
 
 t_register_subs_resume_off(_) ->
     MsgId = 1,
@@ -1829,7 +1834,7 @@ t_register_subs_resume_off(_) ->
     gen_udp:close(NSocket1).
 
 t_register_skip_failure_topic_name_and_reach_max_retry_times(_) ->
-    application:set_env(emqx_sn, subs_resume, true),
+    restart_emqx_sn(#{subs_resume => true}),
     MsgId = 1,
     {ok, Socket} = gen_udp:open(0, [binary]),
     send_connect_msg(Socket, <<"test">>, 0),
@@ -1883,11 +1888,11 @@ t_register_skip_failure_topic_name_and_reach_max_retry_times(_) ->
     %% shutdown due to reached max retry times
     timer:sleep(5000), %% RETYRY_TIMEOUT
     ?assertMatch(<<2, ?SN_DISCONNECT>>, receive_response(NSocket)),
-    application:set_env(emqx_sn, subs_resume, false),
-    gen_udp:close(NSocket).
+    gen_udp:close(NSocket),
+    restart_emqx_sn(#{subs_resume => false}).
 
 t_register_enqueue_delivering_messages(_) ->
-    application:set_env(emqx_sn, subs_resume, true),
+    restart_emqx_sn(#{subs_resume => true}),
     MsgId = 1,
     {ok, Socket} = gen_udp:open(0, [binary]),
     send_connect_msg(Socket, <<"test">>, 0),
@@ -1932,8 +1937,6 @@ t_register_enqueue_delivering_messages(_) ->
     %% no more messages
     ?assertEqual(udp_receive_timeout, receive_response(NSocket)),
 
-    application:set_env(emqx_sn, subs_resume, false),
-
     gen_udp:close(NSocket),
     {ok, NSocket1} = gen_udp:open(0, [binary]),
     send_connect_msg(NSocket1, <<"test">>),
@@ -1941,7 +1944,8 @@ t_register_enqueue_delivering_messages(_) ->
                  receive_response(NSocket1)),
     send_disconnect_msg(NSocket1, undefined),
     ?assertMatch(<<2, ?SN_DISCONNECT>>, receive_response(NSocket1)),
-    gen_udp:close(NSocket1).
+    gen_udp:close(NSocket1),
+    restart_emqx_sn(#{subs_resume => false}).
 
 %%--------------------------------------------------------------------
 %% Helper funcs
