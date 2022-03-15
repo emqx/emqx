@@ -112,47 +112,59 @@ fields("cluster") ->
        sc(atom(),
           #{ mapping => "ekka.cluster_name"
            , default => emqxcl
+           , desc => "Human-friendly name of the EMQX cluster."
            })}
     , {"discovery_strategy",
        sc(hoconsc:enum([manual, static, mcast, dns, etcd, k8s]),
           #{ default => manual
+           , desc => "Service discovery method for the cluster nodes."
            })}
     , {"autoclean",
        sc(emqx_schema:duration(),
           #{ mapping => "ekka.cluster_autoclean"
            , default => "5m"
+           , desc => "Remove disconnected nodes from the cluster after this interval."
            })}
     , {"autoheal",
        sc(boolean(),
           #{ mapping => "ekka.cluster_autoheal"
            , default => true
+           , desc => "If <code>true</code>, the node will try to heal network partitions
+ automatically."
            })}
-    , {"static",
-       sc(ref(cluster_static),
-          #{})}
-    , {"mcast",
-       sc(ref(cluster_mcast),
-          #{})}
     , {"proto_dist",
        sc(hoconsc:enum([inet_tcp, inet6_tcp, inet_tls]),
           #{ mapping => "ekka.proto_dist"
            , default => inet_tcp
            })}
+    , {"static",
+       sc(ref(cluster_static),
+          #{ desc => "Service discovery via static nodes. The new node joins the cluster by
+ connecting to one of the bootstrap nodes."
+           })}
+    , {"mcast",
+       sc(ref(cluster_mcast),
+          #{ desc => "Service discovery via UDP multicast."
+           })}
     , {"dns",
        sc(ref(cluster_dns),
-          #{})}
+          #{ desc => "Service discovery via DNS SRV records."
+           })}
     , {"etcd",
        sc(ref(cluster_etcd),
-          #{})}
+          #{ desc => "Service discovery using 'etcd' service."
+           })}
     , {"k8s",
        sc(ref(cluster_k8s),
-          #{})}
+          #{ desc => "Service discovery via Kubernetes API server."
+           })}
     ];
 
 fields(cluster_static) ->
     [ {"seeds",
       sc(hoconsc:array(atom()),
          #{ default => []
+          , desc => "List EMQX node names in the static cluster. See <code>node.name</code>."
           })}
     ];
 
@@ -160,34 +172,43 @@ fields(cluster_mcast) ->
     [ {"addr",
        sc(string(),
           #{ default => "239.192.0.1"
+           , desc => "Multicast IPv4 address."
            })}
     , {"ports",
        sc(hoconsc:array(integer()),
           #{ default => [4369, 4370]
+           , desc => "List of UDP ports used for service discovery.<br/>
+Note: probe messages are broadcast to all the specified ports."
            })}
     , {"iface",
        sc(string(),
           #{ default => "0.0.0.0"
+           , desc => "Local IP address the node discovery service needs to bind to."
            })}
     , {"ttl",
        sc(range(0, 255),
           #{ default => 255
+           , desc => "Time-to-live (TTL) for the outgoing UDP datagrams."
            })}
     , {"loop",
        sc(boolean(),
           #{ default => true
+           , desc => "If <code>true</code>, loop UDP datagrams back to the local socket."
            })}
     , {"sndbuf",
        sc(emqx_schema:bytesize(),
           #{ default => "16KB"
+           , desc => "Size of the kernel-level buffer for outgoing datagrams."
            })}
     , {"recbuf",
        sc(emqx_schema:bytesize(),
           #{ default => "16KB"
+           , desc => "Size of the kernel-level buffer for incoming datagrams."
            })}
     , {"buffer",
        sc(emqx_schema:bytesize(),
           #{ default =>"32KB"
+           , desc => "Size of the user-level buffer."
            })}
     ];
 
@@ -195,52 +216,70 @@ fields(cluster_dns) ->
     [ {"name",
        sc(string(),
           #{ default => "localhost"
+           , desc => "The domain name of the EMQX cluster."
            })}
     , {"app",
        sc(string(),
           #{ default => "emqx"
+           , desc => "The symbolic name of the EMQX service."
            })}
     ];
 
 fields(cluster_etcd) ->
     [ {"server",
        sc(emqx_schema:comma_separated_list(),
-          #{})}
+          #{ desc => "List of endpoint URLs of the etcd cluster"
+           })}
     , {"prefix",
        sc(string(),
           #{ default => "emqxcl"
+           , desc => "Key prefix used for EMQX service discovery."
            })}
     , {"node_ttl",
        sc(emqx_schema:duration(),
           #{ default => "1m"
+           , desc => "Expiration time of the etcd key associated with the node.
+It is refreshed automatically, as long as the node is alive."
            })}
     , {"ssl",
        sc(hoconsc:ref(emqx_schema, ssl_client_opts),
-          #{})}
+          #{ desc => "Options for the TLS connection to the etcd cluster."
+           })}
     ];
 
 fields(cluster_k8s) ->
     [ {"apiserver",
        sc(string(),
-          #{})}
+          #{ desc => "Kubernetes API endpoint URL."
+           })}
     , {"service_name",
        sc(string(),
           #{ default => "emqx"
+           , desc => "EMQX broker service name."
            })}
     , {"address_type",
        sc(hoconsc:enum([ip, dns, hostname]),
-          #{})}
+          #{ desc => "Address type used for connecting to the discovered nodes."
+           })}
     , {"app_name",
        sc(string(),
           #{ default => "emqx"
+           , desc => "This parameter should be set to the part of the <code>node.name</code>
+before the '@'.<br/>
+For example, if the <code>node.name</code> is <code>emqx@127.0.0.1</code>, then this parameter
+should be set to <code>emqx</code>."
            })}
     , {"namespace",
        sc(string(),
           #{ default => "default"
+           , desc => "Kubernetes namespace."
            })}
     , {"suffix",
        sc(string(),
-          #{default => "pod.local"
+          #{ default => "pod.local"
+           , desc => "Node name suffix.<br/>
+Note: this parameter is only relevant when <code>address_type</code> is <code>dns</code>
+or <code>hostname</code>."
            })}
     ];
 
@@ -249,7 +288,7 @@ fields("node") ->
        sc(string(),
           #{ default => "emqx@127.0.0.1",
              desc => "Unique name of the EMQX node. It must follow <code>%name%@FQDN</code> or
- <code>%name%@IP</code> format."
+ <code>%name%@IPv4</code> format."
            })}
     , {"cookie",
        sc(string(),
@@ -267,10 +306,10 @@ fields("node") ->
              desc =>
 """
 Path to the persistent data directory.
-Possible auto-created sub-directories are:
+Possible auto-created subdirectories are:
   - `mnesia/\<node_name>`: EMQX's built-in database directory.
     For example, `mnesia/emqx@127.0.0.1`.
-    There should be only one such sub directory.
+    There should be only one such subdirectory.
     Meaning, in case the node is to be renamed (to e.g. `emqx@10.0.1.1`),
     the old dir should be deleted first.
   - `configs`: Generated configs at boot time, and cluster/local override configs.
@@ -353,7 +392,8 @@ a crash dump"
          )}
     , {"cluster_call",
       sc(ref("cluster_call"),
-        #{
+        #{ desc => "Options for the 'cluster call' feature that allows to execute a callback
+ on all nodes in the cluster."
           }
         )}
     ];
@@ -393,7 +433,7 @@ to <code>rlog</code>.
 List of core nodes that the replicant will connect to.<br/>
 Note: this parameter only takes effect when the <code>backend</code> is set
 to <code>rlog</code> and the <code>role</code> is set to <code>replicant</code>.<br/>
-This values needs to be defined for manual or static cluster discovery mechanisms.<br/>
+This value needs to be defined for manual or static cluster discovery mechanisms.<br/>
 If an automatic cluster discovery mechanism is being used (such as <code>etcd</code>),
 there is no need to set this value.
 """
@@ -432,7 +472,7 @@ fields("cluster_call") ->
        sc(emqx_schema:duration(),
           #{ desc =>
 "Time interval to clear completed but stale transactions.
-Ensure that the number of completed transactions is less than the max_history."
+Ensure that the number of completed transactions is less than the <code>max_history</code>."
            , default => "5m"
            })}
     ];
