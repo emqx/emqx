@@ -235,9 +235,9 @@ action_with_name(delete, #{bindings := #{name := Name}}) ->
 
 move(post, #{bindings := #{name := Name}, body := #{<<"position">> := RawPosition}}) ->
     case parse_position(RawPosition) of
-        {ok, {Position, Related}} ->
+        {ok, Position} ->
             case emqx_exhook_mgr:update_config([exhook, servers],
-                                               {move, Name, Position, Related}) of
+                                               {move, Name, Position}) of
                 {ok, ok} ->
                     {204};
                 {ok, not_found} ->
@@ -421,13 +421,13 @@ parse_position(<<"front">>) ->
     {ok, ?CMD_MOVE_FRONT};
 parse_position(<<"rear">>) ->
     {ok, ?CMD_MOVE_REAR};
-parse_position(<<"before:", Related/binary>>) ->
-    {ok, ?CMD_MOVE_BEFORE(Related)};
-parse_position(<<"after:", Related/binary>>) ->
-    {ok, ?CMD_MOVE_AFTER(Related)};
 parse_position(<<"before:">>) ->
     {error, invalid_position};
 parse_position(<<"after:">>) ->
     {error, invalid_position};
+parse_position(<<"before:", Related/binary>>) ->
+    {ok, ?CMD_MOVE_BEFORE(Related)};
+parse_position(<<"after:", Related/binary>>) ->
+    {ok, ?CMD_MOVE_AFTER(Related)};
 parse_position(_) ->
     {error, invalid_position}.

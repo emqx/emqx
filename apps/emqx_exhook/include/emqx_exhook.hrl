@@ -46,7 +46,7 @@
 
 -endif.
 
--define(CMD_MOVE_FRONT, {front, <<>>}).
--define(CMD_MOVE_REAR, {rear, <<>>}).
+-define(CMD_MOVE_FRONT, front).
+-define(CMD_MOVE_REAR, rear).
 -define(CMD_MOVE_BEFORE(Before), {before, Before}).
 -define(CMD_MOVE_AFTER(After), {'after', After}).
