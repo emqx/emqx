@@ -926,7 +926,13 @@ return_sub_unsub_ack(Packet, Channel) ->
        | {shutdown, Reason :: term(), Reply :: term(), emqx_types:packet(), channel()}).
 handle_call(kick, Channel) ->
     Channel1 = ensure_disconnected(kicked, Channel),
-    disconnect_and_shutdown(kicked, ok, Channel1);
+    case Channel1 of
+        ?IS_MQTT_V5 ->
+            shutdown(kicked, ok,
+                     ?DISCONNECT_PACKET(?RC_ADMINISTRATIVE_ACTION), Channel1);
+        _ ->
+            shutdown(kicked, ok, Channel1)
+    end;
 
 handle_call(discard, Channel) ->
     disconnect_and_shutdown(discarded, ok, Channel);

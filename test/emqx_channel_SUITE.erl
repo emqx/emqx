@@ -577,7 +577,12 @@ t_handle_out_unexpected(_) ->
 %%--------------------------------------------------------------------
 
 t_handle_call_kick(_) ->
-    {shutdown, kicked, ok, _Chan} = emqx_channel:handle_call(kick, channel()).
+    Channelv5 = channel(),
+    Channelv4 = v4(Channelv5),
+    {shutdown, kicked, ok, _} = emqx_channel:handle_call(kick, Channelv4),
+    {shutdown, kicked, ok,
+     ?DISCONNECT_PACKET(?RC_ADMINISTRATIVE_ACTION),
+     _} = emqx_channel:handle_call(kick, Channelv5).
 
 t_handle_call_discard(_) ->
     Packet = ?DISCONNECT_PACKET(?RC_SESSION_TAKEN_OVER),
@@ -858,3 +863,11 @@ session(InitFields) when is_map(InitFields) ->
 quota() ->
     emqx_limiter:init(zone, [{conn_messages_routing, {5, 1}},
                              {overall_messages_routing, {10, 1}}]).
+
+v4(Channel) ->
+    ConnInfo = emqx_channel:info(conninfo, Channel),
+    emqx_channel:set_field(
+      conninfo,
+      maps:put(proto_ver, ?MQTT_PROTO_V4, ConnInfo),
+      Channel
+     ).
