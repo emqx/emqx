@@ -427,7 +427,8 @@ jobs:
     - uses: docker/build-push-action@v2
       with:
         push: >
-          ${{ (github.event_name == 'release' && !github.event.release.prerelease) }}
+          ${{ (github.event_name == 'release' && !github.event.release.prerelease)
+          || (github.event.repository.owner != 'emqx' && startsWith(github.ref_name, 'ci/')) }}
         pull: true
         no-cache: true
         platforms: linux/${{ matrix.arch }}
@@ -441,12 +442,14 @@ jobs:
         context: source
 
     - uses: aws-actions/configure-aws-credentials@v1
+      if: matrix.profile == 'emqx' && matrix.arch == 'amd64'
       with:
         aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
         aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
         aws-region: ${{ secrets.AWS_DEFAULT_REGION }}
 
     - name: Login to Amazon ECR
+      if: matrix.profile == 'emqx' && matrix.arch == 'amd64'
       id: login-ecr
       uses: aws-actions/amazon-ecr-login@v1
       with:
@@ -562,12 +565,14 @@ jobs:
           scripts/docker-create-push-manifests.sh "${{ steps.meta.outputs.tags }}" "$IsPushLatest"
 
       - uses: aws-actions/configure-aws-credentials@v1
+        if: matrix.profile == 'emqx' && matrix.arch == 'amd64'
         with:
           aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
           aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
           aws-region: ${{ secrets.AWS_DEFAULT_REGION }}
 
       - name: Login to Amazon ECR
+        if: matrix.profile == 'emqx' && matrix.arch == 'amd64'
         id: login-ecr
         uses: aws-actions/amazon-ecr-login@v1
         with:
