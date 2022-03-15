@@ -127,10 +127,10 @@ update({?CMD_DELETE, Type}, Sources) ->
 update(Cmd, Sources) ->
     emqx_authz_utils:update_config(?CONF_KEY_PATH, {Cmd, Sources}).
 
-do_update({?CMD_MOVE, Type, ?CMD_MOVE_TOP}, Conf) when is_list(Conf) ->
+do_update({?CMD_MOVE, Type, ?CMD_MOVE_FRONT}, Conf) when is_list(Conf) ->
     {Source, Front, Rear} = take(Type, Conf),
     [Source | Front] ++ Rear;
-do_update({?CMD_MOVE, Type, ?CMD_MOVE_BOTTOM}, Conf) when is_list(Conf) ->
+do_update({?CMD_MOVE, Type, ?CMD_MOVE_REAR}, Conf) when is_list(Conf) ->
     {Source, Front, Rear} = take(Type, Conf),
     Front ++ Rear ++ [Source];
 do_update({?CMD_MOVE, Type, ?CMD_MOVE_BEFORE(Before)}, Conf) when is_list(Conf) ->

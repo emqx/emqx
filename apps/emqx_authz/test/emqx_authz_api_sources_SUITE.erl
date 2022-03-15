@@ -318,7 +318,7 @@ t_move_source(_) ->
                  ], emqx_authz:lookup()),
 
     {ok, 204, _} = request(post, uri(["authorization", "sources", "postgresql", "move"]),
-                           #{<<"position">> => <<"top">>}),
+                           #{<<"position">> => <<"front">>}),
     ?assertMatch([ #{type := postgresql}
                  , #{type := http}
                  , #{type := mongodb}
@@ -327,7 +327,7 @@ t_move_source(_) ->
                  ], emqx_authz:lookup()),
 
     {ok, 204, _} = request(post, uri(["authorization", "sources", "http", "move"]),
-                           #{<<"position">> => <<"bottom">>}),
+                           #{<<"position">> => <<"rear">>}),
     ?assertMatch([ #{type := postgresql}
                  , #{type := mongodb}
                  , #{type := mysql}

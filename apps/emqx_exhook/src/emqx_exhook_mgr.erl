@@ -74,8 +74,8 @@
 -type server() :: server_options().
 -type server_options() :: map().
 
--type move_direct() :: top
-                     | bottom
+-type move_direct() :: front
+                     | rear
                      | before
                      | 'after'.
 
@@ -475,10 +475,10 @@ move([Server | T], Name, Direct, ToName, HeadL) ->
 move([], _Name, _Direct, _ToName, _HeadL) ->
     not_found.
 
-move_to(top, _, Server, ServerL) ->
+move_to(front, _, Server, ServerL) ->
     [Server | ServerL];
 
-move_to(bottom, _, Server, ServerL) ->
+move_to(rear, _, Server, ServerL) ->
     ServerL ++ [Server];
 
 move_to(Direct, ToName, Server, ServerL) ->

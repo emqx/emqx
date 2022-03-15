@@ -185,14 +185,17 @@ t_authenticator(Config) when is_list(Config) ->
     % Move authenticator
     ?assertMatch({ok, [#{id := ID1}, #{id := ID2}]}, ?AUTHN:list_authenticators(ChainName)),
 
-    ?assertEqual(ok, ?AUTHN:move_authenticator(ChainName, ID2, top)),
+    ?assertEqual(ok, ?AUTHN:move_authenticator(ChainName, ID2, ?CMD_MOVE_FRONT)),
     ?assertMatch({ok, [#{id := ID2}, #{id := ID1}]}, ?AUTHN:list_authenticators(ChainName)),
 
-    ?assertEqual(ok, ?AUTHN:move_authenticator(ChainName, ID2, bottom)),
+    ?assertEqual(ok, ?AUTHN:move_authenticator(ChainName, ID2, ?CMD_MOVE_REAR)),
     ?assertMatch({ok, [#{id := ID1}, #{id := ID2}]}, ?AUTHN:list_authenticators(ChainName)),
 
-    ?assertEqual(ok, ?AUTHN:move_authenticator(ChainName, ID2, {before, ID1})),
-    ?assertMatch({ok, [#{id := ID2}, #{id := ID1}]}, ?AUTHN:list_authenticators(ChainName));
+    ?assertEqual(ok, ?AUTHN:move_authenticator(ChainName, ID2, ?CMD_MOVE_BEFORE(ID1))),
+    ?assertMatch({ok, [#{id := ID2}, #{id := ID1}]}, ?AUTHN:list_authenticators(ChainName)),
+
+    ?assertEqual(ok, ?AUTHN:move_authenticator(ChainName, ID2, ?CMD_MOVE_AFTER(ID1))),
+    ?assertMatch({ok, [#{id := ID1}, #{id := ID2}]}, ?AUTHN:list_authenticators(ChainName));
 
 t_authenticator({'end', Config}) ->
     ?AUTHN:delete_chain(test),
@@ -211,7 +214,7 @@ t_authenticate(Config) when is_list(Config) ->
                    listener => ListenerID,
                    protocol => mqtt,
                    username => <<"good">>,
-			       password => <<"any">>},
+                   password => <<"any">>},
     ?assertEqual({ok, #{is_superuser => false}}, emqx_access_control:authenticate(ClientInfo)),
 
     register_provider(AuthNType, ?MODULE),
@@ -291,7 +294,7 @@ t_update_config(Config) when is_list(Config) ->
 
     ?assertMatch(
        {ok, _},
-       update_config([?CONF_ROOT], {move_authenticator, Global, ID2, top})),
+       update_config([?CONF_ROOT], {move_authenticator, Global, ID2, ?CMD_MOVE_FRONT})),
 
     ?assertMatch({ok, [#{id := ID2}, #{id := ID1}]}, ?AUTHN:list_authenticators(Global)),
 
@@ -344,7 +347,7 @@ t_update_config(Config) when is_list(Config) ->
 
     ?assertMatch(
        {ok, _},
-       update_config(ConfKeyPath, {move_authenticator, ListenerID, ID2, top})),
+       update_config(ConfKeyPath, {move_authenticator, ListenerID, ID2, ?CMD_MOVE_FRONT})),
 
     ?assertMatch(
        {ok, [#{id := ID2}, #{id := ID1}]},

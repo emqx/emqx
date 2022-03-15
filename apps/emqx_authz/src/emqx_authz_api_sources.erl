@@ -477,10 +477,10 @@ parameters_field() ->
       }
     ].
 
-parse_position(<<"top">>) ->
-    {ok, ?CMD_MOVE_TOP};
-parse_position(<<"bottom">>) ->
-    {ok, ?CMD_MOVE_BOTTOM};
+parse_position(<<"front">>) ->
+    {ok, ?CMD_MOVE_FRONT};
+parse_position(<<"rear">>) ->
+    {ok, ?CMD_MOVE_REAR};
 parse_position(<<"before:", Before/binary>>) ->
     {ok, ?CMD_MOVE_BEFORE(Before)};
 parse_position(<<"after:", After/binary>>) ->
@@ -493,15 +493,18 @@ parse_position(_) ->
     {error, {invalid_parameter, position}}.
 
 position_example() ->
-    #{ top =>
-          #{ summary => <<"top example">>
-           , value => #{<<"position">> => <<"top">>}}
-     , bottom =>
-          #{ summary => <<"bottom example">>
-           , value => #{<<"position">> => <<"bottom">>}}
-     , relative =>
+    #{ front =>
+          #{ summary => <<"front example">>
+           , value => #{<<"position">> => <<"front">>}}
+     , rear =>
+          #{ summary => <<"rear example">>
+           , value => #{<<"position">> => <<"rear">>}}
+     , relative_before =>
           #{ summary => <<"relative example">>
            , value => #{<<"position">> => <<"before:file">>}}
+     , relative_after =>
+          #{ summary => <<"relative example">>
+           , value => #{<<"position">> => <<"after:file">>}}
      }.
 
 authz_sources_types(Type) ->

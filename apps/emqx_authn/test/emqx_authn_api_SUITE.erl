@@ -376,11 +376,11 @@ test_authenticator_move(PathPrefix) ->
 
     %% Valid moves
 
-    %% test top
+    %% test front
     {ok, 204, _} = request(
                      post,
                      uri(PathPrefix ++ [?CONF_NS, "jwt", "move"]),
-                     #{position => <<"top">>}),
+                     #{position => <<"front">>}),
 
     ?assertAuthenticatorsMatch(
        [
@@ -390,11 +390,11 @@ test_authenticator_move(PathPrefix) ->
        ],
        PathPrefix ++ [?CONF_NS]),
 
-    %% test bottom
+    %% test rear
     {ok, 204, _} = request(
                      post,
                      uri(PathPrefix ++ [?CONF_NS, "jwt", "move"]),
-                     #{position => <<"bottom">>}),
+                     #{position => <<"rear">>}),
 
     ?assertAuthenticatorsMatch(
        [

@@ -89,9 +89,9 @@ do_pre_config_update({move_authenticator, _ChainName, AuthenticatorID, Position}
         {error, Reason} -> {error, Reason};
         {ok, BeforeFound, [Found | AfterFound]} ->
             case Position of
-                ?CMD_MOVE_TOP ->
+                ?CMD_MOVE_FRONT ->
                     {ok, [Found | BeforeFound] ++ AfterFound};
-                ?CMD_MOVE_BOTTOM ->
+                ?CMD_MOVE_REAR ->
                     {ok, BeforeFound ++ AfterFound ++ [Found]};
                 ?CMD_MOVE_BEFORE(BeforeRelatedID) ->
                     case split_by_id(BeforeRelatedID, BeforeFound ++ AfterFound) of

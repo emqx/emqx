@@ -199,11 +199,11 @@ fields(builder) ->
         {website, hoconsc:mk(string(), #{example => "www.emqx.com"})}
     ];
 fields(position) ->
-    [{position, hoconsc:mk(hoconsc:union([top, bottom, binary()]),
+    [{position, hoconsc:mk(hoconsc:union([front, rear, binary()]),
         #{
             desc => """
              Enable auto-boot at position in the boot list, where Position could be
-             'top', 'bottom', or 'before:other-vsn', 'after:other-vsn'
+             'front', 'rear', or 'before:other-vsn', 'after:other-vsn'
              to specify a relative position.
             """,
             required => false
@@ -221,13 +221,13 @@ fields(running_status) ->
 move_request_body() ->
     emqx_dashboard_swagger:schema_with_examples(hoconsc:ref(?MODULE, position),
         #{
-            move_to_top => #{
-                summary => <<"move plugin on the top">>,
-                value => #{position => <<"top">>}
+            move_to_front => #{
+                summary => <<"move plugin on the front">>,
+                value => #{position => <<"front">>}
             },
-            move_to_bottom => #{
-                summary => <<"move plugin on the bottom">>,
-                value => #{position => <<"bottom">>}
+            move_to_rear => #{
+                summary => <<"move plugin on the rear">>,
+                value => #{position => <<"rear">>}
             },
             move_to_before => #{
                 summary => <<"move plugin before other plugins">>,
@@ -350,8 +350,8 @@ return(_, {error, #{error := "bad_info_file", return := {enoent, _}, path := Pat
 return(_, {error, Reason}) ->
     {400, #{code => 'PARAM_ERROR', message => iolist_to_binary(io_lib:format("~p", [Reason]))}}.
 
-parse_position(#{<<"position">> := <<"top">>}, _) -> front;
-parse_position(#{<<"position">> := <<"bottom">>}, _) -> rear;
+parse_position(#{<<"position">> := <<"front">>}, _) -> front;
+parse_position(#{<<"position">> := <<"rear">>}, _) -> rear;
 parse_position(#{<<"position">> := <<"before:", Name/binary>>}, Name) ->
     {error, <<"Can't before:self">>};
 parse_position(#{<<"position">> := <<"after:", Name/binary>>}, Name) ->

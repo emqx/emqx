@@ -1059,10 +1059,10 @@ serialize_error(Reason) ->
     {400, #{code => <<"BAD_REQUEST">>,
             message => binfmt("~p", [Reason])}}.
 
-parse_position(<<"top">>) ->
-    {ok, ?CMD_MOVE_TOP};
-parse_position(<<"bottom">>) ->
-    {ok, ?CMD_MOVE_BOTTOM};
+parse_position(<<"front">>) ->
+    {ok, ?CMD_MOVE_FRONT};
+parse_position(<<"rear">>) ->
+    {ok, ?CMD_MOVE_REAR};
 parse_position(<<"before:">>) ->
     {error, {invalid_parameter, position}};
 parse_position(<<"after:">>) ->
@@ -1205,16 +1205,16 @@ request_user_update_examples() ->
 
 request_move_examples() ->
     #{
-        move_to_top => #{
+        move_to_front => #{
             summary => <<"Move authenticator to the beginning of the chain">>,
             value => #{
-                position => <<"top">>
+                position => <<"front">>
             }
         },
-        move_to_bottom => #{
+        move_to_rear => #{
             summary => <<"Move authenticator to the end of the chain">>,
             value => #{
-                position => <<"bottom">>
+                position => <<"rear">>
             }
         },
         'move_before_password_based:built_in_database' => #{

@@ -100,7 +100,7 @@
 
 -type chain_name() :: atom().
 -type authenticator_id() :: binary().
--type position() :: top | bottom | {before, authenticator_id()} | {'after', authenticator_id()}.
+-type position() :: front | rear | {before, authenticator_id()} | {'after', authenticator_id()}.
 -type authn_type() :: atom() | {atom(), atom()}.
 -type provider() :: module().
 
@@ -695,9 +695,9 @@ do_move_authenticator(ID, Authenticators, Position) ->
             {error, {not_found, {authenticator, ID}}};
         {value, Authenticator, NAuthenticators} ->
             case Position of
-                ?CMD_MOVE_TOP ->
+                ?CMD_MOVE_FRONT ->
                     {ok, [Authenticator | NAuthenticators]};
-                ?CMD_MOVE_BOTTOM ->
+                ?CMD_MOVE_REAR ->
                     {ok, NAuthenticators ++ [Authenticator]};
                 ?CMD_MOVE_BEFORE(RelatedID) ->
                     insert(Authenticator, NAuthenticators, ?CMD_MOVE_BEFORE(RelatedID), []);

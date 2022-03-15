@@ -18,6 +18,7 @@
 
 -behaviour(minirest_api).
 
+-include("emqx_exhook.hrl").
 -include_lib("typerefl/include/types.hrl").
 -include_lib("emqx/include/logger.hrl").
 
@@ -104,8 +105,9 @@ schema("/exhooks/:name/hooks") ->
 schema("/exhooks/:name/move") ->
     #{'operationId' => move,
       post => #{tags => ?TAGS,
-                description => <<"Move the server.\n"
-                                 "NOTE: The position should be \"top|bottom|before:{name}\"\n">>,
+                description =>
+                    <<"Move the server.\n",
+                      "NOTE: The position should be \"front|rear|before:{name}|after:{name}\"\n">>,
                 parameters => params_server_name_in_path(),
                 'requestBody' => emqx_dashboard_swagger:schema_with_examples(
                                    ref(move_req),
@@ -119,7 +121,7 @@ schema("/exhooks/:name/move") ->
 
 fields(move_req) ->
     [{position, mk(string(), #{ desc => <<"The target position to be moved.">>
-                              , example => <<"top">>})}];
+                              , example => <<"front">>})}];
 
 fields(detail_server_info) ->
     [ {metrics, mk(ref(metrics), #{})}
@@ -401,12 +403,12 @@ call_cluster(Fun) ->
 %%--------------------------------------------------------------------
 
 position_example() ->
-    #{ top =>
-           #{ summary => <<"absolute position 'top'">>
-            , value => #{<<"position">> => <<"top">>}}
-     , bottom =>
-           #{ summary => <<"absolute position 'bottom'">>
-            , value => #{<<"position">> => <<"bottom">>}}
+    #{ front =>
+           #{ summary => <<"absolute position 'front'">>
+            , value => #{<<"position">> => <<"front">>}}
+     , rear =>
+           #{ summary => <<"absolute position 'rear'">>
+            , value => #{<<"position">> => <<"rear">>}}
      , related_before =>
            #{ summary => <<"relative position 'before'">>
             , value => #{<<"position">> => <<"before:default">>}}
@@ -415,14 +417,14 @@ position_example() ->
             , value => #{<<"position">> => <<"after:default">>}}
      }.
 
-parse_position(<<"top">>) ->
-    {ok, {top, <<>>}};
-parse_position(<<"bottom">>) ->
-    {ok, {bottom, <<>>}};
+parse_position(<<"front">>) ->
+    {ok, ?CMD_MOVE_FRONT};
+parse_position(<<"rear">>) ->
+    {ok, ?CMD_MOVE_REAR};
 parse_position(<<"before:", Related/binary>>) ->
-    {ok, {before, Related}};
+    {ok, ?CMD_MOVE_BEFORE(Related)};
 parse_position(<<"after:", Related/binary>>) ->
-    {ok, {'after', Related}};
+    {ok, ?CMD_MOVE_AFTER(Related)};
 parse_position(<<"before:">>) ->
     {error, invalid_position};
 parse_position(<<"after:">>) ->
