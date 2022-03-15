@@ -269,16 +269,21 @@ t_list_users(_) ->
       fun(U) -> {ok, _} = emqx_enhanced_authn_scram_mnesia:add_user(U, State) end,
       Users),
 
-    {ok,
-     #{data := [?USER_MAP, ?USER_MAP],
-       meta := #{page := 1, limit := 2, count := 3}}} = emqx_enhanced_authn_scram_mnesia:list_users(
-                                                          #{<<"page">> => 1, <<"limit">> => 2},
-                                                          State),
-    {ok,
-     #{data := [?USER_MAP],
-       meta := #{page := 2, limit := 2, count := 3}}} = emqx_enhanced_authn_scram_mnesia:list_users(
-                                                          #{<<"page">> => 2, <<"limit">> => 2},
-                                                          State).
+    #{data := [?USER_MAP, ?USER_MAP],
+      meta := #{page := 1, limit := 2, count := 3}} = emqx_enhanced_authn_scram_mnesia:list_users(
+                                                        #{<<"page">> => 1, <<"limit">> => 2},
+                                                        State),
+    #{data := [?USER_MAP],
+      meta := #{page := 2, limit := 2, count := 3}} = emqx_enhanced_authn_scram_mnesia:list_users(
+                                                        #{<<"page">> => 2, <<"limit">> => 2},
+                                                        State),
+    #{data := [#{user_id := <<"u1">>,
+                 is_superuser := _}],
+      meta := #{page := 1, limit := 3, count := 1}} = emqx_enhanced_authn_scram_mnesia:list_users(
+                                                        #{ <<"page">> => 1
+                                                         , <<"limit">> => 3
+                                                         , <<"like_username">> => <<"1">>},
+                                                        State).
 
 t_is_superuser(_Config) ->
     ok = test_is_superuser(#{is_superuser => false}, false),
