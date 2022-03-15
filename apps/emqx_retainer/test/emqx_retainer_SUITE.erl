@@ -53,9 +53,6 @@ init_per_suite(Config) ->
     application:load(emqx_conf),
     ok = ekka:start(),
     ok = mria_rlog:wait_for_shards([?CLUSTER_RPC_SHARD], infinity),
-    meck:new(emqx_alarm, [non_strict, passthrough, no_link]),
-    meck:expect(emqx_alarm, activate, 3, ok),
-    meck:expect(emqx_alarm, deactivate, 3, ok),
 
     load_base_conf(),
     emqx_ratelimiter_SUITE:base_conf(),
@@ -66,22 +63,12 @@ end_per_suite(_Config) ->
     ekka:stop(),
     mria:stop(),
     mria_mnesia:delete_schema(),
-    meck:unload(emqx_alarm),
 
     emqx_common_test_helpers:stop_apps([emqx_retainer]).
 
 init_per_testcase(_, Config) ->
     {ok, _} = emqx_cluster_rpc:start_link(),
     timer:sleep(200),
-    Config.
-
-end_per_testcase(_, Config) ->
-    case erlang:whereis(node()) of
-        undefined -> ok;
-        P ->
-            erlang:unlink(P),
-            erlang:exit(P, kill)
-    end,
     Config.
 
 load_base_conf() ->
@@ -295,8 +282,10 @@ t_stop_publish_clear_msg(_) ->
 
 t_flow_control(_) ->
     #{per_client := PerClient} = RetainerCfg = emqx_config:get([limiter, shared, bucket, retainer]),
-    RetainerCfg2 = RetainerCfg#{per_client := PerClient#{rate := emqx_ratelimiter_SUITE:to_rate("1/1s"),
-                                                         capacity := 1}},
+    RetainerCfg2 = RetainerCfg#{
+                     per_client := PerClient#{
+                                     rate := emqx_ratelimiter_SUITE:to_rate("1/1s"),
+                                     capacity := 1}},
     emqx_config:put([limiter, shared, bucket, retainer], RetainerCfg2),
     emqx_limiter_manager:restart_server(shared),
     timer:sleep(500),
@@ -347,7 +336,8 @@ t_flow_control(_) ->
 
 t_clear_expired(_) ->
     ConfMod = fun(Conf) ->
-                      Conf#{<<"msg_clear_interval">> := <<"1s">>, <<"msg_expiry_interval">> := <<"3s">>}
+                      Conf#{<<"msg_clear_interval">> := <<"1s">>,
+                            <<"msg_expiry_interval">> := <<"3s">>}
               end,
 
     Case = fun() ->

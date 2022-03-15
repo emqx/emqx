@@ -21,19 +21,15 @@
 
 -include_lib("eunit/include/eunit.hrl").
 
-all() -> [].
-%%    emqx_common_test_helpers:all(?MODULE).
+all() -> emqx_common_test_helpers:all(?MODULE).
 
 init_per_suite(Config) ->
     emqx_retainer_SUITE:load_base_conf(),
-    %% Meck emqtt
-    ok = meck:new(emqtt, [non_strict, passthrough, no_history, no_link]),
     %% Start Apps
     emqx_common_test_helpers:start_apps([emqx_retainer]),
     Config.
 
 end_per_suite(_Config) ->
-    ok = meck:unload(emqtt),
     emqx_common_test_helpers:stop_apps([emqx_retainer]).
 
 client_info(Key, Client) ->
