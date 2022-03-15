@@ -39,8 +39,6 @@
 
 -export([acl_conf_file/0]).
 
--export([ph_to_re/1]).
-
 -type(source() :: map()).
 
 -type(match_result() :: {matched, allow} | {matched, deny} | nomatch).
@@ -371,6 +369,3 @@ type(Unknown) -> error({unknown_authz_source_type, Unknown}).
 %% @doc where the acl.conf file is stored.
 acl_conf_file() ->
     filename:join([emqx:data_dir(), "authz", "acl.conf"]).
-
-ph_to_re(VarPH) ->
-    re:replace(VarPH, "[\\$\\{\\}]", "\\\\&", [global, {return, list}]).

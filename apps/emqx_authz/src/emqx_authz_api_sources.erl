@@ -27,27 +27,6 @@
 -define(BAD_REQUEST, 'BAD_REQUEST').
 -define(NOT_FOUND, 'NOT_FOUND').
 
--define(EXAMPLE_REDIS,
-        #{type=> redis,
-          enable => true,
-          server => <<"127.0.0.1:3306">>,
-          redis_type => single,
-          pool_size => 1,
-          auto_reconnect => true,
-          cmd => <<"HGETALL mqtt_authz">>}).
--define(EXAMPLE_FILE,
-        #{type=> file,
-          enable => true,
-          rules => <<"{allow,{username,\"^dashboard?\"},subscribe,[\"$SYS/#\"]}.\n",
-                     "{allow,{ipaddr,\"127.0.0.1\"},all,[\"$SYS/#\",\"#\"]}.">>
-                   }).
-
--define(EXAMPLE_RETURNED,
-        #{sources => [ ?EXAMPLE_REDIS
-                     , ?EXAMPLE_FILE
-                     ]
-        }).
-
 -define(IS_TRUE(Val), ((Val =:= true) or (Val =:= <<"true">>))).
 
 -define(API_SCHEMA_MODULE, emqx_authz_api_schema).

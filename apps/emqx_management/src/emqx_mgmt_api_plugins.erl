@@ -147,7 +147,7 @@ fields(plugin) ->
                 required => true,
                 example => "emqx_plugin_template-5.0-rc.1"})
         },
-        {author, hoconsc:mk(list(string()), #{example => [<<"EMQ X Team">>]})},
+        {author, hoconsc:mk(list(string()), #{example => [<<"EMQX Team">>]})},
         {builder, hoconsc:ref(?MODULE, builder)},
         {built_on_otp_release, hoconsc:mk(string(), #{example => "24"})},
         {compatibility, hoconsc:mk(map(), #{example => #{<<"emqx">> => <<"~>5.0">>}})},
@@ -195,7 +195,7 @@ fields(name) ->
 fields(builder) ->
     [
         {contact, hoconsc:mk(string(), #{example => "emqx-support@emqx.io"})},
-        {name, hoconsc:mk(string(), #{example => "EMQ X Team"})},
+        {name, hoconsc:mk(string(), #{example => "EMQX Team"})},
         {website, hoconsc:mk(string(), #{example => "www.emqx.com"})}
     ];
 fields(position) ->
