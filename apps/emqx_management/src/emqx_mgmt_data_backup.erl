@@ -627,45 +627,67 @@ upload_backup_file(Filename0, Bin) ->
     end.
 
 list_backup_file() ->
-    {ok, Files} = file:list_dir_all(backup_dir()),
-    lists:foldl(
-        fun(File, Acc) ->
-            case filename:extension(File) =:= ".json" of
-                true ->
-                    {ok, FileName} = ensure_file_name(File),
-                    case file:read_file_info(FileName) of
-                        {ok, #file_info{size = Size, ctime = CTime = {{Y, M, D}, {H, MM, S}}}} ->
-                            CreatedAt = io_lib:format("~p-~p-~p ~p:~p:~p", [Y, M, D, H, MM, S]),
-                            Seconds = calendar:datetime_to_gregorian_seconds(CTime),
-                            [{Seconds, [{filename, list_to_binary(File)},
-                                        {size, Size},
-                                        {created_at, list_to_binary(CreatedAt)},
-                                        {node, node()}
-                                       ]} | Acc];
-                        {error, Reason} ->
-                            logger:error("Read file info of ~s failed with: ~p", [File, Reason]),
-                            Acc
-                    end;
-                false -> Acc
+    Filter =
+        fun(File) ->
+            case file:read_file_info(File) of
+                {ok, #file_info{size = Size, ctime = CTime = {{Y, M, D}, {H, MM, S}}}} ->
+                    Seconds = calendar:datetime_to_gregorian_seconds(CTime),
+                    BaseFilename = to_binary(filename:basename(File)),
+                    CreatedAt = to_binary(io_lib:format("~p-~p-~p ~p:~p:~p", [Y, M, D, H, MM, S])),
+                    Info = {
+                        Seconds,
+                        [{filename, BaseFilename},
+                         {size, Size},
+                         {created_at, CreatedAt},
+                         {node, node()}
+                        ]
+                    },
+                    {true, Info};
+                _ ->
+                    false
             end
-        end, [], Files).
+        end,
+    lists:filtermap(Filter, backup_files()).
+
+backup_files() ->
+    backup_files(backup_dir()) ++ backup_files(backup_dir_odl_version()).
+
+backup_files(Dir) ->
+    {ok, FilesAll} = file:list_dir_all(Dir),
+    Files = lists:filtermap(fun legal_filename/1, FilesAll),
+    [filename:join([Dir, File]) || File <- Files].
+
+look_up_file(Filename) when is_binary(Filename) ->
+    look_up_file(binary_to_list(Filename));
+look_up_file(Filename) ->
+    Filter =
+        fun(MaybeFile) ->
+            filename:basename(MaybeFile) == Filename
+        end,
+    case lists:filter(Filter, backup_files()) of
+        [] ->
+            {error, not_found};
+        List ->
+            {ok, hd(List)}
+    end.
 
 read_backup_file(Filename0) ->
-    case ensure_file_name(Filename0) of
+    case look_up_file(Filename0) of
         {ok, Filename} ->
             case file:read_file(Filename) of
                 {ok, Bin} ->
                     {ok, #{filename => to_binary(Filename0),
                            file => Bin}};
                 {error, Reason} ->
-                    {error, Reason}
+                    logger:error("read file ~p failed ~p", [Filename, Reason]),
+                    {error, bad_file}
             end;
-        {error, Reason} ->
-            {error, Reason}
+        {error, not_found} ->
+            {error, not_found}
     end.
 
 delete_backup_file(Filename0) ->
-    case ensure_file_name(Filename0) of
+    case look_up_file(Filename0) of
         {ok, Filename} ->
             case file:read_file_info(Filename) of
                 {ok, #file_info{}} ->
@@ -681,7 +703,7 @@ delete_backup_file(Filename0) ->
                 _ ->
                     {error, not_found}
             end;
-        {error, _Reason} ->
+        {error, not_found} ->
             {error, not_found}
     end.
 
@@ -788,8 +810,11 @@ import(Filename, OverridesJson) ->
 
 -spec(check_import_json(binary() | string()) -> {ok, map()} | {error, term()}).
 check_import_json(Filename) ->
-    ReadFile = fun(F) -> file:read_file(F) end,
-    FunList = [fun ensure_file_name/1, ReadFile, fun check_json/1],
+    FunList = [
+        fun look_up_file/1,
+        fun(F) -> file:read_file(F) end,
+        fun check_json/1
+    ],
     check_import_json(Filename, FunList).
 
 check_import_json(Res, []) ->
@@ -814,6 +839,9 @@ backup_dir() ->
     Dir = filename:join(emqx:get_env(data_dir), ?BACKUP_DIR),
     ok = filelib:ensure_dir(filename:join([Dir, dummy])),
     Dir.
+
+backup_dir_odl_version() ->
+    emqx:get_env(data_dir).
 
 legal_filename(Filename) ->
     MaybeJson = filename:extension(Filename),
