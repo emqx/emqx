@@ -59,9 +59,6 @@ fi
 APPS_ALL="$(echo -e "${CE}\n${EE}")"
 APPS_DOCKER_CT="$(grep -v -E '^#.*' scripts/docker-ct-apps)"
 
-# TODO: fix the tests!
-APPS_ALL=("${APPS_ALL[@]/"apps/emqx_auto_subscribe"}")
-
 # shellcheck disable=SC2068
 for app in ${APPS_DOCKER_CT[@]}; do
     APPS_ALL=("${APPS_ALL[@]/$app}")
