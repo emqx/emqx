@@ -45,7 +45,8 @@ schema("/api_key") ->
             description => "Create new api_key",
             'requestBody' => delete([created_at, api_key, api_secret], fields(app)),
             responses => #{
-                200 => hoconsc:ref(app)
+                200 => hoconsc:ref(app),
+                400 => emqx_dashboard_swagger:error_codes(['BAD_REQUEST'])
             }
         }
     };
@@ -56,7 +57,8 @@ schema("/api_key/:name") ->
             description => "Return the specific api_key",
             parameters => [hoconsc:ref(name)],
             responses => #{
-                200 => delete([api_secret], fields(app))
+                200 => delete([api_secret], fields(app)),
+                404 => emqx_dashboard_swagger:error_codes(['NOT_FOUND'])
             }
         },
         put => #{
@@ -64,14 +66,16 @@ schema("/api_key/:name") ->
             parameters => [hoconsc:ref(name)],
             'requestBody' => delete([created_at, api_key, api_secret, name], fields(app)),
             responses => #{
-                200 => delete([api_secret], fields(app))
+                200 => delete([api_secret], fields(app)),
+                404 => emqx_dashboard_swagger:error_codes(['NOT_FOUND'])
             }
         },
         delete => #{
             description => "Delete the specific api_key",
             parameters => [hoconsc:ref(name)],
             responses => #{
-                204 => <<"Delete successfully">>
+                204 => <<"Delete successfully">>,
+                404 => emqx_dashboard_swagger:error_codes(['NOT_FOUND'])
             }
         }
     }.
@@ -108,7 +112,7 @@ fields(app) ->
 fields(name) ->
     [{name, hoconsc:mk(binary(),
         #{
-            desc => <<"[a-zA-Z0-9-_]">>,
+            desc => <<"^[A-Za-z]+[A-Za-z0-9-_]*$">>,
             example => <<"EMQX-API-KEY-1">>,
             in => path,
             validator => fun ?MODULE:validate_name/1
@@ -143,18 +147,22 @@ api_key(post, #{body := App}) ->
     Desc = unicode:characters_to_binary(Desc0, unicode),
     case emqx_mgmt_auth:create(Name, Enable, ExpiredAt, Desc) of
         {ok, NewApp} -> {200, format(NewApp)};
-        {error, Reason} -> {400, io_lib:format("~p", [Reason])}
+        {error, Reason} ->
+            {400, #{code => 'BAD_REQUEST',
+                message => iolist_to_binary(io_lib:format("~p", [Reason]))}}
     end.
+
+-define(NOT_FOUND_RESPONSE, #{code => 'NOT_FOUND', message => <<"Name NOT FOUND">>}).
 
 api_key_by_name(get, #{bindings := #{name := Name}}) ->
     case emqx_mgmt_auth:read(Name) of
         {ok, App} -> {200, format(App)};
-        {error, not_found} -> {404, <<"NOT_FOUND">>}
+        {error, not_found} -> {404, ?NOT_FOUND_RESPONSE}
     end;
 api_key_by_name(delete, #{bindings := #{name := Name}}) ->
     case emqx_mgmt_auth:delete(Name) of
         {ok, _} -> {204};
-        {error, not_found} -> {404, <<"NOT_FOUND">>}
+        {error, not_found} -> {404, ?NOT_FOUND_RESPONSE}
     end;
 api_key_by_name(put, #{bindings := #{name := Name}, body := Body}) ->
     Enable = maps:get(<<"enable">>, Body, undefined),
@@ -162,7 +170,7 @@ api_key_by_name(put, #{bindings := #{name := Name}, body := Body}) ->
     Desc = maps:get(<<"desc">>, Body, undefined),
     case emqx_mgmt_auth:update(Name, Enable, ExpiredAt, Desc) of
         {ok, App} -> {200, format(App)};
-        {error, not_found} -> {404, <<"NOT_FOUND">>}
+        {error, not_found} -> {404, ?NOT_FOUND_RESPONSE}
     end.
 
 format(App = #{expired_at := ExpiredAt0, created_at := CreateAt}) ->
