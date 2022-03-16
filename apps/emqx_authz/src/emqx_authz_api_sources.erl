@@ -80,16 +80,6 @@ schema("/authorization/sources") ->
                                                                <<"Bad Request">>)
                    }
             }
-     , put =>
-           #{ description => <<"Update all sources">>
-            , 'requestBody' => mk( array(hoconsc:union(authz_sources_type_refs()))
-                                 , #{desc => <<"Sources">>})
-            , responses =>
-                  #{ 204 => <<"Authorization source updated successfully">>
-                   , 400 => emqx_dashboard_swagger:error_codes([?BAD_REQUEST],
-                              <<"Bad Request">>)
-                   }
-            }
      };
 schema("/authorization/sources/:type") ->
     #{ 'operationId' => source
@@ -183,17 +173,7 @@ sources(post, #{body := #{<<"type">> := <<"file">>, <<"rules">> := Rules}}) ->
     update_config(?CMD_PREPEND, [#{<<"type">> => <<"file">>,
                                    <<"enable">> => true, <<"path">> => Filename}]);
 sources(post, #{body := Body}) when is_map(Body) ->
-    update_config(?CMD_PREPEND, [maybe_write_certs(Body)]);
-sources(put, #{body := Body}) when is_list(Body) ->
-    NBody = [ begin
-                case Source of
-                    #{<<"type">> := <<"file">>, <<"rules">> := Rules, <<"enable">> := Enable} ->
-                        {ok, Filename} = write_file(acl_conf_file(), Rules),
-                        #{<<"type">> => <<"file">>, <<"enable">> => Enable, <<"path">> => Filename};
-                    _ -> maybe_write_certs(Source)
-                end
-              end || Source <- Body],
-    update_config(?CMD_REPLACE, NBody).
+    update_config(?CMD_PREPEND, [maybe_write_certs(Body)]).
 
 source(Method, #{bindings := #{type := Type} = Bindings } = Req)
   when is_atom(Type) ->
