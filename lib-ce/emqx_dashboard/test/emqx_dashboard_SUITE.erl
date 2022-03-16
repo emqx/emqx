@@ -71,7 +71,7 @@ t_overview(_) ->
 t_admins_add_delete(_) ->
     ok = emqx_dashboard_admin:add_user(<<"username">>, <<"password">>, <<"tag">>),
     ok = emqx_dashboard_admin:add_user(<<"username1">>, <<"password1">>, <<"tag1">>),
-    ok = emqx_dashboard_admin:add_user(<<"1username1">>, <<"password1">>, <<"tag1">>),
+    {error, _} = emqx_dashboard_admin:add_user(<<"1username1">>, <<"password1">>, <<"tag1">>),
     {error, _} = emqx_dashboard_admin:add_user(<<"u/sername1">>, <<"password1">>, <<"tag1">>),
     {error, _} = emqx_dashboard_admin:add_user(<<"/username1">>, <<"password1">>, <<"tag1">>),
     Admins = emqx_dashboard_admin:all_users(),
