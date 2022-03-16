@@ -267,7 +267,7 @@ schema("/bridges/:id") ->
             responses => #{
                 200 => get_response_body_schema(),
                 404 => error_schema('NOT_FOUND', "Bridge not found"),
-                400 => error_schema('BAD_REQUEST', "Update bridge failed")
+                400 => error_schema(['BAD_REQUEST', 'INVALID_ID'], "Update bridge failed")
             }
         },
         delete => #{
@@ -276,7 +276,8 @@ schema("/bridges/:id") ->
             description => <<"Delete a bridge by Id">>,
             parameters => [param_path_id()],
             responses => #{
-                204 => <<"Bridge deleted">>
+                204 => <<"Bridge deleted">>,
+                400 => error_schema(['INVALID_ID'], "Update bridge failed")
             }
         }
     };
@@ -294,8 +295,8 @@ schema("/bridges/:id/operation/:operation") ->
                 param_path_operation_cluster()
             ],
             responses => #{
-                500 => error_schema('INTERNAL_ERROR', "Operation Failed"),
-                200 => <<"Operation success">>
+                200 => <<"Operation success">>,
+                400 => error_schema('INVALID_ID', "Bad bridge ID")
             }
         }
     };
@@ -314,8 +315,8 @@ schema("/nodes/:node/bridges/:id/operation/:operation") ->
                 param_path_operation_on_node()
             ],
             responses => #{
-                500 => error_schema('INTERNAL_ERROR', "Operation Failed"),
-                200 => <<"Operation success">>
+                200 => <<"Operation success">>,
+                400 => error_schema('INVALID_ID', "Bad bridge ID")
             }
         }
     }.

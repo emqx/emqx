@@ -241,7 +241,6 @@ move(post, #{bindings := #{name := Name}, body := #{<<"position">> := RawPositio
                 {ok, ok} ->
                     {204};
                 {ok, not_found} ->
-                    %% TODO: unify status code
                     {400, #{code => <<"BAD_REQUEST">>,
                             message => <<"Server not found">>
                            }};

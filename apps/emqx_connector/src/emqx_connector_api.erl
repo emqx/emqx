@@ -171,7 +171,8 @@ schema("/connectors/:id") ->
             parameters => param_path_id(),
             responses => #{
                 200 => get_response_body_schema(),
-                404 => error_schema(['NOT_FOUND'], "Connector not found")
+                404 => error_schema(['NOT_FOUND'], "Connector not found"),
+                400 => error_schema(['INVALID_ID'], "Bad connector ID")
             }
         },
         put => #{
@@ -182,7 +183,8 @@ schema("/connectors/:id") ->
             'requestBody' => put_request_body_schema(),
             responses => #{
                 200 => get_response_body_schema(),
-                404 => error_schema(['NOT_FOUND'], "Connector not found")
+                404 => error_schema(['NOT_FOUND'], "Connector not found"),
+                400 => error_schema(['INVALID_ID'], "Bad connector ID")
             }},
         delete => #{
             tags => [<<"connectors">>],
@@ -192,7 +194,8 @@ schema("/connectors/:id") ->
             responses => #{
                 204 => <<"Delete connector successfully">>,
                 403 => error_schema(['DEPENDENCY_EXISTS'], "Cannot remove dependent connector"),
-                404 => error_schema(['NOT_FOUND'], "Delete failed, not found")
+                404 => error_schema(['NOT_FOUND'], "Delete failed, not found"),
+                400 => error_schema(['INVALID_ID'], "Bad connector ID")
             }}
     }.
 
