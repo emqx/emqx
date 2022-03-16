@@ -78,7 +78,7 @@ start_link() ->
 
 -spec(add_user(binary(), binary(), binary()) -> ok | {error, any()}).
 add_user(Username, Password, Tags) when is_binary(Username), is_binary(Password) ->
-    case emqx_misc:valid_str(Username) of
+    case emqx_misc:is_sane_id(Username) of
         ok ->
             Admin = #mqtt_admin{username = Username, password = hash(Password), tags = Tags},
             return(mnesia:transaction(fun add_user_/1, [Admin]));
@@ -86,7 +86,7 @@ add_user(Username, Password, Tags) when is_binary(Username), is_binary(Password)
     end.
 
 force_add_user(Username, Password, Tags) ->
-    case emqx_misc:valid_str(Username) of
+    case emqx_misc:is_sane_id(Username) of
         ok ->
             AddFun = fun() ->
                 mnesia:write(#mqtt_admin{username = Username, password = Password, tags = Tags})
@@ -188,6 +188,7 @@ check(Username, Password) ->
 init([]) ->
     %% Add default admin user
     _ = add_default_user(binenv(default_user_username), binenv(default_user_passwd)),
+    abnormal_username_warning(),
     {ok, state}.
 
 handle_call(_Req, _From, State) ->
@@ -256,3 +257,15 @@ add_default_user(Username, Password) ->
             end
     end,
     ok.
+
+abnormal_username_warning() ->
+    lists:foreach(fun(Name) ->
+        case emqx_misc:is_sane_id(Name) of
+            ok -> ok;
+            {error, _} ->
+                ?LOG(warning,
+                    "[dashboard] `~ts` is not a sane username(^[A-Za-z0-9]+[A-Za-z0-9-_]*$). "
+                    "Please use `emqx_ctl admins del ~ts` to delete it and create a new one.",
+                    [Name, Name])
+        end
+                  end, mnesia:dirty_all_keys(mqtt_admin)).
