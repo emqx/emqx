@@ -27,6 +27,7 @@ File format:
 * Add UTF-8 string validity check in `strict_mode` for MQTT packet.
   When set to true, invalid UTF-8 strings will cause the client to be disconnected. i.e. client ID, topic name. [#7261]
 * Changed systemd service restart delay from 10 seconds to 60 seconds.
+* Add load control app for future development.
 
 ### Bug fixes
 
