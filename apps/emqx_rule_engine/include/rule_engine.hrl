@@ -50,6 +50,7 @@
         , enable := boolean()
         , description => binary()
         , created_at := integer() %% epoch in millisecond precision
+        , updated_at := integer() %% epoch in millisecond precision
         , from := list(topic())
         , is_foreach := boolean()
         , fields := list()
