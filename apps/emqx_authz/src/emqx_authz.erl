@@ -108,10 +108,10 @@ lookup(Type) ->
     {Source, _Front, _Rear} = take(Type),
     Source.
 
-move(Type, {before, Before}) ->
+move(Type, ?CMD_MOVE_BEFORE(Before)) ->
     emqx_authz_utils:update_config(
       ?CONF_KEY_PATH, {?CMD_MOVE, type(Type), ?CMD_MOVE_BEFORE(type(Before))});
-move(Type, {'after', After}) ->
+move(Type, ?CMD_MOVE_AFTER(After)) ->
     emqx_authz_utils:update_config(
       ?CONF_KEY_PATH, {?CMD_MOVE, type(Type), ?CMD_MOVE_AFTER(type(After))});
 move(Type, Position) ->

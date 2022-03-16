@@ -66,16 +66,13 @@ schema("/authorization/sources") ->
      , get =>
            #{ description => <<"List all authorization sources">>
             , responses =>
-                  #{ 200 => mk( array(hoconsc:union(
-                      [ref(?API_SCHEMA_MODULE, Type) || Type <- authz_sources_types(detailed)]))
+                  #{ 200 => mk( array(hoconsc:union(authz_sources_type_refs()))
                               , #{desc => <<"Authorization source">>})
                    }
             }
      , post =>
            #{ description => <<"Add a new source">>
-            , 'requestBody' => mk( hoconsc:union(
-                                   [ref(?API_SCHEMA_MODULE, Type)
-                                        || Type <- authz_sources_types(detailed)])
+            , 'requestBody' => mk( hoconsc:union(authz_sources_type_refs())
                                  , #{desc => <<"Source config">>})
             , responses =>
                   #{ 204 => <<"Authorization source created successfully">>
@@ -85,9 +82,7 @@ schema("/authorization/sources") ->
             }
      , put =>
            #{ description => <<"Update all sources">>
-            , 'requestBody' => mk( array(hoconsc:union(
-                                  [ref(?API_SCHEMA_MODULE, Type)
-                                       || Type <- authz_sources_types(detailed)]))
+            , 'requestBody' => mk( array(hoconsc:union(authz_sources_type_refs()))
                                  , #{desc => <<"Sources">>})
             , responses =>
                   #{ 204 => <<"Authorization source updated successfully">>
@@ -102,9 +97,7 @@ schema("/authorization/sources/:type") ->
            #{ description => <<"Get a authorization source">>
             , parameters => parameters_field()
             , responses =>
-                  #{ 200 => mk( hoconsc:union(
-                               [ref(?API_SCHEMA_MODULE, Type)
-                                   || Type <- authz_sources_types(detailed)])
+                  #{ 200 => mk( hoconsc:union(authz_sources_type_refs())
                               , #{desc => <<"Authorization source">>})
                    , 404 => emqx_dashboard_swagger:error_codes([?NOT_FOUND], <<"Not Found">>)
                    }
@@ -112,8 +105,7 @@ schema("/authorization/sources/:type") ->
      , put =>
            #{ description => <<"Update source">>
             , parameters => parameters_field()
-            , 'requestBody' => mk( hoconsc:union([ref(?API_SCHEMA_MODULE, Type)
-                                   || Type <- authz_sources_types(detailed)]))
+            , 'requestBody' => mk( hoconsc:union(authz_sources_type_refs()))
             , responses =>
                   #{ 204 => <<"Authorization source updated successfully">>
                    , 400 => emqx_dashboard_swagger:error_codes([?BAD_REQUEST], <<"Bad Request">>)
@@ -511,8 +503,9 @@ position_example() ->
            , value => #{<<"position">> => <<"after:file">>}}
      }.
 
-authz_sources_types(Type) ->
-    emqx_authz_api_schema:authz_sources_types(Type).
+authz_sources_type_refs() ->
+    [ref(?API_SCHEMA_MODULE, Type)
+     || Type <- emqx_authz_api_schema:authz_sources_types(detailed)].
 
 bin(Term) -> erlang:iolist_to_binary(io_lib:format("~p", [Term])).
 
