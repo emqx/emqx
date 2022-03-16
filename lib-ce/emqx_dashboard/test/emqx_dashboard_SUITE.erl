@@ -65,32 +65,6 @@ end_per_suite(_Config) ->
     emqx_ct_helpers:stop_apps([emqx_dashboard, emqx_management, emqx_modules]),
     ekka_mnesia:ensure_stopped().
 
-% init_per_testcase(t_default_password_persists_after_leaving_cluster, Config) ->
-%     case node() of
-%         nonode@nohost ->
-%             end_per_suite(Config),
-%             {ok, _} = net_kernel:start(['master@127.0.0.1', longnames]),
-%             init_per_suite(Config);
-% 
-%         _ ->
-%             ok
-%     end;
-% init_per_testcase(_, Config) ->
-%     Config.
-% 
-% end_per_testcase(t_default_password_persists_after_leaving_cluster, Config) ->
-%     case node() of
-%         'master@127.0.0.1' ->
-%             end_per_suite(Config),
-%             ok = net_kernel:stop(),
-%             init_per_suite(Config);
-% 
-%         _ ->
-%             ok
-%     end;
-% end_per_testcase(_, Config) ->
-%     Config.
-
 t_overview(_) ->
     [?assert(request_dashboard(get, api_path(erlang:atom_to_list(Overview)), auth_header_()))|| Overview <- ?OVERVIEWS].
 
@@ -121,23 +95,66 @@ t_admins_persist_default_password(_) ->
     ?assertEqual(Password, PasswordAfterRestart),
     emqx_dashboard_admin:change_password(<<"admin">>, <<"public">>).
 
+debug(Label, Slave) ->
+    ct:print(
+      "[~p]~nusers local ~p~nusers remote: ~p~nenv local: ~p~nenv remote: ~p",
+      [
+       Label,
+       ets:tab2list(mqtt_admin),
+       rpc:call(Slave, ets, tab2list, [mqtt_admin]),
+       application:get_all_env(emqx_dashboard),
+       rpc:call(Slave, application, get_all_env, [emqx_dashboard])
+      ]).
+
 
 t_default_password_persists_after_leaving_cluster(_) ->
     [#mqtt_admin{password=InitialPassword}] = emqx_dashboard_admin:lookup_user(<<"admin">>),
 
-    Slave = start_slave('slave', [emqx_modules, emqx_management, emqx_dashboard]),
+    ct:print("Cluster status: ~p", [ekka_cluster:info()]),
+    ct:print("Table nodes: ~p", [mnesia:table_info(mqtt_admin, active_replicas)]),
 
-    rpc:call(Slave, emqx_dashboard_admin, change_password, [<<"admin">>, <<"new_password">>]),
-    ct:sleep(100), %% To ensure that event gets processed
-    [#mqtt_admin{password=Password}] = emqx_dashboard_admin:lookup_user(<<"admin">>),
+    Slave = start_slave('test1', [emqx_modules, emqx_management, emqx_dashboard]),
 
+
+    ct:print("Cluster status: ~p", [ekka_cluster:info()]),
+    ct:print("Table nodes: ~p", [mnesia:table_info(mqtt_admin, active_replicas)]),
+
+    ct:print("Apps: ~p", [
+                          rpc:call(Slave, application, which_applications, [])
+                         ]),
+
+    debug(0, Slave),
+
+    emqx_dashboard_admin:change_password(<<"admin">>, <<"new_password">>),
+    ct:sleep(1000), %% To ensure that event gets processed
+
+    debug(1, Slave),
+
+    [#mqtt_admin{password=Password}] = rpc:call(Slave, emqx_dashboard_admin, lookup_user, [<<"admin">>]),
     ?assertNotEqual(InitialPassword, Password),
 
-    %%% The node that initiated the password change leaves the cluster
-    ok = stop_slave(Slave, [emqx_dashboard, emqx_management, emqx_modules]),
+    rpc:call(Slave, ekka, leave, []),
+    
+    debug(2, Slave),
 
-    [#mqtt_admin{password=PasswordAfterSplit}] = emqx_dashboard_admin:lookup_user(<<"admin">>),
-    ?assertEqual(Password, PasswordAfterSplit),
+    rpc:call(Slave, application, stop, [emqx_dashboard]),
+
+    debug(3, Slave),
+
+    rpc:call(Slave, application, start, [emqx_dashboard]),
+    
+    debug(4, Slave),
+
+    ?assertEqual(
+       ok,
+       rpc:call(Slave, emqx_dashboard_admin, check, [<<"admin">>, <<"new_password">>])),
+
+    ?assertMatch(
+       {error, _},
+       rpc:call(Slave, emqx_dashboard_admin, check, [<<"admin">>, <<"password">>])),
+
+    {ok, _} = stop_slave(Slave, [emqx_dashboard, emqx_management, emqx_modules]),
+
     emqx_dashboard_admin:change_password(<<"admin">>, <<"public">>).
 
 t_rest_api(_Config) ->
@@ -241,7 +258,8 @@ start_slave(Name, Apps) ->
 
 stop_slave(Node, Apps) ->
     [ok = Res || Res <- rpc:call(Node, emqx_ct_helpers, stop_apps, [Apps])],
-    slave:stop(Node).
+    rpc:call(Node, ekka, leave, []),
+    ct_slave:stop(Node).
 
 host() ->
     [_, Host] = string:tokens(atom_to_list(node()), "@"), Host.
@@ -279,7 +297,10 @@ setup_node(Node, Apps) ->
     [ok = rpc:call(Node, application, load, [App]) || App <- [gen_rpc, emqx | Apps]],
     ok = rpc:call(Node, emqx_ct_helpers, start_apps, [Apps, EnvHandler]),
 
-    ok = ekka:join(Node),
+    %% ok = ekka:join(Node),
+    rpc:call(Node, ekka, join, [node()]),
+    rpc:call(Node, application, stop, [emqx_dashboard]),
+    rpc:call(Node, application, start, [emqx_dashboard]),
     %ok = rpc:call(Node, mnesia, wait_for_tables, [mqtt_admin, 10000]),
 
     ok.
