@@ -301,6 +301,7 @@ setup_node(Node, Apps) ->
     rpc:call(Node, ekka, join, [node()]),
     rpc:call(Node, application, stop, [emqx_dashboard]),
     rpc:call(Node, application, start, [emqx_dashboard]),
+
     %ok = rpc:call(Node, mnesia, wait_for_tables, [mqtt_admin, 10000]),
 
     ok.
