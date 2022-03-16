@@ -194,7 +194,6 @@ init([]) ->
     %% Add default admin user
     {ok, _} = mnesia:subscribe({table, mqtt_admin, simple}),
     _ = add_default_user(binenv(default_user_username), binenv(default_user_passwd)),
-    abnormal_username_warning(),
     {ok, state}.
 
 handle_call(_Req, _From, State) ->
@@ -285,15 +284,3 @@ add_default_user(Username, Password) ->
             end
     end,
     ok.
-
-abnormal_username_warning() ->
-    lists:foreach(fun(Name) ->
-        case emqx_misc:is_sane_id(Name) of
-            ok -> ok;
-            {error, _} ->
-                ?LOG(warning,
-                    "[dashboard] `~ts` is not a sane username(^[A-Za-z0-9]+[A-Za-z0-9-_]*$). "
-                    "Please use `emqx_ctl admins del ~ts` to delete it and create a new one.",
-                    [Name, Name])
-        end
-                  end, mnesia:dirty_all_keys(mqtt_admin)).
