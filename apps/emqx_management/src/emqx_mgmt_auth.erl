@@ -89,36 +89,45 @@ add_app(AppId, Name, Desc, Status, Expired) when is_binary(AppId) ->
       -> {ok, appsecret()}
        | {error, term()}).
 add_app(AppId, Name, Secret, Desc, Status, Expired) when is_binary(AppId) ->
-    Secret1 = generate_appsecret_if_need(Secret),
-    App = #mqtt_app{id = AppId,
-                    secret = Secret1,
-                    name = Name,
-                    desc = Desc,
-                    status = Status,
-                    expired = Expired},
-    AddFun = fun() ->
-                 case mnesia:wread({mqtt_app, AppId}) of
-                     [] -> mnesia:write(App);
-                     _  -> mnesia:abort(alread_existed)
-                 end
-             end,
-    case mnesia:transaction(AddFun) of
-        {atomic, ok} -> {ok, Secret1};
-        {aborted, Reason} -> {error, Reason}
+    case emqx_misc:valid_str(Name) of
+        ok ->
+            Secret1 = generate_appsecret_if_need(Secret),
+            App = #mqtt_app{id = AppId,
+                            secret = Secret1,
+                            name = Name,
+                            desc = Desc,
+                            status = Status,
+                            expired = Expired},
+            AddFun = fun() ->
+                case mnesia:wread({mqtt_app, AppId}) of
+                    [] -> mnesia:write(App);
+                    _  -> mnesia:abort(alread_existed)
+                end
+                     end,
+            case mnesia:transaction(AddFun) of
+                {atomic, ok} -> {ok, Secret1};
+                {aborted, Reason} -> {error, Reason}
+            end;
+        {error, Reason} -> {error, Reason}
     end.
 
 force_add_app(AppId, Name, Secret, Desc, Status, Expired) ->
-    AddFun = fun() ->
-                 mnesia:write(#mqtt_app{id = AppId,
-                                        secret = Secret,
-                                        name = Name,
-                                        desc = Desc,
-                                        status = Status,
-                                        expired = Expired})
-             end,
-    case mnesia:transaction(AddFun) of
-        {atomic, ok} -> ok;
-        {aborted, Reason} -> {error, Reason}
+    case emqx_misc:valid_str(Name) of
+        ok ->
+            AddFun = fun() ->
+                mnesia:write(#mqtt_app{
+                    id = AppId,
+                    secret = Secret,
+                    name = Name,
+                    desc = Desc,
+                    status = Status,
+                    expired = Expired})
+                     end,
+            case mnesia:transaction(AddFun) of
+                {atomic, ok} -> ok;
+                {aborted, Reason} -> {error, Reason}
+            end;
+        {error, Reason} -> {error, Reason}
     end.
 
 -spec(generate_appsecret_if_need(binary() | undefined) -> binary()).
@@ -207,4 +216,3 @@ is_authorized(AppId, AppSecret) ->
 
 is_expired(undefined) -> true;
 is_expired(Expired)   -> Expired >= erlang:system_time(second).
-
