@@ -189,8 +189,8 @@ init([]) ->
     ok = create_table(),
     erlang:process_flag(trap_exit, true),
     OriginLogLevel = emqx_logger:get_primary_log_level(),
-    ok = filelib:ensure_dir(trace_dir()),
-    ok = filelib:ensure_dir(zip_dir()),
+    ok = filelib:ensure_dir(filename:join([trace_dir(), dummy])),
+    ok = filelib:ensure_dir(filename:join([zip_dir(), dummy])),
     {ok, _} = mnesia:subscribe({table, ?TRACE, simple}),
     Traces = get_enable_trace(),
     ok = update_log_primary_level(Traces, OriginLogLevel),
@@ -462,10 +462,10 @@ to_system_second(At) ->
     end.
 
 zip_dir() ->
-    trace_dir() ++ "zip/".
+    filename:join(trace_dir(), "zip").
 
 trace_dir() ->
-    filename:join(emqx:get_env(data_dir), "trace") ++ "/".
+    filename:join(emqx:get_env(data_dir), "trace").
 
 log_file(Name, Start) ->
     filename:join(trace_dir(), filename(Name, Start)).

@@ -31,6 +31,8 @@
         ]).
 -endif.
 
+-define(BACKUP_DIR, backup).
+
 -export([ export_rules/0
         , export_resources/0
         , export_blacklist/0
@@ -53,7 +55,17 @@
 
 -export([ export/0
         , import/2
+        , upload_backup_file/2
+        , list_backup_file/0
+        , read_backup_file/1
+        , delete_backup_file/1
         ]).
+
+-ifdef(TEST).
+-export([ backup_dir/0
+        , delete_all_backup_file/0
+        ]).
+-endif.
 
 %%--------------------------------------------------------------------
 %% Data Export and Import
@@ -600,19 +612,123 @@ to_version(Version) when is_binary(Version) ->
 to_version(Version) when is_list(Version) ->
     Version.
 
+upload_backup_file(Filename0, Bin) ->
+    case ensure_file_name(Filename0) of
+        {ok, Filename} ->
+            case check_json(Bin) of
+                {ok, _} ->
+                    logger:info("write backup file ~p", [Filename]),
+                    file:write_file(Filename, Bin);
+                {error, Reason} ->
+                    {error, Reason}
+            end;
+        {error, Reason} ->
+            {error, Reason}
+    end.
+
+list_backup_file() ->
+    Filter =
+        fun(File) ->
+            case file:read_file_info(File) of
+                {ok, #file_info{size = Size, ctime = CTime = {{Y, M, D}, {H, MM, S}}}} ->
+                    Seconds = calendar:datetime_to_gregorian_seconds(CTime),
+                    BaseFilename = to_binary(filename:basename(File)),
+                    CreatedAt = to_binary(io_lib:format("~p-~p-~p ~p:~p:~p", [Y, M, D, H, MM, S])),
+                    Info = {
+                        Seconds,
+                        [{filename, BaseFilename},
+                         {size, Size},
+                         {created_at, CreatedAt},
+                         {node, node()}
+                        ]
+                    },
+                    {true, Info};
+                _ ->
+                    false
+            end
+        end,
+    lists:filtermap(Filter, backup_files()).
+
+backup_files() ->
+    backup_files(backup_dir()) ++ backup_files(backup_dir_odl_version()).
+
+backup_files(Dir) ->
+    {ok, FilesAll} = file:list_dir_all(Dir),
+    Files = lists:filtermap(fun legal_filename/1, FilesAll),
+    [filename:join([Dir, File]) || File <- Files].
+
+look_up_file(Filename) when is_binary(Filename) ->
+    look_up_file(binary_to_list(Filename));
+look_up_file(Filename) ->
+    Filter =
+        fun(MaybeFile) ->
+            filename:basename(MaybeFile) == Filename
+        end,
+    case lists:filter(Filter, backup_files()) of
+        [] ->
+            {error, not_found};
+        List ->
+            {ok, hd(List)}
+    end.
+
+read_backup_file(Filename0) ->
+    case look_up_file(Filename0) of
+        {ok, Filename} ->
+            case file:read_file(Filename) of
+                {ok, Bin} ->
+                    {ok, #{filename => to_binary(Filename0),
+                           file => Bin}};
+                {error, Reason} ->
+                    logger:error("read file ~p failed ~p", [Filename, Reason]),
+                    {error, bad_file}
+            end;
+        {error, not_found} ->
+            {error, not_found}
+    end.
+
+delete_backup_file(Filename0) ->
+    case look_up_file(Filename0) of
+        {ok, Filename} ->
+            case file:read_file_info(Filename) of
+                {ok, #file_info{}} ->
+                    case file:delete(Filename) of
+                        ok ->
+                            logger:info("delete backup file ~p", [Filename]),
+                            ok;
+                        {error, Reason} ->
+                            logger:error(
+                                "delete backup file ~p error:~p", [Filename, Reason]),
+                            {error, Reason}
+                    end;
+                _ ->
+                    {error, not_found}
+            end;
+        {error, not_found} ->
+            {error, not_found}
+    end.
+
+-ifdef(TEST).
+%% clean all for test
+delete_all_backup_file() ->
+    [begin
+        Filename = proplists:get_value(filename, Info),
+        _ = delete_backup_file(Filename)
+    end || {_, Info} <- list_backup_file()],
+    ok.
+-endif.
+
 export() ->
     Seconds = erlang:system_time(second),
     Data = do_export_data() ++ [{date, erlang:list_to_binary(emqx_mgmt_util:strftime(Seconds))}],
     {{Y, M, D}, {H, MM, S}} = emqx_mgmt_util:datetime(Seconds),
-    Filename = io_lib:format("emqx-export-~p-~p-~p-~p-~p-~p.json", [Y, M, D, H, MM, S]),
-    NFilename = filename:join([emqx:get_env(data_dir), Filename]),
-    ok = filelib:ensure_dir(NFilename),
-    case file:write_file(NFilename, emqx_json:encode(Data)) of
+    BaseFilename = io_lib:format("emqx-export-~p-~p-~p-~p-~p-~p.json", [Y, M, D, H, MM, S]),
+    {ok, Filename} = ensure_file_name(BaseFilename),
+    case file:write_file(Filename, emqx_json:encode(Data)) of
         ok ->
-            case file:read_file_info(NFilename) of
+            case file:read_file_info(Filename) of
                 {ok, #file_info{size = Size, ctime = {{Y1, M1, D1}, {H1, MM1, S1}}}} ->
                     CreatedAt = io_lib:format("~p-~p-~p ~p:~p:~p", [Y1, M1, D1, H1, MM1, S1]),
-                    {ok, #{filename => list_to_binary(NFilename),
+                    {ok, #{filename => Filename,
                            size => Size,
                            created_at => list_to_binary(CreatedAt),
                            node => node()
@@ -648,9 +764,8 @@ do_export_extra_data() -> [].
 
 -ifdef(EMQX_ENTERPRISE).
 import(Filename, OverridesJson) ->
-    case file:read_file(Filename) of
-        {ok, Json} ->
-            Imported = emqx_json:decode(Json, [return_maps]),
+    case check_import_json(Filename) of
+        {ok, Imported} ->
             Overrides = emqx_json:decode(OverridesJson, [return_maps]),
             Data = maps:merge(Imported, Overrides),
             Version = to_version(maps:get(<<"version">>, Data)),
@@ -663,13 +778,13 @@ import(Filename, OverridesJson) ->
                 logger:error("The emqx data import failed: ~0p", [{Class, Reason, Stack}]),
                 {error, import_failed}
             end;
-        Error -> Error
+        {error, Reason} ->
+            {error, Reason}
     end.
 -else.
 import(Filename, OverridesJson) ->
-    case file:read_file(Filename) of
-        {ok, Json} ->
-            Imported = emqx_json:decode(Json, [return_maps]),
+    case check_import_json(Filename) of
+        {ok, Imported} ->
             Overrides = emqx_json:decode(OverridesJson, [return_maps]),
             Data = maps:merge(Imported, Overrides),
             Version = to_version(maps:get(<<"version">>, Data)),
@@ -688,9 +803,57 @@ import(Filename, OverridesJson) ->
                     logger:error("Unsupported version: ~p", [Version]),
                     {error, unsupported_version, Version}
             end;
-        Error -> Error
+        {error, Reason} ->
+            {error, Reason}
     end.
 -endif.
+
+-spec(check_import_json(binary() | string()) -> {ok, map()} | {error, term()}).
+check_import_json(Filename) ->
+    FunList = [
+        fun look_up_file/1,
+        fun(F) -> file:read_file(F) end,
+        fun check_json/1
+    ],
+    check_import_json(Filename, FunList).
+
+check_import_json(Res, []) ->
+    {ok, Res};
+check_import_json(Acc, [Fun | FunList]) ->
+    case Fun(Acc) of
+        {ok, Next} ->
+            check_import_json(Next, FunList);
+        {error, Reason} ->
+            {error, Reason}
+    end.
+
+ensure_file_name(Filename) ->
+    case legal_filename(Filename) of
+        true ->
+            {ok, filename:join(backup_dir(), Filename)};
+        false ->
+            {error, bad_filename}
+    end.
+
+backup_dir() ->
+    Dir = filename:join(emqx:get_env(data_dir), ?BACKUP_DIR),
+    ok = filelib:ensure_dir(filename:join([Dir, dummy])),
+    Dir.
+
+backup_dir_odl_version() ->
+    emqx:get_env(data_dir).
+
+legal_filename(Filename) ->
+    MaybeJson = filename:extension(Filename),
+    MaybeJson == ".json" orelse MaybeJson == <<".json">>.
+
+check_json(MaybeJson) ->
+    case emqx_json:safe_decode(MaybeJson, [return_maps]) of
+        {ok, Json} ->
+            {ok, Json};
+        {error, _} ->
+            {error, bad_json}
+    end.
 
 do_import_data(Data, Version) ->
     do_import_extra_data(Data, Version),
@@ -800,3 +963,6 @@ get_old_type() ->
 
 set_old_type(Type) ->
     application:set_env(emqx_auth_mnesia, as, Type).
+
+to_binary(Bin) when is_binary(Bin) -> Bin;
+to_binary(Str) when is_list(Str) -> list_to_binary(Str).
