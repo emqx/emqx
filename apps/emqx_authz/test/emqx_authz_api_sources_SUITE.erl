@@ -176,32 +176,32 @@ t_api(_) ->
                            [?SOURCE2, ?SOURCE3, ?SOURCE4, ?SOURCE5, ?SOURCE6]),
     {ok, 204, _} = request(post, uri(["authorization", "sources"]), ?SOURCE1),
 
-    Snd = fun ({_, Val}) -> Val end,
-    LookupVal = fun LookupV(List, RestJson) ->
-                        case List of
-                            [Name] -> Snd(lists:keyfind(Name, 1, RestJson));
-                            [Name | NS] -> LookupV(NS, Snd(lists:keyfind(Name, 1, RestJson)))
-                        end
-                end,
-    EqualFun = fun (RList) ->
-                   fun ({M, V}) ->
-                       ?assertEqual(V,
-                                    LookupVal([<<"metrics">>, M],
-                                             RList)
-                                   )
-                   end
-               end,
-    AssertFun =
-        fun (ResultJson) ->
-            {ok, RList} = emqx_json:safe_decode(ResultJson),
-            MetricsList = [{<<"failed">>, 0},
-                           {<<"matched">>, 0},
-                           {<<"rate">>, 0.0},
-                           {<<"rate_last5m">>, 0.0},
-                           {<<"rate_max">>, 0.0},
-                           {<<"success">>, 0}],
-            lists:map(EqualFun(RList), MetricsList)
-        end,
+    %% Snd = fun ({_, Val}) -> Val end,
+    %% LookupVal = fun LookupV(List, RestJson) ->
+    %%                     case List of
+    %%                         [Name] -> Snd(lists:keyfind(Name, 1, RestJson));
+    %%                         [Name | NS] -> LookupV(NS, Snd(lists:keyfind(Name, 1, RestJson)))
+    %%                     end
+    %%             end,
+    %% EqualFun = fun (RList) ->
+    %%                fun ({M, V}) ->
+    %%                    ?assertEqual(V,
+    %%                                 LookupVal([<<"metrics">>, M],
+    %%                                          RList)
+    %%                                )
+    %%                end
+    %%            end,
+    %% AssertFun =
+    %%     fun (ResultJson) ->
+    %%         {ok, RList} = emqx_json:safe_decode(ResultJson),
+    %%         MetricsList = [{<<"failed">>, 0},
+    %%                        {<<"matched">>, 0},
+    %%                        {<<"rate">>, 0.0},
+    %%                        {<<"rate_last5m">>, 0.0},
+    %%                        {<<"rate_max">>, 0.0},
+    %%                        {<<"success">>, 0}],
+    %%         lists:map(EqualFun(RList), MetricsList)
+    %%     end,
 
     {ok, 200, Result2} = request(get, uri(["authorization", "sources"]), []),
     Sources = get_sources(Result2),
@@ -238,7 +238,7 @@ t_api(_) ->
                                          <<"verify">> => <<"verify_none">>
                                         }}),
     {ok, 200, Result4} = request(get, uri(["authorization", "sources", "mongodb"]), []),
-    AssertFun(Result4),
+    %% AssertFun(Result4),
     ?assertMatch(#{<<"type">> := <<"mongodb">>,
                    <<"ssl">> := #{<<"enable">> := <<"true">>,
                                   <<"cacertfile">> := ?MATCH_CERT,
@@ -261,7 +261,7 @@ t_api(_) ->
                                          <<"verify">> => <<"verify_none">>
                                         }}),
     {ok, 200, Result5} = request(get, uri(["authorization", "sources", "mongodb"]), []),
-    AssertFun(Result5),
+    %% AssertFun(Result5),
     ?assertMatch(#{<<"type">> := <<"mongodb">>,
                    <<"ssl">> := #{<<"enable">> := <<"true">>,
                                   <<"cacertfile">> := ?MATCH_CERT,

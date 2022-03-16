@@ -69,7 +69,7 @@
         ]).
 
 api_spec() ->
-    emqx_dashboard_swagger:spec(?MODULE, #{check_schema => false}).
+    emqx_dashboard_swagger:spec(?MODULE, #{check_schema => true}).
 
 paths() ->
     [ "/authorization/sources"
@@ -227,16 +227,7 @@ source(get, #{bindings := #{type := Type}}) ->
                     {400, #{code => <<"BAD_REQUEST">>,
                             message => bin(Reason)}}
             end;
-        [Source] ->
-            case emqx_authz:lookup(Type) of
-                #{annotations := #{id := ResourceId }} ->
-                    case lookup_from_all_nodes(ResourceId) of
-                        {ok, StatusAndMetrics} ->
-                            {200, maps:merge(read_certs(Source), StatusAndMetrics)};
-                        {error, ErrorMsg} -> {500, ErrorMsg}
-                    end;
-                _ -> {200, read_certs(Source)}
-            end
+        [Source] -> {200, read_certs(Source)}
     end;
 source(put, #{bindings := #{type := <<"file">>}, body := #{<<"type">> := <<"file">>,
                                                            <<"rules">> := Rules,
@@ -255,14 +246,9 @@ source(put, #{bindings := #{type := <<"file">>}, body := #{<<"type">> := <<"file
     end;
 source(put, #{bindings := #{type := Type}, body := Body}) when is_map(Body) ->
     update_config({?CMD_REPLACE, Type},
-                   maybe_write_certs(filter_out_request_body(Body#{<<"type">> => Type})));
+                   maybe_write_certs(Body#{<<"type">> => Type}));
 source(delete, #{bindings := #{type := Type}}) ->
     update_config({?CMD_DELETE, Type}, #{}).
-
-filter_out_request_body(Conf) ->
-   ExtraConfs = [<<"status">>, <<"node_status">>,
-                 <<"node_metrics">>, <<"metrics">>, <<"node">>],
-   maps:without(ExtraConfs, Conf).
 
 move_source(Method, #{bindings := #{type := Type} = Bindings } = Req)
   when is_atom(Type) ->

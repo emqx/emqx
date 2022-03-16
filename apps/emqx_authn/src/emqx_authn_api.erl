@@ -84,7 +84,7 @@
 -elvis([{elvis_style, god_modules, disable}]).
 
 api_spec() ->
-    emqx_dashboard_swagger:spec(?MODULE, #{check_schema => false}).
+    emqx_dashboard_swagger:spec(?MODULE, #{check_schema => true}).
 
 paths() -> [ "/authentication"
            , "/authentication/:id"
@@ -752,16 +752,11 @@ list_authenticators(ConfKeyPath) ->
                         || AuthenticatorConfig <- AuthenticatorsConfig],
     {200, NAuthenticators}.
 
-list_authenticator(ChainName, ConfKeyPath, AuthenticatorID) ->
+list_authenticator(_, ConfKeyPath, AuthenticatorID) ->
     AuthenticatorsConfig = get_raw_config_with_defaults(ConfKeyPath),
     case find_config(AuthenticatorID, AuthenticatorsConfig) of
         {ok, AuthenticatorConfig} ->
-            case lookup_from_all_nodes(ChainName, AuthenticatorID) of
-                {ok, StatusAndMetrics} ->
-                    {200, maps:merge(convert_certs(AuthenticatorConfig),
-                                     maps:put(id, AuthenticatorID, StatusAndMetrics))};
-                {error, ErrorMsg} -> {500, ErrorMsg}
-            end;
+                    {200, maps:put(id, AuthenticatorID, convert_certs(AuthenticatorConfig))};
         {error, Reason} ->
             serialize_error(Reason)
     end.
@@ -882,17 +877,12 @@ is_ok(ResL) ->
         ErrL -> {error, ErrL}
     end.
 
-filter_out_request_body(Conf) ->
-    ExtraConfs = [<<"status">>, <<"node_status">>,
-                  <<"node_metrics">>, <<"metrics">>, <<"node">>],
-    maps:without(ExtraConfs, Conf).
-
 update_authenticator(ConfKeyPath, ChainName, AuthenticatorID, Config) ->
     case update_config(ConfKeyPath,
                        {update_authenticator,
                        ChainName,
                        AuthenticatorID,
-                       filter_out_request_body(Config)}) of
+                       Config}) of
         {ok, #{post_config_update := #{emqx_authentication := #{id := ID}},
                raw_config := AuthenticatorsConfig}} ->
             {ok, AuthenticatorConfig} = find_config(ID, AuthenticatorsConfig),
