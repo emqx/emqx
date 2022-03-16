@@ -77,7 +77,7 @@ start_link() ->
 
 -spec(add_user(binary(), binary(), binary()) -> ok | {error, any()}).
 add_user(Username, Password, Tags) when is_binary(Username), is_binary(Password) ->
-    case emqx_misc:valid_str(Username) of
+    case emqx_misc:is_sane_id(Username) of
         ok ->
             Admin = #mqtt_admin{username = Username, password = hash(Password), tags = Tags},
             return(mnesia:transaction(fun add_user_/1, [Admin]));
@@ -85,7 +85,7 @@ add_user(Username, Password, Tags) when is_binary(Username), is_binary(Password)
     end.
 
 force_add_user(Username, Password, Tags) ->
-    case emqx_misc:valid_str(Username) of
+    case emqx_misc:is_sane_id(Username) of
         ok ->
             AddFun = fun() ->
                 mnesia:write(#mqtt_admin{username = Username, password = Password, tags = Tags})
@@ -193,6 +193,8 @@ check(Username, Password) ->
 init([]) ->
     %% Add default admin user
     {ok, _} = mnesia:subscribe({table, mqtt_admin, simple}),
+    _ = add_default_user(binenv(default_user_username), binenv(default_user_passwd)),
+    abnormal_username_warning(),
     {ok, state}.
 
 handle_call(_Req, _From, State) ->
@@ -250,3 +252,48 @@ hashed_default_passwd() ->
             end;
         HashedPassword -> HashedPassword
     end.
+
+add_default_user(Username, Password) when ?EMPTY_KEY(Username) orelse ?EMPTY_KEY(Password) ->
+    ignore;
+
+add_default_user(Username, Password) ->
+    case lookup_user(Username) of
+        [] -> add_user(Username, Password, <<"administrator">>);
+        _  ->
+            case check(Username, Password) of
+                ok ->
+                    ?LOG(warning,
+                        "[Dashboard] The initial default password for dashboard 'admin' user in emqx_dashboard.conf\n"
+                        "For safety, it should be changed as soon as possible.\n"
+                        "Please use the './bin/emqx_ctl admins' CLI to change it.\n"
+                        "Then remove `dashboard.default_user.login/password` from emqx_dashboard.conf"
+                    );
+                {error, _} ->
+                    %% We can't force add default,
+                    %% otherwise passwords that have been updated via HTTP API will be reset after reboot.
+                    ?LOG(warning,
+                        "[Dashboard] dashboard.default_user.password in the plugins/emqx_dashboard.conf\n"
+                        "does not match the password in the database(mnesia).\n"
+                        "1. If you have already changed the password via the HTTP API or `./bin/emqx_ctl admins`,"
+                        "this warning has no effect.\n"
+                        "You should remove the `dashboard.default_user.login/password` from emqx_dashboard.conf "
+                        "to resolve this warning.\n"
+                        "2. If you just want to update the password by manually changing the configuration file,\n"
+                        "you need to delete the old user and password using `emqx_ctl admins del ~s` first\n"
+                        "the new password in emqx_dashboard.conf can take effect after reboot.",
+                        [])
+            end
+    end,
+    ok.
+
+abnormal_username_warning() ->
+    lists:foreach(fun(Name) ->
+        case emqx_misc:is_sane_id(Name) of
+            ok -> ok;
+            {error, _} ->
+                ?LOG(warning,
+                    "[dashboard] `~ts` is not a sane username(^[A-Za-z0-9]+[A-Za-z0-9-_]*$). "
+                    "Please use `emqx_ctl admins del ~ts` to delete it and create a new one.",
+                    [Name, Name])
+        end
+                  end, mnesia:dirty_all_keys(mqtt_admin)).

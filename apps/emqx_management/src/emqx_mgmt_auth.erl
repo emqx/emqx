@@ -37,6 +37,8 @@
         , list_apps/0
         ]).
 
+-export([abnormal_appid_warning/0]).
+
 %% APP Auth/ACL API
 -export([is_authorized/2]).
 
@@ -91,7 +93,6 @@ add_app(AppId, Name, Desc, Status, Expired) when is_binary(AppId) ->
       -> {ok, appsecret()}
        | {error, term()}).
 add_app(AppId, Name, Secret, Desc, Status, Expired) when is_binary(AppId) ->
-=======
     case emqx_misc:valid_str(Name) of
         ok ->
             Secret1 = generate_appsecret_if_need(Secret),
@@ -104,7 +105,7 @@ add_app(AppId, Name, Secret, Desc, Status, Expired) when is_binary(AppId) ->
             AddFun = fun() ->
                 case mnesia:wread({mqtt_app, AppId}) of
                     [] -> mnesia:write(App);
-                    _  -> mnesia:abort(alread_existed)
+                    _  -> mnesia:abort(already_existed)
                 end
                      end,
             case mnesia:transaction(AddFun) of
@@ -115,7 +116,7 @@ add_app(AppId, Name, Secret, Desc, Status, Expired) when is_binary(AppId) ->
     end.
 
 force_add_app(AppId, Name, Secret, Desc, Status, Expired) ->
-    case emqx_misc:valid_str(Name) of
+    case emqx_misc:is_sane_id(AppId) of
         ok ->
             AddFun = fun() ->
                 mnesia:write(#mqtt_app{
@@ -219,3 +220,15 @@ is_authorized(AppId, AppSecret) ->
 
 is_expired(undefined) -> true;
 is_expired(Expired)   -> Expired >= erlang:system_time(second).
+
+abnormal_appid_warning() ->
+    lists:foreach(fun(Id) ->
+        case emqx_misc:is_sane_id(Id) of
+            ok -> ok;
+            {error, _} ->
+                ?LOG(warning,
+                    "[app] ~ts is not a sane appid(^[A-Za-z0-9]+[A-Za-z0-9-_]*$). "
+                    "Please use `emqx_ctl mgmt delete ~ts` to delete it and create a new one.",
+                    [Id, Id])
+        end
+                  end, mnesia:dirty_all_keys(mqtt_app)).

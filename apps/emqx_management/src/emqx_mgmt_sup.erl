@@ -23,6 +23,7 @@
 -export([init/1]).
 
 start_link() ->
+    emqx_mgmt_auth:abnormal_appid_warning(),
 	supervisor:start_link({local, ?MODULE}, ?MODULE, []).
 
 init([]) ->

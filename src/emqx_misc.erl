@@ -52,13 +52,13 @@
         , hexstr2bin/1
         ]).
 
--export([ valid_str/1
+-export([ is_sane_id/1
         ]).
 
--define(VALID_STR_RE, "^[A-Za-z]+[A-Za-z0-9-_]*$").
+-define(VALID_STR_RE, "^[A-Za-z0-9]+[A-Za-z0-9-_]*$").
 
--spec valid_str(list() | binary()) -> ok | {error, Reason::binary()}.
-valid_str(Str) ->
+-spec is_sane_id(list() | binary()) -> ok | {error, Reason::binary()}.
+is_sane_id(Str) ->
     StrLen = len(Str),
     case StrLen > 0 andalso StrLen =< 256 of
         true ->
@@ -329,29 +329,30 @@ hexchar2int(I) when I >= $a andalso I =< $f -> I - $a + 10.
 ipv6_probe_test() ->
     ?assertEqual([{ipv6_probe, true}], ipv6_probe([])).
 
-valid_str_test() ->
-    ?assertMatch({error, _}, valid_str("")),
-    ?assertMatch({error, _}, valid_str("_")),
-    ?assertMatch({error, _}, valid_str("_aaa")),
-    ?assertMatch({error, _}, valid_str("lkad/oddl")),
-    ?assertMatch({error, _}, valid_str("lkad*oddl")),
-    ?assertMatch({error, _}, valid_str("<script>lkadoddl")),
-    ?assertMatch({error, _}, valid_str("1lkdfaldk")),
-    ?assertMatch({error, _}, valid_str("1223333434")),
+is_sane_id_test() ->
+    ?assertMatch({error, _}, is_sane_id("")),
+    ?assertMatch({error, _}, is_sane_id("_")),
+    ?assertMatch({error, _}, is_sane_id("_aaa")),
+    ?assertMatch({error, _}, is_sane_id("lkad/oddl")),
+    ?assertMatch({error, _}, is_sane_id("lkad*oddl")),
+    ?assertMatch({error, _}, is_sane_id("script>lkadoddl")),
+    ?assertMatch({error, _}, is_sane_id("<script>lkadoddl")),
 
-    ?assertMatch(ok, valid_str(<<"Abckdf_lkdfd_1222">>)),
-    ?assertMatch(ok, valid_str("Abckdf_lkdfd_1222")),
-    ?assertMatch(ok, valid_str("abckdf_lkdfd_1222")),
-    ?assertMatch(ok, valid_str("abckdflkdfd1222")),
-    ?assertMatch(ok, valid_str("abckdflkdf")),
-    ?assertMatch(ok, valid_str("a1122222")),
+    ?assertMatch(ok, is_sane_id(<<"Abckdf_lkdfd_1222">>)),
+    ?assertMatch(ok, is_sane_id("Abckdf_lkdfd_1222")),
+    ?assertMatch(ok, is_sane_id("abckdf_lkdfd_1222")),
+    ?assertMatch(ok, is_sane_id("abckdflkdfd1222")),
+    ?assertMatch(ok, is_sane_id("abckdflkdf")),
+    ?assertMatch(ok, is_sane_id("a1122222")),
+    ?assertMatch(ok, is_sane_id("1223333434")),
+    ?assertMatch(ok, is_sane_id("1lkdfaldk")),
 
     Ok = lists:flatten(lists:duplicate(256, "a")),
     Bad = Ok ++ "a",
-    ?assertMatch(ok, valid_str(Ok)),
-    ?assertMatch(ok, valid_str(list_to_binary(Ok))),
-    ?assertMatch({error, _}, valid_str(Bad)),
-    ?assertMatch({error, _}, valid_str(list_to_binary(Bad))),
+    ?assertMatch(ok, is_sane_id(Ok)),
+    ?assertMatch(ok, is_sane_id(list_to_binary(Ok))),
+    ?assertMatch({error, _}, is_sane_id(Bad)),
+    ?assertMatch({error, _}, is_sane_id(list_to_binary(Bad))),
     ok.
 
 -endif.
