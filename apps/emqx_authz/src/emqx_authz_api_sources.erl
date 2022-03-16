@@ -227,16 +227,7 @@ source(get, #{bindings := #{type := Type}}) ->
                     {400, #{code => <<"BAD_REQUEST">>,
                             message => bin(Reason)}}
             end;
-        [Source] ->
-            case emqx_authz:lookup(Type) of
-                #{annotations := #{id := ResourceId }} ->
-                    case lookup_from_all_nodes(ResourceId) of
-                        {ok, StatusAndMetrics} ->
-                            {200, maps:merge(read_certs(Source), StatusAndMetrics)};
-                        {error, ErrorMsg} -> {500, ErrorMsg}
-                    end;
-                _ -> {200, read_certs(Source)}
-            end
+        [Source] -> {200, read_certs(Source)}
     end;
 source(put, #{bindings := #{type := <<"file">>}, body := #{<<"type">> := <<"file">>,
                                                            <<"rules">> := Rules,
@@ -254,7 +245,8 @@ source(put, #{bindings := #{type := <<"file">>}, body := #{<<"type">> := <<"file
                     message => bin(Reason)}}
     end;
 source(put, #{bindings := #{type := Type}, body := Body}) when is_map(Body) ->
-    update_config({?CMD_REPLACE, Type}, maybe_write_certs(Body#{<<"type">> => Type}));
+    update_config({?CMD_REPLACE, Type},
+                   maybe_write_certs(Body#{<<"type">> => Type}));
 source(delete, #{bindings := #{type := Type}}) ->
     update_config({?CMD_DELETE, Type}, #{}).
 
@@ -302,22 +294,26 @@ lookup_from_all_nodes(ResourceId) ->
     Nodes = mria_mnesia:running_nodes(),
     case is_ok(emqx_authz_proto_v1:lookup_from_all_nodes(Nodes, ResourceId)) of
         {ok, ResList} ->
-            {StatusMap, MetricsMap, ErrorMap} = make_result_map(ResList),
-            AggregateStatus = aggregate_status(maps:values(StatusMap)),
-            AggregateMetrics = aggregate_metrics(maps:values(MetricsMap)),
-            Fun = fun(_, V1) -> restructure_map(V1) end,
-            {ok, #{node_status => StatusMap,
-                   node_metrics => maps:map(Fun, MetricsMap),
-                   node_error => ErrorMap,
-                   status => AggregateStatus,
-                   metrics => restructure_map(AggregateMetrics)
+        {StatusMap, MetricsMap, _} = make_result_map(ResList),
+         AggregateStatus = aggregate_status(maps:values(StatusMap)),
+         AggregateMetrics = aggregate_metrics(maps:values(MetricsMap)),
+         Fun = fun (_, V1) -> restructure_map(V1) end,
+         MKMap = fun (Name) -> fun ({Key, Val}) -> #{ node => Key, Name => Val } end end,
+         HelpFun = fun (M, Name) -> lists:map(MKMap(Name), maps:to_list(M)) end,
+         case AggregateStatus of
+             empty_metrics_and_status -> {ok, #{}};
+             _ -> {ok, #{node_status => HelpFun(StatusMap, status),
+                         node_metrics => HelpFun(maps:map(Fun, MetricsMap), metrics),
+                         status => AggregateStatus,
+                         metrics => restructure_map(AggregateMetrics)
+                        }
                   }
-            };
+         end;
         {error, ErrL} ->
             {error, error_msg('INTERNAL_ERROR', ErrL)}
     end.
 
-aggregate_status([]) -> error_some_strange_happen;
+aggregate_status([]) -> empty_metrics_and_status;
 aggregate_status(AllStatus) ->
     Head = fun ([A | _]) -> A end,
     HeadVal = Head(AllStatus),
@@ -327,7 +323,7 @@ aggregate_status(AllStatus) ->
         false -> inconsistent
     end.
 
-aggregate_metrics([]) -> error_some_strange_happen;
+aggregate_metrics([]) -> empty_metrics_and_status;
 aggregate_metrics([HeadMetrics | AllMetrics]) ->
     CombinerFun =
         fun ComFun(Val1, Val2) ->

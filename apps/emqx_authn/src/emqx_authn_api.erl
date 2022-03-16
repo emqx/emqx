@@ -752,17 +752,11 @@ list_authenticators(ConfKeyPath) ->
                         || AuthenticatorConfig <- AuthenticatorsConfig],
     {200, NAuthenticators}.
 
-list_authenticator(ChainName, ConfKeyPath, AuthenticatorID) ->
+list_authenticator(_, ConfKeyPath, AuthenticatorID) ->
     AuthenticatorsConfig = get_raw_config_with_defaults(ConfKeyPath),
     case find_config(AuthenticatorID, AuthenticatorsConfig) of
         {ok, AuthenticatorConfig} ->
-            case lookup_from_all_nodes(ChainName, AuthenticatorID) of
-                {ok, StatusAndMetrics} ->
-                    Fun = fun ({Key, Val}, Map) -> maps:put(Key, Val, Map) end,
-                    AppendList = [{id, AuthenticatorID} | maps:to_list(StatusAndMetrics)],
-                    {200, lists:foldl(Fun, convert_certs(AuthenticatorConfig), AppendList)};
-                {error, ErrorMsg} -> {500, ErrorMsg}
-            end;
+                    {200, maps:put(id, AuthenticatorID, convert_certs(AuthenticatorConfig))};
         {error, Reason} ->
             serialize_error(Reason)
     end.
@@ -796,22 +790,26 @@ lookup_from_all_nodes(ChainName, AuthenticatorID) ->
     Nodes = mria_mnesia:running_nodes(),
     case is_ok(emqx_authn_proto_v1:lookup_from_all_nodes(Nodes, ChainName, AuthenticatorID)) of
         {ok, ResList} ->
-            {StatusMap, MetricsMap, ErrorMap} = make_result_map(ResList),
-            AggregateStatus = aggregate_status(maps:values(StatusMap)),
-            AggregateMetrics = aggregate_metrics(maps:values(MetricsMap)),
-            Fun = fun(_, V1) -> restructure_map(V1) end,
-            {ok, #{node_status => StatusMap,
-                   node_metrics => maps:map(Fun, MetricsMap),
-                   node_error => ErrorMap,
-                   status => AggregateStatus,
-                   metrics => restructure_map(AggregateMetrics)
-                  }
-            };
+            {StatusMap, MetricsMap, _} = make_result_map(ResList),
+             AggregateStatus = aggregate_status(maps:values(StatusMap)),
+             AggregateMetrics = aggregate_metrics(maps:values(MetricsMap)),
+             Fun = fun (_, V1) -> restructure_map(V1) end,
+             MKMap = fun (Name) -> fun ({Key, Val}) -> #{ node => Key, Name => Val } end end,
+             HelpFun = fun (M, Name) -> lists:map(MKMap(Name), maps:to_list(M)) end,
+             case AggregateStatus of
+                 empty_metrics_and_status -> {ok, #{}};
+                 _ -> {ok, #{node_status => HelpFun(StatusMap, status),
+                             node_metrics => HelpFun(maps:map(Fun, MetricsMap), metrics),
+                             status => AggregateStatus,
+                             metrics => restructure_map(AggregateMetrics)
+                            }
+                      }
+             end;
         {error, ErrL} ->
             {error, error_msg('INTERNAL_ERROR', ErrL)}
     end.
 
-aggregate_status([]) -> error_some_strange_happen;
+aggregate_status([]) -> empty_metrics_and_status;
 aggregate_status(AllStatus) ->
     Head = fun ([A | _]) -> A end,
     HeadVal = Head(AllStatus),
@@ -821,7 +819,7 @@ aggregate_status(AllStatus) ->
         false -> inconsistent
     end.
 
-aggregate_metrics([]) -> error_some_strange_happen;
+aggregate_metrics([]) -> empty_metrics_and_status;
 aggregate_metrics([HeadMetrics | AllMetrics]) ->
     CombinerFun =
         fun ComFun(Val1, Val2) ->
@@ -880,7 +878,11 @@ is_ok(ResL) ->
     end.
 
 update_authenticator(ConfKeyPath, ChainName, AuthenticatorID, Config) ->
-    case update_config(ConfKeyPath, {update_authenticator, ChainName, AuthenticatorID, Config}) of
+    case update_config(ConfKeyPath,
+                       {update_authenticator,
+                       ChainName,
+                       AuthenticatorID,
+                       Config}) of
         {ok, #{post_config_update := #{emqx_authentication := #{id := ID}},
                raw_config := AuthenticatorsConfig}} ->
             {ok, AuthenticatorConfig} = find_config(ID, AuthenticatorsConfig),
