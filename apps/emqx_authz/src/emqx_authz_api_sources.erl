@@ -54,6 +54,7 @@
 
 -export([ get_raw_sources/0
         , get_raw_source/1
+        , source_status/2
         , lookup_from_local_node/1
         , lookup_from_all_nodes/1
         ]).
@@ -74,6 +75,7 @@ api_spec() ->
 paths() ->
     [ "/authorization/sources"
     , "/authorization/sources/:type"
+    , "/authorization/sources/:type/status"
     , "/authorization/sources/:type/move"].
 
 %%--------------------------------------------------------------------
@@ -145,6 +147,19 @@ schema("/authorization/sources/:type") ->
             , responses =>
                   #{ 204 => <<"Deleted successfully">>
                    , 400 => emqx_dashboard_swagger:error_codes([?BAD_REQUEST], <<"Bad Request">>)
+                   }
+            }
+     };
+schema("/authorization/sources/:type/status") ->
+    #{ 'operationId' => source_status
+     , get =>
+           #{ description => <<"Get a authorization source">>
+            , parameters => parameters_field()
+            , responses =>
+                  #{ 200 => emqx_dashboard_swagger:schema_with_examples(
+                              hoconsc:ref(emqx_authn_schema, "metrics_status_fields"),
+                              status_metrics_example())
+                   , 400 => emqx_dashboard_swagger:error_codes([?BAD_REQUEST], <<"Bad request">>)
                    }
             }
      };
@@ -250,6 +265,21 @@ source(put, #{bindings := #{type := Type}, body := Body}) when is_map(Body) ->
 source(delete, #{bindings := #{type := Type}}) ->
     update_config({?CMD_DELETE, Type}, #{}).
 
+source_status(get, #{bindings := #{type := Type}}) ->
+    BinType = atom_to_binary(Type, utf8),
+    case get_raw_source(BinType) of
+        [] -> {400, #{code => <<"BAD_REQUEST">>,
+                      message => <<"Not found", BinType/binary>>}};
+        [#{<<"type">> := <<"file">>}] ->
+            {400, #{code => <<"BAD_REQUEST">>,
+                    message => <<"Not Support Status">>}};
+        [_] ->
+            case emqx_authz:lookup(Type) of
+                #{annotations := #{id := ResourceId }} -> lookup_from_all_nodes(ResourceId);
+                _ -> {400, #{code => <<"BAD_REQUEST">>, message => <<"Resource Disable">>}}
+            end
+    end.
+
 move_source(Method, #{bindings := #{type := Type} = Bindings } = Req)
   when is_atom(Type) ->
     move_source(Method, Req#{bindings => Bindings#{type => atom_to_binary(Type, utf8)}});
@@ -301,8 +331,9 @@ lookup_from_all_nodes(ResourceId) ->
          MKMap = fun (Name) -> fun ({Key, Val}) -> #{ node => Key, Name => Val } end end,
          HelpFun = fun (M, Name) -> lists:map(MKMap(Name), maps:to_list(M)) end,
          case AggregateStatus of
-             empty_metrics_and_status -> {ok, #{}};
-             _ -> {ok, #{node_status => HelpFun(StatusMap, status),
+             empty_metrics_and_status -> {400, #{code => <<"BAD_REQUEST">>,
+                                               message => <<"Resource Not Support Status">>}};
+             _ -> {200, #{node_status => HelpFun(StatusMap, status),
                          node_metrics => HelpFun(maps:map(Fun, MetricsMap), metrics),
                          status => AggregateStatus,
                          metrics => restructure_map(AggregateMetrics)
@@ -310,7 +341,8 @@ lookup_from_all_nodes(ResourceId) ->
                   }
          end;
         {error, ErrL} ->
-            {error, error_msg('INTERNAL_ERROR', ErrL)}
+            {400, #{code => <<"BAD_REQUEST">>,
+                    message => bin_t(io_lib:format("~p", [ErrL]))}}
     end.
 
 aggregate_status([]) -> empty_metrics_and_status;
@@ -368,9 +400,6 @@ restructure_map(#{counters := #{failed := Failed, matched := Match, success := S
      };
 restructure_map(Error) ->
      Error.
-
-error_msg(Code, Msg) ->
-              #{code => Code, message => bin_t(io_lib:format("~p", [Msg]))}.
 
 bin_t(S) when is_list(S) ->
     list_to_binary(S).
@@ -507,3 +536,28 @@ authz_sources_types(Type) ->
     emqx_authz_api_schema:authz_sources_types(Type).
 
 bin(Term) -> erlang:iolist_to_binary(io_lib:format("~p", [Term])).
+
+status_metrics_example() ->
+    #{ metrics => #{  matched => 0,
+                      success => 0,
+                      failed => 0,
+                      rate => 0.0,
+                      rate_last5m => 0.0,
+                      rate_max => 0.0
+                   },
+       node_metrics => [ #{node => node(),
+                           metrics => #{  matched => 0,
+                                          success => 0,
+                                          failed => 0,
+                                          rate => 0.0,
+                                          rate_last5m => 0.0,
+                                          rate_max => 0.0
+                                       }
+                          }
+                       ],
+       status => connected,
+       node_status => [ #{node => node(),
+                          status => connected
+                         }
+                      ]
+     }.

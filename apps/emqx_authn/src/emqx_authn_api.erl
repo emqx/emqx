@@ -49,8 +49,10 @@
 
 -export([ authenticators/2
         , authenticator/2
+        , authenticator_status/2
         , listener_authenticators/2
         , listener_authenticator/2
+        , listener_authenticator_status/2
         , authenticator_move/2
         , listener_authenticator_move/2
         , authenticator_import_users/2
@@ -88,6 +90,7 @@ api_spec() ->
 
 paths() -> [ "/authentication"
            , "/authentication/:id"
+           , "/authentication/:id/status"
            , "/authentication/:id/move"
            , "/authentication/:id/import_users"
            , "/authentication/:id/users"
@@ -95,6 +98,7 @@ paths() -> [ "/authentication"
 
            , "/listeners/:listener_id/authentication"
            , "/listeners/:listener_id/authentication/:id"
+           , "/listeners/:listener_id/authentication/:id/status"
            , "/listeners/:listener_id/authentication/:id/move"
            , "/listeners/:listener_id/authentication/:id/import_users"
            , "/listeners/:listener_id/authentication/:id/users"
@@ -213,6 +217,22 @@ schema("/authentication/:id") ->
         }
     };
 
+schema("/authentication/:id/status") ->
+    #{
+        'operationId' => authenticator_status,
+        get => #{
+            tags => ?API_TAGS_GLOBAL,
+            description => <<"Get authenticator status from global authentication chain">>,
+            parameters => [param_auth_id()],
+            responses => #{
+                200 => emqx_dashboard_swagger:schema_with_examples(
+                    hoconsc:ref(emqx_authn_schema, "metrics_status_fields"),
+                    status_metrics_example()),
+                400 => error_codes([?BAD_REQUEST], <<"Bad Request">>)
+            }
+        }
+    };
+
 schema("/listeners/:listener_id/authentication") ->
     #{
         'operationId' => listener_authenticators,
@@ -285,6 +305,21 @@ schema("/listeners/:listener_id/authentication/:id") ->
         }
     };
 
+schema("/listeners/:listener_id/authentication/:id/status") ->
+    #{
+        'operationId' => listener_authenticator_status,
+        get => #{
+            tags => ?API_TAGS_SINGLE,
+            description => <<"Get authenticator status from listener authentication chain">>,
+            parameters => [param_listener_id(), param_auth_id()],
+            responses => #{
+                200 => emqx_dashboard_swagger:schema_with_examples(
+                    hoconsc:ref(emqx_authn_schema, "metrics_status_fields"),
+                    status_metrics_example()),
+                400 => error_codes([?BAD_REQUEST], <<"Bad Request">>)
+            }
+        }
+    };
 
 schema("/authentication/:id/move") ->
     #{
@@ -560,6 +595,9 @@ authenticator(put, #{bindings := #{id := AuthenticatorID}, body := Config}) ->
 authenticator(delete, #{bindings := #{id := AuthenticatorID}}) ->
     delete_authenticator([authentication], ?GLOBAL, AuthenticatorID).
 
+authenticator_status(get, #{bindings := #{id := AuthenticatorID}}) ->
+    lookup_from_all_nodes(?GLOBAL, AuthenticatorID).
+
 listener_authenticators(post, #{bindings := #{listener_id := ListenerID}, body := Config}) ->
     with_listener(ListenerID,
                   fun(Type, Name, ChainName) ->
@@ -597,6 +635,13 @@ listener_authenticator(delete,
                         delete_authenticator([listeners, Type, Name, authentication],
                                              ChainName,
                                              AuthenticatorID)
+                  end).
+
+listener_authenticator_status(get,
+                      #{bindings := #{listener_id := ListenerID, id := AuthenticatorID}}) ->
+    with_listener(ListenerID,
+                  fun(_, _, ChainName) ->
+                          lookup_from_all_nodes(ChainName, AuthenticatorID)
                   end).
 
 authenticator_move(post,
@@ -797,16 +842,16 @@ lookup_from_all_nodes(ChainName, AuthenticatorID) ->
              MKMap = fun (Name) -> fun ({Key, Val}) -> #{ node => Key, Name => Val } end end,
              HelpFun = fun (M, Name) -> lists:map(MKMap(Name), maps:to_list(M)) end,
              case AggregateStatus of
-                 empty_metrics_and_status -> {ok, #{}};
-                 _ -> {ok, #{node_status => HelpFun(StatusMap, status),
-                             node_metrics => HelpFun(maps:map(Fun, MetricsMap), metrics),
-                             status => AggregateStatus,
-                             metrics => restructure_map(AggregateMetrics)
-                            }
+                 empty_metrics_and_status -> serialize_error(unsupported_operation);
+                 _ -> {200, #{node_status => HelpFun(StatusMap, status),
+                              node_metrics => HelpFun(maps:map(Fun, MetricsMap), metrics),
+                              status => AggregateStatus,
+                              metrics => restructure_map(AggregateMetrics)
+                             }
                       }
              end;
         {error, ErrL} ->
-            {error, error_msg('INTERNAL_ERROR', ErrL)}
+            serialize_error(ErrL)
     end.
 
 aggregate_status([]) -> empty_metrics_and_status;
@@ -864,12 +909,6 @@ restructure_map(#{counters := #{failed := Failed, matched := Match, success := S
      };
 restructure_map(Error) ->
      Error.
-
-error_msg(Code, Msg) ->
-              #{code => Code, message => bin(io_lib:format("~p", [Msg]))}.
-
-bin(S) when is_list(S) ->
-    list_to_binary(S).
 
 is_ok(ResL) ->
     case lists:filter(fun({ok, _}) -> false; (_) -> true end, ResL) of
@@ -1168,6 +1207,31 @@ authenticator_examples() ->
             }
         }
     }.
+
+status_metrics_example() ->
+    #{ metrics => #{  matched => 0,
+                      success => 0,
+                      failed => 0,
+                      rate => 0.0,
+                      rate_last5m => 0.0,
+                      rate_max => 0.0
+                   },
+       node_metrics => [ #{node => node(),
+                           metrics => #{  matched => 0,
+                                          success => 0,
+                                          failed => 0,
+                                          rate => 0.0,
+                                          rate_last5m => 0.0,
+                                          rate_max => 0.0
+                                       }
+                           }
+                       ],
+       status => connected,
+       node_status => [ #{node => node(),
+                          status => connected
+                         }
+                      ]
+     }.
 
 request_user_create_examples() ->
     #{
