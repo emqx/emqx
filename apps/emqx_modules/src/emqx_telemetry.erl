@@ -26,11 +26,6 @@
 
 -include("emqx_modules.hrl").
 
-%% Mnesia bootstrap
--export([mnesia/1]).
-
--boot_mnesia({mnesia, [boot]}).
-
 -export([ start_link/0
         , stop/0
         ]).
@@ -86,22 +81,16 @@
 -define(TELEMETRY, emqx_telemetry).
 
 %%--------------------------------------------------------------------
-%% Mnesia bootstrap
-%%--------------------------------------------------------------------
-
-mnesia(boot) ->
-    ok = mria:create_table(?TELEMETRY,
-             [{type, set},
-              {storage, disc_copies},
-              {local_content, true},
-              {record_name, telemetry},
-              {attributes, record_info(fields, telemetry)}]).
-
-%%--------------------------------------------------------------------
 %% API
 %%--------------------------------------------------------------------
 
 start_link() ->
+    ok = mria:create_table(?TELEMETRY,
+                           [{type, set},
+                            {storage, disc_copies},
+                            {local_content, true},
+                            {record_name, telemetry},
+                            {attributes, record_info(fields, telemetry)}]),
     _ = mria:wait_for_tables([?TELEMETRY]),
     Opts = emqx:get_config([telemetry], #{}),
     gen_server:start_link({local, ?MODULE}, ?MODULE, [Opts], []).
