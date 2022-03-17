@@ -20,3 +20,4 @@
 {emqx_statsd,1}.
 {emqx_telemetry,1}.
 {emqx_topic_metrics,1}.
+{emqx_delayed,1}.

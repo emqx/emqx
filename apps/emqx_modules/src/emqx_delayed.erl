@@ -47,7 +47,9 @@
         , update_config/1
         , list/1
         , get_delayed_message/1
+        , get_delayed_message/2
         , delete_delayed_message/1
+        , delete_delayed_message/2
         , post_config_update/5
         , cluster_list/1
         , cluster_query/4
@@ -57,6 +59,10 @@
 
 -record(delayed_message, {key, delayed, msg}).
 -type delayed_message() :: #delayed_message{}.
+-type with_id_return() :: ok | {error, not_found}.
+-type with_id_return(T) :: {ok, T} | {error, not_found}.
+
+-export_type([with_id_return/0, with_id_return/1]).
 
 
 -type state() :: #{ publish_timer := maybe(timer:tref())
@@ -164,6 +170,7 @@ format_delayed(#delayed_message{key = {ExpectTimeStamp, Id}, delayed = Delayed,
     RemainingTime = ExpectTimeStamp - erlang:system_time(second),
     Result = #{
         msgid => emqx_guid:to_hexstr(Id),
+        node => node(),
         publish_at => PublishTime,
         delayed_interval => Delayed,
         delayed_remaining => RemainingTime,
@@ -183,22 +190,24 @@ format_delayed(#delayed_message{key = {ExpectTimeStamp, Id}, delayed = Delayed,
 to_rfc3339(Timestamp) ->
     list_to_binary(calendar:system_time_to_rfc3339(Timestamp, [{unit, second}])).
 
-get_delayed_message(Id0) ->
-    try emqx_guid:from_hexstr(Id0) of
-        Id ->
-            case ets:select(?TAB, ?QUERY_MS(Id)) of
-                [] ->
-                    {error, not_found};
-                Rows ->
-                    Message = hd(Rows),
-                    {ok, format_delayed(Message, true)}
-            end
-    catch
-        error:function_clause -> {error, id_schema_error}
+-spec get_delayed_message(binary()) -> with_id_return(map()).
+get_delayed_message(Id) ->
+    case ets:select(?TAB, ?QUERY_MS(Id)) of
+        [] ->
+            {error, not_found};
+        Rows ->
+            Message = hd(Rows),
+            {ok, format_delayed(Message, true)}
     end.
 
-delete_delayed_message(Id0) ->
-    Id = emqx_guid:from_hexstr(Id0),
+get_delayed_message(Node, Id) when Node =:= node() ->
+    get_delayed_message(Id);
+
+get_delayed_message(Node, Id) ->
+    emqx_delayed_proto_v1:get_delayed_message(Node, Id).
+
+-spec delete_delayed_message(binary()) -> with_id_return().
+delete_delayed_message(Id) ->
     case ets:select(?TAB, ?DELETE_MS(Id)) of
         [] ->
             {error, not_found};
@@ -206,6 +215,12 @@ delete_delayed_message(Id0) ->
             Timestamp = hd(Rows),
             mria:dirty_delete(?TAB, {Timestamp, Id})
     end.
+
+delete_delayed_message(Node, Id) when Node =:= node() ->
+    delete_delayed_message(Id);
+delete_delayed_message(Node, Id) ->
+    emqx_delayed_proto_v1:delete_delayed_message(Node, Id).
+
 update_config(Config) ->
     emqx_conf:update([delayed], Config, #{rawconf_with_defaults => true, override_to => cluster}).
 
