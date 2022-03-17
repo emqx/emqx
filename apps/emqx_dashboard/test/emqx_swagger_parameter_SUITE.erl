@@ -273,7 +273,7 @@ schema("/test/in/:filter") ->
                 {filter,
                     mk(hoconsc:enum([assigned, created, mentioned, all]),
                         #{in => path,
-                          desc => <<"Indicates which sorts of issues to return">>,
+                          description => <<"Indicates which sorts of issues to return">>,
                           example => "all"
                         })}
             ],
@@ -287,8 +287,8 @@ schema("/test/in/query") ->
             parameters => [
                 {per_page,
                     mk(range(1, 100),
-                        #{in => query, desc => <<"results per page (max 100)">>, example => 1})},
-                {qos, mk(emqx_schema:qos(), #{in => query, desc => <<"QOS">>})}
+                        #{in => query, description => <<"results per page (max 100)">>, example => 1})},
+                {qos, mk(emqx_schema:qos(), #{in => query, description => <<"QOS">>})}
             ],
             responses => #{200 => <<"ok">>}
         }
@@ -331,11 +331,11 @@ schema("/test/in/mix/:state") ->
             deprecated => true,
             parameters => [
                 {filter, hoconsc:mk(hoconsc:enum([assigned, created, mentioned, all]),
-                    #{in => query, desc => <<"Indicates which sorts of issues to return">>,
+                    #{in => query, description => <<"Indicates which sorts of issues to return">>,
                         example => "all"})},
                 {state, mk(emqx_schema:duration_s(),
                     #{in => path, required => true, example => "12m",
-                        desc => <<"Indicates the state of the issues to return.">>})},
+                        description => <<"Indicates the state of the issues to return.">>})},
                 {per_page, mk(range(1, 50),
                     #{in => query, required => false, example => 10, default => 5})},
                 {is_admin, mk(boolean(), #{in => query})},
@@ -371,7 +371,7 @@ fields(page) ->
     [
         {per_page,
             mk(range(1, 100),
-                #{in => query, desc => <<"results per page (max 100)">>, example => 1})}
+                #{in => query, description => <<"results per page (max 100)">>, example => 1})}
     ].
 to_schema(Params) ->
     #{

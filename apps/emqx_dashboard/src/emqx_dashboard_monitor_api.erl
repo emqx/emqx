@@ -105,12 +105,12 @@ parameter_node() ->
 
 fields(sampler) ->
     Samplers =
-        [{SamplerName, hoconsc:mk(integer(), #{desc => swagger_desc(SamplerName)})}
+        [{SamplerName, hoconsc:mk(integer(), #{description => swagger_desc(SamplerName)})}
         || SamplerName <- ?SAMPLER_LIST],
-    [{time_stamp, hoconsc:mk(integer(), #{desc => <<"Timestamp">>})} | Samplers];
+    [{time_stamp, hoconsc:mk(integer(), #{description => <<"Timestamp">>})} | Samplers];
 
 fields(sampler_current) ->
-    [{SamplerName, hoconsc:mk(integer(), #{desc => swagger_desc(SamplerName)})}
+    [{SamplerName, hoconsc:mk(integer(), #{description => swagger_desc(SamplerName)})}
     || SamplerName <- maps:values(?DELTA_SAMPLER_RATE_MAP) ++ ?GAUGE_SAMPLER_LIST].
 
 %% -------------------------------------------------------------------------------------------------

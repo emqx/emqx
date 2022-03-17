@@ -52,18 +52,18 @@ schema("/login") ->
             summary => <<"Dashboard Auth">>,
             'requestBody' => [
                 {username, mk(binary(),
-                    #{desc => <<"The User for which to create the token.">>,
+                    #{description => <<"The User for which to create the token.">>,
                         'maxLength' => 100, example => <<"admin">>})},
                 {password, mk(binary(),
-                    #{desc => "password", example => "public"})}
+                    #{description => "password", example => "public"})}
             ],
             responses => #{
                 200 => [
-                    {token, mk(string(), #{desc => <<"JWT Token">>})},
+                    {token, mk(string(), #{description => <<"JWT Token">>})},
                     {license, [{edition,
-                        mk(enum([community, enterprise]), #{desc => <<"license">>,
+                        mk(enum([community, enterprise]), #{description => <<"license">>,
                             example => "community"})}]},
-                    {version, mk(string(), #{desc => <<"version">>, example => <<"5.0.0">>})}
+                    {version, mk(string(), #{description => <<"version">>, example => <<"5.0.0">>})}
                 ],
                 401 => [
                     {code, mk(string(), #{example => 'ERROR_USERNAME_OR_PWD'})},
@@ -80,7 +80,7 @@ schema("/logout") ->
             description => <<"Dashboard User logout">>,
             'requestBody' => [
                 {username, mk(binary(),
-                    #{desc => <<"The User for which to create the token.">>,
+                    #{description => <<"The User for which to create the token.">>,
                         'maxLength' => 100, example => <<"admin">>})}
             ],
             responses => #{
@@ -96,7 +96,7 @@ schema("/users") ->
             description => <<"Get dashboard users list">>,
             responses => #{
                 200 => mk( array(ref(?MODULE, user))
-                         , #{desc => "User lists"})
+                         , #{description => "User lists"})
             }
         },
         post => #{
@@ -105,7 +105,7 @@ schema("/users") ->
             'requestBody' => fields(user_password),
             responses => #{
                 200 => mk( ref(?MODULE, user)
-                         , #{desc => <<"Create User successfully">>}),
+                         , #{description => <<"Create User successfully">>}),
                 400 => [{code, mk(string(), #{example => 'CREATE_FAIL'})},
                     {message, mk(string(), #{example => "Create user failed"})}
                 ]
@@ -124,11 +124,11 @@ schema("/users/:username") ->
             'requestBody' => [
                 { description
                 , mk(binary(),
-                    #{desc => <<"User description">>, example => <<"administrator">>})}
+                    #{description => <<"User description">>, example => <<"administrator">>})}
             ],
             responses => #{
                 200 => mk( ref(?MODULE, user)
-                         , #{desc => <<"Update User successfully">>}),
+                         , #{description => <<"Update User successfully">>}),
                 400 => [
                     {code, mk(string(), #{example => 'UPDATE_FAIL'})},
                     {message, mk(string(), #{example => "Update Failed unknown"})}
@@ -177,13 +177,13 @@ fields(user) ->
     [
         {description,
             mk(binary(),
-                #{desc => <<"User description">>, example => "administrator"})},
+                #{description => <<"User description">>, example => "administrator"})},
         {username,
             mk(binary(),
-                #{desc => <<"username">>, example => "emqx"})}
+                #{description => <<"username">>, example => "emqx"})}
     ];
 fields(user_password) ->
-    fields(user) ++ [{password, mk(binary(), #{desc => "Password", example => <<"public">>})}].
+    fields(user) ++ [{password, mk(binary(), #{description => "Password", example => <<"public">>})}].
 
 login(post, #{body := Params}) ->
     Username = maps:get(<<"username">>, Params),

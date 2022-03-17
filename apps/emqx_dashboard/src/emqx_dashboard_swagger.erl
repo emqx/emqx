@@ -95,12 +95,12 @@ namespace() -> "public".
 -spec(fields(hocon_schema:name()) -> hocon_schema:fields()).
 fields(page) ->
     Desc = <<"Page number of the results to fetch.">>,
-    Meta = #{in => query, desc => Desc, default => 1, example => 1},
+    Meta = #{in => query, description => Desc, default => 1, example => 1},
     [{page, hoconsc:mk(integer(), Meta)}];
 fields(limit) ->
     Desc = iolist_to_binary([<<"Results per page(max ">>,
         integer_to_binary(?MAX_ROW_LIMIT), <<")">>]),
-    Meta = #{in => query, desc => Desc, default => ?DEFAULT_ROW, example => 50},
+    Meta = #{in => query, description => Desc, default => ?DEFAULT_ROW, example => 50},
     [{limit, hoconsc:mk(range(1, ?MAX_ROW_LIMIT), Meta)}].
 
 -spec(schema_with_example(hocon_schema:type(), term()) -> hocon_schema:field_schema_map()).
@@ -120,7 +120,7 @@ error_codes(Codes = [_ | _], MsgExample) ->
     [
         {code, hoconsc:mk(hoconsc:enum(Codes))},
         {message, hoconsc:mk(string(), #{
-            desc => <<"Details description of the error.">>,
+            description => <<"Details description of the error.">>,
             example => MsgExample
         })}
     ].
@@ -446,12 +446,12 @@ typename_to_spec("string()", _Mod) -> #{type => string, example => <<"string-exa
 typename_to_spec("atom()", _Mod) -> #{type => string, example => atom};
 typename_to_spec("epoch_second()", _Mod) ->
     #{<<"oneOf">> => [
-        #{type => integer, example => 1640995200, desc => <<"epoch-second">>},
+        #{type => integer, example => 1640995200, description => <<"epoch-second">>},
         #{type => string, example => <<"2022-01-01T00:00:00.000Z">>, format => <<"date-time">>}]
         };
 typename_to_spec("epoch_millisecond()", _Mod) ->
     #{<<"oneOf">> => [
-        #{type => integer, example => 1640995200000, desc => <<"epoch-millisecond">>},
+        #{type => integer, example => 1640995200000, description => <<"epoch-millisecond">>},
         #{type => string, example => <<"2022-01-01T00:00:00.000Z">>, format => <<"date-time">>}]
     };
 typename_to_spec("duration()", _Mod) -> #{type => string, example => <<"12m">>};

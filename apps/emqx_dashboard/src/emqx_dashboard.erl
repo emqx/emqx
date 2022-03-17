@@ -92,7 +92,7 @@ stop_listeners() ->
 %% internal
 
 apps() ->
-    [emqx_exhook].
+    [emqx_management].
     % [App || {App, _, _} <- application:loaded_applications(),
     %     case re:run(atom_to_list(App), "^emqx") of
     %         {match,[{0,4}]} -> true;
