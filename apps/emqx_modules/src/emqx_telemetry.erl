@@ -261,10 +261,6 @@ active_plugins() ->
                         end
                     end, [], emqx_plugins:list()).
 
-active_modules() ->
-    [].
-    % emqx_modules:list().
-
 num_clients() ->
     emqx_stats:getstat('connections.max').
 
@@ -297,7 +293,6 @@ get_telemetry(#state{uuid = UUID}) ->
      {uuid, UUID},
      {nodes_uuid, nodes_uuid()},
      {active_plugins, active_plugins()},
-     {active_modules, active_modules()},
      {num_clients, num_clients()},
      {messages_received, messages_received()},
      {messages_sent, messages_sent()}].
