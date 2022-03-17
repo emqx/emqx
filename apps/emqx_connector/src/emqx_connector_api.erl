@@ -117,7 +117,7 @@ param_path_id() ->
     [{id, mk(binary(),
         #{ in => path
          , example => <<"mqtt:my_mqtt_connector">>
-         , desc => <<"The connector Id. Must be of format {type}:{name}">>
+         , description => <<"The connector Id. Must be of format {type}:{name}">>
          })}].
 
 schema("/connectors_test") ->

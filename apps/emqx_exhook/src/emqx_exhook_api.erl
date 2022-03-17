@@ -120,7 +120,7 @@ schema("/exhooks/:name/move") ->
      }.
 
 fields(move_req) ->
-    [{position, mk(string(), #{ desc => <<"The target position to be moved.">>
+    [{position, mk(string(), #{ description => <<"The target position to be moved.">>
                               , example => <<"front">>})}];
 
 fields(detail_server_info) ->
@@ -131,9 +131,9 @@ fields(detail_server_info) ->
     ] ++ emqx_exhook_schema:server_config();
 
 fields(list_hook_info) ->
-    [ {name, mk(binary(), #{desc => <<"The hook's name">>})}
+    [ {name, mk(binary(), #{description => <<"The hook's name">>})}
     , {params, mk(map(name, binary()),
-                  #{desc => <<"The parameters used when the hook is registered">>})}
+                  #{description => <<"The parameters used when the hook is registered">>})}
     , {metrics, mk(ref(metrics), #{})}
     , {node_metrics, mk(array(ref(node_metrics)), #{})}
     ];
@@ -149,9 +149,9 @@ fields(node_status) ->
     ];
 
 fields(hook_info) ->
-    [ {name, mk(binary(), #{desc => <<"The hook's name">>})}
+    [ {name, mk(binary(), #{description => <<"The hook's name">>})}
     , {params, mk(map(name, binary()),
-                  #{desc => <<"The parameters used when the hook is registered">>})}
+                  #{description => <<"The parameters used when the hook is registered">>})}
     ];
 
 fields(metrics) ->
