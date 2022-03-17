@@ -51,6 +51,9 @@
 
 -export([official_version/1]).
 
+%% internal export
+-export([read_raw_build_info/0]).
+
 -ifdef(TEST).
 -compile(export_all).
 -compile(nowarn_export_all).
@@ -295,7 +298,9 @@ get_telemetry(#state{uuid = UUID}) ->
      {active_plugins, active_plugins()},
      {num_clients, num_clients()},
      {messages_received, messages_received()},
-     {messages_sent, messages_sent()}].
+     {messages_sent, messages_sent()},
+     {build_info, build_info()},
+     {vm_specs, vm_specs()}].
 
 report_telemetry(State = #state{url = URL}) ->
     Data = get_telemetry(State),
@@ -323,6 +328,27 @@ parse_os_release(FileContent) ->
                         [{Var, NValue} | Acc]
                 end,
                 [], string:tokens(binary:bin_to_list(FileContent), "\n")).
+
+build_info() ->
+    case ?MODULE:read_raw_build_info() of
+        {ok, BuildInfo} ->
+            %% running on EMQX release
+            {ok, Fields} = hocon:binary(BuildInfo),
+            Fields;
+        _ ->
+            #{}
+    end.
+
+read_raw_build_info() ->
+    Filename = filename:join([code:root_dir(), "releases",
+                              emqx_app:get_release(), "BUILD_INFO"]),
+    file:read_file(Filename).
+
+vm_specs() ->
+    SysMemData = memsup:get_system_memory_data(),
+    [ {num_cpus, erlang:system_info(logical_processors)}
+    , {total_memory, proplists:get_value(available_memory, SysMemData)}
+    ].
 
 bin(L) when is_list(L) ->
     list_to_binary(L);
