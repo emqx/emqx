@@ -311,7 +311,13 @@ trans_desc(Init, Hocon, Func, Name) ->
 
 trans_desc(Spec, Hocon) ->
     case hocon_schema:field_schema(Hocon, desc) of
-        undefined -> Spec;
+        undefined ->
+            case hocon_schema:field_schema(Hocon, description) of
+                undefined ->
+                    Spec;
+                Desc ->
+                    Spec#{description => to_bin(Desc)}
+            end;
         Desc -> Spec#{description => to_bin(Desc)}
     end.
 
