@@ -270,12 +270,7 @@ ebin_path() ->
 is_lib(Path) ->
     string:prefix(Path, code:lib_dir()) =:= nomatch.
 
-setenv(Node, Env) ->
-    [rpc:call(Node, application, set_env, [App, Key, Val]) || {App, Key, Val} <- Env].
-
 setup_node(Node, Apps) ->
-    Env = [{gen_rpc, tcp_server_port, 29876},
-           {gen_rpc, tcp_client_port, 22522}],
     EnvHandler =
         fun(emqx) ->
                 application:set_env(emqx, listeners, []),
@@ -291,8 +286,6 @@ setup_node(Node, Apps) ->
            (_) ->
                 ok
         end,
-
-    setenv(Node, Env),
 
     [ok = rpc:call(Node, application, load, [App]) || App <- [gen_rpc, emqx | Apps]],
     ok = rpc:call(Node, emqx_ct_helpers, start_apps, [Apps, EnvHandler]),
