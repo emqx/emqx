@@ -21,6 +21,9 @@
 -include_lib("common_test/include/ct.hrl").
 -include_lib("eunit/include/eunit.hrl").
 
+-define(CR, 13).
+-define(LF, 10).
+
 all() ->
     emqx_common_test_helpers:all(?MODULE).
 
@@ -83,3 +86,36 @@ t_psk_lookup(_) ->
 
     ok.
 
+t_start_stop(_) ->
+    ?assertNotEqual(undefined, erlang:whereis(emqx_psk)),
+
+    ?assertEqual(ok, emqx_psk:stop()),
+
+    timer:sleep(1000),
+
+    ?assertNotEqual(undefined, erlang:whereis(emqx_psk)).
+
+t_unexpected(_) ->
+    ?assertEqual({error, unexpected}, emqx_psk:call(unexpected)),
+    ?assertEqual(ok, gen_server:cast(emqx_psk, unexpected)),
+    ?assertEqual(unexpected, erlang:send(erlang:whereis(emqx_psk), unexpected)).
+
+t_load_unload(_) ->
+    emqx_psk:unload(),
+    timer:sleep(600),
+    ?assertEqual([], emqx_hooks:lookup('tls_handshake.psk_lookup')),
+
+    emqx_psk:load(),
+    ?assertMatch([_Hook], emqx_hooks:lookup('tls_handshake.psk_lookup')).
+
+t_import(_) ->
+    Init = emqx_conf:get([psk_authentication, init_file], undefined),
+    ?assertEqual(ok, emqx_psk:import(Init)),
+    ?assertMatch({error, _}, emqx_psk:import("~/_none_")),
+    ok.
+
+t_trim_crlf(_) ->
+    Bin = <<1, 2>>,
+    ?assertEqual(Bin, emqx_psk:trim_crlf(Bin)),
+    ?assertEqual(Bin, emqx_psk:trim_crlf(<<Bin/binary, ?LF>>)),
+    ?assertEqual(Bin, emqx_psk:trim_crlf(<<Bin/binary, ?CR, ?LF>>)).
