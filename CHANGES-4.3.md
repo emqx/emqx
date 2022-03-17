@@ -22,7 +22,7 @@ File format:
 * CLI `emqx_ctl pem_cache clean` to force purge x509 certificate cache,
   to force an immediate reload of all certificates after the files are updated on disk.
 * Refactor the ExProto so that anonymous clients can also be displayed on the dashboard [#6983]
-* Force shutdown of processe that cannot answer takeover event [#7026]
+* Force shutdown of processes that cannot answer takeover event [#7026]
 * `topic` parameter in bridge configuration can have `${node}` substitution (just like in `clientid` parameter)
 * Add UTF-8 string validity check in `strict_mode` for MQTT packet.
   When set to true, invalid UTF-8 strings will cause the client to be disconnected. i.e. client ID, topic name. [#7261]
@@ -43,6 +43,7 @@ File format:
 * Fix false alert level log “cannot_find_plugins” caused by duplicate plugin names in `loaded_plugins` files.
 * Prompt user how to change the dashboard's initial default password when emqx start.
 * Fix errno=13 'Permission denied' Cannot create FIFO boot error in Amazon Linux 2022 (el8 package)
+* Fix user or appid created, name only allow `^[A-Za-z]+[A-Za-z0-9-_]*$`
 
 ## v4.3.12
 ### Important changes

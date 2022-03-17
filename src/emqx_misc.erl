@@ -52,6 +52,26 @@
         , hexstr2bin/1
         ]).
 
+-export([ is_sane_id/1
+        ]).
+
+-define(VALID_STR_RE, "^[A-Za-z0-9]+[A-Za-z0-9-_]*$").
+
+-spec is_sane_id(list() | binary()) -> ok | {error, Reason::binary()}.
+is_sane_id(Str) ->
+    StrLen = len(Str),
+    case StrLen > 0 andalso StrLen =< 256 of
+        true ->
+            case re:run(Str, ?VALID_STR_RE) of
+                nomatch -> {error, <<"required: " ?VALID_STR_RE>>};
+                _ -> ok
+            end;
+        false -> {error, <<"0 < Length =< 256">>}
+    end.
+
+len(Bin) when is_binary(Bin) -> byte_size(Bin);
+len(Str) when is_list(Str) -> length(Str).
+
 -define(OOM_FACTOR, 1.25).
 
 %% @doc Parse v4 or v6 string format address to tuple.
@@ -308,5 +328,31 @@ hexchar2int(I) when I >= $a andalso I =< $f -> I - $a + 10.
 
 ipv6_probe_test() ->
     ?assertEqual([{ipv6_probe, true}], ipv6_probe([])).
+
+is_sane_id_test() ->
+    ?assertMatch({error, _}, is_sane_id("")),
+    ?assertMatch({error, _}, is_sane_id("_")),
+    ?assertMatch({error, _}, is_sane_id("_aaa")),
+    ?assertMatch({error, _}, is_sane_id("lkad/oddl")),
+    ?assertMatch({error, _}, is_sane_id("lkad*oddl")),
+    ?assertMatch({error, _}, is_sane_id("script>lkadoddl")),
+    ?assertMatch({error, _}, is_sane_id("<script>lkadoddl")),
+
+    ?assertMatch(ok, is_sane_id(<<"Abckdf_lkdfd_1222">>)),
+    ?assertMatch(ok, is_sane_id("Abckdf_lkdfd_1222")),
+    ?assertMatch(ok, is_sane_id("abckdf_lkdfd_1222")),
+    ?assertMatch(ok, is_sane_id("abckdflkdfd1222")),
+    ?assertMatch(ok, is_sane_id("abckdflkdf")),
+    ?assertMatch(ok, is_sane_id("a1122222")),
+    ?assertMatch(ok, is_sane_id("1223333434")),
+    ?assertMatch(ok, is_sane_id("1lkdfaldk")),
+
+    Ok = lists:flatten(lists:duplicate(256, "a")),
+    Bad = Ok ++ "a",
+    ?assertMatch(ok, is_sane_id(Ok)),
+    ?assertMatch(ok, is_sane_id(list_to_binary(Ok))),
+    ?assertMatch({error, _}, is_sane_id(Bad)),
+    ?assertMatch({error, _}, is_sane_id(list_to_binary(Bad))),
+    ok.
 
 -endif.
