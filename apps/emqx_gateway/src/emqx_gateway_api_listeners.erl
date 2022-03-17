@@ -409,7 +409,7 @@ params_gateway_name_in_path() ->
     [{name,
       mk(binary(),
          #{ in => path
-          , desc => <<"Gateway Name">>
+          , description => <<"Gateway Name">>
           , example => <<"">>
           })}
     ].
@@ -418,7 +418,7 @@ params_listener_id_in_path() ->
     [{id,
       mk(binary(),
          #{ in => path
-          , desc => <<"Listener ID">>
+          , description => <<"Listener ID">>
           , example => <<"">>
           })}
     ].
@@ -426,7 +426,7 @@ params_listener_id_in_path() ->
 params_userid_in_path() ->
     [{uid, mk(binary(),
               #{ in => path
-               , desc => <<"User ID">>
+               , description => <<"User ID">>
                , example => <<"">>
                })}
     ].
@@ -435,13 +435,13 @@ params_paging_in_qs() ->
     [{page, mk(integer(),
                #{ in => query
                 , required => false
-                , desc => <<"Page Index">>
+                , description => <<"Page Index">>
                 , example => 1
                 })},
      {limit, mk(integer(),
                 #{ in => query
                  , required => false
-                 , desc => <<"Page Limit">>
+                 , description => <<"Page Limit">>
                  , example => 100
                  })}
     ].
@@ -458,22 +458,22 @@ fields(listener) ->
     [ {tcp,
        mk(ref(tcp_listener_opts),
           #{ required => {false, recursively}
-           , desc => <<"The tcp socket options for tcp or ssl listener">>
+           , description => <<"The tcp socket options for tcp or ssl listener">>
            })}
     , {ssl,
        mk(ref(ssl_listener_opts),
           #{ required => {false, recursively}
-           , desc => <<"The ssl socket options for ssl listener">>
+           , description => <<"The ssl socket options for ssl listener">>
            })}
     , {udp,
        mk(ref(udp_listener_opts),
           #{ required => {false, recursively}
-           , desc => <<"The udp socket options for udp or dtls listener">>
+           , description => <<"The udp socket options for udp or dtls listener">>
            })}
     , {dtls,
        mk(ref(dtls_listener_opts),
           #{ required => {false, recursively}
-           , desc => <<"The dtls socket options for dtls listener">>
+           , description => <<"The dtls socket options for dtls listener">>
            })}
     ];
 fields(tcp_listener_opts) ->
@@ -530,47 +530,47 @@ common_listener_opts() ->
     [ {enable,
        mk(boolean(),
           #{ required => false
-           , desc => <<"Whether to enable this listener">>})}
+           , description => <<"Whether to enable this listener">>})}
     , {id,
        mk(binary(),
           #{ required => false
-           , desc => <<"Listener Id">>})}
+           , description => <<"Listener Id">>})}
     , {name,
        mk(binary(),
           #{ required => false
-           , desc => <<"Listener name">>})}
+           , description => <<"Listener name">>})}
     , {type,
        mk(hoconsc:enum([tcp, ssl, udp, dtls]),
           #{ required => false
-           , desc => <<"Listener type. Enum: tcp, udp, ssl, dtls">>})}
+           , description => <<"Listener type. Enum: tcp, udp, ssl, dtls">>})}
     , {running,
        mk(boolean(),
           #{ required => false
-           , desc => <<"Listener running status">>})}
+           , description => <<"Listener running status">>})}
     , {bind,
        mk(binary(),
           #{ required => false
-           , desc => <<"Listener bind address or port">>})}
+           , description => <<"Listener bind address or port">>})}
     , {acceptors,
        mk(integer(),
           #{ required => false
-           , desc => <<"Listener acceptors number">>})}
+           , description => <<"Listener acceptors number">>})}
     , {access_rules,
        mk(hoconsc:array(binary()),
           #{ required => false
-           , desc => <<"Listener Access rules for client">>})}
+           , description => <<"Listener Access rules for client">>})}
     , {max_conn_rate,
        mk(integer(),
           #{ required => false
-           , desc => <<"Max connection rate for the listener">>})}
+           , description => <<"Max connection rate for the listener">>})}
     , {max_connections,
        mk(integer(),
           #{ required => false
-           , desc => <<"Max connections for the listener">>})}
+           , description => <<"Max connections for the listener">>})}
     , {mountpoint,
        mk(binary(),
           #{ required => false
-           , desc =>
+           , description =>
 <<"The Mounpoint for clients of the listener. "
   "The gateway-level mountpoint configuration can be overloaded "
   "when it is not null or empty string">>})}
@@ -578,7 +578,7 @@ common_listener_opts() ->
     , {authentication,
        mk(emqx_authn_schema:authenticator_type(),
           #{ required => {false, recursively}
-           , desc => <<"The authenticatior for this listener">>
+           , description => <<"The authenticatior for this listener">>
            })}
     ] ++ emqx_gateway_schema:proxy_protocol_opts().
 

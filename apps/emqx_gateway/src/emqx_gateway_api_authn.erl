@@ -275,7 +275,7 @@ params_gateway_name_in_path() ->
     [{name,
       mk(binary(),
          #{ in => path
-          , desc => <<"Gateway Name">>
+          , description => <<"Gateway Name">>
           , example => <<"">>
           })}
     ].
@@ -283,7 +283,7 @@ params_gateway_name_in_path() ->
 params_userid_in_path() ->
     [{uid, mk(binary(),
               #{ in => path
-               , desc => <<"User ID">>
+               , description => <<"User ID">>
                , example => <<"">>
                })}
     ].
@@ -292,13 +292,13 @@ params_paging_in_qs() ->
     [{page, mk(integer(),
                #{ in => query
                 , required => false
-                , desc => <<"Page Index">>
+                , description => <<"Page Index">>
                 , example => 1
                 })},
      {limit, mk(integer(),
                 #{ in => query
                  , required => false
-                 , desc => <<"Page Limit">>
+                 , description => <<"Page Limit">>
                  , example => 100
                  })}
     ].
@@ -308,14 +308,14 @@ params_fuzzy_in_qs() ->
       mk(binary(),
          #{ in => query
           , required => false
-          , desc => <<"Fuzzy search by username">>
+          , description => <<"Fuzzy search by username">>
           , example => <<"username">>
           })},
      {like_clientid,
       mk(binary(),
          #{ in => query
           , required => false
-          , desc => <<"Fuzzy search by clientid">>
+          , description => <<"Fuzzy search by clientid">>
           , example => <<"clientid">>
           })}
     ].

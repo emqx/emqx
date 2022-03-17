@@ -471,60 +471,60 @@ params_client_searching_in_qs() ->
     M = #{in => query, required => false, example => <<"">>},
     [ {node,
        mk(binary(),
-          M#{desc => <<"Match the client's node name">>})}
+          M#{description => <<"Match the client's node name">>})}
     , {clientid,
        mk(binary(),
-          M#{desc => <<"Match the client's ID">>})}
+          M#{description => <<"Match the client's ID">>})}
     , {username,
        mk(binary(),
-          M#{desc => <<"Match the client's Username">>})}
+          M#{description => <<"Match the client's Username">>})}
     , {ip_address,
        mk(binary(),
-          M#{desc => <<"Match the client's ip address">>})}
+          M#{description => <<"Match the client's ip address">>})}
     , {conn_state,
        mk(binary(),
-          M#{desc => <<"Match the client's connection state">>})}
+          M#{description => <<"Match the client's connection state">>})}
     , {proto_ver,
        mk(binary(),
-          M#{desc => <<"Match the client's protocol version">>})}
+          M#{description => <<"Match the client's protocol version">>})}
     , {clean_start,
        mk(boolean(),
-          M#{desc => <<"Match the client's clean start flag">>})}
+          M#{description => <<"Match the client's clean start flag">>})}
     , {like_clientid,
        mk(binary(),
-          M#{desc => <<"Use sub-string to match client's ID">>})}
+          M#{description => <<"Use sub-string to match client's ID">>})}
     , {like_username,
        mk(binary(),
-          M#{desc => <<"Use sub-string to match client's username">>})}
+          M#{description => <<"Use sub-string to match client's username">>})}
     , {gte_created_at,
        mk(emqx_datetime:epoch_millisecond(),
-          M#{desc => <<"Match the session created datetime greater than "
+          M#{description => <<"Match the session created datetime greater than "
                        "a certain value">>})}
     , {lte_created_at,
        mk(emqx_datetime:epoch_millisecond(),
-          M#{desc => <<"Match the session created datetime less than "
+          M#{description => <<"Match the session created datetime less than "
                        "a certain value">>})}
     , {gte_connected_at,
        mk(emqx_datetime:epoch_millisecond(),
-          M#{desc => <<"Match the client socket connected datetime greater "
+          M#{description => <<"Match the client socket connected datetime greater "
                        "than a certain value">>})}
     , {lte_connected_at,
        mk(emqx_datetime:epoch_millisecond(),
-          M#{desc => <<"Match the client socket connected datatime less than "
+          M#{description => <<"Match the client socket connected datatime less than "
                        "a certain value">>})}
     , {endpoint_name,
        mk(binary(),
-          M#{desc => <<"Match the lwm2m client's endpoint name">>})}
+          M#{description => <<"Match the lwm2m client's endpoint name">>})}
     , {like_endpoint_name,
        mk(binary(),
-          M#{desc => <<"Use sub-string to match lwm2m client's endpoint name">>})}
+          M#{description => <<"Use sub-string to match lwm2m client's endpoint name">>})}
     , {gte_lifetime,
        mk(binary(),
-          M#{desc => <<"Match the lwm2m client registered lifetime greater "
+          M#{description => <<"Match the lwm2m client registered lifetime greater "
                         "than a certain value">>})}
     , {lte_lifetime,
        mk(binary(),
-          M#{desc => <<"Match the lwm2m client registered lifetime less than "
+          M#{description => <<"Match the lwm2m client registered lifetime less than "
                        "a certain value">>})}
     ].
 
@@ -533,13 +533,13 @@ params_paging() ->
        mk(integer(),
           #{ in => query
            , required => false
-           , desc => <<"Page Index">>
+           , description => <<"Page Index">>
            , example => 1
            })}
      , {limit,
         mk(integer(),
            #{ in => query
-            , desc => <<"Page Limit">>
+            , description => <<"Page Limit">>
             , required => false
             , example => 100
             })}
@@ -549,7 +549,7 @@ params_gateway_name_in_path() ->
     [{name,
       mk(binary(),
          #{ in => path
-          , desc => <<"Gateway Name">>
+          , description => <<"Gateway Name">>
           })}
     ].
 
@@ -557,7 +557,7 @@ params_clientid_in_path() ->
     [{clientid,
       mk(binary(),
          #{ in => path
-          , desc => <<"Client ID">>
+          , description => <<"Client ID">>
           })}
     ].
 
@@ -565,7 +565,7 @@ params_topic_name_in_path() ->
     [{topic,
       mk(binary(),
          #{ in => path
-          , desc => <<"Topic Filter/Name">>
+          , description => <<"Topic Filter/Name">>
           })}
     ].
 
@@ -612,10 +612,10 @@ fields(coap_client) ->
 fields(lwm2m_client) ->
     [ {endpoint_name,
        mk(binary(),
-          #{ desc => <<"The LwM2M client endpoint name">>})}
+          #{ description => <<"The LwM2M client endpoint name">>})}
     , {lifetime,
        mk(integer(),
-          #{ desc => <<"Life time">>})}
+          #{ description => <<"Life time">>})}
     ] ++ common_client_props();
 fields(exproto_client) ->
     common_client_props();
@@ -623,153 +623,153 @@ fields(exproto_client) ->
 fields(subscription) ->
     [ {topic,
        mk(binary(),
-          #{ desc => <<"Topic Fillter">>})}
+          #{ description => <<"Topic Fillter">>})}
     , {qos,
        mk(integer(),
-          #{ desc => <<"QoS level, enum: 0, 1, 2">>})}
+          #{ description => <<"QoS level, enum: 0, 1, 2">>})}
     , {nl,
        mk(integer(), %% FIXME: why not boolean?
-          #{ desc => <<"No Local option, enum: 0, 1">>})}
+          #{ description => <<"No Local option, enum: 0, 1">>})}
     , {rap,
        mk(integer(),
-          #{ desc => <<"Retain as Published option, enum: 0, 1">>})}
+          #{ description => <<"Retain as Published option, enum: 0, 1">>})}
     , {rh,
        mk(integer(),
-          #{ desc => <<"Retain Handling option, enum: 0, 1, 2">>})}
+          #{ description => <<"Retain Handling option, enum: 0, 1, 2">>})}
     , {sub_props,
        mk(ref(extra_sub_props),
-         #{desc => <<"Subscription properties">>})}
+         #{description => <<"Subscription properties">>})}
     ];
 fields(extra_sub_props) ->
     [ {subid,
        mk(binary(),
-         #{ desc => <<"Only stomp protocol, a unique identity for "
+         #{ description => <<"Only stomp protocol, a unique identity for "
                       "the subscription. range: 1-65535.">>})}
     ].
 
 common_client_props() ->
     [ {node,
        mk(binary(),
-          #{ desc => <<"Name of the node to which the client is "
+          #{ description => <<"Name of the node to which the client is "
                        "connected">>})}
     , {clientid,
        mk(binary(),
-          #{ desc => <<"Client identifier">>})}
+          #{ description => <<"Client identifier">>})}
     , {username,
        mk(binary(),
-          #{ desc => <<"Username of client when connecting">>})}
+          #{ description => <<"Username of client when connecting">>})}
     , {proto_name,
        mk(binary(),
-          #{ desc => <<"Client protocol name">>})}
+          #{ description => <<"Client protocol name">>})}
     , {proto_ver,
        mk(binary(),
-          #{ desc => <<"Protocol version used by the client">>})}
+          #{ description => <<"Protocol version used by the client">>})}
     , {ip_address,
        mk(binary(),
-          #{ desc => <<"Client's IP address">>})}
+          #{ description => <<"Client's IP address">>})}
     , {port,
        mk(integer(),
-          #{ desc => <<"Client's port">>})}
+          #{ description => <<"Client's port">>})}
     , {is_bridge,
        mk(boolean(),
-          #{ desc => <<"Indicates whether the client is connected via "
+          #{ description => <<"Indicates whether the client is connected via "
                        "bridge">>})}
     , {connected_at,
        mk(emqx_datetime:epoch_millisecond(),
-          #{ desc => <<"Client connection time">>})}
+          #{ description => <<"Client connection time">>})}
     , {disconnected_at,
        mk(emqx_datetime:epoch_millisecond(),
-          #{ desc => <<"Client offline time, This field is only valid and "
+          #{ description => <<"Client offline time, This field is only valid and "
                        "returned when connected is false">>})}
     , {connected,
        mk(boolean(),
-          #{ desc => <<"Whether the client is connected">>})}
+          #{ description => <<"Whether the client is connected">>})}
     %% FIXME: the will_msg attribute is not a general attribute
     %% for every protocol. But it should be returned to frontend if someone
     %% want it
     %%
     %, {will_msg,
     %   mk(binary(),
-    %      #{ desc => <<"Client will message">>})}
+    %      #{ description => <<"Client will message">>})}
     , {keepalive,
        mk(integer(),
-          #{ desc => <<"keepalive time, with the unit of second">>})}
+          #{ description => <<"keepalive time, with the unit of second">>})}
     , {clean_start,
        mk(boolean(),
-          #{ desc => <<"Indicate whether the client is using a brand "
+          #{ description => <<"Indicate whether the client is using a brand "
                         "new session">>})}
     , {expiry_interval,
        mk(integer(),
-          #{ desc => <<"Session expiration interval, with the unit of "
+          #{ description => <<"Session expiration interval, with the unit of "
                        "second">>})}
     , {created_at,
        mk(emqx_datetime:epoch_millisecond(),
-          #{ desc => <<"Session creation time">>})}
+          #{ description => <<"Session creation time">>})}
     , {subscriptions_cnt,
        mk(integer(),
-          #{ desc => <<"Number of subscriptions established by this "
+          #{ description => <<"Number of subscriptions established by this "
                        "client">>})}
     , {subscriptions_max,
        mk(integer(),
-          #{ desc => <<"Maximum number of subscriptions allowed by this "
+          #{ description => <<"Maximum number of subscriptions allowed by this "
                        "client">>})}
     , {inflight_cnt,
        mk(integer(),
-          #{ desc => <<"Current length of inflight">>})}
+          #{ description => <<"Current length of inflight">>})}
     , {inflight_max,
        mk(integer(),
-          #{ desc => <<"Maximum length of inflight">>})}
+          #{ description => <<"Maximum length of inflight">>})}
     , {mqueue_len,
        mk(integer(),
-          #{ desc => <<"Current length of message queue">>})}
+          #{ description => <<"Current length of message queue">>})}
     , {mqueue_max,
        mk(integer(),
-          #{ desc => <<"Maximum length of message queue">>})}
+          #{ description => <<"Maximum length of message queue">>})}
     , {mqueue_dropped,
        mk(integer(),
-          #{ desc => <<"Number of messages dropped by the message queue "
+          #{ description => <<"Number of messages dropped by the message queue "
                        "due to exceeding the length">>})}
     , {awaiting_rel_cnt,
        mk(integer(),
           %% FIXME: PUBREC ??
-          #{ desc => <<"Number of awaiting acknowledge packet">>})}
+          #{ description => <<"Number of awaiting acknowledge packet">>})}
     , {awaiting_rel_max,
        mk(integer(),
-          #{ desc => <<"Maximum allowed number of awaiting PUBREC "
+          #{ description => <<"Maximum allowed number of awaiting PUBREC "
                        "packet">>})}
     , {recv_oct,
        mk(integer(),
-          #{ desc => <<"Number of bytes received">>})}
+          #{ description => <<"Number of bytes received">>})}
     , {recv_cnt,
        mk(integer(),
-          #{ desc => <<"Number of socket packets received">>})}
+          #{ description => <<"Number of socket packets received">>})}
     , {recv_pkt,
        mk(integer(),
-          #{ desc => <<"Number of protocol packets received">>})}
+          #{ description => <<"Number of protocol packets received">>})}
     , {recv_msg,
        mk(integer(),
-          #{ desc => <<"Number of message packets received">>})}
+          #{ description => <<"Number of message packets received">>})}
     , {send_oct,
        mk(integer(),
-          #{ desc => <<"Number of bytes sent">>})}
+          #{ description => <<"Number of bytes sent">>})}
     , {send_cnt,
        mk(integer(),
-          #{ desc => <<"Number of socket packets sent">>})}
+          #{ description => <<"Number of socket packets sent">>})}
     , {send_pkt,
        mk(integer(),
-          #{ desc => <<"Number of protocol packets sent">>})}
+          #{ description => <<"Number of protocol packets sent">>})}
     , {send_msg,
        mk(integer(),
-          #{ desc => <<"Number of message packets sent">>})}
+          #{ description => <<"Number of message packets sent">>})}
     , {mailbox_len,
        mk(integer(),
-          #{ desc => <<"Process mailbox size">>})}
+          #{ description => <<"Process mailbox size">>})}
     , {heap_size,
        mk(integer(),
-          #{ desc => <<"Process heap size with the unit of byte">>})}
+          #{ description => <<"Process heap size with the unit of byte">>})}
     , {reductions,
        mk(integer(),
-          #{ desc => <<"Erlang reduction">>})}
+          #{ description => <<"Erlang reduction">>})}
     ].
 
 %%--------------------------------------------------------------------

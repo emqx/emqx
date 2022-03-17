@@ -117,11 +117,11 @@ schema(?PATH("/write")) ->
 
 fields(resource) ->
     [
-        {operations, mk(binary(), #{desc => <<"Resource Operations">>, example => "E"})},
-        {'dataType', mk(hoconsc:enum(?DATA_TYPE), #{desc => <<"Data Type">>,
+        {operations, mk(binary(), #{description => <<"Resource Operations">>, example => "E"})},
+        {'dataType', mk(hoconsc:enum(?DATA_TYPE), #{description => <<"Data Type">>,
             example => 'Integer'})},
-        {path, mk(binary(), #{desc =>  <<"Resource Path">>, example => "urn:oma:lwm2m:oma:2"})},
-        {name, mk(binary(), #{desc =>  <<"Resource Name">>, example => "lwm2m-test"})}
+        {path, mk(binary(), #{description =>  <<"Resource Path">>, example => "urn:oma:lwm2m:oma:2"})},
+        {name, mk(binary(), #{description =>  <<"Resource Name">>, example => "lwm2m-test"})}
     ].
 
 lookup_cmd(get, #{bindings := Bindings, query_string := QS}) ->

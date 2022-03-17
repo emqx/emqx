@@ -307,11 +307,7 @@ reason2resp(R) ->
 
 -spec return_http_error(integer(), any()) -> {integer(), binary()}.
 return_http_error(Code, Msg) ->
-    {Code, emqx_json:encode(
-             #{code => codestr(Code),
-               message => emqx_gateway_utils:stringfy(Msg)
-              })
-    }.
+    {Code, codestr(Code), emqx_gateway_utils:stringfy(Msg)}.
 
 -spec reason2msg({atom(), map()} | any()) -> error | string().
 reason2msg({badconf, #{key := Key, value := Value, reason := Reason}}) ->
@@ -362,9 +358,9 @@ reason2msg(_) ->
     error.
 
 codestr(400) -> 'BAD_REQUEST';
-codestr(401) -> 'NOT_SUPPORTED_NOW';
 codestr(404) -> 'RESOURCE_NOT_FOUND';
 codestr(405) -> 'METHOD_NOT_ALLOWED';
+codestr(409) -> 'NOT_SUPPORT';
 codestr(500) -> 'UNKNOW_ERROR';
 codestr(501) -> 'NOT_IMPLEMENTED'.
 

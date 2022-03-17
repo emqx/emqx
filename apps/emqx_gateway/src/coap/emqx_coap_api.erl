@@ -87,19 +87,19 @@ request_parameters() ->
     [{clientid, mk(binary(), #{in => path, required => true})}].
 
 request_body() ->
-    [ {token, mk(binary(), #{desc => "message token, can be empty"})}
-    , {method, mk(enum([get, put, post, delete]), #{desc => "request method type"})}
-    , {timeout, mk(emqx_schema:duration_ms(), #{desc => "timespan for response"})}
+    [ {token, mk(binary(), #{description => "message token, can be empty"})}
+    , {method, mk(enum([get, put, post, delete]), #{description => "request method type"})}
+    , {timeout, mk(emqx_schema:duration_ms(), #{description => "timespan for response"})}
     , {content_type, mk(enum(['text/plain', 'application/json', 'application/octet-stream']),
-                        #{desc => "payload type"})}
-    , {payload, mk(binary(), #{desc => "the content of the payload"})}
+                        #{description => "payload type"})}
+    , {payload, mk(binary(), #{description => "the content of the payload"})}
     ].
 
 coap_message() ->
-    [ {id, mk(integer(), #{desc => "message id"})}
-    , {token, mk(string(), #{desc => "message token, can be empty"})}
-    , {method, mk(string(), #{desc => "response code"})}
-    , {payload, mk(string(), #{desc => "payload"})}
+    [ {id, mk(integer(), #{description => "message id"})}
+    , {token, mk(string(), #{description => "message token, can be empty"})}
+    , {method, mk(string(), #{description => "response code"})}
+    , {payload, mk(string(), #{description => "payload"})}
     ].
 
 format_to_response(ContentType, #coap_message{id = Id,

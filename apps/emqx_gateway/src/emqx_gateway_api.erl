@@ -141,7 +141,7 @@ gateway_insta(put, #{body := GwConf0,
     end).
 
 gateway_insta_stats(get, _Req) ->
-    return_http_error(401, "Implement it later (maybe 5.1)").
+    return_http_error(409, "Implement it later (maybe 5.1)").
 
 %%--------------------------------------------------------------------
 %% Swagger defines
@@ -197,7 +197,9 @@ schema("/gateway/:name/stats") ->
               ?STANDARD_RESP(
                  #{200 => emqx_dashboard_swagger:schema_with_examples(
                            ref(gateway_stats),
-                           examples_gateway_stats())
+                           examples_gateway_stats()),
+                   409 => emqx_dashboard_swagger:error_codes(
+                           ['NOT_SUPPORT'], <<"Resource not support">>)
                   })
           }
      }.
@@ -209,7 +211,7 @@ params_gateway_name_in_path() ->
     [{name,
       mk(binary(),
          #{ in => path
-          , desc => <<"Gateway Name">>
+          , description => <<"Gateway Name">>
           , example => <<"">>
           })}
     ].
@@ -220,7 +222,7 @@ params_gateway_status_in_qs() ->
       mk(binary(),
          #{ in => query
           , required => false
-          , desc => <<"Gateway Status">>
+          , description => <<"Gateway Status">>
           , example => <<"">>
           })}
     ].
@@ -236,50 +238,50 @@ roots() ->
 fields(gateway_overview) ->
     [ {name,
        mk(binary(),
-          #{ desc => <<"Gateway Name">>})}
+          #{ description => <<"Gateway Name">>})}
     , {status,
        mk(hoconsc:enum([running, stopped, unloaded]),
-          #{ desc => <<"The Gateway status">>})}
+          #{ description => <<"The Gateway status">>})}
     , {created_at,
        mk(binary(),
-          #{desc => <<"The Gateway created datetime">>})}
+          #{description => <<"The Gateway created datetime">>})}
     , {started_at,
        mk(binary(),
           #{ required => false
-           , desc => <<"The Gateway started datetime">>})}
+           , description => <<"The Gateway started datetime">>})}
     , {stopped_at,
        mk(binary(),
           #{ required => false
-           , desc => <<"The Gateway stopped datetime">>})}
+           , description => <<"The Gateway stopped datetime">>})}
     , {max_connections,
        mk(integer(),
-          #{ desc => <<"The Gateway allowed maximum connections/clients">>})}
+          #{ description => <<"The Gateway allowed maximum connections/clients">>})}
     , {current_connections,
        mk(integer(),
-          #{ desc => <<"The Gateway current connected connections/clients">>
+          #{ description => <<"The Gateway current connected connections/clients">>
            })}
     , {listeners,
        mk(hoconsc:array(ref(gateway_listener_overview)),
          #{ required => {false, recursively}
-          , desc => <<"The Gateway listeners overview">>})}
+          , description => <<"The Gateway listeners overview">>})}
     ];
 fields(gateway_listener_overview) ->
     [ {id,
        mk(binary(),
-          #{ desc => <<"Listener ID">>})}
+          #{ description => <<"Listener ID">>})}
     , {running,
        mk(boolean(),
-          #{ desc => <<"Listener Running status">>})}
+          #{ description => <<"Listener Running status">>})}
     , {type,
        mk(hoconsc:enum([tcp, ssl, udp, dtls]),
-          #{ desc => <<"Listener Type">>})}
+          #{ description => <<"Listener Type">>})}
     ];
 
 fields(Gw) when Gw == stomp; Gw == mqttsn;
                 Gw == coap;  Gw == lwm2m;
                 Gw == exproto ->
     [{name,
-      mk(hoconsc:union([Gw]), #{ desc => <<"Gateway Name">>})}
+      mk(hoconsc:union([Gw]), #{ description => <<"Gateway Name">>})}
     ] ++ convert_listener_struct(emqx_gateway_schema:fields(Gw));
 
 fields(Gw) when Gw == update_stomp; Gw == update_mqttsn;
@@ -296,17 +298,17 @@ fields(Listener) when Listener == tcp_listener;
     [ {id,
        mk(binary(),
           #{ required => false
-           , desc => <<"Listener ID">>})}
+           , description => <<"Listener ID">>})}
     , {type,
        mk(hoconsc:union([tcp, ssl, udp, dtls]),
-          #{ desc => <<"Listener type">>})}
+          #{ description => <<"Listener type">>})}
     , {name,
        mk(binary(),
-          #{ desc => <<"Listener Name">>})}
+          #{ description => <<"Listener Name">>})}
     , {running,
        mk(boolean(),
           #{ required => false
-           , desc => <<"Listener running status">>})}
+           , description => <<"Listener running status">>})}
     ] ++ emqx_gateway_schema:fields(Listener);
 
 fields(gateway_stats) ->
@@ -335,7 +337,7 @@ convert_listener_struct(Schema) ->
              #{type := Type}}, Schema1} = lists:keytake(listeners, 1, Schema),
     ListenerSchema = hoconsc:mk(listeners_schema(Type),
                                 #{ required => {false, recursively}
-                                 , desc => <<"The gateway listeners">>
+                                 , description => <<"The gateway listeners">>
                                  }),
     lists:keystore(listeners, 1, Schema1, {listeners, ListenerSchema}).
 
