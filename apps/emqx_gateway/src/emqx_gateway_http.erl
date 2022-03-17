@@ -305,7 +305,7 @@ reason2resp(R) ->
             return_http_error(400, Msg)
     end.
 
--spec return_http_error(integer(), any()) -> {integer(), binary()}.
+-spec return_http_error(integer(), any()) -> {integer(), atom(), binary()}.
 return_http_error(Code, Msg) ->
     {Code, codestr(Code), emqx_gateway_utils:stringfy(Msg)}.
 
