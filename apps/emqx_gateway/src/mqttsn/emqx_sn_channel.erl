@@ -571,7 +571,7 @@ handle_in(?SN_REGACK_MSG(TopicId, _MsgId, Reason),
             %% b. re-new the re-transmit timer
             {ok, Channel};
         _ ->
-            %% skipp this topic-name register, if the reason is
+            %% skip this topic-name register, if the reason is
             %% ?SN_RC_NOT_SUPPORTED, ?SN_RC_INVALID_TOPIC_ID, etc.
             ?SLOG(warning, #{ msg => "skipp_register_topic_name_to_client"
                             , topic_id => TopicId
@@ -1646,7 +1646,7 @@ handle_deliver(Delivers, Channel = #channel{
                 ),
     {ok, Channel#channel{session = NSession}};
 
-%% There are two secensar need to cache delivering messages:
+%% There are two scenarios need to cache delivering messages:
 %%  1. it is being takeover by other channel
 %%  2. it is being resume registered topic-names
 handle_deliver(Delivers, Channel = #channel{
