@@ -59,7 +59,7 @@ fields() ->
     , {separator, sc(binary(),
                      #{default => <<":">>,
                        desc =>
-                           <<"The separator between <code>PSKIdentity</code"
+                           <<"The separator between <code>PSKIdentity</code>"
                              " and <code>SharedSecret</code> in the psk file">>
                       })}
     , {chunk_size, sc(integer(),
