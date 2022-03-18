@@ -165,6 +165,7 @@
 
 -ifdef(TEST).
 -define(GET_CLIENT_ID(C), maps:get(clientid, C, <<>>)).
+-export([dummy/0]).
 -else.
 -define(GET_CLIENT_ID(C), maps:get(clientid, C)).
 -endif.
@@ -200,14 +201,20 @@ init_mqueue(Zone) ->
 
 %% @doc uprade from 4.3
 upgrade(CInfo, S) ->
+    ?LOG(warning, "upgrading from 4.3", []),
     [session | Fields] = tuple_to_list(S),
     #session{} = list_to_tuple([session, ?GET_CLIENT_ID(CInfo) | Fields] ++ [#{}]).
 
 %% @doc Downgrade to 4.3
 downgrade(#session{} = S) ->
+    ?LOG(warning, "downgrading to 4.3", []),
     [session, _ClientID | Fields] = tuple_to_list(S),
     list_to_tuple([session | lists:reverse(tl(lists:reverse(Fields)))]).
 
+-ifdef(TEST).
+dummy() ->
+    #session{}.
+-endif.
 %%--------------------------------------------------------------------
 %% Info, Stats
 %%--------------------------------------------------------------------

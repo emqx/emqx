@@ -332,15 +332,17 @@ t_discard_session_race(_) ->
 t_takeover_session(_) ->
     #{conninfo := ConnInfo} = ?ChanInfo,
     {error, not_found} = emqx_cm:takeover_session(<<"clientid">>),
+    Dummy = emqx_session:dummy(),
+    Downgraded = emqx_session:downgrade(Dummy),
     erlang:spawn_link(fun() ->
         ok = emqx_cm:register_channel(<<"clientid">>, self(), ConnInfo),
         receive
             {'$gen_call', From, {takeover, 'begin'}} ->
-                gen_server:reply(From, test), ok
+                gen_server:reply(From, Dummy), ok
         end
     end),
     timer:sleep(100),
-    {ok, emqx_connection, _, test} = emqx_cm:takeover_session(<<"clientid">>),
+    {ok, emqx_connection, _, Downgraded} = emqx_cm:takeover_session(<<"clientid">>),
     emqx_cm:unregister_channel(<<"clientid">>).
 
 t_all_channels(_) ->
