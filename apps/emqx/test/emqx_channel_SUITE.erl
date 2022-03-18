@@ -931,7 +931,7 @@ t_handle_kicked_publish_will_msg(_) ->
      _} = emqx_channel:handle_call(kick, channel(#{will_msg => Msg})),
     receive
         {pub, Msg} -> ok
-    after 200 -> ?assert(true)
+    after 200 -> exit(will_message_not_published)
     end.
 
 t_handle_call_discard(_) ->
