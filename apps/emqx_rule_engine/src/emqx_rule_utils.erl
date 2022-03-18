@@ -60,8 +60,8 @@
           ]}).
 
 -define(EX_PLACE_HOLDER, "(\\$\\{[a-zA-Z0-9\\._]+\\})").
-
 -define(EX_WITHE_CHARS, "\\s"). %% Space and CRLF
+-define(FLOAT_PRECISION, 17).
 
 -type(uri_string() :: iodata()).
 
@@ -336,12 +336,12 @@ bool(Bool) -> error({invalid_boolean, Bool}).
 number_to_binary(Int) when is_integer(Int) ->
     integer_to_binary(Int);
 number_to_binary(Float) when is_float(Float) ->
-    float_to_binary(Float, [{decimals, 10}, compact]).
+    float_to_binary(Float, [{decimals, ?FLOAT_PRECISION}, compact]).
 
 number_to_list(Int) when is_integer(Int) ->
     integer_to_list(Int);
 number_to_list(Float) when is_float(Float) ->
-    float_to_list(Float, [{decimals, 10}, compact]).
+    float_to_list(Float, [{decimals, ?FLOAT_PRECISION}, compact]).
 
 parse_nested(Attr) ->
     case string:split(Attr, <<".">>, all) of
