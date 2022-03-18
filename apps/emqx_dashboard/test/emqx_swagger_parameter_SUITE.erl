@@ -287,7 +287,9 @@ schema("/test/in/query") ->
             parameters => [
                 {per_page,
                     mk(range(1, 100),
-                        #{in => query, description => <<"results per page (max 100)">>, example => 1})},
+                        #{in => query,
+                        description => <<"results per page (max 100)">>,
+                        example => 1})},
                 {qos, mk(emqx_schema:qos(), #{in => query, description => <<"QOS">>})}
             ],
             responses => #{200 => <<"ok">>}

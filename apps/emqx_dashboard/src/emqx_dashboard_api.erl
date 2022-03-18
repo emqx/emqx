@@ -183,7 +183,8 @@ fields(user) ->
                 #{description => <<"username">>, example => "emqx"})}
     ];
 fields(user_password) ->
-    fields(user) ++ [{password, mk(binary(), #{description => "Password", example => <<"public">>})}].
+    fields(user) ++
+        [{password, mk(binary(), #{description => "Password", example => <<"public">>})}].
 
 login(post, #{body := Params}) ->
     Username = maps:get(<<"username">>, Params),
