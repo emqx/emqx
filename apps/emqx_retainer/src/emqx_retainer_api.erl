@@ -38,7 +38,7 @@
 namespace() -> "retainer".
 
 api_spec() ->
-    emqx_dashboard_swagger:spec(?MODULE, #{check_schema => true, translate_body => true}).
+    emqx_dashboard_swagger:spec(?MODULE, #{check_schema => true}).
 
 paths() ->
     [?PREFIX, ?PREFIX ++ "/messages", ?PREFIX ++ "/message/:topic"].
