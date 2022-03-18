@@ -29,6 +29,9 @@ File format:
 * Changed systemd service restart delay from 10 seconds to 60 seconds.
 * MQTT-SN gateway supports initiative to synchronize registered topics after session resumed. [#7300]
 * Add load control app for future development.
+* Change the precision of float to 17 digits after the decimal point when formatting a
+  float using payload templates of rule actions. The old precision is 10 digits before
+  this change.
 
 ### Bug fixes
 
