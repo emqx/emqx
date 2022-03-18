@@ -85,8 +85,8 @@ start_link(Pool, Id) ->
 init([Pool, Id]) ->
     erlang:process_flag(trap_exit, true),
     true = gproc_pool:connect_worker(Pool, {Pool, Id}),
-    LimiterCfg = emqx:get_config([retainer, flow_control, limiter]),
-    Limiter = emqx_limiter_server:connect(batch, LimiterCfg),
+    BucketName = emqx:get_config([retainer, flow_control, batch_deliver_limiter]),
+    Limiter = emqx_limiter_server:connect(batch, BucketName),
     {ok, #{pool => Pool, id => Id, limiter => Limiter}}.
 
 %%--------------------------------------------------------------------
@@ -124,8 +124,8 @@ handle_cast({dispatch, Context, Pid, Topic}, #{limiter := Limiter} = State) ->
     {noreply, State#{limiter := Limiter2}};
 
 handle_cast(refresh_limiter, State) ->
-    LimiterCfg = emqx:get_config([retainer, flow_control, limiter]),
-    Limiter = emqx_limiter_server:connect(batch, LimiterCfg),
+    BucketName = emqx:get_config([retainer, flow_control, batch_deliver_limiter]),
+    Limiter = emqx_limiter_server:connect(batch, BucketName),
     {noreply, State#{limiter := Limiter}};
 
 handle_cast(Msg, State) ->

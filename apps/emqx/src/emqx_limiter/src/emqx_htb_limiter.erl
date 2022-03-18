@@ -43,7 +43,6 @@
 
                                    %% retry contenxt
                                    %% undefined meaning no retry context or no need to retry
-
                                  , retry_ctx => undefined
                                  | retry_context(token_bucket_limiter()) %% the retry context
                                  , atom => any() %% allow to add other keys
@@ -107,8 +106,6 @@
 -define(MAXIMUM_PAUSE, 5000).
 
 -import(emqx_limiter_decimal, [sub/2, mul/2, floor_div/2, add/2]).
-
--elvis([{elvis_style, no_if_expression, disable}]).
 
 %%--------------------------------------------------------------------
 %%  API
@@ -308,18 +305,19 @@ do_reset(Need,
            capacity := Capacity} = Limiter) ->
     Now = ?NOW,
     Tokens2 = apply_elapsed_time(Rate, Now - LastTime, Tokens, Capacity),
-    Available = erlang:floor(Tokens2),
-    if Available >= Need ->
+
+    case erlang:floor(Tokens2) of
+        Available when Available >= Need ->
             Limiter2 = Limiter#{tokens := Tokens2, lasttime := Now},
             do_check_with_parent_limiter(Need, Limiter2);
-       Divisible andalso Available > 0 ->
+        Available when Divisible andalso Available > 0 ->
             %% must be allocated here, because may be Need > Capacity
             return_pause(Rate,
                          partial,
                          fun do_reset/2,
                          Need - Available,
                          Limiter#{tokens := 0, lasttime := Now});
-       true ->
+        _ ->
             return_pause(Rate, pause, fun do_reset/2, Need, Limiter)
     end.
 

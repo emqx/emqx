@@ -53,9 +53,10 @@
               , capacity/0
               , initial/0
               , failure_strategy/0
+              , bucket_name/0
               ]).
 
--export_type([limiter_type/0, bucket_name/0, bucket_path/0]).
+-export_type([limiter_type/0, bucket_path/0]).
 
 -import(emqx_schema, [sc/2, map/2]).
 -define(UNIT_TIME_IN_MS, 1000).
@@ -65,24 +66,58 @@ namespace() -> limiter.
 roots() -> [limiter].
 
 fields(limiter) ->
-    [ {bytes_in, sc(ref(limiter_opts), #{description => <<"Limiter of message publish bytes">>})}
-    , {message_in, sc(ref(limiter_opts), #{description => <<"Message publish limiter">>})}
-    , {connection, sc(ref(limiter_opts), #{description => <<"Connection limiter">>})}
-    , {message_routing, sc(ref(limiter_opts), #{description => <<"Deliver limiter">>})}
+    [ {bytes_in, sc(ref(limiter_opts),
+                    #{description =>
+                          <<"The bytes_in limiter.<br>"
+                            "It is used to limit the inbound bytes rate for this EMQX node."
+                            "If the this limiter limit is reached,"
+                            "the restricted client will be slow down even be hung for a while.">>
+                     })}
+    , {message_in, sc(ref(limiter_opts),
+                      #{description =>
+                            <<"The message_in limiter.<br>"
+                              "This is used to limit the inbound message numbers for this EMQX node"
+                              "If the this limiter limit is reached,"
+                              "the restricted client will be slow down even be hung for a while.">>
+                       })}
+    , {connection, sc(ref(limiter_opts),
+                      #{description =>
+                            <<"The connection limiter.<br>"
+                              "This is used to limit the connection rate for this EMQX node"
+                              "If the this limiter limit is reached,"
+                              "New connections will be refused"
+                            >>})}
+    , {message_routing, sc(ref(limiter_opts),
+                           #{description =>
+                                 <<"The message_routing limiter.<br>"
+                                   "This is used to limite the deliver rate for this EMQX node"
+                                   "If the this limiter limit is reached,"
+                                   "New publish will be refused"
+                                 >>
+                            })}
     , {batch, sc(ref(limiter_opts),
-                 #{description => <<"Internal batch operation limiter">>})}
+                 #{description => <<"The batch limiter.<br>"
+                                    "This is used for EMQX internal batch operation"
+                                    "e.g. limite the retainer's deliver rate"
+                                  >>
+                  })}
     ];
 
 fields(limiter_opts) ->
-    [ {rate, sc(rate(), #{default => "infinity"})}
-    , {burst, sc(burst_rate(), #{default => "0/0s"})}
-    , {bucket, sc(map("bucket name", ref(bucket_opts)), #{})}
+    [ {rate, sc(rate(), #{default => "infinity", desc => "The rate"})}
+    , {burst, sc(burst_rate(),
+                 #{default => "0/0s",
+                   desc => "The burst, This value is based on rate."
+                   "this value + rate = the maximum limit that can be achieved when limiter burst"
+                  })}
+    , {bucket, sc(map("bucket name", ref(bucket_opts)), #{desc => "Buckets config"})}
     ];
 
 fields(bucket_opts) ->
-    [ {rate, sc(rate(), #{})}
-    , {capacity, sc(capacity(), #{})}
-    , {initial, sc(initial(), #{default => "0"})}
+    [ {rate, sc(rate(), #{desc => "The rate for this bucket"})}
+    , {capacity, sc(capacity(), #{desc => "The maximum number of tokens for this bucket"})}
+    , {initial, sc(initial(), #{default => "0",
+                                desc => "The initial number of tokens for this bucket"})}
     , {per_client, sc(ref(client_bucket),
                       #{default => #{},
                         desc => "The rate limit for each user of the bucket,"

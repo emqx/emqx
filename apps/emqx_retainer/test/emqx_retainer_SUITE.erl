@@ -36,7 +36,7 @@ retainer {
     flow_control {
         batch_read_number = 0
         batch_deliver_number = 0
-        limiter.batch = retainer
+        batch_deliver_limiter = retainer
      }
    backend {
         type = built_in_database
@@ -295,7 +295,7 @@ t_flow_control(_) ->
     emqx_retainer:update_config(#{<<"flow_control">> =>
                                       #{<<"batch_read_number">> => 1,
                                         <<"batch_deliver_number">> => 1,
-                                        <<"limiter">> => #{<<"batch">> => retainer}}}),
+                                        <<"batch_deliver_limiter">> => retainer}}),
     {ok, C1} = emqtt:start_link([{clean_start, true}, {proto_ver, v5}]),
     {ok, _} = emqtt:connect(C1),
     emqtt:publish(
