@@ -314,7 +314,9 @@ report_telemetry(State = #state{url = URL}) ->
     end.
 
 httpc_request(Method, URL, Headers, Body) ->
-    httpc:request(Method, {URL, Headers, "application/json", Body}, [], []).
+    HTTPOptions = [{timeout, 10_000}],
+    Options = [],
+    httpc:request(Method, {URL, Headers, "application/json", Body}, HTTPOptions, Options).
 
 parse_os_release(FileContent) ->
     lists:foldl(fun(Line, Acc) ->
