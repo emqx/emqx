@@ -34,7 +34,8 @@ init_per_suite(Config) ->
                                      (KeyPath) -> meck:passthrough([KeyPath])
                                   end),
     meck:expect(emqx_config, get, fun([psk_authentication, init_file], _) ->
-                                         filename:join([code:lib_dir(emqx_psk, test), "data/init.psk"]);
+                                         filename:join([code:lib_dir(emqx_psk, test),
+                                                        "data/init.psk"]);
                                      ([psk_authentication, separator], _) -> <<":">>;
                                      (KeyPath, Default) -> meck:passthrough([KeyPath, Default])
                                   end),
