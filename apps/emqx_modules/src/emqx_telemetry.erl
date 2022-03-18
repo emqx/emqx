@@ -137,7 +137,7 @@ init(_Opts) ->
             UUID
     end,
     {ok, #state{url = ?TELEMETRY_URL,
-                report_interval = timer:seconds(?REPORT_INTERVAR),
+                report_interval = timer:seconds(?REPORT_INTERVAL),
                 uuid = UUID1}}.
 
 handle_call(enable, _From, State) ->

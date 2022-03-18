@@ -18,7 +18,7 @@
 -define(TELEMETRY_URL, "https://telemetry.emqx.io/api/telemetry").
 
 %% Interval for reporting telemetry data, Default: 7d
--define(REPORT_INTERVAR, 604800).
+-define(REPORT_INTERVAL, 604800).
 
 -define(API_TAG_MQTT, [<<"mqtt">>]).
 -define(API_SCHEMA_MODULE, emqx_modules_schema).
