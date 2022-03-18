@@ -46,6 +46,7 @@ start(Type) ->
     Spec = make_child(Type),
     supervisor:start_child(?MODULE, Spec).
 
+%% XXX This is maybe a workaround, not so good
 -spec restart(emqx_limiter_schema:limiter_type()) -> _.
 restart(Type) ->
     Id = emqx_limiter_server:name(Type),

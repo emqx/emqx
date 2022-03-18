@@ -85,8 +85,8 @@ start_link(Pool, Id) ->
 init([Pool, Id]) ->
     erlang:process_flag(trap_exit, true),
     true = gproc_pool:connect_worker(Pool, {Pool, Id}),
-    Bucket = emqx:get_config([retainer, flow_control, limiter_bucket_name]),
-    Limiter = emqx_limiter_server:connect(shared, Bucket),
+    BucketName = emqx:get_config([retainer, flow_control, batch_deliver_limiter]),
+    Limiter = emqx_limiter_server:connect(batch, BucketName),
     {ok, #{pool => Pool, id => Id, limiter => Limiter}}.
 
 %%--------------------------------------------------------------------
@@ -124,8 +124,8 @@ handle_cast({dispatch, Context, Pid, Topic}, #{limiter := Limiter} = State) ->
     {noreply, State#{limiter := Limiter2}};
 
 handle_cast(refresh_limiter, State) ->
-    Bucket = emqx:get_config([retainer, flow_control, limiter_bucket_name]),
-    Limiter = emqx_limiter_server:connect(shared, Bucket),
+    BucketName = emqx:get_config([retainer, flow_control, batch_deliver_limiter]),
+    Limiter = emqx_limiter_server:connect(batch, BucketName),
     {noreply, State#{limiter := Limiter}};
 
 handle_cast(Msg, State) ->
@@ -198,14 +198,15 @@ dispatch(Context, Pid, Topic, Cursor, Limiter) ->
     Mod = emqx_retainer:get_backend_module(),
     case Cursor =/= undefined orelse emqx_topic:wildcard(Topic) of
         false ->
-            {ok, Result} = Mod:read_message(Context, Topic),
+            {ok, Result} = erlang:apply(Mod, read_message, [Context, Topic]),
             deliver(Result, Context, Pid, Topic, undefined, Limiter);
         true  ->
-            {ok, Result, NewCursor} =  Mod:match_messages(Context, Topic, Cursor),
+            {ok, Result, NewCursor} = erlang:apply(Mod, match_messages, [Context, Topic, Cursor]),
             deliver(Result, Context, Pid, Topic, NewCursor, Limiter)
     end.
 
--spec deliver(list(emqx_types:message()), context(), pid(), topic(), cursor(), limiter()) -> {ok, limiter()}.
+-spec deliver(list(emqx_types:message()), context(), pid(), topic(), cursor(), limiter()) ->
+          {ok, limiter()}.
 deliver([], _Context, _Pid, _Topic, undefined, Limiter) ->
     {ok, Limiter};
 

@@ -113,57 +113,32 @@ listener_mqtt_ws_conf() ->
 listeners_conf() ->
     #{tcp => #{default => listener_mqtt_tcp_conf()},
       ws => #{default => listener_mqtt_ws_conf()}
-    }.
+     }.
 
 limiter_conf() ->
-    #{bytes_in =>
-        #{bucket =>
-                #{default =>
-                    #{aggregated =>
-                            #{capacity => infinity,initial => 0,rate => infinity},
-                        per_client =>
-                            #{capacity => infinity,divisible => false,
-                            failure_strategy => force,initial => 0,low_water_mark => 0,
-                            max_retry_time => 5000,rate => infinity},
-                        zone => default}},
-            global => #{burst => 0,rate => infinity},
-            zone => #{default => #{burst => 0,rate => infinity}}},
-      connection =>
-        #{bucket =>
-                #{default =>
-                    #{aggregated =>
-                            #{capacity => infinity,initial => 0,rate => infinity},
-                        per_client =>
-                            #{capacity => infinity,divisible => false,
-                            failure_strategy => force,initial => 0,low_water_mark => 0,
-                            max_retry_time => 5000,rate => infinity},
-                        zone => default}},
-            global => #{burst => 0,rate => infinity},
-            zone => #{default => #{burst => 0,rate => infinity}}},
-      message_in =>
-        #{bucket =>
-                #{default =>
-                    #{aggregated =>
-                            #{capacity => infinity,initial => 0,rate => infinity},
-                        per_client =>
-                            #{capacity => infinity,divisible => false,
-                            failure_strategy => force,initial => 0,low_water_mark => 0,
-                            max_retry_time => 5000,rate => infinity},
-                        zone => default}},
-            global => #{burst => 0,rate => infinity},
-            zone => #{default => #{burst => 0,rate => infinity}}},
-      message_routing =>
-        #{bucket =>
-                #{default =>
-                    #{aggregated =>
-                            #{capacity => infinity,initial => 0,rate => infinity},
-                        per_client =>
-                            #{capacity => infinity,divisible => false,
-                            failure_strategy => force,initial => 0,low_water_mark => 0,
-                            max_retry_time => 5000,rate => infinity},
-                        zone => default}},
-            global => #{burst => 0,rate => infinity},
-            zone => #{default => #{burst => 0,rate => infinity}}}}.
+    Make = fun() ->
+                   #{bucket =>
+                         #{default =>
+                               #{capacity => infinity,
+                                 initial => 0,
+                                 rate => infinity,
+                                 per_client =>
+                                     #{capacity => infinity,divisible => false,
+                                       failure_strategy => force,initial => 0,low_water_mark => 0,
+                                       max_retry_time => 5000,rate => infinity
+                                      }
+                                }
+                          },
+                     burst => 0,
+                     rate => infinity
+                    }
+           end,
+
+    lists:foldl(fun(Name, Acc) ->
+                        Acc#{Name => Make()}
+                end,
+                #{},
+                [bytes_in, message_in, message_routing, connection, batch]).
 
 stats_conf() ->
     #{enable => true}.
@@ -232,7 +207,7 @@ end_per_suite(_Config) ->
 init_per_testcase(TestCase, Config) ->
     OldConf = set_test_listener_confs(),
     emqx_common_test_helpers:start_apps([]),
-    modify_limiter(TestCase, OldConf),
+    check_modify_limiter(TestCase),
     [{config, OldConf}|Config].
 
 end_per_testcase(_TestCase, Config) ->
@@ -240,18 +215,19 @@ end_per_testcase(_TestCase, Config) ->
     emqx_common_test_helpers:stop_apps([]),
     Config.
 
-modify_limiter(TestCase, NewConf) ->
+check_modify_limiter(TestCase) ->
     Checks = [t_quota_qos0, t_quota_qos1, t_quota_qos2],
     case lists:member(TestCase, Checks) of
         true ->
-            modify_limiter(NewConf);
+            modify_limiter();
         _ ->
             ok
     end.
 
 %% per_client 5/1s,5
 %% aggregated 10/1s,10
-modify_limiter(#{limiter := Limiter} = NewConf) ->
+modify_limiter() ->
+    Limiter = emqx_config:get([limiter]),
     #{message_routing := #{bucket := Bucket} = Routing} = Limiter,
     #{default := #{per_client := Client} = Default} = Bucket,
     Client2 = Client#{rate := 5,
@@ -259,16 +235,15 @@ modify_limiter(#{limiter := Limiter} = NewConf) ->
                       capacity := 5,
                       low_water_mark := 1},
     Default2 = Default#{per_client := Client2,
-                        aggregated := #{rate => 10,
-                                        initial => 0,
-                                        capacity => 10
-                                       }},
+                        rate => 10,
+                        initial => 0,
+                        capacity => 10},
     Bucket2 = Bucket#{default := Default2},
     Routing2 = Routing#{bucket := Bucket2},
 
-    NewConf2 = NewConf#{limiter := Limiter#{message_routing := Routing2}},
-    emqx_config:put(NewConf2),
+    emqx_config:put([limiter], Limiter#{message_routing := Routing2}),
     emqx_limiter_manager:restart_server(message_routing),
+    timer:sleep(100),
     ok.
 
 %%--------------------------------------------------------------------
@@ -1078,4 +1053,4 @@ session(InitFields) when is_map(InitFields) ->
 quota() ->
     emqx_limiter_container:get_limiter_by_names([message_routing], limiter_cfg()).
 
-limiter_cfg() -> #{}.
+limiter_cfg() -> #{message_routing => default}.

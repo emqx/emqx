@@ -39,8 +39,7 @@
           {ok, Pid :: pid(), State :: term()} |
           {error, Reason :: term()}.
 start(_StartType, _StartArgs) ->
-    {ok, _} = Result = emqx_limiter_sup:start_link(),
-    Result.
+    {ok, _} = emqx_limiter_sup:start_link().
 
 %%--------------------------------------------------------------------
 %% @private

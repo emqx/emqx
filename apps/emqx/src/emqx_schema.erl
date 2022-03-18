@@ -1197,7 +1197,7 @@ base_listener() ->
           #{ default => 'default'
            })}
     , {"limiter",
-       sc(map("ratelimit bucket's name", atom()), #{default => #{}})}
+       sc(map("ratelimit's type", emqx_limiter_schema:bucket_name()), #{default => #{}})}
     ].
 
 %% utils

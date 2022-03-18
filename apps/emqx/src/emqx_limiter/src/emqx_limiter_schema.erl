@@ -20,7 +20,8 @@
 
 -export([ roots/0, fields/1, to_rate/1, to_capacity/1
         , minimum_period/0, to_burst_rate/1, to_initial/1
-        , namespace/0]).
+        , namespace/0, get_bucket_cfg_path/2
+        ]).
 
 -define(KILOBYTE, 1024).
 
@@ -28,14 +29,14 @@
                       | message_in
                       | connection
                       | message_routing
-                      | shared.
+                      | batch.
 
 -type bucket_name() :: atom().
--type zone_name() :: atom().
 -type rate() :: infinity | float().
 -type burst_rate() :: 0 | float().
 -type capacity() :: infinity | number().    %% the capacity of the token bucket
 -type initial() :: non_neg_integer().       %% initial capacity of the token bucket
+-type bucket_path() :: list(atom()).
 
 %% the processing strategy after the failure of the token request
 -type failure_strategy() :: force           %% Forced to pass
@@ -52,58 +53,80 @@
               , capacity/0
               , initial/0
               , failure_strategy/0
+              , bucket_name/0
               ]).
 
--export_type([limiter_type/0, bucket_name/0, zone_name/0]).
+-export_type([limiter_type/0, bucket_path/0]).
 
 -import(emqx_schema, [sc/2, map/2]).
+-define(UNIT_TIME_IN_MS, 1000).
 
 namespace() -> limiter.
 
 roots() -> [limiter].
 
 fields(limiter) ->
-    [ {bytes_in, sc(ref(limiter_opts), #{})}
-    , {message_in, sc(ref(limiter_opts), #{})}
-    , {connection, sc(ref(limiter_opts), #{})}
-    , {message_routing, sc(ref(limiter_opts), #{})}
-    , {shared, sc(ref(shared_limiter_opts),
-                  #{description =>
-                        <<"Some functions that do not need to use global and zone scope,"
-                          "them can shared use this type">>})}
+    [ {bytes_in, sc(ref(limiter_opts),
+                    #{description =>
+                          <<"The bytes_in limiter.<br>"
+                            "It is used to limit the inbound bytes rate for this EMQX node."
+                            "If the this limiter limit is reached,"
+                            "the restricted client will be slow down even be hung for a while.">>
+                     })}
+    , {message_in, sc(ref(limiter_opts),
+                      #{description =>
+                            <<"The message_in limiter.<br>"
+                              "This is used to limit the inbound message numbers for this EMQX node"
+                              "If the this limiter limit is reached,"
+                              "the restricted client will be slow down even be hung for a while.">>
+                       })}
+    , {connection, sc(ref(limiter_opts),
+                      #{description =>
+                            <<"The connection limiter.<br>"
+                              "This is used to limit the connection rate for this EMQX node"
+                              "If the this limiter limit is reached,"
+                              "New connections will be refused"
+                            >>})}
+    , {message_routing, sc(ref(limiter_opts),
+                           #{description =>
+                                 <<"The message_routing limiter.<br>"
+                                   "This is used to limite the deliver rate for this EMQX node"
+                                   "If the this limiter limit is reached,"
+                                   "New publish will be refused"
+                                 >>
+                            })}
+    , {batch, sc(ref(limiter_opts),
+                 #{description => <<"The batch limiter.<br>"
+                                    "This is used for EMQX internal batch operation"
+                                    "e.g. limite the retainer's deliver rate"
+                                  >>
+                  })}
     ];
 
 fields(limiter_opts) ->
-    [ {global, sc(ref(rate_burst), #{required => false})}
-    , {zone, sc(map("zone name", ref(rate_burst)), #{required => false})}
-    , {bucket, sc(map("bucket_id", ref(bucket)),
-                  #{desc => "Token bucket"})}
+    [ {rate, sc(rate(), #{default => "infinity", desc => "The rate"})}
+    , {burst, sc(burst_rate(),
+                 #{default => "0/0s",
+                   desc => "The burst, This value is based on rate."
+                   "this value + rate = the maximum limit that can be achieved when limiter burst"
+                  })}
+    , {bucket, sc(map("bucket name", ref(bucket_opts)), #{desc => "Buckets config"})}
     ];
 
-fields(shared_limiter_opts) ->
-    [{bucket, sc(map("bucket_id", ref(bucket)),
-                 #{desc => "Token bucket"})}
-    ];
-
-fields(rate_burst) ->
-    [ {rate, sc(rate(), #{})}
-    , {burst, sc(burst_rate(), #{default => "0/0s"})}
-    ];
-
-fields(bucket) ->
-    [ {zone, sc(atom(), #{desc => "The bucket's zone", default => default})}
-    , {aggregated, sc(ref(bucket_aggregated), #{})}
-    , {per_client, sc(ref(client_bucket), #{})}
-    ];
-
-fields(bucket_aggregated) ->
-    [ {rate, sc(rate(), #{})}
-    , {initial, sc(initial(), #{default => "0"})}
-    , {capacity, sc(capacity(), #{})}
+fields(bucket_opts) ->
+    [ {rate, sc(rate(), #{desc => "The rate for this bucket"})}
+    , {capacity, sc(capacity(), #{desc => "The maximum number of tokens for this bucket"})}
+    , {initial, sc(initial(), #{default => "0",
+                                desc => "The initial number of tokens for this bucket"})}
+    , {per_client, sc(ref(client_bucket),
+                      #{default => #{},
+                        desc => "The rate limit for each user of the bucket,"
+                        "this field is not required"
+                       })}
     ];
 
 fields(client_bucket) ->
-    [ {rate, sc(rate(), #{})}
+    [ {rate, sc(rate(), #{default => "infinity"})}
     , {initial, sc(initial(), #{default => "0"})}
       %% low_water_mark add for emqx_channel and emqx_session
       %% both modules consume first and then check
@@ -113,13 +136,14 @@ fields(client_bucket) ->
                           #{desc => "If the remaining tokens are lower than this value,
 the check/consume will succeed, but it will be forced to wait for a short period of time.",
                             default => "0"})}
-    , {capacity, sc(capacity(), #{desc => "The capacity of the token bucket."})}
+    , {capacity, sc(capacity(), #{desc => "The capacity of the token bucket.",
+                                  default => "infinity"})}
     , {divisible, sc(boolean(),
                      #{desc => "Is it possible to split the number of requested tokens?",
                        default => false})}
     , {max_retry_time, sc(emqx_schema:duration(),
                           #{ desc => "The maximum retry time when acquire failed."
-                           , default => "5s"})}
+                           , default => "10s"})}
     , {failure_strategy, sc(failure_strategy(),
                             #{ desc => "The strategy when all the retries failed."
                              , default => force})}
@@ -131,6 +155,10 @@ minimum_period() ->
 
 to_rate(Str) ->
     to_rate(Str, true, false).
+
+-spec get_bucket_cfg_path(limiter_type(), bucket_name()) -> bucket_path().
+get_bucket_cfg_path(Type, BucketName) ->
+    [limiter, Type, bucket, BucketName].
 
 %%--------------------------------------------------------------------
 %% Internal functions
@@ -145,22 +173,38 @@ to_rate(Str, CanInfinity, CanZero) ->
     case Tokens of
         ["infinity"] when CanInfinity ->
             {ok, infinity};
-        ["0", _] when CanZero ->
-            {ok, 0}; %% for burst
-        [Quota, Interval] ->
-            {ok, Val} = to_capacity(Quota),
-            case emqx_schema:to_duration_ms(Interval) of
-                {ok, Ms} when Ms > 0 ->
-                    {ok, Val * minimum_period() / Ms};
-                _ ->
-                    {error, Str}
-            end;
+        [QuotaStr] -> %% if time unit is 1s, it can be omitted
+            {ok, Val} = to_capacity(QuotaStr),
+            check_capacity(Str, Val, CanZero,
+                           fun(Quota) ->
+                                   {ok, Quota * minimum_period() / ?UNIT_TIME_IN_MS}
+                           end);
+        [QuotaStr, Interval] ->
+            {ok, Val} = to_capacity(QuotaStr),
+            check_capacity(Str, Val, CanZero,
+                           fun(Quota) ->
+                                   case emqx_schema:to_duration_ms(Interval) of
+                                       {ok, Ms} when Ms > 0 ->
+                                           {ok, Quota * minimum_period() / Ms};
+                                       _ ->
+                                           {error, Str}
+                                   end
+                           end);
         _ ->
             {error, Str}
     end.
 
+check_capacity(_Str, 0, true, _Cont) ->
+    {ok, 0};
+
+check_capacity(Str, 0, false, _Cont) ->
+    {error, Str};
+
+check_capacity(_Str, Quota, _CanZero, Cont) ->
+    Cont(Quota).
+
 to_capacity(Str) ->
-    Regex = "^\s*(?:(?:([1-9][0-9]*)([a-zA-z]*))|infinity)\s*$",
+    Regex = "^\s*(?:([0-9]+)([a-zA-z]*))|infinity\s*$",
     to_quota(Str, Regex).
 
 to_initial(Str) ->
@@ -175,9 +219,9 @@ to_quota(Str, Regex) ->
             Val = erlang:list_to_integer(Quota),
             Unit2 = string:to_lower(Unit),
             {ok, apply_unit(Unit2, Val)};
-        {match, [Quota]} ->
+        {match, [Quota, ""]} ->
             {ok, erlang:list_to_integer(Quota)};
-        {match, []} ->
+        {match, ""} ->
             {ok, infinity};
         _ ->
             {error, Str}

@@ -405,16 +405,30 @@ t_handle_timeout_emit_stats(_) ->
     ?assertEqual(undefined, ?ws_conn:info(stats_timer, St)).
 
 t_ensure_rate_limit(_) ->
+    %% XXX In the future, limiter should provide API for config update
+    Path = [limiter, bytes_in, bucket, default, per_client],
+    PerClient = emqx_config:get(Path),
+    {ok, Rate}= emqx_limiter_schema:to_rate("50MB"),
+    emqx_config:put(Path, PerClient#{rate := Rate}),
+    emqx_limiter_server:update_config(bytes_in),
+    timer:sleep(100),
+
     Limiter = init_limiter(),
     St = st(#{limiter => Limiter}),
-    {ok, Need} = emqx_limiter_schema:to_capacity("1GB"), %% must bigger than value in emqx_ratelimit_SUITE
+
+    %% must bigger than value in emqx_ratelimit_SUITE
+    {ok, Need} = emqx_limiter_schema:to_capacity("1GB"),
     St1 = ?ws_conn:check_limiter([{Need, bytes_in}],
                                  [],
                                  fun(_, _, S) -> S end,
                                  [],
                                  St),
     ?assertEqual(blocked, ?ws_conn:info(sockstate, St1)),
-    ?assertEqual([{active, false}], ?ws_conn:info(postponed, St1)).
+    ?assertEqual([{active, false}], ?ws_conn:info(postponed, St1)),
+
+    emqx_config:put(Path, PerClient),
+    emqx_limiter_server:update_config(bytes_in),
+    timer:sleep(100).
 
 t_parse_incoming(_) ->
     {Packets, St} = ?ws_conn:parse_incoming(<<48,3>>, [], st()),
@@ -558,7 +572,7 @@ ws_client(State) ->
         ct:fail(ws_timeout)
     end.
 
-limiter_cfg() -> #{}.
+limiter_cfg() -> #{bytes_in => default, message_in => default}.
 
 init_limiter() ->
     emqx_limiter_container:get_limiter_by_names([bytes_in, message_in], limiter_cfg()).

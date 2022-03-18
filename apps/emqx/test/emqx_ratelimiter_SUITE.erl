@@ -27,59 +27,37 @@
 -define(BASE_CONF, <<"""
 limiter {
   bytes_in {
-    global.rate = infinity
-    zone.default.rate = infinity
     bucket.default {
-      zone = default
-      aggregated.rate = infinity
-      aggregated.capacity = infinity
-      per_client.rate = \"100MB/1s\"
-      per_client.capacity = infinity
+      rate = infinity
+      capacity = infinity
     }
   }
 
   message_in {
-    global.rate = infinity
-    zone.default.rate = infinity
     bucket.default {
-      zone = default
-      aggregated.rate = infinity
-      aggregated.capacity = infinity
-      per_client.rate = infinity
-      per_client.capacity = infinity
+      rate = infinity
+      capacity = infinity
     }
   }
 
   connection {
-    global.rate = infinity
-    zone.default.rate = infinity
     bucket.default {
-      zone = default
-      aggregated.rate = infinity
-      aggregated.capacity = infinity
-      per_client.rate = infinity
-      per_client.capacity = infinity
+      rate = infinity
+      capacity = infinity
     }
   }
 
   message_routing {
-    global.rate = infinity
-    zone.default.rate = infinity
     bucket.default {
-      zone = default
-      aggregated.rate = infinity
-      aggregated.capacity = infinity
-      per_client.rate = infinity
-      per_client.capacity = infinity
+      rate = infinity
+      capacity = infinity
     }
   }
 
-  shared {
+  batch {
     bucket.retainer {
-      aggregated.rate = infinity
-      aggregated.capacity = infinity
-      per_client.rate = infinity
-      per_client.capacity = infinity
+      rate = infinity
+      capacity = infinity
     }
   }
 }
@@ -97,6 +75,7 @@ limiter {
 -define(LOGT(Format, Args), ct:pal("TEST_SUITE: " ++ Format, Args)).
 -define(RATE(Rate), to_rate(Rate)).
 -define(NOW, erlang:system_time(millisecond)).
+-define(CONST(X), fun(_) -> X end).
 
 %%--------------------------------------------------------------------
 %% Setups
@@ -231,12 +210,11 @@ t_low_water_mark(_) ->
     with_per_client(default, Cfg, Case).
 
 t_infinity_client(_) ->
-    Fun = fun(#{aggregated := Aggr, per_client := Cli} = Bucket) ->
-                  Aggr2 = Aggr#{rate := infinity,
-                                capacity := infinity},
+    Fun = fun(#{per_client := Cli} = Bucket) ->
+                  Bucket2 = Bucket#{rate := infinity,
+                                    capacity := infinity},
                   Cli2 = Cli#{rate := infinity, capacity := infinity},
-                  Bucket#{aggregated := Aggr2,
-                          per_client := Cli2}
+                  Bucket2#{per_client := Cli2}
           end,
     Case = fun() ->
                    Client = connect(default),
@@ -247,14 +225,13 @@ t_infinity_client(_) ->
     with_bucket(default, Fun, Case).
 
 t_try_restore_agg(_) ->
-    Fun = fun(#{aggregated := Aggr, per_client := Cli} = Bucket) ->
-                  Aggr2 = Aggr#{rate := 1,
-                                capacity := 200,
-                                initial := 50},
+    Fun = fun(#{per_client := Cli} = Bucket) ->
+                  Bucket2 = Bucket#{rate := 1,
+                                    capacity := 200,
+                                    initial := 50},
                   Cli2 = Cli#{rate := infinity, capacity := infinity, divisible := true,
                               max_retry_time := 100, failure_strategy := force},
-                  Bucket#{aggregated := Aggr2,
-                          per_client := Cli2}
+                  Bucket2#{per_client := Cli2}
           end,
     Case = fun() ->
                    Client = connect(default),
@@ -267,15 +244,14 @@ t_try_restore_agg(_) ->
     with_bucket(default, Fun, Case).
 
 t_short_board(_) ->
-    Fun = fun(#{aggregated := Aggr, per_client := Cli} = Bucket) ->
-                  Aggr2 = Aggr#{rate := ?RATE("100/1s"),
-                                initial := 0,
-                                capacity := 100},
+    Fun = fun(#{per_client := Cli} = Bucket) ->
+                  Bucket2 = Bucket#{rate := ?RATE("100/1s"),
+                                    initial := 0,
+                                    capacity := 100},
                   Cli2 = Cli#{rate := ?RATE("600/1s"),
                               capacity := 600,
                               initial := 600},
-                  Bucket#{aggregated := Aggr2,
-                          per_client := Cli2}
+                  Bucket2#{per_client := Cli2}
           end,
     Case = fun() ->
                    Counter = counters:new(1, []),
@@ -286,15 +262,14 @@ t_short_board(_) ->
     with_bucket(default, Fun, Case).
 
 t_rate(_) ->
-    Fun = fun(#{aggregated := Aggr, per_client := Cli} = Bucket) ->
-              Aggr2 = Aggr#{rate := ?RATE("100/100ms"),
-                            initial := 0,
-                            capacity := infinity},
+    Fun = fun(#{per_client := Cli} = Bucket) ->
+              Bucket2 = Bucket#{rate := ?RATE("100/100ms"),
+                                initial := 0,
+                                capacity := infinity},
               Cli2 = Cli#{rate := infinity,
                           capacity := infinity,
                           initial := 0},
-              Bucket#{aggregated := Aggr2,
-                      per_client := Cli2}
+              Bucket2#{per_client := Cli2}
       end,
     Case = fun() ->
                Client = connect(default),
@@ -311,77 +286,45 @@ t_rate(_) ->
 
 t_capacity(_) ->
     Capacity = 600,
-    Fun = fun(#{aggregated := Aggr, per_client := Cli} = Bucket) ->
-              Aggr2 = Aggr#{rate := ?RATE("100/100ms"),
-                            initial := 0,
-                            capacity := 600},
-              Cli2 = Cli#{rate := infinity,
-                          capacity := infinity,
-                          initial := 0},
-              Bucket#{aggregated := Aggr2,
-                      per_client := Cli2}
+    Fun = fun(#{per_client := Cli} = Bucket) ->
+              Bucket2 = Bucket#{rate := ?RATE("100/100ms"),
+                                initial := 0,
+                                capacity := 600},
+                  Cli2 = Cli#{rate := infinity,
+                              capacity := infinity,
+                              initial := 0},
+                  Bucket2#{per_client := Cli2}
           end,
     Case = fun() ->
-               Client = connect(default),
-               timer:sleep(1000),
+                   Client = connect(default),
+                   timer:sleep(1000),
                    C1 = emqx_htb_limiter:available(Client),
                    ?assertEqual(Capacity, C1, "test bucket capacity")
            end,
     with_bucket(default, Fun, Case).
 
 %%--------------------------------------------------------------------
-%% Test Cases Zone Level
-%%--------------------------------------------------------------------
-t_limit_zone_with_unlimit_bucket(_) ->
-    ZoneMod = fun(Cfg) ->
-                  Cfg#{rate := ?RATE("600/1s"),
-                       burst := ?RATE("60/1s")}
-              end,
-
-    Bucket = fun(#{aggregated := Aggr, per_client := Cli} = Bucket) ->
-                 Aggr2 = Aggr#{rate := infinity,
-                               initial := 0,
-                               capacity := infinity},
-                 Cli2 = Cli#{rate := infinity,
-                             initial := 0,
-                             capacity := infinity,
-                             divisible := true},
-                 Bucket#{aggregated := Aggr2, per_client := Cli2}
-             end,
-
-    Case = fun() ->
-               C1 = counters:new(1, []),
-               start_client(b1, ?NOW + 2000, C1, 20),
-               timer:sleep(2100),
-               check_average_rate(C1, 2, 600)
-           end,
-
-    with_zone(default, ZoneMod, [{b1, Bucket}], Case).
-
-
-%%--------------------------------------------------------------------
 %% Test Cases Global Level
 %%--------------------------------------------------------------------
-t_burst_and_fairness(_) ->
+t_collaborative_alloc(_) ->
     GlobalMod = fun(Cfg) ->
-                    Cfg#{burst := ?RATE("60/1s")}
+                        Cfg#{rate := ?RATE("600/1s")}
                 end,
 
-    ZoneMod = fun(Cfg) ->
-                  Cfg#{rate := ?RATE("600/1s"),
-                       burst := ?RATE("60/1s")}
-              end,
-
-    Bucket = fun(#{aggregated := Aggr, per_client := Cli} = Bucket) ->
-                     Aggr2 = Aggr#{rate := ?RATE("500/1s"),
-                                   initial := 0,
-                                   capacity := 500},
-                     Cli2 = Cli#{rate := ?RATE("600/1s"),
-                                 capacity := 600,
-                                 initial := 600},
-                     Bucket#{aggregated := Aggr2,
-                             per_client := Cli2}
+    Bucket1 = fun(#{per_client := Cli} = Bucket) ->
+                      Bucket2 = Bucket#{rate := ?RATE("400/1s"),
+                                        initial := 0,
+                                        capacity := 600},
+                      Cli2 = Cli#{rate := ?RATE("50"),
+                                  capacity := 100,
+                                  initial := 100},
+                      Bucket2#{per_client := Cli2}
              end,
+
+    Bucket2 = fun(Bucket) ->
+                      Bucket2 = Bucket1(Bucket),
+                      Bucket2#{rate := ?RATE("200/1s")}
+              end,
 
     Case = fun() ->
                    C1 = counters:new(1, []),
@@ -389,35 +332,28 @@ t_burst_and_fairness(_) ->
                    start_client(b1, ?NOW + 2000, C1, 20),
                    start_client(b2, ?NOW + 2000, C2, 30),
                    timer:sleep(2100),
-                   check_average_rate(C1, 2, 330),
-                   check_average_rate(C2, 2, 330)
+                   check_average_rate(C1, 2, 300),
+                   check_average_rate(C2, 2, 300)
            end,
 
     with_global(GlobalMod,
-                default,
-                ZoneMod,
-                [{b1, Bucket}, {b2, Bucket}],
+                [{b1, Bucket1}, {b2, Bucket2}],
                 Case).
 
 t_burst(_) ->
     GlobalMod = fun(Cfg) ->
-                        Cfg#{burst := ?RATE("60/1s")}
+                        Cfg#{rate := ?RATE("200/1s"),
+                             burst := ?RATE("400/1s")}
                 end,
 
-    ZoneMod = fun(Cfg) ->
-                      Cfg#{rate := ?RATE("60/1s"),
-                           burst := ?RATE("60/1s")}
-              end,
-
-    Bucket = fun(#{aggregated := Aggr, per_client := Cli} = Bucket) ->
-                     Aggr2 = Aggr#{rate := ?RATE("500/1s"),
-                                   initial := 0,
-                                   capacity := 500},
-                     Cli2 = Cli#{rate := ?RATE("600/1s"),
-                                 capacity := 600,
+    Bucket = fun(#{per_client := Cli} = Bucket) ->
+                     Bucket2 = Bucket#{rate := ?RATE("200/1s"),
+                                       initial := 0,
+                                       capacity := 200},
+                     Cli2 = Cli#{rate := ?RATE("50/1s"),
+                                 capacity := 200,
                                  divisible := true},
-                     Bucket#{aggregated := Aggr2,
-                             per_client := Cli2}
+                     Bucket2#{per_client := Cli2}
              end,
 
     Case = fun() ->
@@ -430,178 +366,37 @@ t_burst(_) ->
                    timer:sleep(2100),
 
                    Total = lists:sum([counters:get(X, 1) || X <- [C1, C2, C3]]),
-                   in_range(Total / 2, 30)
+                   in_range(Total / 2, 300)
            end,
 
     with_global(GlobalMod,
-                default,
-                ZoneMod,
                 [{b1, Bucket}, {b2, Bucket}, {b3, Bucket}],
                 Case).
-
 
 t_limit_global_with_unlimit_other(_) ->
     GlobalMod = fun(Cfg) ->
                         Cfg#{rate := ?RATE("600/1s")}
                 end,
 
-    ZoneMod = fun(Cfg) -> Cfg#{rate := infinity} end,
-
-    Bucket = fun(#{aggregated := Aggr, per_client := Cli} = Bucket) ->
-                 Aggr2 = Aggr#{rate := infinity,
-                               initial := 0,
-                               capacity := infinity},
-                 Cli2 = Cli#{rate := infinity,
-                             capacity := infinity,
-                             initial := 0},
-                 Bucket#{aggregated := Aggr2,
-                         per_client := Cli2}
+    Bucket = fun(#{per_client := Cli} = Bucket) ->
+                     Bucket2 = Bucket#{rate := infinity,
+                                       initial := 0,
+                                       capacity := infinity},
+                     Cli2 = Cli#{rate := infinity,
+                                 capacity := infinity,
+                                 initial := 0},
+                     Bucket2#{per_client := Cli2}
              end,
 
     Case = fun() ->
-               C1 = counters:new(1, []),
-               start_client(b1, ?NOW + 2000, C1, 20),
-               timer:sleep(2100),
-               check_average_rate(C1, 2, 600)
+                   C1 = counters:new(1, []),
+                   start_client(b1, ?NOW + 2000, C1, 20),
+                   timer:sleep(2100),
+                   check_average_rate(C1, 2, 600)
            end,
 
     with_global(GlobalMod,
-                default,
-                ZoneMod,
                 [{b1, Bucket}],
-                Case).
-
-t_multi_zones(_) ->
-    GlobalMod = fun(Cfg) ->
-                    Cfg#{rate := ?RATE("600/1s")}
-                end,
-
-    Zone1 = fun(Cfg) ->
-                Cfg#{rate := ?RATE("400/1s")}
-            end,
-
-    Zone2 = fun(Cfg) ->
-                Cfg#{rate := ?RATE("500/1s")}
-            end,
-
-    Bucket = fun(Zone, Rate) ->
-                 fun(#{aggregated := Aggr, per_client := Cli} = Bucket) ->
-                     Aggr2 = Aggr#{rate := infinity,
-                                   initial := 0,
-                                   capacity := infinity},
-                     Cli2 = Cli#{rate := Rate,
-                                 capacity := infinity,
-                                 initial := 0},
-                     Bucket#{aggregated := Aggr2,
-                             per_client := Cli2,
-                             zone := Zone}
-                 end
-             end,
-
-    Case = fun() ->
-               C1 = counters:new(1, []),
-               C2 = counters:new(1, []),
-               start_client(b1, ?NOW + 2000, C1, 25),
-               start_client(b2, ?NOW + 2000, C2, 20),
-               timer:sleep(2100),
-               check_average_rate(C1, 2, 300),
-               check_average_rate(C2, 2, 300)
-           end,
-
-    with_global(GlobalMod,
-                [z1, z2],
-                [Zone1, Zone2],
-                [{b1, Bucket(z1, ?RATE("400/1s"))}, {b2, Bucket(z2, ?RATE("500/1s"))}],
-                Case).
-
-%% because the simulated client will try to reach the maximum rate
-%% when divisiable = true, a large number of divided tokens will be generated
-%% so this is not an accurate test
-t_multi_zones_with_divisible(_) ->
-    GlobalMod = fun(Cfg) ->
-                    Cfg#{rate := ?RATE("600/1s")}
-                end,
-
-    Zone1 = fun(Cfg) ->
-                Cfg#{rate := ?RATE("400/1s")}
-            end,
-
-    Zone2 = fun(Cfg) ->
-                Cfg#{rate := ?RATE("500/1s")}
-            end,
-
-    Bucket = fun(Zone, Rate) ->
-                 fun(#{aggregated := Aggr, per_client := Cli} = Bucket) ->
-                     Aggr2 = Aggr#{rate := Rate,
-                                   initial := 0,
-                                   capacity := infinity},
-                     Cli2 = Cli#{rate := Rate,
-                                 divisible := true,
-                                 capacity := infinity,
-                                 initial := 0},
-                     Bucket#{aggregated := Aggr2,
-                             per_client := Cli2,
-                             zone := Zone}
-                 end
-             end,
-
-    Case = fun() ->
-               C1 = counters:new(1, []),
-               C2 = counters:new(1, []),
-               start_client(b1, ?NOW + 2000, C1, 25),
-               start_client(b2, ?NOW + 2000, C2, 20),
-               timer:sleep(2100),
-               check_average_rate(C1, 2, 300),
-               check_average_rate(C2, 2, 300)
-           end,
-
-    with_global(GlobalMod,
-                [z1, z2],
-                [Zone1, Zone2],
-                [{b1, Bucket(z1, ?RATE("400/1s"))}, {b2, Bucket(z2, ?RATE("500/1s"))}],
-                Case).
-
-t_zone_hunger_and_fair(_) ->
-    GlobalMod = fun(Cfg) ->
-                    Cfg#{rate := ?RATE("600/1s")}
-                end,
-
-    Zone1 = fun(Cfg) ->
-                Cfg#{rate := ?RATE("600/1s")}
-            end,
-
-    Zone2 = fun(Cfg) ->
-                Cfg#{rate := ?RATE("50/1s")}
-            end,
-
-    Bucket = fun(Zone, Rate) ->
-                 fun(#{aggregated := Aggr, per_client := Cli} = Bucket) ->
-                     Aggr2 = Aggr#{rate := infinity,
-                                   initial := 0,
-                                   capacity := infinity},
-                     Cli2 = Cli#{rate := Rate,
-                                 capacity := infinity,
-                                 initial := 0},
-                     Bucket#{aggregated := Aggr2,
-                             per_client := Cli2,
-                             zone := Zone}
-                 end
-             end,
-
-    Case = fun() ->
-               C1 = counters:new(1, []),
-               C2 = counters:new(1, []),
-               start_client(b1, ?NOW + 2000, C1, 20),
-               start_client(b2, ?NOW + 2000, C2, 20),
-               timer:sleep(2100),
-               check_average_rate(C1, 2, 550),
-               check_average_rate(C2, 2, 50)
-           end,
-
-    with_global(GlobalMod,
-                [z1, z2],
-                [Zone1, Zone2],
-                [{b1, Bucket(z1, ?RATE("600/1s"))}, {b2, Bucket(z2, ?RATE("50/1s"))}],
                 Case).
 
 %%--------------------------------------------------------------------
@@ -626,7 +421,8 @@ t_check_container(_) ->
                        capacity := 1000}
           end,
     Case = fun() ->
-                   C1 = emqx_limiter_container:new([message_routing]),
+                   C1 = emqx_limiter_container:new([message_routing],
+                                                   #{message_routing => default}),
                    {ok, C2} = emqx_limiter_container:check(1000, message_routing, C1),
                    {pause, Pause, C3} = emqx_limiter_container:check(1000, message_routing, C2),
                    timer:sleep(Pause),
@@ -663,9 +459,7 @@ t_limiter_server(_) ->
     ?assertMatch(#{root := _,
                    counter := _,
                    index := _,
-                   zones := _,
                    buckets := _,
-                   nodes := _,
                    type := message_routing}, State),
 
     Name = emqx_limiter_server:name(message_routing),
@@ -673,6 +467,32 @@ t_limiter_server(_) ->
     ok = gen_server:cast(Name, unexpected_cast),
     erlang:send(erlang:whereis(Name), unexpected_info),
     ok = emqx_limiter_server:format_status(normal, ok),
+    ok.
+
+t_decimal(_) ->
+    ?assertEqual(infinity, emqx_limiter_decimal:add(infinity, 3)),
+    ?assertEqual(5, emqx_limiter_decimal:add(2, 3)),
+    ?assertEqual(infinity, emqx_limiter_decimal:sub(infinity, 3)),
+    ?assertEqual(-1, emqx_limiter_decimal:sub(2, 3)),
+    ?assertEqual(infinity, emqx_limiter_decimal:mul(infinity, 3)),
+    ?assertEqual(6, emqx_limiter_decimal:mul(2, 3)),
+    ?assertEqual(infinity, emqx_limiter_decimal:floor_div(infinity, 3)),
+    ?assertEqual(2, emqx_limiter_decimal:floor_div(7, 3)),
+    ok.
+
+t_schema_unit(_) ->
+    M = emqx_limiter_schema,
+    ?assertEqual(limiter, M:namespace()),
+    ?assertEqual({ok, infinity}, M:to_rate(" infinity ")),
+    ?assertMatch({ok, _}, M:to_rate("100")),
+    ?assertMatch({error, _}, M:to_rate("0")),
+    ?assertMatch({ok, _}, M:to_rate("100/10s")),
+    ?assertMatch({error, _}, M:to_rate("100/10x")),
+    ?assertEqual({ok, infinity}, M:to_capacity("infinity")),
+    ?assertEqual({ok, 100}, M:to_capacity("100")),
+    ?assertEqual({ok, 100 * 1024}, M:to_capacity("100KB")),
+    ?assertEqual({ok, 100 * 1024 * 1024}, M:to_capacity("100MB")),
+    ?assertEqual({ok, 100 * 1024 * 1024 * 1024}, M:to_capacity("100GB")),
     ok.
 
 %%--------------------------------------------------------------------
@@ -752,7 +572,6 @@ client_try_check(Need, #client{counter = Counter,
             end
     end.
 
-
 %% XXX not a god test, because client's rate maybe bigger than global rate
 %% so if client' rate = infinity
 %% client's divisible should be true or capacity must be bigger than number of each consume
@@ -769,25 +588,17 @@ to_rate(Str) ->
     {ok, Rate} = emqx_limiter_schema:to_rate(Str),
     Rate.
 
-with_global(Modifier, ZoneName, ZoneModifier, Buckets, Case) ->
-    Path = [limiter, message_routing],
-    #{global := Global} = Cfg = emqx_config:get(Path),
-    Cfg2 = Cfg#{global := Modifier(Global)},
-    with_zone(Cfg2, ZoneName, ZoneModifier, Buckets, Case).
+with_global(Modifier, BuckeTemps, Case) ->
+    Fun = fun(Cfg) ->
+                  #{bucket := #{default := BucketCfg}} = Cfg2 = Modifier(Cfg),
+                  Fun = fun({Name, BMod}, Acc) ->
+                                Acc#{Name => BMod(BucketCfg)}
+                        end,
+                  Buckets = lists:foldl(Fun, #{}, BuckeTemps),
+                  Cfg2#{bucket := Buckets}
+          end,
 
-with_zone(Name, Modifier, Buckets, Case) ->
-    Path = [limiter, message_routing],
-    Cfg = emqx_config:get(Path),
-    with_zone(Cfg, Name, Modifier, Buckets, Case).
-
-with_zone(Cfg, Name, Modifier, Buckets, Case) ->
-    Path = [limiter, message_routing],
-    #{zone := ZoneCfgs,
-      bucket := BucketCfgs} = Cfg,
-    ZoneCfgs2 = apply_modifier(Name, Modifier, ZoneCfgs),
-    BucketCfgs2 = apply_modifier(Buckets, BucketCfgs),
-    Cfg2 = Cfg#{zone := ZoneCfgs2, bucket := BucketCfgs2},
-    with_config(Path, fun(_) -> Cfg2 end, Case).
+    with_config([limiter, message_routing], Fun, Case).
 
 with_bucket(Bucket, Modifier, Case) ->
     Path = [limiter, message_routing, bucket, Bucket],
@@ -802,8 +613,8 @@ with_config(Path, Modifier, Case) ->
     NewCfg = Modifier(Cfg),
     ct:pal("test with config:~p~n", [NewCfg]),
     emqx_config:put(Path, NewCfg),
-    emqx_limiter_manager:restart_server(message_routing),
-    timer:sleep(100),
+    emqx_limiter_server:update_config(message_routing),
+    timer:sleep(500),
     DelayReturn = delay_return(Case),
     emqx_config:put(Path, Cfg),
     DelayReturn().

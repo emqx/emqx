@@ -36,7 +36,7 @@ retainer {
     flow_control {
         batch_read_number = 0
         batch_deliver_number = 0
-        limiter_bucket_name = retainer
+        batch_deliver_limiter = retainer
      }
    backend {
         type = built_in_database
@@ -281,12 +281,11 @@ t_stop_publish_clear_msg(_) ->
     ok = emqtt:disconnect(C1).
 
 t_flow_control(_) ->
-    #{per_client := PerClient} = RetainerCfg = emqx_config:get([limiter, shared, bucket, retainer]),
-    RetainerCfg2 = RetainerCfg#{
-                     per_client := PerClient#{
-                                     rate := emqx_ratelimiter_SUITE:to_rate("1/1s"),
-                                     capacity := 1}},
-    emqx_config:put([limiter, shared, bucket, retainer], RetainerCfg2),
+    #{per_client := PerClient} = RetainerCfg = emqx_config:get([limiter, batch, bucket, retainer]),
+    RetainerCfg2 = RetainerCfg#{per_client :=
+                                    PerClient#{rate := emqx_ratelimiter_SUITE:to_rate("1/1s"),
+                                               capacity := 1}},
+    emqx_config:put([limiter, batch, bucket, retainer], RetainerCfg2),
     emqx_limiter_manager:restart_server(shared),
     timer:sleep(500),
 
@@ -296,7 +295,7 @@ t_flow_control(_) ->
     emqx_retainer:update_config(#{<<"flow_control">> =>
                                       #{<<"batch_read_number">> => 1,
                                         <<"batch_deliver_number">> => 1,
-                                        <<"limiter_bucket_name">> => retainer}}),
+                                        <<"batch_deliver_limiter">> => retainer}}),
     {ok, C1} = emqtt:start_link([{clean_start, true}, {proto_ver, v5}]),
     {ok, _} = emqtt:connect(C1),
     emqtt:publish(
@@ -326,7 +325,7 @@ t_flow_control(_) ->
     ok = emqtt:disconnect(C1),
 
     %% recover the limiter
-    emqx_config:put([limiter, shared, bucket, retainer], RetainerCfg),
+    emqx_config:put([limiter, batch, bucket, retainer], RetainerCfg),
     emqx_limiter_manager:restart_server(shared),
     timer:sleep(500),
 
