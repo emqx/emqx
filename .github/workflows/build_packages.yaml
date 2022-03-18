@@ -442,21 +442,26 @@ jobs:
         context: source
 
     - uses: aws-actions/configure-aws-credentials@v1
-      if: matrix.profile == 'emqx'
+      if: matrix.profile == 'emqx' && matrix.arch == 'amd64'
       with:
         aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
         aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
         aws-region: ${{ secrets.AWS_DEFAULT_REGION }}
+
+    - name: Login to Amazon ECR
+      if: matrix.profile == 'emqx' && matrix.arch == 'amd64'
+      id: login-ecr
+      uses: aws-actions/amazon-ecr-login@v1
+      with:
+        registries: "public.ecr.aws"
+
     - name: Docker push to aws ecr
-      if: >
-        ${{ (github.event_name == 'release' && !github.event.release.prerelease && matrix.profile == 'emqx')
-        || (github.event.repository.owner != 'emqx' && startsWith(github.ref_name, 'ci/')) }}
+      if: matrix.profile == 'emqx' && matrix.arch == 'amd64' && startsWith(github.ref, 'refs/tags/')
       run: |
-        aws ecr-public get-login-password --region us-east-1 | docker login --username AWS --password-stdin public.ecr.aws
         for tag in $(echo ${{ steps.meta.outputs.json }} | jq  -c '.tags[]'); do
           docker pull "$tag"
-          docker tag "$tag" "public.ecr.aws/$tag"
-          docker push "public.ecr.aws/$tag"
+          docker tag "$tag" "${{ steps.login-ecr.outputs.registry }}/$tag"
+          docker push "${{ steps.login-ecr.outputs.registry }}/$tag"
         done
 
   docker-push-multi-arch-manifest:
@@ -568,12 +573,19 @@ jobs:
           aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
           aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
           aws-region: ${{ secrets.AWS_DEFAULT_REGION }}
-      - name: Docker push to aws ecr
+
+      - name: Login to Amazon ECR
         if: matrix.profile == 'emqx' && matrix.arch == 'amd64'
+        id: login-ecr
+        uses: aws-actions/amazon-ecr-login@v1
+        with:
+          registries: "public.ecr.aws"
+
+      - name: Docker push to aws ecr
+        if: matrix.profile == 'emqx' && matrix.arch == 'amd64' && startsWith(github.ref, 'refs/tags/')
         run: |
-          aws ecr-public get-login-password --region us-east-1 | docker login --username AWS --password-stdin public.ecr.aws
           IsPushLatest=${{ github.event_name == 'release' && !github.event.release.prerelease }};
-          scripts/docker-create-push-manifests.sh "public.ecr.aws/${{ steps.meta.outputs.tags }}" "$IsPushLatest"
+          scripts/docker-create-push-manifests.sh "${{ steps.login-ecr.outputs.registry }}/${{ steps.meta.outputs.tags }}" "$IsPushLatest"
 
   upload:
     runs-on: ubuntu-20.04
