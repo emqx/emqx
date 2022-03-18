@@ -31,14 +31,12 @@ remove_handler() ->
     ok = emqx_config_handler:remove_handler(?LOG),
     ok.
 
-post_config_update(?LOG, _Req, NewConf, _OldConf, _AppEnvs) ->
-    NewLog = #{log => NewConf},
-    [{"logger_level", LevelFunc}, {"logger", LoggerFunc}] =
-        emqx_conf_schema:translation("kernel"),
-    NewHandlers = LoggerFunc(NewLog),
-    Level = LevelFunc(NewLog),
+post_config_update(?LOG, _Req, _NewConf, _OldConf, AppEnvs) ->
+    Kernel = proplists:get_value(kernel, AppEnvs),
+    NewHandlers = proplists:get_value(logger, Kernel, []),
+    Level = proplists:get_value(logger_level, Kernel, warning),
     ok = update_log_handlers(NewHandlers),
-    ok = logger:set_primary_config(level, Level),
+    ok = emqx_logger:set_primary_log_level(Level),
     application:set_env(kernel, logger_level, Level),
     ok;
 post_config_update(_ConfPath, _Req, _NewConf, _OldConf, _AppEnvs) ->

@@ -75,17 +75,20 @@ roots() ->
        sc(ref("node"),
           #{ desc => "Node name, cookie, config & data directories "
                      "and the Erlang virtual machine (BEAM) boot parameters."
+           , translate_to => ["emqx"]
            })}
     , {"cluster",
        sc(ref("cluster"),
           #{ desc => "EMQX nodes can form a cluster to scale up the total capacity.<br>"
                      "Here holds the configs to instruct how individual nodes "
                      "can discover each other."
+            , translate_to => ["ekka"]
            })}
     , {"log",
        sc(ref("log"),
           #{ desc => "Configure logging backends (to console or to file), "
                      "and logging level for each logger backend."
+           , translate_to => ["kernel"]
            })}
     , {"rpc",
        sc(ref("rpc"),
@@ -93,6 +96,7 @@ roots() ->
                      "inter-broker communication.<br/>Most of the time the default config "
                      "should work, but in case you need to do performance "
                      "fine-turning or experiment a bit, this is where to look."
+           , translate_to => ["gen_rpc"]
            })}
     , {"db",
        sc(ref("db"),
@@ -737,6 +741,7 @@ tr_cluster_discovery(Conf) ->
     Strategy = conf_get("cluster.discovery_strategy", Conf),
     {Strategy, filter(options(Strategy, Conf))}.
 
+-spec tr_logger_level(hocon:config()) -> logger:level().
 tr_logger_level(Conf) ->
     ConsoleLevel = conf_get("log.console_handler.level", Conf, undefined),
     FileLevels = [conf_get("level", SubConf) || {_, SubConf}

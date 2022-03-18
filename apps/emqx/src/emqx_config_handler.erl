@@ -396,14 +396,29 @@ assert_callback_function(Mod) ->
     end,
     ok.
 
+-spec schema(module(), emqx_map_lib:config_key_path()) -> hocon_schema:schema().
 schema(SchemaModule, [RootKey | _]) ->
     Roots = hocon_schema:roots(SchemaModule),
-    Field =
+    {Field, Translations} =
         case lists:keyfind(bin(RootKey), 1, Roots) of
             {_, {Ref, ?REF(Ref)}} -> {Ref, ?R_REF(SchemaModule, Ref)};
-            {_, Field0} -> Field0
+            {_, {Name, Field0}} ->
+                case maps:take(translate_to, Field0) of
+                    {TRs, Field1} ->
+                        {
+                            {Name, Field1},
+                            lists:foldl(fun(T, Acc) ->
+                                Acc#{T => hocon_schema:translation(SchemaModule, T)}
+                                      end, #{}, TRs)
+                        };
+                    error -> {{Name, Field0}, #{}}
+                end
         end,
-    #{roots => [Field]}.
+    #{
+        roots => [Field],
+        translations => Translations,
+        validations => hocon_schema:validations(SchemaModule)
+    }.
 
 load_prev_handlers() ->
     Handlers = application:get_env(emqx, ?MODULE, #{}),

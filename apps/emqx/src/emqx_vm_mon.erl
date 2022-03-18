@@ -45,7 +45,7 @@ start_link() ->
 %%--------------------------------------------------------------------
 
 init([]) ->
-    start_check_timer(),
+    _ = start_check_timer(),
     {ok, #{}}.
 
 handle_call(Req, _From, State) ->
@@ -82,7 +82,7 @@ handle_info({timeout, _Timer, check}, State) ->
         _Precent ->
             ok
     end,
-    start_check_timer(),
+    _ = start_check_timer(),
     {noreply, State};
 
 handle_info(Info, State) ->
