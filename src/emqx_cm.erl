@@ -242,7 +242,8 @@ open_session(false, ClientInfo = #{clientid := ClientId}, ConnInfo) ->
                               {ok, #{session => Session, present => false}}
                           end,
                       case takeover_session(ClientId) of
-                          {ok, ConnMod, ChanPid, Session} ->
+                          {ok, ConnMod, ChanPid, Session0} ->
+                              Session = emqx_session:upgrade(ClientInfo, Session0),
                               ok = emqx_session:resume(ClientInfo, Session),
                               case request_stepdown({takeover, 'end'}, ConnMod, ChanPid) of
                                   {ok, Pendings} ->
@@ -289,7 +290,7 @@ takeover_session(ClientId, ChanPid) when node(ChanPid) == node() ->
         ConnMod when is_atom(ConnMod) ->
             case request_stepdown({takeover, 'begin'}, ConnMod, ChanPid) of
                 {ok, Session} ->
-                    {ok, ConnMod, ChanPid, Session};
+                    {ok, ConnMod, ChanPid, emqx_session:downgrade(Session)};
                 {error, Reason} ->
                     {error, Reason}
             end

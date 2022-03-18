@@ -83,6 +83,8 @@
 -export([ takeover/1
         , resume/2
         , replay/2
+        , upgrade/2
+        , downgrade/1
         ]).
 
 -export([expire/2]).
@@ -195,6 +197,16 @@ init_mqueue(Zone) ->
                        priorities => get_env(Zone, mqueue_priorities, none),
                        default_priority => get_env(Zone, mqueue_default_priority, lowest)
                       }).
+
+%% @doc uprade from 4.3
+upgrade(CInfo, S) ->
+    [session | Fields] = tuple_to_list(S),
+    #session{} = list_to_tuple([session, ?GET_CLIENT_ID(CInfo) | Fields] ++ [#{}]).
+
+%% @doc Downgrade to 4.3
+downgrade(#session{} = S) ->
+    [session, _ClientID | Fields] = tuple_to_list(S),
+    list_to_tuple([session | lists:reverse(tl(lists:reverse(Fields)))]).
 
 %%--------------------------------------------------------------------
 %% Info, Stats
