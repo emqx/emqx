@@ -16,6 +16,7 @@
 
 -module(emqx_authn_schema).
 
+-elvis([{elvis_style, invalid_dynamic_call, disable}]).
 -include_lib("typerefl/include/types.hrl").
 -import(hoconsc, [mk/2, ref/2]).
 
