@@ -97,34 +97,36 @@ t_log(_Config) ->
     ?assertEqual({error, {not_found, new}}, logger:get_handler_config(new)),
     ok.
 
-t_zones(_Config) ->
-    {ok, Zones} = get_zones(),
+t_global_zone(_Config) ->
+    {ok, Zones} = get_global_zone(),
     ZonesKeys = lists:map(fun({K, _}) -> K end, hocon_schema:roots(emqx_zone_schema)),
     ?assertEqual(lists:usort(ZonesKeys), lists:usort(maps:keys(Zones))),
     ?assertEqual(emqx_config:get_zone_conf(no_default, [mqtt, max_qos_allowed]),
         emqx_map_lib:deep_get([<<"mqtt">>, <<"max_qos_allowed">>], Zones)),
     NewZones = emqx_map_lib:deep_put([<<"mqtt">>, <<"max_qos_allowed">>], Zones, 1),
-    {ok, #{}} = update_zones(NewZones),
+    {ok, #{}} = update_global_zone(NewZones),
     ?assertEqual(1, emqx_config:get_zone_conf(no_default, [mqtt, max_qos_allowed])),
 
     BadZones = emqx_map_lib:deep_put([<<"mqtt">>, <<"max_qos_allowed">>], Zones, 3),
-    ?assertMatch({error, {"HTTP/1.1", 400, _}}, update_zones(BadZones)),
+    ?assertMatch({error, {"HTTP/1.1", 400, _}}, update_global_zone(BadZones)),
     ok.
 
-get_zones() ->
-    Path = emqx_mgmt_api_test_util:api_path(["configs", "global_zone"]),
-    case emqx_mgmt_api_test_util:request_api(get, Path) of
-        {ok, Res} -> {ok, emqx_json:decode(Res, [return_maps])};
-        Error -> Error
-    end.
+get_global_zone() ->
+    get_config("global_zone").
 
-update_zones(Change) ->
-    AuthHeader = emqx_mgmt_api_test_util:auth_header_(),
-    UpdatePath = emqx_mgmt_api_test_util:api_path(["configs", "global_zone"]),
-    case emqx_mgmt_api_test_util:request_api(put, UpdatePath, "", AuthHeader, Change) of
-        {ok, Update} -> {ok, emqx_json:decode(Update, [return_maps])};
-        Error -> Error
-    end.
+update_global_zone(Change) ->
+    update_config("global_zone", Change).
+
+t_zones(_Config) ->
+    {ok, Zones} = get_config("zones"),
+    {ok, #{<<"mqtt">> := OldMqtt} = Zone1} = get_global_zone(),
+    {ok, #{}} = update_config("zones", Zones#{<<"new_zone">> => Zone1}),
+    NewMqtt = emqx_config:get_raw([zones, new_zone, mqtt]),
+    ?assertEqual(OldMqtt, NewMqtt),
+    %% delete the new zones
+    {ok, #{}} = update_config("zones", Zones),
+    ?assertEqual(undefined, emqx_config:get_raw([new_zone, mqtt], undefined)),
+    ok.
 
 get_config(Name) ->
     Path = emqx_mgmt_api_test_util:api_path(["configs", Name]),
