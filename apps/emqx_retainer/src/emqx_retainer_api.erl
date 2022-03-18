@@ -44,7 +44,7 @@ paths() ->
     [?PREFIX, ?PREFIX ++ "/messages", ?PREFIX ++ "/message/:topic"].
 
 schema(?PREFIX) ->
-    #{operationId => config,
+    #{'operationId' => config,
       get => #{tags => ?TAGS,
                description => <<"Get retainer config">>,
                responses => #{200 => mk(conf_schema(), #{desc => "The config content"}),
@@ -61,7 +61,7 @@ schema(?PREFIX) ->
      };
 
 schema(?PREFIX ++ "/messages") ->
-    #{operationId => lookup_retained_warp,
+    #{'operationId' => lookup_retained_warp,
       get => #{tags => ?TAGS,
                description => <<"List retained messages">>,
                parameters => page_params(),
@@ -72,7 +72,7 @@ schema(?PREFIX ++ "/messages") ->
         };
 
 schema(?PREFIX ++ "/message/:topic") ->
-    #{operationId => with_topic_warp,
+    #{'operationId' => with_topic_warp,
       get => #{tags => ?TAGS,
                description => <<"Lookup a message by a topic without wildcards">>,
                parameters => parameters(),
