@@ -38,7 +38,9 @@ PREV_TAG="$(git describe --tag --match "${TAG_PREFIX}*" | grep -oE "${TAG_PREFIX
 PREV_VERSION="${PREV_TAG#[e|v]}"
 
 shift 1
-ESCRIPT_ARGS=()
+# bash 3.2 treat empty array as unbound, so we can't use 'ESCRIPT_ARGS=()' here,
+# but must add an empty-string element to the array
+ESCRIPT_ARGS=( '' )
 while [ "$#" -gt 0 ]; do
     case $1 in
     -h|--help)
@@ -103,12 +105,15 @@ if [ ! -d "${PREV_TAG}"  ]; then
 fi
 popd
 
+# bash 3.2 does not allow empty array, so we had to add an empty string in the ESCRIPT_ARGS array,
+# this in turn makes quoting "${ESCRIPT_ARGS[@]}" problematic, hence disable SC2068 check here
+# shellcheck disable=SC2068
 ./scripts/update_appup.escript \
     --src-dirs "${SRC_DIRS}/**" \
     --release-dir "_build/${PROFILE}/lib" \
     --prev-release-dir "${PREV_DIR_BASE}/${PREV_TAG}/emqx/lib" \
     --skip-build \
-    "${ESCRIPT_ARGS[@]}" "$PREV_VERSION"
+    ${ESCRIPT_ARGS[@]} "$PREV_VERSION"
 
 if [ "${IS_CHECK:-}" = 'yes' ]; then
     diffs="$(git diff --name-only | grep -E '\.appup\.src' || true)"
