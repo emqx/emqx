@@ -87,7 +87,7 @@ on_gateway_update(Config, Gateway, GwState = #{ctx := Ctx}) ->
             logger:error("Failed to update ~ts; "
                          "reason: {~0p, ~0p} stacktrace: ~0p",
                          [GwName, Class, Reason, Stk]),
-            {error, {Class, Reason}}
+            {error, Reason}
     end.
 
 on_gateway_unload(_Gateway = #{ name := GwName,
