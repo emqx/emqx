@@ -19,7 +19,7 @@ jobs:
       id: dload_jmeter
       timeout-minutes: 1
       env:
-        JMETER_VERSION: 5.3
+        JMETER_VERSION: 5.4.3
       run: |
         wget --no-verbose --no-check-certificate -O /tmp/apache-jmeter.tgz https://downloads.apache.org/jmeter/binaries/apache-jmeter-$JMETER_VERSION.tgz
     - uses: actions/upload-artifact@v2
@@ -117,7 +117,7 @@ jobs:
     - name: install jmeter
       timeout-minutes: 10
       env:
-          JMETER_VERSION: 5.3
+          JMETER_VERSION: 5.4.3
       run: |
         cd /tmp && tar -xvf apache-jmeter.tgz
         echo "jmeter.save.saveservice.output_format=xml" >> /tmp/apache-jmeter-$JMETER_VERSION/user.properties
@@ -208,7 +208,7 @@ jobs:
     - name: install jmeter
       timeout-minutes: 10
       env:
-          JMETER_VERSION: 5.3
+          JMETER_VERSION: 5.4.3
       run: |
         cd /tmp && tar -xvf apache-jmeter.tgz
         echo "jmeter.save.saveservice.output_format=xml" >> /tmp/apache-jmeter-$JMETER_VERSION/user.properties
@@ -310,7 +310,7 @@ jobs:
     - name: install jmeter
       timeout-minutes: 10
       env:
-          JMETER_VERSION: 5.3
+          JMETER_VERSION: 5.4.3
       run: |
         cd /tmp && tar -xvf apache-jmeter.tgz
         echo "jmeter.save.saveservice.output_format=xml" >> /tmp/apache-jmeter-$JMETER_VERSION/user.properties
@@ -406,7 +406,7 @@ jobs:
     - name: install jmeter
       timeout-minutes: 10
       env:
-          JMETER_VERSION: 5.3
+          JMETER_VERSION: 5.4.3
       run: |
         cd /tmp && tar -xvf apache-jmeter.tgz
         echo "jmeter.save.saveservice.output_format=xml" >> /tmp/apache-jmeter-$JMETER_VERSION/user.properties
