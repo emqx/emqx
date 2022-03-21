@@ -108,7 +108,7 @@ fields(limiter_opts) ->
     , {burst, sc(burst_rate(),
                  #{default => "0/0s",
                    desc => "The burst, This value is based on rate."
-                   "this value + rate = the maximum limit that can be achieved when limiter burst"
+                   " This value + rate = the maximum limit that can be achieved when limiter burst"
                   })}
     , {bucket, sc(map("bucket name", ref(bucket_opts)), #{desc => "Buckets config"})}
     ];
