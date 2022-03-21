@@ -130,7 +130,7 @@ settings(get, _) ->
 
 settings(put, #{body := Body}) ->
     case emqx_slow_subs:update_settings(Body) of
-        {ok, NewConf} ->
+        {ok, #{config := NewConf}} ->
             {200, NewConf};
         {error, Reason} ->
             Message = list_to_binary(io_lib:format("Update slow subs config failed ~p", [Reason])),
