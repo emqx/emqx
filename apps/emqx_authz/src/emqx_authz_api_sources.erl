@@ -173,7 +173,13 @@ sources(post, #{body := #{<<"type">> := <<"file">>, <<"rules">> := Rules}}) ->
     update_config(?CMD_PREPEND, [#{<<"type">> => <<"file">>,
                                    <<"enable">> => true, <<"path">> => Filename}]);
 sources(post, #{body := Body}) when is_map(Body) ->
-    update_config(?CMD_PREPEND, [maybe_write_certs(Body)]).
+    case maybe_write_certs(Body) of
+        Config when is_map(Config) ->
+            update_config(?CMD_PREPEND, [Config]);
+        {error, Reason} ->
+            {400, #{code => <<"BAD_REQUEST">>,
+                    message => bin(Reason)}}
+    end.
 
 source(Method, #{bindings := #{type := Type} = Bindings } = Req)
   when is_atom(Type) ->
@@ -211,8 +217,13 @@ source(put, #{bindings := #{type := <<"file">>}, body := #{<<"type">> := <<"file
                     message => bin(Reason)}}
     end;
 source(put, #{bindings := #{type := Type}, body := Body}) when is_map(Body) ->
-    update_config({?CMD_REPLACE, Type},
-                   maybe_write_certs(Body#{<<"type">> => Type}));
+    case maybe_write_certs(Body#{<<"type">> => Type}) of
+        Config when is_map(Config) ->
+            update_config({?CMD_REPLACE, Type}, Config);
+        {error, Reason} ->
+            {400, #{code => <<"BAD_REQUEST">>,
+                    message => bin(Reason)}}
+    end;
 source(delete, #{bindings := #{type := Type}}) ->
     update_config({?CMD_DELETE, Type}, #{}).
 
@@ -421,8 +432,12 @@ read_certs(Source) -> Source.
 
 maybe_write_certs(#{<<"ssl">> := #{<<"enable">> := True} = SSL} = Source) when ?IS_TRUE(True) ->
     Type = maps:get(<<"type">>, Source),
-    {ok, Return} = emqx_tls_lib:ensure_ssl_files(filename:join(["authz", Type]), SSL),
-    maps:put(<<"ssl">>, Return, Source);
+    case emqx_tls_lib:ensure_ssl_files(filename:join(["authz", Type]), SSL) of
+        {ok, Return} ->
+            maps:put(<<"ssl">>, Return, Source);
+        {error, _} ->
+            {error, ensuer_ssl_files_failed}
+    end;
 maybe_write_certs(Source) -> Source.
 
 write_file(Filename, Bytes0) ->
