@@ -151,6 +151,8 @@ do_subscribe(ClientId, _Topics, _QoS) when not is_binary(ClientId) ->
     {ok, ?ERROR8, <<"bad clientid: must be string">>};
 do_subscribe(_ClientId, [], _QoS) ->
     {ok, ?ERROR15, bad_topic};
+do_subscribe(_ClientId, _Topic, QoS) when QoS =/= 0 andalso QoS =/= 1 andalso QoS =/= 2 ->
+    {ok, ?ERROR16, bad_qos};
 do_subscribe(ClientId, Topics, QoS) ->
     TopicTable = parse_topic_filters(Topics, QoS),
     case emqx_mgmt:subscribe(ClientId, TopicTable) of

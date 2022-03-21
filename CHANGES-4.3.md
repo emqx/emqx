@@ -48,6 +48,7 @@ File format:
 * Prompt user how to change the dashboard's initial default password when emqx start.
 * Fix errno=13 'Permission denied' Cannot create FIFO boot error in Amazon Linux 2022 (el8 package)
 * Fix user or appid created, name only allow `^[A-Za-z]+[A-Za-z0-9-_]*$`
+* Fix subscribe http api crash by bad_qos `/mqtt/subscribe`,`/mqtt/subscribe_batch`.
 
 ## v4.3.12
 ### Important changes
