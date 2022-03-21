@@ -402,23 +402,23 @@ schema(SchemaModule, [RootKey | _]) ->
     {Field, Translations} =
         case lists:keyfind(bin(RootKey), 1, Roots) of
             {_, {Ref, ?REF(Ref)}} -> {Ref, ?R_REF(SchemaModule, Ref)};
-            {_, {Name, Field0}} ->
-                case maps:take(translate_to, Field0) of
-                    {TRs, Field1} ->
-                        {
-                            {Name, Field1},
-                            lists:foldl(fun(T, Acc) ->
-                                Acc#{T => hocon_schema:translation(SchemaModule, T)}
-                                      end, #{}, TRs)
-                        };
-                    error -> {{Name, Field0}, #{}}
-                end
+            {_, {Name, Field0}} -> parse_translations(Field0, Name, SchemaModule)
         end,
     #{
         roots => [Field],
         translations => Translations,
         validations => hocon_schema:validations(SchemaModule)
     }.
+
+parse_translations(#{translate_to := TRs } = Field, Name, SchemaModule) ->
+    {
+        {Name, maps:remove(translate_to, Field)},
+        lists:foldl(fun(T, Acc) ->
+            Acc#{T => hocon_schema:translation(SchemaModule, T)}
+                    end, #{}, TRs)
+    };
+parse_translations(Field, Name, _SchemaModule) ->
+    {{Name, Field}, #{}}.
 
 load_prev_handlers() ->
     Handlers = application:get_env(emqx, ?MODULE, #{}),
