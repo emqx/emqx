@@ -25,6 +25,7 @@ jobs:
     container: "ghcr.io/emqx/emqx-builder/5.0-8:1.13.3-24.2.1-1-ubuntu20.04"
 
     outputs:
+      BUILD_PROFILES: ${{ steps.get_profiles.outputs.BUILD_PROFILES }}
       DEP_QUICER_REF: ${{ steps.deps-refs.outputs.DEP_QUICER_REF }}
 
     steps:
@@ -40,6 +41,22 @@ jobs:
         run: |
           bash -x scripts/get-dep-refs.sh
           make clean-all
+      - name: Get profiles to build
+        id: get_profiles
+        run: |
+          tag=${{ github.ref }}
+          case $tag in
+            refs/tags/v*)
+              echo "::set-output name=BUILD_PROFILES::[\"emqx\",\"emqx-edge\"]"
+              ;;
+            refs/tags/e*)
+              echo "::set-output name=BUILD_PROFILES::[\"emqx-enterprise\"]"
+              ;;
+            *)
+              # this is for testing ?
+              echo "::set-output name=BUILD_PROFILES::[\"emqx-edge\",\"emqx\",\"emqx-enterprise\"]"
+              ;;
+          esac
       - name: get_all_deps
         run: |
           make -C source deps-all
@@ -103,9 +120,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        profile: # no EDGE for mac
-          - emqx
-          - emqx-enterprise
+        profile: ${{ fromJson(needs.prepare.outputs.BUILD_PROFILES) }}
         otp:
           - 24.2.1-1
         os:
@@ -195,10 +210,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        profile: ## all editions for linux
-          - emqx-edge
-          - emqx
-          - emqx-enterprise
+        profile: ${{ fromJson(needs.prepare.outputs.BUILD_PROFILES) }}
         otp:
           - 24.2.1-1 # we test with OTP 23, but only build package on OTP 24 versions
         elixir:
@@ -333,10 +345,7 @@ jobs:
       matrix:
         os:
           - alpine3.14
-        profile: # all editions for docker
-          - emqx-edge
-          - emqx
-          - emqx-enterprise
+        profile: ${{ fromJson(needs.prepare.outputs.BUILD_PROFILES) }}
         # NOTE: for docker, only support latest otp and elixir
         # versions, not a matrix
         otp:
@@ -474,10 +483,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        profile: # all editions for docker
-          - emqx-edge
-          - emqx
-          - emqx-enterprise
+        profile: ${{ fromJson(needs.prepare.outputs.BUILD_PROFILES) }}
         # NOTE: for docker, only support latest otp version, not a matrix
         otp:
           - 24.2.1-1 # update to latest
@@ -594,10 +600,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        profile:
-          - emqx-edge
-          - emqx
-          - emqx-enterprise
+        profile: ${{ fromJson(needs.prepare.outputs.BUILD_PROFILES) }}
         otp:
           - 24.2.1-1
         include:
