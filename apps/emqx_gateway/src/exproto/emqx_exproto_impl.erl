@@ -166,14 +166,16 @@ start_grpc_client_channel(GwName, Options = #{address := Address}) ->
                                }})
 
         end,
-    case maps:to_list(maps:get(ssl, Options, #{})) of
-        [] ->
+    case emqx_map_lib:deep_get([ssl, enable], Options, false) of
+        false ->
             SvrAddr = compose_http_uri(http, Host, Port),
             grpc_client_sup:create_channel_pool(GwName, SvrAddr, #{});
-        SslOpts ->
+        true ->
+            SslOpts = maps:to_list(maps:get(ssl, Options, #{})),
             ClientOpts = #{gun_opts =>
                            #{transport => ssl,
                              transport_opts => SslOpts}},
+
             SvrAddr = compose_http_uri(https, Host, Port),
             grpc_client_sup:create_channel_pool(GwName, SvrAddr, ClientOpts)
     end.
