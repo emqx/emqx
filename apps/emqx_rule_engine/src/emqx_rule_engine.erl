@@ -54,7 +54,7 @@
 
 -export([ load_hooks_for_rule/1
         , unload_hooks_for_rule/1
-        , add_metrics_for_rule/1
+        , maybe_add_metrics_for_rule/1
         , clear_metrics_for_rule/1
         ]).
 
@@ -134,7 +134,6 @@ update_rule(Params = #{id := RuleId}) when is_binary(RuleId) ->
         not_found ->
             {error, not_found};
         {ok, #{created_at := CreatedAt}} ->
-            ok = delete_rule(RuleId),
             parse_and_insert(Params, CreatedAt)
     end.
 
@@ -183,8 +182,12 @@ get_rule(Id) ->
 load_hooks_for_rule(#{from := Topics}) ->
     lists:foreach(fun emqx_rule_events:load/1, Topics).
 
-add_metrics_for_rule(Id) ->
-    ok = emqx_plugin_libs_metrics:create_metrics(rule_metrics, Id, ?METRICS, ?RATE_METRICS).
+maybe_add_metrics_for_rule(Id) ->
+    case emqx_plugin_libs_metrics:has_metrics(rule_metrics, Id) of
+        true -> ok;
+        false ->
+            ok = emqx_plugin_libs_metrics:create_metrics(rule_metrics, Id, ?METRICS, ?RATE_METRICS)
+    end.
 
 clear_metrics_for_rule(Id) ->
     ok = emqx_plugin_libs_metrics:clear_metrics(rule_metrics, Id).
@@ -265,7 +268,7 @@ parse_and_insert(Params = #{id := RuleId, sql := Sql, outputs := Outputs}, Creat
 
 do_insert_rule(#{id := Id} = Rule) ->
     ok = load_hooks_for_rule(Rule),
-    ok = add_metrics_for_rule(Id),
+    ok = maybe_add_metrics_for_rule(Id),
     true = ets:insert(?RULE_TAB, {Id, maps:remove(id, Rule)}),
     ok.
 

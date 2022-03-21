@@ -32,6 +32,7 @@
         , create_metrics/3
         , create_metrics/4
         , clear_metrics/2
+        , has_metrics/2
         ]).
 
 -export([ get_metrics/2
@@ -114,6 +115,13 @@ create_metrics(Name, Id, Metrics, RateMetrics) ->
 -spec(clear_metrics(handler_name(), metric_id()) -> ok).
 clear_metrics(Name, Id) ->
     gen_server:call(Name, {delete_metrics, Id}).
+
+-spec(has_metrics(handler_name(), metric_id()) -> boolean()).
+has_metrics(Name, Id) ->
+    case get_ref(Name, Id) of
+        not_found -> false;
+        _ -> true
+    end.
 
 -spec(get(handler_name(), metric_id(), atom() | integer()) -> number()).
 get(Name, Id, Metric) ->
