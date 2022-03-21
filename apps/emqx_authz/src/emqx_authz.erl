@@ -125,78 +125,76 @@ update({?CMD_DELETE, Type}, Sources) ->
 update(Cmd, Sources) ->
     emqx_authz_utils:update_config(?CONF_KEY_PATH, {Cmd, Sources}).
 
-do_update({?CMD_MOVE, Type, ?CMD_MOVE_FRONT}, Conf) when is_list(Conf) ->
-    {Source, Front, Rear} = take(Type, Conf),
+pre_config_update(_, Cmd, Sources) ->
+    {ok, do_pre_config_update(Cmd, Sources)}.
+
+do_pre_config_update({?CMD_MOVE, Type, ?CMD_MOVE_FRONT}, Sources) ->
+    {Source, Front, Rear} = take(Type, Sources),
     [Source | Front] ++ Rear;
-do_update({?CMD_MOVE, Type, ?CMD_MOVE_REAR}, Conf) when is_list(Conf) ->
-    {Source, Front, Rear} = take(Type, Conf),
+do_pre_config_update({?CMD_MOVE, Type, ?CMD_MOVE_REAR}, Sources) ->
+    {Source, Front, Rear} = take(Type, Sources),
     Front ++ Rear ++ [Source];
-do_update({?CMD_MOVE, Type, ?CMD_MOVE_BEFORE(Before)}, Conf) when is_list(Conf) ->
-    {S1, Front1, Rear1} = take(Type, Conf),
+do_pre_config_update({?CMD_MOVE, Type, ?CMD_MOVE_BEFORE(Before)}, Sources) ->
+    {S1, Front1, Rear1} = take(Type, Sources),
     {S2, Front2, Rear2} = take(Before, Front1 ++ Rear1),
     Front2 ++ [S1, S2] ++ Rear2;
-do_update({?CMD_MOVE, Type, ?CMD_MOVE_AFTER(After)}, Conf) when is_list(Conf) ->
-    {S1, Front1, Rear1} = take(Type, Conf),
+do_pre_config_update({?CMD_MOVE, Type, ?CMD_MOVE_AFTER(After)}, Sources) ->
+    {S1, Front1, Rear1} = take(Type, Sources),
     {S2, Front2, Rear2} = take(After, Front1 ++ Rear1),
     Front2 ++ [S2, S1] ++ Rear2;
-do_update({?CMD_PREPEND, Sources}, Conf) when is_list(Sources), is_list(Conf) ->
-    NConf = Sources ++ Conf,
-    ok = check_dup_types(NConf),
-    NConf;
-do_update({?CMD_APPEND, Sources}, Conf) when is_list(Sources), is_list(Conf) ->
-    NConf = Conf ++ Sources,
-    ok = check_dup_types(NConf),
-    NConf;
-do_update({{?CMD_REPLACE, Type}, #{<<"enable">> := Enable} = Source}, Conf)
-  when is_map(Source), is_list(Conf), ?IS_ENABLED(Enable) ->
+do_pre_config_update({?CMD_PREPEND, NewSources}, Sources) ->
+    NSources = NewSources ++ Sources,
+    ok = check_dup_types(NSources),
+    NSources;
+do_pre_config_update({?CMD_APPEND, NewSources}, Sources) ->
+    NSources = Sources ++ NewSources,
+    ok = check_dup_types(NSources),
+    NSources;
+do_pre_config_update({{?CMD_REPLACE, Type}, #{<<"enable">> := Enable} = Source}, Sources)
+  when ?IS_ENABLED(Enable) ->
     case create_dry_run(Type, Source)  of
         ok ->
-            {_Old, Front, Rear} = take(Type, Conf),
-            NConf = Front ++ [Source | Rear],
-            ok = check_dup_types(NConf),
-            NConf;
+            {_Old, Front, Rear} = take(Type, Sources),
+            NSources = Front ++ [Source | Rear],
+            ok = check_dup_types(NSources),
+            NSources;
         {error, _} = Error -> Error
     end;
-do_update({{?CMD_REPLACE, Type}, Source}, Conf)
-  when is_map(Source), is_list(Conf) ->
-    {_Old, Front, Rear} = take(Type, Conf),
-    NConf = Front ++ [Source | Rear],
-    ok = check_dup_types(NConf),
-    NConf;
-do_update({{?CMD_DELETE, Type}, _Source}, Conf) when is_list(Conf) ->
-    {_Old, Front, Rear} = take(Type, Conf),
-    NConf = Front ++ Rear,
-    NConf;
-do_update({_, Sources}, _Conf) when is_list(Sources)->
+do_pre_config_update({{?CMD_REPLACE, Type}, Source}, Sources) ->
+    {_Old, Front, Rear} = take(Type, Sources),
+    NSources = Front ++ [Source | Rear],
+    ok = check_dup_types(NSources),
+    NSources;
+do_pre_config_update({{?CMD_DELETE, Type}, _Source}, Sources) ->
+    {_Old, Front, Rear} = take(Type, Sources),
+    NSources = Front ++ Rear,
+    NSources;
+do_pre_config_update({?CMD_REPLACE, Sources}, _OldSources) ->
     %% overwrite the entire config!
     Sources;
-do_update({Op, Sources}, Conf) ->
-    error({bad_request, #{op => Op, sources => Sources, conf => Conf}}).
+do_pre_config_update({Op, Source}, Sources) ->
+    error({bad_request, #{op => Op, source => Source, sources => Sources}}).
 
-pre_config_update(_, Cmd, Conf) ->
-    {ok, do_update(Cmd, Conf)}.
-
-
-post_config_update(_, _, undefined, _Conf, _AppEnvs) ->
+post_config_update(_, _, undefined, _OldSource, _AppEnvs) ->
     ok;
 post_config_update(_, Cmd, NewSources, _OldSource, _AppEnvs) ->
-    ok = do_post_update(Cmd, NewSources),
+    ok = do_post_config_update(Cmd, NewSources),
     ok = emqx_authz_cache:drain_cache().
 
-do_post_update({?CMD_MOVE, _Type, _Where} = Cmd, _NewSources) ->
+do_post_config_update({?CMD_MOVE, _Type, _Where} = Cmd, _NewSources) ->
     InitedSources = lookup(),
-    MovedSources = do_update(Cmd, InitedSources),
+    MovedSources = do_pre_config_update(Cmd, InitedSources),
     ok = emqx_hooks:put('client.authorize', {?MODULE, authorize, [MovedSources]}, -1),
     ok = emqx_authz_cache:drain_cache();
-do_post_update({?CMD_PREPEND, Sources}, _NewSources) ->
+do_post_config_update({?CMD_PREPEND, Sources}, _NewSources) ->
     InitedSources = init_sources(check_sources(Sources)),
     ok = emqx_hooks:put('client.authorize', {?MODULE, authorize, [InitedSources ++ lookup()]}, -1),
     ok = emqx_authz_cache:drain_cache();
-do_post_update({?CMD_APPEND, Sources}, _NewSources) ->
+do_post_config_update({?CMD_APPEND, Sources}, _NewSources) ->
     InitedSources = init_sources(check_sources(Sources)),
     emqx_hooks:put('client.authorize', {?MODULE, authorize, [lookup() ++ InitedSources]}, -1),
     ok = emqx_authz_cache:drain_cache();
-do_post_update({{?CMD_REPLACE, Type}, Source}, _NewSources) when is_map(Source) ->
+do_post_config_update({{?CMD_REPLACE, Type}, Source}, _NewSources) when is_map(Source) ->
     OldInitedSources = lookup(),
     {OldSource, Front, Rear} = take(Type, OldInitedSources),
     ok = ensure_resource_deleted(OldSource),
@@ -204,13 +202,13 @@ do_post_update({{?CMD_REPLACE, Type}, Source}, _NewSources) when is_map(Source) 
     ok = emqx_hooks:put( 'client.authorize'
                        , {?MODULE, authorize, [Front ++ InitedSources ++ Rear]}, -1),
     ok = emqx_authz_cache:drain_cache();
-do_post_update({{?CMD_DELETE, Type}, _Source}, _NewSources) ->
+do_post_config_update({{?CMD_DELETE, Type}, _Source}, _NewSources) ->
     OldInitedSources = lookup(),
     {OldSource, Front, Rear} = take(Type, OldInitedSources),
     ok = ensure_resource_deleted(OldSource),
     ok = emqx_hooks:put('client.authorize', {?MODULE, authorize, [Front ++ Rear]}, -1),
     ok = emqx_authz_cache:drain_cache();
-do_post_update({?CMD_REPLACE, Sources}, _NewSources) ->
+do_post_config_update({?CMD_REPLACE, Sources}, _NewSources) ->
     %% overwrite the entire config!
     OldInitedSources = lookup(),
     InitedSources = init_sources(check_sources(Sources)),
@@ -307,7 +305,7 @@ do_authorize(_Client, _PubSub, _Topic, []) ->
 do_authorize(Client, PubSub, Topic, [#{enable := false} | Rest]) ->
     do_authorize(Client, PubSub, Topic, Rest);
 do_authorize(Client, PubSub, Topic,
-               [Connector = #{type := Type} | Tail] ) ->
+             [Connector = #{type := Type} | Tail] ) ->
     Module = authz_module(Type),
     case Module:authorize(Client, PubSub, Topic, Connector) of
         nomatch -> do_authorize(Client, PubSub, Topic, Tail);
