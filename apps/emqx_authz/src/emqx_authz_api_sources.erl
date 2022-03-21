@@ -138,7 +138,6 @@ schema("/authorization/sources/:type") ->
             , responses =>
                   #{ 204 => <<"Authorization source updated successfully">>
                    , 400 => emqx_dashboard_swagger:error_codes([?BAD_REQUEST], <<"Bad Request">>)
-                   , 404 => emqx_dashboard_swagger:error_codes([?NOT_FOUND], <<"Not Found">>)
                    }
             }
      , delete =>
@@ -160,6 +159,7 @@ schema("/authorization/sources/:type/status") ->
                               hoconsc:ref(emqx_authn_schema, "metrics_status_fields"),
                               status_metrics_example())
                    , 400 => emqx_dashboard_swagger:error_codes([?BAD_REQUEST], <<"Bad request">>)
+                   , 404 => emqx_dashboard_swagger:error_codes([?NOT_FOUND], <<"Not Found">>)
                    }
             }
      };
@@ -239,7 +239,7 @@ source(get, #{bindings := #{type := Type}}) ->
                            }
                     };
                 {error, Reason} ->
-                    {400, #{code => <<"BAD_REQUEST">>,
+                    {500, #{code => <<"INTERNAL_ERROR">>,
                             message => bin(Reason)}}
             end;
         [Source] -> {200, read_certs(Source)}
@@ -268,7 +268,7 @@ source(delete, #{bindings := #{type := Type}}) ->
 source_status(get, #{bindings := #{type := Type}}) ->
     BinType = atom_to_binary(Type, utf8),
     case get_raw_source(BinType) of
-        [] -> {400, #{code => <<"BAD_REQUEST">>,
+        [] -> {404, #{code => <<"NOT_FOUND">>,
                       message => <<"Not found", BinType/binary>>}};
         [#{<<"type">> := <<"file">>}] ->
             {400, #{code => <<"BAD_REQUEST">>,
@@ -341,7 +341,7 @@ lookup_from_all_nodes(ResourceId) ->
                   }
          end;
         {error, ErrL} ->
-            {400, #{code => <<"BAD_REQUEST">>,
+            {500, #{code => <<"INTERNAL_ERROR">>,
                     message => bin_t(io_lib:format("~p", [ErrL]))}}
     end.
 

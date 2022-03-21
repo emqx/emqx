@@ -29,7 +29,7 @@
 
 -define(BAD_REQUEST, 'BAD_REQUEST').
 -define(NOT_FOUND, 'NOT_FOUND').
--define(CONFLICT, 'CONFLICT').
+-define(ALREADY_EXISTS, 'ALREADY_EXISTS').
 
 % Swagger
 
@@ -170,7 +170,7 @@ schema("/authentication") ->
                     emqx_authn_schema:authenticator_type(),
                     authenticator_examples()),
                 400 => error_codes([?BAD_REQUEST], <<"Bad Request">>),
-                409 => error_codes([?CONFLICT], <<"Conflict">>)
+                409 => error_codes([?ALREADY_EXISTS], <<"ALREADY_EXISTS">>)
             }
         }
     };
@@ -203,7 +203,7 @@ schema("/authentication/:id") ->
                     authenticator_examples()),
                 400 => error_codes([?BAD_REQUEST], <<"Bad Request">>),
                 404 => error_codes([?NOT_FOUND], <<"Not Found">>),
-                409 => error_codes([?CONFLICT], <<"Conflict">>)
+                409 => error_codes([?ALREADY_EXISTS], <<"ALREADY_EXISTS">>)
             }
         },
         delete => #{
@@ -259,7 +259,7 @@ schema("/listeners/:listener_id/authentication") ->
                     emqx_authn_schema:authenticator_type(),
                     authenticator_examples()),
                 400 => error_codes([?BAD_REQUEST], <<"Bad Request">>),
-                409 => error_codes([?CONFLICT], <<"Conflict">>)
+                409 => error_codes([?ALREADY_EXISTS], <<"ALREADY_EXISTS">>)
             }
         }
     };
@@ -291,7 +291,7 @@ schema("/listeners/:listener_id/authentication/:id") ->
                     authenticator_examples()),
                 400 => error_codes([?BAD_REQUEST], <<"Bad Request">>),
                 404 => error_codes([?NOT_FOUND], <<"Not Found">>),
-                409 => error_codes([?CONFLICT], <<"Conflict">>)
+                409 => error_codes([?ALREADY_EXISTS], <<"ALREADY_EXISTS">>)
             }
         },
         delete => #{
@@ -842,7 +842,9 @@ lookup_from_all_nodes(ChainName, AuthenticatorID) ->
              MKMap = fun (Name) -> fun ({Key, Val}) -> #{ node => Key, Name => Val } end end,
              HelpFun = fun (M, Name) -> lists:map(MKMap(Name), maps:to_list(M)) end,
              case AggregateStatus of
-                 empty_metrics_and_status -> serialize_error(unsupported_operation);
+                 empty_metrics_and_status ->
+                     {400, #{code => <<"BAD_REQUEST">>,
+                                 message => <<"Resource Not Support Status">>}};
                  _ -> {200, #{node_status => HelpFun(StatusMap, status),
                               node_metrics => HelpFun(maps:map(Fun, MetricsMap), metrics),
                               status => AggregateStatus,
@@ -851,7 +853,8 @@ lookup_from_all_nodes(ChainName, AuthenticatorID) ->
                       }
              end;
         {error, ErrL} ->
-            serialize_error(ErrL)
+            {500, #{code => <<"INTERNAL_ERROR">>,
+                    message => list_to_binary(io_lib:format("~p", [ErrL]))}}
     end.
 
 aggregate_status([]) -> empty_metrics_and_status;
@@ -1052,7 +1055,7 @@ serialize_error({user_error, not_found}) ->
     {404, #{code => <<"NOT_FOUND">>,
             message => binfmt("User not found", [])}};
 serialize_error({user_error, already_exist}) ->
-    {409, #{code => <<"BAD_REQUEST">>,
+    {409, #{code => <<"ALREADY_EXISTS">>,
             message => binfmt("User already exists", [])}};
 serialize_error({user_error, Reason}) ->
     {400, #{code => <<"BAD_REQUEST">>,
@@ -1085,10 +1088,10 @@ serialize_error({bad_ssl_config, Details}) ->
     {400, #{code => <<"BAD_REQUEST">>,
             message => binfmt("bad_ssl_config ~p", [Details])}};
 serialize_error({missing_parameter, Detail}) ->
-    {400, #{code => <<"MISSING_PARAMETER">>,
+    {400, #{code => <<"BAD_REQUEST">>,
             message => binfmt("Missing required parameter: ~p", [Detail])}};
 serialize_error({invalid_parameter, Name}) ->
-    {400, #{code => <<"INVALID_PARAMETER">>,
+    {400, #{code => <<"BAD_REQUEST">>,
             message => binfmt("Invalid value for '~p'", [Name])}};
 serialize_error({unknown_authn_type, Type}) ->
     {400, #{code => <<"BAD_REQUEST">>,
