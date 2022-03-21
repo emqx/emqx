@@ -230,16 +230,16 @@ t_api(_) ->
     {ok, 204, _} =
         request( put
                , uri(["authorization", "sources", "built_in_database"])
-               ,  #{<<"enable">> => true}),
+               , #{<<"enable">> => true, <<"type">> => <<"built_in_database">>}),
     %% test idempotence
     {ok, 204, _} =
         request( put
                , uri(["authorization", "sources", "built_in_database"])
-               ,  #{<<"enable">> => true}),
+               , #{<<"enable">> => true, <<"type">> => <<"built_in_database">>}),
     {ok, 204, _} =
         request( put
                , uri(["authorization", "sources", "built_in_database"])
-               ,  #{<<"enable">> => false}),
+               , #{<<"enable">> => false, <<"type">> => <<"built_in_database">>}),
     {ok, 204, _} =
         request( delete
                , uri(["authorization", "sources", "built_in_database", "purge-all"])
