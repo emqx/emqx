@@ -56,6 +56,10 @@
 -define(CR, 13).
 -define(LF, 10).
 
+-ifdef(TEST).
+-export([call/1, trim_crlf/1]).
+-endif.
+
 %%------------------------------------------------------------------------------
 %% Mnesia bootstrap
 %%------------------------------------------------------------------------------
@@ -79,7 +83,7 @@ load() ->
     emqx:hook('tls_handshake.psk_lookup', {?MODULE, on_psk_lookup, []}).
 
 unload() ->
-    emqx:unhook('tls_handshake.psk_lookup', {?MODULE, on_psk_lookup, []}).
+    emqx:unhook('tls_handshake.psk_lookup', {?MODULE, on_psk_lookup}).
 
 on_psk_lookup(PSKIdentity, _UserState) ->
     case mnesia:dirty_read(?TAB, PSKIdentity) of
