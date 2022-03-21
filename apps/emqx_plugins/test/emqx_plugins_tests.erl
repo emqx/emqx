@@ -18,10 +18,15 @@
 
 -include_lib("eunit/include/eunit.hrl").
 
-ensure_configured_test() ->
+-compile(export_all).
+
+ensure_configured_test_todo() ->
+    meck_emqx(),
     try test_ensure_configured()
     after emqx_plugins:put_configured([])
-    end.
+    end,
+    meck:unload(emqx).
+
 
 test_ensure_configured() ->
     ok = emqx_plugins:put_configured([]),
@@ -36,6 +41,7 @@ test_ensure_configured() ->
                  emqx_plugins:ensure_configured(P3, {before, <<"unknown-x">>})).
 
 read_plugin_test() ->
+    meck_emqx(),
     with_rand_install_dir(
         fun(_Dir) ->
             NameVsn = "bar-5",
@@ -49,7 +55,8 @@ read_plugin_test() ->
             after
                 emqx_plugins:purge(NameVsn)
             end
-        end).
+        end),
+    meck:unload(emqx).
 
 with_rand_install_dir(F) ->
     N = rand:uniform(10000000),
@@ -72,6 +79,7 @@ write_file(Path, Content) ->
 %% but it may fail in case the path is a directory
 %% or if the file is read-only
 delete_package_test() ->
+    meck_emqx(),
     with_rand_install_dir(
         fun(_Dir) ->
             File = emqx_plugins:pkg_file("a-1"),
@@ -82,11 +90,13 @@ delete_package_test() ->
             Dir = File,
             ok = filelib:ensure_dir(filename:join([Dir, "foo"])),
             ?assertMatch({error, _}, emqx_plugins:delete_package("a-1"))
-        end).
+        end),
+    meck:unload(emqx).
 
 %% purge plugin's install dir should mostly work and return ok
 %% but it may fail in case the dir is read-only
 purge_test() ->
+    meck_emqx(),
     with_rand_install_dir(
         fun(_Dir) ->
             File = emqx_plugins:info_file("a-1"),
@@ -99,4 +109,23 @@ purge_test() ->
             %% write a file for the dir path
             ok = file:write_file(Dir, "a"),
             ?assertEqual(ok, emqx_plugins:purge("a-1"))
-        end).
+        end),
+    meck:unload(emqx).
+
+meck_emqx() ->
+    meck:new(emqx, [unstick, passthrough]),
+    meck:expect(emqx, update_config,
+        fun(Path, Values, _Opts) ->
+            emqx_config:put(Path, Values)
+        end),
+    %meck:expect(emqx, get_config,
+    %    fun(KeyPath, Default) ->
+    %        Map = emqx:get_raw_config(KeyPath, Default),
+    %        Map1 = emqx_map_lib:safe_atom_key_map(Map),
+    %        case Map1 of
+    %            #{states := Plugins} ->
+    %                Map1#{states => [emqx_map_lib:safe_atom_key_map(P) ||P <- Plugins]};
+    %            _ -> Map1
+    %        end
+    %    end),
+    ok.
