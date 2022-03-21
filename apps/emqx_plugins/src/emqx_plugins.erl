@@ -575,8 +575,9 @@ put_config(Path, Values) when is_list(Path) ->
 
 bin_key(Map) when is_map(Map) ->
     maps:fold(fun(K, V, Acc) -> Acc#{bin(K) => V} end, #{}, Map);
-bin_key(List) when is_list(List) ->
-    lists:map(fun(M) -> bin_key(M) end, List).
+bin_key(List = [#{} | _]) ->
+    lists:map(fun(M) -> bin_key(M) end, List);
+bin_key(Term) -> Term.
 
 get_config(Key, Default) when is_atom(Key) ->
     get_config([Key], Default);

@@ -173,7 +173,6 @@ t_update_re_failed(_Config) ->
                 [
                     {validation_error,
                         #{
-                            path := "root.rewrite.1.re",
                             reason := {Re, {"nothing to repeat", 0}},
                             value := Re
                         }
