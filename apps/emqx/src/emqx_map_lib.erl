@@ -15,26 +15,27 @@
 %%--------------------------------------------------------------------
 -module(emqx_map_lib).
 
--export([ deep_get/2
-        , deep_get/3
-        , deep_find/2
-        , deep_put/3
-        , deep_remove/2
-        , deep_merge/2
-        , safe_atom_key_map/1
-        , unsafe_atom_key_map/1
-        , jsonable_map/1
-        , jsonable_map/2
-        , binary_string/1
-        , deep_convert/3
-        , diff_maps/2
-        , merge_with/3
-        ]).
+-export([
+    deep_get/2,
+    deep_get/3,
+    deep_find/2,
+    deep_put/3,
+    deep_remove/2,
+    deep_merge/2,
+    safe_atom_key_map/1,
+    unsafe_atom_key_map/1,
+    jsonable_map/1,
+    jsonable_map/2,
+    binary_string/1,
+    deep_convert/3,
+    diff_maps/2,
+    merge_with/3
+]).
 
 -export_type([config_key/0, config_key_path/0]).
 -type config_key() :: atom() | binary() | [byte()].
 -type config_key_path() :: [config_key()].
--type convert_fun() :: fun((...) -> {K1::any(), V1::any()} | drop).
+-type convert_fun() :: fun((...) -> {K1 :: any(), V1 :: any()} | drop).
 
 %%-----------------------------------------------------------------
 -spec deep_get(config_key_path(), map()) -> term().
@@ -81,8 +82,10 @@ deep_remove([Key | KeyPath], Map) ->
     case maps:find(Key, Map) of
         {ok, SubMap} when is_map(SubMap) ->
             Map#{Key => deep_remove(KeyPath, SubMap)};
-        {ok, _Val} -> Map;
-        error -> Map
+        {ok, _Val} ->
+            Map;
+        error ->
+            Map
     end.
 
 %% #{a => #{b => 3, c => 2}, d => 4}
@@ -90,7 +93,8 @@ deep_remove([Key | KeyPath], Map) ->
 -spec deep_merge(map(), map()) -> map().
 deep_merge(BaseMap, NewMap) ->
     NewKeys = maps:keys(NewMap) -- maps:keys(BaseMap),
-    MergedBase = maps:fold(fun(K, V, Acc) ->
+    MergedBase = maps:fold(
+        fun(K, V, Acc) ->
             case maps:find(K, NewMap) of
                 error ->
                     Acc#{K => V};
@@ -99,20 +103,28 @@ deep_merge(BaseMap, NewMap) ->
                 {ok, NewV} ->
                     Acc#{K => NewV}
             end
-        end, #{}, BaseMap),
+        end,
+        #{},
+        BaseMap
+    ),
     maps:merge(MergedBase, maps:with(NewKeys, NewMap)).
 
--spec deep_convert(map(), convert_fun(), Args::list()) -> map().
+-spec deep_convert(map(), convert_fun(), Args :: list()) -> map().
 deep_convert(Map, ConvFun, Args) when is_map(Map) ->
-    maps:fold(fun(K, V, Acc) ->
+    maps:fold(
+        fun(K, V, Acc) ->
             case apply(ConvFun, [K, deep_convert(V, ConvFun, Args) | Args]) of
                 drop -> Acc;
                 {K1, V1} -> Acc#{K1 => V1}
             end
-        end, #{}, Map);
+        end,
+        #{},
+        Map
+    );
 deep_convert(ListV, ConvFun, Args) when is_list(ListV) ->
     [deep_convert(V, ConvFun, Args) || V <- ListV];
-deep_convert(Val, _, _Args) -> Val.
+deep_convert(Val, _, _Args) ->
+    Val.
 
 -spec unsafe_atom_key_map(#{binary() | atom() => any()}) -> #{atom() => any()}.
 unsafe_atom_key_map(Map) ->
@@ -130,25 +142,32 @@ jsonable_map(Map, JsonableFun) ->
     deep_convert(Map, fun binary_string_kv/3, [JsonableFun]).
 
 -spec diff_maps(map(), map()) ->
-    #{added := map(), identical := map(), removed := map(),
-      changed := #{any() => {OldValue::any(), NewValue::any()}}}.
+    #{
+        added := map(),
+        identical := map(),
+        removed := map(),
+        changed := #{any() => {OldValue :: any(), NewValue :: any()}}
+    }.
 diff_maps(NewMap, OldMap) ->
     InitR = #{identical => #{}, changed => #{}, removed => #{}},
     {Result, RemInNew} =
-        lists:foldl(fun({OldK, OldV}, {Result0 = #{identical := I, changed := U, removed := D},
-                        RemNewMap}) ->
-            Result1 = case maps:find(OldK, NewMap) of
-                error ->
-                    Result0#{removed => D#{OldK => OldV}};
-                {ok, NewV} when NewV == OldV ->
-                    Result0#{identical => I#{OldK => OldV}};
-                {ok, NewV} ->
-                    Result0#{changed => U#{OldK => {OldV, NewV}}}
+        lists:foldl(
+            fun({OldK, OldV}, {Result0 = #{identical := I, changed := U, removed := D}, RemNewMap}) ->
+                Result1 =
+                    case maps:find(OldK, NewMap) of
+                        error ->
+                            Result0#{removed => D#{OldK => OldV}};
+                        {ok, NewV} when NewV == OldV ->
+                            Result0#{identical => I#{OldK => OldV}};
+                        {ok, NewV} ->
+                            Result0#{changed => U#{OldK => {OldV, NewV}}}
+                    end,
+                {Result1, maps:remove(OldK, RemNewMap)}
             end,
-            {Result1, maps:remove(OldK, RemNewMap)}
-        end, {InitR, NewMap}, maps:to_list(OldMap)),
+            {InitR, NewMap},
+            maps:to_list(OldMap)
+        ),
     Result#{added => RemInNew}.
-
 
 binary_string_kv(K, V, JsonableFun) ->
     case JsonableFun(K, V) of
@@ -156,7 +175,8 @@ binary_string_kv(K, V, JsonableFun) ->
         {K1, V1} -> {binary_string(K1), V1}
     end.
 
-binary_string([]) -> [];
+binary_string([]) ->
+    [];
 binary_string(Val) when is_list(Val) ->
     case io_lib:printable_unicode_list(Val) of
         true -> unicode:characters_to_binary(Val);
@@ -167,40 +187,52 @@ binary_string(Val) ->
 
 %%---------------------------------------------------------------------------
 covert_keys_to_atom(BinKeyMap, Conv) ->
-    deep_convert(BinKeyMap, fun
+    deep_convert(
+        BinKeyMap,
+        fun
             (K, V) when is_atom(K) -> {K, V};
             (K, V) when is_binary(K) -> {Conv(K), V}
-        end, []).
+        end,
+        []
+    ).
 
 %% copy from maps.erl OTP24.0
 -compile({inline, [error_with_info/2]}).
-merge_with(Combiner, Map1, Map2) when is_map(Map1),
-                                 is_map(Map2),
-                                 is_function(Combiner, 3) ->
+merge_with(Combiner, Map1, Map2) when
+    is_map(Map1),
+    is_map(Map2),
+    is_function(Combiner, 3)
+->
     case map_size(Map1) > map_size(Map2) of
         true ->
             Iterator = maps:iterator(Map2),
-            merge_with_t(maps:next(Iterator),
-                         Map1,
-                         Map2,
-                         Combiner);
+            merge_with_t(
+                maps:next(Iterator),
+                Map1,
+                Map2,
+                Combiner
+            );
         false ->
             Iterator = maps:iterator(Map1),
-            merge_with_t(maps:next(Iterator),
-                         Map2,
-                         Map1,
-                         fun(K, V1, V2) -> Combiner(K, V2, V1) end)
+            merge_with_t(
+                maps:next(Iterator),
+                Map2,
+                Map1,
+                fun(K, V1, V2) -> Combiner(K, V2, V1) end
+            )
     end;
 merge_with(Combiner, Map1, Map2) ->
-    error_with_info(error_type_merge_intersect(Map1, Map2, Combiner),
-                    [Combiner, Map1, Map2]).
+    error_with_info(
+        error_type_merge_intersect(Map1, Map2, Combiner),
+        [Combiner, Map1, Map2]
+    ).
 
 merge_with_t({K, V2, Iterator}, Map1, Map2, Combiner) ->
     case Map1 of
-        #{ K := V1 } ->
-            NewMap1 = Map1#{ K := Combiner(K, V1, V2) },
+        #{K := V1} ->
+            NewMap1 = Map1#{K := Combiner(K, V1, V2)},
             merge_with_t(maps:next(Iterator), NewMap1, Map2, Combiner);
-        #{ } ->
+        #{} ->
             merge_with_t(maps:next(Iterator), maps:put(K, V2, Map1), Map2, Combiner)
     end;
 merge_with_t(none, Result, _, _) ->

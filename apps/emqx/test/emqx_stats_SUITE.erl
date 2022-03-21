@@ -23,12 +23,12 @@
 
 all() -> emqx_common_test_helpers:all(?MODULE).
 
-t_cast_useless_msg(_)->
+t_cast_useless_msg(_) ->
     emqx_stats:setstat('notExis', 1),
     with_proc(fun() ->
         emqx_stats ! useless,
         ?assertEqual(ok, gen_server:cast(emqx_stats, useless))
-        end).
+    end).
 
 t_get_error_state(_) ->
     Conns = emqx_stats:getstats(),
@@ -62,44 +62,53 @@ t_get_state(_) ->
 
 t_update_interval(_) ->
     TickMs = 200,
-    with_proc(fun() ->
-        SleepMs = TickMs * 2 + TickMs div 2, %% sleep for 2.5 ticks
-        emqx_stats:cancel_update(cm_stats),
-        UpdFun = fun() -> emqx_stats:setstat('connections.count',  1) end,
-        ok = emqx_stats:update_interval(stats_test, UpdFun),
-        timer:sleep(SleepMs),
-        ok = emqx_stats:update_interval(stats_test, UpdFun),
-        timer:sleep(SleepMs),
-        ?assertEqual(1, emqx_stats:getstat('connections.count'))
-    end, TickMs).
+    with_proc(
+        fun() ->
+            %% sleep for 2.5 ticks
+            SleepMs = TickMs * 2 + TickMs div 2,
+            emqx_stats:cancel_update(cm_stats),
+            UpdFun = fun() -> emqx_stats:setstat('connections.count', 1) end,
+            ok = emqx_stats:update_interval(stats_test, UpdFun),
+            timer:sleep(SleepMs),
+            ok = emqx_stats:update_interval(stats_test, UpdFun),
+            timer:sleep(SleepMs),
+            ?assertEqual(1, emqx_stats:getstat('connections.count'))
+        end,
+        TickMs
+    ).
 
 t_helper(_) ->
     TickMs = 200,
     TestF =
         fun(CbModule, CbFun) ->
-                SleepMs = TickMs + TickMs div 2, %% sleep for 1.5 ticks
-                Ref = make_ref(),
-                Tester = self(),
-                UpdFun =
-                    fun() ->
-                            CbModule:CbFun(),
-                            Tester ! Ref,
-                            ok
-                    end,
-                    ok = emqx_stats:update_interval(stats_test, UpdFun),
-                    timer:sleep(SleepMs),
-                    receive Ref -> ok after 2000 -> error(timeout) end
+            %% sleep for 1.5 ticks
+            SleepMs = TickMs + TickMs div 2,
+            Ref = make_ref(),
+            Tester = self(),
+            UpdFun =
+                fun() ->
+                    CbModule:CbFun(),
+                    Tester ! Ref,
+                    ok
+                end,
+            ok = emqx_stats:update_interval(stats_test, UpdFun),
+            timer:sleep(SleepMs),
+            receive
+                Ref -> ok
+            after 2000 -> error(timeout)
+            end
         end,
     MkTestFun =
         fun(CbModule, CbFun) ->
-                fun() ->
-                        with_proc(fun() -> TestF(CbModule, CbFun) end, TickMs)
-                end
+            fun() ->
+                with_proc(fun() -> TestF(CbModule, CbFun) end, TickMs)
+            end
         end,
-    [{"emqx_broker", MkTestFun(emqx_broker, stats_fun)},
-     {"emqx_sm", MkTestFun(emqx_sm, stats_fun)},
-     {"emqx_router_helper", MkTestFun(emqx_router_helper, stats_fun)},
-     {"emqx_cm", MkTestFun(emqx_cm, stats_fun)}
+    [
+        {"emqx_broker", MkTestFun(emqx_broker, stats_fun)},
+        {"emqx_sm", MkTestFun(emqx_sm, stats_fun)},
+        {"emqx_router_helper", MkTestFun(emqx_router_helper, stats_fun)},
+        {"emqx_cm", MkTestFun(emqx_cm, stats_fun)}
     ].
 
 with_proc(F) ->

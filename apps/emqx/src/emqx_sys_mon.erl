@@ -21,25 +21,25 @@
 -include("types.hrl").
 -include("logger.hrl").
 
-
 -export([start_link/0]).
 
 %% compress unused warning
 -export([procinfo/1]).
 
 %% gen_server callbacks
--export([ init/1
-        , handle_call/3
-        , handle_cast/2
-        , handle_info/2
-        , terminate/2
-        , code_change/3
-        ]).
+-export([
+    init/1,
+    handle_call/3,
+    handle_cast/2,
+    handle_info/2,
+    terminate/2,
+    code_change/3
+]).
 
 -define(SYSMON, ?MODULE).
 
 %% @doc Start the system monitor.
--spec(start_link() -> startlink_ret()).
+-spec start_link() -> startlink_ret().
 start_link() ->
     gen_server:start_link({local, ?SYSMON}, ?MODULE, [], []).
 
@@ -63,23 +63,23 @@ sysm_opts() ->
     sysm_opts(maps:to_list(emqx:get_config([sysmon, vm])), []).
 sysm_opts([], Acc) ->
     Acc;
-sysm_opts([{_, disabled}|Opts], Acc) ->
+sysm_opts([{_, disabled} | Opts], Acc) ->
     sysm_opts(Opts, Acc);
-sysm_opts([{long_gc, Ms}|Opts], Acc) when is_integer(Ms) ->
-    sysm_opts(Opts, [{long_gc, Ms}|Acc]);
-sysm_opts([{long_schedule, Ms}|Opts], Acc) when is_integer(Ms) ->
-    sysm_opts(Opts, [{long_schedule, Ms}|Acc]);
-sysm_opts([{large_heap, Size}|Opts], Acc) when is_integer(Size) ->
-    sysm_opts(Opts, [{large_heap, Size}|Acc]);
-sysm_opts([{busy_port, true}|Opts], Acc) ->
-    sysm_opts(Opts, [busy_port|Acc]);
-sysm_opts([{busy_port, false}|Opts], Acc) ->
+sysm_opts([{long_gc, Ms} | Opts], Acc) when is_integer(Ms) ->
+    sysm_opts(Opts, [{long_gc, Ms} | Acc]);
+sysm_opts([{long_schedule, Ms} | Opts], Acc) when is_integer(Ms) ->
+    sysm_opts(Opts, [{long_schedule, Ms} | Acc]);
+sysm_opts([{large_heap, Size} | Opts], Acc) when is_integer(Size) ->
+    sysm_opts(Opts, [{large_heap, Size} | Acc]);
+sysm_opts([{busy_port, true} | Opts], Acc) ->
+    sysm_opts(Opts, [busy_port | Acc]);
+sysm_opts([{busy_port, false} | Opts], Acc) ->
     sysm_opts(Opts, Acc);
-sysm_opts([{busy_dist_port, true}|Opts], Acc) ->
-    sysm_opts(Opts, [busy_dist_port|Acc]);
-sysm_opts([{busy_dist_port, false}|Opts], Acc) ->
+sysm_opts([{busy_dist_port, true} | Opts], Acc) ->
+    sysm_opts(Opts, [busy_dist_port | Acc]);
+sysm_opts([{busy_dist_port, false} | Opts], Acc) ->
     sysm_opts(Opts, Acc);
-sysm_opts([_Opt|Opts], Acc) ->
+sysm_opts([_Opt | Opts], Acc) ->
     sysm_opts(Opts, Acc).
 
 handle_call(Req, _From, State) ->
@@ -91,70 +91,91 @@ handle_cast(Msg, State) ->
     {noreply, State}.
 
 handle_info({monitor, Pid, long_gc, Info}, State) ->
-    suppress({long_gc, Pid},
-             fun() ->
-                 WarnMsg = io_lib:format("long_gc warning: pid = ~p", [Pid]),
-                 ?SLOG(warning, #{msg => long_gc,
-                                  info => Info,
-                                  porcinfo => procinfo(Pid)
-                                 }),
-                 safe_publish(long_gc, WarnMsg)
-             end, State);
-
+    suppress(
+        {long_gc, Pid},
+        fun() ->
+            WarnMsg = io_lib:format("long_gc warning: pid = ~p", [Pid]),
+            ?SLOG(warning, #{
+                msg => long_gc,
+                info => Info,
+                porcinfo => procinfo(Pid)
+            }),
+            safe_publish(long_gc, WarnMsg)
+        end,
+        State
+    );
 handle_info({monitor, Pid, long_schedule, Info}, State) when is_pid(Pid) ->
-    suppress({long_schedule, Pid},
-             fun() ->
-                 WarnMsg = io_lib:format("long_schedule warning: pid = ~p", [Pid]),
-                 ?SLOG(warning, #{msg => long_schedule,
-                                  info => Info,
-                                  procinfo => procinfo(Pid)}),
-                 safe_publish(long_schedule, WarnMsg)
-             end, State);
-
+    suppress(
+        {long_schedule, Pid},
+        fun() ->
+            WarnMsg = io_lib:format("long_schedule warning: pid = ~p", [Pid]),
+            ?SLOG(warning, #{
+                msg => long_schedule,
+                info => Info,
+                procinfo => procinfo(Pid)
+            }),
+            safe_publish(long_schedule, WarnMsg)
+        end,
+        State
+    );
 handle_info({monitor, Port, long_schedule, Info}, State) when is_port(Port) ->
-    suppress({long_schedule, Port},
-             fun() ->
-                 WarnMsg = io_lib:format("long_schedule warning: port = ~p", [Port]),
-                 ?SLOG(warning, #{msg => long_schedule,
-                                  info => Info,
-                                  portinfo => portinfo(Port)}),
-                 safe_publish(long_schedule, WarnMsg)
-             end, State);
-
+    suppress(
+        {long_schedule, Port},
+        fun() ->
+            WarnMsg = io_lib:format("long_schedule warning: port = ~p", [Port]),
+            ?SLOG(warning, #{
+                msg => long_schedule,
+                info => Info,
+                portinfo => portinfo(Port)
+            }),
+            safe_publish(long_schedule, WarnMsg)
+        end,
+        State
+    );
 handle_info({monitor, Pid, large_heap, Info}, State) ->
-    suppress({large_heap, Pid},
-             fun() ->
-                 WarnMsg = io_lib:format("large_heap warning: pid = ~p", [Pid]),
-                 ?SLOG(warning, #{msg => large_heap,
-                                  info => Info,
-                                  procinfo => procinfo(Pid)}),
-                 safe_publish(large_heap, WarnMsg)
-             end, State);
-
+    suppress(
+        {large_heap, Pid},
+        fun() ->
+            WarnMsg = io_lib:format("large_heap warning: pid = ~p", [Pid]),
+            ?SLOG(warning, #{
+                msg => large_heap,
+                info => Info,
+                procinfo => procinfo(Pid)
+            }),
+            safe_publish(large_heap, WarnMsg)
+        end,
+        State
+    );
 handle_info({monitor, SusPid, busy_port, Port}, State) ->
-    suppress({busy_port, Port},
-             fun() ->
-                 WarnMsg = io_lib:format("busy_port warning: suspid = ~p, port = ~p", [SusPid, Port]),
-                 ?SLOG(warning, #{msg => busy_port,
-                                  portinfo => portinfo(Port),
-                                  procinfo => procinfo(SusPid)
-                                 }),
-                 safe_publish(busy_port, WarnMsg)
-             end, State);
-
+    suppress(
+        {busy_port, Port},
+        fun() ->
+            WarnMsg = io_lib:format("busy_port warning: suspid = ~p, port = ~p", [SusPid, Port]),
+            ?SLOG(warning, #{
+                msg => busy_port,
+                portinfo => portinfo(Port),
+                procinfo => procinfo(SusPid)
+            }),
+            safe_publish(busy_port, WarnMsg)
+        end,
+        State
+    );
 handle_info({monitor, SusPid, busy_dist_port, Port}, State) ->
-    suppress({busy_dist_port, Port},
-             fun() ->
-                 WarnMsg = io_lib:format("busy_dist_port warning: suspid = ~p, port = ~p", [SusPid, Port]),
-                 ?SLOG(warning, #{msg => busy_dist_port,
-                                  portinfo => portinfo(Port),
-                                  procinfo => procinfo(SusPid)}),
-                 safe_publish(busy_dist_port, WarnMsg)
-             end, State);
-
+    suppress(
+        {busy_dist_port, Port},
+        fun() ->
+            WarnMsg = io_lib:format("busy_dist_port warning: suspid = ~p, port = ~p", [SusPid, Port]),
+            ?SLOG(warning, #{
+                msg => busy_dist_port,
+                portinfo => portinfo(Port),
+                procinfo => procinfo(SusPid)
+            }),
+            safe_publish(busy_dist_port, WarnMsg)
+        end,
+        State
+    );
 handle_info({timeout, _Ref, reset}, State) ->
     {noreply, State#{events := []}, hibernate};
-
 handle_info(Info, State) ->
     ?SLOG(error, #{msg => "unexpected_info", info => Info}),
     {noreply, State}.
@@ -182,13 +203,13 @@ suppress(Key, SuccFun, State = #{events := Events}) ->
             {noreply, State};
         false ->
             _ = SuccFun(),
-            {noreply, State#{events := [Key|Events]}}
+            {noreply, State#{events := [Key | Events]}}
     end.
 
 procinfo(Pid) ->
     [{pid, Pid} | procinfo_l(emqx_vm:get_process_gc_info(Pid))] ++
-    get_proc_lib_initial_call(Pid) ++
-    procinfo_l(emqx_vm:get_process_info(Pid)).
+        get_proc_lib_initial_call(Pid) ++
+        procinfo_l(emqx_vm:get_process_info(Pid)).
 
 procinfo_l(undefined) -> [];
 procinfo_l(List) -> List.

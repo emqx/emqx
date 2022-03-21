@@ -21,23 +21,28 @@
 %% Using an undocumented API here :(
 -include_lib("dialyzer/src/dialyzer.hrl").
 
--type api_dump() :: #{{emqx_bpapi:api(), emqx_bpapi:api_version()} =>
-                          #{ calls := [emqx_bpapi:rpc()]
-                           , casts := [emqx_bpapi:rpc()]
-                           }}.
+-type api_dump() :: #{
+    {emqx_bpapi:api(), emqx_bpapi:api_version()} =>
+        #{
+            calls := [emqx_bpapi:rpc()],
+            casts := [emqx_bpapi:rpc()]
+        }
+}.
 
 -type dialyzer_spec() :: {_Type, [_Type]}.
 
 -type dialyzer_dump() :: #{mfa() => dialyzer_spec()}.
 
--type fulldump() :: #{ api        => api_dump()
-                     , signatures => dialyzer_dump()
-                     , release    => string()
-                     }.
+-type fulldump() :: #{
+    api => api_dump(),
+    signatures => dialyzer_dump(),
+    release => string()
+}.
 
--type dump_options() :: #{ reldir := file:name()
-                         , plt    := file:name()
-                         }.
+-type dump_options() :: #{
+    reldir := file:name(),
+    plt := file:name()
+}.
 
 -type param_types() :: #{emqx_bpapi:var_name() => _Type}.
 
@@ -47,18 +52,25 @@
 %% List of known RPC backend modules:
 -define(RPC_MODULES, "gen_rpc, erpc, rpc, emqx_rpc").
 %% List of known functions also known to do RPC:
--define(RPC_FUNCTIONS, "emqx_cluster_rpc:multicall/3, emqx_cluster_rpc:multicall/5, "
-                       "emqx_plugin_libs_rule:cluster_call/3").
+-define(RPC_FUNCTIONS,
+    "emqx_cluster_rpc:multicall/3, emqx_cluster_rpc:multicall/5, "
+    "emqx_plugin_libs_rule:cluster_call/3"
+).
 %% List of functions in the RPC backend modules that we can ignore:
--define(IGNORED_RPC_CALLS, "gen_rpc:nodes/0, emqx_rpc:unwrap_erpc/1, rpc:pmap/3"). % TODO: handle pmap
+
+% TODO: handle pmap
+-define(IGNORED_RPC_CALLS, "gen_rpc:nodes/0, emqx_rpc:unwrap_erpc/1, rpc:pmap/3").
 %% List of business-layer functions that are exempt from the checks:
 -define(EXEMPTIONS,
-        "emqx_mgmt_api:do_query/6,"             % Reason: legacy code. A fun and a QC query are
-                                                % passed in the args, it's futile to try to statically
-                                                % check it
-        "emqx_plugin_libs_rule:cluster_call/3"  % Reason: some sort of external plugin API that we
-                                                % don't want to break?
-       ).
+    % Reason: legacy code. A fun and a QC query are
+    "emqx_mgmt_api:do_query/6,"
+    % passed in the args, it's futile to try to statically
+    % check it
+
+    % Reason: some sort of external plugin API that we
+    "emqx_plugin_libs_rule:cluster_call/3"
+    % don't want to break?
+).
 
 -define(XREF, myxref).
 
@@ -87,11 +99,13 @@ run() ->
 -spec check_compat([file:filename()]) -> boolean().
 check_compat(DumpFilenames) ->
     put(bpapi_ok, true),
-    Dumps = lists:map(fun(FN) ->
-                              {ok, [Dump]} = file:consult(FN),
-                              Dump
-                      end,
-                      DumpFilenames),
+    Dumps = lists:map(
+        fun(FN) ->
+            {ok, [Dump]} = file:consult(FN),
+            Dump
+        end,
+        DumpFilenames
+    ),
     [check_compat(I, J) || I <- Dumps, J <- Dumps],
     erase(bpapi_ok).
 
@@ -104,76 +118,98 @@ check_compat(Dump1, Dump2) ->
 %% It's not allowed to change BPAPI modules. Check that no changes
 %% have been made. (sets nok flag)
 -spec check_api_immutability(fulldump(), fulldump()) -> ok.
-check_api_immutability(#{release := Rel1, api := APIs1}, #{release := Rel2, api := APIs2})
-  when Rel2 >= Rel1 ->
+check_api_immutability(#{release := Rel1, api := APIs1}, #{release := Rel2, api := APIs2}) when
+    Rel2 >= Rel1
+->
     %% TODO: Handle API deprecation
     _ = maps:map(
-          fun(Key = {API, Version}, Val) ->
-                  case maps:get(Key, APIs2, undefined) of
-                      Val ->
-                          ok;
-                      undefined ->
-                          setnok(),
-                          logger:error("API ~p v~p was removed in release ~p without being deprecated.",
-                                       [API, Version, Rel2]);
-                      _Val ->
-                          setnok(),
-                          logger:error("API ~p v~p was changed between ~p and ~p. Backplane API should be immutable.",
-                                       [API, Version, Rel1, Rel2])
-                  end
-          end,
-          APIs1),
+        fun(Key = {API, Version}, Val) ->
+            case maps:get(Key, APIs2, undefined) of
+                Val ->
+                    ok;
+                undefined ->
+                    setnok(),
+                    logger:error(
+                        "API ~p v~p was removed in release ~p without being deprecated.",
+                        [API, Version, Rel2]
+                    );
+                _Val ->
+                    setnok(),
+                    logger:error(
+                        "API ~p v~p was changed between ~p and ~p. Backplane API should be immutable.",
+                        [API, Version, Rel1, Rel2]
+                    )
+            end
+        end,
+        APIs1
+    ),
     ok;
 check_api_immutability(_, _) ->
     ok.
 
 %% Note: sets nok flag
 -spec typecheck_apis(fulldump(), fulldump()) -> ok.
-typecheck_apis( #{release := CallerRelease, api := CallerAPIs, signatures := CallerSigs}
-              , #{release := CalleeRelease, signatures := CalleeSigs}
-              ) ->
-    AllCalls = lists:flatten([[Calls, Casts]
-                              || #{calls := Calls, casts := Casts} <- maps:values(CallerAPIs)]),
-    lists:foreach(fun({From, To}) ->
-                          Caller = get_param_types(CallerSigs, From),
-                          Callee = get_param_types(CalleeSigs, To),
-                          %% TODO: check return types
-                          case typecheck_rpc(Caller, Callee) of
-                              [] ->
-                                  ok;
-                              TypeErrors ->
-                                  setnok(),
-                                  [logger:error(
-                                         "Incompatible RPC call: "
-                                          "type of the parameter ~p of RPC call ~s on release ~p "
-                                          "is not a subtype of the target function ~s on release ~p.~n"
-                                          "Caller type: ~s~nCallee type: ~s~n",
-                                          [Var, format_call(From), CallerRelease,
-                                           format_call(To), CalleeRelease,
-                                           erl_types:t_to_string(CallerType),
-                                           erl_types:t_to_string(CalleeType)])
-                                   || {Var, CallerType, CalleeType} <- TypeErrors]
-                          end
-                  end,
-                  AllCalls).
+typecheck_apis(
+    #{release := CallerRelease, api := CallerAPIs, signatures := CallerSigs},
+    #{release := CalleeRelease, signatures := CalleeSigs}
+) ->
+    AllCalls = lists:flatten([
+        [Calls, Casts]
+     || #{calls := Calls, casts := Casts} <- maps:values(CallerAPIs)
+    ]),
+    lists:foreach(
+        fun({From, To}) ->
+            Caller = get_param_types(CallerSigs, From),
+            Callee = get_param_types(CalleeSigs, To),
+            %% TODO: check return types
+            case typecheck_rpc(Caller, Callee) of
+                [] ->
+                    ok;
+                TypeErrors ->
+                    setnok(),
+                    [
+                        logger:error(
+                            "Incompatible RPC call: "
+                            "type of the parameter ~p of RPC call ~s on release ~p "
+                            "is not a subtype of the target function ~s on release ~p.~n"
+                            "Caller type: ~s~nCallee type: ~s~n",
+                            [
+                                Var,
+                                format_call(From),
+                                CallerRelease,
+                                format_call(To),
+                                CalleeRelease,
+                                erl_types:t_to_string(CallerType),
+                                erl_types:t_to_string(CalleeType)
+                            ]
+                        )
+                     || {Var, CallerType, CalleeType} <- TypeErrors
+                    ]
+            end
+        end,
+        AllCalls
+    ).
 
 -spec typecheck_rpc(param_types(), param_types()) -> [{emqx_bpapi:var_name(), _Type, _Type}].
 typecheck_rpc(Caller, Callee) ->
-    maps:fold(fun(Var, CalleeType, Acc) ->
-                      #{Var := CallerType} = Caller,
-                      case erl_types:t_is_subtype(CallerType, CalleeType) of
-                          true  -> Acc;
-                          false -> [{Var, CallerType, CalleeType}|Acc]
-                      end
-              end,
-              [],
-              Callee).
+    maps:fold(
+        fun(Var, CalleeType, Acc) ->
+            #{Var := CallerType} = Caller,
+            case erl_types:t_is_subtype(CallerType, CalleeType) of
+                true -> Acc;
+                false -> [{Var, CallerType, CalleeType} | Acc]
+            end
+        end,
+        [],
+        Callee
+    ).
 
 -spec get_param_types(dialyzer_dump(), emqx_bpapi:call()) -> param_types().
 get_param_types(Signatures, {M, F, A}) ->
     Arity = length(A),
     #{{M, F, Arity} := {_RetType, AttrTypes}} = Signatures,
-    Arity = length(AttrTypes), % assert
+    % assert
+    Arity = length(AttrTypes),
     maps:from_list(lists:zip(A, AttrTypes)).
 
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
@@ -181,13 +217,17 @@ get_param_types(Signatures, {M, F, A}) ->
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 
 dump() ->
-    case { filelib:wildcard(project_root_dir() ++ "/*_plt")
-         , filelib:wildcard(project_root_dir() ++ "/_build/emqx*/lib")
-         } of
-        {[PLT|_], [RelDir|_]} ->
-            dump(#{ plt => PLT
-                  , reldir => RelDir
-                  });
+    case
+        {
+            filelib:wildcard(project_root_dir() ++ "/*_plt"),
+            filelib:wildcard(project_root_dir() ++ "/_build/emqx*/lib")
+        }
+    of
+        {[PLT | _], [RelDir | _]} ->
+            dump(#{
+                plt => PLT,
+                reldir => RelDir
+            });
         _ ->
             error("failed to guess run options")
     end.
@@ -203,7 +243,7 @@ dump(Opts) ->
     warn_nonbpapi_rpcs(NonBPAPICalls),
     APIDump = collect_bpapis(BPAPICalls),
     DialyzerDump = collect_signatures(PLT, APIDump),
-    [Release|_] = string:split(emqx_app:get_release(), "-"),
+    [Release | _] = string:split(emqx_app:get_release(), "-"),
     dump_api(#{api => APIDump, signatures => DialyzerDump, release => Release}),
     dump_versions(APIDump),
     xref:stop(?XREF),
@@ -221,8 +261,21 @@ prepare(#{reldir := RelDir, plt := PLT}) ->
     dialyzer_plt:from_file(PLT).
 
 find_remote_calls(_Opts) ->
-    Query = "XC | (A - [" ?IGNORED_APPS "]:App - [" ?IGNORED_MODULES "]:Mod - [" ?EXEMPTIONS "])
-               || (([" ?RPC_MODULES "] : Mod + [" ?RPC_FUNCTIONS "]) - [" ?IGNORED_RPC_CALLS "])",
+    Query =
+        "XC | (A - ["
+        ?IGNORED_APPS
+        "]:App - ["
+        ?IGNORED_MODULES
+        "]:Mod - ["
+        ?EXEMPTIONS
+        "])\n"
+        "               || ((["
+        ?RPC_MODULES
+        "] : Mod + ["
+        ?RPC_FUNCTIONS
+        "]) - ["
+        ?IGNORED_RPC_CALLS
+        "])",
     {ok, Calls} = xref:q(?XREF, Query),
     logger:info("Calls to RPC modules ~p", [Calls]),
     {Callers, _Callees} = lists:unzip(Calls),
@@ -233,18 +286,23 @@ warn_nonbpapi_rpcs([]) ->
     ok;
 warn_nonbpapi_rpcs(L) ->
     setnok(),
-    lists:foreach(fun({M, F, A}) ->
-                          logger:error("~p:~p/~p does a remote call outside of a dedicated "
-                                       "backplane API module. "
-                                       "It may break during rolling cluster upgrade", [M, F, A])
-                  end,
-                  L).
+    lists:foreach(
+        fun({M, F, A}) ->
+            logger:error(
+                "~p:~p/~p does a remote call outside of a dedicated "
+                "backplane API module. "
+                "It may break during rolling cluster upgrade",
+                [M, F, A]
+            )
+        end,
+        L
+    ).
 
 -spec is_bpapi_call(mfa()) -> boolean().
 is_bpapi_call({Module, _Function, _Arity}) ->
     case catch Module:bpapi_meta() of
         #{api := _} -> true;
-        _           -> false
+        _ -> false
     end.
 
 -spec dump_api(fulldump()) -> ok.
@@ -259,58 +317,70 @@ dump_versions(APIs) ->
     logger:notice("Dumping API versions to ~p", [Filename]),
     ok = filelib:ensure_dir(Filename),
     {ok, FD} = file:open(Filename, [write]),
-    lists:foreach(fun(API) ->
-                          ok = io:format(FD, "~p.~n", [API])
-                  end,
-                  lists:sort(maps:keys(APIs))),
+    lists:foreach(
+        fun(API) ->
+            ok = io:format(FD, "~p.~n", [API])
+        end,
+        lists:sort(maps:keys(APIs))
+    ),
     file:close(FD).
 
 -spec collect_bpapis([mfa()]) -> api_dump().
 collect_bpapis(L) ->
     Modules = lists:usort([M || {M, _F, _A} <- L]),
-    lists:foldl(fun(Mod, Acc) ->
-                        #{ api     := API
-                         , version := Vsn
-                         , calls   := Calls
-                         , casts   := Casts
-                         } = Mod:bpapi_meta(),
-                        Acc#{{API, Vsn} => #{ calls => Calls
-                                            , casts => Casts
-                                            }}
-                end,
-                #{},
-                Modules).
+    lists:foldl(
+        fun(Mod, Acc) ->
+            #{
+                api := API,
+                version := Vsn,
+                calls := Calls,
+                casts := Casts
+            } = Mod:bpapi_meta(),
+            Acc#{
+                {API, Vsn} => #{
+                    calls => Calls,
+                    casts => Casts
+                }
+            }
+        end,
+        #{},
+        Modules
+    ).
 
 -spec collect_signatures(_PLT, api_dump()) -> dialyzer_dump().
 collect_signatures(PLT, APIs) ->
-    maps:fold(fun(_APIAndVersion, #{calls := Calls, casts := Casts}, Acc0) ->
-                      Acc1 = lists:foldl(fun enrich/2, {Acc0, PLT}, Calls),
-                      {Acc, PLT} = lists:foldl(fun enrich/2, Acc1, Casts),
-                      Acc
-              end,
-              #{},
-              APIs).
+    maps:fold(
+        fun(_APIAndVersion, #{calls := Calls, casts := Casts}, Acc0) ->
+            Acc1 = lists:foldl(fun enrich/2, {Acc0, PLT}, Calls),
+            {Acc, PLT} = lists:foldl(fun enrich/2, Acc1, Casts),
+            Acc
+        end,
+        #{},
+        APIs
+    ).
 
 %% Add information about the call types from the PLT
 -spec enrich(emqx_bpapi:rpc(), {dialyzer_dump(), _PLT}) -> {dialyzer_dump(), _PLT}.
 enrich({From0, To0}, {Acc0, PLT}) ->
     From = call_to_mfa(From0),
-    To   = call_to_mfa(To0),
+    To = call_to_mfa(To0),
     case {dialyzer_plt:lookup_contract(PLT, From), dialyzer_plt:lookup(PLT, To)} of
         {{value, #contract{args = FromArgs}}, {value, TTo}} ->
             %% TODO: Check return type
             FromRet = erl_types:t_any(),
-            Acc = Acc0#{ From => {FromRet, FromArgs}
-                       , To   => TTo
-                       },
+            Acc = Acc0#{
+                From => {FromRet, FromArgs},
+                To => TTo
+            },
             {Acc, PLT};
         {{value, _}, none} ->
             setnok(),
             logger:critical(
-                  "Backplane API function ~s calls a missing remote function ~s",
-                  [format_call(From0), format_call(To0)]),
+                "Backplane API function ~s calls a missing remote function ~s",
+                [format_call(From0), format_call(To0)]
+            ),
             error(missing_target)
-     end.
+    end.
 
 -spec call_to_mfa(emqx_bpapi:call()) -> mfa().
 call_to_mfa({M, F, A}) ->

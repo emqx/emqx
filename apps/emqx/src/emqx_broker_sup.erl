@@ -32,32 +32,41 @@ start_link() ->
 init([]) ->
     %% Broker pool
     PoolSize = emqx_vm:schedulers() * 2,
-    BrokerPool = emqx_pool_sup:spec([broker_pool, hash, PoolSize,
-                                     {emqx_broker, start_link, []}]),
+    BrokerPool = emqx_pool_sup:spec([
+        broker_pool,
+        hash,
+        PoolSize,
+        {emqx_broker, start_link, []}
+    ]),
 
     %% Shared subscription
-    SharedSub = #{id => shared_sub,
-                  start => {emqx_shared_sub, start_link, []},
-                  restart => permanent,
-                  shutdown => 2000,
-                  type => worker,
-                  modules => [emqx_shared_sub]},
+    SharedSub = #{
+        id => shared_sub,
+        start => {emqx_shared_sub, start_link, []},
+        restart => permanent,
+        shutdown => 2000,
+        type => worker,
+        modules => [emqx_shared_sub]
+    },
 
     %% Authentication
-    AuthNSup = #{id => emqx_authentication_sup,
-                 start => {emqx_authentication_sup, start_link, []},
-                 restart => permanent,
-                 shutdown => infinity,
-                 type => supervisor,
-                 modules => [emqx_authentication_sup]},
+    AuthNSup = #{
+        id => emqx_authentication_sup,
+        start => {emqx_authentication_sup, start_link, []},
+        restart => permanent,
+        shutdown => infinity,
+        type => supervisor,
+        modules => [emqx_authentication_sup]
+    },
 
     %% Broker helper
-    Helper = #{id => helper,
-               start => {emqx_broker_helper, start_link, []},
-               restart => permanent,
-               shutdown => 2000,
-               type => worker,
-               modules => [emqx_broker_helper]},
+    Helper = #{
+        id => helper,
+        start => {emqx_broker_helper, start_link, []},
+        restart => permanent,
+        shutdown => 2000,
+        type => worker,
+        modules => [emqx_broker_helper]
+    },
 
     {ok, {{one_for_all, 0, 1}, [BrokerPool, SharedSub, AuthNSup, Helper]}}.
-

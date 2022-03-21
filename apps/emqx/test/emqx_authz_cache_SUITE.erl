@@ -41,13 +41,15 @@ t_clean_authz_cache(_) ->
     {ok, _, _} = emqtt:subscribe(Client, <<"t2">>, 0),
     emqtt:publish(Client, <<"t1">>, <<"{\"x\":1}">>, 0),
     ct:sleep(100),
-    ClientPid = case emqx_cm:lookup_channels(<<"emqx_c">>) of
-        [Pid] when is_pid(Pid) ->
-            Pid;
-        Pids when is_list(Pids) ->
-            lists:last(Pids);
-        _ -> {error, not_found}
-    end,
+    ClientPid =
+        case emqx_cm:lookup_channels(<<"emqx_c">>) of
+            [Pid] when is_pid(Pid) ->
+                Pid;
+            Pids when is_list(Pids) ->
+                lists:last(Pids);
+            _ ->
+                {error, not_found}
+        end,
     Caches = gen_server:call(ClientPid, list_authz_cache),
     ct:log("authz caches: ~p", [Caches]),
     ?assert(length(Caches) > 0),
@@ -61,13 +63,15 @@ t_drain_authz_cache(_) ->
     {ok, _, _} = emqtt:subscribe(Client, <<"t2">>, 0),
     emqtt:publish(Client, <<"t1">>, <<"{\"x\":1}">>, 0),
     ct:sleep(100),
-    ClientPid = case emqx_cm:lookup_channels(<<"emqx_c">>) of
-                    [Pid] when is_pid(Pid) ->
-                        Pid;
-                    Pids when is_list(Pids) ->
-                        lists:last(Pids);
-                    _ -> {error, not_found}
-                end,
+    ClientPid =
+        case emqx_cm:lookup_channels(<<"emqx_c">>) of
+            [Pid] when is_pid(Pid) ->
+                Pid;
+            Pids when is_list(Pids) ->
+                lists:last(Pids);
+            _ ->
+                {error, not_found}
+        end,
     Caches = gen_server:call(ClientPid, list_authz_cache),
     ct:log("authz caches: ~p", [Caches]),
     ?assert(length(Caches) > 0),

@@ -30,16 +30,17 @@
 all() -> emqx_common_test_helpers:all(?MODULE).
 
 init_per_suite(Config) ->
-    DistPid = case net_kernel:nodename() of
-                  ignored ->
-                      %% calling `net_kernel:start' without `epmd'
-                      %% running will result in a failure.
-                      start_epmd(),
-                      {ok, Pid} = net_kernel:start(['test@127.0.0.1', longnames]),
-                      Pid;
-                  _ ->
-                      undefined
-              end,
+    DistPid =
+        case net_kernel:nodename() of
+            ignored ->
+                %% calling `net_kernel:start' without `epmd'
+                %% running will result in a failure.
+                start_epmd(),
+                {ok, Pid} = net_kernel:start(['test@127.0.0.1', longnames]),
+                Pid;
+            _ ->
+                undefined
+        end,
     emqx_common_test_helpers:start_apps([]),
     [{dist_pid, DistPid} | Config].
 
@@ -53,20 +54,22 @@ end_per_suite(Config) ->
     end,
     emqx_common_test_helpers:stop_apps([]).
 
-init_per_testcase(TestCase, Config)
-      when TestCase =:= t_cleanup_membership_mnesia_down;
-           TestCase =:= t_cleanup_membership_node_down;
-           TestCase =:= t_cleanup_monitor_node_down ->
+init_per_testcase(TestCase, Config) when
+    TestCase =:= t_cleanup_membership_mnesia_down;
+    TestCase =:= t_cleanup_membership_node_down;
+    TestCase =:= t_cleanup_monitor_node_down
+->
     ok = snabbkaffe:start_trace(),
     Slave = start_slave(some_node),
     [{slave, Slave} | Config];
 init_per_testcase(_TestCase, Config) ->
     Config.
 
-end_per_testcase(TestCase, Config)
-      when TestCase =:= t_cleanup_membership_mnesia_down;
-           TestCase =:= t_cleanup_membership_node_down;
-           TestCase =:= t_cleanup_monitor_node_down ->
+end_per_testcase(TestCase, Config) when
+    TestCase =:= t_cleanup_membership_mnesia_down;
+    TestCase =:= t_cleanup_membership_node_down;
+    TestCase =:= t_cleanup_monitor_node_down
+->
     Slave = ?config(slave, Config),
     stop_slave(Slave),
     mria:transaction(?ROUTE_SHARD, fun() -> mnesia:clear_table(?ROUTE_TAB) end),
@@ -93,9 +96,10 @@ t_cleanup_membership_mnesia_down(Config) ->
     emqx_router:add_route(<<"d/e/f">>, node()),
     ?assertMatch([_, _], emqx_router:topics()),
     ?wait_async_action(
-       ?ROUTER_HELPER ! {membership, {mnesia, down, Slave}},
-       #{?snk_kind := emqx_router_helper_cleanup_done, node := Slave},
-       1_000),
+        ?ROUTER_HELPER ! {membership, {mnesia, down, Slave}},
+        #{?snk_kind := emqx_router_helper_cleanup_done, node := Slave},
+        1_000
+    ),
     ?assertEqual([<<"d/e/f">>], emqx_router:topics()).
 
 t_cleanup_membership_node_down(Config) ->
@@ -104,9 +108,10 @@ t_cleanup_membership_node_down(Config) ->
     emqx_router:add_route(<<"d/e/f">>, node()),
     ?assertMatch([_, _], emqx_router:topics()),
     ?wait_async_action(
-       ?ROUTER_HELPER ! {membership, {node, down, Slave}},
-       #{?snk_kind := emqx_router_helper_cleanup_done, node := Slave},
-       1_000),
+        ?ROUTER_HELPER ! {membership, {node, down, Slave}},
+        #{?snk_kind := emqx_router_helper_cleanup_done, node := Slave},
+        1_000
+    ),
     ?assertEqual([<<"d/e/f">>], emqx_router:topics()).
 
 t_cleanup_monitor_node_down(Config) ->
@@ -115,9 +120,10 @@ t_cleanup_monitor_node_down(Config) ->
     emqx_router:add_route(<<"d/e/f">>, node()),
     ?assertMatch([_, _], emqx_router:topics()),
     ?wait_async_action(
-       stop_slave(Slave),
-       #{?snk_kind := emqx_router_helper_cleanup_done, node := Slave},
-       1_000),
+        stop_slave(Slave),
+        #{?snk_kind := emqx_router_helper_cleanup_done, node := Slave},
+        1_000
+    ),
     ?assertEqual([<<"d/e/f">>], emqx_router:topics()).
 
 t_message(_) ->
@@ -143,7 +149,8 @@ epmd_path() ->
     end.
 
 start_slave(Name) ->
-    CommonBeamOpts = "+S 1:1 ", % We want VMs to only occupy a single core
+    % We want VMs to only occupy a single core
+    CommonBeamOpts = "+S 1:1 ",
     {ok, Node} = slave:start_link(host(), Name, CommonBeamOpts ++ ebin_path()),
     Node.
 
@@ -151,7 +158,8 @@ stop_slave(Node) ->
     slave:stop(Node).
 
 host() ->
-    [_, Host] = string:tokens(atom_to_list(node()), "@"), Host.
+    [_, Host] = string:tokens(atom_to_list(node()), "@"),
+    Host.
 
 ebin_path() ->
     string:join(["-pa" | lists:filter(fun is_lib/1, code:get_path())], " ").

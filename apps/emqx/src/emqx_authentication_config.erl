@@ -19,13 +19,15 @@
 
 -behaviour(emqx_config_handler).
 
--export([ pre_config_update/3
-        , post_config_update/5
-        ]).
+-export([
+    pre_config_update/3,
+    post_config_update/5
+]).
 
--export([ authenticator_id/1
-        , authn_type/1
-        ]).
+-export([
+    authenticator_id/1,
+    authn_type/1
+]).
 
 -ifdef(TEST).
 -export([convert_certs/2, convert_certs/3, clear_certs/2]).
@@ -36,32 +38,35 @@
 -include("logger.hrl").
 -include("emqx_authentication.hrl").
 
--type parsed_config() :: #{mechanism := atom(),
-                           backend => atom(),
-                           atom() => term()}.
+-type parsed_config() :: #{
+    mechanism := atom(),
+    backend => atom(),
+    atom() => term()
+}.
 -type raw_config() :: #{binary() => term()}.
 -type config() :: parsed_config() | raw_config().
 
 -type authenticator_id() :: emqx_authentication:authenticator_id().
 -type position() :: emqx_authentication:position().
 -type chain_name() :: emqx_authentication:chain_name().
--type update_request() :: {create_authenticator, chain_name(), map()}
-                        | {delete_authenticator, chain_name(), authenticator_id()}
-                        | {update_authenticator, chain_name(), authenticator_id(), map()}
-                        | {move_authenticator, chain_name(), authenticator_id(), position()}.
+-type update_request() ::
+    {create_authenticator, chain_name(), map()}
+    | {delete_authenticator, chain_name(), authenticator_id()}
+    | {update_authenticator, chain_name(), authenticator_id(), map()}
+    | {move_authenticator, chain_name(), authenticator_id(), position()}.
 
 %%------------------------------------------------------------------------------
 %% Callbacks of config handler
 %%------------------------------------------------------------------------------
 
--spec pre_config_update(list(atom()), update_request(), emqx_config:raw_config())
-    -> {ok, map() | list()} | {error, term()}.
+-spec pre_config_update(list(atom()), update_request(), emqx_config:raw_config()) ->
+    {ok, map() | list()} | {error, term()}.
 pre_config_update(_, UpdateReq, OldConfig) ->
     try do_pre_config_update(UpdateReq, to_list(OldConfig)) of
         {error, Reason} -> {error, Reason};
         {ok, NewConfig} -> {ok, return_map(NewConfig)}
     catch
-        throw : Reason ->
+        throw:Reason ->
             {error, Reason}
     end.
 
@@ -70,23 +75,29 @@ do_pre_config_update({create_authenticator, ChainName, Config}, OldConfig) ->
     NConfig = convert_certs(CertsDir, Config),
     {ok, OldConfig ++ [NConfig]};
 do_pre_config_update({delete_authenticator, _ChainName, AuthenticatorID}, OldConfig) ->
-    NewConfig = lists:filter(fun(OldConfig0) ->
-                                AuthenticatorID =/= authenticator_id(OldConfig0)
-                             end, OldConfig),
+    NewConfig = lists:filter(
+        fun(OldConfig0) ->
+            AuthenticatorID =/= authenticator_id(OldConfig0)
+        end,
+        OldConfig
+    ),
     {ok, NewConfig};
 do_pre_config_update({update_authenticator, ChainName, AuthenticatorID, Config}, OldConfig) ->
     CertsDir = certs_dir(ChainName, AuthenticatorID),
     NewConfig = lists:map(
-                    fun(OldConfig0) ->
-                        case AuthenticatorID =:= authenticator_id(OldConfig0) of
-                            true -> convert_certs(CertsDir, Config, OldConfig0);
-                            false -> OldConfig0
-                        end
-                    end, OldConfig),
+        fun(OldConfig0) ->
+            case AuthenticatorID =:= authenticator_id(OldConfig0) of
+                true -> convert_certs(CertsDir, Config, OldConfig0);
+                false -> OldConfig0
+            end
+        end,
+        OldConfig
+    ),
     {ok, NewConfig};
 do_pre_config_update({move_authenticator, _ChainName, AuthenticatorID, Position}, OldConfig) ->
     case split_by_id(AuthenticatorID, OldConfig) of
-        {error, Reason} -> {error, Reason};
+        {error, Reason} ->
+            {error, Reason};
         {ok, BeforeFound, [Found | AfterFound]} ->
             case Position of
                 ?CMD_MOVE_FRONT ->
@@ -110,13 +121,14 @@ do_pre_config_update({move_authenticator, _ChainName, AuthenticatorID, Position}
             end
     end.
 
--spec post_config_update(list(atom()),
-                         update_request(),
-                         map() | list(),
-                         emqx_config:raw_config(),
-                         emqx_config:app_envs()
-                        )
-                        -> ok | {ok, map()} | {error, term()}.
+-spec post_config_update(
+    list(atom()),
+    update_request(),
+    map() | list(),
+    emqx_config:raw_config(),
+    emqx_config:app_envs()
+) ->
+    ok | {ok, map()} | {error, term()}.
 post_config_update(_, UpdateReq, NewConfig, OldConfig, AppEnvs) ->
     do_post_config_update(UpdateReq, check_configs(to_list(NewConfig)), OldConfig, AppEnvs).
 
@@ -124,8 +136,12 @@ do_post_config_update({create_authenticator, ChainName, Config}, NewConfig, _Old
     NConfig = get_authenticator_config(authenticator_id(Config), NewConfig),
     _ = emqx_authentication:create_chain(ChainName),
     emqx_authentication:create_authenticator(ChainName, NConfig);
-do_post_config_update({delete_authenticator, ChainName, AuthenticatorID},
-                      _NewConfig, OldConfig, _AppEnvs) ->
+do_post_config_update(
+    {delete_authenticator, ChainName, AuthenticatorID},
+    _NewConfig,
+    OldConfig,
+    _AppEnvs
+) ->
     case emqx_authentication:delete_authenticator(ChainName, AuthenticatorID) of
         ok ->
             Config = get_authenticator_config(AuthenticatorID, to_list(OldConfig)),
@@ -134,16 +150,24 @@ do_post_config_update({delete_authenticator, ChainName, AuthenticatorID},
         {error, Reason} ->
             {error, Reason}
     end;
-do_post_config_update({update_authenticator, ChainName, AuthenticatorID, Config},
-                      NewConfig, _OldConfig, _AppEnvs) ->
+do_post_config_update(
+    {update_authenticator, ChainName, AuthenticatorID, Config},
+    NewConfig,
+    _OldConfig,
+    _AppEnvs
+) ->
     case get_authenticator_config(authenticator_id(Config), NewConfig) of
         {error, not_found} ->
             {error, {not_found, {authenticator, AuthenticatorID}}};
         NConfig ->
             emqx_authentication:update_authenticator(ChainName, AuthenticatorID, NConfig)
     end;
-do_post_config_update({move_authenticator, ChainName, AuthenticatorID, Position},
-                      _NewConfig, _OldConfig, _AppEnvs) ->
+do_post_config_update(
+    {move_authenticator, ChainName, AuthenticatorID, Position},
+    _NewConfig,
+    _OldConfig,
+    _AppEnvs
+) ->
     emqx_authentication:move_authenticator(ChainName, AuthenticatorID, Position).
 
 check_configs(Configs) ->
@@ -154,38 +178,45 @@ do_check_config(Config, Providers) ->
     Type = authn_type(Config),
     case maps:get(Type, Providers, false) of
         false ->
-            ?SLOG(warning, #{msg => "unknown_authn_type",
-                             type => Type,
-                             providers => Providers}),
+            ?SLOG(warning, #{
+                msg => "unknown_authn_type",
+                type => Type,
+                providers => Providers
+            }),
             throw({unknown_authn_type, Type});
         Module ->
             do_check_config(Type, Config, Module)
     end.
 
 do_check_config(Type, Config, Module) ->
-    F = case erlang:function_exported(Module, check_config, 1) of
+    F =
+        case erlang:function_exported(Module, check_config, 1) of
             true ->
                 fun Module:check_config/1;
             false ->
                 fun(C) ->
-                        Key = list_to_binary(?EMQX_AUTHENTICATION_CONFIG_ROOT_NAME),
-                        AtomKey = list_to_atom(?EMQX_AUTHENTICATION_CONFIG_ROOT_NAME),
-                        R = hocon_tconf:check_plain(Module, #{Key => C},
-                                                    #{atom_key => true}),
-                        maps:get(AtomKey, R)
+                    Key = list_to_binary(?EMQX_AUTHENTICATION_CONFIG_ROOT_NAME),
+                    AtomKey = list_to_atom(?EMQX_AUTHENTICATION_CONFIG_ROOT_NAME),
+                    R = hocon_tconf:check_plain(
+                        Module,
+                        #{Key => C},
+                        #{atom_key => true}
+                    ),
+                    maps:get(AtomKey, R)
                 end
         end,
     try
         F(Config)
     catch
-        C : E : S ->
-            ?SLOG(warning, #{msg => "failed_to_check_config",
-                             config => Config,
-                             type => Type,
-                             exception => C,
-                             reason => E,
-                             stacktrace => S
-                            }),
+        C:E:S ->
+            ?SLOG(warning, #{
+                msg => "failed_to_check_config",
+                config => Config,
+                type => Type,
+                exception => C,
+                reason => E,
+                stacktrace => S
+            }),
             throw({bad_authenticator_config, #{type => Type, reason => E}})
     end.
 
@@ -232,17 +263,23 @@ get_authenticator_config(AuthenticatorID, AuthenticatorsConfig) ->
     end.
 
 split_by_id(ID, AuthenticatorsConfig) ->
-    case lists:foldl(
-             fun(C, {P1, P2, F0}) ->
-                 F = case ID =:= authenticator_id(C) of
-                         true -> true;
-                         false -> F0
-                     end,
-                 case F of
-                     false -> {[C | P1], P2, F};
-                     true -> {P1, [C | P2], F}
-                 end
-             end, {[], [], false}, AuthenticatorsConfig) of
+    case
+        lists:foldl(
+            fun(C, {P1, P2, F0}) ->
+                F =
+                    case ID =:= authenticator_id(C) of
+                        true -> true;
+                        false -> F0
+                    end,
+                case F of
+                    false -> {[C | P1], P2, F};
+                    true -> {P1, [C | P2], F}
+                end
+            end,
+            {[], [], false},
+            AuthenticatorsConfig
+        )
+    of
         {_, _, false} ->
             {error, {not_found, {authenticator, ID}}};
         {Part1, Part2, true} ->
@@ -273,7 +310,7 @@ authenticator_id(_C) ->
     throw({missing_parameter, #{name => mechanism}}).
 
 %% @doc Make the authentication type.
-authn_type(#{mechanism := M, backend :=  B}) -> {atom(M), atom(B)};
+authn_type(#{mechanism := M, backend := B}) -> {atom(M), atom(B)};
 authn_type(#{mechanism := M}) -> atom(M);
 authn_type(#{<<"mechanism">> := M, <<"backend">> := B}) -> {atom(M), atom(B)};
 authn_type(#{<<"mechanism">> := M}) -> atom(M).

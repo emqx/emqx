@@ -26,33 +26,37 @@ start_link() ->
     supervisor:start_link({local, ?MODULE}, ?MODULE, []).
 
 init([]) ->
-    {ok, {{one_for_one, 10, 100},
-           %% always start emqx_config_handler first to load the emqx.conf to emqx_config
-          [ child_spec(emqx_config_handler, worker)
-          , child_spec(emqx_pool_sup, supervisor)
-          , child_spec(emqx_hooks, worker)
-          , child_spec(emqx_stats, worker)
-          , child_spec(emqx_metrics, worker)
-          , child_spec(emqx_ctl, worker)
-          ]}}.
+    {ok, {
+        {one_for_one, 10, 100},
+        %% always start emqx_config_handler first to load the emqx.conf to emqx_config
+        [
+            child_spec(emqx_config_handler, worker),
+            child_spec(emqx_pool_sup, supervisor),
+            child_spec(emqx_hooks, worker),
+            child_spec(emqx_stats, worker),
+            child_spec(emqx_metrics, worker),
+            child_spec(emqx_ctl, worker)
+        ]
+    }}.
 
 child_spec(M, Type) ->
     child_spec(M, Type, []).
 
 child_spec(M, worker, Args) ->
-    #{id       => M,
-      start    => {M, start_link, Args},
-      restart  => permanent,
-      shutdown => 5000,
-      type     => worker,
-      modules  => [M]
-     };
-
+    #{
+        id => M,
+        start => {M, start_link, Args},
+        restart => permanent,
+        shutdown => 5000,
+        type => worker,
+        modules => [M]
+    };
 child_spec(M, supervisor, Args) ->
-    #{id       => M,
-      start    => {M, start_link, Args},
-      restart  => permanent,
-      shutdown => infinity,
-      type     => supervisor,
-      modules  => [M]
-     }.
+    #{
+        id => M,
+        start => {M, start_link, Args},
+        restart => permanent,
+        shutdown => infinity,
+        type => supervisor,
+        modules => [M]
+    }.

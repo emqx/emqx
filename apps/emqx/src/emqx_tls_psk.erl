@@ -30,19 +30,25 @@ lookup(psk, PSKIdentity, _UserState) ->
         {ok, SharedSecret} when is_binary(SharedSecret) ->
             {ok, SharedSecret};
         normal ->
-            ?SLOG(info, #{msg => "psk_identity_not_found",
-                          psk_identity => PSKIdentity}),
+            ?SLOG(info, #{
+                msg => "psk_identity_not_found",
+                psk_identity => PSKIdentity
+            }),
             error;
         {error, Reason} ->
-            ?SLOG(warning, #{msg => "psk_identity_not_found",
-                             psk_identity => PSKIdentity,
-                             reason => Reason}),
+            ?SLOG(warning, #{
+                msg => "psk_identity_not_found",
+                psk_identity => PSKIdentity,
+                reason => Reason
+            }),
             error
     catch
         Class:Reason:Stacktrace ->
-          ?SLOG(error, #{msg => "lookup_psk_failed",
-                         class => Class,
-                         reason => Reason,
-                         stacktrace => Stacktrace}),
-          error
+            ?SLOG(error, #{
+                msg => "lookup_psk_failed",
+                class => Class,
+                reason => Reason,
+                stacktrace => Stacktrace
+            }),
+            error
     end.

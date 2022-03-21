@@ -29,8 +29,10 @@ init_per_suite(Config) ->
 
 end_per_suite(_Config) ->
     logger:notice(
-          "If this test suite failed, and you are unsure why, read this:~n"
-          "https://github.com/emqx/emqx/blob/master/apps/emqx/src/bpapi/README.md", []).
+        "If this test suite failed, and you are unsure why, read this:~n"
+        "https://github.com/emqx/emqx/blob/master/apps/emqx/src/bpapi/README.md",
+        []
+    ).
 
 check_if_versions_consistent(OldData, NewData) ->
     %% OldData can contain a wider list of BPAPI versions
@@ -45,9 +47,10 @@ t_run_check(_) ->
         check_if_versions_consistent(OldData, NewData) orelse
             begin
                 logger:critical(
-                      "BPAPI versions were changed, but not committed to the repo.\n"
-                      "Run 'make && make static_checks' and then add the changed "
-                      "'bpapi.versions' files to the commit."),
+                    "BPAPI versions were changed, but not committed to the repo.\n"
+                    "Run 'make && make static_checks' and then add the changed "
+                    "'bpapi.versions' files to the commit."
+                ),
                 error(version_mismatch)
             end
     catch

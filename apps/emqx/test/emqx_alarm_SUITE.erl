@@ -29,15 +29,15 @@ init_per_testcase(t_size_limit, Config) ->
     emqx_common_test_helpers:boot_modules(all),
     emqx_common_test_helpers:start_apps([]),
     {ok, _} = emqx:update_config([alarm], #{
-            <<"size_limit">> => 2
-        }),
+        <<"size_limit">> => 2
+    }),
     Config;
 init_per_testcase(_, Config) ->
     emqx_common_test_helpers:boot_modules(all),
     emqx_common_test_helpers:start_apps([]),
     {ok, _} = emqx:update_config([alarm], #{
-            <<"validity_period">> => <<"1s">>
-        }),
+        <<"validity_period">> => <<"1s">>
+    }),
     Config.
 
 end_per_testcase(_, _Config) ->
@@ -53,7 +53,9 @@ t_alarm(_) ->
     ok = emqx_alarm:deactivate(unknown_alarm),
     {error, not_found} = emqx_alarm:deactivate(unknown_alarm),
     ?assertEqual({error, not_found}, get_alarm(unknown_alarm, emqx_alarm:get_alarms(activated))),
-    ?assertNotEqual({error, not_found}, get_alarm(unknown_alarm, emqx_alarm:get_alarms(deactivated))),
+    ?assertNotEqual(
+        {error, not_found}, get_alarm(unknown_alarm, emqx_alarm:get_alarms(deactivated))
+    ),
 
     emqx_alarm:delete_all_deactivated_alarms(),
     ?assertEqual({error, not_found}, get_alarm(unknown_alarm, emqx_alarm:get_alarms(deactivated))).
@@ -64,7 +66,9 @@ t_deactivate_all_alarms(_) ->
     ?assertNotEqual({error, not_found}, get_alarm(unknown_alarm, emqx_alarm:get_alarms(activated))),
 
     emqx_alarm:deactivate_all_alarms(),
-    ?assertNotEqual({error, not_found}, get_alarm(unknown_alarm, emqx_alarm:get_alarms(deactivated))),
+    ?assertNotEqual(
+        {error, not_found}, get_alarm(unknown_alarm, emqx_alarm:get_alarms(deactivated))
+    ),
 
     emqx_alarm:delete_all_deactivated_alarms(),
     ?assertEqual({error, not_found}, get_alarm(unknown_alarm, emqx_alarm:get_alarms(deactivated))).
@@ -130,7 +134,9 @@ t_format(_Config) ->
     At = erlang:system_time(microsecond),
     Details = "test_details",
     Node = node(),
-    Activate = #activated_alarm{name = Name, message = Message, activate_at = At, details = Details},
+    Activate = #activated_alarm{
+        name = Name, message = Message, activate_at = At, details = Details
+    },
     #{
         node := Node,
         name := Name,
@@ -138,8 +144,13 @@ t_format(_Config) ->
         duration := 0,
         details := Details
     } = emqx_alarm:format(Activate),
-    Deactivate = #deactivated_alarm{name = Name, message = Message, activate_at = At, details = Details,
-        deactivate_at = At},
+    Deactivate = #deactivated_alarm{
+        name = Name,
+        message = Message,
+        activate_at = At,
+        details = Details,
+        deactivate_at = At
+    },
     #{
         node := Node,
         name := Name,
@@ -148,7 +159,6 @@ t_format(_Config) ->
         details := Details
     } = emqx_alarm:format(Deactivate),
     ok.
-
 
 get_alarm(Name, [Alarm = #{name := Name} | _More]) ->
     Alarm;

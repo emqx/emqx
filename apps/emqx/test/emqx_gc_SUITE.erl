@@ -57,4 +57,3 @@ t_reset(_) ->
     ?assertEqual(GC, emqx_gc:reset(GC1)),
     DisabledGC = emqx_gc:init(#{count => 0, bytes => 0}),
     ?assertEqual(DisabledGC, emqx_gc:reset(DisabledGC)).
-

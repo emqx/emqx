@@ -46,53 +46,72 @@ end_per_testcase(_) ->
 %     error('TODO').
 
 t_add_hook_order(_) ->
-    ?assert(proper:quickcheck(add_hook_order_prop(),
-                              [{on_output, fun ct:print/2},
-                               {numtests, 1000}])).
+    ?assert(
+        proper:quickcheck(
+            add_hook_order_prop(),
+            [
+                {on_output, fun ct:print/2},
+                {numtests, 1000}
+            ]
+        )
+    ).
 
 add_hook_order_prop() ->
     %% Note: order is inversed, since higher prio hooks run first:
     Comparator = fun({Prio1, M1, F1}, {Prio2, M2, F2}) ->
-                         Prio1 > Prio2 orelse
-                             (Prio1 =:= Prio2 andalso {M1, F1} =< {M2, F2})
-                 end,
+        Prio1 > Prio2 orelse
+            (Prio1 =:= Prio2 andalso {M1, F1} =< {M2, F2})
+    end,
     ?FORALL(
-       Hooks, hooks(),
-       try
-           {ok, _} = emqx_hooks:start_link(),
-           [ok = emqx:hook(prop_hook, {M, F, []}, Prio) || {Prio, M, F} <- Hooks],
-           Callbacks = emqx_hooks:lookup(prop_hook),
-           Order = [{Prio, M, F} || {callback, {M, F, _}, _Filter, Prio} <- Callbacks],
-           ?assertEqual(lists:sort(Comparator, Hooks),
-                        Order),
-           true
-       after
-           emqx_hooks:stop()
-       end).
+        Hooks,
+        hooks(),
+        try
+            {ok, _} = emqx_hooks:start_link(),
+            [ok = emqx:hook(prop_hook, {M, F, []}, Prio) || {Prio, M, F} <- Hooks],
+            Callbacks = emqx_hooks:lookup(prop_hook),
+            Order = [{Prio, M, F} || {callback, {M, F, _}, _Filter, Prio} <- Callbacks],
+            ?assertEqual(
+                lists:sort(Comparator, Hooks),
+                Order
+            ),
+            true
+        after
+            emqx_hooks:stop()
+        end
+    ).
 
 hooks() ->
-    ?SUCHTHAT(L0, list({range(-1, 5), atom(), atom()}),
-              begin
-                  %% Duplicate callbacks are ignored, so check that
-                  %% all callbacks are unique:
-                  L = [{M, F} || {_Prio, M, F} <- L0],
-                  length(lists:usort(L)) =:= length(L0)
-              end).
+    ?SUCHTHAT(
+        L0,
+        list({range(-1, 5), atom(), atom()}),
+        begin
+            %% Duplicate callbacks are ignored, so check that
+            %% all callbacks are unique:
+            L = [{M, F} || {_Prio, M, F} <- L0],
+            length(lists:usort(L)) =:= length(L0)
+        end
+    ).
 
 t_add_put_del_hook(_) ->
     {ok, _} = emqx_hooks:start_link(),
     ok = emqx:hook(test_hook, {?MODULE, hook_fun1, []}),
     ok = emqx:hook(test_hook, {?MODULE, hook_fun2, []}),
-    ?assertEqual({error, already_exists},
-                 emqx:hook(test_hook, {?MODULE, hook_fun2, []})),
-    Callbacks0 = [{callback, {?MODULE, hook_fun1, []}, undefined, 0},
-                  {callback, {?MODULE, hook_fun2, []}, undefined, 0}],
+    ?assertEqual(
+        {error, already_exists},
+        emqx:hook(test_hook, {?MODULE, hook_fun2, []})
+    ),
+    Callbacks0 = [
+        {callback, {?MODULE, hook_fun1, []}, undefined, 0},
+        {callback, {?MODULE, hook_fun2, []}, undefined, 0}
+    ],
     ?assertEqual(Callbacks0, emqx_hooks:lookup(test_hook)),
 
     ok = emqx_hooks:put(test_hook, {?MODULE, hook_fun1, [test]}),
     ok = emqx_hooks:put(test_hook, {?MODULE, hook_fun2, [test]}),
-    Callbacks1 = [{callback, {?MODULE, hook_fun1, [test]}, undefined, 0},
-                  {callback, {?MODULE, hook_fun2, [test]}, undefined, 0}],
+    Callbacks1 = [
+        {callback, {?MODULE, hook_fun1, [test]}, undefined, 0},
+        {callback, {?MODULE, hook_fun2, [test]}, undefined, 0}
+    ],
     ?assertEqual(Callbacks1, emqx_hooks:lookup(test_hook)),
 
     ok = emqx:unhook(test_hook, {?MODULE, hook_fun1}),
@@ -104,20 +123,24 @@ t_add_put_del_hook(_) ->
     ok = emqx:hook(emqx_hook, {?MODULE, hook_fun2, []}, 2),
     ok = emqx:hook(emqx_hook, {?MODULE, hook_fun10, []}, 10),
     ok = emqx:hook(emqx_hook, {?MODULE, hook_fun9, []}, 9),
-    Callbacks2 = [{callback, {?MODULE, hook_fun10, []}, undefined, 10},
-                  {callback, {?MODULE, hook_fun9, []}, undefined, 9},
-                  {callback, {?MODULE, hook_fun8, []}, undefined, 8},
-                  {callback, {?MODULE, hook_fun2, []}, undefined, 2}],
+    Callbacks2 = [
+        {callback, {?MODULE, hook_fun10, []}, undefined, 10},
+        {callback, {?MODULE, hook_fun9, []}, undefined, 9},
+        {callback, {?MODULE, hook_fun8, []}, undefined, 8},
+        {callback, {?MODULE, hook_fun2, []}, undefined, 2}
+    ],
     ?assertEqual(Callbacks2, emqx_hooks:lookup(emqx_hook)),
 
     ok = emqx_hooks:put(emqx_hook, {?MODULE, hook_fun8, [test]}, 3),
     ok = emqx_hooks:put(emqx_hook, {?MODULE, hook_fun2, [test]}, 4),
     ok = emqx_hooks:put(emqx_hook, {?MODULE, hook_fun10, [test]}, 1),
     ok = emqx_hooks:put(emqx_hook, {?MODULE, hook_fun9, [test]}, 2),
-    Callbacks3 = [{callback, {?MODULE, hook_fun2, [test]}, undefined, 4},
-                  {callback, {?MODULE, hook_fun8, [test]}, undefined, 3},
-                  {callback, {?MODULE, hook_fun9, [test]}, undefined, 2},
-                  {callback, {?MODULE, hook_fun10, [test]}, undefined, 1}],
+    Callbacks3 = [
+        {callback, {?MODULE, hook_fun2, [test]}, undefined, 4},
+        {callback, {?MODULE, hook_fun8, [test]}, undefined, 3},
+        {callback, {?MODULE, hook_fun9, [test]}, undefined, 2},
+        {callback, {?MODULE, hook_fun10, [test]}, undefined, 1}
+    ],
     ?assertEqual(Callbacks3, emqx_hooks:lookup(emqx_hook)),
 
     ok = emqx:unhook(emqx_hook, {?MODULE, hook_fun2, [test]}),
@@ -132,12 +155,13 @@ t_run_hooks(_) ->
     ok = emqx:hook(foldl_hook, {?MODULE, hook_fun3, [init]}),
     ok = emqx:hook(foldl_hook, {?MODULE, hook_fun4, [init]}),
     ok = emqx:hook(foldl_hook, {?MODULE, hook_fun5, [init]}),
-    [r5,r4] = emqx:run_fold_hook(foldl_hook, [arg1, arg2], []),
+    [r5, r4] = emqx:run_fold_hook(foldl_hook, [arg1, arg2], []),
     [] = emqx:run_fold_hook(unknown_hook, [], []),
 
     ok = emqx:hook(foldl_hook2, {?MODULE, hook_fun9, []}),
     ok = emqx:hook(foldl_hook2, {?MODULE, hook_fun10, []}),
-    [r10] = emqx:run_fold_hook(foldl_hook2, [arg], []), %% Note: 10 is _less_ than 9 per lexicographic order
+    %% Note: 10 is _less_ than 9 per lexicographic order
+    [r10] = emqx:run_fold_hook(foldl_hook2, [arg], []),
 
     ok = emqx:hook(foreach_hook, {?MODULE, hook_fun6, [initArg]}),
     {error, already_exists} = emqx:hook(foreach_hook, {?MODULE, hook_fun6, [initArg]}),
@@ -146,11 +170,17 @@ t_run_hooks(_) ->
     ok = emqx:run_hook(foreach_hook, [arg]),
 
     ok = emqx:hook(foreach_filter1_hook, {?MODULE, hook_fun1, []}, {?MODULE, hook_filter1, []}, 0),
-    ?assertEqual(ok, emqx:run_hook(foreach_filter1_hook, [arg])), %% filter passed
-    ?assertEqual(ok, emqx:run_hook(foreach_filter1_hook, [arg1])), %% filter failed
+    %% filter passed
+    ?assertEqual(ok, emqx:run_hook(foreach_filter1_hook, [arg])),
+    %% filter failed
+    ?assertEqual(ok, emqx:run_hook(foreach_filter1_hook, [arg1])),
 
-    ok = emqx:hook(foldl_filter2_hook, {?MODULE, hook_fun2, []}, {?MODULE, hook_filter2, [init_arg]}),
-    ok = emqx:hook(foldl_filter2_hook, {?MODULE, hook_fun2_1, []}, {?MODULE, hook_filter2_1, [init_arg]}),
+    ok = emqx:hook(
+        foldl_filter2_hook, {?MODULE, hook_fun2, []}, {?MODULE, hook_filter2, [init_arg]}
+    ),
+    ok = emqx:hook(
+        foldl_filter2_hook, {?MODULE, hook_fun2_1, []}, {?MODULE, hook_filter2_1, [init_arg]}
+    ),
     ?assertEqual(3, emqx:run_fold_hook(foldl_filter2_hook, [arg], 1)),
     ?assertEqual(2, emqx:run_fold_hook(foldl_filter2_hook, [arg1], 1)).
 
@@ -176,14 +206,14 @@ hook_fun2(_, Acc) -> {ok, Acc + 1}.
 hook_fun2_1(_, Acc) -> {ok, Acc + 1}.
 
 hook_fun3(arg1, arg2, _Acc, init) -> ok.
-hook_fun4(arg1, arg2, Acc, init)  -> {ok, [r4 | Acc]}.
-hook_fun5(arg1, arg2, Acc, init)  -> {ok, [r5 | Acc]}.
+hook_fun4(arg1, arg2, Acc, init) -> {ok, [r4 | Acc]}.
+hook_fun5(arg1, arg2, Acc, init) -> {ok, [r5 | Acc]}.
 
 hook_fun6(arg, initArg) -> ok.
 hook_fun7(arg, initArg) -> ok.
 hook_fun8(arg, initArg) -> ok.
 
-hook_fun9(arg, Acc)  -> {stop, [r9 | Acc]}.
+hook_fun9(arg, Acc) -> {stop, [r9 | Acc]}.
 hook_fun10(arg, Acc) -> {stop, [r10 | Acc]}.
 
 hook_filter1(arg) -> true;
@@ -192,6 +222,6 @@ hook_filter1(_) -> false.
 hook_filter2(arg, _Acc, init_arg) -> true;
 hook_filter2(_, _Acc, _IntArg) -> false.
 
-hook_filter2_1(arg, _Acc, init_arg)  -> true;
+hook_filter2_1(arg, _Acc, init_arg) -> true;
 hook_filter2_1(arg1, _Acc, init_arg) -> true;
-hook_filter2_1(_, _Acc, _IntArg)     -> false.
+hook_filter2_1(_, _Acc, _IntArg) -> false.

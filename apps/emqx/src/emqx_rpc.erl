@@ -19,33 +19,37 @@
 %% Note: please don't forget to add new API functions to
 %% `emqx_bpapi_trans:extract_mfa'
 
--export([ call/4
-        , call/5
-        , cast/4
-        , cast/5
-        , multicall/4
-        , multicall/5
+-export([
+    call/4,
+    call/5,
+    cast/4,
+    cast/5,
+    multicall/4,
+    multicall/5,
 
-        , unwrap_erpc/1
-        ]).
+    unwrap_erpc/1
+]).
 
--export_type([ badrpc/0
-             , call_result/0
-             , cast_result/0
-             , multicall_result/1
-             , multicall_result/0
-             , erpc/1
-             , erpc_multicall/1
-             ]).
+-export_type([
+    badrpc/0,
+    call_result/0,
+    cast_result/0,
+    multicall_result/1,
+    multicall_result/0,
+    erpc/1,
+    erpc_multicall/1
+]).
 
--compile({inline,
-          [ rpc_node/1
-          , rpc_nodes/1
-          ]}).
+-compile(
+    {inline, [
+        rpc_node/1,
+        rpc_nodes/1
+    ]}
+).
 
 -define(DefaultClientNum, 1).
 
--type badrpc() ::  {badrpc, term()} | {badtcp, term()}.
+-type badrpc() :: {badrpc, term()} | {badtcp, term()}.
 
 -type call_result() :: term() | badrpc().
 
@@ -55,11 +59,12 @@
 
 -type multicall_result() :: multicall_result(term()).
 
--type erpc(Ret) :: {ok, Ret}
-                 | {throw, _Err}
-                 | {exit, {exception | signal, _Reason}}
-                 | {error, {exception, _Reason, _Stack :: list()}}
-                 | {error, {erpc, _Reason}}.
+-type erpc(Ret) ::
+    {ok, Ret}
+    | {throw, _Err}
+    | {exit, {exception | signal, _Reason}}
+    | {error, {exception, _Reason, _Stack :: list()}}
+    | {error, {erpc, _Reason}}.
 
 -type erpc_multicall(Ret) :: [erpc(Ret)].
 
@@ -100,8 +105,9 @@ rpc_nodes([], Acc) ->
 rpc_nodes([Node | Nodes], Acc) ->
     rpc_nodes(Nodes, [rpc_node(Node) | Acc]).
 
-filter_result({Error, Reason})
-  when Error =:= badrpc; Error =:= badtcp ->
+filter_result({Error, Reason}) when
+    Error =:= badrpc; Error =:= badtcp
+->
     {badrpc, Reason};
 filter_result(Delivery) ->
     Delivery.

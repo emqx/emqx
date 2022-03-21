@@ -38,18 +38,21 @@ t_hash_data(_) ->
     Password = <<"password">>,
     Password = emqx_passwd:hash_data(plain, Password),
 
-    <<"5f4dcc3b5aa765d61d8327deb882cf99">>
-        = emqx_passwd:hash_data(md5, Password),
+    <<"5f4dcc3b5aa765d61d8327deb882cf99">> =
+        emqx_passwd:hash_data(md5, Password),
 
-    <<"5baa61e4c9b93f3f0682250b6cf8331b7ee68fd8">>
-        = emqx_passwd:hash_data(sha, Password),
+    <<"5baa61e4c9b93f3f0682250b6cf8331b7ee68fd8">> =
+        emqx_passwd:hash_data(sha, Password),
 
-    <<"5e884898da28047151d0e56f8dc6292773603d0d6aabbdd62a11ef721d1542d8">>
-        = emqx_passwd:hash_data(sha256, Password),
+    <<"5e884898da28047151d0e56f8dc6292773603d0d6aabbdd62a11ef721d1542d8">> =
+        emqx_passwd:hash_data(sha256, Password),
 
     Sha512 = iolist_to_binary(
-               [<<"b109f3bbbc244eb82441917ed06d618b9008dd09b3befd1b5e07394c706a8bb9">>,
-                <<"80b1d7785e5976ec049b46df5f1326af5a2ea6d103fd07c95385ffab0cacbc86">>]),
+        [
+            <<"b109f3bbbc244eb82441917ed06d618b9008dd09b3befd1b5e07394c706a8bb9">>,
+            <<"80b1d7785e5976ec049b46df5f1326af5a2ea6d103fd07c95385ffab0cacbc86">>
+        ]
+    ),
 
     Sha512 = emqx_passwd:hash_data(sha512, Password).
 
@@ -74,8 +77,11 @@ t_hash(_) ->
     false = emqx_passwd:check_pass({sha256, Salt, suffix}, Sha256, WrongPassword),
 
     Sha512 = iolist_to_binary(
-               [<<"fa6a2185b3e0a9a85ef41ffb67ef3c1fb6f74980f8ebf970e4e72e353ed9537d">>,
-                <<"593083c201dfd6e43e1c8a7aac2bc8dbb119c7dfb7d4b8f131111395bd70e97f">>]),
+        [
+            <<"fa6a2185b3e0a9a85ef41ffb67ef3c1fb6f74980f8ebf970e4e72e353ed9537d">>,
+            <<"593083c201dfd6e43e1c8a7aac2bc8dbb119c7dfb7d4b8f131111395bd70e97f">>
+        ]
+    ),
     Sha512 = emqx_passwd:hash({sha512, Salt, suffix}, Password),
     true = emqx_passwd:check_pass({sha512, Salt, suffix}, Sha512, Password),
     false = emqx_passwd:check_pass({sha512, Salt, suffix}, Sha512, WrongPassword),
@@ -92,8 +98,10 @@ t_hash(_) ->
 
     BadDKlen = 1 bsl 32,
     Pbkdf2Salt = <<"ATHENA.MIT.EDUraeburn">>,
-    Pbkdf2 = <<"01dbee7f4a9e243e988b62c73cda935d"
-               "a05378b93244ec8f48a99e61ad799d86">>,
+    Pbkdf2 = <<
+        "01dbee7f4a9e243e988b62c73cda935d"
+        "a05378b93244ec8f48a99e61ad799d86"
+    >>,
     Pbkdf2 = emqx_passwd:hash({pbkdf2, sha, Pbkdf2Salt, 2, 32}, Password),
     true = emqx_passwd:check_pass({pbkdf2, sha, Pbkdf2Salt, 2, 32}, Pbkdf2, Password),
     false = emqx_passwd:check_pass({pbkdf2, sha, Pbkdf2Salt, 2, 32}, Pbkdf2, WrongPassword),

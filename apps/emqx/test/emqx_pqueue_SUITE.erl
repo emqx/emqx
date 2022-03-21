@@ -78,15 +78,24 @@ t_in(_) ->
     Q = ?PQ:new(),
     Els = [a, b, {c, 1}, {d, 1}, {e, infinity}, {f, 2}],
     Q1 = lists:foldl(
-            fun({El, P}, Acc) ->
-                    ?PQ:in(El, P, Acc);
-                (El, Acc) ->
-                    ?PQ:in(El, Acc)
-            end, Q, Els),
-    ?assertEqual({pqueue, [{infinity, {queue, [e], [], 1}},
-                           {-2, {queue, [f], [], 1}},
-                           {-1, {queue, [d], [c], 2}},
-                           {0, {queue, [b], [a], 2}}]}, Q1).
+        fun
+            ({El, P}, Acc) ->
+                ?PQ:in(El, P, Acc);
+            (El, Acc) ->
+                ?PQ:in(El, Acc)
+        end,
+        Q,
+        Els
+    ),
+    ?assertEqual(
+        {pqueue, [
+            {infinity, {queue, [e], [], 1}},
+            {-2, {queue, [f], [], 1}},
+            {-1, {queue, [d], [c], 2}},
+            {0, {queue, [b], [a], 2}}
+        ]},
+        Q1
+    ).
 
 t_out(_) ->
     Q = ?PQ:new(),
@@ -94,8 +103,9 @@ t_out(_) ->
     {empty, Q} = ?PQ:out(0, Q),
     try ?PQ:out(1, Q) of
         _ -> ct:fail(should_throw_error)
-    catch error:Reason ->
-        ?assertEqual(Reason, badarg)
+    catch
+        error:Reason ->
+            ?assertEqual(Reason, badarg)
     end,
     {{value, a}, Q} = ?PQ:out(?PQ:from_list([{0, a}])),
     {{value, a}, {queue, [], [b], 1}} = ?PQ:out(?PQ:from_list([{0, a}, {0, b}])),
@@ -128,49 +138,69 @@ t_join(_) ->
     Q1 = ?PQ:in(a, ?PQ:new()),
     Q2 = ?PQ:in(b, Q1),
     Q3 = ?PQ:in(c, Q2),
-    {queue,[c,b],[a],3} = Q3,
+    {queue, [c, b], [a], 3} = Q3,
 
     Q4 = ?PQ:in(x, ?PQ:new()),
     Q5 = ?PQ:in(y, Q4),
     Q6 = ?PQ:in(z, Q5),
-    {queue,[z,y],[x],3} = Q6,
+    {queue, [z, y], [x], 3} = Q6,
 
-    {queue,[z,y],[a,b,c,x],6} = ?PQ:join(Q3, Q6),
+    {queue, [z, y], [a, b, c, x], 6} = ?PQ:join(Q3, Q6),
 
     PQueue1 = ?PQ:from_list([{1, c}, {1, d}]),
     PQueue2 = ?PQ:from_list([{1, c}, {1, d}, {0, a}, {0, b}]),
     PQueue3 = ?PQ:from_list([{1, c}, {1, d}, {-1, a}, {-1, b}]),
 
-    {pqueue,[{-1,{queue,[d],[c],2}},
-             {0,{queue,[z,y],[x],3}}]} = ?PQ:join(PQueue1, Q6),
-    {pqueue,[{-1,{queue,[d],[c],2}},
-             {0,{queue,[z,y],[x],3}}]} = ?PQ:join(Q6, PQueue1),
+    {pqueue, [
+        {-1, {queue, [d], [c], 2}},
+        {0, {queue, [z, y], [x], 3}}
+    ]} = ?PQ:join(PQueue1, Q6),
+    {pqueue, [
+        {-1, {queue, [d], [c], 2}},
+        {0, {queue, [z, y], [x], 3}}
+    ]} = ?PQ:join(Q6, PQueue1),
 
-    {pqueue,[{-1,{queue,[d],[c],2}},
-             {0,{queue,[z,y],[a,b,x],5}}]} = ?PQ:join(PQueue2, Q6),
-    {pqueue,[{-1,{queue,[d],[c],2}},
-             {0,{queue,[b],[x,y,z,a],5}}]} = ?PQ:join(Q6, PQueue2),
+    {pqueue, [
+        {-1, {queue, [d], [c], 2}},
+        {0, {queue, [z, y], [a, b, x], 5}}
+    ]} = ?PQ:join(PQueue2, Q6),
+    {pqueue, [
+        {-1, {queue, [d], [c], 2}},
+        {0, {queue, [b], [x, y, z, a], 5}}
+    ]} = ?PQ:join(Q6, PQueue2),
 
-    {pqueue,[{-1,{queue,[d],[c],2}},
-             {0,{queue,[z,y],[x],3}},
-             {1,{queue,[b],[a],2}}]} = ?PQ:join(PQueue3, Q6),
-    {pqueue,[{-1,{queue,[d],[c],2}},
-             {0,{queue,[z,y],[x],3}},
-             {1,{queue,[b],[a],2}}]} = ?PQ:join(Q6, PQueue3),
+    {pqueue, [
+        {-1, {queue, [d], [c], 2}},
+        {0, {queue, [z, y], [x], 3}},
+        {1, {queue, [b], [a], 2}}
+    ]} = ?PQ:join(PQueue3, Q6),
+    {pqueue, [
+        {-1, {queue, [d], [c], 2}},
+        {0, {queue, [z, y], [x], 3}},
+        {1, {queue, [b], [a], 2}}
+    ]} = ?PQ:join(Q6, PQueue3),
 
     PQueue4 = ?PQ:from_list([{1, c}, {1, d}]),
     PQueue5 = ?PQ:from_list([{2, a}, {2, b}]),
-    {pqueue,[{-2,{queue,[b],[a],2}},
-             {-1,{queue,[d],[c],2}}]} = ?PQ:join(PQueue4, PQueue5).
+    {pqueue, [
+        {-2, {queue, [b], [a], 2}},
+        {-1, {queue, [d], [c], 2}}
+    ]} = ?PQ:join(PQueue4, PQueue5).
 
 t_filter(_) ->
-    {pqueue, [{-2, {queue, [10], [4], 2}},
-              {-1, {queue, [2], [], 1}}]} = 
-        ?PQ:filter(fun(V) when V rem 2 =:= 0 ->
-                       true;
-                      (_) ->
-                       false
-                   end, ?PQ:from_list([{0, 1}, {0, 3}, {1, 2}, {2, 4}, {2, 10}])).
+    {pqueue, [
+        {-2, {queue, [10], [4], 2}},
+        {-1, {queue, [2], [], 1}}
+    ]} =
+        ?PQ:filter(
+            fun
+                (V) when V rem 2 =:= 0 ->
+                    true;
+                (_) ->
+                    false
+            end,
+            ?PQ:from_list([{0, 1}, {0, 3}, {1, 2}, {2, 4}, {2, 10}])
+        ).
 
 t_highest(_) ->
     empty = ?PQ:highest(?PQ:new()),

@@ -20,20 +20,22 @@
 -include("emqx_placeholder.hrl").
 -include("types.hrl").
 
--export([ mount/2
-        , unmount/2
-        ]).
+-export([
+    mount/2,
+    unmount/2
+]).
 
 -export([replvar/2]).
 
 -export_type([mountpoint/0]).
 
--type(mountpoint() :: binary()).
+-type mountpoint() :: binary().
 
--spec(mount(maybe(mountpoint()), Any) -> Any
-  when Any :: emqx_types:topic()
-            | emqx_types:message()
-            | emqx_types:topic_filters()).
+-spec mount(maybe(mountpoint()), Any) -> Any when
+    Any ::
+        emqx_types:topic()
+        | emqx_types:message()
+        | emqx_types:topic_filters().
 mount(undefined, Any) ->
     Any;
 mount(MountPoint, Topic) when is_binary(Topic) ->
@@ -48,33 +50,35 @@ mount(MountPoint, TopicFilters) when is_list(TopicFilters) ->
 prefix(MountPoint, Topic) ->
     <<MountPoint/binary, Topic/binary>>.
 
--spec(unmount(maybe(mountpoint()), Any) -> Any
-  when Any :: emqx_types:topic()
-            | emqx_types:message()).
+-spec unmount(maybe(mountpoint()), Any) -> Any when
+    Any ::
+        emqx_types:topic()
+        | emqx_types:message().
 unmount(undefined, Any) ->
     Any;
 unmount(MountPoint, Topic) when is_binary(Topic) ->
     case string:prefix(Topic, MountPoint) of
         nomatch -> Topic;
-        Topic1  -> Topic1
+        Topic1 -> Topic1
     end;
 unmount(MountPoint, Msg = #message{topic = Topic}) ->
     case string:prefix(Topic, MountPoint) of
         nomatch -> Msg;
-        Topic1  -> Msg#message{topic = Topic1}
+        Topic1 -> Msg#message{topic = Topic1}
     end.
 
--spec(replvar(maybe(mountpoint()), map()) -> maybe(mountpoint())).
+-spec replvar(maybe(mountpoint()), map()) -> maybe(mountpoint()).
 replvar(undefined, _Vars) ->
     undefined;
 replvar(MountPoint, Vars) ->
-    ClientID     = maps:get(clientid, Vars, undefined),
-    UserName     = maps:get(username, Vars, undefined),
+    ClientID = maps:get(clientid, Vars, undefined),
+    UserName = maps:get(username, Vars, undefined),
     EndpointName = maps:get(endpoint_name, Vars, undefined),
-    List = [ {?PH_CLIENTID, ClientID}
-           , {?PH_USERNAME, UserName}
-           , {?PH_ENDPOINT_NAME, EndpointName}
-           ],
+    List = [
+        {?PH_CLIENTID, ClientID},
+        {?PH_USERNAME, UserName},
+        {?PH_ENDPOINT_NAME, EndpointName}
+    ],
     lists:foldl(fun feed_var/2, MountPoint, List).
 
 feed_var({_PlaceHolder, undefined}, MountPoint) ->

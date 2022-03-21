@@ -19,39 +19,46 @@
 
 -include("types.hrl").
 
--export([ init/2
-        , init/4 %% XXX: Compatible with before 4.2 version
-        , info/1
-        , check/2
-        ]).
+-export([
+    init/2,
+    %% XXX: Compatible with before 4.2 version
+    init/4,
+    info/1,
+    check/2
+]).
 
 -record(limiter, {
-          %% Zone
-          zone :: atom(),
-          %% Checkers
-          checkers :: [checker()]
-         }).
+    %% Zone
+    zone :: atom(),
+    %% Checkers
+    checkers :: [checker()]
+}).
 
--type(checker() :: #{ name     := name()
-                    , capacity := non_neg_integer()
-                    , interval := non_neg_integer()
-                    , consumer := esockd_rate_limit:bucket() | atom()
-                    }).
+-type checker() :: #{
+    name := name(),
+    capacity := non_neg_integer(),
+    interval := non_neg_integer(),
+    consumer := esockd_rate_limit:bucket() | atom()
+}.
 
--type(name() :: conn_bytes_in
-              | conn_messages_in
-              | conn_messages_routing
-              | overall_messages_routing
-              ).
+-type name() ::
+    conn_bytes_in
+    | conn_messages_in
+    | conn_messages_routing
+    | overall_messages_routing.
 
--type(policy() :: [{name(), esockd_rate_limit:config()}]).
+-type policy() :: [{name(), esockd_rate_limit:config()}].
 
--type(info() :: #{name() :=
-                  #{tokens   := non_neg_integer(),
-                    capacity := non_neg_integer(),
-                    interval := non_neg_integer()}}).
+-type info() :: #{
+    name() :=
+        #{
+            tokens := non_neg_integer(),
+            capacity := non_neg_integer(),
+            interval := non_neg_integer()
+        }
+}.
 
--type(limiter() :: #limiter{}).
+-type limiter() :: #limiter{}.
 
 -dialyzer({nowarn_function, [consume/3]}).
 
@@ -59,17 +66,25 @@
 %% APIs
 %%--------------------------------------------------------------------
 
--spec(init(atom(),
-           maybe(esockd_rate_limit:config()),
-           maybe(esockd_rate_limit:config()), policy())
-     -> maybe(limiter())).
+-spec init(
+    atom(),
+    maybe(esockd_rate_limit:config()),
+    maybe(esockd_rate_limit:config()),
+    policy()
+) ->
+    maybe(limiter()).
 init(Zone, PubLimit, BytesIn, Specs) ->
-    Merged = maps:merge(#{conn_messages_in => PubLimit,
-                          conn_bytes_in => BytesIn}, maps:from_list(Specs)),
+    Merged = maps:merge(
+        #{
+            conn_messages_in => PubLimit,
+            conn_bytes_in => BytesIn
+        },
+        maps:from_list(Specs)
+    ),
     Filtered = maps:filter(fun(_, V) -> V /= undefined end, Merged),
     init(Zone, maps:to_list(Filtered)).
 
--spec(init(atom(), policy()) -> maybe(limiter())).
+-spec init(atom(), policy()) -> maybe(limiter()).
 init(_Zone, []) ->
     undefined;
 init(Zone, Specs) ->
@@ -91,15 +106,19 @@ do_init_checker(Zone, {Name, {Capacity, Interval}}) ->
             Ck#{consumer => esockd_rate_limit:new(Capacity / Interval, Capacity)}
     end.
 
--spec(info(limiter()) -> info()).
+-spec info(limiter()) -> info().
 info(#limiter{zone = Zone, checkers = Cks}) ->
     maps:from_list([get_info(Zone, Ck) || Ck <- Cks]).
 
--spec(check(#{cnt := Cnt :: non_neg_integer(),
-              oct := Oct :: non_neg_integer()},
-            Limiter :: limiter())
-      -> {ok, NLimiter :: limiter()}
-       | {pause, MilliSecs :: non_neg_integer(), NLimiter :: limiter()}).
+-spec check(
+    #{
+        cnt := Cnt :: non_neg_integer(),
+        oct := Oct :: non_neg_integer()
+    },
+    Limiter :: limiter()
+) ->
+    {ok, NLimiter :: limiter()}
+    | {pause, MilliSecs :: non_neg_integer(), NLimiter :: limiter()}.
 check(#{cnt := Cnt, oct := Oct}, Limiter = #limiter{checkers = Cks}) ->
     {Pauses, NCks} = do_check(Cnt, Oct, Cks, [], []),
     case lists:max(Pauses) of
@@ -112,16 +131,20 @@ check(#{cnt := Cnt, oct := Oct}, Limiter = #limiter{checkers = Cks}) ->
 %% @private
 do_check(_, _, [], Pauses, NCks) ->
     {Pauses, lists:reverse(NCks)};
-do_check(Pubs, Bytes, [Ck|More], Pauses, Acc) ->
+do_check(Pubs, Bytes, [Ck | More], Pauses, Acc) ->
     {I, NConsumer} = consume(Pubs, Bytes, Ck),
-    do_check(Pubs, Bytes, More, [I|Pauses], [Ck#{consumer := NConsumer}|Acc]).
+    do_check(Pubs, Bytes, More, [I | Pauses], [Ck#{consumer := NConsumer} | Acc]).
 
 %%--------------------------------------------------------------------
 %% Internal funcs
 %%--------------------------------------------------------------------
 
 consume(Pubs, Bytes, #{name := Name, consumer := Cons}) ->
-    Tokens = case is_message_limiter(Name) of true -> Pubs; _ -> Bytes end,
+    Tokens =
+        case is_message_limiter(Name) of
+            true -> Pubs;
+            _ -> Bytes
+        end,
     case Tokens =:= 0 of
         true ->
             {0, Cons};
@@ -135,15 +158,22 @@ consume(Pubs, Bytes, #{name := Name, consumer := Cons}) ->
             end
     end.
 
-get_info(Zone, #{name := Name, capacity := Cap,
-                 interval := Intv, consumer := Cons}) ->
-    Info = case is_overall_limiter(Name) of
-               true -> esockd_limiter:lookup({Zone, Name});
-               _ -> esockd_rate_limit:info(Cons)
-           end,
-    {Name, #{capacity => Cap,
-             interval => Intv,
-             tokens => maps:get(tokens, Info)}}.
+get_info(Zone, #{
+    name := Name,
+    capacity := Cap,
+    interval := Intv,
+    consumer := Cons
+}) ->
+    Info =
+        case is_overall_limiter(Name) of
+            true -> esockd_limiter:lookup({Zone, Name});
+            _ -> esockd_rate_limit:info(Cons)
+        end,
+    {Name, #{
+        capacity => Cap,
+        interval => Intv,
+        tokens => maps:get(tokens, Info)
+    }}.
 
 is_overall_limiter(overall_messages_routing) -> true;
 is_overall_limiter(_) -> false.

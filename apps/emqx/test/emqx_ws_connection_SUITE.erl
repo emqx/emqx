@@ -23,15 +23,25 @@
 -compile(export_all).
 -compile(nowarn_export_all).
 
--import(emqx_ws_connection,
-        [ websocket_handle/2
-        , websocket_info/2
-        , websocket_close/2
-        ]).
+-import(
+    emqx_ws_connection,
+    [
+        websocket_handle/2,
+        websocket_info/2,
+        websocket_close/2
+    ]
+).
 
--define(STATS_KEYS, [recv_oct, recv_cnt, send_oct, send_cnt,
-                     recv_pkt, recv_msg, send_pkt, send_msg
-                    ]).
+-define(STATS_KEYS, [
+    recv_oct,
+    recv_cnt,
+    send_oct,
+    send_cnt,
+    recv_pkt,
+    recv_msg,
+    send_pkt,
+    send_msg
+]).
 
 -define(ws_conn, emqx_ws_connection).
 
@@ -47,7 +57,7 @@ init_per_testcase(TestCase, Config) when
     TestCase =/= t_ws_check_origin,
     TestCase =/= t_ws_pingreq_before_connected,
     TestCase =/= t_ws_non_check_origin
-    ->
+->
     %% Meck Cm
     ok = meck:new(emqx_cm, [passthrough, no_history, no_link]),
     ok = meck:expect(emqx_cm, mark_channel_connected, fun(_) -> ok end),
@@ -55,8 +65,8 @@ init_per_testcase(TestCase, Config) when
     %% Mock cowboy_req
     ok = meck:new(cowboy_req, [passthrough, no_history, no_link]),
     ok = meck:expect(cowboy_req, header, fun(_, _, _) -> <<>> end),
-    ok = meck:expect(cowboy_req, peer, fun(_) -> {{127,0,0,1}, 3456} end),
-    ok = meck:expect(cowboy_req, sock, fun(_) -> {{127,0,0,1}, 18083} end),
+    ok = meck:expect(cowboy_req, peer, fun(_) -> {{127, 0, 0, 1}, 3456} end),
+    ok = meck:expect(cowboy_req, sock, fun(_) -> {{127, 0, 0, 1}, 18083} end),
     ok = meck:expect(cowboy_req, cert, fun(_) -> undefined end),
     ok = meck:expect(cowboy_req, parse_cookies, fun(_) -> error(badarg) end),
     %% Mock emqx_access_control
@@ -70,8 +80,8 @@ init_per_testcase(TestCase, Config) when
     ok = meck:new(emqx_broker, [passthrough, no_history, no_link]),
     ok = meck:expect(emqx_broker, subscribe, fun(_, _, _) -> ok end),
     ok = meck:expect(emqx_broker, publish, fun(#message{topic = Topic}) ->
-                                                   [{node(), Topic, 1}]
-                                           end),
+        [{node(), Topic, 1}]
+    end),
     ok = meck:expect(emqx_broker, unsubscribe, fun(_) -> ok end),
     %% Mock emqx_metrics
     ok = meck:new(emqx_metrics, [passthrough, no_history, no_link]),
@@ -80,27 +90,28 @@ init_per_testcase(TestCase, Config) when
     ok = meck:expect(emqx_metrics, inc_recv, fun(_) -> ok end),
     ok = meck:expect(emqx_metrics, inc_sent, fun(_) -> ok end),
     Config;
-
 init_per_testcase(_, Config) ->
     ok = emqx_common_test_helpers:start_apps([]),
     Config.
 
 end_per_testcase(TestCase, _Config) when
-        TestCase =/= t_ws_sub_protocols_mqtt_equivalents,
-        TestCase =/= t_ws_sub_protocols_mqtt,
-        TestCase =/= t_ws_check_origin,
-        TestCase =/= t_ws_non_check_origin,
-        TestCase =/= t_ws_pingreq_before_connected
-        ->
-    lists:foreach(fun meck:unload/1,
-                  [emqx_cm,
-                   cowboy_req,
-                   emqx_access_control,
-                   emqx_broker,
-                   emqx_hooks,
-                   emqx_metrics
-                  ]);
-
+    TestCase =/= t_ws_sub_protocols_mqtt_equivalents,
+    TestCase =/= t_ws_sub_protocols_mqtt,
+    TestCase =/= t_ws_check_origin,
+    TestCase =/= t_ws_non_check_origin,
+    TestCase =/= t_ws_pingreq_before_connected
+->
+    lists:foreach(
+        fun meck:unload/1,
+        [
+            emqx_cm,
+            cowboy_req,
+            emqx_access_control,
+            emqx_broker,
+            emqx_hooks,
+            emqx_metrics
+        ]
+    );
 end_per_testcase(_, Config) ->
     emqx_common_test_helpers:stop_apps([]),
     Config.
@@ -120,36 +131,51 @@ end_per_suite(_) ->
 
 t_info(_) ->
     WsPid = spawn(fun() ->
-                      receive {call, From, info} ->
-                                  gen_server:reply(From, ?ws_conn:info(st()))
-                      end
-                  end),
+        receive
+            {call, From, info} ->
+                gen_server:reply(From, ?ws_conn:info(st()))
+        end
+    end),
     #{sockinfo := SockInfo} = ?ws_conn:call(WsPid, info),
-    #{socktype  := ws,
-      peername  := {{127,0,0,1}, 3456},
-      sockname  := {{127,0,0,1}, 18083},
-      sockstate := running
-     } = SockInfo.
+    #{
+        socktype := ws,
+        peername := {{127, 0, 0, 1}, 3456},
+        sockname := {{127, 0, 0, 1}, 18083},
+        sockstate := running
+    } = SockInfo.
 
 set_ws_opts(Key, Val) ->
     emqx_config:put_listener_conf(ws, default, [websocket, Key], Val).
 
 t_header(_) ->
-    ok = meck:expect(cowboy_req, header,
-        fun(<<"x-forwarded-for">>, _, _) -> <<"100.100.100.100, 99.99.99.99">>;
-           (<<"x-forwarded-port">>, _, _) -> <<"1000">> end),
+    ok = meck:expect(
+        cowboy_req,
+        header,
+        fun
+            (<<"x-forwarded-for">>, _, _) -> <<"100.100.100.100, 99.99.99.99">>;
+            (<<"x-forwarded-port">>, _, _) -> <<"1000">>
+        end
+    ),
     set_ws_opts(proxy_address_header, <<"x-forwarded-for">>),
     set_ws_opts(proxy_port_header, <<"x-forwarded-port">>),
-    {ok, St, _} = ?ws_conn:websocket_init([req, #{zone => default,
-                                                  limiter => limiter_cfg(),
-                                                  listener => {ws, default}}]),
+    {ok, St, _} = ?ws_conn:websocket_init([
+        req,
+        #{
+            zone => default,
+            limiter => limiter_cfg(),
+            listener => {ws, default}
+        }
+    ]),
     WsPid = spawn(fun() ->
-        receive {call, From, info} ->
-            gen_server:reply(From, ?ws_conn:info(St))
-        end end),
+        receive
+            {call, From, info} ->
+                gen_server:reply(From, ?ws_conn:info(St))
+        end
+    end),
     #{sockinfo := SockInfo} = ?ws_conn:call(WsPid, info),
-    #{socktype  := ws,
-        peername  := {{100,100,100,100}, 1000},
+    #{
+        socktype := ws,
+        peername := {{100, 100, 100, 100}, 1000},
         sockstate := running
     } = SockInfo.
 
@@ -164,7 +190,7 @@ t_info_channel(_) ->
 t_info_gc_state(_) ->
     GcSt = emqx_gc:init(#{count => 10, bytes => 1000}),
     GcInfo = ?ws_conn:info(gc_state, st(#{gc_state => GcSt})),
-    ?assertEqual(#{cnt => {10,10}, oct => {1000,1000}}, GcInfo).
+    ?assertEqual(#{cnt => {10, 10}, oct => {1000, 1000}}, GcInfo).
 
 t_info_postponed(_) ->
     ?assertEqual([], ?ws_conn:info(postponed, st())),
@@ -173,20 +199,34 @@ t_info_postponed(_) ->
 
 t_stats(_) ->
     WsPid = spawn(fun() ->
-                      receive {call, From, stats} ->
-                                  gen_server:reply(From, ?ws_conn:stats(st()))
-                      end
-                  end),
+        receive
+            {call, From, stats} ->
+                gen_server:reply(From, ?ws_conn:stats(st()))
+        end
+    end),
     Stats = ?ws_conn:call(WsPid, stats),
-    [?assert(lists:member(V, Stats)) || V <-
-        [{recv_oct, 0}, {recv_cnt, 0}, {send_oct, 0}, {send_cnt, 0},
-        {recv_pkt, 0}, {recv_msg, 0}, {send_pkt, 0}, {send_msg, 0}]].
+    [
+        ?assert(lists:member(V, Stats))
+     || V <-
+            [
+                {recv_oct, 0},
+                {recv_cnt, 0},
+                {send_oct, 0},
+                {send_cnt, 0},
+                {recv_pkt, 0},
+                {recv_msg, 0},
+                {send_pkt, 0},
+                {send_msg, 0}
+            ]
+    ].
 
 t_call(_) ->
     Info = ?ws_conn:info(st()),
     WsPid = spawn(fun() ->
-                      receive {call, From, info} -> gen_server:reply(From, Info) end
-                  end),
+        receive
+            {call, From, info} -> gen_server:reply(From, Info)
+        end
+    end),
     ?assertEqual(Info, ?ws_conn:call(WsPid, info)).
 
 t_ws_pingreq_before_connected(_) ->
@@ -199,23 +239,24 @@ ws_pingreq(State) ->
     receive
         {gun_up, WPID, _Proto} ->
             StreamRef = gun:ws_upgrade(WPID, "/mqtt", [], #{
-                protocols => [{<<"mqtt">>, gun_ws_h}]}),
+                protocols => [{<<"mqtt">>, gun_ws_h}]
+            }),
             ws_pingreq(State#{wref => StreamRef});
         {gun_down, _WPID, _, Reason, _, _} ->
             State#{result => {gun_down, Reason}};
         {gun_upgrade, WPID, _Ref, _Proto, _Data} ->
             ct:pal("-- gun_upgrade, send ping-req"),
-            PingReq = {binary, <<192,0>>},
+            PingReq = {binary, <<192, 0>>},
             ok = gun:ws_send(WPID, PingReq),
             gun:flush(WPID),
             ws_pingreq(State);
-        {gun_ws, _WPID, _Ref, {binary, <<208,0>>}} ->
+        {gun_ws, _WPID, _Ref, {binary, <<208, 0>>}} ->
             ct:fail(unexpected_pingresp);
         {gun_ws, _WPID, _Ref, Frame} ->
             ct:pal("gun received frame: ~p", [Frame]),
             ws_pingreq(State);
         Message ->
-            ct:pal("Received Unknown Message on Gun: ~p~n",[Message]),
+            ct:pal("Received Unknown Message on Gun: ~p~n", [Message]),
             ws_pingreq(State)
     after 1000 ->
         ct:fail(ws_timeout)
@@ -223,43 +264,73 @@ ws_pingreq(State) ->
 
 t_ws_sub_protocols_mqtt(_) ->
     {ok, _} = application:ensure_all_started(gun),
-    ?assertMatch({gun_upgrade, _},
-        start_ws_client(#{protocols => [<<"mqtt">>]})).
+    ?assertMatch(
+        {gun_upgrade, _},
+        start_ws_client(#{protocols => [<<"mqtt">>]})
+    ).
 
 t_ws_sub_protocols_mqtt_equivalents(_) ->
     {ok, _} = application:ensure_all_started(gun),
     %% also support mqtt-v3, mqtt-v3.1.1, mqtt-v5
-    ?assertMatch({gun_upgrade, _},
-        start_ws_client(#{protocols => [<<"mqtt-v3">>]})),
-    ?assertMatch({gun_upgrade, _},
-        start_ws_client(#{protocols => [<<"mqtt-v3.1.1">>]})),
-    ?assertMatch({gun_upgrade, _},
-        start_ws_client(#{protocols => [<<"mqtt-v5">>]})),
-    ?assertMatch({gun_response, {_, 400, _}},
-        start_ws_client(#{protocols => [<<"not-mqtt">>]})).
+    ?assertMatch(
+        {gun_upgrade, _},
+        start_ws_client(#{protocols => [<<"mqtt-v3">>]})
+    ),
+    ?assertMatch(
+        {gun_upgrade, _},
+        start_ws_client(#{protocols => [<<"mqtt-v3.1.1">>]})
+    ),
+    ?assertMatch(
+        {gun_upgrade, _},
+        start_ws_client(#{protocols => [<<"mqtt-v5">>]})
+    ),
+    ?assertMatch(
+        {gun_response, {_, 400, _}},
+        start_ws_client(#{protocols => [<<"not-mqtt">>]})
+    ).
 
 t_ws_check_origin(_) ->
     emqx_config:put_listener_conf(ws, default, [websocket, check_origin_enable], true),
-    emqx_config:put_listener_conf(ws, default, [websocket, check_origins],
-        [<<"http://localhost:18083">>]),
+    emqx_config:put_listener_conf(
+        ws,
+        default,
+        [websocket, check_origins],
+        [<<"http://localhost:18083">>]
+    ),
     {ok, _} = application:ensure_all_started(gun),
-    ?assertMatch({gun_upgrade, _},
-        start_ws_client(#{protocols => [<<"mqtt">>],
-                          headers => [{<<"origin">>, <<"http://localhost:18083">>}]})),
-    ?assertMatch({gun_response, {_, 403, _}},
-        start_ws_client(#{protocols => [<<"mqtt">>],
-                          headers => [{<<"origin">>, <<"http://localhost:18080">>}]})).
+    ?assertMatch(
+        {gun_upgrade, _},
+        start_ws_client(#{
+            protocols => [<<"mqtt">>],
+            headers => [{<<"origin">>, <<"http://localhost:18083">>}]
+        })
+    ),
+    ?assertMatch(
+        {gun_response, {_, 403, _}},
+        start_ws_client(#{
+            protocols => [<<"mqtt">>],
+            headers => [{<<"origin">>, <<"http://localhost:18080">>}]
+        })
+    ).
 
 t_ws_non_check_origin(_) ->
     emqx_config:put_listener_conf(ws, default, [websocket, check_origin_enable], false),
     emqx_config:put_listener_conf(ws, default, [websocket, check_origins], []),
     {ok, _} = application:ensure_all_started(gun),
-    ?assertMatch({gun_upgrade, _},
-        start_ws_client(#{protocols => [<<"mqtt">>],
-                          headers => [{<<"origin">>, <<"http://localhost:18083">>}]})),
-    ?assertMatch({gun_upgrade, _},
-        start_ws_client(#{protocols => [<<"mqtt">>],
-                          headers => [{<<"origin">>, <<"http://localhost:18080">>}]})).
+    ?assertMatch(
+        {gun_upgrade, _},
+        start_ws_client(#{
+            protocols => [<<"mqtt">>],
+            headers => [{<<"origin">>, <<"http://localhost:18083">>}]
+        })
+    ),
+    ?assertMatch(
+        {gun_upgrade, _},
+        start_ws_client(#{
+            protocols => [<<"mqtt">>],
+            headers => [{<<"origin">>, <<"http://localhost:18080">>}]
+        })
+    ).
 
 t_init(_) ->
     Opts = #{listener => {ws, default}, zone => default, limiter => limiter_cfg()},
@@ -273,8 +344,9 @@ t_init(_) ->
 t_websocket_handle_binary(_) ->
     {ok, _} = websocket_handle({binary, <<>>}, st()),
     {ok, _} = websocket_handle({binary, [<<>>]}, st()),
-    {ok, _} = websocket_handle({binary, <<192,0>>}, st()),
-    receive {incoming, ?PACKET(?PINGREQ)} -> ok
+    {ok, _} = websocket_handle({binary, <<192, 0>>}, st()),
+    receive
+        {incoming, ?PACKET(?PINGREQ)} -> ok
     after 0 -> error(expect_incoming_pingreq)
     end.
 
@@ -308,26 +380,26 @@ t_websocket_info_cast(_) ->
 
 t_websocket_info_incoming(_) ->
     ConnPkt = #mqtt_packet_connect{
-                 proto_name  = <<"MQTT">>,
-                 proto_ver   = ?MQTT_PROTO_V5,
-                 is_bridge   = false,
-                 clean_start = true,
-                 keepalive   = 60,
-                 properties  = undefined,
-                 clientid    = <<"clientid">>,
-                 username    = <<"username">>,
-                 password    = <<"passwd">>
-                },
-    {[{close,protocol_error}], St1} = websocket_info({incoming, ?CONNECT_PACKET(ConnPkt)}, st()),
+        proto_name = <<"MQTT">>,
+        proto_ver = ?MQTT_PROTO_V5,
+        is_bridge = false,
+        clean_start = true,
+        keepalive = 60,
+        properties = undefined,
+        clientid = <<"clientid">>,
+        username = <<"username">>,
+        password = <<"passwd">>
+    },
+    {[{close, protocol_error}], St1} = websocket_info({incoming, ?CONNECT_PACKET(ConnPkt)}, st()),
     % ?assertEqual(<<224,2,130,0>>, iolist_to_binary(IoData1)),
     %% PINGREQ
     {[{binary, IoData2}], St2} =
         websocket_info({incoming, ?PACKET(?PINGREQ)}, St1),
-    ?assertEqual(<<208,0>>, iolist_to_binary(IoData2)),
+    ?assertEqual(<<208, 0>>, iolist_to_binary(IoData2)),
     %% PUBLISH
     Publish = ?PUBLISH_PACKET(?QOS_1, <<"t">>, 1, <<"payload">>),
     {[{binary, IoData3}], _St3} = websocket_info({incoming, Publish}, St2),
-    ?assertEqual(<<64,4,0,1,0,0>>, iolist_to_binary(IoData3)).
+    ?assertEqual(<<64, 4, 0, 1, 0, 0>>, iolist_to_binary(IoData3)).
 
 t_websocket_info_check_gc(_) ->
     Stats = #{cnt => 10, oct => 1000},
@@ -338,7 +410,7 @@ t_websocket_info_deliver(_) ->
     Msg1 = emqx_message:make(clientid, ?QOS_1, <<"t">>, <<"">>),
     self() ! {deliver, <<"#">>, Msg1},
     {ok, _St} = websocket_info({deliver, <<"#">>, Msg0}, st()).
-    % ?assertEqual(<<48,3,0,1,116,50,5,0,1,116,0,1>>, iolist_to_binary(IoData)).
+% ?assertEqual(<<48,3,0,1,116,50,5,0,1,116,0,1>>, iolist_to_binary(IoData)).
 
 t_websocket_info_timeout_limiter(_) ->
     Ref = make_ref(),
@@ -377,14 +449,14 @@ t_handle_info_connack(_) ->
     ConnAck = ?CONNACK_PACKET(?RC_SUCCESS),
     {[{binary, IoData}], _St} =
         ?ws_conn:handle_info({connack, ConnAck}, st()),
-    ?assertEqual(<<32,2,0,0>>, iolist_to_binary(IoData)).
+    ?assertEqual(<<32, 2, 0, 0>>, iolist_to_binary(IoData)).
 
 t_handle_info_close(_) ->
     {[{close, _}], _St} = ?ws_conn:handle_info({close, protocol_error}, st()).
 
 t_handle_info_event(_) ->
-    ok = meck:expect(emqx_cm, register_channel, fun(_,_,_) -> ok end),
-    ok = meck:expect(emqx_cm, insert_channel_info, fun(_,_,_) -> ok end),
+    ok = meck:expect(emqx_cm, register_channel, fun(_, _, _) -> ok end),
+    ok = meck:expect(emqx_cm, insert_channel_info, fun(_, _, _) -> ok end),
     ok = meck:expect(emqx_cm, connection_closed, fun(_) -> true end),
     {ok, _} = ?ws_conn:handle_info({event, connected}, st()),
     {ok, _} = ?ws_conn:handle_info({event, disconnected}, st()),
@@ -401,14 +473,15 @@ t_handle_timeout_keepalive(_) ->
 t_handle_timeout_emit_stats(_) ->
     TRef = make_ref(),
     {ok, St} = ?ws_conn:handle_timeout(
-                  TRef, emit_stats, st(#{stats_timer => TRef})),
+        TRef, emit_stats, st(#{stats_timer => TRef})
+    ),
     ?assertEqual(undefined, ?ws_conn:info(stats_timer, St)).
 
 t_ensure_rate_limit(_) ->
     %% XXX In the future, limiter should provide API for config update
     Path = [limiter, bytes_in, bucket, default, per_client],
     PerClient = emqx_config:get(Path),
-    {ok, Rate}= emqx_limiter_schema:to_rate("50MB"),
+    {ok, Rate} = emqx_limiter_schema:to_rate("50MB"),
     emqx_config:put(Path, PerClient#{rate := Rate}),
     emqx_limiter_server:update_config(bytes_in),
     timer:sleep(100),
@@ -418,11 +491,13 @@ t_ensure_rate_limit(_) ->
 
     %% must bigger than value in emqx_ratelimit_SUITE
     {ok, Need} = emqx_limiter_schema:to_capacity("1GB"),
-    St1 = ?ws_conn:check_limiter([{Need, bytes_in}],
-                                 [],
-                                 fun(_, _, S) -> S end,
-                                 [],
-                                 St),
+    St1 = ?ws_conn:check_limiter(
+        [{Need, bytes_in}],
+        [],
+        fun(_, _, S) -> S end,
+        [],
+        St
+    ),
     ?assertEqual(blocked, ?ws_conn:info(sockstate, St1)),
     ?assertEqual([{active, false}], ?ws_conn:info(postponed, St1)),
 
@@ -431,13 +506,13 @@ t_ensure_rate_limit(_) ->
     timer:sleep(100).
 
 t_parse_incoming(_) ->
-    {Packets, St} = ?ws_conn:parse_incoming(<<48,3>>, [], st()),
-    {Packets1, _} = ?ws_conn:parse_incoming(<<0,1,116>>, Packets, St),
+    {Packets, St} = ?ws_conn:parse_incoming(<<48, 3>>, [], st()),
+    {Packets1, _} = ?ws_conn:parse_incoming(<<0, 1, 116>>, Packets, St),
     Packet = ?PUBLISH_PACKET(?QOS_0, <<"t">>, undefined, <<>>),
     ?assertMatch([{incoming, Packet}], Packets1).
 
 t_parse_incoming_frame_error(_) ->
-    {Packets, _St} = ?ws_conn:parse_incoming(<<3,2,1,0>>, [], st()),
+    {Packets, _St} = ?ws_conn:parse_incoming(<<3, 2, 1, 0>>, [], st()),
     FrameError = {frame_error, function_clause},
     [{incoming, FrameError}] = Packets.
 
@@ -445,12 +520,13 @@ t_handle_incomming_frame_error(_) ->
     FrameError = {frame_error, bad_qos},
     Serialize = emqx_frame:serialize_fun(#{version => 5, max_size => 16#FFFF}),
     {[{close, bad_qos}], _St} = ?ws_conn:handle_incoming(FrameError, st(#{serialize => Serialize})).
-    % ?assertEqual(<<224,2,129,0>>, iolist_to_binary(IoData)).
+% ?assertEqual(<<224,2,129,0>>, iolist_to_binary(IoData)).
 
 t_handle_outgoing(_) ->
-    Packets = [?PUBLISH_PACKET(?QOS_1, <<"t1">>, 1, <<"payload">>),
-               ?PUBLISH_PACKET(?QOS_2, <<"t2">>, 2, <<"payload">>)
-              ],
+    Packets = [
+        ?PUBLISH_PACKET(?QOS_1, <<"t1">>, 1, <<"payload">>),
+        ?PUBLISH_PACKET(?QOS_2, <<"t2">>, 2, <<"payload">>)
+    ],
     {[{binary, IoData1}, {binary, IoData2}], _St} = ?ws_conn:handle_outgoing(Packets, st()),
     ?assert(is_binary(iolist_to_binary(IoData1))),
     ?assert(is_binary(iolist_to_binary(IoData2))).
@@ -474,49 +550,65 @@ t_shutdown(_) ->
 
 st() -> st(#{}).
 st(InitFields) when is_map(InitFields) ->
-    {ok, St, _} = ?ws_conn:websocket_init([req, #{zone => default,
-                                                  listener => {ws, default},
-                                                  limiter => limiter_cfg()}]),
-    maps:fold(fun(N, V, S) -> ?ws_conn:set_field(N, V, S) end,
-              ?ws_conn:set_field(channel, channel(), St),
-              InitFields
-             ).
+    {ok, St, _} = ?ws_conn:websocket_init([
+        req,
+        #{
+            zone => default,
+            listener => {ws, default},
+            limiter => limiter_cfg()
+        }
+    ]),
+    maps:fold(
+        fun(N, V, S) -> ?ws_conn:set_field(N, V, S) end,
+        ?ws_conn:set_field(channel, channel(), St),
+        InitFields
+    ).
 
 channel() -> channel(#{}).
 channel(InitFields) ->
-    ConnInfo = #{peername => {{127,0,0,1}, 3456},
-                 sockname => {{127,0,0,1}, 18083},
-                 conn_mod => emqx_ws_connection,
-                 proto_name => <<"MQTT">>,
-                 proto_ver => ?MQTT_PROTO_V5,
-                 clean_start => true,
-                 keepalive => 30,
-                 clientid => <<"clientid">>,
-                 username => <<"username">>,
-                 receive_maximum => 100,
-                 expiry_interval => 0
-                },
-    ClientInfo = #{zone       => default,
-                   listener   => {ws, default},
-                   protocol   => mqtt,
-                   peerhost   => {127,0,0,1},
-                   clientid   => <<"clientid">>,
-                   username   => <<"username">>,
-                   is_superuser => false,
-                   peercert   => undefined,
-                   mountpoint => undefined
-                  },
+    ConnInfo = #{
+        peername => {{127, 0, 0, 1}, 3456},
+        sockname => {{127, 0, 0, 1}, 18083},
+        conn_mod => emqx_ws_connection,
+        proto_name => <<"MQTT">>,
+        proto_ver => ?MQTT_PROTO_V5,
+        clean_start => true,
+        keepalive => 30,
+        clientid => <<"clientid">>,
+        username => <<"username">>,
+        receive_maximum => 100,
+        expiry_interval => 0
+    },
+    ClientInfo = #{
+        zone => default,
+        listener => {ws, default},
+        protocol => mqtt,
+        peerhost => {127, 0, 0, 1},
+        clientid => <<"clientid">>,
+        username => <<"username">>,
+        is_superuser => false,
+        peercert => undefined,
+        mountpoint => undefined
+    },
     Session = emqx_session:init(#{max_inflight => 0}),
-    maps:fold(fun(Field, Value, Channel) ->
-                      emqx_channel:set_field(Field, Value, Channel)
-              end,
-              emqx_channel:init(ConnInfo, #{zone => default,
-                                            listener => {ws, default},
-                                            limiter => limiter_cfg()}),
-              maps:merge(#{clientinfo => ClientInfo,
-                           session    => Session,
-                           conn_state => connected
-                          }, InitFields)).
+    maps:fold(
+        fun(Field, Value, Channel) ->
+            emqx_channel:set_field(Field, Value, Channel)
+        end,
+        emqx_channel:init(ConnInfo, #{
+            zone => default,
+            listener => {ws, default},
+            limiter => limiter_cfg()
+        }),
+        maps:merge(
+            #{
+                clientinfo => ClientInfo,
+                session => Session,
+                conn_state => connected
+            },
+            InitFields
+        )
+    ).
 
 start_ws_client(State) ->
     Host = maps:get(host, State, "127.0.0.1"),
@@ -530,8 +622,12 @@ ws_client(State) ->
     receive
         {gun_up, WPID, _Proto} ->
             #{protocols := Protos} = State,
-            StreamRef = gun:ws_upgrade(WPID, "/mqtt", maps:get(headers, State, []),
-                #{protocols => [{P, gun_ws_h} || P <- Protos]}),
+            StreamRef = gun:ws_upgrade(
+                WPID,
+                "/mqtt",
+                maps:get(headers, State, []),
+                #{protocols => [{P, gun_ws_h} || P <- Protos]}
+            ),
             ws_client(State#{wref => StreamRef});
         {gun_down, _WPID, _, Reason, _, _} ->
             State#{result => {gun_down, Reason}};
@@ -544,20 +640,20 @@ ws_client(State) ->
             State#{result => {gun_response, Rsp}};
         {gun_error, _WPID, _Ref, _Reason} ->
             State#{result => {gun_error, _Reason}};
-        {'DOWN',_PID,process,_WPID,_Reason} ->
+        {'DOWN', _PID, process, _WPID, _Reason} ->
             State#{result => {down, _Reason}};
         {gun_ws, _WPID, Frame} ->
             case Frame of
-            close ->
-                self() ! stop;
-            {close,_Code,_Message} ->
-                self() ! stop;
-            {text,TextData} ->
-                io:format("Received Text Frame: ~p~n",[TextData]);
-            {binary,BinData} ->
-                io:format("Received Binary Frame: ~p~n",[BinData]);
-            _ ->
-                io:format("Received Unhandled Frame: ~p~n",[Frame])
+                close ->
+                    self() ! stop;
+                {close, _Code, _Message} ->
+                    self() ! stop;
+                {text, TextData} ->
+                    io:format("Received Text Frame: ~p~n", [TextData]);
+                {binary, BinData} ->
+                    io:format("Received Binary Frame: ~p~n", [BinData]);
+                _ ->
+                    io:format("Received Unhandled Frame: ~p~n", [Frame])
             end,
             ws_client(State);
         stop ->
@@ -566,7 +662,7 @@ ws_client(State) ->
             gun:shutdown(WPID),
             State#{result => {stop, normal}};
         Message ->
-            ct:pal("Received Unknown Message on Gun: ~p~n",[Message]),
+            ct:pal("Received Unknown Message on Gun: ~p~n", [Message]),
             ws_client(State)
     after 1000 ->
         ct:fail(ws_timeout)

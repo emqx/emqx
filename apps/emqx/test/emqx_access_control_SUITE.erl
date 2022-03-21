@@ -45,17 +45,21 @@ t_authorize(_) ->
 
 clientinfo() -> clientinfo(#{}).
 clientinfo(InitProps) ->
-    maps:merge(#{zone       => default,
-                 listener   => {tcp, default},
-                 protocol   => mqtt,
-                 peerhost   => {127,0,0,1},
-                 clientid   => <<"clientid">>,
-                 username   => <<"username">>,
-                 password   => <<"passwd">>,
-                 is_superuser => false,
-                 peercert   => undefined,
-                 mountpoint => undefined
-                }, InitProps).
+    maps:merge(
+        #{
+            zone => default,
+            listener => {tcp, default},
+            protocol => mqtt,
+            peerhost => {127, 0, 0, 1},
+            clientid => <<"clientid">>,
+            username => <<"username">>,
+            password => <<"passwd">>,
+            is_superuser => false,
+            peercert => undefined,
+            mountpoint => undefined
+        },
+        InitProps
+    ).
 
 toggle_auth(Bool) when is_boolean(Bool) ->
     emqx_config:put_zone_conf(default, [auth, enable], Bool).

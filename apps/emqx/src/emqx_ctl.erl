@@ -21,67 +21,71 @@
 -include("types.hrl").
 -include("logger.hrl").
 
-
 -export([start_link/0, stop/0]).
 
--export([ register_command/2
-        , register_command/3
-        , unregister_command/1
-        ]).
+-export([
+    register_command/2,
+    register_command/3,
+    unregister_command/1
+]).
 
--export([ run_command/1
-        , run_command/2
-        , lookup_command/1
-        , get_commands/0
-        ]).
+-export([
+    run_command/1,
+    run_command/2,
+    lookup_command/1,
+    get_commands/0
+]).
 
--export([ print/1
-        , print/2
-        , usage/1
-        , usage/2
-        ]).
+-export([
+    print/1,
+    print/2,
+    usage/1,
+    usage/2
+]).
 
 %% Exports mainly for test cases
--export([ format/2
-        , format_usage/1
-        , format_usage/2
-        ]).
+-export([
+    format/2,
+    format_usage/1,
+    format_usage/2
+]).
 
 %% gen_server callbacks
--export([ init/1
-        , handle_call/3
-        , handle_cast/2
-        , handle_info/2
-        , terminate/2
-        , code_change/3
-        ]).
+-export([
+    init/1,
+    handle_call/3,
+    handle_cast/2,
+    handle_info/2,
+    terminate/2,
+    code_change/3
+]).
 
 -record(state, {seq = 0}).
 
--type(cmd() :: atom()).
--type(cmd_params() :: string()).
--type(cmd_descr() :: string()).
--type(cmd_usage() :: {cmd_params(), cmd_descr()}).
+-type cmd() :: atom().
+-type cmd_params() :: string().
+-type cmd_descr() :: string().
+-type cmd_usage() :: {cmd_params(), cmd_descr()}.
 
 -define(SERVER, ?MODULE).
 -define(CMD_TAB, emqx_command).
 
--spec(start_link() -> startlink_ret()).
+-spec start_link() -> startlink_ret().
 start_link() ->
     gen_server:start_link({local, ?SERVER}, ?MODULE, [], []).
 
--spec(stop() -> ok).
+-spec stop() -> ok.
 stop() -> gen_server:stop(?SERVER).
 
--spec(register_command(cmd(), {module(), atom()}) -> ok).
+-spec register_command(cmd(), {module(), atom()}) -> ok.
 register_command(Cmd, MF) when is_atom(Cmd) ->
     register_command(Cmd, MF, []).
 
--spec(register_command(cmd(), {module(), atom()}, list()) -> ok).
+-spec register_command(cmd(), {module(), atom()}, list()) -> ok.
 register_command(Cmd, MF, Opts) when is_atom(Cmd) ->
     call({register_command, Cmd, MF, Opts}).
 
--spec(unregister_command(cmd()) -> ok).
+-spec unregister_command(cmd()) -> ok.
 unregister_command(Cmd) when is_atom(Cmd) ->
     cast({unregister_command, Cmd}).
 
@@ -89,14 +93,15 @@ call(Req) -> gen_server:call(?SERVER, Req).
 
 cast(Msg) -> gen_server:cast(?SERVER, Msg).
 
--spec(run_command(list(string())) -> ok | {error, term()}).
+-spec run_command(list(string())) -> ok | {error, term()}.
 run_command([]) ->
     run_command(help, []);
 run_command([Cmd | Args]) ->
     run_command(list_to_atom(Cmd), Args).
 
--spec(run_command(cmd(), list(string())) -> ok | {error, term()}).
-run_command(help, []) -> help();
+-spec run_command(cmd(), list(string())) -> ok | {error, term()}.
+run_command(help, []) ->
+    help();
 run_command(Cmd, Args) when is_atom(Cmd) ->
     case lookup_command(Cmd) of
         [{Mod, Fun}] ->
@@ -104,24 +109,26 @@ run_command(Cmd, Args) when is_atom(Cmd) ->
                 _ -> ok
             catch
                 _:Reason:Stacktrace ->
-                    ?SLOG(error, #{msg => "ctl_command_crashed",
-                                   stacktrace => Stacktrace,
-                                   reason => Reason
-                                  }),
+                    ?SLOG(error, #{
+                        msg => "ctl_command_crashed",
+                        stacktrace => Stacktrace,
+                        reason => Reason
+                    }),
                     {error, Reason}
             end;
         [] ->
-            help(), {error, cmd_not_found}
+            help(),
+            {error, cmd_not_found}
     end.
 
--spec(lookup_command(cmd()) -> [{module(), atom()}]).
+-spec lookup_command(cmd()) -> [{module(), atom()}].
 lookup_command(Cmd) when is_atom(Cmd) ->
     case ets:match(?CMD_TAB, {{'_', Cmd}, '$1', '_'}) of
         [El] -> El;
-        []   -> []
+        [] -> []
     end.
 
--spec(get_commands() -> list({cmd(), module(), atom()})).
+-spec get_commands() -> list({cmd(), module(), atom()}).
 get_commands() ->
     [{Cmd, M, F} || {{_Seq, Cmd}, {M, F}, _Opts} <- ets:tab2list(?CMD_TAB)].
 
@@ -131,42 +138,52 @@ help() ->
             print("No commands available.~n");
         Cmds ->
             print("Usage: ~ts~n", [?MODULE]),
-            lists:foreach(fun({_, {Mod, Cmd}, _}) ->
-                    print("~110..-s~n", [""]), Mod:Cmd(usage)
-                end, Cmds)
+            lists:foreach(
+                fun({_, {Mod, Cmd}, _}) ->
+                    print("~110..-s~n", [""]),
+                    Mod:Cmd(usage)
+                end,
+                Cmds
+            )
     end.
 
--spec(print(io:format()) -> ok).
+-spec print(io:format()) -> ok.
 print(Msg) ->
     io:format("~ts", [format(Msg, [])]).
 
--spec(print(io:format(), [term()]) -> ok).
+-spec print(io:format(), [term()]) -> ok.
 print(Format, Args) ->
     io:format("~ts", [format(Format, Args)]).
 
--spec(usage([cmd_usage()]) -> ok).
+-spec usage([cmd_usage()]) -> ok.
 usage(UsageList) ->
     io:format(format_usage(UsageList)).
 
--spec(usage(cmd_params(), cmd_descr()) -> ok).
+-spec usage(cmd_params(), cmd_descr()) -> ok.
 usage(CmdParams, Desc) ->
     io:format(format_usage(CmdParams, Desc)).
 
--spec(format(io:format(), [term()]) -> string()).
+-spec format(io:format(), [term()]) -> string().
 format(Format, Args) ->
     lists:flatten(io_lib:format(Format, Args)).
 
--spec(format_usage([cmd_usage()]) -> [string()]).
+-spec format_usage([cmd_usage()]) -> [string()].
 format_usage(UsageList) ->
-    Width = lists:foldl(fun({CmdStr, _}, W) ->
-                                max(iolist_size(CmdStr), W)
-                        end, 0, UsageList),
+    Width = lists:foldl(
+        fun({CmdStr, _}, W) ->
+            max(iolist_size(CmdStr), W)
+        end,
+        0,
+        UsageList
+    ),
     lists:map(
         fun({CmdParams, Desc}) ->
             format_usage(CmdParams, Desc, Width)
-        end, UsageList).
+        end,
+        UsageList
+    ).
 
--spec(format_usage(cmd_params(), cmd_descr()) -> string()).
+-spec format_usage(cmd_params(), cmd_descr()) -> string().
 format_usage(CmdParams, Desc) ->
     format_usage(CmdParams, Desc, 0).
 
@@ -177,9 +194,13 @@ format_usage(CmdParams, Desc, Width) ->
     DescLines = split_cmd(Desc),
     Zipped = zip_cmd(CmdLines, DescLines),
     Fmt = "~-" ++ integer_to_list(Width + 1) ++ "s# ~ts~n",
-    lists:foldl(fun({CmdStr, DescStr}, Usage) ->
-                        Usage ++ format(Fmt, [CmdStr, DescStr])
-                end, "", Zipped).
+    lists:foldl(
+        fun({CmdStr, DescStr}, Usage) ->
+            Usage ++ format(Fmt, [CmdStr, DescStr])
+        end,
+        "",
+        Zipped
+    ).
 
 %%--------------------------------------------------------------------
 %% gen_server callbacks
@@ -191,13 +212,13 @@ init([]) ->
 
 handle_call({register_command, Cmd, MF, Opts}, _From, State = #state{seq = Seq}) ->
     case ets:match(?CMD_TAB, {{'$1', Cmd}, '_', '_'}) of
-        [] -> ets:insert(?CMD_TAB, {{Seq, Cmd}, MF, Opts});
+        [] ->
+            ets:insert(?CMD_TAB, {{Seq, Cmd}, MF, Opts});
         [[OriginSeq] | _] ->
             ?SLOG(warning, #{msg => "CMD_overidden", cmd => Cmd, mf => MF}),
             true = ets:insert(?CMD_TAB, {{OriginSeq, Cmd}, MF, Opts})
     end,
     {reply, ok, next_seq(State)};
-
 handle_call(Req, _From, State) ->
     ?SLOG(error, #{msg => "unexpected_call", call => Req}),
     {reply, ignored, State}.
@@ -205,7 +226,6 @@ handle_call(Req, _From, State) ->
 handle_cast({unregister_command, Cmd}, State) ->
     ets:match_delete(?CMD_TAB, {{'_', Cmd}, '_', '_'}),
     noreply(State);
-
 handle_cast(Msg, State) ->
     ?SLOG(error, #{msg => "unexpected_cast", cast => Msg}),
     noreply(State).

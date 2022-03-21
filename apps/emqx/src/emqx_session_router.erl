@@ -24,37 +24,42 @@
 
 -include_lib("snabbkaffe/include/snabbkaffe.hrl").
 
--export([ create_init_tab/0
-        , create_router_tab/1
-        , start_link/2]).
+-export([
+    create_init_tab/0,
+    create_router_tab/1,
+    start_link/2
+]).
 
 %% Route APIs
--export([ delete_routes/2
-        , do_add_route/2
-        , do_delete_route/2
-        , match_routes/1
-        ]).
+-export([
+    delete_routes/2,
+    do_add_route/2,
+    do_delete_route/2,
+    match_routes/1
+]).
 
--export([ buffer/3
-        , pending/2
-        , resume_begin/2
-        , resume_end/2
-        ]).
+-export([
+    buffer/3,
+    pending/2,
+    resume_begin/2,
+    resume_end/2
+]).
 
 -export([print_routes/1]).
 
 %% gen_server callbacks
--export([ init/1
-        , handle_call/3
-        , handle_cast/2
-        , handle_info/2
-        , terminate/2
-        , code_change/3
-        ]).
+-export([
+    init/1,
+    handle_call/3,
+    handle_cast/2,
+    handle_info/2,
+    terminate/2,
+    code_change/3
+]).
 
--type(group() :: binary()).
+-type group() :: binary().
 
--type(dest() :: node() | {group(), node()}).
+-type dest() :: node() | {group(), node()}.
 
 -define(ROUTE_RAM_TAB, emqx_session_route_ram).
 -define(ROUTE_DISC_TAB, emqx_session_route_disc).
@@ -67,63 +72,83 @@
 
 create_router_tab(disc) ->
     ok = mria:create_table(?ROUTE_DISC_TAB, [
-                {type, bag},
-                {rlog_shard, ?ROUTE_SHARD},
-                {storage, disc_copies},
-                {record_name, route},
-                {attributes, record_info(fields, route)},
-                {storage_properties, [{ets, [{read_concurrency, true},
-                                             {write_concurrency, true}]}]}]);
+        {type, bag},
+        {rlog_shard, ?ROUTE_SHARD},
+        {storage, disc_copies},
+        {record_name, route},
+        {attributes, record_info(fields, route)},
+        {storage_properties, [
+            {ets, [
+                {read_concurrency, true},
+                {write_concurrency, true}
+            ]}
+        ]}
+    ]);
 create_router_tab(ram) ->
     ok = mria:create_table(?ROUTE_RAM_TAB, [
-                {type, bag},
-                {rlog_shard, ?ROUTE_SHARD},
-                {storage, ram_copies},
-                {record_name, route},
-                {attributes, record_info(fields, route)},
-                {storage_properties, [{ets, [{read_concurrency, true},
-                                             {write_concurrency, true}]}]}]).
+        {type, bag},
+        {rlog_shard, ?ROUTE_SHARD},
+        {storage, ram_copies},
+        {record_name, route},
+        {attributes, record_info(fields, route)},
+        {storage_properties, [
+            {ets, [
+                {read_concurrency, true},
+                {write_concurrency, true}
+            ]}
+        ]}
+    ]).
 
 %%--------------------------------------------------------------------
 %% Start a router
 %%--------------------------------------------------------------------
 
 create_init_tab() ->
-    emqx_tables:new(?SESSION_INIT_TAB, [public, {read_concurrency, true},
-                                        {write_concurrency, true}]).
+    emqx_tables:new(?SESSION_INIT_TAB, [
+        public,
+        {read_concurrency, true},
+        {write_concurrency, true}
+    ]).
 
--spec(start_link(atom(), pos_integer()) -> startlink_ret()).
+-spec start_link(atom(), pos_integer()) -> startlink_ret().
 start_link(Pool, Id) ->
-    gen_server:start_link({local, emqx_misc:proc_name(?MODULE, Id)},
-                          ?MODULE, [Pool, Id], [{hibernate_after, 1000}]).
+    gen_server:start_link(
+        {local, emqx_misc:proc_name(?MODULE, Id)},
+        ?MODULE,
+        [Pool, Id],
+        [{hibernate_after, 1000}]
+    ).
 
 %%--------------------------------------------------------------------
 %% Route APIs
 %%--------------------------------------------------------------------
 
--spec(do_add_route(emqx_topic:topic(), dest()) -> ok | {error, term()}).
+-spec do_add_route(emqx_topic:topic(), dest()) -> ok | {error, term()}.
 do_add_route(Topic, SessionID) when is_binary(Topic) ->
     Route = #route{topic = Topic, dest = SessionID},
     case lists:member(Route, lookup_routes(Topic)) of
-        true  -> ok;
+        true ->
+            ok;
         false ->
             case emqx_topic:wildcard(Topic) of
-                true  ->
+                true ->
                     Fun = fun emqx_router_utils:insert_session_trie_route/2,
-                    emqx_router_utils:maybe_trans(Fun, [route_tab(), Route],
-                                                  ?PERSISTENT_SESSION_SHARD);
+                    emqx_router_utils:maybe_trans(
+                        Fun,
+                        [route_tab(), Route],
+                        ?PERSISTENT_SESSION_SHARD
+                    );
                 false ->
                     emqx_router_utils:insert_direct_route(route_tab(), Route)
             end
     end.
 
 %% @doc Match routes
--spec(match_routes(emqx_topic:topic()) -> [emqx_types:route()]).
+-spec match_routes(emqx_topic:topic()) -> [emqx_types:route()].
 match_routes(Topic) when is_binary(Topic) ->
     case match_trie(Topic) of
         [] -> lookup_routes(Topic);
-        Matched ->
-            lists:append([lookup_routes(To) || To <- [Topic | Matched]])
+        Matched -> lists:append([lookup_routes(To) || To <- [Topic | Matched]])
     end.
 
 %% Optimize: routing table will be replicated to all router nodes.
@@ -137,11 +162,11 @@ match_trie(Topic) ->
 delete_routes(SessionID, Subscriptions) ->
     cast(pick(SessionID), {delete_routes, SessionID, Subscriptions}).
 
--spec(do_delete_route(emqx_topic:topic(), dest()) -> ok | {error, term()}).
+-spec do_delete_route(emqx_topic:topic(), dest()) -> ok | {error, term()}.
 do_delete_route(Topic, SessionID) ->
     Route = #route{topic = Topic, dest = SessionID},
     case emqx_topic:wildcard(Topic) of
-        true  ->
+        true ->
             Fun = fun emqx_router_utils:delete_session_trie_route/2,
             emqx_router_utils:maybe_trans(Fun, [route_tab(), Route], ?PERSISTENT_SESSION_SHARD);
         false ->
@@ -149,11 +174,14 @@ do_delete_route(Topic, SessionID) ->
     end.
 
 %% @doc Print routes to a topic
--spec(print_routes(emqx_topic:topic()) -> ok).
+-spec print_routes(emqx_topic:topic()) -> ok.
 print_routes(Topic) ->
-    lists:foreach(fun(#route{topic = To, dest = SessionID}) ->
-                      io:format("~s -> ~p~n", [To, SessionID])
-                  end, match_routes(Topic)).
+    lists:foreach(
+        fun(#route{topic = To, dest = SessionID}) ->
+            io:format("~s -> ~p~n", [To, SessionID])
+        end,
+        match_routes(Topic)
+    ).
 
 %%--------------------------------------------------------------------
 %% Session APIs
@@ -173,11 +201,11 @@ resume_begin(From, SessionID) when is_pid(From), is_binary(SessionID) ->
     call(pick(SessionID), {resume_begin, From, SessionID}).
 
 -spec resume_end(pid(), binary()) ->
-          {'ok', [emqx_types:message()]} | {'error', term()}.
+    {'ok', [emqx_types:message()]} | {'error', term()}.
 resume_end(From, SessionID) when is_pid(From), is_binary(SessionID) ->
     case emqx_tables:lookup_value(?SESSION_INIT_TAB, SessionID) of
         undefined ->
-            ?tp(ps_session_not_found, #{ sid => SessionID }),
+            ?tp(ps_session_not_found, #{sid => SessionID}),
             {error, not_found};
         Pid ->
             Res = emqx_session_router_worker:resume_end(From, Pid, SessionID),
@@ -237,7 +265,7 @@ handle_cast({resume_end, SessionID, Pid}, State) ->
     end,
     Pmon = emqx_pmon:demonitor(Pid, maps:get(pmon, State)),
     _ = emqx_session_router_worker_sup:abort_worker(Pid),
-    {noreply, State#{ pmon => Pmon }};
+    {noreply, State#{pmon => Pmon}};
 handle_cast(Msg, State) ->
     ?SLOG(error, #{msg => "unexpected_cast", cast => Msg}),
     {noreply, State}.
@@ -257,7 +285,7 @@ code_change(_OldVsn, State, _Extra) ->
 %% initialisation of a resuming session.
 %%--------------------------------------------------------------------
 
-init_resume_worker(RemotePid, SessionID, #{ pmon := Pmon } = State) ->
+init_resume_worker(RemotePid, SessionID, #{pmon := Pmon} = State) ->
     case emqx_session_router_worker_sup:start_worker(SessionID, RemotePid) of
         {error, What} ->
             ?SLOG(error, #{msg => "failed_to_start_resume_worker", reason => What}),
@@ -266,11 +294,11 @@ init_resume_worker(RemotePid, SessionID, #{ pmon := Pmon } = State) ->
             Pmon1 = emqx_pmon:monitor(Pid, Pmon),
             case emqx_tables:lookup_value(?SESSION_INIT_TAB, SessionID) of
                 undefined ->
-                    {ok, Pid, State#{ pmon => Pmon1 }};
+                    {ok, Pid, State#{pmon => Pmon1}};
                 {_, OldPid} ->
                     Pmon2 = emqx_pmon:demonitor(OldPid, Pmon1),
                     _ = emqx_session_router_worker_sup:abort_worker(OldPid),
-                    {ok, Pid, State#{ pmon => Pmon2 }}
+                    {ok, Pid, State#{pmon => Pmon2}}
             end
     end.
 
@@ -284,5 +312,5 @@ lookup_routes(Topic) ->
 route_tab() ->
     case emqx_persistent_session:storage_type() of
         disc -> ?ROUTE_DISC_TAB;
-        ram  -> ?ROUTE_RAM_TAB
+        ram -> ?ROUTE_RAM_TAB
     end.

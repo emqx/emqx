@@ -30,31 +30,40 @@ init([]) ->
     SessionTab = emqx_session_router:create_init_tab(),
 
     %% Resume worker sup
-    ResumeSup = #{id => router_worker_sup,
-                  start => {emqx_session_router_worker_sup, start_link, [SessionTab]},
-                  restart => permanent,
-                  shutdown => 2000,
-                  type => supervisor,
-                  modules => [emqx_session_router_worker_sup]},
+    ResumeSup = #{
+        id => router_worker_sup,
+        start => {emqx_session_router_worker_sup, start_link, [SessionTab]},
+        restart => permanent,
+        shutdown => 2000,
+        type => supervisor,
+        modules => [emqx_session_router_worker_sup]
+    },
 
-    SessionRouterPool = emqx_pool_sup:spec(session_router_pool,
-                                           [session_router_pool, hash,
-                                            {emqx_session_router, start_link, []}]),
+    SessionRouterPool = emqx_pool_sup:spec(
+        session_router_pool,
+        [
+            session_router_pool,
+            hash,
+            {emqx_session_router, start_link, []}
+        ]
+    ),
 
     GCWorker = child_spec(emqx_persistent_session_gc, worker),
 
-    Spec = #{ strategy  => one_for_all
-            , intensity => 0
-            , period    => 1
-            },
+    Spec = #{
+        strategy => one_for_all,
+        intensity => 0,
+        period => 1
+    },
 
     {ok, {Spec, [ResumeSup, SessionRouterPool, GCWorker]}}.
 
 child_spec(Mod, worker) ->
-    #{id => Mod,
-      start => {Mod, start_link, []},
-      restart => permanent,
-      shutdown => 15000,
-      type => worker,
-      modules => [Mod]
-     }.
+    #{
+        id => Mod,
+        start => {Mod, start_link, []},
+        restart => permanent,
+        shutdown => 15000,
+        type => worker,
+        modules => [Mod]
+    }.

@@ -23,7 +23,6 @@
 -include("types.hrl").
 -include_lib("ekka/include/ekka.hrl").
 
-
 %% Mnesia bootstrap
 -export([mnesia/1]).
 
@@ -32,39 +31,43 @@
 -export([start_link/2]).
 
 %% Route APIs
--export([ add_route/1
-        , add_route/2
-        , do_add_route/1
-        , do_add_route/2
-        ]).
+-export([
+    add_route/1,
+    add_route/2,
+    do_add_route/1,
+    do_add_route/2
+]).
 
--export([ delete_route/1
-        , delete_route/2
-        , do_delete_route/1
-        , do_delete_route/2
-        ]).
+-export([
+    delete_route/1,
+    delete_route/2,
+    do_delete_route/1,
+    do_delete_route/2
+]).
 
--export([ match_routes/1
-        , lookup_routes/1
-        , has_routes/1
-        ]).
+-export([
+    match_routes/1,
+    lookup_routes/1,
+    has_routes/1
+]).
 
 -export([print_routes/1]).
 
 -export([topics/0]).
 
 %% gen_server callbacks
--export([ init/1
-        , handle_call/3
-        , handle_cast/2
-        , handle_info/2
-        , terminate/2
-        , code_change/3
-        ]).
+-export([
+    init/1,
+    handle_call/3,
+    handle_cast/2,
+    handle_info/2,
+    terminate/2,
+    code_change/3
+]).
 
--type(group() :: binary()).
+-type group() :: binary().
 
--type(dest() :: node() | {group(), node()}).
+-type dest() :: node() | {group(), node()}.
 
 -define(ROUTE_TAB, emqx_route).
 
@@ -75,48 +78,58 @@
 mnesia(boot) ->
     mria_config:set_dirty_shard(?ROUTE_SHARD, true),
     ok = mria:create_table(?ROUTE_TAB, [
-                {type, bag},
-                {rlog_shard, ?ROUTE_SHARD},
-                {storage, ram_copies},
-                {record_name, route},
-                {attributes, record_info(fields, route)},
-                {storage_properties, [{ets, [{read_concurrency, true},
-                                             {write_concurrency, true}]}]}]).
+        {type, bag},
+        {rlog_shard, ?ROUTE_SHARD},
+        {storage, ram_copies},
+        {record_name, route},
+        {attributes, record_info(fields, route)},
+        {storage_properties, [
+            {ets, [
+                {read_concurrency, true},
+                {write_concurrency, true}
+            ]}
+        ]}
+    ]).
 
 %%--------------------------------------------------------------------
 %% Start a router
 %%--------------------------------------------------------------------
 
--spec(start_link(atom(), pos_integer()) -> startlink_ret()).
+-spec start_link(atom(), pos_integer()) -> startlink_ret().
 start_link(Pool, Id) ->
-    gen_server:start_link({local, emqx_misc:proc_name(?MODULE, Id)},
-                          ?MODULE, [Pool, Id], [{hibernate_after, 1000}]).
+    gen_server:start_link(
+        {local, emqx_misc:proc_name(?MODULE, Id)},
+        ?MODULE,
+        [Pool, Id],
+        [{hibernate_after, 1000}]
+    ).
 
 %%--------------------------------------------------------------------
 %% Route APIs
 %%--------------------------------------------------------------------
 
--spec(add_route(emqx_types:topic()) -> ok | {error, term()}).
+-spec add_route(emqx_types:topic()) -> ok | {error, term()}.
 add_route(Topic) when is_binary(Topic) ->
     add_route(Topic, node()).
 
--spec(add_route(emqx_types:topic(), dest()) -> ok | {error, term()}).
+-spec add_route(emqx_types:topic(), dest()) -> ok | {error, term()}.
 add_route(Topic, Dest) when is_binary(Topic) ->
     call(pick(Topic), {add_route, Topic, Dest}).
 
--spec(do_add_route(emqx_types:topic()) -> ok | {error, term()}).
+-spec do_add_route(emqx_types:topic()) -> ok | {error, term()}.
 do_add_route(Topic) when is_binary(Topic) ->
     do_add_route(Topic, node()).
 
--spec(do_add_route(emqx_types:topic(), dest()) -> ok | {error, term()}).
+-spec do_add_route(emqx_types:topic(), dest()) -> ok | {error, term()}.
 do_add_route(Topic, Dest) when is_binary(Topic) ->
     Route = #route{topic = Topic, dest = Dest},
     case lists:member(Route, lookup_routes(Topic)) of
-        true  -> ok;
+        true ->
+            ok;
         false ->
             ok = emqx_router_helper:monitor(Dest),
             case emqx_topic:wildcard(Topic) of
-                true  ->
+                true ->
                     Fun = fun emqx_router_utils:insert_trie_route/2,
                     emqx_router_utils:maybe_trans(Fun, [?ROUTE_TAB, Route], ?ROUTE_SHARD);
                 false ->
@@ -125,12 +138,11 @@ do_add_route(Topic, Dest) when is_binary(Topic) ->
     end.
 
 %% @doc Match routes
--spec(match_routes(emqx_types:topic()) -> [emqx_types:route()]).
+-spec match_routes(emqx_types:topic()) -> [emqx_types:route()].
 match_routes(Topic) when is_binary(Topic) ->
     case match_trie(Topic) of
         [] -> lookup_routes(Topic);
-        Matched ->
-            lists:append([lookup_routes(To) || To <- [Topic | Matched]])
+        Matched -> lists:append([lookup_routes(To) || To <- [Topic | Matched]])
     end.
 
 %% Optimize: routing table will be replicated to all router nodes.
@@ -140,47 +152,50 @@ match_trie(Topic) ->
         false -> emqx_trie:match(Topic)
     end.
 
--spec(lookup_routes(emqx_types:topic()) -> [emqx_types:route()]).
+-spec lookup_routes(emqx_types:topic()) -> [emqx_types:route()].
 lookup_routes(Topic) ->
     ets:lookup(?ROUTE_TAB, Topic).
 
--spec(has_routes(emqx_types:topic()) -> boolean()).
+-spec has_routes(emqx_types:topic()) -> boolean().
 has_routes(Topic) when is_binary(Topic) ->
     ets:member(?ROUTE_TAB, Topic).
 
--spec(delete_route(emqx_types:topic()) -> ok | {error, term()}).
+-spec delete_route(emqx_types:topic()) -> ok | {error, term()}.
 delete_route(Topic) when is_binary(Topic) ->
     delete_route(Topic, node()).
 
--spec(delete_route(emqx_types:topic(), dest()) -> ok | {error, term()}).
+-spec delete_route(emqx_types:topic(), dest()) -> ok | {error, term()}.
 delete_route(Topic, Dest) when is_binary(Topic) ->
     call(pick(Topic), {delete_route, Topic, Dest}).
 
--spec(do_delete_route(emqx_types:topic()) -> ok | {error, term()}).
+-spec do_delete_route(emqx_types:topic()) -> ok | {error, term()}.
 do_delete_route(Topic) when is_binary(Topic) ->
     do_delete_route(Topic, node()).
 
--spec(do_delete_route(emqx_types:topic(), dest()) -> ok | {error, term()}).
+-spec do_delete_route(emqx_types:topic(), dest()) -> ok | {error, term()}.
 do_delete_route(Topic, Dest) ->
     Route = #route{topic = Topic, dest = Dest},
     case emqx_topic:wildcard(Topic) of
-        true  ->
+        true ->
             Fun = fun emqx_router_utils:delete_trie_route/2,
             emqx_router_utils:maybe_trans(Fun, [?ROUTE_TAB, Route], ?ROUTE_SHARD);
         false ->
             emqx_router_utils:delete_direct_route(?ROUTE_TAB, Route)
     end.
 
--spec(topics() -> list(emqx_types:topic())).
+-spec topics() -> list(emqx_types:topic()).
 topics() ->
     mnesia:dirty_all_keys(?ROUTE_TAB).
 
 %% @doc Print routes to a topic
--spec(print_routes(emqx_types:topic()) -> ok).
+-spec print_routes(emqx_types:topic()) -> ok.
 print_routes(Topic) ->
-    lists:foreach(fun(#route{topic = To, dest = Dest}) ->
-                      io:format("~ts -> ~ts~n", [To, Dest])
-                  end, match_routes(Topic)).
+    lists:foreach(
+        fun(#route{topic = To, dest = Dest}) ->
+            io:format("~ts -> ~ts~n", [To, Dest])
+        end,
+        match_routes(Topic)
+    ).
 
 call(Router, Msg) ->
     gen_server:call(Router, Msg, infinity).
@@ -199,11 +214,9 @@ init([Pool, Id]) ->
 handle_call({add_route, Topic, Dest}, _From, State) ->
     Ok = do_add_route(Topic, Dest),
     {reply, Ok, State};
-
 handle_call({delete_route, Topic, Dest}, _From, State) ->
     Ok = do_delete_route(Topic, Dest),
     {reply, Ok, State};
-
 handle_call(Req, _From, State) ->
     ?SLOG(error, #{msg => "unexpected_call", call => Req}),
     {reply, ignored, State}.

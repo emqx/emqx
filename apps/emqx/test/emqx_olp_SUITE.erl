@@ -36,19 +36,19 @@ end_per_suite(_Config) ->
 init_per_testcase(_, Config) ->
     emqx_olp:enable(),
     case wait_for(fun() -> lc_sup:whereis_runq_flagman() end, 10) of
-      true -> ok;
-      false ->
-        ct:fail("runq_flagman is not up")
+        true -> ok;
+        false -> ct:fail("runq_flagman is not up")
     end,
-  ok = load_ctl:put_config(#{ ?RUNQ_MON_F0 => true
-                            , ?RUNQ_MON_F1 => 5
-                            , ?RUNQ_MON_F2 => 1
-                            , ?RUNQ_MON_T1 => 200
-                            , ?RUNQ_MON_T2 => 50
-                            , ?RUNQ_MON_C1 => 2
-                            , ?RUNQ_MON_F5 => -1
-                            }),
-  Config.
+    ok = load_ctl:put_config(#{
+        ?RUNQ_MON_F0 => true,
+        ?RUNQ_MON_F1 => 5,
+        ?RUNQ_MON_F2 => 1,
+        ?RUNQ_MON_T1 => 200,
+        ?RUNQ_MON_T2 => 50,
+        ?RUNQ_MON_C1 => 2,
+        ?RUNQ_MON_F5 => -1
+    }),
+    Config.
 
 %% Test that olp could be enabled/disabled globally
 t_disable_enable(_Config) ->
@@ -97,22 +97,27 @@ burst_runq() ->
 
 %% internal helpers
 worker_parent(N, {M, F, A}) ->
-  lists:foreach(fun(_) ->
-                    proc_lib:spawn_link(fun() -> apply(M, F, A) end)
-                end, lists:seq(1, N)),
-  receive stop -> ok end.
+    lists:foreach(
+        fun(_) ->
+            proc_lib:spawn_link(fun() -> apply(M, F, A) end)
+        end,
+        lists:seq(1, N)
+    ),
+    receive
+        stop -> ok
+    end.
 
 busy_loop() ->
-  erlang:yield(),
-  busy_loop().
+    erlang:yield(),
+    busy_loop().
 
 wait_for(_Fun, 0) ->
-  false;
+    false;
 wait_for(Fun, Retry) ->
-  case is_pid(Fun()) of
-    true ->
-      true;
-    false ->
-      timer:sleep(10),
-      wait_for(Fun, Retry - 1)
-  end.
+    case is_pid(Fun()) of
+        true ->
+            true;
+        false ->
+            timer:sleep(10),
+            wait_for(Fun, Retry - 1)
+    end.

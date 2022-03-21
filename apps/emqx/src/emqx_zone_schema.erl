@@ -22,10 +22,16 @@ namespace() -> zone.
 
 %% this schema module is not used at root level.
 %% roots are added only for document generation.
-roots() -> ["mqtt", "stats", "flapping_detect", "force_shutdown",
-            "conn_congestion", "force_gc",
-            "overload_protection"
-           ].
+roots() ->
+    [
+        "mqtt",
+        "stats",
+        "flapping_detect",
+        "force_shutdown",
+        "conn_congestion",
+        "force_gc",
+        "overload_protection"
+    ].
 
 %% zone schemas are clones from the same name from root level
 %% only not allowed to have default values.
@@ -34,6 +40,7 @@ fields(Name) ->
 
 %% no default values for zone settings
 no_default(Sc) ->
-    fun(default) -> undefined;
-       (Other) -> hocon_schema:field_schema(Sc, Other)
+    fun
+        (default) -> undefined;
+        (Other) -> hocon_schema:field_schema(Sc, Other)
     end.

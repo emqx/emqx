@@ -27,14 +27,18 @@ start_link() ->
 
 init([]) ->
     %% Router helper
-    Helper = #{id       => helper,
-               start    => {emqx_router_helper, start_link, []},
-               restart  => permanent,
-               shutdown => 5000,
-               type     => worker,
-               modules  => [emqx_router_helper]},
+    Helper = #{
+        id => helper,
+        start => {emqx_router_helper, start_link, []},
+        restart => permanent,
+        shutdown => 5000,
+        type => worker,
+        modules => [emqx_router_helper]
+    },
     %% Router pool
-    RouterPool = emqx_pool_sup:spec([router_pool, hash,
-                                     {emqx_router, start_link, []}]),
+    RouterPool = emqx_pool_sup:spec([
+        router_pool,
+        hash,
+        {emqx_router, start_link, []}
+    ]),
     {ok, {{one_for_all, 0, 1}, [Helper, RouterPool]}}.
-

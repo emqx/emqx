@@ -16,49 +16,55 @@
 
 -module(emqx_keepalive).
 
--export([ init/1
-        , init/2
-        , info/1
-        , info/2
-        , check/2
-        , set/3
-        ]).
+-export([
+    init/1,
+    init/2,
+    info/1,
+    info/2,
+    check/2,
+    set/3
+]).
 
 -elvis([{elvis_style, no_if_expression, disable}]).
 
 -export_type([keepalive/0]).
 
 -record(keepalive, {
-          interval :: pos_integer(),
-          statval  :: non_neg_integer(),
-          repeat   :: non_neg_integer()
-         }).
+    interval :: pos_integer(),
+    statval :: non_neg_integer(),
+    repeat :: non_neg_integer()
+}).
 
--opaque(keepalive() :: #keepalive{}).
+-opaque keepalive() :: #keepalive{}.
 
 %% @doc Init keepalive.
--spec(init(Interval :: non_neg_integer()) -> keepalive()).
+-spec init(Interval :: non_neg_integer()) -> keepalive().
 init(Interval) -> init(0, Interval).
 
 %% @doc Init keepalive.
--spec(init(StatVal :: non_neg_integer(), Interval :: non_neg_integer()) -> keepalive()).
+-spec init(StatVal :: non_neg_integer(), Interval :: non_neg_integer()) -> keepalive().
 init(StatVal, Interval) when Interval > 0 ->
-    #keepalive{interval = Interval,
-               statval  = StatVal,
-               repeat   = 0}.
+    #keepalive{
+        interval = Interval,
+        statval = StatVal,
+        repeat = 0
+    }.
 
 %% @doc Get Info of the keepalive.
--spec(info(keepalive()) -> emqx_types:infos()).
-info(#keepalive{interval = Interval,
-                statval  = StatVal,
-                repeat   = Repeat}) ->
-    #{interval => Interval,
-      statval  => StatVal,
-      repeat   => Repeat
-     }.
+-spec info(keepalive()) -> emqx_types:infos().
+info(#keepalive{
+    interval = Interval,
+    statval = StatVal,
+    repeat = Repeat
+}) ->
+    #{
+        interval => Interval,
+        statval => StatVal,
+        repeat => Repeat
+    }.
 
--spec(info(interval | statval | repeat, keepalive())
-      -> non_neg_integer()).
+-spec info(interval | statval | repeat, keepalive()) ->
+    non_neg_integer().
 info(interval, #keepalive{interval = Interval}) ->
     Interval;
 info(statval, #keepalive{statval = StatVal}) ->
@@ -67,16 +73,22 @@ info(repeat, #keepalive{repeat = Repeat}) ->
     Repeat.
 
 %% @doc Check keepalive.
--spec(check(non_neg_integer(), keepalive())
-      -> {ok, keepalive()} | {error, timeout}).
-check(NewVal, KeepAlive = #keepalive{statval = OldVal,
-                                     repeat  = Repeat}) ->
+-spec check(non_neg_integer(), keepalive()) ->
+    {ok, keepalive()} | {error, timeout}.
+check(
+    NewVal,
+    KeepAlive = #keepalive{
+        statval = OldVal,
+        repeat = Repeat
+    }
+) ->
     if
         NewVal =/= OldVal ->
             {ok, KeepAlive#keepalive{statval = NewVal, repeat = 0}};
         Repeat < 1 ->
             {ok, KeepAlive#keepalive{repeat = Repeat + 1}};
-        true -> {error, timeout}
+        true ->
+            {error, timeout}
     end.
 
 %% from mqtt-v3.1.1 specific
@@ -91,6 +103,6 @@ check(NewVal, KeepAlive = #keepalive{statval = OldVal,
 %% typically this is a few minutes.
 %% The maximum value is (65535s) 18 hours 12 minutes and 15 seconds.
 %% @doc Update keepalive's interval
--spec(set(interval, non_neg_integer(), keepalive()) -> keepalive()).
+-spec set(interval, non_neg_integer(), keepalive()) -> keepalive().
 set(interval, Interval, KeepAlive) when Interval >= 0 andalso Interval =< 65535000 ->
     KeepAlive#keepalive{interval = Interval}.

@@ -26,11 +26,13 @@ start_link() ->
     supervisor:start_link({local, ?MODULE}, ?MODULE, []).
 
 init([]) ->
-    Childs = [child_spec(emqx_sys),
-              child_spec(emqx_alarm),
-              child_spec(emqx_sys_mon),
-              child_spec(emqx_os_mon),
-              child_spec(emqx_vm_mon)],
+    Childs = [
+        child_spec(emqx_sys),
+        child_spec(emqx_alarm),
+        child_spec(emqx_sys_mon),
+        child_spec(emqx_os_mon),
+        child_spec(emqx_vm_mon)
+    ],
     {ok, {{one_for_one, 10, 100}, Childs}}.
 
 %%--------------------------------------------------------------------
@@ -41,10 +43,11 @@ child_spec(Mod) ->
     child_spec(Mod, []).
 
 child_spec(Mod, Args) ->
-    #{id => Mod,
-      start => {Mod, start_link, Args},
-      restart => permanent,
-      shutdown => 5000,
-      type => worker,
-      modules => [Mod]
-     }.
+    #{
+        id => Mod,
+        start => {Mod, start_link, Args},
+        restart => permanent,
+        shutdown => 5000,
+        type => worker,
+        modules => [Mod]
+    }.

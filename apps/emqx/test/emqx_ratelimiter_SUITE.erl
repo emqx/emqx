@@ -24,53 +24,57 @@
 -include_lib("eunit/include/eunit.hrl").
 -include_lib("common_test/include/ct.hrl").
 
--define(BASE_CONF, <<"""
-limiter {
-  bytes_in {
-    bucket.default {
-      rate = infinity
-      capacity = infinity
-    }
-  }
+-define(BASE_CONF, <<
+    ""
+    "\n"
+    "limiter {\n"
+    "  bytes_in {\n"
+    "    bucket.default {\n"
+    "      rate = infinity\n"
+    "      capacity = infinity\n"
+    "    }\n"
+    "  }\n"
+    "\n"
+    "  message_in {\n"
+    "    bucket.default {\n"
+    "      rate = infinity\n"
+    "      capacity = infinity\n"
+    "    }\n"
+    "  }\n"
+    "\n"
+    "  connection {\n"
+    "    bucket.default {\n"
+    "      rate = infinity\n"
+    "      capacity = infinity\n"
+    "    }\n"
+    "  }\n"
+    "\n"
+    "  message_routing {\n"
+    "    bucket.default {\n"
+    "      rate = infinity\n"
+    "      capacity = infinity\n"
+    "    }\n"
+    "  }\n"
+    "\n"
+    "  batch {\n"
+    "    bucket.retainer {\n"
+    "      rate = infinity\n"
+    "      capacity = infinity\n"
+    "    }\n"
+    "  }\n"
+    "}\n"
+    "\n"
+    ""
+>>).
 
-  message_in {
-    bucket.default {
-      rate = infinity
-      capacity = infinity
-    }
-  }
-
-  connection {
-    bucket.default {
-      rate = infinity
-      capacity = infinity
-    }
-  }
-
-  message_routing {
-    bucket.default {
-      rate = infinity
-      capacity = infinity
-    }
-  }
-
-  batch {
-    bucket.retainer {
-      rate = infinity
-      capacity = infinity
-    }
-  }
-}
-
-""">>).
-
--record(client, { counter :: counters:counter_ref()
-                , start :: pos_integer()
-                , endtime :: pos_integer()
-                , obtained :: pos_integer()
-                , rate :: float()
-                , client :: emqx_htb_limiter:client()
-                }).
+-record(client, {
+    counter :: counters:counter_ref(),
+    start :: pos_integer(),
+    endtime :: pos_integer(),
+    obtained :: pos_integer(),
+    rate :: float(),
+    client :: emqx_htb_limiter:client()
+}).
 
 -define(LOGT(Format, Args), ct:pal("TEST_SUITE: " ++ Format, Args)).
 -define(RATE(Rate), to_rate(Rate)).
@@ -102,205 +106,246 @@ base_conf() ->
 %%--------------------------------------------------------------------
 t_consume(_) ->
     Cfg = fun(Cfg) ->
-                  Cfg#{rate := 100,
-                       capacity := 100,
-                       initial := 100,
-                       max_retry_time := 1000,
-                       failure_strategy := force}
-          end,
+        Cfg#{
+            rate := 100,
+            capacity := 100,
+            initial := 100,
+            max_retry_time := 1000,
+            failure_strategy := force
+        }
+    end,
     Case = fun() ->
-                   Client = connect(default),
-                   {ok, L2} = emqx_htb_limiter:consume(50, Client),
-                   {ok, _L3} = emqx_htb_limiter:consume(150, L2)
-           end,
+        Client = connect(default),
+        {ok, L2} = emqx_htb_limiter:consume(50, Client),
+        {ok, _L3} = emqx_htb_limiter:consume(150, L2)
+    end,
     with_per_client(default, Cfg, Case).
 
 t_retry(_) ->
     Cfg = fun(Cfg) ->
-                  Cfg#{rate := 50,
-                       capacity := 200,
-                       initial := 0,
-                       max_retry_time := 1000,
-                       failure_strategy := force}
-          end,
+        Cfg#{
+            rate := 50,
+            capacity := 200,
+            initial := 0,
+            max_retry_time := 1000,
+            failure_strategy := force
+        }
+    end,
     Case = fun() ->
-                   Client = connect(default),
-                   {ok, Client} = emqx_htb_limiter:retry(Client),
-                   {_, _, Retry, L2} = emqx_htb_limiter:check(150, Client),
-                   L3 = emqx_htb_limiter:set_retry(Retry, L2),
-                   timer:sleep(500),
-                   {ok, _L4} = emqx_htb_limiter:retry(L3)
-           end,
+        Client = connect(default),
+        {ok, Client} = emqx_htb_limiter:retry(Client),
+        {_, _, Retry, L2} = emqx_htb_limiter:check(150, Client),
+        L3 = emqx_htb_limiter:set_retry(Retry, L2),
+        timer:sleep(500),
+        {ok, _L4} = emqx_htb_limiter:retry(L3)
+    end,
     with_per_client(default, Cfg, Case).
 
 t_restore(_) ->
     Cfg = fun(Cfg) ->
-                  Cfg#{rate := 1,
-                       capacity := 200,
-                       initial := 50,
-                       max_retry_time := 100,
-                       failure_strategy := force}
-          end,
+        Cfg#{
+            rate := 1,
+            capacity := 200,
+            initial := 50,
+            max_retry_time := 100,
+            failure_strategy := force
+        }
+    end,
     Case = fun() ->
-                   Client = connect(default),
-                   {_, _, Retry, L2} = emqx_htb_limiter:check(150, Client),
-                   timer:sleep(200),
-                   {ok, L3} = emqx_htb_limiter:check(Retry, L2),
-                   Avaiable = emqx_htb_limiter:available(L3),
-                   ?assert(Avaiable >= 50)
-           end,
+        Client = connect(default),
+        {_, _, Retry, L2} = emqx_htb_limiter:check(150, Client),
+        timer:sleep(200),
+        {ok, L3} = emqx_htb_limiter:check(Retry, L2),
+        Avaiable = emqx_htb_limiter:available(L3),
+        ?assert(Avaiable >= 50)
+    end,
     with_per_client(default, Cfg, Case).
 
 t_max_retry_time(_) ->
     Cfg = fun(Cfg) ->
-                  Cfg#{rate := 1,
-                       capacity := 1,
-                       max_retry_time := 500,
-                       failure_strategy := drop}
-          end,
+        Cfg#{
+            rate := 1,
+            capacity := 1,
+            max_retry_time := 500,
+            failure_strategy := drop
+        }
+    end,
     Case = fun() ->
-                   Client = connect(default),
-                   Begin = ?NOW,
-                   Result = emqx_htb_limiter:consume(101, Client),
-                   ?assertMatch({drop, _}, Result),
-                   Time = ?NOW - Begin,
-                   ?assert(Time >= 500 andalso Time < 550)
-           end,
+        Client = connect(default),
+        Begin = ?NOW,
+        Result = emqx_htb_limiter:consume(101, Client),
+        ?assertMatch({drop, _}, Result),
+        Time = ?NOW - Begin,
+        ?assert(Time >= 500 andalso Time < 550)
+    end,
     with_per_client(default, Cfg, Case).
 
 t_divisible(_) ->
     Cfg = fun(Cfg) ->
-                  Cfg#{divisible := true,
-                       rate := ?RATE("1000/1s"),
-                       initial := 600,
-                       capacity := 600}
-          end,
+        Cfg#{
+            divisible := true,
+            rate := ?RATE("1000/1s"),
+            initial := 600,
+            capacity := 600
+        }
+    end,
     Case = fun() ->
-                   Client = connect(default),
-                   Result = emqx_htb_limiter:check(1000, Client),
-                   ?assertMatch({partial,
-                                 400,
-                                 #{continuation := _,
-                                   diff := 400,
-                                   start := _,
-                                   need := 1000},
-                                 _}, Result)
-           end,
+        Client = connect(default),
+        Result = emqx_htb_limiter:check(1000, Client),
+        ?assertMatch(
+            {partial, 400,
+                #{
+                    continuation := _,
+                    diff := 400,
+                    start := _,
+                    need := 1000
+                },
+                _},
+            Result
+        )
+    end,
     with_per_client(default, Cfg, Case).
 
 t_low_water_mark(_) ->
     Cfg = fun(Cfg) ->
-                  Cfg#{low_water_mark := 400,
-                       rate := ?RATE("1000/1s"),
-                       initial := 1000,
-                       capacity := 1000}
-          end,
+        Cfg#{
+            low_water_mark := 400,
+            rate := ?RATE("1000/1s"),
+            initial := 1000,
+            capacity := 1000
+        }
+    end,
     Case = fun() ->
-                   Client = connect(default),
-                   Result = emqx_htb_limiter:check(500, Client),
-                   ?assertMatch({ok, _}, Result),
-                   {_, Client2} = Result,
-                   Result2 = emqx_htb_limiter:check(101, Client2),
-                   ?assertMatch({pause,
-                                 _,
-                                 #{continuation := undefined,
-                                   diff := 0},
-                                 _}, Result2)
-           end,
+        Client = connect(default),
+        Result = emqx_htb_limiter:check(500, Client),
+        ?assertMatch({ok, _}, Result),
+        {_, Client2} = Result,
+        Result2 = emqx_htb_limiter:check(101, Client2),
+        ?assertMatch(
+            {pause, _,
+                #{
+                    continuation := undefined,
+                    diff := 0
+                },
+                _},
+            Result2
+        )
+    end,
     with_per_client(default, Cfg, Case).
 
 t_infinity_client(_) ->
     Fun = fun(#{per_client := Cli} = Bucket) ->
-                  Bucket2 = Bucket#{rate := infinity,
-                                    capacity := infinity},
-                  Cli2 = Cli#{rate := infinity, capacity := infinity},
-                  Bucket2#{per_client := Cli2}
-          end,
+        Bucket2 = Bucket#{
+            rate := infinity,
+            capacity := infinity
+        },
+        Cli2 = Cli#{rate := infinity, capacity := infinity},
+        Bucket2#{per_client := Cli2}
+    end,
     Case = fun() ->
-                   Client = connect(default),
-                   ?assertEqual(infinity, Client),
-                   Result = emqx_htb_limiter:check(100000, Client),
-                   ?assertEqual({ok, Client}, Result)
-           end,
+        Client = connect(default),
+        ?assertEqual(infinity, Client),
+        Result = emqx_htb_limiter:check(100000, Client),
+        ?assertEqual({ok, Client}, Result)
+    end,
     with_bucket(default, Fun, Case).
 
 t_try_restore_agg(_) ->
     Fun = fun(#{per_client := Cli} = Bucket) ->
-                  Bucket2 = Bucket#{rate := 1,
-                                    capacity := 200,
-                                    initial := 50},
-                  Cli2 = Cli#{rate := infinity, capacity := infinity, divisible := true,
-                              max_retry_time := 100, failure_strategy := force},
-                  Bucket2#{per_client := Cli2}
-          end,
+        Bucket2 = Bucket#{
+            rate := 1,
+            capacity := 200,
+            initial := 50
+        },
+        Cli2 = Cli#{
+            rate := infinity,
+            capacity := infinity,
+            divisible := true,
+            max_retry_time := 100,
+            failure_strategy := force
+        },
+        Bucket2#{per_client := Cli2}
+    end,
     Case = fun() ->
-                   Client = connect(default),
-                   {_, _, Retry, L2} = emqx_htb_limiter:check(150, Client),
-                   timer:sleep(200),
-                   {ok, L3} = emqx_htb_limiter:check(Retry, L2),
-                   Avaiable = emqx_htb_limiter:available(L3),
-                   ?assert(Avaiable >= 50)
-           end,
+        Client = connect(default),
+        {_, _, Retry, L2} = emqx_htb_limiter:check(150, Client),
+        timer:sleep(200),
+        {ok, L3} = emqx_htb_limiter:check(Retry, L2),
+        Avaiable = emqx_htb_limiter:available(L3),
+        ?assert(Avaiable >= 50)
+    end,
     with_bucket(default, Fun, Case).
 
 t_short_board(_) ->
     Fun = fun(#{per_client := Cli} = Bucket) ->
-                  Bucket2 = Bucket#{rate := ?RATE("100/1s"),
-                                    initial := 0,
-                                    capacity := 100},
-                  Cli2 = Cli#{rate := ?RATE("600/1s"),
-                              capacity := 600,
-                              initial := 600},
-                  Bucket2#{per_client := Cli2}
-          end,
+        Bucket2 = Bucket#{
+            rate := ?RATE("100/1s"),
+            initial := 0,
+            capacity := 100
+        },
+        Cli2 = Cli#{
+            rate := ?RATE("600/1s"),
+            capacity := 600,
+            initial := 600
+        },
+        Bucket2#{per_client := Cli2}
+    end,
     Case = fun() ->
-                   Counter = counters:new(1, []),
-                   start_client(default, ?NOW + 2000, Counter, 20),
-                   timer:sleep(2100),
-                   check_average_rate(Counter, 2, 100)
-           end,
+        Counter = counters:new(1, []),
+        start_client(default, ?NOW + 2000, Counter, 20),
+        timer:sleep(2100),
+        check_average_rate(Counter, 2, 100)
+    end,
     with_bucket(default, Fun, Case).
 
 t_rate(_) ->
     Fun = fun(#{per_client := Cli} = Bucket) ->
-              Bucket2 = Bucket#{rate := ?RATE("100/100ms"),
-                                initial := 0,
-                                capacity := infinity},
-              Cli2 = Cli#{rate := infinity,
-                          capacity := infinity,
-                          initial := 0},
-              Bucket2#{per_client := Cli2}
-      end,
+        Bucket2 = Bucket#{
+            rate := ?RATE("100/100ms"),
+            initial := 0,
+            capacity := infinity
+        },
+        Cli2 = Cli#{
+            rate := infinity,
+            capacity := infinity,
+            initial := 0
+        },
+        Bucket2#{per_client := Cli2}
+    end,
     Case = fun() ->
-               Client = connect(default),
-               Ts1 = erlang:system_time(millisecond),
-                   C1 = emqx_htb_limiter:available(Client),
-                   timer:sleep(1000),
-                   Ts2 = erlang:system_time(millisecond),
-                   C2 = emqx_htb_limiter:available(Client),
-                   ShouldInc = floor((Ts2 - Ts1) / 100) * 100,
-                   Inc = C2 - C1,
-                   ?assert(in_range(Inc, ShouldInc - 100, ShouldInc + 100), "test bucket rate")
-           end,
+        Client = connect(default),
+        Ts1 = erlang:system_time(millisecond),
+        C1 = emqx_htb_limiter:available(Client),
+        timer:sleep(1000),
+        Ts2 = erlang:system_time(millisecond),
+        C2 = emqx_htb_limiter:available(Client),
+        ShouldInc = floor((Ts2 - Ts1) / 100) * 100,
+        Inc = C2 - C1,
+        ?assert(in_range(Inc, ShouldInc - 100, ShouldInc + 100), "test bucket rate")
+    end,
     with_bucket(default, Fun, Case).
 
 t_capacity(_) ->
     Capacity = 600,
     Fun = fun(#{per_client := Cli} = Bucket) ->
-              Bucket2 = Bucket#{rate := ?RATE("100/100ms"),
-                                initial := 0,
-                                capacity := 600},
-                  Cli2 = Cli#{rate := infinity,
-                              capacity := infinity,
-                              initial := 0},
-                  Bucket2#{per_client := Cli2}
-          end,
+        Bucket2 = Bucket#{
+            rate := ?RATE("100/100ms"),
+            initial := 0,
+            capacity := 600
+        },
+        Cli2 = Cli#{
+            rate := infinity,
+            capacity := infinity,
+            initial := 0
+        },
+        Bucket2#{per_client := Cli2}
+    end,
     Case = fun() ->
-                   Client = connect(default),
-                   timer:sleep(1000),
-                   C1 = emqx_htb_limiter:available(Client),
-                   ?assertEqual(Capacity, C1, "test bucket capacity")
-           end,
+        Client = connect(default),
+        timer:sleep(1000),
+        C1 = emqx_htb_limiter:available(Client),
+        ?assertEqual(Capacity, C1, "test bucket capacity")
+    end,
     with_bucket(default, Fun, Case).
 
 %%--------------------------------------------------------------------
@@ -308,96 +353,116 @@ t_capacity(_) ->
 %%--------------------------------------------------------------------
 t_collaborative_alloc(_) ->
     GlobalMod = fun(Cfg) ->
-                        Cfg#{rate := ?RATE("600/1s")}
-                end,
+        Cfg#{rate := ?RATE("600/1s")}
+    end,
 
     Bucket1 = fun(#{per_client := Cli} = Bucket) ->
-                      Bucket2 = Bucket#{rate := ?RATE("400/1s"),
-                                        initial := 0,
-                                        capacity := 600},
-                      Cli2 = Cli#{rate := ?RATE("50"),
-                                  capacity := 100,
-                                  initial := 100},
-                      Bucket2#{per_client := Cli2}
-             end,
+        Bucket2 = Bucket#{
+            rate := ?RATE("400/1s"),
+            initial := 0,
+            capacity := 600
+        },
+        Cli2 = Cli#{
+            rate := ?RATE("50"),
+            capacity := 100,
+            initial := 100
+        },
+        Bucket2#{per_client := Cli2}
+    end,
 
     Bucket2 = fun(Bucket) ->
-                      Bucket2 = Bucket1(Bucket),
-                      Bucket2#{rate := ?RATE("200/1s")}
-              end,
+        Bucket2 = Bucket1(Bucket),
+        Bucket2#{rate := ?RATE("200/1s")}
+    end,
 
     Case = fun() ->
-                   C1 = counters:new(1, []),
-                   C2 = counters:new(1, []),
-                   start_client(b1, ?NOW + 2000, C1, 20),
-                   start_client(b2, ?NOW + 2000, C2, 30),
-                   timer:sleep(2100),
-                   check_average_rate(C1, 2, 300),
-                   check_average_rate(C2, 2, 300)
-           end,
+        C1 = counters:new(1, []),
+        C2 = counters:new(1, []),
+        start_client(b1, ?NOW + 2000, C1, 20),
+        start_client(b2, ?NOW + 2000, C2, 30),
+        timer:sleep(2100),
+        check_average_rate(C1, 2, 300),
+        check_average_rate(C2, 2, 300)
+    end,
 
-    with_global(GlobalMod,
-                [{b1, Bucket1}, {b2, Bucket2}],
-                Case).
+    with_global(
+        GlobalMod,
+        [{b1, Bucket1}, {b2, Bucket2}],
+        Case
+    ).
 
 t_burst(_) ->
     GlobalMod = fun(Cfg) ->
-                        Cfg#{rate := ?RATE("200/1s"),
-                             burst := ?RATE("400/1s")}
-                end,
+        Cfg#{
+            rate := ?RATE("200/1s"),
+            burst := ?RATE("400/1s")
+        }
+    end,
 
     Bucket = fun(#{per_client := Cli} = Bucket) ->
-                     Bucket2 = Bucket#{rate := ?RATE("200/1s"),
-                                       initial := 0,
-                                       capacity := 200},
-                     Cli2 = Cli#{rate := ?RATE("50/1s"),
-                                 capacity := 200,
-                                 divisible := true},
-                     Bucket2#{per_client := Cli2}
-             end,
+        Bucket2 = Bucket#{
+            rate := ?RATE("200/1s"),
+            initial := 0,
+            capacity := 200
+        },
+        Cli2 = Cli#{
+            rate := ?RATE("50/1s"),
+            capacity := 200,
+            divisible := true
+        },
+        Bucket2#{per_client := Cli2}
+    end,
 
     Case = fun() ->
-                   C1 = counters:new(1, []),
-                   C2 = counters:new(1, []),
-                   C3 = counters:new(1, []),
-                   start_client(b1, ?NOW + 2000, C1, 20),
-                   start_client(b2, ?NOW + 2000, C2, 30),
-                   start_client(b3, ?NOW + 2000, C3, 30),
-                   timer:sleep(2100),
+        C1 = counters:new(1, []),
+        C2 = counters:new(1, []),
+        C3 = counters:new(1, []),
+        start_client(b1, ?NOW + 2000, C1, 20),
+        start_client(b2, ?NOW + 2000, C2, 30),
+        start_client(b3, ?NOW + 2000, C3, 30),
+        timer:sleep(2100),
 
-                   Total = lists:sum([counters:get(X, 1) || X <- [C1, C2, C3]]),
-                   in_range(Total / 2, 300)
-           end,
+        Total = lists:sum([counters:get(X, 1) || X <- [C1, C2, C3]]),
+        in_range(Total / 2, 300)
+    end,
 
-    with_global(GlobalMod,
-                [{b1, Bucket}, {b2, Bucket}, {b3, Bucket}],
-                Case).
+    with_global(
+        GlobalMod,
+        [{b1, Bucket}, {b2, Bucket}, {b3, Bucket}],
+        Case
+    ).
 
 t_limit_global_with_unlimit_other(_) ->
     GlobalMod = fun(Cfg) ->
-                        Cfg#{rate := ?RATE("600/1s")}
-                end,
+        Cfg#{rate := ?RATE("600/1s")}
+    end,
 
     Bucket = fun(#{per_client := Cli} = Bucket) ->
-                     Bucket2 = Bucket#{rate := infinity,
-                                       initial := 0,
-                                       capacity := infinity},
-                     Cli2 = Cli#{rate := infinity,
-                                 capacity := infinity,
-                                 initial := 0},
-                     Bucket2#{per_client := Cli2}
-             end,
+        Bucket2 = Bucket#{
+            rate := infinity,
+            initial := 0,
+            capacity := infinity
+        },
+        Cli2 = Cli#{
+            rate := infinity,
+            capacity := infinity,
+            initial := 0
+        },
+        Bucket2#{per_client := Cli2}
+    end,
 
     Case = fun() ->
-                   C1 = counters:new(1, []),
-                   start_client(b1, ?NOW + 2000, C1, 20),
-                   timer:sleep(2100),
-                   check_average_rate(C1, 2, 600)
-           end,
+        C1 = counters:new(1, []),
+        start_client(b1, ?NOW + 2000, C1, 20),
+        timer:sleep(2100),
+        check_average_rate(C1, 2, 600)
+    end,
 
-    with_global(GlobalMod,
-                [{b1, Bucket}],
-                Case).
+    with_global(
+        GlobalMod,
+        [{b1, Bucket}],
+        Case
+    ).
 
 %%--------------------------------------------------------------------
 %% Test Cases container
@@ -406,32 +471,46 @@ t_new_container(_) ->
     C1 = emqx_limiter_container:new(),
     C2 = emqx_limiter_container:new([message_routing]),
     C3 = emqx_limiter_container:update_by_name(message_routing, default, C1),
-    ?assertMatch(#{message_routing := _,
-                   retry_ctx := undefined,
-                   {retry, message_routing} := _}, C2),
-    ?assertMatch(#{message_routing := _,
-                   retry_ctx := undefined,
-                   {retry, message_routing} := _}, C3),
+    ?assertMatch(
+        #{
+            message_routing := _,
+            retry_ctx := undefined,
+            {retry, message_routing} := _
+        },
+        C2
+    ),
+    ?assertMatch(
+        #{
+            message_routing := _,
+            retry_ctx := undefined,
+            {retry, message_routing} := _
+        },
+        C3
+    ),
     ok.
 
 t_check_container(_) ->
     Cfg = fun(Cfg) ->
-                  Cfg#{rate := ?RATE("1000/1s"),
-                       initial := 1000,
-                       capacity := 1000}
-          end,
+        Cfg#{
+            rate := ?RATE("1000/1s"),
+            initial := 1000,
+            capacity := 1000
+        }
+    end,
     Case = fun() ->
-                   C1 = emqx_limiter_container:new([message_routing],
-                                                   #{message_routing => default}),
-                   {ok, C2} = emqx_limiter_container:check(1000, message_routing, C1),
-                   {pause, Pause, C3} = emqx_limiter_container:check(1000, message_routing, C2),
-                   timer:sleep(Pause),
-                   {ok, C4} = emqx_limiter_container:retry(message_routing, C3),
-                   Context = test,
-                   C5 = emqx_limiter_container:set_retry_context(Context, C4),
-                   RetryData = emqx_limiter_container:get_retry_context(C5),
-                   ?assertEqual(Context, RetryData)
-           end,
+        C1 = emqx_limiter_container:new(
+            [message_routing],
+            #{message_routing => default}
+        ),
+        {ok, C2} = emqx_limiter_container:check(1000, message_routing, C1),
+        {pause, Pause, C3} = emqx_limiter_container:check(1000, message_routing, C2),
+        timer:sleep(Pause),
+        {ok, C4} = emqx_limiter_container:retry(message_routing, C3),
+        Context = test,
+        C5 = emqx_limiter_container:set_retry_context(Context, C4),
+        RetryData = emqx_limiter_container:get_retry_context(C5),
+        ?assertEqual(Context, RetryData)
+    end,
     with_per_client(default, Cfg, Case).
 
 %%--------------------------------------------------------------------
@@ -448,7 +527,8 @@ t_limiter_manager(_) ->
 t_limiter_app(_) ->
     try
         _ = emqx_limiter_app:start(undefined, undefined)
-    catch _:_ ->
+    catch
+        _:_ ->
             ok
     end,
     ok = emqx_limiter_app:stop(undefined),
@@ -456,11 +536,16 @@ t_limiter_app(_) ->
 
 t_limiter_server(_) ->
     State = emqx_limiter_server:info(message_routing),
-    ?assertMatch(#{root := _,
-                   counter := _,
-                   index := _,
-                   buckets := _,
-                   type := message_routing}, State),
+    ?assertMatch(
+        #{
+            root := _,
+            counter := _,
+            index := _,
+            buckets := _,
+            type := message_routing
+        },
+        State
+    ),
 
     Name = emqx_limiter_server:name(message_routing),
     ignored = gen_server:call(Name, unexpected_call),
@@ -499,50 +584,59 @@ t_schema_unit(_) ->
 %%% Internal functions
 %%--------------------------------------------------------------------
 start_client(Name, EndTime, Counter, Number) ->
-    lists:foreach(fun(_) ->
-                          spawn(fun() ->
-                                        start_client(Name, EndTime, Counter)
-                                end)
-                  end,
-                  lists:seq(1, Number)).
+    lists:foreach(
+        fun(_) ->
+            spawn(fun() ->
+                start_client(Name, EndTime, Counter)
+            end)
+        end,
+        lists:seq(1, Number)
+    ).
 
 start_client(Name, EndTime, Counter) ->
     #{per_client := PerClient} =
         emqx_config:get([limiter, message_routing, bucket, Name]),
     #{rate := Rate} = PerClient,
-    Client = #client{start = ?NOW,
-                     endtime = EndTime,
-                     counter = Counter,
-                     obtained = 0,
-                     rate = Rate,
-                     client = connect(Name)
-                    },
+    Client = #client{
+        start = ?NOW,
+        endtime = EndTime,
+        counter = Counter,
+        obtained = 0,
+        rate = Rate,
+        client = connect(Name)
+    },
     client_loop(Client).
 
 %% the simulated client will try to reach the configured rate as much as possible
 %% note this client will not considered the capacity, so must make sure rate < capacity
-client_loop(#client{start = Start,
-                    endtime = EndTime,
-                    obtained = Obtained,
-                    rate = Rate} = State) ->
+client_loop(
+    #client{
+        start = Start,
+        endtime = EndTime,
+        obtained = Obtained,
+        rate = Rate
+    } = State
+) ->
     Now = ?NOW,
     Period = emqx_limiter_schema:minimum_period(),
     MinPeriod = erlang:ceil(0.25 * Period),
-    if Now >= EndTime ->
+    if
+        Now >= EndTime ->
             stop;
-       Now - Start < MinPeriod ->
+        Now - Start < MinPeriod ->
             timer:sleep(client_random_val(MinPeriod)),
             client_loop(State);
-       Obtained =< 0 ->
+        Obtained =< 0 ->
             Rand = client_random_val(Rate),
             client_try_check(Rand, State);
-       true ->
+        true ->
             Span = Now - Start,
             CurrRate = Obtained * Period / Span,
-            if CurrRate < Rate ->
+            if
+                CurrRate < Rate ->
                     Rand = client_random_val(Rate),
                     client_try_check(Rand, State);
-               true ->
+                true ->
                     LeftTime = EndTime - Now,
                     CanSleep = erlang:min(LeftTime, client_random_val(MinPeriod div 2)),
                     timer:sleep(CanSleep),
@@ -550,10 +644,15 @@ client_loop(#client{start = Start,
             end
     end.
 
-client_try_check(Need, #client{counter = Counter,
-                               endtime = EndTime,
-                               obtained = Obtained,
-                               client = Client} = State) ->
+client_try_check(
+    Need,
+    #client{
+        counter = Counter,
+        endtime = EndTime,
+        obtained = Obtained,
+        client = Client
+    } = State
+) ->
     case emqx_htb_limiter:check(Need, Client) of
         {ok, Client2} ->
             case Need of
@@ -564,9 +663,10 @@ client_try_check(Need, #client{counter = Counter,
             client_loop(State#client{obtained = Obtained + Val, client = Client2});
         {_, Pause, Retry, Client2} ->
             LeftTime = EndTime - ?NOW,
-            if LeftTime =< 0 ->
+            if
+                LeftTime =< 0 ->
                     stop;
-               true ->
+                true ->
                     timer:sleep(erlang:min(Pause, LeftTime)),
                     client_try_check(Retry, State#client{client = Client2})
             end
@@ -577,7 +677,6 @@ client_try_check(Need, #client{counter = Counter,
 %% client's divisible should be true or capacity must be bigger than number of each consume
 client_random_val(infinity) ->
     1000;
-
 %% random in 0.5Range ~ 1Range
 client_random_val(Range) ->
     Half = erlang:floor(Range) div 2,
@@ -590,13 +689,13 @@ to_rate(Str) ->
 
 with_global(Modifier, BuckeTemps, Case) ->
     Fun = fun(Cfg) ->
-                  #{bucket := #{default := BucketCfg}} = Cfg2 = Modifier(Cfg),
-                  Fun = fun({Name, BMod}, Acc) ->
-                                Acc#{Name => BMod(BucketCfg)}
-                        end,
-                  Buckets = lists:foldl(Fun, #{}, BuckeTemps),
-                  Cfg2#{bucket := Buckets}
-          end,
+        #{bucket := #{default := BucketCfg}} = Cfg2 = Modifier(Cfg),
+        Fun = fun({Name, BMod}, Acc) ->
+            Acc#{Name => BMod(BucketCfg)}
+        end,
+        Buckets = lists:foldl(Fun, #{}, BuckeTemps),
+        Cfg2#{bucket := Buckets}
+    end,
 
     with_config([limiter, message_routing], Fun, Case).
 
@@ -623,7 +722,8 @@ delay_return(Case) ->
     try
         Return = Case(),
         fun() -> Return end
-    catch Type:Reason:Trace ->
+    catch
+        Type:Reason:Trace ->
             fun() -> erlang:raise(Type, Reason, Trace) end
     end.
 
@@ -653,7 +753,7 @@ in_range(_, _) ->
 in_range(Val, Min, _Max) when Val < Min ->
     ct:pal("Val:~p smaller than min bound:~p~n", [Val, Min]),
     false;
-in_range(Val, _Min, Max) when Val > Max->
+in_range(Val, _Min, Max) when Val > Max ->
     ct:pal("Val:~p bigger than max bound:~p~n", [Val, Max]),
     false;
 in_range(_, _, _) ->
@@ -662,12 +762,11 @@ in_range(_, _, _) ->
 apply_modifier(Name, Modifier, Cfg) when is_list(Name) ->
     Pairs = lists:zip(Name, Modifier),
     apply_modifier(Pairs, Cfg);
-
 apply_modifier(Name, Modifier, #{default := Template} = Cfg) ->
     Cfg#{Name => Modifier(Template)}.
 
 apply_modifier(Pairs, #{default := Template}) ->
     Fun = fun({N, M}, Acc) ->
-                  Acc#{N => M(Template)}
-          end,
+        Acc#{N => M(Template)}
+    end,
     lists:foldl(Fun, #{}, Pairs).

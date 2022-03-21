@@ -1,28 +1,31 @@
 %% -*- mode: erlang -*-
-{application, emqx,
- [{id, "emqx"},
-  {description, "EMQX Core"},
-  {vsn, "5.0.0"}, % strict semver, bump manually!
-  {modules, []},
-  {registered, []},
-  {applications, [ kernel
-                 , stdlib
-                 , gproc
-                 , gen_rpc
-                 , mria
-                 , esockd
-                 , cowboy
-                 , sasl
-                 , os_mon
-                 , jiffy
-                 , lc
-                 , hocon
-                 ]},
-  {mod, {emqx_app,[]}},
-  {env, []},
-  {licenses, ["Apache-2.0"]},
-  {maintainers, ["EMQX Team <contact@emqx.io>"]},
-  {links, [{"Homepage", "https://emqx.io/"},
-           {"Github", "https://github.com/emqx/emqx"}
-          ]}
+{application, emqx, [
+    {id, "emqx"},
+    {description, "EMQX Core"},
+    % strict semver, bump manually!
+    {vsn, "5.0.0"},
+    {modules, []},
+    {registered, []},
+    {applications, [
+        kernel,
+        stdlib,
+        gproc,
+        gen_rpc,
+        mria,
+        esockd,
+        cowboy,
+        sasl,
+        os_mon,
+        jiffy,
+        lc,
+        hocon
+    ]},
+    {mod, {emqx_app, []}},
+    {env, []},
+    {licenses, ["Apache-2.0"]},
+    {maintainers, ["EMQX Team <contact@emqx.io>"]},
+    {links, [
+        {"Homepage", "https://emqx.io/"},
+        {"Github", "https://github.com/emqx/emqx"}
+    ]}
 ]}.

@@ -18,15 +18,16 @@
 
 -include_lib("common_test/include/ct.hrl").
 
--export([ request_api/3
-        , request_api/4
-        , request_api/5
-        , get_http_data/1
-        , create_default_app/0
-        , delete_default_app/0
-        , default_auth_header/0
-        , auth_header/2
-        ]).
+-export([
+    request_api/3,
+    request_api/4,
+    request_api/5,
+    get_http_data/1,
+    create_default_app/0,
+    delete_default_app/0,
+    default_auth_header/0,
+    auth_header/2
+]).
 
 request_api(Method, Url, Auth) ->
     request_api(Method, Url, [], Auth, []).
@@ -38,18 +39,20 @@ request_api(Method, Url, QueryParams, Auth, Body) ->
     request_api(Method, Url, QueryParams, Auth, Body, []).
 
 request_api(Method, Url, QueryParams, Auth, Body, HttpOpts) ->
-    NewUrl = case QueryParams of
-                 [] ->
-                     Url;
-                 _ ->
-                     Url ++ "?" ++ QueryParams
-             end,
-    Request = case Body of
-                  [] ->
-                      {NewUrl, [Auth]};
-                  _ ->
-                      {NewUrl, [Auth], "application/json", emqx_json:encode(Body)}
-              end,
+    NewUrl =
+        case QueryParams of
+            [] ->
+                Url;
+            _ ->
+                Url ++ "?" ++ QueryParams
+        end,
+    Request =
+        case Body of
+            [] ->
+                {NewUrl, [Auth]};
+            _ ->
+                {NewUrl, [Auth], "application/json", emqx_json:encode(Body)}
+        end,
     do_request_api(Method, Request, HttpOpts).
 
 do_request_api(Method, Request, HttpOpts) ->
@@ -57,7 +60,7 @@ do_request_api(Method, Request, HttpOpts) ->
     case httpc:request(Method, Request, HttpOpts, [{body_format, binary}]) of
         {error, socket_closed_remotely} ->
             {error, socket_closed_remotely};
-        {ok, {{"HTTP/1.1", Code, _}, _Headers, Return} } ->
+        {ok, {{"HTTP/1.1", Code, _}, _Headers, Return}} ->
             {ok, Code, Return};
         {ok, {Reason, _, _}} ->
             {error, Reason}
@@ -67,8 +70,8 @@ get_http_data(ResponseBody) ->
     emqx_json:decode(ResponseBody, [return_maps]).
 
 auth_header(User, Pass) ->
-    Encoded = base64:encode_to_string(lists:append([User,":",Pass])),
-    {"Authorization","Basic " ++ Encoded}.
+    Encoded = base64:encode_to_string(lists:append([User, ":", Pass])),
+    {"Authorization", "Basic " ++ Encoded}.
 
 default_auth_header() ->
     AppId = <<"myappid">>,

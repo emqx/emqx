@@ -16,21 +16,41 @@
 
 -module(emqx_congestion).
 
--export([ maybe_alarm_conn_congestion/3
-        , cancel_alarms/3
-        ]).
+-export([
+    maybe_alarm_conn_congestion/3,
+    cancel_alarms/3
+]).
 
 -elvis([{elvis_style, invalid_dynamic_call, #{ignore => [emqx_congestion]}}]).
 
 -define(ALARM_CONN_CONGEST(Channel, Reason),
-        list_to_binary(
-          io_lib:format("~ts/~ts/~ts",
-                        [Reason, emqx_channel:info(clientid, Channel),
-                         maps:get(username, emqx_channel:info(clientinfo, Channel),
-                                  <<"unknown_user">>)]))).
+    list_to_binary(
+        io_lib:format(
+            "~ts/~ts/~ts",
+            [
+                Reason,
+                emqx_channel:info(clientid, Channel),
+                maps:get(
+                    username,
+                    emqx_channel:info(clientinfo, Channel),
+                    <<"unknown_user">>
+                )
+            ]
+        )
+    )
+).
 
--define(ALARM_CONN_INFO_KEYS, [socktype, sockname, peername, clientid, username,
-                               proto_name, proto_ver, connected_at, conn_state]).
+-define(ALARM_CONN_INFO_KEYS, [
+    socktype,
+    sockname,
+    peername,
+    clientid,
+    username,
+    proto_name,
+    proto_ver,
+    connected_at,
+    conn_state
+]).
 -define(ALARM_SOCK_STATS_KEYS, [send_pend, recv_cnt, recv_oct, send_cnt, send_oct]).
 -define(ALARM_SOCK_OPTS_KEYS, [high_watermark, high_msgq_watermark, sndbuf, recbuf, buffer]).
 -define(PROC_INFO_KEYS, [message_queue_len, memory, reductions]).
@@ -40,7 +60,8 @@
 
 maybe_alarm_conn_congestion(Socket, Transport, Channel) ->
     case is_alarm_enabled(Channel) of
-        false -> ok;
+        false ->
+            ok;
         true ->
             case is_tcp_congested(Socket, Transport) of
                 true -> alarm_congestion(Socket, Transport, Channel, conn_congestion);
@@ -49,12 +70,15 @@ maybe_alarm_conn_congestion(Socket, Transport, Channel) ->
     end.
 
 cancel_alarms(Socket, Transport, Channel) ->
-    lists:foreach(fun(Reason) ->
-        case has_alarm_sent(Reason) of
-            true -> do_cancel_alarm_congestion(Socket, Transport, Channel, Reason);
-            false -> ok
-        end
-    end, ?ALL_ALARM_REASONS).
+    lists:foreach(
+        fun(Reason) ->
+            case has_alarm_sent(Reason) of
+                true -> do_cancel_alarm_congestion(Socket, Transport, Channel, Reason);
+                false -> ok
+            end
+        end,
+        ?ALL_ALARM_REASONS
+    ).
 
 is_alarm_enabled(Channel) ->
     Zone = emqx_channel:info(zone, Channel),
@@ -62,7 +86,8 @@ is_alarm_enabled(Channel) ->
 
 alarm_congestion(Socket, Transport, Channel, Reason) ->
     case has_alarm_sent(Reason) of
-        false -> do_alarm_congestion(Socket, Transport, Channel, Reason);
+        false ->
+            do_alarm_congestion(Socket, Transport, Channel, Reason);
         true ->
             %% pretend we have sent an alarm again
             update_alarm_sent_at(Reason)
@@ -70,8 +95,10 @@ alarm_congestion(Socket, Transport, Channel, Reason) ->
 
 cancel_alarm_congestion(Socket, Transport, Channel, Reason) ->
     Zone = emqx_channel:info(zone, Channel),
-    WontClearIn = emqx_config:get_zone_conf(Zone, [conn_congestion,
-                    min_alarm_sustain_duration]),
+    WontClearIn = emqx_config:get_zone_conf(Zone, [
+        conn_congestion,
+        min_alarm_sustain_duration
+    ]),
     case has_alarm_sent(Reason) andalso long_time_since_last_alarm(Reason, WontClearIn) of
         true -> do_cancel_alarm_congestion(Socket, Transport, Channel, Reason);
         false -> ok
@@ -130,14 +157,16 @@ timenow() ->
 tcp_congestion_alarm_details(Socket, Transport, Channel) ->
     ProcInfo = process_info(self(), ?PROC_INFO_KEYS),
     BasicInfo = [{pid, list_to_binary(pid_to_list(self()))} | ProcInfo],
-    Stat = case Transport:getstat(Socket, ?ALARM_SOCK_STATS_KEYS) of
-        {ok, Stat0} -> Stat0;
-        {error, _} -> []
-    end,
-    Opts = case Transport:getopts(Socket, ?ALARM_SOCK_OPTS_KEYS) of
-        {ok, Opts0} -> Opts0;
-        {error, _} -> []
-    end,
+    Stat =
+        case Transport:getstat(Socket, ?ALARM_SOCK_STATS_KEYS) of
+            {ok, Stat0} -> Stat0;
+            {error, _} -> []
+        end,
+    Opts =
+        case Transport:getopts(Socket, ?ALARM_SOCK_OPTS_KEYS) of
+            {ok, Opts0} -> Opts0;
+            {error, _} -> []
+        end,
     SockInfo = Stat ++ Opts,
     ConnInfo = [conn_info(Key, Channel) || Key <- ?ALARM_CONN_INFO_KEYS],
     maps:from_list(BasicInfo ++ ConnInfo ++ SockInfo).
