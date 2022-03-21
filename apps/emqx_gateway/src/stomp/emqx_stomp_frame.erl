@@ -158,6 +158,8 @@ parse(<<?BSL, Ch:8, Rest/binary>>,
                                               Phase =:= hdvalue ->
     parse(Phase, Rest, acc(unescape(Ch), State));
 
+parse(<<?LF>>, Parser = #{phase := none}) ->
+    {more,  Parser};
 parse(Bytes, #{phase := none, state := State}) ->
     parse(command, Bytes, State).
 
