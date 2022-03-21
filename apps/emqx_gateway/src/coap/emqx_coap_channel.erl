@@ -595,7 +595,8 @@ process_out(Outs, Result, Channel, _) ->
 process_nothing(_, _, Channel) ->
     {ok, Channel}.
 
-process_connection({open, Req}, Result, Channel, Iter) ->
+process_connection({open, Req}, Result,
+                   Channel = #channel{conn_state = idle}, Iter) ->
     Queries = emqx_coap_message:get_option(uri_query, Req),
     case emqx_misc:pipeline(
            [ fun enrich_conninfo/2
@@ -610,12 +611,31 @@ process_connection({open, Req}, Result, Channel, Iter) ->
             process_connect(ensure_connected(NChannel), Req, Result, Iter);
         {error, ReasonCode, NChannel} ->
             ErrMsg = io_lib:format("Login Failed: ~ts", [ReasonCode]),
-            Payload = erlang:list_to_binary(lists:flatten(ErrMsg)),
+            Payload = iolist_to_binary(ErrMsg),
             iter(Iter,
                  reply({error, bad_request}, Payload, Req, Result),
                  NChannel)
     end;
-
+process_connection({open, Req}, Result,
+                   Channel = #channel{
+                                conn_state = ConnState,
+                                clientinfo = #{clientid := ClientId}}, Iter)
+  when ConnState == connected ->
+    Queries = emqx_coap_message:get_option(uri_query, Req),
+    ErrMsg0 =
+        case Queries of
+            #{<<"clientid">> := ClientId} ->
+                "client has connected";
+            #{<<"clientid">> := ReqClientId} ->
+                ["channel has registered by: ", ReqClientId];
+            _ ->
+                "invalid queries"
+        end,
+    ErrMsg = io_lib:format("Bad Request: ~ts", [ErrMsg0]),
+    Payload = iolist_to_binary(ErrMsg),
+    iter(Iter,
+         reply({error, bad_request}, Payload, Req, Result),
+         Channel);
 process_connection({close, Msg}, _, Channel, _) ->
     Reply = emqx_coap_message:piggyback({ok, deleted}, Msg),
     {shutdown, close, Reply, Channel}.
