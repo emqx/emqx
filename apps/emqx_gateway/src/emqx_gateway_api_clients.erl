@@ -403,7 +403,7 @@ conn_state_to_connected(_) -> false.
 schema("/gateway/:name/clients") ->
     #{ 'operationId' => clients
      , get =>
-        #{ description => <<"Get the gateway client list">>
+        #{ desc => <<"Get the gateway client list">>
          , parameters => params_client_query()
          , responses =>
             ?STANDARD_RESP(#{200 => schema_client_list()})
@@ -412,13 +412,13 @@ schema("/gateway/:name/clients") ->
 schema("/gateway/:name/clients/:clientid") ->
     #{ 'operationId' => clients_insta
      , get =>
-        #{ description => <<"Get the gateway client information">>
+        #{ desc => <<"Get the gateway client information">>
          , parameters => params_client_insta()
          , responses =>
             ?STANDARD_RESP(#{200 => schema_client()})
          }
      , delete =>
-        #{ description => <<"Kick out the gateway client">>
+        #{ desc => <<"Kick out the gateway client">>
          , parameters => params_client_insta()
          , responses =>
             ?STANDARD_RESP(#{204 => <<"Kicked">>})
@@ -427,7 +427,7 @@ schema("/gateway/:name/clients/:clientid") ->
 schema("/gateway/:name/clients/:clientid/subscriptions") ->
     #{ 'operationId' => subscriptions
      , get =>
-        #{ description => <<"Get the gateway client subscriptions">>
+        #{ desc => <<"Get the gateway client subscriptions">>
          , parameters => params_client_insta()
          , responses =>
             ?STANDARD_RESP(
@@ -436,7 +436,7 @@ schema("/gateway/:name/clients/:clientid/subscriptions") ->
                           examples_subsctiption_list())})
          }
      , post =>
-        #{ description => <<"Create a subscription membership">>
+        #{ desc => <<"Create a subscription membership">>
          , parameters => params_client_insta()
          , 'requestBody' => emqx_dashboard_swagger:schema_with_examples(
                             ref(subscription),
@@ -451,7 +451,7 @@ schema("/gateway/:name/clients/:clientid/subscriptions") ->
 schema("/gateway/:name/clients/:clientid/subscriptions/:topic") ->
     #{ 'operationId' => subscriptions
      , delete =>
-        #{ description => <<"Delete a subscriptions membership">>
+        #{ desc => <<"Delete a subscriptions membership">>
          , parameters => params_topic_name_in_path() ++ params_client_insta()
          , responses =>
             ?STANDARD_RESP(#{204 => <<"Unsubscribed">>})

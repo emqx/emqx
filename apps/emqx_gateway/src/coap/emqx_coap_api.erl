@@ -46,7 +46,7 @@ paths() ->
 schema(?PREFIX ++ "/request") ->
     #{operationId => request,
       post => #{ tags => [<<"gateway|coap">>]
-               , description => <<"Send a CoAP request message to the client">>
+               , desc => <<"Send a CoAP request message to the client">>
                , parameters => request_parameters()
                , requestBody => request_body()
                , responses => #{200 => coap_message(),

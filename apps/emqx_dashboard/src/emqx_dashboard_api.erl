@@ -48,7 +48,7 @@ schema("/login") ->
         'operationId' => login,
         post => #{
             tags => [<<"dashboard">>],
-            description => <<"Dashboard Auth">>,
+            desc => <<"Dashboard Auth">>,
             summary => <<"Dashboard Auth">>,
             'requestBody' => [
                 {username, mk(binary(),
@@ -77,7 +77,7 @@ schema("/logout") ->
         'operationId' => logout,
         post => #{
             tags => [<<"dashboard">>],
-            description => <<"Dashboard User logout">>,
+            desc => <<"Dashboard User logout">>,
             'requestBody' => [
                 {username, mk(binary(),
                     #{desc => <<"The User for which to create the token.">>,
@@ -93,7 +93,7 @@ schema("/users") ->
         'operationId' => users,
         get => #{
             tags => [<<"dashboard">>],
-            description => <<"Get dashboard users list">>,
+            desc => <<"Get dashboard users list">>,
             responses => #{
                 200 => mk( array(ref(?MODULE, user))
                          , #{desc => "User lists"})
@@ -101,7 +101,7 @@ schema("/users") ->
         },
         post => #{
             tags => [<<"dashboard">>],
-            description => <<"Create dashboard users">>,
+            desc => <<"Create dashboard users">>,
             'requestBody' => fields(user_password),
             responses => #{
                 200 => mk( ref(?MODULE, user)
@@ -118,7 +118,7 @@ schema("/users/:username") ->
         'operationId' => user,
         put => #{
             tags => [<<"dashboard">>],
-            description => <<"Update dashboard users">>,
+            desc => <<"Update dashboard users">>,
             parameters => [{username, mk(binary(),
                 #{in => path, example => <<"admin">>})}],
             'requestBody' => [
@@ -138,7 +138,7 @@ schema("/users/:username") ->
         },
         delete => #{
             tags => [<<"dashboard">>],
-            description => <<"Delete dashboard users">>,
+            desc => <<"Delete dashboard users">>,
             parameters => [{username, mk(binary(),
                 #{in => path, example => <<"admin">>})}],
             responses => #{
@@ -156,7 +156,7 @@ schema("/users/:username/change_pwd") ->
         'operationId' => change_pwd,
         put => #{
             tags => [<<"dashboard">>],
-            description => <<"Update dashboard users password">>,
+            desc => <<"Update dashboard users password">>,
             parameters => [{username, mk(binary(),
                 #{in => path, required => true, example => <<"admin">>})}],
             'requestBody' => [
@@ -183,7 +183,8 @@ fields(user) ->
                 #{desc => <<"username">>, example => "emqx"})}
     ];
 fields(user_password) ->
-    fields(user) ++ [{password, mk(binary(), #{desc => "Password", example => <<"public">>})}].
+    fields(user) ++
+        [{password, mk(binary(), #{desc => "Password", example => <<"public">>})}].
 
 login(post, #{body := Params}) ->
     Username = maps:get(<<"username">>, Params),

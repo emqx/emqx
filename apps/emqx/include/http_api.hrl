@@ -30,6 +30,7 @@
 -define(NO_DEFAULT_VALUE,         'NO_DEFAULT_VALUE').
 -define(DEPENDENCY_EXISTS,        'DEPENDENCY_EXISTS').
 -define(MESSAGE_ID_SCHEMA_ERROR,  'MESSAGE_ID_SCHEMA_ERROR').
+-define(INVALID_ID,               'INVALID_ID').
 
 %% Resource Not Found
 -define(NOT_FOUND,                'NOT_FOUND').
@@ -63,6 +64,7 @@
     , {'NO_DEFAULT_VALUE',          <<"Request parameters do not use default values">>}
     , {'DEPENDENCY_EXISTS',         <<"Resource is dependent by another resource">>}
     , {'MESSAGE_ID_SCHEMA_ERROR',   <<"Message ID parsing error">>}
+    , {'INVALID_ID',                <<"Bad ID schema">>}
     , {'MESSAGE_ID_NOT_FOUND',      <<"Message ID does not exist">>}
     , {'NOT_FOUND',                 <<"Resource was not found or does not exist">>}
     , {'CLIENTID_NOT_FOUND',        <<"Client ID was not found or does not exist">>}

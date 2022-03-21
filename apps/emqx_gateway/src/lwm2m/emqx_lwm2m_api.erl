@@ -42,7 +42,7 @@ schema(?PATH("/lookup_cmd")) ->
         'operationId' => lookup_cmd,
         get => #{
             tags => [<<"lwm2m">>],
-            description => <<"Look up resource">>,
+            desc => <<"Look up resource">>,
             parameters => [
                 {clientid, mk(binary(), #{in => path, example => "urn:oma:lwm2m:oma:2"})},
                 {path, mk(binary(), #{in => query, required => true, example => "/3/0/7"})},
@@ -66,7 +66,7 @@ schema(?PATH("/observe")) ->
         'operationId' => observe,
         post => #{
             tags => [<<"lwm2m">>],
-            description => <<"(cancel) observe resource">>,
+            desc => <<"(cancel) observe resource">>,
             parameters => [
                 {clientid, mk(binary(), #{in => path, example => "urn:oma:lwm2m:oma:2"})},
                 {path, mk(binary(), #{in => query, required => true, example => "/3/0/7"})},
@@ -84,7 +84,7 @@ schema(?PATH("/read")) ->
         'operationId' => read,
         post => #{
             tags => [<<"lwm2m">>],
-            description => <<"Send a read command to resource">>,
+            desc => <<"Send a read command to resource">>,
             parameters => [
                 {clientid, mk(binary(), #{in => path, example => "urn:oma:lwm2m:oma:2"})},
                 {path, mk(binary(), #{in => query, required => true, example => "/3/0/7"})}
@@ -99,7 +99,7 @@ schema(?PATH("/write")) ->
     #{
         'operationId' => write,
         post => #{
-            description => <<"Send a write command to resource">>,
+            desc => <<"Send a write command to resource">>,
             tags => [<<"lwm2m">>],
             parameters => [
                 {clientid, mk(binary(), #{in => path, example => "urn:oma:lwm2m:oma:2"})},

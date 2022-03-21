@@ -287,7 +287,9 @@ schema("/test/in/query") ->
             parameters => [
                 {per_page,
                     mk(range(1, 100),
-                        #{in => query, desc => <<"results per page (max 100)">>, example => 1})},
+                        #{in => query,
+                        desc => <<"results per page (max 100)">>,
+                        example => 1})},
                 {qos, mk(emqx_schema:qos(), #{in => query, desc => <<"QOS">>})}
             ],
             responses => #{200 => <<"ok">>}
@@ -325,7 +327,7 @@ schema("/test/in/mix/:state") ->
         operationId => test,
         post => #{
             tags => [tags, good],
-            description => <<"good description">>,
+            desc => <<"good description">>,
             summary => <<"good summary">>,
             security => [],
             deprecated => true,

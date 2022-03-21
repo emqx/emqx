@@ -52,11 +52,11 @@ schema(("/exhooks")) ->
     #{
       'operationId' => exhooks,
       get => #{tags => ?TAGS,
-               description => <<"List all servers">>,
+               desc => <<"List all servers">>,
                responses => #{200 => mk(array(ref(detail_server_info)), #{})}
               },
       post => #{tags => ?TAGS,
-                description => <<"Add a servers">>,
+                desc => <<"Add a servers">>,
                 'requestBody' => server_conf_schema(),
                 responses => #{201 => mk(ref(detail_server_info), #{}),
                                500 => error_codes([?BAD_RPC], <<"Bad RPC">>)
@@ -67,14 +67,14 @@ schema(("/exhooks")) ->
 schema("/exhooks/:name") ->
     #{'operationId' => action_with_name,
       get => #{tags => ?TAGS,
-               description => <<"Get the detail information of server">>,
+               desc => <<"Get the detail information of server">>,
                parameters => params_server_name_in_path(),
                responses => #{200 => mk(ref(detail_server_info), #{}),
                               400 => error_codes([?BAD_REQUEST], <<"Bad Request">>)
                              }
               },
       put => #{tags => ?TAGS,
-               description => <<"Update the server">>,
+               desc => <<"Update the server">>,
                parameters => params_server_name_in_path(),
                'requestBody' => server_conf_schema(),
                responses => #{200 => <<>>,
@@ -83,7 +83,7 @@ schema("/exhooks/:name") ->
                              }
               },
       delete => #{tags => ?TAGS,
-                  description => <<"Delete the server">>,
+                  desc => <<"Delete the server">>,
                   parameters => params_server_name_in_path(),
                   responses => #{204 => <<>>,
                                  500 => error_codes([?BAD_RPC], <<"Bad RPC">>)
@@ -94,7 +94,7 @@ schema("/exhooks/:name") ->
 schema("/exhooks/:name/hooks") ->
     #{'operationId' => server_hooks,
       get => #{tags => ?TAGS,
-               description => <<"Get the hooks information of server">>,
+               desc => <<"Get the hooks information of server">>,
                parameters => params_server_name_in_path(),
                responses => #{200 => mk(array(ref(list_hook_info)), #{}),
                               400 => error_codes([?BAD_REQUEST], <<"Bad Request">>)
@@ -105,7 +105,7 @@ schema("/exhooks/:name/hooks") ->
 schema("/exhooks/:name/move") ->
     #{'operationId' => move,
       post => #{tags => ?TAGS,
-                description =>
+                desc =>
                     <<"Move the server.\n",
                       "NOTE: The position should be \"front|rear|before:{name}|after:{name}\"\n">>,
                 parameters => params_server_name_in_path(),
@@ -241,7 +241,6 @@ move(post, #{bindings := #{name := Name}, body := #{<<"position">> := RawPositio
                 {ok, ok} ->
                     {204};
                 {ok, not_found} ->
-                    %% TODO: unify status code
                     {400, #{code => <<"BAD_REQUEST">>,
                             message => <<"Server not found">>
                            }};

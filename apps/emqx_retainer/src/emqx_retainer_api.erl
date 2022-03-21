@@ -55,7 +55,7 @@ schema(?PREFIX) ->
                description => <<"Update retainer config">>,
                'requestBody' => mk(conf_schema(), #{desc => "The config content"}),
                responses => #{200 => mk(conf_schema(), #{desc => "Update configs successfully"}),
-                              404 => error_codes(['UPDATE_FAILED'], <<"Update config failed">>)
+                              400 => error_codes(['UPDATE_FAILED'], <<"Update config failed">>)
                              }
               }
      };
@@ -66,7 +66,7 @@ schema(?PREFIX ++ "/messages") ->
                description => <<"List retained messages">>,
                parameters => page_params(),
                responses => #{200 => mk(array(ref(message_summary)), #{desc => "The result list"}),
-                              405 => error_codes(['ACTION_NOT_ALLOWED'], <<"Unsupported backend">>)
+                              400 => error_codes(['BAD_REQUEST'], <<"Unsupported backend">>)
                              }
               }
         };
@@ -78,14 +78,14 @@ schema(?PREFIX ++ "/message/:topic") ->
                parameters => parameters(),
                responses => #{200 => mk(ref(message), #{desc => "Details of the message"}),
                               404 => error_codes(['NOT_FOUND'], <<"Viewed message doesn't exist">>),
-                              405 => error_codes(['ACTION_NOT_ALLOWED'], <<"Unsupported backend">>)
+                              400 => error_codes(['BAD_REQUEST'], <<"Unsupported backend">>)
                              }
               },
       delete => #{tags => ?TAGS,
                   description => <<"Delete matching messages">>,
                   parameters => parameters(),
                   responses => #{204 => <<>>,
-                                 405 => error_codes(['ACTION_NOT_ALLOWED'],
+                                 400 => error_codes(['BAD_REQUEST'],
                                                     <<"Unsupported backend">>)
                                 }
                  }
@@ -191,8 +191,5 @@ check_backend(Type, Params, Cont) ->
         built_in_database ->
             Cont(Type, Params);
         _ ->
-            {405,
-             #{code => <<"ACTION_NOT_ALLOWED">>,
-               message => <<"This API only for built in database">>}
-            }
+            {400, 'BAD_REQUEST', <<"This API only support built in database">>}
     end.

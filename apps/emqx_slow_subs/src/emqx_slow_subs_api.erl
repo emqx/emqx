@@ -129,8 +129,13 @@ settings(get, _) ->
     {200, emqx:get_raw_config([slow_subs], #{})};
 
 settings(put, #{body := Body}) ->
-    _ = emqx_slow_subs:update_settings(Body),
-    {200, emqx:get_raw_config([slow_subs], #{})}.
+    case emqx_slow_subs:update_settings(Body) of
+        {ok, #{config := NewConf}} ->
+            {200, NewConf};
+        {error, Reason} ->
+            Message = list_to_binary(io_lib:format("Update slow subs config failed ~p", [Reason])),
+            {400, 'BAD_REQUEST', Message}
+    end.
 
 rpc_call(Fun) ->
     Nodes = mria_mnesia:running_nodes(),

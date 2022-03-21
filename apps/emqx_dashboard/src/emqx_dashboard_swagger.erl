@@ -247,7 +247,7 @@ meta_to_spec(Meta, Module, Options) ->
     {RequestBody, Refs2} = request_body(maps:get('requestBody', Meta, []), Module),
     {Responses, Refs3} = responses(maps:get(responses, Meta, #{}), Module, Options),
     {
-        to_spec(Meta, Params, RequestBody, Responses),
+        generate_method_desc(to_spec(Meta, Params, RequestBody, Responses)),
         lists:usort(Refs1 ++ Refs2 ++ Refs3)
     }.
 
@@ -257,6 +257,14 @@ to_spec(Meta, Params, [], Responses) ->
 to_spec(Meta, Params, RequestBody, Responses) ->
     Spec = to_spec(Meta, Params, [], Responses),
     maps:put('requestBody', RequestBody, Spec).
+
+generate_method_desc(Spec0 = #{desc := Desc}) ->
+    Spec = maps:remove(desc, Spec0),
+    Spec#{description => to_bin(Desc)};
+generate_method_desc(Spec = #{description := Desc}) ->
+    Spec#{description => to_bin(Desc)};
+generate_method_desc(Spec) ->
+    Spec.
 
 parameters(Params, Module) ->
     {SpecList, AllRefs} =
@@ -298,7 +306,7 @@ trans_required(Spec, _, path) -> Spec#{required => true};
 trans_required(Spec, _, _) -> Spec.
 
 trans_desc(Init, Hocon, Func, Name) ->
-    Spec0 =  trans_desc(Init, Hocon),
+    Spec0 = trans_desc(Init, Hocon),
     case Func =:= fun hocon_schema_to_spec/2 of
         true -> Spec0;
         false ->
@@ -311,7 +319,13 @@ trans_desc(Init, Hocon, Func, Name) ->
 
 trans_desc(Spec, Hocon) ->
     case hocon_schema:field_schema(Hocon, desc) of
-        undefined -> Spec;
+        undefined ->
+            case hocon_schema:field_schema(Hocon, description) of
+                undefined ->
+                    Spec;
+                Desc ->
+                    Spec#{description => to_bin(Desc)}
+            end;
         Desc -> Spec#{description => to_bin(Desc)}
     end.
 
@@ -446,12 +460,12 @@ typename_to_spec("string()", _Mod) -> #{type => string, example => <<"string-exa
 typename_to_spec("atom()", _Mod) -> #{type => string, example => atom};
 typename_to_spec("epoch_second()", _Mod) ->
     #{<<"oneOf">> => [
-        #{type => integer, example => 1640995200, desc => <<"epoch-second">>},
+        #{type => integer, example => 1640995200, description => <<"epoch-second">>},
         #{type => string, example => <<"2022-01-01T00:00:00.000Z">>, format => <<"date-time">>}]
         };
 typename_to_spec("epoch_millisecond()", _Mod) ->
     #{<<"oneOf">> => [
-        #{type => integer, example => 1640995200000, desc => <<"epoch-millisecond">>},
+        #{type => integer, example => 1640995200000, description => <<"epoch-millisecond">>},
         #{type => string, example => <<"2022-01-01T00:00:00.000Z">>, format => <<"date-time">>}]
     };
 typename_to_spec("duration()", _Mod) -> #{type => string, example => <<"12m">>};

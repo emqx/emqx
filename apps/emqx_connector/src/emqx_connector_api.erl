@@ -125,7 +125,7 @@ schema("/connectors_test") ->
         'operationId' => '/connectors_test',
         post => #{
             tags => [<<"connectors">>],
-            description => <<"Test creating a new connector by given Id <br>"
+            desc => <<"Test creating a new connector by given Id <br>"
                              "The ID must be of format '{type}:{name}'">>,
             summary => <<"Test creating connector">>,
             'requestBody' => post_request_body_schema(),
@@ -141,7 +141,7 @@ schema("/connectors") ->
         'operationId' => '/connectors',
         get => #{
             tags => [<<"connectors">>],
-            description => <<"List all connectors">>,
+            desc => <<"List all connectors">>,
             summary => <<"List connectors">>,
             responses => #{
                 200 => emqx_dashboard_swagger:schema_with_example(
@@ -151,7 +151,7 @@ schema("/connectors") ->
         },
         post => #{
             tags => [<<"connectors">>],
-            description => <<"Create a new connector">>,
+            desc => <<"Create a new connector">>,
             summary => <<"Create connector">>,
             'requestBody' => post_request_body_schema(),
             responses => #{
@@ -166,33 +166,36 @@ schema("/connectors/:id") ->
         'operationId' => '/connectors/:id',
         get => #{
             tags => [<<"connectors">>],
-            description => <<"Get the connector by Id">>,
+            desc => <<"Get the connector by Id">>,
             summary => <<"Get connector">>,
             parameters => param_path_id(),
             responses => #{
                 200 => get_response_body_schema(),
-                404 => error_schema(['NOT_FOUND'], "Connector not found")
+                404 => error_schema(['NOT_FOUND'], "Connector not found"),
+                400 => error_schema(['INVALID_ID'], "Bad connector ID")
             }
         },
         put => #{
             tags => [<<"connectors">>],
-            description => <<"Update an existing connector by Id">>,
+            desc => <<"Update an existing connector by Id">>,
             summary => <<"Update connector">>,
             parameters => param_path_id(),
             'requestBody' => put_request_body_schema(),
             responses => #{
                 200 => get_response_body_schema(),
-                404 => error_schema(['NOT_FOUND'], "Connector not found")
+                404 => error_schema(['NOT_FOUND'], "Connector not found"),
+                400 => error_schema(['INVALID_ID'], "Bad connector ID")
             }},
         delete => #{
             tags => [<<"connectors">>],
-            description => <<"Delete a connector by Id">>,
+            desc => <<"Delete a connector by Id">>,
             summary => <<"Delete connector">>,
             parameters => param_path_id(),
             responses => #{
                 204 => <<"Delete connector successfully">>,
                 403 => error_schema(['DEPENDENCY_EXISTS'], "Cannot remove dependent connector"),
-                404 => error_schema(['NOT_FOUND'], "Delete failed, not found")
+                404 => error_schema(['NOT_FOUND'], "Delete failed, not found"),
+                400 => error_schema(['INVALID_ID'], "Bad connector ID")
             }}
     }.
 
