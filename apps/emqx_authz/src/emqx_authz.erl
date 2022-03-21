@@ -101,7 +101,7 @@ deinit() ->
     emqx_authz_utils:cleanup_resources().
 
 lookup() ->
-    {_M, _F, [A]}= find_action_in_hooks(),
+    {_M, _F, [A]} = find_action_in_hooks(),
     A.
 
 lookup(Type) ->
@@ -128,41 +128,34 @@ update(Cmd, Sources) ->
 pre_config_update(_, Cmd, Sources) ->
     {ok, do_pre_config_update(Cmd, Sources)}.
 
-do_pre_config_update({?CMD_MOVE, Type, ?CMD_MOVE_FRONT}, Sources) ->
-    {Source, Front, Rear} = take(Type, Sources),
-    [Source | Front] ++ Rear;
-do_pre_config_update({?CMD_MOVE, Type, ?CMD_MOVE_REAR}, Sources) ->
-    {Source, Front, Rear} = take(Type, Sources),
-    Front ++ Rear ++ [Source];
-do_pre_config_update({?CMD_MOVE, Type, ?CMD_MOVE_BEFORE(Before)}, Sources) ->
-    {S1, Front1, Rear1} = take(Type, Sources),
-    {S2, Front2, Rear2} = take(Before, Front1 ++ Rear1),
-    Front2 ++ [S1, S2] ++ Rear2;
-do_pre_config_update({?CMD_MOVE, Type, ?CMD_MOVE_AFTER(After)}, Sources) ->
-    {S1, Front1, Rear1} = take(Type, Sources),
-    {S2, Front2, Rear2} = take(After, Front1 ++ Rear1),
-    Front2 ++ [S2, S1] ++ Rear2;
-do_pre_config_update({?CMD_PREPEND, NewSource}, Sources) ->
-    NSources = [NewSource] ++ Sources,
+do_pre_config_update({?CMD_MOVE, _, _} = Cmd, Sources) ->
+    do_move(Cmd, Sources);
+do_pre_config_update({?CMD_PREPEND, Source}, Sources) ->
+    NSource = maybe_write_files(Source),
+    NSources = [NSource] ++ Sources,
     ok = check_dup_types(NSources),
     NSources;
-do_pre_config_update({?CMD_APPEND, NewSource}, Sources) ->
-    NSources = Sources ++ [NewSource],
+do_pre_config_update({?CMD_APPEND, Source}, Sources) ->
+    NSource = maybe_write_files(Source),
+    NSources = Sources ++ [NSource],
     ok = check_dup_types(NSources),
     NSources;
 do_pre_config_update({{?CMD_REPLACE, Type}, #{<<"enable">> := Enable} = Source}, Sources)
   when ?IS_ENABLED(Enable) ->
-    case create_dry_run(Type, Source)  of
+    NSource = maybe_write_files(Source),
+    {_Old, Front, Rear} = take(Type, Sources),
+    case create_dry_run(Type, NSource)  of
         ok ->
-            {_Old, Front, Rear} = take(Type, Sources),
-            NSources = Front ++ [Source | Rear],
+            NSources = Front ++ [NSource | Rear],
             ok = check_dup_types(NSources),
             NSources;
-        {error, _} = Error -> Error
+        {error, _} = Error ->
+            throw(Error)
     end;
 do_pre_config_update({{?CMD_REPLACE, Type}, Source}, Sources) ->
+    NSource = maybe_write_files(Source),
     {_Old, Front, Rear} = take(Type, Sources),
-    NSources = Front ++ [Source | Rear],
+    NSources = Front ++ [NSource | Rear],
     ok = check_dup_types(NSources),
     NSources;
 do_pre_config_update({{?CMD_DELETE, Type}, _Source}, Sources) ->
@@ -171,50 +164,64 @@ do_pre_config_update({{?CMD_DELETE, Type}, _Source}, Sources) ->
     NSources;
 do_pre_config_update({?CMD_REPLACE, Sources}, _OldSources) ->
     %% overwrite the entire config!
-    Sources;
+    NSources = lists:map(fun maybe_write_files/1, Sources),
+    ok = check_dup_types(NSources),
+    NSources;
 do_pre_config_update({Op, Source}, Sources) ->
-    error({bad_request, #{op => Op, source => Source, sources => Sources}}).
+    throw({bad_request, #{op => Op, source => Source, sources => Sources}}).
 
 post_config_update(_, _, undefined, _OldSource, _AppEnvs) ->
     ok;
 post_config_update(_, Cmd, NewSources, _OldSource, _AppEnvs) ->
-    ok = do_post_config_update(Cmd, NewSources),
+    Actions = do_post_config_update(Cmd, NewSources),
+    ok = update_authz_chain(Actions),
     ok = emqx_authz_cache:drain_cache().
 
-do_post_config_update({?CMD_MOVE, _Type, _Where} = Cmd, _NewSources) ->
+do_post_config_update({?CMD_MOVE, _Type, _Where} = Cmd, _Sources) ->
     InitedSources = lookup(),
-    MovedSources = do_pre_config_update(Cmd, InitedSources),
-    ok = emqx_hooks:put('client.authorize', {?MODULE, authorize, [MovedSources]}, -1),
-    ok = emqx_authz_cache:drain_cache();
-do_post_config_update({?CMD_PREPEND, Source}, _NewSources) ->
-    InitedSources = init_sources(check_sources([Source])),
-    ok = emqx_hooks:put('client.authorize', {?MODULE, authorize, [InitedSources ++ lookup()]}, -1),
-    ok = emqx_authz_cache:drain_cache();
-do_post_config_update({?CMD_APPEND, Source}, _NewSources) ->
-    InitedSources = init_sources(check_sources([Source])),
-    emqx_hooks:put('client.authorize', {?MODULE, authorize, [lookup() ++ InitedSources]}, -1),
-    ok = emqx_authz_cache:drain_cache();
-do_post_config_update({{?CMD_REPLACE, Type}, Source}, _NewSources) when is_map(Source) ->
+    do_move(Cmd, InitedSources);
+do_post_config_update({?CMD_PREPEND, RawNewSource}, Sources) ->
+    InitedNewSource = init_source(get_source_by_type(type(RawNewSource), Sources)),
+    [InitedNewSource] ++ lookup();
+do_post_config_update({?CMD_APPEND, RawNewSource}, Sources) ->
+    InitedNewSource = init_source(get_source_by_type(type(RawNewSource), Sources)),
+    lookup() ++ [InitedNewSource];
+do_post_config_update({{?CMD_REPLACE, Type}, RawNewSource}, Sources) ->
+    OldSources = lookup(),
+    {OldSource, Front, Rear} = take(Type, OldSources),
+    NewSource = get_source_by_type(type(RawNewSource), Sources),
+    ok = ensure_resource_deleted(OldSource),
+    clear_certs(OldSource),
+    InitedSources = init_source(NewSource),
+    Front ++ [InitedSources] ++ Rear;
+do_post_config_update({{?CMD_DELETE, Type}, _RawNewSource}, _Sources) ->
     OldInitedSources = lookup(),
     {OldSource, Front, Rear} = take(Type, OldInitedSources),
     ok = ensure_resource_deleted(OldSource),
-    InitedSources = init_sources(check_sources([Source])),
-    ok = emqx_hooks:put( 'client.authorize'
-                       , {?MODULE, authorize, [Front ++ InitedSources ++ Rear]}, -1),
-    ok = emqx_authz_cache:drain_cache();
-do_post_config_update({{?CMD_DELETE, Type}, _Source}, _NewSources) ->
-    OldInitedSources = lookup(),
-    {OldSource, Front, Rear} = take(Type, OldInitedSources),
-    ok = ensure_resource_deleted(OldSource),
-    ok = emqx_hooks:put('client.authorize', {?MODULE, authorize, [Front ++ Rear]}, -1),
-    ok = emqx_authz_cache:drain_cache();
-do_post_config_update({?CMD_REPLACE, Sources}, _NewSources) ->
+    clear_certs(OldSource),
+    Front ++ Rear;
+do_post_config_update({?CMD_REPLACE, _RawNewSources}, Sources) ->
     %% overwrite the entire config!
     OldInitedSources = lookup(),
-    InitedSources = init_sources(check_sources(Sources)),
-    ok = emqx_hooks:put('client.authorize', {?MODULE, authorize, [InitedSources]}, -1),
     lists:foreach(fun ensure_resource_deleted/1, OldInitedSources),
-    ok = emqx_authz_cache:drain_cache().
+    lists:foreach(fun clear_certs/1, OldInitedSources),
+    init_sources(Sources).
+
+%% @doc do source move
+do_move({?CMD_MOVE, Type, ?CMD_MOVE_FRONT}, Sources) ->
+    {Source, Front, Rear} = take(Type, Sources),
+    [Source | Front] ++ Rear;
+do_move({?CMD_MOVE, Type, ?CMD_MOVE_REAR}, Sources) ->
+    {Source, Front, Rear} = take(Type, Sources),
+    Front ++ Rear ++ [Source];
+do_move({?CMD_MOVE, Type, ?CMD_MOVE_BEFORE(Before)}, Sources) ->
+    {S1, Front1, Rear1} = take(Type, Sources),
+    {S2, Front2, Rear2} = take(Before, Front1 ++ Rear1),
+    Front2 ++ [S1, S2] ++ Rear2;
+do_move({?CMD_MOVE, Type, ?CMD_MOVE_AFTER(After)}, Sources) ->
+    {S1, Front1, Rear1} = take(Type, Sources),
+    {S2, Front2, Rear2} = take(After, Front1 ++ Rear1),
+    Front2 ++ [S2, S1] ++ Rear2.
 
 ensure_resource_deleted(#{enable := false}) -> ok;
 ensure_resource_deleted(#{type := Type} = Source) ->
@@ -231,14 +238,14 @@ check_dup_types([Source | Sources], Checked) ->
     Type = case maps:get(<<"type">>, Source, maps:get(type, Source, undefined)) of
                undefined ->
                    %% this should never happen if the value is type checked by honcon schema
-                   error({bad_source_input, Source});
+                   throw({bad_source_input, Source});
                Type0 ->
                    type(Type0)
            end,
     case lists:member(Type, Checked) of
         true ->
             %% we have made it clear not to support more than one authz instance for each type
-            error({duplicated_authz_source_type, Type});
+            throw({duplicated_authz_source_type, Type});
         false ->
             check_dup_types(Sources, [Type | Checked])
     end.
@@ -330,7 +337,7 @@ take(Type, Sources) ->
     {Front, Rear} =  lists:splitwith(fun(T) -> type(T) =/= type(Type) end, Sources),
     case Rear =:= [] of
         true ->
-            error({not_found_source, Type});
+            throw({not_found_source, Type});
         _ ->
             {hd(Rear), Front, tl(Rear)}
     end.
@@ -362,8 +369,62 @@ type(<<"postgresql">>) -> postgresql;
 type('built_in_database') -> 'built_in_database';
 type(<<"built_in_database">>) -> 'built_in_database';
 %% should never happen if the input is type-checked by hocon schema
-type(Unknown) -> error({unknown_authz_source_type, Unknown}).
+type(Unknown) -> throw({unknown_authz_source_type, Unknown}).
+
+maybe_write_files(#{<<"type">> := <<"file">>} = Source) ->
+    write_acl_file(Source);
+maybe_write_files(NewSource) ->
+    maybe_write_certs(NewSource).
+
+write_acl_file(#{<<"rules">> := Rules} = Source) ->
+    NRules = check_acl_file_rules(Rules),
+    Path = acl_conf_file(),
+    {ok, _Filename} = write_file(Path, NRules),
+    maps:without([<<"rules">>], Source#{<<"path">> => Path}).
 
 %% @doc where the acl.conf file is stored.
 acl_conf_file() ->
     filename:join([emqx:data_dir(), "authz", "acl.conf"]).
+
+maybe_write_certs(#{<<"type">> := Type} = Source) ->
+    case emqx_tls_lib:ensure_ssl_files(
+           ssl_file_path(Type), maps:get(<<"ssl">>, Source, undefined)) of
+        {ok, SSL} ->
+            new_ssl_source(Source, SSL);
+        {error, Reason} ->
+            ?SLOG(error, Reason#{msg => "bad_ssl_config"}),
+            throw({bad_ssl_config, Reason})
+    end.
+
+clear_certs(OldSource) ->
+    OldSSL = maps:get(ssl, OldSource, undefined),
+    ok = emqx_tls_lib:delete_ssl_files(ssl_file_path(type(OldSource)), undefined, OldSSL).
+
+write_file(Filename, Bytes) ->
+    ok = filelib:ensure_dir(Filename),
+    case file:write_file(Filename, Bytes) of
+        ok -> {ok, iolist_to_binary(Filename)};
+        {error, Reason} ->
+            ?SLOG(error, #{filename => Filename, msg => "write_file_error", reason => Reason}),
+            throw(Reason)
+    end.
+
+ssl_file_path(Type) ->
+    filename:join(["authz", Type]).
+
+new_ssl_source(Source, undefined) ->
+    Source;
+new_ssl_source(Source, SSL) ->
+    Source#{<<"ssl">> => SSL}.
+
+get_source_by_type(Type, Sources) ->
+    {Source, _Front, _Rear} = take(Type, Sources),
+    Source.
+
+%% @doc put hook with (maybe) initialized new source and old sources
+update_authz_chain(Actions) ->
+    emqx_hooks:put('client.authorize', {?MODULE, authorize, [Actions]}, -1).
+
+check_acl_file_rules(RawRules) ->
+    %% TODO: make sure the bin rules checked
+    RawRules.

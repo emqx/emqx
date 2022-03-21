@@ -65,13 +65,12 @@ fields(redis_cluster) ->
     ++ emqx_connector_redis:fields(cluster);
 fields(file) ->
     authz_common_fields(file)
-    ++ [ {rules, #{ type => binary()
-                  , example =>
-                        <<"{allow,{username,\"^dashboard?\"},","subscribe,[\"$SYS/#\"]}.\n",
-                          "{allow,{ipaddr,\"127.0.0.1\"},all,[\"$SYS/#\",\"#\"]}.">>}}
-         %% The path will be deprecated, `acl.conf` will be fixed in subdir of `data`
-       , {path, #{ type => binary()
-                 , example => <<"acl.conf">>}}];
+    ++ [ { rules, #{ type => binary()
+                   , required => true
+                   , example =>
+                         <<"{allow,{username,\"^dashboard?\"},","subscribe,[\"$SYS/#\"]}.\n",
+                           "{allow,{ipaddr,\"127.0.0.1\"},all,[\"$SYS/#\",\"#\"]}.">>}}
+    ];
 fields(position) ->
     [ { position
       , mk( string()

@@ -27,8 +27,6 @@
 -define(BAD_REQUEST, 'BAD_REQUEST').
 -define(NOT_FOUND, 'NOT_FOUND').
 
--define(IS_TRUE(Val), ((Val =:= true) or (Val =:= <<"true">>))).
-
 -define(API_SCHEMA_MODULE, emqx_authz_api_schema).
 
 -export([ get_raw_sources/0
@@ -168,18 +166,10 @@ sources(get, _) ->
                                   lists:append(AccIn, [read_certs(Source)])
                           end, [], get_raw_sources()),
     {200, #{sources => Sources}};
-sources(post, #{body := #{<<"type">> := <<"file">>, <<"rules">> := Rules}}) ->
-    {ok, Filename} = write_file(acl_conf_file(), Rules),
-    update_config(?CMD_PREPEND, #{<<"type">> => <<"file">>,
-                                  <<"enable">> => true, <<"path">> => Filename});
-sources(post, #{body := Body}) when is_map(Body) ->
-    case maybe_write_certs(Body) of
-        Config when is_map(Config) ->
-            update_config(?CMD_PREPEND, Config);
-        {error, Reason} ->
-            {400, #{code => <<"BAD_REQUEST">>,
-                    message => bin(Reason)}}
-    end.
+sources(post, #{body := #{<<"type">> := <<"file">>} = Body}) ->
+    create_authz_file(Body);
+sources(post, #{body := Body}) ->
+    update_config(?CMD_PREPEND, Body).
 
 source(Method, #{bindings := #{type := Type} = Bindings } = Req)
   when is_atom(Type) ->
@@ -201,25 +191,14 @@ source(get, #{bindings := #{type := Type}}) ->
             end;
         [Source] -> {200, read_certs(Source)}
     end;
-source(put, #{bindings := #{type := <<"file">>}, body := #{<<"type">> := <<"file">>,
-                                                           <<"rules">> := Rules,
-                                                           <<"enable">> := Enable}}) ->
-    {ok, Filename} = write_file(maps:get(path, emqx_authz:lookup(file), ""), Rules),
-    case emqx_authz:update({?CMD_REPLACE, <<"file">>}, #{<<"type">> => <<"file">>,
-                                                         <<"enable">> => Enable,
-                                                         <<"path">> => Filename}) of
+source(put, #{bindings := #{type := <<"file">>}, body := #{<<"type">> := <<"file">>} = Body}) ->
+    update_authz_file(Body);
+source(put, #{bindings := #{type := Type}, body := Body}) ->
+    case emqx_authz:update({?CMD_REPLACE, Type}, Body) of
         {ok, _} -> {204};
         {error, {emqx_conf_schema, _}} ->
             {400, #{code => <<"BAD_REQUEST">>,
                     message => <<"BAD_SCHEMA">>}};
-        {error, Reason} ->
-            {400, #{code => <<"BAD_REQUEST">>,
-                    message => bin(Reason)}}
-    end;
-source(put, #{bindings := #{type := Type}, body := Body}) when is_map(Body) ->
-    case maybe_write_certs(Body#{<<"type">> => Type}) of
-        Config when is_map(Config) ->
-            update_config({?CMD_REPLACE, Type}, Config);
         {error, Reason} ->
             {400, #{code => <<"BAD_REQUEST">>,
                     message => bin(Reason)}}
@@ -423,44 +402,12 @@ update_config(Cmd, Sources) ->
 read_certs(#{<<"ssl">> := SSL} = Source) ->
     case emqx_tls_lib:file_content_as_options(SSL) of
         {error, Reason} ->
-            ?SLOG(error, Reason#{msg => failed_to_readd_ssl_file}),
-            throw(failed_to_readd_ssl_file);
+            ?SLOG(error, Reason#{msg => failed_to_read_ssl_file}),
+            throw(failed_to_read_ssl_file);
         {ok, NewSSL} ->
             Source#{<<"ssl">> => NewSSL}
     end;
 read_certs(Source) -> Source.
-
-maybe_write_certs(#{<<"ssl">> := #{<<"enable">> := True} = SSL} = Source) when ?IS_TRUE(True) ->
-    Type = maps:get(<<"type">>, Source),
-    case emqx_tls_lib:ensure_ssl_files(filename:join(["authz", Type]), SSL) of
-        {ok, Return} ->
-            maps:put(<<"ssl">>, Return, Source);
-        {error, _} ->
-            {error, ensuer_ssl_files_failed}
-    end;
-maybe_write_certs(Source) -> Source.
-
-write_file(Filename, Bytes0) ->
-    ok = filelib:ensure_dir(Filename),
-    case file:read_file(Filename) of
-        {ok, Bytes1} ->
-            case crypto:hash(md5, Bytes1) =:= crypto:hash(md5, Bytes0) of
-                true -> {ok, iolist_to_binary(Filename)};
-                false -> do_write_file(Filename, Bytes0)
-            end;
-        _ -> do_write_file(Filename, Bytes0)
-    end.
-
-do_write_file(Filename, Bytes) ->
-    case file:write_file(Filename, Bytes) of
-       ok -> {ok, iolist_to_binary(Filename)};
-       {error, Reason} ->
-           ?SLOG(error, #{filename => Filename, msg => "write_file_error", reason => Reason}),
-           error(Reason)
-    end.
-
-acl_conf_file() ->
-    emqx_authz:acl_conf_file().
 
 parameters_field() ->
     [ {type, mk( enum(?API_SCHEMA_MODULE:authz_sources_types(simple))
@@ -528,3 +475,13 @@ status_metrics_example() ->
                          }
                       ]
      }.
+
+create_authz_file(Body) ->
+    do_update_authz_file(?CMD_PREPEND, Body).
+
+update_authz_file(Body) ->
+    do_update_authz_file({?CMD_REPLACE, <<"file">>}, Body).
+
+do_update_authz_file(Cmd, Body) ->
+    %% API update will placed in `authz` subdirectory inside EMQX's `data_dir`
+    update_config(Cmd,  Body).
