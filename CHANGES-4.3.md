@@ -49,6 +49,7 @@ File format:
 * Fix errno=13 'Permission denied' Cannot create FIFO boot error in Amazon Linux 2022 (el8 package)
 * Fix user or appid created, name only allow `^[A-Za-z]+[A-Za-z0-9-_]*$`
 * Fix subscribe http api crash by bad_qos `/mqtt/subscribe`,`/mqtt/subscribe_batch`.
+* Send DISCONNECT packet with reason code 0x98 if connection has been kicked [#7309]
 
 ## v4.3.12
 ### Important changes
