@@ -44,7 +44,6 @@
 %% http handlers
 -export([ gateway/2
         , gateway_insta/2
-        , gateway_insta_stats/2
         ]).
 
 %%--------------------------------------------------------------------
@@ -57,7 +56,6 @@ api_spec() ->
 paths() ->
     [ "/gateway"
     , "/gateway/:name"
-    , "/gateway/:name/stats"
     ].
 
 %%--------------------------------------------------------------------
@@ -140,9 +138,6 @@ gateway_insta(put, #{body := GwConf0,
         end
     end).
 
-gateway_insta_stats(get, _Req) ->
-    return_http_error(409, "Implement it later (maybe 5.1)").
-
 %%--------------------------------------------------------------------
 %% Swagger defines
 %%--------------------------------------------------------------------
@@ -150,7 +145,7 @@ gateway_insta_stats(get, _Req) ->
 schema("/gateway") ->
     #{ 'operationId' => gateway,
        get =>
-         #{ description => <<"Get gateway list">>
+         #{ desc => <<"Get gateway list">>
           , parameters => params_gateway_status_in_qs()
           , responses =>
               ?STANDARD_RESP(
@@ -159,7 +154,7 @@ schema("/gateway") ->
                             examples_gateway_overview())})
           },
        post =>
-         #{ description => <<"Load a gateway">>
+         #{ desc => <<"Load a gateway">>
           %% TODO: distinguish create & response swagger schema
           , 'requestBody' => schema_gateways_conf()
           , responses =>
@@ -169,38 +164,23 @@ schema("/gateway") ->
 schema("/gateway/:name") ->
     #{ 'operationId' => gateway_insta,
        get =>
-         #{ description => <<"Get the gateway configurations">>
+         #{ desc => <<"Get the gateway configurations">>
           , parameters => params_gateway_name_in_path()
           , responses =>
               ?STANDARD_RESP(#{200 => schema_gateways_conf()})
           },
        delete =>
-         #{ description => <<"Delete/Unload the gateway">>
+         #{ desc => <<"Delete/Unload the gateway">>
           , parameters => params_gateway_name_in_path()
           , responses =>
               ?STANDARD_RESP(#{204 => <<"Deleted">>})
           },
        put =>
-         #{ description => <<"Update the gateway configurations/status">>
+         #{ desc => <<"Update the gateway configurations/status">>
           , parameters => params_gateway_name_in_path()
           , 'requestBody' => schema_update_gateways_conf()
           , responses =>
               ?STANDARD_RESP(#{200 => schema_gateways_conf()})
-          }
-     };
-schema("/gateway/:name/stats") ->
-    #{ 'operationId' => gateway_insta_stats,
-       get =>
-         #{ description => <<"Get gateway Statistic">>
-          , parameters => params_gateway_name_in_path()
-          , responses =>
-              ?STANDARD_RESP(
-                 #{200 => emqx_dashboard_swagger:schema_with_examples(
-                           ref(gateway_stats),
-                           examples_gateway_stats()),
-                   409 => emqx_dashboard_swagger:error_codes(
-                           ['NOT_SUPPORT'], <<"Resource not support">>)
-                  })
           }
      }.
 
@@ -211,7 +191,7 @@ params_gateway_name_in_path() ->
     [{name,
       mk(binary(),
          #{ in => path
-          , description => <<"Gateway Name">>
+          , desc => <<"Gateway Name">>
           , example => <<"">>
           })}
     ].
@@ -222,7 +202,7 @@ params_gateway_status_in_qs() ->
       mk(binary(),
          #{ in => query
           , required => false
-          , description => <<"Gateway Status">>
+          , desc => <<"Gateway Status">>
           , example => <<"">>
           })}
     ].
@@ -238,50 +218,50 @@ roots() ->
 fields(gateway_overview) ->
     [ {name,
        mk(binary(),
-          #{ description => <<"Gateway Name">>})}
+          #{ desc => <<"Gateway Name">>})}
     , {status,
        mk(hoconsc:enum([running, stopped, unloaded]),
-          #{ description => <<"The Gateway status">>})}
+          #{ desc => <<"The Gateway status">>})}
     , {created_at,
        mk(binary(),
-          #{description => <<"The Gateway created datetime">>})}
+          #{desc => <<"The Gateway created datetime">>})}
     , {started_at,
        mk(binary(),
           #{ required => false
-           , description => <<"The Gateway started datetime">>})}
+           , desc => <<"The Gateway started datetime">>})}
     , {stopped_at,
        mk(binary(),
           #{ required => false
-           , description => <<"The Gateway stopped datetime">>})}
+           , desc => <<"The Gateway stopped datetime">>})}
     , {max_connections,
        mk(integer(),
-          #{ description => <<"The Gateway allowed maximum connections/clients">>})}
+          #{ desc => <<"The Gateway allowed maximum connections/clients">>})}
     , {current_connections,
        mk(integer(),
-          #{ description => <<"The Gateway current connected connections/clients">>
+          #{ desc => <<"The Gateway current connected connections/clients">>
            })}
     , {listeners,
        mk(hoconsc:array(ref(gateway_listener_overview)),
          #{ required => {false, recursively}
-          , description => <<"The Gateway listeners overview">>})}
+          , desc => <<"The Gateway listeners overview">>})}
     ];
 fields(gateway_listener_overview) ->
     [ {id,
        mk(binary(),
-          #{ description => <<"Listener ID">>})}
+          #{ desc => <<"Listener ID">>})}
     , {running,
        mk(boolean(),
-          #{ description => <<"Listener Running status">>})}
+          #{ desc => <<"Listener Running status">>})}
     , {type,
        mk(hoconsc:enum([tcp, ssl, udp, dtls]),
-          #{ description => <<"Listener Type">>})}
+          #{ desc => <<"Listener Type">>})}
     ];
 
 fields(Gw) when Gw == stomp; Gw == mqttsn;
                 Gw == coap;  Gw == lwm2m;
                 Gw == exproto ->
     [{name,
-      mk(hoconsc:union([Gw]), #{ description => <<"Gateway Name">>})}
+      mk(hoconsc:union([Gw]), #{ desc => <<"Gateway Name">>})}
     ] ++ convert_listener_struct(emqx_gateway_schema:fields(Gw));
 
 fields(Gw) when Gw == update_stomp; Gw == update_mqttsn;
@@ -298,17 +278,17 @@ fields(Listener) when Listener == tcp_listener;
     [ {id,
        mk(binary(),
           #{ required => false
-           , description => <<"Listener ID">>})}
+           , desc => <<"Listener ID">>})}
     , {type,
        mk(hoconsc:union([tcp, ssl, udp, dtls]),
-          #{ description => <<"Listener type">>})}
+          #{ desc => <<"Listener type">>})}
     , {name,
        mk(binary(),
-          #{ description => <<"Listener Name">>})}
+          #{ desc => <<"Listener Name">>})}
     , {running,
        mk(boolean(),
           #{ required => false
-           , description => <<"Listener running status">>})}
+           , desc => <<"Listener running status">>})}
     ] ++ emqx_gateway_schema:fields(Listener);
 
 fields(gateway_stats) ->
@@ -337,7 +317,7 @@ convert_listener_struct(Schema) ->
              #{type := Type}}, Schema1} = lists:keytake(listeners, 1, Schema),
     ListenerSchema = hoconsc:mk(listeners_schema(Type),
                                 #{ required => {false, recursively}
-                                 , description => <<"The gateway listeners">>
+                                 , desc => <<"The gateway listeners">>
                                  }),
     lists:keystore(listeners, 1, Schema1, {listeners, ListenerSchema}).
 
@@ -625,6 +605,3 @@ examples_update_gateway_confs() ->
              }
          }
      }.
-
-examples_gateway_stats() ->
-    #{}.

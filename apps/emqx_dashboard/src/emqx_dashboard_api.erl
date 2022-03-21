@@ -48,22 +48,22 @@ schema("/login") ->
         'operationId' => login,
         post => #{
             tags => [<<"dashboard">>],
-            description => <<"Dashboard Auth">>,
+            desc => <<"Dashboard Auth">>,
             summary => <<"Dashboard Auth">>,
             'requestBody' => [
                 {username, mk(binary(),
-                    #{description => <<"The User for which to create the token.">>,
+                    #{desc => <<"The User for which to create the token.">>,
                         'maxLength' => 100, example => <<"admin">>})},
                 {password, mk(binary(),
-                    #{description => "password", example => "public"})}
+                    #{desc => "password", example => "public"})}
             ],
             responses => #{
                 200 => [
-                    {token, mk(string(), #{description => <<"JWT Token">>})},
+                    {token, mk(string(), #{desc => <<"JWT Token">>})},
                     {license, [{edition,
-                        mk(enum([community, enterprise]), #{description => <<"license">>,
+                        mk(enum([community, enterprise]), #{desc => <<"license">>,
                             example => "community"})}]},
-                    {version, mk(string(), #{description => <<"version">>, example => <<"5.0.0">>})}
+                    {version, mk(string(), #{desc => <<"version">>, example => <<"5.0.0">>})}
                 ],
                 401 => [
                     {code, mk(string(), #{example => 'ERROR_USERNAME_OR_PWD'})},
@@ -77,10 +77,10 @@ schema("/logout") ->
         'operationId' => logout,
         post => #{
             tags => [<<"dashboard">>],
-            description => <<"Dashboard User logout">>,
+            desc => <<"Dashboard User logout">>,
             'requestBody' => [
                 {username, mk(binary(),
-                    #{description => <<"The User for which to create the token.">>,
+                    #{desc => <<"The User for which to create the token.">>,
                         'maxLength' => 100, example => <<"admin">>})}
             ],
             responses => #{
@@ -93,19 +93,19 @@ schema("/users") ->
         'operationId' => users,
         get => #{
             tags => [<<"dashboard">>],
-            description => <<"Get dashboard users list">>,
+            desc => <<"Get dashboard users list">>,
             responses => #{
                 200 => mk( array(ref(?MODULE, user))
-                         , #{description => "User lists"})
+                         , #{desc => "User lists"})
             }
         },
         post => #{
             tags => [<<"dashboard">>],
-            description => <<"Create dashboard users">>,
+            desc => <<"Create dashboard users">>,
             'requestBody' => fields(user_password),
             responses => #{
                 200 => mk( ref(?MODULE, user)
-                         , #{description => <<"Create User successfully">>}),
+                         , #{desc => <<"Create User successfully">>}),
                 400 => [{code, mk(string(), #{example => 'CREATE_FAIL'})},
                     {message, mk(string(), #{example => "Create user failed"})}
                 ]
@@ -118,17 +118,17 @@ schema("/users/:username") ->
         'operationId' => user,
         put => #{
             tags => [<<"dashboard">>],
-            description => <<"Update dashboard users">>,
+            desc => <<"Update dashboard users">>,
             parameters => [{username, mk(binary(),
                 #{in => path, example => <<"admin">>})}],
             'requestBody' => [
                 { description
                 , mk(binary(),
-                    #{description => <<"User description">>, example => <<"administrator">>})}
+                    #{desc => <<"User description">>, example => <<"administrator">>})}
             ],
             responses => #{
                 200 => mk( ref(?MODULE, user)
-                         , #{description => <<"Update User successfully">>}),
+                         , #{desc => <<"Update User successfully">>}),
                 400 => [
                     {code, mk(string(), #{example => 'UPDATE_FAIL'})},
                     {message, mk(string(), #{example => "Update Failed unknown"})}
@@ -138,7 +138,7 @@ schema("/users/:username") ->
         },
         delete => #{
             tags => [<<"dashboard">>],
-            description => <<"Delete dashboard users">>,
+            desc => <<"Delete dashboard users">>,
             parameters => [{username, mk(binary(),
                 #{in => path, example => <<"admin">>})}],
             responses => #{
@@ -156,7 +156,7 @@ schema("/users/:username/change_pwd") ->
         'operationId' => change_pwd,
         put => #{
             tags => [<<"dashboard">>],
-            description => <<"Update dashboard users password">>,
+            desc => <<"Update dashboard users password">>,
             parameters => [{username, mk(binary(),
                 #{in => path, required => true, example => <<"admin">>})}],
             'requestBody' => [
@@ -177,14 +177,14 @@ fields(user) ->
     [
         {description,
             mk(binary(),
-                #{description => <<"User description">>, example => "administrator"})},
+                #{desc => <<"User description">>, example => "administrator"})},
         {username,
             mk(binary(),
-                #{description => <<"username">>, example => "emqx"})}
+                #{desc => <<"username">>, example => "emqx"})}
     ];
 fields(user_password) ->
     fields(user) ++
-        [{password, mk(binary(), #{description => "Password", example => <<"public">>})}].
+        [{password, mk(binary(), #{desc => "Password", example => <<"public">>})}].
 
 login(post, #{body := Params}) ->
     Username = maps:get(<<"username">>, Params),

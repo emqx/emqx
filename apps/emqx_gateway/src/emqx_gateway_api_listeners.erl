@@ -221,7 +221,7 @@ page_pramas(Qs) ->
 schema("/gateway/:name/listeners") ->
     #{ 'operationId' => listeners,
        get =>
-         #{ description => <<"Get the gateway listeners">>
+         #{ desc => <<"Get the gateway listeners">>
           , parameters => params_gateway_name_in_path()
           , responses =>
               ?STANDARD_RESP(
@@ -231,7 +231,7 @@ schema("/gateway/:name/listeners") ->
                   })
           },
        post =>
-         #{ description => <<"Create the gateway listener">>
+         #{ desc => <<"Create the gateway listener">>
           , parameters => params_gateway_name_in_path()
           %% XXX: How to distinguish the different listener supported by
           %% different types of gateways?
@@ -249,7 +249,7 @@ schema("/gateway/:name/listeners") ->
 schema("/gateway/:name/listeners/:id") ->
     #{ 'operationId' => listeners_insta,
        get =>
-         #{ description => <<"Get the gateway listener configurations">>
+         #{ desc => <<"Get the gateway listener configurations">>
           , parameters => params_gateway_name_in_path()
                           ++ params_listener_id_in_path()
           , responses =>
@@ -260,14 +260,14 @@ schema("/gateway/:name/listeners/:id") ->
                   })
            },
        delete =>
-         #{ description => <<"Delete the gateway listener">>
+         #{ desc => <<"Delete the gateway listener">>
           , parameters => params_gateway_name_in_path()
                           ++ params_listener_id_in_path()
           , responses =>
               ?STANDARD_RESP(#{204 => <<"Deleted">>})
            },
        put =>
-         #{ description => <<"Update the gateway listener">>
+         #{ desc => <<"Update the gateway listener">>
           , parameters => params_gateway_name_in_path()
                           ++ params_listener_id_in_path()
           , 'requestBody' => emqx_dashboard_swagger:schema_with_examples(
@@ -284,7 +284,7 @@ schema("/gateway/:name/listeners/:id") ->
 schema("/gateway/:name/listeners/:id/authentication") ->
     #{ 'operationId' => listeners_insta_authn,
        get =>
-         #{ description => <<"Get the listener's authentication info">>
+         #{ desc => <<"Get the listener's authentication info">>
           , parameters => params_gateway_name_in_path()
                           ++ params_listener_id_in_path()
           , responses =>
@@ -294,7 +294,7 @@ schema("/gateway/:name/listeners/:id/authentication") ->
                   })
           },
        post =>
-         #{ description => <<"Add authentication for the listener">>
+         #{ desc => <<"Add authentication for the listener">>
           , parameters => params_gateway_name_in_path()
                           ++ params_listener_id_in_path()
           , 'requestBody' => schema_authn()
@@ -302,7 +302,7 @@ schema("/gateway/:name/listeners/:id/authentication") ->
                ?STANDARD_RESP(#{201 => schema_authn()})
           },
        put =>
-         #{ description => <<"Update authentication for the listener">>
+         #{ desc => <<"Update authentication for the listener">>
           , parameters => params_gateway_name_in_path()
                           ++ params_listener_id_in_path()
           , 'requestBody' => schema_authn()
@@ -310,7 +310,7 @@ schema("/gateway/:name/listeners/:id/authentication") ->
               ?STANDARD_RESP(#{200 => schema_authn()})
           },
        delete =>
-         #{ description => <<"Remove authentication for the listener">>
+         #{ desc => <<"Remove authentication for the listener">>
           , parameters => params_gateway_name_in_path()
                           ++ params_listener_id_in_path()
           , responses =>
@@ -320,7 +320,7 @@ schema("/gateway/:name/listeners/:id/authentication") ->
 schema("/gateway/:name/listeners/:id/authentication/users") ->
     #{ 'operationId' => users
      , get =>
-         #{ description => <<"Get the users for the authentication">>
+         #{ desc => <<"Get the users for the authentication">>
           , parameters => params_gateway_name_in_path() ++
                           params_listener_id_in_path() ++
                           params_paging_in_qs()
@@ -332,7 +332,7 @@ schema("/gateway/:name/listeners/:id/authentication/users") ->
                   })
           },
        post =>
-         #{ description => <<"Add user for the authentication">>
+         #{ desc => <<"Add user for the authentication">>
           , parameters => params_gateway_name_in_path() ++
                           params_listener_id_in_path()
           , 'requestBody' => emqx_dashboard_swagger:schema_with_examples(
@@ -349,7 +349,7 @@ schema("/gateway/:name/listeners/:id/authentication/users") ->
 schema("/gateway/:name/listeners/:id/authentication/users/:uid") ->
     #{ 'operationId' => users_insta
       , get =>
-          #{ description => <<"Get user info from the gateway "
+          #{ desc => <<"Get user info from the gateway "
                               "authentication">>
            , parameters => params_gateway_name_in_path() ++
                            params_listener_id_in_path() ++
@@ -362,7 +362,7 @@ schema("/gateway/:name/listeners/:id/authentication/users/:uid") ->
                    })
            },
         put =>
-          #{ description => <<"Update the user info for the gateway "
+          #{ desc => <<"Update the user info for the gateway "
                               "authentication">>
            , parameters => params_gateway_name_in_path() ++
                            params_listener_id_in_path() ++
@@ -378,7 +378,7 @@ schema("/gateway/:name/listeners/:id/authentication/users/:uid") ->
                    })
            },
         delete =>
-          #{ description => <<"Delete the user for the gateway "
+          #{ desc => <<"Delete the user for the gateway "
                               "authentication">>
            , parameters => params_gateway_name_in_path() ++
                            params_listener_id_in_path() ++
@@ -390,7 +390,7 @@ schema("/gateway/:name/listeners/:id/authentication/users/:uid") ->
 schema("/gateway/:name/listeners/:id/authentication/import_users") ->
     #{ 'operationId' => import_users
      , post =>
-         #{ description => <<"Import users into the gateway authentication">>
+         #{ desc => <<"Import users into the gateway authentication">>
           , parameters => params_gateway_name_in_path() ++
                           params_listener_id_in_path()
           , 'requestBody' => emqx_dashboard_swagger:schema_with_examples(
@@ -409,7 +409,7 @@ params_gateway_name_in_path() ->
     [{name,
       mk(binary(),
          #{ in => path
-          , description => <<"Gateway Name">>
+          , desc => <<"Gateway Name">>
           , example => <<"">>
           })}
     ].
@@ -418,7 +418,7 @@ params_listener_id_in_path() ->
     [{id,
       mk(binary(),
          #{ in => path
-          , description => <<"Listener ID">>
+          , desc => <<"Listener ID">>
           , example => <<"">>
           })}
     ].
@@ -426,7 +426,7 @@ params_listener_id_in_path() ->
 params_userid_in_path() ->
     [{uid, mk(binary(),
               #{ in => path
-               , description => <<"User ID">>
+               , desc => <<"User ID">>
                , example => <<"">>
                })}
     ].
@@ -435,13 +435,13 @@ params_paging_in_qs() ->
     [{page, mk(integer(),
                #{ in => query
                 , required => false
-                , description => <<"Page Index">>
+                , desc => <<"Page Index">>
                 , example => 1
                 })},
      {limit, mk(integer(),
                 #{ in => query
                  , required => false
-                 , description => <<"Page Limit">>
+                 , desc => <<"Page Limit">>
                  , example => 100
                  })}
     ].
@@ -458,22 +458,22 @@ fields(listener) ->
     [ {tcp,
        mk(ref(tcp_listener_opts),
           #{ required => {false, recursively}
-           , description => <<"The tcp socket options for tcp or ssl listener">>
+           , desc => <<"The tcp socket options for tcp or ssl listener">>
            })}
     , {ssl,
        mk(ref(ssl_listener_opts),
           #{ required => {false, recursively}
-           , description => <<"The ssl socket options for ssl listener">>
+           , desc => <<"The ssl socket options for ssl listener">>
            })}
     , {udp,
        mk(ref(udp_listener_opts),
           #{ required => {false, recursively}
-           , description => <<"The udp socket options for udp or dtls listener">>
+           , desc => <<"The udp socket options for udp or dtls listener">>
            })}
     , {dtls,
        mk(ref(dtls_listener_opts),
           #{ required => {false, recursively}
-           , description => <<"The dtls socket options for dtls listener">>
+           , desc => <<"The dtls socket options for dtls listener">>
            })}
     ];
 fields(tcp_listener_opts) ->
@@ -530,47 +530,47 @@ common_listener_opts() ->
     [ {enable,
        mk(boolean(),
           #{ required => false
-           , description => <<"Whether to enable this listener">>})}
+           , desc => <<"Whether to enable this listener">>})}
     , {id,
        mk(binary(),
           #{ required => false
-           , description => <<"Listener Id">>})}
+           , desc => <<"Listener Id">>})}
     , {name,
        mk(binary(),
           #{ required => false
-           , description => <<"Listener name">>})}
+           , desc => <<"Listener name">>})}
     , {type,
        mk(hoconsc:enum([tcp, ssl, udp, dtls]),
           #{ required => false
-           , description => <<"Listener type. Enum: tcp, udp, ssl, dtls">>})}
+           , desc => <<"Listener type. Enum: tcp, udp, ssl, dtls">>})}
     , {running,
        mk(boolean(),
           #{ required => false
-           , description => <<"Listener running status">>})}
+           , desc => <<"Listener running status">>})}
     , {bind,
        mk(binary(),
           #{ required => false
-           , description => <<"Listener bind address or port">>})}
+           , desc => <<"Listener bind address or port">>})}
     , {acceptors,
        mk(integer(),
           #{ required => false
-           , description => <<"Listener acceptors number">>})}
+           , desc => <<"Listener acceptors number">>})}
     , {access_rules,
        mk(hoconsc:array(binary()),
           #{ required => false
-           , description => <<"Listener Access rules for client">>})}
+           , desc => <<"Listener Access rules for client">>})}
     , {max_conn_rate,
        mk(integer(),
           #{ required => false
-           , description => <<"Max connection rate for the listener">>})}
+           , desc => <<"Max connection rate for the listener">>})}
     , {max_connections,
        mk(integer(),
           #{ required => false
-           , description => <<"Max connections for the listener">>})}
+           , desc => <<"Max connections for the listener">>})}
     , {mountpoint,
        mk(binary(),
           #{ required => false
-           , description =>
+           , desc =>
 <<"The Mounpoint for clients of the listener. "
   "The gateway-level mountpoint configuration can be overloaded "
   "when it is not null or empty string">>})}
@@ -578,7 +578,7 @@ common_listener_opts() ->
     , {authentication,
        mk(emqx_authn_schema:authenticator_type(),
           #{ required => {false, recursively}
-           , description => <<"The authenticatior for this listener">>
+           , desc => <<"The authenticatior for this listener">>
            })}
     ] ++ emqx_gateway_schema:proxy_protocol_opts().
 

@@ -35,7 +35,7 @@ schema("/monitor") ->
         'operationId' => monitor,
         get => #{
             tags => [dashboard],
-            description => <<"List monitor data.">>,
+            desc => <<"List monitor data.">>,
             parameters => [parameter_latest()],
             responses => #{
                 200 => hoconsc:mk(hoconsc:array(hoconsc:ref(sampler)), #{}),
@@ -49,7 +49,7 @@ schema("/monitor/nodes/:node") ->
         'operationId' => monitor,
         get => #{
             tags => [dashboard],
-            description => <<"List the monitor data on the node.">>,
+            desc => <<"List the monitor data on the node.">>,
             parameters => [parameter_node(), parameter_latest()],
             responses => #{
                 200 => hoconsc:mk(hoconsc:array(hoconsc:ref(sampler)), #{}),
@@ -63,7 +63,7 @@ schema("/monitor_current") ->
         'operationId' => monitor_current,
         get => #{
             tags => [dashboard],
-            description => <<"Current status. Gauge and rate.">>,
+            desc => <<"Current status. Gauge and rate.">>,
             responses => #{
                 200 => hoconsc:mk(hoconsc:ref(sampler_current), #{})
             }
@@ -75,7 +75,7 @@ schema("/monitor_current/nodes/:node") ->
         'operationId' => monitor_current,
         get => #{
             tags => [dashboard],
-            description => <<"Node current status. Gauge and rate.">>,
+            desc => <<"Node current status. Gauge and rate.">>,
             parameters => [parameter_node()],
             responses => #{
                 200 => hoconsc:mk(hoconsc:ref(sampler_current), #{}),
@@ -89,7 +89,7 @@ parameter_latest() ->
         in => query,
         required => false,
         example => 5 * 60,
-        description => <<"The latest N seconds data. Like 300 for 5 min.">>
+        desc => <<"The latest N seconds data. Like 300 for 5 min.">>
     },
     {latest, hoconsc:mk(range(1, inf), Info)}.
 
@@ -98,19 +98,19 @@ parameter_node() ->
         in => path,
         required => true,
         example => node(),
-        description => <<"EMQX node name.">>
+        desc => <<"EMQX node name.">>
     },
     {node, hoconsc:mk(binary(), Info)}.
 
 
 fields(sampler) ->
     Samplers =
-        [{SamplerName, hoconsc:mk(integer(), #{description => swagger_desc(SamplerName)})}
+        [{SamplerName, hoconsc:mk(integer(), #{desc => swagger_desc(SamplerName)})}
         || SamplerName <- ?SAMPLER_LIST],
-    [{time_stamp, hoconsc:mk(integer(), #{description => <<"Timestamp">>})} | Samplers];
+    [{time_stamp, hoconsc:mk(integer(), #{desc => <<"Timestamp">>})} | Samplers];
 
 fields(sampler_current) ->
-    [{SamplerName, hoconsc:mk(integer(), #{description => swagger_desc(SamplerName)})}
+    [{SamplerName, hoconsc:mk(integer(), #{desc => swagger_desc(SamplerName)})}
     || SamplerName <- maps:values(?DELTA_SAMPLER_RATE_MAP) ++ ?GAUGE_SAMPLER_LIST].
 
 %% -------------------------------------------------------------------------------------------------

@@ -159,7 +159,7 @@ parse_qstring(Qs) ->
 schema("/gateway/:name/authentication") ->
     #{ 'operationId' => authn,
        get =>
-         #{ description => <<"Get the gateway authentication">>
+         #{ desc => <<"Get the gateway authentication">>
           , parameters => params_gateway_name_in_path()
           , responses =>
               ?STANDARD_RESP(
@@ -168,21 +168,21 @@ schema("/gateway/:name/authentication") ->
                   })
           },
        put =>
-         #{ description => <<"Update authentication for the gateway">>
+         #{ desc => <<"Update authentication for the gateway">>
           , parameters => params_gateway_name_in_path()
           , 'requestBody' => schema_authn()
           , responses =>
               ?STANDARD_RESP(#{200 => schema_authn()})
           },
        post =>
-         #{ description => <<"Add authentication for the gateway">>
+         #{ desc => <<"Add authentication for the gateway">>
           , parameters => params_gateway_name_in_path()
           , 'requestBody' => schema_authn()
           , responses =>
               ?STANDARD_RESP(#{201 => schema_authn()})
           },
        delete =>
-         #{ description => <<"Remove the gateway authentication">>
+         #{ desc => <<"Remove the gateway authentication">>
           , parameters => params_gateway_name_in_path()
           , responses =>
               ?STANDARD_RESP(#{204 => <<"Deleted">>})
@@ -191,7 +191,7 @@ schema("/gateway/:name/authentication") ->
 schema("/gateway/:name/authentication/users") ->
     #{ 'operationId' => users
      , get =>
-         #{ description => <<"Get the users for the authentication">>
+         #{ desc => <<"Get the users for the authentication">>
           , parameters => params_gateway_name_in_path() ++
                           params_paging_in_qs() ++
                           params_fuzzy_in_qs()
@@ -203,7 +203,7 @@ schema("/gateway/:name/authentication/users") ->
                   })
           },
        post =>
-         #{ description => <<"Add user for the authentication">>
+         #{ desc => <<"Add user for the authentication">>
           , parameters => params_gateway_name_in_path()
           , 'requestBody' => emqx_dashboard_swagger:schema_with_examples(
                                ref(emqx_authn_api, request_user_create),
@@ -219,7 +219,7 @@ schema("/gateway/:name/authentication/users") ->
 schema("/gateway/:name/authentication/users/:uid") ->
     #{ 'operationId' => users_insta
       , get =>
-          #{ description => <<"Get user info from the gateway "
+          #{ desc => <<"Get user info from the gateway "
                               "authentication">>
            , parameters => params_gateway_name_in_path() ++
                            params_userid_in_path()
@@ -231,7 +231,7 @@ schema("/gateway/:name/authentication/users/:uid") ->
                    })
            },
         put =>
-          #{ description => <<"Update the user info for the gateway "
+          #{ desc => <<"Update the user info for the gateway "
                               "authentication">>
            , parameters => params_gateway_name_in_path() ++
                            params_userid_in_path()
@@ -246,7 +246,7 @@ schema("/gateway/:name/authentication/users/:uid") ->
                    })
            },
         delete =>
-          #{ description => <<"Delete the user for the gateway "
+          #{ desc => <<"Delete the user for the gateway "
                               "authentication">>
            , parameters => params_gateway_name_in_path() ++
                            params_userid_in_path()
@@ -257,7 +257,7 @@ schema("/gateway/:name/authentication/users/:uid") ->
 schema("/gateway/:name/authentication/import_users") ->
     #{ 'operationId' => import_users
      , post =>
-         #{ description => <<"Import users into the gateway authentication">>
+         #{ desc => <<"Import users into the gateway authentication">>
           , parameters => params_gateway_name_in_path()
           , 'requestBody' => emqx_dashboard_swagger:schema_with_examples(
                              ref(emqx_authn_api, request_import_users),
@@ -275,7 +275,7 @@ params_gateway_name_in_path() ->
     [{name,
       mk(binary(),
          #{ in => path
-          , description => <<"Gateway Name">>
+          , desc => <<"Gateway Name">>
           , example => <<"">>
           })}
     ].
@@ -283,7 +283,7 @@ params_gateway_name_in_path() ->
 params_userid_in_path() ->
     [{uid, mk(binary(),
               #{ in => path
-               , description => <<"User ID">>
+               , desc => <<"User ID">>
                , example => <<"">>
                })}
     ].
@@ -292,13 +292,13 @@ params_paging_in_qs() ->
     [{page, mk(integer(),
                #{ in => query
                 , required => false
-                , description => <<"Page Index">>
+                , desc => <<"Page Index">>
                 , example => 1
                 })},
      {limit, mk(integer(),
                 #{ in => query
                  , required => false
-                 , description => <<"Page Limit">>
+                 , desc => <<"Page Limit">>
                  , example => 100
                  })}
     ].
@@ -308,14 +308,14 @@ params_fuzzy_in_qs() ->
       mk(binary(),
          #{ in => query
           , required => false
-          , description => <<"Fuzzy search by username">>
+          , desc => <<"Fuzzy search by username">>
           , example => <<"username">>
           })},
      {like_clientid,
       mk(binary(),
          #{ in => query
           , required => false
-          , description => <<"Fuzzy search by clientid">>
+          , desc => <<"Fuzzy search by clientid">>
           , example => <<"clientid">>
           })}
     ].

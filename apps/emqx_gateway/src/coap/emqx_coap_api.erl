@@ -46,7 +46,7 @@ paths() ->
 schema(?PREFIX ++ "/request") ->
     #{operationId => request,
       post => #{ tags => [<<"gateway|coap">>]
-               , description => <<"Send a CoAP request message to the client">>
+               , desc => <<"Send a CoAP request message to the client">>
                , parameters => request_parameters()
                , requestBody => request_body()
                , responses => #{200 => coap_message(),
@@ -87,19 +87,19 @@ request_parameters() ->
     [{clientid, mk(binary(), #{in => path, required => true})}].
 
 request_body() ->
-    [ {token, mk(binary(), #{description => "message token, can be empty"})}
-    , {method, mk(enum([get, put, post, delete]), #{description => "request method type"})}
-    , {timeout, mk(emqx_schema:duration_ms(), #{description => "timespan for response"})}
+    [ {token, mk(binary(), #{desc => "message token, can be empty"})}
+    , {method, mk(enum([get, put, post, delete]), #{desc => "request method type"})}
+    , {timeout, mk(emqx_schema:duration_ms(), #{desc => "timespan for response"})}
     , {content_type, mk(enum(['text/plain', 'application/json', 'application/octet-stream']),
-                        #{description => "payload type"})}
-    , {payload, mk(binary(), #{description => "the content of the payload"})}
+                        #{desc => "payload type"})}
+    , {payload, mk(binary(), #{desc => "the content of the payload"})}
     ].
 
 coap_message() ->
-    [ {id, mk(integer(), #{description => "message id"})}
-    , {token, mk(string(), #{description => "message token, can be empty"})}
-    , {method, mk(string(), #{description => "response code"})}
-    , {payload, mk(string(), #{description => "payload"})}
+    [ {id, mk(integer(), #{desc => "message id"})}
+    , {token, mk(string(), #{desc => "message token, can be empty"})}
+    , {method, mk(string(), #{desc => "response code"})}
+    , {payload, mk(string(), #{desc => "payload"})}
     ].
 
 format_to_response(ContentType, #coap_message{id = Id,

@@ -42,7 +42,7 @@ schema(?PATH("/lookup_cmd")) ->
         'operationId' => lookup_cmd,
         get => #{
             tags => [<<"lwm2m">>],
-            description => <<"Look up resource">>,
+            desc => <<"Look up resource">>,
             parameters => [
                 {clientid, mk(binary(), #{in => path, example => "urn:oma:lwm2m:oma:2"})},
                 {path, mk(binary(), #{in => query, required => true, example => "/3/0/7"})},
@@ -66,7 +66,7 @@ schema(?PATH("/observe")) ->
         'operationId' => observe,
         post => #{
             tags => [<<"lwm2m">>],
-            description => <<"(cancel) observe resource">>,
+            desc => <<"(cancel) observe resource">>,
             parameters => [
                 {clientid, mk(binary(), #{in => path, example => "urn:oma:lwm2m:oma:2"})},
                 {path, mk(binary(), #{in => query, required => true, example => "/3/0/7"})},
@@ -84,7 +84,7 @@ schema(?PATH("/read")) ->
         'operationId' => read,
         post => #{
             tags => [<<"lwm2m">>],
-            description => <<"Send a read command to resource">>,
+            desc => <<"Send a read command to resource">>,
             parameters => [
                 {clientid, mk(binary(), #{in => path, example => "urn:oma:lwm2m:oma:2"})},
                 {path, mk(binary(), #{in => query, required => true, example => "/3/0/7"})}
@@ -99,7 +99,7 @@ schema(?PATH("/write")) ->
     #{
         'operationId' => write,
         post => #{
-            description => <<"Send a write command to resource">>,
+            desc => <<"Send a write command to resource">>,
             tags => [<<"lwm2m">>],
             parameters => [
                 {clientid, mk(binary(), #{in => path, example => "urn:oma:lwm2m:oma:2"})},
@@ -117,11 +117,11 @@ schema(?PATH("/write")) ->
 
 fields(resource) ->
     [
-        {operations, mk(binary(), #{description => <<"Resource Operations">>, example => "E"})},
-        {'dataType', mk(hoconsc:enum(?DATA_TYPE), #{description => <<"Data Type">>,
+        {operations, mk(binary(), #{desc => <<"Resource Operations">>, example => "E"})},
+        {'dataType', mk(hoconsc:enum(?DATA_TYPE), #{desc => <<"Data Type">>,
             example => 'Integer'})},
-        {path, mk(binary(), #{description =>  <<"Resource Path">>, example => "urn:oma:lwm2m:oma:2"})},
-        {name, mk(binary(), #{description =>  <<"Resource Name">>, example => "lwm2m-test"})}
+        {path, mk(binary(), #{desc =>  <<"Resource Path">>, example => "urn:oma:lwm2m:oma:2"})},
+        {name, mk(binary(), #{desc =>  <<"Resource Name">>, example => "lwm2m-test"})}
     ].
 
 lookup_cmd(get, #{bindings := Bindings, query_string := QS}) ->
