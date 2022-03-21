@@ -43,7 +43,9 @@
         , trace_dir/0
         , trace_file/1
         , delete_files_after_send/2
+        , is_enable/0
         ]).
+
 
 -export([init/1, handle_call/3, handle_cast/2, handle_info/2, terminate/2, code_change/3]).
 
@@ -101,6 +103,10 @@ start_link() ->
 -spec list() -> [tuple()].
 list() ->
     ets:match_object(?TRACE, #?TRACE{_ = '_'}).
+
+-spec is_enable() -> boolean().
+is_enable() ->
+    undefined =/= erlang:whereis(?MODULE).
 
 -spec list(boolean()) -> [tuple()].
 list(Enable) ->
