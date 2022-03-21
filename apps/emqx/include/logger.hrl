@@ -19,34 +19,43 @@
 
 %% structured logging
 -define(SLOG(Level, Data),
-        ?SLOG(Level, Data, #{})).
+    ?SLOG(Level, Data, #{})
+).
 
 %% structured logging, meta is for handler's filter.
 -define(SLOG(Level, Data, Meta),
-%% check 'allow' here, only evaluate Data and Meta when necessary
+    %% check 'allow' here, only evaluate Data and Meta when necessary
     case logger:allow(Level, ?MODULE) of
         true ->
-            logger:log(Level, (Data), (Meta#{ mfa => {?MODULE, ?FUNCTION_NAME, ?FUNCTION_ARITY}
-                                            , line => ?LINE
-            }));
+            logger:log(
+                Level,
+                (Data),
+                (Meta#{
+                    mfa => {?MODULE, ?FUNCTION_NAME, ?FUNCTION_ARITY},
+                    line => ?LINE
+                })
+            );
         false ->
             ok
-    end).
+    end
+).
 
 -define(TRACE_FILTER, emqx_trace_filter).
 
 %% Only evaluate when necessary
 %% Always debug the trace events.
--define(TRACE(Tag, Msg, Meta),
-    begin
+-define(TRACE(Tag, Msg, Meta), begin
     case persistent_term:get(?TRACE_FILTER, undefined) of
         undefined -> ok;
         [] -> ok;
         List -> emqx_trace:log(List, Msg, Meta#{trace_tag => Tag})
     end,
-    ?SLOG(debug, (emqx_trace_formatter:format_meta(Meta))#{msg => Msg, tag => Tag},
-        #{is_trace => false})
-    end).
+    ?SLOG(
+        debug,
+        (emqx_trace_formatter:format_meta(Meta))#{msg => Msg, tag => Tag},
+        #{is_trace => false}
+    )
+end).
 
 %% print to 'user' group leader
 -define(ULOG(Fmt, Args), io:format(user, Fmt, Args)).

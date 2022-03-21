@@ -48,8 +48,9 @@ t_register_sub(_) ->
     ok = emqx_broker_helper:register_sub(self(), <<"clientid">>),
     try emqx_broker_helper:register_sub(self(), <<"clientid2">>) of
         _ -> ct:fail(should_throw_error)
-    catch error:Reason ->
-        ?assertEqual(Reason, subid_conflict)
+    catch
+        error:Reason ->
+            ?assertEqual(Reason, subid_conflict)
     end,
     ?assertEqual(self(), emqx_broker_helper:lookup_subpid(<<"clientid">>)).
 

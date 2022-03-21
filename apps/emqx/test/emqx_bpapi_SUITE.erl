@@ -54,11 +54,12 @@ t_announce(Config) ->
     ?assertMatch(2, emqx_bpapi:supported_version(api1)).
 
 fake_records() ->
-    [ #?TAB{key = {'fake-node@localhost', api1}, version = 2}
-    , #?TAB{key = {'fake-node2@localhost', api1}, version = 2}
-    , #?TAB{key = {?multicall, api1}, version = 2}
+    [
+        #?TAB{key = {'fake-node@localhost', api1}, version = 2},
+        #?TAB{key = {'fake-node2@localhost', api1}, version = 2},
+        #?TAB{key = {?multicall, api1}, version = 2},
 
-    , #?TAB{key = {'fake-node@localhost', api2}, version = 2}
-    , #?TAB{key = {'fake-node2@localhost', api2}, version = 3}
-    , #?TAB{key = {?multicall, api2}, version = 2}
+        #?TAB{key = {'fake-node@localhost', api2}, version = 2},
+        #?TAB{key = {'fake-node2@localhost', api2}, version = 3},
+        #?TAB{key = {?multicall, api2}, version = 2}
     ].

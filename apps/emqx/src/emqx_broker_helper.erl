@@ -21,26 +21,27 @@
 -include("logger.hrl").
 -include("types.hrl").
 
-
 -export([start_link/0]).
 
 %% APIs
--export([ register_sub/2
-        , lookup_subid/1
-        , lookup_subpid/1
-        , get_sub_shard/2
-        , create_seq/1
-        , reclaim_seq/1
-        ]).
+-export([
+    register_sub/2,
+    lookup_subid/1,
+    lookup_subpid/1,
+    get_sub_shard/2,
+    create_seq/1,
+    reclaim_seq/1
+]).
 
 %% gen_server callbacks
--export([ init/1
-        , handle_call/3
-        , handle_cast/2
-        , handle_info/2
-        , terminate/2
-        , code_change/3
-        ]).
+-export([
+    init/1,
+    handle_call/3,
+    handle_cast/2,
+    handle_info/2,
+    terminate/2,
+    code_change/3
+]).
 
 -ifdef(TEST).
 -compile(export_all).
@@ -55,11 +56,11 @@
 
 -define(BATCH_SIZE, 100000).
 
--spec(start_link() -> startlink_ret()).
+-spec start_link() -> startlink_ret().
 start_link() ->
     gen_server:start_link({local, ?HELPER}, ?MODULE, [], []).
 
--spec(register_sub(pid(), emqx_types:subid()) -> ok).
+-spec register_sub(pid(), emqx_types:subid()) -> ok.
 register_sub(SubPid, SubId) when is_pid(SubPid) ->
     case ets:lookup(?SUBMON, SubPid) of
         [] ->
@@ -70,31 +71,31 @@ register_sub(SubPid, SubId) when is_pid(SubPid) ->
             error(subid_conflict)
     end.
 
--spec(lookup_subid(pid()) -> maybe(emqx_types:subid())).
+-spec lookup_subid(pid()) -> maybe(emqx_types:subid()).
 lookup_subid(SubPid) when is_pid(SubPid) ->
     emqx_tables:lookup_value(?SUBMON, SubPid).
 
--spec(lookup_subpid(emqx_types:subid()) -> maybe(pid())).
+-spec lookup_subpid(emqx_types:subid()) -> maybe(pid()).
 lookup_subpid(SubId) ->
     emqx_tables:lookup_value(?SUBID, SubId).
 
--spec(get_sub_shard(pid(), emqx_types:topic()) -> non_neg_integer()).
+-spec get_sub_shard(pid(), emqx_types:topic()) -> non_neg_integer().
 get_sub_shard(SubPid, Topic) ->
     case create_seq(Topic) of
         Seq when Seq =< ?SHARD -> 0;
         _ -> erlang:phash2(SubPid, shards_num()) + 1
     end.
 
--spec(shards_num() -> pos_integer()).
+-spec shards_num() -> pos_integer().
 shards_num() ->
     %% Dynamic sharding later...
     ets:lookup_element(?HELPER, shards, 2).
 
--spec(create_seq(emqx_types:topic()) -> emqx_sequence:seqid()).
+-spec create_seq(emqx_types:topic()) -> emqx_sequence:seqid().
 create_seq(Topic) ->
     emqx_sequence:nextval(?SUBSEQ, Topic).
 
--spec(reclaim_seq(emqx_types:topic()) -> emqx_sequence:seqid()).
+-spec reclaim_seq(emqx_types:topic()) -> emqx_sequence:seqid().
 reclaim_seq(Topic) ->
     emqx_sequence:reclaim(?SUBSEQ, Topic).
 
@@ -125,7 +126,6 @@ handle_cast({register_sub, SubPid, SubId}, State = #{pmon := PMon}) ->
     true = (SubId =:= undefined) orelse ets:insert(?SUBID, {SubId, SubPid}),
     true = ets:insert(?SUBMON, {SubPid, SubId}),
     {noreply, State#{pmon := emqx_pmon:monitor(SubPid, PMon)}};
-
 handle_cast(Msg, State) ->
     ?SLOG(error, #{msg => "unexpected_cast", cast => Msg}),
     {noreply, State}.
@@ -133,10 +133,10 @@ handle_cast(Msg, State) ->
 handle_info({'DOWN', _MRef, process, SubPid, _Reason}, State = #{pmon := PMon}) ->
     SubPids = [SubPid | emqx_misc:drain_down(?BATCH_SIZE)],
     ok = emqx_pool:async_submit(
-           fun lists:foreach/2, [fun clean_down/1, SubPids]),
+        fun lists:foreach/2, [fun clean_down/1, SubPids]
+    ),
     {_, PMon1} = emqx_pmon:erase_all(SubPids, PMon),
     {noreply, State#{pmon := PMon1}};
-
 handle_info(Info, State) ->
     ?SLOG(error, #{msg => "unexpected_info", info => Info}),
     {noreply, State}.
@@ -156,9 +156,10 @@ clean_down(SubPid) ->
     case ets:lookup(?SUBMON, SubPid) of
         [{_, SubId}] ->
             true = ets:delete(?SUBMON, SubPid),
-            true = (SubId =:= undefined)
-                orelse ets:delete_object(?SUBID, {SubId, SubPid}),
+            true =
+                (SubId =:= undefined) orelse
+                    ets:delete_object(?SUBID, {SubId, SubPid}),
             emqx_broker:subscriber_down(SubPid);
-        [] -> ok
+        [] ->
+            ok
     end.
-

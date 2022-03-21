@@ -24,10 +24,11 @@
 all() -> emqx_common_test_helpers:all(?MODULE).
 
 t_batch_full_commit(_) ->
-    B0 = emqx_batch:init(#{batch_size => 3,
-                           linger_ms => 2000,
-                           commit_fun => fun(_) -> ok end
-                          }),
+    B0 = emqx_batch:init(#{
+        batch_size => 3,
+        linger_ms => 2000,
+        commit_fun => fun(_) -> ok end
+    }),
     B3 = lists:foldl(fun(E, B) -> emqx_batch:push(E, B) end, B0, [a, b, c]),
     ?assertEqual(3, emqx_batch:size(B3)),
     ?assertEqual([a, b, c], emqx_batch:items(B3)),
@@ -38,10 +39,11 @@ t_batch_full_commit(_) ->
 
 t_batch_linger_commit(_) ->
     CommitFun = fun(Q) -> ?assertEqual(3, length(Q)) end,
-    B0 = emqx_batch:init(#{batch_size => 3,
-                           linger_ms => 500,
-                           commit_fun => CommitFun
-                          }),
+    B0 = emqx_batch:init(#{
+        batch_size => 3,
+        linger_ms => 500,
+        commit_fun => CommitFun
+    }),
     B3 = lists:foldl(fun(E, B) -> emqx_batch:push(E, B) end, B0, [a, b, c]),
     ?assertEqual(3, emqx_batch:size(B3)),
     ?assertEqual([a, b, c], emqx_batch:items(B3)),
@@ -50,8 +52,6 @@ t_batch_linger_commit(_) ->
             B4 = emqx_batch:commit(B3),
             ?assertEqual(0, emqx_batch:size(B4)),
             ?assertEqual([], emqx_batch:items(B4))
-    after
-        1000 ->
-            error(linger_timer_not_triggered)
+    after 1000 ->
+        error(linger_timer_not_triggered)
     end.
-

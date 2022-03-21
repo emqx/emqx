@@ -30,4 +30,3 @@ t_update_counter(_) ->
     ?assertEqual(3, emqx_pd:get_counter(bytes)),
     ?assertEqual(3, emqx_pd:reset_counter(bytes)),
     ?assertEqual(0, emqx_pd:get_counter(bytes)).
-

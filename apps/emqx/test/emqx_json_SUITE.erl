@@ -21,11 +21,14 @@
 
 -include_lib("eunit/include/eunit.hrl").
 
--import(emqx_json,
-        [ encode/1
-        , decode/1
-        , decode/2
-        ]).
+-import(
+    emqx_json,
+    [
+        encode/1,
+        decode/1,
+        decode/2
+    ]
+).
 
 %% copied jiffy/readme
 %%--------------------------------------------------------------------
@@ -85,17 +88,28 @@ t_decode_encode(_) ->
     [{<<"foo">>, <<"bar">>}] = decode(encode([{foo, bar}])),
     [{<<"foo">>, <<"bar">>}] = decode(encode([{<<"foo">>, <<"bar">>}])),
     [[{<<"foo">>, <<"bar">>}]] = decode(encode([[{<<"foo">>, <<"bar">>}]])),
-    [[{<<"foo">>, <<"bar">>},
-      {<<"a">>, <<"b">>}],
-     [{<<"x">>, <<"y">>}]] = decode(encode([[{<<"foo">>, <<"bar">>},
-                                             {<<"a">>, <<"b">>}],
-                                            [{<<"x">>, <<"y">>}]])),
+    [
+        [
+            {<<"foo">>, <<"bar">>},
+            {<<"a">>, <<"b">>}
+        ],
+        [{<<"x">>, <<"y">>}]
+    ] = decode(
+        encode([
+            [
+                {<<"foo">>, <<"bar">>},
+                {<<"a">>, <<"b">>}
+            ],
+            [{<<"x">>, <<"y">>}]
+        ])
+    ),
     #{<<"foo">> := <<"bar">>} = decode(encode(#{<<"foo">> => <<"bar">>}), [return_maps]),
     JsonText = <<"{\"bool\":true,\"int\":10,\"foo\":\"bar\"}">>,
-    JsonMaps = #{<<"bool">> => true,
-                 <<"int">>  => 10,
-                 <<"foo">>  => <<"bar">>
-                },
+    JsonMaps = #{
+        <<"bool">> => true,
+        <<"int">> => 10,
+        <<"foo">> => <<"bar">>
+    },
     ?assertEqual(JsonText, encode({decode(JsonText)})),
     ?assertEqual(JsonMaps, decode(JsonText, [return_maps])).
 
@@ -120,5 +134,5 @@ safe_encode_decode(Term) ->
     {ok, Json} = emqx_json:safe_encode(Term),
     case emqx_json:safe_decode(Json) of
         {ok, {NTerm}} -> NTerm;
-        {ok, NTerm}   -> NTerm
+        {ok, NTerm} -> NTerm
     end.

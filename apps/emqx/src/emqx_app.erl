@@ -18,16 +18,17 @@
 
 -behaviour(application).
 
--export([ start/2
-        , prep_stop/1
-        , stop/1
-        , get_description/0
-        , get_release/0
-        , set_init_config_load_done/0
-        , get_init_config_load_done/0
-        , set_init_tnx_id/1
-        , get_init_tnx_id/0
-        ]).
+-export([
+    start/2,
+    prep_stop/1,
+    stop/1,
+    get_description/0,
+    get_release/0,
+    set_init_config_load_done/0,
+    get_init_config_load_done/0,
+    set_init_tnx_id/1,
+    get_init_tnx_id/0
+]).
 
 -include("emqx.hrl").
 -include("logger.hrl").
@@ -54,8 +55,8 @@ start(_Type, _Args) ->
 prep_stop(_State) ->
     ok = emqx_alarm_handler:unload(),
     emqx_config:remove_handlers(),
-    emqx_boot:is_enabled(listeners)
-      andalso emqx_listeners:stop().
+    emqx_boot:is_enabled(listeners) andalso
+        emqx_listeners:stop().
 
 stop(_State) -> ok.
 
@@ -93,14 +94,19 @@ maybe_start_listeners() ->
 
 maybe_start_quicer() ->
     case is_quicer_app_present() andalso is_quic_listener_configured() of
-        true -> {ok, _} = application:ensure_all_started(quicer), ok;
-        false -> ok
+        true ->
+            {ok, _} = application:ensure_all_started(quicer),
+            ok;
+        false ->
+            ok
     end.
 
 is_quicer_app_present() ->
     case application:load(quicer) of
-        ok -> true;
-        {error, {already_loaded, _}} -> true;
+        ok ->
+            true;
+        {error, {already_loaded, _}} ->
+            true;
         _ ->
             ?SLOG(info, #{msg => "quicer_app_not_found"}),
             false

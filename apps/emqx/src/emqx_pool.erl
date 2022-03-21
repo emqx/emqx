@@ -21,49 +21,54 @@
 -include("logger.hrl").
 -include("types.hrl").
 
-
 %% APIs
 -export([start_link/2]).
 
--export([ submit/1
-        , submit/2
-        , async_submit/1
-        , async_submit/2
-        ]).
+-export([
+    submit/1,
+    submit/2,
+    async_submit/1,
+    async_submit/2
+]).
 
 -ifdef(TEST).
 -export([worker/0, flush_async_tasks/0]).
 -endif.
 
 %% gen_server callbacks
--export([ init/1
-        , handle_call/3
-        , handle_cast/2
-        , handle_info/2
-        , terminate/2
-        , code_change/3
-        ]).
+-export([
+    init/1,
+    handle_call/3,
+    handle_cast/2,
+    handle_info/2,
+    terminate/2,
+    code_change/3
+]).
 
 -define(POOL, ?MODULE).
 
--type(task() :: fun() | mfa() | {fun(), Args :: list(any())}).
+-type task() :: fun() | mfa() | {fun(), Args :: list(any())}.
 
 %%--------------------------------------------------------------------
 %% APIs
 %%--------------------------------------------------------------------
 
 %% @doc Start pool.
--spec(start_link(atom(), pos_integer()) -> startlink_ret()).
+-spec start_link(atom(), pos_integer()) -> startlink_ret().
 start_link(Pool, Id) ->
-    gen_server:start_link({local, emqx_misc:proc_name(?MODULE, Id)},
-                          ?MODULE, [Pool, Id], [{hibernate_after, 1000}]).
+    gen_server:start_link(
+        {local, emqx_misc:proc_name(?MODULE, Id)},
+        ?MODULE,
+        [Pool, Id],
+        [{hibernate_after, 1000}]
+    ).
 
 %% @doc Submit work to the pool.
--spec(submit(task()) -> any()).
+-spec submit(task()) -> any().
 submit(Task) ->
     call({submit, Task}).
 
--spec(submit(fun(), list(any())) -> any()).
+-spec submit(fun(), list(any())) -> any().
 submit(Fun, Args) ->
     call({submit, {Fun, Args}}).
 
@@ -72,11 +77,11 @@ call(Req) ->
     gen_server:call(worker(), Req, infinity).
 
 %% @doc Submit work to the pool asynchronously.
--spec(async_submit(task()) -> ok).
+-spec async_submit(task()) -> ok.
 async_submit(Task) ->
     cast({async_submit, Task}).
 
--spec(async_submit(fun(), list(any())) -> ok).
+-spec async_submit(fun(), list(any())) -> ok.
 async_submit(Fun, Args) ->
     cast({async_submit, {Fun, Args}}).
 
@@ -98,22 +103,23 @@ init([Pool, Id]) ->
 
 handle_call({submit, Task}, _From, State) ->
     {reply, catch run(Task), State};
-
 handle_call(Req, _From, State) ->
     ?SLOG(error, #{msg => "unexpected_call", call => Req}),
     {reply, ignored, State}.
 
 handle_cast({async_submit, Task}, State) ->
-    try run(Task)
-    catch Error:Reason:Stacktrace ->
-        ?SLOG(error, #{msg => "async_submit_error",
-                       exception => Error,
-                       reason => Reason,
-                       stacktrace => Stacktrace
-                      })
+    try
+        run(Task)
+    catch
+        Error:Reason:Stacktrace ->
+            ?SLOG(error, #{
+                msg => "async_submit_error",
+                exception => Error,
+                reason => Reason,
+                stacktrace => Stacktrace
+            })
     end,
     {noreply, State};
-
 handle_cast(Msg, State) ->
     ?SLOG(error, #{msg => "unexpected_cast", cast => Msg}),
     {noreply, State}.
@@ -149,5 +155,12 @@ flush_async_tasks() ->
     Self = self(),
     L = lists:seq(1, 997),
     lists:foreach(fun(I) -> emqx_pool:async_submit(fun() -> Self ! {done, Ref, I} end, []) end, L),
-    lists:foreach(fun(I) -> receive {done, Ref, I} -> ok end end, L).
+    lists:foreach(
+        fun(I) ->
+            receive
+                {done, Ref, I} -> ok
+            end
+        end,
+        L
+    ).
 -endif.

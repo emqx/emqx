@@ -18,14 +18,15 @@
 
 -include("emqx.hrl").
 
--export([ delete_direct_route/2
-        , delete_trie_route/2
-        , delete_session_trie_route/2
-        , insert_direct_route/2
-        , insert_trie_route/2
-        , insert_session_trie_route/2
-        , maybe_trans/3
-        ]).
+-export([
+    delete_direct_route/2,
+    delete_trie_route/2,
+    delete_session_trie_route/2,
+    insert_direct_route/2,
+    insert_trie_route/2,
+    insert_session_trie_route/2,
+    maybe_trans/3
+]).
 
 insert_direct_route(Tab, Route) ->
     mria:dirty_write(Tab, Route).
@@ -33,14 +34,14 @@ insert_direct_route(Tab, Route) ->
 insert_trie_route(RouteTab, Route = #route{topic = Topic}) ->
     case mnesia:wread({RouteTab, Topic}) of
         [] -> emqx_trie:insert(Topic);
-        _  -> ok
+        _ -> ok
     end,
     mnesia:write(RouteTab, Route, sticky_write).
 
 insert_session_trie_route(RouteTab, Route = #route{topic = Topic}) ->
     case mnesia:wread({RouteTab, Topic}) of
-        []  -> emqx_trie:insert_session(Topic);
-        _  -> ok
+        [] -> emqx_trie:insert_session(Topic);
+        _ -> ok
     end,
     mnesia:write(RouteTab, Route, sticky_write).
 
@@ -59,10 +60,10 @@ delete_trie_route(RouteTab, Route = #route{topic = Topic}, Type) ->
             %% Remove route and trie
             ok = mnesia:delete_object(RouteTab, Route, sticky_write),
             case Type of
-                normal  -> emqx_trie:delete(Topic);
+                normal -> emqx_trie:delete(Topic);
                 session -> emqx_trie:delete_session(Topic)
             end;
-        [_|_]   ->
+        [_ | _] ->
             %% Remove route only
             mnesia:delete_object(RouteTab, Route, sticky_write);
         [] ->
@@ -70,30 +71,37 @@ delete_trie_route(RouteTab, Route = #route{topic = Topic}, Type) ->
     end.
 
 %% @private
--spec(maybe_trans(function(), list(any()), Shard :: atom()) -> ok | {error, term()}).
+-spec maybe_trans(function(), list(any()), Shard :: atom()) -> ok | {error, term()}.
 maybe_trans(Fun, Args, Shard) ->
     case emqx:get_config([broker, perf, route_lock_type]) of
         key ->
             trans(Fun, Args, Shard);
         global ->
             %% Assert:
-            mnesia = mria_rlog:backend(), %% TODO: do something smarter than just crash
+
+            %% TODO: do something smarter than just crash
+            mnesia = mria_rlog:backend(),
             lock_router(Shard),
-            try mnesia:sync_dirty(Fun, Args)
+            try
+                mnesia:sync_dirty(Fun, Args)
             after
                 unlock_router(Shard)
             end;
         tab ->
-            trans(fun() ->
-                          emqx_trie:lock_tables(),
-                          apply(Fun, Args)
-                  end, [], Shard)
+            trans(
+                fun() ->
+                    emqx_trie:lock_tables(),
+                    apply(Fun, Args)
+                end,
+                [],
+                Shard
+            )
     end.
 
 %% The created fun only terminates with explicit exception
 -dialyzer({nowarn_function, [trans/3]}).
 
--spec(trans(function(), list(any()), atom()) -> ok | {error, term()}).
+-spec trans(function(), list(any()), atom()) -> ok | {error, term()}.
 trans(Fun, Args, Shard) ->
     {WPid, RefMon} =
         spawn_monitor(
@@ -102,12 +110,14 @@ trans(Fun, Args, Shard) ->
             %% Future changes should keep in mind that this process
             %% always exit with database write result.
             fun() ->
-                    Res = case mria:transaction(Shard, Fun, Args) of
-                              {atomic, Ok} -> Ok;
-                              {aborted, Reason} -> {error, Reason}
-                          end,
-                    exit({shutdown, Res})
-            end),
+                Res =
+                    case mria:transaction(Shard, Fun, Args) of
+                        {atomic, Ok} -> Ok;
+                        {aborted, Reason} -> {error, Reason}
+                    end,
+                exit({shutdown, Res})
+            end
+        ),
     %% Receive a 'shutdown' exit to pass result from the short-lived process.
     %% so the receive below can be receive-mark optimized by the compiler.
     %%

@@ -16,24 +16,25 @@
 
 -module(emqx_release).
 
--export([ edition/0
-        , description/0
-        , version/0
-        ]).
+-export([
+    edition/0,
+    description/0,
+    version/0
+]).
 
 -include("emqx_release.hrl").
 
--define(EMQX_DESCS,
-        #{ee => "EMQX Enterprise",
-          ce => "EMQX",
-          edge => "EMQX Edge"
-         }).
+-define(EMQX_DESCS, #{
+    ee => "EMQX Enterprise",
+    ce => "EMQX",
+    edge => "EMQX Edge"
+}).
 
--define(EMQX_REL_VSNS,
-        #{ee => ?EMQX_RELEASE_EE,
-          ce => ?EMQX_RELEASE_CE,
-          edge => ?EMQX_RELEASE_CE
-         }).
+-define(EMQX_REL_VSNS, #{
+    ee => ?EMQX_RELEASE_EE,
+    ce => ?EMQX_RELEASE_CE,
+    edge => ?EMQX_RELEASE_CE
+}).
 
 %% @doc Return EMQX description.
 description() ->
@@ -52,17 +53,21 @@ edition() -> ce.
 %% @doc Return the release version.
 version() ->
     case lists:keyfind(emqx_vsn, 1, ?MODULE:module_info(compile)) of
-        false -> %% For TEST build or dependency build.
+        %% For TEST build or dependency build.
+        false ->
             build_vsn();
-        {_, Vsn} -> %% For emqx release build
+        %% For emqx release build
+        {_, Vsn} ->
             VsnStr = build_vsn(),
             case string:str(Vsn, VsnStr) of
-                1 -> ok;
+                1 ->
+                    ok;
                 _ ->
-                    erlang:error(#{ reason => version_mismatch
-                                  , source => VsnStr
-                                  , built_for => Vsn
-                                  })
+                    erlang:error(#{
+                        reason => version_mismatch,
+                        source => VsnStr,
+                        built_for => Vsn
+                    })
             end,
             Vsn
     end.

@@ -17,20 +17,22 @@
 -module(emqx_tls_lib).
 
 %% version & cipher suites
--export([ default_versions/0
-        , integral_versions/1
-        , default_ciphers/0
-        , selected_ciphers/1
-        , integral_ciphers/2
-        , drop_tls13_for_old_otp/1
-        , all_ciphers/0
-        ]).
+-export([
+    default_versions/0,
+    integral_versions/1,
+    default_ciphers/0,
+    selected_ciphers/1,
+    integral_ciphers/2,
+    drop_tls13_for_old_otp/1,
+    all_ciphers/0
+]).
 
 %% SSL files
--export([ ensure_ssl_files/2
-        , delete_ssl_files/3
-        , file_content_as_options/1
-        ]).
+-export([
+    ensure_ssl_files/2,
+    delete_ssl_files/3,
+    file_content_as_options/1
+]).
 
 -include("logger.hrl").
 
@@ -52,7 +54,7 @@ default_versions() -> available_versions().
 %% raise an error exception if non of them are available.
 %% The input list can be a string/binary of comma separated versions.
 -spec integral_versions(undefined | string() | binary() | [ssl:tls_version()]) ->
-        [ssl:tls_version()].
+    [ssl:tls_version()].
 integral_versions(undefined) ->
     integral_versions(default_versions());
 integral_versions([]) ->
@@ -66,10 +68,12 @@ integral_versions(Desired) when is_binary(Desired) ->
 integral_versions(Desired) ->
     Available = available_versions(),
     case lists:filter(fun(V) -> lists:member(V, Available) end, Desired) of
-        [] -> erlang:error(#{ reason => no_available_tls_version
-                            , desired => Desired
-                            , available => Available
-                            });
+        [] ->
+            erlang:error(#{
+                reason => no_available_tls_version,
+                desired => Desired,
+                available => Available
+            });
         Filtered ->
             Filtered
     end.
@@ -89,7 +93,6 @@ all_ciphers(Versions) ->
     %% assert non-empty
     [_ | _] = dedup(lists:append([ssl:cipher_suites(all, V, openssl) || V <- Versions])).
 
-
 %% @doc All Pre-selected TLS ciphers.
 default_ciphers() ->
     selected_ciphers(available_versions()).
@@ -97,8 +100,12 @@ default_ciphers() ->
 %% @doc Pre-selected TLS ciphers for given versions..
 selected_ciphers(Vsns) ->
     All = all_ciphers(Vsns),
-    dedup(lists:filter(fun(Cipher) -> lists:member(Cipher, All) end,
-                       lists:flatmap(fun do_selected_ciphers/1, Vsns))).
+    dedup(
+        lists:filter(
+            fun(Cipher) -> lists:member(Cipher, All) end,
+            lists:flatmap(fun do_selected_ciphers/1, Vsns)
+        )
+    ).
 
 do_selected_ciphers('tlsv1.3') ->
     case lists:member('tlsv1.3', proplists:get_value(available, ssl:versions())) of
@@ -106,24 +113,49 @@ do_selected_ciphers('tlsv1.3') ->
         false -> []
     end ++ do_selected_ciphers('tlsv1.2');
 do_selected_ciphers(_) ->
-    [ "ECDHE-ECDSA-AES256-GCM-SHA384",
-      "ECDHE-RSA-AES256-GCM-SHA384", "ECDHE-ECDSA-AES256-SHA384", "ECDHE-RSA-AES256-SHA384",
-      "ECDH-ECDSA-AES256-GCM-SHA384", "ECDH-RSA-AES256-GCM-SHA384",
-      "ECDH-ECDSA-AES256-SHA384", "ECDH-RSA-AES256-SHA384", "DHE-DSS-AES256-GCM-SHA384",
-      "DHE-DSS-AES256-SHA256", "AES256-GCM-SHA384", "AES256-SHA256",
-      "ECDHE-ECDSA-AES128-GCM-SHA256", "ECDHE-RSA-AES128-GCM-SHA256",
-      "ECDHE-ECDSA-AES128-SHA256", "ECDHE-RSA-AES128-SHA256", "ECDH-ECDSA-AES128-GCM-SHA256",
-      "ECDH-RSA-AES128-GCM-SHA256", "ECDH-ECDSA-AES128-SHA256", "ECDH-RSA-AES128-SHA256",
-      "DHE-DSS-AES128-GCM-SHA256", "DHE-DSS-AES128-SHA256", "AES128-GCM-SHA256", "AES128-SHA256",
-      "ECDHE-ECDSA-AES256-SHA", "ECDHE-RSA-AES256-SHA", "DHE-DSS-AES256-SHA",
-      "ECDH-ECDSA-AES256-SHA", "ECDH-RSA-AES256-SHA", "ECDHE-ECDSA-AES128-SHA",
-      "ECDHE-RSA-AES128-SHA", "DHE-DSS-AES128-SHA", "ECDH-ECDSA-AES128-SHA",
-      "ECDH-RSA-AES128-SHA",
+    [
+        "ECDHE-ECDSA-AES256-GCM-SHA384",
+        "ECDHE-RSA-AES256-GCM-SHA384",
+        "ECDHE-ECDSA-AES256-SHA384",
+        "ECDHE-RSA-AES256-SHA384",
+        "ECDH-ECDSA-AES256-GCM-SHA384",
+        "ECDH-RSA-AES256-GCM-SHA384",
+        "ECDH-ECDSA-AES256-SHA384",
+        "ECDH-RSA-AES256-SHA384",
+        "DHE-DSS-AES256-GCM-SHA384",
+        "DHE-DSS-AES256-SHA256",
+        "AES256-GCM-SHA384",
+        "AES256-SHA256",
+        "ECDHE-ECDSA-AES128-GCM-SHA256",
+        "ECDHE-RSA-AES128-GCM-SHA256",
+        "ECDHE-ECDSA-AES128-SHA256",
+        "ECDHE-RSA-AES128-SHA256",
+        "ECDH-ECDSA-AES128-GCM-SHA256",
+        "ECDH-RSA-AES128-GCM-SHA256",
+        "ECDH-ECDSA-AES128-SHA256",
+        "ECDH-RSA-AES128-SHA256",
+        "DHE-DSS-AES128-GCM-SHA256",
+        "DHE-DSS-AES128-SHA256",
+        "AES128-GCM-SHA256",
+        "AES128-SHA256",
+        "ECDHE-ECDSA-AES256-SHA",
+        "ECDHE-RSA-AES256-SHA",
+        "DHE-DSS-AES256-SHA",
+        "ECDH-ECDSA-AES256-SHA",
+        "ECDH-RSA-AES256-SHA",
+        "ECDHE-ECDSA-AES128-SHA",
+        "ECDHE-RSA-AES128-SHA",
+        "DHE-DSS-AES128-SHA",
+        "ECDH-ECDSA-AES128-SHA",
+        "ECDH-RSA-AES128-SHA",
 
-      %% psk
-      "RSA-PSK-AES256-GCM-SHA384","RSA-PSK-AES256-CBC-SHA384",
-      "RSA-PSK-AES128-GCM-SHA256","RSA-PSK-AES128-CBC-SHA256",
-      "RSA-PSK-AES256-CBC-SHA","RSA-PSK-AES128-CBC-SHA"
+        %% psk
+        "RSA-PSK-AES256-GCM-SHA384",
+        "RSA-PSK-AES256-CBC-SHA384",
+        "RSA-PSK-AES128-GCM-SHA256",
+        "RSA-PSK-AES128-CBC-SHA256",
+        "RSA-PSK-AES256-CBC-SHA",
+        "RSA-PSK-AES128-CBC-SHA"
     ].
 
 %% @doc Ensure version & cipher-suites integrity.
@@ -146,7 +178,7 @@ integral_ciphers(Versions, Ciphers) ->
 ensure_tls13_cipher(true, Ciphers) ->
     Tls13Ciphers = selected_ciphers(['tlsv1.3']),
     case lists:any(fun(C) -> lists:member(C, Tls13Ciphers) end, Ciphers) of
-        true  -> Ciphers;
+        true -> Ciphers;
         false -> Tls13Ciphers ++ Ciphers
     end;
 ensure_tls13_cipher(false, Ciphers) ->
@@ -172,7 +204,8 @@ dedup([H | T]) -> [H | dedup([I || I <- T, I =/= H])].
 parse_versions(Versions) ->
     do_parse_versions(split_by_comma(Versions), []).
 
-do_parse_versions([], Acc) -> lists:reverse(Acc);
+do_parse_versions([], Acc) ->
+    lists:reverse(Acc);
 do_parse_versions([V | More], Acc) ->
     case parse_version(V) of
         unknown ->
@@ -209,21 +242,22 @@ drop_tls13_for_old_otp(SslOpts) ->
 %% should return when running on otp 23.
 %% But we still have to hard-code them because tlsv1.3 on otp 22 is
 %% not trustworthy.
--define(TLSV13_EXCLUSIVE_CIPHERS, [ "TLS_AES_256_GCM_SHA384"
-                                  , "TLS_AES_128_GCM_SHA256"
-                                  , "TLS_CHACHA20_POLY1305_SHA256"
-                                  , "TLS_AES_128_CCM_SHA256"
-                                  , "TLS_AES_128_CCM_8_SHA256"
-                                  ]).
+-define(TLSV13_EXCLUSIVE_CIPHERS, [
+    "TLS_AES_256_GCM_SHA384",
+    "TLS_AES_128_GCM_SHA256",
+    "TLS_CHACHA20_POLY1305_SHA256",
+    "TLS_AES_128_CCM_SHA256",
+    "TLS_AES_128_CCM_8_SHA256"
+]).
 drop_tls13(SslOpts0) ->
-    SslOpts1 = case maps:find(versions, SslOpts0) of
-                   error -> SslOpts0;
-                   {ok, Vsns} -> SslOpts0#{versions => (Vsns -- ['tlsv1.3'])}
-               end,
+    SslOpts1 =
+        case maps:find(versions, SslOpts0) of
+            error -> SslOpts0;
+            {ok, Vsns} -> SslOpts0#{versions => (Vsns -- ['tlsv1.3'])}
+        end,
     case maps:find(ciphers, SslOpts1) of
         error -> SslOpts1;
-        {ok, Ciphers} ->
-            SslOpts1#{ciphers => Ciphers -- ?TLSV13_EXCLUSIVE_CIPHERS}
+        {ok, Ciphers} -> SslOpts1#{ciphers => Ciphers -- ?TLSV13_EXCLUSIVE_CIPHERS}
     end.
 
 %% @doc The input map is a HOCON decoded result of a struct defined as
@@ -233,17 +267,19 @@ drop_tls13(SslOpts0) ->
 %% When PEM format key or certificate is given, it tries to to save them in the given
 %% sub-dir in emqx's data_dir, and replace saved file paths for SSL options.
 -spec ensure_ssl_files(file:name_all(), undefined | map()) ->
-            {ok, undefined | map()} | {error, map()}.
+    {ok, undefined | map()} | {error, map()}.
 ensure_ssl_files(Dir, Opts) ->
     ensure_ssl_files(Dir, Opts, _DryRun = false).
 
-ensure_ssl_files(_Dir, undefined, _DryRun) -> {ok, undefined};
+ensure_ssl_files(_Dir, undefined, _DryRun) ->
+    {ok, undefined};
 ensure_ssl_files(_Dir, #{<<"enable">> := False} = Opts, _DryRun) when ?IS_FALSE(False) ->
     {ok, Opts};
 ensure_ssl_files(Dir, Opts, DryRun) ->
     ensure_ssl_files(Dir, Opts, ?SSL_FILE_OPT_NAMES, DryRun).
 
-ensure_ssl_files(_Dir,Opts, [], _DryRun) -> {ok, Opts};
+ensure_ssl_files(_Dir, Opts, [], _DryRun) ->
+    {ok, Opts};
 ensure_ssl_files(Dir, Opts, [Key | Keys], DryRun) ->
     case ensure_ssl_file(Dir, Key, Opts, maps:get(Key, Opts, undefined), DryRun) of
         {ok, NewOpts} ->
@@ -258,18 +294,25 @@ delete_ssl_files(Dir, NewOpts0, OldOpts0) ->
     DryRun = true,
     {ok, NewOpts} = ensure_ssl_files(Dir, NewOpts0, DryRun),
     {ok, OldOpts} = ensure_ssl_files(Dir, OldOpts0, DryRun),
-    Get = fun(_K, undefined) -> undefined;
-             (K, Opts) -> maps:get(K, Opts, undefined)
-          end,
-    lists:foreach(fun(Key) -> delete_old_file(Get(Key, NewOpts), Get(Key, OldOpts)) end,
-                  ?SSL_FILE_OPT_NAMES).
+    Get = fun
+        (_K, undefined) -> undefined;
+        (K, Opts) -> maps:get(K, Opts, undefined)
+    end,
+    lists:foreach(
+        fun(Key) -> delete_old_file(Get(Key, NewOpts), Get(Key, OldOpts)) end,
+        ?SSL_FILE_OPT_NAMES
+    ).
 
 delete_old_file(New, Old) when New =:= Old -> ok;
-delete_old_file(_New, _Old = undefined) -> ok;
+delete_old_file(_New, _Old = undefined) ->
+    ok;
 delete_old_file(_New, Old) ->
     case filelib:is_regular(Old) andalso file:delete(Old) of
-        ok -> ok;
-        false -> ok; %% already deleted
+        ok ->
+            ok;
+        %% already deleted
+        false ->
+            ok;
         {error, Reason} ->
             ?SLOG(error, #{msg => "failed_to_delete_ssl_file", file_path => Old, reason => Reason})
     end.
@@ -293,12 +336,14 @@ do_ensure_ssl_file(Dir, Key, Opts, MaybePem, DryRun) ->
             end;
         false ->
             case is_valid_pem_file(MaybePem) of
-                true -> {ok, Opts};
+                true ->
+                    {ok, Opts};
                 {error, enoent} when DryRun -> {ok, Opts};
                 {error, Reason} ->
-                    {error, #{pem_check => invalid_pem,
-                              file_read => Reason
-                            }}
+                    {error, #{
+                        pem_check => invalid_pem,
+                        file_read => Reason
+                    }}
             end
     end.
 
@@ -312,8 +357,10 @@ is_valid_string(Binary) when is_binary(Binary) ->
 
 %% Check if it is a valid PEM formatted key.
 is_pem(MaybePem) ->
-    try public_key:pem_decode(MaybePem) =/= []
-    catch _ : _ -> false
+    try
+        public_key:pem_decode(MaybePem) =/= []
+    catch
+        _:_ -> false
     end.
 
 %% Write the pem file to the given dir.
@@ -328,8 +375,7 @@ save_pem_file(Dir, Key, Pem, DryRun) ->
         ok ->
             case file:write_file(Path, Pem) of
                 ok -> {ok, Path};
-                {error, Reason} ->
-                    {error, #{failed_to_write_file => Reason, file_path => Path}}
+                {error, Reason} -> {error, #{failed_to_write_file => Reason, file_path => Path}}
             end;
         {error, Reason} ->
             {error, #{failed_to_create_dir_for => Path, reason => Reason}}
@@ -346,7 +392,7 @@ pem_file_name(Dir, Key, Pem) ->
     filename:join([emqx:certs_dir(), Dir, FileName]).
 
 hex_str(Bin) ->
-    iolist_to_binary([io_lib:format("~2.16.0b",[X]) || <<X:8>> <= Bin ]).
+    iolist_to_binary([io_lib:format("~2.16.0b", [X]) || <<X:8>> <= Bin]).
 
 is_valid_pem_file(Path) ->
     case file:read_file(Path) of
@@ -355,7 +401,8 @@ is_valid_pem_file(Path) ->
     end.
 
 %% @doc This is to return SSL file content in management APIs.
-file_content_as_options(undefined) -> undefined;
+file_content_as_options(undefined) ->
+    undefined;
 file_content_as_options(#{<<"enable">> := False} = SSL) when ?IS_FALSE(False) ->
     {ok, maps:without(?SSL_FILE_OPT_NAMES, SSL)};
 file_content_as_options(#{<<"enable">> := True} = SSL) when ?IS_TRUE(True) ->
@@ -365,15 +412,17 @@ file_content_as_options([], SSL) ->
     {ok, SSL};
 file_content_as_options([Key | Keys], SSL) ->
     case maps:get(Key, SSL, undefined) of
-        undefined -> file_content_as_options(Keys, SSL);
+        undefined ->
+            file_content_as_options(Keys, SSL);
         Path ->
             case file:read_file(Path) of
                 {ok, Bin} ->
                     file_content_as_options(Keys, SSL#{Key => Bin});
                 {error, Reason} ->
-                    {error, #{file_path => Path,
-                              reason => Reason
-                             }}
+                    {error, #{
+                        file_path => Path,
+                        reason => Reason
+                    }}
             end
     end.
 

@@ -25,11 +25,12 @@
 -define(ROUTE_SHARD, route_shard).
 -define(PERSISTENT_SESSION_SHARD, emqx_persistent_session_shard).
 
--define(BOOT_SHARDS, [ ?ROUTE_SHARD
-                     , ?COMMON_SHARD
-                     , ?SHARED_SUB_SHARD
-                     , ?PERSISTENT_SESSION_SHARD
-                     ]).
+-define(BOOT_SHARDS, [
+    ?ROUTE_SHARD,
+    ?COMMON_SHARD,
+    ?SHARED_SUB_SHARD,
+    ?PERSISTENT_SESSION_SHARD
+]).
 
 %% Banner
 %%--------------------------------------------------------------------
@@ -63,96 +64,99 @@
 
 %% See 'Application Message' in MQTT Version 5.0
 -record(message, {
-          %% Global unique message ID
-          id :: binary(),
-          %% Message QoS
-          qos = 0,
-          %% Message from
-          from :: atom() | binary(),
-          %% Message flags
-          flags = #{} :: emqx_types:flags(),
-          %% Message headers. May contain any metadata. e.g. the
-          %% protocol version number, username, peerhost or
-          %% the PUBLISH properties (MQTT 5.0).
-          headers = #{} :: emqx_types:headers(),
-          %% Topic that the message is published to
-          topic :: emqx_types:topic(),
-          %% Message Payload
-          payload :: emqx_types:payload(),
-          %% Timestamp (Unit: millisecond)
-          timestamp :: integer(),
-          %% not used so far, for future extension
-          extra = [] :: term()
-         }).
+    %% Global unique message ID
+    id :: binary(),
+    %% Message QoS
+    qos = 0,
+    %% Message from
+    from :: atom() | binary(),
+    %% Message flags
+    flags = #{} :: emqx_types:flags(),
+    %% Message headers. May contain any metadata. e.g. the
+    %% protocol version number, username, peerhost or
+    %% the PUBLISH properties (MQTT 5.0).
+    headers = #{} :: emqx_types:headers(),
+    %% Topic that the message is published to
+    topic :: emqx_types:topic(),
+    %% Message Payload
+    payload :: emqx_types:payload(),
+    %% Timestamp (Unit: millisecond)
+    timestamp :: integer(),
+    %% not used so far, for future extension
+    extra = [] :: term()
+}).
 
 -record(delivery, {
-          sender  :: pid(),      %% Sender of the delivery
-          message :: #message{}  %% The message delivered
-        }).
+    %% Sender of the delivery
+    sender :: pid(),
+    %% The message delivered
+    message :: #message{}
+}).
 
 %%--------------------------------------------------------------------
 %% Route
 %%--------------------------------------------------------------------
 
 -record(route, {
-          topic :: binary(),
-          dest  :: node() | {binary(), node()} | emqx_session:sessionID()
-         }).
+    topic :: binary(),
+    dest :: node() | {binary(), node()} | emqx_session:sessionID()
+}).
 
 %%--------------------------------------------------------------------
 %% Plugin
 %%--------------------------------------------------------------------
 
 -record(plugin, {
-          name           :: atom(),
-          dir            :: string() | undefined,
-          descr          :: string(),
-          vendor         :: string() | undefined,
-          active = false :: boolean(),
-          info   = #{}   :: map()
-        }).
+    name :: atom(),
+    dir :: string() | undefined,
+    descr :: string(),
+    vendor :: string() | undefined,
+    active = false :: boolean(),
+    info = #{} :: map()
+}).
 
 %%--------------------------------------------------------------------
 %% Command
 %%--------------------------------------------------------------------
 
 -record(command, {
-          name      :: atom(),
-          action    :: atom(),
-          args = [] :: list(),
-          opts = [] :: list(),
-          usage     :: string(),
-          descr     :: string()
-        }).
+    name :: atom(),
+    action :: atom(),
+    args = [] :: list(),
+    opts = [] :: list(),
+    usage :: string(),
+    descr :: string()
+}).
 
 %%--------------------------------------------------------------------
 %% Banned
 %%--------------------------------------------------------------------
 
 -record(banned, {
-          who    :: {clientid,  binary()}
-                  | {peerhost, inet:ip_address()}
-                  | {username,   binary()},
-          by     :: binary(),
-          reason :: binary(),
-          at     :: integer(),
-          until  :: integer()
-        }).
+    who ::
+        {clientid, binary()}
+        | {peerhost, inet:ip_address()}
+        | {username, binary()},
+    by :: binary(),
+    reason :: binary(),
+    at :: integer(),
+    until :: integer()
+}).
 
 %%--------------------------------------------------------------------
 %% Authentication
 %%--------------------------------------------------------------------
 
--record(authenticator,
-        { id :: binary()
-        , provider :: module()
-        , enable :: boolean()
-        , state :: map()
-        }).
+-record(authenticator, {
+    id :: binary(),
+    provider :: module(),
+    enable :: boolean(),
+    state :: map()
+}).
 
--record(chain,
-        { name :: atom()
-        , authenticators :: [#authenticator{}]
-        }).
+-record(chain, {
+    name :: atom(),
+    authenticators :: [#authenticator{}]
+}).
 
 -endif.

@@ -24,19 +24,26 @@
 -include_lib("snabbkaffe/include/snabbkaffe.hrl").
 
 -define(CM, emqx_cm).
--define(ChanInfo,#{conninfo =>
-                   #{socktype => tcp,
-                     peername => {{127,0,0,1}, 5000},
-                     sockname => {{127,0,0,1}, 1883},
-                     peercert => nossl,
-                     conn_mod => emqx_connection,
-                     receive_maximum => 100}}).
+-define(ChanInfo, #{
+    conninfo =>
+        #{
+            socktype => tcp,
+            peername => {{127, 0, 0, 1}, 5000},
+            sockname => {{127, 0, 0, 1}, 1883},
+            peercert => nossl,
+            conn_mod => emqx_connection,
+            receive_maximum => 100
+        }
+}).
 
 -define(WAIT(PATTERN, TIMEOUT, RET),
-        fun() ->
-                receive PATTERN -> RET
-                after TIMEOUT -> error({timeout, ?LINE}) end
-        end()).
+    fun() ->
+        receive
+            PATTERN -> RET
+        after TIMEOUT -> error({timeout, ?LINE})
+        end
+    end()
+).
 
 %%--------------------------------------------------------------------
 %% CT callbacks
@@ -84,7 +91,7 @@ t_get_set_chan_stats(_) ->
     ok = emqx_cm:insert_channel_info(<<"clientid">>, Info, Stats),
 
     ?assertEqual(Stats, emqx_cm:get_chan_stats(<<"clientid">>)),
-    Stats1 = [{recv_oct, 10}|Stats],
+    Stats1 = [{recv_oct, 10} | Stats],
     true = emqx_cm:set_chan_stats(<<"clientid">>, Stats1),
     ?assertEqual(Stats1, emqx_cm:get_chan_stats(<<"clientid">>)),
     ok = emqx_cm:unregister_channel(<<"clientid">>),
@@ -95,22 +102,27 @@ t_open_session(_) ->
     ok = meck:expect(emqx_connection, call, fun(_, _) -> ok end),
     ok = meck:expect(emqx_connection, call, fun(_, _, _) -> ok end),
 
-    ClientInfo = #{zone => default, listener => {tcp, default},
-                   clientid => <<"clientid">>,
-                   username => <<"username">>,
-                   peerhost => {127,0,0,1}},
-    ConnInfo = #{socktype => tcp,
-                 peername => {{127,0,0,1}, 5000},
-                 sockname => {{127,0,0,1}, 1883},
-                 peercert => nossl,
-                 conn_mod => emqx_connection,
-                 expiry_interval => 0,
-                 receive_maximum => 100},
-    {ok, #{session := Session1, present := false}}
-        = emqx_cm:open_session(true, ClientInfo, ConnInfo),
+    ClientInfo = #{
+        zone => default,
+        listener => {tcp, default},
+        clientid => <<"clientid">>,
+        username => <<"username">>,
+        peerhost => {127, 0, 0, 1}
+    },
+    ConnInfo = #{
+        socktype => tcp,
+        peername => {{127, 0, 0, 1}, 5000},
+        sockname => {{127, 0, 0, 1}, 1883},
+        peercert => nossl,
+        conn_mod => emqx_connection,
+        expiry_interval => 0,
+        receive_maximum => 100
+    },
+    {ok, #{session := Session1, present := false}} =
+        emqx_cm:open_session(true, ClientInfo, ConnInfo),
     ?assertEqual(100, emqx_session:info(inflight_max, Session1)),
-    {ok, #{session := Session2, present := false}}
-        = emqx_cm:open_session(true, ClientInfo, ConnInfo),
+    {ok, #{session := Session2, present := false}} =
+        emqx_cm:open_session(true, ClientInfo, ConnInfo),
     ?assertEqual(100, emqx_session:info(inflight_max, Session2)),
 
     emqx_cm:unregister_channel(<<"clientid">>),
@@ -121,59 +133,69 @@ rand_client_id() ->
 
 t_open_session_race_condition(_) ->
     ClientId = rand_client_id(),
-    ClientInfo = #{zone => default, listener => {tcp, default},
-                   clientid => ClientId,
-                   username => <<"username">>,
-                   peerhost => {127,0,0,1}},
-    ConnInfo = #{socktype => tcp,
-                 peername => {{127,0,0,1}, 5000},
-                 sockname => {{127,0,0,1}, 1883},
-                 peercert => nossl,
-                 conn_mod => emqx_connection,
-                 expiry_interval => 0,
-                 receive_maximum => 100},
+    ClientInfo = #{
+        zone => default,
+        listener => {tcp, default},
+        clientid => ClientId,
+        username => <<"username">>,
+        peerhost => {127, 0, 0, 1}
+    },
+    ConnInfo = #{
+        socktype => tcp,
+        peername => {{127, 0, 0, 1}, 5000},
+        sockname => {{127, 0, 0, 1}, 1883},
+        peercert => nossl,
+        conn_mod => emqx_connection,
+        expiry_interval => 0,
+        receive_maximum => 100
+    },
 
     Parent = self(),
     OpenASession = fun() ->
-                     timer:sleep(rand:uniform(100)),
-                     OpenR = (emqx_cm:open_session(true, ClientInfo, ConnInfo)),
-                     Parent ! OpenR,
-                     case OpenR of
-                         {ok, _} ->
-                             receive
-                                 {'$gen_call', From, discard} ->
-                                     gen_server:reply(From, ok), ok
-                             end;
-                         {error, Reason} ->
-                             exit(Reason)
-                     end
-                   end,
+        timer:sleep(rand:uniform(100)),
+        OpenR = (emqx_cm:open_session(true, ClientInfo, ConnInfo)),
+        Parent ! OpenR,
+        case OpenR of
+            {ok, _} ->
+                receive
+                    {'$gen_call', From, discard} ->
+                        gen_server:reply(From, ok),
+                        ok
+                end;
+            {error, Reason} ->
+                exit(Reason)
+        end
+    end,
     N = 1000,
-    Pids = lists:flatten([[spawn_monitor(OpenASession), spawn_monitor(OpenASession)] ||
-                          _ <- lists:seq(1, N)]),
+    Pids = lists:flatten([
+        [spawn_monitor(OpenASession), spawn_monitor(OpenASession)]
+     || _ <- lists:seq(1, N)
+    ]),
 
-    WaitingRecv = fun _Wr(N1, N2, 0) ->
-                          {N1, N2};
-                      _Wr(N1, N2, Rest) ->
-                          receive
-                              {ok, _} -> _Wr(N1+1, N2, Rest-1);
-                              {error, _} -> _Wr(N1, N2+1, Rest-1)
-                          end
-                  end,
+    WaitingRecv = fun
+        _Wr(N1, N2, 0) ->
+            {N1, N2};
+        _Wr(N1, N2, Rest) ->
+            receive
+                {ok, _} -> _Wr(N1 + 1, N2, Rest - 1);
+                {error, _} -> _Wr(N1, N2 + 1, Rest - 1)
+            end
+    end,
 
     {Succeeded, Failed} = WaitingRecv(0, 0, 2 * N),
     ct:pal("Race condition status: succeeded=~p failed=~p~n", [Succeeded, Failed]),
     ?assertEqual(2 * N, length(Pids)),
     WaitForDowns =
-        fun _Wd([{Pid, _Ref}]) -> Pid;
+        fun
+            _Wd([{Pid, _Ref}]) ->
+                Pid;
             _Wd(Pids0) ->
                 receive
                     {'DOWN', DownRef, process, DownPid, _} ->
                         ?assert(lists:member({DownPid, DownRef}, Pids0)),
                         _Wd(lists:delete({DownPid, DownRef}, Pids0))
-                after
-                    10000 ->
-                        exit(timeout)
+                after 10000 ->
+                    exit(timeout)
                 end
         end,
     Winner = WaitForDowns(Pids),
@@ -184,8 +206,11 @@ t_open_session_race_condition(_) ->
     ?assertMatch([_], ets:lookup(emqx_channel_registry, ClientId)),
 
     exit(Winner, kill),
-    receive {'DOWN', _, process, Winner, _} -> ok end,
-    ignored = gen_server:call(?CM, ignore, infinity), %% sync
+    receive
+        {'DOWN', _, process, Winner, _} -> ok
+    end,
+    %% sync
+    ignored = gen_server:call(?CM, ignore, infinity),
     ok = emqx_pool:flush_async_tasks(),
     ?assertEqual([], emqx_cm:lookup_channels(ClientId)).
 
@@ -254,24 +279,26 @@ test_stepdown_session(Action, Reason) ->
     #{conninfo := ConnInfo} = ?ChanInfo,
     FakeSessionFun =
         fun Loop() ->
-                     receive
-                         {'$gen_call', From, A} when A =:= kick orelse
-                                                     A =:= discard orelse
-                                                     A =:= {takeover, 'begin'} orelse
-                                                     A =:= {takeover, 'end'} ->
-                             case Reason of
-                                 normal when A =:= kick orelse A =:= discard ->
-                                     gen_server:reply(From, ok);
-                                 timeout ->
-                                     %% no response to the call
-                                     Loop();
-                                 _ ->
-                                     exit(Reason)
-                             end;
-                         Msg ->
-                             ct:pal("(~p) fake_session_discarded ~p", [Action, Msg]),
-                             Loop()
-                     end
+            receive
+                {'$gen_call', From, A} when
+                    A =:= kick orelse
+                        A =:= discard orelse
+                        A =:= {takeover, 'begin'} orelse
+                        A =:= {takeover, 'end'}
+                ->
+                    case Reason of
+                        normal when A =:= kick orelse A =:= discard ->
+                            gen_server:reply(From, ok);
+                        timeout ->
+                            %% no response to the call
+                            Loop();
+                        _ ->
+                            exit(Reason)
+                    end;
+                Msg ->
+                    ct:pal("(~p) fake_session_discarded ~p", [Action, Msg]),
+                    Loop()
+            end
         end,
     {Pid1, _} = spawn_monitor(FakeSessionFun),
     {Pid2, _} = spawn_monitor(FakeSessionFun),
@@ -280,14 +307,22 @@ test_stepdown_session(Action, Reason) ->
     ok = emqx_cm:register_channel(ClientId, Pid2, ConnInfo),
     ?assertEqual([Pid1, Pid2], lists:sort(emqx_cm:lookup_channels(ClientId))),
     case Reason of
-        noproc -> exit(Pid1, kill), exit(Pid2, kill);
-        _ -> ok
+        noproc ->
+            exit(Pid1, kill),
+            exit(Pid2, kill);
+        _ ->
+            ok
     end,
-    ok = case Action of
-             kick -> emqx_cm:kick_session(ClientId);
-             discard -> emqx_cm:discard_session(ClientId);
-             {takeover, _} -> none = emqx_cm:takeover_session(ClientId), ok
-         end,
+    ok =
+        case Action of
+            kick ->
+                emqx_cm:kick_session(ClientId);
+            discard ->
+                emqx_cm:discard_session(ClientId);
+            {takeover, _} ->
+                none = emqx_cm:takeover_session(ClientId),
+                ok
+        end,
     case Reason =:= timeout orelse Reason =:= noproc of
         true ->
             ?assertEqual(killed, ?WAIT({'DOWN', _, process, Pid1, R}, 2_000, R)),
@@ -296,7 +331,8 @@ test_stepdown_session(Action, Reason) ->
             ?assertEqual(Reason, ?WAIT({'DOWN', _, process, Pid1, R}, 2_000, R)),
             ?assertEqual(Reason, ?WAIT({'DOWN', _, process, Pid2, R}, 2_000, R))
     end,
-    ignored = gen_server:call(?CM, ignore, infinity), % sync
+    % sync
+    ignored = gen_server:call(?CM, ignore, infinity),
     ok = flush_emqx_pool(),
     ?assertEqual([], emqx_cm:lookup_channels(ClientId)).
 
@@ -311,22 +347,36 @@ flush_emqx_pool() ->
     Self = self(),
     L = lists:seq(1, 1000),
     lists:foreach(fun(I) -> emqx_pool:async_submit(fun() -> Self ! {done, I} end, []) end, L),
-    lists:foreach(fun(I) -> receive {done, I} -> ok end end, L).
+    lists:foreach(
+        fun(I) ->
+            receive
+                {done, I} -> ok
+            end
+        end,
+        L
+    ).
 
 t_discard_session_race(_) ->
     ClientId = rand_client_id(),
     ?check_trace(
-       #{timetrap => 60000},
-       begin
-         #{conninfo := ConnInfo0} = ?ChanInfo,
-         ConnInfo = ConnInfo0#{conn_mod := emqx_ws_connection},
-         {Pid, Ref} = spawn_monitor(fun() -> receive stop -> exit(normal) end end),
-         ok = emqx_cm:register_channel(ClientId, Pid, ConnInfo),
-         Pid ! stop,
-         receive {'DOWN', Ref, process, Pid, normal} -> ok end,
-         ?assertMatch(ok, emqx_cm:discard_session(ClientId))
-       end,
-       []).
+        #{timetrap => 60000},
+        begin
+            #{conninfo := ConnInfo0} = ?ChanInfo,
+            ConnInfo = ConnInfo0#{conn_mod := emqx_ws_connection},
+            {Pid, Ref} = spawn_monitor(fun() ->
+                receive
+                    stop -> exit(normal)
+                end
+            end),
+            ok = emqx_cm:register_channel(ClientId, Pid, ConnInfo),
+            Pid ! stop,
+            receive
+                {'DOWN', Ref, process, Pid, normal} -> ok
+            end,
+            ?assertMatch(ok, emqx_cm:discard_session(ClientId))
+        end,
+        []
+    ).
 
 t_takeover_session(_) ->
     #{conninfo := ConnInfo} = ?ChanInfo,
@@ -337,10 +387,13 @@ t_takeover_session(_) ->
         Parent ! registered,
         receive
             {'$gen_call', From, {takeover, 'begin'}} ->
-                gen_server:reply(From, test), ok
+                gen_server:reply(From, test),
+                ok
         end
     end),
-    receive registered -> ok end,
+    receive
+        registered -> ok
+    end,
     {living, emqx_connection, _, test} = emqx_cm:takeover_session(<<"clientid">>),
     emqx_cm:unregister_channel(<<"clientid">>).
 
@@ -352,28 +405,40 @@ t_takeover_session_process_gone(_) ->
     none = emqx_cm:takeover_session(ClientIDTcp),
     none = emqx_cm:takeover_session(ClientIDWs),
     meck:new(emqx_connection, [passthrough, no_history]),
-    meck:expect(emqx_connection, call,
-                fun(Pid, {takeover, 'begin'}, _) ->
-                        exit({noproc, {gen_server,call,[Pid, takeover_session]}});
-                   (Pid, What, Args) ->
-                        meck:passthrough([Pid, What, Args])
-                end),
+    meck:expect(
+        emqx_connection,
+        call,
+        fun
+            (Pid, {takeover, 'begin'}, _) ->
+                exit({noproc, {gen_server, call, [Pid, takeover_session]}});
+            (Pid, What, Args) ->
+                meck:passthrough([Pid, What, Args])
+        end
+    ),
     ok = emqx_cm:register_channel(ClientIDTcp, self(), ConnInfo),
     none = emqx_cm:takeover_session(ClientIDTcp),
-    meck:expect(emqx_connection, call,
-                fun(_Pid, {takeover, 'begin'}, _) ->
-                        exit(noproc);
-                   (Pid, What, Args) ->
-                        meck:passthrough([Pid, What, Args])
-                end),
+    meck:expect(
+        emqx_connection,
+        call,
+        fun
+            (_Pid, {takeover, 'begin'}, _) ->
+                exit(noproc);
+            (Pid, What, Args) ->
+                meck:passthrough([Pid, What, Args])
+        end
+    ),
     ok = emqx_cm:register_channel(ClientIDWs, self(), ConnInfo),
     none = emqx_cm:takeover_session(ClientIDWs),
-    meck:expect(emqx_connection, call,
-                fun(Pid, {takeover, 'begin'}, _) ->
-                        exit({noproc, {gen_server,call,[Pid, takeover_session]}});
-                   (Pid, What, Args) ->
-                        meck:passthrough([Pid, What, Args])
-                end),
+    meck:expect(
+        emqx_connection,
+        call,
+        fun
+            (Pid, {takeover, 'begin'}, _) ->
+                exit({noproc, {gen_server, call, [Pid, takeover_session]}});
+            (Pid, What, Args) ->
+                meck:passthrough([Pid, What, Args])
+        end
+    ),
     ok = emqx_cm:register_channel(ClientIDRpc, self(), ConnInfo),
     none = emqx_cm:takeover_session(ClientIDRpc),
     emqx_cm:unregister_channel(ClientIDTcp),

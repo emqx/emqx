@@ -31,26 +31,30 @@ start_link(ResponseTopic, QoS, Options0) ->
                 ok -> {ok, Pid};
                 {error, _} = Error -> Error
             catch
-                C : E : S ->
+                C:E:S ->
                     emqtt:stop(Pid),
                     {error, {C, E, S}}
             end;
-        {error, _} = Error -> Error
+        {error, _} = Error ->
+            Error
     end.
 
 %% @doc Send a message to request topic with correlation-data `CorrData'.
 %% Response should be delivered as a `{response, CorrData, Payload}'
 send(Client, ReqTopic, RspTopic, CorrData, Payload, QoS) ->
-    Props = #{'Response-Topic' => RspTopic,
-              'Correlation-Data' => CorrData
-             },
-    Msg = #mqtt_msg{qos = QoS,
-                    topic = ReqTopic,
-                    props = Props,
-                    payload = Payload
-                   },
+    Props = #{
+        'Response-Topic' => RspTopic,
+        'Correlation-Data' => CorrData
+    },
+    Msg = #mqtt_msg{
+        qos = QoS,
+        topic = ReqTopic,
+        props = Props,
+        payload = Payload
+    },
     case emqtt:publish(Client, Msg) of
-        ok -> ok; %% QoS = 0
+        %% QoS = 0
+        ok -> ok;
         {ok, _} -> ok;
         {error, _} = E -> E
     end.
@@ -65,10 +69,11 @@ subscribe(Client, Topic, QoS) ->
     end.
 
 make_msg_handler(Parent) ->
-    #{publish => fun(Msg) -> handle_msg(Msg, Parent) end,
-      puback => fun(_Ack) -> ok end,
-      disconnected => fun(_Reason) -> ok end
-     }.
+    #{
+        publish => fun(Msg) -> handle_msg(Msg, Parent) end,
+        puback => fun(_Ack) -> ok end,
+        disconnected => fun(_Reason) -> ok end
+    }.
 
 handle_msg(Msg, Parent) ->
     #{properties := Props, payload := Payload} = Msg,

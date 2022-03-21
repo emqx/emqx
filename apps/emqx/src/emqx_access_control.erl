@@ -18,16 +18,21 @@
 
 -include("emqx.hrl").
 
--export([ authenticate/1
-        , authorize/3
-        ]).
+-export([
+    authenticate/1,
+    authorize/3
+]).
 
 %%--------------------------------------------------------------------
 %% APIs
 %%--------------------------------------------------------------------
 
--spec(authenticate(emqx_types:clientinfo()) ->
-    {ok, map()} | {ok, map(), binary()} | {continue, map()} | {continue, binary(), map()} | {error, term()}).
+-spec authenticate(emqx_types:clientinfo()) ->
+    {ok, map()}
+    | {ok, map(), binary()}
+    | {continue, map()}
+    | {continue, binary(), map()}
+    | {error, term()}.
 authenticate(Credential) ->
     case run_hooks('client.authenticate', [Credential], {ok, #{is_superuser => false}}) of
         ok ->
@@ -37,14 +42,16 @@ authenticate(Credential) ->
     end.
 
 %% @doc Check Authorization
--spec authorize(emqx_types:clientinfo(), emqx_types:pubsub(), emqx_types:topic())
-      -> allow | deny.
+-spec authorize(emqx_types:clientinfo(), emqx_types:pubsub(), emqx_types:topic()) ->
+    allow | deny.
 authorize(ClientInfo, PubSub, Topic) ->
-    Result = case emqx_authz_cache:is_enabled() of
-        true  -> check_authorization_cache(ClientInfo, PubSub, Topic);
-        false -> do_authorize(ClientInfo, PubSub, Topic)
-    end,
-    inc_acl_metrics(Result), Result.
+    Result =
+        case emqx_authz_cache:is_enabled() of
+            true -> check_authorization_cache(ClientInfo, PubSub, Topic);
+            false -> do_authorize(ClientInfo, PubSub, Topic)
+        end,
+    inc_acl_metrics(Result),
+    Result.
 
 check_authorization_cache(ClientInfo, PubSub, Topic) ->
     case emqx_authz_cache:get_authz_cache(PubSub, Topic) of
@@ -60,7 +67,7 @@ check_authorization_cache(ClientInfo, PubSub, Topic) ->
 do_authorize(ClientInfo, PubSub, Topic) ->
     NoMatch = emqx:get_config([authorization, no_match], allow),
     case run_hooks('client.authorize', [ClientInfo, PubSub, Topic], NoMatch) of
-        allow  -> allow;
+        allow -> allow;
         _Other -> deny
     end.
 

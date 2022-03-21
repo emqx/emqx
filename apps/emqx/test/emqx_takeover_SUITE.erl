@@ -52,21 +52,27 @@ t_takeover(_) ->
     emqtt:subscribe(C1, <<"t">>, 1),
 
     spawn(fun() ->
-            [begin
+        [
+            begin
                 emqx:publish(lists:nth(I, AllMsgs)),
                 timer:sleep(rand:uniform(10))
-             end || I <- lists:seq(1, Pos)]
-          end),
+            end
+         || I <- lists:seq(1, Pos)
+        ]
+    end),
     emqtt:pause(C1),
-    timer:sleep(?CNT*10),
+    timer:sleep(?CNT * 10),
 
     load_meck(ClientId),
     spawn(fun() ->
-            [begin
+        [
+            begin
                 emqx:publish(lists:nth(I, AllMsgs)),
                 timer:sleep(rand:uniform(10))
-             end || I <- lists:seq(Pos+1, ?CNT)]
-          end),
+            end
+         || I <- lists:seq(Pos + 1, ?CNT)
+        ]
+    end),
     {ok, C2} = emqtt:start_link([{clientid, ClientId}, {clean_start, false}]),
     {ok, _} = emqtt:connect(C2),
 
@@ -86,14 +92,15 @@ t_takover_in_cluster(_) ->
 
 load_meck(ClientId) ->
     meck:new(fake_conn_mod, [non_strict]),
-    HookTakeover = fun(Pid, Msg = {takeover, 'begin'}) ->
-                           emqx_connection:call(Pid, Msg);
-                      (Pid, Msg = {takeover, 'end'}) ->
-                           timer:sleep(?CNT*10),
-                           emqx_connection:call(Pid, Msg);
-                      (Pid, Msg) ->
-                           emqx_connection:call(Pid, Msg)
-                   end,
+    HookTakeover = fun
+        (Pid, Msg = {takeover, 'begin'}) ->
+            emqx_connection:call(Pid, Msg);
+        (Pid, Msg = {takeover, 'end'}) ->
+            timer:sleep(?CNT * 10),
+            emqx_connection:call(Pid, Msg);
+        (Pid, Msg) ->
+            emqx_connection:call(Pid, Msg)
+    end,
     meck:expect(fake_conn_mod, call, HookTakeover),
     [ChanPid] = emqx_cm:lookup_channels(ClientId),
     ChanInfo = #{conninfo := ConnInfo} = emqx_cm:get_chan_info(ClientId),
@@ -108,36 +115,43 @@ all_received_publishs() ->
 
 all_received_publishs(Ls) ->
     receive
-        M = {publish, _Pub} -> all_received_publishs([M|Ls]);
+        M = {publish, _Pub} -> all_received_publishs([M | Ls]);
         _ -> all_received_publishs(Ls)
     after 100 ->
         lists:reverse(Ls)
     end.
 
 assert_messages_missed(Ls1, Ls2) ->
-    Missed = lists:filtermap(fun(Msg) ->
-                 No = emqx_message:payload(Msg),
-                 case lists:any(fun({publish, #{payload := No1}}) ->  No1 == No end, Ls2) of
-                     true -> false;
-                     false -> {true, No}
-                 end
-             end, Ls1),
+    Missed = lists:filtermap(
+        fun(Msg) ->
+            No = emqx_message:payload(Msg),
+            case lists:any(fun({publish, #{payload := No1}}) -> No1 == No end, Ls2) of
+                true -> false;
+                false -> {true, No}
+            end
+        end,
+        Ls1
+    ),
     case Missed of
-        [] -> ok;
+        [] ->
+            ok;
         _ ->
-            ct:fail("Miss messages: ~p", [Missed]), error
+            ct:fail("Miss messages: ~p", [Missed]),
+            error
     end.
 
 assert_messages_order([], []) ->
     ok;
-assert_messages_order([Msg|Ls1], [{publish, #{payload := No}}|Ls2]) ->
+assert_messages_order([Msg | Ls1], [{publish, #{payload := No}} | Ls2]) ->
     case emqx_message:payload(Msg) == No of
         false ->
-            ct:fail("Message order is not correct, expected: ~p, received: ~p", [emqx_message:payload(Msg), No]),
+            ct:fail("Message order is not correct, expected: ~p, received: ~p", [
+                emqx_message:payload(Msg), No
+            ]),
             error;
-        true -> assert_messages_order(Ls1, Ls2)
+        true ->
+            assert_messages_order(Ls1, Ls2)
     end.
 
 messages(Cnt) ->
     [emqx_message:make(ct, 1, ?TOPIC, integer_to_binary(I)) || I <- lists:seq(1, Cnt)].
-

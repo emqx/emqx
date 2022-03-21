@@ -34,15 +34,19 @@ start_link() ->
 %%--------------------------------------------------------------------
 
 init([]) ->
-    SupFlags = #{strategy => one_for_one,
-                 intensity => 100,
-                 period => 10},
+    SupFlags = #{
+        strategy => one_for_one,
+        intensity => 100,
+        period => 10
+    },
 
-    AuthN = #{id => emqx_authentication,
-              start => {emqx_authentication, start_link, []},
-              restart => permanent,
-              shutdown => 1000,
-              type => worker,
-              modules => [emqx_authentication]},
+    AuthN = #{
+        id => emqx_authentication,
+        start => {emqx_authentication, start_link, []},
+        restart => permanent,
+        shutdown => 1000,
+        type => worker,
+        modules => [emqx_authentication]
+    },
 
     {ok, {SupFlags, [AuthN]}}.

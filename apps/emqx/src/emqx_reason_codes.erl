@@ -19,27 +19,36 @@
 
 -include("emqx_mqtt.hrl").
 
--export([ name/1
-        , name/2
-        , text/1
-        , text/2
-        ]).
+-export([
+    name/1,
+    name/2,
+    text/1,
+    text/2
+]).
 
--export([ frame_error/1
-        , connack_error/1
-        ]).
+-export([
+    frame_error/1,
+    connack_error/1
+]).
 
 -export([compat/2]).
 
 name(I, Ver) when Ver >= ?MQTT_PROTO_V5 ->
     name(I);
-name(0, _Ver) -> connection_accepted;
-name(1, _Ver) -> unacceptable_protocol_version;
-name(2, _Ver) -> client_identifier_not_valid;
-name(3, _Ver) -> server_unavaliable;
-name(4, _Ver) -> malformed_username_or_password;
-name(5, _Ver) -> unauthorized_client;
-name(_, _Ver) -> unknown_error.
+name(0, _Ver) ->
+    connection_accepted;
+name(1, _Ver) ->
+    unacceptable_protocol_version;
+name(2, _Ver) ->
+    client_identifier_not_valid;
+name(3, _Ver) ->
+    server_unavaliable;
+name(4, _Ver) ->
+    malformed_username_or_password;
+name(5, _Ver) ->
+    unauthorized_client;
+name(_, _Ver) ->
+    unknown_error.
 
 name(16#00) -> success;
 name(16#01) -> granted_qos1;
@@ -88,13 +97,20 @@ name(_Code) -> unknown_error.
 
 text(I, Ver) when Ver >= ?MQTT_PROTO_V5 ->
     text(I);
-text(0, _Ver) -> <<"Connection accepted">>;
-text(1, _Ver) -> <<"unacceptable_protocol_version">>;
-text(2, _Ver) -> <<"client_identifier_not_valid">>;
-text(3, _Ver) -> <<"server_unavaliable">>;
-text(4, _Ver) -> <<"malformed_username_or_password">>;
-text(5, _Ver) -> <<"unauthorized_client">>;
-text(_, _Ver) -> <<"unknown_error">>.
+text(0, _Ver) ->
+    <<"Connection accepted">>;
+text(1, _Ver) ->
+    <<"unacceptable_protocol_version">>;
+text(2, _Ver) ->
+    <<"client_identifier_not_valid">>;
+text(3, _Ver) ->
+    <<"server_unavaliable">>;
+text(4, _Ver) ->
+    <<"malformed_username_or_password">>;
+text(5, _Ver) ->
+    <<"unauthorized_client">>;
+text(_, _Ver) ->
+    <<"unknown_error">>.
 
 text(16#00) -> <<"Success">>;
 text(16#01) -> <<"Granted QoS 1">>;
@@ -159,10 +175,8 @@ compat(connack, 16#97) -> ?CONNACK_SERVER;
 compat(connack, 16#9C) -> ?CONNACK_SERVER;
 compat(connack, 16#9D) -> ?CONNACK_SERVER;
 compat(connack, 16#9F) -> ?CONNACK_SERVER;
-
 compat(suback, Code) when Code =< ?QOS_2 -> Code;
-compat(suback, Code) when Code >= 16#80  -> 16#80;
-
+compat(suback, Code) when Code >= 16#80 -> 16#80;
 compat(unsuback, _Code) -> undefined;
 compat(_Other, _Code) -> undefined.
 
@@ -177,4 +191,3 @@ connack_error(server_busy) -> ?RC_SERVER_BUSY;
 connack_error(banned) -> ?RC_BANNED;
 connack_error(bad_authentication_method) -> ?RC_BAD_AUTHENTICATION_METHOD;
 connack_error(_) -> ?RC_UNSPECIFIED_ERROR.
-

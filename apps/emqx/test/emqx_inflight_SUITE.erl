@@ -35,8 +35,12 @@ t_lookup(_) ->
 
 t_insert(_) ->
     Inflight = emqx_inflight:insert(
-                 b, 2, emqx_inflight:insert(
-                         a, 1, emqx_inflight:new())),
+        b,
+        2,
+        emqx_inflight:insert(
+            a, 1, emqx_inflight:new()
+        )
+    ),
     ?assertEqual(2, emqx_inflight:size(Inflight)),
     ?assertEqual({value, 1}, emqx_inflight:lookup(a, Inflight)),
     ?assertEqual({value, 2}, emqx_inflight:lookup(b, Inflight)),
@@ -63,17 +67,25 @@ t_delete(_) ->
 
 t_values(_) ->
     Inflight = emqx_inflight:insert(
-                 b, 2, emqx_inflight:insert(
-                         a, 1, emqx_inflight:new())),
-    ?assertEqual([1,2], emqx_inflight:values(Inflight)),
-    ?assertEqual([{a,1},{b,2}], emqx_inflight:to_list(Inflight)).
+        b,
+        2,
+        emqx_inflight:insert(
+            a, 1, emqx_inflight:new()
+        )
+    ),
+    ?assertEqual([1, 2], emqx_inflight:values(Inflight)),
+    ?assertEqual([{a, 1}, {b, 2}], emqx_inflight:to_list(Inflight)).
 
 t_is_full(_) ->
     Inflight = emqx_inflight:insert(k, v, emqx_inflight:new()),
     ?assertNot(emqx_inflight:is_full(Inflight)),
     Inflight1 = emqx_inflight:insert(
-                  b, 2, emqx_inflight:insert(
-                          a, 1, emqx_inflight:new(2))),
+        b,
+        2,
+        emqx_inflight:insert(
+            a, 1, emqx_inflight:new(2)
+        )
+    ),
     ?assert(emqx_inflight:is_full(Inflight1)).
 
 t_is_empty(_) ->
@@ -85,8 +97,12 @@ t_is_empty(_) ->
 t_window(_) ->
     ?assertEqual([], emqx_inflight:window(emqx_inflight:new(0))),
     Inflight = emqx_inflight:insert(
-                 b, 2, emqx_inflight:insert(
-                         a, 1, emqx_inflight:new(2))),
+        b,
+        2,
+        emqx_inflight:insert(
+            a, 1, emqx_inflight:new(2)
+        )
+    ),
     ?assertEqual([a, b], emqx_inflight:window(Inflight)).
 
 % t_to_list(_) ->

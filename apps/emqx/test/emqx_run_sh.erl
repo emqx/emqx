@@ -17,8 +17,16 @@
 -export([do/2]).
 
 do(Command, Options0) ->
-    Options = Options0 ++ [use_stdio, stderr_to_stdout,
-                           exit_status, {line, 906}, hide, eof],
+    Options =
+        Options0 ++
+            [
+                use_stdio,
+                stderr_to_stdout,
+                exit_status,
+                {line, 906},
+                hide,
+                eof
+            ],
     Port = erlang:open_port({spawn, Command}, Options),
     try
         collect_output(Port, [])

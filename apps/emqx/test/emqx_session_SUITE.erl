@@ -28,9 +28,11 @@ all() -> emqx_common_test_helpers:all(?MODULE).
 
 -type inflight_data_phase() :: wait_ack | wait_comp.
 
--record(inflight_data, { phase :: inflight_data_phase()
-                       , message :: emqx_types:message()
-                       , timestamp :: non_neg_integer()}).
+-record(inflight_data, {
+    phase :: inflight_data_phase(),
+    message :: emqx_types:message(),
+    timestamp :: non_neg_integer()
+}).
 
 %%--------------------------------------------------------------------
 %% CT callbacks
@@ -38,8 +40,10 @@ all() -> emqx_common_test_helpers:all(?MODULE).
 
 init_per_suite(Config) ->
     emqx_channel_SUITE:set_test_listener_confs(),
-    ok = meck:new([emqx_hooks, emqx_metrics, emqx_broker],
-                  [passthrough, no_history, no_link]),
+    ok = meck:new(
+        [emqx_hooks, emqx_metrics, emqx_broker],
+        [passthrough, no_history, no_link]
+    ),
     ok = meck:expect(emqx_metrics, inc, fun(_) -> ok end),
     ok = meck:expect(emqx_metrics, inc, fun(_K, _V) -> ok end),
     ok = meck:expect(emqx_hooks, run, fun(_Hook, _Args) -> ok end),
@@ -79,23 +83,31 @@ t_session_init(_) ->
 %%--------------------------------------------------------------------
 
 t_session_info(_) ->
-    ?assertMatch(#{subscriptions  := #{},
-                   upgrade_qos    := false,
-                   retry_interval := 30000,
-                   await_rel_timeout := 300000
-                  }, emqx_session:info(session())).
+    ?assertMatch(
+        #{
+            subscriptions := #{},
+            upgrade_qos := false,
+            retry_interval := 30000,
+            await_rel_timeout := 300000
+        },
+        emqx_session:info(session())
+    ).
 
 t_session_stats(_) ->
     Stats = emqx_session:stats(session()),
-    ?assertMatch(#{subscriptions_max := infinity,
-                   inflight_max      := 0,
-                   mqueue_len        := 0,
-                   mqueue_max        := 1000,
-                   mqueue_dropped    := 0,
-                   next_pkt_id       := 1,
-                   awaiting_rel_cnt  := 0,
-                   awaiting_rel_max  := 100
-                  }, maps:from_list(Stats)).
+    ?assertMatch(
+        #{
+            subscriptions_max := infinity,
+            inflight_max := 0,
+            mqueue_len := 0,
+            mqueue_max := 1000,
+            mqueue_dropped := 0,
+            next_pkt_id := 1,
+            awaiting_rel_cnt := 0,
+            awaiting_rel_max := 100
+        },
+        maps:from_list(Stats)
+    ).
 
 %%--------------------------------------------------------------------
 %% Test cases for sub/unsub
@@ -104,7 +116,8 @@ t_session_stats(_) ->
 t_subscribe(_) ->
     ok = meck:expect(emqx_broker, subscribe, fun(_, _, _) -> ok end),
     {ok, Session} = emqx_session:subscribe(
-                      clientinfo(), <<"#">>, subopts(), session()),
+        clientinfo(), <<"#">>, subopts(), session()
+    ),
     ?assertEqual(1, emqx_session:info(subscriptions_cnt, Session)).
 
 t_is_subscriptions_full_false(_) ->
@@ -116,7 +129,8 @@ t_is_subscriptions_full_true(_) ->
     Session = session(#{max_subscriptions => 1}),
     ?assertNot(emqx_session:is_subscriptions_full(Session)),
     {ok, Session1} = emqx_session:subscribe(
-                       clientinfo(), <<"t1">>, subopts(), Session),
+        clientinfo(), <<"t1">>, subopts(), Session
+    ),
     ?assert(emqx_session:is_subscriptions_full(Session1)),
     {error, ?RC_QUOTA_EXCEEDED} =
         emqx_session:subscribe(clientinfo(), <<"t2">>, subopts(), Session1).
@@ -151,9 +165,10 @@ t_publish_qos2(_) ->
 
 t_publish_qos2_with_error_return(_) ->
     ok = meck:expect(emqx_broker, publish, fun(_) -> [] end),
-    Session = session(#{max_awaiting_rel => 2,
-                        awaiting_rel => #{1 => ts(millisecond)}
-                       }),
+    Session = session(#{
+        max_awaiting_rel => 2,
+        awaiting_rel => #{1 => ts(millisecond)}
+    }),
     Msg = emqx_message:make(clientid, ?QOS_2, <<"t">>, <<"payload">>),
     {error, ?RC_PACKET_IDENTIFIER_IN_USE} = emqx_session:publish(clientinfo(), 1, Msg, Session),
     {ok, [], Session1} = emqx_session:publish(clientinfo(), 2, Msg, Session),
@@ -165,9 +180,10 @@ t_is_awaiting_full_false(_) ->
     ?assertNot(emqx_session:is_awaiting_full(Session)).
 
 t_is_awaiting_full_true(_) ->
-    Session = session(#{max_awaiting_rel => 1,
-                        awaiting_rel => #{1 => ts(millisecond)}
-                       }),
+    Session = session(#{
+        max_awaiting_rel => 1,
+        awaiting_rel => #{1 => ts(millisecond)}
+    }),
     ?assert(emqx_session:is_awaiting_full(Session)).
 
 t_puback(_) ->
@@ -201,7 +217,10 @@ t_pubrec(_) ->
     Inflight = emqx_inflight:insert(2, with_ts(wait_ack, Msg), emqx_inflight:new()),
     Session = session(#{inflight => Inflight}),
     {ok, Msg, Session1} = emqx_session:pubrec(clientinfo(), 2, Session),
-    ?assertMatch([#inflight_data{phase = wait_comp}], emqx_inflight:values(emqx_session:info(inflight, Session1))).
+    ?assertMatch(
+        [#inflight_data{phase = wait_comp}],
+        emqx_inflight:values(emqx_session:info(inflight, Session1))
+    ).
 
 t_pubrec_packet_id_in_use_error(_) ->
     Inflight = emqx_inflight:insert(1, with_ts(wait_comp, undefined), emqx_inflight:new()),
@@ -241,13 +260,18 @@ t_pubcomp_error_packetid_not_found(_) ->
 t_dequeue(_) ->
     Q = mqueue(#{store_qos0 => true}),
     {ok, Session} = emqx_session:dequeue(clientinfo(), session(#{mqueue => Q})),
-    Msgs = [emqx_message:make(clientid, ?QOS_0, <<"t0">>, <<"payload">>),
-            emqx_message:make(clientid, ?QOS_1, <<"t1">>, <<"payload">>),
-            emqx_message:make(clientid, ?QOS_2, <<"t2">>, <<"payload">>)
-           ],
-    Session1 = lists:foldl(fun(Msg, S) ->
-        emqx_session:enqueue(clientinfo(), Msg, S)
-    end, Session, Msgs),
+    Msgs = [
+        emqx_message:make(clientid, ?QOS_0, <<"t0">>, <<"payload">>),
+        emqx_message:make(clientid, ?QOS_1, <<"t1">>, <<"payload">>),
+        emqx_message:make(clientid, ?QOS_2, <<"t2">>, <<"payload">>)
+    ],
+    Session1 = lists:foldl(
+        fun(Msg, S) ->
+            emqx_session:enqueue(clientinfo(), Msg, S)
+        end,
+        Session,
+        Msgs
+    ),
     {ok, [{undefined, Msg0}, {1, Msg1}, {2, Msg2}], Session2} =
         emqx_session:dequeue(clientinfo(), Session1),
     ?assertEqual(0, emqx_session:info(mqueue_len, Session2)),
@@ -259,9 +283,11 @@ t_dequeue(_) ->
 t_deliver_qos0(_) ->
     ok = meck:expect(emqx_broker, subscribe, fun(_, _, _) -> ok end),
     {ok, Session} = emqx_session:subscribe(
-                      clientinfo(), <<"t0">>, subopts(), session()),
+        clientinfo(), <<"t0">>, subopts(), session()
+    ),
     {ok, Session1} = emqx_session:subscribe(
-                       clientinfo(), <<"t1">>, subopts(), Session),
+        clientinfo(), <<"t1">>, subopts(), Session
+    ),
     Deliveries = [delivery(?QOS_0, T) || T <- [<<"t0">>, <<"t1">>]],
     {ok, [{undefined, Msg1}, {undefined, Msg2}], Session1} =
         emqx_session:deliver(clientinfo(), Deliveries, Session1),
@@ -271,7 +297,8 @@ t_deliver_qos0(_) ->
 t_deliver_qos1(_) ->
     ok = meck:expect(emqx_broker, subscribe, fun(_, _, _) -> ok end),
     {ok, Session} = emqx_session:subscribe(
-                      clientinfo(), <<"t1">>, subopts(#{qos => ?QOS_1}), session()),
+        clientinfo(), <<"t1">>, subopts(#{qos => ?QOS_1}), session()
+    ),
     Delivers = [delivery(?QOS_1, T) || T <- [<<"t1">>, <<"t2">>]],
     {ok, [{1, Msg1}, {2, Msg2}], Session1} = emqx_session:deliver(clientinfo(), Delivers, Session),
     ?assertEqual(2, emqx_session:info(inflight_cnt, Session1)),
@@ -315,16 +342,24 @@ t_deliver_when_inflight_is_full(_) ->
 t_enqueue(_) ->
     %% store_qos0 = true
     Session = emqx_session:enqueue(clientinfo(), [delivery(?QOS_0, <<"t0">>)], session()),
-    Session1 = emqx_session:enqueue(clientinfo(), [delivery(?QOS_1, <<"t1">>),
-                                     delivery(?QOS_2, <<"t2">>)], Session),
+    Session1 = emqx_session:enqueue(
+        clientinfo(),
+        [
+            delivery(?QOS_1, <<"t1">>),
+            delivery(?QOS_2, <<"t2">>)
+        ],
+        Session
+    ),
     ?assertEqual(3, emqx_session:info(mqueue_len, Session1)).
 
 t_retry(_) ->
     Delivers = [delivery(?QOS_1, <<"t1">>), delivery(?QOS_2, <<"t2">>)],
-    RetryIntervalMs = 100, %% 0.1s
+    %% 0.1s
+    RetryIntervalMs = 100,
     Session = session(#{retry_interval => RetryIntervalMs}),
     {ok, Pubs, Session1} = emqx_session:deliver(clientinfo(), Delivers, Session),
-    ElapseMs = 200, %% 0.2s
+    %% 0.2s
+    ElapseMs = 200,
     ok = timer:sleep(ElapseMs),
     Msgs1 = [{I, with_ts(wait_ack, emqx_message:set_flag(dup, Msg))} || {I, Msg} <- Pubs],
     {ok, Msgs1T, 100, Session2} = emqx_session:retry(clientinfo(), Session1),
@@ -394,18 +429,23 @@ mqueue(Opts) ->
 
 session() -> session(#{}).
 session(InitFields) when is_map(InitFields) ->
-    maps:fold(fun(Field, Value, Session) ->
-                      emqx_session:set_field(Field, Value, Session)
-              end,
-              emqx_session:init(#{max_inflight => 0}),
-              InitFields).
-
+    maps:fold(
+        fun(Field, Value, Session) ->
+            emqx_session:set_field(Field, Value, Session)
+        end,
+        emqx_session:init(#{max_inflight => 0}),
+        InitFields
+    ).
 
 clientinfo() -> clientinfo(#{}).
 clientinfo(Init) ->
-    maps:merge(#{clientid => <<"clientid">>,
-                 username => <<"username">>
-                }, Init).
+    maps:merge(
+        #{
+            clientid => <<"clientid">>,
+            username => <<"username">>
+        },
+        Init
+    ).
 
 subopts() -> subopts(#{}).
 subopts(Init) ->
@@ -423,27 +463,24 @@ with_ts(Phase, Msg) ->
     with_ts(Phase, Msg, erlang:system_time(millisecond)).
 
 with_ts(Phase, Msg, Ts) ->
-    #inflight_data{phase = Phase,
-                   message = Msg,
-                   timestamp = Ts}.
+    #inflight_data{
+        phase = Phase,
+        message = Msg,
+        timestamp = Ts
+    }.
 
 remove_deliver_flag({Id, Data}) ->
     {Id, remove_deliver_flag(Data)};
-
 remove_deliver_flag(#inflight_data{message = Msg} = Data) ->
     Data#inflight_data{message = remove_deliver_flag(Msg)};
-
 remove_deliver_flag(List) when is_list(List) ->
     lists:map(fun remove_deliver_flag/1, List);
-
 remove_deliver_flag(Msg) ->
     emqx_message:remove_header(deliver_begin_at, Msg).
 
 inflight_data_to_msg({Id, Data}) ->
     {Id, inflight_data_to_msg(Data)};
-
 inflight_data_to_msg(#inflight_data{message = Msg}) ->
     Msg;
-
 inflight_data_to_msg(List) when is_list(List) ->
     lists:map(fun inflight_data_to_msg/1, List).

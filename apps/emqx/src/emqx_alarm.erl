@@ -26,44 +26,45 @@
 
 -boot_mnesia({mnesia, [boot]}).
 
--export([start_link/0
-        ]).
+-export([start_link/0]).
 %% API
--export([ activate/1
-        , activate/2
-        , activate/3
-        , deactivate/1
-        , deactivate/2
-        , deactivate/3
-        , delete_all_deactivated_alarms/0
-        , get_alarms/0
-        , get_alarms/1
-        , format/1
-        ]).
+-export([
+    activate/1,
+    activate/2,
+    activate/3,
+    deactivate/1,
+    deactivate/2,
+    deactivate/3,
+    delete_all_deactivated_alarms/0,
+    get_alarms/0,
+    get_alarms/1,
+    format/1
+]).
 
 %% gen_server callbacks
--export([ init/1
-        , handle_call/3
-        , handle_cast/2
-        , handle_info/2
-        , terminate/2
-        , code_change/3
-        ]).
+-export([
+    init/1,
+    handle_call/3,
+    handle_cast/2,
+    handle_info/2,
+    terminate/2,
+    code_change/3
+]).
 
 -record(activated_alarm, {
-          name :: binary() | atom(),
-          details :: map() | list(),
-          message :: binary(),
-          activate_at :: integer()
-        }).
+    name :: binary() | atom(),
+    details :: map() | list(),
+    message :: binary(),
+    activate_at :: integer()
+}).
 
 -record(deactivated_alarm, {
-          activate_at :: integer(),
-          name :: binary() | atom(),
-          details :: map() | list(),
-          message :: binary(),
-          deactivate_at :: integer() | infinity
-        }).
+    activate_at :: integer(),
+    name :: binary() | atom(),
+    details :: map() | list(),
+    message :: binary(),
+    deactivate_at :: integer() | infinity
+}).
 
 -ifdef(TEST).
 -compile(export_all).
@@ -75,18 +76,26 @@
 %%--------------------------------------------------------------------
 
 mnesia(boot) ->
-    ok = mria:create_table(?ACTIVATED_ALARM,
-             [{type, set},
-              {storage, disc_copies},
-              {local_content, true},
-              {record_name, activated_alarm},
-              {attributes, record_info(fields, activated_alarm)}]),
-    ok = mria:create_table(?DEACTIVATED_ALARM,
-             [{type, ordered_set},
-              {storage, disc_copies},
-              {local_content, true},
-              {record_name, deactivated_alarm},
-              {attributes, record_info(fields, deactivated_alarm)}]).
+    ok = mria:create_table(
+        ?ACTIVATED_ALARM,
+        [
+            {type, set},
+            {storage, disc_copies},
+            {local_content, true},
+            {record_name, activated_alarm},
+            {attributes, record_info(fields, activated_alarm)}
+        ]
+    ),
+    ok = mria:create_table(
+        ?DEACTIVATED_ALARM,
+        [
+            {type, ordered_set},
+            {storage, disc_copies},
+            {local_content, true},
+            {record_name, deactivated_alarm},
+            {attributes, record_info(fields, deactivated_alarm)}
+        ]
+    ).
 
 %%--------------------------------------------------------------------
 %% API
@@ -124,10 +133,8 @@ get_alarms() ->
 -spec get_alarms(all | activated | deactivated) -> [map()].
 get_alarms(all) ->
     gen_server:call(?MODULE, {get_alarms, all});
-
 get_alarms(activated) ->
     gen_server:call(?MODULE, {get_alarms, activated});
-
 get_alarms(deactivated) ->
     gen_server:call(?MODULE, {get_alarms, deactivated}).
 
@@ -139,17 +146,24 @@ format(#activated_alarm{name = Name, message = Message, activate_at = At, detail
         node => node(),
         name => Name,
         message => Message,
-        duration => (Now - At) div 1000, %% to millisecond
+        %% to millisecond
+        duration => (Now - At) div 1000,
         activate_at => to_rfc3339(At),
         details => Details
     };
-format(#deactivated_alarm{name = Name, message = Message, activate_at = At, details = Details,
-                    deactivate_at = DAt}) ->
+format(#deactivated_alarm{
+    name = Name,
+    message = Message,
+    activate_at = At,
+    details = Details,
+    deactivate_at = DAt
+}) ->
     #{
         node => node(),
         name => Name,
         message => Message,
-        duration => (DAt - At) div 1000, %% to millisecond
+        %% to millisecond
+        duration => (DAt - At) div 1000,
         activate_at => to_rfc3339(At),
         deactivate_at => to_rfc3339(DAt),
         details => Details
@@ -169,9 +183,11 @@ init([]) ->
     {ok, #{}, get_validity_period()}.
 
 handle_call({activate_alarm, Name, Details, Message}, _From, State) ->
-    Res = mria:transaction(mria:local_content_shard(),
+    Res = mria:transaction(
+        mria:local_content_shard(),
         fun create_activate_alarm/3,
-        [Name, Details, Message]),
+        [Name, Details, Message]
+    ),
     case Res of
         {atomic, Alarm} ->
             do_actions(activate, Alarm, emqx:get_config([alarm, actions])),
@@ -179,7 +195,6 @@ handle_call({activate_alarm, Name, Details, Message}, _From, State) ->
         {aborted, Reason} ->
             {reply, Reason, State, get_validity_period()}
     end;
-
 handle_call({deactivate_alarm, Name, Details, Message}, _From, State) ->
     case mnesia:dirty_read(?ACTIVATED_ALARM, Name) of
         [] ->
@@ -188,30 +203,29 @@ handle_call({deactivate_alarm, Name, Details, Message}, _From, State) ->
             deactivate_alarm(Alarm, Details, Message),
             {reply, ok, State, get_validity_period()}
     end;
-
 handle_call(delete_all_deactivated_alarms, _From, State) ->
     clear_table(?DEACTIVATED_ALARM),
     {reply, ok, State, get_validity_period()};
-
 handle_call({get_alarms, all}, _From, State) ->
     {atomic, Alarms} =
         mria:ro_transaction(
-          mria:local_content_shard(),
-          fun() ->
-                  [normalize(Alarm) ||
-                      Alarm <- ets:tab2list(?ACTIVATED_ALARM)
-                          ++ ets:tab2list(?DEACTIVATED_ALARM)]
-          end),
+            mria:local_content_shard(),
+            fun() ->
+                [
+                    normalize(Alarm)
+                 || Alarm <-
+                        ets:tab2list(?ACTIVATED_ALARM) ++
+                            ets:tab2list(?DEACTIVATED_ALARM)
+                ]
+            end
+        ),
     {reply, Alarms, State, get_validity_period()};
-
 handle_call({get_alarms, activated}, _From, State) ->
     Alarms = [normalize(Alarm) || Alarm <- ets:tab2list(?ACTIVATED_ALARM)],
     {reply, Alarms, State, get_validity_period()};
-
 handle_call({get_alarms, deactivated}, _From, State) ->
     Alarms = [normalize(Alarm) || Alarm <- ets:tab2list(?DEACTIVATED_ALARM)],
     {reply, Alarms, State, get_validity_period()};
-
 handle_call(Req, From, State) ->
     ?SLOG(error, #{msg => "unexpected_call", call_req => Req, from => From}),
     {reply, ignored, State, get_validity_period()}.
@@ -224,7 +238,6 @@ handle_info(timeout, State) ->
     Period = get_validity_period(),
     delete_expired_deactivated_alarms(erlang:system_time(microsecond) - Period * 1000),
     {noreply, State, Period};
-
 handle_info(Info, State) ->
     ?SLOG(error, #{msg => "unexpected_info", info_req => Info}),
     {noreply, State, get_validity_period()}.
@@ -247,31 +260,50 @@ create_activate_alarm(Name, Details, Message) ->
         [#activated_alarm{name = Name}] ->
             mnesia:abort({error, already_existed});
         [] ->
-            Alarm = #activated_alarm{name = Name,
+            Alarm = #activated_alarm{
+                name = Name,
                 details = Details,
                 message = normalize_message(Name, iolist_to_binary(Message)),
-                activate_at = erlang:system_time(microsecond)},
+                activate_at = erlang:system_time(microsecond)
+            },
             ok = mnesia:write(?ACTIVATED_ALARM, Alarm, write),
             Alarm
     end.
 
-deactivate_alarm(#activated_alarm{activate_at = ActivateAt, name = Name,
-        details = Details0, message = Msg0}, Details, Message) ->
+deactivate_alarm(
+    #activated_alarm{
+        activate_at = ActivateAt,
+        name = Name,
+        details = Details0,
+        message = Msg0
+    },
+    Details,
+    Message
+) ->
     SizeLimit = emqx:get_config([alarm, size_limit]),
     case SizeLimit > 0 andalso (mnesia:table_info(?DEACTIVATED_ALARM, size) >= SizeLimit) of
         true ->
             case mnesia:dirty_first(?DEACTIVATED_ALARM) of
                 '$end_of_table' -> ok;
-                ActivateAt2 ->
-                    mria:dirty_delete(?DEACTIVATED_ALARM, ActivateAt2)
+                ActivateAt2 -> mria:dirty_delete(?DEACTIVATED_ALARM, ActivateAt2)
             end;
-        false -> ok
+        false ->
+            ok
     end,
-    HistoryAlarm = make_deactivated_alarm(ActivateAt, Name, Details0, Msg0,
-                        erlang:system_time(microsecond)),
-    DeActAlarm = make_deactivated_alarm(ActivateAt, Name, Details,
-                    normalize_message(Name, iolist_to_binary(Message)),
-                    erlang:system_time(microsecond)),
+    HistoryAlarm = make_deactivated_alarm(
+        ActivateAt,
+        Name,
+        Details0,
+        Msg0,
+        erlang:system_time(microsecond)
+    ),
+    DeActAlarm = make_deactivated_alarm(
+        ActivateAt,
+        Name,
+        Details,
+        normalize_message(Name, iolist_to_binary(Message)),
+        erlang:system_time(microsecond)
+    ),
     mria:dirty_write(?DEACTIVATED_ALARM, HistoryAlarm),
     mria:dirty_delete(?ACTIVATED_ALARM, Name),
     do_actions(deactivate, DeActAlarm, emqx:get_config([alarm, actions])).
@@ -282,22 +314,32 @@ make_deactivated_alarm(ActivateAt, Name, Details, Message, DeActivateAt) ->
         name = Name,
         details = Details,
         message = Message,
-        deactivate_at = DeActivateAt}.
+        deactivate_at = DeActivateAt
+    }.
 
 deactivate_all_alarms() ->
     lists:foreach(
-        fun(#activated_alarm{name = Name,
-                             details = Details,
-                             message = Message,
-                             activate_at = ActivateAt}) ->
-            mria:dirty_write(?DEACTIVATED_ALARM,
+        fun(
+            #activated_alarm{
+                name = Name,
+                details = Details,
+                message = Message,
+                activate_at = ActivateAt
+            }
+        ) ->
+            mria:dirty_write(
+                ?DEACTIVATED_ALARM,
                 #deactivated_alarm{
                     activate_at = ActivateAt,
                     name = Name,
                     details = Details,
                     message = Message,
-                    deactivate_at = erlang:system_time(microsecond)})
-        end, ets:tab2list(?ACTIVATED_ALARM)),
+                    deactivate_at = erlang:system_time(microsecond)
+                }
+            )
+        end,
+        ets:tab2list(?ACTIVATED_ALARM)
+    ),
     clear_table(?ACTIVATED_ALARM).
 
 %% Delete all records from the given table, ignore result.
@@ -346,8 +388,14 @@ do_actions(deactivate, Alarm = #deactivated_alarm{name = Name}, [log | More]) ->
 do_actions(Operation, Alarm, [publish | More]) ->
     Topic = topic(Operation),
     {ok, Payload} = emqx_json:safe_encode(normalize(Alarm)),
-    Message = emqx_message:make(?MODULE, 0, Topic, Payload, #{sys => true},
-                  #{properties => #{'Content-Type' => <<"application/json">>}}),
+    Message = emqx_message:make(
+        ?MODULE,
+        0,
+        Topic,
+        Payload,
+        #{sys => true},
+        #{properties => #{'Content-Type' => <<"application/json">>}}
+    ),
     _ = emqx_broker:safe_publish(Message),
     do_actions(Operation, Alarm, More).
 
@@ -356,28 +404,37 @@ topic(activate) ->
 topic(deactivate) ->
     emqx_topic:systop(<<"alarms/deactivate">>).
 
-normalize(#activated_alarm{name = Name,
-                           details = Details,
-                           message = Message,
-                           activate_at = ActivateAt}) ->
-    #{name => Name,
-      details => Details,
-      message => Message,
-      activate_at => ActivateAt,
-      deactivate_at => infinity,
-      activated => true};
-normalize(#deactivated_alarm{activate_at = ActivateAt,
-                             name = Name,
-                             details = Details,
-                             message = Message,
-                             deactivate_at = DeactivateAt}) ->
-    #{name => Name,
-      details => Details,
-      message => Message,
-      activate_at => ActivateAt,
-      deactivate_at => DeactivateAt,
-      activated => false}.
+normalize(#activated_alarm{
+    name = Name,
+    details = Details,
+    message = Message,
+    activate_at = ActivateAt
+}) ->
+    #{
+        name => Name,
+        details => Details,
+        message => Message,
+        activate_at => ActivateAt,
+        deactivate_at => infinity,
+        activated => true
+    };
+normalize(#deactivated_alarm{
+    activate_at = ActivateAt,
+    name = Name,
+    details = Details,
+    message = Message,
+    deactivate_at = DeactivateAt
+}) ->
+    #{
+        name => Name,
+        details => Details,
+        message => Message,
+        activate_at => ActivateAt,
+        deactivate_at => DeactivateAt,
+        activated => false
+    }.
 
 normalize_message(Name, <<"">>) ->
     list_to_binary(io_lib:format("~p", [Name]));
-normalize_message(_Name, Message) -> Message.
+normalize_message(_Name, Message) ->
+    Message.

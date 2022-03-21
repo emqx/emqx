@@ -67,11 +67,11 @@ t_base_create_delete(_Config) ->
     ?assertEqual({error, {duplicate_condition, Name}}, emqx_trace:create(AnotherTrace)),
     [TraceRec] = emqx_trace:list(),
     Expect = #emqx_trace{
-        name     = Name,
-        type     = clientid,
-        filter   = ClientId,
+        name = Name,
+        type = clientid,
+        filter = ClientId,
         start_at = Now,
-        end_at   = Now + 30 * 60
+        end_at = Now + 30 * 60
     },
     ?assertEqual(Expect, TraceRec),
     ExpectFormat = [
@@ -91,14 +91,23 @@ t_base_create_delete(_Config) ->
     ok.
 
 t_create_size_max(_Config) ->
-    lists:map(fun(Seq) ->
-        Name = list_to_binary("name" ++ integer_to_list(Seq)),
-        Trace = [{name, Name}, {type, topic},
-            {topic, list_to_binary("/x/y/" ++ integer_to_list(Seq))}],
-        {ok, _} = emqx_trace:create(Trace)
-              end, lists:seq(1, 30)),
-    Trace31 = [{<<"name">>, <<"name31">>},
-        {<<"type">>, topic}, {<<"topic">>, <<"/x/y/31">>}],
+    lists:map(
+        fun(Seq) ->
+            Name = list_to_binary("name" ++ integer_to_list(Seq)),
+            Trace = [
+                {name, Name},
+                {type, topic},
+                {topic, list_to_binary("/x/y/" ++ integer_to_list(Seq))}
+            ],
+            {ok, _} = emqx_trace:create(Trace)
+        end,
+        lists:seq(1, 30)
+    ),
+    Trace31 = [
+        {<<"name">>, <<"name31">>},
+        {<<"type">>, topic},
+        {<<"topic">>, <<"/x/y/31">>}
+    ],
     {error, _} = emqx_trace:create(Trace31),
     ok = emqx_trace:delete(<<"name30">>),
     {ok, _} = emqx_trace:create(Trace31),
@@ -118,23 +127,36 @@ t_create_failed(_Config) ->
     {error, Reason4} = emqx_trace:create([Name, {<<"type">>, clientid}]),
     ?assertEqual(<<"required clientid field">>, iolist_to_binary(Reason4)),
 
-    InvalidPackets4 = [{<<"name">>, <<"/test">>}, {<<"clientid">>, <<"t">>},
-        {<<"type">>, clientid}],
+    InvalidPackets4 = [
+        {<<"name">>, <<"/test">>},
+        {<<"clientid">>, <<"t">>},
+        {<<"type">>, clientid}
+    ],
     {error, Reason5} = emqx_trace:create(InvalidPackets4),
     ?assertEqual(<<"Name should be ^[A-Za-z]+[A-Za-z0-9-_]*$">>, iolist_to_binary(Reason5)),
 
-    ?assertEqual({error, "type=[topic,clientid,ip_address] required"},
-        emqx_trace:create([{<<"name">>, <<"test-name">>}, {<<"clientid">>, <<"good">>}])),
+    ?assertEqual(
+        {error, "type=[topic,clientid,ip_address] required"},
+        emqx_trace:create([{<<"name">>, <<"test-name">>}, {<<"clientid">>, <<"good">>}])
+    ),
 
-    ?assertEqual({error, "ip address: einval"},
-        emqx_trace:create([Name, {<<"type">>, ip_address},
-            {<<"ip_address">>, <<"test-name">>}])),
+    ?assertEqual(
+        {error, "ip address: einval"},
+        emqx_trace:create([
+            Name,
+            {<<"type">>, ip_address},
+            {<<"ip_address">>, <<"test-name">>}
+        ])
+    ),
     ok.
 
 t_create_default(_Config) ->
     {error, "name required"} = emqx_trace:create([]),
-    {ok, _} = emqx_trace:create([{<<"name">>, <<"test-name">>},
-        {<<"type">>, clientid}, {<<"clientid">>, <<"good">>}]),
+    {ok, _} = emqx_trace:create([
+        {<<"name">>, <<"test-name">>},
+        {<<"type">>, clientid},
+        {<<"clientid">>, <<"good">>}
+    ]),
     [#emqx_trace{name = <<"test-name">>}] = emqx_trace:list(),
     ok = emqx_trace:clear(),
     Now = erlang:system_time(second),
@@ -154,8 +176,11 @@ t_create_default(_Config) ->
         {<<"end_at">>, Now + 3}
     ],
     {error, "failed by start_at >= end_at"} = emqx_trace:create(Trace2),
-    {ok, _} = emqx_trace:create([{<<"name">>, <<"test-name">>},
-        {<<"type">>, topic}, {<<"topic">>, <<"/x/y/z">>}]),
+    {ok, _} = emqx_trace:create([
+        {<<"name">>, <<"test-name">>},
+        {<<"type">>, topic},
+        {<<"topic">>, <<"/x/y/z">>}
+    ]),
     [#emqx_trace{start_at = Start, end_at = End}] = emqx_trace:list(),
     ?assertEqual(10 * 60, End - Start),
     ?assertEqual(true, Start - erlang:system_time(second) < 5),
@@ -171,15 +196,21 @@ t_create_with_extra_fields(_Config) ->
         {<<"ip_address">>, <<"127.0.0.1">>}
     ],
     {ok, _} = emqx_trace:create(Trace),
-    ?assertMatch([#emqx_trace{name = <<"test-name">>, filter = <<"/x/y/z">>, type = topic}],
-        emqx_trace:list()),
+    ?assertMatch(
+        [#emqx_trace{name = <<"test-name">>, filter = <<"/x/y/z">>, type = topic}],
+        emqx_trace:list()
+    ),
     ok.
 
 t_update_enable(_Config) ->
     Name = <<"test-name">>,
     Now = erlang:system_time(second),
-    {ok, _} = emqx_trace:create([{<<"name">>, Name}, {<<"type">>, topic},
-        {<<"topic">>, <<"/x/y/z">>}, {<<"end_at">>, Now + 2}]),
+    {ok, _} = emqx_trace:create([
+        {<<"name">>, Name},
+        {<<"type">>, topic},
+        {<<"topic">>, <<"/x/y/z">>},
+        {<<"end_at">>, Now + 2}
+    ]),
     [#emqx_trace{enable = Enable}] = emqx_trace:list(),
     ?assertEqual(Enable, true),
     ok = emqx_trace:update(Name, false),
@@ -197,15 +228,27 @@ t_update_enable(_Config) ->
 
 t_load_state(_Config) ->
     Now = erlang:system_time(second),
-    Running = #{name => <<"Running">>, type => topic,
-        topic => <<"/x/y/1">>, start_at => Now - 1,
-        end_at => Now + 2},
-    Waiting = [{<<"name">>, <<"Waiting">>}, {<<"type">>, topic},
-        {<<"topic">>, <<"/x/y/2">>}, {<<"start_at">>, Now + 3},
-        {<<"end_at">>, Now + 8}],
-    Finished = [{<<"name">>, <<"Finished">>}, {<<"type">>, topic},
-        {<<"topic">>, <<"/x/y/3">>}, {<<"start_at">>, Now - 5},
-        {<<"end_at">>, Now}],
+    Running = #{
+        name => <<"Running">>,
+        type => topic,
+        topic => <<"/x/y/1">>,
+        start_at => Now - 1,
+        end_at => Now + 2
+    },
+    Waiting = [
+        {<<"name">>, <<"Waiting">>},
+        {<<"type">>, topic},
+        {<<"topic">>, <<"/x/y/2">>},
+        {<<"start_at">>, Now + 3},
+        {<<"end_at">>, Now + 8}
+    ],
+    Finished = [
+        {<<"name">>, <<"Finished">>},
+        {<<"type">>, topic},
+        {<<"topic">>, <<"/x/y/3">>},
+        {<<"start_at">>, Now - 5},
+        {<<"end_at">>, Now}
+    ],
     {ok, _} = emqx_trace:create(Running),
     {ok, _} = emqx_trace:create(Waiting),
     {error, "end_at time has already passed"} = emqx_trace:create(Finished),
@@ -227,8 +270,12 @@ t_client_event(_Config) ->
     ClientId = <<"client-test">>,
     Now = erlang:system_time(second),
     Name = <<"test_client_id_event">>,
-    {ok, _} = emqx_trace:create([{<<"name">>, Name},
-        {<<"type">>, clientid}, {<<"clientid">>, ClientId}, {<<"start_at">>, Now}]),
+    {ok, _} = emqx_trace:create([
+        {<<"name">>, Name},
+        {<<"type">>, clientid},
+        {<<"clientid">>, ClientId},
+        {<<"start_at">>, Now}
+    ]),
     ok = emqx_trace_handler_SUITE:filesync(Name, clientid),
     {ok, Client} = emqtt:start_link([{clean_start, true}, {clientid, ClientId}]),
     {ok, _} = emqtt:connect(Client),
@@ -236,8 +283,12 @@ t_client_event(_Config) ->
     ok = emqtt:publish(Client, <<"/test">>, #{}, <<"1">>, [{qos, 0}]),
     ok = emqtt:publish(Client, <<"/test">>, #{}, <<"2">>, [{qos, 0}]),
     ok = emqx_trace_handler_SUITE:filesync(Name, clientid),
-    {ok, _} = emqx_trace:create([{<<"name">>, <<"test_topic">>},
-        {<<"type">>, topic}, {<<"topic">>, <<"/test">>}, {<<"start_at">>, Now}]),
+    {ok, _} = emqx_trace:create([
+        {<<"name">>, <<"test_topic">>},
+        {<<"type">>, topic},
+        {<<"topic">>, <<"/test">>},
+        {<<"start_at">>, Now}
+    ]),
     ok = emqx_trace_handler_SUITE:filesync(<<"test_topic">>, topic),
     {ok, Bin} = file:read_file(emqx_trace:log_file(Name, Now)),
     ok = emqtt:publish(Client, <<"/test">>, #{}, <<"3">>, [{qos, 0}]),
@@ -261,7 +312,7 @@ t_get_log_filename(_Config) ->
         {<<"type">>, ip_address},
         {<<"ip_address">>, <<"127.0.0.1">>},
         {<<"start_at">>, Now},
-        {<<"end_at">>, Now +2}
+        {<<"end_at">>, Now + 2}
     ],
     {ok, _} = emqx_trace:create(Trace),
     ?assertEqual({error, not_found}, emqx_trace:get_trace_filename(<<"test">>)),
@@ -287,13 +338,25 @@ t_find_closed_time(_Config) ->
     Now = erlang:system_time(second),
     Traces2 = [],
     ?assertEqual(DefaultMs, emqx_trace:find_closest_time(Traces2, Now)),
-    Traces3 = [#emqx_trace{name = <<"disable">>, start_at = Now + 1,
-        end_at = Now + 2, enable = false}],
+    Traces3 = [
+        #emqx_trace{
+            name = <<"disable">>,
+            start_at = Now + 1,
+            end_at = Now + 2,
+            enable = false
+        }
+    ],
     ?assertEqual(DefaultMs, emqx_trace:find_closest_time(Traces3, Now)),
     Traces4 = [#emqx_trace{name = <<"running">>, start_at = Now, end_at = Now + 10, enable = true}],
     ?assertEqual(10000, emqx_trace:find_closest_time(Traces4, Now)),
-    Traces5 = [#emqx_trace{name = <<"waiting">>, start_at = Now + 2,
-        end_at = Now + 10, enable = true}],
+    Traces5 = [
+        #emqx_trace{
+            name = <<"waiting">>,
+            start_at = Now + 2,
+            end_at = Now + 10,
+            enable = true
+        }
+    ],
     ?assertEqual(2000, emqx_trace:find_closest_time(Traces5, Now)),
     Traces = [
         #emqx_trace{name = <<"waiting">>, start_at = Now + 1, end_at = Now + 2, enable = true},

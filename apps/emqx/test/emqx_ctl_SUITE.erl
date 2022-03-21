@@ -37,24 +37,27 @@ end_per_suite(_Config) ->
 
 t_reg_unreg_command(_) ->
     with_ctl_server(
-      fun(_CtlSrv) ->
+        fun(_CtlSrv) ->
             emqx_ctl:register_command(cmd1, {?MODULE, cmd1_fun}),
             emqx_ctl:register_command(cmd2, {?MODULE, cmd2_fun}),
             ?assertEqual([{?MODULE, cmd1_fun}], emqx_ctl:lookup_command(cmd1)),
             ?assertEqual([{?MODULE, cmd2_fun}], emqx_ctl:lookup_command(cmd2)),
-            ?assertEqual([{cmd1, ?MODULE, cmd1_fun}, {cmd2, ?MODULE, cmd2_fun}],
-                         emqx_ctl:get_commands()),
+            ?assertEqual(
+                [{cmd1, ?MODULE, cmd1_fun}, {cmd2, ?MODULE, cmd2_fun}],
+                emqx_ctl:get_commands()
+            ),
             emqx_ctl:unregister_command(cmd1),
             emqx_ctl:unregister_command(cmd2),
             ct:sleep(100),
             ?assertEqual([], emqx_ctl:lookup_command(cmd1)),
             ?assertEqual([], emqx_ctl:lookup_command(cmd2)),
             ?assertEqual([], emqx_ctl:get_commands())
-      end).
+        end
+    ).
 
 t_run_commands(_) ->
     with_ctl_server(
-      fun(_CtlSrv) ->
+        fun(_CtlSrv) ->
             ?assertEqual({error, cmd_not_found}, emqx_ctl:run_command(["cmd", "arg"])),
             emqx_ctl:register_command(cmd1, {?MODULE, cmd1_fun}),
             emqx_ctl:register_command(cmd2, {?MODULE, cmd2_fun}),
@@ -62,7 +65,8 @@ t_run_commands(_) ->
             {error, badarg} = emqx_ctl:run_command(["cmd1", "badarg"]),
             ok = emqx_ctl:run_command(["cmd2", "arg1", "arg2"]),
             {error, badarg} = emqx_ctl:run_command(["cmd2", "arg1", "badarg"])
-      end).
+        end
+    ).
 
 t_print(_) ->
     ok = emqx_ctl:print("help"),
@@ -84,12 +88,13 @@ t_usage(_) ->
 
 t_unexpected(_) ->
     with_ctl_server(
-      fun(CtlSrv) ->
-              ignored = gen_server:call(CtlSrv, unexpected_call),
-              ok = gen_server:cast(CtlSrv, unexpected_cast),
-              CtlSrv ! unexpected_info,
-              ?assert(is_process_alive(CtlSrv))
-      end).
+        fun(CtlSrv) ->
+            ignored = gen_server:call(CtlSrv, unexpected_call),
+            ok = gen_server:cast(CtlSrv, unexpected_cast),
+            CtlSrv ! unexpected_info,
+            ?assert(is_process_alive(CtlSrv))
+        end
+    ).
 
 %%--------------------------------------------------------------------
 %% Cmds for test
@@ -114,7 +119,8 @@ mock_print() ->
     meck:expect(emqx_ctl, print, fun(Msg, Arg) -> emqx_ctl:format(Msg, Arg) end),
     meck:expect(emqx_ctl, usage, fun(Usages) -> emqx_ctl:format_usage(Usages) end),
     meck:expect(emqx_ctl, usage, fun(CmdParams, CmdDescr) ->
-                                         emqx_ctl:format_usage(CmdParams, CmdDescr) end).
+        emqx_ctl:format_usage(CmdParams, CmdDescr)
+    end).
 
 unmock_print() ->
     meck:unload(emqx_ctl).

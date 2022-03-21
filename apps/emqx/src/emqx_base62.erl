@@ -17,9 +17,10 @@
 -module(emqx_base62).
 
 %% APIs
--export([ encode/1
-        , decode/1
-        ]).
+-export([
+    encode/1,
+    decode/1
+]).
 
 %%--------------------------------------------------------------------
 %% APIs
@@ -29,7 +30,7 @@
 -spec encode(string() | integer() | binary()) -> binary().
 encode(I) when is_integer(I) ->
     encode(integer_to_binary(I));
-encode(S) when is_list(S)->
+encode(S) when is_list(S) ->
     encode(unicode:characters_to_binary(S));
 encode(B) when is_binary(B) ->
     encode(B, <<>>).
@@ -47,21 +48,22 @@ decode(B) when is_binary(B) ->
 
 encode(<<Index1:6, Index2:6, Index3:6, Index4:6, Rest/binary>>, Acc) ->
     CharList = [encode_char(Index1), encode_char(Index2), encode_char(Index3), encode_char(Index4)],
-    NewAcc = <<Acc/binary,(iolist_to_binary(CharList))/binary>>,
+    NewAcc = <<Acc/binary, (iolist_to_binary(CharList))/binary>>,
     encode(Rest, NewAcc);
 encode(<<Index1:6, Index2:6, Index3:4>>, Acc) ->
     CharList = [encode_char(Index1), encode_char(Index2), encode_char(Index3)],
-    NewAcc = <<Acc/binary,(iolist_to_binary(CharList))/binary>>,
+    NewAcc = <<Acc/binary, (iolist_to_binary(CharList))/binary>>,
     encode(<<>>, NewAcc);
 encode(<<Index1:6, Index2:2>>, Acc) ->
     CharList = [encode_char(Index1), encode_char(Index2)],
-    NewAcc = <<Acc/binary,(iolist_to_binary(CharList))/binary>>,
+    NewAcc = <<Acc/binary, (iolist_to_binary(CharList))/binary>>,
     encode(<<>>, NewAcc);
 encode(<<>>, Acc) ->
     Acc.
 
-decode(<<Head:8, Rest/binary>>, Acc)
-  when bit_size(Rest) >= 8->
+decode(<<Head:8, Rest/binary>>, Acc) when
+    bit_size(Rest) >= 8
+->
     case Head == $9 of
         true ->
             <<Head1:8, Rest1/binary>> = Rest,
@@ -85,7 +87,6 @@ decode(<<Head:8, Rest/binary>>, Acc) ->
 decode(<<>>, Acc) ->
     Acc.
 
-
 encode_char(I) when I < 26 ->
     $A + I;
 encode_char(I) when I < 52 ->
@@ -97,9 +98,9 @@ encode_char(I) ->
 
 decode_char(I) when I >= $a andalso I =< $z ->
     I + 26 - $a;
-decode_char(I) when I >= $0 andalso I =< $8->
+decode_char(I) when I >= $0 andalso I =< $8 ->
     I + 52 - $0;
-decode_char(I) when I >= $A andalso I =< $Z->
+decode_char(I) when I >= $A andalso I =< $Z ->
     I - $A.
 
 decode_char(9, I) ->
