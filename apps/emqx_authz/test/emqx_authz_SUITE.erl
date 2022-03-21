@@ -125,12 +125,13 @@ set_special_configs(_App) ->
 %%------------------------------------------------------------------------------
 
 t_update_source(_) ->
+    %% replace all
     {ok, _} = emqx_authz:update(?CMD_REPLACE, [?SOURCE3]),
-    {ok, _} = emqx_authz:update(?CMD_PREPEND, [?SOURCE2]),
-    {ok, _} = emqx_authz:update(?CMD_PREPEND, [?SOURCE1]),
-    {ok, _} = emqx_authz:update(?CMD_APPEND, [?SOURCE4]),
-    {ok, _} = emqx_authz:update(?CMD_APPEND, [?SOURCE5]),
-    {ok, _} = emqx_authz:update(?CMD_APPEND, [?SOURCE6]),
+    {ok, _} = emqx_authz:update(?CMD_PREPEND, ?SOURCE2),
+    {ok, _} = emqx_authz:update(?CMD_PREPEND, ?SOURCE1),
+    {ok, _} = emqx_authz:update(?CMD_APPEND, ?SOURCE4),
+    {ok, _} = emqx_authz:update(?CMD_APPEND, ?SOURCE5),
+    {ok, _} = emqx_authz:update(?CMD_APPEND, ?SOURCE6),
 
     ?assertMatch([ #{type := http,  enable := true}
                  , #{type := mongodb, enable := true}
@@ -170,7 +171,7 @@ t_delete_source(_) ->
     ?assertMatch([ #{type := http,  enable := true}
                  ], emqx_conf:get([authorization, sources], [])),
 
-    {ok, _} = emqx_authz:update({?CMD_DELETE, http},  #{}),
+    {ok, _} = emqx_authz:update({?CMD_DELETE, http}, #{}),
 
     ?assertMatch([], emqx_conf:get([authorization, sources], [])).
 

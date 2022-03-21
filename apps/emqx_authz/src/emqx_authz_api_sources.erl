@@ -95,7 +95,7 @@ schema("/authorization/sources/:type") ->
      , put =>
            #{ description => <<"Update source">>
             , parameters => parameters_field()
-            , 'requestBody' => mk( hoconsc:union(authz_sources_type_refs()))
+            , 'requestBody' => mk(hoconsc:union(authz_sources_type_refs()))
             , responses =>
                   #{ 204 => <<"Authorization source updated successfully">>
                    , 400 => emqx_dashboard_swagger:error_codes([?BAD_REQUEST], <<"Bad Request">>)
@@ -170,12 +170,12 @@ sources(get, _) ->
     {200, #{sources => Sources}};
 sources(post, #{body := #{<<"type">> := <<"file">>, <<"rules">> := Rules}}) ->
     {ok, Filename} = write_file(acl_conf_file(), Rules),
-    update_config(?CMD_PREPEND, [#{<<"type">> => <<"file">>,
-                                   <<"enable">> => true, <<"path">> => Filename}]);
+    update_config(?CMD_PREPEND, #{<<"type">> => <<"file">>,
+                                  <<"enable">> => true, <<"path">> => Filename});
 sources(post, #{body := Body}) when is_map(Body) ->
     case maybe_write_certs(Body) of
         Config when is_map(Config) ->
-            update_config(?CMD_PREPEND, [Config]);
+            update_config(?CMD_PREPEND, Config);
         {error, Reason} ->
             {400, #{code => <<"BAD_REQUEST">>,
                     message => bin(Reason)}}

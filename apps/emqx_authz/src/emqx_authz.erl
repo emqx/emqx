@@ -142,12 +142,12 @@ do_pre_config_update({?CMD_MOVE, Type, ?CMD_MOVE_AFTER(After)}, Sources) ->
     {S1, Front1, Rear1} = take(Type, Sources),
     {S2, Front2, Rear2} = take(After, Front1 ++ Rear1),
     Front2 ++ [S2, S1] ++ Rear2;
-do_pre_config_update({?CMD_PREPEND, NewSources}, Sources) ->
-    NSources = NewSources ++ Sources,
+do_pre_config_update({?CMD_PREPEND, NewSource}, Sources) ->
+    NSources = [NewSource] ++ Sources,
     ok = check_dup_types(NSources),
     NSources;
-do_pre_config_update({?CMD_APPEND, NewSources}, Sources) ->
-    NSources = Sources ++ NewSources,
+do_pre_config_update({?CMD_APPEND, NewSource}, Sources) ->
+    NSources = Sources ++ [NewSource],
     ok = check_dup_types(NSources),
     NSources;
 do_pre_config_update({{?CMD_REPLACE, Type}, #{<<"enable">> := Enable} = Source}, Sources)
@@ -186,12 +186,12 @@ do_post_config_update({?CMD_MOVE, _Type, _Where} = Cmd, _NewSources) ->
     MovedSources = do_pre_config_update(Cmd, InitedSources),
     ok = emqx_hooks:put('client.authorize', {?MODULE, authorize, [MovedSources]}, -1),
     ok = emqx_authz_cache:drain_cache();
-do_post_config_update({?CMD_PREPEND, Sources}, _NewSources) ->
-    InitedSources = init_sources(check_sources(Sources)),
+do_post_config_update({?CMD_PREPEND, Source}, _NewSources) ->
+    InitedSources = init_sources(check_sources([Source])),
     ok = emqx_hooks:put('client.authorize', {?MODULE, authorize, [InitedSources ++ lookup()]}, -1),
     ok = emqx_authz_cache:drain_cache();
-do_post_config_update({?CMD_APPEND, Sources}, _NewSources) ->
-    InitedSources = init_sources(check_sources(Sources)),
+do_post_config_update({?CMD_APPEND, Source}, _NewSources) ->
+    InitedSources = init_sources(check_sources([Source])),
     emqx_hooks:put('client.authorize', {?MODULE, authorize, [lookup() ++ InitedSources]}, -1),
     ok = emqx_authz_cache:drain_cache();
 do_post_config_update({{?CMD_REPLACE, Type}, Source}, _NewSources) when is_map(Source) ->
