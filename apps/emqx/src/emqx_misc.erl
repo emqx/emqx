@@ -138,13 +138,14 @@ apply_fun(Fun, Input, State) ->
         {arity, 2} -> Fun(Input, State)
     end.
 
--spec(start_timer(integer(), term()) -> reference()).
+-spec(start_timer(integer() | atom(), term()) -> maybe(reference())).
 start_timer(Interval, Msg) ->
     start_timer(Interval, self(), Msg).
 
--spec(start_timer(integer(), pid() | atom(), term()) -> reference()).
-start_timer(Interval, Dest, Msg) ->
-    erlang:start_timer(erlang:ceil(Interval), Dest, Msg).
+-spec(start_timer(integer() | atom(), pid() | atom(), term()) -> maybe(reference())).
+start_timer(Interval, Dest, Msg) when is_number(Interval) ->
+    erlang:start_timer(erlang:ceil(Interval), Dest, Msg);
+start_timer(_Atom, _Dest, _Msg) -> undefined.
 
 -spec(cancel_timer(maybe(reference())) -> ok).
 cancel_timer(Timer) when is_reference(Timer) ->
@@ -309,11 +310,9 @@ gen_id(Len) ->
     int_to_hex(R, Len).
 
 -spec clamp(number(), number(), number()) -> number().
-clamp(Val, Min, Max) ->
-    if Val < Min -> Min;
-       Val > Max -> Max;
-       true -> Val
-    end.
+clamp(Val, Min, _Max) when Val < Min -> Min;
+clamp(Val, _Min, Max) when Val > Max -> Max;
+clamp(Val, _Min, _Max) -> Val.
 
 %% @doc https://www.erlang.org/doc/man/file.html#posix-error-codes
 explain_posix(eacces) -> "Permission denied";

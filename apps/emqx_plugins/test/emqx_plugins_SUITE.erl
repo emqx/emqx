@@ -31,19 +31,20 @@ all() -> emqx_common_test_helpers:all(?MODULE).
 init_per_suite(Config) ->
     WorkDir = proplists:get_value(data_dir, Config),
     OrigInstallDir = emqx_plugins:get_config(install_dir, undefined),
+    emqx_common_test_helpers:start_apps([emqx_conf]),
     emqx_plugins:put_config(install_dir, WorkDir),
-    emqx_common_test_helpers:start_apps([]),
     [{orig_install_dir, OrigInstallDir} | Config].
 
 end_per_suite(Config) ->
     emqx_common_test_helpers:boot_modules(all),
-    emqx_common_test_helpers:stop_apps([]),
     emqx_config:erase(plugins),
     %% restore config
     case proplists:get_value(orig_install_dir, Config) of
         undefined -> ok;
         OrigInstallDir -> emqx_plugins:put_config(install_dir, OrigInstallDir)
-    end.
+    end,
+    emqx_common_test_helpers:stop_apps([emqx_conf]),
+    ok.
 
 init_per_testcase(TestCase, Config) ->
     emqx_plugins:put_configured([]),

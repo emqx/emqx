@@ -35,6 +35,7 @@
         , restart/1
         , list/0
         , describe/1
+        , parse_name_vsn/1
         ]).
 
 -export([ get_config/2
@@ -565,18 +566,28 @@ is_needed_by(AppToStop, RunningApp) ->
 
 put_config(Key, Value) when is_atom(Key) ->
     put_config([Key], Value);
-put_config(Path, Value) when is_list(Path) ->
-    emqx_config:put([?CONF_ROOT | Path], Value).
+put_config(Path, Values) when is_list(Path) ->
+    Opts = #{rawconf_with_defaults => true, override_to => cluster},
+    case emqx:update_config([?CONF_ROOT | Path], bin_key(Values), Opts) of
+        {ok, _} -> ok;
+        Error -> Error
+    end.
+
+bin_key(Map) when is_map(Map) ->
+    maps:fold(fun(K, V, Acc) -> Acc#{bin(K) => V} end, #{}, Map);
+bin_key(List = [#{} | _]) ->
+    lists:map(fun(M) -> bin_key(M) end, List);
+bin_key(Term) -> Term.
 
 get_config(Key, Default) when is_atom(Key) ->
     get_config([Key], Default);
 get_config(Path, Default) ->
-    emqx:get_config([?CONF_ROOT | Path], Default).
+    emqx_conf:get([?CONF_ROOT | Path], Default).
 
 install_dir() -> get_config(install_dir, "").
 
 put_configured(Configured) ->
-    ok = put_config(states, Configured).
+    ok = put_config(states, bin_key(Configured)).
 
 configured() ->
     get_config(states, []).

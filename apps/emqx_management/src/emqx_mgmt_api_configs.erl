@@ -34,6 +34,8 @@
 -define(PREFIX, "/configs/").
 -define(PREFIX_RESET, "/configs_reset/").
 -define(ERR_MSG(MSG), list_to_binary(io_lib:format("~p", [MSG]))).
+-define(OPTS, #{rawconf_with_defaults => true, override_to => cluster}).
+
 -define(EXCLUDES, [
     <<"exhook">>,
     <<"gateway">>,
@@ -177,7 +179,7 @@ config(get, _Params, Req) ->
 
 config(put, #{body := Body}, Req) ->
     Path = conf_path(Req),
-    case emqx:update_config(Path, Body, #{rawconf_with_defaults => true}) of
+    case emqx_conf:update(Path, Body, ?OPTS) of
         {ok, #{raw_config := RawConf}} ->
             {200, RawConf};
         {error, Reason} ->
@@ -192,7 +194,7 @@ global_zone_configs(get, _Params, _Req) ->
 global_zone_configs(put, #{body := Body}, _Req) ->
     Res =
         maps:fold(fun(Path, Value, Acc) ->
-            case emqx:update_config([Path], Value, #{rawconf_with_defaults => true}) of
+            case emqx_conf:update([Path], Value, ?OPTS) of
                 {ok, #{raw_config := RawConf}} ->
                     Acc#{Path => RawConf};
                 {error, Reason} ->

@@ -70,6 +70,10 @@
         , find_listener_conf/3
         ]).
 
+-export([ add_handlers/0
+        , remove_handlers/0
+        ]).
+
 -include("logger.hrl").
 
 -define(CONF, conf).
@@ -430,6 +434,14 @@ save_to_override_conf(RawConf, Opts) ->
                     {error, Reason}
             end
     end.
+
+add_handlers() ->
+    ok = emqx_config_logger:add_handler(),
+    ok.
+
+remove_handlers() ->
+    ok = emqx_config_logger:remove_handler(),
+    ok.
 
 load_hocon_file(FileName, LoadType) ->
     case filelib:is_regular(FileName) of

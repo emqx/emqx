@@ -29,7 +29,7 @@
 %% <<"certfile">> => file_input()
 %% <<"cafile">> => file_input() %% backward compatible
 %% <<"cacertfile">> => file_input()
-%% <<"verify">> => boolean()
+%% <<"verify">> => verify_none | verify_peer
 %% <<"tls_versions">> => binary()
 %% <<"ciphers">> => binary()
 -type opts_key() :: binary() | atom().
@@ -78,7 +78,8 @@ save_files_return_opts(Options, Dir) ->
     Versions = emqx_tls_lib:integral_versions(Get(versions)),
     Ciphers = emqx_tls_lib:integral_ciphers(Versions, Get(ciphers)),
     filter([{keyfile, Key}, {certfile, Cert}, {cacertfile, CA},
-            {verify, Verify}, {server_name_indication, SNI}, {versions, Versions}, {ciphers, Ciphers}]).
+            {verify, Verify}, {server_name_indication, SNI},
+            {versions, Versions}, {ciphers, Ciphers}]).
 
 %% @doc Save a key or certificate file in data dir,
 %% and return path of the saved file.

@@ -176,7 +176,7 @@ do_parse_versions([], Acc) -> lists:reverse(Acc);
 do_parse_versions([V | More], Acc) ->
     case parse_version(V) of
         unknown ->
-            emqx_logger:warning("unknown_tls_version_discarded: ~p", [V]),
+            ?SLOG(warning, #{msg => "unknown_tls_version_discarded", version => V}),
             do_parse_versions(More, Acc);
         Parsed ->
             do_parse_versions(More, [Parsed | Acc])

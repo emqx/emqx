@@ -419,7 +419,7 @@ after idling for 'Keepalive * backoff * 2'."""
            })
       }
     , {"max_mqueue_len",
-       sc(hoconsc:union([range(0, inf), infinity]),
+       sc(hoconsc:union([non_neg_integer(), infinity]),
           #{ default => 1000,
              desc =>
 """Maximum queue length. Enqueued messages when persistent client disconnected,

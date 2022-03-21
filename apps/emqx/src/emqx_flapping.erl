@@ -149,7 +149,7 @@ handle_info({timeout, _TRef, {garbage_collect, Zone}}, State) ->
                 - maps:get(window_time, get_policy(Zone)),
     MatchSpec = [{{'_', '_', '_', '$1', '_'},[{'<', '$1', Timestamp}], [true]}],
     ets:select_delete(?FLAPPING_TAB, MatchSpec),
-    start_timer(Zone),
+    _ = start_timer(Zone),
     {noreply, State, hibernate};
 
 handle_info(Info, State) ->

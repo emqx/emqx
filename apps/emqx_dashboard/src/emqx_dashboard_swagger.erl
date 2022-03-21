@@ -313,7 +313,7 @@ trans_desc(Init, Hocon, Func, Name) ->
             Spec1 = Spec0#{label => Name},
             case Spec1 of
                 #{description := _} -> Spec1;
-                _ -> Spec1#{description => <<"TODO(Rquired description): ", Name/binary>>}
+                _ -> Spec1#{description => <<Name/binary, " Description">>}
             end
     end.
 

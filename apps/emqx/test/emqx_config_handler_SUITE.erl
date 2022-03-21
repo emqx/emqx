@@ -89,8 +89,8 @@ t_conflict_handler(_Config) ->
     ok = emqx_config_handler:remove_handler([sysmon, '?', cpu_check_interval]),
 
     %% override
-    ok = emqx_config_handler:add_handler([sysmon], emqx_logger),
-    ?assertMatch(#{handlers := #{sysmon := #{{mod} := emqx_logger}}},
+    ok = emqx_config_handler:add_handler([sysmon], emqx_config_logger),
+    ?assertMatch(#{handlers := #{sysmon := #{{mod} := emqx_config_logger}}},
         emqx_config_handler:info()),
     ok.
 

@@ -234,7 +234,7 @@ check_and_save_configs(SchemaModule, ConfKeyPath, Handlers, NewRawConf, Override
         UpdateArgs, Opts) ->
     OldConf = emqx_config:get_root(ConfKeyPath),
     Schema = schema(SchemaModule, ConfKeyPath),
-    {AppEnvs, #{root := NewConf}} = emqx_config:check_config(Schema, #{<<"root">> => NewRawConf}),
+    {AppEnvs, NewConf} = emqx_config:check_config(Schema, NewRawConf),
     case do_post_config_update(ConfKeyPath, Handlers, OldConf, NewConf, AppEnvs, UpdateArgs, #{}) of
         {ok, Result0} ->
             remove_from_local_if_cluster_change(ConfKeyPath, Opts),
@@ -396,14 +396,29 @@ assert_callback_function(Mod) ->
     end,
     ok.
 
+-spec schema(module(), emqx_map_lib:config_key_path()) -> hocon_schema:schema().
 schema(SchemaModule, [RootKey | _]) ->
     Roots = hocon_schema:roots(SchemaModule),
-    Field =
+    {Field, Translations} =
         case lists:keyfind(bin(RootKey), 1, Roots) of
             {_, {Ref, ?REF(Ref)}} -> {Ref, ?R_REF(SchemaModule, Ref)};
-            {_, Field0} -> Field0
+            {_, {Name, Field0}} -> parse_translations(Field0, Name, SchemaModule)
         end,
-    #{roots => [root], fields => #{root => [Field]}}.
+    #{
+        roots => [Field],
+        translations => Translations,
+        validations => hocon_schema:validations(SchemaModule)
+    }.
+
+parse_translations(#{translate_to := TRs } = Field, Name, SchemaModule) ->
+    {
+        {Name, maps:remove(translate_to, Field)},
+        lists:foldl(fun(T, Acc) ->
+            Acc#{T => hocon_schema:translation(SchemaModule, T)}
+                    end, #{}, TRs)
+    };
+parse_translations(Field, Name, _SchemaModule) ->
+    {{Name, Field}, #{}}.
 
 load_prev_handlers() ->
     Handlers = application:get_env(emqx, ?MODULE, #{}),
