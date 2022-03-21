@@ -310,11 +310,9 @@ gen_id(Len) ->
     int_to_hex(R, Len).
 
 -spec clamp(number(), number(), number()) -> number().
-clamp(Val, Min, Max) ->
-    if Val < Min -> Min;
-       Val > Max -> Max;
-       true -> Val
-    end.
+clamp(Val, Min, _Max) when Val < Min -> Min;
+clamp(Val, _Min, Max) when Val > Max -> Max;
+clamp(Val, _Min, _Max) -> Val.
 
 %% @doc https://www.erlang.org/doc/man/file.html#posix-error-codes
 explain_posix(eacces) -> "Permission denied";

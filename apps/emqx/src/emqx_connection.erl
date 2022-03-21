@@ -107,7 +107,7 @@
 
            %% limiter timers
           limiter_timer :: undefined | reference()
-	 }).
+          }).
 
 -record(retry, { types :: list(limiter_type())
                , data :: any()
