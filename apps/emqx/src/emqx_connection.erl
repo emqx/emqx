@@ -902,7 +902,8 @@ check_limiter(Needs,
                     {ok, State#state{limiter = Limiter2}}
             end;
         _ ->
-            %% if there has a retry timer, cache the operation and execute it after the retry is over
+            %% if there has a retry timer,
+            %% cache the operation and execute it after the retry is over
             %% TODO: maybe we need to set socket to passive if size of queue is very large
             %% because we queue up lots of ops that checks with the limiters.
             New = #cache{need = Needs, data = Data, next = WhenOk},
@@ -915,7 +916,8 @@ check_limiter(_, Data, WhenOk, Msgs, State) ->
 %% try to perform a retry
 -spec retry_limiter(state()) -> _.
 retry_limiter(#state{limiter = Limiter} = State) ->
-    #retry{types = Types, data = Data, next = Next} = emqx_limiter_container:get_retry_context(Limiter),
+    #retry{types = Types, data = Data, next = Next}
+        = emqx_limiter_container:get_retry_context(Limiter),
     case emqx_limiter_container:retry_list(Types, Limiter) of
             {ok, Limiter2} ->
                 Next(Data,
