@@ -268,7 +268,7 @@ source(delete, #{bindings := #{type := Type}}) ->
 source_status(get, #{bindings := #{type := Type}}) ->
     BinType = atom_to_binary(Type, utf8),
     case get_raw_source(BinType) of
-        [] -> {404, #{code => <<"BAD_REQUEST">>,
+        [] -> {404, #{code => <<"NOT_FOUND">>,
                       message => <<"Not found", BinType/binary>>}};
         [#{<<"type">> := <<"file">>}] ->
             {400, #{code => <<"BAD_REQUEST">>,
