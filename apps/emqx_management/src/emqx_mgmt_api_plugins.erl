@@ -150,7 +150,7 @@ fields(plugin) ->
                 required => true,
                 example => "emqx_plugin_template-5.0-rc.1"})
         },
-        {author, hoconsc:mk(list(string()), #{example => [<<"EMQ X Team">>]})},
+        {author, hoconsc:mk(list(string()), #{example => [<<"EMQX Team">>]})},
         {builder, hoconsc:ref(?MODULE, builder)},
         {built_on_otp_release, hoconsc:mk(string(), #{example => "24"})},
         {compatibility, hoconsc:mk(map(), #{example => #{<<"emqx">> => <<"~>5.0">>}})},
@@ -198,7 +198,7 @@ fields(name) ->
 fields(builder) ->
     [
         {contact, hoconsc:mk(string(), #{example => "emqx-support@emqx.io"})},
-        {name, hoconsc:mk(string(), #{example => "EMQ X Team"})},
+        {name, hoconsc:mk(string(), #{example => "EMQX Team"})},
         {website, hoconsc:mk(string(), #{example => "www.emqx.com"})}
     ];
 fields(position) ->
@@ -371,9 +371,13 @@ return(_, {error, Reason}) ->
 parse_position(#{<<"position">> := <<"front">>}, _) -> front;
 parse_position(#{<<"position">> := <<"rear">>}, _) -> rear;
 parse_position(#{<<"position">> := <<"before:", Name/binary>>}, Name) ->
-    {error, <<"Can't before:self">>};
+    {error, <<"Invalid parameter. Cannot be placed before itself">>};
 parse_position(#{<<"position">> := <<"after:", Name/binary>>}, Name) ->
-    {error, <<"Can't after:self">>};
+    {error, <<"Invalid parameter. Cannot be placed after itself">>};
+parse_position(#{<<"position">> := <<"before:">>}, _Name) ->
+    {error, <<"Invalid parameter. Cannot be placed before an empty target">>};
+parse_position(#{<<"position">> := <<"after:">>}, _Name) ->
+    {error, <<"Invalid parameter. Cannot be placed after an empty target">>};
 parse_position(#{<<"position">> := <<"before:", Before/binary>>}, _Name) ->
     {before, binary_to_list(Before)};
 parse_position(#{<<"position">> := <<"after:", After/binary>>}, _Name) ->

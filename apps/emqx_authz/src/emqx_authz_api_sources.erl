@@ -27,27 +27,6 @@
 -define(BAD_REQUEST, 'BAD_REQUEST').
 -define(NOT_FOUND, 'NOT_FOUND').
 
--define(EXAMPLE_REDIS,
-        #{type=> redis,
-          enable => true,
-          server => <<"127.0.0.1:3306">>,
-          redis_type => single,
-          pool_size => 1,
-          auto_reconnect => true,
-          cmd => <<"HGETALL mqtt_authz">>}).
--define(EXAMPLE_FILE,
-        #{type=> file,
-          enable => true,
-          rules => <<"{allow,{username,\"^dashboard?\"},subscribe,[\"$SYS/#\"]}.\n",
-                     "{allow,{ipaddr,\"127.0.0.1\"},all,[\"$SYS/#\",\"#\"]}.">>
-                   }).
-
--define(EXAMPLE_RETURNED,
-        #{sources => [ ?EXAMPLE_REDIS
-                     , ?EXAMPLE_FILE
-                     ]
-        }).
-
 -define(IS_TRUE(Val), ((Val =:= true) or (Val =:= <<"true">>))).
 
 -define(API_SCHEMA_MODULE, emqx_authz_api_schema).
@@ -87,33 +66,18 @@ schema("/authorization/sources") ->
      , get =>
            #{ description => <<"List all authorization sources">>
             , responses =>
-                  #{ 200 => mk( array(hoconsc:union(
-                      [ref(?API_SCHEMA_MODULE, Type) || Type <- authz_sources_types(detailed)]))
+                  #{ 200 => mk( array(hoconsc:union(authz_sources_type_refs()))
                               , #{desc => <<"Authorization source">>})
                    }
             }
      , post =>
            #{ description => <<"Add a new source">>
-            , 'requestBody' => mk( hoconsc:union(
-                                   [ref(?API_SCHEMA_MODULE, Type)
-                                        || Type <- authz_sources_types(detailed)])
+            , 'requestBody' => mk( hoconsc:union(authz_sources_type_refs())
                                  , #{desc => <<"Source config">>})
             , responses =>
                   #{ 204 => <<"Authorization source created successfully">>
                    , 400 => emqx_dashboard_swagger:error_codes([?BAD_REQUEST],
                                                                <<"Bad Request">>)
-                   }
-            }
-     , put =>
-           #{ description => <<"Update all sources">>
-            , 'requestBody' => mk( array(hoconsc:union(
-                                  [ref(?API_SCHEMA_MODULE, Type)
-                                       || Type <- authz_sources_types(detailed)]))
-                                 , #{desc => <<"Sources">>})
-            , responses =>
-                  #{ 204 => <<"Authorization source updated successfully">>
-                   , 400 => emqx_dashboard_swagger:error_codes([?BAD_REQUEST],
-                              <<"Bad Request">>)
                    }
             }
      };
@@ -123,9 +87,7 @@ schema("/authorization/sources/:type") ->
            #{ description => <<"Get a authorization source">>
             , parameters => parameters_field()
             , responses =>
-                  #{ 200 => mk( hoconsc:union(
-                               [ref(?API_SCHEMA_MODULE, Type)
-                                   || Type <- authz_sources_types(detailed)])
+                  #{ 200 => mk( hoconsc:union(authz_sources_type_refs())
                               , #{desc => <<"Authorization source">>})
                    , 404 => emqx_dashboard_swagger:error_codes([?NOT_FOUND], <<"Not Found">>)
                    }
@@ -133,8 +95,7 @@ schema("/authorization/sources/:type") ->
      , put =>
            #{ description => <<"Update source">>
             , parameters => parameters_field()
-            , 'requestBody' => mk( hoconsc:union([ref(?API_SCHEMA_MODULE, Type)
-                                   || Type <- authz_sources_types(detailed)]))
+            , 'requestBody' => mk( hoconsc:union(authz_sources_type_refs()))
             , responses =>
                   #{ 204 => <<"Authorization source updated successfully">>
                    , 400 => emqx_dashboard_swagger:error_codes([?BAD_REQUEST], <<"Bad Request">>)
@@ -212,17 +173,13 @@ sources(post, #{body := #{<<"type">> := <<"file">>, <<"rules">> := Rules}}) ->
     update_config(?CMD_PREPEND, [#{<<"type">> => <<"file">>,
                                    <<"enable">> => true, <<"path">> => Filename}]);
 sources(post, #{body := Body}) when is_map(Body) ->
-    update_config(?CMD_PREPEND, [maybe_write_certs(Body)]);
-sources(put, #{body := Body}) when is_list(Body) ->
-    NBody = [ begin
-                case Source of
-                    #{<<"type">> := <<"file">>, <<"rules">> := Rules, <<"enable">> := Enable} ->
-                        {ok, Filename} = write_file(acl_conf_file(), Rules),
-                        #{<<"type">> => <<"file">>, <<"enable">> => Enable, <<"path">> => Filename};
-                    _ -> maybe_write_certs(Source)
-                end
-              end || Source <- Body],
-    update_config(?CMD_REPLACE, NBody).
+    case maybe_write_certs(Body) of
+        Config when is_map(Config) ->
+            update_config(?CMD_PREPEND, [Config]);
+        {error, Reason} ->
+            {400, #{code => <<"BAD_REQUEST">>,
+                    message => bin(Reason)}}
+    end.
 
 source(Method, #{bindings := #{type := Type} = Bindings } = Req)
   when is_atom(Type) ->
@@ -260,8 +217,13 @@ source(put, #{bindings := #{type := <<"file">>}, body := #{<<"type">> := <<"file
                     message => bin(Reason)}}
     end;
 source(put, #{bindings := #{type := Type}, body := Body}) when is_map(Body) ->
-    update_config({?CMD_REPLACE, Type},
-                   maybe_write_certs(Body#{<<"type">> => Type}));
+    case maybe_write_certs(Body#{<<"type">> => Type}) of
+        Config when is_map(Config) ->
+            update_config({?CMD_REPLACE, Type}, Config);
+        {error, Reason} ->
+            {400, #{code => <<"BAD_REQUEST">>,
+                    message => bin(Reason)}}
+    end;
 source(delete, #{bindings := #{type := Type}}) ->
     update_config({?CMD_DELETE, Type}, #{}).
 
@@ -470,8 +432,12 @@ read_certs(Source) -> Source.
 
 maybe_write_certs(#{<<"ssl">> := #{<<"enable">> := True} = SSL} = Source) when ?IS_TRUE(True) ->
     Type = maps:get(<<"type">>, Source),
-    {ok, Return} = emqx_tls_lib:ensure_ssl_files(filename:join(["authz", Type]), SSL),
-    maps:put(<<"ssl">>, Return, Source);
+    case emqx_tls_lib:ensure_ssl_files(filename:join(["authz", Type]), SSL) of
+        {ok, Return} ->
+            maps:put(<<"ssl">>, Return, Source);
+        {error, _} ->
+            {error, ensuer_ssl_files_failed}
+    end;
 maybe_write_certs(Source) -> Source.
 
 write_file(Filename, Bytes0) ->
@@ -506,16 +472,16 @@ parse_position(<<"front">>) ->
     {ok, ?CMD_MOVE_FRONT};
 parse_position(<<"rear">>) ->
     {ok, ?CMD_MOVE_REAR};
+parse_position(<<"before:">>) ->
+    {error, <<"Invalid parameter. Cannot be placed before an empty target">>};
+parse_position(<<"after:">>) ->
+    {error, <<"Invalid parameter. Cannot be placed after an empty target">>};
 parse_position(<<"before:", Before/binary>>) ->
     {ok, ?CMD_MOVE_BEFORE(Before)};
 parse_position(<<"after:", After/binary>>) ->
     {ok, ?CMD_MOVE_AFTER(After)};
-parse_position(<<"before:">>) ->
-    {error, {invalid_parameter, position}};
-parse_position(<<"after:">>) ->
-    {error, {invalid_parameter, position}};
 parse_position(_) ->
-    {error, {invalid_parameter, position}}.
+    {error, <<"Invalid parameter. Unknow position">>}.
 
 position_example() ->
     #{ front =>
@@ -532,8 +498,9 @@ position_example() ->
            , value => #{<<"position">> => <<"after:file">>}}
      }.
 
-authz_sources_types(Type) ->
-    emqx_authz_api_schema:authz_sources_types(Type).
+authz_sources_type_refs() ->
+    [ref(?API_SCHEMA_MODULE, Type)
+     || Type <- emqx_authz_api_schema:authz_sources_types(detailed)].
 
 bin(Term) -> erlang:iolist_to_binary(io_lib:format("~p", [Term])).
 

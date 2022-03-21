@@ -98,6 +98,7 @@ groups() ->
     [].
 
 init_per_suite(Config) ->
+    ok = stop_apps([emqx_resource, emqx_connector]),
     meck:new(emqx_resource, [non_strict, passthrough, no_history, no_link]),
     meck:expect(emqx_resource, create_local, fun(_, _, _, _) -> {ok, meck_data} end),
     meck:expect(emqx_resource, create_dry_run_local,
@@ -111,6 +112,7 @@ init_per_suite(Config) ->
     ok = emqx_common_test_helpers:start_apps(
            [emqx_conf, emqx_authz, emqx_dashboard],
            fun set_special_configs/1),
+    ok = start_apps([emqx_resource, emqx_connector]),
     Config.
 
 end_per_suite(_Config) ->
@@ -172,8 +174,8 @@ t_api(_) ->
     {ok, 200, Result1} = request(get, uri(["authorization", "sources"]), []),
     ?assertEqual([], get_sources(Result1)),
 
-    {ok, 204, _} = request(put, uri(["authorization", "sources"]),
-                           [?SOURCE2, ?SOURCE3, ?SOURCE4, ?SOURCE5, ?SOURCE6]),
+    [ begin {ok, 204, _} = request(post, uri(["authorization", "sources"]), Source) end
+      || Source <- lists:reverse([?SOURCE2, ?SOURCE3, ?SOURCE4, ?SOURCE5, ?SOURCE6])],
     {ok, 204, _} = request(post, uri(["authorization", "sources"]), ?SOURCE1),
 
     Snd = fun ({_, Val}) -> Val end,
@@ -391,6 +393,9 @@ auth_header_() ->
     {"Authorization", "Bearer " ++ binary_to_list(Token)}.
 
 data_dir() -> emqx:data_dir().
+
+start_apps(Apps) ->
+    lists:foreach(fun application:ensure_all_started/1, Apps).
 
 stop_apps(Apps) ->
     lists:foreach(fun application:stop/1, Apps).
