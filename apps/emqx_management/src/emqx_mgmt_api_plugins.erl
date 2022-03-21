@@ -271,14 +271,7 @@ upload_install(post, #{body := #{<<"plugin">> := Plugin}}) when is_map(Plugin) -
             {AppName, _Vsn} = emqx_plugins:parse_name_vsn(FileName),
             AppDir = filename:join(emqx_plugins:install_dir(), AppName),
             case filelib:wildcard(AppDir ++ "*.tar.gz") of
-                [] ->
-                    {Res, _} = emqx_mgmt_api_plugins_proto_v1:install_package(FileName, Bin),
-                    case lists:filter(fun(R) -> R =/= ok end, Res) of
-                        [] -> {200};
-                        [{error, Reason} | _] ->
-                            {400, #{code => 'UNEXPECTED_ERROR',
-                                message => iolist_to_binary(io_lib:format("~p", [Reason]))}}
-                    end;
+                [] -> do_install_package(FileName, Bin);
                 OtherVsn ->
                     {400, #{code => 'ALREADY_INSTALLED',
                         message => iolist_to_binary(io_lib:format("~p already installed",
@@ -293,6 +286,15 @@ upload_install(post, #{}) ->
         message =>
         <<"form-data should be `plugin=@packagename-vsn.tar.gz;type=application/x-gzip`">>}
     }.
+
+do_install_package(FileName, Bin) ->
+    {Res, _} = emqx_mgmt_api_plugins_proto_v1:install_package(FileName, Bin),
+    case lists:filter(fun(R) -> R =/= ok end, Res) of
+        [] -> {200};
+        [{error, Reason} | _] ->
+            {400, #{code => 'UNEXPECTED_ERROR',
+                message => iolist_to_binary(io_lib:format("~p", [Reason]))}}
+    end.
 
 plugin(get, #{bindings := #{name := Name}}) ->
     {Plugins, _} = emqx_mgmt_api_plugins_proto_v1:describe_package(Name),
