@@ -27,3 +27,7 @@ jobs:
       - name: Check Elixir code formatting
         run: |
           mix format --check-formatted
+
+      - name: Check Erlang code formatting
+        run: |
+          ./scripts/check-format.sh
