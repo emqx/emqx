@@ -142,6 +142,13 @@ which do not support any other features except this one.<br>
 There is no connection setup nor tear down, no registration nor subscription.<br>
 The client just sends its 'PUBLISH' messages to a GW"
            })}
+    , {subs_resume,
+       sc(boolean(),
+          #{ default => false
+           , desc =>
+"Whether to initiate all subscribed topic name registration messages to the
+client after the Session has been taken over by a new channel."
+           })}
     , {predefined,
        sc(hoconsc:array(ref(mqttsn_predefined)),
           #{ default => []
