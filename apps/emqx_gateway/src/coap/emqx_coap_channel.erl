@@ -119,10 +119,10 @@ stats(_) ->
     [].
 
 -spec init(map(), map()) -> channel().
-init(ConnInfoT = #{peername := {PeerHost, _},
-                   sockname := {_, SockPort}},
+init(ConnInfo = #{peername := {PeerHost, _},
+                  sockname := {_, SockPort}},
      #{ctx := Ctx} = Config) ->
-    Peercert = maps:get(peercert, ConnInfoT, undefined),
+    Peercert = maps:get(peercert, ConnInfo, undefined),
     Mountpoint = maps:get(mountpoint, Config, <<>>),
     ListenerId = case maps:get(listener, Config, undefined) of
                      undefined -> undefined;
@@ -143,10 +143,6 @@ init(ConnInfoT = #{peername := {PeerHost, _},
                     , mountpoint => Mountpoint
                     }
                   ),
-
-    %% because it is possible to disconnect after init, and then trigger the
-    %% $event.disconnected hook and these two fields are required in the hook
-    ConnInfo = ConnInfoT#{proto_name => <<"CoAP">>, proto_ver => <<"1">>},
 
     Heartbeat = ?GET_IDLE_TIME(Config),
     #channel{ ctx = Ctx
@@ -405,6 +401,25 @@ run_conn_hooks(Input, Channel = #channel{ctx = Ctx,
             {ok, Input, Channel}
     end.
 
+enrich_conninfo({Queries, _Msg},
+                Channel = #channel{
+                             keepalive = KeepAlive,
+                             conninfo = ConnInfo}) ->
+    case Queries of
+        #{<<"clientid">> := ClientId} ->
+            Interval = maps:get(interval, emqx_keepalive:info(KeepAlive)),
+            NConnInfo = ConnInfo#{ clientid => ClientId
+                                 , proto_name => <<"CoAP">>
+                                 , proto_ver => <<"1">>
+                                 , clean_start => true
+                                 , keepalive => Interval
+                                 , expiry_interval => 0
+                                 },
+            {ok, Channel#channel{conninfo = NConnInfo}};
+        _ ->
+            {error, "invalid queries", Channel}
+    end.
+
 enrich_clientinfo({Queries, Msg},
                   Channel = #channel{clientinfo = ClientInfo0}) ->
     case Queries of
@@ -583,7 +598,8 @@ process_nothing(_, _, Channel) ->
 process_connection({open, Req}, Result, Channel, Iter) ->
     Queries = emqx_coap_message:get_option(uri_query, Req),
     case emqx_misc:pipeline(
-           [ fun run_conn_hooks/2
+           [ fun enrich_conninfo/2
+           , fun run_conn_hooks/2
            , fun enrich_clientinfo/2
            , fun set_log_meta/2
            , fun auth_connect/2
