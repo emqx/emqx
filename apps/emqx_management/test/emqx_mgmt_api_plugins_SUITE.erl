@@ -48,7 +48,7 @@ end_per_suite(Config) ->
     emqx_mgmt_api_test_util:end_suite([emqx_plugins, emqx_conf]),
     ok.
 
-t_plugins(Config) ->
+todo_t_plugins(Config) ->
     DemoShDir = proplists:get_value(demo_sh_dir, Config),
     PackagePath = build_demo_plugin_package(DemoShDir),
     ct:pal("package_location:~p install dir:~p", [PackagePath, emqx_plugins:install_dir()]),
