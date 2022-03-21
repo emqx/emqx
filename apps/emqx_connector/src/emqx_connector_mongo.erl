@@ -298,7 +298,7 @@ server(converter) -> fun to_server_raw/1;
 server(desc) -> ?SERVER_DESC("MongoDB", integer_to_list(?MONGO_DEFAULT_PORT));
 server(_) -> undefined.
 
-servers(type) -> binary();
+servers(type) -> list();
 servers(required) -> true;
 servers(validator) -> [?NOT_EMPTY("the value of the field 'servers' cannot be empty")];
 servers(converter) -> fun to_servers_raw/1;
@@ -352,7 +352,8 @@ may_parse_srv_and_txt_records_(#{mongo_type := Type,
 
 parse_srv_records(Type, Servers) ->
     Fun = fun(AccIn, {IpOrHost, _Port}) ->
-                  case inet_res:lookup("_mongodb._tcp." ++ ip_or_host_to_string(IpOrHost), in, srv) of
+                  case inet_res:lookup("_mongodb._tcp."
+                                       ++ ip_or_host_to_string(IpOrHost), in, srv) of
                       [] ->
                           error(service_not_found);
                       Services ->
@@ -367,6 +368,10 @@ parse_srv_records(Type, Servers) ->
     end.
 
 parse_txt_records(Type, Servers) ->
+    Fields = case Type of
+                 rs -> ["authSource", "replicaSet"];
+                 _ -> ["authSource"]
+             end,
     Fun = fun(AccIn, {IpOrHost, _Port}) ->
                   case inet_res:lookup(IpOrHost, in, txt) of
                       [] ->
@@ -376,10 +381,6 @@ parse_txt_records(Type, Servers) ->
                               {error, _, _} ->
                                   error({invalid_txt_record, invalid_query_string});
                               Options ->
-                                  Fields = case Type of
-                                               rs -> ["authSource", "replicaSet"];
-                                               _ -> ["authSource"]
-                                           end,
                                   maps:merge(AccIn, take_and_convert(Fields, Options))
                           end;
                       _ ->
