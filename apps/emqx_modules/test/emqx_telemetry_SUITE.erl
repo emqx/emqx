@@ -134,6 +134,10 @@ t_get_telemetry(_Config) ->
     ?assert(0 =< get_value(num_cpus, VMSpecs)),
     ?assert(is_integer(get_value(total_memory, VMSpecs))),
     ?assert(0 =< get_value(total_memory, VMSpecs)),
+    MQTTRTInsights = get_value(mqtt_runtime_insights, TelemetryData),
+    ?assert(is_number(maps:get(messages_sent_rate, MQTTRTInsights))),
+    ?assert(is_number(maps:get(messages_received_rate, MQTTRTInsights))),
+    ?assert(is_integer(maps:get(num_topics, MQTTRTInsights))),
     ok.
 
 t_enable(_) ->
@@ -155,6 +159,31 @@ t_send_after_enable(_) ->
         ok = snabbkaffe:stop(),
         meck:unload([emqx_telemetry])
     end.
+
+t_mqtt_runtime_insights(_) ->
+    State0 = emqx_telemetry:empty_state(),
+    {MQTTRTInsights1, State1} = emqx_telemetry:mqtt_runtime_insights(State0),
+    ?assertEqual(
+        #{
+            messages_sent_rate => 0.0,
+            messages_received_rate => 0.0,
+            num_topics => 0
+        },
+        MQTTRTInsights1
+    ),
+    %% add some fake stats
+    emqx_metrics:set('messages.sent', 10_000_000_000),
+    emqx_metrics:set('messages.received', 20_000_000_000),
+    emqx_stats:setstat('topics.count', 30_000),
+    {MQTTRTInsights2, _State2} = emqx_telemetry:mqtt_runtime_insights(State1),
+    assert_approximate(MQTTRTInsights2, messages_sent_rate, "16.53"),
+    assert_approximate(MQTTRTInsights2, messages_received_rate, "33.07"),
+    ?assertEqual(30_000, maps:get(num_topics, MQTTRTInsights2)),
+    ok.
+
+assert_approximate(Map, Key, Expected) ->
+    Value = maps:get(Key, Map),
+    ?assertEqual(Expected, float_to_list(Value, [{decimals, 2}])).
 
 bin(L) when is_list(L) ->
     list_to_binary(L);
