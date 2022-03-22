@@ -16,6 +16,7 @@
 -module(emqx_auto_subscribe_placeholder).
 
 -include_lib("emqx/include/emqx_placeholder.hrl").
+-include_lib("emqx/include/logger.hrl").
 
 -export([generate/1]).
 
@@ -25,17 +26,34 @@
 generate(Topics) when is_list(Topics) ->
     [generate(Topic) || Topic <- Topics];
 
-generate(T0 = #{topic := Topic}) ->
-    T = maps:without([topic], T0),
+generate(T = #{topic := Topic}) ->
     T#{placeholder => generate(Topic, [])}.
 
 -spec(to_topic_table(list(), map(), map()) -> list()).
 to_topic_table(PHs, ClientInfo, ConnInfo) ->
-    [begin
-        Topic0 = to_topic(PlaceHolder, ClientInfo, ConnInfo, []),
-        {Topic, Opts} = emqx_topic:parse(Topic0),
-        {Topic, Opts#{qos => Qos, rh => RH, rap => RAP, nl => NL}}
-     end || #{qos := Qos, rh := RH, rap := RAP, nl := NL, placeholder := PlaceHolder} <- PHs].
+    Fold = fun(#{qos := Qos, rh := RH, rap := RAP, nl := NL,
+                 placeholder := PlaceHolder, topic := RawTopic
+                },
+               Acc) ->
+                   case to_topic(PlaceHolder, ClientInfo, ConnInfo, []) of
+                       {error, Reason} ->
+                           ?SLOG(warning, #{msg => "auto_subscribe_ignored",
+                                            topic => RawTopic,
+                                            reason => Reason
+                                           }),
+                           Acc;
+                       <<>> ->
+                           ?SLOG(warning, #{msg => "auto_subscribe_ignored",
+                                            topic => RawTopic,
+                                            reason => empty_topic
+                                           }),
+                           Acc;
+                       Topic0 ->
+                           {Topic, Opts} = emqx_topic:parse(Topic0),
+                           [{Topic, Opts#{qos => Qos, rh => RH, rap => RAP, nl => NL}} | Acc]
+                   end
+           end,
+    lists:foldl(Fold, [], PHs).
 
 %%--------------------------------------------------------------------
 %% internal
@@ -63,8 +81,8 @@ to_topic([Binary | PTs], C, Co, Res) when is_binary(Binary) ->
     to_topic(PTs, C, Co, [Binary | Res]);
 to_topic([clientid | PTs], C = #{clientid := ClientID}, Co, Res) ->
     to_topic(PTs, C, Co, [ClientID | Res]);
-to_topic([username | PTs], C = #{username := undefined}, Co, Res) ->
-    to_topic(PTs, C, Co, [?PH_USERNAME | Res]);
+to_topic([username | _], #{username := undefined}, _, _) ->
+    {error, username_undefined};
 to_topic([username | PTs], C = #{username := Username}, Co, Res) ->
     to_topic(PTs, C, Co, [Username | Res]);
 to_topic([host | PTs], C, Co = #{peername := {Host, _}}, Res) ->
