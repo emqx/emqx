@@ -123,15 +123,16 @@ fields("event_message") ->
                     }
                 )}
         ],
-    #{fields => Fields,
-      desc => """
-Enable/Disable system event messages.
-The messages are published to <code>$event</code> prefixed topics.
-For example, if `client_disconnected` is set to `true`,
-a message is published to <code>$event/client_connected</code> topic
-whenever a client is connected.
-"""};
-
+    #{
+        fields => Fields,
+        desc =>
+            "Enable/Disable system event messages.\n"
+            "The messages are published to <code>$event</code> prefixed topics.\n"
+            "For example, if `client_disconnected` is set to `true`,\n"
+            "a message is published to <code>$event/client_connected</code> topic\n"
+            "whenever a client is connected.\n"
+            ""
+    };
 fields("topic_metrics") ->
     [{topic, sc(binary(), #{})}].
 

@@ -626,7 +626,9 @@ fields("log") ->
     , {"error_logger",
        sc(atom(),
           #{mapping => "kernel.error_logger",
-            default => silent})}
+            default => silent,
+            desc => "Deprecated."
+           })}
     ];
 
 fields("console_handler") ->
