@@ -910,9 +910,9 @@ t_handle_call_kick(_) ->
     Channelv5 = channel(),
     Channelv4 = v4(Channelv5),
     {shutdown, kicked, ok, _} = emqx_channel:handle_call(kick, Channelv4),
-    {shutdown, kicked, ok,
-     ?DISCONNECT_PACKET(?RC_ADMINISTRATIVE_ACTION),
-     _} = emqx_channel:handle_call(kick, Channelv5),
+    {shutdown, kicked, ok, ?DISCONNECT_PACKET(?RC_ADMINISTRATIVE_ACTION), _} = emqx_channel:handle_call(
+        kick, Channelv5
+    ),
 
     DisconnectedChannelv5 = channel(#{conn_state => disconnected}),
     DisconnectedChannelv4 = v4(DisconnectedChannelv5),
@@ -926,9 +926,9 @@ t_handle_kicked_publish_will_msg(_) ->
 
     Msg = emqx_message:make(test, <<"will_topic">>, <<"will_payload">>),
 
-    {shutdown, kicked, ok,
-     ?DISCONNECT_PACKET(?RC_ADMINISTRATIVE_ACTION),
-     _} = emqx_channel:handle_call(kick, channel(#{will_msg => Msg})),
+    {shutdown, kicked, ok, ?DISCONNECT_PACKET(?RC_ADMINISTRATIVE_ACTION), _} = emqx_channel:handle_call(
+        kick, channel(#{will_msg => Msg})
+    ),
     receive
         {pub, Msg} -> ok
     after 200 -> exit(will_message_not_published)
@@ -1272,7 +1272,7 @@ limiter_cfg() -> #{message_routing => default}.
 v4(Channel) ->
     ConnInfo = emqx_channel:info(conninfo, Channel),
     emqx_channel:set_field(
-      conninfo,
-      maps:put(proto_ver, ?MQTT_PROTO_V4, ConnInfo),
-      Channel
-     ).
+        conninfo,
+        maps:put(proto_ver, ?MQTT_PROTO_V4, ConnInfo),
+        Channel
+    ).
