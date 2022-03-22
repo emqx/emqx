@@ -22,16 +22,20 @@
 -include_lib("emqx/include/emqx_mqtt.hrl").
 -include_lib("eunit/include/eunit.hrl").
 
--define(EVENT_MESSAGE, <<"""
-event_message: {
-    client_connected: true
-    client_disconnected: true
-    client_subscribed: true
-    client_unsubscribed: true
-    message_delivered: true
-    message_acked: true
-    message_dropped: true
-}""">>).
+-define(EVENT_MESSAGE, <<
+    ""
+    "\n"
+    "event_message: {\n"
+    "    client_connected: true\n"
+    "    client_disconnected: true\n"
+    "    client_subscribed: true\n"
+    "    client_unsubscribed: true\n"
+    "    message_delivered: true\n"
+    "    message_acked: true\n"
+    "    message_dropped: true\n"
+    "}"
+    ""
+>>).
 
 all() -> emqx_common_test_helpers:all(?MODULE).
 
@@ -49,8 +53,10 @@ t_event_topic(_) ->
     {ok, C1} = emqtt:start_link([{clientid, <<"monsys">>}]),
     {ok, _} = emqtt:connect(C1),
     {ok, _, [?QOS_1]} = emqtt:subscribe(C1, <<"$event/client_connected">>, qos1),
-    {ok, C2} = emqtt:start_link([{clientid, <<"clientid">>},
-                                 {username, <<"username">>}]),
+    {ok, C2} = emqtt:start_link([
+        {clientid, <<"clientid">>},
+        {username, <<"username">>}
+    ]),
     {ok, _} = emqtt:connect(C2),
     ok = recv_connected(<<"clientid">>),
 
@@ -72,7 +78,7 @@ t_event_topic(_) ->
     recv_message_acked(<<"clientid">>),
 
     {ok, _, [?QOS_1]} = emqtt:subscribe(C1, <<"$event/message_dropped">>, qos1),
-    ok= emqtt:publish(C2, <<"test_sub1">>, <<"test">>),
+    ok = emqtt:publish(C2, <<"test_sub1">>, <<"test">>),
     recv_message_dropped(<<"clientid">>),
 
     {ok, _, [?QOS_1]} = emqtt:subscribe(C1, <<"$event/client_unsubscribed">>, qos1),
@@ -94,15 +100,19 @@ t_reason(_) ->
 recv_connected(ClientId) ->
     {ok, #{qos := ?QOS_0, topic := Topic, payload := Payload}} = receive_publish(100),
     ?assertMatch(<<"$event/client_connected">>, Topic),
-    ?assertMatch(#{<<"clientid">> := ClientId,
-                   <<"username">> := <<"username">>,
-                   <<"ipaddress">> := <<"127.0.0.1">>,
-                   <<"proto_name">> := <<"MQTT">>,
-                   <<"proto_ver">> := ?MQTT_PROTO_V4,
-                   <<"clean_start">> := true,
-                   <<"expiry_interval">> := 0,
-                   <<"keepalive">> := 60
-                   }, emqx_json:decode(Payload, [return_maps])).
+    ?assertMatch(
+        #{
+            <<"clientid">> := ClientId,
+            <<"username">> := <<"username">>,
+            <<"ipaddress">> := <<"127.0.0.1">>,
+            <<"proto_name">> := <<"MQTT">>,
+            <<"proto_ver">> := ?MQTT_PROTO_V4,
+            <<"clean_start">> := true,
+            <<"expiry_interval">> := 0,
+            <<"keepalive">> := 60
+        },
+        emqx_json:decode(Payload, [return_maps])
+    ).
 
 recv_subscribed(_ClientId) ->
     {ok, #{qos := ?QOS_0, topic := Topic}} = receive_publish(100),
@@ -128,9 +138,14 @@ recv_unsubscribed(_ClientId) ->
 recv_disconnected(ClientId) ->
     {ok, #{qos := ?QOS_0, topic := Topic, payload := Payload}} = receive_publish(100),
     ?assertMatch(<<"$event/client_disconnected">>, Topic),
-    ?assertMatch(#{<<"clientid">> := ClientId,
-                   <<"username">> := <<"username">>,
-                   <<"reason">> := <<"normal">>}, emqx_json:decode(Payload, [return_maps])).
+    ?assertMatch(
+        #{
+            <<"clientid">> := ClientId,
+            <<"username">> := <<"username">>,
+            <<"reason">> := <<"normal">>
+        },
+        emqx_json:decode(Payload, [return_maps])
+    ).
 
 %%--------------------------------------------------------------------
 %% Internal functions
@@ -140,6 +155,5 @@ receive_publish(Timeout) ->
     receive
         {publish, Publish} ->
             {ok, Publish}
-    after
-        Timeout -> {error, timeout}
+    after Timeout -> {error, timeout}
     end.

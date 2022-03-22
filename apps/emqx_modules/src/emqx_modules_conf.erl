@@ -20,20 +20,23 @@
 -behaviour(emqx_config_handler).
 
 %% Load/Unload
--export([ load/0
-        , unload/0
-        ]).
+-export([
+    load/0,
+    unload/0
+]).
 
 %% topci-metrics
--export([ topic_metrics/0
-        , add_topic_metrics/1
-        , remove_topic_metrics/1
-        ]).
+-export([
+    topic_metrics/0,
+    add_topic_metrics/1,
+    remove_topic_metrics/1
+]).
 
 %% config handlers
--export([ pre_config_update/3
-        , post_config_update/5
-        ]).
+-export([
+    pre_config_update/3,
+    post_config_update/5
+]).
 
 %%--------------------------------------------------------------------
 %% Load/Unload
@@ -52,22 +55,22 @@ unload() ->
 -spec topic_metrics() -> [emqx_types:topic()].
 topic_metrics() ->
     lists:map(
-      fun(#{topic := Topic}) -> Topic end,
-      emqx:get_config([topic_metrics])
-     ).
+        fun(#{topic := Topic}) -> Topic end,
+        emqx:get_config([topic_metrics])
+    ).
 
--spec add_topic_metrics(emqx_types:topic())
-    -> {ok, emqx_types:topic()}
-     | {error, term()}.
+-spec add_topic_metrics(emqx_types:topic()) ->
+    {ok, emqx_types:topic()}
+    | {error, term()}.
 add_topic_metrics(Topic) ->
     case cfg_update(topic_metrics, ?FUNCTION_NAME, Topic) of
         {ok, _} -> {ok, Topic};
         {error, Reason} -> {error, Reason}
     end.
 
--spec remove_topic_metrics(emqx_types:topic())
-    -> ok
-     | {error, term()}.
+-spec remove_topic_metrics(emqx_types:topic()) ->
+    ok
+    | {error, term()}.
 remove_topic_metrics(Topic) ->
     case cfg_update(topic_metrics, ?FUNCTION_NAME, Topic) of
         {ok, _} -> ok;
@@ -75,10 +78,13 @@ remove_topic_metrics(Topic) ->
     end.
 
 cfg_update(topic_metrics, Action, Params) ->
-    res(emqx_conf:update(
-          [topic_metrics],
-          {Action, Params},
-          #{override_to => cluster})).
+    res(
+        emqx_conf:update(
+            [topic_metrics],
+            {Action, Params},
+            #{override_to => cluster}
+        )
+    ).
 
 res({ok, Result}) -> {ok, Result};
 res({error, {pre_config_update, ?MODULE, Reason}}) -> {error, Reason};
@@ -89,9 +95,11 @@ res({error, Reason}) -> {error, Reason}.
 %%  Config Handler
 %%--------------------------------------------------------------------
 
--spec pre_config_update(list(atom()),
-                        emqx_config:update_request(),
-                        emqx_config:raw_config()) ->
+-spec pre_config_update(
+    list(atom()),
+    emqx_config:update_request(),
+    emqx_config:raw_config()
+) ->
     {ok, emqx_config:update_request()} | {error, term()}.
 pre_config_update(_, {add_topic_metrics, Topic0}, RawConf) ->
     Topic = #{<<"topic">> => Topic0},
@@ -110,21 +118,33 @@ pre_config_update(_, {remove_topic_metrics, Topic0}, RawConf) ->
             {error, not_found}
     end.
 
--spec post_config_update(list(atom()),
-                         emqx_config:update_request(),
-                         emqx_config:config(),
-                         emqx_config:config(), emqx_config:app_envs())
-    -> ok | {ok, Result::any()} | {error, Reason::term()}.
+-spec post_config_update(
+    list(atom()),
+    emqx_config:update_request(),
+    emqx_config:config(),
+    emqx_config:config(),
+    emqx_config:app_envs()
+) ->
+    ok | {ok, Result :: any()} | {error, Reason :: term()}.
 
-post_config_update(_, {add_topic_metrics, Topic},
-                   _NewConfig, _OldConfig, _AppEnvs) ->
+post_config_update(
+    _,
+    {add_topic_metrics, Topic},
+    _NewConfig,
+    _OldConfig,
+    _AppEnvs
+) ->
     case emqx_topic_metrics:register(Topic) of
         ok -> ok;
         {error, Reason} -> {error, Reason}
     end;
-
-post_config_update(_, {remove_topic_metrics, Topic},
-                   _NewConfig, _OldConfig, _AppEnvs) ->
+post_config_update(
+    _,
+    {remove_topic_metrics, Topic},
+    _NewConfig,
+    _OldConfig,
+    _AppEnvs
+) ->
     case emqx_topic_metrics:deregister(Topic) of
         ok -> ok;
         {error, Reason} -> {error, Reason}

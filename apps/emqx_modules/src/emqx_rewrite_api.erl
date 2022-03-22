@@ -40,27 +40,36 @@ schema("/mqtt/topic_rewrite") ->
             tags => ?API_TAG_MQTT,
             description => <<"List rewrite topic.">>,
             responses => #{
-                200 => hoconsc:mk(hoconsc:array(hoconsc:ref(emqx_modules_schema, "rewrite")),
-                    #{desc => <<"List all rewrite rules">>})
+                200 => hoconsc:mk(
+                    hoconsc:array(hoconsc:ref(emqx_modules_schema, "rewrite")),
+                    #{desc => <<"List all rewrite rules">>}
+                )
             }
         },
         put => #{
             description => <<"Update rewrite topic">>,
             tags => ?API_TAG_MQTT,
-            'requestBody' => hoconsc:mk(hoconsc:array(
-                hoconsc:ref(emqx_modules_schema, "rewrite")),#{}),
+            'requestBody' => hoconsc:mk(
+                hoconsc:array(
+                    hoconsc:ref(emqx_modules_schema, "rewrite")
+                ),
+                #{}
+            ),
             responses => #{
-                200 => hoconsc:mk(hoconsc:array(hoconsc:ref(emqx_modules_schema, "rewrite")),
-                    #{desc => <<"Update rewrite topic success.">>}),
-                413 => emqx_dashboard_swagger:error_codes([?EXCEED_LIMIT],
-                    <<"Rules count exceed max limit">>)
+                200 => hoconsc:mk(
+                    hoconsc:array(hoconsc:ref(emqx_modules_schema, "rewrite")),
+                    #{desc => <<"Update rewrite topic success.">>}
+                ),
+                413 => emqx_dashboard_swagger:error_codes(
+                    [?EXCEED_LIMIT],
+                    <<"Rules count exceed max limit">>
+                )
             }
         }
     }.
 
 topic_rewrite(get, _Params) ->
     {200, emqx_rewrite:list()};
-
 topic_rewrite(put, #{body := Body}) ->
     case length(Body) < ?MAX_RULES_LIMIT of
         true ->
@@ -68,6 +77,7 @@ topic_rewrite(put, #{body := Body}) ->
             {200, emqx_rewrite:list()};
         _ ->
             Message = iolist_to_binary(
-                io_lib:format("Max rewrite rules count is ~p", [?MAX_RULES_LIMIT])),
+                io_lib:format("Max rewrite rules count is ~p", [?MAX_RULES_LIMIT])
+            ),
             {413, #{code => ?EXCEED_LIMIT, message => Message}}
     end.

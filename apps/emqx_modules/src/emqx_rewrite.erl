@@ -21,25 +21,29 @@
 -include_lib("emqx/include/emqx_mqtt.hrl").
 
 -ifdef(TEST).
--export([ compile/1
-        , match_and_rewrite/2
-        ]).
+-export([
+    compile/1,
+    match_and_rewrite/2
+]).
 -endif.
 
 %% APIs
--export([ rewrite_subscribe/4
-        , rewrite_unsubscribe/4
-        , rewrite_publish/2
-        ]).
+-export([
+    rewrite_subscribe/4,
+    rewrite_unsubscribe/4,
+    rewrite_publish/2
+]).
 
--export([ enable/0
-        , disable/0
-        ]).
+-export([
+    enable/0,
+    disable/0
+]).
 
--export([ list/0
-        , update/1
-        , post_config_update/5
-        ]).
+-export([
+    list/0,
+    update/1,
+    post_config_update/5
+]).
 
 %%--------------------------------------------------------------------
 %% Load/Unload
@@ -65,14 +69,16 @@ update(Rules0) ->
 post_config_update(_KeyPath, _Config, Rules, _OldConf, _AppEnvs) ->
     register_hook(Rules).
 
-register_hook([]) -> unregister_hook();
+register_hook([]) ->
+    unregister_hook();
 register_hook(Rules) ->
     {PubRules, SubRules, ErrRules} = compile(Rules),
     emqx_hooks:put('client.subscribe', {?MODULE, rewrite_subscribe, [SubRules]}),
     emqx_hooks:put('client.unsubscribe', {?MODULE, rewrite_unsubscribe, [SubRules]}),
     emqx_hooks:put('message.publish', {?MODULE, rewrite_publish, [PubRules]}),
     case ErrRules of
-        [] -> ok;
+        [] ->
+            ok;
         _ ->
             ?SLOG(error, #{rewrite_rule_re_complie_failed => ErrRules}),
             {error, ErrRules}
@@ -96,39 +102,54 @@ rewrite_publish(Message = #message{topic = Topic}, Rules) ->
 %% Internal functions
 %%--------------------------------------------------------------------
 compile(Rules) ->
-    lists:foldl(fun(Rule, {Publish, Subscribe, Error}) ->
-        #{source_topic := Topic, re := Re, dest_topic := Dest, action := Action} = Rule,
-        case re:compile(Re) of
-            {ok, MP} ->
-                case Action of
-                    publish ->
-                        {[{Topic, MP, Dest} | Publish], Subscribe, Error};
-                    subscribe ->
-                        {Publish, [{Topic, MP, Dest} | Subscribe], Error};
-                    all ->
-                        {[{Topic, MP, Dest} | Publish], [{Topic, MP, Dest} | Subscribe], Error}
-                end;
-            {error, ErrSpec} ->
-                {Publish, Subscribe, [{Topic, Re, Dest, ErrSpec}]}
-        end end, {[], [], []}, Rules).
+    lists:foldl(
+        fun(Rule, {Publish, Subscribe, Error}) ->
+            #{source_topic := Topic, re := Re, dest_topic := Dest, action := Action} = Rule,
+            case re:compile(Re) of
+                {ok, MP} ->
+                    case Action of
+                        publish ->
+                            {[{Topic, MP, Dest} | Publish], Subscribe, Error};
+                        subscribe ->
+                            {Publish, [{Topic, MP, Dest} | Subscribe], Error};
+                        all ->
+                            {[{Topic, MP, Dest} | Publish], [{Topic, MP, Dest} | Subscribe], Error}
+                    end;
+                {error, ErrSpec} ->
+                    {Publish, Subscribe, [{Topic, Re, Dest, ErrSpec}]}
+            end
+        end,
+        {[], [], []},
+        Rules
+    ).
 
 match_and_rewrite(Topic, []) ->
     Topic;
-
 match_and_rewrite(Topic, [{Filter, MP, Dest} | Rules]) ->
     case emqx_topic:match(Topic, Filter) of
-        true  -> rewrite(Topic, MP, Dest);
+        true -> rewrite(Topic, MP, Dest);
         false -> match_and_rewrite(Topic, Rules)
     end.
 
 rewrite(Topic, MP, Dest) ->
     case re:run(Topic, MP, [{capture, all_but_first, list}]) of
         {match, Captured} ->
-            Vars = lists:zip(["\\$" ++ integer_to_list(I)
-                                || I <- lists:seq(1, length(Captured))], Captured),
-            iolist_to_binary(lists:foldl(
+            Vars = lists:zip(
+                [
+                    "\\$" ++ integer_to_list(I)
+                 || I <- lists:seq(1, length(Captured))
+                ],
+                Captured
+            ),
+            iolist_to_binary(
+                lists:foldl(
                     fun({Var, Val}, Acc) ->
                         re:replace(Acc, Var, Val, [global])
-                    end, Dest, Vars));
-        nomatch -> Topic
+                    end,
+                    Dest,
+                    Vars
+                )
+            );
+        nomatch ->
+            Topic
     end.

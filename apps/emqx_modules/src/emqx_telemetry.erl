@@ -26,28 +26,32 @@
 
 -include("emqx_modules.hrl").
 
--export([ start_link/0
-        , stop/0
-        ]).
+-export([
+    start_link/0,
+    stop/0
+]).
 
 %% gen_server callbacks
--export([ init/1
-        , handle_call/3
-        , handle_cast/2
-        , handle_continue/2
-        , handle_info/2
-        , terminate/2
-        , code_change/3
-        ]).
+-export([
+    init/1,
+    handle_call/3,
+    handle_cast/2,
+    handle_continue/2,
+    handle_info/2,
+    terminate/2,
+    code_change/3
+]).
 
--export([ enable/0
-        , disable/0
-        ]).
+-export([
+    enable/0,
+    disable/0
+]).
 
--export([ get_uuid/0
-        , get_telemetry/0
-        , get_status/0
-        ]).
+-export([
+    get_uuid/0,
+    get_telemetry/0,
+    get_status/0
+]).
 
 -export([official_version/1]).
 
@@ -59,9 +63,10 @@
 -compile(nowarn_export_all).
 -endif.
 
--import(proplists, [ get_value/2
-                   , get_value/3
-                   ]).
+-import(proplists, [
+    get_value/2,
+    get_value/3
+]).
 
 -record(telemetry, {
     id :: non_neg_integer(),
@@ -88,12 +93,16 @@
 %%--------------------------------------------------------------------
 
 start_link() ->
-    ok = mria:create_table(?TELEMETRY,
-                           [{type, set},
-                            {storage, disc_copies},
-                            {local_content, true},
-                            {record_name, telemetry},
-                            {attributes, record_info(fields, telemetry)}]),
+    ok = mria:create_table(
+        ?TELEMETRY,
+        [
+            {type, set},
+            {storage, disc_copies},
+            {local_content, true},
+            {record_name, telemetry},
+            {attributes, record_info(fields, telemetry)}
+        ]
+    ),
     _ = mria:wait_for_tables([?TELEMETRY]),
     Opts = emqx:get_config([telemetry], #{}),
     gen_server:start_link({local, ?MODULE}, ?MODULE, [Opts], []).
@@ -127,18 +136,23 @@ get_telemetry() ->
 %% is very small, it should be safe to ignore.
 -dialyzer([{nowarn_function, [init/1]}]).
 init(_Opts) ->
-    UUID1 = case mnesia:dirty_read(?TELEMETRY, ?UNIQUE_ID) of
-        [] ->
-            UUID = generate_uuid(),
-            mria:dirty_write(?TELEMETRY, #telemetry{id = ?UNIQUE_ID,
-                                                    uuid = UUID}),
-            UUID;
-        [#telemetry{uuid = UUID} | _] ->
-            UUID
-    end,
-    {ok, #state{url = ?TELEMETRY_URL,
-                report_interval = timer:seconds(?REPORT_INTERVAL),
-                uuid = UUID1}}.
+    UUID1 =
+        case mnesia:dirty_read(?TELEMETRY, ?UNIQUE_ID) of
+            [] ->
+                UUID = generate_uuid(),
+                mria:dirty_write(?TELEMETRY, #telemetry{
+                    id = ?UNIQUE_ID,
+                    uuid = UUID
+                }),
+                UUID;
+            [#telemetry{uuid = UUID} | _] ->
+                UUID
+        end,
+    {ok, #state{
+        url = ?TELEMETRY_URL,
+        report_interval = timer:seconds(?REPORT_INTERVAL),
+        uuid = UUID1
+    }}.
 
 handle_call(enable, _From, State) ->
     case ?MODULE:official_version(emqx_app:get_release()) of
@@ -148,7 +162,6 @@ handle_call(enable, _From, State) ->
         false ->
             {reply, {error, not_official_version}, State}
     end;
-
 handle_call(disable, _From, State = #state{timer = Timer}) ->
     case ?MODULE:official_version(emqx_app:get_release()) of
         true ->
@@ -157,13 +170,10 @@ handle_call(disable, _From, State = #state{timer = Timer}) ->
         false ->
             {reply, {error, not_official_version}, State}
     end;
-
 handle_call(get_uuid, _From, State = #state{uuid = UUID}) ->
     {reply, {ok, UUID}, State};
-
 handle_call(get_telemetry, _From, State) ->
     {reply, {ok, get_telemetry(State)}, State};
-
 handle_call(Req, _From, State) ->
     ?SLOG(error, #{msg => "unexpected_call", call => Req}),
     {reply, ignored, State}.
@@ -182,7 +192,6 @@ handle_info({timeout, TRef, time_to_report_telemetry_data}, State = #state{timer
         false -> ok
     end,
     {noreply, ensure_report_timer(State)};
-
 handle_info(Info, State) ->
     ?SLOG(error, #{msg => "unexpected_info", info => Info}),
     {noreply, State}.
@@ -206,22 +215,35 @@ ensure_report_timer(State = #state{report_interval = ReportInterval}) ->
 
 os_info() ->
     case erlang:system_info(os_type) of
-        {unix,darwin} ->
+        {unix, darwin} ->
             [Name | _] = string:tokens(os:cmd("sw_vers -productName"), "\n"),
             [Version | _] = string:tokens(os:cmd("sw_vers -productVersion"), "\n"),
-            [{os_name, Name},
-             {os_version, Version}];
+            [
+                {os_name, Name},
+                {os_version, Version}
+            ];
         {unix, _} ->
             case file:read_file("/etc/os-release") of
                 {error, _} ->
-                    [{os_name, "Unknown"},
-                     {os_version, "Unknown"}];
+                    [
+                        {os_name, "Unknown"},
+                        {os_version, "Unknown"}
+                    ];
                 {ok, FileContent} ->
                     OSInfo = parse_os_release(FileContent),
-                    [{os_name, get_value("NAME", OSInfo)},
-                     {os_version, get_value("VERSION", OSInfo,
-                                            get_value("VERSION_ID", OSInfo,
-                                                      get_value("PRETTY_NAME", OSInfo)))}]
+                    [
+                        {os_name, get_value("NAME", OSInfo)},
+                        {os_version,
+                            get_value(
+                                "VERSION",
+                                OSInfo,
+                                get_value(
+                                    "VERSION_ID",
+                                    OSInfo,
+                                    get_value("PRETTY_NAME", OSInfo)
+                                )
+                            )}
+                    ]
             end;
         {win32, nt} ->
             Ver = os:cmd("ver"),
@@ -231,11 +253,15 @@ os_info() ->
                     {match, [Version]} =
                         re:run(NVer, "([0-9]+[\.])+[0-9]+", [{capture, first, list}]),
                     [Name | _] = string:split(NVer, " [Version "),
-                    [{os_name, Name},
-                     {os_version, Version}];
+                    [
+                        {os_name, Name},
+                        {os_version, Version}
+                    ];
                 nomatch ->
-                    [{os_name, "Unknown"},
-                     {os_version, "Unknown"}]
+                    [
+                        {os_name, "Unknown"},
+                        {os_version, "Unknown"}
+                    ]
             end
     end.
 
@@ -247,22 +273,30 @@ uptime() ->
 
 nodes_uuid() ->
     Nodes = lists:delete(node(), mria_mnesia:running_nodes()),
-    lists:foldl(fun(Node, Acc) ->
-                    case emqx_telemetry_proto_v1:get_uuid(Node) of
-                        {badrpc, _Reason} ->
-                            Acc;
-                        {ok, UUID} ->
-                            [UUID | Acc]
-                    end
-                end, [], Nodes).
+    lists:foldl(
+        fun(Node, Acc) ->
+            case emqx_telemetry_proto_v1:get_uuid(Node) of
+                {badrpc, _Reason} ->
+                    Acc;
+                {ok, UUID} ->
+                    [UUID | Acc]
+            end
+        end,
+        [],
+        Nodes
+    ).
 
 active_plugins() ->
-    lists:foldl(fun(#plugin{name = Name, active = Active}, Acc) ->
-                        case Active of
-                            true -> [Name | Acc];
-                            false -> Acc
-                        end
-                    end, [], emqx_plugins:list()).
+    lists:foldl(
+        fun(#plugin{name = Name, active = Active}, Acc) ->
+            case Active of
+                true -> [Name | Acc];
+                false -> Acc
+            end
+        end,
+        [],
+        emqx_plugins:list()
+    ).
 
 num_clients() ->
     emqx_stats:getstat('connections.max').
@@ -282,25 +316,31 @@ generate_uuid() ->
     <<NTimeHigh:16>> = <<16#01:4, TimeHigh:12>>,
     <<NClockSeq:16>> = <<1:1, 0:1, ClockSeq:14>>,
     <<Node:48>> = <<First:7, 1:1, Last:40>>,
-    list_to_binary(io_lib:format( "~.16B-~.16B-~.16B-~.16B-~.16B"
-                                , [TimeLow, TimeMid, NTimeHigh, NClockSeq, Node])).
+    list_to_binary(
+        io_lib:format(
+            "~.16B-~.16B-~.16B-~.16B-~.16B",
+            [TimeLow, TimeMid, NTimeHigh, NClockSeq, Node]
+        )
+    ).
 
 get_telemetry(#state{uuid = UUID}) ->
     OSInfo = os_info(),
-    [{emqx_version, bin(emqx_app:get_release())},
-     {license, [{edition, <<"community">>}]},
-     {os_name, bin(get_value(os_name, OSInfo))},
-     {os_version, bin(get_value(os_version, OSInfo))},
-     {otp_version, bin(otp_version())},
-     {up_time, uptime()},
-     {uuid, UUID},
-     {nodes_uuid, nodes_uuid()},
-     {active_plugins, active_plugins()},
-     {num_clients, num_clients()},
-     {messages_received, messages_received()},
-     {messages_sent, messages_sent()},
-     {build_info, build_info()},
-     {vm_specs, vm_specs()}].
+    [
+        {emqx_version, bin(emqx_app:get_release())},
+        {license, [{edition, <<"community">>}]},
+        {os_name, bin(get_value(os_name, OSInfo))},
+        {os_version, bin(get_value(os_version, OSInfo))},
+        {otp_version, bin(otp_version())},
+        {up_time, uptime()},
+        {uuid, UUID},
+        {nodes_uuid, nodes_uuid()},
+        {active_plugins, active_plugins()},
+        {num_clients, num_clients()},
+        {messages_received, messages_received()},
+        {messages_sent, messages_sent()},
+        {build_info, build_info()},
+        {vm_specs, vm_specs()}
+    ].
 
 report_telemetry(State = #state{url = URL}) ->
     Data = get_telemetry(State),
@@ -319,17 +359,21 @@ httpc_request(Method, URL, Headers, Body) ->
     httpc:request(Method, {URL, Headers, "application/json", Body}, HTTPOptions, Options).
 
 parse_os_release(FileContent) ->
-    lists:foldl(fun(Line, Acc) ->
-                        [Var, Value] = string:tokens(Line, "="),
-                        NValue = case Value of
-                                     _ when is_list(Value) ->
-                                         lists:nth(1, string:tokens(Value, "\""));
-                                     _ ->
-                                         Value
-                                 end,
-                        [{Var, NValue} | Acc]
+    lists:foldl(
+        fun(Line, Acc) ->
+            [Var, Value] = string:tokens(Line, "="),
+            NValue =
+                case Value of
+                    _ when is_list(Value) ->
+                        lists:nth(1, string:tokens(Value, "\""));
+                    _ ->
+                        Value
                 end,
-                [], string:tokens(binary:bin_to_list(FileContent), "\n")).
+            [{Var, NValue} | Acc]
+        end,
+        [],
+        string:tokens(binary:bin_to_list(FileContent), "\n")
+    ).
 
 build_info() ->
     case ?MODULE:read_raw_build_info() of
@@ -342,14 +386,19 @@ build_info() ->
     end.
 
 read_raw_build_info() ->
-    Filename = filename:join([code:root_dir(), "releases",
-                              emqx_app:get_release(), "BUILD_INFO"]),
+    Filename = filename:join([
+        code:root_dir(),
+        "releases",
+        emqx_app:get_release(),
+        "BUILD_INFO"
+    ]),
     file:read_file(Filename).
 
 vm_specs() ->
     SysMemData = memsup:get_system_memory_data(),
-    [ {num_cpus, erlang:system_info(logical_processors)}
-    , {total_memory, proplists:get_value(available_memory, SysMemData)}
+    [
+        {num_cpus, erlang:system_info(logical_processors)},
+        {total_memory, proplists:get_value(available_memory, SysMemData)}
     ].
 
 bin(L) when is_list(L) ->

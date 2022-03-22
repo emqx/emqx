@@ -48,4 +48,3 @@ t_topic_metrics_list(_) ->
 
 t_topic_metrics_add_remove(_) ->
     ok.
-

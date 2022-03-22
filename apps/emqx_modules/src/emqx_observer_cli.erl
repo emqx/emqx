@@ -16,12 +16,12 @@
 
 -module(emqx_observer_cli).
 
--export([ enable/0
-        , disable/0
-        ]).
+-export([
+    enable/0,
+    disable/0
+]).
 
 -export([cmd/1]).
-
 
 %%--------------------------------------------------------------------
 %% enable/disable
@@ -34,20 +34,19 @@ disable() ->
 
 cmd(["status"]) ->
     observer_cli:start();
-
 cmd(["bin_leak"]) ->
     [emqx_ctl:print("~p~n", [Row]) || Row <- recon:bin_leak(100)];
-
 cmd(["load", Mod]) ->
     Module = list_to_existing_atom(Mod),
     Nodes = nodes(),
     Res = remote_load(Nodes, Module),
     emqx_ctl:print("Loaded ~p module on ~p on ~n", [Mod, Nodes, Res]);
-
 cmd(_) ->
-    emqx_ctl:usage([{"observer status",           "observer_cli:start()"},
-                    {"observer bin_leak",         "recon:bin_leak(100)"},
-                    {"observer load Mod",         "recon:remote_load(Mod) to all nodes"}]).
+    emqx_ctl:usage([
+        {"observer status", "observer_cli:start()"},
+        {"observer bin_leak", "recon:bin_leak(100)"},
+        {"observer load Mod", "recon:remote_load(Mod) to all nodes"}
+    ]).
 
 %% recon:remote_load/1 has a bug, when nodes() returns [], it is
 %% taken by recon as a node name.

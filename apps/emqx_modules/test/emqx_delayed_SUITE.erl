@@ -49,7 +49,7 @@ end_per_suite(_) ->
 
 t_load_case(_) ->
     Hooks = emqx_hooks:lookup('message.publish'),
-    MFA = {emqx_delayed,on_message_publish,[]},
+    MFA = {emqx_delayed, on_message_publish, []},
     ?assertEqual(false, lists:keyfind(MFA, 2, Hooks)),
     ok = emqx_delayed:enable(),
     Hooks1 = emqx_hooks:lookup('message.publish'),
@@ -59,7 +59,10 @@ t_load_case(_) ->
 t_delayed_message(_) ->
     ok = emqx_delayed:enable(),
     DelayedMsg = emqx_message:make(?MODULE, 1, <<"$delayed/1/publish">>, <<"delayed_m">>),
-    ?assertEqual({stop, DelayedMsg#message{topic = <<"publish">>, headers = #{allow_publish => false}}}, on_message_publish(DelayedMsg)),
+    ?assertEqual(
+        {stop, DelayedMsg#message{topic = <<"publish">>, headers = #{allow_publish => false}}},
+        on_message_publish(DelayedMsg)
+    ),
 
     Msg = emqx_message:make(?MODULE, 1, <<"no_delayed_msg">>, <<"no_delayed">>),
     ?assertEqual({ok, Msg}, on_message_publish(Msg)),

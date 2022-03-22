@@ -24,17 +24,19 @@
 
 % -export([cli/1]).
 
--export([ status/2
-        , data/2
-        ]).
+-export([
+    status/2,
+    data/2
+]).
 
 -export([enable_telemetry/2]).
 
--export([ api_spec/0
-        , paths/0
-        , schema/1
-        , fields/1
-        ]).
+-export([
+    api_spec/0,
+    paths/0,
+    schema/1,
+    fields/1
+]).
 
 -define(BAD_REQUEST, 'BAD_REQUEST').
 
@@ -42,126 +44,166 @@ api_spec() ->
     emqx_dashboard_swagger:spec(?MODULE, #{check_schema => true}).
 
 paths() ->
-    [ "/telemetry/status"
-    , "/telemetry/data"
+    [
+        "/telemetry/status",
+        "/telemetry/data"
     ].
 
 schema("/telemetry/status") ->
-    #{ 'operationId' => status,
-       get =>
-           #{ description => <<"Get telemetry status">>
-            , responses =>
-                  #{ 200 => status_schema(<<"Get telemetry status">>)}
+    #{
+        'operationId' => status,
+        get =>
+            #{
+                description => <<"Get telemetry status">>,
+                responses =>
+                    #{200 => status_schema(<<"Get telemetry status">>)}
             },
-       put =>
-           #{ description => <<"Enable or disable telemetry">>
-            , 'requestBody' => status_schema(<<"Enable or disable telemetry">>)
-            , responses =>
-                  #{ 200 => status_schema(<<"Enable or disable telemetry successfully">>)
-                   , 400 => emqx_dashboard_swagger:error_codes([?BAD_REQUEST], <<"Bad Request">>)
-                   }
+        put =>
+            #{
+                description => <<"Enable or disable telemetry">>,
+                'requestBody' => status_schema(<<"Enable or disable telemetry">>),
+                responses =>
+                    #{
+                        200 => status_schema(<<"Enable or disable telemetry successfully">>),
+                        400 => emqx_dashboard_swagger:error_codes([?BAD_REQUEST], <<"Bad Request">>)
+                    }
             }
-     };
+    };
 schema("/telemetry/data") ->
-    #{ 'operationId' => data,
-       get =>
-           #{ description => <<"Get telemetry data">>
-            , responses =>
-                  #{ 200 => mk(ref(?MODULE, telemetry), #{ desc => <<"Get telemetry data">>})}}
-     }.
+    #{
+        'operationId' => data,
+        get =>
+            #{
+                description => <<"Get telemetry data">>,
+                responses =>
+                    #{200 => mk(ref(?MODULE, telemetry), #{desc => <<"Get telemetry data">>})}
+            }
+    }.
 
 status_schema(Desc) ->
     mk(ref(?MODULE, status), #{in => body, desc => Desc}).
 
 fields(status) ->
-    [ { enable
-      , mk( boolean()
-          , #{ desc => <<"Telemetry status">>
-             , default => true
-             , example => false
-             })
-      }
+    [
+        {enable,
+            mk(
+                boolean(),
+                #{
+                    desc => <<"Telemetry status">>,
+                    default => true,
+                    example => false
+                }
+            )}
     ];
 fields(telemetry) ->
-    [ { emqx_version
-      , mk( string()
-          , #{ desc => <<"EMQX Version">>
-             , example => <<"5.0.0-beta.3-32d1547c">>
-             })
-      }
-    , { license
-      , mk( map()
-          , #{ desc => <<"EMQX License">>
-             , example => #{edition => <<"community">>}
-             })
-      }
-    , { os_name
-      , mk( string()
-          , #{ desc => <<"OS Name">>
-             , example => <<"Linux">>
-             })
-      }
-    , { os_version
-      , mk( string()
-          , #{ desc => <<"OS Version">>
-             , example => <<"20.04">>
-             })
-      }
-    , { otp_version
-      , mk( string()
-          , #{ desc => <<"Erlang/OTP Version">>
-             , example => <<"24">>
-             })
-      }
-    , { up_time
-      , mk( integer()
-          , #{ desc => <<"EMQX Runtime">>
-             , example => 20220113
-             })
-      }
-    , { uuid
-      , mk( string()
-          , #{ desc => <<"EMQX UUID">>
-             , example => <<"AAAAAAAA-BBBB-CCCC-2022-DDDDEEEEFFF">>
-             })
-      }
-    , { nodes_uuid
-      , mk( array(binary())
-          , #{ desc => <<"EMQX Cluster Nodes UUID">>
-             , example => [ <<"AAAAAAAA-BBBB-CCCC-2022-DDDDEEEEFFF">>
-                          , <<"ZZZZZZZZ-CCCC-BBBB-2022-DDDDEEEEFFF">>]
-             })
-      }
-    , { active_plugins
-      , mk( array(binary())
-          , #{ desc => <<"EMQX Active Plugins">>
-             , example => [<<"Plugin A">>, <<"Plugin B">>]
-             })
-      }
-    , { active_modules
-      , mk( array(binary())
-          , #{ desc => <<"EMQX Active Modules">>
-             , example => [<<"Module A">>, <<"Module B">>]
-             })
-      }
-    , { num_clients
-      , mk( integer()
-          , #{ desc => <<"EMQX Current Connections">>
-             , example => 20220113
-             })
-      }
-    , { messages_received
-      , mk( integer()
-          , #{ desc => <<"EMQX Current Received Message">>
-             , example => 2022
-             })
-      }
-    , { messages_sent
-      , mk( integer()
-          , #{ desc => <<"EMQX Current Sent Message">>
-             , example => 2022
-             })
-      }
+    [
+        {emqx_version,
+            mk(
+                string(),
+                #{
+                    desc => <<"EMQX Version">>,
+                    example => <<"5.0.0-beta.3-32d1547c">>
+                }
+            )},
+        {license,
+            mk(
+                map(),
+                #{
+                    desc => <<"EMQX License">>,
+                    example => #{edition => <<"community">>}
+                }
+            )},
+        {os_name,
+            mk(
+                string(),
+                #{
+                    desc => <<"OS Name">>,
+                    example => <<"Linux">>
+                }
+            )},
+        {os_version,
+            mk(
+                string(),
+                #{
+                    desc => <<"OS Version">>,
+                    example => <<"20.04">>
+                }
+            )},
+        {otp_version,
+            mk(
+                string(),
+                #{
+                    desc => <<"Erlang/OTP Version">>,
+                    example => <<"24">>
+                }
+            )},
+        {up_time,
+            mk(
+                integer(),
+                #{
+                    desc => <<"EMQX Runtime">>,
+                    example => 20220113
+                }
+            )},
+        {uuid,
+            mk(
+                string(),
+                #{
+                    desc => <<"EMQX UUID">>,
+                    example => <<"AAAAAAAA-BBBB-CCCC-2022-DDDDEEEEFFF">>
+                }
+            )},
+        {nodes_uuid,
+            mk(
+                array(binary()),
+                #{
+                    desc => <<"EMQX Cluster Nodes UUID">>,
+                    example => [
+                        <<"AAAAAAAA-BBBB-CCCC-2022-DDDDEEEEFFF">>,
+                        <<"ZZZZZZZZ-CCCC-BBBB-2022-DDDDEEEEFFF">>
+                    ]
+                }
+            )},
+        {active_plugins,
+            mk(
+                array(binary()),
+                #{
+                    desc => <<"EMQX Active Plugins">>,
+                    example => [<<"Plugin A">>, <<"Plugin B">>]
+                }
+            )},
+        {active_modules,
+            mk(
+                array(binary()),
+                #{
+                    desc => <<"EMQX Active Modules">>,
+                    example => [<<"Module A">>, <<"Module B">>]
+                }
+            )},
+        {num_clients,
+            mk(
+                integer(),
+                #{
+                    desc => <<"EMQX Current Connections">>,
+                    example => 20220113
+                }
+            )},
+        {messages_received,
+            mk(
+                integer(),
+                #{
+                    desc => <<"EMQX Current Received Message">>,
+                    example => 2022
+                }
+            )},
+        {messages_sent,
+            mk(
+                integer(),
+                #{
+                    desc => <<"EMQX Current Sent Message">>,
+                    example => 2022
+                }
+            )}
     ].
 
 %%--------------------------------------------------------------------
@@ -169,15 +211,15 @@ fields(telemetry) ->
 %%--------------------------------------------------------------------
 status(get, _Params) ->
     {200, get_telemetry_status()};
-
 status(put, #{body := Body}) ->
     Enable = maps:get(<<"enable">>, Body),
     case Enable =:= emqx_telemetry:get_status() of
         true ->
-            Reason = case Enable of
-                true -> <<"Telemetry status is already enabled">>;
-                false -> <<"Telemetry status is already disable">>
-            end,
+            Reason =
+                case Enable of
+                    true -> <<"Telemetry status is already enabled">>;
+                    false -> <<"Telemetry status is already disable">>
+                end,
             {400, #{code => 'BAD_REQUEST', message => Reason}};
         false ->
             enable_telemetry(Enable),
@@ -231,9 +273,12 @@ data(get, _Request) ->
 %% internal function
 %%--------------------------------------------------------------------
 enable_telemetry(Enable) ->
-    lists:foreach(fun(Node) ->
-        enable_telemetry(Node, Enable)
-    end, mria_mnesia:running_nodes()).
+    lists:foreach(
+        fun(Node) ->
+            enable_telemetry(Node, Enable)
+        end,
+        mria_mnesia:running_nodes()
+    ).
 
 enable_telemetry(Node, true) ->
     is_ok(emqx_telemetry_proto_v1:enable_telemetry(Node));

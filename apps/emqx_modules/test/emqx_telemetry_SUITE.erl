@@ -40,32 +40,38 @@ init_per_testcase(t_get_telemetry, Config) ->
     TestPID = self(),
     ok = meck:new(httpc, [non_strict, passthrough, no_history, no_link]),
     ok = meck:expect(httpc, request, fun(Method, URL, Headers, Body) ->
-                                             TestPID ! {request, Method, URL, Headers, Body}
-                                     end),
+        TestPID ! {request, Method, URL, Headers, Body}
+    end),
     ok = meck:new(emqx_telemetry, [non_strict, passthrough, no_history, no_link]),
-    ok = meck:expect(emqx_telemetry, read_raw_build_info,
-                     fun() ->
-                             {ok, Path} = file:read_link(filename:join([DataDir, "BUILD_INFO"])),
-                             {ok, Template} = file:read_file(Path),
-                             Vars0 = [ {build_info_arch, "arch"}
-                                    , {build_info_wordsize, "64"}
-                                    , {build_info_os, "os"}
-                                    , {build_info_erlang, "erlang"}
-                                    , {build_info_elixir, "elixir"}
-                                    , {build_info_relform, "relform"}
-                                    ],
-                             Vars = [{atom_to_list(K), iolist_to_binary(V)}
-                                     || {K, V} <- Vars0],
-                             Rendered = bbmustache:render(Template, Vars),
-                             {ok, Rendered}
-                     end),
+    ok = meck:expect(
+        emqx_telemetry,
+        read_raw_build_info,
+        fun() ->
+            {ok, Path} = file:read_link(filename:join([DataDir, "BUILD_INFO"])),
+            {ok, Template} = file:read_file(Path),
+            Vars0 = [
+                {build_info_arch, "arch"},
+                {build_info_wordsize, "64"},
+                {build_info_os, "os"},
+                {build_info_erlang, "erlang"},
+                {build_info_elixir, "elixir"},
+                {build_info_relform, "relform"}
+            ],
+            Vars = [
+                {atom_to_list(K), iolist_to_binary(V)}
+             || {K, V} <- Vars0
+            ],
+            Rendered = bbmustache:render(Template, Vars),
+            {ok, Rendered}
+        end
+    ),
     Config;
 init_per_testcase(_Testcase, Config) ->
     TestPID = self(),
     ok = meck:new(httpc, [non_strict, passthrough, no_history, no_link]),
     ok = meck:expect(httpc, request, fun(Method, URL, Headers, Body) ->
-                                             TestPID ! {request, Method, URL, Headers, Body}
-                                     end),
+        TestPID ! {request, Method, URL, Headers, Body}
+    end),
     Config.
 
 end_per_testcase(t_get_telemetry, _Config) ->
@@ -113,14 +119,16 @@ t_get_telemetry(_Config) ->
     ?assertEqual(0, get_value(num_clients, TelemetryData)),
     BuildInfo = get_value(build_info, TelemetryData),
     ?assertMatch(
-       #{ <<"arch">> := <<_/binary>>
-        , <<"elixir">> := <<_/binary>>
-        , <<"erlang">> := <<_/binary>>
-        , <<"os">> := <<_/binary>>
-        , <<"relform">> := <<_/binary>>
-        , <<"wordsize">> := Wordsize
+        #{
+            <<"arch">> := <<_/binary>>,
+            <<"elixir">> := <<_/binary>>,
+            <<"erlang">> := <<_/binary>>,
+            <<"os">> := <<_/binary>>,
+            <<"relform">> := <<_/binary>>,
+            <<"wordsize">> := Wordsize
         } when is_integer(Wordsize),
-       BuildInfo),
+        BuildInfo
+    ),
     VMSpecs = get_value(vm_specs, TelemetryData),
     ?assert(is_integer(get_value(num_cpus, VMSpecs))),
     ?assert(0 =< get_value(num_cpus, VMSpecs)),

@@ -19,9 +19,12 @@
 -compile(export_all).
 -compile(nowarn_export_all).
 
-
--define(TOPIC, <<"""
-topic_metrics: []""">>).
+-define(TOPIC, <<
+    ""
+    "\n"
+    "topic_metrics: []"
+    ""
+>>).
 
 -include_lib("eunit/include/eunit.hrl").
 
@@ -47,7 +50,12 @@ t_nonexistent_topic_metrics(_) ->
     ?assertEqual({error, invalid_metric}, emqx_topic_metrics:val(<<"a/b/c">>, 'invalid.metrics')),
     ?assertEqual({error, invalid_metric}, emqx_topic_metrics:inc(<<"a/b/c">>, 'invalid.metrics')),
     ?assertEqual({error, invalid_metric}, emqx_topic_metrics:rate(<<"a/b/c">>, 'invalid.metrics')),
-    % ?assertEqual({error, invalid_metric}, emqx_topic_metrics:rates(<<"a/b/c">>, 'invalid.metrics')),
+
+    %% ?assertEqual(
+    %%     {error, invalid_metric},
+    %%     emqx_topic_metrics:rates(<<"a/b/c">>, 'invalid.metrics')
+    %% ),
+
     emqx_topic_metrics:deregister(<<"a/b/c">>),
     emqx_topic_metrics:disable().
 
@@ -64,7 +72,12 @@ t_topic_metrics(_) ->
     ?assertEqual(ok, emqx_topic_metrics:inc(<<"a/b/c">>, 'messages.in')),
     ?assertEqual(1, emqx_topic_metrics:val(<<"a/b/c">>, 'messages.in')),
     ?assert(emqx_topic_metrics:rate(<<"a/b/c">>, 'messages.in') =:= 0),
-    % ?assert(emqx_topic_metrics:rates(<<"a/b/c">>, 'messages.in') =:= #{long => 0,medium => 0,short => 0}),
+
+    %% ?assert(
+    %%     emqx_topic_metrics:rates(<<"a/b/c">>, 'messages.in') =:=
+    %%         #{long => 0, medium => 0, short => 0}
+    %% ),
+
     emqx_topic_metrics:deregister(<<"a/b/c">>),
     emqx_topic_metrics:disable().
 
@@ -78,9 +91,11 @@ t_hook(_) ->
     ?assertEqual(0, emqx_topic_metrics:val(<<"a/b/c">>, 'messages.qos0.out')),
     ?assertEqual(0, emqx_topic_metrics:val(<<"a/b/c">>, 'messages.dropped')),
 
-    {ok, C} = emqtt:start_link([{host, "localhost"},
-                                {clientid, "myclient"},
-                                {username, "myuser"}]),
+    {ok, C} = emqtt:start_link([
+        {host, "localhost"},
+        {clientid, "myclient"},
+        {username, "myuser"}
+    ]),
     {ok, _} = emqtt:connect(C),
     emqtt:publish(C, <<"a/b/c">>, <<"Hello world">>, 0),
     ct:sleep(100),
