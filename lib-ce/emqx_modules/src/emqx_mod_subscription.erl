@@ -47,10 +47,14 @@ on_client_connected(#{clientid := ClientId, username := Username}, _ConnInfo = #
 
     Fold = fun({Topic, SubOpts}, Acc) ->
                    case rep(Topic, ClientId, Username) of
-                       {error, _} ->
+                       {error, Reason} ->
+                           ?LOG(warning, "auto subscribe ignored, topic filter:~ts reason:~p~n",
+                                [Topic, Reason]),
                            Acc;
                        <<>> ->
-                           ?LOG(warning, "Topic can't be empty when auto subscribe"),
+                           ?LOG(warning, "auto subscribe ignored, topic filter:~ts"
+                                " reason: topic can't be empty~n",
+                                [Topic]),
                            Acc;
                        NewTopic ->
                            [{NewTopic, OptFun(SubOpts)} | Acc]
@@ -82,7 +86,6 @@ rep([<<"%c">> | T], ClientId, Username, Acc) ->
         Username,
         [ClientId | Acc]);
 rep([<<"%u">> | _], _, undefined, _) ->
-    ?LOG(error, "Username undefined when auto subscribe"),
     {error, username_undefined};
 rep([<<"%u">> | T], ClientId, Username, Acc) ->
     rep(T,
