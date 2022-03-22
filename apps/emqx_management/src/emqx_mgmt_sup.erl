@@ -27,4 +27,3 @@ start_link() ->
 
 init([]) ->
 	{ok, {{one_for_one, 1, 5}, []}}.
-

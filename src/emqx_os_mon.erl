@@ -48,6 +48,7 @@
         ]).
 
 -include("emqx.hrl").
+-include_lib("lc/include/lc.hrl").
 
 -define(OS_MON, ?MODULE).
 
@@ -88,7 +89,15 @@ get_sysmem_high_watermark() ->
     memsup:get_sysmem_high_watermark().
 
 set_sysmem_high_watermark(Float) ->
-    memsup:set_sysmem_high_watermark(Float / 100).
+    V = Float/100,
+    case load_ctl:get_config() of
+        #{ ?MEM_MON_F0 := true } = OldLC ->
+            ok = load_ctl:put_config(OldLC#{ ?MEM_MON_F0 => true
+                                           , ?MEM_MON_F1 => V});
+        _ ->
+            skip
+    end,
+    memsup:set_sysmem_high_watermark(V).
 
 get_procmem_high_watermark() ->
     memsup:get_procmem_high_watermark().

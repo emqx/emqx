@@ -1,4 +1,5 @@
-%% -*-: erlang -*-
+%% -*- mode: erlang -*-
+%% Unless you know what you are doing, DO NOT edit manually!!
 {VSN,
  [{"4.4.0",
    [{load_module, emqx_mod_presence, brutal_purge, soft_purge, []},

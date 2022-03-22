@@ -27,7 +27,6 @@ spec:
         namespace: {{ .Release.Namespace }}
         labels:
           app.kubernetes.io/name: {{ include "emqx.name" . }}
-          helm.sh/chart: {{ include "emqx.chart" . }}
           app.kubernetes.io/instance: {{ .Release.Name }}
           app.kubernetes.io/managed-by: {{ .Release.Service }}
         annotations:
@@ -197,8 +196,23 @@ spec:
             httpGet:
               path: /status
               port: {{ .Values.emqxConfig.EMQX_MANAGEMENT__LISTENER__HTTP | default 8081 }}
-            initialDelaySeconds: 5
+            initialDelaySeconds: 10
             periodSeconds: 5
+            failureThreshold: 30
+          livenessProbe:
+            httpGet:
+              path: /status
+              port: {{ .Values.emqxConfig.EMQX_MANAGEMENT__LISTENER__HTTP | default 8081 }}
+            initialDelaySeconds: 60
+            periodSeconds: 30
+            failureThreshold: 10
+          lifecycle:
+            preStop:
+              exec:
+                command:
+                  - "/opt/emqx/bin/emqx_ctl"
+                  - "cluster"
+                  - "leave"
     {{- with .Values.nodeSelector }}
       nodeSelector:
         {{- toYaml . | nindent 8 }}

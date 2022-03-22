@@ -25,6 +25,14 @@ File format:
 * Force shutdown of processes that cannot answer takeover event [#7026]
 * Support set keepalive via queryString & Body HTTP API.
 * `topic` parameter in bridge configuration can have `${node}` substitution (just like in `clientid` parameter)
+* Add UTF-8 string validity check in `strict_mode` for MQTT packet.
+  When set to true, invalid UTF-8 strings will cause the client to be disconnected. i.e. client ID, topic name. [#7261]
+* Changed systemd service restart delay from 10 seconds to 60 seconds.
+* MQTT-SN gateway supports initiative to synchronize registered topics after session resumed. [#7300]
+* Add load control app for future development.
+* Change the precision of float to 17 digits after the decimal point when formatting a
+  float using payload templates of rule actions. The old precision is 10 digits before
+  this change.
 
 ### Bug fixes
 
@@ -38,6 +46,11 @@ File format:
 * Fix the MQTT-SN message replay when the topic is not registered to the client [#6970]
 * Fix rpc get node info maybe crash when other nodes is not ready.
 * Fix false alert level log “cannot_find_plugins” caused by duplicate plugin names in `loaded_plugins` files.
+* Prompt user how to change the dashboard's initial default password when emqx start.
+* Fix errno=13 'Permission denied' Cannot create FIFO boot error in Amazon Linux 2022 (el8 package)
+* Fix user or appid created, name only allow `^[A-Za-z]+[A-Za-z0-9-_]*$`
+* Fix subscribe http api crash by bad_qos `/mqtt/subscribe`,`/mqtt/subscribe_batch`.
+* Send DISCONNECT packet with reason code 0x98 if connection has been kicked [#7309]
 
 ## v4.3.12
 ### Important changes

@@ -129,6 +129,9 @@ query_multi(Pool, Collection, SelectorList) ->
     lists:reverse(lists:flatten(lists:foldl(fun(Selector, Acc1) ->
         Batch = ecpool:with_client(Pool, fun(Conn) ->
                   case mongo_api:find(Conn, Collection, Selector, #{}) of
+                      {error, Reason} ->
+                          ?LOG(error, "[MongoDB] query_multi failed, got error: ~p", [Reason]),
+                          [];
                       [] -> [];
                       {ok, Cursor} ->
                           mc_cursor:foldl(fun(O, Acc2) -> [O|Acc2] end, [], Cursor, 1000)

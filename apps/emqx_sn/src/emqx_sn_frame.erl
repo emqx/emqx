@@ -339,9 +339,9 @@ format(?SN_REGACK_MSG(TopicId, MsgId, ReturnCode)) ->
 format(?SN_PINGREQ_MSG(ClientId)) ->
     io_lib:format("SN_PINGREQ(ClientId=~s)", [ClientId]);
 format(?SN_PINGRESP_MSG()) ->
-    "SN_PINGREQ()";
+    "SN_PINGRESP()";
 format(?SN_DISCONNECT_MSG(Duration)) ->
-    io_lib:format("SN_DISCONNECT(Duration=~s)", [Duration]);
+    io_lib:format("SN_DISCONNECT(Duration=~w)", [Duration]);
 
 format(#mqtt_sn_message{type = Type, variable = Var}) ->
     io_lib:format("mqtt_sn_message(type=~s, Var=~w)",
