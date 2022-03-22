@@ -26,21 +26,26 @@
 generate(Topics) when is_list(Topics) ->
     [generate(Topic) || Topic <- Topics];
 
-generate(T0 = #{topic := Topic}) ->
-    T = maps:without([topic], T0),
+generate(T = #{topic := Topic}) ->
     T#{placeholder => generate(Topic, [])}.
 
 -spec(to_topic_table(list(), map(), map()) -> list()).
 to_topic_table(PHs, ClientInfo, ConnInfo) ->
-    Fold = fun(#{qos := Qos, rh := RH, rap := RAP, nl := NL, placeholder := PlaceHolder}, Acc) ->
+    Fold = fun(#{qos := Qos, rh := RH, rap := RAP, nl := NL,
+                 placeholder := PlaceHolder, topic := RawTopic
+                },
+               Acc) ->
                    case to_topic(PlaceHolder, ClientInfo, ConnInfo, []) of
-                       {error, _} ->
+                       {error, Reason} ->
+                           ?SLOG(warning, #{msg => "auto_subscribe_ignored",
+                                            topic => RawTopic,
+                                            reason => Reason
+                                           }),
                            Acc;
                        <<>> ->
-                           ?SLOG(warning, #{msg => "Topic can't be empty",
-                                            clientinfo => ClientInfo,
-                                            conninfo => ConnInfo,
-                                            placeholder => PlaceHolder
+                           ?SLOG(warning, #{msg => "auto_subscribe_ignored",
+                                            topic => RawTopic,
+                                            reason => empty_topic
                                            }),
                            Acc;
                        Topic0 ->
@@ -77,7 +82,6 @@ to_topic([Binary | PTs], C, Co, Res) when is_binary(Binary) ->
 to_topic([clientid | PTs], C = #{clientid := ClientID}, Co, Res) ->
     to_topic(PTs, C, Co, [ClientID | Res]);
 to_topic([username | _], #{username := undefined}, _, _) ->
-    ?SLOG(error, #{msg => "Username undefined when auto subscribe"}),
     {error, username_undefined};
 to_topic([username | PTs], C = #{username := Username}, Co, Res) ->
     to_topic(PTs, C, Co, [Username | Res]);
