@@ -274,6 +274,24 @@ t_clients_subscription_api(_) ->
     end,
     with_connection(Fun).
 
+t_clients_get_subscription_api(_) ->
+    Fun = fun(Channel, Token) ->
+                  Path = "/gateway/coap/clients/client1/subscriptions",
+                  %% list
+                  {200, []} = request(get, Path),
+
+                  observe(Channel, Token, true),
+
+                  {200, [Subs]} = request(get, Path),
+
+                  ?assertEqual(<<"/coap/observe">>, maps:get(topic, Subs)),
+
+                  observe(Channel, Token, false),
+
+                  {200, []} = request(get, Path)
+          end,
+    with_connection(Fun).
+
 %%--------------------------------------------------------------------
 %% helpers
 
@@ -290,6 +308,18 @@ disconnection(Channel, Token) ->
     URI = ?MQTT_PREFIX ++ "/connection?clientid=client1&token=" ++ Token,
     Req = make_req(delete),
     {ok, deleted, _} = do_request(Channel, URI, Req).
+
+observe(Channel, Token, true) ->
+    URI = ?PS_PREFIX ++ "/coap/observe?clientid=client1&token=" ++ Token,
+    Req = make_req(get, <<>>, [{observe, 0}]),
+    {ok, content, _Data} = do_request(Channel, URI, Req),
+    ok;
+
+observe(Channel, Token, false) ->
+    URI = ?PS_PREFIX ++ "/coap/observe?clientid=client1&token=" ++ Token,
+    Req = make_req(get, <<>>, [{observe, 1}]),
+    {ok, nocontent, _Data} = do_request(Channel, URI, Req),
+    ok.
 
 make_req(Method) ->
     make_req(Method, <<>>).
