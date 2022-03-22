@@ -347,7 +347,8 @@ get_telemetry(State0 = #state{uuid = UUID}) ->
         {messages_sent, messages_sent()},
         {build_info, build_info()},
         {vm_specs, vm_specs()},
-        {mqtt_runtime_insights, MQTTRTInsights}
+        {mqtt_runtime_insights, MQTTRTInsights},
+        {advanced_mqtt_features, advanced_mqtt_features()}
     ]}.
 
 report_telemetry(State0 = #state{url = URL}) ->
@@ -447,12 +448,19 @@ update_mqtt_rates(
 update_mqtt_rates(State) ->
     {#{}, State}.
 
+advanced_mqtt_features() ->
+    AdvancedFeatures = application:get_env(emqx_telemetry, advanced_mqtt_features_in_use, #{}),
+    maps:map(fun(_K, V) -> bool2int(V) end, AdvancedFeatures).
+
 bin(L) when is_list(L) ->
     list_to_binary(L);
 bin(A) when is_atom(A) ->
     atom_to_binary(A);
 bin(B) when is_binary(B) ->
     B.
+
+bool2int(true) -> 1;
+bool2int(false) -> 0.
 
 empty_state() ->
     #state{
