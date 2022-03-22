@@ -27,33 +27,36 @@
 
 -boot_mnesia({mnesia, [boot]}).
 
--export([ start_link/0
-        , on_message_publish/1
-        ]).
+-export([
+    start_link/0,
+    on_message_publish/1
+]).
 
 %% gen_server callbacks
--export([ init/1
-        , handle_call/3
-        , handle_cast/2
-        , handle_info/2
-        , terminate/2
-        , code_change/3
-        ]).
+-export([
+    init/1,
+    handle_call/3,
+    handle_cast/2,
+    handle_info/2,
+    terminate/2,
+    code_change/3
+]).
 
 %% gen_server callbacks
--export([ enable/0
-        , disable/0
-        , set_max_delayed_messages/1
-        , update_config/1
-        , list/1
-        , get_delayed_message/1
-        , get_delayed_message/2
-        , delete_delayed_message/1
-        , delete_delayed_message/2
-        , post_config_update/5
-        , cluster_list/1
-        , cluster_query/4
-        ]).
+-export([
+    enable/0,
+    disable/0,
+    set_max_delayed_messages/1,
+    update_config/1,
+    list/1,
+    get_delayed_message/1,
+    get_delayed_message/2,
+    delete_delayed_message/1,
+    delete_delayed_message/2,
+    post_config_update/5,
+    cluster_list/1,
+    cluster_query/4
+]).
 
 -export([format_delayed/1]).
 
@@ -64,13 +67,13 @@
 
 -export_type([with_id_return/0, with_id_return/1]).
 
-
--type state() :: #{ publish_timer := maybe(timer:tref())
-                  , publish_at := non_neg_integer()
-                  , stats_timer := maybe(reference())
-                  , stats_fun := maybe(fun((pos_integer()) -> ok))
-                  , max_delayed_messages := non_neg_integer()
-                  }.
+-type state() :: #{
+    publish_timer := maybe(timer:tref()),
+    publish_at := non_neg_integer(),
+    stats_timer := maybe(reference()),
+    stats_fun := maybe(fun((pos_integer()) -> ok)),
+    max_delayed_messages := non_neg_integer()
+}.
 
 %% sync ms with record change
 -define(QUERY_MS(Id), [{{delayed_message, {'_', Id}, '_', '_'}, [], ['$_']}]).
@@ -86,40 +89,42 @@
 %%--------------------------------------------------------------------
 mnesia(boot) ->
     ok = mria:create_table(?TAB, [
-                {type, ordered_set},
-                {storage, disc_copies},
-                {local_content, true},
-                {record_name, delayed_message},
-                {attributes, record_info(fields, delayed_message)}]).
+        {type, ordered_set},
+        {storage, disc_copies},
+        {local_content, true},
+        {record_name, delayed_message},
+        {attributes, record_info(fields, delayed_message)}
+    ]).
 
 %%--------------------------------------------------------------------
 %% Hooks
 %%--------------------------------------------------------------------
-on_message_publish(Msg = #message{
-                            id = Id,
-                            topic = <<"$delayed/", Topic/binary>>,
-                            timestamp = Ts
-                           }) ->
+on_message_publish(
+    Msg = #message{
+        id = Id,
+        topic = <<"$delayed/", Topic/binary>>,
+        timestamp = Ts
+    }
+) ->
     [Delay, Topic1] = binary:split(Topic, <<"/">>),
-    {PubAt, Delayed} = case binary_to_integer(Delay) of
-                Interval when Interval < ?MAX_INTERVAL ->
-                    {Interval + erlang:round(Ts / 1000), Interval};
-                Timestamp ->
-                    %% Check malicious timestamp?
-                    case (Timestamp - erlang:round(Ts / 1000)) > ?MAX_INTERVAL of
-                        true  -> error(invalid_delayed_timestamp);
-                        false -> {Timestamp, Timestamp - erlang:round(Ts / 1000)}
-                    end
-            end,
+    {PubAt, Delayed} =
+        case binary_to_integer(Delay) of
+            Interval when Interval < ?MAX_INTERVAL ->
+                {Interval + erlang:round(Ts / 1000), Interval};
+            Timestamp ->
+                %% Check malicious timestamp?
+                case (Timestamp - erlang:round(Ts / 1000)) > ?MAX_INTERVAL of
+                    true -> error(invalid_delayed_timestamp);
+                    false -> {Timestamp, Timestamp - erlang:round(Ts / 1000)}
+                end
+        end,
     PubMsg = Msg#message{topic = Topic1},
     Headers = PubMsg#message.headers,
     case store(#delayed_message{key = {PubAt, Id}, delayed = Delayed, msg = PubMsg}) of
         ok -> ok;
-        {error, Error} ->
-            ?SLOG(error, #{msg => "store_delayed_message_fail", error => Error})
+        {error, Error} -> ?SLOG(error, #{msg => "store_delayed_message_fail", error => Error})
     end,
     {stop, PubMsg#message{headers = Headers#{allow_publish => false}}};
-
 on_message_publish(Msg) ->
     {ok, Msg}.
 
@@ -127,12 +132,12 @@ on_message_publish(Msg) ->
 %% Start delayed publish server
 %%--------------------------------------------------------------------
 
--spec(start_link() -> emqx_types:startlink_ret()).
+-spec start_link() -> emqx_types:startlink_ret().
 start_link() ->
     Opts = emqx_conf:get([delayed], #{}),
     gen_server:start_link({local, ?SERVER}, ?MODULE, [Opts], []).
 
--spec(store(delayed_message()) -> ok | {error, atom()}).
+-spec store(delayed_message()) -> ok | {error, atom()}.
 store(DelayedMsg) ->
     gen_server:call(?SERVER, {store, DelayedMsg}, infinity).
 
@@ -158,13 +163,21 @@ cluster_query(Table, _QsSpec, Continuation, Limit) ->
 format_delayed(Delayed) ->
     format_delayed(Delayed, false).
 
-format_delayed(#delayed_message{key = {ExpectTimeStamp, Id}, delayed = Delayed,
-            msg = #message{topic = Topic,
-                           from = From,
-                           headers = Headers,
-                           qos = Qos,
-                           timestamp = PublishTimeStamp,
-                           payload = Payload}}, WithPayload) ->
+format_delayed(
+    #delayed_message{
+        key = {ExpectTimeStamp, Id},
+        delayed = Delayed,
+        msg = #message{
+            topic = Topic,
+            from = From,
+            headers = Headers,
+            qos = Qos,
+            timestamp = PublishTimeStamp,
+            payload = Payload
+        }
+    },
+    WithPayload
+) ->
     PublishTime = to_rfc3339(PublishTimeStamp div 1000),
     ExpectTime = to_rfc3339(ExpectTimeStamp),
     RemainingTime = ExpectTimeStamp - erlang:system_time(second),
@@ -202,7 +215,6 @@ get_delayed_message(Id) ->
 
 get_delayed_message(Node, Id) when Node =:= node() ->
     get_delayed_message(Id);
-
 get_delayed_message(Node, Id) ->
     emqx_delayed_proto_v1:get_delayed_message(Node, Id).
 
@@ -249,24 +261,32 @@ init([Opts]) ->
     erlang:process_flag(trap_exit, true),
     emqx_conf:add_handler([delayed], ?MODULE),
     MaxDelayedMessages = maps:get(max_delayed_messages, Opts, 0),
-    {ok, ensure_stats_event(
-           ensure_publish_timer(#{publish_timer => undefined,
-                                  publish_at => 0,
-                                  stats_timer => undefined,
-                                  stats_fun => undefined,
-                                  max_delayed_messages => MaxDelayedMessages}))}.
+    {ok,
+        ensure_stats_event(
+            ensure_publish_timer(#{
+                publish_timer => undefined,
+                publish_at => 0,
+                stats_timer => undefined,
+                stats_fun => undefined,
+                max_delayed_messages => MaxDelayedMessages
+            })
+        )}.
 
 handle_call({set_max_delayed_messages, Max}, _From, State) ->
     {reply, ok, State#{max_delayed_messages => Max}};
-
-handle_call({store, DelayedMsg = #delayed_message{key = Key}},
-            _From, State = #{max_delayed_messages := 0}) ->
+handle_call(
+    {store, DelayedMsg = #delayed_message{key = Key}},
+    _From,
+    State = #{max_delayed_messages := 0}
+) ->
     ok = mria:dirty_write(?TAB, DelayedMsg),
     emqx_metrics:inc('messages.delayed'),
     {reply, ok, ensure_publish_timer(Key, State)};
-
-handle_call({store, DelayedMsg = #delayed_message{key = Key}},
-            _From, State = #{max_delayed_messages := Max}) ->
+handle_call(
+    {store, DelayedMsg = #delayed_message{key = Key}},
+    _From,
+    State = #{max_delayed_messages := Max}
+) ->
     Size = mnesia:table_info(?TAB, size),
     case Size >= Max of
         true ->
@@ -276,15 +296,12 @@ handle_call({store, DelayedMsg = #delayed_message{key = Key}},
             emqx_metrics:inc('messages.delayed'),
             {reply, ok, ensure_publish_timer(Key, State)}
     end;
-
 handle_call(enable, _From, State) ->
     emqx_hooks:put('message.publish', {?MODULE, on_message_publish, []}),
     {reply, ok, State};
-
 handle_call(disable, _From, State) ->
     emqx_hooks:del('message.publish', {?MODULE, on_message_publish}),
     {reply, ok, State};
-
 handle_call(Req, _From, State) ->
     ?SLOG(error, #{msg => "unexpected_call", call => Req}),
     {reply, ignored, State}.
@@ -298,12 +315,10 @@ handle_info({timeout, TRef, do_publish}, State = #{publish_timer := TRef}) ->
     DeletedKeys = do_publish(mnesia:dirty_first(?TAB), os:system_time(seconds)),
     lists:foreach(fun(Key) -> mria:dirty_delete(?TAB, Key) end, DeletedKeys),
     {noreply, ensure_publish_timer(State#{publish_timer := undefined, publish_at := 0})};
-
 handle_info(stats, State = #{stats_fun := StatsFun}) ->
     StatsTimer = erlang:send_after(timer:seconds(1), self(), stats),
     StatsFun(delayed_count()),
     {noreply, State#{stats_timer := StatsTimer}, hibernate};
-
 handle_info(Info, State) ->
     ?SLOG(error, #{msg => "unexpected_info", info => Info}),
     {noreply, State}.
@@ -336,8 +351,9 @@ ensure_publish_timer('$end_of_table', State) ->
     State#{publish_timer := undefined, publish_at := 0};
 ensure_publish_timer({Ts, _Id}, State = #{publish_timer := undefined}) ->
     ensure_publish_timer(Ts, os:system_time(seconds), State);
-ensure_publish_timer({Ts, _Id}, State = #{publish_timer := TRef, publish_at := PubAt})
-    when Ts < PubAt ->
+ensure_publish_timer({Ts, _Id}, State = #{publish_timer := TRef, publish_at := PubAt}) when
+    Ts < PubAt
+->
     ok = emqx_misc:cancel_timer(TRef),
     ensure_publish_timer(Ts, os:system_time(seconds), State);
 ensure_publish_timer(_Key, State) ->
@@ -359,10 +375,9 @@ do_publish({Ts, _Id}, Now, Acc) when Ts > Now ->
 do_publish(Key = {Ts, _Id}, Now, Acc) when Ts =< Now ->
     case mnesia:dirty_read(?TAB, Key) of
         [] -> ok;
-        [#delayed_message{msg = Msg}] ->
-            emqx_pool:async_submit(fun emqx:publish/1, [Msg])
+        [#delayed_message{msg = Msg}] -> emqx_pool:async_submit(fun emqx:publish/1, [Msg])
     end,
     do_publish(mnesia:dirty_next(?TAB, Key), Now, [Key | Acc]).
 
--spec(delayed_count() -> non_neg_integer()).
+-spec delayed_count() -> non_neg_integer().
 delayed_count() -> mnesia:table_info(?TAB, size).

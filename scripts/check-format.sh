@@ -8,7 +8,7 @@ set -euo pipefail
 cd -P -- "$(dirname -- "$0")/.."
 
 APPS=()
-APPS+=( 'apps/emqx' )
+APPS+=( 'apps/emqx' 'apps/emqx_modules' )
 
 #APPS+=( 'lib-ee/emqx_license' )
 

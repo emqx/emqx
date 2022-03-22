@@ -20,22 +20,24 @@
 -include_lib("emqx/include/logger.hrl").
 -include("emqx_modules.hrl").
 
--export([ list/0
-        , update/1
-        , enable/0
-        , disable/0
-        , post_config_update/5
-        , init_conf_handler/0
-        ]).
+-export([
+    list/0,
+    update/1,
+    enable/0,
+    disable/0,
+    post_config_update/5,
+    init_conf_handler/0
+]).
 
--export([ on_client_connected/2
-        , on_client_disconnected/3
-        , on_client_subscribed/3
-        , on_client_unsubscribed/3
-        , on_message_dropped/3
-        , on_message_delivered/2
-        , on_message_acked/2
-        ]).
+-export([
+    on_client_connected/2,
+    on_client_disconnected/3,
+    on_client_subscribed/3,
+    on_client_unsubscribed/3,
+    on_message_dropped/3,
+    on_message_delivered/2,
+    on_message_acked/2
+]).
 
 -ifdef(TEST).
 -export([reason/1]).
@@ -48,9 +50,13 @@ list() ->
     emqx_conf:get([event_message], #{}).
 
 update(Params) ->
-    case emqx_conf:update([event_message],
-                          Params,
-                          #{rawconf_with_defaults => true, override_to => cluster}) of
+    case
+        emqx_conf:update(
+            [event_message],
+            Params,
+            #{rawconf_with_defaults => true, override_to => cluster}
+        )
+    of
         {ok, #{raw_config := NewEventMessage}} ->
             {ok, NewEventMessage};
         {error, Reason} ->
@@ -74,46 +80,61 @@ disable() ->
 on_client_connected(ClientInfo, ConnInfo) ->
     Payload0 = common_infos(ClientInfo, ConnInfo),
     Payload = Payload0#{
-                        keepalive       => maps:get(keepalive, ConnInfo, 0),
-                        clean_start     => maps:get(clean_start, ConnInfo, true),
-                        expiry_interval => maps:get(expiry_interval, ConnInfo, 0)
-                       },
+        keepalive => maps:get(keepalive, ConnInfo, 0),
+        clean_start => maps:get(clean_start, ConnInfo, true),
+        expiry_interval => maps:get(expiry_interval, ConnInfo, 0)
+    },
     publish_event_msg(<<"$event/client_connected">>, Payload).
 
-on_client_disconnected(ClientInfo,
-                       Reason, ConnInfo = #{disconnected_at := DisconnectedAt}) ->
-
+on_client_disconnected(
+    ClientInfo,
+    Reason,
+    ConnInfo = #{disconnected_at := DisconnectedAt}
+) ->
     Payload0 = common_infos(ClientInfo, ConnInfo),
     Payload = Payload0#{
-                        reason => reason(Reason),
-                        disconnected_at => DisconnectedAt
-                       },
+        reason => reason(Reason),
+        disconnected_at => DisconnectedAt
+    },
     publish_event_msg(<<"$event/client_disconnected">>, Payload).
 
-on_client_subscribed(_ClientInfo = #{clientid := ClientId,
-                                     username := Username},
-                     Topic, SubOpts) ->
-    Payload = #{clientid => ClientId,
-                username => Username,
-                topic => Topic,
-                subopts => SubOpts,
-                ts => erlang:system_time(millisecond)
-               },
+on_client_subscribed(
+    _ClientInfo = #{
+        clientid := ClientId,
+        username := Username
+    },
+    Topic,
+    SubOpts
+) ->
+    Payload = #{
+        clientid => ClientId,
+        username => Username,
+        topic => Topic,
+        subopts => SubOpts,
+        ts => erlang:system_time(millisecond)
+    },
     publish_event_msg(<<"$event/client_subscribed">>, Payload).
 
-on_client_unsubscribed(_ClientInfo = #{clientid := ClientId,
-                                       username := Username},
-                       Topic, _SubOpts) ->
-    Payload = #{clientid => ClientId,
-                username => Username,
-                topic => Topic,
-                ts => erlang:system_time(millisecond)
-               },
+on_client_unsubscribed(
+    _ClientInfo = #{
+        clientid := ClientId,
+        username := Username
+    },
+    Topic,
+    _SubOpts
+) ->
+    Payload = #{
+        clientid => ClientId,
+        username => Username,
+        topic => Topic,
+        ts => erlang:system_time(millisecond)
+    },
     publish_event_msg(<<"$event/client_unsubscribed">>, Payload).
 
 on_message_dropped(Message = #message{from = ClientId}, _, Reason) ->
     case ignore_sys_message(Message) of
-        true -> ok;
+        true ->
+            ok;
         false ->
             Payload0 = base_message(Message),
             Payload = Payload0#{
@@ -126,13 +147,17 @@ on_message_dropped(Message = #message{from = ClientId}, _, Reason) ->
     end,
     {ok, Message}.
 
-on_message_delivered(_ClientInfo = #{
-                         peerhost := PeerHost,
-                         clientid := ReceiverCId,
-                         username := ReceiverUsername},
-                     #message{from = ClientId} = Message) ->
+on_message_delivered(
+    _ClientInfo = #{
+        peerhost := PeerHost,
+        clientid := ReceiverCId,
+        username := ReceiverUsername
+    },
+    #message{from = ClientId} = Message
+) ->
     case ignore_sys_message(Message) of
-        true -> ok;
+        true ->
+            ok;
         false ->
             Payload0 = base_message(Message),
             Payload = Payload0#{
@@ -146,13 +171,17 @@ on_message_delivered(_ClientInfo = #{
     end,
     {ok, Message}.
 
-on_message_acked(_ClientInfo = #{
-                    peerhost := PeerHost,
-                    clientid := ReceiverCId,
-                    username := ReceiverUsername},
-                 #message{from = ClientId} = Message) ->
+on_message_acked(
+    _ClientInfo = #{
+        peerhost := PeerHost,
+        clientid := ReceiverCId,
+        username := ReceiverUsername
+    },
+    #message{from = ClientId} = Message
+) ->
     case ignore_sys_message(Message) of
-        true -> ok;
+        true ->
+            ok;
         false ->
             Payload0 = base_message(Message),
             Payload = Payload0#{
@@ -170,29 +199,36 @@ on_message_acked(_ClientInfo = #{
 %% Helper functions
 %%--------------------------------------------------------------------
 common_infos(
-  _ClientInfo = #{clientid := ClientId,
-                  username := Username,
-                  peerhost := PeerHost,
-                  sockport := SockPort
-                 },
-  _ConnInfo = #{proto_name := ProtoName,
-                proto_ver := ProtoVer,
-                connected_at := ConnectedAt
-               }) ->
-    #{clientid => ClientId,
-      username => Username,
-      ipaddress => ntoa(PeerHost),
-      sockport => SockPort,
-      proto_name => ProtoName,
-      proto_ver => ProtoVer,
-      connected_at => ConnectedAt,
-      ts => erlang:system_time(millisecond)
-     }.
+    _ClientInfo = #{
+        clientid := ClientId,
+        username := Username,
+        peerhost := PeerHost,
+        sockport := SockPort
+    },
+    _ConnInfo = #{
+        proto_name := ProtoName,
+        proto_ver := ProtoVer,
+        connected_at := ConnectedAt
+    }
+) ->
+    #{
+        clientid => ClientId,
+        username => Username,
+        ipaddress => ntoa(PeerHost),
+        sockport => SockPort,
+        proto_name => ProtoName,
+        proto_ver => ProtoVer,
+        connected_at => ConnectedAt,
+        ts => erlang:system_time(millisecond)
+    }.
 
 make_msg(Topic, Payload) ->
     emqx_message:set_flag(
-      sys, emqx_message:make(
-             ?MODULE, 0, Topic, iolist_to_binary(Payload))).
+        sys,
+        emqx_message:make(
+            ?MODULE, 0, Topic, iolist_to_binary(Payload)
+        )
+    ).
 
 -compile({inline, [reason/1]}).
 reason(Reason) when is_atom(Reason) -> Reason;
@@ -201,26 +237,33 @@ reason({Error, _}) when is_atom(Error) -> Error;
 reason(_) -> internal_error.
 
 ntoa(undefined) -> undefined;
-ntoa({IpAddr, Port}) ->
-    iolist_to_binary([inet:ntoa(IpAddr), ":", integer_to_list(Port)]);
-ntoa(IpAddr) ->
-    iolist_to_binary(inet:ntoa(IpAddr)).
+ntoa({IpAddr, Port}) -> iolist_to_binary([inet:ntoa(IpAddr), ":", integer_to_list(Port)]);
+ntoa(IpAddr) -> iolist_to_binary(inet:ntoa(IpAddr)).
 
-printable_maps(undefined) -> #{};
+printable_maps(undefined) ->
+    #{};
 printable_maps(Headers) ->
     maps:fold(
-        fun (K, V0, AccIn) when K =:= peerhost; K =:= peername; K =:= sockname ->
+        fun
+            (K, V0, AccIn) when K =:= peerhost; K =:= peername; K =:= sockname ->
                 AccIn#{K => ntoa(V0)};
             ('User-Property', V0, AccIn) when is_list(V0) ->
                 AccIn#{
                     'User-Property' => maps:from_list(V0),
-                    'User-Property-Pairs' => [#{
-                        key => Key,
-                        value => Value
-                     } || {Key, Value} <- V0]
+                    'User-Property-Pairs' => [
+                        #{
+                            key => Key,
+                            value => Value
+                        }
+                     || {Key, Value} <- V0
+                    ]
                 };
-            (K, V0, AccIn) -> AccIn#{K => V0}
-        end, #{}, Headers).
+            (K, V0, AccIn) ->
+                AccIn#{K => V0}
+        end,
+        #{},
+        Headers
+    ).
 
 base_message(Message) ->
     #message{
@@ -230,7 +273,8 @@ base_message(Message) ->
         topic = Topic,
         headers = Headers,
         payload = Payload,
-        timestamp = Timestamp} = Message,
+        timestamp = Timestamp
+    } = Message,
     #{
         id => emqx_guid:to_hexstr(Id),
         payload => Payload,

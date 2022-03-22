@@ -21,10 +21,11 @@
 
 -import(hoconsc, [mk/2, ref/2]).
 
--export([ api_spec/0
-        , paths/0
-        , schema/1
-        ]).
+-export([
+    api_spec/0,
+    paths/0,
+    schema/1
+]).
 
 -export([event_message/2]).
 
@@ -35,28 +36,30 @@ paths() ->
     ["/mqtt/event_message"].
 
 schema("/mqtt/event_message") ->
-    #{ 'operationId' => event_message
-     , get =>
-           #{ description => <<"Event Message">>
-            , tags => ?API_TAG_MQTT
-            , responses =>
-                  #{200 => status_schema(<<"Get Event Message config successfully">>)}
+    #{
+        'operationId' => event_message,
+        get =>
+            #{
+                description => <<"Event Message">>,
+                tags => ?API_TAG_MQTT,
+                responses =>
+                    #{200 => status_schema(<<"Get Event Message config successfully">>)}
+            },
+        put =>
+            #{
+                description => <<"Update Event Message">>,
+                tags => ?API_TAG_MQTT,
+                'requestBody' => status_schema(<<"Update Event Message config">>),
+                responses =>
+                    #{200 => status_schema(<<"Update Event Message config successfully">>)}
             }
-     , put =>
-           #{ description => <<"Update Event Message">>
-            , tags => ?API_TAG_MQTT
-            , 'requestBody' => status_schema(<<"Update Event Message config">>)
-            , responses =>
-                  #{200 => status_schema(<<"Update Event Message config successfully">>)}
-            }
-     }.
+    }.
 
 status_schema(Desc) ->
     mk(ref(?API_SCHEMA_MODULE, "event_message"), #{in => body, desc => Desc}).
 
 event_message(get, _Params) ->
     {200, emqx_event_message:list()};
-
 event_message(put, #{body := Body}) ->
     case emqx_event_message:update(Body) of
         {ok, NewConfig} ->
