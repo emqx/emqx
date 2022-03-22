@@ -118,13 +118,11 @@ roots(high) ->
                 map("name", ref("zone")),
                 #{
                     desc =>
-                        ""
                         "A zone is a set of configs grouped by the zone <code>name</code>.<br>\n"
                         "For flexible configuration mapping, the <code>name</code>\n"
                         "can be set to a listener's <code>zone</code> config.<br>\n"
                         "NOTE: A built-in zone named <code>default</code> is auto created\n"
                         "and can not be deleted."
-                        ""
                 }
             )},
         {"mqtt",
@@ -132,16 +130,13 @@ roots(high) ->
                 ref("mqtt"),
                 #{
                     desc =>
-                        ""
                         "Global MQTT configuration.<br>\n"
                         "The configs here work as default values which can be overridden\n"
                         "in <code>zone</code> configs"
-                        ""
                 }
             )},
         {?EMQX_AUTHENTICATION_CONFIG_ROOT_NAME,
             authentication(
-                ""
                 "Default authentication configs for all MQTT listeners.\n"
                 "<br>\n"
                 "For per-listener overrides see <code>authentication</code>\n"
@@ -161,7 +156,6 @@ roots(high) ->
                 "per the configured order, until an 'allow' or 'deny' decision can be made.\n"
                 "<br>\n"
                 "If there is no decision after a full chain exhaustion, the login is rejected.\n"
-                ""
             )},
         %% NOTE: authorization schema here is only to keep emqx app prue
         %% the full schema for EMQX node is injected in emqx_conf_schema.
@@ -206,21 +200,27 @@ roots(low) ->
                 ref("force_gc"),
                 #{
                     desc =>
-                        ""
                         "Force the MQTT connection process garbage collection after\n"
                         "this number of messages or bytes have passed through."
-                        ""
                 }
             )},
         {"conn_congestion",
             sc(
                 ref("conn_congestion"),
-                #{}
+                #{
+                    desc => "Congestion alarm settings"
+                }
             )},
         {"stats",
             sc(
                 ref("stats"),
-                #{}
+                #{
+                    desc =>
+                        "Enable/disable statistic data collection.\n"
+                        "Statistic data such as message receive/send count/rate etc. "
+                        "It provides insights of system performance and helps to diagnose issues. "
+                        "You can find statistic data from the dashboard, or from the '/stats' API."
+                }
             )},
         {"sysmon",
             sc(
@@ -247,10 +247,7 @@ roots(low) ->
                 ref("trace"),
                 #{
                     desc =>
-                        ""
-                        "\n"
-                        "Real-time filtering logs for the ClientID or Topic or IP for debugging.\n"
-                        ""
+                        "Real-time filtering logs for the ClientID or Topic or IP for debugging."
                 }
             )}
     ].
@@ -262,13 +259,10 @@ fields("persistent_session_store") ->
                 boolean(),
                 #{
                     default => false,
-                    description =>
-                        ""
-                        "\n"
+                    desc =>
                         "Use the database to store information about persistent sessions.\n"
                         "This makes it possible to migrate a client connection to another\n"
                         "cluster node if a node is stopped.\n"
-                        ""
                 }
             )},
         {"storage_type",
@@ -276,15 +270,12 @@ fields("persistent_session_store") ->
                 hoconsc:union([ram, disc]),
                 #{
                     default => disc,
-                    description =>
-                        ""
-                        "\n"
+                    desc =>
                         "Store information about persistent sessions on disc or in ram.\n"
                         "If ram is chosen, all information about persistent sessions remains\n"
                         "as long as at least one node in a cluster is alive to keep the information.\n"
                         "If disc is chosen, the information is persisted on disc and will survive\n"
                         "cluster restart, at the price of more disc usage and less throughput.\n"
-                        ""
                 }
             )},
         {"max_retain_undelivered",
@@ -292,13 +283,10 @@ fields("persistent_session_store") ->
                 duration(),
                 #{
                     default => "1h",
-                    description =>
-                        ""
-                        "\n"
+                    desc =>
                         "The time messages that was not delivered to a persistent session\n"
                         "is stored before being garbage collected if the node the previous\n"
                         "session was handled on restarts of is stopped.\n"
-                        ""
                 }
             )},
         {"message_gc_interval",
@@ -306,13 +294,10 @@ fields("persistent_session_store") ->
                 duration(),
                 #{
                     default => "1h",
-                    description =>
-                        ""
-                        "\n"
+                    desc =>
                         "The starting interval for garbage collection of undelivered messages to\n"
                         "a persistent session. This affects how often the \"max_retain_undelivered\"\n"
                         "is checked for removal.\n"
-                        ""
                 }
             )},
         {"session_message_gc_interval",
@@ -320,13 +305,10 @@ fields("persistent_session_store") ->
                 duration(),
                 #{
                     default => "1m",
-                    description =>
-                        ""
-                        "\n"
+                    desc =>
                         "The starting interval for garbage collection of transient data for\n"
-                        "persistent session messages. This does not affect the life time length\n"
+                        "persistent session messages. This does not affect the lifetime length\n"
                         "of persistent session messages.\n"
-                        ""
                 }
             )}
     ];
@@ -335,7 +317,10 @@ fields("stats") ->
         {"enable",
             sc(
                 boolean(),
-                #{default => true}
+                #{
+                    default => true,
+                    desc => "Enable/disable statistic data collection"
+                }
             )}
     ];
 fields("authorization") ->
@@ -393,10 +378,8 @@ fields("mqtt") ->
                 #{
                     default => "15s",
                     desc =>
-                        ""
                         "Close TCP connections from the clients that have not sent MQTT CONNECT\n"
                         "message within this interval."
-                        ""
                 }
             )},
         {"max_packet_size",
@@ -489,10 +472,8 @@ fields("mqtt") ->
                 #{
                     default => "",
                     desc =>
-                        ""
                         "Specify the response information returned to the client\n"
                         "This feature is disabled if is set to \"\"."
-                        ""
                 }
             )},
         {"server_keepalive",
@@ -501,11 +482,9 @@ fields("mqtt") ->
                 #{
                     default => disabled,
                     desc =>
-                        ""
                         "'Server Keep Alive' of MQTT 5.0.\n"
                         "If the server returns a 'Server Keep Alive' in the CONNACK packet,\n"
                         "the client MUST use that value instead of the value it sent as the 'Keep Alive'."
-                        ""
                 }
             )},
         {"keepalive_backoff",
@@ -514,10 +493,8 @@ fields("mqtt") ->
                 #{
                     default => 0.75,
                     desc =>
-                        ""
                         "The backoff for MQTT keepalive timeout. The broker will close the connection\n"
                         "after idling for 'Keepalive * backoff * 2'."
-                        ""
                 }
             )},
         {"max_subscriptions",
@@ -542,8 +519,8 @@ fields("mqtt") ->
                 #{
                     default => 32,
                     desc =>
-                        "Maximum size of the Inflight Window storing QoS1/2"
-                        " messages delivered but un-acked."
+                        "Maximum size of the Inflight Window storing QoS1/2 "
+                        "messages delivered but un-acked."
                 }
             )},
         {"retry_interval",
@@ -568,8 +545,8 @@ fields("mqtt") ->
                 #{
                     default => "300s",
                     desc =>
-                        "The QoS2 messages (Client -> Broker) will be dropped"
-                        " if awaiting PUBREL timeout."
+                        "The QoS2 messages (Client -> Broker) will be dropped "
+                        "if awaiting PUBREL timeout."
                 }
             )},
         {"session_expiry_interval",
@@ -586,10 +563,8 @@ fields("mqtt") ->
                 #{
                     default => 1000,
                     desc =>
-                        ""
                         "Maximum queue length. Enqueued messages when persistent client disconnected,\n"
                         "or inflight window is full."
-                        ""
                 }
             )},
         {"mqueue_priorities",
@@ -598,7 +573,6 @@ fields("mqtt") ->
                 #{
                     default => disabled,
                     desc =>
-                        ""
                         "Topic priorities.<br>\n"
                         "There's no priority table by default, hence all messages are treated equal.<br>\n"
                         "Priority number [1-255]<br>\n"
@@ -611,7 +585,6 @@ fields("mqtt") ->
                         "**Examples**:\n"
                         "To configure <code>\"topic/1\" > \"topic/2\"</code>:<br/>\n"
                         "<code>mqueue_priorities: {\"topic/1\": 10, \"topic/2\": 8}</code>"
-                        ""
                 }
             )},
         {"mqueue_default_priority",
@@ -645,10 +618,8 @@ fields("mqtt") ->
                 #{
                     default => disabled,
                     desc =>
-                        ""
                         "Use the CN, DN or CRT field from the client certificate as a username.\n"
                         "Only works for the TLS connection."
-                        ""
                 }
             )},
         {"peer_cert_as_clientid",
@@ -657,10 +628,8 @@ fields("mqtt") ->
                 #{
                     default => disabled,
                     desc =>
-                        ""
                         "Use the CN, DN or CRT field from the client certificate as a clientid.\n"
                         "Only works for the TLS connection."
-                        ""
                 }
             )}
     ];
@@ -1175,7 +1144,6 @@ fields("sys_topics") ->
                 ref("event_names"),
                 #{
                     desc =>
-                        ""
                         "Whether to enable Client lifecycle event messages publish.<br/>\n"
                         "The following options are not only for enabling MQTT client event messages\n"
                         "publish but also for Gateway clients. However, these kinds of clients type\n"
@@ -1184,7 +1152,6 @@ fields("sys_topics") ->
                         "  <code>$SYS/broker/<node>/clients/<clientid>/<event></code><br/>\n"
                         "- For the Gateway client, it is\n"
                         "  <code>$SYS/broker/<node>/gateway/<gateway-name>/clients/<clientid>/<event></code>"
-                        ""
                 }
             )}
     ];
@@ -1406,14 +1373,14 @@ fields("alarm") ->
                     validator => fun ?MODULE:validate_alarm_actions/1,
                     example => [log, publish],
                     desc =>
-                        ""
                         "The actions triggered when the alarm is activated.<br/>\n"
-                        "Currently, the following actions are supported: <code>log</code> and <code>publish</code>.\n"
+                        "Currently, the following actions are supported: <code>log</code> and "
+                        "<code>publish</code>.\n"
                         "<code>log</code> is to write the alarm to log (console or file).\n"
-                        "<code>publish</code> is to publish the alarm as an MQTT message to the system topics:\n"
+                        "<code>publish</code> is to publish the alarm as an MQTT message to "
+                        "the system topics:\n"
                         "<code>$SYS/brokers/emqx@xx.xx.xx.x/alarms/activate</code> and\n"
                         "<code>$SYS/brokers/emqx@xx.xx.xx.x/alarms/deactivate</code>"
-                        ""
                 }
             )},
         {"size_limit",
@@ -1423,10 +1390,9 @@ fields("alarm") ->
                     default => 1000,
                     example => 1000,
                     desc =>
-                        ""
                         "The maximum total number of deactivated alarms to keep as history.<br>\n"
-                        "When this limit is exceeded, the oldest deactivated alarms are deleted to cap the total number.\n"
-                        ""
+                        "When this limit is exceeded, the oldest deactivated alarms are "
+                        "deleted to cap the total number.\n"
                 }
             )},
         {"validity_period",
@@ -1449,15 +1415,12 @@ fields("trace") ->
             sc(hoconsc:enum([hex, text, hidden]), #{
                 default => text,
                 desc =>
-                    ""
-                    "\n"
                     "Determine the format of the payload format in the trace file.<br>\n"
                     "`text`: Text-based protocol or plain text protocol.\n"
                     " It is recommended when payload is JSON encoded.<br>\n"
-                    "`hex`: Binary hexadecimal encode. It is recommended when payload is a custom binary protocol.<br>\n"
+                    "`hex`: Binary hexadecimal encode. It is recommended when payload is "
+                    "a custom binary protocol.<br>\n"
                     "`hidden`: payload is obfuscated as `******`\n"
-                    "        "
-                    ""
             })}
     ].
 
@@ -1556,7 +1519,6 @@ common_ssl_opts_schema(Defaults) ->
                     default => D("cacertfile"),
                     required => false,
                     desc =>
-                        ""
                         "Trusted PEM format CA certificates bundle file.<br>\n"
                         "The certificates in this file are used to verify the TLS peer's certificates.\n"
                         "Append new certificates to the file if new CAs are to be trusted.\n"
@@ -1564,7 +1526,6 @@ common_ssl_opts_schema(Defaults) ->
                         "the system regularly checks if file has been updated (and reload).<br>\n"
                         "NOTE: invalidating (deleting) a certificate from the file will not affect\n"
                         "already established connections.\n"
-                        ""
                 }
             )},
         {"certfile",
@@ -1574,14 +1535,12 @@ common_ssl_opts_schema(Defaults) ->
                     default => D("certfile"),
                     required => false,
                     desc =>
-                        ""
                         "PEM format certificates chain file.<br>\n"
                         "The certificates in this file should be in reversed order of the certificate\n"
                         "issue chain. That is, the host's certificate should be placed in the beginning\n"
                         "of the file, followed by the immediate issuer certificate and so on.\n"
                         "Although the root CA certificate is optional, it should be placed at the end of\n"
                         "the file if it is to be added.\n"
-                        ""
                 }
             )},
         {"keyfile",
@@ -1591,7 +1550,7 @@ common_ssl_opts_schema(Defaults) ->
                     default => D("keyfile"),
                     required => false,
                     desc =>
-                        "" "PEM format private key file.<br>\n" ""
+                        "PEM format private key file.<br>\n"
                 }
             )},
         {"verify",
@@ -1616,10 +1575,8 @@ common_ssl_opts_schema(Defaults) ->
                     sensitive => true,
                     required => false,
                     desc =>
-                        ""
                         "String containing the user's password. Only used if the private\n"
                         "key file is password-protected."
-                        ""
                 }
             )},
         {"versions",
@@ -1628,12 +1585,10 @@ common_ssl_opts_schema(Defaults) ->
                 #{
                     default => default_tls_vsns(maps:get(versions, Defaults, tls_all_available)),
                     desc =>
-                        ""
                         "All TLS/DTLS versions to be supported.<br>\n"
                         "NOTE: PSK ciphers are suppressed by 'tlsv1.3' version config<br>\n"
                         "In case PSK cipher suites are intended, make sure to configured\n"
-                        "<code>['tlsv1.2', 'tlsv1.1']</code> here.\n"
-                        "",
+                        "<code>['tlsv1.2', 'tlsv1.1']</code> here.\n",
                     validator => fun validate_tls_versions/1
                 }
             )},
@@ -1652,13 +1607,10 @@ common_ssl_opts_schema(Defaults) ->
                 #{
                     default => Df("secure_renegotiate", true),
                     desc =>
-                        ""
-                        "\n"
                         "SSL parameter renegotiation is a feature that allows a client and a server\n"
                         "to renegotiate the parameters of the SSL connection on the fly.\n"
                         "RFC 5746 defines a more secure way of doing this. By enabling secure renegotiation,\n"
                         "you drop support for the insecure renegotiation, prone to MitM attacks.\n"
-                        ""
                 }
             )}
     ].
@@ -1678,13 +1630,11 @@ server_ssl_opts_schema(Defaults, IsRanchListener) ->
                         default => D("dhfile"),
                         required => false,
                         desc =>
-                            ""
                             "Path to a file containing PEM-encoded Diffie Hellman parameters\n"
                             "to be used by the server if a cipher suite using Diffie Hellman\n"
                             "key exchange is negotiated. If not specified, default parameters\n"
                             "are used.<br>\n"
                             "NOTE: The <code>dhfile</code> option is not supported by TLS 1.3."
-                            ""
                     }
                 )},
             {"fail_if_no_peer_cert",
@@ -1693,14 +1643,11 @@ server_ssl_opts_schema(Defaults, IsRanchListener) ->
                     #{
                         default => Df("fail_if_no_peer_cert", false),
                         desc =>
-                            ""
-                            "\n"
                             "Used together with {verify, verify_peer} by an TLS/DTLS server.\n"
                             "If set to true, the server fails if the client does not have a\n"
                             "certificate to send, that is, sends an empty certificate.\n"
                             "If set to false, it fails only if the client sends an invalid\n"
                             "certificate (an empty certificate is considered valid).\n"
-                            ""
                     }
                 )},
             {"honor_cipher_order",
@@ -1714,17 +1661,16 @@ server_ssl_opts_schema(Defaults, IsRanchListener) ->
                     #{
                         default => Df("client_renegotiation", true),
                         desc =>
-                            ""
-                            "\n"
                             "In protocols that support client-initiated renegotiation,\n"
-                            "the cost of resources of such an operation is higher for the server than the client.\n"
+                            "the cost of resources of such an operation is higher for the "
+                            "server than the client.\n"
                             "This can act as a vector for denial of service attacks.\n"
                             "The SSL application already takes measures to counter-act such attempts,\n"
-                            "but client-initiated renegotiation can be strictly disabled by setting this option to false.\n"
+                            "but client-initiated renegotiation can be strictly disabled by setting "
+                            "this option to false.\n"
                             "The default value is true. Note that disabling renegotiation can result in\n"
                             "long-lived connections becoming unusable due to limits on\n"
                             "the number of messages the underlying cipher suite can encipher.\n"
-                            ""
                     }
                 )}
             | [
@@ -1751,7 +1697,6 @@ client_ssl_opts_schema(Defaults) ->
                     #{
                         required => false,
                         desc =>
-                            ""
                             "Specify the host name to be used in TLS Server Name Indication extension.<br>\n"
                             "For instance, when connecting to \"server.example.net\", the genuine server\n"
                             "which accepts the connection and performs TLS handshake may differ from the\n"
@@ -1763,7 +1708,6 @@ client_ssl_opts_schema(Defaults) ->
                             "certificate.<br> The special value 'disable' prevents the Server Name\n"
                             "Indication extension from being sent and disables the hostname\n"
                             "verification check."
-                            ""
                     }
                 )}
         ].
@@ -1793,7 +1737,6 @@ ciphers_schema(Default) ->
                     false -> fun validate_ciphers/1
                 end,
             desc =>
-                ""
                 "This config holds TLS cipher suite names separated by comma,\n"
                 "or as an array of strings. e.g.\n"
                 "<code>\"TLS_AES_256_GCM_SHA384,TLS_AES_128_GCM_SHA256\"</code> or\n"
@@ -1877,11 +1820,11 @@ mk_duration(Desc, OverrideMeta) ->
     DefaultMeta = #{
         desc => Desc ++
             " time span. A text string with number followed by time units:\n"
-            "                    `ms` for milliseconds,\n"
-            "                    `s` for seconds,\n"
-            "                    `m` for minutes,\n"
-            "                    `h` for hours;\n"
-            "                    or combined representation like `1h5m0s`"
+            "- `ms` for milliseconds,\n"
+            "- `s` for seconds,\n"
+            "- `m` for minutes,\n"
+            "- `h` for hours;\n"
+            "or combined representation like `1h5m0s`"
     },
     hoconsc:mk(typerefl:alias("string", duration()), maps:merge(DefaultMeta, OverrideMeta)).
 
@@ -2061,12 +2004,10 @@ authentication(Desc) ->
             end,
         desc => iolist_to_binary([
             Desc,
-            ""
-            "\n"
-            "Authentication can be one single authenticator instance or a chain of authenticators as an array.\n"
-            "When authenticating a login (username, client ID, etc.) the authenticators are checked\n"
-            "in the configured order.<br>\n"
-            ""
+            "\nAuthentication can be one single authenticator instance or a chain of "
+            "authenticators as an array.\n"
+            "When authenticating a login (username, client ID, etc.) "
+            "the authenticators are checked in the configured order.<br>\n"
         ])
     }.
 
