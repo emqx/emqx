@@ -214,6 +214,7 @@ jobs:
           - ubuntu20.04
           - ubuntu18.04
           - ubuntu16.04
+          - debian11
           - debian10
           - debian9
           - rockylinux8
