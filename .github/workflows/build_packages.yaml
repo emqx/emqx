@@ -6,8 +6,6 @@ concurrency:
 
 on:
   push:
-    branches:
-      - 'main-v4.**'
     tags:
       - v*
       - e*
