@@ -107,8 +107,8 @@ fields(limiter_opts) ->
     [ {rate, sc(rate(), #{default => "infinity", desc => "The rate"})}
     , {burst, sc(burst_rate(),
                  #{default => "0/0s",
-                   desc => "The burst, This value is based on rate."
-                   " This value + rate = the maximum limit that can be achieved when limiter burst"
+                   desc => "The burst, This value is based on rate.<br/>
+ This value + rate = the maximum limit that can be achieved when limiter burst."
                   })}
     , {bucket, sc(map("bucket name", ref(bucket_opts)), #{desc => "Buckets config"})}
     ];
@@ -121,7 +121,7 @@ fields(bucket_opts) ->
     , {per_client, sc(ref(client_bucket),
                       #{default => #{},
                         desc => "The rate limit for each user of the bucket,"
-                        "this field is not required"
+                        " this field is not required"
                        })}
     ];
 
