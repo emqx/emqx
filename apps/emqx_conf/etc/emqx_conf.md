@@ -36,8 +36,8 @@ node {
 Another equivalent representation is flat, such as
 
 ```
-node.name="127.0.0.1"
-node.cookie="mysecret"
+node.name = "127.0.0.1"
+node.cookie = "mysecret"
 ```
 
 This flat format is almost backward compatible with EMQX's config file format
@@ -46,10 +46,10 @@ in 4.x series (the so called 'cuttlefish' format).
 It is 'almost' compatible because the often HOCON requires strings to be quoted,
 while cuttlefish treats all characters to the right of the `=` mark as the value.
 
-e.g. cuttlefish: `node.name = emqx@127.0.0.1`, HOCON: `node.name = "emqx@127.0.0.1"`
+e.g. cuttlefish: `node.name = emqx@127.0.0.1`, HOCON: `node.name = "emqx@127.0.0.1"`.
 
 Strings without special characters in them can be unquoted in HOCON too,
-e.g. `foo`, `foo_bar`, `foo_bar_1`:
+e.g. `foo`, `foo_bar` and `foo_bar_1`.
 
 For more HOCON syntax, please refer to the [specification](https://github.com/lightbend/config/blob/main/HOCON.md)
 
@@ -103,9 +103,9 @@ For Array elements, 1-based index is used.
 below are some examples
 
 ```
-node.name="emqx.127.0.0.1"
-zone.zone1.max_packet_size="10M"
-authentication.1.enable=true
+node.name = "emqx.127.0.0.1"
+zone.zone1.max_packet_size = "10M"
+authentication.1.enable = true
 ```
 
 ### Environment variables
