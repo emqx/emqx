@@ -4,10 +4,12 @@
 
 -import(hoconsc, [mk/2, enum/1]).
 
--export([roots/0, fields/1]).
+-export([roots/0, fields/1, namespace/0]).
 
 %%======================================================================================
 %% Hocon Schema Definitions
+namespace() -> "bridge".
+
 roots() -> [].
 
 fields("config") ->
