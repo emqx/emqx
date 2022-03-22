@@ -206,21 +206,27 @@ roots(low) ->
                 ref("force_gc"),
                 #{
                     desc =>
-                        ""
                         "Force the MQTT connection process garbage collection after\n"
                         "this number of messages or bytes have passed through."
-                        ""
                 }
             )},
         {"conn_congestion",
             sc(
                 ref("conn_congestion"),
-                #{}
+                #{
+                    desc => "Congession alarm settings"
+                }
             )},
         {"stats",
             sc(
                 ref("stats"),
-                #{}
+                #{
+                    desc =>
+                        "Enable/disable statistic data collection.\n"
+                        "Statistic data such as message receive/send count/rate etc."
+                        "can provide insights of system performance and help to diagnose issues."
+                        "You can find statistic data from the dashboard, or from the '/stats' API."
+                }
             )},
         {"sysmon",
             sc(
@@ -335,7 +341,10 @@ fields("stats") ->
         {"enable",
             sc(
                 boolean(),
-                #{default => true}
+                #{
+                    default => true,
+                    desc => "Enable/disable statistic data collection"
+                }
             )}
     ];
 fields("authorization") ->
