@@ -69,7 +69,9 @@ init_per_testcase(t_get_telemetry, Config) ->
 init_per_testcase(_Testcase, Config) ->
     TestPID = self(),
     ok = meck:new(httpc, [non_strict, passthrough, no_history, no_link]),
-    ok = meck:expect(httpc, request, fun(Method, URL, Headers, Body) ->
+    ok = meck:expect(httpc, request, fun(
+        Method, {URL, Headers, _ContentType, Body}, _HTTPOpts, _Opts
+    ) ->
         TestPID ! {request, Method, URL, Headers, Body}
     end),
     Config.
@@ -154,7 +156,33 @@ t_send_after_enable(_) ->
     ok = snabbkaffe:start_trace(),
     try
         ok = emqx_telemetry:enable(),
-        ?assertMatch({ok, _}, ?block_until(#{?snk_kind := telemetry_data_reported}, 2000, 100))
+        ?assertMatch({ok, _}, ?block_until(#{?snk_kind := telemetry_data_reported}, 2000, 100)),
+        receive
+            {request, post, _URL, _Headers, Body} ->
+                {ok, Decoded} = emqx_json:safe_decode(Body, [return_maps]),
+                ?assertMatch(
+                    #{
+                        <<"uuid">> := _,
+                        <<"messages_received">> := _,
+                        <<"messages_sent">> := _,
+                        <<"build_info">> := #{},
+                        <<"vm_specs">> :=
+                            #{
+                                <<"num_cpus">> := _,
+                                <<"total_memory">> := _
+                            },
+                        <<"mqtt_runtime_insights">> :=
+                            #{
+                                <<"messages_received_rate">> := _,
+                                <<"messages_sent_rate">> := _,
+                                <<"num_topics">> := _
+                            }
+                    },
+                    Decoded
+                )
+        after 2100 ->
+            exit(telemetry_not_reported)
+        end
     after
         ok = snabbkaffe:stop(),
         meck:unload([emqx_telemetry])
