@@ -19,7 +19,7 @@ jobs:
   prepare:
     runs-on: ubuntu-20.04
     # prepare source with any OTP version, no need for a matrix
-    container: ghcr.io/emqx/emqx-builder/4.4-5:24.1.5-3-ubuntu20.04
+    container: ghcr.io/emqx/emqx-builder/4.4-7:24.1.5-3-ubuntu20.04
 
     outputs:
       profiles: ${{ steps.set_profile.outputs.profiles}}
@@ -264,7 +264,7 @@ jobs:
           --profile "${PROFILE}" \
           --pkgtype "${PACKAGE}" \
           --arch "${ARCH}" \
-          --builder "ghcr.io/emqx/emqx-builder/4.4-5:${OTP}-${SYSTEM}"
+          --builder "ghcr.io/emqx/emqx-builder/4.4-7:${OTP}-${SYSTEM}"
     - uses: actions/upload-artifact@v1
       if: startsWith(github.ref, 'refs/tags/')
       with:
@@ -339,8 +339,8 @@ jobs:
         tags: ${{ steps.meta.outputs.tags }}
         labels: ${{ steps.meta.outputs.labels }}
         build-args: |
-          BUILD_FROM=ghcr.io/emqx/emqx-builder/4.4-5:${{ matrix.otp }}-alpine3.14
-          RUN_FROM=alpine:3.14
+          BUILD_FROM=ghcr.io/emqx/emqx-builder/4.4-7:${{ matrix.otp }}-alpine3.15.1
+          RUN_FROM=alpine:3.15.1
           EMQX_NAME=${{ matrix.profile }}
         file: source/deploy/docker/Dockerfile
         context: source
@@ -354,8 +354,8 @@ jobs:
         tags: ${{ steps.meta.outputs.tags }}
         labels: ${{ steps.meta.outputs.labels }}
         build-args: |
-          BUILD_FROM=ghcr.io/emqx/emqx-builder/4.4-5:${{ matrix.otp }}-alpine3.14
-          RUN_FROM=alpine:3.14
+          BUILD_FROM=ghcr.io/emqx/emqx-builder/4.4-7:${{ matrix.otp }}-alpine3.15.1
+          RUN_FROM=alpine:3.15.1
           EMQX_NAME=${{ matrix.profile }}
         file: source/deploy/docker/Dockerfile.enterprise
         context: source

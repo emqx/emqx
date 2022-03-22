@@ -2,9 +2,14 @@
 
 ## v4.4.2
 
+### Important changes
+
+* Docker image is based on alpine-3.15.1 (OpenSSL-1.1.1n)
+
 ### Minor changes
 
 * Windows package is built on Erlang/OTP 24
+* Added debian11 build
 
 ## v4.4.1
 

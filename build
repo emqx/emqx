@@ -164,7 +164,8 @@ make_zip() {
     log "Zip package sha256sum: $(cat "${target_zip}.sha256")"
 }
 
-## This function builds the default docker image based on alpine:3.14 (by default)
+## This function builds the default docker image
+## based images is by default $EMQX_DEFAULT_BUILDER (see Makefile)
 make_docker() {
     EMQX_BUILDER="${EMQX_BUILDER:-${EMQX_DEFAULT_BUILDER}}"
     EMQX_RUNNER="${EMQX_RUNNER:-${EMQX_DEFAULT_RUNNER}}"
