@@ -20,7 +20,6 @@
 -define(APP, emqx_exhook).
 -define(HOOKS_REF_COUNTER, emqx_exhook_ref_counter).
 -define(HOOKS_METRICS, emqx_exhook_metrics).
--define(METRICS_PRECISION, 1).
 
 -define(ENABLED_HOOKS,
       [ {'client.connect',      {emqx_exhook_handler, on_client_connect,       []}}
