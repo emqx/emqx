@@ -206,7 +206,8 @@ new_metrics_info() ->
 
 -spec calc_metric(non_neg_integer(), non_neg_integer()) -> non_neg_integer().
 calc_metric(Val, Interval) ->
-    erlang:ceil(Val * ?METRICS_PRECISION / Interval).
+    %% the base unit of interval is milliseconds, but the rate is seconds
+    erlang:ceil(Val * 1000 / Interval).
 
 -spec metrics_add(metrics_info(), metrics_info()) -> metrics_info().
 metrics_add(#{succeed := S1, failed := F1, rate := R1, max_rate := M1}
