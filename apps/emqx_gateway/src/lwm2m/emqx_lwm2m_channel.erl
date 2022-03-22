@@ -108,10 +108,10 @@ info(ctx, #channel{ctx = Ctx}) ->
 stats(_) ->
     [].
 
-init(ConnInfoT = #{peername := {PeerHost, _},
-                   sockname := {_, SockPort}},
+init(ConnInfo = #{peername := {PeerHost, _},
+                  sockname := {_, SockPort}},
      #{ctx := Ctx} = Config) ->
-    Peercert = maps:get(peercert, ConnInfoT, undefined),
+    Peercert = maps:get(peercert, ConnInfo, undefined),
     Mountpoint = maps:get(mountpoint, Config, undefined),
     ListenerId = case maps:get(listener, Config, undefined) of
                      undefined -> undefined;
@@ -132,8 +132,6 @@ init(ConnInfoT = #{peername := {PeerHost, _},
                     , mountpoint => Mountpoint
                     }
                   ),
-
-    ConnInfo = ConnInfoT#{proto_name => <<"LwM2M">>, proto_ver => <<"0.0">>},
 
     #channel{ ctx = Ctx
             , conninfo = ConnInfo
@@ -369,6 +367,7 @@ do_takeover(_DesireId, Msg, Channel) ->
 do_connect(Req, Result, Channel, Iter) ->
     case emqx_misc:pipeline(
            [ fun check_lwm2m_version/2
+           , fun enrich_conninfo/2
            , fun run_conn_hooks/2
            , fun enrich_clientinfo/2
            , fun set_log_meta/2
@@ -425,6 +424,25 @@ run_conn_hooks(Input, Channel = #channel{ctx = Ctx,
         Error = {error, _Reason} -> Error;
         _NConnProps ->
             {ok, Input, Channel}
+    end.
+
+enrich_conninfo(#coap_message{options = Options},
+                Channel = #channel{
+                             conninfo = ConnInfo}) ->
+    Query = maps:get(uri_query, Options, #{}),
+    case Query of
+        #{<<"ep">> := Epn, <<"lt">> := Lifetime} ->
+            ClientId = maps:get(<<"device_id">>, Query, Epn),
+            NConnInfo = ConnInfo#{ clientid => ClientId
+                                 , proto_name => <<"LwM2M">>
+                                 , proto_ver => <<"1.0.1">>
+                                 , clean_start => true
+                                 , keepalive => binary_to_integer(Lifetime)
+                                 , expiry_interval => 0
+                                 },
+            {ok, Channel#channel{conninfo = NConnInfo}};
+        _ ->
+            {error, "invalid queries", Channel}
     end.
 
 enrich_clientinfo(#coap_message{options = Options} = Msg,

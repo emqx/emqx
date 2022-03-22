@@ -311,7 +311,12 @@ return_http_error(Code, Msg) ->
 
 -spec reason2msg({atom(), map()} | any()) -> error | string().
 reason2msg({badconf, #{key := Key, value := Value, reason := Reason}}) ->
-    fmtstr("Bad config value '~s' for '~s', reason: ~s", [Value, Key, Reason]);
+    NValue = case emqx_json:safe_encode(Value) of
+                 {ok, Str} -> Str;
+                 {error, _} -> emqx_gateway_utils:stringfy(Value)
+             end,
+    fmtstr("Bad config value '~s' for '~s', reason: ~s",
+           [NValue, Key, Reason]);
 reason2msg({badres, #{resource := gateway,
                       gateway := GwName,
                       reason := not_found}}) ->

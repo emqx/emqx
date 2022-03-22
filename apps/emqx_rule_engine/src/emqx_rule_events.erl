@@ -55,6 +55,8 @@
         ]).
 -endif.
 
+-elvis([{elvis_style, dont_repeat_yourself, disable}]).
+
 event_names() ->
     [ 'client.connected'
     , 'client.disconnected'
@@ -185,18 +187,18 @@ eventmsg_connected(_ClientInfo = #{
                     is_bridge := IsBridge,
                     mountpoint := Mountpoint
                    },
-                   _ConnInfo = #{
+                   ConnInfo = #{
                     peername := PeerName,
                     sockname := SockName,
                     clean_start := CleanStart,
                     proto_name := ProtoName,
                     proto_ver := ProtoVer,
-                    keepalive := Keepalive,
-                    connected_at := ConnectedAt,
-                    conn_props := ConnProps,
-                    receive_maximum := RcvMax,
-                    expiry_interval := ExpiryInterval
+                    connected_at := ConnectedAt
                    }) ->
+    Keepalive = maps:get(keepalive, ConnInfo, 0),
+    ConnProps = maps:get(conn_props, ConnInfo, #{}),
+    RcvMax = maps:get(receive_maximum, ConnInfo, 0),
+    ExpiryInterval = maps:get(expiry_interval, ConnInfo, 0),
     with_basic_columns('client.connected',
         #{clientid => ClientId,
           username => Username,
@@ -407,7 +409,8 @@ event_info_message_dropped() ->
     event_info_common(
         'message.dropped',
         {<<"message routing-drop">>, <<"消息转发丢弃"/utf8>>},
-        {<<"messages are discarded during routing, usually because there are no subscribers">>, <<"消息在转发的过程中被丢弃，一般是由于没有订阅者"/utf8>>},
+        {<<"messages are discarded during routing, usually because there are no subscribers">>,
+         <<"消息在转发的过程中被丢弃，一般是由于没有订阅者"/utf8>>},
         <<"SELECT * FROM \"$events/message_dropped\" WHERE topic =~ 't/#'">>
     ).
 event_info_delivery_dropped() ->
@@ -415,7 +418,7 @@ event_info_delivery_dropped() ->
         'delivery.dropped',
         {<<"message delivery-drop">>, <<"消息投递丢弃"/utf8>>},
         {<<"messages are discarded during delivery, i.e. because the message queue is full">>,
-        <<"消息在投递的过程中被丢弃，比如由于消息队列已满"/utf8>>},
+         <<"消息在投递的过程中被丢弃，比如由于消息队列已满"/utf8>>},
         <<"SELECT * FROM \"$events/delivery_dropped\" WHERE topic =~ 't/#'">>
     ).
 event_info_client_connected() ->

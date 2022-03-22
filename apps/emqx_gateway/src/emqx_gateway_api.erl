@@ -97,7 +97,7 @@ gateway_insta(delete, #{bindings := #{name := Name0}}) ->
             ok ->
                 {204};
             {error, Reason} ->
-                return_http_error(400, Reason)
+                emqx_gateway_http:reason2resp(Reason)
         end
     end);
 gateway_insta(get, #{bindings := #{name := Name0}}) ->
@@ -134,7 +134,7 @@ gateway_insta(put, #{body := GwConf0,
             {ok, Gateway} ->
                 {200, Gateway};
             {error, Reason} ->
-                return_http_error(500, Reason)
+                emqx_gateway_http:reason2resp(Reason)
         end
     end).
 

@@ -57,17 +57,18 @@ on_gateway_load(_Gateway = #{ name := GwName,
                               config := Config
                             }, Ctx) ->
     %% XXX: How to monitor it ?
-    %% Start grpc client pool & client channel
-    PoolName = pool_name(GwName),
-    PoolSize = emqx_vm:schedulers() * 2,
-    {ok, PoolSup} = emqx_pool_sup:start_link(
-                      PoolName, hash, PoolSize,
-                      {emqx_exproto_gcli, start_link, []}),
     _ = start_grpc_client_channel(GwName,
                                   maps:get(handler, Config, undefined)
                                  ),
     %% XXX: How to monitor it ?
     _ = start_grpc_server(GwName, maps:get(server, Config, undefined)),
+
+    %% XXX: How to monitor it ?
+    PoolName = pool_name(GwName),
+    PoolSize = emqx_vm:schedulers() * 2,
+    {ok, PoolSup} = emqx_pool_sup:start_link(
+                      PoolName, hash, PoolSize,
+                      {emqx_exproto_gcli, start_link, []}),
 
     NConfig = maps:without(
                  [server, handler],
@@ -103,7 +104,7 @@ on_gateway_update(Config, Gateway, GwState = #{ctx := Ctx}) ->
             logger:error("Failed to update ~ts; "
                          "reason: {~0p, ~0p} stacktrace: ~0p",
                          [GwName, Class, Reason, Stk]),
-            {error, {Class, Reason}}
+            {error, Reason}
     end.
 
 on_gateway_unload(_Gateway = #{ name := GwName,
@@ -141,8 +142,11 @@ start_grpc_server(GwName, Options = #{bind := ListenOn}) ->
             console_print("Start ~ts gRPC server on ~p successfully.~n",
                           [GwName, ListenOn]);
         {error, Reason} ->
-            ?ELOG("Failed to start ~ts gRPC server on ~p, reason: ~p",
-                  [GwName, ListenOn, Reason])
+            ?ELOG("Failed to start ~ts gRPC server on ~p, reason: ~0p",
+                  [GwName, ListenOn, Reason]),
+            throw({badconf, #{key => server,
+                              value => Options,
+                              reason => illegal_grpc_server_confs}})
     end.
 
 stop_grpc_server(GwName) ->
@@ -162,14 +166,16 @@ start_grpc_client_channel(GwName, Options = #{address := Address}) ->
                                }})
 
         end,
-    case maps:to_list(maps:get(ssl, Options, #{})) of
-        [] ->
+    case emqx_map_lib:deep_get([ssl, enable], Options, false) of
+        false ->
             SvrAddr = compose_http_uri(http, Host, Port),
             grpc_client_sup:create_channel_pool(GwName, SvrAddr, #{});
-        SslOpts ->
+        true ->
+            SslOpts = maps:to_list(maps:get(ssl, Options, #{})),
             ClientOpts = #{gun_opts =>
                            #{transport => ssl,
                              transport_opts => SslOpts}},
+
             SvrAddr = compose_http_uri(https, Host, Port),
             grpc_client_sup:create_channel_pool(GwName, SvrAddr, ClientOpts)
     end.
