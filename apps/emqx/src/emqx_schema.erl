@@ -208,7 +208,7 @@ roots(low) ->
             sc(
                 ref("conn_congestion"),
                 #{
-                    desc => "Congession alarm settings"
+                    desc => "Congestion alarm settings"
                 }
             )},
         {"stats",
@@ -217,8 +217,8 @@ roots(low) ->
                 #{
                     desc =>
                         "Enable/disable statistic data collection.\n"
-                        "Statistic data such as message receive/send count/rate etc."
-                        "can provide insights of system performance and help to diagnose issues."
+                        "Statistic data such as message receive/send count/rate etc. "
+                        "It provides insights of system performance and helps to diagnose issues. "
                         "You can find statistic data from the dashboard, or from the '/stats' API."
                 }
             )},
@@ -307,7 +307,7 @@ fields("persistent_session_store") ->
                     default => "1m",
                     desc =>
                         "The starting interval for garbage collection of transient data for\n"
-                        "persistent session messages. This does not affect the life time length\n"
+                        "persistent session messages. This does not affect the lifetime length\n"
                         "of persistent session messages.\n"
                 }
             )}
@@ -1819,7 +1819,7 @@ ref(Module, Field) -> hoconsc:ref(Module, Field).
 mk_duration(Desc, OverrideMeta) ->
     DefaultMeta = #{
         desc => Desc ++
-            "time span. A text string with number followed by time units:\n"
+            " time span. A text string with number followed by time units:\n"
             "- `ms` for milliseconds,\n"
             "- `s` for seconds,\n"
             "- `m` for minutes,\n"
@@ -2004,7 +2004,7 @@ authentication(Desc) ->
             end,
         desc => iolist_to_binary([
             Desc,
-            "Authentication can be one single authenticator instance or a chain of "
+            "\nAuthentication can be one single authenticator instance or a chain of "
             "authenticators as an array.\n"
             "When authenticating a login (username, client ID, etc.) "
             "the authenticators are checked in the configured order.<br>\n"
