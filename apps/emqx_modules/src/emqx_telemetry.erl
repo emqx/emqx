@@ -26,11 +26,6 @@
 
 -include("emqx_modules.hrl").
 
-%% Mnesia bootstrap
--export([mnesia/1]).
-
--boot_mnesia({mnesia, [boot]}).
-
 -export([ start_link/0
         , stop/0
         ]).
@@ -55,6 +50,9 @@
         ]).
 
 -export([official_version/1]).
+
+%% internal export
+-export([read_raw_build_info/0]).
 
 -ifdef(TEST).
 -compile(export_all).
@@ -86,22 +84,16 @@
 -define(TELEMETRY, emqx_telemetry).
 
 %%--------------------------------------------------------------------
-%% Mnesia bootstrap
-%%--------------------------------------------------------------------
-
-mnesia(boot) ->
-    ok = mria:create_table(?TELEMETRY,
-             [{type, set},
-              {storage, disc_copies},
-              {local_content, true},
-              {record_name, telemetry},
-              {attributes, record_info(fields, telemetry)}]).
-
-%%--------------------------------------------------------------------
 %% API
 %%--------------------------------------------------------------------
 
 start_link() ->
+    ok = mria:create_table(?TELEMETRY,
+                           [{type, set},
+                            {storage, disc_copies},
+                            {local_content, true},
+                            {record_name, telemetry},
+                            {attributes, record_info(fields, telemetry)}]),
     _ = mria:wait_for_tables([?TELEMETRY]),
     Opts = emqx:get_config([telemetry], #{}),
     gen_server:start_link({local, ?MODULE}, ?MODULE, [Opts], []).
@@ -145,7 +137,7 @@ init(_Opts) ->
             UUID
     end,
     {ok, #state{url = ?TELEMETRY_URL,
-                report_interval = timer:seconds(?REPORT_INTERVAR),
+                report_interval = timer:seconds(?REPORT_INTERVAL),
                 uuid = UUID1}}.
 
 handle_call(enable, _From, State) ->
@@ -272,10 +264,6 @@ active_plugins() ->
                         end
                     end, [], emqx_plugins:list()).
 
-active_modules() ->
-    [].
-    % emqx_modules:list().
-
 num_clients() ->
     emqx_stats:getstat('connections.max').
 
@@ -308,10 +296,11 @@ get_telemetry(#state{uuid = UUID}) ->
      {uuid, UUID},
      {nodes_uuid, nodes_uuid()},
      {active_plugins, active_plugins()},
-     {active_modules, active_modules()},
      {num_clients, num_clients()},
      {messages_received, messages_received()},
-     {messages_sent, messages_sent()}].
+     {messages_sent, messages_sent()},
+     {build_info, build_info()},
+     {vm_specs, vm_specs()}].
 
 report_telemetry(State = #state{url = URL}) ->
     Data = get_telemetry(State),
@@ -325,7 +314,9 @@ report_telemetry(State = #state{url = URL}) ->
     end.
 
 httpc_request(Method, URL, Headers, Body) ->
-    httpc:request(Method, {URL, Headers, "application/json", Body}, [], []).
+    HTTPOptions = [{timeout, 10_000}],
+    Options = [],
+    httpc:request(Method, {URL, Headers, "application/json", Body}, HTTPOptions, Options).
 
 parse_os_release(FileContent) ->
     lists:foldl(fun(Line, Acc) ->
@@ -339,6 +330,27 @@ parse_os_release(FileContent) ->
                         [{Var, NValue} | Acc]
                 end,
                 [], string:tokens(binary:bin_to_list(FileContent), "\n")).
+
+build_info() ->
+    case ?MODULE:read_raw_build_info() of
+        {ok, BuildInfo} ->
+            %% running on EMQX release
+            {ok, Fields} = hocon:binary(BuildInfo),
+            Fields;
+        _ ->
+            #{}
+    end.
+
+read_raw_build_info() ->
+    Filename = filename:join([code:root_dir(), "releases",
+                              emqx_app:get_release(), "BUILD_INFO"]),
+    file:read_file(Filename).
+
+vm_specs() ->
+    SysMemData = memsup:get_system_memory_data(),
+    [ {num_cpus, erlang:system_info(logical_processors)}
+    , {total_memory, proplists:get_value(available_memory, SysMemData)}
+    ].
 
 bin(L) when is_list(L) ->
     list_to_binary(L);
