@@ -23,7 +23,7 @@ jobs:
         - ubuntu20.04
         - rockylinux8
 
-    container: ghcr.io/emqx/emqx-builder/4.4-5:${{ matrix.erl_otp }}-${{ matrix.os }}
+    container: ghcr.io/emqx/emqx-builder/4.4-7:${{ matrix.erl_otp }}-${{ matrix.os }}
 
     steps:
     - uses: actions/checkout@v1
