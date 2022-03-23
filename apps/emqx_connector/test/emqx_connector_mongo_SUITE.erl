@@ -24,7 +24,7 @@
 -include_lib("stdlib/include/assert.hrl").
 
 -define(MONGO_HOST, "mongo").
--define(MONGO_CLIENT, 'emqx_connector_mongo_SUITE_client').
+-define(MONGO_RESOURCE_MOD, emqx_connector_mongo).
 
 all() ->
     emqx_common_test_helpers:all(?MODULE).
@@ -35,99 +35,98 @@ groups() ->
 init_per_suite(Config) ->
     case emqx_common_test_helpers:is_tcp_server_available(?MONGO_HOST, ?MONGO_DEFAULT_PORT) of
         true ->
-            ok = emqx_connector_test_helpers:start_apps([ecpool, mongodb]),
+            ok = emqx_common_test_helpers:start_apps([emqx_conf]),
+            ok = emqx_connector_test_helpers:start_apps([emqx_resource, emqx_connector]),
             Config;
         false ->
             {skip, no_mongo}
     end.
 
 end_per_suite(_Config) ->
-    ok = emqx_connector_test_helpers:stop_apps([ecpool, mongodb]).
+    ok = emqx_common_test_helpers:stop_apps([emqx_conf]),
+    ok = emqx_connector_test_helpers:stop_apps([emqx_resource, emqx_connector]).
 
 init_per_testcase(_, Config) ->
-    ?assertEqual(
-        {ok, #{poolname => emqx_connector_mongo, type => single}},
-        emqx_connector_mongo:on_start(<<"emqx_connector_mongo">>, mongo_config())
-    ),
     Config.
 
 end_per_testcase(_, _Config) ->
-    ?assertEqual(
-        ok,
-        emqx_connector_mongo:on_stop(<<"emqx_connector_mongo">>, #{poolname => emqx_connector_mongo})
-    ).
+    ok.
 
 % %%------------------------------------------------------------------------------
 % %% Testcases
 % %%------------------------------------------------------------------------------
 
-% Simple test to make sure the proper reference to the module is returned.
-t_roots(_Config) ->
-    ExpectedRoots = [
-        {config, #{
-            type =>
-                {union, [
-                    {ref, emqx_connector_mongo, single},
-                    {ref, emqx_connector_mongo, rs},
-                    {ref, emqx_connector_mongo, sharded}
-                ]}
-        }}
-    ],
-    ActualRoots = emqx_connector_mongo:roots(),
-    ?assertEqual(ExpectedRoots, ActualRoots).
-
-% Not sure if this level of testing is appropriate for this function.
-% Checking the actual values/types of the returned term starts getting
-% into checking the emqx_connector_schema_lib.erl returns and the shape
-% of expected data elsewhere.
-t_fields(_Config) ->
-    AllFieldTypes = [single, rs, sharded, topology],
-    lists:foreach(
-        fun(FieldType) ->
-            Fields = emqx_connector_mongo:fields(FieldType),
-            lists:foreach(fun emqx_connector_test_helpers:check_fields/1, Fields)
-        end,
-        AllFieldTypes
+t_lifecycle(_Config) ->
+    perform_lifecycle_check(
+        <<"emqx_connector_mongo_SUITE">>,
+        mongo_config()
     ).
 
-% Execute a minimal query to validate connection.
-t_basic_query(_Config) ->
-    ?assertMatch(
-        [],
-        emqx_connector_mongo:on_query(
-            <<"emqx_connector_mongo">>, {find, <<"connector">>, #{}, #{}}, undefined, #{
-                poolname => emqx_connector_mongo
-            }
-        )
-    ).
-
-% Perform health check.
-t_do_healthcheck(_Config) ->
-    ?assertEqual(
-        {ok, #{poolname => emqx_connector_mongo}},
-        emqx_connector_mongo:on_health_check(<<"emqx_connector_mongo">>, #{
-            poolname => emqx_connector_mongo
-        })
-    ).
-
-% Perform healthcheck on a connector that does not exist.
-t_healthceck_when_connector_does_not_exist(_Config) ->
-    ?assertEqual(
-        {error, health_check_failed, #{poolname => emqx_connector_mongo_does_not_exist}},
-        emqx_connector_mongo:on_health_check(<<"emqx_connector_mongo_does_not_exist">>, #{
-            poolname => emqx_connector_mongo_does_not_exist
-        })
-    ).
+perform_lifecycle_check(PoolName, InitialConfig) ->
+    {ok, #{config := CheckedConfig}} =
+        emqx_resource:check_config(?MONGO_RESOURCE_MOD, InitialConfig),
+    {ok, #{state := #{poolname := ReturnedPoolName} = State,
+                      status := InitialStatus}}
+                    = emqx_resource:create_local(
+        PoolName,
+        ?CONNECTOR_RESOURCE_GROUP,
+        ?MONGO_RESOURCE_MOD,
+        CheckedConfig,
+        #{}
+    ),
+    ?assertEqual(InitialStatus, connected),
+    % Instance should match the state and status of the just started resource
+    {ok, ?CONNECTOR_RESOURCE_GROUP, #{state := State,
+                                      status := InitialStatus}}
+                                    = emqx_resource:get_instance(PoolName),
+    ?assertEqual(ok, emqx_resource:health_check(PoolName)),
+    % % Perform query as further check that the resource is working as expected
+    ?assertMatch([], emqx_resource:query(PoolName, test_query_find())),
+    ?assertMatch(undefined, emqx_resource:query(PoolName, test_query_find_one())),
+    ?assertEqual(ok, emqx_resource:stop(PoolName)),
+    % Resource will be listed still, but state will be changed and healthcheck will fail
+    % as the worker no longer exists.
+    {ok, ?CONNECTOR_RESOURCE_GROUP, #{state := State,
+                                      status := StoppedStatus}}
+                                    = emqx_resource:get_instance(PoolName),
+    ?assertEqual(StoppedStatus, disconnected),
+    ?assertEqual({error,health_check_failed}, emqx_resource:health_check(PoolName)),
+    % Resource healthcheck shortcuts things by checking ets. Go deeper by checking pool itself.
+    ?assertEqual({error, not_found}, ecpool:stop_sup_pool(ReturnedPoolName)),
+    % Can call stop/1 again on an already stopped instance
+    ?assertEqual(ok, emqx_resource:stop(PoolName)),
+    % Make sure it can be restarted and the healthchecks and queries work properly
+    ?assertEqual(ok, emqx_resource:restart(PoolName)),
+    % async restart, need to wait resource
+    timer:sleep(500),
+    {ok, ?CONNECTOR_RESOURCE_GROUP, #{status := InitialStatus}}
+        = emqx_resource:get_instance(PoolName),
+    ?assertEqual(ok, emqx_resource:health_check(PoolName)),
+    ?assertMatch([], emqx_resource:query(PoolName, test_query_find())),
+    ?assertMatch(undefined, emqx_resource:query(PoolName, test_query_find_one())),
+    % Stop and remove the resource in one go.
+    ?assertEqual(ok, emqx_resource:remove_local(PoolName)),
+    ?assertEqual({error, not_found}, ecpool:stop_sup_pool(ReturnedPoolName)),
+    % Should not even be able to get the resource data out of ets now unlike just stopping.
+    ?assertEqual({error, not_found}, emqx_resource:get_instance(PoolName)).
 
 % %%------------------------------------------------------------------------------
 % %% Helpers
 % %%------------------------------------------------------------------------------
 
 mongo_config() ->
-    #{
-        mongo_type => single,
-        pool_size => 8,
-        ssl => #{enable => false},
-        srv_record => false,
-        server => {<<?MONGO_HOST>>, ?MONGO_DEFAULT_PORT}
-    }.
+    RawConfig = list_to_binary(io_lib:format("""
+    mongo_type = single
+    database = mqtt
+    pool_size = 8
+    server = \"~s:~b\"
+    """, [?MONGO_HOST, ?MONGO_DEFAULT_PORT])),
+
+    {ok, Config} = hocon:binary(RawConfig),
+    #{<<"config">> => Config}.
+
+test_query_find() ->
+    {find, <<"foo">>, #{}, #{}}.
+
+test_query_find_one() ->
+    {find_one, <<"foo">>, #{}, #{}}.
