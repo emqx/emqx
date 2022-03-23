@@ -638,8 +638,8 @@ process_connection({open, Req}, Result,
          Channel);
 process_connection({close, Msg}, _, Channel, _) ->
     Reply = emqx_coap_message:piggyback({ok, deleted}, Msg),
-    NChannel = ensure_disconnected(close_connection, Channel),
-    {shutdown, close, Reply, NChannel}.
+    NChannel = ensure_disconnected(normal, Channel),
+    {shutdown, normal, Reply, NChannel}.
 
 process_subscribe({Sub, Msg}, Result, #channel{session = Session} = Channel, Iter) ->
     Result2 = emqx_coap_session:process_subscribe(Sub, Msg, Result, Session),

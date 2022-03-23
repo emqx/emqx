@@ -294,26 +294,30 @@ t_clients_get_subscription_api(_) ->
 
 t_on_offline_event(_) ->
     Fun = fun(Channel) ->
-                  application:start(emqx_modules),
-                  emqx_event_message_SUITE:load_config(),
+                  emqx_hooks:add('client.connected', {emqx_sys, on_client_connected, []}),
+                  emqx_hooks:add('client.disconnected', {emqx_sys, on_client_disconnected, []}),
+
+                  ConnectedSub = <<"$SYS/brokers/+/gateway/coap/clients/+/connected">>,
+                  emqx_broker:subscribe(ConnectedSub),
                   timer:sleep(100),
 
-                  emqx_event_message:enable(),
-                  timer:sleep(200),
-
-                  emqx_broker:subscribe(<<"$event/#">>),
-
                   Token = connection(Channel),
-                  ?assertMatch(#message{topic = <<"$event/client_connected">>}, receive_deliver(500)),
+                  ?assertMatch(#message{}, receive_deliver(500)),
+
+                  DisconnectedSub = <<"$SYS/brokers/+/gateway/coap/clients/+/disconnected">>,
+                  emqx_broker:subscribe(DisconnectedSub),
+                  timer:sleep(100),
 
                   disconnection(Channel, Token),
 
-                  ?assertMatch(#message{topic = <<"$event/client_disconnected">>}, receive_deliver(500)),
+                  ?assertMatch(#message{}, receive_deliver(500)),
 
-                  emqx_broker:unsubscribe(<<"$event/#">>),
-                  emqx_event_message:disable(),
-                  application:stop(emqx_modules),
-                  timer:sleep(200)
+                  emqx_broker:unsubscribe(ConnectedSub),
+                  emqx_broker:unsubscribe(DisconnectedSub),
+
+                  emqx_hooks:del('client.connected', {emqx_sys, on_client_connected}),
+                  emqx_hooks:del('client.disconnected', {emqx_sys, on_client_disconnected}),
+                  timer:sleep(500)
           end,
     do(Fun).
 
