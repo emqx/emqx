@@ -42,8 +42,11 @@ all() -> emqx_common_test_helpers:all(?MODULE).
 init_per_suite(Config) ->
     emqx_common_test_helpers:boot_modules(all),
     emqx_common_test_helpers:start_apps([emqx_modules]),
-    ok = emqx_common_test_helpers:load_config(emqx_modules_schema, ?EVENT_MESSAGE),
+    load_config(),
     Config.
+
+load_config() ->
+    ok = emqx_common_test_helpers:load_config(emqx_modules_schema, ?EVENT_MESSAGE).
 
 end_per_suite(_Config) ->
     emqx_common_test_helpers:stop_apps([emqx_modules]).

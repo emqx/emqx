@@ -292,12 +292,41 @@ t_clients_get_subscription_api(_) ->
           end,
     with_connection(Fun).
 
+t_on_offline_event(_) ->
+    Fun = fun(Channel) ->
+                  emqx_hooks:add('client.connected', {emqx_sys, on_client_connected, []}),
+                  emqx_hooks:add('client.disconnected', {emqx_sys, on_client_disconnected, []}),
+
+                  ConnectedSub = <<"$SYS/brokers/+/gateway/coap/clients/+/connected">>,
+                  emqx_broker:subscribe(ConnectedSub),
+                  timer:sleep(100),
+
+                  Token = connection(Channel),
+                  ?assertMatch(#message{}, receive_deliver(500)),
+
+                  DisconnectedSub = <<"$SYS/brokers/+/gateway/coap/clients/+/disconnected">>,
+                  emqx_broker:subscribe(DisconnectedSub),
+                  timer:sleep(100),
+
+                  disconnection(Channel, Token),
+
+                  ?assertMatch(#message{}, receive_deliver(500)),
+
+                  emqx_broker:unsubscribe(ConnectedSub),
+                  emqx_broker:unsubscribe(DisconnectedSub),
+
+                  emqx_hooks:del('client.connected', {emqx_sys, on_client_connected}),
+                  emqx_hooks:del('client.disconnected', {emqx_sys, on_client_disconnected}),
+                  timer:sleep(500)
+          end,
+    do(Fun).
+
 %%--------------------------------------------------------------------
 %% helpers
 
 connection(Channel) ->
     URI = ?MQTT_PREFIX ++
-          "/connection?clientid=client1&username=admin&password=public",
+        "/connection?clientid=client1&username=admin&password=public",
     Req = make_req(post),
     {ok, created, Data} = do_request(Channel, URI, Req),
     #coap_content{payload = BinToken} = Data,
@@ -378,3 +407,11 @@ with_connection(Action) ->
         timer:sleep(100)
     end,
     do(Fun).
+
+receive_deliver(Wait) ->
+    receive
+        {deliver, _, Msg} ->
+            Msg
+    after Wait ->
+            {error, timeout}
+    end.
