@@ -396,9 +396,10 @@ unmock_print() ->
     meck:unload(emqx_ctl).
 
 safe_unmeck(Module) ->
-    %% isolate exits
-    {Pid, Ref} = erlang:spawn_monitor(fun() -> meck:unload(Module) end),
-    receive
-        {'DOWN', Ref, process, Pid, _} ->
+    try
+        meck:unload(Module),
+        ok
+    catch
+        _ : _ ->
             ok
     end.
