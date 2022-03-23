@@ -49,22 +49,39 @@ fields("http") ->
         hoconsc:enum([http, https]),
         #{ desc => "HTTP/HTTPS protocol."
          , required => true
-         , default => http})}
+         , default => http
+         })}
     , {"bind", fun bind/1}
     , {"num_acceptors", sc(
         integer(),
         #{ default => 4
-         , desc => "Socket acceptor pool for TCP protocols."
+         , desc => "Socket acceptor pool size for TCP protocols."
          })}
-    , {"max_connections", sc(integer(), #{default => 512})}
-    , {"backlog", sc(
-        integer(),
-        #{ default => 1024
-         , desc => "Defines the maximum length that the queue of pending connections can grow to."
-        })}
-    , {"send_timeout", sc(emqx_schema:duration(), #{default => "5s"})}
-    , {"inet6", sc(boolean(), #{default => false})}
-    , {"ipv6_v6only", sc(boolean(), #{default => false})}
+    , {"max_connections",
+       sc(integer(),
+          #{ default => 512
+           , desc => "Maximum number of simultaneous connections."
+           })}
+    , {"backlog",
+       sc(integer(),
+          #{ default => 1024
+           , desc => "Defines the maximum length that the queue of pending connections can grow to."
+           })}
+    , {"send_timeout",
+       sc(emqx_schema:duration(),
+          #{ default => "5s"
+           , desc => "Send timeout for the socket."
+           })}
+    , {"inet6",
+       sc(boolean(),
+          #{ default => false
+           , desc => "Sets up the listener for IPv6."
+           })}
+    , {"ipv6_v6only",
+       sc(boolean(),
+          #{ default => false
+           , desc => "Disable IPv4-to-IPv6 mapping for the listener."
+           })}
     ];
 
 fields("https") ->
@@ -81,6 +98,7 @@ bind(_) -> undefined.
 default_username(type) -> string();
 default_username(default) -> "admin";
 default_username(required) -> true;
+default_username(desc) -> "The default username of the automatically created dashboard user.";
 default_username(_) -> undefined.
 
 default_password(type) -> string();

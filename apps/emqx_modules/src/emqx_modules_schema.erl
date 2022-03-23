@@ -126,12 +126,10 @@ fields("event_message") ->
     #{
         fields => Fields,
         desc =>
-            ""
-            "\n"
             "Enable/Disable system event messages.\n"
-            "The messages are published to '$event' prefixed topics.\n"
+            "The messages are published to <code>$event</code> prefixed topics.\n"
             "For example, if `client_disconnected` is set to `true`,\n"
-            "a message is published to `$event/client_connected` topic\n"
+            "a message is published to <code>$event/client_connected</code> topic\n"
             "whenever a client is connected.\n"
             ""
     };

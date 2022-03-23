@@ -905,7 +905,12 @@ fields("ws_opts") ->
         {"mqtt_path",
             sc(
                 string(),
-                #{default => "/mqtt"}
+                #{
+                    default => "/mqtt",
+                    desc =>
+                        "WebSocket's MQTT protocol path. So the address of\n"
+                        " EMQX Broker's WebSocket is: <code>ws://{ip}:{port}/mqtt</code>"
+                }
             )},
         {"mqtt_piggyback",
             sc(
@@ -915,52 +920,99 @@ fields("ws_opts") ->
         {"compress",
             sc(
                 boolean(),
-                #{default => false}
+                #{
+                    default => false,
+                    desc =>
+                        "If <code>true</code>, compress WebSocket messages using <code>zlib</code>.<br/>\n"
+                        " The configuration items under <code>deflate_opts</code> belong to the compression-related parameter configuration."
+                }
             )},
         {"idle_timeout",
             sc(
                 duration(),
-                #{default => "15s"}
+                #{
+                    default => "15s",
+                    desc =>
+                        "The idle time after the TCP connection is established <br/>\n"
+                        " If no packets are received within this time, the connection will be closed."
+                }
             )},
         {"max_frame_size",
             sc(
                 hoconsc:union([infinity, integer()]),
-                #{default => infinity}
+                #{
+                    default => infinity,
+                    desc => "The maximum length of a single MQTT packet."
+                }
             )},
         {"fail_if_no_subprotocol",
             sc(
                 boolean(),
-                #{default => true}
+                #{
+                    default => true,
+                    desc =>
+                        "If <code>true</code>, the server will return an error when\n"
+                        " the client does not carry the <code>Sec-WebSocket-Protocol</code> field.\n"
+                        " <br/>Note: WeChat applet needs to disable this verification."
+                }
             )},
         {"supported_subprotocols",
             sc(
                 comma_separated_list(),
-                #{default => "mqtt, mqtt-v3, mqtt-v3.1.1, mqtt-v5"}
+                #{
+                    default => "mqtt, mqtt-v3, mqtt-v3.1.1, mqtt-v5",
+                    desc => "Comma-separated list of supported subprotocols."
+                }
             )},
         {"check_origin_enable",
             sc(
                 boolean(),
-                #{default => false}
+                #{
+                    default => false,
+                    desc =>
+                        "If <code>true</code>, <code>origin</code> HTTP header will be\n"
+                        " validated against the list of allowed origins configured in <code>check_origins</code>\n"
+                        " parameter."
+                }
             )},
         {"allow_origin_absence",
             sc(
                 boolean(),
-                #{default => true}
+                #{
+                    default => true,
+                    desc =>
+                        "If <code>false</code> and <code>check_origin_enable</code> is\n"
+                        " <code>true</code>, the server will reject requests that don't have <code>origin</code>\n"
+                        " HTTP header."
+                }
             )},
         {"check_origins",
             sc(
                 hoconsc:array(binary()),
-                #{default => []}
+                #{
+                    default => [],
+                    desc => "List of allowed origins.<br/>See <code>check_origin_enable</code>."
+                }
             )},
         {"proxy_address_header",
             sc(
                 string(),
-                #{default => "x-forwarded-for"}
+                #{
+                    default => "x-forwarded-for",
+                    desc =>
+                        "HTTP header used to pass information about the client IP address.\n"
+                        " Relevant when the EMQX cluster is deployed behind a load-balancer."
+                }
             )},
         {"proxy_port_header",
             sc(
                 string(),
-                #{default => "x-forwarded-port"}
+                #{
+                    default => "x-forwarded-port",
+                    desc =>
+                        "HTTP header used to pass information about the client port.\n"
+                        " Relevant when the EMQX cluster is deployed behind a load-balancer."
+                }
             )},
         {"deflate_opts",
             sc(
@@ -973,52 +1025,79 @@ fields("tcp_opts") ->
         {"active_n",
             sc(
                 integer(),
-                #{default => 100}
+                #{
+                    default => 100,
+                    desc =>
+                        "Specify the {active, N} option for this Socket.<br/>\n"
+                        " See: https://erlang.org/doc/man/inet.html#setopts-2"
+                }
             )},
         {"backlog",
             sc(
                 integer(),
-                #{default => 1024}
+                #{
+                    default => 1024,
+                    desc =>
+                        "TCP backlog defines the maximum length that the queue of\n"
+                        " pending connections can grow to."
+                }
             )},
         {"send_timeout",
             sc(
                 duration(),
-                #{default => "15s"}
+                #{
+                    default => "15s",
+                    desc => "The TCP send timeout for the connections."
+                }
             )},
         {"send_timeout_close",
             sc(
                 boolean(),
-                #{default => true}
+                #{
+                    default => true,
+                    desc => "Close the connection if send timeout."
+                }
             )},
         {"recbuf",
             sc(
                 bytesize(),
-                #{}
+                #{desc => "The TCP receive buffer (OS kernel) for the connections."}
             )},
         {"sndbuf",
             sc(
                 bytesize(),
-                #{}
+                #{desc => "The TCP send buffer (OS kernel) for the connections."}
             )},
         {"buffer",
             sc(
                 bytesize(),
-                #{}
+                #{desc => "The size of the user-space buffer used by the driver."}
             )},
         {"high_watermark",
             sc(
                 bytesize(),
-                #{default => "1MB"}
+                #{
+                    default => "1MB",
+                    desc =>
+                        "The socket is set to a busy state when the amount of data queued internally\n"
+                        "  by the VM socket implementation reaches this limit."
+                }
             )},
         {"nodelay",
             sc(
                 boolean(),
-                #{default => false}
+                #{
+                    default => false,
+                    desc => "The TCP_NODELAY flag for the connections."
+                }
             )},
         {"reuseaddr",
             sc(
                 boolean(),
-                #{default => true}
+                #{
+                    default => true,
+                    desc => "The SO_REUSEADDR flag for the connections."
+                }
             )}
     ];
 fields("listener_ssl_opts") ->
@@ -1048,37 +1127,56 @@ fields("deflate_opts") ->
         {"level",
             sc(
                 hoconsc:enum([none, default, best_compression, best_speed]),
-                #{}
+                #{desc => "Compression level."}
             )},
         {"mem_level",
             sc(
                 range(1, 9),
-                #{default => 8}
+                #{
+                    default => 8,
+                    desc =>
+                        "Specifies the size of the compression state.<br/>\n"
+                        " Lower values decrease memory usage per connection."
+                }
             )},
         {"strategy",
             sc(
                 hoconsc:enum([default, filtered, huffman_only, rle]),
-                #{}
+                #{desc => "Specifies the compression strategy."}
             )},
         {"server_context_takeover",
             sc(
                 hoconsc:enum([takeover, no_takeover]),
-                #{}
+                #{
+                    desc =>
+                        "Takeover means the compression state is retained\n"
+                        " between server messages."
+                }
             )},
         {"client_context_takeover",
             sc(
                 hoconsc:enum([takeover, no_takeover]),
-                #{}
+                #{
+                    desc =>
+                        "Takeover means the compression state is retained\n"
+                        " between client messages."
+                }
             )},
         {"server_max_window_bits",
             sc(
                 range(8, 15),
-                #{default => 15}
+                #{
+                    default => 15,
+                    desc => "Specifies the size of the compression context for the server."
+                }
             )},
         {"client_max_window_bits",
             sc(
                 range(8, 15),
-                #{default => 15}
+                #{
+                    default => 15,
+                    desc => "Specifies the size of the compression context for the client."
+                }
             )}
     ];
 fields("broker") ->
@@ -1086,27 +1184,57 @@ fields("broker") ->
         {"enable_session_registry",
             sc(
                 boolean(),
-                #{default => true}
+                #{
+                    default => true,
+                    desc => "Enable session registry"
+                }
             )},
         {"session_locking_strategy",
             sc(
                 hoconsc:enum([local, leader, quorum, all]),
-                #{default => quorum}
+                #{
+                    default => quorum,
+                    desc =>
+                        "Session locking strategy in a cluster.<br/>\n"
+                        " - `local`: only lock the session on the current node\n"
+                        " - `one`: select only one remote node to lock the session\n"
+                        " - `quorum`: select some nodes to lock the session\n"
+                        " - `all`: lock the session on all the nodes in the cluster"
+                }
             )},
         {"shared_subscription_strategy",
             sc(
                 hoconsc:enum([random, round_robin, sticky, hash_topic, hash_clientid]),
-                #{default => round_robin}
+                #{
+                    default => round_robin,
+                    desc =>
+                        "Dispatch strategy for shared subscription.<br/>\n"
+                        " - `random`: dispatch the message to a random selected subscriber\n"
+                        " - `round_robin`: select the subscribers in a round-robin manner\n"
+                        " - `sticky`: always use the last selected subscriber to dispatch,\n"
+                        "   until the subscriber disconnects.\n"
+                        " - `hash`: select the subscribers by the hash of `clientIds`"
+                }
             )},
         {"shared_dispatch_ack_enabled",
             sc(
                 boolean(),
-                #{default => false}
+                #{
+                    default => false,
+                    desc =>
+                        "Enable/disable shared dispatch acknowledgement for QoS1 and QoS2 messages.<br/>\n"
+                        " This should allow messages to be dispatched to a different subscriber in\n"
+                        " the group in case the picked (based on `shared_subscription_strategy`) subscriber\n"
+                        " is offline."
+                }
             )},
         {"route_batch_clean",
             sc(
                 boolean(),
-                #{default => true}
+                #{
+                    default => true,
+                    desc => "Enable batch clean for deleted routes."
+                }
             )},
         {"perf",
             sc(
@@ -1215,42 +1343,74 @@ fields("sysmon_vm") ->
         {"process_check_interval",
             sc(
                 duration(),
-                #{default => "30s"}
+                #{
+                    default => "30s",
+                    desc => "The time interval for the periodic process limit check."
+                }
             )},
         {"process_high_watermark",
             sc(
                 percent(),
-                #{default => "80%"}
+                #{
+                    default => "80%",
+                    desc =>
+                        "The threshold, as percentage of processes, for how many\n"
+                        " processes can simultaneously exist at the local node before the corresponding\n"
+                        " alarm is set."
+                }
             )},
         {"process_low_watermark",
             sc(
                 percent(),
-                #{default => "60%"}
+                #{
+                    default => "60%",
+                    desc =>
+                        "The threshold, as percentage of processes, for how many\n"
+                        " processes can simultaneously exist at the local node before the corresponding\n"
+                        " alarm is cleared."
+                }
             )},
         {"long_gc",
             sc(
                 hoconsc:union([disabled, duration()]),
-                #{}
+                #{
+                    desc =>
+                        "Enable Long GC monitoring.<br/>\n"
+                        " Notice: don't enable the monitor in production for:<br/>\n"
+                        " https://github.com/erlang/otp/blob/feb45017da36be78d4c5784d758ede619fa7bfd3/erts/emulator/beam/erl_gc.c#L421"
+                }
             )},
         {"long_schedule",
             sc(
                 hoconsc:union([disabled, duration()]),
-                #{default => "240ms"}
+                #{
+                    default => "240ms",
+                    desc => "Enable Long Schedule monitoring."
+                }
             )},
         {"large_heap",
             sc(
                 hoconsc:union([disabled, bytesize()]),
-                #{default => "32MB"}
+                #{
+                    default => "32MB",
+                    desc => "Enable Large Heap monitoring."
+                }
             )},
         {"busy_dist_port",
             sc(
                 boolean(),
-                #{default => true}
+                #{
+                    default => true,
+                    desc => "Enable Busy Distribution Port monitoring."
+                }
             )},
         {"busy_port",
             sc(
                 boolean(),
-                #{default => true}
+                #{
+                    default => true,
+                    desc => "Enable Busy Port monitoring."
+                }
             )}
     ];
 fields("sysmon_os") ->
@@ -1258,32 +1418,59 @@ fields("sysmon_os") ->
         {"cpu_check_interval",
             sc(
                 duration(),
-                #{default => "60s"}
+                #{
+                    default => "60s",
+                    desc => "The time interval for the periodic CPU check."
+                }
             )},
         {"cpu_high_watermark",
             sc(
                 percent(),
-                #{default => "80%"}
+                #{
+                    default => "80%",
+                    desc =>
+                        "The threshold, as percentage of system CPU load,\n"
+                        " for how much system cpu can be used before the corresponding alarm is set."
+                }
             )},
         {"cpu_low_watermark",
             sc(
                 percent(),
-                #{default => "60%"}
+                #{
+                    default => "60%",
+                    desc =>
+                        "The threshold, as percentage of system CPU load,\n"
+                        " for how much system cpu can be used before the corresponding alarm is cleared."
+                }
             )},
         {"mem_check_interval",
             sc(
                 hoconsc:union([disabled, duration()]),
-                #{default => "60s"}
+                #{
+                    default => "60s",
+                    desc => "The time interval for the periodic memory check."
+                }
             )},
         {"sysmem_high_watermark",
             sc(
                 percent(),
-                #{default => "70%"}
+                #{
+                    default => "70%",
+                    desc =>
+                        "The threshold, as percentage of system memory,\n"
+                        " for how much system memory can be allocated before the corresponding alarm is set."
+                }
             )},
         {"procmem_high_watermark",
             sc(
                 percent(),
-                #{default => "5%"}
+                #{
+                    default => "5%",
+                    desc =>
+                        "The threshold, as percentage of system memory,\n"
+                        " for how much system memory can be allocated by one Erlang process before\n"
+                        " the corresponding alarm is set."
+                }
             )}
     ];
 fields("sysmon_top") ->
@@ -1451,27 +1638,57 @@ base_listener() ->
         {"bind",
             sc(
                 hoconsc:union([ip_port(), integer()]),
-                #{required => true}
+                #{
+                    required => true,
+                    desc => "IP address and port for the listening socket."
+                }
             )},
         {"acceptors",
             sc(
                 integer(),
-                #{default => 16}
+                #{
+                    default => 16,
+                    desc => "The size of the listener's receiving pool."
+                }
             )},
         {"max_connections",
             sc(
                 hoconsc:union([infinity, integer()]),
-                #{default => infinity}
+                #{
+                    default => infinity,
+                    desc => "The maximum number of concurrent connections allowed by the listener."
+                }
             )},
         {"mountpoint",
             sc(
                 binary(),
-                #{default => <<>>}
+                #{
+                    default => <<>>,
+                    desc =>
+                        "When publishing or subscribing, prefix all topics with a mountpoint string.\n"
+                        " The prefixed string will be removed from the topic name when the message\n"
+                        " is delivered to the subscriber. The mountpoint is a way that users can use\n"
+                        " to implement isolation of message routing between different listeners.\n"
+                        " For example if a client A subscribes to `t` with `listeners.tcp.<name>.mountpoint`\n"
+                        " set to `some_tenant`, then the client actually subscribes to the topic\n"
+                        " `some_tenant/t`. Similarly, if another client B (connected to the same listener\n"
+                        " as the client A) sends a message to topic `t`, the message is routed\n"
+                        " to all the clients subscribed `some_tenant/t`, so client A will receive the\n"
+                        " message, with topic name `t`.<br/>\n"
+                        " Set to `\"\"` to disable the feature.<br/>\n"
+                        "\n"
+                        " Variables in mountpoint string:\n"
+                        " - <code>${clientid}</code>: clientid\n"
+                        " - <code>${username}</code>: username"
+                }
             )},
         {"zone",
             sc(
                 atom(),
-                #{default => 'default'}
+                #{
+                    default => 'default',
+                    desc => "The configuration zone to which the listener belongs."
+                }
             )},
         {"limiter",
             sc(map("ratelimit's type", emqx_limiter_schema:bucket_name()), #{default => #{}})}
