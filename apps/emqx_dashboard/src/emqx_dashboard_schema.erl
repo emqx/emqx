@@ -38,8 +38,15 @@ Alternatively, the HTTP listener can specify a unique IP address for each listen
 but use the same port."})}
     , {default_username, fun default_username/1}
     , {default_password, fun default_password/1}
-    , {sample_interval, sc(emqx_schema:duration_s(), #{default => "10s"})}
-    , {token_expired_time, sc(emqx_schema:duration(), #{default => "30m"})}
+    , {sample_interval, sc(emqx_schema:duration_s(),
+                           #{ default => "10s"
+                            , desc => "How often to update metrics displayed in the dashboard.<br/>"
+                                      "Note: `sample_interval` should be divisible by 60."
+                            })}
+    , {token_expired_time, sc(emqx_schema:duration(),
+                              #{ default => "30m"
+                               , desc => "JWT token expiration time."
+                               })}
     , {cors, fun cors/1}
     ];
 
@@ -113,9 +120,9 @@ cors(type) -> boolean();
 cors(default) -> false;
 cors(required) -> false;
 cors(desc) ->
-"""Support Cross-Origin Resource Sharing (CORS).
+"Support Cross-Origin Resource Sharing (CORS).
 Allows a server to indicate any origins (domain, scheme, or port) other than
-its own from which a browser should permit loading resources.""";
+its own from which a browser should permit loading resources.";
 cors(_) -> undefined.
 
 sc(Type, Meta) -> hoconsc:mk(Type, Meta).

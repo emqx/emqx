@@ -622,7 +622,7 @@ fields("log") ->
     [ {"console_handler", ref("console_handler")}
     , {"file_handlers",
        sc(map(name, ref("log_file_handler")),
-          #{})}
+          #{desc => "Key-value list of file-based log handlers."})}
     , {"error_logger",
        sc(atom(),
           #{mapping => "kernel.error_logger",
