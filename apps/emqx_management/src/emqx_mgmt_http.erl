@@ -118,9 +118,10 @@ handle_request(_Method, _Path, Req) ->
     cowboy_req:reply(400, #{<<"content-type">> => <<"text/plain">>}, <<"Not found.">>, Req).
 
 authorize_appid(Req) ->
-    case cowboy_req:parse_header(<<"authorization">>, Req) of
-        {basic, AppId, AppSecret} -> emqx_mgmt_auth:is_authorized(AppId, AppSecret);
-         _  -> false
+    try
+        {basic, AppId, AppSecret} = cowboy_req:parse_header(<<"authorization">>, Req),
+        emqx_mgmt_auth:is_authorized(AppId, AppSecret)
+    catch _:_ -> false
     end.
 
 -ifdef(EMQX_ENTERPRISE).

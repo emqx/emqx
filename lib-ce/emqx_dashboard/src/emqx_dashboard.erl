@@ -103,17 +103,17 @@ is_authorized(Req) ->
 is_authorized("/api/v4/auth", _Req) ->
     true;
 is_authorized(_Path, Req) ->
-    case cowboy_req:parse_header(<<"authorization">>, Req) of
-        {basic, Username, Password} ->
-            case emqx_dashboard_admin:check(iolist_to_binary(Username),
-                                            iolist_to_binary(Password)) of
-                ok -> true;
-                {error, Reason} ->
-                    ?LOG(error, "[Dashboard] Authorization Failure: username=~s, reason=~p",
-                                [Username, Reason]),
-                    false
-            end;
-         _  -> false
+    try
+        {basic, Username, Password} = cowboy_req:parse_header(<<"authorization">>, Req),
+        case emqx_dashboard_admin:check(iolist_to_binary(Username), iolist_to_binary(Password)) of
+            ok -> true;
+            {error, Reason} ->
+                ?LOG(error, "[Dashboard] Authorization Failure: username=~s, reason=~p",
+                    [Username, Reason]),
+                false
+        end
+    catch _:_ -> %% bad authorization header will crash.
+        false
     end.
 
 filter(#{app := emqx_modules}) -> true;
