@@ -49,7 +49,6 @@
      {load_module,emqx_plugins,brutal_purge,soft_purge,[]},
      {load_module,emqx_session,brutal_purge,soft_purge,[]},
      {load_module,emqx_app,brutal_purge,soft_purge,[]},
-     {delete_module,emqx_relup},
      {load_module,emqx_os_mon,brutal_purge,soft_purge,[]},
      {load_module,emqx_pmon,brutal_purge,soft_purge,[]},
      {load_module,emqx_cm,brutal_purge,soft_purge,[]},
