@@ -1,11 +1,11 @@
 %% -*- mode: erlang -*-
 {VSN,
-  [{<<"4\\.3\\.[0-2]$">>,
+  [{<<"4\\.3\\.[0-2]">>,
     [{apply,{application,stop,[emqx_web_hook]}},
      {load_module,emqx_web_hook_app,brutal_purge,soft_purge,[]},
      {load_module,emqx_web_hook,brutal_purge,soft_purge,[]},
      {load_module,emqx_web_hook_actions,brutal_purge,soft_purge,[]}]},
-   {<<"4\\.3\\.[3-7]$">>,
+   {<<"4\\.3\\.[3-7]">>,
     [{apply,{application,stop,[emqx_web_hook]}},
      {load_module,emqx_web_hook_app,brutal_purge,soft_purge,[]},
      {load_module,emqx_web_hook,brutal_purge,soft_purge,[]},
@@ -14,14 +14,15 @@
     [{load_module,emqx_web_hook,brutal_purge,soft_purge,[]}]},
    {"4.3.9",
     [ %% nothing so far
+      %% 4.3.9 is taken by release 4.3.12
     ]},
    {<<".*">>,[]}],
-  [{<<"4\\.3\\.[0-2]$">>,
+  [{<<"4\\.3\\.[0-2]">>,
     [{apply,{application,stop,[emqx_web_hook]}},
      {load_module,emqx_web_hook_app,brutal_purge,soft_purge,[]},
      {load_module,emqx_web_hook,brutal_purge,soft_purge,[]},
      {load_module,emqx_web_hook_actions,brutal_purge,soft_purge,[]}]},
-   {<<"4\\.3\\.[3-7]$">>,
+   {<<"4\\.3\\.[3-7]">>,
     [{apply,{application,stop,[emqx_web_hook]}},
      {load_module,emqx_web_hook_app,brutal_purge,soft_purge,[]},
      {load_module,emqx_web_hook,brutal_purge,soft_purge,[]},
@@ -30,5 +31,6 @@
     [{load_module,emqx_web_hook,brutal_purge,soft_purge,[]}]},
    {"4.3.9",
     [ %% nothing so far
+      %% 4.3.9 is taken by release 4.3.12
     ]},
    {<<".*">>,[]}]}.
