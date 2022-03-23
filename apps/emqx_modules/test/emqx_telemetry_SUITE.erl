@@ -47,7 +47,7 @@ init_per_testcase(t_get_telemetry, Config) ->
         emqx_telemetry,
         read_raw_build_info,
         fun() ->
-            {ok, Path} = file:read_link(filename:join([DataDir, "BUILD_INFO"])),
+            Path = filename:join([DataDir, "BUILD_INFO"]),
             {ok, Template} = file:read_file(Path),
             Vars0 = [
                 {build_info_arch, "arch"},

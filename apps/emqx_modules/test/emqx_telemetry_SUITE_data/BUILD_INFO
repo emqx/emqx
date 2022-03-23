@@ -1,1 +1,6 @@
-../../../../rel/BUILD_INFO
+arch: "{{ build_info_arch }}"
+wordsize: {{ build_info_wordsize }}
+os: "{{ build_info_os }}"
+erlang: "{{ build_info_erlang }}"
+elixir: "{{ build_info_elixir }}"
+relform: "{{ build_info_relform }}"
