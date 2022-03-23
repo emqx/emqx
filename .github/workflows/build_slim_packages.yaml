@@ -38,15 +38,15 @@ jobs:
         - 1.13.3
         os:
         - ubuntu20.04
-        - rockylinux8
+        - el8
 
-    container: "ghcr.io/emqx/emqx-builder/5.0-10:${{ matrix.elixir }}-${{ matrix.otp }}-${{ matrix.os }}"
+    container: "ghcr.io/emqx/emqx-builder/5.0-14:${{ matrix.elixir }}-${{ matrix.otp }}-${{ matrix.os }}"
 
     steps:
-    - name: cleanup
-      run: |
-        rm -rf "${GITHUB_WORKSPACE}/"
-    - uses: actions/checkout@v1
+    - uses: AutoModality/action-clean@v1
+    - uses: actions/checkout@v2
+      with:
+        fetch-depth: 0
     - name: prepare
       run: |
         echo "EMQX_NAME=${{ matrix.profile }}" >> $GITHUB_ENV
@@ -63,6 +63,9 @@ jobs:
           _build/default/lib/quicer/
           deps/quicer/
         key: ${{ matrix.os }}-${{ matrix.elixir }}-${{ matrix.otp }}-amd64-${{ steps.deps-refs.outputs.DEP_QUICER_REF }}
+    - name: Work around https://github.com/actions/checkout/issues/766
+      run: |
+        git config --global --add safe.directory "$GITHUB_WORKSPACE"
     - name: build and test tgz package
       run: |
         make ${EMQX_NAME}-tgz
@@ -148,7 +151,8 @@ jobs:
     - name: prepare
       run: |
         brew update
-        brew install curl zip unzip gnu-sed kerl unixodbc freetds
+        brew install curl zip unzip gnu-sed kerl unixodbc freetds automake bison
+        echo "/usr/local/opt/bison/bin" >> $GITHUB_PATH
         echo "/usr/local/bin" >> $GITHUB_PATH
         echo "EMQX_NAME=${{ matrix.profile }}" >> $GITHUB_ENV
     - uses: actions/cache@v2

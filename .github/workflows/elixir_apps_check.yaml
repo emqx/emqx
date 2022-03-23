@@ -6,9 +6,9 @@ on: [pull_request, push]
 
 jobs:
   elixir_apps_check:
-    runs-on: ubuntu-20.04
+    runs-on: ubuntu-latest
     # just use the latest builder
-    container: "ghcr.io/emqx/emqx-builder/5.0-10:1.13.3-24.2.1-1-ubuntu20.04"
+    container: "ghcr.io/emqx/emqx-builder/5.0-14:1.13.3-24.2.1-1-ubuntu20.04"
 
     strategy:
       fail-fast: false
@@ -31,12 +31,17 @@ jobs:
             edition_type: enterprise
 
     steps:
+      - name: fix_git_permission
+        run: git config --global --add safe.directory '/__w/emqx/emqx'
       - name: Checkout
-        uses: actions/checkout@v2.4.0
+        uses: actions/checkout@v2
         with:
           fetch-depth: 0
       - name: ensure rebar
         run: ./scripts/ensure-rebar3.sh
+      - name: Work around https://github.com/actions/checkout/issues/766
+        run: |
+          git config --global --add safe.directory "$GITHUB_WORKSPACE"
       - name: check applications
         run: ./scripts/check-elixir-applications.exs
       - name: check applications started with emqx_machine

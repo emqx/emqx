@@ -84,6 +84,8 @@ RELEASE="$(grep -E "define.+${RELEASE_EDITION}" apps/emqx/include/emqx_release.h
 
 git_exact_vsn() {
     local tag
+    ## Needed to avoid error in github action
+    git config --global --add safe.directory "/__w/emqx/emqx"
     tag="$(git describe --tags --match "${GIT_TAG_PREFIX}*" --exact 2>/dev/null)"
     echo "${tag#[v|e]}"
 }
