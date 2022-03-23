@@ -4,7 +4,7 @@
 
 -import(hoconsc, [mk/2, ref/2]).
 
--export([roots/0, fields/1]).
+-export([roots/0, fields/1, namespace/0]).
 
 -export([ get_response/0
         , put_request/0
@@ -80,6 +80,9 @@ direction_field(Dir, Desc) ->
 
 %%======================================================================================
 %% For config files
+
+namespace() -> "bridge".
+
 roots() -> [bridges].
 
 fields(bridges) ->
