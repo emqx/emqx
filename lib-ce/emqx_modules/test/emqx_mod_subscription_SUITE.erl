@@ -60,7 +60,7 @@ t_suboption(_) ->
     Client_info = fun(Key, Client) -> maps:get(Key, maps:from_list(emqtt:info(Client)), undefined) end,
     Suboption = #{qos => ?QOS_2, nl => 1, rap => 1, rh => 2},
     ?assertEqual(ok, emqx_mod_subscription:load([{<<"connected/%c/%u">>, Suboption}])),
-    {ok, C1} = emqtt:start_link([{proto_ver, v5}]),
+    {ok, C1} = emqtt:start_link([{proto_ver, v5}, {username, "admin"}]),
     {ok, _} = emqtt:connect(C1),
     timer:sleep(200),
     [CPid1] = emqx_cm:lookup_channels(Client_info(clientid, C1)),
@@ -69,7 +69,7 @@ t_suboption(_) ->
     ?assertMatch({Sub1, #{qos := 2, nl := 1, rap := 1, rh := 2, subid := _}}, Suboption1),
     ok = emqtt:disconnect(C1),
     %% The subscription option is not valid for MQTT V3.1.1
-    {ok, C2} = emqtt:start_link([{proto_ver, v4}]),
+    {ok, C2} = emqtt:start_link([{proto_ver, v4}, {username, "admin"}]),
     {ok, _} = emqtt:connect(C2),
     timer:sleep(200),
     [CPid2] = emqx_cm:lookup_channels(Client_info(clientid, C2)),

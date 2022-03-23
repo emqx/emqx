@@ -20,6 +20,7 @@
 
 -include_lib("emqx/include/emqx.hrl").
 -include_lib("emqx/include/emqx_mqtt.hrl").
+-include_lib("emqx/include/logger.hrl").
 
 %% emqx_gen_mod callbacks
 -export([ load/1
@@ -38,14 +39,33 @@ load(Topics) ->
     emqx_hooks:add('client.connected', {?MODULE, on_client_connected, [Topics]}).
 
 on_client_connected(#{clientid := ClientId, username := Username}, _ConnInfo = #{proto_ver := ProtoVer}, Topics) ->
-    Replace = fun(Topic) ->
-                      rep(<<"%u">>, Username, rep(<<"%c">>, ClientId, Topic))
+
+    OptFun =  case ProtoVer of
+                  ?MQTT_PROTO_V5 -> fun(X) -> X end;
+                  _ -> fun(#{qos := Qos}) -> #{qos => Qos} end
               end,
-    TopicFilters =  case ProtoVer of
-        ?MQTT_PROTO_V5 -> [{Replace(Topic), SubOpts} || {Topic, SubOpts} <- Topics];
-        _ -> [{Replace(Topic), #{qos => Qos}} || {Topic, #{qos := Qos}} <- Topics]
-    end,
-    self() ! {subscribe, TopicFilters}.
+
+    Fold = fun({Topic, SubOpts}, Acc) ->
+                   case rep(Topic, ClientId, Username) of
+                       {error, Reason} ->
+                           ?LOG(warning, "auto subscribe ignored, topic filter:~ts reason:~p~n",
+                                [Topic, Reason]),
+                           Acc;
+                       <<>> ->
+                           ?LOG(warning, "auto subscribe ignored, topic filter:~ts"
+                                " reason: topic can't be empty~n",
+                                [Topic]),
+                           Acc;
+                       NewTopic ->
+                           [{NewTopic, OptFun(SubOpts)} | Acc]
+                   end
+           end,
+
+    case lists:foldl(Fold, [], Topics) of
+        [] -> ok;
+        TopicFilters ->
+            self() ! {subscribe, TopicFilters}
+    end.
 
 unload(_) ->
     emqx_hooks:del('client.connected', {?MODULE, on_client_connected}).
@@ -56,10 +76,24 @@ description() ->
 %% Internal functions
 %%--------------------------------------------------------------------
 
-rep(<<"%c">>, ClientId, Topic) ->
-    emqx_topic:feed_var(<<"%c">>, ClientId, Topic);
-rep(<<"%u">>, undefined, Topic) ->
-    Topic;
-rep(<<"%u">>, Username, Topic) ->
-    emqx_topic:feed_var(<<"%u">>, Username, Topic).
+rep(Topic, ClientId, Username) ->
+    Words = emqx_topic:words(Topic),
+    rep(Words, ClientId, Username, []).
 
+rep([<<"%c">> | T], ClientId, Username, Acc) ->
+    rep(T,
+        ClientId,
+        Username,
+        [ClientId | Acc]);
+rep([<<"%u">> | _], _, undefined, _) ->
+    {error, username_undefined};
+rep([<<"%u">> | T], ClientId, Username, Acc) ->
+    rep(T,
+        ClientId,
+        Username,
+        [Username | Acc]);
+rep([H | T], ClientId, UserName, Acc) ->
+    rep(T, ClientId, UserName, [H | Acc]);
+
+rep([], _, _, Acc) ->
+    emqx_topic:join(lists:reverse(Acc)).
