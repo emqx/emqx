@@ -33,21 +33,33 @@ namespace() -> "statsd".
 roots() -> ["statsd"].
 
 fields("statsd") ->
-    [ {enable, hoconsc:mk(boolean(), #{default => false, required => true})}
+    [ {enable, hoconsc:mk(boolean(),
+                          #{ default => false
+                           , required => true
+                           , desc => "Enable statsd"
+                           })}
     , {server, fun server/1}
-    , {sample_time_interval, fun duration_ms/1}
-    , {flush_time_interval, fun duration_ms/1}
+    , {sample_time_interval, fun sample_interval/1}
+    , {flush_time_interval, fun flush_interval/1}
     ].
 
 server(type) -> emqx_schema:ip_port();
 server(required) -> true;
 server(default) -> "127.0.0.1:8125";
+server(desc) -> "URL of the statsd gateway.";
 server(_) -> undefined.
 
-duration_ms(type) -> emqx_schema:duration_ms();
-duration_ms(required) -> true;
-duration_ms(default) -> "10s";
-duration_ms(_) -> undefined.
+sample_interval(type) -> emqx_schema:duration_ms();
+sample_interval(required) -> true;
+sample_interval(default) -> "10s";
+sample_interval(desc) -> "Data collection interval in milliseconds.";
+sample_interval(_) -> undefined.
+
+flush_interval(type) -> emqx_schema:duration_ms();
+flush_interval(required) -> true;
+flush_interval(default) -> "10s";
+flush_interval(desc) -> "Flush interval in milliseconds.";
+flush_interval(_) -> undefined.
 
 to_ip_port(Str) ->
      case string:tokens(Str, ":") of
