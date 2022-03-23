@@ -292,12 +292,37 @@ t_clients_get_subscription_api(_) ->
           end,
     with_connection(Fun).
 
+t_on_offline_event(_) ->
+    Fun = fun(Channel) ->
+                  application:start(emqx_modules),
+                  emqx_event_message_SUITE:load_config(),
+                  timer:sleep(100),
+
+                  emqx_event_message:enable(),
+                  timer:sleep(200),
+
+                  emqx_broker:subscribe(<<"$event/#">>),
+
+                  Token = connection(Channel),
+                  ?assertMatch(#message{topic = <<"$event/client_connected">>}, receive_deliver(500)),
+
+                  disconnection(Channel, Token),
+
+                  ?assertMatch(#message{topic = <<"$event/client_disconnected">>}, receive_deliver(500)),
+
+                  emqx_broker:unsubscribe(<<"$event/#">>),
+                  emqx_event_message:disable(),
+                  application:stop(emqx_modules),
+                  timer:sleep(200)
+          end,
+    do(Fun).
+
 %%--------------------------------------------------------------------
 %% helpers
 
 connection(Channel) ->
     URI = ?MQTT_PREFIX ++
-          "/connection?clientid=client1&username=admin&password=public",
+        "/connection?clientid=client1&username=admin&password=public",
     Req = make_req(post),
     {ok, created, Data} = do_request(Channel, URI, Req),
     #coap_content{payload = BinToken} = Data,
@@ -378,3 +403,11 @@ with_connection(Action) ->
         timer:sleep(100)
     end,
     do(Fun).
+
+receive_deliver(Wait) ->
+    receive
+        {deliver, _, Msg} ->
+            Msg
+    after Wait ->
+            {error, timeout}
+    end.
