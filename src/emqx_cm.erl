@@ -409,7 +409,7 @@ kick_session(Action, ClientId, ChanPid) ->
 kick_session(ClientId) ->
     case lookup_channels(ClientId) of
         [] ->
-            ?LOG(warning, "kiecked_an_unknown_session ~ts", [ClientId]),
+            ?LOG(warning, "kicked_an_unknown_session ~ts", [ClientId]),
             ok;
         ChanPids ->
             case length(ChanPids) > 1 of

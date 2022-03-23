@@ -1,17 +1,1 @@
-[Unit]
-Description=emqx daemon
-After=network.target
-
-[Service]
-User=emqx
-Group=emqx
-Type=forking
-Environment=HOME=/var/lib/emqx
-ExecStart=/usr/bin/emqx start
-LimitNOFILE=1048576
-ExecStop=/usr/bin/emqx stop
-Restart=on-failure
-RestartSec=5s
-
-[Install]
-WantedBy=multi-user.target
+../emqx.service

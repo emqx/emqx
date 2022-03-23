@@ -56,6 +56,11 @@ end}.
   {datatype, string}
 ]}.
 
+{mapping, "mqtt.sn.subs_resume", "emqx_sn.subs_resume", [
+  {default, false},
+  {datatype, {enum, [true, false]}}
+]}.
+
 {translation, "emqx_sn.username", fun(Conf) ->
   Username = cuttlefish:conf_get("mqtt.sn.username", Conf),
   list_to_binary(Username)

@@ -77,9 +77,10 @@ auth(_Bindings, Params) ->
     Password = proplists:get_value(<<"password">>, Params),
     return(emqx_dashboard_admin:check(Username, Password)).
 
-change_pwd(#{username := Username}, Params) ->
+change_pwd(#{username := Username0}, Params) ->
     OldPwd = proplists:get_value(<<"old_pwd">>, Params),
     NewPwd = proplists:get_value(<<"new_pwd">>, Params),
+    Username = emqx_mgmt_util:urldecode(Username0),
     return(emqx_dashboard_admin:change_password(Username, OldPwd, NewPwd)).
 
 create(_Bindings, Params) ->
@@ -96,14 +97,13 @@ list(_Bindings, _Params) ->
 
 update(#{name := Username}, Params) ->
     Tags = proplists:get_value(<<"tags">>, Params),
-    return(emqx_dashboard_admin:update_user(Username, Tags)).
+    return(emqx_dashboard_admin:update_user(emqx_mgmt_util:urldecode(Username), Tags)).
 
 delete(#{name := <<"admin">>}, _Params) ->
     return({error, <<"Cannot delete admin">>});
 
 delete(#{name := Username}, _Params) ->
-    return(emqx_dashboard_admin:remove_user(Username)).
+    return(emqx_dashboard_admin:remove_user(emqx_mgmt_util:urldecode(Username))).
 
 row(#mqtt_admin{username = Username, tags = Tags}) ->
     #{username => Username, tags => Tags}.
-

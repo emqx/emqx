@@ -9,7 +9,15 @@
   {vsn, "4.4.2"}, % strict semver, bump manually!
   {modules, []},
   {registered, []},
-  {applications, [kernel,stdlib,gproc,gen_rpc,esockd,cowboy,sasl,os_mon]},
+  {applications, [ kernel
+                 , stdlib
+                 , gproc
+                 , gen_rpc
+                 , esockd
+                 , cowboy
+                 , sasl
+                 , lc
+                 , os_mon]},
   {mod, {emqx_app,[]}},
   {env, []},
   {licenses, ["Apache-2.0"]},

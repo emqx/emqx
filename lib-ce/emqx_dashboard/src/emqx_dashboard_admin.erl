@@ -21,6 +21,7 @@
 -behaviour(gen_server).
 
 -include("emqx_dashboard.hrl").
+-include_lib("emqx/include/logger.hrl").
 
 -boot_mnesia({mnesia, [boot]}).
 -copy_mnesia({mnesia, [copy]}).
@@ -77,18 +78,24 @@ start_link() ->
 
 -spec(add_user(binary(), binary(), binary()) -> ok | {error, any()}).
 add_user(Username, Password, Tags) when is_binary(Username), is_binary(Password) ->
-    Admin = #mqtt_admin{username = Username, password = hash(Password), tags = Tags},
-    return(mnesia:transaction(fun add_user_/1, [Admin])).
+    case emqx_misc:is_sane_id(Username) of
+        ok ->
+            Admin = #mqtt_admin{username = Username, password = hash(Password), tags = Tags},
+            return(mnesia:transaction(fun add_user_/1, [Admin]));
+        {error, Reason} -> {error, Reason}
+    end.
 
 force_add_user(Username, Password, Tags) ->
-    AddFun = fun() ->
-                 mnesia:write(#mqtt_admin{username = Username,
-                                          password = Password,
-                                          tags = Tags})
-             end,
-    case mnesia:transaction(AddFun) of
-        {atomic, ok} -> ok;
-        {aborted, Reason} -> {error, Reason}
+    case emqx_misc:is_sane_id(Username) of
+        ok ->
+            AddFun = fun() ->
+                mnesia:write(#mqtt_admin{username = Username, password = Password, tags = Tags})
+                     end,
+            case mnesia:transaction(AddFun) of
+                {atomic, ok} -> ok;
+                {aborted, Reason} -> {error, Reason}
+            end;
+        {error, Reason} -> {error, Reason}
     end.
 
 %% @private
@@ -218,11 +225,34 @@ binenv(Key) ->
     iolist_to_binary(application:get_env(emqx_dashboard, Key, "")).
 
 add_default_user(Username, Password) when ?EMPTY_KEY(Username) orelse ?EMPTY_KEY(Password) ->
-    igonre;
+    ignore;
 
 add_default_user(Username, Password) ->
     case lookup_user(Username) of
         [] -> add_user(Username, Password, <<"administrator">>);
-        _  -> ok
-    end.
-
+        _  ->
+            case check(Username, Password) of
+                ok ->
+                    ?LOG(warning,
+                        "[Dashboard] The initial default password for dashboard 'admin' user in emqx_dashboard.conf\n"
+                        "For safety, it should be changed as soon as possible.\n"
+                        "Please use the './bin/emqx_ctl admins' CLI to change it.\n"
+                        "Then remove `dashboard.default_user.login/password` from emqx_dashboard.conf"
+                    );
+                {error, _} ->
+                    %% We can't force add default,
+                    %% otherwise passwords that have been updated via HTTP API will be reset after reboot.
+                    ?LOG(warning,
+                        "[Dashboard] dashboard.default_user.password in the plugins/emqx_dashboard.conf\n"
+                        "does not match the password in the database(mnesia).\n"
+                        "1. If you have already changed the password via the HTTP API or `./bin/emqx_ctl admins`,"
+                        "this warning has no effect.\n"
+                        "You should remove the `dashboard.default_user.login/password` from emqx_dashboard.conf "
+                        "to resolve this warning.\n"
+                        "2. If you just want to update the password by manually changing the configuration file,\n"
+                        "you need to delete the old user and password using `emqx_ctl admins del ~s` first\n"
+                        "the new password in emqx_dashboard.conf can take effect after reboot.",
+                        [])
+            end
+    end,
+    ok.

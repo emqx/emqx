@@ -68,9 +68,13 @@ t_overview(_) ->
 t_admins_add_delete(_) ->
     ok = emqx_dashboard_admin:add_user(<<"username">>, <<"password">>, <<"tag">>),
     ok = emqx_dashboard_admin:add_user(<<"username1">>, <<"password1">>, <<"tag1">>),
+    ok = emqx_dashboard_admin:add_user(<<"1username1">>, <<"password1">>, <<"tag1">>),
+    {error, _} = emqx_dashboard_admin:add_user(<<"u/sername1">>, <<"password1">>, <<"tag1">>),
+    {error, _} = emqx_dashboard_admin:add_user(<<"/username1">>, <<"password1">>, <<"tag1">>),
     Admins = emqx_dashboard_admin:all_users(),
-    ?assertEqual(3, length(Admins)),
+    ?assertEqual(4, length(Admins)),
     ok = emqx_dashboard_admin:remove_user(<<"username1">>),
+    ok = emqx_dashboard_admin:remove_user(<<"1username1">>),
     Users = emqx_dashboard_admin:all_users(),
     ?assertEqual(2, length(Users)),
     ok = emqx_dashboard_admin:change_password(<<"username">>, <<"password">>, <<"pwd">>),
@@ -78,13 +82,14 @@ t_admins_add_delete(_) ->
     ?assert(request_dashboard(get, api_path("brokers"), auth_header_("username", "pwd"))),
 
     ok = emqx_dashboard_admin:remove_user(<<"username">>),
-    ?assertNotEqual(true, request_dashboard(get, api_path("brokers"), auth_header_("username", "pwd"))).
+    ?assertNotEqual(true, request_dashboard(get, api_path("brokers"),
+        auth_header_("username", "pwd"))).
 
 t_rest_api(_Config) ->
     {ok, Res0} = http_get("users"),
-
-    ?assertEqual([#{<<"username">> => <<"admin">>,
-                    <<"tags">> => <<"administrator">>}], get_http_data(Res0)),
+    Users = get_http_data(Res0),
+    ?assert(lists:member(#{<<"username">> => <<"admin">>, <<"tags">> => <<"administrator">>},
+        Users)),
 
     AssertSuccess = fun({ok, Res}) ->
                         ?assertEqual(#{<<"code">> => 0}, json(Res))
