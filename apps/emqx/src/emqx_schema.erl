@@ -659,22 +659,40 @@ fields("flapping_detect") ->
         {"enable",
             sc(
                 boolean(),
-                #{default => false}
+                #{
+                    default => false,
+                    desc =>
+                        "Enable flapping connection detection feature.<br/>\n"
+                        "This config controls the allowed maximum number of `CONNECT` packets received\n"
+                        "from the same clientid in a time frame defined by `window_time`.\n"
+                        "After the limit is reached, successive `CONNECT` requests are forbidden\n"
+                        "(banned) until the end of the time period defined by `ban_time`."
+                }
             )},
         {"max_count",
             sc(
                 integer(),
-                #{default => 15}
+                #{
+                    default => 15,
+                    desc =>
+                        "The maximum number of disconnects allowed for a MQTT Client in `window_time`"
+                }
             )},
         {"window_time",
             sc(
                 duration(),
-                #{default => "1m"}
+                #{
+                    default => "1m",
+                    desc => "The time window for flapping detection."
+                }
             )},
         {"ban_time",
             sc(
                 duration(),
-                #{default => "5m"}
+                #{
+                    default => "5m",
+                    desc => "How long the flapping clientid will be banned."
+                }
             )}
     ];
 fields("force_shutdown") ->
@@ -682,18 +700,25 @@ fields("force_shutdown") ->
         {"enable",
             sc(
                 boolean(),
-                #{default => true}
+                #{
+                    default => true,
+                    desc => "Enable `force_shutdown` feature."
+                }
             )},
         {"max_message_queue_len",
             sc(
                 range(0, inf),
-                #{default => 1000}
+                #{
+                    default => 1000,
+                    desc => "Maximum message queue length."
+                }
             )},
         {"max_heap_size",
             sc(
                 wordsize(),
                 #{
                     default => "32MB",
+                    desc => "Total heap size",
                     validator => fun ?MODULE:validate_heap_size/1
                 }
             )}

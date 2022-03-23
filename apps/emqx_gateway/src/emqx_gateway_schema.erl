@@ -473,26 +473,48 @@ common_listener_opts() ->
     [ {enable,
        sc(boolean(),
           #{ default => true
+           , desc => "Enable the listener."
            })}
     , {bind,
        sc(hoconsc:union([ip_port(), integer()]),
-          #{})}
+          #{ desc => "The IP address and port that the listener will bind."
+           })}
     , {max_connections,
        sc(integer(),
           #{ default => 1024
+           , desc => "Maximum number of concurrent connections."
            })}
     , {max_conn_rate,
        sc(integer(),
           #{ default => 1000
+           , desc => "Maximum connections per second."
            })}
     , {?EMQX_AUTHENTICATION_CONFIG_ROOT_NAME_ATOM, authentication_schema()}
     , {mountpoint,
        sc(binary(),
           #{ default => undefined
+           , desc =>
+                 "When publishing or subscribing, prefix all topics with a mountpoint string.\n"
+                 " The prefixed string will be removed from the topic name when the message\n"
+                 " is delivered to the subscriber. The mountpoint is a way that users can use\n"
+                 " to implement isolation of message routing between different listeners.\n"
+                 " For example if a client A subscribes to `t` with `listeners.tcp.<name>.mountpoint`\n"
+                 " set to `some_tenant`, then the client actually subscribes to the topic\n"
+                 " `some_tenant/t`. Similarly, if another client B (connected to the same listener\n"
+                 " as the client A) sends a message to topic `t`, the message is routed\n"
+                 " to all the clients subscribed `some_tenant/t`, so client A will receive the\n"
+                 " message, with topic name `t`.<br/>\n"
+                 " Set to `\"\"` to disable the feature.<br/>\n"
+                 "\n"
+                 " Variables in mountpoint string:\n"
+                 " - <code>${clientid}</code>: clientid\n"
+                 " - <code>${username}</code>: username"
            })}
     , {access_rules,
        sc(hoconsc:array(string()),
           #{ default => []
+           , desc => "The access control rules for this listener.<br/>"
+                     "See: https://github.com/emqtt/esockd#allowdeny"
            })}
     ].
 

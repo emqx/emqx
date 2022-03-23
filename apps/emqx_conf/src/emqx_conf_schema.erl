@@ -637,13 +637,17 @@ fields("console_handler") ->
 fields("log_file_handler") ->
     [ {"file",
        sc(file(),
-          #{})}
+          #{ desc => "Name the log file."
+           })}
     , {"rotation",
        sc(ref("log_rotation"),
           #{})}
     , {"max_size",
        sc(hoconsc:union([infinity, emqx_schema:bytesize()]),
           #{ default => "10MB"
+           , desc => "This parameter controls log file rotation. "
+                     "The value `infinity` means the log file will grow indefinitely, "
+                     "otherwise the log file will be rotated once it reaches `max_size` in bytes."
            })}
     ] ++ log_handler_common_confs();
 
