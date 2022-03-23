@@ -22,7 +22,7 @@ jobs:
   prepare:
     runs-on: ubuntu-20.04
     # prepare source with any OTP version, no need for a matrix
-    container: "ghcr.io/emqx/emqx-builder/5.0-10:1.13.3-24.2.1-1-ubuntu20.04"
+    container: "ghcr.io/emqx/emqx-builder/5.0-13:1.13.3-24.2.1-1-ubuntu20.04"
 
     outputs:
       BUILD_PROFILES: ${{ steps.get_profiles.outputs.BUILD_PROFILES }}
@@ -139,7 +139,7 @@ jobs:
     - name: prepare
       run: |
         brew update
-        brew install curl zip unzip gnu-sed kerl unixodbc freetds
+        brew install curl zip unzip gnu-sed kerl unixodbc freetds automake bison
         echo "/usr/local/bin" >> $GITHUB_PATH
         git config --global credential.helper store
     - uses: actions/cache@v2
@@ -205,7 +205,7 @@ jobs:
     needs: prepare
     runs-on: ${{ matrix.build_machine }}
     container:
-      image: "ghcr.io/emqx/emqx-builder/5.0-10:${{ matrix.elixir }}-${{ matrix.otp }}-${{ matrix.os }}"
+      image: "ghcr.io/emqx/emqx-builder/5.0-13:${{ matrix.elixir }}-${{ matrix.otp }}-${{ matrix.os }}"
 
     strategy:
       fail-fast: false
@@ -325,7 +325,7 @@ jobs:
             --pkgtype "${PKGTYPE}" \
             --arch "${ARCH}" \
             --elixir "${IsElixir}" \
-            --builder "ghcr.io/emqx/emqx-builder/5.0-10:${ELIXIR}-${OTP}-${SYSTEM}"
+            --builder "ghcr.io/emqx/emqx-builder/5.0-13:${ELIXIR}-${OTP}-${SYSTEM}"
         done
     - uses: actions/upload-artifact@v1
       if: startsWith(github.ref, 'refs/tags/')
@@ -462,7 +462,7 @@ jobs:
         tags: ${{ steps.meta.outputs.tags }}
         labels: ${{ steps.meta.outputs.labels }}
         build-args: |
-          BUILD_FROM=ghcr.io/emqx/emqx-builder/5.0-10:${{ matrix.elixir }}-${{ matrix.otp }}-${{ matrix.os }}
+          BUILD_FROM=ghcr.io/emqx/emqx-builder/5.0-13:${{ matrix.elixir }}-${{ matrix.otp }}-${{ matrix.os }}
           RUN_FROM=${{ steps.pre-meta.outputs.img }}
           EMQX_NAME=${{ steps.pre-meta.outputs.emqx_name }}
         file: source/deploy/docker/Dockerfile

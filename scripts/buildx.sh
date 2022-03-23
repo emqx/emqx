@@ -9,7 +9,7 @@
 
 ## example:
 ## ./scripts/buildx.sh --profile emqx --pkgtype tgz --arch arm64 \
-##     --builder ghcr.io/emqx/emqx-builder/5.0-10:1.13.3-24.2.1-1-debian10
+##     --builder ghcr.io/emqx/emqx-builder/5.0-13:1.13.3-24.2.1-1-debian10
 
 set -euo pipefail
 
@@ -24,7 +24,7 @@ help() {
     echo "--arch amd64|arm64:        Target arch to build the EMQX package for"
     echo "--src_dir <SRC_DIR>:       EMQX source ode in this dir, default to PWD"
     echo "--builder <BUILDER>:       Builder image to pull"
-    echo "                           E.g. ghcr.io/emqx/emqx-builder/5.0-10:1.13.3-24.2.1-1-debian10"
+    echo "                           E.g. ghcr.io/emqx/emqx-builder/5.0-13:1.13.3-24.2.1-1-debian10"
 }
 
 while [ "$#" -gt 0 ]; do

@@ -1,22 +1,6 @@
-ARG BUILD_FROM=ghcr.io/emqx/emqx-builder/5.0-10:1.13.3-24.2.1-1-alpine3.15.1
+ARG BUILD_FROM=ghcr.io/emqx/emqx-builder/5.0-13:1.13.3-24.2.1-1-alpine3.15.1
 ARG RUN_FROM=alpine:3.15.1
 FROM ${BUILD_FROM} AS builder
-
-RUN apk add --no-cache \
-    git \
-    curl \
-    gcc \
-    g++ \
-    make \
-    perl \
-    ncurses-dev \
-    openssl-dev \
-    coreutils \
-    bsd-compat-headers \
-    libc-dev \
-    libstdc++ \
-    bash \
-    jq
 
 COPY . /emqx
 

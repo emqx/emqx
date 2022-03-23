@@ -147,7 +147,8 @@
     regex_replace/3,
     ascii/1,
     find/2,
-    find/3
+    find/3,
+    jq/2
 ]).
 
 %% Map Funcs
@@ -778,6 +779,23 @@ find_s(S, P, Dir) ->
         nomatch -> <<"">>;
         SubStr -> SubStr
     end.
+
+-spec jq(FilterProgram, JSON) -> Result when
+    FilterProgram :: binary(),
+    JSON :: binary() | term(),
+    Result :: [term()].
+jq(FilterProgram, JSONBin) when
+    is_binary(FilterProgram), is_binary(JSONBin)
+->
+    case jq:parse(FilterProgram, JSONBin) of
+        {ok, Result} ->
+            [json_decode(JSONString) || JSONString <- Result];
+        {error, ErrorReason} ->
+            erlang:throw({jq_exception, ErrorReason})
+    end;
+jq(FilterProgram, JSONTerm) when is_binary(FilterProgram) ->
+    JSONBin = json_encode(JSONTerm),
+    jq(FilterProgram, JSONBin).
 
 %%------------------------------------------------------------------------------
 %% Array Funcs

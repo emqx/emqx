@@ -40,7 +40,7 @@ jobs:
         - ubuntu20.04
         - rockylinux8
 
-    container: "ghcr.io/emqx/emqx-builder/5.0-10:${{ matrix.elixir }}-${{ matrix.otp }}-${{ matrix.os }}"
+    container: "ghcr.io/emqx/emqx-builder/5.0-13:${{ matrix.elixir }}-${{ matrix.otp }}-${{ matrix.os }}"
 
     steps:
     - name: cleanup
@@ -148,7 +148,8 @@ jobs:
     - name: prepare
       run: |
         brew update
-        brew install curl zip unzip gnu-sed kerl unixodbc freetds
+        brew install curl zip unzip gnu-sed kerl unixodbc freetds automake bison
+        export PATH="/usr/local/opt/bison/bin:$PATH"
         echo "/usr/local/bin" >> $GITHUB_PATH
         echo "EMQX_NAME=${{ matrix.profile }}" >> $GITHUB_ENV
     - uses: actions/cache@v2
@@ -163,12 +164,14 @@ jobs:
         KERL_BUILD_BACKEND: git
         OTP_GITHUB_URL: https://github.com/emqx/otp
       run: |
+        export PATH="/usr/local/opt/bison/bin:$PATH"
         kerl update releases
         kerl build ${{ matrix.otp }}
         kerl install ${{ matrix.otp }} $HOME/.kerl/${{ matrix.otp }}
     - name: Get deps git refs for cache
       id: deps-refs
       run: |
+        export PATH="/usr/local/opt/bison/bin:$PATH"
         . $HOME/.kerl/${{ matrix.otp }}/activate
         make ensure-rebar3
         sudo cp rebar3 /usr/local/bin/rebar3
@@ -181,12 +184,14 @@ jobs:
         key: ${{ matrix.macos }}-${{ matrix.otp }}-macos-${{ steps.deps-refs.outputs.DEP_QUICER_REF }}
     - name: build ${{ matrix.profile }}
       run: |
+        export PATH="/usr/local/opt/bison/bin:$PATH"
         . $HOME/.kerl/${{ matrix.otp }}/activate
         make ensure-rebar3
         sudo cp rebar3 /usr/local/bin/rebar3
         make ${{ matrix.profile }}-tgz
     - name: test
       run: |
+        export PATH="/usr/local/opt/bison/bin:$PATH"
         pkg_name=$(find _packages/${{ matrix.profile }} -mindepth 1 -maxdepth 1 -iname \*.tar.gz)
         tar -zxf $pkg_name
         # gsed -i '/emqx_telemetry/d' ./emqx/data/loaded_plugins
