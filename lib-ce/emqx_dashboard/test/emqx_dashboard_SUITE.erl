@@ -52,8 +52,8 @@ all() ->
 groups() ->
     [
      {overview, [sequence], [t_overview]},
-     {admins, [sequence], [t_default_password_persists_after_leaving_cluster]},
-     {rest, [sequence], [t_rest_api, t_auth_exhaustive_attack]},
+     {admins, [sequence], [t_admins_add_delete, t_admins_persist_default_password, t_default_password_persists_after_leaving_cluster]},
+     {rest, [sequence], [t_rest_api]},
      {cli, [sequence], [t_cli]}
     ].
 
@@ -90,10 +90,14 @@ t_admins_add_delete(_) ->
 
 t_admins_persist_default_password(_) ->
     emqx_dashboard_admin:change_password(<<"admin">>, <<"new_password">>),
-    [#mqtt_admin{password=Password}] = emqx_dashboard_admin:lookup_user(<<"admin">>),
+    ct:sleep(100),
+    [#mqtt_admin{password=Password, tags= <<"administrator">>}] = emqx_dashboard_admin:lookup_user(<<"admin">>),
 
     %% To ensure that state persists even if the process dies
-    exit(whereis(emqx_dashboard_admin), kill),
+    application:stop(emqx_dashboard),
+    application:start(emqx_dashboard),
+
+    ct:sleep(100),
 
     %% It get's restarted by the app automatically
     [#mqtt_admin{password=PasswordAfterRestart}] = emqx_dashboard_admin:lookup_user(<<"admin">>),
@@ -147,6 +151,14 @@ t_default_password_persists_after_leaving_cluster(_) ->
 
     debug(2, Slave),
 
+    rpc:call(Slave, application, stop, [emqx_dashboard]),
+
+    debug(3, Slave),
+
+    rpc:call(Slave, application, start, [emqx_dashboard]),
+
+    debug(4, Slave),
+
     ?assertEqual(
        ok,
        rpc:call(Slave, emqx_dashboard_admin, check, [<<"admin">>, <<"new_password">>])),
@@ -162,6 +174,7 @@ t_default_password_persists_after_leaving_cluster(_) ->
 t_rest_api(_Config) ->
     {ok, Res0} = http_get("users"),
     Users = get_http_data(Res0),
+    ct:pal("~p", [emqx_dashboard_admin:all_users()]),
     ?assert(lists:member(#{<<"username">> => <<"admin">>, <<"tags">> => <<"administrator">>},
         Users)),
 
@@ -277,7 +290,6 @@ setup_node(Node, Apps) ->
         fun(emqx) ->
                 application:set_env(emqx, listeners, []),
                 application:set_env(gen_rpc, port_discovery, manual),
-                mnesia:info(),
                 ok;
            (emqx_management) ->
                 application:set_env(emqx_management, listeners, []),

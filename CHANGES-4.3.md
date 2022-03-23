@@ -74,6 +74,7 @@ File format:
 * Fix subscribe http api crash by bad_qos `/mqtt/subscribe`,`/mqtt/subscribe_batch`.
 * Send DISCONNECT packet with reason code 0x98 if connection has been kicked [#7309]
 * Auto subscribe to an empty topic will be simply ignored now
+* Dashboard admin password persists after leaving/joining the cluster
 
 ## v4.3.12
 ### Important changes

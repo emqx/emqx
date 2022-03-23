@@ -158,7 +158,8 @@ update_pwd(Username, Fun) ->
 lookup_user(Username) when is_binary(Username) ->
     case binenv(default_user_username) of
         Username ->
-            [#mqtt_admin{username=Username, password=hashed_default_passwd()}];
+            Password = hashed_default_passwd(),
+            [#mqtt_admin{username=Username, password=Password, tags= <<"administrator">>}];
         _ ->
             mnesia:dirty_read(mqtt_admin, Username)
     end.
@@ -193,7 +194,7 @@ check(Username, Password) ->
 init([]) ->
     %% Add default admin user
     {ok, _} = mnesia:subscribe({table, mqtt_admin, simple}),
-    _ = add_default_user(binenv(default_user_username), binenv(default_user_passwd)),
+    add_default_user_hashed(binenv(default_user_username), hashed_default_passwd()),
     {ok, state}.
 
 handle_call(_Req, _From, State) ->
@@ -241,13 +242,24 @@ salt() ->
 binenv(Key) ->
     iolist_to_binary(application:get_env(emqx_dashboard, Key, <<>>)).
 
+add_default_user_hashed(Username, HashedPassword) ->
+    case mnesia:dirty_read(mqtt_admin, Username) of
+        [] ->
+            Admin = #mqtt_admin{username=Username, password=HashedPassword, tags= <<"administrator">>},
+            return(mnesia:transaction(fun add_user_/1, [Admin]));
+        _  -> ok
+    end.
+
 hashed_default_passwd() ->
     case binenv(default_user_passwd_hashed) of
         Empty0 when ?EMPTY_KEY(Empty0) ->
             case binenv(default_user_passwd) of
                 Empty when ?EMPTY_KEY(Empty) ->
                     undefined;
-                Password -> hash(Password)
+                Password ->
+                    Hashed = hash(Password),
+                    application:set_env(emqx_dashboard, default_user_passwd_hashed, Hashed),
+                    Hashed
             end;
         HashedPassword -> HashedPassword
     end.
