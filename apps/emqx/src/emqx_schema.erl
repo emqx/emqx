@@ -1228,7 +1228,7 @@ fields("broker") ->
                     desc =>
                         "Session locking strategy in a cluster.<br/>\n"
                         " - `local`: only lock the session on the current node\n"
-                        " - `one`: select only one remove node to lock the session\n"
+                        " - `one`: select only one remote node to lock the session\n"
                         " - `quorum`: select some nodes to lock the session\n"
                         " - `all`: lock the session on all the nodes in the cluster"
                 }
@@ -1243,7 +1243,7 @@ fields("broker") ->
                         " - `random`: dispatch the message to a random selected subscriber\n"
                         " - `round_robin`: select the subscribers in a round-robin manner\n"
                         " - `sticky`: always use the last selected subscriber to dispatch,\n"
-                        "   until the subscriber disconnected.\n"
+                        "   until the subscriber disconnects.\n"
                         " - `hash`: select the subscribers by the hash of `clientIds`"
                 }
             )},
@@ -1418,7 +1418,7 @@ fields("sysmon_vm") ->
                 hoconsc:union([disabled, duration()]),
                 #{
                     default => "240ms",
-                    desc => "Enable Long Schedule(ms) monitoring."
+                    desc => "Enable Long Schedule monitoring."
                 }
             )},
         {"large_heap",
