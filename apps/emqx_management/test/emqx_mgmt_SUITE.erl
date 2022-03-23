@@ -292,8 +292,7 @@ t_subscriptions_cmd(_) ->
     [?assertMatch({match, _} , re:run(Result, "b/b/c"))
      || Result <- emqx_mgmt_cli:subscriptions(["show", <<"client">>])],
     ?assertEqual(emqx_mgmt_cli:subscriptions(["add", "client", "b/b/c", "0"]), "ok\n"),
-    ?assertEqual(emqx_mgmt_cli:subscriptions(["del", "client", "b/b/c"]), "ok\n"),
-    unmock_print().
+    ?assertEqual(emqx_mgmt_cli:subscriptions(["del", "client", "b/b/c"]), "ok\n").
 
 t_listeners_cmd_old(_) ->
     ok = emqx_listeners:ensure_all_started(),
@@ -322,8 +321,7 @@ t_listeners_cmd_new(_) ->
        emqx_mgmt_cli:listeners(["restart", "bad:listener:identifier"]),
        "Failed to restart bad:listener:identifier listener:"
        " {no_such_listener,\"bad:listener:identifier\"}\n"
-      ),
-    unmock_print().
+      ).
 
 t_plugins_cmd(_) ->
     ?assertEqual(emqx_mgmt_cli:plugins(["list"]), ok),
@@ -338,8 +336,7 @@ t_plugins_cmd(_) ->
     ?assertEqual(
        emqx_mgmt_cli:plugins(["unload", "emqx_management"]),
        "Plugin emqx_management can not be unloaded.\n"
-      ),
-    unmock_print().
+      ).
 
 t_cli(_) ->
     ?assertMatch({match, _}, re:run(emqx_mgmt_cli:status([""]), "status")),
@@ -388,7 +385,7 @@ t_backup_file(_)->
     ok.
 
 mock_print() ->
-    catch meck:unload(emqx_ctl),
+    ok = safe_unmeck(emqx_ctl),
     meck:new(emqx_ctl, [non_strict, passthrough]),
     meck:expect(emqx_ctl, print, fun(Arg) -> emqx_ctl:format(Arg, []) end),
     meck:expect(emqx_ctl, print, fun(Msg, Arg) -> emqx_ctl:format(Msg, Arg) end),
@@ -397,3 +394,11 @@ mock_print() ->
 
 unmock_print() ->
     meck:unload(emqx_ctl).
+
+safe_unmeck(Module) ->
+    %% isolate exits
+    {Pid, Ref} = erlang:spawn_monitor(fun() -> meck:unload(Module) end),
+    receive
+        {'DOWN', Ref, process, Pid, _} ->
+            ok
+    end.
