@@ -31,7 +31,9 @@ File format:
 * Add load control app for future development.
 * Change the precision of float to 17 digits after the decimal point when formatting a
   float using payload templates of rule actions. The old precision is 10 digits before
-  this change.
+  this change. [#7336]
+* Return the cached resource status when querying a resource using HTTP APIs.
+  This is to avoid blocking the HTTP request if the resource is unavailable. [#7374]
 
 ### Bug fixes
 
