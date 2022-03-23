@@ -50,11 +50,12 @@ list_trace(_, _Params) ->
                     FileName = emqx_trace:filename(Name, Start),
                     LogSize = collect_file_size(Nodes, FileName, AllFileSize),
                     Trace0 = maps:without([enable, filter], Trace),
+                    ModEnable = emqx_trace:is_enable(),
                     Trace0#{ log_size => LogSize
                            , Type => iolist_to_binary(Filter)
                            , start_at => list_to_binary(calendar:system_time_to_rfc3339(Start))
                            , end_at => list_to_binary(calendar:system_time_to_rfc3339(End))
-                           , status => status(Enable, Start, End, Now)
+                           , status => status(ModEnable, Enable, Start, End, Now)
                            }
                           end, List),
             {ok, Traces}
@@ -208,7 +209,9 @@ collect_file_size(Nodes, FileName, AllFiles) ->
         Acc#{Node => Size}
                 end, #{}, Nodes).
 
-status(false, _Start, _End, _Now) -> <<"stopped">>;
-status(true, Start, _End, Now) when Now < Start -> <<"waiting">>;
-status(true, _Start, End, Now) when Now >= End -> <<"stopped">>;
-status(true, _Start, _End, _Now) -> <<"running">>.
+%% if the module is not running, it will return stopped, user can download the trace file.
+status(false, _Enable, _Start, _End, _Now) -> <<"stopped">>;
+status(true, false, _Start, _End, _Now) -> <<"stopped">>;
+status(true, true, Start, _End, Now) when Now < Start -> <<"waiting">>;
+status(true, true, _Start, End, Now) when Now >= End -> <<"stopped">>;
+status(true, true, _Start, _End, _Now) -> <<"running">>.

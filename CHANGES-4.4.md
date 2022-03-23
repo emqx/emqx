@@ -48,6 +48,7 @@
 * Fix user or appid created, name only allow `^[A-Za-z]+[A-Za-z0-9-_]*$`
 * Fix subscribe http api crash by bad_qos `/mqtt/subscribe`,`/mqtt/subscribe_batch`.
 * Send DISCONNECT packet with reason code 0x98 if connection has been kicked [#7309]
+* Fix make all traces stopped when emqx_trace_module is disabled.
 
 ## v4.4.1
 
