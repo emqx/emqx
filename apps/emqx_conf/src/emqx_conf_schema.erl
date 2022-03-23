@@ -637,13 +637,17 @@ fields("console_handler") ->
 fields("log_file_handler") ->
     [ {"file",
        sc(file(),
-          #{})}
+          #{ desc => "Name the log file."
+           })}
     , {"rotation",
        sc(ref("log_rotation"),
           #{})}
     , {"max_size",
        sc(hoconsc:union([infinity, emqx_schema:bytesize()]),
           #{ default => "10MB"
+           , desc => "This parameter controls log file rotation. "
+                     "The value `infinity` means the log file will grow indefinitely, "
+                     "otherwise the log file will be rotated once it reaches `max_size` in bytes."
            })}
     ] ++ log_handler_common_confs();
 
@@ -651,10 +655,12 @@ fields("log_rotation") ->
     [ {"enable",
        sc(boolean(),
           #{ default => true
+           , desc => "Enable log rotation feature."
            })}
     , {"count",
        sc(range(1, 2048),
           #{ default => 10
+           , desc => "Maximum number of log files."
            })}
     ];
 
@@ -662,18 +668,23 @@ fields("log_overload_kill") ->
     [ {"enable",
        sc(boolean(),
           #{ default => true
+           , desc => "Enable log handler overload kill feature."
            })}
     , {"mem_size",
        sc(emqx_schema:bytesize(),
           #{ default => "30MB"
+           , desc => "Maximum memory size that the handler process is allowed to use."
            })}
     , {"qlen",
        sc(integer(),
           #{ default => 20000
+           , desc => "Maximum allowed queue length."
            })}
     , {"restart_after",
        sc(hoconsc:union([emqx_schema:duration(), infinity]),
           #{ default => "5s"
+           , desc => "If the handler is terminated, it restarts automatically after a "
+                     "delay specified in milliseconds. The value `infinity` prevents restarts."
            })}
     ];
 
@@ -681,14 +692,20 @@ fields("log_burst_limit") ->
     [ {"enable",
        sc(boolean(),
           #{ default => true
+           , desc => "Enable log burst control feature."
            })}
     , {"max_count",
        sc(integer(),
           #{ default => 10000
+           , desc => "Maximum number of log events to handle within a `window_time` interval. "
+                     "After the limit is reached, successive events are dropped "
+                     "until the end of the `window_time`."
            })}
     , {"window_time",
        sc(emqx_schema:duration(),
-          #{default => "1s"})}
+          #{ default => "1s"
+           , desc => "See `max_count`."
+           })}
     ];
 
 fields("authorization") ->
@@ -801,6 +818,7 @@ log_handler_common_confs() ->
     [ {"enable",
        sc(boolean(),
           #{ default => false
+           , desc => "Enable this log handler."
            })}
     , {"level",
        sc(log_level(),
@@ -811,6 +829,7 @@ log_handler_common_confs() ->
     , {"time_offset",
        sc(string(),
           #{ default => "system"
+           , desc => "The time offset to be used when formatting the timestamp."
            })}
     , {"chars_limit",
        sc(hoconsc:union([unlimited, range(1, inf)]),
@@ -833,24 +852,34 @@ log_handler_common_confs() ->
     , {"sync_mode_qlen",
        sc(integer(),
           #{ default => 100
+           , desc => "As long as the number of buffered log events is lower than this value, "
+                     "all log events are handled asynchronously."
            })}
     , {"drop_mode_qlen",
        sc(integer(),
           #{ default => 3000
+           , desc => "When the number of buffered log events is larger than this value, "
+                     "the new log events are dropped.<br/>"
+                     "When drop mode is activated or deactivated, a message is printed in "
+                     "the logs."
            })}
     , {"flush_qlen",
        sc(integer(),
           #{ default => 8000
+           , desc => "If the number of buffered log events grows larger than this threshold, "
+                     "a flush (delete) operation takes place. "
+                     "To flush events, the handler discards the buffered log messages without logging."
            })}
     , {"overload_kill",
-       sc(ref("log_overload_kill"),
-          #{})}
+       sc(ref("log_overload_kill"), #{})}
     , {"burst_limit",
-       sc(ref("log_burst_limit"),
-          #{})}
+       sc(ref("log_burst_limit"), #{})}
     , {"supervisor_reports",
        sc(hoconsc:enum([error, progress]),
           #{ default => error
+           , desc => "Type of supervisor reports that are logged.\n"
+                     " - `error`: only log errors in the Erlang processes.\n"
+                     " - `progress`: log process startup."
            })}
     , {"max_depth",
        sc(hoconsc:union([unlimited, non_neg_integer()]),

@@ -659,22 +659,40 @@ fields("flapping_detect") ->
         {"enable",
             sc(
                 boolean(),
-                #{default => false}
+                #{
+                    default => false,
+                    desc =>
+                        "Enable flapping connection detection feature.<br/>\n"
+                        "This config controls the allowed maximum number of `CONNECT` packets received\n"
+                        "from the same clientid in a time frame defined by `window_time`.\n"
+                        "After the limit is reached, successive `CONNECT` requests are forbidden\n"
+                        "(banned) until the end of the time period defined by `ban_time`."
+                }
             )},
         {"max_count",
             sc(
                 integer(),
-                #{default => 15}
+                #{
+                    default => 15,
+                    desc =>
+                        "The maximum number of disconnects allowed for a MQTT Client in `window_time`"
+                }
             )},
         {"window_time",
             sc(
                 duration(),
-                #{default => "1m"}
+                #{
+                    default => "1m",
+                    desc => "The time window for flapping detection."
+                }
             )},
         {"ban_time",
             sc(
                 duration(),
-                #{default => "5m"}
+                #{
+                    default => "5m",
+                    desc => "How long the flapping clientid will be banned."
+                }
             )}
     ];
 fields("force_shutdown") ->
@@ -682,18 +700,25 @@ fields("force_shutdown") ->
         {"enable",
             sc(
                 boolean(),
-                #{default => true}
+                #{
+                    default => true,
+                    desc => "Enable `force_shutdown` feature."
+                }
             )},
         {"max_message_queue_len",
             sc(
                 range(0, inf),
-                #{default => 1000}
+                #{
+                    default => 1000,
+                    desc => "Maximum message queue length."
+                }
             )},
         {"max_heap_size",
             sc(
                 wordsize(),
                 #{
                     default => "32MB",
+                    desc => "Total heap size",
                     validator => fun ?MODULE:validate_heap_size/1
                 }
             )}
@@ -1288,22 +1313,34 @@ fields("event_names") ->
         {"client_connected",
             sc(
                 boolean(),
-                #{default => true}
+                #{
+                    default => true,
+                    desc => "Connection complete"
+                }
             )},
         {"client_disconnected",
             sc(
                 boolean(),
-                #{default => true}
+                #{
+                    default => true,
+                    desc => "Disconnect"
+                }
             )},
         {"client_subscribed",
             sc(
                 boolean(),
-                #{default => false}
+                #{
+                    default => false,
+                    desc => "Subscribe"
+                }
             )},
         {"client_unsubscribed",
             sc(
                 boolean(),
-                #{default => false}
+                #{
+                    default => false,
+                    desc => "Unsubscribe"
+                }
             )}
     ];
 fields("sysmon") ->
@@ -1589,10 +1626,8 @@ fields("alarm") ->
                     default => "24h",
                     example => "24h",
                     desc =>
-                        ""
                         "Retention time of deactivated alarms. Alarms are not deleted immediately\n"
                         "when deactivated, but after the retention time.\n"
-                        ""
                 }
             )}
     ];
@@ -1757,7 +1792,7 @@ common_ssl_opts_schema(Defaults) ->
                         "issue chain. That is, the host's certificate should be placed in the beginning\n"
                         "of the file, followed by the immediate issuer certificate and so on.\n"
                         "Although the root CA certificate is optional, it should be placed at the end of\n"
-                        "the file if it is to be added.\n"
+                        "the file if it is to be added."
                 }
             )},
         {"keyfile",
@@ -1767,7 +1802,7 @@ common_ssl_opts_schema(Defaults) ->
                     default => D("keyfile"),
                     required => false,
                     desc =>
-                        "PEM format private key file.<br>\n"
+                        "PEM format private key file."
                 }
             )},
         {"verify",
@@ -1805,7 +1840,7 @@ common_ssl_opts_schema(Defaults) ->
                         "All TLS/DTLS versions to be supported.<br>\n"
                         "NOTE: PSK ciphers are suppressed by 'tlsv1.3' version config<br>\n"
                         "In case PSK cipher suites are intended, make sure to configured\n"
-                        "<code>['tlsv1.2', 'tlsv1.1']</code> here.\n",
+                        "<code>['tlsv1.2', 'tlsv1.1']</code> here.",
                     validator => fun validate_tls_versions/1
                 }
             )},
@@ -1827,7 +1862,7 @@ common_ssl_opts_schema(Defaults) ->
                         "SSL parameter renegotiation is a feature that allows a client and a server\n"
                         "to renegotiate the parameters of the SSL connection on the fly.\n"
                         "RFC 5746 defines a more secure way of doing this. By enabling secure renegotiation,\n"
-                        "you drop support for the insecure renegotiation, prone to MitM attacks.\n"
+                        "you drop support for the insecure renegotiation, prone to MitM attacks."
                 }
             )}
     ].
@@ -1864,7 +1899,7 @@ server_ssl_opts_schema(Defaults, IsRanchListener) ->
                             "If set to true, the server fails if the client does not have a\n"
                             "certificate to send, that is, sends an empty certificate.\n"
                             "If set to false, it fails only if the client sends an invalid\n"
-                            "certificate (an empty certificate is considered valid).\n"
+                            "certificate (an empty certificate is considered valid)."
                     }
                 )},
             {"honor_cipher_order",
@@ -1887,7 +1922,7 @@ server_ssl_opts_schema(Defaults, IsRanchListener) ->
                             "this option to false.\n"
                             "The default value is true. Note that disabling renegotiation can result in\n"
                             "long-lived connections becoming unusable due to limits on\n"
-                            "the number of messages the underlying cipher suite can encipher.\n"
+                            "the number of messages the underlying cipher suite can encipher."
                     }
                 )}
             | [
@@ -1980,8 +2015,7 @@ ciphers_schema(Default) ->
                 "PSK cipher suites: <code>\"RSA-PSK-AES256-GCM-SHA384,RSA-PSK-AES256-CBC-SHA384,\n"
                 "RSA-PSK-AES128-GCM-SHA256,RSA-PSK-AES128-CBC-SHA256,\n"
                 "RSA-PSK-AES256-CBC-SHA,RSA-PSK-AES128-CBC-SHA,\n"
-                "RSA-PSK-DES-CBC3-SHA,RSA-PSK-RC4-SHA\"</code><br>\n"
-                "" ++
+                "RSA-PSK-DES-CBC3-SHA,RSA-PSK-RC4-SHA\"</code><br>\n" ++
                 case Default of
                     quic -> "NOTE: QUIC listener supports only 'tlsv1.3' ciphers<br>";
                     _ -> ""

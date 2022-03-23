@@ -29,14 +29,13 @@ fields("dashboard") ->
         sc(hoconsc:array(hoconsc:union([hoconsc:ref(?MODULE, "http"),
             hoconsc:ref(?MODULE, "https")])),
             #{ desc =>
-"""HTTP(s) listeners are identified by their protocol type and are
+"HTTP(s) listeners are identified by their protocol type and are
 used to serve dashboard UI and restful HTTP API.<br>
 Listeners must have a unique combination of port number and IP address.<br>
 For example, an HTTP listener can listen on all configured IP addresses
 on a given port for a machine by specifying the IP address 0.0.0.0.<br>
 Alternatively, the HTTP listener can specify a unique IP address for each listener,
-but use the same port.
-"""   })}
+but use the same port."})}
     , {default_username, fun default_username/1}
     , {default_password, fun default_password/1}
     , {sample_interval, sc(emqx_schema:duration_s(), #{default => "10s"})}
