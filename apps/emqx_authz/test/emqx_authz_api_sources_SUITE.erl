@@ -108,6 +108,10 @@ init_per_suite(Config) ->
                 end),
     meck:expect(emqx_resource, health_check, fun(St) -> {ok, St} end),
     meck:expect(emqx_resource, remove_local, fun(_) -> ok end ),
+    meck:expect(emqx_authz, acl_conf_file,
+                fun() ->
+                        emqx_common_test_helpers:deps_path(emqx_authz, "etc/acl.conf")
+                end),
 
     ok = emqx_common_test_helpers:start_apps(
            [emqx_conf, emqx_authz, emqx_dashboard],

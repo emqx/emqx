@@ -22,6 +22,13 @@
 -include_lib("eunit/include/eunit.hrl").
 -include_lib("common_test/include/ct.hrl").
 
+-define(RAW_SOURCE, #{<<"type">> => <<"file">>,
+                      <<"enable">> => true,
+                      <<"rules">> =>
+<<"{allow,{username,\"^dashboard?\"},subscribe,[\"$SYS/#\"]}."
+  "\n{allow,{ipaddr,\"127.0.0.1\"},all,[\"$SYS/#\",\"#\"]}.">>
+                     }).
+
 all() ->
     emqx_common_test_helpers:all(?MODULE).
 
@@ -32,6 +39,11 @@ init_per_suite(Config) ->
     ok = emqx_common_test_helpers:start_apps(
            [emqx_conf, emqx_authz],
            fun set_special_configs/1),
+    %% meck after authz started
+    meck:expect(emqx_authz, acl_conf_file,
+                fun() ->
+                        emqx_common_test_helpers:deps_path(emqx_authz, "etc/acl.conf")
+                end),
     Config.
 
 end_per_suite(_Config) ->
@@ -61,8 +73,9 @@ t_ok(_Config) ->
                    listener => {tcp, default}
                   },
 
-    ok = setup_rules([{allow, {user, "username"}, publish, ["t"]}]),
-    ok = setup_config(#{}),
+    ok = setup_config(?RAW_SOURCE#{<<"rules">> => <<"{allow, {user, \"username\"}, publish, [\"t\"]}.">>}),
+
+    io:format("~p", [emqx_authz:acl_conf_file()]),
 
     ?assertEqual(
        allow,
@@ -73,61 +86,31 @@ t_ok(_Config) ->
        emqx_access_control:authorize(ClientInfo, subscribe, <<"t">>)).
 
 t_invalid_file(_Config) ->
-    ok = file:write_file(<<"acl.conf">>, <<"{{invalid term">>),
-
     ?assertMatch(
        {error, bad_acl_file_content},
-       emqx_authz:update(?CMD_REPLACE, [raw_file_authz_config()])).
-
-t_nonexistent_file(_Config) ->
-    ?assertEqual(
-       {error, failed_to_read_acl_file},
-       emqx_authz:update(?CMD_REPLACE,
-                         [maps:merge(raw_file_authz_config(),
-                                     #{<<"path">> => <<"nonexistent.conf">>})
-                         ])).
+       emqx_authz:update(?CMD_REPLACE, [?RAW_SOURCE#{<<"rules">> => <<"{{invalid term">>}])).
 
 t_update(_Config) ->
-    ok = setup_rules([{allow, {user, "username"}, publish, ["t"]}]),
-    ok = setup_config(#{}),
+    ok = setup_config(?RAW_SOURCE#{<<"rules">> => <<"{allow, {user, \"username\"}, publish, [\"t\"]}.">>}),
 
     ?assertMatch(
        {error, _},
        emqx_authz:update(
          {?CMD_REPLACE, file},
-         maps:merge(raw_file_authz_config(),
-                    #{<<"path">> => <<"nonexistent.conf">>}))),
+         ?RAW_SOURCE#{<<"rules">> => <<"{{invalid term">>})),
 
     ?assertMatch(
        {ok, _},
        emqx_authz:update(
-         {?CMD_REPLACE, file},
-         raw_file_authz_config())).
+         {?CMD_REPLACE, file}, ?RAW_SOURCE)).
 
 %%------------------------------------------------------------------------------
 %% Helpers
 %%------------------------------------------------------------------------------
 
-raw_file_authz_config() ->
-    #{
-        <<"enable">> => <<"true">>,
-
-        <<"type">> => <<"file">>,
-        <<"path">> => <<"acl.conf">>
-    }.
-
-setup_rules(Rules) ->
-    {ok, F} = file:open(<<"acl.conf">>, [write]),
-    lists:foreach(
-      fun(Rule) ->
-              io:format(F, "~p.~n", [Rule])
-      end,
-      Rules),
-    ok = file:close(F).
-
 setup_config(SpecialParams) ->
     emqx_authz_test_lib:setup_config(
-      raw_file_authz_config(),
+      ?RAW_SOURCE,
       SpecialParams).
 
 stop_apps(Apps) ->

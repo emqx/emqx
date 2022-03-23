@@ -34,6 +34,10 @@ init_per_suite(Config) ->
     meck:expect(emqx_resource, create_local, fun(_, _, _, _) -> {ok, meck_data} end),
     meck:expect(emqx_resource, remove_local, fun(_) -> ok end),
     meck:expect(emqx_resource, create_dry_run_local, fun(_, _) -> ok end),
+    meck:expect(emqx_authz, acl_conf_file,
+                fun() ->
+                        emqx_common_test_helpers:deps_path(emqx_authz, "etc/acl.conf")
+                end),
 
     ok = emqx_common_test_helpers:start_apps(
            [emqx_connector, emqx_conf, emqx_authz],
@@ -116,7 +120,9 @@ set_special_configs(_App) ->
                   }).
 -define(SOURCE6, #{<<"type">> => <<"file">>,
                    <<"enable">> => true,
-                   <<"path">> => emqx_common_test_helpers:deps_path(emqx_authz, "etc/acl.conf")
+                   <<"rules">> =>
+<<"{allow,{username,\"^dashboard?\"},subscribe,[\"$SYS/#\"]}."
+  "\n{allow,{ipaddr,\"127.0.0.1\"},all,[\"$SYS/#\",\"#\"]}.">>
                   }).
 
 
