@@ -168,7 +168,7 @@ Assume you are using redis auth plugin, for example:
 #EMQX_RETAINER__STORAGE_TYPE = "ram"
 #EMQX_RETAINER.MAX_PAYLOAD_SIZE = 1MB
 
-docker run -d --name emqx -p 18083:18083 -p 1883:1883 -p 4369:4369 \
+docker run -d --name emqx -p 18083:18083 -p 1883:1883 \
     -e EMQX_LISTENERS__TCP__DEFAULT=1883 \
     -e EMQX_LOADED_PLUGINS="emqx_retainer" \
     -e EMQX_RETAINER__STORAGE_TYPE = "ram" \
@@ -184,7 +184,7 @@ For numbered configuration options where the number is next to a ``.`` such as:
 You can configure an arbitrary number of them as long as each has a uniq unber for it's own configuration option:
 
 ```bash
-docker run -d --name emqx -p 18083:18083 -p 1883:1883 -p 4369:4369 \
+docker run -d --name emqx -p 18083:18083 -p 1883:1883 \
     -e EMQX_BACKEND_REDIS_POOL1__SERVER=127.0.0.1:6379
     [...]
     -e EMQX_BACKEND__REDIS__POOL5__SERVER=127.0.0.5:6379
@@ -294,7 +294,7 @@ If you want tune linux kernel by docker, you must ensure your docker is latest v
 
 ```bash
 
-docker run -d --name emqx -p 18083:18083 -p 1883:1883 -p 4369:4369 \
+docker run -d --name emqx -p 18083:18083 -p 1883:1883 \
     --sysctl fs.file-max=2097152 \
     --sysctl fs.nr_open=2097152 \
     --sysctl net.core.somaxconn=32768 \
