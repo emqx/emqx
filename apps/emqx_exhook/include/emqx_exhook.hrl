@@ -41,4 +41,6 @@
       , {'message.dropped',     {emqx_exhook_handler, on_message_dropped,      []}}
       ]).
 
+-define(DEFAULT_HOOK_PRIORITY, 0).
+
 -endif.
