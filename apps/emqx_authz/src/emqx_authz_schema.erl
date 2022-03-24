@@ -93,6 +93,7 @@ fields(file) ->
     , {enable, #{type => boolean(),
                  default => true}}
     , {path, #{type => string(),
+               required => true,
                desc => """
 Path to the file which contains the ACL rules.<br>
 If the file provisioned before starting EMQX node,
