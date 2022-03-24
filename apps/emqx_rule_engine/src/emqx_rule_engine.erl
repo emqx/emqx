@@ -334,14 +334,11 @@ test_resource(#{type := Type, config := Config0}) ->
 
 -spec(get_resource_status(resource_id()) -> {ok, resource_status()} | {error, Reason :: term()}).
 get_resource_status(ResId) ->
-    case emqx_rule_registry:find_resource(ResId) of
-        {ok, #resource{type = ResType}} ->
-            {ok, #resource_type{on_status = {Mod, OnStatus}}}
-                = emqx_rule_registry:find_resource_type(ResType),
-            Status = fetch_resource_status(Mod, OnStatus, ResId),
+    case emqx_rule_registry:find_resource_params(ResId) of
+        {ok, #resource_params{status = Status}} ->
             {ok, Status};
         not_found ->
-            {error, {resource_not_found, ResId}}
+            {error, resource_not_initialized}
     end.
 
 -spec(get_resource_params(resource_id()) -> {ok, map()} | {error, Reason :: term()}).

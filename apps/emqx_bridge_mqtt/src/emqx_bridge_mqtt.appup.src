@@ -1,6 +1,5 @@
 %% -*-: erlang -*-
-
-{"4.3.4",
+{VSN,
   [
     {"4.3.3", [
       {load_module, emqx_bridge_mqtt, brutal_purge, soft_purge, []}
