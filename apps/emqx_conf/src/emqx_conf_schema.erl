@@ -361,20 +361,6 @@ a crash dump"
            , desc => "This is the approximate time an EMQX node may be unresponsive "
                      "until it is considered down and thereby disconnected."
            })}
-    , {"dist_listen_min",
-       sc(range(1024, 65535),
-          #{ mapping => "kernel.inet_dist_listen_min"
-           , default => 6369
-           , desc => "Lower bound for the port range where EMQX broker "
-                     "listens for peer connections."
-           })}
-    , {"dist_listen_max",
-       sc(range(1024, 65535),
-          #{ mapping => "kernel.inet_dist_listen_max"
-           , default => 6369
-           , desc => "Upper bound for the port range where EMQX broker "
-                     "listens for peer connections."
-           })}
     , {"backtrace_depth",
        sc(integer(),
           #{ mapping => "emqx_machine.backtrace_depth"
