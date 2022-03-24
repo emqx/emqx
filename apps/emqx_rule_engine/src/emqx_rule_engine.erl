@@ -314,22 +314,47 @@ start_resource(ResId) ->
     end.
 
 -spec(test_resource(#{type := _, config := _, _ => _}) -> ok | {error, Reason :: term()}).
-test_resource(#{type := Type, config := Config0}) ->
+test_resource(#{type := Type} = Params) ->
     case emqx_rule_registry:find_resource_type(Type) of
-        {ok, #resource_type{on_create = {ModC, Create},
-                            on_destroy = {ModD, Destroy},
-                            params_spec = ParamSpec}} ->
-            Config = emqx_rule_validator:validate_params(Config0, ParamSpec),
-            ResId = resource_id(),
-            try
-                _ = ?CLUSTER_CALL(init_resource, [ModC, Create, ResId, Config]),
-                _ = ?CLUSTER_CALL(clear_resource, [ModD, Destroy, ResId]),
-                ok
-            catch
-                throw:Reason -> {error, Reason}
+        {ok, #resource_type{}} ->
+            ResId = maps:get(id, Params, resource_id()),
+            CreateFun = fun() -> _ = create_resource(Params) end,
+            StatusFun =
+                fun() ->
+                    case get_resource_status(ResId) of
+                        {ok, #{is_alive := true}} ->
+                            ignore;
+                        {ok, #{is_alive := false}} ->
+                            error(not_alive);
+                        {error, R} ->
+                            error(R)
+                    end
+                end,
+            DeleteFun = fun() -> _ = ?CLUSTER_CALL(delete_resource, [ResId]) end,
+            case
+                %% create error or status failed
+                (ok == safe_test_resource(CreateFun, create_resource))
+                andalso
+                safe_test_resource(StatusFun, get_resource_status)
+            of
+                ok ->
+                    _ = safe_test_resource(DeleteFun, delete_resource),
+                    ok;
+                _ ->
+                    _ = safe_test_resource(DeleteFun, delete_resource),
+                    {error, {resource_error, not_available}}
             end;
         not_found ->
             {error, {resource_type_not_found, Type}}
+    end.
+
+safe_test_resource(Fun, ErrorLogInfo) ->
+    try
+        _ = Fun(),
+        ok
+    catch E:R:S ->
+        ?LOG(warning, "safe exec fun error, ~0p, ~0p:~0p ~0p", [ErrorLogInfo, E, R, S]),
+        {error, R}
     end.
 
 -spec(get_resource_status(resource_id()) -> {ok, resource_status()} | {error, Reason :: term()}).
