@@ -60,7 +60,10 @@ t_import_4_3(Config) ->
 
 import(File, Config) ->
     Filename = filename:join(proplists:get_value(data_dir, Config), File),
-    emqx_mgmt_data_backup:import(Filename, "{}").
+    {ok, Content} = file:read_file(Filename),
+    BackupFile = filename:join(emqx:get_env(data_dir), File),
+    ok = file:write_file(BackupFile, Content),
+    emqx_mgmt_data_backup:import(File, "{}").
 
 delete_modules() ->
     [emqx_modules_registry:remove_module(Mod) || Mod <-  emqx_modules_registry:get_modules()].
