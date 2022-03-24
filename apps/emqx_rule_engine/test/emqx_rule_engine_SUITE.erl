@@ -101,6 +101,7 @@ groups() ->
        t_sqlselect_2_2,
        t_sqlselect_2_3,
        t_sqlselect_3,
+       t_sqlselect_3_1,
        t_sqlparse_event_1,
        t_sqlparse_event_2,
        t_sqlparse_event_3,
@@ -1437,6 +1438,31 @@ t_sqlselect_3(_Config) ->
         ct:fail(unexpected_t2)
     after 1000 ->
         ok
+    end,
+
+    emqtt:stop(Client),
+    emqx_rule_registry:remove_rule(TopicRule).
+
+t_sqlselect_3_1(_Config) ->
+    ok = emqx_rule_engine:load_providers(),
+    %% republish the client.connected msg
+    TopicRule = create_simple_repub_rule(
+                    <<"t2">>,
+                    "SELECT * "
+                    "FROM \"$events/client_connack\" "
+                    "WHERE username = 'emqx1'",
+                    <<"clientid=${clientid}">>),
+    {ok, Client} = emqtt:start_link([{clientid, <<"emqx0">>}, {username, <<"emqx0">>}]),
+    {ok, _} = emqtt:connect(Client),
+    {ok, _, _} = emqtt:subscribe(Client, <<"t2">>, 0),
+    ct:sleep(200),
+    {ok, Client1} = emqtt:start_link([{clientid, <<"c_emqx1">>}, {username, <<"emqx1">>}]),
+    {ok, _} = emqtt:connect(Client1),
+    receive {publish, #{topic := T, payload := Payload}} ->
+        ?assertEqual(<<"t2">>, T),
+        ?assertEqual(<<"clientid=c_emqx1">>, Payload)
+    after 1000 ->
+        ct:fail(wait_for_t2)
     end,
 
     emqtt:stop(Client),
