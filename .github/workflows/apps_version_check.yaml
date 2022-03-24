@@ -16,12 +16,14 @@ jobs:
     container: emqx/build-env:${{ matrix.erl_otp }}-${{ matrix.os }}
 
     steps:
-      - uses: actions/checkout@v1
-      - name: Check apps version
-        run: ./scripts/apps-version-check.sh
+      - uses: actions/checkout@v2
+        with:
+          fetch-depth: 0 # need full history
       - name: Check relup (ce)
         if: endsWith(github.repository, 'emqx')
         run: ./scripts/update-appup.sh emqx --check
       - name: Check relup (ee)
         if: endsWith(github.repository, 'enterprise')
         run: ./scripts/update-appup.sh emqx-ee --check
+      - name: Check apps version
+        run: ./scripts/apps-version-check.sh
