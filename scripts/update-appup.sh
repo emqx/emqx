@@ -16,15 +16,12 @@ cd -P -- "$(dirname -- "${BASH_SOURCE[0]}")/.."
 PROFILE="${1:-}"
 case "$PROFILE" in
     emqx-ee)
-        DIR='enterprise'
         TAG_PREFIX='e'
         ;;
     emqx)
-        DIR='broker'
         TAG_PREFIX='v'
         ;;
     emqx-edge)
-        DIR='edge'
         TAG_PREFIX='v'
         ;;
     *)
@@ -86,9 +83,9 @@ fi
 
 pushd "${PREV_DIR_BASE}/${PREV_TAG}"
 git reset --hard
-git checkout ${PREV_TAG}
+git checkout "${PREV_TAG}"
 make clean-all
-make $PROFILE
+make "$PROFILE"
 popd
 
 PREV_REL_DIR="${PREV_DIR_BASE}/${PREV_TAG}/_build/${PROFILE}/lib"
