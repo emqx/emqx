@@ -53,13 +53,13 @@ set_special_configs(_App) ->
 request_api(Method, Url) ->
     request_api(Method, Url, [], auth_header_(), []).
 
-request_api(Method, Url, Auth) ->
-    request_api(Method, Url, [], Auth, []).
+request_api(Method, Url, AuthOrHeaders) ->
+    request_api(Method, Url, [], AuthOrHeaders, []).
 
-request_api(Method, Url, QueryParams, Auth) ->
-    request_api(Method, Url, QueryParams, Auth, []).
+request_api(Method, Url, QueryParams, AuthOrHeaders) ->
+    request_api(Method, Url, QueryParams, AuthOrHeaders, []).
 
-request_api(Method, Url, QueryParams, Auth, [])
+request_api(Method, Url, QueryParams, AuthOrHeaders, [])
   when (Method =:= options) orelse
          (Method =:= get) orelse
          (Method =:= put) orelse
@@ -70,9 +70,9 @@ request_api(Method, Url, QueryParams, Auth, [])
                  "" -> Url;
                  _ -> Url ++ "?" ++ QueryParams
              end,
-    do_request_api(Method, {NewUrl, [Auth]});
-request_api(Method, Url, QueryParams, Auth, Body)
-    when (Method =:= post) orelse
+    do_request_api(Method, {NewUrl, build_http_header(AuthOrHeaders)});
+request_api(Method, Url, QueryParams, AuthOrHeaders, Body)
+  when (Method =:= post) orelse
          (Method =:= patch) orelse
          (Method =:= put) orelse
          (Method =:= delete) ->
@@ -80,7 +80,7 @@ request_api(Method, Url, QueryParams, Auth, Body)
                  "" -> Url;
                  _ -> Url ++ "?" ++ QueryParams
              end,
-    do_request_api(Method, {NewUrl, [Auth], "application/json", emqx_json:encode(Body)}).
+    do_request_api(Method, {NewUrl, build_http_header(AuthOrHeaders), "application/json", emqx_json:encode(Body)}).
 
 do_request_api(Method, Request)->
     ct:pal("Method: ~p, Request: ~p", [Method, Request]),
@@ -99,6 +99,12 @@ auth_header_() ->
     Password = <<"public">>,
     {ok, Token} = emqx_dashboard_admin:sign_token(Username, Password),
     {"Authorization", "Bearer " ++ binary_to_list(Token)}.
+
+build_http_header(X) when is_list(X) ->
+    X;
+
+build_http_header(X) ->
+    [X].
 
 api_path(Parts)->
     ?SERVER ++ filename:join([?BASE_PATH | Parts]).
