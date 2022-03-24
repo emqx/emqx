@@ -14,6 +14,12 @@
 %% limitations under the License.
 %%--------------------------------------------------------------------
 
+%% HTTP API Auth
+-define(WRONG_USERNAME_OR_PWD, 'WRONG_USERNAME_OR_PWD').
+-define(WRONG_USERNAME_OR_PWD_OR_API_KEY_OR_API_SECRET,
+    'WRONG_USERNAME_OR_PWD_OR_API_KEY_OR_API_SECRET'
+).
+
 %% Bad Request
 -define(BAD_REQUEST, 'BAD_REQUEST').
 -define(NOT_MATCH, 'NOT_MATCH').
@@ -50,6 +56,8 @@
 
 %% All codes
 -define(ERROR_CODES, [
+    {'WRONG_USERNAME_OR_PWD', <<"Wrong username or pwd">>},
+    {'WRONG_USERNAME_OR_PWD_OR_API_KEY_OR_API_SECRET', <<"Wrong username & pwd or key & secret">>},
     {'BAD_REQUEST', <<"Request parameters are not legal">>},
     {'NOT_MATCH', <<"Conditions are not matched">>},
     {'ALREADY_EXISTS', <<"Resource already existed">>},
