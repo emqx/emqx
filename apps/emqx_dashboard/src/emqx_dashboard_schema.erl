@@ -41,7 +41,7 @@ but use the same port."})}
     , {sample_interval, sc(emqx_schema:duration_s(),
                            #{ default => "10s"
                             , desc => "How often to update metrics displayed in the dashboard.<br/>"
-                                      "Note: `sample_interval` should be divisible by 60."
+                                      "Note: `sample_interval` should be a divisor of 60."
                             })}
     , {token_expired_time, sc(emqx_schema:duration(),
                               #{ default => "30m"
