@@ -382,7 +382,7 @@ fields(udp_tcp_listeners) ->
 
 fields(tcp_listener) ->
     [ %% some special configs for tcp listener
-      {acceptors, sc(integer(), #{default => 16})}
+      {acceptors, sc(integer(), #{default => 16, desc => "Size of the acceptor pool."})}
     ] ++
     tcp_opts() ++
     proxy_protocol_opts() ++
@@ -404,17 +404,21 @@ fields(udp_listener) ->
     common_listener_opts();
 
 fields(dtls_listener) ->
-    [ {acceptors, sc(integer(), #{default => 16})}
+    [ {acceptors, sc(integer(), #{default => 16, desc => "Size of the acceptor pool."})}
     ] ++
     fields(udp_listener) ++
     [{dtls, sc(ref(dtls_opts), #{desc => "DTLS listener options"})}];
 
 fields(udp_opts) ->
-    [ {active_n, sc(integer(), #{default => 100})}
-    , {recbuf, sc(bytesize())}
-    , {sndbuf, sc(bytesize())}
-    , {buffer, sc(bytesize())}
-    , {reuseaddr, sc(boolean(), #{default => true})}
+    [ {active_n, sc(integer(),
+                    #{ default => 100
+                     , desc => "Specify the {active, N} option for the socket.<br/>"
+                               "See: https://erlang.org/doc/man/inet.html#setopts-2"
+                     })}
+    , {recbuf, sc(bytesize(), #{desc => "Size of the kernel-space receive buffer for the socket."})}
+    , {sndbuf, sc(bytesize(), #{desc => "Size of the kernel-space send buffer for the socket."})}
+    , {buffer, sc(bytesize(), #{desc => "Size of the user-space buffer for the socket."})}
+    , {reuseaddr, sc(boolean(), #{default => true, desc => "Allow local reuse of port numbers."})}
     ];
 
 fields(dtls_opts) ->
@@ -429,9 +433,9 @@ authentication_schema() ->
     sc(emqx_authn_schema:authenticator_type(),
        #{ required => {false, recursively}
         , desc =>
-"""Default authentication configs for all the gateway listeners.<br>
+"Default authentication configs for all the gateway listeners.<br>
 For per-listener overrides see <code>authentication</code>
-in listener configs"""
+in listener configs"
         }).
 
 gateway_common_options() ->
@@ -528,10 +532,16 @@ proxy_protocol_opts() ->
     [ {proxy_protocol,
        sc(boolean(),
           #{ default => false
+           , desc => "Enable the Proxy Protocol V1/2 if the EMQX cluster is deployed "
+                     "behind HAProxy or Nginx.<br/>"
+                     "See: https://www.haproxy.com/blog/haproxy/proxy-protocol/"
            })}
     , {proxy_protocol_timeout,
        sc(duration(),
           #{ default => "15s"
+           , desc => "Timeout for proxy protocol.<br/>"
+                     "EMQX will close the TCP connection if proxy protocol packet is not "
+                     "received within the timeout."
            })}
     ].
 

@@ -32,7 +32,7 @@ fields("retainer") ->
     ];
 
 fields(mnesia_config) ->
-    [ {type, ?TYPE(hoconsc:union([built_in_database]))}
+    [ {type, hoconsc:mk(hoconsc:union([built_in_database]), #{desc => "Backend type."})}
     , {storage_type, sc(hoconsc:union([ram, disc]),
                         "Specifies whether the messages are stored in RAM or persisted on disc.",
                         ram)}

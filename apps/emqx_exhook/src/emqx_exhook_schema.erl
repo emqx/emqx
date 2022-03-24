@@ -89,7 +89,10 @@ ref(Field) ->
 
 failed_action() ->
     sc(hoconsc:enum([deny, ignore]),
-       #{default => deny}).
+       #{ default => deny
+        , desc => "The value that is returned when the request "
+                  "to the gRPC server fails for any reason."
+        }).
 
 server_config() ->
     fields(server).

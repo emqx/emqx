@@ -100,6 +100,11 @@
 
 -elvis([{elvis_style, god_modules, disable}]).
 
+-define(IDLE_TIMOUT_DESC,
+    "Close transport-layer connections from the clients that have not sent MQTT CONNECT\n"
+    "message within this interval."
+).
+
 namespace() -> undefined.
 
 roots() ->
@@ -786,7 +791,7 @@ fields("force_gc") ->
         {"enable",
             sc(
                 boolean(),
-                #{default => true}
+                #{default => true, desc => "Enable forced garbage collection."}
             )},
         {"count",
             sc(
@@ -905,24 +910,24 @@ fields("mqtt_quic_listener") ->
         {"enabled",
             sc(
                 boolean(),
-                #{default => true}
+                #{default => true, desc => "Enable QUIC listener."}
             )},
         %% TODO: ensure cacertfile is configurable
         {"certfile",
             sc(
                 string(),
-                #{}
+                #{desc => "Path to the certificate."}
             )},
         {"keyfile",
             sc(
                 string(),
-                #{}
+                #{desc => "Path to the secret key file."}
             )},
         {"ciphers", ciphers_schema(quic)},
         {"idle_timeout",
             sc(
                 duration(),
-                #{default => "15s"}
+                #{default => "15s", desc => ?IDLE_TIMOUT_DESC}
             )}
     ] ++ base_listener();
 fields("ws_opts") ->
@@ -957,9 +962,7 @@ fields("ws_opts") ->
                 duration(),
                 #{
                     default => "15s",
-                    desc =>
-                        "The idle time after the TCP connection is established <br/>\n"
-                        " If no packets are received within this time, the connection will be closed."
+                    desc => ?IDLE_TIMOUT_DESC
                 }
             )},
         {"max_frame_size",
@@ -1652,17 +1655,30 @@ mqtt_listener() ->
             {"access_rules",
                 sc(
                     hoconsc:array(string()),
-                    #{}
+                    #{
+                        desc =>
+                            "The access control rules for this listener.<br/>"
+                            "See: https://github.com/emqtt/esockd#allowdeny"
+                    }
                 )},
             {"proxy_protocol",
                 sc(
                     boolean(),
-                    #{default => false}
+                    #{
+                        default => false,
+                        desc =>
+                            "Enable the Proxy Protocol V1/2 if the EMQX cluster is deployed\n"
+                            " behind HAProxy or Nginx.<br/>"
+                            "See: https://www.haproxy.com/blog/haproxy/proxy-protocol/"
+                    }
                 )},
             {"proxy_protocol_timeout",
                 sc(
                     duration(),
-                    #{}
+                    #{
+                        desc =>
+                            "Timeout for proxy protocol. EMQX will close the TCP connection if proxy protocol packet is not received within the timeout."
+                    }
                 )},
             {?EMQX_AUTHENTICATION_CONFIG_ROOT_NAME,
                 authentication("Per-listener authentication override")}
@@ -1762,7 +1778,10 @@ common_ssl_opts_schema(Defaults) ->
         {"enable",
             sc(
                 boolean(),
-                #{default => Df("enable", false)}
+                #{
+                    default => Df("enable", false),
+                    desc => "Enable TLS."
+                }
             )},
         {"cacertfile",
             sc(
@@ -1808,12 +1827,20 @@ common_ssl_opts_schema(Defaults) ->
         {"verify",
             sc(
                 hoconsc:enum([verify_peer, verify_none]),
-                #{default => Df("verify", verify_none)}
+                #{
+                    default => Df("verify", verify_none),
+                    desc =>
+                        "Enable or disable peer verification."
+                }
             )},
         {"reuse_sessions",
             sc(
                 boolean(),
-                #{default => Df("reuse_sessions", true)}
+                #{
+                    default => Df("reuse_sessions", true),
+                    desc =>
+                        "Enable TLS session reuse."
+                }
             )},
         {"depth",
             sc(
@@ -1850,7 +1877,9 @@ common_ssl_opts_schema(Defaults) ->
                 typerefl:alias("string", any()),
                 #{
                     default => <<"emqx_tls_psk:lookup">>,
-                    converter => fun ?MODULE:parse_user_lookup_fun/1
+                    converter => fun ?MODULE:parse_user_lookup_fun/1,
+                    desc =>
+                        "EMQX-internal callback that is used to lookup pre-shared key (PSK) identity."
                 }
             )},
         {"secure_renegotiate",
@@ -1905,7 +1934,14 @@ server_ssl_opts_schema(Defaults, IsRanchListener) ->
             {"honor_cipher_order",
                 sc(
                     boolean(),
-                    #{default => Df("honor_cipher_order", true)}
+                    #{
+                        default => Df("honor_cipher_order", true),
+                        desc =>
+                            "An important security setting, it forces the cipher to be set based\n"
+                            " on the server-specified order instead of the client-specified order,\n"
+                            " hence enforcing the (usually more properly configured) security\n"
+                            " ordering of the server administrator."
+                    }
                 )},
             {"client_renegotiation",
                 sc(

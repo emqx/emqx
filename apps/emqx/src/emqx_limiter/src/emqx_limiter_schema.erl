@@ -114,10 +114,10 @@ fields(limiter_opts) ->
     ];
 
 fields(bucket_opts) ->
-    [ {rate, sc(rate(), #{desc => "The rate for this bucket"})}
-    , {capacity, sc(capacity(), #{desc => "The maximum number of tokens for this bucket"})}
+    [ {rate, sc(rate(), #{desc => "Rate for this bucket."})}
+    , {capacity, sc(capacity(), #{desc => "The maximum number of tokens for this bucket."})}
     , {initial, sc(initial(), #{default => "0",
-                                desc => "The initial number of tokens for this bucket"})}
+                                desc => "The initial number of tokens for this bucket."})}
     , {per_client, sc(ref(client_bucket),
                       #{default => #{},
                         desc => "The rate limit for each user of the bucket,"
@@ -126,8 +126,8 @@ fields(bucket_opts) ->
     ];
 
 fields(client_bucket) ->
-    [ {rate, sc(rate(), #{default => "infinity"})}
-    , {initial, sc(initial(), #{default => "0"})}
+    [ {rate, sc(rate(), #{default => "infinity", desc => "Rate for this bucket."})}
+    , {initial, sc(initial(), #{default => "0", desc => "The initial number of tokens for this bucket."})}
       %% low_water_mark add for emqx_channel and emqx_session
       %% both modules consume first and then check
       %% so we need to use this value to prevent excessive consumption
