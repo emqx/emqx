@@ -21,7 +21,7 @@
 -include("emqx.hrl").
 -include("logger.hrl").
 -include("types.hrl").
--include_lib("ekka/include/ekka.hrl").
+-include_lib("mria/include/mria.hrl").
 
 %% Mnesia bootstrap
 -export([mnesia/1]).
