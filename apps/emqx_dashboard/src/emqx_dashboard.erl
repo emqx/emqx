@@ -26,6 +26,7 @@
 -export([authorize/1]).
 
 -include_lib("emqx/include/logger.hrl").
+-include_lib("emqx/include/http_api.hrl").
 
 -define(BASE_PATH, "/api/v5").
 
@@ -166,11 +167,11 @@ authorize(Req) ->
                             ok;
                         {error, <<"not_allowed">>} ->
                             return_unauthorized(
-                                <<"WORNG_USERNAME_OR_PWD">>,
+                                ?WRONG_USERNAME_OR_PWD,
                                 <<"Check username/password">>);
                         {error, _} ->
                             return_unauthorized(
-                                <<"WORNG_USERNAME_OR_PWD_OR_API_KEY_OR_API_SECRET">>,
+                                ?WRONG_USERNAME_OR_PWD_OR_API_KEY_OR_API_SECRET,
                                 <<"Check username/password or api_key/api_secret">>)
                     end;
                 {error, _} ->
