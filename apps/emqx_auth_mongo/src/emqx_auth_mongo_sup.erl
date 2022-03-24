@@ -34,7 +34,8 @@ init([]) ->
     {ok, {{one_for_all, 10, 100}, [PoolSpec]}}.
 
 may_parse_srv_and_txt_records(Opts) when is_list(Opts) ->
-    maps:to_list(may_parse_srv_and_txt_records(maps:from_list(Opts)));
+    Default = #{srv_record => false},
+    maps:to_list(may_parse_srv_and_txt_records(maps:merge(Default, maps:from_list(Opts))));
 
 may_parse_srv_and_txt_records(#{type := Type,
                                 srv_record := false,

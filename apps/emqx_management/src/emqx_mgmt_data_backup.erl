@@ -650,7 +650,7 @@ list_backup_file() ->
     lists:filtermap(Filter, backup_files()).
 
 backup_files() ->
-    backup_files(backup_dir()) ++ backup_files(backup_dir_odl_version()).
+    backup_files(backup_dir()) ++ backup_files(backup_dir_old_version()).
 
 backup_files(Dir) ->
     {ok, FilesAll} = file:list_dir_all(Dir),
@@ -840,7 +840,7 @@ backup_dir() ->
     ok = filelib:ensure_dir(filename:join([Dir, dummy])),
     Dir.
 
-backup_dir_odl_version() ->
+backup_dir_old_version() ->
     emqx:get_env(data_dir).
 
 legal_filename(Filename) ->
