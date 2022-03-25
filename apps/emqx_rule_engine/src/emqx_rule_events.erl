@@ -39,6 +39,7 @@
         , on_message_delivered/3
         , on_message_acked/3
         , on_delivery_dropped/4
+        , on_client_check_acl_complete/5
         ]).
 
 -export([ event_info/0
@@ -57,6 +58,7 @@
         , 'message.acked'
         , 'message.dropped'
         , 'delivery.dropped'
+        , 'client.check_acl_complete'
         ]).
 
 -ifdef(TEST).
@@ -111,6 +113,13 @@ on_client_disconnected(ClientInfo, Reason, ConnInfo, Env) ->
 on_client_connack(ConnInfo, Reason, _, Env) ->
     may_publish_and_apply('client.connack',
                           fun() -> eventmsg_connack(ConnInfo, Reason) end, Env).
+
+on_client_check_acl_complete(ClientInfo, PubSub, Topic, Result, Env) ->
+    may_publish_and_apply('client.check_acl_complete',
+                          fun() -> eventmsg_check_acl_complete(ClientInfo,
+                                                               PubSub,
+                                                               Topic,
+                                                               Result) end, Env).
 
 on_session_subscribed(ClientInfo, Topic, SubOpts, Env) ->
     may_publish_and_apply('session.subscribed',
@@ -253,6 +262,19 @@ eventmsg_connack(_ConnInfo = #{
           connected_at => ConnectedAt,
           conn_props => printable_maps(ConnProps)
         }).
+eventmsg_check_acl_complete(_ClientInfo = #{
+                                            clientid := ClientId,
+                                            username := Username,
+                                            peerhost := PeerHost
+                                           }, PubSub, Topic, Result) ->
+    with_basic_columns('client.check_acl_complete',
+                       #{clientid => ClientId,
+                         username => Username,
+                         peerhost => ntoa(PeerHost),
+                         topic    => Topic,
+                         action   => PubSub,
+                         result   => Result
+                        }).
 
 eventmsg_sub_or_unsub(Event, _ClientInfo = #{
                     clientid := ClientId,
@@ -409,6 +431,7 @@ event_info() ->
     , event_info_client_connack()
     , event_info_session_subscribed()
     , event_info_session_unsubscribed()
+    , event_info_client_check_acl_complete()
     ].
 
 event_info_message_publish() ->
@@ -483,6 +506,13 @@ event_info_session_unsubscribed() ->
         {<<"session unsubscribed">>, <<"会话取消订阅完成"/utf8>>},
         <<"SELECT * FROM \"$events/session_unsubscribed\" WHERE topic =~ 't/#'">>
     ).
+event_info_client_check_acl_complete() ->
+    event_info_common(
+      'client.check_acl_complete',
+      {<<"client check acl complete">>, <<"鉴权结果"/utf8>>},
+      {<<"client check acl complete">>, <<"鉴权结果"/utf8>>},
+      <<"SELECT * FROM \"$events/client_check_acl_complete\"">>
+     ).
 
 event_info_common(Event, {TitleEN, TitleZH}, {DescrEN, DescrZH}, SqlExam) ->
     #{event => event_topic(Event),
@@ -539,6 +569,13 @@ test_columns('session.subscribed') ->
     , {<<"username">>, <<"u_emqx">>}
     , {<<"topic">>, <<"t/a">>}
     , {<<"qos">>, 1}
+    ];
+test_columns('client.check_acl_complete') ->
+    [ {<<"clientid">>, <<"c_emqx">>}
+    , {<<"username">>, <<"u_emqx">>}
+    , {<<"topic">>, <<"t/1">>}
+    , {<<"action">>, <<"publish">>}
+    , {<<"result">>, <<"allow">>}
     ].
 
 columns_with_exam('message.publish') ->
@@ -692,6 +729,17 @@ columns_with_exam('session.unsubscribed') ->
     , columns_example_props(unsub_props)
     , {<<"timestamp">>, erlang:system_time(millisecond)}
     , {<<"node">>, node()}
+    ];
+columns_with_exam('client.check_acl_complete') ->
+    [ {<<"event">>, 'client.check_acl_complete'}
+    , {<<"clientid">>, <<"c_emqx">>}
+    , {<<"username">>, <<"u_emqx">>}
+    , {<<"peerhost">>, <<"192.168.0.10">>}
+    , {<<"topic">>, <<"t/a">>}
+    , {<<"action">>, <<"publish">>}
+    , {<<"result">>, <<"allow">>}
+    , {<<"timestamp">>, erlang:system_time(millisecond)}
+    , {<<"node">>, node()}
     ].
 
 columns_example_props(PropType) ->
@@ -766,6 +814,7 @@ event_name(<<"$events/message_delivered", _/binary>>) -> 'message.delivered';
 event_name(<<"$events/message_acked", _/binary>>) -> 'message.acked';
 event_name(<<"$events/message_dropped", _/binary>>) -> 'message.dropped';
 event_name(<<"$events/delivery_dropped", _/binary>>) -> 'delivery.dropped';
+event_name(<<"$events/client_check_acl_complete", _/binary>>) -> 'client.check_acl_complete';
 event_name(_) -> 'message.publish'.
 
 event_topic('client.connected') -> <<"$events/client_connected">>;
@@ -777,7 +826,8 @@ event_topic('message.delivered') -> <<"$events/message_delivered">>;
 event_topic('message.acked') -> <<"$events/message_acked">>;
 event_topic('message.dropped') -> <<"$events/message_dropped">>;
 event_topic('delivery.dropped') -> <<"$events/delivery_dropped">>;
-event_topic('message.publish') -> <<"$events/message_publish">>.
+event_topic('message.publish') -> <<"$events/message_publish">>;
+event_topic('client.check_acl_complete') -> <<"$events/client_check_acl_complete">>.
 
 printable_maps(undefined) -> #{};
 printable_maps(Headers) ->
