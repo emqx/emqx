@@ -449,7 +449,7 @@ update_mqtt_rates(State) ->
     {#{}, State}.
 
 advanced_mqtt_features() ->
-    AdvancedFeatures = application:get_env(emqx_telemetry, advanced_mqtt_features_in_use, #{}),
+    AdvancedFeatures = emqx_modules:get_advanced_mqtt_features_in_use(),
     maps:map(fun(_K, V) -> bool2int(V) end, AdvancedFeatures).
 
 bin(L) when is_list(L) ->

@@ -38,7 +38,7 @@ maybe_enable_modules() ->
     RetainerEnabled = emqx_conf:get([retainer, enable], false),
     AutoSubscribeEnabled = length(emqx_conf:get([auto_subscribe, topics], [])) > 0,
     application:set_env(
-        emqx_telemetry,
+        emqx_modules,
         advanced_mqtt_features_in_use,
         #{
             delayed => DelayedEnabled,

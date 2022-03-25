@@ -67,17 +67,13 @@ init_per_testcase(t_get_telemetry, Config) ->
     ),
     Config;
 init_per_testcase(t_advanced_mqtt_features, Config) ->
-    OldValues = application:get_env(emqx_telemetry, advanced_mqtt_features_in_use, #{}),
-    application:set_env(
-        emqx_telemetry,
-        advanced_mqtt_features_in_use,
-        #{
-            delayed => false,
-            topic_rewrite => false,
-            retained => false,
-            auto_subscribe => false
-        }
-    ),
+    OldValues = emqx_modules:get_advanced_mqtt_features_in_use(),
+    emqx_modules:set_advanced_mqtt_features_in_use(#{
+        delayed => false,
+        topic_rewrite => false,
+        retained => false,
+        auto_subscribe => false
+    }),
     [{old_values, OldValues} | Config];
 init_per_testcase(_Testcase, Config) ->
     TestPID = self(),
@@ -94,7 +90,7 @@ end_per_testcase(t_get_telemetry, _Config) ->
     ok;
 end_per_testcase(t_advanced_mqtt_features, Config) ->
     OldValues = ?config(old_values, Config),
-    application:set_env(emqx_telemetry, advanced_mqtt_features_in_use, OldValues);
+    emqx_modules:set_advanced_mqtt_features_in_use(OldValues);
 end_per_testcase(_Testcase, _Config) ->
     meck:unload([httpc]),
     ok.
@@ -172,12 +168,8 @@ t_advanced_mqtt_features(_) ->
     ),
     lists:foreach(
         fun(TelemetryKey) ->
-            {ok, EnabledFeats} = application:get_env(emqx_telemetry, advanced_mqtt_features_in_use),
-            application:set_env(
-                emqx_telemetry,
-                advanced_mqtt_features_in_use,
-                EnabledFeats#{TelemetryKey => true}
-            ),
+            EnabledFeats = emqx_modules:get_advanced_mqtt_features_in_use(),
+            emqx_modules:set_advanced_mqtt_features_in_use(EnabledFeats#{TelemetryKey => true}),
             {ok, Data} = emqx_telemetry:get_telemetry(),
             #{TelemetryKey := Value} = get_value(advanced_mqtt_features, Data),
             ?assertEqual(1, Value, #{key => TelemetryKey})
