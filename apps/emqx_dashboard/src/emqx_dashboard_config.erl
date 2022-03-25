@@ -13,30 +13,31 @@
 %% See the License for the specific language governing permissions and
 %% limitations under the License.
 %%--------------------------------------------------------------------
+-module(emqx_dashboard_config).
 
--module(emqx_dashboard_app).
+-behaviour(emqx_config_handler).
 
--behaviour(application).
+%% API
+-export([add_handler/0, remove_handler/0]).
+-export([post_config_update/5]).
 
--export([ start/2
-        , stop/1
-        ]).
+add_handler() ->
+    Roots = emqx_dashboard_schema:roots(),
+    ok = emqx_config_handler:add_handler(Roots, ?MODULE),
+    ok.
 
--include("emqx_dashboard.hrl").
+remove_handler() ->
+    Roots = emqx_dashboard_schema:roots(),
+    ok = emqx_config_handler:remove_handler(Roots),
+    ok.
 
-start(_StartType, _StartArgs) ->
-    {ok, Sup} = emqx_dashboard_sup:start_link(),
-    ok = mria_rlog:wait_for_shards([?DASHBOARD_SHARD], infinity),
-    case emqx_dashboard:start_listeners() of
-        ok ->
-            emqx_dashboard_cli:load(),
-            {ok, _Result} = emqx_dashboard_admin:add_default_user(),
-            ok = emqx_dashboard_config:add_handler(),
-            {ok, Sup};
-        {error, Reason} -> {error, Reason}
-    end.
-
-stop(_State) ->
-    ok = emqx_dashboard_config:remove_handler(),
-    emqx_dashboard_cli:unload(),
-    emqx_dashboard:stop_listeners().
+post_config_update(_, _Req, NewConf, OldConf, _AppEnvs) ->
+    #{listeners := NewListeners} = NewConf,
+    #{listeners := OldListeners} = OldConf,
+    case NewListeners =:= OldListeners of
+        true -> ok;
+        false ->
+            ok = emqx_dashboard:stop_listeners(OldListeners),
+            ok = emqx_dashboard:start_listeners(NewListeners)
+    end,
+    ok.

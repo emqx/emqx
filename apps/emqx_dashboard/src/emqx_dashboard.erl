@@ -20,6 +20,8 @@
 
 
 -export([ start_listeners/0
+        , start_listeners/1
+        , stop_listeners/1
         , stop_listeners/0]).
 
 %% Authorization
@@ -37,6 +39,14 @@
 %%--------------------------------------------------------------------
 
 start_listeners() ->
+    Listeners = emqx_conf:get([dashboard, listeners], []),
+    start_listeners(Listeners).
+
+stop_listeners() ->
+    Listeners = emqx_conf:get([dashboard, listeners], []),
+    stop_listeners(Listeners).
+
+start_listeners(Listeners) ->
     {ok, _} = application:ensure_all_started(minirest),
     Authorization = {?MODULE, authorize},
     GlobalSpec = #{
@@ -73,13 +83,13 @@ start_listeners() ->
                     %% Don't record the reason because minirest already does(too much logs noise).
                     [Name | Acc]
             end
-                    end, [], listeners()),
+                    end, [], listeners(Listeners)),
     case Res of
         [] -> ok;
         _ -> {error, Res}
     end.
 
-stop_listeners() ->
+stop_listeners(Listeners) ->
     [begin
         case minirest:stop(Name) of
             ok ->
@@ -87,7 +97,8 @@ stop_listeners() ->
             {error, not_found} ->
                 ?SLOG(warning, #{msg => "stop_listener_failed", name => Name, port => Port})
         end
-     end || {Name, _, Port, _} <- listeners()].
+     end || {Name, _, Port, _} <- listeners(Listeners)],
+    ok.
 
 %%--------------------------------------------------------------------
 %% internal
@@ -99,14 +110,14 @@ apps() ->
             _ -> false
         end].
 
-listeners() ->
+listeners(Listeners) ->
     [begin
         Protocol = maps:get(protocol, ListenerOption0, http),
         {ListenerOption, Bind} = ip_port(ListenerOption0),
         Name = listener_name(Protocol, ListenerOption),
         RanchOptions = ranch_opts(maps:without([protocol], ListenerOption)),
         {Name, Protocol, Bind, RanchOptions}
-    end || ListenerOption0 <- emqx_conf:get([dashboard, listeners], [])].
+    end || ListenerOption0 <- Listeners].
 
 ip_port(Opts) -> ip_port(maps:take(bind, Opts), Opts).
 
