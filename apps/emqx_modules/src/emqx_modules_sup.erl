@@ -39,7 +39,6 @@ start_link() ->
 %% Supervisor callbacks
 %%--------------------------------------------------------------------
 init([]) ->
-    emqx_event_message:init_conf_handler(),
     {ok,
         {{one_for_one, 10, 3600}, [
             ?CHILD(emqx_telemetry),
