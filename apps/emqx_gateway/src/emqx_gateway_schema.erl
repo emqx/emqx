@@ -221,7 +221,10 @@ option. The indicator can be set to:
     * qos0: If the publish request is non-confirmable
     * qos1: If the publish request is confirmable"
            })}
-    , {listeners, sc(ref(udp_listeners))}
+    , {listeners,
+       sc(ref(udp_listeners),
+          #{ desc =>"Listeners (UDP) for CoAP service"
+           })}
     ] ++ gateway_common_options();
 
 fields(lwm2m) ->

@@ -61,7 +61,7 @@ fields(server) ->
                             })}
     , {failed_action, failed_action()}
     , {ssl,
-       sc(ref(ssl_conf), #{})}
+       sc(ref(ssl_conf), #{desc => "SSL client config"})}
     , {auto_reconnect,
        sc(hoconsc:union([false, duration()]),
           #{ default => "60s"
