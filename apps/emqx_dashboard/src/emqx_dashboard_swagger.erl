@@ -109,7 +109,10 @@ schema_with_example(Type, Example) ->
 
 -spec(schema_with_examples(hocon_schema:type(), map()) -> hocon_schema:field_schema_map()).
 schema_with_examples(Type, Examples) ->
-    hoconsc:mk(Type, #{examples => #{<<"examples">> => Examples}}).
+    %% Swagger can dynamically distinguish if there are multiple examples.
+    %% But explicitly declaring examples as plural
+    %% may cause some example structures to be incorrectly identified.
+    schema_with_example(Type, Examples).
 
 -spec(error_codes(list(atom())) -> hocon_schema:fields()).
 error_codes(Codes) ->
