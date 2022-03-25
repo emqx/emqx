@@ -328,14 +328,14 @@ all() ->
     ].
 
 %% @doc Get metric value
--spec val(metric_name()) -> maybe(non_neg_integer()).
+-spec val(metric_name()) -> non_neg_integer().
 val(Name) ->
     case ets:lookup(?TAB, Name) of
         [#metric{idx = Idx}] ->
             CRef = persistent_term:get(?MODULE),
             counters:get(CRef, Idx);
         [] ->
-            undefined
+            0
     end.
 
 %% @doc Increase counter

@@ -102,6 +102,15 @@ t_monitor_current_api(_) ->
         || Key <- maps:values(?DELTA_SAMPLER_RATE_MAP) ++ ?GAUGE_SAMPLER_LIST],
     ok.
 
+t_monitor_reset(_) ->
+    restart_monitor(),
+    {ok, Rate} = request(["monitor_current"]),
+    [?assert(maps:is_key(atom_to_binary(Key, utf8), Rate))
+        || Key <- maps:values(?DELTA_SAMPLER_RATE_MAP) ++ ?GAUGE_SAMPLER_LIST],
+    {ok, Samplers} = request(["monitor"], "latest=1"),
+    ?assertEqual(1, erlang:length(Samplers)),
+    ok.
+
 t_monitor_api_error(_) ->
     {error, {400, #{<<"code">> := <<"BAD_RPC">>}}} =
         request(["monitor", "nodes", 'emqx@127.0.0.2']),
@@ -147,3 +156,16 @@ do_request_api(Method, Request)->
 auth_header_() ->
     Basic = binary_to_list(base64:encode(<<"admin:public">>)),
     {"Authorization", "Basic " ++ Basic}.
+
+restart_monitor() ->
+    erlang:exit(erlang:whereis(emqx_dashboard_monitor), killed),
+    ?assertEqual(ok, wait_new_monitor(10)).
+
+wait_new_monitor(Count) when Count =< 0 -> timeout;
+wait_new_monitor(Count) ->
+    case is_pid(erlang:whereis(emqx_dashboard_monitor)) of
+        true -> ok;
+        false ->
+            timer:sleep(100),
+            wait_new_monitor(Count - 1)
+    end.
