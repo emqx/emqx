@@ -243,8 +243,8 @@ format(TimeStamp, Data, All) ->
     [Data#{time_stamp => TimeStamp} | All].
 
 cal_rate(_Now, undefined) ->
-    AllSamples = ?GAUGE_SAMPLER_LIST ++ maps:keys(?DELTA_SAMPLER_RATE_MAP),
-    {ok, lists:foldl(fun(Key, Acc) -> Acc#{Key => 0} end, #{}, AllSamples)};
+    AllSamples = ?GAUGE_SAMPLER_LIST ++ maps:values(?DELTA_SAMPLER_RATE_MAP),
+    lists:foldl(fun(Key, Acc) -> Acc#{Key => 0} end, #{}, AllSamples);
 cal_rate( #emqx_monit{data = NowData, time = NowTime}
         , #emqx_monit{data = LastData, time = LastTime}) ->
     TimeDelta = NowTime - LastTime,
