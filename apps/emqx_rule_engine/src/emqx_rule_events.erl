@@ -39,7 +39,7 @@
         , on_message_delivered/3
         , on_message_acked/3
         , on_delivery_dropped/4
-        , on_client_check_acl_complete/5
+        , on_client_check_acl_complete/6
         ]).
 
 -export([ event_info/0
@@ -114,12 +114,13 @@ on_client_connack(ConnInfo, Reason, _, Env) ->
     may_publish_and_apply('client.connack',
                           fun() -> eventmsg_connack(ConnInfo, Reason) end, Env).
 
-on_client_check_acl_complete(ClientInfo, PubSub, Topic, Result, Env) ->
+on_client_check_acl_complete(ClientInfo, PubSub, Topic, Result, IsCache, Env) ->
     may_publish_and_apply('client.check_acl_complete',
                           fun() -> eventmsg_check_acl_complete(ClientInfo,
                                                                PubSub,
                                                                Topic,
-                                                               Result) end, Env).
+                                                               Result,
+                                                               IsCache) end, Env).
 
 on_session_subscribed(ClientInfo, Topic, SubOpts, Env) ->
     may_publish_and_apply('session.subscribed',
@@ -266,13 +267,14 @@ eventmsg_check_acl_complete(_ClientInfo = #{
                                             clientid := ClientId,
                                             username := Username,
                                             peerhost := PeerHost
-                                           }, PubSub, Topic, Result) ->
+                                           }, PubSub, Topic, Result, IsCache) ->
     with_basic_columns('client.check_acl_complete',
                        #{clientid => ClientId,
                          username => Username,
                          peerhost => ntoa(PeerHost),
                          topic    => Topic,
                          action   => PubSub,
+                         is_cache => IsCache,
                          result   => Result
                         }).
 
@@ -737,6 +739,7 @@ columns_with_exam('client.check_acl_complete') ->
     , {<<"peerhost">>, <<"192.168.0.10">>}
     , {<<"topic">>, <<"t/a">>}
     , {<<"action">>, <<"publish">>}
+    , {<<"is_cache">>, <<"false">>}
     , {<<"result">>, <<"allow">>}
     , {<<"timestamp">>, erlang:system_time(millisecond)}
     , {<<"node">>, node()}

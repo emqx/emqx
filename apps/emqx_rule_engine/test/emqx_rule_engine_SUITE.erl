@@ -2809,11 +2809,13 @@ verify_event_fields('client.check_acl_complete', Fields) ->
       action := Action,
       result := Result,
       topic := Topic,
+      is_cache := IsCache,
       username := Username
     } = Fields,
     ?assertEqual(<<"t1">>, Topic),
     ?assert(lists:member(Action, [subscribe, publish])),
     ?assert(lists:member(Result, [allow, deny])),
+    ?assert(lists:member(IsCache, [true, false])),
     ?assert(lists:member(ClientId, [<<"c_event">>, <<"c_event2">>])),
     ?assert(lists:member(Username, [<<"u_event">>, <<"u_event2">>])).
 
