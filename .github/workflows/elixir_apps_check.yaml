@@ -8,7 +8,7 @@ jobs:
   elixir_apps_check:
     runs-on: ubuntu-20.04
     # just use the latest builder
-    container: "ghcr.io/emqx/emqx-builder/5.0-8:1.13.3-24.2.1-1-ubuntu20.04"
+    container: "ghcr.io/emqx/emqx-builder/5.0-10:1.13.3-24.2.1-1-ubuntu20.04"
 
     strategy:
       fail-fast: false
