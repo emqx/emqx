@@ -162,13 +162,14 @@ start_check_timer() ->
 %%The internal memsup will no longer trigger events that have been alerted,
 %% and there is no exported function to remove the alerted flag,
 %% so it can only be checked again at startup.
+
 ensure_system_memory_alarm(HW) ->
     case erlang:whereis(memsup) of
         undefined ->
             ok;
         _Pid ->
             {Total, Allocated, _Worst} = memsup:get_memory_data(),
-            case Total =/= 0 andalso Allocated / Total * 100 > HW of
+            case Total =/= 0 andalso Allocated / Total > HW of
                 true -> emqx_alarm:activate(high_system_memory_usage, #{high_watermark => HW});
                 false -> ok
             end
