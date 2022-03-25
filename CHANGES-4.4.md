@@ -1,5 +1,8 @@
 # EMQ X 4.4 Changes
 
+### Enhancements
+* Add rule events: client.connack, client.check_acl_complete
+
 ## v4.4.2
 
 **NOTE**: v4.4.2 is in sync with: v4.3.13
