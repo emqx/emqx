@@ -84,18 +84,17 @@ connection_quota_early_alarm({ok, #{max_connections := Max}}) when is_integer(Ma
     Count = connection_count(),
     Low = emqx_conf:get([license, connection_low_watermark], 0.75),
     High = emqx_conf:get([license, connection_high_watermark], 0.80),
-    if
-        Count > Max * High ->
+    Count > Max * High andalso
+        begin
             HighPercent = float_to_binary(High * 100, [{decimals, 0}]),
             Message = iolist_to_binary([
                 "License: live connection number exceeds ", HighPercent, "%"
             ]),
-            catch emqx_alarm:activate(license_quota, #{high_watermark => HighPercent}, Message);
-        Count < Max * Low ->
-            catch emqx_alarm:deactivate(license_quota);
-        true ->
-            ok
-    end;
+            catch emqx_alarm:activate(license_quota, #{high_watermark => HighPercent}, Message)
+        end,
+    Count < Max * Low andalso
+        catch emqx_alarm:deactivate(license_quota),
+    ok;
 connection_quota_early_alarm(_Limits) ->
     ok.
 
