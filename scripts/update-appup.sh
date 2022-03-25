@@ -16,12 +16,15 @@ cd -P -- "$(dirname -- "${BASH_SOURCE[0]}")/.."
 PROFILE="${1:-}"
 case "$PROFILE" in
     emqx-ee)
+        GIT_REPO='emqx/emqx-enterprise.git'
         TAG_PREFIX='e'
         ;;
     emqx)
+        GIT_REPO='emqx/emqx.git'
         TAG_PREFIX='v'
         ;;
     emqx-edge)
+        GIT_REPO='emqx/emqx.git'
         TAG_PREFIX='v'
         ;;
     *)
@@ -36,7 +39,7 @@ esac
 ##  e4.3.11
 ##  rel-v4.4.3
 ##  rel-e4.4.3
-PREV_TAG="$(git describe --tag --abbrev=0 --match "[${TAG_PREFIX}|rel-]*" --exclude '*rc*' --exclude '*alpha*' --exclude '*beta*')"
+PREV_TAG="${PREV_TAG:-$(git describe --tag --abbrev=0 --match "[${TAG_PREFIX}|rel-]*" --exclude '*rc*' --exclude '*alpha*' --exclude '*beta*')}"
 
 shift 1
 # bash 3.2 treat empty array as unbound, so we can't use 'ESCRIPT_ARGS=()' here,
@@ -77,14 +80,17 @@ fi
 
 PREV_DIR_BASE="/tmp/emqx-appup-build"
 mkdir -p "${PREV_DIR_BASE}"
-if [ ! -d "${PREV_TAG}" ]; then
+if [ ! -d "${PREV_DIR_BASE}/${PREV_TAG}" ]; then
     cp -R . "${PREV_DIR_BASE}/${PREV_TAG}"
 fi
 
 pushd "${PREV_DIR_BASE}/${PREV_TAG}"
+REMOTE="$(git remote -v | grep "${GIT_REPO}" | head -1 | awk '{print $1}')"
 git reset --hard
-git checkout "${PREV_TAG}"
+git clean -fdx
+git fetch "$REMOTE"
 make clean-all
+git checkout "${PREV_TAG}"
 make "$PROFILE"
 popd
 
