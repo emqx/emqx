@@ -19,8 +19,9 @@ all() ->
 
 t_namespace(_Config) ->
     ?assertEqual(
-       emqx_conf_schema:namespace(),
-       emqx_enterprise_conf_schema:namespace()).
+        emqx_conf_schema:namespace(),
+        emqx_enterprise_conf_schema:namespace()
+    ).
 
 t_roots(_Config) ->
     BaseRoots = emqx_conf_schema:roots(),
@@ -28,19 +29,25 @@ t_roots(_Config) ->
 
     ?assertEqual([], BaseRoots -- EnterpriseRoots),
 
-    ?assert(lists:any(
-              fun({license, _}) -> true;
-                 (_) -> false
-              end,
-              EnterpriseRoots)).
+    ?assert(
+        lists:any(
+            fun
+                ({license, _}) -> true;
+                (_) -> false
+            end,
+            EnterpriseRoots
+        )
+    ).
 
 t_fields(_Config) ->
     ?assertEqual(
-       emqx_conf_schema:fields("node"),
-       emqx_enterprise_conf_schema:fields("node")).
+        emqx_conf_schema:fields("node"),
+        emqx_enterprise_conf_schema:fields("node")
+    ).
 
 t_translations(_Config) ->
     [Root | _] = emqx_enterprise_conf_schema:translations(),
     ?assertEqual(
-       emqx_conf_schema:translation(Root),
-       emqx_enterprise_conf_schema:translation(Root)).
+        emqx_conf_schema:translation(Root),
+        emqx_enterprise_conf_schema:translation(Root)
+    ).
