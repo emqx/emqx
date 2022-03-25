@@ -62,7 +62,10 @@ topic filters for 'remote_topic' of ingress connections.
            #{ default => "127.0.0.1:1883"
             , desc => "The host and port of the remote MQTT broker"
             })}
-    , {reconnect_interval, mk_duration("Reconnect interval", #{default => "15s"})}
+    , {reconnect_interval, mk_duration(
+        "Reconnect interval. Delay for the MQTT bridge to retry establishing the connection "
+        "in case of transportation failure.",
+        #{default => "15s"})}
     , {proto_ver,
         sc(hoconsc:enum([v3, v4, v5]),
            #{ default => v4
@@ -83,8 +86,11 @@ topic filters for 'remote_topic' of ingress connections.
            #{ default => true
             , desc => "The clean-start or the clean-session of the MQTT protocol"
             })}
-    , {keepalive, mk_duration("Keepalive", #{default => "300s"})}
-    , {retry_interval, mk_duration("Retry interval", #{default => "15s"})}
+    , {keepalive, mk_duration("MQTT Keepalive.", #{default => "300s"})}
+    , {retry_interval, mk_duration(
+        "Message retry interval. Delay for the MQTT bridge to retry sending the QoS1/QoS2 "
+        "messages in case of ACK not received.",
+        #{default => "15s"})}
     , {max_inflight,
         sc(integer(),
            #{ default => 32

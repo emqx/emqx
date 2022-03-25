@@ -69,20 +69,29 @@ parse_connector_id(ConnectorId) ->
     end.
 
 list_raw() ->
-    lists:foldl(fun({Type, NameAndConf}, Connectors) ->
-            lists:foldl(fun({Name, RawConf}, Acc) ->
-                   [RawConf#{<<"type">> => Type, <<"name">> => Name} | Acc]
-                end, Connectors, maps:to_list(NameAndConf))
-        end, [], maps:to_list(emqx:get_raw_config(config_key_path(), #{}))).
+    case get_raw_connector_conf() of
+        not_found -> [];
+        Config ->
+            lists:foldl(fun({Type, NameAndConf}, Connectors) ->
+                lists:foldl(fun({Name, RawConf}, Acc) ->
+                        [RawConf#{<<"type">> => Type, <<"name">> => Name} | Acc]
+                    end, Connectors, maps:to_list(NameAndConf))
+            end, [], maps:to_list(Config))
+    end.
 
 lookup_raw(Id) when is_binary(Id) ->
     {Type, Name} = parse_connector_id(Id),
     lookup_raw(Type, Name).
 
 lookup_raw(Type, Name) ->
-    case emqx:get_raw_config(config_key_path() ++ [Type, Name], not_found) of
+    Path = [bin(P) || P <- [Type, Name]],
+    case get_raw_connector_conf() of
         not_found -> {error, not_found};
-        Conf -> {ok, Conf#{<<"type">> => Type, <<"name">> => Name}}
+        Conf ->
+            case emqx_map_lib:deep_get(Path, Conf, not_found) of
+                not_found -> {error, not_found};
+                Conf1 -> {ok, Conf1#{<<"type">> => Type, <<"name">> => Name}}
+            end
     end.
 
 create_dry_run(Type, Conf) ->
@@ -101,6 +110,15 @@ delete(Id) when is_binary(Id) ->
 
 delete(Type, Name) ->
     emqx_conf:remove(config_key_path() ++ [Type, Name], #{override_to => cluster}).
+
+get_raw_connector_conf() ->
+    case emqx:get_raw_config(config_key_path(), not_found) of
+        not_found -> not_found;
+        RawConf ->
+            #{<<"connectors">> := Conf} =
+                emqx_config:fill_defaults(#{<<"connectors">> => RawConf}),
+            Conf
+    end.
 
 bin(Bin) when is_binary(Bin) -> Bin;
 bin(Str) when is_list(Str) -> list_to_binary(Str);
