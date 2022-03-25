@@ -1017,7 +1017,7 @@ t_events(_Config) ->
         ]),
     ct:pal("====== verify $events/client_connected, $events/client_connack"),
     client_connected(Client, Client2),
-    ct:pal("====== verify $events/session_subscribed"),
+    ct:pal("====== verify $events/session_subscribed, $events/client_check_acl_complete"),
     session_subscribed(Client2),
     ct:pal("====== verify t1"),
     message_publish(Client),
@@ -1044,7 +1044,6 @@ client_connected(Client, Client2) ->
     verify_event('client.connack'),
     verify_event('client.connected'),
     ok.
-
 client_disconnected(Client, Client2) ->
     ok = emqtt:disconnect(Client, 0, #{'User-Property' => {<<"reason">>, <<"normal">>}}),
     ok = emqtt:disconnect(Client2, 0, #{'User-Property' => {<<"reason">>, <<"normal">>}}),

@@ -51,7 +51,6 @@ check_acl(ClientInfo, PubSub, Topic) ->
     end,
     inc_acl_metrics(Result),
     emqx:run_hook('client.check_acl_complete', [ClientInfo, PubSub, Topic, Result]),
-    %% io:format(standard_error, "~p, ~p, ~p, ~p, ~n", [ClientInfo, PubSub, Topic, Result]),
     Result.
 
 check_acl_cache(ClientInfo, PubSub, Topic) ->
