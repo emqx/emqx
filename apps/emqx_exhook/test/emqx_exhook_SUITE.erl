@@ -98,9 +98,30 @@ t_cli_stats(_) ->
     _ = emqx_exhook_cli:cli(x),
     unmeck_print().
 
+t_priority(_) ->
+    restart_exhook_with_envs([{emqx_exhook, hook_priority, 1}]),
+
+    emqx_exhook:disable(default),
+    ok = emqx_exhook:enable(default),
+    [Callback | _] = emqx_hooks:lookup('client.connected'),
+    1 = emqx_hooks:callback_priority(Callback).
+
 %%--------------------------------------------------------------------
 %% Utils
 %%--------------------------------------------------------------------
+
+%% TODO: make it more general and move to `emqx_ct_helpers`
+restart_exhook_with_envs(Envs) ->
+    emqx_ct_helpers:stop_apps([emqx_exhook]),
+    SetPriorityFun
+        = fun(emqx) ->
+                  set_special_cfgs(emqx);
+             (emqx_exhook) ->
+                  lists:foreach(fun({App, Key, Val}) ->
+                                        application:set_env(App, Key, Val)
+                                end, Envs)
+          end,
+    emqx_ct_helpers:start_apps([emqx_exhook], SetPriorityFun).
 
 meck_print() ->
     meck:new(emqx_ctl, [passthrough, no_history, no_link]),
