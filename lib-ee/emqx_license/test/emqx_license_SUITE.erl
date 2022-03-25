@@ -51,8 +51,8 @@ set_special_configs(emqx_license) ->
     emqx_config:put([license], Config),
     RawConfig = #{<<"file">> => emqx_license_test_lib:default_license()},
     emqx_config:put_raw([<<"license">>], RawConfig);
-
-set_special_configs(_) -> ok.
+set_special_configs(_) ->
+    ok.
 
 %%------------------------------------------------------------------------------
 %% Tests
@@ -60,101 +60,125 @@ set_special_configs(_) -> ok.
 
 t_update_file(_Config) ->
     ?assertMatch(
-       {error, {invalid_license_file, enoent}},
-       emqx_license:update_file("/unknown/path")),
+        {error, {invalid_license_file, enoent}},
+        emqx_license:update_file("/unknown/path")
+    ),
 
     ok = file:write_file("license_with_invalid_content.lic", <<"bad license">>),
     ?assertMatch(
-       {error, [_ | _]},
-       emqx_license:update_file("license_with_invalid_content.lic")),
+        {error, [_ | _]},
+        emqx_license:update_file("license_with_invalid_content.lic")
+    ),
 
     ?assertMatch(
-       {ok, #{}},
-       emqx_license:update_file(emqx_license_test_lib:default_license())).
+        {ok, #{}},
+        emqx_license:update_file(emqx_license_test_lib:default_license())
+    ).
 
 t_update_value(_Config) ->
     ?assertMatch(
-       {error, [_ | _]},
-       emqx_license:update_key("invalid.license")),
+        {error, [_ | _]},
+        emqx_license:update_key("invalid.license")
+    ),
 
     {ok, LicenseValue} = file:read_file(emqx_license_test_lib:default_license()),
 
     ?assertMatch(
-       {ok, #{}},
-       emqx_license:update_key(LicenseValue)).
+        {ok, #{}},
+        emqx_license:update_key(LicenseValue)
+    ).
 
 t_read_license_from_invalid_file(_Config) ->
     ?assertMatch(
-       {error, enoent},
-       emqx_license:read_license()).
+        {error, enoent},
+        emqx_license:read_license()
+    ).
 
 t_check_exceeded(_Config) ->
     License = mk_license(
-                ["220111",
-                 "0",
-                 "10",
-                 "Foo",
-                 "contact@foo.com",
-                 "20220111",
-                 "100000",
-                 "10"]),
+        [
+            "220111",
+            "0",
+            "10",
+            "Foo",
+            "contact@foo.com",
+            "20220111",
+            "100000",
+            "10"
+        ]
+    ),
     #{} = emqx_license_checker:update(License),
 
     ok = lists:foreach(
-           fun(_) ->
-                   {ok, C} = emqtt:start_link(),
-                   {ok, _} = emqtt:connect(C)
-           end,
-           lists:seq(1, 12)),
+        fun(_) ->
+            {ok, C} = emqtt:start_link(),
+            {ok, _} = emqtt:connect(C)
+        end,
+        lists:seq(1, 12)
+    ),
 
     ?assertEqual(
-       {stop, {error, ?RC_QUOTA_EXCEEDED}},
-       emqx_license:check(#{}, #{})).
+        {stop, {error, ?RC_QUOTA_EXCEEDED}},
+        emqx_license:check(#{}, #{})
+    ).
 
 t_check_ok(_Config) ->
     License = mk_license(
-                ["220111",
-                 "0",
-                 "10",
-                 "Foo",
-                 "contact@foo.com",
-                 "20220111",
-                 "100000",
-                 "10"]),
+        [
+            "220111",
+            "0",
+            "10",
+            "Foo",
+            "contact@foo.com",
+            "20220111",
+            "100000",
+            "10"
+        ]
+    ),
     #{} = emqx_license_checker:update(License),
 
     ok = lists:foreach(
-           fun(_) ->
-                   {ok, C} = emqtt:start_link(),
-                   {ok, _} = emqtt:connect(C)
-           end,
-           lists:seq(1, 11)),
+        fun(_) ->
+            {ok, C} = emqtt:start_link(),
+            {ok, _} = emqtt:connect(C)
+        end,
+        lists:seq(1, 11)
+    ),
 
     ?assertEqual(
-       {ok, #{}},
-       emqx_license:check(#{}, #{})).
+        {ok, #{}},
+        emqx_license:check(#{}, #{})
+    ).
 
 t_check_expired(_Config) ->
     License = mk_license(
-                ["220111",
-                 "1", %% Official customer
-                 "0", %% Small customer
-                 "Foo",
-                 "contact@foo.com",
-                 "20211101", %% Expired long ago
-                 "10",
-                 "10"]),
+        [
+            "220111",
+            %% Official customer
+            "1",
+            %% Small customer
+            "0",
+            "Foo",
+            "contact@foo.com",
+            %% Expired long ago
+            "20211101",
+            "10",
+            "10"
+        ]
+    ),
     #{} = emqx_license_checker:update(License),
 
     ?assertEqual(
-       {stop, {error, ?RC_QUOTA_EXCEEDED}},
-       emqx_license:check(#{}, #{})).
+        {stop, {error, ?RC_QUOTA_EXCEEDED}},
+        emqx_license:check(#{}, #{})
+    ).
 
 t_check_not_loaded(_Config) ->
     ok = emqx_license_checker:purge(),
     ?assertEqual(
-       {stop, {error, ?RC_QUOTA_EXCEEDED}},
-       emqx_license:check(#{}, #{})).
+        {stop, {error, ?RC_QUOTA_EXCEEDED}},
+        emqx_license:check(#{}, #{})
+    ).
 
 %%------------------------------------------------------------------------------
 %% Helpers
@@ -163,6 +187,7 @@ t_check_not_loaded(_Config) ->
 mk_license(Fields) ->
     EncodedLicense = emqx_license_test_lib:make_license(Fields),
     {ok, License} = emqx_license_parser:parse(
-                      EncodedLicense,
-                      emqx_license_test_lib:public_key_pem()),
+        EncodedLicense,
+        emqx_license_test_lib:public_key_pem()
+    ),
     License.

@@ -10,17 +10,20 @@
 
 -behaviour(emqx_config_handler).
 
--export([pre_config_update/3,
-         post_config_update/5
-        ]).
+-export([
+    pre_config_update/3,
+    post_config_update/5
+]).
 
--export([load/0,
-         check/2,
-         unload/0,
-         read_license/0,
-         read_license/1,
-         update_file/1,
-         update_key/1]).
+-export([
+    load/0,
+    check/2,
+    unload/0,
+    read_license/0,
+    read_license/1,
+    update_file/1,
+    update_key/1
+]).
 
 -define(CONF_KEY_PATH, [license]).
 
@@ -50,18 +53,20 @@ unload() ->
     {ok, emqx_config:update_result()} | {error, emqx_config:update_error()}.
 update_file(Filename) when is_binary(Filename); is_list(Filename) ->
     Result = emqx_conf:update(
-               ?CONF_KEY_PATH,
-               {file, Filename},
-               #{rawconf_with_defaults => true, override_to => local}),
+        ?CONF_KEY_PATH,
+        {file, Filename},
+        #{rawconf_with_defaults => true, override_to => local}
+    ),
     handle_config_update_result(Result).
 
 -spec update_key(binary() | string()) ->
     {ok, emqx_config:update_result()} | {error, emqx_config:update_error()}.
 update_key(Value) when is_binary(Value); is_list(Value) ->
     Result = emqx_conf:update(
-               ?CONF_KEY_PATH,
-               {key, Value},
-               #{rawconf_with_defaults => true, override_to => cluster}),
+        ?CONF_KEY_PATH,
+        {key, Value},
+        #{rawconf_with_defaults => true, override_to => cluster}
+    ),
     handle_config_update_result(Result).
 
 %%------------------------------------------------------------------------------
@@ -82,8 +87,10 @@ check(_ConnInfo, AckProps) ->
                     {ok, AckProps}
             end;
         {error, Reason} ->
-            ?SLOG(error, #{msg => "connection_rejected_due_to_license_not_loaded",
-                           reason => Reason}),
+            ?SLOG(error, #{
+                msg => "connection_rejected_due_to_license_not_loaded",
+                reason => Reason
+            }),
             {stop, {error, ?RC_QUOTA_EXCEEDED}}
     end.
 
@@ -98,7 +105,8 @@ post_config_update(_Path, _Cmd, NewConf, _Old, _AppEnvs) ->
     case read_license(NewConf) of
         {ok, License} ->
             {ok, emqx_license_checker:update(License)};
-        {error, _} = Error -> Error
+        {error, _} = Error ->
+            Error
     end.
 
 %%------------------------------------------------------------------------------
@@ -124,7 +132,6 @@ do_update({file, Filename}, Conf) ->
         {error, Reason} ->
             erlang:throw({invalid_license_file, Reason})
     end;
-
 do_update({key, Content}, Conf) when is_binary(Content); is_list(Content) ->
     case emqx_license_parser:parse(Content) of
         {ok, _License} ->
@@ -144,9 +151,10 @@ read_license(#{file := Filename}) ->
         {ok, Content} -> emqx_license_parser:parse(Content);
         {error, _} = Error -> Error
     end;
-
 read_license(#{key := Content}) ->
     emqx_license_parser:parse(Content).
 
-handle_config_update_result({error, _} = Error) -> Error;
-handle_config_update_result({ok, #{post_config_update := #{emqx_license := Result}}}) -> {ok, Result}.
+handle_config_update_result({error, _} = Error) ->
+    Error;
+handle_config_update_result({ok, #{post_config_update := #{emqx_license := Result}}}) ->
+    {ok, Result}.

@@ -7,15 +7,16 @@
 -compile(nowarn_export_all).
 -compile(export_all).
 
--define(DEFAULT_LICENSE_VALUES,
-        ["220111",
-         "0",
-         "10",
-         "Foo",
-         "contact@foo.com",
-         "20220111",
-         "100000",
-         "10"]).
+-define(DEFAULT_LICENSE_VALUES, [
+    "220111",
+    "0",
+    "10",
+    "Foo",
+    "contact@foo.com",
+    "20220111",
+    "100000",
+    "10"
+]).
 
 -define(DEFAULT_LICENSE_FILE, "emqx.lic").
 
@@ -36,7 +37,8 @@ test_key(Filename, Format) ->
     Path = filename:join([Dir, "data", Filename]),
     {ok, KeyData} = file:read_file(Path),
     case Format of
-        pem -> KeyData;
+        pem ->
+            KeyData;
         decoded ->
             [PemEntry] = public_key:pem_decode(KeyData),
             public_key:pem_entry_decode(PemEntry)

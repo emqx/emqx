@@ -26,36 +26,41 @@ license(["reload"]) ->
         #{key := _Key} ->
             ?PRINT_MSG("License is not configured as a file, please specify file explicitly~n")
     end;
-
 license(["reload", Filename]) ->
     case emqx_license:update_file(Filename) of
         {ok, Warnings} ->
             ok = print_warnings(Warnings),
             ok = ?PRINT_MSG("ok~n");
-        {error, Reason} -> ?PRINT("Error: ~p~n", [Reason])
+        {error, Reason} ->
+            ?PRINT("Error: ~p~n", [Reason])
     end;
-
 license(["update", EncodedLicense]) ->
     case emqx_license:update_key(EncodedLicense) of
         {ok, Warnings} ->
             ok = print_warnings(Warnings),
             ok = ?PRINT_MSG("ok~n");
-        {error, Reason} -> ?PRINT("Error: ~p~n", [Reason])
+        {error, Reason} ->
+            ?PRINT("Error: ~p~n", [Reason])
     end;
-
 license(["info"]) ->
-    lists:foreach(fun({K, V}) when is_binary(V); is_atom(V); is_list(V) ->
-                          ?PRINT("~-16s: ~s~n", [K, V]);
-                     ({K, V}) ->
-                          ?PRINT("~-16s: ~p~n", [K, V])
-                  end, emqx_license_checker:dump());
-
+    lists:foreach(
+        fun
+            ({K, V}) when is_binary(V); is_atom(V); is_list(V) ->
+                ?PRINT("~-16s: ~s~n", [K, V]);
+            ({K, V}) ->
+                ?PRINT("~-16s: ~p~n", [K, V])
+        end,
+        emqx_license_checker:dump()
+    );
 license(_) ->
     emqx_ctl:usage(
-      [ {"license info",            "Show license info"},
-        {"license reload [<File>]", "Reload license from a file specified with an absolute path"},
-        {"license update License",  "Update license given as a string"}
-      ]).
+        [
+            {"license info", "Show license info"},
+            {"license reload [<File>]",
+                "Reload license from a file specified with an absolute path"},
+            {"license update License", "Update license given as a string"}
+        ]
+    ).
 
 unload() ->
     ok = emqx_ctl:unregister_command(license).
@@ -70,8 +75,10 @@ print_warnings(Warnings) ->
 
 print_evaluation_warning(#{warn_evaluation := true}) ->
     ?PRINT_MSG(?EVALUATION_LOG);
-print_evaluation_warning(_) -> ok.
+print_evaluation_warning(_) ->
+    ok.
 
 print_expiry_warning(#{warn_expiry := true}) ->
     ?PRINT_MSG(?EXPIRY_LOG);
-print_expiry_warning(_) -> ok.
+print_expiry_warning(_) ->
+    ok.

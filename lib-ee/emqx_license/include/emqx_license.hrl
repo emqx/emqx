@@ -14,7 +14,7 @@
     "If you already have a paid license, please apply it now.\n"
     "Or you could visit https://emqx.com/apply-licenses/emqx to get a trial license.\n"
     "===============================================================================\n"
-    ).
+).
 
 -define(EXPIRY_LOG,
     "\n"
@@ -23,7 +23,7 @@
     "Please visit https://emqx.com/apply-licenses/emqx or\n"
     "contact customer services.\n"
     "======================================================\n"
-    ).
+).
 
 -define(OFFICIAL, 1).
 -define(TRIAL, 0).

@@ -9,8 +9,7 @@ cd -P -- "$(dirname -- "$0")/.."
 
 APPS=()
 APPS+=( 'apps/emqx' 'apps/emqx_modules' )
-
-#APPS+=( 'lib-ee/emqx_license' )
+APPS+=( 'lib-ee/emqx_license' )
 
 for app in "${APPS[@]}"; do
     echo "$app ..."

@@ -33,8 +33,8 @@ end_per_testcase(_Case, _Config) ->
 set_special_configs(emqx_license) ->
     Config = #{file => emqx_license_test_lib:default_license()},
     emqx_config:put([license], Config);
-
-set_special_configs(_) -> ok.
+set_special_configs(_) ->
+    ok.
 
 %%------------------------------------------------------------------------------
 %% Tests
@@ -42,41 +42,45 @@ set_special_configs(_) -> ok.
 
 t_connection_count(_Config) ->
     ?check_trace(
-       begin
-           ?wait_async_action(
-              whereis(emqx_license_resources) ! update_resources,
-              #{?snk_kind := emqx_license_resources_updated},
-              1000),
-           emqx_license_resources:connection_count()
-       end,
-       fun(ConnCount, Trace) ->
-               ?assertEqual(0, ConnCount),
-               ?assertMatch([_ | _], ?of_kind(emqx_license_resources_updated, Trace))
-       end),
-
+        begin
+            ?wait_async_action(
+                whereis(emqx_license_resources) ! update_resources,
+                #{?snk_kind := emqx_license_resources_updated},
+                1000
+            ),
+            emqx_license_resources:connection_count()
+        end,
+        fun(ConnCount, Trace) ->
+            ?assertEqual(0, ConnCount),
+            ?assertMatch([_ | _], ?of_kind(emqx_license_resources_updated, Trace))
+        end
+    ),
 
     meck:new(emqx_cm, [passthrough]),
     meck:expect(emqx_cm, get_connected_client_count, fun() -> 10 end),
 
     meck:new(emqx_license_proto_v1, [passthrough]),
     meck:expect(
-      emqx_license_proto_v1,
-      remote_connection_counts,
-      fun(_Nodes) ->
-              [{ok, 5}, {error, some_error}]
-      end),
+        emqx_license_proto_v1,
+        remote_connection_counts,
+        fun(_Nodes) ->
+            [{ok, 5}, {error, some_error}]
+        end
+    ),
 
     ?check_trace(
-       begin
-           ?wait_async_action(
-              whereis(emqx_license_resources) ! update_resources,
-              #{?snk_kind := emqx_license_resources_updated},
-              1000),
-           emqx_license_resources:connection_count()
-       end,
-       fun(ConnCount, _Trace) ->
-               ?assertEqual(15, ConnCount)
-       end),
+        begin
+            ?wait_async_action(
+                whereis(emqx_license_resources) ! update_resources,
+                #{?snk_kind := emqx_license_resources_updated},
+                1000
+            ),
+            emqx_license_resources:connection_count()
+        end,
+        fun(ConnCount, _Trace) ->
+            ?assertEqual(15, ConnCount)
+        end
+    ),
 
     meck:unload(emqx_license_proto_v1),
     meck:unload(emqx_cm).

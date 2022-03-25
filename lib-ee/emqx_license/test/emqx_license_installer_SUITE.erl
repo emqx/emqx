@@ -33,8 +33,8 @@ end_per_testcase(_Case, _Config) ->
 set_special_configs(emqx_license) ->
     Config = #{file => emqx_license_test_lib:default_license()},
     emqx_config:put([license], Config);
-
-set_special_configs(_) -> ok.
+set_special_configs(_) ->
+    ok.
 
 %%------------------------------------------------------------------------------
 %% Tests
@@ -42,38 +42,46 @@ set_special_configs(_) -> ok.
 
 t_update(_Config) ->
     ?check_trace(
-       begin
-           ?wait_async_action(
-              begin
-                Pid0 = spawn_link(fun() -> receive exit -> ok end end),
-                register(installer_test, Pid0),
+        begin
+            ?wait_async_action(
+                begin
+                    Pid0 = spawn_link(fun() ->
+                        receive
+                            exit -> ok
+                        end
+                    end),
+                    register(installer_test, Pid0),
 
-                {ok, _} = emqx_license_installer:start_link(
-                           installer_test,
-                           ?MODULE,
-                           10,
-                           fun() -> ok end),
+                    {ok, _} = emqx_license_installer:start_link(
+                        installer_test,
+                        ?MODULE,
+                        10,
+                        fun() -> ok end
+                    ),
 
+                    {ok, _} = ?block_until(
+                        #{?snk_kind := emqx_license_installer_nochange},
+                        100
+                    ),
 
-                {ok, _} = ?block_until(
-                             #{?snk_kind := emqx_license_installer_nochange},
-                             100),
+                    Pid0 ! exit,
 
-                Pid0 ! exit,
+                    {ok, _} = ?block_until(
+                        #{?snk_kind := emqx_license_installer_noproc},
+                        100
+                    ),
 
-                {ok, _} = ?block_until(
-                             #{?snk_kind := emqx_license_installer_noproc},
-                             100),
-
-                Pid1 = spawn_link(fun() -> timer:sleep(100) end),
-                register(installer_test, Pid1)
-              end,
-              #{?snk_kind := emqx_license_installer_called},
-              1000)
-       end,
-       fun(Trace) ->
+                    Pid1 = spawn_link(fun() -> timer:sleep(100) end),
+                    register(installer_test, Pid1)
+                end,
+                #{?snk_kind := emqx_license_installer_called},
+                1000
+            )
+        end,
+        fun(Trace) ->
             ?assertMatch([_ | _], ?of_kind(emqx_license_installer_called, Trace))
-       end).
+        end
+    ).
 
 t_unknown_calls(_Config) ->
     ok = gen_server:cast(emqx_license_installer, some_cast),

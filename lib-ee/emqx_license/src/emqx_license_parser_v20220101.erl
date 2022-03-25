@@ -18,12 +18,14 @@
 %% allow it to start from Nov.2021
 -define(MIN_START_DATE, 20211101).
 
--export([parse/2,
-         dump/1,
-         customer_type/1,
-         license_type/1,
-         expiry_date/1,
-         max_connections/1]).
+-export([
+    parse/2,
+    dump/1,
+    customer_type/1,
+    license_type/1,
+    expiry_date/1,
+    max_connections/1
+]).
 
 %%------------------------------------------------------------------------------
 %% API
@@ -40,25 +42,30 @@ parse(Content, Key) ->
             {error, Reason}
     end.
 
-dump(#{type := Type,
-       customer_type := CType,
-       customer := Customer,
-       email := Email,
-       date_start := DateStart,
-       max_connections := MaxConns} = License) ->
-
+dump(
+    #{
+        type := Type,
+        customer_type := CType,
+        customer := Customer,
+        email := Email,
+        date_start := DateStart,
+        max_connections := MaxConns
+    } = License
+) ->
     DateExpiry = expiry_date(License),
     {DateNow, _} = calendar:universal_time(),
     Expiry = DateNow > DateExpiry,
 
-    [{customer, Customer},
-     {email, Email},
-     {max_connections, MaxConns},
-     {start_at, format_date(DateStart)},
-     {expiry_at, format_date(DateExpiry)},
-     {type, format_type(Type)},
-     {customer_type, CType},
-     {expiry, Expiry}].
+    [
+        {customer, Customer},
+        {email, Email},
+        {max_connections, MaxConns},
+        {start_at, format_date(DateStart)},
+        {expiry_at, format_date(DateExpiry)},
+        {type, format_type(Type)},
+        {customer_type, CType},
+        {expiry, Expiry}
+    ].
 
 customer_type(#{customer_type := CType}) -> CType.
 
@@ -66,7 +73,8 @@ license_type(#{type := Type}) -> Type.
 
 expiry_date(#{date_start := DateStart, days := Days}) ->
     calendar:gregorian_days_to_date(
-     calendar:date_to_gregorian_days(DateStart) + Days).
+        calendar:date_to_gregorian_days(DateStart) + Days
+    ).
 
 max_connections(#{max_connections := MaxConns}) ->
     MaxConns.
@@ -82,7 +90,7 @@ do_parse(Content) ->
         Signature = base64:decode(EncodedSignature),
         {ok, {Payload, Signature}}
     catch
-        _ : _ ->
+        _:_ ->
             {error, bad_license_format}
     end.
 
@@ -91,17 +99,20 @@ verify_signature(Payload, Signature, Key) ->
 
 parse_payload(Payload) ->
     Lines = lists:map(
-              fun string:trim/1,
-              string:split(string:trim(Payload), <<"\n">>, all)),
+        fun string:trim/1,
+        string:split(string:trim(Payload), <<"\n">>, all)
+    ),
     case Lines of
         [?LICENSE_VERSION, Type, CType, Customer, Email, DateStart, Days, MaxConns] ->
-            collect_fields([{type, parse_type(Type)},
-                            {customer_type, parse_customer_type(CType)},
-                            {customer, {ok, Customer}},
-                            {email, {ok, Email}},
-                            {date_start, parse_date_start(DateStart)},
-                            {days, parse_days(Days)},
-                            {max_connections, parse_max_connections(MaxConns)}]);
+            collect_fields([
+                {type, parse_type(Type)},
+                {customer_type, parse_customer_type(CType)},
+                {customer, {ok, Customer}},
+                {email, {ok, Email}},
+                {date_start, parse_date_start(DateStart)},
+                {days, parse_days(Days)},
+                {max_connections, parse_max_connections(MaxConns)}
+            ]);
         [_Version, _Type, _CType, _Customer, _Email, _DateStart, _Days, _MaxConns] ->
             {error, invalid_version};
         _ ->
@@ -155,13 +166,15 @@ parse_int(Str0) ->
 
 collect_fields(Fields) ->
     Collected = lists:foldl(
-                  fun({Name, {ok, Value}}, {FieldValues, Errors}) ->
-                          {[{Name, Value} | FieldValues], Errors};
-                     ({Name, {error, Reason}}, {FieldValues, Errors}) ->
-                          {FieldValues, [{Name, Reason} | Errors]}
-                  end,
-                  {[], []},
-                  Fields),
+        fun
+            ({Name, {ok, Value}}, {FieldValues, Errors}) ->
+                {[{Name, Value} | FieldValues], Errors};
+            ({Name, {error, Reason}}, {FieldValues, Errors}) ->
+                {FieldValues, [{Name, Reason} | Errors]}
+        end,
+        {[], []},
+        Fields
+    ),
     case Collected of
         {FieldValues, []} ->
             {ok, maps:from_list(FieldValues)};
@@ -171,9 +184,11 @@ collect_fields(Fields) ->
 
 format_date({Year, Month, Day}) ->
     iolist_to_binary(
-      io_lib:format(
-        "~4..0w-~2..0w-~2..0w",
-        [Year, Month, Day])).
+        io_lib:format(
+            "~4..0w-~2..0w-~2..0w",
+            [Year, Month, Day]
+        )
+    ).
 
 format_type(?OFFICIAL) -> <<"official">>;
 format_type(?TRIAL) -> <<"trial">>.

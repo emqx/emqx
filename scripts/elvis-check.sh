@@ -5,7 +5,6 @@
 
 set -euo pipefail
 
-set -x
 elvis_version='1.0.0-emqx-2'
 
 base="${1:-}"
@@ -48,6 +47,7 @@ for file in $(git_diff); do
         # not .erl file
         continue
     fi
+    echo "$file ..."
     if ! ./elvis rock "$file" -c elvis.config; then
         bad_file_count=$(( bad_file_count + 1))
     fi

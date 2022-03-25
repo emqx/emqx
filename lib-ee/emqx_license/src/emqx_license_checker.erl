@@ -10,20 +10,24 @@
 -behaviour(gen_server).
 
 -define(CHECK_INTERVAL, 5000).
--define(EXPIRY_ALARM_CHECK_INTERVAL, 24 * 60* 60).
+-define(EXPIRY_ALARM_CHECK_INTERVAL, 24 * 60 * 60).
 
--export([start_link/1,
-         start_link/2,
-         update/1,
-         dump/0,
-         purge/0,
-         limits/0]).
+-export([
+    start_link/1,
+    start_link/2,
+    update/1,
+    dump/0,
+    purge/0,
+    limits/0
+]).
 
 %% gen_server callbacks
--export([init/1,
-         handle_call/3,
-         handle_cast/2,
-         handle_info/2]).
+-export([
+    init/1,
+    handle_call/3,
+    handle_cast/2,
+    handle_info/2
+]).
 
 -define(LICENSE_TAB, emqx_license).
 
@@ -55,7 +59,7 @@ limits() ->
         [{limits, Limits}] -> {ok, Limits};
         _ -> {error, no_license}
     catch
-        error : badarg ->
+        error:badarg ->
             {error, no_license}
     end.
 
@@ -71,10 +75,14 @@ purge() ->
 init([LicenseFetcher, CheckInterval]) ->
     case LicenseFetcher() of
         {ok, License} ->
-            ?LICENSE_TAB = ets:new(?LICENSE_TAB, [set, protected, named_table, {read_concurrency, true}]),
+            ?LICENSE_TAB = ets:new(?LICENSE_TAB, [
+                set, protected, named_table, {read_concurrency, true}
+            ]),
             #{} = check_license(License),
-            State0 = ensure_check_license_timer(#{check_license_interval => CheckInterval,
-                                   license => License}),
+            State0 = ensure_check_license_timer(#{
+                check_license_interval => CheckInterval,
+                license => License
+            }),
             State = ensure_check_expiry_timer(State0),
             {ok, State};
         {error, Reason} ->
@@ -100,12 +108,10 @@ handle_info(check_license, #{license := License} = State) ->
     NewState = ensure_check_license_timer(State),
     ?tp(debug, emqx_license_checked, #{}),
     {noreply, NewState};
-
 handle_info(check_expiry_alarm, #{license := License} = State) ->
     _ = expiry_early_alarm(License),
     NewState = ensure_check_expiry_timer(State),
     {noreply, NewState};
-
 handle_info(_Msg, State) ->
     {noreply, State}.
 
@@ -123,7 +129,8 @@ ensure_check_expiry_timer(State) ->
     State#{expiry_alarm_timer => Ref}.
 
 cancel_timer(State, Key) ->
-    _ = case maps:find(Key, State) of
+    _ =
+        case maps:find(Key, State) of
             {ok, Ref} when is_reference(Ref) -> erlang:cancel_timer(Ref);
             _ -> ok
         end,
@@ -134,12 +141,15 @@ check_license(License) ->
     NeedRestrict = need_restrict(License, DaysLeft),
     Limits = limits(License, NeedRestrict),
     true = apply_limits(Limits),
-    #{warn_evaluation => warn_evaluation(License, NeedRestrict),
-      warn_expiry => warn_expiry(License, NeedRestrict)}.
+    #{
+        warn_evaluation => warn_evaluation(License, NeedRestrict),
+        warn_expiry => warn_expiry(License, NeedRestrict)
+    }.
 
 warn_evaluation(License, false) ->
     emqx_license_parser:customer_type(License) == ?EVALUATION_CUSTOMER;
-warn_evaluation(_License, _NeedRestrict) -> false.
+warn_evaluation(_License, _NeedRestrict) ->
+    false.
 
 warn_expiry(_License, NeedRestrict) -> NeedRestrict.
 
@@ -151,16 +161,19 @@ days_left(License) ->
     {DateNow, _} = calendar:universal_time(),
     calendar:date_to_gregorian_days(DateEnd) - calendar:date_to_gregorian_days(DateNow).
 
-need_restrict(License, DaysLeft)->
+need_restrict(License, DaysLeft) ->
     CType = emqx_license_parser:customer_type(License),
     Type = emqx_license_parser:license_type(License),
 
-    DaysLeft < 0
-    andalso (Type =/= ?OFFICIAL) orelse small_customer_over_expired(CType, DaysLeft).
+    DaysLeft < 0 andalso
+        (Type =/= ?OFFICIAL) orelse small_customer_over_expired(CType, DaysLeft).
 
-small_customer_over_expired(?SMALL_CUSTOMER, DaysLeft)
-    when DaysLeft < ?EXPIRED_DAY -> true;
-small_customer_over_expired(_CType, _DaysLeft) -> false.
+small_customer_over_expired(?SMALL_CUSTOMER, DaysLeft) when
+    DaysLeft < ?EXPIRED_DAY
+->
+    true;
+small_customer_over_expired(_CType, _DaysLeft) ->
+    false.
 
 apply_limits(Limits) ->
     ets:insert(?LICENSE_TAB, {limits, Limits}).
