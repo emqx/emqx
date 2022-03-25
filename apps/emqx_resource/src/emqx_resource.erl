@@ -265,7 +265,7 @@ call_start(InstId, Mod, Config) ->
     ?SAFE_CALL(Mod:on_start(InstId, Config)).
 
 -spec call_health_check(instance_id(), module(), resource_state()) ->
-    {ok, resource_state()} | {error, Reason:: term(), resource_state()}.
+    {ok, resource_state()} | {error, Reason:: term()}  | {error, Reason:: term(), resource_state()}.
 call_health_check(InstId, Mod, ResourceState) ->
     ?SAFE_CALL(Mod:on_health_check(InstId, ResourceState)).
 

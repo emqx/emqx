@@ -295,6 +295,11 @@ do_health_check(Group, #{id := InstId, mod := Mod, state := ResourceState0} = Da
             ets:insert(emqx_resource_instance,
                 {InstId, Group, Data#{status => connected, state => ResourceState1}}),
             ok;
+        {error, Reason} ->
+            logger:error("health check for ~p failed: ~p", [InstId, Reason]),
+            ets:insert(emqx_resource_instance,
+                {InstId, Group, Data#{status => connecting}}),
+            {error, Reason};
         {error, Reason, ResourceState1} ->
             logger:error("health check for ~p failed: ~p", [InstId, Reason]),
             ets:insert(emqx_resource_instance,
