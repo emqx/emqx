@@ -34,11 +34,22 @@ fields("auto_subscribe") ->
     ];
 
 fields("topic") ->
-    [ {topic, sc(binary(), #{example => topic_example()})}
-    , {qos, sc(emqx_schema:qos(), #{default => 0})}
-    , {rh, sc(range(0,2), #{default => 0})}
-    , {rap, sc(range(0, 1), #{default => 0})}
-    , {nl, sc(range(0, 1), #{default => 0})}
+    [ {topic, sc(binary(), #{
+        example => topic_example(),
+        desc => "Topic name, placeholders is supported. For example: "
+                ++ binary_to_list(topic_example())})}
+    , {qos, sc(emqx_schema:qos(), #{
+        default => 0,
+        desc => "Quality of service. MQTT definition."})}
+    , {rh, sc(range(0,2), #{
+        default => 0,
+        desc => "Retain handling. MQTT 5.0 definition."})}
+    , {rap, sc(range(0, 1), #{
+        default => 0,
+        desc => "Retain as Published. MQTT 5.0 definition."})}
+    , {nl, sc(range(0, 1), #{
+        default => 0,
+        desc => "Not local. MQTT 5.0 definition."})}
     ].
 
 topic_example() ->
