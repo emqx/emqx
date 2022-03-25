@@ -148,7 +148,8 @@ code_change(_OldVsn, State, _Extra) ->
 
 deep_put_handler([], Handlers, Mod) ->
     {ok, Handlers#{?MOD => Mod}};
-deep_put_handler([Key | KeyPath], Handlers, Mod) ->
+deep_put_handler([Key0 | KeyPath], Handlers, Mod) ->
+    Key = atom(Key0),
     SubHandlers = maps:get(Key, Handlers, #{}),
     case deep_put_handler(KeyPath, SubHandlers, Mod) of
         {ok, NewSubHandlers} ->

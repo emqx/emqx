@@ -117,17 +117,20 @@ fields("cluster") ->
           #{ mapping => "ekka.cluster_name"
            , default => emqxcl
            , desc => "Human-friendly name of the EMQX cluster."
+           , 'readOnly' => true
            })}
     , {"discovery_strategy",
        sc(hoconsc:enum([manual, static, mcast, dns, etcd, k8s]),
           #{ default => manual
            , desc => "Service discovery method for the cluster nodes."
+           , 'readOnly' => true
            })}
     , {"autoclean",
        sc(emqx_schema:duration(),
           #{ mapping => "ekka.cluster_autoclean"
            , default => "5m"
            , desc => "Remove disconnected nodes from the cluster after this interval."
+           , 'readOnly' => true
            })}
     , {"autoheal",
        sc(boolean(),
@@ -135,12 +138,14 @@ fields("cluster") ->
            , default => true
            , desc => "If <code>true</code>, the node will try to heal network partitions
  automatically."
-           })}
+           , 'readOnly' => true
+          })}
     , {"proto_dist",
        sc(hoconsc:enum([inet_tcp, inet6_tcp, inet_tls]),
           #{ mapping => "ekka.proto_dist"
            , default => inet_tcp
-           })}
+           , 'readOnly' => true
+          })}
     , {"static",
        sc(ref(cluster_static),
           #{ desc => "Service discovery via static nodes. The new node joins the cluster by
@@ -169,7 +174,8 @@ fields(cluster_static) ->
       sc(hoconsc:array(atom()),
          #{ default => []
           , desc => "List EMQX node names in the static cluster. See <code>node.name</code>."
-          })}
+          , 'readOnly' => true
+         })}
     ];
 
 fields(cluster_mcast) ->
@@ -177,10 +183,12 @@ fields(cluster_mcast) ->
        sc(string(),
           #{ default => "239.192.0.1"
            , desc => "Multicast IPv4 address."
-           })}
+           , 'readOnly' => true
+          })}
     , {"ports",
        sc(hoconsc:array(integer()),
           #{ default => [4369, 4370]
+           , 'readOnly' => true
            , desc => "List of UDP ports used for service discovery.<br/>
 Note: probe messages are broadcast to all the specified ports."
            })}
@@ -188,32 +196,38 @@ Note: probe messages are broadcast to all the specified ports."
        sc(string(),
           #{ default => "0.0.0.0"
            , desc => "Local IP address the node discovery service needs to bind to."
-           })}
+           , 'readOnly' => true
+          })}
     , {"ttl",
        sc(range(0, 255),
           #{ default => 255
            , desc => "Time-to-live (TTL) for the outgoing UDP datagrams."
-           })}
+           , 'readOnly' => true
+          })}
     , {"loop",
        sc(boolean(),
           #{ default => true
            , desc => "If <code>true</code>, loop UDP datagrams back to the local socket."
-           })}
+           , 'readOnly' => true
+          })}
     , {"sndbuf",
        sc(emqx_schema:bytesize(),
           #{ default => "16KB"
            , desc => "Size of the kernel-level buffer for outgoing datagrams."
-           })}
+           , 'readOnly' => true
+          })}
     , {"recbuf",
        sc(emqx_schema:bytesize(),
           #{ default => "16KB"
            , desc => "Size of the kernel-level buffer for incoming datagrams."
-           })}
+           , 'readOnly' => true
+          })}
     , {"buffer",
        sc(emqx_schema:bytesize(),
           #{ default =>"32KB"
            , desc => "Size of the user-level buffer."
-           })}
+           , 'readOnly' => true
+          })}
     ];
 
 fields(cluster_dns) ->
@@ -221,11 +235,13 @@ fields(cluster_dns) ->
        sc(string(),
           #{ default => "localhost"
            , desc => "The domain name of the EMQX cluster."
-           })}
+           , 'readOnly' => true
+          })}
     , {"app",
        sc(string(),
           #{ default => "emqx"
            , desc => "The symbolic name of the EMQX service."
+           , 'readOnly' => true
            })}
     ];
 
@@ -233,21 +249,25 @@ fields(cluster_etcd) ->
     [ {"server",
        sc(emqx_schema:comma_separated_list(),
           #{ desc => "List of endpoint URLs of the etcd cluster"
+           , 'readOnly' => true
            })}
     , {"prefix",
        sc(string(),
           #{ default => "emqxcl"
            , desc => "Key prefix used for EMQX service discovery."
+           , 'readOnly' => true
            })}
     , {"node_ttl",
        sc(emqx_schema:duration(),
           #{ default => "1m"
+           , 'readOnly' => true
            , desc => "Expiration time of the etcd key associated with the node.
 It is refreshed automatically, as long as the node is alive."
            })}
     , {"ssl",
        sc(hoconsc:ref(emqx_schema, ssl_client_opts),
           #{ desc => "Options for the TLS connection to the etcd cluster."
+           , 'readOnly' => true
            })}
     ];
 
@@ -255,19 +275,23 @@ fields(cluster_k8s) ->
     [ {"apiserver",
        sc(string(),
           #{ desc => "Kubernetes API endpoint URL."
+           , 'readOnly' => true
            })}
     , {"service_name",
        sc(string(),
           #{ default => "emqx"
            , desc => "EMQX broker service name."
+           , 'readOnly' => true
            })}
     , {"address_type",
        sc(hoconsc:enum([ip, dns, hostname]),
           #{ desc => "Address type used for connecting to the discovered nodes."
+           , 'readOnly' => true
            })}
     , {"app_name",
        sc(string(),
           #{ default => "emqx"
+           , 'readOnly' => true
            , desc => "This parameter should be set to the part of the <code>node.name</code>
 before the '@'.<br/>
 For example, if the <code>node.name</code> is <code>emqx@127.0.0.1</code>, then this parameter
@@ -277,10 +301,12 @@ should be set to <code>emqx</code>."
        sc(string(),
           #{ default => "default"
            , desc => "Kubernetes namespace."
+           , 'readOnly' => true
            })}
     , {"suffix",
        sc(string(),
           #{ default => "pod.local"
+           , 'readOnly' => true
            , desc => "Node name suffix.<br/>
 Note: this parameter is only relevant when <code>address_type</code> is <code>dns</code>
 or <code>hostname</code>."
@@ -290,14 +316,16 @@ or <code>hostname</code>."
 fields("node") ->
     [ {"name",
        sc(string(),
-          #{ default => "emqx@127.0.0.1",
-             desc => "Unique name of the EMQX node. It must follow <code>%name%@FQDN</code> or
+          #{ default => "emqx@127.0.0.1"
+           , 'readOnly' => true
+           ,  desc => "Unique name of the EMQX node. It must follow <code>%name%@FQDN</code> or
  <code>%name%@IPv4</code> format."
            })}
     , {"cookie",
        sc(string(),
           #{ mapping => "vm_args.-setcookie",
              default => "emqxsecretcookie",
+             'readOnly' => true,
              sensitive => true,
              desc => "Secret cookie is a random string that should be the same on all nodes in
  the given EMQX cluster, but unique per EMQX cluster. It is used to prevent EMQX nodes that
@@ -306,6 +334,7 @@ fields("node") ->
     , {"data_dir",
        sc(string(),
           #{ required => true,
+             'readOnly' => true,
              mapping => "emqx.data_dir",
              desc =>
 """
@@ -327,6 +356,7 @@ Possible auto-created subdirectories are:
        sc(list(string()),
           #{ mapping => "emqx.config_files"
            , default => undefined
+           , 'readOnly' => true
            , desc => "List of configuration files that are read during startup. The order is
  significant: later configuration files override the previous ones."
            })}
@@ -335,11 +365,13 @@ Possible auto-created subdirectories are:
          #{ mapping => "emqx_machine.global_gc_interval"
           , default => "15m"
           , desc => "Periodic garbage collection interval."
+          , 'readOnly' => true
           })}
     , {"crash_dump_file",
        sc(file(),
           #{ mapping => "vm_args.-env ERL_CRASH_DUMP"
            , desc => "Location of the crash dump file"
+           , 'readOnly' => true
            })}
     , {"crash_dump_seconds",
        sc(emqx_schema:duration_s(),
@@ -347,17 +379,20 @@ Possible auto-created subdirectories are:
            , default => "30s"
            , desc => "The number of seconds that the broker is allowed to spend writing
 a crash dump"
+           , 'readOnly' => true
            })}
     , {"crash_dump_bytes",
        sc(emqx_schema:bytesize(),
           #{ mapping => "vm_args.-env ERL_CRASH_DUMP_BYTES"
            , default => "100MB"
            , desc => "The maximum size of a crash dump file in bytes."
+           , 'readOnly' => true
            })}
     , {"dist_net_ticktime",
        sc(emqx_schema:duration(),
           #{ mapping => "vm_args.-kernel net_ticktime"
            , default => "2m"
+           , 'readOnly' => true
            , desc => "This is the approximate time an EMQX node may be unresponsive "
                      "until it is considered down and thereby disconnected."
            })}
@@ -365,6 +400,7 @@ a crash dump"
        sc(integer(),
           #{ mapping => "emqx_machine.backtrace_depth"
            , default => 23
+           , 'readOnly' => true
            , desc => "Maximum depth of the call stack printed in error messages and
  <code>process_info</code>."
            })}
@@ -372,18 +408,21 @@ a crash dump"
        sc(emqx_schema:comma_separated_atoms(),
           #{ mapping => "emqx_machine.applications"
            , default => []
+           , 'readOnly' => true
            , desc => "List of Erlang applications that shall be rebooted when the EMQX broker joins
  the cluster."
            })}
     , {"etc_dir",
        sc(string(),
           #{ desc => "<code>etc</code> dir for the node"
+           , 'readOnly' => true
            }
          )}
     , {"cluster_call",
       sc(ref("cluster_call"),
         #{ desc => "Options for the 'cluster call' feature that allows to execute a callback
  on all nodes in the cluster."
+         , 'readOnly' => true
           }
         )}
     ];
@@ -393,6 +432,7 @@ fields("db") ->
        sc(hoconsc:enum([mnesia, rlog]),
           #{ mapping => "mria.db_backend"
            , default => rlog
+           , 'readOnly' => true
            , desc => """
 Select the backend for the embedded database.<br/>
 <code>rlog</code> is the default backend, a new experimental backend
@@ -404,6 +444,7 @@ that is suitable for very large clusters.<br/>
        sc(hoconsc:enum([core, replicant]),
           #{ mapping => "mria.node_role"
            , default => core
+           , 'readOnly' => true
            , desc => """
 Select a node role.<br/>
 <code>core</code> nodes provide durability of the data, and take care of writes.
@@ -419,6 +460,7 @@ to <code>rlog</code>.
        sc(emqx_schema:comma_separated_atoms(),
           #{ mapping => "mria.core_nodes"
            , default => []
+           , 'readOnly' => true
            , desc => """
 List of core nodes that the replicant will connect to.<br/>
 Note: this parameter only takes effect when the <code>backend</code> is set
@@ -432,6 +474,7 @@ there is no need to set this value.
        sc(hoconsc:enum([gen_rpc, rpc]),
           #{ mapping => "mria.rlog_rpc_module"
            , default => gen_rpc
+           , 'readOnly' => true
            , desc => """
 Protocol used for pushing transaction logs to the replicant nodes.
 """
@@ -440,6 +483,7 @@ Protocol used for pushing transaction logs to the replicant nodes.
        sc(hoconsc:enum([sync, async]),
           #{ mapping => "mria.tlog_push_mode"
            , default => async
+           , 'readOnly' => true
            , desc => """
 In sync mode the core node waits for an ack from the replicant nodes before sending the next
 transaction log entry.

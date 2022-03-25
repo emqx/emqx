@@ -105,11 +105,13 @@ default_username(type) -> string();
 default_username(default) -> "admin";
 default_username(required) -> true;
 default_username(desc) -> "The default username of the automatically created dashboard user.";
+default_username('readOnly') -> true;
 default_username(_) -> undefined.
 
 default_password(type) -> string();
 default_password(default) -> "public";
 default_password(required) -> true;
+default_password('readOnly') -> true;
 default_password(sensitive) -> true;
 default_password(desc) -> """
 The initial default password for dashboard 'admin' user.
