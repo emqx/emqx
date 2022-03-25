@@ -27,6 +27,17 @@
     code_change/3
 ]).
 
+-define(OK(EXPR),
+    (fun() ->
+        try
+            _ = EXPR,
+            ok
+        catch
+            _:_ -> ok
+        end
+    end)()
+).
+
 %%------------------------------------------------------------------------------
 %% API
 %%------------------------------------------------------------------------------
@@ -90,11 +101,9 @@ connection_quota_early_alarm({ok, #{max_connections := Max}}) when is_integer(Ma
             Message = iolist_to_binary([
                 "License: live connection number exceeds ", HighPercent, "%"
             ]),
-            catch emqx_alarm:activate(license_quota, #{high_watermark => HighPercent}, Message)
+            ?OK(emqx_alarm:activate(license_quota, #{high_watermark => HighPercent}, Message))
         end,
-    Count < Max * Low andalso
-        catch emqx_alarm:deactivate(license_quota),
-    ok;
+    Count < Max * Low andalso ?OK(emqx_alarm:deactivate(license_quota));
 connection_quota_early_alarm(_Limits) ->
     ok.
 
