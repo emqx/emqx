@@ -76,6 +76,8 @@
 
 -type hooks_options() :: #{hook_priority => integer()}.
 
+-define(DEFAULT_HOOK_OPTS, #{hook_priority => ?DEFAULT_HOOK_PRIORITY}).
+
 -define(DEFAULT_TIMEOUT, 60000).
 
 -define(CNTER, emqx_exhook_counter).
@@ -207,8 +209,27 @@ terminate(_Reason, State = #state{running = Running}) ->
     _ = unload_exhooks(),
     ok.
 
-code_change(_OldVsn, State, _Extra) ->
-    {ok, State}.
+%% in the emqx_exhook:v4.3.5, we have added one new field in the state last:
+%%  - hooks_options :: map()
+code_change({down, _Vsn}, State, [ToVsn]) ->
+    case re:run(ToVsn, "4\\.3\\.[0-4]") of
+        {match, _} ->
+            NState = list_to_tuple(
+                       lists:droplast(
+                         tuple_to_list(State))),
+            {ok, NState};
+        _ ->
+            {ok, State}
+    end;
+code_change(_Vsn, State, [FromVsn]) ->
+    case re:run(FromVsn, "4\\.3\\.[0-4]") of
+        {match, _} ->
+            NState = list_to_tuple(
+                       tuple_to_list(State) ++ [?DEFAULT_HOOK_OPTS]),
+            {ok, NState};
+        _ ->
+            {ok, State}
+    end.
 
 %%--------------------------------------------------------------------
 %% Internal funcs
