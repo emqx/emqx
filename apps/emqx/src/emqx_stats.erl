@@ -164,11 +164,11 @@ getstats() ->
     end.
 
 %% @doc Get stats by name.
--spec getstat(atom()) -> maybe(non_neg_integer()).
+-spec getstat(atom()) -> non_neg_integer().
 getstat(Name) ->
     case ets:lookup(?TAB, Name) of
         [{Name, Val}] -> Val;
-        [] -> undefined
+        [] -> 0
     end.
 
 %% @doc Set stats

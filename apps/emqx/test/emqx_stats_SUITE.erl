@@ -36,7 +36,7 @@ t_get_error_state(_) ->
 
 t_get_state(_) ->
     with_proc(fun() ->
-        ?assertEqual(undefined, emqx_stats:getstat('notExist')),
+        ?assertEqual(0, emqx_stats:getstat('notExist')),
         SetConnsCount = emqx_stats:statsfun('connections.count'),
         SetConnsCount(1),
         ?assertEqual(1, emqx_stats:getstat('connections.count')),
