@@ -954,7 +954,8 @@ fields("ws_opts") ->
                     default => false,
                     desc =>
                         "If <code>true</code>, compress WebSocket messages using <code>zlib</code>.<br/>\n"
-                        " The configuration items under <code>deflate_opts</code> belong to the compression-related parameter configuration."
+                        "The configuration items under <code>deflate_opts</code> "
+                        "belong to the compression-related parameter configuration."
                 }
             )},
         {"idle_timeout",
@@ -1414,10 +1415,7 @@ fields("sysmon_vm") ->
             sc(
                 hoconsc:union([disabled, duration()]),
                 #{
-                    desc =>
-                        "Enable Long GC monitoring.<br/>\n"
-                        " Notice: don't enable the monitor in production for:<br/>\n"
-                        " https://github.com/erlang/otp/blob/feb45017da36be78d4c5784d758ede619fa7bfd3/erts/emulator/beam/erl_gc.c#L421"
+                    desc => "Enable Long GC monitoring.<br/>"
                 }
             )},
         {"long_schedule",
@@ -1677,7 +1675,8 @@ mqtt_listener() ->
                     duration(),
                     #{
                         desc =>
-                            "Timeout for proxy protocol. EMQX will close the TCP connection if proxy protocol packet is not received within the timeout."
+                            "Timeout for proxy protocol. EMQX will close the TCP connection "
+                            "if proxy protocol packet is not received within the timeout."
                     }
                 )},
             {?EMQX_AUTHENTICATION_CONFIG_ROOT_NAME,
@@ -1845,7 +1844,15 @@ common_ssl_opts_schema(Defaults) ->
         {"depth",
             sc(
                 integer(),
-                #{default => Df("depth", 10)}
+                #{
+                    default => Df("depth", 10),
+                    desc =>
+                        "Maximum number of non-self-issued intermediate certificates that can follow "
+                        "the peer certificate in a valid certification path. "
+                        "So, if depth is 0 the PEER must be signed by the trusted ROOT-CA directly; "
+                        "if 1 the path can be PEER, CA, ROOT-CA; if 2 the path can be PEER, CA, CA, ROOT-CA, "
+                        "and so on. The default value is 10."
+                }
             )},
         {"password",
             sc(
