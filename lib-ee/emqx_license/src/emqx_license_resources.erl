@@ -10,18 +10,22 @@
 
 -define(CHECK_INTERVAL, 5000).
 
--export([start_link/0,
-         start_link/1,
-         local_connection_count/0,
-         connection_count/0]).
+-export([
+    start_link/0,
+    start_link/1,
+    local_connection_count/0,
+    connection_count/0
+]).
 
 %% gen_server callbacks
--export([init/1,
-         handle_call/3,
-         handle_cast/2,
-         handle_info/2,
-         terminate/2,
-         code_change/3]).
+-export([
+    init/1,
+    handle_call/3,
+    handle_cast/2,
+    handle_info/2,
+    terminate/2,
+    code_change/3
+]).
 
 %%------------------------------------------------------------------------------
 %% API
@@ -83,14 +87,17 @@ connection_quota_early_alarm({ok, #{max_connections := Max}}) when is_integer(Ma
     if
         Count > Max * High ->
             HighPercent = float_to_binary(High * 100, [{decimals, 0}]),
-            Message = iolist_to_binary(["License: live connection number exceeds ", HighPercent, "%"]),
+            Message = iolist_to_binary([
+                "License: live connection number exceeds ", HighPercent, "%"
+            ]),
             catch emqx_alarm:activate(license_quota, #{high_watermark => HighPercent}, Message);
         Count < Max * Low ->
             catch emqx_alarm:deactivate(license_quota);
         true ->
             ok
     end;
-connection_quota_early_alarm(_Limits) -> ok.
+connection_quota_early_alarm(_Limits) ->
+    ok.
 
 cached_remote_connection_count() ->
     try ets:lookup(?MODULE, remote_connection_count) of
@@ -104,7 +111,8 @@ update_resources() ->
     ets:insert(?MODULE, {remote_connection_count, remote_connection_count()}).
 
 ensure_timer(#{check_peer_interval := CheckInterval} = State) ->
-    _ = case State of
+    _ =
+        case State of
             #{timer := Timer} -> erlang:cancel_timer(Timer);
             _ -> ok
         end,

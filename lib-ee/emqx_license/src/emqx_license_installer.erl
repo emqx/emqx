@@ -7,14 +7,18 @@
 
 -behaviour(gen_server).
 
--export([start_link/1,
-         start_link/4]).
+-export([
+    start_link/1,
+    start_link/4
+]).
 
 %% gen_server callbacks
--export([init/1,
-         handle_call/3,
-         handle_cast/2,
-         handle_info/2]).
+-export([
+    init/1,
+    handle_call/3,
+    handle_cast/2,
+    handle_info/2
+]).
 
 -define(NAME, emqx).
 -define(INTERVAL, 5000).
@@ -35,11 +39,12 @@ start_link(Name, ServerName, Interval, Callback) ->
 
 init([Name, Interval, Callback]) ->
     Pid = whereis(Name),
-    State = #{interval => Interval,
-              name => Name,
-              pid => Pid,
-              callback => Callback
-             },
+    State = #{
+        interval => Interval,
+        name => Name,
+        pid => Pid,
+        callback => Callback
+    },
     {ok, ensure_timer(State)}.
 
 handle_call(_Req, _From, State) ->
@@ -51,7 +56,6 @@ handle_cast(_Msg, State) ->
 handle_info({timeout, Timer, check_pid}, #{timer := Timer} = State) ->
     NewState = check_pid(State),
     {noreply, ensure_timer(NewState)};
-
 handle_info(_Msg, State) ->
     {noreply, State}.
 
@@ -60,7 +64,8 @@ handle_info(_Msg, State) ->
 %%------------------------------------------------------------------------------
 
 ensure_timer(#{interval := Interval} = State) ->
-    _ = case State of
+    _ =
+        case State of
             #{timer := Timer} -> erlang:cancel_timer(Timer);
             _ -> ok
         end,

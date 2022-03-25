@@ -35,8 +35,8 @@ set_special_configs(emqx_license) ->
     emqx_config:put([license], Config),
     RawConfig = #{<<"file">> => emqx_license_test_lib:default_license()},
     emqx_config:put_raw([<<"license">>], RawConfig);
-
-set_special_configs(_) -> ok.
+set_special_configs(_) ->
+    ok.
 
 %%------------------------------------------------------------------------------
 %% Tests
@@ -58,4 +58,3 @@ t_update(_Config) ->
     _ = emqx_license_cli:license(["update", LicenseValue]),
     _ = emqx_license_cli:license(["reload"]),
     _ = emqx_license_cli:license(["update", "Invalid License Value"]).
-
