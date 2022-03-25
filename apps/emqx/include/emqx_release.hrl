@@ -32,4 +32,4 @@
 -define(EMQX_RELEASE_CE, "5.0.0-rc.1").
 
 %% Enterprise edition
--define(EMQX_RELEASE_EE, "5.0.0-alpha.2").
+-define(EMQX_RELEASE_EE, "5.0.0-alpha.1").
