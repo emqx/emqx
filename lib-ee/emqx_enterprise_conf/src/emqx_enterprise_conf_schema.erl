@@ -16,7 +16,7 @@ namespace() ->
 roots() ->
     lists:foldl(
         fun(Module, Roots) ->
-            Roots ++ Module:roots()
+            Roots ++ apply(Module, roots, [])
         end,
         emqx_conf_schema:roots(),
         ?EE_SCHEMA_MODULES
