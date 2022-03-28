@@ -139,6 +139,7 @@ init_per_testcase(t_events, Config) ->
     init_events_counters(),
     SQL = "SELECT * FROM \"$events/client_connected\", "
                         "\"$events/client_disconnected\", "
+                        "\"$events/client_connack\", "
                         "\"$events/session_subscribed\", "
                         "\"$events/session_unsubscribed\", "
                         "\"$events/message_acked\", "
@@ -321,7 +322,7 @@ t_events(_Config) ->
         , {proto_ver, v5}
         , {properties, #{'Session-Expiry-Interval' => 60}}
         ]),
-    ct:pal("====== verify $events/client_connected"),
+    ct:pal("====== verify $events/client_connected, $events/client_connack"),
     client_connected(Client, Client2),
     ct:pal("====== verify $events/message_dropped"),
     message_dropped(Client),
@@ -349,6 +350,7 @@ message_publish(Client) ->
 client_connected(Client, Client2) ->
     {ok, _} = emqtt:connect(Client),
     {ok, _} = emqtt:connect(Client2),
+    verify_event('client.connack'),
     verify_event('client.connected'),
     ok.
 client_disconnected(Client, Client2) ->
@@ -1636,6 +1638,37 @@ verify_event_fields('message.acked', Fields) ->
     ?assert(is_map(Flags)),
     ?assertMatch(#{'Message-Expiry-Interval' := 60}, PubProps),
     ?assert(is_map(PubAckProps)),
+    ?assert(0 =< TimestampElapse andalso TimestampElapse =< 60*1000),
+    ?assert(0 =< RcvdAtElapse andalso RcvdAtElapse =< 60*1000),
+    ?assert(EventAt =< Timestamp);
+
+verify_event_fields('client.connack', Fields) ->
+    #{clientid := ClientId,
+      clean_start := CleanStart,
+      username := Username,
+      peername := PeerName,
+      sockname := SockName,
+      proto_name := ProtoName,
+      proto_ver := ProtoVer,
+      keepalive := Keepalive,
+      expiry_interval := ExpiryInterval,
+      conn_props := Properties,
+      timestamp := Timestamp,
+      connected_at := EventAt
+    } = Fields,
+    Now = erlang:system_time(millisecond),
+    TimestampElapse = Now - Timestamp,
+    RcvdAtElapse = Now - EventAt,
+    ?assert(lists:member(ClientId, [<<"c_event">>, <<"c_event2">>])),
+    ?assert(lists:member(Username, [<<"u_event">>, <<"u_event2">>])),
+    verify_peername(PeerName),
+    verify_peername(SockName),
+    ?assertEqual(<<"MQTT">>, ProtoName),
+    ?assertEqual(5, ProtoVer),
+    ?assert(is_integer(Keepalive)),
+    ?assert(is_boolean(CleanStart)),
+    ?assertEqual(60000, ExpiryInterval),
+    ?assertMatch(#{'Session-Expiry-Interval' := 60}, Properties),
     ?assert(0 =< TimestampElapse andalso TimestampElapse =< 60*1000),
     ?assert(0 =< RcvdAtElapse andalso RcvdAtElapse =< 60*1000),
     ?assert(EventAt =< Timestamp).
