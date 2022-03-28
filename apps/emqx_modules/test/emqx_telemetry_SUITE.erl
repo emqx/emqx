@@ -29,11 +29,11 @@ all() -> emqx_common_test_helpers:all(?MODULE).
 
 init_per_suite(Config) ->
     snabbkaffe:fix_ct_logging(),
-    emqx_common_test_helpers:start_apps([emqx_modules]),
+    emqx_common_test_helpers:start_apps([emqx_conf, emqx_modules]),
     Config.
 
 end_per_suite(_Config) ->
-    emqx_common_test_helpers:stop_apps([emqx_modules]).
+    emqx_common_test_helpers:stop_apps([emqx_conf, emqx_modules]).
 
 init_per_testcase(t_get_telemetry, Config) ->
     DataDir = ?config(data_dir, Config),
@@ -66,10 +66,21 @@ init_per_testcase(t_get_telemetry, Config) ->
         end
     ),
     Config;
+init_per_testcase(t_advanced_mqtt_features, Config) ->
+    OldValues = emqx_modules:get_advanced_mqtt_features_in_use(),
+    emqx_modules:set_advanced_mqtt_features_in_use(#{
+        delayed => false,
+        topic_rewrite => false,
+        retained => false,
+        auto_subscribe => false
+    }),
+    [{old_values, OldValues} | Config];
 init_per_testcase(_Testcase, Config) ->
     TestPID = self(),
     ok = meck:new(httpc, [non_strict, passthrough, no_history, no_link]),
-    ok = meck:expect(httpc, request, fun(Method, URL, Headers, Body) ->
+    ok = meck:expect(httpc, request, fun(
+        Method, {URL, Headers, _ContentType, Body}, _HTTPOpts, _Opts
+    ) ->
         TestPID ! {request, Method, URL, Headers, Body}
     end),
     Config.
@@ -77,6 +88,9 @@ init_per_testcase(_Testcase, Config) ->
 end_per_testcase(t_get_telemetry, _Config) ->
     meck:unload([httpc, emqx_telemetry]),
     ok;
+end_per_testcase(t_advanced_mqtt_features, Config) ->
+    OldValues = ?config(old_values, Config),
+    emqx_modules:set_advanced_mqtt_features_in_use(OldValues);
 end_per_testcase(_Testcase, _Config) ->
     meck:unload([httpc]),
     ok.
@@ -134,6 +148,39 @@ t_get_telemetry(_Config) ->
     ?assert(0 =< get_value(num_cpus, VMSpecs)),
     ?assert(is_integer(get_value(total_memory, VMSpecs))),
     ?assert(0 =< get_value(total_memory, VMSpecs)),
+    MQTTRTInsights = get_value(mqtt_runtime_insights, TelemetryData),
+    ?assert(is_number(maps:get(messages_sent_rate, MQTTRTInsights))),
+    ?assert(is_number(maps:get(messages_received_rate, MQTTRTInsights))),
+    ?assert(is_integer(maps:get(num_topics, MQTTRTInsights))),
+    ok.
+
+t_advanced_mqtt_features(_) ->
+    {ok, TelemetryData} = emqx_telemetry:get_telemetry(),
+    AdvFeats = get_value(advanced_mqtt_features, TelemetryData),
+    ?assertEqual(
+        #{
+            retained => 0,
+            topic_rewrite => 0,
+            auto_subscribe => 0,
+            delayed => 0
+        },
+        AdvFeats
+    ),
+    lists:foreach(
+        fun(TelemetryKey) ->
+            EnabledFeats = emqx_modules:get_advanced_mqtt_features_in_use(),
+            emqx_modules:set_advanced_mqtt_features_in_use(EnabledFeats#{TelemetryKey => true}),
+            {ok, Data} = emqx_telemetry:get_telemetry(),
+            #{TelemetryKey := Value} = get_value(advanced_mqtt_features, Data),
+            ?assertEqual(1, Value, #{key => TelemetryKey})
+        end,
+        [
+            retained,
+            topic_rewrite,
+            auto_subscribe,
+            delayed
+        ]
+    ),
     ok.
 
 t_enable(_) ->
@@ -150,11 +197,69 @@ t_send_after_enable(_) ->
     ok = snabbkaffe:start_trace(),
     try
         ok = emqx_telemetry:enable(),
-        ?assertMatch({ok, _}, ?block_until(#{?snk_kind := telemetry_data_reported}, 2000, 100))
+        ?assertMatch({ok, _}, ?block_until(#{?snk_kind := telemetry_data_reported}, 2000, 100)),
+        receive
+            {request, post, _URL, _Headers, Body} ->
+                {ok, Decoded} = emqx_json:safe_decode(Body, [return_maps]),
+                ?assertMatch(
+                    #{
+                        <<"uuid">> := _,
+                        <<"messages_received">> := _,
+                        <<"messages_sent">> := _,
+                        <<"build_info">> := #{},
+                        <<"vm_specs">> :=
+                            #{
+                                <<"num_cpus">> := _,
+                                <<"total_memory">> := _
+                            },
+                        <<"mqtt_runtime_insights">> :=
+                            #{
+                                <<"messages_received_rate">> := _,
+                                <<"messages_sent_rate">> := _,
+                                <<"num_topics">> := _
+                            },
+                        <<"advanced_mqtt_features">> :=
+                            #{
+                                <<"retained">> := _,
+                                <<"topic_rewrite">> := _,
+                                <<"auto_subscribe">> := _,
+                                <<"delayed">> := _
+                            }
+                    },
+                    Decoded
+                )
+        after 2100 ->
+            exit(telemetry_not_reported)
+        end
     after
         ok = snabbkaffe:stop(),
         meck:unload([emqx_telemetry])
     end.
+
+t_mqtt_runtime_insights(_) ->
+    State0 = emqx_telemetry:empty_state(),
+    {MQTTRTInsights1, State1} = emqx_telemetry:mqtt_runtime_insights(State0),
+    ?assertEqual(
+        #{
+            messages_sent_rate => 0.0,
+            messages_received_rate => 0.0,
+            num_topics => 0
+        },
+        MQTTRTInsights1
+    ),
+    %% add some fake stats
+    emqx_metrics:set('messages.sent', 10_000_000_000),
+    emqx_metrics:set('messages.received', 20_000_000_000),
+    emqx_stats:setstat('topics.count', 30_000),
+    {MQTTRTInsights2, _State2} = emqx_telemetry:mqtt_runtime_insights(State1),
+    assert_approximate(MQTTRTInsights2, messages_sent_rate, "16.53"),
+    assert_approximate(MQTTRTInsights2, messages_received_rate, "33.07"),
+    ?assertEqual(30_000, maps:get(num_topics, MQTTRTInsights2)),
+    ok.
+
+assert_approximate(Map, Key, Expected) ->
+    Value = maps:get(Key, Map),
+    ?assertEqual(Expected, float_to_list(Value, [{decimals, 2}])).
 
 bin(L) when is_list(L) ->
     list_to_binary(L);
