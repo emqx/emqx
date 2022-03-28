@@ -37,9 +37,7 @@ maybe_enable_modules() ->
     RewriteEnabled = length(emqx_conf:get([rewrite], [])) > 0,
     RetainerEnabled = emqx_conf:get([retainer, enable], false),
     AutoSubscribeEnabled = length(emqx_conf:get([auto_subscribe, topics], [])) > 0,
-    application:set_env(
-        emqx_modules,
-        advanced_mqtt_features_in_use,
+    emqx_modules:set_advanced_mqtt_features_in_use(
         #{
             delayed => DelayedEnabled,
             topic_rewrite => RewriteEnabled,
