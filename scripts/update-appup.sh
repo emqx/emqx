@@ -78,18 +78,22 @@ if [ "${SKIP_BUILD:-}" != 'yes' ]; then
     make "${PROFILE}"
 fi
 
-PREV_DIR_BASE="/tmp/emqx-appup-build"
+PREV_DIR_BASE="/tmp/_w"
 mkdir -p "${PREV_DIR_BASE}"
 if [ ! -d "${PREV_DIR_BASE}/${PREV_TAG}" ]; then
     cp -R . "${PREV_DIR_BASE}/${PREV_TAG}"
+    # always 'yes' in CI
+    NEW_COPY='yes'
+else
+    NEW_COPY='no'
 fi
 
 pushd "${PREV_DIR_BASE}/${PREV_TAG}"
-REMOTE="$(git remote -v | grep "${GIT_REPO}" | head -1 | awk '{print $1}')"
-git reset --hard
+if [ "$NEW_COPY" = 'no' ]; then
+    REMOTE="$(git remote -v | grep "${GIT_REPO}" | head -1 | awk '{print $1}')"
+    git fetch "$REMOTE"
+fi
 git clean -fdx
-git fetch "$REMOTE"
-make clean-all
 git checkout "${PREV_TAG}"
 make "$PROFILE"
 popd
