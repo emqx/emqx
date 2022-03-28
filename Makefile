@@ -193,7 +193,7 @@ $(foreach zt,$(ALL_TGZS),$(eval $(call gen-tgz-target,$(zt))))
 ## A pkg target depend on a regular release
 .PHONY: $(PKG_PROFILES)
 define gen-pkg-target
-$1:
+$1: $(COMMON_DEPS)
 	@$(BUILD) $1 pkg
 endef
 $(foreach pt,$(PKG_PROFILES),$(eval $(call gen-pkg-target,$(pt))))
