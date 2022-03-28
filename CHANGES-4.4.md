@@ -1,5 +1,10 @@
 # EMQ X 4.4 Changes
 
+### Enhancements
+* Add rule events: client.connack, client.check_acl_complete
+- client.connack The rule event is triggered when the server sends a CONNACK packet to the client. reason_code contains the error reason code.
+- client.check_acl_complete The rule event is triggered when the client check acl complete.
+
 ## v4.4.2
 
 **NOTE**: v4.4.2 is in sync with: v4.3.13

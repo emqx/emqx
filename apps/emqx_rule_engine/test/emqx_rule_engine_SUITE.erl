@@ -197,6 +197,8 @@ init_per_testcase(t_events, Config) ->
                     description = #{en => <<"Hook metrics action">>}}),
     SQL = "SELECT * FROM \"$events/client_connected\", "
                         "\"$events/client_disconnected\", "
+                        "\"$events/client_connack\", "
+                        "\"$events/client_check_acl_complete\", "
                         "\"$events/session_subscribed\", "
                         "\"$events/session_unsubscribed\", "
                         "\"$events/message_acked\", "
@@ -1013,9 +1015,9 @@ t_events(_Config) ->
         , {proto_ver, v5}
         , {properties, #{'Session-Expiry-Interval' => 60}}
         ]),
-    ct:pal("====== verify $events/client_connected"),
+    ct:pal("====== verify $events/client_connected, $events/client_connack"),
     client_connected(Client, Client2),
-    ct:pal("====== verify $events/session_subscribed"),
+    ct:pal("====== verify $events/session_subscribed, $events/client_check_acl_complete"),
     session_subscribed(Client2),
     ct:pal("====== verify t1"),
     message_publish(Client),
@@ -1039,6 +1041,7 @@ message_publish(Client) ->
 client_connected(Client, Client2) ->
     {ok, _} = emqtt:connect(Client),
     {ok, _} = emqtt:connect(Client2),
+    verify_event('client.connack'),
     verify_event('client.connected'),
     ok.
 client_disconnected(Client, Client2) ->
@@ -1053,6 +1056,7 @@ session_subscribed(Client2) ->
                                 , 1
                                 ),
     verify_event('session.subscribed'),
+    verify_event('client.check_acl_complete'),
     ok.
 session_unsubscribed(Client2) ->
     {ok, _, _} = emqtt:unsubscribe( Client2
@@ -2644,6 +2648,37 @@ verify_event_fields('client.disconnected', Fields) ->
     ?assert(0 =< RcvdAtElapse andalso RcvdAtElapse =< 60*1000),
     ?assert(EventAt =< Timestamp);
 
+verify_event_fields('client.connack', Fields) ->
+    #{clientid := ClientId,
+      clean_start := CleanStart,
+      username := Username,
+      peername := PeerName,
+      sockname := SockName,
+      proto_name := ProtoName,
+      proto_ver := ProtoVer,
+      keepalive := Keepalive,
+      expiry_interval := ExpiryInterval,
+      conn_props := Properties,
+      timestamp := Timestamp,
+      connected_at := EventAt
+    } = Fields,
+    Now = erlang:system_time(millisecond),
+    TimestampElapse = Now - Timestamp,
+    RcvdAtElapse = Now - EventAt,
+    ?assert(lists:member(ClientId, [<<"c_event">>, <<"c_event2">>])),
+    ?assert(lists:member(Username, [<<"u_event">>, <<"u_event2">>])),
+    verify_peername(PeerName),
+    verify_peername(SockName),
+    ?assertEqual(<<"MQTT">>, ProtoName),
+    ?assertEqual(5, ProtoVer),
+    ?assert(is_integer(Keepalive)),
+    ?assert(is_boolean(CleanStart)),
+    ?assertEqual(60, ExpiryInterval),
+    ?assertMatch(#{'Session-Expiry-Interval' := 60}, Properties),
+    ?assert(0 =< TimestampElapse andalso TimestampElapse =< 60*1000),
+    ?assert(0 =< RcvdAtElapse andalso RcvdAtElapse =< 60*1000),
+    ?assert(EventAt =< Timestamp);
+
 verify_event_fields(SubUnsub, Fields) when SubUnsub == 'session.subscribed'
                                          ; SubUnsub == 'session.unsubscribed' ->
     #{clientid := ClientId,
@@ -2767,7 +2802,22 @@ verify_event_fields('message.acked', Fields) ->
     ?assert(is_map(PubAckProps)),
     ?assert(0 =< TimestampElapse andalso TimestampElapse =< 60*1000),
     ?assert(0 =< RcvdAtElapse andalso RcvdAtElapse =< 60*1000),
-    ?assert(EventAt =< Timestamp).
+    ?assert(EventAt =< Timestamp);
+
+verify_event_fields('client.check_acl_complete', Fields) ->
+    #{clientid := ClientId,
+      action := Action,
+      result := Result,
+      topic := Topic,
+      is_cache := IsCache,
+      username := Username
+    } = Fields,
+    ?assertEqual(<<"t1">>, Topic),
+    ?assert(lists:member(Action, [subscribe, publish])),
+    ?assert(lists:member(Result, [allow, deny])),
+    ?assert(lists:member(IsCache, [true, false])),
+    ?assert(lists:member(ClientId, [<<"c_event">>, <<"c_event2">>])),
+    ?assert(lists:member(Username, [<<"u_event">>, <<"u_event2">>])).
 
 verify_peername(PeerName) ->
     case string:split(PeerName, ":") of
