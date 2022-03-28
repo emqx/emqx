@@ -60,6 +60,8 @@ check_authorization_cache(ClientInfo, PubSub, Topic) ->
             emqx_authz_cache:put_authz_cache(PubSub, Topic, AuthzResult),
             AuthzResult;
         AuthzResult ->
+            emqx:run_hook('client.check_authz_complete',
+                          [ClientInfo, PubSub, Topic, AuthzResult, cache]),
             inc_acl_metrics(cache_hit),
             AuthzResult
     end.

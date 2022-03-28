@@ -34,6 +34,7 @@
 -export([ on_client_connected/3
         , on_client_disconnected/4
         , on_client_connack/4
+        , on_client_check_authz_complete/6
         , on_session_subscribed/4
         , on_session_unsubscribed/4
         , on_message_publish/2
@@ -62,6 +63,7 @@ event_names() ->
     [ 'client.connected'
     , 'client.disconnected'
     , 'client.connack'
+    , 'client.check_authz_complete'
     , 'session.subscribed'
     , 'session.unsubscribed'
     , 'message.publish'
@@ -113,6 +115,14 @@ on_client_connected(ClientInfo, ConnInfo, Env) ->
 on_client_connack(ConnInfo, Reason, _, Env) ->
     apply_event('client.connack',
                           fun() -> eventmsg_connack(ConnInfo, Reason) end, Env).
+
+on_client_check_authz_complete(ClientInfo, PubSub, Topic, Result, AuthzSource, Env) ->
+    apply_event('client.check_authz_complete',
+                          fun() -> eventmsg_check_authz_complete(ClientInfo,
+                                                               PubSub,
+                                                               Topic,
+                                                               Result,
+                                                               AuthzSource) end, Env).
 
 on_client_disconnected(ClientInfo, Reason, ConnInfo, Env) ->
     apply_event('client.disconnected',
@@ -269,6 +279,21 @@ eventmsg_connack(_ConnInfo = #{
           conn_props => printable_maps(ConnProps)
         }).
 
+eventmsg_check_authz_complete(_ClientInfo = #{
+                                            clientid := ClientId,
+                                            username := Username,
+                                            peerhost := PeerHost
+                                           }, PubSub, Topic, Result, AuthzSource) ->
+    with_basic_columns('client.check_authz_complete',
+                       #{clientid => ClientId,
+                         username => Username,
+                         peerhost => ntoa(PeerHost),
+                         topic    => Topic,
+                         action   => PubSub,
+                         authz_source => AuthzSource,
+                         result   => Result
+                        }).
+
 eventmsg_sub_or_unsub(Event, _ClientInfo = #{
                     clientid := ClientId,
                     username := Username,
@@ -413,6 +438,7 @@ event_info() ->
     , event_info_client_connected()
     , event_info_client_disconnected()
     , event_info_client_connack()
+    , event_info_client_check_authz_complete()
     , event_info_session_subscribed()
     , event_info_session_unsubscribed()
     , event_info_delivery_dropped()
@@ -476,6 +502,13 @@ event_info_client_connack() ->
       {<<"client connack">>, <<"连接确认"/utf8>>},
       {<<"client connack">>, <<"连接确认"/utf8>>},
       <<"SELECT * FROM \"$events/client_connack\"">>
+     ).
+event_info_client_check_authz_complete() ->
+    event_info_common(
+      'client.check_authz_complete',
+      {<<"client check authz complete">>, <<"鉴权结果"/utf8>>},
+      {<<"client check authz complete">>, <<"鉴权结果"/utf8>>},
+      <<"SELECT * FROM \"$events/client_check_authz_complete\"">>
      ).
 event_info_session_subscribed() ->
     event_info_common(
@@ -546,6 +579,13 @@ test_columns('client.connack') ->
     [ {<<"clientid">>, <<"c_emqx">>}
     , {<<"username">>, <<"u_emqx">>}
     , {<<"reason_code">>, <<"sucess">>}
+    ];
+test_columns('client.check_authz_complete') ->
+    [ {<<"clientid">>, <<"c_emqx">>}
+    , {<<"username">>, <<"u_emqx">>}
+    , {<<"topic">>, <<"t/1">>}
+    , {<<"action">>, <<"publish">>}
+    , {<<"result">>, <<"allow">>}
     ];
 test_columns('session.unsubscribed') ->
     test_columns('session.subscribed');
@@ -664,6 +704,18 @@ columns_with_exam('client.connack') ->
     , {<<"timestamp">>, erlang:system_time(millisecond)}
     , {<<"node">>, node()}
     ];
+columns_with_exam('client.check_authz_complete') ->
+    [ {<<"event">>, 'client.check_authz_complete'}
+    , {<<"clientid">>, <<"c_emqx">>}
+    , {<<"username">>, <<"u_emqx">>}
+    , {<<"peerhost">>, <<"192.168.0.10">>}
+    , {<<"topic">>, <<"t/a">>}
+    , {<<"action">>, <<"publish">>}
+    , {<<"authz_source">>, <<"cache">>}
+    , {<<"result">>, <<"allow">>}
+    , {<<"timestamp">>, erlang:system_time(millisecond)}
+    , {<<"node">>, node()}
+    ];
 columns_with_exam('session.subscribed') ->
     [ columns_example_props(sub_props)
     ] ++ columns_message_sub_unsub('session.subscribed');
@@ -775,6 +827,8 @@ ntoa(IpAddr) ->
 event_name(<<"$events/client_connected", _/binary>>) -> 'client.connected';
 event_name(<<"$events/client_disconnected", _/binary>>) -> 'client.disconnected';
 event_name(<<"$events/client_connack", _/binary>>) -> 'client.connack';
+event_name(<<"$events/client_check_authz_complete", _/binary>>) ->
+    'client.check_authz_complete';
 event_name(<<"$events/session_subscribed", _/binary>>) -> 'session.subscribed';
 event_name(<<"$events/session_unsubscribed", _/binary>>) ->
     'session.unsubscribed';
@@ -788,6 +842,8 @@ event_name(_) -> 'message.publish'.
 event_topic('client.connected') -> <<"$events/client_connected">>;
 event_topic('client.disconnected') -> <<"$events/client_disconnected">>;
 event_topic('client.connack') -> <<"$events/client_connack">>;
+event_topic('client.check_authz_complete') ->
+    <<"$events/client_check_authz_complete">>;
 event_topic('session.subscribed') -> <<"$events/session_subscribed">>;
 event_topic('session.unsubscribed') -> <<"$events/session_unsubscribed">>;
 event_topic('message.delivered') -> <<"$events/message_delivered">>;
