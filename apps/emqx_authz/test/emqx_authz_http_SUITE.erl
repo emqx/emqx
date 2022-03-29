@@ -294,20 +294,6 @@ t_create_replace(_Config) ->
         allow,
         emqx_access_control:authorize(ClientInfo, publish, <<"t">>)),
 
-    %% Changing to other bad config does not work
-    BadConfig = maps:merge(
-                  raw_http_authz_config(),
-                  #{<<"url">> =>
-                        <<"http://127.0.0.1:33332/authz/users/?topic=${topic}&action=${action}">>}),
-
-    ?assertMatch(
-        {error, _},
-        emqx_authz:update({?CMD_REPLACE, http}, BadConfig)),
-
-    ?assertEqual(
-        allow,
-        emqx_access_control:authorize(ClientInfo, publish, <<"t">>)),
-
     %% Changing to valid config
     OkConfig = maps:merge(
                   raw_http_authz_config(),

@@ -101,11 +101,6 @@ init_per_suite(Config) ->
     ok = stop_apps([emqx_resource, emqx_connector]),
     meck:new(emqx_resource, [non_strict, passthrough, no_history, no_link]),
     meck:expect(emqx_resource, create_local, fun(_, _, _, _) -> {ok, meck_data} end),
-    meck:expect(emqx_resource, create_dry_run_local,
-                fun(emqx_connector_mysql, _) -> ok;
-                   (emqx_connector_mongo, _) -> ok;
-                   (T, C) -> meck:passthrough([T, C])
-                end),
     meck:expect(emqx_resource, health_check, fun(St) -> {ok, St} end),
     meck:expect(emqx_resource, remove_local, fun(_) -> ok end ),
     meck:expect(emqx_authz, acl_conf_file,
@@ -294,11 +289,11 @@ t_api(_) ->
                      uri(["authorization", "sources", "mysql"]),
                      ?SOURCE3#{<<"server">> := <<"192.168.1.100:3306">>}),
 
-    {ok, 400, _} = request(
+    {ok, 204, _} = request(
                      put,
                      uri(["authorization", "sources", "postgresql"]),
                      ?SOURCE4#{<<"server">> := <<"fake">>}),
-    {ok, 400, _} = request(
+    {ok, 204, _} = request(
                      put,
                      uri(["authorization", "sources", "redis"]),
                      ?SOURCE5#{<<"servers">> := [<<"192.168.1.100:6379">>,

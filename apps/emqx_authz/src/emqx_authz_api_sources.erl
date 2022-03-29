@@ -194,15 +194,7 @@ source(get, #{bindings := #{type := Type}}) ->
 source(put, #{bindings := #{type := <<"file">>}, body := #{<<"type">> := <<"file">>} = Body}) ->
     update_authz_file(Body);
 source(put, #{bindings := #{type := Type}, body := Body}) ->
-    case emqx_authz:update({?CMD_REPLACE, Type}, Body) of
-        {ok, _} -> {204};
-        {error, {emqx_conf_schema, _}} ->
-            {400, #{code => <<"BAD_REQUEST">>,
-                    message => <<"BAD_SCHEMA">>}};
-        {error, Reason} ->
-            {400, #{code => <<"BAD_REQUEST">>,
-                    message => bin(Reason)}}
-    end;
+    update_config({?CMD_REPLACE, Type}, Body);
 source(delete, #{bindings := #{type := Type}}) ->
     update_config({?CMD_DELETE, Type}, #{}).
 

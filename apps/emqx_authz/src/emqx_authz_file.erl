@@ -30,7 +30,6 @@
 -export([ description/0
         , init/1
         , destroy/1
-        , dry_run/1
         , authorize/4
         ]).
 
@@ -53,12 +52,6 @@ init(#{path := Path} = Source) ->
     Source#{annotations => #{rules => Rules}}.
 
 destroy(_Source) -> ok.
-
-dry_run(#{path := Path}) ->
-    case file:consult(Path) of
-        {ok, _} -> ok;
-        {error, _} = Error -> Error
-    end.
 
 authorize(Client, PubSub, Topic, #{annotations := #{rules := Rules}}) ->
     emqx_authz_rule:matches(Client, PubSub, Topic, Rules).

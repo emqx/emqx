@@ -27,7 +27,6 @@
 -export([ description/0
         , init/1
         , destroy/1
-        , dry_run/1
         , authorize/4
         , parse_url/1
         ]).
@@ -57,9 +56,6 @@ init(Config) ->
 
 destroy(#{annotations := #{id := Id}}) ->
     ok = emqx_resource:remove_local(Id).
-
-dry_run(Config) ->
-    emqx_resource:create_dry_run_local(emqx_connector_http, parse_config(Config)).
 
 authorize( Client
          , PubSub

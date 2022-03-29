@@ -70,12 +70,6 @@
 %% An authz backend will not be used after `destroy`.
 -callback(destroy(source()) -> ok).
 
-%% Check if a configuration map is valid for further
-%% authz backend initialization.
-%% The callback must deallocate all resources allocated
-%% during verification.
--callback(dry_run(source()) -> ok | {error, term()}).
-
 %% Authorize client action.
 -callback(authorize(
             emqx_types:clientinfo(),
@@ -140,18 +134,6 @@ do_pre_config_update({?CMD_APPEND, Source}, Sources) ->
     NSources = Sources ++ [NSource],
     ok = check_dup_types(NSources),
     NSources;
-do_pre_config_update({{?CMD_REPLACE, Type}, #{<<"enable">> := Enable} = Source}, Sources)
-  when ?IS_ENABLED(Enable) ->
-    NSource = maybe_write_files(Source),
-    {_Old, Front, Rear} = take(Type, Sources),
-    case create_dry_run(Type, NSource)  of
-        ok ->
-            NSources = Front ++ [NSource | Rear],
-            ok = check_dup_types(NSources),
-            NSources;
-        {error, _} = Error ->
-            throw(Error)
-    end;
 do_pre_config_update({{?CMD_REPLACE, Type}, Source}, Sources) ->
     NSource = maybe_write_files(Source),
     {_Old, Front, Rear} = take(Type, Sources),
@@ -250,11 +232,6 @@ check_dup_types([Source | Sources], Checked) ->
             check_dup_types(Sources, [Type | Checked])
     end.
 
-create_dry_run(Type, Source) ->
-    [CheckedSource] = check_sources([Source]),
-    Module = authz_module(Type),
-    Module:dry_run(CheckedSource).
-
 init_sources(Sources) ->
     {_Enabled, Disabled} = lists:partition(fun(#{enable := Enable}) -> Enable end, Sources),
     case Disabled =/= [] of
@@ -328,12 +305,6 @@ do_authorize(Client, PubSub, Topic,
 %%--------------------------------------------------------------------
 %% Internal function
 %%--------------------------------------------------------------------
-
-check_sources(RawSources) ->
-    Schema = #{roots => emqx_authz_schema:fields("authorization"), fields => #{}},
-    Conf = #{<<"sources">> => RawSources},
-    #{sources := Sources} = hocon_tconf:check_plain(Schema, Conf, #{atom_key => true}),
-    Sources.
 
 take(Type) -> take(Type, lookup()).
 
