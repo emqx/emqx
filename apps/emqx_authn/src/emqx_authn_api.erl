@@ -1095,7 +1095,7 @@ serialize_error({invalid_parameter, Name}) ->
             message => binfmt("Invalid value for '~p'", [Name])}};
 serialize_error({unknown_authn_type, Type}) ->
     {400, #{code => <<"BAD_REQUEST">>,
-            message => binfmt("Unknown type '~ts'", [Type])}};
+            message => binfmt("Unknown type '~p'", [Type])}};
 serialize_error({bad_authenticator_config, Reason}) ->
     {400, #{code => <<"BAD_REQUEST">>,
             message => binfmt("Bad authenticator config ~p", [Reason])}};
