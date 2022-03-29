@@ -30,7 +30,7 @@
 start() ->
     case os:type() of
         {win32, nt} -> ok;
-        _nix ->
+        _Nix ->
             os:set_signal(sighup, ignore),
             os:set_signal(sigterm, handle) %% default is handle
     end,
@@ -64,7 +64,7 @@ start_sysmon() ->
     application:set_env(system_monitor, node_status_fun, {?MODULE, node_status}),
     application:set_env(system_monitor, status_checks, [{?MODULE, update_vips, false, 10}]),
     case application:get_env(system_monitor, db_hostname) of
-        {ok, [_|_]}  ->
+        {ok, [_ | _]}  ->
             application:set_env(system_monitor, callback_mod, system_monitor_pg),
             _ = application:ensure_all_started(system_monitor, temporary),
             ok;
