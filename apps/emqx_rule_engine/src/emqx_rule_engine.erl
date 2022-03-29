@@ -36,6 +36,7 @@
         , create_resource/1
         , test_resource/1
         , start_resource/1
+        , is_source_alive/1
         , get_resource_status/1
         , get_resource_params/1
         , delete_resource/1
@@ -314,23 +315,36 @@ start_resource(ResId) ->
     end.
 
 -spec(test_resource(#{type := _, config := _, _ => _}) -> ok | {error, Reason :: term()}).
-test_resource(#{type := Type, config := Config0}) ->
+test_resource(#{type := Type} = Params) ->
     case emqx_rule_registry:find_resource_type(Type) of
-        {ok, #resource_type{on_create = {ModC, Create},
-                            on_destroy = {ModD, Destroy},
-                            params_spec = ParamSpec}} ->
-            Config = emqx_rule_validator:validate_params(Config0, ParamSpec),
-            ResId = resource_id(),
+        {ok, #resource_type{}} ->
+            ResId = maps:get(id, Params, resource_id()),
             try
-                _ = ?CLUSTER_CALL(init_resource, [ModC, Create, ResId, Config]),
-                _ = ?CLUSTER_CALL(clear_resource, [ModD, Destroy, ResId]),
+                _ = create_resource(maps:put(id, ResId, Params)),
+                true = is_source_alive(ResId),
                 ok
-            catch
-                throw:Reason -> {error, Reason}
+            catch E:R:S ->
+                ?LOG(warning, "test resource failed, ~0p:~0p ~0p", [E, R, S]),
+                {error, R}
+            after
+                _ = ?CLUSTER_CALL(delete_resource, [ResId])
             end;
         not_found ->
             {error, {resource_type_not_found, Type}}
     end.
+
+is_source_alive(ResId) ->
+    case rpc:multicall(ekka_mnesia:running_nodes(), ?MODULE, get_resource_status, [ResId], 5000) of
+        {ResL, []} ->
+            is_source_alive_(ResL);
+        {_, _Errors} ->
+            false
+    end.
+
+is_source_alive_([]) -> true;
+is_source_alive_([{ok, #{is_alive := true}} | ResL]) -> is_source_alive_(ResL);
+is_source_alive_([{ok, #{is_alive := false}} | _ResL]) -> false;
+is_source_alive_([_Error | _ResL]) -> false.
 
 -spec(get_resource_status(resource_id()) -> {ok, resource_status()} | {error, Reason :: term()}).
 get_resource_status(ResId) ->
