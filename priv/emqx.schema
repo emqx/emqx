@@ -258,6 +258,28 @@ end}.
 {validator, "range4ports", "must be 1024 to 134217727",
  fun(X) -> X >= 1024 andalso X =< 134217727 end}.
 
+{validator, "range:0-2", "must be 0 to 2",
+ fun(X) -> X >= 0 andalso X =< 2 end}.
+
+{validator, "range:0-128", "must be 0 to 128",
+  fun(X) -> X >= 0 andalso X =< 128 end}.
+
+{validator, "range:0-65535", "must be 0 to 65535",
+ fun(X) -> X >= 0 andalso X =< 65535 end}.
+
+{validator, "range:1-65535", "must be 1 to 65535",
+  fun(X) -> X >= 1 andalso X =< 65535 end}.
+
+{validator, "range:1-9", "must be 1 to 9",
+  fun(X) -> X >= 1 andalso X =< 9 end}.
+
+{validator, "range:8-15", "must be 8 to 15",
+    fun(X) -> X >= 8 andalso X =< 15 end}.
+
+{validator, "range:0-1024", "must be 0 to 1024",
+  fun(X) -> X >= 0 andalso X =< 1024 end}.
+
+
 %% @doc http://www.erlang.org/doc/man/erl.html#%2bzdbbl
 {mapping, "node.dist_buffer_size", "vm_args.+zdbbl", [
   {datatype, bytesize},
@@ -293,10 +315,10 @@ end}.
   {default, 1000},
   {datatype, integer},
   hidden,
-  {validators, ["positive_integer"]}
+  {validators, ["range:0-inf"]}
 ]}.
 
-{validator, "positive_integer", "must be a positive integer",
+{validator, "range:0-inf", "must be a non neg_integer",
   fun(X) -> X >= 0 end}.
 
 %% Note: OTP R15 and earlier uses -env ERL_MAX_ETS_TABLES,
@@ -801,7 +823,8 @@ end}.
 %% @doc Set the Maximum topic levels.
 {mapping, "mqtt.max_topic_levels", "emqx.max_topic_levels", [
   {default, 128},
-  {datatype, integer}
+  {datatype, integer},
+  {validators, ["range:0-inf"]}
 ]}.
 
 %% @doc Set the Maximum QoS allowed.
@@ -814,7 +837,8 @@ end}.
 %% @doc Set the Maximum Topic Alias.
 {mapping, "mqtt.max_topic_alias", "emqx.max_topic_alias", [
   {default, 65535},
-  {datatype, integer}
+  {datatype, integer},
+  {validators, ["range:0-65535"]}
 ]}.
 
 %% @doc Whether the server supports MQTT retained messages.
@@ -911,7 +935,8 @@ end}.
 
 %% @doc Set the Maximum topic levels.
 {mapping, "zone.$name.max_topic_levels", "emqx.zones", [
-  {datatype, integer}
+  {datatype, integer},
+  {validators, ["range:0-128"]}
 ]}.
 
 %% @doc Set the Maximum QoS allowed.

@@ -28,6 +28,11 @@
         , unlock/1
         ]).
 
+%% for testing
+-ifdef(TEST).
+-export([strategy/0]).
+-endif.
+
 -spec(start_link() -> startlink_ret()).
 start_link() ->
     ekka_locker:start_link(?MODULE).
@@ -63,4 +68,3 @@ unlock(ClientId) ->
 -spec(strategy() -> local | leader | quorum | all).
 strategy() ->
     emqx:get_env(session_locking_strategy, quorum).
-

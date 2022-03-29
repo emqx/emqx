@@ -197,6 +197,9 @@
         , rfc3339_to_unix_ts/2
         , now_timestamp/0
         , now_timestamp/1
+        , mongo_date/0
+        , mongo_date/1
+        , mongo_date/2
         ]).
 
 %% Proc Dict Func
@@ -899,6 +902,24 @@ time_unit(<<"second">>) -> second;
 time_unit(<<"millisecond">>) -> millisecond;
 time_unit(<<"microsecond">>) -> microsecond;
 time_unit(<<"nanosecond">>) -> nanosecond.
+
+mongo_date() ->
+    erlang:timestamp().
+
+mongo_date(MillisecondsTimestamp) ->
+    convert_timestamp(MillisecondsTimestamp).
+
+mongo_date(Timestamp, Unit) ->
+    InsertedTimeUnit = time_unit(Unit),
+    ScaledEpoch = erlang:convert_time_unit(Timestamp, InsertedTimeUnit, millisecond),
+    convert_timestamp(ScaledEpoch).
+
+convert_timestamp(MillisecondsTimestamp) ->
+    MicroTimestamp = MillisecondsTimestamp * 1000,
+    MegaSecs = MicroTimestamp div 1000_000_000_000,
+    Secs = MicroTimestamp div 1000_000 - MegaSecs*1000_000,
+    MicroSecs = MicroTimestamp rem 1000_000,
+    {MegaSecs, Secs, MicroSecs}.
 
 %% @doc This is for sql funcs that should be handled in the specific modules.
 %% Here the emqx_rule_funcs module acts as a proxy, forwarding
