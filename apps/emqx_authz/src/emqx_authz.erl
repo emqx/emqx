@@ -283,14 +283,18 @@ authorize(#{username := Username,
             peerhost := IpAddress
            } = Client, PubSub, Topic, DefaultResult, Sources) ->
     case do_authorize(Client, PubSub, Topic, Sources) of
-        {matched, allow} ->
+        {{matched, allow}, AuthzSource}->
+            emqx:run_hook('client.check_authz_complete',
+                          [Client, PubSub, Topic, allow, AuthzSource]),
             ?SLOG(info, #{msg => "authorization_permission_allowed",
                           username => Username,
                           ipaddr => IpAddress,
                           topic => Topic}),
             emqx_metrics:inc(?METRIC_ALLOW),
             {stop, allow};
-        {matched, deny} ->
+        {{matched, deny}, AuthzSource}->
+            emqx:run_hook('client.check_authz_complete',
+                          [Client, PubSub, Topic, deny, AuthzSource]),
             ?SLOG(info, #{msg => "authorization_permission_denied",
                           username => Username,
                           ipaddr => IpAddress,
@@ -298,6 +302,8 @@ authorize(#{username := Username,
             emqx_metrics:inc(?METRIC_DENY),
             {stop, deny};
         nomatch ->
+            emqx:run_hook('client.check_authz_complete',
+                          [Client, PubSub, Topic, DefaultResult, default]),
             ?SLOG(info, #{msg => "authorization_failed_nomatch",
                           username => Username,
                           ipaddr => IpAddress,
@@ -316,7 +322,7 @@ do_authorize(Client, PubSub, Topic,
     Module = authz_module(Type),
     case Module:authorize(Client, PubSub, Topic, Connector) of
         nomatch -> do_authorize(Client, PubSub, Topic, Tail);
-        Matched -> Matched
+        Matched -> {Matched, Type}
     end.
 
 %%--------------------------------------------------------------------
