@@ -408,7 +408,7 @@ vm_specs() ->
     SysMemData = memsup:get_system_memory_data(),
     [
         {num_cpus, erlang:system_info(logical_processors)},
-        {total_memory, proplists:get_value(available_memory, SysMemData)}
+        {total_memory, proplists:get_value(total_memory, SysMemData)}
     ].
 
 -spec mqtt_runtime_insights(state()) -> {map(), state()}.
