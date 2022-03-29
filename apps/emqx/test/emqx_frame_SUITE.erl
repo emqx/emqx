@@ -157,6 +157,14 @@ t_parse_malformed_utf8_string(_) ->
     ParseState = emqx_frame:initial_parse_state(#{strict_mode => true}),
     ?ASSERT_FRAME_THROW(utf8_string_invalid, emqx_frame:parse(MalformedPacket, ParseState)).
 
+t_parse_empty_topic_name(_) ->
+    Packet = <<48, 4, 0, 0, 0, 1>>,
+    NormalState = emqx_frame:initial_parse_state(#{strict_mode => false}),
+    ?assertMatch({_, _}, emqx_frame:parse(Packet, NormalState)),
+
+    StrictState = emqx_frame:initial_parse_state(#{strict_mode => true}),
+    ?ASSERT_FRAME_THROW(empty_topic_name, emqx_frame:parse(Packet, StrictState)).
+
 t_serialize_parse_v3_connect(_) ->
     Bin =
         <<16, 37, 0, 6, 77, 81, 73, 115, 100, 112, 3, 2, 0, 60, 0, 23, 109, 111, 115, 113, 112, 117,
