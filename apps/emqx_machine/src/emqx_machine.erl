@@ -36,6 +36,7 @@ start() ->
     end,
     ok = set_backtrace_depth(),
     start_sysmon(),
+    configure_shard_transports(),
     ekka:start(),
     ok = print_otp_version_warning().
 
@@ -81,3 +82,12 @@ node_status() ->
 
 update_vips() ->
     system_monitor:add_vip(mria_status:shards_up()).
+
+configure_shard_transports() ->
+    ShardTransports = application:get_env(emqx_machine, custom_shard_transports, #{}),
+    maps:foreach(
+      fun(ShardBin, Transport) ->
+              ShardName = binary_to_existing_atom(ShardBin),
+              mria_config:set_shard_transport(ShardName, Transport)
+      end,
+      ShardTransports).
