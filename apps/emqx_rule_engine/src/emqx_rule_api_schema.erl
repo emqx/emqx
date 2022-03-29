@@ -73,6 +73,8 @@ fields("rule_test") ->
                                    , ref("ctx_dropped")
                                    , ref("ctx_connected")
                                    , ref("ctx_disconnected")
+                                   , ref("ctx_connack")
+                                   , ref("ctx_check_authz_complete")
                                    , ref("ctx_bridge_mqtt")
                                    ]),
         #{desc => "The context of the event for testing",
@@ -208,6 +210,31 @@ fields("ctx_disconnected") ->
         desc => "The Time that this Client is Disconnected"})}
     ];
 
+fields("ctx_connack") ->
+    [ {"event_type", sc(client_connack, #{desc => "Event Type", required => true})}
+    , {"reason_code", sc(binary(), #{desc => "The reason code"})}
+    , {"clientid", sc(binary(), #{desc => "The Client ID"})}
+    , {"clean_start", sc(boolean(), #{desc => "Clean Start", default => true})}
+    , {"username", sc(binary(), #{desc => "The User Name"})}
+    , {"peername", sc(binary(), #{desc => "The IP Address and Port of the Peer Client"})}
+    , {"sockname", sc(binary(), #{desc => "The IP Address and Port of the Local Listener"})}
+    , {"proto_name", sc(binary(), #{desc => "Protocol Name"})}
+    , {"proto_ver", sc(binary(), #{desc => "Protocol Version"})}
+    , {"keepalive", sc(integer(), #{desc => "KeepAlive"})}
+    , {"expiry_interval", sc(integer(), #{desc => "Expiry Interval"})}
+    , {"connected_at", sc(integer(), #{
+        desc => "The Time that this Client is Connected"})}
+    ];
+fields("ctx_check_authz_complete") ->
+    [ {"event_type", sc(client_check_authz_complete, #{desc => "Event Type", required => true})}
+    , {"clientid", sc(binary(), #{desc => "The Client ID"})}
+    , {"username", sc(binary(), #{desc => "The User Name"})}
+    , {"peerhost", sc(binary(), #{desc => "The IP Address of the Peer Client"})}
+    , {"topic", sc(binary(), #{desc => "Message Topic"})}
+    , {"action", sc(binary(), #{desc => "Publish or Subscribe"})}
+    , {"authz_source", sc(binary(), #{desc => "Cache, Plugs or Default"})}
+    , {"result", sc(binary(), #{desc => "Allow or Deny"})}
+    ];
 fields("ctx_bridge_mqtt") ->
     [ {"event_type", sc('$bridges/mqtt:*', #{desc => "Event Type", required => true})}
     , {"id", sc(binary(), #{desc => "Message ID"})}

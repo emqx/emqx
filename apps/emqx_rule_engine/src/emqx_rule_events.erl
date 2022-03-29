@@ -576,16 +576,16 @@ test_columns('client.disconnected') ->
     , {<<"reason">>, [<<"normal">>, <<"the reason for shutdown">>]}
     ];
 test_columns('client.connack') ->
-    [ {<<"clientid">>, <<"c_emqx">>}
-    , {<<"username">>, <<"u_emqx">>}
-    , {<<"reason_code">>, <<"sucess">>}
+    [ {<<"clientid">>, [<<"c_emqx">>, <<"the clientid if the client">>]}
+    , {<<"username">>, [<<"u_emqx">>, <<"the username if the client">>]}
+    , {<<"reason_code">>, [<<"sucess">>, <<"the reason code">>]}
     ];
 test_columns('client.check_authz_complete') ->
-    [ {<<"clientid">>, <<"c_emqx">>}
-    , {<<"username">>, <<"u_emqx">>}
-    , {<<"topic">>, <<"t/1">>}
-    , {<<"action">>, <<"publish">>}
-    , {<<"result">>, <<"allow">>}
+    [ {<<"clientid">>, [<<"c_emqx">>, <<"the clientid if the client">>]}
+    , {<<"username">>, [<<"u_emqx">>, <<"the username if the client">>]}
+    , {<<"topic">>,    [<<"t/1">>, <<"the topic of the MQTT message">>]}
+    , {<<"action">>,   [<<"publish">>, <<"the action of publish or subscribe">>]}
+    , {<<"result">>,   [<<"allow">>,<<"the authz check complete result">>]}
     ];
 test_columns('session.unsubscribed') ->
     test_columns('session.subscribed');

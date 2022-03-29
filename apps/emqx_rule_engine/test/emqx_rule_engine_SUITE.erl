@@ -1703,7 +1703,6 @@ verify_event_fields('client.check_authz_complete', Fields) ->
     ?assert(lists:member(ClientId, [<<"c_event">>, <<"c_event2">>])),
     ?assert(lists:member(Username, [<<"u_event">>, <<"u_event2">>])).
 
-
 verify_peername(PeerName) ->
     case string:split(PeerName, ":") of
         [IPAddrS, PortS] ->
