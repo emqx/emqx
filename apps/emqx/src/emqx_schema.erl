@@ -623,17 +623,28 @@ fields("rate_limit") ->
         {"max_conn_rate",
             sc(
                 hoconsc:union([infinity, integer()]),
-                #{default => 1000}
+                #{
+                    default => 1000,
+                    desc => "Maximum connections per second."
+                }
             )},
         {"conn_messages_in",
             sc(
                 hoconsc:union([infinity, comma_separated_list()]),
-                #{default => infinity}
+                #{
+                    default => infinity,
+                    desc => "Message limit for the external MQTT connections."
+                }
             )},
         {"conn_bytes_in",
             sc(
                 hoconsc:union([infinity, comma_separated_list()]),
-                #{default => infinity}
+                #{
+                    default => infinity,
+                    desc =>
+                        "Limit the rate of receiving packets for a MQTT connection.\n"
+                        "The rate is counted by bytes of packets per second."
+                }
             )}
     ];
 fields("flapping_detect") ->
