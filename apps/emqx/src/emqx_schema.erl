@@ -762,12 +762,23 @@ fields("conn_congestion") ->
         {"enable_alarm",
             sc(
                 boolean(),
-                #{default => false}
+                #{
+                    default => false,
+                    desc => "Enable or disable connection congestion alarm."
+                }
             )},
         {"min_alarm_sustain_duration",
             sc(
                 duration(),
-                #{default => "1m"}
+                #{
+                    default => "1m",
+                    desc =>
+                        "Minimal time before clearing the alarm.\n\n"
+                        "The alarm is cleared only when there're no pending data in\n"
+                        "the queue, and at least `min_alarm_sustain_duration`\n"
+                        "milliseconds passed since the last time we considered the connection \"congested\".\n\n"
+                        "This is to avoid clearing and raising the alarm again too often."
+                }
             )}
     ];
 fields("force_gc") ->
