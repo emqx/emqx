@@ -296,21 +296,13 @@ do_create_resource(Create, ParsedParams) ->
 list_resources(#{}, _Params) ->
     Data0 = lists:foldr(fun maybe_record_to_map/2, [], emqx_rule_registry:get_resources()),
     Data = lists:map(fun(Res = #{id := ResId}) ->
-               Status = get_aggregated_status(ResId),
+               Status = emqx_rule_engine:is_source_alive(ResId),
                maps:put(status, Status, Res)
            end, Data0),
     return({ok, Data}).
 
 list_resources_by_type(#{type := Type}, _Params) ->
     return_all(emqx_rule_registry:get_resources_by_type(Type)).
-
-get_aggregated_status(ResId) ->
-    lists:all(fun(Node) ->
-        case rpc:call(Node, emqx_rule_engine, get_resource_status, [ResId]) of
-            {ok, #{is_alive := true}} -> true;
-            _ -> false
-        end
-    end, ekka_mnesia:running_nodes()).
 
 show_resource(#{id := Id}, _Params) ->
     case emqx_rule_registry:find_resource(Id) of
