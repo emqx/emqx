@@ -623,7 +623,6 @@ parse_binary_data(Bin) when
 
 parse_topic_name(Bin, false) ->
     parse_utf8_string(Bin, false);
-
 parse_topic_name(Bin, true) ->
     case parse_utf8_string(Bin, true) of
         {<<>>, _Rest} -> ?PARSE_ERR(empty_topic_name);
@@ -766,9 +765,9 @@ serialize_variable(
 ) ->
     [
         serialize_utf8_string(TopicName),
-        if
-            PacketId =:= undefined -> <<>>;
-            true -> <<PacketId:16/big-unsigned-integer>>
+        case PacketId of
+            undefined -> <<>>;
+            _ -> <<PacketId:16/big-unsigned-integer>>
         end,
         serialize_properties(Properties, Ver)
     ];
