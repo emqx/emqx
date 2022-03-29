@@ -389,7 +389,7 @@ maybe_write_files(NewSource) ->
 
 write_acl_file(#{<<"rules">> := Rules} = Source) ->
     NRules = check_acl_file_rules(Rules),
-    Path = acl_conf_file(),
+    Path = ?MODULE:acl_conf_file(),
     {ok, _Filename} = write_file(Path, NRules),
     maps:without([<<"rules">>], Source#{<<"path">> => Path}).
 
