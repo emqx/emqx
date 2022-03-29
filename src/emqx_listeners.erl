@@ -29,6 +29,7 @@
 -export([ start_listener/1
         , start_listener/3
         , stop_listener/1
+        , update_listeners_env/2
         , restart_listener/1
         , restart_listener/3
         ]).
@@ -186,6 +187,20 @@ with_port(Port, Opts = #{socket_opts := SocketOption}) when is_integer(Port) ->
     Opts#{socket_opts => [{port, Port}| SocketOption]};
 with_port({Addr, Port}, Opts = #{socket_opts := SocketOption}) ->
     Opts#{socket_opts => [{ip, Addr}, {port, Port}| SocketOption]}.
+
+update_listeners_env(Action, NewConf = #{name := NewName, proto := NewProto}) ->
+    Listener = emqx:get_env(listeners, []),
+    Listener1 = lists:filter(
+        fun(#{name := Name, proto := Proto}) ->
+            not (Name =:= NewName andalso Proto =:= NewProto)
+        end, Listener),
+    Listener2 =
+        case Action of
+            update -> [NewConf | Listener1];
+            delete -> Listener1
+        end,
+    application:set_env(emqx, listeners, Listener2),
+    ok.
 
 %% @doc Restart all listeners
 -spec(restart() -> ok).
