@@ -318,9 +318,9 @@ fields(ssl_server_opts) ->
        }, true);
 
 fields(clientinfo_override) ->
-    [ {username, sc(binary())}
-    , {password, sc(binary())}
-    , {clientid, sc(binary())}
+    [ {username, sc(binary(), #{desc => "Template for overriding username."})}
+    , {password, sc(binary(), #{desc => "Template for overriding password."})}
+    , {clientid, sc(binary(), #{desc => "Template for overriding clientid."})}
     ];
 
 fields(lwm2m_translators) ->
@@ -524,9 +524,7 @@ It has two purposes:
            , desc => ""
            })}
     , {clientinfo_override,
-       sc(ref(clientinfo_override),
-          #{ desc => "ClientInfo override"
-           })}
+       sc(ref(clientinfo_override), #{})}
     , {?EMQX_AUTHENTICATION_CONFIG_ROOT_NAME_ATOM, authentication_schema()}
     ].
 

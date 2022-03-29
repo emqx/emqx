@@ -304,7 +304,7 @@ fields("stats") ->
                 boolean(),
                 #{
                     default => true,
-                    desc => "Enable/disable statistic data collection"
+                    desc => "Enable/disable statistic data collection."
                 }
             )}
     ];
@@ -774,7 +774,7 @@ fields("conn_congestion") ->
                     default => "1m",
                     desc =>
                         "Minimal time before clearing the alarm.\n\n"
-                        "The alarm is cleared only when there're no pending data in\n"
+                        "The alarm is cleared only when there's no pending data in\n"
                         "the queue, and at least `min_alarm_sustain_duration`\n"
                         "milliseconds passed since the last time we considered the connection \"congested\".\n\n"
                         "This is to avoid clearing and raising the alarm again too often."

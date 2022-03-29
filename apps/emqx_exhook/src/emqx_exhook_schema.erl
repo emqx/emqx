@@ -41,7 +41,9 @@ roots() -> [exhook].
 fields(exhook) ->
     [{servers,
       sc(hoconsc:array(ref(server)),
-          #{default => []})}
+          #{ default => []
+           , desc => "List of exhook servers."
+           })}
     ];
 
 fields(server) ->
