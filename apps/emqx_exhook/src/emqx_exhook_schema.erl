@@ -32,7 +32,7 @@
 
 -reflect_type([duration/0]).
 
--export([namespace/0, roots/0, fields/1, server_config/0]).
+-export([namespace/0, roots/0, fields/1, desc/1, server_config/0]).
 
 namespace() -> exhook.
 
@@ -61,7 +61,7 @@ fields(server) ->
                             })}
     , {failed_action, failed_action()}
     , {ssl,
-       sc(ref(ssl_conf), #{desc => "SSL client config"})}
+       sc(ref(ssl_conf), #{})}
     , {auto_reconnect,
        sc(hoconsc:union([false, duration()]),
           #{ default => "60s"
@@ -80,6 +80,15 @@ fields(server) ->
 fields(ssl_conf) ->
     Schema = emqx_schema:client_ssl_opts_schema(#{}),
     lists:keydelete(user_lookup_fun, 1, Schema).
+
+desc(exhook) ->
+    "External hook (exhook) configuration.";
+desc(server) ->
+    "gRPC server configuration.";
+desc(ssl_conf) ->
+    "SSL client configuration.";
+desc(_) ->
+    undefined.
 
 %% types
 sc(Type, Meta) -> Meta#{type => Type}.
