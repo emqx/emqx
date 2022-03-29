@@ -348,7 +348,8 @@ get_telemetry(State0 = #state{uuid = UUID}) ->
         {build_info, build_info()},
         {vm_specs, vm_specs()},
         {mqtt_runtime_insights, MQTTRTInsights},
-        {advanced_mqtt_features, advanced_mqtt_features()}
+        {advanced_mqtt_features, advanced_mqtt_features()},
+        {authn_authz, get_authn_authz_info()}
     ]}.
 
 report_telemetry(State0 = #state{url = URL}) ->
@@ -451,6 +452,36 @@ update_mqtt_rates(State) ->
 advanced_mqtt_features() ->
     AdvancedFeatures = emqx_modules:get_advanced_mqtt_features_in_use(),
     maps:map(fun(_K, V) -> bool2int(V) end, AdvancedFeatures).
+
+get_authn_authz_info() ->
+    %% at the moment of writing, `emqx_authentication:list_chains/0'
+    %% result is always wrapped in `{ok, _}', and it cannot return any
+    %% error values.
+    {ok, Chains} = emqx_authentication:list_chains(),
+    AuthnTypes = lists:usort([
+        Type
+     || #{authenticators := As} <- Chains,
+        #{id := Type} <- As
+    ]),
+    OverriddenListeners = lists:foldl(
+        fun
+            (#{name := 'mqtt:global'}, Acc) ->
+                Acc;
+            (#{authenticators := As}, Acc) ->
+                lists:foldl(fun tally_authenticators/2, Acc, As)
+        end,
+        #{},
+        Chains
+    ),
+    AuthzTypes = lists:usort([Type || #{type := Type} <- emqx_authz:lookup()]),
+    #{
+        authn => AuthnTypes,
+        authn_listener => OverriddenListeners,
+        authz => AuthzTypes
+    }.
+
+tally_authenticators(#{id := AuthenticatorName}, Acc) ->
+    maps:update_with(AuthenticatorName, fun(N) -> N + 1 end, 1, Acc).
 
 bin(L) when is_list(L) ->
     list_to_binary(L);

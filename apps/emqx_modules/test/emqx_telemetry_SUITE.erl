@@ -29,19 +29,35 @@ all() -> emqx_common_test_helpers:all(?MODULE).
 
 init_per_suite(Config) ->
     snabbkaffe:fix_ct_logging(),
-    emqx_common_test_helpers:start_apps([emqx_conf, emqx_modules]),
+    meck:expect(
+        emqx_authz,
+        acl_conf_file,
+        fun() ->
+            emqx_common_test_helpers:deps_path(emqx_authz, "etc/acl.conf")
+        end
+    ),
+    emqx_common_test_helpers:start_apps(
+        [emqx_conf, emqx_authn, emqx_authz, emqx_modules],
+        fun set_special_configs/1
+    ),
     Config.
 
 end_per_suite(_Config) ->
-    emqx_common_test_helpers:stop_apps([emqx_conf, emqx_modules]).
+    {ok, _} = emqx:update_config(
+        [authorization],
+        #{
+            <<"no_match">> => <<"allow">>,
+            <<"cache">> => #{<<"enable">> => <<"true">>},
+            <<"sources">> => []
+        }
+    ),
+    emqx_common_test_helpers:stop_apps([emqx_conf, emqx_authn, emqx_authz, emqx_modules]),
+    meck:unload(emqx_authz),
+    ok.
 
 init_per_testcase(t_get_telemetry, Config) ->
     DataDir = ?config(data_dir, Config),
-    TestPID = self(),
-    ok = meck:new(httpc, [non_strict, passthrough, no_history, no_link]),
-    ok = meck:expect(httpc, request, fun(Method, URL, Headers, Body) ->
-        TestPID ! {request, Method, URL, Headers, Body}
-    end),
+    mock_httpc(),
     ok = meck:new(emqx_telemetry, [non_strict, passthrough, no_history, no_link]),
     ok = meck:expect(
         emqx_telemetry,
@@ -75,6 +91,14 @@ init_per_testcase(t_advanced_mqtt_features, Config) ->
         auto_subscribe => false
     }),
     [{old_values, OldValues} | Config];
+init_per_testcase(t_authn_authz_info, Config) ->
+    mock_httpc(),
+    {ok, _} = emqx_cluster_rpc:start_link(node(), emqx_cluster_rpc, 1000),
+    create_authn('mqtt:global', built_in_database),
+    create_authn('tcp:default', redis),
+    create_authn('ws:default', redis),
+    create_authz(postgresql),
+    Config;
 init_per_testcase(_Testcase, Config) ->
     TestPID = self(),
     ok = meck:new(httpc, [non_strict, passthrough, no_history, no_link]),
@@ -91,6 +115,19 @@ end_per_testcase(t_get_telemetry, _Config) ->
 end_per_testcase(t_advanced_mqtt_features, Config) ->
     OldValues = ?config(old_values, Config),
     emqx_modules:set_advanced_mqtt_features_in_use(OldValues);
+end_per_testcase(t_authn_authz_info, _Config) ->
+    meck:unload([httpc]),
+    emqx_authz:update({delete, postgresql}, #{}),
+    lists:foreach(
+        fun(ChainName) ->
+            catch emqx_authn_test_lib:delete_authenticators(
+                [authentication],
+                ChainName
+            )
+        end,
+        ['mqtt:global', 'tcp:default', 'ws:default']
+    ),
+    ok;
 end_per_testcase(_Testcase, _Config) ->
     meck:unload([httpc]),
     ok.
@@ -152,6 +189,7 @@ t_get_telemetry(_Config) ->
     ?assert(is_number(maps:get(messages_sent_rate, MQTTRTInsights))),
     ?assert(is_number(maps:get(messages_received_rate, MQTTRTInsights))),
     ?assert(is_integer(maps:get(num_topics, MQTTRTInsights))),
+    ?assert(is_map(get_value(authn_authz, TelemetryData))),
     ok.
 
 t_advanced_mqtt_features(_) ->
@@ -182,6 +220,22 @@ t_advanced_mqtt_features(_) ->
         ]
     ),
     ok.
+
+t_authn_authz_info(_) ->
+    {ok, TelemetryData} = emqx_telemetry:get_telemetry(),
+    AuthnAuthzInfo = get_value(authn_authz, TelemetryData),
+    ?assertEqual(
+        #{
+            authn =>
+                [
+                    <<"password_based:built_in_database">>,
+                    <<"password_based:redis">>
+                ],
+            authn_listener => #{<<"password_based:redis">> => 2},
+            authz => [postgresql]
+        },
+        AuthnAuthzInfo
+    ).
 
 t_enable(_) ->
     ok = meck:new(emqx_telemetry, [non_strict, passthrough, no_history, no_link]),
@@ -265,3 +319,71 @@ bin(L) when is_list(L) ->
     list_to_binary(L);
 bin(B) when is_binary(B) ->
     B.
+
+mock_httpc() ->
+    TestPID = self(),
+    ok = meck:new(httpc, [non_strict, passthrough, no_history, no_link]),
+    ok = meck:expect(httpc, request, fun(
+        Method, {URL, Headers, _ContentType, Body}, _HTTPOpts, _Opts
+    ) ->
+        TestPID ! {request, Method, URL, Headers, Body}
+    end).
+
+create_authn(ChainName, built_in_database) ->
+    emqx_authentication:initialize_authentication(
+        ChainName,
+        [
+            #{
+                mechanism => password_based,
+                backend => built_in_database,
+                enable => true,
+                user_id_type => username,
+                password_hash_algorithm => #{
+                    name => plain,
+                    salt_position => suffix
+                }
+            }
+        ]
+    );
+create_authn(ChainName, redis) ->
+    emqx_authentication:initialize_authentication(
+        ChainName,
+        [
+            #{
+                mechanism => password_based,
+                backend => redis,
+                enable => true,
+                user_id_type => username,
+                cmd => "HMGET mqtt_user:${username} password_hash salt is_superuser",
+                password_hash_algorithm => #{
+                    name => plain,
+                    salt_position => suffix
+                }
+            }
+        ]
+    ).
+
+create_authz(postgresql) ->
+    emqx_authz:update(
+        append,
+        #{
+            <<"type">> => <<"postgresql">>,
+            <<"enable">> => true,
+            <<"server">> => <<"127.0.0.1:27017">>,
+            <<"pool_size">> => 1,
+            <<"database">> => <<"mqtt">>,
+            <<"username">> => <<"xx">>,
+            <<"password">> => <<"ee">>,
+            <<"auto_reconnect">> => true,
+            <<"ssl">> => #{<<"enable">> => false},
+            <<"query">> => <<"abcb">>
+        }
+    ).
+
+set_special_configs(emqx_authz) ->
+    {ok, _} = emqx:update_config([authorization, cache, enable], false),
+    {ok, _} = emqx:update_config([authorization, no_match], deny),
+    {ok, _} = emqx:update_config([authorization, sources], []),
+    ok;
+set_special_configs(_App) ->
+    ok.
