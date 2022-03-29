@@ -301,7 +301,7 @@ parse_packet(
     Bin,
     #{strict_mode := StrictMode, version := Ver}
 ) ->
-    {TopicName, Rest} = parse_utf8_string(Bin, StrictMode),
+    {TopicName, Rest} = parse_topic_name(Bin, StrictMode),
     {PacketId, Rest1} =
         case QoS of
             ?QOS_0 -> {undefined, Rest};
@@ -422,7 +422,7 @@ parse_will_message(
     StrictMode
 ) ->
     {Props, Rest} = parse_properties(Bin, Ver, StrictMode),
-    {Topic, Rest1} = parse_utf8_string(Rest, StrictMode),
+    {Topic, Rest1} = parse_topic_name(Rest, StrictMode),
     {Payload, Rest2} = parse_binary_data(Rest1),
     {
         Packet#mqtt_packet_connect{
@@ -620,6 +620,15 @@ parse_binary_data(Bin) when
     2 > byte_size(Bin)
 ->
     ?PARSE_ERR(malformed_binary_data_length).
+
+parse_topic_name(Bin, false) ->
+    parse_utf8_string(Bin, false);
+
+parse_topic_name(Bin, true) ->
+    case parse_utf8_string(Bin, true) of
+        {<<>>, _Rest} -> ?PARSE_ERR(empty_topic_name);
+        Result -> Result
+    end.
 
 %%--------------------------------------------------------------------
 %% Serialize MQTT Packet
