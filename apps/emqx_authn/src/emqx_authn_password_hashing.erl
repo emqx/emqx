@@ -73,14 +73,17 @@ fields(other_algorithms) ->
      {salt_position, fun salt_position/1}].
 
 salt_position(type) -> {enum, [prefix, suffix]};
+salt_position(desc) -> "Specifies whether the password salt is stored as a prefix or the suffix.";
 salt_position(default) -> prefix;
 salt_position(_) -> undefined.
 
 salt_rounds(type) -> integer();
+salt_rounds(desc) -> "Cost factor for the bcrypt hash.";
 salt_rounds(default) -> 10;
 salt_rounds(_) -> undefined.
 
 dk_length(type) -> integer();
+dk_length(desc) -> "Length of the derived key.";
 dk_length(required) -> false;
 dk_length(_) -> undefined.
 

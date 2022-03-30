@@ -339,17 +339,26 @@ fields("cache") ->
         {"enable",
             sc(
                 boolean(),
-                #{default => true}
+                #{
+                    default => true,
+                    desc => "Enable or disable the authorization cache."
+                }
             )},
         {"max_size",
             sc(
                 range(1, 1048576),
-                #{default => 32}
+                #{
+                    default => 32,
+                    desc => "Maximum number of cached items."
+                }
             )},
         {"ttl",
             sc(
                 duration(),
-                #{default => "1m"}
+                #{
+                    default => "1m",
+                    desc => "Time to live for the cached data."
+                }
             )}
     ];
 fields("mqtt") ->

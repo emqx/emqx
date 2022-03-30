@@ -66,7 +66,7 @@ fields("authorization") ->
                     ]),
                   default => [],
                   desc =>
-"""
+"
 Authorization data sources.<br>
 An array of authorization (ACL) data providers.
 It is designed as an array, not a hash-map, so the sources can be
@@ -84,7 +84,7 @@ the default action configured in 'authorization.no_match' is applied.<br>
 NOTE:
 The source elements are identified by their 'type'.
 It is NOT allowed to configure two or more sources of the same type.
-"""
+"
                  }
       }
     ];
@@ -94,7 +94,7 @@ fields(file) ->
                  default => true}}
     , {path, #{type => string(),
                required => true,
-               desc => """
+               desc => "
 Path to the file which contains the ACL rules.<br>
 If the file provisioned before starting EMQX node,
 it can be placed anywhere as long as EMQX has read access to it.
@@ -102,7 +102,7 @@ it can be placed anywhere as long as EMQX has read access to it.
 In case the rule-set is created from EMQX dashboard or management API,
 the file will be placed in `authz` subdirectory inside EMQX's `data_dir`,
 and the new rules will override all rules from the old config file.
-"""
+"
               }}
     ];
 fields(http_get) ->
@@ -152,11 +152,12 @@ http_common_fields() ->
                                    maps:from_list(connector_fields(http)))).
 
 mongo_common_fields() ->
-    [ {collection, #{type => atom()}}
-    , {selector, #{type => map()}}
-    , {type, #{type => mongodb}}
+    [ {collection, #{type => atom(), desc => "`MongoDB` collection containing the authorization data."}}
+    , {selector, #{type => map(), desc => "MQL query used to select the authorization record."}}
+    , {type, #{type => mongodb, desc => "Database backend."}}
     , {enable, #{type => boolean(),
-                 default => true}}
+                 default => true,
+                 desc => "Enable or disable the backend."}}
     ].
 
 validations() ->
@@ -244,6 +245,7 @@ union_array(Item) when is_list(Item) ->
 
 query() ->
     #{type => binary(),
+      desc => "",
       validator => fun(S) ->
                          case size(S) > 0 of
                              true -> ok;
@@ -264,9 +266,10 @@ connector_fields(DB, Fields) ->
               error:Reason ->
                   erlang:error(Reason)
           end,
-    [ {type, #{type => DB}}
+    [ {type, #{type => DB, desc => "Database backend."}}
     , {enable, #{type => boolean(),
-                 default => true}}
+                 default => true,
+                 desc => "Enable or disable the backend."}}
     ] ++ erlang:apply(Mod, fields, [Fields]).
 
 to_list(A) when is_atom(A) ->
