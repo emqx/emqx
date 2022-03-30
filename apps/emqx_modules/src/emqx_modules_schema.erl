@@ -23,7 +23,8 @@
 -export([
     namespace/0,
     roots/0,
-    fields/1
+    fields/1,
+    desc/1
 ]).
 
 namespace() -> modules.
@@ -64,6 +65,17 @@ fields("rewrite") ->
     ];
 fields("topic_metrics") ->
     [{topic, sc(binary(), #{})}].
+
+desc("telemetry") ->
+    "Settings for the telemetry module.";
+desc("delayed") ->
+    "Settings for the delayed module.";
+desc("rewrite") ->
+    "Settings for the rewrite module.";
+desc("topic_metrics") ->
+    "Settings for the topic metrics module.";
+desc(_) ->
+    undefined.
 
 regular_expression(type) -> binary();
 regular_expression(desc) -> "Regular expressions";

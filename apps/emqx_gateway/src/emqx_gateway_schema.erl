@@ -294,18 +294,22 @@ fields(exproto) ->
 fields(exproto_grpc_server) ->
     [ {bind,
        sc(hoconsc:union([ip_port(), integer()]),
-          #{required => true})}
+          #{ required => true
+           , desc => "Listening address and port for the gRPC server."
+           })}
     , {ssl,
        sc(ref(ssl_server_opts),
           #{ required => {false, recursively}
+           , desc => "SSL configuration for the gRPC server."
            })}
     ];
 
 fields(exproto_grpc_handler) ->
-    [ {address, sc(binary(), #{required => true})}
+    [ {address, sc(binary(), #{required => true, desc => "gRPC server address."})}
     , {ssl,
        sc(ref(emqx_schema, ssl_client_opts),
           #{ required => {false, recursively}
+           , desc => "SSL configuration for the gRPC client."
            })}
     ];
 
@@ -362,25 +366,31 @@ the LwM2M client"
     ];
 
 fields(translator) ->
-    [ {topic, sc(binary(), #{required => true})}
-    , {qos, sc(emqx_schema:qos(), #{default => 0})}
+    [ {topic, sc(binary(),
+                 #{ required => true
+                  , desc => "Which topic the device's upstream message is published to."
+                  })}
+    , {qos, sc(emqx_schema:qos(),
+               #{ default => 0
+                , desc => "QoS of the published messages."
+                })}
     ];
 
 fields(udp_listeners) ->
-    [ {udp, sc(map(name, ref(udp_listener)))}
-    , {dtls, sc(map(name, ref(dtls_listener)))}
+    [ {udp, sc(map(name, ref(udp_listener)), #{desc => "UDP configuration."})}
+    , {dtls, sc(map(name, ref(dtls_listener)), #{desc => "DTLS configuration."})}
     ];
 
 fields(tcp_listeners) ->
-    [ {tcp, sc(map(name, ref(tcp_listener)))}
-    , {ssl, sc(map(name, ref(ssl_listener)))}
+    [ {tcp, sc(map(name, ref(tcp_listener)), #{desc => "TCP configuration."})}
+    , {ssl, sc(map(name, ref(ssl_listener)), #{desc => "SSL configuration."})}
     ];
 
 fields(udp_tcp_listeners) ->
-    [ {udp, sc(map(name, ref(udp_listener)))}
-    , {dtls, sc(map(name, ref(dtls_listener)))}
-    , {tcp, sc(map(name, ref(tcp_listener)))}
-    , {ssl, sc(map(name, ref(ssl_listener)))}
+    [ {udp, sc(map(name, ref(udp_listener)), #{desc => "UDP configuration."})}
+    , {dtls, sc(map(name, ref(dtls_listener)), #{desc => "DTLS configuration."})}
+    , {tcp, sc(map(name, ref(tcp_listener)), #{desc => "TCP configuration."})}
+    , {ssl, sc(map(name, ref(ssl_listener)), #{desc => "SSL configuration."})}
     ];
 
 fields(tcp_listener) ->

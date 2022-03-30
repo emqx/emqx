@@ -1715,7 +1715,13 @@ base_listener() ->
                 }
             )},
         {"limiter",
-            sc(map("ratelimit's type", emqx_limiter_schema:bucket_name()), #{default => #{}})}
+            sc(
+                map("ratelimit's type", emqx_limiter_schema:bucket_name()),
+                #{
+                    default => #{},
+                    desc => "Type of the rate limit."
+                }
+            )}
     ].
 
 desc("persistent_session_store") ->
