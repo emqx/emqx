@@ -39,7 +39,8 @@ init_per_suite(Conf) ->
     Conf.
 
 end_per_suite(_Conf) ->
-    emqx_common_test_helpers:stop_apps([]).
+    emqx_common_test_helpers:stop_apps([]),
+    emqx_config:delete_override_conf_files().
 
 init_per_testcase(_TestCase, Conf) ->
     {ok, Pid} = emqx_gateway_cm_registry:start_link(?GWNAME),

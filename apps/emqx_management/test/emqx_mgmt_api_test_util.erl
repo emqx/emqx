@@ -34,7 +34,9 @@ end_suite() ->
 
 end_suite(Apps) ->
     application:unload(emqx_management),
-    emqx_common_test_helpers:stop_apps(Apps ++ [emqx_dashboard]).
+    emqx_common_test_helpers:stop_apps(Apps ++ [emqx_dashboard]),
+    emqx_config:delete_override_conf_files(),
+    ok.
 
 set_special_configs(emqx_dashboard) ->
     Config = #{

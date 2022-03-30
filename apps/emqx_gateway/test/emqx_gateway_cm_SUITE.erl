@@ -43,7 +43,8 @@ init_per_suite(Conf) ->
 
 end_per_suite(_Conf) ->
     meck:unload(emqx_gateway_metrics),
-    emqx_common_test_helpers:stop_apps([]).
+    emqx_common_test_helpers:stop_apps([]),
+    emqx_config:delete_override_conf_files().
 
 init_per_testcase(_TestCase, Conf) ->
     process_flag(trap_exit, true),
