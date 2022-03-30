@@ -32,7 +32,7 @@
 %% ecpool callback
 -export([connect/1]).
 
--export([roots/0, fields/1]).
+-export([roots/0, fields/1, desc/1]).
 
 -export([mongo_query/5, check_worker_health/1]).
 
@@ -89,18 +89,33 @@ fields(topology) ->
     , {min_heartbeat_frequency_ms, fun duration/1}
     ].
 
+desc(single) ->
+    "Settings for a single MongoDB instance.";
+desc(rs) ->
+    "Settings for replica set.";
+desc(sharded) ->
+    "Settings for sharded cluster.";
+desc(topology) ->
+    "Topology of MongoDB.";
+desc(_) ->
+    undefined.
+
 mongo_fields() ->
     [ {srv_record, fun srv_record/1}
     , {pool_size, fun emqx_connector_schema_lib:pool_size/1}
     , {username, fun emqx_connector_schema_lib:username/1}
     , {password, fun emqx_connector_schema_lib:password/1}
-    , {auth_source, #{type => binary(), required => false}}
+    , {auth_source, #{ type => binary()
+                     , required => false
+                     , desc => "Database name associated with the user's credentials."
+                     }}
     , {database, fun emqx_connector_schema_lib:database/1}
     , {topology, #{type => hoconsc:ref(?MODULE, topology), required => false}}
     ] ++
     emqx_connector_schema_lib:ssl_fields().
 
 internal_pool_size(type) -> integer();
+internal_pool_size(desc) -> "Pool size on start.";
 internal_pool_size(default) -> 1;
 internal_pool_size(validator) -> [?MIN(1)];
 internal_pool_size(_) -> undefined.

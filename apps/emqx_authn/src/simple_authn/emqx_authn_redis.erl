@@ -26,7 +26,8 @@
 -export([
     namespace/0,
     roots/0,
-    fields/1
+    fields/1,
+    desc/1
 ]).
 
 -export([
@@ -59,6 +60,15 @@ fields(cluster) ->
 fields(sentinel) ->
     common_fields() ++ emqx_connector_redis:fields(sentinel).
 
+desc(standalone) ->
+    "Configuration for a standalone Redis instance.";
+desc(cluster) ->
+    "Configuration for a Redis cluster.";
+desc(sentinel) ->
+    "Configuration for a Redis Sentinel.";
+desc(_) ->
+    "".
+
 common_fields() ->
     [
         {mechanism, emqx_authn_schema:mechanism('password_based')},
@@ -68,6 +78,7 @@ common_fields() ->
     ] ++ emqx_authn_schema:common_fields().
 
 cmd(type) -> string();
+cmd(desc) -> "Redis query.";
 cmd(_) -> undefined.
 
 %%------------------------------------------------------------------------------

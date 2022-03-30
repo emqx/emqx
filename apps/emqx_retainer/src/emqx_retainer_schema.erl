@@ -2,7 +2,7 @@
 
 -include_lib("typerefl/include/types.hrl").
 
--export([roots/0, fields/1, namespace/0]).
+-export([roots/0, fields/1, desc/1, namespace/0]).
 
 -define(TYPE(Type), hoconsc:mk(Type)).
 
@@ -59,6 +59,15 @@ fields(flow_control) ->
                                  undefined)}
     ].
 
+desc("retainer") ->
+    "Configuration related to handling `PUBLISH` packets with a `retain` flag set to 1.";
+desc(mnesia_config) ->
+    "Configuration of the internal database storing retained messages.";
+desc(flow_control) ->
+    "Retainer batching and rate limiting.";
+desc(_) ->
+    undefined.
+
 %%--------------------------------------------------------------------
 %% Internal functions
 %%--------------------------------------------------------------------
@@ -74,4 +83,7 @@ is_pos_integer(V) ->
     V >= 0.
 
 backend_config() ->
-    #{type => hoconsc:union([hoconsc:ref(?MODULE, mnesia_config)])}.
+    #{
+       type => hoconsc:union([hoconsc:ref(?MODULE, mnesia_config)]),
+       desc => "Settings for the database storing the retained messages."
+     }.

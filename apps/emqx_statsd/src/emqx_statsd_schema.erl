@@ -24,7 +24,8 @@
 
 -export([ namespace/0
         , roots/0
-        , fields/1]).
+        , fields/1
+        , desc/1]).
 
 -typerefl_from_string({ip_port/0, emqx_statsd_schema, to_ip_port}).
 
@@ -42,6 +43,11 @@ fields("statsd") ->
     , {sample_time_interval, fun sample_interval/1}
     , {flush_time_interval, fun flush_interval/1}
     ].
+
+desc("statsd") ->
+    "Configuration related to reporting metrics to statsd.";
+desc(_) ->
+    undefined.
 
 server(type) -> emqx_schema:ip_port();
 server(required) -> true;

@@ -218,7 +218,7 @@ jobs:
         - emqx
         - emqx-enterprise
     runs-on: ubuntu-20.04
-    container: "ghcr.io/iequ1/emqx-schema-validate:0.2.3"
+    container: "ghcr.io/iequ1/emqx-schema-validate:0.2.4"
     steps:
     - uses: actions/download-artifact@v2
       name: Download schema dump

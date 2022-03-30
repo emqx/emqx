@@ -43,16 +43,16 @@ fields("rule_engine") ->
 fields("rules") ->
     [ rule_name()
     , {"sql", sc(binary(),
-        #{ desc => """
+        #{ desc => "
 SQL query to transform the messages.<br>
 Example: <code>SELECT * FROM \"test/topic\" WHERE payload.x = 1</code><br>
-"""
+"
          , example => "SELECT * FROM \"test/topic\" WHERE payload.x = 1"
          , required => true
          , validator => fun ?MODULE:validate_sql/1
          })}
     , {"outputs", sc(hoconsc:array(hoconsc:union(outputs())),
-        #{ desc => """
+        #{ desc => "
 A list of outputs of the rule.<br>
 An output can be a string that refers to the channel ID of an EMQX bridge, or an object
 that refers to a function.<br>
@@ -65,7 +65,7 @@ If one of the output crashed, all other outputs come after it will still be exec
 original order.<br>
 If there's any error when running an output, there will be an error message, and the 'failure'
 counter of the function output or the bridge channel will increase.
-"""
+"
         , default => []
         , example => [
             <<"http:my_http_bridge">>,
@@ -96,62 +96,62 @@ fields("builtin_output_console") ->
 
 fields("user_provided_function") ->
     [ {function, sc(binary(),
-        #{ desc => """
+        #{ desc => "
 The user provided function. Should be in the format: '{module}:{function}'.<br>
 Where {module} is the Erlang callback module and {function} is the Erlang function.
 <br>
 To write your own function, checkout the function <code>console</code> and
 <code>republish</code> in the source file:
 <code>apps/emqx_rule_engine/src/emqx_rule_outputs.erl</code> as an example.
-"""
+"
         , example => "module:function"
         })}
     , {args, sc(map(),
-        #{ desc => """
+        #{ desc => "
 The args will be passed as the 3rd argument to module:function/3,
 checkout the function <code>console</code> and <code>republish</code> in the source file:
 <code>apps/emqx_rule_engine/src/emqx_rule_outputs.erl</code> as an example.
-"""
+"
          , default => #{}
          })}
     ];
 
 fields("republish_args") ->
     [ {topic, sc(binary(),
-        #{ desc =>"""
+        #{ desc =>"
 The target topic of message to be re-published.<br>
 Template with variables is allowed, see description of the 'republish_args'.
-"""
+"
           , required => true
           , example => <<"a/1">>
           })}
     , {qos, sc(qos(),
-        #{ desc => """
+        #{ desc => "
 The qos of the message to be re-published.
 Template with variables is allowed, see description of the 'republish_args'.<br>
 Defaults to ${qos}. If variable ${qos} is not found from the selected result of the rule,
 0 is used.
-"""
+"
          , default => <<"${qos}">>
          , example => <<"${qos}">>
          })}
     , {retain, sc(hoconsc:union([binary(), boolean()]),
-        #{ desc => """
+        #{ desc => "
 The 'retain' flag of the message to be re-published.
 Template with variables is allowed, see description of the 'republish_args'.<br>
 Defaults to ${retain}. If variable ${retain} is not found from the selected result
 of the rule, false is used.
-"""
+"
         , default => <<"${retain}">>
         , example => <<"${retain}">>
         })}
     , {payload, sc(binary(),
-        #{ desc => """
+        #{ desc => "
 The payload of the message to be re-published.
 Template with variables is allowed, see description of the 'republish_args'.<br>.
 Defaults to ${payload}. If variable ${payload} is not found from the selected result
 of the rule, then the string \"undefined\" is used.
-"""
+"
          , default => <<"${payload}">>
          , example => <<"${payload}">>
          })}

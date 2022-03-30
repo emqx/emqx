@@ -33,16 +33,16 @@ roots() ->
     [
         "delayed",
         "telemetry",
-        array("rewrite"),
-        array("topic_metrics")
+        array("rewrite", #{desc => "List of topic rewrite rules."}),
+        array("topic_metrics", #{desc => "List of topics whose metrics are reported."})
     ].
 
 fields("telemetry") ->
-    [{enable, hoconsc:mk(boolean(), #{default => false})}];
+    [{enable, hoconsc:mk(boolean(), #{default => false, desc => "Enable telemetry."})}];
 fields("delayed") ->
     [
-        {enable, hoconsc:mk(boolean(), #{default => false})},
-        {max_delayed_messages, sc(integer(), #{})}
+        {enable, hoconsc:mk(boolean(), #{default => false, desc => "Enable `delayed` module."})},
+        {max_delayed_messages, sc(integer(), #{desc => "Maximum number of delayed messages (0 is no limit)."})}
     ];
 fields("rewrite") ->
     [
@@ -64,16 +64,16 @@ fields("rewrite") ->
         {re, fun regular_expression/1}
     ];
 fields("topic_metrics") ->
-    [{topic, sc(binary(), #{})}].
+    [{topic, sc(binary(), #{desc => "Collect metrics for the topic."})}].
 
 desc("telemetry") ->
     "Settings for the telemetry module.";
 desc("delayed") ->
     "Settings for the delayed module.";
 desc("rewrite") ->
-    "Settings for the rewrite module.";
+    "Rewrite rule.";
 desc("topic_metrics") ->
-    "Settings for the topic metrics module.";
+    "";
 desc(_) ->
     undefined.
 
@@ -89,6 +89,6 @@ is_re(Bin) ->
         {error, Reason} -> {error, {Bin, Reason}}
     end.
 
-array(Name) -> {Name, hoconsc:array(hoconsc:ref(?MODULE, Name))}.
+array(Name, Meta) -> {Name, hoconsc:mk(hoconsc:array(hoconsc:ref(?MODULE, Name)), Meta)}.
 
 sc(Type, Meta) -> hoconsc:mk(Type, Meta).

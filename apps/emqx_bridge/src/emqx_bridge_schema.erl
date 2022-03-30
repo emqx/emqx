@@ -4,7 +4,7 @@
 
 -import(hoconsc, [mk/2, ref/2]).
 
--export([roots/0, fields/1, namespace/0]).
+-export([roots/0, fields/1, desc/1, namespace/0]).
 
 -export([ get_response/0
         , put_request/0
@@ -86,11 +86,12 @@ namespace() -> "bridge".
 roots() -> [bridges].
 
 fields(bridges) ->
-    [{http, mk(hoconsc:map(name, ref(emqx_bridge_http_schema, "config")), #{})}]
-    ++ [{T, mk(hoconsc:map(name, hoconsc:union([
-            ref(schema_mod(T), "ingress"),
-            ref(schema_mod(T), "egress")
-        ])), #{})} || T <- ?CONN_TYPES];
+    [{http, mk(hoconsc:map(name, ref(emqx_bridge_http_schema, "config")),
+               #{desc => "HTTP bridges to an HTTP server."})}]
+    ++ [{T, mk(hoconsc:map(name, hoconsc:union([ ref(schema_mod(T), "ingress")
+                                               , ref(schema_mod(T), "egress")
+                                               ])),
+               #{desc => "MQTT bridges to/from another MQTT broker"})} || T <- ?CONN_TYPES];
 
 fields("metrics") ->
     [ {"matched", mk(integer(), #{desc => "Count of this bridge is queried"})}
@@ -112,11 +113,22 @@ fields("node_status") ->
     , {"status", mk(status(), #{})}
     ].
 
+desc(bridges) ->
+    "Configuration for MQTT bridges.";
+desc("metrics") ->
+    "Bridge metrics.";
+desc("node_metrics") ->
+    "Node metrics.";
+desc("node_status") ->
+    "Node status.";
+desc(_) ->
+    undefined.
+
 status() ->
     hoconsc:enum([connected, disconnected, connecting]).
 
 node_name() ->
-    {"node", mk(binary(), #{desc => "The node name", example => "emqx@127.0.0.1"})}.
+    {"node", mk(binary(), #{desc => "The node name.", example => "emqx@127.0.0.1"})}.
 
 schema_mod(Type) ->
     list_to_atom(lists:concat(["emqx_bridge_", Type, "_schema"])).

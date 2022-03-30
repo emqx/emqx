@@ -190,6 +190,8 @@ the memory cache reaches 'seg_bytes'.
             })}
     ].
 
+desc("connector") ->
+    "Generic configuration for the connector.";
 desc("ingress") ->
     ingress_desc();
 desc("egress") ->

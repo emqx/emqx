@@ -16,7 +16,7 @@
 
 -module(emqx_zone_schema).
 
--export([namespace/0, roots/0, fields/1]).
+-export([namespace/0, roots/0, fields/1, desc/1]).
 
 namespace() -> zone.
 
@@ -37,6 +37,9 @@ roots() ->
 %% only not allowed to have default values.
 fields(Name) ->
     [{N, no_default(Sc)} || {N, Sc} <- emqx_schema:fields(Name)].
+
+desc(Name) ->
+    emqx_schema:desc(Name).
 
 %% no default values for zone settings
 no_default(Sc) ->

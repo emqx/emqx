@@ -22,7 +22,8 @@
 
 -export([ namespace/0
         , roots/0
-        , fields/1]).
+        , fields/1
+        , desc/1]).
 
 namespace() -> "auto_subscribe".
 
@@ -30,7 +31,8 @@ roots() ->
     ["auto_subscribe"].
 
 fields("auto_subscribe") ->
-    [ {topics, hoconsc:array(hoconsc:ref(?MODULE, "topic"))}
+    [ {topics, hoconsc:mk(hoconsc:array(hoconsc:ref(?MODULE, "topic")),
+                          #{desc => "List of auto-subscribe topics."})}
     ];
 
 fields("topic") ->
@@ -51,6 +53,13 @@ fields("topic") ->
         default => 0,
         desc => "Not local. MQTT 5.0 definition."})}
     ].
+
+desc("auto_subscribe") ->
+    "Configuration for `auto_subscribe` feature.";
+desc("topic") ->
+    "";
+desc(_) ->
+    undefined.
 
 topic_example() ->
     <<"/clientid/", ?PH_S_CLIENTID,

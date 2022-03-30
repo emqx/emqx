@@ -19,7 +19,9 @@
 
 -export([ roots/0
         , fields/1
-        ,namespace/0]).
+        , namespace/0
+        , desc/1
+        ]).
 
 namespace() -> <<"dashboard">>.
 roots() -> ["dashboard"].
@@ -94,6 +96,15 @@ fields("https") ->
     fields("http") ++
     proplists:delete("fail_if_no_peer_cert",
                      emqx_schema:server_ssl_opts_schema(#{}, true)).
+
+desc("dashboard") ->
+    "Configuration for EMQX dashboard.";
+desc("http") ->
+    "Configuration for the dashboard listener (plaintext).";
+desc("https") ->
+    "Configuration for the dashboard listener (TLS).";
+desc(_) ->
+    undefined.
 
 bind(type) -> hoconsc:union([non_neg_integer(), emqx_schema:ip_port()]);
 bind(default) -> 18083;

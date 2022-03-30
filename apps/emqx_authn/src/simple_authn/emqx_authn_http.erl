@@ -28,6 +28,7 @@
     namespace/0,
     roots/0,
     fields/1,
+    desc/1,
     validations/0
 ]).
 
@@ -56,21 +57,28 @@ roots() ->
 
 fields(get) ->
     [
-        {method, #{type => get, default => post}},
+        {method, #{type => get, default => post, desc => "HTTP method."}},
         {headers, fun headers_no_content_type/1}
     ] ++ common_fields();
 fields(post) ->
     [
-        {method, #{type => post, default => post}},
+        {method, #{type => post, default => post, desc => "HTTP method."}},
         {headers, fun headers/1}
     ] ++ common_fields().
+
+desc(get) ->
+    "Settings for HTTP-based authentication (GET).";
+desc(post) ->
+    "Settings for HTTP-based authentication (POST).";
+desc(_) ->
+    undefined.
 
 common_fields() ->
     [
         {mechanism, emqx_authn_schema:mechanism('password_based')},
         {backend, emqx_authn_schema:backend(http)},
         {url, fun url/1},
-        {body, map([{fuzzy, term(), binary()}])},
+        {body, hoconsc:mk(map([{fuzzy, term(), binary()}]), #{desc => "Body of the HTTP request."})},
         {request_timeout, fun request_timeout/1}
     ] ++ emqx_authn_schema:common_fields() ++
         maps:to_list(
@@ -90,12 +98,15 @@ validations() ->
     ].
 
 url(type) -> binary();
+url(desc) -> "URL of the auth server.";
 url(validator) -> [?NOT_EMPTY("the value of the field 'url' cannot be empty")];
 url(required) -> true;
 url(_) -> undefined.
 
 headers(type) ->
     map();
+headers(desc) ->
+    "List of HTTP headers.";
 headers(converter) ->
     fun(Headers) ->
         maps:merge(default_headers(), transform_header_name(Headers))
@@ -107,6 +118,8 @@ headers(_) ->
 
 headers_no_content_type(type) ->
     map();
+headers_no_content_type(desc) ->
+    "List of HTTP headers.";
 headers_no_content_type(converter) ->
     fun(Headers) ->
         maps:merge(default_headers_no_content_type(), transform_header_name(Headers))
@@ -117,6 +130,7 @@ headers_no_content_type(_) ->
     undefined.
 
 request_timeout(type) -> emqx_schema:duration_ms();
+request_timeout(desc) -> "HTTP request timeout";
 request_timeout(default) -> <<"5s">>;
 request_timeout(_) -> undefined.
 

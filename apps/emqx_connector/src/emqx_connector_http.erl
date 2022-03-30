@@ -36,6 +36,7 @@
 
 -export([ roots/0
         , fields/1
+        , desc/1
         , validations/0
         , namespace/0
         ]).
@@ -66,65 +67,72 @@ fields(config) ->
                             {error, "There must be no query in the base_url"};
                             (_) -> ok
                           end
-           , desc => """
-The base URL is the URL includes only the scheme, host and port.<br>
+           , desc => "
+The base URL is the URL includes only the scheme, host and port.<br/>
 When send an HTTP request, the real URL to be used is the concatenation of the base URL and the
-path parameter (passed by the emqx_resource:query/2,3 or provided by the request parameter).<br>
-For example: http://localhost:9901/
-"""
+path parameter (passed by the emqx_resource:query/2,3 or provided by the request parameter).<br/>
+For example: `http://localhost:9901/`
+"
            })}
     , {connect_timeout,
         sc(emqx_schema:duration_ms(),
            #{ default => "15s"
-            , desc => "The timeout when connecting to the HTTP server"
+            , desc => "The timeout when connecting to the HTTP server."
             })}
     , {max_retries,
         sc(non_neg_integer(),
            #{ default => 5
-            , desc => "Max retry times if error on sending request"
+            , desc => "Max retry times if error on sending request."
             })}
     , {retry_interval,
         sc(emqx_schema:duration(),
            #{ default => "1s"
-            , desc => "Interval before next retry if error on sending request"
+            , desc => "Interval between retries."
             })}
     , {pool_type,
         sc(pool_type(),
            #{ default => random
-            , desc => "The type of the pool. Can be one of random, hash"
+            , desc => "The type of the pool. Can be one of `random`, `hash`."
             })}
     , {pool_size,
         sc(non_neg_integer(),
            #{ default => 8
-            , desc => "The pool size"
+            , desc => "The pool size."
             })}
     , {enable_pipelining,
         sc(boolean(),
            #{ default => true
-            , desc => "Enable the HTTP pipeline"
+            , desc => "Enable the HTTP pipeline."
             })}
     , {request, hoconsc:mk(
         ref("request"),
         #{ default => undefined
          , required => false
-         , desc => """
+         , desc => "
 If the request is provided, the caller can send HTTP requests via
 <code>emqx_resource:query(ResourceId, {send_message, BridgeId, Message})</code>
-"""
+"
          })}
     ] ++ emqx_connector_schema_lib:ssl_fields();
 
 fields("request") ->
-    [ {method, hoconsc:mk(hoconsc:enum([post, put, get, delete]), #{required => false})}
-    , {path, hoconsc:mk(binary(), #{required => false})}
-    , {body, hoconsc:mk(binary(), #{required => false})}
-    , {headers, hoconsc:mk(map(), #{required => false})}
+    [ {method, hoconsc:mk(hoconsc:enum([post, put, get, delete]), #{required => false, desc => "HTTP method."})}
+    , {path, hoconsc:mk(binary(), #{required => false, desc => "URL path."})}
+    , {body, hoconsc:mk(binary(), #{required => false, desc => "HTTP request body."})}
+    , {headers, hoconsc:mk(map(), #{required => false, desc => "List of HTTP headers."})}
     , {request_timeout,
         sc(emqx_schema:duration_ms(),
            #{ required => false
-            , desc => "The timeout when sending request to the HTTP server"
+            , desc => "HTTP request timeout."
             })}
     ].
+
+desc(config) ->
+    "";
+desc("request") ->
+    "";
+desc(_) ->
+    undefined.
 
 validations() ->
     [ {check_ssl_opts, fun check_ssl_opts/1} ].

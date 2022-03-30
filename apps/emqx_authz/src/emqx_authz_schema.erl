@@ -27,12 +27,12 @@
 -type action() :: publish | subscribe | all.
 -type permission() :: allow | deny.
 
--export([
-    namespace/0,
-    roots/0,
-    fields/1,
-    validations/0
-]).
+-export([ namespace/0
+        , roots/0
+        , fields/1
+        , validations/0
+        , desc/1
+        ]).
 
 -export([
     headers_no_content_type/1,
@@ -94,43 +94,38 @@ fields("authorization") ->
         }}
     ];
 fields(file) ->
-    [
-        {type, #{type => file}},
-        {enable, #{
-            type => boolean(),
-            default => true
-        }},
-        {path, #{
-            type => string(),
-            required => true,
-            desc =>
-                "\n"
-                "Path to the file which contains the ACL rules.<br>\n"
-                "If the file provisioned before starting EMQX node,\n"
-                "it can be placed anywhere as long as EMQX has read access to it.\n"
-                "\n"
-                "In case the rule-set is created from EMQX dashboard or management API,\n"
-                "the file will be placed in `authz` subdirectory inside EMQX's `data_dir`,\n"
-                "and the new rules will override all rules from the old config file.\n"
-        }}
+    [ {type, #{type => file, desc => "Backend type."}}
+    , {enable, #{type => boolean(),
+                 default => true,
+                 desc => "Enable this backend."
+                }}
+    , {path, #{type => string(),
+               required => true,
+               desc => "
+Path to the file which contains the ACL rules.<br>
+If the file provisioned before starting EMQX node,
+it can be placed anywhere as long as EMQX has read access to it.
+
+In case the rule-set is created from EMQX dashboard or management API,
+the file will be placed in `authz` subdirectory inside EMQX's `data_dir`,
+and the new rules will override all rules from the old config file.
+"
+              }}
     ];
 fields(http_get) ->
-    [
-        {method, #{type => get, default => post}},
-        {headers, fun headers_no_content_type/1}
+    [ {method, #{type => get, default => get, desc => "HTTP method."}}
+    , {headers, fun headers_no_content_type/1}
     ] ++ http_common_fields();
 fields(http_post) ->
-    [
-        {method, #{type => post, default => post}},
-        {headers, fun headers/1}
+    [ {method, #{type => post, default => post, desc => "HTTP method."}}
+    , {headers, fun headers/1}
     ] ++ http_common_fields();
 fields(mnesia) ->
-    [
-        {type, #{type => 'built_in_database'}},
-        {enable, #{
-            type => boolean(),
-            default => true
-        }}
+    [ {type, #{type => 'built_in_database', desc => "Backend type."}}
+    , {enable, #{type => boolean(),
+                 default => true,
+                 desc => "Enable this backend."
+                }}
     ];
 fields(mongo_single) ->
     mongo_common_fields() ++ emqx_connector_mongo:fields(single);
@@ -142,13 +137,11 @@ fields(mysql) ->
     connector_fields(mysql) ++
         [{query, query()}];
 fields(postgresql) ->
-    [
-        {query, query()},
-        {type, #{type => postgresql}},
-        {enable, #{
-            type => boolean(),
-            default => true
-        }}
+    [ {query, query()}
+    , {type, #{type => postgresql, desc => "Backend type."}}
+    , {enable, #{type => boolean(),
+                 desc => "Enable this backend.",
+                 default => true}}
     ] ++ emqx_connector_pgsql:fields(config);
 fields(redis_single) ->
     connector_fields(redis, single) ++
@@ -159,6 +152,35 @@ fields(redis_sentinel) ->
 fields(redis_cluster) ->
     connector_fields(redis, cluster) ++
         [{cmd, query()}].
+
+desc("authorization") ->
+    "Configuration related to the client authorization.";
+desc(file) ->
+    "Authorization using a static file.";
+desc(http_get) ->
+    "Authorization using an external HTTP server (via GET requests).";
+desc(http_post) ->
+    "Authorization using an external HTTP server (via POST requests).";
+desc(mnesia) ->
+    "Authorization using a built-in database (mnesia).";
+desc(mongo_single) ->
+    "Authorization using a single MongoDB instance.";
+desc(mongo_rs) ->
+    "Authorization using a MongoDB replica set.";
+desc(mongo_sharded) ->
+    "Authorization using a sharded MongoDB cluster.";
+desc(mysql) ->
+    "Authorization using a MySQL database.";
+desc(postgresql) ->
+    "Authorization using a PostgreSQL database.";
+desc(redis_single) ->
+    "Authorization using a single Redis instance.";
+desc(redis_sentinel) ->
+    "Authorization using a Redis Sentinel.";
+desc(redis_cluster) ->
+    "Authorization using a Redis cluster.";
+desc(_) ->
+    undefined.
 
 http_common_fields() ->
     [
@@ -299,16 +321,15 @@ union_array(Item) when is_list(Item) ->
     hoconsc:array(hoconsc:union(Item)).
 
 query() ->
-    #{
-        type => binary(),
-        desc => "",
-        validator => fun(S) ->
-            case size(S) > 0 of
-                true -> ok;
-                _ -> {error, "Request query"}
-            end
-        end
-    }.
+    #{type => binary(),
+      desc => "Database query used to retrieve authorization data.",
+      validator => fun(S) ->
+                         case size(S) > 0 of
+                             true -> ok;
+                             _ -> {error, "Request query"}
+                         end
+                       end
+     }.
 
 connector_fields(DB) ->
     connector_fields(DB, config).

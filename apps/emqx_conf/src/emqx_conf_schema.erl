@@ -134,6 +134,7 @@ fields("cluster") ->
           #{ mapping => "ekka.proto_dist"
            , default => inet_tcp
            , 'readOnly' => true
+           , desc => "The Erlang distribution protocol for the cluster."
           })}
     , {"static",
        sc(ref(cluster_static),
