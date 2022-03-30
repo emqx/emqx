@@ -1740,7 +1740,7 @@ desc("zone") ->
     "}\n"
     "```\n\n"
     "The global config `a` is overridden by the configs `a` inside the zone `my_zone`.\n\n"
-    "If there is a listener uses the zone `my_zone`, the value of config `a` will be: "
+    "If there is a listener using the zone `my_zone`, the value of config `a` will be: "
     "`{b:2, c: 1}`.\n"
     "Note that although the default value of `a.c` is `0`, the global value is used,"
     " i.e. configs in the zone have no default values. To override `a.c` one must configure"
@@ -1771,7 +1771,7 @@ desc("overload_protection") ->
 desc("conn_congestion") ->
     "Settings for `conn_congestion` alarm.\n\n"
     "Sometimes the MQTT connection (usually an MQTT subscriber) may\n"
-    "get \"congested\", because there are too many packets to sent.\n"
+    "get \"congested\", because there are too many packets to be sent.\n"
     "The socket tries to buffer the packets until the buffer is\n"
     "full. If more packets arrive after that, the packets will be\n"
     "\"pending\" in the queue and we consider the connection\n"

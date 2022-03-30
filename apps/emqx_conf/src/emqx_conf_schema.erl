@@ -756,7 +756,7 @@ desc("rpc") ->
     "EMQX uses a library called <code>gen_rpc</code> for "
     "inter-broker communication.<br/>Most of the time the default config "
     "should work, but in case you need to do performance "
-    "fine-turning or experiment a bit, this is where to look.";
+    "fine-tuning or experiment a bit, this is where to look.";
 desc("log") ->
     "EMQX logging supports multiple sinks for the log events."
     " Each sink is represented by a _log handler_, which can be configured independently.";
@@ -769,7 +769,7 @@ desc("log_rotation") ->
     " or in `/var/log/emqx` (for binary installation).<br/>"
     "This section of the configuration controls the number of files kept for each log handler.";
 desc("log_overload_kill") ->
-    "Log overload kill feature an overload protection that activates when"
+    "Log overload kill features an overload protection that activates when"
     " the log handlers use too much memory or have too many buffered log messages.<br/>"
     "When the overload is detected, the log handler is terminated and restarted after a"
     " cooldown period.";
