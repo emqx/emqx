@@ -194,12 +194,12 @@ eventmsg_connected(_ClientInfo = #{
                     clean_start := CleanStart,
                     proto_name := ProtoName,
                     proto_ver := ProtoVer,
-                    keepalive := Keepalive,
                     connected_at := ConnectedAt,
-                    conn_props := ConnProps,
-                    receive_maximum := RcvMax,
-                    expiry_interval := ExpiryInterval
+                    receive_maximum := RcvMax
                    }) ->
+    Keepalive = maps:get(keepalive, ConnInfo, 0),
+    ConnProps = maps:get(conn_props, ConnInfo, #{}),
+    ExpiryInterval = maps:get(expiry_interval, ConnInfo, 0),
     with_basic_columns('client.connected',
         #{clientid => ClientId,
           username => Username,
@@ -244,11 +244,11 @@ eventmsg_connack(_ConnInfo = #{
                     sockname := SockName,
                     proto_name := ProtoName,
                     proto_ver := ProtoVer,
-                    keepalive := Keepalive,
-                    connected_at := ConnectedAt,
-                    conn_props := ConnProps,
-                    expiry_interval := ExpiryInterval
+                    connected_at := ConnectedAt
                    }, Reason) ->
+    Keepalive = maps:get(keepalive, ConnInfo, 0),
+    ConnProps = maps:get(conn_props, ConnInfo, #{}),
+    ExpiryInterval = maps:get(expiry_interval, ConnInfo, 0),
     with_basic_columns('client.connack',
         #{reason_code => reason(Reason),
           clientid => ClientId,
