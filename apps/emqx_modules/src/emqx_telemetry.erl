@@ -454,34 +454,16 @@ advanced_mqtt_features() ->
     maps:map(fun(_K, V) -> bool2int(V) end, AdvancedFeatures).
 
 get_authn_authz_info() ->
-    %% at the moment of writing, `emqx_authentication:list_chains/0'
-    %% result is always wrapped in `{ok, _}', and it cannot return any
-    %% error values.
-    {ok, Chains} = emqx_authentication:list_chains(),
-    AuthnTypes = lists:usort([
-        Type
-     || #{authenticators := As} <- Chains,
-        #{id := Type} <- As
-    ]),
-    OverriddenListeners = lists:foldl(
-        fun
-            (#{name := 'mqtt:global'}, Acc) ->
-                Acc;
-            (#{authenticators := As}, Acc) ->
-                lists:foldl(fun tally_authenticators/2, Acc, As)
-        end,
-        #{},
-        Chains
-    ),
-    AuthzTypes = lists:usort([Type || #{type := Type} <- emqx_authz:lookup()]),
+    #{
+        authenticators := AuthnTypes,
+        overridden_listeners := OverriddenListeners
+    } = emqx_authn:get_enabled_authns(),
+    AuthzTypes = emqx_authz:get_enabled_authzs(),
     #{
         authn => AuthnTypes,
         authn_listener => OverriddenListeners,
         authz => AuthzTypes
     }.
-
-tally_authenticators(#{id := AuthenticatorName}, Acc) ->
-    maps:update_with(AuthenticatorName, fun(N) -> N + 1 end, 1, Acc).
 
 bin(L) when is_list(L) ->
     list_to_binary(L);

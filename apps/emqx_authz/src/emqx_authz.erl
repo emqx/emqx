@@ -33,7 +33,9 @@
     lookup/1,
     move/2,
     update/2,
-    authorize/5
+    authorize/5,
+    %% for telemetry information
+    get_enabled_authzs/0
 ]).
 
 -export([post_config_update/5, pre_config_update/3]).
@@ -335,6 +337,9 @@ do_authorize(
         nomatch -> do_authorize(Client, PubSub, Topic, Tail);
         Matched -> {Matched, Type}
     end.
+
+get_enabled_authzs() ->
+    lists:usort([Type || #{type := Type} <- lookup()]).
 
 %%--------------------------------------------------------------------
 %% Internal function

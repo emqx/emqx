@@ -57,7 +57,7 @@ end_per_suite(_Config) ->
         }
     ),
     ok = stop_apps([emqx_resource]),
-    emqx_common_test_helpers:stop_apps([emqx_authz, emqx_conf]),
+    emqx_common_test_helpers:stop_apps([emqx_connector, emqx_authz, emqx_conf]),
     meck:unload(emqx_resource),
     ok.
 
@@ -278,6 +278,13 @@ t_move_source(_) ->
     ),
 
     ok.
+
+t_get_enabled_authzs_none_enabled(_Config) ->
+    ?assertEqual([], emqx_authz:get_enabled_authzs()).
+
+t_get_enabled_authzs_some_enabled(_Config) ->
+    {ok, _} = emqx_authz:update(?CMD_REPLACE, [?SOURCE4]),
+    ?assertEqual([postgresql], emqx_authz:get_enabled_authzs()).
 
 stop_apps(Apps) ->
     lists:foreach(fun application:stop/1, Apps).
