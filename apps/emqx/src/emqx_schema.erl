@@ -93,7 +93,7 @@
     comma_separated_atoms/0
 ]).
 
--export([namespace/0, roots/0, roots/1, fields/1]).
+-export([namespace/0, roots/0, roots/1, fields/1, desc/1]).
 -export([conf_get/2, conf_get/3, keys/2, filter/1]).
 -export([server_ssl_opts_schema/2, client_ssl_opts_schema/1, ciphers_schema/1, default_ciphers/1]).
 -export([sc/2, map/2]).
@@ -116,7 +116,7 @@ roots(high) ->
         {"listeners",
             sc(
                 ref("listeners"),
-                #{desc => "MQTT listeners identified by their protocol type and assigned names"}
+                #{}
             )},
         {"zones",
             sc(
@@ -133,12 +133,7 @@ roots(high) ->
         {"mqtt",
             sc(
                 ref("mqtt"),
-                #{
-                    desc =>
-                        "Global MQTT configuration.<br>\n"
-                        "The configs here work as default values which can be overridden\n"
-                        "in <code>zone</code> configs"
-                }
+                #{}
             )},
         {?EMQX_AUTHENTICATION_CONFIG_ROOT_NAME,
             authentication(
@@ -203,29 +198,17 @@ roots(low) ->
         {"force_gc",
             sc(
                 ref("force_gc"),
-                #{
-                    desc =>
-                        "Force the MQTT connection process garbage collection after\n"
-                        "this number of messages or bytes have passed through."
-                }
+                #{}
             )},
         {"conn_congestion",
             sc(
                 ref("conn_congestion"),
-                #{
-                    desc => "Congestion alarm settings"
-                }
+                #{}
             )},
         {"stats",
             sc(
                 ref("stats"),
-                #{
-                    desc =>
-                        "Enable/disable statistic data collection.\n"
-                        "Statistic data such as message receive/send count/rate etc. "
-                        "It provides insights of system performance and helps to diagnose issues. "
-                        "You can find statistic data from the dashboard, or from the '/stats' API."
-                }
+                #{}
             )},
         {"sysmon",
             sc(
@@ -250,10 +233,7 @@ roots(low) ->
         {"trace",
             sc(
                 ref("trace"),
-                #{
-                    desc =>
-                        "Real-time filtering logs for the ClientID or Topic or IP for debugging."
-                }
+                #{}
             )}
     ].
 
@@ -337,13 +317,10 @@ fields("authorization") ->
                     default => allow,
                     %% TODO: make sources a reference link
                     desc =>
-                        ""
-                        "\n"
                         "Default access control action if the user or client matches no ACL rules,\n"
                         "or if no such user or client is found by the configurable authorization\n"
                         "sources such as built_in_database, an HTTP API, or a query against PostgreSQL.\n"
-                        "Find more details in 'authorization.sources' config.\n"
-                        ""
+                        "Find more details in 'authorization.sources' config."
                 }
             )},
         {"deny_action",
@@ -646,17 +623,28 @@ fields("rate_limit") ->
         {"max_conn_rate",
             sc(
                 hoconsc:union([infinity, integer()]),
-                #{default => 1000}
+                #{
+                    default => 1000,
+                    desc => "Maximum connections per second."
+                }
             )},
         {"conn_messages_in",
             sc(
                 hoconsc:union([infinity, comma_separated_list()]),
-                #{default => infinity}
+                #{
+                    default => infinity,
+                    desc => "Message limit for the external MQTT connections."
+                }
             )},
         {"conn_bytes_in",
             sc(
                 hoconsc:union([infinity, comma_separated_list()]),
-                #{default => infinity}
+                #{
+                    default => infinity,
+                    desc =>
+                        "Limit the rate of receiving packets for a MQTT connection.\n"
+                        "The rate is counted by bytes of packets per second."
+                }
             )}
     ];
 fields("flapping_detect") ->
@@ -667,11 +655,7 @@ fields("flapping_detect") ->
                 #{
                     default => false,
                     desc =>
-                        "Enable flapping connection detection feature.<br/>\n"
-                        "This config controls the allowed maximum number of `CONNECT` packets received\n"
-                        "from the same clientid in a time frame defined by `window_time`.\n"
-                        "After the limit is reached, successive `CONNECT` requests are forbidden\n"
-                        "(banned) until the end of the time period defined by `ban_time`."
+                        "Enable flapping connection detection feature."
                 }
             )},
         {"max_count",
@@ -858,7 +842,7 @@ fields("mqtt_tcp_listener") ->
         {"tcp",
             sc(
                 ref("tcp_opts"),
-                #{desc => "TCP listener options"}
+                #{}
             )}
     ] ++ mqtt_listener();
 fields("mqtt_ssl_listener") ->
@@ -1268,7 +1252,7 @@ fields("broker") ->
         {"perf",
             sc(
                 ref("broker_perf"),
-                #{desc => "Broker performance tuning parameters"}
+                #{}
             )}
     ];
 fields("broker_perf") ->
@@ -1299,17 +1283,7 @@ fields("sys_topics") ->
         {"sys_event_messages",
             sc(
                 ref("event_names"),
-                #{
-                    desc =>
-                        "Whether to enable Client lifecycle event messages publish.<br/>\n"
-                        "The following options are not only for enabling MQTT client event messages\n"
-                        "publish but also for Gateway clients. However, these kinds of clients type\n"
-                        "are distinguished by the Topic prefix:\n"
-                        "- For the MQTT client, its event topic format is:<br/>\n"
-                        "  <code>$SYS/broker/<node>/clients/<clientid>/<event></code><br/>\n"
-                        "- For the Gateway client, it is\n"
-                        "  <code>$SYS/broker/<node>/gateway/<gateway-name>/clients/<clientid>/<event></code>"
-                }
+                #{}
             )}
     ];
 fields("event_names") ->
@@ -1352,31 +1326,17 @@ fields("sysmon") ->
         {"vm",
             sc(
                 ref("sysmon_vm"),
-                #{
-                    desc =>
-                        "This part of the configuration is responsible for collecting\n"
-                        " BEAM VM events, such as long garbage collection, traffic congestion in the inter-broker\n"
-                        " communication, etc."
-                }
+                #{}
             )},
         {"os",
             sc(
                 ref("sysmon_os"),
-                #{
-                    desc =>
-                        "This part of the configuration is responsible for monitoring\n"
-                        " the host OS health, such as free memory, disk space, CPU load, etc."
-                }
+                #{}
             )},
         {"top",
             sc(
                 ref("sysmon_top"),
-                #{
-                    desc =>
-                        "This part of the configuration is responsible for monitoring\n"
-                        " the Erlang processes in the VM. This information can be sent to an external\n"
-                        " PostgreSQL database. This feature is inactive unless the PostgreSQL sink is configured."
-                }
+                #{}
             )}
     ];
 fields("sysmon_vm") ->
@@ -1746,6 +1706,144 @@ base_listener() ->
         {"limiter",
             sc(map("ratelimit's type", emqx_limiter_schema:bucket_name()), #{default => #{}})}
     ].
+
+desc("persistent_session_store") ->
+    "Settings for message persistence.";
+desc("stats") ->
+    "Enable/disable statistic data collection.\n"
+    "Statistic data such as message receive/send count/rate etc. "
+    "It provides insights of system performance and helps to diagnose issues. "
+    "You can find statistic data from the dashboard, or from the '/stats' API.";
+desc("authorization") ->
+    "Settings for client authorization.";
+desc("mqtt") ->
+    "Global MQTT configuration.<br>\n"
+    "The configs here work as default values which can be overridden\n"
+    "in <code>zone</code> configs";
+desc("cache") ->
+    "Settings for the authorization cache.";
+desc("zone") ->
+    "A `Zone` defines a set of configuration items (such as the maximum number of connections)"
+    " that can be shared between multiple listeners.\n\n"
+    "`Listener` can refer to a `Zone` through the configuration item"
+    " <code>listener.<Protocol>.<Listener Name>.zone</code>.\n\n"
+    "The configs defined in the zones will override the global configs with the same key.\n\n"
+    "For example, given the following config:\n"
+    "```\n"
+    "a {\n"
+    "    b: 1, c: 1\n"
+    "}\n"
+    "zone.my_zone {\n"
+    "  a {\n"
+    "    b:2\n"
+    "  }\n"
+    "}\n"
+    "```\n\n"
+    "The global config `a` is overridden by the configs `a` inside the zone `my_zone`.\n\n"
+    "If there is a listener using the zone `my_zone`, the value of config `a` will be: "
+    "`{b:2, c: 1}`.\n"
+    "Note that although the default value of `a.c` is `0`, the global value is used,"
+    " i.e. configs in the zone have no default values. To override `a.c` one must configure"
+    " it explicitly in the zone.\n\n"
+    "All the global configs that can be overridden in zones are:\n"
+    " - `stats.*`\n"
+    " - `mqtt.*`\n"
+    " - `authorization.*`\n"
+    " - `flapping_detect.*`\n"
+    " - `force_shutdown.*`\n"
+    " - `conn_congestion.*`\n"
+    " - `force_gc.*`\n\n";
+desc("rate_limit") ->
+    "Rate limit settings.";
+desc("flapping_detect") ->
+    "This config controls the allowed maximum number of `CONNECT` packets received\n"
+    "from the same clientid in a time frame defined by `window_time`.\n"
+    "After the limit is reached, successive `CONNECT` requests are forbidden\n"
+    "(banned) until the end of the time period defined by `ban_time`.";
+desc("force_shutdown") ->
+    "When the process message queue length, or the memory bytes\n"
+    "reaches a certain value, the process is forced to close.\n\n"
+    "Note: \"message queue\" here refers to the \"message mailbox\"\n"
+    "of the Erlang process, not the `mqueue` of QoS 1 and QoS 2.";
+desc("overload_protection") ->
+    "Overload protection mechanism monitors the load of the system and temporarily\n"
+    "disables some features (such as accepting new connections) when the load is high.";
+desc("conn_congestion") ->
+    "Settings for `conn_congestion` alarm.\n\n"
+    "Sometimes the MQTT connection (usually an MQTT subscriber) may\n"
+    "get \"congested\", because there are too many packets to be sent.\n"
+    "The socket tries to buffer the packets until the buffer is\n"
+    "full. If more packets arrive after that, the packets will be\n"
+    "\"pending\" in the queue and we consider the connection\n"
+    "congested.\n\n"
+    "Note: `sndbuf` can be set to larger value if the\n"
+    "alarm is triggered too often.\n"
+    "The name of the alarm is of format `conn_congestion/<ClientID>/<Username>`,\n"
+    "where the `<ClientID>` is the client ID of the congested MQTT connection,\n"
+    "and `<Username>` is the username or `unknown_user`.";
+desc("force_gc") ->
+    "Force garbage collection in MQTT connection process after\n"
+    " they process certain number of messages or bytes of data.";
+desc("listeners") ->
+    "MQTT listeners identified by their protocol type and assigned names";
+desc("mqtt_tcp_listener") ->
+    "Settings for the MQTT over TCP listener.";
+desc("mqtt_ssl_listener") ->
+    "Settings for the MQTT over SSL listener.";
+desc("mqtt_ws_listener") ->
+    "Settings for the MQTT over WebSocket listener.";
+desc("mqtt_wss_listener") ->
+    "Settings for the MQTT over WebSocket/SSL listener.";
+desc("mqtt_quic_listener") ->
+    "Settings for the MQTT over QUIC listener.";
+desc("ws_opts") ->
+    "WebSocket listener options.";
+desc("tcp_opts") ->
+    "TCP listener options.";
+desc("listener_ssl_opts") ->
+    "Socket options for SSL connections.";
+desc("listener_wss_opts") ->
+    "Socket options for WebSocket/SSL connections.";
+desc(ssl_client_opts) ->
+    "Socket options for SSL clients.";
+desc("deflate_opts") ->
+    "Compression options.";
+desc("broker") ->
+    "Message broker options.";
+desc("broker_perf") ->
+    "Broker performance tuning parameters.";
+desc("sys_topics") ->
+    "The EMQX Broker periodically publishes its own status, message statistics,\n"
+    "client online and offline events to the system topic starting with `$SYS/`.\n\n"
+    "The following options control the behavior of `$SYS` topics.";
+desc("event_names") ->
+    "Enable or disable client lifecycle event publishing.\n\n"
+    "The following options affect MQTT clients as well as\n"
+    "gateway clients. The types of the clients\n"
+    "are distinguished by the topic prefix:\n\n"
+    "- For the MQTT clients, the format is:\n"
+    "`$SYS/broker/<node>/clients/<clientid>/<event>`\n"
+    "- For the Gateway clients, it is\n"
+    "`$SYS/broker/<node>/gateway/<gateway-name>/clients/<clientid>/<event>`\n";
+desc("sysmon") ->
+    "Features related to system monitoring and introspection.";
+desc("sysmon_vm") ->
+    "This part of the configuration is responsible for collecting\n"
+    " BEAM VM events, such as long garbage collection, traffic congestion in the inter-broker\n"
+    " communication, etc.";
+desc("sysmon_os") ->
+    "This part of the configuration is responsible for monitoring\n"
+    " the host OS health, such as free memory, disk space, CPU load, etc.";
+desc("sysmon_top") ->
+    "This part of the configuration is responsible for monitoring\n"
+    " the Erlang processes in the VM. This information can be sent to an external\n"
+    " PostgreSQL database. This feature is inactive unless the PostgreSQL sink is configured.";
+desc("alarm") ->
+    "Settings for the alarms.";
+desc("trace") ->
+    "Real-time filtering logs for the ClientID or Topic or IP for debugging.";
+desc(_) ->
+    undefined.
 
 %% utils
 -spec conf_get(string() | [string()], hocon:config()) -> term().

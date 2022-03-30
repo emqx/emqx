@@ -48,7 +48,7 @@
               ]).
 -elvis([{elvis_style, dont_repeat_yourself, disable}]).
 
--export([namespace/0, roots/0 , fields/1]).
+-export([namespace/0, roots/0 , fields/1, desc/1]).
 
 -export([proxy_protocol_opts/0]).
 
@@ -432,6 +432,60 @@ fields(dtls_opts) ->
          , ciphers => dtls_all_available
          }, false).
 
+desc(gateway) ->
+    "EMQX Gateway configuration root.";
+desc(stomp) ->
+    "The STOMP protocol gateway provides EMQX with the ability to access STOMP\n"
+    "(Simple (or Streaming) Text Orientated Messaging Protocol) protocol.";
+desc(stomp_frame) ->
+    "Size limits for the STOMP frames.";
+desc(mqttsn) ->
+    "The MQTT-SN (MQTT for Sensor Networks) protocol gateway.";
+desc(mqttsn_predefined) ->
+    "The pre-defined topic name corresponding to the pre-defined topic\n"
+    "ID of N.\n\n"
+    "Note: the pre-defined topic ID of 0 is reserved.";
+desc(coap) ->
+    "The CoAP protocol gateway provides EMQX with the access capability of the CoAP protocol.\n"
+    "It allows publishing, subscribing, and receiving messages to EMQX in accordance\n"
+    "with a certain defined CoAP message format.";
+desc(lwm2m) ->
+    "The LwM2M protocol gateway.";
+desc(exproto) ->
+    "Settings for EMQX extension protocol (exproto).";
+desc(exproto_grpc_server) ->
+    "Settings for the exproto gRPC server.";
+desc(exproto_grpc_handler) ->
+    "Settings for the exproto gRPC connection handler.";
+desc(ssl_server_opts) ->
+    "SSL configuration for the server.";
+desc(clientinfo_override) ->
+    "ClientInfo override.";
+desc(lwm2m_translators) ->
+    "MQTT topics that correspond to LwM2M events.";
+desc(translator) ->
+    "MQTT topic that corresponds to a particular type of event.";
+desc(udp_listeners) ->
+    "Settings for the UDP listeners.";
+desc(tcp_listeners) ->
+    "Settings for the TCP listeners.";
+desc(udp_tcp_listeners) ->
+    "Settings for the listeners.";
+desc(tcp_listener) ->
+    "Settings for the TCP listener.";
+desc(ssl_listener) ->
+    "Settings for the SSL listener.";
+desc(udp_listener) ->
+    "Settings for the UDP listener.";
+desc(dtls_listener) ->
+    "Settings for the DTLS listener.";
+desc(udp_opts) ->
+    "Settings for the UDP sockets.";
+desc(dtls_opts) ->
+    "Settings for the DTLS protocol.";
+desc(_) ->
+    undefined.
+
 authentication_schema() ->
     sc(emqx_authn_schema:authenticator_type(),
        #{ required => {false, recursively}
@@ -471,7 +525,7 @@ It has two purposes:
            })}
     , {clientinfo_override,
        sc(ref(clientinfo_override),
-          #{ desc => ""
+          #{ desc => "ClientInfo override"
            })}
     , {?EMQX_AUTHENTICATION_CONFIG_ROOT_NAME_ATOM, authentication_schema()}
     ].

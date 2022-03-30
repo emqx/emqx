@@ -36,7 +36,7 @@
                 file/0,
                 cipher/0]).
 
--export([namespace/0, roots/0, fields/1, translations/0, translation/1, validations/0]).
+-export([namespace/0, roots/0, fields/1, translations/0, translation/1, validations/0, desc/1]).
 -export([conf_get/2, conf_get/3, keys/2, filter/1]).
 
 %% Static apps which merge their configs into the merged emqx.conf
@@ -73,34 +73,23 @@ roots() ->
     emqx_schema_high_prio_roots() ++
     [ {"node",
        sc(ref("node"),
-          #{ desc => "Node name, cookie, config & data directories "
-                     "and the Erlang virtual machine (BEAM) boot parameters."
-           , translate_to => ["emqx"]
+          #{ translate_to => ["emqx"]
            })}
     , {"cluster",
        sc(ref("cluster"),
-          #{ desc => "EMQX nodes can form a cluster to scale up the total capacity.<br>"
-                     "Here holds the configs to instruct how individual nodes "
-                     "can discover each other."
-            , translate_to => ["ekka"]
+          #{  translate_to => ["ekka"]
            })}
     , {"log",
        sc(ref("log"),
-          #{ desc => "Configure logging backends (to console or to file), "
-                     "and logging level for each logger backend."
-           , translate_to => ["kernel"]
+          #{ translate_to => ["kernel"]
            })}
     , {"rpc",
        sc(ref("rpc"),
-          #{ desc => "EMQX uses a library called <code>gen_rpc</code> for "
-                     "inter-broker communication.<br/>Most of the time the default config "
-                     "should work, but in case you need to do performance "
-                     "fine-turning or experiment a bit, this is where to look."
-           , translate_to => ["gen_rpc"]
+          #{ translate_to => ["gen_rpc"]
            })}
     , {"db",
        sc(ref("db"),
-          #{ desc => "Settings of the embedded database."
+          #{
            })}
     ] ++
     emqx_schema:roots(medium) ++
@@ -148,24 +137,23 @@ fields("cluster") ->
           })}
     , {"static",
        sc(ref(cluster_static),
-          #{ desc => "Service discovery via static nodes. The new node joins the cluster by
- connecting to one of the bootstrap nodes."
+          #{
            })}
     , {"mcast",
        sc(ref(cluster_mcast),
-          #{ desc => "Service discovery via UDP multicast."
+          #{
            })}
     , {"dns",
        sc(ref(cluster_dns),
-          #{ desc => "Service discovery via DNS SRV records."
+          #{
            })}
     , {"etcd",
        sc(ref(cluster_etcd),
-          #{ desc => "Service discovery using 'etcd' service."
+          #{
            })}
     , {"k8s",
        sc(ref(cluster_k8s),
-          #{ desc => "Service discovery via Kubernetes API server."
+          #{
            })}
     ];
 
@@ -420,10 +408,8 @@ a crash dump"
          )}
     , {"cluster_call",
       sc(ref("cluster_call"),
-        #{ desc => "Options for the 'cluster call' feature that allows to execute a callback
- on all nodes in the cluster."
-         , 'readOnly' => true
-          }
+        #{ 'readOnly' => true
+         }
         )}
     ];
 
@@ -741,6 +727,62 @@ fields("log_burst_limit") ->
 fields("authorization") ->
     emqx_schema:fields("authorization") ++
     emqx_authz_schema:fields("authorization").
+
+
+desc("cluster") ->
+    "EMQX nodes can form a cluster to scale up the total capacity.<br>"
+    "Here holds the configs to instruct how individual nodes "
+    "can discover each other.";
+desc(cluster_static) ->
+     "Service discovery via static nodes. The new node joins the cluster by "
+     "connecting to one of the bootstrap nodes.";
+desc(cluster_mcast) ->
+    "Service discovery via UDP multicast.";
+desc(cluster_dns) ->
+     "Service discovery via DNS SRV records.";
+desc(cluster_etcd) ->
+    "Service discovery using 'etcd' service.";
+desc(cluster_k8s) ->
+    "Service discovery via Kubernetes API server.";
+desc("node") ->
+    "Node name, cookie, config & data directories "
+    "and the Erlang virtual machine (BEAM) boot parameters.";
+desc("db") ->
+    "Settings for the embedded database.";
+desc("cluster_call") ->
+    "Options for the 'cluster call' feature that allows to execute a callback "
+    "on all nodes in the cluster.";
+desc("rpc") ->
+    "EMQX uses a library called <code>gen_rpc</code> for "
+    "inter-broker communication.<br/>Most of the time the default config "
+    "should work, but in case you need to do performance "
+    "fine-tuning or experiment a bit, this is where to look.";
+desc("log") ->
+    "EMQX logging supports multiple sinks for the log events."
+    " Each sink is represented by a _log handler_, which can be configured independently.";
+desc("console_handler") ->
+    "Log handler that prints log events to the EMQX console.";
+desc("log_file_handler") ->
+    "Log handler that prints log events to files.";
+desc("log_rotation") ->
+    "By default, the logs are stored in `./log` directory (for installation from zip file)"
+    " or in `/var/log/emqx` (for binary installation).<br/>"
+    "This section of the configuration controls the number of files kept for each log handler.";
+desc("log_overload_kill") ->
+    "Log overload kill features an overload protection that activates when"
+    " the log handlers use too much memory or have too many buffered log messages.<br/>"
+    "When the overload is detected, the log handler is terminated and restarted after a"
+    " cooldown period.";
+desc("log_burst_limit") ->
+    "Large bursts of log events produced in a short time can potentially cause problems, such as:\n"
+     " - Log files grow very large\n"
+     " - Log files are rotated too quickly, and useful information gets overwritten\n"
+     " - Overall performance impact on the system\n\n"
+    "Log burst limit feature can temporarily disable logging to avoid these issues.";
+desc("authorization") ->
+    "Settings that control client authorization.";
+desc(_) ->
+    undefined.
 
 translations() -> ["ekka", "kernel", "emqx", "gen_rpc"].
 

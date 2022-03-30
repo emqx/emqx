@@ -21,7 +21,9 @@
 
 -export([ namespace/0
         , roots/0
-        , fields/1]).
+        , fields/1
+        , desc/1
+        ]).
 
 namespace() -> "prometheus".
 
@@ -44,5 +46,10 @@ fields("prometheus") ->
                    , desc => "Enable reporting of metrics via Prometheus Pushgateway."
                    })}
     ].
+
+desc("prometheus") ->
+    "Settings for reporting metrics to Prometheus pushgateway.";
+desc(_) ->
+    undefined.
 
 sc(Type, Meta) -> hoconsc:mk(Type, Meta).
