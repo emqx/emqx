@@ -52,7 +52,8 @@ fields(_) -> [].
 
 ssl_fields() ->
     [ {ssl, #{type => hoconsc:ref(emqx_schema, ssl_client_opts),
-              default => #{<<"enable">> => false}
+              default => #{<<"enable">> => false},
+              desc => "SSL connection settings."
              }
       }
     ].
@@ -66,24 +67,29 @@ relational_db_fields() ->
     ].
 
 database(type) -> binary();
+database(desc) -> "Database name.";
 database(required) -> true;
 database(validator) -> [?NOT_EMPTY("the value of the field 'database' cannot be empty")];
 database(_) -> undefined.
 
 pool_size(type) -> integer();
+pool_size(desc) -> "Size of the connection pool.";
 pool_size(default) -> 8;
 pool_size(validator) -> [?MIN(1)];
 pool_size(_) -> undefined.
 
 username(type) -> binary();
+username(desc) -> "EMQX's username in the external database.";
 username(required) -> false;
 username(_) -> undefined.
 
 password(type) -> binary();
+password(desc) -> "EMQX's password in the external database.";
 password(required) -> false;
 password(_) -> undefined.
 
 auto_reconnect(type) -> boolean();
+auto_reconnect(desc) -> "Enable automatic reconnect to the database.";
 auto_reconnect(default) -> true;
 auto_reconnect(_) -> undefined.
 

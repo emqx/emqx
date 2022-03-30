@@ -55,11 +55,15 @@ root_type() ->
 
 mechanism(Name) ->
     hoconsc:mk(hoconsc:enum([Name]),
-               #{required => true}).
+               #{ required => true
+                , desc => "Authentication mechanism."
+                }).
 
 backend(Name) ->
     hoconsc:mk(hoconsc:enum([Name]),
-               #{required => true}).
+               #{ required => true
+                , desc => "Backend type."
+                }).
 
 fields("metrics_status_fields") ->
     [ {"metrics", mk(ref(?MODULE, "metrics"), #{desc => "The metrics of the resource"})}
@@ -89,7 +93,7 @@ fields("node_metrics") ->
 
 fields("node_status") ->
     [ node_name()
-    , {"status", mk(status(), #{})}
+    , {"status", mk(status(), #{desc => "Status of the node."})}
     ].
 
 status() ->

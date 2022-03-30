@@ -304,7 +304,7 @@ fields("stats") ->
                 boolean(),
                 #{
                     default => true,
-                    desc => "Enable/disable statistic data collection"
+                    desc => "Enable/disable statistic data collection."
                 }
             )}
     ];
@@ -339,17 +339,26 @@ fields("cache") ->
         {"enable",
             sc(
                 boolean(),
-                #{default => true}
+                #{
+                    default => true,
+                    desc => "Enable or disable the authorization cache."
+                }
             )},
         {"max_size",
             sc(
                 range(1, 1048576),
-                #{default => 32}
+                #{
+                    default => 32,
+                    desc => "Maximum number of cached items."
+                }
             )},
         {"ttl",
             sc(
                 duration(),
-                #{default => "1m"}
+                #{
+                    default => "1m",
+                    desc => "Time to live for the cached data."
+                }
             )}
     ];
 fields("mqtt") ->
@@ -762,12 +771,23 @@ fields("conn_congestion") ->
         {"enable_alarm",
             sc(
                 boolean(),
-                #{default => false}
+                #{
+                    default => false,
+                    desc => "Enable or disable connection congestion alarm."
+                }
             )},
         {"min_alarm_sustain_duration",
             sc(
                 duration(),
-                #{default => "1m"}
+                #{
+                    default => "1m",
+                    desc =>
+                        "Minimal time before clearing the alarm.\n\n"
+                        "The alarm is cleared only when there's no pending data in\n"
+                        "the queue, and at least `min_alarm_sustain_duration`\n"
+                        "milliseconds passed since the last time we considered the connection \"congested\".\n\n"
+                        "This is to avoid clearing and raising the alarm again too often."
+                }
             )}
     ];
 fields("force_gc") ->
@@ -1357,7 +1377,7 @@ fields("sysmon_vm") ->
                     desc =>
                         "The threshold, as percentage of processes, for how many\n"
                         " processes can simultaneously exist at the local node before the corresponding\n"
-                        " alarm is set."
+                        " alarm is raised."
                 }
             )},
         {"process_low_watermark",
@@ -1431,7 +1451,7 @@ fields("sysmon_os") ->
                     default => "80%",
                     desc =>
                         "The threshold, as percentage of system CPU load,\n"
-                        " for how much system cpu can be used before the corresponding alarm is set."
+                        " for how much system cpu can be used before the corresponding alarm is raised."
                 }
             )},
         {"cpu_low_watermark",
@@ -1459,7 +1479,7 @@ fields("sysmon_os") ->
                     default => "70%",
                     desc =>
                         "The threshold, as percentage of system memory,\n"
-                        " for how much system memory can be allocated before the corresponding alarm is set."
+                        " for how much system memory can be allocated before the corresponding alarm is raised."
                 }
             )},
         {"procmem_high_watermark",
@@ -1470,7 +1490,7 @@ fields("sysmon_os") ->
                     desc =>
                         "The threshold, as percentage of system memory,\n"
                         " for how much system memory can be allocated by one Erlang process before\n"
-                        " the corresponding alarm is set."
+                        " the corresponding alarm is raised."
                 }
             )}
     ];
@@ -1704,7 +1724,13 @@ base_listener() ->
                 }
             )},
         {"limiter",
-            sc(map("ratelimit's type", emqx_limiter_schema:bucket_name()), #{default => #{}})}
+            sc(
+                map("ratelimit's type", emqx_limiter_schema:bucket_name()),
+                #{
+                    default => #{},
+                    desc => "Type of the rate limit."
+                }
+            )}
     ].
 
 desc("persistent_session_store") ->

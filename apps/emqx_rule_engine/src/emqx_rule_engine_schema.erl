@@ -22,7 +22,9 @@
 
 -export([ namespace/0
         , roots/0
-        , fields/1]).
+        , fields/1
+        , desc/1
+        ]).
 
 -export([ validate_sql/1
         ]).
@@ -82,30 +84,7 @@ counter of the function output or the bridge channel will increase.
 
 fields("builtin_output_republish") ->
     [ {function, sc(republish, #{desc => "Republish the message as a new MQTT message"})}
-    , {args, sc(ref("republish_args"),
-        #{ desc => """
-The arguments of the built-in 'republish' output.<br>
-We can use variables in the args.<br>
-
-The variables are selected by the rule. For example, if the rule SQL is defined as following:
-<code>
-    SELECT clientid, qos, payload FROM \"t/1\"
-</code>
-Then there are 3 variables available: <code>clientid</code>, <code>qos</code> and
-<code>payload</code>. And if we've set the args to:
-<code>
-    {
-        topic = \"t/${clientid}\"
-        qos = \"${qos}\"
-        payload = \"msg: ${payload}\"
-    }
-</code>
-When the rule is triggered by an MQTT message with payload = \"hello\", qos = 1,
-clientid = \"Steve\", the rule will republish a new MQTT message to topic \"t/Steve\",
-payload = \"msg: hello\", and qos = 1.
-"""
-         , default => #{}
-         })}
+    , {args, sc(ref("republish_args"), #{default => #{}})}
     ];
 
 fields("builtin_output_console") ->
@@ -177,6 +156,38 @@ of the rule, then the string \"undefined\" is used.
          , example => <<"${payload}">>
          })}
     ].
+
+desc("rule_engine") ->
+    "Configuration for the EMQX Rule Engine.";
+desc("rules") ->
+    "Configuration for a rule.";
+desc("builtin_output_republish") ->
+    "Configuration for a built-in output.";
+desc("builtin_output_console") ->
+    "Configuration for a built-in output.";
+desc("user_provided_function") ->
+    "Configuration for a built-in output.";
+desc("republish_args") ->
+    "The arguments of the built-in 'republish' output.<br>"
+    "One can use variables in the args.<br>\n"
+    "The variables are selected by the rule. For example, if the rule SQL is defined as following:\n"
+    "<code>\n"
+    "    SELECT clientid, qos, payload FROM \"t/1\"\n"
+    "</code>\n"
+    "Then there are 3 variables available: <code>clientid</code>, <code>qos</code> and\n"
+    "<code>payload</code>. And if we've set the args to:\n"
+    "<code>\n"
+    "    {\n"
+    "        topic = \"t/${clientid}\"\n"
+    "        qos = \"${qos}\"\n"
+    "        payload = \"msg: ${payload}\"\n"
+    "    }\n"
+    "</code>\n"
+    "When the rule is triggered by an MQTT message with payload = `hello`, qos = 1,\n"
+    "clientid = `Steve`, the rule will republish a new MQTT message to topic `t/Steve`,\n"
+    "payload = `msg: hello`, and `qos = 1`.";
+desc(_) ->
+    undefined.
 
 rule_name() ->
     {"name", sc(binary(),

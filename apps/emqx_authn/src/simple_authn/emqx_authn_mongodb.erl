@@ -26,6 +26,7 @@
 -export([ namespace/0
         , roots/0
         , fields/1
+        , desc/1
         ]).
 
 -export([ refs/0
@@ -55,6 +56,15 @@ fields('replica-set') ->
 fields('sharded-cluster') ->
     common_fields() ++ emqx_connector_mongo:fields(sharded).
 
+desc(standalone) ->
+    "Configuration for a standalone MongoDB instance.";
+desc('replica-set') ->
+    "Configuration for a replica set.";
+desc('sharded-cluster') ->
+    "Configuration for a sharded cluster.";
+desc(_) ->
+    undefined.
+
 common_fields() ->
     [ {mechanism, emqx_authn_schema:mechanism('password_based')}
     , {backend, emqx_authn_schema:backend(mongodb)}
@@ -67,19 +77,27 @@ common_fields() ->
     ] ++ emqx_authn_schema:common_fields().
 
 collection(type) -> binary();
+collection(desc) -> "Collection used to store authentication data.";
 collection(_) -> undefined.
 
 selector(type) -> map();
+selector(desc) -> "Statement that is executed during the authentication process. "
+                  "Commands can support following wildcards:\n"
+                  " - `${username}`: substituted with client's username\n"
+                  " - `${clientid}`: substituted with the clientid";
 selector(_) -> undefined.
 
 password_hash_field(type) -> binary();
+password_hash_field(desc) -> "Document field that contains password hash.";
 password_hash_field(_) -> undefined.
 
 salt_field(type) -> binary();
+salt_field(desc) -> "Document field that contains the password salt.";
 salt_field(required) -> false;
 salt_field(_) -> undefined.
 
 is_superuser_field(type) -> binary();
+is_superuser_field(desc) -> "Document field that defines if the user has superuser privileges.";
 is_superuser_field(required) -> false;
 is_superuser_field(_) -> undefined.
 

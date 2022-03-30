@@ -421,7 +421,7 @@ fields("db") ->
            , 'readOnly' => true
            , desc => """
 Select the backend for the embedded database.<br/>
-<code>rlog</code> is the default backend, a new experimental backend
+<code>rlog</code> is the default backend,
 that is suitable for very large clusters.<br/>
 <code>mnesia</code> is a backend that offers decent performance in small clusters.
 """

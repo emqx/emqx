@@ -20,7 +20,7 @@
 
 -export([ roots/0, fields/1, to_rate/1, to_capacity/1
         , minimum_period/0, to_burst_rate/1, to_initial/1
-        , namespace/0, get_bucket_cfg_path/2
+        , namespace/0, get_bucket_cfg_path/2, desc/1
         ]).
 
 -define(KILOBYTE, 1024).
@@ -148,6 +148,17 @@ the check/consume will succeed, but it will be forced to wait for a short period
                             #{ desc => "The strategy when all the retries failed."
                              , default => force})}
     ].
+
+desc(limiter) ->
+    "Settings for the rate limiter.";
+desc(limiter_opts) ->
+    "Settings for the limiter.";
+desc(bucket_opts) ->
+    "Settings for the bucket.";
+desc(client_bucket) ->
+    "Settings for the client bucket.";
+desc(_) ->
+    undefined.
 
 %% minimum period is 100ms
 minimum_period() ->

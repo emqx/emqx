@@ -54,13 +54,15 @@ roots() ->
 
 fields(single) ->
     [ {mongo_type, #{type => single,
-                     default => single}}
+                     default => single,
+                     desc => "Standalone instance."}}
     , {server, fun server/1}
     , {w_mode, fun w_mode/1}
     ] ++ mongo_fields();
 fields(rs) ->
     [ {mongo_type, #{type => rs,
-                     default => rs}}
+                     default => rs,
+                     desc => "Replica set."}}
     , {servers, fun servers/1}
     , {w_mode, fun w_mode/1}
     , {r_mode, fun r_mode/1}
@@ -68,7 +70,8 @@ fields(rs) ->
     ] ++ mongo_fields();
 fields(sharded) ->
     [ {mongo_type, #{type => sharded,
-                     default => sharded}}
+                     default => sharded,
+                     desc => "Sharded cluster."}}
     , {servers, fun servers/1}
     , {w_mode, fun w_mode/1}
     ] ++ mongo_fields();
@@ -306,22 +309,27 @@ servers(desc) -> ?SERVERS_DESC ++ server(desc);
 servers(_) -> undefined.
 
 w_mode(type) -> hoconsc:enum([unsafe, safe]);
+w_mode(desc) -> "Write mode.";
 w_mode(default) -> unsafe;
 w_mode(_) -> undefined.
 
 r_mode(type) -> hoconsc:enum([master, slave_ok]);
+r_mode(desc) -> "Read mode.";
 r_mode(default) -> master;
 r_mode(_) -> undefined.
 
 duration(type) -> emqx_schema:duration_ms();
+duration(desc) -> "Time interval, such as timeout or TTL.";
 duration(required) -> false;
 duration(_) -> undefined.
 
 replica_set_name(type) -> binary();
+replica_set_name(desc) -> "Name of the replica set.";
 replica_set_name(required) -> false;
 replica_set_name(_) -> undefined.
 
 srv_record(type) -> boolean();
+srv_record(desc) -> "Use DNS SRV record.";
 srv_record(default) -> false;
 srv_record(_) -> undefined.
 
