@@ -42,6 +42,8 @@
 all() -> emqx_common_test_helpers:all(?MODULE).
 
 init_per_suite(Conf) ->
+    application:load(emqx_conf),
+    emqx_config:delete_override_conf_files(),
     emqx_config:erase(gateway),
     emqx_common_test_helpers:load_config(emqx_gateway_schema, ?CONF_DEFAULT),
     emqx_mgmt_api_test_util:init_suite([emqx_conf, emqx_authn, emqx_gateway]),

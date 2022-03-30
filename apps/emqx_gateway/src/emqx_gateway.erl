@@ -30,6 +30,9 @@
     list/0
 ]).
 
+%% APIs For `emqx_telemetry'
+-export([get_basic_usage_info/0]).
+
 %%--------------------------------------------------------------------
 %% APIs
 %%--------------------------------------------------------------------
@@ -81,6 +84,66 @@ start(Name) ->
 stop(Name) ->
     emqx_gateway_sup:stop_gateway_insta(Name).
 
+%% @doc Expose basic info for `emqx_telemetry'.
+-spec get_basic_usage_info() ->
+    #{
+        authn => Authn,
+        num_clients => non_neg_integer(),
+        listeners => [
+            #{
+                type => atom(),
+                authn => Authn
+            }
+        ]
+    }
+when
+    Authn :: binary().
+get_basic_usage_info() ->
+    lists:foldl(
+        fun(GatewayInfo, Acc) ->
+            Config = maps:get(config, GatewayInfo, #{}),
+            GatewayType = maps:get(name, GatewayInfo),
+            GatewayAuthn = get_authn_type(Config),
+            Listeners = get_listeners(Config),
+            TabName = emqx_gateway_cm:tabname(chan, GatewayType),
+            NumClients = ets:info(TabName, size),
+            Acc#{
+                GatewayType => #{
+                    authn => GatewayAuthn,
+                    listeners => Listeners,
+                    num_clients => NumClients
+                }
+            }
+        end,
+        #{},
+        list()
+    ).
+
 %%--------------------------------------------------------------------
 %% Internal funcs
 %%--------------------------------------------------------------------
+
+get_authn_type(#{authentication := #{mechanism := Mechanism, backend := Backend}}) when
+    is_atom(Mechanism), is_atom(Backend)
+->
+    MechanismBin = atom_to_binary(Mechanism),
+    BackendBin = atom_to_binary(Backend),
+    <<MechanismBin/binary, ":", BackendBin/binary>>;
+get_authn_type(_) ->
+    <<"undefined">>.
+
+get_listeners(#{listeners := Listeners0}) when is_map(Listeners0) ->
+    Listeners = [
+        {ListenerType, Config}
+     || {ListenerType, Listeners1} <- maps:to_list(Listeners0),
+        {_Name, Config} <- maps:to_list(Listeners1)
+    ],
+    lists:map(
+        fun({ListenerType, ListenerConfig}) ->
+            ListenerAuthn = get_authn_type(ListenerConfig),
+            #{type => ListenerType, authn => ListenerAuthn}
+        end,
+        Listeners
+    );
+get_listeners(_) ->
+    [].
