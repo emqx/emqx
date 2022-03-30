@@ -1377,7 +1377,7 @@ fields("sysmon_vm") ->
                     desc =>
                         "The threshold, as percentage of processes, for how many\n"
                         " processes can simultaneously exist at the local node before the corresponding\n"
-                        " alarm is set."
+                        " alarm is raised."
                 }
             )},
         {"process_low_watermark",
@@ -1451,7 +1451,7 @@ fields("sysmon_os") ->
                     default => "80%",
                     desc =>
                         "The threshold, as percentage of system CPU load,\n"
-                        " for how much system cpu can be used before the corresponding alarm is set."
+                        " for how much system cpu can be used before the corresponding alarm is raised."
                 }
             )},
         {"cpu_low_watermark",
@@ -1479,7 +1479,7 @@ fields("sysmon_os") ->
                     default => "70%",
                     desc =>
                         "The threshold, as percentage of system memory,\n"
-                        " for how much system memory can be allocated before the corresponding alarm is set."
+                        " for how much system memory can be allocated before the corresponding alarm is raised."
                 }
             )},
         {"procmem_high_watermark",
@@ -1490,7 +1490,7 @@ fields("sysmon_os") ->
                     desc =>
                         "The threshold, as percentage of system memory,\n"
                         " for how much system memory can be allocated by one Erlang process before\n"
-                        " the corresponding alarm is set."
+                        " the corresponding alarm is raised."
                 }
             )}
     ];

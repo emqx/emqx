@@ -169,7 +169,7 @@ desc("user_provided_function") ->
     "Configuration for a built-in output.";
 desc("republish_args") ->
     "The arguments of the built-in 'republish' output.<br>"
-    "We can use variables in the args.<br>\n"
+    "One can use variables in the args.<br>\n"
     "The variables are selected by the rule. For example, if the rule SQL is defined as following:\n"
     "<code>\n"
     "    SELECT clientid, qos, payload FROM \"t/1\"\n"
@@ -183,9 +183,9 @@ desc("republish_args") ->
     "        payload = \"msg: ${payload}\"\n"
     "    }\n"
     "</code>\n"
-    "When the rule is triggered by an MQTT message with payload = \"hello\", qos = 1,\n"
-    "clientid = \"Steve\", the rule will republish a new MQTT message to topic \"t/Steve\",\n"
-    "payload = \"msg: hello\", and qos = 1.";
+    "When the rule is triggered by an MQTT message with payload = `hello`, qos = 1,\n"
+    "clientid = `Steve`, the rule will republish a new MQTT message to topic `t/Steve`,\n"
+    "payload = `msg: hello`, and `qos = 1`.";
 desc(_) ->
     undefined.
 
