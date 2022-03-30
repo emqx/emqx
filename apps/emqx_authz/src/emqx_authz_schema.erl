@@ -145,8 +145,8 @@ fields(redis_cluster) ->
 
 http_common_fields() ->
     [ {url, fun url/1}
-    , {request_timeout, mk_duration("Request timeout", #{default => "30s"})}
-    , {body, #{type => map(), required => false}}
+    , {request_timeout, mk_duration("Request timeout", #{default => "30s", desc => "Request timeout."})}
+    , {body, #{type => map(), required => false, desc => "HTTP request body."}}
     ] ++ maps:to_list(maps:without([ base_url
                                    , pool_type],
                                    maps:from_list(connector_fields(http)))).
@@ -166,6 +166,7 @@ validations() ->
     ].
 
 headers(type) -> list({binary(), binary()});
+headers(desc) -> "List of HTTP headers.";
 headers(converter) ->
     fun(Headers) ->
         maps:to_list(maps:merge(default_headers(), transform_header_name(Headers)))
@@ -174,6 +175,7 @@ headers(default) -> default_headers();
 headers(_) -> undefined.
 
 headers_no_content_type(type) -> list({binary(), binary()});
+headers_no_content_type(desc) -> "List of HTTP headers.";
 headers_no_content_type(converter) ->
     fun(Headers) ->
        maps:to_list(maps:merge(default_headers_no_content_type(), transform_header_name(Headers)))
@@ -182,6 +184,7 @@ headers_no_content_type(default) -> default_headers_no_content_type();
 headers_no_content_type(_) -> undefined.
 
 url(type) -> binary();
+url(desc) -> "URL of the auth server.";
 url(validator) -> [?NOT_EMPTY("the value of the field 'url' cannot be empty")];
 url(required) -> true;
 url(_) -> undefined.
