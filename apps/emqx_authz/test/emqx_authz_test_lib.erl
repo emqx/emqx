@@ -32,33 +32,40 @@ restore_authorizers() ->
 
 reset_authorizers(Nomatch, ChacheEnabled) ->
     {ok, _} = emqx:update_config(
-                [authorization],
-                #{<<"no_match">> => atom_to_binary(Nomatch),
-                  <<"cache">> => #{<<"enable">> => atom_to_binary(ChacheEnabled)},
-                  <<"sources">> => []}),
+        [authorization],
+        #{
+            <<"no_match">> => atom_to_binary(Nomatch),
+            <<"cache">> => #{<<"enable">> => atom_to_binary(ChacheEnabled)},
+            <<"sources">> => []
+        }
+    ),
     ok.
 
 setup_config(BaseConfig, SpecialParams) ->
     Config = maps:merge(BaseConfig, SpecialParams),
     case emqx_authz:update(?CMD_REPLACE, [Config]) of
-      {ok, _} -> ok;
-      {error, Reason} -> {error, Reason}
+        {ok, _} -> ok;
+        {error, Reason} -> {error, Reason}
     end.
 
 test_samples(ClientInfo, Samples) ->
     lists:foreach(
-      fun({Expected, Action, Topic}) ->
-              ct:pal(
+        fun({Expected, Action, Topic}) ->
+            ct:pal(
                 "client_info: ~p, action: ~p, topic: ~p, expected: ~p",
-                [ClientInfo, Action, Topic, Expected]),
-              ?assertEqual(
-                 Expected,
-                 emqx_access_control:authorize(
-                   ClientInfo,
-                   Action,
-                   Topic))
-      end,
-      Samples).
+                [ClientInfo, Action, Topic, Expected]
+            ),
+            ?assertEqual(
+                Expected,
+                emqx_access_control:authorize(
+                    ClientInfo,
+                    Action,
+                    Topic
+                )
+            )
+        end,
+        Samples
+    ).
 
 test_no_topic_rules(ClientInfo, SetupSamples) ->
     %% No rules
@@ -67,43 +74,52 @@ test_no_topic_rules(ClientInfo, SetupSamples) ->
     ok = SetupSamples(ClientInfo, []),
 
     ok = test_samples(
-           ClientInfo,
-           [{deny, subscribe, <<"#">>},
+        ClientInfo,
+        [
+            {deny, subscribe, <<"#">>},
             {deny, subscribe, <<"subs">>},
-            {deny, publish, <<"pub">>}]).
+            {deny, publish, <<"pub">>}
+        ]
+    ).
 
 test_allow_topic_rules(ClientInfo, SetupSamples) ->
-    Samples = [#{
-                 topics => [<<"eq testpub1/${username}">>,
-                            <<"testpub2/${clientid}">>,
-                            <<"testpub3/#">>],
-                 permission => <<"allow">>,
-                 action => <<"publish">>
-                },
-               #{
-                 topics => [<<"eq testsub1/${username}">>,
-                            <<"testsub2/${clientid}">>,
-                            <<"testsub3/#">>],
-                 permission => <<"allow">>,
-                 action => <<"subscribe">>
-                },
+    Samples = [
+        #{
+            topics => [
+                <<"eq testpub1/${username}">>,
+                <<"testpub2/${clientid}">>,
+                <<"testpub3/#">>
+            ],
+            permission => <<"allow">>,
+            action => <<"publish">>
+        },
+        #{
+            topics => [
+                <<"eq testsub1/${username}">>,
+                <<"testsub2/${clientid}">>,
+                <<"testsub3/#">>
+            ],
+            permission => <<"allow">>,
+            action => <<"subscribe">>
+        },
 
-               #{
-                 topics => [<<"eq testall1/${username}">>,
-                            <<"testall2/${clientid}">>,
-                            <<"testall3/#">>],
-                 permission => <<"allow">>,
-                 action => <<"all">>
-                }
-              ],
+        #{
+            topics => [
+                <<"eq testall1/${username}">>,
+                <<"testall2/${clientid}">>,
+                <<"testall3/#">>
+            ],
+            permission => <<"allow">>,
+            action => <<"all">>
+        }
+    ],
 
     ok = reset_authorizers(deny, false),
     ok = SetupSamples(ClientInfo, Samples),
 
     ok = test_samples(
-           ClientInfo,
-           [
-
+        ClientInfo,
+        [
             %% Publish rules
 
             {deny, publish, <<"testpub1/username">>},
@@ -113,7 +129,6 @@ test_allow_topic_rules(ClientInfo, SetupSamples) ->
 
             {deny, publish, <<"testpub2/username">>},
             {deny, publish, <<"testpub1/clientid">>},
-
 
             {deny, subscribe, <<"testpub1/username">>},
             {deny, subscribe, <<"testpub2/clientid">>},
@@ -154,41 +169,47 @@ test_allow_topic_rules(ClientInfo, SetupSamples) ->
             {deny, publish, <<"testall2/username">>},
             {deny, publish, <<"testall1/clientid">>},
             {deny, publish, <<"testall4/foobar">>}
-           ]).
+        ]
+    ).
 
 test_deny_topic_rules(ClientInfo, SetupSamples) ->
     Samples = [
-               #{
-                 topics => [<<"eq testpub1/${username}">>,
-                            <<"testpub2/${clientid}">>,
-                            <<"testpub3/#">>],
-                 permission => <<"deny">>,
-                 action => <<"publish">>
-                },
-               #{
-                 topics => [<<"eq testsub1/${username}">>,
-                            <<"testsub2/${clientid}">>,
-                            <<"testsub3/#">>],
-                 permission => <<"deny">>,
-                 action => <<"subscribe">>
-                },
+        #{
+            topics => [
+                <<"eq testpub1/${username}">>,
+                <<"testpub2/${clientid}">>,
+                <<"testpub3/#">>
+            ],
+            permission => <<"deny">>,
+            action => <<"publish">>
+        },
+        #{
+            topics => [
+                <<"eq testsub1/${username}">>,
+                <<"testsub2/${clientid}">>,
+                <<"testsub3/#">>
+            ],
+            permission => <<"deny">>,
+            action => <<"subscribe">>
+        },
 
-               #{
-                 topics => [<<"eq testall1/${username}">>,
-                            <<"testall2/${clientid}">>,
-                            <<"testall3/#">>],
-                 permission => <<"deny">>,
-                 action => <<"all">>
-                }
-              ],
+        #{
+            topics => [
+                <<"eq testall1/${username}">>,
+                <<"testall2/${clientid}">>,
+                <<"testall3/#">>
+            ],
+            permission => <<"deny">>,
+            action => <<"all">>
+        }
+    ],
 
     ok = reset_authorizers(allow, false),
     ok = SetupSamples(ClientInfo, Samples),
 
     ok = test_samples(
-           ClientInfo,
-           [
-
+        ClientInfo,
+        [
             %% Publish rules
 
             {allow, publish, <<"testpub1/username">>},
@@ -198,7 +219,6 @@ test_deny_topic_rules(ClientInfo, SetupSamples) ->
 
             {allow, publish, <<"testpub2/username">>},
             {allow, publish, <<"testpub1/clientid">>},
-
 
             {allow, subscribe, <<"testpub1/username">>},
             {allow, subscribe, <<"testpub2/clientid">>},
@@ -239,4 +259,5 @@ test_deny_topic_rules(ClientInfo, SetupSamples) ->
             {allow, publish, <<"testall2/username">>},
             {allow, publish, <<"testall1/clientid">>},
             {allow, publish, <<"testall4/foobar">>}
-           ]).
+        ]
+    ).

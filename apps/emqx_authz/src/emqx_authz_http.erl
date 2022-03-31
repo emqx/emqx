@@ -24,25 +24,28 @@
 -behaviour(emqx_authz).
 
 %% AuthZ Callbacks
--export([ description/0
-        , init/1
-        , destroy/1
-        , authorize/4
-        , parse_url/1
-        ]).
+-export([
+    description/0,
+    init/1,
+    destroy/1,
+    authorize/4,
+    parse_url/1
+]).
 
 -ifdef(TEST).
 -compile(export_all).
 -compile(nowarn_export_all).
 -endif.
 
--define(PLACEHOLDERS, [?PH_USERNAME,
-                       ?PH_CLIENTID,
-                       ?PH_PEERHOST,
-                       ?PH_PROTONAME,
-                       ?PH_MOUNTPOINT,
-                       ?PH_TOPIC,
-                       ?PH_ACTION]).
+-define(PLACEHOLDERS, [
+    ?PH_USERNAME,
+    ?PH_CLIENTID,
+    ?PH_PEERHOST,
+    ?PH_PROTONAME,
+    ?PH_MOUNTPOINT,
+    ?PH_TOPIC,
+    ?PH_ACTION
+]).
 
 description() ->
     "AuthZ with http".
@@ -57,14 +60,17 @@ init(Config) ->
 destroy(#{annotations := #{id := Id}}) ->
     ok = emqx_resource:remove_local(Id).
 
-authorize( Client
-         , PubSub
-         , Topic
-         , #{ type            := http
-            , annotations     := #{id := ResourceID}
-            , method := Method
-            , request_timeout := RequestTimeout
-            } = Config) ->
+authorize(
+    Client,
+    PubSub,
+    Topic,
+    #{
+        type := http,
+        annotations := #{id := ResourceID},
+        method := Method,
+        request_timeout := RequestTimeout
+    } = Config
+) ->
     Request = generate_request(PubSub, Topic, Client, Config),
     case emqx_resource:query(ResourceID, {Method, Request, RequestTimeout}) of
         {ok, 200, _Headers} ->
@@ -78,38 +84,47 @@ authorize( Client
         {ok, _Status, _Headers, _Body} ->
             nomatch;
         {error, Reason} ->
-            ?SLOG(error, #{msg => "http_server_query_failed",
-                           resource => ResourceID,
-                           reason => Reason}),
+            ?SLOG(error, #{
+                msg => "http_server_query_failed",
+                resource => ResourceID,
+                reason => Reason
+            }),
             ignore
     end.
 
-parse_config(#{ url := URL
-              , method := Method
-              , headers := Headers
-              , request_timeout := ReqTimeout
-              } = Conf) ->
+parse_config(
+    #{
+        url := URL,
+        method := Method,
+        headers := Headers,
+        request_timeout := ReqTimeout
+    } = Conf
+) ->
     {BaseURLWithPath, Query} = parse_fullpath(URL),
     BaseURLMap = parse_url(BaseURLWithPath),
-    Conf#{ method               => Method
-         , base_url             => maps:remove(query, BaseURLMap)
-         , base_query_template  => emqx_authz_utils:parse_deep(
-                                     cow_qs:parse_qs(bin(Query)),
-                                     ?PLACEHOLDERS)
-         , body_template        => emqx_authz_utils:parse_deep(
-                                     maps:to_list(maps:get(body, Conf, #{})),
-                                     ?PLACEHOLDERS)
-         , headers              => Headers
-         , request_timeout      => ReqTimeout
-           %% pool_type default value `random`
-         , pool_type            => random
-         }.
+    Conf#{
+        method => Method,
+        base_url => maps:remove(query, BaseURLMap),
+        base_query_template => emqx_authz_utils:parse_deep(
+            cow_qs:parse_qs(bin(Query)),
+            ?PLACEHOLDERS
+        ),
+        body_template => emqx_authz_utils:parse_deep(
+            maps:to_list(maps:get(body, Conf, #{})),
+            ?PLACEHOLDERS
+        ),
+        headers => Headers,
+        request_timeout => ReqTimeout,
+        %% pool_type default value `random`
+        pool_type => random
+    }.
 
 parse_fullpath(RawURL) ->
     cow_http:parse_fullpath(bin(RawURL)).
 
-parse_url(URL)
-  when URL =:= undefined ->
+parse_url(URL) when
+    URL =:= undefined
+->
     #{};
 parse_url(URL) ->
     {ok, URIMap} = emqx_http_lib:uri_parse(URL),
@@ -120,28 +135,31 @@ parse_url(URL) ->
             URIMap
     end.
 
-generate_request( PubSub
-                , Topic
-                , Client
-                , #{ method := Method
-                   , base_url := #{path := Path}
-                   , base_query_template := BaseQueryTemplate
-                   , headers := Headers
-                   , body_template := BodyTemplate
-                   }) ->
+generate_request(
+    PubSub,
+    Topic,
+    Client,
+    #{
+        method := Method,
+        base_url := #{path := Path},
+        base_query_template := BaseQueryTemplate,
+        headers := Headers,
+        body_template := BodyTemplate
+    }
+) ->
     Values = client_vars(Client, PubSub, Topic),
     Body = emqx_authz_utils:render_deep(BodyTemplate, Values),
     NBaseQuery = emqx_authz_utils:render_deep(BaseQueryTemplate, Values),
     case Method of
-        get  ->
+        get ->
             NPath = append_query(Path, NBaseQuery ++ Body),
             {NPath, Headers};
         _ ->
             NPath = append_query(Path, NBaseQuery),
             NBody = serialize_body(
-                      proplists:get_value(<<"Accept">>, Headers, <<"application/json">>),
-                      Body
-                     ),
+                proplists:get_value(<<"Accept">>, Headers, <<"application/json">>),
+                Body
+            ),
             {NPath, Headers, NBody}
     end.
 
@@ -161,9 +179,13 @@ query_string([], Acc) ->
             <<>>
     end;
 query_string([{K, V} | More], Acc) ->
-    query_string( More
-                , [ ["&", emqx_http_lib:uri_encode(K), "=", emqx_http_lib:uri_encode(V)]
-                  | Acc]).
+    query_string(
+        More,
+        [
+            ["&", emqx_http_lib:uri_encode(K), "=", emqx_http_lib:uri_encode(V)]
+            | Acc
+        ]
+    ).
 
 serialize_body(<<"application/json">>, Body) ->
     jsx:encode(Body);
@@ -172,9 +194,9 @@ serialize_body(<<"application/x-www-form-urlencoded">>, Body) ->
 
 client_vars(Client, PubSub, Topic) ->
     Client#{
-      action => PubSub,
-      topic => Topic
-     }.
+        action => PubSub,
+        topic => Topic
+    }.
 
 bin(A) when is_atom(A) -> atom_to_binary(A, utf8);
 bin(B) when is_binary(B) -> B;

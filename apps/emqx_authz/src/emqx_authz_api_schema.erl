@@ -25,58 +25,77 @@
 -export([fields/1, authz_sources_types/1]).
 
 fields(http) ->
-    authz_common_fields(http)
-        ++ [ {url, fun url/1}
-           , {method, #{ type => enum([get, post])
-                       , default => get}}
-           , {headers, fun headers/1}
-           , {body, map([{fuzzy, term(), binary()}])}
-           , {request_timeout, mk_duration("Request timeout", #{default => "30s"})}]
-        ++ maps:to_list(maps:without([ base_url
-                                     , pool_type],
-                                     maps:from_list(emqx_connector_http:fields(config))));
+    authz_common_fields(http) ++
+        [
+            {url, fun url/1},
+            {method, #{
+                type => enum([get, post]),
+                default => get
+            }},
+            {headers, fun headers/1},
+            {body, map([{fuzzy, term(), binary()}])},
+            {request_timeout, mk_duration("Request timeout", #{default => "30s"})}
+        ] ++
+        maps:to_list(
+            maps:without(
+                [
+                    base_url,
+                    pool_type
+                ],
+                maps:from_list(emqx_connector_http:fields(config))
+            )
+        );
 fields('built_in_database') ->
     authz_common_fields('built_in_database');
 fields(mongo_single) ->
-    authz_mongo_common_fields()
-    ++ emqx_connector_mongo:fields(single);
+    authz_mongo_common_fields() ++
+        emqx_connector_mongo:fields(single);
 fields(mongo_rs) ->
-    authz_mongo_common_fields()
-    ++ emqx_connector_mongo:fields(rs);
+    authz_mongo_common_fields() ++
+        emqx_connector_mongo:fields(rs);
 fields(mongo_sharded) ->
-    authz_mongo_common_fields()
-    ++ emqx_connector_mongo:fields(sharded);
+    authz_mongo_common_fields() ++
+        emqx_connector_mongo:fields(sharded);
 fields(mysql) ->
-    authz_common_fields(mysql)
-    ++ [ {query, #{type => binary()}}]
-    ++ emqx_connector_mysql:fields(config);
+    authz_common_fields(mysql) ++
+        [{query, #{type => binary()}}] ++
+        emqx_connector_mysql:fields(config);
 fields(postgresql) ->
-    authz_common_fields(postgresql)
-    ++ [ {query, #{type => binary()}}]
-    ++ proplists:delete(named_queries, emqx_connector_pgsql:fields(config));
+    authz_common_fields(postgresql) ++
+        [{query, #{type => binary()}}] ++
+        proplists:delete(named_queries, emqx_connector_pgsql:fields(config));
 fields(redis_single) ->
-    authz_redis_common_fields()
-    ++ emqx_connector_redis:fields(single);
+    authz_redis_common_fields() ++
+        emqx_connector_redis:fields(single);
 fields(redis_sentinel) ->
-    authz_redis_common_fields()
-    ++ emqx_connector_redis:fields(sentinel);
+    authz_redis_common_fields() ++
+        emqx_connector_redis:fields(sentinel);
 fields(redis_cluster) ->
-    authz_redis_common_fields()
-    ++ emqx_connector_redis:fields(cluster);
+    authz_redis_common_fields() ++
+        emqx_connector_redis:fields(cluster);
 fields(file) ->
-    authz_common_fields(file)
-    ++ [ { rules, #{ type => binary()
-                   , required => true
-                   , example =>
-                         <<"{allow,{username,\"^dashboard?\"},","subscribe,[\"$SYS/#\"]}.\n",
-                           "{allow,{ipaddr,\"127.0.0.1\"},all,[\"$SYS/#\",\"#\"]}.">>}}
-    ];
+    authz_common_fields(file) ++
+        [
+            {rules, #{
+                type => binary(),
+                required => true,
+                example =>
+                    <<"{allow,{username,\"^dashboard?\"},", "subscribe,[\"$SYS/#\"]}.\n",
+                        "{allow,{ipaddr,\"127.0.0.1\"},all,[\"$SYS/#\",\"#\"]}.">>
+            }}
+        ];
 fields(position) ->
-    [ { position
-      , mk( string()
-          , #{ desc => <<"Where to place the source">>
-             , required => true
-             , in => body})}].
+    [
+        {position,
+            mk(
+                string(),
+                #{
+                    desc => <<"Where to place the source">>,
+                    required => true,
+                    in => body
+                }
+            )}
+    ].
 
 %%------------------------------------------------------------------------------
 %% http type funcs
@@ -86,41 +105,52 @@ url(validator) -> [?NOT_EMPTY("the value of the field 'url' cannot be empty")];
 url(required) -> true;
 url(_) -> undefined.
 
-headers(type) -> map();
+headers(type) ->
+    map();
 headers(converter) ->
     fun(Headers) ->
-       maps:merge(default_headers(), transform_header_name(Headers))
+        maps:merge(default_headers(), transform_header_name(Headers))
     end;
-headers(default) -> default_headers();
-headers(_) -> undefined.
+headers(default) ->
+    default_headers();
+headers(_) ->
+    undefined.
 
 %% headers
 default_headers() ->
-    maps:put(<<"content-type">>,
-             <<"application/json">>,
-             default_headers_no_content_type()).
+    maps:put(
+        <<"content-type">>,
+        <<"application/json">>,
+        default_headers_no_content_type()
+    ).
 
 default_headers_no_content_type() ->
-    #{ <<"accept">> => <<"application/json">>
-     , <<"cache-control">> => <<"no-cache">>
-     , <<"connection">> => <<"keep-alive">>
-     , <<"keep-alive">> => <<"timeout=30, max=1000">>
-     }.
+    #{
+        <<"accept">> => <<"application/json">>,
+        <<"cache-control">> => <<"no-cache">>,
+        <<"connection">> => <<"keep-alive">>,
+        <<"keep-alive">> => <<"timeout=30, max=1000">>
+    }.
 
 transform_header_name(Headers) ->
-    maps:fold(fun(K0, V, Acc) ->
-                  K = list_to_binary(string:to_lower(to_list(K0))),
-                  maps:put(K, V, Acc)
-              end, #{}, Headers).
+    maps:fold(
+        fun(K0, V, Acc) ->
+            K = list_to_binary(string:to_lower(to_list(K0))),
+            maps:put(K, V, Acc)
+        end,
+        #{},
+        Headers
+    ).
 
 %%------------------------------------------------------------------------------
 %% MonogDB type funcs
 
 authz_mongo_common_fields() ->
     authz_common_fields(mongodb) ++
-    [ {collection, fun collection/1}
-    , {selector, fun selector/1}
-    ].
+        [
+            {collection, fun collection/1},
+            {selector, fun selector/1}
+        ].
 
 collection(type) -> binary();
 collection(_) -> undefined.
@@ -133,19 +163,24 @@ selector(_) -> undefined.
 
 authz_redis_common_fields() ->
     authz_common_fields(redis) ++
-    [ {cmd, #{ type => binary()
-             , example => <<"HGETALL mqtt_authz">>}}].
+        [
+            {cmd, #{
+                type => binary(),
+                example => <<"HGETALL mqtt_authz">>
+            }}
+        ].
 
 %%------------------------------------------------------------------------------
 %% Authz api type funcs
 
-authz_common_fields(Type) when is_atom(Type)->
-    [ {enable, fun enable/1}
-    , {type, #{ type => enum([Type])
-              , default => Type
-              , in => body
-              }
-      }
+authz_common_fields(Type) when is_atom(Type) ->
+    [
+        {enable, fun enable/1},
+        {type, #{
+            type => enum([Type]),
+            default => Type,
+            in => body
+        }}
     ].
 
 enable(type) -> boolean();
@@ -158,20 +193,25 @@ enable(_) -> undefined.
 
 authz_sources_types(Type) ->
     case Type of
-        simple -> [mongodb, redis];
-        detailed -> [ mongo_single
-                    , mongo_rs
-                    , mongo_sharded
-                    , redis_single
-                    , redis_sentinel
-                    , redis_cluster]
-    end
-        ++
-        [ http
-        , 'built_in_database'
-        , mysql
-        , postgresql
-        , file].
+        simple ->
+            [mongodb, redis];
+        detailed ->
+            [
+                mongo_single,
+                mongo_rs,
+                mongo_sharded,
+                redis_single,
+                redis_sentinel,
+                redis_cluster
+            ]
+    end ++
+        [
+            http,
+            'built_in_database',
+            mysql,
+            postgresql,
+            file
+        ].
 
 to_list(A) when is_atom(A) ->
     atom_to_list(A);

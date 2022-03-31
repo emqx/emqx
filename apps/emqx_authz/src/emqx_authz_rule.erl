@@ -26,50 +26,66 @@
 -endif.
 
 %% APIs
--export([ match/4
-        , matches/4
-        , compile/1
-        ]).
+-export([
+    match/4,
+    matches/4,
+    compile/1
+]).
 
--type(ipaddress() :: {ipaddr, esockd_cidr:cidr_string()} |
-                     {ipaddrs, list(esockd_cidr:cidr_string())}).
+-type ipaddress() ::
+    {ipaddr, esockd_cidr:cidr_string()}
+    | {ipaddrs, list(esockd_cidr:cidr_string())}.
 
--type(username() :: {username, binary()}).
+-type username() :: {username, binary()}.
 
--type(clientid() :: {clientid, binary()}).
+-type clientid() :: {clientid, binary()}.
 
--type(who() :: ipaddress() | username() | clientid() |
-               {'and', [ipaddress() | username() | clientid()]} |
-               {'or',  [ipaddress() | username() | clientid()]} |
-               all).
+-type who() ::
+    ipaddress()
+    | username()
+    | clientid()
+    | {'and', [ipaddress() | username() | clientid()]}
+    | {'or', [ipaddress() | username() | clientid()]}
+    | all.
 
--type(action() :: subscribe | publish | all).
--type(permission() :: allow | deny).
+-type action() :: subscribe | publish | all.
+-type permission() :: allow | deny.
 
--type(rule() :: {permission(), who(), action(), list(emqx_types:topic())}).
+-type rule() :: {permission(), who(), action(), list(emqx_types:topic())}.
 
--export_type([ action/0
-             , permission/0
-             ]).
+-export_type([
+    action/0,
+    permission/0
+]).
 
-compile({Permission, all})
-  when ?ALLOW_DENY(Permission) -> {Permission, all, all, [compile_topic(<<"#">>)]};
-compile({Permission, Who, Action, TopicFilters})
-  when ?ALLOW_DENY(Permission), ?PUBSUB(Action), is_list(TopicFilters) ->
-    { atom(Permission), compile_who(Who), atom(Action)
-    , [compile_topic(Topic) || Topic <- TopicFilters]}.
+compile({Permission, all}) when
+    ?ALLOW_DENY(Permission)
+->
+    {Permission, all, all, [compile_topic(<<"#">>)]};
+compile({Permission, Who, Action, TopicFilters}) when
+    ?ALLOW_DENY(Permission), ?PUBSUB(Action), is_list(TopicFilters)
+->
+    {atom(Permission), compile_who(Who), atom(Action), [
+        compile_topic(Topic)
+     || Topic <- TopicFilters
+    ]}.
 
-compile_who(all) -> all;
-compile_who({user, Username}) -> compile_who({username, Username});
+compile_who(all) ->
+    all;
+compile_who({user, Username}) ->
+    compile_who({username, Username});
 compile_who({username, {re, Username}}) ->
     {ok, MP} = re:compile(bin(Username)),
     {username, MP};
-compile_who({username, Username}) -> {username, {eq, bin(Username)}};
-compile_who({client, Clientid}) -> compile_who({clientid, Clientid});
+compile_who({username, Username}) ->
+    {username, {eq, bin(Username)}};
+compile_who({client, Clientid}) ->
+    compile_who({clientid, Clientid});
 compile_who({clientid, {re, Clientid}}) ->
     {ok, MP} = re:compile(bin(Clientid)),
     {clientid, MP};
-compile_who({clientid, Clientid}) -> {clientid, {eq, bin(Clientid)}};
+compile_who({clientid, Clientid}) ->
+    {clientid, {eq, bin(Clientid)}};
 compile_who({ipaddr, CIDR}) ->
     {ipaddr, esockd_cidr:parse(CIDR, true)};
 compile_who({ipaddrs, CIDRs}) ->
@@ -86,7 +102,7 @@ compile_topic({eq, Topic}) ->
 compile_topic(Topic) ->
     Words = emqx_topic:words(bin(Topic)),
     case pattern(Words) of
-        true  -> {pattern, Words};
+        true -> {pattern, Words};
         false -> Words
     end.
 
@@ -94,7 +110,8 @@ pattern(Words) ->
     lists:member(?PH_USERNAME, Words) orelse lists:member(?PH_CLIENTID, Words).
 
 atom(B) when is_binary(B) ->
-    try binary_to_existing_atom(B, utf8)
+    try
+        binary_to_existing_atom(B, utf8)
     catch
         _E:_S -> binary_to_atom(B)
     end;
@@ -105,21 +122,24 @@ bin(L) when is_list(L) ->
 bin(B) when is_binary(B) ->
     B.
 
--spec(matches(emqx_types:clientinfo(), emqx_types:pubsub(), emqx_types:topic(), [rule()])
-      -> {matched, allow} | {matched, deny} | nomatch).
-matches(_Client, _PubSub, _Topic, []) -> nomatch;
+-spec matches(emqx_types:clientinfo(), emqx_types:pubsub(), emqx_types:topic(), [rule()]) ->
+    {matched, allow} | {matched, deny} | nomatch.
+matches(_Client, _PubSub, _Topic, []) ->
+    nomatch;
 matches(Client, PubSub, Topic, [{Permission, Who, Action, TopicFilters} | Tail]) ->
     case match(Client, PubSub, Topic, {Permission, Who, Action, TopicFilters}) of
         nomatch -> matches(Client, PubSub, Topic, Tail);
         Matched -> Matched
     end.
 
--spec(match(emqx_types:clientinfo(), emqx_types:pubsub(), emqx_types:topic(), rule())
-      -> {matched, allow} | {matched, deny} | nomatch).
+-spec match(emqx_types:clientinfo(), emqx_types:pubsub(), emqx_types:topic(), rule()) ->
+    {matched, allow} | {matched, deny} | nomatch.
 match(Client, PubSub, Topic, {Permission, Who, Action, TopicFilters}) ->
-    case match_action(PubSub, Action) andalso
-         match_who(Client, Who) andalso
-         match_topics(Client, Topic, TopicFilters) of
+    case
+        match_action(PubSub, Action) andalso
+            match_who(Client, Who) andalso
+            match_topics(Client, Topic, TopicFilters)
+    of
         true -> {matched, Permission};
         _ -> nomatch
     end.
@@ -129,16 +149,19 @@ match_action(subscribe, subscribe) -> true;
 match_action(_, all) -> true;
 match_action(_, _) -> false.
 
-match_who(_, all) -> true;
+match_who(_, all) ->
+    true;
 match_who(#{username := undefined}, {username, _}) ->
     false;
-match_who(#{username := Username}, {username, {eq, Username}}) -> true;
+match_who(#{username := Username}, {username, {eq, Username}}) ->
+    true;
 match_who(#{username := Username}, {username, {re_pattern, _, _, _, _} = MP}) ->
     case re:run(Username, MP) of
         {match, _} -> true;
         _ -> false
     end;
-match_who(#{clientid := Clientid}, {clientid, {eq, Clientid}}) -> true;
+match_who(#{clientid := Clientid}, {clientid, {eq, Clientid}}) ->
+    true;
 match_who(#{clientid := Clientid}, {clientid, {re_pattern, _, _, _, _} = MP}) ->
     case re:run(Clientid, MP) of
         {match, _} -> true;
@@ -151,28 +174,40 @@ match_who(#{peerhost := IpAddress}, {ipaddr, CIDR}) ->
 match_who(#{peerhost := undefined}, {ipaddrs, _CIDR}) ->
     false;
 match_who(#{peerhost := IpAddress}, {ipaddrs, CIDRs}) ->
-    lists:any(fun(CIDR) ->
-        esockd_cidr:match(IpAddress, CIDR)
-    end, CIDRs);
+    lists:any(
+        fun(CIDR) ->
+            esockd_cidr:match(IpAddress, CIDR)
+        end,
+        CIDRs
+    );
 match_who(ClientInfo, {'and', Principals}) when is_list(Principals) ->
-    lists:foldl(fun(Principal, Permission) ->
-                  match_who(ClientInfo, Principal) andalso Permission
-                end, true, Principals);
+    lists:foldl(
+        fun(Principal, Permission) ->
+            match_who(ClientInfo, Principal) andalso Permission
+        end,
+        true,
+        Principals
+    );
 match_who(ClientInfo, {'or', Principals}) when is_list(Principals) ->
-    lists:foldl(fun(Principal, Permission) ->
-                  match_who(ClientInfo, Principal) orelse Permission
-                end, false, Principals);
-match_who(_, _) -> false.
+    lists:foldl(
+        fun(Principal, Permission) ->
+            match_who(ClientInfo, Principal) orelse Permission
+        end,
+        false,
+        Principals
+    );
+match_who(_, _) ->
+    false.
 
 match_topics(_ClientInfo, _Topic, []) ->
     false;
 match_topics(ClientInfo, Topic, [{pattern, PatternFilter} | Filters]) ->
     TopicFilter = feed_var(ClientInfo, PatternFilter),
-    match_topic(emqx_topic:words(Topic), TopicFilter)
-        orelse match_topics(ClientInfo, Topic, Filters);
+    match_topic(emqx_topic:words(Topic), TopicFilter) orelse
+        match_topics(ClientInfo, Topic, Filters);
 match_topics(ClientInfo, Topic, [TopicFilter | Filters]) ->
-   match_topic(emqx_topic:words(Topic), TopicFilter)
-       orelse match_topics(ClientInfo, Topic, Filters).
+    match_topic(emqx_topic:words(Topic), TopicFilter) orelse
+        match_topics(ClientInfo, Topic, Filters).
 
 match_topic(Topic, {'eq', TopicFilter}) ->
     Topic =:= TopicFilter;

@@ -38,16 +38,17 @@ init_per_suite(Config) ->
     case emqx_common_test_helpers:is_tcp_server_available(?REDIS_HOST, ?REDIS_DEFAULT_PORT) of
         true ->
             ok = emqx_common_test_helpers:start_apps(
-                   [emqx_conf, emqx_authz],
-                   fun set_special_configs/1
-                  ),
+                [emqx_conf, emqx_authz],
+                fun set_special_configs/1
+            ),
             ok = start_apps([emqx_resource, emqx_connector]),
             {ok, _} = emqx_resource:create_local(
-              ?REDIS_RESOURCE,
-              ?RESOURCE_GROUP,
-              emqx_connector_redis,
-              redis_config(),
-              #{}),
+                ?REDIS_RESOURCE,
+                ?RESOURCE_GROUP,
+                emqx_connector_redis,
+                redis_config(),
+                #{}
+            ),
             Config;
         false ->
             {skip, no_redis}
@@ -65,109 +66,130 @@ init_per_testcase(_TestCase, Config) ->
 
 set_special_configs(emqx_authz) ->
     ok = emqx_authz_test_lib:reset_authorizers();
-
 set_special_configs(_) ->
     ok.
-
 
 %%------------------------------------------------------------------------------
 %% Tests
 %%------------------------------------------------------------------------------
 
 t_topic_rules(_Config) ->
-    ClientInfo = #{clientid => <<"clientid">>,
-                   username => <<"username">>,
-                   peerhost => {127,0,0,1},
-                   zone => default,
-                   listener => {tcp, default}
-                  },
+    ClientInfo = #{
+        clientid => <<"clientid">>,
+        username => <<"username">>,
+        peerhost => {127, 0, 0, 1},
+        zone => default,
+        listener => {tcp, default}
+    },
 
     ok = emqx_authz_test_lib:test_no_topic_rules(ClientInfo, fun setup_client_samples/2),
 
     ok = emqx_authz_test_lib:test_allow_topic_rules(ClientInfo, fun setup_client_samples/2).
 
-
 t_lookups(_Config) ->
-    ClientInfo = #{clientid => <<"client id">>,
-                   cn => <<"cn">>,
-                   dn => <<"dn">>,
-                   username => <<"username">>,
-                   peerhost => {127,0,0,1},
-                   zone => default,
-                   listener => {tcp, default}
-                  },
+    ClientInfo = #{
+        clientid => <<"client id">>,
+        cn => <<"cn">>,
+        dn => <<"dn">>,
+        username => <<"username">>,
+        peerhost => {127, 0, 0, 1},
+        zone => default,
+        listener => {tcp, default}
+    },
 
-    ByClientid = #{<<"mqtt_user:client id">> =>
-                   #{<<"a">> => <<"all">>}},
+    ByClientid = #{
+        <<"mqtt_user:client id">> =>
+            #{<<"a">> => <<"all">>}
+    },
 
     ok = setup_sample(ByClientid),
     ok = setup_config(#{<<"cmd">> => <<"HGETALL mqtt_user:${clientid}">>}),
 
     ok = emqx_authz_test_lib:test_samples(
-           ClientInfo,
-           [{allow, subscribe, <<"a">>},
-            {deny, subscribe, <<"b">>}]),
+        ClientInfo,
+        [
+            {allow, subscribe, <<"a">>},
+            {deny, subscribe, <<"b">>}
+        ]
+    ),
 
-    ByPeerhost = #{<<"mqtt_user:127.0.0.1">> =>
-                   #{<<"a">> => <<"all">>}},
+    ByPeerhost = #{
+        <<"mqtt_user:127.0.0.1">> =>
+            #{<<"a">> => <<"all">>}
+    },
 
     ok = setup_sample(ByPeerhost),
     ok = setup_config(#{<<"cmd">> => <<"HGETALL mqtt_user:${peerhost}">>}),
 
     ok = emqx_authz_test_lib:test_samples(
-           ClientInfo,
-           [{allow, subscribe, <<"a">>},
-            {deny, subscribe, <<"b">>}]),
+        ClientInfo,
+        [
+            {allow, subscribe, <<"a">>},
+            {deny, subscribe, <<"b">>}
+        ]
+    ),
 
-    ByCN = #{<<"mqtt_user:cn">> =>
-             #{<<"a">> => <<"all">>}},
+    ByCN = #{
+        <<"mqtt_user:cn">> =>
+            #{<<"a">> => <<"all">>}
+    },
 
     ok = setup_sample(ByCN),
     ok = setup_config(#{<<"cmd">> => <<"HGETALL mqtt_user:${cert_common_name}">>}),
 
     ok = emqx_authz_test_lib:test_samples(
-           ClientInfo,
-           [{allow, subscribe, <<"a">>},
-            {deny, subscribe, <<"b">>}]),
+        ClientInfo,
+        [
+            {allow, subscribe, <<"a">>},
+            {deny, subscribe, <<"b">>}
+        ]
+    ),
 
-
-    ByDN = #{<<"mqtt_user:dn">> =>
-             #{<<"a">> => <<"all">>}},
+    ByDN = #{
+        <<"mqtt_user:dn">> =>
+            #{<<"a">> => <<"all">>}
+    },
 
     ok = setup_sample(ByDN),
     ok = setup_config(#{<<"cmd">> => <<"HGETALL mqtt_user:${cert_subject}">>}),
 
     ok = emqx_authz_test_lib:test_samples(
-           ClientInfo,
-           [{allow, subscribe, <<"a">>},
-            {deny, subscribe, <<"b">>}]).
+        ClientInfo,
+        [
+            {allow, subscribe, <<"a">>},
+            {deny, subscribe, <<"b">>}
+        ]
+    ).
 
 t_create_invalid(_Config) ->
     AuthzConfig = raw_redis_authz_config(),
 
     InvalidConfigs =
-        [maps:without([<<"server">>], AuthzConfig),
-         AuthzConfig#{<<"server">> => <<"unknownhost:3333">>},
-         AuthzConfig#{<<"password">> => <<"wrongpass">>},
-         AuthzConfig#{<<"database">> => <<"5678">>}],
+        [
+            maps:without([<<"server">>], AuthzConfig),
+            AuthzConfig#{<<"server">> => <<"unknownhost:3333">>},
+            AuthzConfig#{<<"password">> => <<"wrongpass">>},
+            AuthzConfig#{<<"database">> => <<"5678">>}
+        ],
 
     lists:foreach(
-      fun(Config) ->
+        fun(Config) ->
             {ok, _} = emqx_authz:update(?CMD_REPLACE, [Config]),
             [_] = emqx_authz:lookup()
-
-      end,
-      InvalidConfigs).
+        end,
+        InvalidConfigs
+    ).
 
 t_redis_error(_Config) ->
     ok = setup_config(#{<<"cmd">> => <<"INVALID COMMAND">>}),
 
-    ClientInfo = #{clientid => <<"clientid">>,
-                   username => <<"username">>,
-                   peerhost => {127,0,0,1},
-                   zone => default,
-                   listener => {tcp, default}
-                  },
+    ClientInfo = #{
+        clientid => <<"clientid">>,
+        username => <<"username">>,
+        peerhost => {127, 0, 0, 1},
+        zone => default,
+        listener => {tcp, default}
+    },
 
     deny = emqx_access_control:authorize(ClientInfo, subscribe, <<"a">>).
 
@@ -178,30 +200,36 @@ t_redis_error(_Config) ->
 setup_sample(AuthzData) ->
     {ok, _} = q(["FLUSHDB"]),
     ok = lists:foreach(
-           fun({Key, Values}) ->
-                   lists:foreach(
-                     fun({TopicFilter, Action}) ->
-                             q(["HSET", Key, TopicFilter, Action])
-                     end,
-                     maps:to_list(Values))
-           end,
-           maps:to_list(AuthzData)).
+        fun({Key, Values}) ->
+            lists:foreach(
+                fun({TopicFilter, Action}) ->
+                    q(["HSET", Key, TopicFilter, Action])
+                end,
+                maps:to_list(Values)
+            )
+        end,
+        maps:to_list(AuthzData)
+    ).
 
 setup_client_samples(ClientInfo, Samples) ->
     #{username := Username} = ClientInfo,
     Key = <<"mqtt_user:", Username/binary>>,
     lists:foreach(
-      fun(Sample) ->
-              #{topics := Topics,
+        fun(Sample) ->
+            #{
+                topics := Topics,
                 permission := <<"allow">>,
-                action := Action} = Sample,
-              lists:foreach(
+                action := Action
+            } = Sample,
+            lists:foreach(
                 fun(Topic) ->
-                        q(["HSET", Key, Topic, Action])
+                    q(["HSET", Key, Topic, Action])
                 end,
-                Topics)
-      end,
-      Samples),
+                Topics
+            )
+        end,
+        Samples
+    ),
     setup_config(#{}).
 
 setup_config(SpecialParams) ->
@@ -221,22 +249,24 @@ raw_redis_authz_config() ->
     }.
 
 redis_server() ->
-    iolist_to_binary(io_lib:format("~s",[?REDIS_HOST])).
+    iolist_to_binary(io_lib:format("~s", [?REDIS_HOST])).
 
 q(Command) ->
     emqx_resource:query(
-      ?REDIS_RESOURCE,
-      {cmd, Command}).
+        ?REDIS_RESOURCE,
+        {cmd, Command}
+    ).
 
 redis_config() ->
-    #{auto_reconnect => true,
-      database => 1,
-      pool_size => 8,
-      redis_type => single,
-      password => "public",
-      server => {?REDIS_HOST, ?REDIS_DEFAULT_PORT},
-      ssl => #{enable => false}
-     }.
+    #{
+        auto_reconnect => true,
+        database => 1,
+        pool_size => 8,
+        redis_type => single,
+        password => "public",
+        server => {?REDIS_HOST, ?REDIS_DEFAULT_PORT},
+        ssl => #{enable => false}
+    }.
 
 start_apps(Apps) ->
     lists:foreach(fun application:ensure_all_started/1, Apps).
