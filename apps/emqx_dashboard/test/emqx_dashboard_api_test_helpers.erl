@@ -18,6 +18,7 @@
 
 -export([set_default_config/0,
          set_default_config/1,
+         request/2,
          request/3,
          request/4,
          uri/0,
@@ -38,6 +39,9 @@ set_default_config(DefaultUsername) ->
               },
     emqx_config:put([dashboard], Config),
     ok.
+
+request(Method, Url) ->
+    request(Method, Url, []).
 
 request(Method, Url, Body) ->
     request(<<"admin">>, Method, Url, Body).
