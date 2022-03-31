@@ -57,7 +57,8 @@ def maybe_add_rebar_plugin():
 
 
 def execute_formatting():
-  subprocess.call(["rebar3", "fmt", "-w"])
+  subprocess.call(["rebar3", "fmt", "-w", "{src,include,test}/**/*.{hrl,erl,app.src}"])
+  subprocess.call(["rebar3", "fmt", "-w", "rebar.config"])
 
 
 def main():
