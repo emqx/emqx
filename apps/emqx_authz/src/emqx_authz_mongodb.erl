@@ -27,7 +27,6 @@
 -export([ description/0
         , init/1
         , destroy/1
-        , dry_run/1
         , authorize/4
         ]).
 
@@ -51,9 +50,6 @@ init(#{selector := Selector} = Source) ->
                                                   Selector,
                                                   ?PLACEHOLDERS)}
     end.
-
-dry_run(Source) ->
-    emqx_resource:create_dry_run_local(emqx_connector_mongo, Source).
 
 destroy(#{annotations := #{id := Id}}) ->
     ok = emqx_resource:remove_local(Id).

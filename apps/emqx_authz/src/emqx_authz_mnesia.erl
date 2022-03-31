@@ -47,7 +47,6 @@
 -export([ description/0
         , init/1
         , destroy/1
-        , dry_run/1
         , authorize/4
         ]).
 
@@ -89,8 +88,6 @@ description() ->
 init(Source) -> Source.
 
 destroy(_Source) -> ok.
-
-dry_run(_Source) -> ok.
 
 authorize(#{username := Username,
             clientid := Clientid
