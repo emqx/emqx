@@ -19,7 +19,7 @@ File format:
 
 ### Bug fixes
 
-* Forbidden empty topics in strict mode
+* Prohibit empty topics in strict mode
 
 ## v4.3.13
 
