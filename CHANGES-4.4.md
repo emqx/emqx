@@ -1,4 +1,4 @@
-# EMQ X 4.4 Changes
+# EMQX 4.4 Changes
 
 ### Enhancements
 * Add rule events: client.connack, client.check_acl_complete
@@ -14,6 +14,9 @@
 * Docker image is based on alpine-3.15.1 (OpenSSL-1.1.1n)
 * For docker image, /opt/emqx/etc has been removed from the VOLUME list,
   this made it easier for the users to rebuild image on top with changed configs.
+* CentOS 7 Erlang runtime is rebuilt on OpenSSL-1.1.1n (previously on 1.0),
+  Prior to v4.4.1, EMQX may pick certain cipher suites proposed by the clients,
+  but then fail to handshake resulting in a `malformed_handshake_data` exception.
 
 ### Enhancements
 
