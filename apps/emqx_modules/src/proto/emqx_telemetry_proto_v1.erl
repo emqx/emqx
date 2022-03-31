@@ -18,12 +18,13 @@
 
 -behaviour(emqx_bpapi).
 
--export([ introduced_in/0
+-export([
+    introduced_in/0,
 
-        , get_uuid/1
-        , enable_telemetry/1
-        , disable_telemetry/1
-        ]).
+    get_uuid/1,
+    enable_telemetry/1,
+    disable_telemetry/1
+]).
 
 -include_lib("emqx/include/bpapi.hrl").
 

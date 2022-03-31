@@ -18,17 +18,19 @@
 
 -behaviour(emqx_bpapi).
 
--export([ introduced_in/0
-        , get_delayed_message/2
-        , delete_delayed_message/2
-        ]).
+-export([
+    introduced_in/0,
+    get_delayed_message/2,
+    delete_delayed_message/2
+]).
 
 -include_lib("emqx/include/bpapi.hrl").
 
 introduced_in() ->
     "5.0.0".
 
--spec get_delayed_message(node(), binary()) -> emqx_delayed:with_id_return(map()) | emqx_rpc:badrpc().
+-spec get_delayed_message(node(), binary()) ->
+    emqx_delayed:with_id_return(map()) | emqx_rpc:badrpc().
 get_delayed_message(Node, HexId) ->
     rpc:call(Node, emqx_delayed, get_delayed_message, [HexId]).
 
