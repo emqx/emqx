@@ -39,8 +39,9 @@ init_per_testcase(_, Config) ->
     {ok, _} = emqx_cluster_rpc:start_link(node(), emqx_cluster_rpc, 1000),
     emqx_authentication:initialize_authentication(?GLOBAL, []),
     emqx_authn_test_lib:delete_authenticators(
-      [authentication],
-      ?GLOBAL),
+        [authentication],
+        ?GLOBAL
+    ),
     Config.
 
 init_per_suite(Config) ->
@@ -56,8 +57,9 @@ init_per_suite(Config) ->
 
 end_per_suite(_Config) ->
     emqx_authn_test_lib:delete_authenticators(
-      [authentication],
-      ?GLOBAL),
+        [authentication],
+        ?GLOBAL
+    ),
     ok = stop_apps([emqx_resource, emqx_connector]),
     ok = emqx_common_test_helpers:stop_apps([emqx_authn]).
 
@@ -67,39 +69,55 @@ end_per_suite(_Config) ->
 
 t_create(_Config) ->
     ?assertMatch(
-       {ok, _},
-       create_redis_auth_with_ssl_opts(
-         #{<<"server_name_indication">> => <<"authn-server">>,
-           <<"verify">> => <<"verify_peer">>,
-           <<"versions">> => [<<"tlsv1.3">>],
-           <<"ciphers">> => [<<"TLS_CHACHA20_POLY1305_SHA256">>]})).
+        {ok, _},
+        create_redis_auth_with_ssl_opts(
+            #{
+                <<"server_name_indication">> => <<"authn-server">>,
+                <<"verify">> => <<"verify_peer">>,
+                <<"versions">> => [<<"tlsv1.3">>],
+                <<"ciphers">> => [<<"TLS_CHACHA20_POLY1305_SHA256">>]
+            }
+        )
+    ).
 
 t_create_invalid(_Config) ->
     %% invalid server_name
     ?assertMatch(
-       {ok, _},
-       create_redis_auth_with_ssl_opts(
-         #{<<"server_name_indication">> => <<"authn-server-unknown-host">>,
-           <<"verify">> => <<"verify_peer">>,
-           <<"versions">> => [<<"tlsv1.3">>],
-           <<"ciphers">> => [<<"TLS_CHACHA20_POLY1305_SHA256">>]})),
+        {ok, _},
+        create_redis_auth_with_ssl_opts(
+            #{
+                <<"server_name_indication">> => <<"authn-server-unknown-host">>,
+                <<"verify">> => <<"verify_peer">>,
+                <<"versions">> => [<<"tlsv1.3">>],
+                <<"ciphers">> => [<<"TLS_CHACHA20_POLY1305_SHA256">>]
+            }
+        )
+    ),
 
     %% incompatible versions
     ?assertMatch(
         {error, _},
         create_redis_auth_with_ssl_opts(
-                   #{<<"server_name_indication">> => <<"authn-server">>,
-                     <<"verify">> => <<"verify_peer">>,
-                     <<"versions">> => [<<"tlsv1.1">>, <<"tlsv1.2">>]})),
+            #{
+                <<"server_name_indication">> => <<"authn-server">>,
+                <<"verify">> => <<"verify_peer">>,
+                <<"versions">> => [<<"tlsv1.1">>, <<"tlsv1.2">>]
+            }
+        )
+    ),
 
     %% incompatible ciphers
     ?assertMatch(
-       {error, _},
-       create_redis_auth_with_ssl_opts(
-         #{<<"server_name_indication">> => <<"authn-server">>,
-           <<"verify">> => <<"verify_peer">>,
-           <<"versions">> => [<<"tlsv1.3">>],
-           <<"ciphers">> => [<<"TLS_AES_128_GCM_SHA256">>]})).
+        {error, _},
+        create_redis_auth_with_ssl_opts(
+            #{
+                <<"server_name_indication">> => <<"authn-server">>,
+                <<"verify">> => <<"verify_peer">>,
+                <<"versions">> => [<<"tlsv1.3">>],
+                <<"ciphers">> => [<<"TLS_AES_128_GCM_SHA256">>]
+            }
+        )
+    ).
 
 %%------------------------------------------------------------------------------
 %% Helpers
@@ -111,24 +129,27 @@ create_redis_auth_with_ssl_opts(SpecificSSLOpts) ->
 
 raw_redis_auth_config(SpecificSSLOpts) ->
     SSLOpts = maps:merge(
-                emqx_authn_test_lib:client_ssl_cert_opts(),
-                #{enable => <<"true">>}),
+        emqx_authn_test_lib:client_ssl_cert_opts(),
+        #{enable => <<"true">>}
+    ),
     #{
-      mechanism => <<"password_based">>,
-      password_hash_algorithm => #{name => <<"plain">>,
-                                   salt_position => <<"suffix">>},
-      enable => <<"true">>,
+        mechanism => <<"password_based">>,
+        password_hash_algorithm => #{
+            name => <<"plain">>,
+            salt_position => <<"suffix">>
+        },
+        enable => <<"true">>,
 
-      backend => <<"redis">>,
-      cmd => <<"HMGET mqtt_user:${username} password_hash salt is_superuser">>,
-      database => <<"1">>,
-      password => <<"public">>,
-      server => redis_server(),
-      ssl => maps:merge(SSLOpts, SpecificSSLOpts)
-     }.
+        backend => <<"redis">>,
+        cmd => <<"HMGET mqtt_user:${username} password_hash salt is_superuser">>,
+        database => <<"1">>,
+        password => <<"public">>,
+        server => redis_server(),
+        ssl => maps:merge(SSLOpts, SpecificSSLOpts)
+    }.
 
 redis_server() ->
-    iolist_to_binary(io_lib:format("~s:~b",[?REDIS_HOST, ?REDIS_TLS_PORT])).
+    iolist_to_binary(io_lib:format("~s:~b", [?REDIS_HOST, ?REDIS_TLS_PORT])).
 
 start_apps(Apps) ->
     lists:foreach(fun application:ensure_all_started/1, Apps).

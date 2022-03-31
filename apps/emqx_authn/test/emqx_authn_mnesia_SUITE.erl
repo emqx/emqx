@@ -76,7 +76,8 @@ t_check_schema(_Config) ->
     ?assertException(
         throw,
         {emqx_authn_mnesia, _},
-        hocon_tconf:check_plain(emqx_authn_mnesia, ?CONF(ConfigNotOk))).
+        hocon_tconf:check_plain(emqx_authn_mnesia, ?CONF(ConfigNotOk))
+    ).
 
 t_create(_) ->
     Config0 = config(),
@@ -110,7 +111,7 @@ t_destroy(_) ->
     ok = emqx_authn_mnesia:destroy(State0),
 
     {ok, State1} = emqx_authn_mnesia:create(?AUTHN_ID, Config),
-    {error,not_found} = emqx_authn_mnesia:lookup_user(<<"u">>, State1),
+    {error, not_found} = emqx_authn_mnesia:lookup_user(<<"u">>, State1),
     {ok, _} = emqx_authn_mnesia:lookup_user(<<"u">>, StateOther).
 
 t_authenticate(_) ->
@@ -121,14 +122,17 @@ t_authenticate(_) ->
     {ok, _} = emqx_authn_mnesia:add_user(User, State),
 
     {ok, _} = emqx_authn_mnesia:authenticate(
-                #{username => <<"u">>, password => <<"p">>},
-                State),
+        #{username => <<"u">>, password => <<"p">>},
+        State
+    ),
     {error, bad_username_or_password} = emqx_authn_mnesia:authenticate(
-                                          #{username => <<"u">>, password => <<"badpass">>},
-                                          State),
+        #{username => <<"u">>, password => <<"badpass">>},
+        State
+    ),
     ignore = emqx_authn_mnesia:authenticate(
-                                          #{clientid => <<"u">>, password => <<"p">>},
-                                          State).
+        #{clientid => <<"u">>, password => <<"p">>},
+        State
+    ).
 
 t_add_user(_) ->
     Config = config(),
@@ -157,16 +161,19 @@ t_update_user(_) ->
     {ok, _} = emqx_authn_mnesia:add_user(User, State),
 
     {error, not_found} = emqx_authn_mnesia:update_user(<<"u1">>, #{password => <<"p1">>}, State),
-    {ok,
-     #{user_id := <<"u">>,
-       is_superuser := true}} = emqx_authn_mnesia:update_user(
-                                  <<"u">>,
-                                  #{password => <<"p1">>, is_superuser => true},
-                                  State),
+    {ok, #{
+        user_id := <<"u">>,
+        is_superuser := true
+    }} = emqx_authn_mnesia:update_user(
+        <<"u">>,
+        #{password => <<"p1">>, is_superuser => true},
+        State
+    ),
 
     {ok, _} = emqx_authn_mnesia:authenticate(
-                #{username => <<"u">>, password => <<"p1">>},
-                State),
+        #{username => <<"u">>, password => <<"p1">>},
+        State
+    ),
 
     {ok, #{is_superuser := true}} = emqx_authn_mnesia:lookup_user(<<"u">>, State).
 
@@ -174,31 +181,47 @@ t_list_users(_) ->
     Config = config(),
     {ok, State} = emqx_authn_mnesia:create(?AUTHN_ID, Config),
 
-    Users = [#{user_id => <<"u1">>, password => <<"p">>},
-             #{user_id => <<"u2">>, password => <<"p">>},
-             #{user_id => <<"u3">>, password => <<"p">>}],
+    Users = [
+        #{user_id => <<"u1">>, password => <<"p">>},
+        #{user_id => <<"u2">>, password => <<"p">>},
+        #{user_id => <<"u3">>, password => <<"p">>}
+    ],
 
     lists:foreach(
-      fun(U) -> {ok, _} = emqx_authn_mnesia:add_user(U, State) end,
-      Users),
+        fun(U) -> {ok, _} = emqx_authn_mnesia:add_user(U, State) end,
+        Users
+    ),
 
-    #{data := [#{is_superuser := false,user_id := _},
-               #{is_superuser := false,user_id := _}],
-      meta := #{page := 1, limit := 2, count := 3}} = emqx_authn_mnesia:list_users(
-                                                          #{<<"page">> => 1, <<"limit">> => 2},
-                                                          State),
+    #{
+        data := [
+            #{is_superuser := false, user_id := _},
+            #{is_superuser := false, user_id := _}
+        ],
+        meta := #{page := 1, limit := 2, count := 3}
+    } = emqx_authn_mnesia:list_users(
+        #{<<"page">> => 1, <<"limit">> => 2},
+        State
+    ),
 
-    #{data := [#{is_superuser := false,user_id := _}],
-      meta := #{page := 2, limit := 2, count := 3}} = emqx_authn_mnesia:list_users(
-                                                          #{<<"page">> => 2, <<"limit">> => 2},
-                                                          State),
+    #{
+        data := [#{is_superuser := false, user_id := _}],
+        meta := #{page := 2, limit := 2, count := 3}
+    } = emqx_authn_mnesia:list_users(
+        #{<<"page">> => 2, <<"limit">> => 2},
+        State
+    ),
 
-    #{data := [#{is_superuser := false,user_id := <<"u3">>}],
-      meta := #{page := 1, limit := 20, count := 1}} = emqx_authn_mnesia:list_users(
-                                                          #{ <<"page">> => 1
-                                                           , <<"limit">> => 20
-                                                           , <<"like_username">> => <<"3">>},
-                                                          State).
+    #{
+        data := [#{is_superuser := false, user_id := <<"u3">>}],
+        meta := #{page := 1, limit := 20, count := 1}
+    } = emqx_authn_mnesia:list_users(
+        #{
+            <<"page">> => 1,
+            <<"limit">> => 20,
+            <<"like_username">> => <<"3">>
+        },
+        State
+    ).
 
 t_import_users(_) ->
     Config0 = config(),
@@ -206,36 +229,44 @@ t_import_users(_) ->
     {ok, State} = emqx_authn_mnesia:create(?AUTHN_ID, Config),
 
     ok = emqx_authn_mnesia:import_users(
-           data_filename(<<"user-credentials.json">>),
-           State),
+        data_filename(<<"user-credentials.json">>),
+        State
+    ),
 
     ok = emqx_authn_mnesia:import_users(
-           data_filename(<<"user-credentials.csv">>),
-           State),
+        data_filename(<<"user-credentials.csv">>),
+        State
+    ),
 
     {error, {unsupported_file_format, _}} = emqx_authn_mnesia:import_users(
-                   <<"/file/with/unknown.extension">>,
-                   State),
+        <<"/file/with/unknown.extension">>,
+        State
+    ),
 
     {error, unknown_file_format} = emqx_authn_mnesia:import_users(
-                   <<"/file/with/no/extension">>,
-                   State),
+        <<"/file/with/no/extension">>,
+        State
+    ),
 
     {error, enoent} = emqx_authn_mnesia:import_users(
-                   <<"/file/that/not/exist.json">>,
-                   State),
+        <<"/file/that/not/exist.json">>,
+        State
+    ),
 
     {error, bad_format} = emqx_authn_mnesia:import_users(
-                   data_filename(<<"user-credentials-malformed-0.json">>),
-                   State),
+        data_filename(<<"user-credentials-malformed-0.json">>),
+        State
+    ),
 
     {error, {_, invalid_json}} = emqx_authn_mnesia:import_users(
-                   data_filename(<<"user-credentials-malformed-1.json">>),
-                   State),
+        data_filename(<<"user-credentials-malformed-1.json">>),
+        State
+    ),
 
     {error, bad_format} = emqx_authn_mnesia:import_users(
-                   data_filename(<<"user-credentials-malformed.csv">>),
-                   State).
+        data_filename(<<"user-credentials-malformed.csv">>),
+        State
+    ).
 
 %%------------------------------------------------------------------------------
 %% Helpers
@@ -246,7 +277,10 @@ data_filename(Name) ->
     filename:join([Dir, <<"data">>, Name]).
 
 config() ->
-    #{user_id_type => username,
-      password_hash_algorithm => #{name => bcrypt,
-                                   salt_rounds => 8}
-     }.
+    #{
+        user_id_type => username,
+        password_hash_algorithm => #{
+            name => bcrypt,
+            salt_rounds => 8
+        }
+    }.
