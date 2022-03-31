@@ -2100,7 +2100,14 @@ end}.
                       {TLSCiphers, undefined} ->
                         SplitFun(TLSCiphers);
                       {undefined, PSKCiphers} ->
-                        MapPSKCiphers(SplitFun(PSKCiphers));
+                        case Versions == undefined orelse lists:member('tlsv1.3', Versions) of
+                            true ->
+                                cuttlefish:invalid(
+                                  Prefix++".tls_versions cannot contain tlsv1.3 "
+                                  "if "++Prefix++".psk_ciphers is configured");
+                            _ ->
+                                MapPSKCiphers(SplitFun(PSKCiphers))
+                        end;
                       {_TLSCiphers, _PSKCiphers} ->
                         cuttlefish:invalid(Prefix++".ciphers and "++Prefix++".psk_ciphers cannot be configured at the same time")
                     end,
