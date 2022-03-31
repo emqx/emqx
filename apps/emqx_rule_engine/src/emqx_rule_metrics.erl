@@ -63,6 +63,7 @@
         , create_metrics/1
         , clear_rule_metrics/1
         , clear_metrics/1
+        , reset_metrics/1
         ]).
 
 -export([ get_rule_metrics/1
@@ -126,6 +127,45 @@ clear_rule_metrics(Id) ->
 -spec(clear_metrics(rule_id()) -> ok).
 clear_metrics(Id) ->
     gen_server:call(?MODULE, {delete_metrics, Id}).
+
+-spec(reset_metrics(rule_id()) -> ok).
+reset_metrics(Id) ->
+    reset_speeds(Id),
+    reset_metrics(Id, rule_metrics()),
+    case emqx_rule_registry:get_rule(Id) of
+        not_found -> ok;
+        {ok, #rule{actions = Actions}} ->
+            [ reset_metrics(ActionId, action_metrics())
+              || #action_instance{ id = ActionId} <- Actions],
+            ok
+    end.
+
+reset_metrics(Id, Metrics) ->
+    case couters_ref(Id) of
+        not_found -> ok;
+        Ref -> [counters:put(Ref, metrics_idx(Idx), 0)
+                || Idx <- Metrics],
+               ok
+    end.
+
+reset_speeds(Id) ->
+    gen_server:call(?MODULE, {reset_speeds, Id}).
+
+rule_metrics() ->
+    [ 'rules.matched'
+    , 'rules.failed'
+    , 'rules.passed'
+    , 'rules.exception'
+    , 'rules.no_result'
+    ].
+
+action_metrics() ->
+    [ 'actions.success'
+    , 'actions.error'
+    , 'actions.taken'
+    , 'actions.exception'
+    , 'actions.retry'
+    ].
 
 -spec(get(rule_id(), atom()) -> number()).
 get(Id, Metric) ->
@@ -288,6 +328,9 @@ handle_call({create_rule_metrics, Id}, _From,
                                     _ -> RuleSpeeds#{Id => #rule_speed{}}
                                 end}};
 
+handle_call({reset_speeds, Id}, _From, State = #state{rule_speeds = RuleSpeedMap}) ->
+    {reply, ok, State#state{rule_speeds = maps:put(Id, #rule_speed{}, RuleSpeedMap)}};
+
 handle_call({delete_metrics, Id}, _From,
             State = #state{metric_ids = MIDs, rule_speeds = undefined}) ->
     {reply, delete_counters(Id), State#state{metric_ids = sets:del_element(Id, MIDs)}};
@@ -325,7 +368,7 @@ handle_info(_Info, State) ->
     {noreply, State}.
 
 code_change({down, _Vsn}, State = #state{metric_ids = MIDs}, [Vsn]) ->
-    case string:tokens(Vsn, ".") of 
+    case string:tokens(Vsn, ".") of
         ["4", "3", SVal] ->
             {Val, []} = string:to_integer(SVal),
             case Val =< 6 of
