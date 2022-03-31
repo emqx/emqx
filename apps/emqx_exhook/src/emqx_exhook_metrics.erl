@@ -34,6 +34,7 @@
                  , window_rate :: integer()
                  }).
 
+-type metrics() :: #metrics{}.
 -type server_name() :: emqx_exhook_mgr:server_name().
 -type hookpoint() :: emqx_exhook_server:hookpoint().
 -type index() :: {server_name(), hookpoint()}.
@@ -72,16 +73,16 @@ new_metric_info() ->
 succeed(Server, Hook) ->
     inc(Server, Hook, #metrics.succeed,
         #metrics{ index = {Server, Hook}
-                , window_rate = 1
-                , succeed = 1
+                , window_rate = 0
+                , succeed = 0
                 }).
 
 -spec failed(server_name(), hookpoint()) -> ok.
 failed(Server, Hook) ->
     inc(Server, Hook, #metrics.failed,
         #metrics{ index = {Server, Hook}
-                , window_rate = 1
-                , failed = 1
+                , window_rate = 0
+                , failed = 0
                 }).
 
 -spec update(pos_integer()) -> true.
@@ -187,7 +188,7 @@ metrics_aggregate_by_key(Key, MetricsL) ->
 %%--------------------------------------------------------------------
 %%% Internal functions
 %%--------------------------------------------------------------------
--spec inc(server_name(), hookpoint(), pos_integer(), #metrics{}) -> ok.
+-spec inc(server_name(), hookpoint(), pos_integer(), metrics()) -> ok.
 inc(Server, Hook, Pos, Default) ->
     Index = {Server, Hook},
     _ = ets:update_counter(?HOOKS_METRICS,

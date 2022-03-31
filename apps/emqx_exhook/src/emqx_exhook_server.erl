@@ -36,6 +36,9 @@
         , failed_action/1
         ]).
 
+-ifdef(TEST).
+-export([hk2func/1]).
+-endif.
 
 -type server() :: #{%% Server name (equal to grpc client channel name)
                     name := binary(),
@@ -105,7 +108,8 @@ load(Name, #{request_timeout := Timeout, failed_action := FailedAction} = Opts) 
                            hookspec => HookSpecs,
                            prefix => Prefix }};
                 {error, _} = E ->
-                    emqx_exhook_sup:stop_grpc_client_channel(Name), E
+                    emqx_exhook_sup:stop_grpc_client_channel(Name),
+                    E
             end;
         {error, _} = E -> E
     end.
@@ -287,12 +291,20 @@ match_topic_filter(_, []) ->
 match_topic_filter(TopicName, TopicFilter) ->
     lists:any(fun(F) -> emqx_topic:match(TopicName, F) end, TopicFilter).
 
+-ifdef(TEST).
+-define(CALL_PB_CLIENT(ChanneName, Fun, Req, Options),
+        apply(?PB_CLIENT_MOD, Fun, [Req, #{<<"channel">> => ChannName}, Options])).
+-else.
+-define(CALL_PB_CLIENT(ChanneName, Fun, Req, Options),
+        apply(?PB_CLIENT_MOD, Fun, [Req, Options])).
+-endif.
+
 -spec do_call(binary(), atom(), atom(), map(), map()) -> {ok, map()} | {error, term()}.
 do_call(ChannName, Hookpoint, Fun, Req, ReqOpts) ->
     Options = ReqOpts#{channel => ChannName},
     ?SLOG(debug, #{msg => "do_call", module => ?PB_CLIENT_MOD, function => Fun,
-        req => Req, options => Options}),
-    case catch apply(?PB_CLIENT_MOD, Fun, [Req, Options]) of
+                   req => Req, options => Options}),
+    case catch ?CALL_PB_CLIENT(ChanneName, Fun, Req, Options) of
         {ok, Resp, Metadata} ->
             ?SLOG(debug, #{msg => "do_call_ok", resp => Resp, metadata => Metadata}),
             update_metrics(Hookpoint, ChannName, fun emqx_exhook_metrics:succeed/2),
