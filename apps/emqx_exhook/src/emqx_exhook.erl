@@ -33,7 +33,7 @@ cast(Hookpoint, Req) ->
 
 cast(_, _, []) ->
     ok;
-cast(Hookpoint, Req, [ServerName|More]) ->
+cast(Hookpoint, Req, [ServerName | More]) ->
     %% XXX: Need a real asynchronous running
     _ = emqx_exhook_server:call(Hookpoint, Req,
                                 emqx_exhook_mgr:server(ServerName)),
@@ -51,7 +51,7 @@ call_fold(Hookpoint, Req, AccFun) ->
 
 call_fold(_, Req, _, []) ->
     {ok, Req};
-call_fold(Hookpoint, Req, AccFun, [ServerName|More]) ->
+call_fold(Hookpoint, Req, AccFun, [ServerName | More]) ->
     Server = emqx_exhook_mgr:server(ServerName),
     case emqx_exhook_server:call(Hookpoint, Req, Server) of
         {ok, Resp} ->

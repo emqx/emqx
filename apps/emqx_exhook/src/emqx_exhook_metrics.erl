@@ -72,16 +72,16 @@ new_metric_info() ->
 succeed(Server, Hook) ->
     inc(Server, Hook, #metrics.succeed,
         #metrics{ index = {Server, Hook}
-                , window_rate = 1
-                , succeed = 1
+                , window_rate = 0
+                , succeed = 0
                 }).
 
 -spec failed(server_name(), hookpoint()) -> ok.
 failed(Server, Hook) ->
     inc(Server, Hook, #metrics.failed,
         #metrics{ index = {Server, Hook}
-                , window_rate = 1
-                , failed = 1
+                , window_rate = 0
+                , failed = 0
                 }).
 
 -spec update(pos_integer()) -> true.
