@@ -18,14 +18,12 @@
 -compile(nowarn_export_all).
 -compile(export_all).
 
--include("emqx_authz.hrl").
+-import(emqx_dashboard_api_test_helpers, [request/3, uri/1]).
+
 -include_lib("eunit/include/eunit.hrl").
 -include_lib("common_test/include/ct.hrl").
 -include_lib("emqx/include/emqx_placeholder.hrl").
 
--define(HOST, "http://127.0.0.1:18083/").
--define(API_VERSION, "v5").
--define(BASE_PATH, "api").
 -define(MONGO_SINGLE_HOST, "mongo").
 -define(MYSQL_HOST, "mysql:3306").
 -define(PGSQL_HOST, "pgsql").
@@ -133,16 +131,7 @@ end_per_suite(_Config) ->
     ok.
 
 set_special_configs(emqx_dashboard) ->
-    Config = #{
-        default_username => <<"admin">>,
-        default_password => <<"public">>,
-        listeners => [#{
-            protocol => http,
-            port => 18083
-        }]
-    },
-    emqx_config:put([emqx_dashboard], Config),
-    ok;
+    emqx_dashboard_api_test_helpers:set_default_config();
 set_special_configs(emqx_authz) ->
     {ok, _} = emqx:update_config([authorization, cache, enable], false),
     {ok, _} = emqx:update_config([authorization, no_match], deny),
@@ -363,38 +352,8 @@ t_move_source(_) ->
 
     ok.
 
-%%--------------------------------------------------------------------
-%% HTTP Request
-%%--------------------------------------------------------------------
-
-request(Method, Url, Body) ->
-    Request = case Body of
-        [] -> {Url, [auth_header_()]};
-        _ -> {Url, [auth_header_()], "application/json", jsx:encode(Body)}
-    end,
-    ct:pal("Method: ~p, Request: ~p", [Method, Request]),
-    case httpc:request(Method, Request, [], [{body_format, binary}]) of
-        {error, socket_closed_remotely} ->
-            {error, socket_closed_remotely};
-        {ok, {{"HTTP/1.1", Code, _}, _Headers, Return} } ->
-            {ok, Code, Return};
-        {ok, {Reason, _, _}} ->
-            {error, Reason}
-    end.
-
-uri() -> uri([]).
-uri(Parts) when is_list(Parts) ->
-    NParts = [E || E <- Parts],
-    ?HOST ++ filename:join([?BASE_PATH, ?API_VERSION | NParts]).
-
 get_sources(Result) ->
     maps:get(<<"sources">>, jsx:decode(Result), []).
-
-auth_header_() ->
-    Username = <<"admin">>,
-    Password = <<"public">>,
-    {ok, Token} = emqx_dashboard_admin:sign_token(Username, Password),
-    {"Authorization", "Bearer " ++ binary_to_list(Token)}.
 
 data_dir() -> emqx:data_dir().
 

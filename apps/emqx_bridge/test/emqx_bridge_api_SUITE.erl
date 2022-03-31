@@ -18,6 +18,8 @@
 -compile(nowarn_export_all).
 -compile(export_all).
 
+-import(emqx_dashboard_api_test_helpers, [request/4, uri/1]).
+
 -include_lib("eunit/include/eunit.hrl").
 -include_lib("common_test/include/ct.hrl").
 -define(CONF_DEFAULT, <<"bridges: {}">>).
@@ -65,13 +67,7 @@ end_per_suite(_Config) ->
     ok.
 
 set_special_configs(emqx_dashboard) ->
-    Listeners = [#{protocol => http, port => 18083}],
-    Config = #{listeners => Listeners,
-               default_username => <<"bridge_admin">>,
-               default_password => <<"public">>
-              },
-    emqx_config:put([dashboard], Config),
-    ok;
+    emqx_dashboard_api_test_helpers:set_default_config(<<"bridge_admin">>);
 set_special_configs(_) ->
     ok.
 
@@ -337,38 +333,8 @@ t_enable_disable_bridges(_) ->
     {ok, 204, <<>>} = request(delete, uri(["bridges", BridgeID]), []),
     {ok, 200, <<"[]">>} = request(get, uri(["bridges"]), []).
 
-%%--------------------------------------------------------------------
-%% HTTP Request
-%%--------------------------------------------------------------------
--define(HOST, "http://127.0.0.1:18083/").
--define(API_VERSION, "v5").
--define(BASE_PATH, "api").
-
 request(Method, Url, Body) ->
-    Request = case Body of
-        [] -> {Url, [auth_header_()]};
-        _ -> {Url, [auth_header_()], "application/json", jsx:encode(Body)}
-    end,
-    ct:pal("Method: ~p, Request: ~p", [Method, Request]),
-    case httpc:request(Method, Request, [], [{body_format, binary}]) of
-        {error, socket_closed_remotely} ->
-            {error, socket_closed_remotely};
-        {ok, {{"HTTP/1.1", Code, _}, _Headers, Return} } ->
-            {ok, Code, Return};
-        {ok, {Reason, _, _}} ->
-            {error, Reason}
-    end.
-
-uri() -> uri([]).
-uri(Parts) when is_list(Parts) ->
-    NParts = [E || E <- Parts],
-    ?HOST ++ str(filename:join([?BASE_PATH, ?API_VERSION | NParts])).
-
-auth_header_() ->
-    Username = <<"bridge_admin">>,
-    Password = <<"public">>,
-    {ok, Token} = emqx_dashboard_admin:sign_token(Username, Password),
-    {"Authorization", "Bearer " ++ binary_to_list(Token)}.
+    request(<<"bridge_admin">>, Method, Url, Body).
 
 operation_path(node, Oper, BridgeID) ->
     uri(["nodes", node(), "bridges", BridgeID, "operation", Oper]);

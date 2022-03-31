@@ -361,12 +361,11 @@ fields(metrics) ->
     ].
 
 topic(In) ->
-    case In of
-        body ->
-            Desc = <<"Raw topic string">>;
-        path ->
-            Desc = <<"Notice: Topic string in url path must be encoded">>
-    end,
+    Desc =
+        case In of
+            body -> <<"Raw topic string">>;
+            path -> <<"Notice: Topic string in url path must be encoded">>
+        end,
     {topic,
         mk(
             binary(),
