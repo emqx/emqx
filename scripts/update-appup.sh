@@ -93,6 +93,7 @@ if [ "$NEW_COPY" = 'no' ]; then
     REMOTE="$(git remote -v | grep "${GIT_REPO}" | head -1 | awk '{print $1}')"
     git fetch "$REMOTE"
 fi
+git reset --hard
 git clean -fdx
 git checkout "${PREV_TAG}"
 make "$PROFILE"
