@@ -34,6 +34,7 @@
                  , window_rate :: integer()
                  }).
 
+-type metrics() :: #metrics{}.
 -type server_name() :: emqx_exhook_mgr:server_name().
 -type hookpoint() :: emqx_exhook_server:hookpoint().
 -type index() :: {server_name(), hookpoint()}.
@@ -187,7 +188,7 @@ metrics_aggregate_by_key(Key, MetricsL) ->
 %%--------------------------------------------------------------------
 %%% Internal functions
 %%--------------------------------------------------------------------
--spec inc(server_name(), hookpoint(), pos_integer(), #metrics{}) -> ok.
+-spec inc(server_name(), hookpoint(), pos_integer(), metrics()) -> ok.
 inc(Server, Hook, Pos, Default) ->
     Index = {Server, Hook},
     _ = ets:update_counter(?HOOKS_METRICS,
