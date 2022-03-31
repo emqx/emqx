@@ -22,12 +22,15 @@
 -include_lib("eunit/include/eunit.hrl").
 -include_lib("common_test/include/ct.hrl").
 
--define(RAW_SOURCE, #{<<"type">> => <<"file">>,
-                      <<"enable">> => true,
-                      <<"rules">> =>
-<<"{allow,{username,\"^dashboard?\"},subscribe,[\"$SYS/#\"]}."
-  "\n{allow,{ipaddr,\"127.0.0.1\"},all,[\"$SYS/#\",\"#\"]}.">>
-                     }).
+-define(RAW_SOURCE, #{
+    <<"type">> => <<"file">>,
+    <<"enable">> => true,
+    <<"rules">> =>
+        <<
+            "{allow,{username,\"^dashboard?\"},subscribe,[\"$SYS/#\"]}."
+            "\n{allow,{ipaddr,\"127.0.0.1\"},all,[\"$SYS/#\",\"#\"]}."
+        >>
+}).
 
 all() ->
     emqx_common_test_helpers:all(?MODULE).
@@ -37,13 +40,17 @@ groups() ->
 
 init_per_suite(Config) ->
     ok = emqx_common_test_helpers:start_apps(
-           [emqx_conf, emqx_authz],
-           fun set_special_configs/1),
+        [emqx_conf, emqx_authz],
+        fun set_special_configs/1
+    ),
     %% meck after authz started
-    meck:expect(emqx_authz, acl_conf_file,
-                fun() ->
-                        emqx_common_test_helpers:deps_path(emqx_authz, "etc/acl.conf")
-                end),
+    meck:expect(
+        emqx_authz,
+        acl_conf_file,
+        fun() ->
+            emqx_common_test_helpers:deps_path(emqx_authz, "etc/acl.conf")
+        end
+    ),
     Config.
 
 end_per_suite(_Config) ->
@@ -57,7 +64,6 @@ init_per_testcase(_TestCase, Config) ->
 
 set_special_configs(emqx_authz) ->
     ok = emqx_authz_test_lib:reset_authorizers();
-
 set_special_configs(_) ->
     ok.
 
@@ -66,43 +72,55 @@ set_special_configs(_) ->
 %%------------------------------------------------------------------------------
 
 t_ok(_Config) ->
-    ClientInfo = #{clientid => <<"clientid">>,
-                   username => <<"username">>,
-                   peerhost => {127,0,0,1},
-                   zone => default,
-                   listener => {tcp, default}
-                  },
+    ClientInfo = #{
+        clientid => <<"clientid">>,
+        username => <<"username">>,
+        peerhost => {127, 0, 0, 1},
+        zone => default,
+        listener => {tcp, default}
+    },
 
-    ok = setup_config(?RAW_SOURCE#{<<"rules">> => <<"{allow, {user, \"username\"}, publish, [\"t\"]}.">>}),
+    ok = setup_config(?RAW_SOURCE#{
+        <<"rules">> => <<"{allow, {user, \"username\"}, publish, [\"t\"]}.">>
+    }),
 
     io:format("~p", [emqx_authz:acl_conf_file()]),
 
     ?assertEqual(
-       allow,
-       emqx_access_control:authorize(ClientInfo, publish, <<"t">>)),
+        allow,
+        emqx_access_control:authorize(ClientInfo, publish, <<"t">>)
+    ),
 
     ?assertEqual(
-       deny,
-       emqx_access_control:authorize(ClientInfo, subscribe, <<"t">>)).
+        deny,
+        emqx_access_control:authorize(ClientInfo, subscribe, <<"t">>)
+    ).
 
 t_invalid_file(_Config) ->
     ?assertMatch(
-       {error, bad_acl_file_content},
-       emqx_authz:update(?CMD_REPLACE, [?RAW_SOURCE#{<<"rules">> => <<"{{invalid term">>}])).
+        {error, bad_acl_file_content},
+        emqx_authz:update(?CMD_REPLACE, [?RAW_SOURCE#{<<"rules">> => <<"{{invalid term">>}])
+    ).
 
 t_update(_Config) ->
-    ok = setup_config(?RAW_SOURCE#{<<"rules">> => <<"{allow, {user, \"username\"}, publish, [\"t\"]}.">>}),
+    ok = setup_config(?RAW_SOURCE#{
+        <<"rules">> => <<"{allow, {user, \"username\"}, publish, [\"t\"]}.">>
+    }),
 
     ?assertMatch(
-       {error, _},
-       emqx_authz:update(
-         {?CMD_REPLACE, file},
-         ?RAW_SOURCE#{<<"rules">> => <<"{{invalid term">>})),
+        {error, _},
+        emqx_authz:update(
+            {?CMD_REPLACE, file},
+            ?RAW_SOURCE#{<<"rules">> => <<"{{invalid term">>}
+        )
+    ),
 
     ?assertMatch(
-       {ok, _},
-       emqx_authz:update(
-         {?CMD_REPLACE, file}, ?RAW_SOURCE)).
+        {ok, _},
+        emqx_authz:update(
+            {?CMD_REPLACE, file}, ?RAW_SOURCE
+        )
+    ).
 
 %%------------------------------------------------------------------------------
 %% Helpers
@@ -110,8 +128,9 @@ t_update(_Config) ->
 
 setup_config(SpecialParams) ->
     emqx_authz_test_lib:setup_config(
-      ?RAW_SOURCE,
-      SpecialParams).
+        ?RAW_SOURCE,
+        SpecialParams
+    ).
 
 stop_apps(Apps) ->
     lists:foreach(fun application:stop/1, Apps).

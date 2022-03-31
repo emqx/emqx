@@ -38,9 +38,9 @@ init_per_suite(Config) ->
     case emqx_common_test_helpers:is_tcp_server_available(?MONGO_HOST, ?MONGO_DEFAULT_PORT) of
         true ->
             ok = emqx_common_test_helpers:start_apps(
-                   [emqx_conf, emqx_authz],
-                   fun set_special_configs/1
-                  ),
+                [emqx_conf, emqx_authz],
+                fun set_special_configs/1
+            ),
             ok = start_apps([emqx_resource, emqx_connector]),
             Config;
         false ->
@@ -54,7 +54,6 @@ end_per_suite(_Config) ->
 
 set_special_configs(emqx_authz) ->
     ok = emqx_authz_test_lib:reset_authorizers();
-
 set_special_configs(_) ->
     ok.
 
@@ -72,12 +71,13 @@ end_per_testcase(_TestCase, _Config) ->
 %%------------------------------------------------------------------------------
 
 t_topic_rules(_Config) ->
-    ClientInfo = #{clientid => <<"clientid">>,
-                   username => <<"username">>,
-                   peerhost => {127,0,0,1},
-                   zone => default,
-                   listener => {tcp, default}
-                  },
+    ClientInfo = #{
+        clientid => <<"clientid">>,
+        username => <<"username">>,
+        peerhost => {127, 0, 0, 1},
+        zone => default,
+        listener => {tcp, default}
+    },
 
     ok = emqx_authz_test_lib:test_no_topic_rules(ClientInfo, fun setup_client_samples/2),
 
@@ -87,104 +87,137 @@ t_topic_rules(_Config) ->
 
 t_complex_selector(_) ->
     %% atom and string values also supported
-    ClientInfo = #{clientid => clientid,
-                   username => "username",
-                   peerhost => {127,0,0,1},
-                   zone => default,
-                   listener => {tcp, default}
-                  },
+    ClientInfo = #{
+        clientid => clientid,
+        username => "username",
+        peerhost => {127, 0, 0, 1},
+        zone => default,
+        listener => {tcp, default}
+    },
 
-    Samples = [#{<<"x">> => #{<<"u">> => <<"username">>,
-                              <<"c">> => [#{<<"c">> => <<"clientid">>}],
-                              <<"y">> => 1},
-                 <<"permission">> => <<"allow">>,
-                 <<"action">> => <<"publish">>,
-                 <<"topics">> => [<<"t">>]
-                }],
+    Samples = [
+        #{
+            <<"x">> => #{
+                <<"u">> => <<"username">>,
+                <<"c">> => [#{<<"c">> => <<"clientid">>}],
+                <<"y">> => 1
+            },
+            <<"permission">> => <<"allow">>,
+            <<"action">> => <<"publish">>,
+            <<"topics">> => [<<"t">>]
+        }
+    ],
 
     ok = setup_samples(Samples),
     ok = setup_config(
-           #{<<"selector">> => #{<<"x">> => #{<<"u">> => <<"${username}">>,
-                                              <<"c">> => [#{<<"c">> => <<"${clientid}">>}],
-                                              <<"y">> => 1}
-                                }
-            }),
+        #{
+            <<"selector">> => #{
+                <<"x">> => #{
+                    <<"u">> => <<"${username}">>,
+                    <<"c">> => [#{<<"c">> => <<"${clientid}">>}],
+                    <<"y">> => 1
+                }
+            }
+        }
+    ),
 
     ok = emqx_authz_test_lib:test_samples(
-           ClientInfo,
-           [{allow, publish, <<"t">>}]).
+        ClientInfo,
+        [{allow, publish, <<"t">>}]
+    ).
 
 t_mongo_error(_Config) ->
-    ClientInfo = #{clientid => <<"clientid">>,
-                   username => <<"username">>,
-                   peerhost => {127,0,0,1},
-                   zone => default,
-                   listener => {tcp, default}
-                  },
+    ClientInfo = #{
+        clientid => <<"clientid">>,
+        username => <<"username">>,
+        peerhost => {127, 0, 0, 1},
+        zone => default,
+        listener => {tcp, default}
+    },
 
     ok = setup_samples([]),
     ok = setup_config(
-           #{<<"selector">> => #{<<"$badoperator">> => <<"$badoperator">>}}),
+        #{<<"selector">> => #{<<"$badoperator">> => <<"$badoperator">>}}
+    ),
 
     ok = emqx_authz_test_lib:test_samples(
-           ClientInfo,
-           [{deny, publish, <<"t">>}]).
+        ClientInfo,
+        [{deny, publish, <<"t">>}]
+    ).
 
 t_lookups(_Config) ->
-    ClientInfo = #{clientid => <<"clientid">>,
-                   cn => <<"cn">>,
-                   dn => <<"dn">>,
-                   username => <<"username">>,
-                   peerhost => {127,0,0,1},
-                   zone => default,
-                   listener => {tcp, default}
-                  },
+    ClientInfo = #{
+        clientid => <<"clientid">>,
+        cn => <<"cn">>,
+        dn => <<"dn">>,
+        username => <<"username">>,
+        peerhost => {127, 0, 0, 1},
+        zone => default,
+        listener => {tcp, default}
+    },
 
-    ByClientid = #{<<"clientid">> => <<"clientid">>,
-                   <<"topics">> => [<<"a">>],
-                   <<"action">> => <<"all">>,
-                   <<"permission">> => <<"allow">>},
+    ByClientid = #{
+        <<"clientid">> => <<"clientid">>,
+        <<"topics">> => [<<"a">>],
+        <<"action">> => <<"all">>,
+        <<"permission">> => <<"allow">>
+    },
 
     ok = setup_samples([ByClientid]),
     ok = setup_config(
-           #{<<"selector">> => #{<<"clientid">> => <<"${clientid}">>}}),
+        #{<<"selector">> => #{<<"clientid">> => <<"${clientid}">>}}
+    ),
 
     ok = emqx_authz_test_lib:test_samples(
-           ClientInfo,
-           [{allow, subscribe, <<"a">>},
-            {deny, subscribe, <<"b">>}]),
+        ClientInfo,
+        [
+            {allow, subscribe, <<"a">>},
+            {deny, subscribe, <<"b">>}
+        ]
+    ),
 
-    ByPeerhost = #{<<"peerhost">> => <<"127.0.0.1">>,
-                   <<"topics">> => [<<"a">>],
-                   <<"action">> => <<"all">>,
-                   <<"permission">> => <<"allow">>},
+    ByPeerhost = #{
+        <<"peerhost">> => <<"127.0.0.1">>,
+        <<"topics">> => [<<"a">>],
+        <<"action">> => <<"all">>,
+        <<"permission">> => <<"allow">>
+    },
 
     ok = setup_samples([ByPeerhost]),
     ok = setup_config(
-           #{<<"selector">> => #{<<"peerhost">> => <<"${peerhost}">>}}),
+        #{<<"selector">> => #{<<"peerhost">> => <<"${peerhost}">>}}
+    ),
 
     ok = emqx_authz_test_lib:test_samples(
-           ClientInfo,
-           [{allow, subscribe, <<"a">>},
-            {deny, subscribe, <<"b">>}]).
+        ClientInfo,
+        [
+            {allow, subscribe, <<"a">>},
+            {deny, subscribe, <<"b">>}
+        ]
+    ).
 
 t_bad_selector(_Config) ->
-    ClientInfo = #{clientid => <<"clientid">>,
-                   cn => <<"cn">>,
-                   dn => <<"dn">>,
-                   username => <<"username">>,
-                   peerhost => {127,0,0,1},
-                   zone => default,
-                   listener => {tcp, default}
-                  },
+    ClientInfo = #{
+        clientid => <<"clientid">>,
+        cn => <<"cn">>,
+        dn => <<"dn">>,
+        username => <<"username">>,
+        peerhost => {127, 0, 0, 1},
+        zone => default,
+        listener => {tcp, default}
+    },
 
     ok = setup_config(
-           #{<<"selector">> => #{<<"$in">> => #{<<"a">> => 1}}}),
+        #{<<"selector">> => #{<<"$in">> => #{<<"a">> => 1}}}
+    ),
 
     ok = emqx_authz_test_lib:test_samples(
-           ClientInfo,
-           [{deny, subscribe, <<"a">>},
-            {deny, subscribe, <<"b">>}]).
+        ClientInfo,
+        [
+            {deny, subscribe, <<"a">>},
+            {deny, subscribe, <<"b">>}
+        ]
+    ).
 
 %%------------------------------------------------------------------------------
 %% Helpers
@@ -201,17 +234,22 @@ setup_samples(AclRecords) ->
 setup_client_samples(ClientInfo, Samples) ->
     #{username := Username} = ClientInfo,
     Records = lists:map(
-                fun(Sample) ->
-                        #{topics := Topics,
-                          permission := Permission,
-                          action := Action} = Sample,
+        fun(Sample) ->
+            #{
+                topics := Topics,
+                permission := Permission,
+                action := Action
+            } = Sample,
 
-                        #{<<"topics">> => Topics,
-                          <<"permission">> => Permission,
-                          <<"action">> => Action,
-                          <<"username">> => Username}
-                end,
-                Samples),
+            #{
+                <<"topics">> => Topics,
+                <<"permission">> => Permission,
+                <<"action">> => Action,
+                <<"username">> => Username
+            }
+        end,
+        Samples
+    ),
     setup_samples(Records),
     setup_config(#{<<"selector">> => #{<<"username">> => <<"${username}">>}}).
 
@@ -221,8 +259,9 @@ reset_samples() ->
 
 setup_config(SpecialParams) ->
     emqx_authz_test_lib:setup_config(
-      raw_mongo_authz_config(),
-      SpecialParams).
+        raw_mongo_authz_config(),
+        SpecialParams
+    ).
 
 raw_mongo_authz_config() ->
     #{
@@ -238,14 +277,14 @@ raw_mongo_authz_config() ->
     }.
 
 mongo_server() ->
-    iolist_to_binary(io_lib:format("~s",[?MONGO_HOST])).
+    iolist_to_binary(io_lib:format("~s", [?MONGO_HOST])).
 
 mongo_config() ->
     [
-     {database, <<"mqtt">>},
-     {host, ?MONGO_HOST},
-     {port, ?MONGO_DEFAULT_PORT},
-     {register, ?MONGO_CLIENT}
+        {database, <<"mqtt">>},
+        {host, ?MONGO_HOST},
+        {port, ?MONGO_DEFAULT_PORT},
+        {register, ?MONGO_CLIENT}
     ].
 
 start_apps(Apps) ->

@@ -25,29 +25,30 @@
 -compile(nowarn_export_all).
 -endif.
 
--export([ register_metrics/0
-        , init/0
-        , deinit/0
-        , lookup/0
-        , lookup/1
-        , move/2
-        , update/2
-        , authorize/5
-        ]).
+-export([
+    register_metrics/0,
+    init/0,
+    deinit/0,
+    lookup/0,
+    lookup/1,
+    move/2,
+    update/2,
+    authorize/5
+]).
 
 -export([post_config_update/5, pre_config_update/3]).
 
 -export([acl_conf_file/0]).
 
--type(source() :: map()).
+-type source() :: map().
 
--type(match_result() :: {matched, allow} | {matched, deny} | nomatch).
+-type match_result() :: {matched, allow} | {matched, deny} | nomatch.
 
--type(default_result() :: allow | deny).
+-type default_result() :: allow | deny.
 
--type(authz_result() :: {stop, allow} | {ok, deny}).
+-type authz_result() :: {stop, allow} | {ok, deny}.
 
--type(sources() :: [source()]).
+-type sources() :: [source()].
 
 -define(METRIC_ALLOW, 'client.authorize.allow').
 -define(METRIC_DENY, 'client.authorize.deny').
@@ -60,24 +61,25 @@
 %% Initialize authz backend.
 %% Populate the passed configuration map with necessary data,
 %% like `ResourceID`s
--callback(init(source()) -> source()).
+-callback init(source()) -> source().
 
 %% Get authz text description.
--callback(description() -> string()).
+-callback description() -> string().
 
 %% Destroy authz backend.
 %% Make cleanup of all allocated data.
 %% An authz backend will not be used after `destroy`.
--callback(destroy(source()) -> ok).
+-callback destroy(source()) -> ok.
 
 %% Authorize client action.
--callback(authorize(
-            emqx_types:clientinfo(),
-            emqx_types:pubsub(),
-            emqx_types:topic(),
-            source()) -> match_result()).
+-callback authorize(
+    emqx_types:clientinfo(),
+    emqx_types:pubsub(),
+    emqx_types:topic(),
+    source()
+) -> match_result().
 
--spec(register_metrics() -> ok).
+-spec register_metrics() -> ok.
 register_metrics() ->
     lists:foreach(fun emqx_metrics:ensure/1, ?METRICS).
 
@@ -104,13 +106,16 @@ lookup(Type) ->
 
 move(Type, ?CMD_MOVE_BEFORE(Before)) ->
     emqx_authz_utils:update_config(
-      ?CONF_KEY_PATH, {?CMD_MOVE, type(Type), ?CMD_MOVE_BEFORE(type(Before))});
+        ?CONF_KEY_PATH, {?CMD_MOVE, type(Type), ?CMD_MOVE_BEFORE(type(Before))}
+    );
 move(Type, ?CMD_MOVE_AFTER(After)) ->
     emqx_authz_utils:update_config(
-      ?CONF_KEY_PATH, {?CMD_MOVE, type(Type), ?CMD_MOVE_AFTER(type(After))});
+        ?CONF_KEY_PATH, {?CMD_MOVE, type(Type), ?CMD_MOVE_AFTER(type(After))}
+    );
 move(Type, Position) ->
     emqx_authz_utils:update_config(
-      ?CONF_KEY_PATH, {?CMD_MOVE, type(Type), Position}).
+        ?CONF_KEY_PATH, {?CMD_MOVE, type(Type), Position}
+    ).
 
 update({?CMD_REPLACE, Type}, Sources) ->
     emqx_authz_utils:update_config(?CONF_KEY_PATH, {{?CMD_REPLACE, type(Type)}, Sources});
@@ -205,7 +210,8 @@ do_move({?CMD_MOVE, Type, ?CMD_MOVE_AFTER(After)}, Sources) ->
     {S2, Front2, Rear2} = take(After, Front1 ++ Rear1),
     Front2 ++ [S2, S1] ++ Rear2.
 
-ensure_resource_deleted(#{enable := false}) -> ok;
+ensure_resource_deleted(#{enable := false}) ->
+    ok;
 ensure_resource_deleted(#{type := Type} = Source) ->
     Module = authz_module(Type),
     Module:destroy(Source).
@@ -213,17 +219,19 @@ ensure_resource_deleted(#{type := Type} = Source) ->
 check_dup_types(Sources) ->
     check_dup_types(Sources, []).
 
-check_dup_types([], _Checked) -> ok;
+check_dup_types([], _Checked) ->
+    ok;
 check_dup_types([Source | Sources], Checked) ->
     %% the input might be raw or type-checked result, so lookup both 'type' and <<"type">>
     %% TODO: check: really?
-    Type = case maps:get(<<"type">>, Source, maps:get(type, Source, undefined)) of
-               undefined ->
-                   %% this should never happen if the value is type checked by honcon schema
-                   throw({bad_source_input, Source});
-               Type0 ->
-                   type(Type0)
-           end,
+    Type =
+        case maps:get(<<"type">>, Source, maps:get(type, Source, undefined)) of
+            undefined ->
+                %% this should never happen if the value is type checked by honcon schema
+                throw({bad_source_input, Source});
+            Type0 ->
+                type(Type0)
+        end,
     case lists:member(Type, Checked) of
         true ->
             %% we have made it clear not to support more than one authz instance for each type
@@ -240,7 +248,8 @@ init_sources(Sources) ->
     end,
     lists:map(fun init_source/1, Sources).
 
-init_source(#{enable := false} = Source) -> Source;
+init_source(#{enable := false} = Source) ->
+    Source;
 init_source(#{type := Type} = Source) ->
     Module = authz_module(Type),
     Module:init(Source).
@@ -250,42 +259,63 @@ init_source(#{type := Type} = Source) ->
 %%--------------------------------------------------------------------
 
 %% @doc Check AuthZ
--spec(authorize( emqx_types:clientinfo()
-               , emqx_types:pubsub()
-               , emqx_types:topic()
-               , default_result()
-               , sources())
-      -> authz_result()).
-authorize(#{username := Username,
-            peerhost := IpAddress
-           } = Client, PubSub, Topic, DefaultResult, Sources) ->
+-spec authorize(
+    emqx_types:clientinfo(),
+    emqx_types:pubsub(),
+    emqx_types:topic(),
+    default_result(),
+    sources()
+) ->
+    authz_result().
+authorize(
+    #{
+        username := Username,
+        peerhost := IpAddress
+    } = Client,
+    PubSub,
+    Topic,
+    DefaultResult,
+    Sources
+) ->
     case do_authorize(Client, PubSub, Topic, Sources) of
-        {{matched, allow}, AuthzSource}->
-            emqx:run_hook('client.check_authz_complete',
-                          [Client, PubSub, Topic, allow, AuthzSource]),
-            ?SLOG(info, #{msg => "authorization_permission_allowed",
-                          username => Username,
-                          ipaddr => IpAddress,
-                          topic => Topic}),
+        {{matched, allow}, AuthzSource} ->
+            emqx:run_hook(
+                'client.check_authz_complete',
+                [Client, PubSub, Topic, allow, AuthzSource]
+            ),
+            ?SLOG(info, #{
+                msg => "authorization_permission_allowed",
+                username => Username,
+                ipaddr => IpAddress,
+                topic => Topic
+            }),
             emqx_metrics:inc(?METRIC_ALLOW),
             {stop, allow};
-        {{matched, deny}, AuthzSource}->
-            emqx:run_hook('client.check_authz_complete',
-                          [Client, PubSub, Topic, deny, AuthzSource]),
-            ?SLOG(info, #{msg => "authorization_permission_denied",
-                          username => Username,
-                          ipaddr => IpAddress,
-                          topic => Topic}),
+        {{matched, deny}, AuthzSource} ->
+            emqx:run_hook(
+                'client.check_authz_complete',
+                [Client, PubSub, Topic, deny, AuthzSource]
+            ),
+            ?SLOG(info, #{
+                msg => "authorization_permission_denied",
+                username => Username,
+                ipaddr => IpAddress,
+                topic => Topic
+            }),
             emqx_metrics:inc(?METRIC_DENY),
             {stop, deny};
         nomatch ->
-            emqx:run_hook('client.check_authz_complete',
-                          [Client, PubSub, Topic, DefaultResult, default]),
-            ?SLOG(info, #{msg => "authorization_failed_nomatch",
-                          username => Username,
-                          ipaddr => IpAddress,
-                          topic => Topic,
-                          reason => "no-match rule"}),
+            emqx:run_hook(
+                'client.check_authz_complete',
+                [Client, PubSub, Topic, DefaultResult, default]
+            ),
+            ?SLOG(info, #{
+                msg => "authorization_failed_nomatch",
+                username => Username,
+                ipaddr => IpAddress,
+                topic => Topic,
+                reason => "no-match rule"
+            }),
             emqx_metrics:inc(?METRIC_NOMATCH),
             {stop, DefaultResult}
     end.
@@ -294,8 +324,12 @@ do_authorize(_Client, _PubSub, _Topic, []) ->
     nomatch;
 do_authorize(Client, PubSub, Topic, [#{enable := false} | Rest]) ->
     do_authorize(Client, PubSub, Topic, Rest);
-do_authorize(Client, PubSub, Topic,
-             [Connector = #{type := Type} | Tail] ) ->
+do_authorize(
+    Client,
+    PubSub,
+    Topic,
+    [Connector = #{type := Type} | Tail]
+) ->
     Module = authz_module(Type),
     case Module:authorize(Client, PubSub, Topic, Connector) of
         nomatch -> do_authorize(Client, PubSub, Topic, Tail);
@@ -311,7 +345,7 @@ take(Type) -> take(Type, lookup()).
 %% Take the source of give type, the sources list is split into two parts
 %% front part and rear part.
 take(Type, Sources) ->
-    {Front, Rear} =  lists:splitwith(fun(T) -> type(T) =/= type(Type) end, Sources),
+    {Front, Rear} = lists:splitwith(fun(T) -> type(T) =/= type(Type) end, Sources),
     case Rear =:= [] of
         true ->
             throw({not_found_source, Type});
@@ -321,7 +355,7 @@ take(Type, Sources) ->
 
 find_action_in_hooks() ->
     Callbacks = emqx_hooks:lookup('client.authorize'),
-    [Action] = [Action || {callback,{?MODULE, authorize, _} = Action, _, _} <- Callbacks ],
+    [Action] = [Action || {callback, {?MODULE, authorize, _} = Action, _, _} <- Callbacks],
     Action.
 
 authz_module('built_in_database') ->
@@ -364,8 +398,11 @@ acl_conf_file() ->
     filename:join([emqx:data_dir(), "authz", "acl.conf"]).
 
 maybe_write_certs(#{<<"type">> := Type} = Source) ->
-    case emqx_tls_lib:ensure_ssl_files(
-           ssl_file_path(Type), maps:get(<<"ssl">>, Source, undefined)) of
+    case
+        emqx_tls_lib:ensure_ssl_files(
+            ssl_file_path(Type), maps:get(<<"ssl">>, Source, undefined)
+        )
+    of
         {ok, SSL} ->
             new_ssl_source(Source, SSL);
         {error, Reason} ->
@@ -380,7 +417,8 @@ clear_certs(OldSource) ->
 write_file(Filename, Bytes) ->
     ok = filelib:ensure_dir(Filename),
     case file:write_file(Filename, Bytes) of
-        ok -> {ok, iolist_to_binary(Filename)};
+        ok ->
+            {ok, iolist_to_binary(Filename)};
         {error, Reason} ->
             ?SLOG(error, #{filename => Filename, msg => "write_file_error", reason => Reason}),
             throw(Reason)

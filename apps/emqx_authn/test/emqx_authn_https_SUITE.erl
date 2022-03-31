@@ -28,12 +28,12 @@
 
 -define(HTTPS_PORT, 33333).
 -define(HTTPS_PATH, "/auth").
--define(CREDENTIALS, #{username => <<"plain">>,
-                       password => <<"plain">>,
-                       listener => 'tcp:default',
-                       protocol => mqtt
-                      }).
-
+-define(CREDENTIALS, #{
+    username => <<"plain">>,
+    password => <<"plain">>,
+    listener => 'tcp:default',
+    protocol => mqtt
+}).
 
 all() ->
     emqx_common_test_helpers:all(?MODULE).
@@ -46,8 +46,9 @@ init_per_suite(Config) ->
 
 end_per_suite(_) ->
     emqx_authn_test_lib:delete_authenticators(
-      [authentication],
-      ?GLOBAL),
+        [authentication],
+        ?GLOBAL
+    ),
     emqx_common_test_helpers:stop_apps([emqx_authn]),
     application:stop(cowboy),
     ok.
@@ -55,8 +56,9 @@ end_per_suite(_) ->
 init_per_testcase(_Case, Config) ->
     {ok, _} = emqx_cluster_rpc:start_link(node(), emqx_cluster_rpc, 1000),
     emqx_authn_test_lib:delete_authenticators(
-      [authentication],
-      ?GLOBAL),
+        [authentication],
+        ?GLOBAL
+    ),
     {ok, _} = emqx_authn_http_test_server:start_link(?HTTPS_PORT, ?HTTPS_PATH, server_ssl_opts()),
     ok = emqx_authn_http_test_server:set_handler(fun cowboy_handler/2),
     Config.
@@ -70,46 +72,62 @@ end_per_testcase(_Case, _Config) ->
 
 t_create(_Config) ->
     {ok, _} = create_https_auth_with_ssl_opts(
-                #{<<"server_name_indication">> => <<"authn-server">>,
-                  <<"verify">> => <<"verify_peer">>,
-                  <<"versions">> => [<<"tlsv1.2">>],
-                  <<"ciphers">> => [<<"ECDHE-RSA-AES256-GCM-SHA384">>]}),
+        #{
+            <<"server_name_indication">> => <<"authn-server">>,
+            <<"verify">> => <<"verify_peer">>,
+            <<"versions">> => [<<"tlsv1.2">>],
+            <<"ciphers">> => [<<"ECDHE-RSA-AES256-GCM-SHA384">>]
+        }
+    ),
 
     ?assertMatch(
-       {ok, _},
-       emqx_access_control:authenticate(?CREDENTIALS)).
+        {ok, _},
+        emqx_access_control:authenticate(?CREDENTIALS)
+    ).
 
 t_create_invalid_domain(_Config) ->
     {ok, _} = create_https_auth_with_ssl_opts(
-                #{<<"server_name_indication">> => <<"authn-server-unknown-host">>,
-                  <<"verify">> => <<"verify_peer">>,
-                  <<"versions">> => [<<"tlsv1.2">>],
-                  <<"ciphers">> => [<<"ECDHE-RSA-AES256-GCM-SHA384">>]}),
+        #{
+            <<"server_name_indication">> => <<"authn-server-unknown-host">>,
+            <<"verify">> => <<"verify_peer">>,
+            <<"versions">> => [<<"tlsv1.2">>],
+            <<"ciphers">> => [<<"ECDHE-RSA-AES256-GCM-SHA384">>]
+        }
+    ),
 
     ?assertEqual(
-       {error, not_authorized},
-       emqx_access_control:authenticate(?CREDENTIALS)).
+        {error, not_authorized},
+        emqx_access_control:authenticate(?CREDENTIALS)
+    ).
 
 t_create_invalid_version(_Config) ->
     {ok, _} = create_https_auth_with_ssl_opts(
-                #{<<"server_name_indication">> => <<"authn-server">>,
-                  <<"verify">> => <<"verify_peer">>,
-                  <<"versions">> => [<<"tlsv1.1">>]}),
+        #{
+            <<"server_name_indication">> => <<"authn-server">>,
+            <<"verify">> => <<"verify_peer">>,
+            <<"versions">> => [<<"tlsv1.1">>]
+        }
+    ),
 
     ?assertEqual(
-       {error, not_authorized},
-       emqx_access_control:authenticate(?CREDENTIALS)).
+        {error, not_authorized},
+        emqx_access_control:authenticate(?CREDENTIALS)
+    ).
 
 t_create_invalid_ciphers(_Config) ->
     {ok, _} = create_https_auth_with_ssl_opts(
-                #{<<"server_name_indication">> => <<"authn-server">>,
-                  <<"verify">> => <<"verify_peer">>,
-                  <<"versions">> => [<<"tlsv1.2">>],
-                  <<"ciphers">> => [<<"ECDHE-ECDSA-AES256-SHA384">>]}),
+        #{
+            <<"server_name_indication">> => <<"authn-server">>,
+            <<"verify">> => <<"verify_peer">>,
+            <<"versions">> => [<<"tlsv1.2">>],
+            <<"ciphers">> => [<<"ECDHE-ECDSA-AES256-SHA384">>]
+        }
+    ),
 
     ?assertEqual(
-       {error, not_authorized},
-       emqx_access_control:authenticate(?CREDENTIALS)).
+        {error, not_authorized},
+        emqx_access_control:authenticate(?CREDENTIALS)
+    ).
 
 %%------------------------------------------------------------------------------
 %% Helpers
@@ -121,8 +139,9 @@ create_https_auth_with_ssl_opts(SpecificSSLOpts) ->
 
 raw_https_auth_config(SpecificSSLOpts) ->
     SSLOpts = maps:merge(
-                emqx_authn_test_lib:client_ssl_cert_opts(),
-                #{enable => <<"true">>}),
+        emqx_authn_test_lib:client_ssl_cert_opts(),
+        #{enable => <<"true">>}
+    ),
     #{
         mechanism => <<"password_based">>,
         enable => <<"true">>,
@@ -133,7 +152,7 @@ raw_https_auth_config(SpecificSSLOpts) ->
         body => #{<<"username">> => ?PH_USERNAME, <<"password">> => ?PH_PASSWORD},
         headers => #{<<"X-Test-Header">> => <<"Test Value">>},
         ssl => maps:merge(SSLOpts, SpecificSSLOpts)
-     }.
+    }.
 
 start_apps(Apps) ->
     lists:foreach(fun application:ensure_all_started/1, Apps).
@@ -147,15 +166,17 @@ cert_path(FileName) ->
 
 cowboy_handler(Req0, State) ->
     Req = cowboy_req:reply(
-            200,
-            Req0),
+        200,
+        Req0
+    ),
     {ok, Req, State}.
 
 server_ssl_opts() ->
-    [{keyfile, cert_path("server.key")},
-     {certfile, cert_path("server.crt")},
-     {cacertfile, cert_path("ca.crt")},
-     {verify, verify_none},
-     {versions, ['tlsv1.2', 'tlsv1.3']},
-     {ciphers, ["ECDHE-RSA-AES256-GCM-SHA384", "TLS_CHACHA20_POLY1305_SHA256"]}
+    [
+        {keyfile, cert_path("server.key")},
+        {certfile, cert_path("server.crt")},
+        {cacertfile, cert_path("ca.crt")},
+        {verify, verify_none},
+        {versions, ['tlsv1.2', 'tlsv1.3']},
+        {ciphers, ["ECDHE-RSA-AES256-GCM-SHA384", "TLS_CHACHA20_POLY1305_SHA256"]}
     ].

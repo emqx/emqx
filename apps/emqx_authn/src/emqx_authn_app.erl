@@ -21,9 +21,10 @@
 -behaviour(application).
 
 %% Application callbacks
--export([ start/2
-        , stop/1
-        ]).
+-export([
+    start/2,
+    stop/1
+]).
 
 -include_lib("emqx/include/emqx_authentication.hrl").
 
@@ -51,13 +52,15 @@ initialize() ->
     ok = ?AUTHN:register_providers(emqx_authn:providers()),
 
     lists:foreach(
-      fun({ChainName, RawAuthConfigs}) ->
-              AuthConfig = emqx_authn:check_configs(RawAuthConfigs),
-              ?AUTHN:initialize_authentication(
-                 ChainName,
-                 AuthConfig)
-      end,
-      chain_configs()).
+        fun({ChainName, RawAuthConfigs}) ->
+            AuthConfig = emqx_authn:check_configs(RawAuthConfigs),
+            ?AUTHN:initialize_authentication(
+                ChainName,
+                AuthConfig
+            )
+        end,
+        chain_configs()
+    ).
 
 deinitialize() ->
     ok = ?AUTHN:deregister_providers(provider_types()),
@@ -71,15 +74,16 @@ global_chain_config() ->
 
 listener_chain_configs() ->
     lists:map(
-     fun({ListenerID, _}) ->
-        {ListenerID, emqx:get_raw_config(auth_config_path(ListenerID), [])}
-     end,
-     emqx_listeners:list()).
+        fun({ListenerID, _}) ->
+            {ListenerID, emqx:get_raw_config(auth_config_path(ListenerID), [])}
+        end,
+        emqx_listeners:list()
+    ).
 
 auth_config_path(ListenerID) ->
-    [<<"listeners">>]
-    ++ binary:split(atom_to_binary(ListenerID), <<":">>)
-    ++ [?EMQX_AUTHENTICATION_CONFIG_ROOT_NAME_BINARY].
+    [<<"listeners">>] ++
+        binary:split(atom_to_binary(ListenerID), <<":">>) ++
+        [?EMQX_AUTHENTICATION_CONFIG_ROOT_NAME_BINARY].
 
 provider_types() ->
     lists:map(fun({Type, _Module}) -> Type end, emqx_authn:providers()).

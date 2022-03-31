@@ -24,7 +24,6 @@
 -include_lib("eunit/include/eunit.hrl").
 -include_lib("common_test/include/ct.hrl").
 
-
 -define(MONGO_HOST, "mongo").
 -define(MONGO_CLIENT, 'emqx_authn_mongo_SUITE_client').
 
@@ -37,8 +36,9 @@ init_per_testcase(_TestCase, Config) ->
     {ok, _} = emqx_cluster_rpc:start_link(node(), emqx_cluster_rpc, 1000),
     emqx_authentication:initialize_authentication(?GLOBAL, []),
     emqx_authn_test_lib:delete_authenticators(
-      [authentication],
-      ?GLOBAL),
+        [authentication],
+        ?GLOBAL
+    ),
     {ok, _} = mc_worker_api:connect(mongo_config()),
     Config.
 
@@ -58,8 +58,9 @@ init_per_suite(Config) ->
 
 end_per_suite(_Config) ->
     emqx_authn_test_lib:delete_authenticators(
-      [authentication],
-      ?GLOBAL),
+        [authentication],
+        ?GLOBAL
+    ),
     ok = stop_apps([emqx_resource, emqx_connector]),
     ok = emqx_common_test_helpers:stop_apps([emqx_authn]).
 
@@ -71,8 +72,9 @@ t_create(_Config) ->
     AuthConfig = raw_mongo_auth_config(),
 
     {ok, _} = emqx:update_config(
-                ?PATH,
-                {create_authenticator, ?GLOBAL, AuthConfig}),
+        ?PATH,
+        {create_authenticator, ?GLOBAL, AuthConfig}
+    ),
 
     {ok, [#{provider := emqx_authn_mongodb}]} = emqx_authentication:list_authenticators(?GLOBAL).
 
@@ -81,79 +83,93 @@ t_create_invalid(_Config) ->
 
     InvalidConfigs =
         [
-         AuthConfig#{mongo_type => <<"unknown">>},
-         AuthConfig#{selector => <<"{ \"username\": \"${username}\" }">>},
-         AuthConfig#{w_mode => <<"unknown">>}
+            AuthConfig#{mongo_type => <<"unknown">>},
+            AuthConfig#{selector => <<"{ \"username\": \"${username}\" }">>},
+            AuthConfig#{w_mode => <<"unknown">>}
         ],
 
     lists:foreach(
-      fun(Config) ->
-              {error, _} = emqx:update_config(
-                             ?PATH,
-                             {create_authenticator, ?GLOBAL, Config}),
+        fun(Config) ->
+            {error, _} = emqx:update_config(
+                ?PATH,
+                {create_authenticator, ?GLOBAL, Config}
+            ),
 
-              {ok, []} = emqx_authentication:list_authenticators(?GLOBAL)
-      end,
-      InvalidConfigs).
+            {ok, []} = emqx_authentication:list_authenticators(?GLOBAL)
+        end,
+        InvalidConfigs
+    ).
 
 t_authenticate(_Config) ->
     ok = init_seeds(),
     ok = lists:foreach(
-           fun(Sample) ->
-                   ct:pal("test_user_auth sample: ~p", [Sample]),
-                   test_user_auth(Sample)
-           end,
-           user_seeds()),
+        fun(Sample) ->
+            ct:pal("test_user_auth sample: ~p", [Sample]),
+            test_user_auth(Sample)
+        end,
+        user_seeds()
+    ),
     ok = drop_seeds().
 
-test_user_auth(#{credentials := Credentials0,
-                 config_params := SpecificConfigParams,
-                 result := Result}) ->
+test_user_auth(#{
+    credentials := Credentials0,
+    config_params := SpecificConfigParams,
+    result := Result
+}) ->
     AuthConfig = maps:merge(raw_mongo_auth_config(), SpecificConfigParams),
 
     {ok, _} = emqx:update_config(
-                ?PATH,
-                {create_authenticator, ?GLOBAL, AuthConfig}),
+        ?PATH,
+        {create_authenticator, ?GLOBAL, AuthConfig}
+    ),
 
     Credentials = Credentials0#{
-                    listener => 'tcp:default',
-                    protocol => mqtt
-                   },
+        listener => 'tcp:default',
+        protocol => mqtt
+    },
     ?assertEqual(Result, emqx_access_control:authenticate(Credentials)),
 
     emqx_authn_test_lib:delete_authenticators(
-      [authentication],
-      ?GLOBAL).
+        [authentication],
+        ?GLOBAL
+    ).
 
 t_destroy(_Config) ->
     ok = init_seeds(),
     AuthConfig = raw_mongo_auth_config(),
 
     {ok, _} = emqx:update_config(
-                ?PATH,
-                {create_authenticator, ?GLOBAL, AuthConfig}),
+        ?PATH,
+        {create_authenticator, ?GLOBAL, AuthConfig}
+    ),
 
-    {ok, [#{provider := emqx_authn_mongodb, state := State}]}
-        = emqx_authentication:list_authenticators(?GLOBAL),
+    {ok, [#{provider := emqx_authn_mongodb, state := State}]} =
+        emqx_authentication:list_authenticators(?GLOBAL),
 
     {ok, _} = emqx_authn_mongodb:authenticate(
-                #{username => <<"plain">>,
-                  password => <<"plain">>
-                 },
-                State),
+        #{
+            username => <<"plain">>,
+            password => <<"plain">>
+        },
+        State
+    ),
 
     emqx_authn_test_lib:delete_authenticators(
-      [authentication],
-      ?GLOBAL),
+        [authentication],
+        ?GLOBAL
+    ),
 
     % Authenticator should not be usable anymore
     ?assertMatch(
-       ignore,
-       emqx_authn_mongodb:authenticate(
-         #{username => <<"plain">>,
-           password => <<"plain">>
-          },
-         State)),
+        ignore,
+        emqx_authn_mongodb:authenticate(
+            #{
+                username => <<"plain">>,
+                password => <<"plain">>
+            },
+            State
+        )
+    ),
 
     ok = drop_seeds().
 
@@ -164,48 +180,55 @@ t_update(_Config) ->
         CorrectConfig#{selector => #{<<"wrongfield">> => <<"wrongvalue">>}},
 
     {ok, _} = emqx:update_config(
-                ?PATH,
-                {create_authenticator, ?GLOBAL, IncorrectConfig}),
+        ?PATH,
+        {create_authenticator, ?GLOBAL, IncorrectConfig}
+    ),
 
     {error, not_authorized} = emqx_access_control:authenticate(
-                                #{username => <<"plain">>,
-                                  password => <<"plain">>,
-                                  listener => 'tcp:default',
-                                  protocol => mqtt
-                                 }),
+        #{
+            username => <<"plain">>,
+            password => <<"plain">>,
+            listener => 'tcp:default',
+            protocol => mqtt
+        }
+    ),
 
     % We update with config with correct selector, provider should update and work properly
     {ok, _} = emqx:update_config(
-                ?PATH,
-                {update_authenticator, ?GLOBAL, <<"password_based:mongodb">>, CorrectConfig}),
+        ?PATH,
+        {update_authenticator, ?GLOBAL, <<"password_based:mongodb">>, CorrectConfig}
+    ),
 
-    {ok,_} = emqx_access_control:authenticate(
-               #{username => <<"plain">>,
-                 password => <<"plain">>,
-                 listener => 'tcp:default',
-                 protocol => mqtt
-                }),
+    {ok, _} = emqx_access_control:authenticate(
+        #{
+            username => <<"plain">>,
+            password => <<"plain">>,
+            listener => 'tcp:default',
+            protocol => mqtt
+        }
+    ),
     ok = drop_seeds().
 
 t_is_superuser(_Config) ->
     Config = raw_mongo_auth_config(),
     {ok, _} = emqx:update_config(
-                ?PATH,
-                {create_authenticator, ?GLOBAL, Config}),
+        ?PATH,
+        {create_authenticator, ?GLOBAL, Config}
+    ),
 
     Checks = [
-              {<<"0">>,     false},
-              {<<"">>,      false},
-              {null,        false},
-              {false,       false},
-              {0,           false},
+        {<<"0">>, false},
+        {<<"">>, false},
+        {null, false},
+        {false, false},
+        {0, false},
 
-              {<<"1">>,     true},
-              {<<"val">>,   true},
-              {1,           true},
-              {123,         true},
-              {true,        true}
-             ],
+        {<<"1">>, true},
+        {<<"val">>, true},
+        {1, true},
+        {123, true},
+        {true, true}
+    ],
 
     lists:foreach(fun test_is_superuser/1, Checks).
 
@@ -213,24 +236,25 @@ test_is_superuser({Value, ExpectedValue}) ->
     {true, _} = mc_worker_api:delete(?MONGO_CLIENT, <<"users">>, #{}),
 
     UserData = #{
-                 username => <<"user">>,
-                 password_hash => <<"plainsalt">>,
-                 salt => <<"salt">>,
-                 is_superuser => Value
-                },
+        username => <<"user">>,
+        password_hash => <<"plainsalt">>,
+        salt => <<"salt">>,
+        is_superuser => Value
+    },
 
     {{true, _}, _} = mc_worker_api:insert(?MONGO_CLIENT, <<"users">>, [UserData]),
 
     Credentials = #{
-                    listener => 'tcp:default',
-                    protocol => mqtt,
-                    username => <<"user">>,
-                    password => <<"plain">>
-                   },
+        listener => 'tcp:default',
+        protocol => mqtt,
+        username => <<"user">>,
+        password => <<"plain">>
+    },
 
     ?assertEqual(
-       {ok, #{is_superuser => ExpectedValue}},
-       emqx_access_control:authenticate(Credentials)).
+        {ok, #{is_superuser => ExpectedValue}},
+        emqx_access_control:authenticate(Credentials)
+    ).
 
 %%------------------------------------------------------------------------------
 %% Helpers
@@ -238,146 +262,160 @@ test_is_superuser({Value, ExpectedValue}) ->
 
 raw_mongo_auth_config() ->
     #{
-      mechanism => <<"password_based">>,
-      password_hash_algorithm => #{name => <<"plain">>,
-                                   salt_position => <<"suffix">>},
-      enable => <<"true">>,
+        mechanism => <<"password_based">>,
+        password_hash_algorithm => #{
+            name => <<"plain">>,
+            salt_position => <<"suffix">>
+        },
+        enable => <<"true">>,
 
-      backend => <<"mongodb">>,
-      mongo_type => <<"single">>,
-      database => <<"mqtt">>,
-      collection => <<"users">>,
-      server => mongo_server(),
-      w_mode => <<"unsafe">>,
+        backend => <<"mongodb">>,
+        mongo_type => <<"single">>,
+        database => <<"mqtt">>,
+        collection => <<"users">>,
+        server => mongo_server(),
+        w_mode => <<"unsafe">>,
 
-      selector => #{<<"username">> => <<"${username}">>},
-      password_hash_field => <<"password_hash">>,
-      salt_field => <<"salt">>,
-      is_superuser_field => <<"is_superuser">>
-     }.
+        selector => #{<<"username">> => <<"${username}">>},
+        password_hash_field => <<"password_hash">>,
+        salt_field => <<"salt">>,
+        is_superuser_field => <<"is_superuser">>
+    }.
 
 user_seeds() ->
-    [#{data => #{
-                 username => <<"plain">>,
-                 password_hash => <<"plainsalt">>,
-                 salt => <<"salt">>,
-                 is_superuser => <<"1">>
-                },
-       credentials => #{
-                        username => <<"plain">>,
-                        password => <<"plain">>
-                       },
-       config_params => #{
-                         },
-       result => {ok,#{is_superuser => true}}
-      },
-
-     #{data => #{
-                 username => <<"md5">>,
-                 password_hash => <<"9b4d0c43d206d48279e69b9ad7132e22">>,
-                 salt => <<"salt">>,
-                 is_superuser => <<"0">>
-                },
-       credentials => #{
-                        username => <<"md5">>,
-                        password => <<"md5">>
-                       },
-       config_params => #{
-                          password_hash_algorithm => #{name => <<"md5">>,
-                                                       salt_position => <<"suffix">> }
-                         },
-       result => {ok,#{is_superuser => false}}
-      },
-
-     #{data => #{
-         username => <<"sha256">>,
-         password_hash => <<"ac63a624e7074776d677dd61a003b8c803eb11db004d0ec6ae032a5d7c9c5caf">>,
-         salt => <<"salt">>,
-         is_superuser => 1
+    [
+        #{
+            data => #{
+                username => <<"plain">>,
+                password_hash => <<"plainsalt">>,
+                salt => <<"salt">>,
+                is_superuser => <<"1">>
+            },
+            credentials => #{
+                username => <<"plain">>,
+                password => <<"plain">>
+            },
+            config_params => #{},
+            result => {ok, #{is_superuser => true}}
         },
-       credentials => #{
-                        clientid => <<"sha256">>,
-                        password => <<"sha256">>
-                       },
-       config_params => #{
-              selector => #{<<"username">> => <<"${clientid}">>},
-              password_hash_algorithm => #{name => <<"sha256">>,
-                                           salt_position => <<"prefix">>}
-             },
-       result => {ok,#{is_superuser => true}}
-      },
 
-     #{data => #{
-                 username => <<"bcrypt">>,
-                 password_hash =>
-                     <<"$2b$12$wtY3h20mUjjmeaClpqZVveDWGlHzCGsvuThMlneGHA7wVeFYyns2u">>,
-                 salt => <<"$2b$12$wtY3h20mUjjmeaClpqZVve">>,
-                 is_superuser => 0
-                },
-       credentials => #{
-                        username => <<"bcrypt">>,
-                        password => <<"bcrypt">>
-                       },
-       config_params => #{
-              password_hash_algorithm => #{name => <<"bcrypt">>}
-             },
-       result => {ok,#{is_superuser => false}}
-      },
+        #{
+            data => #{
+                username => <<"md5">>,
+                password_hash => <<"9b4d0c43d206d48279e69b9ad7132e22">>,
+                salt => <<"salt">>,
+                is_superuser => <<"0">>
+            },
+            credentials => #{
+                username => <<"md5">>,
+                password => <<"md5">>
+            },
+            config_params => #{
+                password_hash_algorithm => #{
+                    name => <<"md5">>,
+                    salt_position => <<"suffix">>
+                }
+            },
+            result => {ok, #{is_superuser => false}}
+        },
 
-     #{data => #{
-                 username => <<"bcrypt0">>,
-                 password_hash =>
-                     <<"$2b$12$wtY3h20mUjjmeaClpqZVveDWGlHzCGsvuThMlneGHA7wVeFYyns2u">>,
-                 salt => <<"$2b$12$wtY3h20mUjjmeaClpqZVve">>,
-                 is_superuser => <<"0">>
-                },
-       credentials => #{
-                        username => <<"bcrypt0">>,
-                        password => <<"bcrypt">>
-                       },
-       config_params => #{
-              % clientid variable & username credentials
-              selector => #{<<"username">> => <<"${clientid}">>},
-              password_hash_algorithm => #{name => <<"bcrypt">>}
-             },
-       result => {error,not_authorized}
-      },
+        #{
+            data => #{
+                username => <<"sha256">>,
+                password_hash =>
+                    <<"ac63a624e7074776d677dd61a003b8c803eb11db004d0ec6ae032a5d7c9c5caf">>,
+                salt => <<"salt">>,
+                is_superuser => 1
+            },
+            credentials => #{
+                clientid => <<"sha256">>,
+                password => <<"sha256">>
+            },
+            config_params => #{
+                selector => #{<<"username">> => <<"${clientid}">>},
+                password_hash_algorithm => #{
+                    name => <<"sha256">>,
+                    salt_position => <<"prefix">>
+                }
+            },
+            result => {ok, #{is_superuser => true}}
+        },
 
-     #{data => #{
-                 username => <<"bcrypt1">>,
-                 password_hash =>
-                     <<"$2b$12$wtY3h20mUjjmeaClpqZVveDWGlHzCGsvuThMlneGHA7wVeFYyns2u">>,
-                 salt => <<"$2b$12$wtY3h20mUjjmeaClpqZVve">>,
-                 is_superuser => <<"0">>
-                },
-       credentials => #{
-                        username => <<"bcrypt1">>,
-                        password => <<"bcrypt">>
-                       },
-       config_params => #{
-              selector => #{<<"userid">> => <<"${clientid}">>},
-              password_hash_algorithm => #{name => <<"bcrypt">>}
-             },
-       result => {error,not_authorized}
-      },
+        #{
+            data => #{
+                username => <<"bcrypt">>,
+                password_hash =>
+                    <<"$2b$12$wtY3h20mUjjmeaClpqZVveDWGlHzCGsvuThMlneGHA7wVeFYyns2u">>,
+                salt => <<"$2b$12$wtY3h20mUjjmeaClpqZVve">>,
+                is_superuser => 0
+            },
+            credentials => #{
+                username => <<"bcrypt">>,
+                password => <<"bcrypt">>
+            },
+            config_params => #{
+                password_hash_algorithm => #{name => <<"bcrypt">>}
+            },
+            result => {ok, #{is_superuser => false}}
+        },
 
-     #{data => #{
-                 username => <<"bcrypt2">>,
-                 password_hash =>
-                     <<"$2b$12$wtY3h20mUjjmeaClpqZVveDWGlHzCGsvuThMlneGHA7wVeFYyns2u">>,
-                 salt => <<"$2b$12$wtY3h20mUjjmeaClpqZVve">>,
-                 is_superuser => <<"0">>
-                },
-       credentials => #{
-                        username => <<"bcrypt2">>,
-                        % Wrong password
-                        password => <<"wrongpass">>
-                       },
-       config_params => #{
-              password_hash_algorithm => #{name => <<"bcrypt">>}
-             },
-       result => {error,bad_username_or_password}
-      }
+        #{
+            data => #{
+                username => <<"bcrypt0">>,
+                password_hash =>
+                    <<"$2b$12$wtY3h20mUjjmeaClpqZVveDWGlHzCGsvuThMlneGHA7wVeFYyns2u">>,
+                salt => <<"$2b$12$wtY3h20mUjjmeaClpqZVve">>,
+                is_superuser => <<"0">>
+            },
+            credentials => #{
+                username => <<"bcrypt0">>,
+                password => <<"bcrypt">>
+            },
+            config_params => #{
+                % clientid variable & username credentials
+                selector => #{<<"username">> => <<"${clientid}">>},
+                password_hash_algorithm => #{name => <<"bcrypt">>}
+            },
+            result => {error, not_authorized}
+        },
+
+        #{
+            data => #{
+                username => <<"bcrypt1">>,
+                password_hash =>
+                    <<"$2b$12$wtY3h20mUjjmeaClpqZVveDWGlHzCGsvuThMlneGHA7wVeFYyns2u">>,
+                salt => <<"$2b$12$wtY3h20mUjjmeaClpqZVve">>,
+                is_superuser => <<"0">>
+            },
+            credentials => #{
+                username => <<"bcrypt1">>,
+                password => <<"bcrypt">>
+            },
+            config_params => #{
+                selector => #{<<"userid">> => <<"${clientid}">>},
+                password_hash_algorithm => #{name => <<"bcrypt">>}
+            },
+            result => {error, not_authorized}
+        },
+
+        #{
+            data => #{
+                username => <<"bcrypt2">>,
+                password_hash =>
+                    <<"$2b$12$wtY3h20mUjjmeaClpqZVveDWGlHzCGsvuThMlneGHA7wVeFYyns2u">>,
+                salt => <<"$2b$12$wtY3h20mUjjmeaClpqZVve">>,
+                is_superuser => <<"0">>
+            },
+            credentials => #{
+                username => <<"bcrypt2">>,
+                % Wrong password
+                password => <<"wrongpass">>
+            },
+            config_params => #{
+                password_hash_algorithm => #{name => <<"bcrypt">>}
+            },
+            result => {error, bad_username_or_password}
+        }
     ].
 
 init_seeds() ->
@@ -390,14 +428,14 @@ drop_seeds() ->
     ok.
 
 mongo_server() ->
-    iolist_to_binary(io_lib:format("~s",[?MONGO_HOST])).
+    iolist_to_binary(io_lib:format("~s", [?MONGO_HOST])).
 
 mongo_config() ->
     [
-     {database, <<"mqtt">>},
-     {host, ?MONGO_HOST},
-     {port, ?MONGO_DEFAULT_PORT},
-     {register, ?MONGO_CLIENT}
+        {database, <<"mqtt">>},
+        {host, ?MONGO_HOST},
+        {port, ?MONGO_DEFAULT_PORT},
+        {register, ?MONGO_CLIENT}
     ].
 
 start_apps(Apps) ->
