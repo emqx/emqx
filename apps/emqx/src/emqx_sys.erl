@@ -365,10 +365,13 @@ event_topic(Event, #{clientid := ClientId, protocol := GwName}) ->
         [
             systop("gateway"),
             "/",
-            atom_to_binary(GwName),
+            bin(GwName),
             "/clients/",
             ClientId,
             "/",
-            atom_to_binary(Event)
+            bin(Event)
         ]
     ).
+
+bin(A) when is_atom(A) -> atom_to_binary(A);
+bin(B) when is_binary(B) -> B.

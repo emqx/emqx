@@ -610,7 +610,7 @@ enrich_conninfo(InClientInfo, ConnInfo) ->
 enrich_clientinfo(InClientInfo = #{proto_name := ProtoName}, ClientInfo) ->
     Ks = [clientid, username, mountpoint],
     NClientInfo = maps:merge(ClientInfo, maps:with(Ks, InClientInfo)),
-    NClientInfo#{protocol => ProtoName}.
+    NClientInfo#{protocol => proto_name_to_protocol(ProtoName)}.
 
 default_conninfo(ConnInfo) ->
     ConnInfo#{clean_start => true,
@@ -619,6 +619,8 @@ default_conninfo(ConnInfo) ->
               conn_mod => undefined,
               conn_props => #{},
               connected => true,
+              proto_name => <<"exproto">>,
+              proto_ver => <<"1.0">>,
               connected_at => erlang:system_time(millisecond),
               keepalive => 0,
               receive_maximum => 0,
@@ -627,7 +629,7 @@ default_conninfo(ConnInfo) ->
 default_clientinfo(#{peername := {PeerHost, _},
                      sockname := {_, SockPort}}) ->
     #{zone         => default,
-      protocol     => undefined,
+      protocol     => exproto,
       peerhost     => PeerHost,
       sockport     => SockPort,
       clientid     => undefined,
@@ -642,3 +644,8 @@ stringfy(Reason) ->
 fmt_from(undefined) -> <<>>;
 fmt_from(Bin) when is_binary(Bin) -> Bin;
 fmt_from(T) -> stringfy(T).
+
+proto_name_to_protocol(<<>>) ->
+    exproto;
+proto_name_to_protocol(ProtoName) when is_binary(ProtoName) ->
+    binary_to_atom(ProtoName).
