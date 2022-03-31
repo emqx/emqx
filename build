@@ -136,7 +136,22 @@ make_zip() {
     local tarball="${relpath}/${tarname}"
     local target_zip="${pkgpath}/${pkgname}"
     tar zxf "${tarball}" -C "${tard}/emqx"
-    if ! [[ $SYSTEM == windows* ]]; then
+    has_relup='yes'
+    case "$SYSTEM" in
+        windows*)
+            # no relup support for windows
+            has_relup='no'
+            ;;
+        debian11)
+            case "$PKG_VSN" in
+                4.4.2*)
+                    # this is the first version for debian11, no relup
+                    has_relup='no'
+                    ;;
+            esac
+            ;;
+    esac
+    if [ "$has_relup" = 'yes' ]; then
         ./scripts/inject-relup.escript "${tard}/emqx/releases/${PKG_VSN}/relup"
     fi
     cp_dyn_libs "${tard}/emqx"
