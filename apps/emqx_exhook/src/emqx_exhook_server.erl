@@ -175,7 +175,7 @@ resovle_hookspec(HookSpecs) when is_list(HookSpecs) ->
         case maps:get(name, HookSpec, undefined) of
             undefined -> Acc;
             Name0 ->
-                Name = try binary_to_existing_atom(Name0, utf8) catch T:R:_ -> {T,R} end,
+                Name = try binary_to_existing_atom(Name0, utf8) catch T:R -> {T,R} end,
                 case lists:member(Name, AvailableHooks) of
                     true ->
                         case lists:member(Name, MessageHooks) of
