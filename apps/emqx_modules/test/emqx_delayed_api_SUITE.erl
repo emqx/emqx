@@ -20,11 +20,11 @@
 
 -include_lib("common_test/include/ct.hrl").
 -include_lib("eunit/include/eunit.hrl").
--include_lib("emqx/include/emqx.hrl").
 
--define(BASE_CONF, #{<<"dealyed">> => <<"true">>,
-                     <<"max_delayed_messages">> => <<"0">>
-                    }).
+-define(BASE_CONF, #{
+    <<"dealyed">> => <<"true">>,
+    <<"max_delayed_messages">> => <<"0">>
+}).
 
 -import(emqx_dashboard_api_test_helpers, [request/2, request/3, uri/1]).
 
@@ -75,20 +75,22 @@ t_status(_Config) ->
     ?assertMatch(#{enable := true, max_delayed_messages := 12}, decode_json(R2)),
 
     ?assertMatch(
-       {ok, 200, _},
-       request(
-         put,
-         Path,
-         #{enable => true}
-        )),
+        {ok, 200, _},
+        request(
+            put,
+            Path,
+            #{enable => true}
+        )
+    ),
 
     ?assertMatch(
-       {ok, 400, _},
-       request(
-         put,
-         Path,
-         #{enable => true, max_delayed_messages => -5}
-        )),
+        {ok, 400, _},
+        request(
+            put,
+            Path,
+            #{enable => true, max_delayed_messages => -5}
+        )
+    ),
 
     {ok, 200, ConfJson} = request(get, Path),
     ReturnConf = decode_json(ConfJson),
@@ -201,11 +203,11 @@ t_large_payload(_) ->
     timer:sleep(500),
     Topic = <<"$delayed/123/msgs">>,
     emqtt:publish(
-      C1,
-      Topic,
-      iolist_to_binary([<<"x">> || _ <- lists:seq(1, 5000)]),
-      [{qos, 0}, {retain, true}]
-     ),
+        C1,
+        Topic,
+        iolist_to_binary([<<"x">> || _ <- lists:seq(1, 5000)]),
+        [{qos, 0}, {retain, true}]
+    ),
 
     timer:sleep(500),
 
