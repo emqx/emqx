@@ -89,11 +89,6 @@ emqx_test(){
             "rpm")
                 packagename=$(basename "${PACKAGE_PATH}/${EMQX_NAME}"-*.rpm)
 
-                if [[ "${ARCH}" == "amd64" && $(rpm -E '%{rhel}') == 7 ]] ; then
-                    # EMQX OTP requires openssl11 to have TLS1.3 support
-                    yum install -y openssl11
-                fi
-
                 rpm -ivh "${PACKAGE_PATH}/${packagename}"
                 if ! rpm -q emqx | grep -q emqx; then
                     echo "package install error"
