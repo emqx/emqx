@@ -17,6 +17,10 @@ File format:
 * In order to fix the execution order of exhook, e.g. before/after other plugins/modules,
   ExHook now supports user customizing emqx_hook execute priority.
 
+### Bug fixes
+
+* Prohibit empty topics in strict mode
+
 ## v4.3.13
 
 ### Important changes
