@@ -31,13 +31,16 @@
 %% top supervisor of the tree.
 %% @end
 %%--------------------------------------------------------------------
--spec start(StartType :: normal |
-                         {takeover, Node :: node()} |
-                         {failover, Node :: node()},
-            StartArgs :: term()) ->
-          {ok, Pid :: pid()} |
-          {ok, Pid :: pid(), State :: term()} |
-          {error, Reason :: term()}.
+-spec start(
+    StartType ::
+        normal
+        | {takeover, Node :: node()}
+        | {failover, Node :: node()},
+    StartArgs :: term()
+) ->
+    {ok, Pid :: pid()}
+    | {ok, Pid :: pid(), State :: term()}
+    | {error, Reason :: term()}.
 start(_StartType, _StartArgs) ->
     {ok, _} = emqx_limiter_sup:start_link().
 

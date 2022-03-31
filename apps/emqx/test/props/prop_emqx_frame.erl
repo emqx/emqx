@@ -24,24 +24,27 @@
 %%--------------------------------------------------------------------
 
 prop_serialize_parse_connect() ->
-    ?FORALL(Opts = #{version := ProtoVer}, parse_opts(),
-            begin
-                ProtoName = proplists:get_value(ProtoVer, ?PROTOCOL_NAMES),
-                Packet = ?CONNECT_PACKET(#mqtt_packet_connect{
-                                            proto_name   = ProtoName,
-                                            proto_ver    = ProtoVer,
-                                            clientid     = <<"clientId">>,
-                                            will_qos     = ?QOS_1,
-                                            will_flag    = true,
-                                            will_retain  = true,
-                                            will_topic   = <<"will">>,
-                                            will_props   = #{},
-                                            will_payload = <<"bye">>,
-                                            clean_start  = true,
-                                            properties = #{}
-                                           }),
-                Packet =:= parse_serialize(Packet, Opts)
-            end).
+    ?FORALL(
+        Opts = #{version := ProtoVer},
+        parse_opts(),
+        begin
+            ProtoName = proplists:get_value(ProtoVer, ?PROTOCOL_NAMES),
+            Packet = ?CONNECT_PACKET(#mqtt_packet_connect{
+                proto_name = ProtoName,
+                proto_ver = ProtoVer,
+                clientid = <<"clientId">>,
+                will_qos = ?QOS_1,
+                will_flag = true,
+                will_retain = true,
+                will_topic = <<"will">>,
+                will_props = #{},
+                will_payload = <<"bye">>,
+                clean_start = true,
+                properties = #{}
+            }),
+            Packet =:= parse_serialize(Packet, Opts)
+        end
+    ).
 
 %%--------------------------------------------------------------------
 %% Helpers
@@ -59,4 +62,4 @@ parse_serialize(Packet, Opts) when is_map(Opts) ->
 %%--------------------------------------------------------------------
 
 parse_opts() ->
-    ?LET(PropList, [{strict_mode, boolean()}, {version, range(4,5)}], maps:from_list(PropList)).
+    ?LET(PropList, [{strict_mode, boolean()}, {version, range(4, 5)}], maps:from_list(PropList)).

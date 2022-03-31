@@ -22,14 +22,26 @@
 -include_lib("stdlib/include/ms_transform.hrl").
 
 %% API
--export([ start_link/0, start_server/1, find_bucket/1
-        , find_bucket/2, insert_bucket/2, insert_bucket/3
-        , make_path/2, restart_server/1
-        ]).
+-export([
+    start_link/0,
+    start_server/1,
+    find_bucket/1,
+    find_bucket/2,
+    insert_bucket/2, insert_bucket/3,
+    make_path/2,
+    restart_server/1
+]).
 
 %% gen_server callbacks
--export([init/1, handle_call/3, handle_cast/2, handle_info/2,
-         terminate/2, code_change/3, format_status/2]).
+-export([
+    init/1,
+    handle_call/3,
+    handle_cast/2,
+    handle_info/2,
+    terminate/2,
+    code_change/3,
+    format_status/2
+]).
 
 -export_type([path/0]).
 
@@ -38,9 +50,10 @@
 -type bucket_name() :: emqx_limiter_schema:bucket_name().
 
 %% counter record in ets table
--record(bucket, { path :: path()
-                , bucket :: bucket_ref()
-                }).
+-record(bucket, {
+    path :: path(),
+    bucket :: bucket_ref()
+}).
 
 -type bucket_ref() :: emqx_limiter_bucket_ref:bucket_ref().
 
@@ -58,7 +71,7 @@ restart_server(Type) ->
     emqx_limiter_server_sup:restart(Type).
 
 -spec find_bucket(limiter_type(), bucket_name()) ->
-          {ok, bucket_ref()} | undefined.
+    {ok, bucket_ref()} | undefined.
 find_bucket(Type, BucketName) ->
     find_bucket(make_path(Type, BucketName)).
 
@@ -71,12 +84,13 @@ find_bucket(Path) ->
             undefined
     end.
 
--spec insert_bucket(limiter_type(),
-                    bucket_name(),
-                    bucket_ref()) -> boolean().
+-spec insert_bucket(
+    limiter_type(),
+    bucket_name(),
+    bucket_ref()
+) -> boolean().
 insert_bucket(Type, BucketName, Bucket) ->
     inner_insert_bucket(make_path(Type, BucketName), Bucket).
-
 
 -spec insert_bucket(path(), bucket_ref()) -> true.
 insert_bucket(Path, Bucket) ->
@@ -91,10 +105,11 @@ make_path(Type, BucketName) ->
 %% Starts the server
 %% @end
 %%--------------------------------------------------------------------
--spec start_link() -> {ok, Pid :: pid()} |
-          {error, Error :: {already_started, pid()}} |
-          {error, Error :: term()} |
-          ignore.
+-spec start_link() ->
+    {ok, Pid :: pid()}
+    | {error, Error :: {already_started, pid()}}
+    | {error, Error :: term()}
+    | ignore.
 start_link() ->
     gen_server:start_link({local, ?MODULE}, ?MODULE, [], []).
 
@@ -108,16 +123,22 @@ start_link() ->
 %% Initializes the server
 %% @end
 %%--------------------------------------------------------------------
--spec init(Args :: term()) -> {ok, State :: term()} |
-          {ok, State :: term(), Timeout :: timeout()} |
-          {ok, State :: term(), hibernate} |
-          {stop, Reason :: term()} |
-          ignore.
+-spec init(Args :: term()) ->
+    {ok, State :: term()}
+    | {ok, State :: term(), Timeout :: timeout()}
+    | {ok, State :: term(), hibernate}
+    | {stop, Reason :: term()}
+    | ignore.
 init([]) ->
-    _ = ets:new(?TAB, [ set, public, named_table, {keypos, #bucket.path}
-                      , {write_concurrency, true}, {read_concurrency, true}
-                      , {heir, erlang:whereis(emqx_limiter_sup), none}
-                      ]),
+    _ = ets:new(?TAB, [
+        set,
+        public,
+        named_table,
+        {keypos, #bucket.path},
+        {write_concurrency, true},
+        {read_concurrency, true},
+        {heir, erlang:whereis(emqx_limiter_sup), none}
+    ]),
     {ok, #{}}.
 
 %%--------------------------------------------------------------------
@@ -127,14 +148,14 @@ init([]) ->
 %% @end
 %%--------------------------------------------------------------------
 -spec handle_call(Request :: term(), From :: {pid(), term()}, State :: term()) ->
-          {reply, Reply :: term(), NewState :: term()} |
-          {reply, Reply :: term(), NewState :: term(), Timeout :: timeout()} |
-          {reply, Reply :: term(), NewState :: term(), hibernate} |
-          {noreply, NewState :: term()} |
-          {noreply, NewState :: term(), Timeout :: timeout()} |
-          {noreply, NewState :: term(), hibernate} |
-          {stop, Reason :: term(), Reply :: term(), NewState :: term()} |
-          {stop, Reason :: term(), NewState :: term()}.
+    {reply, Reply :: term(), NewState :: term()}
+    | {reply, Reply :: term(), NewState :: term(), Timeout :: timeout()}
+    | {reply, Reply :: term(), NewState :: term(), hibernate}
+    | {noreply, NewState :: term()}
+    | {noreply, NewState :: term(), Timeout :: timeout()}
+    | {noreply, NewState :: term(), hibernate}
+    | {stop, Reason :: term(), Reply :: term(), NewState :: term()}
+    | {stop, Reason :: term(), NewState :: term()}.
 handle_call(Req, _From, State) ->
     ?SLOG(error, #{msg => "unexpected_call", call => Req}),
     {reply, ignore, State}.
@@ -146,10 +167,10 @@ handle_call(Req, _From, State) ->
 %% @end
 %%--------------------------------------------------------------------
 -spec handle_cast(Request :: term(), State :: term()) ->
-          {noreply, NewState :: term()} |
-          {noreply, NewState :: term(), Timeout :: timeout()} |
-          {noreply, NewState :: term(), hibernate} |
-          {stop, Reason :: term(), NewState :: term()}.
+    {noreply, NewState :: term()}
+    | {noreply, NewState :: term(), Timeout :: timeout()}
+    | {noreply, NewState :: term(), hibernate}
+    | {stop, Reason :: term(), NewState :: term()}.
 handle_cast(Req, State) ->
     ?SLOG(error, #{msg => "unexpected_cast", cast => Req}),
     {noreply, State}.
@@ -161,10 +182,10 @@ handle_cast(Req, State) ->
 %% @end
 %%--------------------------------------------------------------------
 -spec handle_info(Info :: timeout() | term(), State :: term()) ->
-          {noreply, NewState :: term()} |
-          {noreply, NewState :: term(), Timeout :: timeout()} |
-          {noreply, NewState :: term(), hibernate} |
-          {stop, Reason :: normal | term(), NewState :: term()}.
+    {noreply, NewState :: term()}
+    | {noreply, NewState :: term(), Timeout :: timeout()}
+    | {noreply, NewState :: term(), hibernate}
+    | {stop, Reason :: normal | term(), NewState :: term()}.
 handle_info(Info, State) ->
     ?SLOG(error, #{msg => "unexpected_info", info => Info}),
     {noreply, State}.
@@ -178,8 +199,10 @@ handle_info(Info, State) ->
 %% with Reason. The return value is ignored.
 %% @end
 %%--------------------------------------------------------------------
--spec terminate(Reason :: normal | shutdown | {shutdown, term()} | term(),
-                State :: term()) -> any().
+-spec terminate(
+    Reason :: normal | shutdown | {shutdown, term()} | term(),
+    State :: term()
+) -> any().
 terminate(_Reason, _State) ->
     ok.
 
@@ -189,10 +212,13 @@ terminate(_Reason, _State) ->
 %% Convert process state when code is changed
 %% @end
 %%--------------------------------------------------------------------
--spec code_change(OldVsn :: term() | {down, term()},
-                  State :: term(),
-                  Extra :: term()) -> {ok, NewState :: term()} |
-          {error, Reason :: term()}.
+-spec code_change(
+    OldVsn :: term() | {down, term()},
+    State :: term(),
+    Extra :: term()
+) ->
+    {ok, NewState :: term()}
+    | {error, Reason :: term()}.
 code_change(_OldVsn, State, _Extra) ->
     {ok, State}.
 
@@ -204,8 +230,10 @@ code_change(_OldVsn, State, _Extra) ->
 %% or when it appears in termination error logs.
 %% @end
 %%--------------------------------------------------------------------
--spec format_status(Opt :: normal | terminate,
-                    Status :: list()) -> Status :: term().
+-spec format_status(
+    Opt :: normal | terminate,
+    Status :: list()
+) -> Status :: term().
 format_status(_Opt, Status) ->
     Status.
 
@@ -214,5 +242,7 @@ format_status(_Opt, Status) ->
 %%--------------------------------------------------------------------
 -spec inner_insert_bucket(path(), bucket_ref()) -> true.
 inner_insert_bucket(Path, Bucket) ->
-    ets:insert(?TAB,
-               #bucket{path = Path, bucket = Bucket}).
+    ets:insert(
+        ?TAB,
+        #bucket{path = Path, bucket = Bucket}
+    ).

@@ -23,14 +23,15 @@
 -spec format(LogEvent, Config) -> unicode:chardata() when
     LogEvent :: logger:log_event(),
     Config :: logger:config().
-format(#{level := debug, meta := Meta = #{trace_tag := Tag}, msg := Msg},
-    #{payload_encode := PEncode}) ->
+format(
+    #{level := debug, meta := Meta = #{trace_tag := Tag}, msg := Msg},
+    #{payload_encode := PEncode}
+) ->
     Time = calendar:system_time_to_rfc3339(erlang:system_time(second)),
     ClientId = to_iolist(maps:get(clientid, Meta, "")),
     Peername = maps:get(peername, Meta, ""),
     MetaBin = format_meta(Meta, PEncode),
     [Time, " [", Tag, "] ", ClientId, "@", Peername, " msg: ", Msg, MetaBin, "\n"];
-
 format(Event, Config) ->
     emqx_logger_textfmt:format(Event, Config).
 
@@ -72,6 +73,10 @@ to_iolist(SubMap) when is_map(SubMap) -> ["[", map_to_iolist(SubMap), "]"];
 to_iolist(Char) -> emqx_logger_textfmt:try_format_unicode(Char).
 
 map_to_iolist(Map) ->
-    lists:join(",",
-        lists:map(fun({K, V}) -> [to_iolist(K), ": ", to_iolist(V)] end,
-            maps:to_list(Map))).
+    lists:join(
+        ",",
+        lists:map(
+            fun({K, V}) -> [to_iolist(K), ": ", to_iolist(V)] end,
+            maps:to_list(Map)
+        )
+    ).

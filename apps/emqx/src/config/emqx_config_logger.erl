@@ -44,10 +44,16 @@ post_config_update(_ConfPath, _Req, _NewConf, _OldConf, _AppEnvs) ->
 
 update_log_handlers(NewHandlers) ->
     OldHandlers = application:get_env(kernel, logger, []),
-    lists:foreach(fun({handler, HandlerId, _Mod, _Conf}) ->
-        logger:remove_handler(HandlerId)
-                  end, OldHandlers -- NewHandlers),
-    lists:foreach(fun({handler, HandlerId, Mod, Conf}) ->
-        logger:add_handler(HandlerId, Mod, Conf)
-                  end, NewHandlers -- OldHandlers),
+    lists:foreach(
+        fun({handler, HandlerId, _Mod, _Conf}) ->
+            logger:remove_handler(HandlerId)
+        end,
+        OldHandlers -- NewHandlers
+    ),
+    lists:foreach(
+        fun({handler, HandlerId, Mod, Conf}) ->
+            logger:add_handler(HandlerId, Mod, Conf)
+        end,
+        NewHandlers -- OldHandlers
+    ),
     application:set_env(kernel, logger, NewHandlers).

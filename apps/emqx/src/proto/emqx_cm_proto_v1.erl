@@ -18,18 +18,19 @@
 
 -behaviour(emqx_bpapi).
 
--export([ introduced_in/0
+-export([
+    introduced_in/0,
 
-        , lookup_client/2
-        , kickout_client/2
+    lookup_client/2,
+    kickout_client/2,
 
-        , get_chan_stats/2
-        , get_chan_info/2
-        , get_chann_conn_mod/2
+    get_chan_stats/2,
+    get_chan_info/2,
+    get_chann_conn_mod/2,
 
-        , takeover_session/2
-        , kick_session/3
-        ]).
+    takeover_session/2,
+    kick_session/3
+]).
 
 -include("bpapi.hrl").
 -include("src/emqx_cm.hrl").
@@ -42,7 +43,7 @@ kickout_client(Node, ClientId) ->
     rpc:call(Node, emqx_cm, kick_session, [ClientId]).
 
 -spec lookup_client(node(), {clientid, emqx_types:clientid()} | {username, emqx_types:username()}) ->
-          [emqx_cm:channel_info()] | {badrpc, _}.
+    [emqx_cm:channel_info()] | {badrpc, _}.
 lookup_client(Node, Key) ->
     rpc:call(Node, emqx_cm, lookup_client, [Key]).
 
@@ -54,15 +55,16 @@ get_chan_stats(ClientId, ChanPid) ->
 get_chan_info(ClientId, ChanPid) ->
     rpc:call(node(ChanPid), emqx_cm, do_get_chan_info, [ClientId, ChanPid], ?T_GET_INFO * 2).
 
--spec get_chann_conn_mod(emqx_types:clientid(), emqx_cm:chan_pid()) -> module() | undefined | {badrpc, _}.
+-spec get_chann_conn_mod(emqx_types:clientid(), emqx_cm:chan_pid()) ->
+    module() | undefined | {badrpc, _}.
 get_chann_conn_mod(ClientId, ChanPid) ->
     rpc:call(node(ChanPid), emqx_cm, do_get_chann_conn_mod, [ClientId, ChanPid], ?T_GET_INFO * 2).
 
 -spec takeover_session(emqx_types:clientid(), emqx_cm:chan_pid()) ->
-                none
-              | {expired | persistent, emqx_session:session()}
-              | {living, _ConnMod :: atom(), emqx_cm:chan_pid(), emqx_session:session()}
-              | {badrpc, _}.
+    none
+    | {expired | persistent, emqx_session:session()}
+    | {living, _ConnMod :: atom(), emqx_cm:chan_pid(), emqx_session:session()}
+    | {badrpc, _}.
 takeover_session(ClientId, ChanPid) ->
     rpc:call(node(ChanPid), emqx_cm, takeover_session, [ClientId, ChanPid], ?T_TAKEOVER * 2).
 

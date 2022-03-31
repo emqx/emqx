@@ -19,8 +19,13 @@
 -module(emqx_limiter_decimal).
 
 %% API
--export([ add/2, sub/2, mul/2
-        , put_to_counter/3, floor_div/2]).
+-export([
+    add/2,
+    sub/2,
+    mul/2,
+    put_to_counter/3,
+    floor_div/2
+]).
 -export_type([decimal/0, zero_or_float/0]).
 
 -type decimal() :: infinity | number().
@@ -30,33 +35,35 @@
 %%% API
 %%--------------------------------------------------------------------
 -spec add(decimal(), decimal()) -> decimal().
-add(A, B) when A =:= infinity
-               orelse B =:= infinity ->
+add(A, B) when
+    A =:= infinity orelse
+        B =:= infinity
+->
     infinity;
-
 add(A, B) ->
     A + B.
 
 -spec sub(decimal(), decimal()) -> decimal().
-sub(A, B) when A =:= infinity
-               orelse B =:= infinity ->
+sub(A, B) when
+    A =:= infinity orelse
+        B =:= infinity
+->
     infinity;
-
 sub(A, B) ->
     A - B.
 
 -spec mul(decimal(), decimal()) -> decimal().
-mul(A, B) when A =:= infinity
-               orelse B =:= infinity ->
+mul(A, B) when
+    A =:= infinity orelse
+        B =:= infinity
+->
     infinity;
-
 mul(A, B) ->
     A * B.
 
 -spec floor_div(decimal(), number()) -> decimal().
 floor_div(infinity, _) ->
     infinity;
-
 floor_div(A, B) ->
     erlang:floor(A / B).
 

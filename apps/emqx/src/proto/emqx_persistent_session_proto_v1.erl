@@ -18,10 +18,11 @@
 
 -behaviour(emqx_bpapi).
 
--export([ introduced_in/0
-        , resume_begin/3
-        , resume_end/3
-        ]).
+-export([
+    introduced_in/0,
+    resume_begin/3,
+    resume_end/3
+]).
 
 -include("bpapi.hrl").
 -include("emqx.hrl").
@@ -30,11 +31,11 @@ introduced_in() ->
     "5.0.0".
 
 -spec resume_begin([node()], pid(), binary()) ->
-          emqx_rpc:erpc_multicall([{node(), emqx_guid:guid()}]).
+    emqx_rpc:erpc_multicall([{node(), emqx_guid:guid()}]).
 resume_begin(Nodes, Pid, SessionID) when is_pid(Pid), is_binary(SessionID) ->
     erpc:multicall(Nodes, emqx_session_router, resume_begin, [Pid, SessionID]).
 
 -spec resume_end([node()], pid(), binary()) ->
-          emqx_rpc:erpc_multicall({'ok', [emqx_types:message()]} | {'error', term()}).
+    emqx_rpc:erpc_multicall({'ok', [emqx_types:message()]} | {'error', term()}).
 resume_end(Nodes, Pid, SessionID) when is_pid(Pid), is_binary(SessionID) ->
     erpc:multicall(Nodes, emqx_session_router, resume_end, [Pid, SessionID]).

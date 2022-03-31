@@ -21,17 +21,20 @@
 %% API
 -export([new_create_options/2, create/1, delete/1, consume/2]).
 
--type create_options() :: #{ module := ?MODULE
-                           , type := emqx_limiter_schema:limiter_type()
-                           , bucket := emqx_limiter_schema:bucket_name()
-                           }.
+-type create_options() :: #{
+    module := ?MODULE,
+    type := emqx_limiter_schema:limiter_type(),
+    bucket := emqx_limiter_schema:bucket_name()
+}.
 
 %%--------------------------------------------------------------------
 %%  API
 %%--------------------------------------------------------------------
 
--spec new_create_options(emqx_limiter_schema:limiter_type(),
-                         emqx_limiter_schema:bucket_name()) -> create_options().
+-spec new_create_options(
+    emqx_limiter_schema:limiter_type(),
+    emqx_limiter_schema:bucket_name()
+) -> create_options().
 new_create_options(Type, BucketName) ->
     #{module => ?MODULE, type => Type, bucket => BucketName}.
 
