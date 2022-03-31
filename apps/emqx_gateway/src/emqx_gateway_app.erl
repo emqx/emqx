@@ -22,6 +22,8 @@
 
 -export([start/2, stop/1]).
 
+-elvis([{elvis_style, invalid_dynamic_call, disable}]).
+
 start(_StartType, _StartArgs) ->
     {ok, Sup} = emqx_gateway_sup:start_link(),
     emqx_gateway_cli:load(),
@@ -44,22 +46,29 @@ load_default_gateway_applications() ->
 
 gateway_type_searching() ->
     %% FIXME: Hardcoded apps
-    [emqx_stomp_impl, emqx_sn_impl, emqx_exproto_impl,
-     emqx_coap_impl, emqx_lwm2m_impl].
+    [
+        emqx_stomp_impl,
+        emqx_sn_impl,
+        emqx_exproto_impl,
+        emqx_coap_impl,
+        emqx_lwm2m_impl
+    ].
 
 reg(Mod) ->
     try
         Mod:reg(),
-        ?SLOG(debug, #{ msg => "register_gateway_succeed"
-                      , callback_module => Mod
-                      })
+        ?SLOG(debug, #{
+            msg => "register_gateway_succeed",
+            callback_module => Mod
+        })
     catch
-        Class : Reason : Stk ->
-            ?SLOG(error, #{ msg => "failed_to_register_gateway"
-                          , callback_module => Mod
-                          , reason => {Class, Reason}
-                          , stacktrace => Stk
-                          })
+        Class:Reason:Stk ->
+            ?SLOG(error, #{
+                msg => "failed_to_register_gateway",
+                callback_module => Mod,
+                reason => {Class, Reason},
+                stacktrace => Stk
+            })
     end.
 
 load_gateway_by_default() ->
@@ -67,22 +76,26 @@ load_gateway_by_default() ->
 
 load_gateway_by_default([]) ->
     ok;
-load_gateway_by_default([{Type, Confs}|More]) ->
+load_gateway_by_default([{Type, Confs} | More]) ->
     case emqx_gateway_registry:lookup(Type) of
         undefined ->
-            ?SLOG(error, #{ msg => "skip_to_load_gateway"
-                          , gateway_name => Type
-                          });
+            ?SLOG(error, #{
+                msg => "skip_to_load_gateway",
+                gateway_name => Type
+            });
         _ ->
             case emqx_gateway:load(Type, Confs) of
                 {ok, _} ->
-                    ?SLOG(debug, #{ msg => "load_gateway_succeed"
-                                  , gateway_name => Type
-                                  });
+                    ?SLOG(debug, #{
+                        msg => "load_gateway_succeed",
+                        gateway_name => Type
+                    });
                 {error, Reason} ->
-                    ?SLOG(error, #{ msg => "load_gateway_failed"
-                                  , gateway_name => Type
-                                  , reason => Reason})
+                    ?SLOG(error, #{
+                        msg => "load_gateway_failed",
+                        gateway_name => Type,
+                        reason => Reason
+                    })
             end
     end,
     load_gateway_by_default(More).

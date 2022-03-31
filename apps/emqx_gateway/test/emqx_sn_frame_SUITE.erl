@@ -96,15 +96,15 @@ t_puback(_) ->
     ?assertEqual(PubAck, parse(serialize_pkt(PubAck))).
 
 t_pubrec(_) ->
-    PubRec =  #mqtt_sn_message{type = ?SN_PUBREC, variable = 16#1234},
+    PubRec = #mqtt_sn_message{type = ?SN_PUBREC, variable = 16#1234},
     ?assertEqual(PubRec, parse(serialize_pkt(PubRec))).
 
 t_pubrel(_) ->
-    PubRel =  #mqtt_sn_message{type = ?SN_PUBREL, variable = 16#1234},
+    PubRel = #mqtt_sn_message{type = ?SN_PUBREL, variable = 16#1234},
     ?assertEqual(PubRel, parse(serialize_pkt(PubRel))).
 
 t_pubcomp(_) ->
-    PubComp =  #mqtt_sn_message{type = ?SN_PUBCOMP, variable = 16#1234},
+    PubComp = #mqtt_sn_message{type = ?SN_PUBCOMP, variable = 16#1234},
     ?assertEqual(PubComp, parse(serialize_pkt(PubComp))).
 
 t_subscribe(_) ->
@@ -165,10 +165,12 @@ random_test_body() ->
     Data = generate_random_binary(),
     case catch parse(Data) of
         Msg when is_record(Msg, mqtt_sn_message) -> ok;
-        {'EXIT', {Err, _Stack}}
-          when Err =:= unkown_message_type;
-               Err =:= malformed_message_len;
-               Err =:= malformed_message_flags -> ok
+        {'EXIT', {Err, _Stack}} when
+            Err =:= unkown_message_type;
+            Err =:= malformed_message_len;
+            Err =:= malformed_message_flags
+        ->
+            ok
     end.
 
 generate_random_binary() ->
@@ -180,4 +182,4 @@ gen_next(0, Acc) ->
     Acc;
 gen_next(N, Acc) ->
     Byte = rand:uniform(256) - 1,
-    gen_next(N-1, <<Acc/binary, Byte:8>>).
+    gen_next(N - 1, <<Acc/binary, Byte:8>>).

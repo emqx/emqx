@@ -41,19 +41,24 @@ t_check_1(_) ->
 
 t_check_2(_) ->
     HrtBt = emqx_stomp_heartbeat:init({1, 0}),
-    #{incoming := _} = lists:foldl(fun(I, Acc) ->
-                            {ok, NAcc} = emqx_stomp_heartbeat:check(incoming, I, Acc),
-                            NAcc
-                       end, HrtBt, lists:seq(1,1000)),
+    #{incoming := _} = lists:foldl(
+        fun(I, Acc) ->
+            {ok, NAcc} = emqx_stomp_heartbeat:check(incoming, I, Acc),
+            NAcc
+        end,
+        HrtBt,
+        lists:seq(1, 1000)
+    ),
     ok.
 
 t_info(_) ->
     HrtBt = emqx_stomp_heartbeat:init({100, 100}),
-    #{incoming := _,
-      outgoing := _} = emqx_stomp_heartbeat:info(HrtBt).
+    #{
+        incoming := _,
+        outgoing := _
+    } = emqx_stomp_heartbeat:info(HrtBt).
 
 t_interval(_) ->
     HrtBt = emqx_stomp_heartbeat:init({1, 0}),
     1 = emqx_stomp_heartbeat:interval(incoming, HrtBt),
     undefined = emqx_stomp_heartbeat:interval(outgoing, HrtBt).
-

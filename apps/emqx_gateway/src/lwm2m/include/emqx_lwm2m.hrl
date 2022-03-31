@@ -16,29 +16,28 @@
 
 -define(LWAPP, emqx_lwm2m).
 
-
 -define(OMA_ALTER_PATH_RT, <<"\"oma.lwm2m\"">>).
 
--define(MQ_COMMAND_ID,         <<"CmdID">>).
--define(MQ_COMMAND,            <<"requestID">>).
--define(MQ_BASENAME,           <<"BaseName">>).
--define(MQ_ARGS,               <<"Arguments">>).
+-define(MQ_COMMAND_ID, <<"CmdID">>).
+-define(MQ_COMMAND, <<"requestID">>).
+-define(MQ_BASENAME, <<"BaseName">>).
+-define(MQ_ARGS, <<"Arguments">>).
 
--define(MQ_VALUE_TYPE,         <<"ValueType">>).
--define(MQ_VALUE,              <<"Value">>).
--define(MQ_ERROR,              <<"Error">>).
--define(MQ_RESULT,             <<"Result">>).
+-define(MQ_VALUE_TYPE, <<"ValueType">>).
+-define(MQ_VALUE, <<"Value">>).
+-define(MQ_ERROR, <<"Error">>).
+-define(MQ_RESULT, <<"Result">>).
 
--define(ERR_NO_XML,             <<"No XML Definition">>).
--define(ERR_NOT_ACCEPTABLE,     <<"Not Acceptable">>).
+-define(ERR_NO_XML, <<"No XML Definition">>).
+-define(ERR_NOT_ACCEPTABLE, <<"Not Acceptable">>).
 -define(ERR_METHOD_NOT_ALLOWED, <<"Method Not Allowed">>).
--define(ERR_NOT_FOUND,          <<"Not Found">>).
--define(ERR_UNAUTHORIZED,       <<"Unauthorized">>).
--define(ERR_BAD_REQUEST,        <<"Bad Request">>).
+-define(ERR_NOT_FOUND, <<"Not Found">>).
+-define(ERR_UNAUTHORIZED, <<"Unauthorized">>).
+-define(ERR_BAD_REQUEST, <<"Bad Request">>).
 -define(REG_PREFIX, <<"rd">>).
 
 -define(LWM2M_FORMAT_PLAIN_TEXT, 0).
--define(LWM2M_FORMAT_LINK,       40).
--define(LWM2M_FORMAT_OPAQUE,     42).
--define(LWM2M_FORMAT_TLV,        11542).
--define(LWMWM_FORMAT_JSON,       11543).
+-define(LWM2M_FORMAT_LINK, 40).
+-define(LWM2M_FORMAT_OPAQUE, 42).
+-define(LWM2M_FORMAT_TLV, 11542).
+-define(LWMWM_FORMAT_JSON, 11543).

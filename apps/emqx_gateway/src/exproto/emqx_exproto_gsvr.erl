@@ -27,49 +27,58 @@
 -define(DEFAULT_CALL_TIMEOUT, 5000).
 
 %% gRPC server callbacks
--export([ send/2
-        , close/2
-        , authenticate/2
-        , start_timer/2
-        , publish/2
-        , subscribe/2
-        , unsubscribe/2
-        ]).
+-export([
+    send/2,
+    close/2,
+    authenticate/2,
+    start_timer/2,
+    publish/2,
+    subscribe/2,
+    unsubscribe/2
+]).
 
 %%--------------------------------------------------------------------
 %% gRPC ConnectionAdapter service
 %%--------------------------------------------------------------------
 
--spec send(emqx_exproto_pb:send_bytes_request(), grpc:metadata())
-    -> {ok, emqx_exproto_pb:code_response(), grpc:metadata()}
-     | {error, grpc_cowboy_h:error_response()}.
+-spec send(emqx_exproto_pb:send_bytes_request(), grpc:metadata()) ->
+    {ok, emqx_exproto_pb:code_response(), grpc:metadata()}
+    | {error, grpc_cowboy_h:error_response()}.
 send(Req = #{conn := Conn, bytes := Bytes}, Md) ->
-    ?SLOG(debug, #{ msg => "recv_grpc_function_call"
-                  , function => ?FUNCTION_NAME
-                  , request => Req
-                  }),
+    ?SLOG(debug, #{
+        msg => "recv_grpc_function_call",
+        function => ?FUNCTION_NAME,
+        request => Req
+    }),
     {ok, response(call(Conn, {send, Bytes})), Md}.
 
--spec close(emqx_exproto_pb:close_socket_request(), grpc:metadata())
-    -> {ok, emqx_exproto_pb:code_response(), grpc:metadata()}
-     | {error, grpc_cowboy_h:error_response()}.
+-spec close(emqx_exproto_pb:close_socket_request(), grpc:metadata()) ->
+    {ok, emqx_exproto_pb:code_response(), grpc:metadata()}
+    | {error, grpc_cowboy_h:error_response()}.
 close(Req = #{conn := Conn}, Md) ->
-    ?SLOG(debug, #{ msg => "recv_grpc_function_call"
-                  , function => ?FUNCTION_NAME
-                  , request => Req
-                  }),
+    ?SLOG(debug, #{
+        msg => "recv_grpc_function_call",
+        function => ?FUNCTION_NAME,
+        request => Req
+    }),
     {ok, response(call(Conn, close)), Md}.
 
--spec authenticate(emqx_exproto_pb:authenticate_request(), grpc:metadata())
-    -> {ok, emqx_exproto_pb:code_response(), grpc:metadata()}
-     | {error, grpc_cowboy_h:error_response()}.
-authenticate(Req = #{conn := Conn,
-                     password := Password,
-                     clientinfo := ClientInfo}, Md) ->
-    ?SLOG(debug, #{ msg => "recv_grpc_function_call"
-                  , function => ?FUNCTION_NAME
-                  , request => Req
-                  }),
+-spec authenticate(emqx_exproto_pb:authenticate_request(), grpc:metadata()) ->
+    {ok, emqx_exproto_pb:code_response(), grpc:metadata()}
+    | {error, grpc_cowboy_h:error_response()}.
+authenticate(
+    Req = #{
+        conn := Conn,
+        password := Password,
+        clientinfo := ClientInfo
+    },
+    Md
+) ->
+    ?SLOG(debug, #{
+        msg => "recv_grpc_function_call",
+        function => ?FUNCTION_NAME,
+        request => Req
+    }),
     case validate(clientinfo, ClientInfo) of
         false ->
             {ok, response({error, ?RESP_REQUIRED_PARAMS_MISSED}), Md};
@@ -77,70 +86,78 @@ authenticate(Req = #{conn := Conn,
             {ok, response(call(Conn, {auth, ClientInfo, Password})), Md}
     end.
 
--spec start_timer(emqx_exproto_pb:timer_request(), grpc:metadata())
-    -> {ok, emqx_exproto_pb:code_response(), grpc:metadata()}
-     | {error, grpc_cowboy_h:error_response()}.
-start_timer(Req = #{conn := Conn, type := Type, interval := Interval}, Md)
-  when Type =:= 'KEEPALIVE' andalso Interval > 0 ->
-    ?SLOG(debug, #{ msg => "recv_grpc_function_call"
-                  , function => ?FUNCTION_NAME
-                  , request => Req
-                  }),
+-spec start_timer(emqx_exproto_pb:timer_request(), grpc:metadata()) ->
+    {ok, emqx_exproto_pb:code_response(), grpc:metadata()}
+    | {error, grpc_cowboy_h:error_response()}.
+start_timer(Req = #{conn := Conn, type := Type, interval := Interval}, Md) when
+    Type =:= 'KEEPALIVE' andalso Interval > 0
+->
+    ?SLOG(debug, #{
+        msg => "recv_grpc_function_call",
+        function => ?FUNCTION_NAME,
+        request => Req
+    }),
 
     {ok, response(call(Conn, {start_timer, keepalive, Interval})), Md};
 start_timer(Req, Md) ->
-    ?SLOG(debug, #{ msg => "recv_grpc_function_call"
-                  , function => ?FUNCTION_NAME
-                  , request => Req
-                  }),
+    ?SLOG(debug, #{
+        msg => "recv_grpc_function_call",
+        function => ?FUNCTION_NAME,
+        request => Req
+    }),
 
     {ok, response({error, ?RESP_PARAMS_TYPE_ERROR}), Md}.
 
--spec publish(emqx_exproto_pb:publish_request(), grpc:metadata())
-    -> {ok, emqx_exproto_pb:code_response(), grpc:metadata()}
-     | {error, grpc_cowboy_h:error_response()}.
-publish(Req = #{conn := Conn, topic := Topic, qos := Qos, payload := Payload}, Md)
-  when ?IS_QOS(Qos) ->
-    ?SLOG(debug, #{ msg => "recv_grpc_function_call"
-                  , function => ?FUNCTION_NAME
-                  , request => Req
-                  }),
+-spec publish(emqx_exproto_pb:publish_request(), grpc:metadata()) ->
+    {ok, emqx_exproto_pb:code_response(), grpc:metadata()}
+    | {error, grpc_cowboy_h:error_response()}.
+publish(Req = #{conn := Conn, topic := Topic, qos := Qos, payload := Payload}, Md) when
+    ?IS_QOS(Qos)
+->
+    ?SLOG(debug, #{
+        msg => "recv_grpc_function_call",
+        function => ?FUNCTION_NAME,
+        request => Req
+    }),
 
     {ok, response(call(Conn, {publish, Topic, Qos, Payload})), Md};
-
 publish(Req, Md) ->
-    ?SLOG(debug, #{ msg => "recv_grpc_function_call"
-                  , function => ?FUNCTION_NAME
-                  , request => Req
-                  }),
+    ?SLOG(debug, #{
+        msg => "recv_grpc_function_call",
+        function => ?FUNCTION_NAME,
+        request => Req
+    }),
     {ok, response({error, ?RESP_PARAMS_TYPE_ERROR}), Md}.
 
--spec subscribe(emqx_exproto_pb:subscribe_request(), grpc:metadata())
-    -> {ok, emqx_exproto_pb:code_response(), grpc:metadata()}
-     | {error, grpc_cowboy_h:error_response()}.
-subscribe(Req = #{conn := Conn, topic := Topic, qos := Qos}, Md)
-  when ?IS_QOS(Qos) ->
-    ?SLOG(debug, #{ msg => "recv_grpc_function_call"
-                  , function => ?FUNCTION_NAME
-                  , request => Req
-                  }),
+-spec subscribe(emqx_exproto_pb:subscribe_request(), grpc:metadata()) ->
+    {ok, emqx_exproto_pb:code_response(), grpc:metadata()}
+    | {error, grpc_cowboy_h:error_response()}.
+subscribe(Req = #{conn := Conn, topic := Topic, qos := Qos}, Md) when
+    ?IS_QOS(Qos)
+->
+    ?SLOG(debug, #{
+        msg => "recv_grpc_function_call",
+        function => ?FUNCTION_NAME,
+        request => Req
+    }),
     {ok, response(call(Conn, {subscribe_from_client, Topic, Qos})), Md};
-
 subscribe(Req, Md) ->
-    ?SLOG(debug, #{ msg => "recv_grpc_function_call"
-                  , function => ?FUNCTION_NAME
-                  , request => Req
-                  }),
+    ?SLOG(debug, #{
+        msg => "recv_grpc_function_call",
+        function => ?FUNCTION_NAME,
+        request => Req
+    }),
     {ok, response({error, ?RESP_PARAMS_TYPE_ERROR}), Md}.
 
--spec unsubscribe(emqx_exproto_pb:unsubscribe_request(), grpc:metadata())
-    -> {ok, emqx_exproto_pb:code_response(), grpc:metadata()}
-     | {error, grpc_cowboy_h:error_response()}.
+-spec unsubscribe(emqx_exproto_pb:unsubscribe_request(), grpc:metadata()) ->
+    {ok, emqx_exproto_pb:code_response(), grpc:metadata()}
+    | {error, grpc_cowboy_h:error_response()}.
 unsubscribe(Req = #{conn := Conn, topic := Topic}, Md) ->
-    ?SLOG(debug, #{ msg => "recv_grpc_function_call"
-                  , function => ?FUNCTION_NAME
-                  , request => Req
-                  }),
+    ?SLOG(debug, #{
+        msg => "recv_grpc_function_call",
+        function => ?FUNCTION_NAME,
+        request => Req
+    }),
     {ok, response(call(Conn, {unsubscribe_from_client, Topic})), Md}.
 
 %%--------------------------------------------------------------------
@@ -155,20 +172,20 @@ call(ConnStr, Req) ->
         Pid = to_pid(ConnStr),
         emqx_gateway_conn:call(Pid, Req, ?DEFAULT_CALL_TIMEOUT)
     catch
-        exit : badarg ->
+        exit:badarg ->
             {error, ?RESP_PARAMS_TYPE_ERROR, <<"The conn type error">>};
-        exit : noproc ->
-            {error, ?RESP_CONN_PROCESS_NOT_ALIVE,
-             <<"Connection process is not alive">>};
-        exit : timeout ->
+        exit:noproc ->
+            {error, ?RESP_CONN_PROCESS_NOT_ALIVE, <<"Connection process is not alive">>};
+        exit:timeout ->
             {error, ?RESP_UNKNOWN, <<"Connection is not answered">>};
-        Class : Reason : Stk->
-            ?SLOG(error, #{ msg => "call_conn_process_crashed"
-                          , request => Req
-                          , conn_str=> ConnStr
-                          , reason => {Class, Reason}
-                          , stacktrace => Stk
-                          }),
+        Class:Reason:Stk ->
+            ?SLOG(error, #{
+                msg => "call_conn_process_crashed",
+                request => Req,
+                conn_str => ConnStr,
+                reason => {Class, Reason},
+                stacktrace => Stk
+            }),
             {error, ?RESP_UNKNOWN, <<"Unknown crashes">>}
     end.
 
@@ -184,11 +201,13 @@ validate(clientinfo, M) ->
 
 response(ok) ->
     #{code => ?RESP_SUCCESS};
-response({error, Code, Reason})
-  when ?IS_GRPC_RESULT_CODE(Code) ->
+response({error, Code, Reason}) when
+    ?IS_GRPC_RESULT_CODE(Code)
+->
     #{code => Code, message => stringfy(Reason)};
-response({error, Code})
-  when ?IS_GRPC_RESULT_CODE(Code) ->
+response({error, Code}) when
+    ?IS_GRPC_RESULT_CODE(Code)
+->
     #{code => Code};
 response(Other) ->
     #{code => ?RESP_UNKNOWN, message => stringfy(Other)}.

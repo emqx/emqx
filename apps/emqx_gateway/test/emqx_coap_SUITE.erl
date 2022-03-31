@@ -19,36 +19,39 @@
 -compile(export_all).
 -compile(nowarn_export_all).
 
--import(emqx_gateway_test_utils,
-        [ request/2
-        , request/3
-        ]).
+-import(
+    emqx_gateway_test_utils,
+    [
+        request/2,
+        request/3
+    ]
+).
 
 -include_lib("er_coap_client/include/coap.hrl").
 -include_lib("emqx/include/emqx.hrl").
 -include_lib("eunit/include/eunit.hrl").
 -include_lib("common_test/include/ct.hrl").
 
--define(CONF_DEFAULT, <<"
-gateway.coap
-{
-    idle_timeout = 30s
-    enable_stats = false
-    mountpoint = \"\"
-    notify_type = qos
-    connection_required = true
-    subscribe_qos = qos1
-    publish_qos = qos1
-
-    listeners.udp.default
-    {bind = 5683}
-}
-">>).
+-define(CONF_DEFAULT, <<
+    "\n"
+    "gateway.coap\n"
+    "{\n"
+    "    idle_timeout = 30s\n"
+    "    enable_stats = false\n"
+    "    mountpoint = \"\"\n"
+    "    notify_type = qos\n"
+    "    connection_required = true\n"
+    "    subscribe_qos = qos1\n"
+    "    publish_qos = qos1\n"
+    "\n"
+    "    listeners.udp.default\n"
+    "    {bind = 5683}\n"
+    "}\n"
+>>).
 
 -define(LOGT(Format, Args), ct:pal("TEST_SUITE: " ++ Format, Args)).
 -define(PS_PREFIX, "coap://127.0.0.1/ps").
 -define(MQTT_PREFIX, "coap://127.0.0.1/mqtt").
-
 
 all() -> emqx_common_test_helpers:all(?MODULE).
 
@@ -58,7 +61,7 @@ init_per_suite(Config) ->
     Config.
 
 end_per_suite(_) ->
-    {ok, _} = emqx:remove_config([<<"gateway">>,<<"coap">>]),
+    {ok, _} = emqx:remove_config([<<"gateway">>, <<"coap">>]),
     emqx_mgmt_api_test_util:end_suite([emqx_gateway]).
 
 %%--------------------------------------------------------------------
@@ -72,13 +75,15 @@ t_connection(_) ->
 
         timer:sleep(100),
         ?assertNotEqual(
-           [],
-           emqx_gateway_cm_registry:lookup_channels(coap, <<"client1">>)),
+            [],
+            emqx_gateway_cm_registry:lookup_channels(coap, <<"client1">>)
+        ),
 
         %% heartbeat
-        HeartURI = ?MQTT_PREFIX ++
-                   "/connection?clientid=client1&token=" ++
-                   Token,
+        HeartURI =
+            ?MQTT_PREFIX ++
+                "/connection?clientid=client1&token=" ++
+                Token,
 
         ?LOGT("send heartbeat request:~ts~n", [HeartURI]),
         {ok, changed, _} = er_coap_client:request(put, HeartURI),
@@ -87,8 +92,9 @@ t_connection(_) ->
 
         timer:sleep(100),
         ?assertEqual(
-           [],
-           emqx_gateway_cm_registry:lookup_channels(coap, <<"client1">>))
+            [],
+            emqx_gateway_cm_registry:lookup_channels(coap, <<"client1">>)
+        )
     end,
     do(Action).
 
@@ -110,9 +116,8 @@ t_publish(_) ->
             {deliver, Topic, Msg} ->
                 ?assertEqual(Topic, Msg#message.topic),
                 ?assertEqual(Payload, Msg#message.payload)
-        after
-            500 ->
-                ?assert(false)
+        after 500 ->
+            ?assert(false)
         end
     end,
     with_connection(Action).
@@ -167,7 +172,6 @@ t_subscribe(_) ->
     timer:sleep(100),
 
     ?assertEqual([], emqx:subscribers(Topic)).
-
 
 t_un_subscribe(_) ->
     Topic = <<"/abc">>,
@@ -232,11 +236,17 @@ t_clients_api(_) ->
         #{clientid := ClientId} = Client1,
         %% searching
         {200, #{data := [Client2]}} =
-            request(get, "/gateway/coap/clients",
-                    [{<<"clientid">>, ClientId}]),
+            request(
+                get,
+                "/gateway/coap/clients",
+                [{<<"clientid">>, ClientId}]
+            ),
         {200, #{data := [Client3]}} =
-            request(get, "/gateway/coap/clients",
-                    [{<<"like_clientid">>, <<"cli">>}]),
+            request(
+                get,
+                "/gateway/coap/clients",
+                [{<<"like_clientid">>, <<"cli">>}]
+            ),
         %% lookup
         {200, Client4} =
             request(get, "/gateway/coap/clients/client1"),
@@ -255,18 +265,20 @@ t_clients_subscription_api(_) ->
         %% list
         {200, []} = request(get, Path),
         %% create
-        SubReq = #{ topic => <<"tx">>
-                  , qos => 0
-                  , nl => 0
-                  , rap => 0
-                  , rh => 0
-                  },
+        SubReq = #{
+            topic => <<"tx">>,
+            qos => 0,
+            nl => 0,
+            rap => 0,
+            rh => 0
+        },
 
         {201, SubsResp} = request(post, Path, SubReq),
         {200, [SubsResp2]} = request(get, Path),
         ?assertEqual(
-           maps:get(topic, SubsResp),
-           maps:get(topic, SubsResp2)),
+            maps:get(topic, SubsResp),
+            maps:get(topic, SubsResp2)
+        ),
 
         {204, _} = request(delete, Path ++ "/tx"),
 
@@ -276,57 +288,58 @@ t_clients_subscription_api(_) ->
 
 t_clients_get_subscription_api(_) ->
     Fun = fun(Channel, Token) ->
-                  Path = "/gateway/coap/clients/client1/subscriptions",
-                  %% list
-                  {200, []} = request(get, Path),
+        Path = "/gateway/coap/clients/client1/subscriptions",
+        %% list
+        {200, []} = request(get, Path),
 
-                  observe(Channel, Token, true),
+        observe(Channel, Token, true),
 
-                  {200, [Subs]} = request(get, Path),
+        {200, [Subs]} = request(get, Path),
 
-                  ?assertEqual(<<"/coap/observe">>, maps:get(topic, Subs)),
+        ?assertEqual(<<"/coap/observe">>, maps:get(topic, Subs)),
 
-                  observe(Channel, Token, false),
+        observe(Channel, Token, false),
 
-                  {200, []} = request(get, Path)
-          end,
+        {200, []} = request(get, Path)
+    end,
     with_connection(Fun).
 
 t_on_offline_event(_) ->
     Fun = fun(Channel) ->
-                  emqx_hooks:add('client.connected', {emqx_sys, on_client_connected, []}),
-                  emqx_hooks:add('client.disconnected', {emqx_sys, on_client_disconnected, []}),
+        emqx_hooks:add('client.connected', {emqx_sys, on_client_connected, []}),
+        emqx_hooks:add('client.disconnected', {emqx_sys, on_client_disconnected, []}),
 
-                  ConnectedSub = <<"$SYS/brokers/+/gateway/coap/clients/+/connected">>,
-                  emqx_broker:subscribe(ConnectedSub),
-                  timer:sleep(100),
+        ConnectedSub = <<"$SYS/brokers/+/gateway/coap/clients/+/connected">>,
+        emqx_broker:subscribe(ConnectedSub),
+        timer:sleep(100),
 
-                  Token = connection(Channel),
-                  ?assertMatch(#message{}, receive_deliver(500)),
+        Token = connection(Channel),
+        ?assertMatch(#message{}, receive_deliver(500)),
 
-                  DisconnectedSub = <<"$SYS/brokers/+/gateway/coap/clients/+/disconnected">>,
-                  emqx_broker:subscribe(DisconnectedSub),
-                  timer:sleep(100),
+        DisconnectedSub = <<"$SYS/brokers/+/gateway/coap/clients/+/disconnected">>,
+        emqx_broker:subscribe(DisconnectedSub),
+        timer:sleep(100),
 
-                  disconnection(Channel, Token),
+        disconnection(Channel, Token),
 
-                  ?assertMatch(#message{}, receive_deliver(500)),
+        ?assertMatch(#message{}, receive_deliver(500)),
 
-                  emqx_broker:unsubscribe(ConnectedSub),
-                  emqx_broker:unsubscribe(DisconnectedSub),
+        emqx_broker:unsubscribe(ConnectedSub),
+        emqx_broker:unsubscribe(DisconnectedSub),
 
-                  emqx_hooks:del('client.connected', {emqx_sys, on_client_connected}),
-                  emqx_hooks:del('client.disconnected', {emqx_sys, on_client_disconnected}),
-                  timer:sleep(500)
-          end,
+        emqx_hooks:del('client.connected', {emqx_sys, on_client_connected}),
+        emqx_hooks:del('client.disconnected', {emqx_sys, on_client_disconnected}),
+        timer:sleep(500)
+    end,
     do(Fun).
 
 %%--------------------------------------------------------------------
 %% helpers
 
 connection(Channel) ->
-    URI = ?MQTT_PREFIX ++
-        "/connection?clientid=client1&username=admin&password=public",
+    URI =
+        ?MQTT_PREFIX ++
+            "/connection?clientid=client1&username=admin&password=public",
     Req = make_req(post),
     {ok, created, Data} = do_request(Channel, URI, Req),
     #coap_content{payload = BinToken} = Data,
@@ -343,7 +356,6 @@ observe(Channel, Token, true) ->
     Req = make_req(get, <<>>, [{observe, 0}]),
     {ok, content, _Data} = do_request(Channel, URI, Req),
     ok;
-
 observe(Channel, Token, false) ->
     URI = ?PS_PREFIX ++ "/coap/observe?clientid=client1&token=" ++ Token,
     Req = make_req(get, <<>>, [{observe, 1}]),
@@ -360,7 +372,6 @@ make_req(Method, Payload, Opts) ->
     er_coap_message:request(con, Method, Payload, Opts).
 
 do_request(Channel, URI, #coap_message{options = Opts} = Req) ->
-
     {_, _, Path, Query} = er_coap_client:resolve_uri(URI),
     Opts2 = [{uri_path, Path}, {uri_query, Query} | Opts],
     Req2 = Req#coap_message{options = Opts2},
@@ -371,18 +382,17 @@ do_request(Channel, URI, #coap_message{options = Opts} = Req) ->
 
 with_response(Channel) ->
     receive
-        {coap_response, _ChId, Channel,
-         _Ref, Message=#coap_message{method=Code}} ->
+        {coap_response, _ChId, Channel, _Ref, Message = #coap_message{method = Code}} ->
             return_response(Code, Message);
         {coap_error, _ChId, Channel, _Ref, reset} ->
             {error, reset}
     after 2000 ->
-            {error, timeout}
+        {error, timeout}
     end.
 
 return_response({ok, Code}, Message) ->
     {ok, Code, er_coap_message:get_content(Message)};
-return_response({error, Code}, #coap_message{payload= <<>>}) ->
+return_response({error, Code}, #coap_message{payload = <<>>}) ->
     {error, Code};
 return_response({error, Code}, Message) ->
     {error, Code, er_coap_message:get_content(Message)}.
@@ -413,5 +423,5 @@ receive_deliver(Wait) ->
         {deliver, _, Msg} ->
             Msg
     after Wait ->
-            {error, timeout}
+        {error, timeout}
     end.

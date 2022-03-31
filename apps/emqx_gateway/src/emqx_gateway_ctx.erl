@@ -19,7 +19,6 @@
 
 -include("include/emqx_gateway.hrl").
 
-
 %% @doc The running context for a Connection/Channel process.
 %%
 %% The `Context` encapsulates a complex structure of contextual information.
@@ -27,45 +26,50 @@
 %% configuration, register devices and other common operations.
 %%
 -type context() ::
-        #{ %% Gateway Name
-           gwname := gateway_name()
-           %% Authentication chains
-         , auth   := [emqx_authentication:chain_name()]
-           %% The ConnectionManager PID
-         , cm     := pid()
-         }.
+    %% Gateway Name
+    #{
+        gwname := gateway_name(),
+        %% Authentication chains
+        auth := [emqx_authentication:chain_name()],
+        %% The ConnectionManager PID
+        cm := pid()
+    }.
 
 %% Authentication circle
--export([ authenticate/2
-        , open_session/5
-        , open_session/6
-        , insert_channel_info/4
-        , set_chan_info/3
-        , set_chan_stats/3
-        , connection_closed/2
-        ]).
+-export([
+    authenticate/2,
+    open_session/5,
+    open_session/6,
+    insert_channel_info/4,
+    set_chan_info/3,
+    set_chan_stats/3,
+    connection_closed/2
+]).
 
 %% Message circle
--export([ authorize/4
-        % Needless for pub/sub
-        %, publish/3
-        %, subscribe/4
-        ]).
+-export([
+    authorize/4
+    % Needless for pub/sub
+    %, publish/3
+    %, subscribe/4
+]).
 
 %% Metrics & Stats
--export([ metrics_inc/2
-        , metrics_inc/3
-        ]).
+-export([
+    metrics_inc/2,
+    metrics_inc/3
+]).
 
 %%--------------------------------------------------------------------
 %% Authentication circle
 
 %% @doc Authenticate whether the client has access to the Broker.
--spec authenticate(context(), emqx_types:clientinfo())
-    -> {ok, emqx_types:clientinfo()}
-     | {error, any()}.
-authenticate(_Ctx = #{auth := _ChainNames}, ClientInfo0)
-  when is_list(_ChainNames) ->
+-spec authenticate(context(), emqx_types:clientinfo()) ->
+    {ok, emqx_types:clientinfo()}
+    | {error, any()}.
+authenticate(_Ctx = #{auth := _ChainNames}, ClientInfo0) when
+    is_list(_ChainNames)
+->
     ClientInfo = ClientInfo0#{zone => default},
     case emqx_access_control:authenticate(ClientInfo) of
         {ok, _} ->
@@ -78,43 +82,74 @@ authenticate(_Ctx = #{auth := _ChainNames}, ClientInfo0)
 %%
 %%  This function should be called after the client has authenticated
 %%  successfully so that the client can be managed in the cluster.
--spec open_session(context(), boolean(), emqx_types:clientinfo(),
-                   emqx_types:conninfo(),
-                   fun((emqx_types:clientinfo(),
-                        emqx_types:conninfo()) -> Session)
-                  )
-    -> {ok, #{session := Session,
-              present := boolean(),
-              pendings => list()
-             }}
-     | {error, any()}.
+-spec open_session(
+    context(),
+    boolean(),
+    emqx_types:clientinfo(),
+    emqx_types:conninfo(),
+    fun(
+        (
+            emqx_types:clientinfo(),
+            emqx_types:conninfo()
+        ) -> Session
+    )
+) ->
+    {ok, #{
+        session := Session,
+        present := boolean(),
+        pendings => list()
+    }}
+    | {error, any()}.
 open_session(Ctx, CleanStart, ClientInfo, ConnInfo, CreateSessionFun) ->
-    open_session(Ctx, CleanStart, ClientInfo, ConnInfo,
-                 CreateSessionFun, emqx_session).
+    open_session(
+        Ctx,
+        CleanStart,
+        ClientInfo,
+        ConnInfo,
+        CreateSessionFun,
+        emqx_session
+    ).
 
-open_session(_Ctx = #{gwname := GwName},
-             CleanStart, ClientInfo, ConnInfo, CreateSessionFun, SessionMod) ->
-    emqx_gateway_cm:open_session(GwName, CleanStart,
-                                 ClientInfo, ConnInfo,
-                                 CreateSessionFun, SessionMod).
+open_session(
+    _Ctx = #{gwname := GwName},
+    CleanStart,
+    ClientInfo,
+    ConnInfo,
+    CreateSessionFun,
+    SessionMod
+) ->
+    emqx_gateway_cm:open_session(
+        GwName,
+        CleanStart,
+        ClientInfo,
+        ConnInfo,
+        CreateSessionFun,
+        SessionMod
+    ).
 
--spec insert_channel_info(context(),
-                          emqx_types:clientid(),
-                          emqx_types:infos(),
-                          emqx_types:stats()) -> ok.
+-spec insert_channel_info(
+    context(),
+    emqx_types:clientid(),
+    emqx_types:infos(),
+    emqx_types:stats()
+) -> ok.
 insert_channel_info(_Ctx = #{gwname := GwName}, ClientId, Infos, Stats) ->
     emqx_gateway_cm:insert_channel_info(GwName, ClientId, Infos, Stats).
 
 %% @doc Set the Channel Info to the ConnectionManager for this client
--spec set_chan_info(context(),
-                    emqx_types:clientid(),
-                    emqx_types:infos()) -> boolean().
+-spec set_chan_info(
+    context(),
+    emqx_types:clientid(),
+    emqx_types:infos()
+) -> boolean().
 set_chan_info(_Ctx = #{gwname := GwName}, ClientId, Infos) ->
     emqx_gateway_cm:set_chan_info(GwName, ClientId, Infos).
 
--spec set_chan_stats(context(),
-                     emqx_types:clientid(),
-                     emqx_types:stats()) -> boolean().
+-spec set_chan_stats(
+    context(),
+    emqx_types:clientid(),
+    emqx_types:stats()
+) -> boolean().
 set_chan_stats(_Ctx = #{gwname := GwName}, ClientId, Stats) ->
     emqx_gateway_cm:set_chan_stats(GwName, ClientId, Stats).
 
@@ -122,9 +157,13 @@ set_chan_stats(_Ctx = #{gwname := GwName}, ClientId, Stats) ->
 connection_closed(_Ctx = #{gwname := GwName}, ClientId) ->
     emqx_gateway_cm:connection_closed(GwName, ClientId).
 
--spec authorize(context(), emqx_types:clientinfo(),
-                emqx_types:pubsub(), emqx_types:topic())
-               -> allow | deny.
+-spec authorize(
+    context(),
+    emqx_types:clientinfo(),
+    emqx_types:pubsub(),
+    emqx_types:topic()
+) ->
+    allow | deny.
 authorize(_Ctx, ClientInfo, PubSub, Topic) ->
     emqx_access_control:authorize(ClientInfo, PubSub, Topic).
 

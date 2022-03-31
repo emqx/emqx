@@ -26,23 +26,23 @@
 %%--------------------------------------------------------------------
 
 %% client command
--define(CMD_STOMP,       <<"STOMP">>).
--define(CMD_CONNECT,     <<"CONNECT">>).
--define(CMD_SEND,        <<"SEND">>).
--define(CMD_SUBSCRIBE,   <<"SUBSCRIBE">>).
+-define(CMD_STOMP, <<"STOMP">>).
+-define(CMD_CONNECT, <<"CONNECT">>).
+-define(CMD_SEND, <<"SEND">>).
+-define(CMD_SUBSCRIBE, <<"SUBSCRIBE">>).
 -define(CMD_UNSUBSCRIBE, <<"UNSUBSCRIBE">>).
--define(CMD_BEGIN,       <<"BEGIN">>).
--define(CMD_COMMIT,      <<"COMMIT">>).
--define(CMD_ABORT,       <<"ABORT">>).
--define(CMD_ACK,         <<"ACK">>).
--define(CMD_NACK,        <<"NACK">>).
--define(CMD_DISCONNECT,  <<"DISCONNECT">>).
+-define(CMD_BEGIN, <<"BEGIN">>).
+-define(CMD_COMMIT, <<"COMMIT">>).
+-define(CMD_ABORT, <<"ABORT">>).
+-define(CMD_ACK, <<"ACK">>).
+-define(CMD_NACK, <<"NACK">>).
+-define(CMD_DISCONNECT, <<"DISCONNECT">>).
 
 %% server command
 -define(CMD_CONNECTED, <<"CONNECTED">>).
--define(CMD_MESSAGE,   <<"MESSAGE">>).
--define(CMD_RECEIPT,   <<"RECEIPT">>).
--define(CMD_ERROR,     <<"ERROR">>).
+-define(CMD_MESSAGE, <<"MESSAGE">>).
+-define(CMD_RECEIPT, <<"RECEIPT">>).
+-define(CMD_ERROR, <<"ERROR">>).
 -define(CMD_HEARTBEAT, <<"HEARTBEAT">>).
 
 %-type client_command() :: ?CMD_SEND | ?CMD_SUBSCRIBE | ?CMD_UNSUBSCRIBE
@@ -57,10 +57,10 @@
 -type server_command() :: binary().
 
 -record(stomp_frame, {
-          command :: client_command() | server_command(),
-          headers = [],
-          body = <<>> :: iodata()}
-       ).
+    command :: client_command() | server_command(),
+    headers = [],
+    body = <<>> :: iodata()
+}).
 
 -type stomp_frame() :: #stomp_frame{}.
 
@@ -68,10 +68,11 @@
 
 -define(PACKET(CMD, Headers), #stomp_frame{command = CMD, headers = Headers}).
 
--define(PACKET(CMD, Headers, Body), #stomp_frame{command = CMD,
-                                                 headers = Headers,
-                                                 body    = Body
-                                                }).
+-define(PACKET(CMD, Headers, Body), #stomp_frame{
+    command = CMD,
+    headers = Headers,
+    body = Body
+}).
 
 %%--------------------------------------------------------------------
 %% Frame Size Limits
@@ -87,8 +88,8 @@
 %% and then close the connection.
 %%--------------------------------------------------------------------
 
--define(MAX_HEADER_NUM,    10).
+-define(MAX_HEADER_NUM, 10).
 -define(MAX_HEADER_LENGTH, 1024).
--define(MAX_BODY_LENGTH,   65536).
+-define(MAX_BODY_LENGTH, 65536).
 
 -endif.

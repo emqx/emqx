@@ -49,7 +49,6 @@ handle_method(get, Topic, Msg, Ctx, CInfo) ->
         _ ->
             reply({error, bad_request}, <<"invalid observe value">>, Msg)
     end;
-
 handle_method(post, Topic, #coap_message{payload = Payload} = Msg, Ctx, CInfo) ->
     case emqx_coap_channel:validator(publish, Topic, Ctx, CInfo) of
         allow ->
@@ -64,22 +63,23 @@ handle_method(post, Topic, #coap_message{payload = Payload} = Msg, Ctx, CInfo) -
         _ ->
             reply({error, unauthorized}, Msg)
     end;
-
 handle_method(_, _, Msg, _, _) ->
     reply({error, method_not_allowed}, Msg).
 
 check_topic([]) ->
     error;
-
 check_topic(Path) ->
     Sep = <<"/">>,
     {ok,
-     emqx_http_lib:uri_decode(
-       lists:foldl(fun(Part, Acc) ->
-                           <<Acc/binary, Sep/binary, Part/binary>>
-                   end,
-                   <<>>,
-                   Path))}.
+        emqx_http_lib:uri_decode(
+            lists:foldl(
+                fun(Part, Acc) ->
+                    <<Acc/binary, Sep/binary, Part/binary>>
+                end,
+                <<>>,
+                Path
+            )
+        )}.
 
 get_sub_opts(#coap_message{options = Opts} = Msg) ->
     SubOpts = maps:fold(fun parse_sub_opts/3, #{}, Opts),
@@ -100,9 +100,12 @@ parse_sub_opts(<<"rh">>, V, Opts) ->
 parse_sub_opts(_, _, Opts) ->
     Opts.
 
-type_to_qos(qos0, _) -> ?QOS_0;
-type_to_qos(qos1, _) -> ?QOS_1;
-type_to_qos(qos2, _) -> ?QOS_2;
+type_to_qos(qos0, _) ->
+    ?QOS_0;
+type_to_qos(qos1, _) ->
+    ?QOS_1;
+type_to_qos(qos2, _) ->
+    ?QOS_2;
 type_to_qos(coap, #coap_message{type = Type}) ->
     case Type of
         non ->
@@ -121,24 +124,28 @@ get_publish_qos(Msg) ->
     end.
 
 apply_publish_opts(Msg, MQTTMsg) ->
-    maps:fold(fun(<<"retain">>, V, Acc) ->
-                      Val = erlang:binary_to_atom(V),
-                      emqx_message:set_flag(retain, Val, Acc);
-                 (<<"expiry">>, V, Acc) ->
-                      Val = erlang:binary_to_integer(V),
-                      Props = emqx_message:get_header(properties, Acc),
-                      emqx_message:set_header(properties,
-                                              Props#{'Message-Expiry-Interval' => Val},
-                                              Acc);
-                 (_, _, Acc) ->
-                      Acc
-              end,
-              MQTTMsg,
-              emqx_coap_message:get_option(uri_query, Msg)).
+    maps:fold(
+        fun
+            (<<"retain">>, V, Acc) ->
+                Val = erlang:binary_to_atom(V),
+                emqx_message:set_flag(retain, Val, Acc);
+            (<<"expiry">>, V, Acc) ->
+                Val = erlang:binary_to_integer(V),
+                Props = emqx_message:get_header(properties, Acc),
+                emqx_message:set_header(
+                    properties,
+                    Props#{'Message-Expiry-Interval' => Val},
+                    Acc
+                );
+            (_, _, Acc) ->
+                Acc
+        end,
+        MQTTMsg,
+        emqx_coap_message:get_option(uri_query, Msg)
+    ).
 
 subscribe(#coap_message{token = <<>>} = Msg, _, _, _) ->
     reply({error, bad_request}, <<"observe without token">>, Msg);
-
 subscribe(#coap_message{token = Token} = Msg, Topic, Ctx, CInfo) ->
     case emqx_coap_channel:validator(subscribe, Topic, Ctx, CInfo) of
         allow ->

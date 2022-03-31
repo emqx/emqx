@@ -21,29 +21,33 @@
 
 -include_lib("emqx/include/logger.hrl").
 
--import(emqx_gateway_utils,
-        [ normalize_config/1
-        , start_listeners/4
-        , stop_listeners/2
-        ]).
+-import(
+    emqx_gateway_utils,
+    [
+        normalize_config/1,
+        start_listeners/4,
+        stop_listeners/2
+    ]
+).
 
 %% APIs
--export([ reg/0
-        , unreg/0
-        ]).
+-export([
+    reg/0,
+    unreg/0
+]).
 
--export([ on_gateway_load/2
-        , on_gateway_update/3
-        , on_gateway_unload/2
-        ]).
+-export([
+    on_gateway_load/2,
+    on_gateway_update/3,
+    on_gateway_unload/2
+]).
 
 %%--------------------------------------------------------------------
 %% APIs
 %%--------------------------------------------------------------------
 
 reg() ->
-    RegistryOptions = [ {cbkmod, ?MODULE}
-                      ],
+    RegistryOptions = [{cbkmod, ?MODULE}],
     emqx_gateway_registry:reg(mqttsn, RegistryOptions).
 
 unreg() ->
@@ -53,10 +57,13 @@ unreg() ->
 %% emqx_gateway_registry callbacks
 %%--------------------------------------------------------------------
 
-on_gateway_load(_Gateway = #{ name := GwName,
-                              config := Config
-                            }, Ctx) ->
-
+on_gateway_load(
+    _Gateway = #{
+        name := GwName,
+        config := Config
+    },
+    Ctx
+) ->
     %% We Also need to start `emqx_sn_broadcast` &
     %% `emqx_sn_registry` process
     case maps:get(broadcast, Config, false) of
@@ -66,32 +73,40 @@ on_gateway_load(_Gateway = #{ name := GwName,
             %% FIXME:
             Port = 1884,
             SnGwId = maps:get(gateway_id, Config, undefined),
-            _ = emqx_sn_broadcast:start_link(SnGwId, Port), ok
+            _ = emqx_sn_broadcast:start_link(SnGwId, Port),
+            ok
     end,
 
     PredefTopics = maps:get(predefined, Config, []),
     {ok, RegistrySvr} = emqx_sn_registry:start_link(GwName, PredefTopics),
 
     NConfig = maps:without(
-                 [broadcast, predefined],
-                 Config#{registry => emqx_sn_registry:lookup_name(RegistrySvr)}
-                ),
+        [broadcast, predefined],
+        Config#{registry => emqx_sn_registry:lookup_name(RegistrySvr)}
+    ),
 
     Listeners = emqx_gateway_utils:normalize_config(NConfig),
 
-    ModCfg = #{frame_mod => emqx_sn_frame,
-               chann_mod => emqx_sn_channel
-              },
+    ModCfg = #{
+        frame_mod => emqx_sn_frame,
+        chann_mod => emqx_sn_channel
+    },
 
-    case start_listeners(
-           Listeners, GwName, Ctx, ModCfg) of
+    case
+        start_listeners(
+            Listeners, GwName, Ctx, ModCfg
+        )
+    of
         {ok, ListenerPids} ->
             {ok, ListenerPids, _GwState = #{ctx => Ctx}};
         {error, {Reason, Listener}} ->
-            throw({badconf, #{ key => listeners
-                             , value => Listener
-                             , reason => Reason
-                             }})
+            throw(
+                {badconf, #{
+                    key => listeners,
+                    value => Listener,
+                    reason => Reason
+                }}
+            )
     end.
 
 on_gateway_update(Config, Gateway, GwState = #{ctx := Ctx}) ->
@@ -102,15 +117,21 @@ on_gateway_update(Config, Gateway, GwState = #{ctx := Ctx}) ->
         on_gateway_unload(Gateway, GwState),
         on_gateway_load(Gateway#{config => Config}, Ctx)
     catch
-        Class : Reason : Stk ->
-            logger:error("Failed to update ~ts; "
-                         "reason: {~0p, ~0p} stacktrace: ~0p",
-                         [GwName, Class, Reason, Stk]),
+        Class:Reason:Stk ->
+            logger:error(
+                "Failed to update ~ts; "
+                "reason: {~0p, ~0p} stacktrace: ~0p",
+                [GwName, Class, Reason, Stk]
+            ),
             {error, Reason}
     end.
 
-on_gateway_unload(_Gateway = #{ name := GwName,
-                                config := Config
-                              }, _GwState) ->
+on_gateway_unload(
+    _Gateway = #{
+        name := GwName,
+        config := Config
+    },
+    _GwState
+) ->
     Listeners = normalize_config(Config),
     stop_listeners(GwName, Listeners).

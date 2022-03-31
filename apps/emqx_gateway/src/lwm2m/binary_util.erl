@@ -3,57 +3,56 @@
 %% copied from https://github.com/arcusfelis/binary2
 
 %% Bytes
--export([ reverse/1
-        , join/2
-        , duplicate/2
-        , suffix/2
-        , prefix/2
-        ]).
+-export([
+    reverse/1,
+    join/2,
+    duplicate/2,
+    suffix/2,
+    prefix/2
+]).
 
 %% Bits
--export([ union/2
-        , subtract/2
-        , intersection/2
-        , inverse/1
-        ]).
+-export([
+    union/2,
+    subtract/2,
+    intersection/2,
+    inverse/1
+]).
 
 %% Trimming
--export([ rtrim/1
-        , rtrim/2
-        , ltrim/1
-        , ltrim/2
-        , trim/1
-        , trim/2
-        ]).
+-export([
+    rtrim/1,
+    rtrim/2,
+    ltrim/1,
+    ltrim/2,
+    trim/1,
+    trim/2
+]).
 
 %% Parsing
--export([ bin_to_int/1]).
+-export([bin_to_int/1]).
 
 %% Matching
--export([ optimize_patterns/1]).
+-export([optimize_patterns/1]).
 
 %% CoAP
--export([ join_path/1]).
+-export([join_path/1]).
 
-
-trim(B)  -> trim(B, 0).
+trim(B) -> trim(B, 0).
 ltrim(B) -> ltrim(B, 0).
 rtrim(B) -> rtrim(B, 0).
-
 
 rtrim(B, X) when is_binary(B), is_integer(X) ->
     S = byte_size(B),
     do_rtrim(S, B, X);
-rtrim(B, [_|_]=Xs) when is_binary(B) ->
+rtrim(B, [_ | _] = Xs) when is_binary(B) ->
     S = byte_size(B),
     do_mrtrim(S, B, Xs).
 
-
 ltrim(B, X) when is_binary(B), is_integer(X) ->
     do_ltrim(B, X);
-ltrim(B, [_|_]=Xs) when is_binary(B) ->
+ltrim(B, [_ | _] = Xs) when is_binary(B) ->
     do_mltrim(B, Xs).
-
 
 %% @doc The second element is a single integer element or an ordset of elements.
 trim(B, X) when is_binary(B), is_integer(X) ->
@@ -65,7 +64,7 @@ trim(B, X) when is_binary(B), is_integer(X) ->
             To = do_rtrimc(S, B, X),
             binary:part(B, From, To - From)
     end;
-trim(B, [_|_]=Xs) when is_binary(B) ->
+trim(B, [_ | _] = Xs) when is_binary(B) ->
     From = mltrimc(B, Xs, 0),
     case byte_size(B) of
         From ->
@@ -83,7 +82,7 @@ do_ltrim(B, _X) ->
 %% multi, left trimming.
 do_mltrim(<<X, B/binary>> = XB, Xs) ->
     case ordsets:is_element(X, Xs) of
-        true  -> do_mltrim(B, Xs);
+        true -> do_mltrim(B, Xs);
         false -> XB
     end;
 do_mltrim(<<>>, _Xs) ->
@@ -105,20 +104,19 @@ do_mrtrim(S, B, Xs) ->
     S2 = S - 1,
     X = binary:at(B, S2),
     case ordsets:is_element(X, Xs) of
-        true  -> do_mrtrim(S2, B, Xs);
+        true -> do_mrtrim(S2, B, Xs);
         false -> binary_part(B, 0, S)
     end.
 
-
 ltrimc(<<X, B/binary>>, X, C) ->
-    ltrimc(B, X, C+1);
+    ltrimc(B, X, C + 1);
 ltrimc(_B, _X, C) ->
     C.
 
 %% multi, left trimming, returns a count of matched bytes from the left.
 mltrimc(<<X, B/binary>>, Xs, C) ->
     case ordsets:is_element(X, Xs) of
-        true  -> mltrimc(B, Xs, C+1);
+        true -> mltrimc(B, Xs, C + 1);
         false -> C
     end;
 mltrimc(<<>>, _Xs, C) ->
@@ -138,7 +136,7 @@ do_mrtrimc(S, B, Xs) ->
     S2 = S - 1,
     X = binary:at(B, S2),
     case ordsets:is_element(X, Xs) of
-        true  -> do_mrtrimc(S2, B, Xs);
+        true -> do_mrtrimc(S2, B, Xs);
         false -> S
     end.
 
@@ -148,13 +146,12 @@ reverse(Bin) when is_binary(Bin) ->
     <<V:S/integer-little>> = Bin,
     <<V:S/integer-big>>.
 
-join([B|Bs], Sep) when is_binary(Sep) ->
-    iolist_to_binary([B|add_separator(Bs, Sep)]);
-
+join([B | Bs], Sep) when is_binary(Sep) ->
+    iolist_to_binary([B | add_separator(Bs, Sep)]);
 join([], _Sep) ->
     <<>>.
 
-add_separator([B|Bs], Sep) ->
+add_separator([B | Bs], Sep) ->
     [Sep, B | add_separator(Bs, Sep)];
 add_separator([], _) ->
     [].
@@ -168,8 +165,7 @@ prefix(B, L) when is_binary(B), is_integer(L), L > 0 ->
 
 suffix(B, L) when is_binary(B), is_integer(L), L > 0 ->
     S = byte_size(B),
-    binary:part(B, S-L, L).
-
+    binary:part(B, S - L, L).
 
 union(B1, B2) ->
     S = bit_size(B1),
@@ -203,7 +199,7 @@ bin_to_int(Bin) ->
     bin_to_int(Bin, 0).
 
 bin_to_int(<<H, T/binary>>, X) when $0 =< H, H =< $9 ->
-    bin_to_int(T, (X*10)+(H-$0));
+    bin_to_int(T, (X * 10) + (H - $0));
 bin_to_int(Bin, X) ->
     {X, Bin}.
 
@@ -213,10 +209,10 @@ optimize_patterns(Patterns) ->
     Sorted = lists:usort(Patterns),
     remove_long_duplicates(Sorted).
 
-remove_long_duplicates([H|T]) ->
+remove_long_duplicates([H | T]) ->
     %% match(Subject, Pattern)
     DedupT = [X || X <- T, binary:match(X, H) =:= nomatch],
-    [H|remove_long_duplicates(DedupT)];
+    [H | remove_long_duplicates(DedupT)];
 remove_long_duplicates([]) ->
     [].
 
@@ -224,7 +220,5 @@ join_path(PathList) ->
     join_path(PathList, <<>>).
 
 join_path([], Result) -> Result;
-join_path([<<>> | PathList], Result) ->
-    join_path(PathList, Result);
-join_path([Path | PathList], Result) ->
-    join_path(PathList, <<Result/binary, "/", Path/binary>>).
+join_path([<<>> | PathList], Result) -> join_path(PathList, Result);
+join_path([Path | PathList], Result) -> join_path(PathList, <<Result/binary, "/", Path/binary>>).

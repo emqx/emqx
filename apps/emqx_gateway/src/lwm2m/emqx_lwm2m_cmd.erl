@@ -20,11 +20,12 @@
 -include("src/coap/include/emqx_coap.hrl").
 -include("src/lwm2m/include/emqx_lwm2m.hrl").
 
--export([ mqtt_to_coap/2
-        , coap_to_mqtt/4
-        , empty_ack_to_mqtt/1
-        , coap_failure_to_mqtt/2
-        ]).
+-export([
+    mqtt_to_coap/2,
+    coap_to_mqtt/4,
+    empty_ack_to_mqtt/1,
+    coap_failure_to_mqtt/2
+]).
 
 -export([path_list/1, extract_path/1]).
 
@@ -54,26 +55,47 @@ mqtt_to_coap(AlternatePath, InputCmd = #{<<"msgType">> := <<"create">>, <<"data"
     FullPathList = add_alternate_path_prefix(AlternatePath, PathList),
     TlvData = emqx_lwm2m_message:json_to_tlv(PathList, maps:get(<<"content">>, Data)),
     Payload = emqx_lwm2m_tlv:encode(TlvData),
-    CoapRequest = emqx_coap_message:request(con, post, Payload,
-                                            [{uri_path, FullPathList},
-                                             {uri_query, QueryList},
-                                             {content_format, <<"application/vnd.oma.lwm2m+tlv">>}]),
+    CoapRequest = emqx_coap_message:request(
+        con,
+        post,
+        Payload,
+        [
+            {uri_path, FullPathList},
+            {uri_query, QueryList},
+            {content_format, <<"application/vnd.oma.lwm2m+tlv">>}
+        ]
+    ),
     {CoapRequest, InputCmd};
-
 mqtt_to_coap(AlternatePath, InputCmd = #{<<"msgType">> := <<"delete">>, <<"data">> := Data}) ->
     {PathList, QueryList} = path_list(maps:get(<<"path">>, Data)),
     FullPathList = add_alternate_path_prefix(AlternatePath, PathList),
-    {emqx_coap_message:request(con, delete, <<>>,
-                               [{uri_path, FullPathList},
-                                {uri_query, QueryList}]), InputCmd};
-
+    {
+        emqx_coap_message:request(
+            con,
+            delete,
+            <<>>,
+            [
+                {uri_path, FullPathList},
+                {uri_query, QueryList}
+            ]
+        ),
+        InputCmd
+    };
 mqtt_to_coap(AlternatePath, InputCmd = #{<<"msgType">> := <<"read">>, <<"data">> := Data}) ->
     {PathList, QueryList} = path_list(maps:get(<<"path">>, Data)),
     FullPathList = add_alternate_path_prefix(AlternatePath, PathList),
-    {emqx_coap_message:request(con, get, <<>>,
-                               [{uri_path, FullPathList},
-                                {uri_query, QueryList}]), InputCmd};
-
+    {
+        emqx_coap_message:request(
+            con,
+            get,
+            <<>>,
+            [
+                {uri_path, FullPathList},
+                {uri_query, QueryList}
+            ]
+        ),
+        InputCmd
+    };
 mqtt_to_coap(AlternatePath, InputCmd = #{<<"msgType">> := <<"write">>, <<"data">> := Data}) ->
     CoapRequest =
         case maps:get(<<"basePath">>, Data, <<"/">>) of
@@ -83,7 +105,6 @@ mqtt_to_coap(AlternatePath, InputCmd = #{<<"msgType">> := <<"write">>, <<"data">
                 batch_write_request(AlternatePath, BasePath, maps:get(<<"content">>, Data))
         end,
     {CoapRequest, InputCmd};
-
 mqtt_to_coap(AlternatePath, InputCmd = #{<<"msgType">> := <<"execute">>, <<"data">> := Data}) ->
     {PathList, QueryList} = path_list(maps:get(<<"path">>, Data)),
     FullPathList = add_alternate_path_prefix(AlternatePath, PathList),
@@ -93,85 +114,122 @@ mqtt_to_coap(AlternatePath, InputCmd = #{<<"msgType">> := <<"execute">>, <<"data
             undefined -> <<>>;
             Arg1 -> Arg1
         end,
-    {emqx_coap_message:request(con, post, Args,
-                               [{uri_path, FullPathList},
-                                {uri_query, QueryList},
-                                {content_format, <<"text/plain">>}]), InputCmd};
-
+    {
+        emqx_coap_message:request(
+            con,
+            post,
+            Args,
+            [
+                {uri_path, FullPathList},
+                {uri_query, QueryList},
+                {content_format, <<"text/plain">>}
+            ]
+        ),
+        InputCmd
+    };
 mqtt_to_coap(AlternatePath, InputCmd = #{<<"msgType">> := <<"discover">>, <<"data">> := Data}) ->
     {PathList, QueryList} = path_list(maps:get(<<"path">>, Data)),
     FullPathList = add_alternate_path_prefix(AlternatePath, PathList),
-    {emqx_coap_message:request(con, get, <<>>,
-                               [{uri_path, FullPathList},
-                                {uri_query, QueryList},
-                                {'accept', ?LWM2M_FORMAT_LINK}]), InputCmd};
-
+    {
+        emqx_coap_message:request(
+            con,
+            get,
+            <<>>,
+            [
+                {uri_path, FullPathList},
+                {uri_query, QueryList},
+                {'accept', ?LWM2M_FORMAT_LINK}
+            ]
+        ),
+        InputCmd
+    };
 mqtt_to_coap(AlternatePath, InputCmd = #{<<"msgType">> := <<"write-attr">>, <<"data">> := Data}) ->
     {PathList, QueryList} = path_list(maps:get(<<"path">>, Data)),
     FullPathList = add_alternate_path_prefix(AlternatePath, PathList),
     Query = attr_query_list(Data),
-    {emqx_coap_message:request(con, put, <<>>,
-                               [{uri_path, FullPathList},
-                                {uri_query, QueryList},
-                                {uri_query, Query}]), InputCmd};
-
+    {
+        emqx_coap_message:request(
+            con,
+            put,
+            <<>>,
+            [
+                {uri_path, FullPathList},
+                {uri_query, QueryList},
+                {uri_query, Query}
+            ]
+        ),
+        InputCmd
+    };
 mqtt_to_coap(AlternatePath, InputCmd = #{<<"msgType">> := <<"observe">>, <<"data">> := Data}) ->
     {PathList, QueryList} = path_list(maps:get(<<"path">>, Data)),
     FullPathList = add_alternate_path_prefix(AlternatePath, PathList),
-    {emqx_coap_message:request(con, get, <<>>,
-                               [{uri_path, FullPathList},
-                                {uri_query, QueryList},
-                                {observe, 0}]), InputCmd};
-
-mqtt_to_coap(AlternatePath, InputCmd = #{<<"msgType">> := <<"cancel-observe">>, <<"data">> := Data}) ->
+    {
+        emqx_coap_message:request(
+            con,
+            get,
+            <<>>,
+            [
+                {uri_path, FullPathList},
+                {uri_query, QueryList},
+                {observe, 0}
+            ]
+        ),
+        InputCmd
+    };
+mqtt_to_coap(
+    AlternatePath, InputCmd = #{<<"msgType">> := <<"cancel-observe">>, <<"data">> := Data}
+) ->
     {PathList, QueryList} = path_list(maps:get(<<"path">>, Data)),
     FullPathList = add_alternate_path_prefix(AlternatePath, PathList),
-    {emqx_coap_message:request(con, get, <<>>,
-                               [{uri_path, FullPathList},
-                                {uri_query, QueryList},
-                                {observe, 1}]), InputCmd}.
+    {
+        emqx_coap_message:request(
+            con,
+            get,
+            <<>>,
+            [
+                {uri_path, FullPathList},
+                {uri_query, QueryList},
+                {observe, 1}
+            ]
+        ),
+        InputCmd
+    }.
 
-coap_to_mqtt(_Method = {_, Code}, _CoapPayload, _Options, Ref=#{<<"msgType">> := <<"create">>}) ->
+coap_to_mqtt(_Method = {_, Code}, _CoapPayload, _Options, Ref = #{<<"msgType">> := <<"create">>}) ->
     make_response(Code, Ref);
-
-coap_to_mqtt(_Method = {_, Code}, _CoapPayload, _Options, Ref=#{<<"msgType">> := <<"delete">>}) ->
+coap_to_mqtt(_Method = {_, Code}, _CoapPayload, _Options, Ref = #{<<"msgType">> := <<"delete">>}) ->
     make_response(Code, Ref);
-
-coap_to_mqtt(Method, CoapPayload, Options, Ref=#{<<"msgType">> := <<"read">>}) ->
+coap_to_mqtt(Method, CoapPayload, Options, Ref = #{<<"msgType">> := <<"read">>}) ->
     read_resp_to_mqtt(Method, CoapPayload, data_format(Options), Ref);
-
-coap_to_mqtt(Method, CoapPayload, _Options, Ref=#{<<"msgType">> := <<"write">>}) ->
+coap_to_mqtt(Method, CoapPayload, _Options, Ref = #{<<"msgType">> := <<"write">>}) ->
     write_resp_to_mqtt(Method, CoapPayload, Ref);
-
-coap_to_mqtt(Method, _CoapPayload, _Options, Ref=#{<<"msgType">> := <<"execute">>}) ->
+coap_to_mqtt(Method, _CoapPayload, _Options, Ref = #{<<"msgType">> := <<"execute">>}) ->
     execute_resp_to_mqtt(Method, Ref);
-
-coap_to_mqtt(Method, CoapPayload, _Options, Ref=#{<<"msgType">> := <<"discover">>}) ->
+coap_to_mqtt(Method, CoapPayload, _Options, Ref = #{<<"msgType">> := <<"discover">>}) ->
     discover_resp_to_mqtt(Method, CoapPayload, Ref);
-
-coap_to_mqtt(Method, CoapPayload, _Options, Ref=#{<<"msgType">> := <<"write-attr">>}) ->
+coap_to_mqtt(Method, CoapPayload, _Options, Ref = #{<<"msgType">> := <<"write-attr">>}) ->
     writeattr_resp_to_mqtt(Method, CoapPayload, Ref);
-
-coap_to_mqtt(Method, CoapPayload, Options, Ref=#{<<"msgType">> := <<"observe">>}) ->
+coap_to_mqtt(Method, CoapPayload, Options, Ref = #{<<"msgType">> := <<"observe">>}) ->
     observe_resp_to_mqtt(Method, CoapPayload, data_format(Options), observe_seq(Options), Ref);
-
-coap_to_mqtt(Method, CoapPayload, Options, Ref=#{<<"msgType">> := <<"cancel-observe">>}) ->
+coap_to_mqtt(Method, CoapPayload, Options, Ref = #{<<"msgType">> := <<"cancel-observe">>}) ->
     cancel_observe_resp_to_mqtt(Method, CoapPayload, data_format(Options), Ref).
 
 read_resp_to_mqtt({error, ErrorCode}, _CoapPayload, _Format, Ref) ->
     make_response(ErrorCode, Ref);
-
 read_resp_to_mqtt({ok, SuccessCode}, CoapPayload, Format, Ref) ->
     try
         Result = content_to_mqtt(CoapPayload, Format, Ref),
         make_response(SuccessCode, Ref, Format, Result)
     catch
-        error:not_implemented -> make_response(not_implemented, Ref);
+        error:not_implemented ->
+            make_response(not_implemented, Ref);
         _:Ex:_ST ->
-            ?SLOG(error, #{ msg => "bad_payload_format"
-                          , payload => CoapPayload
-                          , reason => Ex
-                          , stacktrace => _ST}),
+            ?SLOG(error, #{
+                msg => "bad_payload_format",
+                payload => CoapPayload,
+                reason => Ex,
+                stacktrace => _ST
+            }),
             make_response(bad_request, Ref)
     end.
 
@@ -183,67 +241,55 @@ coap_failure_to_mqtt(Ref, MsgType) ->
 
 content_to_mqtt(CoapPayload, <<"text/plain">>, Ref) ->
     emqx_lwm2m_message:text_to_json(extract_path(Ref), CoapPayload);
-
 content_to_mqtt(CoapPayload, <<"application/octet-stream">>, Ref) ->
     emqx_lwm2m_message:opaque_to_json(extract_path(Ref), CoapPayload);
-
 content_to_mqtt(CoapPayload, <<"application/vnd.oma.lwm2m+tlv">>, Ref) ->
     emqx_lwm2m_message:tlv_to_json(extract_path(Ref), CoapPayload);
-
 content_to_mqtt(CoapPayload, <<"application/vnd.oma.lwm2m+json">>, _Ref) ->
     emqx_lwm2m_message:translate_json(CoapPayload).
 
 write_resp_to_mqtt({ok, changed}, _CoapPayload, Ref) ->
     make_response(changed, Ref);
-
 write_resp_to_mqtt({ok, content}, CoapPayload, Ref) when CoapPayload =:= <<>> ->
     make_response(method_not_allowed, Ref);
-
 write_resp_to_mqtt({ok, content}, _CoapPayload, Ref) ->
     make_response(changed, Ref);
-
 write_resp_to_mqtt({error, Error}, _CoapPayload, Ref) ->
     make_response(Error, Ref).
 
 execute_resp_to_mqtt({ok, changed}, Ref) ->
     make_response(changed, Ref);
-
 execute_resp_to_mqtt({error, Error}, Ref) ->
     make_response(Error, Ref).
 
 discover_resp_to_mqtt({ok, content}, CoapPayload, Ref) ->
     Links = binary:split(CoapPayload, <<",">>, [global]),
     make_response(content, Ref, <<"application/link-format">>, Links);
-
 discover_resp_to_mqtt({error, Error}, _CoapPayload, Ref) ->
     make_response(Error, Ref).
 
 writeattr_resp_to_mqtt({ok, changed}, _CoapPayload, Ref) ->
     make_response(changed, Ref);
-
 writeattr_resp_to_mqtt({error, Error}, _CoapPayload, Ref) ->
     make_response(Error, Ref).
 
 observe_resp_to_mqtt({error, Error}, _CoapPayload, _Format, _ObserveSeqNum, Ref) ->
     make_response(Error, Ref);
-
 observe_resp_to_mqtt({ok, content}, CoapPayload, Format, 0, Ref) ->
     read_resp_to_mqtt({ok, content}, CoapPayload, Format, Ref);
-
 observe_resp_to_mqtt({ok, content}, CoapPayload, Format, ObserveSeqNum, Ref) ->
     read_resp_to_mqtt({ok, content}, CoapPayload, Format, Ref#{<<"seqNum">> => ObserveSeqNum}).
 
 cancel_observe_resp_to_mqtt({ok, content}, CoapPayload, Format, Ref) ->
     read_resp_to_mqtt({ok, content}, CoapPayload, Format, Ref);
-
 cancel_observe_resp_to_mqtt({error, Error}, _CoapPayload, _Format, Ref) ->
     make_response(Error, Ref).
 
-make_response(Code, Ref=#{}) ->
+make_response(Code, Ref = #{}) ->
     BaseRsp = make_base_response(Ref),
     make_data_response(BaseRsp, Code).
 
-make_response(Code, Ref=#{}, _Format, Result) ->
+make_response(Code, Ref = #{}, _Format, Result) ->
     BaseRsp = make_base_response(Ref),
     make_data_response(BaseRsp, Code, _Format, Result).
 
@@ -258,7 +304,7 @@ make_response(Code, Ref=#{}, _Format, Result) ->
 %%       <<"msgType">> => maps:get(<<"msgType">>, Ref, null)
 %%   }
 
-make_base_response(Ref=#{}) ->
+make_base_response(Ref = #{}) ->
     remove_tmp_fields(Ref).
 
 make_data_response(BaseRsp, Code) ->
@@ -273,18 +319,18 @@ make_data_response(BaseRsp, Code) ->
 make_data_response(BaseRsp, Code, _Format, Result) ->
     BaseRsp#{
         <<"data">> =>
-                 #{
-                   <<"reqPath">> => extract_path(BaseRsp),
-                   <<"code">> => code(Code),
-                   <<"codeMsg">> => Code,
-                   <<"content">> => Result
-                  }
+            #{
+                <<"reqPath">> => extract_path(BaseRsp),
+                <<"code">> => code(Code),
+                <<"codeMsg">> => Code,
+                <<"content">> => Result
+            }
     }.
 
 remove_tmp_fields(Ref) ->
     maps:remove(observe_type, Ref).
 
--spec path_list(Path::binary()) -> {[PathWord::binary()], [Query::binary()]}.
+-spec path_list(Path :: binary()) -> {[PathWord :: binary()], [Query :: binary()]}.
 path_list(Path) ->
     case binary:split(binary_util:trim(Path, $/), [<<$/>>], [global]) of
         [ObjId, ObjInsId, ResId, LastPart] ->
@@ -304,8 +350,7 @@ path_list(Path) ->
 query_list(PathWithQuery) ->
     case binary:split(PathWithQuery, [<<$?>>], []) of
         [Path] -> {Path, []};
-        [Path, Querys] ->
-            {Path, binary:split(Querys, [<<$&>>], [global])}
+        [Path, Querys] -> {Path, binary:split(Querys, [<<$&>>], [global])}
     end.
 
 attr_query_list(Data) ->
@@ -314,7 +359,8 @@ attr_query_list(Data) ->
 attr_query_list(QueryJson = #{}, ValidAttrKeys, QueryList) ->
     maps:fold(
         fun
-            (_K, null, Acc) -> Acc;
+            (_K, null, Acc) ->
+                Acc;
             (K, V, Acc) ->
                 case lists:member(K, ValidAttrKeys) of
                     true ->
@@ -323,7 +369,10 @@ attr_query_list(QueryJson = #{}, ValidAttrKeys, QueryList) ->
                     false ->
                         Acc
                 end
-        end, QueryList, QueryJson).
+        end,
+        QueryList,
+        QueryJson
+    ).
 
 valid_attr_keys() ->
     [<<"pmin">>, <<"pmax">>, <<"gt">>, <<"lt">>, <<"st">>].
@@ -332,11 +381,10 @@ data_format(Options) ->
     maps:get(content_format, Options, <<"text/plain">>).
 
 observe_seq(Options) ->
-    maps:get(observe, Options, rand:uniform(1000000) + 1 ).
+    maps:get(observe, Options, rand:uniform(1000000) + 1).
 
 add_alternate_path_prefix(<<"/">>, PathList) ->
     PathList;
-
 add_alternate_path_prefix(AlternatePath, PathList) ->
     [binary_util:trim(AlternatePath, $/) | PathList].
 
@@ -350,22 +398,29 @@ extract_path(Ref = #{}) ->
                 end;
             #{<<"path">> := Path} ->
                 Path
-        end).
-
+        end
+    ).
 
 batch_write_request(AlternatePath, BasePath, Content) ->
     {PathList, QueryList} = path_list(BasePath),
-    Method = case length(PathList) of
-                2 -> post;
-                3 -> put
-             end,
+    Method =
+        case length(PathList) of
+            2 -> post;
+            3 -> put
+        end,
     FullPathList = add_alternate_path_prefix(AlternatePath, PathList),
     TlvData = emqx_lwm2m_message:json_to_tlv(PathList, Content),
     Payload = emqx_lwm2m_tlv:encode(TlvData),
-    emqx_coap_message:request(con, Method, Payload,
-                              [{uri_path, FullPathList},
-                               {uri_query, QueryList},
-                               {content_format, <<"application/vnd.oma.lwm2m+tlv">>}]).
+    emqx_coap_message:request(
+        con,
+        Method,
+        Payload,
+        [
+            {uri_path, FullPathList},
+            {uri_query, QueryList},
+            {content_format, <<"application/vnd.oma.lwm2m+tlv">>}
+        ]
+    ).
 
 single_write_request(AlternatePath, Data) ->
     {PathList, QueryList} = path_list(maps:get(<<"path">>, Data)),
@@ -373,10 +428,16 @@ single_write_request(AlternatePath, Data) ->
     %% TO DO: handle write to resource instance, e.g. /4/0/1/0
     TlvData = emqx_lwm2m_message:json_to_tlv(PathList, [Data]),
     Payload = emqx_lwm2m_tlv:encode(TlvData),
-    emqx_coap_message:request(con, put, Payload,
-                              [{uri_path, FullPathList},
-                               {uri_query, QueryList},
-                               {content_format, <<"application/vnd.oma.lwm2m+tlv">>}]).
+    emqx_coap_message:request(
+        con,
+        put,
+        Payload,
+        [
+            {uri_path, FullPathList},
+            {uri_query, QueryList},
+            {content_format, <<"application/vnd.oma.lwm2m+tlv">>}
+        ]
+    ).
 
 drop_query(Path) ->
     case binary:split(Path, [<<$?>>]) of

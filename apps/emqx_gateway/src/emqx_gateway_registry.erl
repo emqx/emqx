@@ -22,35 +22,38 @@
 -behaviour(gen_server).
 
 %% APIs
--export([ reg/2
-        , unreg/1
-        , list/0
-        , lookup/1
-        ]).
+-export([
+    reg/2,
+    unreg/1,
+    list/0,
+    lookup/1
+]).
 
 %% APIs
 -export([start_link/0]).
 
 %% gen_server callbacks
--export([ init/1
-        , handle_call/3
-        , handle_cast/2
-        , handle_info/2
-        , terminate/2
-        , code_change/3
-        ]).
+-export([
+    init/1,
+    handle_call/3,
+    handle_cast/2,
+    handle_info/2,
+    terminate/2,
+    code_change/3
+]).
 
 -record(state, {
-          reged = #{} :: #{ gateway_name() => descriptor() }
-         }).
+    reged = #{} :: #{gateway_name() => descriptor()}
+}).
 
 -type registry_options() :: [registry_option()].
 
 -type registry_option() :: {cbkmod, atom()}.
 
--type descriptor() :: #{ cbkmod := atom()
-                       , rgopts := registry_options()
-                       }.
+-type descriptor() :: #{
+    cbkmod := atom(),
+    rgopts := registry_options()
+}.
 
 %%--------------------------------------------------------------------
 %% APIs
@@ -63,14 +66,15 @@ start_link() ->
 %% Mgmt
 %%--------------------------------------------------------------------
 
--spec reg(gateway_name(), registry_options())
-  -> ok
-   | {error, any()}.
+-spec reg(gateway_name(), registry_options()) ->
+    ok
+    | {error, any()}.
 reg(Name, RgOpts) ->
     CbMod = proplists:get_value(cbkmod, RgOpts, Name),
-    Dscrptr = #{ cbkmod => CbMod
-               , rgopts => RgOpts
-               },
+    Dscrptr = #{
+        cbkmod => CbMod,
+        rgopts => RgOpts
+    },
     call({reg, Name, Dscrptr}).
 
 -spec unreg(gateway_name()) -> ok | {error, any()}.
@@ -110,7 +114,6 @@ handle_call({reg, Name, Dscrptr}, _From, State = #state{reged = Gateways}) ->
         _ ->
             {reply, {error, already_existed}, State}
     end;
-
 handle_call({unreg, Name}, _From, State = #state{reged = Gateways}) ->
     case maps:get(Name, Gateways, undefined) of
         undefined ->
@@ -119,14 +122,11 @@ handle_call({unreg, Name}, _From, State = #state{reged = Gateways}) ->
             _ = emqx_gateway_sup:unload_gateway(Name),
             {reply, ok, State#state{reged = maps:remove(Name, Gateways)}}
     end;
-
 handle_call(all, _From, State = #state{reged = Gateways}) ->
     {reply, maps:to_list(Gateways), State};
-
 handle_call({lookup, Name}, _From, State = #state{reged = Gateways}) ->
     Reply = maps:get(Name, Gateways, undefined),
     {reply, Reply, State};
-
 handle_call(Req, _From, State) ->
     logger:error("Unexpected call: ~0p", [Req]),
     {reply, ok, State}.

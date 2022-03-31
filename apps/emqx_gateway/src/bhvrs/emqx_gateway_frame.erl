@@ -26,17 +26,18 @@
 
 -type frame() :: any().
 
--type parse_result() :: {ok, frame(),
-                         Rest :: binary(), NewState :: parse_state()}
-                      | {more, NewState :: parse_state()}.
+-type parse_result() ::
+    {ok, frame(), Rest :: binary(), NewState :: parse_state()}
+    | {more, NewState :: parse_state()}.
 
 -type serialize_options() :: map().
 
--export_type([ parse_state/0
-             , parse_result/0
-             , serialize_options/0
-             , frame/0
-             ]).
+-export_type([
+    parse_state/0,
+    parse_result/0,
+    serialize_options/0,
+    frame/0
+]).
 
 %% Callbacks
 
@@ -60,4 +61,3 @@
 
 %% @doc
 -callback is_message(Frame :: any()) -> boolean().
-

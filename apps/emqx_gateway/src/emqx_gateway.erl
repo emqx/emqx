@@ -19,15 +19,16 @@
 -include("include/emqx_gateway.hrl").
 
 %% Gateway APIs
--export([ registered_gateway/0
-        , load/2
-        , unload/1
-        , lookup/1
-        , update/2
-        , start/1
-        , stop/1
-        , list/0
-        ]).
+-export([
+    registered_gateway/0,
+    load/2,
+    unload/1,
+    lookup/1,
+    update/2,
+    start/1,
+    stop/1,
+    list/0
+]).
 
 %%--------------------------------------------------------------------
 %% APIs
@@ -46,14 +47,15 @@ registered_gateway() ->
 list() ->
     emqx_gateway_sup:list_gateway_insta().
 
--spec load(gateway_name(), emqx_config:config())
-    -> {ok, pid()}
-     | {error, any()}.
+-spec load(gateway_name(), emqx_config:config()) ->
+    {ok, pid()}
+    | {error, any()}.
 load(Name, Config) ->
-    Gateway = #{ name => Name
-               , descr => undefined
-               , config => Config
-               },
+    Gateway = #{
+        name => Name,
+        descr => undefined,
+        config => Config
+    },
     emqx_gateway_sup:load_gateway(Gateway).
 
 -spec unload(gateway_name()) -> ok | {error, not_found}.

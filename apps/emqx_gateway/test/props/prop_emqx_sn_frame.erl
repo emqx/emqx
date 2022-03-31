@@ -22,10 +22,14 @@
 -compile({no_auto_import, [register/1]}).
 
 -define(ALL(Vars, Types, Exprs),
-        ?SETUP(fun() ->
+    ?SETUP(
+        fun() ->
             State = do_setup(),
             fun() -> do_teardown(State) end
-         end, ?FORALL(Vars, Types, Exprs))).
+        end,
+        ?FORALL(Vars, Types, Exprs)
+    )
+).
 
 parse(D) ->
     {ok, P, _Rest, _State} = emqx_sn_frame:parse(D, #{}),
@@ -39,11 +43,14 @@ serialize(P) ->
 %%--------------------------------------------------------------------
 
 prop_parse_and_serialize() ->
-    ?ALL(Msg, mqtt_sn_message(),
-         begin
-             Msg = parse(serialize(Msg)),
-             true
-         end).
+    ?ALL(
+        Msg,
+        mqtt_sn_message(),
+        begin
+            Msg = parse(serialize(Msg)),
+            true
+        end
+    ).
 
 %%--------------------------------------------------------------------
 %% Helper
@@ -61,18 +68,32 @@ do_teardown(_) ->
 
 mqtt_sn_message() ->
     M = emqx_sn_proper_types,
-    oneof([ M:'ADVERTISE'(),       M:'SEARCHGW'()
-          , M:'GWINFO'(),          M:'CONNECT'()
-          , M:'CONNACK'(),         M:'WILLTOTPICREQ'()
-          , M:'WILLTOPIC'(),       M:'WILLTOPCI_EMPTY'()
-          , M:'WILLMESSAGEREQ'(),  M:'WILLMESSAGE'()
-          , M:'REGISTER'(),        M:'REGACK'()
-          , M:'PUBLISH'(),         M:'PUBACK'()
-          , M:'PUBCOMP_REC_REL'(), M:'SUBSCRIBE'()
-          , M:'SUBACK'(),          M:'UNSUBSCRIBE'()
-          , M:'UNSUBACK'(),        M:'PINGREQ'()
-          , M:'PINGRESP'(),        M:'DISCONNECT'()
-          , M:'DISCONNECT'(),      M:'WILLTOPICUPD'()
-          , M:'WILLTOPICRESP'(),   M:'WILLMSGUPD'()
-          , M:'WILLMSGRESP'()
-          ]).
+    oneof([
+        M:'ADVERTISE'(),
+        M:'SEARCHGW'(),
+        M:'GWINFO'(),
+        M:'CONNECT'(),
+        M:'CONNACK'(),
+        M:'WILLTOTPICREQ'(),
+        M:'WILLTOPIC'(),
+        M:'WILLTOPCI_EMPTY'(),
+        M:'WILLMESSAGEREQ'(),
+        M:'WILLMESSAGE'(),
+        M:'REGISTER'(),
+        M:'REGACK'(),
+        M:'PUBLISH'(),
+        M:'PUBACK'(),
+        M:'PUBCOMP_REC_REL'(),
+        M:'SUBSCRIBE'(),
+        M:'SUBACK'(),
+        M:'UNSUBSCRIBE'(),
+        M:'UNSUBACK'(),
+        M:'PINGREQ'(),
+        M:'PINGRESP'(),
+        M:'DISCONNECT'(),
+        M:'DISCONNECT'(),
+        M:'WILLTOPICUPD'(),
+        M:'WILLTOPICRESP'(),
+        M:'WILLMSGUPD'(),
+        M:'WILLMSGRESP'()
+    ]).

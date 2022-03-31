@@ -22,57 +22,72 @@
 -include_lib("emqx/include/logger.hrl").
 
 %% APIs
--export([ reg/0
-        , unreg/0
-        ]).
+-export([
+    reg/0,
+    unreg/0
+]).
 
--export([ on_gateway_load/2
-        , on_gateway_update/3
-        , on_gateway_unload/2
-        ]).
+-export([
+    on_gateway_load/2,
+    on_gateway_update/3,
+    on_gateway_unload/2
+]).
 
 %%--------------------------------------------------------------------
 %% APIs
 %%--------------------------------------------------------------------
 
 reg() ->
-    RegistryOptions = [ {cbkmod, ?MODULE}
-                      ],
+    RegistryOptions = [{cbkmod, ?MODULE}],
     emqx_gateway_registry:reg(lwm2m, RegistryOptions).
 
 unreg() ->
-   emqx_gateway_registry:unreg(lwm2m).
+    emqx_gateway_registry:unreg(lwm2m).
 
 %%--------------------------------------------------------------------
 %% emqx_gateway_registry callbacks
 %%--------------------------------------------------------------------
 
-on_gateway_load(_Gateway = #{ name := GwName,
-                              config := Config
-                            }, Ctx) ->
+on_gateway_load(
+    _Gateway = #{
+        name := GwName,
+        config := Config
+    },
+    Ctx
+) ->
     XmlDir = maps:get(xml_dir, Config),
     case emqx_lwm2m_xml_object_db:start_link(XmlDir) of
         {ok, RegPid} ->
             Listeners = emqx_gateway_utils:normalize_config(Config),
-            ModCfg = #{frame_mod => emqx_coap_frame,
-                       chann_mod => emqx_lwm2m_channel
-                      },
-            case emqx_gateway_utils:start_listeners(
-                   Listeners, GwName, Ctx, ModCfg) of
+            ModCfg = #{
+                frame_mod => emqx_coap_frame,
+                chann_mod => emqx_lwm2m_channel
+            },
+            case
+                emqx_gateway_utils:start_listeners(
+                    Listeners, GwName, Ctx, ModCfg
+                )
+            of
                 {ok, ListenerPids} ->
                     {ok, ListenerPids, #{ctx => Ctx, registry => RegPid}};
                 {error, {Reason, Listener}} ->
                     _ = emqx_lwm2m_xml_object_db:stop(),
-                    throw({badconf, #{ key => listeners
-                                     , vallue => Listener
-                                     , reason => Reason
-                                     }})
+                    throw(
+                        {badconf, #{
+                            key => listeners,
+                            vallue => Listener,
+                            reason => Reason
+                        }}
+                    )
             end;
         {error, Reason} ->
-            throw({badconf, #{ key => xml_dir
-                             , value => XmlDir
-                             , reason => Reason
-                             }})
+            throw(
+                {badconf, #{
+                    key => xml_dir,
+                    value => XmlDir,
+                    reason => Reason
+                }}
+            )
     end.
 
 on_gateway_update(Config, Gateway, GwState = #{ctx := Ctx}) ->
@@ -83,16 +98,27 @@ on_gateway_update(Config, Gateway, GwState = #{ctx := Ctx}) ->
         on_gateway_unload(Gateway, GwState),
         on_gateway_load(Gateway#{config => Config}, Ctx)
     catch
-        Class : Reason : Stk ->
-            logger:error("Failed to update ~ts; "
-                         "reason: {~0p, ~0p} stacktrace: ~0p",
-                         [GwName, Class, Reason, Stk]),
+        Class:Reason:Stk ->
+            logger:error(
+                "Failed to update ~ts; "
+                "reason: {~0p, ~0p} stacktrace: ~0p",
+                [GwName, Class, Reason, Stk]
+            ),
             {error, Reason}
     end.
 
-on_gateway_unload(_Gateway = #{ name := GwName,
-                                config := Config
-                              }, _GwState = #{registry := _RegPid}) ->
-    _ = try emqx_lwm2m_xml_object_db:stop() catch _ : _  -> ok end,
+on_gateway_unload(
+    _Gateway = #{
+        name := GwName,
+        config := Config
+    },
+    _GwState = #{registry := _RegPid}
+) ->
+    _ =
+        try
+            emqx_lwm2m_xml_object_db:stop()
+        catch
+            _:_ -> ok
+        end,
     Listeners = emqx_gateway_utils:normalize_config(Config),
     emqx_gateway_utils:stop_listeners(GwName, Listeners).

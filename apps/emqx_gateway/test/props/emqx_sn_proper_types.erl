@@ -31,20 +31,28 @@
 %%--------------------------------------------------------------------
 
 'ADVERTISE'() ->
-    ?LET({GwId, Duration}, {gateway_id(), duration()},
-         ?SN_ADVERTISE_MSG(GwId, Duration)).
+    ?LET(
+        {GwId, Duration},
+        {gateway_id(), duration()},
+        ?SN_ADVERTISE_MSG(GwId, Duration)
+    ).
 
 'SEARCHGW'() ->
     ?LET(Radius, radius(), ?SN_SEARCHGW_MSG(Radius)).
 
 'GWINFO'() ->
-    ?LET({GwId, GwAddr}, {gateway_id(), gateway_addr()},
-        ?SN_GWINFO_MSG(GwId, GwAddr)).
+    ?LET(
+        {GwId, GwAddr},
+        {gateway_id(), gateway_addr()},
+        ?SN_GWINFO_MSG(GwId, GwAddr)
+    ).
 
 'CONNECT'() ->
-    ?LET({Flags, ProtocolId, Duration, ClientId},
-         {conn_flags(), protocol_id(), duration(), clientid()},
-         ?SN_CONNECT_MSG(Flags, ProtocolId, Duration, ClientId)).
+    ?LET(
+        {Flags, ProtocolId, Duration, ClientId},
+        {conn_flags(), protocol_id(), duration(), clientid()},
+        ?SN_CONNECT_MSG(Flags, ProtocolId, Duration, ClientId)
+    ).
 
 'CONNACK'() ->
     ?LET(Rc, return_code(), ?SN_CONNACK_MSG(Rc)).
@@ -53,8 +61,11 @@
     ?SN_WILLTOPICREQ_MSG().
 
 'WILLTOPIC'() ->
-    ?LET({Flags, Topic}, {will_topic_flags(), topic()},
-        ?SN_WILLTOPIC_MSG(Flags, Topic)).
+    ?LET(
+        {Flags, Topic},
+        {will_topic_flags(), topic()},
+        ?SN_WILLTOPIC_MSG(Flags, Topic)
+    ).
 
 'WILLTOPCI_EMPTY'() ->
     ?SN_WILLTOPIC_EMPTY_MSG.
@@ -66,48 +77,67 @@
     ?LET(Payload, binary(), ?SN_WILLMSG_MSG(Payload)).
 
 'REGISTER'() ->
-    ?LET({MsgId, TopicName},
-         {message_id(), topic()},
-         ?SN_REGISTER_MSG(16#0000, MsgId, TopicName)).
+    ?LET(
+        {MsgId, TopicName},
+        {message_id(), topic()},
+        ?SN_REGISTER_MSG(16#0000, MsgId, TopicName)
+    ).
 
 'REGACK'() ->
-    ?LET({TopicId, MsgId, Rc},
-         {topic_id(), message_id(), return_code()},
-         ?SN_REGACK_MSG(TopicId, MsgId, Rc)).
+    ?LET(
+        {TopicId, MsgId, Rc},
+        {topic_id(), message_id(), return_code()},
+        ?SN_REGACK_MSG(TopicId, MsgId, Rc)
+    ).
 
 'PUBLISH'() ->
-    ?LET({Flags, MsgId, Data},
-         {publish_flags(), message_id(), binary()},
-         ?SN_PUBLISH_MSG(Flags, pub_topic_by_type(Flags), MsgId, Data)).
+    ?LET(
+        {Flags, MsgId, Data},
+        {publish_flags(), message_id(), binary()},
+        ?SN_PUBLISH_MSG(Flags, pub_topic_by_type(Flags), MsgId, Data)
+    ).
 
 'PUBACK'() ->
-    ?LET({TopicId, MsgId, Rc},
-         {topic_id(), message_id(), return_code()},
-         ?SN_PUBACK_MSG(TopicId, MsgId, Rc)).
+    ?LET(
+        {TopicId, MsgId, Rc},
+        {topic_id(), message_id(), return_code()},
+        ?SN_PUBACK_MSG(TopicId, MsgId, Rc)
+    ).
 
 'PUBCOMP_REC_REL'() ->
-    ?LET({Type, MsgId},
-         {oneof([?SN_PUBREC, ?SN_PUBREL, ?SN_PUBCOMP]), message_id()},
-        ?SN_PUBREC_MSG(Type, MsgId)).
+    ?LET(
+        {Type, MsgId},
+        {oneof([?SN_PUBREC, ?SN_PUBREL, ?SN_PUBCOMP]), message_id()},
+        ?SN_PUBREC_MSG(Type, MsgId)
+    ).
 
 'SUBSCRIBE'() ->
-    ?LET({Flags, MsgId},
-         {subscribe_flags(), message_id()},
-         ?SN_SUBSCRIBE_MSG(Flags, MsgId, topic_by_type(Flags))).
+    ?LET(
+        {Flags, MsgId},
+        {subscribe_flags(), message_id()},
+        ?SN_SUBSCRIBE_MSG(Flags, MsgId, topic_by_type(Flags))
+    ).
 
 'SUBACK'() ->
-    ?LET({Flags, TopicId, MsgId, Rc},
-         {suback_flags(), topic_id(), message_id(), return_code()},
-         ?SN_SUBACK_MSG(Flags, TopicId, MsgId, Rc)).
+    ?LET(
+        {Flags, TopicId, MsgId, Rc},
+        {suback_flags(), topic_id(), message_id(), return_code()},
+        ?SN_SUBACK_MSG(Flags, TopicId, MsgId, Rc)
+    ).
 
 'UNSUBSCRIBE'() ->
-    ?LET({Flags, MsgId},
-         {unsubscribe_flags(), message_id()},
-         ?SN_UNSUBSCRIBE_MSG(Flags, MsgId, topic_by_type(Flags))).
+    ?LET(
+        {Flags, MsgId},
+        {unsubscribe_flags(), message_id()},
+        ?SN_UNSUBSCRIBE_MSG(Flags, MsgId, topic_by_type(Flags))
+    ).
 
 'UNSUBACK'() ->
-    ?LET(MsgId, message_id(),
-        ?SN_UNSUBACK_MSG(MsgId)).
+    ?LET(
+        MsgId,
+        message_id(),
+        ?SN_UNSUBACK_MSG(MsgId)
+    ).
 
 'PINGREQ'() ->
     ?LET(ClientId, clientid(), ?SN_PINGREQ_MSG(ClientId)).
@@ -119,9 +149,11 @@
     ?LET(Duration, oneof([duration(), undefined]), ?SN_DISCONNECT_MSG(Duration)).
 
 'WILLTOPICUPD'() ->
-    ?LET({Flags, Topic},
-         {willtopic_upd_flags(), topic()},
-         ?SN_WILLTOPICUPD_MSG(Flags, Topic)).
+    ?LET(
+        {Flags, Topic},
+        {willtopic_upd_flags(), topic()},
+        ?SN_WILLTOPICUPD_MSG(Flags, Topic)
+    ).
 
 'WILLTOPICRESP'() ->
     ?LET(Rc, return_code(), ?SN_WILLTOPICRESP_MSG(Rc)).
@@ -148,45 +180,69 @@ radius() ->
     range(0, 16#ff).
 
 gateway_addr() ->
-    ?LET(L, oneof([0, range(2, 16#ff)]),
-         begin
+    ?LET(
+        L,
+        oneof([0, range(2, 16#ff)]),
+        begin
             Addr = list_to_binary([rand:uniform(256) - 1 || _ <- lists:seq(1, L)]),
             <<(byte_size(Addr)):8, Addr/binary>>
-         end).
+        end
+    ).
 
 mqtt_sn_flags() ->
-    ?LET({Dup, Qos, Retain, Will, CleanStart, IdType},
-         {boolean(), mqtt_sn_qos(), boolean(), boolean(), boolean(), topic_id_type()},
-         #mqtt_sn_flags{dup = Dup, qos = Qos, retain = Retain, will = Will,
-                        clean_start = CleanStart, topic_id_type = IdType}).
+    ?LET(
+        {Dup, Qos, Retain, Will, CleanStart, IdType},
+        {boolean(), mqtt_sn_qos(), boolean(), boolean(), boolean(), topic_id_type()},
+        #mqtt_sn_flags{
+            dup = Dup,
+            qos = Qos,
+            retain = Retain,
+            will = Will,
+            clean_start = CleanStart,
+            topic_id_type = IdType
+        }
+    ).
 
 conn_flags() ->
-    ?LET({Will, CleanStart}, {boolean(), boolean()},
-         #mqtt_sn_flags{will = Will,clean_start = CleanStart}).
+    ?LET(
+        {Will, CleanStart},
+        {boolean(), boolean()},
+        #mqtt_sn_flags{will = Will, clean_start = CleanStart}
+    ).
 
 will_topic_flags() ->
-    ?LET({Qos, Retain}, {mqtt_sn_qos(), boolean()},
-         #mqtt_sn_flags{qos = Qos, retain = Retain}).
+    ?LET(
+        {Qos, Retain},
+        {mqtt_sn_qos(), boolean()},
+        #mqtt_sn_flags{qos = Qos, retain = Retain}
+    ).
 
 publish_flags() ->
-     ?LET({Dup, Qos, Retain, IdType},
-         {boolean(), publish_qos(), boolean(), pub_topic_id_type()},
-         #mqtt_sn_flags{dup = Dup, qos = Qos, retain = Retain, topic_id_type = IdType}).
+    ?LET(
+        {Dup, Qos, Retain, IdType},
+        {boolean(), publish_qos(), boolean(), pub_topic_id_type()},
+        #mqtt_sn_flags{dup = Dup, qos = Qos, retain = Retain, topic_id_type = IdType}
+    ).
 
 subscribe_flags() ->
-     ?LET({Dup, Qos, IdType},
-         {boolean(), publish_qos(), topic_id_type()},
-         #mqtt_sn_flags{dup = Dup, qos = Qos, topic_id_type = IdType}).
+    ?LET(
+        {Dup, Qos, IdType},
+        {boolean(), publish_qos(), topic_id_type()},
+        #mqtt_sn_flags{dup = Dup, qos = Qos, topic_id_type = IdType}
+    ).
 
 suback_flags() ->
     ?LET(Qos, mqtt_sn_qos(), #mqtt_sn_flags{qos = Qos}).
 
-unsubscribe_flags()->
+unsubscribe_flags() ->
     ?LET(IdType, topic_id_type(), #mqtt_sn_flags{topic_id_type = IdType}).
 
 willtopic_upd_flags() ->
-    ?LET({Qos, Retain}, {mqtt_sn_qos(), boolean()},
-         #mqtt_sn_flags{qos = Qos, retain = Retain}).
+    ?LET(
+        {Qos, Retain},
+        {mqtt_sn_qos(), boolean()},
+        #mqtt_sn_flags{qos = Qos, retain = Retain}
+    ).
 
 mqtt_sn_qos() ->
     oneof([0, 1, 2]).
@@ -209,10 +265,13 @@ protocol_id() ->
 %% The ClientId field has a variable length and contains
 %% a 1-23 character long string
 clientid() ->
-    ?LET(L, range(1, 23),
+    ?LET(
+        L,
+        range(1, 23),
         begin
             list_to_binary([rand_09_az_AZ() || _ <- lists:seq(1, L)])
-        end).
+        end
+    ).
 
 return_code() ->
     range(0, 16#ff).
@@ -231,14 +290,14 @@ message_id() ->
     range(0, 16#ffff).
 
 topic_by_type(Flags) ->
-   case Flags#mqtt_sn_flags.topic_id_type of
-       0 -> topic();
-       1 -> range(0, 16#ffff);
-       2 -> list_to_binary([rand_09_az_AZ(), rand_09_az_AZ()])
-   end.
+    case Flags#mqtt_sn_flags.topic_id_type of
+        0 -> topic();
+        1 -> range(0, 16#ffff);
+        2 -> list_to_binary([rand_09_az_AZ(), rand_09_az_AZ()])
+    end.
 
 pub_topic_by_type(Flags) ->
-   case Flags#mqtt_sn_flags.topic_id_type of
-       2 -> list_to_binary([rand_09_az_AZ(), rand_09_az_AZ()]);
-       _ -> range(0, 16#ffff)
-   end.
+    case Flags#mqtt_sn_flags.topic_id_type of
+        2 -> list_to_binary([rand_09_az_AZ(), rand_09_az_AZ()]);
+        _ -> range(0, 16#ffff)
+    end.

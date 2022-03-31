@@ -23,8 +23,10 @@
 
 -define(REGISTRY, emqx_sn_registry).
 -define(MAX_PREDEF_ID, 2).
--define(PREDEF_TOPICS, [#{id => 1, topic => <<"/predefined/topic/name/hello">>},
-                        #{id => 2, topic => <<"/predefined/topic/name/nice">>}]).
+-define(PREDEF_TOPICS, [
+    #{id => 1, topic => <<"/predefined/topic/name/hello">>},
+    #{id => 2, topic => <<"/predefined/topic/name/nice">>}
+]).
 
 %%--------------------------------------------------------------------
 %% Setups
@@ -58,60 +60,64 @@ end_per_testcase(_TestCase, Config) ->
 
 t_register(Config) ->
     Reg = proplists:get_value(reg, Config),
-    ?assertEqual(?MAX_PREDEF_ID+1, ?REGISTRY:register_topic(Reg, <<"ClientId">>, <<"Topic1">>)),
-    ?assertEqual(?MAX_PREDEF_ID+2, ?REGISTRY:register_topic(Reg, <<"ClientId">>, <<"Topic2">>)),
-    ?assertEqual(<<"Topic1">>, ?REGISTRY:lookup_topic(Reg, <<"ClientId">>, ?MAX_PREDEF_ID+1)),
-    ?assertEqual(<<"Topic2">>, ?REGISTRY:lookup_topic(Reg, <<"ClientId">>, ?MAX_PREDEF_ID+2)),
-    ?assertEqual(?MAX_PREDEF_ID+1, ?REGISTRY:lookup_topic_id(Reg, <<"ClientId">>, <<"Topic1">>)),
-    ?assertEqual(?MAX_PREDEF_ID+2, ?REGISTRY:lookup_topic_id(Reg, <<"ClientId">>, <<"Topic2">>)),
+    ?assertEqual(?MAX_PREDEF_ID + 1, ?REGISTRY:register_topic(Reg, <<"ClientId">>, <<"Topic1">>)),
+    ?assertEqual(?MAX_PREDEF_ID + 2, ?REGISTRY:register_topic(Reg, <<"ClientId">>, <<"Topic2">>)),
+    ?assertEqual(<<"Topic1">>, ?REGISTRY:lookup_topic(Reg, <<"ClientId">>, ?MAX_PREDEF_ID + 1)),
+    ?assertEqual(<<"Topic2">>, ?REGISTRY:lookup_topic(Reg, <<"ClientId">>, ?MAX_PREDEF_ID + 2)),
+    ?assertEqual(?MAX_PREDEF_ID + 1, ?REGISTRY:lookup_topic_id(Reg, <<"ClientId">>, <<"Topic1">>)),
+    ?assertEqual(?MAX_PREDEF_ID + 2, ?REGISTRY:lookup_topic_id(Reg, <<"ClientId">>, <<"Topic2">>)),
     emqx_sn_registry:unregister_topic(Reg, <<"ClientId">>),
-    ?assertEqual(undefined, ?REGISTRY:lookup_topic(Reg, <<"ClientId">>, ?MAX_PREDEF_ID+1)),
-    ?assertEqual(undefined, ?REGISTRY:lookup_topic(Reg, <<"ClientId">>, ?MAX_PREDEF_ID+2)),
+    ?assertEqual(undefined, ?REGISTRY:lookup_topic(Reg, <<"ClientId">>, ?MAX_PREDEF_ID + 1)),
+    ?assertEqual(undefined, ?REGISTRY:lookup_topic(Reg, <<"ClientId">>, ?MAX_PREDEF_ID + 2)),
     ?assertEqual(undefined, ?REGISTRY:lookup_topic_id(Reg, <<"ClientId">>, <<"Topic1">>)),
     ?assertEqual(undefined, ?REGISTRY:lookup_topic_id(Reg, <<"ClientId">>, <<"Topic2">>)).
 
 t_register_case2(Config) ->
     Reg = proplists:get_value(reg, Config),
-    ?assertEqual(?MAX_PREDEF_ID+1, ?REGISTRY:register_topic(Reg, <<"ClientId">>, <<"Topic1">>)),
-    ?assertEqual(?MAX_PREDEF_ID+2, ?REGISTRY:register_topic(Reg, <<"ClientId">>, <<"Topic2">>)),
-    ?assertEqual(?MAX_PREDEF_ID+1, ?REGISTRY:register_topic(Reg, <<"ClientId">>, <<"Topic1">>)),
-    ?assertEqual(<<"Topic1">>, ?REGISTRY:lookup_topic(Reg, <<"ClientId">>, ?MAX_PREDEF_ID+1)),
-    ?assertEqual(<<"Topic2">>, ?REGISTRY:lookup_topic(Reg, <<"ClientId">>, ?MAX_PREDEF_ID+2)),
-    ?assertEqual(?MAX_PREDEF_ID+1, ?REGISTRY:lookup_topic_id(Reg, <<"ClientId">>, <<"Topic1">>)),
-    ?assertEqual(?MAX_PREDEF_ID+2, ?REGISTRY:lookup_topic_id(Reg, <<"ClientId">>, <<"Topic2">>)),
+    ?assertEqual(?MAX_PREDEF_ID + 1, ?REGISTRY:register_topic(Reg, <<"ClientId">>, <<"Topic1">>)),
+    ?assertEqual(?MAX_PREDEF_ID + 2, ?REGISTRY:register_topic(Reg, <<"ClientId">>, <<"Topic2">>)),
+    ?assertEqual(?MAX_PREDEF_ID + 1, ?REGISTRY:register_topic(Reg, <<"ClientId">>, <<"Topic1">>)),
+    ?assertEqual(<<"Topic1">>, ?REGISTRY:lookup_topic(Reg, <<"ClientId">>, ?MAX_PREDEF_ID + 1)),
+    ?assertEqual(<<"Topic2">>, ?REGISTRY:lookup_topic(Reg, <<"ClientId">>, ?MAX_PREDEF_ID + 2)),
+    ?assertEqual(?MAX_PREDEF_ID + 1, ?REGISTRY:lookup_topic_id(Reg, <<"ClientId">>, <<"Topic1">>)),
+    ?assertEqual(?MAX_PREDEF_ID + 2, ?REGISTRY:lookup_topic_id(Reg, <<"ClientId">>, <<"Topic2">>)),
     ?assertEqual(undefined, ?REGISTRY:lookup_topic_id(Reg, <<"ClientId">>, <<"Topic3">>)),
     ?REGISTRY:unregister_topic(Reg, <<"ClientId">>),
-    ?assertEqual(undefined, ?REGISTRY:lookup_topic(Reg, <<"ClientId">>, ?MAX_PREDEF_ID+1)),
-    ?assertEqual(undefined, ?REGISTRY:lookup_topic(Reg, <<"ClientId">>, ?MAX_PREDEF_ID+2)),
+    ?assertEqual(undefined, ?REGISTRY:lookup_topic(Reg, <<"ClientId">>, ?MAX_PREDEF_ID + 1)),
+    ?assertEqual(undefined, ?REGISTRY:lookup_topic(Reg, <<"ClientId">>, ?MAX_PREDEF_ID + 2)),
     ?assertEqual(undefined, ?REGISTRY:lookup_topic_id(Reg, <<"ClientId">>, <<"Topic1">>)),
     ?assertEqual(undefined, ?REGISTRY:lookup_topic_id(Reg, <<"ClientId">>, <<"Topic2">>)).
 
 t_reach_maximum(Config) ->
     Reg = proplists:get_value(reg, Config),
-    register_a_lot(?MAX_PREDEF_ID+1, 16#ffff, Reg),
+    register_a_lot(?MAX_PREDEF_ID + 1, 16#ffff, Reg),
     ?assertEqual({error, too_large}, ?REGISTRY:register_topic(Reg, <<"ClientId">>, <<"TopicABC">>)),
-    Topic1 = iolist_to_binary(io_lib:format("Topic~p", [?MAX_PREDEF_ID+1])),
-    Topic2 = iolist_to_binary(io_lib:format("Topic~p", [?MAX_PREDEF_ID+2])),
-    ?assertEqual(?MAX_PREDEF_ID+1, ?REGISTRY:lookup_topic_id(Reg, <<"ClientId">>, Topic1)),
-    ?assertEqual(?MAX_PREDEF_ID+2, ?REGISTRY:lookup_topic_id(Reg, <<"ClientId">>, Topic2)),
+    Topic1 = iolist_to_binary(io_lib:format("Topic~p", [?MAX_PREDEF_ID + 1])),
+    Topic2 = iolist_to_binary(io_lib:format("Topic~p", [?MAX_PREDEF_ID + 2])),
+    ?assertEqual(?MAX_PREDEF_ID + 1, ?REGISTRY:lookup_topic_id(Reg, <<"ClientId">>, Topic1)),
+    ?assertEqual(?MAX_PREDEF_ID + 2, ?REGISTRY:lookup_topic_id(Reg, <<"ClientId">>, Topic2)),
     ?REGISTRY:unregister_topic(Reg, <<"ClientId">>),
-    ?assertEqual(undefined, ?REGISTRY:lookup_topic(Reg, <<"ClientId">>, ?MAX_PREDEF_ID+1)),
-    ?assertEqual(undefined, ?REGISTRY:lookup_topic(Reg, <<"ClientId">>, ?MAX_PREDEF_ID+2)),
+    ?assertEqual(undefined, ?REGISTRY:lookup_topic(Reg, <<"ClientId">>, ?MAX_PREDEF_ID + 1)),
+    ?assertEqual(undefined, ?REGISTRY:lookup_topic(Reg, <<"ClientId">>, ?MAX_PREDEF_ID + 2)),
     ?assertEqual(undefined, ?REGISTRY:lookup_topic_id(Reg, <<"ClientId">>, Topic1)),
     ?assertEqual(undefined, ?REGISTRY:lookup_topic_id(Reg, <<"ClientId">>, Topic2)).
 
 t_register_case4(Config) ->
     Reg = proplists:get_value(reg, Config),
-    ?assertEqual(?MAX_PREDEF_ID+1, ?REGISTRY:register_topic(Reg, <<"ClientId">>, <<"TopicA">>)),
-    ?assertEqual(?MAX_PREDEF_ID+2, ?REGISTRY:register_topic(Reg, <<"ClientId">>, <<"TopicB">>)),
-    ?assertEqual(?MAX_PREDEF_ID+3, ?REGISTRY:register_topic(Reg, <<"ClientId">>, <<"TopicC">>)),
+    ?assertEqual(?MAX_PREDEF_ID + 1, ?REGISTRY:register_topic(Reg, <<"ClientId">>, <<"TopicA">>)),
+    ?assertEqual(?MAX_PREDEF_ID + 2, ?REGISTRY:register_topic(Reg, <<"ClientId">>, <<"TopicB">>)),
+    ?assertEqual(?MAX_PREDEF_ID + 3, ?REGISTRY:register_topic(Reg, <<"ClientId">>, <<"TopicC">>)),
     ?REGISTRY:unregister_topic(Reg, <<"ClientId">>),
-    ?assertEqual(?MAX_PREDEF_ID+1, ?REGISTRY:register_topic(Reg, <<"ClientId">>, <<"TopicD">>)).
+    ?assertEqual(?MAX_PREDEF_ID + 1, ?REGISTRY:register_topic(Reg, <<"ClientId">>, <<"TopicD">>)).
 
 t_deny_wildcard_topic(Config) ->
     Reg = proplists:get_value(reg, Config),
-    ?assertEqual({error, wildcard_topic}, ?REGISTRY:register_topic(Reg, <<"ClientId">>, <<"/TopicA/#">>)),
-    ?assertEqual({error, wildcard_topic}, ?REGISTRY:register_topic(Reg, <<"ClientId">>, <<"/+/TopicB">>)).
+    ?assertEqual(
+        {error, wildcard_topic}, ?REGISTRY:register_topic(Reg, <<"ClientId">>, <<"/TopicA/#">>)
+    ),
+    ?assertEqual(
+        {error, wildcard_topic}, ?REGISTRY:register_topic(Reg, <<"ClientId">>, <<"/+/TopicB">>)
+    ).
 
 %%--------------------------------------------------------------------
 %% Helper funcs
@@ -122,4 +128,4 @@ register_a_lot(Max, Max, _Reg) ->
 register_a_lot(N, Max, Reg) when N < Max ->
     Topic = iolist_to_binary(["Topic", integer_to_list(N)]),
     ?assertEqual(N, ?REGISTRY:register_topic(Reg, <<"ClientId">>, Topic)),
-    register_a_lot(N+1, Max, Reg).
+    register_a_lot(N + 1, Max, Reg).

@@ -24,15 +24,24 @@
 %% convenience functions for message construction
 -module(emqx_coap_message).
 
--export([ request/2, request/3, request/4
-        , ack/1, response/1, response/2
-        , reset/1, piggyback/2, piggyback/3
-        , response/3]).
+-export([
+    request/2, request/3, request/4,
+    ack/1,
+    response/1, response/2,
+    reset/1,
+    piggyback/2, piggyback/3,
+    response/3
+]).
 
 -export([is_request/1]).
 
--export([ set/3, set_payload/2, get_option/2
-        , get_option/3, set_payload_block/3, set_payload_block/4]).
+-export([
+    set/3,
+    set_payload/2,
+    get_option/2,
+    get_option/3,
+    set_payload_block/3, set_payload_block/4
+]).
 
 -include("src/coap/include/emqx_coap.hrl").
 
@@ -43,10 +52,12 @@ request(Type, Method, Payload) ->
     request(Type, Method, Payload, []).
 
 request(Type, Method, Payload, Options) when is_binary(Payload) ->
-    #coap_message{type = Type,
-                  method = Method,
-                  payload = Payload,
-                  options = to_options(Options)}.
+    #coap_message{
+        type = Type,
+        method = Method,
+        payload = Payload,
+        options = to_options(Options)
+    }.
 
 ack(#coap_message{id = Id}) ->
     #coap_message{type = ack, id = Id}.
@@ -61,14 +72,18 @@ response(Request) ->
 response(Method, Request) ->
     response(Method, <<>>, Request).
 
-response(Method, Payload, #coap_message{type = Type,
-                                        id = Id,
-                                        token = Token}) ->
-    #coap_message{type = Type,
-                  id = Id,
-                  token = Token,
-                  method = Method,
-                  payload = Payload}.
+response(Method, Payload, #coap_message{
+    type = Type,
+    id = Id,
+    token = Token
+}) ->
+    #coap_message{
+        type = Type,
+        id = Id,
+        token = Token,
+        method = Method,
+        payload = Payload
+    }.
 
 %% make a response which maybe is a piggyback ack
 piggyback(Method, Request) ->
@@ -84,8 +99,8 @@ piggyback(Method, Payload, Request) ->
     end.
 
 %% omit option for its default value
-set(max_age, ?DEFAULT_MAX_AGE, Msg) -> Msg;
-
+set(max_age, ?DEFAULT_MAX_AGE, Msg) ->
+    Msg;
 %% set non-default value
 set(Option, Value, Msg = #coap_message{options = Options}) ->
     Msg#coap_message{options = Options#{Option => Value}}.
@@ -98,13 +113,11 @@ get_option(Option, #coap_message{options = Options}, Def) ->
 
 set_payload(Payload, Msg) when is_binary(Payload) ->
     Msg#coap_message{payload = Payload};
-
 set_payload(Payload, Msg) when is_list(Payload) ->
     Msg#coap_message{payload = list_to_binary(Payload)}.
 
 set_payload_block(Content, Block, Msg = #coap_message{method = Method}) when is_atom(Method) ->
     set_payload_block(Content, block1, Block, Msg);
-
 set_payload_block(Content, Block, Msg = #coap_message{}) ->
     set_payload_block(Content, block2, Block, Msg).
 
@@ -114,16 +127,21 @@ set_payload_block(Content, BlockId, {Num, _, Size}, Msg) ->
     OffsetEnd = OffsetBegin + Size,
     case ContentSize > OffsetEnd of
         true ->
-            set(BlockId, {Num, true, Size},
-                set_payload(binary:part(Content, OffsetBegin, Size), Msg));
+            set(
+                BlockId,
+                {Num, true, Size},
+                set_payload(binary:part(Content, OffsetBegin, Size), Msg)
+            );
         _ ->
-            set(BlockId, {Num, false, Size},
-                set_payload(binary:part(Content, OffsetBegin, ContentSize - OffsetBegin), Msg))
+            set(
+                BlockId,
+                {Num, false, Size},
+                set_payload(binary:part(Content, OffsetBegin, ContentSize - OffsetBegin), Msg)
+            )
     end.
 
 is_request(#coap_message{method = Method}) when is_atom(Method) ->
     Method =/= undefined;
-
 is_request(_) ->
     false.
 

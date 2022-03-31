@@ -56,51 +56,60 @@ end_per_testcase(_TestCase, Conf) ->
 
 t_tabname(_) ->
     ?assertEqual(
-       emqx_gateway_gw_name_channel_registry,
-       emqx_gateway_cm_registry:tabname(gw_name)).
+        emqx_gateway_gw_name_channel_registry,
+        emqx_gateway_cm_registry:tabname(gw_name)
+    ).
 
 t_register_unregister_channel(_) ->
     ok = emqx_gateway_cm_registry:register_channel(?GWNAME, ?CLIENTID),
     ?assertEqual(
-       [{channel, ?CLIENTID, self()}],
-       ets:tab2list(emqx_gateway_cm_registry:tabname(?GWNAME))),
+        [{channel, ?CLIENTID, self()}],
+        ets:tab2list(emqx_gateway_cm_registry:tabname(?GWNAME))
+    ),
 
     ?assertEqual(
-       [self()],
-       emqx_gateway_cm_registry:lookup_channels(?GWNAME, ?CLIENTID)),
+        [self()],
+        emqx_gateway_cm_registry:lookup_channels(?GWNAME, ?CLIENTID)
+    ),
 
     ok = emqx_gateway_cm_registry:unregister_channel(?GWNAME, ?CLIENTID),
 
     ?assertEqual(
-       [],
-       ets:tab2list(emqx_gateway_cm_registry:tabname(?GWNAME))),
+        [],
+        ets:tab2list(emqx_gateway_cm_registry:tabname(?GWNAME))
+    ),
     ?assertEqual(
-       [],
-       emqx_gateway_cm_registry:lookup_channels(?GWNAME, ?CLIENTID)).
+        [],
+        emqx_gateway_cm_registry:lookup_channels(?GWNAME, ?CLIENTID)
+    ).
 
 t_cleanup_channels_mnesia_down(Conf) ->
     Pid = proplists:get_value(registry, Conf),
     emqx_gateway_cm_registry:register_channel(?GWNAME, ?CLIENTID),
     ?assertEqual(
-       [self()],
-       emqx_gateway_cm_registry:lookup_channels(?GWNAME, ?CLIENTID)),
+        [self()],
+        emqx_gateway_cm_registry:lookup_channels(?GWNAME, ?CLIENTID)
+    ),
     Pid ! {membership, {mnesia, down, node()}},
     ct:sleep(100),
     ?assertEqual(
-       [],
-       emqx_gateway_cm_registry:lookup_channels(?GWNAME, ?CLIENTID)).
+        [],
+        emqx_gateway_cm_registry:lookup_channels(?GWNAME, ?CLIENTID)
+    ).
 
 t_cleanup_channels_node_down(Conf) ->
     Pid = proplists:get_value(registry, Conf),
     emqx_gateway_cm_registry:register_channel(?GWNAME, ?CLIENTID),
     ?assertEqual(
-       [self()],
-       emqx_gateway_cm_registry:lookup_channels(?GWNAME, ?CLIENTID)),
+        [self()],
+        emqx_gateway_cm_registry:lookup_channels(?GWNAME, ?CLIENTID)
+    ),
     Pid ! {membership, {node, down, node()}},
     ct:sleep(100),
     ?assertEqual(
-       [],
-       emqx_gateway_cm_registry:lookup_channels(?GWNAME, ?CLIENTID)).
+        [],
+        emqx_gateway_cm_registry:lookup_channels(?GWNAME, ?CLIENTID)
+    ).
 
 t_handle_unexpected_msg(Conf) ->
     Pid = proplists:get_value(registry, Conf),
