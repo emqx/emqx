@@ -45,6 +45,8 @@
 -type rate() :: emqx_limiter_decimal:decimal().
 -type check_failure_type() :: partial | pause.
 
+-elvis([{elvis_style, no_if_expression, disable}]).
+
 %%--------------------------------------------------------------------
 %%  API
 %%--------------------------------------------------------------------
