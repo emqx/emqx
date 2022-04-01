@@ -58,6 +58,13 @@
             descr  => "Delete a rule"
            }).
 
+-rest_api(#{name   => reset_metrics,
+            method => 'PUT',
+            path   => "/rules/:bin:id/reset_metrics",
+            func   => reset_metrics,
+            descr  => "reset a rule metrics"
+           }).
+
 -rest_api(#{name   => list_actions,
             method => 'GET',
             path   => "/actions/",
@@ -154,6 +161,7 @@
         , list_rules/2
         , show_rule/2
         , delete_rule/2
+        , reset_metrics/2
         ]).
 
 -export([ list_actions/2
@@ -250,6 +258,10 @@ show_rule(#{id := Id}, _Params) ->
 
 delete_rule(#{id := Id}, _Params) ->
     ok = emqx_rule_engine:delete_rule(Id),
+    return(ok).
+
+reset_metrics(#{id := Id}, _Params) ->
+    ok = emqx_rule_metrics:reset_metrics(Id),
     return(ok).
 
 %%------------------------------------------------------------------------------
