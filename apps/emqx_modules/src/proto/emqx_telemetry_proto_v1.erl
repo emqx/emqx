@@ -20,10 +20,7 @@
 
 -export([
     introduced_in/0,
-
-    get_uuid/1,
-    enable_telemetry/1,
-    disable_telemetry/1
+    get_uuid/1
 ]).
 
 -include_lib("emqx/include/bpapi.hrl").
@@ -34,11 +31,3 @@ introduced_in() ->
 -spec get_uuid(node()) -> {ok, binary()} | emqx_rpc:badrpc().
 get_uuid(Node) ->
     rpc:call(Node, emqx_telemetry, get_uuid, []).
-
--spec enable_telemetry(node()) -> _.
-enable_telemetry(Node) ->
-    rpc:call(Node, emqx_telemetry, enable, []).
-
--spec disable_telemetry(node()) -> _.
-disable_telemetry(Node) ->
-    rpc:call(Node, emqx_telemetry, disable, []).

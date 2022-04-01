@@ -21,7 +21,6 @@
 -include_lib("emqx/include/emqx.hrl").
 -include_lib("emqx/include/logger.hrl").
 
--include_lib("kernel/include/file.hrl").
 -include_lib("snabbkaffe/include/snabbkaffe.hrl").
 
 -include("emqx_modules.hrl").
@@ -49,8 +48,7 @@
 
 -export([
     get_uuid/0,
-    get_telemetry/0,
-    get_status/0
+    get_telemetry/0
 ]).
 
 -export([official_version/1]).
@@ -119,9 +117,6 @@ enable() ->
 disable() ->
     gen_server:call(?MODULE, disable).
 
-get_status() ->
-    emqx_conf:get([telemetry, enable], true).
-
 get_uuid() ->
     gen_server:call(?MODULE, get_uuid).
 
@@ -188,12 +183,10 @@ handle_continue(Continue, State) ->
     {noreply, State}.
 
 handle_info({timeout, TRef, time_to_report_telemetry_data}, State0 = #state{timer = TRef}) ->
-    State =
-        case get_status() of
-            true -> report_telemetry(State0);
-            false -> State0
-        end,
+    State = report_telemetry(State0),
     {noreply, ensure_report_timer(State)};
+handle_info({timeout, _TRef, time_to_report_telemetry_data}, State = #state{timer = undefined}) ->
+    {noreply, State};
 handle_info(Info, State) ->
     ?SLOG(error, #{msg => "unexpected_info", info => Info}),
     {noreply, State}.

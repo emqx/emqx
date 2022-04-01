@@ -31,7 +31,6 @@ all() ->
     emqx_common_test_helpers:all(?MODULE).
 
 init_per_testcase(_, Config) ->
-    {ok, _} = emqx_cluster_rpc:start_link(node(), emqx_cluster_rpc, 1000),
     lists:foreach(
         fun emqx_modules_conf:remove_topic_metrics/1,
         emqx_modules_conf:topic_metrics()
