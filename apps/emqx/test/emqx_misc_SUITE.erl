@@ -171,17 +171,18 @@ t_gen_id(_) ->
     ?assertEqual(10, length(emqx_misc:gen_id(10))),
     ?assertEqual(20, length(emqx_misc:gen_id(20))).
 
-t_pmap(_) ->
+t_pmap_normal(_) ->
     ?assertEqual(
         [5, 7, 9],
         emqx_misc:pmap(
             fun({A, B}) -> A + B end,
             [{2, 3}, {3, 4}, {4, 5}]
         )
-    ),
+    ).
 
-    ?assertEqual(
-        [5, 7, {error, timeout}],
+t_pmap_timeout(_) ->
+    ?assertExit(
+        timeout,
         emqx_misc:pmap(
             fun
                 (timeout) -> ct:sleep(1000);
@@ -190,13 +191,14 @@ t_pmap(_) ->
             [{2, 3}, {3, 4}, timeout],
             100
         )
-    ),
+    ).
 
-    ?assertMatch(
-        [5, 7, {error, _}],
+t_pmap_exception(_) ->
+    ?assertExit(
+        {foobar, _},
         emqx_misc:pmap(
             fun
-                (error) -> error(exc);
+                (error) -> error(foobar);
                 ({A, B}) -> A + B
             end,
             [{2, 3}, {3, 4}, error]

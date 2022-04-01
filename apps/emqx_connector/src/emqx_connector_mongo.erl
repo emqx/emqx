@@ -241,10 +241,19 @@ on_get_status(InstId, #{poolname := PoolName} = _State) ->
 
 health_check(PoolName) ->
     Workers = [Worker || {_WorkerName, Worker} <- ecpool:workers(PoolName)],
-    Status = emqx_misc:pmap(
-        fun check_worker_health/1, Workers, ?HEALTH_CHECK_TIMEOUT + timer:seconds(1)
-    ),
-    length(Status) > 0 andalso lists:all(fun(St) -> St =:= true end, Status).
+    try
+        emqx_misc:pmap(
+            fun check_worker_health/1, Workers, ?HEALTH_CHECK_TIMEOUT + timer:seconds(1)
+        )
+    of
+        [_ | _] = Status ->
+            lists:all(fun(St) -> St =:= true end, Status);
+        [] ->
+            false
+    catch
+        exit:timeout ->
+            false
+    end.
 
 %% ===================================================================
 

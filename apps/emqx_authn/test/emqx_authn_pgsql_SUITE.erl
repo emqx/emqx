@@ -19,8 +19,8 @@
 -compile(nowarn_export_all).
 -compile(export_all).
 
--include("emqx_connector.hrl").
--include("emqx_authn.hrl").
+-include_lib("emqx_connector/include/emqx_connector.hrl").
+-include_lib("emqx_authn/include/emqx_authn.hrl").
 -include_lib("eunit/include/eunit.hrl").
 -include_lib("common_test/include/ct.hrl").
 -include_lib("emqx/include/emqx_placeholder.hrl").
