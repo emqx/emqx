@@ -694,17 +694,17 @@ call(GwName, ClientId, Req, Timeout) ->
 
 do_call(GwName, ClientId, ChanPid, Req) ->
     case do_get_chann_conn_mod(GwName, ClientId, ChanPid) of
-        undefined -> throw(noproc);
+        undefined -> undefined;
         ConnMod -> ConnMod:call(ChanPid, Req)
     end.
 
 do_call(GwName, ClientId, ChanPid, Req, Timeout) ->
     case do_get_chann_conn_mod(GwName, ClientId, ChanPid) of
-        undefined -> throw(noproc);
+        undefined -> undefined;
         ConnMod -> ConnMod:call(ChanPid, Req, Timeout)
     end.
 
--spec cast(gateway_name(), emqx_types:clientid(), term()) -> ok.
+-spec cast(gateway_name(), emqx_types:clientid(), term()) -> undefined | ok.
 cast(GwName, ClientId, Req) ->
     with_channel(
         GwName,
@@ -719,7 +719,7 @@ cast(GwName, ClientId, Req) ->
 
 do_cast(GwName, ClientId, ChanPid, Req) ->
     case do_get_chann_conn_mod(GwName, ClientId, ChanPid) of
-        undefined -> throw(noproc);
+        undefined -> undefined;
         ConnMod -> ConnMod:cast(ChanPid, Req)
     end.
 
