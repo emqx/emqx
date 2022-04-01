@@ -185,12 +185,12 @@ call(WsPid, Req, Timeout) when is_pid(WsPid) ->
     WsPid ! {call, {self(), Mref}, Req},
     receive
         {Mref, Reply} ->
-            erlang:demonitor(Mref, [flush]),
+            ok = emqx_pmon:demonitor(Mref),
             Reply;
         {'DOWN', Mref, _, _, Reason} ->
             exit(Reason)
     after Timeout ->
-        erlang:demonitor(Mref, [flush]),
+        ok = emqx_pmon:demonitor(Mref),
         exit(timeout)
     end.
 

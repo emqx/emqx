@@ -60,5 +60,33 @@ t_erase(_) ->
     ?assertEqual([{self(), val}], Items),
     ?assertEqual(0, emqx_pmon:count(PMon3)).
 
-% t_erase_all(_) ->
-%     error('TODO').
+t_demonitor(_) ->
+    Pid = self(),
+    Ref1 = erlang:monitor(process, Pid),
+    Ref2 = erlang:monitor(process, spawn(fun() -> ok end)),
+    Ref3 = erlang:make_ref(),
+    ok = emqx_pmon:demonitor(Ref1),
+    ?assertNot(erlang:demonitor(Ref1, [info])),
+    ok = emqx_pmon:demonitor(Ref2),
+    % demonitor twice
+    ok = emqx_pmon:demonitor(Ref2),
+    ?assertNot(erlang:demonitor(Ref2, [info])),
+    % not a monitor ref, should return ok
+    ok = emqx_pmon:demonitor(Ref3),
+    ?assertNot(erlang:demonitor(Ref3, [info])),
+    Pid2 = spawn(fun() ->
+        receive
+            stop ->
+                exit(normal)
+        end
+    end),
+    Ref4 = erlang:monitor(process, Pid2),
+    Ref5 = erlang:monitor(process, Pid2),
+    ok = emqx_pmon:demonitor(Ref4),
+    ?assertNot(erlang:demonitor(Ref4, [info])),
+    _ = erlang:send(Pid2, stop),
+    receive
+        {'DOWN', Ref, process, Pid2, normal} ->
+            ?assertEqual(Ref, Ref5)
+    end,
+    ok.

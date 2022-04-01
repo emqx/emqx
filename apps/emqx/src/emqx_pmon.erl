@@ -16,13 +16,14 @@
 
 -module(emqx_pmon).
 
--compile({no_auto_import, [monitor/3]}).
+-compile({no_auto_import, [monitor/3, demonitor/1, demonitor/2]}).
 
 -export([new/0]).
 
 -export([
     monitor/2,
     monitor/3,
+    demonitor/1,
     demonitor/2
 ]).
 
@@ -65,11 +66,28 @@ monitor(Pid, Val, PMon = ?PMON(Map)) ->
 demonitor(Pid, PMon = ?PMON(Map)) ->
     case maps:find(Pid, Map) of
         {ok, {Ref, _Val}} ->
-            %% flush
-            _ = erlang:demonitor(Ref, [flush]),
+            ok = demonitor(Ref),
             ?PMON(maps:remove(Pid, Map));
         error ->
             PMon
+    end.
+
+%% @doc Improved version of erlang:demonitor(Ref, [flush]).
+%% Only try to receive the 'DOWN' messages when it might have been sent.
+-spec demonitor(reference()) -> ok.
+demonitor(Ref) when is_reference(Ref) ->
+    case erlang:demonitor(Ref, [info]) of
+        true ->
+            %% succeeded
+            ok;
+        _ ->
+            %% '_', but not 'false' because this may change in the future according to OTP doc
+            receive
+                {'DOWN', Ref, process, _, _} ->
+                    ok
+            after 0 ->
+                ok
+            end
     end.
 
 -spec find(pid(), pmon()) -> error | {ok, term()}.

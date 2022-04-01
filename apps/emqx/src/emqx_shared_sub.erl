@@ -191,7 +191,7 @@ dispatch_with_ack(SubPid, Topic, Msg) ->
             {error, timeout}
         end
     after
-        _ = erlang:demonitor(Ref, [flush])
+        ok = emqx_pmon:demonitor(Ref)
     end.
 
 with_ack_ref(Msg, SenderRef) ->
