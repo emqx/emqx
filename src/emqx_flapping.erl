@@ -38,6 +38,10 @@
         , code_change/3
         ]).
 
+%% for testing
+-ifdef(TEST).
+-export([get_policy/0]).
+-endif.
 %% Tab
 -define(FLAPPING_TAB, ?MODULE).
 %% Default Policy

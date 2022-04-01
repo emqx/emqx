@@ -47,7 +47,7 @@
         ]).
 
 %% for testing
--export([subscribers/2]).
+-export([subscribers/2, ack_enabled/0]).
 
 %% gen_server callbacks
 -export([ init/1
