@@ -34,7 +34,7 @@ init_per_suite(Config) ->
     %%   emqx_machine_SUITE.erl
     %%
     %% Reason:
-    %%   the `emqx_machine_boot:ensure_apps_started()` will crashed
+    %%   the `emqx_machine_boot:ensure_apps_started()` will crash
     %%   on starting `emqx_authz` with dirty confs, which caused the file
     %%   `.._build/test/lib/emqx_conf/etc/acl.conf` could not be found
     %%
@@ -65,6 +65,25 @@ init_per_suite(Config) ->
 end_per_suite(_Config) ->
     emqx_common_test_helpers:stop_apps([]).
 
+init_per_testcase(t_custom_shard_transports, Config) ->
+    OldConfig = application:get_env(emqx_machine, custom_shard_transports),
+    [{old_config, OldConfig} | Config];
+init_per_testcase(_TestCase, Config) ->
+    Config.
+
+end_per_testcase(t_custom_shard_transports, Config) ->
+    OldConfig0 = ?config(old_config, Config),
+    application:stop(ekka),
+    case OldConfig0 of
+        {ok, OldConfig} ->
+            application:set_env(emqx_machine, custom_shard_transports, OldConfig);
+        undefined ->
+            application:unset_env(emqx_machine, custom_shard_transports)
+    end,
+    ok;
+end_per_testcase(_TestCase, _Config) ->
+    ok.
+
 t_shutdown_reboot(_Config) ->
     emqx_machine_boot:stop_apps(),
     false = emqx:is_running(node()),
@@ -72,3 +91,15 @@ t_shutdown_reboot(_Config) ->
     true = emqx:is_running(node()),
     ok = emqx_machine_boot:stop_apps(),
     false = emqx:is_running(node()).
+
+t_custom_shard_transports(_Config) ->
+    %% used to ensure the atom exists
+    Shard = test_shard,
+    %% the config keys are binaries
+    ShardBin = atom_to_binary(Shard),
+    DefaultTransport = gen_rpc,
+    ?assertEqual(DefaultTransport, mria_config:shard_transport(Shard)),
+    application:set_env(emqx_machine, custom_shard_transports, #{ShardBin => distr}),
+    emqx_machine:start(),
+    ?assertEqual(distr, mria_config:shard_transport(Shard)),
+    ok.

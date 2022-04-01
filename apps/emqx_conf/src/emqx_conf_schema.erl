@@ -475,6 +475,28 @@ In sync mode the core node waits for an ack from the replicant nodes before send
 transaction log entry.
 """
            })}
+    , {"default_shard_transport",
+       sc(hoconsc:enum([gen_rpc, distr]),
+          #{ mapping => "mria.shard_transport"
+           , default => gen_rpc
+           , desc =>
+               "Defines the default transport for pushing transaction logs.<br/>"
+               "This may be overridden on a per-shard basis in <code>db.shard_transports</code>."
+               "<code>gen_rpc</code> uses the <code>gen_rpc</code> library, "
+               "<code>distr</code> uses the Erlang distribution.<br/>"
+           })}
+    , {"shard_transports",
+       sc(map(shard, hoconsc:enum([gen_rpc, distr])),
+          #{ desc =>
+               "Allows to tune the transport method used for transaction log replication, "
+               "on a per-shard basis.<br/>"
+               "<code>gen_rpc</code> uses the <code>gen_rpc</code> library, "
+               "<code>distr</code> uses the Erlang distribution.<br/>"
+               "If not specified, the default is to use the value "
+               "set in <code>db.default_shard_transport</code>."
+           , mapping => "emqx_machine.custom_shard_transports"
+           , default => #{}
+           })}
     ];
 
 fields("cluster_call") ->
