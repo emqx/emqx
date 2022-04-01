@@ -20,14 +20,15 @@
 
 -behaviour(emqx_gateway_frame).
 
--export([ initial_parse_state/1
-        , serialize_opts/0
-        , parse/2
-        , serialize_pkt/2
-        , format/1
-        , is_message/1
-        , type/1
-        ]).
+-export([
+    initial_parse_state/1,
+    serialize_opts/0,
+    parse/2,
+    serialize_pkt/2,
+    format/1,
+    is_message/1,
+    type/1
+]).
 
 initial_parse_state(_) ->
     #{}.
@@ -47,4 +48,3 @@ format(Data) ->
 is_message(_) -> true.
 
 type(_) -> unknown.
-

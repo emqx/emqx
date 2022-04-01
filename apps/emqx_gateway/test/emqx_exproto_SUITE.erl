@@ -19,17 +19,20 @@
 -compile(export_all).
 -compile(nowarn_export_all).
 
--import(emqx_exproto_echo_svr,
-        [ frame_connect/2
-        , frame_connack/1
-        , frame_publish/3
-        , frame_puback/1
-        , frame_subscribe/2
-        , frame_suback/1
-        , frame_unsubscribe/1
-        , frame_unsuback/1
-        , frame_disconnect/0
-        ]).
+-import(
+    emqx_exproto_echo_svr,
+    [
+        frame_connect/2,
+        frame_connack/1,
+        frame_publish/3,
+        frame_puback/1,
+        frame_subscribe/2,
+        frame_suback/1,
+        frame_unsubscribe/1,
+        frame_unsuback/1,
+        frame_disconnect/0
+    ]
+).
 
 -include_lib("emqx/include/emqx.hrl").
 -include_lib("emqx/include/emqx_mqtt.hrl").
@@ -42,7 +45,7 @@
 %%--------------------------------------------------------------------
 
 all() ->
-    [{group, Name} || Name  <- metrics()].
+    [{group, Name} || Name <- metrics()].
 
 groups() ->
     Cases = emqx_common_test_helpers:all(?MODULE),
@@ -67,11 +70,13 @@ end_per_group(_, Cfg) ->
 set_special_cfg(emqx_gateway) ->
     LisType = get(grpname),
     emqx_config:put(
-      [gateway, exproto],
-      #{server => #{bind => 9100},
-        handler => #{address => "http://127.0.0.1:9001"},
-        listeners => listener_confs(LisType)
-       });
+        [gateway, exproto],
+        #{
+            server => #{bind => 9100},
+            handler => #{address => "http://127.0.0.1:9001"},
+            listeners => listener_confs(LisType)
+        }
+    );
 set_special_cfg(_App) ->
     ok.
 
@@ -90,11 +95,12 @@ t_mountpoint_echo(Cfg) ->
     SockType = proplists:get_value(listener_type, Cfg),
     Sock = open(SockType),
 
-    Client = #{proto_name => <<"demo">>,
-               proto_ver => <<"v0.1">>,
-               clientid => <<"test_client_1">>,
-               mountpoint => <<"ct/">>
-              },
+    Client = #{
+        proto_name => <<"demo">>,
+        proto_ver => <<"v0.1">>,
+        clientid => <<"test_client_1">>,
+        mountpoint => <<"ct/">>
+    },
     Password = <<"123456">>,
 
     ConnBin = frame_connect(Client, Password),
@@ -124,7 +130,7 @@ t_mountpoint_echo(Cfg) ->
     receive
         {deliver, _, _} -> ok
     after 1000 ->
-          error(echo_not_running)
+        error(echo_not_running)
     end,
     close(Sock).
 
@@ -132,15 +138,19 @@ t_auth_deny(Cfg) ->
     SockType = proplists:get_value(listener_type, Cfg),
     Sock = open(SockType),
 
-    Client = #{proto_name => <<"demo">>,
-               proto_ver => <<"v0.1">>,
-               clientid => <<"test_client_1">>
-              },
+    Client = #{
+        proto_name => <<"demo">>,
+        proto_ver => <<"v0.1">>,
+        clientid => <<"test_client_1">>
+    },
     Password = <<"123456">>,
 
     ok = meck:new(emqx_gateway_ctx, [passthrough, no_history, no_link]),
-    ok = meck:expect(emqx_gateway_ctx, authenticate,
-                     fun(_, _) -> {error, ?RC_NOT_AUTHORIZED} end),
+    ok = meck:expect(
+        emqx_gateway_ctx,
+        authenticate,
+        fun(_, _) -> {error, ?RC_NOT_AUTHORIZED} end
+    ),
 
     ConnBin = frame_connect(Client, Password),
     ConnAckBin = frame_connack(1),
@@ -148,19 +158,21 @@ t_auth_deny(Cfg) ->
     send(Sock, ConnBin),
     {ok, ConnAckBin} = recv(Sock, 5000),
 
-    SockType =/= udp andalso begin
-        {error, closed} = recv(Sock, 5000)
-    end,
+    SockType =/= udp andalso
+        begin
+            {error, closed} = recv(Sock, 5000)
+        end,
     meck:unload([emqx_gateway_ctx]).
 
 t_acl_deny(Cfg) ->
     SockType = proplists:get_value(listener_type, Cfg),
     Sock = open(SockType),
 
-    Client = #{proto_name => <<"demo">>,
-               proto_ver => <<"v0.1">>,
-               clientid => <<"test_client_1">>
-              },
+    Client = #{
+        proto_name => <<"demo">>,
+        proto_ver => <<"v0.1">>,
+        clientid => <<"test_client_1">>
+    },
     Password = <<"123456">>,
 
     ok = meck:new(emqx_gateway_ctx, [passthrough, no_history, no_link]),
@@ -197,11 +209,12 @@ t_keepalive_timeout(Cfg) ->
     SockType = proplists:get_value(listener_type, Cfg),
     Sock = open(SockType),
 
-    Client = #{proto_name => <<"demo">>,
-               proto_ver => <<"v0.1">>,
-               clientid => <<"test_client_1">>,
-               keepalive => 2
-              },
+    Client = #{
+        proto_name => <<"demo">>,
+        proto_ver => <<"v0.1">>,
+        clientid => <<"test_client_1">>,
+        keepalive => 2
+    },
     Password = <<"123456">>,
 
     ConnBin = frame_connect(Client, Password),
@@ -213,18 +226,21 @@ t_keepalive_timeout(Cfg) ->
     DisconnectBin = frame_disconnect(),
     {ok, DisconnectBin} = recv(Sock, 10000),
 
-    SockType =/= udp andalso begin
-        {error, closed} = recv(Sock, 5000)
-    end, ok.
+    SockType =/= udp andalso
+        begin
+            {error, closed} = recv(Sock, 5000)
+        end,
+    ok.
 
 t_hook_connected_disconnected(Cfg) ->
     SockType = proplists:get_value(listener_type, Cfg),
     Sock = open(SockType),
 
-    Client = #{proto_name => <<"demo">>,
-               proto_ver => <<"v0.1">>,
-               clientid => <<"test_client_1">>
-              },
+    Client = #{
+        proto_name => <<"demo">>,
+        proto_ver => <<"v0.1">>,
+        clientid => <<"test_client_1">>
+    },
     Password = <<"123456">>,
 
     ConnBin = frame_connect(Client, Password),
@@ -232,7 +248,7 @@ t_hook_connected_disconnected(Cfg) ->
 
     Parent = self(),
     emqx:hook('client.connected', {?MODULE, hook_fun1, [Parent]}),
-    emqx:hook('client.disconnected',{?MODULE, hook_fun2, [Parent]}),
+    emqx:hook('client.disconnected', {?MODULE, hook_fun2, [Parent]}),
 
     send(Sock, ConnBin),
     {ok, ConnAckBin} = recv(Sock, 5000),
@@ -252,9 +268,10 @@ t_hook_connected_disconnected(Cfg) ->
         error(hook_is_not_running)
     end,
 
-    SockType =/= udp andalso begin
-        {error, closed} = recv(Sock, 5000)
-    end,
+    SockType =/= udp andalso
+        begin
+            {error, closed} = recv(Sock, 5000)
+        end,
     emqx:unhook('client.connected', {?MODULE, hook_fun1}),
     emqx:unhook('client.disconnected', {?MODULE, hook_fun2}).
 
@@ -262,10 +279,11 @@ t_hook_session_subscribed_unsubscribed(Cfg) ->
     SockType = proplists:get_value(listener_type, Cfg),
     Sock = open(SockType),
 
-    Client = #{proto_name => <<"demo">>,
-               proto_ver => <<"v0.1">>,
-               clientid => <<"test_client_1">>
-              },
+    Client = #{
+        proto_name => <<"demo">>,
+        proto_ver => <<"v0.1">>,
+        clientid => <<"test_client_1">>
+    },
     Password = <<"123456">>,
 
     ConnBin = frame_connect(Client, Password),
@@ -310,10 +328,11 @@ t_hook_message_delivered(Cfg) ->
     SockType = proplists:get_value(listener_type, Cfg),
     Sock = open(SockType),
 
-    Client = #{proto_name => <<"demo">>,
-               proto_ver => <<"v0.1">>,
-               clientid => <<"test_client_1">>
-              },
+    Client = #{
+        proto_name => <<"demo">>,
+        proto_ver => <<"v0.1">>,
+        clientid => <<"test_client_1">>
+    },
     Password = <<"123456">>,
 
     ConnBin = frame_connect(Client, Password),
@@ -340,11 +359,19 @@ t_hook_message_delivered(Cfg) ->
 %%--------------------------------------------------------------------
 %% Utils
 
-hook_fun1(_, _, Parent) -> Parent ! connected, ok.
-hook_fun2(_, _, _, Parent) -> Parent ! disconnected, ok.
+hook_fun1(_, _, Parent) ->
+    Parent ! connected,
+    ok.
+hook_fun2(_, _, _, Parent) ->
+    Parent ! disconnected,
+    ok.
 
-hook_fun3(_, _, _, Parent) -> Parent ! subscribed, ok.
-hook_fun4(_, _, _, Parent) -> Parent ! unsubscribed, ok.
+hook_fun3(_, _, _, Parent) ->
+    Parent ! subscribed,
+    ok.
+hook_fun4(_, _, _, Parent) ->
+    Parent ! unsubscribed,
+    ok.
 
 hook_fun5(_, Msg) -> {ok, Msg#message{payload = <<"2">>}}.
 
@@ -403,41 +430,51 @@ close({dtls, Sock}) ->
 socketopts(tcp) ->
     #{tcp => tcp_opts()};
 socketopts(ssl) ->
-    #{tcp => tcp_opts(),
-      ssl => ssl_opts()};
+    #{
+        tcp => tcp_opts(),
+        ssl => ssl_opts()
+    };
 socketopts(udp) ->
     #{udp => udp_opts()};
 socketopts(dtls) ->
-    #{udp => udp_opts(),
-      dtls => dtls_opts()}.
+    #{
+        udp => udp_opts(),
+        dtls => dtls_opts()
+    }.
 
 tcp_opts() ->
     maps:merge(
-      udp_opts(),
-      #{send_timeout => 15000,
-        send_timeout_close => true,
-        backlog => 100,
-        nodelay => true}
+        udp_opts(),
+        #{
+            send_timeout => 15000,
+            send_timeout_close => true,
+            backlog => 100,
+            nodelay => true
+        }
     ).
 
 udp_opts() ->
-    #{recbuf => 1024,
-      sndbuf => 1024,
-      buffer => 1024,
-      reuseaddr => true}.
+    #{
+        recbuf => 1024,
+        sndbuf => 1024,
+        buffer => 1024,
+        reuseaddr => true
+    }.
 
 ssl_opts() ->
     Certs = certs("key.pem", "cert.pem", "cacert.pem"),
     maps:merge(
-      Certs,
-      #{versions => emqx_tls_lib:default_versions(),
-        ciphers => emqx_tls_lib:default_ciphers(),
-        verify => verify_peer,
-        fail_if_no_peer_cert => true,
-        secure_renegotiate => false,
-        reuse_sessions => true,
-        honor_cipher_order => true}
-     ).
+        Certs,
+        #{
+            versions => emqx_tls_lib:default_versions(),
+            ciphers => emqx_tls_lib:default_ciphers(),
+            verify => verify_peer,
+            fail_if_no_peer_cert => true,
+            secure_renegotiate => false,
+            reuse_sessions => true,
+            honor_cipher_order => true
+        }
+    ).
 
 dtls_opts() ->
     maps:merge(ssl_opts(), #{versions => ['dtlsv1.2', 'dtlsv1']}).
@@ -450,7 +487,8 @@ client_ssl_opts() ->
 
 certs(Key, Cert, CACert) ->
     CertsPath = emqx_common_test_helpers:deps_path(emqx, "etc/certs"),
-    #{keyfile    => filename:join([ CertsPath, Key   ]),
-      certfile   => filename:join([ CertsPath, Cert  ]),
-      cacertfile => filename:join([ CertsPath, CACert])}.
-
+    #{
+        keyfile => filename:join([CertsPath, Key]),
+        certfile => filename:join([CertsPath, Cert]),
+        cacertfile => filename:join([CertsPath, CACert])
+    }.

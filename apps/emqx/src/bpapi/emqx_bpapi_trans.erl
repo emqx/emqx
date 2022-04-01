@@ -26,22 +26,24 @@
 
 -type semantics() :: call | cast.
 
--record(s,
-        { api              :: emqx_bpapi:api()
-        , module           :: module()
-        , version          :: emqx_bpapi:api_version() | undefined
-        , targets = []     :: [{semantics(), emqx_bpapi:call(), emqx_bpapi:call()}]
-        , errors = []      :: list()
-        , file
-        }).
+-record(s, {
+    api :: emqx_bpapi:api(),
+    module :: module(),
+    version :: emqx_bpapi:api_version() | undefined,
+    targets = [] :: [{semantics(), emqx_bpapi:call(), emqx_bpapi:call()}],
+    errors = [] :: list(),
+    file
+}).
 
 format_error(invalid_name) ->
     "BPAPI module name should follow <API>_proto_v<number> pattern";
 format_error({invalid_fun, Name, Arity}) ->
-    io_lib:format("malformed function ~p/~p. "
-                  "BPAPI functions should have exactly one clause "
-                  "and call (emqx_|e)rpc at the top level",
-                  [Name, Arity]).
+    io_lib:format(
+        "malformed function ~p/~p. "
+        "BPAPI functions should have exactly one clause "
+        "and call (emqx_|e)rpc at the top level",
+        [Name, Arity]
+    ).
 
 parse_transform(Forms, _Options) ->
     log("Original:~n~p", [Forms]),
@@ -60,11 +62,11 @@ go({attribute, _, file, {File, _}}, S) ->
 go({attribute, Line, module, Mod}, S) ->
     case api_and_version(Mod) of
         {ok, API, Vsn} -> S#s{api = API, version = Vsn, module = Mod};
-        error          -> push_err(Line, invalid_name, S)
+        error -> push_err(Line, invalid_name, S)
     end;
-go({function, _Line, introduced_in, 0, _}, S)  ->
+go({function, _Line, introduced_in, 0, _}, S) ->
     S;
-go({function, _Line, deprecated_since, 0, _}, S)  ->
+go({function, _Line, deprecated_since, 0, _}, S) ->
     S;
 go({function, Line, Name, Arity, Clauses}, S) ->
     analyze_fun(Line, Name, Arity, Clauses, S);
@@ -79,26 +81,25 @@ finalize(Forms, S) ->
     {Attrs, Funcs} = lists:splitwith(fun is_attribute/1, Forms),
     AST = mk_meta_fun(S),
     log("Meta fun:~n~p", [AST]),
-    Attrs ++ [mk_export()] ++ [AST|Funcs].
+    Attrs ++ [mk_export()] ++ [AST | Funcs].
 
 mk_meta_fun(#s{api = API, version = Vsn, targets = Targets}) ->
     Line = 0,
     Calls = [{From, To} || {call, From, To} <- Targets],
     Casts = [{From, To} || {cast, From, To} <- Targets],
-    Ret = typerefl_quote:const(Line, #{ api => API
-                                      , version => Vsn
-                                      , calls => Calls
-                                      , casts => Casts
-                                      }),
-    {function, Line, ?META_FUN, _Arity = 0,
-     [{clause, Line, _Args = [], _Guards = [],
-       [Ret]}]}.
+    Ret = typerefl_quote:const(Line, #{
+        api => API,
+        version => Vsn,
+        calls => Calls,
+        casts => Casts
+    }),
+    {function, Line, ?META_FUN, _Arity = 0, [{clause, Line, _Args = [], _Guards = [], [Ret]}]}.
 
 mk_export() ->
     {attribute, 0, export, [{?META_FUN, 0}]}.
 
 is_attribute({attribute, _Line, _Attr, _Val}) -> true;
-is_attribute(_)                               -> false.
+is_attribute(_) -> false.
 
 %% Extract the target function of the RPC call
 analyze_fun(Line, Name, Arity, [{clause, Line, Head, _Guards, Exprs}], S) ->
@@ -122,14 +123,17 @@ analyze_exprs(Line, Name, Arity, Head, Exprs, S) ->
 
 -spec extract_outer_args([erl_parse:abstract_form()]) -> [atom()].
 extract_outer_args(Abs) ->
-    lists:map(fun({var, _, Var}) ->
-                      Var;
-                 ({match, _, {var, _, Var}, _}) ->
-                      Var;
-                 ({match, _, _, {var, _, Var}}) ->
-                      Var
-              end,
-              Abs).
+    lists:map(
+        fun
+            ({var, _, Var}) ->
+                Var;
+            ({match, _, {var, _, Var}, _}) ->
+                Var;
+            ({match, _, _, {var, _, Var}}) ->
+                Var
+        end,
+        Abs
+    ).
 
 -spec extract_target_call(_AST, [_AST]) -> {semantics(), emqx_bpapi:call()}.
 extract_target_call(RPCBackend, OuterArgs) ->
@@ -166,13 +170,13 @@ extract_mfa(?BACKEND(emqx_cluster_rpc, multicall), [M, F, A, _RequiredNum, _Time
 extract_mfa(_, _) ->
     error("unrecognized RPC call").
 
-call_or_cast(cast)      -> cast;
+call_or_cast(cast) -> cast;
 call_or_cast(multicast) -> cast;
 call_or_cast(multicall) -> call;
-call_or_cast(call)      -> call.
+call_or_cast(call) -> call.
 
 list_to_args({cons, _, {var, _, A}, T}) ->
-    [A|list_to_args(T)];
+    [A | list_to_args(T)];
 list_to_args({nil, _}) ->
     [].
 
@@ -180,10 +184,10 @@ invalid_fun(Line, Name, Arity, S) ->
     push_err(Line, {invalid_fun, Name, Arity}, S).
 
 push_err(Line, Err, S = #s{errors = Errs}) ->
-    S#s{errors = [{Line, Err}|Errs]}.
+    S#s{errors = [{Line, Err} | Errs]}.
 
 push_target(Target, S = #s{targets = Targets}) ->
-    S#s{targets = [Target|Targets]}.
+    S#s{targets = [Target | Targets]}.
 
 -spec api_and_version(module()) -> {ok, emqx_bpapi:api(), emqx_bpapi:version()} | error.
 api_and_version(Module) ->

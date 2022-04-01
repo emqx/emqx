@@ -21,29 +21,33 @@
 
 -include_lib("emqx/include/logger.hrl").
 
--import(emqx_gateway_utils,
-        [ normalize_config/1
-        , start_listeners/4
-        , stop_listeners/2
-        ]).
+-import(
+    emqx_gateway_utils,
+    [
+        normalize_config/1,
+        start_listeners/4,
+        stop_listeners/2
+    ]
+).
 
 %% APIs
--export([ reg/0
-        , unreg/0
-        ]).
+-export([
+    reg/0,
+    unreg/0
+]).
 
--export([ on_gateway_load/2
-        , on_gateway_update/3
-        , on_gateway_unload/2
-        ]).
+-export([
+    on_gateway_load/2,
+    on_gateway_update/3,
+    on_gateway_unload/2
+]).
 
 %%--------------------------------------------------------------------
 %% APIs
 %%--------------------------------------------------------------------
 
 reg() ->
-    RegistryOptions = [ {cbkmod, ?MODULE}
-                      ],
+    RegistryOptions = [{cbkmod, ?MODULE}],
     emqx_gateway_registry:reg(exproto, RegistryOptions).
 
 unreg() ->
@@ -53,13 +57,18 @@ unreg() ->
 %% emqx_gateway_registry callbacks
 %%--------------------------------------------------------------------
 
-on_gateway_load(_Gateway = #{ name := GwName,
-                              config := Config
-                            }, Ctx) ->
+on_gateway_load(
+    _Gateway = #{
+        name := GwName,
+        config := Config
+    },
+    Ctx
+) ->
     %% XXX: How to monitor it ?
-    _ = start_grpc_client_channel(GwName,
-                                  maps:get(handler, Config, undefined)
-                                 ),
+    _ = start_grpc_client_channel(
+        GwName,
+        maps:get(handler, Config, undefined)
+    ),
     %% XXX: How to monitor it ?
     _ = start_grpc_server(GwName, maps:get(server, Config, undefined)),
 
@@ -67,29 +76,39 @@ on_gateway_load(_Gateway = #{ name := GwName,
     PoolName = pool_name(GwName),
     PoolSize = emqx_vm:schedulers() * 2,
     {ok, PoolSup} = emqx_pool_sup:start_link(
-                      PoolName, hash, PoolSize,
-                      {emqx_exproto_gcli, start_link, []}),
+        PoolName,
+        hash,
+        PoolSize,
+        {emqx_exproto_gcli, start_link, []}
+    ),
 
     NConfig = maps:without(
-                 [server, handler],
-                 Config#{pool_name => PoolName}
-                ),
+        [server, handler],
+        Config#{pool_name => PoolName}
+    ),
     Listeners = emqx_gateway_utils:normalize_config(
-                  NConfig#{handler => GwName}
-                 ),
+        NConfig#{handler => GwName}
+    ),
 
-    ModCfg = #{frame_mod => emqx_exproto_frame,
-               chann_mod => emqx_exproto_channel
-              },
-    case start_listeners(
-           Listeners, GwName, Ctx, ModCfg) of
+    ModCfg = #{
+        frame_mod => emqx_exproto_frame,
+        chann_mod => emqx_exproto_channel
+    },
+    case
+        start_listeners(
+            Listeners, GwName, Ctx, ModCfg
+        )
+    of
         {ok, ListenerPids} ->
             {ok, ListenerPids, _GwState = #{ctx => Ctx, pool => PoolSup}};
         {error, {Reason, Listener}} ->
-            throw({badconf, #{ key => listeners
-                             , vallue => Listener
-                             , reason => Reason
-                             }})
+            throw(
+                {badconf, #{
+                    key => listeners,
+                    vallue => Listener,
+                    reason => Reason
+                }}
+            )
     end.
 
 on_gateway_update(Config, Gateway, GwState = #{ctx := Ctx}) ->
@@ -100,16 +119,22 @@ on_gateway_update(Config, Gateway, GwState = #{ctx := Ctx}) ->
         on_gateway_unload(Gateway, GwState),
         on_gateway_load(Gateway#{config => Config}, Ctx)
     catch
-        Class : Reason : Stk ->
-            logger:error("Failed to update ~ts; "
-                         "reason: {~0p, ~0p} stacktrace: ~0p",
-                         [GwName, Class, Reason, Stk]),
+        Class:Reason:Stk ->
+            logger:error(
+                "Failed to update ~ts; "
+                "reason: {~0p, ~0p} stacktrace: ~0p",
+                [GwName, Class, Reason, Stk]
+            ),
             {error, Reason}
     end.
 
-on_gateway_unload(_Gateway = #{ name := GwName,
-                                config := Config
-                              }, _GwState = #{pool := PoolSup}) ->
+on_gateway_unload(
+    _Gateway = #{
+        name := GwName,
+        config := Config
+    },
+    _GwState = #{pool := PoolSup}
+) ->
     Listeners = emqx_gateway_utils:normalize_config(Config),
     %% Stop funcs???
     exit(PoolSup, kill),
@@ -124,29 +149,42 @@ on_gateway_unload(_Gateway = #{ name := GwName,
 start_grpc_server(_GwName, undefined) ->
     undefined;
 start_grpc_server(GwName, Options = #{bind := ListenOn}) ->
-    Services = #{protos => [emqx_exproto_pb],
-                 services => #{
-                   'emqx.exproto.v1.ConnectionAdapter' => emqx_exproto_gsvr}
-                },
-    SvrOptions = case emqx_map_lib:deep_get([ssl, enable], Options, false) of
-                  false -> [];
-                  true ->
-                      [{ssl_options,
+    Services = #{
+        protos => [emqx_exproto_pb],
+        services => #{
+            'emqx.exproto.v1.ConnectionAdapter' => emqx_exproto_gsvr
+        }
+    },
+    SvrOptions =
+        case emqx_map_lib:deep_get([ssl, enable], Options, false) of
+            false ->
+                [];
+            true ->
+                [
+                    {ssl_options,
                         maps:to_list(
-                          maps:without([enable], maps:get(ssl, Options, #{}))
-                         )
-                       }]
-              end,
+                            maps:without([enable], maps:get(ssl, Options, #{}))
+                        )}
+                ]
+        end,
     case grpc:start_server(GwName, ListenOn, Services, SvrOptions) of
         {ok, _SvrPid} ->
-            console_print("Start ~ts gRPC server on ~p successfully.~n",
-                          [GwName, ListenOn]);
+            console_print(
+                "Start ~ts gRPC server on ~p successfully.~n",
+                [GwName, ListenOn]
+            );
         {error, Reason} ->
-            ?ELOG("Failed to start ~ts gRPC server on ~p, reason: ~0p",
-                  [GwName, ListenOn, Reason]),
-            throw({badconf, #{key => server,
-                              value => Options,
-                              reason => illegal_grpc_server_confs}})
+            ?ELOG(
+                "Failed to start ~ts gRPC server on ~p, reason: ~0p",
+                [GwName, ListenOn, Reason]
+            ),
+            throw(
+                {badconf, #{
+                    key => server,
+                    value => Options,
+                    reason => illegal_grpc_server_confs
+                }}
+            )
     end.
 
 stop_grpc_server(GwName) ->
@@ -158,13 +196,16 @@ start_grpc_client_channel(_GwName, undefined) ->
 start_grpc_client_channel(GwName, Options = #{address := Address}) ->
     #{host := Host, port := Port} =
         case emqx_http_lib:uri_parse(Address) of
-            {ok, URIMap0} -> URIMap0;
+            {ok, URIMap0} ->
+                URIMap0;
             {error, _Reason} ->
-              throw({badconf, #{key => address,
-                                value => Address,
-                                reason => illegal_grpc_address
-                               }})
-
+                throw(
+                    {badconf, #{
+                        key => address,
+                        value => Address,
+                        reason => illegal_grpc_address
+                    }}
+                )
         end,
     case emqx_map_lib:deep_get([ssl, enable], Options, false) of
         false ->
@@ -172,9 +213,13 @@ start_grpc_client_channel(GwName, Options = #{address := Address}) ->
             grpc_client_sup:create_channel_pool(GwName, SvrAddr, #{});
         true ->
             SslOpts = maps:to_list(maps:get(ssl, Options, #{})),
-            ClientOpts = #{gun_opts =>
-                           #{transport => ssl,
-                             transport_opts => SslOpts}},
+            ClientOpts = #{
+                gun_opts =>
+                    #{
+                        transport => ssl,
+                        transport_opts => SslOpts
+                    }
+            },
 
             SvrAddr = compose_http_uri(https, Host, Port),
             grpc_client_sup:create_channel_pool(GwName, SvrAddr, ClientOpts)
@@ -182,8 +227,10 @@ start_grpc_client_channel(GwName, Options = #{address := Address}) ->
 
 compose_http_uri(Scheme, Host, Port) ->
     lists:flatten(
-      io_lib:format(
-        "~s://~s:~w", [Scheme, inet:ntoa(Host), Port])).
+        io_lib:format(
+            "~s://~s:~w", [Scheme, inet:ntoa(Host), Port]
+        )
+    ).
 
 stop_grpc_client_channel(GwName) ->
     _ = grpc_client_sup:stop_channel_pool(GwName),

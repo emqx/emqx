@@ -22,26 +22,35 @@
 -include("src/lwm2m/include/emqx_lwm2m.hrl").
 
 %% API
--export([ new/0, init/4, update/3, parse_object_list/1
-        , reregister/3, on_close/1, find_cmd_record/3]).
+-export([
+    new/0,
+    init/4,
+    update/3,
+    parse_object_list/1,
+    reregister/3,
+    on_close/1,
+    find_cmd_record/3
+]).
 
 %% Info & Stats
--export([ info/1
-        , info/2
-        , stats/1
-        , stats/2
-        ]).
+-export([
+    info/1,
+    info/2,
+    stats/1,
+    stats/2
+]).
 
--export([ handle_coap_in/3
-        , handle_protocol_in/3
-        , handle_deliver/3
-        , timeout/3
-        , send_cmd/3
-        , set_reply/2]).
+-export([
+    handle_coap_in/3,
+    handle_protocol_in/3,
+    handle_deliver/3,
+    timeout/3,
+    send_cmd/3,
+    set_reply/2
+]).
 
 %% froce update subscriptions
--export([ set_subscriptions/2
-        ]).
+-export([set_subscriptions/2]).
 
 -export_type([session/0]).
 
@@ -57,30 +66,42 @@
 -type cmd_code_msg() :: binary().
 -type cmd_code_content() :: list(map()).
 -type cmd_result() :: undefined | {cmd_code(), cmd_code_msg(), cmd_code_content()}.
--type cmd_record() :: #{cmd_record_key() => cmd_result(),
-                        queue := queue:queue()}.
+-type cmd_record() :: #{
+    cmd_record_key() => cmd_result(),
+    queue := queue:queue()
+}.
 
--record(session, { coap :: emqx_coap_tm:manager()
-                 , queue :: queue:queue(queued_request())
-                 , wait_ack :: request_context() | undefined
-                 , endpoint_name :: binary() | undefined
-                 , location_path :: list(binary()) | undefined
-                 , reg_info :: map() | undefined
-                 , lifetime :: non_neg_integer() | undefined
-                 , is_cache_mode :: boolean()
-                 , mountpoint :: binary()
-                 , last_active_at :: non_neg_integer()
-                 , created_at :: non_neg_integer()
-                 , cmd_record :: cmd_record()
-                 , subscriptions :: map()
-                 }).
+-record(session, {
+    coap :: emqx_coap_tm:manager(),
+    queue :: queue:queue(queued_request()),
+    wait_ack :: request_context() | undefined,
+    endpoint_name :: binary() | undefined,
+    location_path :: list(binary()) | undefined,
+    reg_info :: map() | undefined,
+    lifetime :: non_neg_integer() | undefined,
+    is_cache_mode :: boolean(),
+    mountpoint :: binary(),
+    last_active_at :: non_neg_integer(),
+    created_at :: non_neg_integer(),
+    cmd_record :: cmd_record(),
+    subscriptions :: map()
+}).
 
 -type session() :: #session{}.
 
 -define(PREFIX, <<"rd">>).
 -define(NOW, erlang:system_time(second)).
--define(IGNORE_OBJECT, [<<"0">>, <<"1">>, <<"2">>, <<"4">>, <<"5">>, <<"6">>,
-                        <<"7">>, <<"9">>, <<"15">>]).
+-define(IGNORE_OBJECT, [
+    <<"0">>,
+    <<"1">>,
+    <<"2">>,
+    <<"4">>,
+    <<"5">>,
+    <<"6">>,
+    <<"7">>,
+    <<"9">>,
+    <<"15">>
+]).
 
 -define(CMD_KEY(Path, Type), {Path, Type}).
 -define(MAX_RECORD_SIZE, 100).
@@ -90,27 +111,29 @@
 -define(lwm2m_up_dm_topic, {<<"/v1/up/dm">>, 0}).
 
 %% steal from emqx_session
--define(INFO_KEYS, [id,
-                    is_persistent,
-                    subscriptions,
-                    upgrade_qos,
-                    retry_interval,
-                    await_rel_timeout,
-                    created_at
-                   ]).
+-define(INFO_KEYS, [
+    id,
+    is_persistent,
+    subscriptions,
+    upgrade_qos,
+    retry_interval,
+    await_rel_timeout,
+    created_at
+]).
 
--define(STATS_KEYS, [subscriptions_cnt,
-                     subscriptions_max,
-                     inflight_cnt,
-                     inflight_max,
-                     mqueue_len,
-                     mqueue_max,
-                     mqueue_dropped,
-                     next_pkt_id,
-                     awaiting_rel_cnt,
-                     awaiting_rel_max,
-                     latency_stats
-                    ]).
+-define(STATS_KEYS, [
+    subscriptions_cnt,
+    subscriptions_max,
+    inflight_cnt,
+    inflight_max,
+    mqueue_len,
+    mqueue_max,
+    mqueue_dropped,
+    next_pkt_id,
+    awaiting_rel_cnt,
+    awaiting_rel_max,
+    latency_stats
+]).
 
 -define(OUT_LIST_KEY, out_list).
 
@@ -119,35 +142,45 @@
 %%--------------------------------------------------------------------
 %% API
 %%--------------------------------------------------------------------
--spec new () -> session().
+-spec new() -> session().
 new() ->
-    #session{ coap = emqx_coap_tm:new()
-            , queue = queue:new()
-            , last_active_at = ?NOW
-            , created_at = erlang:system_time(millisecond)
-            , is_cache_mode = false
-            , mountpoint = <<>>
-            , cmd_record = #{queue => queue:new()}
-            , lifetime = emqx:get_config([gateway, lwm2m, lifetime_max])
-            , subscriptions = #{}
-            }.
+    #session{
+        coap = emqx_coap_tm:new(),
+        queue = queue:new(),
+        last_active_at = ?NOW,
+        created_at = erlang:system_time(millisecond),
+        is_cache_mode = false,
+        mountpoint = <<>>,
+        cmd_record = #{queue => queue:new()},
+        lifetime = emqx:get_config([gateway, lwm2m, lifetime_max]),
+        subscriptions = #{}
+    }.
 
 -spec init(coap_message(), binary(), function(), session()) -> map().
-init(#coap_message{options = Opts,
-                   payload = Payload} = Msg, MountPoint, WithContext, Session) ->
+init(
+    #coap_message{
+        options = Opts,
+        payload = Payload
+    } = Msg,
+    MountPoint,
+    WithContext,
+    Session
+) ->
     Query = maps:get(uri_query, Opts),
     RegInfo = append_object_list(Query, Payload),
     LifeTime = get_lifetime(RegInfo),
     Epn = maps:get(<<"ep">>, Query),
     Location = [?PREFIX, Epn],
 
-    NewSession = Session#session{endpoint_name = Epn,
-                                 location_path = Location,
-                                 reg_info = RegInfo,
-                                 lifetime = LifeTime,
-                                 mountpoint = MountPoint,
-                                 is_cache_mode = is_psm(RegInfo) orelse is_qmode(RegInfo),
-                                 queue = queue:new()},
+    NewSession = Session#session{
+        endpoint_name = Epn,
+        location_path = Location,
+        reg_info = RegInfo,
+        lifetime = LifeTime,
+        mountpoint = MountPoint,
+        is_cache_mode = is_psm(RegInfo) orelse is_qmode(RegInfo),
+        queue = queue:new()
+    },
 
     Result = return(register_init(WithContext, NewSession)),
     Reply = emqx_coap_message:piggyback({ok, created}, Msg),
@@ -174,13 +207,12 @@ find_cmd_record(Path, Type, #session{cmd_record = Record}) ->
 %%--------------------------------------------------------------------
 %% Info, Stats
 %%--------------------------------------------------------------------
--spec(info(session()) -> emqx_types:infos()).
+-spec info(session()) -> emqx_types:infos().
 info(Session) ->
     maps:from_list(info(?INFO_KEYS, Session)).
 
 info(Keys, Session) when is_list(Keys) ->
     [{Key, info(Key, Session)} || Key <- Keys];
-
 info(id, _) ->
     undefined;
 info(is_persistent, _) ->
@@ -203,12 +235,11 @@ info(lifetime, #session{lifetime = LT}) ->
 info(reg_info, #session{reg_info = RI}) ->
     RI.
 
--spec(stats(session()) -> emqx_types:stats()).
+-spec stats(session()) -> emqx_types:stats().
 stats(Session) -> stats(?STATS_KEYS, Session).
 
 stats(Keys, Session) when is_list(Keys) ->
     [{Key, stats(Key, Session)} || Key <- Keys];
-
 stats(subscriptions_cnt, #session{subscriptions = Subs}) ->
     maps:size(Subs);
 stats(subscriptions_max, _) ->
@@ -236,11 +267,14 @@ stats(latency_stats, _) ->
 %% API
 %%--------------------------------------------------------------------
 handle_coap_in(Msg, _WithContext, Session) ->
-    call_coap(case emqx_coap_message:is_request(Msg) of
-                  true -> handle_request;
-                  _ -> handle_response
-              end,
-              Msg, Session#session{last_active_at = ?NOW}).
+    call_coap(
+        case emqx_coap_message:is_request(Msg) of
+            true -> handle_request;
+            _ -> handle_response
+        end,
+        Msg,
+        Session#session{last_active_at = ?NOW}
+    ).
 
 handle_deliver(Delivers, WithContext, Session) ->
     return(deliver(Delivers, WithContext, Session)).
@@ -263,13 +297,10 @@ set_subscriptions(Subs, Session) ->
 %%--------------------------------------------------------------------
 handle_protocol_in({response, CtxMsg}, WithContext, Session) ->
     return(handle_coap_response(CtxMsg, WithContext, Session));
-
 handle_protocol_in({ack, CtxMsg}, WithContext, Session) ->
     return(handle_ack(CtxMsg, WithContext, Session));
-
 handle_protocol_in({ack_failure, CtxMsg}, WithContext, Session) ->
     return(handle_ack_failure(CtxMsg, WithContext, Session));
-
 handle_protocol_in({reset, CtxMsg}, WithContext, Session) ->
     return(handle_ack_reset(CtxMsg, WithContext, Session)).
 
@@ -278,30 +309,32 @@ handle_protocol_in({reset, CtxMsg}, WithContext, Session) ->
 %%--------------------------------------------------------------------
 append_object_list(Query, Payload) ->
     RegInfo = append_object_list2(Query, Payload),
-    lists:foldl(fun(Key, Acc) ->
-                        fix_reg_info(Key, Acc)
-                end,
-                RegInfo,
-                [<<"lt">>]).
+    lists:foldl(
+        fun(Key, Acc) ->
+            fix_reg_info(Key, Acc)
+        end,
+        RegInfo,
+        [<<"lt">>]
+    ).
 
-append_object_list2(LwM2MQuery, <<>>) -> LwM2MQuery;
+append_object_list2(LwM2MQuery, <<>>) ->
+    LwM2MQuery;
 append_object_list2(LwM2MQuery, LwM2MPayload) when is_binary(LwM2MPayload) ->
     {AlterPath, ObjList} = parse_object_list(LwM2MPayload),
     LwM2MQuery#{
-                <<"alternatePath">> => AlterPath,
-                <<"objectList">> => ObjList
-               }.
+        <<"alternatePath">> => AlterPath,
+        <<"objectList">> => ObjList
+    }.
 
 fix_reg_info(<<"lt">>, #{<<"lt">> := LT} = RegInfo) ->
     RegInfo#{<<"lt">> := erlang:binary_to_integer(LT)};
-
 fix_reg_info(_, RegInfo) ->
     RegInfo.
 
-parse_object_list(<<>>) -> {<<"/">>, <<>>};
+parse_object_list(<<>>) ->
+    {<<"/">>, <<>>};
 parse_object_list(ObjLinks) when is_binary(ObjLinks) ->
     parse_object_list(binary:split(ObjLinks, <<",">>, [global]));
-
 parse_object_list(FullObjLinkList) ->
     case drop_attr(FullObjLinkList) of
         {<<"/">>, _} = RootPrefixedLinks ->
@@ -310,40 +343,49 @@ parse_object_list(FullObjLinkList) ->
             LenAlterPath = byte_size(AlterPath),
             WithOutPrefix =
                 lists:map(
-                  fun
-                      (<<Prefix:LenAlterPath/binary, Link/binary>>) when Prefix =:= AlterPath ->
-                                 trim(Link);
-                      (Link) -> Link
-                  end, ObjLinkList),
+                    fun
+                        (<<Prefix:LenAlterPath/binary, Link/binary>>) when Prefix =:= AlterPath ->
+                            trim(Link);
+                        (Link) ->
+                            Link
+                    end,
+                    ObjLinkList
+                ),
             {AlterPath, WithOutPrefix}
     end.
 
 drop_attr(LinkList) ->
     lists:foldr(
-      fun(Link, {AlternatePath, LinkAcc}) ->
-              case parse_link(Link) of
-                  {false, MainLink} -> {AlternatePath, [MainLink | LinkAcc]};
-                  {true, MainLink}  -> {MainLink, LinkAcc}
-              end
-      end, {<<"/">>, []}, LinkList).
+        fun(Link, {AlternatePath, LinkAcc}) ->
+            case parse_link(Link) of
+                {false, MainLink} -> {AlternatePath, [MainLink | LinkAcc]};
+                {true, MainLink} -> {MainLink, LinkAcc}
+            end
+        end,
+        {<<"/">>, []},
+        LinkList
+    ).
 
 parse_link(Link) ->
     [MainLink | Attrs] = binary:split(trim(Link), <<";">>, [global]),
     {is_alternate_path(Attrs), delink(trim(MainLink))}.
 
 is_alternate_path(LinkAttrs) ->
-    lists:any(fun(Attr) ->
-                      case binary:split(trim(Attr), <<"=">>) of
-                          [<<"rt">>, ?OMA_ALTER_PATH_RT] ->
-                              true;
-                          [AttrKey, _] when AttrKey =/= <<>> ->
-                              false;
-                          _BadAttr -> throw({bad_attr, _BadAttr})
-                      end
-              end,
-              LinkAttrs).
+    lists:any(
+        fun(Attr) ->
+            case binary:split(trim(Attr), <<"=">>) of
+                [<<"rt">>, ?OMA_ALTER_PATH_RT] ->
+                    true;
+                [AttrKey, _] when AttrKey =/= <<>> ->
+                    false;
+                _BadAttr ->
+                    throw({bad_attr, _BadAttr})
+            end
+        end,
+        LinkAttrs
+    ).
 
-trim(Str)-> binary_util:trim(Str, $ ).
+trim(Str) -> binary_util:trim(Str, $\s).
 
 delink(Str) ->
     Ltrim = binary_util:ltrim(Str, $<),
@@ -359,24 +401,27 @@ get_lifetime(_) ->
 
 get_lifetime(#{<<"lt">> := _} = NewRegInfo, _) ->
     get_lifetime(NewRegInfo);
-
 get_lifetime(_, OldRegInfo) ->
     get_lifetime(OldRegInfo).
 
 -spec update(coap_message(), function(), binary(), session()) -> map().
-update(#coap_message{options = Opts, payload = Payload} = Msg,
-       WithContext,
-       CmdType,
-       #session{reg_info = OldRegInfo} = Session) ->
+update(
+    #coap_message{options = Opts, payload = Payload} = Msg,
+    WithContext,
+    CmdType,
+    #session{reg_info = OldRegInfo} = Session
+) ->
     Query = maps:get(uri_query, Opts, #{}),
     RegInfo = append_object_list(Query, Payload),
     UpdateRegInfo = maps:merge(OldRegInfo, RegInfo),
     LifeTime = get_lifetime(UpdateRegInfo, OldRegInfo),
 
-    NewSession = Session#session{reg_info = UpdateRegInfo,
-                                 is_cache_mode =
-                                     is_psm(UpdateRegInfo) orelse is_qmode(UpdateRegInfo),
-                                 lifetime = LifeTime},
+    NewSession = Session#session{
+        reg_info = UpdateRegInfo,
+        is_cache_mode =
+            is_psm(UpdateRegInfo) orelse is_qmode(UpdateRegInfo),
+        lifetime = LifeTime
+    },
 
     Session2 = proto_subscribe(WithContext, NewSession),
     Session3 = send_dl_msg(Session2),
@@ -394,8 +439,9 @@ register_init(WithContext, #session{reg_info = RegInfo} = Session) ->
     #{topic := Topic, qos := Qos} = downlink_topic(),
     MountedTopic = mount(Topic, Session),
     SubOpts = maps:merge(
-                emqx_gateway_utils:default_subopts(),
-                #{qos => Qos}),
+        emqx_gateway_utils:default_subopts(),
+        #{qos => Qos}
+    ),
     Session3 = do_subscribe(MountedTopic, SubOpts, WithContext, Session2),
     Session4 = send_dl_msg(Session3),
 
@@ -411,21 +457,33 @@ proto_subscribe(WithContext, #session{wait_ack = WaitAck} = Session) ->
     #{topic := Topic, qos := Qos} = downlink_topic(),
     MountedTopic = mount(Topic, Session),
     SubOpts = maps:merge(
-                emqx_gateway_utils:default_subopts(),
-                #{qos => Qos}),
-    NSession = case WaitAck of
-                   undefined ->
-                       Session;
-                   Ctx ->
-                       MqttPayload = emqx_lwm2m_cmd:coap_failure_to_mqtt(
-                                       Ctx, <<"coap_timeout">>),
-                       send_to_mqtt(Ctx, <<"coap_timeout">>,
-                                    MqttPayload, WithContext, Session)
-               end,
+        emqx_gateway_utils:default_subopts(),
+        #{qos => Qos}
+    ),
+    NSession =
+        case WaitAck of
+            undefined ->
+                Session;
+            Ctx ->
+                MqttPayload = emqx_lwm2m_cmd:coap_failure_to_mqtt(
+                    Ctx, <<"coap_timeout">>
+                ),
+                send_to_mqtt(
+                    Ctx,
+                    <<"coap_timeout">>,
+                    MqttPayload,
+                    WithContext,
+                    Session
+                )
+        end,
     do_subscribe(MountedTopic, SubOpts, WithContext, NSession).
 
-do_subscribe(Topic, SubOpts, WithContext,
-             Session = #session{subscriptions = Subs}) ->
+do_subscribe(
+    Topic,
+    SubOpts,
+    WithContext,
+    Session = #session{subscriptions = Subs}
+) ->
     case WithContext(subscribe, [Topic, SubOpts]) of
         {error, _} ->
             Session;
@@ -442,7 +500,7 @@ send_auto_observe(RegInfo, Session) ->
             ObjectList = maps:get(<<"objectList">>, RegInfo, []),
             observe_object_list(AlternatePath, ObjectList, Session);
         _ ->
-            ?SLOG(info, #{ msg => "skip_auto_observe_due_to_disabled"}),
+            ?SLOG(info, #{msg => "skip_auto_observe_due_to_disabled"}),
             Session
     end.
 
@@ -450,32 +508,36 @@ observe_object_list(_, [], Session) ->
     Session;
 observe_object_list(AlternatePath, ObjectList, Session) ->
     Fun = fun(ObjectPath, Acc) ->
-                  {[ObjId| _], _} = emqx_lwm2m_cmd:path_list(ObjectPath),
-                  case lists:member(ObjId, ?IGNORE_OBJECT) of
-                      true -> Acc;
-                      false ->
-                          try
-                              emqx_lwm2m_xml_object_db:find_objectid(binary_to_integer(ObjId)),
-                              observe_object(AlternatePath, ObjectPath, Acc)
-                          catch error:no_xml_definition ->
-                                  Acc
-                          end
-                  end
-          end,
+        {[ObjId | _], _} = emqx_lwm2m_cmd:path_list(ObjectPath),
+        case lists:member(ObjId, ?IGNORE_OBJECT) of
+            true ->
+                Acc;
+            false ->
+                try
+                    emqx_lwm2m_xml_object_db:find_objectid(binary_to_integer(ObjId)),
+                    observe_object(AlternatePath, ObjectPath, Acc)
+                catch
+                    error:no_xml_definition ->
+                        Acc
+                end
+        end
+    end,
     lists:foldl(Fun, Session, ObjectList).
 
 observe_object(AlternatePath, ObjectPath, Session) ->
-    Payload = #{<<"msgType">> => <<"observe">>,
-                <<"data">> => #{<<"path">> => ObjectPath},
-                <<"is_auto_observe">> => true
-               },
+    Payload = #{
+        <<"msgType">> => <<"observe">>,
+        <<"data">> => #{<<"path">> => ObjectPath},
+        <<"is_auto_observe">> => true
+    },
     deliver_auto_observe_to_coap(AlternatePath, Payload, Session).
 
 deliver_auto_observe_to_coap(AlternatePath, TermData, Session) ->
-    ?SLOG(info, #{ msg => "send_auto_observe"
-                 , path => AlternatePath
-                 , data => TermData
-                 }),
+    ?SLOG(info, #{
+        msg => "send_auto_observe",
+        path => AlternatePath,
+        data => TermData
+    }),
     {Req, Ctx} = emqx_lwm2m_cmd:mqtt_to_coap(AlternatePath, TermData),
     maybe_do_deliver_to_coap(Ctx, Req, 0, false, Session).
 
@@ -485,22 +547,27 @@ is_auto_observe() ->
 %%--------------------------------------------------------------------
 %% Response
 %%--------------------------------------------------------------------
-handle_coap_response({Ctx = #{<<"msgType">> := EventType},
-                      #coap_message{method = CoapMsgMethod,
-                                    type = CoapMsgType,
-                                    payload = CoapMsgPayload,
-                                    options = CoapMsgOpts}},
-                     WithContext,
-                     Session) ->
+handle_coap_response(
+    {Ctx = #{<<"msgType">> := EventType}, #coap_message{
+        method = CoapMsgMethod,
+        type = CoapMsgType,
+        payload = CoapMsgPayload,
+        options = CoapMsgOpts
+    }},
+    WithContext,
+    Session
+) ->
     MqttPayload = emqx_lwm2m_cmd:coap_to_mqtt(CoapMsgMethod, CoapMsgPayload, CoapMsgOpts, Ctx),
     {ReqPath, _} = emqx_lwm2m_cmd:path_list(emqx_lwm2m_cmd:extract_path(Ctx)),
     Session2 = record_response(EventType, MqttPayload, Session),
     Session3 =
         case {ReqPath, MqttPayload, EventType, CoapMsgType} of
-            {[<<"5">>| _], _, <<"observe">>, CoapMsgType} when CoapMsgType =/= ack ->
+            {[<<"5">> | _], _, <<"observe">>, CoapMsgType} when CoapMsgType =/= ack ->
                 %% this is a notification for status update during NB firmware upgrade.
                 %% need to reply to DM http callbacks
-                send_to_mqtt(Ctx, <<"notify">>, MqttPayload, ?lwm2m_up_dm_topic, WithContext, Session2);
+                send_to_mqtt(
+                    Ctx, <<"notify">>, MqttPayload, ?lwm2m_up_dm_topic, WithContext, Session2
+                );
             {_ReqPath, _, <<"observe">>, CoapMsgType} when CoapMsgType =/= ack ->
                 %% this is actually a notification, correct the msgType
                 send_to_mqtt(Ctx, <<"notify">>, MqttPayload, WithContext, Session2);
@@ -537,7 +604,8 @@ handle_ack_failure(Ctx, MsgType, WithContext, Session) ->
 
 may_send_dl_msg(coap_timeout, Ctx, #session{wait_ack = WaitAck} = Session) ->
     case is_cache_mode(Session) of
-        false -> send_dl_msg(Ctx, Session);
+        false ->
+            send_dl_msg(Ctx, Session);
         true ->
             case WaitAck of
                 Ctx ->
@@ -547,24 +615,32 @@ may_send_dl_msg(coap_timeout, Ctx, #session{wait_ack = WaitAck} = Session) ->
             end
     end.
 
-is_cache_mode(#session{is_cache_mode = IsCacheMode,
-                       last_active_at = LastActiveAt}) ->
+is_cache_mode(#session{
+    is_cache_mode = IsCacheMode,
+    last_active_at = LastActiveAt
+}) ->
     IsCacheMode andalso
-                  ((?NOW - LastActiveAt) >=
-                       emqx:get_config([gateway, lwm2m, qmode_time_window])).
+        ((?NOW - LastActiveAt) >=
+            emqx:get_config([gateway, lwm2m, qmode_time_window])).
 
-is_psm(#{<<"apn">> := APN}) when APN =:= <<"Ctnb">>;
-                                 APN =:= <<"psmA.eDRX0.ctnb">>;
-                                 APN =:= <<"psmC.eDRX0.ctnb">>;
-                                 APN =:= <<"psmF.eDRXC.ctnb">>
-                                 -> true;
-is_psm(_) -> false.
+is_psm(#{<<"apn">> := APN}) when
+    APN =:= <<"Ctnb">>;
+    APN =:= <<"psmA.eDRX0.ctnb">>;
+    APN =:= <<"psmC.eDRX0.ctnb">>;
+    APN =:= <<"psmF.eDRXC.ctnb">>
+->
+    true;
+is_psm(_) ->
+    false.
 
-is_qmode(#{<<"b">> := Binding}) when Binding =:= <<"UQ">>;
-                                     Binding =:= <<"SQ">>;
-                                     Binding =:= <<"UQS">>
-                                     -> true;
-is_qmode(_) -> false.
+is_qmode(#{<<"b">> := Binding}) when
+    Binding =:= <<"UQ">>;
+    Binding =:= <<"SQ">>;
+    Binding =:= <<"UQS">>
+->
+    true;
+is_qmode(_) ->
+    false.
 
 send_dl_msg(Session) ->
     %% if has in waiting  donot send
@@ -589,9 +665,10 @@ send_to_coap(#session{queue = Queue} = Session) ->
     case queue:out(Queue) of
         {{value, {Timestamp, Ctx, Req}}, Q2} ->
             Now = ?NOW,
-            if Timestamp =:= 0 orelse Timestamp > Now ->
+            if
+                Timestamp =:= 0 orelse Timestamp > Now ->
                     send_to_coap(Ctx, Req, Session#session{queue = Q2});
-               true ->
+                true ->
                     send_to_coap(Session#session{queue = Q2})
             end;
         {empty, _} ->
@@ -599,15 +676,17 @@ send_to_coap(#session{queue = Queue} = Session) ->
     end.
 
 send_to_coap(Ctx, Req, Session) ->
-    ?SLOG(debug, #{ msg => "deliver_to_coap"
-                  , coap_request => Req
-                  }),
+    ?SLOG(debug, #{
+        msg => "deliver_to_coap",
+        coap_request => Req
+    }),
     out_to_coap(Ctx, Req, Session#session{wait_ack = Ctx}).
 
 send_msg_not_waiting_ack(Ctx, Req, Session) ->
-    ?SLOG(debug, #{ msg => "deliver_to_coap_and_no_ack"
-                  , coap_request => Req
-                  }),
+    ?SLOG(debug, #{
+        msg => "deliver_to_coap_and_no_ack",
+        coap_request => Req
+    }),
     %%    cmd_sent(Ref, LwM2MOpts).
     out_to_coap(Ctx, Req, Session).
 
@@ -619,17 +698,35 @@ send_to_mqtt(Ref, EventType, Payload, WithContext, Session) ->
     Mheaders = maps:get(mheaders, Ref, #{}),
     proto_publish(Topic, Payload#{<<"msgType">> => EventType}, Qos, Mheaders, WithContext, Session).
 
-send_to_mqtt(Ctx, EventType, Payload, {Topic, Qos},
-             WithContext, Session) ->
+send_to_mqtt(
+    Ctx,
+    EventType,
+    Payload,
+    {Topic, Qos},
+    WithContext,
+    Session
+) ->
     Mheaders = maps:get(mheaders, Ctx, #{}),
     proto_publish(Topic, Payload#{<<"msgType">> => EventType}, Qos, Mheaders, WithContext, Session).
 
-proto_publish(Topic, Payload, Qos, Headers, WithContext,
-              #session{endpoint_name = Epn} = Session) ->
+proto_publish(
+    Topic,
+    Payload,
+    Qos,
+    Headers,
+    WithContext,
+    #session{endpoint_name = Epn} = Session
+) ->
     MountedTopic = mount(Topic, Session),
     %% TODO: Append message metadata into headers
-    Msg = emqx_message:make(Epn, Qos, MountedTopic,
-                            emqx_json:encode(Payload), #{}, Headers),
+    Msg = emqx_message:make(
+        Epn,
+        Qos,
+        MountedTopic,
+        emqx_json:encode(Payload),
+        #{},
+        Headers
+    ),
     _ = WithContext(publish, [MountedTopic, Msg]),
     Session.
 
@@ -642,13 +739,10 @@ downlink_topic() ->
 
 uplink_topic(<<"notify">>) ->
     emqx:get_config([gateway, lwm2m, translators, notify]);
-
 uplink_topic(<<"register">>) ->
     emqx:get_config([gateway, lwm2m, translators, register]);
-
 uplink_topic(<<"update">>) ->
     emqx:get_config([gateway, lwm2m, translators, update]);
-
 uplink_topic(_) ->
     emqx:get_config([gateway, lwm2m, translators, response]).
 
@@ -659,46 +753,67 @@ uplink_topic(_) ->
 deliver(Delivers, WithContext, #session{reg_info = RegInfo} = Session) ->
     IsCacheMode = is_cache_mode(Session),
     AlternatePath = maps:get(<<"alternatePath">>, RegInfo, <<"/">>),
-    lists:foldl(fun({deliver, _, MQTT}, Acc) ->
-                        deliver_to_coap(AlternatePath,
-                                        MQTT#message.payload, MQTT, IsCacheMode, WithContext, Acc)
-                end,
-                Session,
-                Delivers).
+    lists:foldl(
+        fun({deliver, _, MQTT}, Acc) ->
+            deliver_to_coap(
+                AlternatePath,
+                MQTT#message.payload,
+                MQTT,
+                IsCacheMode,
+                WithContext,
+                Acc
+            )
+        end,
+        Session,
+        Delivers
+    ).
 
-deliver_to_coap(AlternatePath, JsonData, MQTT, CacheMode, WithContext, Session) when is_binary(JsonData)->
+deliver_to_coap(AlternatePath, JsonData, MQTT, CacheMode, WithContext, Session) when
+    is_binary(JsonData)
+->
     try
         TermData = emqx_json:decode(JsonData, [return_maps]),
         deliver_to_coap(AlternatePath, TermData, MQTT, CacheMode, WithContext, Session)
     catch
         ExClass:Error:ST ->
-            ?SLOG(error, #{ msg => "invaild_json_format_to_deliver"
-                          , data => JsonData
-                          , reason => {ExClass, Error}
-                          , stacktrace => ST
-                          }),
+            ?SLOG(error, #{
+                msg => "invaild_json_format_to_deliver",
+                data => JsonData,
+                reason => {ExClass, Error},
+                stacktrace => ST
+            }),
             WithContext(metrics, 'delivery.dropped'),
             Session
     end;
-
-deliver_to_coap(AlternatePath, TermData, MQTT, CacheMode, WithContext, Session) when is_map(TermData) ->
+deliver_to_coap(AlternatePath, TermData, MQTT, CacheMode, WithContext, Session) when
+    is_map(TermData)
+->
     WithContext(metrics, 'messages.delivered'),
     {Req, Ctx} = emqx_lwm2m_cmd:mqtt_to_coap(AlternatePath, TermData),
     ExpiryTime = get_expiry_time(MQTT),
     Session2 = record_request(Ctx, Session),
     maybe_do_deliver_to_coap(Ctx, Req, ExpiryTime, CacheMode, Session2).
 
-maybe_do_deliver_to_coap(Ctx, Req, ExpiryTime, CacheMode,
-                         #session{wait_ack = WaitAck,
-                                  queue = Queue} = Session) ->
+maybe_do_deliver_to_coap(
+    Ctx,
+    Req,
+    ExpiryTime,
+    CacheMode,
+    #session{
+        wait_ack = WaitAck,
+        queue = Queue
+    } = Session
+) ->
     MHeaders = maps:get(mheaders, Ctx, #{}),
     TTL = maps:get(<<"ttl">>, MHeaders, 7200),
     case TTL of
         0 ->
             send_msg_not_waiting_ack(Ctx, Req, Session);
         _ ->
-            case not CacheMode
-                andalso queue:is_empty(Queue) andalso WaitAck =:= undefined of
+            case
+                not CacheMode andalso
+                    queue:is_empty(Queue) andalso WaitAck =:= undefined
+            of
                 true ->
                     send_to_coap(Ctx, Req, Session);
                 false ->
@@ -706,8 +821,10 @@ maybe_do_deliver_to_coap(Ctx, Req, ExpiryTime, CacheMode,
             end
     end.
 
-get_expiry_time(#message{headers = #{properties := #{'Message-Expiry-Interval' := Interval}},
-                         timestamp = Ts}) ->
+get_expiry_time(#message{
+    headers = #{properties := #{'Message-Expiry-Interval' := Interval}},
+    timestamp = Ts
+}) ->
     Ts + Interval * 1000;
 get_expiry_time(_) ->
     0.
@@ -726,9 +843,11 @@ send_cmd_impl(Cmd, #session{reg_info = RegInfo} = Session) ->
 %% Call CoAP
 %%--------------------------------------------------------------------
 call_coap(Fun, Msg, #session{coap = Coap} = Session) ->
-    iter([tm, fun process_tm/4, fun process_session/3],
-         emqx_coap_tm:Fun(Msg, Coap),
-         Session).
+    iter(
+        [tm, fun process_tm/4, fun process_session/3],
+        emqx_coap_tm:Fun(Msg, Coap),
+        Session
+    ).
 
 process_tm(TM, Result, Session, Cursor) ->
     iter(Cursor, Result, Session#session{coap = TM}).
@@ -758,10 +877,11 @@ return(#session{coap = CoAP} = Session) ->
 
 do_out([{Ctx, Out} | T], TM, Msgs) ->
     %% TODO maybe set a special token?
-    #{out := [Msg],
-      tm := TM2} = emqx_coap_tm:handle_out(Out, Ctx, TM),
+    #{
+        out := [Msg],
+        tm := TM2
+    } = emqx_coap_tm:handle_out(Out, Ctx, TM),
     do_out(T, TM2, [Msg | Msgs]);
-
 do_out(_, TM, Msgs) ->
     {ok, TM, Msgs}.
 
@@ -780,7 +900,7 @@ record_response(EventType, #{<<"data">> := Data}, Session) ->
     Content = maps:get(<<"content">>, Data, undefined),
     record_cmd(ReqPath, EventType, {Code, CodeMsg, Content}, Session).
 
-record_cmd(Path, Type, Result, #session{cmd_record = #{queue := Queue} =  Record} = Session) ->
+record_cmd(Path, Type, Result, #session{cmd_record = #{queue := Queue} = Record} = Session) ->
     Key = ?CMD_KEY(Path, Type),
     Record2 = Record#{Key => Result},
     Queue2 = queue:in(Key, Queue),
@@ -789,7 +909,6 @@ record_cmd(Path, Type, Result, #session{cmd_record = #{queue := Queue} =  Record
 
 check_record_size(Record, Queue) when ?RECORD_SIZE(Record) =< ?MAX_RECORD_SIZE ->
     Record#{queue := Queue};
-
 check_record_size(Record, Queue) ->
     {{value, Key}, Queue2} = queue:out(Queue),
     Record2 = maps:remove(Key, Record),

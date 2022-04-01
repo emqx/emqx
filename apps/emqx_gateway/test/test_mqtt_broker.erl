@@ -33,8 +33,8 @@ start(_, <<"attacker">>, _, _, _) ->
     {stop, auth_failure};
 start(ClientId, Username, Password, _Channel, KeepaliveInterval) ->
     true = is_binary(ClientId),
-    (true = ( is_binary(Username)) orelse (Username == undefined) ),
-    (true = ( is_binary(Password)) orelse (Password == undefined) ),
+    (true = (is_binary(Username)) orelse (Username == undefined)),
+    (true = (is_binary(Password)) orelse (Password == undefined)),
     self() ! {keepalive, start, KeepaliveInterval},
     {ok, []}.
 
@@ -61,39 +61,41 @@ stop() ->
 init(_Param) ->
     {ok, #state{subscriber = []}}.
 
-handle_call({subscribe, Topic, Proc}, _From, State=#state{subscriber = SubList}) ->
+handle_call({subscribe, Topic, Proc}, _From, State = #state{subscriber = SubList}) ->
     ?LOGT("test broker subscribe Topic=~p, Pid=~p~n", [Topic, Proc]),
     is_binary(Topic) orelse error("Topic should be a binary"),
-    {reply, {ok, []}, State#state{subscriber = [{Topic, Proc}|SubList]}};
-
-handle_call(get_subscribed_topics, _From, State=#state{subscriber = SubList}) ->
+    {reply, {ok, []}, State#state{subscriber = [{Topic, Proc} | SubList]}};
+handle_call(get_subscribed_topics, _From, State = #state{subscriber = SubList}) ->
     Response = subscribed_topics(SubList, []),
     ?LOGT("test broker get subscribed topics=~p~n", [Response]),
     {reply, Response, State};
-
-handle_call({unsubscribe, Topic}, _From, State=#state{subscriber = SubList}) ->
+handle_call({unsubscribe, Topic}, _From, State = #state{subscriber = SubList}) ->
     ?LOGT("test broker unsubscribe Topic=~p~n", [Topic]),
     is_binary(Topic) orelse error("Topic should be a binary"),
     NewSubList = proplists:delete(Topic, SubList),
     {reply, {ok, []}, State#state{subscriber = NewSubList}};
-
-
-handle_call({publish, {Topic, Msg, MatchedTopicFilter}}, _From, State=#state{subscriber = SubList}) ->
+handle_call(
+    {publish, {Topic, Msg, MatchedTopicFilter}}, _From, State = #state{subscriber = SubList}
+) ->
     (is_binary(Topic) and is_binary(Msg)) orelse error("Topic and Msg should be binary"),
     Pid = proplists:get_value(MatchedTopicFilter, SubList),
-    ?LOGT("test broker publish topic=~p, Msg=~p, Pid=~p, MatchedTopicFilter=~p, SubList=~p~n", [Topic, Msg, Pid, MatchedTopicFilter, SubList]),
-    (Pid == undefined) andalso ?LOGT("!!!!! this topic ~p has never been subscribed, please specify a valid topic filter", [MatchedTopicFilter]),
+    ?LOGT("test broker publish topic=~p, Msg=~p, Pid=~p, MatchedTopicFilter=~p, SubList=~p~n", [
+        Topic, Msg, Pid, MatchedTopicFilter, SubList
+    ]),
+    (Pid == undefined) andalso
+        ?LOGT(
+            "!!!!! this topic ~p has never been subscribed, please specify a valid topic filter", [
+                MatchedTopicFilter
+            ]
+        ),
     ?assertNotEqual(undefined, Pid),
     Pid ! {deliver, #message{topic = Topic, payload = Msg}},
     {reply, ok, State};
-
 handle_call(stop, _From, State) ->
     {stop, normal, stopped, State};
-
 handle_call(Req, _From, State) ->
     ?LOGT("test_broker_server: ignore call Req=~p~n", [Req]),
     {reply, {error, badreq}, State}.
-
 
 handle_cast(Msg, State) ->
     ?LOGT("test_broker_server: ignore cast msg=~p~n", [Msg]),
@@ -110,38 +112,37 @@ terminate(Reason, _State) ->
 code_change(_OldVsn, State, _Extra) ->
     {ok, State}.
 
-
-
-
 subscribed_topics([], Acc) ->
     Acc;
-subscribed_topics([{Topic,_Pid}|T], Acc) ->
-    subscribed_topics(T, [Topic|Acc]).
-
-
-
+subscribed_topics([{Topic, _Pid} | T], Acc) ->
+    subscribed_topics(T, [Topic | Acc]).
 
 -record(keepalive, {statfun, statval, tsec, tmsg, tref, repeat = 0}).
 
--type(keepalive() :: #keepalive{}).
+-type keepalive() :: #keepalive{}.
 
 %% @doc Start a keepalive
--spec(start(fun(), integer(), any()) -> undefined | keepalive()).
+-spec start(fun(), integer(), any()) -> undefined | keepalive().
 start(_, 0, _) ->
     undefined;
 start(StatFun, TimeoutSec, TimeoutMsg) ->
     {ok, StatVal} = StatFun(),
-    #keepalive{statfun = StatFun, statval = StatVal,
-        tsec = TimeoutSec, tmsg = TimeoutMsg,
-        tref = timer(TimeoutSec, TimeoutMsg)}.
+    #keepalive{
+        statfun = StatFun,
+        statval = StatVal,
+        tsec = TimeoutSec,
+        tmsg = TimeoutMsg,
+        tref = timer(TimeoutSec, TimeoutMsg)
+    }.
 
 %% @doc Check keepalive, called when timeout.
--spec(check(keepalive()) -> {ok, keepalive()} | {error, any()}).
+-spec check(keepalive()) -> {ok, keepalive()} | {error, any()}.
 check(KeepAlive = #keepalive{statfun = StatFun, statval = LastVal, repeat = Repeat}) ->
     case StatFun() of
         {ok, NewVal} ->
-            if NewVal =/= LastVal ->
-                {ok, resume(KeepAlive#keepalive{statval = NewVal, repeat = 0})};
+            if
+                NewVal =/= LastVal ->
+                    {ok, resume(KeepAlive#keepalive{statval = NewVal, repeat = 0})};
                 Repeat < 1 ->
                     {ok, resume(KeepAlive#keepalive{statval = NewVal, repeat = Repeat + 1})};
                 true ->
@@ -155,17 +156,16 @@ resume(KeepAlive = #keepalive{tsec = TimeoutSec, tmsg = TimeoutMsg}) ->
     KeepAlive#keepalive{tref = timer(TimeoutSec, TimeoutMsg)}.
 
 %% @doc Cancel Keepalive
--spec(cancel(keepalive()) -> ok).
+-spec cancel(keepalive()) -> ok.
 cancel(#keepalive{tref = TRef}) ->
     cancel(TRef);
 cancel(undefined) ->
     ok;
 cancel(TRef) ->
-        catch erlang:cancel_timer(TRef).
+    catch erlang:cancel_timer(TRef).
 
 timer(Sec, Msg) ->
     erlang:send_after(timer:seconds(Sec), self(), Msg).
-
 
 log(Format, Args) ->
     logger:debug(Format, Args).

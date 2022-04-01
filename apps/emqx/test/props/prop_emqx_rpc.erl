@@ -22,64 +22,84 @@
 -define(NODENAME, 'test@127.0.0.1').
 
 -define(ALL(Vars, Types, Exprs),
-        ?SETUP(fun() ->
+    ?SETUP(
+        fun() ->
             State = do_setup(),
             fun() -> do_teardown(State) end
-         end, ?FORALL(Vars, Types, Exprs))).
+        end,
+        ?FORALL(Vars, Types, Exprs)
+    )
+).
 
 %%--------------------------------------------------------------------
 %% Properties
 %%--------------------------------------------------------------------
 
 prop_node() ->
-    ?ALL(Node0, nodename(),
-         begin
-             Node = punch(Node0),
-             ?assert(emqx_rpc:cast(Node, erlang, system_time, [])),
-             case emqx_rpc:call(Node, erlang, system_time, []) of
-                 {badrpc, _Reason} -> true;
-                 Delivery when is_integer(Delivery) -> true;
-                 _Other -> false
-             end
-         end).
+    ?ALL(
+        Node0,
+        nodename(),
+        begin
+            Node = punch(Node0),
+            ?assert(emqx_rpc:cast(Node, erlang, system_time, [])),
+            case emqx_rpc:call(Node, erlang, system_time, []) of
+                {badrpc, _Reason} -> true;
+                Delivery when is_integer(Delivery) -> true;
+                _Other -> false
+            end
+        end
+    ).
 
 prop_node_with_key() ->
-    ?ALL({Node0, Key}, nodename_with_key(),
-         begin
-             Node = punch(Node0),
-             ?assert(emqx_rpc:cast(Key, Node, erlang, system_time, [])),
-             case emqx_rpc:call(Key, Node, erlang, system_time, []) of
-                 {badrpc, _Reason} -> true;
-                 Delivery when is_integer(Delivery) -> true;
-                 _Other -> false
-             end
-         end).
+    ?ALL(
+        {Node0, Key},
+        nodename_with_key(),
+        begin
+            Node = punch(Node0),
+            ?assert(emqx_rpc:cast(Key, Node, erlang, system_time, [])),
+            case emqx_rpc:call(Key, Node, erlang, system_time, []) of
+                {badrpc, _Reason} -> true;
+                Delivery when is_integer(Delivery) -> true;
+                _Other -> false
+            end
+        end
+    ).
 
 prop_nodes() ->
-    ?ALL(Nodes0, nodesname(),
-         begin
-             Nodes = punch(Nodes0),
-             case emqx_rpc:multicall(Nodes, erlang, system_time, []) of
-                 {RealResults, RealBadNodes}
-                   when is_list(RealResults);
-                        is_list(RealBadNodes) ->
-                     true;
-                 _Other -> false
-             end
-         end).
+    ?ALL(
+        Nodes0,
+        nodesname(),
+        begin
+            Nodes = punch(Nodes0),
+            case emqx_rpc:multicall(Nodes, erlang, system_time, []) of
+                {RealResults, RealBadNodes} when
+                    is_list(RealResults);
+                    is_list(RealBadNodes)
+                ->
+                    true;
+                _Other ->
+                    false
+            end
+        end
+    ).
 
 prop_nodes_with_key() ->
-    ?ALL({Nodes0, Key}, nodesname_with_key(),
-         begin
-             Nodes = punch(Nodes0),
-             case emqx_rpc:multicall(Key, Nodes, erlang, system_time, []) of
-                 {RealResults, RealBadNodes}
-                   when is_list(RealResults);
-                        is_list(RealBadNodes) ->
-                     true;
-                 _Other -> false
-             end
-         end).
+    ?ALL(
+        {Nodes0, Key},
+        nodesname_with_key(),
+        begin
+            Nodes = punch(Nodes0),
+            case emqx_rpc:multicall(Key, Nodes, erlang, system_time, []) of
+                {RealResults, RealBadNodes} when
+                    is_list(RealResults);
+                    is_list(RealBadNodes)
+                ->
+                    true;
+                _Other ->
+                    false
+            end
+        end
+    ).
 
 %%--------------------------------------------------------------------
 %%  Helper
@@ -91,10 +111,13 @@ do_setup() ->
     {ok, _Apps} = application:ensure_all_started(gen_rpc),
     ok = application:set_env(gen_rpc, call_receive_timeout, 100),
     ok = meck:new(gen_rpc, [passthrough, no_history]),
-    ok = meck:expect(gen_rpc, multicall,
-                     fun(Nodes, Mod, Fun, Args) ->
-                             gen_rpc:multicall(Nodes, Mod, Fun, Args, 100)
-                     end).
+    ok = meck:expect(
+        gen_rpc,
+        multicall,
+        fun(Nodes, Mod, Fun, Args) ->
+            gen_rpc:multicall(Nodes, Mod, Fun, Args, 100)
+        end
+    ).
 
 do_teardown(_) ->
     ok = net_kernel:stop(),
@@ -121,22 +144,25 @@ ensure_distributed_nodename() ->
 %% Generator
 %%--------------------------------------------------------------------
 
-
 nodename() ->
-    ?LET({NodePrefix, HostName},
-         {node_prefix(), hostname()},
-         begin
-             Node = NodePrefix ++ "@" ++ HostName,
-             list_to_atom(Node)
-         end).
+    ?LET(
+        {NodePrefix, HostName},
+        {node_prefix(), hostname()},
+        begin
+            Node = NodePrefix ++ "@" ++ HostName,
+            list_to_atom(Node)
+        end
+    ).
 
 nodename_with_key() ->
-    ?LET({NodePrefix, HostName, Key},
-         {node_prefix(), hostname(), choose(0, 10)},
-         begin
-             Node = NodePrefix ++ "@" ++ HostName,
-             {list_to_atom(Node), Key}
-         end).
+    ?LET(
+        {NodePrefix, HostName, Key},
+        {node_prefix(), hostname(), choose(0, 10)},
+        begin
+            Node = NodePrefix ++ "@" ++ HostName,
+            {list_to_atom(Node), Key}
+        end
+    ).
 
 nodesname() ->
     oneof([list(nodename()), [node()]]).
@@ -163,6 +189,7 @@ hostname() ->
 punch(Nodes) when is_list(Nodes) ->
     lists:map(fun punch/1, Nodes);
 punch('nonode@nohost') ->
-    node();  %% Equal to ?NODENAME
+    %% Equal to ?NODENAME
+    node();
 punch(GoodBoy) ->
     GoodBoy.

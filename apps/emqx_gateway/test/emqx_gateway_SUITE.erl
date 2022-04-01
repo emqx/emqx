@@ -44,25 +44,30 @@ end_per_suite(_Conf) ->
 %%--------------------------------------------------------------------
 
 t_registered_gateway(_) ->
-    [{coap, #{cbkmod := emqx_coap_impl}},
-     {exproto, #{cbkmod := emqx_exproto_impl}},
-     {lwm2m, #{cbkmod := emqx_lwm2m_impl}},
-     {mqttsn, #{cbkmod := emqx_sn_impl}},
-     {stomp, #{cbkmod := emqx_stomp_impl}}] =  emqx_gateway:registered_gateway().
+    [
+        {coap, #{cbkmod := emqx_coap_impl}},
+        {exproto, #{cbkmod := emqx_exproto_impl}},
+        {lwm2m, #{cbkmod := emqx_lwm2m_impl}},
+        {mqttsn, #{cbkmod := emqx_sn_impl}},
+        {stomp, #{cbkmod := emqx_stomp_impl}}
+    ] = emqx_gateway:registered_gateway().
 
 t_load_unload_list_lookup(_) ->
     {ok, _} = emqx_gateway:load(?GWNAME, #{idle_timeout => 1000}),
     ?assertEqual(
-       {error, alredy_existed},
-       emqx_gateway:load(?GWNAME, #{})),
+        {error, alredy_existed},
+        emqx_gateway:load(?GWNAME, #{})
+    ),
     ?assertEqual(
-       {error, {unknown_gateway_name, bad_gw_name}},
-       emqx_gateway:load(bad_gw_name, #{})),
+        {error, {unknown_gateway_name, bad_gw_name}},
+        emqx_gateway:load(bad_gw_name, #{})
+    ),
 
     ?assertEqual(1, length(emqx_gateway:list())),
     ?assertEqual(
-       emqx_gateway:lookup(?GWNAME),
-       lists:nth(1, emqx_gateway:list())),
+        emqx_gateway:lookup(?GWNAME),
+        lists:nth(1, emqx_gateway:list())
+    ),
 
     ?assertEqual(ok, emqx_gateway:unload(?GWNAME)),
     ?assertEqual({error, not_found}, emqx_gateway:unload(?GWNAME)).
@@ -78,23 +83,34 @@ t_start_stop_update(_) ->
     #{status := stopped} = emqx_gateway:lookup(?GWNAME),
 
     ok = emqx_gateway:update(
-           ?GWNAME, #{enable => false, idle_timeout => 2000}),
-    #{status := stopped,
-      config := #{idle_timeout := 2000}} = emqx_gateway:lookup(?GWNAME),
+        ?GWNAME, #{enable => false, idle_timeout => 2000}
+    ),
+    #{
+        status := stopped,
+        config := #{idle_timeout := 2000}
+    } = emqx_gateway:lookup(?GWNAME),
 
     ok = emqx_gateway:update(
-           ?GWNAME, #{enable => true, idle_timeout => 3000}),
-    #{status := running,
-      config := #{idle_timeout := 3000}} = emqx_gateway:lookup(?GWNAME),
+        ?GWNAME, #{enable => true, idle_timeout => 3000}
+    ),
+    #{
+        status := running,
+        config := #{idle_timeout := 3000}
+    } = emqx_gateway:lookup(?GWNAME),
 
     ok = emqx_gateway:update(
-           ?GWNAME, #{enable => false, idle_timeout => 4000}),
-    #{status := stopped,
-      config := #{idle_timeout := 4000}} = emqx_gateway:lookup(?GWNAME),
+        ?GWNAME, #{enable => false, idle_timeout => 4000}
+    ),
+    #{
+        status := stopped,
+        config := #{idle_timeout := 4000}
+    } = emqx_gateway:lookup(?GWNAME),
 
     ok = emqx_gateway:start(?GWNAME),
-    #{status := running,
-      config := #{idle_timeout := 4000}} = emqx_gateway:lookup(?GWNAME),
+    #{
+        status := running,
+        config := #{idle_timeout := 4000}
+    } = emqx_gateway:lookup(?GWNAME),
 
     {error, already_started} = emqx_gateway:start(?GWNAME),
     ok.

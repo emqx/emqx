@@ -1,12 +1,19 @@
 # reformat apps/emqx
 91bcf02970bd1fe0dfe06744a24aa8a149ac0052
+244b1237421318e86e25f0157b825f20a6cd859f
 # reformat apps/emqx_modules
 4d3157743e0d3ac7e6c09f108f6e79c820fd9c00
+f2168f5b0d24e8c91a0952373fa181aaded99f38
 # reformat apps/emqx_authn
 aae2d01582b980302f30913522eedf1d9d3d217c
+3022ee081d31b989dcd654a7211ea20c0c68574f
 # reformat apps/emqx_authz
 82559b9b089c6cfadf54b7ce5143156dd403876f
+acb3544d4b112121b5d9414237d2af7860ccc2a3
 # reformat lib-ee/emqx_license
 4f396cceb84d79d5ef540e91c1a8420e8de74a56
+4e3fd9febd0df11f3fe5f221cd2c4362be57c886
 # reformat lib-ee/emqx_enterprise_conf
 1aa82992616ad848539a533a5cd20ba6f9071e5a
+# reformat apps/emqx_gateway
+3f6d78dda03fd0d8e968a352e134f11a7f16bfe8

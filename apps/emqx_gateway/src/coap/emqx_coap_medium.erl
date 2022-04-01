@@ -23,10 +23,15 @@
 -include("src/coap/include/emqx_coap.hrl").
 
 %% API
--export([ empty/0, reset/1, reset/2
-        , out/1, out/2, proto_out/1
-        , proto_out/2, iter/3, iter/4
-        , reply/2, reply/3, reply/4]).
+-export([
+    empty/0,
+    reset/1, reset/2,
+    out/1, out/2,
+    proto_out/1,
+    proto_out/2,
+    iter/3, iter/4,
+    reply/2, reply/3, reply/4
+]).
 
 %%-type result() :: map() | empty.
 
@@ -46,7 +51,6 @@ out(Msg) ->
 
 out(Msg, #{out := Outs} = Result) ->
     Result#{out := [Msg | Outs]};
-
 out(Msg, Result) ->
     Result#{out => [Msg]}.
 
@@ -58,13 +62,11 @@ proto_out(Proto, Result) ->
 
 reply(Method, Req) when not is_record(Method, coap_message) ->
     reply(Method, <<>>, Req);
-
 reply(Reply, Result) ->
     Result#{reply => Reply}.
 
 reply(Method, Req, Result) when is_record(Req, coap_message) ->
     reply(Method, <<>>, Req, Result);
-
 reply(Method, Payload, Req) ->
     reply(Method, Payload, Req, #{}).
 
@@ -78,16 +80,15 @@ iter([Key, Fun | T], Input, State) ->
             iter(T, Input, State);
         Val ->
             Fun(Val, maps:remove(Key, Input), State, T)
-            %% reserved
-            %% if is_function(Fun) ->
-            %%         Fun(Val, maps:remove(Key, Input), State, T);
-            %%    true ->
-            %%         %% switch to sub branch
-            %%         [FunH | FunT] = Fun,
-            %%         FunH(Val, maps:remove(Key, Input), State, FunT)
-            %% end
+        %% reserved
+        %% if is_function(Fun) ->
+        %%         Fun(Val, maps:remove(Key, Input), State, T);
+        %%    true ->
+        %%         %% switch to sub branch
+        %%         [FunH | FunT] = Fun,
+        %%         FunH(Val, maps:remove(Key, Input), State, FunT)
+        %% end
     end;
-
 %% terminal node
 iter([Fun], Input, State) ->
     Fun(undefined, Input, State).
@@ -100,7 +101,6 @@ iter([Key, Fun | T], Input, Arg, State) ->
         Val ->
             Fun(Val, maps:remove(Key, Input), Arg, State, T)
     end;
-
 iter([Fun], Input, Arg, State) ->
     Fun(undefined, Input, Arg, State).
 

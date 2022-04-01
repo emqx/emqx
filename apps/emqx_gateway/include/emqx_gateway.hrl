@@ -21,19 +21,20 @@
 
 %% @doc The Gateway definition
 -type gateway() ::
-        #{ name    := gateway_name()
-         %% Description
-         , descr   => binary() | undefined
-         %% Appears only in getting gateway info
-         , status  => stopped | running | unloaded
-         %% Timestamp in millisecond
-         , created_at => integer()
-         %% Timestamp in millisecond
-         , started_at => integer()
-         %% Timestamp in millisecond
-         , stopped_at => integer()
-         %% Appears only in getting gateway info
-         , config => emqx_config:config()
-         }.
+    #{
+        name := gateway_name(),
+        %% Description
+        descr => binary() | undefined,
+        %% Appears only in getting gateway info
+        status => stopped | running | unloaded,
+        %% Timestamp in millisecond
+        created_at => integer(),
+        %% Timestamp in millisecond
+        started_at => integer(),
+        %% Timestamp in millisecond
+        stopped_at => integer(),
+        %% Appears only in getting gateway info
+        config => emqx_config:config()
+    }.
 
 -endif.

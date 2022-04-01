@@ -17,11 +17,12 @@
 -module(emqx_limiter_correction).
 
 %% API
--export([ add/2 ]).
+-export([add/2]).
 
--type correction_value() :: #{ correction := emqx_limiter_decimal:zero_or_float()
-                             , any() => any()
-                             }.
+-type correction_value() :: #{
+    correction := emqx_limiter_decimal:zero_or_float(),
+    any() => any()
+}.
 
 -export_type([correction_value/0]).
 

@@ -19,20 +19,22 @@
 
 -include("src/stomp/include/emqx_stomp.hrl").
 
--export([ init/1
-        , check/3
-        , reset/3
-        , info/1
-        , interval/2
-        ]).
+-export([
+    init/1,
+    check/3,
+    reset/3,
+    info/1,
+    interval/2
+]).
 
 -record(heartbeater, {interval, statval, repeat}).
 
 -type name() :: incoming | outgoing.
 
--type heartbeat() :: #{incoming => #heartbeater{},
-                       outgoing => #heartbeater{}
-                      }.
+-type heartbeat() :: #{
+    incoming => #heartbeater{},
+    outgoing => #heartbeater{}
+}.
 
 %%--------------------------------------------------------------------
 %% APIs
@@ -42,43 +44,51 @@
 init({0, 0}) ->
     #{};
 init({Cx, Cy}) ->
-    maps:filter(fun(_, V) -> V /= undefined end,
-      #{incoming => heartbeater(Cx),
-        outgoing => heartbeater(Cy)
-       }).
+    maps:filter(
+        fun(_, V) -> V /= undefined end,
+        #{
+            incoming => heartbeater(Cx),
+            outgoing => heartbeater(Cy)
+        }
+    ).
 
 heartbeater(0) ->
     undefined;
 heartbeater(I) ->
     #heartbeater{
-       interval = I,
-       statval = 0,
-       repeat = 0
-      }.
+        interval = I,
+        statval = 0,
+        repeat = 0
+    }.
 
--spec check(name(), pos_integer(), heartbeat())
-    -> {ok, heartbeat()}
-     | {error, timeout}.
+-spec check(name(), pos_integer(), heartbeat()) ->
+    {ok, heartbeat()}
+    | {error, timeout}.
 check(Name, NewVal, HrtBt) ->
     HrtBter = maps:get(Name, HrtBt),
     case check(NewVal, HrtBter) of
         {error, _} = R -> R;
-        {ok, NHrtBter} ->
-            {ok, HrtBt#{Name => NHrtBter}}
+        {ok, NHrtBter} -> {ok, HrtBt#{Name => NHrtBter}}
     end.
 
-check(NewVal, HrtBter = #heartbeater{statval = OldVal,
-                                     repeat = Repeat}) ->
+check(
+    NewVal,
+    HrtBter = #heartbeater{
+        statval = OldVal,
+        repeat = Repeat
+    }
+) ->
     if
         NewVal =/= OldVal ->
             {ok, HrtBter#heartbeater{statval = NewVal, repeat = 0}};
         Repeat < 1 ->
             {ok, HrtBter#heartbeater{repeat = Repeat + 1}};
-        true -> {error, timeout}
+        true ->
+            {error, timeout}
     end.
 
--spec reset(name(), pos_integer(), heartbeat())
-    -> heartbeat().
+-spec reset(name(), pos_integer(), heartbeat()) ->
+    heartbeat().
 reset(Name, NewVal, HrtBt) ->
     HrtBter = maps:get(Name, HrtBt),
     HrtBt#{Name => reset(NewVal, HrtBter)}.
@@ -88,11 +98,19 @@ reset(NewVal, HrtBter) ->
 
 -spec info(heartbeat()) -> map().
 info(HrtBt) ->
-    maps:map(fun(_, #heartbeater{interval = Intv,
-                                 statval = Val,
-                                 repeat = Repeat}) ->
+    maps:map(
+        fun(
+            _,
+            #heartbeater{
+                interval = Intv,
+                statval = Val,
+                repeat = Repeat
+            }
+        ) ->
             #{interval => Intv, statval => Val, repeat => Repeat}
-             end, HrtBt).
+        end,
+        HrtBt
+    ).
 
 interval(Type, HrtBt) ->
     case maps:get(Type, HrtBt, undefined) of

@@ -22,28 +22,30 @@
 -logger_header("[Tracer]").
 
 %% APIs
--export([ running/0
-        , install/3
-        , install/4
-        , install/5
-        , uninstall/1
-        , uninstall/2
-        ]).
+-export([
+    running/0,
+    install/3,
+    install/4,
+    install/5,
+    uninstall/1,
+    uninstall/2
+]).
 
 %% For logger handler filters callbacks
--export([ filter_clientid/2
-        , filter_topic/2
-        , filter_ip_address/2
-        ]).
+-export([
+    filter_clientid/2,
+    filter_topic/2,
+    filter_ip_address/2
+]).
 
 -export([handler_id/2]).
 -export([payload_encode/0]).
 
 -type tracer() :: #{
-         name := binary(),
-         type := clientid | topic | ip_address,
-         filter := emqx_types:clientid() | emqx_types:topic() | emqx_trace:ip_address()
-         }.
+    name := binary(),
+    type := clientid | topic | ip_address,
+    filter := emqx_types:clientid() | emqx_types:topic() | emqx_trace:ip_address()
+}.
 
 -define(CONFIG(_LogFile_), #{
     type => halt,
@@ -60,19 +62,23 @@
 %% APIs
 %%------------------------------------------------------------------------------
 
--spec install(Name :: binary() | list(),
+-spec install(
+    Name :: binary() | list(),
     Type :: clientid | topic | ip_address,
     Filter :: emqx_types:clientid() | emqx_types:topic() | string(),
     Level :: logger:level() | all,
-    LogFilePath :: string()) -> ok | {error, term()}.
+    LogFilePath :: string()
+) -> ok | {error, term()}.
 install(Name, Type, Filter, Level, LogFile) ->
     Who = #{type => Type, filter => ensure_bin(Filter), name => ensure_bin(Name)},
     install(Who, Level, LogFile).
 
--spec install(Type :: clientid | topic | ip_address,
+-spec install(
+    Type :: clientid | topic | ip_address,
     Filter :: emqx_types:clientid() | emqx_types:topic() | string(),
     Level :: logger:level() | all,
-    LogFilePath :: string()) -> ok | {error, term()}.
+    LogFilePath :: string()
+) -> ok | {error, term()}.
 install(Type, Filter, Level, LogFile) ->
     install(Filter, Type, Filter, Level, LogFile).
 
@@ -92,8 +98,10 @@ install(Who = #{name := Name, type := Type}, Level, LogFile) ->
     show_prompts(Res, Who, "start_trace"),
     Res.
 
--spec uninstall(Type :: clientid | topic | ip_address,
-    Name :: binary() | list()) -> ok | {error, term()}.
+-spec uninstall(
+    Type :: clientid | topic | ip_address,
+    Name :: binary() | list()
+) -> ok | {error, term()}.
 uninstall(Type, Name) ->
     HandlerId = handler_id(ensure_bin(Name), Type),
     uninstall(HandlerId).
@@ -108,12 +116,12 @@ uninstall(HandlerId) ->
 -spec running() ->
     [
         #{
-        name => binary(),
-        type => topic | clientid | ip_address,
-        id => atom(),
-        filter => emqx_types:topic() | emqx_types:clienetid() | emqx_trace:ip_address(),
-        level => logger:level(),
-        dst => file:filename() | console | unknown
+            name => binary(),
+            type => topic | clientid | ip_address,
+            id => atom(),
+            filter => emqx_types:topic() | emqx_types:clienetid() | emqx_trace:ip_address(),
+            level => logger:level(),
+            dst => file:filename() | console | unknown
         }
     ].
 running() ->
@@ -122,17 +130,20 @@ running() ->
 -spec filter_clientid(logger:log_event(), {binary(), atom()}) -> logger:log_event() | stop.
 filter_clientid(#{meta := Meta = #{clientid := ClientId}} = Log, {MatchId, _Name}) ->
     filter_ret(ClientId =:= MatchId andalso is_trace(Meta), Log);
-filter_clientid(_Log, _ExpectId) -> stop.
+filter_clientid(_Log, _ExpectId) ->
+    stop.
 
 -spec filter_topic(logger:log_event(), {binary(), atom()}) -> logger:log_event() | stop.
 filter_topic(#{meta := Meta = #{topic := Topic}} = Log, {TopicFilter, _Name}) ->
     filter_ret(is_trace(Meta) andalso emqx_topic:match(Topic, TopicFilter), Log);
-filter_topic(_Log, _ExpectId) -> stop.
+filter_topic(_Log, _ExpectId) ->
+    stop.
 
 -spec filter_ip_address(logger:log_event(), {string(), atom()}) -> logger:log_event() | stop.
 filter_ip_address(#{meta := Meta = #{peername := Peername}} = Log, {IP, _Name}) ->
     filter_ret(is_trace(Meta) andalso lists:prefix(IP, Peername), Log);
-filter_ip_address(_Log, _ExpectId) -> stop.
+filter_ip_address(_Log, _ExpectId) ->
+    stop.
 
 -compile({inline, [is_trace/1, filter_ret/2]}).
 %% TRUE when is_trace is missing.
@@ -150,16 +161,14 @@ filters(#{type := ip_address, filter := Filter, name := Name}) ->
     [{ip_address, {fun ?MODULE:filter_ip_address/2, {ensure_list(Filter), Name}}}].
 
 formatter(#{type := _Type}) ->
-    {emqx_trace_formatter,
-        #{
-            %% template is for ?SLOG message not ?TRACE.
-            template => [time," [",level,"] ", msg,"\n"],
-            single_line => true,
-            max_size => unlimited,
-            depth => unlimited,
-            payload_encode => payload_encode()
-        }
-    }.
+    {emqx_trace_formatter, #{
+        %% template is for ?SLOG message not ?TRACE.
+        template => [time, " [", level, "] ", msg, "\n"],
+        single_line => true,
+        max_size => unlimited,
+        depth => unlimited,
+        payload_encode => payload_encode()
+    }}.
 
 filter_traces(#{id := Id, level := Level, dst := Dst, filters := Filters}, Acc) ->
     Init = #{id => Id, level => Level, dst => Dst},
@@ -167,7 +176,8 @@ filter_traces(#{id := Id, level := Level, dst := Dst, filters := Filters}, Acc) 
         [{Type, {FilterFun, {Filter, Name}}}] when
             Type =:= topic orelse
                 Type =:= clientid orelse
-                Type =:= ip_address ->
+                Type =:= ip_address
+        ->
             [Init#{type => Type, filter => Filter, name => Name, filter_fun => FilterFun} | Acc];
         _ ->
             Acc
@@ -179,7 +189,7 @@ handler_id(Name, Type) ->
     try
         do_handler_id(Name, Type)
     catch
-        _ : _ ->
+        _:_ ->
             Hash = emqx_misc:bin2hexstr_a_f(crypto:hash(md5, Name)),
             do_handler_id(Hash, Type)
     end.

@@ -23,18 +23,24 @@
 %%--------------------------------------------------------------------
 
 prop_symmetric() ->
-    ?FORALL(Data, raw_data(),
+    ?FORALL(
+        Data,
+        raw_data(),
         begin
             Encoded = emqx_base62:encode(Data),
             to_binary(Data) =:= emqx_base62:decode(Encoded)
-        end).
+        end
+    ).
 
 prop_size() ->
-    ?FORALL(Data, binary(),
-         begin
-             Encoded = emqx_base62:encode(Data),
-             base62_size(Data, Encoded)
-         end).
+    ?FORALL(
+        Data,
+        binary(),
+        begin
+            Encoded = emqx_base62:encode(Data),
+            base62_size(Data, Encoded)
+        end
+    ).
 
 %%--------------------------------------------------------------------
 %% Helpers
@@ -59,7 +65,7 @@ base62_size(Data, Encoded) ->
             RangeEnd = DataSize div 3 * 8,
             EncodedSize >= RangeStart andalso EncodedSize =< RangeEnd;
         _Rem ->
-            RangeStart = DataSize * 8 div 6  + 1,
+            RangeStart = DataSize * 8 div 6 + 1,
             RangeEnd = DataSize * 8 div 6 * 2 + 1,
             EncodedSize >= RangeStart andalso EncodedSize =< RangeEnd
     end.

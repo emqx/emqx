@@ -23,7 +23,7 @@
 
 -export([lookup_cmd/2, observe/2, read/2, write/2]).
 
--define(PATH(Suffix), "/gateway/lwm2m/clients/:clientid"Suffix).
+-define(PATH(Suffix), "/gateway/lwm2m/clients/:clientid" Suffix).
 -define(DATA_TYPE, ['Integer', 'Float', 'Time', 'String', 'Boolean', 'Opaque', 'Objlnk']).
 
 -import(hoconsc, [mk/2, ref/1, ref/2]).
@@ -104,8 +104,11 @@ schema(?PATH("/write")) ->
             parameters => [
                 {clientid, mk(binary(), #{in => path, example => "urn:oma:lwm2m:oma:2"})},
                 {path, mk(binary(), #{in => query, required => true, example => "/3/0/7"})},
-                {type, mk(hoconsc:enum(?DATA_TYPE),
-                    #{in => query, required => true, example => 'Integer'})},
+                {type,
+                    mk(
+                        hoconsc:enum(?DATA_TYPE),
+                        #{in => query, required => true, example => 'Integer'}
+                    )},
                 {value, mk(binary(), #{in => query, required => true, example => 123})}
             ],
             responses => #{
@@ -118,18 +121,23 @@ schema(?PATH("/write")) ->
 fields(resource) ->
     [
         {operations, mk(binary(), #{desc => <<"Resource Operations">>, example => "E"})},
-        {'dataType', mk(hoconsc:enum(?DATA_TYPE), #{desc => <<"Data Type">>,
-            example => 'Integer'})},
-        {path, mk(binary(), #{desc =>  <<"Resource Path">>, example => "urn:oma:lwm2m:oma:2"})},
-        {name, mk(binary(), #{desc =>  <<"Resource Name">>, example => "lwm2m-test"})}
+        {'dataType',
+            mk(hoconsc:enum(?DATA_TYPE), #{
+                desc => <<"Data Type">>,
+                example => 'Integer'
+            })},
+        {path, mk(binary(), #{desc => <<"Resource Path">>, example => "urn:oma:lwm2m:oma:2"})},
+        {name, mk(binary(), #{desc => <<"Resource Name">>, example => "lwm2m-test"})}
     ].
 
 lookup_cmd(get, #{bindings := Bindings, query_string := QS}) ->
     ClientId = maps:get(clientid, Bindings),
     case emqx_gateway_cm_registry:lookup_channels(lwm2m, ClientId) of
         [Channel | _] ->
-            #{<<"path">> := Path,
-              <<"action">> := Action} = QS,
+            #{
+                <<"path">> := Path,
+                <<"action">> := Action
+            } = QS,
             {ok, Result} = emqx_lwm2m_channel:lookup_cmd(Channel, Path, Action),
             lookup_cmd_return(Result, ClientId, Action, Path);
         _ ->
@@ -137,63 +145,73 @@ lookup_cmd(get, #{bindings := Bindings, query_string := QS}) ->
     end.
 
 lookup_cmd_return(undefined, ClientId, Action, Path) ->
-    {200,
-     #{clientid => ClientId,
-       action => Action,
-       code => <<"6.01">>,
-       codeMsg => <<"reply_not_received">>,
-       path => Path}};
-
+    {200, #{
+        clientid => ClientId,
+        action => Action,
+        code => <<"6.01">>,
+        codeMsg => <<"reply_not_received">>,
+        path => Path
+    }};
 lookup_cmd_return({Code, CodeMsg, Content}, ClientId, Action, Path) ->
     {200,
-     format_cmd_content(Content,
-                        Action,
-                        #{clientid => ClientId,
-                          action => Action,
-                          code => Code,
-                          codeMsg => CodeMsg,
-                          path => Path})}.
+        format_cmd_content(
+            Content,
+            Action,
+            #{
+                clientid => ClientId,
+                action => Action,
+                code => Code,
+                codeMsg => CodeMsg,
+                path => Path
+            }
+        )}.
 
 format_cmd_content(undefined, _MsgType, Result) ->
     Result;
-
 format_cmd_content(Content, <<"discover">>, Result) ->
     [H | Content1] = Content,
     {_, [HObjId]} = emqx_lwm2m_session:parse_object_list(H),
-    [ObjId | _]= path_list(HObjId),
+    [ObjId | _] = path_list(HObjId),
     ObjectList =
         case Content1 of
             [Content2 | _] ->
                 {_, ObjL} = emqx_lwm2m_session:parse_object_list(Content2),
                 ObjL;
-            [] -> []
+            [] ->
+                []
         end,
 
-    R = case emqx_lwm2m_xml_object:get_obj_def(binary_to_integer(ObjId), true) of
+    R =
+        case emqx_lwm2m_xml_object:get_obj_def(binary_to_integer(ObjId), true) of
             {error, _} ->
                 lists:map(fun(Object) -> #{Object => Object} end, ObjectList);
             ObjDefinition ->
                 lists:map(fun(Obj) -> to_operations(Obj, ObjDefinition) end, ObjectList)
         end,
     Result#{content => R};
-
 format_cmd_content(Content, _, Result) ->
     Result#{content => Content}.
 
 to_operations(Obj, ObjDefinition) ->
-    [_, _, RawResId| _] = path_list(Obj),
+    [_, _, RawResId | _] = path_list(Obj),
     ResId = binary_to_integer(RawResId),
     Operations =
         case emqx_lwm2m_xml_object:get_resource_operations(ResId, ObjDefinition) of
-            "E" -> #{operations => <<"E">>};
+            "E" ->
+                #{operations => <<"E">>};
             Oper ->
-                #{'dataType' =>
-                      list_to_binary(emqx_lwm2m_xml_object:get_resource_type(ResId, ObjDefinition)),
+                #{
+                    'dataType' =>
+                        list_to_binary(
+                            emqx_lwm2m_xml_object:get_resource_type(ResId, ObjDefinition)
+                        ),
                     operations => list_to_binary(Oper)
                 }
         end,
-    Operations#{path => Obj,
-        name => list_to_binary(emqx_lwm2m_xml_object:get_resource_name(ResId, ObjDefinition))}.
+    Operations#{
+        path => Obj,
+        name => list_to_binary(emqx_lwm2m_xml_object:get_resource_name(ResId, ObjDefinition))
+    }.
 
 path_list(Path) ->
     case binary:split(binary_util:trim(Path, $/), [<<$/>>], [global]) of
@@ -203,35 +221,42 @@ path_list(Path) ->
         [ObjId] -> [ObjId]
     end.
 
-observe(post, #{bindings := #{clientid := ClientId},
-                query_string := #{<<"path">> := Path, <<"enable">> := Enable}}) ->
-    MsgType = case Enable of
-                  true -> <<"observe">>;
-                  _ -> <<"cancel-observe">>
-              end,
+observe(post, #{
+    bindings := #{clientid := ClientId},
+    query_string := #{<<"path">> := Path, <<"enable">> := Enable}
+}) ->
+    MsgType =
+        case Enable of
+            true -> <<"observe">>;
+            _ -> <<"cancel-observe">>
+        end,
 
-    Cmd = #{<<"msgType">> => MsgType,
-            <<"data">> => #{<<"path">> => Path}
-           },
-
-    send_cmd(ClientId, Cmd).
-
-
-read(post, #{bindings := #{clientid := ClientId},
-             query_string := Qs}) ->
-
-    Cmd = #{<<"msgType">> => <<"read">>,
-            <<"data">> => Qs
-           },
+    Cmd = #{
+        <<"msgType">> => MsgType,
+        <<"data">> => #{<<"path">> => Path}
+    },
 
     send_cmd(ClientId, Cmd).
 
-write(post, #{bindings := #{clientid := ClientId},
-              query_string := Qs}) ->
+read(post, #{
+    bindings := #{clientid := ClientId},
+    query_string := Qs
+}) ->
+    Cmd = #{
+        <<"msgType">> => <<"read">>,
+        <<"data">> => Qs
+    },
 
-    Cmd = #{<<"msgType">> => <<"write">>,
-            <<"data">> => Qs
-           },
+    send_cmd(ClientId, Cmd).
+
+write(post, #{
+    bindings := #{clientid := ClientId},
+    query_string := Qs
+}) ->
+    Cmd = #{
+        <<"msgType">> => <<"write">>,
+        <<"data">> => Qs
+    },
 
     send_cmd(ClientId, Cmd).
 

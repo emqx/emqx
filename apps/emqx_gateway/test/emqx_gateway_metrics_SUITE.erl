@@ -58,15 +58,17 @@ t_inc_dec(_) ->
     ok = emqx_gateway_metrics:inc(?GWNAME, ?METRIC),
 
     ?assertEqual(
-      [{?METRIC, 2}],
-      emqx_gateway_metrics:lookup(?GWNAME)),
+        [{?METRIC, 2}],
+        emqx_gateway_metrics:lookup(?GWNAME)
+    ),
 
     ok = emqx_gateway_metrics:dec(?GWNAME, ?METRIC),
     ok = emqx_gateway_metrics:dec(?GWNAME, ?METRIC),
 
     ?assertEqual(
-      [{?METRIC, 0}],
-      emqx_gateway_metrics:lookup(?GWNAME)).
+        [{?METRIC, 0}],
+        emqx_gateway_metrics:lookup(?GWNAME)
+    ).
 
 t_handle_unexpected_msg(Conf) ->
     Pid = proplists:get_value(metrics, Conf),

@@ -26,58 +26,63 @@
 -import(emqx_gateway_utils, [listener_id/3]).
 
 %% Mgmt APIs - gateway
--export([ gateways/1
-        ]).
+-export([gateways/1]).
 
 %% Mgmt APIs
--export([ add_listener/2
-        , remove_listener/1
-        , update_listener/2
-        ]).
+-export([
+    add_listener/2,
+    remove_listener/1,
+    update_listener/2
+]).
 
--export([ authn/1
-        , authn/2
-        , add_authn/2
-        , add_authn/3
-        , update_authn/2
-        , update_authn/3
-        , remove_authn/1
-        , remove_authn/2
-        ]).
+-export([
+    authn/1,
+    authn/2,
+    add_authn/2,
+    add_authn/3,
+    update_authn/2,
+    update_authn/3,
+    remove_authn/1,
+    remove_authn/2
+]).
 
 %% Mgmt APIs - clients
--export([ lookup_client/3
-        , kickout_client/2
-        , list_client_subscriptions/2
-        , client_subscribe/4
-        , client_unsubscribe/3
-        ]).
+-export([
+    lookup_client/3,
+    kickout_client/2,
+    list_client_subscriptions/2,
+    client_subscribe/4,
+    client_unsubscribe/3
+]).
 
 %% Utils for http, swagger, etc.
--export([ return_http_error/2
-        , with_gateway/2
-        , with_authn/2
-        , with_listener_authn/3
-        , checks/2
-        , reason2resp/1
-        , reason2msg/1
-        ]).
+-export([
+    return_http_error/2,
+    with_gateway/2,
+    with_authn/2,
+    with_listener_authn/3,
+    checks/2,
+    reason2resp/1,
+    reason2msg/1
+]).
 
 -type gateway_summary() ::
-        #{ name := binary()
-         , status := running | stopped | unloaded
-         , created_at => binary()
-         , started_at => binary()
-         , stopped_at => binary()
-         , max_connections => integer()
-         , current_connections => integer()
-         , listeners => []
-         }.
+    #{
+        name := binary(),
+        status := running | stopped | unloaded,
+        created_at => binary(),
+        started_at => binary(),
+        stopped_at => binary(),
+        max_connections => integer(),
+        current_connections => integer(),
+        listeners => []
+    }.
 
--elvis([ {elvis_style, god_modules, disable}
-       , {elvis_style, no_nested_try_catch, disable}
-       , {elvis_style, invalid_dynamic_call, disable}
-       ]).
+-elvis([
+    {elvis_style, god_modules, disable},
+    {elvis_style, no_nested_try_catch, disable},
+    {elvis_style, invalid_dynamic_call, disable}
+]).
 
 -define(DEFAULT_CALL_TIMEOUT, 15000).
 
@@ -85,63 +90,81 @@
 %% Mgmt APIs - gateway
 %%--------------------------------------------------------------------
 
--spec gateways(Status :: all | running | stopped | unloaded)
-    -> [gateway_summary()].
+-spec gateways(Status :: all | running | stopped | unloaded) ->
+    [gateway_summary()].
 gateways(Status) ->
-    Gateways = lists:map(fun({GwName, _}) ->
-        case emqx_gateway:lookup(GwName) of
-            undefined -> #{name => GwName, status => unloaded};
-            GwInfo = #{config := Config} ->
-                GwInfo0 = emqx_gateway_utils:unix_ts_to_rfc3339(
-                            [created_at, started_at, stopped_at],
-                            GwInfo),
-                GwInfo1 = maps:with([name,
-                                     status,
-                                     created_at,
-                                     started_at,
-                                     stopped_at], GwInfo0),
-                GwInfo1#{
-                  max_connections => max_connections_count(Config),
-                  current_connections => current_connections_count(GwName),
-                  listeners => get_listeners_status(GwName, Config)}
-        end
-    end, emqx_gateway_registry:list()),
+    Gateways = lists:map(
+        fun({GwName, _}) ->
+            case emqx_gateway:lookup(GwName) of
+                undefined ->
+                    #{name => GwName, status => unloaded};
+                GwInfo = #{config := Config} ->
+                    GwInfo0 = emqx_gateway_utils:unix_ts_to_rfc3339(
+                        [created_at, started_at, stopped_at],
+                        GwInfo
+                    ),
+                    GwInfo1 = maps:with(
+                        [
+                            name,
+                            status,
+                            created_at,
+                            started_at,
+                            stopped_at
+                        ],
+                        GwInfo0
+                    ),
+                    GwInfo1#{
+                        max_connections => max_connections_count(Config),
+                        current_connections => current_connections_count(GwName),
+                        listeners => get_listeners_status(GwName, Config)
+                    }
+            end
+        end,
+        emqx_gateway_registry:list()
+    ),
     case Status of
         all -> Gateways;
-        _ ->
-            [Gw || Gw = #{status := S} <- Gateways, S == Status]
+        _ -> [Gw || Gw = #{status := S} <- Gateways, S == Status]
     end.
 
 %% @private
 max_connections_count(Config) ->
     Listeners = emqx_gateway_utils:normalize_config(Config),
-    lists:foldl(fun({_, _, _, SocketOpts, _}, Acc) ->
-        Acc + proplists:get_value(max_connections, SocketOpts, 0)
-    end, 0, Listeners).
+    lists:foldl(
+        fun({_, _, _, SocketOpts, _}, Acc) ->
+            Acc + proplists:get_value(max_connections, SocketOpts, 0)
+        end,
+        0,
+        Listeners
+    ).
 
 %% @private
 current_connections_count(GwName) ->
     try
         InfoTab = emqx_gateway_cm:tabname(info, GwName),
         ets:info(InfoTab, size)
-    catch _ : _ ->
-        0
+    catch
+        _:_ ->
+            0
     end.
 
 %% @private
 get_listeners_status(GwName, Config) ->
     Listeners = emqx_gateway_utils:normalize_config(Config),
-    lists:map(fun({Type, LisName, ListenOn, _, _}) ->
-        Name0 = listener_id(GwName, Type, LisName),
-        Name = {Name0, ListenOn},
-        LisO = #{id => Name0, type => Type, name => LisName},
-        case catch esockd:listener(Name) of
-            _Pid when is_pid(_Pid) ->
-                LisO#{running => true};
-            _ ->
-                LisO#{running => false}
-        end
-    end, Listeners).
+    lists:map(
+        fun({Type, LisName, ListenOn, _, _}) ->
+            Name0 = listener_id(GwName, Type, LisName),
+            Name = {Name0, ListenOn},
+            LisO = #{id => Name0, type => Type, name => LisName},
+            case catch esockd:listener(Name) of
+                _Pid when is_pid(_Pid) ->
+                    LisO#{running => true};
+                _ ->
+                    LisO#{running => false}
+            end
+        end,
+        Listeners
+    ).
 
 %%--------------------------------------------------------------------
 %% Mgmt APIs - listeners
@@ -150,16 +173,30 @@ get_listeners_status(GwName, Config) ->
 -spec add_listener(atom() | binary(), map()) -> {ok, map()}.
 add_listener(ListenerId, NewConf0) ->
     {GwName, Type, Name} = emqx_gateway_utils:parse_listener_id(ListenerId),
-    NewConf = maps:without([<<"id">>, <<"name">>,
-                            <<"type">>, <<"running">>], NewConf0),
+    NewConf = maps:without(
+        [
+            <<"id">>,
+            <<"name">>,
+            <<"type">>,
+            <<"running">>
+        ],
+        NewConf0
+    ),
     confexp(emqx_gateway_conf:add_listener(GwName, {Type, Name}, NewConf)).
 
 -spec update_listener(atom() | binary(), map()) -> {ok, map()}.
 update_listener(ListenerId, NewConf0) ->
     {GwName, Type, Name} = emqx_gateway_utils:parse_listener_id(ListenerId),
 
-    NewConf = maps:without([<<"id">>, <<"name">>,
-                            <<"type">>, <<"running">>], NewConf0),
+    NewConf = maps:without(
+        [
+            <<"id">>,
+            <<"name">>,
+            <<"type">>,
+            <<"running">>
+        ],
+        NewConf0
+    ),
     confexp(emqx_gateway_conf:update_listener(GwName, {Type, Name}, NewConf)).
 
 -spec remove_listener(binary()) -> ok.
@@ -173,9 +210,9 @@ authn(GwName) ->
     Path = [gateway, GwName, ?AUTHN],
     ChainName = emqx_gateway_utils:global_chain(GwName),
     wrap_chain_name(
-      ChainName,
-      emqx_map_lib:jsonable_map(emqx:get_config(Path))
-     ).
+        ChainName,
+        emqx_map_lib:jsonable_map(emqx:get_config(Path))
+    ).
 
 -spec authn(gateway_name(), binary()) -> map().
 authn(GwName, ListenerId) ->
@@ -183,9 +220,9 @@ authn(GwName, ListenerId) ->
     Path = [gateway, GwName, listeners, Type, Name, ?AUTHN],
     ChainName = emqx_gateway_utils:listener_chain(GwName, Type, Name),
     wrap_chain_name(
-      ChainName,
-      emqx_map_lib:jsonable_map(emqx:get_config(Path))
-     ).
+        ChainName,
+        emqx_map_lib:jsonable_map(emqx:get_config(Path))
+    ).
 
 wrap_chain_name(ChainName, Conf) ->
     case emqx_authentication:list_authenticators(ChainName) of
@@ -230,66 +267,92 @@ confexp({error, Reason}) -> error(Reason).
 %% Mgmt APIs - clients
 %%--------------------------------------------------------------------
 
--spec lookup_client(gateway_name(),
-                    emqx_types:clientid(), {module(), atom()}) -> list().
+-spec lookup_client(
+    gateway_name(),
+    emqx_types:clientid(),
+    {module(), atom()}
+) -> list().
 lookup_client(GwName, ClientId, {M, F}) ->
-    [begin
-         Info = emqx_gateway_cm:get_chan_info(GwName, ClientId, Pid),
-         Stats = emqx_gateway_cm:get_chan_stats(GwName, ClientId, Pid),
-         M:F({{ClientId, Pid}, Info, Stats})
-     end
-     || Pid <- emqx_gateway_cm:lookup_by_clientid(GwName, ClientId)].
+    [
+        begin
+            Info = emqx_gateway_cm:get_chan_info(GwName, ClientId, Pid),
+            Stats = emqx_gateway_cm:get_chan_stats(GwName, ClientId, Pid),
+            M:F({{ClientId, Pid}, Info, Stats})
+        end
+     || Pid <- emqx_gateway_cm:lookup_by_clientid(GwName, ClientId)
+    ].
 
--spec kickout_client(gateway_name(), emqx_types:clientid())
-    -> {error, any()}
-     | ok.
+-spec kickout_client(gateway_name(), emqx_types:clientid()) ->
+    {error, any()}
+    | ok.
 kickout_client(GwName, ClientId) ->
-    Results = [emqx_gateway_cm:kick_session(GwName, ClientId, Pid)
-               || Pid <- emqx_gateway_cm:lookup_by_clientid(GwName, ClientId)],
+    Results = [
+        emqx_gateway_cm:kick_session(GwName, ClientId, Pid)
+     || Pid <- emqx_gateway_cm:lookup_by_clientid(GwName, ClientId)
+    ],
     IsOk = lists:any(fun(Item) -> Item =:= ok end, Results),
     case {IsOk, Results} of
-        {true , _ } -> ok;
-        {_    , []} -> {error, not_found};
-        {false, _ } -> lists:last(Results)
+        {true, _} -> ok;
+        {_, []} -> {error, not_found};
+        {false, _} -> lists:last(Results)
     end.
 
--spec list_client_subscriptions(gateway_name(), emqx_types:clientid())
-    -> {error, any()}
-     | {ok, list()}.
+-spec list_client_subscriptions(gateway_name(), emqx_types:clientid()) ->
+    {error, any()}
+    | {ok, list()}.
 list_client_subscriptions(GwName, ClientId) ->
     case client_call(GwName, ClientId, subscriptions) of
-        {error, Reason} -> {error, Reason};
+        {error, Reason} ->
+            {error, Reason};
         {ok, Subs} ->
-            {ok, lists:map(fun({Topic, SubOpts}) ->
-                     SubOpts#{topic => Topic}
-                 end, Subs)}
+            {ok,
+                lists:map(
+                    fun({Topic, SubOpts}) ->
+                        SubOpts#{topic => Topic}
+                    end,
+                    Subs
+                )}
     end.
 
--spec client_subscribe(gateway_name(), emqx_types:clientid(),
-                       emqx_types:topic(), emqx_types:subopts())
-    -> {error, any()}
-     | {ok, {emqx_types:topic(), emqx_types:subopts()}}.
+-spec client_subscribe(
+    gateway_name(),
+    emqx_types:clientid(),
+    emqx_types:topic(),
+    emqx_types:subopts()
+) ->
+    {error, any()}
+    | {ok, {emqx_types:topic(), emqx_types:subopts()}}.
 client_subscribe(GwName, ClientId, Topic, SubOpts) ->
     client_call(GwName, ClientId, {subscribe, Topic, SubOpts}).
 
--spec client_unsubscribe(gateway_name(),
-                         emqx_types:clientid(), emqx_types:topic())
-    -> {error, any()}
-     | ok.
+-spec client_unsubscribe(
+    gateway_name(),
+    emqx_types:clientid(),
+    emqx_types:topic()
+) ->
+    {error, any()}
+    | ok.
 client_unsubscribe(GwName, ClientId, Topic) ->
     client_call(GwName, ClientId, {unsubscribe, Topic}).
 
 client_call(GwName, ClientId, Req) ->
-    try emqx_gateway_cm:call(
-          GwName, ClientId,
-          Req, ?DEFAULT_CALL_TIMEOUT) of
+    try
+        emqx_gateway_cm:call(
+            GwName,
+            ClientId,
+            Req,
+            ?DEFAULT_CALL_TIMEOUT
+        )
+    of
         undefined ->
             {error, not_found};
-        Res -> Res
-    catch throw : noproc ->
-              {error, not_found};
-          throw : {badrpc, Reason} ->
-              {error, {badrpc, Reason}}
+        Res ->
+            Res
+    catch
+        throw:noproc ->
+            {error, not_found};
+        throw:{badrpc, Reason} ->
+            {error, {badrpc, Reason}}
     end.
 
 %%--------------------------------------------------------------------
@@ -311,54 +374,88 @@ return_http_error(Code, Msg) ->
 
 -spec reason2msg({atom(), map()} | any()) -> error | string().
 reason2msg({badconf, #{key := Key, value := Value, reason := Reason}}) ->
-    NValue = case emqx_json:safe_encode(Value) of
-                 {ok, Str} -> Str;
-                 {error, _} -> emqx_gateway_utils:stringfy(Value)
-             end,
-    fmtstr("Bad config value '~s' for '~s', reason: ~s",
-           [NValue, Key, Reason]);
-reason2msg({badres, #{resource := gateway,
-                      gateway := GwName,
-                      reason := not_found}}) ->
+    NValue =
+        case emqx_json:safe_encode(Value) of
+            {ok, Str} -> Str;
+            {error, _} -> emqx_gateway_utils:stringfy(Value)
+        end,
+    fmtstr(
+        "Bad config value '~s' for '~s', reason: ~s",
+        [NValue, Key, Reason]
+    );
+reason2msg(
+    {badres, #{
+        resource := gateway,
+        gateway := GwName,
+        reason := not_found
+    }}
+) ->
     fmtstr("The ~s gateway is unloaded", [GwName]);
-
-reason2msg({badres, #{resource := gateway,
-                      gateway := GwName,
-                      reason := already_exist}}) ->
+reason2msg(
+    {badres, #{
+        resource := gateway,
+        gateway := GwName,
+        reason := already_exist
+    }}
+) ->
     fmtstr("The ~s gateway already loaded", [GwName]);
-
-reason2msg({badres, #{resource := listener,
-                      listener := {GwName, LType, LName},
-                      reason := not_found}}) ->
+reason2msg(
+    {badres, #{
+        resource := listener,
+        listener := {GwName, LType, LName},
+        reason := not_found
+    }}
+) ->
     fmtstr("Listener ~s not found", [listener_id(GwName, LType, LName)]);
-
-reason2msg({badres, #{resource := listener,
-                      listener := {GwName, LType, LName},
-                      reason := already_exist}}) ->
-    fmtstr("The listener ~s of ~s already exist",
-           [listener_id(GwName, LType, LName), GwName]);
-
-reason2msg({badres, #{resource := authn,
-                      gateway := GwName,
-                      reason := not_found}}) ->
+reason2msg(
+    {badres, #{
+        resource := listener,
+        listener := {GwName, LType, LName},
+        reason := already_exist
+    }}
+) ->
+    fmtstr(
+        "The listener ~s of ~s already exist",
+        [listener_id(GwName, LType, LName), GwName]
+    );
+reason2msg(
+    {badres, #{
+        resource := authn,
+        gateway := GwName,
+        reason := not_found
+    }}
+) ->
     fmtstr("The authentication not found on ~s", [GwName]);
-
-reason2msg({badres, #{resource := authn,
-                      gateway := GwName,
-                      reason := already_exist}}) ->
+reason2msg(
+    {badres, #{
+        resource := authn,
+        gateway := GwName,
+        reason := already_exist
+    }}
+) ->
     fmtstr("The authentication already exist on ~s", [GwName]);
-
-reason2msg({badres, #{resource := listener_authn,
-                      listener := {GwName, LType, LName},
-                      reason := not_found}}) ->
-    fmtstr("The authentication not found on ~s",
-           [listener_id(GwName, LType, LName)]);
-
-reason2msg({badres, #{resource := listener_authn,
-                      listener := {GwName, LType, LName},
-                      reason := already_exist}}) ->
-    fmtstr("The authentication already exist on ~s",
-           [listener_id(GwName, LType, LName)]);
+reason2msg(
+    {badres, #{
+        resource := listener_authn,
+        listener := {GwName, LType, LName},
+        reason := not_found
+    }}
+) ->
+    fmtstr(
+        "The authentication not found on ~s",
+        [listener_id(GwName, LType, LName)]
+    );
+reason2msg(
+    {badres, #{
+        resource := listener_authn,
+        listener := {GwName, LType, LName},
+        reason := already_exist
+    }}
+) ->
+    fmtstr(
+        "The authentication already exist on ~s",
+        [listener_id(GwName, LType, LName)]
+    );
 reason2msg(_) ->
     error.
 
@@ -389,10 +486,12 @@ with_listener_authn(GwName0, Id, Fun) ->
 -spec with_gateway(binary(), function()) -> any().
 with_gateway(GwName0, Fun) ->
     try
-        GwName = try
-                     binary_to_existing_atom(GwName0)
-                 catch _ : _ -> error(badname)
-                 end,
+        GwName =
+            try
+                binary_to_existing_atom(GwName0)
+            catch
+                _:_ -> error(badname)
+            end,
         case emqx_gateway:lookup(GwName) of
             undefined ->
                 return_http_error(404, "Gateway not load");
@@ -400,24 +499,26 @@ with_gateway(GwName0, Fun) ->
                 Fun(GwName, Gateway)
         end
     catch
-        error : badname ->
+        error:badname ->
             return_http_error(404, "Bad gateway name");
         %% Exceptions from: checks/2
-        error : {miss_param, K} ->
+        error:{miss_param, K} ->
             return_http_error(400, [K, " is required"]);
         %% Exceptions from emqx_gateway_utils:parse_listener_id/1
-        error : {invalid_listener_id, Id} ->
+        error:{invalid_listener_id, Id} ->
             return_http_error(400, ["invalid listener id: ", Id]);
         %% Exceptions from: emqx:get_config/1
-        error : {config_not_found, Path0} ->
+        error:{config_not_found, Path0} ->
             Path = lists:concat(
-                     lists:join(".", lists:map(fun to_list/1, Path0))),
+                lists:join(".", lists:map(fun to_list/1, Path0))
+            ),
             return_http_error(404, "Resource not found. path: " ++ Path);
-        Class : Reason : Stk ->
-            ?SLOG(error, #{ msg => "uncatched_error"
-                          , reason => {Class, Reason}
-                          , stacktrace => Stk
-                          }),
+        Class:Reason:Stk ->
+            ?SLOG(error, #{
+                msg => "uncatched_error",
+                reason => {Class, Reason},
+                stacktrace => Stk
+            }),
             reason2resp(Reason)
     end.
 
@@ -427,8 +528,7 @@ checks([], _) ->
 checks([K | Ks], Map) ->
     case maps:is_key(K, Map) of
         true -> checks(Ks, Map);
-        false ->
-            error({miss_param, K})
+        false -> error({miss_param, K})
     end.
 
 to_list(A) when is_atom(A) ->

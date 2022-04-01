@@ -44,17 +44,22 @@ paths() ->
     [?PREFIX ++ "/request"].
 
 schema(?PREFIX ++ "/request") ->
-    #{operationId => request,
-      post => #{ tags => [<<"gateway|coap">>]
-               , desc => <<"Send a CoAP request message to the client">>
-               , parameters => request_parameters()
-               , requestBody => request_body()
-               , responses => #{200 => coap_message(),
-                                404 => error_codes(['CLIENT_NOT_FOUND'], <<"Client not found error">>),
-                                504 => error_codes(['CLIENT_NOT_RESPONSE'], <<"Waiting for client response timeout">>)}
-               }
-     }.
-
+    #{
+        operationId => request,
+        post => #{
+            tags => [<<"gateway|coap">>],
+            desc => <<"Send a CoAP request message to the client">>,
+            parameters => request_parameters(),
+            requestBody => request_body(),
+            responses => #{
+                200 => coap_message(),
+                404 => error_codes(['CLIENT_NOT_FOUND'], <<"Client not found error">>),
+                504 => error_codes(
+                    ['CLIENT_NOT_RESPONSE'], <<"Waiting for client response timeout">>
+                )
+            }
+        }
+    }.
 
 request(post, #{body := Body, bindings := Bindings}) ->
     ClientId = maps:get(clientid, Bindings, undefined),
@@ -66,8 +71,12 @@ request(post, #{body := Body, bindings := Bindings}) ->
     CT = erlang:atom_to_binary(AtomCT),
     Payload2 = parse_payload(CT, Payload),
 
-    Msg = emqx_coap_message:request(con,
-                                    Method, Payload2, #{content_format => CT}),
+    Msg = emqx_coap_message:request(
+        con,
+        Method,
+        Payload2,
+        #{content_format => CT}
+    ),
 
     Msg2 = Msg#coap_message{token = Token},
 
@@ -78,7 +87,7 @@ request(post, #{body := Body, bindings := Bindings}) ->
             {404, #{code => 'CLIENT_NOT_FOUND'}};
         Response ->
             {200, format_to_response(CT, Response)}
-           end.
+    end.
 
 %%--------------------------------------------------------------------
 %%  Internal functions
@@ -87,42 +96,49 @@ request_parameters() ->
     [{clientid, mk(binary(), #{in => path, required => true})}].
 
 request_body() ->
-    [ {token, mk(binary(), #{desc => "message token, can be empty"})}
-    , {method, mk(enum([get, put, post, delete]), #{desc => "request method type"})}
-    , {timeout, mk(emqx_schema:duration_ms(), #{desc => "timespan for response"})}
-    , {content_type, mk(enum(['text/plain', 'application/json', 'application/octet-stream']),
-                        #{desc => "payload type"})}
-    , {payload, mk(binary(), #{desc => "the content of the payload"})}
+    [
+        {token, mk(binary(), #{desc => "message token, can be empty"})},
+        {method, mk(enum([get, put, post, delete]), #{desc => "request method type"})},
+        {timeout, mk(emqx_schema:duration_ms(), #{desc => "timespan for response"})},
+        {content_type,
+            mk(
+                enum(['text/plain', 'application/json', 'application/octet-stream']),
+                #{desc => "payload type"}
+            )},
+        {payload, mk(binary(), #{desc => "the content of the payload"})}
     ].
 
 coap_message() ->
-    [ {id, mk(integer(), #{desc => "message id"})}
-    , {token, mk(string(), #{desc => "message token, can be empty"})}
-    , {method, mk(string(), #{desc => "response code"})}
-    , {payload, mk(string(), #{desc => "payload"})}
+    [
+        {id, mk(integer(), #{desc => "message id"})},
+        {token, mk(string(), #{desc => "message token, can be empty"})},
+        {method, mk(string(), #{desc => "response code"})},
+        {payload, mk(string(), #{desc => "payload"})}
     ].
 
-format_to_response(ContentType, #coap_message{id = Id,
-                                              token = Token,
-                                              method = Method,
-                                              payload = Payload}) ->
-    #{id => Id,
-      token => Token,
-      method => format_to_binary(Method),
-      payload => format_payload(ContentType, Payload)}.
+format_to_response(ContentType, #coap_message{
+    id = Id,
+    token = Token,
+    method = Method,
+    payload = Payload
+}) ->
+    #{
+        id => Id,
+        token => Token,
+        method => format_to_binary(Method),
+        payload => format_payload(ContentType, Payload)
+    }.
 
 format_to_binary(Obj) ->
     erlang:list_to_binary(io_lib:format("~p", [Obj])).
 
 format_payload(<<"application/octet-stream">>, Payload) ->
     base64:encode(Payload);
-
 format_payload(_, Payload) ->
     Payload.
 
 parse_payload(<<"application/octet-stream">>, Body) ->
     base64:decode(Body);
-
 parse_payload(_, Body) ->
     Body.
 
@@ -140,10 +156,13 @@ call_client(ClientId, Msg, Timeout) ->
             _ ->
                 not_found
         end
-    catch _:Error:Trace ->
-            ?SLOG(warning, #{msg => "coap_client_call_exception",
-                             clientid => ClientId,
-                             error => Error,
-                             stacktrace => Trace}),
+    catch
+        _:Error:Trace ->
+            ?SLOG(warning, #{
+                msg => "coap_client_call_exception",
+                clientid => ClientId,
+                error => Error,
+                stacktrace => Trace
+            }),
             not_found
     end.

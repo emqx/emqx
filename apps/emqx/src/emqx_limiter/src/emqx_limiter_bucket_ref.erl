@@ -21,57 +21,74 @@
 %% @end
 
 %% API
--export([ new/3, check/3, try_restore/2
-        , available/1]).
+-export([
+    new/3,
+    check/3,
+    try_restore/2,
+    available/1
+]).
 
 -export_type([bucket_ref/0]).
 
 -type infinity_bucket_ref() :: infinity.
--type finite_bucket_ref() :: #{ counter := counters:counters_ref()
-                              , index := index()
-                              , rate := rate()}.
+-type finite_bucket_ref() :: #{
+    counter := counters:counters_ref(),
+    index := index(),
+    rate := rate()
+}.
 
--type bucket_ref() :: infinity_bucket_ref()
-                    | finite_bucket_ref().
+-type bucket_ref() ::
+    infinity_bucket_ref()
+    | finite_bucket_ref().
 
 -type index() :: emqx_limiter_server:index().
 -type rate() :: emqx_limiter_decimal:decimal().
 -type check_failure_type() :: partial | pause.
 
+-elvis([{elvis_style, no_if_expression, disable}]).
+
 %%--------------------------------------------------------------------
 %%  API
 %%--------------------------------------------------------------------
--spec new(undefined | counters:countres_ref(),
-          undefined | index(),
-          rate()) -> bucket_ref().
+-spec new(
+    undefined | counters:countres_ref(),
+    undefined | index(),
+    rate()
+) -> bucket_ref().
 new(undefined, _, _) ->
     infinity;
-
 new(Counter, Index, Rate) ->
-    #{counter => Counter,
-      index => Index,
-      rate => Rate}.
+    #{
+        counter => Counter,
+        index => Index,
+        rate => Rate
+    }.
 
 %% @doc check tokens
 -spec check(pos_integer(), bucket_ref(), Disivisble :: boolean()) ->
-          HasToken :: {ok, emqx_limiter_decimal:decimal()}
-                    | {check_failure_type(), rate(), pos_integer()}.
+    HasToken ::
+        {ok, emqx_limiter_decimal:decimal()}
+        | {check_failure_type(), rate(), pos_integer()}.
 check(_, infinity, _) ->
     {ok, infinity};
-
-check(Need,
-      #{counter := Counter,
+check(
+    Need,
+    #{
+        counter := Counter,
         index := Index,
-        rate := Rate},
-      Divisible)->
+        rate := Rate
+    },
+    Divisible
+) ->
     RefToken = counters:get(Counter, Index),
-    if RefToken >= Need ->
+    if
+        RefToken >= Need ->
             counters:sub(Counter, Index, Need),
             {ok, RefToken - Need};
-       Divisible andalso RefToken > 0 ->
+        Divisible andalso RefToken > 0 ->
             counters:sub(Counter, Index, RefToken),
             {partial, Rate, RefToken};
-       true ->
+        true ->
             {pause, Rate, 0}
     end.
 
@@ -93,7 +110,6 @@ try_restore(Inc, #{counter := Counter, index := Index}) ->
 -spec available(bucket_ref()) -> emqx_limiter_decimal:decimal().
 available(#{counter := Counter, index := Index}) ->
     counters:get(Counter, Index);
-
 available(infinity) ->
     infinity.
 

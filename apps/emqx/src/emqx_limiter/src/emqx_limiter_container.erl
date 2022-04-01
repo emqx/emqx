@@ -21,21 +21,31 @@
 %% @end
 
 %% API
--export([ new/0, new/1, new/2, get_limiter_by_names/2
-        , add_new/3, update_by_name/3, set_retry_context/2
-        , check/3, retry/2, get_retry_context/1
-        , check_list/2, retry_list/2
-        ]).
+-export([
+    new/0, new/1, new/2,
+    get_limiter_by_names/2,
+    add_new/3,
+    update_by_name/3,
+    set_retry_context/2,
+    check/3,
+    retry/2,
+    get_retry_context/1,
+    check_list/2,
+    retry_list/2
+]).
 
 -export_type([container/0, check_result/0]).
 
--type container() :: #{ limiter_type() => undefined | limiter()
-                        %% the retry context of the limiter
-                      , retry_key() => undefined
-                      | retry_context()
-                      | future()
-                      , retry_ctx := undefined | any()  %% the retry context of the container
-                      }.
+-type container() :: #{
+    limiter_type() => undefined | limiter(),
+    %% the retry context of the limiter
+    retry_key() =>
+        undefined
+        | retry_context()
+        | future(),
+    %% the retry context of the container
+    retry_ctx := undefined | any()
+}.
 
 -type future() :: pos_integer().
 -type limiter_type() :: emqx_limiter_schema:limiter_type().
@@ -43,9 +53,10 @@
 -type retry_context() :: emqx_htb_limiter:retry_context().
 -type bucket_name() :: emqx_limiter_schema:bucket_name().
 -type millisecond() :: non_neg_integer().
--type check_result() :: {ok, container()}
-                      | {drop, container()}
-                      | {pause, millisecond(), container()}.
+-type check_result() ::
+    {ok, container()}
+    | {drop, container()}
+    | {pause, millisecond(), container()}.
 
 -define(RETRY_KEY(Type), {retry, Type}).
 -type retry_key() :: ?RETRY_KEY(limiter_type()).
@@ -62,36 +73,43 @@ new() ->
 new(Types) ->
     new(Types, #{}).
 
--spec new(list(limiter_type()),
-          #{limiter_type() => emqx_limiter_schema:bucket_name()}) -> container().
+-spec new(
+    list(limiter_type()),
+    #{limiter_type() => emqx_limiter_schema:bucket_name()}
+) -> container().
 new(Types, Names) ->
     get_limiter_by_names(Types, Names).
 
 %% @doc generate a container
 %% according to the type of limiter and the bucket name configuration of the limiter
 %% @end
--spec get_limiter_by_names(list(limiter_type()),
-                           #{limiter_type() => emqx_limiter_schema:bucket_name()}) -> container().
+-spec get_limiter_by_names(
+    list(limiter_type()),
+    #{limiter_type() => emqx_limiter_schema:bucket_name()}
+) -> container().
 get_limiter_by_names(Types, BucketNames) ->
     Init = fun(Type, Acc) ->
-                   Limiter = emqx_limiter_server:connect(Type, BucketNames),
-                   add_new(Type, Limiter, Acc)
-           end,
+        Limiter = emqx_limiter_server:connect(Type, BucketNames),
+        add_new(Type, Limiter, Acc)
+    end,
     lists:foldl(Init, #{retry_ctx => undefined}, Types).
 
 %% @doc add the specified type of limiter to the container
--spec update_by_name(limiter_type(),
-                     bucket_name() | #{limiter_type() => bucket_name()},
-                     container()) -> container().
+-spec update_by_name(
+    limiter_type(),
+    bucket_name() | #{limiter_type() => bucket_name()},
+    container()
+) -> container().
 update_by_name(Type, Buckets, Container) ->
     Limiter = emqx_limiter_server:connect(Type, Buckets),
     add_new(Type, Limiter, Container).
 
 -spec add_new(limiter_type(), limiter(), container()) -> container().
 add_new(Type, Limiter, Container) ->
-    Container#{ Type => Limiter
-              , ?RETRY_KEY(Type) => undefined
-              }.
+    Container#{
+        Type => Limiter,
+        ?RETRY_KEY(Type) => undefined
+    }.
 
 %% @doc check the specified limiter
 -spec check(pos_integer(), limiter_type(), container()) -> check_result().
@@ -107,18 +125,21 @@ check_list([{Need, Type} | T], Container) ->
             check_list(T, Container#{Type := Limiter2});
         {_, PauseMs, Ctx, Limiter2} ->
             Fun = fun({FN, FT}, Acc) ->
-                          Future = emqx_htb_limiter:make_future(FN),
-                          Acc#{?RETRY_KEY(FT) := Future}
-                  end,
-            C2 = lists:foldl(Fun,
-                             Container#{Type := Limiter2,
-                                        ?RETRY_KEY(Type) := Ctx},
-                             T),
+                Future = emqx_htb_limiter:make_future(FN),
+                Acc#{?RETRY_KEY(FT) := Future}
+            end,
+            C2 = lists:foldl(
+                Fun,
+                Container#{
+                    Type := Limiter2,
+                    ?RETRY_KEY(Type) := Ctx
+                },
+                T
+            ),
             {pause, PauseMs, C2};
         {drop, Limiter2} ->
             {drop, Container#{Type := Limiter2}}
     end;
-
 check_list([], Container) ->
     {ok, Container}.
 
@@ -132,24 +153,23 @@ retry(Type, Container) ->
 retry_list([Type | T], Container) ->
     Key = ?RETRY_KEY(Type),
     case Container of
-        #{Type := Limiter,
-          Key := Retry} when Retry =/= undefined ->
+        #{
+            Type := Limiter,
+            Key := Retry
+        } when Retry =/= undefined ->
             case emqx_htb_limiter:check(Retry, Limiter) of
                 {ok, Limiter2} ->
                     %% undefined meaning there is no retry context or there is no need to retry
                     %% when a limiter has a undefined retry context, the check will always success
                     retry_list(T, Container#{Type := Limiter2, Key := undefined});
                 {_, PauseMs, Ctx, Limiter2} ->
-                    {pause,
-                     PauseMs,
-                     Container#{Type := Limiter2, Key := Ctx}};
+                    {pause, PauseMs, Container#{Type := Limiter2, Key := Ctx}};
                 {drop, Limiter2} ->
                     {drop, Container#{Type := Limiter2}}
             end;
         _ ->
             retry_list(T, Container)
     end;
-
 retry_list([], Container) ->
     {ok, Container}.
 

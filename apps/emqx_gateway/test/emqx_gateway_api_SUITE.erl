@@ -19,12 +19,15 @@
 -compile(export_all).
 -compile(nowarn_export_all).
 
--import(emqx_gateway_test_utils,
-        [ assert_confs/2
-        , assert_feilds_apperence/2
-        , request/2
-        , request/3
-        ]).
+-import(
+    emqx_gateway_test_utils,
+    [
+        assert_confs/2,
+        assert_feilds_apperence/2,
+        request/2,
+        request/3
+    ]
+).
 
 -include_lib("eunit/include/eunit.hrl").
 
@@ -53,14 +56,16 @@ end_per_suite(Conf) ->
 %%--------------------------------------------------------------------
 
 t_gateway(_) ->
-    {200, Gateways}= request(get, "/gateway"),
+    {200, Gateways} = request(get, "/gateway"),
     lists:foreach(fun assert_gw_unloaded/1, Gateways),
     {400, BadReq} = request(get, "/gateway/uname_gateway"),
     assert_bad_request(BadReq),
     {201, _} = request(post, "/gateway", #{name => <<"stomp">>}),
     {200, StompGw1} = request(get, "/gateway/stomp"),
-    assert_feilds_apperence([name, status, enable, created_at, started_at],
-                            StompGw1),
+    assert_feilds_apperence(
+        [name, status, enable, created_at, started_at],
+        StompGw1
+    ),
     {204, _} = request(delete, "/gateway/stomp"),
     {200, StompGw2} = request(get, "/gateway/stomp"),
     assert_gw_unloaded(StompGw2),
@@ -70,15 +75,17 @@ t_gateway_stomp(_) ->
     {200, Gw} = request(get, "/gateway/stomp"),
     assert_gw_unloaded(Gw),
     %% post
-    GwConf = #{name => <<"stomp">>,
-               frame => #{max_headers => 5,
-                          max_headers_length => 100,
-                          max_body_length => 100
-                         },
-               listeners => [
-                  #{name => <<"def">>, type => <<"tcp">>, bind => <<"61613">>}
-                ]
-              },
+    GwConf = #{
+        name => <<"stomp">>,
+        frame => #{
+            max_headers => 5,
+            max_headers_length => 100,
+            max_body_length => 100
+        },
+        listeners => [
+            #{name => <<"def">>, type => <<"tcp">>, bind => <<"61613">>}
+        ]
+    },
     {201, _} = request(post, "/gateway", GwConf),
     {200, ConfResp} = request(get, "/gateway/stomp"),
     assert_confs(GwConf, ConfResp),
@@ -93,15 +100,16 @@ t_gateway_mqttsn(_) ->
     {200, Gw} = request(get, "/gateway/mqttsn"),
     assert_gw_unloaded(Gw),
     %% post
-    GwConf = #{name => <<"mqttsn">>,
-               gateway_id => 1,
-               broadcast => true,
-               predefined => [#{id => 1, topic => <<"t/a">>}],
-               enable_qos3 => true,
-               listeners => [
-                  #{name => <<"def">>, type => <<"udp">>, bind => <<"1884">>}
-                ]
-              },
+    GwConf = #{
+        name => <<"mqttsn">>,
+        gateway_id => 1,
+        broadcast => true,
+        predefined => [#{id => 1, topic => <<"t/a">>}],
+        enable_qos3 => true,
+        listeners => [
+            #{name => <<"def">>, type => <<"udp">>, bind => <<"1884">>}
+        ]
+    },
     {201, _} = request(post, "/gateway", GwConf),
     {200, ConfResp} = request(get, "/gateway/mqttsn"),
     assert_confs(GwConf, ConfResp),
@@ -116,13 +124,14 @@ t_gateway_coap(_) ->
     {200, Gw} = request(get, "/gateway/coap"),
     assert_gw_unloaded(Gw),
     %% post
-    GwConf = #{name => <<"coap">>,
-               heartbeat => <<"60s">>,
-               connection_required => true,
-               listeners => [
-                  #{name => <<"def">>, type => <<"udp">>, bind => <<"5683">>}
-                ]
-              },
+    GwConf = #{
+        name => <<"coap">>,
+        heartbeat => <<"60s">>,
+        connection_required => true,
+        listeners => [
+            #{name => <<"def">>, type => <<"udp">>, bind => <<"5683">>}
+        ]
+    },
     {201, _} = request(post, "/gateway", GwConf),
     {200, ConfResp} = request(get, "/gateway/coap"),
     assert_confs(GwConf, ConfResp),
@@ -137,23 +146,24 @@ t_gateway_lwm2m(_) ->
     {200, Gw} = request(get, "/gateway/lwm2m"),
     assert_gw_unloaded(Gw),
     %% post
-    GwConf = #{name => <<"lwm2m">>,
-               xml_dir => <<"../../lib/emqx_gateway/src/lwm2m/lwm2m_xml">>,
-               lifetime_min => <<"1s">>,
-               lifetime_max => <<"1000s">>,
-               qmode_time_window => <<"30s">>,
-               auto_observe => true,
-               translators => #{
-                 command =>  #{ topic => <<"dn/#">>},
-                 response => #{ topic => <<"up/resp">>},
-                 notify =>   #{ topic => <<"up/resp">>},
-                 register => #{ topic => <<"up/resp">>},
-                 update =>   #{ topic => <<"up/resp">>}
-               },
-               listeners => [
-                  #{name => <<"def">>, type => <<"udp">>, bind => <<"5783">>}
-                ]
-              },
+    GwConf = #{
+        name => <<"lwm2m">>,
+        xml_dir => <<"../../lib/emqx_gateway/src/lwm2m/lwm2m_xml">>,
+        lifetime_min => <<"1s">>,
+        lifetime_max => <<"1000s">>,
+        qmode_time_window => <<"30s">>,
+        auto_observe => true,
+        translators => #{
+            command => #{topic => <<"dn/#">>},
+            response => #{topic => <<"up/resp">>},
+            notify => #{topic => <<"up/resp">>},
+            register => #{topic => <<"up/resp">>},
+            update => #{topic => <<"up/resp">>}
+        },
+        listeners => [
+            #{name => <<"def">>, type => <<"udp">>, bind => <<"5783">>}
+        ]
+    },
     {201, _} = request(post, "/gateway", GwConf),
     {200, ConfResp} = request(get, "/gateway/lwm2m"),
     assert_confs(GwConf, ConfResp),
@@ -168,13 +178,14 @@ t_gateway_exproto(_) ->
     {200, Gw} = request(get, "/gateway/exproto"),
     assert_gw_unloaded(Gw),
     %% post
-    GwConf = #{name => <<"exproto">>,
-               server => #{bind => <<"9100">>},
-               handler => #{address => <<"http://127.0.0.1:9001">>},
-               listeners => [
-                  #{name => <<"def">>, type => <<"tcp">>, bind => <<"7993">>}
-                ]
-              },
+    GwConf = #{
+        name => <<"exproto">>,
+        server => #{bind => <<"9100">>},
+        handler => #{address => <<"http://127.0.0.1:9001">>},
+        listeners => [
+            #{name => <<"def">>, type => <<"tcp">>, bind => <<"7993">>}
+        ]
+    },
     {201, _} = request(post, "/gateway", GwConf),
     {200, ConfResp} = request(get, "/gateway/exproto"),
     assert_confs(GwConf, ConfResp),
@@ -190,10 +201,11 @@ t_authn(_) ->
     {201, _} = request(post, "/gateway", GwConf),
     {204, _} = request(get, "/gateway/stomp/authentication"),
 
-    AuthConf = #{mechanism => <<"password_based">>,
-                 backend => <<"built_in_database">>,
-                 user_id_type => <<"clientid">>
-                },
+    AuthConf = #{
+        mechanism => <<"password_based">>,
+        backend => <<"built_in_database">>,
+        user_id_type => <<"clientid">>
+    },
     {201, _} = request(post, "/gateway/stomp/authentication", AuthConf),
     {200, ConfResp} = request(get, "/gateway/stomp/authentication"),
     assert_confs(AuthConf, ConfResp),
@@ -213,40 +225,52 @@ t_authn_data_mgmt(_) ->
     {201, _} = request(post, "/gateway", GwConf),
     {204, _} = request(get, "/gateway/stomp/authentication"),
 
-    AuthConf = #{mechanism => <<"password_based">>,
-                 backend => <<"built_in_database">>,
-                 user_id_type => <<"clientid">>
-                },
+    AuthConf = #{
+        mechanism => <<"password_based">>,
+        backend => <<"built_in_database">>,
+        user_id_type => <<"clientid">>
+    },
     {201, _} = request(post, "/gateway/stomp/authentication", AuthConf),
     {200, ConfResp} = request(get, "/gateway/stomp/authentication"),
     assert_confs(AuthConf, ConfResp),
 
-    User1 = #{ user_id => <<"test">>
-             , password => <<"123456">>
-             , is_superuser => false
-             },
+    User1 = #{
+        user_id => <<"test">>,
+        password => <<"123456">>,
+        is_superuser => false
+    },
     {201, _} = request(post, "/gateway/stomp/authentication/users", User1),
     {200, #{data := [UserRespd1]}} = request(get, "/gateway/stomp/authentication/users"),
     assert_confs(UserRespd1, User1),
 
-    {200, UserRespd2} = request(get,
-                                "/gateway/stomp/authentication/users/test"),
+    {200, UserRespd2} = request(
+        get,
+        "/gateway/stomp/authentication/users/test"
+    ),
     assert_confs(UserRespd2, User1),
 
-    {200, UserRespd3} = request(put,
-                                "/gateway/stomp/authentication/users/test",
-                                #{password => <<"654321">>,
-                                  is_superuser => true}),
+    {200, UserRespd3} = request(
+        put,
+        "/gateway/stomp/authentication/users/test",
+        #{
+            password => <<"654321">>,
+            is_superuser => true
+        }
+    ),
     assert_confs(UserRespd3, User1#{is_superuser => true}),
 
-    {200, UserRespd4} = request(get,
-                                "/gateway/stomp/authentication/users/test"),
+    {200, UserRespd4} = request(
+        get,
+        "/gateway/stomp/authentication/users/test"
+    ),
     assert_confs(UserRespd4, User1#{is_superuser => true}),
 
     {204, _} = request(delete, "/gateway/stomp/authentication/users/test"),
 
-    {200, #{data := []}} = request(get,
-                                   "/gateway/stomp/authentication/users"),
+    {200, #{data := []}} = request(
+        get,
+        "/gateway/stomp/authentication/users"
+    ),
 
     {204, _} = request(delete, "/gateway/stomp/authentication"),
     {204, _} = request(get, "/gateway/stomp/authentication"),
@@ -256,10 +280,11 @@ t_listeners(_) ->
     GwConf = #{name => <<"stomp">>},
     {201, _} = request(post, "/gateway", GwConf),
     {404, _} = request(get, "/gateway/stomp/listeners"),
-    LisConf = #{name => <<"def">>,
-                type => <<"tcp">>,
-                bind => <<"61613">>
-               },
+    LisConf = #{
+        name => <<"def">>,
+        type => <<"tcp">>,
+        bind => <<"61613">>
+    },
     {201, _} = request(post, "/gateway/stomp/listeners", LisConf),
     {200, ConfResp} = request(get, "/gateway/stomp/listeners"),
     assert_confs([LisConf], ConfResp),
@@ -268,10 +293,10 @@ t_listeners(_) ->
 
     LisConf2 = maps:merge(LisConf, #{bind => <<"61614">>}),
     {200, _} = request(
-                 put,
-                 "/gateway/stomp/listeners/stomp:tcp:def",
-                 LisConf2
-                ),
+        put,
+        "/gateway/stomp/listeners/stomp:tcp:def",
+        LisConf2
+    ),
 
     {200, ConfResp2} = request(get, "/gateway/stomp/listeners/stomp:tcp:def"),
     assert_confs(LisConf2, ConfResp2),
@@ -281,20 +306,25 @@ t_listeners(_) ->
     {204, _} = request(delete, "/gateway/stomp").
 
 t_listeners_authn(_) ->
-    GwConf = #{name => <<"stomp">>,
-               listeners => [
-                 #{name => <<"def">>,
-                   type => <<"tcp">>,
-                   bind => <<"61613">>
-                  }]},
+    GwConf = #{
+        name => <<"stomp">>,
+        listeners => [
+            #{
+                name => <<"def">>,
+                type => <<"tcp">>,
+                bind => <<"61613">>
+            }
+        ]
+    },
     {201, _} = request(post, "/gateway", GwConf),
     {200, ConfResp} = request(get, "/gateway/stomp"),
     assert_confs(GwConf, ConfResp),
 
-    AuthConf = #{mechanism => <<"password_based">>,
-                 backend => <<"built_in_database">>,
-                 user_id_type => <<"clientid">>
-                },
+    AuthConf = #{
+        mechanism => <<"password_based">>,
+        backend => <<"built_in_database">>,
+        user_id_type => <<"clientid">>
+    },
     Path = "/gateway/stomp/listeners/stomp:tcp:def/authentication",
     {201, _} = request(post, Path, AuthConf),
     {200, ConfResp2} = request(get, Path),
@@ -312,62 +342,75 @@ t_listeners_authn(_) ->
     {204, _} = request(delete, "/gateway/stomp").
 
 t_listeners_authn_data_mgmt(_) ->
-    GwConf = #{name => <<"stomp">>,
-               listeners => [
-                 #{name => <<"def">>,
-                   type => <<"tcp">>,
-                   bind => <<"61613">>
-                  }]},
+    GwConf = #{
+        name => <<"stomp">>,
+        listeners => [
+            #{
+                name => <<"def">>,
+                type => <<"tcp">>,
+                bind => <<"61613">>
+            }
+        ]
+    },
     {201, _} = request(post, "/gateway", GwConf),
     {200, ConfResp} = request(get, "/gateway/stomp"),
     assert_confs(GwConf, ConfResp),
 
-    AuthConf = #{mechanism => <<"password_based">>,
-                 backend => <<"built_in_database">>,
-                 user_id_type => <<"clientid">>
-                },
+    AuthConf = #{
+        mechanism => <<"password_based">>,
+        backend => <<"built_in_database">>,
+        user_id_type => <<"clientid">>
+    },
     Path = "/gateway/stomp/listeners/stomp:tcp:def/authentication",
     {201, _} = request(post, Path, AuthConf),
     {200, ConfResp2} = request(get, Path),
     assert_confs(AuthConf, ConfResp2),
 
-    User1 = #{ user_id => <<"test">>
-             , password => <<"123456">>
-             , is_superuser => false
-             },
-    {201, _} = request(post,
-                       "/gateway/stomp/listeners/stomp:tcp:def/authentication/users",
-                       User1),
+    User1 = #{
+        user_id => <<"test">>,
+        password => <<"123456">>,
+        is_superuser => false
+    },
+    {201, _} = request(
+        post,
+        "/gateway/stomp/listeners/stomp:tcp:def/authentication/users",
+        User1
+    ),
 
-    {200,
-     #{data := [UserRespd1]} } = request(
-                                   get,
-                                   Path ++ "/users"),
+    {200, #{data := [UserRespd1]}} = request(
+        get,
+        Path ++ "/users"
+    ),
     assert_confs(UserRespd1, User1),
 
     {200, UserRespd2} = request(
-                          get,
-                          Path ++ "/users/test"),
+        get,
+        Path ++ "/users/test"
+    ),
     assert_confs(UserRespd2, User1),
 
     {200, UserRespd3} = request(
-                          put,
-                          Path ++ "/users/test",
-                          #{password => <<"654321">>, is_superuser => true}),
+        put,
+        Path ++ "/users/test",
+        #{password => <<"654321">>, is_superuser => true}
+    ),
     assert_confs(UserRespd3, User1#{is_superuser => true}),
 
     {200, UserRespd4} = request(
-                          get,
-                          Path ++ "/users/test"),
+        get,
+        Path ++ "/users/test"
+    ),
     assert_confs(UserRespd4, User1#{is_superuser => true}),
 
     {204, _} = request(
-                 delete,
-                 Path ++ "/users/test"),
+        delete,
+        Path ++ "/users/test"
+    ),
 
     {200, #{data := []}} = request(
-                             get,
-                             Path ++ "/users"),
+        get,
+        Path ++ "/users"
+    ),
     {204, _} = request(delete, "/gateway/stomp").
 
 %%--------------------------------------------------------------------

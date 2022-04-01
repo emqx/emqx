@@ -17,13 +17,15 @@
 %% the transport state machine manager
 -module(emqx_coap_tm).
 
--export([ new/0
-        , handle_request/2
-        , handle_response/2
-        , handle_out/2
-        , handle_out/3
-        , set_reply/2
-        , timeout/2]).
+-export([
+    new/0,
+    handle_request/2,
+    handle_response/2,
+    handle_out/2,
+    handle_out/3,
+    set_reply/2,
+    timeout/2
+]).
 
 -export_type([manager/0, event_result/1]).
 
@@ -32,41 +34,47 @@
 
 -type direction() :: in | out.
 
--record(state_machine, { seq_id :: seq_id()
-                       , id :: state_machine_key()
-                       , token :: token() | undefined
-                       , observe :: 0 | 1 | undefined | observed
-                       , state :: atom()
-                       , timers :: maps:map()
-                       , transport :: emqx_coap_transport:transport()}).
+-record(state_machine, {
+    seq_id :: seq_id(),
+    id :: state_machine_key(),
+    token :: token() | undefined,
+    observe :: 0 | 1 | undefined | observed,
+    state :: atom(),
+    timers :: maps:map(),
+    transport :: emqx_coap_transport:transport()
+}).
 -type state_machine() :: #state_machine{}.
 
--type message_id() :: 0 .. ?MAX_MESSAGE_ID.
+-type message_id() :: 0..?MAX_MESSAGE_ID.
 -type token_key() :: {token, token()}.
 -type state_machine_key() :: {direction(), message_id()}.
 -type seq_id() :: pos_integer().
 -type manager_key() :: token_key() | state_machine_key() | seq_id().
 
--type manager() :: #{ seq_id => seq_id()
-                    , next_msg_id => coap_message_id()
-                    , token_key() => seq_id()
-                    , state_machine_key() => seq_id()
-                    , seq_id() => state_machine()
-                    }.
+-type manager() :: #{
+    seq_id => seq_id(),
+    next_msg_id => coap_message_id(),
+    token_key() => seq_id(),
+    state_machine_key() => seq_id(),
+    seq_id() => state_machine()
+}.
 
--type ttimeout() :: {state_timeout, pos_integer(), any()}
-                  | {stop_timeout, pos_integer()}.
+-type ttimeout() ::
+    {state_timeout, pos_integer(), any()}
+    | {stop_timeout, pos_integer()}.
 
 -type topic() :: binary().
 -type token() :: binary().
 -type sub_register() :: {topic(), token()} | topic().
 
 -type event_result(State) ::
-        #{next => State,
-          outgoing => coap_message(),
-          timeouts => list(ttimeout()),
-          has_sub  => undefined | sub_register(),
-          transport => emqx_coap_transport:transport()}.
+    #{
+        next => State,
+        outgoing => coap_message(),
+        timeouts => list(ttimeout()),
+        has_sub => undefined | sub_register(),
+        transport => emqx_coap_transport:transport()
+    }.
 
 -define(TOKEN_ID(T), {token, T}).
 
@@ -78,9 +86,10 @@
 
 -spec new() -> manager().
 new() ->
-    #{ seq_id => 1
-     , next_msg_id => rand:uniform(?MAX_MESSAGE_ID)
-     }.
+    #{
+        seq_id => 1,
+        next_msg_id => rand:uniform(?MAX_MESSAGE_ID)
+    }.
 
 handle_request(#coap_message{id = MsgId} = Msg, TM) ->
     Id = {in, MsgId},
@@ -111,7 +120,6 @@ handle_response(#coap_message{type = Type, id = MsgId, token = Token} = Msg, TM)
 %% send to a client, msg can be request/piggyback/separate/notify
 handle_out({Ctx, Msg}, TM) ->
     handle_out(Msg, Ctx, TM);
-
 handle_out(Msg, TM) ->
     handle_out(Msg, undefined, TM).
 
@@ -135,8 +143,10 @@ set_reply(#coap_message{id = MsgId} = Msg, TM) ->
     case find_machine(Id, TM) of
         undefined ->
             TM;
-        #state_machine{transport = Transport,
-                       seq_id = SeqId} = Machine ->
+        #state_machine{
+            transport = Transport,
+            seq_id = SeqId
+        } = Machine ->
             Transport2 = emqx_coap_transport:set_cache(Msg, Transport),
             Machine2 = Machine#state_machine{transport = Transport2},
             TM#{SeqId => Machine2}
@@ -161,35 +171,52 @@ timeout({SeqId, Type, Msg}, TM) ->
 %%--------------------------------------------------------------------
 process_event(stop_timeout, _, TM, Machine) ->
     process_manager(stop, #{}, Machine, TM);
-
-process_event(Event, Msg, TM, #state_machine{state = State,
-                                             transport = Transport} = Machine) ->
+process_event(
+    Event,
+    Msg,
+    TM,
+    #state_machine{
+        state = State,
+        transport = Transport
+    } = Machine
+) ->
     Result = emqx_coap_transport:State(Event, Msg, Transport),
-    iter([ proto, fun process_observe_response/5
-         , next, fun process_state_change/5
-         , transport, fun process_transport_change/5
-         , timeouts, fun process_timeouts/5
-         , fun process_manager/4],
-         Result,
-         Machine,
-         TM).
+    iter(
+        [
+            proto,
+            fun process_observe_response/5,
+            next,
+            fun process_state_change/5,
+            transport,
+            fun process_transport_change/5,
+            timeouts,
+            fun process_timeouts/5,
+            fun process_manager/4
+        ],
+        Result,
+        Machine,
+        TM
+    ).
 
-process_observe_response({response, {_, Msg}} = Response,
-                         Result,
-                         #state_machine{observe = 0} = Machine,
-                         TM,
-                         Iter) ->
+process_observe_response(
+    {response, {_, Msg}} = Response,
+    Result,
+    #state_machine{observe = 0} = Machine,
+    TM,
+    Iter
+) ->
     Result2 = proto_out(Response, Result),
     case Msg#coap_message.method of
         {ok, _} ->
-            iter(Iter,
-                 Result2#{next => observe},
-                 Machine#state_machine{observe = observed},
-                 TM);
+            iter(
+                Iter,
+                Result2#{next => observe},
+                Machine#state_machine{observe = observed},
+                TM
+            );
         _ ->
             iter(Iter, Result2, Machine, TM)
     end;
-
 process_observe_response(Proto, Result, Machine, TM, Iter) ->
     iter(Iter, proto_out(Proto, Result), Machine, TM).
 
@@ -198,10 +225,12 @@ process_state_change(Next, Result, Machine, TM, Iter) ->
         stop ->
             process_manager(stop, Result, Machine, TM);
         _ ->
-            iter(Iter,
-                 Result,
-                 cancel_state_timer(Machine#state_machine{state = Next}),
-                 TM)
+            iter(
+                Iter,
+                Result,
+                cancel_state_timer(Machine#state_machine{state = Next}),
+                TM
+            )
     end.
 
 process_transport_change(Transport, Result, Machine, TM, Iter) ->
@@ -209,22 +238,30 @@ process_transport_change(Transport, Result, Machine, TM, Iter) ->
 
 process_timeouts([], Result, Machine, TM, Iter) ->
     iter(Iter, Result, Machine, TM);
-
-process_timeouts(Timeouts, Result,
-                 #state_machine{seq_id = SeqId,
-                                timers = Timers} = Machine, TM, Iter) ->
-    NewTimers = lists:foldl(fun({state_timeout, _, _} = Timer, Acc) ->
-                                    process_timer(SeqId, Timer, Acc);
-                               ({stop_timeout, I}, Acc) ->
-                                    process_timer(SeqId, {stop_timeout, I, stop}, Acc)
-                            end,
-                            Timers,
-                            Timeouts),
+process_timeouts(
+    Timeouts,
+    Result,
+    #state_machine{
+        seq_id = SeqId,
+        timers = Timers
+    } = Machine,
+    TM,
+    Iter
+) ->
+    NewTimers = lists:foldl(
+        fun
+            ({state_timeout, _, _} = Timer, Acc) ->
+                process_timer(SeqId, Timer, Acc);
+            ({stop_timeout, I}, Acc) ->
+                process_timer(SeqId, {stop_timeout, I, stop}, Acc)
+        end,
+        Timers,
+        Timeouts
+    ),
     iter(Iter, Result, Machine#state_machine{timers = NewTimers}, TM).
 
 process_manager(stop, Result, #state_machine{seq_id = SeqId}, TM) ->
     Result#{tm => delete_machine(SeqId, TM)};
-
 process_manager(_, Result, #state_machine{seq_id = SeqId} = Machine2, TM) ->
     Result#{tm => TM#{SeqId => Machine2}}.
 
@@ -246,14 +283,18 @@ delete_machine(Id, Manager) ->
     case find_machine(Id, Manager) of
         undefined ->
             Manager;
-        #state_machine{seq_id = SeqId,
-                       id = MachineId,
-                       token = Token,
-                       timers = Timers} ->
-            lists:foreach(fun({_, Ref}) ->
-                                  emqx_misc:cancel_timer(Ref)
-                          end,
-                          maps:to_list(Timers)),
+        #state_machine{
+            seq_id = SeqId,
+            id = MachineId,
+            token = Token,
+            timers = Timers
+        } ->
+            lists:foreach(
+                fun({_, Ref}) ->
+                    emqx_misc:cancel_timer(Ref)
+                end,
+                maps:to_list(Timers)
+            ),
             maps:without([SeqId, MachineId, ?TOKEN_ID(Token)], Manager)
     end.
 
@@ -264,12 +305,14 @@ find_machine(SeqId, Manager) ->
     find_machine_by_seqid(SeqId, Manager).
 
 -spec find_machine_by_seqid(seq_id() | undefined, manager()) ->
-          state_machine() | undefined.
+    state_machine() | undefined.
 find_machine_by_seqid(SeqId, Manager) ->
     maps:get(SeqId, Manager, undefined).
 
--spec find_machine_by_keys(list(manager_key()),
-                           manager()) -> state_machine() | undefined.
+-spec find_machine_by_keys(
+    list(manager_key()),
+    manager()
+) -> state_machine() | undefined.
 find_machine_by_keys([H | T], Manager) ->
     case H of
         ?TOKEN_ID(<<>>) ->
@@ -286,53 +329,63 @@ find_machine_by_keys(_, _) ->
     undefined.
 
 -spec new_in_machine(state_machine_key(), manager()) ->
-          {state_machine(), manager()}.
+    {state_machine(), manager()}.
 new_in_machine(MachineId, #{seq_id := SeqId} = Manager) ->
-    Machine = #state_machine{ seq_id = SeqId
-                            , id = MachineId
-                            , state = idle
-                            , timers = #{}
-                            , transport = emqx_coap_transport:new()},
-    {Machine, Manager#{seq_id := SeqId + 1,
-                       SeqId => Machine,
-                       MachineId => SeqId}}.
+    Machine = #state_machine{
+        seq_id = SeqId,
+        id = MachineId,
+        state = idle,
+        timers = #{},
+        transport = emqx_coap_transport:new()
+    },
+    {Machine, Manager#{
+        seq_id := SeqId + 1,
+        SeqId => Machine,
+        MachineId => SeqId
+    }}.
 
 -spec new_out_machine(state_machine_key(), any(), coap_message(), manager()) ->
-          {state_machine(), manager()}.
-new_out_machine(MachineId,
-                Ctx,
-                #coap_message{type = Type, token = Token, options = Opts},
-                #{seq_id := SeqId} = Manager) ->
+    {state_machine(), manager()}.
+new_out_machine(
+    MachineId,
+    Ctx,
+    #coap_message{type = Type, token = Token, options = Opts},
+    #{seq_id := SeqId} = Manager
+) ->
     Observe = maps:get(observe, Opts, undefined),
-    Machine = #state_machine{ seq_id = SeqId
-                            , id = MachineId
-                            , token = Token
-                            , observe = Observe
-                            , state = idle
-                            , timers = #{}
-                            , transport = emqx_coap_transport:new(Ctx)},
+    Machine = #state_machine{
+        seq_id = SeqId,
+        id = MachineId,
+        token = Token,
+        observe = Observe,
+        state = idle,
+        timers = #{},
+        transport = emqx_coap_transport:new(Ctx)
+    },
 
-    Manager2 = Manager#{seq_id := SeqId + 1,
-                        SeqId => Machine,
-                        MachineId => SeqId},
+    Manager2 = Manager#{
+        seq_id := SeqId + 1,
+        SeqId => Machine,
+        MachineId => SeqId
+    },
     {Machine,
-     if Token =:= <<>> ->
-             Manager2;
-        Observe =:= 1 ->
-             TokenId = ?TOKEN_ID(Token),
-             delete_machine(TokenId, Manager2);
-        Type =:= con orelse Observe =:= 0 ->
-             TokenId = ?TOKEN_ID(Token),
-             case maps:get(TokenId, Manager, undefined) of
-                 undefined ->
-                     Manager2#{TokenId => SeqId};
-                 _ ->
-                     throw("token conflict")
-             end;
-        true ->
-             Manager2
-     end
-    }.
+        if
+            Token =:= <<>> ->
+                Manager2;
+            Observe =:= 1 ->
+                TokenId = ?TOKEN_ID(Token),
+                delete_machine(TokenId, Manager2);
+            Type =:= con orelse Observe =:= 0 ->
+                TokenId = ?TOKEN_ID(Token),
+                case maps:get(TokenId, Manager, undefined) of
+                    undefined ->
+                        Manager2#{TokenId => SeqId};
+                    _ ->
+                        throw("token conflict")
+                end;
+            true ->
+                Manager2
+        end}.
 
 alloc_message_id(#{next_msg_id := MsgId} = TM) ->
     alloc_message_id(MsgId, TM).
@@ -348,8 +401,9 @@ alloc_message_id(MsgId, TM) ->
 
 next_message_id(MsgId) ->
     Next = MsgId + 1,
-    if Next >= ?MAX_MESSAGE_ID ->
+    if
+        Next >= ?MAX_MESSAGE_ID ->
             1;
-       true ->
+        true ->
             Next
     end.

@@ -33,11 +33,12 @@
 %% Starts the supervisor
 %% @end
 %%--------------------------------------------------------------------
--spec start_link() -> {ok, Pid :: pid()} |
-          {error, {already_started, Pid :: pid()}} |
-          {error, {shutdown, term()}} |
-          {error, term()} |
-          ignore.
+-spec start_link() ->
+    {ok, Pid :: pid()}
+    | {error, {already_started, Pid :: pid()}}
+    | {error, {shutdown, term()}}
+    | {error, term()}
+    | ignore.
 start_link() ->
     supervisor:start_link({local, ?MODULE}, ?MODULE, []).
 
@@ -55,22 +56,27 @@ start_link() ->
 %% @end
 %%--------------------------------------------------------------------
 -spec init(Args :: term()) ->
-          {ok, {SupFlags :: supervisor:sup_flags(),
-                [ChildSpec :: supervisor:child_spec()]}} |
-          ignore.
+    {ok, {SupFlags :: supervisor:sup_flags(), [ChildSpec :: supervisor:child_spec()]}}
+    | ignore.
 init([]) ->
-    SupFlags = #{strategy => one_for_one,
-                 intensity => 10,
-                 period => 3600},
+    SupFlags = #{
+        strategy => one_for_one,
+        intensity => 10,
+        period => 3600
+    },
 
-    Childs = [ make_child(emqx_limiter_manager, worker)
-             , make_child(emqx_limiter_server_sup, supervisor)],
+    Childs = [
+        make_child(emqx_limiter_manager, worker),
+        make_child(emqx_limiter_server_sup, supervisor)
+    ],
 
     {ok, {SupFlags, Childs}}.
 
 make_child(Mod, Type) ->
-    #{id => Mod,
-      start => {Mod, start_link, []},
-      restart => transient,
-      type => Type,
-      modules => [Mod]}.
+    #{
+        id => Mod,
+        start => {Mod, start_link, []},
+        restart => transient,
+        type => Type,
+        modules => [Mod]
+    }.

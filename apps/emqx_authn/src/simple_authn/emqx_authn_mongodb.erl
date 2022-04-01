@@ -23,18 +23,20 @@
 -behaviour(hocon_schema).
 -behaviour(emqx_authentication).
 
--export([ namespace/0
-        , roots/0
-        , fields/1
-        , desc/1
-        ]).
+-export([
+    namespace/0,
+    roots/0,
+    fields/1,
+    desc/1
+]).
 
--export([ refs/0
-        , create/2
-        , update/2
-        , authenticate/2
-        , destroy/1
-        ]).
+-export([
+    refs/0,
+    create/2,
+    update/2,
+    authenticate/2,
+    destroy/1
+]).
 
 %%------------------------------------------------------------------------------
 %% Hocon Schema
@@ -43,16 +45,18 @@
 namespace() -> "authn-mongodb".
 
 roots() ->
-    [ {?CONF_NS, hoconsc:mk(hoconsc:union(refs()),
-                            #{})}
+    [
+        {?CONF_NS,
+            hoconsc:mk(
+                hoconsc:union(refs()),
+                #{}
+            )}
     ].
 
 fields(standalone) ->
     common_fields() ++ emqx_connector_mongo:fields(single);
-
 fields('replica-set') ->
     common_fields() ++ emqx_connector_mongo:fields(rs);
-
 fields('sharded-cluster') ->
     common_fields() ++ emqx_connector_mongo:fields(sharded).
 
@@ -66,26 +70,30 @@ desc(_) ->
     undefined.
 
 common_fields() ->
-    [ {mechanism, emqx_authn_schema:mechanism('password_based')}
-    , {backend, emqx_authn_schema:backend(mongodb)}
-    , {collection, fun collection/1}
-    , {selector, fun selector/1}
-    , {password_hash_field, fun password_hash_field/1}
-    , {salt_field, fun salt_field/1}
-    , {is_superuser_field, fun is_superuser_field/1}
-    , {password_hash_algorithm, fun emqx_authn_password_hashing:type_ro/1}
+    [
+        {mechanism, emqx_authn_schema:mechanism('password_based')},
+        {backend, emqx_authn_schema:backend(mongodb)},
+        {collection, fun collection/1},
+        {selector, fun selector/1},
+        {password_hash_field, fun password_hash_field/1},
+        {salt_field, fun salt_field/1},
+        {is_superuser_field, fun is_superuser_field/1},
+        {password_hash_algorithm, fun emqx_authn_password_hashing:type_ro/1}
     ] ++ emqx_authn_schema:common_fields().
 
 collection(type) -> binary();
 collection(desc) -> "Collection used to store authentication data.";
 collection(_) -> undefined.
 
-selector(type) -> map();
-selector(desc) -> "Statement that is executed during the authentication process. "
-                  "Commands can support following wildcards:\n"
-                  " - `${username}`: substituted with client's username\n"
-                  " - `${clientid}`: substituted with the clientid";
-selector(_) -> undefined.
+selector(type) ->
+    map();
+selector(desc) ->
+    "Statement that is executed during the authentication process. "
+    "Commands can support following wildcards:\n"
+    " - `${username}`: substituted with client's username\n"
+    " - `${clientid}`: substituted with the clientid";
+selector(_) ->
+    undefined.
 
 password_hash_field(type) -> binary();
 password_hash_field(desc) -> "Document field that contains password hash.";
@@ -106,9 +114,10 @@ is_superuser_field(_) -> undefined.
 %%------------------------------------------------------------------------------
 
 refs() ->
-    [ hoconsc:ref(?MODULE, standalone)
-    , hoconsc:ref(?MODULE, 'replica-set')
-    , hoconsc:ref(?MODULE, 'sharded-cluster')
+    [
+        hoconsc:ref(?MODULE, standalone),
+        hoconsc:ref(?MODULE, 'replica-set'),
+        hoconsc:ref(?MODULE, 'sharded-cluster')
     ].
 
 create(_AuthenticatorID, Config) ->
@@ -117,24 +126,32 @@ create(_AuthenticatorID, Config) ->
 create(#{selector := Selector} = Config) ->
     SelectorTemplate = emqx_authn_utils:parse_deep(Selector),
     State = maps:with(
-              [collection,
-               password_hash_field,
-               salt_field,
-               is_superuser_field,
-               password_hash_algorithm,
-               salt_position],
-              Config),
+        [
+            collection,
+            password_hash_field,
+            salt_field,
+            is_superuser_field,
+            password_hash_algorithm,
+            salt_position
+        ],
+        Config
+    ),
     #{password_hash_algorithm := Algorithm} = State,
     ok = emqx_authn_password_hashing:init(Algorithm),
     ResourceId = emqx_authn_utils:make_resource_id(?MODULE),
     NState = State#{
-               selector_template => SelectorTemplate,
-               resource_id => ResourceId},
-    case emqx_resource:create_local(ResourceId,
-                                    ?RESOURCE_GROUP,
-                                    emqx_connector_mongo,
-                                    Config,
-                                    #{}) of
+        selector_template => SelectorTemplate,
+        resource_id => ResourceId
+    },
+    case
+        emqx_resource:create_local(
+            ResourceId,
+            ?RESOURCE_GROUP,
+            emqx_connector_mongo,
+            Config,
+            #{}
+        )
+    of
         {ok, already_created} ->
             {ok, NState};
         {ok, _} ->
@@ -154,30 +171,39 @@ update(Config, State) ->
 
 authenticate(#{auth_method := _}, _) ->
     ignore;
-authenticate(#{password := Password} = Credential,
-             #{collection := Collection,
-               selector_template := SelectorTemplate,
-               resource_id := ResourceId} = State) ->
+authenticate(
+    #{password := Password} = Credential,
+    #{
+        collection := Collection,
+        selector_template := SelectorTemplate,
+        resource_id := ResourceId
+    } = State
+) ->
     Selector = emqx_authn_utils:render_deep(SelectorTemplate, Credential),
     case emqx_resource:query(ResourceId, {find_one, Collection, Selector, #{}}) of
-        undefined -> ignore;
+        undefined ->
+            ignore;
         {error, Reason} ->
-            ?SLOG(error, #{msg => "mongodb_query_failed",
-                           resource => ResourceId,
-                           collection => Collection,
-                           selector => Selector,
-                           reason => Reason}),
+            ?SLOG(error, #{
+                msg => "mongodb_query_failed",
+                resource => ResourceId,
+                collection => Collection,
+                selector => Selector,
+                reason => Reason
+            }),
             ignore;
         Doc ->
             case check_password(Password, Doc, State) of
                 ok ->
                     {ok, is_superuser(Doc, State)};
                 {error, {cannot_find_password_hash_field, PasswordHashField}} ->
-                    ?SLOG(error, #{msg => "cannot_find_password_hash_field",
-                                   resource => ResourceId,
-                                   collection => Collection,
-                                   selector => Selector,
-                                   password_hash_field => PasswordHashField}),
+                    ?SLOG(error, #{
+                        msg => "cannot_find_password_hash_field",
+                        resource => ResourceId,
+                        collection => Collection,
+                        selector => Selector,
+                        password_hash_field => PasswordHashField
+                    }),
                     ignore;
                 {error, Reason} ->
                     {error, Reason}
@@ -194,18 +220,23 @@ destroy(#{resource_id := ResourceId}) ->
 
 check_password(undefined, _Selected, _State) ->
     {error, bad_username_or_password};
-check_password(Password,
-               Doc,
-               #{password_hash_algorithm := Algorithm,
-                 password_hash_field := PasswordHashField} = State) ->
+check_password(
+    Password,
+    Doc,
+    #{
+        password_hash_algorithm := Algorithm,
+        password_hash_field := PasswordHashField
+    } = State
+) ->
     case maps:get(PasswordHashField, Doc, undefined) of
         undefined ->
             {error, {cannot_find_password_hash_field, PasswordHashField}};
         Hash ->
-            Salt = case maps:get(salt_field, State, undefined) of
-                       undefined -> <<>>;
-                       SaltField -> maps:get(SaltField, Doc, <<>>)
-                   end,
+            Salt =
+                case maps:get(salt_field, State, undefined) of
+                    undefined -> <<>>;
+                    SaltField -> maps:get(SaltField, Doc, <<>>)
+                end,
             case emqx_authn_password_hashing:check_password(Algorithm, Salt, Hash, Password) of
                 true -> ok;
                 false -> {error, bad_username_or_password}

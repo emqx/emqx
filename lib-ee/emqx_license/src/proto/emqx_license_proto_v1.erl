@@ -8,11 +8,9 @@
 
 -include_lib("emqx/include/bpapi.hrl").
 
--export([ introduced_in/0
-        ]).
+-export([introduced_in/0]).
 
--export([ remote_connection_counts/1
-        ]).
+-export([remote_connection_counts/1]).
 
 -define(TIMEOUT, 500).
 

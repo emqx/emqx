@@ -72,46 +72,53 @@
 
 -include("src/stomp/include/emqx_stomp.hrl").
 
--export([ initial_parse_state/1
-        , parse/2
-        , serialize_opts/0
-        , serialize_pkt/2
-        ]).
+-export([
+    initial_parse_state/1,
+    parse/2,
+    serialize_opts/0,
+    serialize_pkt/2
+]).
 
--export([ make/1
-        , make/2
-        , make/3
-        , format/1
-        ]).
+-export([
+    make/1,
+    make/2,
+    make/3,
+    format/1
+]).
 
--export([ type/1
-        , is_message/1
-        ]).
+-export([
+    type/1,
+    is_message/1
+]).
 
--define(NULL,  0).
--define(CR,    $\r).
--define(LF,    $\n).
--define(BSL,   $\\).
+-define(NULL, 0).
+-define(CR, $\r).
+-define(LF, $\n).
+-define(BSL, $\\).
 -define(COLON, $:).
 
 -define(IS_ESC(Ch), Ch == ?CR; Ch == ?LF; Ch == ?BSL; Ch == ?COLON).
 
--record(parser_state, {cmd,
-                       headers = [],
-                       hdname,
-                       acc = <<>> :: binary(),
-                       limit}).
+-record(parser_state, {
+    cmd,
+    headers = [],
+    hdname,
+    acc = <<>> :: binary(),
+    limit
+}).
 
 -record(frame_limit, {max_header_num, max_header_length, max_body_length}).
 
--type(parse_result() :: {ok, stomp_frame(), binary(), parse_state()}
-                      | {more, parse_state()}).
+-type parse_result() ::
+    {ok, stomp_frame(), binary(), parse_state()}
+    | {more, parse_state()}.
 
--type(parse_state() ::
-      #{phase := none | command | headers | hdname | hdvalue | body,
+-type parse_state() ::
+    #{
+        phase := none | command | headers | hdname | hdvalue | body,
         pre => binary(),
         state := #parser_state{}
-       }).
+    }.
 
 %-dialyzer({nowarn_function, [serialize_pkt/2,make/1]}).
 
@@ -122,10 +129,10 @@ initial_parse_state(Opts) ->
 
 limit(Opts) ->
     #frame_limit{
-       max_header_num = g(max_header_num, Opts, ?MAX_HEADER_NUM),
-       max_header_length = g(max_header_length, Opts, ?MAX_HEADER_LENGTH),
-       max_body_length = g(max_body_length, Opts, ?MAX_BODY_LENGTH)
-      }.
+        max_header_num = g(max_header_num, Opts, ?MAX_HEADER_NUM),
+        max_header_length = g(max_header_length, Opts, ?MAX_HEADER_LENGTH),
+        max_body_length = g(max_body_length, Opts, ?MAX_BODY_LENGTH)
+    }.
 
 g(Key, Opts, Val) ->
     maps:get(Key, Opts, Val).
@@ -133,14 +140,12 @@ g(Key, Opts, Val) ->
 -spec parse(binary(), parse_state()) -> parse_result().
 parse(<<>>, Parser) ->
     {more, Parser};
-
 parse(Bytes, #{phase := body, length := Len, state := State}) ->
     parse(body, Bytes, State, Len);
 parse(<<?LF, Bytes/binary>>, #{phase := hdname, state := State}) ->
     parse(body, Bytes, State, content_len(State));
 parse(Bytes, #{phase := Phase, state := State}) when Phase =/= none ->
     parse(Phase, Bytes, State);
-
 parse(Bytes, Parser = #{pre := Pre}) ->
     parse(<<Pre/binary, Bytes/binary>>, maps:without([pre], Parser));
 parse(<<?CR, ?LF, Rest/binary>>, #{phase := Phase, state := State}) ->
@@ -149,17 +154,21 @@ parse(<<?CR>>, Parser) ->
     {more, Parser#{pre => <<?CR>>}};
 parse(<<?CR, _Ch:8, _Rest/binary>>, _Parser) ->
     error(linefeed_expected);
-
-parse(<<?BSL>>, Parser = #{phase := Phase}) when Phase =:= hdname;
-                                                 Phase =:= hdvalue ->
+parse(<<?BSL>>, Parser = #{phase := Phase}) when
+    Phase =:= hdname;
+    Phase =:= hdvalue
+->
     {more, Parser#{pre => <<?BSL>>}};
-parse(<<?BSL, Ch:8, Rest/binary>>,
-      #{phase := Phase, state := State}) when Phase =:= hdname;
-                                              Phase =:= hdvalue ->
+parse(
+    <<?BSL, Ch:8, Rest/binary>>,
+    #{phase := Phase, state := State}
+) when
+    Phase =:= hdname;
+    Phase =:= hdvalue
+->
     parse(Phase, Rest, acc(unescape(Ch), State));
-
 parse(<<?LF>>, Parser = #{phase := none}) ->
-    {more,  Parser};
+    {more, Parser};
 parse(Bytes, #{phase := none, state := State}) ->
     parse(command, Bytes, State).
 
@@ -170,12 +179,10 @@ parse(command, <<Ch:8, Rest/binary>>, State) ->
     parse(command, Rest, acc(Ch, State));
 parse(command, <<>>, State) ->
     {more, #{phase => command, state => State}};
-
 parse(headers, <<?LF, Rest/binary>>, State) ->
     parse(body, Rest, State, content_len(State#parser_state{acc = <<>>}));
 parse(headers, Bin, State) ->
     parse(hdname, Bin, State);
-
 parse(hdname, <<?LF, _Rest/binary>>, _State) ->
     error(unexpected_linefeed);
 parse(hdname, <<?COLON, Rest/binary>>, State = #parser_state{acc = Acc}) ->
@@ -184,13 +191,16 @@ parse(hdname, <<Ch:8, Rest/binary>>, State) ->
     parse(hdname, Rest, acc(Ch, State));
 parse(hdname, <<>>, State) ->
     {more, #{phase => hdname, state => State}};
-
-parse(hdvalue, <<?LF, Rest/binary>>,
-      State = #parser_state{headers = Headers, hdname = Name, acc = Acc}) ->
-    NState = State#parser_state{headers = add_header(Name, Acc, Headers),
-                                hdname = undefined,
-                                acc = <<>>
-                               },
+parse(
+    hdvalue,
+    <<?LF, Rest/binary>>,
+    State = #parser_state{headers = Headers, hdname = Name, acc = Acc}
+) ->
+    NState = State#parser_state{
+        headers = add_header(Name, Acc, Headers),
+        hdname = undefined,
+        acc = <<>>
+    },
     parse(headers, Rest, NState);
 parse(hdvalue, <<Ch:8, Rest/binary>>, State) ->
     parse(hdvalue, Rest, acc(Ch, State));
@@ -205,28 +215,32 @@ parse(body, Bin, State, none) ->
         [Chunk, Rest] ->
             {ok, new_frame(acc(Chunk, State)), Rest, new_state(State)};
         [Chunk] ->
-            {more, #{phase => body,
-                     length => none,
-                     state => acc(Chunk, State)}}
+            {more, #{
+                phase => body,
+                length => none,
+                state => acc(Chunk, State)
+            }}
     end;
-parse(body, Bin, State, Len) when byte_size(Bin) >= (Len+1) ->
+parse(body, Bin, State, Len) when byte_size(Bin) >= (Len + 1) ->
     <<Chunk:Len/binary, ?NULL, Rest/binary>> = Bin,
     {ok, new_frame(acc(Chunk, State)), Rest, new_state(State)};
 parse(body, Bin, State, Len) ->
-    {more, #{phase => body,
-             length => Len - byte_size(Bin),
-             state => acc(Bin, State)}}.
+    {more, #{
+        phase => body,
+        length => Len - byte_size(Bin),
+        state => acc(Bin, State)
+    }}.
 
 add_header(Name, Value, Headers) ->
     case lists:keyfind(Name, 1, Headers) of
         {Name, _} -> Headers;
-        false     -> [{Name, Value} | Headers]
+        false -> [{Name, Value} | Headers]
     end.
 
 content_len(#parser_state{headers = Headers}) ->
     case lists:keyfind(<<"content-length">>, 1, Headers) of
         {_, Val} -> list_to_integer(binary_to_list(Val));
-        false    -> none
+        false -> none
     end.
 
 new_frame(#parser_state{cmd = Cmd, headers = Headers, acc = Acc}) ->
@@ -241,9 +255,9 @@ acc(Ch, State = #parser_state{acc = Acc}) ->
 %% \n (octet 92 and 110) translates to line feed (octet 10)
 %% \c (octet 92 and 99) translates to : (octet 58)
 %% \\ (octet 92 and 92) translates to \ (octet 92)
-unescape($r)  -> ?CR;
-unescape($n)  -> ?LF;
-unescape($c)  -> ?COLON;
+unescape($r) -> ?CR;
+unescape($n) -> ?LF;
+unescape($c) -> ?COLON;
 unescape($\\) -> ?BSL;
 unescape(_Ch) -> error(cannnot_unescape).
 
@@ -256,31 +270,41 @@ serialize_opts() ->
 
 serialize_pkt(#stomp_frame{command = ?CMD_HEARTBEAT}, _SerializeOpts) ->
     <<$\n>>;
-
-serialize_pkt(#stomp_frame{command = Cmd, headers = Headers, body = Body},
-             _SerializeOpts) ->
+serialize_pkt(
+    #stomp_frame{command = Cmd, headers = Headers, body = Body},
+    _SerializeOpts
+) ->
     Headers1 = lists:keydelete(<<"content-length">>, 1, Headers),
     Headers2 =
-    case iolist_size(Body) of
-        0   -> Headers1;
-        Len -> Headers1 ++ [{<<"content-length">>, Len}]
-    end,
-    [Cmd,
-     ?LF, [serialize_pkt(header, Header) || Header <- Headers2],
-     ?LF, Body, 0];
-
+        case iolist_size(Body) of
+            0 -> Headers1;
+            Len -> Headers1 ++ [{<<"content-length">>, Len}]
+        end,
+    [
+        Cmd,
+        ?LF,
+        [serialize_pkt(header, Header) || Header <- Headers2],
+        ?LF,
+        Body,
+        0
+    ];
 serialize_pkt(header, {Name, Val}) when is_integer(Val) ->
     [escape(Name), ?COLON, integer_to_list(Val), ?LF];
 serialize_pkt(header, {Name, Val}) ->
     [escape(Name), ?COLON, escape(Val), ?LF].
 
 escape(Bin) when is_binary(Bin) ->
-    << <<(escape(Ch))/binary>> || <<Ch>> <= Bin >>;
-escape(?CR)    -> <<?BSL, $r>>;
-escape(?LF)    -> <<?BSL, $n>>;
-escape(?BSL)   -> <<?BSL, ?BSL>>;
-escape(?COLON) -> <<?BSL, $c>>;
-escape(Ch)     -> <<Ch>>.
+    <<<<(escape(Ch))/binary>> || <<Ch>> <= Bin>>;
+escape(?CR) ->
+    <<?BSL, $r>>;
+escape(?LF) ->
+    <<?BSL, $n>>;
+escape(?BSL) ->
+    <<?BSL, ?BSL>>;
+escape(?COLON) ->
+    <<?BSL, $c>>;
+escape(Ch) ->
+    <<Ch>>.
 
 new_state(#parser_state{limit = Limit}) ->
     #{phase => none, state => #parser_state{limit = Limit}}.
@@ -295,9 +319,10 @@ make(?CMD_HEARTBEAT) ->
     #stomp_frame{command = ?CMD_HEARTBEAT}.
 
 make(<<"CONNECTED">>, Headers) ->
-    #stomp_frame{command = <<"CONNECTED">>,
-                 headers = [{<<"server">>, ?STOMP_SERVER} | Headers]};
-
+    #stomp_frame{
+        command = <<"CONNECTED">>,
+        headers = [{<<"server">>, ?STOMP_SERVER} | Headers]
+    };
 make(Command, Headers) ->
     #stomp_frame{command = Command, headers = Headers}.
 
@@ -307,27 +332,45 @@ make(Command, Headers, Body) ->
 %% @doc Format a frame
 format(Frame) -> serialize_pkt(Frame, #{}).
 
-is_message(#stomp_frame{command = CMD})
-    when CMD == ?CMD_SEND;
-         CMD == ?CMD_MESSAGE ->
+is_message(#stomp_frame{command = CMD}) when
+    CMD == ?CMD_SEND;
+    CMD == ?CMD_MESSAGE
+->
     true;
-is_message(_) -> false.
+is_message(_) ->
+    false.
 
 type(#stomp_frame{command = CMD}) ->
     type(CMD);
-type(?CMD_STOMP)       -> connect;
-type(?CMD_CONNECT)     -> connect;
-type(?CMD_SEND)        -> send;
-type(?CMD_SUBSCRIBE)   -> subscribe;
-type(?CMD_UNSUBSCRIBE) -> unsubscribe;
-type(?CMD_BEGIN)       -> 'begin';
-type(?CMD_COMMIT)      -> commit;
-type(?CMD_ABORT)       -> abort;
-type(?CMD_ACK)         -> ack;
-type(?CMD_NACK)        -> nack;
-type(?CMD_DISCONNECT)  -> disconnect;
-type(?CMD_CONNECTED)   -> connected;
-type(?CMD_MESSAGE)     -> message;
-type(?CMD_RECEIPT)     -> receipt;
-type(?CMD_ERROR)       -> error;
-type(?CMD_HEARTBEAT)   -> heartbeat.
+type(?CMD_STOMP) ->
+    connect;
+type(?CMD_CONNECT) ->
+    connect;
+type(?CMD_SEND) ->
+    send;
+type(?CMD_SUBSCRIBE) ->
+    subscribe;
+type(?CMD_UNSUBSCRIBE) ->
+    unsubscribe;
+type(?CMD_BEGIN) ->
+    'begin';
+type(?CMD_COMMIT) ->
+    commit;
+type(?CMD_ABORT) ->
+    abort;
+type(?CMD_ACK) ->
+    ack;
+type(?CMD_NACK) ->
+    nack;
+type(?CMD_DISCONNECT) ->
+    disconnect;
+type(?CMD_CONNECTED) ->
+    connected;
+type(?CMD_MESSAGE) ->
+    message;
+type(?CMD_RECEIPT) ->
+    receipt;
+type(?CMD_ERROR) ->
+    error;
+type(?CMD_HEARTBEAT) ->
+    heartbeat.
