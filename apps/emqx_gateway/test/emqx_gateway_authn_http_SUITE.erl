@@ -51,8 +51,8 @@
 -define(FUNCTOR(Expr), fun() -> Expr end).
 -define(FUNCTOR(Arg, Expr), fun(Arg) -> Expr end).
 
--define(PROTOCOLS, [coap, lwm2m] ).
--define(CONFS, [emqx_coap_SUITE, emqx_lwm2m_SUITE]).
+-define(PROTOCOLS, [coap, lwm2m, 'mqtt-sn'] ).
+-define(CONFS, [emqx_coap_SUITE, emqx_lwm2m_SUITE, emqx_sn_protocol_SUITE]).
 -define(CASES, [fun case_coap/0, fun case_lwm2m/0, fun case_emqx_sn/0, fun case_stomp/0]).
 -define(AUTHNS, [fun set_http_authn/1]).
 
@@ -151,7 +151,25 @@ case_lwm2m() ->
     Login(NoInfoUrl, MakeCheker(ack, {error, bad_request})),
     ok.
 
+-define(SN_CONNACK, 16#05).
+
 case_emqx_sn() ->
+    Mod = emqx_sn_protocol_SUITE,
+    Login = fun(Expect) ->
+                    with_resource(?FUNCTOR(gen_udp:open(0, [binary])),
+                                  ?FUNCTOR(Socket, gen_udp:close(Socket)),
+                                  fun(Socket) ->
+                                          Mod:send_connect_msg(Socket, <<"client_id_test1">>),
+                                          ?assertEqual(Expect, Mod:receive_response(Socket))
+                                  end)
+            end,
+    Login(<<>>),
+
+    RawCfg = emqx_conf:get_raw([gateway, mqttsn], #{}),
+    NewCfg = RawCfg#{<<"clientinfo_override">> => #{<<"username">> => <<"admin">>,
+                                                    <<"password">> => <<"public">>}},
+    emqx_gateway_conf:update_gateway(mqttsn, NewCfg),
+    Login(<<3, ?SN_CONNACK, 0>>),
     ok.
 
 case_stomp() ->
