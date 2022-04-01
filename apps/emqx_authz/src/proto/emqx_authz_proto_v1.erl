@@ -18,9 +18,10 @@
 
 -behaviour(emqx_bpapi).
 
--export([ introduced_in/0
-        , lookup_from_all_nodes/2
-        ]).
+-export([
+    introduced_in/0,
+    lookup_from_all_nodes/2
+]).
 
 -include_lib("emqx/include/bpapi.hrl").
 
@@ -30,6 +31,6 @@ introduced_in() ->
     "5.0.0".
 
 -spec lookup_from_all_nodes([node()], binary()) ->
-          emqx_rpc:erpc_multicall().
+    emqx_rpc:erpc_multicall().
 lookup_from_all_nodes(Nodes, ResourceId) ->
     erpc:multicall(Nodes, emqx_authz_api_sources, lookup_from_local_node, [ResourceId], ?TIMEOUT).
