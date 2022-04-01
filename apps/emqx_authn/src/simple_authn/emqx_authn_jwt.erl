@@ -23,17 +23,19 @@
 -behaviour(hocon_schema).
 -behaviour(emqx_authentication).
 
--export([ namespace/0
-        , roots/0
-        , fields/1
-        ]).
+-export([
+    namespace/0,
+    roots/0,
+    fields/1
+]).
 
--export([ refs/0
-        , create/2
-        , update/2
-        , authenticate/2
-        , destroy/1
-        ]).
+-export([
+    refs/0,
+    create/2,
+    update/2,
+    authenticate/2,
+    destroy/1
+]).
 
 %%------------------------------------------------------------------------------
 %% Hocon Schema
@@ -42,49 +44,56 @@
 namespace() -> "authn-jwt".
 
 roots() ->
-    [ {?CONF_NS,
-       hoconsc:mk(hoconsc:union(refs()),
-                  #{})}
+    [
+        {?CONF_NS,
+            hoconsc:mk(
+                hoconsc:union(refs()),
+                #{}
+            )}
     ].
 
 fields('hmac-based') ->
-    [ {use_jwks, {enum, [false]}}
-    , {algorithm, {enum, ['hmac-based']}}
-    , {secret, fun secret/1}
-    , {secret_base64_encoded, fun secret_base64_encoded/1}
+    [
+        {use_jwks, {enum, [false]}},
+        {algorithm, {enum, ['hmac-based']}},
+        {secret, fun secret/1},
+        {secret_base64_encoded, fun secret_base64_encoded/1}
     ] ++ common_fields();
-
 fields('public-key') ->
-    [ {use_jwks, {enum, [false]}}
-    , {algorithm, {enum, ['public-key']}}
-    , {certificate, fun certificate/1}
+    [
+        {use_jwks, {enum, [false]}},
+        {algorithm, {enum, ['public-key']}},
+        {certificate, fun certificate/1}
     ] ++ common_fields();
-
 fields('jwks') ->
-    [ {use_jwks, {enum, [true]}}
-    , {endpoint, fun endpoint/1}
-    , {refresh_interval, fun refresh_interval/1}
-    , {ssl, #{type => hoconsc:union([ hoconsc:ref(?MODULE, ssl_enable)
-                                    , hoconsc:ref(?MODULE, ssl_disable)
-                                    ]),
-              default => #{<<"enable">> => false}}}
+    [
+        {use_jwks, {enum, [true]}},
+        {endpoint, fun endpoint/1},
+        {refresh_interval, fun refresh_interval/1},
+        {ssl, #{
+            type => hoconsc:union([
+                hoconsc:ref(?MODULE, ssl_enable),
+                hoconsc:ref(?MODULE, ssl_disable)
+            ]),
+            default => #{<<"enable">> => false}
+        }}
     ] ++ common_fields();
-
 fields(ssl_enable) ->
-    [ {enable, #{type => true}}
-    , {cacertfile, fun cacertfile/1}
-    , {certfile, fun certfile/1}
-    , {keyfile, fun keyfile/1}
-    , {verify, fun verify/1}
-    , {server_name_indication, fun server_name_indication/1}
+    [
+        {enable, #{type => true}},
+        {cacertfile, fun cacertfile/1},
+        {certfile, fun certfile/1},
+        {keyfile, fun keyfile/1},
+        {verify, fun verify/1},
+        {server_name_indication, fun server_name_indication/1}
     ];
-
 fields(ssl_disable) ->
-    [ {enable, #{type => false}} ].
+    [{enable, #{type => false}}].
 
 common_fields() ->
-    [ {mechanism, emqx_authn_schema:mechanism('jwt')}
-    , {verify_claims, fun verify_claims/1}
+    [
+        {mechanism, emqx_authn_schema:mechanism('jwt')},
+        {verify_claims, fun verify_claims/1}
     ] ++ emqx_authn_schema:common_fields().
 
 secret(type) -> binary();
@@ -121,24 +130,29 @@ verify(_) -> undefined.
 server_name_indication(type) -> string();
 server_name_indication(_) -> undefined.
 
-verify_claims(type) -> list();
-verify_claims(default) -> #{};
-verify_claims(validator) -> [fun do_check_verify_claims/1];
+verify_claims(type) ->
+    list();
+verify_claims(default) ->
+    #{};
+verify_claims(validator) ->
+    [fun do_check_verify_claims/1];
 verify_claims(converter) ->
     fun(VerifyClaims) ->
         [{to_binary(K), V} || {K, V} <- maps:to_list(VerifyClaims)]
     end;
-verify_claims(_) -> undefined.
+verify_claims(_) ->
+    undefined.
 
 %%------------------------------------------------------------------------------
 %% APIs
 %%------------------------------------------------------------------------------
 
 refs() ->
-   [ hoconsc:ref(?MODULE, 'hmac-based')
-   , hoconsc:ref(?MODULE, 'public-key')
-   , hoconsc:ref(?MODULE, 'jwks')
-   ].
+    [
+        hoconsc:ref(?MODULE, 'hmac-based'),
+        hoconsc:ref(?MODULE, 'public-key'),
+        hoconsc:ref(?MODULE, 'jwks')
+    ].
 
 create(_AuthenticatorID, Config) ->
     create(Config).
@@ -146,18 +160,22 @@ create(_AuthenticatorID, Config) ->
 create(#{verify_claims := VerifyClaims} = Config) ->
     create2(Config#{verify_claims => handle_verify_claims(VerifyClaims)}).
 
-update(#{use_jwks := false} = Config,
-       #{jwk := Connector})
-  when is_pid(Connector) ->
+update(
+    #{use_jwks := false} = Config,
+    #{jwk := Connector}
+) when
+    is_pid(Connector)
+->
     _ = emqx_authn_jwks_connector:stop(Connector),
     create(Config);
-
 update(#{use_jwks := false} = Config, _State) ->
     create(Config);
-
-update(#{use_jwks := true} = Config,
-       #{jwk := Connector} = State)
-  when is_pid(Connector) ->
+update(
+    #{use_jwks := true} = Config,
+    #{jwk := Connector} = State
+) when
+    is_pid(Connector)
+->
     ok = emqx_authn_jwks_connector:update(Connector, connector_opts(Config)),
     case maps:get(verify_cliams, Config, undefined) of
         undefined ->
@@ -165,21 +183,23 @@ update(#{use_jwks := true} = Config,
         VerifyClaims ->
             {ok, State#{verify_claims => handle_verify_claims(VerifyClaims)}}
     end;
-
 update(#{use_jwks := true} = Config, _State) ->
     create(Config).
 
 authenticate(#{auth_method := _}, _) ->
     ignore;
-authenticate(Credential = #{password := JWT}, #{jwk := JWK,
-                                                verify_claims := VerifyClaims0}) ->
-    JWKs = case erlang:is_pid(JWK) of
-               false ->
-                   [JWK];
-               true ->
-                   {ok, JWKs0} = emqx_authn_jwks_connector:get_jwks(JWK),
-                   JWKs0
-           end,
+authenticate(Credential = #{password := JWT}, #{
+    jwk := JWK,
+    verify_claims := VerifyClaims0
+}) ->
+    JWKs =
+        case erlang:is_pid(JWK) of
+            false ->
+                [JWK];
+            true ->
+                {ok, JWKs0} = emqx_authn_jwks_connector:get_jwks(JWK),
+                JWKs0
+        end,
     VerifyClaims = replace_placeholder(VerifyClaims0, Credential),
     case verify(JWT, JWKs, VerifyClaims) of
         {ok, Extra} -> {ok, Extra};
@@ -197,41 +217,54 @@ destroy(_) ->
 %% Internal functions
 %%--------------------------------------------------------------------
 
-create2(#{use_jwks := false,
-          algorithm := 'hmac-based',
-          secret := Secret0,
-          secret_base64_encoded := Base64Encoded,
-          verify_claims := VerifyClaims}) ->
+create2(#{
+    use_jwks := false,
+    algorithm := 'hmac-based',
+    secret := Secret0,
+    secret_base64_encoded := Base64Encoded,
+    verify_claims := VerifyClaims
+}) ->
     case may_decode_secret(Base64Encoded, Secret0) of
         {error, Reason} ->
             {error, Reason};
         Secret ->
             JWK = jose_jwk:from_oct(Secret),
-            {ok, #{jwk => JWK,
-                   verify_claims => VerifyClaims}}
+            {ok, #{
+                jwk => JWK,
+                verify_claims => VerifyClaims
+            }}
     end;
-
-create2(#{use_jwks := false,
-          algorithm := 'public-key',
-          certificate := Certificate,
-          verify_claims := VerifyClaims}) ->
+create2(#{
+    use_jwks := false,
+    algorithm := 'public-key',
+    certificate := Certificate,
+    verify_claims := VerifyClaims
+}) ->
     JWK = create_jwk_from_pem_or_file(Certificate),
-    {ok, #{jwk => JWK,
-           verify_claims => VerifyClaims}};
-
-create2(#{use_jwks := true,
-          verify_claims := VerifyClaims} = Config) ->
+    {ok, #{
+        jwk => JWK,
+        verify_claims => VerifyClaims
+    }};
+create2(
+    #{
+        use_jwks := true,
+        verify_claims := VerifyClaims
+    } = Config
+) ->
     case emqx_authn_jwks_connector:start_link(connector_opts(Config)) of
         {ok, Connector} ->
-            {ok, #{jwk => Connector,
-                   verify_claims => VerifyClaims}};
+            {ok, #{
+                jwk => Connector,
+                verify_claims => VerifyClaims
+            }};
         {error, Reason} ->
             {error, Reason}
     end.
 
-create_jwk_from_pem_or_file(CertfileOrFilePath)
-  when is_binary(CertfileOrFilePath);
-       is_list(CertfileOrFilePath) ->
+create_jwk_from_pem_or_file(CertfileOrFilePath) when
+    is_binary(CertfileOrFilePath);
+    is_list(CertfileOrFilePath)
+->
     case filelib:is_file(CertfileOrFilePath) of
         true ->
             jose_jwk:from_pem_file(CertfileOrFilePath);
@@ -240,18 +273,20 @@ create_jwk_from_pem_or_file(CertfileOrFilePath)
     end.
 
 connector_opts(#{ssl := #{enable := Enable} = SSL} = Config) ->
-    SSLOpts = case Enable of
-                  true -> maps:without([enable], SSL);
-                  false -> #{}
-              end,
+    SSLOpts =
+        case Enable of
+            true -> maps:without([enable], SSL);
+            false -> #{}
+        end,
     Config#{ssl_opts => SSLOpts}.
 
-
-may_decode_secret(false, Secret) -> Secret;
+may_decode_secret(false, Secret) ->
+    Secret;
 may_decode_secret(true, Secret) ->
-    try base64:decode(Secret)
+    try
+        base64:decode(Secret)
     catch
-        error : _ ->
+        error:_ ->
             {error, {invalid_parameter, secret}}
     end.
 
@@ -288,15 +323,18 @@ verify(JWS, [JWK | More], VerifyClaims) ->
 
 verify_claims(Claims, VerifyClaims0) ->
     Now = os:system_time(seconds),
-    VerifyClaims = [{<<"exp">>, fun(ExpireTime) ->
-                                    Now < ExpireTime
-                                end},
-                    {<<"iat">>, fun(IssueAt) ->
-                                    IssueAt =< Now
-                                end},
-                    {<<"nbf">>, fun(NotBefore) ->
-                                    NotBefore =< Now
-                                end}] ++ VerifyClaims0,
+    VerifyClaims =
+        [
+            {<<"exp">>, fun(ExpireTime) ->
+                Now < ExpireTime
+            end},
+            {<<"iat">>, fun(IssueAt) ->
+                IssueAt =< Now
+            end},
+            {<<"nbf">>, fun(NotBefore) ->
+                NotBefore =< Now
+            end}
+        ] ++ VerifyClaims0,
     do_verify_claims(Claims, VerifyClaims).
 
 do_verify_claims(_Claims, []) ->
@@ -327,8 +365,8 @@ do_check_verify_claims([]) ->
     true;
 do_check_verify_claims([{Name, Expected} | More]) ->
     check_claim_name(Name) andalso
-    check_claim_expected(Expected) andalso
-    do_check_verify_claims(More).
+        check_claim_expected(Expected) andalso
+        do_check_verify_claims(More).
 
 check_claim_name(exp) ->
     false;

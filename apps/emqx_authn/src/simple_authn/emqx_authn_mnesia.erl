@@ -23,40 +23,45 @@
 -behaviour(hocon_schema).
 -behaviour(emqx_authentication).
 
--export([ namespace/0
-        , roots/0
-        , fields/1
-        ]).
+-export([
+    namespace/0,
+    roots/0,
+    fields/1
+]).
 
--export([ refs/0
-        , create/2
-        , update/2
-        , authenticate/2
-        , destroy/1
-        ]).
+-export([
+    refs/0,
+    create/2,
+    update/2,
+    authenticate/2,
+    destroy/1
+]).
 
--export([ import_users/2
-        , add_user/2
-        , delete_user/2
-        , update_user/3
-        , lookup_user/2
-        , list_users/2
-        ]).
+-export([
+    import_users/2,
+    add_user/2,
+    delete_user/2,
+    update_user/3,
+    lookup_user/2,
+    list_users/2
+]).
 
--export([ query/4
-        , format_user_info/1
-        , group_match_spec/1]).
+-export([
+    query/4,
+    format_user_info/1,
+    group_match_spec/1
+]).
 
 -type user_id_type() :: clientid | username.
 -type user_group() :: binary().
 -type user_id() :: binary().
 
--record(user_info,
-        { user_id :: {user_group(), user_id()}
-        , password_hash :: binary()
-        , salt :: binary()
-        , is_superuser :: boolean()
-        }).
+-record(user_info, {
+    user_id :: {user_group(), user_id()},
+    password_hash :: binary(),
+    salt :: binary(),
+    is_superuser :: boolean()
+}).
 
 -reflect_type([user_id_type/0]).
 
@@ -65,9 +70,11 @@
 -boot_mnesia({mnesia, [boot]}).
 
 -define(TAB, ?MODULE).
--define(AUTHN_QSCHEMA, [ {<<"like_username">>, binary}
-                       , {<<"like_clientid">>, binary}
-                       , {<<"user_group">>, binary}]).
+-define(AUTHN_QSCHEMA, [
+    {<<"like_username">>, binary},
+    {<<"like_clientid">>, binary},
+    {<<"user_group">>, binary}
+]).
 -define(QUERY_FUN, {?MODULE, query}).
 
 %%------------------------------------------------------------------------------
@@ -75,14 +82,15 @@
 %%------------------------------------------------------------------------------
 
 %% @doc Create or replicate tables.
--spec(mnesia(boot | copy) -> ok).
+-spec mnesia(boot | copy) -> ok.
 mnesia(boot) ->
     ok = mria:create_table(?TAB, [
-                {rlog_shard, ?AUTH_SHARD},
-                {storage, disc_copies},
-                {record_name, user_info},
-                {attributes, record_info(fields, user_info)},
-                {storage_properties, [{ets, [{read_concurrency, true}]}]}]).
+        {rlog_shard, ?AUTH_SHARD},
+        {storage, disc_copies},
+        {record_name, user_info},
+        {attributes, record_info(fields, user_info)},
+        {storage_properties, [{ets, [{read_concurrency, true}]}]}
+    ]).
 
 %%------------------------------------------------------------------------------
 %% Hocon Schema
@@ -93,10 +101,11 @@ namespace() -> "authn-builtin_db".
 roots() -> [?CONF_NS].
 
 fields(?CONF_NS) ->
-    [ {mechanism, emqx_authn_schema:mechanism('password_based')}
-    , {backend, emqx_authn_schema:backend('built_in_database')}
-    , {user_id_type, fun user_id_type/1}
-    , {password_hash_algorithm, fun emqx_authn_password_hashing:type_rw/1}
+    [
+        {mechanism, emqx_authn_schema:mechanism('password_based')},
+        {backend, emqx_authn_schema:backend('built_in_database')},
+        {user_id_type, fun user_id_type/1},
+        {password_hash_algorithm, fun emqx_authn_password_hashing:type_rw/1}
     ] ++ emqx_authn_schema:common_fields().
 
 user_id_type(type) -> user_id_type();
@@ -108,15 +117,21 @@ user_id_type(_) -> undefined.
 %%------------------------------------------------------------------------------
 
 refs() ->
-   [hoconsc:ref(?MODULE, ?CONF_NS)].
+    [hoconsc:ref(?MODULE, ?CONF_NS)].
 
-create(AuthenticatorID,
-       #{user_id_type := Type,
-         password_hash_algorithm := Algorithm}) ->
+create(
+    AuthenticatorID,
+    #{
+        user_id_type := Type,
+        password_hash_algorithm := Algorithm
+    }
+) ->
     ok = emqx_authn_password_hashing:init(Algorithm),
-    State = #{user_group => AuthenticatorID,
-              user_id_type => Type,
-              password_hash_algorithm => Algorithm},
+    State = #{
+        user_group => AuthenticatorID,
+        user_id_type => Type,
+        password_hash_algorithm => Algorithm
+    },
     {ok, State}.
 
 update(Config, #{user_group := ID}) ->
@@ -124,17 +139,24 @@ update(Config, #{user_group := ID}) ->
 
 authenticate(#{auth_method := _}, _) ->
     ignore;
-authenticate(#{password := Password} = Credential,
-             #{user_group := UserGroup,
-               user_id_type := Type,
-               password_hash_algorithm := Algorithm}) ->
+authenticate(
+    #{password := Password} = Credential,
+    #{
+        user_group := UserGroup,
+        user_id_type := Type,
+        password_hash_algorithm := Algorithm
+    }
+) ->
     UserID = get_user_identity(Credential, Type),
     case mnesia:dirty_read(?TAB, {UserGroup, UserID}) of
         [] ->
             ignore;
         [#user_info{password_hash = PasswordHash, salt = Salt, is_superuser = IsSuperuser}] ->
-            case emqx_authn_password_hashing:check_password(
-                   Algorithm, Salt, PasswordHash, Password) of
+            case
+                emqx_authn_password_hashing:check_password(
+                    Algorithm, Salt, PasswordHash, Password
+                )
+            of
                 true -> {ok, #{is_superuser => IsSuperuser}};
                 false -> {error, bad_username_or_password}
             end
@@ -142,14 +164,15 @@ authenticate(#{password := Password} = Credential,
 
 destroy(#{user_group := UserGroup}) ->
     trans(
-      fun() ->
-              ok = lists:foreach(
-                     fun(User) ->
-                             mnesia:delete_object(?TAB, User, write)
-                     end,
-                     mnesia:select(?TAB, group_match_spec(UserGroup), write))
-      end).
-
+        fun() ->
+            ok = lists:foreach(
+                fun(User) ->
+                    mnesia:delete_object(?TAB, User, write)
+                end,
+                mnesia:select(?TAB, group_match_spec(UserGroup), write)
+            )
+        end
+    ).
 
 import_users(Filename0, State) ->
     Filename = to_binary(Filename0),
@@ -164,10 +187,16 @@ import_users(Filename0, State) ->
             {error, {unsupported_file_format, Extension}}
     end.
 
-add_user(#{user_id := UserID,
-           password := Password} = UserInfo,
-         #{user_group := UserGroup,
-           password_hash_algorithm := Algorithm}) ->
+add_user(
+    #{
+        user_id := UserID,
+        password := Password
+    } = UserInfo,
+    #{
+        user_group := UserGroup,
+        password_hash_algorithm := Algorithm
+    }
+) ->
     trans(
         fun() ->
             case mnesia:read(?TAB, {UserGroup, UserID}, write) of
@@ -179,7 +208,8 @@ add_user(#{user_id := UserID,
                 [_] ->
                     {error, already_exist}
             end
-        end).
+        end
+    ).
 
 delete_user(UserID, #{user_group := UserGroup}) ->
     trans(
@@ -190,31 +220,44 @@ delete_user(UserID, #{user_group := UserGroup}) ->
                 [_] ->
                     mnesia:delete(?TAB, {UserGroup, UserID}, write)
             end
-        end).
+        end
+    ).
 
-update_user(UserID, UserInfo,
-            #{user_group := UserGroup,
-              password_hash_algorithm := Algorithm}) ->
+update_user(
+    UserID,
+    UserInfo,
+    #{
+        user_group := UserGroup,
+        password_hash_algorithm := Algorithm
+    }
+) ->
     trans(
         fun() ->
             case mnesia:read(?TAB, {UserGroup, UserID}, write) of
                 [] ->
                     {error, not_found};
-                [#user_info{ password_hash = PasswordHash
-                           , salt = Salt
-                           , is_superuser = IsSuperuser}] ->
+                [
+                    #user_info{
+                        password_hash = PasswordHash,
+                        salt = Salt,
+                        is_superuser = IsSuperuser
+                    }
+                ] ->
                     NSuperuser = maps:get(is_superuser, UserInfo, IsSuperuser),
-                    {NPasswordHash, NSalt} = case UserInfo of
-                                                 #{password := Password} ->
-                                                     emqx_authn_password_hashing:hash(
-                                                       Algorithm, Password);
-                                                 #{} ->
-                                                     {PasswordHash, Salt}
-                                             end,
+                    {NPasswordHash, NSalt} =
+                        case UserInfo of
+                            #{password := Password} ->
+                                emqx_authn_password_hashing:hash(
+                                    Algorithm, Password
+                                );
+                            #{} ->
+                                {PasswordHash, Salt}
+                        end,
                     insert_user(UserGroup, UserID, NPasswordHash, NSalt, NSuperuser),
                     {ok, #{user_id => UserID, is_superuser => NSuperuser}}
             end
-        end).
+        end
+    ).
 
 lookup_user(UserID, #{user_group := UserGroup}) ->
     case mnesia:dirty_read(?TAB, {UserGroup, UserID}) of
@@ -233,14 +276,23 @@ list_users(QueryString, #{user_group := UserGroup}) ->
 
 query(Tab, {QString, []}, Continuation, Limit) ->
     Ms = ms_from_qstring(QString),
-    emqx_mgmt_api:select_table_with_count(Tab, Ms, Continuation, Limit,
-                                          fun format_user_info/1);
-
+    emqx_mgmt_api:select_table_with_count(
+        Tab,
+        Ms,
+        Continuation,
+        Limit,
+        fun format_user_info/1
+    );
 query(Tab, {QString, FuzzyQString}, Continuation, Limit) ->
     Ms = ms_from_qstring(QString),
     FuzzyFilterFun = fuzzy_filter_fun(FuzzyQString),
-    emqx_mgmt_api:select_table_with_count(Tab, {Ms, FuzzyFilterFun}, Continuation, Limit,
-                                          fun format_user_info/1).
+    emqx_mgmt_api:select_table_with_count(
+        Tab,
+        {Ms, FuzzyFilterFun},
+        Continuation,
+        Limit,
+        fun format_user_info/1
+    ).
 
 %%--------------------------------------------------------------------
 %% Match funcs
@@ -248,17 +300,23 @@ query(Tab, {QString, FuzzyQString}, Continuation, Limit) ->
 %% Fuzzy username funcs
 fuzzy_filter_fun(Fuzzy) ->
     fun(MsRaws) when is_list(MsRaws) ->
-        lists:filter( fun(E) -> run_fuzzy_filter(E, Fuzzy) end
-                    , MsRaws)
+        lists:filter(
+            fun(E) -> run_fuzzy_filter(E, Fuzzy) end,
+            MsRaws
+        )
     end.
 
 run_fuzzy_filter(_, []) ->
     true;
-run_fuzzy_filter( E = #user_info{user_id = {_, UserID}}
-                , [{username, like, UsernameSubStr} | Fuzzy]) ->
+run_fuzzy_filter(
+    E = #user_info{user_id = {_, UserID}},
+    [{username, like, UsernameSubStr} | Fuzzy]
+) ->
     binary:match(UserID, UsernameSubStr) /= nomatch andalso run_fuzzy_filter(E, Fuzzy);
-run_fuzzy_filter( E = #user_info{user_id = {_, UserID}}
-                , [{clientid, like, ClientIDSubStr} | Fuzzy]) ->
+run_fuzzy_filter(
+    E = #user_info{user_id = {_, UserID}},
+    [{clientid, like, ClientIDSubStr} | Fuzzy]
+) ->
     binary:match(UserID, ClientIDSubStr) /= nomatch andalso run_fuzzy_filter(E, Fuzzy).
 
 %%------------------------------------------------------------------------------
@@ -297,9 +355,15 @@ import_users_from_csv(Filename, #{user_group := UserGroup}) ->
 
 import(_UserGroup, []) ->
     ok;
-import(UserGroup, [#{<<"user_id">> := UserID,
-                     <<"password_hash">> := PasswordHash} = UserInfo | More])
-  when is_binary(UserID) andalso is_binary(PasswordHash) ->
+import(UserGroup, [
+    #{
+        <<"user_id">> := UserID,
+        <<"password_hash">> := PasswordHash
+    } = UserInfo
+    | More
+]) when
+    is_binary(UserID) andalso is_binary(PasswordHash)
+->
     Salt = maps:get(<<"salt">>, UserInfo, <<>>),
     IsSuperuser = maps:get(<<"is_superuser">>, UserInfo, false),
     insert_user(UserGroup, UserID, PasswordHash, Salt, IsSuperuser),
@@ -313,8 +377,11 @@ import(UserGroup, File, Seq) ->
         {ok, Line} ->
             Fields = binary:split(Line, [<<",">>, <<" ">>, <<"\n">>], [global, trim_all]),
             case get_user_info_by_seq(Fields, Seq) of
-                {ok, #{user_id := UserID,
-                       password_hash := PasswordHash} = UserInfo} ->
+                {ok,
+                    #{
+                        user_id := UserID,
+                        password_hash := PasswordHash
+                    } = UserInfo} ->
                     Salt = maps:get(salt, UserInfo, <<>>),
                     IsSuperuser = maps:get(is_superuser, UserInfo, false),
                     insert_user(UserGroup, UserID, PasswordHash, Salt, IsSuperuser),
@@ -360,10 +427,12 @@ get_user_info_by_seq(_, _, _) ->
     {error, bad_format}.
 
 insert_user(UserGroup, UserID, PasswordHash, Salt, IsSuperuser) ->
-     UserInfo = #user_info{user_id = {UserGroup, UserID},
-                           password_hash = PasswordHash,
-                           salt = Salt,
-                           is_superuser = IsSuperuser},
+    UserInfo = #user_info{
+        user_id = {UserGroup, UserID},
+        password_hash = PasswordHash,
+        salt = Salt,
+        is_superuser = IsSuperuser
+    },
     mnesia:write(?TAB, UserInfo, write).
 
 %% TODO: Support other type
@@ -392,15 +461,21 @@ format_user_info(#user_info{user_id = {_, UserID}, is_superuser = IsSuperuser}) 
     #{user_id => UserID, is_superuser => IsSuperuser}.
 
 ms_from_qstring(QString) ->
-    [Ms] = lists:foldl(fun({user_group, '=:=', UserGroup}, AccIn) ->
-                               [group_match_spec(UserGroup) | AccIn];
-                          (_, AccIn) ->
-                               AccIn
-                       end, [], QString),
+    [Ms] = lists:foldl(
+        fun
+            ({user_group, '=:=', UserGroup}, AccIn) ->
+                [group_match_spec(UserGroup) | AccIn];
+            (_, AccIn) ->
+                AccIn
+        end,
+        [],
+        QString
+    ),
     Ms.
 
 group_match_spec(UserGroup) ->
     ets:fun2ms(
-      fun(#user_info{user_id = {Group, _}} = User) when Group =:= UserGroup ->
-              User
-      end).
+        fun(#user_info{user_id = {Group, _}} = User) when Group =:= UserGroup ->
+            User
+        end
+    ).

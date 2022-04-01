@@ -23,17 +23,19 @@
 -behaviour(hocon_schema).
 -behaviour(emqx_authentication).
 
--export([ namespace/0
-        , roots/0
-        , fields/1
-        ]).
+-export([
+    namespace/0,
+    roots/0,
+    fields/1
+]).
 
--export([ refs/0
-        , create/2
-        , update/2
-        , authenticate/2
-        , destroy/1
-        ]).
+-export([
+    refs/0,
+    create/2,
+    update/2,
+    authenticate/2,
+    destroy/1
+]).
 
 %%------------------------------------------------------------------------------
 %% Hocon Schema
@@ -42,24 +44,27 @@
 namespace() -> "authn-redis".
 
 roots() ->
-    [ {?CONF_NS, hoconsc:mk(hoconsc:union(refs()),
-                            #{})}
+    [
+        {?CONF_NS,
+            hoconsc:mk(
+                hoconsc:union(refs()),
+                #{}
+            )}
     ].
 
 fields(standalone) ->
     common_fields() ++ emqx_connector_redis:fields(single);
-
 fields(cluster) ->
     common_fields() ++ emqx_connector_redis:fields(cluster);
-
 fields(sentinel) ->
     common_fields() ++ emqx_connector_redis:fields(sentinel).
 
 common_fields() ->
-    [ {mechanism, emqx_authn_schema:mechanism('password_based')}
-    , {backend, emqx_authn_schema:backend(redis)}
-    , {cmd, fun cmd/1}
-    , {password_hash_algorithm, fun emqx_authn_password_hashing:type_ro/1}
+    [
+        {mechanism, emqx_authn_schema:mechanism('password_based')},
+        {backend, emqx_authn_schema:backend(redis)},
+        {cmd, fun cmd/1},
+        {password_hash_algorithm, fun emqx_authn_password_hashing:type_ro/1}
     ] ++ emqx_authn_schema:common_fields().
 
 cmd(type) -> string();
@@ -70,30 +75,43 @@ cmd(_) -> undefined.
 %%------------------------------------------------------------------------------
 
 refs() ->
-    [ hoconsc:ref(?MODULE, standalone)
-    , hoconsc:ref(?MODULE, cluster)
-    , hoconsc:ref(?MODULE, sentinel)
+    [
+        hoconsc:ref(?MODULE, standalone),
+        hoconsc:ref(?MODULE, cluster),
+        hoconsc:ref(?MODULE, sentinel)
     ].
 
 create(_AuthenticatorID, Config) ->
     create(Config).
 
-create(#{cmd := Cmd,
-         password_hash_algorithm := Algorithm} = Config) ->
+create(
+    #{
+        cmd := Cmd,
+        password_hash_algorithm := Algorithm
+    } = Config
+) ->
     ok = emqx_authn_password_hashing:init(Algorithm),
     try
         NCmd = parse_cmd(Cmd),
         ok = emqx_authn_utils:ensure_apps_started(Algorithm),
         State = maps:with(
-                  [password_hash_algorithm, salt_position],
-                  Config),
+            [password_hash_algorithm, salt_position],
+            Config
+        ),
         ResourceId = emqx_authn_utils:make_resource_id(?MODULE),
         NState = State#{
-                   cmd => NCmd,
-                   resource_id => ResourceId},
-        case emqx_resource:create_local(ResourceId, ?RESOURCE_GROUP,
-                                        emqx_connector_redis, Config,
-                                        #{}) of
+            cmd => NCmd,
+            resource_id => ResourceId
+        },
+        case
+            emqx_resource:create_local(
+                ResourceId,
+                ?RESOURCE_GROUP,
+                emqx_connector_redis,
+                Config,
+                #{}
+            )
+        of
             {ok, already_created} ->
                 {ok, NState};
             {ok, _} ->
@@ -121,38 +139,50 @@ update(Config, State) ->
 
 authenticate(#{auth_method := _}, _) ->
     ignore;
-authenticate(#{password := Password} = Credential,
-             #{cmd := {Command, KeyTemplate, Fields},
-               resource_id := ResourceId,
-               password_hash_algorithm := Algorithm}) ->
+authenticate(
+    #{password := Password} = Credential,
+    #{
+        cmd := {Command, KeyTemplate, Fields},
+        resource_id := ResourceId,
+        password_hash_algorithm := Algorithm
+    }
+) ->
     NKey = emqx_authn_utils:render_str(KeyTemplate, Credential),
     case emqx_resource:query(ResourceId, {cmd, [Command, NKey | Fields]}) of
-        {ok, []} -> ignore;
+        {ok, []} ->
+            ignore;
         {ok, Values} ->
             case merge(Fields, Values) of
                 #{<<"password_hash">> := _} = Selected ->
-                    case emqx_authn_utils:check_password_from_selected_map(
-                          Algorithm, Selected, Password) of
+                    case
+                        emqx_authn_utils:check_password_from_selected_map(
+                            Algorithm, Selected, Password
+                        )
+                    of
                         ok ->
                             {ok, emqx_authn_utils:is_superuser(Selected)};
                         {error, Reason} ->
                             {error, Reason}
                     end;
                 _ ->
-                    ?SLOG(error, #{msg => "cannot_find_password_hash_field",
-                                   cmd => Command,
-                                   keys => NKey,
-                                   fields => Fields,
-                                   resource => ResourceId}),
+                    ?SLOG(error, #{
+                        msg => "cannot_find_password_hash_field",
+                        cmd => Command,
+                        keys => NKey,
+                        fields => Fields,
+                        resource => ResourceId
+                    }),
                     ignore
             end;
         {error, Reason} ->
-            ?SLOG(error, #{msg => "redis_query_failed",
-                           resource => ResourceId,
-                           cmd => Command,
-                           keys => NKey,
-                           fields => Fields,
-                           reason => Reason}),
+            ?SLOG(error, #{
+                msg => "redis_query_failed",
+                resource => ResourceId,
+                cmd => Command,
+                keys => NKey,
+                fields => Fields,
+                reason => Reason
+            }),
             ignore
     end.
 
@@ -191,5 +221,8 @@ merge(Fields, Value) when not is_list(Value) ->
     merge(Fields, [Value]);
 merge(Fields, Values) ->
     maps:from_list(
-        [{list_to_binary(K), V}
-            || {K, V} <- lists:zip(Fields, Values), V =/= undefined]).
+        [
+            {list_to_binary(K), V}
+         || {K, V} <- lists:zip(Fields, Values), V =/= undefined
+        ]
+    ).

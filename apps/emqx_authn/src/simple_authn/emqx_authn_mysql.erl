@@ -23,17 +23,19 @@
 -behaviour(hocon_schema).
 -behaviour(emqx_authentication).
 
--export([ namespace/0
-        , roots/0
-        , fields/1
-        ]).
+-export([
+    namespace/0,
+    roots/0,
+    fields/1
+]).
 
--export([ refs/0
-        , create/2
-        , update/2
-        , authenticate/2
-        , destroy/1
-        ]).
+-export([
+    refs/0,
+    create/2,
+    update/2,
+    authenticate/2,
+    destroy/1
+]).
 
 %%------------------------------------------------------------------------------
 %% Hocon Schema
@@ -44,13 +46,14 @@ namespace() -> "authn-mysql".
 roots() -> [?CONF_NS].
 
 fields(?CONF_NS) ->
-    [ {mechanism, emqx_authn_schema:mechanism('password_based')}
-    , {backend, emqx_authn_schema:backend(mysql)}
-    , {password_hash_algorithm, fun emqx_authn_password_hashing:type_ro/1}
-    , {query, fun query/1}
-    , {query_timeout, fun query_timeout/1}
-    ] ++ emqx_authn_schema:common_fields()
-    ++ emqx_connector_mysql:fields(config).
+    [
+        {mechanism, emqx_authn_schema:mechanism('password_based')},
+        {backend, emqx_authn_schema:backend(mysql)},
+        {password_hash_algorithm, fun emqx_authn_password_hashing:type_ro/1},
+        {query, fun query/1},
+        {query_timeout, fun query_timeout/1}
+    ] ++ emqx_authn_schema:common_fields() ++
+        emqx_connector_mysql:fields(config).
 
 query(type) -> string();
 query(_) -> undefined.
@@ -64,28 +67,37 @@ query_timeout(_) -> undefined.
 %%------------------------------------------------------------------------------
 
 refs() ->
-   [hoconsc:ref(?MODULE, ?CONF_NS)].
+    [hoconsc:ref(?MODULE, ?CONF_NS)].
 
 create(_AuthenticatorID, Config) ->
     create(Config).
 
-create(#{password_hash_algorithm := Algorithm,
-         query := Query0,
-         query_timeout := QueryTimeout
-        } = Config) ->
+create(
+    #{
+        password_hash_algorithm := Algorithm,
+        query := Query0,
+        query_timeout := QueryTimeout
+    } = Config
+) ->
     ok = emqx_authn_password_hashing:init(Algorithm),
     {Query, PlaceHolders} = emqx_authn_utils:parse_sql(Query0, '?'),
     ResourceId = emqx_authn_utils:make_resource_id(?MODULE),
-    State = #{password_hash_algorithm => Algorithm,
-              query => Query,
-              placeholders => PlaceHolders,
-              query_timeout => QueryTimeout,
-              resource_id => ResourceId},
-    case emqx_resource:create_local(ResourceId,
-                                    ?RESOURCE_GROUP,
-                                    emqx_connector_mysql,
-                                    Config,
-                                    #{}) of
+    State = #{
+        password_hash_algorithm => Algorithm,
+        query => Query,
+        placeholders => PlaceHolders,
+        query_timeout => QueryTimeout,
+        resource_id => ResourceId
+    },
+    case
+        emqx_resource:create_local(
+            ResourceId,
+            ?RESOURCE_GROUP,
+            emqx_connector_mysql,
+            Config,
+            #{}
+        )
+    of
         {ok, already_created} ->
             {ok, State};
         {ok, _} ->
@@ -105,31 +117,41 @@ update(Config, State) ->
 
 authenticate(#{auth_method := _}, _) ->
     ignore;
-authenticate(#{password := Password} = Credential,
-             #{placeholders := PlaceHolders,
-               query := Query,
-               query_timeout := Timeout,
-               resource_id := ResourceId,
-               password_hash_algorithm := Algorithm}) ->
+authenticate(
+    #{password := Password} = Credential,
+    #{
+        placeholders := PlaceHolders,
+        query := Query,
+        query_timeout := Timeout,
+        resource_id := ResourceId,
+        password_hash_algorithm := Algorithm
+    }
+) ->
     Params = emqx_authn_utils:render_sql_params(PlaceHolders, Credential),
     case emqx_resource:query(ResourceId, {sql, Query, Params, Timeout}) of
-        {ok, _Columns, []} -> ignore;
+        {ok, _Columns, []} ->
+            ignore;
         {ok, Columns, [Row | _]} ->
             Selected = maps:from_list(lists:zip(Columns, Row)),
-            case emqx_authn_utils:check_password_from_selected_map(
-                  Algorithm, Selected, Password) of
+            case
+                emqx_authn_utils:check_password_from_selected_map(
+                    Algorithm, Selected, Password
+                )
+            of
                 ok ->
                     {ok, emqx_authn_utils:is_superuser(Selected)};
                 {error, Reason} ->
                     {error, Reason}
             end;
         {error, Reason} ->
-            ?SLOG(error, #{msg => "mysql_query_failed",
-                           resource => ResourceId,
-                           query => Query,
-                           params => Params,
-                           timeout => Timeout,
-                           reason => Reason}),
+            ?SLOG(error, #{
+                msg => "mysql_query_failed",
+                resource => ResourceId,
+                query => Query,
+                params => Params,
+                timeout => Timeout,
+                reason => Reason
+            }),
             ignore
     end.
 

@@ -24,18 +24,20 @@
 -behaviour(hocon_schema).
 -behaviour(emqx_authentication).
 
--export([ namespace/0
-        , roots/0
-        , fields/1
-        , validations/0
-        ]).
+-export([
+    namespace/0,
+    roots/0,
+    fields/1,
+    validations/0
+]).
 
--export([ refs/0
-        , create/2
-        , update/2
-        , authenticate/2
-        , destroy/1
-        ]).
+-export([
+    refs/0,
+    create/2,
+    update/2,
+    authenticate/2,
+    destroy/1
+]).
 
 %%------------------------------------------------------------------------------
 %% Hocon Schema
@@ -44,35 +46,47 @@
 namespace() -> "authn-http".
 
 roots() ->
-    [ {?CONF_NS,
-       hoconsc:mk(hoconsc:union(refs()),
-                  #{})}
+    [
+        {?CONF_NS,
+            hoconsc:mk(
+                hoconsc:union(refs()),
+                #{}
+            )}
     ].
 
 fields(get) ->
-    [ {method, #{type => get, default => post}}
-    , {headers, fun headers_no_content_type/1}
+    [
+        {method, #{type => get, default => post}},
+        {headers, fun headers_no_content_type/1}
     ] ++ common_fields();
-
 fields(post) ->
-    [ {method, #{type => post, default => post}}
-    , {headers, fun headers/1}
+    [
+        {method, #{type => post, default => post}},
+        {headers, fun headers/1}
     ] ++ common_fields().
 
 common_fields() ->
-    [ {mechanism, emqx_authn_schema:mechanism('password_based')}
-    , {backend, emqx_authn_schema:backend(http)}
-    , {url, fun url/1}
-    , {body, map([{fuzzy, term(), binary()}])}
-    , {request_timeout, fun request_timeout/1}
-    ] ++ emqx_authn_schema:common_fields()
-    ++ maps:to_list(maps:without([ base_url
-                                 , pool_type],
-                    maps:from_list(emqx_connector_http:fields(config)))).
+    [
+        {mechanism, emqx_authn_schema:mechanism('password_based')},
+        {backend, emqx_authn_schema:backend(http)},
+        {url, fun url/1},
+        {body, map([{fuzzy, term(), binary()}])},
+        {request_timeout, fun request_timeout/1}
+    ] ++ emqx_authn_schema:common_fields() ++
+        maps:to_list(
+            maps:without(
+                [
+                    base_url,
+                    pool_type
+                ],
+                maps:from_list(emqx_connector_http:fields(config))
+            )
+        ).
 
 validations() ->
-    [ {check_ssl_opts, fun check_ssl_opts/1}
-    , {check_headers, fun check_headers/1}
+    [
+        {check_ssl_opts, fun check_ssl_opts/1},
+        {check_headers, fun check_headers/1}
     ].
 
 url(type) -> binary();
@@ -80,21 +94,27 @@ url(validator) -> [?NOT_EMPTY("the value of the field 'url' cannot be empty")];
 url(required) -> true;
 url(_) -> undefined.
 
-headers(type) -> map();
+headers(type) ->
+    map();
 headers(converter) ->
     fun(Headers) ->
-       maps:merge(default_headers(), transform_header_name(Headers))
+        maps:merge(default_headers(), transform_header_name(Headers))
     end;
-headers(default) -> default_headers();
-headers(_) -> undefined.
+headers(default) ->
+    default_headers();
+headers(_) ->
+    undefined.
 
-headers_no_content_type(type) -> map();
+headers_no_content_type(type) ->
+    map();
 headers_no_content_type(converter) ->
     fun(Headers) ->
-       maps:merge(default_headers_no_content_type(), transform_header_name(Headers))
+        maps:merge(default_headers_no_content_type(), transform_header_name(Headers))
     end;
-headers_no_content_type(default) -> default_headers_no_content_type();
-headers_no_content_type(_) -> undefined.
+headers_no_content_type(default) ->
+    default_headers_no_content_type();
+headers_no_content_type(_) ->
+    undefined.
 
 request_timeout(type) -> emqx_schema:duration_ms();
 request_timeout(default) -> <<"5s">>;
@@ -105,36 +125,51 @@ request_timeout(_) -> undefined.
 %%------------------------------------------------------------------------------
 
 refs() ->
-    [ hoconsc:ref(?MODULE, get)
-    , hoconsc:ref(?MODULE, post)
+    [
+        hoconsc:ref(?MODULE, get),
+        hoconsc:ref(?MODULE, post)
     ].
 
 create(_AuthenticatorID, Config) ->
     create(Config).
 
-create(#{method := Method,
-         url := RawURL,
-         headers := Headers,
-         body := Body,
-         request_timeout := RequestTimeout} = Config) ->
+create(
+    #{
+        method := Method,
+        url := RawURL,
+        headers := Headers,
+        body := Body,
+        request_timeout := RequestTimeout
+    } = Config
+) ->
     {BsaeUrlWithPath, Query} = parse_fullpath(RawURL),
     URIMap = parse_url(BsaeUrlWithPath),
     ResourceId = emqx_authn_utils:make_resource_id(?MODULE),
-    State = #{method                    => Method,
-              path                      => maps:get(path, URIMap),
-              base_query_template       => emqx_authn_utils:parse_deep(
-                                             cow_qs:parse_qs(to_bin(Query))),
-              headers                   => maps:to_list(Headers),
-              body_template             => emqx_authn_utils:parse_deep(
-                                             maps:to_list(Body)),
-              request_timeout           => RequestTimeout,
-              resource_id => ResourceId},
-    case emqx_resource:create_local(ResourceId,
-                                    ?RESOURCE_GROUP,
-                                    emqx_connector_http,
-                                    Config#{base_url => maps:remove(query, URIMap),
-                                            pool_type => random},
-                                            #{}) of
+    State = #{
+        method => Method,
+        path => maps:get(path, URIMap),
+        base_query_template => emqx_authn_utils:parse_deep(
+            cow_qs:parse_qs(to_bin(Query))
+        ),
+        headers => maps:to_list(Headers),
+        body_template => emqx_authn_utils:parse_deep(
+            maps:to_list(Body)
+        ),
+        request_timeout => RequestTimeout,
+        resource_id => ResourceId
+    },
+    case
+        emqx_resource:create_local(
+            ResourceId,
+            ?RESOURCE_GROUP,
+            emqx_connector_http,
+            Config#{
+                base_url => maps:remove(query, URIMap),
+                pool_type => random
+            },
+            #{}
+        )
+    of
         {ok, already_created} ->
             {ok, State};
         {ok, _} ->
@@ -154,13 +189,20 @@ update(Config, State) ->
 
 authenticate(#{auth_method := _}, _) ->
     ignore;
-authenticate(Credential, #{resource_id := ResourceId,
-                           method := Method,
-                           request_timeout := RequestTimeout} = State) ->
+authenticate(
+    Credential,
+    #{
+        resource_id := ResourceId,
+        method := Method,
+        request_timeout := RequestTimeout
+    } = State
+) ->
     Request = generate_request(Credential, State),
     case emqx_resource:query(ResourceId, {Method, Request, RequestTimeout}) of
-        {ok, 204, _Headers} -> {ok, #{is_superuser => false}};
-        {ok, 200, _Headers} -> {ok, #{is_superuser => false}};
+        {ok, 204, _Headers} ->
+            {ok, #{is_superuser => false}};
+        {ok, 200, _Headers} ->
+            {ok, #{is_superuser => false}};
         {ok, 200, Headers, Body} ->
             ContentType = proplists:get_value(<<"content-type">>, Headers, <<"application/json">>),
             case safely_parse_body(ContentType, Body) of
@@ -173,24 +215,32 @@ authenticate(Credential, #{resource_id := ResourceId,
                     {ok, #{is_superuser => false}}
             end;
         {error, Reason} ->
-            ?SLOG(error, #{msg => "http_server_query_failed",
-                           resource => ResourceId,
-                           reason => Reason}),
+            ?SLOG(error, #{
+                msg => "http_server_query_failed",
+                resource => ResourceId,
+                reason => Reason
+            }),
             ignore;
         Other ->
             Output = may_append_body(#{resource => ResourceId}, Other),
             case erlang:element(2, Other) of
                 Code5xx when Code5xx >= 500 andalso Code5xx < 600 ->
-                    ?SLOG(error, Output#{msg => "http_server_error",
-                                         code => Code5xx}),
+                    ?SLOG(error, Output#{
+                        msg => "http_server_error",
+                        code => Code5xx
+                    }),
                     ignore;
                 Code4xx when Code4xx >= 400 andalso Code4xx < 500 ->
-                    ?SLOG(warning, Output#{msg => "refused_by_http_server",
-                                           code => Code4xx}),
+                    ?SLOG(warning, Output#{
+                        msg => "refused_by_http_server",
+                        code => Code4xx
+                    }),
                     {error, not_authorized};
                 OtherCode ->
-                    ?SLOG(error, Output#{msg => "undesired_response_code",
-                                           code => OtherCode}),
+                    ?SLOG(error, Output#{
+                        msg => "undesired_response_code",
+                        code => OtherCode
+                    }),
                     ignore
             end
     end.
@@ -207,22 +257,29 @@ parse_fullpath(RawURL) ->
     cow_http:parse_fullpath(to_bin(RawURL)).
 
 default_headers() ->
-    maps:put(<<"content-type">>,
-             <<"application/json">>,
-             default_headers_no_content_type()).
+    maps:put(
+        <<"content-type">>,
+        <<"application/json">>,
+        default_headers_no_content_type()
+    ).
 
 default_headers_no_content_type() ->
-    #{ <<"accept">> => <<"application/json">>
-     , <<"cache-control">> => <<"no-cache">>
-     , <<"connection">> => <<"keep-alive">>
-     , <<"keep-alive">> => <<"timeout=30, max=1000">>
-     }.
+    #{
+        <<"accept">> => <<"application/json">>,
+        <<"cache-control">> => <<"no-cache">>,
+        <<"connection">> => <<"keep-alive">>,
+        <<"keep-alive">> => <<"timeout=30, max=1000">>
+    }.
 
 transform_header_name(Headers) ->
-    maps:fold(fun(K0, V, Acc) ->
-                  K = list_to_binary(string:to_lower(to_list(K0))),
-                  maps:put(K, V, Acc)
-              end, #{}, Headers).
+    maps:fold(
+        fun(K0, V, Acc) ->
+            K = list_to_binary(string:to_lower(to_list(K0))),
+            maps:put(K, V, Acc)
+        end,
+        #{},
+        Headers
+    ).
 
 check_ssl_opts(Conf) ->
     {BaseUrlWithPath, _Query} = parse_fullpath(get_conf_val("url", Conf)),
@@ -250,11 +307,13 @@ parse_url(URL) ->
             URIMap
     end.
 
-generate_request(Credential, #{method := Method,
-                               path := Path,
-                               base_query_template := BaseQueryTemplate,
-                               headers := Headers,
-                               body_template := BodyTemplate}) ->
+generate_request(Credential, #{
+    method := Method,
+    path := Path,
+    base_query_template := BaseQueryTemplate,
+    headers := Headers,
+    body_template := BodyTemplate
+}) ->
     Body = emqx_authn_utils:render_deep(BodyTemplate, Credential),
     NBaseQuery = emqx_authn_utils:render_deep(BaseQueryTemplate, Credential),
     case Method of

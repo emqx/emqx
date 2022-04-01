@@ -22,23 +22,25 @@
 -include_lib("jose/include/jose_jwk.hrl").
 -include_lib("snabbkaffe/include/snabbkaffe.hrl").
 
+-export([
+    start_link/1,
+    stop/1
+]).
 
--export([ start_link/1
-        , stop/1
-        ]).
-
--export([ get_jwks/1
-        , update/2
-        ]).
+-export([
+    get_jwks/1,
+    update/2
+]).
 
 %% gen_server callbacks
--export([ init/1
-        , handle_call/3
-        , handle_cast/2
-        , handle_info/2
-        , terminate/2
-        , code_change/3
-        ]).
+-export([
+    init/1,
+    handle_call/3,
+    handle_cast/2,
+    handle_info/2,
+    terminate/2,
+    code_change/3
+]).
 
 %%--------------------------------------------------------------------
 %% APIs
@@ -67,11 +69,9 @@ init([Opts]) ->
 
 handle_call(get_cached_jwks, _From, #{jwks := Jwks} = State) ->
     {reply, {ok, Jwks}, State};
-
 handle_call({update, Opts}, _From, _State) ->
     NewState = handle_options(Opts),
     {reply, ok, refresh_jwks(NewState)};
-
 handle_call(_Req, _From, State) ->
     {reply, ok, State}.
 
@@ -80,47 +80,53 @@ handle_cast(_Msg, State) ->
 
 handle_info({refresh_jwks, _TRef, refresh}, #{request_id := RequestID} = State) ->
     case RequestID of
-        undefined -> ok;
+        undefined ->
+            ok;
         _ ->
             ok = httpc:cancel_request(RequestID),
             receive
                 {http, _} -> ok
             after 0 ->
-                    ok
+                ok
             end
     end,
     {noreply, refresh_jwks(State)};
-
-handle_info({http, {RequestID, Result}},
-            #{request_id := RequestID, endpoint := Endpoint} = State0) ->
+handle_info(
+    {http, {RequestID, Result}},
+    #{request_id := RequestID, endpoint := Endpoint} = State0
+) ->
     ?tp(debug, jwks_endpoint_response, #{request_id => RequestID}),
     State1 = State0#{request_id := undefined},
-    NewState = case Result of
-                   {error, Reason} ->
-                       ?SLOG(warning, #{msg => "failed_to_request_jwks_endpoint",
-                                        endpoint => Endpoint,
-                                        reason => Reason}),
-                       State1;
-                   {StatusLine, Headers, Body} ->
-                       try
-                           JWKS = jose_jwk:from(emqx_json:decode(Body, [return_maps])),
-                           {_, JWKs} = JWKS#jose_jwk.keys,
-                           State1#{jwks := JWKs}
-                       catch _:_ ->
-                                 ?SLOG(warning, #{msg => "invalid_jwks_returned",
-                                                  endpoint => Endpoint,
-                                                  status => StatusLine,
-                                                  headers => Headers,
-                                                  body => Body}),
-                                 State1
-                       end
-               end,
+    NewState =
+        case Result of
+            {error, Reason} ->
+                ?SLOG(warning, #{
+                    msg => "failed_to_request_jwks_endpoint",
+                    endpoint => Endpoint,
+                    reason => Reason
+                }),
+                State1;
+            {StatusLine, Headers, Body} ->
+                try
+                    JWKS = jose_jwk:from(emqx_json:decode(Body, [return_maps])),
+                    {_, JWKs} = JWKS#jose_jwk.keys,
+                    State1#{jwks := JWKs}
+                catch
+                    _:_ ->
+                        ?SLOG(warning, #{
+                            msg => "invalid_jwks_returned",
+                            endpoint => Endpoint,
+                            status => StatusLine,
+                            headers => Headers,
+                            body => Body
+                        }),
+                        State1
+                end
+        end,
     {noreply, NewState};
-
 handle_info({http, {_, _}}, State) ->
     %% ignore
     {noreply, State};
-
 handle_info(_Info, State) ->
     {noreply, State}.
 
@@ -135,32 +141,50 @@ code_change(_OldVsn, State, _Extra) ->
 %% Internal functions
 %%--------------------------------------------------------------------
 
-handle_options(#{endpoint := Endpoint,
-                 refresh_interval := RefreshInterval0,
-                 ssl_opts := SSLOpts}) ->
-    #{endpoint => Endpoint,
-      refresh_interval => limit_refresh_interval(RefreshInterval0),
-      ssl_opts => maps:to_list(SSLOpts),
-      jwks => [],
-      request_id => undefined}.
+handle_options(#{
+    endpoint := Endpoint,
+    refresh_interval := RefreshInterval0,
+    ssl_opts := SSLOpts
+}) ->
+    #{
+        endpoint => Endpoint,
+        refresh_interval => limit_refresh_interval(RefreshInterval0),
+        ssl_opts => maps:to_list(SSLOpts),
+        jwks => [],
+        request_id => undefined
+    }.
 
-refresh_jwks(#{endpoint := Endpoint,
-               ssl_opts := SSLOpts} = State) ->
-    HTTPOpts = [ {timeout, 5000}
-               , {connect_timeout, 5000}
-               , {ssl, SSLOpts}
-               ],
-    NState = case httpc:request(get, {Endpoint, [{"Accept", "application/json"}]}, HTTPOpts,
-                                [{body_format, binary}, {sync, false}, {receiver, self()}]) of
-                 {error, Reason} ->
-                     ?tp(warning, jwks_endpoint_request_fail, #{endpoint => Endpoint,
-                                                                http_opts => HTTPOpts,
-                                                                reason => Reason}),
-                     State;
-                 {ok, RequestID} ->
-                     ?tp(debug, jwks_endpoint_request_ok, #{request_id => RequestID}),
-                     State#{request_id := RequestID}
-             end,
+refresh_jwks(
+    #{
+        endpoint := Endpoint,
+        ssl_opts := SSLOpts
+    } = State
+) ->
+    HTTPOpts = [
+        {timeout, 5000},
+        {connect_timeout, 5000},
+        {ssl, SSLOpts}
+    ],
+    NState =
+        case
+            httpc:request(
+                get,
+                {Endpoint, [{"Accept", "application/json"}]},
+                HTTPOpts,
+                [{body_format, binary}, {sync, false}, {receiver, self()}]
+            )
+        of
+            {error, Reason} ->
+                ?tp(warning, jwks_endpoint_request_fail, #{
+                    endpoint => Endpoint,
+                    http_opts => HTTPOpts,
+                    reason => Reason
+                }),
+                State;
+            {ok, RequestID} ->
+                ?tp(debug, jwks_endpoint_request_ok, #{request_id => RequestID}),
+                State#{request_id := RequestID}
+        end,
     ensure_expiry_timer(NState).
 
 ensure_expiry_timer(State = #{refresh_interval := Interval}) ->
