@@ -18,6 +18,7 @@
 
 -include_lib("eunit/include/eunit.hrl").
 
+-compile(nowarn_export_all).
 -compile(export_all).
 
 ensure_configured_test_todo() ->
