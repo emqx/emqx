@@ -48,8 +48,8 @@ jobs:
       matrix:
         scripts_type:
         - mqtt_subscription_topic_metrics
-#        - mqtt_delayed_publish
-#        - mqtt_topic_rewrite
+        - mqtt_delayed_publish
+        - mqtt_topic_rewrite
 #        - mqtt_retainer
 
     needs: build
@@ -141,7 +141,7 @@ jobs:
         - 13
         scripts_type:
         - pgsql_authn
- #       - pgsql_authz
+        - pgsql_authz
 
     needs: build
     steps:
@@ -242,7 +242,7 @@ jobs:
         - 8
         scripts_type:
         - mysql_authn
-#        - mysql_authz
+        - mysql_authz
 
     needs: build
     steps:
