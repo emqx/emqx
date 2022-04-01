@@ -24,23 +24,25 @@
 -behaviour(emqx_authz).
 
 %% AuthZ Callbacks
--export([ description/0
-        , init/1
-        , destroy/1
-        , dry_run/1
-        , authorize/4
-        ]).
+-export([
+    description/0,
+    init/1,
+    destroy/1,
+    authorize/4
+]).
 
 -ifdef(TEST).
 -compile(export_all).
 -compile(nowarn_export_all).
 -endif.
 
--define(PLACEHOLDERS, [?PH_CERT_CN_NAME,
-                       ?PH_CERT_SUBJECT,
-                       ?PH_PEERHOST,
-                       ?PH_CLIENTID,
-                       ?PH_USERNAME]).
+-define(PLACEHOLDERS, [
+    ?PH_CERT_CN_NAME,
+    ?PH_CERT_SUBJECT,
+    ?PH_PEERHOST,
+    ?PH_CLIENTID,
+    ?PH_USERNAME
+]).
 
 description() ->
     "AuthZ with Redis".
@@ -49,41 +51,54 @@ init(#{cmd := CmdStr} = Source) ->
     Cmd = tokens(CmdStr),
     CmdTemplate = emqx_authz_utils:parse_deep(Cmd, ?PLACEHOLDERS),
     case emqx_authz_utils:create_resource(emqx_connector_redis, Source) of
-        {error, Reason} -> error({load_config_error, Reason});
-        {ok, Id} -> Source#{annotations => #{id => Id},
-                            cmd_template => CmdTemplate}
+        {error, Reason} ->
+            error({load_config_error, Reason});
+        {ok, Id} ->
+            Source#{
+                annotations => #{id => Id},
+                cmd_template => CmdTemplate
+            }
     end.
 
 destroy(#{annotations := #{id := Id}}) ->
     ok = emqx_resource:remove_local(Id).
 
-dry_run(Source) ->
-    emqx_resource:create_dry_run_local(emqx_connector_redis, Source).
-
-authorize(Client, PubSub, Topic,
-            #{cmd_template := CmdTemplate,
-              annotations := #{id := ResourceID}
-             }) ->
+authorize(
+    Client,
+    PubSub,
+    Topic,
+    #{
+        cmd_template := CmdTemplate,
+        annotations := #{id := ResourceID}
+    }
+) ->
     Cmd = emqx_authz_utils:render_deep(CmdTemplate, Client),
     case emqx_resource:query(ResourceID, {cmd, Cmd}) of
-        {ok, []} -> nomatch;
+        {ok, []} ->
+            nomatch;
         {ok, Rows} ->
             do_authorize(Client, PubSub, Topic, Rows);
         {error, Reason} ->
-            ?SLOG(error, #{ msg => "query_redis_error"
-                          , reason => Reason
-                          , cmd => Cmd
-                          , resource_id => ResourceID}),
+            ?SLOG(error, #{
+                msg => "query_redis_error",
+                reason => Reason,
+                cmd => Cmd,
+                resource_id => ResourceID
+            }),
             nomatch
     end.
 
 do_authorize(_Client, _PubSub, _Topic, []) ->
     nomatch;
 do_authorize(Client, PubSub, Topic, [TopicFilter, Action | Tail]) ->
-    case emqx_authz_rule:match(
-           Client, PubSub, Topic,
-           emqx_authz_rule:compile({allow, all, Action, [TopicFilter]})
-          ) of
+    case
+        emqx_authz_rule:match(
+            Client,
+            PubSub,
+            Topic,
+            emqx_authz_rule:compile({allow, all, Action, [TopicFilter]})
+        )
+    of
         {matched, Permission} -> {matched, Permission};
         nomatch -> do_authorize(Client, PubSub, Topic, Tail)
     end.

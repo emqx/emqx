@@ -21,6 +21,7 @@
 -include_lib("emqx/include/emqx.hrl").
 -include_lib("emqx/include/logger.hrl").
 -include_lib("emqx/include/emqx_mqtt.hrl").
+-include_lib("snabbkaffe/include/snabbkaffe.hrl").
 
 -export([
     on_message_publish/1,
@@ -212,6 +213,7 @@ init([Opts]) ->
                     error("max topic metrics quota exceeded")
             end
         end,
+    ?tp(debug, emqx_topic_metrics_started, #{}),
     {ok, #state{speeds = lists:foldl(Fun, #{}, Opts)}, hibernate}.
 
 handle_call({register, Topic}, _From, State = #state{speeds = Speeds}) ->
@@ -262,7 +264,7 @@ handle_call({get_rates, Topic, Metric}, _From, State = #state{speeds = Speeds}) 
     end.
 
 handle_cast(Msg, State) ->
-    ?SLOG(error, #{msg => "unexpected_cast", cast => Msg}),
+    ?tp(error, emqx_topic_metrics_unexpected_cast, #{cast => Msg}),
     {noreply, State}.
 
 handle_info(ticking, State = #state{speeds = Speeds}) ->
@@ -278,7 +280,7 @@ handle_info(ticking, State = #state{speeds = Speeds}) ->
     erlang:send_after(timer:seconds(?TICKING_INTERVAL), self(), ticking),
     {noreply, State#state{speeds = NSpeeds}};
 handle_info(Info, State) ->
-    ?SLOG(error, #{msg => "unexpected_info", info => Info}),
+    ?tp(error, emqx_topic_metrics_unexpected_info, #{info => Info}),
     {noreply, State}.
 
 terminate(_Reason, _State) ->

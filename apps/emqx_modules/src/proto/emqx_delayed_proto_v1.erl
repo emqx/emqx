@@ -31,9 +31,9 @@ introduced_in() ->
 
 -spec get_delayed_message(node(), binary()) ->
     emqx_delayed:with_id_return(map()) | emqx_rpc:badrpc().
-get_delayed_message(Node, HexId) ->
-    rpc:call(Node, emqx_delayed, get_delayed_message, [HexId]).
+get_delayed_message(Node, Id) ->
+    rpc:call(Node, emqx_delayed, get_delayed_message, [Id]).
 
 -spec delete_delayed_message(node(), binary()) -> emqx_delayed:with_id_return() | emqx_rpc:badrpc().
-delete_delayed_message(Node, HexId) ->
-    rpc:call(Node, emqx_delayed, delete_delayed_message, [HexId]).
+delete_delayed_message(Node, Id) ->
+    rpc:call(Node, emqx_delayed, delete_delayed_message, [Id]).

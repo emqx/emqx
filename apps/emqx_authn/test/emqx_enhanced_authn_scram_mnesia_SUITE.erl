@@ -26,14 +26,16 @@
 
 -define(PATH, [authentication]).
 
--define(USER_MAP, #{user_id := _,
-                    is_superuser := _}).
+-define(USER_MAP, #{
+    user_id := _,
+    is_superuser := _
+}).
 
 all() ->
     emqx_common_test_helpers:all(?MODULE).
 
 init_per_suite(Config) ->
-     _ = application:load(emqx_conf),
+    _ = application:load(emqx_conf),
     ok = emqx_common_test_helpers:start_apps([emqx_authn]),
     Config.
 
@@ -44,8 +46,9 @@ init_per_testcase(_Case, Config) ->
     {ok, _} = emqx_cluster_rpc:start_link(node(), emqx_cluster_rpc, 1000),
     mria:clear_table(emqx_enhanced_authn_scram_mnesia),
     emqx_authn_test_lib:delete_authenticators(
-      [authentication],
-      ?GLOBAL),
+        [authentication],
+        ?GLOBAL
+    ),
     Config.
 
 end_per_testcase(_Case, Config) ->
@@ -64,23 +67,25 @@ t_create(_Config) ->
     },
 
     {ok, _} = emqx:update_config(
-                ?PATH,
-                {create_authenticator, ?GLOBAL, ValidConfig}),
+        ?PATH,
+        {create_authenticator, ?GLOBAL, ValidConfig}
+    ),
 
-    {ok, [#{provider := emqx_enhanced_authn_scram_mnesia}]}
-        = emqx_authentication:list_authenticators(?GLOBAL).
+    {ok, [#{provider := emqx_enhanced_authn_scram_mnesia}]} =
+        emqx_authentication:list_authenticators(?GLOBAL).
 
 t_create_invalid(_Config) ->
     InvalidConfig = #{
-                      <<"mechanism">> => <<"scram">>,
-                      <<"backend">> => <<"built_in_database">>,
-                      <<"algorithm">> => <<"sha271828">>,
-                      <<"iteration_count">> => <<"4096">>
-                     },
+        <<"mechanism">> => <<"scram">>,
+        <<"backend">> => <<"built_in_database">>,
+        <<"algorithm">> => <<"sha271828">>,
+        <<"iteration_count">> => <<"4096">>
+    },
 
     {error, _} = emqx:update_config(
-                   ?PATH,
-                   {create_authenticator, ?GLOBAL, InvalidConfig}),
+        ?PATH,
+        {create_authenticator, ?GLOBAL, InvalidConfig}
+    ),
 
     {ok, []} = emqx_authentication:list_authenticators(?GLOBAL).
 
@@ -96,39 +101,47 @@ t_authenticate(_Config) ->
     ClientFirstMessage = esasl_scram:client_first_message(Username),
 
     ConnectPacket = ?CONNECT_PACKET(
-                       #mqtt_packet_connect{
-                          proto_ver = ?MQTT_PROTO_V5,
-                          properties = #{
-                                         'Authentication-Method' => <<"SCRAM-SHA-512">>,
-                                         'Authentication-Data' => ClientFirstMessage
-                                        }
-                         }),
+        #mqtt_packet_connect{
+            proto_ver = ?MQTT_PROTO_V5,
+            properties = #{
+                'Authentication-Method' => <<"SCRAM-SHA-512">>,
+                'Authentication-Data' => ClientFirstMessage
+            }
+        }
+    ),
 
     ok = emqx_authn_mqtt_test_client:send(Pid, ConnectPacket),
 
     ?AUTH_PACKET(
-       ?RC_CONTINUE_AUTHENTICATION,
-       #{'Authentication-Data' := ServerFirstMessage}) = receive_packet(),
+        ?RC_CONTINUE_AUTHENTICATION,
+        #{'Authentication-Data' := ServerFirstMessage}
+    ) = receive_packet(),
 
     {continue, ClientFinalMessage, ClientCache} =
         esasl_scram:check_server_first_message(
             ServerFirstMessage,
-            #{client_first_message => ClientFirstMessage,
-              password => Password,
-              algorithm => Algorithm}
+            #{
+                client_first_message => ClientFirstMessage,
+                password => Password,
+                algorithm => Algorithm
+            }
         ),
 
     AuthContinuePacket = ?AUTH_PACKET(
-                            ?RC_CONTINUE_AUTHENTICATION,
-                            #{'Authentication-Method' => <<"SCRAM-SHA-512">>,
-                              'Authentication-Data' => ClientFinalMessage}),
+        ?RC_CONTINUE_AUTHENTICATION,
+        #{
+            'Authentication-Method' => <<"SCRAM-SHA-512">>,
+            'Authentication-Data' => ClientFinalMessage
+        }
+    ),
 
     ok = emqx_authn_mqtt_test_client:send(Pid, AuthContinuePacket),
 
     ?CONNACK_PACKET(
-       ?RC_SUCCESS,
-       _,
-       #{'Authentication-Data' := ServerFinalMessage}) = receive_packet(),
+        ?RC_SUCCESS,
+        _,
+        #{'Authentication-Data' := ServerFinalMessage}
+    ) = receive_packet(),
 
     ok = esasl_scram:check_server_final_message(
         ServerFinalMessage, ClientCache#{algorithm => Algorithm}
@@ -146,13 +159,14 @@ t_authenticate_bad_username(_Config) ->
     ClientFirstMessage = esasl_scram:client_first_message(<<"badusername">>),
 
     ConnectPacket = ?CONNECT_PACKET(
-                       #mqtt_packet_connect{
-                          proto_ver = ?MQTT_PROTO_V5,
-                          properties = #{
-                                         'Authentication-Method' => <<"SCRAM-SHA-512">>,
-                                         'Authentication-Data' => ClientFirstMessage
-                                        }
-                         }),
+        #mqtt_packet_connect{
+            proto_ver = ?MQTT_PROTO_V5,
+            properties = #{
+                'Authentication-Method' => <<"SCRAM-SHA-512">>,
+                'Authentication-Data' => ClientFirstMessage
+            }
+        }
+    ),
 
     ok = emqx_authn_mqtt_test_client:send(Pid, ConnectPacket),
 
@@ -170,32 +184,39 @@ t_authenticate_bad_password(_Config) ->
     ClientFirstMessage = esasl_scram:client_first_message(Username),
 
     ConnectPacket = ?CONNECT_PACKET(
-                       #mqtt_packet_connect{
-                          proto_ver = ?MQTT_PROTO_V5,
-                          properties = #{
-                                         'Authentication-Method' => <<"SCRAM-SHA-512">>,
-                                         'Authentication-Data' => ClientFirstMessage
-                                        }
-                         }),
+        #mqtt_packet_connect{
+            proto_ver = ?MQTT_PROTO_V5,
+            properties = #{
+                'Authentication-Method' => <<"SCRAM-SHA-512">>,
+                'Authentication-Data' => ClientFirstMessage
+            }
+        }
+    ),
 
     ok = emqx_authn_mqtt_test_client:send(Pid, ConnectPacket),
 
     ?AUTH_PACKET(
-       ?RC_CONTINUE_AUTHENTICATION,
-       #{'Authentication-Data' := ServerFirstMessage}) = receive_packet(),
+        ?RC_CONTINUE_AUTHENTICATION,
+        #{'Authentication-Data' := ServerFirstMessage}
+    ) = receive_packet(),
 
     {continue, ClientFinalMessage, _ClientCache} =
         esasl_scram:check_server_first_message(
             ServerFirstMessage,
-            #{client_first_message => ClientFirstMessage,
-              password => <<"badpassword">>,
-              algorithm => Algorithm}
+            #{
+                client_first_message => ClientFirstMessage,
+                password => <<"badpassword">>,
+                algorithm => Algorithm
+            }
         ),
 
     AuthContinuePacket = ?AUTH_PACKET(
-                            ?RC_CONTINUE_AUTHENTICATION,
-                            #{'Authentication-Method' => <<"SCRAM-SHA-512">>,
-                              'Authentication-Data' => ClientFinalMessage}),
+        ?RC_CONTINUE_AUTHENTICATION,
+        #{
+            'Authentication-Method' => <<"SCRAM-SHA-512">>,
+            'Authentication-Data' => ClientFinalMessage
+        }
+    ),
 
     ok = emqx_authn_mqtt_test_client:send(Pid, AuthContinuePacket),
 
@@ -218,7 +239,7 @@ t_destroy(_) ->
     ok = emqx_enhanced_authn_scram_mnesia:destroy(State0),
 
     {ok, State1} = emqx_enhanced_authn_scram_mnesia:create(<<"id">>, Config),
-    {error,not_found} = emqx_enhanced_authn_scram_mnesia:lookup_user(<<"u">>, State1),
+    {error, not_found} = emqx_enhanced_authn_scram_mnesia:lookup_user(<<"u">>, State1),
     {ok, _} = emqx_enhanced_authn_scram_mnesia:lookup_user(<<"u">>, StateOther).
 
 t_add_user(_) ->
@@ -248,12 +269,14 @@ t_update_user(_) ->
     {ok, _} = emqx_enhanced_authn_scram_mnesia:add_user(User, State),
     {ok, #{is_superuser := false}} = emqx_enhanced_authn_scram_mnesia:lookup_user(<<"u">>, State),
 
-    {ok,
-     #{user_id := <<"u">>,
-       is_superuser := true}} = emqx_enhanced_authn_scram_mnesia:update_user(
-                                  <<"u">>,
-                                  #{password => <<"p1">>, is_superuser => true},
-                                  State),
+    {ok, #{
+        user_id := <<"u">>,
+        is_superuser := true
+    }} = emqx_enhanced_authn_scram_mnesia:update_user(
+        <<"u">>,
+        #{password => <<"p1">>, is_superuser => true},
+        State
+    ),
 
     {ok, #{is_superuser := true}} = emqx_enhanced_authn_scram_mnesia:lookup_user(<<"u">>, State).
 
@@ -261,29 +284,47 @@ t_list_users(_) ->
     Config = config(),
     {ok, State} = emqx_enhanced_authn_scram_mnesia:create(<<"id">>, Config),
 
-    Users = [#{user_id => <<"u1">>, password => <<"p">>},
-             #{user_id => <<"u2">>, password => <<"p">>},
-             #{user_id => <<"u3">>, password => <<"p">>}],
+    Users = [
+        #{user_id => <<"u1">>, password => <<"p">>},
+        #{user_id => <<"u2">>, password => <<"p">>},
+        #{user_id => <<"u3">>, password => <<"p">>}
+    ],
 
     lists:foreach(
-      fun(U) -> {ok, _} = emqx_enhanced_authn_scram_mnesia:add_user(U, State) end,
-      Users),
+        fun(U) -> {ok, _} = emqx_enhanced_authn_scram_mnesia:add_user(U, State) end,
+        Users
+    ),
 
-    #{data := [?USER_MAP, ?USER_MAP],
-      meta := #{page := 1, limit := 2, count := 3}} = emqx_enhanced_authn_scram_mnesia:list_users(
-                                                        #{<<"page">> => 1, <<"limit">> => 2},
-                                                        State),
-    #{data := [?USER_MAP],
-      meta := #{page := 2, limit := 2, count := 3}} = emqx_enhanced_authn_scram_mnesia:list_users(
-                                                        #{<<"page">> => 2, <<"limit">> => 2},
-                                                        State),
-    #{data := [#{user_id := <<"u1">>,
-                 is_superuser := _}],
-      meta := #{page := 1, limit := 3, count := 1}} = emqx_enhanced_authn_scram_mnesia:list_users(
-                                                        #{ <<"page">> => 1
-                                                         , <<"limit">> => 3
-                                                         , <<"like_username">> => <<"1">>},
-                                                        State).
+    #{
+        data := [?USER_MAP, ?USER_MAP],
+        meta := #{page := 1, limit := 2, count := 3}
+    } = emqx_enhanced_authn_scram_mnesia:list_users(
+        #{<<"page">> => 1, <<"limit">> => 2},
+        State
+    ),
+    #{
+        data := [?USER_MAP],
+        meta := #{page := 2, limit := 2, count := 3}
+    } = emqx_enhanced_authn_scram_mnesia:list_users(
+        #{<<"page">> => 2, <<"limit">> => 2},
+        State
+    ),
+    #{
+        data := [
+            #{
+                user_id := <<"u1">>,
+                is_superuser := _
+            }
+        ],
+        meta := #{page := 1, limit := 3, count := 1}
+    } = emqx_enhanced_authn_scram_mnesia:list_users(
+        #{
+            <<"page">> => 1,
+            <<"limit">> => 3,
+            <<"like_username">> => <<"1">>
+        },
+        State
+    ).
 
 t_is_superuser(_Config) ->
     ok = test_is_superuser(#{is_superuser => false}, false),
@@ -297,36 +338,44 @@ test_is_superuser(UserInfo, ExpectedIsSuperuser) ->
     Username = <<"u">>,
     Password = <<"p">>,
 
-    UserInfo0 = UserInfo#{user_id => Username,
-                          password => Password},
+    UserInfo0 = UserInfo#{
+        user_id => Username,
+        password => Password
+    },
 
     {ok, _} = emqx_enhanced_authn_scram_mnesia:add_user(UserInfo0, State),
 
     ClientFirstMessage = esasl_scram:client_first_message(Username),
 
-    {continue, ServerFirstMessage, ServerCache}
-        = emqx_enhanced_authn_scram_mnesia:authenticate(
-            #{auth_method => <<"SCRAM-SHA-512">>,
-              auth_data => ClientFirstMessage,
-              auth_cache => #{}
-             },
-            State),
+    {continue, ServerFirstMessage, ServerCache} =
+        emqx_enhanced_authn_scram_mnesia:authenticate(
+            #{
+                auth_method => <<"SCRAM-SHA-512">>,
+                auth_data => ClientFirstMessage,
+                auth_cache => #{}
+            },
+            State
+        ),
 
     {continue, ClientFinalMessage, ClientCache} =
         esasl_scram:check_server_first_message(
             ServerFirstMessage,
-            #{client_first_message => ClientFirstMessage,
-              password => Password,
-              algorithm => sha512}
+            #{
+                client_first_message => ClientFirstMessage,
+                password => Password,
+                algorithm => sha512
+            }
         ),
 
-    {ok, UserInfo1, ServerFinalMessage}
-        = emqx_enhanced_authn_scram_mnesia:authenticate(
-            #{auth_method => <<"SCRAM-SHA-512">>,
-              auth_data => ClientFinalMessage,
-              auth_cache => ServerCache
-             },
-            State),
+    {ok, UserInfo1, ServerFinalMessage} =
+        emqx_enhanced_authn_scram_mnesia:authenticate(
+            #{
+                auth_method => <<"SCRAM-SHA-512">>,
+                auth_data => ClientFinalMessage,
+                auth_cache => ServerCache
+            },
+            State
+        ),
 
     ok = esasl_scram:check_server_final_message(
         ServerFinalMessage, ClientCache#{algorithm => sha512}
@@ -336,18 +385,17 @@ test_is_superuser(UserInfo, ExpectedIsSuperuser) ->
 
     ok = emqx_enhanced_authn_scram_mnesia:destroy(State).
 
-
 %%------------------------------------------------------------------------------
 %% Helpers
 %%------------------------------------------------------------------------------
 
 config() ->
     #{
-      mechanism => <<"scram">>,
-      backend => <<"built_in_database">>,
-      algorithm => sha512,
-      iteration_count => 4096
-     }.
+        mechanism => <<"scram">>,
+        backend => <<"built_in_database">>,
+        algorithm => sha512,
+        iteration_count => 4096
+    }.
 
 raw_config(Algorithm) ->
     #{
@@ -361,14 +409,16 @@ init_auth(Username, Password, Algorithm) ->
     Config = raw_config(Algorithm),
 
     {ok, _} = emqx:update_config(
-                ?PATH,
-                {create_authenticator, ?GLOBAL, Config}),
+        ?PATH,
+        {create_authenticator, ?GLOBAL, Config}
+    ),
 
     {ok, [#{state := State}]} = emqx_authentication:list_authenticators(?GLOBAL),
 
     emqx_enhanced_authn_scram_mnesia:add_user(
-      #{user_id => Username, password => Password},
-      State).
+        #{user_id => Username, password => Password},
+        State
+    ).
 
 receive_packet() ->
     receive

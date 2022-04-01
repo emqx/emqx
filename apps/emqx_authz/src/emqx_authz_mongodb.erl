@@ -24,66 +24,83 @@
 -behaviour(emqx_authz).
 
 %% AuthZ Callbacks
--export([ description/0
-        , init/1
-        , destroy/1
-        , dry_run/1
-        , authorize/4
-        ]).
+-export([
+    description/0,
+    init/1,
+    destroy/1,
+    authorize/4
+]).
 
 -ifdef(TEST).
 -compile(export_all).
 -compile(nowarn_export_all).
 -endif.
 
--define(PLACEHOLDERS, [?PH_USERNAME,
-                       ?PH_CLIENTID,
-                       ?PH_PEERHOST]).
+-define(PLACEHOLDERS, [
+    ?PH_USERNAME,
+    ?PH_CLIENTID,
+    ?PH_PEERHOST
+]).
 
 description() ->
     "AuthZ with MongoDB".
 
 init(#{selector := Selector} = Source) ->
     case emqx_authz_utils:create_resource(emqx_connector_mongo, Source) of
-        {error, Reason} -> error({load_config_error, Reason});
-        {ok, Id} -> Source#{annotations => #{id => Id},
-                            selector_template => emqx_authz_utils:parse_deep(
-                                                  Selector,
-                                                  ?PLACEHOLDERS)}
+        {error, Reason} ->
+            error({load_config_error, Reason});
+        {ok, Id} ->
+            Source#{
+                annotations => #{id => Id},
+                selector_template => emqx_authz_utils:parse_deep(
+                    Selector,
+                    ?PLACEHOLDERS
+                )
+            }
     end.
-
-dry_run(Source) ->
-    emqx_resource:create_dry_run_local(emqx_connector_mongo, Source).
 
 destroy(#{annotations := #{id := Id}}) ->
     ok = emqx_resource:remove_local(Id).
 
-authorize(Client, PubSub, Topic,
-            #{collection := Collection,
-              selector_template := SelectorTemplate,
-              annotations := #{id := ResourceID}
-             }) ->
+authorize(
+    Client,
+    PubSub,
+    Topic,
+    #{
+        collection := Collection,
+        selector_template := SelectorTemplate,
+        annotations := #{id := ResourceID}
+    }
+) ->
     RenderedSelector = emqx_authz_utils:render_deep(SelectorTemplate, Client),
-    Result = try
-                 emqx_resource:query(ResourceID, {find, Collection, RenderedSelector, #{}})
-             catch
-                 error:Error -> {error, Error}
-             end,
+    Result =
+        try
+            emqx_resource:query(ResourceID, {find, Collection, RenderedSelector, #{}})
+        catch
+            error:Error -> {error, Error}
+        end,
 
     case Result of
         {error, Reason} ->
-            ?SLOG(error, #{msg => "query_mongo_error",
-                           reason => Reason,
-                           collection => Collection,
-                           selector => RenderedSelector,
-                           resource_id => ResourceID}),
+            ?SLOG(error, #{
+                msg => "query_mongo_error",
+                reason => Reason,
+                collection => Collection,
+                selector => RenderedSelector,
+                resource_id => ResourceID
+            }),
             nomatch;
-        [] -> nomatch;
+        [] ->
+            nomatch;
         Rows ->
-            Rules = [ emqx_authz_rule:compile({Permission, all, Action, Topics})
-                      || #{<<"topics">> := Topics,
-                           <<"permission">> := Permission,
-                           <<"action">> := Action} <- Rows],
+            Rules = [
+                emqx_authz_rule:compile({Permission, all, Action, Topics})
+             || #{
+                    <<"topics">> := Topics,
+                    <<"permission">> := Permission,
+                    <<"action">> := Action
+                } <- Rows
+            ],
             do_authorize(Client, PubSub, Topic, Rules)
     end.
 

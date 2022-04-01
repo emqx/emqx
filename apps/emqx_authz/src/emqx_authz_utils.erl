@@ -19,15 +19,16 @@
 -include_lib("emqx/include/emqx_placeholder.hrl").
 -include_lib("emqx_authz.hrl").
 
--export([ cleanup_resources/0
-        , make_resource_id/1
-        , create_resource/2
-        , update_config/2
-        , parse_deep/2
-        , parse_sql/3
-        , render_deep/2
-        , render_sql_params/2
-        ]).
+-export([
+    cleanup_resources/0,
+    make_resource_id/1,
+    create_resource/2,
+    update_config/2,
+    parse_deep/2,
+    parse_sql/3,
+    render_deep/2,
+    render_sql_params/2
+]).
 
 %%------------------------------------------------------------------------------
 %% APIs
@@ -35,10 +36,15 @@
 
 create_resource(Module, Config) ->
     ResourceID = make_resource_id(Module),
-    case emqx_resource:create_local(ResourceID,
-                                    ?RESOURCE_GROUP,
-                                    Module, Config,
-                                    #{}) of
+    case
+        emqx_resource:create_local(
+            ResourceID,
+            ?RESOURCE_GROUP,
+            Module,
+            Config,
+            #{}
+        )
+    of
         {ok, already_created} -> {ok, ResourceID};
         {ok, _} -> {ok, ResourceID};
         {error, Reason} -> {error, Reason}
@@ -46,37 +52,45 @@ create_resource(Module, Config) ->
 
 cleanup_resources() ->
     lists:foreach(
-      fun emqx_resource:remove_local/1,
-      emqx_resource:list_group_instances(?RESOURCE_GROUP)).
+        fun emqx_resource:remove_local/1,
+        emqx_resource:list_group_instances(?RESOURCE_GROUP)
+    ).
 
 make_resource_id(Name) ->
     NameBin = bin(Name),
     emqx_resource:generate_id(NameBin).
 
 update_config(Path, ConfigRequest) ->
-    emqx_conf:update(Path, ConfigRequest, #{rawconf_with_defaults => true,
-                                            override_to => cluster}).
+    emqx_conf:update(Path, ConfigRequest, #{
+        rawconf_with_defaults => true,
+        override_to => cluster
+    }).
 
 parse_deep(Template, PlaceHolders) ->
     emqx_placeholder:preproc_tmpl_deep(Template, #{placeholders => PlaceHolders}).
 
 parse_sql(Template, ReplaceWith, PlaceHolders) ->
     emqx_placeholder:preproc_sql(
-      Template,
-      #{replace_with => ReplaceWith,
-        placeholders => PlaceHolders}).
+        Template,
+        #{
+            replace_with => ReplaceWith,
+            placeholders => PlaceHolders
+        }
+    ).
 
 render_deep(Template, Values) ->
     emqx_placeholder:proc_tmpl_deep(
-      Template,
-      client_vars(Values),
-      #{return => full_binary, var_trans => fun handle_var/2}).
+        Template,
+        client_vars(Values),
+        #{return => full_binary, var_trans => fun handle_var/2}
+    ).
 
 render_sql_params(ParamList, Values) ->
     emqx_placeholder:proc_tmpl(
-      ParamList,
-      client_vars(Values),
-      #{return => rawlist, var_trans => fun handle_sql_var/2}).
+        ParamList,
+        client_vars(Values),
+        #{return => rawlist, var_trans => fun handle_sql_var/2}
+    ).
 
 %%------------------------------------------------------------------------------
 %% Internal functions
@@ -84,9 +98,11 @@ render_sql_params(ParamList, Values) ->
 
 client_vars(ClientInfo) ->
     maps:from_list(
-     lists:map(
-       fun convert_client_var/1,
-       maps:to_list(ClientInfo))).
+        lists:map(
+            fun convert_client_var/1,
+            maps:to_list(ClientInfo)
+        )
+    ).
 
 convert_client_var({cn, CN}) -> {cert_common_name, CN};
 convert_client_var({dn, DN}) -> {cert_subject, DN};

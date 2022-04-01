@@ -26,11 +26,12 @@
 -export([init/1]).
 
 % API
--export([start_link/2,
-         start_link/3,
-         stop/0,
-         set_handler/1
-        ]).
+-export([
+    start_link/2,
+    start_link/3,
+    stop/0,
+    set_handler/1
+]).
 
 %%------------------------------------------------------------------------------
 %% API
@@ -55,10 +56,11 @@ set_handler(F) when is_function(F, 2) ->
 
 init([Port, Path, SSLOpts]) ->
     Dispatch = cowboy_router:compile(
-                 [
-                  {'_', [{Path, ?MODULE, []}]}
-                 ]),
-                     
+        [
+            {'_', [{Path, ?MODULE, []}]}
+        ]
+    ),
+
     ProtoOpts = #{env => #{dispatch => Dispatch}},
 
     Tab = ets:new(?MODULE, [set, named_table, public]),
@@ -83,23 +85,28 @@ init(Req, State) ->
 %%------------------------------------------------------------------------------
 
 transport_settings(Port, false) ->
-    TransOpts = #{socket_opts => [{port, Port}],
-                  connection_type => supervisor},
+    TransOpts = #{
+        socket_opts => [{port, Port}],
+        connection_type => supervisor
+    },
     {ranch_tcp, TransOpts, cowboy_clear};
-
 transport_settings(Port, SSLOpts) ->
-    TransOpts = #{socket_opts => [{port, Port},
-                                  {next_protocols_advertised, [<<"h2">>, <<"http/1.1">>]},
-                                  {alpn_preferred_protocols, [<<"h2">>, <<"http/1.1">>]}
-                                  | SSLOpts],
-                  connection_type => supervisor},
+    TransOpts = #{
+        socket_opts => [
+            {port, Port},
+            {next_protocols_advertised, [<<"h2">>, <<"http/1.1">>]},
+            {alpn_preferred_protocols, [<<"h2">>, <<"http/1.1">>]}
+            | SSLOpts
+        ],
+        connection_type => supervisor
+    },
     {ranch_ssl, TransOpts, cowboy_tls}.
 
 default_handler(Req0, State) ->
     Req = cowboy_req:reply(
-            400,
-            #{<<"content-type">> => <<"text/plain">>},
-            <<"">>,
-            Req0),
+        400,
+        #{<<"content-type">> => <<"text/plain">>},
+        <<"">>,
+        Req0
+    ),
     {ok, Req, State}.
-

@@ -26,10 +26,11 @@
 -export([init/1]).
 
 % API
--export([start_link/2,
-         stop/0,
-         set_handler/1
-        ]).
+-export([
+    start_link/2,
+    stop/0,
+    set_handler/1
+]).
 
 %%------------------------------------------------------------------------------
 %% API
@@ -51,11 +52,14 @@ set_handler(F) when is_function(F, 2) ->
 
 init([Port, Path]) ->
     Dispatch = cowboy_router:compile(
-                 [
-                  {'_', [{Path, ?MODULE, []}]}
-                 ]),
-    TransOpts = #{socket_opts => [{port, Port}],
-                  connection_type => supervisor},
+        [
+            {'_', [{Path, ?MODULE, []}]}
+        ]
+    ),
+    TransOpts = #{
+        socket_opts => [{port, Port}],
+        connection_type => supervisor
+    },
     ProtoOpts = #{env => #{dispatch => Dispatch}},
 
     Tab = ets:new(?MODULE, [set, named_table, public]),
@@ -78,9 +82,9 @@ init(Req, State) ->
 
 default_handler(Req0, State) ->
     Req = cowboy_req:reply(
-            400,
-            #{<<"content-type">> => <<"text/plain">>},
-            <<"">>,
-            Req0),
+        400,
+        #{<<"content-type">> => <<"text/plain">>},
+        <<"">>,
+        Req0
+    ),
     {ok, Req, State}.
-

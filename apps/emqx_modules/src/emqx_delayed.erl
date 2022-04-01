@@ -21,6 +21,7 @@
 -include_lib("emqx/include/emqx.hrl").
 -include_lib("emqx/include/types.hrl").
 -include_lib("emqx/include/logger.hrl").
+-include_lib("snabbkaffe/include/snabbkaffe.hrl").
 
 %% Mnesia bootstrap
 -export([mnesia/1]).
@@ -275,17 +276,13 @@ init([Opts]) ->
 handle_call({set_max_delayed_messages, Max}, _From, State) ->
     {reply, ok, State#{max_delayed_messages => Max}};
 handle_call(
-    {store, DelayedMsg = #delayed_message{key = Key}},
-    _From,
-    State = #{max_delayed_messages := 0}
+    {store, DelayedMsg = #delayed_message{key = Key}}, _From, State = #{max_delayed_messages := 0}
 ) ->
     ok = mria:dirty_write(?TAB, DelayedMsg),
     emqx_metrics:inc('messages.delayed'),
     {reply, ok, ensure_publish_timer(Key, State)};
 handle_call(
-    {store, DelayedMsg = #delayed_message{key = Key}},
-    _From,
-    State = #{max_delayed_messages := Max}
+    {store, DelayedMsg = #delayed_message{key = Key}}, _From, State = #{max_delayed_messages := Max}
 ) ->
     Size = mnesia:table_info(?TAB, size),
     case Size >= Max of
@@ -303,11 +300,11 @@ handle_call(disable, _From, State) ->
     emqx_hooks:del('message.publish', {?MODULE, on_message_publish}),
     {reply, ok, State};
 handle_call(Req, _From, State) ->
-    ?SLOG(error, #{msg => "unexpected_call", call => Req}),
+    ?tp(error, emqx_delayed_unexpected_call, #{call => Req}),
     {reply, ignored, State}.
 
 handle_cast(Msg, State) ->
-    ?SLOG(error, #{msg => "unexpected_cast", cast => Msg}),
+    ?tp(error, emqx_delayed_unexpected_cast, #{cast => Msg}),
     {noreply, State}.
 
 %% Do Publish...
@@ -320,7 +317,7 @@ handle_info(stats, State = #{stats_fun := StatsFun}) ->
     StatsFun(delayed_count()),
     {noreply, State#{stats_timer := StatsTimer}, hibernate};
 handle_info(Info, State) ->
-    ?SLOG(error, #{msg => "unexpected_info", info => Info}),
+    ?tp(error, emqx_delayed_unexpected_info, #{info => Info}),
     {noreply, State}.
 
 terminate(_Reason, #{publish_timer := PublishTimer, stats_timer := StatsTimer}) ->

@@ -31,16 +31,20 @@ groups() ->
 
 init_per_suite(Config) ->
     ok = emqx_common_test_helpers:start_apps(
-           [emqx_conf, emqx_authz, emqx_dashboard],
-           fun set_special_configs/1),
+        [emqx_conf, emqx_authz, emqx_dashboard],
+        fun set_special_configs/1
+    ),
     Config.
 
 end_per_suite(_Config) ->
     {ok, _} = emqx:update_config(
-                [authorization],
-                #{<<"no_match">> => <<"allow">>,
-                  <<"cache">> => #{<<"enable">> => <<"true">>},
-                  <<"sources">> => []}),
+        [authorization],
+        #{
+            <<"no_match">> => <<"allow">>,
+            <<"cache">> => #{<<"enable">> => <<"true">>},
+            <<"sources">> => []
+        }
+    ),
     ok = stop_apps([emqx_resource, emqx_connector]),
     emqx_common_test_helpers:stop_apps([emqx_dashboard, emqx_authz, emqx_conf]),
     ok.
@@ -60,27 +64,29 @@ set_special_configs(_App) ->
 %%------------------------------------------------------------------------------
 
 t_api(_) ->
-    Settings1 = #{<<"no_match">> => <<"deny">>,
-                  <<"deny_action">> => <<"disconnect">>,
-                  <<"cache">> => #{
-                      <<"enable">> => false,
-                      <<"max_size">> => 32,
-                      <<"ttl">> => 60000
-                     }
-                 },
+    Settings1 = #{
+        <<"no_match">> => <<"deny">>,
+        <<"deny_action">> => <<"disconnect">>,
+        <<"cache">> => #{
+            <<"enable">> => false,
+            <<"max_size">> => 32,
+            <<"ttl">> => 60000
+        }
+    },
 
     {ok, 200, Result1} = request(put, uri(["authorization", "settings"]), Settings1),
     {ok, 200, Result1} = request(get, uri(["authorization", "settings"]), []),
     ?assertEqual(Settings1, jsx:decode(Result1)),
 
-    Settings2 = #{<<"no_match">> => <<"allow">>,
-                  <<"deny_action">> => <<"ignore">>,
-                  <<"cache">> => #{
-                      <<"enable">> => true,
-                      <<"max_size">> => 32,
-                      <<"ttl">> => 60000
-                     }
-                 },
+    Settings2 = #{
+        <<"no_match">> => <<"allow">>,
+        <<"deny_action">> => <<"ignore">>,
+        <<"cache">> => #{
+            <<"enable">> => true,
+            <<"max_size">> => 32,
+            <<"ttl">> => 60000
+        }
+    },
 
     {ok, 200, Result2} = request(put, uri(["authorization", "settings"]), Settings2),
     {ok, 200, Result2} = request(get, uri(["authorization", "settings"]), []),

@@ -39,8 +39,9 @@ init_per_testcase(_, Config) ->
     {ok, _} = emqx_cluster_rpc:start_link(node(), emqx_cluster_rpc, 1000),
     emqx_authentication:initialize_authentication(?GLOBAL, []),
     emqx_authn_test_lib:delete_authenticators(
-      [authentication],
-      ?GLOBAL),
+        [authentication],
+        ?GLOBAL
+    ),
     Config.
 
 init_per_suite(Config) ->
@@ -56,8 +57,9 @@ init_per_suite(Config) ->
 
 end_per_suite(_Config) ->
     emqx_authn_test_lib:delete_authenticators(
-      [authentication],
-      ?GLOBAL),
+        [authentication],
+        ?GLOBAL
+    ),
     ok = stop_apps([emqx_resource, emqx_connector]),
     ok = emqx_common_test_helpers:stop_apps([emqx_authn]).
 
@@ -70,38 +72,53 @@ t_create(_Config) ->
     %% -starttls postgres -connect authn-server:5432 \
     %% -cert client.crt -key client.key -CAfile ca.crt
     ?assertMatch(
-       {ok, _},
-       create_pgsql_auth_with_ssl_opts(
-         #{<<"server_name_indication">> => <<"authn-server">>,
-           <<"verify">> => <<"verify_peer">>,
-           <<"versions">> => [<<"tlsv1.2">>],
-           <<"ciphers">> => [<<"ECDHE-RSA-AES256-GCM-SHA384">>]})).
+        {ok, _},
+        create_pgsql_auth_with_ssl_opts(
+            #{
+                <<"server_name_indication">> => <<"authn-server">>,
+                <<"verify">> => <<"verify_peer">>,
+                <<"versions">> => [<<"tlsv1.2">>],
+                <<"ciphers">> => [<<"ECDHE-RSA-AES256-GCM-SHA384">>]
+            }
+        )
+    ).
 
 t_create_invalid(_Config) ->
-
     %% invalid server_name
     ?assertMatch(
-       {ok, _},
-       create_pgsql_auth_with_ssl_opts(
-         #{<<"server_name_indication">> => <<"authn-server-unknown-host">>,
-           <<"verify">> => <<"verify_peer">>})),
+        {ok, _},
+        create_pgsql_auth_with_ssl_opts(
+            #{
+                <<"server_name_indication">> => <<"authn-server-unknown-host">>,
+                <<"verify">> => <<"verify_peer">>
+            }
+        )
+    ),
     emqx_authn_test_lib:delete_config(?ResourceID),
     %% incompatible versions
     ?assertMatch(
-       {ok, _},
-       create_pgsql_auth_with_ssl_opts(
-         #{<<"server_name_indication">> => <<"authn-server">>,
-           <<"verify">> => <<"verify_peer">>,
-           <<"versions">> => [<<"tlsv1.1">>]})),
+        {ok, _},
+        create_pgsql_auth_with_ssl_opts(
+            #{
+                <<"server_name_indication">> => <<"authn-server">>,
+                <<"verify">> => <<"verify_peer">>,
+                <<"versions">> => [<<"tlsv1.1">>]
+            }
+        )
+    ),
     emqx_authn_test_lib:delete_config(?ResourceID),
     %% incompatible ciphers
     ?assertMatch(
-       {ok, _},
-       create_pgsql_auth_with_ssl_opts(
-         #{<<"server_name_indication">> => <<"authn-server">>,
-           <<"verify">> => <<"verify_peer">>,
-           <<"versions">> => [<<"tlsv1.2">>],
-           <<"ciphers">> => [<<"ECDHE-ECDSA-AES128-GCM-SHA256">>]})).
+        {ok, _},
+        create_pgsql_auth_with_ssl_opts(
+            #{
+                <<"server_name_indication">> => <<"authn-server">>,
+                <<"verify">> => <<"verify_peer">>,
+                <<"versions">> => [<<"tlsv1.2">>],
+                <<"ciphers">> => [<<"ECDHE-ECDSA-AES128-GCM-SHA256">>]
+            }
+        )
+    ).
 
 %%------------------------------------------------------------------------------
 %% Helpers
@@ -113,26 +130,29 @@ create_pgsql_auth_with_ssl_opts(SpecificSSLOpts) ->
 
 raw_pgsql_auth_config(SpecificSSLOpts) ->
     SSLOpts = maps:merge(
-                emqx_authn_test_lib:client_ssl_cert_opts(),
-                #{enable => <<"true">>}),
+        emqx_authn_test_lib:client_ssl_cert_opts(),
+        #{enable => <<"true">>}
+    ),
     #{
-      mechanism => <<"password_based">>,
-      password_hash_algorithm => #{name => <<"plain">>,
-                                   salt_position => <<"suffix">>},
-      enable => <<"true">>,
+        mechanism => <<"password_based">>,
+        password_hash_algorithm => #{
+            name => <<"plain">>,
+            salt_position => <<"suffix">>
+        },
+        enable => <<"true">>,
 
-      backend => <<"postgresql">>,
-      database => <<"mqtt">>,
-      username => <<"root">>,
-      password => <<"public">>,
+        backend => <<"postgresql">>,
+        database => <<"mqtt">>,
+        username => <<"root">>,
+        password => <<"public">>,
 
-      query => <<"SELECT 1">>,
-      server => pgsql_server(),
-      ssl => maps:merge(SSLOpts, SpecificSSLOpts)
-     }.
+        query => <<"SELECT 1">>,
+        server => pgsql_server(),
+        ssl => maps:merge(SSLOpts, SpecificSSLOpts)
+    }.
 
 pgsql_server() ->
-    iolist_to_binary(io_lib:format("~s",[?PGSQL_HOST])).
+    iolist_to_binary(io_lib:format("~s", [?PGSQL_HOST])).
 
 start_apps(Apps) ->
     lists:foreach(fun application:ensure_all_started/1, Apps).

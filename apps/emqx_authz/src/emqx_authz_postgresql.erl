@@ -24,43 +24,53 @@
 -behaviour(emqx_authz).
 
 %% AuthZ Callbacks
--export([ description/0
-        , init/1
-        , destroy/1
-        , dry_run/1
-        , authorize/4
-        ]).
+-export([
+    description/0,
+    init/1,
+    destroy/1,
+    authorize/4
+]).
 
 -ifdef(TEST).
 -compile(export_all).
 -compile(nowarn_export_all).
 -endif.
 
--define(PLACEHOLDERS, [?PH_USERNAME,
-                       ?PH_CLIENTID,
-                       ?PH_PEERHOST,
-                       ?PH_CERT_CN_NAME,
-                       ?PH_CERT_SUBJECT]).
+-define(PLACEHOLDERS, [
+    ?PH_USERNAME,
+    ?PH_CLIENTID,
+    ?PH_PEERHOST,
+    ?PH_CERT_CN_NAME,
+    ?PH_CERT_SUBJECT
+]).
 
 description() ->
     "AuthZ with PostgreSQL".
 
 init(#{query := SQL0} = Source) ->
     {SQL, PlaceHolders} = emqx_authz_utils:parse_sql(
-                            SQL0,
-                            '$n',
-                            ?PLACEHOLDERS),
+        SQL0,
+        '$n',
+        ?PLACEHOLDERS
+    ),
     ResourceID = emqx_authz_utils:make_resource_id(emqx_connector_pgsql),
-    case emqx_resource:create_local(
+    case
+        emqx_resource:create_local(
             ResourceID,
             ?RESOURCE_GROUP,
             emqx_connector_pgsql,
             Source#{named_queries => #{ResourceID => SQL}},
-            #{}) of
+            #{}
+        )
+    of
         {ok, _} ->
-            Source#{annotations =>
-                        #{id => ResourceID,
-                          placeholders => PlaceHolders}};
+            Source#{
+                annotations =>
+                    #{
+                        id => ResourceID,
+                        placeholders => PlaceHolders
+                    }
+            };
         {error, Reason} ->
             error({load_config_error, Reason})
     end.
@@ -68,33 +78,44 @@ init(#{query := SQL0} = Source) ->
 destroy(#{annotations := #{id := Id}}) ->
     ok = emqx_resource:remove_local(Id).
 
-dry_run(Source) ->
-    emqx_resource:create_dry_run_local(emqx_connector_pgsql, Source).
-
-authorize(Client, PubSub, Topic,
-            #{annotations := #{id := ResourceID,
-                               placeholders := Placeholders
-                              }
-             }) ->
+authorize(
+    Client,
+    PubSub,
+    Topic,
+    #{
+        annotations := #{
+            id := ResourceID,
+            placeholders := Placeholders
+        }
+    }
+) ->
     RenderedParams = emqx_authz_utils:render_sql_params(Placeholders, Client),
     case emqx_resource:query(ResourceID, {prepared_query, ResourceID, RenderedParams}) of
-        {ok, _Columns, []} -> nomatch;
+        {ok, _Columns, []} ->
+            nomatch;
         {ok, Columns, Rows} ->
             do_authorize(Client, PubSub, Topic, Columns, Rows);
         {error, Reason} ->
-            ?SLOG(error, #{ msg => "query_postgresql_error"
-                          , reason => Reason
-                          , params => RenderedParams
-                          , resource_id => ResourceID}),
+            ?SLOG(error, #{
+                msg => "query_postgresql_error",
+                reason => Reason,
+                params => RenderedParams,
+                resource_id => ResourceID
+            }),
             nomatch
     end.
 
 do_authorize(_Client, _PubSub, _Topic, _Columns, []) ->
     nomatch;
 do_authorize(Client, PubSub, Topic, Columns, [Row | Tail]) ->
-    case emqx_authz_rule:match(Client, PubSub, Topic,
-                               emqx_authz_rule:compile(format_result(Columns, Row))
-                              ) of
+    case
+        emqx_authz_rule:match(
+            Client,
+            PubSub,
+            Topic,
+            emqx_authz_rule:compile(format_result(Columns, Row))
+        )
+    of
         {matched, Permission} -> {matched, Permission};
         nomatch -> do_authorize(Client, PubSub, Topic, Columns, Tail)
     end.
@@ -108,6 +129,9 @@ format_result(Columns, Row) ->
 index(Key, N, TupleList) when is_integer(N) ->
     Tuple = lists:keyfind(Key, N, TupleList),
     index(Tuple, TupleList, 1);
-index(_Tuple, [], _Index) -> {error, not_found};
-index(Tuple, [Tuple | _TupleList], Index) -> Index;
-index(Tuple, [_ | TupleList], Index) -> index(Tuple, TupleList, Index + 1).
+index(_Tuple, [], _Index) ->
+    {error, not_found};
+index(Tuple, [Tuple | _TupleList], Index) ->
+    Index;
+index(Tuple, [_ | TupleList], Index) ->
+    index(Tuple, TupleList, Index + 1).

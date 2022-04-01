@@ -27,38 +27,35 @@
 -endif.
 
 %% APIs
--export([ description/0
-        , init/1
-        , destroy/1
-        , dry_run/1
-        , authorize/4
-        ]).
+-export([
+    description/0,
+    init/1,
+    destroy/1,
+    authorize/4
+]).
 
 description() ->
     "AuthZ with static rules".
 
 init(#{path := Path} = Source) ->
-    Rules = case file:consult(Path) of
-                {ok, Terms} ->
-                    [emqx_authz_rule:compile(Term) || Term <- Terms];
-                {error, Reason} when is_atom(Reason) ->
-                    ?SLOG(alert, #{msg => failed_to_read_acl_file,
-                                   path => Path,
-                                   explain => emqx_misc:explain_posix(Reason)}),
-                    throw(failed_to_read_acl_file);
-                {error, Reason} ->
-                    ?SLOG(alert, #{msg => bad_acl_file_content, path => Path, reason => Reason}),
-                    throw(bad_acl_file_content)
-            end,
+    Rules =
+        case file:consult(Path) of
+            {ok, Terms} ->
+                [emqx_authz_rule:compile(Term) || Term <- Terms];
+            {error, Reason} when is_atom(Reason) ->
+                ?SLOG(alert, #{
+                    msg => failed_to_read_acl_file,
+                    path => Path,
+                    explain => emqx_misc:explain_posix(Reason)
+                }),
+                throw(failed_to_read_acl_file);
+            {error, Reason} ->
+                ?SLOG(alert, #{msg => bad_acl_file_content, path => Path, reason => Reason}),
+                throw(bad_acl_file_content)
+        end,
     Source#{annotations => #{rules => Rules}}.
 
 destroy(_Source) -> ok.
-
-dry_run(#{path := Path}) ->
-    case file:consult(Path) of
-        {ok, _} -> ok;
-        {error, _} = Error -> Error
-    end.
 
 authorize(Client, PubSub, Topic, #{annotations := #{rules := Rules}}) ->
     emqx_authz_rule:matches(Client, PubSub, Topic, Rules).

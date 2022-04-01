@@ -24,7 +24,7 @@
 -import(hoconsc, [mk/2, ref/1, ref/2]).
 
 -define(MAX_PAYLOAD_LENGTH, 2048).
--define(PAYLOAD_TOO_LARGE, 'PAYLOAD_TOO_LARGE').
+-define(PAYLOAD_TOO_LARGE, <<"PAYLOAD_TOO_LARGE">>).
 
 -export([
     status/2,
@@ -49,8 +49,6 @@
 -define(MESSAGE_ID_NOT_FOUND, 'MESSAGE_ID_NOT_FOUND').
 -define(MESSAGE_ID_SCHEMA_ERROR, 'MESSAGE_ID_SCHEMA_ERROR').
 -define(INVALID_NODE, 'INVALID_NODE').
-%% 1MB = 1024 x 1024
--define(MAX_PAYLOAD_SIZE, 1048576).
 
 api_spec() ->
     emqx_dashboard_swagger:spec(?MODULE).
@@ -106,7 +104,7 @@ schema("/mqtt/delayed/messages/:node/:msgid") ->
             responses => #{
                 200 => ref("message_without_payload"),
                 400 => emqx_dashboard_swagger:error_codes(
-                    [?MESSAGE_ID_SCHEMA_ERROR],
+                    [?MESSAGE_ID_SCHEMA_ERROR, ?INVALID_NODE],
                     <<"Bad MsgId format">>
                 ),
                 404 => emqx_dashboard_swagger:error_codes(
@@ -129,7 +127,7 @@ schema("/mqtt/delayed/messages/:node/:msgid") ->
             responses => #{
                 204 => <<"Delete delayed message success">>,
                 400 => emqx_dashboard_swagger:error_codes(
-                    [?MESSAGE_ID_SCHEMA_ERROR],
+                    [?MESSAGE_ID_SCHEMA_ERROR, ?INVALID_NODE],
                     <<"Bad MsgId format">>
                 ),
                 404 => emqx_dashboard_swagger:error_codes(
@@ -175,7 +173,7 @@ fields("message_without_payload") ->
     ];
 fields("message") ->
     PayloadDesc = io_lib:format(
-        "Payload, base64 encode. Payload will be ~p if length large than ~p",
+        "Payload, base64 encoded. Payload will be set to ~p if its length is larger than ~p",
         [?PAYLOAD_TOO_LARGE, ?MAX_PAYLOAD_LENGTH]
     ),
     fields("message_without_payload") ++
@@ -193,7 +191,7 @@ delayed_messages(get, #{query_string := Qs}) ->
     {200, emqx_delayed:cluster_list(Qs)}.
 
 delayed_message(get, #{bindings := #{node := NodeBin, msgid := HexId}}) ->
-    MaybeNode = make_maybe(NodeBin, invalid_node, fun erlang:binary_to_atom/1),
+    MaybeNode = make_maybe(NodeBin, invalid_node, fun erlang:binary_to_existing_atom/1),
     MaybeId = make_maybe(HexId, id_schema_error, fun emqx_guid:from_hexstr/1),
     with_maybe(
         [MaybeNode, MaybeId],
@@ -201,14 +199,16 @@ delayed_message(get, #{bindings := #{node := NodeBin, msgid := HexId}}) ->
             case emqx_delayed:get_delayed_message(Node, Id) of
                 {ok, Message} ->
                     Payload = maps:get(payload, Message),
-                    case erlang:byte_size(Payload) > ?MAX_PAYLOAD_SIZE of
+                    case erlang:byte_size(Payload) > ?MAX_PAYLOAD_LENGTH of
                         true ->
-                            {200, Message};
+                            {200, Message#{payload => ?PAYLOAD_TOO_LARGE}};
                         _ ->
                             {200, Message#{payload => base64:encode(Payload)}}
                     end;
                 {error, not_found} ->
-                    {404, generate_http_code_map(not_found, Id)}
+                    {404, generate_http_code_map(not_found, Id)};
+                {badrpc, _} ->
+                    {400, generate_http_code_map(invalid_node, Id)}
             end
         end
     );
