@@ -29,6 +29,7 @@ all() -> emqx_common_test_helpers:all(?MODULE).
 
 init_per_suite(Config) ->
     snabbkaffe:fix_ct_logging(),
+    meck:new(emqx_authz, [non_strict, passthrough, no_history, no_link]),
     meck:expect(
         emqx_authz,
         acl_conf_file,
@@ -81,6 +82,12 @@ init_per_testcase(t_get_telemetry, Config) ->
             {ok, Rendered}
         end
     ),
+    Lwm2mDataDir = emqx_common_test_helpers:deps_path(
+        emqx_gateway,
+        "test/emqx_gateway_SUITE_data"
+    ),
+    ok = emqx_gateway_SUITE:setup_fake_usage_data(Lwm2mDataDir),
+    {ok, _} = application:ensure_all_started(emqx_gateway),
     Config;
 init_per_testcase(t_advanced_mqtt_features, Config) ->
     OldValues = emqx_modules:get_advanced_mqtt_features_in_use(),
@@ -99,6 +106,16 @@ init_per_testcase(t_authn_authz_info, Config) ->
     create_authn('ws:default', redis),
     create_authz(postgresql),
     Config;
+init_per_testcase(t_enable, Config) ->
+    ok = meck:new(emqx_telemetry, [non_strict, passthrough, no_history, no_link]),
+    ok = meck:expect(emqx_telemetry, official_version, fun(_) -> true end),
+    mock_httpc(),
+    Config;
+init_per_testcase(t_send_after_enable, Config) ->
+    ok = meck:new(emqx_telemetry, [non_strict, passthrough, no_history, no_link]),
+    ok = meck:expect(emqx_telemetry, official_version, fun(_) -> true end),
+    mock_httpc(),
+    Config;
 init_per_testcase(_Testcase, Config) ->
     TestPID = self(),
     ok = meck:new(httpc, [non_strict, passthrough, no_history, no_link]),
@@ -111,6 +128,7 @@ init_per_testcase(_Testcase, Config) ->
 
 end_per_testcase(t_get_telemetry, _Config) ->
     meck:unload([httpc, emqx_telemetry]),
+    application:stop(emqx_gateway),
     ok;
 end_per_testcase(t_advanced_mqtt_features, Config) ->
     OldValues = ?config(old_values, Config),
@@ -128,6 +146,10 @@ end_per_testcase(t_authn_authz_info, _Config) ->
         ['mqtt:global', 'tcp:default', 'ws:default']
     ),
     ok;
+end_per_testcase(t_enable, _Config) ->
+    meck:unload([httpc, emqx_telemetry]);
+end_per_testcase(t_send_after_enable, _Config) ->
+    meck:unload([httpc, emqx_telemetry]);
 end_per_testcase(_Testcase, _Config) ->
     meck:unload([httpc]),
     ok.
@@ -190,6 +212,30 @@ t_get_telemetry(_Config) ->
     ?assert(is_number(maps:get(messages_received_rate, MQTTRTInsights))),
     ?assert(is_integer(maps:get(num_topics, MQTTRTInsights))),
     ?assert(is_map(get_value(authn_authz, TelemetryData))),
+    GatewayInfo = get_value(gateway, TelemetryData),
+    ?assert(is_map(GatewayInfo)),
+    lists:foreach(
+        fun({GatewayType, GatewayData}) ->
+            ?assertMatch(
+                #{
+                    authn := GwAuthn,
+                    num_clients := NClients,
+                    listeners := Ls
+                } when
+                    is_binary(GwAuthn) andalso
+                        is_integer(NClients) andalso
+                        is_list(Ls),
+                GatewayData,
+                #{gateway_type => GatewayType}
+            ),
+            ListenersData = maps:get(listeners, GatewayData),
+            lists:foreach(
+                fun(L) -> assert_gateway_listener_shape(L, GatewayType) end,
+                ListenersData
+            )
+        end,
+        maps:to_list(GatewayInfo)
+    ),
     ok.
 
 t_advanced_mqtt_features(_) ->
@@ -238,15 +284,10 @@ t_authn_authz_info(_) ->
     ).
 
 t_enable(_) ->
-    ok = meck:new(emqx_telemetry, [non_strict, passthrough, no_history, no_link]),
-    ok = meck:expect(emqx_telemetry, official_version, fun(_) -> true end),
     ok = emqx_telemetry:enable(),
-    ok = emqx_telemetry:disable(),
-    meck:unload([emqx_telemetry]).
+    ok = emqx_telemetry:disable().
 
 t_send_after_enable(_) ->
-    ok = meck:new(emqx_telemetry, [non_strict, passthrough, no_history, no_link]),
-    ok = meck:expect(emqx_telemetry, official_version, fun(_) -> true end),
     ok = emqx_telemetry:disable(),
     ok = snabbkaffe:start_trace(),
     try
@@ -286,8 +327,7 @@ t_send_after_enable(_) ->
             exit(telemetry_not_reported)
         end
     after
-        ok = snabbkaffe:stop(),
-        meck:unload([emqx_telemetry])
+        ok = snabbkaffe:stop()
     end.
 
 t_mqtt_runtime_insights(_) ->
@@ -378,6 +418,14 @@ create_authz(postgresql) ->
             <<"ssl">> => #{<<"enable">> => false},
             <<"query">> => <<"abcb">>
         }
+    ).
+
+assert_gateway_listener_shape(ListenerData, GatewayType) ->
+    ?assertMatch(
+        #{type := LType, authn := LAuthn} when
+            is_atom(LType) andalso is_binary(LAuthn),
+        ListenerData,
+        #{gateway_type => GatewayType}
     ).
 
 set_special_configs(emqx_authz) ->

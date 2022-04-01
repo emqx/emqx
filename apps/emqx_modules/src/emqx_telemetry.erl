@@ -349,7 +349,8 @@ get_telemetry(State0 = #state{uuid = UUID}) ->
         {vm_specs, vm_specs()},
         {mqtt_runtime_insights, MQTTRTInsights},
         {advanced_mqtt_features, advanced_mqtt_features()},
-        {authn_authz, get_authn_authz_info()}
+        {authn_authz, get_authn_authz_info()},
+        {gateway, get_gateway_info()}
     ]}.
 
 report_telemetry(State0 = #state{url = URL}) ->
@@ -464,6 +465,15 @@ get_authn_authz_info() ->
         authn_listener => OverriddenListeners,
         authz => AuthzTypes
     }.
+
+get_gateway_info() ->
+    try
+        emqx_gateway:get_basic_usage_info()
+    catch
+        %% if gateway is not available, for instance
+        _:_ ->
+            #{}
+    end.
 
 bin(L) when is_list(L) ->
     list_to_binary(L);
