@@ -22,6 +22,7 @@ File format:
 ### Bug fixes
 
 * Prohibit empty topics in strict mode
+* Make sure ehttpc delete useless pool always succeed.
 
 ## v4.3.13
 
