@@ -64,6 +64,12 @@ end_per_suite(_) ->
     {ok, _} = emqx:remove_config([<<"gateway">>, <<"coap">>]),
     emqx_mgmt_api_test_util:end_suite([emqx_gateway]).
 
+default_config() ->
+    ?CONF_DEFAULT.
+
+mqtt_prefix() ->
+    ?MQTT_PREFIX.
+
 %%--------------------------------------------------------------------
 %% Test Cases
 %%--------------------------------------------------------------------
@@ -100,19 +106,19 @@ t_connection(_) ->
 
 t_publish(_) ->
     Action = fun(Channel, Token) ->
-        Topic = <<"/abc">>,
-        Payload = <<"123">>,
+                     Topic = <<"/abc">>,
+                     Payload = <<"123">>,
 
-        TopicStr = binary_to_list(Topic),
-        URI = ?PS_PREFIX ++ TopicStr ++ "?clientid=client1&token=" ++ Token,
+                     TopicStr = binary_to_list(Topic),
+                     URI = ?PS_PREFIX ++ TopicStr ++ "?clientid=client1&token=" ++ Token,
 
-        %% Sub topic first
-        emqx:subscribe(Topic),
+                     %% Sub topic first
+                     emqx:subscribe(Topic),
 
-        Req = make_req(post, Payload),
-        {ok, changed, _} = do_request(Channel, URI, Req),
+                     Req = make_req(post, Payload),
+                     {ok, changed, _} = do_request(Channel, URI, Req),
 
-        receive
+                     receive
             {deliver, Topic, Msg} ->
                 ?assertEqual(Topic, Msg#message.topic),
                 ?assertEqual(Payload, Msg#message.payload)
@@ -425,3 +431,8 @@ receive_deliver(Wait) ->
     after Wait ->
         {error, timeout}
     end.
+
+get_field(type, #coap_message{type = Type}) ->
+    Type;
+get_field(method, #coap_message{method = Method}) ->
+    Method.

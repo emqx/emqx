@@ -43,7 +43,7 @@
     set_payload_block/3, set_payload_block/4
 ]).
 
--include("src/coap/include/emqx_coap.hrl").
+-include_lib("emqx_gateway/src/coap/include/emqx_coap.hrl").
 
 request(Type, Method) ->
     request(Type, Method, <<>>, []).
