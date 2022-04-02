@@ -77,7 +77,7 @@ test_rule(Sql, Select, Context, EventTopics) ->
         R
     of
         {ok, Data} -> {ok, flatten(Data)};
-        {error, nomatch} -> {error, nomatch}
+        {error, Reason} -> {error, Reason}
     after
         ok = emqx_rule_registry:remove_action_instance_params(ActInstId)
     end.

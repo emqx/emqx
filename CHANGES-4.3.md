@@ -18,6 +18,7 @@ File format:
   ExHook now supports user customizing emqx_hook execute priority.
 * add api: PUT /rules/{id}/reset_metrics.
   This api reset the metrics of the rule engine of a rule, and reset the metrics of the action related to this rule. [#7474]
+* Enhanced rule engine error handling when json parsing error.
 
 ### Bug fixes
 
