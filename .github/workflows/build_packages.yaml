@@ -57,13 +57,13 @@ jobs:
 
   windows:
     runs-on: windows-2019
-
     needs: prepare
     if: endsWith(github.repository, 'emqx')
-
     strategy:
       matrix:
         profile: ${{fromJSON(needs.prepare.outputs.profiles)}}
+        otp:
+          - 23.3.4.13
         exclude:
           - profile: emqx-edge
 
@@ -75,18 +75,15 @@ jobs:
     - name: unzip source code
       run: Expand-Archive -Path source.zip -DestinationPath ./
     - uses: ilammy/msvc-dev-cmd@v1
-    - uses: gleam-lang/setup-erlang@v1.1.0
-      id: install_erlang
+    - uses: erlef/setup-beam@v1
       with:
-        otp-version: 23.2
+        otp-version: ${{ matrix.otp }}
     - name: build
       env:
         PYTHON: python
         DIAGNOSTIC: 1
       run: |
-        $env:PATH = "${{ steps.install_erlang.outputs.erlpath }}\bin;$env:PATH"
         erl -eval "erlang:display(crypto:info_lib())" -s init stop
-
         $version = $( "${{ github.ref }}" -replace "^(.*)/(.*)/" )
         if ($version -match "^v[0-9]+\.[0-9]+(\.[0-9]+)?") {
           $regex = "[0-9]+\.[0-9]+(-alpha|-beta|-rc)?\.[0-9]+"
@@ -102,9 +99,6 @@ jobs:
             Remove-Item -Force -Path rebar.lock
         }
         make ensure-rebar3
-        copy rebar3 "${{ steps.install_erlang.outputs.erlpath }}\bin"
-        ls "${{ steps.install_erlang.outputs.erlpath }}\bin"
-        rebar3 --help
         make ${{ matrix.profile }}
         mkdir -p _packages/${{ matrix.profile }}
         Compress-Archive -Path _build/${{ matrix.profile }}/rel/emqx -DestinationPath _build/${{ matrix.profile }}/rel/$pkg_name
@@ -361,8 +355,9 @@ jobs:
       id: meta
       with:
         images: ${{ matrix.registry }}/${{ github.repository_owner }}/${{ matrix.profile }}
+        ## only stable tag is latest
         flavor: |
-          latest=${{ !github.event.release.prerelease }}
+          latest=${{ contains(github.ref, 'tags') && !contains(github.ref_name, 'rc') && !contains(github.ref_name, 'beta') && !contains(github.ref_name, 'alpha') }}
         tags: |
           type=ref,event=branch
           type=ref,event=pr
@@ -372,7 +367,8 @@ jobs:
     - uses: docker/build-push-action@v2
       if: matrix.profile != 'emqx-ee'
       with:
-        push: ${{ github.event_name == 'release' && !github.event.release.prerelease }}
+        ## only push when stable tag and rc tag
+        push: ${{ contains(github.ref, 'tags') && !contains(github.ref_name, 'beta') && !contains(github.ref_name, 'alpha') }}
         pull: true
         no-cache: true
         platforms: linux/amd64,linux/arm64
@@ -387,7 +383,8 @@ jobs:
     - uses: docker/build-push-action@v2
       if: matrix.profile == 'emqx-ee'
       with:
-        push: ${{ github.event_name == 'release' && !github.event.release.prerelease }}
+        ## only push when stable tag and rc tag
+        push: ${{ contains(github.ref, 'tags') && !contains(github.ref_name, 'beta') && !contains(github.ref_name, 'alpha') }}
         pull: true
         no-cache: true
         platforms: linux/amd64,linux/arm64
