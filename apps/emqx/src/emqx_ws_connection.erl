@@ -185,12 +185,12 @@ call(WsPid, Req, Timeout) when is_pid(WsPid) ->
     WsPid ! {call, {self(), Mref}, Req},
     receive
         {Mref, Reply} ->
-            erlang:demonitor(Mref, [flush]),
+            ok = emqx_pmon:demonitor(Mref),
             Reply;
         {'DOWN', Mref, _, _, Reason} ->
             exit(Reason)
     after Timeout ->
-        erlang:demonitor(Mref, [flush]),
+        ok = emqx_pmon:demonitor(Mref),
         exit(timeout)
     end.
 
@@ -676,7 +676,7 @@ parse_incoming(Data, Packets, State = #state{parse_state = ParseState}) ->
             NState = State#state{parse_state = NParseState},
             parse_incoming(Rest, [{incoming, Packet} | Packets], NState)
     catch
-        throw:?FRAME_PARSE_ERROR(Reason) ->
+        throw:{?FRAME_PARSE_ERROR, Reason} ->
             ?SLOG(info, #{
                 reason => Reason,
                 at_state => emqx_frame:describe_state(ParseState),
@@ -791,19 +791,19 @@ serialize_and_inc_stats_fun(#state{serialize = Serialize}) ->
                 Data
         catch
             %% Maybe Never happen.
-            throw:?FRAME_SERIALIZE_ERROR(Reason) ->
+            throw:{?FRAME_SERIALIZE_ERROR, Reason} ->
                 ?SLOG(info, #{
                     reason => Reason,
                     input_packet => Packet
                 }),
-                erlang:error(?FRAME_SERIALIZE_ERROR(Reason));
+                erlang:error({?FRAME_SERIALIZE_ERROR, Reason});
             error:Reason:Stacktrace ->
                 ?SLOG(error, #{
                     input_packet => Packet,
                     exception => Reason,
                     stacktrace => Stacktrace
                 }),
-                erlang:error(frame_serialize_error)
+                erlang:error(?FRAME_SERIALIZE_ERROR)
         end
     end.
 

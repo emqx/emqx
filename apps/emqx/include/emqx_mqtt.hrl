@@ -662,9 +662,9 @@ end).
     end
 ).
 
--define(FRAME_PARSE_ERROR(Reason), {frame_parse_error, Reason}).
--define(FRAME_SERIALIZE_ERROR(Reason), {frame_serialize_error, Reason}).
--define(THROW_FRAME_ERROR(Reason), erlang:throw(?FRAME_PARSE_ERROR(Reason))).
--define(THROW_SERIALIZE_ERROR(Reason), erlang:throw(?FRAME_SERIALIZE_ERROR(Reason))).
+-define(FRAME_PARSE_ERROR, frame_parse_error).
+-define(FRAME_SERIALIZE_ERROR, frame_serialize_error).
+-define(THROW_FRAME_ERROR(Reason), erlang:throw({?FRAME_PARSE_ERROR, Reason})).
+-define(THROW_SERIALIZE_ERROR(Reason), erlang:throw({?FRAME_SERIALIZE_ERROR, Reason})).
 
 -endif.
