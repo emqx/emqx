@@ -106,19 +106,19 @@ t_connection(_) ->
 
 t_publish(_) ->
     Action = fun(Channel, Token) ->
-                     Topic = <<"/abc">>,
-                     Payload = <<"123">>,
+        Topic = <<"/abc">>,
+        Payload = <<"123">>,
 
-                     TopicStr = binary_to_list(Topic),
-                     URI = ?PS_PREFIX ++ TopicStr ++ "?clientid=client1&token=" ++ Token,
+        TopicStr = binary_to_list(Topic),
+        URI = ?PS_PREFIX ++ TopicStr ++ "?clientid=client1&token=" ++ Token,
 
-                     %% Sub topic first
-                     emqx:subscribe(Topic),
+        %% Sub topic first
+        emqx:subscribe(Topic),
 
-                     Req = make_req(post, Payload),
-                     {ok, changed, _} = do_request(Channel, URI, Req),
+        Req = make_req(post, Payload),
+        {ok, changed, _} = do_request(Channel, URI, Req),
 
-                     receive
+        receive
             {deliver, Topic, Msg} ->
                 ?assertEqual(Topic, Msg#message.topic),
                 ?assertEqual(Payload, Msg#message.payload)

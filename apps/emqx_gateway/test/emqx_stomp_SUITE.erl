@@ -61,6 +61,12 @@ end_per_suite(_Cfg) ->
     emqx_mgmt_api_test_util:end_suite([emqx_gateway]),
     ok.
 
+default_config() ->
+    ?CONF_DEFAULT.
+
+stomp_ver() ->
+    ?STOMP_VER.
+
 %%--------------------------------------------------------------------
 %% Test Cases
 %%--------------------------------------------------------------------
