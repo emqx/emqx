@@ -1,0 +1,211 @@
+%%--------------------------------------------------------------------
+%% Copyright (c) 2020-2022 EMQ Technologies Co., Ltd. All Rights Reserved.
+%%
+%% Licensed under the Apache License, Version 2.0 (the "License");
+%% you may not use this file except in compliance with the License.
+%% You may obtain a copy of the License at
+%%
+%%     http://www.apache.org/licenses/LICENSE-2.0
+%%
+%% Unless required by applicable law or agreed to in writing, software
+%% distributed under the License is distributed on an "AS IS" BASIS,
+%% WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+%% See the License for the specific language governing permissions and
+%% limitations under the License.
+%%--------------------------------------------------------------------
+
+-module(emqx_gateway_auth_ct).
+
+-compile(nowarn_export_all).
+-compile(export_all).
+
+-behaviour(gen_server).
+
+%% gen_server callbacks
+-export([
+    init/1,
+    handle_call/3,
+    handle_cast/2,
+    handle_info/2,
+    terminate/2,
+    code_change/3,
+    format_status/2
+]).
+
+-import(
+    emqx_gateway_test_utils,
+    [
+        request/2,
+        request/3
+    ]
+).
+
+-include("emqx_authn.hrl").
+-include_lib("eunit/include/eunit.hrl").
+-include_lib("common_test/include/ct.hrl").
+-include_lib("emqx/include/emqx_placeholder.hrl").
+
+-define(CALL(Msg), gen_server:call(?MODULE, {?FUNCTION_NAME, Msg})).
+
+-define(HTTP_PORT, 37333).
+-define(HTTP_PATH, "/auth").
+-define(GATEWAYS, [coap, lwm2m, mqttsn, stomp, exproto]).
+
+-define(CONFS, [
+    emqx_coap_SUITE,
+    emqx_lwm2m_SUITE,
+    emqx_sn_protocol_SUITE,
+    emqx_stomp_SUITE,
+    emqx_exproto_SUITE
+]).
+
+-record(state, {}).
+
+%%------------------------------------------------------------------------------
+%% API
+%%------------------------------------------------------------------------------
+
+group_names(Auths) ->
+    [{group, Auth} || Auth <- Auths].
+
+init_groups(Suite, Auths) ->
+    All = emqx_common_test_helpers:all(Suite),
+    [{Auth, [], All} || Auth <- Auths].
+
+start_auth(Name) ->
+    ?CALL(Name).
+
+stop_auth(Name) ->
+    ?CALL(Name).
+
+start() ->
+    gen_server:start({local, ?MODULE}, ?MODULE, [], []).
+
+stop() ->
+    gen_server:stop(?MODULE).
+
+%%------------------------------------------------------------------------------
+%% gen_server callbacks
+%%------------------------------------------------------------------------------
+
+init([]) ->
+    process_flag(trap_exit, true),
+    {ok, #state{}}.
+
+handle_call({start_auth, Name}, _From, State) ->
+    on_start_auth(Name),
+    {reply, ok, State};
+handle_call({stop_auth, Name}, _From, State) ->
+    on_stop_auth(Name),
+    {reply, ok, State};
+handle_call(_Request, _From, State) ->
+    Reply = ok,
+    {reply, Reply, State}.
+
+handle_cast(_Request, State) ->
+    {noreply, State}.
+
+handle_info(_Info, State) ->
+    {noreply, State}.
+
+terminate(_Reason, _State) ->
+    ok.
+
+code_change(_OldVsn, State, _Extra) ->
+    {ok, State}.
+
+format_status(_Opt, Status) ->
+    Status.
+
+%%------------------------------------------------------------------------------
+%% Authenticators
+%%------------------------------------------------------------------------------
+
+on_start_auth(authn_http) ->
+    %% start test server
+    {ok, _} = emqx_authn_http_test_server:start_link(?HTTP_PORT, ?HTTP_PATH),
+    timer:sleep(1000),
+
+    %% set authn for gateway
+    Setup = fun(Gateway) ->
+        Path = io_lib:format("/gateway/~ts/authentication", [Gateway]),
+        {204, _} = request(delete, Path),
+        {201, _} = request(post, Path, http_auth_config())
+    end,
+    lists:foreach(Setup, ?GATEWAYS),
+
+    %% set handler for test server
+    Handler = fun(Req0, State) ->
+                      ct:pal("Authn Req:~p~nState:~p~n", [Req0, State]),
+                      case cowboy_req:match_qs([username, password], Req0) of
+            #{
+                username := <<"admin">>,
+                password := <<"public">>
+            } ->
+                Req = cowboy_req:reply(200, Req0);
+            _ ->
+                Req = cowboy_req:reply(400, Req0)
+        end,
+        {ok, Req, State}
+    end,
+    emqx_authn_http_test_server:set_handler(Handler),
+
+    timer:sleep(500).
+
+on_stop_auth(authn_http) ->
+    Delete = fun(Gateway) ->
+                     Path = io_lib:format("/gateway/~ts/authentication", [Gateway]),
+                     {204, _} = request(delete, Path)
+    end,
+    lists:foreach(Delete, ?GATEWAYS),
+    ok = emqx_authn_http_test_server:stop().
+
+%%------------------------------------------------------------------------------
+%% Configs
+%%------------------------------------------------------------------------------
+
+http_auth_config() ->
+    #{
+        <<"mechanism">> => <<"password_based">>,
+        <<"enable">> => <<"true">>,
+        <<"backend">> => <<"http">>,
+        <<"method">> => <<"get">>,
+        <<"url">> => <<"http://127.0.0.1:37333/auth">>,
+        <<"body">> => #{<<"username">> => ?PH_USERNAME, <<"password">> => ?PH_PASSWORD},
+        <<"headers">> => #{<<"X-Test-Header">> => <<"Test Value">>}
+    }.
+
+%%------------------------------------------------------------------------------
+%% Helpers
+%%------------------------------------------------------------------------------
+
+init_gateway_conf() ->
+    ok = emqx_common_test_helpers:load_config(
+        emqx_gateway_schema,
+        merge_conf([X:default_config() || X <- ?CONFS], [])
+    ).
+
+merge_conf([Conf | T], Acc) ->
+    case re:run(Conf, "\s*gateway\\.(.*)", [global, {capture, all_but_first, list}, dotall]) of
+        {match, [[Content]]} ->
+            merge_conf(T, [Content | Acc]);
+        _ ->
+            merge_conf(T, Acc)
+    end;
+merge_conf([], Acc) ->
+    erlang:list_to_binary("gateway{" ++ string:join(Acc, ",") ++ "}").
+
+with_resource(Init, Close, Fun) ->
+    Res =
+        case Init() of
+            {ok, X} -> X;
+            Other -> Other
+        end,
+    try
+        Fun(Res)
+    catch
+        C:R:S ->
+            erlang:raise(C, R, S)
+    after
+        Close(Res)
+    end.

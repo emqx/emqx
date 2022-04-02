@@ -41,8 +41,8 @@
 -define(DTLSOPTS, [binary, {active, false}, {protocol, dtls}]).
 
 %%--------------------------------------------------------------------
--define(CONF_DEFAULT,
-    <<"\n"
+-define(CONF_DEFAULT, <<
+    "\n"
     "gateway.exproto {\n"
     "  server.bind = 9100,\n"
     "  handler.address = \"http://127.0.0.1:9001\"\n"
@@ -50,8 +50,8 @@
     "    bind = 7993,\n"
     "    acceptors = 8\n"
     "  }\n"
-    "}\n">>
-).
+    "}\n"
+>>).
 
 %%--------------------------------------------------------------------
 %% Setups

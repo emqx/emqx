@@ -137,11 +137,12 @@ create(
     #{
         method := Method,
         url := RawURL,
-        headers := Headers,
+        headers := HeadersT,
         body := Body,
         request_timeout := RequestTimeout
     } = Config
 ) ->
+    Headers = ensure_header_name_type(HeadersT),
     {BsaeUrlWithPath, Query} = parse_fullpath(RawURL),
     URIMap = parse_url(BsaeUrlWithPath),
     ResourceId = emqx_authn_utils:make_resource_id(?MODULE),
@@ -383,3 +384,14 @@ to_bin(L) when is_list(L) ->
 
 get_conf_val(Name, Conf) ->
     hocon_maps:get(?CONF_NS ++ "." ++ Name, Conf).
+
+ensure_header_name_type(Headers) ->
+    Fun = fun
+        (Key, _Val, Acc) when is_binary(Key) ->
+            Acc;
+        (Key, Val, Acc) when is_atom(Key) ->
+            Acc2 = maps:remove(Key, Acc),
+            BinKey = erlang:atom_to_binary(Key),
+            Acc2#{BinKey => Val}
+    end,
+    maps:fold(Fun, Headers, Headers).

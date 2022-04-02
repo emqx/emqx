@@ -14,20 +14,15 @@
 %% limitations under the License.
 %%--------------------------------------------------------------------
 
--module(emqx_gateway_authn_http_SUITE).
+-module(emqx_gateway_authn_SUITE).
 
 -compile(nowarn_export_all).
 -compile(export_all).
 
--include("emqx_authn.hrl").
 -include_lib("eunit/include/eunit.hrl").
 -include_lib("common_test/include/ct.hrl").
--include_lib("emqx/include/emqx_placeholder.hrl").
 
--define(PATH, [?CONF_NS_ATOM]).
-
--define(HTTP_PORT, 33333).
--define(HTTP_PATH, "/auth").
+-import(emqx_gateway_auth_ct, [init_gateway_conf/0, with_resource/3]).
 
 -define(checkMatch(Guard),
     (fun(Expr) ->
@@ -50,44 +45,40 @@
 -define(FUNCTOR(Expr), fun() -> Expr end).
 -define(FUNCTOR(Arg, Expr), fun(Arg) -> Expr end).
 
--define(PROTOCOLS, [coap, lwm2m, 'mqtt-sn', stomp, exproto]).
-
--define(CONFS, [
-    emqx_coap_SUITE,
-    emqx_lwm2m_SUITE,
-    emqx_sn_protocol_SUITE,
-    emqx_stomp_SUITE,
-    emqx_exproto_SUITE
-]).
-
--define(CASES, [
-    fun case_coap/0,
-    fun case_lwm2m/0,
-    fun case_emqx_sn/0,
-    fun case_stomp/0,
-    fun case_exproto/0
-]).
-
--define(AUTHNS, [fun set_http_authn/1]).
-
--type auth_controller() :: fun((start | stop) -> ok).
+-define(AUTHNS, [authn_http]).
 
 all() ->
-    emqx_common_test_helpers:all(?MODULE).
+    emqx_gateway_auth_ct:group_names(?AUTHNS).
+
+groups() ->
+    emqx_gateway_auth_ct:init_groups(?MODULE, ?AUTHNS).
+
+init_per_group(AuthName, Conf) ->
+    ct:pal("on group start:~p~n", [AuthName]),
+    {ok, _} = emqx_cluster_rpc:start_link(node(), emqx_cluster_rpc, 1000),
+    emqx_gateway_auth_ct:start_auth(AuthName),
+    timer:sleep(500),
+    Conf.
+
+end_per_group(AuthName, Conf) ->
+    ct:pal("on group stop:~p~n", [AuthName]),
+    emqx_gateway_auth_ct:stop_auth(AuthName),
+    Conf.
 
 init_per_suite(Config) ->
-    _ = application:load(emqx_conf),
-    ok = emqx_common_test_helpers:load_config(emqx_gateway_schema, init_conf()),
-    emqx_common_test_helpers:start_apps([emqx_authn, emqx_gateway]),
+    emqx_config:erase(gateway),
+    init_gateway_conf(),
+    emqx_mgmt_api_test_util:init_suite([emqx_conf, emqx_authn, emqx_gateway]),
     application:ensure_all_started(cowboy),
+    emqx_gateway_auth_ct:start(),
+    timer:sleep(500),
     Config.
 
-end_per_suite(_) ->
-    clear_authn(),
-    ok = emqx_common_test_helpers:load_config(emqx_gateway_schema, <<>>),
-    emqx_common_test_helpers:stop_apps([emqx_authn, emqx_gateway]),
-    application:stop(cowboy),
-    ok.
+end_per_suite(Config) ->
+    emqx_gateway_auth_ct:stop(),
+    emqx_config:erase(gateway),
+    emqx_mgmt_api_test_util:end_suite([cowboy, emqx_authn, emqx_gateway]),
+    Config.
 
 init_per_testcase(_Case, Config) ->
     {ok, _} = emqx_cluster_rpc:start_link(node(), emqx_cluster_rpc, 1000),
@@ -99,20 +90,14 @@ end_per_testcase(_Case, Config) ->
 %%------------------------------------------------------------------------------
 %% Tests
 %%------------------------------------------------------------------------------
-t_authn(_) ->
-    test_gateway_with_auths(?CASES, ?AUTHNS).
 
-%%------------------------------------------------------------------------------
-%% Tests
-%%------------------------------------------------------------------------------
-
-case_coap() ->
+t_case_coap(_) ->
     Login = fun(URI, Checker) ->
-        Action = fun(Channel) ->
-            Req = emqx_coap_SUITE:make_req(post),
-            Checker(emqx_coap_SUITE:do_request(Channel, URI, Req))
-        end,
-        emqx_coap_SUITE:do(Action)
+                    Action = fun(Channel) ->
+                                     Req = emqx_coap_SUITE:make_req(post),
+                                     Checker(emqx_coap_SUITE:do_request(Channel, URI, Req))
+                             end,
+                    emqx_coap_SUITE:do(Action)
     end,
     Prefix = emqx_coap_SUITE:mqtt_prefix(),
     RightUrl =
@@ -128,7 +113,7 @@ case_coap() ->
 
 -record(coap_content, {content_format, payload = <<>>}).
 
-case_lwm2m() ->
+t_case_lwm2m(_) ->
     MsgId = 12,
     Mod = emqx_lwm2m_SUITE,
     Epn = "urn:oma:lwm2m:oma:3",
@@ -174,9 +159,18 @@ case_lwm2m() ->
 
 -define(SN_CONNACK, 16#05).
 
-case_emqx_sn() ->
+t_case_emqx_sn(_) ->
     Mod = emqx_sn_protocol_SUITE,
-    Login = fun(Expect) ->
+    Login = fun(Username, Password, Expect) ->
+        RawCfg = emqx_conf:get_raw([gateway, mqttsn], #{}),
+        NewCfg = RawCfg#{
+            <<"clientinfo_override">> => #{
+                <<"username">> => Username,
+                <<"password">> => Password
+            }
+        },
+        emqx_gateway_conf:update_gateway(mqttsn, NewCfg),
+
         with_resource(
             ?FUNCTOR(gen_udp:open(0, [binary])),
             ?FUNCTOR(Socket, gen_udp:close(Socket)),
@@ -186,20 +180,11 @@ case_emqx_sn() ->
             end
         )
     end,
-    Login(<<>>),
-
-    RawCfg = emqx_conf:get_raw([gateway, mqttsn], #{}),
-    NewCfg = RawCfg#{
-        <<"clientinfo_override">> => #{
-            <<"username">> => <<"admin">>,
-            <<"password">> => <<"public">>
-        }
-    },
-    emqx_gateway_conf:update_gateway(mqttsn, NewCfg),
-    Login(<<3, ?SN_CONNACK, 0>>),
+    Login(<<"badadmin">>, <<"badpassowrd">>, <<>>),
+    Login(<<"admin">>, <<"public">>, <<3, ?SN_CONNACK, 0>>),
     ok.
 
-case_stomp() ->
+t_case_stomp(_) ->
     Mod = emqx_stomp_SUITE,
     Login = fun(Username, Password, Checker) ->
         Fun = fun(Sock) ->
@@ -237,7 +222,7 @@ case_stomp() ->
 
     ok.
 
-case_exproto() ->
+t_case_exproto(_) ->
     Mod = emqx_exproto_SUITE,
     SvrMod = emqx_exproto_echo_svr,
     Svrs = SvrMod:start(),
@@ -266,114 +251,3 @@ case_exproto() ->
     Login(<<"bad">>, <<"bad">>, SvrMod:frame_connack(1)),
     SvrMod:stop(Svrs),
     ok.
-
-%%------------------------------------------------------------------------------
-%% Authenticators
-%%------------------------------------------------------------------------------
-
-raw_http_auth_config() ->
-    #{
-        mechanism => <<"password_based">>,
-        enable => <<"true">>,
-
-        backend => <<"http">>,
-        method => <<"get">>,
-        url => <<"http://127.0.0.1:33333/auth">>,
-        body => #{<<"username">> => ?PH_USERNAME, <<"password">> => ?PH_PASSWORD},
-        headers => #{<<"X-Test-Header">> => <<"Test Value">>}
-    }.
-
-set_http_authn(start) ->
-    {ok, _} = emqx_authn_http_test_server:start_link(?HTTP_PORT, ?HTTP_PATH),
-
-    AuthConfig = raw_http_auth_config(),
-
-    Set = fun(Protocol) ->
-        Chain = emqx_authentication:global_chain(Protocol),
-        emqx_authn_test_lib:delete_authenticators([authentication], Chain),
-
-        {ok, _} = emqx:update_config(
-            ?PATH,
-            {create_authenticator, Chain, AuthConfig}
-        ),
-
-        {ok, [#{provider := emqx_authn_http}]} = emqx_authentication:list_authenticators(Chain)
-    end,
-    lists:foreach(Set, ?PROTOCOLS),
-
-    Handler = fun(Req0, State) ->
-        ct:pal("Req:~p State:~p~n", [Req0, State]),
-        case cowboy_req:match_qs([username, password], Req0) of
-            #{
-                username := <<"admin">>,
-                password := <<"public">>
-            } ->
-                Req = cowboy_req:reply(200, Req0);
-            _ ->
-                Req = cowboy_req:reply(400, Req0)
-        end,
-        {ok, Req, State}
-    end,
-    emqx_authn_http_test_server:set_handler(Handler);
-set_http_authn(stop) ->
-    ok = emqx_authn_http_test_server:stop().
-
-clear_authn() ->
-    Clear = fun(Protocol) ->
-        Chain = emqx_authentication:global_chain(Protocol),
-        emqx_authn_test_lib:delete_authenticators([authentication], Chain)
-    end,
-    lists:foreach(Clear, ?PROTOCOLS).
-
-%%------------------------------------------------------------------------------
-%% Helpers
-%%------------------------------------------------------------------------------
--spec test_gateway_with_auths(_, list(auth_controller())) -> ok.
-test_gateway_with_auths(Gateways, Authenticators) ->
-    Cases = [{Auth, Gateways} || Auth <- Authenticators],
-    test_gateway_with_auths(Cases).
-
-test_gateway_with_auths([{Auth, Gateways} | T]) ->
-    {name, Name} = erlang:fun_info(Auth, name),
-    ct:pal("start auth:~p~n", [Name]),
-    Auth(start),
-    lists:foreach(
-        fun(Gateway) ->
-            {name, GwName} = erlang:fun_info(Gateway, name),
-            ct:pal("start gateway case:~p~n", [GwName]),
-            Gateway()
-        end,
-        Gateways
-    ),
-    ct:pal("stop auth:~p~n", [Name]),
-    Auth(stop),
-    test_gateway_with_auths(T);
-test_gateway_with_auths([]) ->
-    ok.
-
-init_conf() ->
-    merge_conf([X:default_config() || X <- ?CONFS], []).
-
-merge_conf([Conf | T], Acc) ->
-    case re:run(Conf, "\s*gateway\\.(.*)", [global, {capture, all_but_first, list}, dotall]) of
-        {match, [[Content]]} ->
-            merge_conf(T, [Content | Acc]);
-        _ ->
-            merge_conf(T, Acc)
-    end;
-merge_conf([], Acc) ->
-    erlang:list_to_binary("gateway{" ++ string:join(Acc, ",") ++ "}").
-
-with_resource(Init, Close, Fun) ->
-    Res =
-        case Init() of
-            {ok, X} -> X;
-            Other -> Other
-        end,
-    try
-        Fun(Res)
-    catch
-        C:R:S ->
-            Close(Res),
-            erlang:raise(C, R, S)
-    end.

@@ -849,3 +849,8 @@ parse(Data) ->
     },
     Parser = emqx_stomp_frame:initial_parse_state(ProtoEnv),
     emqx_stomp_frame:parse(Data, Parser).
+
+get_field(command, #stomp_frame{command = Command}) ->
+    Command;
+get_field(body, #stomp_frame{body = Body}) ->
+    Body.
