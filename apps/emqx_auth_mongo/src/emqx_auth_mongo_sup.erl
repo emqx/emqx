@@ -28,7 +28,97 @@ start_link() ->
     supervisor:start_link({local, ?MODULE}, ?MODULE, []).
 
 init([]) ->
-    {ok, PoolEnv} = application:get_env(?APP, server),
-    PoolSpec = ecpool:pool_spec(?APP, ?APP, ?APP, PoolEnv),
+    {ok, Opts} = application:get_env(?APP, server),
+    NOpts = may_parse_srv_and_txt_records(Opts),
+    PoolSpec = ecpool:pool_spec(?APP, ?APP, ?APP, NOpts),
     {ok, {{one_for_all, 10, 100}, [PoolSpec]}}.
 
+may_parse_srv_and_txt_records(Opts) when is_list(Opts) ->
+    Default = #{srv_record => false},
+    maps:to_list(may_parse_srv_and_txt_records(maps:merge(Default, maps:from_list(Opts))));
+
+may_parse_srv_and_txt_records(#{type := Type,
+                                srv_record := false,
+                                server := Server} = Opts) ->
+    Hosts = to_hosts(Server),
+    case Type =:= rs of
+        true ->
+            case maps:get(rs_set_name, Opts, undefined) of
+                undefined ->
+                    error({missing_parameter, rs_set_name});
+                ReplicaSet ->
+                    Opts#{type => {rs, ReplicaSet},
+                          hosts => Hosts}
+            end;
+        false ->
+            Opts#{hosts => Hosts}
+    end;
+
+may_parse_srv_and_txt_records(#{type := Type,
+                                srv_record := true,
+                                server := Server,
+                                worker_options := WorkerOptions} = Opts) ->
+    Hosts = parse_srv_records(Server),
+    Opts0 = parse_txt_records(Type, Server),
+    NWorkerOptions = maps:to_list(maps:merge(maps:from_list(WorkerOptions), maps:with([auth_source], Opts0))),
+    NOpts = Opts#{hosts => Hosts, worker_options => NWorkerOptions},
+    case Type =:= rs of
+        true ->
+            case maps:get(rs_set_name, Opts0, maps:get(rs_set_name, NOpts, undefined)) of
+                undefined ->
+                    error({missing_parameter, rs_set_name});
+                ReplicaSet ->
+                    NOpts#{type => {Type, ReplicaSet}}
+            end;
+        false ->
+            NOpts
+    end.
+
+to_hosts(Server) ->
+    [string:trim(H) || H <- string:tokens(Server, ",")].
+
+parse_srv_records(Server) ->
+    case inet_res:lookup("_mongodb._tcp." ++ Server, in, srv) of
+        [] ->
+            error(service_not_found);
+        Services ->
+            [Host ++ ":" ++ integer_to_list(Port) || {_, _, Port, Host} <- Services]
+    end.
+
+parse_txt_records(Type, Server) ->
+    case inet_res:lookup(Server, in, txt) of
+        [] ->
+            #{};
+        [[QueryString]] ->
+            case uri_string:dissect_query(QueryString) of
+                {error, _, _} ->
+                    error({invalid_txt_record, invalid_query_string});
+                Options ->
+                    Fields = case Type of
+                                 rs -> ["authSource", "replicaSet"];
+                                 _ -> ["authSource"]
+                             end,
+                    take_and_convert(Fields, Options)
+            end;
+        _ ->
+            error({invalid_txt_record, multiple_records})
+    end.
+
+take_and_convert(Fields, Options) ->
+    take_and_convert(Fields, Options, #{}).
+
+take_and_convert([], [_ | _], _Acc) ->
+    error({invalid_txt_record, invalid_option});
+take_and_convert([], [], Acc) ->
+    Acc;
+take_and_convert([Field | More], Options, Acc) ->
+    case lists:keytake(Field, 1, Options) of
+        {value, {"authSource", V}, NOptions} ->
+            take_and_convert(More, NOptions, Acc#{auth_source => list_to_binary(V)});
+        {value, {"replicaSet", V}, NOptions} ->
+            take_and_convert(More, NOptions, Acc#{rs_set_name => list_to_binary(V)});
+        {value, _, _} ->
+            error({invalid_txt_record, invalid_option});
+        false ->
+            take_and_convert(More, Options, Acc)
+    end.

@@ -46,8 +46,11 @@ remove_resource(Id) ->
     emqx_rule_registry:remove_resource(Id),
     emqx_rule_registry:remove_resource_params(Id).
 
-import(FilePath, Version) ->
-    ok = emqx_mgmt_data_backup:import(get_data_path() ++ "/" ++ FilePath, <<"{}">>),
+import(FilePath0, Version) ->
+    Filename = filename:basename(FilePath0),
+    FilePath = filename:join([get_data_path(), FilePath0]),
+    {ok, Bin} = file:read_file(FilePath),
+    ok = emqx_mgmt_data_backup:upload_backup_file(Filename, Bin),
     lists:foreach(fun(#resource{id = Id, config = Config} = _Resource) ->
         case Id of
             <<"webhook">> ->

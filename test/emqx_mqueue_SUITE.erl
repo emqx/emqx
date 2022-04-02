@@ -121,7 +121,7 @@ t_priority_mqueue(_) ->
     ?assertEqual(5, ?Q:len(Q5)),
     {_, Q6} = ?Q:in(#message{qos = 1, topic = <<"t2">>}, Q5),
     ?assertEqual(5, ?Q:len(Q6)),
-    {{value, Msg}, Q7} = ?Q:out(Q6),
+    {{value, _Msg}, Q7} = ?Q:out(Q6),
     ?assertEqual(4, ?Q:len(Q7)).
 
 t_priority_mqueue_conservation(_) ->

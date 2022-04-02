@@ -46,24 +46,6 @@
 
 -export([format/1]).
 
--define(TYPE_NAMES,
-        { 'CONNECT'
-        , 'CONNACK'
-        , 'PUBLISH'
-        , 'PUBACK'
-        , 'PUBREC'
-        , 'PUBREL'
-        , 'PUBCOMP'
-        , 'SUBSCRIBE'
-        , 'SUBACK'
-        , 'UNSUBSCRIBE'
-        , 'UNSUBACK'
-        , 'PINGREQ'
-        , 'PINGRESP'
-        , 'DISCONNECT'
-        , 'AUTH'
-        }).
-
 -type(connect() :: #mqtt_packet_connect{}).
 -type(publish() :: #mqtt_packet_publish{}).
 -type(subscribe() :: #mqtt_packet_subscribe{}).
@@ -107,14 +89,14 @@ retain(#mqtt_packet{header = #mqtt_packet_header{retain = Retain}}) ->
 %%--------------------------------------------------------------------
 
 %% @doc Protocol name of the CONNECT Packet.
--spec(proto_name(emqx_types:packet()|connect()) -> binary()).
+-spec(proto_name(emqx_types:packet() | connect()) -> binary()).
 proto_name(?CONNECT_PACKET(ConnPkt)) ->
     proto_name(ConnPkt);
 proto_name(#mqtt_packet_connect{proto_name = Name}) ->
     Name.
 
 %% @doc Protocol version of the CONNECT Packet.
--spec(proto_ver(emqx_types:packet()|connect()) -> emqx_types:version()).
+-spec(proto_ver(emqx_types:packet() | connect()) -> emqx_types:version()).
 proto_ver(?CONNECT_PACKET(ConnPkt)) ->
     proto_ver(ConnPkt);
 proto_ver(#mqtt_packet_connect{proto_ver = Ver}) ->
@@ -249,7 +231,7 @@ set_props(Props, #mqtt_packet_auth{} = Pkt) ->
 %%--------------------------------------------------------------------
 
 %% @doc Check PubSub Packet.
--spec(check(emqx_types:packet()|publish()|subscribe()|unsubscribe())
+-spec(check(emqx_types:packet() | publish() | subscribe() | unsubscribe())
       -> ok | {error, emqx_types:reason_code()}).
 check(#mqtt_packet{header = #mqtt_packet_header{type = ?PUBLISH},
                    variable = PubPkt}) when not is_tuple(PubPkt) ->
@@ -318,7 +300,7 @@ check_pub_props(#{'Response-Topic' := ResponseTopic}) ->
 check_pub_props(_Props) -> ok.
 
 %% @doc Check CONNECT Packet.
--spec(check(emqx_types:packet()|connect(), Opts :: map())
+-spec(check(emqx_types:packet() | connect(), Opts :: map())
       -> ok | {error, emqx_types:reason_code()}).
 check(?CONNECT_PACKET(ConnPkt), Opts) ->
     check(ConnPkt, Opts);
@@ -357,11 +339,13 @@ check_conn_props(#mqtt_packet_connect{properties = undefined}, _Opts) ->
     ok;
 check_conn_props(#mqtt_packet_connect{properties = #{'Receive-Maximum' := 0}}, _Opts) ->
     {error, ?RC_PROTOCOL_ERROR};
-check_conn_props(#mqtt_packet_connect{properties = #{'Request-Response-Information' := ReqRespInfo}}, _Opts)
-  when ReqRespInfo =/= 0, ReqRespInfo =/= 1 ->
+check_conn_props(#mqtt_packet_connect{properties =
+                 #{'Request-Response-Information' := ReqRespInfo}}, _Opts)
+                 when ReqRespInfo =/= 0, ReqRespInfo =/= 1 ->
     {error, ?RC_PROTOCOL_ERROR};
-check_conn_props(#mqtt_packet_connect{properties = #{'Request-Problem-Information' := ReqProInfo}}, _Opts)
-    when ReqProInfo =/= 0, ReqProInfo =/= 1 ->
+check_conn_props(#mqtt_packet_connect{properties =
+                 #{'Request-Problem-Information' := ReqProInfo}}, _Opts)
+                 when ReqProInfo =/= 0, ReqProInfo =/= 1 ->
     {error, ?RC_PROTOCOL_ERROR};
 check_conn_props(_ConnPkt, _Opts) -> ok.
 
@@ -382,7 +366,7 @@ check_will_msg(#mqtt_packet_connect{will_topic = WillTopic}, _Opts) ->
 
 run_checks([], _Packet, _Options) ->
     ok;
-run_checks([Check|More], Packet, Options) ->
+run_checks([Check | More], Packet, Options) ->
     case Check(Packet, Options) of
         ok -> run_checks(More, Packet, Options);
         Error = {error, _Reason} -> Error
@@ -419,7 +403,8 @@ to_message(#mqtt_packet{
     Msg#message{flags = #{dup => Dup, retain => Retain},
                 headers = Headers#{properties => Props}}.
 
--spec(will_msg(#mqtt_packet_connect{}) -> emqx_types:message()).
+-type(connectPacket() :: #mqtt_packet_connect{}).
+-spec(will_msg(connectPacket()) -> emqx_types:message()).
 will_msg(#mqtt_packet_connect{will_flag = false}) ->
     undefined;
 will_msg(#mqtt_packet_connect{clientid     = ClientId,
@@ -468,13 +453,16 @@ format_variable(#mqtt_packet_connect{
                  will_payload = WillPayload,
                  username     = Username,
                  password     = Password}) ->
-    Format = "ClientId=~s, ProtoName=~s, ProtoVsn=~p, CleanStart=~s, KeepAlive=~p, Username=~s, Password=~s",
-    Args = [ClientId, ProtoName, ProtoVer, CleanStart, KeepAlive, Username, format_password(Password)],
-    {Format1, Args1} = if
-                        WillFlag -> {Format ++ ", Will(Q~p, R~p, Topic=~s, Payload=~0p)",
-                                     Args ++ [WillQoS, i(WillRetain), WillTopic, WillPayload]};
-                        true -> {Format, Args}
-                       end,
+    Format = "ClientId=~s, ProtoName=~s, ProtoVsn=~p, CleanStart=~s,"
+    " KeepAlive=~p, Username=~s, Password=~s",
+    Args = [ClientId, ProtoName, ProtoVer, CleanStart,
+        KeepAlive, Username, format_password(Password)],
+    {Format1, Args1} =
+        case WillFlag of
+            true -> {Format ++ ", Will(Q~p, R~p, Topic=~s, Payload=~0p)",
+                    Args ++ [WillQoS, i(WillRetain), WillTopic, WillPayload]};
+            false -> {Format, Args}
+        end,
     io_lib:format(Format1, Args1);
 
 format_variable(#mqtt_packet_disconnect
@@ -520,4 +508,3 @@ format_password(_Password) -> '******'.
 i(true)  -> 1;
 i(false) -> 0;
 i(I) when is_integer(I) -> I.
-
