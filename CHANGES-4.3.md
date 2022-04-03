@@ -24,6 +24,7 @@ File format:
 
 * Prohibit empty topics in strict mode
 * Make sure ehttpc delete useless pool always succeed.
+* Update mongodb driver to fix potential process leak.
 
 ## v4.3.13
 
