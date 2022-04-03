@@ -10,6 +10,22 @@ File format:
 - One list item per change topic
   Change log ends with a list of github PRs
 
+## v4.3.14
+
+### Enhancements
+
+* In order to fix the execution order of exhook, e.g. before/after other plugins/modules,
+  ExHook now supports user customizing emqx_hook execute priority.
+* add api: PUT /rules/{id}/reset_metrics.
+  This api reset the metrics of the rule engine of a rule, and reset the metrics of the action related to this rule. [#7474]
+* Enhanced rule engine error handling when json parsing error.
+
+### Bug fixes
+
+* Prohibit empty topics in strict mode
+* Make sure ehttpc delete useless pool always succeed.
+* Update mongodb driver to fix potential process leak.
+
 ## v4.3.13
 
 ### Important changes

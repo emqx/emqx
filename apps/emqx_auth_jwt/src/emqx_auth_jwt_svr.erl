@@ -91,7 +91,7 @@ do_init_jwks(Options) ->
                                   [K, V, Reason]),
                              undefined;
                          J -> J
-                     catch T:R:_ ->
+                     catch T:R ->
                          ?LOG(warning, "Build ~p JWK ~p failed: {~p, ~p}~n",
                               [K, V, T, R]),
                          undefined
