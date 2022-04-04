@@ -35,17 +35,23 @@ disable() ->
 cmd(["status"]) ->
     observer_cli:start();
 cmd(["bin_leak"]) ->
-    [emqx_ctl:print("~p~n", [Row]) || Row <- recon:bin_leak(100)];
+    lists:foreach(
+        fun(Row) -> emqx_ctl:print("~p~n", [Row]) end,
+        recon:bin_leak(100)
+    );
 cmd(["load", Mod]) ->
     Module = list_to_existing_atom(Mod),
     Nodes = nodes(),
     Res = remote_load(Nodes, Module),
-    emqx_ctl:print("Loaded ~p module on ~p on ~n", [Mod, Nodes, Res]);
+    emqx_ctl:print("Loaded ~p module on ~p: ~p~n", [Module, Nodes, Res]);
 cmd(_) ->
     emqx_ctl:usage([
-        {"observer status", "observer_cli:start()"},
-        {"observer bin_leak", "recon:bin_leak(100)"},
-        {"observer load Mod", "recon:remote_load(Mod) to all nodes"}
+        {"observer status", "Start observer in the current console"},
+        {"observer bin_leak",
+            "Force all processes to perform garbage collection "
+            "and prints the top-100 processes that freed the "
+            "biggest amount of binaries, potentially highlighting leaks."},
+        {"observer load Mod", "Ensure a module is loaded in all EMQX nodes in the cluster"}
     ]).
 
 %% recon:remote_load/1 has a bug, when nodes() returns [], it is
