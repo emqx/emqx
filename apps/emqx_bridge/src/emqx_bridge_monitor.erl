@@ -19,6 +19,8 @@
 
 -behaviour(gen_server).
 
+-include_lib("snabbkaffe/include/snabbkaffe.hrl").
+
 %% API functions
 -export([ start_link/0
         , ensure_all_started/1
@@ -67,6 +69,11 @@ code_change(_OldVsn, State, _Extra) ->
 load_bridges(Configs) ->
     lists:foreach(fun({Type, NamedConf}) ->
             lists:foreach(fun({Name, Conf}) ->
-                    emqx_bridge:create(Type, Name, Conf)
+                    _Res = emqx_bridge:create(Type, Name, Conf),
+                    ?tp(emqx_bridge_monitor_loaded_bridge,
+                        #{ type => Type
+                         , name => Name
+                         , res  => _Res
+                         })
                 end, maps:to_list(NamedConf))
         end, maps:to_list(Configs)).
