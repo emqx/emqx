@@ -20,7 +20,9 @@
     providers/0,
     check_config/1,
     check_config/2,
-    check_configs/1
+    check_configs/1,
+    %% for telemetry information
+    get_enabled_authns/0
 ]).
 
 -include("emqx_authn.hrl").
@@ -77,3 +79,37 @@ atom(Bin) ->
         _:_ ->
             throw({unknown_auth_provider, Bin})
     end.
+
+-spec get_enabled_authns() ->
+    #{
+        authenticators => [authenticator_id()],
+        overridden_listeners => #{authenticator_id() => pos_integer()}
+    }.
+get_enabled_authns() ->
+    %% at the moment of writing, `emqx_authentication:list_chains/0'
+    %% result is always wrapped in `{ok, _}', and it cannot return any
+    %% error values.
+    {ok, Chains} = emqx_authentication:list_chains(),
+    AuthnTypes = lists:usort([
+        Type
+     || #{authenticators := As} <- Chains,
+        #{id := Type} <- As
+    ]),
+    OverriddenListeners =
+        lists:foldl(
+            fun
+                (#{name := ?GLOBAL}, Acc) ->
+                    Acc;
+                (#{authenticators := As}, Acc) ->
+                    lists:foldl(fun tally_authenticators/2, Acc, As)
+            end,
+            #{},
+            Chains
+        ),
+    #{
+        authenticators => AuthnTypes,
+        overridden_listeners => OverriddenListeners
+    }.
+
+tally_authenticators(#{id := AuthenticatorName}, Acc) ->
+    maps:update_with(AuthenticatorName, fun(N) -> N + 1 end, 1, Acc).

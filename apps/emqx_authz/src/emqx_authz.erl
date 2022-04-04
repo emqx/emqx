@@ -33,7 +33,9 @@
     lookup/1,
     move/2,
     update/2,
-    authorize/5
+    authorize/5,
+    %% for telemetry information
+    get_enabled_authzs/0
 ]).
 
 -export([post_config_update/5, pre_config_update/3]).
@@ -336,6 +338,9 @@ do_authorize(
         Matched -> {Matched, Type}
     end.
 
+get_enabled_authzs() ->
+    lists:usort([Type || #{type := Type} <- lookup()]).
+
 %%--------------------------------------------------------------------
 %% Internal function
 %%--------------------------------------------------------------------
@@ -389,7 +394,7 @@ maybe_write_files(NewSource) ->
 
 write_acl_file(#{<<"rules">> := Rules} = Source) ->
     NRules = check_acl_file_rules(Rules),
-    Path = acl_conf_file(),
+    Path = ?MODULE:acl_conf_file(),
     {ok, _Filename} = write_file(Path, NRules),
     maps:without([<<"rules">>], Source#{<<"path">> => Path}).
 

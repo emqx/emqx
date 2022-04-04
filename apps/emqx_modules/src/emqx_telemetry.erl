@@ -348,7 +348,8 @@ get_telemetry(State0 = #state{uuid = UUID}) ->
         {build_info, build_info()},
         {vm_specs, vm_specs()},
         {mqtt_runtime_insights, MQTTRTInsights},
-        {advanced_mqtt_features, advanced_mqtt_features()}
+        {advanced_mqtt_features, advanced_mqtt_features()},
+        {authn_authz, get_authn_authz_info()}
     ]}.
 
 report_telemetry(State0 = #state{url = URL}) ->
@@ -451,6 +452,18 @@ update_mqtt_rates(State) ->
 advanced_mqtt_features() ->
     AdvancedFeatures = emqx_modules:get_advanced_mqtt_features_in_use(),
     maps:map(fun(_K, V) -> bool2int(V) end, AdvancedFeatures).
+
+get_authn_authz_info() ->
+    #{
+        authenticators := AuthnTypes,
+        overridden_listeners := OverriddenListeners
+    } = emqx_authn:get_enabled_authns(),
+    AuthzTypes = emqx_authz:get_enabled_authzs(),
+    #{
+        authn => AuthnTypes,
+        authn_listener => OverriddenListeners,
+        authz => AuthzTypes
+    }.
 
 bin(L) when is_list(L) ->
     list_to_binary(L);

@@ -158,14 +158,16 @@ auth_header_() ->
     {"Authorization", "Basic " ++ Basic}.
 
 restart_monitor() ->
-    erlang:exit(erlang:whereis(emqx_dashboard_monitor), killed),
-    ?assertEqual(ok, wait_new_monitor(10)).
+    OldMonitor = erlang:whereis(emqx_dashboard_monitor),
+    erlang:exit(OldMonitor, killed),
+    ?assertEqual(ok, wait_new_monitor(OldMonitor, 10)).
 
-wait_new_monitor(Count) when Count =< 0 -> timeout;
-wait_new_monitor(Count) ->
-    case is_pid(erlang:whereis(emqx_dashboard_monitor)) of
+wait_new_monitor(_OldMonitor, Count) when Count =< 0 -> timeout;
+wait_new_monitor(OldMonitor, Count) ->
+    NewMonitor = erlang:whereis(emqx_dashboard_monitor),
+    case is_pid(NewMonitor) andalso NewMonitor =/= OldMonitor of
         true -> ok;
         false ->
             timer:sleep(100),
-            wait_new_monitor(Count - 1)
+            wait_new_monitor(OldMonitor, Count - 1)
     end.

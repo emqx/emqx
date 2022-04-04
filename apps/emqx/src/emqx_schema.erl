@@ -2406,9 +2406,9 @@ str(S) when is_list(S) ->
     S.
 
 authentication(Desc) ->
-    %% authentication schemais lazy to make it more 'plugable'
+    %% authentication schema is lazy to make it more 'plugable'
     %% the type checks are done in emqx_auth application when it boots.
-    %% and in emqx_authentication_config module for rutime changes.
+    %% and in emqx_authentication_config module for runtime changes.
     Default = hoconsc:lazy(hoconsc:union([typerefl:map(), hoconsc:array(typerefl:map())])),
     %% as the type is lazy, the runtime module injection
     %% from EMQX_AUTHENTICATION_SCHEMA_MODULE_PT_KEY

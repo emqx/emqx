@@ -34,6 +34,8 @@
 -define(CONF_NS_ATOM, ?EMQX_AUTHENTICATION_CONFIG_ROOT_NAME_ATOM).
 -define(CONF_NS_BINARY, ?EMQX_AUTHENTICATION_CONFIG_ROOT_NAME_BINARY).
 
+-type authenticator_id() :: binary().
+
 -endif.
 
 -define(RESOURCE_GROUP, <<"emqx_authn">>).
