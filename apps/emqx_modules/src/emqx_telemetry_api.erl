@@ -22,14 +22,10 @@
 
 -import(hoconsc, [mk/2, ref/1, ref/2, array/1]).
 
-% -export([cli/1]).
-
 -export([
     status/2,
     data/2
 ]).
-
--export([enable_telemetry/2]).
 
 -export([
     api_spec/0,
@@ -209,11 +205,12 @@ fields(telemetry) ->
 %%--------------------------------------------------------------------
 %% HTTP API
 %%--------------------------------------------------------------------
+
 status(get, _Params) ->
     {200, get_telemetry_status()};
 status(put, #{body := Body}) ->
     Enable = maps:get(<<"enable">>, Body),
-    case Enable =:= emqx_telemetry:get_status() of
+    case Enable =:= emqx_modules_conf:telemetry_status() of
         true ->
             Reason =
                 case Enable of
@@ -222,78 +219,30 @@ status(put, #{body := Body}) ->
                 end,
             {400, #{code => 'BAD_REQUEST', message => Reason}};
         false ->
-            enable_telemetry(Enable),
-            {200, #{<<"enable">> => emqx_telemetry:get_status()}}
+            case enable_telemetry(Enable) of
+                ok ->
+                    {200, get_telemetry_status()};
+                {error, Reason} ->
+                    {400, #{
+                        code => 'BAD_REQUEST',
+                        message => Reason
+                    }}
+            end
     end.
 
 data(get, _Request) ->
     {200, emqx_json:encode(get_telemetry_data())}.
-%%--------------------------------------------------------------------
-%% CLI
-%%--------------------------------------------------------------------
-% cli(["enable", Enable0]) ->
-%     Enable = list_to_atom(Enable0),
-%     case Enable =:= emqx_telemetry:is_enabled() of
-%         true ->
-%             case Enable of
-%                 true -> emqx_ctl:print("Telemetry status is already enabled~n");
-%                 false -> emqx_ctl:print("Telemetry status is already disable~n")
-%             end;
-%         false ->
-%             enable_telemetry(Enable),
-%             case Enable of
-%                 true -> emqx_ctl:print("Enable telemetry successfully~n");
-%                 false -> emqx_ctl:print("Disable telemetry successfully~n")
-%             end
-%     end;
-
-% cli(["get", "status"]) ->
-%     case get_telemetry_status() of
-%         [{enabled, true}] ->
-%             emqx_ctl:print("Telemetry is enabled~n");
-%         [{enabled, false}] ->
-%             emqx_ctl:print("Telemetry is disabled~n")
-%     end;
-
-% cli(["get", "data"]) ->
-%     TelemetryData = get_telemetry_data(),
-%     case emqx_json:safe_encode(TelemetryData, [pretty]) of
-%         {ok, Bin} ->
-%             emqx_ctl:print("~ts~n", [Bin]);
-%         {error, _Reason} ->
-%             emqx_ctl:print("Failed to get telemetry data")
-%     end;
-
-% cli(_) ->
-%     emqx_ctl:usage([{"telemetry enable",   "Enable telemetry"},
-%                     {"telemetry disable",  "Disable telemetry"},
-%                     {"telemetry get data", "Get reported telemetry data"}]).
 
 %%--------------------------------------------------------------------
-%% internal function
+%% Internal functions
 %%--------------------------------------------------------------------
+
 enable_telemetry(Enable) ->
-    lists:foreach(
-        fun(Node) ->
-            enable_telemetry(Node, Enable)
-        end,
-        mria_mnesia:running_nodes()
-    ).
-
-enable_telemetry(Node, true) ->
-    is_ok(emqx_telemetry_proto_v1:enable_telemetry(Node));
-enable_telemetry(Node, false) ->
-    is_ok(emqx_telemetry_proto_v1:disable_telemetry(Node)).
+    emqx_modules_conf:set_telemetry_status(Enable).
 
 get_telemetry_status() ->
-    #{enabled => emqx_telemetry:get_status()}.
+    #{enable => emqx_modules_conf:telemetry_status()}.
 
 get_telemetry_data() ->
     {ok, TelemetryData} = emqx_telemetry:get_telemetry(),
     TelemetryData.
-
-is_ok(Result) ->
-    case Result of
-        {badrpc, Reason} -> {error, Reason};
-        Result -> Result
-    end.

@@ -28,12 +28,12 @@ all() -> emqx_common_test_helpers:all(?MODULE).
 
 init_per_suite(Config) ->
     emqx_common_test_helpers:boot_modules(all),
-    emqx_common_test_helpers:start_apps([emqx_modules]),
+    emqx_common_test_helpers:start_apps([emqx_conf, emqx_modules]),
     ok = emqx_common_test_helpers:load_config(emqx_modules_schema, ?TOPIC),
     Config.
 
 end_per_suite(_Config) ->
-    emqx_common_test_helpers:stop_apps([emqx_modules]).
+    emqx_common_test_helpers:stop_apps([emqx_modules, emqx_conf]).
 
 init_per_testcase(_Case, Config) ->
     emqx_topic_metrics:enable(),

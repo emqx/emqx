@@ -35,13 +35,11 @@ all() ->
     emqx_common_test_helpers:all(?MODULE).
 
 init_per_suite(Config) ->
-    mria:start(),
-    ok = emqx_delayed:mnesia(boot),
-    emqx_common_test_helpers:start_apps([emqx_modules]),
+    emqx_common_test_helpers:start_apps([emqx_conf, emqx_modules]),
     Config.
 
 end_per_suite(_) ->
-    emqx_common_test_helpers:stop_apps([emqx_modules]).
+    emqx_common_test_helpers:stop_apps([emqx_modules, emqx_conf]).
 
 init_per_testcase(t_load_case, Config) ->
     Config;

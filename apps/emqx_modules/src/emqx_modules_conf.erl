@@ -25,11 +25,12 @@
     unload/0
 ]).
 
-%% topci-metrics
 -export([
     topic_metrics/0,
     add_topic_metrics/1,
-    remove_topic_metrics/1
+    remove_topic_metrics/1,
+    telemetry_status/0,
+    set_telemetry_status/1
 ]).
 
 %% config handlers
@@ -40,17 +41,21 @@
 
 %%--------------------------------------------------------------------
 %% Load/Unload
+%%--------------------------------------------------------------------
 
 -spec load() -> ok.
 load() ->
-    emqx_conf:add_handler([topic_metrics], ?MODULE).
+    emqx_conf:add_handler([topic_metrics], ?MODULE),
+    emqx_conf:add_handler([telemetry], ?MODULE).
 
 -spec unload() -> ok.
 unload() ->
+    emqx_conf:remove_handler([telemetry]),
     emqx_conf:remove_handler([topic_metrics]).
 
 %%--------------------------------------------------------------------
 %% Topic-Metrics
+%%--------------------------------------------------------------------
 
 -spec topic_metrics() -> [emqx_types:topic()].
 topic_metrics() ->
@@ -63,7 +68,7 @@ topic_metrics() ->
     {ok, emqx_types:topic()}
     | {error, term()}.
 add_topic_metrics(Topic) ->
-    case cfg_update(topic_metrics, ?FUNCTION_NAME, Topic) of
+    case cfg_update([topic_metrics], ?FUNCTION_NAME, Topic) of
         {ok, _} -> {ok, Topic};
         {error, Reason} -> {error, Reason}
     end.
@@ -72,24 +77,21 @@ add_topic_metrics(Topic) ->
     ok
     | {error, term()}.
 remove_topic_metrics(Topic) ->
-    case cfg_update(topic_metrics, ?FUNCTION_NAME, Topic) of
+    case cfg_update([topic_metrics], ?FUNCTION_NAME, Topic) of
         {ok, _} -> ok;
         {error, Reason} -> {error, Reason}
     end.
 
-cfg_update(topic_metrics, Action, Params) ->
-    res(
-        emqx_conf:update(
-            [topic_metrics],
-            {Action, Params},
-            #{override_to => cluster}
-        )
-    ).
+-spec telemetry_status() -> boolean().
+telemetry_status() ->
+    emqx:get_config([telemetry, enable], true).
 
-res({ok, Result}) -> {ok, Result};
-res({error, {pre_config_update, ?MODULE, Reason}}) -> {error, Reason};
-res({error, {post_config_update, ?MODULE, Reason}}) -> {error, Reason};
-res({error, Reason}) -> {error, Reason}.
+-spec set_telemetry_status(boolean()) -> ok | {error, term()}.
+set_telemetry_status(Status) ->
+    case cfg_update([telemetry], set_telemetry_status, Status) of
+        {ok, _} -> ok;
+        {error, _} = Error -> Error
+    end.
 
 %%--------------------------------------------------------------------
 %%  Config Handler
@@ -116,7 +118,9 @@ pre_config_update(_, {remove_topic_metrics, Topic0}, RawConf) ->
             {ok, RawConf -- [Topic]};
         _ ->
             {error, not_found}
-    end.
+    end;
+pre_config_update(_, {set_telemetry_status, Status}, RawConf) ->
+    {ok, RawConf#{<<"enable">> => Status}}.
 
 -spec post_config_update(
     list(atom()),
@@ -148,4 +152,33 @@ post_config_update(
     case emqx_topic_metrics:deregister(Topic) of
         ok -> ok;
         {error, Reason} -> {error, Reason}
+    end;
+post_config_update(
+    _,
+    {set_telemetry_status, Status},
+    _NewConfig,
+    _OldConfig,
+    _AppEnvs
+) ->
+    case Status of
+        true -> emqx_telemetry:enable();
+        false -> emqx_telemetry:disable()
     end.
+
+%%--------------------------------------------------------------------
+%%  Private
+%%--------------------------------------------------------------------
+
+res({ok, Result}) -> {ok, Result};
+res({error, {pre_config_update, ?MODULE, Reason}}) -> {error, Reason};
+res({error, {post_config_update, ?MODULE, Reason}}) -> {error, Reason};
+res({error, Reason}) -> {error, Reason}.
+
+cfg_update(Path, Action, Params) ->
+    res(
+        emqx_conf:update(
+            Path,
+            {Action, Params},
+            #{override_to => cluster}
+        )
+    ).

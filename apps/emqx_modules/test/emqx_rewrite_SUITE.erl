@@ -22,31 +22,28 @@
 -include_lib("emqx/include/emqx_mqtt.hrl").
 -include_lib("eunit/include/eunit.hrl").
 
--define(REWRITE, <<
-    ""
-    "\n"
-    "rewrite: [\n"
-    "    {\n"
-    "      action : publish\n"
-    "      source_topic : \"x/#\"\n"
-    "      re : \"^x/y/(.+)$\"\n"
-    "      dest_topic : \"z/y/$1\"\n"
-    "    },\n"
-    "    {\n"
-    "      action : subscribe\n"
-    "      source_topic : \"y/+/z/#\"\n"
-    "      re : \"^y/(.+)/z/(.+)$\"\n"
-    "      dest_topic : \"y/z/$2\"\n"
-    "    },\n"
-    "    {\n"
-    "      action : all\n"
-    "      source_topic : \"all/+/x/#\"\n"
-    "      re : \"^all/(.+)/x/(.+)$\"\n"
-    "      dest_topic : \"all/x/$2\"\n"
-    "    }\n"
-    "]"
-    ""
->>).
+-define(REWRITE, #{
+    <<"rewrite">> => [
+        #{
+            <<"action">> => <<"publish">>,
+            <<"dest_topic">> => <<"z/y/$1">>,
+            <<"re">> => <<"^x/y/(.+)$">>,
+            <<"source_topic">> => <<"x/#">>
+        },
+        #{
+            <<"action">> => <<"subscribe">>,
+            <<"dest_topic">> => <<"y/z/$2">>,
+            <<"re">> => <<"^y/(.+)/z/(.+)$">>,
+            <<"source_topic">> => <<"y/+/z/#">>
+        },
+        #{
+            <<"action">> => <<"all">>,
+            <<"dest_topic">> => <<"all/x/$2">>,
+            <<"re">> => <<"^all/(.+)/x/(.+)$">>,
+            <<"source_topic">> => <<"all/+/x/#">>
+        }
+    ]
+}).
 
 all() -> emqx_common_test_helpers:all(?MODULE).
 

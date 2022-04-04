@@ -28,7 +28,7 @@
 all() -> emqx_common_test_helpers:all(?MODULE).
 
 init_per_suite(Config) ->
-    snabbkaffe:fix_ct_logging(),
+    ok = meck:new(emqx_authz, [non_strict, passthrough, no_history, no_link]),
     meck:expect(
         emqx_authz,
         acl_conf_file,
@@ -139,8 +139,8 @@ t_uuid(_) ->
     {ok, UUID2} = emqx_telemetry:get_uuid(),
     emqx_telemetry:disable(),
     emqx_telemetry:enable(),
-    emqx_telemetry_proto_v1:disable_telemetry(node()),
-    emqx_telemetry_proto_v1:enable_telemetry(node()),
+    emqx_modules_conf:set_telemetry_status(false),
+    emqx_modules_conf:set_telemetry_status(true),
     {ok, UUID3} = emqx_telemetry:get_uuid(),
     {ok, UUID4} = emqx_telemetry_proto_v1:get_uuid(node()),
     ?assertEqual(UUID2, UUID3),
