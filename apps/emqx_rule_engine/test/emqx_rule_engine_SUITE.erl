@@ -1357,6 +1357,47 @@ t_sqlparse_nested_get(_Config) ->
           }})).
 
 %%------------------------------------------------------------------------------
+%% Test cases for telemetry functions
+%%------------------------------------------------------------------------------
+
+t_get_basic_usage_info_0(_Config) ->
+    ?assertEqual(
+      #{ num_rules => 0
+       , referenced_bridges => #{}
+       },
+      emqx_rule_engine:get_basic_usage_info()),
+    ok.
+
+t_get_basic_usage_info_1(_Config) ->
+    {ok, _} =
+        emqx_rule_engine:create_rule(
+          #{id => <<"rule:t_get_basic_usage_info:1">>,
+            sql => <<"select 1 from topic">>,
+            outputs =>
+                [ #{function => <<"erlang:hibernate">>, args => #{}}
+                , #{function => console}
+                , <<"http:my_http_bridge">>
+                , <<"http:my_http_bridge">>
+                ]}),
+    {ok, _} =
+        emqx_rule_engine:create_rule(
+          #{id => <<"rule:t_get_basic_usage_info:2">>,
+            sql => <<"select 1 from topic">>,
+            outputs =>
+                [ <<"mqtt:my_mqtt_bridge">>
+                , <<"http:my_http_bridge">>
+                ]}),
+    ?assertEqual(
+      #{ num_rules => 2
+       , referenced_bridges =>
+             #{ mqtt => 1
+              , http => 3
+              }
+       },
+      emqx_rule_engine:get_basic_usage_info()),
+    ok.
+
+%%------------------------------------------------------------------------------
 %% Internal helpers
 %%------------------------------------------------------------------------------
 

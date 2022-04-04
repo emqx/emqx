@@ -58,6 +58,9 @@
         , clear_metrics_for_rule/1
         ]).
 
+%% exported for `emqx_telemetry'
+-export([get_basic_usage_info/0]).
+
 %% gen_server Callbacks
 -export([ init/1
         , handle_call/3
@@ -200,6 +203,56 @@ unload_hooks_for_rule(#{id := Id, from := Topics}) ->
             _ -> ok
         end
     end, Topics).
+
+%%------------------------------------------------------------------------------
+%% Telemetry helper functions
+%%------------------------------------------------------------------------------
+
+-spec get_basic_usage_info() -> #{ num_rules => non_neg_integer()
+                                 , referenced_bridges =>
+                                       #{ BridgeType => non_neg_integer()
+                                        }
+                                 }
+              when BridgeType :: atom().
+get_basic_usage_info() ->
+    try
+        Rules = get_rules(),
+        EnabledRules =
+            lists:filter(
+              fun(#{enable := Enabled}) -> Enabled end,
+              Rules),
+        NumRules = length(EnabledRules),
+        ReferencedBridges =
+            lists:foldl(
+              fun(#{outputs := Outputs}, Acc) ->
+                      BridgeIDs = lists:filter(fun is_binary/1, Outputs),
+                      tally_referenced_bridges(BridgeIDs, Acc)
+              end,
+              #{},
+              EnabledRules),
+        #{ num_rules => NumRules
+         , referenced_bridges => ReferencedBridges
+         }
+    catch
+        _:_ ->
+            #{ num_rules => 0
+             , referenced_bridges => #{}
+             }
+    end.
+
+
+tally_referenced_bridges(BridgeIDs, Acc0) ->
+    lists:foldl(
+     fun(BridgeID, Acc) ->
+             {BridgeType, _BridgeName} = emqx_bridge:parse_bridge_id(BridgeID),
+             maps:update_with(
+               BridgeType,
+               fun(X) -> X + 1 end,
+               1,
+               Acc)
+     end,
+     Acc0,
+     BridgeIDs).
 
 %%------------------------------------------------------------------------------
 %% gen_server callbacks
