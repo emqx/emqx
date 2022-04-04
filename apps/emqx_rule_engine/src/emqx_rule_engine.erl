@@ -232,7 +232,10 @@ delete_rule(RuleId) ->
     end.
 
 -spec(create_resource(#{type := _, config := _, _ => _}) -> {ok, resource()} | {error, Reason :: term()}).
-create_resource(#{type := Type, config := Config0} = Params) ->
+create_resource(Params) ->
+    create_resource(Params, with_retry).
+
+create_resource(#{type := Type, config := Config0} = Params, Retry) ->
     case emqx_rule_registry:find_resource_type(Type) of
         {ok, #resource_type{on_create = {M, F}, params_spec = ParamSpec}} ->
             Config = emqx_rule_validator:validate_params(Config0, ParamSpec),
@@ -244,10 +247,20 @@ create_resource(#{type := Type, config := Config0} = Params) ->
                                  created_at = erlang:system_time(millisecond)
                                 },
             ok = emqx_rule_registry:add_resource(Resource),
-            %% Note that we will return OK in case of resource creation failure,
-            %% A timer is started to re-start the resource later.
-            catch _ = ?CLUSTER_CALL(init_resource, [M, F, ResId, Config]),
-            {ok, Resource};
+            case Retry of
+                with_retry ->
+                    %% Note that we will return OK in case of resource creation failure,
+                    %% A timer is started to re-start the resource later.
+                    _ = (catch (?CLUSTER_CALL(init_resource, [M, F, ResId, Config]))),
+                    {ok, Resource};
+                no_retry ->
+                    try
+                        _ = ?CLUSTER_CALL(init_resource, [M, F, ResId, Config]),
+                        {ok, Resource}
+                    catch throw : Reason ->
+                        {error, Reason}
+                    end
+            end;
         not_found ->
             {error, {resource_type_not_found, Type}}
     end.
@@ -320,9 +333,19 @@ test_resource(#{type := Type} = Params) ->
         {ok, #resource_type{}} ->
             ResId = maps:get(id, Params, resource_id()),
             try
-                _ = create_resource(maps:put(id, ResId, Params)),
-                true = is_source_alive(ResId),
-                ok
+                case create_resource(maps:put(id, ResId, Params), no_retry) of
+                    {ok, _} ->
+                        case is_source_alive(ResId) of
+                            true ->
+                                ok;
+                            false ->
+                                %% in is_source_alive, the cluster-call RPC logs errors
+                                %% so we do not log anything here
+                                {error, {resource_down, ResId}}
+                        end;
+                    {error, Reason} ->
+                        {error, Reason}
+                end
             catch E:R:S ->
                 ?LOG(warning, "test resource failed, ~0p:~0p ~0p", [E, R, S]),
                 {error, R}
