@@ -46,7 +46,7 @@ defmodule EMQXUmbrella.MixProject do
     # we need several overrides here because dependencies specify
     # other exact versions, and not ranges.
     [
-      {:lc, github: "qzhuyan/lc", tag: "0.1.2"},
+      {:lc, github: "emqx/lc", tag: "0.2.1"},
       {:redbug, "2.0.7"},
       {:typerefl, github: "ieQu1/typerefl", tag: "0.8.6", override: true},
       {:ehttpc, github: "emqx/ehttpc", tag: "0.1.12"},
@@ -61,7 +61,7 @@ defmodule EMQXUmbrella.MixProject do
       {:ecpool, github: "emqx/ecpool", tag: "0.5.2"},
       {:replayq, "0.3.3", override: true},
       {:pbkdf2, github: "emqx/erlang-pbkdf2", tag: "2.0.4", override: true},
-      {:emqtt, github: "emqx/emqtt", tag: "1.4.8", override: true},
+      {:emqtt, github: "emqx/emqtt", tag: "1.5.0", override: true},
       {:rulesql, github: "emqx/rulesql", tag: "0.1.4"},
       {:observer_cli, "1.7.1"},
       {:system_monitor, github: "ieQu1/system_monitor", tag: "3.0.2"},
