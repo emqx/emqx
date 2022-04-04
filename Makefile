@@ -99,7 +99,7 @@ $(PROFILES:%=clean-%):
 .PHONY: clean-all
 clean-all:
 	@rm -rf _build
-	@rm rebar.lock
+	@rm -f rebar.lock
 
 .PHONY: deps-all
 deps-all: $(REBAR) $(PROFILES:%=deps-%)
