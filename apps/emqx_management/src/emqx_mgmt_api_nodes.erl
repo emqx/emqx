@@ -237,9 +237,8 @@ log_path() ->
     Configs = logger:get_handler_config(),
     get_log_path(Configs).
 
-get_log_path([#{id := file} = LoggerConfig | _LoggerConfigs]) ->
-    Config = maps:get(config, LoggerConfig),
-    maps:get(file, Config);
+get_log_path([#{config := #{file := Path}} | _LoggerConfigs]) ->
+    Path;
 get_log_path([_LoggerConfig | LoggerConfigs]) ->
     get_log_path(LoggerConfigs);
 get_log_path([]) ->

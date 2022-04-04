@@ -47,7 +47,9 @@ end_per_suite(_Config) ->
             <<"sources">> => []
         }
     ),
-    emqx_common_test_helpers:stop_apps([emqx_conf, emqx_authn, emqx_authz, emqx_modules]),
+    emqx_common_test_helpers:stop_apps([
+        emqx_dashboard, emqx_conf, emqx_authn, emqx_authz, emqx_modules
+    ]),
     ok.
 
 init_per_testcase(t_status_fail, Config) ->

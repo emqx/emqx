@@ -29,7 +29,7 @@
     topic_metrics/0,
     add_topic_metrics/1,
     remove_topic_metrics/1,
-    telemetry_status/0,
+    is_telemetry_enabled/0,
     set_telemetry_status/1
 ]).
 
@@ -82,8 +82,8 @@ remove_topic_metrics(Topic) ->
         {error, Reason} -> {error, Reason}
     end.
 
--spec telemetry_status() -> boolean().
-telemetry_status() ->
+-spec is_telemetry_enabled() -> boolean().
+is_telemetry_enabled() ->
     emqx:get_config([telemetry, enable], true).
 
 -spec set_telemetry_status(boolean()) -> ok | {error, term()}.
