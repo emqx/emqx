@@ -16,12 +16,13 @@
 
 -module(emqx_plugin_libs_ssl).
 
--export([save_files_return_opts/2,
-         save_files_return_opts/3,
-         save_file/2
-        ]).
+-export([
+    save_files_return_opts/2,
+    save_files_return_opts/3,
+    save_file/2
+]).
 
--type file_input_key() :: atom() | binary(). %% <<"file">> | <<"filename">>
+-type file_input_key() :: atom() | binary().
 -type file_input() :: #{file_input_key() => binary()}.
 
 %% options are below paris
@@ -39,6 +40,8 @@
 -type opt_value() :: term().
 -type opts() :: [{opt_key(), opt_value()}].
 
+-include_lib("emqx/include/logger.hrl").
+
 %% @doc Parse ssl options input.
 %% If the input contains file content, save the files in the given dir.
 %% Returns ssl options for Erlang's ssl application.
@@ -48,8 +51,11 @@
 %% In case it's a map, the file is saved in EMQX's `data_dir'
 %% (unless `SubDir' is an absolute path).
 %% NOTE: This function is now deprecated, use emqx_tls_lib:ensure_ssl_files/2 instead.
--spec save_files_return_opts(opts_input(), atom() | string() | binary(),
-                             string() | binary()) -> opts().
+-spec save_files_return_opts(
+    opts_input(),
+    atom() | string() | binary(),
+    string() | binary()
+) -> opts().
 save_files_return_opts(Options, SubDir, ResId) ->
     Dir = filename:join([emqx:data_dir(), SubDir, ResId]),
     save_files_return_opts(Options, Dir).
@@ -70,51 +76,83 @@ save_files_return_opts(Options, Dir) ->
     KeyFile = Get(keyfile),
     CertFile = Get(certfile),
     CAFile = Get(cacertfile),
-    Key = do_save_file(KeyFile, Dir),
-    Cert = do_save_file(CertFile, Dir),
-    CA = do_save_file(CAFile, Dir),
+    Key = maybe_save_file(KeyFile, Dir),
+    Cert = maybe_save_file(CertFile, Dir),
+    CA = maybe_save_file(CAFile, Dir),
     Verify = GetD(verify, verify_none),
-    SNI = Get(server_name_indication),
+    SNI =
+        case Get(<<"server_name_indication">>) of
+            undefined -> undefined;
+            SNI0 -> ensure_str(SNI0)
+        end,
     Versions = emqx_tls_lib:integral_versions(Get(versions)),
     Ciphers = emqx_tls_lib:integral_ciphers(Versions, Get(ciphers)),
-    filter([{keyfile, Key}, {certfile, Cert}, {cacertfile, CA},
-            {verify, Verify}, {server_name_indication, SNI},
-            {versions, Versions}, {ciphers, Ciphers}]).
+    filter([
+        {keyfile, Key},
+        {certfile, Cert},
+        {cacertfile, CA},
+        {verify, Verify},
+        {server_name_indication, SNI},
+        {versions, Versions},
+        {ciphers, Ciphers}
+    ]).
 
 %% @doc Save a key or certificate file in data dir,
 %% and return path of the saved file.
 %% empty string is returned if the input is empty.
 -spec save_file(file_input(), atom() | string() | binary()) -> string().
 save_file(Param, SubDir) ->
-   Dir = filename:join([emqx:data_dir(), SubDir]),
-   do_save_file(Param, Dir).
+    Dir = filename:join([emqx:data_dir(), SubDir]),
+    maybe_save_file(Param, Dir).
 
 filter([]) -> [];
 filter([{_, undefined} | T]) -> filter(T);
 filter([{_, ""} | T]) -> filter(T);
 filter([H | T]) -> [H | filter(T)].
 
-do_save_file(#{filename := FileName, file := Content}, Dir)
-  when FileName =/= undefined andalso Content =/= undefined ->
-    do_save_file(ensure_str(FileName), iolist_to_binary(Content), Dir);
-do_save_file(FilePath, _) when is_list(FilePath) ->
+maybe_save_file(#{filename := FileName, file := Content}, Dir) when
+    FileName =/= undefined andalso Content =/= undefined
+->
+    maybe_save_file(ensure_str(FileName), iolist_to_binary(Content), Dir);
+maybe_save_file(FilePath, _) when is_list(FilePath) ->
     FilePath;
-do_save_file(FilePath, _) when is_binary(FilePath) ->
+maybe_save_file(FilePath, _) when is_binary(FilePath) ->
     ensure_str(FilePath);
-do_save_file(_, _) -> "".
+maybe_save_file(_, _) ->
+    "".
 
-do_save_file("", _, _Dir) -> ""; %% ignore
-do_save_file(_, <<>>, _Dir) -> ""; %% ignore
-do_save_file(FileName, Content, Dir) ->
-     FullFilename = filename:join([Dir, FileName]),
-     ok = filelib:ensure_dir(FullFilename),
-     case file:write_file(FullFilename, Content) of
-          ok ->
-               ensure_str(FullFilename);
-          {error, Reason} ->
-               logger:error("failed_to_save_ssl_file ~ts: ~0p", [FullFilename, Reason]),
-               error({"failed_to_save_ssl_file", FullFilename, Reason})
-     end.
+%% no filename, ignore
+maybe_save_file("", _, _Dir) ->
+    "";
+%% no content, see if file exists
+maybe_save_file(FileName, <<>>, Dir) ->
+    {ok, Cwd} = file:get_cwd(),
+    %% NOTE: when FileName is an absolute path, filename:join has no effect
+    CwdFile = ensure_str(filename:join([Cwd, FileName])),
+    DataDirFile = ensure_str(filename:join([Dir, FileName])),
+    Possibles =
+        case CwdFile =:= DataDirFile of
+            true -> [CwdFile];
+            false -> [CwdFile, DataDirFile]
+        end,
+    case find_exist_file(FileName, Possibles) of
+        false -> erlang:throw({bad_cert_file, Possibles});
+        Found -> Found
+    end;
+maybe_save_file(FileName, Content, Dir) ->
+    FullFilename = filename:join([Dir, FileName]),
+    ok = filelib:ensure_dir(FullFilename),
+    case file:write_file(FullFilename, Content) of
+        ok ->
+            ensure_str(FullFilename);
+        {error, Reason} ->
+            ?SLOG(error, #{
+                msg => "failed_to_save_ssl_file",
+                filename => FullFilename,
+                reason => Reason
+            }),
+            error({"failed_to_save_ssl_file", FullFilename, Reason})
+    end.
 
 ensure_str(L) when is_list(L) -> L;
 ensure_str(B) when is_binary(B) -> unicode:characters_to_list(B, utf8).
@@ -122,8 +160,18 @@ ensure_str(B) when is_binary(B) -> unicode:characters_to_list(B, utf8).
 -spec fuzzy_map_get(atom() | binary(), map(), any()) -> any().
 fuzzy_map_get(Key, Options, Default) ->
     case maps:find(Key, Options) of
-        {ok, Val} -> Val;
+        {ok, Val} ->
+            Val;
         error when is_atom(Key) ->
             fuzzy_map_get(atom_to_binary(Key, utf8), Options, Default);
-        error -> Default
+        error ->
+            Default
+    end.
+
+find_exist_file(_Name, []) ->
+    false;
+find_exist_file(Name, [F | Rest]) ->
+    case filelib:is_regular(F) of
+        true -> F;
+        false -> find_exist_file(Name, Rest)
     end.
