@@ -1196,8 +1196,12 @@ convert_certs(#{ssl := #{enable := true} = SSLOpts} = Config) ->
                 undefined ->
                     Acc;
                 Filename ->
-                    {ok, Bin} = file:read_file(Filename),
-                    Acc#{K => Bin}
+                    case file:read_file(Filename) of
+                        {ok, Bin} ->
+                            Acc#{K => Bin};
+                        {error, _} ->
+                            Acc#{K => Filename}
+                    end
             end
         end,
         SSLOpts,
