@@ -65,16 +65,21 @@ end_per_suite(_Config) ->
     emqx_ct_helpers:stop_apps([emqx_dashboard, emqx_management, emqx_modules]),
     ekka_mnesia:ensure_stopped().
 
-init_per_testcase(_, Config) ->
-    Config.
+init_per_testcase(Case, Config) ->
+    ?MODULE:Case({init, Config}).
 
-end_per_testcase(_, _) ->
+end_per_testcase(Case, Config) ->
     %% revert to default password
-    emqx_dashboard_admin:change_password(<<"admin">>, <<"public">>).
+    emqx_dashboard_admin:change_password(<<"admin">>, <<"public">>),
+    ?MODULE:Case({'end', Config}).
 
+t_overview({init, Config}) -> Config;
+t_overview({'end', _Config}) -> ok;
 t_overview(_) ->
     [?assert(request_dashboard(get, api_path(erlang:atom_to_list(Overview)), auth_header_()))|| Overview <- ?OVERVIEWS].
 
+t_admins_add_delete({init, Config}) -> Config;
+t_admins_add_delete({'end', _Config}) -> ok;
 t_admins_add_delete(_) ->
     ok = emqx_dashboard_admin:add_user(<<"username">>, <<"password">>, <<"tag">>),
     ok = emqx_dashboard_admin:add_user(<<"username1">>, <<"password1">>, <<"tag1">>),
@@ -95,6 +100,8 @@ t_admins_add_delete(_) ->
     ?assertNotEqual(true, request_dashboard(get, api_path("brokers"),
         auth_header_("username", "pwd"))).
 
+t_admins_persist_default_password({init, Config}) -> Config;
+t_admins_persist_default_password({'end', _Config}) -> ok;
 t_admins_persist_default_password(_) ->
     emqx_dashboard_admin:change_password(<<"admin">>, <<"new_password">>),
     ct:sleep(100),
@@ -122,13 +129,20 @@ debug(Label, Slave) ->
       ]).
 
 
-t_default_password_persists_after_leaving_cluster(_) ->
+t_default_password_persists_after_leaving_cluster({init, Config}) ->
+    Slave = start_slave('test1', [emqx_modules, emqx_management, emqx_dashboard]),
+    [{slave, Slave} | Config];
+t_default_password_persists_after_leaving_cluster({'end', Config}) ->
+    Slave = proplists:get_value(slave, Config),
+    {ok, _} = stop_slave(Slave, [emqx_dashboard, emqx_management, emqx_modules]),
+    ok;
+t_default_password_persists_after_leaving_cluster(Config) ->
+    Slave = proplists:get_value(slave, Config),
     [#mqtt_admin{password=InitialPassword}] = emqx_dashboard_admin:lookup_user(<<"admin">>),
 
     ct:print("Cluster status: ~p", [ekka_cluster:info()]),
     ct:print("Table nodes: ~p", [mnesia:table_info(mqtt_admin, active_replicas)]),
 
-    Slave = start_slave('test1', [emqx_modules, emqx_management, emqx_dashboard]),
 
     %% To make sure that subscription is not lost during reconnection
     rpc:call(Slave, ekka, leave, []),
@@ -172,10 +186,10 @@ t_default_password_persists_after_leaving_cluster(_) ->
     ?assertMatch(
        {error, _},
        rpc:call(Slave, emqx_dashboard_admin, check, [<<"admin">>, <<"password">>])),
-
-    {ok, _} = stop_slave(Slave, [emqx_dashboard, emqx_management, emqx_modules]),
     ok.
 
+t_rest_api({init, Config}) -> Config;
+t_rest_api({'end', _Config}) -> ok;
 t_rest_api(_Config) ->
     {ok, Res0} = http_get("users"),
     Users = get_http_data(Res0),
@@ -196,11 +210,15 @@ t_rest_api(_Config) ->
              ]],
     ok.
 
+t_auth_exhaustive_attack({init, Config}) -> Config;
+t_auth_exhaustive_attack({'end', _Config}) -> ok;
 t_auth_exhaustive_attack(_Config) ->
     {ok, Res0} = http_post("auth", #{<<"username">> => <<"invalid_login">>, <<"password">> => <<"newpwd">>}),
     {ok, Res1} = http_post("auth", #{<<"username">> => <<"admin">>, <<"password">> => <<"invalid_password">>}),
     ?assertEqual(Res0, Res1).
 
+t_cli({init, Config}) -> Config;
+t_cli({'end', _Config}) -> ok;
 t_cli(_Config) ->
     [mnesia:dirty_delete({mqtt_admin, Admin}) ||  Admin <- mnesia:dirty_all_keys(mqtt_admin)],
     emqx_dashboard_cli:admins(["add", "username", "password"]),
@@ -312,5 +330,4 @@ setup_node(Node, Apps) ->
     rpc:call(Node, ekka, join, [node()]),
     rpc:call(Node, application, stop, [emqx_dashboard]),
     rpc:call(Node, application, start, [emqx_dashboard]),
-
     ok.
