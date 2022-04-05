@@ -156,13 +156,15 @@ update_pwd(Username, Fun) ->
 
 -spec(lookup_user(binary()) -> [mqtt_admin()]).
 lookup_user(Username) when is_binary(Username) ->
-    case binenv(default_user_username) of
-        Username ->
-            Password = hashed_default_passwd(),
-            [#mqtt_admin{username=Username, password=Password, tags= <<"administrator">>}];
+    IsDefaultUser = binenv(default_user_username) =:= Username,
+    case mnesia:dirty_read(mqtt_admin, Username) of
+        [] when IsDefaultUser ->
+            _ = ensure_default_user_in_db(Username),
+            ok;
         _ ->
-            mnesia:dirty_read(mqtt_admin, Username)
-    end.
+            ok
+    end,
+    mnesia:dirty_read(mqtt_admin, Username).
 
 -spec(all_users() -> [#mqtt_admin{}]).
 all_users() -> ets:tab2list(mqtt_admin).
@@ -194,7 +196,8 @@ check(Username, Password) ->
 init([]) ->
     %% Add default admin user
     {ok, _} = mnesia:subscribe({table, mqtt_admin, simple}),
-    add_default_user_hashed(binenv(default_user_username), hashed_default_passwd()),
+    PasswordHash = ensure_default_user_in_db(binenv(default_user_username)),
+    ok = ensure_default_user_passwd_hashed_in_app_env(PasswordHash),
     {ok, state}.
 
 handle_call(_Req, _From, State) ->
@@ -204,11 +207,11 @@ handle_cast(_Msg, State) ->
     {noreply, State}.
 
 handle_info({mnesia_table_event, {write, Admin, _}}, State) ->
-    #mqtt_admin{username=Username, password=HashedPassword} = Admin,
+    %% the password is chagned from another node, sync it to app env
+    #mqtt_admin{username = Username, password = HashedPassword} = Admin,
     case binenv(default_user_username) of
         Username ->
-            application:set_env(emqx_dashboard, default_user_passwd_hashed, HashedPassword);
-
+            ok = ensure_default_user_passwd_hashed_in_app_env(HashedPassword);
         _ ->
             ignore
     end,
@@ -242,24 +245,43 @@ salt() ->
 binenv(Key) ->
     iolist_to_binary(application:get_env(emqx_dashboard, Key, <<>>)).
 
-add_default_user_hashed(Username, HashedPassword) ->
-    case mnesia:dirty_read(mqtt_admin, Username) of
-        [] ->
-            Admin = #mqtt_admin{username=Username, password=HashedPassword, tags= <<"administrator">>},
-            return(mnesia:transaction(fun add_user_/1, [Admin]));
-        _  -> ok
-    end.
+ensure_default_user_in_db(Username) ->
+    F =
+        fun() ->
+                case mnesia:wread(mqtt_admin, Username) of
+                    [] ->
+                        PasswordHash = initial_default_user_passwd_hashed(),
+                        Admin = #mqtt_admin{username = Username,
+                                            password = PasswordHash,
+                                            tags = <<"administrator">>},
+                        ok = mnesia:write(Admin),
+                        PasswordHash;
+                    [#mqtt_admin{password = PasswordHash}] ->
+                        PasswordHash
+                end
+        end,
+    {atomic, PwdHash} = mnesia:transaction(F),
+    PwdHash.
 
-hashed_default_passwd() ->
-    case binenv(default_user_passwd_hashed) of
-        Empty0 when ?EMPTY_KEY(Empty0) ->
+initial_default_user_passwd_hashed() ->
+    case get_default_user_passwd_hashed_in_app_env() of
+        Empty when ?EMPTY_KEY(Empty) ->
+            %% in case it's not set yet
             case binenv(default_user_passwd) of
                 Empty when ?EMPTY_KEY(Empty) ->
-                    undefined;
-                Password ->
-                    Hashed = hash(Password),
-                    application:set_env(emqx_dashboard, default_user_passwd_hashed, Hashed),
-                    Hashed
+                    error({missing_configuration, default_user_passwd});
+                Pwd ->
+                    hash(Pwd)
             end;
-        HashedPassword -> HashedPassword
+        PwdHash ->
+            PwdHash
     end.
+
+%% use this app env for a copy of the value in mnesia database
+%% so that after the node leaves a cluster, db gets purged,
+%% we can still find the changed password back from this app env
+ensure_default_user_passwd_hashed_in_app_env(Hashed) ->
+    ok = application:set_env(emqx_dashboard, default_user_passwd_hashed, Hashed).
+
+get_default_user_passwd_hashed_in_app_env() ->
+    application:get_env(emqx_dashboard, default_user_passwd_hashed, <<>>).
