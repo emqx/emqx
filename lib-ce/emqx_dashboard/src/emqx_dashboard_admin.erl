@@ -21,6 +21,7 @@
 -behaviour(gen_server).
 
 -include("emqx_dashboard.hrl").
+-include_lib("emqx/include/logger.hrl").
 
 -boot_mnesia({mnesia, [boot]}).
 -copy_mnesia({mnesia, [copy]}).
@@ -180,14 +181,17 @@ check(_, undefined) ->
     {error, <<"Password undefined">>};
 check(Username, Password) ->
     case lookup_user(Username) of
-        [#mqtt_admin{password = <<Salt:4/binary, Hash/binary>>}] ->
-            case Hash =:= md5_hash(Salt, Password) of
+        [#mqtt_admin{password = PwdHash}] ->
+            case is_valid_pwd(PwdHash, Password) of
                 true  -> ok;
                 false -> {error, <<"Username/Password error">>}
             end;
         [] ->
             {error, <<"Username/Password error">>}
     end.
+
+is_valid_pwd(<<Salt:4/binary, Hash/binary>>, Password) ->
+    Hash =:= md5_hash(Salt, Password).
 
 %%--------------------------------------------------------------------
 %% gen_server callbacks
@@ -198,6 +202,7 @@ init([]) ->
     {ok, _} = mnesia:subscribe({table, mqtt_admin, simple}),
     PasswordHash = ensure_default_user_in_db(binenv(default_user_username)),
     ok = ensure_default_user_passwd_hashed_in_app_env(PasswordHash),
+    ok = maybe_warn_default_pwd(),
     {ok, state}.
 
 handle_call(_Req, _From, State) ->
@@ -248,7 +253,7 @@ binenv(Key) ->
 ensure_default_user_in_db(Username) ->
     F =
         fun() ->
-                case mnesia:wread(mqtt_admin, Username) of
+                case mnesia:wread({mqtt_admin, Username}) of
                     [] ->
                         PasswordHash = initial_default_user_passwd_hashed(),
                         Admin = #mqtt_admin{username = Username,
@@ -285,3 +290,17 @@ ensure_default_user_passwd_hashed_in_app_env(Hashed) ->
 
 get_default_user_passwd_hashed_in_app_env() ->
     application:get_env(emqx_dashboard, default_user_passwd_hashed, <<>>).
+
+maybe_warn_default_pwd() ->
+    case is_valid_pwd(initial_default_user_passwd_hashed(), <<"public">>) of
+        true ->
+            ?LOG(warning,
+                 "[Dashboard] Using default password for dashboard 'admin' user. "
+                 "Please use the './bin/emqx_ctl admins' CLI to change it. "
+                 "NOTE: the default password in config file is only "
+                 "used to initialise the database record, changing the config "
+                 "file after database is initialised has no effect."
+                );
+        false ->
+            ok
+    end.
