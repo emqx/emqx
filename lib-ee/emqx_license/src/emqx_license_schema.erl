@@ -12,7 +12,7 @@
 
 -behaviour(hocon_schema).
 
--export([roots/0, fields/1, validations/0]).
+-export([roots/0, fields/1, validations/0, desc/1]).
 
 roots() ->
     [
@@ -40,7 +40,7 @@ fields(key_license) ->
             type => string(),
             %% so it's not logged
             sensitive => true,
-            desc => "Configure the license as a string"
+            desc => "License string"
         }}
         | common_fields()
     ];
@@ -52,6 +52,13 @@ fields(file_license) ->
         }}
         | common_fields()
     ].
+
+desc(key_license) ->
+    "License provisioned as a string.";
+desc(file_license) ->
+    "License provisioned as a file.";
+desc(_) ->
+    undefined.
 
 common_fields() ->
     [
