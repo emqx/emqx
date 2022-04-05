@@ -830,7 +830,7 @@ tr_config_files(Conf) ->
         [_ | _] = Files ->
             Files;
         _ ->
-            case os:getenv("RUNNER_ETC_DIR") of
+            case os:getenv("EMQX_ETC_DIR") of
                 false ->
                     [filename:join([code:lib_dir(emqx), "etc", "emqx.conf"])];
                 Dir ->

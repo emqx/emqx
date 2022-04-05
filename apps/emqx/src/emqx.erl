@@ -275,8 +275,9 @@ etc_file(SubPath) ->
     filename:join([etc_dir(), SubPath]).
 
 etc_dir() ->
-    %% EMQX_ETC_DIR is inherited from RUNNER_ETC_DIR which is set at package build time.
-    %% when it's not set, it's most likely when running test cases.
+    %% EMQX_ETC_DIR set by emqx boot script,
+    %% if it's not set, then it must be test environment
+    %% which should uses default path
     Env = os:getenv("EMQX_ETC_DIR"),
     case Env =:= "" orelse Env =:= false of
         true -> "etc";

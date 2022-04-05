@@ -15,16 +15,9 @@ ROOT_DIR="$(cd "$(dirname "$(readlink "$0" || echo "$0")")"/..; pwd -P)"
 
 # defined in emqx_vars
 export RUNNER_ROOT_DIR
-export RUNNER_ETC_DIR
+export EMQX_ETC_DIR
 export REL_VSN
 export SCHEMA_MOD
-
-# RUNNER_ETC_DIR is only used at boot time
-# EMQX_ETC_DIR is by default RUNNER_ETC_DIR but the absolute path
-# it is used at runtime by the emqx program
-# so that it won't change even if file:set_cwd is evaluated by EMQX later
-EMQX_ETC_DIR="${EMQX_ETC_DIR:-$(cd "$(readlink "$RUNNER_ETC_DIR")"; pwd -P)}"
-export EMQX_ETC_DIR
 
 RUNNER_SCRIPT="$RUNNER_BIN_DIR/$REL_NAME"
 CODE_LOADING_MODE="${CODE_LOADING_MODE:-embedded}"
@@ -362,7 +355,7 @@ call_hocon() {
 
 get_config_value() {
     path_to_value="$1"
-    call_hocon -s "$SCHEMA_MOD" -c "$RUNNER_ETC_DIR"/emqx.conf get "$path_to_value" | tr -d \"
+    call_hocon -s "$SCHEMA_MOD" -c "$EMQX_ETC_DIR"/emqx.conf get "$path_to_value" | tr -d \"
 }
 
 check_license() {
@@ -425,7 +418,7 @@ generate_config() {
     ## NOTE: the generate command merges environment variables to the base config (emqx.conf),
     ## but does not include the cluster-override.conf and local-override.conf
     ## meaning, certain overrides will not be mapped to app.<time>.config file
-    call_hocon -v -t "$NOW_TIME" -s "$SCHEMA_MOD" -c "$RUNNER_ETC_DIR"/emqx.conf -d "$DATA_DIR"/configs generate
+    call_hocon -v -t "$NOW_TIME" -s "$SCHEMA_MOD" -c "$EMQX_ETC_DIR"/emqx.conf -d "$DATA_DIR"/configs generate
 
     ## filenames are per-hocon convention
     local CONF_FILE="$CONFIGS_DIR/app.$NOW_TIME.config"
@@ -440,7 +433,7 @@ generate_config() {
 
     ## Merge hocon generated *.args into the vm.args
     TMP_ARG_FILE="$CONFIGS_DIR/vm.args.tmp"
-    cp "$RUNNER_ETC_DIR/vm.args" "$TMP_ARG_FILE"
+    cp "$EMQX_ETC_DIR/vm.args" "$TMP_ARG_FILE"
     echo "" >> "$TMP_ARG_FILE"
     echo "-pa ${REL_DIR}/consolidated" >> "$TMP_ARG_FILE"
     ## read lines from generated vm.<time>.args file
@@ -656,7 +649,7 @@ if [ -z "$COOKIE" ]; then
 fi
 
 if [ -z "$COOKIE" ]; then
-    die "Please set node.cookie in $RUNNER_ETC_DIR/emqx.conf or override from environment variable EMQX_NODE__COOKIE"
+    die "Please set node.cookie in $EMQX_ETC_DIR/emqx.conf or override from environment variable EMQX_NODE__COOKIE"
 fi
 
 cd "$ROOTDIR"
