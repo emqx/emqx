@@ -34,6 +34,10 @@
     file_content_as_options/1
 ]).
 
+-export([
+    to_client_opts/1
+]).
+
 -include("logger.hrl").
 
 -define(IS_TRUE(Val), ((Val =:= true) or (Val =:= <<"true">>))).
@@ -389,7 +393,7 @@ pem_file_name(Dir, Key, Pem) ->
     <<CK:8/binary, _/binary>> = crypto:hash(md5, Pem),
     Suffix = hex_str(CK),
     FileName = binary:replace(Key, <<"file">>, <<"-", Suffix/binary>>),
-    filename:join([emqx:certs_dir(), Dir, FileName]).
+    filename:join([emqx:mutable_certs_dir(), Dir, FileName]).
 
 hex_str(Bin) ->
     iolist_to_binary([io_lib:format("~2.16.0b", [X]) || <<X:8>> <= Bin]).
@@ -425,6 +429,48 @@ file_content_as_options([Key | Keys], SSL) ->
                     }}
             end
     end.
+
+%% @doc Convert hocon-checked ssl client options (map()) to
+%% proplist accepted by ssl library.
+to_client_opts(Opts) ->
+    GetD = fun(Key, Default) -> fuzzy_map_get(Key, Opts, Default) end,
+    Get = fun(Key) -> GetD(Key, undefined) end,
+    KeyFile = ensure_str(Get(keyfile)),
+    CertFile = ensure_str(Get(certfile)),
+    CAFile = ensure_str(Get(cacertfile)),
+    Verify = GetD(verify, verify_none),
+    SNI = ensure_str(Get(server_name_indication)),
+    Versions = integral_versions(Get(versions)),
+    Ciphers = integral_ciphers(Versions, Get(ciphers)),
+    filter([
+        {keyfile, KeyFile},
+        {certfile, CertFile},
+        {cacertfile, CAFile},
+        {verify, Verify},
+        {server_name_indication, SNI},
+        {versions, Versions},
+        {ciphers, Ciphers}
+    ]).
+
+filter([]) -> [];
+filter([{_, undefined} | T]) -> filter(T);
+filter([{_, ""} | T]) -> filter(T);
+filter([H | T]) -> [H | filter(T)].
+
+-spec fuzzy_map_get(atom() | binary(), map(), any()) -> any().
+fuzzy_map_get(Key, Options, Default) ->
+    case maps:find(Key, Options) of
+        {ok, Val} ->
+            Val;
+        error when is_atom(Key) ->
+            fuzzy_map_get(atom_to_binary(Key, utf8), Options, Default);
+        error ->
+            Default
+    end.
+
+ensure_str(undefined) -> undefined;
+ensure_str(L) when is_list(L) -> L;
+ensure_str(B) when is_binary(B) -> unicode:characters_to_list(B, utf8).
 
 -if(?OTP_RELEASE > 22).
 -ifdef(TEST).

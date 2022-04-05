@@ -153,14 +153,14 @@ on_start(InstId, #{base_url := #{scheme := Scheme,
                    pool_size := PoolSize} = Config) ->
     ?SLOG(info, #{msg => "starting_http_connector",
                   connector => InstId, config => Config}),
-    {Transport, TransportOpts} = case Scheme of
-                                     http ->
-                                         {tcp, []};
-                                     https ->
-                                         SSLOpts = emqx_plugin_libs_ssl:save_files_return_opts(
-                                                    maps:get(ssl, Config), "connectors", InstId),
-                                         {tls, SSLOpts}
-                                 end,
+    {Transport, TransportOpts} =
+        case Scheme of
+            http ->
+                {tcp, []};
+            https ->
+                SSLOpts = emqx_tls_lib:to_client_opts(maps:get(ssl, Config)),
+                {tls, SSLOpts}
+        end,
     NTransportOpts = emqx_misc:ipv6_probe(TransportOpts),
     PoolOpts = [ {host, Host}
                , {port, Port}

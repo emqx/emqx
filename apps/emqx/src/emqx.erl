@@ -69,7 +69,9 @@
     remove_config/2,
     reset_config/2,
     data_dir/0,
-    certs_dir/0
+    etc_file/1,
+    cert_file/1,
+    mutable_certs_dir/0
 ]).
 
 -define(APP, ?MODULE).
@@ -253,8 +255,31 @@ reset_config([RootName | _] = KeyPath, Opts) ->
             Error
     end.
 
+%% @doc Returns the data directory which is set at boot time.
 data_dir() ->
     application:get_env(emqx, data_dir, "data").
 
-certs_dir() ->
+%% @doc Returns the directory for user uploaded certificates.
+mutable_certs_dir() ->
     filename:join([data_dir(), certs]).
+
+%% @doc Returns the absolute path for a PEM certificate file
+%% which is installed or provisioned by sysadmin in $EMQX_ETC_DIR/certs.
+cert_file(SubPath) ->
+    filename:join([etc_dir(), "certs", SubPath]).
+
+%% @doc Returns the absolute path for a file in EMQX's etc dir.
+%% i.e. for rpm and deb installation, it's /etc/emqx/
+%% for other installation, it's <install_root>/etc/
+etc_file(SubPath) ->
+    filename:join([etc_dir(), SubPath]).
+
+etc_dir() ->
+    %% EMQX_ETC_DIR set by emqx boot script,
+    %% if it's not set, then it must be test environment
+    %% which should uses default path
+    Env = os:getenv("EMQX_ETC_DIR"),
+    case Env =:= "" orelse Env =:= false of
+        true -> "etc";
+        false -> Env
+    end.

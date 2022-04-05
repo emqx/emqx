@@ -57,10 +57,7 @@ on_start(InstId, #{servers := Servers0,
     SslOpts = case maps:get(enable, SSL) of
                   true ->
                       [{ssl, true},
-                       {sslopts, emqx_plugin_libs_ssl:save_files_return_opts(
-                                   SSL,
-                                   "connectors",
-                                   InstId)}
+                       {sslopts, emqx_tls_lib:to_client_opts(SSL)}
                       ];
                   false -> [{ssl, false}]
               end,

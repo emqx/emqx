@@ -67,10 +67,11 @@ on_start(InstId, #{server := {Host, Port},
     ?SLOG(info, #{msg => "starting_mysql_connector",
                   connector => InstId, config => Config}),
     SslOpts = case maps:get(enable, SSL) of
-        true ->
-            [{ssl, emqx_plugin_libs_ssl:save_files_return_opts(SSL, "connectors", InstId)}];
-        false -> []
-    end,
+                  true ->
+                      [{ssl, emqx_tls_lib:to_client_opts(SSL)}];
+                  false ->
+                      []
+              end,
     Options = [{host, Host},
                {port, Port},
                {user, User},

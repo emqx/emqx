@@ -833,9 +833,9 @@ examples_listener() ->
                                     <<"tlsv1.1">>,
                                     <<"tlsv1">>
                                 ],
-                                cacertfile => <<"etc/certs/cacert.pem">>,
-                                certfile => <<"etc/certs/cert.pem">>,
-                                keyfile => <<"etc/certs/key.pem">>,
+                                cacertfile => emqx:cert_file(<<"cacert.pem">>),
+                                certfile => emqx:cert_file(<<"cert.pem">>),
+                                keyfile => emqx:cert_file(<<"key.pem">>),
                                 verify => <<"verify_none">>,
                                 fail_if_no_peer_cert => false
                             },
@@ -879,9 +879,9 @@ examples_listener() ->
                         dtls =>
                             #{
                                 versions => [<<"dtlsv1.2">>, <<"dtlsv1">>],
-                                cacertfile => <<"etc/certs/cacert.pem">>,
-                                certfile => <<"etc/certs/cert.pem">>,
-                                keyfile => <<"etc/certs/key.pem">>,
+                                cacertfile => emqx:cert_file(<<"cacert.pem">>),
+                                certfile => emqx:cert_file(<<"cert.pem">>),
+                                keyfile => emqx:cert_file(<<"key.pem">>),
                                 verify => <<"verify_none">>,
                                 fail_if_no_peer_cert => false
                             },
@@ -906,9 +906,9 @@ examples_listener() ->
                         dtls =>
                             #{
                                 versions => [<<"dtlsv1.2">>, <<"dtlsv1">>],
-                                cacertfile => <<"etc/certs/cacert.pem">>,
-                                certfile => <<"etc/certs/cert.pem">>,
-                                keyfile => <<"etc/certs/key.pem">>,
+                                cacertfile => emqx:cert_file(<<"cacert.pem">>),
+                                certfile => emqx:cert_file(<<"cert.pem">>),
+                                keyfile => emqx:cert_file(<<"key.pem">>),
                                 verify => <<"verify_none">>,
                                 user_lookup_fun => <<"emqx_tls_psk:lookup">>,
                                 ciphers =>

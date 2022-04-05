@@ -275,7 +275,7 @@ overlay_vars_pkg(bin) ->
     , {platform_plugins_dir, "plugins"}
     , {runner_root_dir, "$(cd $(dirname $(readlink $0 || echo $0))/..; pwd -P)"}
     , {runner_bin_dir, "$RUNNER_ROOT_DIR/bin"}
-    , {runner_etc_dir, "$RUNNER_ROOT_DIR/etc"}
+    , {emqx_etc_dir, "$RUNNER_ROOT_DIR/etc"}
     , {runner_lib_dir, "$RUNNER_ROOT_DIR/lib"}
     , {runner_log_dir, "$RUNNER_ROOT_DIR/log"}
     , {runner_user, ""}
@@ -290,7 +290,7 @@ overlay_vars_pkg(pkg) ->
     , {platform_plugins_dir, "/var/lib/emqx/plugins"}
     , {runner_root_dir, "/usr/lib/emqx"}
     , {runner_bin_dir, "/usr/bin"}
-    , {runner_etc_dir, "/etc/emqx"}
+    , {emqx_etc_dir, "/etc/emqx"}
     , {runner_lib_dir, "$RUNNER_ROOT_DIR/lib"}
     , {runner_log_dir, "/var/log/emqx"}
     , {runner_user, "emqx"}
