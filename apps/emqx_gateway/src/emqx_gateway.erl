@@ -123,12 +123,10 @@ get_basic_usage_info() ->
 %% Internal funcs
 %%--------------------------------------------------------------------
 
-get_authn_type(#{authentication := #{mechanism := Mechanism, backend := Backend}}) when
+get_authn_type(#{authentication := Authn = #{mechanism := Mechanism, backend := Backend}}) when
     is_atom(Mechanism), is_atom(Backend)
 ->
-    MechanismBin = atom_to_binary(Mechanism),
-    BackendBin = atom_to_binary(Backend),
-    <<MechanismBin/binary, ":", BackendBin/binary>>;
+    emqx_authentication_config:authenticator_id(Authn);
 get_authn_type(_) ->
     <<"undefined">>.
 
