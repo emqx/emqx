@@ -78,7 +78,8 @@ common_fields() ->
         {mechanism, emqx_authn_schema:mechanism('password_based')},
         {backend, emqx_authn_schema:backend(http)},
         {url, fun url/1},
-        {body, hoconsc:mk(map([{fuzzy, term(), binary()}]), #{desc => "Body of the HTTP request."})},
+        {body,
+            hoconsc:mk(map([{fuzzy, term(), binary()}]), #{desc => "Body of the HTTP request."})},
         {request_timeout, fun request_timeout/1}
     ] ++ emqx_authn_schema:common_fields() ++
         maps:to_list(

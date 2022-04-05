@@ -1294,7 +1294,8 @@ fields("broker_perf") ->
                         "Change this parameter only when there are many wildcard topics.<br/>\n"
                         "NOTE: when changing from/to `global` lock, it requires all\n"
                         "nodes in the cluster to be stopped before the change.\n\n"
-                        " - `key`: mnesia transactional updates with per-key locks. Recommended for a single-node setup.\n"
+                        " - `key`: mnesia transactional updates with per-key locks. "
+                        "Recommended for a single-node setup.\n"
                         " - `tab`: mnesia transactional updates with table lock. Recommended for a cluster setup.\n"
                         " - `global`: updates are protected with a global lock. Recommended for large clusters."
                 }
