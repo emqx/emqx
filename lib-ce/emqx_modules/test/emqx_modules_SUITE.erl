@@ -20,6 +20,7 @@
 -compile(nowarn_export_all).
 
 -include_lib("eunit/include/eunit.hrl").
+-include_lib("common_test/include/ct.hrl").
 
 -define(CONTENT_TYPE, "application/x-www-form-urlencoded").
 
@@ -44,6 +45,32 @@ end_per_suite(_Config) ->
     emqx_ct_http:delete_default_app(),
     emqx_ct_helpers:stop_apps([emqx_modules, emqx_management]).
 
+init_per_testcase(t_ensure_default_loaded_modules_file, Config) ->
+    LoadedModulesFilepath = application:get_env(emqx, modules_loaded_file),
+    ok = application:stop(emqx_modules),
+    TmpFilepath = filename:join(["/", "tmp", "loaded_modules_tmp"]),
+    case file:delete(TmpFilepath) of
+        ok -> ok;
+        {error, enoent} -> ok
+    end,
+    application:set_env(emqx, modules_loaded_file, TmpFilepath),
+    [ {loaded_modules_filepath, LoadedModulesFilepath}
+    , {tmp_filepath, TmpFilepath}
+    | Config];
+init_per_testcase(_TestCase, Config) ->
+    Config.
+
+end_per_testcase(t_ensure_default_loaded_modules_file, Config) ->
+    LoadedModulesFilepath = ?config(loaded_modules_filepath, Config),
+    TmpFilepath = ?config(tmp_filepath, Config),
+    file:delete(TmpFilepath),
+    ok = application:stop(emqx_modules),
+    application:set_env(emqx, modules_loaded_file, LoadedModulesFilepath),
+    ok = application:start(emqx_modules),
+    ok;
+end_per_testcase(_TestCase, _Config) ->
+    ok.
+
 t_load(_) ->
     ?assertEqual(ok, emqx_modules:unload()),
     ?assertEqual(ok, emqx_modules:load()),
@@ -51,6 +78,19 @@ t_load(_) ->
     ?assertEqual({error, not_started}, emqx_modules:unload(emqx_mod_rewrite)),
     ?assertEqual(ignore, emqx_modules:reload(emqx_mod_rewrite)),
     ?assertEqual(ok, emqx_modules:reload(emqx_mod_acl_internal)).
+
+t_ensure_default_loaded_modules_file(_Config) ->
+    ok = application:start(emqx_modules),
+    ?assertEqual(
+       [ {emqx_mod_acl_internal,true}
+       , {emqx_mod_delayed,false}
+       , {emqx_mod_presence,true}
+       , {emqx_mod_rewrite,false}
+       , {emqx_mod_subscription,false}
+       , {emqx_mod_topic_metrics,false}
+       ],
+       lists:sort(emqx_modules:list())),
+    ok.
 
 t_list(_) ->
     ?assertMatch([{_, _} | _ ], emqx_modules:list()).
