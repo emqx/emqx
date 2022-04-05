@@ -161,11 +161,11 @@ lookup_user(Username) when is_binary(Username) ->
     case mnesia:dirty_read(mqtt_admin, Username) of
         [] when IsDefaultUser ->
             _ = ensure_default_user_in_db(Username),
-            ok;
-        _ ->
-            ok
-    end,
-    mnesia:dirty_read(mqtt_admin, Username).
+            %% try to read again
+            mnesia:dirty_read(mqtt_admin, Username);
+        Res ->
+            Res
+    end.
 
 -spec(all_users() -> [#mqtt_admin{}]).
 all_users() -> ets:tab2list(mqtt_admin).
@@ -296,7 +296,7 @@ maybe_warn_default_pwd() ->
         true ->
             ?LOG(warning,
                  "[Dashboard] Using default password for dashboard 'admin' user. "
-                 "Please use the './bin/emqx_ctl admins' CLI to change it. "
+                 "Please use './bin/emqx_ctl admins' command to change it. "
                  "NOTE: the default password in config file is only "
                  "used to initialise the database record, changing the config "
                  "file after database is initialised has no effect."

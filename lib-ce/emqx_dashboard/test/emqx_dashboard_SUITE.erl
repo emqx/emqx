@@ -99,7 +99,7 @@ t_admins_persist_default_password(_) ->
 
     ct:sleep(100),
 
-    %% It get's restarted by the app automatically
+    %% It gets restarted by the app automatically
     [#mqtt_admin{password=PasswordAfterRestart}] = emqx_dashboard_admin:lookup_user(<<"admin">>),
     ?assertEqual(Password, PasswordAfterRestart),
     emqx_dashboard_admin:change_password(<<"admin">>, <<"public">>).
