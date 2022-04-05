@@ -234,7 +234,19 @@ shutdown(Reason) ->
                  ).
 
 reboot() ->
-    lists:foreach(fun application:start/1 , default_started_applications()).
+    case is_application_running(emqx_dashboard) of
+        true ->
+            application:stop(emqx_dashboard), %% dashboard must be started after mnesia
+            lists:foreach(fun application:start/1 , default_started_applications()),
+            application:start(emqx_dashboard);
+
+        false ->
+            lists:foreach(fun application:start/1 , default_started_applications())
+    end.
+
+is_application_running(App) ->
+    StartedApps = proplists:get_value(started, application:info()),
+    proplists:is_defined(App, StartedApps).
 
 -ifdef(EMQX_ENTERPRISE).
 default_started_applications() ->
