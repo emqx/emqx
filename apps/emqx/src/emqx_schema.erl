@@ -2082,8 +2082,8 @@ server_ssl_opts_schema(Defaults, IsRanchListener) ->
                         default => D("dhfile"),
                         required => false,
                         desc =>
-                            "Path to a file containing PEM-encoded Diffie Hellman parameters\n"
-                            "to be used by the server if a cipher suite using Diffie Hellman\n"
+                            "Path to a file containing PEM-encoded Diffie-Hellman parameters\n"
+                            "to be used by the server if a cipher suite using Diffie-Hellman\n"
                             "key exchange is negotiated. If not specified, default parameters\n"
                             "are used.<br>\n"
                             "NOTE: The <code>dhfile</code> option is not supported by TLS 1.3."
