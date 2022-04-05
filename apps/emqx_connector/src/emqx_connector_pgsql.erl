@@ -56,6 +56,7 @@ fields(config) ->
     emqx_connector_schema_lib:ssl_fields().
 
 named_queries(type) -> map();
+named_queries(desc) -> "Key-value list of prepared SQL statements.";
 named_queries(required) -> false;
 named_queries(_) -> undefined.
 

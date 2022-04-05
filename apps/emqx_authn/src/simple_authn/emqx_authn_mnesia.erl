@@ -26,7 +26,8 @@
 -export([
     namespace/0,
     roots/0,
-    fields/1
+    fields/1,
+    desc/1
 ]).
 
 -export([
@@ -108,7 +109,13 @@ fields(?CONF_NS) ->
         {password_hash_algorithm, fun emqx_authn_password_hashing:type_rw/1}
     ] ++ emqx_authn_schema:common_fields().
 
+desc(?CONF_NS) ->
+    "Configuration for authentication using the built-in database.";
+desc(_) ->
+    undefined.
+
 user_id_type(type) -> user_id_type();
+user_id_type(desc) -> "Authenticate by client ID or username.";
 user_id_type(default) -> <<"username">>;
 user_id_type(_) -> undefined.
 

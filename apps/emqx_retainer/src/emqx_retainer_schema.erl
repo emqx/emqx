@@ -2,7 +2,7 @@
 
 -include_lib("typerefl/include/types.hrl").
 
--export([roots/0, fields/1, namespace/0]).
+-export([roots/0, fields/1, desc/1, namespace/0]).
 
 -define(TYPE(Type), hoconsc:mk(Type)).
 
@@ -26,7 +26,8 @@ fields("retainer") ->
     , {stop_publish_clear_msg, sc(boolean(),
                                   "When the retained flag of the `PUBLISH` message is set and Payload is empty, "
                                   "whether to continue to publish the message.<br/>"
-                                  "See: http://docs.oasis-open.org/mqtt/mqtt/v3.1.1/os/mqtt-v3.1.1-os.html#_Toc398718038",
+                                  "See: "
+                                  "http://docs.oasis-open.org/mqtt/mqtt/v3.1.1/os/mqtt-v3.1.1-os.html#_Toc398718038",
                                   false)}
     , {backend, backend_config()}
     ];
@@ -52,12 +53,24 @@ fields(flow_control) ->
                                 0)}
     , {batch_deliver_limiter, sc(emqx_limiter_schema:bucket_name(),
                                  "The rate limiter name for retained messages' delivery.<br/>"
-                                 "Limiter helps to avoid delivering too many messages to the client at once, which may cause the client "
-                                 "to block or crash, or drop messages due to exceeding the size of the message queue.<br/>"
-                                 "The names of the available rate limiters are taken from the existing rate limiters under `limiter.batch`.<br/>"
+                                 "Limiter helps to avoid delivering too many messages to the client at once, "
+                                 "which may cause the client "
+                                 "to block or crash, or drop messages due to exceeding the size of the message"
+                                 " queue.<br/>"
+                                 "The names of the available rate limiters are taken from the existing rate "
+                                 "limiters under `limiter.batch`.<br/>"
                                  "If this field is empty, limiter is not used.",
                                  undefined)}
     ].
+
+desc("retainer") ->
+    "Configuration related to handling `PUBLISH` packets with a `retain` flag set to 1.";
+desc(mnesia_config) ->
+    "Configuration of the internal database storing retained messages.";
+desc(flow_control) ->
+    "Retainer batching and rate limiting.";
+desc(_) ->
+    undefined.
 
 %%--------------------------------------------------------------------
 %% Internal functions
@@ -74,4 +87,7 @@ is_pos_integer(V) ->
     V >= 0.
 
 backend_config() ->
-    #{type => hoconsc:union([hoconsc:ref(?MODULE, mnesia_config)])}.
+    #{
+       type => hoconsc:union([hoconsc:ref(?MODULE, mnesia_config)]),
+       desc => "Settings for the database storing the retained messages."
+     }.

@@ -26,7 +26,8 @@
 -export([
     namespace/0,
     roots/0,
-    fields/1
+    fields/1,
+    desc/1
 ]).
 
 -export([
@@ -55,10 +56,17 @@ fields(?CONF_NS) ->
     ] ++ emqx_authn_schema:common_fields() ++
         emqx_connector_mysql:fields(config).
 
+desc(?CONF_NS) ->
+    "Configuration for authentication using MySQL database.";
+desc(_) ->
+    undefined.
+
 query(type) -> string();
+query(desc) -> "SQL query used to lookup client data.";
 query(_) -> undefined.
 
 query_timeout(type) -> emqx_schema:duration_ms();
+query_timeout(desc) -> "Timeout for the SQL query.";
 query_timeout(default) -> "5s";
 query_timeout(_) -> undefined.
 

@@ -21,7 +21,7 @@
 
 -import(hoconsc, [mk/2, ref/2]).
 
--export([roots/0, fields/1]).
+-export([roots/0, fields/1, desc/1]).
 
 -export([ get_response/0
         , put_request/0
@@ -61,6 +61,14 @@ fields("connectors") ->
           #{ desc => "MQTT bridges"
           })}
     ].
+
+desc(Record) when Record =:= connectors;
+                  Record =:= "connectors" ->
+    "Configuration for EMQX connectors.<br/>"
+    "A connector maintains the data related to the external resources,\n"
+    "such as MySQL database.";
+desc(_) ->
+    undefined.
 
 schema_mod(Type) ->
     list_to_atom(lists:concat(["emqx_connector_", Type])).

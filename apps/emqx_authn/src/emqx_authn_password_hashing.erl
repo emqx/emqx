@@ -47,6 +47,7 @@
 -export([
     roots/0,
     fields/1,
+    desc/1,
     namespace/0
 ]).
 
@@ -69,39 +70,72 @@ fields(bcrypt_rw) ->
     fields(bcrypt) ++
         [{salt_rounds, fun salt_rounds/1}];
 fields(bcrypt) ->
-    [{name, {enum, [bcrypt]}}];
+    [{name, sc(bcrypt, #{desc => "BCRYPT password hashing."})}];
 fields(pbkdf2) ->
     [
-        {name, {enum, [pbkdf2]}},
-        {mac_fun, {enum, [md4, md5, ripemd160, sha, sha224, sha256, sha384, sha512]}},
-        {iterations, integer()},
+        {name, sc(pbkdf2, #{desc => "PBKDF2 password hashing."})},
+        {mac_fun,
+            sc(
+                hoconsc:enum([md4, md5, ripemd160, sha, sha224, sha256, sha384, sha512]),
+                #{desc => "Specifies mac_fun for PBKDF2 hashing algorithm."}
+            )},
+        {iterations,
+            sc(
+                integer(),
+                #{desc => "Iteration count for PBKDF2 hashing algorithm."}
+            )},
         {dk_length, fun dk_length/1}
     ];
 fields(other_algorithms) ->
     [
-        {name, {enum, [plain, md5, sha, sha256, sha512]}},
+        {name,
+            sc(
+                hoconsc:enum([plain, md5, sha, sha256, sha512]),
+                #{
+                    desc =>
+                        "Simple password hashing algorithm."
+                }
+            )},
         {salt_position, fun salt_position/1}
     ].
 
+desc(bcrypt_rw) ->
+    "Settings for bcrypt password hashing algorithm (for DB backends with write capability).";
+desc(bcrypt) ->
+    "Settings for bcrypt password hashing algorithm.";
+desc(pbkdf2) ->
+    "Settings for PBKDF2 password hashing algorithm.";
+desc(other_algorithms) ->
+    "Settings for other password hashing algorithms.";
+desc(_) ->
+    undefined.
+
 salt_position(type) -> {enum, [prefix, suffix]};
-salt_position(desc) -> "Specifies whether the password salt is stored as a prefix or the suffix.";
 salt_position(default) -> prefix;
+salt_position(desc) -> "Salt position for PLAIN, MD5, SHA, SHA256 and SHA512 algorithms.";
 salt_position(_) -> undefined.
 
 salt_rounds(type) -> integer();
-salt_rounds(desc) -> "Cost factor for the bcrypt hash.";
 salt_rounds(default) -> 10;
+salt_rounds(desc) -> "Salt rounds for BCRYPT password generation.";
 salt_rounds(_) -> undefined.
 
-dk_length(type) -> integer();
-dk_length(desc) -> "Length of the derived key.";
-dk_length(required) -> false;
-dk_length(_) -> undefined.
+dk_length(type) ->
+    integer();
+dk_length(required) ->
+    false;
+dk_length(desc) ->
+    "Derived length for PBKDF2 hashing algorithm. If not specified, "
+    "calculated automatically based on `mac_fun`.";
+dk_length(_) ->
+    undefined.
 
 type_rw(type) ->
     hoconsc:union(rw_refs());
 type_rw(default) ->
     #{<<"name">> => sha256, <<"salt_position">> => prefix};
+type_rw(desc) ->
+    "Options for password hash creation and verification.";
 type_rw(_) ->
     undefined.
 
@@ -109,6 +143,8 @@ type_ro(type) ->
     hoconsc:union(ro_refs());
 type_ro(default) ->
     #{<<"name">> => sha256, <<"salt_position">> => prefix};
+type_ro(desc) ->
+    "Options for password hash verification.";
 type_ro(_) ->
     undefined.
 
@@ -199,3 +235,5 @@ ro_refs() ->
         hoconsc:ref(?MODULE, pbkdf2),
         hoconsc:ref(?MODULE, other_algorithms)
     ].
+
+sc(Type, Meta) -> hoconsc:mk(Type, Meta).

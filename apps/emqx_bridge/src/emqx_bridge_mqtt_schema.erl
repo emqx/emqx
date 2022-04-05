@@ -4,7 +4,7 @@
 
 -import(hoconsc, [mk/2]).
 
--export([roots/0, fields/1]).
+-export([roots/0, fields/1, desc/1]).
 
 %%======================================================================================
 %% Hocon Schema Definitions
@@ -40,6 +40,11 @@ fields("get_ingress") ->
     emqx_bridge_schema:metrics_status_fields() ++ fields("post_ingress");
 fields("get_egress") ->
     emqx_bridge_schema:metrics_status_fields() ++ fields("post_egress").
+
+desc(Rec) when Rec =:= "ingress"; Rec =:= "egress" ->
+    "Configuration for MQTT bridge.";
+desc(_) ->
+    undefined.
 
 %%======================================================================================
 type_field() ->

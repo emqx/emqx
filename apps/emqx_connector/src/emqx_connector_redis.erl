@@ -55,22 +55,29 @@ roots() ->
 fields(single) ->
     [ {server, fun server/1}
     , {redis_type, #{type => hoconsc:enum([single]),
-                     default => single}}
+                     default => single,
+                     desc => "Redis type."
+                    }}
     ] ++
     redis_fields() ++
     emqx_connector_schema_lib:ssl_fields();
 fields(cluster) ->
     [ {servers, fun servers/1}
     , {redis_type, #{type => hoconsc:enum([cluster]),
-                     default => cluster}}
+                     default => cluster,
+                     desc => "Redis type."
+                    }}
     ] ++
     redis_fields() ++
     emqx_connector_schema_lib:ssl_fields();
 fields(sentinel) ->
     [ {servers, fun servers/1}
     , {redis_type, #{type => hoconsc:enum([sentinel]),
-                     default => sentinel}}
-    , {sentinel, #{type => string()}}
+                     default => sentinel,
+                     desc => "Redis type."
+                    }}
+    , {sentinel, #{type => string(), desc => "The cluster name in Redis sentinel mode."
+                  }}
     ] ++
     redis_fields() ++
     emqx_connector_schema_lib:ssl_fields().
@@ -203,7 +210,9 @@ redis_fields() ->
     [ {pool_size, fun emqx_connector_schema_lib:pool_size/1}
     , {password, fun emqx_connector_schema_lib:password/1}
     , {database, #{type => integer(),
-                   default => 0}}
+                   default => 0,
+                   desc => "Redis database ID."
+                  }}
     , {auto_reconnect, fun emqx_connector_schema_lib:auto_reconnect/1}
     ].
 

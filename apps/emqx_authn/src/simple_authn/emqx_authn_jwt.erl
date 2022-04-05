@@ -26,7 +26,8 @@
 -export([
     namespace/0,
     roots/0,
-    fields/1
+    fields/1,
+    desc/1
 ]).
 
 -export([
@@ -54,20 +55,20 @@ roots() ->
 
 fields('hmac-based') ->
     [
-        {use_jwks, {enum, [false]}},
-        {algorithm, {enum, ['hmac-based']}},
+        {use_jwks, sc(hoconsc:enum([false]), #{desc => ""})},
+        {algorithm, sc(hoconsc:enum(['hmac-based']), #{desc => "Signing algorithm."})},
         {secret, fun secret/1},
         {secret_base64_encoded, fun secret_base64_encoded/1}
     ] ++ common_fields();
 fields('public-key') ->
     [
-        {use_jwks, {enum, [false]}},
-        {algorithm, {enum, ['public-key']}},
+        {use_jwks, sc(hoconsc:enum([false]), #{desc => ""})},
+        {algorithm, sc(hoconsc:enum(['public-key']), #{desc => "Signing algorithm."})},
         {certificate, fun certificate/1}
     ] ++ common_fields();
 fields('jwks') ->
     [
-        {use_jwks, {enum, [true]}},
+        {use_jwks, sc(hoconsc:enum([true]), #{desc => ""})},
         {endpoint, fun endpoint/1},
         {refresh_interval, fun refresh_interval/1},
         {ssl, #{
@@ -75,12 +76,13 @@ fields('jwks') ->
                 hoconsc:ref(?MODULE, ssl_enable),
                 hoconsc:ref(?MODULE, ssl_disable)
             ]),
+            desc => "Enable/disable SSL.",
             default => #{<<"enable">> => false}
         }}
     ] ++ common_fields();
 fields(ssl_enable) ->
     [
-        {enable, #{type => true}},
+        {enable, #{type => true, desc => ""}},
         {cacertfile, fun cacertfile/1},
         {certfile, fun certfile/1},
         {keyfile, fun keyfile/1},
@@ -88,7 +90,20 @@ fields(ssl_enable) ->
         {server_name_indication, fun server_name_indication/1}
     ];
 fields(ssl_disable) ->
-    [{enable, #{type => false}}].
+    [{enable, #{type => false, desc => ""}}].
+
+desc('hmac-based') ->
+    "Settings for HMAC-based token signing algorithm.";
+desc('public-key') ->
+    "Settings for public key-based token signing algorithm.";
+desc('jwks') ->
+    "Settings for a signing using JSON Web Key Set (JWKs).";
+desc(ssl_disable) ->
+    "";
+desc(ssl_enable) ->
+    "SSL configuration.";
+desc(_) ->
+    undefined.
 
 common_fields() ->
     [
@@ -97,41 +112,53 @@ common_fields() ->
     ] ++ emqx_authn_schema:common_fields().
 
 secret(type) -> binary();
+secret(desc) -> "The key to verify the JWT Token using HMAC algorithm.";
 secret(_) -> undefined.
 
 secret_base64_encoded(type) -> boolean();
+secret_base64_encoded(desc) -> "Enable/disable base64 encoding of the secret.";
 secret_base64_encoded(default) -> false;
 secret_base64_encoded(_) -> undefined.
 
 certificate(type) -> string();
+certificate(desc) -> "The certificate used for signing the token.";
 certificate(_) -> undefined.
 
 endpoint(type) -> string();
+endpoint(desc) -> "JWKs endpoint.";
 endpoint(_) -> undefined.
 
 refresh_interval(type) -> integer();
+refresh_interval(desc) -> "JWKs refresh interval";
 refresh_interval(default) -> 300;
 refresh_interval(validator) -> [fun(I) -> I > 0 end];
 refresh_interval(_) -> undefined.
 
 cacertfile(type) -> string();
+cacertfile(desc) -> "Path to the SSL CA certificate file.";
 cacertfile(_) -> undefined.
 
 certfile(type) -> string();
+certfile(desc) -> "Path to the SSL certificate file.";
 certfile(_) -> undefined.
 
 keyfile(type) -> string();
+keyfile(desc) -> "Path to the SSL secret key file.";
 keyfile(_) -> undefined.
 
 verify(type) -> hoconsc:enum([verify_peer, verify_none]);
+verify(desc) -> "Enable or disable SSL peer verification.";
 verify(default) -> verify_none;
 verify(_) -> undefined.
 
 server_name_indication(type) -> string();
+server_name_indication(desc) -> "SSL SNI (Server Name Indication)";
 server_name_indication(_) -> undefined.
 
 verify_claims(type) ->
     list();
+verify_claims(desc) ->
+    "The list of claims to verify.";
 verify_claims(default) ->
     #{};
 verify_claims(validator) ->
@@ -413,3 +440,5 @@ to_binary(A) when is_atom(A) ->
     atom_to_binary(A);
 to_binary(B) when is_binary(B) ->
     B.
+
+sc(Type, Meta) -> hoconsc:mk(Type, Meta).

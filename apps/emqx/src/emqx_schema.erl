@@ -326,7 +326,10 @@ fields("authorization") ->
         {"deny_action",
             sc(
                 hoconsc:enum([ignore, disconnect]),
-                #{default => ignore}
+                #{
+                    default => ignore,
+                    desc => "The action when the authorization check rejects an operation."
+                }
             )},
         {"cache",
             sc(
@@ -920,7 +923,7 @@ fields("mqtt_quic_listener") ->
         {"certfile",
             sc(
                 string(),
-                #{desc => "Path to the certificate."}
+                #{desc => "Path to the certificate file."}
             )},
         {"keyfile",
             sc(
@@ -949,7 +952,11 @@ fields("ws_opts") ->
         {"mqtt_piggyback",
             sc(
                 hoconsc:enum([single, multiple]),
-                #{default => multiple}
+                #{
+                    default => multiple,
+                    desc =>
+                        "Whether a WebSocket message is allowed to contain multiple MQTT packets."
+                }
             )},
         {"compress",
             sc(
@@ -1280,12 +1287,34 @@ fields("broker_perf") ->
         {"route_lock_type",
             sc(
                 hoconsc:enum([key, tab, global]),
-                #{default => key}
+                #{
+                    default => key,
+                    desc =>
+                        "Performance tuning for subscribing/unsubscribing a wildcard topic.<br/>\n"
+                        "Change this parameter only when there are many wildcard topics.<br/>\n"
+                        "NOTE: when changing from/to `global` lock, it requires all\n"
+                        "nodes in the cluster to be stopped before the change.\n\n"
+                        " - `key`: mnesia transactional updates with per-key locks. "
+                        "Recommended for a single-node setup.\n"
+                        " - `tab`: mnesia transactional updates with table lock. Recommended for a cluster setup.\n"
+                        " - `global`: updates are protected with a global lock. Recommended for large clusters."
+                }
             )},
         {"trie_compaction",
             sc(
                 boolean(),
-                #{default => true}
+                #{
+                    default => true,
+                    desc =>
+                        "Enable trie path compaction.<br/>\n"
+                        "Enabling it significantly improves wildcard topic subscribe\n"
+                        "rate, if wildcard topics have unique prefixes like:\n"
+                        "'sensor/{{id}}/+/', where ID is unique per subscriber.<br/>\n"
+                        "Topic match performance (when publishing) may degrade if messages\n"
+                        "are mostly published to topics with large number of levels.<br/>\n"
+                        "NOTE: This is a cluster-wide configuration.\n"
+                        "It requires all nodes to be stopped before changing it."
+                }
             )}
     ];
 fields("sys_topics") ->
@@ -1293,12 +1322,21 @@ fields("sys_topics") ->
         {"sys_msg_interval",
             sc(
                 hoconsc:union([disabled, duration()]),
-                #{default => "1m"}
+                #{
+                    default => "1m",
+                    desc => "Time interval of publishing `$SYS` messages."
+                }
             )},
         {"sys_heartbeat_interval",
             sc(
                 hoconsc:union([disabled, duration()]),
-                #{default => "30s"}
+                #{
+                    default => "30s",
+                    desc =>
+                        "Time interval for publishing following heartbeat messages:<br/>"
+                        " - `$SYS/brokers/<node>/uptime`\n"
+                        " - `$SYS/brokers/<node>/datetime`"
+                }
             )},
         {"sys_event_messages",
             sc(
@@ -2045,8 +2083,8 @@ server_ssl_opts_schema(Defaults, IsRanchListener) ->
                         default => D("dhfile"),
                         required => false,
                         desc =>
-                            "Path to a file containing PEM-encoded Diffie Hellman parameters\n"
-                            "to be used by the server if a cipher suite using Diffie Hellman\n"
+                            "Path to a file containing PEM-encoded Diffie-Hellman parameters\n"
+                            "to be used by the server if a cipher suite using Diffie-Hellman\n"
                             "key exchange is negotiated. If not specified, default parameters\n"
                             "are used.<br>\n"
                             "NOTE: The <code>dhfile</code> option is not supported by TLS 1.3."

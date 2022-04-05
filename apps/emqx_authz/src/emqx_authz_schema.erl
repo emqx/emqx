@@ -31,7 +31,8 @@
     namespace/0,
     roots/0,
     fields/1,
-    validations/0
+    validations/0,
+    desc/1
 ]).
 
 -export([
@@ -95,10 +96,11 @@ fields("authorization") ->
     ];
 fields(file) ->
     [
-        {type, #{type => file}},
+        {type, #{type => file, desc => "Backend type."}},
         {enable, #{
             type => boolean(),
-            default => true
+            default => true,
+            desc => "Enable this backend."
         }},
         {path, #{
             type => string(),
@@ -116,20 +118,21 @@ fields(file) ->
     ];
 fields(http_get) ->
     [
-        {method, #{type => get, default => post}},
+        {method, #{type => get, default => get, desc => "HTTP method."}},
         {headers, fun headers_no_content_type/1}
     ] ++ http_common_fields();
 fields(http_post) ->
     [
-        {method, #{type => post, default => post}},
+        {method, #{type => post, default => post, desc => "HTTP method."}},
         {headers, fun headers/1}
     ] ++ http_common_fields();
 fields(mnesia) ->
     [
-        {type, #{type => 'built_in_database'}},
+        {type, #{type => 'built_in_database', desc => "Backend type."}},
         {enable, #{
             type => boolean(),
-            default => true
+            default => true,
+            desc => "Enable this backend."
         }}
     ];
 fields(mongo_single) ->
@@ -144,9 +147,10 @@ fields(mysql) ->
 fields(postgresql) ->
     [
         {query, query()},
-        {type, #{type => postgresql}},
+        {type, #{type => postgresql, desc => "Backend type."}},
         {enable, #{
             type => boolean(),
+            desc => "Enable this backend.",
             default => true
         }}
     ] ++ emqx_connector_pgsql:fields(config);
@@ -159,6 +163,35 @@ fields(redis_sentinel) ->
 fields(redis_cluster) ->
     connector_fields(redis, cluster) ++
         [{cmd, query()}].
+
+desc("authorization") ->
+    "Configuration related to the client authorization.";
+desc(file) ->
+    "Authorization using a static file.";
+desc(http_get) ->
+    "Authorization using an external HTTP server (via GET requests).";
+desc(http_post) ->
+    "Authorization using an external HTTP server (via POST requests).";
+desc(mnesia) ->
+    "Authorization using a built-in database (mnesia).";
+desc(mongo_single) ->
+    "Authorization using a single MongoDB instance.";
+desc(mongo_rs) ->
+    "Authorization using a MongoDB replica set.";
+desc(mongo_sharded) ->
+    "Authorization using a sharded MongoDB cluster.";
+desc(mysql) ->
+    "Authorization using a MySQL database.";
+desc(postgresql) ->
+    "Authorization using a PostgreSQL database.";
+desc(redis_single) ->
+    "Authorization using a single Redis instance.";
+desc(redis_sentinel) ->
+    "Authorization using a Redis Sentinel.";
+desc(redis_cluster) ->
+    "Authorization using a Redis cluster.";
+desc(_) ->
+    undefined.
 
 http_common_fields() ->
     [
@@ -301,7 +334,7 @@ union_array(Item) when is_list(Item) ->
 query() ->
     #{
         type => binary(),
-        desc => "",
+        desc => "Database query used to retrieve authorization data.",
         validator => fun(S) ->
             case size(S) > 0 of
                 true -> ok;

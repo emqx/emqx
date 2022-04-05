@@ -27,7 +27,8 @@
 -export([
     namespace/0,
     roots/0,
-    fields/1
+    fields/1,
+    desc/1
 ]).
 
 -export([
@@ -61,7 +62,13 @@ fields(?CONF_NS) ->
         emqx_authn_schema:common_fields() ++
         proplists:delete(named_queries, emqx_connector_pgsql:fields(config)).
 
+desc(?CONF_NS) ->
+    "Configuration for PostgreSQL authentication backend.";
+desc(_) ->
+    undefined.
+
 query(type) -> string();
+query(desc) -> "`SQL` query for looking up authentication data.";
 query(_) -> undefined.
 
 %%------------------------------------------------------------------------------
