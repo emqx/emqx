@@ -19,6 +19,13 @@ export RUNNER_ETC_DIR
 export REL_VSN
 export SCHEMA_MOD
 
+# RUNNER_ETC_DIR is only used at boot time
+# EMQX_ETC_DIR is by default RUNNER_ETC_DIR but the absolute path
+# it is used at runtime by the emqx program
+# so that it won't change even if file:set_cwd is evaluated by EMQX later
+EMQX_ETC_DIR="${EMQX_ETC_DIR:-$(cd "$(readlink "$RUNNER_ETC_DIR")"; pwd -P)}"
+export EMQX_ETC_DIR
+
 RUNNER_SCRIPT="$RUNNER_BIN_DIR/$REL_NAME"
 CODE_LOADING_MODE="${CODE_LOADING_MODE:-embedded}"
 REL_DIR="$RUNNER_ROOT_DIR/releases/$REL_VSN"

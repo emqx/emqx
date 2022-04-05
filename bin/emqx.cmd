@@ -48,6 +48,7 @@
 @set "RUNNER_ROOT_DIR=%rel_root_dir%"
 :: hard code etc dir
 @set "RUNNER_ETC_DIR=%rel_root_dir%\etc"
+@set "EMQX_ETC_DIR=%rel_root_dir%\etc"
 @set "etc_dir=%rel_root_dir%\etc"
 @set "lib_dir=%rel_root_dir%\lib"
 @set "emqx_conf=%etc_dir%\emqx.conf"

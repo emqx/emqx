@@ -389,7 +389,7 @@ pem_file_name(Dir, Key, Pem) ->
     <<CK:8/binary, _/binary>> = crypto:hash(md5, Pem),
     Suffix = hex_str(CK),
     FileName = binary:replace(Key, <<"file">>, <<"-", Suffix/binary>>),
-    filename:join([emqx:certs_dir(), Dir, FileName]).
+    filename:join([emqx:mutable_certs_dir(), Dir, FileName]).
 
 hex_str(Bin) ->
     iolist_to_binary([io_lib:format("~2.16.0b", [X]) || <<X:8>> <= Bin]).

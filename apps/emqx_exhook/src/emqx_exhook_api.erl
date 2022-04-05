@@ -171,6 +171,11 @@ params_server_name_in_path() ->
     ].
 
 server_conf_schema() ->
+    SSL = #{ enable => false
+           , cacertfile => emqx:cert_file(<<"cacert.pem">>)
+           , certfile => emqx:cert_file(<<"cert.pem">>)
+           , keyfile => emqx:cert_file(<<"key.pem">>)
+           },
     schema_with_example(ref(server_config),
                         #{ name => "default"
                          , enable => true
@@ -179,11 +184,7 @@ server_conf_schema() ->
                          , failed_action => deny
                          , auto_reconnect => "60s"
                          , pool_size => 8
-                         , ssl => #{ enable => false
-                                   , cacertfile => <<"{{ platform_etc_dir }}/certs/cacert.pem">>
-                                   , certfile => <<"{{ platform_etc_dir }}/certs/cert.pem">>
-                                   , keyfile => <<"{{ platform_etc_dir }}/certs/key.pem">>
-                                   }
+                         , ssl => SSL
                          }).
 
 %%--------------------------------------------------------------------

@@ -281,6 +281,8 @@ case "$ARTIFACT" in
         make_tgz
         ;;
     pkg)
+        # this only affect build artifacts, such as schema doc
+        export EMQX_ETC_DIR='/etc/emqx/'
         if [ -z "${PKGERDIR:-}" ]; then
             log "Skipped making deb/rpm package for $SYSTEM"
             exit 0

@@ -290,7 +290,7 @@ fields(lwm2m) ->
             sc(
                 binary(),
                 #{
-                    default => "etc/lwm2m_xml",
+                    default => emqx:etc_file("lwm2m_xml"),
                     required => true,
                     desc => "The Directory for LwM2M Resource definition"
                 }
