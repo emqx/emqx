@@ -48,7 +48,9 @@ request(Method, Url, Body) ->
 
 request(Username, Method, Url, Body) ->
     Request = case Body of
-        [] -> {Url, [auth_header(Username)]};
+        [] when Method =:= get orelse Method =:= put orelse
+                Method =:= head orelse Method =:= delete orelse
+                Method =:= trace -> {Url, [auth_header(Username)]};
         _ -> {Url, [auth_header(Username)], "application/json", jsx:encode(Body)}
     end,
     ct:pal("Method: ~p, Request: ~p", [Method, Request]),

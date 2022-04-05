@@ -210,7 +210,7 @@ status(get, _Params) ->
     {200, get_telemetry_status()};
 status(put, #{body := Body}) ->
     Enable = maps:get(<<"enable">>, Body),
-    case Enable =:= emqx_modules_conf:telemetry_status() of
+    case Enable =:= emqx_modules_conf:is_telemetry_enabled() of
         true ->
             Reason =
                 case Enable of
@@ -241,7 +241,7 @@ enable_telemetry(Enable) ->
     emqx_modules_conf:set_telemetry_status(Enable).
 
 get_telemetry_status() ->
-    #{enable => emqx_modules_conf:telemetry_status()}.
+    #{enable => emqx_modules_conf:is_telemetry_enabled()}.
 
 get_telemetry_data() ->
     {ok, TelemetryData} = emqx_telemetry:get_telemetry(),
