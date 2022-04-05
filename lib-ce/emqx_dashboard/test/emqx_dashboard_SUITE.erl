@@ -65,6 +65,13 @@ end_per_suite(_Config) ->
     emqx_ct_helpers:stop_apps([emqx_dashboard, emqx_management, emqx_modules]),
     ekka_mnesia:ensure_stopped().
 
+init_per_testcase(_, Config) ->
+    Config.
+
+end_per_testcase(_, _) ->
+    %% revert to default password
+    emqx_dashboard_admin:change_password(<<"admin">>, <<"public">>).
+
 t_overview(_) ->
     [?assert(request_dashboard(get, api_path(erlang:atom_to_list(Overview)), auth_header_()))|| Overview <- ?OVERVIEWS].
 
@@ -101,8 +108,7 @@ t_admins_persist_default_password(_) ->
 
     %% It gets restarted by the app automatically
     [#mqtt_admin{password=PasswordAfterRestart}] = emqx_dashboard_admin:lookup_user(<<"admin">>),
-    ?assertEqual(Password, PasswordAfterRestart),
-    emqx_dashboard_admin:change_password(<<"admin">>, <<"public">>).
+    ?assertEqual(Password, PasswordAfterRestart).
 
 debug(Label, Slave) ->
     ct:print(
@@ -168,8 +174,7 @@ t_default_password_persists_after_leaving_cluster(_) ->
        rpc:call(Slave, emqx_dashboard_admin, check, [<<"admin">>, <<"password">>])),
 
     {ok, _} = stop_slave(Slave, [emqx_dashboard, emqx_management, emqx_modules]),
-
-    emqx_dashboard_admin:change_password(<<"admin">>, <<"public">>).
+    ok.
 
 t_rest_api(_Config) ->
     {ok, Res0} = http_get("users"),
