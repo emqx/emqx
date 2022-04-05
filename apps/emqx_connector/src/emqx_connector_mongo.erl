@@ -120,11 +120,7 @@ on_start(InstId, Config = #{mongo_type := Type,
     SslOpts = case maps:get(enable, SSL) of
                   true ->
                       [{ssl, true},
-                       {ssl_opts,
-                            emqx_plugin_libs_ssl:save_files_return_opts(
-                              SSL,
-                              "connectors",
-                              InstId)}
+                       {ssl_opts, emqx_tls_lib:to_client_opts(SSL)}
                       ];
                   false -> [{ssl, false}]
               end,
