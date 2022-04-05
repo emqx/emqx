@@ -201,7 +201,7 @@ init([]) ->
     %% Add default admin user
     {ok, _} = mnesia:subscribe({table, mqtt_admin, simple}),
     PasswordHash = ensure_default_user_in_db(binenv(default_user_username)),
-    ok = ensure_default_user_passwd_hashed_in_app_env(PasswordHash),
+    ok = ensure_default_user_passwd_hashed_in_pt(PasswordHash),
     ok = maybe_warn_default_pwd(),
     {ok, state}.
 
@@ -212,11 +212,11 @@ handle_cast(_Msg, State) ->
     {noreply, State}.
 
 handle_info({mnesia_table_event, {write, Admin, _}}, State) ->
-    %% the password is chagned from another node, sync it to app env
+    %% the password is chagned from another node, sync it to persistent_term
     #mqtt_admin{username = Username, password = HashedPassword} = Admin,
     case binenv(default_user_username) of
         Username ->
-            ok = ensure_default_user_passwd_hashed_in_app_env(HashedPassword);
+            ok = ensure_default_user_passwd_hashed_in_pt(HashedPassword);
         _ ->
             ignore
     end,
@@ -269,7 +269,7 @@ ensure_default_user_in_db(Username) ->
     PwdHash.
 
 initial_default_user_passwd_hashed() ->
-    case get_default_user_passwd_hashed_in_app_env() of
+    case get_default_user_passwd_hashed_from_pt() of
         Empty when ?EMPTY_KEY(Empty) ->
             %% in case it's not set yet
             case binenv(default_user_passwd) of
@@ -282,14 +282,14 @@ initial_default_user_passwd_hashed() ->
             PwdHash
     end.
 
-%% use this app env for a copy of the value in mnesia database
+%% use this persistent_term for a copy of the value in mnesia database
 %% so that after the node leaves a cluster, db gets purged,
-%% we can still find the changed password back from this app env
-ensure_default_user_passwd_hashed_in_app_env(Hashed) ->
-    ok = application:set_env(emqx_dashboard, default_user_passwd_hashed, Hashed).
+%% we can still find the changed password back from PT
+ensure_default_user_passwd_hashed_in_pt(Hashed) ->
+    ok = persistent_term:put({?MODULE, default_user_passwd_hashed}, Hashed).
 
-get_default_user_passwd_hashed_in_app_env() ->
-    application:get_env(emqx_dashboard, default_user_passwd_hashed, <<>>).
+get_default_user_passwd_hashed_from_pt() ->
+    persistent_term:get({?MODULE, default_user_passwd_hashed}, <<>>).
 
 maybe_warn_default_pwd() ->
     case is_valid_pwd(initial_default_user_passwd_hashed(), <<"public">>) of
