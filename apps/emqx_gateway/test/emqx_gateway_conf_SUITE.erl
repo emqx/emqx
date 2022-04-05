@@ -42,7 +42,8 @@ init_per_suite(Conf) ->
     Conf.
 
 end_per_suite(_Conf) ->
-    emqx_common_test_helpers:stop_apps([emqx_gateway, emqx_authn, emqx_conf]).
+    emqx_common_test_helpers:stop_apps([emqx_gateway, emqx_authn, emqx_conf]),
+    emqx_config:delete_override_conf_files().
 
 init_per_testcase(_CaseName, Conf) ->
     _ = emqx_gateway_conf:unload_gateway(stomp),
