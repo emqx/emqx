@@ -377,11 +377,15 @@ t_reset_metrics(_Config) ->
       end
       || _ <- lists:seq(1,10)],
     emqx_rule_metrics:reset_metrics(Id),
-    ?assertEqual(#{exception => 0,failed => 0,
-                   matched => 0,no_result => 0,passed => 0,
-                   speed => 0.0,speed_last5m => 0.0,speed_max => 0},
-                 emqx_rule_metrics:get_rule_metrics(Id)),
-    ?assertEqual(#{failed => 0,success => 0,taken => 0},
+    Expected = #{exception => 0, failed => 0, matched => 0, no_result => 0,
+                 passed => 0, speed => 0.0, speed_last5m => 0.0, speed_max => 0},
+    Got = emqx_rule_metrics:get_rule_metrics(Id),
+    %% use == instead of =:=, so that 0 and 0.0 are compared equal
+    case Expected == Got of
+        true -> ok;
+        false -> ?assertEqual(Expected, Got)
+    end,
+    ?assertEqual(#{failed => 0, success => 0, taken => 0},
                    emqx_rule_metrics:get_action_metrics(ResId)),
     emqtt:stop(Client),
     emqx_rule_registry:remove_rule(Id),
