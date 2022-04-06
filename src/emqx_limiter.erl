@@ -159,7 +159,7 @@ update_overall_limiter(Zone, Capacity, Interval) ->
     try
         esockd_limiter:update({Zone, overall_messages_routing}, Capacity, Interval),
         true
-    catch _:_:_ ->
+    catch _:_ ->
         false
     end.
 
@@ -167,6 +167,6 @@ delete_overall_limiter(Zone) ->
     try
         esockd_limiter:delete({Zone, overall_messages_routing}),
         true
-    catch _:_:_ ->
+    catch _:_ ->
         false
     end.

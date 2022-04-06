@@ -49,6 +49,7 @@ groups() ->
       [t_register_provider,
        t_unregister_provider,
        t_create_rule,
+       t_reset_metrics,
        t_create_resource
       ]},
      {actions, [],
@@ -124,7 +125,8 @@ groups() ->
        t_sqlparse_array_range_1,
        t_sqlparse_array_range_2,
        t_sqlparse_true_false,
-       t_sqlparse_new_map
+       t_sqlparse_new_map,
+       t_sqlparse_invalid_json
       ]},
      {rule_metrics, [],
       [t_metrics,
@@ -348,6 +350,39 @@ t_inspect_action(_Config) ->
     {ok, Client} = emqtt:start_link([{username, <<"emqx">>}]),
     {ok, _} = emqtt:connect(Client),
     emqtt:publish(Client, <<"t1">>, <<"{\"id\": 1, \"name\": \"ha\"}">>, 0),
+    emqtt:stop(Client),
+    emqx_rule_registry:remove_rule(Id),
+    emqx_rule_registry:remove_resource(ResId),
+    ok.
+
+t_reset_metrics(_Config) ->
+    ok = emqx_rule_engine:load_providers(),
+    {ok, #resource{id = ResId}} = emqx_rule_engine:create_resource(
+                                    #{type => built_in,
+                                      config => #{},
+                                      description => <<"debug resource">>}),
+    {ok, #rule{id = Id}} = emqx_rule_engine:create_rule(
+                             #{rawsql => "select clientid as c, username as u "
+                               "from \"t1\" ",
+                               actions => [#{name => 'inspect',
+                                             args => #{'$resource' => ResId, a=>1, b=>2}}],
+                               type => built_in,
+                               description => <<"Inspect rule">>
+                              }),
+    {ok, Client} = emqtt:start_link([{username, <<"emqx">>}]),
+    {ok, _} = emqtt:connect(Client),
+    [ begin
+          emqtt:publish(Client, <<"t1">>, <<"{\"id\": 1, \"name\": \"ha\"}">>, 0),
+          timer:sleep(100)
+      end
+      || _ <- lists:seq(1,10)],
+    emqx_rule_metrics:reset_metrics(Id),
+    ?assertEqual(#{exception => 0,failed => 0,
+                   matched => 0,no_result => 0,passed => 0,
+                   speed => 0.0,speed_last5m => 0.0,speed_max => 0},
+                 emqx_rule_metrics:get_rule_metrics(Id)),
+    ?assertEqual(#{failed => 0,success => 0,taken => 0},
+                   emqx_rule_metrics:get_action_metrics(ResId)),
     emqtt:stop(Client),
     emqx_rule_registry:remove_rule(Id),
     emqx_rule_registry:remove_resource(ResId),
@@ -2278,12 +2313,13 @@ t_sqlparse_array_range_1(_Config) ->
     Sql02 = "select "
            "  payload.a[1..4] as c "
            "from \"t/#\" ",
-    ?assertThrow({select_and_transform_error, {error,{range_get,non_list_data},_}},
+    ?assertMatch({error, {select_and_transform_error, {error,{range_get,non_list_data},_}}},
         emqx_rule_sqltester:test(
             #{<<"rawsql">> => Sql02,
                 <<"ctx">> =>
                     #{<<"payload">> => <<"{\"x\":[0,1,2,3,4,5]}">>,
                       <<"topic">> => <<"t/a">>}})),
+
     %% construct a range:
     Sql1 = "select "
            "  [1..4] as c, "
@@ -2409,6 +2445,29 @@ t_sqlparse_nested_get(_Config) ->
               <<"topic">> => <<"t/1">>,
               <<"payload">> => <<"{\"a\": {\"b\": 0}}">>
           }})).
+
+t_sqlparse_invalid_json(_Config) ->
+    Sql02 = "select "
+           "  payload.a[1..4] as c "
+           "from \"t/#\" ",
+    ?assertMatch({error, {select_and_transform_error, {error,{decode_json_failed,_},_}}},
+        emqx_rule_sqltester:test(
+            #{<<"rawsql">> => Sql02,
+                <<"ctx">> =>
+                    #{<<"payload">> => <<"{\"x\":[0,1,2,3,}">>,
+                      <<"topic">> => <<"t/a">>}})),
+
+
+    Sql2 = "foreach payload.sensors "
+        "do item.cmd as msg_type "
+        "from \"t/#\" ",
+    ?assertMatch({error, {select_and_collect_error, {error,{decode_json_failed,_},_}}},
+                 emqx_rule_sqltester:test(
+                   #{<<"rawsql">> => Sql2,
+                     <<"ctx">> =>
+                         #{<<"payload">> =>
+                               <<"{\"sensors\": [{\"cmd\":\"1\"} {\"cmd\":}]}">>,
+                           <<"topic">> => <<"t/a">>}})).
 
 %%------------------------------------------------------------------------------
 %% Internal helpers

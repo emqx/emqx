@@ -18,6 +18,8 @@
 
 -behaviour(supervisor).
 
+-include("emqx_exhook.hrl").
+
 -export([ start_link/0
         , init/1
         ]).
@@ -43,7 +45,7 @@ start_link() ->
 
 init([]) ->
     Mngr = ?CHILD(emqx_exhook_mngr, worker,
-                  [servers(), auto_reconnect(), request_options()]),
+                  [servers(), auto_reconnect(), request_options(), hooks_options()]),
     {ok, {{one_for_one, 10, 100}, [Mngr]}}.
 
 servers() ->
@@ -56,6 +58,10 @@ request_options() ->
     #{timeout => env(request_timeout, 5000),
       request_failed_action => env(request_failed_action, deny),
       pool_size => env(pool_size, erlang:system_info(schedulers))
+     }.
+
+hooks_options() ->
+    #{hook_priority => env(hook_priority, ?DEFAULT_HOOK_PRIORITY)
      }.
 
 env(Key, Def) ->

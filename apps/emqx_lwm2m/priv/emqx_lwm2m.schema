@@ -190,21 +190,41 @@ end}.
       case cuttlefish:conf_get("lwm2m.dtls.ciphers", Conf, undefined) of
           undefined ->
               [];
-          C ->
-              [{ciphers, SplitFun(C)}]
+          Ciphers0 ->
+              [{ciphers, SplitFun(Ciphers0)}]
       end,
   PskCiphers =
       case cuttlefish:conf_get("lwm2m.dtls.psk_ciphers", Conf, undefined) of
           undefined ->
               [];
           C2 ->
-              Psk = lists:map(fun("PSK-AES128-CBC-SHA") -> "RSA-PSK-AES128-CBC-SHA";
-                                 ("PSK-AES256-CBC-SHA") -> "RSA-PSK-AES256-CBC-SHA";
-                                 ("PSK-3DES-EDE-CBC-SHA") -> "RSA-PSK-3DES-EDE-CBC-SHA";
-                                 ("PSK-RC4-SHA") -> "RSA-PSK-RC4-SHA";
-                                 (Suite) -> Suite
-                              end, SplitFun(C2)),
-              [{ciphers, Psk}, {user_lookup_fun, {fun emqx_psk:lookup/3, <<>>}}]
+              AvaiableCiphers = ["RSA-PSK-AES256-GCM-SHA384","RSA-PSK-AES256-CBC-SHA384",
+                                 "RSA-PSK-AES128-GCM-SHA256","RSA-PSK-AES128-CBC-SHA256",
+                                 "RSA-PSK-AES256-CBC-SHA","RSA-PSK-AES128-CBC-SHA"
+                                ],
+              %% Compatible with legacy PSK Cipher strings
+              PskMapping = fun("PSK-AES128-CBC-SHA") -> {true, "RSA-PSK-AES128-CBC-SHA"};
+                              ("PSK-AES256-CBC-SHA") -> {true, "RSA-PSK-AES256-CBC-SHA"};
+                              ("PSK-3DES-EDE-CBC-SHA") -> {true, "PSK-3DES-EDE-CBC-SHA"};
+                              ("PSK-RC4-SHA") -> {true, "PSK-RC4-SHA"};
+                              (C) -> case lists:member(C, AvaiableCiphers) of
+                                         true -> {true, C};
+                                         false -> false
+                                     end
+                           end,
+              MapPSKCiphers = fun(PSKCiphers) ->
+                                lists:filtermap(fun(C0) ->
+                                  case PskMapping(C0) of
+                                      false ->
+                                        cuttlefish:invalid(
+                                          io_lib:format("psk_ciphers: not support ~s", [C0]));
+                                      {true, C} ->
+                                          {true, C}
+                                  end
+                                end, PSKCiphers)
+                              end,
+              [{ciphers, MapPSKCiphers(SplitFun(C2))},
+               {user_lookup_fun, {fun emqx_psk:lookup/3, <<>>}}]
       end,
   Ciphers /= []
   andalso PskCiphers /= []

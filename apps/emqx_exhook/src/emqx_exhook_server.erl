@@ -25,7 +25,7 @@
 -define(PB_CLIENT_MOD, emqx_exhook_v_1_hook_provider_client).
 
 %% Load/Unload
--export([ load/3
+-export([ load/4
         , unload/1
         ]).
 
@@ -83,8 +83,9 @@
 %% Load/Unload APIs
 %%--------------------------------------------------------------------
 
--spec load(atom(), list(), map()) -> {ok, server()} | {error, term()} .
-load(Name0, Opts0, ReqOpts) ->
+-spec load(atom(), emqx_exhook_mngr:server_options(), grpc_client:options(), emqx_exhook_mngr:hooks_options())
+          -> {ok, server()} | {error, term()} .
+load(Name0, Opts0, ReqOpts, HooksOpts) ->
     Name = to_list(Name0),
     {SvrAddr, ClientOpts} = channel_opts(Opts0),
     case emqx_exhook_sup:start_grpc_client_channel(
@@ -99,7 +100,7 @@ load(Name0, Opts0, ReqOpts) ->
                                io_lib:format("exhook.~s.", [Name])),
                     ensure_metrics(Prefix, HookSpecs),
                     %% Ensure hooks
-                    ensure_hooks(HookSpecs),
+                    ensure_hooks(HookSpecs, maps:get(hook_priority, HooksOpts, ?DEFAULT_HOOK_PRIORITY)),
                     {ok, #server{name = Name,
                                  options = ReqOpts,
                                  channel = _ChannPoolPid,
@@ -181,18 +182,16 @@ resovle_hookspec(HookSpecs) when is_list(HookSpecs) ->
         case maps:get(name, HookSpec, undefined) of
             undefined -> Acc;
             Name0 ->
-                Name = try
-                           binary_to_existing_atom(Name0, utf8)
-                       catch T:R -> {T,R}
-                       end,
-                case {lists:member(Name, AvailableHooks),
-                      lists:member(Name, MessageHooks)} of
-                    {false, _} ->
-                        error({unknown_hookpoint, Name});
-                    {true, false} ->
-                        Acc#{Name => #{}};
-                    {true, true} ->
-                        Acc#{Name => #{topics => maps:get(topics, HookSpec, [])}}
+                Name = try binary_to_existing_atom(Name0, utf8) catch T:R -> {T,R} end,
+                case lists:member(Name, AvailableHooks) of
+                    true ->
+                        case lists:member(Name, MessageHooks) of
+                            true ->
+                                Acc#{Name => #{topics => maps:get(topics, HookSpec, [])}};
+                            _ ->
+                                Acc#{Name => #{}}
+                        end;
+                    _ -> error({unknown_hookpoint, Name})
                 end
         end
     end, #{}, HookSpecs).
@@ -202,13 +201,13 @@ ensure_metrics(Prefix, HookSpecs) ->
             || Hookpoint <- maps:keys(HookSpecs)],
     lists:foreach(fun emqx_metrics:ensure/1, Keys).
 
-ensure_hooks(HookSpecs) ->
+ensure_hooks(HookSpecs, Priority) ->
     lists:foreach(fun(Hookpoint) ->
         case lists:keyfind(Hookpoint, 1, ?ENABLED_HOOKS) of
             false ->
                 ?LOG(error, "Unknown name ~s to hook, skip it!", [Hookpoint]);
             {Hookpoint, {M, F, A}} ->
-                emqx_hooks:put(Hookpoint, {M, F, A}),
+                emqx_hooks:put(Hookpoint, {M, F, A}, Priority),
                 ets:update_counter(?CNTER, Hookpoint, {2, 1}, {Hookpoint, 0})
         end
     end, maps:keys(HookSpecs)).

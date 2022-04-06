@@ -10,6 +10,26 @@ File format:
 - One list item per change topic
   Change log ends with a list of github PRs
 
+## v4.3.14
+
+### Enhancements
+
+* In order to fix the execution order of exhook, e.g. before/after other plugins/modules,
+  ExHook now supports user customizing emqx_hook execute priority.
+* add api: PUT /rules/{id}/reset_metrics.
+  This api reset the metrics of the rule engine of a rule, and reset the metrics of the action related to this rule. [#7474]
+* Enhanced rule engine error handling when json parsing error.
+* Add support for `RSA-PSK-AES256-GCM-SHA384`, `RSA-PSK-AES256-CBC-SHA384`,
+ `RSA-PSK-AES128-GCM-SHA256`, `RSA-PSK-AES128-CBC-SHA256` PSK ciphers, and remove `PSK-3DES-EDE-CBC-SHA`,
+ `PSK-RC4-SHA` from the default configuration. [#7427]
+
+### Bug fixes
+
+* Prohibit empty topics in strict mode
+* Make sure ehttpc delete useless pool always succeed.
+* Update mongodb driver to fix potential process leak.
+* Dashboard admin password persists after leaving/joining the cluster
+
 ## v4.3.13
 
 ### Important changes

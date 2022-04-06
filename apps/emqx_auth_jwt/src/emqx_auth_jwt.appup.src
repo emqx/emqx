@@ -1,13 +1,13 @@
 %% -*-: erlang -*-
 {VSN,
  [
-    {"4.3.0", [
+    {<<"4\\.3\\.[0-1]">>, [
       {load_module, emqx_auth_jwt_svr, brutal_purge, soft_purge, []}
     ]},
     {<<".*">>, []}
  ],
  [
-    {"4.3.0", [
+    {<<"4\\.3\\.[0-1]">>, [
       {load_module, emqx_auth_jwt_svr, brutal_purge, soft_purge, []}
     ]},
     {<<".*">>, []}

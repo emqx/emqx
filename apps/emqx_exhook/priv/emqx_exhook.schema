@@ -15,6 +15,11 @@
   {datatype, string}
 ]}.
 
+{mapping, "exhook.hook_priority", "emqx_exhook.hook_priority", [
+  {default, 0},
+  {datatype, integer}
+]}.
+
 {translation, "emqx_exhook.auto_reconnect", fun(Conf) ->
   case cuttlefish:conf_get("exhook.auto_reconnect", Conf) of
       "false" -> false;

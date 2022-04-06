@@ -23,7 +23,7 @@
 -include_lib("emqx/include/logger.hrl").
 
 %% APIs
--export([start_link/3]).
+-export([start_link/4]).
 
 %% Mgmt API
 -export([ enable/2
@@ -61,8 +61,13 @@
           %% Request options
           request_options :: grpc_client:options(),
           %% Timer references
-          trefs :: map()
+          trefs :: map(),
+          %% Hooks execute options
+          hooks_options :: hooks_options()
          }).
+
+-export_type([ server_options/0
+             , hooks_options/0]).
 
 -type servers() :: [{Name :: atom(), server_options()}].
 
@@ -70,6 +75,10 @@
                           | {host, string()}
                           | {port, inet:port_number()}
                           ].
+
+-type hooks_options() :: #{hook_priority => integer()}.
+
+-define(DEFAULT_HOOK_OPTS, #{hook_priority => ?DEFAULT_HOOK_PRIORITY}).
 
 -define(DEFAULT_TIMEOUT, 60000).
 
@@ -79,12 +88,12 @@
 %% APIs
 %%--------------------------------------------------------------------
 
--spec start_link(servers(), false | non_neg_integer(), grpc_client:options())
+-spec start_link(servers(), false | non_neg_integer(), grpc_client:options(), hooks_options())
     ->ignore
      | {ok, pid()}
      | {error, any()}.
-start_link(Servers, AutoReconnect, ReqOpts) ->
-    gen_server:start_link(?MODULE, [Servers, AutoReconnect, ReqOpts], []).
+start_link(Servers, AutoReconnect, ReqOpts, HooksOpts) ->
+    gen_server:start_link(?MODULE, [Servers, AutoReconnect, ReqOpts, HooksOpts], []).
 
 -spec enable(pid(), atom() | string()) -> ok | {error, term()}.
 enable(Pid, Name) ->
@@ -104,7 +113,7 @@ call(Pid, Req) ->
 %% gen_server callbacks
 %%--------------------------------------------------------------------
 
-init([Servers, AutoReconnect, ReqOpts0]) ->
+init([Servers, AutoReconnect, ReqOpts0, HooksOpts]) ->
     process_flag(trap_exit, true),
     %% XXX: Due to the ExHook Module in the enterprise,
     %% this process may start multiple times and they will share this table
@@ -125,32 +134,34 @@ init([Servers, AutoReconnect, ReqOpts0]) ->
 
     %% Load the hook servers
     ReqOpts = maps:without([request_failed_action], ReqOpts0),
-    {Waiting, Running} = load_all_servers(Servers, ReqOpts),
+    {Waiting, Running} = load_all_servers(Servers, ReqOpts, HooksOpts),
     {ok, ensure_reload_timer(
            #state{waiting = Waiting,
                   running = Running,
                   stopped = #{},
                   request_options = ReqOpts,
                   auto_reconnect = AutoReconnect,
-                  trefs = #{}
+                  trefs = #{},
+                  hooks_options = HooksOpts
                  }
           )}.
 
 %% @private
-load_all_servers(Servers, ReqOpts) ->
-    load_all_servers(Servers, ReqOpts, #{}, #{}).
-load_all_servers([], _Request, Waiting, Running) ->
+load_all_servers(Servers, ReqOpts, HooksOpts) ->
+    load_all_servers(Servers, ReqOpts, HooksOpts, #{}, #{}).
+
+load_all_servers([], _Request, _HooksOpts, Waiting, Running) ->
     {Waiting, Running};
-load_all_servers([{Name, Options} | More], ReqOpts, Waiting, Running) ->
+load_all_servers([{Name, Options} | More], ReqOpts, HooksOpts, Waiting, Running) ->
     {NWaiting, NRunning} =
-        case emqx_exhook_server:load(Name, Options, ReqOpts) of
+        case emqx_exhook_server:load(Name, Options, ReqOpts, HooksOpts) of
             {ok, ServerState} ->
                 save(Name, ServerState),
                 {Waiting, Running#{Name => Options}};
             {error, _} ->
                 {Waiting#{Name => Options}, Running}
         end,
-    load_all_servers(More, ReqOpts, NWaiting, NRunning).
+    load_all_servers(More, ReqOpts, HooksOpts, NWaiting, NRunning).
 
 handle_call({load, Name}, _From, State) ->
     {Result, NState} = do_load_server(Name, State),
@@ -204,8 +215,27 @@ terminate(_Reason, State = #state{running = Running}) ->
     _ = unload_exhooks(),
     ok.
 
-code_change(_OldVsn, State, _Extra) ->
-    {ok, State}.
+%% in the emqx_exhook:v4.3.5, we have added one new field in the state last:
+%%  - hooks_options :: map()
+code_change({down, _Vsn}, State, [ToVsn]) ->
+    case re:run(ToVsn, "4\\.3\\.[0-4]") of
+        {match, _} ->
+            NState = list_to_tuple(
+                       lists:droplast(
+                         tuple_to_list(State))),
+            {ok, NState};
+        _ ->
+            {ok, State}
+    end;
+code_change(_Vsn, State, [FromVsn]) ->
+    case re:run(FromVsn, "4\\.3\\.[0-4]") of
+        {match, _} ->
+            NState = list_to_tuple(
+                       tuple_to_list(State) ++ [?DEFAULT_HOOK_OPTS]),
+            {ok, NState};
+        _ ->
+            {ok, State}
+    end.
 
 %%--------------------------------------------------------------------
 %% Internal funcs
@@ -219,7 +249,8 @@ do_load_server(Name, State0 = #state{
                                  waiting = Waiting,
                                  running = Running,
                                  stopped = Stopped,
-                                 request_options = ReqOpts}) ->
+                                 request_options = ReqOpts,
+                                 hooks_options = HooksOpts}) ->
     State = clean_reload_timer(Name, State0),
     case maps:get(Name, Running, undefined) of
         undefined ->
@@ -228,7 +259,7 @@ do_load_server(Name, State0 = #state{
                 undefined ->
                     {{error, not_found}, State};
                 Options ->
-                    case emqx_exhook_server:load(Name, Options, ReqOpts) of
+                    case emqx_exhook_server:load(Name, Options, ReqOpts, HooksOpts) of
                         {ok, ServerState} ->
                             save(Name, ServerState),
                             ?LOG(info, "Load exhook callback server "
