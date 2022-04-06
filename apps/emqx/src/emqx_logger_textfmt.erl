@@ -29,7 +29,7 @@ format(#{msg := {report, Report0}, meta := Meta} = Event, Config) when is_map(Re
     Report4 = enrich_report_topic(Report3, Meta),
     logger_formatter:format(Event#{msg := {report, Report4}}, Config);
 format(#{msg := {string, String}} = Event, Config) ->
-    format(Event#{msg => {"~ts ", String}}, Config);
+    format(Event#{msg => {"~ts ", [String]}}, Config);
 format(#{msg := Msg0, meta := Meta} = Event, Config) ->
     Msg1 = enrich_client_info(Msg0, Meta),
     Msg2 = enrich_mfa(Msg1, Meta),
