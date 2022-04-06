@@ -28,7 +28,7 @@
 -export([api_spec/0, paths/0, schema/1, namespace/0]).
 
 %% API callbacks
--export(['/rule_events'/2, '/rule_test'/2, '/rules'/2, '/rules/:id'/2]).
+-export(['/rule_events'/2, '/rule_test'/2, '/rules'/2, '/rules/:id'/2, '/rules/:id/reset_metrics'/2]).
 
 -define(ERR_NO_RULE(ID), list_to_binary(io_lib:format("Rule ~ts Not Found", [(ID)]))).
 -define(ERR_BADARGS(REASON),
@@ -166,6 +166,21 @@ schema("/rules/:id") ->
         }
     };
 
+schema("/rules/:id/reset_metrics") ->
+    #{
+        operationId => '/rules/:id/reset_metrics',
+        put => #{
+            tags => [<<"rules">>],
+            description => <<"Reset a rule metrics">>,
+            summary => <<"Reset a Rule Metrics">>,
+            parameters => param_path_id(),
+            responses => #{
+                400 => error_schema('BAD_REQUEST', "RPC Call Failed"),
+                200 => <<"Reset Success">>
+            }
+        }
+    };
+
 schema("/rule_test") ->
     #{
         operationId => '/rule_test',
@@ -262,10 +277,17 @@ replace_sql_clrf(#{ <<"sql">> := SQL } = Params) ->
                            id => Id, reason => Reason}),
             {500, #{code => 'INTERNAL_ERROR', message => ?ERR_BADARGS(Reason)}}
     end.
+'/rules/:id/reset_metrics'(put, #{bindings := #{id := RuleId}}) ->
+    case emqx_rule_engine_proto_v1:reset_metrics(RuleId) of
+        {ok, _TxnId, _Result} -> {200, <<"Reset Success">>};
+        Failed -> {400, #{code => 'BAD_REQUEST',
+                          message => err_msg(Failed)}}
+    end.
 
 %%------------------------------------------------------------------------------
 %% Internal functions
 %%------------------------------------------------------------------------------
+
 err_msg(Msg) ->
     list_to_binary(io_lib:format("~0p", [Msg])).
 

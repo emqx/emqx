@@ -1,4 +1,5 @@
 {emqx,1}.
+{emqx_rule_engine,1}.
 {emqx_bridge,1}.
 {emqx_authn,1}.
 {emqx_authz,1}.
