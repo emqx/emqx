@@ -31,7 +31,8 @@
 -export([
     ensure_ssl_files/2,
     delete_ssl_files/3,
-    file_content_as_options/1
+    drop_invalid_certs/1,
+    is_valid_pem_file/1
 ]).
 
 -export([
@@ -40,10 +41,11 @@
 
 -include("logger.hrl").
 
--define(IS_TRUE(Val), ((Val =:= true) or (Val =:= <<"true">>))).
--define(IS_FALSE(Val), ((Val =:= false) or (Val =:= <<"false">>))).
+-define(IS_TRUE(Val), ((Val =:= true) orelse (Val =:= <<"true">>))).
+-define(IS_FALSE(Val), ((Val =:= false) orelse (Val =:= <<"false">>))).
 
 -define(SSL_FILE_OPT_NAMES, [<<"keyfile">>, <<"certfile">>, <<"cacertfile">>]).
+-define(SSL_FILE_OPT_NAMES_A, [keyfile, certfile, cacertfile]).
 
 %% non-empty string
 -define(IS_STRING(L), (is_list(L) andalso L =/= [] andalso is_integer(hd(L)))).
@@ -398,35 +400,37 @@ pem_file_name(Dir, Key, Pem) ->
 hex_str(Bin) ->
     iolist_to_binary([io_lib:format("~2.16.0b", [X]) || <<X:8>> <= Bin]).
 
+%% @doc Returns 'true' when the file is a valid pem, otherwise {error, Reason}.
 is_valid_pem_file(Path) ->
     case file:read_file(Path) of
         {ok, Pem} -> is_pem(Pem) orelse {error, not_pem};
         {error, Reason} -> {error, Reason}
     end.
 
-%% @doc This is to return SSL file content in management APIs.
-file_content_as_options(undefined) ->
-    undefined;
-file_content_as_options(#{<<"enable">> := False} = SSL) when ?IS_FALSE(False) ->
-    {ok, maps:without(?SSL_FILE_OPT_NAMES, SSL)};
-file_content_as_options(#{<<"enable">> := True} = SSL) when ?IS_TRUE(True) ->
-    file_content_as_options(?SSL_FILE_OPT_NAMES, SSL).
+%% @doc Input and output are both HOCON-checked maps, with invalid SSL
+%% file options dropped.
+%% This is to give a feedback to the front-end or management API caller
+%% so they are forced to upload a cert file, or use an existing file path.
+-spec drop_invalid_certs(map()) -> map().
+drop_invalid_certs(#{enable := False} = SSL) when ?IS_FALSE(False) ->
+    maps:without(?SSL_FILE_OPT_NAMES_A, SSL);
+drop_invalid_certs(#{<<"enable">> := False} = SSL) when ?IS_FALSE(False) ->
+    maps:without(?SSL_FILE_OPT_NAMES, SSL);
+drop_invalid_certs(#{enable := True} = SSL) when ?IS_TRUE(True) ->
+    drop_invalid_certs(?SSL_FILE_OPT_NAMES_A, SSL);
+drop_invalid_certs(#{<<"enable">> := True} = SSL) when ?IS_TRUE(True) ->
+    drop_invalid_certs(?SSL_FILE_OPT_NAMES, SSL).
 
-file_content_as_options([], SSL) ->
-    {ok, SSL};
-file_content_as_options([Key | Keys], SSL) ->
+drop_invalid_certs([], SSL) ->
+    SSL;
+drop_invalid_certs([Key | Keys], SSL) ->
     case maps:get(Key, SSL, undefined) of
         undefined ->
-            file_content_as_options(Keys, SSL);
+            drop_invalid_certs(Keys, SSL);
         Path ->
-            case file:read_file(Path) of
-                {ok, Bin} ->
-                    file_content_as_options(Keys, SSL#{Key => Bin});
-                {error, Reason} ->
-                    {error, #{
-                        file_path => Path,
-                        reason => Reason
-                    }}
+            case is_valid_pem_file(Path) of
+                true -> SSL;
+                {error, _} -> maps:without([Key], SSL)
             end
     end.
 
