@@ -349,7 +349,8 @@ get_telemetry(State0 = #state{uuid = UUID}) ->
         {authn_authz, get_authn_authz_info()},
         {gateway, get_gateway_info()},
         {rule_engine, RuleEngineInfo},
-        {bridge, BridgeInfo}
+        {bridge, BridgeInfo},
+        {exhook, get_exhook_info()}
     ]}.
 
 report_telemetry(State0 = #state{url = URL}) ->
@@ -504,6 +505,9 @@ get_rule_engine_and_bridge_info() ->
             data_bridge => BridgeInfo
         }
     }.
+
+get_exhook_info() ->
+    emqx_exhook:get_basic_usage_info().
 
 bin(L) when is_list(L) ->
     list_to_binary(L);
