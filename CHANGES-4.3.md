@@ -19,6 +19,9 @@ File format:
 * add api: PUT /rules/{id}/reset_metrics.
   This api reset the metrics of the rule engine of a rule, and reset the metrics of the action related to this rule. [#7474]
 * Enhanced rule engine error handling when json parsing error.
+* Add support for `RSA-PSK-AES256-GCM-SHA384`, `RSA-PSK-AES256-CBC-SHA384`,
+ `RSA-PSK-AES128-GCM-SHA256`, `RSA-PSK-AES128-CBC-SHA256` PSK ciphers, and remove `PSK-3DES-EDE-CBC-SHA`,
+ `PSK-RC4-SHA` from the default configuration. [#7427]
 
 ### Bug fixes
 

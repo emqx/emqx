@@ -274,13 +274,30 @@ end}.
                           {reuseaddr, cuttlefish:conf_get(Prefix ++ ".reuseaddr", Conf, undefined)}])
               end,
     SplitFun = fun(undefined) -> undefined; (S) -> string:tokens(S, ",") end,
+    AvaiableCiphers = ["RSA-PSK-AES256-GCM-SHA384","RSA-PSK-AES256-CBC-SHA384",
+                       "RSA-PSK-AES128-GCM-SHA256","RSA-PSK-AES128-CBC-SHA256",
+                       "RSA-PSK-AES256-CBC-SHA","RSA-PSK-AES128-CBC-SHA"
+                      ],
+    %% Compatible with legacy PSK Cipher strings
+    PskMapping = fun("PSK-AES128-CBC-SHA") -> {true, "RSA-PSK-AES128-CBC-SHA"};
+                    ("PSK-AES256-CBC-SHA") -> {true, "RSA-PSK-AES256-CBC-SHA"};
+                    ("PSK-3DES-EDE-CBC-SHA") -> {true, "PSK-3DES-EDE-CBC-SHA"};
+                    ("PSK-RC4-SHA") -> {true, "PSK-RC4-SHA"};
+                    (C) -> case lists:member(C, AvaiableCiphers) of
+                               true -> {true, C};
+                               false -> false
+                           end
+                 end,
     MapPSKCiphers = fun(PSKCiphers) ->
-                      lists:map(
-                          fun("PSK-AES128-CBC-SHA") -> {psk, aes_128_cbc, sha};
-                             ("PSK-AES256-CBC-SHA") -> {psk, aes_256_cbc, sha};
-                             ("PSK-3DES-EDE-CBC-SHA") -> {psk, '3des_ede_cbc', sha};
-                             ("PSK-RC4-SHA") -> {psk, rc4_128, sha}
-                          end, PSKCiphers)
+                      lists:filtermap(fun(C0) ->
+                        case PskMapping(C0) of
+                            false ->
+                              cuttlefish:invalid(
+                                io_lib:format("psk_ciphers: not support ~s", [C0]));
+                            {true, C} ->
+                                {true, C}
+                        end
+                      end, PSKCiphers)
                     end,
     SslOpts = fun(Prefix) ->
                   Versions = case SplitFun(cuttlefish:conf_get(Prefix ++ ".tls_versions", Conf, undefined)) of
