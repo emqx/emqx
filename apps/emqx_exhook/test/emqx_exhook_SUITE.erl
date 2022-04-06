@@ -231,6 +231,38 @@ t_misc_test(_) ->
     _ = emqx_exhook_server:format(#{name => <<"test">>, hookspec => #{}}),
     ok.
 
+t_get_basic_usage_info(_Config) ->
+    #{ num_servers := NumServers
+     , servers := Servers
+     } = emqx_exhook:get_basic_usage_info(),
+    ?assertEqual(1, NumServers),
+    ?assertMatch([_], Servers),
+    [#{driver := Driver, hooks := Hooks}] = Servers,
+    ?assertEqual(grpc, Driver),
+    ?assertEqual(
+       [
+        'client.authenticate',
+        'client.authorize',
+        'client.connack',
+        'client.connect',
+        'client.connected',
+        'client.disconnected',
+        'client.subscribe',
+        'client.unsubscribe',
+        'message.acked',
+        'message.delivered',
+        'message.dropped',
+        'message.publish',
+        'session.created',
+        'session.discarded',
+        'session.resumed',
+        'session.subscribed',
+        'session.takenover',
+        'session.terminated',
+        'session.unsubscribed'
+       ],
+       lists:sort(Hooks)).
+
 %%--------------------------------------------------------------------
 %% Utils
 %%--------------------------------------------------------------------
