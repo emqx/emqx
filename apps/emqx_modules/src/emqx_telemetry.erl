@@ -325,6 +325,10 @@ generate_uuid() ->
 get_telemetry(State0 = #state{uuid = UUID}) ->
     OSInfo = os_info(),
     {MQTTRTInsights, State} = mqtt_runtime_insights(State0),
+    #{
+        rule_engine := RuleEngineInfo,
+        bridge := BridgeInfo
+    } = get_rule_engine_and_bridge_info(),
     {State, [
         {emqx_version, bin(emqx_app:get_release())},
         {license, [{edition, <<"community">>}]},
@@ -343,7 +347,9 @@ get_telemetry(State0 = #state{uuid = UUID}) ->
         {mqtt_runtime_insights, MQTTRTInsights},
         {advanced_mqtt_features, advanced_mqtt_features()},
         {authn_authz, get_authn_authz_info()},
-        {gateway, get_gateway_info()}
+        {gateway, get_gateway_info()},
+        {rule_engine, RuleEngineInfo},
+        {bridge, BridgeInfo}
     ]}.
 
 report_telemetry(State0 = #state{url = URL}) ->
@@ -467,6 +473,37 @@ get_gateway_info() ->
         _:_ ->
             #{}
     end.
+
+get_rule_engine_and_bridge_info() ->
+    #{
+        num_rules := NumRules,
+        referenced_bridges := ReferencedBridges
+    } = emqx_rule_engine:get_basic_usage_info(),
+    #{
+        num_bridges := NumDataBridges,
+        count_by_type := BridgeTypeCount
+    } = emqx_bridge:get_basic_usage_info(),
+    BridgeInfo =
+        maps:fold(
+            fun(BridgeType, BridgeCount, Acc) ->
+                ReferencingRules = maps:get(BridgeType, ReferencedBridges, 0),
+                Acc#{
+                    BridgeType => #{
+                        num => BridgeCount,
+                        num_linked_by_rules => ReferencingRules
+                    }
+                }
+            end,
+            #{},
+            BridgeTypeCount
+        ),
+    #{
+        rule_engine => #{num_rules => NumRules},
+        bridge => #{
+            num_data_bridges => NumDataBridges,
+            data_bridge => BridgeInfo
+        }
+    }.
 
 bin(L) when is_list(L) ->
     list_to_binary(L);

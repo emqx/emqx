@@ -115,6 +115,14 @@ init_per_testcase(t_send_after_enable, Config) ->
     ok = meck:expect(emqx_telemetry, official_version, fun(_) -> true end),
     mock_httpc(),
     Config;
+init_per_testcase(t_rule_engine_and_data_bridge_info, Config) ->
+    mock_httpc(),
+    {ok, _} = emqx_cluster_rpc:start_link(node(), emqx_cluster_rpc, 1000),
+    {ok, _} = application:ensure_all_started(emqx_rule_engine),
+    ok = application:start(emqx_bridge),
+    ok = emqx_bridge_SUITE:setup_fake_telemetry_data(),
+    ok = setup_fake_rule_engine_data(),
+    Config;
 init_per_testcase(_Testcase, Config) ->
     TestPID = self(),
     ok = meck:new(httpc, [non_strict, passthrough, no_history, no_link]),
@@ -149,6 +157,18 @@ end_per_testcase(t_enable, _Config) ->
     meck:unload([httpc, emqx_telemetry]);
 end_per_testcase(t_send_after_enable, _Config) ->
     meck:unload([httpc, emqx_telemetry]);
+end_per_testcase(t_rule_engine_and_data_bridge_info, _Config) ->
+    meck:unload(httpc),
+    lists:foreach(
+        fun(App) ->
+            ok = application:stop(App)
+        end,
+        [
+            emqx_bridge,
+            emqx_rule_engine
+        ]
+    ),
+    ok;
 end_per_testcase(_Testcase, _Config) ->
     meck:unload([httpc]),
     ok.
@@ -350,6 +370,27 @@ t_mqtt_runtime_insights(_) ->
     ?assertEqual(30_000, maps:get(num_topics, MQTTRTInsights2)),
     ok.
 
+t_rule_engine_and_data_bridge_info(_Config) ->
+    {ok, TelemetryData} = emqx_telemetry:get_telemetry(),
+    RuleInfo = get_value(rule_engine, TelemetryData),
+    BridgeInfo = get_value(bridge, TelemetryData),
+    ?assertEqual(
+        #{num_rules => 2},
+        RuleInfo
+    ),
+    ?assertEqual(
+        #{
+            data_bridge =>
+                #{
+                    http => #{num => 1, num_linked_by_rules => 3},
+                    mqtt => #{num => 1, num_linked_by_rules => 1}
+                },
+            num_data_bridges => 2
+        },
+        BridgeInfo
+    ),
+    ok.
+
 assert_approximate(Map, Key, Expected) ->
     Value = maps:get(Key, Map),
     ?assertEqual(Expected, float_to_list(Value, [{decimals, 2}])).
@@ -426,6 +467,35 @@ assert_gateway_listener_shape(ListenerData, GatewayType) ->
         ListenerData,
         #{gateway_type => GatewayType}
     ).
+
+setup_fake_rule_engine_data() ->
+    {ok, _} =
+        emqx_rule_engine:create_rule(
+            #{
+                id => <<"rule:t_get_basic_usage_info:1">>,
+                sql => <<"select 1 from topic">>,
+                outputs =>
+                    [
+                        #{function => <<"erlang:hibernate">>, args => #{}},
+                        #{function => console},
+                        <<"http:my_http_bridge">>,
+                        <<"http:my_http_bridge">>
+                    ]
+            }
+        ),
+    {ok, _} =
+        emqx_rule_engine:create_rule(
+            #{
+                id => <<"rule:t_get_basic_usage_info:2">>,
+                sql => <<"select 1 from topic">>,
+                outputs =>
+                    [
+                        <<"mqtt:my_mqtt_bridge">>,
+                        <<"http:my_http_bridge">>
+                    ]
+            }
+        ),
+    ok.
 
 set_special_configs(emqx_authz) ->
     {ok, _} = emqx:update_config([authorization, cache, enable], false),
