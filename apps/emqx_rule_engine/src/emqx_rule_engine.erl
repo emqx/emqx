@@ -196,6 +196,7 @@ maybe_add_metrics_for_rule(Id) ->
 clear_metrics_for_rule(Id) ->
     ok = emqx_plugin_libs_metrics:clear_metrics(rule_metrics, Id).
 
+-spec(reset_metrics_for_rule(rule_id()) -> ok).
 reset_metrics_for_rule(Id) ->
     emqx_plugin_libs_metrics:reset_metrics(rule_metrics, Id).
 
