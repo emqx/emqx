@@ -294,7 +294,7 @@ t_create_dry_run_local(_) ->
 
     ?assertEqual(undefined, whereis(test_resource)).
 
-t_create_dry_run_local_failed(_) -> 
+t_create_dry_run_local_failed(_) ->
     {Res, _} = emqx_resource:create_dry_run_local(?TEST_RESOURCE,
                        #{cteate_error => true}),
     ?assertEqual(error, Res),
@@ -312,6 +312,19 @@ t_test_func(_) ->
     ?assertEqual(ok, erlang:apply(emqx_resource_validator:min(int, 3), [4])),
     ?assertEqual(ok, erlang:apply(emqx_resource_validator:max(array, 10), [[a,b,c,d]])),
     ?assertEqual(ok, erlang:apply(emqx_resource_validator:max(string, 10), ["less10"])).
+
+t_reset_metrics(_) ->
+    {ok, _} = emqx_resource:create(
+                ?ID,
+                ?DEFAULT_RESOURCE_GROUP,
+                ?TEST_RESOURCE,
+                #{name => test_resource}),
+
+    #{pid := Pid} = emqx_resource:query(?ID, get_state),
+    emqx_resource:reset_metrics(?ID),
+    ?assert(is_process_alive(Pid)),
+    ok = emqx_resource:remove(?ID),
+    ?assertNot(is_process_alive(Pid)).
 
 %%------------------------------------------------------------------------------
 %% Helpers
