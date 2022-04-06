@@ -14,8 +14,10 @@ File format:
 
 ### Enhancements
 
+* ExHook add a new field named `meta` to provide emqx `cluster_name`.
+  The grpc server can handle calls separately for different clusters. [#7524]
 * In order to fix the execution order of exhook, e.g. before/after other plugins/modules,
-  ExHook now supports user customizing emqx_hook execute priority.
+  ExHook now supports user customizing emqx_hook execute priority. [#7408]
 * add api: PUT /rules/{id}/reset_metrics.
   This api reset the metrics of the rule engine of a rule, and reset the metrics of the action related to this rule. [#7474]
 * Enhanced rule engine error handling when json parsing error.
