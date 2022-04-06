@@ -32,6 +32,7 @@
         , create_metrics/3
         , create_metrics/4
         , clear_metrics/2
+        , reset_metrics/2
         , has_metrics/2
         ]).
 
@@ -116,6 +117,10 @@ create_metrics(Name, Id, Metrics, RateMetrics) ->
 clear_metrics(Name, Id) ->
     gen_server:call(Name, {delete_metrics, Id}).
 
+-spec(reset_metrics(handler_name(), metric_id()) -> ok).
+reset_metrics(Name, Id) ->
+    gen_server:call(Name, {reset_metrics, Id}).
+
 -spec(has_metrics(handler_name(), metric_id()) -> boolean()).
 has_metrics(Name, Id) ->
     case get_ref(Name, Id) of
@@ -142,6 +147,13 @@ get_counters(Name, Id) ->
     maps:map(fun(_Metric, Index) ->
             get(Name, Id, Index)
         end, get_indexes(Name, Id)).
+
+-spec reset_counters(handler_name(), metric_id()) -> ok.
+reset_counters(Name, Id) ->
+    Indexes = maps:values(get_indexes(Name, Id)),
+    Ref = get_ref(Name, Id),
+    [counters:put(Ref, Idx, 0) || Idx <- Indexes ],
+    ok.
 
 -spec(get_metrics(handler_name(), metric_id()) -> metrics()).
 get_metrics(Name, Id) ->
@@ -197,6 +209,17 @@ handle_call({delete_metrics, Id}, _From,
                         undefined -> undefined;
                         _ -> maps:remove(Id, Rates)
                     end}};
+
+handle_call({reset_metrics, Id}, _From,
+            State = #state{rates = Rates}) ->
+    {reply, reset_counters(get_self_name(), Id),
+     State#state{rates = case Rates of
+                             undefined -> undefined;
+                             _ -> ResetRate =
+                                      maps:map(fun(_Key, _Value) -> #rate{} end,
+                                               maps:get(Id, Rates, #{})),
+                                  maps:put(Id, ResetRate, Rates)
+                         end}};
 
 handle_call(_Request, _From, State) ->
     {reply, ok, State}.
