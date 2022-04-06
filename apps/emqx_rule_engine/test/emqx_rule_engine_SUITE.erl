@@ -88,7 +88,8 @@ groups() ->
        t_sqlparse_array_range_2,
        t_sqlparse_true_false,
        t_sqlparse_undefined_variable,
-       t_sqlparse_new_map
+       t_sqlparse_new_map,
+       t_sqlparse_invalid_json
       ]},
      {events, [],
       [t_events
@@ -1182,7 +1183,7 @@ t_sqlparse_array_range_1(_Config) ->
     Sql02 = "select "
            "  payload.a[1..4] as c "
            "from \"t/#\" ",
-    ?assertThrow({select_and_transform_error, {error,{range_get,non_list_data},_}},
+    ?assertMatch({error, {select_and_transform_error, {error,{range_get,non_list_data},_}}},
         emqx_rule_sqltester:test(
             #{sql => Sql02,
                 context =>
@@ -1341,6 +1342,28 @@ t_sqlparse_nested_get(_Config) ->
               payload => <<"{\"a\": {\"b\": 0}}">>
           }})).
 
+t_sqlparse_invalid_json(_Config) ->
+    Sql02 = "select "
+        "  payload.a[1..4] as c "
+        "from \"t/#\" ",
+    ?assertMatch({error, {select_and_transform_error, {error,{decode_json_failed,_},_}}},
+                 emqx_rule_sqltester:test(
+                   #{sql => Sql02,
+                     context =>
+                         #{payload => <<"{\"x\":[0,1,2,3,}">>,
+                           topic => <<"t/a">>}})),
+
+
+    Sql2 = "foreach payload.sensors "
+        "do item.cmd as msg_type "
+        "from \"t/#\" ",
+    ?assertMatch({error, {select_and_collect_error, {error,{decode_json_failed,_},_}}},
+                 emqx_rule_sqltester:test(
+                   #{sql => Sql2,
+                     context =>
+                         #{payload =>
+                               <<"{\"sensors\": [{\"cmd\":\"1\"} {\"cmd\":}]}">>,
+                           topic => <<"t/a">>}})).
 %%------------------------------------------------------------------------------
 %% Internal helpers
 %%------------------------------------------------------------------------------

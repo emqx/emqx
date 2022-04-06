@@ -64,7 +64,7 @@ test_rule(Sql, Select, Context, EventTopics) ->
         emqx_rule_runtime:apply_rule(Rule, FullContext)
     of
         {ok, Data} -> {ok, flatten(Data)};
-        {error, nomatch} -> {error, nomatch}
+        {error, Reason} -> {error, Reason}
     after
         ok = emqx_rule_engine:clear_metrics_for_rule(RuleId)
     end.
