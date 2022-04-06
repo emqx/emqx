@@ -97,13 +97,13 @@ fill_tuples() {
     local file=$1
     local elements=${*:2}
     for var in $elements; do
-        if grep -qE "\{\s*$var\s*,\s*(true|false)\s*\}\s*\." "$file"; then
-            sed -r "s/\{\s*($var)\s*,\s*(true|false)\s*\}\s*\./{\1, true}./1" "$file" > tmpfile && cat tmpfile > "$file" 
-        elif grep -q "$var\s*\." "$file"; then
+        if grep -qE "\{\s*$var\s*,\s*(true|false)\s*\}\s*\." "$file" 2>/dev/null; then
+            sed -r "s/\{\s*($var)\s*,\s*(true|false)\s*\}\s*\./{\1, true}./1" "$file" 2>/dev/null > tmpfile && cat tmpfile > "$file"
+        elif grep -q "$var\s*\." "$file" 2>/dev/null; then
             # backward compatible.
-            sed -r "s/($var)\s*\./{\1, true}./1" "$file" > tmpfile && cat tmpfile > "$file"
+            sed -r "s/($var)\s*\./{\1, true}./1" "$file" > tmpfile 2>/dev/null && cat tmpfile > "$file"
         else
-            sed '$a'\\ "$file" > tmpfile && cat tmpfile > "$file"
+            sed '$a'\\ "$file" 2>/dev/null > tmpfile && cat tmpfile > "$file"
             echo "{$var, true}." >> "$file"
         fi
     done

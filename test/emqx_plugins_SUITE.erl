@@ -21,11 +21,11 @@
 
 -include_lib("emqx/include/emqx.hrl").
 -include_lib("eunit/include/eunit.hrl").
+-include_lib("common_test/include/ct.hrl").
 
 all() -> emqx_ct:all(?MODULE).
 
 init_per_suite(Config) ->
-
     %% Compile extra plugin code
 
     DataPath = proplists:get_value(data_dir, Config),
@@ -47,7 +47,35 @@ set_special_cfg(PluginsDir) ->
     ok.
 
 end_per_suite(_Config) ->
-    emqx_ct_helpers:stop_apps([]).
+    emqx_ct_helpers:stop_apps([]),
+    file:delete(get(loaded_file)).
+
+init_per_testcase(t_ensure_default_loaded_plugins_file, Config) ->
+    {ok, LoadedPluginsFilepath} = application:get_env(emqx, plugins_loaded_file),
+    TmpFilepath = filename:join(["/", "tmp", "loaded_plugins_tmp"]),
+    case file:delete(TmpFilepath) of
+        ok -> ok;
+        {error, enoent} -> ok
+    end,
+    application:set_env(emqx, plugins_loaded_file, TmpFilepath),
+    [ {loaded_plugins_filepath, LoadedPluginsFilepath}
+    , {tmp_filepath, TmpFilepath}
+    | Config];
+init_per_testcase(_TestCase, Config) ->
+    Config.
+
+end_per_testcase(t_ensure_default_loaded_plugins_file, Config) ->
+    LoadedPluginsFilepath = ?config(loaded_plugins_filepath, Config),
+    TmpFilepath = ?config(tmp_filepath, Config),
+    file:delete(TmpFilepath),
+    emqx_plugins:unload(),
+    application:set_env(emqx, plugins_loaded_file, LoadedPluginsFilepath),
+    %% need to purge the plugin to avoid inter-testcase dependencies.
+    code:purge(emqx_mini_plugin_app),
+    ok;
+end_per_testcase(_TestCase, _Config) ->
+    emqx_plugins:unload(),
+    ok.
 
 t_load(_) ->
     ?assertEqual(ok, emqx_plugins:load()),
@@ -61,6 +89,25 @@ t_load(_) ->
     ?assertEqual(ignore, emqx_plugins:load()),
     ?assertEqual(ignore, emqx_plugins:unload()).
 
+t_ensure_default_loaded_plugins_file(Config) ->
+    %% this will trigger it to write the default plugins to the
+    %% inexistent file; but it won't truly load them in this test
+    %% because there are no config files in `expand_plugins_dir'.
+    TmpFilepath = ?config(tmp_filepath, Config),
+    ok = emqx_plugins:load(),
+    {ok, Contents} = file:consult(TmpFilepath),
+    ?assertEqual(
+       [ {emqx_bridge_mqtt, false}
+       , {emqx_dashboard, true}
+       , {emqx_management, true}
+       , {emqx_modules, false}
+       , {emqx_recon, true}
+       , {emqx_retainer, true}
+       , {emqx_rule_engine, true}
+       , {emqx_telemetry, true}
+       ],
+       lists:sort(Contents)),
+    ok.
 
 t_init_config(_) ->
     ConfFile = "emqx_mini_plugin.config",
