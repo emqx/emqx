@@ -4,10 +4,10 @@
   [{"4.4.0",
     [{load_module,emqx_exhook_sup,brutal_purge,soft_purge,[]},
      {load_module,emqx_exhook_server,brutal_purge,soft_purge,[]},
-     {load_module,emqx_exhook_mngr,brutal_purge,soft_purge,[]}]},
+     {update, emqx_exhook_mngr, {advanced, ["4.4.0"]}}]},
    {<<".*">>,[]}],
   [{"4.4.0",
     [{load_module,emqx_exhook_sup,brutal_purge,soft_purge,[]},
      {load_module,emqx_exhook_server,brutal_purge,soft_purge,[]},
-     {load_module,emqx_exhook_mngr,brutal_purge,soft_purge,[]}]},
+     {update, emqx_exhook_mngr, {advanced, ["4.4.0"]}}]},
    {<<".*">>,[]}]}.

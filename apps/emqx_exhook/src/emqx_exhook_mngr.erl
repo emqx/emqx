@@ -218,7 +218,7 @@ terminate(_Reason, State = #state{running = Running}) ->
 %% in the emqx_exhook:v4.3.5, we have added one new field in the state last:
 %%  - hooks_options :: map()
 code_change({down, _Vsn}, State, [ToVsn]) ->
-    case re:run(ToVsn, "4\\.3\\.[0-4]") of
+    case re:run(ToVsn, "4\\.4\\.0") of
         {match, _} ->
             NState = list_to_tuple(
                        lists:droplast(
@@ -228,7 +228,7 @@ code_change({down, _Vsn}, State, [ToVsn]) ->
             {ok, State}
     end;
 code_change(_Vsn, State, [FromVsn]) ->
-    case re:run(FromVsn, "4\\.3\\.[0-4]") of
+    case re:run(FromVsn, "4\\.4\\.0") of
         {match, _} ->
             NState = list_to_tuple(
                        tuple_to_list(State) ++ [?DEFAULT_HOOK_OPTS]),
