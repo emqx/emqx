@@ -32,7 +32,8 @@ init_per_suite(Config) ->
     Config.
 
 end_per_suite(_Config) ->
-    emqx_common_test_helpers:stop_apps([emqx, emqx_bridge]).
+    emqx_common_test_helpers:stop_apps([emqx, emqx_bridge,
+                                        emqx_resource, emqx_connector]).
 
 init_per_testcase(t_get_basic_usage_info_1, Config) ->
     setup_fake_telemetry_data(),
@@ -41,10 +42,17 @@ init_per_testcase(_TestCase, Config) ->
     Config.
 
 end_per_testcase(t_get_basic_usage_info_1, _Config) ->
-    ok = emqx_bridge:remove(<<"http:basic_usage_info_http">>),
-    ok = emqx_bridge:remove(<<"http:basic_usage_info_http_disabled">>),
-    ok = emqx_bridge:remove(<<"mqtt:basic_usage_info_mqtt">>),
-    emqx_config:delete_override_conf_files(),
+    lists:foreach(
+      fun({BridgeType, BridgeName}) ->
+              ok = emqx_bridge:remove(BridgeType, BridgeName)
+      end,
+      [ {http, <<"basic_usage_info_http">>}
+      , {http, <<"basic_usage_info_http_disabled">>}
+      , {mqtt, <<"basic_usage_info_mqtt">>}
+      ]),
+    ok = emqx_config:delete_override_conf_files(),
+    ok = emqx_config:put([bridges], #{}),
+    ok = emqx_config:put_raw([bridges], #{}),
     ok;
 end_per_testcase(_TestCase, _Config) ->
     ok.
