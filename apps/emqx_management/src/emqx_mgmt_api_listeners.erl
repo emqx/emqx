@@ -26,7 +26,8 @@
     crud_listeners_by_id/2,
     list_listeners_on_node/2,
     crud_listener_by_id_on_node/2,
-    action_listeners/2
+    action_listeners_by_id/2,
+    action_listeners_by_id_on_node/2
 ]).
 
 %% for rpc call
@@ -45,7 +46,7 @@
 -define(LISTENER_ID_INCONSISTENT, <<"Path and body's listener id not match">>).
 -define(ADDR_PORT_INUSE, <<"Addr port in use">>).
 
--define(OPTS(_Type_), #{rawconf_with_defaults => true, override_to => _Type_}).
+-define(OPTS(_OverrideTo_), #{rawconf_with_defaults => true, override_to => _OverrideTo_}).
 
 namespace() -> "listeners".
 
@@ -104,7 +105,7 @@ schema("/listeners/:id") ->
     };
 schema("/listeners/:id/:action") ->
     #{
-        'operationId' => action_listeners,
+        'operationId' => action_listeners_by_id,
         post => #{
             tags => [<<"listeners">>],
             desc => <<"Start/stop/restart listeners on all nodes.">>,
@@ -175,7 +176,7 @@ schema("/nodes/:node/listeners/:id") ->
     };
 schema("/nodes/:node/listeners/:id/:action") ->
     #{
-        'operationId' => action_listeners,
+        'operationId' => action_listeners_by_id_on_node,
         post => #{
             tags => [<<"listeners">>],
             desc => <<"Start/stop/restart listeners on a specified node.">>,
@@ -265,7 +266,7 @@ listeners_info() ->
 validate_id(Id) ->
     case emqx_listeners:parse_listener_id(Id) of
         {error, Reason} -> {error, Reason};
-        _ -> ok
+        {ok, _} -> ok
     end.
 
 %% api
@@ -289,7 +290,7 @@ crud_listeners_by_id(put, #{bindings := #{id := Id}, body := Body0}) ->
             {400, #{code => 'BAD_LISTENER_ID', message => ?LISTENER_ID_INCONSISTENT}}
     end;
 crud_listeners_by_id(delete, #{bindings := #{id := Id}}) ->
-    {Type, Name} = emqx_listeners:parse_listener_id(Id),
+    {ok, #{type := Type, name := Name}} = emqx_listeners:parse_listener_id(Id),
     case emqx_conf:remove([listeners, Type, Name], ?OPTS(cluster)) of
         {ok, _} -> {204};
         {error, Reason} -> {400, #{code => 'BAD_REQUEST', message => err_msg(Reason)}}
@@ -299,7 +300,7 @@ parse_listener_conf(Conf0) ->
     Conf1 = maps:remove(<<"running">>, Conf0),
     {IdBin, Conf2} = maps:take(<<"id">>, Conf1),
     {TypeBin, Conf3} = maps:take(<<"type">>, Conf2),
-    {Type, Name} = emqx_listeners:parse_listener_id(IdBin),
+    {ok, #{type := Type, name := Name}} = emqx_listeners:parse_listener_id(IdBin),
     TypeAtom = binary_to_existing_atom(TypeBin),
     case Type =:= TypeAtom of
         true -> {binary_to_existing_atom(IdBin), TypeAtom, Name, Conf3};
@@ -350,10 +351,12 @@ crud_listener_by_id_on_node(delete, #{bindings := #{id := Id, node := Node}}) ->
         {error, Reason} -> {400, #{code => 'BAD_REQUEST', message => err_msg(Reason)}}
     end.
 
-action_listeners(post, #{bindings := #{id := Id, action := Action, node := Node}}) ->
+action_listeners_by_id_on_node(post,
+    #{bindings := #{id := Id, action := Action, node := Node}}) ->
     {_, Result} = action_listeners(Node, Id, Action),
-    Result;
-action_listeners(post, #{bindings := #{id := Id, action := Action}}) ->
+    Result.
+
+action_listeners_by_id(post, #{bindings := #{id := Id, action := Action}}) ->
     Results = [action_listeners(Node, Id, Action) || Node <- mria_mnesia:running_nodes()],
     case
         lists:filter(
@@ -455,7 +458,7 @@ do_list_listeners() ->
 -spec do_update_listener(string(), emqx_config:update_request()) ->
     {ok, map()} | {error, _}.
 do_update_listener(Id, Config) ->
-    {Type, Name} = emqx_listeners:parse_listener_id(Id),
+    {ok, #{type := Type, name := Name}} = emqx_listeners:parse_listener_id(Id),
     case emqx:update_config([listeners, Type, Name], Config, ?OPTS(local)) of
         {ok, #{raw_config := RawConf}} -> {ok, RawConf};
         {error, Reason} -> {error, Reason}
@@ -463,7 +466,7 @@ do_update_listener(Id, Config) ->
 
 -spec do_remove_listener(string()) -> ok.
 do_remove_listener(Id) ->
-    {Type, Name} = emqx_listeners:parse_listener_id(Id),
+    {ok, #{type := Type, name := Name}} = emqx_listeners:parse_listener_id(Id),
     case emqx:remove_config([listeners, Type, Name], ?OPTS(local)) of
         {ok, _} -> ok;
         {error, Reason} -> error(Reason)

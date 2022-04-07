@@ -74,7 +74,7 @@ format_list(Listener) ->
     [
         begin
             Running = is_running(Type, listener_id(Type, LName), LConf),
-            {Type, LName, maps:put(running, Running, LConf)}
+            {listener_id(Type, LName), maps:put(running, Running, LConf)}
         end
      || {LName, LConf} <- maps:to_list(Conf), is_map(LConf)
     ].
@@ -100,13 +100,11 @@ format_raw_listeners({Type, Conf}) ->
 
 -spec is_running(ListenerId :: atom()) -> boolean() | {error, not_found}.
 is_running(ListenerId) ->
-    {Type, Name} = parse_listener_id(ListenerId),
     case
         [
             Running
-         || {Type0, Name0, #{running := Running}} <- list(),
-            Type0 =:= Type,
-            Name0 =:= Name
+         || {Id, #{running := Running}} <- list(),
+            Id =:= ListenerId
         ]
     of
         [] -> {error, not_found};
@@ -144,7 +142,7 @@ is_running(quic, _ListenerId, _Conf) ->
     false.
 
 current_conns(ID, ListenOn) ->
-    {Type, Name} = parse_listener_id(ID),
+    {ok, #{type := Type, name := Name}} = parse_listener_id(ID),
     current_conns(Type, Name, ListenOn).
 
 current_conns(Type, Name, ListenOn) when Type == tcp; Type == ssl ->
@@ -155,7 +153,7 @@ current_conns(_, _, _) ->
     {error, not_support}.
 
 max_conns(ID, ListenOn) ->
-    {Type, Name} = parse_listener_id(ID),
+    {ok, #{type := Type, name := Name}} = parse_listener_id(ID),
     max_conns(Type, Name, ListenOn).
 
 max_conns(Type, Name, ListenOn) when Type == tcp; Type == ssl ->
@@ -362,7 +360,7 @@ post_config_update(_, _Req, NewListeners, OldListeners, _AppEnvs) ->
 perform_listener_changes(Action, MapConfs) ->
     lists:foreach(
         fun({Id, Conf}) ->
-            {Type, Name} = parse_listener_id(Id),
+            {ok, #{type := Type, name := Name}} = parse_listener_id(Id),
             Action(Type, Name, Conf)
         end,
         maps:to_list(MapConfs)
@@ -485,7 +483,7 @@ parse_listener_id(Id) ->
     case string:split(str(Id), ":", leading) of
         [Type, Name] ->
             case lists:member(Type, ?TYPES_STRING) of
-                true -> {list_to_existing_atom(Type), list_to_atom(Name)};
+                true -> {ok, #{type => list_to_existing_atom(Type), name => list_to_atom(Name)}};
                 false -> {error, {invalid_listener_id, Id}}
             end;
         _ ->
@@ -518,25 +516,27 @@ tcp_opts(Opts) ->
 
 foreach_listeners(Do) ->
     lists:foreach(
-        fun({Type, LName, LConf}) ->
-            Do(Type, LName, LConf)
+        fun({Id, LConf}) ->
+            {ok, #{type := Type, name := Name}} = parse_listener_id(Id),
+            Do(Type, Name, LConf)
         end,
         list()
     ).
 
 has_enabled_listener_conf_by_type(Type) ->
     lists:any(
-        fun({Type0, _LName, LConf}) when is_map(LConf) ->
+        fun({Id, LConf}) when is_map(LConf) ->
+            {ok, #{type := Type0}} = parse_listener_id(Id),
             Type =:= Type0 andalso maps:get(enabled, LConf, true)
         end,
         list()
     ).
 
 apply_on_listener(ListenerId, Do) ->
-    {Type, ListenerName} = parse_listener_id(ListenerId),
-    case emqx_config:find_listener_conf(Type, ListenerName, []) of
-        {not_found, _, _} -> error({listener_config_not_found, Type, ListenerName});
-        {ok, Conf} -> Do(Type, ListenerName, Conf)
+    {ok, #{type := Type, name := Name}} = parse_listener_id(ListenerId),
+    case emqx_config:find_listener_conf(Type, Name, []) of
+        {not_found, _, _} -> error({listener_config_not_found, Type, Name});
+        {ok, Conf} -> Do(Type, Name, Conf)
     end.
 
 str(A) when is_atom(A) ->

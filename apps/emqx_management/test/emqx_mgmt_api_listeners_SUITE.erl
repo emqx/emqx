@@ -50,14 +50,24 @@ t_crud_listeners_by_id(_) ->
     %% create
     ?assertEqual({error, not_found}, is_running(NewListenerId)),
     ?assertMatch([#{<<"listeners">> := []}], request(get, NewPath, [], [])),
-    [#{<<"listeners">> := [Create]}] = request(put, NewPath, [], TcpListener#{
+    NewConf = TcpListener#{
         <<"id">> => NewListenerId,
         <<"bind">> => <<"0.0.0.0:2883">>
-    }),
+    },
+    [#{<<"listeners">> := [Create]}] = request(put, NewPath, [], NewConf),
     ?assertEqual(lists:sort(maps:keys(TcpListener)), lists:sort(maps:keys(Create))),
     [#{<<"listeners">> := [Get1]}] = request(get, NewPath, [], []),
     ?assertMatch(Create, Get1),
     ?assert(is_running(NewListenerId)),
+
+    %% bad create(same port)
+    BadId = <<"tcp:bad">>,
+    BadPath = emqx_mgmt_api_test_util:api_path(["listeners", BadId]),
+    BadConf = TcpListener#{
+        <<"id">> => BadId,
+        <<"bind">> => <<"0.0.0.0:2883">>
+    },
+    ?assertEqual({error, {"HTTP/1.1", 400, "Bad Request"}}, request(put, BadPath, [], BadConf)),
 
     %% update
     #{<<"acceptors">> := Acceptors} = Create,
@@ -144,51 +154,8 @@ delete(Url) ->
     {ok, Res} = emqx_mgmt_api_test_util:request_api(delete, Url, AuthHeader),
     Res.
 
-get_api(Path) ->
-    {ok, ListenersData} = emqx_mgmt_api_test_util:request_api(get, Path),
-    LocalListeners = emqx_mgmt_api_listeners:format(emqx_mgmt:list_listeners()),
-    case emqx_json:decode(ListenersData, [return_maps]) of
-        [#{<<"node">> := _, <<"listeners">> := [Listener]}] ->
-            ID = binary_to_atom(maps:get(<<"id">>, Listener), utf8),
-            Filter =
-                fun(Local) ->
-                    maps:get(id, Local) =:= ID
-                end,
-            LocalListener = hd(lists:filter(Filter, LocalListeners)),
-            comparison_listener(LocalListener, Listener);
-        [#{<<"node">> := _, <<"listeners">> := Listeners}] when is_list(Listeners) ->
-            ?assertEqual(erlang:length(LocalListeners), erlang:length(Listeners)),
-            Fun =
-                fun(LocalListener) ->
-                    ID = maps:get(id, LocalListener),
-                    IDBinary = atom_to_binary(ID, utf8),
-                    Filter =
-                        fun(Listener) ->
-                            maps:get(<<"id">>, Listener) =:= IDBinary
-                        end,
-                    Listener = hd(lists:filter(Filter, Listeners)),
-                    comparison_listener(LocalListener, Listener)
-                end,
-            lists:foreach(Fun, LocalListeners);
-        Listener when is_map(Listener) ->
-            ID = binary_to_atom(maps:get(<<"id">>, Listener), utf8),
-            Filter =
-                fun(Local) ->
-                    maps:get(id, Local) =:= ID
-                end,
-            LocalListener = hd(lists:filter(Filter, LocalListeners)),
-            comparison_listener(LocalListener, Listener)
-    end.
-
-comparison_listener(Local, Response) ->
-    ?assertEqual(maps:get(id, Local), binary_to_atom(maps:get(<<"id">>, Response))),
-    ?assertEqual(maps:get(node, Local), binary_to_atom(maps:get(<<"node">>, Response))),
-    ?assertEqual(maps:get(acceptors, Local), maps:get(<<"acceptors">>, Response)),
-    ?assertEqual(maps:get(running, Local), maps:get(<<"running">>, Response)).
-
-
 listener_stats(Listener, ExpectedStats) ->
     ?assertEqual(ExpectedStats, maps:get(<<"running">>, Listener)).
 
 is_running(Id) ->
-    emqx_listeners:is_running(Id).
+    emqx_listeners:is_running(binary_to_atom(Id)).
