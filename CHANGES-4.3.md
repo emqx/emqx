@@ -22,6 +22,10 @@ File format:
 * Add support for `RSA-PSK-AES256-GCM-SHA384`, `RSA-PSK-AES256-CBC-SHA384`,
  `RSA-PSK-AES128-GCM-SHA256`, `RSA-PSK-AES128-CBC-SHA256` PSK ciphers, and remove `PSK-3DES-EDE-CBC-SHA`,
  `PSK-RC4-SHA` from the default configuration. [#7427]
+* Diagnostic logging for mnesia `wait_for_table`
+  - prints check points of mnesia internal stats
+  - prints check points of per table loading stats
+  Help to locate the problem of long table loading time.
 
 ### Bug fixes
 
