@@ -60,6 +60,9 @@
 -export([ config_key_path/0
         ]).
 
+%% exported for `emqx_telemetry'
+-export([get_basic_usage_info/0]).
+
 load_hook() ->
     Bridges = emqx:get_config([bridges], #{}),
     load_hook(Bridges).
@@ -244,7 +247,7 @@ update(Type, Name, {OldConf, Conf}) ->
     %% the `method` or `headers` of a HTTP bridge is changed, then the bridge can be updated
     %% without restarting the bridge.
     %%
-    case if_only_to_toggole_enable(OldConf, Conf) of
+    case if_only_to_toggle_enable(OldConf, Conf) of
         false ->
             ?SLOG(info, #{msg => "update bridge", type => Type, name => Name,
                 config => Conf}),
@@ -396,7 +399,7 @@ maybe_disable_bridge(Type, Name, Conf) ->
         true -> ok
     end.
 
-if_only_to_toggole_enable(OldConf, Conf) ->
+if_only_to_toggle_enable(OldConf, Conf) ->
     #{added := Added, removed := Removed, changed := Updated} =
         emqx_map_lib:diff_maps(OldConf, Conf),
     case {Added, Removed, Updated} of
@@ -406,6 +409,31 @@ if_only_to_toggole_enable(OldConf, Conf) ->
                  map_size(Updated) =:= 1 -> true;
         {_, _, _} -> false
     end.
+
+-spec get_basic_usage_info() ->
+          #{ num_bridges => non_neg_integer()
+           , count_by_type =>
+                 #{ BridgeType => non_neg_integer()
+                  }
+           } when BridgeType :: atom().
+get_basic_usage_info() ->
+    lists:foldl(
+      fun(#{resource_data := #{config := #{enable := false}}}, Acc) ->
+              Acc;
+         (#{type := BridgeType}, Acc) ->
+              NumBridges = maps:get(num_bridges, Acc),
+              CountByType0 = maps:get(count_by_type, Acc),
+              CountByType = maps:update_with(
+                              binary_to_atom(BridgeType, utf8),
+                              fun(X) -> X + 1 end,
+                              1,
+                              CountByType0),
+              Acc#{ num_bridges => NumBridges + 1
+                  , count_by_type => CountByType
+                  }
+      end,
+      #{num_bridges => 0, count_by_type => #{}},
+      list()).
 
 bin(Bin) when is_binary(Bin) -> Bin;
 bin(Str) when is_list(Str) -> list_to_binary(Str);

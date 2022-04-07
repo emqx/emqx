@@ -278,11 +278,14 @@ t_get_rules_for_topic_2(_Config) ->
              make_simple_rule(<<"rule-debug-2">>, <<"select * from \"simple/+\"">>, [<<"simple/+">>]),
              make_simple_rule(<<"rule-debug-3">>, <<"select * from \"simple/+/1\"">>, [<<"simple/+/1">>]),
              make_simple_rule(<<"rule-debug-4">>, <<"select * from \"simple/1\"">>, [<<"simple/1">>]),
-             make_simple_rule(<<"rule-debug-5">>, <<"select * from \"simple/2,simple/+,simple/3\"">>, [<<"simple/2">>,<<"simple/+">>, <<"simple/3">>]),
-             make_simple_rule(<<"rule-debug-6">>, <<"select * from \"simple/2,simple/3,simple/4\"">>, [<<"simple/2">>,<<"simple/3">>, <<"simple/4">>])
+             make_simple_rule(<<"rule-debug-5">>, <<"select * from \"simple/2,simple/+,simple/3\"">>,
+                              [<<"simple/2">>,<<"simple/+">>, <<"simple/3">>]),
+             make_simple_rule(<<"rule-debug-6">>, <<"select * from \"simple/2,simple/3,simple/4\"">>,
+                              [<<"simple/2">>,<<"simple/3">>, <<"simple/4">>])
              ]),
     ?assertEqual(Len0+4, length(emqx_rule_engine:get_rules_for_topic(<<"simple/1">>))),
-    ok = delete_rules_by_ids([<<"rule-debug-1">>, <<"rule-debug-2">>,<<"rule-debug-3">>, <<"rule-debug-4">>,<<"rule-debug-5">>, <<"rule-debug-6">>]),
+    ok = delete_rules_by_ids([<<"rule-debug-1">>, <<"rule-debug-2">>,<<"rule-debug-3">>,
+                              <<"rule-debug-4">>,<<"rule-debug-5">>, <<"rule-debug-6">>]),
     ok.
 
 t_get_rules_with_same_event(_Config) ->
@@ -298,14 +301,23 @@ t_get_rules_with_same_event(_Config) ->
     ok = insert_rules(
             [make_simple_rule(<<"r1">>, <<"select * from \"simple/#\"">>, [<<"simple/#">>]),
              make_simple_rule(<<"r2">>, <<"select * from \"abc/+\"">>, [<<"abc/+">>]),
-             make_simple_rule(<<"r3">>, <<"select * from \"$events/client_connected\"">>, [<<"$events/client_connected">>]),
-             make_simple_rule(<<"r4">>, <<"select * from \"$events/client_disconnected\"">>, [<<"$events/client_disconnected">>]),
-             make_simple_rule(<<"r5">>, <<"select * from \"$events/session_subscribed\"">>, [<<"$events/session_subscribed">>]),
-             make_simple_rule(<<"r6">>, <<"select * from \"$events/session_unsubscribed\"">>, [<<"$events/session_unsubscribed">>]),
-             make_simple_rule(<<"r7">>, <<"select * from \"$events/message_delivered\"">>, [<<"$events/message_delivered">>]),
-             make_simple_rule(<<"r8">>, <<"select * from \"$events/message_acked\"">>, [<<"$events/message_acked">>]),
-             make_simple_rule(<<"r9">>, <<"select * from \"$events/message_dropped\"">>, [<<"$events/message_dropped">>]),
-             make_simple_rule(<<"r10">>, <<"select * from \"t/1, $events/session_subscribed, $events/client_connected\"">>, [<<"t/1">>, <<"$events/session_subscribed">>, <<"$events/client_connected">>])
+             make_simple_rule(<<"r3">>, <<"select * from \"$events/client_connected\"">>,
+                              [<<"$events/client_connected">>]),
+             make_simple_rule(<<"r4">>, <<"select * from \"$events/client_disconnected\"">>,
+                              [<<"$events/client_disconnected">>]),
+             make_simple_rule(<<"r5">>, <<"select * from \"$events/session_subscribed\"">>,
+                              [<<"$events/session_subscribed">>]),
+             make_simple_rule(<<"r6">>, <<"select * from \"$events/session_unsubscribed\"">>,
+                              [<<"$events/session_unsubscribed">>]),
+             make_simple_rule(<<"r7">>, <<"select * from \"$events/message_delivered\"">>,
+                              [<<"$events/message_delivered">>]),
+             make_simple_rule(<<"r8">>, <<"select * from \"$events/message_acked\"">>,
+                              [<<"$events/message_acked">>]),
+             make_simple_rule(<<"r9">>, <<"select * from \"$events/message_dropped\"">>,
+                              [<<"$events/message_dropped">>]),
+             make_simple_rule(<<"r10">>, <<"select * from \"t/1, "
+                                           "$events/session_subscribed, $events/client_connected\"">>,
+                              [<<"t/1">>, <<"$events/session_subscribed">>, <<"$events/client_connected">>])
              ]),
     ?assertEqual(PubN + 3, length(emqx_rule_engine:get_rules_with_same_event(PubT))),
     ?assertEqual(2, length(emqx_rule_engine:get_rules_with_same_event(<<"$events/client_connected">>))),
@@ -315,7 +327,8 @@ t_get_rules_with_same_event(_Config) ->
     ?assertEqual(1, length(emqx_rule_engine:get_rules_with_same_event(<<"$events/message_delivered">>))),
     ?assertEqual(1, length(emqx_rule_engine:get_rules_with_same_event(<<"$events/message_acked">>))),
     ?assertEqual(1, length(emqx_rule_engine:get_rules_with_same_event(<<"$events/message_dropped">>))),
-    ok = delete_rules_by_ids([<<"r1">>, <<"r2">>,<<"r3">>, <<"r4">>,<<"r5">>, <<"r6">>, <<"r7">>, <<"r8">>, <<"r9">>, <<"r10">>]),
+    ok = delete_rules_by_ids([<<"r1">>, <<"r2">>,<<"r3">>, <<"r4">>,
+                              <<"r5">>, <<"r6">>, <<"r7">>, <<"r8">>, <<"r9">>, <<"r10">>]),
     ok.
 
 %%------------------------------------------------------------------------------
@@ -867,7 +880,8 @@ t_sqlparse_foreach_7(_Config) ->
           "incase is_not_null(info.cmd) "
           "from \"t/#\" "
           "where s.page = '2' ",
-    Payload  = <<"{\"sensors\": {\"page\": 2, \"collection\": {\"info\":[{\"name\":\"cmd1\", \"cmd\":\"1\"}, {\"cmd\":\"2\"}]} } }">>,
+    Payload  = <<"{\"sensors\": {\"page\": 2, \"collection\": "
+                 "{\"info\":[{\"name\":\"cmd1\", \"cmd\":\"1\"}, {\"cmd\":\"2\"}]} } }">>,
     ?assertMatch({ok,[#{<<"name">> := <<"cmd1">>, <<"msg_type">> := <<"1">>}, #{<<"msg_type">> := <<"2">>}]},
                  emqx_rule_sqltester:test(
                     #{sql => Sql,
@@ -893,7 +907,8 @@ t_sqlparse_foreach_8(_Config) ->
           "incase is_map(info) "
           "from \"t/#\" "
           "where s.page = '2' ",
-    Payload  = <<"{\"sensors\": {\"page\": 2, \"collection\": {\"info\":[\"haha\", {\"name\":\"cmd1\", \"cmd\":\"1\"}]} } }">>,
+    Payload  = <<"{\"sensors\": {\"page\": 2, \"collection\": "
+                 "{\"info\":[\"haha\", {\"name\":\"cmd1\", \"cmd\":\"1\"}]} } }">>,
     ?assertMatch({ok,[#{<<"name">> := <<"cmd1">>, <<"msg_type">> := <<"1">>}]},
                  emqx_rule_sqltester:test(
                     #{sql => Sql,
@@ -1364,6 +1379,47 @@ t_sqlparse_invalid_json(_Config) ->
                          #{payload =>
                                <<"{\"sensors\": [{\"cmd\":\"1\"} {\"cmd\":}]}">>,
                            topic => <<"t/a">>}})).
+%%------------------------------------------------------------------------------
+%% Test cases for telemetry functions
+%%------------------------------------------------------------------------------
+
+t_get_basic_usage_info_0(_Config) ->
+    ?assertEqual(
+      #{ num_rules => 0
+       , referenced_bridges => #{}
+       },
+      emqx_rule_engine:get_basic_usage_info()),
+    ok.
+
+t_get_basic_usage_info_1(_Config) ->
+    {ok, _} =
+        emqx_rule_engine:create_rule(
+          #{id => <<"rule:t_get_basic_usage_info:1">>,
+            sql => <<"select 1 from topic">>,
+            outputs =>
+                [ #{function => <<"erlang:hibernate">>, args => #{}}
+                , #{function => console}
+                , <<"http:my_http_bridge">>
+                , <<"http:my_http_bridge">>
+                ]}),
+    {ok, _} =
+        emqx_rule_engine:create_rule(
+          #{id => <<"rule:t_get_basic_usage_info:2">>,
+            sql => <<"select 1 from topic">>,
+            outputs =>
+                [ <<"mqtt:my_mqtt_bridge">>
+                , <<"http:my_http_bridge">>
+                ]}),
+    ?assertEqual(
+      #{ num_rules => 2
+       , referenced_bridges =>
+             #{ mqtt => 1
+              , http => 3
+              }
+       },
+      emqx_rule_engine:get_basic_usage_info()),
+    ok.
+
 %%------------------------------------------------------------------------------
 %% Internal helpers
 %%------------------------------------------------------------------------------

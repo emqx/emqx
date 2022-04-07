@@ -59,7 +59,7 @@ init_per_suite(Cfg) ->
     emqx_common_test_helpers:start_apps([emqx_exhook]),
     Cfg.
 
-end_per_suite(Cfg) ->
+end_per_suite(_Cfg) ->
     meck:unload(emqx_exhook_demo_svr),
     meck:unload(emqx_exhook_mgr),
     emqx_exhook_demo_svr:stop(),
