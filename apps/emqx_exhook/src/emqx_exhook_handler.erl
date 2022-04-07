@@ -288,6 +288,8 @@ stringfy(Term) when is_integer(Term) ->
     integer_to_binary(Term);
 stringfy(Term) when is_atom(Term) ->
     atom_to_binary(Term, utf8);
+stringfy(Term) when is_list(Term) ->
+    list_to_binary(Term);
 stringfy(Term) ->
     unicode:characters_to_binary((io_lib:format("~0p", [Term]))).
 
