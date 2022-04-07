@@ -74,11 +74,10 @@ global_chain_config() ->
 
 listener_chain_configs() ->
     lists:map(
-        fun({ListenerID, _}) ->
-            {ListenerID, emqx:get_raw_config(auth_config_path(ListenerID), [])}
-        end,
-        emqx_listeners:list()
-    ).
+     fun({ListenerID, _, _}) ->
+        {ListenerID, emqx:get_raw_config(auth_config_path(ListenerID), [])}
+     end,
+     emqx_listeners:list()).
 
 auth_config_path(ListenerID) ->
     [<<"listeners">>] ++

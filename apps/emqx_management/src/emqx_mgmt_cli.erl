@@ -518,7 +518,7 @@ trace_type(_, _) -> error.
 %% @doc Listeners Command
 
 listeners([]) ->
-    lists:foreach(fun({ID, Conf}) ->
+    lists:foreach(fun({ID, _Name, Conf}) ->
                 {Host, Port}    = maps:get(bind, Conf),
                 Acceptors       = maps:get(acceptors, Conf),
                 ProxyProtocol   = maps:get(proxy_protocol, Conf, undefined),
