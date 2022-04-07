@@ -215,7 +215,21 @@ load_plugin_conf(AppName, PluginDir) ->
     end, AppsEnv).
 
 ensure_file(File) ->
-    case filelib:is_file(File) of false -> write_loaded([]); true -> ok end.
+    case filelib:is_file(File) of
+        false ->
+            DefaultPlugins = [ {emqx_management, true}
+                             , {emqx_dashboard, true}
+                             , {emqx_modules, false}
+                             , {emqx_recon, true}
+                             , {emqx_retainer, true}
+                             , {emqx_telemetry, true}
+                             , {emqx_rule_engine, true}
+                             , {emqx_bridge_mqtt, false}
+                             ],
+            write_loaded(DefaultPlugins);
+        true ->
+            ok
+    end.
 
 with_loaded_file(File, SuccFun) ->
     case read_loaded(File) of
