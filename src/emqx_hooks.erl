@@ -32,6 +32,8 @@
         , add/3
         , add/4
         , put/2
+        , put/3
+        , put/4
         , del/2
         , run/2
         , run_fold/3
@@ -75,6 +77,8 @@
           priority :: integer()
          }).
 
+-type callback() :: #callback{}.
+
 -record(hook, {
           name :: hookpoint(),
           callbacks :: list(#callback{})
@@ -110,7 +114,7 @@ callback_priority(#callback{priority= P}) -> P.
 %%--------------------------------------------------------------------
 
 %% @doc Register a callback
--spec(add(hookpoint(), action() | #callback{}) -> ok_or_error(already_exists)).
+-spec(add(hookpoint(), action() | callback()) -> ok_or_error(already_exists)).
 add(HookPoint, Callback) when is_record(Callback, callback) ->
     gen_server:call(?SERVER, {add, HookPoint, Callback}, infinity);
 add(HookPoint, Action) when is_function(Action); is_tuple(Action) ->
@@ -131,12 +135,24 @@ add(HookPoint, Action, Filter, Priority) when is_integer(Priority) ->
     add(HookPoint, #callback{action = Action, filter = Filter, priority = Priority}).
 
 %% @doc Like add/2, it register a callback, discard 'already_exists' error.
--spec(put(hookpoint(), action() | #callback{}) -> ok).
-put(HookPoint, Callback) ->
+-spec put(hookpoint(), action() | callback()) -> ok.
+put(HookPoint, Callback) when is_record(Callback, callback) ->
     case add(HookPoint, Callback) of
         ok -> ok;
         {error, already_exists} -> ok
-    end.
+    end;
+put(HookPoint, Action) when is_function(Action); is_tuple(Action) ->
+    ?MODULE:put(HookPoint, #callback{action = Action, priority = 0}).
+
+-spec put(hookpoint(), action(), filter() | integer() | list()) -> ok.
+put(HookPoint, Action, {_M, _F, _A} = Filter) ->
+    ?MODULE:put(HookPoint, #callback{action = Action, filter = Filter, priority = 0});
+put(HookPoint, Action, Priority) when is_integer(Priority) ->
+    ?MODULE:put(HookPoint, #callback{action = Action, priority = Priority}).
+
+-spec put(hookpoint(), action(), filter(), integer()) -> ok.
+put(HookPoint, Action, Filter, Priority) when is_integer(Priority) ->
+    ?MODULE:put(HookPoint, #callback{action = Action, filter = Filter, priority = Priority}).
 
 %% @doc Unregister a callback.
 -spec(del(hookpoint(), action() | {module(), atom()}) -> ok).
@@ -205,7 +221,7 @@ execute({M, F, A}, Args) ->
     erlang:apply(M, F, Args ++ A).
 
 %% @doc Lookup callbacks.
--spec(lookup(hookpoint()) -> [#callback{}]).
+-spec(lookup(hookpoint()) -> [callback()]).
 lookup(HookPoint) ->
     case ets:lookup(?TAB, HookPoint) of
         [#hook{callbacks = Callbacks}] ->
@@ -288,4 +304,3 @@ del_callback(Func, [#callback{action = {Func, _A}} | Callbacks], Acc) ->
     del_callback(Func, Callbacks, Acc);
 del_callback(Action, [Callback | Callbacks], Acc) ->
     del_callback(Action, Callbacks, [Callback | Acc]).
-

@@ -188,18 +188,18 @@ eventmsg_connected(_ClientInfo = #{
                     is_bridge := IsBridge,
                     mountpoint := Mountpoint
                    },
-                   _ConnInfo = #{
+                   ConnInfo = #{
                     peername := PeerName,
                     sockname := SockName,
                     clean_start := CleanStart,
                     proto_name := ProtoName,
                     proto_ver := ProtoVer,
-                    keepalive := Keepalive,
                     connected_at := ConnectedAt,
-                    conn_props := ConnProps,
-                    receive_maximum := RcvMax,
-                    expiry_interval := ExpiryInterval
+                    receive_maximum := RcvMax
                    }) ->
+    Keepalive = maps:get(keepalive, ConnInfo, 0),
+    ConnProps = maps:get(conn_props, ConnInfo, #{}),
+    ExpiryInterval = maps:get(expiry_interval, ConnInfo, 0),
     with_basic_columns('client.connected',
         #{clientid => ClientId,
           username => Username,

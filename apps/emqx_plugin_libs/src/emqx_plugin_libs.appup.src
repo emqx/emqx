@@ -1,25 +1,27 @@
 %% -*- mode: erlang -*-
+%% Unless you know what you are doing, DO NOT edit manually!!
 {VSN,
-  [{"4.4.1",
-    [ {load_module,emqx_trace,brutal_purge,soft_purge,[]}
-    , {load_module,emqx_trace_api,brutal_purge,soft_purge,[]}
-    ]},
-  {"4.4.0",
-    [ {load_module,emqx_trace,brutal_purge,soft_purge,[]}
-    , {load_module,emqx_trace_api,brutal_purge,soft_purge,[]}
-    , {update, emqx_slow_subs, {advanced, ["4.4.0"]}}
-    , {load_module,emqx_slow_subs_api,brutal_purge,soft_purge,[]}
-    ]},
+  [{"4.4.2",[{load_module,emqx_plugin_libs_ssl,brutal_purge,soft_purge,[]}]},
+   {"4.4.1",
+    [{load_module,emqx_plugin_libs_ssl,brutal_purge,soft_purge,[]},
+     {load_module,emqx_trace,brutal_purge,soft_purge,[]},
+     {load_module,emqx_trace_api,brutal_purge,soft_purge,[]}]},
+   {"4.4.0",
+    [{load_module,emqx_plugin_libs_ssl,brutal_purge,soft_purge,[]},
+     {load_module,emqx_trace,brutal_purge,soft_purge,[]},
+     {load_module,emqx_trace_api,brutal_purge,soft_purge,[]},
+     {update,emqx_slow_subs,{advanced,["4.4.0"]}},
+     {load_module,emqx_slow_subs_api,brutal_purge,soft_purge,[]}]},
    {<<".*">>,[]}],
- [{"4.4.1",
-    [ {load_module,emqx_trace,brutal_purge,soft_purge,[]}
-    , {load_module,emqx_trace_api,brutal_purge,soft_purge,[]}
-    ]},
-  {"4.4.0",
-   [ {load_module,emqx_trace,brutal_purge,soft_purge,[]}
-   , {load_module,emqx_trace_api,brutal_purge,soft_purge,[]}
-   , {update, emqx_slow_subs, {advanced, ["4.4.0"]}}
-   , {load_module,emqx_slow_subs_api,brutal_purge,soft_purge,[]}
-   ]},
-  {<<".*">>,[]}]
-}.
+  [{"4.4.2",[{load_module,emqx_plugin_libs_ssl,brutal_purge,soft_purge,[]}]},
+   {"4.4.1",
+    [{load_module,emqx_plugin_libs_ssl,brutal_purge,soft_purge,[]},
+     {load_module,emqx_trace,brutal_purge,soft_purge,[]},
+     {load_module,emqx_trace_api,brutal_purge,soft_purge,[]}]},
+   {"4.4.0",
+    [{load_module,emqx_plugin_libs_ssl,brutal_purge,soft_purge,[]},
+     {load_module,emqx_trace,brutal_purge,soft_purge,[]},
+     {load_module,emqx_trace_api,brutal_purge,soft_purge,[]},
+     {update,emqx_slow_subs,{advanced,["4.4.0"]}},
+     {load_module,emqx_slow_subs_api,brutal_purge,soft_purge,[]}]},
+   {<<".*">>,[]}]}.

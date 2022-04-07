@@ -44,6 +44,7 @@ groups() ->
 
 init_per_suite(Config) ->
     emqx_ct_helpers:start_apps([emqx]),
+    catch emqx_rule_metrics:stop(),
     {ok, _} = emqx_rule_metrics:start_link(),
     Config.
 

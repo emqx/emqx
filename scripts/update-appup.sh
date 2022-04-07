@@ -55,6 +55,10 @@ while [ "$#" -gt 0 ]; do
         SKIP_BUILD='yes'
         shift
         ;;
+    --skip-build-base)
+        SKIP_BUILD_BASE='yes'
+        shift
+        ;;
     --check)
         # hijack the --check option
         IS_CHECK='yes'
@@ -88,16 +92,20 @@ else
     NEW_COPY='no'
 fi
 
-pushd "${PREV_DIR_BASE}/${PREV_TAG}"
-if [ "$NEW_COPY" = 'no' ]; then
-    REMOTE="$(git remote -v | grep "${GIT_REPO}" | head -1 | awk '{print $1}')"
-    git fetch "$REMOTE"
+if [ "${SKIP_BUILD_BASE:-no}" = 'yes' ]; then
+    echo "not building relup base ${PREV_DIR_BASE}/${PREV_TAG}"
+else
+    pushd "${PREV_DIR_BASE}/${PREV_TAG}"
+    if [ "$NEW_COPY" = 'no' ]; then
+        REMOTE="$(git remote -v | grep "${GIT_REPO}" | head -1 | awk '{print $1}')"
+        git fetch "$REMOTE"
+    fi
+    git reset --hard
+    git clean -fdx
+    git checkout "${PREV_TAG}"
+    make "$PROFILE"
+    popd
 fi
-git reset --hard
-git clean -fdx
-git checkout "${PREV_TAG}"
-make "$PROFILE"
-popd
 
 PREV_REL_DIR="${PREV_DIR_BASE}/${PREV_TAG}/_build/${PROFILE}/lib"
 
