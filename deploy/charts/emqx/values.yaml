@@ -128,7 +128,7 @@ emqxLoadedModules: >
   {emqx_mod_acl_internal, true}.
   {emqx_mod_presence, true}.
   {emqx_mod_trace, false}.
-  {emqx_mod_st_statistics, false}.
+  {emqx_mod_slow_subs, false}.
   {emqx_mod_delayed, false}.
   {emqx_mod_rewrite, false}.
   {emqx_mod_subscription, false}.
