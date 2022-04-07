@@ -92,14 +92,14 @@
 -define(SAMPCOUNT_5M, (?SECS_5M div ?SAMPLING)).
 
 -record(rule_speed, {
-            max = 0 :: number(),
-            current = 0 :: number(),
-            last5m = 0 :: number(),
+            max = 0.0 :: float(),
+            current = 0.0 :: float(),
+            last5m = 0.0 :: float(),
             %% metadata for calculating the avg speed
-            tick = 1 :: number(),
-            last_v = 0 :: number(),
+            tick = 1 :: integer(),
+            last_v = 0 :: integer(),
             %% metadata for calculating the 5min avg speed
-            last5m_acc = 0 :: number(),
+            last5m_acc = 0.0 :: float(),
             last5m_smpl = [] :: list()
         }).
 
