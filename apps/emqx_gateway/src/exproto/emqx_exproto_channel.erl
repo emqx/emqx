@@ -722,7 +722,6 @@ default_conninfo(ConnInfo) ->
         clean_start => true,
         clientid => undefined,
         username => undefined,
-        conn_mod => undefined,
         conn_props => #{},
         connected => true,
         proto_name => <<"exproto">>,

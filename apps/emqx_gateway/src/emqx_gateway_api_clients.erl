@@ -177,6 +177,8 @@ subscriptions(get, #{
     ClientId = emqx_mgmt_util:urldecode(ClientId0),
     with_gateway(Name0, fun(GwName, _) ->
         case emqx_gateway_http:list_client_subscriptions(GwName, ClientId) of
+            {error, not_found} ->
+                return_http_error(404, "client process not found");
             {error, Reason} ->
                 return_http_error(500, Reason);
             {ok, Subs} ->
@@ -202,8 +204,10 @@ subscriptions(post, #{
                         GwName, ClientId, Topic, SubOpts
                     )
                 of
+                    {error, not_found} ->
+                        return_http_error(404, "client process not found");
                     {error, Reason} ->
-                        return_http_error(404, Reason);
+                        return_http_error(500, Reason);
                     {ok, {NTopic, NSubOpts}} ->
                         {201, maps:merge(NSubOpts, #{topic => NTopic})}
                 end
