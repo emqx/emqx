@@ -123,6 +123,26 @@ init_per_testcase(t_rule_engine_and_data_bridge_info, Config) ->
     ok = emqx_bridge_SUITE:setup_fake_telemetry_data(),
     ok = setup_fake_rule_engine_data(),
     Config;
+init_per_testcase(t_exhook_info, Config) ->
+    mock_httpc(),
+    {ok, _} = emqx_cluster_rpc:start_link(node(), emqx_cluster_rpc, 1000),
+    ExhookConf =
+        #{
+            <<"exhook">> =>
+                #{
+                    <<"servers">> =>
+                        [
+                            #{
+                                <<"name">> => "myhook",
+                                <<"url">> => "http://127.0.0.1:9000"
+                            }
+                        ]
+                }
+        },
+    {ok, _} = emqx_exhook_demo_svr:start(),
+    ok = emqx_common_test_helpers:load_config(emqx_exhook_schema, ExhookConf),
+    {ok, _} = application:ensure_all_started(emqx_exhook),
+    Config;
 init_per_testcase(_Testcase, Config) ->
     TestPID = self(),
     ok = meck:new(httpc, [non_strict, passthrough, no_history, no_link]),
@@ -168,6 +188,11 @@ end_per_testcase(t_rule_engine_and_data_bridge_info, _Config) ->
             emqx_rule_engine
         ]
     ),
+    ok;
+end_per_testcase(t_exhook_info, _Config) ->
+    meck:unload(httpc),
+    emqx_exhook_demo_svr:stop(),
+    application:stop(emqx_exhook),
     ok;
 end_per_testcase(_Testcase, _Config) ->
     meck:unload([httpc]),
@@ -388,6 +413,39 @@ t_rule_engine_and_data_bridge_info(_Config) ->
             num_data_bridges => 2
         },
         BridgeInfo
+    ),
+    ok.
+
+t_exhook_info(_Config) ->
+    {ok, TelemetryData} = emqx_telemetry:get_telemetry(),
+    ExhookInfo = get_value(exhook, TelemetryData),
+    ?assertEqual(1, maps:get(num_servers, ExhookInfo)),
+    [Server] = maps:get(servers, ExhookInfo),
+    ?assertEqual(grpc, maps:get(driver, Server)),
+    Hooks = maps:get(hooks, Server),
+    ?assertEqual(
+        [
+            'client.authenticate',
+            'client.authorize',
+            'client.connack',
+            'client.connect',
+            'client.connected',
+            'client.disconnected',
+            'client.subscribe',
+            'client.unsubscribe',
+            'message.acked',
+            'message.delivered',
+            'message.dropped',
+            'message.publish',
+            'session.created',
+            'session.discarded',
+            'session.resumed',
+            'session.subscribed',
+            'session.takenover',
+            'session.terminated',
+            'session.unsubscribed'
+        ],
+        lists:sort(Hooks)
     ),
     ok.
 
