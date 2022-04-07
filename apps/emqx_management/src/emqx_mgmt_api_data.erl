@@ -73,39 +73,17 @@
 export(_Bindings, _Params) ->
     case emqx_mgmt_data_backup:export() of
         {ok, File = #{filename := Filename}} ->
-            minirest:return({ok, File#{filename => filename:basename(Filename)}});
+            minirest:return({ok, File#{filename => list_to_binary(filename:basename(Filename))}});
         Return -> minirest:return(Return)
     end.
 
 list_exported(_Bindings, _Params) ->
-    List = [ rpc:call(Node, ?MODULE, get_list_exported, []) || Node <- ekka_mnesia:running_nodes() ],
+    List = [rpc:call(Node, ?MODULE, get_list_exported, []) || Node <- ekka_mnesia:running_nodes()],
     NList = lists:map(fun({_, FileInfo}) -> FileInfo end, lists:keysort(1, lists:append(List))),
     minirest:return({ok, NList}).
 
 get_list_exported() ->
-    Dir = emqx:get_env(data_dir),
-    {ok, Files} = file:list_dir_all(Dir),
-    lists:foldl(
-        fun(File, Acc) ->
-            case filename:extension(File) =:= ".json" of
-                true ->
-                    FullFile = filename:join([Dir, File]),
-                    case file:read_file_info(FullFile) of
-                        {ok, #file_info{size = Size, ctime = CTime = {{Y, M, D}, {H, MM, S}}}} ->
-                            CreatedAt = io_lib:format("~p-~p-~p ~p:~p:~p", [Y, M, D, H, MM, S]),
-                            Seconds = calendar:datetime_to_gregorian_seconds(CTime),
-                            [{Seconds, [{filename, list_to_binary(File)},
-                                        {size, Size},
-                                        {created_at, list_to_binary(CreatedAt)},
-                                        {node, node()}
-                                       ]} | Acc];
-                        {error, Reason} ->
-                            logger:error("Read file info of ~s failed with: ~p", [File, Reason]),
-                            Acc
-                    end;
-                false -> Acc
-            end
-        end, [], Files).
+    emqx_mgmt_data_backup:list_backup_file().
 
 import(_Bindings, Params) ->
     case proplists:get_value(<<"filename">>, Params) of
@@ -121,22 +99,26 @@ import(_Bindings, Params) ->
                     case lists:member(Node,
                           [ erlang:atom_to_binary(N, utf8) || N <- ekka_mnesia:running_nodes() ]
                          ) of
-                        true -> minirest:return(rpc:call(erlang:binary_to_atom(Node, utf8), ?MODULE, do_import, [Filename]));
+                        true ->
+                            N = erlang:binary_to_atom(Node, utf8),
+                            case rpc:call(N, ?MODULE, do_import, [Filename]) of
+                                {badrpc, Reason} ->
+                                    minirest:return({error, Reason});
+                                Res ->
+                                    minirest:return(Res)
+                            end;
                         false -> minirest:return({error, no_existent_node})
                     end
             end
     end.
 
 do_import(Filename) ->
-    FullFilename = fullname(Filename),
-    emqx_mgmt_data_backup:import(FullFilename, "{}").
+    emqx_mgmt_data_backup:import(Filename, "{}").
 
 download(#{filename := Filename}, _Params) ->
-    FullFilename = fullname(Filename),
-    case file:read_file(FullFilename) of
-        {ok, Bin} ->
-            {ok, #{filename => list_to_binary(Filename),
-                   file => Bin}};
+    case emqx_mgmt_data_backup:read_backup_file(Filename) of
+        {ok, Res} ->
+            {ok, Res};
         {error, Reason} ->
             minirest:return({error, Reason})
     end.
@@ -146,8 +128,7 @@ upload(Bindings, Params) ->
 
 do_upload(_Bindings, #{<<"filename">> := Filename,
                        <<"file">> := Bin}) ->
-    FullFilename = fullname(Filename),
-    case file:write_file(FullFilename, Bin) of
+    case emqx_mgmt_data_backup:upload_backup_file(Filename, Bin) of
         ok ->
             minirest:return({ok, [{node, node()}]});
         {error, Reason} ->
@@ -159,8 +140,7 @@ do_upload(_Bindings, _Params) ->
     minirest:return({error, missing_required_params}).
 
 delete(#{filename := Filename}, _Params) ->
-    FullFilename = fullname(Filename),
-    case file:delete(FullFilename) of
+    case emqx_mgmt_data_backup:delete_backup_file(Filename) of
         ok ->
             minirest:return();
         {error, Reason} ->
@@ -168,19 +148,16 @@ delete(#{filename := Filename}, _Params) ->
     end.
 
 import_content(Content) ->
-    File = dump_to_tmp_file(Content),
-    do_import(File).
-
-dump_to_tmp_file(Content) ->
     Bin = emqx_json:encode(Content),
     Filename = tmp_filename(),
-    ok = file:write_file(fullname(Filename), Bin),
-    Filename.
-
-fullname(Name) ->
-    filename:join(emqx:get_env(data_dir), Name).
+    case emqx_mgmt_data_backup:upload_backup_file(Filename, Bin) of
+        ok ->
+            do_import(Filename);
+        {error, Reason} ->
+            {error, Reason}
+    end.
 
 tmp_filename() ->
     Seconds = erlang:system_time(second),
     {{Y, M, D}, {H, MM, S}} = emqx_mgmt_util:datetime(Seconds),
-    io_lib:format("emqx-export-~p-~p-~p-~p-~p-~p.json", [Y, M, D, H, MM, S]).
+    list_to_binary(io_lib:format("emqx-export-~p-~p-~p-~p-~p-~p.json", [Y, M, D, H, MM, S])).

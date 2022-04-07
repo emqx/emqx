@@ -22,6 +22,9 @@
 -include_lib("emqx/include/emqx.hrl").
 -include_lib("emqx/include/emqx_mqtt.hrl").
 
+-elvis([{elvis_style, invalid_dynamic_call, #{ignore => [emqx_mgmt]}}]).
+-elvis([{elvis_style, god_modules, #{ignore => [emqx_mgmt]}}]).
+
 %% Nodes and Brokers API
 -export([ list_nodes/0
         , lookup_node/1
@@ -49,6 +52,7 @@
         , clean_acl_cache_all/1
         , set_ratelimit_policy/2
         , set_quota_policy/2
+        , set_keepalive/2
         ]).
 
 -export([ clean_pem_cache/0
@@ -145,9 +149,8 @@ node_info(Node) when Node =:= node() ->
           memory_used       => proplists:get_value(used, Memory),
           process_available => erlang:system_info(process_limit),
           process_used      => erlang:system_info(process_count),
-          max_fds           =>
-              proplists:get_value( max_fds
-                                 , lists:usort(lists:flatten(erlang:system_info(check_io)))),
+          max_fds           => proplists:get_value(max_fds,
+              lists:usort(lists:flatten(erlang:system_info(check_io)))),
           connections       => ets:info(emqx_channel, size),
           node_status       => 'Running',
           uptime            => iolist_to_binary(proplists:get_value(uptime, BrokerInfo)),
@@ -202,11 +205,11 @@ get_stats(Node) ->
 
 lookup_client({clientid, ClientId}, FormatFun) ->
     lists:append([lookup_client(Node, {clientid, ClientId}, FormatFun)
-                  || Node <- ekka_mnesia:running_nodes()]);
+        || Node <- ekka_mnesia:running_nodes()]);
 
 lookup_client({username, Username}, FormatFun) ->
     lists:append([lookup_client(Node, {username, Username}, FormatFun)
-                  || Node <- ekka_mnesia:running_nodes()]).
+        || Node <- ekka_mnesia:running_nodes()]).
 
 lookup_client(Node, {clientid, ClientId}, {M,F}) when Node =:= node() ->
     lists:append(lists:map(
@@ -229,7 +232,7 @@ lookup_client(Node, {username, Username}, FormatFun) ->
 
 kickout_client(ClientId) ->
     Results = [kickout_client(Node, ClientId) || Node <- ekka_mnesia:running_nodes()],
-    check_every_ok(Results).
+    has_any_ok(Results).
 
 kickout_client(Node, ClientId) when Node =:= node() ->
     emqx_cm:kick_session(ClientId);
@@ -242,7 +245,7 @@ list_acl_cache(ClientId) ->
 
 clean_acl_cache(ClientId) ->
     Results = [clean_acl_cache(Node, ClientId) || Node <- ekka_mnesia:running_nodes()],
-    check_every_ok(Results).
+    has_any_ok(Results).
 
 clean_acl_cache(Node, ClientId) when Node =:= node() ->
     case emqx_cm:lookup_channels(ClientId) of
@@ -275,6 +278,11 @@ set_ratelimit_policy(ClientId, Policy) ->
 
 set_quota_policy(ClientId, Policy) ->
     call_client(ClientId, {quota, Policy}).
+
+set_keepalive(ClientId, Interval)when Interval >= 0 andalso Interval =< 65535 ->
+    call_client(ClientId, {keepalive, Interval});
+set_keepalive(_ClientId, _Interval) ->
+    {error, ?ERROR2, <<"mqtt3.1.1 specification: keepalive must between 0~65535">>}.
 
 clean_pem_cache() ->
     for_nodes(fun clean_pem_cache/1).
@@ -326,7 +334,8 @@ list_subscriptions(Node) ->
 
 list_subscriptions_via_topic(Topic, FormatFun) ->
     lists:append([list_subscriptions_via_topic(Node, Topic, FormatFun)
-                  || Node <- ekka_mnesia:running_nodes()]).
+        || Node <- ekka_mnesia:running_nodes()]).
+
 
 list_subscriptions_via_topic(Node, Topic, {M,F}) when Node =:= node() ->
     MatchSpec = [{{{'_', '$1'}, '_'}, [{'=:=','$1', Topic}], ['$_']}],
@@ -451,8 +460,8 @@ list_listeners(Node) when Node =:= node() ->
     Http = lists:map(fun({Protocol, Opts}) ->
         #{protocol        => Protocol,
           listen_on       => proplists:get_value(port, Opts),
-          acceptors       => maps:get( num_acceptors
-                                     , proplists:get_value(transport_options, Opts, #{}), 0),
+          acceptors       => maps:get(num_acceptors,
+              proplists:get_value(transport_options, Opts, #{}), 0),
           max_conns       => proplists:get_value(max_connections, Opts),
           current_conns   => proplists:get_value(all_connections, Opts),
           shutdown_count  => []}
@@ -501,10 +510,8 @@ add_duration_field([], _Now, Acc) ->
     Acc;
 add_duration_field([Alarm = #{activated := true, activate_at := ActivateAt} | Rest], Now, Acc) ->
     add_duration_field(Rest, Now, [Alarm#{duration => Now - ActivateAt} | Acc]);
-add_duration_field([Alarm = #{ activated := false
-                             , activate_at := ActivateAt
-                             , deactivate_at := DeactivateAt}
-                   | Rest], Now, Acc) ->
+add_duration_field([Alarm = #{activated := false,
+    activate_at := ActivateAt, deactivate_at := DeactivateAt} | Rest], Now, Acc) ->
     add_duration_field(Rest, Now, [Alarm#{duration => DeactivateAt - ActivateAt} | Acc]).
 
 %%--------------------------------------------------------------------
@@ -585,13 +592,13 @@ check_row_limit([Tab | Tables], Limit) ->
         false -> check_row_limit(Tables, Limit)
     end.
 
-check_every_ok(Results) ->
-    case lists:any(fun(Item) -> Item =:= ok end, Results) of
-        true  -> ok;
-        false -> lists:last(Results)
-    end.
-
 max_row_limit() ->
     application:get_env(?APP, max_row_limit, ?MAX_ROW_LIMIT).
 
 table_size(Tab) -> ets:info(Tab, size).
+
+has_any_ok(Results) ->
+    case lists:any(fun(Item) -> Item =:= ok end, Results) of
+        true -> ok;
+        false -> lists:last(Results)
+    end.

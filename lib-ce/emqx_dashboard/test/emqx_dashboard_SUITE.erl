@@ -58,6 +58,7 @@ groups() ->
     ].
 
 init_per_suite(Config) ->
+    application:load(emqx_plugin_libs),
     ok = emqx_ct_helpers:start_apps([emqx_modules, emqx_management, emqx_dashboard]),
     Config.
 

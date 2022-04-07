@@ -542,4 +542,22 @@
 -define(SHARE(Group, Topic), emqx_topic:join([<<?SHARE>>, Group, Topic])).
 -define(IS_SHARE(Topic), case Topic of <<?SHARE, _/binary>> -> true; _ -> false end).
 
+-define(TYPE_NAMES, {
+          'CONNECT'
+        , 'CONNACK'
+        , 'PUBLISH'
+        , 'PUBACK'
+        , 'PUBREC'
+        , 'PUBREL'
+        , 'PUBCOMP'
+        , 'SUBSCRIBE'
+        , 'SUBACK'
+        , 'UNSUBSCRIBE'
+        , 'UNSUBACK'
+        , 'PINGREQ'
+        , 'PINGRESP'
+        , 'DISCONNECT'
+        , 'AUTH'
+    }).
+
 -endif.

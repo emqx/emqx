@@ -36,6 +36,8 @@
         , server/1
         , put_request_failed_action/1
         , get_request_failed_action/0
+        , put_pool_size/1
+        , get_pool_size/0
         ]).
 
 %% gen_server callbacks
@@ -93,11 +95,11 @@
 start_link(Servers, AutoReconnect, ReqOpts, HooksOpts) ->
     gen_server:start_link(?MODULE, [Servers, AutoReconnect, ReqOpts, HooksOpts], []).
 
--spec enable(pid(), atom()|string()) -> ok | {error, term()}.
+-spec enable(pid(), atom() | string()) -> ok | {error, term()}.
 enable(Pid, Name) ->
     call(Pid, {load, Name}).
 
--spec disable(pid(), atom()|string()) -> ok | {error, term()}.
+-spec disable(pid(), atom() | string()) -> ok | {error, term()}.
 disable(Pid, Name) ->
     call(Pid, {unload, Name}).
 
@@ -126,6 +128,9 @@ init([Servers, AutoReconnect, ReqOpts0, HooksOpts]) ->
     put_request_failed_action(
       maps:get(request_failed_action, ReqOpts0, deny)
      ),
+    put_pool_size(
+      maps:get(pool_size, ReqOpts0, erlang:system_info(schedulers))
+     ),
 
     %% Load the hook servers
     ReqOpts = maps:without([request_failed_action], ReqOpts0),
@@ -144,6 +149,7 @@ init([Servers, AutoReconnect, ReqOpts0, HooksOpts]) ->
 %% @private
 load_all_servers(Servers, ReqOpts, HooksOpts) ->
     load_all_servers(Servers, ReqOpts, HooksOpts, #{}, #{}).
+
 load_all_servers([], _Request, _HooksOpts, Waiting, Running) ->
     {Waiting, Running};
 load_all_servers([{Name, Options} | More], ReqOpts, HooksOpts, Waiting, Running) ->
@@ -212,7 +218,7 @@ terminate(_Reason, State = #state{running = Running}) ->
 %% in the emqx_exhook:v4.3.5, we have added one new field in the state last:
 %%  - hooks_options :: map()
 code_change({down, _Vsn}, State, [ToVsn]) ->
-    case re:run(ToVsn, "4\\.3\\.[0-4]") of
+    case re:run(ToVsn, "4\\.4\\.0") of
         {match, _} ->
             NState = list_to_tuple(
                        lists:droplast(
@@ -222,7 +228,7 @@ code_change({down, _Vsn}, State, [ToVsn]) ->
             {ok, State}
     end;
 code_change(_Vsn, State, [FromVsn]) ->
-    case re:run(FromVsn, "4\\.3\\.[0-4]") of
+    case re:run(FromVsn, "4\\.4\\.0") of
         {match, _} ->
             NState = list_to_tuple(
                        tuple_to_list(State) ++ [?DEFAULT_HOOK_OPTS]),
@@ -315,6 +321,14 @@ put_request_failed_action(Val) ->
 
 get_request_failed_action() ->
     persistent_term:get({?APP, request_failed_action}).
+
+put_pool_size(Val) ->
+    persistent_term:put({?APP, pool_size}, Val).
+
+get_pool_size() ->
+    %% Avoid the scenario that the parameter is not set after
+    %% the hot upgrade completed.
+    persistent_term:get({?APP, pool_size}, erlang:system_info(schedulers)).
 
 save(Name, ServerState) ->
     Saved = persistent_term:get(?APP, []),

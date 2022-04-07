@@ -358,6 +358,31 @@ message Message {
   bytes  payload = 6;
 
   uint64 timestamp = 7;
+
+  // The key of header can be:
+  //  - username:
+  //    * Readonly
+  //    * The username of sender client
+  //    * Value type: utf8 string
+  //  - protocol:
+  //    * Readonly
+  //    * The protocol name of sender client
+  //    * Value type: string enum with "mqtt", "mqtt-sn", ...
+  //  - peerhost:
+  //    * Readonly
+  //    * The peerhost of sender client
+  //    * Value type: ip address string
+  //  - allow_publish:
+  //    * Writable
+  //    * Whether to allow the message to be published by emqx
+  //    * Value type: string enum with "true", "false", default is "true"
+  //
+  // Notes: All header may be missing, which means that the message does not
+  //   carry these headers. We can guarantee that clients coming from MQTT,
+  //   MQTT-SN, CoAP, LwM2M and other natively supported protocol clients will
+  //   carry these headers, but there is no guarantee that messages published
+  //   by other means will do, e.g. messages published by HTTP-API
+  map<string, string> headers = 8;
 }
 
 message Property {
