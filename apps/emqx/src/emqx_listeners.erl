@@ -61,7 +61,7 @@
 id_example() -> 'tcp:default'.
 
 %% @doc List configured listeners.
--spec list_raw() -> [{ListenerId :: atom(), Type :: atom(), ListenerConf :: map()}].
+-spec list_raw() -> [{ListenerId :: atom(), Type :: binary(), ListenerConf :: map()}].
 list_raw() ->
     [{listener_id(Type, LName), Type, LConf} || {Type, LName, LConf} <- do_list_raw()].
 
@@ -76,7 +76,7 @@ format_list(Listener) ->
             Running = is_running(Type, listener_id(Type, LName), LConf),
             {Type, LName, maps:put(running, Running, LConf)}
         end
-        || {LName, LConf} <- maps:to_list(Conf), is_map(LConf)
+     || {LName, LConf} <- maps:to_list(Conf), is_map(LConf)
     ].
 
 do_list_raw() ->
@@ -94,13 +94,20 @@ format_raw_listeners({Type, Conf}) ->
             LConf1 = maps:remove(<<"authentication">>, LConf0),
             LConf2 = maps:put(<<"running">>, Running, LConf1),
             {Type, LName, LConf2}
-        end, maps:to_list(Conf)).
+        end,
+        maps:to_list(Conf)
+    ).
 
 -spec is_running(ListenerId :: atom()) -> boolean() | {error, not_found}.
 is_running(ListenerId) ->
     {Type, Name} = parse_listener_id(ListenerId),
-    case [ Running || {Type0, Name0, #{running := Running}} <- list(),
-        Type0 =:= Type, Name0 =:= Name]
+    case
+        [
+            Running
+         || {Type0, Name0, #{running := Running}} <- list(),
+            Type0 =:= Type,
+            Name0 =:= Name
+        ]
     of
         [] -> {error, not_found};
         [IsRunning] -> IsRunning
@@ -109,7 +116,8 @@ is_running(ListenerId) ->
 is_running(Type, ListenerId, Conf) when Type =:= tcp; Type =:= ssl ->
     ListenOn =
         case Conf of
-            #{bind := Bind} -> Bind;
+            #{bind := Bind} ->
+                Bind;
             #{<<"bind">> := Bind} ->
                 case emqx_schema:to_ip_port(binary_to_list(Bind)) of
                     {ok, L} -> L;
@@ -340,10 +348,15 @@ post_config_update(_, _Req, NewListeners, OldListeners, _AppEnvs) ->
         perform_listener_changes(fun delete_authentication/3, Removed),
         perform_listener_changes(fun start_listener/3, Added),
         perform_listener_changes(fun restart_listener/3, Updated)
-    catch error : {failed_to_start, ListenerId, Bind, Reason} ->
-        Error = lists:flatten(io_lib:format("~ts(~ts) failed with ~ts",
-            [ListenerId, Bind, element(1, Reason)])),
-        {error, Error}
+    catch
+        error:{failed_to_start, ListenerId, Bind, Reason} ->
+            Error = lists:flatten(
+                io_lib:format(
+                    "~ts(~ts) failed with ~ts",
+                    [ListenerId, Bind, element(1, Reason)]
+                )
+            ),
+            {error, Error}
     end.
 
 perform_listener_changes(Action, MapConfs) ->
