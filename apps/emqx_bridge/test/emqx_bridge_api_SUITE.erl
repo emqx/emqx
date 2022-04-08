@@ -291,6 +291,7 @@ do_start_stop_bridges(Type) ->
 
 t_enable_disable_bridges(_) ->
     %% assert we there's no bridges at first
+    
     {ok, 200, <<"[]">>} = request(get, uri(["bridges"]), []),
 
     Port = start_http_server(fun handle_fun_200_ok/2),
