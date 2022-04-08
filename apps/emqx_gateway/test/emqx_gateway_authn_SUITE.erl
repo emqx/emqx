@@ -93,11 +93,11 @@ end_per_testcase(_Case, Config) ->
 
 t_case_coap(_) ->
     Login = fun(URI, Checker) ->
-                    Action = fun(Channel) ->
-                                     Req = emqx_coap_SUITE:make_req(post),
-                                     Checker(emqx_coap_SUITE:do_request(Channel, URI, Req))
-                             end,
-                    emqx_coap_SUITE:do(Action)
+        Action = fun(Channel) ->
+            Req = emqx_coap_SUITE:make_req(post),
+            Checker(emqx_coap_SUITE:do_request(Channel, URI, Req))
+        end,
+        emqx_coap_SUITE:do(Action)
     end,
     Prefix = emqx_coap_SUITE:mqtt_prefix(),
     RightUrl =

@@ -42,6 +42,7 @@ init_per_suite(Conf) ->
     Conf.
 
 end_per_suite(_Conf) ->
+    meck:unload(emqx_access_control),
     ok.
 
 %%--------------------------------------------------------------------

@@ -136,8 +136,8 @@ on_start_auth(authn_http) ->
 
     %% set handler for test server
     Handler = fun(Req0, State) ->
-                      ct:pal("Authn Req:~p~nState:~p~n", [Req0, State]),
-                      case cowboy_req:match_qs([username, password], Req0) of
+        ct:pal("Authn Req:~p~nState:~p~n", [Req0, State]),
+        case cowboy_req:match_qs([username, password], Req0) of
             #{
                 username := <<"admin">>,
                 password := <<"public">>
@@ -154,8 +154,8 @@ on_start_auth(authn_http) ->
 
 on_stop_auth(authn_http) ->
     Delete = fun(Gateway) ->
-                     Path = io_lib:format("/gateway/~ts/authentication", [Gateway]),
-                     {204, _} = request(delete, Path)
+        Path = io_lib:format("/gateway/~ts/authentication", [Gateway]),
+        {204, _} = request(delete, Path)
     end,
     lists:foreach(Delete, ?GATEWAYS),
     ok = emqx_authn_http_test_server:stop().
