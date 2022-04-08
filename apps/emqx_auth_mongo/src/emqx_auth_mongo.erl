@@ -35,6 +35,10 @@
         , query_multi/3
         ]).
 
+-export([ available/2
+        , available/3
+        ]).
+
 -spec(register_metrics() -> ok).
 register_metrics() ->
     lists:foreach(fun emqx_metrics:ensure/1, ?AUTH_METRICS).
@@ -96,6 +100,56 @@ is_superuser(Pool, #superquery{collection = Coll, field = Field, selector = Sele
                 _False -> false
             end
     end.
+
+%%--------------------------------------------------------------------
+%% Availability Test
+%%--------------------------------------------------------------------
+
+available(Pool, #superquery{collection = Collection, selector = Selector}) ->
+    available(Pool, Collection, maps:from_list(replvars(Selector, test_client_info())));
+available(Pool, #authquery{collection = Collection, selector = Selector}) ->
+    available(Pool, Collection, maps:from_list(replvars(Selector, test_client_info())));
+available(Pool, #aclquery{collection = Collection, selector = Selectors}) ->
+    Fun =
+        fun(Selector) ->
+            maps:from_list(emqx_auth_mongo:replvars(Selector, test_client_info()))
+        end,
+    available(Pool, Collection, lists:map(Fun, Selectors), fun query_multi/3).
+
+available(Pool, Collection, Query) ->
+    available(Pool, Collection, Query, fun query/3).
+
+available(Pool, Collection, Query, Fun) ->
+    try Fun(Pool, Collection, Query) of
+        {error, Reason} ->
+            ?LOG(error, "[MongoDB] ~p availability test error: ~0p", [Collection, Reason]),
+            {error, Reason};
+        Error = #{<<"code">> := Code} ->
+            CodeName = maps:get(<<"codeName">>, Error, undefined),
+            ErrorMessage = maps:get(<<"errmsg">>, Error, undefined),
+            ?LOG(error, "[MongoDB] ~p availability test error, code: ~p Name: ~0p Message: ~0p",
+                [Collection, Code, CodeName, ErrorMessage]),
+            {error, {mongo_error, Code}};
+        _Return ->
+            %% Any success result is fine.
+            ok
+    catch E:R:S ->
+        ?LOG(error, "[MongoDB] ~p availability test error, ~p: ~0p: ~0p", [Collection, E, R, S]),
+        {error, R}
+    end.
+
+%% Test client info
+test_client_info() ->
+    #{
+        clientid => <<"EMQX_availability_test_client">>,
+        username => <<"EMQX_availability_test_username">>,
+        cn => <<"EMQX_availability_test_cn">>,
+        dn => <<"EMQX_availability_test_dn">>
+    }.
+
+%%--------------------------------------------------------------------
+%% Internal func
+%%--------------------------------------------------------------------
 
 replvars(VarList, ClientInfo) ->
     lists:map(fun(Var) -> replvar(Var, ClientInfo) end, VarList).
