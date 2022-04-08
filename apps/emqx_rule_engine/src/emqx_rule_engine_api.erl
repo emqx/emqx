@@ -323,13 +323,13 @@ show_resource(#{id := Id}, _Params) ->
     case emqx_rule_registry:find_resource(Id) of
         {ok, R} ->
             Status =
-                [begin
-                    St = case rpc:call(Node, emqx_rule_engine, get_resource_status, [Id]) of
-                        {ok, St0} -> St0;
-                        {error, _} -> #{is_alive => false}
-                    end,
-                    maps:put(node, Node, St)
-                end || Node <- ekka_mnesia:running_nodes()],
+                lists:concat(
+                  [ case rpc:call(Node, emqx_rule_engine, get_resource_status, [Id]) of
+                        {badrpc, _} -> [];
+                        {ok, St} -> [maps:put(node, Node, St)];
+                        {error, _} -> [maps:put(node, Node, #{is_alive => false})]
+                    end
+                    || Node <- ekka_mnesia:running_nodes()]),
             return({ok, maps:put(status, Status, record_to_map(R))});
         not_found ->
             return({error, 404, <<"Not Found">>})
@@ -575,9 +575,17 @@ sort_by(Pos, TplList) ->
         end, TplList).
 
 get_rule_metrics(Id) ->
-    [maps:put(node, Node, rpc:call(Node, emqx_rule_metrics, get_rule_metrics, [Id]))
-     || Node <- ekka_mnesia:running_nodes()].
+    lists:concat(
+      [ case rpc:call(Node, emqx_rule_metrics, get_rule_metrics, [Id]) of
+            {badrpc, _} -> [];
+            Res -> [maps:put(node, Node, Res)]
+        end
+        || Node <- ekka_mnesia:running_nodes()]).
 
 get_action_metrics(Id) ->
-    [maps:put(node, Node, rpc:call(Node, emqx_rule_metrics, get_action_metrics, [Id]))
-     || Node <- ekka_mnesia:running_nodes()].
+    lists:concat(
+      [ case rpc:call(Node, emqx_rule_metrics, get_action_metrics, [Id]) of
+            {badrpc, _} -> [];
+            Res -> [maps:put(node, Node, Res)]
+        end
+        || Node <- ekka_mnesia:running_nodes()]).
