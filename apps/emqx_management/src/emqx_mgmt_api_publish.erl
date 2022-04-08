@@ -14,53 +14,80 @@
 %% limitations under the License.
 %%--------------------------------------------------------------------
 -module(emqx_mgmt_api_publish).
-%% API
+
 -include_lib("emqx/include/emqx.hrl").
+-include_lib("typerefl/include/types.hrl").
 
 -behaviour(minirest_api).
 
--import(emqx_mgmt_util, [ object_schema/1
-                        , object_schema/2
-                        , object_array_schema/1
-                        , object_array_schema/2
-                        , properties/1
-                        ]).
-
--export([api_spec/0]).
+-export([ api_spec/0
+        , paths/0
+        , schema/1
+        , fields/1
+        ]).
 
 -export([ publish/2
         , publish_batch/2]).
 
 api_spec() ->
-    {[publish_api(), publish_bulk_api()], []}.
+    emqx_dashboard_swagger:spec(?MODULE, #{check_schema => true, translate_body => true}).
 
-publish_api() ->
-    MeteData = #{
+paths() ->
+    ["/publish", "/publish/bulk"].
+
+schema("/publish") ->
+    #{
+        'operationId' => publish,
         post => #{
-            description => <<"Publish">>,
-            'requestBody' => object_schema(maps:without([id], properties())),
+            description => <<"Publish Message">>,
+            'requestBody' => hoconsc:mk(hoconsc:ref(?MODULE, publish_message)),
             responses => #{
-                <<"200">> => object_schema(properties(), <<"publish ok">>)}}},
-    {"/publish", MeteData, publish}.
+                200 => hoconsc:mk(hoconsc:ref(?MODULE, publish_message_info))
+            }
+        }
+    };
 
-publish_bulk_api() ->
-    MeteData = #{
+schema("/publish/bulk") ->
+    #{
+        'operationId' => publish_batch,
         post => #{
-            description => <<"publish">>,
-            'requestBody' => object_array_schema(maps:without([id], properties())),
+            description => <<"Publish Messages">>,
+            'requestBody' => hoconsc:mk(hoconsc:array(hoconsc:ref(?MODULE, publish_message)), #{}),
             responses => #{
-                <<"200">> => object_array_schema(properties(), <<"publish ok">>)}}},
-    {"/publish/bulk", MeteData, publish_batch}.
+                200 => hoconsc:mk(hoconsc:array(hoconsc:ref(?MODULE, publish_message_info)), #{})
+            }
+        }
+    }.
 
-properties() ->
-    properties([
-        {id, string, <<"Message Id">>},
-        {topic, string, <<"Topic">>},
-        {qos, integer, <<"QoS">>, [0, 1, 2]},
-        {payload, string, <<"Topic">>},
-        {from, string, <<"Message from">>},
-        {retain, boolean, <<"Retain message flag, nullable, default false">>}
-    ]).
+fields(publish_message) ->
+    [
+        {topic, hoconsc:mk(binary(), #{
+            desc => <<"Topic Name">>,
+            required => true,
+            example => <<"api/example/topic">>})},
+        {qos, hoconsc:mk(emqx_schema:qos(), #{
+            desc => <<"MQTT QoS">>,
+            required => false,
+            default => 0})},
+        {from, hoconsc:mk(binary(), #{
+            desc => <<"From client ID">>,
+            required => false,
+            example => <<"api_example_client">>})},
+        {payload, hoconsc:mk(binary(), #{
+            desc => <<"MQTT Payload">>,
+            required => true,
+            example => <<"hello emqx api">>})},
+        {retain, hoconsc:mk(boolean(), #{
+            desc => <<"MQTT Retain Message">>,
+            required => false,
+            default => false})}
+    ];
+
+fields(publish_message_info) ->
+    [
+        {id, hoconsc:mk(binary(), #{
+            desc => <<"Internal Message ID">>})}
+    ] ++ fields(publish_message).
 
 publish(post, #{body := Body}) ->
     Message = message(Body),
@@ -77,7 +104,7 @@ message(Map) ->
     QoS     = maps:get(<<"qos">>, Map, 0),
     Topic   = maps:get(<<"topic">>, Map),
     Payload = maps:get(<<"payload">>, Map),
-    Retain = maps:get(<<"retain">>, Map, false),
+    Retain  = maps:get(<<"retain">>, Map, false),
     emqx_message:make(From, QoS, Topic, Payload, #{retain => Retain}, #{}).
 
 messages(List) ->
