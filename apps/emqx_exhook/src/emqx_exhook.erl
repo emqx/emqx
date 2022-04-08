@@ -30,6 +30,11 @@
         , call_fold/3
         ]).
 
+-export([request_meta/0]).
+
+-import(emqx_exhook_handler, [stringfy/1]).
+%% TODO: move util functions to an independent module
+
 %%--------------------------------------------------------------------
 %% Mgmt APIs
 %%--------------------------------------------------------------------
@@ -116,3 +121,10 @@ deny_action_result('message.publish', Msg) ->
     %% TODO: Not support to deny a message
     %% maybe we can put the 'allow_publish' into message header
     Msg.
+
+request_meta() ->
+    #{ node => stringfy(node())
+     , version => emqx_sys:version()
+     , sysdescr => emqx_sys:sysdescr()
+     , cluster_name => emqx_sys:cluster_name()
+     }.

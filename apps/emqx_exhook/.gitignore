@@ -25,5 +25,5 @@ data/
 *.class
 Mnesia.nonode@nohost/
 src/emqx_exhook_pb.erl
-src/emqx_exhook_v_1_hook_provider_client.erl
-src/emqx_exhook_v_1_hook_provider_bhvr.erl
+src/emqx_exhook_v_*_hook_provider_client.erl
+src/emqx_exhook_v_*_hook_provider_bhvr.erl

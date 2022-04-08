@@ -22,6 +22,7 @@ option java_multiple_files = true;
 option java_package = "io.emqx.exhook";
 option java_outer_classname = "EmqxExHookProto";
 
+// Proto package compatible, Don't need an updated version..
 package emqx.exhook.v1;
 
 service HookProvider {
@@ -76,6 +77,8 @@ service HookProvider {
 message ProviderLoadedRequest {
 
   BrokerInfo broker = 1;
+
+  RequestMeta meta = 2;
 }
 
 message LoadedResponse {
@@ -83,7 +86,11 @@ message LoadedResponse {
   repeated HookSpec hooks = 1;
 }
 
-message ProviderUnloadedRequest { }
+message ProviderUnloadedRequest {
+
+  RequestMeta meta = 1;
+}
+
 
 message ClientConnectRequest {
 
@@ -93,6 +100,8 @@ message ClientConnectRequest {
   //
   // It should be empty on MQTT v3.1.1/v3.1 or others protocol
   repeated Property props = 2;
+
+  RequestMeta meta = 3;
 }
 
 message ClientConnackRequest {
@@ -102,11 +111,15 @@ message ClientConnackRequest {
   string result_code = 2;
 
   repeated Property props = 3;
+
+  RequestMeta meta = 4;
 }
 
 message ClientConnectedRequest {
 
   ClientInfo clientinfo = 1;
+
+  RequestMeta meta = 2;
 }
 
 message ClientDisconnectedRequest {
@@ -114,6 +127,8 @@ message ClientDisconnectedRequest {
   ClientInfo clientinfo = 1;
 
   string reason = 2;
+
+  RequestMeta meta = 3;
 }
 
 message ClientAuthenticateRequest {
@@ -121,6 +136,8 @@ message ClientAuthenticateRequest {
   ClientInfo clientinfo = 1;
 
   bool result = 2;
+
+  RequestMeta meta = 3;
 }
 
 message ClientCheckAclRequest {
@@ -139,6 +156,8 @@ message ClientCheckAclRequest {
   string topic = 3;
 
   bool result = 4;
+
+  RequestMeta meta = 5;
 }
 
 message ClientSubscribeRequest {
@@ -148,6 +167,8 @@ message ClientSubscribeRequest {
   repeated Property props = 2;
 
   repeated TopicFilter topic_filters = 3;
+
+  RequestMeta meta = 4;
 }
 
 message ClientUnsubscribeRequest {
@@ -157,11 +178,15 @@ message ClientUnsubscribeRequest {
   repeated Property props = 2;
 
   repeated TopicFilter topic_filters = 3;
+
+  RequestMeta meta = 4;
 }
 
 message SessionCreatedRequest {
 
   ClientInfo clientinfo = 1;
+
+  RequestMeta meta = 2;
 }
 
 message SessionSubscribedRequest {
@@ -171,6 +196,8 @@ message SessionSubscribedRequest {
   string topic = 2;
 
   SubOpts subopts = 3;
+
+  RequestMeta meta = 4;
 }
 
 message SessionUnsubscribedRequest {
@@ -178,21 +205,29 @@ message SessionUnsubscribedRequest {
   ClientInfo clientinfo = 1;
 
   string topic = 2;
+
+  RequestMeta meta = 3;
 }
 
 message SessionResumedRequest {
 
   ClientInfo clientinfo = 1;
+
+  RequestMeta meta = 2;
 }
 
 message SessionDiscardedRequest {
 
   ClientInfo clientinfo = 1;
+
+  RequestMeta meta = 2;
 }
 
 message SessionTakeoveredRequest {
 
   ClientInfo clientinfo = 1;
+
+  RequestMeta meta = 2;
 }
 
 message SessionTerminatedRequest {
@@ -200,11 +235,15 @@ message SessionTerminatedRequest {
   ClientInfo clientinfo = 1;
 
   string reason = 2;
+
+  RequestMeta meta = 3;
 }
 
 message MessagePublishRequest {
 
   Message message = 1;
+
+  RequestMeta meta = 2;
 }
 
 message MessageDeliveredRequest {
@@ -212,6 +251,8 @@ message MessageDeliveredRequest {
   ClientInfo clientinfo = 1;
 
   Message message = 2;
+
+  RequestMeta meta = 3;
 }
 
 message MessageDroppedRequest {
@@ -219,6 +260,8 @@ message MessageDroppedRequest {
   Message message = 1;
 
   string reason = 2;
+
+  RequestMeta meta = 3;
 }
 
 message MessageAckedRequest {
@@ -226,6 +269,8 @@ message MessageAckedRequest {
   ClientInfo clientinfo = 1;
 
   Message message = 2;
+
+  RequestMeta meta = 3;
 }
 
 //------------------------------------------------------------------------------
@@ -429,4 +474,15 @@ message SubOpts {
   // If the value is 1, Application Messages MUST NOT be forwarded to a
   // connection with a ClientID equal to the ClientID of the publishing
   uint32 nl = 5;
+}
+
+message RequestMeta {
+
+  string node = 1;
+
+  string version = 2;
+
+  string sysdescr = 3;
+
+  string cluster_name = 4;
 }

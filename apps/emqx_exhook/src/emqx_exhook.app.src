@@ -1,3 +1,4 @@
+%% -*- mode: erlang -*-
 {application, emqx_exhook,
  [{description, "EMQ X Extension for Hook"},
   {vsn, "4.4.1"},

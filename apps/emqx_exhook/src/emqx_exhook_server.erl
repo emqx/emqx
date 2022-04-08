@@ -276,23 +276,24 @@ match_topic_filter(TopicName, TopicFilter) ->
 
 -spec do_call(string(), atom(), map(), map()) -> {ok, map()} | {error, term()}.
 do_call(ChannName, Fun, Req, ReqOpts) ->
+    NReq = Req#{meta => emqx_exhook:request_meta()},
     Options = ReqOpts#{channel => ChannName},
-    ?LOG(debug, "Call ~0p:~0p(~0p, ~0p)", [?PB_CLIENT_MOD, Fun, Req, Options]),
-    case catch apply(?PB_CLIENT_MOD, Fun, [Req, Options]) of
+    ?LOG(debug, "Call ~0p:~0p(~0p, ~0p)", [?PB_CLIENT_MOD, Fun, NReq, Options]),
+    case catch apply(?PB_CLIENT_MOD, Fun, [NReq, Options]) of
         {ok, Resp, Metadata} ->
             ?LOG(debug, "Response {ok, ~0p, ~0p}", [Resp, Metadata]),
             {ok, Resp};
         {error, {Code, Msg}, _Metadata} ->
             ?LOG(error, "CALL ~0p:~0p(~0p, ~0p) response errcode: ~0p, errmsg: ~0p",
-                        [?PB_CLIENT_MOD, Fun, Req, Options, Code, Msg]),
+                        [?PB_CLIENT_MOD, Fun, NReq, Options, Code, Msg]),
             {error, {Code, Msg}};
         {error, Reason} ->
             ?LOG(error, "CALL ~0p:~0p(~0p, ~0p) error: ~0p",
-                        [?PB_CLIENT_MOD, Fun, Req, Options, Reason]),
+                        [?PB_CLIENT_MOD, Fun, NReq, Options, Reason]),
             {error, Reason};
         {'EXIT', {Reason, Stk}} ->
             ?LOG(error, "CALL ~0p:~0p(~0p, ~0p) throw an exception: ~0p, stacktrace: ~0p",
-                        [?PB_CLIENT_MOD, Fun, Req, Options, Reason, Stk]),
+                        [?PB_CLIENT_MOD, Fun, NReq, Options, Reason, Stk]),
             {error, Reason}
     end.
 

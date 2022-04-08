@@ -112,8 +112,8 @@ t_rpc(Config) when is_list(Config) ->
     ClientId = <<"ClientId">>,
     try
         {ok, ConnPid} = emqtt:start_link([{clientid, ClientId}]),
-        {ok, _Props} = emqtt:connect(ConnPid),
-        {ok, _Props, [1]} = emqtt:subscribe(ConnPid, {<<"forwarded/t_rpc/one">>, ?QOS_1}),
+        {ok, _} = emqtt:connect(ConnPid),
+        {ok, _, [1]} = emqtt:subscribe(ConnPid, {<<"forwarded/t_rpc/one">>, ?QOS_1}),
         timer:sleep(100),
         {ok, _PacketId} = emqtt:publish(ConnPid, <<"t_rpc/one">>, <<"hello">>, ?QOS_1),
         timer:sleep(100),
@@ -151,14 +151,14 @@ t_mqtt(Config) when is_list(Config) ->
             ssl => false,
             %% Consume back to forwarded message for verification
             %% NOTE: this is a indefenite loopback without mocking emqx_bridge_worker:import_batch/1
-            subscriptions => [{SendToTopic2, _QoS = 1}],
+            subscriptions => [{SendToTopic2, ?QOS_1}],
             receive_mountpoint => <<"receive/aws/">>,
             start_type => auto},
     {ok, Pid} = emqx_bridge_worker:start_link(?FUNCTION_NAME, Cfg),
     ClientId = <<"client-1">>,
     try
         ?assertEqual([{SendToTopic2, 1}], emqx_bridge_worker:get_subscriptions(Pid)),
-        ok = emqx_bridge_worker:ensure_subscription_present(Pid, SendToTopic3, _QoS = 1),
+        ok = emqx_bridge_worker:ensure_subscription_present(Pid, SendToTopic3, ?QOS_1),
         ?assertEqual([{SendToTopic3, 1},{SendToTopic2, 1}],
                      emqx_bridge_worker:get_subscriptions(Pid)),
         {ok, ConnPid} = emqtt:start_link([{clientid, ClientId}]),

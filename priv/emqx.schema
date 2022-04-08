@@ -2401,7 +2401,7 @@ end}.
   {datatype, {enum, [local,leader,quorum,all]}}
 ]}.
 
-%% @doc Shared Subscription Dispatch Strategy.
+%% @doc Default shared Subscription Dispatch Strategy.
 {mapping, "broker.shared_subscription_strategy", "emqx.shared_subscription_strategy", [
   {default, round_robin},
   {datatype,
@@ -2410,10 +2410,36 @@ end}.
      round_robin, %% round robin alive subscribers one message after another
      sticky, %% pick a random subscriber and stick to it
      hash, %% hash client ID to a group member
+     local, %% send to some locally available subscriber
      hash_clientid,
      hash_topic
     ]}}
 ]}.
+
+%% @doc Per group Shared Subscription Dispatch Strategy
+{mapping, "broker.$name.shared_subscription_strategy", "emqx.shared_subscription_strategy_per_group", [
+  {default, round_robin},
+  {datatype,
+   {enum,
+    [random, %% randomly pick a subscriber
+     round_robin, %% round robin alive subscribers one message after another
+     sticky, %% pick a random subscriber and stick to it
+     hash, %% hash client ID to a group member
+     local, %% send to some locally available subscriber
+     hash_clientid,
+     hash_topic
+    ]}}
+]}.
+
+{translation, "emqx.shared_subscription_strategy_per_group", fun(Conf) ->
+  Conf0 = cuttlefish_variable:filter_by_prefix("broker", Conf),
+  Groups = lists:filtermap(fun({["broker", Group, "shared_subscription_strategy"], Strategy}) ->
+                       {true, {Group, Strategy}};
+                     (_) ->
+                       false
+                  end, Conf0),
+  maps:from_list(Groups)
+end}.
 
 %% @doc Enable or disable shared dispatch acknowledgement for QoS1 and QoS2 messages
 {mapping, "broker.shared_dispatch_ack_enabled", "emqx.shared_dispatch_ack_enabled",

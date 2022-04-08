@@ -265,7 +265,7 @@ parse_packet(#mqtt_packet_header{type = ?CONNACK}, <<AckFlags:8, ReasonCode:8, R
 
 parse_packet(#mqtt_packet_header{type = ?PUBLISH, qos = QoS}, Bin,
              #{strict_mode := StrictMode, version := Ver}) ->
-    {TopicName, Rest} = parse_topic_name(Bin, StrictMode),
+    {TopicName, Rest} = parse_utf8_string(Bin, StrictMode),
     {PacketId, Rest1} = case QoS of
                             ?QOS_0 -> {undefined, Rest};
                             _ -> parse_packet_id(Rest)
@@ -273,6 +273,7 @@ parse_packet(#mqtt_packet_header{type = ?PUBLISH, qos = QoS}, Bin,
     (PacketId =/= undefined) andalso
       StrictMode andalso validate_packet_id(PacketId),
     {Properties, Payload} = parse_properties(Rest1, Ver, StrictMode),
+    ok = ensure_topic_name_valid(StrictMode, TopicName, Properties),
     Publish = #mqtt_packet_publish{topic_name = TopicName,
                                    packet_id  = PacketId,
                                    properties = Properties
@@ -357,8 +358,9 @@ parse_will_message(Packet = #mqtt_packet_connect{will_flag = true,
                                                  proto_ver = Ver},
                    Bin, StrictMode) ->
     {Props, Rest} = parse_properties(Bin, Ver, StrictMode),
-    {Topic, Rest1} = parse_topic_name(Rest, StrictMode),
+    {Topic, Rest1} = parse_utf8_string(Rest, StrictMode),
     {Payload, Rest2} = parse_binary_data(Rest1),
+    ok = ensure_topic_name_valid(StrictMode, Topic, Props),
     {Packet#mqtt_packet_connect{will_props   = Props,
                                 will_topic   = Topic,
                                 will_payload = Payload
@@ -524,13 +526,14 @@ parse_binary_data(Bin)
   when 2 > byte_size(Bin) ->
     error(malformed_binary_data_length).
 
-parse_topic_name(Bin, false) ->
-    parse_utf8_string(Bin, false);
-parse_topic_name(Bin, true) ->
-    case parse_utf8_string(Bin, true) of
-        {<<>>, _Rest} -> error(empty_topic_name);
-        Result -> Result
-    end.
+ensure_topic_name_valid(false, _TopicName, _Properties) ->
+    ok;
+ensure_topic_name_valid(true, TopicName, _Properties) when TopicName =/= <<>> ->
+    ok;
+ensure_topic_name_valid(true, <<>>, #{'Topic-Alias' := _}) ->
+    ok;
+ensure_topic_name_valid(true, <<>>, _) ->
+    error(empty_topic_name).
 
 %%--------------------------------------------------------------------
 %% Serialize MQTT Packet

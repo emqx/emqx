@@ -297,6 +297,7 @@ do_check_and_update_resource(#{id := Id, type := Type, description := NewDescrip
             Config = emqx_rule_validator:validate_params(NewConfig, ParamSpec),
             case test_resource(#{type => Type, config => NewConfig}) of
                 ok ->
+                    delete_resource(Id),
                     _ = ?CLUSTER_CALL(init_resource, [Module, Create, Id, Config]),
                     emqx_rule_registry:add_resource(#resource{
                         id = Id,

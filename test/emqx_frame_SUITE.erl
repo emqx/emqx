@@ -163,12 +163,15 @@ t_parse_malformed_utf8_string(_) ->
     ?catch_error(utf8_string_invalid, emqx_frame:parse(MalformedPacket, ParseState)).
 
 t_parse_empty_topic_name(_) ->
-    Packet = <<48, 4, 0, 0, 0, 1>>,
-    NormalState = emqx_frame:initial_parse_state(#{strict_mode => false}),
-    ?assertMatch({_, _}, emqx_frame:parse(Packet, NormalState)),
+    Packet = ?PUBLISH_PACKET(?QOS_1, <<>>, 1, #{}, <<>>),
+    ?assertEqual(Packet, parse_serialize(Packet, #{strict_mode => false})),
+    ?catch_error(empty_topic_name, parse_serialize(Packet, #{strict_mode => true})).
 
-    StrictState = emqx_frame:initial_parse_state(#{strict_mode => true}),
-    ?catch_error(empty_topic_name, emqx_frame:parse(Packet, StrictState)).
+t_parse_empty_topic_name_with_alias(_) ->
+    Props = #{'Topic-Alias' => 16#AB},
+    Packet = ?PUBLISH_PACKET(?QOS_1, <<>>, 1, Props, <<>>),
+    ?assertEqual(Packet, parse_serialize(Packet, #{strict_mode => false})),
+    ?assertEqual(Packet, parse_serialize(Packet, #{strict_mode => true})).
 
 t_parse_frame_proxy_protocol(_) ->
     BinList = [ <<"PROXY TCP4 ">>, <<"PROXY TCP6 ">>, <<"PROXY UNKNOWN">>
