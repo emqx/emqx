@@ -8,8 +8,8 @@ cd -P -- "$(dirname -- "${BASH_SOURCE[0]}")/.."
 PKG_VSN="${PKG_VSN:-$(./pkg-vsn.sh)}"
 case "${PKG_VSN}" in
     4.3*)
-        EMQX_CE_DASHBOARD_VERSION='v4.3.6'
-        EMQX_EE_DASHBOARD_VERSION='v4.3.16'
+        EMQX_CE_DASHBOARD_VERSION='v4.3.7'
+        EMQX_EE_DASHBOARD_VERSION='v4.3.18'
         ;;
     *)
         echo "Unsupported version $PKG_VSN" >&2
