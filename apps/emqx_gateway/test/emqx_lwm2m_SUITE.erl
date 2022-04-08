@@ -186,6 +186,12 @@ end_per_testcase(_AllTestCase, Config) ->
     emqtt:disconnect(?config(emqx_c, Config)),
     ok = application:stop(emqx_gateway).
 
+default_config() ->
+    ?CONF_DEFAULT.
+
+default_port() ->
+    ?PORT.
+
 %%--------------------------------------------------------------------
 %% Cases
 %%--------------------------------------------------------------------

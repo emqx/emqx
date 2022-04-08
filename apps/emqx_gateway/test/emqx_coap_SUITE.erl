@@ -64,6 +64,12 @@ end_per_suite(_) ->
     {ok, _} = emqx:remove_config([<<"gateway">>, <<"coap">>]),
     emqx_mgmt_api_test_util:end_suite([emqx_gateway]).
 
+default_config() ->
+    ?CONF_DEFAULT.
+
+mqtt_prefix() ->
+    ?MQTT_PREFIX.
+
 %%--------------------------------------------------------------------
 %% Test Cases
 %%--------------------------------------------------------------------
@@ -425,3 +431,8 @@ receive_deliver(Wait) ->
     after Wait ->
         {error, timeout}
     end.
+
+get_field(type, #coap_message{type = Type}) ->
+    Type;
+get_field(method, #coap_message{method = Method}) ->
+    Method.

@@ -61,6 +61,12 @@ end_per_suite(_Cfg) ->
     emqx_mgmt_api_test_util:end_suite([emqx_gateway]),
     ok.
 
+default_config() ->
+    ?CONF_DEFAULT.
+
+stomp_ver() ->
+    ?STOMP_VER.
+
 %%--------------------------------------------------------------------
 %% Test Cases
 %%--------------------------------------------------------------------
@@ -843,3 +849,8 @@ parse(Data) ->
     },
     Parser = emqx_stomp_frame:initial_parse_state(ProtoEnv),
     emqx_stomp_frame:parse(Data, Parser).
+
+get_field(command, #stomp_frame{command = Command}) ->
+    Command;
+get_field(body, #stomp_frame{body = Body}) ->
+    Body.
