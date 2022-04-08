@@ -83,21 +83,6 @@
         , do_unsubscribe/2
         ]).
 
-%% Listeners
--export([ do_list_listeners/0
-        , list_listeners/0
-        , list_listeners/1
-        , list_listeners_by_id/1
-        , get_listener/2
-        , manage_listener/2
-        , do_update_listener/2
-        , update_listener/2
-        , update_listener/3
-        , do_remove_listener/1
-        , remove_listener/1
-        , remove_listener/2
-        ]).
-
 %% Alarms
 -export([ get_alarms/1
         , get_alarms/2
@@ -433,80 +418,6 @@ do_unsubscribe(ClientId, Topic) ->
         [{_, Pid}] ->
             Pid ! {unsubscribe, [emqx_topic:parse(Topic)]}
     end.
-
-%%--------------------------------------------------------------------
-%% Listeners
-%%--------------------------------------------------------------------
-
-do_list_listeners() ->
-    [Conf#{node => node(), id => Id} || {Id, Conf} <- emqx_listeners:list()].
-
-list_listeners() ->
-    lists:append([list_listeners(Node) || Node <- mria_mnesia:running_nodes()]).
-
-list_listeners(Node) ->
-    wrap_rpc(emqx_management_proto_v1:list_listeners(Node)).
-
-list_listeners_by_id(Id) ->
-    listener_id_filter(Id, list_listeners()).
-
-get_listener(Node, Id) ->
-    case listener_id_filter(Id, list_listeners(Node)) of
-        [] ->
-            {error, not_found};
-        [Listener] ->
-            Listener
-    end.
-
-listener_id_filter(Id, Listeners) ->
-    Filter = fun(#{id := Id0}) -> Id0 =:= Id end,
-    lists:filter(Filter, Listeners).
-
--spec manage_listener( start_listener | stop_listener | restart_listener
-                     , #{id := atom(), node := node()}
-                     ) -> ok | {error, Reason :: term()}.
-manage_listener(start_listener, #{id := ID, node := Node}) ->
-    wrap_rpc(emqx_broker_proto_v1:start_listener(Node, ID));
-manage_listener(stop_listener, #{id := ID, node := Node}) ->
-    wrap_rpc(emqx_broker_proto_v1:stop_listener(Node, ID));
-manage_listener(restart_listener, #{id := ID, node := Node}) ->
-    wrap_rpc(emqx_broker_proto_v1:restart_listener(Node, ID)).
-
--spec do_update_listener(string(), emqx_config:update_request()) ->
-          map() | {error, _}.
-do_update_listener(Id, Config) ->
-    case emqx_listeners:parse_listener_id(Id) of
-        {error, {invalid_listener_id, Id}} ->
-            {error, {invalid_listener_id, Id}};
-        {Type, Name} ->
-            case emqx:update_config([listeners, Type, Name], Config, #{}) of
-                {ok, #{raw_config := RawConf}} ->
-                    RawConf#{node => node(), id => Id, running => true};
-                {error, Reason} ->
-                    {error, Reason}
-            end
-    end.
-
-update_listener(Id, Config) ->
-    [update_listener(Node, Id, Config) || Node <- mria_mnesia:running_nodes()].
-
-update_listener(Node, Id, Config) ->
-    wrap_rpc(emqx_management_proto_v1:update_listener(Node, Id, Config)).
-
-remove_listener(Id) ->
-    [remove_listener(Node, Id) || Node <- mria_mnesia:running_nodes()].
-
--spec do_remove_listener(string()) -> ok.
-do_remove_listener(Id) ->
-    {Type, Name} = emqx_listeners:parse_listener_id(Id),
-    case emqx:remove_config([listeners, Type, Name], #{}) of
-        {ok, _} -> ok;
-        {error, Reason} ->
-            error(Reason)
-    end.
-
-remove_listener(Node, Id) ->
-    wrap_rpc(emqx_management_proto_v1:remove_listener(Node, Id)).
 
 %%--------------------------------------------------------------------
 %% Get Alarms

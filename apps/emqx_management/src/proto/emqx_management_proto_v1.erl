@@ -18,23 +18,24 @@
 
 -behaviour(emqx_bpapi).
 
--export([ introduced_in/0
+-export([
+    introduced_in/0,
 
-        , node_info/1
-        , broker_info/1
-        , list_subscriptions/1
+    node_info/1,
+    broker_info/1,
+    list_subscriptions/1,
 
-        , list_listeners/1
-        , remove_listener/2
+    list_listeners/1,
+    remove_listener/2,
 
-        , update_listener/3
-        , subscribe/3
-        , unsubscribe/3
+    update_listener/3,
+    subscribe/3,
+    unsubscribe/3,
 
-        , call_client/3
+    call_client/3,
 
-        , get_full_config/1
-        ]).
+    get_full_config/1
+]).
 
 -include_lib("emqx/include/bpapi.hrl").
 
@@ -53,26 +54,26 @@ broker_info(Node) ->
 list_subscriptions(Node) ->
     rpc:call(Node, emqx_mgmt, do_list_subscriptions, []).
 
--spec list_listeners(node()) -> [map()] | {badrpc, _}.
+-spec list_listeners(node()) -> map() | {badrpc, _}.
 list_listeners(Node) ->
-    rpc:call(Node, emqx_mgmt, do_list_listeners, []).
+    rpc:call(Node, emqx_mgmt_api_listeners, do_list_listeners, []).
 
 -spec remove_listener(node(), string()) -> ok | {badrpc, _}.
 remove_listener(Node, Id) ->
-    rpc:call(Node, emqx_mgmt, do_remove_listener, [Id]).
+    rpc:call(Node, emqx_mgmt_api_listeners, do_remove_listener, [Id]).
 
--spec update_listener(node(), string(), emqx_config:update_request()) ->
-          map() | {error, _} | {badrpc, _}.
+-spec update_listener(node(), atom(), emqx_config:update_request()) ->
+    {ok, map()} | {error, _} | {badrpc, _}.
 update_listener(Node, Id, Config) ->
-    rpc:call(Node, emqx_mgmt, do_update_listener, [Id, Config]).
+    rpc:call(Node, emqx_mgmt_api_listeners, do_update_listener, [Id, Config]).
 
 -spec subscribe(node(), emqx_types:clientid(), emqx_types:topic_filters()) ->
-          {subscribe, _} | {error, atom()} | {badrpc, _}.
+    {subscribe, _} | {error, atom()} | {badrpc, _}.
 subscribe(Node, ClientId, TopicTables) ->
     rpc:call(Node, emqx_mgmt, do_subscribe, [ClientId, TopicTables]).
 
 -spec unsubscribe(node(), emqx_types:clientid(), emqx_types:topic()) ->
-          {unsubscribe, _} | {error, _} | {badrpc, _}.
+    {unsubscribe, _} | {error, _} | {badrpc, _}.
 unsubscribe(Node, ClientId, Topic) ->
     rpc:call(Node, emqx_mgmt, do_unsubscribe, [ClientId, Topic]).
 

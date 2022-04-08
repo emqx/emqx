@@ -92,7 +92,8 @@ do_request_api(Method, Request)->
         {ok, {{"HTTP/1.1", Code, _}, _, Return} }
             when Code >= 200 andalso Code =< 299 ->
             {ok, Return};
-        {ok, {Reason, _, _}} ->
+        {ok, {Reason, _, _} = Error} ->
+            ct:pal("error: ~p~n", [Error]),
             {error, Reason}
     end.
 

@@ -24,6 +24,7 @@
 
 %% APIs
 -export([
+    list_raw/0,
     list/0,
     start/0,
     restart/0,
@@ -57,50 +58,70 @@
 -define(TYPES_STRING, ["tcp", "ssl", "ws", "wss", "quic"]).
 
 -spec id_example() -> atom().
-id_example() ->
-    id_example(list()).
-
-id_example([]) ->
-    {ID, _} = hd(list()),
-    ID;
-id_example([{'tcp:default', _} | _]) ->
-    'tcp:default';
-id_example([_ | Listeners]) ->
-    id_example(Listeners).
+id_example() -> 'tcp:default'.
 
 %% @doc List configured listeners.
--spec list() -> [{ListenerId :: atom(), ListenerConf :: map()}].
+-spec list_raw() -> [{ListenerId :: atom(), Type :: binary(), ListenerConf :: map()}].
+list_raw() ->
+    [{listener_id(Type, LName), Type, LConf} || {Type, LName, LConf} <- do_list_raw()].
+
 list() ->
-    [{listener_id(Type, LName), LConf} || {Type, LName, LConf} <- do_list()].
-
-do_list() ->
     Listeners = maps:to_list(emqx:get_config([listeners], #{})),
-    lists:append([list(Type, maps:to_list(Conf)) || {Type, Conf} <- Listeners]).
+    lists:flatmap(fun format_list/1, Listeners).
 
-list(Type, Conf) ->
+format_list(Listener) ->
+    {Type, Conf} = Listener,
     [
         begin
             Running = is_running(Type, listener_id(Type, LName), LConf),
-            {Type, LName, maps:put(running, Running, LConf)}
+            {listener_id(Type, LName), maps:put(running, Running, LConf)}
         end
-     || {LName, LConf} <- Conf, is_map(LConf)
+     || {LName, LConf} <- maps:to_list(Conf), is_map(LConf)
     ].
 
--spec is_running(ListenerId :: atom()) -> boolean() | {error, no_found}.
+do_list_raw() ->
+    Key = <<"listeners">>,
+    Raw = emqx_config:get_raw([Key], #{}),
+    SchemaMod = emqx_config:get_schema_mod(Key),
+    #{Key := RawWithDefault} = emqx_config:fill_defaults(SchemaMod, #{Key => Raw}),
+    Listeners = maps:to_list(RawWithDefault),
+    lists:flatmap(fun format_raw_listeners/1, Listeners).
+
+format_raw_listeners({Type, Conf}) ->
+    lists:map(
+        fun({LName, LConf0}) when is_map(LConf0) ->
+            Running = is_running(binary_to_atom(Type), listener_id(Type, LName), LConf0),
+            LConf1 = maps:remove(<<"authentication">>, LConf0),
+            LConf2 = maps:put(<<"running">>, Running, LConf1),
+            {Type, LName, LConf2}
+        end,
+        maps:to_list(Conf)
+    ).
+
+-spec is_running(ListenerId :: atom()) -> boolean() | {error, not_found}.
 is_running(ListenerId) ->
     case
-        lists:filtermap(
-            fun({_Type, Id, #{running := IsRunning}}) ->
-                Id =:= ListenerId andalso {true, IsRunning}
-            end,
-            do_list()
-        )
+        [
+            Running
+         || {Id, #{running := Running}} <- list(),
+            Id =:= ListenerId
+        ]
     of
-        [IsRunning] -> IsRunning;
-        [] -> {error, not_found}
+        [] -> {error, not_found};
+        [IsRunning] -> IsRunning
     end.
 
-is_running(Type, ListenerId, #{bind := ListenOn}) when Type =:= tcp; Type =:= ssl ->
+is_running(Type, ListenerId, Conf) when Type =:= tcp; Type =:= ssl ->
+    ListenOn =
+        case Conf of
+            #{bind := Bind} ->
+                Bind;
+            #{<<"bind">> := Bind} ->
+                case emqx_schema:to_ip_port(binary_to_list(Bind)) of
+                    {ok, L} -> L;
+                    {error, _} -> binary_to_integer(Bind)
+                end
+        end,
     try esockd:listener({ListenerId, ListenOn}) of
         Pid when is_pid(Pid) ->
             true
@@ -118,10 +139,10 @@ is_running(Type, ListenerId, _Conf) when Type =:= ws; Type =:= wss ->
     end;
 is_running(quic, _ListenerId, _Conf) ->
     %% TODO: quic support
-    {error, no_found}.
+    false.
 
 current_conns(ID, ListenOn) ->
-    {Type, Name} = parse_listener_id(ID),
+    {ok, #{type := Type, name := Name}} = parse_listener_id(ID),
     current_conns(Type, Name, ListenOn).
 
 current_conns(Type, Name, ListenOn) when Type == tcp; Type == ssl ->
@@ -132,7 +153,7 @@ current_conns(_, _, _) ->
     {error, not_support}.
 
 max_conns(ID, ListenOn) ->
-    {Type, Name} = parse_listener_id(ID),
+    {ok, #{type := Type, name := Name}} = parse_listener_id(ID),
     max_conns(Type, Name, ListenOn).
 
 max_conns(Type, Name, ListenOn) when Type == tcp; Type == ssl ->
@@ -164,20 +185,24 @@ start_listener(Type, ListenerName, #{bind := Bind} = Conf) ->
             console_print(
                 "Listener ~ts is NOT started due to: ~p~n.",
                 [listener_id(Type, ListenerName), Reason]
-            );
+            ),
+            ok;
         {ok, _} ->
             console_print(
                 "Listener ~ts on ~ts started.~n",
                 [listener_id(Type, ListenerName), format_addr(Bind)]
-            );
+            ),
+            ok;
         {error, {already_started, Pid}} ->
             {error, {already_started, Pid}};
         {error, Reason} ->
+            ListenerId = listener_id(Type, ListenerName),
+            BindStr = format_addr(Bind),
             ?ELOG(
                 "Failed to start listener ~ts on ~ts: ~0p~n",
-                [listener_id(Type, ListenerName), format_addr(Bind), Reason]
+                [ListenerId, BindStr, Reason]
             ),
-            error(Reason)
+            error({failed_to_start, ListenerId, BindStr, Reason})
     end.
 
 %% @doc Restart all listeners
@@ -316,15 +341,26 @@ delete_authentication(Type, ListenerName, _Conf) ->
 post_config_update(_, _Req, NewListeners, OldListeners, _AppEnvs) ->
     #{added := Added, removed := Removed, changed := Updated} =
         diff_listeners(NewListeners, OldListeners),
-    perform_listener_changes(fun stop_listener/3, Removed),
-    perform_listener_changes(fun delete_authentication/3, Removed),
-    perform_listener_changes(fun start_listener/3, Added),
-    perform_listener_changes(fun restart_listener/3, Updated).
+    try
+        perform_listener_changes(fun stop_listener/3, Removed),
+        perform_listener_changes(fun delete_authentication/3, Removed),
+        perform_listener_changes(fun start_listener/3, Added),
+        perform_listener_changes(fun restart_listener/3, Updated)
+    catch
+        error:{failed_to_start, ListenerId, Bind, Reason} ->
+            Error = lists:flatten(
+                io_lib:format(
+                    "~ts(~ts) failed with ~ts",
+                    [ListenerId, Bind, element(1, Reason)]
+                )
+            ),
+            {error, Error}
+    end.
 
 perform_listener_changes(Action, MapConfs) ->
     lists:foreach(
         fun({Id, Conf}) ->
-            {Type, Name} = parse_listener_id(Id),
+            {ok, #{type := Type, name := Name}} = parse_listener_id(Id),
             Action(Type, Name, Conf)
         end,
         maps:to_list(MapConfs)
@@ -447,7 +483,7 @@ parse_listener_id(Id) ->
     case string:split(str(Id), ":", leading) of
         [Type, Name] ->
             case lists:member(Type, ?TYPES_STRING) of
-                true -> {list_to_existing_atom(Type), list_to_atom(Name)};
+                true -> {ok, #{type => list_to_existing_atom(Type), name => list_to_atom(Name)}};
                 false -> {error, {invalid_listener_id, Id}}
             end;
         _ ->
@@ -480,25 +516,27 @@ tcp_opts(Opts) ->
 
 foreach_listeners(Do) ->
     lists:foreach(
-        fun({Type, LName, LConf}) ->
-            Do(Type, LName, LConf)
+        fun({Id, LConf}) ->
+            {ok, #{type := Type, name := Name}} = parse_listener_id(Id),
+            Do(Type, Name, LConf)
         end,
-        do_list()
+        list()
     ).
 
 has_enabled_listener_conf_by_type(Type) ->
     lists:any(
-        fun({Type0, _LName, LConf}) when is_map(LConf) ->
+        fun({Id, LConf}) when is_map(LConf) ->
+            {ok, #{type := Type0}} = parse_listener_id(Id),
             Type =:= Type0 andalso maps:get(enabled, LConf, true)
         end,
-        do_list()
+        list()
     ).
 
 apply_on_listener(ListenerId, Do) ->
-    {Type, ListenerName} = parse_listener_id(ListenerId),
-    case emqx_config:find_listener_conf(Type, ListenerName, []) of
-        {not_found, _, _} -> error({listener_config_not_found, Type, ListenerName});
-        {ok, Conf} -> Do(Type, ListenerName, Conf)
+    {ok, #{type := Type, name := Name}} = parse_listener_id(ListenerId),
+    case emqx_config:find_listener_conf(Type, Name, []) of
+        {not_found, _, _} -> error({listener_config_not_found, Type, Name});
+        {ok, Conf} -> Do(Type, Name, Conf)
     end.
 
 str(A) when is_atom(A) ->
