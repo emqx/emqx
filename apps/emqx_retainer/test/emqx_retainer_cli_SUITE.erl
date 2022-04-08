@@ -30,10 +30,10 @@ init_per_suite(Config) ->
 end_per_suite(_Config) ->
     emqx_ct_helpers:stop_apps([emqx_retainer]).
 
-init_per_testcase(TestCase, Config) ->
+init_per_testcase(_TestCase, Config) ->
     Config.
 
-end_per_testcase(_TestCase, Config) ->
+end_per_testcase(_TestCase, _Config) ->
     emqx_retainer:clean(<<"#">>).
 
 t_cmd(_) ->

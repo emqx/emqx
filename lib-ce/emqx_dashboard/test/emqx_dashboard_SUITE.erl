@@ -309,8 +309,16 @@ is_lib(Path) ->
     string:prefix(Path, code:lib_dir()) =:= nomatch.
 
 setup_node(Node, Apps) ->
+    LoadedPlugins = emqx_ct_helpers:deps_path(
+                      emqx,
+                      filename:join(["test", "emqx_SUITE_data", "loaded_plugins"])),
+    LoadedModules = emqx_ct_helpers:deps_path(
+                         emqx,
+                         filename:join(["test", "emqx_SUITE_data", "loaded_modules"])),
     EnvHandler =
         fun(emqx) ->
+                application:set_env(emqx, plugins_loaded_file, LoadedPlugins),
+                application:set_env(emqx, modules_loaded_file, LoadedModules),
                 application:set_env(emqx, listeners, []),
                 application:set_env(gen_rpc, port_discovery, manual),
                 ok;
