@@ -273,7 +273,7 @@ format(#resource{id = Id,
                  config = Config,
                  description = Descr}) ->
     Status =
-        lists:flatten(
+        lists:concat(
           [ case rpc:call(Node, emqx_rule_engine, get_resource_status, [Id]) of
                 {badrpc, _} -> [];
                 {ok, St} -> [maps:put(node, Node, St)];
@@ -372,7 +372,7 @@ get_actions() ->
     emqx_rule_registry:get_actions().
 
 get_rule_metrics(Id) ->
-    lists:flatten(
+    lists:concat(
       [ case rpc:call(Node, emqx_rule_metrics, get_rule_metrics, [Id]) of
             {badrpc, _} -> [];
             Res -> [maps:put(node, Node, Res)]
@@ -380,7 +380,7 @@ get_rule_metrics(Id) ->
       || Node <- ekka_mnesia:running_nodes()]).
 
 get_action_metrics(Id) ->
-    lists:flatten(
+    lists:concat(
       [ case rpc:call(Node, emqx_rule_metrics, get_action_metrics, [Id]) of
             {badrpc, _} -> [];
             Res -> [maps:put(node, Node, Res)]
