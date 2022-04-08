@@ -53,7 +53,7 @@ schema("/alarms") ->
             responses => #{
                 200 => [
                     {data, hoconsc:mk(hoconsc:array(hoconsc:ref(?MODULE, alarm)), #{})},
-                    {meta, hoconsc:mk(hoconsc:ref(?MODULE, meta), #{})}
+                    {meta, hoconsc:mk(hoconsc:ref(emqx_dashboard_swagger, meta), #{})}
                 ]
             }
         },
@@ -98,11 +98,8 @@ fields(alarm) ->
                 desc => ?DESC(deactivate_at),
                 example => <<"2021-10-31T10:52:52.548+08:00">>
             })}
-    ];
-fields(meta) ->
-    emqx_dashboard_swagger:fields(page) ++
-        emqx_dashboard_swagger:fields(limit) ++
-        [{count, hoconsc:mk(integer(), #{example => 1})}].
+    ].
+
 %%%==============================================================================================
 %% parameters trans
 alarms(get, #{query_string := QString}) ->

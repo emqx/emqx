@@ -24,7 +24,7 @@
 -include_lib("emqx/include/logger.hrl").
 -include_lib("emqx/include/emqx_authentication.hrl").
 
--import(hoconsc, [mk/2, ref/1]).
+-import(hoconsc, [mk/2, ref/1, ref/2]).
 -import(emqx_dashboard_swagger, [error_codes/2]).
 
 -define(BAD_REQUEST, 'BAD_REQUEST').
@@ -146,13 +146,7 @@ fields(response_user) ->
         {is_superuser, mk(boolean(), #{default => false, required => false})}
     ];
 fields(response_users) ->
-    paginated_list_type(ref(response_user));
-fields(pagination_meta) ->
-    [
-        {page, pos_integer()},
-        {limit, pos_integer()},
-        {count, non_neg_integer()}
-    ].
+    paginated_list_type(ref(response_user)).
 
 schema("/authentication") ->
     #{
@@ -1316,7 +1310,7 @@ binfmt(Fmt, Args) -> iolist_to_binary(io_lib:format(Fmt, Args)).
 paginated_list_type(Type) ->
     [
         {data, hoconsc:array(Type)},
-        {meta, ref(pagination_meta)}
+        {meta, ref(emqx_dashboard_swagger, meta)}
     ].
 
 authenticator_array_example() ->

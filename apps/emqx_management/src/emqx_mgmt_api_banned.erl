@@ -62,7 +62,7 @@ schema("/banned") ->
             responses => #{
                 200 => [
                     {data, hoconsc:mk(hoconsc:array(hoconsc:ref(ban)), #{})},
-                    {meta, hoconsc:mk(hoconsc:ref(meta), #{})}
+                    {meta, hoconsc:mk(hoconsc:ref(emqx_dashboard_swagger, meta), #{})}
                 ]
             }
         },
@@ -147,11 +147,7 @@ fields(ban) ->
                 required => false,
                 example => <<"2021-10-25T21:53:47+08:00">>
             })}
-    ];
-fields(meta) ->
-    emqx_dashboard_swagger:fields(page) ++
-        emqx_dashboard_swagger:fields(limit) ++
-        [{count, hoconsc:mk(integer(), #{example => 1})}].
+    ].
 
 banned(get, #{query_string := Params}) ->
     Response = emqx_mgmt_api:paginate(?TAB, Params, ?FORMAT_FUN),

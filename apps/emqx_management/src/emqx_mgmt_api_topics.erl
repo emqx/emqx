@@ -60,7 +60,7 @@ schema("/topics") ->
             responses => #{
                 200 => [
                     {data, hoconsc:mk(hoconsc:array(hoconsc:ref(topic)), #{})},
-                    {meta, hoconsc:mk(hoconsc:ref(meta), #{})}
+                    {meta, hoconsc:mk(hoconsc:ref(emqx_dashboard_swagger, meta), #{})}
                 ]
             }
         }
@@ -91,11 +91,7 @@ fields(topic) ->
                 desc => <<"Node">>,
                 required => true
             })}
-    ];
-fields(meta) ->
-    emqx_dashboard_swagger:fields(page) ++
-        emqx_dashboard_swagger:fields(limit) ++
-        [{count, hoconsc:mk(integer(), #{example => 1})}].
+    ].
 
 %%%==============================================================================================
 %% parameters trans

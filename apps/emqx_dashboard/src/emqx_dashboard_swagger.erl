@@ -135,7 +135,12 @@ fields(limit) ->
         <<")">>
     ]),
     Meta = #{in => query, desc => Desc, default => ?DEFAULT_ROW, example => 50},
-    [{limit, hoconsc:mk(range(1, ?MAX_ROW_LIMIT), Meta)}].
+    [{limit, hoconsc:mk(range(1, ?MAX_ROW_LIMIT), Meta)}];
+fields(count) ->
+    Meta = #{desc => <<"Results count.">>, required => true},
+    [{count, hoconsc:mk(range(0, inf), Meta)}];
+fields(meta) ->
+    fields(page) ++ fields(limit) ++ fields(count).
 
 -spec schema_with_example(hocon_schema:type(), term()) -> hocon_schema:field_schema_map().
 schema_with_example(Type, Example) ->
