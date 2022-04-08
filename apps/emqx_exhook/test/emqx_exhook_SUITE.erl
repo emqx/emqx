@@ -149,9 +149,9 @@ restart_app_with_envs(App, Envs)
   when is_list(Envs) ->
     emqx_ct_helpers:stop_apps([App]),
     HandlerFun =
-        fun(App) ->
+        fun(AppName) ->
                 lists:foreach(fun({Key, Val}) ->
-                                      application:set_env(App, Key, Val)
+                                      application:set_env(AppName, Key, Val)
                               end, Envs)
         end,
     emqx_ct_helpers:start_apps([App], HandlerFun).
