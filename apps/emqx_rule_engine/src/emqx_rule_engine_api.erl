@@ -162,6 +162,7 @@
         , show_rule/2
         , delete_rule/2
         , reset_metrics/2
+        , reset_metrics_local/1
         ]).
 
 -export([ list_actions/2
@@ -260,8 +261,10 @@ delete_rule(#{id := Id}, _Params) ->
     ok = emqx_rule_engine:delete_rule(Id),
     return(ok).
 
+reset_metrics_local(Id) -> emqx_rule_metrics:reset_metrics(Id).
+
 reset_metrics(#{id := Id}, _Params) ->
-    ok = emqx_rule_metrics:reset_metrics(Id),
+    _ = ?CLUSTER_CALL(reset_metrics_local, [Id]),
     return(ok).
 
 %%------------------------------------------------------------------------------
