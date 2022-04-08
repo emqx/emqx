@@ -61,6 +61,7 @@ translate_env() ->
                                    end,
                        SNI = case application:get_env(?APP, server_name_indication, undefined) of
                                  "disable" -> disable;
+                                 "" -> undefined;
                                  SNI0 -> SNI0
                              end,
                        TLSOpts = lists:filter(fun({_K, V}) ->

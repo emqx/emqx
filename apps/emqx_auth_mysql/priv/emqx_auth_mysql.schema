@@ -109,6 +109,7 @@
                          end,
                 SNI = case cuttlefish:conf_get("auth.mysql.ssl.server_name_indication", Conf, undefined) of
                         "disable" -> disable;
+                        "" -> undefined;
                         SNI0 -> SNI0
                       end,
                 Options ++ [{ssl, Filter([{server_name_indication, SNI},

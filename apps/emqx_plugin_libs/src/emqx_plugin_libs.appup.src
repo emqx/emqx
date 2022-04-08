@@ -2,13 +2,13 @@
 
 {VSN,
   [
-    {<<"4\\.3\\.[0-2]">>, [
+    {<<"4\\.3\\.[0-1]">>, [
       {load_module, emqx_plugin_libs_ssl, brutal_purge, soft_purge, []}
     ]},
     {<<".*">>, []}
   ],
   [
-    {<<"4\\.3\\.[0-2]">>, [
+    {<<"4\\.3\\.[0-1]">>, [
       {load_module, emqx_plugin_libs_ssl, brutal_purge, soft_purge, []}
     ]},
     {<<".*">>, []}

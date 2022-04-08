@@ -2,8 +2,7 @@
 {VSN,
   [
     {"4.3.4", [
-      %% There are only changes to the schema file, so we don't need
-      %% any commands here.
+      {load_module, emqx_bridge_mqtt_actions, brutal_purge, soft_purge, []}
     ]},
     {"4.3.3", [
       {load_module, emqx_bridge_mqtt, brutal_purge, soft_purge, []}
@@ -21,6 +20,7 @@
   ],
   [
     {"4.3.4", [
+      {load_module, emqx_bridge_mqtt_actions, brutal_purge, soft_purge, []}
     ]},
     {"4.3.3", [
       {load_module, emqx_bridge_mqtt, brutal_purge, soft_purge, []}
