@@ -32,6 +32,9 @@ public_key_pem() ->
 test_key(Filename) ->
     test_key(Filename, decoded).
 
+legacy_license() ->
+    test_key("emqx.lic", pem).
+
 test_key(Filename, Format) ->
     Dir = code:lib_dir(emqx_license, test),
     Path = filename:join([Dir, "data", Filename]),

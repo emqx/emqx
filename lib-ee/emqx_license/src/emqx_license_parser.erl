@@ -19,7 +19,10 @@
     ""
 >>).
 
--define(LICENSE_PARSE_MODULES, [emqx_license_parser_v20220101]).
+-define(LICENSE_PARSE_MODULES, [
+    emqx_license_parser_v20220101,
+    emqx_license_parser_legacy
+]).
 
 -type license_data() :: term().
 -type customer_type() ::
