@@ -144,7 +144,6 @@ strategy(Group) ->
     case emqx:get_env(shared_subscription_strategy_per_group, #{}) of
         #{Group := Strategy} ->
             Strategy;
-
         _ ->
             emqx:get_env(shared_subscription_strategy, random)
     end.
