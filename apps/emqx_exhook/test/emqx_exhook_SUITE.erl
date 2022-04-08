@@ -19,8 +19,13 @@
 -compile(export_all).
 -compile(nowarn_export_all).
 
+-include("emqx_exhook.hrl").
+
 -include_lib("eunit/include/eunit.hrl").
 -include_lib("common_test/include/ct.hrl").
+
+-define(OTHER_CLUSTER_NAME_ATOM, test_emqx_cluster).
+-define(OTHER_CLUSTER_NAME_STRING, "test_emqx_cluster").
 
 %%--------------------------------------------------------------------
 %% Setups
@@ -99,29 +104,63 @@ t_cli_stats(_) ->
     unmeck_print().
 
 t_priority(_) ->
-    restart_exhook_with_envs([{emqx_exhook, hook_priority, 1}]),
+    restart_apps_with_envs([ {emqx, fun set_special_cfgs/1}
+                           , {emqx_exhook, [{hook_priority, 1}]}]),
 
     emqx_exhook:disable(default),
     ok = emqx_exhook:enable(default),
     [Callback | _] = emqx_hooks:lookup('client.connected'),
-    1 = emqx_hooks:callback_priority(Callback).
+    ?assertEqual(1, emqx_hooks:callback_priority(Callback)).
+
+t_cluster_name(_) ->
+    SetEnvFun =
+        fun(emqx) ->
+                set_special_cfgs(emqx),
+                application:set_env(ekka, cluster_name, ?OTHER_CLUSTER_NAME_ATOM);
+           (emqx_exhook) ->
+                application:set_env(emqx_exhook, hook_priority, 1)
+        end,
+
+    emqx_ct_helpers:stop_apps([emqx, emqx_exhook]),
+    emqx_ct_helpers:start_apps([emqx, emqx_exhook], SetEnvFun),
+
+    ?assertEqual(?OTHER_CLUSTER_NAME_STRING, emqx_sys:cluster_name()),
+
+    emqx_exhook:disable(default),
+    ok = emqx_exhook:enable(default),
+    %% See emqx_exhook_demo_svr:on_provider_loaded/2
+    ?assertEqual([], emqx_hooks:lookup('session.created')),
+    ?assertEqual([], emqx_hooks:lookup('message_publish')),
+
+    [Callback | _] = emqx_hooks:lookup('client.connected'),
+    ?assertEqual(1, emqx_hooks:callback_priority(Callback)).
 
 %%--------------------------------------------------------------------
 %% Utils
 %%--------------------------------------------------------------------
 
 %% TODO: make it more general and move to `emqx_ct_helpers`
-restart_exhook_with_envs(Envs) ->
-    emqx_ct_helpers:stop_apps([emqx_exhook]),
-    SetPriorityFun
-        = fun(emqx) ->
-                  set_special_cfgs(emqx);
-             (emqx_exhook) ->
-                  lists:foreach(fun({App, Key, Val}) ->
-                                        application:set_env(App, Key, Val)
-                                end, Envs)
-          end,
-    emqx_ct_helpers:start_apps([emqx_exhook], SetPriorityFun).
+restart_app_with_envs(App, Fun)
+  when is_function(Fun) ->
+    emqx_ct_helpers:stop_apps([App]),
+    emqx_ct_helpers:start_apps([App], Fun);
+
+restart_app_with_envs(App, Envs)
+  when is_list(Envs) ->
+    emqx_ct_helpers:stop_apps([App]),
+    HandlerFun =
+        fun(AppName) ->
+                lists:foreach(fun({Key, Val}) ->
+                                      application:set_env(AppName, Key, Val)
+                              end, Envs)
+        end,
+    emqx_ct_helpers:start_apps([App], HandlerFun).
+
+restart_apps_with_envs([]) ->
+    ok;
+restart_apps_with_envs([{App, Envs} | Rest]) ->
+    restart_app_with_envs(App, Envs),
+    restart_apps_with_envs(Rest).
 
 meck_print() ->
     meck:new(emqx_ctl, [passthrough, no_history, no_link]),

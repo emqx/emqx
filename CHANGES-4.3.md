@@ -14,14 +14,18 @@ File format:
 
 ### Enhancements
 
-* In order to fix the execution order of exhook, e.g. before/after other plugins/modules,
-  ExHook now supports user customizing emqx_hook execute priority.
+* Add `RequestMeta` for exhook.proto in order to expose `cluster_name` of emqx in each gRPC request. [#7524]
+* Support customize emqx_exhook execution priority. [#7408]
 * add api: PUT /rules/{id}/reset_metrics.
   This api reset the metrics of the rule engine of a rule, and reset the metrics of the action related to this rule. [#7474]
 * Enhanced rule engine error handling when json parsing error.
 * Add support for `RSA-PSK-AES256-GCM-SHA384`, `RSA-PSK-AES256-CBC-SHA384`,
  `RSA-PSK-AES128-GCM-SHA256`, `RSA-PSK-AES128-CBC-SHA256` PSK ciphers, and remove `PSK-3DES-EDE-CBC-SHA`,
  `PSK-RC4-SHA` from the default configuration. [#7427]
+* Diagnostic logging for mnesia `wait_for_table`
+  - prints check points of mnesia internal stats
+  - prints check points of per table loading stats
+  Help to locate the problem of long table loading time.
 
 ### Bug fixes
 
