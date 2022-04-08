@@ -24,6 +24,7 @@ PKG_PROFILES := emqx-pkg emqx-edge-pkg emqx-enterprise-pkg
 PROFILES := $(REL_PROFILES) $(PKG_PROFILES) default
 
 CT_NODE_NAME ?= 'test@127.0.0.1'
+CT_READABLE ?= false
 
 export REBAR_GIT_CLONE_OPTIONS += --depth=1
 
@@ -73,7 +74,7 @@ ct: $(REBAR) conf-segs
 
 .PHONY: static_checks
 static_checks:
-	@$(REBAR) as check do xref, dialyzer, ct --suite apps/emqx/test/emqx_static_checks --readable false
+	@$(REBAR) as check do xref, dialyzer, ct --suite apps/emqx/test/emqx_static_checks --readable $(CT_READABLE)
 
 APPS=$(shell $(CURDIR)/scripts/find-apps.sh)
 
@@ -96,11 +97,11 @@ $(foreach app,$(APPS),$(eval $(call gen-app-prop-target,$(app))))
 .PHONY: ct-suite
 ct-suite: $(REBAR)
 ifneq ($(TESTCASE),)
-	$(REBAR) ct -v --readable=false --name $(CT_NODE_NAME) --suite $(SUITE)  --case $(TESTCASE)
+	$(REBAR) ct -v --readable=$(CT_READABLE) --name $(CT_NODE_NAME) --suite $(SUITE)  --case $(TESTCASE)
 else ifneq ($(GROUP),)
-	$(REBAR) ct -v --readable=false --name $(CT_NODE_NAME) --suite $(SUITE)  --group $(GROUP)
+	$(REBAR) ct -v --readable=$(CT_READABLE) --name $(CT_NODE_NAME) --suite $(SUITE)  --group $(GROUP)
 else
-	$(REBAR) ct -v --readable=false --name $(CT_NODE_NAME) --suite $(SUITE)
+	$(REBAR) ct -v --readable=$(CT_READABLE) --name $(CT_NODE_NAME) --suite $(SUITE)
 endif
 
 .PHONY: cover
