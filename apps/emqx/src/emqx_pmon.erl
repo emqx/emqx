@@ -72,23 +72,10 @@ demonitor(Pid, PMon = ?PMON(Map)) ->
             PMon
     end.
 
-%% @doc Improved version of erlang:demonitor(Ref, [flush]).
-%% Only try to receive the 'DOWN' messages when it might have been sent.
 -spec demonitor(reference()) -> ok.
 demonitor(Ref) when is_reference(Ref) ->
-    case erlang:demonitor(Ref, [info]) of
-        true ->
-            %% succeeded
-            ok;
-        _ ->
-            %% '_', but not 'false' because this may change in the future according to OTP doc
-            receive
-                {'DOWN', Ref, process, _, _} ->
-                    ok
-            after 0 ->
-                ok
-            end
-    end.
+    _ = erlang:demonitor(Ref, [flush]),
+    ok.
 
 -spec find(pid(), pmon()) -> error | {ok, term()}.
 find(Pid, ?PMON(Map)) ->
