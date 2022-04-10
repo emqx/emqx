@@ -38,7 +38,7 @@
         , stats/1
         ]).
 
--export([call/2]).
+-export([call/2, call/3]).
 
 %% Callback
 -export([init/4]).
@@ -169,6 +169,9 @@ stats(#state{transport = Transport,
 
 call(Pid, Req) ->
     gen_server:call(Pid, Req, infinity).
+
+call(Pid, Req, Timeout) ->
+    gen_server:call(Pid, Req, Timeout).
 
 stop(Pid) ->
     gen_server:stop(Pid).
