@@ -312,12 +312,12 @@ kick_or_kill(Action, ConnMod, Pid) ->
             ok;
         _ : {timeout, {gen_server, call, _}} ->
             ?LOG(warning, "session_kick_timeout: ~p, action: ~p, "
-                          "stale_channel: ~p",
+                          "stale_channel: ~0p",
                           [Pid, Action, stale_channel_info(Pid)]),
             ok = force_kill(Pid);
         _ : Error ->
             ?LOG(error, "session_kick_exception: ~p, action: ~p, "
-                        "reason: ~p, stacktrace: ~p, stale_channel: ~p",
+                        "reason: ~p, stacktrace: ~0p, stale_channel: ~0p",
                         [Pid, Action, Error, erlang:get_stacktrace(), stale_channel_info(Pid)]),
             ok = force_kill(Pid)
     end.
