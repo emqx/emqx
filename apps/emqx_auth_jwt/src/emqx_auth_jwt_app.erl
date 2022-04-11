@@ -31,15 +31,20 @@
 start(_Type, _Args) ->
     {ok, Sup} = supervisor:start_link({local, ?MODULE}, ?MODULE, []),
 
-    {ok, Pid} = start_auth_server(jwks_svr_options()),
+    {ok, _} = start_auth_server(jwks_svr_options()),
     ok = emqx_auth_jwt:register_metrics(),
+
     AuthEnv = auth_env(),
+    _ = emqx:hook('client.authenticate', {emqx_auth_jwt, check_auth, [AuthEnv]}),
+   
+    AclEnv = acl_env(),
+    _ = emqx:hook('client.check_acl', {emqx_auth_jwt, check_acl, [AclEnv]}),
 
-    _ = emqx:hook('client.authenticate', {emqx_auth_jwt, check, [AuthEnv]}),
-    {ok, Sup, AuthEnv}.
+    {ok, Sup}.
 
-stop(AuthEnv) ->
-    emqx:unhook('client.authenticate', {emqx_auth_jwt, check, [AuthEnv]}).
+stop(_State) ->
+    emqx:unhook('client.authenticate', {emqx_auth_jwt, check_auth}),
+    emqx:unhook('client.check_acl', {emqx_auth_jwt, check_acl}).
 
 %%--------------------------------------------------------------------
 %% Dummy supervisor
@@ -67,6 +72,9 @@ auth_env() ->
     #{ from => env(from, password)
      , checklists => Checklists
      }.
+
+acl_env() ->
+    #{acl_claim_name => env(acl_claim_name, <<"acl">>)}.
 
 jwks_svr_options() ->
     [{K, V} || {K, V}

@@ -47,3 +47,13 @@
               end, [], cuttlefish_variable:filter_by_prefix("auth.jwt.verify_claims", Conf))
    end
 end}.
+
+{mapping, "auth.jwt.acl_claim_name", "emqx_auth_jwt.acl_claim_name", [
+  {default, "acl"},
+  {datatype, string}
+]}.
+
+{translation, "emqx_auth_jwt.acl_claim_name", fun(Conf) ->
+    list_to_binary(cuttlefish:conf_get("auth.jwt.acl_claim_name", Conf))
+end}.
+

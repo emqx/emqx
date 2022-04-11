@@ -1,5 +1,5 @@
 %%--------------------------------------------------------------------
-%% Copyright (c) 2020-2021 EMQ Technologies Co., Ltd. All Rights Reserved.
+%% Copyright (c) 2020-2022 EMQ Technologies Co., Ltd. All Rights Reserved.
 %%
 %% Licensed under the Apache License, Version 2.0 (the "License");
 %% you may not use this file except in compliance with the License.
@@ -73,8 +73,7 @@ init([Options]) ->
     ok = jose:json_module(jiffy),
     _ = ets:new(?TAB, [set, protected, named_table]),
     {Static, Remote} = do_init_jwks(Options),
-    true = ets:insert(?TAB, {static, Static}),
-    true = ets:insert(?TAB, {remote, Remote}),
+    true = ets:insert(?TAB, [{static, Static}, {remote, Remote}]),
     Intv = proplists:get_value(interval, Options, ?INTERVAL),
     {ok, reset_timer(
            #state{
@@ -181,7 +180,7 @@ do_verify(JwsCompacted) ->
         end
     catch
         Class : Reason : Stk ->
-            ?LOG(error, "Handle JWK crashed: ~p, ~p, stacktrace: ~p~n",
+            ?LOG(error, "verify JWK crashed: ~p, ~p, stacktrace: ~p~n",
                         [Class, Reason, Stk]),
             {error, invalid_signature}
     end.
@@ -219,11 +218,12 @@ check_claims(Claims) ->
 do_check_claim([], Claims) ->
     Claims;
 do_check_claim([{K, F}|More], Claims) ->
-    case maps:take(K, Claims) of
-        error -> do_check_claim(More, Claims);
-        {V, NClaims} ->
+    case Claims of
+        #{K := V} ->
             case F(V) of
-                true -> do_check_claim(More, NClaims);
+                true -> do_check_claim(More, Claims);
                 _ -> {false, K}
-            end
+            end;
+        _ ->
+            do_check_claim(More, Claims)
     end.
