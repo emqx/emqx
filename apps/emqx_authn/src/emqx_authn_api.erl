@@ -1335,7 +1335,8 @@ authenticator_examples() ->
                 backend => <<"built_in_database">>,
                 user_id_type => <<"username">>,
                 password_hash_algorithm => #{
-                    name => <<"sha256">>
+                    name => <<"sha256">>,
+                    salt_position => <<"suffix">>
                 }
             }
         },
@@ -1387,8 +1388,10 @@ authenticator_examples() ->
                 password_hash_field => <<"password_hash">>,
                 salt_field => <<"salt">>,
                 is_superuser_field => <<"is_superuser">>,
-                password_hash_algorithm => <<"sha256">>,
-                salt_position => <<"prefix">>
+                password_hash_algorithm => #{
+                    name => <<"sha256">>,
+                    salt_position => <<"suffix">>
+                }
             }
         },
         'password_based:redis' => #{
@@ -1399,8 +1402,10 @@ authenticator_examples() ->
                 server => <<"127.0.0.1:6379">>,
                 database => 0,
                 cmd => <<"HMGET ${username} password_hash salt">>,
-                password_hash_algorithm => <<"sha256">>,
-                salt_position => <<"prefix">>
+                password_hash_algorithm => #{
+                    name => <<"sha256">>,
+                    salt_position => <<"suffix">>
+                }
             }
         }
     }.
