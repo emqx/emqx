@@ -1,6 +1,9 @@
 %% -*- mode: erlang -*-
 {VSN,
-  [{"4.3.3",
+  [{"4.3.4",
+    [{load_module,emqx_auth_http_app,brutal_purge,soft_purge,[]}
+    ]},
+   {"4.3.3",
     [{load_module,emqx_auth_http_app,brutal_purge,soft_purge,[]},
      {load_module,emqx_acl_http,brutal_purge,soft_purge,[]}]},
    {"4.3.2",
@@ -11,7 +14,9 @@
    {<<"4.3.[0-1]">>,
     [{restart_application,emqx_auth_http}]},
    {<<".*">>,[]}],
-  [{"4.3.3",
+  [{"4.3.4",
+    [{load_module,emqx_auth_http_app,brutal_purge,soft_purge,[]}]},
+   {"4.3.3",
     [{load_module,emqx_auth_http_app,brutal_purge,soft_purge,[]},
      {load_module,emqx_acl_http,brutal_purge,soft_purge,[]}]},
    {"4.3.2",

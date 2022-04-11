@@ -42,8 +42,8 @@ File format:
   default value of emqx_dashboard.conf after the node left cluster.
   Now we persist changed password to protect against reset. [#7518]
 * Silence grep/sed warnings in docker-entrypoint.sh. [#7520]
-* Generate `loaded_modules` and `loaded_plugins` files with default
-  values when no such files exists. [#7520]
+* Generate `loaded_modules` and `loaded_plugins` files with default values when no such files exists. [#7520]
+* Fix the configuration `server_name_indication` set to disable does not take effect.
 
 ## v4.3.13
 

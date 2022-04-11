@@ -141,6 +141,7 @@
                 Filter([{verify, Verify},
                         {server_name_indication, case cuttlefish:conf_get(Prefix ++ ".server_name_indication", Conf, undefined) of
                                                    "disable" -> disable;
+                                                   "" -> undefined;
                                                    SNI -> SNI
                                                  end},
                         {keyfile, cuttlefish:conf_get(Prefix ++ ".keyfile", Conf, undefined)},

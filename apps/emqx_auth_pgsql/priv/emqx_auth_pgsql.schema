@@ -109,6 +109,7 @@
                         {verify,     Verify},
                         {server_name_indication, case cuttlefish:conf_get(Prefix ++ ".server_name_indication", Conf, undefined) of
                                                    "disable" -> disable;
+                                                   "" -> undefined;
                                                    SNI -> SNI
                                                  end},
                         {versions, [list_to_existing_atom(Value)
