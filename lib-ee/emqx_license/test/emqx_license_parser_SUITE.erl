@@ -43,96 +43,104 @@ t_parse(_Config) ->
     ?assertMatch({ok, _}, emqx_license_parser:parse(sample_license(), public_key_pem())),
 
     %% invalid version
-    ?assertMatch(
-        {error, [{emqx_license_parser_v20220101, invalid_version}]},
-        emqx_license_parser:parse(
-            emqx_license_test_lib:make_license(
-                [
-                    "220101",
-                    "0",
-                    "10",
-                    "Foo",
-                    "contact@foo.com",
-                    "20220111",
-                    "100000",
-                    "10"
-                ]
-            ),
-            public_key_pem()
-        )
+    Res1 = emqx_license_parser:parse(
+        emqx_license_test_lib:make_license(
+            [
+                "220101",
+                "0",
+                "10",
+                "Foo",
+                "contact@foo.com",
+                "20220111",
+                "100000",
+                "10"
+            ]
+        ),
+        public_key_pem()
+    ),
+    ?assertMatch({error, _}, Res1),
+    {error, Err1} = Res1,
+    ?assertEqual(
+        invalid_version,
+        proplists:get_value(emqx_license_parser_v20220101, Err1)
     ),
 
     %% invalid field number
-    ?assertMatch(
-        {error, [{emqx_license_parser_v20220101, invalid_field_number}]},
-        emqx_license_parser:parse(
-            emqx_license_test_lib:make_license(
-                [
-                    "220111",
-                    "0",
-                    "10",
-                    "Foo",
-                    "Bar",
-                    "contact@foo.com",
-                    "20220111",
-                    "100000",
-                    "10"
-                ]
-            ),
-            public_key_pem()
-        )
+    Res2 = emqx_license_parser:parse(
+        emqx_license_test_lib:make_license(
+            [
+                "220111",
+                "0",
+                "10",
+                "Foo",
+                "Bar",
+                "contact@foo.com",
+                "20220111",
+                "100000",
+                "10"
+            ]
+        ),
+        public_key_pem()
+    ),
+    ?assertMatch({error, _}, Res2),
+    {error, Err2} = Res2,
+    ?assertEqual(
+        invalid_field_number,
+        proplists:get_value(emqx_license_parser_v20220101, Err2)
     ),
 
-    ?assertMatch(
-        {error, [
-            {emqx_license_parser_v20220101, [
-                {type, invalid_license_type},
-                {customer_type, invalid_customer_type},
-                {date_start, invalid_date},
-                {days, invalid_int_value}
-            ]}
-        ]},
-        emqx_license_parser:parse(
-            emqx_license_test_lib:make_license(
-                [
-                    "220111",
-                    "zero",
-                    "ten",
-                    "Foo",
-                    "contact@foo.com",
-                    "20220231",
-                    "-10",
-                    "10"
-                ]
-            ),
-            public_key_pem()
-        )
+    Res3 = emqx_license_parser:parse(
+        emqx_license_test_lib:make_license(
+            [
+                "220111",
+                "zero",
+                "ten",
+                "Foo",
+                "contact@foo.com",
+                "20220231",
+                "-10",
+                "10"
+            ]
+        ),
+        public_key_pem()
+    ),
+    ?assertMatch({error, _}, Res3),
+    {error, Err3} = Res3,
+    ?assertEqual(
+        [
+            {type, invalid_license_type},
+            {customer_type, invalid_customer_type},
+            {date_start, invalid_date},
+            {days, invalid_int_value}
+        ],
+        proplists:get_value(emqx_license_parser_v20220101, Err3)
     ),
 
-    ?assertMatch(
-        {error, [
-            {emqx_license_parser_v20220101, [
-                {type, invalid_license_type},
-                {customer_type, invalid_customer_type},
-                {date_start, invalid_date},
-                {days, invalid_int_value}
-            ]}
-        ]},
-        emqx_license_parser:parse(
-            emqx_license_test_lib:make_license(
-                [
-                    "220111",
-                    "zero",
-                    "ten",
-                    "Foo",
-                    "contact@foo.com",
-                    "2022-02-1st",
-                    "-10",
-                    "10"
-                ]
-            ),
-            public_key_pem()
-        )
+    Res4 = emqx_license_parser:parse(
+        emqx_license_test_lib:make_license(
+            [
+                "220111",
+                "zero",
+                "ten",
+                "Foo",
+                "contact@foo.com",
+                "2022-02-1st",
+                "-10",
+                "10"
+            ]
+        ),
+        public_key_pem()
+    ),
+    ?assertMatch({error, _}, Res4),
+    {error, Err4} = Res4,
+    ?assertEqual(
+        [
+            {type, invalid_license_type},
+            {customer_type, invalid_customer_type},
+            {date_start, invalid_date},
+            {days, invalid_int_value}
+        ],
+        proplists:get_value(emqx_license_parser_v20220101, Err4)
     ),
 
     %% invalid signature
@@ -167,12 +175,15 @@ t_parse(_Config) ->
         <<".">>
     ),
 
-    ?assertMatch(
-        {error, [{emqx_license_parser_v20220101, invalid_signature}]},
-        emqx_license_parser:parse(
-            iolist_to_binary([LicensePart, <<".">>, SignaturePart]),
-            public_key_pem()
-        )
+    Res5 = emqx_license_parser:parse(
+        iolist_to_binary([LicensePart, <<".">>, SignaturePart]),
+        public_key_pem()
+    ),
+    ?assertMatch({error, _}, Res5),
+    {error, Err5} = Res5,
+    ?assertEqual(
+        invalid_signature,
+        proplists:get_value(emqx_license_parser_v20220101, Err5)
     ),
 
     %% totally invalid strings as license
