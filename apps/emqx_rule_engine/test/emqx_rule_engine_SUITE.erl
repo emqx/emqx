@@ -327,6 +327,24 @@ t_create_resource(_Config) ->
     emqx_rule_registry:remove_resource(ResId),
     ok.
 
+t_clear_action_alarm(_Config) ->
+    ok = emqx_rule_engine:load_providers(),
+    {ok, #resource{id = ResId}} = emqx_rule_engine:create_resource(
+            #{type => built_in,
+              config => #{},
+              description => <<"debug resource">>}),
+    ?assert(true, is_binary(ResId)),
+    Name = emqx_rule_engine:alarm_name_of_resource_down(Type, ResId),
+    _ = emqx_alarm:activate(Name),
+    Filter = fun(#{name := AName}) -> AName == Name end,
+    ActiveAlarms = lists:filter(Filter, emqx_alarm:get_alarms()),
+    ?assert(1 == erlang:length(ActiveAlarms)),
+    ok = emqx_rule_engine:unload_providers(),
+    emqx_rule_registry:remove_resource(ResId),
+    ActiveAlarmsClear = lists:filter(Filter, emqx_alarm:get_alarms()),
+    ?assert(0 == erlang:length(ActiveAlarmsClear)),
+    ok.
+
 %%------------------------------------------------------------------------------
 %% Test cases for rule actions
 %%------------------------------------------------------------------------------

@@ -46,6 +46,8 @@
 -export([ init_resource/4
         , init_action/4
         , clear_resource/3
+        , clear_resource_alarm/1
+        , clear_resource_alarm/2
         , clear_rule/1
         , clear_actions/1
         , clear_action/3
@@ -53,6 +55,10 @@
 
 -export([ restore_action_metrics/2
         ]).
+
+-ifdef(TEST).
+-export([alarm_name_of_resource_down/2]).
+-endif.
 
 -type(rule() :: #rule{}).
 -type(action() :: #action{}).
@@ -398,6 +404,8 @@ delete_resource(ResId) ->
                 case emqx_rule_registry:remove_resource(ResId) of
                     ok ->
                         _ = ?CLUSTER_CALL(clear_resource, [ModD, Destroy, ResId]),
+                        %% clear alarms after resource is cleared
+                        _ = ?CLUSTER_CALL(clear_resource_alarm, [ResType, ResId]),
                         ok;
                     {error, _} = R -> R
                 end
@@ -610,6 +618,11 @@ clear_resource(Module, Destroy, ResId) ->
         not_found ->
             ok
     end.
+
+clear_resource_alarm(Type, ResId) ->
+    clear_resource_alarm(alarm_name_of_resource_down(Type, ResId)).
+clear_resource_alarm(AlarmName) ->
+    emqx_alarm:deactivate(Name).
 
 clear_rule(#rule{id = RuleId, actions = Actions}) ->
     clear_actions(Actions),
