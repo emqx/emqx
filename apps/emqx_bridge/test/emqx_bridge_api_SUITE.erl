@@ -333,6 +333,30 @@ t_enable_disable_bridges(_) ->
     {ok, 204, <<>>} = request(delete, uri(["bridges", BridgeID]), []),
     {ok, 200, <<"[]">>} = request(get, uri(["bridges"]), []).
 
+t_reset_bridges(_) ->
+    %% assert we there's no bridges at first
+    {ok, 200, <<"[]">>} = request(get, uri(["bridges"]), []),
+
+    Port = start_http_server(fun handle_fun_200_ok/2),
+    URL1 = ?URL(Port, "abc"),
+    {ok, 201, Bridge} = request(post, uri(["bridges"]),
+        ?HTTP_BRIDGE(URL1, ?BRIDGE_TYPE, ?BRIDGE_NAME)),
+    %ct:pal("the bridge ==== ~p", [Bridge]),
+    #{ <<"type">> := ?BRIDGE_TYPE
+     , <<"name">> := ?BRIDGE_NAME
+     , <<"status">> := <<"connected">>
+     , <<"node_status">> := [_|_]
+     , <<"metrics">> := _
+     , <<"node_metrics">> := [_|_]
+     , <<"url">> := URL1
+     } = jsx:decode(Bridge),
+    BridgeID = emqx_bridge:bridge_id(?BRIDGE_TYPE, ?BRIDGE_NAME),
+    {ok, 200, <<"Reset success">>} = request(put, uri(["bridges", BridgeID, "reset_metrics"]), []),
+
+    %% delete the bridge
+    {ok, 204, <<>>} = request(delete, uri(["bridges", BridgeID]), []),
+    {ok, 200, <<"[]">>} = request(get, uri(["bridges"]), []).
+
 request(Method, Url, Body) ->
     request(<<"bridge_admin">>, Method, Url, Body).
 

@@ -25,6 +25,7 @@
 %% load resource instances from *.conf files
 -export([ lookup/1
         , get_metrics/1
+        , reset_metrics/1
         , list_all/0
         , list_group/1
         ]).
@@ -77,6 +78,9 @@ make_test_id() ->
 get_metrics(InstId) ->
     emqx_plugin_libs_metrics:get_metrics(resource_metrics, InstId).
 
+reset_metrics(InstId) ->
+    emqx_plugin_libs_metrics:reset_metrics(resource_metrics, InstId).
+
 force_lookup(InstId) ->
     {ok, _Group, Data} = lookup(InstId),
     Data.
@@ -113,6 +117,9 @@ handle_call({create_dry_run, ResourceType, Config}, _From, State) ->
 
 handle_call({recreate, InstId, ResourceType, Config, Opts}, _From, State) ->
     {reply, do_recreate(InstId, ResourceType, Config, Opts), State};
+
+handle_call({reset_metrics, InstId}, _From, State) ->
+    {reply, do_reset_metrics(InstId), State};
 
 handle_call({remove, InstId}, _From, State) ->
     {reply, do_remove(InstId), State};
@@ -221,6 +228,9 @@ do_create_dry_run(ResourceType, Config) ->
         {error, Reason} ->
             {error, Reason}
     end.
+
+do_reset_metrics(Instance) ->
+    reset_metrics(Instance).
 
 do_remove(Instance) ->
     do_remove(Instance, true).

@@ -34,6 +34,7 @@
         , '/bridges/:id'/2
         , '/bridges/:id/operation/:operation'/2
         , '/nodes/:node/bridges/:id/operation/:operation'/2
+        , '/bridges/:id/reset_metrics'/2
         ]).
 
 -export([ lookup_from_local_node/2
@@ -76,7 +77,8 @@ api_spec() ->
     emqx_dashboard_swagger:spec(?MODULE, #{check_schema => false}).
 
 paths() -> ["/bridges", "/bridges/:id", "/bridges/:id/operation/:operation",
-            "/nodes/:node/bridges/:id/operation/:operation"].
+            "/nodes/:node/bridges/:id/operation/:operation",
+            "/bridges/:id/reset_metrics"].
 
 error_schema(Code, Message) when is_atom(Code) ->
     error_schema([Code], Message);
@@ -282,6 +284,20 @@ schema("/bridges/:id") ->
         }
     };
 
+schema("/bridges/:id/reset_metrics") ->
+    #{
+        'operationId' => '/bridges/:id/reset_metrics',
+        put => #{
+            tags => [<<"bridges">>],
+            summary => <<"Reset Bridge Metrics">>,
+            description => <<"Reset a bridge metrics by Id">>,
+            parameters => [param_path_id()],
+            responses => #{
+                200 => <<"Reset success">>,
+                400 => error_schema(['BAD_REQUEST'], "RPC Call Failed")
+            }
+        }
+    };
 schema("/bridges/:id/operation/:operation") ->
     #{
         'operationId' => '/bridges/:id/operation/:operation',
@@ -362,6 +378,12 @@ schema("/nodes/:node/bridges/:id/operation/:operation") ->
             {error, Reason} ->
                 {500, error_msg('INTERNAL_ERROR', Reason)}
         end).
+
+'/bridges/:id/reset_metrics'(put, #{bindings := #{id := Id}}) ->
+    case emqx_bridge:reset_metrics(Id) of
+        ok -> {200, <<"Reset success">>};
+        Reason -> {400, error_msg('BAD_REQUEST', Reason)}
+    end.
 
 lookup_from_all_nodes(BridgeType, BridgeName, SuccCode) ->
     Nodes = mria_mnesia:running_nodes(),

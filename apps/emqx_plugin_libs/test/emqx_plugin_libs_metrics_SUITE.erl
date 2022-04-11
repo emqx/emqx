@@ -85,6 +85,44 @@ t_get_metrics(_) ->
      ?assert(MaxA > 0), ?assert(MaxB > 0), ?assert(MaxC > 0)}),
     ok = emqx_plugin_libs_metrics:clear_metrics(?NAME, <<"testid">>).
 
+t_reset_metrics(_) ->
+    Metrics = [a, b, c],
+    ok = emqx_plugin_libs_metrics:create_metrics(?NAME, <<"testid">>, Metrics),
+    %% all the metrics are set to zero at start
+    ?assertMatch(#{
+        rate := #{
+            a := #{current := 0.0, max := 0.0, last5m := 0.0},
+            b := #{current := 0.0, max := 0.0, last5m := 0.0},
+            c := #{current := 0.0, max := 0.0, last5m := 0.0}
+        },
+        counters := #{
+            a := 0,
+            b := 0,
+            c := 0
+        }
+    }, emqx_plugin_libs_metrics:get_metrics(?NAME, <<"testid">>)),
+    ok = emqx_plugin_libs_metrics:inc(?NAME, <<"testid">>, a),
+    ok = emqx_plugin_libs_metrics:inc(?NAME, <<"testid">>, b),
+    ok = emqx_plugin_libs_metrics:inc(?NAME, <<"testid">>, c),
+    ok = emqx_plugin_libs_metrics:inc(?NAME, <<"testid">>, c),
+    ct:sleep(1500),
+    ok = emqx_plugin_libs_metrics:reset_metrics(?NAME, <<"testid">>),
+    ?LET(#{
+        rate := #{
+            a := #{current := CurrA, max := MaxA, last5m := _},
+            b := #{current := CurrB, max := MaxB, last5m := _},
+            c := #{current := CurrC, max := MaxC, last5m := _}
+        },
+        counters := #{
+            a := 0,
+            b := 0,
+            c := 0
+        }
+    }, emqx_plugin_libs_metrics:get_metrics(?NAME, <<"testid">>),
+    {?assert(CurrA == 0), ?assert(CurrB == 0), ?assert(CurrC == 0),
+     ?assert(MaxA == 0), ?assert(MaxB == 0), ?assert(MaxC == 0)}),
+    ok = emqx_plugin_libs_metrics:clear_metrics(?NAME, <<"testid">>).
+
 t_get_metrics_2(_) ->
     Metrics = [a, b, c],
     ok = emqx_plugin_libs_metrics:create_metrics(?NAME, <<"testid">>, Metrics,

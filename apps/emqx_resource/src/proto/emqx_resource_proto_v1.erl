@@ -24,6 +24,7 @@
         , create_dry_run/2
         , recreate/4
         , remove/1
+        , reset_metrics/1
         ]).
 
 -include_lib("emqx/include/bpapi.hrl").
@@ -61,3 +62,8 @@ recreate(InstId, ResourceType, Config, Opts) ->
           emqx_cluster_rpc:multicall_return(ok).
 remove(InstId) ->
     emqx_cluster_rpc:multicall(emqx_resource, remove_local, [InstId]).
+
+-spec reset_metrics(emqx_resource:instance_id()) ->
+          emqx_cluster_rpc:multicall_return(ok).
+reset_metrics(InstId) ->
+    emqx_cluster_rpc:multicall(emqx_resource, reset_metrics_local, [InstId]).

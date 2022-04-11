@@ -46,6 +46,9 @@ t_crud_rule_api(_Config) ->
     ct:pal("RList : ~p", [Rules]),
     ?assert(length(Rules) > 0),
 
+    {200, Rule0} = emqx_rule_engine_api:'/rules/:id/reset_metrics'(put, #{bindings => #{id => RuleID}}),
+    ?assertEqual(<<"Reset Success">>, Rule0),
+
     {200, Rule1} = emqx_rule_engine_api:'/rules/:id'(get, #{bindings => #{id => RuleID}}),
     ct:pal("RShow : ~p", [Rule1]),
     ?assertEqual(Rule, Rule1),

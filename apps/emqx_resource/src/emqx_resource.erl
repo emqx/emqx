@@ -53,6 +53,8 @@
         , recreate_local/4
         , remove/1 %% remove the config and stop the instance
         , remove_local/1
+        , reset_metrics/1
+        , reset_metrics_local/1
         ]).
 
 %% Calls to the callback module with current resource state
@@ -183,6 +185,14 @@ remove(InstId) ->
 -spec remove_local(instance_id()) -> ok | {error, Reason :: term()}.
 remove_local(InstId) ->
     call_instance(InstId, {remove, InstId}).
+
+-spec reset_metrics_local(instance_id()) -> ok.
+reset_metrics_local(InstId) ->
+    call_instance(InstId, {reset_metrics, InstId}).
+
+-spec reset_metrics(instance_id()) -> ok | {error, Reason :: term()}.
+reset_metrics(InstId) ->
+    wrap_rpc(emqx_resource_proto_v1:reset_metrics(InstId)).
 
 %% =================================================================================
 -spec query(instance_id(), Request :: term()) -> Result :: term().

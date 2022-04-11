@@ -52,6 +52,7 @@
         , update/3
         , stop/2
         , restart/2
+        , reset_metrics/1
         ]).
 
 -export([ send_message/2
@@ -209,6 +210,9 @@ lookup(Type, Name, RawConf) ->
             {ok, #{type => Type, name => Name, resource_data => Data,
                    raw_config => RawConf}}
     end.
+
+reset_metrics(ResourceId) ->
+    emqx_resource:reset_metrics(ResourceId).
 
 stop(Type, Name) ->
     emqx_resource:stop(resource_id(Type, Name)).
