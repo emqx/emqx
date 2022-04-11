@@ -21,7 +21,7 @@
 -include_lib("hocon/include/hoconsc.hrl").
 
 -export([api_spec/0, fields/1, paths/0, schema/1, namespace/0]).
--export([cluster_info/2, invite_node/2, force_leave/2]).
+-export([cluster_info/2, invite_node/2, force_leave/2, join/1]).
 
 namespace() -> "cluster".
 
@@ -103,7 +103,7 @@ cluster_info(get, _) ->
 
 invite_node(put, #{bindings := #{node := Node0}}) ->
     Node = ekka_node:parse_name(binary_to_list(Node0)),
-    case rpc:call(Node, ekka, join, [node()]) of
+    case emqx_mgmt_cluster_proto_v1:invite_node(Node, node()) of
         ok ->
             {200};
         ignore ->
@@ -124,6 +124,10 @@ force_leave(delete, #{bindings := #{node := Node0}}) ->
         {error, Error} ->
             {400, #{code => 'BAD_REQUEST', message => error_message(Error)}}
     end.
+
+-spec(join(node()) -> ok | ignore | {error, term()}).
+join(Node) ->
+    ekka:join(Node).
 
 error_message(Msg) ->
     iolist_to_binary(io_lib:format("~p", [Msg])).
