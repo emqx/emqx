@@ -622,7 +622,7 @@ clear_resource(Module, Destroy, ResId) ->
 clear_resource_alarm(Type, ResId) ->
     clear_resource_alarm(alarm_name_of_resource_down(Type, ResId)).
 clear_resource_alarm(AlarmName) ->
-    emqx_alarm:deactivate(Name).
+    emqx_alarm:deactivate(AlarmName).
 
 clear_rule(#rule{id = RuleId, actions = Actions}) ->
     clear_actions(Actions),
