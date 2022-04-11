@@ -30,7 +30,8 @@ fields(http) ->
             {url, fun url/1},
             {method, #{
                 type => enum([get, post]),
-                default => get
+                default => get,
+                required => true
             }},
             {headers, fun headers/1},
             {body, map([{fuzzy, term(), binary()}])},
@@ -45,8 +46,8 @@ fields(http) ->
                 maps:from_list(emqx_connector_http:fields(config))
             )
         );
-fields('built_in_database') ->
-    authz_common_fields('built_in_database');
+fields(built_in_database) ->
+    authz_common_fields(built_in_database);
 fields(mongo_single) ->
     authz_mongo_common_fields() ++
         emqx_connector_mongo:fields(single);
@@ -58,11 +59,11 @@ fields(mongo_sharded) ->
         emqx_connector_mongo:fields(sharded);
 fields(mysql) ->
     authz_common_fields(mysql) ++
-        [{query, #{type => binary()}}] ++
+        [{query, mk(binary(), #{required => true})}] ++
         emqx_connector_mysql:fields(config);
 fields(postgresql) ->
     authz_common_fields(postgresql) ++
-        [{query, #{type => binary()}}] ++
+        [{query, mk(binary(), #{required => true})}] ++
         proplists:delete(named_queries, emqx_connector_pgsql:fields(config));
 fields(redis_single) ->
     authz_redis_common_fields() ++
@@ -107,6 +108,8 @@ url(_) -> undefined.
 
 headers(type) ->
     map();
+headers(desc) ->
+    "List of HTTP headers.";
 headers(converter) ->
     fun(Headers) ->
         maps:merge(default_headers(), transform_header_name(Headers))
@@ -153,10 +156,19 @@ authz_mongo_common_fields() ->
         ].
 
 collection(type) -> binary();
+collection(desc) -> "Collection used to store authentication data.";
+collection(required) -> true;
 collection(_) -> undefined.
 
-selector(type) -> map();
-selector(_) -> undefined.
+selector(type) ->
+    map();
+selector(desc) ->
+    "Statement that is executed during the authentication process. "
+    "Commands can support following wildcards:\n"
+    " - `${username}`: substituted with client's username\n"
+    " - `${clientid}`: substituted with the clientid";
+selector(_) ->
+    undefined.
 
 %%------------------------------------------------------------------------------
 %% Redis type funcs
@@ -164,10 +176,11 @@ selector(_) -> undefined.
 authz_redis_common_fields() ->
     authz_common_fields(redis) ++
         [
-            {cmd, #{
-                type => binary(),
-                example => <<"HGETALL mqtt_authz">>
-            }}
+            {cmd,
+                mk(binary(), #{
+                    required => true,
+                    example => <<"HGETALL mqtt_authz">>
+                })}
         ].
 
 %%------------------------------------------------------------------------------
@@ -179,6 +192,7 @@ authz_common_fields(Type) when is_atom(Type) ->
         {type, #{
             type => enum([Type]),
             default => Type,
+            required => true,
             in => body
         }}
     ].
@@ -207,7 +221,7 @@ authz_sources_types(Type) ->
     end ++
         [
             http,
-            'built_in_database',
+            built_in_database,
             mysql,
             postgresql,
             file

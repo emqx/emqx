@@ -96,7 +96,7 @@ fields("authorization") ->
     ];
 fields(file) ->
     [
-        {type, #{type => file, desc => "Backend type."}},
+        {type, #{type => file, required => true, desc => "Backend type."}},
         {enable, #{
             type => boolean(),
             default => true,
@@ -118,17 +118,17 @@ fields(file) ->
     ];
 fields(http_get) ->
     [
-        {method, #{type => get, default => get, desc => "HTTP method."}},
+        {method, #{type => get, default => get, required => true, desc => "HTTP method."}},
         {headers, fun headers_no_content_type/1}
     ] ++ http_common_fields();
 fields(http_post) ->
     [
-        {method, #{type => post, default => post, desc => "HTTP method."}},
+        {method, #{type => post, default => post, required => true, desc => "HTTP method."}},
         {headers, fun headers/1}
     ] ++ http_common_fields();
 fields(mnesia) ->
     [
-        {type, #{type => 'built_in_database', desc => "Backend type."}},
+        {type, #{type => 'built_in_database', required => true, desc => "Backend type."}},
         {enable, #{
             type => boolean(),
             default => true,
@@ -147,7 +147,7 @@ fields(mysql) ->
 fields(postgresql) ->
     [
         {query, query()},
-        {type, #{type => postgresql, desc => "Backend type."}},
+        {type, #{type => postgresql, required => true, desc => "Backend type."}},
         {enable, #{
             type => boolean(),
             desc => "Enable this backend.",
@@ -213,10 +213,16 @@ http_common_fields() ->
 mongo_common_fields() ->
     [
         {collection, #{
-            type => atom(), desc => "`MongoDB` collection containing the authorization data."
+            type => atom(),
+            required => true,
+            desc => "`MongoDB` collection containing the authorization data."
         }},
-        {selector, #{type => map(), desc => "MQL query used to select the authorization record."}},
-        {type, #{type => mongodb, desc => "Database backend."}},
+        {selector, #{
+            type => map(),
+            required => true,
+            desc => "MQL query used to select the authorization record."
+        }},
+        {type, #{type => mongodb, required => true, desc => "Database backend."}},
         {enable, #{
             type => boolean(),
             default => true,
@@ -335,6 +341,7 @@ query() ->
     #{
         type => binary(),
         desc => "Database query used to retrieve authorization data.",
+        required => true,
         validator => fun(S) ->
             case size(S) > 0 of
                 true -> ok;

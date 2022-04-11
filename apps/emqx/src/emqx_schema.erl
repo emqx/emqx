@@ -315,6 +315,7 @@ fields("authorization") ->
                 hoconsc:enum([allow, deny]),
                 #{
                     default => allow,
+                    required => true,
                     %% TODO: make sources a reference link
                     desc =>
                         "Default access control action if the user or client matches no ACL rules,\n"
@@ -328,6 +329,7 @@ fields("authorization") ->
                 hoconsc:enum([ignore, disconnect]),
                 #{
                     default => ignore,
+                    required => true,
                     desc => "The action when the authorization check rejects an operation."
                 }
             )},
