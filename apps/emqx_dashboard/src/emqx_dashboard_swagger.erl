@@ -579,7 +579,7 @@ hocon_schema_to_spec(Atom, _LocalModule) when is_atom(Atom) ->
 typename_to_spec("user_id_type()", _Mod) ->
     #{type => string, enum => [clientid, username]};
 typename_to_spec("term()", _Mod) ->
-    #{type => string};
+    #{type => string, example => <<"any">>};
 typename_to_spec("boolean()", _Mod) ->
     #{type => boolean};
 typename_to_spec("binary()", _Mod) ->
