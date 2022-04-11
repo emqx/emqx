@@ -68,21 +68,31 @@ roots() -> [pbkdf2, bcrypt, bcrypt_rw, other_algorithms].
 
 fields(bcrypt_rw) ->
     fields(bcrypt) ++
-        [{salt_rounds, fun salt_rounds/1}];
+        [
+            {salt_rounds,
+                sc(
+                    integer(),
+                    #{
+                        default => 10,
+                        example => 10,
+                        desc => "Salt rounds for BCRYPT password generation."
+                    }
+                )}
+        ];
 fields(bcrypt) ->
-    [{name, sc(bcrypt, #{desc => "BCRYPT password hashing."})}];
+    [{name, sc(bcrypt, #{required => true, desc => "BCRYPT password hashing."})}];
 fields(pbkdf2) ->
     [
-        {name, sc(pbkdf2, #{desc => "PBKDF2 password hashing."})},
+        {name, sc(pbkdf2, #{required => true, desc => "PBKDF2 password hashing."})},
         {mac_fun,
             sc(
                 hoconsc:enum([md4, md5, ripemd160, sha, sha224, sha256, sha384, sha512]),
-                #{desc => "Specifies mac_fun for PBKDF2 hashing algorithm."}
+                #{required => true, desc => "Specifies mac_fun for PBKDF2 hashing algorithm."}
             )},
         {iterations,
             sc(
                 integer(),
-                #{desc => "Iteration count for PBKDF2 hashing algorithm."}
+                #{required => true, desc => "Iteration count for PBKDF2 hashing algorithm."}
             )},
         {dk_length, fun dk_length/1}
     ];
@@ -91,10 +101,7 @@ fields(other_algorithms) ->
         {name,
             sc(
                 hoconsc:enum([plain, md5, sha, sha256, sha512]),
-                #{
-                    desc =>
-                        "Simple password hashing algorithm."
-                }
+                #{required => true, desc => "Simple password hashing algorithm."}
             )},
         {salt_position, fun salt_position/1}
     ].
@@ -115,11 +122,6 @@ salt_position(default) -> prefix;
 salt_position(desc) -> "Salt position for PLAIN, MD5, SHA, SHA256 and SHA512 algorithms.";
 salt_position(_) -> undefined.
 
-salt_rounds(type) -> integer();
-salt_rounds(default) -> 10;
-salt_rounds(desc) -> "Salt rounds for BCRYPT password generation.";
-salt_rounds(_) -> undefined.
-
 dk_length(type) ->
     integer();
 dk_length(required) ->
@@ -130,6 +132,7 @@ dk_length(desc) ->
 dk_length(_) ->
     undefined.
 
+%% for simple_authn/emqx_authn_mnesia
 type_rw(type) ->
     hoconsc:union(rw_refs());
 type_rw(default) ->
@@ -139,6 +142,7 @@ type_rw(desc) ->
 type_rw(_) ->
     undefined.
 
+%% for other authn resources
 type_ro(type) ->
     hoconsc:union(ro_refs());
 type_ro(default) ->

@@ -128,21 +128,22 @@ roots() ->
 
 fields(request_user_create) ->
     [
-        {user_id, binary()}
+        {user_id, mk(binary(), #{required => true})}
         | fields(request_user_update)
     ];
 fields(request_user_update) ->
     [
-        {password, binary()},
+        {password, mk(binary(), #{required => true})},
         {is_superuser, mk(boolean(), #{default => false, required => false})}
     ];
 fields(request_move) ->
-    [{position, binary()}];
+    [{position, mk(binary(), #{required => true})}];
 fields(request_import_users) ->
-    [{filename, binary()}];
+    %% TODO: add file update
+    [{filename, mk(binary(), #{required => true})}];
 fields(response_user) ->
     [
-        {user_id, binary()},
+        {user_id, mk(binary(), #{required => true})},
         {is_superuser, mk(boolean(), #{default => false, required => false})}
     ];
 fields(response_users) ->
@@ -425,10 +426,8 @@ schema("/authentication/:id/users") ->
             description => <<"List users in authenticator in global authentication chain">>,
             parameters => [
                 param_auth_id(),
-                {page,
-                    mk(pos_integer(), #{in => query, desc => <<"Page Index">>, required => false})},
-                {limit,
-                    mk(pos_integer(), #{in => query, desc => <<"Page Limit">>, required => false})},
+                ref(emqx_dashboard_swagger, page),
+                ref(emqx_dashboard_swagger, limit),
                 {like_username,
                     mk(binary(), #{
                         in => query,
@@ -477,10 +476,8 @@ schema("/listeners/:listener_id/authentication/:id/users") ->
             parameters => [
                 param_listener_id(),
                 param_auth_id(),
-                {page,
-                    mk(pos_integer(), #{in => query, desc => <<"Page Index">>, required => false})},
-                {limit,
-                    mk(pos_integer(), #{in => query, desc => <<"Page Limit">>, required => false})}
+                ref(emqx_dashboard_swagger, page),
+                ref(emqx_dashboard_swagger, limit)
             ],
             responses => #{
                 200 => emqx_dashboard_swagger:schema_with_example(
@@ -581,7 +578,8 @@ param_auth_id() ->
         id,
         mk(binary(), #{
             in => path,
-            desc => <<"Authenticator ID">>
+            desc => <<"Authenticator ID">>,
+            required => true
         })
     }.
 
@@ -591,6 +589,7 @@ param_listener_id() ->
         mk(binary(), #{
             in => path,
             desc => <<"Listener ID">>,
+            required => true,
             example => emqx_listeners:id_example()
         })
     }.
@@ -1177,6 +1176,7 @@ update_config(Path, ConfigRequest) ->
 get_raw_config_with_defaults(ConfKeyPath) ->
     NConfKeyPath = [atom_to_binary(Key, utf8) || Key <- ConfKeyPath],
     RawConfig = emqx_map_lib:deep_get(NConfKeyPath, emqx_config:get_raw([]), []),
+    %% TODO: check plain unexcepted
     ensure_list(fill_defaults(RawConfig)).
 
 find_config(AuthenticatorID, AuthenticatorsConfig) ->

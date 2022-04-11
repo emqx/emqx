@@ -56,6 +56,7 @@ roots() ->
 fields(single) ->
     [ {mongo_type, #{type => single,
                      default => single,
+                     required => true,
                      desc => ?DESC("single_mongo_type")}}
     , {server, fun server/1}
     , {w_mode, fun w_mode/1}
@@ -63,6 +64,7 @@ fields(single) ->
 fields(rs) ->
     [ {mongo_type, #{type => rs,
                      default => rs,
+                     required => true,
                      desc => ?DESC("rs_mongo_type")}}
     , {servers, fun servers/1}
     , {w_mode, fun w_mode/1}
@@ -72,6 +74,7 @@ fields(rs) ->
 fields(sharded) ->
     [ {mongo_type, #{type => sharded,
                      default => sharded,
+                     required => true,
                      desc => ?DESC("sharded_mongo_type")}}
     , {servers, fun servers/1}
     , {w_mode, fun w_mode/1}
@@ -336,7 +339,7 @@ max_overflow(_) -> undefined.
 
 replica_set_name(type) -> binary();
 replica_set_name(desc) -> ?DESC("replica_set_name");
-replica_set_name(required) -> false;
+replica_set_name(required) -> true;
 replica_set_name(_) -> undefined.
 
 srv_record(type) -> boolean();

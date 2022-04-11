@@ -57,12 +57,12 @@ roots() ->
 
 fields(get) ->
     [
-        {method, #{type => get, default => post, desc => "HTTP method."}},
+        {method, #{type => get, required => true, default => post, desc => "HTTP method."}},
         {headers, fun headers_no_content_type/1}
     ] ++ common_fields();
 fields(post) ->
     [
-        {method, #{type => post, default => post, desc => "HTTP method."}},
+        {method, #{type => post, required => true, default => post, desc => "HTTP method."}},
         {headers, fun headers/1}
     ] ++ common_fields().
 
@@ -75,7 +75,7 @@ desc(_) ->
 
 common_fields() ->
     [
-        {mechanism, emqx_authn_schema:mechanism('password_based')},
+        {mechanism, emqx_authn_schema:mechanism(password_based)},
         {backend, emqx_authn_schema:backend(http)},
         {url, fun url/1},
         {body,
