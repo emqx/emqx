@@ -31,6 +31,15 @@ end_per_suite(_) ->
     emqx_mgmt_api_test_util:end_suite().
 
 t_stats_api(_) ->
+    S = emqx_mgmt_api_test_util:api_path(["stats?aggregate=false"]),
+    {ok, S1} = emqx_mgmt_api_test_util:request_api(get, S),
+    [Stats1] = emqx_json:decode(S1, [return_maps]),
+    SystemStats1 = emqx_mgmt:get_stats(),
+    Fun1 =
+        fun(Key) ->
+                ?assertEqual(maps:get(Key, SystemStats1), maps:get(atom_to_binary(Key, utf8), Stats1))
+        end,
+    lists:foreach(Fun1, maps:keys(SystemStats1)),
     StatsPath = emqx_mgmt_api_test_util:api_path(["stats?aggregate=true"]),
     SystemStats = emqx_mgmt:get_stats(),
     {ok, StatsResponse} = emqx_mgmt_api_test_util:request_api(get, StatsPath),
