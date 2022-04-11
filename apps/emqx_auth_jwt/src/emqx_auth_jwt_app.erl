@@ -33,11 +33,10 @@ start(_Type, _Args) ->
 
     {ok, Pid} = start_auth_server(jwks_svr_options()),
     ok = emqx_auth_jwt:register_metrics(),
-    AuthEnv0 = auth_env(),
-    AuthEnv1 = AuthEnv0#{pid => Pid},
+    AuthEnv = auth_env(),
 
-    _ = emqx:hook('client.authenticate', {emqx_auth_jwt, check, [AuthEnv1]}),
-    {ok, Sup, AuthEnv1}.
+    _ = emqx:hook('client.authenticate', {emqx_auth_jwt, check, [AuthEnv]}),
+    {ok, Sup, AuthEnv}.
 
 stop(AuthEnv) ->
     emqx:unhook('client.authenticate', {emqx_auth_jwt, check, [AuthEnv]}).
