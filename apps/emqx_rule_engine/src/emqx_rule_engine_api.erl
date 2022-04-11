@@ -83,7 +83,7 @@ namespace() -> "rule".
 api_spec() ->
     emqx_dashboard_swagger:spec(?MODULE, #{check_schema => false}).
 
-paths() -> ["/rule_events", "/rule_test", "/rules", "/rules/:id"].
+paths() -> ["/rule_events", "/rule_test", "/rules", "/rules/:id", "/rules/:id/reset_metrics"].
 
 error_schema(Code, Message) when is_atom(Code) ->
     emqx_dashboard_swagger:error_codes([Code], list_to_binary(Message)).
