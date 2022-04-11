@@ -103,7 +103,7 @@ unload(PluginName) when is_atom(PluginName) ->
             ?LOG(error, "Plugin ~s is not started", [PluginName]),
             {error, not_started};
         {_, _} ->
-            unload_plugin(PluginName, true)            
+            unload_plugin(PluginName, true)
     end.
 
 reload(PluginName) when is_atom(PluginName)->
@@ -204,10 +204,21 @@ with_loaded_file(File, SuccFun) ->
     end.
 
 filter_plugins(Names) ->
-    lists:filtermap(fun(Name1) when is_atom(Name1) -> {true, Name1};
-                       ({Name1, true}) -> {true, Name1};
-                       ({_Name1, false}) -> false
-                    end, Names).
+    filter_plugins(Names, []).
+
+filter_plugins([], Plugins) ->
+    lists:reverse(Plugins);
+filter_plugins([{Name, Load} | Names], Plugins) ->
+    case {Load, lists:member(Name, Plugins)} of
+        {true, false} ->
+            filter_plugins(Names, [Name | Plugins]);
+        {false, true} ->
+            filter_plugins(Names, Plugins -- [Name]);
+        _ ->
+            filter_plugins(Names, Plugins)
+    end;
+filter_plugins([Name | Names], Plugins) when is_atom(Name) ->
+    filter_plugins([{Name, true} | Names], Plugins).
 
 load_plugins(Names, Persistent) ->
     Plugins = list(), NotFound = Names -- names(Plugins),
