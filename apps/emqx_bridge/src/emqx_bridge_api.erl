@@ -380,10 +380,11 @@ schema("/nodes/:node/bridges/:id/operation/:operation") ->
         end).
 
 '/bridges/:id/reset_metrics'(put, #{bindings := #{id := Id}}) ->
-    case emqx_bridge:reset_metrics(Id) of
-        ok -> {200, <<"Reset success">>};
-        Reason -> {400, error_msg('BAD_REQUEST', Reason)}
-    end.
+    ?TRY_PARSE_ID(Id,
+        case emqx_bridge:reset_metrics(emqx_bridge:resource_id(BridgeType, BridgeName)) of
+            ok -> {200, <<"Reset success">>};
+            Reason -> {400, error_msg('BAD_REQUEST', Reason)}
+        end).
 
 lookup_from_all_nodes(BridgeType, BridgeName, SuccCode) ->
     Nodes = mria_mnesia:running_nodes(),
