@@ -144,13 +144,7 @@ init_per_testcase(t_exhook_info, Config) ->
     {ok, _} = application:ensure_all_started(emqx_exhook),
     Config;
 init_per_testcase(_Testcase, Config) ->
-    TestPID = self(),
-    ok = meck:new(httpc, [non_strict, passthrough, no_history, no_link]),
-    ok = meck:expect(httpc, request, fun(
-        Method, {URL, Headers, _ContentType, Body}, _HTTPOpts, _Opts
-    ) ->
-        TestPID ! {request, Method, URL, Headers, Body}
-    end),
+    mock_httpc(),
     Config.
 
 end_per_testcase(t_get_telemetry, _Config) ->
@@ -198,20 +192,43 @@ end_per_testcase(_Testcase, _Config) ->
     meck:unload([httpc]),
     ok.
 
-t_uuid(_) ->
+%%------------------------------------------------------------------------------
+%% Internal functions
+%%------------------------------------------------------------------------------
+
+t_node_uuid(_) ->
     UUID = emqx_telemetry:generate_uuid(),
     Parts = binary:split(UUID, <<"-">>, [global, trim]),
     ?assertEqual(5, length(Parts)),
-    {ok, UUID2} = emqx_telemetry:get_uuid(),
+    {ok, NodeUUID2} = emqx_telemetry:get_node_uuid(),
     emqx_telemetry:disable(),
     emqx_telemetry:enable(),
     emqx_modules_conf:set_telemetry_status(false),
     emqx_modules_conf:set_telemetry_status(true),
-    {ok, UUID3} = emqx_telemetry:get_uuid(),
-    {ok, UUID4} = emqx_telemetry_proto_v1:get_uuid(node()),
-    ?assertEqual(UUID2, UUID3),
-    ?assertEqual(UUID3, UUID4),
-    ?assertMatch({badrpc, nodedown}, emqx_telemetry_proto_v1:get_uuid('fake@node')).
+    {ok, NodeUUID3} = emqx_telemetry:get_node_uuid(),
+    {ok, NodeUUID4} = emqx_telemetry_proto_v1:get_node_uuid(node()),
+    ?assertEqual(NodeUUID2, NodeUUID3),
+    ?assertEqual(NodeUUID3, NodeUUID4),
+    ?assertMatch({badrpc, nodedown}, emqx_telemetry_proto_v1:get_node_uuid('fake@node')).
+
+t_cluster_uuid(_Config) ->
+    {ok, ClusterUUID0} = emqx_telemetry:get_cluster_uuid(),
+    {ok, ClusterUUID1} = emqx_telemetry_proto_v1:get_cluster_uuid(node()),
+    ?assertEqual(ClusterUUID0, ClusterUUID1),
+    {ok, NodeUUID0} = emqx_telemetry:get_node_uuid(),
+
+    Node = start_slave(n1),
+    try
+        ok = setup_slave(Node),
+        {ok, ClusterUUID2} = emqx_telemetry_proto_v1:get_cluster_uuid(Node),
+        ?assertEqual(ClusterUUID0, ClusterUUID2),
+        {ok, NodeUUID1} = emqx_telemetry_proto_v1:get_node_uuid(Node),
+        ?assertNotEqual(NodeUUID0, NodeUUID1),
+        ok
+    after
+        ok = stop_slave(Node)
+    end,
+    ok.
 
 t_official_version(_) ->
     true = emqx_telemetry:official_version("0.0.0"),
@@ -231,8 +248,11 @@ t_get_telemetry(_Config) ->
     {ok, TelemetryData} = emqx_telemetry:get_telemetry(),
     OTPVersion = bin(erlang:system_info(otp_release)),
     ?assertEqual(OTPVersion, get_value(otp_version, TelemetryData)),
-    {ok, UUID} = emqx_telemetry:get_uuid(),
-    ?assertEqual(UUID, get_value(uuid, TelemetryData)),
+    {ok, NodeUUID} = emqx_telemetry:get_node_uuid(),
+    {ok, ClusterUUID} = emqx_telemetry:get_cluster_uuid(),
+    ?assertEqual(NodeUUID, get_value(uuid, TelemetryData)),
+    ?assertEqual(ClusterUUID, get_value(cluster_uuid, TelemetryData)),
+    ?assertNotEqual(NodeUUID, ClusterUUID),
     ?assertEqual(0, get_value(num_clients, TelemetryData)),
     BuildInfo = get_value(build_info, TelemetryData),
     ?assertMatch(
@@ -449,6 +469,10 @@ t_exhook_info(_Config) ->
     ),
     ok.
 
+%%------------------------------------------------------------------------------
+%% Internal functions
+%%------------------------------------------------------------------------------
+
 assert_approximate(Map, Key, Expected) ->
     Value = maps:get(Key, Map),
     ?assertEqual(Expected, float_to_list(Value, [{decimals, 2}])).
@@ -562,3 +586,83 @@ set_special_configs(emqx_authz) ->
     ok;
 set_special_configs(_App) ->
     ok.
+
+start_slave(Name) ->
+    % We want VMs to only occupy a single core
+    CommonBeamOpts = "+S 1:1 ",
+    {ok, Node} = slave:start_link(host(), Name, CommonBeamOpts ++ ebin_path()),
+    Node.
+
+%% for some unknown reason, gen_rpc running locally or in CI might
+%% start with different `port_discovery' modes, which means that'll
+%% either be listening at the port in the config (`tcp_server_port',
+%% 5369) if `manual', else it'll listen on 5370 if started as
+%% `stateless'.
+find_gen_rpc_port() ->
+    [EPort] = [
+        EPort
+     || {links, Ls} <- process_info(whereis(gen_rpc_server_tcp)),
+        EPort <- Ls,
+        is_port(EPort)
+    ],
+    {ok, {_, Port}} = inet:sockname(EPort),
+    Port.
+
+setup_slave(Node) ->
+    TestNode = node(),
+    Port = find_gen_rpc_port(),
+    [ok = rpc:call(Node, application, load, [App]) || App <- [gen_rpc, emqx]],
+    ok = rpc:call(
+        Node,
+        application,
+        set_env,
+        [gen_rpc, tcp_server_port, 9002]
+    ),
+    ok = rpc:call(
+        Node,
+        application,
+        set_env,
+        [gen_rpc, client_config_per_node, {internal, #{TestNode => Port}}]
+    ),
+    ok = rpc:call(
+        Node,
+        application,
+        set_env,
+        [gen_rpc, port_discovery, manual]
+    ),
+    Handler =
+        fun
+            (emqx) ->
+                application:set_env(
+                    emqx,
+                    boot_modules,
+                    []
+                ),
+                ekka:join(TestNode),
+                ok;
+            (_) ->
+                ok
+        end,
+    ok = rpc:call(
+        Node,
+        emqx_common_test_helpers,
+        start_apps,
+        [
+            [emqx_conf, emqx_modules],
+            Handler
+        ]
+    ),
+    ok.
+
+stop_slave(Node) ->
+    slave:stop(Node).
+
+host() ->
+    [_, Host] = string:tokens(atom_to_list(node()), "@"),
+    Host.
+
+ebin_path() ->
+    string:join(["-pa" | lists:filter(fun is_lib/1, code:get_path())], " ").
+
+is_lib(Path) ->
+    string:prefix(Path, code:lib_dir()) =:= nomatch.

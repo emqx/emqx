@@ -59,6 +59,7 @@ init_per_testcase(t_status_fail, Config) ->
 init_per_testcase(t_status, Config) ->
     meck:new(emqx_telemetry, [non_strict, passthrough]),
     meck:expect(emqx_telemetry, official_version, 1, true),
+    meck:expect(emqx_telemetry, enable, fun() -> ok end),
     Config;
 init_per_testcase(_TestCase, Config) ->
     Config.

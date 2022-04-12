@@ -47,7 +47,8 @@
 ]).
 
 -export([
-    get_uuid/0,
+    get_node_uuid/0,
+    get_cluster_uuid/0,
     get_telemetry/0
 ]).
 
@@ -67,12 +68,13 @@
 ]).
 
 -record(telemetry, {
-    id :: non_neg_integer(),
+    id :: atom(),
     uuid :: binary()
 }).
 
 -record(state, {
-    uuid :: undefined | binary(),
+    node_uuid :: undefined | binary(),
+    cluster_uuid :: undefined | binary(),
     url :: string(),
     report_interval :: non_neg_integer(),
     timer = undefined :: undefined | reference(),
@@ -85,9 +87,11 @@
 %% 1582-10-15 00:00:00 and the UNIX epoch 1970-01-01 00:00:00.
 -define(GREGORIAN_EPOCH_OFFSET, 16#01b21dd213814000).
 
--define(UNIQUE_ID, 9527).
+-define(CLUSTER_UUID_KEY, cluster_uuid).
 
 -define(TELEMETRY, emqx_telemetry).
+
+-define(TELEMETRY_SHARD, emqx_telemetry_shard).
 
 %%--------------------------------------------------------------------
 %% API
@@ -99,7 +103,7 @@ start_link() ->
         [
             {type, set},
             {storage, disc_copies},
-            {local_content, true},
+            {rlog_shard, ?TELEMETRY_SHARD},
             {record_name, telemetry},
             {attributes, record_info(fields, telemetry)}
         ]
@@ -117,8 +121,11 @@ enable() ->
 disable() ->
     gen_server:call(?MODULE, disable).
 
-get_uuid() ->
-    gen_server:call(?MODULE, get_uuid).
+get_node_uuid() ->
+    gen_server:call(?MODULE, get_node_uuid).
+
+get_cluster_uuid() ->
+    gen_server:call(?MODULE, get_cluster_uuid).
 
 get_telemetry() ->
     gen_server:call(?MODULE, get_telemetry).
@@ -135,19 +142,8 @@ get_telemetry() ->
 -dialyzer([{nowarn_function, [init/1]}]).
 init(_Opts) ->
     State0 = empty_state(),
-    UUID1 =
-        case mnesia:dirty_read(?TELEMETRY, ?UNIQUE_ID) of
-            [] ->
-                UUID = generate_uuid(),
-                mria:dirty_write(?TELEMETRY, #telemetry{
-                    id = ?UNIQUE_ID,
-                    uuid = UUID
-                }),
-                UUID;
-            [#telemetry{uuid = UUID} | _] ->
-                UUID
-        end,
-    {ok, State0#state{uuid = UUID1}}.
+    {NodeUUID, ClusterUUID} = ensure_uuids(),
+    {ok, State0#state{node_uuid = NodeUUID, cluster_uuid = ClusterUUID}}.
 
 handle_call(enable, _From, State0) ->
     case ?MODULE:official_version(emqx_app:get_release()) of
@@ -165,7 +161,9 @@ handle_call(disable, _From, State = #state{timer = Timer}) ->
         false ->
             {reply, {error, not_official_version}, State}
     end;
-handle_call(get_uuid, _From, State = #state{uuid = UUID}) ->
+handle_call(get_node_uuid, _From, State = #state{node_uuid = UUID}) ->
+    {reply, {ok, UUID}, State};
+handle_call(get_cluster_uuid, _From, State = #state{cluster_uuid = UUID}) ->
     {reply, {ok, UUID}, State};
 handle_call(get_telemetry, _From, State) ->
     {_State, Telemetry} = get_telemetry(State),
@@ -270,7 +268,7 @@ nodes_uuid() ->
     Nodes = lists:delete(node(), mria_mnesia:running_nodes()),
     lists:foldl(
         fun(Node, Acc) ->
-            case emqx_telemetry_proto_v1:get_uuid(Node) of
+            case emqx_telemetry_proto_v1:get_node_uuid(Node) of
                 {badrpc, _Reason} ->
                     Acc;
                 {ok, UUID} ->
@@ -322,7 +320,7 @@ generate_uuid() ->
     ).
 
 -spec get_telemetry(state()) -> {state(), proplists:proplist()}.
-get_telemetry(State0 = #state{uuid = UUID}) ->
+get_telemetry(State0 = #state{node_uuid = NodeUUID, cluster_uuid = ClusterUUID}) ->
     OSInfo = os_info(),
     {MQTTRTInsights, State} = mqtt_runtime_insights(State0),
     #{
@@ -336,7 +334,8 @@ get_telemetry(State0 = #state{uuid = UUID}) ->
         {os_version, bin(get_value(os_version, OSInfo))},
         {otp_version, bin(otp_version())},
         {up_time, uptime()},
-        {uuid, UUID},
+        {uuid, NodeUUID},
+        {cluster_uuid, ClusterUUID},
         {nodes_uuid, nodes_uuid()},
         {active_plugins, active_plugins()},
         {num_clients, num_clients()},
@@ -518,6 +517,45 @@ bin(B) when is_binary(B) ->
 
 bool2int(true) -> 1;
 bool2int(false) -> 0.
+
+ensure_uuids() ->
+    Txn = fun() ->
+        NodeUUID =
+            case mnesia:wread({?TELEMETRY, node()}) of
+                [] ->
+                    NodeUUID0 = generate_uuid(),
+                    mnesia:write(
+                        ?TELEMETRY,
+                        #telemetry{
+                            id = node(),
+                            uuid = NodeUUID0
+                        },
+                        write
+                    ),
+                    NodeUUID0;
+                [#telemetry{uuid = NodeUUID0}] ->
+                    NodeUUID0
+            end,
+        ClusterUUID =
+            case mnesia:wread({?TELEMETRY, ?CLUSTER_UUID_KEY}) of
+                [] ->
+                    ClusterUUID0 = generate_uuid(),
+                    mnesia:write(
+                        ?TELEMETRY,
+                        #telemetry{
+                            id = ?CLUSTER_UUID_KEY,
+                            uuid = ClusterUUID0
+                        },
+                        write
+                    ),
+                    ClusterUUID0;
+                [#telemetry{uuid = ClusterUUID0}] ->
+                    ClusterUUID0
+            end,
+        {NodeUUID, ClusterUUID}
+    end,
+    {atomic, UUIDs} = mria:transaction(?TELEMETRY_SHARD, Txn),
+    UUIDs.
 
 empty_state() ->
     #state{
