@@ -66,13 +66,23 @@ save_files_return_opts(Options, Dir) ->
                   _ -> verify_peer
              end,
     SNI = case Get(<<"server_name_indication">>) of
+              <<"disable">> -> disable;
+              "disable" -> disable;
+              "" -> undefined;
+              <<>> -> undefined;
               undefined -> undefined;
               SNI0 -> ensure_str(SNI0)
           end,
     Versions = emqx_tls_lib:integral_versions(Get(<<"tls_versions">>)),
     Ciphers = emqx_tls_lib:integral_ciphers(Versions, Get(<<"ciphers">>)),
-    filter([{keyfile, Key}, {certfile, Cert}, {cacertfile, CA},
-            {verify, Verify}, {server_name_indication, SNI}, {versions, Versions}, {ciphers, Ciphers}]).
+    filter([ {keyfile, Key}
+           , {certfile, Cert}
+           , {cacertfile, CA}
+           , {verify, Verify}
+           , {server_name_indication, SNI}
+           , {versions, Versions}
+           , {ciphers, Ciphers}
+           ]).
 
 %% @doc Save a key or certificate file in data dir,
 %% and return path of the saved file.

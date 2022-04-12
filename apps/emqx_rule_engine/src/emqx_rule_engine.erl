@@ -332,7 +332,9 @@ start_resource(ResId) ->
 test_resource(#{type := Type} = Params) ->
     case emqx_rule_registry:find_resource_type(Type) of
         {ok, #resource_type{}} ->
-            ResId = maps:get(id, Params, resource_id()),
+            %% Resource will be deleted after test.
+            %% Use random resource id, ensure test func will not delete the resource in used.
+            ResId = resource_id(),
             try
                 case create_resource(maps:put(id, ResId, Params), no_retry) of
                     {ok, _} ->
