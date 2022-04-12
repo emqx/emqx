@@ -1175,8 +1175,7 @@ update_config(Path, ConfigRequest) ->
 
 get_raw_config_with_defaults(ConfKeyPath) ->
     NConfKeyPath = [atom_to_binary(Key, utf8) || Key <- ConfKeyPath],
-    RawConfig = emqx_map_lib:deep_get(NConfKeyPath, emqx_config:get_raw([]), []),
-    %% TODO: check plain unexcepted
+    RawConfig = emqx:get_raw_config(NConfKeyPath, []),
     ensure_list(fill_defaults(RawConfig)).
 
 find_config(AuthenticatorID, AuthenticatorsConfig) ->
@@ -1194,7 +1193,24 @@ find_config(AuthenticatorID, AuthenticatorsConfig) ->
 fill_defaults(Configs) when is_list(Configs) ->
     lists:map(fun fill_defaults/1, Configs);
 fill_defaults(Config) ->
-    emqx_authn:check_config(Config, #{only_fill_defaults => true}).
+    emqx_authn:check_config(merge_default_headers(Config), #{only_fill_defaults => true}).
+
+merge_default_headers(Config) ->
+    case maps:find(<<"headers">>, Config) of
+        {ok, Headers} ->
+            NewHeaders =
+                case Config of
+                    #{<<"method">> := <<"get">>} ->
+                        (emqx_authn_http:headers_no_content_type(converter))(Headers);
+                    #{<<"method">> := <<"post">>} ->
+                        (emqx_authn_http:headers(converter))(Headers);
+                    _ ->
+                        Headers
+                end,
+            Config#{<<"headers">> => NewHeaders};
+        error ->
+            Config
+    end.
 
 convert_certs(#{ssl := SSL} = Config) when SSL =/= undefined ->
     Config#{ssl := emqx_tls_lib:drop_invalid_certs(SSL)};

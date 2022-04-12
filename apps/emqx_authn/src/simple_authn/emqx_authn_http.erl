@@ -33,6 +33,11 @@
 ]).
 
 -export([
+    headers_no_content_type/1,
+    headers/1
+]).
+
+-export([
     refs/0,
     create/2,
     update/2,
