@@ -16,6 +16,7 @@
 
 -module(emqx_authz_schema).
 
+-include("emqx_authz.hrl").
 -include_lib("typerefl/include/types.hrl").
 -include_lib("emqx_connector/include/emqx_connector.hrl").
 
@@ -39,9 +40,6 @@
     headers_no_content_type/1,
     headers/1
 ]).
-
--import(emqx_schema, [mk_duration/2]).
--include_lib("hocon/include/hoconsc.hrl").
 
 %%--------------------------------------------------------------------
 %% Hocon Schema
@@ -197,7 +195,9 @@ http_common_fields() ->
     [
         {url, fun url/1},
         {request_timeout,
-            mk_duration("Request timeout", #{default => "30s", desc => "Request timeout."})},
+            emqx_schema:mk_duration("Request timeout", #{
+                default => "30s", desc => "Request timeout."
+            })},
         {body, #{type => map(), required => false, desc => "HTTP request body."}}
     ] ++
         maps:to_list(
@@ -232,8 +232,7 @@ mongo_common_fields() ->
 
 validations() ->
     [
-        {check_ssl_opts, fun check_ssl_opts/1},
-        {check_headers, fun check_headers/1}
+        {check_ssl_opts, fun check_ssl_opts/1}
     ].
 
 headers(type) ->
@@ -259,6 +258,13 @@ headers_no_content_type(converter) ->
     end;
 headers_no_content_type(default) ->
     default_headers_no_content_type();
+headers_no_content_type(validator) ->
+    fun(Headers) ->
+        case lists:keyfind(<<"content-type">>, 1, Headers) of
+            false -> ok;
+            _ -> {error, do_not_include_content_type}
+        end
+    end;
 headers_no_content_type(_) ->
     undefined.
 
@@ -297,6 +303,7 @@ transform_header_name(Headers) ->
         Headers
     ).
 
+%% TODO: fix me, not work
 check_ssl_opts(Conf) ->
     case hocon_maps:get("config.url", Conf) of
         undefined ->
@@ -312,25 +319,6 @@ check_ssl_opts(Conf) ->
                     true;
                 Bad ->
                     {bad_scheme, Url, Bad}
-            end
-    end.
-
-check_headers(Conf) ->
-    case hocon_maps:get("config.method", Conf) of
-        undefined ->
-            true;
-        Method0 ->
-            Method = to_bin(Method0),
-            Headers = hocon_maps:get("config.headers", Conf),
-            case Method of
-                <<"post">> ->
-                    true;
-                _ when Headers =:= undefined -> true;
-                _ when is_list(Headers) ->
-                    case lists:member(<<"content-type">>, Headers) of
-                        false -> true;
-                        true -> {Method0, do_not_include_content_type}
-                    end
             end
     end.
 
@@ -376,10 +364,3 @@ to_list(A) when is_atom(A) ->
     atom_to_list(A);
 to_list(B) when is_binary(B) ->
     binary_to_list(B).
-
-to_bin(A) when is_atom(A) ->
-    atom_to_binary(A);
-to_bin(B) when is_binary(B) ->
-    B;
-to_bin(L) when is_list(L) ->
-    list_to_binary(L).

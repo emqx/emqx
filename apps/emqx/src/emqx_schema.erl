@@ -24,6 +24,7 @@
 -elvis([{elvis_style, invalid_dynamic_call, disable}]).
 
 -include("emqx_authentication.hrl").
+-include("emqx_access_control.hrl").
 -include_lib("typerefl/include/types.hrl").
 
 -type duration() :: integer().
@@ -159,9 +160,9 @@ roots(high) ->
             )},
         %% NOTE: authorization schema here is only to keep emqx app prue
         %% the full schema for EMQX node is injected in emqx_conf_schema.
-        {"authorization",
+        {?EMQX_AUTHORIZATION_CONFIG_ROOT_NAME,
             sc(
-                ref("authorization"),
+                ref(?EMQX_AUTHORIZATION_CONFIG_ROOT_NAME),
                 #{}
             )}
     ];
