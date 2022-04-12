@@ -1137,7 +1137,7 @@ fields("broker") ->
             )},
         {"shared_subscription_strategy",
             sc(
-                hoconsc:enum([random, round_robin, sticky, hash_topic, hash_clientid]),
+                hoconsc:enum([random, round_robin, sticky, local, hash_topic, hash_clientid]),
                 #{
                     default => round_robin,
                     desc => ?DESC(broker_shared_subscription_strategy)
@@ -1163,6 +1163,21 @@ fields("broker") ->
             sc(
                 ref("broker_perf"),
                 #{}
+            )},
+        {"shared_subscription_group",
+            sc(
+                map(name, ref("shared_subscription_group")),
+                #{desc => ?DESC(shared_subscription_group_strategy)}
+            )}
+    ];
+fields("shared_subscription_group") ->
+    [
+        {"strategy",
+            sc(
+                hoconsc:enum([random, round_robin, sticky, local, hash_topic, hash_clientid]),
+                #{
+                    desc => ?DESC(shared_subscription_strategy_enum)
+                }
             )}
     ];
 fields("broker_perf") ->
@@ -1712,6 +1727,8 @@ desc("alarm") ->
     "Settings for the alarms.";
 desc("trace") ->
     "Real-time filtering logs for the ClientID or Topic or IP for debugging.";
+desc("shared_subscription_group") ->
+    "Per group dispatch strategy for shared subscription";
 desc(_) ->
     undefined.
 

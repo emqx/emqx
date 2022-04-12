@@ -37,6 +37,7 @@
 all() -> emqx_common_test_helpers:all(?SUITE).
 
 init_per_suite(Config) ->
+    net_kernel:start(['master@127.0.0.1', longnames]),
     emqx_common_test_helpers:boot_modules(all),
     emqx_common_test_helpers:start_apps([]),
     Config.
@@ -187,19 +188,24 @@ t_no_connection_nack(_) ->
     ok.
 
 t_random(_) ->
+    ok = ensure_config(random, true),
     test_two_messages(random).
 
 t_round_robin(_) ->
+    ok = ensure_config(round_robin, true),
     test_two_messages(round_robin).
 
 t_sticky(_) ->
+    ok = ensure_config(sticky, true),
     test_two_messages(sticky).
 
 t_hash(_) ->
-    test_two_messages(hash, false).
+    ok = ensure_config(hash, false),
+    test_two_messages(hash).
 
 t_hash_clinetid(_) ->
-    test_two_messages(hash_clientid, false).
+    ok = ensure_config(hash_clientid, false),
+    test_two_messages(hash_clientid).
 
 t_hash_topic(_) ->
     ok = ensure_config(hash_topic, false),
@@ -271,53 +277,39 @@ t_not_so_sticky(_) ->
     ok.
 
 test_two_messages(Strategy) ->
-    test_two_messages(Strategy, _WithAck = true).
+    test_two_messages(Strategy, <<"group1">>).
 
-test_two_messages(Strategy, WithAck) ->
-    ok = ensure_config(Strategy, WithAck),
+test_two_messages(Strategy, Group) ->
     Topic = <<"foo/bar">>,
     ClientId1 = <<"ClientId1">>,
     ClientId2 = <<"ClientId2">>,
     {ok, ConnPid1} = emqtt:start_link([{clientid, ClientId1}]),
-    {ok, _} = emqtt:connect(ConnPid1),
     {ok, ConnPid2} = emqtt:start_link([{clientid, ClientId2}]),
+    {ok, _} = emqtt:connect(ConnPid1),
     {ok, _} = emqtt:connect(ConnPid2),
+
+    emqtt:subscribe(ConnPid1, {<<"$share/", Group/binary, "/", Topic/binary>>, 0}),
+    emqtt:subscribe(ConnPid2, {<<"$share/", Group/binary, "/", Topic/binary>>, 0}),
 
     Message1 = emqx_message:make(ClientId1, 0, Topic, <<"hello1">>),
     Message2 = emqx_message:make(ClientId1, 0, Topic, <<"hello2">>),
-    emqtt:subscribe(ConnPid1, {<<"$share/group1/foo/bar">>, 0}),
-    emqtt:subscribe(ConnPid2, {<<"$share/group1/foo/bar">>, 0}),
     ct:sleep(100),
+
     emqx:publish(Message1),
-    Me = self(),
-    WaitF = fun(ExpectedPayload) ->
-        case last_message(ExpectedPayload, [ConnPid1, ConnPid2]) of
-            {true, Pid} ->
-                Me ! {subscriber, Pid},
-                true;
-            Other ->
-                Other
-        end
-    end,
-    WaitF(<<"hello1">>),
-    UsedSubPid1 =
-        receive
-            {subscriber, P1} -> P1
-        end,
-    emqx_broker:publish(Message2),
-    WaitF(<<"hello2">>),
-    UsedSubPid2 =
-        receive
-            {subscriber, P2} -> P2
-        end,
-    case Strategy of
-        sticky -> ?assert(UsedSubPid1 =:= UsedSubPid2);
-        round_robin -> ?assert(UsedSubPid1 =/= UsedSubPid2);
-        hash -> ?assert(UsedSubPid1 =:= UsedSubPid2);
-        _ -> ok
-    end,
+    {true, UsedSubPid1} = last_message(<<"hello1">>, [ConnPid1, ConnPid2]),
+
+    emqx:publish(Message2),
+    {true, UsedSubPid2} = last_message(<<"hello2">>, [ConnPid1, ConnPid2]),
+
     emqtt:stop(ConnPid1),
     emqtt:stop(ConnPid2),
+
+    case Strategy of
+        sticky -> ?assertEqual(UsedSubPid1, UsedSubPid2);
+        round_robin -> ?assertNotEqual(UsedSubPid1, UsedSubPid2);
+        hash -> ?assertEqual(UsedSubPid1, UsedSubPid2);
+        _ -> ok
+    end,
     ok.
 
 last_message(ExpectedPayload, Pids) ->
@@ -325,7 +317,7 @@ last_message(ExpectedPayload, Pids) ->
         {publish, #{client_pid := Pid, payload := ExpectedPayload}} ->
             ct:pal("~p ====== ~p", [Pids, Pid]),
             {true, Pid}
-    after 100 ->
+    after 500 ->
         <<"not yet?">>
     end.
 
@@ -353,6 +345,101 @@ t_uncovered_func(_) ->
     ignored = emqx_shared_sub ! ignored,
     {mnesia_table_event, []} = emqx_shared_sub ! {mnesia_table_event, []}.
 
+t_per_group_config(_) ->
+    ok = ensure_group_config(#{
+        <<"local_group">> => local,
+        <<"round_robin_group">> => round_robin,
+        <<"sticky_group">> => sticky
+    }),
+    %% Each test is repeated 4 times because random strategy may technically pass the test
+    %% so we run 8 tests to make random pass in only 1/256 runs
+
+    test_two_messages(sticky, <<"sticky_group">>),
+    test_two_messages(sticky, <<"sticky_group">>),
+    test_two_messages(round_robin, <<"round_robin_group">>),
+    test_two_messages(round_robin, <<"round_robin_group">>),
+    test_two_messages(sticky, <<"sticky_group">>),
+    test_two_messages(sticky, <<"sticky_group">>),
+    test_two_messages(round_robin, <<"round_robin_group">>),
+    test_two_messages(round_robin, <<"round_robin_group">>).
+
+t_local(_) ->
+    GroupConfig = #{
+        <<"local_group">> => local,
+        <<"round_robin_group">> => round_robin,
+        <<"sticky_group">> => sticky
+    },
+
+    Node = start_slave('local_shared_sub_testtesttest', 21999),
+    ok = ensure_group_config(GroupConfig),
+    ok = ensure_group_config(Node, GroupConfig),
+
+    Topic = <<"local_foo/bar">>,
+    ClientId1 = <<"ClientId1">>,
+    ClientId2 = <<"ClientId2">>,
+
+    {ok, ConnPid1} = emqtt:start_link([{clientid, ClientId1}]),
+    {ok, ConnPid2} = emqtt:start_link([{clientid, ClientId2}, {port, 21999}]),
+
+    {ok, _} = emqtt:connect(ConnPid1),
+    {ok, _} = emqtt:connect(ConnPid2),
+
+    emqtt:subscribe(ConnPid1, {<<"$share/local_group/", Topic/binary>>, 0}),
+    emqtt:subscribe(ConnPid2, {<<"$share/local_group/", Topic/binary>>, 0}),
+
+    ct:sleep(100),
+
+    Message1 = emqx_message:make(ClientId1, 0, Topic, <<"hello1">>),
+    Message2 = emqx_message:make(ClientId2, 0, Topic, <<"hello2">>),
+
+    emqx:publish(Message1),
+    {true, UsedSubPid1} = last_message(<<"hello1">>, [ConnPid1, ConnPid2]),
+
+    rpc:call(Node, emqx, publish, [Message2]),
+    {true, UsedSubPid2} = last_message(<<"hello2">>, [ConnPid1, ConnPid2]),
+    RemoteLocalGroupStrategy = rpc:call(Node, emqx_shared_sub, strategy, [<<"local_group">>]),
+
+    emqtt:stop(ConnPid1),
+    emqtt:stop(ConnPid2),
+    stop_slave(Node),
+
+    ?assertEqual(local, emqx_shared_sub:strategy(<<"local_group">>)),
+    ?assertEqual(local, RemoteLocalGroupStrategy),
+
+    ?assertNotEqual(UsedSubPid1, UsedSubPid2),
+    ok.
+
+t_local_fallback(_) ->
+    ok = ensure_group_config(#{
+        <<"local_group">> => local,
+        <<"round_robin_group">> => round_robin,
+        <<"sticky_group">> => sticky
+    }),
+
+    Topic = <<"local_foo/bar">>,
+    ClientId1 = <<"ClientId1">>,
+    ClientId2 = <<"ClientId2">>,
+    Node = start_slave('local_fallback_shared_sub_test', 11888),
+
+    {ok, ConnPid1} = emqtt:start_link([{clientid, ClientId1}]),
+    {ok, _} = emqtt:connect(ConnPid1),
+    Message1 = emqx_message:make(ClientId1, 0, Topic, <<"hello1">>),
+    Message2 = emqx_message:make(ClientId2, 0, Topic, <<"hello2">>),
+
+    emqtt:subscribe(ConnPid1, {<<"$share/local_group/", Topic/binary>>, 0}),
+
+    emqx:publish(Message1),
+    {true, UsedSubPid1} = last_message(<<"hello1">>, [ConnPid1]),
+
+    rpc:call(Node, emqx, publish, [Message2]),
+    {true, UsedSubPid2} = last_message(<<"hello2">>, [ConnPid1]),
+
+    emqtt:stop(ConnPid1),
+    stop_slave(Node),
+
+    ?assertEqual(UsedSubPid1, UsedSubPid2),
+    ok.
+
 %%--------------------------------------------------------------------
 %% help functions
 %%--------------------------------------------------------------------
@@ -365,6 +452,29 @@ ensure_config(Strategy, AckEnabled) ->
     emqx_config:put([broker, shared_dispatch_ack_enabled], AckEnabled),
     ok.
 
+ensure_group_config(Group2Strategy) ->
+    lists:foreach(
+        fun({Group, Strategy}) ->
+            emqx_config:force_put(
+                [broker, shared_subscription_group, Group, strategy], Strategy, unsafe
+            )
+        end,
+        maps:to_list(Group2Strategy)
+    ).
+
+ensure_group_config(Node, Group2Strategy) ->
+    lists:foreach(
+        fun({Group, Strategy}) ->
+            rpc:call(
+                Node,
+                emqx_config,
+                force_put,
+                [[broker, shared_subscription_group, Group, strategy], Strategy, unsafe]
+            )
+        end,
+        maps:to_list(Group2Strategy)
+    ).
+
 subscribed(Group, Topic, Pid) ->
     lists:member(Pid, emqx_shared_sub:subscribers(Group, Topic)).
 
@@ -376,10 +486,67 @@ recv_msgs(0, Msgs) ->
 recv_msgs(Count, Msgs) ->
     receive
         {publish, Msg} ->
-            recv_msgs(Count - 1, [Msg | Msgs]);
-        %%TODO:: remove the branch?
-        _Other ->
-            recv_msgs(Count, Msgs)
+            recv_msgs(Count - 1, [Msg | Msgs])
     after 100 ->
         Msgs
     end.
+
+start_slave(Name, Port) ->
+    {ok, Node} = ct_slave:start(
+        list_to_atom(atom_to_list(Name) ++ "@" ++ host()),
+        [
+            {kill_if_fail, true},
+            {monitor_master, true},
+            {init_timeout, 10000},
+            {startup_timeout, 10000},
+            {erl_flags, ebin_path()}
+        ]
+    ),
+
+    pong = net_adm:ping(Node),
+    setup_node(Node, Port),
+    Node.
+
+stop_slave(Node) ->
+    rpc:call(Node, mria, leave, []),
+    ct_slave:stop(Node).
+
+host() ->
+    [_, Host] = string:tokens(atom_to_list(node()), "@"),
+    Host.
+
+ebin_path() ->
+    string:join(["-pa" | lists:filter(fun is_lib/1, code:get_path())], " ").
+
+is_lib(Path) ->
+    string:prefix(Path, code:lib_dir()) =:= nomatch.
+
+setup_node(Node, Port) ->
+    EnvHandler =
+        fun(_) ->
+            %% We load configuration, and than set the special enviroment variable
+            %% which says that emqx shouldn't load configuration at startup
+            emqx_config:init_load(emqx_schema),
+            application:set_env(emqx, init_config_load_done, true),
+
+            ok = emqx_config:put([listeners, tcp, default, bind], {{127, 0, 0, 1}, Port}),
+            ok = emqx_config:put([listeners, ssl, default, bind], {{127, 0, 0, 1}, Port + 1}),
+            ok = emqx_config:put([listeners, quic, default, bind], {{127, 0, 0, 1}, Port + 2}),
+            ok = emqx_config:put([listeners, ws, default, bind], {{127, 0, 0, 1}, Port + 3}),
+            ok = emqx_config:put([listeners, wss, default, bind], {{127, 0, 0, 1}, Port + 4}),
+            ok
+        end,
+
+    %% Load env before doing anything
+    [ok = rpc:call(Node, application, load, [App]) || App <- [gen_rpc, emqx, ekka, mria]],
+
+    %% Needs to be set explicitly because ekka:start() (which calls `gen` is called without Handler
+    %% in emqx_common_test_helpers:start_apps(...)
+    ok = rpc:call(Node, application, set_env, [gen_rpc, tcp_server_port, Port - 1]),
+    ok = rpc:call(Node, application, set_env, [gen_rpc, port_discovery, manual]),
+
+    %% Here we start the node and make it join the cluster
+    ok = rpc:call(Node, emqx_common_test_helpers, start_apps, [[], EnvHandler]),
+    rpc:call(Node, mria, join, [node()]),
+
+    ok.
