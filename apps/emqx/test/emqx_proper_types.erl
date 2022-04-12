@@ -328,9 +328,7 @@ systopic_stats() ->
         <<"subscriptions/shared/max">>,
         <<"subscriptions/shared/count">>,
         <<"topics/max">>,
-        <<"topics/count">>,
-        <<"routes/max">>,
-        <<"routes/count">>
+        <<"topics/count">>
     ],
     ?LET(
         {Nodename, T},

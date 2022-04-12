@@ -178,7 +178,6 @@ stats_fun() ->
         undefined ->
             ok;
         Size ->
-            emqx_stats:setstat('routes.count', 'routes.max', Size),
             emqx_stats:setstat('topics.count', 'topics.max', Size)
     end.
 

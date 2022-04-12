@@ -14,7 +14,7 @@
 %% limitations under the License.
 %%--------------------------------------------------------------------
 
--module(emqx_mgmt_api_routes).
+-module(emqx_mgmt_api_topics).
 
 -include_lib("emqx/include/emqx.hrl").
 -include_lib("typerefl/include/types.hrl").
@@ -28,28 +28,28 @@
         , fields/1
         ]).
 
--export([ routes/2
-        , route/2
+-export([ topics/2
+        , topic/2
         ]).
 
 -export([ query/4]).
 
 -define(TOPIC_NOT_FOUND, 'TOPIC_NOT_FOUND').
 
--define(ROUTES_QSCHEMA, [{<<"topic">>, binary}, {<<"node">>, atom}]).
+-define(TOPICS_QUERY_SCHEMA, [{<<"topic">>, binary}, {<<"node">>, atom}]).
 
 
 api_spec() ->
     emqx_dashboard_swagger:spec(?MODULE, #{check_schema => true, translate_body => true}).
 
 paths() ->
-    ["/routes", "/routes/:topic"].
+    ["/topics", "/topics/:topic"].
 
-schema("/routes") ->
+schema("/topics") ->
     #{
-        'operationId' => routes,
+        'operationId' => topics,
         get => #{
-            description => <<"EMQX Topics List">>,
+            description => <<"Topics list">>,
             parameters => [
                 topic_param(query),
                 node_param(),
@@ -64,11 +64,11 @@ schema("/routes") ->
             }
         }
     };
-schema("/routes/:topic") ->
+schema("/topics/:topic") ->
     #{
-        'operationId' => route,
+        'operationId' => topic,
         get => #{
-            description => <<"EMQX Topic List">>,
+            description => <<"Lookup topic info by name">>,
             parameters => [topic_param(path)],
             responses => #{
                 200 => hoconsc:mk(hoconsc:ref(topic), #{}),
@@ -94,21 +94,21 @@ fields(meta) ->
 
 %%%==============================================================================================
 %% parameters trans
-routes(get, #{query_string := Qs}) ->
+topics(get, #{query_string := Qs}) ->
     do_list(generate_topic(Qs)).
 
-route(get, #{bindings := Bindings}) ->
+topic(get, #{bindings := Bindings}) ->
     lookup(generate_topic(Bindings)).
 
 %%%==============================================================================================
 %% api apply
 do_list(Params) ->
     Response = emqx_mgmt_api:node_query(
-        node(), Params, emqx_route, ?ROUTES_QSCHEMA, {?MODULE, query}),
+        node(), Params, emqx_route, ?TOPICS_QUERY_SCHEMA, {?MODULE, query}),
     emqx_mgmt_util:generate_response(Response).
 
 lookup(#{topic := Topic}) ->
-    case emqx_mgmt:lookup_routes(Topic) of
+    case emqx_router:lookup_routes(Topic) of
         [] ->
             {404, #{code => ?TOPIC_NOT_FOUND, message => <<"Topic not found">>}};
         [Route] ->

@@ -148,8 +148,8 @@ swagger_desc(dropped)        -> swagger_desc_format("Dropped messages ");
 swagger_desc(subscriptions) ->
     <<"Subscriptions at the time of sampling."
     " Can only represent the approximate state">>;
-swagger_desc(routes) ->
-    <<"Routes at the time of sampling."
+swagger_desc(topics) ->
+    <<"Count topics at the time of sampling."
     " Can only represent the approximate state">>;
 swagger_desc(connections) ->
     <<"Connections at the time of sampling."

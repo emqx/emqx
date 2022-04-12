@@ -71,10 +71,6 @@
         , do_list_subscriptions/0
         ]).
 
-%% Routes
--export([ lookup_routes/1
-        ]).
-
 %% PubSub
 -export([ subscribe/2
         , do_subscribe/2
@@ -183,8 +179,8 @@ get_stats() ->
     GlobalStatsKeys =
         [ 'retained.count'
         , 'retained.max'
-        , 'routes.count'
-        , 'routes.max'
+        , 'topics.count'
+        , 'topics.max'
         , 'subscriptions.shared.count'
         , 'subscriptions.shared.max'
         ],
@@ -358,13 +354,6 @@ lookup_subscriptions(Node, ClientId) ->
     wrap_rpc(emqx_broker_proto_v1:list_client_subscriptions(Node, ClientId)).
 
 %%--------------------------------------------------------------------
-%% Routes
-%%--------------------------------------------------------------------
-
-lookup_routes(Topic) ->
-    emqx_router:lookup_routes(Topic).
-
-%%--------------------------------------------------------------------
 %% PubSub
 %%--------------------------------------------------------------------
 
@@ -470,6 +459,7 @@ delete_banned(Who) ->
 item(subscription, {{Topic, ClientId}, Options}) ->
     #{topic => Topic, clientid => ClientId, options => Options};
 
+    %% TODO: may be delete
 item(route, #route{topic = Topic, dest = Node}) ->
     #{topic => Topic, node => Node};
 item(route, {Topic, Node}) ->
