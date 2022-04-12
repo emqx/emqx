@@ -582,6 +582,12 @@ maybe_log_to_console() {
     fi
 }
 
+# check if using an OTP version that has the mnesia_hook patch for use
+# in mria.
+is_otp_compatible() {
+  "$ERTS_DIR"/bin/erl -noshell -eval 'try mnesia_hook:module_info() of _ -> init:stop() catch _:_ -> init:stop(1) end.' 1>/dev/null 2>/dev/null
+}
+
 ## IS_BOOT_COMMAND is set for later to inspect node name and cookie from hocon config (or env variable)
 case "${COMMAND}" in
     start|console|console_clean|foreground)
@@ -650,6 +656,20 @@ fi
 
 if [ -z "$COOKIE" ]; then
     die "Please set node.cookie in $EMQX_ETC_DIR/emqx.conf or override from environment variable EMQX_NODE__COOKIE"
+fi
+
+## check if OTP version has mnesia_hook patch; if not, fallback to
+## using Mnesia DB backend.
+if [[ "${EMQX_DB__BACKEND:-}" != "mnesia"
+      || "${EMQX_DB__ROLE:-}" != "core" ]]; then
+  if [[ "$IS_BOOT_COMMAND" == 'yes'
+        && "$(get_config_value 'db.backend')" == "rlog" ]]; then
+    if ! is_otp_compatible; then
+      echoerr "DB Backend is RLOG, but an incompatible OTP version has been detected.  Falling back to using Mnesia DB backend."
+      export EMQX_DB__BACKEND=mnesia
+      export EMQX_DB__ROLE=core
+    fi
+  fi
 fi
 
 cd "$ROOTDIR"
