@@ -46,6 +46,8 @@ groups() ->
        t_parse_frame_malformed_variable_byte_integer,
        t_parse_frame_variable_byte_integer,
        t_parse_malformed_utf8_string,
+       t_parse_empty_topic_name,
+       t_parse_empty_topic_name_with_alias,
        t_parse_frame_proxy_protocol %% proxy_protocol_config_disabled packet.
       ]},
      {connect, [parallel],
@@ -170,8 +172,12 @@ t_parse_empty_topic_name(_) ->
 t_parse_empty_topic_name_with_alias(_) ->
     Props = #{'Topic-Alias' => 16#AB},
     Packet = ?PUBLISH_PACKET(?QOS_1, <<>>, 1, Props, <<>>),
-    ?assertEqual(Packet, parse_serialize(Packet, #{strict_mode => false})),
-    ?assertEqual(Packet, parse_serialize(Packet, #{strict_mode => true})).
+    ?assertEqual(
+       Packet, parse_serialize(Packet, #{strict_mode => false, version => ?MQTT_PROTO_V5})
+      ),
+    ?assertEqual(
+       Packet, parse_serialize(Packet, #{strict_mode => true, version => ?MQTT_PROTO_V5})
+      ).
 
 t_parse_frame_proxy_protocol(_) ->
     BinList = [ <<"PROXY TCP4 ">>, <<"PROXY TCP6 ">>, <<"PROXY UNKNOWN">>
