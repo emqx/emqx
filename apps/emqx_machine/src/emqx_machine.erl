@@ -92,10 +92,10 @@ update_vips() ->
 
 configure_shard_transports() ->
     ShardTransports = application:get_env(emqx_machine, custom_shard_transports, #{}),
-    maps:foreach(
-        fun(ShardBin, Transport) ->
+    lists:foreach(
+        fun({ShardBin, Transport}) ->
             ShardName = binary_to_existing_atom(ShardBin),
             mria_config:set_shard_transport(ShardName, Transport)
         end,
-        ShardTransports
+        maps:to_list(ShardTransports)
     ).

@@ -20,6 +20,7 @@
     deep_get/3,
     deep_find/2,
     deep_put/3,
+    deep_force_put/3,
     deep_remove/2,
     deep_merge/2,
     safe_atom_key_map/1,
@@ -72,6 +73,26 @@ deep_put([], _Map, Data) ->
 deep_put([Key | KeyPath], Map, Data) ->
     SubMap = maps:get(Key, Map, #{}),
     Map#{Key => deep_put(KeyPath, SubMap, Data)}.
+
+%% Like deep_put, but ensures that the key path is present.
+%% If key path is not present in map, creates the keys, until it's present
+%% deep_force_put([x, y, z], #{a => 1}, 0) -> #{a => 1, x => #{y => #{z => 0}}}
+-spec deep_force_put(config_key_path(), map(), term()) -> map().
+deep_force_put([], _Map, Data) ->
+    Data;
+deep_force_put([Key | KeyPath] = FullPath, Map, Data) ->
+    case Map of
+        #{Key := InnerValue} ->
+            Map#{Key => deep_force_put(KeyPath, InnerValue, Data)};
+        #{} ->
+            maps:put(Key, path_to_map(KeyPath, Data), Map);
+        _ ->
+            path_to_map(FullPath, Data)
+    end.
+
+-spec path_to_map(config_key_path(), term()) -> map().
+path_to_map([], Data) -> Data;
+path_to_map([Key | Tail], Data) -> #{Key => path_to_map(Tail, Data)}.
 
 -spec deep_remove(config_key_path(), map()) -> map().
 deep_remove([], Map) ->
