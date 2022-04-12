@@ -26,16 +26,24 @@ File format:
   - prints check points of mnesia internal stats
   - prints check points of per table loading stats
   Help to locate the problem of long table loading time.
+* Add `local` strategy for Shared Subscription.
+  That will preferentially dispatch messages to a shared subscriber at the same
+  node. It will improves the efficiency of shared messages dispatching in certain
+  scenarios, especially when the emqx-bridge-mqtt plugin is configured as shared
+  subscription. [#7462]
 
 ### Bug fixes
 
 * Prohibit empty topics in strict mode
 * Make sure ehttpc delete useless pool always succeed.
 * Update mongodb driver to fix potential process leak.
-* Dashboard admin password persists after leaving/joining the cluster
+* Fix a potential security issue #3155 with emqx-dashboard plugin.
+  In the earlier implementation, the Dashboard password is reset back to the
+  default value of emqx_dashboard.conf after the node left cluster.
+  Now we persist changed password to protect against reset. [#7518]
 * Silence grep/sed warnings in docker-entrypoint.sh. [#7520]
-* Generate `loaded_modules` and `loaded_plugins` files with default
-  values when no such files exists. [#7520]
+* Generate `loaded_modules` and `loaded_plugins` files with default values when no such files exists. [#7520]
+* Fix the configuration `server_name_indication` set to disable does not take effect.
 
 ## v4.3.13
 
