@@ -1272,8 +1272,8 @@ t_sqlparse_undefined_variable(_Config) ->
             ,
     {ok, Res00} = emqx_rule_sqltester:test(
                     #{sql => Sql00, context => #{payload => <<"">>, topic => <<"t/a">>}}),
-    ?assertMatch(#{}, Res00),
-    ?assertEqual(0, map_size(Res00)),
+    ?assertEqual(#{<<"a">> => undefined, <<"b">> => undefined}, Res00),
+    ?assertEqual(2, map_size(Res00)),
     %% undefined compare to non-undefined variables should return false
     Sql01 = "select "
             "a, b "
