@@ -31,8 +31,7 @@ mkdir -p "$RUNNER_LOG_DIR"
 # hocon try to read environment variables starting with "EMQX_"
 export HOCON_ENV_OVERRIDE_PREFIX='EMQX_'
 
-export ROOTDIR="$RUNNER_ROOT_DIR"
-export ERTS_DIR="$ROOTDIR/erts-$ERTS_VSN"
+export ERTS_DIR="$RUNNER_ROOT_DIR/erts-$ERTS_VSN"
 export BINDIR="$ERTS_DIR/bin"
 export EMU="beam"
 export PROGNAME="erl"
@@ -113,7 +112,7 @@ usage() {
         echo "This command is mostly used for troubleshooting."
         ;;
     ertspath)
-        echo "Print path to Erlang runtime dir"
+        echo "Print path to Erlang runtime bin dir"
         ;;
     rpc)
         echo "Usge $REL_NAME rpc MODULE FUNCTION [ARGS, ...]"
@@ -341,7 +340,7 @@ relx_gen_id() {
 }
 
 call_nodetool() {
-    "$ERTS_DIR/bin/escript" "$ROOTDIR/bin/nodetool" "$@"
+    "$ERTS_DIR/bin/escript" "$RUNNER_ROOT_DIR/bin/nodetool" "$@"
 }
 
 # Control a node
@@ -388,7 +387,7 @@ check_license() {
 # Run an escript in the node's environment
 relx_escript() {
     shift; scriptpath="$1"; shift
-    "$ERTS_DIR/bin/escript" "$ROOTDIR/$scriptpath" "$@"
+    "$ERTS_DIR/bin/escript" "$RUNNER_ROOT_DIR/$scriptpath" "$@"
 }
 
 # Output a start command for the last argument of run_erl
@@ -598,7 +597,7 @@ case "${COMMAND}" in
         IS_BOOT_COMMAND='yes'
         ;;
     ertspath)
-        echo "$ERTS_PATH"
+        echo "$ERTS_DIR"
         exit 0
         ;;
     *)
@@ -676,7 +675,7 @@ if [[ "${EMQX_DB__BACKEND:-}" != "mnesia"
   fi
 fi
 
-cd "$ROOTDIR"
+cd "$RUNNER_ROOT_DIR"
 
 case "${COMMAND}" in
     start)
@@ -798,7 +797,7 @@ case "${COMMAND}" in
         assert_node_alive
 
         ERL_FLAGS="${ERL_FLAGS:-} $EPMD_ARG" \
-        exec "$BINDIR/escript" "$ROOTDIR/bin/install_upgrade.escript" \
+        exec "$BINDIR/escript" "$RUNNER_ROOT_DIR/bin/install_upgrade.escript" \
              "$COMMAND" "{'$REL_NAME', \"$NAME_TYPE\", '$NAME', '$COOKIE'}" "$@"
         ;;
 
@@ -808,7 +807,7 @@ case "${COMMAND}" in
         shift
 
         ERL_FLAGS="${ERL_FLAGS:-} $EPMD_ARG" \
-        exec "$BINDIR/escript" "$ROOTDIR/bin/install_upgrade.escript" \
+        exec "$BINDIR/escript" "$RUNNER_ROOT_DIR/bin/install_upgrade.escript" \
              "versions" "{'$REL_NAME', \"$NAME_TYPE\", '$NAME', '$COOKIE'}" "$@"
         ;;
 
