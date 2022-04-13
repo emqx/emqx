@@ -9,9 +9,9 @@ if [ "$DEBUG" -eq 1 ]; then
     set -x
 fi
 
-ROOT_DIR="$(cd "$(dirname "$(readlink "$0" || echo "$0")")"/..; pwd -P)"
+RUNNER_ROOT_DIR="$(cd "$(dirname "$(readlink "$0" || echo "$0")")"/..; pwd -P)"
 # shellcheck disable=SC1090,SC1091
-. "$ROOT_DIR"/releases/emqx_vars
+. "$RUNNER_ROOT_DIR"/releases/emqx_vars
 
 # defined in emqx_vars
 export RUNNER_ROOT_DIR

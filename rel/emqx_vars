@@ -6,7 +6,6 @@
 REL_VSN="{{ release_version }}"
 ERTS_VSN="{{ erts_vsn }}"
 ERL_OPTS="{{ erl_opts }}"
-RUNNER_ROOT_DIR="{{ runner_root_dir }}"
 RUNNER_BIN_DIR="{{ runner_bin_dir }}"
 RUNNER_LOG_DIR="{{ runner_log_dir }}"
 RUNNER_LIB_DIR="{{ runner_lib_dir }}"
