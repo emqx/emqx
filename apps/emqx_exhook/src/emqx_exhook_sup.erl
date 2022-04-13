@@ -18,21 +18,22 @@
 
 -behaviour(supervisor).
 
--export([ start_link/0
-        , init/1
-        ]).
+-export([
+    start_link/0,
+    init/1
+]).
 
--export([ start_grpc_client_channel/3
-        , stop_grpc_client_channel/1
-        ]).
+-export([
+    start_grpc_client_channel/3,
+    stop_grpc_client_channel/1
+]).
 
--define(CHILD(Mod, Type, Args),
-            #{ id => Mod
-             , start => {Mod, start_link, Args}
-             , type => Type
-             , shutdown => 15000
-             }
-       ).
+-define(CHILD(Mod, Type, Args), #{
+    id => Mod,
+    start => {Mod, start_link, Args},
+    type => Type,
+    shutdown => 15000
+}).
 
 %%--------------------------------------------------------------------
 %%  Supervisor APIs & Callbacks
@@ -52,9 +53,10 @@ init([]) ->
 %%--------------------------------------------------------------------
 
 -spec start_grpc_client_channel(
-        binary(),
-        uri_string:uri_string(),
-        grpc_client_sup:options()) -> {ok, pid()} | {error, term()}.
+    binary(),
+    uri_string:uri_string(),
+    grpc_client_sup:options()
+) -> {ok, pid()} | {error, term()}.
 start_grpc_client_channel(Name, SvrAddr, Options) ->
     grpc_client_sup:create_channel_pool(Name, SvrAddr, Options).
 

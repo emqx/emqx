@@ -26,19 +26,20 @@
 
 -define(TARGET_HOOK, 'message.publish').
 
--define(CONF, <<"
-exhook {
-  servers = [
-              { name = succed,
-                url = \"http://127.0.0.1:9000\"
-              },
-              { name = failed,
-                failed_action = ignore,
-                url = \"http://127.0.0.1:9001\"
-              },
-            ]
-}
-">>).
+-define(CONF, <<
+    "\n"
+    "exhook {\n"
+    "  servers = [\n"
+    "              { name = succed,\n"
+    "                url = \"http://127.0.0.1:9000\"\n"
+    "              },\n"
+    "              { name = failed,\n"
+    "                failed_action = ignore,\n"
+    "                url = \"http://127.0.0.1:9001\"\n"
+    "              },\n"
+    "            ]\n"
+    "}\n"
+>>).
 
 %%--------------------------------------------------------------------
 %% Setups
@@ -78,11 +79,11 @@ end_per_testcase(_, Config) ->
 %%--------------------------------------------------------------------
 t_servers_metrics(_Cfg) ->
     Test = fun(C) ->
-                   Repeat = fun() ->
-                                    emqtt:publish(C, <<"/exhook/metrics">>, <<>>, qos0)
-                            end,
-                   repeat(Repeat, 10)
-           end,
+        Repeat = fun() ->
+            emqtt:publish(C, <<"/exhook/metrics">>, <<>>, qos0)
+        end,
+        repeat(Repeat, 10)
+    end,
     with_connection(Test),
 
     timer:sleep(200),
@@ -99,54 +100,58 @@ t_servers_metrics(_Cfg) ->
 
 t_rate(_) ->
     Test = fun(C) ->
-                   Repeat = fun() ->
-                                    emqtt:publish(C, <<"/exhook/metrics">>, <<>>, qos0)
-                            end,
+        Repeat = fun() ->
+            emqtt:publish(C, <<"/exhook/metrics">>, <<>>, qos0)
+        end,
 
-                   repeat(Repeat, 5),
-                   timer:sleep(200),
-                   emqx_exhook_metrics:update(timer:seconds(1)),
-                   SM = emqx_exhook_metrics:server_metrics(<<"succed">>),
-                   ?assertMatch(#{rate := 5, max_rate := 5}, SM),
+        repeat(Repeat, 5),
+        timer:sleep(200),
+        emqx_exhook_metrics:update(timer:seconds(1)),
+        SM = emqx_exhook_metrics:server_metrics(<<"succed">>),
+        ?assertMatch(#{rate := 5, max_rate := 5}, SM),
 
-                   repeat(Repeat, 6),
-                   timer:sleep(200),
-                   emqx_exhook_metrics:update(timer:seconds(1)),
-                   SM2 = emqx_exhook_metrics:server_metrics(<<"succed">>),
-                   ?assertMatch(#{rate := 6, max_rate := 6}, SM2),
+        repeat(Repeat, 6),
+        timer:sleep(200),
+        emqx_exhook_metrics:update(timer:seconds(1)),
+        SM2 = emqx_exhook_metrics:server_metrics(<<"succed">>),
+        ?assertMatch(#{rate := 6, max_rate := 6}, SM2),
 
-                   repeat(Repeat, 3),
-                   timer:sleep(200),
-                   emqx_exhook_metrics:update(timer:seconds(1)),
-                   SM3 = emqx_exhook_metrics:server_metrics(<<"succed">>),
-                   ?assertMatch(#{rate := 3, max_rate := 6}, SM3)
-           end,
+        repeat(Repeat, 3),
+        timer:sleep(200),
+        emqx_exhook_metrics:update(timer:seconds(1)),
+        SM3 = emqx_exhook_metrics:server_metrics(<<"succed">>),
+        ?assertMatch(#{rate := 3, max_rate := 6}, SM3)
+    end,
     with_connection(Test),
     ok.
 
 t_hooks_metrics(_) ->
     Test = fun(C) ->
-                   Repeat = fun() ->
-                                    emqtt:publish(C, <<"/exhook/metrics">>, <<>>, qos0)
-                            end,
+        Repeat = fun() ->
+            emqtt:publish(C, <<"/exhook/metrics">>, <<>>, qos0)
+        end,
 
-                   repeat(Repeat, 5),
-                   timer:sleep(200),
-                   HM = emqx_exhook_metrics:hooks_metrics(<<"succed">>),
-                   ?assertMatch(#{'message.publish' :=
-                                      #{failed := 0, succeed := 5}}, HM)
-           end,
+        repeat(Repeat, 5),
+        timer:sleep(200),
+        HM = emqx_exhook_metrics:hooks_metrics(<<"succed">>),
+        ?assertMatch(
+            #{
+                'message.publish' :=
+                    #{failed := 0, succeed := 5}
+            },
+            HM
+        )
+    end,
     with_connection(Test),
     ok.
 
 t_on_server_deleted(_) ->
-
     Test = fun(C) ->
-                   Repeat = fun() ->
-                                    emqtt:publish(C, <<"/exhook/metrics">>, <<>>, qos0)
-                            end,
-                   repeat(Repeat, 10)
-           end,
+        Repeat = fun() ->
+            emqtt:publish(C, <<"/exhook/metrics">>, <<>>, qos0)
+        end,
+        repeat(Repeat, 10)
+    end,
     with_connection(Test),
 
     timer:sleep(200),
@@ -165,50 +170,56 @@ clear_metrics() ->
     ets:delete_all_objects(?HOOKS_METRICS).
 
 init_injections(Injects) ->
-    lists:map(fun({Name, _}) ->
-                      Str = erlang:atom_to_list(Name),
-                      case lists:prefix("on_", Str) of
-                          true ->
-                              Action = fun(Req, #{<<"channel">> := SvrName} = Md) ->
-                                               case maps:get(?SvrFun(SvrName, Name), Injects, undefined) of
-                                                   undefined ->
-                                                       meck:passthrough([Req, Md]);
-                                                   Injection ->
-                                                       Injection(Req, Md)
-                                               end
-                                       end,
+    lists:map(
+        fun({Name, _}) ->
+            Str = erlang:atom_to_list(Name),
+            case lists:prefix("on_", Str) of
+                true ->
+                    Action = fun(Req, #{<<"channel">> := SvrName} = Md) ->
+                        case maps:get(?SvrFun(SvrName, Name), Injects, undefined) of
+                            undefined ->
+                                meck:passthrough([Req, Md]);
+                            Injection ->
+                                Injection(Req, Md)
+                        end
+                    end,
 
-                              meck:expect(emqx_exhook_demo_svr, Name, Action);
-                          _ ->
-                              false
-                      end
-              end,
-              emqx_exhook_demo_svr:module_info(exports)).
+                    meck:expect(emqx_exhook_demo_svr, Name, Action);
+                _ ->
+                    false
+            end
+        end,
+        emqx_exhook_demo_svr:module_info(exports)
+    ).
 
 hook_injects() ->
-    #{?SvrFun(<<"failed">>, emqx_exhook_server:hk2func(?TARGET_HOOK)) =>
-          fun(_Req, _Md) ->
-                  {error, "Error due to test"}
-          end,
-      ?SvrFun(<<"failed">>, on_provider_loaded) =>
-          fun(_Req, Md) ->
-                  {ok, #{hooks => [#{name => <<"message.publish">>}]}, Md}
-          end,
-      ?SvrFun(<<"succed">>, on_provider_loaded) =>
-          fun(_Req, Md) ->
-                  {ok, #{hooks => [#{name => <<"message.publish">>}]}, Md}
-          end
-     }.
+    #{
+        ?SvrFun(<<"failed">>, emqx_exhook_server:hk2func(?TARGET_HOOK)) =>
+            fun(_Req, _Md) ->
+                {error, "Error due to test"}
+            end,
+        ?SvrFun(<<"failed">>, on_provider_loaded) =>
+            fun(_Req, Md) ->
+                {ok, #{hooks => [#{name => <<"message.publish">>}]}, Md}
+            end,
+        ?SvrFun(<<"succed">>, on_provider_loaded) =>
+            fun(_Req, Md) ->
+                {ok, #{hooks => [#{name => <<"message.publish">>}]}, Md}
+            end
+    }.
 
 with_connection(Fun) ->
-    {ok, C} = emqtt:start_link([{host, "localhost"},
-                                {port, 1883},
-                                {username, <<"admin">>},
-                                {clientid, <<"exhook_tester">>}]),
+    {ok, C} = emqtt:start_link([
+        {host, "localhost"},
+        {port, 1883},
+        {username, <<"admin">>},
+        {clientid, <<"exhook_tester">>}
+    ]),
     {ok, _} = emqtt:connect(C),
     try
         Fun(C)
-    catch Type:Error:Trace ->
+    catch
+        Type:Error:Trace ->
             emqtt:stop(C),
             erlang:raise(Type, Error, Trace)
     end.
