@@ -460,6 +460,7 @@ generate_config() {
         fi
     done
     echo "$name_type $node_name" >> "$TMP_ARG_FILE"
+    echo "-mnesia dir '\"$DATA_DIR/mnesia/$NAME\"'" >> "$TMP_ARG_FILE"
     ## rename the generated vm.<time>.args file
     mv -f "$TMP_ARG_FILE" "$ARGS_FILE"
 }
@@ -626,7 +627,6 @@ fi
 
 # force to use 'emqx' short name
 [ -z "$NAME" ] && NAME='emqx'
-MNESIA_DATA_DIR="$DATA_DIR/mnesia/$NAME"
 
 case "$NAME" in
     *@*)
@@ -863,12 +863,11 @@ case "${COMMAND}" in
         then
           set -- "$REL_DIR/iex" \
               --boot "$BOOTFILE" \
-              --boot-var RELEASE_LIB "$ERTS_LIB_DIR" \
+              --boot-var RELEASE_LIB "${ERTS_LIB_DIR}" \
               --erl-config "${CONF_FILE}" \
               --vm-args "${ARGS_FILE}" \
               --erl "$FOREGROUNDOPTIONS" \
               --erl "-mode $CODE_LOADING_MODE" \
-              --erl "-mnesia dir \"${MNESIA_DATA_DIR}\"" \
               --erl "$EPMD_ARGS" \
               --werl
         else
@@ -880,7 +879,6 @@ case "${COMMAND}" in
               -boot_var RELEASE_LIB "$ERTS_LIB_DIR" \
               -boot_var ERTS_LIB_DIR "$ERTS_LIB_DIR" \
               -mode "$CODE_LOADING_MODE" \
-              -mnesia dir "\"${MNESIA_DATA_DIR}\"" \
               -config "$CONF_FILE" \
               -args_file "$ARGS_FILE" \
               $EPMD_ARGS
