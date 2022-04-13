@@ -96,7 +96,15 @@ sysdescr() ->
 %% @doc Get sys uptime
 -spec(uptime() -> string()).
 uptime() ->
-    gen_server:call(?SYS, uptime).
+    {TotalWallClock, _} = erlang:statistics(wall_clock),
+    uptime(TotalWallClock div 1000).
+
+uptime(Seconds) ->
+    {D, {H, M, S}} = calendar:seconds_to_daystime(Seconds),
+    L0 = [{D, " days"}, {H, " hours"}, {M, " minutes"}, {S, " seconds"}],
+    L1 = lists:dropwhile(fun({K, _}) ->  K =:= 0 end, L0),
+    L2 = lists:map(fun({Time, Unit}) -> [integer_to_list(Time), Unit] end, L1),
+    lists:flatten(lists:join(", ", L2)).
 
 %% @doc Get sys datetime
 -spec(datetime() -> string()).
@@ -139,9 +147,6 @@ heartbeat(State) ->
 tick(State) ->
     State#state{ticker = start_timer(sys_interval(), tick)}.
 
-handle_call(uptime, _From, State) ->
-    {reply, uptime(State), State};
-
 handle_call(Req, _From, State) ->
     ?LOG(error, "Unexpected call: ~p", [Req]),
     {reply, ignored, State}.
@@ -151,7 +156,7 @@ handle_cast(Msg, State) ->
     {noreply, State}.
 
 handle_info({timeout, TRef, heartbeat}, State = #state{heartbeat = TRef}) ->
-    publish(uptime, iolist_to_binary(uptime(State))),
+    publish(uptime, iolist_to_binary(uptime())),
     publish(datetime, iolist_to_binary(datetime())),
     {noreply, heartbeat(State)};
 
@@ -173,24 +178,6 @@ terminate(_Reason, #state{heartbeat = TRef1, ticker = TRef2}) ->
 %%-----------------------------------------------------------------------------
 %% Internal functions
 %%-----------------------------------------------------------------------------
-
-uptime(#state{start_time = Ts}) ->
-    Secs = timer:now_diff(erlang:timestamp(), Ts) div 1000000,
-    lists:flatten(uptime(seconds, Secs)).
-uptime(seconds, Secs) when Secs < 60 ->
-    [integer_to_list(Secs), " seconds"];
-uptime(seconds, Secs) ->
-    [uptime(minutes, Secs div 60), integer_to_list(Secs rem 60), " seconds"];
-uptime(minutes, M) when M < 60 ->
-    [integer_to_list(M), " minutes, "];
-uptime(minutes, M) ->
-    [uptime(hours, M div 60), integer_to_list(M rem 60), " minutes, "];
-uptime(hours, H) when H < 24 ->
-    [integer_to_list(H), " hours, "];
-uptime(hours, H) ->
-    [uptime(days, H div 24), integer_to_list(H rem 24), " hours, "];
-uptime(days, D) ->
-    [integer_to_list(D), " days, "].
 
 publish(uptime, Uptime) ->
     safe_publish(systop(uptime), Uptime);
