@@ -58,11 +58,29 @@ all() -> emqx_common_test_helpers:all(?MODULE).
 init_per_suite(Config) ->
     ok = emqx_common_test_helpers:load_config(emqx_gateway_schema, ?CONF_DEFAULT),
     emqx_mgmt_api_test_util:init_suite([emqx_gateway]),
+    ok = meck:new(emqx_access_control, [passthrough, no_history, no_link]),
     Config.
 
 end_per_suite(_) ->
+    meck:unload(emqx_access_control),
     {ok, _} = emqx:remove_config([<<"gateway">>, <<"coap">>]),
     emqx_mgmt_api_test_util:end_suite([emqx_gateway]).
+
+init_per_testcase(t_connection_with_authn_failed, Config) ->
+    ok = meck:expect(
+        emqx_access_control,
+        authenticate,
+        fun(_) -> {error, bad_username_or_password} end
+    ),
+    Config;
+init_per_testcase(_, Config) ->
+    Config.
+
+end_per_testcase(t_connection_with_authn_failed, Config) ->
+    ok = meck:delete(emqx_access_control, authenticate, 1),
+    Config;
+end_per_testcase(_, Config) ->
+    Config.
 
 default_config() ->
     ?CONF_DEFAULT.
@@ -104,6 +122,23 @@ t_connection(_) ->
     end,
     do(Action).
 
+t_connection_with_authn_failed(_) ->
+    ChId = {{127, 0, 0, 1}, 5683},
+    {ok, Sock} = er_coap_udp_socket:start_link(),
+    {ok, Channel} = er_coap_udp_socket:get_channel(Sock, ChId),
+    URI =
+        ?MQTT_PREFIX ++
+            "/connection?clientid=client1&username=admin&password=public",
+    Req = make_req(post),
+    ?assertMatch({error, bad_request, _}, do_request(Channel, URI, Req)),
+
+    timer:sleep(100),
+    ?assertEqual(
+        [],
+        emqx_gateway_cm_registry:lookup_channels(coap, <<"client1">>)
+    ),
+    ok.
+
 t_publish(_) ->
     Action = fun(Channel, Token) ->
         Topic = <<"/abc">>,
@@ -127,27 +162,6 @@ t_publish(_) ->
         end
     end,
     with_connection(Action).
-
-%t_publish_authz_deny(_) ->
-%    Action = fun(Channel, Token) ->
-%        Topic = <<"/abc">>,
-%        Payload = <<"123">>,
-%        InvalidToken = lists:reverse(Token),
-%
-%        TopicStr = binary_to_list(Topic),
-%        URI = ?PS_PREFIX ++
-%              TopicStr ++
-%              "?clientid=client1&token=" ++ InvalidToken,
-%
-%        %% Sub topic first
-%        emqx:subscribe(Topic),
-%
-%        Req = make_req(post, Payload),
-%        Result = do_request(Channel, URI, Req),
-%        ?assertEqual({error, reset}, Result)
-%    end,
-%
-%    with_connection(Action).
 
 t_subscribe(_) ->
     Topic = <<"/abc">>,

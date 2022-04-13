@@ -591,11 +591,18 @@ ensure_disconnected(
     Channel = #channel{
         ctx = Ctx,
         conninfo = ConnInfo,
-        clientinfo = ClientInfo
+        clientinfo = ClientInfo,
+        conn_state = ConnState
     }
 ) ->
     NConnInfo = ConnInfo#{disconnected_at => erlang:system_time(millisecond)},
-    ok = run_hooks(Ctx, 'client.disconnected', [ClientInfo, Reason, NConnInfo]),
+
+    case ConnState of
+        connected ->
+            ok = run_hooks(Ctx, 'client.disconnected', [ClientInfo, Reason, NConnInfo]);
+        _ ->
+            ok
+    end,
     Channel#channel{conninfo = NConnInfo, conn_state = disconnected}.
 
 shutdown_and_reply(Reason, Reply, Channel) ->
@@ -713,11 +720,8 @@ process_connection(
         {error, ReasonCode, NChannel} ->
             ErrMsg = io_lib:format("Login Failed: ~ts", [ReasonCode]),
             Payload = iolist_to_binary(ErrMsg),
-            iter(
-                Iter,
-                reply({error, bad_request}, Payload, Req, Result),
-                NChannel
-            )
+            Reply = emqx_coap_message:piggyback({error, bad_request}, Payload, Req),
+            process_shutdown(Reply, Result, NChannel, Iter)
     end;
 process_connection(
     {open, Req},
@@ -763,3 +767,10 @@ process_reply(Reply, Result, #channel{session = Session} = Channel, _) ->
     Outs2 = lists:reverse(Outs),
     Events = maps:get(events, Result, []),
     {ok, [{outgoing, [Reply | Outs2]}] ++ Events, Channel#channel{session = Session2}}.
+
+%% leaf node
+process_shutdown(Reply, _Result, Channel, _) ->
+    %    Outs = maps:get(out, Result, []),
+    %   Outs2 = lists:reverse(Outs),
+    %  Events = maps:get(events, Result, []),
+    {shutdown, normal, Reply, Channel}.
