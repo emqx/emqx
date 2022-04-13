@@ -872,9 +872,12 @@ case "${COMMAND}" in
               --erl "$EPMD_ARGS" \
               --werl
         else
+          # pass down RELEASE_LIB so we can switch to IS_ELIXIR=no
+          # to boot an Erlang node from the elixir release
           set -- "$BINDIR/erlexec" \
               $FOREGROUNDOPTIONS \
               -boot "$BOOTFILE" \
+              -boot_var RELEASE_LIB "$ERTS_LIB_DIR" \
               -boot_var ERTS_LIB_DIR "$ERTS_LIB_DIR" \
               -mode "$CODE_LOADING_MODE" \
               -mnesia dir "\"${MNESIA_DATA_DIR}\"" \

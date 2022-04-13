@@ -11,7 +11,7 @@ RUNNER_LOG_DIR="{{ runner_log_dir }}"
 RUNNER_LIB_DIR="{{ runner_lib_dir }}"
 EMQX_ETC_DIR="{{ emqx_etc_dir }}"
 RUNNER_USER="{{ runner_user }}"
-IS_ELIXIR="{{ is_elixir }}"
+IS_ELIXIR="${IS_ELIXIR:-{{ is_elixir }}}"
 SCHEMA_MOD="{{ emqx_schema_mod }}"
 IS_ENTERPRISE="{{ is_enterprise }}"
 
