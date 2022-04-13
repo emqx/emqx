@@ -102,14 +102,15 @@ usage() {
         echo "For example $REL_NAME escript /path/to/my/escript my_arg1 my_arg2"
         ;;
     attach)
-        echo "This command is applicable when EMQX is started in daemon"
-        echo "mode. it attaches the current shell to EMQX's control console"
-        echo "through a named pipe"
+        echo "This command is applicable when EMQX is started in daemon mode."
+        echo "It attaches the current shell to EMQX's control console"
+        echo "through a named pipe."
         echo "WARNING: try to use the safer alternative, remote_console command."
         ;;
     remote_console)
-        echo "Start a dummy Erlang or Elixir node and hidden-connect EMQX to"
-        echo "with an interactive Erlang or Elixir shell"
+        echo "Start an interactive shell running an Erlang or Elixir node which "
+        echo "hidden-connects to the running EMQX node".
+        echo "This command is mostly used for troubleshooting."
         ;;
     ertspath)
         echo "Print path to Erlang runtime dir"
@@ -131,7 +132,7 @@ usage() {
         echo "Print EMQX installation root dir"
         ;;
     eval)
-        echo "Evaluate an Erlang or Elxir expression in the EMQX node"
+        echo "Evaluate an Erlang or Elixir expression in the EMQX node"
         ;;
     eval-erl)
         echo "Evaluate an Erlang expression in the EMQX node, even on Elixir node"
@@ -194,7 +195,7 @@ usage() {
         echo "More:"
         echo "  Shell attach:  remote_console | attach"
         echo "  Up/Down-grade: upgrade | downgrade | install | uninstall"
-        echo "  Install info:  ertspath | root_dir | versions | root_dir"
+        echo "  Install info:  ertspath | root_dir | versions"
         echo "  Runtime info:  pid | ping | versions"
         echo "  Advanced:      console_clean | escript | rpc | rpcterms | eval | eval-erl"
         echo ''
@@ -206,8 +207,11 @@ usage() {
 COMMAND="${1:-}"
 
 if [ -z "$COMMAND" ]; then
-    usage 'nil'
+    usage 'help'
     exit 1
+elif [ "$COMMAND" = 'help' ]; then
+    usage 'help'
+    exit 0
 fi
 
 if [ "${2:-}" = 'help' ]; then
