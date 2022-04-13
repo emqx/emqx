@@ -13,7 +13,7 @@
 %% See the License for the specific language governing permissions and
 %% limitations under the License.
 %%--------------------------------------------------------------------
--module(emqx_mgmt_api_routes_SUITE).
+-module(emqx_mgmt_api_topics_SUITE).
 
 -compile(export_all).
 -compile(nowarn_export_all).
@@ -36,7 +36,8 @@ t_nodes_api(_) ->
     {ok, _} = emqtt:connect(Client),
     {ok, _, _} = emqtt:subscribe(Client, Topic),
 
-    Path = emqx_mgmt_api_test_util:api_path(["routes"]),
+    %% list all
+    Path = emqx_mgmt_api_test_util:api_path(["topics"]),
     {ok, Response} = emqx_mgmt_api_test_util:request_api(get, Path),
     RoutesData = emqx_json:decode(Response, [return_maps]),
     Meta = maps:get(<<"meta">>, RoutesData),
@@ -48,8 +49,8 @@ t_nodes_api(_) ->
     ?assertEqual(Topic, maps:get(<<"topic">>, Route)),
     ?assertEqual(atom_to_binary(node(), utf8), maps:get(<<"node">>, Route)),
 
-    %% get routes/:topic
-    RoutePath = emqx_mgmt_api_test_util:api_path(["routes", Topic]),
+    %% get topics/:topic
+    RoutePath = emqx_mgmt_api_test_util:api_path(["topics", Topic]),
     {ok, RouteResponse} = emqx_mgmt_api_test_util:request_api(get, RoutePath),
     RouteData = emqx_json:decode(RouteResponse, [return_maps]),
     ?assertEqual(Topic, maps:get(<<"topic">>, RouteData)),
