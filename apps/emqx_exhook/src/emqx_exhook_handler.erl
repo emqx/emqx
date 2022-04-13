@@ -231,10 +231,14 @@ properties(M) when is_map(M) ->
            value => stringfy(V)} | Acc]
     end, [], M).
 
-conninfo(_ConnInfo =
-           #{clientid := ClientId, username := Username, peername := {Peerhost, _},
-             sockname := {_, SockPort}, proto_name := ProtoName, proto_ver := ProtoVer,
-             keepalive := Keepalive}) ->
+conninfo(ConnInfo =
+         #{clientid := ClientId,
+           peername := {Peerhost, _},
+           sockname := {_, SockPort}}) ->
+    Username = maps:get(username, ConnInfo, undefined),
+    ProtoName = maps:get(proto_name, ConnInfo, undefined),
+    ProtoVer = maps:get(proto_ver, ConnInfo, undefined),
+    Keepalive = maps:get(keepalive, ConnInfo, 0),
     #{node => stringfy(node()),
       clientid => ClientId,
       username => maybe(Username),

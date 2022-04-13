@@ -159,7 +159,7 @@ t_case_lwm2m(_) ->
 
 -define(SN_CONNACK, 16#05).
 
-t_case_emqx_sn(_) ->
+t_case_mqttsn(_) ->
     Mod = emqx_sn_protocol_SUITE,
     Login = fun(Username, Password, Expect) ->
         RawCfg = emqx_conf:get_raw([gateway, mqttsn], #{}),
@@ -180,7 +180,7 @@ t_case_emqx_sn(_) ->
             end
         )
     end,
-    Login(<<"badadmin">>, <<"badpassowrd">>, <<>>),
+    Login(<<"badadmin">>, <<"badpassowrd">>, <<3, ?SN_CONNACK, 16#80>>),
     Login(<<"admin">>, <<"public">>, <<3, ?SN_CONNACK, 0>>),
     ok.
 

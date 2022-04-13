@@ -211,7 +211,7 @@ authn(GwName) ->
     ChainName = emqx_gateway_utils:global_chain(GwName),
     wrap_chain_name(
         ChainName,
-        emqx_map_lib:jsonable_map(emqx:get_config(Path))
+        emqx_map_lib:jsonable_map(emqx:get_raw_config(Path))
     ).
 
 -spec authn(gateway_name(), binary()) -> map().
@@ -221,7 +221,7 @@ authn(GwName, ListenerId) ->
     ChainName = emqx_gateway_utils:listener_chain(GwName, Type, Name),
     wrap_chain_name(
         ChainName,
-        emqx_map_lib:jsonable_map(emqx:get_config(Path))
+        emqx_map_lib:jsonable_map(emqx:get_raw_config(Path))
     ).
 
 wrap_chain_name(ChainName, Conf) ->

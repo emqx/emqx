@@ -25,6 +25,7 @@
     roots/0,
     fields/1,
     authenticator_type/0,
+    authenticator_type_without_scram/0,
     root_type/0,
     mechanism/1,
     backend/1
@@ -42,6 +43,22 @@ enable(_) -> undefined.
 
 authenticator_type() ->
     hoconsc:union(config_refs([Module || {_AuthnType, Module} <- emqx_authn:providers()])).
+
+authenticator_type_without_scram() ->
+    Providers = lists:filter(
+        fun
+            ({{password_based, _Backend}, _Mod}) ->
+                true;
+            ({jwt, _Mod}) ->
+                true;
+            ({{scram, _Backend}, _Mod}) ->
+                false
+        end,
+        emqx_authn:providers()
+    ),
+    hoconsc:union(
+        config_refs([Module || {_AuthnType, Module} <- Providers])
+    ).
 
 config_refs(Modules) ->
     lists:append([Module:refs() || Module <- Modules]).
