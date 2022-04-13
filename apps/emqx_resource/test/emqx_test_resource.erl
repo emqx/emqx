@@ -25,7 +25,6 @@
         , on_stop/2
         , on_query/4
         , on_health_check/2
-        , on_config_merge/3
         ]).
 
 %% callbacks for emqx_resource config schema
@@ -84,9 +83,6 @@ on_health_check(_InstId, State = #{pid := Pid}) ->
         true -> {ok, State};
         false -> {error, dead, State}
     end.
-
-on_config_merge(OldConfig, NewConfig, _Params) ->
-    maps:merge(OldConfig, NewConfig).
 
 spawn_dummy_process(Name, Register) ->
     spawn(
