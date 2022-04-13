@@ -116,12 +116,6 @@
     'subscriptions.shared.max'
 ]).
 
-%% Route stats
--define(ROUTE_STATS, [
-    'routes.count',
-    'routes.max'
-]).
-
 %% Retained stats
 -define(RETAINED_STATS, [
     'retained.count',
@@ -213,7 +207,6 @@ init(#{tick_ms := TickMs}) ->
         ?CHANNEL_STATS,
         ?SESSION_STATS,
         ?PUBSUB_STATS,
-        ?ROUTE_STATS,
         ?RETAINED_STATS
     ]),
     true = ets:insert(?TAB, [{Name, 0} || Name <- Stats]),

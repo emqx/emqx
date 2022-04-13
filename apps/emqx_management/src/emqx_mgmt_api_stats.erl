@@ -93,12 +93,6 @@ fields(node_stats_data) ->
     , { 'retained.max'
       , mk( integer(), #{ desc => <<"Historical maximum number of retained messages">>
                         , example => 0})}
-    , { 'routes.count'
-      , mk( integer(), #{ desc => <<"Number of current routes">>
-                        , example => 0})}
-    , { 'routes.max'
-      , mk( integer(), #{ desc => <<"Historical maximum number of routes">>
-                        , example => 0})}
     , { 'sessions.count'
       , mk( integer(), #{ desc => <<"Number of current sessions">>
                         , example => 0})}

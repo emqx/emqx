@@ -71,10 +71,6 @@
         , do_list_subscriptions/0
         ]).
 
-%% Routes
--export([ lookup_routes/1
-        ]).
-
 %% PubSub
 -export([ subscribe/2
         , do_subscribe/2
@@ -97,22 +93,12 @@
         ]).
 
 %% Common Table API
--export([ item/2
-        , max_row_limit/0
+-export([ max_row_limit/0
         ]).
-
--export([ return/0
-        , return/1]).
 
 -define(APP, emqx_management).
 
 -elvis([{elvis_style, god_modules, disable}]).
-
-%% TODO: remove these function after all api use minirest version 1.X
-return() ->
-    ok.
-return(_Response) ->
-    ok.
 
 %%--------------------------------------------------------------------
 %% Node Info
@@ -183,8 +169,8 @@ get_stats() ->
     GlobalStatsKeys =
         [ 'retained.count'
         , 'retained.max'
-        , 'routes.count'
-        , 'routes.max'
+        , 'topics.count'
+        , 'topics.max'
         , 'subscriptions.shared.count'
         , 'subscriptions.shared.max'
         ],
@@ -335,7 +321,8 @@ call_client(Node, ClientId, Req) ->
 do_list_subscriptions() ->
     case check_row_limit([mqtt_subproperty]) of
         false -> throw(max_row_limit);
-        ok    -> [item(subscription, Sub) || Sub <- ets:tab2list(mqtt_subproperty)]
+        ok    -> [#{topic => Topic, clientid => ClientId, options => Options}
+                     || {{Topic, ClientId}, Options} <- ets:tab2list(mqtt_subproperty)]
     end.
 
 list_subscriptions(Node) ->
@@ -356,13 +343,6 @@ lookup_subscriptions(ClientId) ->
 
 lookup_subscriptions(Node, ClientId) ->
     wrap_rpc(emqx_broker_proto_v1:list_client_subscriptions(Node, ClientId)).
-
-%%--------------------------------------------------------------------
-%% Routes
-%%--------------------------------------------------------------------
-
-lookup_routes(Topic) ->
-    emqx_router:lookup_routes(Topic).
 
 %%--------------------------------------------------------------------
 %% PubSub
@@ -462,18 +442,6 @@ create_banned(Banned) ->
 
 delete_banned(Who) ->
     emqx_banned:delete(Who).
-
-%%--------------------------------------------------------------------
-%% Common Table API
-%%--------------------------------------------------------------------
-
-item(subscription, {{Topic, ClientId}, Options}) ->
-    #{topic => Topic, clientid => ClientId, options => Options};
-
-item(route, #route{topic = Topic, dest = Node}) ->
-    #{topic => Topic, node => Node};
-item(route, {Topic, Node}) ->
-    #{topic => Topic, node => Node}.
 
 %%--------------------------------------------------------------------
 %% Internal Functions.

@@ -248,12 +248,6 @@ emqx_collect(emqx_subscriptions_shared_count, Stats) ->
 emqx_collect(emqx_subscriptions_shared_max, Stats) ->
     gauge_metric(?C('subscriptions.shared.max', Stats));
 
-%% routes
-emqx_collect(emqx_routes_count, Stats) ->
-    gauge_metric(?C('routes.count', Stats));
-emqx_collect(emqx_routes_max, Stats) ->
-    gauge_metric(?C('routes.max', Stats));
-
 %% retained
 emqx_collect(emqx_retained_count, Stats) ->
     gauge_metric(?C('retained.count', Stats));
@@ -517,8 +511,6 @@ emqx_stats() ->
     , emqx_subscriptions_max
     , emqx_subscriptions_shared_count
     , emqx_subscriptions_shared_max
-    , emqx_routes_count
-    , emqx_routes_max
     , emqx_retained_count
     , emqx_retained_max
     ].

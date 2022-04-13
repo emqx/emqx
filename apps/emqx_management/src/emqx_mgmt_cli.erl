@@ -31,7 +31,7 @@
     broker/1,
     cluster/1,
     clients/1,
-    routes/1,
+    topics/1,
     subscriptions/1,
     plugins/1,
     listeners/1,
@@ -164,17 +164,17 @@ if_client(ClientId, Fun) ->
     end.
 
 %%--------------------------------------------------------------------
-%% @doc Routes Command
+%% @doc Topics Command
 
-routes(["list"]) ->
+topics(["list"]) ->
     dump(emqx_route);
-routes(["show", Topic]) ->
+topics(["show", Topic]) ->
     Routes = ets:lookup(emqx_route, bin(Topic)),
-    [print({emqx_route, Route}) || Route <- Routes];
-routes(_) ->
+    [print({emqx_topic, Route}) || Route <- Routes];
+topics(_) ->
     emqx_ctl:usage([
-        {"routes list", "List all routes"},
-        {"routes show <Topic>", "Show a route"}
+        {"topics list", "List all topics"},
+        {"topics show <Topic>", "Show a topic"}
     ]).
 
 subscriptions(["list"]) ->
@@ -750,9 +750,9 @@ print({client, {ClientId, ChanPid}}) ->
             end,
         [format(K, maps:get(K, Info1)) || K <- InfoKeys]
     );
-print({emqx_route, #route{topic = Topic, dest = {_, Node}}}) ->
+print({emqx_topic, #route{topic = Topic, dest = {_, Node}}}) ->
     emqx_ctl:print("~ts -> ~ts~n", [Topic, Node]);
-print({emqx_route, #route{topic = Topic, dest = Node}}) ->
+print({emqx_topic, #route{topic = Topic, dest = Node}}) ->
     emqx_ctl:print("~ts -> ~ts~n", [Topic, Node]);
 print(#plugin{name = Name, descr = Descr, active = Active}) ->
     emqx_ctl:print(
