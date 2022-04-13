@@ -533,7 +533,6 @@ defmodule EMQXUmbrella.MixProject do
     [
       platform_data_dir: "data",
       platform_etc_dir: "etc",
-      platform_lib_dir: "lib",
       platform_log_dir: "log",
       platform_plugins_dir: "plugins",
       runner_bin_dir: "$RUNNER_ROOT_DIR/bin",
@@ -557,7 +556,6 @@ defmodule EMQXUmbrella.MixProject do
     [
       platform_data_dir: "/var/lib/emqx",
       platform_etc_dir: "/etc/emqx",
-      platform_lib_dir: "",
       platform_log_dir: "/var/log/emqx",
       platform_plugins_dir: "/var/lib/emqx/plugins",
       runner_bin_dir: "/usr/bin",
