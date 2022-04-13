@@ -32,6 +32,8 @@ File format:
   scenarios, especially when the emqx-bridge-mqtt plugin is configured as shared
   subscription. [#7462]
 * Add some compression functions to rule-engine: gzip, gunzip, zip, unzip, zip_compress, zip_uncompress
+* Add support for JWT authorization [#7596]
+  Now MQTT clients may be authorized with respect to a specific claim containing publish/subscribe topic whitelists.
 
 ### Bug fixes
 
