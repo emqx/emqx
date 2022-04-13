@@ -1412,17 +1412,9 @@ authenticator_examples() ->
 
 status_metrics_example() ->
     #{
-        metrics => #{
-            matched => 0,
-            success => 0,
-            failed => 0,
-            rate => 0.0,
-            rate_last5m => 0.0,
-            rate_max => 0.0
-        },
-        node_metrics => [
-            #{
-                node => node(),
+        status_metrics => #{
+            summary => <<"Authn status metrics">>,
+            value => #{
                 metrics => #{
                     matched => 0,
                     success => 0,
@@ -1430,16 +1422,29 @@ status_metrics_example() ->
                     rate => 0.0,
                     rate_last5m => 0.0,
                     rate_max => 0.0
-                }
+                },
+                node_metrics => [
+                    #{
+                        node => node(),
+                        metrics => #{
+                            matched => 0,
+                            success => 0,
+                            failed => 0,
+                            rate => 0.0,
+                            rate_last5m => 0.0,
+                            rate_max => 0.0
+                        }
+                    }
+                ],
+                status => connected,
+                node_status => [
+                    #{
+                        node => node(),
+                        status => connected
+                    }
+                ]
             }
-        ],
-        status => connected,
-        node_status => [
-            #{
-                node => node(),
-                status => connected
-            }
-        ]
+        }
     }.
 
 request_user_create_examples() ->
