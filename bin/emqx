@@ -304,7 +304,7 @@ relx_get_pid() {
 }
 
 # Connect to a remote node
-relx_rem_sh() {
+remsh() {
     # Generate a unique id used to allow multiple remsh to the same node
     # transparently
     id="remsh$(relx_gen_id)-${NAME}"
@@ -313,23 +313,23 @@ relx_rem_sh() {
 
     # shellcheck disable=SC2086
     # Setup remote shell command to control node
-    if [ "$IS_ELIXIR" = "yes" ]
-    then
-      set -- "$REL_DIR/iex" \
-           --remsh "$NAME" \
-           --boot-var RELEASE_LIB "$ERTS_LIB_DIR" \
-           --cookie "$COOKIE" \
-           --hidden \
-           --erl "-kernel net_ticktime $TICKTIME" \
-           --erl "$EPMD_ARGS" \
-           --erl "$NAME_TYPE $id" \
-           --boot "$REL_DIR/start_clean"
+    if [ "$IS_ELIXIR" = no ] || [ "${EMQX_CONSOLE_FLAVOR:-}" = 'erl' ] ; then
+        set -- "$BINDIR/erl" "$NAME_TYPE" "$id" \
+            -remsh "$NAME" -boot "$REL_DIR/start_clean" \
+            -boot_var ERTS_LIB_DIR "$ERTS_LIB_DIR" \
+            -boot_var RELEASE_LIB "$ERTS_LIB_DIR" \
+            -setcookie "$COOKIE" -hidden -kernel net_ticktime "$TICKTIME" \
+            $EPMD_ARGS
     else
-      set -- "$BINDIR/erl" "$NAME_TYPE" "$id" \
-           -remsh "$NAME" -boot "$REL_DIR/start_clean" \
-           -boot_var ERTS_LIB_DIR "$ERTS_LIB_DIR" \
-           -setcookie "$COOKIE" -hidden -kernel net_ticktime "$TICKTIME" \
-           $EPMD_ARGS
+        set -- "$REL_DIR/iex" \
+            --remsh "$NAME" \
+            --boot-var RELEASE_LIB "$ERTS_LIB_DIR" \
+            --cookie "$COOKIE" \
+            --hidden \
+            --erl "-kernel net_ticktime $TICKTIME" \
+            --erl "$EPMD_ARGS" \
+            --erl "$NAME_TYPE $id" \
+            --boot "$REL_DIR/start_clean"
     fi
     exec "$@"
 }
@@ -427,11 +427,6 @@ generate_config() {
     ## filenames are per-hocon convention
     CONF_FILE="$CONFIGS_DIR/app.$NOW_TIME.config"
     ARGS_FILE="$CONFIGS_DIR/vm.$NOW_TIME.args"
-
-    # This is needed by the Elixir scripts.
-    # Do NOT append `.config`.
-    RELEASE_SYS_CONFIG="$CONFIGS_DIR/app.$NOW_TIME"
-    export RELEASE_SYS_CONFIG
 
     ## Merge hocon generated *.args into the vm.args
     TMP_ARG_FILE="$CONFIGS_DIR/vm.args.tmp"
@@ -780,7 +775,7 @@ case "${COMMAND}" in
         assert_node_alive
 
         shift
-        relx_rem_sh
+        remsh
         ;;
 
     upgrade|downgrade|install|unpack|uninstall)
@@ -859,29 +854,28 @@ case "${COMMAND}" in
         # shellcheck disable=SC2086
         # Build an array of arguments to pass to exec later on
         # Build it here because this command will be used for logging.
-        if [ "$IS_ELIXIR" = yes ]
-        then
-          set -- "$REL_DIR/iex" \
-              --boot "$BOOTFILE" \
-              --boot-var RELEASE_LIB "${ERTS_LIB_DIR}" \
-              --erl-config "${CONF_FILE}" \
-              --vm-args "${ARGS_FILE}" \
-              --erl "$FOREGROUNDOPTIONS" \
-              --erl "-mode $CODE_LOADING_MODE" \
-              --erl "$EPMD_ARGS" \
-              --werl
+        if [ "$IS_ELIXIR" = no ] || [ "${EMQX_CONSOLE_FLAVOR:-}" = 'erl' ] ; then
+            # pass down RELEASE_LIB so we can switch to IS_ELIXIR=no
+            # to boot an Erlang node from the elixir release
+            set -- "$BINDIR/erlexec" \
+                $FOREGROUNDOPTIONS \
+                -boot "$BOOTFILE" \
+                -boot_var RELEASE_LIB "$ERTS_LIB_DIR" \
+                -boot_var ERTS_LIB_DIR "$ERTS_LIB_DIR" \
+                -mode "$CODE_LOADING_MODE" \
+                -config "$CONF_FILE" \
+                -args_file "$ARGS_FILE" \
+                $EPMD_ARGS
         else
-          # pass down RELEASE_LIB so we can switch to IS_ELIXIR=no
-          # to boot an Erlang node from the elixir release
-          set -- "$BINDIR/erlexec" \
-              $FOREGROUNDOPTIONS \
-              -boot "$BOOTFILE" \
-              -boot_var RELEASE_LIB "$ERTS_LIB_DIR" \
-              -boot_var ERTS_LIB_DIR "$ERTS_LIB_DIR" \
-              -mode "$CODE_LOADING_MODE" \
-              -config "$CONF_FILE" \
-              -args_file "$ARGS_FILE" \
-              $EPMD_ARGS
+            set -- "$REL_DIR/iex" \
+                --boot "$BOOTFILE" \
+                --boot-var RELEASE_LIB "${ERTS_LIB_DIR}" \
+                --erl-config "${CONF_FILE}" \
+                --vm-args "${ARGS_FILE}" \
+                --erl "$FOREGROUNDOPTIONS" \
+                --erl "-mode $CODE_LOADING_MODE" \
+                --erl "$EPMD_ARGS" \
+                --werl
         fi
 
         # Log the startup
