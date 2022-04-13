@@ -531,7 +531,6 @@ defmodule EMQXUmbrella.MixProject do
 
   defp template_vars(release, release_type, :bin = _package_type, edition_type) do
     [
-      platform_bin_dir: "bin",
       platform_data_dir: "data",
       platform_etc_dir: "etc",
       platform_lib_dir: "lib",
@@ -556,7 +555,6 @@ defmodule EMQXUmbrella.MixProject do
 
   defp template_vars(release, release_type, :pkg = _package_type, edition_type) do
     [
-      platform_bin_dir: "",
       platform_data_dir: "/var/lib/emqx",
       platform_etc_dir: "/etc/emqx",
       platform_lib_dir: "",
