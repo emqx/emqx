@@ -34,7 +34,7 @@ end_per_suite(_Config) ->
     application:unload(emqx),
     ok = emqx_logger:set_log_level(error),
     ok.
-    
+
 % t_version(_) ->
 %     error('TODO').
 
@@ -42,10 +42,24 @@ end_per_suite(_Config) ->
 %     error('TODO').
 
 t_uptime(_) ->
-    ?assertEqual(<<"1 seconds">>, iolist_to_binary(emqx_sys:uptime(seconds, 1))),
-    ?assertEqual(<<"1 minutes, 0 seconds">>, iolist_to_binary(emqx_sys:uptime(seconds, 60))),
-    ?assertEqual(<<"1 hours, 0 minutes, 0 seconds">>, iolist_to_binary(emqx_sys:uptime(seconds, 3600))),
-    ?assertEqual(<<"1 days, 0 hours, 0 minutes, 0 seconds">>, iolist_to_binary(emqx_sys:uptime(seconds, 86400))).
+    ?assert(is_list(emqx_sys:uptime())),
+    ?assertEqual(<<"1 seconds">>, iolist_to_binary(emqx_sys:uptime(1))),
+    ?assertEqual(<<"1 minutes, 0 seconds">>, iolist_to_binary(emqx_sys:uptime(60))),
+    ?assertEqual(<<"1 hours, 0 minutes, 0 seconds">>, iolist_to_binary(emqx_sys:uptime(3600))),
+    ?assertEqual(<<"1 hours, 1 minutes, 1 seconds">>, iolist_to_binary(emqx_sys:uptime(3661))),
+    ?assertEqual(<<"1 days, 0 hours, 0 minutes, 0 seconds">>,
+        iolist_to_binary(emqx_sys:uptime(86400))),
+    lists:map(fun({D, H, M, S}) ->
+        Expect = <<
+            (integer_to_binary(D))/binary, " days, ",
+            (integer_to_binary(H))/binary, " hours, ",
+            (integer_to_binary(M))/binary, " minutes, ",
+            (integer_to_binary(S))/binary, " seconds"
+        >>,
+        Actual = iolist_to_binary(emqx_sys:uptime(D * 86400 + H * 3600 + M * 60 + S)),
+        ?assertEqual(Expect, Actual)
+              end,
+        [{1, 2, 3, 4}, {10, 20, 30, 40}, {2222, 3, 56, 59}, {59, 23, 59, 59}]).
 
 % t_datetime(_) ->
 %     error('TODO').

@@ -81,7 +81,7 @@ get_mem_check_interval() ->
 
 set_mem_check_interval(Seconds) when Seconds < 60 ->
     memsup:set_check_interval(1);
-set_mem_check_interval(Seconds) -> 
+set_mem_check_interval(Seconds) ->
     memsup:set_check_interval(Seconds div 60).
 
 get_sysmem_high_watermark() ->
@@ -105,8 +105,10 @@ call(Req) ->
 
 init([Opts]) ->
     set_mem_check_interval(proplists:get_value(mem_check_interval, Opts)),
-    set_sysmem_high_watermark(proplists:get_value(sysmem_high_watermark, Opts)),
+    HW = proplists:get_value(sysmem_high_watermark, Opts),
+    set_sysmem_high_watermark(HW),
     set_procmem_high_watermark(proplists:get_value(procmem_high_watermark, Opts)),
+    ensure_system_memory_alarm(HW),
     {ok, ensure_check_timer(#{cpu_high_watermark => proplists:get_value(cpu_high_watermark, Opts),
                               cpu_low_watermark => proplists:get_value(cpu_low_watermark, Opts),
                               cpu_check_interval => proplists:get_value(cpu_check_interval, Opts),
@@ -176,4 +178,21 @@ ensure_check_timer(State = #{cpu_check_interval := Interval}) ->
     case erlang:system_info(system_architecture) of
         "x86_64-pc-linux-musl" -> State;
         _ -> State#{timer := emqx_misc:start_timer(timer:seconds(Interval), check)}
+    end.
+
+%% At startup, memsup starts first and checks for memory alarms,
+%% but emqx_alarm_handler is not yet used instead of alarm_handler,
+%% so alarm_handler is used directly for notification (normally emqx_alarm_handler should be used).
+%%The internal memsup will no longer trigger events that have been alerted,
+%% and there is no exported function to remove the alerted flag,
+%% so it can only be checked again at startup.
+ensure_system_memory_alarm(HW) ->
+    case erlang:whereis(memsup) of
+        undefined -> ok;
+        _Pid ->
+            {Total, Allocated, _Worst} = memsup:get_memory_data(),
+            case Total =/= 0 andalso Allocated/Total * 100 >= HW of
+                true -> emqx_alarm:activate(high_system_memory_usage, #{high_watermark => HW});
+                false -> ok
+            end
     end.

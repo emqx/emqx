@@ -1455,11 +1455,13 @@ enrich_connack_caps(AckProps, _Channel) -> AckProps.
 %%--------------------------------------------------------------------
 %% Enrich server keepalive
 
-enrich_server_keepalive(AckProps, #channel{clientinfo = #{zone := Zone}}) ->
+enrich_server_keepalive(AckProps, ?IS_MQTT_V5 = #channel{clientinfo = #{zone := Zone}}) ->
     case emqx_zone:server_keepalive(Zone) of
         undefined -> AckProps;
         Keepalive -> AckProps#{'Server-Keep-Alive' => Keepalive}
-    end.
+    end;
+
+enrich_server_keepalive(AckProps, _Channel) -> AckProps.
 
 %%--------------------------------------------------------------------
 %% Enrich response information
@@ -1505,7 +1507,7 @@ init_alias_maximum(#mqtt_packet_connect{proto_ver  = ?MQTT_PROTO_V5,
 init_alias_maximum(_ConnPkt, _ClientInfo) -> undefined.
 
 %%--------------------------------------------------------------------
-%% Enrich Keepalive
+%% Ensure Keepalive
 
 ensure_keepalive(#{'Server-Keep-Alive' := Interval}, Channel) ->
     ensure_keepalive_timer(Interval, Channel);
@@ -1671,4 +1673,3 @@ flag(false) -> 0.
 set_field(Name, Value, Channel) ->
     Pos = emqx_misc:index_of(Name, record_info(fields, channel)),
     setelement(Pos+1, Channel, Value).
-
