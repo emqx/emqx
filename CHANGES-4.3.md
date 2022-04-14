@@ -31,6 +31,7 @@ File format:
   node. It will improves the efficiency of shared messages dispatching in certain
   scenarios, especially when the emqx-bridge-mqtt plugin is configured as shared
   subscription. [#7462]
+* Add some compression functions to rule-engine: gzip, gunzip, zip, unzip, zip_compress, zip_uncompress
 
 ### Bug fixes
 

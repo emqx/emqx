@@ -633,6 +633,17 @@ prop_zip_fun() ->
             S == apply_func(unzip, [apply_func(zip, [S])])).
 
 %%------------------------------------------------------------------------------
+%% Test cases for zip funcs
+%%------------------------------------------------------------------------------
+
+t_zip_compress_funcs(_) ->
+    ?PROPTEST(prop_zip_compress_fun).
+
+prop_zip_compress_fun() ->
+    ?FORALL(S, binary(),
+            S == apply_func(zip_uncompress, [apply_func(zip_compress, [S])])).
+
+%%------------------------------------------------------------------------------
 %% Test cases for base64
 %%------------------------------------------------------------------------------
 
