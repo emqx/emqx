@@ -1,5 +1,5 @@
 %%--------------------------------------------------------------------
-%% Copyright (c) 2020-2022 EMQ Technologies Co., Ltd. All Rights Reserved.
+%% Copyright (c) 2020-2021 EMQ Technologies Co., Ltd. All Rights Reserved.
 %%
 %% Licensed under the Apache License, Version 2.0 (the "License");
 %% you may not use this file except in compliance with the License.
@@ -22,8 +22,7 @@
 -logger_header("[JWT]").
 
 -export([ register_metrics/0
-        , check_auth/3
-        , check_acl/5
+        , check/3
         , description/0
         ]).
 
@@ -47,14 +46,16 @@ register_metrics() ->
 %% Authentication callbacks
 %%--------------------------------------------------------------------
 
-check_auth(ClientInfo, AuthResult, #{from := From, checklists := Checklists}) ->
+check(ClientInfo, AuthResult, #{pid := Pid,
+                                from := From,
+                                checklists := Checklists}) ->
     case maps:find(From, ClientInfo) of
         error ->
             ok = emqx_metrics:inc(?AUTH_METRICS(ignore));
         {ok, undefined} ->
             ok = emqx_metrics:inc(?AUTH_METRICS(ignore));
         {ok, Token} ->
-            case emqx_auth_jwt_svr:verify(Token) of
+            case emqx_auth_jwt_svr:verify(Pid, Token) of
                 {error, not_found} ->
                     ok = emqx_metrics:inc(?AUTH_METRICS(ignore));
                 {error, not_token} ->
@@ -67,37 +68,11 @@ check_auth(ClientInfo, AuthResult, #{from := From, checklists := Checklists}) ->
             end
     end.
 
-check_acl(ClientInfo = #{jwt_claims := Claims},
-          PubSub,
-          Topic,
-          _NoMatchAction,
-          #{acl_claim_name := AclClaimName}) ->
-    Deadline = erlang:system_time(second),
-    case Claims of
-        #{AclClaimName := Acl, <<"exp">> := Exp}
-            when is_integer(Exp) andalso Exp >= Deadline ->
-            verify_acl(ClientInfo, Acl, PubSub, Topic);
-        _ -> ignore
-    end.
-
 description() -> "Authentication with JWT".
 
 %%------------------------------------------------------------------------------
 %% Verify Claims
 %%--------------------------------------------------------------------
-
-verify_acl(ClientInfo, #{<<"sub">> := SubTopics}, subscribe, Topic) when is_list(SubTopics) ->
-    verify_acl(ClientInfo, SubTopics, Topic);
-verify_acl(ClientInfo, #{<<"pub">> := PubTopics}, publish, Topic) when is_list(PubTopics) ->
-    verify_acl(ClientInfo, PubTopics, Topic);
-verify_acl(_ClientInfo, _Acl, _PubSub, _Topic) -> {stop, deny}.
-
-verify_acl(_ClientInfo, [], _Topic) -> {stop, deny};
-verify_acl(ClientInfo, [AclTopic | AclTopics], Topic) ->
-    case match_topic(ClientInfo, AclTopic, Topic) of
-        true -> {stop, allow};
-        false -> verify_acl(ClientInfo, AclTopics, Topic)
-    end.
 
 verify_claims(Checklists, Claims, ClientInfo) ->
     case do_verify_claims(feedvar(Checklists, ClientInfo), Claims) of
@@ -122,9 +97,3 @@ feedvar(Checklists, #{username := Username, clientid := ClientId}) ->
                  ({K, <<"%c">>}) -> {K, ClientId};
                  ({K, Expected}) -> {K, Expected}
               end, Checklists).
-
-match_topic(ClientInfo, AclTopic, Topic) ->
-    AclTopicWords = emqx_topic:words(AclTopic),
-    TopicWords = emqx_topic:words(Topic),
-    AclTopicRendered = emqx_access_rule:feed_var(ClientInfo, AclTopicWords),
-    emqx_topic:match(TopicWords, AclTopicRendered).
