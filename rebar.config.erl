@@ -267,13 +267,10 @@ overlay_vars_edition(ee) ->
 
 %% vars per packaging type, bin(zip/tar.gz/docker) or pkg(rpm/deb)
 overlay_vars_pkg(bin) ->
-    [ {platform_bin_dir, "bin"}
-    , {platform_data_dir, "data"}
+    [ {platform_data_dir, "data"}
     , {platform_etc_dir, "etc"}
-    , {platform_lib_dir, "lib"}
     , {platform_log_dir, "log"}
     , {platform_plugins_dir, "plugins"}
-    , {runner_root_dir, "$(cd $(dirname $(readlink $0 || echo $0))/..; pwd -P)"}
     , {runner_bin_dir, "$RUNNER_ROOT_DIR/bin"}
     , {emqx_etc_dir, "$RUNNER_ROOT_DIR/etc"}
     , {runner_lib_dir, "$RUNNER_ROOT_DIR/lib"}
@@ -282,13 +279,10 @@ overlay_vars_pkg(bin) ->
     , {is_elixir, "no"}
     ];
 overlay_vars_pkg(pkg) ->
-    [ {platform_bin_dir, ""}
-    , {platform_data_dir, "/var/lib/emqx"}
+    [ {platform_data_dir, "/var/lib/emqx"}
     , {platform_etc_dir, "/etc/emqx"}
-    , {platform_lib_dir, ""}
     , {platform_log_dir, "/var/log/emqx"}
     , {platform_plugins_dir, "/var/lib/emqx/plugins"}
-    , {runner_root_dir, "/usr/lib/emqx"}
     , {runner_bin_dir, "/usr/bin"}
     , {emqx_etc_dir, "/etc/emqx"}
     , {runner_lib_dir, "$RUNNER_ROOT_DIR/lib"}

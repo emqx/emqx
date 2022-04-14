@@ -59,7 +59,7 @@ defmodule EMQXUmbrella.MixProject do
       {:gen_rpc, github: "emqx/gen_rpc", tag: "2.8.1", override: true},
       {:minirest, github: "emqx/minirest", tag: "1.2.12", override: true},
       {:ecpool, github: "emqx/ecpool", tag: "0.5.2"},
-      {:replayq, "0.3.3", override: true},
+      {:replayq, "0.3.4", override: true},
       {:pbkdf2, github: "emqx/erlang-pbkdf2", tag: "2.0.4", override: true},
       {:emqtt, github: "emqx/emqtt", tag: "1.5.0", override: true},
       {:rulesql, github: "emqx/rulesql", tag: "0.1.4"},
@@ -531,13 +531,10 @@ defmodule EMQXUmbrella.MixProject do
 
   defp template_vars(release, release_type, :bin = _package_type, edition_type) do
     [
-      platform_bin_dir: "bin",
       platform_data_dir: "data",
       platform_etc_dir: "etc",
-      platform_lib_dir: "lib",
       platform_log_dir: "log",
       platform_plugins_dir: "plugins",
-      runner_root_dir: "$(cd $(dirname $(readlink $0 || echo $0))/..; pwd -P)",
       runner_bin_dir: "$RUNNER_ROOT_DIR/bin",
       emqx_etc_dir: "$RUNNER_ROOT_DIR/etc",
       runner_lib_dir: "$RUNNER_ROOT_DIR/lib",
@@ -557,13 +554,10 @@ defmodule EMQXUmbrella.MixProject do
 
   defp template_vars(release, release_type, :pkg = _package_type, edition_type) do
     [
-      platform_bin_dir: "",
       platform_data_dir: "/var/lib/emqx",
       platform_etc_dir: "/etc/emqx",
-      platform_lib_dir: "",
       platform_log_dir: "/var/log/emqx",
       platform_plugins_dir: "/var/lib/emqx/plugins",
-      runner_root_dir: "/usr/lib/emqx",
       runner_bin_dir: "/usr/bin",
       emqx_etc_dir: "/etc/emqx",
       runner_lib_dir: "$RUNNER_ROOT_DIR/lib",

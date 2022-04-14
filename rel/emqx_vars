@@ -6,13 +6,12 @@
 REL_VSN="{{ release_version }}"
 ERTS_VSN="{{ erts_vsn }}"
 ERL_OPTS="{{ erl_opts }}"
-RUNNER_ROOT_DIR="{{ runner_root_dir }}"
 RUNNER_BIN_DIR="{{ runner_bin_dir }}"
 RUNNER_LOG_DIR="{{ runner_log_dir }}"
 RUNNER_LIB_DIR="{{ runner_lib_dir }}"
 EMQX_ETC_DIR="{{ emqx_etc_dir }}"
 RUNNER_USER="{{ runner_user }}"
-IS_ELIXIR="{{ is_elixir }}"
+IS_ELIXIR="${IS_ELIXIR:-{{ is_elixir }}}"
 SCHEMA_MOD="{{ emqx_schema_mod }}"
 IS_ENTERPRISE="{{ is_enterprise }}"
 
@@ -20,6 +19,5 @@ export EMQX_DESCRIPTION='{{ emqx_description }}'
 
 ## computed vars
 REL_NAME="emqx"
-ERTS_PATH="$RUNNER_ROOT_DIR/erts-$ERTS_VSN/bin"
 
 ## updated vars here
