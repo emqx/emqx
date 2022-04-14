@@ -182,6 +182,11 @@
         , unzip/1
         ]).
 
+%% compressed Funcs
+-export([ zip_compress/1
+        , zip_uncompress/1
+        ]).
+
 %% Data encode and decode
 -export([ base64_encode/1
         , base64_decode/1
@@ -822,6 +827,16 @@ zip(S) when is_binary(S) ->
 
 unzip(S) when is_binary(S) ->
     zlib:unzip(S).
+
+%%------------------------------------------------------------------------------
+%% zip_compress Funcs
+%%------------------------------------------------------------------------------
+
+zip_compress(S) when is_binary(S) ->
+    zlib:compress(S).
+
+zip_uncompress(S) when is_binary(S) ->
+    zlib:uncompress(S).
 
 %%------------------------------------------------------------------------------
 %% Data encode and decode Funcs
