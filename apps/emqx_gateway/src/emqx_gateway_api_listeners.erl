@@ -627,10 +627,12 @@ fields(tcp_listener_opts) ->
         {high_watermark, mk(binary(), #{})},
         {nodelay, mk(boolean(), #{})},
         {reuseaddr, boolean()},
+        %% TODO: duri
         {send_timeout, binary()},
         {send_timeout_close, boolean()}
     ];
 fields(ssl_listener_opts) ->
+    %% TODO: maybe use better ssl options schema from emqx_ssl_lib or somewhere
     [
         {cacertfile, binary()},
         {certfile, binary()},
@@ -762,7 +764,7 @@ common_listener_opts() ->
                     required => false,
                     desc =>
                         <<
-                            "The Mounpoint for clients of the listener. "
+                            "The Mountpoint for clients of the listener. "
                             "The gateway-level mountpoint configuration can be overloaded "
                             "when it is not null or empty string"
                         >>
@@ -774,7 +776,7 @@ common_listener_opts() ->
                 emqx_authn_schema:authenticator_type(),
                 #{
                     required => {false, recursively},
-                    desc => <<"The authenticatior for this listener">>
+                    desc => <<"The authenticator for this listener">>
                 }
             )}
     ] ++ emqx_gateway_schema:proxy_protocol_opts().
