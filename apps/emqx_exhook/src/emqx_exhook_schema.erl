@@ -39,46 +39,67 @@ namespace() -> exhook.
 roots() -> [exhook].
 
 fields(exhook) ->
-    [{servers,
-      sc(hoconsc:array(ref(server)),
-          #{ default => []
-           , desc => "List of exhook servers."
-           })}
+    [
+        {servers,
+            sc(
+                hoconsc:array(ref(server)),
+                #{
+                    default => [],
+                    desc => "List of exhook servers."
+                }
+            )}
     ];
-
 fields(server) ->
-    [ {name, sc(binary(),
-                #{ desc => "Name of the exhook server."
-                 })}
-    , {enable, sc(boolean(),
-                  #{ default => true
-                   , desc => "Enable the exhook server."
-                   })}
-    , {url, sc(binary(),
-               #{ desc => "URL of the gRPC server."
-                })}
-    , {request_timeout, sc(duration(),
-                           #{ default => "5s"
-                            , desc => "The timeout to request gRPC server."
-                            })}
-    , {failed_action, failed_action()}
-    , {ssl,
-       sc(ref(ssl_conf), #{})}
-    , {auto_reconnect,
-       sc(hoconsc:union([false, duration()]),
-          #{ default => "60s"
-           , desc => "Whether to automatically reconnect (initialize) the gRPC server.<br/>"
-                     "When gRPC is not available, exhook tries to request the gRPC service at "
-                     "that interval and reinitialize the list of mounted hooks."
-           })}
-    , {pool_size,
-       sc(integer(),
-          #{ default => 8
-           , example => 8
-           , desc => "The process pool size for gRPC client."
-           })}
+    [
+        {name,
+            sc(
+                binary(),
+                #{desc => "Name of the exhook server."}
+            )},
+        {enable,
+            sc(
+                boolean(),
+                #{
+                    default => true,
+                    desc => "Enable the exhook server."
+                }
+            )},
+        {url,
+            sc(
+                binary(),
+                #{desc => "URL of the gRPC server."}
+            )},
+        {request_timeout,
+            sc(
+                duration(),
+                #{
+                    default => "5s",
+                    desc => "The timeout to request gRPC server."
+                }
+            )},
+        {failed_action, failed_action()},
+        {ssl, sc(ref(ssl_conf), #{})},
+        {auto_reconnect,
+            sc(
+                hoconsc:union([false, duration()]),
+                #{
+                    default => "60s",
+                    desc =>
+                        "Whether to automatically reconnect (initialize) the gRPC server.<br/>"
+                        "When gRPC is not available, exhook tries to request the gRPC service at "
+                        "that interval and reinitialize the list of mounted hooks."
+                }
+            )},
+        {pool_size,
+            sc(
+                integer(),
+                #{
+                    default => 8,
+                    example => 8,
+                    desc => "The process pool size for gRPC client."
+                }
+            )}
     ];
-
 fields(ssl_conf) ->
     Schema = emqx_schema:client_ssl_opts_schema(#{}),
     lists:keydelete(user_lookup_fun, 1, Schema).
@@ -99,11 +120,15 @@ ref(Field) ->
     hoconsc:ref(?MODULE, Field).
 
 failed_action() ->
-    sc(hoconsc:enum([deny, ignore]),
-       #{ default => deny
-        , desc => "The value that is returned when the request "
-                  "to the gRPC server fails for any reason."
-        }).
+    sc(
+        hoconsc:enum([deny, ignore]),
+        #{
+            default => deny,
+            desc =>
+                "The value that is returned when the request "
+                "to the gRPC server fails for any reason."
+        }
+    ).
 
 server_config() ->
     fields(server).

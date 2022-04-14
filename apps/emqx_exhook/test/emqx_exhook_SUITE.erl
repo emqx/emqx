@@ -23,26 +23,27 @@
 -include_lib("common_test/include/ct.hrl").
 -define(CLUSTER_RPC_SHARD, emqx_cluster_rpc_shard).
 
--define(CONF_DEFAULT, <<"
-exhook {
-  servers = [
-    { name = default,
-      url = \"http://127.0.0.1:9000\"
-    },
-    { name = enable,
-      enable = false,
-      url = \"http://127.0.0.1:9000\"
-    },
-    { name = error,
-      url = \"http://127.0.0.1:9001\"
-    },
-    { name = not_reconnect,
-      auto_reconnect = false,
-      url = \"http://127.0.0.1:9001\"
-    }
-  ]
-}
-">>).
+-define(CONF_DEFAULT, <<
+    "\n"
+    "exhook {\n"
+    "  servers = [\n"
+    "    { name = default,\n"
+    "      url = \"http://127.0.0.1:9000\"\n"
+    "    },\n"
+    "    { name = enable,\n"
+    "      enable = false,\n"
+    "      url = \"http://127.0.0.1:9000\"\n"
+    "    },\n"
+    "    { name = error,\n"
+    "      url = \"http://127.0.0.1:9001\"\n"
+    "    },\n"
+    "    { name = not_reconnect,\n"
+    "      auto_reconnect = false,\n"
+    "      url = \"http://127.0.0.1:9001\"\n"
+    "    }\n"
+    "  ]\n"
+    "}\n"
+>>).
 
 %%--------------------------------------------------------------------
 %% Setups
@@ -79,7 +80,8 @@ init_per_testcase(_, Config) ->
 
 end_per_testcase(_, Config) ->
     case erlang:whereis(node()) of
-        undefined -> ok;
+        undefined ->
+            ok;
         P ->
             erlang:unlink(P),
             erlang:exit(P, kill)
@@ -95,22 +97,29 @@ load_cfg(Cfg) ->
 
 t_access_failed_if_no_server_running(_) ->
     emqx_exhook_mgr:disable(<<"default">>),
-    ClientInfo = #{clientid => <<"user-id-1">>,
-                   username => <<"usera">>,
-                   peerhost => {127,0,0,1},
-                   sockport => 1883,
-                   protocol => mqtt,
-                   mountpoint => undefined
-                  },
-    ?assertMatch({stop, {error, not_authorized}},
-                 emqx_exhook_handler:on_client_authenticate(ClientInfo, #{auth_result => success})),
+    ClientInfo = #{
+        clientid => <<"user-id-1">>,
+        username => <<"usera">>,
+        peerhost => {127, 0, 0, 1},
+        sockport => 1883,
+        protocol => mqtt,
+        mountpoint => undefined
+    },
+    ?assertMatch(
+        {stop, {error, not_authorized}},
+        emqx_exhook_handler:on_client_authenticate(ClientInfo, #{auth_result => success})
+    ),
 
-    ?assertMatch({stop, deny},
-                 emqx_exhook_handler:on_client_authorize(ClientInfo, publish, <<"t/1">>, allow)),
+    ?assertMatch(
+        {stop, deny},
+        emqx_exhook_handler:on_client_authorize(ClientInfo, publish, <<"t/1">>, allow)
+    ),
 
     Message = emqx_message:make(<<"t/1">>, <<"abc">>),
-    ?assertMatch({stop, Message},
-                 emqx_exhook_handler:on_message_publish(Message)),
+    ?assertMatch(
+        {stop, Message},
+        emqx_exhook_handler:on_message_publish(Message)
+    ),
     emqx_exhook_mgr:enable(<<"default">>).
 
 t_lookup(_) ->
@@ -120,9 +129,14 @@ t_lookup(_) ->
 
 t_list(_) ->
     [H | _] = emqx_exhook_mgr:list(),
-    ?assertMatch(#{name := _,
-                   status := _,
-                   hooks := _}, H).
+    ?assertMatch(
+        #{
+            name := _,
+            status := _,
+            hooks := _
+        },
+        H
+    ).
 
 t_unexpected(_) ->
     ok = gen_server:cast(emqx_exhook_mgr, unexpected),
@@ -149,9 +163,11 @@ t_error_update_conf(_) ->
     ErrorAnd = #{<<"name">> => Name, <<"url">> => <<"http://127.0.0.1:9001">>},
     {ok, _} = emqx_exhook_mgr:update_config(Path, {add, ErrorAnd}),
 
-    DisableAnd = #{<<"name">> => Name,
-                   <<"url">> => <<"http://127.0.0.1:9001">>,
-                   <<"enable">> => false},
+    DisableAnd = #{
+        <<"name">> => Name,
+        <<"url">> => <<"http://127.0.0.1:9001">>,
+        <<"enable">> => false
+    },
     {ok, _} = emqx_exhook_mgr:update_config(Path, {add, DisableAnd}),
 
     {ok, _} = emqx_exhook_mgr:update_config(Path, {delete, <<"error">>}),
@@ -179,10 +195,12 @@ t_metrics(_) ->
 
 t_handler(_) ->
     %% connect
-    {ok, C} = emqtt:start_link([{host, "localhost"},
-                                {port, 1883},
-                                {username, <<"gooduser">>},
-                                {clientid, <<"exhook_gooduser">>}]),
+    {ok, C} = emqtt:start_link([
+        {host, "localhost"},
+        {port, 1883},
+        {username, <<"gooduser">>},
+        {clientid, <<"exhook_gooduser">>}
+    ]),
     {ok, _} = emqtt:connect(C),
 
     %% pub/sub
@@ -212,13 +230,14 @@ t_handler(_) ->
     ok.
 
 t_simulated_handler(_) ->
-    ClientInfo = #{clientid => <<"user-id-1">>,
-                   username => <<"usera">>,
-                   peerhost => {127,0,0,1},
-                   sockport => 1883,
-                   protocol => mqtt,
-                   mountpoint => undefined
-                  },
+    ClientInfo = #{
+        clientid => <<"user-id-1">>,
+        username => <<"usera">>,
+        peerhost => {127, 0, 0, 1},
+        sockport => 1883,
+        protocol => mqtt,
+        mountpoint => undefined
+    },
     %% resume/takeover
     ok = emqx_exhook_handler:on_session_resumed(ClientInfo, undefined),
     ok = emqx_exhook_handler:on_session_discarded(ClientInfo, undefined),
@@ -232,36 +251,38 @@ t_misc_test(_) ->
     ok.
 
 t_get_basic_usage_info(_Config) ->
-    #{ num_servers := NumServers
-     , servers := Servers
-     } = emqx_exhook:get_basic_usage_info(),
+    #{
+        num_servers := NumServers,
+        servers := Servers
+    } = emqx_exhook:get_basic_usage_info(),
     ?assertEqual(1, NumServers),
     ?assertMatch([_], Servers),
     [#{driver := Driver, hooks := Hooks}] = Servers,
     ?assertEqual(grpc, Driver),
     ?assertEqual(
-       [
-        'client.authenticate',
-        'client.authorize',
-        'client.connack',
-        'client.connect',
-        'client.connected',
-        'client.disconnected',
-        'client.subscribe',
-        'client.unsubscribe',
-        'message.acked',
-        'message.delivered',
-        'message.dropped',
-        'message.publish',
-        'session.created',
-        'session.discarded',
-        'session.resumed',
-        'session.subscribed',
-        'session.takenover',
-        'session.terminated',
-        'session.unsubscribed'
-       ],
-       lists:sort(Hooks)).
+        [
+            'client.authenticate',
+            'client.authorize',
+            'client.connack',
+            'client.connect',
+            'client.connected',
+            'client.disconnected',
+            'client.subscribe',
+            'client.unsubscribe',
+            'message.acked',
+            'message.delivered',
+            'message.dropped',
+            'message.publish',
+            'session.created',
+            'session.discarded',
+            'session.resumed',
+            'session.subscribed',
+            'session.takenover',
+            'session.terminated',
+            'session.unsubscribed'
+        ],
+        lists:sort(Hooks)
+    ).
 
 %%--------------------------------------------------------------------
 %% Utils
@@ -276,14 +297,17 @@ unmeck_print() ->
     meck:unload(emqx_ctl).
 
 loaded_exhook_hookpoints() ->
-    lists:filtermap(fun(E) ->
-                            Name = element(2, E),
-                            Callbacks = element(3, E),
-                            case lists:any(fun is_exhook_callback/1, Callbacks) of
-                                true -> {true, Name};
-                                _ -> false
-                            end
-                    end, ets:tab2list(emqx_hooks)).
+    lists:filtermap(
+        fun(E) ->
+            Name = element(2, E),
+            Callbacks = element(3, E),
+            case lists:any(fun is_exhook_callback/1, Callbacks) of
+                true -> {true, Name};
+                _ -> false
+            end
+        end,
+        ets:tab2list(emqx_hooks)
+    ).
 
 is_exhook_callback(Cb) ->
     Action = element(2, Cb),

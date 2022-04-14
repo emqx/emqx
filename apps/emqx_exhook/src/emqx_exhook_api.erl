@@ -33,10 +33,13 @@
 -define(BAD_REQUEST, 'BAD_REQUEST').
 -define(BAD_RPC, 'BAD_RPC').
 
--dialyzer([{nowarn_function, [ fill_cluster_server_info/5
-                             , nodes_server_info/5
-                             , fill_server_hooks_info/4
-                             ]}]).
+-dialyzer([
+    {nowarn_function, [
+        fill_cluster_server_info/5,
+        nodes_server_info/5,
+        fill_server_hooks_info/4
+    ]}
+]).
 
 %%--------------------------------------------------------------------
 %% schema
@@ -50,142 +53,174 @@ paths() -> ["/exhooks", "/exhooks/:name", "/exhooks/:name/move", "/exhooks/:name
 
 schema(("/exhooks")) ->
     #{
-      'operationId' => exhooks,
-      get => #{tags => ?TAGS,
-               desc => <<"List all servers">>,
-               responses => #{200 => mk(array(ref(detail_server_info)), #{})}
-              },
-      post => #{tags => ?TAGS,
-                desc => <<"Add a servers">>,
-                'requestBody' => server_conf_schema(),
-                responses => #{201 => mk(ref(detail_server_info), #{}),
-                               500 => error_codes([?BAD_RPC], <<"Bad RPC">>)
-                              }
-               }
-     };
-
+        'operationId' => exhooks,
+        get => #{
+            tags => ?TAGS,
+            desc => <<"List all servers">>,
+            responses => #{200 => mk(array(ref(detail_server_info)), #{})}
+        },
+        post => #{
+            tags => ?TAGS,
+            desc => <<"Add a servers">>,
+            'requestBody' => server_conf_schema(),
+            responses => #{
+                201 => mk(ref(detail_server_info), #{}),
+                500 => error_codes([?BAD_RPC], <<"Bad RPC">>)
+            }
+        }
+    };
 schema("/exhooks/:name") ->
-    #{'operationId' => action_with_name,
-      get => #{tags => ?TAGS,
-               desc => <<"Get the detail information of server">>,
-               parameters => params_server_name_in_path(),
-               responses => #{200 => mk(ref(detail_server_info), #{}),
-                              400 => error_codes([?BAD_REQUEST], <<"Bad Request">>)
-                             }
-              },
-      put => #{tags => ?TAGS,
-               desc => <<"Update the server">>,
-               parameters => params_server_name_in_path(),
-               'requestBody' => server_conf_schema(),
-               responses => #{200 => <<>>,
-                              400 => error_codes([?BAD_REQUEST], <<"Bad Request">>),
-                              500 => error_codes([?BAD_RPC], <<"Bad RPC">>)
-                             }
-              },
-      delete => #{tags => ?TAGS,
-                  desc => <<"Delete the server">>,
-                  parameters => params_server_name_in_path(),
-                  responses => #{204 => <<>>,
-                                 500 => error_codes([?BAD_RPC], <<"Bad RPC">>)
-                                }
-                 }
-     };
-
+    #{
+        'operationId' => action_with_name,
+        get => #{
+            tags => ?TAGS,
+            desc => <<"Get the detail information of server">>,
+            parameters => params_server_name_in_path(),
+            responses => #{
+                200 => mk(ref(detail_server_info), #{}),
+                400 => error_codes([?BAD_REQUEST], <<"Bad Request">>)
+            }
+        },
+        put => #{
+            tags => ?TAGS,
+            desc => <<"Update the server">>,
+            parameters => params_server_name_in_path(),
+            'requestBody' => server_conf_schema(),
+            responses => #{
+                200 => <<>>,
+                400 => error_codes([?BAD_REQUEST], <<"Bad Request">>),
+                500 => error_codes([?BAD_RPC], <<"Bad RPC">>)
+            }
+        },
+        delete => #{
+            tags => ?TAGS,
+            desc => <<"Delete the server">>,
+            parameters => params_server_name_in_path(),
+            responses => #{
+                204 => <<>>,
+                500 => error_codes([?BAD_RPC], <<"Bad RPC">>)
+            }
+        }
+    };
 schema("/exhooks/:name/hooks") ->
-    #{'operationId' => server_hooks,
-      get => #{tags => ?TAGS,
-               desc => <<"Get the hooks information of server">>,
-               parameters => params_server_name_in_path(),
-               responses => #{200 => mk(array(ref(list_hook_info)), #{}),
-                              400 => error_codes([?BAD_REQUEST], <<"Bad Request">>)
-                             }
-              }
-     };
-
+    #{
+        'operationId' => server_hooks,
+        get => #{
+            tags => ?TAGS,
+            desc => <<"Get the hooks information of server">>,
+            parameters => params_server_name_in_path(),
+            responses => #{
+                200 => mk(array(ref(list_hook_info)), #{}),
+                400 => error_codes([?BAD_REQUEST], <<"Bad Request">>)
+            }
+        }
+    };
 schema("/exhooks/:name/move") ->
-    #{'operationId' => move,
-      post => #{tags => ?TAGS,
-                desc =>
-                    <<"Move the server.\n",
-                      "NOTE: The position should be \"front|rear|before:{name}|after:{name}\"\n">>,
-                parameters => params_server_name_in_path(),
-                'requestBody' => emqx_dashboard_swagger:schema_with_examples(
-                                   ref(move_req),
-                                   position_example()),
-                responses => #{204 => <<"No Content">>,
-                               400 => error_codes([?BAD_REQUEST], <<"Bad Request">>),
-                               500 => error_codes([?BAD_RPC], <<"Bad RPC">>)
-                              }
-               }
-     }.
+    #{
+        'operationId' => move,
+        post => #{
+            tags => ?TAGS,
+            desc =>
+                <<"Move the server.\n",
+                    "NOTE: The position should be \"front|rear|before:{name}|after:{name}\"\n">>,
+            parameters => params_server_name_in_path(),
+            'requestBody' => emqx_dashboard_swagger:schema_with_examples(
+                ref(move_req),
+                position_example()
+            ),
+            responses => #{
+                204 => <<"No Content">>,
+                400 => error_codes([?BAD_REQUEST], <<"Bad Request">>),
+                500 => error_codes([?BAD_RPC], <<"Bad RPC">>)
+            }
+        }
+    }.
 
 fields(move_req) ->
-    [{position, mk(string(), #{ desc => <<"The target position to be moved.">>
-                              , example => <<"front">>})}];
-
+    [
+        {position,
+            mk(string(), #{
+                desc => <<"The target position to be moved.">>,
+                example => <<"front">>
+            })}
+    ];
 fields(detail_server_info) ->
-    [ {metrics, mk(ref(metrics), #{})}
-    , {node_metrics, mk(array(ref(node_metrics)), #{})}
-    , {node_status, mk(array(ref(node_status)), #{})}
-    , {hooks, mk(array(ref(hook_info)), #{})}
+    [
+        {metrics, mk(ref(metrics), #{})},
+        {node_metrics, mk(array(ref(node_metrics)), #{})},
+        {node_status, mk(array(ref(node_status)), #{})},
+        {hooks, mk(array(ref(hook_info)), #{})}
     ] ++ emqx_exhook_schema:server_config();
-
 fields(list_hook_info) ->
-    [ {name, mk(binary(), #{desc => <<"The hook's name">>})}
-    , {params, mk(map(name, binary()),
-                  #{desc => <<"The parameters used when the hook is registered">>})}
-    , {metrics, mk(ref(metrics), #{})}
-    , {node_metrics, mk(array(ref(node_metrics)), #{})}
+    [
+        {name, mk(binary(), #{desc => <<"The hook's name">>})},
+        {params,
+            mk(
+                map(name, binary()),
+                #{desc => <<"The parameters used when the hook is registered">>}
+            )},
+        {metrics, mk(ref(metrics), #{})},
+        {node_metrics, mk(array(ref(node_metrics)), #{})}
     ];
-
 fields(node_metrics) ->
-    [ {node, mk(string(), #{})}
-    , {metrics, mk(ref(metrics), #{})}
+    [
+        {node, mk(string(), #{})},
+        {metrics, mk(ref(metrics), #{})}
     ];
-
 fields(node_status) ->
-    [ {node, mk(string(), #{})}
-    , {status, mk(enum([running, waiting, stopped, error]), #{})}
+    [
+        {node, mk(string(), #{})},
+        {status, mk(enum([running, waiting, stopped, error]), #{})}
     ];
-
 fields(hook_info) ->
-    [ {name, mk(binary(), #{desc => <<"The hook's name">>})}
-    , {params, mk(map(name, binary()),
-                  #{desc => <<"The parameters used when the hook is registered">>})}
+    [
+        {name, mk(binary(), #{desc => <<"The hook's name">>})},
+        {params,
+            mk(
+                map(name, binary()),
+                #{desc => <<"The parameters used when the hook is registered">>}
+            )}
     ];
-
 fields(metrics) ->
-    [ {succeed, mk(integer(), #{})}
-    , {failed, mk(integer(), #{})}
-    , {rate, mk(integer(), #{})}
-    , {max_rate, mk(integer(), #{})}
+    [
+        {succeed, mk(integer(), #{})},
+        {failed, mk(integer(), #{})},
+        {rate, mk(integer(), #{})},
+        {max_rate, mk(integer(), #{})}
     ];
-
 fields(server_config) ->
     emqx_exhook_schema:server_config().
 
 params_server_name_in_path() ->
-    [{name, mk(string(), #{in => path,
-                           required => true,
-                           example => <<"default">>})}
+    [
+        {name,
+            mk(string(), #{
+                in => path,
+                required => true,
+                example => <<"default">>
+            })}
     ].
 
 server_conf_schema() ->
-    SSL = #{ enable => false
-           , cacertfile => emqx:cert_file(<<"cacert.pem">>)
-           , certfile => emqx:cert_file(<<"cert.pem">>)
-           , keyfile => emqx:cert_file(<<"key.pem">>)
-           },
-    schema_with_example(ref(server_config),
-                        #{ name => "default"
-                         , enable => true
-                         , url => <<"http://127.0.0.1:8081">>
-                         , request_timeout => "5s"
-                         , failed_action => deny
-                         , auto_reconnect => "60s"
-                         , pool_size => 8
-                         , ssl => SSL
-                         }).
+    SSL = #{
+        enable => false,
+        cacertfile => emqx:cert_file(<<"cacert.pem">>),
+        certfile => emqx:cert_file(<<"cert.pem">>),
+        keyfile => emqx:cert_file(<<"key.pem">>)
+    },
+    schema_with_example(
+        ref(server_config),
+        #{
+            name => "default",
+            enable => true,
+            url => <<"http://127.0.0.1:8081">>,
+            request_timeout => "5s",
+            failed_action => deny,
+            auto_reconnect => "60s",
+            pool_size => 8,
+            ssl => SSL
+        }
+    ).
 
 %%--------------------------------------------------------------------
 %% API
@@ -194,7 +229,6 @@ exhooks(get, _) ->
     Confs = emqx:get_config([exhook, servers]),
     Infos = nodes_all_server_info(Confs),
     {200, Infos};
-
 exhooks(post, #{body := Body}) ->
     {ok, _} = emqx_exhook_mgr:update_config([exhook, servers], {add, Body}),
     #{<<"name">> := Name} = Body,
@@ -202,67 +236,86 @@ exhooks(post, #{body := Body}) ->
 
 action_with_name(get, #{bindings := #{name := Name}}) ->
     get_nodes_server_info(Name);
-
 action_with_name(put, #{bindings := #{name := Name}, body := Body}) ->
-    case emqx_exhook_mgr:update_config([exhook, servers],
-                                       {update, Name, Body}) of
+    case
+        emqx_exhook_mgr:update_config(
+            [exhook, servers],
+            {update, Name, Body}
+        )
+    of
         {ok, not_found} ->
-            {400, #{code => <<"BAD_REQUEST">>,
-                    message => <<"Server not found">>
-                   }};
+            {400, #{
+                code => <<"BAD_REQUEST">>,
+                message => <<"Server not found">>
+            }};
         {ok, {error, Reason}} ->
-            {400, #{code => <<"BAD_REQUEST">>,
-                    message => unicode:characters_to_binary(
-                                 io_lib:format("Error Reason:~p~n", [Reason]))
-                   }};
+            {400, #{
+                code => <<"BAD_REQUEST">>,
+                message => unicode:characters_to_binary(
+                    io_lib:format("Error Reason:~p~n", [Reason])
+                )
+            }};
         {ok, _} ->
             {200};
         {error, Error} ->
-            {500, #{code => <<"BAD_RPC">>,
-                    message => Error
-                   }}
+            {500, #{
+                code => <<"BAD_RPC">>,
+                message => Error
+            }}
     end;
-
 action_with_name(delete, #{bindings := #{name := Name}}) ->
-    case emqx_exhook_mgr:update_config([exhook, servers],
-                                       {delete, Name}) of
+    case
+        emqx_exhook_mgr:update_config(
+            [exhook, servers],
+            {delete, Name}
+        )
+    of
         {ok, _} ->
             {200};
         {error, Error} ->
-            {500, #{code => <<"BAD_RPC">>,
-                    message => Error
-                   }}
+            {500, #{
+                code => <<"BAD_RPC">>,
+                message => Error
+            }}
     end.
 
 move(post, #{bindings := #{name := Name}, body := #{<<"position">> := RawPosition}}) ->
     case parse_position(RawPosition) of
         {ok, Position} ->
-            case emqx_exhook_mgr:update_config([exhook, servers],
-                                               {move, Name, Position}) of
+            case
+                emqx_exhook_mgr:update_config(
+                    [exhook, servers],
+                    {move, Name, Position}
+                )
+            of
                 {ok, ok} ->
                     {204};
                 {ok, not_found} ->
-                    {400, #{code => <<"BAD_REQUEST">>,
-                            message => <<"Server not found">>
-                           }};
+                    {400, #{
+                        code => <<"BAD_REQUEST">>,
+                        message => <<"Server not found">>
+                    }};
                 {error, Error} ->
-                    {500, #{code => <<"BAD_RPC">>,
-                            message => Error
-                           }}
+                    {500, #{
+                        code => <<"BAD_RPC">>,
+                        message => Error
+                    }}
             end;
         {error, invalid_position} ->
-            {400, #{code => <<"BAD_REQUEST">>,
-                    message => <<"Invalid Position">>
-                   }}
+            {400, #{
+                code => <<"BAD_REQUEST">>,
+                message => <<"Invalid Position">>
+            }}
     end.
 
 server_hooks(get, #{bindings := #{name := Name}}) ->
     Confs = emqx:get_config([exhook, servers]),
     case lists:search(fun(#{name := CfgName}) -> CfgName =:= Name end, Confs) of
         false ->
-            {400, #{code => <<"BAD_REQUEST">>,
-                    message => <<"Server not found">>
-                   }};
+            {400, #{
+                code => <<"BAD_REQUEST">>,
+                message => <<"Server not found">>
+            }};
         _ ->
             Info = get_nodes_server_hooks_info(Name),
             {200, Info}
@@ -272,9 +325,10 @@ get_nodes_server_info(Name) ->
     Confs = emqx:get_config([exhook, servers]),
     case lists:search(fun(#{name := CfgName}) -> CfgName =:= Name end, Confs) of
         false ->
-            {400, #{code => <<"BAD_REQUEST">>,
-                    message => <<"Server not found">>
-                   }};
+            {400, #{
+                code => <<"BAD_REQUEST">>,
+                message => <<"Server not found">>
+            }};
         {value, Conf} ->
             NodeStatus = nodes_server_info(Name),
             {200, maps:merge(Conf, NodeStatus)}
@@ -292,33 +346,34 @@ node_all_server_info([#{name := ServerName} = Conf | T], AllInfos, Default, Acc)
     Info = fill_cluster_server_info(AllInfos, [], [], ServerName, Default),
     AllInfo = maps:merge(Conf, Info),
     node_all_server_info(T, AllInfos, Default, [AllInfo | Acc]);
-
 node_all_server_info([], _, _, Acc) ->
     lists:reverse(Acc).
 
 fill_cluster_server_info([{Node, {error, _}} | T], StatusL, MetricsL, ServerName, Default) ->
-    fill_cluster_server_info(T,
-                             [#{node => Node, status => error} | StatusL],
-                             [#{node => Node, metrics => Default} | MetricsL],
-                             ServerName,
-                             Default);
-
+    fill_cluster_server_info(
+        T,
+        [#{node => Node, status => error} | StatusL],
+        [#{node => Node, metrics => Default} | MetricsL],
+        ServerName,
+        Default
+    );
 fill_cluster_server_info([{Node, Result} | T], StatusL, MetricsL, ServerName, Default) ->
     #{status := Status, metrics := Metrics} = Result,
     fill_cluster_server_info(
-      T,
-      [#{node => Node, status => maps:get(ServerName, Status, error)} | StatusL],
-      [#{node => Node, metrics => maps:get(ServerName, Metrics, Default)} | MetricsL],
-      ServerName,
-      Default);
-
+        T,
+        [#{node => Node, status => maps:get(ServerName, Status, error)} | StatusL],
+        [#{node => Node, metrics => maps:get(ServerName, Metrics, Default)} | MetricsL],
+        ServerName,
+        Default
+    );
 fill_cluster_server_info([], StatusL, MetricsL, ServerName, _) ->
     Metrics = emqx_exhook_metrics:metrics_aggregate_by_key(metrics, MetricsL),
-    #{metrics => Metrics,
-      node_metrics => MetricsL,
-      node_status => StatusL,
-      hooks => emqx_exhook_mgr:hooks(ServerName)
-     }.
+    #{
+        metrics => Metrics,
+        node_metrics => MetricsL,
+        node_status => StatusL,
+        hooks => emqx_exhook_mgr:hooks(ServerName)
+    }.
 
 %%--------------------------------------------------------------------
 %% GET /exhooks/{name}
@@ -329,39 +384,41 @@ nodes_server_info(Name) ->
     nodes_server_info(InfoL, Name, Default, [], []).
 
 nodes_server_info([{Node, {error, _}} | T], Name, Default, StatusL, MetricsL) ->
-    nodes_server_info(T,
-                      Name,
-                      Default,
-                      [#{node => Node, status => error} | StatusL],
-                      [#{node => Node, metrics => Default} | MetricsL]
-                     );
-
+    nodes_server_info(
+        T,
+        Name,
+        Default,
+        [#{node => Node, status => error} | StatusL],
+        [#{node => Node, metrics => Default} | MetricsL]
+    );
 nodes_server_info([{Node, Result} | T], Name, Default, StatusL, MetricsL) ->
     #{status := Status, metrics := Metrics} = Result,
-    nodes_server_info(T,
-                      Name,
-                      Default,
-                      [#{node => Node, status => Status} | StatusL],
-                      [#{node => Node, metrics => Metrics} | MetricsL]
-                     );
-
+    nodes_server_info(
+        T,
+        Name,
+        Default,
+        [#{node => Node, status => Status} | StatusL],
+        [#{node => Node, metrics => Metrics} | MetricsL]
+    );
 nodes_server_info([], Name, _, StatusL, MetricsL) ->
-    #{metrics => emqx_exhook_metrics:metrics_aggregate_by_key(metrics, MetricsL),
-      node_status => StatusL,
-      node_metrics => MetricsL,
-      hooks => emqx_exhook_mgr:hooks(Name)
-     }.
+    #{
+        metrics => emqx_exhook_metrics:metrics_aggregate_by_key(metrics, MetricsL),
+        node_status => StatusL,
+        node_metrics => MetricsL,
+        hooks => emqx_exhook_mgr:hooks(Name)
+    }.
 
 %%--------------------------------------------------------------------
 %% GET /exhooks/{name}/hooks
 %%--------------------------------------------------------------------
 get_nodes_server_hooks_info(Name) ->
     case emqx_exhook_mgr:hooks(Name) of
-        [] -> [];
+        [] ->
+            [];
         Hooks ->
             AllInfos = call_cluster(fun(Nodes) ->
-                                            emqx_exhook_proto_v1:server_hooks_metrics(Nodes, Name)
-                                    end),
+                emqx_exhook_proto_v1:server_hooks_metrics(Nodes, Name)
+            end),
             Default = emqx_exhook_metrics:new_metrics_info(),
             get_nodes_server_hooks_info(Hooks, AllInfos, Default, [])
     end.
@@ -370,18 +427,15 @@ get_nodes_server_hooks_info([#{name := Name} = Spec | T], AllInfos, Default, Acc
     Info = fill_server_hooks_info(AllInfos, Name, Default, []),
     AllInfo = maps:merge(Spec, Info),
     get_nodes_server_hooks_info(T, AllInfos, Default, [AllInfo | Acc]);
-
 get_nodes_server_hooks_info([], _, _, Acc) ->
     Acc.
 
 fill_server_hooks_info([{_, {error, _}} | T], Name, Default, MetricsL) ->
     fill_server_hooks_info(T, Name, Default, MetricsL);
-
 fill_server_hooks_info([{Node, MetricsMap} | T], Name, Default, MetricsL) ->
     Metrics = maps:get(Name, MetricsMap, Default),
     NodeMetrics = #{node => Node, metrics => Metrics},
     fill_server_hooks_info(T, Name, Default, [NodeMetrics | MetricsL]);
-
 fill_server_hooks_info([], _Name, _Default, MetricsL) ->
     Metrics = emqx_exhook_metrics:metrics_aggregate_by_key(metrics, MetricsL),
     #{metrics => Metrics, node_metrics => MetricsL}.
@@ -391,31 +445,39 @@ fill_server_hooks_info([], _Name, _Default, MetricsL) ->
 %%--------------------------------------------------------------------
 
 -spec call_cluster(fun(([node()]) -> emqx_rpc:erpc_multicall(A))) ->
-          [{node(), A | {error, _Err}}].
+    [{node(), A | {error, _Err}}].
 call_cluster(Fun) ->
     Nodes = mria_mnesia:running_nodes(),
     Ret = Fun(Nodes),
     lists:zip(Nodes, lists:map(fun emqx_rpc:unwrap_erpc/1, Ret)).
-
 
 %%--------------------------------------------------------------------
 %% Internal Funcs
 %%--------------------------------------------------------------------
 
 position_example() ->
-    #{ front =>
-           #{ summary => <<"absolute position 'front'">>
-            , value => #{<<"position">> => <<"front">>}}
-     , rear =>
-           #{ summary => <<"absolute position 'rear'">>
-            , value => #{<<"position">> => <<"rear">>}}
-     , related_before =>
-           #{ summary => <<"relative position 'before'">>
-            , value => #{<<"position">> => <<"before:default">>}}
-     , related_after =>
-           #{ summary => <<"relative position 'after'">>
-            , value => #{<<"position">> => <<"after:default">>}}
-     }.
+    #{
+        front =>
+            #{
+                summary => <<"absolute position 'front'">>,
+                value => #{<<"position">> => <<"front">>}
+            },
+        rear =>
+            #{
+                summary => <<"absolute position 'rear'">>,
+                value => #{<<"position">> => <<"rear">>}
+            },
+        related_before =>
+            #{
+                summary => <<"relative position 'before'">>,
+                value => #{<<"position">> => <<"before:default">>}
+            },
+        related_after =>
+            #{
+                summary => <<"relative position 'after'">>,
+                value => #{<<"position">> => <<"after:default">>}
+            }
+    }.
 
 parse_position(<<"front">>) ->
     {ok, ?CMD_MOVE_FRONT};

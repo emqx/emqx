@@ -20,10 +20,11 @@
 
 -include("emqx_exhook.hrl").
 
--export([ start/2
-        , stop/1
-        , prep_stop/1
-        ]).
+-export([
+    start/2,
+    stop/1,
+    prep_stop/1
+]).
 
 %%--------------------------------------------------------------------
 %% Application callbacks

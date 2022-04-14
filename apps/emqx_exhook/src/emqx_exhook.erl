@@ -19,9 +19,10 @@
 -include("emqx_exhook.hrl").
 -include_lib("emqx/include/logger.hrl").
 
--export([ cast/2
-        , call_fold/3
-        ]).
+-export([
+    cast/2,
+    call_fold/3
+]).
 
 %% exported for `emqx_telemetry'
 -export([get_basic_usage_info/0]).
@@ -38,12 +39,16 @@ cast(_, _, []) ->
     ok;
 cast(Hookpoint, Req, [ServerName | More]) ->
     %% XXX: Need a real asynchronous running
-    _ = emqx_exhook_server:call(Hookpoint, Req,
-                                emqx_exhook_mgr:server(ServerName)),
+    _ = emqx_exhook_server:call(
+        Hookpoint,
+        Req,
+        emqx_exhook_mgr:server(ServerName)
+    ),
     cast(Hookpoint, Req, More).
 
--spec call_fold(atom(), term(), function()) -> {ok, term()}
-              | {stop, term()}.
+-spec call_fold(atom(), term(), function()) ->
+    {ok, term()}
+    | {stop, term()}.
 call_fold(Hookpoint, Req, AccFun) ->
     case emqx_exhook_mgr:running() of
         [] ->
@@ -90,33 +95,43 @@ deny_action_result('message.publish', Msg) ->
 %%--------------------------------------------------------------------
 
 -spec get_basic_usage_info() ->
-          #{ num_servers => non_neg_integer()
-           , servers =>
-                 [#{ driver => Driver
-                   , hooks => [emqx_exhook_server:hookpoint()]
-                   }]
-           } when Driver :: grpc.
+    #{
+        num_servers => non_neg_integer(),
+        servers =>
+            [
+                #{
+                    driver => Driver,
+                    hooks => [emqx_exhook_server:hookpoint()]
+                }
+            ]
+    }
+when
+    Driver :: grpc.
 get_basic_usage_info() ->
     try
         Servers = emqx_exhook_mgr:running(),
         NumServers = length(Servers),
         ServerInfo =
             lists:map(
-              fun(ServerName) ->
-                      Hooks = emqx_exhook_mgr:hooks(ServerName),
-                      HookNames = lists:map(fun(#{name := Name}) -> Name end, Hooks),
-                      #{ hooks => HookNames
-                       , %% currently, only grpc driver exists.
-                         driver => grpc
-                       }
-              end,
-              Servers),
-        #{ num_servers => NumServers
-         , servers => ServerInfo
-         }
+                fun(ServerName) ->
+                    Hooks = emqx_exhook_mgr:hooks(ServerName),
+                    HookNames = lists:map(fun(#{name := Name}) -> Name end, Hooks),
+                    #{
+                        hooks => HookNames,
+                        %% currently, only grpc driver exists.
+                        driver => grpc
+                    }
+                end,
+                Servers
+            ),
+        #{
+            num_servers => NumServers,
+            servers => ServerInfo
+        }
     catch
         _:_ ->
-            #{ num_servers => 0
-             , servers => []
-             }
+            #{
+                num_servers => 0,
+                servers => []
+            }
     end.
