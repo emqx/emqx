@@ -1,5 +1,5 @@
 %%--------------------------------------------------------------------
-%% Copyright (c) 2020-2022 EMQ Technologies Co., Ltd. All Rights Reserved.
+%% Copyright (c) 2020-2021 EMQ Technologies Co., Ltd. All Rights Reserved.
 %%
 %% Licensed under the Apache License, Version 2.0 (the "License");
 %% you may not use this file except in compliance with the License.
@@ -26,7 +26,7 @@
 %% APIs
 -export([start_link/1]).
 
--export([verify/1]).
+-export([verify/2]).
 
 %% gen_server callbacks
 -export([ init/1
@@ -44,9 +44,8 @@
                 | {interval, pos_integer()}.
 
 -define(INTERVAL, 300000).
--define(TAB, ?MODULE).
 
--record(state, {addr, tref, intv}).
+-record(state, {static, remote, addr, tref, intv}).
 
 %%--------------------------------------------------------------------
 %% APIs
@@ -56,13 +55,13 @@
 start_link(Options) ->
     gen_server:start_link(?MODULE, [Options], []).
 
--spec verify(binary())
+-spec verify(pid(), binary())
     -> {error, term()}
      | {ok, Payload :: map()}.
-verify(JwsCompacted) when is_binary(JwsCompacted) ->
+verify(S, JwsCompacted) when is_binary(JwsCompacted) ->
     case catch jose_jws:peek(JwsCompacted) of
         {'EXIT', _} -> {error, not_token};
-        _ -> do_verify(JwsCompacted)
+        _ -> gen_server:call(S, {verify, JwsCompacted})
     end.
 
 %%--------------------------------------------------------------------
@@ -71,12 +70,12 @@ verify(JwsCompacted) when is_binary(JwsCompacted) ->
 
 init([Options]) ->
     ok = jose:json_module(jiffy),
-    _ = ets:new(?TAB, [set, protected, named_table]),
     {Static, Remote} = do_init_jwks(Options),
-    true = ets:insert(?TAB, [{static, Static}, {remote, Remote}]),
     Intv = proplists:get_value(interval, Options, ?INTERVAL),
     {ok, reset_timer(
            #state{
+              static = Static,
+              remote = Remote,
               addr = proplists:get_value(jwks_addr, Options),
               intv = Intv})}.
 
@@ -106,6 +105,9 @@ do_init_jwks(Options) ->
     Remote = K2J(jwks_addr, fun request_jwks/1),
     {[J ||J <- [OctJwk, PemJwk], J /= undefined], Remote}.
 
+handle_call({verify, JwsCompacted}, _From, State) ->
+    handle_verify(JwsCompacted, State);
+
 handle_call(_Req, _From, State) ->
     {reply, ok, State}.
 
@@ -114,7 +116,7 @@ handle_cast(_Msg, State) ->
 
 handle_info({timeout, _TRef, refresh}, State = #state{addr = Addr}) ->
     NState = try
-                 true = ets:insert(?TAB, {remote, request_jwks(Addr)})
+                 State#state{remote = request_jwks(Addr)}
              catch _:_ ->
                  State
              end,
@@ -134,10 +136,24 @@ code_change(_OldVsn, State, _Extra) ->
 %% Internal funcs
 %%--------------------------------------------------------------------
 
-keys(Type) ->
-    case ets:lookup(?TAB, Type) of
-        [{_, Keys}] -> Keys;
-        [] -> []
+handle_verify(JwsCompacted,
+              State = #state{static = Static, remote = Remote}) ->
+    try
+        Jwks = case emqx_json:decode(jose_jws:peek_protected(JwsCompacted), [return_maps]) of
+                   #{<<"kid">> := Kid} when Remote /= undefined ->
+                       [J || J <- Remote, maps:get(<<"kid">>, J#jose_jwk.fields, undefined) =:= Kid];
+                   _ -> Static
+               end,
+        case Jwks of
+            [] -> {reply, {error, not_found}, State};
+            _ ->
+                {reply, do_verify(JwsCompacted, Jwks), State}
+        end
+    catch
+        Class : Reason : Stk ->
+            ?LOG(error, "Handle JWK crashed: ~p, ~p, stacktrace: ~p~n",
+                        [Class, Reason, Stk]),
+            {reply, {error, invalid_signature}, State}
     end.
 
 request_jwks(Addr) ->
@@ -164,26 +180,6 @@ cancel_timer(State = #state{tref = undefined}) ->
 cancel_timer(State = #state{tref = TRef}) ->
     _ = erlang:cancel_timer(TRef),
     State#state{tref = undefined}.
-
-do_verify(JwsCompacted) ->
-    try
-        Remote = keys(remote),
-        Jwks = case emqx_json:decode(jose_jws:peek_protected(JwsCompacted), [return_maps]) of
-                   #{<<"kid">> := Kid} when Remote /= undefined ->
-                       [J || J <- Remote, maps:get(<<"kid">>, J#jose_jwk.fields, undefined) =:= Kid];
-                   _ -> keys(static)
-               end,
-        case Jwks of
-            [] -> {error, not_found};
-            _ ->
-                do_verify(JwsCompacted, Jwks)
-        end
-    catch
-        Class : Reason : Stk ->
-            ?LOG(error, "verify JWK crashed: ~p, ~p, stacktrace: ~p~n",
-                        [Class, Reason, Stk]),
-            {error, invalid_signature}
-    end.
 
 do_verify(_JwsCompated, []) ->
     {error, invalid_signature};
@@ -218,12 +214,11 @@ check_claims(Claims) ->
 do_check_claim([], Claims) ->
     Claims;
 do_check_claim([{K, F}|More], Claims) ->
-    case Claims of
-        #{K := V} ->
+    case maps:take(K, Claims) of
+        error -> do_check_claim(More, Claims);
+        {V, NClaims} ->
             case F(V) of
-                true -> do_check_claim(More, Claims);
+                true -> do_check_claim(More, NClaims);
                 _ -> {false, K}
-            end;
-        _ ->
-            do_check_claim(More, Claims)
+            end
     end.
