@@ -149,9 +149,9 @@ schema("/mqtt/delayed/messages") ->
                     [
                         {data, mk(hoconsc:array(ref("message")), #{})},
                         {meta, [
-                            {page, mk(integer(), #{})},
-                            {limit, mk(integer(), #{})},
-                            {count, mk(integer(), #{})}
+                            {page, mk(pos_integer(), #{})},
+                            {limit, mk(pos_integer(), #{})},
+                            {count, mk(non_neg_integer(), #{})}
                         ]}
                     ]
             }

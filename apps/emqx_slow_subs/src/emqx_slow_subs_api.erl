@@ -50,8 +50,8 @@ schema(("/slow_subscriptions")) ->
                  },
       get => #{tags => [<<"slow subs">>],
                description => <<"Get slow topics statistics record data">>,
-               parameters => [ {page, mk(integer(), #{in => query})}
-                             , {limit, mk(integer(), #{in => query})}
+               parameters => [ {page, mk(pos_integer(), #{in => query})}
+                             , {limit, mk(pos_integer(), #{in => query})}
                              ],
                'requestBody' => [],
                responses => #{200 => [{data, mk(hoconsc:array(ref(record)), #{})}]}

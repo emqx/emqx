@@ -76,7 +76,9 @@ fields(sharded) ->
     , {w_mode, fun w_mode/1}
     ] ++ mongo_fields();
 fields(topology) ->
-    [ {pool_size, fun internal_pool_size/1}
+    [ {pool_size, fun emqx_connector_schema_lib:pool_size/1}
+        %% TODO: what is this
+        %% 'max_overflow'
     , {max_overflow, fun emqx_connector_schema_lib:pool_size/1}
     , {overflow_ttl, fun duration/1}
     , {overflow_check_period, fun duration/1}
@@ -113,12 +115,6 @@ mongo_fields() ->
     , {topology, #{type => hoconsc:ref(?MODULE, topology), required => false}}
     ] ++
     emqx_connector_schema_lib:ssl_fields().
-
-internal_pool_size(type) -> integer();
-internal_pool_size(desc) -> "Pool size on start.";
-internal_pool_size(default) -> 1;
-internal_pool_size(validator) -> [?MIN(1)];
-internal_pool_size(_) -> undefined.
 
 %% ===================================================================
 

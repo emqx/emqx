@@ -127,7 +127,7 @@ namespace() -> "public".
 fields(page) ->
     Desc = <<"Page number of the results to fetch.">>,
     Meta = #{in => query, desc => Desc, default => 1, example => 1},
-    [{page, hoconsc:mk(integer(), Meta)}];
+    [{page, hoconsc:mk(pos_integer(), Meta)}];
 fields(limit) ->
     Desc = iolist_to_binary([
         <<"Results per page(max ">>,

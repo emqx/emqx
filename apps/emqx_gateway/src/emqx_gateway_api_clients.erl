@@ -664,7 +664,7 @@ params_paging() ->
     [
         {page,
             mk(
-                integer(),
+                pos_integer(),
                 #{
                     in => query,
                     required => false,
@@ -674,7 +674,7 @@ params_paging() ->
             )},
         {limit,
             mk(
-                integer(),
+                pos_integer(),
                 #{
                     in => query,
                     desc => <<"Page Limit">>,

@@ -34,7 +34,7 @@
         ]).
 
 -type database() :: binary().
--type pool_size() :: integer().
+-type pool_size() :: pos_integer().
 -type username() :: binary().
 -type password() :: binary().
 
@@ -72,7 +72,7 @@ database(required) -> true;
 database(validator) -> [?NOT_EMPTY("the value of the field 'database' cannot be empty")];
 database(_) -> undefined.
 
-pool_size(type) -> integer();
+pool_size(type) -> pos_integer();
 pool_size(desc) -> "Size of the connection pool.";
 pool_size(default) -> 8;
 pool_size(validator) -> [?MIN(1)];

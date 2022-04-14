@@ -191,7 +191,7 @@ users(get, #{bindings := #{name := Name0, id := Id}, query_string := Qs}) ->
         Name0,
         Id,
         fun(_GwName, #{id := AuthId, chain_name := ChainName}) ->
-            emqx_authn_api:list_users(ChainName, AuthId, page_pramas(Qs))
+            emqx_authn_api:list_users(ChainName, AuthId, page_params(Qs))
         end
     );
 users(post, #{
@@ -261,7 +261,7 @@ import_users(post, #{
 %%--------------------------------------------------------------------
 %% Utils
 
-page_pramas(Qs) ->
+page_params(Qs) ->
     maps:with([<<"page">>, <<"limit">>], Qs).
 
 %%--------------------------------------------------------------------
@@ -555,7 +555,7 @@ params_paging_in_qs() ->
     [
         {page,
             mk(
-                integer(),
+                pos_integer(),
                 #{
                     in => query,
                     required => false,
@@ -565,7 +565,7 @@ params_paging_in_qs() ->
             )},
         {limit,
             mk(
-                integer(),
+                pos_integer(),
                 #{
                     in => query,
                     required => false,
