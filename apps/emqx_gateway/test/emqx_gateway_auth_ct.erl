@@ -47,8 +47,12 @@
 
 -define(CALL(Msg), gen_server:call(?MODULE, {?FUNCTION_NAME, Msg})).
 
--define(HTTP_PORT, 37333).
--define(HTTP_PATH, "/auth").
+-define(AUTHN_HTTP_PORT, 37333).
+-define(AUTHN_HTTP_PATH, "/auth").
+
+-define(AUTHZ_HTTP_PORT, 38333).
+-define(AUTHZ_HTTP_PATH, "/authz/[...]").
+
 -define(GATEWAYS, [coap, lwm2m, mqttsn, stomp, exproto]).
 
 -define(CONFS, [
@@ -123,14 +127,14 @@ format_status(_Opt, Status) ->
 
 on_start_auth(authn_http) ->
     %% start test server
-    {ok, _} = emqx_authn_http_test_server:start_link(?HTTP_PORT, ?HTTP_PATH),
+    {ok, _} = emqx_authn_http_test_server:start_link(?AUTHN_HTTP_PORT, ?AUTHN_HTTP_PATH),
     timer:sleep(1000),
 
     %% set authn for gateway
     Setup = fun(Gateway) ->
         Path = io_lib:format("/gateway/~ts/authentication", [Gateway]),
         {204, _} = request(delete, Path),
-        {201, _} = request(post, Path, http_auth_config())
+        {201, _} = request(post, Path, http_authn_config())
     end,
     lists:foreach(Setup, ?GATEWAYS),
 
@@ -150,6 +154,33 @@ on_start_auth(authn_http) ->
     end,
     emqx_authn_http_test_server:set_handler(Handler),
 
+    timer:sleep(500);
+on_start_auth(authz_http) ->
+    ok = emqx_authz_test_lib:reset_authorizers(),
+    {ok, _} = emqx_authz_http_test_server:start_link(?AUTHZ_HTTP_PORT, ?AUTHZ_HTTP_PATH),
+
+    %% TODO set authz for gateway
+    ok = emqx_authz_test_lib:setup_config(
+        http_authz_config(),
+        #{}
+    ),
+
+    %% set handler for test server
+    Handler = fun(Req0, State) ->
+        case cowboy_req:match_qs([topic, action, username], Req0) of
+            #{topic := <<"/publish">>, action := <<"publish">>} ->
+                Req = cowboy_req:reply(200, Req0);
+            #{topic := <<"/subscribe">>, action := <<"subscribe">>} ->
+                Req = cowboy_req:reply(200, Req0);
+            %% for lwm2m
+            #{username := <<"lwm2m">>} ->
+                Req = cowboy_req:reply(200, Req0);
+            _ ->
+                Req = cowboy_req:reply(400, Req0)
+        end,
+        {ok, Req, State}
+    end,
+    ok = emqx_authz_http_test_server:set_handler(Handler),
     timer:sleep(500).
 
 on_stop_auth(authn_http) ->
@@ -158,13 +189,15 @@ on_stop_auth(authn_http) ->
         {204, _} = request(delete, Path)
     end,
     lists:foreach(Delete, ?GATEWAYS),
-    ok = emqx_authn_http_test_server:stop().
+    ok = emqx_authn_http_test_server:stop();
+on_stop_auth(authz_http) ->
+    ok = emqx_authz_http_test_server:stop().
 
 %%------------------------------------------------------------------------------
 %% Configs
 %%------------------------------------------------------------------------------
 
-http_auth_config() ->
+http_authn_config() ->
     #{
         <<"mechanism">> => <<"password_based">>,
         <<"enable">> => <<"true">>,
@@ -172,6 +205,16 @@ http_auth_config() ->
         <<"method">> => <<"get">>,
         <<"url">> => <<"http://127.0.0.1:37333/auth">>,
         <<"body">> => #{<<"username">> => ?PH_USERNAME, <<"password">> => ?PH_PASSWORD},
+        <<"headers">> => #{<<"X-Test-Header">> => <<"Test Value">>}
+    }.
+
+http_authz_config() ->
+    #{
+        <<"enable">> => <<"true">>,
+        <<"type">> => <<"http">>,
+        <<"method">> => <<"get">>,
+        <<"url">> =>
+            <<"http://127.0.0.1:38333/authz/users/?topic=${topic}&action=${action}&username=${username}">>,
         <<"headers">> => #{<<"X-Test-Header">> => <<"Test Value">>}
     }.
 
