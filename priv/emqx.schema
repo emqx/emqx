@@ -2344,7 +2344,7 @@ end}.
 {translation, "emqx.shared_subscription_strategy_per_group", fun(Conf) ->
   Conf0 = cuttlefish_variable:filter_by_prefix("broker", Conf),
   Groups = lists:filtermap(fun({["broker", Group, "shared_subscription_strategy"], Strategy}) ->
-                       {true, {Group, list_to_binary(Strategy)}};
+                       {true, {list_to_binary(Group), Strategy}};
                      (_) ->
                        false
                   end, Conf0),
