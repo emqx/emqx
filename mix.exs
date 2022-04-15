@@ -341,12 +341,13 @@ defmodule EMQXUmbrella.MixProject do
       "apps/emqx/etc/certs",
       Path.join(etc, "certs")
     )
+
     # required by emqx_dashboard
-     Mix.Generator.copy_file(
-      "apps/emqx_dashboard/etc/i18n.conf",
+    Mix.Generator.copy_file(
+      "apps/emqx_dashboard/etc/i18n.conf.all",
       Path.join(etc, "i18n.conf"),
       force: overwrite?
-     )
+    )
 
     # this is required by the produced escript / nodetool
     Mix.Generator.copy_file(

@@ -1,4 +1,5 @@
 .eunit
+*.conf.all
 test-data/
 deps
 !deps/.placeholder

@@ -3,7 +3,7 @@
 -mode(compile).
 
 main(_) ->
-    {ok, BaseConf} = file:read_file("apps/emqx_dashboard/etc/emqx_dashboard_i18n.conf"),
+    {ok, BaseConf} = file:read_file("apps/emqx_dashboard/i18n/emqx_dashboard_i18n.conf"),
 
     Cfgs = get_all_cfgs("apps/"),
     Conf = [merge(BaseConf, Cfgs),
@@ -40,14 +40,12 @@ get_cfgs(Dir, Cfgs) ->
             Cfgs;
         _ ->
             Files = filelib:wildcard("*", Dir),
-            case lists:member("etc", Files) of
+            case lists:member("i18n", Files) of
                 false ->
                     try_enter_child(Dir, Files, Cfgs);
                 true ->
-                    EtcDir = filename:join([Dir, "etc"]),
-                    %% the conf name must start with emqx
-                    %% because there are some other conf, and these conf don't start with emqx
-                    Confs = filelib:wildcard("emqx*_i18n.conf", EtcDir),
+                    EtcDir = filename:join([Dir, "i18n"]),
+                    Confs = filelib:wildcard("*.conf", EtcDir),
                     NewCfgs = [filename:join([EtcDir, Name]) || Name <- Confs],
                     try_enter_child(Dir, Files, NewCfgs ++ Cfgs)
             end

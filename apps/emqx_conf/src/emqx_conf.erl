@@ -25,7 +25,7 @@
 -export([update/3, update/4]).
 -export([remove/2, remove/3]).
 -export([reset/2, reset/3]).
--export([dump_schema/1, dump_schema/2]).
+-export([dump_schema/1, dump_schema/3]).
 -export([schema_module/0]).
 
 %% for rpc
@@ -133,41 +133,41 @@ reset(Node, KeyPath, Opts) ->
 %% @doc Called from build script.
 -spec dump_schema(file:name_all()) -> ok.
 dump_schema(Dir) ->
-    dump_schema(Dir, emqx_conf_schema).
+    I18nFile = emqx:etc_file("i18n.conf"),
+    dump_schema(Dir, emqx_conf_schema, I18nFile).
 
-dump_schema(Dir, SchemaModule) ->
-    PrivDir = filename:dirname(filename:dirname(Dir)),
+dump_schema(Dir, SchemaModule, I18nFile) ->
     lists:foreach(
         fun(Lang) ->
-            gen_config_md(Dir, PrivDir, SchemaModule, Lang),
-            gen_hot_conf_schema_json(Dir, PrivDir, Lang)
+            gen_config_md(Dir, I18nFile, SchemaModule, Lang),
+            gen_hot_conf_schema_json(Dir, I18nFile, Lang)
         end,
         [en, zh]
     ),
-    gen_schema_json(Dir, PrivDir, SchemaModule).
+    gen_schema_json(Dir, I18nFile, SchemaModule).
 
 %% for scripts/spellcheck.
-gen_schema_json(Dir, PrivDir, SchemaModule) ->
+gen_schema_json(Dir, I18nFile, SchemaModule) ->
     SchemaJsonFile = filename:join([Dir, "schema.json"]),
     io:format(user, "===< Generating: ~s~n", [SchemaJsonFile]),
-    Opts = #{desc_file => i18n_file(PrivDir), lang => "en"},
+    Opts = #{desc_file => I18nFile, lang => "en"},
     JsonMap = hocon_schema_json:gen(SchemaModule, Opts),
     IoData = jsx:encode(JsonMap, [space, {indent, 4}]),
     ok = file:write_file(SchemaJsonFile, IoData).
 
-gen_hot_conf_schema_json(Dir, PrivDir, Lang) ->
-    emqx_dashboard:init_i18n(i18n_file(PrivDir), Lang),
+gen_hot_conf_schema_json(Dir, I18nFile, Lang) ->
+    emqx_dashboard:init_i18n(I18nFile, Lang),
     JsonFile = "hot-config-schema-" ++ atom_to_list(Lang) ++ ".json",
     HotConfigSchemaFile = filename:join([Dir, JsonFile]),
     io:format(user, "===< Generating: ~s~n", [HotConfigSchemaFile]),
     ok = gen_hot_conf_schema(HotConfigSchemaFile),
     emqx_dashboard:clear_i18n().
 
-gen_config_md(Dir, PrivDir, SchemaModule, Lang0) ->
+gen_config_md(Dir, I18nFile, SchemaModule, Lang0) ->
     Lang = atom_to_list(Lang0),
     SchemaMdFile = filename:join([Dir, "config-" ++ Lang ++ ".md"]),
     io:format(user, "===< Generating: ~s~n", [SchemaMdFile]),
-    ok = gen_doc(SchemaMdFile, SchemaModule, PrivDir, Lang).
+    ok = gen_doc(SchemaMdFile, SchemaModule, I18nFile, Lang).
 
 %% @doc return the root schema module.
 -spec schema_module() -> module().
@@ -182,13 +182,12 @@ schema_module() ->
 %%--------------------------------------------------------------------
 
 -spec gen_doc(file:name_all(), module(), file:name_all(), string()) -> ok.
-gen_doc(File, SchemaModule, EtcDir, Lang) ->
+gen_doc(File, SchemaModule, I18nFile, Lang) ->
     Version = emqx_release:version(),
     Title = "# " ++ emqx_release:description() ++ " " ++ Version ++ " Configuration",
     BodyFile = filename:join([code:lib_dir(emqx_conf), "etc", "emqx_conf.md"]),
     {ok, Body} = file:read_file(BodyFile),
-    DescFile = i18n_file(EtcDir),
-    Opts = #{title => Title, body => Body, desc_file => DescFile, lang => Lang},
+    Opts = #{title => Title, body => Body, desc_file => I18nFile, lang => Lang},
     Doc = hocon_schema_md:gen(SchemaModule, Opts),
     file:write_file(File, Doc).
 
@@ -446,6 +445,3 @@ to_bin(Boolean) when is_boolean(Boolean) -> Boolean;
 to_bin(Atom) when is_atom(Atom) -> atom_to_binary(Atom, utf8);
 to_bin(X) ->
     X.
-
-i18n_file(EtcDir) ->
-    filename:join([EtcDir, "i18n.conf"]).

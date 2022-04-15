@@ -62,8 +62,7 @@ get_cfgs(Dir, Cfgs) ->
                     %% the conf name must start with emqx
                     %% because there are some other conf, and these conf don't start with emqx
                     Confs = filelib:wildcard("emqx*.conf", EtcDir),
-                    Confs1 = lists:filter(fun(N) -> string:find(N, "i18n") =:= nomatch end, Confs),
-                    NewCfgs = [filename:join([EtcDir, Name]) || Name <- Confs1],
+                    NewCfgs = [filename:join([EtcDir, Name]) || Name <- Confs],
                     try_enter_child(Dir, Files, NewCfgs ++ Cfgs)
             end
     end.
