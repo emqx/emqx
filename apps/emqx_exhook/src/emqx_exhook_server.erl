@@ -86,7 +86,7 @@
 %% Load/Unload APIs
 %%--------------------------------------------------------------------
 
--spec load(binary(), map()) -> {ok, server()} | {error, term()} | disable.
+-spec load(binary(), map()) -> {ok, server()} | {error, term()} | {load_error, term()} | disable.
 load(_Name, #{enable := false}) ->
     disable;
 load(Name, #{request_timeout := Timeout, failed_action := FailedAction} = Opts) ->
@@ -114,9 +114,9 @@ load(Name, #{request_timeout := Timeout, failed_action := FailedAction} = Opts) 
                         hookspec => HookSpecs,
                         prefix => Prefix
                     }};
-                {error, _} = E ->
+                {error, Reason} ->
                     emqx_exhook_sup:stop_grpc_client_channel(Name),
-                    E
+                    {load_error, Reason}
             end;
         {error, _} = E ->
             E

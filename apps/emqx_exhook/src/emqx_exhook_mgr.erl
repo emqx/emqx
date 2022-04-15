@@ -218,10 +218,10 @@ load_all_servers([#{name := Name} = Options | More], Waiting, Running, Stopped) 
         {ok, ServerState} ->
             save(Name, ServerState),
             load_all_servers(More, Waiting, Running#{Name => Options}, Stopped);
-        {error, _} ->
-            load_all_servers(More, Waiting#{Name => Options}, Running, Stopped);
         disable ->
-            load_all_servers(More, Waiting, Running, Stopped#{Name => Options})
+            load_all_servers(More, Waiting, Running, Stopped#{Name => Options});
+        {_, _} ->
+            load_all_servers(More, Waiting#{Name => Options}, Running, Stopped)
     end;
 load_all_servers([], Waiting, Running, Stopped) ->
     {Waiting, Running, Stopped}.
@@ -277,11 +277,11 @@ handle_call(
         {ok, ServerState} ->
             save(Name, ServerState),
             State2 = State#{running := Running#{Name => Conf}};
-        {error, _} ->
-            StateT = State#{waiting := Waitting#{Name => Conf}},
-            State2 = ensure_reload_timer(StateT);
         disable ->
-            State2 = State#{stopped := Stopped#{Name => Conf}}
+            State2 = State#{stopped := Stopped#{Name => Conf}};
+        {_, _} ->
+            StateT = State#{waiting := Waitting#{Name => Conf}},
+            State2 = ensure_reload_timer(StateT)
     end,
     Orders = reorder(NewConfL),
     {reply, ok, State2#{orders := Orders}};
@@ -352,23 +352,8 @@ handle_cast(_Msg, State) ->
     {noreply, State}.
 
 handle_info({timeout, _Ref, {reload, Name}}, State) ->
-    {Result, NState} = do_load_server(Name, State),
-    case Result of
-        ok ->
-            {noreply, NState};
-        {error, not_found} ->
-            {noreply, NState};
-        {error, Reason} ->
-            ?SLOG(
-                warning,
-                #{
-                    msg => "failed_to_reload_exhook_callback_server",
-                    reason => Reason,
-                    name => Name
-                }
-            ),
-            {noreply, ensure_reload_timer(NState)}
-    end;
+    NState = do_load_server(Name, State),
+    {noreply, NState};
 handle_info(refresh_tick, State) ->
     refresh_tick(),
     emqx_exhook_metrics:update(?REFRESH_INTERVAL),
@@ -402,8 +387,7 @@ unload_exhooks() ->
     ].
 
 -spec do_load_server(server_name(), state()) ->
-    {{error, not_found}, state()}
-    | {{error, already_started}, state()}
+    {{error, term()}, state()}
     | {ok, state()}.
 do_load_server(Name, State = #{orders := Orders}) ->
     case where_is_server(Name, State) of
@@ -417,6 +401,7 @@ do_load_server(Name, State = #{orders := Orders}) ->
             State3 = State2#{Where := Map2},
             #{
                 running := Running,
+                waiting := Waiting,
                 stopped := Stopped
             } = State3,
             case emqx_exhook_server:load(Name, Options) of
@@ -428,10 +413,20 @@ do_load_server(Name, State = #{orders := Orders}) ->
                         name => Name
                     }),
                     {ok, State3#{running := maps:put(Name, Options, Running)}};
-                {error, Reason} ->
-                    {{error, Reason}, State};
                 disable ->
-                    {ok, State3#{stopped := Stopped#{Name => Options}}}
+                    {ok, State3#{stopped := Stopped#{Name => Options}}};
+                {load_error, _} ->
+                    {ok, ensure_reload_timer(State3#{waiting := maps:put(Name, Options, Waiting)})};
+                {_, Reason} ->
+                    ?SLOG(
+                        warning,
+                        #{
+                            msg => "failed_to_load_exhook_callback_server",
+                            reason => Reason,
+                            name => Name
+                        }
+                    ),
+                    {ok, State}
             end
     end.
 
@@ -607,12 +602,7 @@ restart_server(Name, ConfL, State) ->
                 {Where, Map} ->
                     State2 = State#{Where := Map#{Name := Conf}},
                     {ok, State3} = do_unload_server(Name, State2),
-                    case do_load_server(Name, State3) of
-                        {ok, State4} ->
-                            {ok, State4};
-                        {Error, State4} ->
-                            {Error, State4}
-                    end
+                    do_load_server(Name, State3)
             end
     end.
 
