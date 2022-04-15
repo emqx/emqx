@@ -139,6 +139,9 @@ handle_cast(_Msg, State) ->
 handle_info(_Info, State) ->
     {noreply, State}.
 
+%% application shutdown, we can't call application_controller here.
+terminate(shutdown, _) ->
+    ok;
 terminate(_Reason, #{handlers := Handlers}) ->
     save_handlers(Handlers),
     ok.
