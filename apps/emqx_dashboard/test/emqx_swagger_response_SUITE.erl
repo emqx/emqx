@@ -185,7 +185,7 @@ t_complicated_type(_Config) ->
     Object = #{<<"content">> => #{<<"application/json">> =>
     #{<<"schema">> => #{<<"properties">> =>
     [
-        {<<"no_neg_integer">>, #{example => 100, minimum => 1, type => integer}},
+        {<<"no_neg_integer">>, #{example => 100, minimum => 0, type => integer}},
         {<<"url">>, #{example => <<"http://127.0.0.1">>, type => string}},
         {<<"server">>, #{example => <<"127.0.0.1:80">>, type => string}},
         {<<"connect_timeout">>, #{example => infinity, <<"oneOf">> => [

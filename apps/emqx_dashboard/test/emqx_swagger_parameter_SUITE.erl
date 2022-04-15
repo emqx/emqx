@@ -101,7 +101,7 @@ t_public_ref(_Config) ->
                 minimum => 1,type => integer}}},
         #{<<"public.page">> => #{description => <<"Page number of the results to fetch.">>,
             example => 1,in => query,name => page,
-            schema => #{default => 1,example => 100,type => integer}}}],
+            schema => #{default => 1,example => 100,minimum => 1,type => integer}}}],
     ?assertEqual(ExpectRefs, emqx_dashboard_swagger:components(Refs,#{})),
     ok.
 
