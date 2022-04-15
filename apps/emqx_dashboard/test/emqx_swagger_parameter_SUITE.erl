@@ -4,6 +4,7 @@
 
 %% API
 -export([paths/0, api_spec/0, schema/1, fields/1]).
+-export([init_per_suite/1, end_per_suite/1]).
 -export([t_in_path/1, t_in_query/1, t_in_mix/1, t_without_in/1, t_ref/1, t_public_ref/1]).
 -export([t_require/1, t_nullable/1, t_method/1, t_api_spec/1]).
 -export([t_in_path_trans/1, t_in_query_trans/1, t_in_mix_trans/1, t_ref_trans/1]).
@@ -25,6 +26,27 @@ groups() -> [
     {validation, [parallel], [t_in_path_trans, t_ref_trans, t_in_query_trans, t_in_mix_trans,
         t_in_path_trans_error, t_in_query_trans_error, t_in_mix_trans_error]}
 ].
+
+init_per_suite(Config) ->
+    mria:start(),
+    application:load(emqx_dashboard),
+    emqx_common_test_helpers:start_apps([emqx_conf, emqx_dashboard], fun set_special_configs/1),
+    emqx_dashboard:init_i18n(),
+    Config.
+
+set_special_configs(emqx_dashboard) ->
+    emqx_dashboard_api_test_helpers:set_default_config(),
+    ok;
+set_special_configs(_) ->
+    ok.
+
+end_per_suite(Config) ->
+    end_suite(),
+    Config.
+
+end_suite() ->
+    application:unload(emqx_management),
+    emqx_common_test_helpers:stop_apps([emqx_dashboard]).
 
 t_in_path(_Config) ->
     Expect =

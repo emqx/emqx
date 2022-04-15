@@ -81,12 +81,7 @@ set_special_configs(emqx_management) ->
     emqx_config:put([emqx_management], Config),
     ok;
 set_special_configs(emqx_dashboard) ->
-    Listeners = [#{protocol => http, port => 18083}],
-    Config = #{listeners => Listeners,
-               default_username => <<"admin">>,
-               default_password => <<"public">>
-              },
-    emqx_config:put([dashboard], Config),
+    emqx_dashboard_api_test_helpers:set_default_config(),
     ok;
 set_special_configs(_) ->
     ok.

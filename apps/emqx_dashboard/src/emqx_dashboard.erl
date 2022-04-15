@@ -18,11 +18,19 @@
 
 -define(APP, ?MODULE).
 
+-export([
+    start_listeners/0,
+    start_listeners/1,
+    stop_listeners/1,
+    stop_listeners/0
+]).
 
--export([ start_listeners/0
-        , start_listeners/1
-        , stop_listeners/1
-        , stop_listeners/0]).
+-export([
+    init_i18n/2,
+    init_i18n/0,
+    get_i18n/0,
+    clear_i18n/0
+]).
 
 %% Authorization
 -export([authorize/1]).
@@ -48,6 +56,7 @@ stop_listeners() ->
 
 start_listeners(Listeners) ->
     {ok, _} = application:ensure_all_started(minirest),
+    init_i18n(),
     Authorization = {?MODULE, authorize},
     GlobalSpec = #{
         openapi => "3.0.0",
@@ -58,12 +67,15 @@ start_listeners(Listeners) ->
             'securitySchemes' => #{
                 'basicAuth' => #{type => http, scheme => basic},
                 'bearerAuth' => #{type => http, scheme => bearer}
-            }}},
-    Dispatch = [ {"/", cowboy_static, {priv_file, emqx_dashboard, "www/index.html"}}
-               , {"/static/[...]", cowboy_static, {priv_dir, emqx_dashboard, "www/static"}}
-               , {?BASE_PATH ++ "/[...]", emqx_dashboard_bad_api, []}
-               , {'_', cowboy_static, {priv_file, emqx_dashboard, "www/index.html"}}
-               ],
+            }
+        }
+    },
+    Dispatch = [
+        {"/", cowboy_static, {priv_file, emqx_dashboard, "www/index.html"}},
+        {"/static/[...]", cowboy_static, {priv_dir, emqx_dashboard, "www/static"}},
+        {?BASE_PATH ++ "/[...]", emqx_dashboard_bad_api, []},
+        {'_', cowboy_static, {priv_file, emqx_dashboard, "www/index.html"}}
+    ],
     BaseMinirest = #{
         base_path => ?BASE_PATH,
         modules => minirest_api:find_api_modules(apps()),
@@ -74,75 +86,115 @@ start_listeners(Listeners) ->
         middlewares => [cowboy_router, ?EMQX_MIDDLE, cowboy_handler]
     },
     Res =
-        lists:foldl(fun({Name, Protocol, Bind, RanchOptions}, Acc) ->
-            Minirest = BaseMinirest#{protocol => Protocol},
-            case minirest:start(Name, RanchOptions, Minirest) of
-                {ok, _} ->
-                    ?ULOG("Start listener ~ts on ~ts successfully.~n", [Name, emqx_listeners:format_addr(Bind)]),
-                    Acc;
-                {error, _Reason} ->
-                    %% Don't record the reason because minirest already does(too much logs noise).
-                    [Name | Acc]
-            end
-                    end, [], listeners(Listeners)),
+        lists:foldl(
+            fun({Name, Protocol, Bind, RanchOptions}, Acc) ->
+                Minirest = BaseMinirest#{protocol => Protocol},
+                case minirest:start(Name, RanchOptions, Minirest) of
+                    {ok, _} ->
+                        ?ULOG("Start listener ~ts on ~ts successfully.~n", [
+                            Name, emqx_listeners:format_addr(Bind)
+                        ]),
+                        Acc;
+                    {error, _Reason} ->
+                        %% Don't record the reason because minirest already does(too much logs noise).
+                        [Name | Acc]
+                end
+            end,
+            [],
+            listeners(Listeners)
+        ),
+    clear_i18n(),
     case Res of
         [] -> ok;
         _ -> {error, Res}
     end.
 
 stop_listeners(Listeners) ->
-    [begin
-        case minirest:stop(Name) of
-            ok ->
-                ?ULOG("Stop listener ~ts on ~ts successfully.~n", [Name, emqx_listeners:format_addr(Port)]);
-            {error, not_found} ->
-                ?SLOG(warning, #{msg => "stop_listener_failed", name => Name, port => Port})
+    [
+        begin
+            case minirest:stop(Name) of
+                ok ->
+                    ?ULOG("Stop listener ~ts on ~ts successfully.~n", [
+                        Name, emqx_listeners:format_addr(Port)
+                    ]);
+                {error, not_found} ->
+                    ?SLOG(warning, #{msg => "stop_listener_failed", name => Name, port => Port})
+            end
         end
-     end || {Name, _, Port, _} <- listeners(Listeners)],
+     || {Name, _, Port, _} <- listeners(Listeners)
+    ],
     ok.
+
+get_i18n() ->
+    application:get_env(emqx_dashboard, i18n).
+
+init_i18n(File, Lang) ->
+    Cache = hocon_schema:new_cache(File),
+    application:set_env(emqx_dashboard, i18n, #{lang => atom_to_binary(Lang), cache => Cache}).
+
+clear_i18n() ->
+    case application:get_env(emqx_dashboard, i18n) of
+        {ok, #{cache := Cache}} ->
+            hocon_schema:delete_cache(Cache),
+            application:unset_env(emqx_dashboard, i18n);
+        undefined ->
+            ok
+    end.
 
 %%--------------------------------------------------------------------
 %% internal
 
 apps() ->
-    [App || {App, _, _} <- application:loaded_applications(),
+    [
+        App
+     || {App, _, _} <- application:loaded_applications(),
         case re:run(atom_to_list(App), "^emqx") of
-            {match,[{0,4}]} -> true;
+            {match, [{0, 4}]} -> true;
             _ -> false
-        end].
+        end
+    ].
 
 listeners(Listeners) ->
-    [begin
-        Protocol = maps:get(protocol, ListenerOption0, http),
-        {ListenerOption, Bind} = ip_port(ListenerOption0),
-        Name = listener_name(Protocol, ListenerOption),
-        RanchOptions = ranch_opts(maps:without([protocol], ListenerOption)),
-        {Name, Protocol, Bind, RanchOptions}
-    end || ListenerOption0 <- Listeners].
+    [
+        begin
+            Protocol = maps:get(protocol, ListenerOption0, http),
+            {ListenerOption, Bind} = ip_port(ListenerOption0),
+            Name = listener_name(Protocol, ListenerOption),
+            RanchOptions = ranch_opts(maps:without([protocol], ListenerOption)),
+            {Name, Protocol, Bind, RanchOptions}
+        end
+     || ListenerOption0 <- Listeners
+    ].
 
 ip_port(Opts) -> ip_port(maps:take(bind, Opts), Opts).
 
-ip_port(error, Opts)  -> {Opts#{port => 18083}, 18083};
+ip_port(error, Opts) -> {Opts#{port => 18083}, 18083};
 ip_port({Port, Opts}, _) when is_integer(Port) -> {Opts#{port => Port}, Port};
 ip_port({{IP, Port}, Opts}, _) -> {Opts#{port => Port, ip => IP}, {IP, Port}}.
 
+init_i18n() ->
+    File = i18n_file(),
+    Lang = emqx_conf:get([dashboard, i18n_lang], en),
+    init_i18n(File, Lang).
 
 ranch_opts(RanchOptions) ->
-    Keys = [ {ack_timeout, handshake_timeout}
-            , connection_type
-            , max_connections
-            , num_acceptors
-            , shutdown
-            , socket],
+    Keys = [
+        {ack_timeout, handshake_timeout},
+        connection_type,
+        max_connections,
+        num_acceptors,
+        shutdown,
+        socket
+    ],
     {S, R} = lists:foldl(fun key_take/2, {RanchOptions, #{}}, Keys),
     R#{socket_opts => maps:fold(fun key_only/3, [], S)}.
 
-
-key_take(Key, {All, R})  ->
-    {K, KX} = case Key of
-                  {K1, K2} -> {K1, K2};
-                  _ -> {Key, Key}
-              end,
+key_take(Key, {All, R}) ->
+    {K, KX} =
+        case Key of
+            {K1, K2} -> {K1, K2};
+            _ -> {Key, Key}
+        end,
     case maps:get(K, All, undefined) of
         undefined ->
             {All, R};
@@ -150,20 +202,22 @@ key_take(Key, {All, R})  ->
             {maps:remove(K, All), R#{KX => V}}
     end.
 
-key_only(K , true , S)  -> [K | S];
-key_only(_K, false, S)  -> S;
-key_only(K , V    , S)  -> [{K, V} | S].
+key_only(K, true, S) -> [K | S];
+key_only(_K, false, S) -> S;
+key_only(K, V, S) -> [{K, V} | S].
 
 listener_name(Protocol, #{port := Port, ip := IP}) ->
-    Name = "dashboard:"
-        ++ atom_to_list(Protocol) ++ ":"
-        ++ inet:ntoa(IP) ++ ":"
-        ++ integer_to_list(Port),
+    Name =
+        "dashboard:" ++
+            atom_to_list(Protocol) ++ ":" ++
+            inet:ntoa(IP) ++ ":" ++
+            integer_to_list(Port),
     list_to_atom(Name);
 listener_name(Protocol, #{port := Port}) ->
-    Name = "dashboard:"
-        ++ atom_to_list(Protocol) ++ ":"
-        ++ integer_to_list(Port),
+    Name =
+        "dashboard:" ++
+            atom_to_list(Protocol) ++ ":" ++
+            integer_to_list(Port),
     list_to_atom(Name).
 
 authorize(Req) ->
@@ -180,11 +234,13 @@ authorize(Req) ->
                         {error, <<"not_allowed">>} ->
                             return_unauthorized(
                                 ?WRONG_USERNAME_OR_PWD,
-                                <<"Check username/password">>);
+                                <<"Check username/password">>
+                            );
                         {error, _} ->
                             return_unauthorized(
                                 ?WRONG_USERNAME_OR_PWD_OR_API_KEY_OR_API_SECRET,
-                                <<"Check username/password or api_key/api_secret">>)
+                                <<"Check username/password or api_key/api_secret">>
+                            )
                     end;
                 {error, _} ->
                     return_unauthorized(<<"WORNG_USERNAME_OR_PWD">>, <<"Check username/password">>)
@@ -199,12 +255,22 @@ authorize(Req) ->
                     {401, 'BAD_TOKEN', <<"Get a token by POST /login">>}
             end;
         _ ->
-            return_unauthorized(<<"AUTHORIZATION_HEADER_ERROR">>,
-                <<"Support authorization: basic/bearer ">>)
+            return_unauthorized(
+                <<"AUTHORIZATION_HEADER_ERROR">>,
+                <<"Support authorization: basic/bearer ">>
+            )
     end.
 
 return_unauthorized(Code, Message) ->
-    {401, #{<<"WWW-Authenticate">> =>
-    <<"Basic Realm=\"minirest-server\"">>},
-        #{code => Code, message => Message}
-    }.
+    {401,
+        #{
+            <<"WWW-Authenticate">> =>
+                <<"Basic Realm=\"minirest-server\"">>
+        },
+        #{code => Code, message => Message}}.
+
+i18n_file() ->
+    case application:get_env(emqx_dashboard, i18n_file) of
+        undefined -> emqx:etc_file("i18n.conf");
+        {ok, File} -> File
+    end.

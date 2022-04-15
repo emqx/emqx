@@ -25,7 +25,7 @@
 -export([update/3, update/4]).
 -export([remove/2, remove/3]).
 -export([reset/2, reset/3]).
--export([dump_schema/1, dump_schema/2]).
+-export([dump_schema/1, dump_schema/3]).
 -export([schema_module/0]).
 
 %% for rpc
@@ -80,15 +80,22 @@ get_node_and_config(KeyPath) ->
     {node(), emqx:get_config(KeyPath, config_not_found)}.
 
 %% @doc Update all value of key path in cluster-override.conf or local-override.conf.
--spec update(emqx_map_lib:config_key_path(), emqx_config:update_request(),
-    emqx_config:update_opts()) ->
+-spec update(
+    emqx_map_lib:config_key_path(),
+    emqx_config:update_request(),
+    emqx_config:update_opts()
+) ->
     {ok, emqx_config:update_result()} | {error, emqx_config:update_error()}.
 update(KeyPath, UpdateReq, Opts) ->
     check_cluster_rpc_result(emqx_conf_proto_v1:update(KeyPath, UpdateReq, Opts)).
 
 %% @doc Update the specified node's key path in local-override.conf.
--spec update(node(), emqx_map_lib:config_key_path(), emqx_config:update_request(),
-    emqx_config:update_opts()) ->
+-spec update(
+    node(),
+    emqx_map_lib:config_key_path(),
+    emqx_config:update_request(),
+    emqx_config:update_opts()
+) ->
     {ok, emqx_config:update_result()} | {error, emqx_config:update_error()} | emqx_rpc:badrpc().
 update(Node, KeyPath, UpdateReq, Opts0) when Node =:= node() ->
     emqx:update_config(KeyPath, UpdateReq, Opts0#{override_to => local});
@@ -126,25 +133,41 @@ reset(Node, KeyPath, Opts) ->
 %% @doc Called from build script.
 -spec dump_schema(file:name_all()) -> ok.
 dump_schema(Dir) ->
-    dump_schema(Dir, emqx_conf_schema).
+    I18nFile = emqx:etc_file("i18n.conf"),
+    dump_schema(Dir, emqx_conf_schema, I18nFile).
 
-dump_schema(Dir, SchemaModule) ->
-    SchemaMdFile = filename:join([Dir, "config.md"]),
-    io:format(user, "===< Generating: ~s~n", [SchemaMdFile ]),
-    ok = gen_doc(SchemaMdFile, SchemaModule),
+dump_schema(Dir, SchemaModule, I18nFile) ->
+    lists:foreach(
+        fun(Lang) ->
+            gen_config_md(Dir, I18nFile, SchemaModule, Lang),
+            gen_hot_conf_schema_json(Dir, I18nFile, Lang)
+        end,
+        [en, zh]
+    ),
+    gen_schema_json(Dir, I18nFile, SchemaModule).
 
-    %% for scripts/spellcheck.
+%% for scripts/spellcheck.
+gen_schema_json(Dir, I18nFile, SchemaModule) ->
     SchemaJsonFile = filename:join([Dir, "schema.json"]),
     io:format(user, "===< Generating: ~s~n", [SchemaJsonFile]),
-    JsonMap = hocon_schema_json:gen(SchemaModule),
+    Opts = #{desc_file => I18nFile, lang => "en"},
+    JsonMap = hocon_schema_json:gen(SchemaModule, Opts),
     IoData = jsx:encode(JsonMap, [space, {indent, 4}]),
-    ok = file:write_file(SchemaJsonFile, IoData),
+    ok = file:write_file(SchemaJsonFile, IoData).
 
-    %% hot-update configuration schema
-    HotConfigSchemaFile = filename:join([Dir, "hot-config-schema.json"]),
+gen_hot_conf_schema_json(Dir, I18nFile, Lang) ->
+    emqx_dashboard:init_i18n(I18nFile, Lang),
+    JsonFile = "hot-config-schema-" ++ atom_to_list(Lang) ++ ".json",
+    HotConfigSchemaFile = filename:join([Dir, JsonFile]),
     io:format(user, "===< Generating: ~s~n", [HotConfigSchemaFile]),
     ok = gen_hot_conf_schema(HotConfigSchemaFile),
-    ok.
+    emqx_dashboard:clear_i18n().
+
+gen_config_md(Dir, I18nFile, SchemaModule, Lang0) ->
+    Lang = atom_to_list(Lang0),
+    SchemaMdFile = filename:join([Dir, "config-" ++ Lang ++ ".md"]),
+    io:format(user, "===< Generating: ~s~n", [SchemaMdFile]),
+    ok = gen_doc(SchemaMdFile, SchemaModule, I18nFile, Lang).
 
 %% @doc return the root schema module.
 -spec schema_module() -> module().
@@ -158,63 +181,96 @@ schema_module() ->
 %% Internal functions
 %%--------------------------------------------------------------------
 
--spec gen_doc(file:name_all(), module()) -> ok.
-gen_doc(File, SchemaModule) ->
+-spec gen_doc(file:name_all(), module(), file:name_all(), string()) -> ok.
+gen_doc(File, SchemaModule, I18nFile, Lang) ->
     Version = emqx_release:version(),
     Title = "# " ++ emqx_release:description() ++ " " ++ Version ++ " Configuration",
     BodyFile = filename:join([code:lib_dir(emqx_conf), "etc", "emqx_conf.md"]),
     {ok, Body} = file:read_file(BodyFile),
-    Doc = hocon_schema_md:gen(SchemaModule, #{title => Title, body => Body}),
+    Opts = #{title => Title, body => Body, desc_file => I18nFile, lang => Lang},
+    Doc = hocon_schema_md:gen(SchemaModule, Opts),
     file:write_file(File, Doc).
 
 check_cluster_rpc_result(Result) ->
     case Result of
-        {ok, _TnxId, Res} -> Res;
+        {ok, _TnxId, Res} ->
+            Res;
         {retry, TnxId, Res, Nodes} ->
             %% The init MFA return ok, but other nodes failed.
             %% We return ok and alert an alarm.
-            ?SLOG(error, #{msg => "failed_to_update_config_in_cluster", nodes => Nodes,
-                           tnx_id => TnxId}),
+            ?SLOG(error, #{
+                msg => "failed_to_update_config_in_cluster",
+                nodes => Nodes,
+                tnx_id => TnxId
+            }),
             Res;
-        {error, Error} -> %% all MFA return not ok or {ok, term()}.
+        %% all MFA return not ok or {ok, term()}.
+        {error, Error} ->
             Error
     end.
 
 %% Only gen hot_conf schema, not all configuration fields.
 gen_hot_conf_schema(File) ->
-    {ApiSpec0, Components0} = emqx_dashboard_swagger:spec(emqx_mgmt_api_configs,
-        #{schema_converter => fun hocon_schema_to_spec/2}),
-    ApiSpec = lists:foldl(fun({Path, Spec, _, _}, Acc) ->
-        NewSpec = maps:fold(fun(Method, #{responses := Responses}, SubAcc) ->
-            case Responses of
-                #{<<"200">> :=
-                    #{<<"content">> := #{<<"application/json">> := #{<<"schema">> := Schema}}}} ->
-                    SubAcc#{Method => Schema};
-                _ -> SubAcc
-            end
-                            end, #{}, Spec),
-        Acc#{list_to_atom(Path) => NewSpec} end, #{}, ApiSpec0),
+    {ApiSpec0, Components0} = emqx_dashboard_swagger:spec(
+        emqx_mgmt_api_configs,
+        #{schema_converter => fun hocon_schema_to_spec/2}
+    ),
+    ApiSpec = lists:foldl(
+        fun({Path, Spec, _, _}, Acc) ->
+            NewSpec = maps:fold(
+                fun(Method, #{responses := Responses}, SubAcc) ->
+                    case Responses of
+                        #{
+                            <<"200">> :=
+                                #{
+                                    <<"content">> := #{
+                                        <<"application/json">> := #{<<"schema">> := Schema}
+                                    }
+                                }
+                        } ->
+                            SubAcc#{Method => Schema};
+                        _ ->
+                            SubAcc
+                    end
+                end,
+                #{},
+                Spec
+            ),
+            Acc#{list_to_atom(Path) => NewSpec}
+        end,
+        #{},
+        ApiSpec0
+    ),
     Components = lists:foldl(fun(M, Acc) -> maps:merge(M, Acc) end, #{}, Components0),
-    IoData = jsx:encode(#{
-        info => #{title => <<"EMQX Hot Conf Schema">>, version => <<"0.1.0">>},
-        paths => ApiSpec,
-        components => #{schemas => Components}
-    }, [space, {indent, 4}]),
+    IoData = jsx:encode(
+        #{
+            info => #{title => <<"EMQX Hot Conf Schema">>, version => <<"0.1.0">>},
+            paths => ApiSpec,
+            components => #{schemas => Components}
+        },
+        [space, {indent, 4}]
+    ),
     file:write_file(File, IoData).
 
--define(INIT_SCHEMA, #{fields => #{}, translations => #{},
-    validations => [], namespace => undefined}).
+-define(INIT_SCHEMA, #{
+    fields => #{},
+    translations => #{},
+    validations => [],
+    namespace => undefined
+}).
 
 -define(TO_REF(_N_, _F_), iolist_to_binary([to_bin(_N_), ".", to_bin(_F_)])).
--define(TO_COMPONENTS_SCHEMA(_M_, _F_), iolist_to_binary([<<"#/components/schemas/">>,
-    ?TO_REF(emqx_dashboard_swagger:namespace(_M_), _F_)])).
+-define(TO_COMPONENTS_SCHEMA(_M_, _F_),
+    iolist_to_binary([
+        <<"#/components/schemas/">>,
+        ?TO_REF(emqx_dashboard_swagger:namespace(_M_), _F_)
+    ])
+).
 
 hocon_schema_to_spec(?R_REF(Module, StructName), _LocalModule) ->
-    {#{<<"$ref">> => ?TO_COMPONENTS_SCHEMA(Module, StructName)},
-        [{Module, StructName}]};
+    {#{<<"$ref">> => ?TO_COMPONENTS_SCHEMA(Module, StructName)}, [{Module, StructName}]};
 hocon_schema_to_spec(?REF(StructName), LocalModule) ->
-    {#{<<"$ref">> => ?TO_COMPONENTS_SCHEMA(LocalModule, StructName)},
-        [{LocalModule, StructName}]};
+    {#{<<"$ref">> => ?TO_COMPONENTS_SCHEMA(LocalModule, StructName)}, [{LocalModule, StructName}]};
 hocon_schema_to_spec(Type, LocalModule) when ?IS_TYPEREFL(Type) ->
     {typename_to_spec(typerefl:name(Type), LocalModule), []};
 hocon_schema_to_spec(?ARRAY(Item), LocalModule) ->
@@ -226,50 +282,97 @@ hocon_schema_to_spec(?ENUM(Items), _LocalModule) ->
     {#{type => enum, symbols => Items}, []};
 hocon_schema_to_spec(?MAP(Name, Type), LocalModule) ->
     {Schema, SubRefs} = hocon_schema_to_spec(Type, LocalModule),
-    {#{<<"type">> => object,
-        <<"properties">> => #{<<"$", (to_bin(Name))/binary>> => Schema}},
-        SubRefs};
+    {
+        #{
+            <<"type">> => object,
+            <<"properties">> => #{<<"$", (to_bin(Name))/binary>> => Schema}
+        },
+        SubRefs
+    };
 hocon_schema_to_spec(?UNION(Types), LocalModule) ->
-    {OneOf, Refs} = lists:foldl(fun(Type, {Acc, RefsAcc}) ->
-        {Schema, SubRefs} = hocon_schema_to_spec(Type, LocalModule),
-        {[Schema | Acc], SubRefs ++ RefsAcc}
-                                end, {[], []}, Types),
+    {OneOf, Refs} = lists:foldl(
+        fun(Type, {Acc, RefsAcc}) ->
+            {Schema, SubRefs} = hocon_schema_to_spec(Type, LocalModule),
+            {[Schema | Acc], SubRefs ++ RefsAcc}
+        end,
+        {[], []},
+        Types
+    ),
     {#{<<"oneOf">> => OneOf}, Refs};
 hocon_schema_to_spec(Atom, _LocalModule) when is_atom(Atom) ->
     {#{type => enum, symbols => [Atom]}, []}.
 
-typename_to_spec("user_id_type()", _Mod) -> #{type => enum, symbols => [clientid, username]};
-typename_to_spec("term()", _Mod) -> #{type => string};
-typename_to_spec("boolean()", _Mod) -> #{type => boolean};
-typename_to_spec("binary()", _Mod) -> #{type => string};
-typename_to_spec("float()", _Mod) -> #{type => number};
-typename_to_spec("integer()", _Mod) -> #{type => number};
-typename_to_spec("non_neg_integer()", _Mod) -> #{type => number, minimum => 1};
-typename_to_spec("number()", _Mod) -> #{type => number};
-typename_to_spec("string()", _Mod) -> #{type => string};
-typename_to_spec("atom()", _Mod) -> #{type => string};
-
-typename_to_spec("duration()", _Mod) -> #{type => duration};
-typename_to_spec("duration_s()", _Mod) -> #{type => duration};
-typename_to_spec("duration_ms()", _Mod) -> #{type => duration};
-typename_to_spec("percent()", _Mod) -> #{type => percent};
-typename_to_spec("file()", _Mod) -> #{type => string};
-typename_to_spec("ip_port()", _Mod) -> #{type => ip_port};
-typename_to_spec("url()", _Mod) -> #{type => url};
-typename_to_spec("bytesize()", _Mod) -> #{type => 'byteSize'};
-typename_to_spec("wordsize()", _Mod) -> #{type => 'byteSize'};
-typename_to_spec("qos()", _Mod) -> #{type => enum, symbols => [0, 1, 2]};
-typename_to_spec("comma_separated_list()", _Mod) -> #{type => comma_separated_string};
-typename_to_spec("comma_separated_atoms()", _Mod) -> #{type => comma_separated_string};
-typename_to_spec("pool_type()", _Mod) -> #{type => enum, symbols => [random, hash]};
+typename_to_spec("user_id_type()", _Mod) ->
+    #{type => enum, symbols => [clientid, username]};
+typename_to_spec("term()", _Mod) ->
+    #{type => string};
+typename_to_spec("boolean()", _Mod) ->
+    #{type => boolean};
+typename_to_spec("binary()", _Mod) ->
+    #{type => string};
+typename_to_spec("float()", _Mod) ->
+    #{type => number};
+typename_to_spec("integer()", _Mod) ->
+    #{type => number};
+typename_to_spec("non_neg_integer()", _Mod) ->
+    #{type => number, minimum => 1};
+typename_to_spec("number()", _Mod) ->
+    #{type => number};
+typename_to_spec("string()", _Mod) ->
+    #{type => string};
+typename_to_spec("atom()", _Mod) ->
+    #{type => string};
+typename_to_spec("duration()", _Mod) ->
+    #{type => duration};
+typename_to_spec("duration_s()", _Mod) ->
+    #{type => duration};
+typename_to_spec("duration_ms()", _Mod) ->
+    #{type => duration};
+typename_to_spec("percent()", _Mod) ->
+    #{type => percent};
+typename_to_spec("file()", _Mod) ->
+    #{type => string};
+typename_to_spec("ip_port()", _Mod) ->
+    #{type => ip_port};
+typename_to_spec("url()", _Mod) ->
+    #{type => url};
+typename_to_spec("bytesize()", _Mod) ->
+    #{type => 'byteSize'};
+typename_to_spec("wordsize()", _Mod) ->
+    #{type => 'byteSize'};
+typename_to_spec("qos()", _Mod) ->
+    #{type => enum, symbols => [0, 1, 2]};
+typename_to_spec("comma_separated_list()", _Mod) ->
+    #{type => comma_separated_string};
+typename_to_spec("comma_separated_atoms()", _Mod) ->
+    #{type => comma_separated_string};
+typename_to_spec("pool_type()", _Mod) ->
+    #{type => enum, symbols => [random, hash]};
 typename_to_spec("log_level()", _Mod) ->
-    #{type => enum, symbols => [debug, info, notice, warning, error,
-        critical, alert, emergency, all]};
-typename_to_spec("rate()", _Mod) -> #{type => string};
-typename_to_spec("capacity()", _Mod) -> #{type => string};
-typename_to_spec("burst_rate()", _Mod) -> #{type => string};
-typename_to_spec("failure_strategy()", _Mod) -> #{type => enum, symbols => [force, drop, throw]};
-typename_to_spec("initial()", _Mod) -> #{type => string};
+    #{
+        type => enum,
+        symbols => [
+            debug,
+            info,
+            notice,
+            warning,
+            error,
+            critical,
+            alert,
+            emergency,
+            all
+        ]
+    };
+typename_to_spec("rate()", _Mod) ->
+    #{type => string};
+typename_to_spec("capacity()", _Mod) ->
+    #{type => string};
+typename_to_spec("burst_rate()", _Mod) ->
+    #{type => string};
+typename_to_spec("failure_strategy()", _Mod) ->
+    #{type => enum, symbols => [force, drop, throw]};
+typename_to_spec("initial()", _Mod) ->
+    #{type => string};
 typename_to_spec(Name, Mod) ->
     Spec = range(Name),
     Spec1 = remote_module_type(Spec, Name, Mod),
@@ -282,11 +385,13 @@ default_type(Type) -> Type.
 
 range(Name) ->
     case string:split(Name, "..") of
-        [MinStr, MaxStr] -> %% 1..10 1..inf -inf..10
+        %% 1..10 1..inf -inf..10
+        [MinStr, MaxStr] ->
             Schema = #{type => number},
             Schema1 = add_integer_prop(Schema, minimum, MinStr),
             add_integer_prop(Schema1, maximum, MaxStr);
-        _ -> nomatch
+        _ ->
+            nomatch
     end.
 
 %% Module:Type
@@ -295,21 +400,25 @@ remote_module_type(nomatch, Name, Mod) ->
         [_Module, Type] -> typename_to_spec(Type, Mod);
         _ -> nomatch
     end;
-remote_module_type(Spec, _Name, _Mod) -> Spec.
+remote_module_type(Spec, _Name, _Mod) ->
+    Spec.
 
 %% [string()] or [integer()] or [xxx].
 typerefl_array(nomatch, Name, Mod) ->
     case string:trim(Name, leading, "[") of
-        Name -> nomatch;
+        Name ->
+            nomatch;
         Name1 ->
             case string:trim(Name1, trailing, "]") of
-                Name1 -> notmatch;
+                Name1 ->
+                    notmatch;
                 Name2 ->
                     Schema = typename_to_spec(Name2, Mod),
                     #{type => array, items => Schema}
             end
     end;
-typerefl_array(Spec, _Name, _Mod) -> Spec.
+typerefl_array(Spec, _Name, _Mod) ->
+    Spec.
 
 %% integer(1)
 integer(nomatch, Name) ->
@@ -317,12 +426,13 @@ integer(nomatch, Name) ->
         {Int, []} -> #{type => enum, symbols => [Int], default => Int};
         _ -> nomatch
     end;
-integer(Spec, _Name) -> Spec.
+integer(Spec, _Name) ->
+    Spec.
 
 add_integer_prop(Schema, Key, Value) ->
     case string:to_integer(Value) of
         {error, no_integer} -> Schema;
-        {Int, []}when Key =:= minimum -> Schema#{Key => Int};
+        {Int, []} when Key =:= minimum -> Schema#{Key => Int};
         {Int, []} -> Schema#{Key => Int}
     end.
 
@@ -333,4 +443,5 @@ to_bin(List) when is_list(List) ->
     end;
 to_bin(Boolean) when is_boolean(Boolean) -> Boolean;
 to_bin(Atom) when is_atom(Atom) -> atom_to_binary(Atom, utf8);
-to_bin(X) -> X.
+to_bin(X) ->
+    X.

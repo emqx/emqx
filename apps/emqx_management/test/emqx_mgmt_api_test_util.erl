@@ -39,15 +39,7 @@ end_suite(Apps) ->
     ok.
 
 set_special_configs(emqx_dashboard) ->
-    Config = #{
-               default_username => <<"admin">>,
-               default_password => <<"public">>,
-               listeners => [#{
-                               protocol => http,
-                               port => 18083
-                              }]
-              },
-    emqx_config:put([dashboard], Config),
+    emqx_dashboard_api_test_helpers:set_default_config(),
     ok;
 set_special_configs(_App) ->
     ok.

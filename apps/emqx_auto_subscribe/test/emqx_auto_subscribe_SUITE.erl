@@ -31,9 +31,11 @@
 
 -define(TOPICS, [?TOPIC_C, ?TOPIC_U, ?TOPIC_H, ?TOPIC_P, ?TOPIC_A, ?TOPIC_S]).
 
--define(ENSURE_TOPICS , [<<"/c/auto_sub_c">>
-                        , <<"/u/auto_sub_u">>
-                        , ?TOPIC_S]).
+-define(ENSURE_TOPICS, [
+    <<"/c/auto_sub_c">>,
+    <<"/u/auto_sub_u">>,
+    ?TOPIC_S
+]).
 
 -define(CLIENT_ID, <<"auto_sub_c">>).
 -define(CLIENT_USERNAME, <<"auto_sub_u">>).
@@ -45,60 +47,58 @@ init_per_suite(Config) ->
     mria:start(),
     application:stop(?APP),
     meck:new(emqx_schema, [non_strict, passthrough, no_history, no_link]),
-    meck:expect(emqx_schema, fields, fun("auto_subscribe") ->
-                                             meck:passthrough(["auto_subscribe"]) ++
-                                             emqx_auto_subscribe_schema:fields("auto_subscribe");
-                                        (F) -> meck:passthrough([F])
-                                     end),
+    meck:expect(emqx_schema, fields, fun
+        ("auto_subscribe") ->
+            meck:passthrough(["auto_subscribe"]) ++
+                emqx_auto_subscribe_schema:fields("auto_subscribe");
+        (F) ->
+            meck:passthrough([F])
+    end),
 
     meck:new(emqx_resource, [non_strict, passthrough, no_history, no_link]),
     meck:expect(emqx_resource, create, fun(_, _, _) -> {ok, meck_data} end),
     meck:expect(emqx_resource, update, fun(_, _, _, _) -> {ok, meck_data} end),
-    meck:expect(emqx_resource, remove, fun(_) -> ok end ),
+    meck:expect(emqx_resource, remove, fun(_) -> ok end),
 
     application:load(emqx_dashboard),
     application:load(?APP),
-    ok = emqx_common_test_helpers:load_config(emqx_auto_subscribe_schema,
-        <<"auto_subscribe {
-            topics = [
-                {
-                    topic = \"/c/${clientid}\"
-                },
-                {
-                    topic = \"/u/${username}\"
-                },
-                {
-                    topic = \"/h/${host}\"
-                },
-                {
-                    topic = \"/p/${port}\"
-                },
-                {
-                    topic = \"/client/${clientid}/username/${username}/host/${host}/port/${port}\"
-                },
-                {
-                    topic = \"/topic/simple\"
-                    qos   = 1
-                    rh    = 0
-                    rap   = 0
-                    nl    = 0
-                }
-            ]
-        }">>),
-    emqx_common_test_helpers:start_apps([emqx_conf, emqx_dashboard, ?APP],
-                                        fun set_special_configs/1),
+    ok = emqx_common_test_helpers:load_config(
+        emqx_auto_subscribe_schema,
+        <<"auto_subscribe {\n"
+        "            topics = [\n"
+        "                {\n"
+        "                    topic = \"/c/${clientid}\"\n"
+        "                },\n"
+        "                {\n"
+        "                    topic = \"/u/${username}\"\n"
+        "                },\n"
+        "                {\n"
+        "                    topic = \"/h/${host}\"\n"
+        "                },\n"
+        "                {\n"
+        "                    topic = \"/p/${port}\"\n"
+        "                },\n"
+        "                {\n"
+        "                    topic = \"/client/${clientid}/username/${username}/host/${host}/port/${port}\"\n"
+        "                },\n"
+        "                {\n"
+        "                    topic = \"/topic/simple\"\n"
+        "                    qos   = 1\n"
+        "                    rh    = 0\n"
+        "                    rap   = 0\n"
+        "                    nl    = 0\n"
+        "                }\n"
+        "            ]\n"
+        "        }">>
+    ),
+    emqx_common_test_helpers:start_apps(
+        [emqx_conf, emqx_dashboard, ?APP],
+        fun set_special_configs/1
+    ),
     Config.
 
 set_special_configs(emqx_dashboard) ->
-    Config = #{
-        default_username => <<"admin">>,
-        default_password => <<"public">>,
-        listeners => [#{
-                        protocol => http,
-                        port => 18083
-                       }]
-       },
-    emqx_config:put([emqx_dashboard], Config),
+    emqx_dashboard_api_test_helpers:set_default_config(),
     ok;
 set_special_configs(_) ->
     ok.
@@ -106,10 +106,10 @@ set_special_configs(_) ->
 topic_config(T) ->
     #{
         topic => T,
-        qos   => 0,
-        rh    => 0,
-        rap   => 0,
-        nl    => 0
+        qos => 0,
+        rh => 0,
+        rap => 0,
+        nl => 0
     }.
 
 end_per_suite(_) ->
@@ -147,7 +147,6 @@ t_update(_) ->
     GETResponseMap = emqx_json:decode(GETResponse, [return_maps]),
     ?assertEqual(1, erlang:length(GETResponseMap)),
     ok.
-
 
 check_subs(Count) ->
     Subs = ets:tab2list(emqx_suboption),

@@ -68,7 +68,7 @@ defmodule EMQXUmbrella.MixProject do
       # in conflict by emqtt and hocon
       {:getopt, "1.0.2", override: true},
       {:snabbkaffe, github: "kafka4beam/snabbkaffe", tag: "0.18.0", override: true},
-      {:hocon, github: "emqx/hocon", tag: "0.26.6", override: true},
+      {:hocon, github: "emqx/hocon", tag: "0.26.7", override: true},
       {:emqx_http_lib, github: "emqx/emqx_http_lib", tag: "0.4.1", override: true},
       {:esasl, github: "emqx/esasl", tag: "0.2.0"},
       {:jose, github: "potatosalad/erlang-jose", tag: "1.11.2"},
@@ -340,6 +340,13 @@ defmodule EMQXUmbrella.MixProject do
     File.cp_r!(
       "apps/emqx/etc/certs",
       Path.join(etc, "certs")
+    )
+
+    # required by emqx_dashboard
+    Mix.Generator.copy_file(
+      "apps/emqx_dashboard/etc/i18n.conf.all",
+      Path.join(etc, "i18n.conf"),
+      force: overwrite?
     )
 
     # this is required by the produced escript / nodetool

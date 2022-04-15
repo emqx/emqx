@@ -450,10 +450,12 @@ emqx_etc_overlay_common() ->
 
 emqx_etc_overlay_per_edition(ce) ->
     [ {"{{base_dir}}/lib/emqx_conf/etc/emqx.conf.all", "etc/emqx.conf"}
+    , {"{{base_dir}}/lib/emqx_dashboard/etc/i18n.conf.all", "etc/i18n.conf"}
     ];
 emqx_etc_overlay_per_edition(ee) ->
     [ {"{{base_dir}}/lib/emqx_conf/etc/emqx_enterprise.conf.all", "etc/emqx_enterprise.conf"}
     , {"{{base_dir}}/lib/emqx_conf/etc/emqx.conf.all", "etc/emqx.conf"}
+    , {"{{base_dir}}/lib/emqx_dashboard/etc/i18n.conf.all", "etc/i18n.conf"}
     ].
 
 get_vsn(Profile) ->
