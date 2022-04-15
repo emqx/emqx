@@ -306,7 +306,7 @@ check_request_body(#{body := Body}, Spec, _Module, _CheckFun, false) when is_map
 %% tags, description, summary, security, deprecated
 meta_to_spec(Meta, Module, Options) ->
     {Params, Refs1} = parameters(maps:get(parameters, Meta, []), Module),
-    {RequestBody, Refs2} = request_body(maps:get('requestBody', Meta, []), Module),
+    {RequestBody, Refs2} = request_body(maps:get('requestBody', Meta, []), Module, Options),
     {Responses, Refs3} = responses(maps:get(responses, Meta, #{}), Module, Options),
     {
         generate_method_desc(to_spec(Meta, Params, RequestBody, Responses)),
@@ -424,11 +424,11 @@ resolve_desc(Key, Struct) ->
         false -> Desc
     end.
 
-request_body(#{content := _} = Content, _Module) ->
+request_body(#{content := _} = Content, _Module, _Options) ->
     {Content, []};
-request_body([], _Module) ->
+request_body([], _Module, _Options) ->
     {[], []};
-request_body(Schema, Module) ->
+request_body(Schema, Module, Options) ->
     {{Props, Refs}, Examples} =
         case hoconsc:is_schema(Schema) of
             true ->
@@ -436,7 +436,7 @@ request_body(Schema, Module) ->
                 SchemaExamples = hocon_schema:field_schema(Schema, examples),
                 {hocon_schema_to_spec(HoconSchema, Module), SchemaExamples};
             false ->
-                {parse_object(Schema, Module, #{}), undefined}
+                {parse_object(Schema, Module, Options), undefined}
         end,
     {#{<<"content">> => content(Props, Examples)}, Refs}.
 

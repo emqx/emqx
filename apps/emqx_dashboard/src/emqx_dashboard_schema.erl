@@ -197,7 +197,7 @@ cors(_) ->
 i18n_lang(type) -> ?ENUM([en, zh]);
 i18n_lang(default) -> zh;
 i18n_lang('readOnly') -> true;
-i18n_lang(desc) -> "i18n language";
+i18n_lang(desc) -> "Internationalization language support.";
 i18n_lang(_) -> undefined.
 
 sc(Type, Meta) -> hoconsc:mk(Type, Meta).

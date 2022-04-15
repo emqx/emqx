@@ -10,22 +10,31 @@
 -include_lib("hocon/include/hoconsc.hrl").
 -import(hoconsc, [mk/2]).
 
--export([all/0, suite/0, groups/0]).
--export([paths/0, api_spec/0, schema/1, fields/1]).
--export([t_simple_binary/1, t_object/1, t_nest_object/1, t_empty/1, t_error/1,
-    t_raw_local_ref/1, t_raw_remote_ref/1, t_hocon_schema_function/1, t_complicated_type/1,
-    t_local_ref/1, t_remote_ref/1, t_bad_ref/1, t_none_ref/1, t_nest_ref/1, t_sub_fields/1,
-    t_ref_array_with_key/1, t_ref_array_without_key/1, t_api_spec/1]).
+-compile(nowarn_export_all).
+-compile(export_all).
 
-all() -> [{group, spec}].
-suite() -> [{timetrap, {minutes, 1}}].
-groups() -> [
-    {spec, [parallel], [
-        t_api_spec, t_simple_binary, t_object, t_nest_object, t_error, t_complicated_type,
-        t_raw_local_ref, t_raw_remote_ref, t_empty, t_hocon_schema_function,
-        t_local_ref, t_remote_ref, t_bad_ref, t_none_ref, t_sub_fields,
-        t_ref_array_with_key, t_ref_array_without_key, t_nest_ref]}
-].
+all() -> emqx_common_test_helpers:all(?MODULE).
+
+init_per_suite(Config) ->
+    mria:start(),
+    application:load(emqx_dashboard),
+    emqx_common_test_helpers:start_apps([emqx_conf, emqx_dashboard], fun set_special_configs/1),
+    emqx_dashboard:init_i18n(),
+    Config.
+
+set_special_configs(emqx_dashboard) ->
+    emqx_dashboard_api_test_helpers:set_default_config(),
+    ok;
+set_special_configs(_) ->
+    ok.
+
+end_per_suite(Config) ->
+    end_suite(),
+    Config.
+
+end_suite() ->
+    application:unload(emqx_management),
+    emqx_common_test_helpers:stop_apps([emqx_dashboard]).
 
 t_simple_binary(_config) ->
     Path = "/simple/bin",

@@ -27,6 +27,7 @@
 
 -export([
     init_i18n/2,
+    init_i18n/0,
     get_i18n/0,
     clear_i18n/0
 ]).
