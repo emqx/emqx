@@ -39,6 +39,7 @@
         , get_resource_status/1
         , is_source_alive/1
         , get_resource_params/1
+        , ensure_resource_deleted/1
         , delete_resource/1
         , update_resource/2
         ]).
@@ -328,6 +329,7 @@ start_resource(ResId) ->
             {error, {resource_not_found, ResId}}
     end.
 
+-dialyzer([{nowarn_function, test_resource/1}]).
 -spec(test_resource(#{type := _, config := _, _ => _}) -> ok | {error, Reason :: term()}).
 test_resource(#{type := Type} = Params) ->
     case emqx_rule_registry:find_resource_type(Type) of
@@ -353,7 +355,8 @@ test_resource(#{type := Type} = Params) ->
                 ?LOG(warning, "test resource failed, ~0p:~0p ~0p", [E, R, S]),
                 {error, R}
             after
-                _ = ?CLUSTER_CALL(delete_resource, [ResId])
+                _ = ?CLUSTER_CALL(ensure_resource_deleted, [ResId]),
+                ok
             end;
         not_found ->
             {error, {resource_type_not_found, Type}}
@@ -389,6 +392,11 @@ get_resource_params(ResId) ->
         not_found ->
             {error, resource_not_initialized}
     end.
+
+-spec(ensure_resource_deleted(resource_id()) -> ok).
+ensure_resource_deleted(ResId) ->
+    _ = delete_resource(ResId),
+    ok.
 
 -spec(delete_resource(resource_id()) -> ok | {error, Reason :: term()}).
 delete_resource(ResId) ->
