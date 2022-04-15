@@ -115,7 +115,8 @@ import(_Bindings, Params) ->
 do_import(Filename) ->
     emqx_mgmt_data_backup:import(Filename, "{}").
 
-download(#{filename := Filename}, _Params) ->
+download(#{filename := Filename0}, _Params) ->
+    Filename = filename_decode(Filename0),
     case emqx_mgmt_data_backup:read_backup_file(Filename) of
         {ok, Res} ->
             {ok, Res};
@@ -139,7 +140,8 @@ do_upload(Bindings, Params = #{<<"file">> := _}) ->
 do_upload(_Bindings, _Params) ->
     minirest:return({error, missing_required_params}).
 
-delete(#{filename := Filename}, _Params) ->
+delete(#{filename := Filename0}, _Params) ->
+    Filename = filename_decode(Filename0),
     case emqx_mgmt_data_backup:delete_backup_file(Filename) of
         ok ->
             minirest:return();
@@ -161,3 +163,6 @@ tmp_filename() ->
     Seconds = erlang:system_time(second),
     {{Y, M, D}, {H, MM, S}} = emqx_mgmt_util:datetime(Seconds),
     list_to_binary(io_lib:format("emqx-export-~p-~p-~p-~p-~p-~p.json", [Y, M, D, H, MM, S])).
+
+filename_decode(Filename) ->
+    uri_string:percent_decode(Filename).
