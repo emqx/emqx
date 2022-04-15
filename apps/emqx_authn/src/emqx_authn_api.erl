@@ -431,8 +431,10 @@ schema("/authentication/:id/users") ->
             description => <<"List users in authenticator in global authentication chain">>,
             parameters => [
                 param_auth_id(),
-                {page, mk(pos_integer(), #{in => query, desc => <<"Page Index">>, required => false})},
-                {limit, mk(pos_integer(), #{in => query, desc => <<"Page Limit">>, required => false})},
+                {page,
+                    mk(pos_integer(), #{in => query, desc => <<"Page Index">>, required => false})},
+                {limit,
+                    mk(pos_integer(), #{in => query, desc => <<"Page Limit">>, required => false})},
                 {like_username,
                     mk(binary(), #{
                         in => query,
@@ -481,8 +483,10 @@ schema("/listeners/:listener_id/authentication/:id/users") ->
             parameters => [
                 param_listener_id(),
                 param_auth_id(),
-                {page, mk(pos_integer(), #{in => query, desc => <<"Page Index">>, required => false})},
-                {limit, mk(pos_integer(), #{in => query, desc => <<"Page Limit">>, required => false})}
+                {page,
+                    mk(pos_integer(), #{in => query, desc => <<"Page Index">>, required => false})},
+                {limit,
+                    mk(pos_integer(), #{in => query, desc => <<"Page Limit">>, required => false})}
             ],
             responses => #{
                 200 => emqx_dashboard_swagger:schema_with_example(
