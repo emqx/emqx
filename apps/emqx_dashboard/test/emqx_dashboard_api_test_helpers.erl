@@ -35,9 +35,16 @@ set_default_config(DefaultUsername) ->
     Config = #{listeners => [#{protocol => http,
                                port => 18083}],
                default_username => DefaultUsername,
-               default_password => <<"public">>
+               default_password => <<"public">>,
+               i18n_lang => en
               },
     emqx_config:put([dashboard], Config),
+    I18nFile = filename:join([
+        filename:dirname(code:priv_dir(emqx_dashboard)),
+        "etc",
+        "i18n.conf.all"
+    ]),
+    application:set_env(emqx_dashboard, i18n_file, I18nFile),
     ok.
 
 request(Method, Url) ->

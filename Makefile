@@ -61,7 +61,7 @@ get-dashboard:
 	@$(SCRIPTS)/get-dashboard.sh
 
 .PHONY: eunit
-eunit: $(REBAR)
+eunit: $(REBAR) conf-segs
 	@ENABLE_COVER_COMPILE=1 $(REBAR) eunit -v -c
 
 .PHONY: proper

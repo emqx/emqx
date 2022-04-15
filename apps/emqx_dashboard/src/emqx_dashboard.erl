@@ -172,8 +172,8 @@ ip_port({Port, Opts}, _) when is_integer(Port) -> {Opts#{port => Port}, Port};
 ip_port({{IP, Port}, Opts}, _) -> {Opts#{port => Port, ip => IP}, {IP, Port}}.
 
 init_i18n() ->
-    File = emqx:etc_file("i18n.conf"),
-    Lang = emqx_conf:get([dashboard, i18n_lang]),
+    File = i18n_file(),
+    Lang = emqx_conf:get([dashboard, i18n_lang], en),
     init_i18n(File, Lang).
 
 ranch_opts(RanchOptions) ->
@@ -267,3 +267,9 @@ return_unauthorized(Code, Message) ->
                 <<"Basic Realm=\"minirest-server\"">>
         },
         #{code => Code, message => Message}}.
+
+i18n_file() ->
+    case application:get_env(emqx_dashboard, i18n_file) of
+        undefined -> emqx:etc_file("i18n.conf");
+        {ok, File} -> File
+    end.
