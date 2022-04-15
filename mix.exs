@@ -145,6 +145,8 @@ defmodule EMQXUmbrella.MixProject do
             :emqx_statsd,
             :emqx_retainer,
             :emqx_prometheus,
+            :emqx_auto_subscribe,
+            :emqx_slow_subs,
             :emqx_plugins
           ],
           steps: steps,
@@ -230,7 +232,9 @@ defmodule EMQXUmbrella.MixProject do
       :emqx_exhook,
       :emqx_authn,
       :emqx_authz,
-      :emqx_plugin
+      :emqx_auto_subscribe,
+      :emqx_slow_subs,
+      :emqx_plugins
     ]
   end
 
