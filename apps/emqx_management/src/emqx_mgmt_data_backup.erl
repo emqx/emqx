@@ -657,7 +657,6 @@ import(Filename, OverridesJson) ->
 -endif.
 
 do_import_data(Data, Version) ->
-    do_import_extra_data(Data, Version),
     import_resources_and_rules(maps:get(<<"resources">>, Data, []), maps:get(<<"rules">>, Data, []), Version),
     import_blacklist(maps:get(<<"blacklist">>, Data, [])),
     import_applications(maps:get(<<"apps">>, Data, [])),
@@ -668,7 +667,10 @@ do_import_data(Data, Version) ->
     import_auth_clientid(maps:get(<<"auth_clientid">>, Data, [])),
     import_auth_username(maps:get(<<"auth_username">>, Data, [])),
     import_auth_mnesia(maps:get(<<"auth_mnesia">>, Data, [])),
-    import_acl_mnesia(maps:get(<<"acl_mnesia">>, Data, [])).
+    import_acl_mnesia(maps:get(<<"acl_mnesia">>, Data, [])),
+    %% always do extra import at last, to make sure resources are initiated before
+    %% creating the schemas
+    do_import_extra_data(Data, Version).
 
 -ifdef(EMQX_ENTERPRISE).
 do_import_extra_data(Data, _Version) ->
