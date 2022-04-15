@@ -177,7 +177,8 @@ dump_to_tmp_file(Content) ->
     ok = file:write_file(fullname(Filename), Bin),
     Filename.
 
-fullname(Name) ->
+fullname(Name0) ->
+    Name = uri_string:percent_decode(Name0),
     filename:join(emqx:get_env(data_dir), Name).
 
 tmp_filename() ->
