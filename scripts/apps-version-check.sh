@@ -14,6 +14,9 @@ echo "Compare base: $latest_release"
 
 bad_app_count=0
 
+no_comment_re='(^[^\s?%])'
+## TODO: c source code comments re (in $app_path/c_src dirs)
+
 get_vsn() {
     commit="$1"
     app_src_file="$2"
@@ -47,11 +50,12 @@ check_apps() {
         if [ -z "${old_app_version:-}" ]; then
             echo "skiped checking new app ${app}"
         elif [ "$old_app_version" = "$now_app_version" ]; then
-            lines="$(git diff --name-only "$latest_release"...HEAD \
-                        -- "$app_path/src" \
-                        -- "$app_path/priv" \
-                        -- "$app_path/c_src")"
-            if [ "$lines" != '' ]; then
+            lines="$(git diff "$latest_release"...HEAD --ignore-blank-lines -G "$no_comment_re" \
+                             -- "$app_path/src" \
+                             -- ":(exclude)'$app_path/src/*.appup.src'" \
+                             -- "$app_path/priv" \
+                             -- "$app_path/c_src" | wc -l ) "
+            if [ "$lines" -gt 0 ]; then
                 echo "$src_file needs a vsn bump (old=$old_app_version)"
                 echo "changed: $lines"
                 bad_app_count=$(( bad_app_count + 1))
