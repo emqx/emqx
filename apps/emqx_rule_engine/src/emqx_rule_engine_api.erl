@@ -99,7 +99,7 @@ rule_info_schema() ->
 
 schema("/rules") ->
     #{
-        operationId => '/rules',
+        'operationId' => '/rules',
         get => #{
             tags => [<<"rules">>],
             description => <<"List all rules">>,
@@ -111,7 +111,7 @@ schema("/rules") ->
             tags => [<<"rules">>],
             description => <<"Create a new rule using given Id">>,
             summary => <<"Create a Rule">>,
-            requestBody => rule_creation_schema(),
+            'requestBody' => rule_creation_schema(),
             responses => #{
                 400 => error_schema('BAD_REQUEST', "Invalid Parameters"),
                 201 => rule_info_schema()
@@ -120,7 +120,7 @@ schema("/rules") ->
 
 schema("/rule_events") ->
     #{
-        operationId => '/rule_events',
+        'operationId' => '/rule_events',
         get => #{
             tags => [<<"rules">>],
             description => <<"List all events can be used in rules">>,
@@ -133,7 +133,7 @@ schema("/rule_events") ->
 
 schema("/rules/:id") ->
     #{
-        operationId => '/rules/:id',
+        'operationId' => '/rules/:id',
         get => #{
             tags => [<<"rules">>],
             description => <<"Get a rule by given Id">>,
@@ -149,7 +149,7 @@ schema("/rules/:id") ->
             description => <<"Update a rule by given Id to all nodes in the cluster">>,
             summary => <<"Update a Rule">>,
             parameters => param_path_id(),
-            requestBody => rule_creation_schema(),
+            'requestBody' => rule_creation_schema(),
             responses => #{
                 400 => error_schema('BAD_REQUEST', "Invalid Parameters"),
                 200 => rule_info_schema()
@@ -168,7 +168,7 @@ schema("/rules/:id") ->
 
 schema("/rules/:id/reset_metrics") ->
     #{
-        operationId => '/rules/:id/reset_metrics',
+        'operationId' => '/rules/:id/reset_metrics',
         put => #{
             tags => [<<"rules">>],
             description => <<"Reset a rule metrics">>,
@@ -183,12 +183,12 @@ schema("/rules/:id/reset_metrics") ->
 
 schema("/rule_test") ->
     #{
-        operationId => '/rule_test',
+        'operationId' => '/rule_test',
         post => #{
             tags => [<<"rules">>],
             description => <<"Test a rule">>,
             summary => <<"Test a Rule">>,
-            requestBody => rule_test_schema(),
+            'requestBody' => rule_test_schema(),
             responses => #{
                 400 => error_schema('BAD_REQUEST', "Invalid Parameters"),
                 412 => error_schema('NOT_MATCH', "SQL Not Match"),

@@ -48,9 +48,9 @@
 -spec(apply_rules(list(rule()), input()) -> ok).
 apply_rules([], _Input) ->
     ok;
-apply_rules([#{enable := false}|More], Input) ->
+apply_rules([#{enable := false} | More], Input) ->
     apply_rules(More, Input);
-apply_rules([Rule|More], Input) ->
+apply_rules([Rule | More], Input) ->
     apply_rule_discard_result(Rule, Input),
     apply_rules(More, Input).
 
@@ -150,14 +150,14 @@ select_and_transform(Fields, Input) ->
 
 select_and_transform([], _Input, Output) ->
     Output;
-select_and_transform(['*'|More], Input, Output) ->
+select_and_transform(['*' | More], Input, Output) ->
     select_and_transform(More, Input, maps:merge(Output, Input));
-select_and_transform([{as, Field, Alias}|More], Input, Output) ->
+select_and_transform([{as, Field, Alias} | More], Input, Output) ->
     Val = eval(Field, Input),
     select_and_transform(More,
         nested_put(Alias, Val, Input),
         nested_put(Alias, Val, Output));
-select_and_transform([Field|More], Input, Output) ->
+select_and_transform([Field | More], Input, Output) ->
     Val = eval(Field, Input),
     Key = alias(Field),
     select_and_transform(More,
@@ -172,7 +172,7 @@ select_and_collect(Fields, Input) ->
 select_and_collect([{as, Field, {_, A} = Alias}], Input, {Output, _}) ->
     Val = eval(Field, Input),
     {nested_put(Alias, Val, Output), {A, ensure_list(Val)}};
-select_and_collect([{as, Field, Alias}|More], Input, {Output, LastKV}) ->
+select_and_collect([{as, Field, Alias} | More], Input, {Output, LastKV}) ->
     Val = eval(Field, Input),
     select_and_collect(More,
         nested_put(Alias, Val, Input),
@@ -181,7 +181,7 @@ select_and_collect([Field], Input, {Output, _}) ->
     Val = eval(Field, Input),
     Key = alias(Field),
     {nested_put(Key, Val, Output), {'item', ensure_list(Val)}};
-select_and_collect([Field|More], Input, {Output, LastKV}) ->
+select_and_collect([Field | More], Input, {Output, LastKV}) ->
     Val = eval(Field, Input),
     Key = alias(Field),
     select_and_collect(More,
