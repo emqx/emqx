@@ -582,6 +582,8 @@ typename_to_spec("float()", _Mod) ->
 typename_to_spec("integer()", _Mod) ->
     #{type => integer, example => 100};
 typename_to_spec("non_neg_integer()", _Mod) ->
+    #{type => integer, minimum => 0, example => 100};
+typename_to_spec("pos_integer()", _Mod) ->
     #{type => integer, minimum => 1, example => 100};
 typename_to_spec("number()", _Mod) ->
     #{type => number, example => 42};
