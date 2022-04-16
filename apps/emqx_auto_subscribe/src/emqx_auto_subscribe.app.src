@@ -1,16 +1,17 @@
 %% -*- mode: erlang -*-
-{application, emqx_auto_subscribe,
- [{description, "An OTP application"},
-  {vsn, "0.1.0"},
-  {registered, []},
-  {mod, {emqx_auto_subscribe_app, []}},
-  {applications,
-   [kernel,
-    stdlib
-   ]},
-  {env,[]},
-  {modules, []},
+{application, emqx_auto_subscribe, [
+    {description, "An OTP application"},
+    {vsn, "0.1.0"},
+    {registered, []},
+    {mod, {emqx_auto_subscribe_app, []}},
+    {applications, [
+        kernel,
+        stdlib,
+        emqx
+    ]},
+    {env, []},
+    {modules, []},
 
-  {licenses, ["Apache 2.0"]},
-  {links, []}
- ]}.
+    {licenses, ["Apache 2.0"]},
+    {links, []}
+]}.

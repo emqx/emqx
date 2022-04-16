@@ -385,7 +385,9 @@ emqx_machine_boot_apps(ce) ->
     , emqx_exhook
     , emqx_authn
     , emqx_authz
-    , emqx_plugin
+    , emqx_slow_subs
+    , emqx_auto_subscribe
+    , emqx_plugins
     ];
 
 emqx_machine_boot_apps(ee) ->

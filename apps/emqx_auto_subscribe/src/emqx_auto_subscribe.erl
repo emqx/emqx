@@ -20,19 +20,21 @@
 
 -define(MAX_AUTO_SUBSCRIBE, 20).
 
--export([load/0, unload/0]).                          %
+%
+-export([load/0, unload/0]).
 
--export([ max_limit/0
-        , list/0
-        , update/1
-        , post_config_update/5
-        ]).
+-export([
+    max_limit/0,
+    list/0,
+    update/1,
+    post_config_update/5
+]).
 
 %% hook callback
 -export([on_client_connected/3]).
 
 load() ->
-    emqx_conf:add_handler([auto_subscribe, topics], ?MODULE),
+    ok = emqx_conf:add_handler([auto_subscribe, topics], ?MODULE),
     update_hook().
 
 unload() ->
@@ -56,7 +58,8 @@ post_config_update(_KeyPath, _Req, NewTopics, _OldConf, _AppEnvs) ->
 
 on_client_connected(ClientInfo, ConnInfo, {TopicHandler, Options}) ->
     case erlang:apply(TopicHandler, handle, [ClientInfo, ConnInfo, Options]) of
-        [] -> ok;
+        [] ->
+            ok;
         TopicTables ->
             _ = self() ! {subscribe, TopicTables},
             ok
@@ -71,17 +74,21 @@ format(Rules) when is_list(Rules) ->
     [format(Rule) || Rule <- Rules];
 format(Rule = #{topic := Topic}) when is_map(Rule) ->
     #{
-        topic   => Topic,
-        qos     => maps:get(qos, Rule, 0),
-        rh      => maps:get(rh, Rule, 0),
-        rap     => maps:get(rap, Rule, 0),
-        nl      => maps:get(nl, Rule, 0)
+        topic => Topic,
+        qos => maps:get(qos, Rule, 0),
+        rh => maps:get(rh, Rule, 0),
+        rap => maps:get(rap, Rule, 0),
+        nl => maps:get(nl, Rule, 0)
     }.
 
 update_(Topics) when length(Topics) =< ?MAX_AUTO_SUBSCRIBE ->
-    case emqx_conf:update([auto_subscribe, topics],
-                          Topics,
-                          #{rawconf_with_defaults => true, override_to => cluster}) of
+    case
+        emqx_conf:update(
+            [auto_subscribe, topics],
+            Topics,
+            #{rawconf_with_defaults => true, override_to => cluster}
+        )
+    of
         {ok, #{raw_config := NewTopics}} ->
             {ok, NewTopics};
         {error, Reason} ->
