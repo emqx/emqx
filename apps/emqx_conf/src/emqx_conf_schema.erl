@@ -351,7 +351,7 @@ fields("node") ->
            , 'readOnly' => true
            })}
     , {"dist_net_ticktime",
-       sc(emqx_schema:duration(),
+       sc(emqx_schema:duration_s(),
           #{ mapping => "vm_args.-kernel net_ticktime"
            , default => "2m"
            , 'readOnly' => true
