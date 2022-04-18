@@ -17,6 +17,7 @@
 
 -behaviour(hocon_schema).
 
+-include_lib("hocon/include/hoconsc.hrl").
 -include_lib("typerefl/include/types.hrl").
 -include_lib("emqx/include/emqx_placeholder.hrl").
 
@@ -38,28 +39,24 @@ fields("auto_subscribe") ->
 fields("topic") ->
     [ {topic, sc(binary(), #{
         example => topic_example(),
-        desc => "Topic name, placeholders is supported. For example: "
-                ++ binary_to_list(topic_example())})}
+        desc => ?DESC("topic")})}
     , {qos, sc(emqx_schema:qos(), #{
         default => 0,
-        desc => "Quality of service. MQTT definition."})}
+        desc => ?DESC("qos")})}
     , {rh, sc(range(0,2), #{
         default => 0,
-        desc => "Retain handling. MQTT 5.0 definition."})}
+        desc => ?DESC("rh")})}
     , {rap, sc(range(0, 1), #{
         default => 0,
-        desc => "Retain as Published. MQTT 5.0 definition."})}
+        desc => ?DESC("rap")})}
     , {nl, sc(range(0, 1), #{
         default => 0,
-        desc => "Not local. MQTT 5.0 definition."})}
+        desc => ?DESC(nl)})}
     ].
 
-desc("auto_subscribe") ->
-    "Configuration for `auto_subscribe` feature.";
-desc("topic") ->
-    "";
-desc(_) ->
-    undefined.
+desc("auto_subscribe") -> ?DESC("auto_subscribe");
+desc("topic") -> ?DESC("topic");
+desc(_) -> undefined.
 
 topic_example() ->
     <<"/clientid/", ?PH_S_CLIENTID,
