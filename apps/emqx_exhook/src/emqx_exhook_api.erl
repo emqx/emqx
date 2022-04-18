@@ -170,7 +170,7 @@ fields(node_metrics) ->
 fields(node_status) ->
     [
         {node, mk(string(), #{})},
-        {status, mk(enum([running, waiting, stopped, error]), #{})}
+        {status, mk(enum([connected, connecting, unconnected, disable, error]), #{})}
     ];
 fields(hook_info) ->
     [
