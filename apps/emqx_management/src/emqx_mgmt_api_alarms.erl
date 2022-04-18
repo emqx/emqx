@@ -68,7 +68,7 @@ fields(alarm) ->
                           #{desc => ?DESC(node), example => atom_to_list(node())})},
         {name, hoconsc:mk(binary(),
                           #{desc => ?DESC(node), example => <<"high_system_memory_usage">>})},
-        {message, hoconsc:mk(binary(), #{desc => desc => ?DESC(message),
+        {message, hoconsc:mk(binary(), #{desc => ?DESC(message),
             example => <<"System memory usage is higher than 70%">>})},
         {details, hoconsc:mk(map(), #{desc => ?DESC(details),
             example => #{<<"high_watermark">> => 70}})},

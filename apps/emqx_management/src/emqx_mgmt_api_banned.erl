@@ -70,9 +70,7 @@ schema("/banned") ->
                 200 => [{data, hoconsc:mk(hoconsc:array(hoconsc:ref(ban)), #{})}],
                 400 => emqx_dashboard_swagger:error_codes(
                            ['ALREADY_EXISTS', 'BAD_REQUEST'],
-                           ""
-                           ?DESC(create_banned_api_response_400)
-                        )
+                           ?DESC(create_banned_api_response_400))
             }
         }
     };
@@ -95,9 +93,7 @@ schema("/banned/:as/:who") ->
                 204 => <<"Delete banned success">>,
                 404 => emqx_dashboard_swagger:error_codes(
                            ['NOT_FOUND'],
-                           ""
-                           ?DESC(delete_banned_api_response_400)
-                        )
+                           ?DESC(create_banned_api_response_404))
             }
         }
     }.
