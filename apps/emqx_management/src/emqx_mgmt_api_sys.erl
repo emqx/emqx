@@ -44,7 +44,7 @@ paths() ->
 sys(get, _Params) ->
     {200, emqx_conf:get_raw([sys_topics], #{})};
 sys(put, #{body := Body}) ->
-    {ok, _} = emqx_conf:update([sys_topics], Body, #{override_to => cluster}), 
+    {ok, _} = emqx_conf:update([sys_topics], Body, #{override_to => cluster}),
     {200, emqx_conf:get_raw([sys_topics], #{})}.
 
 %%--------------------------------------------------------------------

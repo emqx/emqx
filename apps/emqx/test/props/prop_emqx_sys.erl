@@ -31,7 +31,8 @@
     emqx_stats,
     emqx_broker,
     mria_mnesia,
-    emqx_hooks
+    emqx_hooks,
+    emqx_config_handler
 ]).
 
 -define(ALL(Vars, Types, Exprs),
@@ -114,7 +115,9 @@ do_mock(emqx_metrics) ->
     meck:expect(emqx_metrics, all, fun() -> [{hello, 3}] end);
 do_mock(emqx_hooks) ->
     meck:expect(emqx_hooks, put, fun(_HookPoint, _MFA) -> ok end),
-    meck:expect(emqx_hooks, del, fun(_HookPoint, _MF) -> ok end).
+    meck:expect(emqx_hooks, del, fun(_HookPoint, _MF) -> ok end);
+do_mock(emqx_config_handler) ->
+    meck:expect(emqx_config_handler, add_handler, fun(_, _) -> ok end).
 
 %%--------------------------------------------------------------------
 %% MODEL
