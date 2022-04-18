@@ -1162,8 +1162,17 @@ delete_user(ChainName, AuthenticatorID, UserID) ->
     end.
 
 list_users(ChainName, AuthenticatorID, QueryString) ->
-    Response = emqx_authentication:list_users(ChainName, AuthenticatorID, QueryString),
-    emqx_mgmt_util:generate_response(Response).
+    case emqx_authentication:list_users(ChainName, AuthenticatorID, QueryString) of
+        {error, page_limit_invalid} ->
+            {400, #{code => <<"INVALID_PARAMETER">>, message => <<"page_limit_invalid">>}};
+        {error, Reason} ->
+            {400, #{
+                code => <<"INVALID_PARAMETER">>,
+                message => list_to_binary(io_lib:format("Reason ~p", [Reason]))
+            }};
+        Result ->
+            {200, Result}
+    end.
 
 update_config(Path, ConfigRequest) ->
     emqx_conf:update(Path, ConfigRequest, #{

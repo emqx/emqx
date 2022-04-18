@@ -91,8 +91,15 @@ alarms(get, #{query_string := QString}) ->
             true -> ?ACTIVATED_ALARM;
             false -> ?DEACTIVATED_ALARM
         end,
-    Response = emqx_mgmt_api:cluster_query(QString, Table, [], {?MODULE, query}),
-    emqx_mgmt_util:generate_response(Response);
+    case emqx_mgmt_api:cluster_query(QString, Table, [], {?MODULE, query}) of
+        {error, page_limit_invalid} ->
+            {400, #{code => <<"INVALID_PARAMETER">>, message => <<"page_limit_invalid">>}};
+        {error, Node, {badrpc, R}} ->
+            Message = list_to_binary(io_lib:format("bad rpc call ~p, Reason ~p", [Node, R])),
+            {500, #{code => <<"NODE_DOWN">>, message => Message}};
+        Response ->
+            {200, Response}
+    end;
 
 alarms(delete, _Params) ->
     _ = emqx_mgmt:delete_all_deactivated_alarms(),

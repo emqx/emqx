@@ -405,14 +405,23 @@ fields(meta) ->
 %%--------------------------------------------------------------------
 
 users(get, #{query_string := QueryString}) ->
-    Response = emqx_mgmt_api:node_query(
-        node(),
-        QueryString,
-        ?ACL_TABLE,
-        ?ACL_USERNAME_QSCHEMA,
-        ?QUERY_USERNAME_FUN
-    ),
-    emqx_mgmt_util:generate_response(Response);
+    case
+        emqx_mgmt_api:node_query(
+            node(),
+            QueryString,
+            ?ACL_TABLE,
+            ?ACL_USERNAME_QSCHEMA,
+            ?QUERY_USERNAME_FUN
+        )
+    of
+        {error, page_limit_invalid} ->
+            {400, #{code => <<"INVALID_PARAMETER">>, message => <<"page_limit_invalid">>}};
+        {error, Node, {badrpc, R}} ->
+            Message = list_to_binary(io_lib:format("bad rpc call ~p, Reason ~p", [Node, R])),
+            {500, #{code => <<"NODE_DOWN">>, message => Message}};
+        Result ->
+            {200, Result}
+    end;
 users(post, #{body := Body}) when is_list(Body) ->
     lists:foreach(
         fun(#{<<"username">> := Username, <<"rules">> := Rules}) ->
@@ -423,14 +432,23 @@ users(post, #{body := Body}) when is_list(Body) ->
     {204}.
 
 clients(get, #{query_string := QueryString}) ->
-    Response = emqx_mgmt_api:node_query(
-        node(),
-        QueryString,
-        ?ACL_TABLE,
-        ?ACL_CLIENTID_QSCHEMA,
-        ?QUERY_CLIENTID_FUN
-    ),
-    emqx_mgmt_util:generate_response(Response);
+    case
+        emqx_mgmt_api:node_query(
+            node(),
+            QueryString,
+            ?ACL_TABLE,
+            ?ACL_CLIENTID_QSCHEMA,
+            ?QUERY_CLIENTID_FUN
+        )
+    of
+        {error, page_limit_invalid} ->
+            {400, #{code => <<"INVALID_PARAMETER">>, message => <<"page_limit_invalid">>}};
+        {error, Node, {badrpc, R}} ->
+            Message = list_to_binary(io_lib:format("bad rpc call ~p, Reason ~p", [Node, R])),
+            {500, #{code => <<"NODE_DOWN">>, message => Message}};
+        Result ->
+            {200, Result}
+    end;
 clients(post, #{body := Body}) when is_list(Body) ->
     lists:foreach(
         fun(#{<<"clientid">> := ClientID, <<"rules">> := Rules}) ->

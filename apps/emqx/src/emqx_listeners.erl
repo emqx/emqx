@@ -87,13 +87,21 @@ do_list_raw() ->
     Listeners = maps:to_list(RawWithDefault),
     lists:flatmap(fun format_raw_listeners/1, Listeners).
 
-format_raw_listeners({Type, Conf}) ->
+format_raw_listeners({Type0, Conf}) ->
+    Type = binary_to_atom(Type0),
     lists:map(
         fun({LName, LConf0}) when is_map(LConf0) ->
-            Running = is_running(binary_to_atom(Type), listener_id(Type, LName), LConf0),
+            Bind = parse_bind(LConf0),
+            Running = is_running(Type, listener_id(Type, LName), LConf0#{bind => Bind}),
             LConf1 = maps:remove(<<"authentication">>, LConf0),
             LConf2 = maps:put(<<"running">>, Running, LConf1),
-            {Type, LName, LConf2}
+            CurrConn =
+                case Running of
+                    true -> current_conns(Type, LName, Bind);
+                    false -> 0
+                end,
+            LConf3 = maps:put(<<"current_connections">>, CurrConn, LConf2),
+            {Type0, LName, LConf3}
         end,
         maps:to_list(Conf)
     ).
@@ -112,16 +120,7 @@ is_running(ListenerId) ->
     end.
 
 is_running(Type, ListenerId, Conf) when Type =:= tcp; Type =:= ssl ->
-    ListenOn =
-        case Conf of
-            #{bind := Bind} ->
-                Bind;
-            #{<<"bind">> := Bind} ->
-                case emqx_schema:to_ip_port(binary_to_list(Bind)) of
-                    {ok, L} -> L;
-                    {error, _} -> binary_to_integer(Bind)
-                end
-        end,
+    #{bind := ListenOn} = Conf,
     try esockd:listener({ListenerId, ListenOn}) of
         Pid when is_pid(Pid) ->
             true
@@ -545,3 +544,9 @@ str(B) when is_binary(B) ->
     binary_to_list(B);
 str(S) when is_list(S) ->
     S.
+
+parse_bind(#{<<"bind">> := Bind}) ->
+    case emqx_schema:to_ip_port(binary_to_list(Bind)) of
+        {ok, L} -> L;
+        {error, _} -> binary_to_integer(Bind)
+    end.
