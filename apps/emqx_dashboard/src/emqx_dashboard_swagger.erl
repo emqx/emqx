@@ -320,11 +320,10 @@ to_spec(Meta, Params, RequestBody, Responses) ->
     Spec = to_spec(Meta, Params, [], Responses),
     maps:put('requestBody', RequestBody, Spec).
 
-generate_method_desc(Spec0 = #{desc := Desc}) ->
-    Spec = maps:remove(desc, Spec0),
-    Spec#{description => to_bin(Desc)};
-generate_method_desc(Spec = #{description := Desc}) ->
-    Spec#{description => to_bin(Desc)};
+generate_method_desc(Spec = #{desc := _Desc}) ->
+    trans_description(maps:remove(desc, Spec), Spec);
+generate_method_desc(Spec = #{description := _Desc}) ->
+    trans_description(Spec, Spec);
 generate_method_desc(Spec) ->
     Spec.
 
