@@ -18,6 +18,7 @@
 -behaviour(hocon_schema).
 
 -include_lib("typerefl/include/types.hrl").
+-include_lib("hocon/include/hoconsc.hrl").
 
 -import(hoconsc, [mk/2, ref/2]).
 
@@ -58,7 +59,7 @@ fields("connectors") ->
        mk(hoconsc:map(name,
             hoconsc:union([ ref(emqx_connector_mqtt_schema, "connector")
                           ])),
-          #{ desc => "MQTT bridges"
+          #{ desc => ?DESC("mqtt")
           })}
     ].
 

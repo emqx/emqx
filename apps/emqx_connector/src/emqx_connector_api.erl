@@ -21,6 +21,7 @@
 -include("emqx_connector.hrl").
 
 -include_lib("typerefl/include/types.hrl").
+-include_lib("hocon/include/hoconsc.hrl").
 
 -import(hoconsc, [mk/2, ref/2, array/1, enum/1]).
 
@@ -117,7 +118,7 @@ param_path_id() ->
     [{id, mk(binary(),
         #{ in => path
          , example => <<"mqtt:my_mqtt_connector">>
-         , desc => <<"The connector Id. Must be of format {type}:{name}">>
+         , desc => ?DESC("id")
          })}].
 
 schema("/connectors_test") ->
@@ -125,8 +126,7 @@ schema("/connectors_test") ->
         'operationId' => '/connectors_test',
         post => #{
             tags => [<<"connectors">>],
-            desc => <<"Test creating a new connector by given Id <br>"
-                             "The ID must be of format '{type}:{name}'">>,
+            desc => ?DESC("conn_test_post"),
             summary => <<"Test creating connector">>,
             'requestBody' => post_request_body_schema(),
             responses => #{
@@ -141,7 +141,7 @@ schema("/connectors") ->
         'operationId' => '/connectors',
         get => #{
             tags => [<<"connectors">>],
-            desc => <<"List all connectors">>,
+            desc => ?DESC("conn_get"),
             summary => <<"List connectors">>,
             responses => #{
                 200 => emqx_dashboard_swagger:schema_with_example(
@@ -151,7 +151,7 @@ schema("/connectors") ->
         },
         post => #{
             tags => [<<"connectors">>],
-            desc => <<"Create a new connector">>,
+            desc => ?DESC("conn_post"),
             summary => <<"Create connector">>,
             'requestBody' => post_request_body_schema(),
             responses => #{
@@ -166,7 +166,7 @@ schema("/connectors/:id") ->
         'operationId' => '/connectors/:id',
         get => #{
             tags => [<<"connectors">>],
-            desc => <<"Get the connector by Id">>,
+            desc => ?DESC("conn_id_get"),
             summary => <<"Get connector">>,
             parameters => param_path_id(),
             responses => #{
@@ -177,7 +177,7 @@ schema("/connectors/:id") ->
         },
         put => #{
             tags => [<<"connectors">>],
-            desc => <<"Update an existing connector by Id">>,
+            desc => ?DESC("conn_id_put"),
             summary => <<"Update connector">>,
             parameters => param_path_id(),
             'requestBody' => put_request_body_schema(),
@@ -188,7 +188,7 @@ schema("/connectors/:id") ->
             }},
         delete => #{
             tags => [<<"connectors">>],
-            desc => <<"Delete a connector by Id">>,
+            desc => ?DESC("conn_id_delete"),
             summary => <<"Delete connector">>,
             parameters => param_path_id(),
             responses => #{

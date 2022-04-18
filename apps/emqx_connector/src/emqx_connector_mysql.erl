@@ -17,6 +17,7 @@
 
 -include("emqx_connector.hrl").
 -include_lib("typerefl/include/types.hrl").
+-include_lib("hocon/include/hoconsc.hrl").
 -include_lib("emqx/include/logger.hrl").
 
 -behaviour(emqx_resource).
@@ -53,7 +54,7 @@ server(type) -> emqx_schema:ip_port();
 server(required) -> true;
 server(validator) -> [?NOT_EMPTY("the value of the field 'server' cannot be empty")];
 server(converter) -> fun to_server/1;
-server(desc) -> ?SERVER_DESC("MySQL", integer_to_list(?MYSQL_DEFAULT_PORT));
+server(desc) -> ?DESC("server");
 server(_) -> undefined.
 
 %% ===================================================================

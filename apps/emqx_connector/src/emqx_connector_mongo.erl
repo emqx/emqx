@@ -17,6 +17,7 @@
 
 -include("emqx_connector.hrl").
 -include_lib("typerefl/include/types.hrl").
+-include_lib("hocon/include/hoconsc.hrl").
 -include_lib("emqx/include/logger.hrl").
 -include_lib("snabbkaffe/include/snabbkaffe.hrl").
 
@@ -55,14 +56,14 @@ roots() ->
 fields(single) ->
     [ {mongo_type, #{type => single,
                      default => single,
-                     desc => "Standalone instance."}}
+                     desc => ?DESC("single_mongo_type")}}
     , {server, fun server/1}
     , {w_mode, fun w_mode/1}
     ] ++ mongo_fields();
 fields(rs) ->
     [ {mongo_type, #{type => rs,
                      default => rs,
-                     desc => "Replica set."}}
+                     desc => ?DESC("rs_mongo_type")}}
     , {servers, fun servers/1}
     , {w_mode, fun w_mode/1}
     , {r_mode, fun r_mode/1}
@@ -71,7 +72,7 @@ fields(rs) ->
 fields(sharded) ->
     [ {mongo_type, #{type => sharded,
                      default => sharded,
-                     desc => "Sharded cluster."}}
+                     desc => ?DESC("sharded_mongo_type")}}
     , {servers, fun servers/1}
     , {w_mode, fun w_mode/1}
     ] ++ mongo_fields();
@@ -107,7 +108,7 @@ mongo_fields() ->
     , {password, fun emqx_connector_schema_lib:password/1}
     , {auth_source, #{ type => binary()
                      , required => false
-                     , desc => "Database name associated with the user's credentials."
+                     , desc => ?DESC("auth_source")
                      }}
     , {database, fun emqx_connector_schema_lib:database/1}
     , {topology, #{type => hoconsc:ref(?MODULE, topology), required => false}}
@@ -303,43 +304,43 @@ server(type) -> emqx_schema:ip_port();
 server(required) -> true;
 server(validator) -> [?NOT_EMPTY("the value of the field 'server' cannot be empty")];
 server(converter) -> fun to_server_raw/1;
-server(desc) -> ?SERVER_DESC("MongoDB", integer_to_list(?MONGO_DEFAULT_PORT));
+server(desc) -> ?DESC("server");
 server(_) -> undefined.
 
 servers(type) -> list();
 servers(required) -> true;
 servers(validator) -> [?NOT_EMPTY("the value of the field 'servers' cannot be empty")];
 servers(converter) -> fun to_servers_raw/1;
-servers(desc) -> ?SERVERS_DESC ++ server(desc);
+servers(desc) -> ?DESC("servers");
 servers(_) -> undefined.
 
 w_mode(type) -> hoconsc:enum([unsafe, safe]);
-w_mode(desc) -> "Write mode.";
+w_mode(desc) -> ?DESC("w_mode");
 w_mode(default) -> unsafe;
 w_mode(_) -> undefined.
 
 r_mode(type) -> hoconsc:enum([master, slave_ok]);
-r_mode(desc) -> "Read mode.";
+r_mode(desc) -> ?DESC("r_mode");
 r_mode(default) -> master;
 r_mode(_) -> undefined.
 
 duration(type) -> emqx_schema:duration_ms();
-duration(desc) -> "Time interval, such as timeout or TTL.";
+duration(desc) -> ?DESC("duration");
 duration(required) -> false;
 duration(_) -> undefined.
 
 max_overflow(type) -> non_neg_integer();
-max_overflow(desc) -> "Max Overflow.";
+max_overflow(desc) -> ?DESC("max_overflow");
 max_overflow(default) -> 0;
 max_overflow(_) -> undefined.
 
 replica_set_name(type) -> binary();
-replica_set_name(desc) -> "Name of the replica set.";
+replica_set_name(desc) -> ?DESC("replica_set_name");
 replica_set_name(required) -> false;
 replica_set_name(_) -> undefined.
 
 srv_record(type) -> boolean();
-srv_record(desc) -> "Use DNS SRV record.";
+srv_record(desc) -> ?DESC("srv_record");
 srv_record(default) -> false;
 srv_record(_) -> undefined.
 

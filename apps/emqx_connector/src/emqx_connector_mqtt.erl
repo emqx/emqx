@@ -16,6 +16,7 @@
 -module(emqx_connector_mqtt).
 
 -include_lib("typerefl/include/types.hrl").
+-include_lib("hocon/include/hoconsc.hrl").
 -include_lib("emqx/include/logger.hrl").
 
 -behaviour(supervisor).
@@ -55,7 +56,7 @@ fields("config") ->
 
 fields("get") ->
     [ {num_of_bridges, mk(integer(),
-        #{ desc => "The current number of bridges that are using this connector"
+        #{ desc => ?DESC("num_of_bridges")
          })}
     ] ++ fields("post");
 
@@ -65,11 +66,11 @@ fields("put") ->
 fields("post") ->
     [ {type, mk(mqtt,
         #{ required => true
-         , desc => "The Connector Type"
+         , desc => ?DESC("type")
          })}
     , {name, mk(binary(),
         #{ required => true
-         , desc => "Connector name, used as a human-readable description of the connector."
+         , desc => ?DESC("name")
          })}
     ] ++ fields("put").
 

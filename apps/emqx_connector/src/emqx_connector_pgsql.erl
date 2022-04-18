@@ -18,6 +18,7 @@
 -include("emqx_connector.hrl").
 -include_lib("typerefl/include/types.hrl").
 -include_lib("emqx/include/logger.hrl").
+-include_lib("hocon/include/hoconsc.hrl").
 -include_lib("epgsql/include/epgsql.hrl").
 
 -export([roots/0, fields/1]).
@@ -56,7 +57,7 @@ fields(config) ->
     emqx_connector_schema_lib:ssl_fields().
 
 named_queries(type) -> map();
-named_queries(desc) -> "Key-value list of prepared SQL statements.";
+named_queries(desc) -> ?DESC("name_queries_desc");
 named_queries(required) -> false;
 named_queries(_) -> undefined.
 
@@ -64,7 +65,7 @@ server(type) -> emqx_schema:ip_port();
 server(required) -> true;
 server(validator) -> [?NOT_EMPTY("the value of the field 'server' cannot be empty")];
 server(converter) -> fun to_server/1;
-server(desc) -> ?SERVER_DESC("PostgreSQL", integer_to_list(?PGSQL_DEFAULT_PORT));
+server(desc) -> ?DESC("server");
 server(_) -> undefined.
 
 %% ===================================================================
