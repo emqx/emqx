@@ -99,6 +99,8 @@ emqxConfig:
   EMQX_CLUSTER__K8S__SUFFIX: "svc.cluster.local"
   ## if EMQX_CLUSTER__K8S__ADDRESS_TYPE eq dns
   # EMQX_CLUSTER__K8S__SUFFIX: "pod.cluster.local"
+  EMQX_DASHBOARD__DEFAULT_USERNAME: "admin"
+  EMQX_DASHBOARD__DEFAULT_PASSWORD: "public"
 
 ## EMQX Enterprise Edition requires manual creation of a Secret containing the licensed content. Write the name of Secret to the value of "emqxLicenseSecretName"
 ## Example:

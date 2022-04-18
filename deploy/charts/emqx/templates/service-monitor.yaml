@@ -16,9 +16,9 @@ metadata:
 spec:
   endpoints:
   - interval: 10s
-    port: mgmt
+    port: dashboard
     scheme: http
-    path: /api/v4/emqx_prometheus
+    path: /api/v5/prometheus/stats
     params:
       type:
         - prometheus
