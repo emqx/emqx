@@ -206,5 +206,5 @@ containerSecurityContext:
   runAsUser: 1000
 
 metrics:
-  enabled: true
+  enabled: false
   type: prometheus

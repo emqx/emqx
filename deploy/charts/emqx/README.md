@@ -78,4 +78,6 @@ The following table lists the configurable parameters of the emqx chart and thei
 | `ingress.mgmt.hosts` | Ingress hosts for EMQX Mgmt API |	api.emqx.local |
 | `ingress.mgmt.tls` | Ingress tls for EMQX Mgmt API |	[] |
 | `ingress.mgmt.annotations` | Ingress annotations for EMQX Mgmt API |	{} |
+| `metrics.enable` | If set to true, [prometheus-operator](https://github.com/prometheus-operator/prometheus-operator) needs to be installed, and emqx_prometheus needs to enable | false |
+| `metrics.type` | Now we only supported "prometheus" | "prometheus" |
 | `emqxConfig` | Emqx configuration item, see the [documentation](https://hub.docker.com/r/emqx/emqx) | |
