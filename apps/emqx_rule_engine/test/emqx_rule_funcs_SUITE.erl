@@ -664,6 +664,26 @@ t_rfc3339_to_unix_ts(_) ->
         ?assertEqual(Epoch, emqx_rule_funcs:rfc3339_to_unix_ts(DateTime, BUnit))
      end || Unit <- [second,millisecond,microsecond,nanosecond]].
 
+t_format_date_funcs(_) ->
+    ?PROPTEST(prop_format_date_fun).
+
+prop_format_date_fun() ->
+    Args1 = [<<"second">>, <<"+07:00">>, <<"%m--%d--%y---%H:%M:%S%Z">>],
+    ?FORALL(S, erlang:system_time(second),
+            S == apply_func(date_to_unix_ts,
+                            Args1 ++ [apply_func(format_date,
+                                                Args1 ++ [S])])),
+    Args2 = [<<"millisecond">>, <<"+04:00">>, <<"--%m--%d--%y---%H:%M:%S%Z">>],
+    ?FORALL(S, erlang:system_time(millisecond),
+            S == apply_func(date_to_unix_ts,
+                            Args2 ++ [apply_func(format_date,
+                                                 Args2 ++ [S])])),
+    Args = [<<"second">>, <<"+08:00">>, <<"%y-%m-%d-%H:%M:%S%Z">>],
+    ?FORALL(S, erlang:system_time(second),
+            S == apply_func(date_to_unix_ts,
+                           Args ++ [apply_func(format_date,
+                                               Args ++ [S])])).
+
 %%------------------------------------------------------------------------------
 %% Utility functions
 %%------------------------------------------------------------------------------
@@ -822,4 +842,3 @@ all() ->
 
 suite() ->
     [{ct_hooks, [cth_surefire]}, {timetrap, {seconds, 30}}].
-
