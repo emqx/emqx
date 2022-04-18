@@ -67,16 +67,15 @@ t_error(_Config) ->
         <<"properties">> =>
         [
             {<<"code">>, #{enum => ['Bad1', 'Bad2'], type => string}},
-            {<<"message">>, #{description => <<"Details description of the error.">>,
-                example => <<"Bad request desc">>, type => string}}]
+            {<<"message">>, #{description => <<"Bad request desc">>, type => string}}]
     }}}},
     Error404 = #{<<"content">> =>
     #{<<"application/json">> => #{<<"schema">> => #{<<"type">> => object,
         <<"properties">> =>
         [
             {<<"code">>, #{enum => ['Not-Found'], type => string}},
-            {<<"message">>, #{description => <<"Details description of the error.">>,
-                example => <<"Error code to troubleshoot problems.">>, type => string}}]
+            {<<"message">>, #{
+                description => <<"Error code to troubleshoot problems.">>, type => string}}]
     }}}},
     {OperationId, Spec, Refs} = emqx_dashboard_swagger:parse_spec_ref(?MODULE, Path, #{}),
     ?assertEqual(test, OperationId),

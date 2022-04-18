@@ -149,14 +149,14 @@ schema_with_examples(Type, Examples) ->
 error_codes(Codes) ->
     error_codes(Codes, <<"Error code to troubleshoot problems.">>).
 
--spec error_codes(nonempty_list(atom()), binary()) -> hocon_schema:fields().
-error_codes(Codes = [_ | _], MsgExample) ->
+-spec error_codes(nonempty_list(atom()), binary() | {desc, module(), term()}) ->
+    hocon_schema:fields().
+error_codes(Codes = [_ | _], MsgDesc) ->
     [
         {code, hoconsc:mk(hoconsc:enum(Codes))},
         {message,
             hoconsc:mk(string(), #{
-                desc => <<"Details description of the error.">>,
-                example => MsgExample
+                desc => MsgDesc
             })}
     ].
 
@@ -443,6 +443,9 @@ responses(Responses, Module, Options) ->
     {Spec, Refs, _, _} = maps:fold(fun response/3, {#{}, [], Module, Options}, Responses),
     {Spec, Refs}.
 
+response(Status, ?DESC(_Mod, _Id) = Schema, {Acc, RefsAcc, Module, Options}) ->
+    Desc = trans_description(#{}, #{desc => Schema}),
+    {Acc#{integer_to_binary(Status) => Desc}, RefsAcc, Module, Options};
 response(Status, Bin, {Acc, RefsAcc, Module, Options}) when is_binary(Bin) ->
     {Acc#{integer_to_binary(Status) => #{description => Bin}}, RefsAcc, Module, Options};
 %% Support swagger raw object(file download).
