@@ -157,17 +157,6 @@ t_parse_malformed_utf8_string(_) ->
     ParseState = emqx_frame:initial_parse_state(#{strict_mode => true}),
     ?ASSERT_FRAME_THROW(utf8_string_invalid, emqx_frame:parse(MalformedPacket, ParseState)).
 
-t_parse_empty_topic_name(_) ->
-    Packet = ?PUBLISH_PACKET(?QOS_1, <<>>, 1, #{}, <<>>),
-    ?assertEqual(Packet, parse_serialize(Packet, #{strict_mode => false})),
-    ?ASSERT_FRAME_THROW(empty_topic_name, parse_serialize(Packet, #{strict_mode => true})).
-
-t_parse_empty_topic_name_with_alias(_) ->
-    Props = #{'Topic-Alias' => 16#AB},
-    Packet = ?PUBLISH_PACKET(?QOS_1, <<>>, 1, Props, <<>>),
-    ?assertEqual(Packet, parse_serialize(Packet, #{strict_mode => false})),
-    ?assertEqual(Packet, parse_serialize(Packet, #{strict_mode => true})).
-
 t_serialize_parse_v3_connect(_) ->
     Bin =
         <<16, 37, 0, 6, 77, 81, 73, 115, 100, 112, 3, 2, 0, 60, 0, 23, 109, 111, 115, 113, 112, 117,
