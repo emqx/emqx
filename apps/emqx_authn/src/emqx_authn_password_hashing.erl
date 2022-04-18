@@ -19,7 +19,7 @@
 -include_lib("typerefl/include/types.hrl").
 
 -type simple_algorithm_name() :: plain | md5 | sha | sha256 | sha512.
--type salt_position() :: prefix | suffix.
+-type salt_position() :: disable | prefix | suffix.
 
 -type simple_algorithm() :: #{
     name := simple_algorithm_name(),
@@ -110,7 +110,7 @@ desc(other_algorithms) ->
 desc(_) ->
     undefined.
 
-salt_position(type) -> {enum, [prefix, suffix]};
+salt_position(type) -> {enum, [disable, prefix, suffix]};
 salt_position(default) -> prefix;
 salt_position(desc) -> "Salt position for PLAIN, MD5, SHA, SHA256 and SHA512 algorithms.";
 salt_position(_) -> undefined.
@@ -191,7 +191,11 @@ hash(
     Hash = emqx_passwd:hash({pbkdf2, MacFun, Salt, Iterations, DKLength}, Password),
     {Hash, Salt};
 hash(#{name := Other, salt_position := SaltPosition} = Algorithm, Password) ->
-    Salt = gen_salt(Algorithm),
+    Salt =
+        case SaltPosition of
+            disable -> <<>>;
+            _ -> gen_salt(Algorithm)
+        end,
     Hash = emqx_passwd:hash({Other, Salt, SaltPosition}, Password),
     {Hash, Salt}.
 

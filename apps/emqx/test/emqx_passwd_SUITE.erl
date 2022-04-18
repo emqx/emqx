@@ -65,16 +65,28 @@ t_hash(_) ->
     Md5 = emqx_passwd:hash({md5, Salt, prefix}, Password),
     true = emqx_passwd:check_pass({md5, Salt, prefix}, Md5, Password),
     false = emqx_passwd:check_pass({md5, Salt, prefix}, Md5, WrongPassword),
+    ?assertEqual(
+        emqx_passwd:hash_data(md5, Password),
+        emqx_passwd:hash({md5, Salt, disable}, Password)
+    ),
 
     Sha = <<"59b3e8d637cf97edbe2384cf59cb7453dfe30789">>,
     Sha = emqx_passwd:hash({sha, Salt, prefix}, Password),
     true = emqx_passwd:check_pass({sha, Salt, prefix}, Sha, Password),
     false = emqx_passwd:check_pass({sha, Salt, prefix}, Sha, WrongPassword),
+    ?assertEqual(
+        emqx_passwd:hash_data(sha, Password),
+        emqx_passwd:hash({sha, Salt, disable}, Password)
+    ),
 
     Sha256 = <<"7a37b85c8918eac19a9089c0fa5a2ab4dce3f90528dcdeec108b23ddf3607b99">>,
     Sha256 = emqx_passwd:hash({sha256, Salt, suffix}, Password),
     true = emqx_passwd:check_pass({sha256, Salt, suffix}, Sha256, Password),
     false = emqx_passwd:check_pass({sha256, Salt, suffix}, Sha256, WrongPassword),
+    ?assertEqual(
+        emqx_passwd:hash_data(sha256, Password),
+        emqx_passwd:hash({sha256, Salt, disable}, Password)
+    ),
 
     Sha512 = iolist_to_binary(
         [
@@ -85,6 +97,10 @@ t_hash(_) ->
     Sha512 = emqx_passwd:hash({sha512, Salt, suffix}, Password),
     true = emqx_passwd:check_pass({sha512, Salt, suffix}, Sha512, Password),
     false = emqx_passwd:check_pass({sha512, Salt, suffix}, Sha512, WrongPassword),
+    ?assertEqual(
+        emqx_passwd:hash_data(sha512, Password),
+        emqx_passwd:hash({sha512, Salt, disable}, Password)
+    ),
 
     BcryptSalt = <<"$2b$12$wtY3h20mUjjmeaClpqZVve">>,
     Bcrypt = <<"$2b$12$wtY3h20mUjjmeaClpqZVvehyw7F.V78F3rbK2xDkCzRTMi6pmfUB6">>,
