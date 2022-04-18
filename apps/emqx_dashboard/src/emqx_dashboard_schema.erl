@@ -31,12 +31,7 @@ fields("dashboard") ->
     [
         {listeners,
             sc(
-                hoconsc:array(
-                    hoconsc:union([
-                        hoconsc:ref(?MODULE, "http"),
-                        hoconsc:ref(?MODULE, "https")
-                    ])
-                ),
+                ref("listeners"),
                 #{
                     desc =>
                         "HTTP(s) listeners are identified by their protocol type and are\n"
@@ -71,17 +66,27 @@ fields("dashboard") ->
         {cors, fun cors/1},
         {i18n_lang, fun i18n_lang/1}
     ];
-fields("http") ->
+fields("listeners") ->
     [
-        {"protocol",
+        {"http",
             sc(
-                hoconsc:enum([http, https]),
+                ref("http"),
                 #{
-                    desc => ?DESC("protocol"),
-                    required => true,
-                    default => http
+                    desc => "TCP listeners",
+                    required => {false, recursively}
                 }
             )},
+        {"https",
+            sc(
+                ref("https"),
+                #{
+                    desc => "SSL listeners",
+                    required => {false, recursively}
+                }
+            )}
+    ];
+fields("http") ->
+    [
         {"bind", fun bind/1},
         {"num_acceptors",
             sc(
@@ -201,3 +206,5 @@ i18n_lang(desc) -> "Internationalization language support.";
 i18n_lang(_) -> undefined.
 
 sc(Type, Meta) -> hoconsc:mk(Type, Meta).
+
+ref(Field) -> hoconsc:ref(?MODULE, Field).
