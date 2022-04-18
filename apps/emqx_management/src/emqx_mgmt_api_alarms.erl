@@ -57,7 +57,7 @@ schema("/alarms") ->
         delete  => #{
             description => ?DESC(delete_alarms_api),
             responses => #{
-                204 => ?DESC(delete_alarms_api_response_200)
+                204 => ?DESC(delete_alarms_api_response204)
             }
         }
     }.

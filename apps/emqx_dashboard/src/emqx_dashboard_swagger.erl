@@ -149,7 +149,8 @@ schema_with_examples(Type, Examples) ->
 error_codes(Codes) ->
     error_codes(Codes, <<"Error code to troubleshoot problems.">>).
 
--spec error_codes(nonempty_list(atom()), binary()) -> hocon_schema:fields().
+-spec error_codes(nonempty_list(atom()), binary() | {desc, module(), term()}) ->
+    hocon_schema:fields().
 error_codes(Codes = [_ | _], MsgDesc) ->
     [
         {code, hoconsc:mk(hoconsc:enum(Codes))},
