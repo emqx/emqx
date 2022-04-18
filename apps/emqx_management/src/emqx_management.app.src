@@ -1,9 +1,9 @@
 {application, emqx_management,
  [{description, "EMQ X Management API and CLI"},
-  {vsn, "4.3.12"}, % strict semver, bump manually!
+  {vsn, "4.4.3"}, % strict semver, bump manually!
   {modules, []},
   {registered, [emqx_management_sup]},
-  {applications, [kernel,stdlib,minirest]},
+  {applications, [kernel,stdlib,emqx_plugin_libs,minirest]},
   {mod, {emqx_mgmt_app,[]}},
   {env, []},
   {licenses, ["Apache-2.0"]},

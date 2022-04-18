@@ -48,6 +48,10 @@ init_per_testcase(TestCase, Config) when
     TestCase =/= t_ws_pingreq_before_connected,
     TestCase =/= t_ws_non_check_origin
     ->
+    %% Meck Cm
+    ok = meck:new(emqx_cm, [passthrough, no_history, no_link]),
+    ok = meck:expect(emqx_cm, mark_channel_connected, fun(_) -> ok end),
+    ok = meck:expect(emqx_cm, mark_channel_disconnected, fun(_) -> ok end),
     %% Mock cowboy_req
     ok = meck:new(cowboy_req, [passthrough, no_history, no_link]),
     ok = meck:expect(cowboy_req, header, fun(_, _, _) -> <<>> end),
@@ -95,7 +99,8 @@ end_per_testcase(TestCase, _Config) when
         TestCase =/= t_ws_pingreq_before_connected
         ->
     lists:foreach(fun meck:unload/1,
-                  [cowboy_req,
+                  [emqx_cm,
+                   cowboy_req,
                    emqx_zone,
                    emqx_access_control,
                    emqx_broker,
@@ -164,8 +169,9 @@ t_stats(_) ->
                       end
                   end),
     Stats = ?ws_conn:call(WsPid, stats),
-    [{recv_oct, 0}, {recv_cnt, 0}, {send_oct, 0}, {send_cnt, 0},
-     {recv_pkt, 0}, {recv_msg, 0}, {send_pkt, 0}, {send_msg, 0}|_] = Stats.
+    [lists:member(V, Stats) ||
+        V <- [{recv_oct, 0}, {recv_cnt, 0}, {send_oct, 0}, {send_cnt, 0},
+              {recv_pkt, 0}, {recv_msg, 0}, {send_pkt, 0}, {send_msg, 0}]].
 
 t_call(_) ->
     Info = ?ws_conn:info(st()),
@@ -389,14 +395,12 @@ t_handle_info_close(_) ->
     {[{close, _}], _St} = ?ws_conn:handle_info({close, protocol_error}, st()).
 
 t_handle_info_event(_) ->
-    ok = meck:new(emqx_cm, [passthrough, no_history]),
     ok = meck:expect(emqx_cm, register_channel, fun(_,_,_) -> ok end),
     ok = meck:expect(emqx_cm, insert_channel_info, fun(_,_,_) -> ok end),
     ok = meck:expect(emqx_cm, connection_closed, fun(_) -> true end),
     {ok, _} = ?ws_conn:handle_info({event, connected}, st()),
     {ok, _} = ?ws_conn:handle_info({event, disconnected}, st()),
-    {ok, _} = ?ws_conn:handle_info({event, updated}, st()),
-    ok = meck:unload(emqx_cm).
+    {ok, _} = ?ws_conn:handle_info({event, updated}, st()).
 
 t_handle_timeout_idle_timeout(_) ->
     TRef = make_ref(),

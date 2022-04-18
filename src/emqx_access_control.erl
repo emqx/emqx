@@ -49,7 +49,8 @@ check_acl(ClientInfo, PubSub, Topic) ->
         true  -> check_acl_cache(ClientInfo, PubSub, Topic);
         false -> do_check_acl(ClientInfo, PubSub, Topic)
     end,
-    inc_acl_metrics(Result), Result.
+    inc_acl_metrics(Result),
+    Result.
 
 check_acl_cache(ClientInfo, PubSub, Topic) ->
     case emqx_acl_cache:get_acl_cache(PubSub, Topic) of
@@ -59,15 +60,18 @@ check_acl_cache(ClientInfo, PubSub, Topic) ->
             AclResult;
         AclResult ->
             inc_acl_metrics(cache_hit),
+            emqx:run_hook('client.check_acl_complete', [ClientInfo, PubSub, Topic, AclResult, true]),
             AclResult
     end.
 
 do_check_acl(ClientInfo = #{zone := Zone}, PubSub, Topic) ->
     Default = emqx_zone:get_env(Zone, acl_nomatch, deny),
-    case run_hooks('client.check_acl', [ClientInfo, PubSub, Topic], Default) of
-        allow  -> allow;
-        _Other -> deny
-    end.
+    Result = case run_hooks('client.check_acl', [ClientInfo, PubSub, Topic], Default) of
+                 allow  -> allow;
+                 _Other -> deny
+             end,
+    emqx:run_hook('client.check_acl_complete', [ClientInfo, PubSub, Topic, Result, false]),
+    Result.
 
 default_auth_result(Zone) ->
     case emqx_zone:get_env(Zone, allow_anonymous, false) of

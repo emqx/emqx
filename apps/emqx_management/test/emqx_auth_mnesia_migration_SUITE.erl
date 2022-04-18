@@ -183,7 +183,10 @@ do_import(File, Config, Overrides) ->
     mnesia:clear_table(?ACL_TABLE2),
     mnesia:clear_table(emqx_user),
     emqx_acl_mnesia_migrator:migrate_records(),
-    Filename = filename:join(proplists:get_value(data_dir, Config), File),
+    Filename = filename:basename(File),
+    FilePath = filename:join([proplists:get_value(data_dir, Config), File]),
+    {ok, Bin} = file:read_file(FilePath),
+    ok = emqx_mgmt_data_backup:upload_backup_file(Filename, Bin),
     emqx_mgmt_data_backup:import(Filename, Overrides).
 
 test_import(username, {Username, Password}) ->

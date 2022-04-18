@@ -70,7 +70,20 @@ initContainers: {}
 
 ## EMQX configuration item, see the documentation (https://hub.docker.com/r/emqx/emqx)
 emqxConfig:
+  EMQX_NAME:  "{{ .Release.Name }}"
+
+  ## Cluster discovery by dns
+  # EMQX_CLUSTER__DISCOVERY: "dns"
+  # EMQX_CLUSTER__DNS__NAME: "{{ .Release.Name }}-headless.{{ .Release.Namespace }}.svc.cluster.local"
+  # EMQX_CLUSTER__DNS__APP: "{{ .Release.Name }}"
+  # EMQX_CLUSTER__DNS__TYPE: "srv"
+
+  ## Cluster discovery by k8s
+  EMQX_CLUSTER__DISCOVERY: "k8s"
+  EMQX_CLUSTER__K8S__APP_NAME: "{{ .Release.Name }}"
   EMQX_CLUSTER__K8S__APISERVER: "https://kubernetes.default.svc:443"
+  EMQX_CLUSTER__K8S__SERVICE_NAME: "{{ .Release.Name }}-headless"
+  EMQX_CLUSTER__K8S__NAMESPACE: "{{ .Release.Namespace }}"
   ## The address type is used to extract host from k8s service.
   ## Value: ip | dns | hostname
   ## Note：Hostname is only supported after v4.0-rc.2
@@ -114,6 +127,8 @@ emqxLoadedPlugins: >
 emqxLoadedModules: >
   {emqx_mod_acl_internal, true}.
   {emqx_mod_presence, true}.
+  {emqx_mod_trace, false}.
+  {emqx_mod_slow_subs, false}.
   {emqx_mod_delayed, false}.
   {emqx_mod_rewrite, false}.
   {emqx_mod_subscription, false}.
