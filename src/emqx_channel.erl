@@ -276,14 +276,17 @@ handle_in(?CONNECT_PACKET(), Channel = #channel{conn_state = connected}) ->
     handle_out(disconnect, ?RC_PROTOCOL_ERROR, Channel);
 
 handle_in(?CONNECT_PACKET(ConnPkt), Channel) ->
-    case pipeline([fun enrich_conninfo/2,
-                   fun run_conn_hooks/2,
-                   fun check_connect/2,
-                   fun enrich_client/2,
-                   fun set_log_meta/2,
-                   fun check_banned/2,
-                   fun auth_connect/2
-                  ], ConnPkt, Channel#channel{conn_state = connecting}) of
+    Funcs = [
+        fun flapping_detect/2,
+        fun enrich_conninfo/2,
+        fun run_conn_hooks/2,
+        fun check_connect/2,
+        fun enrich_client/2,
+        fun set_log_meta/2,
+        fun check_banned/2,
+        fun auth_connect/2
+    ],
+    case pipeline(Funcs, ConnPkt, Channel#channel{conn_state = connecting}) of
         {ok, NConnPkt, NChannel = #channel{clientinfo = ClientInfo}} ->
             NChannel1 = NChannel#channel{
                                         will_msg = emqx_packet:will_msg(NConnPkt),
@@ -993,11 +996,7 @@ handle_info({sock_closed, Reason}, Channel = #channel{conn_state = idle}) ->
 handle_info({sock_closed, Reason}, Channel = #channel{conn_state = connecting}) ->
     shutdown(Reason, Channel);
 
-handle_info({sock_closed, Reason}, Channel =
-            #channel{conn_state = connected,
-                     clientinfo = ClientInfo = #{zone := Zone}}) ->
-    emqx_zone:enable_flapping_detect(Zone)
-        andalso emqx_flapping:detect(ClientInfo),
+handle_info({sock_closed, Reason}, Channel = #channel{conn_state = connected}) ->
     Channel1 = ensure_disconnected(Reason, maybe_publish_will_msg(Channel)),
     case maybe_shutdown(Reason, Channel1) of
         {ok, Channel2} -> {ok, {event, disconnected}, Channel2};
@@ -1146,6 +1145,13 @@ run_terminate_hook(Reason, #channel{clientinfo = ClientInfo, session = Session})
 %%--------------------------------------------------------------------
 %% Internal functions
 %%--------------------------------------------------------------------
+
+%%--------------------------------------------------------------------
+%% Maybe flapping
+
+flapping_detect(_ConnPkt, Channel = #channel{clientinfo = ClientInfo = #{zone := Zone}}) ->
+    _ = emqx_zone:enable_flapping_detect(Zone) andalso emqx_flapping:detect(ClientInfo),
+    {ok, Channel}.
 
 %%--------------------------------------------------------------------
 %% Enrich MQTT Connect Info
