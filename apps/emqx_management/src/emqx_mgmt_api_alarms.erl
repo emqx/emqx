@@ -18,6 +18,7 @@
 
 -behaviour(minirest_api).
 
+-include_lib("hocon/include/hoconsc.hrl").
 -include_lib("emqx/include/emqx.hrl").
 -include_lib("typerefl/include/types.hrl").
 
@@ -38,12 +39,12 @@ schema("/alarms") ->
     #{
         'operationId' => alarms,
         get => #{
-            description => <<"EMQX alarms">>,
+            description => ?DESC(list_alarms_api),
             parameters => [
                 hoconsc:ref(emqx_dashboard_swagger, page),
                 hoconsc:ref(emqx_dashboard_swagger, limit),
                 {activated, hoconsc:mk(boolean(), #{in => query,
-                    desc => <<"All alarms, if not specified">>,
+                    desc => ?DESC(get_alarms_qs_activated),
                     required => false})}
             ],
             responses => #{
@@ -54,9 +55,9 @@ schema("/alarms") ->
             }
         },
         delete  => #{
-            description => <<"Remove all deactivated alarms">>,
+            description => ?DESC(delete_alarms_api),
             responses => #{
-                204 => <<"Remove all deactivated alarms ok">>
+                204 => ?DESC(delete_alarms_api_response_200)
             }
         }
     }.
@@ -64,20 +65,17 @@ schema("/alarms") ->
 fields(alarm) ->
     [
         {node, hoconsc:mk(binary(),
-                          #{desc => <<"Alarm in node">>, example => atom_to_list(node())})},
+                          #{desc => ?DESC(node), example => atom_to_list(node())})},
         {name, hoconsc:mk(binary(),
-                          #{desc => <<"Alarm name">>, example => <<"high_system_memory_usage">>})},
-        {message, hoconsc:mk(binary(), #{desc => <<"Alarm readable information">>,
+                          #{desc => ?DESC(node), example => <<"high_system_memory_usage">>})},
+        {message, hoconsc:mk(binary(), #{desc => desc => ?DESC(message),
             example => <<"System memory usage is higher than 70%">>})},
-        {details, hoconsc:mk(map(), #{desc => <<"Alarm details information">>,
+        {details, hoconsc:mk(map(), #{desc => ?DESC(details),
             example => #{<<"high_watermark">> => 70}})},
-        {duration, hoconsc:mk(integer(),
-                              #{desc => <<"Alarms duration time; UNIX time stamp, millisecond">>,
-            example => 297056})},
-        {activate_at, hoconsc:mk(binary(), #{desc => <<"Alarms activate time, RFC 3339">>,
+        {duration, hoconsc:mk(integer(), #{desc => ?DESC(duration), example => 297056})},
+        {activate_at, hoconsc:mk(binary(), #{desc => ?DESC(activate_at),
             example => <<"2021-10-25T11:52:52.548+08:00">>})},
-        {deactivate_at, hoconsc:mk(binary(),
-                                   #{desc => <<"Nullable, alarms deactivate time, RFC 3339">>,
+        {deactivate_at, hoconsc:mk(binary(), #{desc => ?DESC(deactivate_at),
             example => <<"2021-10-31T10:52:52.548+08:00">>})}
     ];
 
