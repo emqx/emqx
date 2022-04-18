@@ -78,7 +78,7 @@ api_spec() ->
 paths() ->
     [ "/clients"
     , "/clients/:clientid"
-    , "/clients/:clientid/authz_cache"
+    , "/clients/:clientid/authorization/cache"
     , "/clients/:clientid/subscriptions"
     , "/clients/:clientid/subscribe"
     , "/clients/:clientid/unsubscribe"
@@ -190,11 +190,11 @@ schema("/clients/:clientid") ->
         }
     };
 
-schema("/clients/:clientid/authz_cache") ->
+schema("/clients/:clientid/authorization/cache") ->
     #{
         'operationId' => authz_cache,
         get => #{
-            description => <<"Get client authz cache">>,
+            description => <<"Get client authz cache in the cluster.">>,
             parameters => [{clientid, hoconsc:mk(binary(), #{in => path})}],
             responses => #{
                 200 => hoconsc:mk(hoconsc:ref(?MODULE, authz_cache), #{}),
@@ -203,7 +203,7 @@ schema("/clients/:clientid/authz_cache") ->
             }
         },
         delete => #{
-            description => <<"Clean client authz cache">>,
+            description => <<"Clean client authz cache in the cluster.">>,
             parameters => [{clientid, hoconsc:mk(binary(), #{in => path})}],
             responses => #{
                 204 => <<"Kick out client successfully">>,
