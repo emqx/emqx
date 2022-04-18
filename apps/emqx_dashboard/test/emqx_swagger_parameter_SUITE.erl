@@ -62,9 +62,9 @@ t_in_query(_Config) ->
     Expect =
         [#{description => <<"results per page (max 100)">>,
             example => 1, in => query, name => per_page,
-            schema => #{example => 1, maximum => 100, minimum => 1, type => integer}},
+            schema => #{maximum => 100, minimum => 1, type => integer}},
             #{description => <<"QOS">>, in => query, name => qos,
-                schema => #{enum => [0, 1, 2], example => 0, type => string}}],
+                schema => #{enum => [0, 1, 2], type => string}}],
     validate("/test/in/query", Expect),
     ok.
 
@@ -96,12 +96,12 @@ t_public_ref(_Config) ->
     ], Refs),
     ExpectRefs = [
         #{<<"public.limit">> => #{description => <<"Results per page(max 1000)">>,
-            example => 50,in => query,name => limit,
-            schema => #{default => 100,example => 1,maximum => 1000,
+            in => query,name => limit, example => 50,
+            schema => #{default => 100,maximum => 1000,
                 minimum => 1,type => integer}}},
         #{<<"public.page">> => #{description => <<"Page number of the results to fetch.">>,
-            example => 1,in => query,name => page,
-            schema => #{default => 1,example => 100,minimum => 1,type => integer}}}],
+            in => query,name => page,example => 1,
+            schema => #{default => 1,minimum => 1,type => integer}}}],
     ?assertEqual(ExpectRefs, emqx_dashboard_swagger:components(Refs,#{})),
     ok.
 
@@ -114,11 +114,11 @@ t_in_mix(_Config) ->
                 example => <<"12m">>,in => path,name => state,required => true,
                 schema => #{example => <<"1h">>,type => string}},
             #{example => 10,in => query,name => per_page, required => false,
-                schema => #{default => 5,example => 1,maximum => 50,minimum => 1, type => integer}},
-            #{in => query,name => is_admin, schema => #{example => true,type => boolean}},
+                schema => #{default => 5,maximum => 50,minimum => 1, type => integer}},
+            #{in => query,name => is_admin, schema => #{type => boolean}},
             #{in => query,name => timeout,
                 schema => #{<<"oneOf">> => [#{enum => [infinity],type => string},
-                    #{example => 30,maximum => 60,minimum => 30, type => integer}]}}],
+                    #{maximum => 60,minimum => 30, type => integer}]}}],
     ExpectMeta = #{
             tags => [tags, good],
             description => <<"good description">>,
@@ -138,15 +138,15 @@ t_without_in(_Config) ->
 t_require(_Config) ->
     ExpectSpec = [#{
         in => query,name => userid, required => false,
-        schema => #{example => <<"binary-example">>, type => string}}],
+        schema => #{type => string}}],
     validate("/required/false", ExpectSpec),
     ok.
 
 t_nullable(_Config) ->
     NullableFalse = [#{in => query,name => userid, required => true,
-        schema => #{example => <<"binary-example">>, type => string}}],
+        schema => #{type => string}}],
     NullableTrue = [#{in => query,name => userid,
-        schema => #{example => <<"binary-example">>, type => string}, required => false}],
+        schema => #{type => string}, required => false}],
     validate("/nullable/false", NullableFalse),
     validate("/nullable/true", NullableTrue),
     ok.

@@ -50,7 +50,7 @@ t_object(_config) ->
         #{<<"schema">> => #{required => [<<"timeout">>, <<"per_page">>],
             <<"properties">> => [
                 {<<"per_page">>, #{description => <<"good per page desc">>,
-                    example => 1, maximum => 100, minimum => 1, type => integer}},
+                    maximum => 100, minimum => 1, type => integer}},
                 {<<"timeout">>, #{default => 5, <<"oneOf">> =>
                 [#{example => <<"1h">>, type => string}, #{enum => [infinity], type => string}]}},
                 {<<"inner_ref">>, #{<<"$ref">> =>
@@ -92,12 +92,12 @@ t_nest_object(_Config) ->
     Object =
         #{<<"content">> => #{<<"application/json">> => #{<<"schema">> =>
         #{required => [<<"timeout">>], <<"type">> => object, <<"properties">> => [
-            {<<"per_page">>, #{description => <<"good per page desc">>, example => 1,
+            {<<"per_page">>, #{description => <<"good per page desc">>,
                 maximum => 100, minimum => 1, type => integer}},
             {<<"timeout">>, #{default => 5, <<"oneOf">> =>
             [#{example => <<"1h">>, type => string}, #{enum => [infinity], type => string}]}},
             {<<"nest_object">>, #{<<"type">> => object, <<"properties">> => [
-                {<<"good_nest_1">>, #{example => 100, type => integer}},
+                {<<"good_nest_1">>, #{type => integer}},
                 {<<"good_nest_2">>, #{<<"$ref">> =>
                 <<"#/components/schemas/emqx_swagger_response_SUITE.good_ref">>}
                 }]}},
@@ -185,16 +185,15 @@ t_complicated_type(_Config) ->
     Object = #{<<"content">> => #{<<"application/json">> =>
     #{<<"schema">> => #{<<"properties">> =>
     [
-        {<<"no_neg_integer">>, #{example => 100, minimum => 0, type => integer}},
+        {<<"no_neg_integer">>, #{minimum => 0, type => integer}},
         {<<"url">>, #{example => <<"http://127.0.0.1">>, type => string}},
         {<<"server">>, #{example => <<"127.0.0.1:80">>, type => string}},
         {<<"connect_timeout">>, #{example => infinity, <<"oneOf">> => [
             #{example => infinity, type => string},
-            #{example => 100, type => integer}]}},
-        {<<"pool_type">>, #{enum => [random, hash], example => hash, type => string}},
+            #{type => integer}]}},
+        {<<"pool_type">>, #{enum => [random, hash], type => string}},
         {<<"timeout">>, #{example => infinity,
-            <<"oneOf">> =>
-            [#{example => infinity, type => string}, #{example => 100, type => integer}]}},
+            <<"oneOf">> => [#{example => infinity, type => string}, #{type => integer}]}},
         {<<"bytesize">>, #{example => <<"32MB">>, type => string}},
         {<<"wordsize">>, #{example => <<"1024KB">>, type => string}},
         {<<"maps">>, #{example => #{}, type => object}},
@@ -203,7 +202,7 @@ t_complicated_type(_Config) ->
         {<<"log_level">>,
             #{enum => [debug, info, notice, warning, error, critical, alert, emergency, all],
                 type => string}},
-        {<<"fix_integer">>, #{default => 100, enum => [100], example => 100,type => integer}}
+        {<<"fix_integer">>, #{default => 100, enum => [100],type => integer}}
     ],
         <<"type">> => object}}}},
     {OperationId, Spec, Refs} = emqx_dashboard_swagger:parse_spec_ref(?MODULE, Path, #{}),
@@ -219,17 +218,16 @@ t_ref_array_with_key(_Config) ->
     Object = #{<<"content">> => #{<<"application/json">> => #{<<"schema">> => #{
         required => [<<"timeout">>], <<"type">> => object, <<"properties">> => [
             {<<"per_page">>, #{description => <<"good per page desc">>,
-                example => 1, maximum => 100, minimum => 1, type => integer}},
+                maximum => 100, minimum => 1, type => integer}},
             {<<"timeout">>, #{default => 5, <<"oneOf">> =>
             [#{example => <<"1h">>, type => string}, #{enum => [infinity], type => string}]}},
-            {<<"assert">>, #{description => <<"money">>, example => 3.14159, type => number}},
-            {<<"number_ex">>, #{description => <<"number example">>,
-                example => 42, type => number}},
+            {<<"assert">>, #{description => <<"money">>, type => number}},
+            {<<"number_ex">>, #{description => <<"number example">>, type => number}},
             {<<"percent_ex">>, #{description => <<"percent example">>,
                 example => <<"12%">>, type => number}},
             {<<"duration_ms_ex">>, #{description => <<"duration ms example">>,
                 example => <<"32s">>, type => string}},
-            {<<"atom_ex">>, #{description => <<"atom ex">>, example => atom, type => string}},
+            {<<"atom_ex">>, #{description => <<"atom ex">>, type => string}},
             {<<"array_refs">>, #{items => #{<<"$ref">> =>
             <<"#/components/schemas/emqx_swagger_response_SUITE.good_ref">>}, type => array}}
         ]}
@@ -254,12 +252,12 @@ t_hocon_schema_function(_Config) ->
         #{<<"emqx_swagger_remote_schema.ref1">> => #{<<"type">> => object,
             <<"properties">> => [
                 {<<"protocol">>, #{enum => [http, https], type => string}},
-                {<<"port">>, #{default => 18083, example => 100, type => integer}}]
+                {<<"port">>, #{default => 18083, type => integer}}]
         }},
         #{<<"emqx_swagger_remote_schema.ref2">> => #{<<"type">> => object,
             <<"properties">> => [
                 {<<"page">>, #{description => <<"good page">>,
-                    example => 1, maximum => 100, minimum => 1, type => integer}},
+                    maximum => 100, minimum => 1, type => integer}},
                 {<<"another_ref">>, #{<<"$ref">> =>
                 <<"#/components/schemas/emqx_swagger_remote_schema.ref3">>}}
             ]
@@ -279,9 +277,9 @@ t_hocon_schema_function(_Config) ->
                 #{<<"$ref">> => <<"#/components/schemas/emqx_swagger_remote_schema.ref1">>}]},
                 type => array}},
                 {<<"default_username">>,
-                    #{default => <<"admin">>, example => <<"string-example">>, type => string}},
+                    #{default => <<"admin">>, type => string}},
                 {<<"default_password">>,
-                    #{default => <<"public">>, example => <<"string-example">>, type => string}},
+                    #{default => <<"public">>, type => string}},
                 {<<"sample_interval">>,
                     #{default => <<"10s">>, example => <<"1h">>, type => string}},
                 {<<"token_expired_time">>,

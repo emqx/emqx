@@ -572,25 +572,25 @@ hocon_schema_to_spec(Atom, _LocalModule) when is_atom(Atom) ->
 typename_to_spec("user_id_type()", _Mod) ->
     #{type => string, enum => [clientid, username]};
 typename_to_spec("term()", _Mod) ->
-    #{type => string, example => "any"};
+    #{type => string};
 typename_to_spec("boolean()", _Mod) ->
-    #{type => boolean, example => true};
+    #{type => boolean};
 typename_to_spec("binary()", _Mod) ->
-    #{type => string, example => <<"binary-example">>};
+    #{type => string};
 typename_to_spec("float()", _Mod) ->
-    #{type => number, example => 3.14159};
+    #{type => number};
 typename_to_spec("integer()", _Mod) ->
-    #{type => integer, example => 100};
+    #{type => integer};
 typename_to_spec("non_neg_integer()", _Mod) ->
-    #{type => integer, minimum => 0, example => 100};
+    #{type => integer, minimum => 0};
 typename_to_spec("pos_integer()", _Mod) ->
-    #{type => integer, minimum => 1, example => 100};
+    #{type => integer, minimum => 1};
 typename_to_spec("number()", _Mod) ->
-    #{type => number, example => 42};
+    #{type => number};
 typename_to_spec("string()", _Mod) ->
-    #{type => string, example => <<"string-example">>};
+    #{type => string};
 typename_to_spec("atom()", _Mod) ->
-    #{type => string, example => atom};
+    #{type => string};
 typename_to_spec("epoch_second()", _Mod) ->
     #{
         <<"oneOf">> => [
@@ -627,7 +627,7 @@ typename_to_spec("timeout()", _Mod) ->
     #{
         <<"oneOf">> => [
             #{type => string, example => infinity},
-            #{type => integer, example => 100}
+            #{type => integer}
         ],
         example => infinity
     };
@@ -640,7 +640,7 @@ typename_to_spec("map()", _Mod) ->
 typename_to_spec("#{" ++ _, Mod) ->
     typename_to_spec("map()", Mod);
 typename_to_spec("qos()", _Mod) ->
-    #{type => string, enum => [0, 1, 2], example => 0};
+    #{type => string, enum => [0, 1, 2]};
 typename_to_spec("{binary(), binary()}", _Mod) ->
     #{type => object, example => #{}};
 typename_to_spec("comma_separated_list()", _Mod) ->
@@ -648,7 +648,7 @@ typename_to_spec("comma_separated_list()", _Mod) ->
 typename_to_spec("comma_separated_atoms()", _Mod) ->
     #{type => string, example => <<"item1,item2">>};
 typename_to_spec("pool_type()", _Mod) ->
-    #{type => string, enum => [random, hash], example => hash};
+    #{type => string, enum => [random, hash]};
 typename_to_spec("log_level()", _Mod) ->
     #{
         type => string,
@@ -716,7 +716,7 @@ typerefl_array(Spec, _Name, _Mod) ->
 %% integer(1)
 integer(nomatch, Name) ->
     case string:to_integer(Name) of
-        {Int, []} -> #{type => integer, enum => [Int], example => Int, default => Int};
+        {Int, []} -> #{type => integer, enum => [Int], default => Int};
         _ -> nomatch
     end;
 integer(Spec, _Name) ->
@@ -725,7 +725,7 @@ integer(Spec, _Name) ->
 add_integer_prop(Schema, Key, Value) ->
     case string:to_integer(Value) of
         {error, no_integer} -> Schema;
-        {Int, []} when Key =:= minimum -> Schema#{Key => Int, example => Int};
+        {Int, []} when Key =:= minimum -> Schema#{Key => Int};
         {Int, []} -> Schema#{Key => Int}
     end.
 

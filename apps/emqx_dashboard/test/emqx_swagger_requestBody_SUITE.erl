@@ -43,7 +43,7 @@ t_object(_Config) ->
             #{required => [<<"timeout">>, <<"per_page">>],
                 <<"properties">> =>[
                     {<<"per_page">>, #{description => <<"good per page desc">>,
-                        example => 1, maximum => 100, minimum => 1, type => integer}},
+                        maximum => 100, minimum => 1, type => integer}},
                     {<<"timeout">>, #{default => 5, <<"oneOf">> =>
                     [#{example => <<"1h">>, type => string},
                         #{enum => [infinity], type => string}]}},
@@ -64,13 +64,13 @@ t_nest_object(_Config) ->
             #{required => [<<"timeout">>],
                 <<"properties">> =>
                 [{<<"per_page">>, #{description => <<"good per page desc">>,
-                    example => 1, maximum => 100, minimum => 1, type => integer}},
+                    maximum => 100, minimum => 1, type => integer}},
                     {<<"timeout">>, #{default => 5, <<"oneOf">> =>
                     [#{example => <<"1h">>, type => string},
                         #{enum => [infinity], type => string}]}},
                     {<<"nest_object">>,
                         #{<<"properties">> =>
-                        [{<<"good_nest_1">>, #{example => 100, type => integer}},
+                        [{<<"good_nest_1">>, #{type => integer}},
                             {<<"good_nest_2">>, #{<<"$ref">> =>
                             <<"#/components/schemas/emqx_swagger_requestBody_SUITE.good_ref">>}}],
                             <<"type">> => object}},
@@ -105,7 +105,7 @@ t_remote_ref(_Config) ->
     {_, Components} = validate("/ref/remote", Spec, Refs),
     ExpectComponents = [
         #{<<"emqx_swagger_remote_schema.ref2">> => #{<<"properties">> => [
-            {<<"page">>, #{description => <<"good page">>,example => 1,
+            {<<"page">>, #{description => <<"good page">>,
                 maximum => 100,minimum => 1,type => integer}},
         {<<"another_ref">>, #{<<"$ref">> =>
         <<"#/components/schemas/emqx_swagger_remote_schema.ref3">>}}], <<"type">> => object}},
@@ -136,8 +136,7 @@ t_nest_ref(_Config) ->
             {<<"webhook-host">>, #{default => <<"127.0.0.1:80">>,
                 example => <<"127.0.0.1:80">>,type => string}},
             {<<"log_dir">>, #{example => <<"var/log/emqx">>,type => string}},
-            {<<"tag">>, #{description => <<"tag">>,
-                example => <<"binary-example">>,type => string}}],
+            {<<"tag">>, #{description => <<"tag">>,type => string}}],
             <<"type">> => object}}]),
     {_, Components} = validate("/ref/nest/ref", Spec, Refs),
     ?assertEqual(ExpectComponents, Components),
@@ -181,7 +180,7 @@ t_ref_array_with_key(_Config) ->
                 <<"type">> => object, <<"properties">> =>
                 [
                     {<<"per_page">>, #{description => <<"good per page desc">>,
-                        example => 1, maximum => 100, minimum => 1, type => integer}},
+                        maximum => 100, minimum => 1, type => integer}},
                     {<<"timeout">>, #{default => 5, <<"oneOf">> =>
                     [#{example => <<"1h">>, type => string},
                         #{enum => [infinity], type => string}]}},
