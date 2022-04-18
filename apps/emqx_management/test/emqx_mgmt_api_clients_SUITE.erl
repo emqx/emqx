@@ -76,9 +76,9 @@ t_clients(_) ->
     AfterKickoutResponse2 = emqx_mgmt_api_test_util:request_api(get, Client2Path),
     ?assertEqual({error, {"HTTP/1.1", 404, "Not Found"}}, AfterKickoutResponse2),
 
-    %% get /clients/:clientid/authz_cache should has no authz cache
+    %% get /clients/:clientid/authorization/cache should has no authz cache
     Client1AuthzCachePath = emqx_mgmt_api_test_util:api_path(["clients",
-        binary_to_list(ClientId1), "authz_cache"]),
+        binary_to_list(ClientId1), "authorization", "cache"]),
     {ok, Client1AuthzCache} = emqx_mgmt_api_test_util:request_api(get, Client1AuthzCachePath),
     ?assertEqual("[]", Client1AuthzCache),
 
