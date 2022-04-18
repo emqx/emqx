@@ -384,7 +384,7 @@ params_paging_in_qs() ->
     [
         {page,
             mk(
-                integer(),
+                pos_integer(),
                 #{
                     in => query,
                     required => false,
@@ -394,7 +394,7 @@ params_paging_in_qs() ->
             )},
         {limit,
             mk(
-                integer(),
+                pos_integer(),
                 #{
                     in => query,
                     required => false,

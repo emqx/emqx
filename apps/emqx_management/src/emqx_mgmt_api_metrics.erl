@@ -264,4 +264,4 @@ properties() ->
     ].
 
 m(K, Desc) ->
-    {K, mk(integer(), #{desc => Desc})}.
+    {K, mk(non_neg_integer(), #{desc => Desc})}.

@@ -53,7 +53,7 @@ fields("rule_info") ->
          })}
     ] ++ fields("rule_creation");
 
-%% TODO: we can delete this API if the Dashboard not denpends on it
+%% TODO: we can delete this API if the Dashboard not depends on it
 fields("rule_events") ->
     ETopics = [binary_to_atom(emqx_rule_events:event_topic(E)) || E <- emqx_rule_events:event_names()],
     [ {"event", sc(hoconsc:enum(ETopics), #{desc => "The event topics", required => true})}
@@ -83,39 +83,39 @@ fields("rule_test") ->
     ];
 
 fields("metrics") ->
-    [ {"sql.matched", sc(integer(), #{
+    [ {"sql.matched", sc(non_neg_integer(), #{
             desc => "How much times the FROM clause of the SQL is matched."
         })}
     , {"sql.matched.rate", sc(float(), #{desc => "The rate of matched, times/second"})}
     , {"sql.matched.rate.max", sc(float(), #{desc => "The max rate of matched, times/second"})}
     , {"sql.matched.rate.last5m", sc(float(),
         #{desc => "The average rate of matched in last 5 minutes, times/second"})}
-    , {"sql.passed", sc(integer(), #{desc => "How much times the SQL is passed"})}
-    , {"sql.failed", sc(integer(), #{desc => "How much times the SQL is failed"})}
-    , {"sql.failed.exception", sc(integer(), #{
+    , {"sql.passed", sc(non_neg_integer(), #{desc => "How much times the SQL is passed"})}
+    , {"sql.failed", sc(non_neg_integer(), #{desc => "How much times the SQL is failed"})}
+    , {"sql.failed.exception", sc(non_neg_integer(), #{
             desc => "How much times the SQL is failed due to exceptions. "
                     "This may because of a crash when calling a SQL function, or "
                     "trying to do arithmetic operation on undefined variables"
         })}
-    , {"sql.failed.unknown", sc(integer(), #{
+    , {"sql.failed.unknown", sc(non_neg_integer(), #{
             desc => "How much times the SQL is failed due to an unknown error."
         })}
-    , {"outputs.total", sc(integer(), #{
+    , {"outputs.total", sc(non_neg_integer(), #{
             desc => "How much times the outputs are called by the rule. "
                     "This value may several times of 'sql.matched', depending on the "
                     "number of the outputs of the rule."
         })}
-    , {"outputs.success", sc(integer(), #{
+    , {"outputs.success", sc(non_neg_integer(), #{
             desc => "How much times the rule success to call the outputs."
         })}
-    , {"outputs.failed", sc(integer(), #{
+    , {"outputs.failed", sc(non_neg_integer(), #{
             desc => "How much times the rule failed to call the outputs."
         })}
-    , {"outputs.failed.out_of_service", sc(integer(), #{
+    , {"outputs.failed.out_of_service", sc(non_neg_integer(), #{
             desc => "How much times the rule failed to call outputs due to the output is "
                     "out of service. For example, a bridge is disabled or stopped."
         })}
-    , {"outputs.failed.unknown", sc(integer(), #{
+    , {"outputs.failed.unknown", sc(non_neg_integer(), #{
             desc => "How much times the rule failed to call outputs due to to an unknown error."
         })}
     ];

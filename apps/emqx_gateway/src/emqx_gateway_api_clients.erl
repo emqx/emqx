@@ -392,21 +392,21 @@ format_channel_info({_, Infos, Stats} = R) ->
         {heap_size, Stats, 0},
         {reductions, Stats, 0}
     ],
-    eval(FetchX ++ extra_feilds(R)).
+    eval(FetchX ++ extra_fields(R)).
 
-extra_feilds({_, Infos, _Stats} = R) ->
-    extra_feilds(
+extra_fields({_, Infos, _Stats} = R) ->
+    extra_fields(
         maps:get(protocol, maps:get(clientinfo, Infos)),
         R
     ).
 
-extra_feilds(lwm2m, {_, Infos, _Stats}) ->
+extra_fields(lwm2m, {_, Infos, _Stats}) ->
     ClientInfo = maps:get(clientinfo, Infos, #{}),
     [
         {endpoint_name, ClientInfo},
         {lifetime, ClientInfo}
     ];
-extra_feilds(_, _) ->
+extra_fields(_, _) ->
     [].
 
 eval(Ls) ->
@@ -495,7 +495,7 @@ schema("/gateway/:name/clients/:clientid/subscriptions") ->
                         #{
                             200 => emqx_dashboard_swagger:schema_with_examples(
                                 hoconsc:array(ref(subscription)),
-                                examples_subsctiption_list()
+                                examples_subscription_list()
                             )
                         }
                     )
@@ -506,14 +506,14 @@ schema("/gateway/:name/clients/:clientid/subscriptions") ->
                 parameters => params_client_insta(),
                 'requestBody' => emqx_dashboard_swagger:schema_with_examples(
                     ref(subscription),
-                    examples_subsctiption()
+                    examples_subscription()
                 ),
                 responses =>
                     ?STANDARD_RESP(
                         #{
                             201 => emqx_dashboard_swagger:schema_with_examples(
                                 ref(subscription),
-                                examples_subsctiption()
+                                examples_subscription()
                             )
                         }
                     )
@@ -664,7 +664,7 @@ params_paging() ->
     [
         {page,
             mk(
-                integer(),
+                pos_integer(),
                 #{
                     in => query,
                     required => false,
@@ -674,7 +674,7 @@ params_paging() ->
             )},
         {limit,
             mk(
-                integer(),
+                pos_integer(),
                 #{
                     in => query,
                     desc => <<"Page Limit">>,
@@ -1089,7 +1089,7 @@ examples_client() ->
             }
     }.
 
-examples_subsctiption_list() ->
+examples_subscription_list() ->
     #{
         general_subscription_list =>
             #{
@@ -1103,7 +1103,7 @@ examples_subsctiption_list() ->
             }
     }.
 
-examples_subsctiption() ->
+examples_subscription() ->
     #{
         general_subscription =>
             #{

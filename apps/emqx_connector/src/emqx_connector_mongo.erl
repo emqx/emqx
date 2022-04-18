@@ -76,8 +76,8 @@ fields(sharded) ->
     , {w_mode, fun w_mode/1}
     ] ++ mongo_fields();
 fields(topology) ->
-    [ {pool_size, fun internal_pool_size/1}
-    , {max_overflow, fun emqx_connector_schema_lib:pool_size/1}
+    [ {pool_size, fun emqx_connector_schema_lib:pool_size/1}
+    , {max_overflow, fun max_overflow/1}
     , {overflow_ttl, fun duration/1}
     , {overflow_check_period, fun duration/1}
     , {local_threshold_ms, fun duration/1}
@@ -113,12 +113,6 @@ mongo_fields() ->
     , {topology, #{type => hoconsc:ref(?MODULE, topology), required => false}}
     ] ++
     emqx_connector_schema_lib:ssl_fields().
-
-internal_pool_size(type) -> integer();
-internal_pool_size(desc) -> "Pool size on start.";
-internal_pool_size(default) -> 1;
-internal_pool_size(validator) -> [?MIN(1)];
-internal_pool_size(_) -> undefined.
 
 %% ===================================================================
 
@@ -333,6 +327,11 @@ duration(type) -> emqx_schema:duration_ms();
 duration(desc) -> "Time interval, such as timeout or TTL.";
 duration(required) -> false;
 duration(_) -> undefined.
+
+max_overflow(type) -> non_neg_integer();
+max_overflow(desc) -> "Max Overflow.";
+max_overflow(default) -> 0;
+max_overflow(_) -> undefined.
 
 replica_set_name(type) -> binary();
 replica_set_name(desc) -> "Name of the replica set.";

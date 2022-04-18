@@ -96,7 +96,7 @@ t_get_history(_) ->
 
     lists:foreach(Each, lists:seq(1, 5)),
 
-    {ok, Data} = request_api(get, api_path(["slow_subscriptions"]), "_page=1&_limit=10",
+    {ok, Data} = request_api(get, api_path(["slow_subscriptions"]), "page=1&limit=10",
                              auth_header_()),
     #{<<"data">> := [First | _]} = emqx_json:decode(Data, [return_maps]),
 

@@ -149,8 +149,8 @@ fields(response_users) ->
     paginated_list_type(ref(response_user));
 fields(pagination_meta) ->
     [
-        {page, non_neg_integer()},
-        {limit, non_neg_integer()},
+        {page, pos_integer()},
+        {limit, pos_integer()},
         {count, non_neg_integer()}
     ].
 
@@ -431,8 +431,10 @@ schema("/authentication/:id/users") ->
             description => <<"List users in authenticator in global authentication chain">>,
             parameters => [
                 param_auth_id(),
-                {page, mk(integer(), #{in => query, desc => <<"Page Index">>, required => false})},
-                {limit, mk(integer(), #{in => query, desc => <<"Page Limit">>, required => false})},
+                {page,
+                    mk(pos_integer(), #{in => query, desc => <<"Page Index">>, required => false})},
+                {limit,
+                    mk(pos_integer(), #{in => query, desc => <<"Page Limit">>, required => false})},
                 {like_username,
                     mk(binary(), #{
                         in => query,
@@ -481,8 +483,10 @@ schema("/listeners/:listener_id/authentication/:id/users") ->
             parameters => [
                 param_listener_id(),
                 param_auth_id(),
-                {page, mk(integer(), #{in => query, desc => <<"Page Index">>, required => false})},
-                {limit, mk(integer(), #{in => query, desc => <<"Page Limit">>, required => false})}
+                {page,
+                    mk(pos_integer(), #{in => query, desc => <<"Page Index">>, required => false})},
+                {limit,
+                    mk(pos_integer(), #{in => query, desc => <<"Page Limit">>, required => false})}
             ],
             responses => #{
                 200 => emqx_dashboard_swagger:schema_with_example(

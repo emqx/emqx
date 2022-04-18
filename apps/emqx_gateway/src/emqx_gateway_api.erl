@@ -284,12 +284,12 @@ fields(gateway_overview) ->
             )},
         {max_connections,
             mk(
-                integer(),
+                pos_integer(),
                 #{desc => <<"The Gateway allowed maximum connections/clients">>}
             )},
         {current_connections,
             mk(
-                integer(),
+                non_neg_integer(),
                 #{desc => <<"The Gateway current connected connections/clients">>}
             )},
         {listeners,
@@ -410,11 +410,11 @@ convert_listener_struct(Schema) ->
     ),
     lists:keystore(listeners, 1, Schema1, {listeners, ListenerSchema}).
 
-remove_listener_and_authn(Schmea) ->
+remove_listener_and_authn(Schema) ->
     lists:keydelete(
         authentication,
         1,
-        lists:keydelete(listeners, 1, Schmea)
+        lists:keydelete(listeners, 1, Schema)
     ).
 
 listeners_schema(?R_REF(_Mod, tcp_listeners)) ->

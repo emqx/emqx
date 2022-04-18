@@ -19,7 +19,7 @@ fields("slow_subs") ->
           "300s",
           "The eviction time of the record, which in the statistics record table.")}
     , {top_k_num,
-       sc(integer(),
+       sc(pos_integer(),
           10,
           "The maximum number of records in the slow subscription statistics record table.")}
     , {stats_type,

@@ -95,7 +95,7 @@ For example: `http://localhost:9901/`
             , desc => "The type of the pool. Can be one of `random`, `hash`."
             })}
     , {pool_size,
-        sc(non_neg_integer(),
+        sc(pos_integer(),
            #{ default => 8
             , desc => "The pool size."
             })}
