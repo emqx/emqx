@@ -312,7 +312,7 @@ t_case_stomp_subscribe(_) ->
             emqx:publish(Msg),
 
             timer:sleep(100),
-            {ok, Data1} = gen_tcp:recv(Sock, 0, 2000),
+            {ok, Data1} = gen_tcp:recv(Sock, 0, 5000),
             {ok, Frame1, _, _} = Mod:parse(Data1),
             Checker(Frame1)
         end,
