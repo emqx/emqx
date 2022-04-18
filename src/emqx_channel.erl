@@ -277,8 +277,8 @@ handle_in(?CONNECT_PACKET(), Channel = #channel{conn_state = connected}) ->
 
 handle_in(?CONNECT_PACKET(ConnPkt), Channel) ->
     Funcs = [
-        fun flapping_detect/2,
         fun enrich_conninfo/2,
+        fun flapping_detect/2,
         fun run_conn_hooks/2,
         fun check_connect/2,
         fun enrich_client/2,
