@@ -76,7 +76,7 @@ schema("/mqtt/sys_topics") ->
      }.
 
 schema_sys_topics() ->
-    emqx_dashboard_swagger:schema_with_examples(
+    emqx_dashboard_swagger:schema_with_example(
       hoconsc:ref(emqx_schema, "sys_topics"), example_sys_topics()).
 
 example_sys_topics() ->
