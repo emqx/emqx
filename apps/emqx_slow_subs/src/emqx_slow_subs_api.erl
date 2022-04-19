@@ -41,48 +41,52 @@ paths() -> ["/slow_subscriptions", "/slow_subscriptions/settings"].
 
 schema(("/slow_subscriptions")) ->
     #{
-      'operationId' => slow_subs,
-      delete => #{tags => [<<"slow subs">>],
-                  description => <<"Clear current data and re count slow topic">>,
-                  parameters => [],
-                  'requestBody' => [],
-                  responses => #{204 => <<"No Content">>}
-                 },
-      get => #{tags => [<<"slow subs">>],
-               description => <<"Get slow topics statistics record data">>,
-               parameters => [ {page, mk(pos_integer(), #{in => query})}
-                             , {limit, mk(pos_integer(), #{in => query})}
-                             ],
-               'requestBody' => [],
-               responses => #{200 => [{data, mk(hoconsc:array(ref(record)), #{})}]}
-              }
-     };
-
+        'operationId' => slow_subs,
+        delete => #{
+            tags => [<<"slow subs">>],
+            description => <<"Clear current data and re count slow topic">>,
+            parameters => [],
+            'requestBody' => [],
+            responses => #{204 => <<"No Content">>}
+        },
+        get => #{
+            tags => [<<"slow subs">>],
+            description => <<"Get slow topics statistics record data">>,
+            parameters => [
+                {page, mk(pos_integer(), #{in => query})},
+                {limit, mk(pos_integer(), #{in => query})}
+            ],
+            'requestBody' => [],
+            responses => #{200 => [{data, mk(hoconsc:array(ref(record)), #{})}]}
+        }
+    };
 schema("/slow_subscriptions/settings") ->
-    #{'operationId' => settings,
-      get => #{tags => [<<"slow subs">>],
-               description => <<"Get slow subs settings">>,
-               responses => #{200 => conf_schema()}
-              },
-      put => #{tags => [<<"slow subs">>],
-               description => <<"Update slow subs settings">>,
-               'requestBody' => conf_schema(),
-               responses => #{200 => conf_schema()}
-              }
-     }.
+    #{
+        'operationId' => settings,
+        get => #{
+            tags => [<<"slow subs">>],
+            description => <<"Get slow subs settings">>,
+            responses => #{200 => conf_schema()}
+        },
+        put => #{
+            tags => [<<"slow subs">>],
+            description => <<"Update slow subs settings">>,
+            'requestBody' => conf_schema(),
+            responses => #{200 => conf_schema()}
+        }
+    }.
 
 fields(record) ->
-    [ {clientid,
-       mk(string(), #{desc => <<"the clientid">>})},
-      {node,
-       mk(string(), #{desc => <<"the node">>})},
-      {topic,
-       mk(string(), #{desc => <<"the topic">>})},
-      {timespan,
-       mk(integer(),
-          #{desc => <<"timespan for message transmission">>})},
-      {last_update_time,
-       mk(integer(), #{desc => <<"the timestamp of last update">>})}
+    [
+        {clientid, mk(string(), #{desc => <<"the clientid">>})},
+        {node, mk(string(), #{desc => <<"the node">>})},
+        {topic, mk(string(), #{desc => <<"the topic">>})},
+        {timespan,
+            mk(
+                integer(),
+                #{desc => <<"timespan for message transmission">>}
+            )},
+        {last_update_time, mk(integer(), #{desc => <<"the timestamp of last update">>})}
     ].
 
 conf_schema() ->
@@ -92,17 +96,17 @@ conf_schema() ->
 slow_subs(delete, _) ->
     _ = rpc_call(fun(Nodes) -> emqx_slow_subs_proto_v1:clear_history(Nodes) end),
     {204};
-
 slow_subs(get, _) ->
     NodeRankL = rpc_call(fun(Nodes) -> emqx_slow_subs_proto_v1:get_history(Nodes) end),
-    Fun = fun({ok, L}, Acc) -> L ++ Acc;
-             (_, Acc) -> Acc
-          end,
+    Fun = fun
+        ({ok, L}, Acc) -> L ++ Acc;
+        (_, Acc) -> Acc
+    end,
     RankL = lists:foldl(Fun, [], NodeRankL),
 
     SortFun = fun(#{timespan := A}, #{timespan := B}) ->
-                      A > B
-              end,
+        A > B
+    end,
 
     SortedL = lists:sort(SortFun, RankL),
     SortedL2 = lists:sublist(SortedL, ?MAX_SIZE),
@@ -112,22 +116,25 @@ slow_subs(get, _) ->
 get_history() ->
     Node = node(),
     RankL = ets:tab2list(?TOPK_TAB),
-    ConvFun = fun(#top_k{index = ?TOPK_INDEX(TimeSpan, ?ID(ClientId, Topic)),
-                         last_update_time = LastUpdateTime
-                        }) ->
-                      #{ clientid => ClientId
-                       , node => Node
-                       , topic => Topic
-                       , timespan => TimeSpan
-                       , last_update_time => LastUpdateTime
-                       }
-              end,
+    ConvFun = fun(
+        #top_k{
+            index = ?TOPK_INDEX(TimeSpan, ?ID(ClientId, Topic)),
+            last_update_time = LastUpdateTime
+        }
+    ) ->
+        #{
+            clientid => ClientId,
+            node => Node,
+            topic => Topic,
+            timespan => TimeSpan,
+            last_update_time => LastUpdateTime
+        }
+    end,
 
     lists:map(ConvFun, RankL).
 
 settings(get, _) ->
     {200, emqx:get_raw_config([slow_subs], #{})};
-
 settings(put, #{body := Body}) ->
     case emqx_slow_subs:update_settings(Body) of
         {ok, #{config := NewConf}} ->

@@ -27,10 +27,14 @@ start_link() ->
 
 init([]) ->
     emqx_slow_subs:init_tab(),
-    {ok, {{one_for_one, 10, 3600},
-          [#{id       => st_statistics,
-             start    => {emqx_slow_subs, start_link, []},
-             restart  => permanent,
-             shutdown => 5000,
-             type     => worker,
-             modules  => [emqx_slow_subs]}]}}.
+    {ok,
+        {{one_for_one, 10, 3600}, [
+            #{
+                id => st_statistics,
+                start => {emqx_slow_subs, start_link, []},
+                restart => permanent,
+                shutdown => 5000,
+                type => worker,
+                modules => [emqx_slow_subs]
+            }
+        ]}}.

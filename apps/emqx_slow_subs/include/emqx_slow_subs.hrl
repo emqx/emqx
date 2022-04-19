@@ -23,12 +23,13 @@
 
 -define(MAX_SIZE, 1000).
 
--record(top_k, { index :: topk_index()
-               , last_update_time :: pos_integer()
-               , extra = []
-               }).
+-record(top_k, {
+    index :: topk_index(),
+    last_update_time :: pos_integer(),
+    extra = []
+}).
 
--record(index_tab, { index :: index()}).
+-record(index_tab, {index :: index()}).
 
 -type top_k() :: #top_k{}.
 -type index_tab() :: #index_tab{}.
