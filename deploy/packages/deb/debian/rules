@@ -33,23 +33,16 @@ install: build
 	mkdir -p debian/emqx/var/lib/emqx
 	mkdir -p debian/emqx/var/run/emqx
 	mkdir -p debian/emqx/var/log/emqx
-	
 	mkdir -p debian/emqx/usr/lib/emqx/bin
-	
 	mkdir -p debian/emqx/etc/emqx
-	mkdir -p debian/emqx/etc/init.d
-	
 	cp bin/* debian/emqx/usr/lib/emqx/bin
-	
 	cp -R lib debian/emqx/usr/lib/emqx
 	cp -R erts*  debian/emqx/usr/lib/emqx
 	cp -R releases debian/emqx/usr/lib/emqx
 	cp -R etc/* debian/emqx/etc/emqx
 	cp -R data/*  debian/emqx/var/lib/emqx
-
 	install -d debian/emqx/lib/systemd/system
 	install -p -m0644 debian/emqx.service debian/emqx/lib/systemd/system/emqx.service
-
 	dh_shlibdeps
 
 # We have nothing to do by default.
