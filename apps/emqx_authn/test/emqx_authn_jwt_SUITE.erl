@@ -38,9 +38,13 @@ init_per_testcase(_, Config) ->
 init_per_suite(Config) ->
     _ = application:load(emqx_conf),
     emqx_common_test_helpers:start_apps([emqx_authn]),
+    application:ensure_all_started(emqx_resource),
+    application:ensure_all_started(emqx_connector),
     Config.
 
 end_per_suite(_) ->
+    application:stop(emqx_connector),
+    application:stop(emqx_resource),
     emqx_common_test_helpers:stop_apps([emqx_authn]),
     ok.
 
@@ -194,11 +198,11 @@ t_jwks_renewal(_Config) ->
     ok = emqx_authn_http_test_server:set_handler(fun jwks_handler/2),
 
     PrivateKey = test_rsa_key(private),
-    Payload = #{<<"username">> => <<"myuser">>},
-    JWS = generate_jws('public-key', Payload, PrivateKey),
-    Credential = #{
+    Payload0 = #{<<"username">> => <<"myuser">>},
+    JWS0 = generate_jws('public-key', Payload0, PrivateKey),
+    Credential0 = #{
         username => <<"myuser">>,
-        password => JWS
+        password => JWS0
     },
 
     BadConfig0 = #{
@@ -209,7 +213,8 @@ t_jwks_renewal(_Config) ->
 
         use_jwks => true,
         endpoint => "https://127.0.0.1:" ++ integer_to_list(?JWKS_PORT + 1) ++ ?JWKS_PATH,
-        refresh_interval => 1000
+        refresh_interval => 1000,
+        pool_size => 1
     },
 
     ok = snabbkaffe:start_trace(),
@@ -222,9 +227,9 @@ t_jwks_renewal(_Config) ->
 
     ok = snabbkaffe:stop(),
 
-    ?assertEqual(ignore, emqx_authn_jwt:authenticate(Credential, State0)),
+    ?assertEqual(ignore, emqx_authn_jwt:authenticate(Credential0, State0)),
     ?assertEqual(
-        ignore, emqx_authn_jwt:authenticate(Credential#{password => <<"badpassword">>}, State0)
+        ignore, emqx_authn_jwt:authenticate(Credential0#{password => <<"badpassword">>}, State0)
     ),
 
     ClientSSLOpts = client_ssl_opts(),
@@ -246,12 +251,24 @@ t_jwks_renewal(_Config) ->
 
     ok = snabbkaffe:stop(),
 
-    ?assertEqual(ignore, emqx_authn_jwt:authenticate(Credential, State1)),
+    ?assertEqual(ignore, emqx_authn_jwt:authenticate(Credential0, State1)),
     ?assertEqual(
-        ignore, emqx_authn_jwt:authenticate(Credential#{password => <<"badpassword">>}, State0)
+        ignore, emqx_authn_jwt:authenticate(Credential0#{password => <<"badpassword">>}, State0)
     ),
 
-    GoodConfig = BadConfig1#{ssl => ClientSSLOpts},
+    GoodConfig = BadConfig1#{
+        ssl => ClientSSLOpts,
+        verify_claims => [{<<"foo">>, <<"${username}">>}]
+    },
+
+    Payload1 = #{<<"username">> => <<"myuser">>, <<"foo">> => <<"myuser">>},
+    Payload2 = #{<<"username">> => <<"myuser">>, <<"foo">> => <<"notmyuser">>},
+    JWS1 = generate_jws('public-key', Payload1, PrivateKey),
+    JWS2 = generate_jws('public-key', Payload2, PrivateKey),
+    Credential1 = #{
+        username => <<"myuser">>,
+        password => JWS1
+    },
 
     ok = snabbkaffe:start_trace(),
 
@@ -263,13 +280,67 @@ t_jwks_renewal(_Config) ->
 
     ok = snabbkaffe:stop(),
 
-    ?assertEqual({ok, #{is_superuser => false}}, emqx_authn_jwt:authenticate(Credential, State2)),
+    ?assertEqual({ok, #{is_superuser => false}}, emqx_authn_jwt:authenticate(Credential1, State2)),
     ?assertEqual(
-        ignore, emqx_authn_jwt:authenticate(Credential#{password => <<"badpassword">>}, State2)
+        {error, bad_username_or_password},
+        emqx_authn_jwt:authenticate(Credential1#{password => JWS2}, State2)
     ),
 
     ?assertEqual(ok, emqx_authn_jwt:destroy(State2)),
     ok = emqx_authn_http_test_server:stop().
+
+t_jwt_authenticator_verify_claims(_) ->
+    Secret = <<"abcdef">>,
+    Config0 = #{
+        mechanism => jwt,
+        use_jwks => false,
+        algorithm => 'hmac-based',
+        secret => Secret,
+        secret_base64_encoded => false,
+        verify_claims => [{<<"foo">>, <<"bar">>}]
+    },
+    {ok, State0} = emqx_authn_jwt:create(?AUTHN_ID, Config0),
+
+    Payload0 = #{<<"username">> => <<"myuser">>, <<"foo">> => <<"bar">>},
+    JWS0 = generate_jws('hmac-based', Payload0, Secret),
+    Credential0 = #{
+        username => <<"myuser">>,
+        password => JWS0
+    },
+    ?assertEqual({ok, #{is_superuser => false}}, emqx_authn_jwt:authenticate(Credential0, State0)),
+
+    Config1 = Config0#{
+        verify_claims => [{<<"foo">>, <<"${username}">>}]
+    },
+    {ok, State1} = emqx_authn_jwt:update(Config1, State0),
+
+    Payload1 = #{<<"username">> => <<"myuser">>},
+    JWS1 = generate_jws('hmac-based', Payload1, Secret),
+    Credential1 = #{
+        username => <<"myuser">>,
+        password => JWS1
+    },
+    ?assertEqual(
+        {error, bad_username_or_password}, emqx_authn_jwt:authenticate(Credential1, State1)
+    ),
+
+    Payload2 = #{<<"username">> => <<"myuser">>, <<"foo">> => <<"notmyuser">>},
+    JWS2 = generate_jws('hmac-based', Payload2, Secret),
+    Credential2 = #{
+        username => <<"myuser">>,
+        password => JWS2
+    },
+    ?assertEqual(
+        {error, bad_username_or_password}, emqx_authn_jwt:authenticate(Credential2, State1)
+    ),
+
+    Payload3 = #{<<"username">> => <<"myuser">>, <<"foo">> => <<"myuser">>},
+    JWS3 = generate_jws('hmac-based', Payload3, Secret),
+    Credential3 = #{
+        username => <<"myuser">>,
+        password => JWS3
+    },
+    ?assertEqual({ok, #{is_superuser => false}}, emqx_authn_jwt:authenticate(Credential3, State1)).
 
 %%------------------------------------------------------------------------------
 %% Helpers

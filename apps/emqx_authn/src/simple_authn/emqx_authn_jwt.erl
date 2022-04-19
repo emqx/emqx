@@ -70,6 +70,7 @@ fields('jwks') ->
     [
         {use_jwks, sc(hoconsc:enum([true]), #{desc => ""})},
         {endpoint, fun endpoint/1},
+        {pool_size, fun pool_size/1},
         {refresh_interval, fun refresh_interval/1},
         {ssl, #{
             type => hoconsc:union([
@@ -170,6 +171,12 @@ verify_claims(converter) ->
 verify_claims(_) ->
     undefined.
 
+pool_size(type) -> integer();
+pool_size(desc) -> "JWKS connection count";
+pool_size(default) -> 8;
+pool_size(validator) -> [fun(I) -> I > 0 end];
+pool_size(_) -> undefined.
+
 %%------------------------------------------------------------------------------
 %% APIs
 %%------------------------------------------------------------------------------
@@ -189,53 +196,68 @@ create(#{verify_claims := VerifyClaims} = Config) ->
 
 update(
     #{use_jwks := false} = Config,
-    #{jwk := Connector}
-) when
-    is_pid(Connector)
-->
-    _ = emqx_authn_jwks_connector:stop(Connector),
+    #{jwk_resource := ResourceId}
+) ->
+    _ = emqx_resource:remove_local(ResourceId),
     create(Config);
 update(#{use_jwks := false} = Config, _State) ->
     create(Config);
 update(
     #{use_jwks := true} = Config,
-    #{jwk := Connector} = State
-) when
-    is_pid(Connector)
-->
-    ok = emqx_authn_jwks_connector:update(Connector, connector_opts(Config)),
-    case maps:get(verify_cliams, Config, undefined) of
-        undefined ->
-            {ok, State};
-        VerifyClaims ->
-            {ok, State#{verify_claims => handle_verify_claims(VerifyClaims)}}
+    #{jwk_resource := ResourceId} = State
+) ->
+    case emqx_resource:query(ResourceId, {update, connector_opts(Config)}) of
+        ok ->
+            case maps:get(verify_claims, Config, undefined) of
+                undefined ->
+                    {ok, State};
+                VerifyClaims ->
+                    {ok, State#{verify_claims => handle_verify_claims(VerifyClaims)}}
+            end;
+        {error, Reason} ->
+            ?SLOG(error, #{
+                msg => "jwks_client_option_update_failed",
+                resource => ResourceId,
+                reason => Reason
+            })
     end;
 update(#{use_jwks := true} = Config, _State) ->
     create(Config).
 
 authenticate(#{auth_method := _}, _) ->
     ignore;
-authenticate(Credential = #{password := JWT}, #{
-    jwk := JWK,
-    verify_claims := VerifyClaims0
-}) ->
-    JWKs =
-        case erlang:is_pid(JWK) of
-            false ->
-                [JWK];
-            true ->
-                {ok, JWKs0} = emqx_authn_jwks_connector:get_jwks(JWK),
-                JWKs0
-        end,
+authenticate(
+    Credential = #{password := JWT},
+    #{
+        verify_claims := VerifyClaims0,
+        jwk := JWK
+    }
+) ->
+    JWKs = [JWK],
     VerifyClaims = replace_placeholder(VerifyClaims0, Credential),
-    case verify(JWT, JWKs, VerifyClaims) of
-        {ok, Extra} -> {ok, Extra};
-        {error, invalid_signature} -> ignore;
-        {error, {claims, _}} -> {error, bad_username_or_password}
+    verify(JWT, JWKs, VerifyClaims);
+authenticate(
+    Credential = #{password := JWT},
+    #{
+        verify_claims := VerifyClaims0,
+        jwk_resource := ResourceId
+    }
+) ->
+    case emqx_resource:query(ResourceId, get_jwks) of
+        {error, Reason} ->
+            ?SLOG(error, #{
+                msg => "get_jwks_failed",
+                resource => ResourceId,
+                reason => Reason
+            }),
+            ignore;
+        {ok, JWKs} ->
+            VerifyClaims = replace_placeholder(VerifyClaims0, Credential),
+            verify(JWT, JWKs, VerifyClaims)
     end.
 
-destroy(#{jwk := Connector}) when is_pid(Connector) ->
-    _ = emqx_authn_jwks_connector:stop(Connector),
+destroy(#{jwk_resource := ResourceId}) ->
+    _ = emqx_resource:remove_local(ResourceId),
     ok;
 destroy(_) ->
     ok.
@@ -278,15 +300,17 @@ create2(
         verify_claims := VerifyClaims
     } = Config
 ) ->
-    case emqx_authn_jwks_connector:start_link(connector_opts(Config)) of
-        {ok, Connector} ->
-            {ok, #{
-                jwk => Connector,
-                verify_claims => VerifyClaims
-            }};
-        {error, Reason} ->
-            {error, Reason}
-    end.
+    ResourceId = emqx_authn_utils:make_resource_id(?MODULE),
+    {ok, _} = emqx_resource:create_local(
+        ResourceId,
+        ?RESOURCE_GROUP,
+        emqx_authn_jwks_connector,
+        connector_opts(Config)
+    ),
+    {ok, #{
+        jwk_resource => ResourceId,
+        verify_claims => VerifyClaims
+    }}.
 
 create_jwk_from_pem_or_file(CertfileOrFilePath) when
     is_binary(CertfileOrFilePath);
@@ -328,9 +352,17 @@ replace_placeholder([{Name, {placeholder, PL}} | More], Variables, Acc) ->
 replace_placeholder([{Name, Value} | More], Variables, Acc) ->
     replace_placeholder(More, Variables, [{Name, Value} | Acc]).
 
-verify(_JWS, [], _VerifyClaims) ->
+verify(JWT, JWKs, VerifyClaims) ->
+    case do_verify(JWT, JWKs, VerifyClaims) of
+        {ok, Extra} -> {ok, Extra};
+        {error, {missing_claim, _}} -> {error, bad_username_or_password};
+        {error, invalid_signature} -> ignore;
+        {error, {claims, _}} -> {error, bad_username_or_password}
+    end.
+
+do_verify(_JWS, [], _VerifyClaims) ->
     {error, invalid_signature};
-verify(JWS, [JWK | More], VerifyClaims) ->
+do_verify(JWS, [JWK | More], VerifyClaims) ->
     try jose_jws:verify(JWK, JWS) of
         {true, Payload, _JWS} ->
             Claims = emqx_json:decode(Payload, [return_maps]),
@@ -341,7 +373,7 @@ verify(JWS, [JWK | More], VerifyClaims) ->
                     {error, Reason}
             end;
         {false, _, _} ->
-            verify(JWS, More, VerifyClaims)
+            do_verify(JWS, More, VerifyClaims)
     catch
         _:_Reason ->
             ?TRACE("JWT", "authn_jwt_invalid_signature", #{jwk => JWK, jws => JWS}),
