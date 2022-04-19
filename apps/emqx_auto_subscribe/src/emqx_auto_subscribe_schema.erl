@@ -38,6 +38,7 @@ fields("auto_subscribe") ->
 
 fields("topic") ->
     [ {topic, sc(binary(), #{
+        required => true,
         example => topic_example(),
         desc => ?DESC("topic")})}
     , {qos, sc(emqx_schema:qos(), #{

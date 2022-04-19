@@ -87,12 +87,14 @@ schema("/banned/:as/:who") ->
                 {as,
                     hoconsc:mk(hoconsc:enum(?BANNED_TYPES), #{
                         desc => ?DESC(as),
+                        required => true,
                         in => path,
                         example => username
                     })},
                 {who,
                     hoconsc:mk(binary(), #{
                         desc => ?DESC(who),
+                        required => true,
                         in => path,
                         example => <<"Badass">>
                     })}
