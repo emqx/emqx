@@ -32,8 +32,11 @@ set_default_config() ->
     set_default_config(<<"admin">>).
 
 set_default_config(DefaultUsername) ->
-    Config = #{listeners => [#{protocol => http,
-                               port => 18083}],
+    Config = #{listeners => #{
+                  http => #{
+                    port => 18083
+                  }
+               },
                default_username => DefaultUsername,
                default_password => <<"public">>,
                i18n_lang => en
