@@ -233,100 +233,100 @@ t_case_sn_subscribe(_) ->
     end),
     ok.
 
-t_case_stomp_publish(_) ->
-    Mod = emqx_stomp_SUITE,
-    Payload = <<"publish with authz">>,
-    Publish = fun(Topic, Checker) ->
-        Fun = fun(Sock) ->
-            gen_tcp:send(
-                Sock,
-                Mod:serialize(
-                    <<"CONNECT">>,
-                    [
-                        {<<"accept-version">>, Mod:stomp_ver()},
-                        {<<"host">>, <<"127.0.0.1:61613">>},
-                        {<<"login">>, <<"guest">>},
-                        {<<"passcode">>, <<"guest">>},
-                        {<<"heart-beat">>, <<"0,0">>}
-                    ]
-                )
-            ),
-            {ok, Data} = gen_tcp:recv(Sock, 0),
-            {ok, Frame, _, _} = Mod:parse(Data),
-            ?assertEqual(<<"CONNECTED">>, Mod:get_field(command, Frame)),
-            Send = fun() ->
-                gen_tcp:send(
-                    Sock,
-                    Mod:serialize(
-                        <<"SEND">>,
-                        [{<<"destination">>, Topic}],
-                        Payload
-                    )
-                )
-            end,
-            try_publish_recv(Topic, Send, Checker)
-        end,
-        Mod:with_connection(Fun)
-    end,
-    Publish(<<"/publish">>, fun(Msg) -> ?assertMatch(Payload, emqx_message:payload(Msg)) end),
-    Publish(<<"/badpublish">>, fun(Msg) -> ?assertEqual(timeout, Msg) end),
-    ok.
+%% t_case_stomp_publish(_) ->
+%%     Mod = emqx_stomp_SUITE,
+%%     Payload = <<"publish with authz">>,
+%%     Publish = fun(Topic, Checker) ->
+%%         Fun = fun(Sock) ->
+%%             gen_tcp:send(
+%%                 Sock,
+%%                 Mod:serialize(
+%%                     <<"CONNECT">>,
+%%                     [
+%%                         {<<"accept-version">>, Mod:stomp_ver()},
+%%                         {<<"host">>, <<"127.0.0.1:61613">>},
+%%                         {<<"login">>, <<"guest">>},
+%%                         {<<"passcode">>, <<"guest">>},
+%%                         {<<"heart-beat">>, <<"0,0">>}
+%%                     ]
+%%                 )
+%%             ),
+%%             {ok, Data} = gen_tcp:recv(Sock, 0),
+%%             {ok, Frame, _, _} = Mod:parse(Data),
+%%             ?assertEqual(<<"CONNECTED">>, Mod:get_field(command, Frame)),
+%%             Send = fun() ->
+%%                 gen_tcp:send(
+%%                     Sock,
+%%                     Mod:serialize(
+%%                         <<"SEND">>,
+%%                         [{<<"destination">>, Topic}],
+%%                         Payload
+%%                     )
+%%                 )
+%%             end,
+%%             try_publish_recv(Topic, Send, Checker)
+%%         end,
+%%         Mod:with_connection(Fun)
+%%     end,
+%%     Publish(<<"/publish">>, fun(Msg) -> ?assertMatch(Payload, emqx_message:payload(Msg)) end),
+%%     Publish(<<"/badpublish">>, fun(Msg) -> ?assertEqual(timeout, Msg) end),
+%%     ok.
 
-t_case_stomp_subscribe(_) ->
-    Mod = emqx_stomp_SUITE,
-    Payload = <<"subscribe with authz">>,
-    Sub = fun(Topic, Checker) ->
-        Fun = fun(Sock) ->
-            gen_tcp:send(
-                Sock,
-                Mod:serialize(
-                    <<"CONNECT">>,
-                    [
-                        {<<"accept-version">>, Mod:stomp_ver()},
-                        {<<"host">>, <<"127.0.0.1:61613">>},
-                        {<<"login">>, <<"guest">>},
-                        {<<"passcode">>, <<"guest">>},
-                        {<<"heart-beat">>, <<"0,0">>}
-                    ]
-                )
-            ),
-            {ok, Data} = gen_tcp:recv(Sock, 0),
-            {ok, Frame, _, _} = Mod:parse(Data),
-            ?assertEqual(<<"CONNECTED">>, Mod:get_field(command, Frame)),
+%% t_case_stomp_subscribe(_) ->
+%%     Mod = emqx_stomp_SUITE,
+%%     Payload = <<"subscribe with authz">>,
+%%     Sub = fun(Topic, Checker) ->
+%%         Fun = fun(Sock) ->
+%%             gen_tcp:send(
+%%                 Sock,
+%%                 Mod:serialize(
+%%                     <<"CONNECT">>,
+%%                     [
+%%                         {<<"accept-version">>, Mod:stomp_ver()},
+%%                         {<<"host">>, <<"127.0.0.1:61613">>},
+%%                         {<<"login">>, <<"guest">>},
+%%                         {<<"passcode">>, <<"guest">>},
+%%                         {<<"heart-beat">>, <<"0,0">>}
+%%                     ]
+%%                 )
+%%             ),
+%%             {ok, Data} = gen_tcp:recv(Sock, 0),
+%%             {ok, Frame, _, _} = Mod:parse(Data),
+%%             ?assertEqual(<<"CONNECTED">>, Mod:get_field(command, Frame)),
 
-            %% Subscribe
-            gen_tcp:send(
-                Sock,
-                Mod:serialize(
-                    <<"SUBSCRIBE">>,
-                    [
-                        {<<"id">>, 0},
-                        {<<"destination">>, Topic},
-                        {<<"ack">>, <<"auto">>}
-                    ]
-                )
-            ),
+%%             %% Subscribe
+%%             gen_tcp:send(
+%%                 Sock,
+%%                 Mod:serialize(
+%%                     <<"SUBSCRIBE">>,
+%%                     [
+%%                         {<<"id">>, 0},
+%%                         {<<"destination">>, Topic},
+%%                         {<<"ack">>, <<"auto">>}
+%%                     ]
+%%                 )
+%%             ),
 
-            timer:sleep(200),
-            Msg = emqx_message:make(Topic, Payload),
-            emqx:publish(Msg),
+%%             timer:sleep(200),
+%%             Msg = emqx_message:make(Topic, Payload),
+%%             emqx:publish(Msg),
 
-            timer:sleep(200),
-            {ok, Data1} = gen_tcp:recv(Sock, 0, 10000),
-            {ok, Frame1, _, _} = Mod:parse(Data1),
-            Checker(Frame1)
-        end,
-        Mod:with_connection(Fun)
-    end,
-    Sub(<<"/subscribe">>, fun(Frame) ->
-        ?assertMatch(<<"MESSAGE">>, Mod:get_field(command, Frame)),
-        ?assertMatch(Payload, Mod:get_field(body, Frame))
-    end),
-    Sub(<<"/badsubscribe">>, fun(Frame) ->
-        ?assertMatch(<<"ERROR">>, Mod:get_field(command, Frame)),
-        ?assertMatch(<<"ACL Deny">>, Mod:get_field(body, Frame))
-    end),
-    ok.
+%%             timer:sleep(200),
+%%             {ok, Data1} = gen_tcp:recv(Sock, 0, 10000),
+%%             {ok, Frame1, _, _} = Mod:parse(Data1),
+%%             Checker(Frame1)
+%%         end,
+%%         Mod:with_connection(Fun)
+%%     end,
+%%     Sub(<<"/subscribe">>, fun(Frame) ->
+%%         ?assertMatch(<<"MESSAGE">>, Mod:get_field(command, Frame)),
+%%         ?assertMatch(Payload, Mod:get_field(body, Frame))
+%%     end),
+%%     Sub(<<"/badsubscribe">>, fun(Frame) ->
+%%         ?assertMatch(<<"ERROR">>, Mod:get_field(command, Frame)),
+%%         ?assertMatch(<<"ACL Deny">>, Mod:get_field(body, Frame))
+%%     end),
+%%     ok.
 
 t_case_exproto_publish(_) ->
     Mod = emqx_exproto_SUITE,
