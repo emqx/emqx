@@ -27,13 +27,17 @@
 -define(NOW, erlang:system_time(millisecond)).
 -define(CLUSTER_RPC_SHARD, emqx_cluster_rpc_shard).
 
--define(BASE_CONF, <<"""
-slow_subs {
-    enable = true
-	top_k_num = 5,
-    expire_interval = 5m
-    stats_type = whole
-    }""">>).
+-define(BASE_CONF, <<
+    ""
+    "\n"
+    "slow_subs {\n"
+    "    enable = true\n"
+    "	top_k_num = 5,\n"
+    "    expire_interval = 5m\n"
+    "    stats_type = whole\n"
+    "    }"
+    ""
+>>).
 
 all() ->
     emqx_common_test_helpers:all(?MODULE).
@@ -45,7 +49,6 @@ init_per_suite(Config) ->
     meck:new(emqx_alarm, [non_strict, passthrough, no_link]),
     meck:expect(emqx_alarm, activate, 3, ok),
     meck:expect(emqx_alarm, deactivate, 3, ok),
-
 
     ok = emqx_common_test_helpers:load_config(emqx_slow_subs_schema, ?BASE_CONF),
     emqx_common_test_helpers:start_apps([emqx_slow_subs]),
@@ -64,13 +67,13 @@ init_per_testcase(t_expire, Config) ->
     Cfg = emqx_config:get([slow_subs]),
     emqx_slow_subs:update_settings(Cfg#{expire_interval := 1500}),
     Config;
-
 init_per_testcase(_, Config) ->
     Config.
 
 end_per_testcase(_, _) ->
     case erlang:whereis(node()) of
-        undefined -> ok;
+        undefined ->
+            ok;
         P ->
             erlang:unlink(P),
             erlang:exit(P, kill)
@@ -88,21 +91,25 @@ t_pub(_) ->
     Now = ?NOW,
     %% publish
 
-    lists:foreach(fun(I) ->
-                          Topic = list_to_binary(io_lib:format("/test1/~p", [I])),
-                          Msg = emqx_message:make(undefined, ?QOS_1, Topic, <<"Hello">>),
-                          emqx:publish(Msg#message{timestamp = Now - 500}),
-                          timer:sleep(100)
-                  end,
-                  lists:seq(1, 10)),
+    lists:foreach(
+        fun(I) ->
+            Topic = list_to_binary(io_lib:format("/test1/~p", [I])),
+            Msg = emqx_message:make(undefined, ?QOS_1, Topic, <<"Hello">>),
+            emqx:publish(Msg#message{timestamp = Now - 500}),
+            timer:sleep(100)
+        end,
+        lists:seq(1, 10)
+    ),
 
-    lists:foreach(fun(I) ->
-                          Topic = list_to_binary(io_lib:format("/test2/~p", [I])),
-                          Msg = emqx_message:make(undefined, ?QOS_2, Topic, <<"Hello">>),
-                          emqx:publish(Msg#message{timestamp = Now - 500}),
-                          timer:sleep(100)
-                  end,
-                  lists:seq(1, 10)),
+    lists:foreach(
+        fun(I) ->
+            Topic = list_to_binary(io_lib:format("/test2/~p", [I])),
+            Msg = emqx_message:make(undefined, ?QOS_2, Topic, <<"Hello">>),
+            emqx:publish(Msg#message{timestamp = Now - 500}),
+            timer:sleep(100)
+        end,
+        lists:seq(1, 10)
+    ),
 
     timer:sleep(1000),
     Size = ets:info(?TOPK_TAB, size),
@@ -114,10 +121,12 @@ t_pub(_) ->
 t_expire(_) ->
     Now = ?NOW,
     Each = fun(I) ->
-                   ClientId = erlang:list_to_binary(io_lib:format("test_~p", [I])),
-                   ets:insert(?TOPK_TAB, #top_k{index = ?TOPK_INDEX(1, ?ID(ClientId, <<"topic">>)),
-                                                last_update_time = Now - timer:minutes(5)})
-           end,
+        ClientId = erlang:list_to_binary(io_lib:format("test_~p", [I])),
+        ets:insert(?TOPK_TAB, #top_k{
+            index = ?TOPK_INDEX(1, ?ID(ClientId, <<"topic">>)),
+            last_update_time = Now - timer:minutes(5)
+        })
+    end,
 
     lists:foreach(Each, lists:seq(1, 5)),
 
@@ -130,10 +139,12 @@ start_client(Subs) ->
     [spawn(fun() -> client(I, Subs) end) || I <- lists:seq(1, 10)].
 
 client(I, Subs) ->
-    {ok, C} = emqtt:start_link([{host,      "localhost"},
-                                {clientid,  io_lib:format("slow_subs_~p", [I])},
-                                {username,  <<"plain">>},
-                                {password,  <<"plain">>}]),
+    {ok, C} = emqtt:start_link([
+        {host, "localhost"},
+        {clientid, io_lib:format("slow_subs_~p", [I])},
+        {username, <<"plain">>},
+        {password, <<"plain">>}
+    ]),
     {ok, _} = emqtt:connect(C),
 
     Len = erlang:length(Subs),
