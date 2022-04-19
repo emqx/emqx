@@ -17,6 +17,7 @@
 -module(emqx_rule_engine_schema).
 
 -include_lib("typerefl/include/types.hrl").
+-include_lib("hocon/include/hoconsc.hrl").
 
 -behaviour(hocon_schema).
 
@@ -34,38 +35,21 @@ namespace() -> rule_engine.
 roots() -> ["rule_engine"].
 
 fields("rule_engine") ->
-    [ {ignore_sys_message, sc(boolean(), #{default => true, desc =>
-"When set to 'true' (default), rule-engine will ignore messages published to $SYS topics."
+    [ {ignore_sys_message, sc(boolean(), #{default => true, desc => ?DESC("rule_engine_ignore_sys_message")
     })}
-    , {rules, sc(hoconsc:map("id", ref("rules")), #{desc => "The rules", default => #{}})}
+    , {rules, sc(hoconsc:map("id", ref("rules")), #{desc => ?DESC("rule_engine_rules"), default => #{}})}
     ];
 
 fields("rules") ->
     [ rule_name()
     , {"sql", sc(binary(),
-        #{ desc => "
-SQL query to transform the messages.<br>
-Example: <code>SELECT * FROM \"test/topic\" WHERE payload.x = 1</code><br>
-"
+        #{ desc => ?DESC("rules_sql")
          , example => "SELECT * FROM \"test/topic\" WHERE payload.x = 1"
          , required => true
          , validator => fun ?MODULE:validate_sql/1
          })}
     , {"outputs", sc(hoconsc:array(hoconsc:union(outputs())),
-        #{ desc => "
-A list of outputs of the rule.<br>
-An output can be a string that refers to the channel ID of an EMQX bridge, or an object
-that refers to a function.<br>
-There a some built-in functions like \"republish\" and \"console\", and we also support user
-provided functions in the format: \"{module}:{function}\".<br>
-The outputs in the list are executed sequentially.
-This means that if one of the output is executing slowly, all the following outputs will not
-be executed until it returns.<br>
-If one of the output crashed, all other outputs come after it will still be executed, in the
-original order.<br>
-If there's any error when running an output, there will be an error message, and the 'failure'
-counter of the function output or the bridge channel will increase.
-"
+        #{ desc => ?DESC("rules_outputs")
         , default => []
         , example => [
             <<"http:my_http_bridge">>,
@@ -74,21 +58,21 @@ counter of the function output or the bridge channel will increase.
             #{function => console}
           ]
         })}
-    , {"enable", sc(boolean(), #{desc => "Enable or disable the rule", default => true})}
+    , {"enable", sc(boolean(), #{desc => ?DESC("rules_enable"), default => true})}
     , {"description", sc(binary(),
-        #{ desc => "The description of the rule"
+        #{ desc => ?DESC("rules_description")
          , example => "Some description"
          , default => <<>>
          })}
     ];
 
 fields("builtin_output_republish") ->
-    [ {function, sc(republish, #{desc => "Republish the message as a new MQTT message"})}
+    [ {function, sc(republish, #{desc => ?DESC("republish_function")})}
     , {args, sc(ref("republish_args"), #{default => #{}})}
     ];
 
 fields("builtin_output_console") ->
-    [ {function, sc(console, #{desc => "Print the outputs to the console"})}
+    [ {function, sc(console, #{desc => ?DESC("console_function")})}
     %% we may support some args for the console output in the future
     %, {args, sc(map(), #{desc => "The arguments of the built-in 'console' output",
     %    default => #{}})}
@@ -96,62 +80,33 @@ fields("builtin_output_console") ->
 
 fields("user_provided_function") ->
     [ {function, sc(binary(),
-        #{ desc => "
-The user provided function. Should be in the format: '{module}:{function}'.<br>
-Where {module} is the Erlang callback module and {function} is the Erlang function.
-<br>
-To write your own function, checkout the function <code>console</code> and
-<code>republish</code> in the source file:
-<code>apps/emqx_rule_engine/src/emqx_rule_outputs.erl</code> as an example.
-"
+        #{ desc => ?DESC("user_provided_function_function")
         , example => "module:function"
         })}
     , {args, sc(map(),
-        #{ desc => "
-The args will be passed as the 3rd argument to module:function/3,
-checkout the function <code>console</code> and <code>republish</code> in the source file:
-<code>apps/emqx_rule_engine/src/emqx_rule_outputs.erl</code> as an example.
-"
+        #{ desc => ?DESC("user_provided_function_args")
          , default => #{}
          })}
     ];
 
 fields("republish_args") ->
     [ {topic, sc(binary(),
-        #{ desc =>"
-The target topic of message to be re-published.<br>
-Template with variables is allowed, see description of the 'republish_args'.
-"
+        #{ desc => ?DESC("republish_args_topic")
           , required => true
           , example => <<"a/1">>
           })}
     , {qos, sc(qos(),
-        #{ desc => "
-The qos of the message to be re-published.
-Template with variables is allowed, see description of the 'republish_args'.<br>
-Defaults to ${qos}. If variable ${qos} is not found from the selected result of the rule,
-0 is used.
-"
+        #{ desc => ?DESC("republish_args_qos")
          , default => <<"${qos}">>
          , example => <<"${qos}">>
          })}
     , {retain, sc(hoconsc:union([binary(), boolean()]),
-        #{ desc => "
-The 'retain' flag of the message to be re-published.
-Template with variables is allowed, see description of the 'republish_args'.<br>
-Defaults to ${retain}. If variable ${retain} is not found from the selected result
-of the rule, false is used.
-"
+        #{ desc => ?DESC("republish_args_retain")
         , default => <<"${retain}">>
         , example => <<"${retain}">>
         })}
     , {payload, sc(binary(),
-        #{ desc => "
-The payload of the message to be re-published.
-Template with variables is allowed, see description of the 'republish_args'.<br>.
-Defaults to ${payload}. If variable ${payload} is not found from the selected result
-of the rule, then the string \"undefined\" is used.
-"
+        #{ desc => ?DESC("republish_args_payload")
          , default => <<"${payload}">>
          , example => <<"${payload}">>
          })}
@@ -191,7 +146,7 @@ desc(_) ->
 
 rule_name() ->
     {"name", sc(binary(),
-        #{ desc => "The name of the rule"
+        #{ desc => ?DESC("rules_name")
          , default => ""
          , required => true
          , example => "foo"

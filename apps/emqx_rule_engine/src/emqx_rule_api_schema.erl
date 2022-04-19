@@ -3,6 +3,7 @@
 -behaviour(hocon_schema).
 
 -include_lib("typerefl/include/types.hrl").
+-include_lib("hocon/include/hoconsc.hrl").
 -include_lib("emqx/include/logger.hrl").
 
 -export([ check_params/2
@@ -30,10 +31,10 @@ check_params(Params, Tag) ->
 %% Hocon Schema Definitions
 
 roots() ->
-    [ {"rule_creation", sc(ref("rule_creation"), #{desc => "Schema for creating rules"})}
-    , {"rule_info", sc(ref("rule_info"), #{desc => "Schema for rule info"})}
-    , {"rule_events", sc(ref("rule_events"), #{desc => "Schema for rule events"})}
-    , {"rule_test", sc(ref("rule_test"), #{desc => "Schema for testing rules"})}
+    [ {"rule_creation", sc(ref("rule_creation"), #{desc => ?DESC("root_rule_creation")})}
+    , {"rule_info", sc(ref("rule_info"), #{desc => ?DESC("root_rule_info")})}
+    , {"rule_events", sc(ref("rule_events"), #{desc => ?DESC("root_rule_events")})}
+    , {"rule_test", sc(ref("rule_test"), #{desc => ?DESC("root_rule_test")})}
     ].
 
 fields("rule_creation") ->
@@ -41,14 +42,14 @@ fields("rule_creation") ->
 
 fields("rule_info") ->
     [ rule_id()
-    , {"metrics", sc(ref("metrics"), #{desc => "The metrics of the rule"})}
+    , {"metrics", sc(ref("metrics"), #{desc => ?DESC("ri_metrics")})}
     , {"node_metrics", sc(hoconsc:array(ref("node_metrics")),
-        #{ desc => "The metrics of the rule for each node"
+        #{ desc => ?DESC("ri_node_metrics")
          })}
     , {"from", sc(hoconsc:array(binary()),
-        #{desc => "The topics of the rule", example => "t/#"})}
+        #{desc => ?DESC("ri_from"), example => "t/#"})}
     , {"created_at", sc(binary(),
-        #{ desc => "The created time of the rule"
+        #{ desc => ?DESC("ri_created_at")
          , example => "2021-12-01T15:00:43.153+08:00"
          })}
     ] ++ fields("rule_creation");
@@ -56,12 +57,12 @@ fields("rule_info") ->
 %% TODO: we can delete this API if the Dashboard not depends on it
 fields("rule_events") ->
     ETopics = [binary_to_atom(emqx_rule_events:event_topic(E)) || E <- emqx_rule_events:event_names()],
-    [ {"event", sc(hoconsc:enum(ETopics), #{desc => "The event topics", required => true})}
-    , {"title", sc(binary(), #{desc => "The title", example => "some title"})}
-    , {"description", sc(binary(), #{desc => "The description", example => "some desc"})}
-    , {"columns", sc(map(), #{desc => "The columns"})}
-    , {"test_columns", sc(map(), #{desc => "The test columns"})}
-    , {"sql_example", sc(binary(), #{desc => "The sql_example"})}
+    [ {"event", sc(hoconsc:enum(ETopics), #{desc => ?DESC("rs_event"), required => true})}
+    , {"title", sc(binary(), #{desc => ?DESC("rs_title"), example => "some title"})}
+    , {"description", sc(binary(), #{desc => ?DESC("rs_description"), example => "some desc"})}
+    , {"columns", sc(map(), #{desc => ?DESC("rs_columns")})}
+    , {"test_columns", sc(map(), #{desc => ?DESC("rs_test_columns")})}
+    , {"sql_example", sc(binary(), #{desc => ?DESC("rs_sql_example")})}
     ];
 
 fields("rule_test") ->
@@ -77,183 +78,177 @@ fields("rule_test") ->
                                    , ref("ctx_check_authz_complete")
                                    , ref("ctx_bridge_mqtt")
                                    ]),
-        #{desc => "The context of the event for testing",
+        #{desc => ?DESC("test_context"),
           default => #{}})}
-    , {"sql", sc(binary(), #{desc => "The SQL of the rule for testing", required => true})}
+    , {"sql", sc(binary(), #{desc => ?DESC("test_sql"), required => true})}
     ];
 
 fields("metrics") ->
     [ {"sql.matched", sc(non_neg_integer(), #{
-            desc => "How much times the FROM clause of the SQL is matched."
+            desc => ?DESC("metrics_sql_matched")
         })}
-    , {"sql.matched.rate", sc(float(), #{desc => "The rate of matched, times/second"})}
-    , {"sql.matched.rate.max", sc(float(), #{desc => "The max rate of matched, times/second"})}
+    , {"sql.matched.rate", sc(float(), #{desc => ?DESC("metrics_sql_matched_rate") })}
+    , {"sql.matched.rate.max", sc(float(), #{desc => ?DESC("metrics_sql_matched_rate_max") })}
     , {"sql.matched.rate.last5m", sc(float(),
-        #{desc => "The average rate of matched in last 5 minutes, times/second"})}
-    , {"sql.passed", sc(non_neg_integer(), #{desc => "How much times the SQL is passed"})}
-    , {"sql.failed", sc(non_neg_integer(), #{desc => "How much times the SQL is failed"})}
+            #{desc => ?DESC("metrics_sql_matched_rate_last5m") })}
+    , {"sql.passed", sc(non_neg_integer(), #{desc => ?DESC("metrics_sql_passed") })}
+    , {"sql.failed", sc(non_neg_integer(), #{desc => ?DESC("metrics_sql_failed") })}
     , {"sql.failed.exception", sc(non_neg_integer(), #{
-            desc => "How much times the SQL is failed due to exceptions. "
-                    "This may because of a crash when calling a SQL function, or "
-                    "trying to do arithmetic operation on undefined variables"
+            desc => ?DESC("metrics_sql_failed_exception")
         })}
     , {"sql.failed.unknown", sc(non_neg_integer(), #{
-            desc => "How much times the SQL is failed due to an unknown error."
+            desc => ?DESC("metrics_sql_failed_unknown")
         })}
     , {"outputs.total", sc(non_neg_integer(), #{
-            desc => "How much times the outputs are called by the rule. "
-                    "This value may several times of 'sql.matched', depending on the "
-                    "number of the outputs of the rule."
+            desc => ?DESC("metrics_outputs_total")
         })}
     , {"outputs.success", sc(non_neg_integer(), #{
-            desc => "How much times the rule success to call the outputs."
+            desc => ?DESC("metrics_outputs_success")
         })}
     , {"outputs.failed", sc(non_neg_integer(), #{
-            desc => "How much times the rule failed to call the outputs."
+            desc => ?DESC("metrics_outputs_failed")
         })}
     , {"outputs.failed.out_of_service", sc(non_neg_integer(), #{
-            desc => "How much times the rule failed to call outputs due to the output is "
-                    "out of service. For example, a bridge is disabled or stopped."
+            desc => ?DESC("metrics_outputs_failed_out_of_service")
         })}
     , {"outputs.failed.unknown", sc(non_neg_integer(), #{
-            desc => "How much times the rule failed to call outputs due to to an unknown error."
+            desc => ?DESC("metrics_outputs_failed_unknown")
         })}
     ];
 
 fields("node_metrics") ->
-    [ {"node", sc(binary(), #{desc => "The node name", example => "emqx@127.0.0.1"})}
+    [ {"node", sc(binary(), #{desc => ?DESC("node_node"), example => "emqx@127.0.0.1"})}
     ] ++ fields("metrics");
 
 fields("ctx_pub") ->
-    [ {"event_type", sc(message_publish, #{desc => "Event Type", required => true})}
-    , {"id", sc(binary(), #{desc => "Message ID"})}
-    , {"clientid", sc(binary(), #{desc => "The Client ID"})}
-    , {"username", sc(binary(), #{desc => "The User Name"})}
-    , {"payload", sc(binary(), #{desc => "The Message Payload"})}
-    , {"peerhost", sc(binary(), #{desc => "The IP Address of the Peer Client"})}
-    , {"topic", sc(binary(), #{desc => "Message Topic"})}
+    [ {"event_type", sc(message_publish, #{desc => ?DESC("event_event_type"), required => true})}
+    , {"id", sc(binary(), #{desc => ?DESC("event_id")})}
+    , {"clientid", sc(binary(), #{desc => ?DESC("event_clientid")})}
+    , {"username", sc(binary(), #{desc => ?DESC("event_username")})}
+    , {"payload", sc(binary(), #{desc => ?DESC("event_payload")})}
+    , {"peerhost", sc(binary(), #{desc => ?DESC("event_peerhost")})}
+    , {"topic", sc(binary(), #{desc => ?DESC("event_topic")})}
     , {"publish_received_at", sc(integer(), #{
-        desc => "The Time that this Message is Received"})}
+        desc => ?DESC("event_publish_received_at")})}
     ] ++ [qos()];
 
 fields("ctx_sub") ->
-    [ {"event_type", sc(session_subscribed, #{desc => "Event Type", required => true})}
-    , {"clientid", sc(binary(), #{desc => "The Client ID"})}
-    , {"username", sc(binary(), #{desc => "The User Name"})}
-    , {"payload", sc(binary(), #{desc => "The Message Payload"})}
-    , {"peerhost", sc(binary(), #{desc => "The IP Address of the Peer Client"})}
-    , {"topic", sc(binary(), #{desc => "Message Topic"})}
+    [ {"event_type", sc(session_subscribed, #{desc => ?DESC("event_event_type"), required => true})}
+    , {"clientid", sc(binary(), #{desc => ?DESC("event_clientid")})}
+    , {"username", sc(binary(), #{desc => ?DESC("event_username")})}
+    , {"payload", sc(binary(), #{desc => ?DESC("event_payload")})}
+    , {"peerhost", sc(binary(), #{desc => ?DESC("event_peerhost")})}
+    , {"topic", sc(binary(), #{desc => ?DESC("event_topic")})}
     , {"publish_received_at", sc(integer(), #{
-        desc => "The Time that this Message is Received"})}
+        desc => ?DESC("event_publish_received_at")})}
     ] ++ [qos()];
 
 fields("ctx_unsub") ->
-    [{"event_type", sc(session_unsubscribed, #{desc => "Event Type", required => true})}] ++
+    [{"event_type", sc(session_unsubscribed, #{desc => ?DESC("event_event_type"), required => true})}] ++
     proplists:delete("event_type", fields("ctx_sub"));
 
 fields("ctx_delivered") ->
-    [ {"event_type", sc(message_delivered, #{desc => "Event Type", required => true})}
-    , {"id", sc(binary(), #{desc => "Message ID"})}
-    , {"from_clientid", sc(binary(), #{desc => "The Client ID"})}
-    , {"from_username", sc(binary(), #{desc => "The User Name"})}
-    , {"clientid", sc(binary(), #{desc => "The Client ID"})}
-    , {"username", sc(binary(), #{desc => "The User Name"})}
-    , {"payload", sc(binary(), #{desc => "The Message Payload"})}
-    , {"peerhost", sc(binary(), #{desc => "The IP Address of the Peer Client"})}
-    , {"topic", sc(binary(), #{desc => "Message Topic"})}
+    [ {"event_type", sc(message_delivered, #{desc => ?DESC("event_event_type"), required => true})}
+    , {"id", sc(binary(), #{desc => ?DESC("event_id")})}
+    , {"from_clientid", sc(binary(), #{desc => ?DESC("event_from_clientid")})}
+    , {"from_username", sc(binary(), #{desc => ?DESC("event_from_username")})}
+    , {"clientid", sc(binary(), #{desc => ?DESC("event_clientid")})}
+    , {"username", sc(binary(), #{desc => ?DESC("event_username")})}
+    , {"payload", sc(binary(), #{desc => ?DESC("event_payload")})}
+    , {"peerhost", sc(binary(), #{desc => ?DESC("event_peerhost")})}
+    , {"topic", sc(binary(), #{desc => ?DESC("event_topic")})}
     , {"publish_received_at", sc(integer(), #{
-        desc => "The Time that this Message is Received"})}
+        desc => ?DESC("event_publish_received_at")})}
     ] ++ [qos()];
 
 fields("ctx_acked") ->
-    [{"event_type", sc(message_acked, #{desc => "Event Type", required => true})}] ++
+    [{"event_type", sc(message_acked, #{desc => ?DESC("event_event_type"), required => true})}] ++
     proplists:delete("event_type", fields("ctx_delivered"));
 
 fields("ctx_dropped") ->
-    [ {"event_type", sc(message_dropped, #{desc => "Event Type", required => true})}
-    , {"id", sc(binary(), #{desc => "Message ID"})}
-    , {"reason", sc(binary(), #{desc => "The Reason for Dropping"})}
-    , {"clientid", sc(binary(), #{desc => "The Client ID"})}
-    , {"username", sc(binary(), #{desc => "The User Name"})}
-    , {"payload", sc(binary(), #{desc => "The Message Payload"})}
-    , {"peerhost", sc(binary(), #{desc => "The IP Address of the Peer Client"})}
-    , {"topic", sc(binary(), #{desc => "Message Topic"})}
+    [ {"event_type", sc(message_dropped, #{desc => ?DESC("event_event_type"), required => true})}
+    , {"id", sc(binary(), #{desc => ?DESC("event_id")})}
+    , {"reason", sc(binary(), #{desc => ?DESC("event_ctx_dropped")})}
+    , {"clientid", sc(binary(), #{desc => ?DESC("event_clientid")})}
+    , {"username", sc(binary(), #{desc => ?DESC("event_username")})}
+    , {"payload", sc(binary(), #{desc => ?DESC("event_payload")})}
+    , {"peerhost", sc(binary(), #{desc => ?DESC("event_peerhost")})}
+    , {"topic", sc(binary(), #{desc => ?DESC("event_topic")})}
     , {"publish_received_at", sc(integer(), #{
-        desc => "The Time that this Message is Received"})}
+        desc => ?DESC("event_publish_received_at")})}
     ] ++ [qos()];
 
 fields("ctx_connected") ->
-    [ {"event_type", sc(client_connected, #{desc => "Event Type", required => true})}
-    , {"clientid", sc(binary(), #{desc => "The Client ID"})}
-    , {"username", sc(binary(), #{desc => "The User Name"})}
-    , {"mountpoint", sc(binary(), #{desc => "The Mountpoint"})}
-    , {"peername", sc(binary(), #{desc => "The IP Address and Port of the Peer Client"})}
-    , {"sockname", sc(binary(), #{desc => "The IP Address and Port of the Local Listener"})}
-    , {"proto_name", sc(binary(), #{desc => "Protocol Name"})}
-    , {"proto_ver", sc(binary(), #{desc => "Protocol Version"})}
-    , {"keepalive", sc(integer(), #{desc => "KeepAlive"})}
-    , {"clean_start", sc(boolean(), #{desc => "Clean Start", default => true})}
-    , {"expiry_interval", sc(integer(), #{desc => "Expiry Interval"})}
-    , {"is_bridge", sc(boolean(), #{desc => "Is Bridge", default => false})}
+    [ {"event_type", sc(client_connected, #{desc => ?DESC("event_event_type"), required => true})}
+    , {"clientid", sc(binary(), #{desc => ?DESC("event_clientid")})}
+    , {"username", sc(binary(), #{desc => ?DESC("event_username")})}
+    , {"mountpoint", sc(binary(), #{desc => ?DESC("event_mountpoint")})}
+    , {"peername", sc(binary(), #{desc => ?DESC("event_peername")})}
+    , {"sockname", sc(binary(), #{desc => ?DESC("event_sockname")})}
+    , {"proto_name", sc(binary(), #{desc => ?DESC("event_proto_name")})}
+    , {"proto_ver", sc(binary(), #{desc => ?DESC("event_proto_ver")})}
+    , {"keepalive", sc(integer(), #{desc => ?DESC("event_keepalive")})}
+    , {"clean_start", sc(boolean(), #{desc => ?DESC("event_clean_start"), default => true})}
+    , {"expiry_interval", sc(integer(), #{desc => ?DESC("event_expiry_interval")})}
+    , {"is_bridge", sc(boolean(), #{desc => ?DESC("event_is_bridge"), default => false})}
     , {"connected_at", sc(integer(), #{
-        desc => "The Time that this Client is Connected"})}
+        desc => ?DESC("event_connected_at")})}
     ];
 
 fields("ctx_disconnected") ->
-    [ {"event_type", sc(client_disconnected, #{desc => "Event Type", required => true})}
-    , {"clientid", sc(binary(), #{desc => "The Client ID"})}
-    , {"username", sc(binary(), #{desc => "The User Name"})}
-    , {"reason", sc(binary(), #{desc => "The Reason for Disconnect"})}
-    , {"peername", sc(binary(), #{desc => "The IP Address and Port of the Peer Client"})}
-    , {"sockname", sc(binary(), #{desc => "The IP Address and Port of the Local Listener"})}
+    [ {"event_type", sc(client_disconnected, #{desc => ?DESC("event_event_type"), required => true})}
+    , {"clientid", sc(binary(), #{desc => ?DESC("event_clientid")})}
+    , {"username", sc(binary(), #{desc => ?DESC("event_username")})}
+    , {"reason", sc(binary(), #{desc => ?DESC("event_ctx_disconnected_reason")})}
+    , {"peername", sc(binary(), #{desc => ?DESC("event_peername")})}
+    , {"sockname", sc(binary(), #{desc => ?DESC("event_sockname")})}
     , {"disconnected_at", sc(integer(), #{
-        desc => "The Time that this Client is Disconnected"})}
+        desc => ?DESC("event_ctx_disconnected_da")})}
     ];
 
 fields("ctx_connack") ->
-    [ {"event_type", sc(client_connack, #{desc => "Event Type", required => true})}
-    , {"reason_code", sc(binary(), #{desc => "The reason code"})}
-    , {"clientid", sc(binary(), #{desc => "The Client ID"})}
-    , {"clean_start", sc(boolean(), #{desc => "Clean Start", default => true})}
-    , {"username", sc(binary(), #{desc => "The User Name"})}
-    , {"peername", sc(binary(), #{desc => "The IP Address and Port of the Peer Client"})}
-    , {"sockname", sc(binary(), #{desc => "The IP Address and Port of the Local Listener"})}
-    , {"proto_name", sc(binary(), #{desc => "Protocol Name"})}
-    , {"proto_ver", sc(binary(), #{desc => "Protocol Version"})}
-    , {"keepalive", sc(integer(), #{desc => "KeepAlive"})}
-    , {"expiry_interval", sc(integer(), #{desc => "Expiry Interval"})}
+    [ {"event_type", sc(client_connack, #{desc => ?DESC("event_event_type"), required => true})}
+    , {"reason_code", sc(binary(), #{desc => ?DESC("event_ctx_connack_reason_code")})}
+    , {"clientid", sc(binary(), #{desc => ?DESC("event_clientid")})}
+    , {"clean_start", sc(boolean(), #{desc => ?DESC("event_clean_start"), default => true})}
+    , {"username", sc(binary(), #{desc => ?DESC("event_username")})}
+    , {"peername", sc(binary(), #{desc => ?DESC("event_peername")})}
+    , {"sockname", sc(binary(), #{desc => ?DESC("event_sockname")})}
+    , {"proto_name", sc(binary(), #{desc => ?DESC("event_proto_name")})}
+    , {"proto_ver", sc(binary(), #{desc => ?DESC("event_proto_ver")})}
+    , {"keepalive", sc(integer(), #{desc => ?DESC("event_keepalive")})}
+    , {"expiry_interval", sc(integer(), #{desc => ?DESC("event_expiry_interval")})}
     , {"connected_at", sc(integer(), #{
-        desc => "The Time that this Client is Connected"})}
+        desc => ?DESC("event_connected_at")})}
     ];
 fields("ctx_check_authz_complete") ->
-    [ {"event_type", sc(client_check_authz_complete, #{desc => "Event Type", required => true})}
-    , {"clientid", sc(binary(), #{desc => "The Client ID"})}
-    , {"username", sc(binary(), #{desc => "The User Name"})}
-    , {"peerhost", sc(binary(), #{desc => "The IP Address of the Peer Client"})}
-    , {"topic", sc(binary(), #{desc => "Message Topic"})}
-    , {"action", sc(binary(), #{desc => "Publish or Subscribe"})}
-    , {"authz_source", sc(binary(), #{desc => "Cache, Plugs or Default"})}
-    , {"result", sc(binary(), #{desc => "Allow or Deny"})}
+    [ {"event_type", sc(client_check_authz_complete, #{desc => ?DESC("event_event_type"), required => true})}
+    , {"clientid", sc(binary(), #{desc => ?DESC("event_clientid")})}
+    , {"username", sc(binary(), #{desc => ?DESC("event_username")})}
+    , {"peerhost", sc(binary(), #{desc => ?DESC("event_peerhost")})}
+    , {"topic", sc(binary(), #{desc => ?DESC("event_topic")})}
+    , {"action", sc(binary(), #{desc => ?DESC("event_action")})}
+    , {"authz_source", sc(binary(), #{desc => ?DESC("event_authz_source")})}
+    , {"result", sc(binary(), #{desc => ?DESC("event_result")})}
     ];
 fields("ctx_bridge_mqtt") ->
-    [ {"event_type", sc('$bridges/mqtt:*', #{desc => "Event Type", required => true})}
-    , {"id", sc(binary(), #{desc => "Message ID"})}
-    , {"payload", sc(binary(), #{desc => "The Message Payload"})}
-    , {"topic", sc(binary(), #{desc => "Message Topic"})}
-    , {"server", sc(binary(), #{desc => "The IP address (or hostname) and port of the MQTT broker,"
-        " in IP:Port format"})}
-    , {"dup", sc(binary(), #{desc => "The DUP flag of the MQTT message"})}
-    , {"retain", sc(binary(), #{desc => "If is a retain message"})}
+    [ {"event_type", sc('$bridges/mqtt:*', #{desc => ?DESC("event_event_type"), required => true})}
+    , {"id", sc(binary(), #{desc => ?DESC("event_id")})}
+    , {"payload", sc(binary(), #{desc => ?DESC("event_payload")})}
+    , {"topic", sc(binary(), #{desc => ?DESC("event_topic")})}
+    , {"server", sc(binary(), #{desc => ?DESC("event_server")})}
+    , {"dup", sc(binary(), #{desc => ?DESC("event_dup")})}
+    , {"retain", sc(binary(), #{desc => ?DESC("event_retain")})}
     , {"message_received_at", sc(integer(), #{
-        desc => "The Time that this Message is Received"})}
+        desc => ?DESC("event_publish_received_at")})}
     ] ++ [qos()].
 
 qos() ->
-    {"qos", sc(emqx_schema:qos(), #{desc => "The Message QoS"})}.
+    {"qos", sc(emqx_schema:qos(), #{desc => ?DESC("event_qos")})}.
 
 rule_id() ->
     {"id", sc(binary(),
-        #{ desc => "The ID of the rule", required => true
+        #{ desc => ?DESC("rule_id"), required => true
          , example => "293fb66f"
          })}.
 

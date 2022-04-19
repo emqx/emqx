@@ -18,6 +18,7 @@
 
 -include("rule_engine.hrl").
 -include_lib("emqx/include/logger.hrl").
+-include_lib("hocon/include/hoconsc.hrl").
 -include_lib("typerefl/include/types.hrl").
 
 -behaviour(minirest_api).
@@ -102,14 +103,14 @@ schema("/rules") ->
         'operationId' => '/rules',
         get => #{
             tags => [<<"rules">>],
-            description => <<"List all rules">>,
+            description => ?DESC("api1"),
             summary => <<"List Rules">>,
             responses => #{
-                200 => mk(array(rule_info_schema()), #{desc => "List of rules"})
+                200 => mk(array(rule_info_schema()), #{desc => ?DESC("desc9")})
             }},
         post => #{
             tags => [<<"rules">>],
-            description => <<"Create a new rule using given Id">>,
+            description => ?DESC("api2"),
             summary => <<"Create a Rule">>,
             'requestBody' => rule_creation_schema(),
             responses => #{
@@ -123,7 +124,7 @@ schema("/rule_events") ->
         'operationId' => '/rule_events',
         get => #{
             tags => [<<"rules">>],
-            description => <<"List all events can be used in rules">>,
+            description => ?DESC("api3"),
             summary => <<"List Events">>,
             responses => #{
                 200 => mk(ref(emqx_rule_api_schema, "rule_events"), #{})
@@ -136,7 +137,7 @@ schema("/rules/:id") ->
         'operationId' => '/rules/:id',
         get => #{
             tags => [<<"rules">>],
-            description => <<"Get a rule by given Id">>,
+            description => ?DESC("api4"),
             summary => <<"Get a Rule">>,
             parameters => param_path_id(),
             responses => #{
@@ -146,7 +147,7 @@ schema("/rules/:id") ->
         },
         put => #{
             tags => [<<"rules">>],
-            description => <<"Update a rule by given Id to all nodes in the cluster">>,
+            description => ?DESC("api5"),
             summary => <<"Update a Rule">>,
             parameters => param_path_id(),
             'requestBody' => rule_creation_schema(),
@@ -157,7 +158,7 @@ schema("/rules/:id") ->
         },
         delete => #{
             tags => [<<"rules">>],
-            description => <<"Delete a rule by given Id from all nodes in the cluster">>,
+            description => ?DESC("api6"),
             summary => <<"Delete a Rule">>,
             parameters => param_path_id(),
             responses => #{
@@ -171,7 +172,7 @@ schema("/rules/:id/reset_metrics") ->
         'operationId' => '/rules/:id/reset_metrics',
         put => #{
             tags => [<<"rules">>],
-            description => <<"Reset a rule metrics">>,
+            description => ?DESC("api7"),
             summary => <<"Reset a Rule Metrics">>,
             parameters => param_path_id(),
             responses => #{
@@ -186,7 +187,7 @@ schema("/rule_test") ->
         'operationId' => '/rule_test',
         post => #{
             tags => [<<"rules">>],
-            description => <<"Test a rule">>,
+            description => ?DESC("api8"),
             summary => <<"Test a Rule">>,
             'requestBody' => rule_test_schema(),
             responses => #{
