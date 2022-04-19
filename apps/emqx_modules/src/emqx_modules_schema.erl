@@ -51,17 +51,17 @@ fields("rewrite") ->
         {action,
             sc(
                 hoconsc:enum([subscribe, publish, all]),
-                #{desc => ?DESC(tr_action), example => publish}
+                #{required => true, desc => ?DESC(tr_action), example => publish}
             )},
         {source_topic,
             sc(
                 binary(),
-                #{desc => ?DESC(tr_source_topic), example => "x/#"}
+                #{required => true, desc => ?DESC(tr_source_topic), example => "x/#"}
             )},
         {dest_topic,
             sc(
                 binary(),
-                #{desc => ?DESC(tr_dest_topic), example => "z/y/$1"}
+                #{required => true, desc => ?DESC(tr_dest_topic), example => "z/y/$1"}
             )},
         {re, fun regular_expression/1}
     ];
@@ -80,6 +80,7 @@ desc(_) ->
     undefined.
 
 regular_expression(type) -> binary();
+regular_expression(required) -> true;
 regular_expression(desc) -> ?DESC(tr_re);
 regular_expression(example) -> "^x/y/(.+)$";
 regular_expression(validator) -> fun is_re/1;
