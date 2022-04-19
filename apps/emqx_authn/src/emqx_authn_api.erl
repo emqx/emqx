@@ -18,11 +18,11 @@
 
 -behaviour(minirest_api).
 
--include_lib("typerefl/include/types.hrl").
 -include("emqx_authn.hrl").
--include_lib("emqx/include/emqx_placeholder.hrl").
 -include_lib("emqx/include/logger.hrl").
+-include_lib("emqx/include/emqx_placeholder.hrl").
 -include_lib("emqx/include/emqx_authentication.hrl").
+-include_lib("hocon/include/hoconsc.hrl").
 
 -import(hoconsc, [mk/2, ref/1, ref/2]).
 -import(emqx_dashboard_swagger, [error_codes/2]).
@@ -154,7 +154,7 @@ schema("/authentication") ->
         'operationId' => authenticators,
         get => #{
             tags => ?API_TAGS_GLOBAL,
-            description => <<"List authenticators for global authentication">>,
+            description => ?DESC(authentication_get),
             responses => #{
                 200 => emqx_dashboard_swagger:schema_with_example(
                     hoconsc:array(emqx_authn_schema:authenticator_type()),
@@ -164,7 +164,7 @@ schema("/authentication") ->
         },
         post => #{
             tags => ?API_TAGS_GLOBAL,
-            description => <<"Create authenticator for global authentication">>,
+            description => ?DESC(authentication_post),
             'requestBody' => emqx_dashboard_swagger:schema_with_examples(
                 emqx_authn_schema:authenticator_type(),
                 authenticator_examples()
@@ -184,7 +184,7 @@ schema("/authentication/:id") ->
         'operationId' => authenticator,
         get => #{
             tags => ?API_TAGS_GLOBAL,
-            description => <<"Get authenticator from global authentication chain">>,
+            description => ?DESC(authentication_id_get),
             parameters => [param_auth_id()],
             responses => #{
                 200 => emqx_dashboard_swagger:schema_with_examples(
@@ -196,7 +196,7 @@ schema("/authentication/:id") ->
         },
         put => #{
             tags => ?API_TAGS_GLOBAL,
-            description => <<"Update authenticator from global authentication chain">>,
+            description => ?DESC(authentication_id_put),
             parameters => [param_auth_id()],
             'requestBody' => emqx_dashboard_swagger:schema_with_examples(
                 emqx_authn_schema:authenticator_type(),
@@ -214,7 +214,7 @@ schema("/authentication/:id") ->
         },
         delete => #{
             tags => ?API_TAGS_GLOBAL,
-            description => <<"Delete authenticator from global authentication chain">>,
+            description => ?DESC(authentication_id_delete),
             parameters => [param_auth_id()],
             responses => #{
                 204 => <<"Authenticator deleted">>,
@@ -227,7 +227,7 @@ schema("/authentication/:id/status") ->
         'operationId' => authenticator_status,
         get => #{
             tags => ?API_TAGS_GLOBAL,
-            description => <<"Get authenticator status from global authentication chain">>,
+            description => ?DESC(authentication_id_status_get),
             parameters => [param_auth_id()],
             responses => #{
                 200 => emqx_dashboard_swagger:schema_with_examples(
@@ -243,7 +243,7 @@ schema("/listeners/:listener_id/authentication") ->
         'operationId' => listener_authenticators,
         get => #{
             tags => ?API_TAGS_SINGLE,
-            description => <<"List authenticators for listener authentication">>,
+            description => ?DESC(listeners_listener_id_authentication_get),
             parameters => [param_listener_id()],
             responses => #{
                 200 => emqx_dashboard_swagger:schema_with_example(
@@ -254,7 +254,7 @@ schema("/listeners/:listener_id/authentication") ->
         },
         post => #{
             tags => ?API_TAGS_SINGLE,
-            description => <<"Create authenticator for listener authentication">>,
+            description => ?DESC(listeners_listener_id_authentication_post),
             parameters => [param_listener_id()],
             'requestBody' => emqx_dashboard_swagger:schema_with_examples(
                 emqx_authn_schema:authenticator_type(),
@@ -275,7 +275,7 @@ schema("/listeners/:listener_id/authentication/:id") ->
         'operationId' => listener_authenticator,
         get => #{
             tags => ?API_TAGS_SINGLE,
-            description => <<"Get authenticator from listener authentication chain">>,
+            description => ?DESC(listeners_listener_id_authentication_id_get),
             parameters => [param_listener_id(), param_auth_id()],
             responses => #{
                 200 => emqx_dashboard_swagger:schema_with_examples(
@@ -287,7 +287,7 @@ schema("/listeners/:listener_id/authentication/:id") ->
         },
         put => #{
             tags => ?API_TAGS_SINGLE,
-            description => <<"Update authenticator from listener authentication chain">>,
+            description => ?DESC(listeners_listener_id_authentication_id_put),
             parameters => [param_listener_id(), param_auth_id()],
             'requestBody' => emqx_dashboard_swagger:schema_with_examples(
                 emqx_authn_schema:authenticator_type(),
@@ -305,7 +305,7 @@ schema("/listeners/:listener_id/authentication/:id") ->
         },
         delete => #{
             tags => ?API_TAGS_SINGLE,
-            description => <<"Delete authenticator from listener authentication chain">>,
+            description => ?DESC(listeners_listener_id_authentication_id_delete),
             parameters => [param_listener_id(), param_auth_id()],
             responses => #{
                 204 => <<"Authenticator deleted">>,
@@ -318,7 +318,7 @@ schema("/listeners/:listener_id/authentication/:id/status") ->
         'operationId' => listener_authenticator_status,
         get => #{
             tags => ?API_TAGS_SINGLE,
-            description => <<"Get authenticator status from listener authentication chain">>,
+            description => ?DESC(listeners_listener_id_authentication_id_status_get),
             parameters => [param_listener_id(), param_auth_id()],
             responses => #{
                 200 => emqx_dashboard_swagger:schema_with_examples(
@@ -334,7 +334,7 @@ schema("/authentication/:id/move") ->
         'operationId' => authenticator_move,
         post => #{
             tags => ?API_TAGS_GLOBAL,
-            description => <<"Move authenticator in global authentication chain">>,
+            description => ?DESC(authentication_id_move_post),
             parameters => [param_auth_id()],
             'requestBody' => emqx_dashboard_swagger:schema_with_examples(
                 ref(request_move),
@@ -352,7 +352,7 @@ schema("/listeners/:listener_id/authentication/:id/move") ->
         'operationId' => listener_authenticator_move,
         post => #{
             tags => ?API_TAGS_SINGLE,
-            description => <<"Move authenticator in listener authentication chain">>,
+            description => ?DESC(listeners_listener_id_authentication_id_move_post),
             parameters => [param_listener_id(), param_auth_id()],
             'requestBody' => emqx_dashboard_swagger:schema_with_examples(
                 ref(request_move),
@@ -370,7 +370,7 @@ schema("/authentication/:id/import_users") ->
         'operationId' => authenticator_import_users,
         post => #{
             tags => ?API_TAGS_GLOBAL,
-            description => <<"Import users into authenticator in global authentication chain">>,
+            description => ?DESC(authentication_id_import_users_post),
             parameters => [param_auth_id()],
             'requestBody' => emqx_dashboard_swagger:schema_with_examples(
                 ref(request_import_users),
@@ -388,7 +388,7 @@ schema("/listeners/:listener_id/authentication/:id/import_users") ->
         'operationId' => listener_authenticator_import_users,
         post => #{
             tags => ?API_TAGS_SINGLE,
-            description => <<"Import users into authenticator in listener authentication chain">>,
+            description => ?DESC(listeners_listener_id_authentication_id_import_users_post),
             parameters => [param_listener_id(), param_auth_id()],
             'requestBody' => emqx_dashboard_swagger:schema_with_examples(
                 ref(request_import_users),
@@ -406,7 +406,7 @@ schema("/authentication/:id/users") ->
         'operationId' => authenticator_users,
         post => #{
             tags => ?API_TAGS_GLOBAL,
-            description => <<"Create users for authenticator in global authentication chain">>,
+            description => ?DESC(authentication_id_users_post),
             parameters => [param_auth_id()],
             'requestBody' => emqx_dashboard_swagger:schema_with_examples(
                 ref(request_user_create),
@@ -423,7 +423,7 @@ schema("/authentication/:id/users") ->
         },
         get => #{
             tags => ?API_TAGS_GLOBAL,
-            description => <<"List users in authenticator in global authentication chain">>,
+            description => ?DESC(authentication_id_users_get),
             parameters => [
                 param_auth_id(),
                 ref(emqx_dashboard_swagger, page),
@@ -431,13 +431,13 @@ schema("/authentication/:id/users") ->
                 {like_username,
                     mk(binary(), #{
                         in => query,
-                        desc => <<"Fuzzy search username">>,
+                        desc => ?DESC(like_username),
                         required => false
                     })},
                 {like_clientid,
                     mk(binary(), #{
                         in => query,
-                        desc => <<"Fuzzy search clientid">>,
+                        desc => ?DESC(like_clientid),
                         required => false
                     })}
             ],
@@ -455,7 +455,7 @@ schema("/listeners/:listener_id/authentication/:id/users") ->
         'operationId' => listener_authenticator_users,
         post => #{
             tags => ?API_TAGS_SINGLE,
-            description => <<"Create users for authenticator in global authentication chain">>,
+            description => ?DESC(listeners_listener_id_authentication_id_users_post),
             parameters => [param_auth_id(), param_listener_id()],
             'requestBody' => emqx_dashboard_swagger:schema_with_examples(
                 ref(request_user_create),
@@ -472,7 +472,7 @@ schema("/listeners/:listener_id/authentication/:id/users") ->
         },
         get => #{
             tags => ?API_TAGS_SINGLE,
-            description => <<"List users in authenticator in listener authentication chain">>,
+            description => ?DESC(listeners_listener_id_authentication_id_users_get),
             parameters => [
                 param_listener_id(),
                 param_auth_id(),
@@ -493,7 +493,7 @@ schema("/authentication/:id/users/:user_id") ->
         'operationId' => authenticator_user,
         get => #{
             tags => ?API_TAGS_GLOBAL,
-            description => <<"Get user from authenticator in global authentication chain">>,
+            description => ?DESC(authentication_id_users_user_id_get),
             parameters => [param_auth_id(), param_user_id()],
             responses => #{
                 200 => emqx_dashboard_swagger:schema_with_examples(
@@ -505,7 +505,7 @@ schema("/authentication/:id/users/:user_id") ->
         },
         put => #{
             tags => ?API_TAGS_GLOBAL,
-            description => <<"Update user in authenticator in global authentication chain">>,
+            description => ?DESC(authentication_id_users_user_id_put),
             parameters => [param_auth_id(), param_user_id()],
             'requestBody' => emqx_dashboard_swagger:schema_with_examples(
                 ref(request_user_update),
@@ -522,7 +522,7 @@ schema("/authentication/:id/users/:user_id") ->
         },
         delete => #{
             tags => ?API_TAGS_GLOBAL,
-            description => <<"Update user in authenticator in global authentication chain">>,
+            description => ?DESC(authentication_id_users_user_id_delete),
             parameters => [param_auth_id(), param_user_id()],
             responses => #{
                 204 => <<"User deleted">>,
@@ -535,7 +535,7 @@ schema("/listeners/:listener_id/authentication/:id/users/:user_id") ->
         'operationId' => listener_authenticator_user,
         get => #{
             tags => ?API_TAGS_SINGLE,
-            description => <<"Get user from authenticator in listener authentication chain">>,
+            description => ?DESC(listeners_listener_id_authentication_id_users_user_id_get),
             parameters => [param_listener_id(), param_auth_id(), param_user_id()],
             responses => #{
                 200 => emqx_dashboard_swagger:schema_with_example(
@@ -547,7 +547,7 @@ schema("/listeners/:listener_id/authentication/:id/users/:user_id") ->
         },
         put => #{
             tags => ?API_TAGS_SINGLE,
-            description => <<"Update user in authenticator in listener authentication chain">>,
+            description => ?DESC(listeners_listener_id_authentication_id_users_user_id_put),
             parameters => [param_listener_id(), param_auth_id(), param_user_id()],
             'requestBody' => emqx_dashboard_swagger:schema_with_example(
                 ref(request_user_update),
@@ -564,7 +564,7 @@ schema("/listeners/:listener_id/authentication/:id/users/:user_id") ->
         },
         delete => #{
             tags => ?API_TAGS_SINGLE,
-            description => <<"Update user in authenticator in listener authentication chain">>,
+            description => ?DESC(listeners_listener_id_authentication_id_users_user_id_delete),
             parameters => [param_listener_id(), param_auth_id(), param_user_id()],
             responses => #{
                 204 => <<"User deleted">>,
@@ -578,7 +578,7 @@ param_auth_id() ->
         id,
         mk(binary(), #{
             in => path,
-            desc => <<"Authenticator ID">>,
+            desc => ?DESC(param_auth_id),
             required => true
         })
     }.
@@ -588,7 +588,7 @@ param_listener_id() ->
         listener_id,
         mk(binary(), #{
             in => path,
-            desc => <<"Listener ID">>,
+            desc => ?DESC(param_listener_id),
             required => true,
             example => emqx_listeners:id_example()
         })
@@ -599,7 +599,7 @@ param_user_id() ->
         user_id,
         mk(binary(), #{
             in => path,
-            desc => <<"User ID">>
+            desc => ?DESC(param_user_id)
         })
     }.
 

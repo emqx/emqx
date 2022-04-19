@@ -18,7 +18,7 @@
 
 -include("emqx_authn.hrl").
 -include_lib("emqx/include/logger.hrl").
--include_lib("typerefl/include/types.hrl").
+-include_lib("hocon/include/hoconsc.hrl").
 
 -behaviour(hocon_schema).
 -behaviour(emqx_authentication).
@@ -61,24 +61,24 @@ fields(sentinel) ->
     common_fields() ++ emqx_connector_redis:fields(sentinel).
 
 desc(standalone) ->
-    "Configuration for a standalone Redis instance.";
+    ?DESC(standalone);
 desc(cluster) ->
-    "Configuration for a Redis cluster.";
+    ?DESC(cluster);
 desc(sentinel) ->
-    "Configuration for a Redis Sentinel.";
+    ?DESC(sentinel);
 desc(_) ->
     "".
 
 common_fields() ->
     [
-        {mechanism, emqx_authn_schema:mechanism('password_based')},
+        {mechanism, emqx_authn_schema:mechanism(password_based)},
         {backend, emqx_authn_schema:backend(redis)},
         {cmd, fun cmd/1},
         {password_hash_algorithm, fun emqx_authn_password_hashing:type_ro/1}
     ] ++ emqx_authn_schema:common_fields().
 
 cmd(type) -> string();
-cmd(desc) -> "Redis query.";
+cmd(desc) -> ?DESC(?FUNCTION_NAME);
 cmd(required) -> true;
 cmd(_) -> undefined.
 
