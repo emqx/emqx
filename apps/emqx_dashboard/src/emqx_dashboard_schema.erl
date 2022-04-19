@@ -147,6 +147,8 @@ fields("https") ->
 
 desc("dashboard") ->
     "Configuration for EMQX dashboard.";
+desc("listeners") ->
+    "Configuration for the dashboard listener.";
 desc("http") ->
     "Configuration for the dashboard listener (plaintext).";
 desc("https") ->
