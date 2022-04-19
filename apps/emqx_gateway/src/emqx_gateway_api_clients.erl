@@ -101,30 +101,39 @@ clients(get, #{
     bindings := #{name := Name0},
     query_string := QString
 }) ->
-    with_gateway(Name0, fun(GwName, _) ->
+    Fun = fun(GwName, _) ->
         TabName = emqx_gateway_cm:tabname(info, GwName),
-        case maps:get(<<"node">>, QString, undefined) of
-            undefined ->
-                Response = emqx_mgmt_api:cluster_query(
-                    QString,
-                    TabName,
-                    ?CLIENT_QSCHEMA,
-                    ?QUERY_FUN
-                ),
-                emqx_mgmt_util:generate_response(Response);
-            Node1 ->
-                Node = binary_to_atom(Node1, utf8),
-                QStringWithoutNode = maps:without([<<"node">>], QString),
-                Response = emqx_mgmt_api:node_query(
-                    Node,
-                    QStringWithoutNode,
-                    TabName,
-                    ?CLIENT_QSCHEMA,
-                    ?QUERY_FUN
-                ),
-                emqx_mgmt_util:generate_response(Response)
+        Result =
+            case maps:get(<<"node">>, QString, undefined) of
+                undefined ->
+                    emqx_mgmt_api:cluster_query(
+                        QString,
+                        TabName,
+                        ?CLIENT_QSCHEMA,
+                        ?QUERY_FUN
+                    );
+                Node0 ->
+                    Node1 = binary_to_atom(Node0, utf8),
+                    QStringWithoutNode = maps:without([<<"node">>], QString),
+                    emqx_mgmt_api:node_query(
+                        Node1,
+                        QStringWithoutNode,
+                        TabName,
+                        ?CLIENT_QSCHEMA,
+                        ?QUERY_FUN
+                    )
+            end,
+        case Result of
+            {error, page_limit_invalid} ->
+                {400, #{code => <<"INVALID_PARAMETER">>, message => <<"page_limit_invalid">>}};
+            {error, Node, {badrpc, R}} ->
+                Message = list_to_binary(io_lib:format("bad rpc call ~p, Reason ~p", [Node, R])),
+                {500, #{code => <<"NODE_DOWN">>, message => Message}};
+            Response ->
+                {200, Response}
         end
-    end).
+    end,
+    with_gateway(Name0, Fun).
 
 clients_insta(get, #{
     bindings := #{
