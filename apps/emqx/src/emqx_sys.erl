@@ -147,23 +147,24 @@ post_config_update(_, _Req, NewSysConf, OldSysConf, _AppEnvs) ->
     load_event_hooks(Added).
 
 diff_hooks(NewSysConf, OldSysConf) ->
-    NewEvents = maps:get(sys_event_messages, NewSysConf, #{}),
-    OldEvents = maps:get(sys_event_messages, OldSysConf, #{}),
-    maps:fold(
-        fun(K, V, {Acc1, Acc2}) ->
-            case V =:= maps:get(K, OldEvents, false) of
-                true ->
-                    {Acc1, Acc2};
-                false ->
-                    case V of
-                        true -> {[{K, V} | Acc1], [Acc2]};
-                        false -> {Acc1, [{K, V} | Acc2]}
-                    end
-            end
-        end,
-        {[], []},
-        NewEvents
-    ).
+    NewEvents = maps:to_list(maps:get(sys_event_messages, NewSysConf, #{})),
+    OldEvents = maps:to_list(maps:get(sys_event_messages, OldSysConf, #{})),
+    diff_hooks(NewEvents, OldEvents, [], []).
+
+diff_hooks([], [], Added, Removed) ->
+    {lists:reverse(Added), lists:reverse(Removed)};
+diff_hooks([H | T1], [H | T2], Added, Removed) ->
+    diff_hooks(T1, T2, Added, Removed);
+diff_hooks(
+    [New = {EventName, NewEnable} | T1],
+    [Old = {EventName, OldEnable} | T2],
+    Added,
+    Removed
+) ->
+    case {NewEnable, OldEnable} of
+        {true, false} -> diff_hooks(T1, T2, [New | Added], Removed);
+        {false, true} -> diff_hooks(T1, T2, Added, [Old | Removed])
+    end.
 
 %%--------------------------------------------------------------------
 %% gen_server callbacks
