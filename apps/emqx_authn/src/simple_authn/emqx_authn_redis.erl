@@ -79,6 +79,7 @@ common_fields() ->
 
 cmd(type) -> string();
 cmd(desc) -> "Redis query.";
+cmd(required) -> true;
 cmd(_) -> undefined.
 
 %%------------------------------------------------------------------------------

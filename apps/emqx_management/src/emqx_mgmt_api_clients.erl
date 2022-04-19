@@ -203,7 +203,7 @@ schema("/clients") ->
             responses => #{
                 200 => [
                     {data, hoconsc:mk(hoconsc:array(hoconsc:ref(?MODULE, client)), #{})},
-                    {meta, hoconsc:mk(hoconsc:ref(?MODULE, meta), #{})}
+                    {meta, hoconsc:mk(hoconsc:ref(emqx_dashboard_swagger, meta), #{})}
                 ],
                 400 =>
                     emqx_dashboard_swagger:error_codes(
@@ -518,11 +518,7 @@ fields(subscribe) ->
 fields(unsubscribe) ->
     [
         {topic, hoconsc:mk(binary(), #{desc => <<"Topic">>})}
-    ];
-fields(meta) ->
-    emqx_dashboard_swagger:fields(page) ++
-        emqx_dashboard_swagger:fields(limit) ++
-        [{count, hoconsc:mk(integer(), #{example => 1})}].
+    ].
 
 %%%==============================================================================================
 %% parameters trans

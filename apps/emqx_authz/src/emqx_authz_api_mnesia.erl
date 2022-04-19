@@ -383,7 +383,7 @@ fields(rules_for_username) ->
 fields(username_response_data) ->
     [
         {data, mk(array(ref(rules_for_username)), #{})},
-        {meta, ref(meta)}
+        {meta, ref(emqx_dashboard_swagger, meta)}
     ];
 fields(rules_for_clientid) ->
     fields(rules) ++
@@ -391,14 +391,10 @@ fields(rules_for_clientid) ->
 fields(clientid_response_data) ->
     [
         {data, mk(array(ref(rules_for_clientid)), #{})},
-        {meta, ref(meta)}
+        {meta, ref(emqx_dashboard_swagger, meta)}
     ];
 fields(rules) ->
-    [{rules, mk(array(ref(rule_item)))}];
-fields(meta) ->
-    emqx_dashboard_swagger:fields(page) ++
-        emqx_dashboard_swagger:fields(limit) ++
-        [{count, mk(integer(), #{example => 1})}].
+    [{rules, mk(array(ref(rule_item)))}].
 
 %%--------------------------------------------------------------------
 %% HTTP API

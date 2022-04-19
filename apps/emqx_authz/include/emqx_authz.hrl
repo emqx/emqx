@@ -14,6 +14,8 @@
 %% limitations under the License.
 %%--------------------------------------------------------------------
 
+-include_lib("emqx/include/emqx_access_control.hrl").
+
 -define(APP, emqx_authz).
 
 -define(ALLOW_DENY(A),
@@ -44,6 +46,11 @@
 -define(CONF_KEY_PATH, [authorization, sources]).
 
 -define(RE_PLACEHOLDER, "\\$\\{[a-z0-9_]+\\}").
+
+%% has to be the same as the root field name defined in emqx_schema
+-define(CONF_NS, ?EMQX_AUTHORIZATION_CONFIG_ROOT_NAME).
+-define(CONF_NS_ATOM, ?EMQX_AUTHORIZATION_CONFIG_ROOT_NAME_ATOM).
+-define(CONF_NS_BINARY, ?EMQX_AUTHORIZATION_CONFIG_ROOT_NAME_BINARY).
 
 %% API examples
 -define(USERNAME_RULES_EXAMPLE, #{

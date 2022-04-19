@@ -57,6 +57,7 @@ fields(single) ->
     [ {server, fun server/1}
     , {redis_type, #{type => hoconsc:enum([single]),
                      default => single,
+                     required => true,
                      desc => ?DESC("single")
                     }}
     ] ++
@@ -66,6 +67,7 @@ fields(cluster) ->
     [ {servers, fun servers/1}
     , {redis_type, #{type => hoconsc:enum([cluster]),
                      default => cluster,
+                     required => true,
                      desc => ?DESC("cluster")
                     }}
     ] ++
@@ -75,6 +77,7 @@ fields(sentinel) ->
     [ {servers, fun servers/1}
     , {redis_type, #{type => hoconsc:enum([sentinel]),
                      default => sentinel,
+                     required => true,
                      desc => ?DESC("sentinel")
                     }}
     , {sentinel, #{type => string(), desc => ?DESC("sentinel_desc")
@@ -210,6 +213,7 @@ redis_fields() ->
     , {password, fun emqx_connector_schema_lib:password/1}
     , {database, #{type => integer(),
                    default => 0,
+                   required => true,
                    desc => ?DESC("database")
                   }}
     , {auto_reconnect, fun emqx_connector_schema_lib:auto_reconnect/1}

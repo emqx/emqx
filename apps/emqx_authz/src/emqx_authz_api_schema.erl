@@ -16,37 +16,34 @@
 
 -module(emqx_authz_api_schema).
 
+-include("emqx_authz.hrl").
 -include_lib("typerefl/include/types.hrl").
 -include_lib("emqx_connector/include/emqx_connector.hrl").
 
 -import(hoconsc, [mk/2, enum/1]).
 -import(emqx_schema, [mk_duration/2]).
 
--export([fields/1, authz_sources_types/1]).
+-export([
+    fields/1,
+    authz_sources_types/1
+]).
 
-fields(http) ->
-    authz_common_fields(http) ++
-        [
-            {url, fun url/1},
-            {method, #{
-                type => enum([get, post]),
-                default => get
-            }},
-            {headers, fun headers/1},
-            {body, map([{fuzzy, term(), binary()}])},
-            {request_timeout, mk_duration("Request timeout", #{default => "30s"})}
-        ] ++
-        maps:to_list(
-            maps:without(
-                [
-                    base_url,
-                    pool_type
-                ],
-                maps:from_list(emqx_connector_http:fields(config))
-            )
-        );
-fields('built_in_database') ->
-    authz_common_fields('built_in_database');
+%%------------------------------------------------------------------------------
+%% Hocon Schema
+%%------------------------------------------------------------------------------
+
+fields(http_get) ->
+    [
+        {method, #{type => get, default => get, required => true}},
+        {headers, fun headers_no_content_type/1}
+    ] ++ authz_http_common_fields();
+fields(http_post) ->
+    [
+        {method, #{type => post, default => post, required => true}},
+        {headers, fun headers/1}
+    ] ++ authz_http_common_fields();
+fields(built_in_database) ->
+    authz_common_fields(built_in_database);
 fields(mongo_single) ->
     authz_mongo_common_fields() ++
         emqx_connector_mongo:fields(single);
@@ -58,11 +55,11 @@ fields(mongo_sharded) ->
         emqx_connector_mongo:fields(sharded);
 fields(mysql) ->
     authz_common_fields(mysql) ++
-        [{query, #{type => binary()}}] ++
+        [{query, mk(binary(), #{required => true})}] ++
         emqx_connector_mysql:fields(config);
 fields(postgresql) ->
     authz_common_fields(postgresql) ++
-        [{query, #{type => binary()}}] ++
+        [{query, mk(binary(), #{required => true})}] ++
         proplists:delete(named_queries, emqx_connector_pgsql:fields(config));
 fields(redis_single) ->
     authz_redis_common_fields() ++
@@ -100,6 +97,23 @@ fields(position) ->
 %%------------------------------------------------------------------------------
 %% http type funcs
 
+authz_http_common_fields() ->
+    authz_common_fields(http) ++
+        [
+            {url, fun url/1},
+            {body, map([{fuzzy, term(), binary()}])},
+            {request_timeout, mk_duration("Request timeout", #{default => "30s"})}
+        ] ++
+        maps:to_list(
+            maps:without(
+                [
+                    base_url,
+                    pool_type
+                ],
+                maps:from_list(emqx_connector_http:fields(config))
+            )
+        ).
+
 url(type) -> binary();
 url(validator) -> [?NOT_EMPTY("the value of the field 'url' cannot be empty")];
 url(required) -> true;
@@ -107,6 +121,8 @@ url(_) -> undefined.
 
 headers(type) ->
     map();
+headers(desc) ->
+    "List of HTTP headers.";
 headers(converter) ->
     fun(Headers) ->
         maps:merge(default_headers(), transform_header_name(Headers))
@@ -114,6 +130,19 @@ headers(converter) ->
 headers(default) ->
     default_headers();
 headers(_) ->
+    undefined.
+
+headers_no_content_type(type) ->
+    map();
+headers_no_content_type(desc) ->
+    "List of HTTP headers.";
+headers_no_content_type(converter) ->
+    fun(Headers) ->
+        maps:merge(default_headers_no_content_type(), transform_header_name(Headers))
+    end;
+headers_no_content_type(default) ->
+    default_headers_no_content_type();
+headers_no_content_type(_) ->
     undefined.
 
 %% headers
@@ -153,10 +182,19 @@ authz_mongo_common_fields() ->
         ].
 
 collection(type) -> binary();
+collection(desc) -> "Collection used to store authentication data.";
+collection(required) -> true;
 collection(_) -> undefined.
 
-selector(type) -> map();
-selector(_) -> undefined.
+selector(type) ->
+    map();
+selector(desc) ->
+    "Statement that is executed during the authentication process. "
+    "Commands can support following wildcards:\n"
+    " - `${username}`: substituted with client's username\n"
+    " - `${clientid}`: substituted with the clientid";
+selector(_) ->
+    undefined.
 
 %%------------------------------------------------------------------------------
 %% Redis type funcs
@@ -164,10 +202,11 @@ selector(_) -> undefined.
 authz_redis_common_fields() ->
     authz_common_fields(redis) ++
         [
-            {cmd, #{
-                type => binary(),
-                example => <<"HGETALL mqtt_authz">>
-            }}
+            {cmd,
+                mk(binary(), #{
+                    required => true,
+                    example => <<"HGETALL mqtt_authz">>
+                })}
         ].
 
 %%------------------------------------------------------------------------------
@@ -179,6 +218,7 @@ authz_common_fields(Type) when is_atom(Type) ->
         {type, #{
             type => enum([Type]),
             default => Type,
+            required => true,
             in => body
         }}
     ].
@@ -194,9 +234,11 @@ enable(_) -> undefined.
 authz_sources_types(Type) ->
     case Type of
         simple ->
-            [mongodb, redis];
+            [http, mongodb, redis];
         detailed ->
             [
+                http_get,
+                http_post,
                 mongo_single,
                 mongo_rs,
                 mongo_sharded,
@@ -206,8 +248,7 @@ authz_sources_types(Type) ->
             ]
     end ++
         [
-            http,
-            'built_in_database',
+            built_in_database,
             mysql,
             postgresql,
             file

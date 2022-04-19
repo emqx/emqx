@@ -135,7 +135,12 @@ fields(limit) ->
         <<")">>
     ]),
     Meta = #{in => query, desc => Desc, default => ?DEFAULT_ROW, example => 50},
-    [{limit, hoconsc:mk(range(1, ?MAX_ROW_LIMIT), Meta)}].
+    [{limit, hoconsc:mk(range(1, ?MAX_ROW_LIMIT), Meta)}];
+fields(count) ->
+    Meta = #{desc => <<"Results count.">>, required => true},
+    [{count, hoconsc:mk(range(0, inf), Meta)}];
+fields(meta) ->
+    fields(page) ++ fields(limit) ++ fields(count).
 
 -spec schema_with_example(hocon_schema:type(), term()) -> hocon_schema:field_schema_map().
 schema_with_example(Type, Example) ->
@@ -574,7 +579,7 @@ hocon_schema_to_spec(Atom, _LocalModule) when is_atom(Atom) ->
 typename_to_spec("user_id_type()", _Mod) ->
     #{type => string, enum => [clientid, username]};
 typename_to_spec("term()", _Mod) ->
-    #{type => string};
+    #{type => string, example => <<"any">>};
 typename_to_spec("boolean()", _Mod) ->
     #{type => boolean};
 typename_to_spec("binary()", _Mod) ->

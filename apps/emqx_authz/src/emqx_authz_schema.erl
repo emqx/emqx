@@ -16,6 +16,7 @@
 
 -module(emqx_authz_schema).
 
+-include("emqx_authz.hrl").
 -include_lib("typerefl/include/types.hrl").
 -include_lib("emqx_connector/include/emqx_connector.hrl").
 
@@ -39,9 +40,6 @@
     headers_no_content_type/1,
     headers/1
 ]).
-
--import(emqx_schema, [mk_duration/2]).
--include_lib("hocon/include/hoconsc.hrl").
 
 %%--------------------------------------------------------------------
 %% Hocon Schema
@@ -96,7 +94,7 @@ fields("authorization") ->
     ];
 fields(file) ->
     [
-        {type, #{type => file, desc => "Backend type."}},
+        {type, #{type => file, required => true, desc => "Backend type."}},
         {enable, #{
             type => boolean(),
             default => true,
@@ -118,17 +116,17 @@ fields(file) ->
     ];
 fields(http_get) ->
     [
-        {method, #{type => get, default => get, desc => "HTTP method."}},
+        {method, #{type => get, default => get, required => true, desc => "HTTP method."}},
         {headers, fun headers_no_content_type/1}
     ] ++ http_common_fields();
 fields(http_post) ->
     [
-        {method, #{type => post, default => post, desc => "HTTP method."}},
+        {method, #{type => post, default => post, required => true, desc => "HTTP method."}},
         {headers, fun headers/1}
     ] ++ http_common_fields();
 fields(mnesia) ->
     [
-        {type, #{type => 'built_in_database', desc => "Backend type."}},
+        {type, #{type => 'built_in_database', required => true, desc => "Backend type."}},
         {enable, #{
             type => boolean(),
             default => true,
@@ -147,7 +145,7 @@ fields(mysql) ->
 fields(postgresql) ->
     [
         {query, query()},
-        {type, #{type => postgresql, desc => "Backend type."}},
+        {type, #{type => postgresql, required => true, desc => "Backend type."}},
         {enable, #{
             type => boolean(),
             desc => "Enable this backend.",
@@ -197,7 +195,9 @@ http_common_fields() ->
     [
         {url, fun url/1},
         {request_timeout,
-            mk_duration("Request timeout", #{default => "30s", desc => "Request timeout."})},
+            emqx_schema:mk_duration("Request timeout", #{
+                default => "30s", desc => "Request timeout."
+            })},
         {body, #{type => map(), required => false, desc => "HTTP request body."}}
     ] ++
         maps:to_list(
@@ -213,10 +213,16 @@ http_common_fields() ->
 mongo_common_fields() ->
     [
         {collection, #{
-            type => atom(), desc => "`MongoDB` collection containing the authorization data."
+            type => atom(),
+            required => true,
+            desc => "`MongoDB` collection containing the authorization data."
         }},
-        {selector, #{type => map(), desc => "MQL query used to select the authorization record."}},
-        {type, #{type => mongodb, desc => "Database backend."}},
+        {selector, #{
+            type => map(),
+            required => true,
+            desc => "MQL query used to select the authorization record."
+        }},
+        {type, #{type => mongodb, required => true, desc => "Database backend."}},
         {enable, #{
             type => boolean(),
             default => true,
@@ -226,8 +232,7 @@ mongo_common_fields() ->
 
 validations() ->
     [
-        {check_ssl_opts, fun check_ssl_opts/1},
-        {check_headers, fun check_headers/1}
+        {check_ssl_opts, fun check_ssl_opts/1}
     ].
 
 headers(type) ->
@@ -253,6 +258,13 @@ headers_no_content_type(converter) ->
     end;
 headers_no_content_type(default) ->
     default_headers_no_content_type();
+headers_no_content_type(validator) ->
+    fun(Headers) ->
+        case lists:keyfind(<<"content-type">>, 1, Headers) of
+            false -> ok;
+            _ -> {error, do_not_include_content_type}
+        end
+    end;
 headers_no_content_type(_) ->
     undefined.
 
@@ -291,6 +303,7 @@ transform_header_name(Headers) ->
         Headers
     ).
 
+%% TODO: fix me, not work
 check_ssl_opts(Conf) ->
     case hocon_maps:get("config.url", Conf) of
         undefined ->
@@ -309,25 +322,6 @@ check_ssl_opts(Conf) ->
             end
     end.
 
-check_headers(Conf) ->
-    case hocon_maps:get("config.method", Conf) of
-        undefined ->
-            true;
-        Method0 ->
-            Method = to_bin(Method0),
-            Headers = hocon_maps:get("config.headers", Conf),
-            case Method of
-                <<"post">> ->
-                    true;
-                _ when Headers =:= undefined -> true;
-                _ when is_list(Headers) ->
-                    case lists:member(<<"content-type">>, Headers) of
-                        false -> true;
-                        true -> {Method0, do_not_include_content_type}
-                    end
-            end
-    end.
-
 union_array(Item) when is_list(Item) ->
     hoconsc:array(hoconsc:union(Item)).
 
@@ -335,6 +329,7 @@ query() ->
     #{
         type => binary(),
         desc => "Database query used to retrieve authorization data.",
+        required => true,
         validator => fun(S) ->
             case size(S) > 0 of
                 true -> ok;
@@ -369,10 +364,3 @@ to_list(A) when is_atom(A) ->
     atom_to_list(A);
 to_list(B) when is_binary(B) ->
     binary_to_list(B).
-
-to_bin(A) when is_atom(A) ->
-    atom_to_binary(A);
-to_bin(B) when is_binary(B) ->
-    B;
-to_bin(L) when is_list(L) ->
-    list_to_binary(L).

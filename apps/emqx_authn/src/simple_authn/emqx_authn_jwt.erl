@@ -55,20 +55,22 @@ roots() ->
 
 fields('hmac-based') ->
     [
-        {use_jwks, sc(hoconsc:enum([false]), #{desc => ""})},
-        {algorithm, sc(hoconsc:enum(['hmac-based']), #{desc => "Signing algorithm."})},
+        {use_jwks, sc(hoconsc:enum([false]), #{required => true, desc => ""})},
+        {algorithm,
+            sc(hoconsc:enum(['hmac-based']), #{required => true, desc => "Signing algorithm."})},
         {secret, fun secret/1},
         {secret_base64_encoded, fun secret_base64_encoded/1}
     ] ++ common_fields();
 fields('public-key') ->
     [
-        {use_jwks, sc(hoconsc:enum([false]), #{desc => ""})},
-        {algorithm, sc(hoconsc:enum(['public-key']), #{desc => "Signing algorithm."})},
+        {use_jwks, sc(hoconsc:enum([false]), #{required => true, desc => ""})},
+        {algorithm,
+            sc(hoconsc:enum(['public-key']), #{required => true, desc => "Signing algorithm."})},
         {certificate, fun certificate/1}
     ] ++ common_fields();
 fields('jwks') ->
     [
-        {use_jwks, sc(hoconsc:enum([true]), #{desc => ""})},
+        {use_jwks, sc(hoconsc:enum([true]), #{required => true, desc => ""})},
         {endpoint, fun endpoint/1},
         {pool_size, fun pool_size/1},
         {refresh_interval, fun refresh_interval/1},
@@ -78,7 +80,8 @@ fields('jwks') ->
                 hoconsc:ref(?MODULE, ssl_disable)
             ]),
             desc => "Enable/disable SSL.",
-            default => #{<<"enable">> => false}
+            default => #{<<"enable">> => false},
+            required => false
         }}
     ] ++ common_fields();
 fields(ssl_enable) ->
@@ -114,6 +117,7 @@ common_fields() ->
 
 secret(type) -> binary();
 secret(desc) -> "The key to verify the JWT Token using HMAC algorithm.";
+secret(required) -> true;
 secret(_) -> undefined.
 
 secret_base64_encoded(type) -> boolean();
@@ -123,10 +127,12 @@ secret_base64_encoded(_) -> undefined.
 
 certificate(type) -> string();
 certificate(desc) -> "The certificate used for signing the token.";
+certificate(required) -> ture;
 certificate(_) -> undefined.
 
 endpoint(type) -> string();
 endpoint(desc) -> "JWKs endpoint.";
+endpoint(required) -> true;
 endpoint(_) -> undefined.
 
 refresh_interval(type) -> integer();
@@ -168,6 +174,8 @@ verify_claims(converter) ->
     fun(VerifyClaims) ->
         [{to_binary(K), V} || {K, V} <- maps:to_list(VerifyClaims)]
     end;
+verify_claims(required) ->
+    false;
 verify_claims(_) ->
     undefined.
 

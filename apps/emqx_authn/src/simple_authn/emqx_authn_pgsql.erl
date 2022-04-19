@@ -54,7 +54,7 @@ roots() -> [?CONF_NS].
 
 fields(?CONF_NS) ->
     [
-        {mechanism, emqx_authn_schema:mechanism('password_based')},
+        {mechanism, emqx_authn_schema:mechanism(password_based)},
         {backend, emqx_authn_schema:backend(postgresql)},
         {password_hash_algorithm, fun emqx_authn_password_hashing:type_ro/1},
         {query, fun query/1}
@@ -69,6 +69,7 @@ desc(_) ->
 
 query(type) -> string();
 query(desc) -> "`SQL` query for looking up authentication data.";
+query(required) -> true;
 query(_) -> undefined.
 
 %%------------------------------------------------------------------------------

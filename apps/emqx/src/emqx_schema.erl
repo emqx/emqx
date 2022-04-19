@@ -24,6 +24,7 @@
 -elvis([{elvis_style, invalid_dynamic_call, disable}]).
 
 -include("emqx_authentication.hrl").
+-include("emqx_access_control.hrl").
 -include_lib("typerefl/include/types.hrl").
 
 -type duration() :: integer().
@@ -159,9 +160,9 @@ roots(high) ->
             )},
         %% NOTE: authorization schema here is only to keep emqx app prue
         %% the full schema for EMQX node is injected in emqx_conf_schema.
-        {"authorization",
+        {?EMQX_AUTHORIZATION_CONFIG_ROOT_NAME,
             sc(
-                ref("authorization"),
+                ref(?EMQX_AUTHORIZATION_CONFIG_ROOT_NAME),
                 #{}
             )}
     ];
@@ -315,6 +316,7 @@ fields("authorization") ->
                 hoconsc:enum([allow, deny]),
                 #{
                     default => allow,
+                    required => true,
                     %% TODO: make sources a reference link
                     desc =>
                         "Default access control action if the user or client matches no ACL rules,\n"
@@ -328,6 +330,7 @@ fields("authorization") ->
                 hoconsc:enum([ignore, disconnect]),
                 #{
                     default => ignore,
+                    required => true,
                     desc => "The action when the authorization check rejects an operation."
                 }
             )},

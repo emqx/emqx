@@ -83,6 +83,7 @@ common_fields() ->
 
 collection(type) -> binary();
 collection(desc) -> "Collection used to store authentication data.";
+collection(required) -> true;
 collection(_) -> undefined.
 
 selector(type) ->
@@ -97,6 +98,7 @@ selector(_) ->
 
 password_hash_field(type) -> binary();
 password_hash_field(desc) -> "Document field that contains password hash.";
+password_hash_field(required) -> false;
 password_hash_field(_) -> undefined.
 
 salt_field(type) -> binary();
