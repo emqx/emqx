@@ -1,6 +1,7 @@
 -module(emqx_slow_subs_schema).
 
 -include_lib("typerefl/include/types.hrl").
+-include_lib("hocon/include/hoconsc.hrl").
 
 -export([roots/0, fields/1, desc/1, namespace/0]).
 
@@ -10,30 +11,30 @@ roots() -> ["slow_subs"].
 
 fields("slow_subs") ->
     [
-        {enable, sc(boolean(), false, "Enable this feature.")},
+        {enable, sc(boolean(), false, enable)},
         {threshold,
             sc(
                 emqx_schema:duration_ms(),
                 "500ms",
-                "The latency threshold for statistics, the minimum value is 100ms."
+                threshold
             )},
         {expire_interval,
             sc(
                 emqx_schema:duration_ms(),
                 "300s",
-                "The eviction time of the record, which in the statistics record table."
+                expire_interval
             )},
         {top_k_num,
             sc(
                 pos_integer(),
                 10,
-                "The maximum number of records in the slow subscription statistics record table."
+                top_k_num
             )},
         {stats_type,
             sc(
                 hoconsc:union([whole, internal, response]),
                 whole,
-                "The method to calculate the latency."
+                stats_type
             )}
     ].
 
@@ -46,4 +47,4 @@ desc(_) ->
 %% Internal functions
 %%--------------------------------------------------------------------
 sc(Type, Default, Desc) ->
-    hoconsc:mk(Type, #{default => Default, desc => Desc}).
+    hoconsc:mk(Type, #{default => Default, desc => ?DESC(Desc)}).

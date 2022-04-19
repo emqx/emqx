@@ -20,12 +20,13 @@
 
 -include_lib("typerefl/include/types.hrl").
 -include_lib("emqx_slow_subs/include/emqx_slow_subs.hrl").
+-include_lib("hocon/include/hoconsc.hrl").
 
 -export([api_spec/0, paths/0, schema/1, fields/1, namespace/0]).
 
 -export([slow_subs/2, get_history/0, settings/2]).
 
--import(hoconsc, [mk/2, ref/1]).
+-import(hoconsc, [mk/2, ref/1, ref/2]).
 -import(emqx_mgmt_util, [bad_request/0]).
 
 -define(APP, emqx_slow_subs).
@@ -44,17 +45,17 @@ schema(("/slow_subscriptions")) ->
         'operationId' => slow_subs,
         delete => #{
             tags => [<<"slow subs">>],
-            description => <<"Clear current data and re count slow topic">>,
+            description => ?DESC(clear_records_api),
             parameters => [],
             'requestBody' => [],
             responses => #{204 => <<"No Content">>}
         },
         get => #{
             tags => [<<"slow subs">>],
-            description => <<"Get slow topics statistics record data">>,
+            description => ?DESC(get_records_api),
             parameters => [
-                {page, mk(pos_integer(), #{in => query})},
-                {limit, mk(pos_integer(), #{in => query})}
+                ref(emqx_dashboard_swagger, page),
+                ref(emqx_dashboard_swagger, limit)
             ],
             'requestBody' => [],
             responses => #{200 => [{data, mk(hoconsc:array(ref(record)), #{})}]}
@@ -65,12 +66,12 @@ schema("/slow_subscriptions/settings") ->
         'operationId' => settings,
         get => #{
             tags => [<<"slow subs">>],
-            description => <<"Get slow subs settings">>,
+            description => ?DESC(get_setting_api),
             responses => #{200 => conf_schema()}
         },
         put => #{
             tags => [<<"slow subs">>],
-            description => <<"Update slow subs settings">>,
+            description => ?DESC(update_setting_api),
             'requestBody' => conf_schema(),
             responses => #{200 => conf_schema()}
         }
@@ -78,15 +79,15 @@ schema("/slow_subscriptions/settings") ->
 
 fields(record) ->
     [
-        {clientid, mk(string(), #{desc => <<"the clientid">>})},
-        {node, mk(string(), #{desc => <<"the node">>})},
-        {topic, mk(string(), #{desc => <<"the topic">>})},
+        {clientid, mk(string(), #{desc => ?DESC(clientid)})},
+        {node, mk(string(), #{desc => ?DESC(node)})},
+        {topic, mk(string(), #{desc => ?DESC(topic)})},
         {timespan,
             mk(
                 integer(),
-                #{desc => <<"timespan for message transmission">>}
+                #{desc => ?DESC(timespan)}
             )},
-        {last_update_time, mk(integer(), #{desc => <<"the timestamp of last update">>})}
+        {last_update_time, mk(integer(), #{desc => ?DESC(last_update_time)})}
     ].
 
 conf_schema() ->
