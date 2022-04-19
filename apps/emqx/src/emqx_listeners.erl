@@ -50,14 +50,12 @@
     parse_listener_id/1
 ]).
 
--export([create/2, update/2, remove/1]).
 -export([pre_config_update/3, post_config_update/5]).
 
 -export([format_addr/1]).
 
 -define(CONF_KEY_PATH, [listeners, '?', '?']).
 -define(TYPES_STRING, ["tcp", "ssl", "ws", "wss", "quic"]).
--define(OPTS(_OverrideTo_), #{rawconf_with_defaults => true, override_to => _OverrideTo_}).
 
 -spec id_example() -> atom().
 id_example() -> 'tcp:default'.
@@ -204,8 +202,12 @@ start_listener(Type, ListenerName, #{bind := Bind} = Conf) ->
                 "Failed to start listener ~ts on ~ts: ~0p~n",
                 [ListenerId, BindStr, Reason]
             ),
-            Msg = lists:flatten(io_lib:format("~ts(~ts) : ~p",
-                [ListenerId, BindStr, element(1, Reason)])),
+            Msg = lists:flatten(
+                io_lib:format(
+                    "~ts(~ts) : ~p",
+                    [ListenerId, BindStr, element(1, Reason)]
+                )
+            ),
             {error, {failed_to_start, Msg}}
     end.
 
@@ -218,7 +220,7 @@ restart() ->
 restart_listener(ListenerId) ->
     apply_on_listener(ListenerId, fun restart_listener/3).
 
--spec restart_listener(atom(), atom(), map()) -> ok | {error, term()}.
+-spec restart_listener(atom(), atom(), map() | {map(), map()}) -> ok | {error, term()}.
 restart_listener(Type, ListenerName, {OldConf, NewConf}) ->
     restart_listener(Type, ListenerName, OldConf, NewConf);
 restart_listener(Type, ListenerName, Conf) ->
@@ -338,20 +340,6 @@ do_start_listener(quic, ListenerName, #{bind := ListenOn} = Opts) ->
             {ok, {skipped, quic_app_missing}}
     end.
 
-update(Path, Conf) ->
-    wrap(emqx_conf:update(Path, {update, Conf}, ?OPTS(cluster))).
-
-create(Path, Conf) ->
-    wrap(emqx_conf:update(Path, {create, Conf}, ?OPTS(cluster))).
-
-remove(Path) ->
-    wrap(emqx_conf:remove(Path, ?OPTS(cluster))).
-
-wrap({error, {post_config_update,?MODULE, Reason}}) -> {error, Reason};
-wrap({error, {pre_config_update,?MODULE, Reason}}) -> {error, Reason};
-wrap({error, Reason}) -> {error, Reason};
-wrap(Ok) -> Ok.
-
 %% Update the listeners at runtime
 pre_config_update([listeners, Type, Name], {create, NewConf}, undefined) ->
     CertsDir = certs_dir(Type, Name),
@@ -376,10 +364,11 @@ post_config_update([listeners, _Type, _Name], '$remove', undefined, undefined, _
 post_config_update([listeners, Type, Name], '$remove', undefined, OldConf, _AppEnvs) ->
     case stop_listener(Type, Name, OldConf) of
         ok ->
-            emqx_authentication:delete_chain(listener_id(Type, Name)),
+            _ = emqx_authentication:delete_chain(listener_id(Type, Name)),
             CertsDir = certs_dir(Type, Name),
             clear_certs(CertsDir, OldConf);
-        Err -> Err
+        Err ->
+            Err
     end;
 post_config_update(_Path, _Request, _NewConf, _OldConf, _AppEnvs) ->
     ok.
@@ -563,8 +552,10 @@ certs_dir(Type, Name) ->
 
 convert_certs(CertsDir, Conf) ->
     case emqx_tls_lib:ensure_ssl_files(CertsDir, maps:get(<<"ssl">>, Conf, undefined)) of
-        {ok, undefined} -> Conf;
-        {ok, SSL} -> Conf#{<<"ssl">> => SSL};
+        {ok, undefined} ->
+            Conf;
+        {ok, SSL} ->
+            Conf#{<<"ssl">> => SSL};
         {error, Reason} ->
             ?SLOG(error, Reason#{msg => "bad_ssl_config"}),
             throw({bad_ssl_config, Reason})

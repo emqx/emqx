@@ -41,6 +41,7 @@
 -define(LISTENER_NOT_FOUND, <<"Listener id not found">>).
 -define(LISTENER_ID_INCONSISTENT, <<"Path and body's listener id not match">>).
 -define(ADDR_PORT_INUSE, <<"Addr port in use">>).
+-define(OPTS(_OverrideTo_), #{rawconf_with_defaults => true, override_to => _OverrideTo_}).
 
 namespace() -> "listeners".
 
@@ -321,7 +322,7 @@ crud_listeners_by_id(put, #{bindings := #{id := Id}, body := Body0}) ->
                     {404, #{code => 'BAD_LISTENER_ID', message => ?LISTENER_NOT_FOUND}};
                 PrevConf ->
                     MergeConf = emqx_map_lib:deep_merge(PrevConf, Conf),
-                    case emqx_listeners:update(Path, MergeConf) of
+                    case update(Path, MergeConf) of
                         {ok, #{raw_config := _RawConf}} ->
                             crud_listeners_by_id(get, #{bindings => #{id => Id}});
                         {error, not_found} ->
@@ -339,7 +340,7 @@ crud_listeners_by_id(post, #{bindings := #{id := Id}, body := Body0}) ->
     case parse_listener_conf(Body0) of
         {Id, Type, Name, Conf} ->
             Path = [listeners, Type, Name],
-            case emqx_listeners:create(Path, Conf) of
+            case create(Path, Conf) of
                 {ok, #{raw_config := _RawConf}} ->
                     crud_listeners_by_id(get, #{bindings => #{id => Id}});
                 {error, already_exist} ->
@@ -354,7 +355,7 @@ crud_listeners_by_id(post, #{bindings := #{id := Id}, body := Body0}) ->
     end;
 crud_listeners_by_id(delete, #{bindings := #{id := Id}}) ->
     {ok, #{type := Type, name := Name}} = emqx_listeners:parse_listener_id(Id),
-    case emqx_listeners:remove([listeners, Type, Name]) of
+    case remove([listeners, Type, Name]) of
         {ok, _} -> {204};
         {error, not_found} -> {204};
         {error, Reason} -> {400, #{code => 'BAD_REQUEST', message => err_msg(Reason)}}
@@ -569,6 +570,20 @@ format_status(Key, Node, Listener, Acc) ->
 max_conn(_Int1, <<"infinity">>) -> <<"infinity">>;
 max_conn(<<"infinity">>, _Int) -> <<"infinity">>;
 max_conn(Int1, Int2) -> Int1 + Int2.
+
+update(Path, Conf) ->
+    wrap(emqx_conf:update(Path, {update, Conf}, ?OPTS(cluster))).
+
+create(Path, Conf) ->
+    wrap(emqx_conf:update(Path, {create, Conf}, ?OPTS(cluster))).
+
+remove(Path) ->
+    wrap(emqx_conf:remove(Path, ?OPTS(cluster))).
+
+wrap({error, {post_config_update, ?MODULE, Reason}}) -> {error, Reason};
+wrap({error, {pre_config_update, ?MODULE, Reason}}) -> {error, Reason};
+wrap({error, Reason}) -> {error, Reason};
+wrap(Ok) -> Ok.
 
 listener_type_status_example() ->
     [
