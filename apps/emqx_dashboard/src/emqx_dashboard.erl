@@ -155,16 +155,10 @@ apps() ->
     ].
 
 listeners(Listeners) ->
-    [
-        begin
-            Protocol = maps:get(protocol, ListenerOption0, http),
-            {ListenerOption, Bind} = ip_port(ListenerOption0),
-            Name = listener_name(Protocol, ListenerOption),
-            RanchOptions = ranch_opts(maps:without([protocol], ListenerOption)),
-            {Name, Protocol, Bind, RanchOptions}
-        end
-     || ListenerOption0 <- Listeners
-    ].
+    lists:map(fun({Protocol, Conf}) ->
+            {Conf1, Bind} = ip_port(Conf),
+            {listener_name(Protocol, Conf1), Protocol, Bind, ranch_opts(Conf1)}
+        end, maps:to_list(Listeners)).
 
 ip_port(Opts) -> ip_port(maps:take(bind, Opts), Opts).
 

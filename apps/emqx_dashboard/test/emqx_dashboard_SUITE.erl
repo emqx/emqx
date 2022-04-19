@@ -75,7 +75,7 @@ end_per_suite(_Config) ->
     mria:stop().
 
 set_special_configs(emqx_management) ->
-    Listeners = [#{protocol => http, port => 8081}],
+    Listeners = #{http => #{port => 8081}},
     Config = #{listeners => Listeners,
                applications => [#{id => "admin", secret => "public"}]},
     emqx_config:put([emqx_management], Config),
