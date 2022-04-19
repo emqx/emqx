@@ -54,7 +54,7 @@ schema("/mqtt/auto_subscribe") ->
                 200 => hoconsc:ref(emqx_auto_subscribe_schema, "auto_subscribe"),
                 409 => emqx_dashboard_swagger:error_codes(
                     [?EXCEED_LIMIT],
-                    ?DESC(update_auto_subscribe_api_response_409))
+                    ?DESC(update_auto_subscribe_api_response409))
                 }
             }
     }.

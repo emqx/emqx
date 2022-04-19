@@ -64,7 +64,7 @@ schema("/mqtt/topic_rewrite") ->
                 ),
                 413 => emqx_dashboard_swagger:error_codes(
                     [?EXCEED_LIMIT],
-                    ?DESC(update_topic_rewrite_api_response_413)
+                    ?DESC(update_topic_rewrite_api_response413)
                 )
             }
         }
