@@ -29,6 +29,7 @@
 -define(EXCEED_LIMIT, 'EXCEED_LIMIT').
 -define(BAD_REQUEST, 'BAD_REQUEST').
 
+-include_lib("hocon/include/hoconsc.hrl").
 -include_lib("emqx/include/emqx_placeholder.hrl").
 
 api_spec() ->
@@ -41,20 +42,21 @@ schema("/mqtt/auto_subscribe") ->
     #{
         'operationId' => auto_subscribe,
         get => #{
-            description => <<"Auto subscribe list">>,
+            description => ?DESC(list_auto_subscribe_api),
             responses => #{
                 200 => hoconsc:ref(emqx_auto_subscribe_schema, "auto_subscribe")
                 }
             },
         put => #{
-            description => <<"Update auto subscribe topic list">>,
+            description => ?DESC(update_auto_subscribe_api),
             'requestBody' => hoconsc:ref(emqx_auto_subscribe_schema, "auto_subscribe"),
             responses => #{
                 200 => hoconsc:ref(emqx_auto_subscribe_schema, "auto_subscribe"),
-                400 => emqx_mgmt_util:error_schema(
-                                <<"Request body required">>, [?BAD_REQUEST]),
-                409 => emqx_mgmt_util:error_schema(
-                                <<"Auto Subscribe topics max limit">>, [?EXCEED_LIMIT])}}
+                409 => emqx_dashboard_swagger:error_codes(
+                    [?EXCEED_LIMIT],
+                    ?DESC(update_auto_subscribe_api_response_409))
+                }
+            }
     }.
 
 %%%==============================================================================================
