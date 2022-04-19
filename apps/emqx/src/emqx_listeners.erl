@@ -50,12 +50,14 @@
     parse_listener_id/1
 ]).
 
--export([post_config_update/5]).
+-export([create/2, update/2, remove/1]).
+-export([pre_config_update/3, post_config_update/5]).
 
 -export([format_addr/1]).
 
--define(CONF_KEY_PATH, [listeners]).
+-define(CONF_KEY_PATH, [listeners, '?', '?']).
 -define(TYPES_STRING, ["tcp", "ssl", "ws", "wss", "quic"]).
+-define(OPTS(_OverrideTo_), #{rawconf_with_defaults => true, override_to => _OverrideTo_}).
 
 -spec id_example() -> atom().
 id_example() -> 'tcp:default'.
@@ -202,7 +204,9 @@ start_listener(Type, ListenerName, #{bind := Bind} = Conf) ->
                 "Failed to start listener ~ts on ~ts: ~0p~n",
                 [ListenerId, BindStr, Reason]
             ),
-            error({failed_to_start, ListenerId, BindStr, Reason})
+            Msg = lists:flatten(io_lib:format("~ts(~ts) : ~p",
+                [ListenerId, BindStr, element(1, Reason)])),
+            {error, {failed_to_start, Msg}}
     end.
 
 %% @doc Restart all listeners
@@ -334,54 +338,47 @@ do_start_listener(quic, ListenerName, #{bind := ListenOn} = Opts) ->
             {ok, {skipped, quic_app_missing}}
     end.
 
-delete_authentication(Type, ListenerName, _Conf) ->
-    emqx_authentication:delete_chain(listener_id(Type, ListenerName)).
+update(Path, Conf) ->
+    wrap(emqx_conf:update(Path, {update, Conf}, ?OPTS(cluster))).
+
+create(Path, Conf) ->
+    wrap(emqx_conf:update(Path, {create, Conf}, ?OPTS(cluster))).
+
+remove(Path) ->
+    wrap(emqx_conf:remove(Path, ?OPTS(cluster))).
+
+wrap({error, {post_config_update,?MODULE, Reason}}) -> {error, Reason};
+wrap({error, {pre_config_update,?MODULE, Reason}}) -> {error, Reason};
+wrap({error, Reason}) -> {error, Reason};
+wrap(Ok) -> Ok.
 
 %% Update the listeners at runtime
-post_config_update(_, _Req, NewListeners, OldListeners, _AppEnvs) ->
-    #{added := Added, removed := Removed, changed := Updated} =
-        diff_listeners(NewListeners, OldListeners),
-    try
-        perform_listener_changes(fun stop_listener/3, Removed),
-        perform_listener_changes(fun delete_authentication/3, Removed),
-        perform_listener_changes(fun start_listener/3, Added),
-        perform_listener_changes(fun restart_listener/3, Updated)
-    catch
-        error:{failed_to_start, ListenerId, Bind, Reason} ->
-            Error = lists:flatten(
-                io_lib:format(
-                    "~ts(~ts) failed with ~ts",
-                    [ListenerId, Bind, element(1, Reason)]
-                )
-            ),
-            {error, Error}
+pre_config_update([listeners, Type, Name], {create, NewConf}, undefined) ->
+    CertsDir = certs_dir(Type, Name),
+    {ok, convert_certs(CertsDir, NewConf)};
+pre_config_update([listeners, _Type, _Name], {create, _NewConf}, _RawConf) ->
+    {error, already_exist};
+pre_config_update([listeners, _Type, _Name], {update, _Request}, undefined) ->
+    {error, not_found};
+pre_config_update([listeners, Type, Name], {update, Request}, RawConf) ->
+    NewConf = emqx_map_lib:deep_merge(RawConf, Request),
+    CertsDir = certs_dir(Type, Name),
+    {ok, convert_certs(CertsDir, NewConf)}.
+
+post_config_update([listeners, Type, Name], {create, _Request}, NewConf, undefined, _AppEnvs) ->
+    start_listener(Type, Name, NewConf);
+post_config_update([listeners, Type, Name], {update, _Request}, NewConf, OldConf, _AppEnvs) ->
+    restart_listener(Type, Name, {OldConf, NewConf});
+post_config_update([listeners, _Type, _Name], '$remove', undefined, undefined, _AppEnvs) ->
+    {error, not_found};
+post_config_update([listeners, Type, Name], '$remove', undefined, OldConf, _AppEnvs) ->
+    case stop_listener(Type, Name, OldConf) of
+        ok ->
+            emqx_authentication:delete_chain(listener_id(Type, Name)),
+            CertsDir = certs_dir(Type, Name),
+            clear_certs(CertsDir, OldConf);
+        Err -> Err
     end.
-
-perform_listener_changes(Action, MapConfs) ->
-    lists:foreach(
-        fun({Id, Conf}) ->
-            {ok, #{type := Type, name := Name}} = parse_listener_id(Id),
-            Action(Type, Name, Conf)
-        end,
-        maps:to_list(MapConfs)
-    ).
-
-diff_listeners(NewListeners, OldListeners) ->
-    emqx_map_lib:diff_maps(flatten_listeners(NewListeners), flatten_listeners(OldListeners)).
-
-flatten_listeners(Conf0) ->
-    maps:from_list(
-        lists:append([
-            do_flatten_listeners(Type, Conf)
-         || {Type, Conf} <- maps:to_list(Conf0)
-        ])
-    ).
-
-do_flatten_listeners(Type, Conf0) ->
-    [
-        {listener_id(Type, Name), maps:remove(authentication, Conf)}
-     || {Name, Conf} <- maps:to_list(Conf0)
-    ].
 
 esockd_opts(Type, Opts0) ->
     Opts1 = maps:with([acceptors, max_connections, proxy_protocol, proxy_protocol_timeout], Opts0),
@@ -518,7 +515,10 @@ foreach_listeners(Do) ->
     lists:foreach(
         fun({Id, LConf}) ->
             {ok, #{type := Type, name := Name}} = parse_listener_id(Id),
-            Do(Type, Name, LConf)
+            case Do(Type, Name, LConf) of
+                {error, {failed_to_start, _} = Reason} -> error(Reason);
+                _ -> ok
+            end
         end,
         list()
     ).
@@ -552,3 +552,20 @@ parse_bind(#{<<"bind">> := Bind}) ->
         {ok, L} -> L;
         {error, _} -> binary_to_integer(Bind)
     end.
+
+%% The relative dir for ssl files.
+certs_dir(Type, Name) ->
+    iolist_to_binary(filename:join(["listeners", Type, Name])).
+
+convert_certs(CertsDir, Conf) ->
+    case emqx_tls_lib:ensure_ssl_files(CertsDir, maps:get(<<"ssl">>, Conf, undefined)) of
+        {ok, undefined} -> Conf;
+        {ok, SSL} -> Conf#{<<"ssl">> => SSL};
+        {error, Reason} ->
+            ?SLOG(error, Reason#{msg => "bad_ssl_config"}),
+            throw({bad_ssl_config, Reason})
+    end.
+
+clear_certs(CertsDir, Conf) ->
+    OldSSL = maps:get(<<"ssl">>, Conf, undefined),
+    emqx_tls_lib:delete_ssl_files(CertsDir, undefined, OldSSL).
