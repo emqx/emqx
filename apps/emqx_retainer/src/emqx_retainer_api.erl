@@ -20,6 +20,7 @@
 
 -include_lib("emqx/include/emqx.hrl").
 -include_lib("typerefl/include/types.hrl").
+-include_lib("hocon/include/hoconsc.hrl").
 
 %% API
 -export([api_spec/0, paths/0, schema/1, namespace/0, fields/1]).
@@ -51,19 +52,19 @@ schema(?PREFIX) ->
         'operationId' => config,
         get => #{
             tags => ?TAGS,
-            description => <<"Get retainer config">>,
+            description => ?DESC(get_config_api),
             responses => #{
-                200 => mk(conf_schema(), #{desc => "The config content"}),
-                404 => error_codes(['NOT_FOUND'], <<"Config not found">>)
+                200 => mk(conf_schema(), #{desc => ?DESC(config_content)}),
+                404 => error_codes(['NOT_FOUND'], ?DESC(config_not_found))
             }
         },
         put => #{
             tags => ?TAGS,
-            description => <<"Update retainer config">>,
-            'requestBody' => mk(conf_schema(), #{desc => "The config content"}),
+            description => ?DESC(update_retainer_api),
+            'requestBody' => mk(conf_schema(), #{desc => ?DESC(config_content)}),
             responses => #{
-                200 => mk(conf_schema(), #{desc => "Update configs successfully"}),
-                400 => error_codes(['UPDATE_FAILED'], <<"Update config failed">>)
+                200 => mk(conf_schema(), #{desc => ?DESC(update_config_success)}),
+                400 => error_codes(['UPDATE_FAILED'], ?DESC(update_config_failed))
             }
         }
     };
@@ -72,11 +73,11 @@ schema(?PREFIX ++ "/messages") ->
         'operationId' => lookup_retained_warp,
         get => #{
             tags => ?TAGS,
-            description => <<"List retained messages">>,
+            description => ?DESC(list_retained_api),
             parameters => page_params(),
             responses => #{
-                200 => mk(array(ref(message_summary)), #{desc => "The result list"}),
-                400 => error_codes(['BAD_REQUEST'], <<"Unsupported backend">>)
+                200 => mk(array(ref(message_summary)), #{desc => ?DESC(retained_list)}),
+                400 => error_codes(['BAD_REQUEST'], ?DESC(unsupported_backend))
             }
         }
     };
@@ -85,23 +86,23 @@ schema(?PREFIX ++ "/message/:topic") ->
         'operationId' => with_topic_warp,
         get => #{
             tags => ?TAGS,
-            description => <<"Lookup a message by a topic without wildcards">>,
+            description => ?DESC(lookup_api),
             parameters => parameters(),
             responses => #{
-                200 => mk(ref(message), #{desc => "Details of the message"}),
-                404 => error_codes(['NOT_FOUND'], <<"Viewed message doesn't exist">>),
-                400 => error_codes(['BAD_REQUEST'], <<"Unsupported backend">>)
+                200 => mk(ref(message), #{desc => ?DESC(message_detail)}),
+                404 => error_codes(['NOT_FOUND'], ?DESC(message_not_exist)),
+                400 => error_codes(['BAD_REQUEST'], ?DESC(unsupported_backend))
             }
         },
         delete => #{
             tags => ?TAGS,
-            description => <<"Delete matching messages">>,
+            description => ?DESC(delete_matching_api),
             parameters => parameters(),
             responses => #{
                 204 => <<>>,
                 400 => error_codes(
                     ['BAD_REQUEST'],
-                    <<"Unsupported backend">>
+                    ?DESC(unsupported_backend)
                 )
             }
         }
@@ -119,22 +120,22 @@ parameters() ->
             mk(binary(), #{
                 in => path,
                 required => true,
-                desc => "The target topic"
+                desc => ?DESC(topic)
             })}
     ].
 
 fields(message_summary) ->
     [
-        {msgid, mk(binary(), #{desc => <<"Message ID">>})},
-        {topic, mk(binary(), #{desc => "The topic"})},
-        {qos, mk(emqx_schema:qos(), #{desc => "The QoS"})},
-        {publish_at, mk(string(), #{desc => "Publish datetime, in RFC 3339 format"})},
-        {from_clientid, mk(binary(), #{desc => "Publisher ClientId"})},
-        {from_username, mk(binary(), #{desc => "Publisher Username"})}
+        {msgid, mk(binary(), #{desc => ?DESC(msgid)})},
+        {topic, mk(binary(), #{desc => ?DESC(topic)})},
+        {qos, mk(emqx_schema:qos(), #{desc => ?DESC(qos)})},
+        {publish_at, mk(string(), #{desc => ?DESC(publish_at)})},
+        {from_clientid, mk(binary(), #{desc => ?DESC(from_clientid)})},
+        {from_username, mk(binary(), #{desc => ?DESC(from_username)})}
     ];
 fields(message) ->
     [
-        {payload, mk(binary(), #{desc => "The payload content"})}
+        {payload, mk(binary(), #{desc => ?DESC(payload)})}
         | fields(message_summary)
     ].
 
