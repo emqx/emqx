@@ -223,7 +223,7 @@ t_callback_crash(_Config) ->
     Opts = #{rawconf_with_defaults => true},
     ok = emqx_config_handler:add_handler(CrashPath, ?MODULE),
     Old = emqx:get_raw_config(CrashPath),
-    ?assertEqual({error, config_update_crashed}, emqx:update_config(CrashPath, <<"89%">>, Opts)),
+    ?assertMatch({error, {config_update_crashed, _}}, emqx:update_config(CrashPath, <<"89%">>, Opts)),
     New = emqx:get_raw_config(CrashPath),
     ?assertEqual(Old, New),
     ok = emqx_config_handler:remove_handler(CrashPath),

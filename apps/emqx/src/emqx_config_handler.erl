@@ -205,7 +205,7 @@ handle_update_request(SchemaModule, ConfKeyPath, Handlers, UpdateArgs) ->
                 key_path => ConfKeyPath,
                 stacktrace => ST
             }),
-            {error, config_update_crashed}
+            {error, {config_update_crashed, Reason}}
     end.
 
 do_handle_update_request(SchemaModule, ConfKeyPath, Handlers, UpdateArgs) ->

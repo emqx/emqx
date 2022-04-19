@@ -52,7 +52,8 @@ start(Config) ->
     Mountpoint = maps:get(receive_mountpoint, Config, undefined),
     Subscriptions = maps:get(subscriptions, Config, undefined),
     Vars = emqx_connector_mqtt_msg:make_pub_vars(Mountpoint, Subscriptions),
-    Handlers = make_hdlr(Parent, Vars, #{server => ip_port_to_server(Host, Port)}),
+    ServerStr = ip_port_to_server_str(Host, Port),
+    Handlers = make_hdlr(Parent, Vars, #{server => ServerStr}),
     Config1 = Config#{
         msg_handler => Handlers,
         host => Host,
@@ -70,15 +71,18 @@ start(Config) ->
                     catch
                         throw : Reason ->
                             ok = stop(#{client_pid => Pid}),
-                            {error, Reason}
+                            {error, error_reason(Reason, ServerStr)}
                     end;
                 {error, Reason} ->
                     ok = stop(#{client_pid => Pid}),
-                    {error, Reason}
+                    {error, error_reason(Reason, ServerStr)}
             end;
         {error, Reason} ->
-            {error, Reason}
+            {error, error_reason(Reason, ServerStr)}
     end.
+
+error_reason(Reason, ServerStr) ->
+    #{reason => Reason, server => ServerStr}.
 
 stop(#{client_pid := Pid}) ->
     safe_stop(Pid, fun() -> emqtt:stop(Pid) end, 1000),
@@ -238,7 +242,7 @@ printable_maps(Headers) ->
             (K, V0, AccIn) -> AccIn#{K => V0}
         end, #{}, Headers).
 
-ip_port_to_server(Host, Port) ->
+ip_port_to_server_str(Host, Port) ->
     HostStr = case inet:ntoa(Host) of
         {error, einval} -> Host;
         IPStr -> IPStr
