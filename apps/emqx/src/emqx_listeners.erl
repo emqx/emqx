@@ -94,14 +94,15 @@ format_raw_listeners({Type0, Conf}) ->
             Bind = parse_bind(LConf0),
             Running = is_running(Type, listener_id(Type, LName), LConf0#{bind => Bind}),
             LConf1 = maps:remove(<<"authentication">>, LConf0),
-            LConf2 = maps:put(<<"running">>, Running, LConf1),
+            LConf2 = maps:remove(<<"limiter">>, LConf1),
+            LConf3 = maps:put(<<"running">>, Running, LConf2),
             CurrConn =
                 case Running of
                     true -> current_conns(Type, LName, Bind);
                     false -> 0
                 end,
-            LConf3 = maps:put(<<"current_connections">>, CurrConn, LConf2),
-            {Type0, LName, LConf3}
+            LConf4 = maps:put(<<"current_connections">>, CurrConn, LConf3),
+            {Type0, LName, LConf4}
         end,
         maps:to_list(Conf)
     ).
@@ -545,6 +546,7 @@ str(B) when is_binary(B) ->
 str(S) when is_list(S) ->
     S.
 
+parse_bind(#{<<"bind">> := Bind}) when is_integer(Bind) -> Bind;
 parse_bind(#{<<"bind">> := Bind}) ->
     case emqx_schema:to_ip_port(binary_to_list(Bind)) of
         {ok, L} -> L;

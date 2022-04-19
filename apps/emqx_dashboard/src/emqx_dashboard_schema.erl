@@ -195,7 +195,7 @@ cors(_) ->
     undefined.
 
 i18n_lang(type) -> ?ENUM([en, zh]);
-i18n_lang(default) -> zh;
+i18n_lang(default) -> en;
 i18n_lang('readOnly') -> true;
 i18n_lang(desc) -> "Internationalization language support.";
 i18n_lang(_) -> undefined.
