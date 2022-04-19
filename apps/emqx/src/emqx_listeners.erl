@@ -363,7 +363,9 @@ pre_config_update([listeners, _Type, _Name], {update, _Request}, undefined) ->
 pre_config_update([listeners, Type, Name], {update, Request}, RawConf) ->
     NewConf = emqx_map_lib:deep_merge(RawConf, Request),
     CertsDir = certs_dir(Type, Name),
-    {ok, convert_certs(CertsDir, NewConf)}.
+    {ok, convert_certs(CertsDir, NewConf)};
+pre_config_update(_Path, _Request, RawConf) ->
+    {ok, RawConf}.
 
 post_config_update([listeners, Type, Name], {create, _Request}, NewConf, undefined, _AppEnvs) ->
     start_listener(Type, Name, NewConf);
@@ -378,7 +380,9 @@ post_config_update([listeners, Type, Name], '$remove', undefined, OldConf, _AppE
             CertsDir = certs_dir(Type, Name),
             clear_certs(CertsDir, OldConf);
         Err -> Err
-    end.
+    end;
+post_config_update(_Path, _Request, _NewConf, _OldConf, _AppEnvs) ->
+    ok.
 
 esockd_opts(Type, Opts0) ->
     Opts1 = maps:with([acceptors, max_connections, proxy_protocol, proxy_protocol_timeout], Opts0),
