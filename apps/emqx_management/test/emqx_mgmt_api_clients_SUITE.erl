@@ -44,20 +44,20 @@ t_clients(_) ->
     AuthHeader = emqx_mgmt_api_test_util:auth_header_(),
 
     {ok, C1} = emqtt:start_link(#{username => Username1, clientid => ClientId1}),
-    {ok, _}  = emqtt:connect(C1),
+    {ok, _} = emqtt:connect(C1),
     {ok, C2} = emqtt:start_link(#{username => Username2, clientid => ClientId2}),
-    {ok, _}  = emqtt:connect(C2),
+    {ok, _} = emqtt:connect(C2),
 
     timer:sleep(300),
 
     %% get /clients
-    ClientsPath     = emqx_mgmt_api_test_util:api_path(["clients"]),
-    {ok, Clients}   = emqx_mgmt_api_test_util:request_api(get, ClientsPath),
+    ClientsPath = emqx_mgmt_api_test_util:api_path(["clients"]),
+    {ok, Clients} = emqx_mgmt_api_test_util:request_api(get, ClientsPath),
     ClientsResponse = emqx_json:decode(Clients, [return_maps]),
-    ClientsMeta     = maps:get(<<"meta">>, ClientsResponse),
-    ClientsPage     = maps:get(<<"page">>, ClientsMeta),
-    ClientsLimit    = maps:get(<<"limit">>, ClientsMeta),
-    ClientsCount    = maps:get(<<"count">>, ClientsMeta),
+    ClientsMeta = maps:get(<<"meta">>, ClientsResponse),
+    ClientsPage = maps:get(<<"page">>, ClientsMeta),
+    ClientsLimit = maps:get(<<"limit">>, ClientsMeta),
+    ClientsCount = maps:get(<<"count">>, ClientsMeta),
     ?assertEqual(ClientsPage, 1),
     ?assertEqual(ClientsLimit, emqx_mgmt:max_row_limit()),
     ?assertEqual(ClientsCount, 2),
@@ -76,29 +76,49 @@ t_clients(_) ->
     AfterKickoutResponse2 = emqx_mgmt_api_test_util:request_api(get, Client2Path),
     ?assertEqual({error, {"HTTP/1.1", 404, "Not Found"}}, AfterKickoutResponse2),
 
-    %% get /clients/:clientid/authz_cache should has no authz cache
-    Client1AuthzCachePath = emqx_mgmt_api_test_util:api_path(["clients",
-        binary_to_list(ClientId1), "authz_cache"]),
+    %% get /clients/:clientid/authorization/cache should has no authz cache
+    Client1AuthzCachePath = emqx_mgmt_api_test_util:api_path([
+        "clients",
+        binary_to_list(ClientId1),
+        "authorization",
+        "cache"
+    ]),
     {ok, Client1AuthzCache} = emqx_mgmt_api_test_util:request_api(get, Client1AuthzCachePath),
     ?assertEqual("[]", Client1AuthzCache),
 
     %% post /clients/:clientid/subscribe
     SubscribeBody = #{topic => Topic, qos => Qos},
-    SubscribePath = emqx_mgmt_api_test_util:api_path(["clients",
-        binary_to_list(ClientId1), "subscribe"]),
-    {ok, _} =  emqx_mgmt_api_test_util:request_api(post, SubscribePath,
-        "", AuthHeader, SubscribeBody),
+    SubscribePath = emqx_mgmt_api_test_util:api_path([
+        "clients",
+        binary_to_list(ClientId1),
+        "subscribe"
+    ]),
+    {ok, _} = emqx_mgmt_api_test_util:request_api(
+        post,
+        SubscribePath,
+        "",
+        AuthHeader,
+        SubscribeBody
+    ),
     timer:sleep(100),
     [{AfterSubTopic, #{qos := AfterSubQos}}] = emqx_mgmt:lookup_subscriptions(ClientId1),
     ?assertEqual(AfterSubTopic, Topic),
     ?assertEqual(AfterSubQos, Qos),
 
     %% post /clients/:clientid/unsubscribe
-    UnSubscribePath = emqx_mgmt_api_test_util:api_path(["clients",
-        binary_to_list(ClientId1), "unsubscribe"]),
+    UnSubscribePath = emqx_mgmt_api_test_util:api_path([
+        "clients",
+        binary_to_list(ClientId1),
+        "unsubscribe"
+    ]),
     UnSubscribeBody = #{topic => Topic},
-    {ok, _} =  emqx_mgmt_api_test_util:request_api(post, UnSubscribePath,
-        "", AuthHeader, UnSubscribeBody),
+    {ok, _} = emqx_mgmt_api_test_util:request_api(
+        post,
+        UnSubscribePath,
+        "",
+        AuthHeader,
+        UnSubscribeBody
+    ),
     timer:sleep(100),
     ?assertEqual([], emqx_mgmt:lookup_subscriptions(Client1)),
 
@@ -118,44 +138,58 @@ t_query_clients_with_time(_) ->
     ClientId2 = <<"client2">>,
 
     {ok, C1} = emqtt:start_link(#{username => Username1, clientid => ClientId1}),
-    {ok, _}  = emqtt:connect(C1),
+    {ok, _} = emqtt:connect(C1),
     {ok, C2} = emqtt:start_link(#{username => Username2, clientid => ClientId2}),
-    {ok, _}  = emqtt:connect(C2),
+    {ok, _} = emqtt:connect(C2),
 
     timer:sleep(100),
 
-    AuthHeader      = emqx_mgmt_api_test_util:auth_header_(),
-    ClientsPath     = emqx_mgmt_api_test_util:api_path(["clients"]),
+    AuthHeader = emqx_mgmt_api_test_util:auth_header_(),
+    ClientsPath = emqx_mgmt_api_test_util:api_path(["clients"]),
     %% get /clients with time(rfc3339)
     NowTimeStampInt = erlang:system_time(millisecond),
     %% Do not uri_encode `=` to `%3D`
-    Rfc3339String   = emqx_http_lib:uri_encode(binary:bin_to_list(
-        emqx_datetime:epoch_to_rfc3339(NowTimeStampInt))),
+    Rfc3339String = emqx_http_lib:uri_encode(
+        binary:bin_to_list(
+            emqx_datetime:epoch_to_rfc3339(NowTimeStampInt)
+        )
+    ),
     TimeStampString = emqx_http_lib:uri_encode(integer_to_list(NowTimeStampInt)),
 
-    LteKeys         = ["lte_created_at=", "lte_connected_at="],
-    GteKeys         = ["gte_created_at=", "gte_connected_at="],
-    LteParamRfc3339 = [Param ++ Rfc3339String   || Param <- LteKeys],
-    LteParamStamp   = [Param ++ TimeStampString || Param <- LteKeys],
-    GteParamRfc3339 = [Param ++ Rfc3339String   || Param <- GteKeys],
-    GteParamStamp   = [Param ++ TimeStampString || Param <- GteKeys],
+    LteKeys = ["lte_created_at=", "lte_connected_at="],
+    GteKeys = ["gte_created_at=", "gte_connected_at="],
+    LteParamRfc3339 = [Param ++ Rfc3339String || Param <- LteKeys],
+    LteParamStamp = [Param ++ TimeStampString || Param <- LteKeys],
+    GteParamRfc3339 = [Param ++ Rfc3339String || Param <- GteKeys],
+    GteParamStamp = [Param ++ TimeStampString || Param <- GteKeys],
 
-    RequestResults  =
-        [emqx_mgmt_api_test_util:request_api(get, ClientsPath, Param, AuthHeader)
-                       || Param <- LteParamRfc3339 ++ LteParamStamp
-            ++ GteParamRfc3339 ++ GteParamStamp],
-    DecodedResults  = [emqx_json:decode(Response, [return_maps])
-                       || {ok, Response} <- RequestResults],
+    RequestResults =
+        [
+            emqx_mgmt_api_test_util:request_api(get, ClientsPath, Param, AuthHeader)
+         || Param <-
+                LteParamRfc3339 ++ LteParamStamp ++
+                    GteParamRfc3339 ++ GteParamStamp
+        ],
+    DecodedResults = [
+        emqx_json:decode(Response, [return_maps])
+     || {ok, Response} <- RequestResults
+    ],
     {LteResponseDecodeds, GteResponseDecodeds} = lists:split(4, DecodedResults),
     %% EachData :: list()
-    [?assert(time_string_to_epoch_millisecond(CreatedAt) < NowTimeStampInt)
+    [
+        ?assert(time_string_to_epoch_millisecond(CreatedAt) < NowTimeStampInt)
      || #{<<"data">> := EachData} <- LteResponseDecodeds,
-        #{<<"created_at">> := CreatedAt}     <- EachData],
-    [?assert(time_string_to_epoch_millisecond(ConnectedAt) < NowTimeStampInt)
+        #{<<"created_at">> := CreatedAt} <- EachData
+    ],
+    [
+        ?assert(time_string_to_epoch_millisecond(ConnectedAt) < NowTimeStampInt)
      || #{<<"data">> := EachData} <- LteResponseDecodeds,
-        #{<<"connected_at">> := ConnectedAt} <- EachData],
-    [?assertEqual(EachData, [])
-     || #{<<"data">> := EachData} <- GteResponseDecodeds],
+        #{<<"connected_at">> := ConnectedAt} <- EachData
+    ],
+    [
+        ?assertEqual(EachData, [])
+     || #{<<"data">> := EachData} <- GteResponseDecodeds
+    ],
 
     %% testcase cleanup, kickout client1 and client2
     Client1Path = emqx_mgmt_api_test_util:api_path(["clients", binary_to_list(ClientId1)]),
@@ -169,7 +203,7 @@ t_keepalive(_Config) ->
     AuthHeader = emqx_mgmt_api_test_util:auth_header_(),
     Path = emqx_mgmt_api_test_util:api_path(["clients", ClientId, "keepalive"]),
     Body = #{interval => 11},
-    {error,{"HTTP/1.1",404,"Not Found"}} =
+    {error, {"HTTP/1.1", 404, "Not Found"}} =
         emqx_mgmt_api_test_util:request_api(put, Path, <<"">>, AuthHeader, Body),
     {ok, C1} = emqtt:start_link(#{username => Username, clientid => ClientId}),
     {ok, _} = emqtt:connect(C1),
@@ -190,5 +224,6 @@ time_string_to_epoch(DateTime, Unit) when is_binary(DateTime) ->
     catch
         error:badarg ->
             calendar:rfc3339_to_system_time(
-                binary_to_list(DateTime), [{unit, Unit}])
+                binary_to_list(DateTime), [{unit, Unit}]
+            )
     end.

@@ -16,6 +16,7 @@
 
 -module(emqx_statsd_schema).
 
+-include_lib("hocon/include/hoconsc.hrl").
 -include_lib("typerefl/include/types.hrl").
 
 -behaviour(hocon_schema).
@@ -37,34 +38,33 @@ fields("statsd") ->
     [ {enable, hoconsc:mk(boolean(),
                           #{ default => false
                            , required => true
-                           , desc => "Enable statsd"
+                           , desc => ?DESC(enable)
                            })}
     , {server, fun server/1}
     , {sample_time_interval, fun sample_interval/1}
     , {flush_time_interval, fun flush_interval/1}
     ].
 
-desc("statsd") ->
-    "Configuration related to reporting metrics to statsd.";
+desc("statsd") -> ?DESC(statsd);
 desc(_) ->
     undefined.
 
 server(type) -> emqx_schema:ip_port();
 server(required) -> true;
 server(default) -> "127.0.0.1:8125";
-server(desc) -> "URL of the statsd gateway.";
+server(desc) -> ?DESC(?FUNCTION_NAME);
 server(_) -> undefined.
 
 sample_interval(type) -> emqx_schema:duration_ms();
 sample_interval(required) -> true;
 sample_interval(default) -> "10s";
-sample_interval(desc) -> "Data collection interval in milliseconds.";
+sample_interval(desc) -> ?DESC(?FUNCTION_NAME);
 sample_interval(_) -> undefined.
 
 flush_interval(type) -> emqx_schema:duration_ms();
 flush_interval(required) -> true;
 flush_interval(default) -> "10s";
-flush_interval(desc) -> "Flush interval in milliseconds.";
+flush_interval(desc) -> ?DESC(?FUNCTION_NAME);
 flush_interval(_) -> undefined.
 
 to_ip_port(Str) ->

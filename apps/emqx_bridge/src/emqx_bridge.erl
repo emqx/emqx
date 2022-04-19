@@ -97,11 +97,12 @@ on_message_publish(Message = #message{topic = Topic, flags = Flags}) ->
 send_to_matched_egress_bridges(Topic, Msg) ->
     lists:foreach(fun (Id) ->
         try send_message(Id, Msg) of
-            ok -> ok;
-            Error -> ?SLOG(error, #{msg => "send_message_to_bridge_failed",
-                        bridge => Id, error => Error})
+            {error, Reason} ->
+                ?SLOG(error, #{msg => "send_message_to_bridge_failed",
+                        bridge => Id, error => Reason});
+            _ -> ok
         catch Err:Reason:ST ->
-            ?SLOG(error, #{msg => "send_message_to_bridge_crash",
+            ?SLOG(error, #{msg => "send_message_to_bridge_exception",
                 bridge => Id, error => Err, reason => Reason,
                 stacktrace => ST})
         end

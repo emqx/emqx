@@ -35,8 +35,8 @@ end_per_suite(_) ->
 t_list_listeners(_) ->
     Path = emqx_mgmt_api_test_util:api_path(["listeners"]),
     Res = request(get, Path, [], []),
-    Expect = emqx_mgmt_api_listeners:do_list_listeners(),
-    ?assertEqual(emqx_json:encode([Expect]), emqx_json:encode(Res)),
+    #{<<"listeners">> := Expect} = emqx_mgmt_api_listeners:do_list_listeners(),
+    ?assertEqual(length(Expect), length(Res)),
     ok.
 
 t_crud_listeners_by_id(_) ->
@@ -44,19 +44,18 @@ t_crud_listeners_by_id(_) ->
     NewListenerId = <<"tcp:new">>,
     TcpPath = emqx_mgmt_api_test_util:api_path(["listeners", TcpListenerId]),
     NewPath = emqx_mgmt_api_test_util:api_path(["listeners", NewListenerId]),
-    [#{<<"listeners">> := [TcpListener], <<"node">> := Node}] = request(get, TcpPath, [], []),
-    ?assertEqual(atom_to_binary(node()), Node),
+    TcpListener = request(get, TcpPath, [], []),
 
     %% create
     ?assertEqual({error, not_found}, is_running(NewListenerId)),
-    ?assertMatch([#{<<"listeners">> := []}], request(get, NewPath, [], [])),
+    ?assertMatch({error, {"HTTP/1.1", 404, _}}, request(get, NewPath, [], [])),
     NewConf = TcpListener#{
         <<"id">> => NewListenerId,
         <<"bind">> => <<"0.0.0.0:2883">>
     },
-    [#{<<"listeners">> := [Create]}] = request(put, NewPath, [], NewConf),
+    Create = request(post, NewPath, [], NewConf),
     ?assertEqual(lists:sort(maps:keys(TcpListener)), lists:sort(maps:keys(Create))),
-    [#{<<"listeners">> := [Get1]}] = request(get, NewPath, [], []),
+    Get1 = request(get, NewPath, [], []),
     ?assertMatch(Create, Get1),
     ?assert(is_running(NewListenerId)),
 
@@ -67,56 +66,13 @@ t_crud_listeners_by_id(_) ->
         <<"id">> => BadId,
         <<"bind">> => <<"0.0.0.0:2883">>
     },
-    ?assertEqual({error, {"HTTP/1.1", 400, "Bad Request"}}, request(put, BadPath, [], BadConf)),
+    ?assertMatch({error, {"HTTP/1.1", 400, _}}, request(post, BadPath, [], BadConf)),
 
     %% update
     #{<<"acceptors">> := Acceptors} = Create,
     Acceptors1 = Acceptors + 10,
-    [#{<<"listeners">> := [Update]}] =
+    Update =
         request(put, NewPath, [], Create#{<<"acceptors">> => Acceptors1}),
-    ?assertMatch(#{<<"acceptors">> := Acceptors1}, Update),
-    [#{<<"listeners">> := [Get2]}] = request(get, NewPath, [], []),
-    ?assertMatch(#{<<"acceptors">> := Acceptors1}, Get2),
-
-    %% delete
-    ?assertEqual([], delete(NewPath)),
-    ?assertEqual({error, not_found}, is_running(NewListenerId)),
-    ?assertMatch([#{<<"listeners">> := []}], request(get, NewPath, [], [])),
-    ?assertEqual([], delete(NewPath)),
-    ok.
-
-t_list_listeners_on_node(_) ->
-    Node = atom_to_list(node()),
-    Path = emqx_mgmt_api_test_util:api_path(["nodes", Node, "listeners"]),
-    Listeners = request(get, Path, [], []),
-    #{<<"listeners">> := Expect} = emqx_mgmt_api_listeners:do_list_listeners(),
-    ?assertEqual(emqx_json:encode(Expect), emqx_json:encode(Listeners)),
-    ok.
-
-t_crud_listener_by_id_on_node(_) ->
-    TcpListenerId = <<"tcp:default">>,
-    NewListenerId = <<"tcp:new1">>,
-    Node = atom_to_list(node()),
-    TcpPath = emqx_mgmt_api_test_util:api_path(["nodes", Node, "listeners", TcpListenerId]),
-    NewPath = emqx_mgmt_api_test_util:api_path(["nodes", Node, "listeners", NewListenerId]),
-    TcpListener = request(get, TcpPath, [], []),
-
-    %% create
-    ?assertEqual({error, not_found}, is_running(NewListenerId)),
-    ?assertMatch({error,{"HTTP/1.1", 404, "Not Found"}}, request(get, NewPath, [], [])),
-    Create = request(put, NewPath, [], TcpListener#{
-        <<"id">> => NewListenerId,
-        <<"bind">> => <<"0.0.0.0:3883">>
-    }),
-    ?assertEqual(lists:sort(maps:keys(TcpListener)), lists:sort(maps:keys(Create))),
-    Get1 = request(get, NewPath, [], []),
-    ?assertMatch(Create, Get1),
-    ?assert(is_running(NewListenerId)),
-
-    %% update
-    #{<<"acceptors">> := Acceptors} = Create,
-    Acceptors1 = Acceptors + 10,
-    Update = request(put, NewPath, [], Create#{<<"acceptors">> => Acceptors1}),
     ?assertMatch(#{<<"acceptors">> := Acceptors1}, Update),
     Get2 = request(get, NewPath, [], []),
     ?assertMatch(#{<<"acceptors">> := Acceptors1}, Get2),
@@ -124,7 +80,7 @@ t_crud_listener_by_id_on_node(_) ->
     %% delete
     ?assertEqual([], delete(NewPath)),
     ?assertEqual({error, not_found}, is_running(NewListenerId)),
-    ?assertMatch({error, {"HTTP/1.1", 404, "Not Found"}}, request(get, NewPath, [], [])),
+    ?assertMatch({error, {"HTTP/1.1", 404, _}}, request(get, NewPath, [], [])),
     ?assertEqual([], delete(NewPath)),
     ok.
 
@@ -139,8 +95,8 @@ action_listener(ID, Action, Running) ->
     {ok, _} = emqx_mgmt_api_test_util:request_api(post, Path),
     timer:sleep(500),
     GetPath = emqx_mgmt_api_test_util:api_path(["listeners", ID]),
-    [#{<<"listeners">> := Listeners}] = request(get, GetPath, [], []),
-    [listener_stats(Listener, Running) || Listener <- Listeners].
+    Listener = request(get, GetPath, [], []),
+    listener_stats(Listener, Running).
 
 request(Method, Url, QueryParams, Body) ->
     AuthHeader = emqx_mgmt_api_test_util:auth_header_(),

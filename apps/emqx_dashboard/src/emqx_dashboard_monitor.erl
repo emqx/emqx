@@ -18,6 +18,8 @@
 
 -include("emqx_dashboard.hrl").
 
+-include_lib("emqx/include/logger.hrl").
+
 -behaviour(gen_server).
 
 -boot_mnesia({mnesia, [boot]}).
@@ -128,7 +130,16 @@ current_rate() ->
 current_rate(all) ->
     current_rate();
 current_rate(Node) when Node == node() ->
-    do_call(current_rate);
+    try
+        {ok, Rate} = do_call(current_rate),
+        {ok, Rate}
+    catch _E:R ->
+        ?SLOG(warning, #{msg => "Dashboard monitor error", reason => R}),
+        %% Rate map 0, ensure api will not crash.
+        %% When joining cluster, dashboard monitor restart.
+        Rate0 = [{Key, 0} || Key <- ?GAUGE_SAMPLER_LIST ++ maps:values(?DELTA_SAMPLER_RATE_MAP)],
+        {ok, maps:from_list(Rate0)}
+    end;
 current_rate(Node) ->
     case emqx_dashboard_proto_v1:current_rate(Node) of
         {badrpc, Reason} ->

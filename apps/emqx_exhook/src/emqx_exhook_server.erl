@@ -86,40 +86,44 @@
 %% Load/Unload APIs
 %%--------------------------------------------------------------------
 
--spec load(binary(), map()) -> {ok, server()} | {error, term()} | disable.
+-spec load(binary(), map()) -> {ok, server()} | {error, term()} | {load_error, term()} | disable.
 load(_Name, #{enable := false}) ->
     disable;
 load(Name, #{request_timeout := Timeout, failed_action := FailedAction} = Opts) ->
     ReqOpts = #{timeout => Timeout, failed_action => FailedAction},
-    {SvrAddr, ClientOpts} = channel_opts(Opts),
-    case
-        emqx_exhook_sup:start_grpc_client_channel(
-            Name,
-            SvrAddr,
-            ClientOpts
-        )
-    of
-        {ok, _ChannPoolPid} ->
-            case do_init(Name, ReqOpts) of
-                {ok, HookSpecs} ->
-                    %% Register metrics
-                    Prefix = lists:flatten(io_lib:format("exhook.~ts.", [Name])),
-                    ensure_metrics(Prefix, HookSpecs),
-                    %% Ensure hooks
-                    ensure_hooks(HookSpecs),
-                    {ok, #{
-                        name => Name,
-                        options => ReqOpts,
-                        channel => _ChannPoolPid,
-                        hookspec => HookSpecs,
-                        prefix => Prefix
-                    }};
+    case channel_opts(Opts) of
+        {ok, {SvrAddr, ClientOpts}} ->
+            case
+                emqx_exhook_sup:start_grpc_client_channel(
+                    Name,
+                    SvrAddr,
+                    ClientOpts
+                )
+            of
+                {ok, _ChannPoolPid} ->
+                    case do_init(Name, ReqOpts) of
+                        {ok, HookSpecs} ->
+                            %% Register metrics
+                            Prefix = lists:flatten(io_lib:format("exhook.~ts.", [Name])),
+                            ensure_metrics(Prefix, HookSpecs),
+                            %% Ensure hooks
+                            ensure_hooks(HookSpecs),
+                            {ok, #{
+                                name => Name,
+                                options => ReqOpts,
+                                channel => _ChannPoolPid,
+                                hookspec => HookSpecs,
+                                prefix => Prefix
+                            }};
+                        {error, Reason} ->
+                            emqx_exhook_sup:stop_grpc_client_channel(Name),
+                            {load_error, Reason}
+                    end;
                 {error, _} = E ->
-                    emqx_exhook_sup:stop_grpc_client_channel(Name),
                     E
             end;
-        {error, _} = E ->
-            E
+        Error ->
+            Error
     end.
 
 %% @private
@@ -130,7 +134,7 @@ channel_opts(Opts = #{url := URL}) ->
     ),
     case uri_string:parse(URL) of
         #{scheme := <<"http">>, host := Host, port := Port} ->
-            {format_http_uri("http", Host, Port), ClientOpts};
+            {ok, {format_http_uri("http", Host, Port), ClientOpts}};
         #{scheme := <<"https">>, host := Host, port := Port} ->
             SslOpts =
                 case maps:get(ssl, Opts, undefined) of
@@ -154,9 +158,9 @@ channel_opts(Opts = #{url := URL}) ->
                         transport_opts => SslOpts
                     }
             },
-            {format_http_uri("https", Host, Port), NClientOpts};
+            {ok, {format_http_uri("https", Host, Port), NClientOpts}};
         Error ->
-            error({bad_server_url, URL, Error})
+            {error, {bad_server_url, URL, Error}}
     end.
 
 format_http_uri(Scheme, Host, Port) ->

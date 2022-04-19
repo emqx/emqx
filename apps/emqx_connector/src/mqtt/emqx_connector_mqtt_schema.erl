@@ -93,7 +93,7 @@ topic filters for 'remote_topic' of ingress connections.
         "messages in case of ACK not received.",
         #{default => "15s"})}
     , {max_inflight,
-        sc(integer(),
+        sc(non_neg_integer(),
            #{ default => 32
             , desc => "Max inflight (sent, but un-acked) messages of the MQTT protocol"
             })}

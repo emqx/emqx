@@ -48,7 +48,7 @@ defmodule EMQXUmbrella.MixProject do
     [
       {:lc, github: "emqx/lc", tag: "0.2.1"},
       {:redbug, "2.0.7"},
-      {:typerefl, github: "ieQu1/typerefl", tag: "0.8.6", override: true},
+      {:typerefl, github: "ieQu1/typerefl", tag: "0.9.0", override: true},
       {:ehttpc, github: "emqx/ehttpc", tag: "0.1.12"},
       {:gproc, github: "uwiger/gproc", tag: "0.8.0", override: true},
       {:jiffy, github: "emqx/jiffy", tag: "1.0.5", override: true},
@@ -68,7 +68,7 @@ defmodule EMQXUmbrella.MixProject do
       # in conflict by emqtt and hocon
       {:getopt, "1.0.2", override: true},
       {:snabbkaffe, github: "kafka4beam/snabbkaffe", tag: "0.18.0", override: true},
-      {:hocon, github: "emqx/hocon", tag: "0.26.6", override: true},
+      {:hocon, github: "emqx/hocon", tag: "0.26.7", override: true},
       {:emqx_http_lib, github: "emqx/emqx_http_lib", tag: "0.4.1", override: true},
       {:esasl, github: "emqx/esasl", tag: "0.2.0"},
       {:jose, github: "potatosalad/erlang-jose", tag: "1.11.2"},
@@ -145,6 +145,8 @@ defmodule EMQXUmbrella.MixProject do
             :emqx_statsd,
             :emqx_retainer,
             :emqx_prometheus,
+            :emqx_auto_subscribe,
+            :emqx_slow_subs,
             :emqx_plugins
           ],
           steps: steps,
@@ -230,7 +232,9 @@ defmodule EMQXUmbrella.MixProject do
       :emqx_exhook,
       :emqx_authn,
       :emqx_authz,
-      :emqx_plugin
+      :emqx_auto_subscribe,
+      :emqx_slow_subs,
+      :emqx_plugins
     ]
   end
 
@@ -340,6 +344,13 @@ defmodule EMQXUmbrella.MixProject do
     File.cp_r!(
       "apps/emqx/etc/certs",
       Path.join(etc, "certs")
+    )
+
+    # required by emqx_dashboard
+    Mix.Generator.copy_file(
+      "apps/emqx_dashboard/etc/i18n.conf.all",
+      Path.join(etc, "i18n.conf"),
+      force: overwrite?
     )
 
     # this is required by the produced escript / nodetool

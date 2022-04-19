@@ -3,41 +3,36 @@
 -behaviour(minirest_api).
 -behaviour(hocon_schema).
 
-%% API
--export([paths/0, api_spec/0, schema/1, fields/1]).
--export([t_object/1, t_nest_object/1, t_api_spec/1,
-    t_local_ref/1, t_remote_ref/1, t_bad_ref/1, t_none_ref/1, t_nest_ref/1,
-    t_ref_array_with_key/1, t_ref_array_without_key/1, t_sub_fields/1
-]).
--export([
-    t_object_trans/1, t_object_notrans/1, t_nest_object_trans/1, t_local_ref_trans/1,
-    t_remote_ref_trans/1, t_nest_ref_trans/1,
-    t_ref_array_with_key_trans/1, t_ref_array_without_key_trans/1,
-    t_ref_trans_error/1, t_object_trans_error/1
-]).
--export([all/0, suite/0, groups/0]).
+-compile(nowarn_export_all).
+-compile(export_all).
 
 -include_lib("eunit/include/eunit.hrl").
 -include_lib("typerefl/include/types.hrl").
 -include_lib("hocon/include/hoconsc.hrl").
 -import(hoconsc, [mk/2]).
 
-all() -> [{group, spec}, {group, validation}].
+all() -> emqx_common_test_helpers:all(?MODULE).
 
-suite() -> [{timetrap, {minutes, 1}}].
-groups() -> [
-    {spec, [parallel], [
-        t_api_spec, t_object, t_nest_object,
-        t_local_ref, t_remote_ref, t_bad_ref, t_none_ref,
-        t_ref_array_with_key, t_ref_array_without_key, t_nest_ref]},
-    {validation, [parallel],
-        [
-            t_object_trans, t_object_notrans, t_local_ref_trans, t_remote_ref_trans,
-            t_ref_array_with_key_trans, t_ref_array_without_key_trans, t_nest_ref_trans,
-            t_ref_trans_error, t_object_trans_error
-            %% t_nest_object_trans,
-            ]}
-].
+init_per_suite(Config) ->
+    mria:start(),
+    application:load(emqx_dashboard),
+    emqx_common_test_helpers:start_apps([emqx_conf, emqx_dashboard], fun set_special_configs/1),
+    emqx_dashboard:init_i18n(),
+    Config.
+
+set_special_configs(emqx_dashboard) ->
+    emqx_dashboard_api_test_helpers:set_default_config(),
+    ok;
+set_special_configs(_) ->
+    ok.
+
+end_per_suite(Config) ->
+    end_suite(),
+    Config.
+
+end_suite() ->
+    application:unload(emqx_management),
+    emqx_common_test_helpers:stop_apps([emqx_dashboard]).
 
 t_object(_Config) ->
     Spec = #{
@@ -48,7 +43,7 @@ t_object(_Config) ->
             #{required => [<<"timeout">>, <<"per_page">>],
                 <<"properties">> =>[
                     {<<"per_page">>, #{description => <<"good per page desc">>,
-                        example => 1, maximum => 100, minimum => 1, type => integer}},
+                        maximum => 100, minimum => 1, type => integer}},
                     {<<"timeout">>, #{default => 5, <<"oneOf">> =>
                     [#{example => <<"1h">>, type => string},
                         #{enum => [infinity], type => string}]}},
@@ -69,13 +64,13 @@ t_nest_object(_Config) ->
             #{required => [<<"timeout">>],
                 <<"properties">> =>
                 [{<<"per_page">>, #{description => <<"good per page desc">>,
-                    example => 1, maximum => 100, minimum => 1, type => integer}},
+                    maximum => 100, minimum => 1, type => integer}},
                     {<<"timeout">>, #{default => 5, <<"oneOf">> =>
                     [#{example => <<"1h">>, type => string},
                         #{enum => [infinity], type => string}]}},
                     {<<"nest_object">>,
                         #{<<"properties">> =>
-                        [{<<"good_nest_1">>, #{example => 100, type => integer}},
+                        [{<<"good_nest_1">>, #{type => integer}},
                             {<<"good_nest_2">>, #{<<"$ref">> =>
                             <<"#/components/schemas/emqx_swagger_requestBody_SUITE.good_ref">>}}],
                             <<"type">> => object}},
@@ -110,7 +105,7 @@ t_remote_ref(_Config) ->
     {_, Components} = validate("/ref/remote", Spec, Refs),
     ExpectComponents = [
         #{<<"emqx_swagger_remote_schema.ref2">> => #{<<"properties">> => [
-            {<<"page">>, #{description => <<"good page">>,example => 1,
+            {<<"page">>, #{description => <<"good page">>,
                 maximum => 100,minimum => 1,type => integer}},
         {<<"another_ref">>, #{<<"$ref">> =>
         <<"#/components/schemas/emqx_swagger_remote_schema.ref3">>}}], <<"type">> => object}},
@@ -141,8 +136,7 @@ t_nest_ref(_Config) ->
             {<<"webhook-host">>, #{default => <<"127.0.0.1:80">>,
                 example => <<"127.0.0.1:80">>,type => string}},
             {<<"log_dir">>, #{example => <<"var/log/emqx">>,type => string}},
-            {<<"tag">>, #{description => <<"tag">>,
-                example => <<"binary-example">>,type => string}}],
+            {<<"tag">>, #{description => <<"tag">>,type => string}}],
             <<"type">> => object}}]),
     {_, Components} = validate("/ref/nest/ref", Spec, Refs),
     ?assertEqual(ExpectComponents, Components),
@@ -186,7 +180,7 @@ t_ref_array_with_key(_Config) ->
                 <<"type">> => object, <<"properties">> =>
                 [
                     {<<"per_page">>, #{description => <<"good per page desc">>,
-                        example => 1, maximum => 100, minimum => 1, type => integer}},
+                        maximum => 100, minimum => 1, type => integer}},
                     {<<"timeout">>, #{default => 5, <<"oneOf">> =>
                     [#{example => <<"1h">>, type => string},
                         #{enum => [infinity], type => string}]}},
@@ -281,7 +275,7 @@ t_object_notrans(_Config) ->
     ?assertEqual(Body, ActualBody),
     ok.
 
-t_nest_object_trans(_Config) ->
+todo_t_nest_object_check(_Config) ->
     Path = "/nest/object",
     Body = #{
         <<"timeout">> => "10m",
@@ -306,7 +300,7 @@ t_nest_object_trans(_Config) ->
         body => #{<<"per_page">> => 10,
             <<"timeout">> => 600}
     },
-    {ok, NewRequest} = trans_requestBody(Path, Body),
+    {ok, NewRequest} = check_requestBody(Path, Body),
     ?assertEqual(Expect, NewRequest),
     ok.
 
@@ -486,6 +480,10 @@ filter(ApiSpec, Path) ->
 trans_requestBody(Path, Body) ->
     trans_requestBody(Path, Body,
         fun emqx_dashboard_swagger:filter_check_request_and_translate_body/2).
+
+check_requestBody(Path, Body) ->
+    trans_requestBody(Path, Body,
+        fun emqx_dashboard_swagger:filter_check_request/2).
 
 trans_requestBody(Path, Body, Filter) ->
     Meta = #{module => ?MODULE, method => post, path => Path},

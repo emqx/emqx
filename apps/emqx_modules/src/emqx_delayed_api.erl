@@ -149,9 +149,9 @@ schema("/mqtt/delayed/messages") ->
                     [
                         {data, mk(hoconsc:array(ref("message")), #{})},
                         {meta, [
-                            {page, mk(integer(), #{})},
-                            {limit, mk(integer(), #{})},
-                            {count, mk(integer(), #{})}
+                            {page, mk(pos_integer(), #{})},
+                            {limit, mk(pos_integer(), #{})},
+                            {count, mk(non_neg_integer(), #{})}
                         ]}
                     ]
             }
@@ -163,11 +163,11 @@ fields("message_without_payload") ->
         {msgid, mk(integer(), #{desc => <<"Message Id (MQTT message id hash)">>})},
         {node, mk(binary(), #{desc => <<"The node where message from">>})},
         {publish_at, mk(binary(), #{desc => <<"Client publish message time, rfc 3339">>})},
-        {delayed_interval, mk(integer(), #{desc => <<"Delayed interval, second">>})},
-        {delayed_remaining, mk(integer(), #{desc => <<"Delayed remaining, second">>})},
+        {delayed_interval, mk(pos_integer(), #{desc => <<"Delayed interval, second">>})},
+        {delayed_remaining, mk(non_neg_integer(), #{desc => <<"Delayed remaining, second">>})},
         {expected_at, mk(binary(), #{desc => <<"Expect publish time, rfc 3339">>})},
         {topic, mk(binary(), #{desc => <<"Topic">>, example => <<"/sys/#">>})},
-        {qos, mk(binary(), #{desc => <<"QoS">>})},
+        {qos, mk(emqx_schema:qos(), #{desc => <<"QoS">>})},
         {from_clientid, mk(binary(), #{desc => <<"From ClientId">>})},
         {from_username, mk(binary(), #{desc => <<"From Username">>})}
     ];

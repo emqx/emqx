@@ -307,12 +307,12 @@ t_case_stomp_subscribe(_) ->
                 )
             ),
 
-            timer:sleep(100),
+            timer:sleep(200),
             Msg = emqx_message:make(Topic, Payload),
             emqx:publish(Msg),
 
-            timer:sleep(100),
-            {ok, Data1} = gen_tcp:recv(Sock, 0, 2000),
+            timer:sleep(200),
+            {ok, Data1} = gen_tcp:recv(Sock, 0, 10000),
             {ok, Frame1, _, _} = Mod:parse(Data1),
             Checker(Frame1)
         end,
@@ -406,7 +406,11 @@ t_case_exproto_subscribe(_) ->
 %% Helpers
 %%------------------------------------------------------------------------------
 try_publish_recv(Topic, Publish, Checker) ->
+    try_publish_recv(Topic, Publish, Checker, 500).
+
+try_publish_recv(Topic, Publish, Checker, Timeout) ->
     emqx:subscribe(Topic),
+    timer:sleep(200),
     Clear = fun(Msg) ->
         emqx:unsubscribe(Topic),
         Checker(Msg)
@@ -416,7 +420,7 @@ try_publish_recv(Topic, Publish, Checker) ->
     receive
         {deliver, Topic, Msg} ->
             Clear(Msg)
-    after 500 ->
+    after Timeout ->
         Clear(timeout)
     end.
 

@@ -92,7 +92,7 @@ fields(server) ->
             )},
         {pool_size,
             sc(
-                integer(),
+                pos_integer(),
                 #{
                     default => 8,
                     example => 8,

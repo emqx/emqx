@@ -40,16 +40,17 @@ t_single_node_metrics_api(_) ->
     {ok, MetricsResponse} = request_helper("metrics"),
     [MetricsFromAPI] = emqx_json:decode(MetricsResponse, [return_maps]),
     LocalNodeMetrics = maps:from_list(
-                         emqx_mgmt:get_metrics(node()) ++ [{node, to_bin(node())}]),
+        emqx_mgmt:get_metrics(node()) ++ [{node, to_bin(node())}]
+    ),
     match_helper(LocalNodeMetrics, MetricsFromAPI).
 
 match_helper(SystemMetrics, MetricsFromAPI) ->
     length_equal(SystemMetrics, MetricsFromAPI),
     Fun =
-        fun (Key, {SysMetrics, APIMetrics}) ->
-                Value = maps:get(Key, SysMetrics),
-                ?assertEqual(Value, maps:get(to_bin(Key), APIMetrics)),
-                {Value, {SysMetrics, APIMetrics}}
+        fun(Key, {SysMetrics, APIMetrics}) ->
+            Value = maps:get(Key, SysMetrics),
+            ?assertEqual(Value, maps:get(to_bin(Key), APIMetrics)),
+            {Value, {SysMetrics, APIMetrics}}
         end,
     lists:mapfoldl(Fun, {SystemMetrics, MetricsFromAPI}, maps:keys(SystemMetrics)).
 

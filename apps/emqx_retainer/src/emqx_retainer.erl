@@ -23,38 +23,43 @@
 
 -export([start_link/0]).
 
--export([ on_session_subscribed/4
-        , on_message_publish/2
-        ]).
+-export([
+    on_session_subscribed/4,
+    on_message_publish/2
+]).
 
--export([ delete_message/2
-        , store_retained/2
-        , get_backend_module/0
-        ]).
+-export([
+    delete_message/2,
+    store_retained/2,
+    get_backend_module/0
+]).
 
--export([ get_expiry_time/1
-        , update_config/1
-        , clean/0
-        , delete/1
-        , page_read/3
-        , post_config_update/5
-        , stats_fun/0
-        ]).
+-export([
+    get_expiry_time/1,
+    update_config/1,
+    clean/0,
+    delete/1,
+    page_read/3,
+    post_config_update/5,
+    stats_fun/0
+]).
 
 %% gen_server callbacks
--export([ init/1
-        , handle_call/3
-        , handle_cast/2
-        , handle_info/2
-        , terminate/2
-        , code_change/3
-        ]).
+-export([
+    init/1,
+    handle_call/3,
+    handle_cast/2,
+    handle_info/2,
+    terminate/2,
+    code_change/3
+]).
 
--type state() :: #{ enable := boolean()
-                  , context_id := non_neg_integer()
-                  , context := undefined | context()
-                  , clear_timer := undefined | reference()
-                  }.
+-type state() :: #{
+    enable := boolean(),
+    context_id := non_neg_integer(),
+    context := undefined | context(),
+    clear_timer := undefined | reference()
+}.
 
 -define(DEF_MAX_PAYLOAD_SIZE, (1024 * 1024)).
 -define(DEF_EXPIRY_INTERVAL, 0).
@@ -86,10 +91,14 @@ on_session_subscribed(_, Topic, #{rh := Rh} = Opts, Context) ->
     end.
 
 %% RETAIN flag set to 1 and payload containing zero bytes
-on_message_publish(Msg = #message{flags   = #{retain := true},
-                                  topic   = Topic,
-                                  payload = <<>>},
-                   Context) ->
+on_message_publish(
+    Msg = #message{
+        flags = #{retain := true},
+        topic = Topic,
+        payload = <<>>
+    },
+    Context
+) ->
     delete_message(Context, Topic),
     case get_stop_publish_clear_msg() of
         true ->
@@ -97,7 +106,6 @@ on_message_publish(Msg = #message{flags   = #{retain := true},
         _ ->
             {ok, Msg}
     end;
-
 on_message_publish(Msg = #message{flags = #{retain := true}}, Context) ->
     Msg1 = emqx_message:set_header(retained, true, Msg),
     store_retained(Context, Msg1),
@@ -110,14 +118,16 @@ on_message_publish(Msg, _) ->
 %%--------------------------------------------------------------------
 
 %% @doc Start the retainer
--spec(start_link() -> emqx_types:startlink_ret()).
+-spec start_link() -> emqx_types:startlink_ret().
 start_link() ->
     gen_server:start_link({local, ?MODULE}, ?MODULE, [], []).
 
 get_expiry_time(#message{headers = #{properties := #{'Message-Expiry-Interval' := 0}}}) ->
     0;
-get_expiry_time(#message{headers = #{properties := #{'Message-Expiry-Interval' := Interval}},
-                         timestamp = Ts}) ->
+get_expiry_time(#message{
+    headers = #{properties := #{'Message-Expiry-Interval' := Interval}},
+    timestamp = Ts
+}) ->
     Ts + Interval * 1000;
 get_expiry_time(#message{timestamp = Ts}) ->
     Interval = emqx_conf:get([retainer, msg_expiry_interval], ?DEF_EXPIRY_INTERVAL),
@@ -161,30 +171,26 @@ init([]) ->
     State = new_state(),
     #{enable := Enable} = Cfg = emqx:get_config([retainer]),
     {ok,
-     case Enable of
-         true ->
-             enable_retainer(State, Cfg);
-         _ ->
-             State
-     end}.
+        case Enable of
+            true ->
+                enable_retainer(State, Cfg);
+            _ ->
+                State
+        end}.
 
 handle_call({update_config, NewConf, OldConf}, _, State) ->
     State2 = update_config(State, NewConf, OldConf),
     {reply, ok, State2};
-
 handle_call(clean, _, #{context := Context} = State) ->
     clean(Context),
     {reply, ok, State};
-
 handle_call({delete, Topic}, _, #{context := Context} = State) ->
     delete_message(Context, Topic),
     {reply, ok, State};
-
 handle_call({page_read, Topic, Page, Limit}, _, #{context := Context} = State) ->
     Mod = get_backend_module(),
     Result = Mod:page_read(Context, Topic, Page, Limit),
     {reply, Result, State};
-
 handle_call(Req, _From, State) ->
     ?SLOG(error, #{msg => "unexpected_call", call => Req}),
     {reply, ignored, State}.
@@ -194,7 +200,6 @@ handle_cast(stats_fun, #{context := Context} = State) ->
     Size = Mod:size(Context),
     emqx_stats:setstat('retained.count', 'retained.max', Size),
     {noreply, State};
-
 handle_cast(Msg, State) ->
     ?SLOG(error, #{msg => "unexpected_cast", cast => Msg}),
     {noreply, State}.
@@ -204,7 +209,6 @@ handle_info(clear_expired, #{context := Context} = State) ->
     Mod:clear_expired(Context),
     Interval = emqx_conf:get([retainer, msg_clear_interval], ?DEF_EXPIRY_INTERVAL),
     {noreply, State#{clear_timer := add_timer(Interval, clear_expired)}, hibernate};
-
 handle_info(Info, State) ->
     ?SLOG(error, #{msg => "unexpected_info", info => Info}),
     {noreply, State}.
@@ -222,11 +226,12 @@ code_change(_OldVsn, State, _Extra) ->
 %%--------------------------------------------------------------------
 -spec new_state() -> state().
 new_state() ->
-    #{enable => false,
-      context_id => 0,
-      context => undefined,
-      clear_timer => undefined
-     }.
+    #{
+        enable => false,
+        context_id => 0,
+        context => undefined,
+        clear_timer => undefined
+    }.
 
 -spec new_context(pos_integer()) -> context().
 new_context(Id) ->
@@ -249,11 +254,13 @@ store_retained(Context, #message{topic = Topic, payload = Payload} = Msg) ->
     Size = iolist_size(Payload),
     case payload_size_limit() of
         Limit when Limit > 0 andalso Limit < Size ->
-            ?SLOG(error, #{msg => "retain_failed_for_payload_size_exceeded_limit",
-                           topic => Topic,
-                           config => emqx_hocon:format_path(?MAX_PAYLOAD_SIZE_CONFIG_PATH),
-                           size => Size,
-                           limit => Limit});
+            ?SLOG(error, #{
+                msg => "retain_failed_for_payload_size_exceeded_limit",
+                topic => Topic,
+                config => emqx_hocon:format_path(?MAX_PAYLOAD_SIZE_CONFIG_PATH),
+                size => Size,
+                limit => Limit
+            });
         _ ->
             Mod = get_backend_module(),
             Mod:store_retained(Context, Msg)
@@ -266,23 +273,30 @@ clean(Context) ->
 
 -spec update_config(state(), hocons:config(), hocons:config()) -> state().
 update_config(State, Conf, OldConf) ->
-    update_config(maps:get(enable, Conf),
-                  maps:get(enable, OldConf),
-                  State,
-                  Conf,
-                  OldConf).
+    update_config(
+        maps:get(enable, Conf),
+        maps:get(enable, OldConf),
+        State,
+        Conf,
+        OldConf
+    ).
 
 -spec update_config(boolean(), boolean(), state(), hocons:config(), hocons:config()) -> state().
 update_config(false, _, State, _, _) ->
     disable_retainer(State);
-
 update_config(true, false, State, NewConf, _) ->
     enable_retainer(State, NewConf);
-
-update_config(true, true,
-              #{clear_timer := ClearTimer} = State, NewConf, OldConf) ->
-    #{backend := BackendCfg,
-      msg_clear_interval := ClearInterval} = NewConf,
+update_config(
+    true,
+    true,
+    #{clear_timer := ClearTimer} = State,
+    NewConf,
+    OldConf
+) ->
+    #{
+        backend := BackendCfg,
+        msg_clear_interval := ClearInterval
+    } = NewConf,
 
     #{backend := OldBackendCfg} = OldConf,
 
@@ -290,34 +304,49 @@ update_config(true, true,
     OldStrorageType = maps:get(type, OldBackendCfg),
     case OldStrorageType of
         StorageType ->
-            State#{clear_timer := check_timer(ClearTimer,
-                                              ClearInterval,
-                                              clear_expired)};
+            State#{
+                clear_timer := check_timer(
+                    ClearTimer,
+                    ClearInterval,
+                    clear_expired
+                )
+            };
         _ ->
             State2 = disable_retainer(State),
             enable_retainer(State2, NewConf)
     end.
 
 -spec enable_retainer(state(), hocon:config()) -> state().
-enable_retainer(#{context_id := ContextId} = State,
-                #{msg_clear_interval := ClearInterval,
-                  backend := BackendCfg}) ->
+enable_retainer(
+    #{context_id := ContextId} = State,
+    #{
+        msg_clear_interval := ClearInterval,
+        backend := BackendCfg
+    }
+) ->
     NewContextId = ContextId + 1,
     Context = create_resource(new_context(NewContextId), BackendCfg),
     load(Context),
-    State#{enable := true,
-           context_id := NewContextId,
-           context := Context,
-           clear_timer := add_timer(ClearInterval, clear_expired)}.
+    State#{
+        enable := true,
+        context_id := NewContextId,
+        context := Context,
+        clear_timer := add_timer(ClearInterval, clear_expired)
+    }.
 
 -spec disable_retainer(state()) -> state().
-disable_retainer(#{clear_timer := ClearTimer,
-                   context := Context} = State) ->
+disable_retainer(
+    #{
+        clear_timer := ClearTimer,
+        context := Context
+    } = State
+) ->
     unload(),
     ok = close_resource(Context),
-    State#{enable := false,
-           clear_timer := stop_timer(ClearTimer)
-          }.
+    State#{
+        enable := false,
+        clear_timer := stop_timer(ClearTimer)
+    }.
 
 -spec stop_timer(undefined | reference()) -> undefined.
 stop_timer(undefined) ->
@@ -344,24 +373,27 @@ check_timer(Timer, _, _) ->
 
 -spec get_backend_module() -> backend().
 get_backend_module() ->
-    ModName = case emqx:get_config([retainer, backend]) of
-                  #{type := built_in_database} -> mnesia;
-                  #{type := Backend} -> Backend
-              end,
+    ModName =
+        case emqx:get_config([retainer, backend]) of
+            #{type := built_in_database} -> mnesia;
+            #{type := Backend} -> Backend
+        end,
     erlang:list_to_existing_atom(io_lib:format("~ts_~ts", [?APP, ModName])).
 
 create_resource(Context, #{type := built_in_database} = Cfg) ->
     emqx_retainer_mnesia:create_resource(Cfg),
     Context;
-
 create_resource(Context, #{type := DB} = Config) ->
     ResourceID = erlang:iolist_to_binary([io_lib:format("~ts_~ts", [?APP, DB])]),
-    case emqx_resource:create(
-           ResourceID,
-           <<"emqx_retainer">>,
-           list_to_existing_atom(io_lib:format("~ts_~ts", [emqx_connector, DB])),
-           Config,
-           #{}) of
+    case
+        emqx_resource:create(
+            ResourceID,
+            <<"emqx_retainer">>,
+            list_to_existing_atom(io_lib:format("~ts_~ts", [emqx_connector, DB])),
+            Config,
+            #{}
+        )
+    of
         {ok, already_created} ->
             Context#{resource_id => ResourceID};
         {ok, _} ->

@@ -190,6 +190,9 @@
         , rfc3339_to_unix_ts/2
         , now_timestamp/0
         , now_timestamp/1
+        , format_date/3
+        , format_date/4
+        , date_to_unix_ts/4
         ]).
 
 %% Proc Dict Func
@@ -879,6 +882,25 @@ time_unit(<<"second">>) -> second;
 time_unit(<<"millisecond">>) -> millisecond;
 time_unit(<<"microsecond">>) -> microsecond;
 time_unit(<<"nanosecond">>) -> nanosecond.
+
+format_date(TimeUnit, Offset, FormatString) ->
+    emqx_plugin_libs_rule:bin(
+      emqx_rule_date:date(time_unit(TimeUnit),
+                          emqx_plugin_libs_rule:str(Offset),
+                          emqx_plugin_libs_rule:str(FormatString))).
+
+format_date(TimeUnit, Offset, FormatString, TimeEpoch) ->
+    emqx_plugin_libs_rule:bin(
+      emqx_rule_date:date(time_unit(TimeUnit),
+                          emqx_plugin_libs_rule:str(Offset),
+                          emqx_plugin_libs_rule:str(FormatString),
+                          TimeEpoch)).
+
+date_to_unix_ts(TimeUnit, Offset, FormatString, InputString) ->
+    emqx_rule_date:parse_date(time_unit(TimeUnit),
+                        emqx_plugin_libs_rule:str(Offset),
+                        emqx_plugin_libs_rule:str(FormatString),
+                        emqx_plugin_libs_rule:str(InputString)).
 
 %% @doc This is for sql funcs that should be handled in the specific modules.
 %% Here the emqx_rule_funcs module acts as a proxy, forwarding

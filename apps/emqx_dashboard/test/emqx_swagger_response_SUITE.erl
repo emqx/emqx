@@ -10,22 +10,31 @@
 -include_lib("hocon/include/hoconsc.hrl").
 -import(hoconsc, [mk/2]).
 
--export([all/0, suite/0, groups/0]).
--export([paths/0, api_spec/0, schema/1, fields/1]).
--export([t_simple_binary/1, t_object/1, t_nest_object/1, t_empty/1, t_error/1,
-    t_raw_local_ref/1, t_raw_remote_ref/1, t_hocon_schema_function/1, t_complicated_type/1,
-    t_local_ref/1, t_remote_ref/1, t_bad_ref/1, t_none_ref/1, t_nest_ref/1, t_sub_fields/1,
-    t_ref_array_with_key/1, t_ref_array_without_key/1, t_api_spec/1]).
+-compile(nowarn_export_all).
+-compile(export_all).
 
-all() -> [{group, spec}].
-suite() -> [{timetrap, {minutes, 1}}].
-groups() -> [
-    {spec, [parallel], [
-        t_api_spec, t_simple_binary, t_object, t_nest_object, t_error, t_complicated_type,
-        t_raw_local_ref, t_raw_remote_ref, t_empty, t_hocon_schema_function,
-        t_local_ref, t_remote_ref, t_bad_ref, t_none_ref, t_sub_fields,
-        t_ref_array_with_key, t_ref_array_without_key, t_nest_ref]}
-].
+all() -> emqx_common_test_helpers:all(?MODULE).
+
+init_per_suite(Config) ->
+    mria:start(),
+    application:load(emqx_dashboard),
+    emqx_common_test_helpers:start_apps([emqx_conf, emqx_dashboard], fun set_special_configs/1),
+    emqx_dashboard:init_i18n(),
+    Config.
+
+set_special_configs(emqx_dashboard) ->
+    emqx_dashboard_api_test_helpers:set_default_config(),
+    ok;
+set_special_configs(_) ->
+    ok.
+
+end_per_suite(Config) ->
+    end_suite(),
+    Config.
+
+end_suite() ->
+    application:unload(emqx_management),
+    emqx_common_test_helpers:stop_apps([emqx_dashboard]).
 
 t_simple_binary(_config) ->
     Path = "/simple/bin",
@@ -41,7 +50,7 @@ t_object(_config) ->
         #{<<"schema">> => #{required => [<<"timeout">>, <<"per_page">>],
             <<"properties">> => [
                 {<<"per_page">>, #{description => <<"good per page desc">>,
-                    example => 1, maximum => 100, minimum => 1, type => integer}},
+                    maximum => 100, minimum => 1, type => integer}},
                 {<<"timeout">>, #{default => 5, <<"oneOf">> =>
                 [#{example => <<"1h">>, type => string}, #{enum => [infinity], type => string}]}},
                 {<<"inner_ref">>, #{<<"$ref">> =>
@@ -58,16 +67,15 @@ t_error(_Config) ->
         <<"properties">> =>
         [
             {<<"code">>, #{enum => ['Bad1', 'Bad2'], type => string}},
-            {<<"message">>, #{description => <<"Details description of the error.">>,
-                example => <<"Bad request desc">>, type => string}}]
+            {<<"message">>, #{description => <<"Bad request desc">>, type => string}}]
     }}}},
     Error404 = #{<<"content">> =>
     #{<<"application/json">> => #{<<"schema">> => #{<<"type">> => object,
         <<"properties">> =>
         [
             {<<"code">>, #{enum => ['Not-Found'], type => string}},
-            {<<"message">>, #{description => <<"Details description of the error.">>,
-                example => <<"Error code to troubleshoot problems.">>, type => string}}]
+            {<<"message">>, #{
+                description => <<"Error code to troubleshoot problems.">>, type => string}}]
     }}}},
     {OperationId, Spec, Refs} = emqx_dashboard_swagger:parse_spec_ref(?MODULE, Path, #{}),
     ?assertEqual(test, OperationId),
@@ -83,12 +91,12 @@ t_nest_object(_Config) ->
     Object =
         #{<<"content">> => #{<<"application/json">> => #{<<"schema">> =>
         #{required => [<<"timeout">>], <<"type">> => object, <<"properties">> => [
-            {<<"per_page">>, #{description => <<"good per page desc">>, example => 1,
+            {<<"per_page">>, #{description => <<"good per page desc">>,
                 maximum => 100, minimum => 1, type => integer}},
             {<<"timeout">>, #{default => 5, <<"oneOf">> =>
             [#{example => <<"1h">>, type => string}, #{enum => [infinity], type => string}]}},
             {<<"nest_object">>, #{<<"type">> => object, <<"properties">> => [
-                {<<"good_nest_1">>, #{example => 100, type => integer}},
+                {<<"good_nest_1">>, #{type => integer}},
                 {<<"good_nest_2">>, #{<<"$ref">> =>
                 <<"#/components/schemas/emqx_swagger_response_SUITE.good_ref">>}
                 }]}},
@@ -176,16 +184,15 @@ t_complicated_type(_Config) ->
     Object = #{<<"content">> => #{<<"application/json">> =>
     #{<<"schema">> => #{<<"properties">> =>
     [
-        {<<"no_neg_integer">>, #{example => 100, minimum => 1, type => integer}},
+        {<<"no_neg_integer">>, #{minimum => 0, type => integer}},
         {<<"url">>, #{example => <<"http://127.0.0.1">>, type => string}},
         {<<"server">>, #{example => <<"127.0.0.1:80">>, type => string}},
         {<<"connect_timeout">>, #{example => infinity, <<"oneOf">> => [
             #{example => infinity, type => string},
-            #{example => 100, type => integer}]}},
-        {<<"pool_type">>, #{enum => [random, hash], example => hash, type => string}},
+            #{type => integer}]}},
+        {<<"pool_type">>, #{enum => [random, hash], type => string}},
         {<<"timeout">>, #{example => infinity,
-            <<"oneOf">> =>
-            [#{example => infinity, type => string}, #{example => 100, type => integer}]}},
+            <<"oneOf">> => [#{example => infinity, type => string}, #{type => integer}]}},
         {<<"bytesize">>, #{example => <<"32MB">>, type => string}},
         {<<"wordsize">>, #{example => <<"1024KB">>, type => string}},
         {<<"maps">>, #{example => #{}, type => object}},
@@ -194,7 +201,7 @@ t_complicated_type(_Config) ->
         {<<"log_level">>,
             #{enum => [debug, info, notice, warning, error, critical, alert, emergency, all],
                 type => string}},
-        {<<"fix_integer">>, #{default => 100, enum => [100], example => 100,type => integer}}
+        {<<"fix_integer">>, #{default => 100, enum => [100],type => integer}}
     ],
         <<"type">> => object}}}},
     {OperationId, Spec, Refs} = emqx_dashboard_swagger:parse_spec_ref(?MODULE, Path, #{}),
@@ -210,17 +217,16 @@ t_ref_array_with_key(_Config) ->
     Object = #{<<"content">> => #{<<"application/json">> => #{<<"schema">> => #{
         required => [<<"timeout">>], <<"type">> => object, <<"properties">> => [
             {<<"per_page">>, #{description => <<"good per page desc">>,
-                example => 1, maximum => 100, minimum => 1, type => integer}},
+                maximum => 100, minimum => 1, type => integer}},
             {<<"timeout">>, #{default => 5, <<"oneOf">> =>
             [#{example => <<"1h">>, type => string}, #{enum => [infinity], type => string}]}},
-            {<<"assert">>, #{description => <<"money">>, example => 3.14159, type => number}},
-            {<<"number_ex">>, #{description => <<"number example">>,
-                example => 42, type => number}},
+            {<<"assert">>, #{description => <<"money">>, type => number}},
+            {<<"number_ex">>, #{description => <<"number example">>, type => number}},
             {<<"percent_ex">>, #{description => <<"percent example">>,
                 example => <<"12%">>, type => number}},
             {<<"duration_ms_ex">>, #{description => <<"duration ms example">>,
                 example => <<"32s">>, type => string}},
-            {<<"atom_ex">>, #{description => <<"atom ex">>, example => atom, type => string}},
+            {<<"atom_ex">>, #{description => <<"atom ex">>, type => string}},
             {<<"array_refs">>, #{items => #{<<"$ref">> =>
             <<"#/components/schemas/emqx_swagger_response_SUITE.good_ref">>}, type => array}}
         ]}
@@ -245,12 +251,12 @@ t_hocon_schema_function(_Config) ->
         #{<<"emqx_swagger_remote_schema.ref1">> => #{<<"type">> => object,
             <<"properties">> => [
                 {<<"protocol">>, #{enum => [http, https], type => string}},
-                {<<"port">>, #{default => 18083, example => 100, type => integer}}]
+                {<<"port">>, #{default => 18083, type => integer}}]
         }},
         #{<<"emqx_swagger_remote_schema.ref2">> => #{<<"type">> => object,
             <<"properties">> => [
                 {<<"page">>, #{description => <<"good page">>,
-                    example => 1, maximum => 100, minimum => 1, type => integer}},
+                    maximum => 100, minimum => 1, type => integer}},
                 {<<"another_ref">>, #{<<"$ref">> =>
                 <<"#/components/schemas/emqx_swagger_remote_schema.ref3">>}}
             ]
@@ -270,9 +276,9 @@ t_hocon_schema_function(_Config) ->
                 #{<<"$ref">> => <<"#/components/schemas/emqx_swagger_remote_schema.ref1">>}]},
                 type => array}},
                 {<<"default_username">>,
-                    #{default => <<"admin">>, example => <<"string-example">>, type => string}},
+                    #{default => <<"admin">>, type => string}},
                 {<<"default_password">>,
-                    #{default => <<"public">>, example => <<"string-example">>, type => string}},
+                    #{default => <<"public">>, type => string}},
                 {<<"sample_interval">>,
                     #{default => <<"10s">>, example => <<"1h">>, type => string}},
                 {<<"token_expired_time">>,

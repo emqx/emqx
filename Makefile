@@ -8,7 +8,7 @@ export EMQX_DEFAULT_BUILDER = ghcr.io/emqx/emqx-builder/5.0-10:1.13.3-24.2.1-1-a
 export EMQX_DEFAULT_RUNNER = alpine:3.15.1
 export OTP_VSN ?= $(shell $(CURDIR)/scripts/get-otp-vsn.sh)
 export ELIXIR_VSN ?= $(shell $(CURDIR)/scripts/get-elixir-vsn.sh)
-export EMQX_DASHBOARD_VERSION ?= v0.28.0
+export EMQX_DASHBOARD_VERSION ?= v0.29.0
 export DOCKERFILE := deploy/docker/Dockerfile
 export EMQX_REL_FORM ?= tgz
 ifeq ($(OS),Windows_NT)
@@ -61,7 +61,7 @@ get-dashboard:
 	@$(SCRIPTS)/get-dashboard.sh
 
 .PHONY: eunit
-eunit: $(REBAR)
+eunit: $(REBAR) conf-segs
 	@ENABLE_COVER_COMPILE=1 $(REBAR) eunit -v -c
 
 .PHONY: proper
@@ -218,6 +218,7 @@ $(foreach zt,$(ALL_DOCKERS),$(eval $(call gen-docker-target,$(zt))))
 .PHONY:
 conf-segs:
 	@scripts/merge-config.escript
+	@scripts/merge-i18n.escript
 
 ## elixir target is to create release packages using Elixir's Mix
 .PHONY: $(REL_PROFILES:%=%-elixir) $(PKG_PROFILES:%=%-elixir)

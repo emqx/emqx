@@ -23,83 +23,99 @@
 -include_lib("stdlib/include/ms_transform.hrl").
 -include_lib("stdlib/include/qlc.hrl").
 
-
--export([ delete_message/2
-        , store_retained/2
-        , read_message/2
-        , page_read/4
-        , match_messages/3
-        , clear_expired/1
-        , clean/1
-        , size/1
-        ]).
+-export([
+    delete_message/2,
+    store_retained/2,
+    read_message/2,
+    page_read/4,
+    match_messages/3,
+    clear_expired/1,
+    clean/1,
+    size/1
+]).
 
 -export([create_resource/1]).
 
 -record(retained, {topic, msg, expiry_time}).
 
 -type batch_read_result() ::
-        {ok, list(emqx:message()), cursor()}.
+    {ok, list(emqx:message()), cursor()}.
 
 %%--------------------------------------------------------------------
 %% emqx_retainer_storage callbacks
 %%--------------------------------------------------------------------
 create_resource(#{storage_type := StorageType}) ->
-    Copies = case StorageType of
-                 ram       -> ram_copies;
-                 disc      -> disc_copies
-             end,
+    Copies =
+        case StorageType of
+            ram -> ram_copies;
+            disc -> disc_copies
+        end,
 
-    StoreProps = [{ets, [compressed,
-                         {read_concurrency, true},
-                         {write_concurrency, true}]},
-                  {dets, [{auto_save, 1000}]}],
+    StoreProps = [
+        {ets, [
+            compressed,
+            {read_concurrency, true},
+            {write_concurrency, true}
+        ]},
+        {dets, [{auto_save, 1000}]}
+    ],
 
     ok = mria:create_table(?TAB, [
-                                  {type, ordered_set},
-                                  {rlog_shard, ?RETAINER_SHARD},
-                                  {storage, Copies},
-                                  {record_name, retained},
-                                  {attributes, record_info(fields, retained)},
-                                  {storage_properties, StoreProps}
-                                 ]),
+        {type, ordered_set},
+        {rlog_shard, ?RETAINER_SHARD},
+        {storage, Copies},
+        {record_name, retained},
+        {attributes, record_info(fields, retained)},
+        {storage_properties, StoreProps}
+    ]),
     ok = mria_rlog:wait_for_shards([?RETAINER_SHARD], infinity),
     case mnesia:table_info(?TAB, storage_type) of
-        Copies -> ok;
+        Copies ->
+            ok;
         _Other ->
             {atomic, ok} = mnesia:change_table_copy_type(?TAB, node(), Copies),
             ok
     end.
 
-store_retained(_, Msg =#message{topic = Topic}) ->
+store_retained(_, Msg = #message{topic = Topic}) ->
     ExpiryTime = emqx_retainer:get_expiry_time(Msg),
     case is_table_full() of
         false ->
-            mria:dirty_write(?TAB,
-                             #retained{topic = topic2tokens(Topic),
-                                       msg = Msg,
-                                       expiry_time = ExpiryTime});
+            mria:dirty_write(
+                ?TAB,
+                #retained{
+                    topic = topic2tokens(Topic),
+                    msg = Msg,
+                    expiry_time = ExpiryTime
+                }
+            );
         _ ->
             Tokens = topic2tokens(Topic),
             Fun = fun() ->
-                          case mnesia:read(?TAB, Tokens) of
-                              [_] ->
-                                  mnesia:write(?TAB,
-                                               #retained{topic = Tokens,
-                                                         msg = Msg,
-                                                         expiry_time = ExpiryTime},
-                                               write);
-                              [] ->
-                                  mnesia:abort(table_is_full)
-                          end
+                case mnesia:read(?TAB, Tokens) of
+                    [_] ->
+                        mnesia:write(
+                            ?TAB,
+                            #retained{
+                                topic = Tokens,
+                                msg = Msg,
+                                expiry_time = ExpiryTime
+                            },
+                            write
+                        );
+                    [] ->
+                        mnesia:abort(table_is_full)
+                end
             end,
             case mria:transaction(?RETAINER_SHARD, Fun) of
-                {atomic, ok} ->  ok;
+                {atomic, ok} ->
+                    ok;
                 {aborted, Reason} ->
-                    ?SLOG(error, #{ msg => "failed_to_retain_message"
-                                  , topic => Topic
-                                  , reason => Reason
-                                  })
+                    ?SLOG(error, #{
+                        msg => "failed_to_retain_message",
+                        topic => Topic,
+                        reason => Reason
+                    })
             end
     end.
 
@@ -108,20 +124,21 @@ clear_expired(_) ->
     MsHd = #retained{topic = '$1', msg = '_', expiry_time = '$3'},
     Ms = [{MsHd, [{'=/=', '$3', 0}, {'<', '$3', NowMs}], ['$1']}],
     Fun = fun() ->
-                  Keys = mnesia:select(?TAB, Ms, write),
-                  lists:foreach(fun(Key) -> mnesia:delete({?TAB, Key}) end, Keys)
-          end,
+        Keys = mnesia:select(?TAB, Ms, write),
+        lists:foreach(fun(Key) -> mnesia:delete({?TAB, Key}) end, Keys)
+    end,
     {atomic, _} = mria:transaction(?RETAINER_SHARD, Fun),
     ok.
 
 delete_message(_, Topic) ->
     case emqx_topic:wildcard(Topic) of
-        true -> match_delete_messages(Topic);
+        true ->
+            match_delete_messages(Topic);
         false ->
             Tokens = topic2tokens(Topic),
             Fun = fun() ->
-                       mnesia:delete({?TAB, Tokens})
-                  end,
+                mnesia:delete({?TAB, Tokens})
+            end,
             _ = mria:transaction(?RETAINER_SHARD, Fun),
             ok
     end,
@@ -169,8 +186,7 @@ size(_) ->
 %%--------------------------------------------------------------------
 sort_retained([]) -> [];
 sort_retained([Msg]) -> [Msg];
-sort_retained(Msgs)  ->
-    lists:sort(fun compare_message/2, Msgs).
+sort_retained(Msgs) -> lists:sort(fun compare_message/2, Msgs).
 
 compare_message(M1, M2) ->
     M1#message.timestamp =< M2#message.timestamp.
@@ -194,12 +210,13 @@ batch_read_messages(Cursor, MaxReadNum) ->
             {ok, Answers, Cursor}
     end.
 
--spec(read_messages(emqx_types:topic())
-      -> [emqx_types:message()]).
+-spec read_messages(emqx_types:topic()) ->
+    [emqx_types:message()].
 read_messages(Topic) ->
     Tokens = topic2tokens(Topic),
     case mnesia:dirty_read(?TAB, Tokens) of
-        [] -> [];
+        [] ->
+            [];
         [#retained{msg = Msg, expiry_time = Et}] ->
             case Et =:= 0 orelse Et >= erlang:system_time(millisecond) of
                 true -> [Msg];
@@ -207,13 +224,13 @@ read_messages(Topic) ->
             end
     end.
 
--spec(match_messages(emqx_types:topic())
-      -> [emqx_types:message()]).
+-spec match_messages(emqx_types:topic()) ->
+    [emqx_types:message()].
 match_messages(Filter) ->
     Ms = make_match_spec(Filter),
     mnesia:dirty_select(?TAB, Ms).
 
--spec(match_delete_messages(emqx_types:topic()) -> ok).
+-spec match_delete_messages(emqx_types:topic()) -> ok.
 match_delete_messages(Filter) ->
     Cond = condition(emqx_topic:words(Filter)),
     MsHd = #retained{topic = Cond, msg = '_', expiry_time = '_'},
@@ -223,7 +240,13 @@ match_delete_messages(Filter) ->
 
 %% @private
 condition(Ws) ->
-    Ws1 = [case W =:= '+' of true -> '_'; _ -> W end || W <- Ws],
+    Ws1 = [
+        case W =:= '+' of
+            true -> '_';
+            _ -> W
+        end
+     || W <- Ws
+    ],
     case lists:last(Ws1) =:= '#' of
         false -> Ws1;
         _ -> (Ws1 -- ['#']) ++ '_'
@@ -240,8 +263,10 @@ make_match_spec(Topic) ->
                 condition(emqx_topic:words(Topic))
         end,
     MsHd = #retained{topic = Cond, msg = '$2', expiry_time = '$3'},
-    [{MsHd, [{'=:=', '$3', 0}], ['$2']},
-     {MsHd, [{'>', '$3', NowMs}], ['$2']}].
+    [
+        {MsHd, [{'=:=', '$3', 0}], ['$2']},
+        {MsHd, [{'>', '$3', NowMs}], ['$2']}
+    ].
 
 -spec make_cursor(undefined | topic()) -> qlc:query_cursor().
 make_cursor(Topic) ->

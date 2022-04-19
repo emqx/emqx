@@ -16,6 +16,7 @@
 
 -module(emqx_modules_schema).
 
+-include_lib("hocon/include/hoconsc.hrl").
 -include_lib("typerefl/include/types.hrl").
 
 -behaviour(hocon_schema).
@@ -50,17 +51,17 @@ fields("rewrite") ->
         {action,
             sc(
                 hoconsc:enum([subscribe, publish, all]),
-                #{desc => <<"Action">>, example => publish}
+                #{required => true, desc => ?DESC(tr_action), example => publish}
             )},
         {source_topic,
             sc(
                 binary(),
-                #{desc => <<"Origin Topic">>, example => "x/#"}
+                #{required => true, desc => ?DESC(tr_source_topic), example => "x/#"}
             )},
         {dest_topic,
             sc(
                 binary(),
-                #{desc => <<"Destination Topic">>, example => "z/y/$1"}
+                #{required => true, desc => ?DESC(tr_dest_topic), example => "z/y/$1"}
             )},
         {re, fun regular_expression/1}
     ];
@@ -72,14 +73,15 @@ desc("telemetry") ->
 desc("delayed") ->
     "Settings for the delayed module.";
 desc("rewrite") ->
-    "Rewrite rule.";
+    ?DESC(rewrite);
 desc("topic_metrics") ->
     "";
 desc(_) ->
     undefined.
 
 regular_expression(type) -> binary();
-regular_expression(desc) -> "Regular expressions";
+regular_expression(required) -> true;
+regular_expression(desc) -> ?DESC(tr_re);
 regular_expression(example) -> "^x/y/(.+)$";
 regular_expression(validator) -> fun is_re/1;
 regular_expression(_) -> undefined.

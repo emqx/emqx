@@ -56,19 +56,31 @@ t_config(_Config) ->
     Path = api_path(["mqtt", "retainer"]),
     {ok, ConfJson} = request_api(get, Path),
     ReturnConf = decode_json(ConfJson),
-    ?assertMatch(#{backend := _, enable := _, flow_control := _,
-                   max_payload_size := _, msg_clear_interval := _,
-                   msg_expiry_interval := _},
-                 ReturnConf),
+    ?assertMatch(
+        #{
+            backend := _,
+            enable := _,
+            flow_control := _,
+            max_payload_size := _,
+            msg_clear_interval := _,
+            msg_expiry_interval := _
+        },
+        ReturnConf
+    ),
 
     UpdateConf = fun(Enable) ->
-                         RawConf = emqx_json:decode(ConfJson, [return_maps]),
-                         UpdateJson = RawConf#{<<"enable">> := Enable},
-                         {ok, UpdateResJson} = request_api(put,
-                                                           Path, [], auth_header_(), UpdateJson),
-                         UpdateRawConf = emqx_json:decode(UpdateResJson, [return_maps]),
-                         ?assertEqual(Enable, maps:get(<<"enable">>, UpdateRawConf))
-                 end,
+        RawConf = emqx_json:decode(ConfJson, [return_maps]),
+        UpdateJson = RawConf#{<<"enable">> := Enable},
+        {ok, UpdateResJson} = request_api(
+            put,
+            Path,
+            [],
+            auth_header_(),
+            UpdateJson
+        ),
+        UpdateRawConf = emqx_json:decode(UpdateResJson, [return_maps]),
+        ?assertEqual(Enable, maps:get(<<"enable">>, UpdateRawConf))
+    end,
 
     UpdateConf(false),
     UpdateConf(true).
@@ -80,10 +92,13 @@ t_messages(_) ->
     timer:sleep(500),
 
     Each = fun(I) ->
-                   emqtt:publish(C1, <<"retained/", (I + 60)>>,
-                                 <<"retained">>,
-                                 [{qos, 0}, {retain, true}])
-           end,
+        emqtt:publish(
+            C1,
+            <<"retained/", (I + 60)>>,
+            <<"retained">>,
+            [{qos, 0}, {retain, true}]
+        )
+    end,
 
     lists:foreach(Each, lists:seq(1, 5)),
     timer:sleep(500),
@@ -91,19 +106,28 @@ t_messages(_) ->
     {ok, MsgsJson} = request_api(get, api_path(["mqtt", "retainer", "messages"])),
     Msgs = decode_json(MsgsJson),
     MsgLen = erlang:length(Msgs),
-    ?assert(MsgLen >= 5,
-            io_lib:format("message length is:~p~n", [MsgLen])), %% maybe has $SYS messages
+    ?assert(
+        MsgLen >= 5,
+        %% maybe has $SYS messages
+        io_lib:format("message length is:~p~n", [MsgLen])
+    ),
 
     [First | _] = Msgs,
-    ?assertMatch(#{msgid := _, topic := _, qos := _,
-                   publish_at := _, from_clientid := _, from_username := _
-                  },
-                 First),
+    ?assertMatch(
+        #{
+            msgid := _,
+            topic := _,
+            qos := _,
+            publish_at := _,
+            from_clientid := _,
+            from_username := _
+        },
+        First
+    ),
 
     ok = emqtt:disconnect(C1).
 
 t_lookup_and_delete(_) ->
-
     {ok, C1} = emqtt:start_link([{clean_start, true}, {proto_ver, v5}]),
     {ok, _} = emqtt:connect(C1),
     emqx_retainer:clean(),
@@ -116,10 +140,18 @@ t_lookup_and_delete(_) ->
     {ok, LookupJson} = request_api(get, API),
     LookupResult = decode_json(LookupJson),
 
-    ?assertMatch(#{msgid := _, topic := _, qos := _, payload := _,
-                   publish_at := _, from_clientid := _, from_username := _
-                  },
-                 LookupResult),
+    ?assertMatch(
+        #{
+            msgid := _,
+            topic := _,
+            qos := _,
+            payload := _,
+            publish_at := _,
+            from_clientid := _,
+            from_username := _
+        },
+        LookupResult
+    ),
 
     {ok, []} = request_api(delete, API),
 

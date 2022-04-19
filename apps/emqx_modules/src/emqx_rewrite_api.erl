@@ -16,6 +16,8 @@
 -module(emqx_rewrite_api).
 
 -behaviour(minirest_api).
+
+-include_lib("hocon/include/hoconsc.hrl").
 -include_lib("typerefl/include/types.hrl").
 -include("emqx_modules.hrl").
 
@@ -38,16 +40,16 @@ schema("/mqtt/topic_rewrite") ->
         'operationId' => topic_rewrite,
         get => #{
             tags => ?API_TAG_MQTT,
-            description => <<"List rewrite topic.">>,
+            description => ?DESC(list_topic_rewrite_api),
             responses => #{
                 200 => hoconsc:mk(
                     hoconsc:array(hoconsc:ref(emqx_modules_schema, "rewrite")),
-                    #{desc => <<"List all rewrite rules">>}
+                    #{desc => ?DESC(list_topic_rewrite_api)}
                 )
             }
         },
         put => #{
-            description => <<"Update rewrite topic">>,
+            description => ?DESC(update_topic_rewrite_api),
             tags => ?API_TAG_MQTT,
             'requestBody' => hoconsc:mk(
                 hoconsc:array(
@@ -58,11 +60,11 @@ schema("/mqtt/topic_rewrite") ->
             responses => #{
                 200 => hoconsc:mk(
                     hoconsc:array(hoconsc:ref(emqx_modules_schema, "rewrite")),
-                    #{desc => <<"Update rewrite topic success.">>}
+                    #{desc => ?DESC(update_topic_rewrite_api)}
                 ),
                 413 => emqx_dashboard_swagger:error_codes(
                     [?EXCEED_LIMIT],
-                    <<"Rules count exceed max limit">>
+                    ?DESC(update_topic_rewrite_api_response413)
                 )
             }
         }

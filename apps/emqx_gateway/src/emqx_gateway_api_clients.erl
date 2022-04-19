@@ -101,30 +101,39 @@ clients(get, #{
     bindings := #{name := Name0},
     query_string := QString
 }) ->
-    with_gateway(Name0, fun(GwName, _) ->
+    Fun = fun(GwName, _) ->
         TabName = emqx_gateway_cm:tabname(info, GwName),
-        case maps:get(<<"node">>, QString, undefined) of
-            undefined ->
-                Response = emqx_mgmt_api:cluster_query(
-                    QString,
-                    TabName,
-                    ?CLIENT_QSCHEMA,
-                    ?QUERY_FUN
-                ),
-                emqx_mgmt_util:generate_response(Response);
-            Node1 ->
-                Node = binary_to_atom(Node1, utf8),
-                QStringWithoutNode = maps:without([<<"node">>], QString),
-                Response = emqx_mgmt_api:node_query(
-                    Node,
-                    QStringWithoutNode,
-                    TabName,
-                    ?CLIENT_QSCHEMA,
-                    ?QUERY_FUN
-                ),
-                emqx_mgmt_util:generate_response(Response)
+        Result =
+            case maps:get(<<"node">>, QString, undefined) of
+                undefined ->
+                    emqx_mgmt_api:cluster_query(
+                        QString,
+                        TabName,
+                        ?CLIENT_QSCHEMA,
+                        ?QUERY_FUN
+                    );
+                Node0 ->
+                    Node1 = binary_to_atom(Node0, utf8),
+                    QStringWithoutNode = maps:without([<<"node">>], QString),
+                    emqx_mgmt_api:node_query(
+                        Node1,
+                        QStringWithoutNode,
+                        TabName,
+                        ?CLIENT_QSCHEMA,
+                        ?QUERY_FUN
+                    )
+            end,
+        case Result of
+            {error, page_limit_invalid} ->
+                {400, #{code => <<"INVALID_PARAMETER">>, message => <<"page_limit_invalid">>}};
+            {error, Node, {badrpc, R}} ->
+                Message = list_to_binary(io_lib:format("bad rpc call ~p, Reason ~p", [Node, R])),
+                {500, #{code => <<"NODE_DOWN">>, message => Message}};
+            Response ->
+                {200, Response}
         end
-    end).
+    end,
+    with_gateway(Name0, Fun).
 
 clients_insta(get, #{
     bindings := #{
@@ -392,21 +401,21 @@ format_channel_info({_, Infos, Stats} = R) ->
         {heap_size, Stats, 0},
         {reductions, Stats, 0}
     ],
-    eval(FetchX ++ extra_feilds(R)).
+    eval(FetchX ++ extra_fields(R)).
 
-extra_feilds({_, Infos, _Stats} = R) ->
-    extra_feilds(
+extra_fields({_, Infos, _Stats} = R) ->
+    extra_fields(
         maps:get(protocol, maps:get(clientinfo, Infos)),
         R
     ).
 
-extra_feilds(lwm2m, {_, Infos, _Stats}) ->
+extra_fields(lwm2m, {_, Infos, _Stats}) ->
     ClientInfo = maps:get(clientinfo, Infos, #{}),
     [
         {endpoint_name, ClientInfo},
         {lifetime, ClientInfo}
     ];
-extra_feilds(_, _) ->
+extra_fields(_, _) ->
     [].
 
 eval(Ls) ->
@@ -495,7 +504,7 @@ schema("/gateway/:name/clients/:clientid/subscriptions") ->
                         #{
                             200 => emqx_dashboard_swagger:schema_with_examples(
                                 hoconsc:array(ref(subscription)),
-                                examples_subsctiption_list()
+                                examples_subscription_list()
                             )
                         }
                     )
@@ -506,14 +515,14 @@ schema("/gateway/:name/clients/:clientid/subscriptions") ->
                 parameters => params_client_insta(),
                 'requestBody' => emqx_dashboard_swagger:schema_with_examples(
                     ref(subscription),
-                    examples_subsctiption()
+                    examples_subscription()
                 ),
                 responses =>
                     ?STANDARD_RESP(
                         #{
                             201 => emqx_dashboard_swagger:schema_with_examples(
                                 ref(subscription),
-                                examples_subsctiption()
+                                examples_subscription()
                             )
                         }
                     )
@@ -664,7 +673,7 @@ params_paging() ->
     [
         {page,
             mk(
-                integer(),
+                pos_integer(),
                 #{
                     in => query,
                     required => false,
@@ -674,7 +683,7 @@ params_paging() ->
             )},
         {limit,
             mk(
-                integer(),
+                pos_integer(),
                 #{
                     in => query,
                     desc => <<"Page Limit">>,
@@ -1089,7 +1098,7 @@ examples_client() ->
             }
     }.
 
-examples_subsctiption_list() ->
+examples_subscription_list() ->
     #{
         general_subscription_list =>
             #{
@@ -1103,7 +1112,7 @@ examples_subsctiption_list() ->
             }
     }.
 
-examples_subsctiption() ->
+examples_subscription() ->
     #{
         general_subscription =>
             #{

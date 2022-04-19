@@ -15,6 +15,7 @@
 %%--------------------------------------------------------------------
 -module(emqx_prometheus_schema).
 
+-include_lib("hocon/include/hoconsc.hrl").
 -include_lib("typerefl/include/types.hrl").
 
 -behaviour(hocon_schema).
@@ -30,25 +31,25 @@ namespace() -> "prometheus".
 roots() -> ["prometheus"].
 
 fields("prometheus") ->
-    [ {push_gateway_server, sc(string(),
+    [
+        {push_gateway_server, sc(string(),
                                #{ default => "http://127.0.0.1:9091"
                                 , required => true
-                                , desc => "URL of Prometheus pushgateway."
-                                })}
-    , {interval, sc(emqx_schema:duration_ms(),
+                                , desc => ?DESC(push_gateway_server)
+                                })},
+        {interval, sc(emqx_schema:duration_ms(),
                     #{ default => "15s"
                      , required => true
-                     , desc => "Data reporting interval in milliseconds."
-                     })}
-    , {enable, sc(boolean(),
+                     , desc => ?DESC(interval)
+                     })},
+        {enable, sc(boolean(),
                   #{ default => false
                    , required => true
-                   , desc => "Enable reporting of metrics via Prometheus Pushgateway."
+                   , desc => ?DESC(enable)
                    })}
     ].
 
-desc("prometheus") ->
-    "Settings for reporting metrics to Prometheus pushgateway.";
+desc("prometheus") -> ?DESC(prometheus);
 desc(_) ->
     undefined.
 

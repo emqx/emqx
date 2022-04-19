@@ -28,9 +28,9 @@
 -include_lib("typerefl/include/types.hrl").
 
 -type ip_port() :: tuple().
--type duration() :: integer().
--type duration_s() :: integer().
--type bytesize() :: integer().
+-type duration() :: non_neg_integer().
+-type duration_s() :: non_neg_integer().
+-type bytesize() :: pos_integer().
 -type comma_separated_list() :: list().
 
 -typerefl_from_string({ip_port/0, emqx_schema, to_ip_port}).
@@ -117,7 +117,7 @@ fields(stomp_frame) ->
     [
         {max_headers,
             sc(
-                integer(),
+                non_neg_integer(),
                 #{
                     default => 10,
                     desc => "The maximum number of Header"
@@ -125,7 +125,7 @@ fields(stomp_frame) ->
             )},
         {max_headers_length,
             sc(
-                integer(),
+                non_neg_integer(),
                 #{
                     default => 1024,
                     desc => "The maximum string length of the Header Value"

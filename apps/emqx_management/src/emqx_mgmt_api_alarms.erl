@@ -18,6 +18,7 @@
 
 -behaviour(minirest_api).
 
+-include_lib("hocon/include/hoconsc.hrl").
 -include_lib("emqx/include/emqx.hrl").
 -include_lib("typerefl/include/types.hrl").
 
@@ -38,13 +39,16 @@ schema("/alarms") ->
     #{
         'operationId' => alarms,
         get => #{
-            description => <<"EMQX alarms">>,
+            description => ?DESC(list_alarms_api),
             parameters => [
                 hoconsc:ref(emqx_dashboard_swagger, page),
                 hoconsc:ref(emqx_dashboard_swagger, limit),
-                {activated, hoconsc:mk(boolean(), #{in => query,
-                    desc => <<"All alarms, if not specified">>,
-                    required => false})}
+                {activated,
+                    hoconsc:mk(boolean(), #{
+                        in => query,
+                        desc => ?DESC(get_alarms_qs_activated),
+                        required => false
+                    })}
             ],
             responses => #{
                 200 => [
@@ -53,34 +57,48 @@ schema("/alarms") ->
                 ]
             }
         },
-        delete  => #{
-            description => <<"Remove all deactivated alarms">>,
+        delete => #{
+            description => ?DESC(delete_alarms_api),
             responses => #{
-                204 => <<"Remove all deactivated alarms ok">>
+                204 => ?DESC(delete_alarms_api_response204)
             }
         }
     }.
 
 fields(alarm) ->
     [
-        {node, hoconsc:mk(binary(),
-                          #{desc => <<"Alarm in node">>, example => atom_to_list(node())})},
-        {name, hoconsc:mk(binary(),
-                          #{desc => <<"Alarm name">>, example => <<"high_system_memory_usage">>})},
-        {message, hoconsc:mk(binary(), #{desc => <<"Alarm readable information">>,
-            example => <<"System memory usage is higher than 70%">>})},
-        {details, hoconsc:mk(map(), #{desc => <<"Alarm details information">>,
-            example => #{<<"high_watermark">> => 70}})},
-        {duration, hoconsc:mk(integer(),
-                              #{desc => <<"Alarms duration time; UNIX time stamp, millisecond">>,
-            example => 297056})},
-        {activate_at, hoconsc:mk(binary(), #{desc => <<"Alarms activate time, RFC 3339">>,
-            example => <<"2021-10-25T11:52:52.548+08:00">>})},
-        {deactivate_at, hoconsc:mk(binary(),
-                                   #{desc => <<"Nullable, alarms deactivate time, RFC 3339">>,
-            example => <<"2021-10-31T10:52:52.548+08:00">>})}
+        {node,
+            hoconsc:mk(
+                binary(),
+                #{desc => ?DESC(node), example => atom_to_list(node())}
+            )},
+        {name,
+            hoconsc:mk(
+                binary(),
+                #{desc => ?DESC(node), example => <<"high_system_memory_usage">>}
+            )},
+        {message,
+            hoconsc:mk(binary(), #{
+                desc => ?DESC(message),
+                example => <<"System memory usage is higher than 70%">>
+            })},
+        {details,
+            hoconsc:mk(map(), #{
+                desc => ?DESC(details),
+                example => #{<<"high_watermark">> => 70}
+            })},
+        {duration, hoconsc:mk(integer(), #{desc => ?DESC(duration), example => 297056})},
+        {activate_at,
+            hoconsc:mk(binary(), #{
+                desc => ?DESC(activate_at),
+                example => <<"2021-10-25T11:52:52.548+08:00">>
+            })},
+        {deactivate_at,
+            hoconsc:mk(binary(), #{
+                desc => ?DESC(deactivate_at),
+                example => <<"2021-10-31T10:52:52.548+08:00">>
+            })}
     ];
-
 fields(meta) ->
     emqx_dashboard_swagger:fields(page) ++
         emqx_dashboard_swagger:fields(limit) ++
@@ -93,9 +111,15 @@ alarms(get, #{query_string := QString}) ->
             true -> ?ACTIVATED_ALARM;
             false -> ?DEACTIVATED_ALARM
         end,
-    Response = emqx_mgmt_api:cluster_query(QString, Table, [], {?MODULE, query}),
-    emqx_mgmt_util:generate_response(Response);
-
+    case emqx_mgmt_api:cluster_query(QString, Table, [], {?MODULE, query}) of
+        {error, page_limit_invalid} ->
+            {400, #{code => <<"INVALID_PARAMETER">>, message => <<"page_limit_invalid">>}};
+        {error, Node, {badrpc, R}} ->
+            Message = list_to_binary(io_lib:format("bad rpc call ~p, Reason ~p", [Node, R])),
+            {500, #{code => <<"NODE_DOWN">>, message => Message}};
+        Response ->
+            {200, Response}
+    end;
 alarms(delete, _Params) ->
     _ = emqx_mgmt:delete_all_deactivated_alarms(),
     {204}.
@@ -104,11 +128,10 @@ alarms(delete, _Params) ->
 %% internal
 
 query(Table, _QsSpec, Continuation, Limit) ->
-    Ms = [{'$1',[],['$1']}],
+    Ms = [{'$1', [], ['$1']}],
     emqx_mgmt_api:select_table_with_count(Table, Ms, Continuation, Limit, fun format_alarm/1).
 
 format_alarm(Alarms) when is_list(Alarms) ->
     [emqx_alarm:format(Alarm) || Alarm <- Alarms];
-
 format_alarm(Alarm) ->
     emqx_alarm:format(Alarm).

@@ -32,7 +32,9 @@ end_per_suite(_) ->
 
 t_nodes_api(_) ->
     Topic = <<"test_topic">>,
-    {ok, Client} = emqtt:start_link(#{username => <<"routes_username">>, clientid => <<"routes_cid">>}),
+    {ok, Client} = emqtt:start_link(#{
+        username => <<"routes_username">>, clientid => <<"routes_cid">>
+    }),
     {ok, _} = emqtt:connect(Client),
     {ok, _, _} = emqtt:subscribe(Client, Topic),
 

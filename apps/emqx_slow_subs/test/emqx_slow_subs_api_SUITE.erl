@@ -34,15 +34,18 @@
 -define(NOW, erlang:system_time(millisecond)).
 -define(CLUSTER_RPC_SHARD, emqx_cluster_rpc_shard).
 
--define(CONF_DEFAULT, <<"""
-slow_subs
-{
- enable = true
- top_k_num = 5,
- expire_interval = 60000
- stats_type = whole
-}""">>).
-
+-define(CONF_DEFAULT, <<
+    ""
+    "\n"
+    "slow_subs\n"
+    "{\n"
+    " enable = true\n"
+    " top_k_num = 5,\n"
+    " expire_interval = 60000\n"
+    " stats_type = whole\n"
+    "}"
+    ""
+>>).
 
 all() ->
     emqx_common_test_helpers:all(?MODULE).
@@ -79,7 +82,8 @@ init_per_testcase(_, Config) ->
 end_per_testcase(_, Config) ->
     application:stop(emqx_slow_subs),
     case erlang:whereis(node()) of
-        undefined -> ok;
+        undefined ->
+            ok;
         P ->
             erlang:unlink(P),
             erlang:exit(P, kill)
@@ -89,50 +93,70 @@ end_per_testcase(_, Config) ->
 t_get_history(_) ->
     Now = ?NOW,
     Each = fun(I) ->
-                   ClientId = erlang:list_to_binary(io_lib:format("test_~p", [I])),
-                   ets:insert(?TOPK_TAB, #top_k{index = ?TOPK_INDEX(1, ?ID(ClientId, <<"topic">>)),
-                                                last_update_time = Now})
-           end,
+        ClientId = erlang:list_to_binary(io_lib:format("test_~p", [I])),
+        ets:insert(?TOPK_TAB, #top_k{
+            index = ?TOPK_INDEX(1, ?ID(ClientId, <<"topic">>)),
+            last_update_time = Now
+        })
+    end,
 
     lists:foreach(Each, lists:seq(1, 5)),
 
-    {ok, Data} = request_api(get, api_path(["slow_subscriptions"]), "_page=1&_limit=10",
-                             auth_header_()),
+    {ok, Data} = request_api(
+        get,
+        api_path(["slow_subscriptions"]),
+        "page=1&limit=10",
+        auth_header_()
+    ),
     #{<<"data">> := [First | _]} = emqx_json:decode(Data, [return_maps]),
 
-    ?assertMatch(#{<<"clientid">> := <<"test_5">>,
-                   <<"topic">> := <<"topic">>,
-                   <<"last_update_time">> := Now,
-                   <<"node">> := _,
-                   <<"timespan">> := _}, First).
+    ?assertMatch(
+        #{
+            <<"clientid">> := <<"test_5">>,
+            <<"topic">> := <<"topic">>,
+            <<"last_update_time">> := Now,
+            <<"node">> := _,
+            <<"timespan">> := _
+        },
+        First
+    ).
 
 t_clear(_) ->
-    ets:insert(?TOPK_TAB, #top_k{index = ?TOPK_INDEX(1, ?ID(<<"clientid">>, <<"topic">>)),
-                                 last_update_time = ?NOW}),
+    ets:insert(?TOPK_TAB, #top_k{
+        index = ?TOPK_INDEX(1, ?ID(<<"clientid">>, <<"topic">>)),
+        last_update_time = ?NOW
+    }),
 
-    {ok, _} = request_api(delete, api_path(["slow_subscriptions"]), [],
-                          auth_header_()),
+    {ok, _} = request_api(
+        delete,
+        api_path(["slow_subscriptions"]),
+        [],
+        auth_header_()
+    ),
 
     ?assertEqual(0, ets:info(?TOPK_TAB, size)).
 
 t_settting(_) ->
     Conf = emqx:get_config([slow_subs]),
     Conf2 = Conf#{stats_type => internal},
-    {ok, Data} = request_api(put,
-                             api_path(["slow_subscriptions", "settings"]),
-                             [],
-                             auth_header_(),
-                             Conf2),
+    {ok, Data} = request_api(
+        put,
+        api_path(["slow_subscriptions", "settings"]),
+        [],
+        auth_header_(),
+        Conf2
+    ),
 
     Return = decode_json(Data),
 
     ?assertEqual(Conf2#{stats_type := <<"internal">>}, Return),
 
-    {ok, GetData} = request_api(get,
-                                api_path(["slow_subscriptions", "settings"]),
-                                [],
-                                auth_header_()
-                               ),
+    {ok, GetData} = request_api(
+        get,
+        api_path(["slow_subscriptions", "settings"]),
+        [],
+        auth_header_()
+    ),
 
     timer:sleep(1000),
 
@@ -151,25 +175,28 @@ request_api(Method, Url, QueryParams, Auth) ->
     request_api(Method, Url, QueryParams, Auth, []).
 
 request_api(Method, Url, QueryParams, Auth, []) ->
-    NewUrl = case QueryParams of
-                 "" -> Url;
-                 _ -> Url ++ "?" ++ QueryParams
-             end,
+    NewUrl =
+        case QueryParams of
+            "" -> Url;
+            _ -> Url ++ "?" ++ QueryParams
+        end,
     do_request_api(Method, {NewUrl, [Auth]});
 request_api(Method, Url, QueryParams, Auth, Body) ->
-    NewUrl = case QueryParams of
-                 "" -> Url;
-                 _ -> Url ++ "?" ++ QueryParams
-             end,
+    NewUrl =
+        case QueryParams of
+            "" -> Url;
+            _ -> Url ++ "?" ++ QueryParams
+        end,
     do_request_api(Method, {NewUrl, [Auth], "application/json", emqx_json:encode(Body)}).
 
-do_request_api(Method, Request)->
+do_request_api(Method, Request) ->
     ct:pal("Method: ~p, Request: ~p", [Method, Request]),
     case httpc:request(Method, Request, [], [{body_format, binary}]) of
         {error, socket_closed_remotely} ->
             {error, socket_closed_remotely};
-        {ok, {{"HTTP/1.1", Code, _}, _, Return} }
-          when Code =:= 200 orelse Code =:= 204 ->
+        {ok, {{"HTTP/1.1", Code, _}, _, Return}} when
+            Code =:= 200 orelse Code =:= 204
+        ->
             {ok, Return};
         {ok, {Reason, _, _}} ->
             {error, Reason}
@@ -181,8 +208,8 @@ auth_header_() ->
     auth_header_(binary_to_list(AppId), binary_to_list(AppSecret)).
 
 auth_header_(User, Pass) ->
-    Encoded = base64:encode_to_string(lists:append([User,":",Pass])),
-    {"Authorization","Basic " ++ Encoded}.
+    Encoded = base64:encode_to_string(lists:append([User, ":", Pass])),
+    {"Authorization", "Basic " ++ Encoded}.
 
-api_path(Parts)->
+api_path(Parts) ->
     ?HOST ++ filename:join([?BASE_PATH, ?API_VERSION] ++ Parts).

@@ -307,17 +307,19 @@ calculate_rate(CurrVal, #rate{max = MaxRate0, last_v = LastVal,
 
     %% calculate the max rate since the emqx startup
     MaxRate =
-        if MaxRate0 >= CurrRate -> MaxRate0;
-           true -> CurrRate
+        case MaxRate0 >= CurrRate of
+            true -> MaxRate0;
+            false -> CurrRate
         end,
 
     %% calculate the average rate in last 5 mins
     {Last5MinSamples, Acc5Min, Last5Min} =
-        if Tick =< ?SAMPCOUNT_5M ->
+        case Tick =< ?SAMPCOUNT_5M of
+            true ->
                 Acc = AccRate5Min0 + CurrRate,
                 {lists:reverse([CurrRate | lists:reverse(Last5MinSamples0)]),
                  Acc, Acc / Tick};
-           true ->
+            false ->
                 [FirstRate | Rates] = Last5MinSamples0,
                 Acc =  AccRate5Min0 + CurrRate - FirstRate,
                 {lists:reverse([CurrRate | lists:reverse(Rates)]),

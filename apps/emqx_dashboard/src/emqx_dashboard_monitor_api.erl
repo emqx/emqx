@@ -107,7 +107,7 @@ fields(sampler) ->
     Samplers =
         [{SamplerName, hoconsc:mk(integer(), #{desc => swagger_desc(SamplerName)})}
         || SamplerName <- ?SAMPLER_LIST],
-    [{time_stamp, hoconsc:mk(integer(), #{desc => <<"Timestamp">>})} | Samplers];
+    [{time_stamp, hoconsc:mk(non_neg_integer(), #{desc => <<"Timestamp">>})} | Samplers];
 
 fields(sampler_current) ->
     [{SamplerName, hoconsc:mk(integer(), #{desc => swagger_desc(SamplerName)})}

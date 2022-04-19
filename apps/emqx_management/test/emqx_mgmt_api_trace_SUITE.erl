@@ -59,7 +59,9 @@ t_http_test(_Config) ->
         #{
             <<"code">> => <<"BAD_REQUEST">>,
             <<"message">> => <<"name : mandatory_required_field">>
-        }, json(Body)),
+        },
+        json(Body)
+    ),
 
     Name = <<"test-name">>,
     Trace = [
@@ -77,32 +79,47 @@ t_http_test(_Config) ->
 
     %% update
     {ok, Update} = request_api(put, api_path("trace/test-name/stop"), Header, #{}),
-    ?assertEqual(#{<<"enable">> => false,
-        <<"name">> => <<"test-name">>}, json(Update)),
+    ?assertEqual(
+        #{
+            <<"enable">> => false,
+            <<"name">> => <<"test-name">>
+        },
+        json(Update)
+    ),
 
-    ?assertMatch({error, {"HTTP/1.1", 404, _}, _},
-        request_api(put, api_path("trace/test-name-not-found/stop"), Header, #{})),
+    ?assertMatch(
+        {error, {"HTTP/1.1", 404, _}, _},
+        request_api(put, api_path("trace/test-name-not-found/stop"), Header, #{})
+    ),
     {ok, List1} = request_api(get, api_path("trace"), Header),
     [Data1] = json(List1),
     Node = atom_to_binary(node()),
-    ?assertMatch(#{
-        <<"status">> := <<"stopped">>,
-        <<"name">> := <<"test-name">>,
-        <<"log_size">> := #{Node := _},
-        <<"start_at">> := _,
-        <<"end_at">> := _,
-        <<"type">> := <<"topic">>,
-        <<"topic">> := <<"/x/y/z">>
-    }, Data1),
+    ?assertMatch(
+        #{
+            <<"status">> := <<"stopped">>,
+            <<"name">> := <<"test-name">>,
+            <<"log_size">> := #{Node := _},
+            <<"start_at">> := _,
+            <<"end_at">> := _,
+            <<"type">> := <<"topic">>,
+            <<"topic">> := <<"/x/y/z">>
+        },
+        Data1
+    ),
 
     %% delete
     {ok, Delete} = request_api(delete, api_path("trace/test-name"), Header),
     ?assertEqual(<<>>, Delete),
 
-    {error, {"HTTP/1.1", 404, "Not Found"}, DeleteNotFound}
-        = request_api(delete, api_path("trace/test-name"), Header),
-    ?assertEqual(#{<<"code">> => <<"NOT_FOUND">>,
-        <<"message">> => <<"test-name NOT FOUND">>}, json(DeleteNotFound)),
+    {error, {"HTTP/1.1", 404, "Not Found"}, DeleteNotFound} =
+        request_api(delete, api_path("trace/test-name"), Header),
+    ?assertEqual(
+        #{
+            <<"code">> => <<"NOT_FOUND">>,
+            <<"message">> => <<"test-name NOT FOUND">>
+        },
+        json(DeleteNotFound)
+    ),
 
     {ok, List2} = request_api(get, api_path("trace"), Header),
     ?assertEqual([], json(List2)),
@@ -123,29 +140,43 @@ t_create_failed(_Config) ->
     Trace = [{<<"type">>, <<"topic">>}, {<<"topic">>, <<"/x/y/z">>}],
 
     BadName1 = {<<"name">>, <<"test/bad">>},
-    ?assertMatch({error, {"HTTP/1.1", 400, _}, _},
-        request_api(post, api_path("trace"), Header, [BadName1 | Trace])),
+    ?assertMatch(
+        {error, {"HTTP/1.1", 400, _}, _},
+        request_api(post, api_path("trace"), Header, [BadName1 | Trace])
+    ),
     BadName2 = {<<"name">>, list_to_binary(lists:duplicate(257, "t"))},
-    ?assertMatch({error, {"HTTP/1.1", 400, _}, _},
-        request_api(post, api_path("trace"), Header, [BadName2 | Trace])),
+    ?assertMatch(
+        {error, {"HTTP/1.1", 400, _}, _},
+        request_api(post, api_path("trace"), Header, [BadName2 | Trace])
+    ),
 
     %% already_exist
     GoodName = {<<"name">>, <<"test-name-0">>},
     {ok, Create} = request_api(post, api_path("trace"), Header, [GoodName | Trace]),
     ?assertMatch(#{<<"name">> := <<"test-name-0">>}, json(Create)),
-    ?assertMatch({error, {"HTTP/1.1", 400, _}, _},
-        request_api(post, api_path("trace"), Header, [GoodName | Trace])),
+    ?assertMatch(
+        {error, {"HTTP/1.1", 400, _}, _},
+        request_api(post, api_path("trace"), Header, [GoodName | Trace])
+    ),
 
     %% MAX Limited
-    lists:map(fun(Seq) ->
-        Name0 = list_to_binary("name" ++ integer_to_list(Seq)),
-        Trace0 = [{name, Name0}, {type, topic},
-            {topic, list_to_binary("/x/y/" ++ integer_to_list(Seq))}],
-        {ok, _} = emqx_trace:create(Trace0)
-              end, lists:seq(1, 30 - ets:info(emqx_trace, size))),
+    lists:map(
+        fun(Seq) ->
+            Name0 = list_to_binary("name" ++ integer_to_list(Seq)),
+            Trace0 = [
+                {name, Name0},
+                {type, topic},
+                {topic, list_to_binary("/x/y/" ++ integer_to_list(Seq))}
+            ],
+            {ok, _} = emqx_trace:create(Trace0)
+        end,
+        lists:seq(1, 30 - ets:info(emqx_trace, size))
+    ),
     GoodName1 = {<<"name">>, <<"test-name-1">>},
-    ?assertMatch({error, {"HTTP/1.1", 400, _}, _},
-        request_api(post, api_path("trace"), Header, [GoodName1 | Trace])),
+    ?assertMatch(
+        {error, {"HTTP/1.1", 400, _}, _},
+        request_api(post, api_path("trace"), Header, [GoodName1 | Trace])
+    ),
     unload(),
     emqx_trace:clear(),
     ok.
@@ -158,14 +189,23 @@ t_download_log(_Config) ->
     create_trace(Name, ClientId, Now),
     {ok, Client} = emqtt:start_link([{clean_start, true}, {clientid, ClientId}]),
     {ok, _} = emqtt:connect(Client),
-    [begin _ = emqtt:ping(Client) end ||_ <- lists:seq(1, 5)],
+    [
+        begin
+            _ = emqtt:ping(Client)
+        end
+     || _ <- lists:seq(1, 5)
+    ],
     ok = emqx_trace_handler_SUITE:filesync(Name, clientid),
     Header = auth_header_(),
     {ok, Binary} = request_api(get, api_path("trace/test_client_id/download"), Header),
-    {ok, [_Comment,
-        #zip_file{name = ZipName,
-            info = #file_info{size = Size, type = regular, access = read_write}}]}
-        = zip:table(Binary),
+    {ok, [
+        _Comment,
+        #zip_file{
+            name = ZipName,
+            info = #file_info{size = Size, type = regular, access = read_write}
+        }
+    ]} =
+        zip:table(Binary),
     ?assert(Size > 0),
     ZipNamePrefix = lists:flatten(io_lib:format("~s-trace_~s", [node(), Name])),
     ?assertNotEqual(nomatch, re:run(ZipName, [ZipNamePrefix])),
@@ -176,13 +216,18 @@ create_trace(Name, ClientId, Start) ->
     ?check_trace(
         #{timetrap => 900},
         begin
-            {ok, _} = emqx_trace:create([{<<"name">>, Name},
-                {<<"type">>, clientid}, {<<"clientid">>, ClientId}, {<<"start_at">>, Start}]),
+            {ok, _} = emqx_trace:create([
+                {<<"name">>, Name},
+                {<<"type">>, clientid},
+                {<<"clientid">>, ClientId},
+                {<<"start_at">>, Start}
+            ]),
             ?block_until(#{?snk_kind := update_trace_done})
         end,
         fun(Trace) ->
             ?assertMatch([#{}], ?of_kind(update_trace_done, Trace))
-        end).
+        end
+    ).
 
 t_stream_log(_Config) ->
     application:set_env(emqx, allow_anonymous, true),
@@ -194,7 +239,12 @@ t_stream_log(_Config) ->
     create_trace(Name, ClientId, Now - 10),
     {ok, Client} = emqtt:start_link([{clean_start, true}, {clientid, ClientId}]),
     {ok, _} = emqtt:connect(Client),
-    [begin _ = emqtt:ping(Client) end || _ <- lists:seq(1, 5)],
+    [
+        begin
+            _ = emqtt:ping(Client)
+        end
+     || _ <- lists:seq(1, 5)
+    ],
     emqtt:publish(Client, <<"/good">>, #{}, <<"ghood1">>, [{qos, 0}]),
     emqtt:publish(Client, <<"/good">>, #{}, <<"ghood2">>, [{qos, 0}]),
     ok = emqtt:disconnect(Client),
@@ -239,8 +289,9 @@ do_request_api(Method, Request) ->
             {error, socket_closed_remotely};
         {error, {shutdown, server_closed}} ->
             {error, server_closed};
-        {ok, {{"HTTP/1.1", Code, _}, _Headers, Return}}
-            when Code =:= 200 orelse Code =:= 201 orelse Code =:= 204 ->
+        {ok, {{"HTTP/1.1", Code, _}, _Headers, Return}} when
+            Code =:= 200 orelse Code =:= 201 orelse Code =:= 204
+        ->
             {ok, Return};
         {ok, {Reason, _Header, Body}} ->
             {error, Reason, Body}
@@ -250,7 +301,8 @@ api_path(Path) ->
     ?HOST ++ filename:join([?BASE_PATH, ?API_VERSION, Path]).
 
 json(Data) ->
-    {ok, Jsx} = emqx_json:safe_decode(Data, [return_maps]), Jsx.
+    {ok, Jsx} = emqx_json:safe_decode(Data, [return_maps]),
+    Jsx.
 
 load() ->
     emqx_trace:start_link().

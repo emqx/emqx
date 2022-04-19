@@ -310,7 +310,6 @@ parse_packet(
     (PacketId =/= undefined) andalso
         StrictMode andalso validate_packet_id(PacketId),
     {Properties, Payload} = parse_properties(Rest1, Ver, StrictMode),
-    ok = ensure_topic_name_valid(StrictMode, TopicName, Properties),
     Publish = #mqtt_packet_publish{
         topic_name = TopicName,
         packet_id = PacketId,
@@ -425,7 +424,6 @@ parse_will_message(
     {Props, Rest} = parse_properties(Bin, Ver, StrictMode),
     {Topic, Rest1} = parse_utf8_string(Rest, StrictMode),
     {Payload, Rest2} = parse_binary_data(Rest1),
-    ok = ensure_topic_name_valid(StrictMode, Topic, Props),
     {
         Packet#mqtt_packet_connect{
             will_props = Props,
@@ -622,15 +620,6 @@ parse_binary_data(Bin) when
     2 > byte_size(Bin)
 ->
     ?PARSE_ERR(malformed_binary_data_length).
-
-ensure_topic_name_valid(false, _TopicName, _Properties) ->
-    ok;
-ensure_topic_name_valid(true, TopicName, _Properties) when TopicName =/= <<>> ->
-    ok;
-ensure_topic_name_valid(true, <<>>, #{'Topic-Alias' := _}) ->
-    ok;
-ensure_topic_name_valid(true, <<>>, _) ->
-    error(empty_topic_name).
 
 %%--------------------------------------------------------------------
 %% Serialize MQTT Packet

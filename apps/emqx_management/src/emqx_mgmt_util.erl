@@ -16,41 +16,40 @@
 
 -module(emqx_mgmt_util).
 
--export([ strftime/1
-        , datetime/1
-        , kmg/1
-        , ntoa/1
-        , merge_maps/2
-        , batch_operation/3
-        ]).
+-export([
+    strftime/1,
+    datetime/1,
+    kmg/1,
+    ntoa/1,
+    merge_maps/2,
+    batch_operation/3
+]).
 
--export([ bad_request/0
-        , bad_request/1
-        , properties/1
-        , page_params/0
-        , schema/1
-        , schema/2
-        , object_schema/1
-        , object_schema/2
-        , array_schema/1
-        , array_schema/2
-        , object_array_schema/1
-        , object_array_schema/2
-        , page_schema/1
-        , page_object_schema/1
-        , error_schema/1
-        , error_schema/2
-        , batch_schema/1
-        ]).
-
--export([generate_response/1]).
-
+-export([
+    bad_request/0,
+    bad_request/1,
+    properties/1,
+    page_params/0,
+    schema/1,
+    schema/2,
+    object_schema/1,
+    object_schema/2,
+    array_schema/1,
+    array_schema/2,
+    object_array_schema/1,
+    object_array_schema/2,
+    page_schema/1,
+    page_object_schema/1,
+    error_schema/1,
+    error_schema/2,
+    batch_schema/1
+]).
 
 -export([urldecode/1]).
 
 -define(KB, 1024).
--define(MB, (1024*1024)).
--define(GB, (1024*1024*1024)).
+-define(MB, (1024 * 1024)).
+-define(GB, (1024 * 1024 * 1024)).
 
 %%--------------------------------------------------------------------
 %% Strftime
@@ -58,17 +57,17 @@
 
 strftime({MegaSecs, Secs, _MicroSecs}) ->
     strftime(datetime(MegaSecs * 1000000 + Secs));
-
 strftime(Secs) when is_integer(Secs) ->
     strftime(datetime(Secs));
-
-strftime({{Y,M,D}, {H,MM,S}}) ->
+strftime({{Y, M, D}, {H, MM, S}}) ->
     lists:flatten(
         io_lib:format(
-            "~4..0w-~2..0w-~2..0w ~2..0w:~2..0w:~2..0w", [Y, M, D, H, MM, S])).
+            "~4..0w-~2..0w-~2..0w ~2..0w:~2..0w:~2..0w", [Y, M, D, H, MM, S]
+        )
+    ).
 
 datetime(Timestamp) when is_integer(Timestamp) ->
-    Epoch = calendar:datetime_to_gregorian_seconds({{1970,1,1}, {0,0,0}}),
+    Epoch = calendar:datetime_to_gregorian_seconds({{1970, 1, 1}, {0, 0, 0}}),
     Universal = calendar:gregorian_seconds_to_datetime(Timestamp + Epoch),
     calendar:universal_time_to_local_time(Universal).
 
@@ -83,19 +82,27 @@ kmg(Byte) ->
 kmg(F, S) ->
     iolist_to_binary(io_lib:format("~.2f~ts", [F, S])).
 
-ntoa({0,0,0,0,0,16#ffff,AB,CD}) ->
+ntoa({0, 0, 0, 0, 0, 16#ffff, AB, CD}) ->
     inet_parse:ntoa({AB bsr 8, AB rem 256, CD bsr 8, CD rem 256});
 ntoa(IP) ->
     inet_parse:ntoa(IP).
 
 merge_maps(Default, New) ->
-    maps:fold(fun(K, V, Acc) ->
-        case maps:get(K, Acc, undefined) of
-            OldV when is_map(OldV),
-                      is_map(V) -> Acc#{K => merge_maps(OldV, V)};
-            _ -> Acc#{K => V}
-        end
-    end, Default, New).
+    maps:fold(
+        fun(K, V, Acc) ->
+            case maps:get(K, Acc, undefined) of
+                OldV when
+                    is_map(OldV),
+                    is_map(V)
+                ->
+                    Acc#{K => merge_maps(OldV, V)};
+                _ ->
+                    Acc#{K => V}
+            end
+        end,
+        Default,
+        New
+    ).
 
 urldecode(S) ->
     emqx_http_lib:uri_decode(S).
@@ -126,8 +133,13 @@ array_schema(Schema, Desc) ->
 object_array_schema(Properties) when is_map(Properties) ->
     json_content_schema(#{type => array, items => #{type => object, properties => Properties}}).
 object_array_schema(Properties, Desc) ->
-    json_content_schema(#{type => array,
-        items => #{type => object, properties => Properties}}, Desc).
+    json_content_schema(
+        #{
+            type => array,
+            items => #{type => object, properties => Properties}
+        },
+        Desc
+    ).
 
 page_schema(Ref) when is_atom(Ref) ->
     page_schema(minirest:ref(atom_to_binary(Ref, utf8)));
@@ -137,9 +149,11 @@ page_schema(Schema) ->
         properties => #{
             meta => #{
                 type => object,
-                properties => properties([{page, integer},
-                                          {limit, integer},
-                                          {count, integer}])
+                properties => properties([
+                    {page, integer},
+                    {limit, integer},
+                    {count, integer}
+                ])
             },
             data => #{
                 type => array,
@@ -158,8 +172,10 @@ error_schema(Description) ->
 error_schema(Description, Enum) ->
     Schema = #{
         type => object,
-        properties => properties([{code, string, <<>>, Enum},
-                                  {message, string}])
+        properties => properties([
+            {code, string, <<>>, Enum},
+            {message, string}
+        ])
     },
     json_content_schema(Schema, Description).
 
@@ -171,20 +187,28 @@ batch_schema(DefName) when is_binary(DefName) ->
         properties => #{
             success => #{
                 type => integer,
-                description => <<"Success count">>},
+                description => <<"Success count">>
+            },
             failed => #{
                 type => integer,
-                description => <<"Failed count">>},
+                description => <<"Failed count">>
+            },
             detail => #{
                 type => array,
                 description => <<"Failed object & reason">>,
                 items => #{
                     type => object,
                     properties =>
-                    #{
-                        data => minirest:ref(DefName),
-                        reason => #{
-                            type => <<"string">>}}}}}},
+                        #{
+                            data => minirest:ref(DefName),
+                            reason => #{
+                                type => <<"string">>
+                            }
+                        }
+                }
+            }
+        }
+    },
     json_content_schema(Schema).
 
 json_content_schema(Schema) when is_map(Schema) ->
@@ -214,7 +238,7 @@ batch_operation(Module, Function, [Args | ArgsList], Failed) ->
     case erlang:apply(Module, Function, Args) of
         ok ->
             batch_operation(Module, Function, ArgsList, Failed);
-        {error ,Reason} ->
+        {error, Reason} ->
             batch_operation(Module, Function, ArgsList, [{Args, Reason} | Failed])
     end.
 
@@ -227,52 +251,77 @@ properties([Key | Props], Acc) when is_atom(Key) ->
 properties([{Key, Type} | Props], Acc) ->
     properties(Props, maps:put(Key, #{type => Type}, Acc));
 properties([{Key, object, Props1} | Props], Acc) ->
-    properties(Props, maps:put(Key, #{type => object,
-                                      properties => properties(Props1)}, Acc));
+    properties(
+        Props,
+        maps:put(
+            Key,
+            #{
+                type => object,
+                properties => properties(Props1)
+            },
+            Acc
+        )
+    );
 properties([{Key, {array, object}, Props1} | Props], Acc) ->
-    properties(Props, maps:put(Key, #{type => array,
-                                      items => #{type => object,
-                                                 properties => properties(Props1)
-                                                }}, Acc));
+    properties(
+        Props,
+        maps:put(
+            Key,
+            #{
+                type => array,
+                items => #{
+                    type => object,
+                    properties => properties(Props1)
+                }
+            },
+            Acc
+        )
+    );
 properties([{Key, {array, Type}, Desc} | Props], Acc) ->
-    properties(Props, maps:put(Key, #{type => array,
-                                      items => #{type => Type},
-                                      description => Desc}, Acc));
+    properties(
+        Props,
+        maps:put(
+            Key,
+            #{
+                type => array,
+                items => #{type => Type},
+                description => Desc
+            },
+            Acc
+        )
+    );
 properties([{Key, Type, Desc} | Props], Acc) ->
     properties(Props, maps:put(Key, #{type => Type, description => Desc}, Acc));
 properties([{Key, Type, Desc, Enum} | Props], Acc) ->
-    properties(Props, maps:put(Key, #{type => Type,
-                                      description => Desc,
-                                      enum => Enum}, Acc)).
+    properties(
+        Props,
+        maps:put(
+            Key,
+            #{
+                type => Type,
+                description => Desc,
+                enum => Enum
+            },
+            Acc
+        )
+    ).
 page_params() ->
-    [#{
-        name => page,
-        in => query,
-        description => <<"Page">>,
-        schema => #{type => integer, default => 1}
-    },
-    #{
-        name => limit,
-        in => query,
-        description => <<"Page size">>,
-        schema => #{type => integer, default => emqx_mgmt:max_row_limit()}
-    }].
+    [
+        #{
+            name => page,
+            in => query,
+            description => <<"Page">>,
+            schema => #{type => integer, default => 1}
+        },
+        #{
+            name => limit,
+            in => query,
+            description => <<"Page size">>,
+            schema => #{type => integer, default => emqx_mgmt:max_row_limit()}
+        }
+    ].
 
 bad_request() ->
     bad_request(<<"Bad Request">>).
 bad_request(Desc) ->
     object_schema(properties([{message, string}, {code, string}]), Desc).
-
-%%%==============================================================================================
-%% Response util
-
-generate_response(QueryResult) ->
-    case QueryResult of
-        {error, page_limit_invalid} ->
-            {400, #{code => <<"INVALID_PARAMETER">>, message => <<"page_limit_invalid">>}};
-        {error, Node, {badrpc, R}} ->
-            Message = list_to_binary(io_lib:format("bad rpc call ~p, Reason ~p", [Node, R])),
-            {500, #{code => <<"NODE_DOWN">>, message => Message}};
-        Response ->
-            {200, Response}
-    end.

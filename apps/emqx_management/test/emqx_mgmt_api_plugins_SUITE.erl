@@ -56,17 +56,35 @@ todo_t_plugins(Config) ->
     ok = emqx_plugins:delete_package(NameVsn),
     ok = install_plugin(PackagePath),
     {ok, StopRes} = describe_plugins(NameVsn),
-    ?assertMatch(#{<<"running_status">> := [
-        #{<<"node">> := <<"test@127.0.0.1">>, <<"status">> := <<"stopped">>}]}, StopRes),
+    ?assertMatch(
+        #{
+            <<"running_status">> := [
+                #{<<"node">> := <<"test@127.0.0.1">>, <<"status">> := <<"stopped">>}
+            ]
+        },
+        StopRes
+    ),
     {ok, StopRes1} = update_plugin(NameVsn, "start"),
     ?assertEqual([], StopRes1),
     {ok, StartRes} = describe_plugins(NameVsn),
-    ?assertMatch(#{<<"running_status">> := [
-        #{<<"node">> := <<"test@127.0.0.1">>, <<"status">> := <<"running">>}]}, StartRes),
+    ?assertMatch(
+        #{
+            <<"running_status">> := [
+                #{<<"node">> := <<"test@127.0.0.1">>, <<"status">> := <<"running">>}
+            ]
+        },
+        StartRes
+    ),
     {ok, []} = update_plugin(NameVsn, "stop"),
     {ok, StopRes2} = describe_plugins(NameVsn),
-    ?assertMatch(#{<<"running_status">> := [
-        #{<<"node">> := <<"test@127.0.0.1">>, <<"status">> := <<"stopped">>}]}, StopRes2),
+    ?assertMatch(
+        #{
+            <<"running_status">> := [
+                #{<<"node">> := <<"test@127.0.0.1">>, <<"status">> := <<"stopped">>}
+            ]
+        },
+        StopRes2
+    ),
     {ok, []} = uninstall_plugin(NameVsn),
     ok.
 
@@ -87,8 +105,16 @@ describe_plugins(Name) ->
 install_plugin(FilePath) ->
     {ok, Token} = emqx_dashboard_admin:sign_token(<<"admin">>, <<"public">>),
     Path = emqx_mgmt_api_test_util:api_path(["plugins", "install"]),
-    case emqx_mgmt_api_test_util:upload_request(Path, FilePath, "plugin",
-        <<"application/gzip">>, [], Token) of
+    case
+        emqx_mgmt_api_test_util:upload_request(
+            Path,
+            FilePath,
+            "plugin",
+            <<"application/gzip">>,
+            [],
+            Token
+        )
+    of
         {ok, {{"HTTP/1.1", 200, "OK"}, _Headers, <<>>}} -> ok;
         Error -> Error
     end.
@@ -108,7 +134,6 @@ update_boot_order(Name, MoveBody) ->
 uninstall_plugin(Name) ->
     DeletePath = emqx_mgmt_api_test_util:api_path(["plugins", Name]),
     emqx_mgmt_api_test_util:request_api(delete, DeletePath).
-
 
 build_demo_plugin_package(Dir) ->
     #{package := Pkg} = emqx_plugins_SUITE:build_demo_plugin_package(),

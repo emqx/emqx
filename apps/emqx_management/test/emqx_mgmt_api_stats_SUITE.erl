@@ -37,7 +37,7 @@ t_stats_api(_) ->
     SystemStats1 = emqx_mgmt:get_stats(),
     Fun1 =
         fun(Key) ->
-                ?assertEqual(maps:get(Key, SystemStats1), maps:get(atom_to_binary(Key, utf8), Stats1))
+            ?assertEqual(maps:get(Key, SystemStats1), maps:get(atom_to_binary(Key, utf8), Stats1))
         end,
     lists:foreach(Fun1, maps:keys(SystemStats1)),
     StatsPath = emqx_mgmt_api_test_util:api_path(["stats?aggregate=true"]),

@@ -24,8 +24,10 @@
 -type payload() :: binary().
 -type message() :: #message{}.
 
--type context() :: #{context_id := pos_integer(),
-                     atom() => term()}.
+-type context() :: #{
+    context_id := pos_integer(),
+    atom() => term()
+}.
 
 -define(DELIVER_SEMAPHORE, deliver_remained_quota).
 -type semaphore() :: ?DELIVER_SEMAPHORE.
