@@ -89,6 +89,7 @@ dump(#{
     [
         {customer, Customer},
         {email, Email},
+        {deployment, "default"},
         {max_connections, MaxConnections},
         {start_at, format_date(StartAtDate)},
         {expiry_at, format_date(ExpiryAtDate)},

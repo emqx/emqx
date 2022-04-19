@@ -9,11 +9,11 @@
 
 -define(EVALUATION_LOG,
     "\n"
-    "===============================================================================\n"
-    "This is an evaluation license that is restricted to 10 concurrent connections.\n"
+    "================================================================================\n"
+    "This is an evaluation license that is restricted to 1000 concurrent connections.\n"
     "If you already have a paid license, please apply it now.\n"
     "Or you could visit https://emqx.com/apply-licenses/emqx to get a trial license.\n"
-    "===============================================================================\n"
+    "================================================================================\n"
 ).
 
 -define(EXPIRY_LOG,

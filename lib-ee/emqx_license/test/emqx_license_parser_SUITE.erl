@@ -51,6 +51,7 @@ t_parse(_Config) ->
                 "10",
                 "Foo",
                 "contact@foo.com",
+                "bar-deployment",
                 "20220111",
                 "100000",
                 "10"
@@ -73,8 +74,10 @@ t_parse(_Config) ->
                 "0",
                 "10",
                 "Foo",
+                % one extra field
                 "Bar",
                 "contact@foo.com",
+                "default-deployment",
                 "20220111",
                 "100000",
                 "10"
@@ -85,7 +88,7 @@ t_parse(_Config) ->
     ?assertMatch({error, _}, Res2),
     {error, Err2} = Res2,
     ?assertEqual(
-        invalid_field_number,
+        unexpected_number_of_fields,
         proplists:get_value(emqx_license_parser_v20220101, Err2)
     ),
 
@@ -97,6 +100,7 @@ t_parse(_Config) ->
                 "ten",
                 "Foo",
                 "contact@foo.com",
+                "default-deployment",
                 "20220231",
                 "-10",
                 "10"
@@ -124,6 +128,7 @@ t_parse(_Config) ->
                 "ten",
                 "Foo",
                 "contact@foo.com",
+                "default-deployment",
                 "2022-02-1st",
                 "-10",
                 "10"
@@ -133,6 +138,7 @@ t_parse(_Config) ->
     ),
     ?assertMatch({error, _}, Res4),
     {error, Err4} = Res4,
+
     ?assertEqual(
         [
             {type, invalid_license_type},
@@ -152,6 +158,7 @@ t_parse(_Config) ->
                 "10",
                 "Foo",
                 "contact@foo.com",
+                "default-deployment",
                 "20220111",
                 "100000",
                 "10"
@@ -167,6 +174,7 @@ t_parse(_Config) ->
                 "10",
                 "Foo",
                 "contact@foo.com",
+                "default-deployment",
                 "20220111",
                 "100000",
                 "10"
@@ -210,6 +218,7 @@ t_dump(_Config) ->
         [
             {customer, <<"Foo">>},
             {email, <<"contact@foo.com">>},
+            {deployment, <<"default-deployment">>},
             {max_connections, 10},
             {start_at, <<"2022-01-11">>},
             {expiry_at, <<"2295-10-27">>},
@@ -255,6 +264,7 @@ sample_license() ->
             "10",
             "Foo",
             "contact@foo.com",
+            "default-deployment",
             "20220111",
             "100,000",
             "10"

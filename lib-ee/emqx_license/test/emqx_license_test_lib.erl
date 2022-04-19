@@ -58,7 +58,7 @@ make_license(Values) ->
 default_license() ->
     %% keep it the same as in etc/emqx_license.conf
     License =
-        "MjIwMTExCjAKMTAKRXZhbHVhdGlvbgpjb250YWN0QGVtcXguaW8KMjAyMjAxMDEKMzY1MDAKMTAK."
-        "MEUCIFc9EUjqB3SjpRqWjqmAzI4Tg4LwhCRet9scEoxMRt8fAiEAk6vfYUiPOTzBC+3EjNF3WmLTiA3B0TN5ZNwuTKbTXJQ=",
+        "MjIwMTExCjAKMTAKRXZhbHVhdGlvbgpjb250YWN0QGVtcXguaW8KZGVmYXVsdAoyMDIyMDQxOQoxODI1CjEwMDAK."
+        "MEQCICbgRVijCQov2hrvZXR1mk9Oa+tyV1F5oJ6iOZeSHjnQAiB9dUiVeaZekDOjztk+NCWjhk4PG8tWfw2uFZWruSzD6g==",
     ok = file:write_file(?DEFAULT_LICENSE_FILE, License),
     ?DEFAULT_LICENSE_FILE.

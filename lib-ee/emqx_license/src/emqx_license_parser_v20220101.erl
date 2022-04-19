@@ -48,6 +48,7 @@ dump(
         customer_type := CType,
         customer := Customer,
         email := Email,
+        deployment := Deployment,
         date_start := DateStart,
         max_connections := MaxConns
     } = License
@@ -59,6 +60,7 @@ dump(
     [
         {customer, Customer},
         {email, Email},
+        {deployment, Deployment},
         {max_connections, MaxConns},
         {start_at, format_date(DateStart)},
         {expiry_at, format_date(DateExpiry)},
@@ -103,20 +105,21 @@ parse_payload(Payload) ->
         string:split(string:trim(Payload), <<"\n">>, all)
     ),
     case Lines of
-        [?LICENSE_VERSION, Type, CType, Customer, Email, DateStart, Days, MaxConns] ->
+        [?LICENSE_VERSION, Type, CType, Customer, Email, Deployment, DateStart, Days, MaxConns] ->
             collect_fields([
                 {type, parse_type(Type)},
                 {customer_type, parse_customer_type(CType)},
                 {customer, {ok, Customer}},
                 {email, {ok, Email}},
+                {deployment, {ok, Deployment}},
                 {date_start, parse_date_start(DateStart)},
                 {days, parse_days(Days)},
                 {max_connections, parse_max_connections(MaxConns)}
             ]);
-        [_Version, _Type, _CType, _Customer, _Email, _DateStart, _Days, _MaxConns] ->
+        [_Version, _Type, _CType, _Customer, _Email, _Deployment, _DateStart, _Days, _MaxConns] ->
             {error, invalid_version};
         _ ->
-            {error, invalid_field_number}
+            {error, unexpected_number_of_fields}
     end.
 
 parse_type(TypeStr) ->
