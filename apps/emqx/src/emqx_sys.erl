@@ -52,6 +52,8 @@
     on_client_unsubscribed/3
 ]).
 
+-export([post_config_update/5]).
+
 -ifdef(TEST).
 -compile(export_all).
 -compile(nowarn_export_all).
@@ -81,6 +83,8 @@
         sysdescr
     ]
 ).
+
+-define(CONF_KEY_PATH, [sys_topics]).
 
 %%--------------------------------------------------------------------
 %% APIs
@@ -124,7 +128,7 @@ sys_heatbeat_interval() ->
     emqx:get_config([sys_topics, sys_heartbeat_interval]).
 
 sys_event_messages() ->
-    emqx:get_config([sys_topics, sys_event_messages]).
+    maps:to_list(emqx:get_config([sys_topics, sys_event_messages])).
 
 %% @doc Get sys info
 -spec info() -> list(tuple()).
@@ -136,13 +140,40 @@ info() ->
         {datetime, datetime()}
     ].
 
+%% Update the confgs at runtime
+post_config_update(_, _Req, NewSysConf, OldSysConf, _AppEnvs) ->
+    {Added, Removed} = diff_hooks(NewSysConf, OldSysConf),
+    unload_event_hooks(Removed),
+    load_event_hooks(Added).
+
+diff_hooks(NewSysConf, OldSysConf) ->
+    NewEvents = maps:to_list(maps:get(sys_event_messages, NewSysConf, #{})),
+    OldEvents = maps:to_list(maps:get(sys_event_messages, OldSysConf, #{})),
+    diff_hooks(NewEvents, OldEvents, [], []).
+
+diff_hooks([], [], Added, Removed) ->
+    {lists:reverse(Added), lists:reverse(Removed)};
+diff_hooks([H | T1], [H | T2], Added, Removed) ->
+    diff_hooks(T1, T2, Added, Removed);
+diff_hooks(
+    [New = {EventName, NewEnable} | T1],
+    [Old = {EventName, OldEnable} | T2],
+    Added,
+    Removed
+) ->
+    case {NewEnable, OldEnable} of
+        {true, false} -> diff_hooks(T1, T2, [New | Added], Removed);
+        {false, true} -> diff_hooks(T1, T2, Added, [Old | Removed])
+    end.
+
 %%--------------------------------------------------------------------
 %% gen_server callbacks
 %%--------------------------------------------------------------------
 
 init([]) ->
+    ok = emqx_config_handler:add_handler(?CONF_KEY_PATH, ?MODULE),
     State = #state{sysdescr = iolist_to_binary(sysdescr())},
-    load_event_hooks(),
+    load_event_hooks(sys_event_messages()),
     {ok, heartbeat(tick(State))}.
 
 heartbeat(State) ->
@@ -150,7 +181,9 @@ heartbeat(State) ->
 tick(State) ->
     State#state{ticker = start_timer(sys_interval(), tick)}.
 
-load_event_hooks() ->
+load_event_hooks([]) ->
+    ok;
+load_event_hooks(Events) ->
     lists:foreach(
         fun
             ({_, false}) ->
@@ -159,7 +192,7 @@ load_event_hooks() ->
                 {HookPoint, Fun} = hook_and_fun(K),
                 emqx_hooks:put(HookPoint, {?MODULE, Fun, []})
         end,
-        maps:to_list(sys_event_messages())
+        Events
     ).
 
 handle_call(Req, _From, State) ->
@@ -186,16 +219,19 @@ handle_info(Info, State) ->
     {noreply, State}.
 
 terminate(_Reason, #state{heartbeat = TRef1, ticker = TRef2}) ->
-    unload_event_hooks(),
+    _ = emqx_config_handler:remove_handler(?CONF_KEY_PATH),
+    unload_event_hooks(sys_event_messages()),
     lists:foreach(fun emqx_misc:cancel_timer/1, [TRef1, TRef2]).
 
-unload_event_hooks() ->
+unload_event_hooks([]) ->
+    ok;
+unload_event_hooks(Event) ->
     lists:foreach(
         fun({K, _}) ->
             {HookPoint, Fun} = hook_and_fun(K),
             emqx_hooks:del(HookPoint, {?MODULE, Fun})
         end,
-        maps:to_list(sys_event_messages())
+        Event
     ).
 
 %%--------------------------------------------------------------------

@@ -60,7 +60,8 @@
         <<"delayed">>,
         <<"event_message">>,
         <<"prometheus">>,
-        <<"telemetry">>
+        <<"telemetry">>,
+        <<"sys_topics">>
     ] ++ global_zone_roots()
 ).
 
