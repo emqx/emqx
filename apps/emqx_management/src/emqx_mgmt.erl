@@ -25,76 +25,82 @@
 -include_lib("emqx/include/emqx_mqtt.hrl").
 
 %% Nodes and Brokers API
--export([ list_nodes/0
-        , lookup_node/1
-        , list_brokers/0
-        , lookup_broker/1
-        , node_info/0
-        , node_info/1
-        , broker_info/0
-        , broker_info/1
-        ]).
+-export([
+    list_nodes/0,
+    lookup_node/1,
+    list_brokers/0,
+    lookup_broker/1,
+    node_info/0,
+    node_info/1,
+    broker_info/0,
+    broker_info/1
+]).
 
 %% Metrics and Stats
--export([ get_metrics/0
-        , get_metrics/1
-        , get_stats/0
-        , get_stats/1
-        ]).
+-export([
+    get_metrics/0,
+    get_metrics/1,
+    get_stats/0,
+    get_stats/1
+]).
 
 %% Clients, Sessions
--export([ lookup_client/2
-        , lookup_client/3
-        , kickout_client/1
-        , list_authz_cache/1
-        , list_client_subscriptions/1
-        , client_subscriptions/2
-        , clean_authz_cache/1
-        , clean_authz_cache/2
-        , clean_authz_cache_all/0
-        , clean_authz_cache_all/1
-        , set_ratelimit_policy/2
-        , set_quota_policy/2
-        , set_keepalive/2
-        ]).
+-export([
+    lookup_client/2,
+    lookup_client/3,
+    kickout_client/1,
+    list_authz_cache/1,
+    list_client_subscriptions/1,
+    client_subscriptions/2,
+    clean_authz_cache/1,
+    clean_authz_cache/2,
+    clean_authz_cache_all/0,
+    clean_authz_cache_all/1,
+    set_ratelimit_policy/2,
+    set_quota_policy/2,
+    set_keepalive/2
+]).
 
 %% Internal funcs
 -export([do_call_client/2]).
 
 %% Subscriptions
--export([ list_subscriptions/1
-        , list_subscriptions_via_topic/2
-        , list_subscriptions_via_topic/3
-        , lookup_subscriptions/1
-        , lookup_subscriptions/2
+-export([
+    list_subscriptions/1,
+    list_subscriptions_via_topic/2,
+    list_subscriptions_via_topic/3,
+    lookup_subscriptions/1,
+    lookup_subscriptions/2,
 
-        , do_list_subscriptions/0
-        ]).
+    do_list_subscriptions/0
+]).
 
 %% PubSub
--export([ subscribe/2
-        , do_subscribe/2
-        , publish/1
-        , unsubscribe/2
-        , do_unsubscribe/2
-        ]).
+-export([
+    subscribe/2,
+    do_subscribe/2,
+    publish/1,
+    unsubscribe/2,
+    do_unsubscribe/2
+]).
 
 %% Alarms
--export([ get_alarms/1
-        , get_alarms/2
-        , deactivate/2
-        , delete_all_deactivated_alarms/0
-        , delete_all_deactivated_alarms/1
-        ]).
+-export([
+    get_alarms/1,
+    get_alarms/2,
+    deactivate/2,
+    delete_all_deactivated_alarms/0,
+    delete_all_deactivated_alarms/1
+]).
 
 %% Banned
--export([ create_banned/1
-        , delete_banned/1
-        ]).
+-export([
+    create_banned/1,
+    delete_banned/1
+]).
 
 %% Common Table API
--export([ max_row_limit/0
-        ]).
+-export([max_row_limit/0]).
 
 -define(APP, emqx_management).
 
@@ -113,24 +119,26 @@ list_nodes() ->
 lookup_node(Node) -> node_info(Node).
 
 node_info() ->
-    Memory  = emqx_vm:get_memory(),
+    Memory = emqx_vm:get_memory(),
     Info = maps:from_list([{K, list_to_binary(V)} || {K, V} <- emqx_vm:loads()]),
     BrokerInfo = emqx_sys:info(),
-    Info#{node              => node(),
-          otp_release       => otp_rel(),
-          memory_total      => proplists:get_value(allocated, Memory),
-          memory_used       => proplists:get_value(used, Memory),
-          process_available => erlang:system_info(process_limit),
-          process_used      => erlang:system_info(process_count),
+    Info#{
+        node => node(),
+        otp_release => otp_rel(),
+        memory_total => proplists:get_value(allocated, Memory),
+        memory_used => proplists:get_value(used, Memory),
+        process_available => erlang:system_info(process_limit),
+        process_used => erlang:system_info(process_count),
 
-          max_fds           => proplists:get_value(
-                                 max_fds, lists:usort(lists:flatten(erlang:system_info(check_io)))),
-          connections       => ets:info(emqx_channel, size),
-          node_status       => 'Running',
-          uptime            => proplists:get_value(uptime, BrokerInfo),
-          version           => iolist_to_binary(proplists:get_value(version, BrokerInfo)),
-          role              => mria_rlog:role()
-         }.
+        max_fds => proplists:get_value(
+            max_fds, lists:usort(lists:flatten(erlang:system_info(check_io)))
+        ),
+        connections => ets:info(emqx_channel, size),
+        node_status => 'Running',
+        uptime => proplists:get_value(uptime, BrokerInfo),
+        version => iolist_to_binary(proplists:get_value(version, BrokerInfo)),
+        role => mria_rlog:role()
+    }.
 
 node_info(Node) ->
     wrap_rpc(emqx_management_proto_v1:node_info(Node)).
@@ -167,18 +175,21 @@ get_metrics(Node) ->
 
 get_stats() ->
     GlobalStatsKeys =
-        [ 'retained.count'
-        , 'retained.max'
-        , 'topics.count'
-        , 'topics.max'
-        , 'subscriptions.shared.count'
-        , 'subscriptions.shared.max'
+        [
+            'retained.count',
+            'retained.max',
+            'topics.count',
+            'topics.max',
+            'subscriptions.shared.count',
+            'subscriptions.shared.max'
         ],
     CountStats = nodes_info_count([
         begin
             Stats = get_stats(Node),
             delete_keys(Stats, GlobalStatsKeys)
-        end || Node <- mria_mnesia:running_nodes()]),
+        end
+     || Node <- mria_mnesia:running_nodes()
+    ]),
     GlobalStats = maps:with(GlobalStatsKeys, maps:from_list(get_stats(node()))),
     maps:merge(CountStats, GlobalStats).
 
@@ -207,21 +218,28 @@ nodes_info_count(PropList) ->
 %%--------------------------------------------------------------------
 
 lookup_client({clientid, ClientId}, FormatFun) ->
-    lists:append([lookup_client(Node, {clientid, ClientId}, FormatFun)
-                  || Node <- mria_mnesia:running_nodes()]);
-
+    lists:append([
+        lookup_client(Node, {clientid, ClientId}, FormatFun)
+     || Node <- mria_mnesia:running_nodes()
+    ]);
 lookup_client({username, Username}, FormatFun) ->
-    lists:append([lookup_client(Node, {username, Username}, FormatFun)
-                  || Node <- mria_mnesia:running_nodes()]).
+    lists:append([
+        lookup_client(Node, {username, Username}, FormatFun)
+     || Node <- mria_mnesia:running_nodes()
+    ]).
 
 lookup_client(Node, Key, {M, F}) ->
     case wrap_rpc(emqx_cm_proto_v1:lookup_client(Node, Key)) of
-        {error, Err} -> {error, Err};
-        L            -> lists:map(fun({Chan, Info0, Stats}) ->
-                                          Info = Info0#{node => Node},
-                                          M:F({Chan, Info, Stats})
-                                  end,
-                                  L)
+        {error, Err} ->
+            {error, Err};
+        L ->
+            lists:map(
+                fun({Chan, Info0, Stats}) ->
+                    Info = Info0#{node => Node},
+                    M:F({Chan, Info, Stats})
+                end,
+                L
+            )
     end.
 
 kickout_client({ClientID, FormatFun}) ->
@@ -266,7 +284,7 @@ clean_authz_cache(Node, ClientId) ->
 clean_authz_cache_all() ->
     Results = [{Node, clean_authz_cache_all(Node)} || Node <- mria_mnesia:running_nodes()],
     case lists:filter(fun({_Node, Item}) -> Item =/= ok end, Results) of
-        []  -> ok;
+        [] -> ok;
         BadNodes -> {error, BadNodes}
     end.
 
@@ -287,9 +305,13 @@ set_keepalive(_ClientId, _Interval) ->
 %% @private
 call_client(ClientId, Req) ->
     Results = [call_client(Node, ClientId, Req) || Node <- mria_mnesia:running_nodes()],
-    Expected = lists:filter(fun({error, _}) -> false;
-                               (_) -> true
-                            end, Results),
+    Expected = lists:filter(
+        fun
+            ({error, _}) -> false;
+            (_) -> true
+        end,
+        Results
+    ),
     case Expected of
         [] -> {error, not_found};
         [Result | _] -> Result
@@ -299,13 +321,15 @@ call_client(ClientId, Req) ->
 -spec do_call_client(emqx_types:clientid(), term()) -> term().
 do_call_client(ClientId, Req) ->
     case emqx_cm:lookup_channels(ClientId) of
-        [] -> {error, not_found};
+        [] ->
+            {error, not_found};
         Pids when is_list(Pids) ->
             Pid = lists:last(Pids),
             case emqx_cm:get_chan_info(ClientId, Pid) of
                 #{conninfo := #{conn_mod := ConnMod}} ->
                     erlang:apply(ConnMod, call, [Pid, Req]);
-                undefined -> {error, not_found}
+                undefined ->
+                    {error, not_found}
             end
     end.
 
@@ -320,22 +344,28 @@ call_client(Node, ClientId, Req) ->
 -spec do_list_subscriptions() -> [map()].
 do_list_subscriptions() ->
     case check_row_limit([mqtt_subproperty]) of
-        false -> throw(max_row_limit);
-        ok    -> [#{topic => Topic, clientid => ClientId, options => Options}
-                     || {{Topic, ClientId}, Options} <- ets:tab2list(mqtt_subproperty)]
+        false ->
+            throw(max_row_limit);
+        ok ->
+            [
+                #{topic => Topic, clientid => ClientId, options => Options}
+             || {{Topic, ClientId}, Options} <- ets:tab2list(mqtt_subproperty)
+            ]
     end.
 
 list_subscriptions(Node) ->
     wrap_rpc(emqx_management_proto_v1:list_subscriptions(Node)).
 
 list_subscriptions_via_topic(Topic, FormatFun) ->
-    lists:append([list_subscriptions_via_topic(Node, Topic, FormatFun)
-                  || Node <- mria_mnesia:running_nodes()]).
+    lists:append([
+        list_subscriptions_via_topic(Node, Topic, FormatFun)
+     || Node <- mria_mnesia:running_nodes()
+    ]).
 
 list_subscriptions_via_topic(Node, Topic, _FormatFun = {M, F}) ->
     case wrap_rpc(emqx_broker_proto_v1:list_subscriptions_via_topic(Node, Topic)) of
         {error, Reason} -> {error, Reason};
-        Result          -> M:F(Result)
+        Result -> M:F(Result)
     end.
 
 lookup_subscriptions(ClientId) ->
@@ -354,20 +384,17 @@ subscribe(ClientId, TopicTables) ->
 subscribe([Node | Nodes], ClientId, TopicTables) ->
     case wrap_rpc(emqx_management_proto_v1:subscribe(Node, ClientId, TopicTables)) of
         {error, _} -> subscribe(Nodes, ClientId, TopicTables);
-        {subscribe, Res} ->
-            {subscribe, Res, Node}
+        {subscribe, Res} -> {subscribe, Res, Node}
     end;
-
 subscribe([], _ClientId, _TopicTables) ->
     {error, channel_not_found}.
 
 -spec do_subscribe(emqx_types:clientid(), emqx_types:topic_filters()) ->
-          {subscribe, _} | {error, atom()}.
+    {subscribe, _} | {error, atom()}.
 do_subscribe(ClientId, TopicTables) ->
     case ets:lookup(emqx_channel, ClientId) of
         [] -> {error, channel_not_found};
-        [{_, Pid}] ->
-            Pid ! {subscribe, TopicTables}
+        [{_, Pid}] -> Pid ! {subscribe, TopicTables}
     end.
 
 %%TODO: ???
@@ -376,12 +403,12 @@ publish(Msg) ->
     emqx:publish(Msg).
 
 -spec unsubscribe(emqx_types:clientid(), emqx_types:topic()) ->
-          {unsubscribe, _} | {error, channel_not_found}.
+    {unsubscribe, _} | {error, channel_not_found}.
 unsubscribe(ClientId, Topic) ->
     unsubscribe(mria_mnesia:running_nodes(), ClientId, Topic).
 
 -spec unsubscribe([node()], emqx_types:clientid(), emqx_types:topic()) ->
-          {unsubscribe, _} | {error, channel_not_found}.
+    {unsubscribe, _} | {error, channel_not_found}.
 unsubscribe([Node | Nodes], ClientId, Topic) ->
     case wrap_rpc(emqx_management_proto_v1:unsubscribe(Node, ClientId, Topic)) of
         {error, _} -> unsubscribe(Nodes, ClientId, Topic);
@@ -391,12 +418,11 @@ unsubscribe([], _ClientId, _Topic) ->
     {error, channel_not_found}.
 
 -spec do_unsubscribe(emqx_types:clientid(), emqx_types:topic()) ->
-          {unsubscribe, _} | {error, _}.
+    {unsubscribe, _} | {error, _}.
 do_unsubscribe(ClientId, Topic) ->
     case ets:lookup(emqx_channel, ClientId) of
         [] -> {error, channel_not_found};
-        [{_, Pid}] ->
-            Pid ! {unsubscribe, [emqx_topic:parse(Topic)]}
+        [{_, Pid}] -> Pid ! {unsubscribe, [emqx_topic:parse(Topic)]}
     end.
 
 %%--------------------------------------------------------------------
@@ -426,11 +452,18 @@ add_duration_field([], _Now, Acc) ->
     Acc;
 add_duration_field([Alarm = #{activated := true, activate_at := ActivateAt} | Rest], Now, Acc) ->
     add_duration_field(Rest, Now, [Alarm#{duration => Now - ActivateAt} | Acc]);
-
-add_duration_field( [Alarm = #{ activated := false
-                              , activate_at := ActivateAt
-                              , deactivate_at := DeactivateAt} | Rest]
-                  , Now, Acc) ->
+add_duration_field(
+    [
+        Alarm = #{
+            activated := false,
+            activate_at := ActivateAt,
+            deactivate_at := DeactivateAt
+        }
+        | Rest
+    ],
+    Now,
+    Acc
+) ->
     add_duration_field(Rest, Now, [Alarm#{duration => DeactivateAt - ActivateAt} | Acc]).
 
 %%--------------------------------------------------------------------
@@ -462,13 +495,13 @@ check_row_limit([], _Limit) ->
     ok;
 check_row_limit([Tab | Tables], Limit) ->
     case table_size(Tab) > Limit of
-        true  -> false;
+        true -> false;
         false -> check_row_limit(Tables, Limit)
     end.
 
 check_results(Results) ->
     case lists:any(fun(Item) -> Item =:= ok end, Results) of
-        true  -> ok;
+        true -> ok;
         false -> wrap_rpc(lists:last(Results))
     end.
 

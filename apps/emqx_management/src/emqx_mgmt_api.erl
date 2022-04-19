@@ -22,16 +22,18 @@
 
 -define(FRESH_SELECT, fresh_select).
 
--export([ paginate/3
-        , paginate/4
-        ]).
+-export([
+    paginate/3,
+    paginate/4
+]).
 
 %% first_next query APIs
--export([ node_query/5
-        , cluster_query/4
-        , select_table_with_count/5
-        , b2i/1
-        ]).
+-export([
+    node_query/5,
+    cluster_query/4,
+    select_table_with_count/5,
+    b2i/1
+]).
 
 -export([do_query/6]).
 
@@ -50,30 +52,30 @@ do_paginate(Qh, Count, Params, {Module, FormatFun}) ->
     Limit = b2i(limit(Params)),
     Cursor = qlc:cursor(Qh),
     case Page > 1 of
-        true  ->
+        true ->
             _ = qlc:next_answers(Cursor, (Page - 1) * Limit),
             ok;
-        false -> ok
+        false ->
+            ok
     end,
     Rows = qlc:next_answers(Cursor, Limit),
     qlc:delete_cursor(Cursor),
-    #{meta  => #{page => Page, limit => Limit, count => Count},
-      data  => [erlang:apply(Module, FormatFun, [Row]) || Row <- Rows]}.
+    #{
+        meta => #{page => Page, limit => Limit, count => Count},
+        data => [erlang:apply(Module, FormatFun, [Row]) || Row <- Rows]
+    }.
 
 query_handle(Table) when is_atom(Table) ->
     qlc:q([R || R <- ets:table(Table)]);
-
 query_handle({Table, Opts}) when is_atom(Table) ->
     qlc:q([R || R <- ets:table(Table, Opts)]);
-
 query_handle([Table]) when is_atom(Table) ->
     qlc:q([R || R <- ets:table(Table)]);
-
 query_handle([{Table, Opts}]) when is_atom(Table) ->
     qlc:q([R || R <- ets:table(Table, Opts)]);
-
 query_handle(Tables) ->
-    qlc:append([query_handle(T) || T <- Tables]). %
+    %
+    qlc:append([query_handle(T) || T <- Tables]).
 
 query_handle(Table, MatchSpec) when is_atom(Table) ->
     Options = {traverse, {select, MatchSpec}},
@@ -87,16 +89,12 @@ query_handle(Tables, MatchSpec) ->
 
 count(Table) when is_atom(Table) ->
     ets:info(Table, size);
-
 count({Table, _}) when is_atom(Table) ->
     ets:info(Table, size);
-
 count([Table]) when is_atom(Table) ->
     ets:info(Table, size);
-
 count([{Table, _}]) when is_atom(Table) ->
     ets:info(Table, size);
-
 count(Tables) ->
     lists:sum([count(T) || T <- Tables]).
 
@@ -121,7 +119,7 @@ limit(Params) ->
 
 init_meta(Params) ->
     Limit = b2i(limit(Params)),
-    Page  = b2i(page(Params)),
+    Page = b2i(page(Params)),
     #{
         page => Page,
         limit => Limit,
@@ -134,17 +132,24 @@ init_meta(Params) ->
 
 node_query(Node, QString, Tab, QSchema, QueryFun) ->
     {_CodCnt, NQString} = parse_qstring(QString, QSchema),
-    page_limit_check_query( init_meta(QString)
-                          , { fun do_node_query/5
-                            , [Node, Tab, NQString, QueryFun, init_meta(QString)]}).
+    page_limit_check_query(
+        init_meta(QString),
+        {fun do_node_query/5, [Node, Tab, NQString, QueryFun, init_meta(QString)]}
+    ).
 
 %% @private
 do_node_query(Node, Tab, QString, QueryFun, Meta) ->
     do_node_query(Node, Tab, QString, QueryFun, _Continuation = ?FRESH_SELECT, Meta, _Results = []).
 
-do_node_query( Node, Tab, QString, QueryFun, Continuation
-             , Meta = #{limit := Limit}
-             , Results) ->
+do_node_query(
+    Node,
+    Tab,
+    QString,
+    QueryFun,
+    Continuation,
+    Meta = #{limit := Limit},
+    Results
+) ->
     case do_query(Node, Tab, QString, QueryFun, Continuation, Limit) of
         {error, {badrpc, R}} ->
             {error, Node, {badrpc, R}};
@@ -164,18 +169,33 @@ cluster_query(QString, Tab, QSchema, QueryFun) ->
     {_CodCnt, NQString} = parse_qstring(QString, QSchema),
     Nodes = mria_mnesia:running_nodes(),
     page_limit_check_query(
-      init_meta(QString)
-     , {fun do_cluster_query/5, [Nodes, Tab, NQString, QueryFun, init_meta(QString)]}).
+        init_meta(QString),
+        {fun do_cluster_query/5, [Nodes, Tab, NQString, QueryFun, init_meta(QString)]}
+    ).
 
 %% @private
 do_cluster_query(Nodes, Tab, QString, QueryFun, Meta) ->
-    do_cluster_query( Nodes, Tab, QString, QueryFun
-                    , _Continuation = ?FRESH_SELECT, Meta, _Results = []).
+    do_cluster_query(
+        Nodes,
+        Tab,
+        QString,
+        QueryFun,
+        _Continuation = ?FRESH_SELECT,
+        Meta,
+        _Results = []
+    ).
 
 do_cluster_query([], _Tab, _QString, _QueryFun, _Continuation, Meta, Results) ->
     #{meta => Meta, data => Results};
-do_cluster_query([Node | Tail] = Nodes, Tab, QString, QueryFun, Continuation,
-        Meta = #{limit := Limit}, Results) ->
+do_cluster_query(
+    [Node | Tail] = Nodes,
+    Tab,
+    QString,
+    QueryFun,
+    Continuation,
+    Meta = #{limit := Limit},
+    Results
+) ->
     case do_query(Node, Tab, QString, QueryFun, Continuation, Limit) of
         {error, {badrpc, R}} ->
             {error, Node, {bar_rpc, R}};
@@ -192,11 +212,18 @@ do_cluster_query([Node | Tail] = Nodes, Tab, QString, QueryFun, Continuation,
 %%--------------------------------------------------------------------
 
 %% @private This function is exempt from BPAPI
-do_query(Node, Tab, QString, {M,F}, Continuation, Limit) when Node =:= node() ->
+do_query(Node, Tab, QString, {M, F}, Continuation, Limit) when Node =:= node() ->
     erlang:apply(M, F, [Tab, QString, Continuation, Limit]);
 do_query(Node, Tab, QString, QueryFun, Continuation, Limit) ->
-    case rpc:call(Node, ?MODULE, do_query,
-                  [Node, Tab, QString, QueryFun, Continuation, Limit], 50000) of
+    case
+        rpc:call(
+            Node,
+            ?MODULE,
+            do_query,
+            [Node, Tab, QString, QueryFun, Continuation, Limit],
+            50000
+        )
+    of
         {badrpc, _} = R -> {error, R};
         Ret -> Ret
     end.
@@ -220,8 +247,9 @@ sub_query_result(Len, Rows, Limit, Results, Meta) ->
 %% Table Select
 %%--------------------------------------------------------------------
 
-select_table_with_count(Tab, {Ms, FuzzyFilterFun}, ?FRESH_SELECT, Limit, FmtFun)
-  when is_function(FuzzyFilterFun) andalso Limit > 0 ->
+select_table_with_count(Tab, {Ms, FuzzyFilterFun}, ?FRESH_SELECT, Limit, FmtFun) when
+    is_function(FuzzyFilterFun) andalso Limit > 0
+->
     case ets:select(Tab, Ms, Limit) of
         '$end_of_table' ->
             {0, [], ?FRESH_SELECT};
@@ -229,8 +257,9 @@ select_table_with_count(Tab, {Ms, FuzzyFilterFun}, ?FRESH_SELECT, Limit, FmtFun)
             Rows = FuzzyFilterFun(RawResult),
             {length(Rows), lists:map(FmtFun, Rows), NContinuation}
     end;
-select_table_with_count(_Tab, {Ms, FuzzyFilterFun}, Continuation, _Limit, FmtFun)
-  when is_function(FuzzyFilterFun) ->
+select_table_with_count(_Tab, {Ms, FuzzyFilterFun}, Continuation, _Limit, FmtFun) when
+    is_function(FuzzyFilterFun)
+->
     case ets:select(ets:repair_continuation(Continuation, Ms)) of
         '$end_of_table' ->
             {0, [], ?FRESH_SELECT};
@@ -238,8 +267,9 @@ select_table_with_count(_Tab, {Ms, FuzzyFilterFun}, Continuation, _Limit, FmtFun
             Rows = FuzzyFilterFun(RawResult),
             {length(Rows), lists:map(FmtFun, Rows), NContinuation}
     end;
-select_table_with_count(Tab, Ms, ?FRESH_SELECT, Limit, FmtFun)
-  when Limit > 0  ->
+select_table_with_count(Tab, Ms, ?FRESH_SELECT, Limit, FmtFun) when
+    Limit > 0
+->
     case ets:select(Tab, Ms, Limit) of
         '$end_of_table' ->
             {0, [], ?FRESH_SELECT};
@@ -267,36 +297,53 @@ parse_qstring(QString, QSchema) ->
 do_parse_qstring([], _, Acc1, Acc2) ->
     NAcc2 = [E || E <- Acc2, not lists:keymember(element(1, E), 1, Acc1)],
     {lists:reverse(Acc1), lists:reverse(NAcc2)};
-
 do_parse_qstring([{Key, Value} | RestQString], QSchema, Acc1, Acc2) ->
     case proplists:get_value(Key, QSchema) of
-        undefined -> do_parse_qstring(RestQString, QSchema, Acc1, Acc2);
+        undefined ->
+            do_parse_qstring(RestQString, QSchema, Acc1, Acc2);
         Type ->
             case Key of
-                <<Prefix:4/binary, NKey/binary>>
-                  when Prefix =:= <<"gte_">>;
-                       Prefix =:= <<"lte_">> ->
-                    OpposeKey = case Prefix of
-                                    <<"gte_">> -> <<"lte_", NKey/binary>>;
-                                    <<"lte_">> -> <<"gte_", NKey/binary>>
-                                end,
+                <<Prefix:4/binary, NKey/binary>> when
+                    Prefix =:= <<"gte_">>;
+                    Prefix =:= <<"lte_">>
+                ->
+                    OpposeKey =
+                        case Prefix of
+                            <<"gte_">> -> <<"lte_", NKey/binary>>;
+                            <<"lte_">> -> <<"gte_", NKey/binary>>
+                        end,
                     case lists:keytake(OpposeKey, 1, RestQString) of
                         false ->
-                            do_parse_qstring( RestQString, QSchema
-                                            , [qs(Key, Value, Type) | Acc1], Acc2);
+                            do_parse_qstring(
+                                RestQString,
+                                QSchema,
+                                [qs(Key, Value, Type) | Acc1],
+                                Acc2
+                            );
                         {value, {K2, V2}, NParams} ->
-                            do_parse_qstring( NParams, QSchema
-                                            , [qs(Key, Value, K2, V2, Type) | Acc1], Acc2)
+                            do_parse_qstring(
+                                NParams,
+                                QSchema,
+                                [qs(Key, Value, K2, V2, Type) | Acc1],
+                                Acc2
+                            )
                     end;
                 _ ->
                     case is_fuzzy_key(Key) of
                         true ->
-                            do_parse_qstring( RestQString, QSchema
-                                            , Acc1, [qs(Key, Value, Type) | Acc2]);
+                            do_parse_qstring(
+                                RestQString,
+                                QSchema,
+                                Acc1,
+                                [qs(Key, Value, Type) | Acc2]
+                            );
                         _ ->
-                            do_parse_qstring( RestQString, QSchema
-                                            , [qs(Key, Value, Type) | Acc1], Acc2)
-
+                            do_parse_qstring(
+                                RestQString,
+                                QSchema,
+                                [qs(Key, Value, Type) | Acc1],
+                                Acc2
+                            )
                     end
             end
     end.
@@ -310,7 +357,7 @@ qs(K, Value0, Type) ->
     try
         qs(K, to_type(Value0, Type))
     catch
-        throw : bad_value_type ->
+        throw:bad_value_type ->
             throw({bad_value_type, {K, Type, Value0}})
     end.
 
@@ -333,12 +380,11 @@ is_fuzzy_key(_) ->
     false.
 
 page_start(1, _) -> 1;
-page_start(Page, Limit) -> (Page-1) * Limit + 1.
-
+page_start(Page, Limit) -> (Page - 1) * Limit + 1.
 
 judge_page_with_counting(Len, Meta = #{page := Page, limit := Limit, count := Count}) ->
     PageStart = page_start(Page, Limit),
-    PageEnd   = Page * Limit,
+    PageEnd = Page * Limit,
     case Count + Len of
         NCount when NCount < PageStart ->
             {more, Meta#{count => NCount}};
@@ -353,7 +399,7 @@ rows_sub_params(Len, _Meta = #{page := Page, limit := Limit, count := Count}) ->
     case (Count - Len) < PageStart of
         true ->
             NeedNowNum = Count - PageStart + 1,
-            SubStart   = Len - NeedNowNum + 1,
+            SubStart = Len - NeedNowNum + 1,
             {SubStart, NeedNowNum};
         false ->
             {_SubStart = 1, _NeedNowNum = Len}
@@ -361,8 +407,9 @@ rows_sub_params(Len, _Meta = #{page := Page, limit := Limit, count := Count}) ->
 
 page_limit_check_query(Meta, {F, A}) ->
     case Meta of
-        #{page := Page, limit := Limit}
-          when Page < 1; Limit < 1 ->
+        #{page := Page, limit := Limit} when
+            Page < 1; Limit < 1
+        ->
             {error, page_limit_invalid};
         _ ->
             erlang:apply(F, A)
@@ -376,7 +423,7 @@ to_type(V, TargetType) ->
     try
         to_type_(V, TargetType)
     catch
-        _ : _ ->
+        _:_ ->
             throw(bad_value_type)
     end.
 
@@ -419,36 +466,42 @@ to_ip_port(IPAddress) ->
 -include_lib("eunit/include/eunit.hrl").
 
 params2qs_test() ->
-    QSchema = [{<<"str">>, binary},
-              {<<"int">>, integer},
-              {<<"atom">>, atom},
-              {<<"ts">>, timestamp},
-              {<<"gte_range">>, integer},
-              {<<"lte_range">>, integer},
-              {<<"like_fuzzy">>, binary},
-              {<<"match_topic">>, binary}],
-    QString = [{<<"str">>, <<"abc">>},
-              {<<"int">>, <<"123">>},
-              {<<"atom">>, <<"connected">>},
-              {<<"ts">>, <<"156000">>},
-              {<<"gte_range">>, <<"1">>},
-              {<<"lte_range">>, <<"5">>},
-              {<<"like_fuzzy">>, <<"user">>},
-              {<<"match_topic">>, <<"t/#">>}],
-    ExpectedQs = [{str, '=:=', <<"abc">>},
-                  {int, '=:=', 123},
-                  {atom, '=:=', connected},
-                  {ts, '=:=', 156000},
-                  {range, '>=', 1, '=<', 5}
-                 ],
-    FuzzyNQString = [{fuzzy, like, <<"user">>},
-                     {topic, match, <<"t/#">>}],
+    QSchema = [
+        {<<"str">>, binary},
+        {<<"int">>, integer},
+        {<<"atom">>, atom},
+        {<<"ts">>, timestamp},
+        {<<"gte_range">>, integer},
+        {<<"lte_range">>, integer},
+        {<<"like_fuzzy">>, binary},
+        {<<"match_topic">>, binary}
+    ],
+    QString = [
+        {<<"str">>, <<"abc">>},
+        {<<"int">>, <<"123">>},
+        {<<"atom">>, <<"connected">>},
+        {<<"ts">>, <<"156000">>},
+        {<<"gte_range">>, <<"1">>},
+        {<<"lte_range">>, <<"5">>},
+        {<<"like_fuzzy">>, <<"user">>},
+        {<<"match_topic">>, <<"t/#">>}
+    ],
+    ExpectedQs = [
+        {str, '=:=', <<"abc">>},
+        {int, '=:=', 123},
+        {atom, '=:=', connected},
+        {ts, '=:=', 156000},
+        {range, '>=', 1, '=<', 5}
+    ],
+    FuzzyNQString = [
+        {fuzzy, like, <<"user">>},
+        {topic, match, <<"t/#">>}
+    ],
     ?assertEqual({7, {ExpectedQs, FuzzyNQString}}, parse_qstring(QString, QSchema)),
 
     {0, {[], []}} = parse_qstring([{not_a_predefined_params, val}], QSchema).
 
 -endif.
-
 
 b2i(Bin) when is_binary(Bin) ->
     binary_to_integer(Bin);

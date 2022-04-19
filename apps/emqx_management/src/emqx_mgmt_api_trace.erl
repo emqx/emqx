@@ -21,26 +21,29 @@
 -include_lib("typerefl/include/types.hrl").
 -include_lib("emqx/include/logger.hrl").
 
--export([ api_spec/0
-        , fields/1
-        , paths/0
-        , schema/1
-        , namespace/0
-        ]).
+-export([
+    api_spec/0,
+    fields/1,
+    paths/0,
+    schema/1,
+    namespace/0
+]).
 
--export([ trace/2
-        , delete_trace/2
-        , update_trace/2
-        , download_trace_log/2
-        , stream_log_file/2
-        ]).
+-export([
+    trace/2,
+    delete_trace/2,
+    update_trace/2,
+    download_trace_log/2,
+    stream_log_file/2
+]).
 
 -export([validate_name/1]).
 
 %% for rpc
--export([ read_trace_file/3
-        , get_trace_size/0
-        ]).
+-export([
+    read_trace_file/3,
+    get_trace_size/0
+]).
 
 -define(TO_BIN(_B_), iolist_to_binary(_B_)).
 -define(NOT_FOUND(N), {404, #{code => 'NOT_FOUND', message => ?TO_BIN([N, " NOT FOUND"])}}).
@@ -52,7 +55,6 @@ api_spec() ->
 
 paths() ->
     ["/trace", "/trace/:name/stop", "/trace/:name/download", "/trace/:name/log", "/trace/:name"].
-
 
 schema("/trace") ->
     #{
@@ -68,9 +70,14 @@ schema("/trace") ->
             'requestBody' => delete([status, log_size], fields(trace)),
             responses => #{
                 200 => hoconsc:ref(trace),
-                400 => emqx_dashboard_swagger:error_codes(['ALREADY_EXISTS',
-                    'DUPLICATE_CONDITION', 'INVALID_PARAMS'],
-                    <<"trace name already exists">>)
+                400 => emqx_dashboard_swagger:error_codes(
+                    [
+                        'ALREADY_EXISTS',
+                        'DUPLICATE_CONDITION',
+                        'INVALID_PARAMS'
+                    ],
+                    <<"trace name already exists">>
+                )
             }
         },
         delete => #{
@@ -112,12 +119,13 @@ schema("/trace/:name/download") ->
             parameters => [hoconsc:ref(name)],
             responses => #{
                 200 =>
-                #{description => "A trace zip file",
-                    content => #{
-                        'application/octet-stream' =>
-                             #{schema => #{type => "string", format => "binary"}}
+                    #{
+                        description => "A trace zip file",
+                        content => #{
+                            'application/octet-stream' =>
+                                #{schema => #{type => "string", format => "binary"}}
+                        }
                     }
-                }
             }
         }
     };
@@ -134,92 +142,151 @@ schema("/trace/:name/log") ->
             ],
             responses => #{
                 200 =>
-                [
-                    {items, hoconsc:mk(binary(), #{example => "TEXT-LOG-ITEMS"})}
-                    | fields(bytes) ++ fields(position)
-                ]
+                    [
+                        {items, hoconsc:mk(binary(), #{example => "TEXT-LOG-ITEMS"})}
+                        | fields(bytes) ++ fields(position)
+                    ]
             }
         }
     }.
 
 fields(trace) ->
     [
-        {name, hoconsc:mk(binary(),
-            #{desc => "Unique and format by [a-zA-Z0-9-_]",
-                validator => fun ?MODULE:validate_name/1,
-                required => true,
-                example => <<"EMQX-TRACE-1">>})},
-        {type, hoconsc:mk(hoconsc:enum([clientid, topic, ip_address]),
-            #{desc => """Filter type""",
-                required => true,
-                example => <<"clientid">>})},
-        {topic, hoconsc:mk(binary(),
-            #{desc => """support mqtt wildcard topic.""",
-                required => false,
-                example => <<"/dev/#">>})},
-        {clientid, hoconsc:mk(binary(),
-            #{desc => """mqtt clientid.""",
-                required => false,
-                example => <<"dev-001">>})},
+        {name,
+            hoconsc:mk(
+                binary(),
+                #{
+                    desc => "Unique and format by [a-zA-Z0-9-_]",
+                    validator => fun ?MODULE:validate_name/1,
+                    required => true,
+                    example => <<"EMQX-TRACE-1">>
+                }
+            )},
+        {type,
+            hoconsc:mk(
+                hoconsc:enum([clientid, topic, ip_address]),
+                #{
+                    desc => "" "Filter type" "",
+                    required => true,
+                    example => <<"clientid">>
+                }
+            )},
+        {topic,
+            hoconsc:mk(
+                binary(),
+                #{
+                    desc => "" "support mqtt wildcard topic." "",
+                    required => false,
+                    example => <<"/dev/#">>
+                }
+            )},
+        {clientid,
+            hoconsc:mk(
+                binary(),
+                #{
+                    desc => "" "mqtt clientid." "",
+                    required => false,
+                    example => <<"dev-001">>
+                }
+            )},
         %% TODO add ip_address type in emqx_schema.erl
-        {ip_address, hoconsc:mk(binary(),
-            #{desc => "client ip address",
-                required => false,
-                example => <<"127.0.0.1">>
-            })},
-        {status, hoconsc:mk(hoconsc:enum([running, stopped, waiting]),
-            #{desc => "trace status",
-                required => false,
-                example => running
-            })},
-        {start_at, hoconsc:mk(emqx_datetime:epoch_second(),
-            #{desc => "rfc3339 timestamp or epoch second",
-                required => false,
-                example => <<"2021-11-04T18:17:38+08:00">>
-            })},
-        {end_at, hoconsc:mk(emqx_datetime:epoch_second(),
-            #{desc => "rfc3339 timestamp or epoch second",
-                required => false,
-                example => <<"2021-11-05T18:17:38+08:00">>
-            })},
-        {log_size, hoconsc:mk(hoconsc:array(map()),
-            #{desc => "trace log size",
-                example => [#{<<"node">> => <<"emqx@127.0.0.1">>, <<"size">> => 1024}],
-                required => false})}
+        {ip_address,
+            hoconsc:mk(
+                binary(),
+                #{
+                    desc => "client ip address",
+                    required => false,
+                    example => <<"127.0.0.1">>
+                }
+            )},
+        {status,
+            hoconsc:mk(
+                hoconsc:enum([running, stopped, waiting]),
+                #{
+                    desc => "trace status",
+                    required => false,
+                    example => running
+                }
+            )},
+        {start_at,
+            hoconsc:mk(
+                emqx_datetime:epoch_second(),
+                #{
+                    desc => "rfc3339 timestamp or epoch second",
+                    required => false,
+                    example => <<"2021-11-04T18:17:38+08:00">>
+                }
+            )},
+        {end_at,
+            hoconsc:mk(
+                emqx_datetime:epoch_second(),
+                #{
+                    desc => "rfc3339 timestamp or epoch second",
+                    required => false,
+                    example => <<"2021-11-05T18:17:38+08:00">>
+                }
+            )},
+        {log_size,
+            hoconsc:mk(
+                hoconsc:array(map()),
+                #{
+                    desc => "trace log size",
+                    example => [#{<<"node">> => <<"emqx@127.0.0.1">>, <<"size">> => 1024}],
+                    required => false
+                }
+            )}
     ];
 fields(name) ->
-    [{name, hoconsc:mk(binary(),
-        #{
-            desc => <<"[a-zA-Z0-9-_]">>,
-            example => <<"EMQX-TRACE-1">>,
-            in => path,
-            validator => fun ?MODULE:validate_name/1
-        })}
+    [
+        {name,
+            hoconsc:mk(
+                binary(),
+                #{
+                    desc => <<"[a-zA-Z0-9-_]">>,
+                    example => <<"EMQX-TRACE-1">>,
+                    in => path,
+                    validator => fun ?MODULE:validate_name/1
+                }
+            )}
     ];
 fields(node) ->
-    [{node, hoconsc:mk(binary(),
-        #{
-            desc => "Node name",
-            in => query,
-            required => false
-        })}];
+    [
+        {node,
+            hoconsc:mk(
+                binary(),
+                #{
+                    desc => "Node name",
+                    in => query,
+                    required => false
+                }
+            )}
+    ];
 fields(bytes) ->
-    [{bytes, hoconsc:mk(integer(),
-        #{
-            desc => "Maximum number of bytes to store in request",
-            in => query,
-            required => false,
-            default => 1000
-        })}];
+    [
+        {bytes,
+            hoconsc:mk(
+                integer(),
+                #{
+                    desc => "Maximum number of bytes to store in request",
+                    in => query,
+                    required => false,
+                    default => 1000
+                }
+            )}
+    ];
 fields(position) ->
-    [{position, hoconsc:mk(integer(),
-        #{
-            desc => "Offset from the current trace position.",
-            in => query,
-            required => false,
-            default => 0
-        })}].
-
+    [
+        {position,
+            hoconsc:mk(
+                integer(),
+                #{
+                    desc => "Offset from the current trace position.",
+                    in => query,
+                    required => false,
+                    default => 0
+                }
+            )}
+    ].
 
 -define(NAME_RE, "^[A-Za-z]+[A-Za-z0-9-_]*$").
 
@@ -231,7 +298,8 @@ validate_name(Name) ->
                 nomatch -> {error, "Name should be " ?NAME_RE};
                 _ -> ok
             end;
-        false -> {error, "Name Length must =< 256"}
+        false ->
+            {error, "Name Length must =< 256"}
     end.
 
 delete(Keys, Fields) ->
@@ -239,32 +307,48 @@ delete(Keys, Fields) ->
 
 trace(get, _Params) ->
     case emqx_trace:list() of
-        [] -> {200, []};
+        [] ->
+            {200, []};
         List0 ->
-            List = lists:sort(fun(#{start_at := A}, #{start_at := B}) -> A > B end,
-                emqx_trace:format(List0)),
+            List = lists:sort(
+                fun(#{start_at := A}, #{start_at := B}) -> A > B end,
+                emqx_trace:format(List0)
+            ),
             Nodes = mria_mnesia:running_nodes(),
             TraceSize = wrap_rpc(emqx_mgmt_trace_proto_v1:get_trace_size(Nodes)),
             AllFileSize = lists:foldl(fun(F, Acc) -> maps:merge(Acc, F) end, #{}, TraceSize),
             Now = erlang:system_time(second),
             Traces =
-                lists:map(fun(Trace = #{name := Name, start_at := Start,
-                    end_at := End, enable := Enable, type := Type, filter := Filter}) ->
-                    FileName = emqx_trace:filename(Name, Start),
-                    LogSize = collect_file_size(Nodes, FileName, AllFileSize),
-                    Trace0 = maps:without([enable, filter], Trace),
-                    Trace0#{log_size => LogSize
-                        , Type => iolist_to_binary(Filter)
-                        , start_at => list_to_binary(calendar:system_time_to_rfc3339(Start))
-                        , end_at => list_to_binary(calendar:system_time_to_rfc3339(End))
-                        , status => status(Enable, Start, End, Now)
-                    }
-                          end, List),
+                lists:map(
+                    fun(
+                        Trace = #{
+                            name := Name,
+                            start_at := Start,
+                            end_at := End,
+                            enable := Enable,
+                            type := Type,
+                            filter := Filter
+                        }
+                    ) ->
+                        FileName = emqx_trace:filename(Name, Start),
+                        LogSize = collect_file_size(Nodes, FileName, AllFileSize),
+                        Trace0 = maps:without([enable, filter], Trace),
+                        Trace0#{
+                            log_size => LogSize,
+                            Type => iolist_to_binary(Filter),
+                            start_at => list_to_binary(calendar:system_time_to_rfc3339(Start)),
+                            end_at => list_to_binary(calendar:system_time_to_rfc3339(End)),
+                            status => status(Enable, Start, End, Now)
+                        }
+                    end,
+                    List
+                ),
             {200, Traces}
     end;
 trace(post, #{body := Param}) ->
     case emqx_trace:create(Param) of
-        {ok, Trace0} -> {200, format_trace(Trace0)};
+        {ok, Trace0} ->
+            {200, format_trace(Trace0)};
         {error, {already_existed, Name}} ->
             {400, #{
                 code => 'ALREADY_EXISTS',
@@ -287,18 +371,27 @@ trace(delete, _Param) ->
 
 format_trace(Trace0) ->
     [
-        #{start_at := Start, end_at := End,
-            enable := Enable, type := Type, filter := Filter} = Trace1
+        #{
+            start_at := Start,
+            end_at := End,
+            enable := Enable,
+            type := Type,
+            filter := Filter
+        } = Trace1
     ] = emqx_trace:format([Trace0]),
     Now = erlang:system_time(second),
-    LogSize = lists:foldl(fun(Node, Acc) -> Acc#{Node => 0} end, #{},
-        mria_mnesia:running_nodes()),
+    LogSize = lists:foldl(
+        fun(Node, Acc) -> Acc#{Node => 0} end,
+        #{},
+        mria_mnesia:running_nodes()
+    ),
     Trace2 = maps:without([enable, filter], Trace1),
-    Trace2#{log_size => LogSize
-        , Type => iolist_to_binary(Filter)
-        , start_at => list_to_binary(calendar:system_time_to_rfc3339(Start))
-        , end_at => list_to_binary(calendar:system_time_to_rfc3339(End))
-        , status => status(Enable, Start, End, Now)
+    Trace2#{
+        log_size => LogSize,
+        Type => iolist_to_binary(Filter),
+        start_at => list_to_binary(calendar:system_time_to_rfc3339(Start)),
+        end_at => list_to_binary(calendar:system_time_to_rfc3339(End)),
+        status => status(Enable, Start, End, Now)
     }.
 
 delete_trace(delete, #{bindings := #{name := Name}}) ->
@@ -334,25 +427,34 @@ download_trace_log(get, #{bindings := #{name := Name}}) ->
                 <<"content-disposition">> => iolist_to_binary("attachment; filename=" ++ ZipName)
             },
             {200, Headers, {file_binary, ZipName, Binary}};
-        {error, not_found} -> ?NOT_FOUND(Name)
+        {error, not_found} ->
+            ?NOT_FOUND(Name)
     end.
 
 group_trace_file(ZipDir, TraceLog, TraceFiles) ->
-    lists:foldl(fun(Res, Acc) ->
-        case Res of
-            {ok, Node, Bin} ->
-                FileName = Node ++ "-" ++ TraceLog,
-                ZipName = filename:join([ZipDir, FileName]),
-                case file:write_file(ZipName, Bin) of
-                    ok -> [FileName | Acc];
-                    _ -> Acc
-                end;
-            {error, Node, Reason} ->
-                ?SLOG(error, #{msg => "download_trace_log_error", node => Node,
-                               log => TraceLog, reason => Reason}),
-                Acc
-        end
-                end, [], TraceFiles).
+    lists:foldl(
+        fun(Res, Acc) ->
+            case Res of
+                {ok, Node, Bin} ->
+                    FileName = Node ++ "-" ++ TraceLog,
+                    ZipName = filename:join([ZipDir, FileName]),
+                    case file:write_file(ZipName, Bin) of
+                        ok -> [FileName | Acc];
+                        _ -> Acc
+                    end;
+                {error, Node, Reason} ->
+                    ?SLOG(error, #{
+                        msg => "download_trace_log_error",
+                        node => Node,
+                        log => TraceLog,
+                        reason => Reason
+                    }),
+                    Acc
+            end
+        end,
+        [],
+        TraceFiles
+    ).
 
 collect_trace_file(TraceLog) ->
     Nodes = mria_mnesia:running_nodes(),
@@ -376,18 +478,25 @@ stream_log_file(get, #{bindings := #{name := Name}, query_string := Query}) ->
                 {eof, Size} ->
                     Meta = #{<<"position">> => Size, <<"bytes">> => Bytes},
                     {200, #{meta => Meta, items => <<"">>}};
-                {error, enoent} -> %% the waiting trace should return "" not error.
+                %% the waiting trace should return "" not error.
+                {error, enoent} ->
                     Meta = #{<<"position">> => Position, <<"bytes">> => Bytes},
                     {200, #{meta => Meta, items => <<"">>}};
                 {error, Reason} ->
-                    ?SLOG(error, #{msg => "read_file_failed",
-                        node => Node, name => Name, reason => Reason,
-                        position => Position, bytes => Bytes}),
+                    ?SLOG(error, #{
+                        msg => "read_file_failed",
+                        node => Node,
+                        name => Name,
+                        reason => Reason,
+                        position => Position,
+                        bytes => Bytes
+                    }),
                     {400, #{code => 'READ_FILE_ERROR', message => Reason}};
                 {badrpc, nodedown} ->
                     {400, #{code => 'RPC_ERROR', message => "BadRpc node down"}}
             end;
-        {error, not_found} -> {400, #{code => 'NODE_ERROR', message => <<"Node not found">>}}
+        {error, not_found} ->
+            {400, #{code => 'NODE_ERROR', message => <<"Node not found">>}}
     end.
 
 -spec get_trace_size() -> #{{node(), file:name_all()} => non_neg_integer()}.
@@ -396,23 +505,31 @@ get_trace_size() ->
     Node = node(),
     case file:list_dir(TraceDir) of
         {ok, AllFiles} ->
-            lists:foldl(fun(File, Acc) ->
-                FullFileName = filename:join(TraceDir, File),
-                Acc#{{Node, File} => filelib:file_size(FullFileName)}
-                        end, #{}, lists:delete("zip", AllFiles));
-        _ -> #{}
+            lists:foldl(
+                fun(File, Acc) ->
+                    FullFileName = filename:join(TraceDir, File),
+                    Acc#{{Node, File} => filelib:file_size(FullFileName)}
+                end,
+                #{},
+                lists:delete("zip", AllFiles)
+            );
+        _ ->
+            #{}
     end.
 
 %% this is an rpc call for stream_log_file/2
--spec read_trace_file( binary()
-                     , non_neg_integer()
-                     , non_neg_integer()
-                     ) -> {ok, binary()}
-                        | {error, _}
-                        | {eof, non_neg_integer()}.
+-spec read_trace_file(
+    binary(),
+    non_neg_integer(),
+    non_neg_integer()
+) ->
+    {ok, binary()}
+    | {error, _}
+    | {eof, non_neg_integer()}.
 read_trace_file(Name, Position, Limit) ->
     case emqx_trace:get_trace_filename(Name) of
-        {error, _} = Error -> Error;
+        {error, _} = Error ->
+            Error;
         {ok, TraceFile} ->
             TraceDir = emqx_trace:trace_dir(),
             TracePath = filename:join([TraceDir, TraceFile]),
@@ -423,13 +540,16 @@ read_file(Path, Offset, Bytes) ->
     case file:open(Path, [read, raw, binary]) of
         {ok, IoDevice} ->
             try
-                _ = case Offset of
+                _ =
+                    case Offset of
                         0 -> ok;
                         _ -> file:position(IoDevice, {bof, Offset})
                     end,
                 case file:read(IoDevice, Bytes) of
-                    {ok, Bin} -> {ok, Bin};
-                    {error, Reason} -> {error, Reason};
+                    {ok, Bin} ->
+                        {ok, Bin};
+                    {error, Reason} ->
+                        {error, Reason};
                     eof ->
                         {ok, #file_info{size = Size}} = file:read_file_info(IoDevice),
                         {eof, Size}
@@ -437,20 +557,27 @@ read_file(Path, Offset, Bytes) ->
             after
                 file:close(IoDevice)
             end;
-        {error, Reason} -> {error, Reason}
+        {error, Reason} ->
+            {error, Reason}
     end.
 
 to_node(Node) ->
-    try {ok, binary_to_existing_atom(Node)}
-    catch _:_ ->
-        {error, not_found}
+    try
+        {ok, binary_to_existing_atom(Node)}
+    catch
+        _:_ ->
+            {error, not_found}
     end.
 
 collect_file_size(Nodes, FileName, AllFiles) ->
-    lists:foldl(fun(Node, Acc) ->
-        Size = maps:get({Node, FileName}, AllFiles, 0),
-        Acc#{Node => Size}
-                end, #{}, Nodes).
+    lists:foldl(
+        fun(Node, Acc) ->
+            Size = maps:get({Node, FileName}, AllFiles, 0),
+            Acc#{Node => Size}
+        end,
+        #{},
+        Nodes
+    ).
 
 status(false, _Start, _End, _Now) -> <<"stopped">>;
 status(true, Start, _End, Now) when Now < Start -> <<"waiting">>;

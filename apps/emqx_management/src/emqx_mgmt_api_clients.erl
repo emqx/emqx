@@ -26,63 +26,70 @@
 -include("emqx_mgmt.hrl").
 
 %% API
--export([ api_spec/0
-        , paths/0
-        , schema/1
-        , fields/1]).
+-export([
+    api_spec/0,
+    paths/0,
+    schema/1,
+    fields/1
+]).
 
--export([ clients/2
-        , client/2
-        , subscriptions/2
-        , authz_cache/2
-        , subscribe/2
-        , unsubscribe/2
-        , subscribe_batch/2
-        , set_keepalive/2
-        ]).
+-export([
+    clients/2,
+    client/2,
+    subscriptions/2,
+    authz_cache/2,
+    subscribe/2,
+    unsubscribe/2,
+    subscribe_batch/2,
+    set_keepalive/2
+]).
 
--export([ query/4
-        , format_channel_info/1
-        ]).
+-export([
+    query/4,
+    format_channel_info/1
+]).
 
 %% for batch operation
 -export([do_subscribe/3]).
 
 -define(CLIENT_QTAB, emqx_channel_info).
 
--define(CLIENT_QSCHEMA,
-        [ {<<"node">>, atom}
-        , {<<"username">>, binary}
-        , {<<"zone">>, atom}
-        , {<<"ip_address">>, ip}
-        , {<<"conn_state">>, atom}
-        , {<<"clean_start">>, atom}
-        , {<<"proto_name">>, binary}
-        , {<<"proto_ver">>, integer}
-        , {<<"like_clientid">>, binary}
-        , {<<"like_username">>, binary}
-        , {<<"gte_created_at">>, timestamp}
-        , {<<"lte_created_at">>, timestamp}
-        , {<<"gte_connected_at">>, timestamp}
-        , {<<"lte_connected_at">>, timestamp}]).
+-define(CLIENT_QSCHEMA, [
+    {<<"node">>, atom},
+    {<<"username">>, binary},
+    {<<"zone">>, atom},
+    {<<"ip_address">>, ip},
+    {<<"conn_state">>, atom},
+    {<<"clean_start">>, atom},
+    {<<"proto_name">>, binary},
+    {<<"proto_ver">>, integer},
+    {<<"like_clientid">>, binary},
+    {<<"like_username">>, binary},
+    {<<"gte_created_at">>, timestamp},
+    {<<"lte_created_at">>, timestamp},
+    {<<"gte_connected_at">>, timestamp},
+    {<<"lte_connected_at">>, timestamp}
+]).
 
 -define(QUERY_FUN, {?MODULE, query}).
 -define(FORMAT_FUN, {?MODULE, format_channel_info}).
 
 -define(CLIENT_ID_NOT_FOUND,
-    <<"{\"code\": \"RESOURCE_NOT_FOUND\", \"reason\": \"Client id not found\"}">>).
+    <<"{\"code\": \"RESOURCE_NOT_FOUND\", \"reason\": \"Client id not found\"}">>
+).
 
 api_spec() ->
     emqx_dashboard_swagger:spec(?MODULE, #{check_schema => true, translate_body => true}).
 
 paths() ->
-    [ "/clients"
-    , "/clients/:clientid"
-    , "/clients/:clientid/authorization/cache"
-    , "/clients/:clientid/subscriptions"
-    , "/clients/:clientid/subscribe"
-    , "/clients/:clientid/unsubscribe"
-    , "/clients/:clientid/keepalive"
+    [
+        "/clients",
+        "/clients/:clientid",
+        "/clients/:clientid/authorization/cache",
+        "/clients/:clientid/subscriptions",
+        "/clients/:clientid/subscribe",
+        "/clients/:clientid/unsubscribe",
+        "/clients/:clientid/keepalive"
     ].
 
 schema("/clients") ->
@@ -93,69 +100,105 @@ schema("/clients") ->
             parameters => [
                 hoconsc:ref(emqx_dashboard_swagger, page),
                 hoconsc:ref(emqx_dashboard_swagger, limit),
-                {node, hoconsc:mk(binary(), #{
-                    in => query,
-                    required => false,
-                    desc => <<"Node name">>,
-                    example => atom_to_list(node())})},
-                {username, hoconsc:mk(binary(), #{
-                    in => query,
-                    required => false,
-                    desc => <<"User name">>})},
-                {zone, hoconsc:mk(binary(), #{
-                    in => query,
-                    required => false})},
-                {ip_address, hoconsc:mk(binary(), #{
-                    in => query,
-                    required => false,
-                    desc => <<"Client's IP address">>,
-                    example => <<"127.0.0.1">>})},
-                {conn_state, hoconsc:mk(hoconsc:enum([connected, idle, disconnected]), #{
-                    in => query,
-                    required => false,
-                    desc => <<"The current connection status of the client, ",
-                        "the possible values are connected,idle,disconnected">>})},
-                {clean_start, hoconsc:mk(boolean(), #{
-                    in => query,
-                    required => false,
-                    description => <<"Whether the client uses a new session">>})},
-                {proto_name, hoconsc:mk(hoconsc:enum(['MQTT', 'CoAP', 'LwM2M', 'MQTT-SN']), #{
-                    in => query,
-                    required => false,
-                    description => <<"Client protocol name, ",
-                        "the possible values are MQTT,CoAP,LwM2M,MQTT-SN">>})},
-                {proto_ver, hoconsc:mk(binary(), #{
-                    in => query,
-                    required => false,
-                    desc => <<"Client protocol version">>})},
-                {like_clientid, hoconsc:mk(binary(), #{
-                    in => query,
-                    required => false,
-                    desc => <<"Fuzzy search `clientid` as substring">>})},
-                {like_username, hoconsc:mk(binary(), #{
-                    in => query,
-                    required => false,
-                    desc => <<"Fuzzy search `username` as substring">>})},
-                {gte_created_at, hoconsc:mk(emqx_datetime:epoch_millisecond(), #{
-                    in => query,
-                    required => false,
-                    desc => <<"Search client session creation time by greater",
-                        " than or equal method, rfc3339 or timestamp(millisecond)">>})},
-                {lte_created_at, hoconsc:mk(emqx_datetime:epoch_millisecond(), #{
-                    in => query,
-                    required => false,
-                    desc => <<"Search client session creation time by less",
-                        " than or equal method, rfc3339 or timestamp(millisecond)">>})},
-                {gte_connected_at, hoconsc:mk(emqx_datetime:epoch_millisecond(), #{
-                    in => query,
-                    required => false,
-                    desc => <<"Search client connection creation time by greater"
-                        " than or equal method, rfc3339 or timestamp(epoch millisecond)">>})},
-                {lte_connected_at, hoconsc:mk(emqx_datetime:epoch_millisecond(), #{
-                    in => query,
-                    required => false,
-                    desc => <<"Search client connection creation time by less"
-                        " than or equal method, rfc3339 or timestamp(millisecond)">>})}
+                {node,
+                    hoconsc:mk(binary(), #{
+                        in => query,
+                        required => false,
+                        desc => <<"Node name">>,
+                        example => atom_to_list(node())
+                    })},
+                {username,
+                    hoconsc:mk(binary(), #{
+                        in => query,
+                        required => false,
+                        desc => <<"User name">>
+                    })},
+                {zone,
+                    hoconsc:mk(binary(), #{
+                        in => query,
+                        required => false
+                    })},
+                {ip_address,
+                    hoconsc:mk(binary(), #{
+                        in => query,
+                        required => false,
+                        desc => <<"Client's IP address">>,
+                        example => <<"127.0.0.1">>
+                    })},
+                {conn_state,
+                    hoconsc:mk(hoconsc:enum([connected, idle, disconnected]), #{
+                        in => query,
+                        required => false,
+                        desc =>
+                            <<"The current connection status of the client, ",
+                                "the possible values are connected,idle,disconnected">>
+                    })},
+                {clean_start,
+                    hoconsc:mk(boolean(), #{
+                        in => query,
+                        required => false,
+                        description => <<"Whether the client uses a new session">>
+                    })},
+                {proto_name,
+                    hoconsc:mk(hoconsc:enum(['MQTT', 'CoAP', 'LwM2M', 'MQTT-SN']), #{
+                        in => query,
+                        required => false,
+                        description =>
+                            <<"Client protocol name, ",
+                                "the possible values are MQTT,CoAP,LwM2M,MQTT-SN">>
+                    })},
+                {proto_ver,
+                    hoconsc:mk(binary(), #{
+                        in => query,
+                        required => false,
+                        desc => <<"Client protocol version">>
+                    })},
+                {like_clientid,
+                    hoconsc:mk(binary(), #{
+                        in => query,
+                        required => false,
+                        desc => <<"Fuzzy search `clientid` as substring">>
+                    })},
+                {like_username,
+                    hoconsc:mk(binary(), #{
+                        in => query,
+                        required => false,
+                        desc => <<"Fuzzy search `username` as substring">>
+                    })},
+                {gte_created_at,
+                    hoconsc:mk(emqx_datetime:epoch_millisecond(), #{
+                        in => query,
+                        required => false,
+                        desc =>
+                            <<"Search client session creation time by greater",
+                                " than or equal method, rfc3339 or timestamp(millisecond)">>
+                    })},
+                {lte_created_at,
+                    hoconsc:mk(emqx_datetime:epoch_millisecond(), #{
+                        in => query,
+                        required => false,
+                        desc =>
+                            <<"Search client session creation time by less",
+                                " than or equal method, rfc3339 or timestamp(millisecond)">>
+                    })},
+                {gte_connected_at,
+                    hoconsc:mk(emqx_datetime:epoch_millisecond(), #{
+                        in => query,
+                        required => false,
+                        desc => <<
+                            "Search client connection creation time by greater"
+                            " than or equal method, rfc3339 or timestamp(epoch millisecond)"
+                        >>
+                    })},
+                {lte_connected_at,
+                    hoconsc:mk(emqx_datetime:epoch_millisecond(), #{
+                        in => query,
+                        required => false,
+                        desc => <<
+                            "Search client connection creation time by less"
+                            " than or equal method, rfc3339 or timestamp(millisecond)"
+                        >>
+                    })}
             ],
             responses => #{
                 200 => [
@@ -164,10 +207,11 @@ schema("/clients") ->
                 ],
                 400 =>
                     emqx_dashboard_swagger:error_codes(
-                        ['INVALID_PARAMETER'], <<"Invalid parameters">>)}
+                        ['INVALID_PARAMETER'], <<"Invalid parameters">>
+                    )
+            }
         }
     };
-
 schema("/clients/:clientid") ->
     #{
         'operationId' => client,
@@ -177,19 +221,23 @@ schema("/clients/:clientid") ->
             responses => #{
                 200 => hoconsc:mk(hoconsc:ref(?MODULE, client), #{}),
                 404 => emqx_dashboard_swagger:error_codes(
-                           ['CLIENTID_NOT_FOUND'], <<"Client id not found">>)}},
+                    ['CLIENTID_NOT_FOUND'], <<"Client id not found">>
+                )
+            }
+        },
         delete => #{
             description => <<"Kick out client by client ID">>,
             parameters => [
-                {clientid, hoconsc:mk(binary(), #{in => path})}],
+                {clientid, hoconsc:mk(binary(), #{in => path})}
+            ],
             responses => #{
                 204 => <<"Kick out client successfully">>,
                 404 => emqx_dashboard_swagger:error_codes(
-                           ['CLIENTID_NOT_FOUND'], <<"Client id not found">>)
+                    ['CLIENTID_NOT_FOUND'], <<"Client id not found">>
+                )
             }
         }
     };
-
 schema("/clients/:clientid/authorization/cache") ->
     #{
         'operationId' => authz_cache,
@@ -199,7 +247,8 @@ schema("/clients/:clientid/authorization/cache") ->
             responses => #{
                 200 => hoconsc:mk(hoconsc:ref(?MODULE, authz_cache), #{}),
                 404 => emqx_dashboard_swagger:error_codes(
-                    ['CLIENTID_NOT_FOUND'], <<"Client id not found">>)
+                    ['CLIENTID_NOT_FOUND'], <<"Client id not found">>
+                )
             }
         },
         delete => #{
@@ -208,11 +257,11 @@ schema("/clients/:clientid/authorization/cache") ->
             responses => #{
                 204 => <<"Kick out client successfully">>,
                 404 => emqx_dashboard_swagger:error_codes(
-                    ['CLIENTID_NOT_FOUND'], <<"Client id not found">>)
+                    ['CLIENTID_NOT_FOUND'], <<"Client id not found">>
+                )
             }
         }
     };
-
 schema("/clients/:clientid/subscriptions") ->
     #{
         'operationId' => subscriptions,
@@ -220,13 +269,15 @@ schema("/clients/:clientid/subscriptions") ->
             description => <<"Get client subscriptions">>,
             parameters => [{clientid, hoconsc:mk(binary(), #{in => path})}],
             responses => #{
-                200 => hoconsc:mk(hoconsc:array(hoconsc:ref(emqx_mgmt_api_subscriptions, subscription)), #{}),
+                200 => hoconsc:mk(
+                    hoconsc:array(hoconsc:ref(emqx_mgmt_api_subscriptions, subscription)), #{}
+                ),
                 404 => emqx_dashboard_swagger:error_codes(
-                    ['CLIENTID_NOT_FOUND'], <<"Client id not found">>)
+                    ['CLIENTID_NOT_FOUND'], <<"Client id not found">>
+                )
             }
         }
     };
-
 schema("/clients/:clientid/subscribe") ->
     #{
         'operationId' => subscribe,
@@ -237,11 +288,11 @@ schema("/clients/:clientid/subscribe") ->
             responses => #{
                 200 => hoconsc:ref(emqx_mgmt_api_subscriptions, subscription),
                 404 => emqx_dashboard_swagger:error_codes(
-                    ['CLIENTID_NOT_FOUND'], <<"Client id not found">>)
+                    ['CLIENTID_NOT_FOUND'], <<"Client id not found">>
+                )
             }
         }
     };
-
 schema("/clients/:clientid/unsubscribe") ->
     #{
         'operationId' => unsubscribe,
@@ -252,11 +303,11 @@ schema("/clients/:clientid/unsubscribe") ->
             responses => #{
                 204 => <<"Unsubscribe OK">>,
                 404 => emqx_dashboard_swagger:error_codes(
-                    ['CLIENTID_NOT_FOUND'], <<"Client id not found">>)
+                    ['CLIENTID_NOT_FOUND'], <<"Client id not found">>
+                )
             }
         }
     };
-
 schema("/clients/:clientid/keepalive") ->
     #{
         'operationId' => set_keepalive,
@@ -267,96 +318,187 @@ schema("/clients/:clientid/keepalive") ->
             responses => #{
                 200 => hoconsc:mk(hoconsc:ref(?MODULE, client), #{}),
                 404 => emqx_dashboard_swagger:error_codes(
-                    ['CLIENTID_NOT_FOUND'], <<"Client id not found">>)
+                    ['CLIENTID_NOT_FOUND'], <<"Client id not found">>
+                )
             }
         }
     }.
 
 fields(client) ->
     [
-        {awaiting_rel_cnt, hoconsc:mk(integer(), #{desc =>
-            <<"v4 api name [awaiting_rel] Number of awaiting PUBREC packet">>})},
-        {awaiting_rel_max, hoconsc:mk(integer(), #{desc =>
-            <<"v4 api name [max_awaiting_rel]. "
-            "Maximum allowed number of awaiting PUBREC packet">>})},
-        {clean_start, hoconsc:mk(boolean(), #{desc =>
-            <<"Indicate whether the client is using a brand new session">>})},
+        {awaiting_rel_cnt,
+            hoconsc:mk(integer(), #{
+                desc =>
+                    <<"v4 api name [awaiting_rel] Number of awaiting PUBREC packet">>
+            })},
+        {awaiting_rel_max,
+            hoconsc:mk(integer(), #{
+                desc =>
+                    <<
+                        "v4 api name [max_awaiting_rel]. "
+                        "Maximum allowed number of awaiting PUBREC packet"
+                    >>
+            })},
+        {clean_start,
+            hoconsc:mk(boolean(), #{
+                desc =>
+                    <<"Indicate whether the client is using a brand new session">>
+            })},
         {clientid, hoconsc:mk(binary(), #{desc => <<"Client identifier">>})},
         {connected, hoconsc:mk(boolean(), #{desc => <<"Whether the client is connected">>})},
-        {connected_at, hoconsc:mk(emqx_datetime:epoch_millisecond(),
-            #{desc => <<"Client connection time, rfc3339 or timestamp(millisecond)">>})},
-        {created_at, hoconsc:mk(emqx_datetime:epoch_millisecond(),
-            #{desc => <<"Session creation time, rfc3339 or timestamp(millisecond)">>})},
-        {disconnected_at, hoconsc:mk(emqx_datetime:epoch_millisecond(), #{desc =>
-            <<"Client offline time."
-            " It's Only valid and returned when connected is false, rfc3339 or timestamp(millisecond)">>})},
-        {expiry_interval, hoconsc:mk(integer(), #{desc =>
-            <<"Session expiration interval, with the unit of second">>})},
-        {heap_size, hoconsc:mk(integer(), #{desc =>
-            <<"Process heap size with the unit of byte">>})},
+        {connected_at,
+            hoconsc:mk(
+                emqx_datetime:epoch_millisecond(),
+                #{desc => <<"Client connection time, rfc3339 or timestamp(millisecond)">>}
+            )},
+        {created_at,
+            hoconsc:mk(
+                emqx_datetime:epoch_millisecond(),
+                #{desc => <<"Session creation time, rfc3339 or timestamp(millisecond)">>}
+            )},
+        {disconnected_at,
+            hoconsc:mk(emqx_datetime:epoch_millisecond(), #{
+                desc =>
+                    <<
+                        "Client offline time."
+                        " It's Only valid and returned when connected is false, rfc3339 or timestamp(millisecond)"
+                    >>
+            })},
+        {expiry_interval,
+            hoconsc:mk(integer(), #{
+                desc =>
+                    <<"Session expiration interval, with the unit of second">>
+            })},
+        {heap_size,
+            hoconsc:mk(integer(), #{
+                desc =>
+                    <<"Process heap size with the unit of byte">>
+            })},
         {inflight_cnt, hoconsc:mk(integer(), #{desc => <<"Current length of inflight">>})},
-        {inflight_max, hoconsc:mk(integer(), #{desc =>
-            <<"v4 api name [max_inflight]. Maximum length of inflight">>})},
+        {inflight_max,
+            hoconsc:mk(integer(), #{
+                desc =>
+                    <<"v4 api name [max_inflight]. Maximum length of inflight">>
+            })},
         {ip_address, hoconsc:mk(binary(), #{desc => <<"Client's IP address">>})},
-        {is_bridge, hoconsc:mk(boolean(), #{desc =>
-            <<"Indicates whether the client is connectedvia bridge">>})},
-        {keepalive, hoconsc:mk(integer(), #{desc =>
-            <<"keepalive time, with the unit of second">>})},
+        {is_bridge,
+            hoconsc:mk(boolean(), #{
+                desc =>
+                    <<"Indicates whether the client is connectedvia bridge">>
+            })},
+        {keepalive,
+            hoconsc:mk(integer(), #{
+                desc =>
+                    <<"keepalive time, with the unit of second">>
+            })},
         {mailbox_len, hoconsc:mk(integer(), #{desc => <<"Process mailbox size">>})},
-        {mqueue_dropped, hoconsc:mk(integer(), #{desc =>
-            <<"Number of messages dropped by the message queue due to exceeding the length">>})},
+        {mqueue_dropped,
+            hoconsc:mk(integer(), #{
+                desc =>
+                    <<"Number of messages dropped by the message queue due to exceeding the length">>
+            })},
         {mqueue_len, hoconsc:mk(integer(), #{desc => <<"Current length of message queue">>})},
-        {mqueue_max, hoconsc:mk(integer(), #{desc =>
-            <<"v4 api name [max_mqueue]. Maximum length of message queue">>})},
-        {node, hoconsc:mk(binary(), #{desc =>
-            <<"Name of the node to which the client is connected">>})},
+        {mqueue_max,
+            hoconsc:mk(integer(), #{
+                desc =>
+                    <<"v4 api name [max_mqueue]. Maximum length of message queue">>
+            })},
+        {node,
+            hoconsc:mk(binary(), #{
+                desc =>
+                    <<"Name of the node to which the client is connected">>
+            })},
         {port, hoconsc:mk(integer(), #{desc => <<"Client's port">>})},
         {proto_name, hoconsc:mk(binary(), #{desc => <<"Client protocol name">>})},
         {proto_ver, hoconsc:mk(integer(), #{desc => <<"Protocol version used by the client">>})},
         {recv_cnt, hoconsc:mk(integer(), #{desc => <<"Number of TCP packets received">>})},
         {recv_msg, hoconsc:mk(integer(), #{desc => <<"Number of PUBLISH packets received">>})},
-        {'recv_msg.dropped', hoconsc:mk(integer(), #{desc =>
-            <<"Number of dropped PUBLISH packets">>})},
-        {'recv_msg.dropped.await_pubrel_timeout', hoconsc:mk(integer(), #{desc =>
-            <<"Number of dropped PUBLISH packets due to expired">>})},
-        {'recv_msg.qos0', hoconsc:mk(integer(), #{desc =>
-            <<"Number of PUBLISH QoS0 packets received">>})},
-        {'recv_msg.qos1', hoconsc:mk(integer(), #{desc =>
-            <<"Number of PUBLISH QoS1 packets received">>})},
-        {'recv_msg.qos2', hoconsc:mk(integer(), #{desc =>
-            <<"Number of PUBLISH QoS2 packets received">>})},
+        {'recv_msg.dropped',
+            hoconsc:mk(integer(), #{
+                desc =>
+                    <<"Number of dropped PUBLISH packets">>
+            })},
+        {'recv_msg.dropped.await_pubrel_timeout',
+            hoconsc:mk(integer(), #{
+                desc =>
+                    <<"Number of dropped PUBLISH packets due to expired">>
+            })},
+        {'recv_msg.qos0',
+            hoconsc:mk(integer(), #{
+                desc =>
+                    <<"Number of PUBLISH QoS0 packets received">>
+            })},
+        {'recv_msg.qos1',
+            hoconsc:mk(integer(), #{
+                desc =>
+                    <<"Number of PUBLISH QoS1 packets received">>
+            })},
+        {'recv_msg.qos2',
+            hoconsc:mk(integer(), #{
+                desc =>
+                    <<"Number of PUBLISH QoS2 packets received">>
+            })},
         {recv_oct, hoconsc:mk(integer(), #{desc => <<"Number of bytes received">>})},
         {recv_pkt, hoconsc:mk(integer(), #{desc => <<"Number of MQTT packets received">>})},
         {reductions, hoconsc:mk(integer(), #{desc => <<"Erlang reduction">>})},
         {send_cnt, hoconsc:mk(integer(), #{desc => <<"Number of TCP packets sent">>})},
         {send_msg, hoconsc:mk(integer(), #{desc => <<"Number of PUBLISH packets sent">>})},
-        {'send_msg.dropped', hoconsc:mk(integer(), #{desc =>
-            <<"Number of dropped PUBLISH packets">>})},
-        {'send_msg.dropped.expired', hoconsc:mk(integer(), #{desc =>
-            <<"Number of dropped PUBLISH packets due to expired">>})},
-        {'send_msg.dropped.queue_full', hoconsc:mk(integer(), #{desc =>
-            <<"Number of dropped PUBLISH packets due to queue full">>})},
-        {'send_msg.dropped.too_large', hoconsc:mk(integer(), #{desc =>
-            <<"Number of dropped PUBLISH packets due to packet length too large">>})},
-        {'send_msg.qos0', hoconsc:mk(integer(), #{desc =>
-            <<"Number of PUBLISH QoS0 packets sent">>})},
-        {'send_msg.qos1', hoconsc:mk(integer(), #{desc =>
-            <<"Number of PUBLISH QoS1 packets sent">>})},
-        {'send_msg.qos2', hoconsc:mk(integer(), #{desc =>
-            <<"Number of PUBLISH QoS2 packets sent">>})},
+        {'send_msg.dropped',
+            hoconsc:mk(integer(), #{
+                desc =>
+                    <<"Number of dropped PUBLISH packets">>
+            })},
+        {'send_msg.dropped.expired',
+            hoconsc:mk(integer(), #{
+                desc =>
+                    <<"Number of dropped PUBLISH packets due to expired">>
+            })},
+        {'send_msg.dropped.queue_full',
+            hoconsc:mk(integer(), #{
+                desc =>
+                    <<"Number of dropped PUBLISH packets due to queue full">>
+            })},
+        {'send_msg.dropped.too_large',
+            hoconsc:mk(integer(), #{
+                desc =>
+                    <<"Number of dropped PUBLISH packets due to packet length too large">>
+            })},
+        {'send_msg.qos0',
+            hoconsc:mk(integer(), #{
+                desc =>
+                    <<"Number of PUBLISH QoS0 packets sent">>
+            })},
+        {'send_msg.qos1',
+            hoconsc:mk(integer(), #{
+                desc =>
+                    <<"Number of PUBLISH QoS1 packets sent">>
+            })},
+        {'send_msg.qos2',
+            hoconsc:mk(integer(), #{
+                desc =>
+                    <<"Number of PUBLISH QoS2 packets sent">>
+            })},
         {send_oct, hoconsc:mk(integer(), #{desc => <<"Number of bytes sent">>})},
         {send_pkt, hoconsc:mk(integer(), #{desc => <<"Number of MQTT packets sent">>})},
-        {subscriptions_cnt, hoconsc:mk(integer(), #{desc =>
-            <<"Number of subscriptions established by this client.">>})},
-        {subscriptions_max, hoconsc:mk(integer(), #{desc =>
-            <<"v4 api name [max_subscriptions]",
-            " Maximum number of subscriptions allowed by this client">>})},
+        {subscriptions_cnt,
+            hoconsc:mk(integer(), #{
+                desc =>
+                    <<"Number of subscriptions established by this client.">>
+            })},
+        {subscriptions_max,
+            hoconsc:mk(integer(), #{
+                desc =>
+                    <<"v4 api name [max_subscriptions]",
+                        " Maximum number of subscriptions allowed by this client">>
+            })},
         {username, hoconsc:mk(binary(), #{desc => <<"User name of client when connecting">>})},
         {will_msg, hoconsc:mk(binary(), #{desc => <<"Client will message">>})},
-        {zone, hoconsc:mk(binary(), #{desc =>
-            <<"Indicate the configuration group used by the client">>})}
+        {zone,
+            hoconsc:mk(binary(), #{
+                desc =>
+                    <<"Indicate the configuration group used by the client">>
+            })}
     ];
-
 fields(authz_cache) ->
     [
         {access, hoconsc:mk(binary(), #{desc => <<"Access type">>})},
@@ -364,23 +506,19 @@ fields(authz_cache) ->
         {topic, hoconsc:mk(binary(), #{desc => <<"Topic name">>})},
         {updated_time, hoconsc:mk(integer(), #{desc => <<"Update time">>})}
     ];
-
 fields(keepalive) ->
     [
         {interval, hoconsc:mk(integer(), #{desc => <<"Keepalive time, with the unit of second">>})}
     ];
-
 fields(subscribe) ->
     [
         {topic, hoconsc:mk(binary(), #{desc => <<"Topic">>})},
         {qos, hoconsc:mk(emqx_schema:qos(), #{desc => <<"QoS">>})}
     ];
-
 fields(unsubscribe) ->
     [
         {topic, hoconsc:mk(binary(), #{desc => <<"Topic">>})}
     ];
-
 fields(meta) ->
     emqx_dashboard_swagger:fields(page) ++
         emqx_dashboard_swagger:fields(limit) ++
@@ -393,13 +531,11 @@ clients(get, #{query_string := QString}) ->
 
 client(get, #{bindings := Bindings}) ->
     lookup(Bindings);
-
 client(delete, #{bindings := Bindings}) ->
     kickout(Bindings).
 
 authz_cache(get, #{bindings := Bindings}) ->
     get_authz_cache(Bindings);
-
 authz_cache(delete, #{bindings := Bindings}) ->
     clean_authz_cache(Bindings).
 
@@ -415,11 +551,14 @@ unsubscribe(post, #{bindings := #{clientid := ClientID}, body := TopicInfo}) ->
 %% TODO: batch
 subscribe_batch(post, #{bindings := #{clientid := ClientID}, body := TopicInfos}) ->
     Topics =
-        [begin
-             Topic = maps:get(<<"topic">>, TopicInfo),
-             Qos = maps:get(<<"qos">>, TopicInfo, 0),
-             #{topic => Topic, qos => Qos}
-         end || TopicInfo <- TopicInfos],
+        [
+            begin
+                Topic = maps:get(<<"topic">>, TopicInfo),
+                Qos = maps:get(<<"qos">>, TopicInfo, 0),
+                #{topic => Topic, qos => Qos}
+            end
+         || TopicInfo <- TopicInfos
+        ],
     subscribe_batch(#{clientid => ClientID, topics => Topics}).
 
 subscriptions(get, #{bindings := #{clientid := ClientID}}) ->
@@ -436,16 +575,17 @@ subscriptions(get, #{bindings := #{clientid := ClientID}}) ->
                         qos => maps:get(qos, SubOpts)
                     }
                 end,
-        {200, lists:map(Formatter, Subs)}
+            {200, lists:map(Formatter, Subs)}
     end.
 
 set_keepalive(put, #{bindings := #{clientid := ClientID}, body := Body}) ->
     case maps:find(<<"interval">>, Body) of
-        error -> {400, 'BAD_REQUEST',"Interval Not Found"};
+        error ->
+            {400, 'BAD_REQUEST', "Interval Not Found"};
         {ok, Interval} ->
             case emqx_mgmt:set_keepalive(emqx_mgmt_util:urldecode(ClientID), Interval) of
                 ok -> lookup(#{clientid => ClientID});
-                {error, not_found} ->{404, ?CLIENT_ID_NOT_FOUND};
+                {error, not_found} -> {404, ?CLIENT_ID_NOT_FOUND};
                 {error, Reason} -> {400, #{code => 'PARAMS_ERROR', message => Reason}}
             end
     end.
@@ -454,16 +594,26 @@ set_keepalive(put, #{bindings := #{clientid := ClientID}, body := Body}) ->
 %% api apply
 
 list_clients(QString) ->
-    Result = case maps:get(<<"node">>, QString, undefined) of
-                 undefined ->
-                     emqx_mgmt_api:cluster_query(QString, ?CLIENT_QTAB,
-                                                 ?CLIENT_QSCHEMA, ?QUERY_FUN);
-                 Node0 ->
-                     Node1 = binary_to_atom(Node0, utf8),
-                     QStringWithoutNode = maps:without([<<"node">>], QString),
-                     emqx_mgmt_api:node_query(Node1, QStringWithoutNode,
-                                              ?CLIENT_QTAB, ?CLIENT_QSCHEMA, ?QUERY_FUN)
-             end,
+    Result =
+        case maps:get(<<"node">>, QString, undefined) of
+            undefined ->
+                emqx_mgmt_api:cluster_query(
+                    QString,
+                    ?CLIENT_QTAB,
+                    ?CLIENT_QSCHEMA,
+                    ?QUERY_FUN
+                );
+            Node0 ->
+                Node1 = binary_to_atom(Node0, utf8),
+                QStringWithoutNode = maps:without([<<"node">>], QString),
+                emqx_mgmt_api:node_query(
+                    Node1,
+                    QStringWithoutNode,
+                    ?CLIENT_QTAB,
+                    ?CLIENT_QSCHEMA,
+                    ?QUERY_FUN
+                )
+        end,
     case Result of
         {error, page_limit_invalid} ->
             {400, #{code => <<"INVALID_PARAMETER">>, message => <<"page_limit_invalid">>}};
@@ -490,7 +640,7 @@ kickout(#{clientid := ClientID}) ->
             {204}
     end.
 
-get_authz_cache(#{clientid := ClientID})->
+get_authz_cache(#{clientid := ClientID}) ->
     case emqx_mgmt:list_authz_cache(ClientID) of
         {error, not_found} ->
             {404, ?CLIENT_ID_NOT_FOUND};
@@ -524,9 +674,9 @@ subscribe(#{clientid := ClientID, topic := Topic, qos := Qos}) ->
             Response =
                 #{
                     clientid => ClientID,
-                    topic    => Topic,
-                    qos      => Qos,
-                    node     => Node
+                    topic => Topic,
+                    qos => Qos,
+                    node => Node
                 },
             {200, Response}
     end.
@@ -562,7 +712,7 @@ do_subscribe(ClientID, Topic0, Qos) ->
     end.
 
 -spec do_unsubscribe(emqx_types:clientid(), emqx_types:topic()) ->
-          {unsubscribe, _} | {error, channel_not_found}.
+    {unsubscribe, _} | {error, channel_not_found}.
 do_unsubscribe(ClientID, Topic) ->
     case emqx_mgmt:unsubscribe(ClientID, Topic) of
         {error, Reason} ->
@@ -576,14 +726,23 @@ do_unsubscribe(ClientID, Topic) ->
 
 query(Tab, {QString, []}, Continuation, Limit) ->
     Ms = qs2ms(QString),
-    emqx_mgmt_api:select_table_with_count(Tab, Ms, Continuation, Limit,
-                                          fun format_channel_info/1);
-
+    emqx_mgmt_api:select_table_with_count(
+        Tab,
+        Ms,
+        Continuation,
+        Limit,
+        fun format_channel_info/1
+    );
 query(Tab, {QString, FuzzyQString}, Continuation, Limit) ->
     Ms = qs2ms(QString),
     FuzzyFilterFun = fuzzy_filter_fun(FuzzyQString),
-    emqx_mgmt_api:select_table_with_count(Tab, {Ms, FuzzyFilterFun}, Continuation, Limit,
-                                          fun format_channel_info/1).
+    emqx_mgmt_api:select_table_with_count(
+        Tab,
+        {Ms, FuzzyFilterFun},
+        Continuation,
+        Limit,
+        fun format_channel_info/1
+    ).
 
 %%--------------------------------------------------------------------
 %% QueryString to Match Spec
@@ -595,7 +754,6 @@ qs2ms(Qs) ->
 
 qs2ms([], _, {MtchHead, Conds}) ->
     {MtchHead, lists:reverse(Conds)};
-
 qs2ms([{Key, '=:=', Value} | Rest], N, {MtchHead, Conds}) ->
     NMtchHead = emqx_mgmt_util:merge_maps(MtchHead, ms(Key, Value)),
     qs2ms(Rest, N, {NMtchHead, Conds});
@@ -603,13 +761,16 @@ qs2ms([Qs | Rest], N, {MtchHead, Conds}) ->
     Holder = binary_to_atom(iolist_to_binary(["$", integer_to_list(N)]), utf8),
     NMtchHead = emqx_mgmt_util:merge_maps(MtchHead, ms(element(1, Qs), Holder)),
     NConds = put_conds(Qs, Holder, Conds),
-    qs2ms(Rest, N+1, {NMtchHead, NConds}).
+    qs2ms(Rest, N + 1, {NMtchHead, NConds}).
 
 put_conds({_, Op, V}, Holder, Conds) ->
     [{Op, Holder, V} | Conds];
 put_conds({_, Op1, V1, Op2, V2}, Holder, Conds) ->
-    [{Op2, Holder, V2},
-        {Op1, Holder, V1} | Conds].
+    [
+        {Op2, Holder, V2},
+        {Op1, Holder, V1}
+        | Conds
+    ].
 
 ms(clientid, X) ->
     #{clientinfo => #{clientid => X}};
@@ -637,68 +798,78 @@ ms(created_at, X) ->
 
 fuzzy_filter_fun(Fuzzy) ->
     fun(MsRaws) when is_list(MsRaws) ->
-        lists:filter( fun(E) -> run_fuzzy_filter(E, Fuzzy) end
-                    , MsRaws)
+        lists:filter(
+            fun(E) -> run_fuzzy_filter(E, Fuzzy) end,
+            MsRaws
+        )
     end.
 
 run_fuzzy_filter(_, []) ->
     true;
 run_fuzzy_filter(E = {_, #{clientinfo := ClientInfo}, _}, [{Key, like, SubStr} | Fuzzy]) ->
-    Val = case maps:get(Key, ClientInfo, <<>>) of
-              undefined -> <<>>;
-              V -> V
-          end,
+    Val =
+        case maps:get(Key, ClientInfo, <<>>) of
+            undefined -> <<>>;
+            V -> V
+        end,
     binary:match(Val, SubStr) /= nomatch andalso run_fuzzy_filter(E, Fuzzy).
 
 %%--------------------------------------------------------------------
 %% format funcs
 
 format_channel_info({_, ClientInfo, ClientStats}) ->
-    Node = case ClientInfo of
-               #{node := N} -> N;
-               _            -> node()
-           end,
-    StatsMap = maps:without([memory, next_pkt_id, total_heap_size],
-        maps:from_list(ClientStats)),
+    Node =
+        case ClientInfo of
+            #{node := N} -> N;
+            _ -> node()
+        end,
+    StatsMap = maps:without(
+        [memory, next_pkt_id, total_heap_size],
+        maps:from_list(ClientStats)
+    ),
     ClientInfoMap0 = maps:fold(fun take_maps_from_inner/3, #{}, ClientInfo),
     {IpAddress, Port} = peername_dispart(maps:get(peername, ClientInfoMap0)),
-    Connected      = maps:get(conn_state, ClientInfoMap0) =:= connected,
+    Connected = maps:get(conn_state, ClientInfoMap0) =:= connected,
     ClientInfoMap1 = maps:merge(StatsMap, ClientInfoMap0),
     ClientInfoMap2 = maps:put(node, Node, ClientInfoMap1),
     ClientInfoMap3 = maps:put(ip_address, IpAddress, ClientInfoMap2),
     ClientInfoMap4 = maps:put(port, Port, ClientInfoMap3),
-    ClientInfoMap  = maps:put(connected, Connected, ClientInfoMap4),
+    ClientInfoMap = maps:put(connected, Connected, ClientInfoMap4),
     RemoveList =
-        [ auth_result
-        , peername
-        , sockname
-        , peerhost
-        , conn_state
-        , send_pend
-        , conn_props
-        , peercert
-        , sockstate
-        , subscriptions
-        , receive_maximum
-        , protocol
-        , is_superuser
-        , sockport
-        , anonymous
-        , mountpoint
-        , socktype
-        , active_n
-        , await_rel_timeout
-        , conn_mod
-        , sockname
-        , retry_interval
-        , upgrade_qos
-        , id %% sessionID, defined in emqx_session.erl
-    ],
+        [
+            auth_result,
+            peername,
+            sockname,
+            peerhost,
+            conn_state,
+            send_pend,
+            conn_props,
+            peercert,
+            sockstate,
+            subscriptions,
+            receive_maximum,
+            protocol,
+            is_superuser,
+            sockport,
+            anonymous,
+            mountpoint,
+            socktype,
+            active_n,
+            await_rel_timeout,
+            conn_mod,
+            sockname,
+            retry_interval,
+            upgrade_qos,
+            %% sessionID, defined in emqx_session.erl
+            id
+        ],
     TimesKeys = [created_at, connected_at, disconnected_at],
     %% format timestamp to rfc3339
-    lists:foldl(fun result_format_time_fun/2
-               , maps:without(RemoveList, ClientInfoMap)
-               , TimesKeys).
+    lists:foldl(
+        fun result_format_time_fun/2,
+        maps:without(RemoveList, ClientInfoMap),
+        TimesKeys
+    ).
 
 %% format func helpers
 take_maps_from_inner(_Key, Value, Current) when is_map(Value) ->
@@ -710,20 +881,22 @@ result_format_time_fun(Key, NClientInfoMap) ->
     case NClientInfoMap of
         #{Key := TimeStamp} ->
             NClientInfoMap#{
-              Key => emqx_datetime:epoch_to_rfc3339(TimeStamp)};
+                Key => emqx_datetime:epoch_to_rfc3339(TimeStamp)
+            };
         #{} ->
             NClientInfoMap
     end.
 
--spec(peername_dispart(emqx_types:peername()) -> {binary(), inet:port_number()}).
+-spec peername_dispart(emqx_types:peername()) -> {binary(), inet:port_number()}.
 peername_dispart({Addr, Port}) ->
     AddrBinary = list_to_binary(inet:ntoa(Addr)),
     %% PortBinary = integer_to_binary(Port),
     {AddrBinary, Port}.
 
 format_authz_cache({{PubSub, Topic}, {AuthzResult, Timestamp}}) ->
-    #{ access => PubSub,
-       topic => Topic,
-       result => AuthzResult,
-       updated_time => Timestamp
-     }.
+    #{
+        access => PubSub,
+        topic => Topic,
+        result => AuthzResult,
+        updated_time => Timestamp
+    }.

@@ -125,7 +125,7 @@ force_leave(delete, #{bindings := #{node := Node0}}) ->
             {400, #{code => 'BAD_REQUEST', message => error_message(Error)}}
     end.
 
--spec(join(node()) -> ok | ignore | {error, term()}).
+-spec join(node()) -> ok | ignore | {error, term()}.
 join(Node) ->
     ekka:join(Node).
 

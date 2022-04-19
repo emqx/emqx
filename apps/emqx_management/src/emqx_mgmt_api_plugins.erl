@@ -22,27 +22,30 @@
 -include_lib("emqx/include/logger.hrl").
 %%-include_lib("emqx_plugins/include/emqx_plugins.hrl").
 
--export([ api_spec/0
-        , fields/1
-        , paths/0
-        , schema/1
-        , namespace/0
-        ]).
+-export([
+    api_spec/0,
+    fields/1,
+    paths/0,
+    schema/1,
+    namespace/0
+]).
 
--export([ list_plugins/2
-        , upload_install/2
-        , plugin/2
-        , update_plugin/2
-        , update_boot_order/2
-        ]).
+-export([
+    list_plugins/2,
+    upload_install/2,
+    plugin/2,
+    update_plugin/2,
+    update_boot_order/2
+]).
 
--export([ validate_name/1
-        , get_plugins/0
-        , install_package/2
-        , delete_package/1
-        , describe_package/1
-        , ensure_action/2
-        ]).
+-export([
+    validate_name/1,
+    get_plugins/0,
+    install_package/2,
+    delete_package/1,
+    describe_package/1,
+    ensure_action/2
+]).
 
 -define(NAME_RE, "^[A-Za-z]+[A-Za-z0-9-_.]*$").
 
@@ -65,9 +68,10 @@ schema("/plugins") ->
     #{
         'operationId' => list_plugins,
         get => #{
-            description => "List all install plugins.<br>"
-            "Plugins are launched in top-down order.<br>"
-            "Using `POST /plugins/{name}/move` to change the boot order.",
+            description =>
+                "List all install plugins.<br>"
+                "Plugins are launched in top-down order.<br>"
+                "Using `POST /plugins/{name}/move` to change the boot order.",
             responses => #{
                 200 => hoconsc:array(hoconsc:ref(plugin))
             }
@@ -77,20 +81,26 @@ schema("/plugins/install") ->
     #{
         'operationId' => upload_install,
         post => #{
-            description => "Install a plugin(plugin-vsn.tar.gz)."
-            "Follow [emqx-plugin-template](https://github.com/emqx/emqx-plugin-template) "
-            "to develop plugin.",
+            description =>
+                "Install a plugin(plugin-vsn.tar.gz)."
+                "Follow [emqx-plugin-template](https://github.com/emqx/emqx-plugin-template) "
+                "to develop plugin.",
             'requestBody' => #{
                 content => #{
                     'multipart/form-data' => #{
                         schema => #{
                             type => object,
                             properties => #{
-                                plugin => #{type => string, format => binary}}},
-                        encoding => #{plugin => #{'contentType' => 'application/gzip'}}}}},
+                                plugin => #{type => string, format => binary}
+                            }
+                        },
+                        encoding => #{plugin => #{'contentType' => 'application/gzip'}}
+                    }
+                }
+            },
             responses => #{
                 200 => <<"OK">>,
-                400 => emqx_dashboard_swagger:error_codes(['UNEXPECTED_ERROR','ALREADY_INSTALLED'])
+                400 => emqx_dashboard_swagger:error_codes(['UNEXPECTED_ERROR', 'ALREADY_INSTALLED'])
             }
         }
     };
@@ -118,12 +128,14 @@ schema("/plugins/:name/:action") ->
     #{
         'operationId' => update_plugin,
         put => #{
-            description => "start/stop a installed plugin.<br>"
-            "- **start**: start the plugin.<br>"
-            "- **stop**: stop the plugin.<br>",
+            description =>
+                "start/stop a installed plugin.<br>"
+                "- **start**: start the plugin.<br>"
+                "- **stop**: stop the plugin.<br>",
             parameters => [
                 hoconsc:ref(name),
-                {action, hoconsc:mk(hoconsc:enum([start, stop]), #{desc => "Action", in => path})}],
+                {action, hoconsc:mk(hoconsc:enum([start, stop]), #{desc => "Action", in => path})}
+            ],
             responses => #{
                 200 => <<"OK">>,
                 404 => emqx_dashboard_swagger:error_codes(['NOT_FOUND'], <<"Plugin Not Found">>)
@@ -143,57 +155,83 @@ schema("/plugins/:name/move") ->
 
 fields(plugin) ->
     [
-        {name, hoconsc:mk(binary(),
-            #{
-                desc => "Name-Vsn: without .tar.gz",
-                validator => fun ?MODULE:validate_name/1,
-                required => true,
-                example => "emqx_plugin_template-5.0-rc.1"})
-        },
+        {name,
+            hoconsc:mk(
+                binary(),
+                #{
+                    desc => "Name-Vsn: without .tar.gz",
+                    validator => fun ?MODULE:validate_name/1,
+                    required => true,
+                    example => "emqx_plugin_template-5.0-rc.1"
+                }
+            )},
         {author, hoconsc:mk(list(string()), #{example => [<<"EMQX Team">>]})},
         {builder, hoconsc:ref(?MODULE, builder)},
         {built_on_otp_release, hoconsc:mk(string(), #{example => "24"})},
         {compatibility, hoconsc:mk(map(), #{example => #{<<"emqx">> => <<"~>5.0">>}})},
-        {git_commit_or_build_date, hoconsc:mk(string(), #{
-            example => "2021-12-25",
-            desc => "Last git commit date by `git log -1 --pretty=format:'%cd' "
-                "--date=format:'%Y-%m-%d`.\n"
-            " If the last commit date is not available, the build date will be presented."
-        })},
+        {git_commit_or_build_date,
+            hoconsc:mk(string(), #{
+                example => "2021-12-25",
+                desc =>
+                    "Last git commit date by `git log -1 --pretty=format:'%cd' "
+                    "--date=format:'%Y-%m-%d`.\n"
+                    " If the last commit date is not available, the build date will be presented."
+            })},
         {functionality, hoconsc:mk(hoconsc:array(string()), #{example => [<<"Demo">>]})},
         {git_ref, hoconsc:mk(string(), #{example => "ddab50fafeed6b1faea70fc9ffd8c700d7e26ec1"})},
         {metadata_vsn, hoconsc:mk(string(), #{example => "0.1.0"})},
-        {rel_vsn, hoconsc:mk(binary(),
-            #{desc => "Plugins release version",
-                required => true,
-                example => <<"5.0-rc.1">>})
-        },
-        {rel_apps, hoconsc:mk(hoconsc:array(binary()),
-            #{desc => "Aplications in plugin.",
-                required => true,
-                example => [<<"emqx_plugin_template-5.0.0">>, <<"map_sets-1.1.0">>]})
-        },
+        {rel_vsn,
+            hoconsc:mk(
+                binary(),
+                #{
+                    desc => "Plugins release version",
+                    required => true,
+                    example => <<"5.0-rc.1">>
+                }
+            )},
+        {rel_apps,
+            hoconsc:mk(
+                hoconsc:array(binary()),
+                #{
+                    desc => "Aplications in plugin.",
+                    required => true,
+                    example => [<<"emqx_plugin_template-5.0.0">>, <<"map_sets-1.1.0">>]
+                }
+            )},
         {repo, hoconsc:mk(string(), #{example => "https://github.com/emqx/emqx-plugin-template"})},
-        {description, hoconsc:mk(binary(),
-            #{desc => "Plugin description.",
-                required => true,
-                example => "This is an demo plugin description"})
-        },
-        {running_status, hoconsc:mk(hoconsc:array(hoconsc:ref(running_status)),
-            #{required => true})},
-        {readme, hoconsc:mk(binary(), #{
-            example => "This is an demo plugin.",
-            desc => "only return when `GET /plugins/{name}`.",
-            required => false})}
+        {description,
+            hoconsc:mk(
+                binary(),
+                #{
+                    desc => "Plugin description.",
+                    required => true,
+                    example => "This is an demo plugin description"
+                }
+            )},
+        {running_status,
+            hoconsc:mk(
+                hoconsc:array(hoconsc:ref(running_status)),
+                #{required => true}
+            )},
+        {readme,
+            hoconsc:mk(binary(), #{
+                example => "This is an demo plugin.",
+                desc => "only return when `GET /plugins/{name}`.",
+                required => false
+            })}
     ];
 fields(name) ->
-    [{name, hoconsc:mk(binary(),
-        #{
-            desc => list_to_binary(?NAME_RE),
-            example => "emqx_plugin_template-5.0-rc.1",
-            in => path,
-            validator => fun ?MODULE:validate_name/1
-        })}
+    [
+        {name,
+            hoconsc:mk(
+                binary(),
+                #{
+                    desc => list_to_binary(?NAME_RE),
+                    example => "emqx_plugin_template-5.0-rc.1",
+                    in => path,
+                    validator => fun ?MODULE:validate_name/1
+                }
+            )}
     ];
 fields(builder) ->
     [
@@ -202,27 +240,38 @@ fields(builder) ->
         {website, hoconsc:mk(string(), #{example => "www.emqx.com"})}
     ];
 fields(position) ->
-    [{position, hoconsc:mk(hoconsc:union([front, rear, binary()]),
-        #{
-            desc => """
-             Enable auto-boot at position in the boot list, where Position could be
-             'front', 'rear', or 'before:other-vsn', 'after:other-vsn'
-             to specify a relative position.
-            """,
-            required => false
-        })}];
+    [
+        {position,
+            hoconsc:mk(
+                hoconsc:union([front, rear, binary()]),
+                #{
+                    desc =>
+                        ""
+                        "\n"
+                        "             Enable auto-boot at position in the boot list, where Position could be\n"
+                        "             'front', 'rear', or 'before:other-vsn', 'after:other-vsn'\n"
+                        "             to specify a relative position.\n"
+                        "            "
+                        "",
+                    required => false
+                }
+            )}
+    ];
 fields(running_status) ->
     [
         {node, hoconsc:mk(string(), #{example => "emqx@127.0.0.1"})},
-        {status, hoconsc:mk(hoconsc:enum([running, stopped]), #{
-            desc => "Install plugin status at runtime</br>"
-            "1. running: plugin is running.<br>"
-            "2. stopped: plugin is stopped.<br>"
-        })}
+        {status,
+            hoconsc:mk(hoconsc:enum([running, stopped]), #{
+                desc =>
+                    "Install plugin status at runtime</br>"
+                    "1. running: plugin is running.<br>"
+                    "2. stopped: plugin is stopped.<br>"
+            })}
     ].
 
 move_request_body() ->
-    emqx_dashboard_swagger:schema_with_examples(hoconsc:ref(?MODULE, position),
+    emqx_dashboard_swagger:schema_with_examples(
+        hoconsc:ref(?MODULE, position),
         #{
             move_to_front => #{
                 summary => <<"move plugin on the front">>,
@@ -240,7 +289,8 @@ move_request_body() ->
                 summary => <<"move plugin after other plugins">>,
                 value => #{position => <<"after:emqx_plugin_demo-5.1-rc.2">>}
             }
-        }).
+        }
+    ).
 
 validate_name(Name) ->
     NameLen = byte_size(Name),
@@ -250,7 +300,8 @@ validate_name(Name) ->
                 nomatch -> {error, "Name should be " ?NAME_RE};
                 _ -> ok
             end;
-        false -> {error, "Name Length must =< 256"}
+        false ->
+            {error, "Name Length must =< 256"}
     end.
 
 %% API CallBack Begin
@@ -271,29 +322,42 @@ upload_install(post, #{body := #{<<"plugin">> := Plugin}}) when is_map(Plugin) -
             {AppName, _Vsn} = emqx_plugins:parse_name_vsn(FileName),
             AppDir = filename:join(emqx_plugins:install_dir(), AppName),
             case filelib:wildcard(AppDir ++ "*.tar.gz") of
-                [] -> do_install_package(FileName, Bin);
+                [] ->
+                    do_install_package(FileName, Bin);
                 OtherVsn ->
-                    {400, #{code => 'ALREADY_INSTALLED',
-                        message => iolist_to_binary(io_lib:format("~p already installed",
-                            [OtherVsn]))}}
+                    {400, #{
+                        code => 'ALREADY_INSTALLED',
+                        message => iolist_to_binary(
+                            io_lib:format(
+                                "~p already installed",
+                                [OtherVsn]
+                            )
+                        )
+                    }}
             end;
         {ok, _} ->
-            {400, #{code => 'ALREADY_INSTALLED',
-                message => iolist_to_binary(io_lib:format("~p is already installed", [FileName]))}}
+            {400, #{
+                code => 'ALREADY_INSTALLED',
+                message => iolist_to_binary(io_lib:format("~p is already installed", [FileName]))
+            }}
     end;
 upload_install(post, #{}) ->
-    {400, #{code => 'BAD_FORM_DATA',
+    {400, #{
+        code => 'BAD_FORM_DATA',
         message =>
-        <<"form-data should be `plugin=@packagename-vsn.tar.gz;type=application/x-gzip`">>}
-    }.
+            <<"form-data should be `plugin=@packagename-vsn.tar.gz;type=application/x-gzip`">>
+    }}.
 
 do_install_package(FileName, Bin) ->
     {Res, _} = emqx_mgmt_api_plugins_proto_v1:install_package(FileName, Bin),
     case lists:filter(fun(R) -> R =/= ok end, Res) of
-        [] -> {200};
+        [] ->
+            {200};
         [{error, Reason} | _] ->
-            {400, #{code => 'UNEXPECTED_ERROR',
-                message => iolist_to_binary(io_lib:format("~p", [Reason]))}}
+            {400, #{
+                code => 'UNEXPECTED_ERROR',
+                message => iolist_to_binary(io_lib:format("~p", [Reason]))
+            }}
     end.
 
 plugin(get, #{bindings := #{name := Name}}) ->
@@ -302,7 +366,6 @@ plugin(get, #{bindings := #{name := Name}}) ->
         [Plugin] -> {200, Plugin};
         [] -> {404, #{code => 'NOT_FOUND', message => Name}}
     end;
-
 plugin(delete, #{bindings := #{name := Name}}) ->
     {ok, _TnxId, Res} = emqx_mgmt_api_plugins_proto_v1:delete_package(Name),
     return(204, Res).
@@ -313,13 +376,17 @@ update_plugin(put, #{bindings := #{name := Name, action := Action}}) ->
 
 update_boot_order(post, #{bindings := #{name := Name}, body := Body}) ->
     case parse_position(Body, Name) of
-        {error, Reason} -> {400, #{code => 'BAD_POSITION', message => Reason}};
+        {error, Reason} ->
+            {400, #{code => 'BAD_POSITION', message => Reason}};
         Position ->
             case emqx_plugins:ensure_enabled(Name, Position) of
-                ok -> {200};
+                ok ->
+                    {200};
                 {error, Reason} ->
-                    {400, #{code => 'MOVE_FAILED',
-                        message => iolist_to_binary(io_lib:format("~p", [Reason]))}}
+                    {400, #{
+                        code => 'MOVE_FAILED',
+                        message => iolist_to_binary(io_lib:format("~p", [Reason]))
+                    }}
             end
     end.
 
@@ -347,7 +414,8 @@ delete_package(Name) ->
             _ = emqx_plugins:ensure_disabled(Name),
             _ = emqx_plugins:purge(Name),
             _ = emqx_plugins:delete_package(Name);
-        Error -> Error
+        Error ->
+            Error
     end.
 
 %% for RPC plugin update
@@ -361,15 +429,19 @@ ensure_action(Name, restart) ->
     _ = emqx_plugins:ensure_enabled(Name),
     _ = emqx_plugins:restart(Name).
 
-return(Code, ok) -> {Code};
-return(Code, {ok, Result}) -> {Code, Result};
+return(Code, ok) ->
+    {Code};
+return(Code, {ok, Result}) ->
+    {Code, Result};
 return(_, {error, #{error := "bad_info_file", return := {enoent, _}, path := Path}}) ->
     {404, #{code => 'NOT_FOUND', message => Path}};
 return(_, {error, Reason}) ->
     {400, #{code => 'PARAM_ERROR', message => iolist_to_binary(io_lib:format("~p", [Reason]))}}.
 
-parse_position(#{<<"position">> := <<"front">>}, _) -> front;
-parse_position(#{<<"position">> := <<"rear">>}, _) -> rear;
+parse_position(#{<<"position">> := <<"front">>}, _) ->
+    front;
+parse_position(#{<<"position">> := <<"rear">>}, _) ->
+    rear;
 parse_position(#{<<"position">> := <<"before:", Name/binary>>}, Name) ->
     {error, <<"Invalid parameter. Cannot be placed before itself">>};
 parse_position(#{<<"position">> := <<"after:", Name/binary>>}, Name) ->
@@ -382,7 +454,8 @@ parse_position(#{<<"position">> := <<"before:", Before/binary>>}, _Name) ->
     {before, binary_to_list(Before)};
 parse_position(#{<<"position">> := <<"after:", After/binary>>}, _Name) ->
     {behind, binary_to_list(After)};
-parse_position(Position, _) -> {error, iolist_to_binary(io_lib:format("~p", [Position]))}.
+parse_position(Position, _) ->
+    {error, iolist_to_binary(io_lib:format("~p", [Position]))}.
 
 format_plugins(List) ->
     StatusMap = aggregate_status(List),
@@ -392,13 +465,18 @@ format_plugins(List) ->
 
 pack_status_in_order(List, StatusMap) ->
     {Plugins, _} =
-        lists:foldl(fun({_Node, PluginList}, {Acc, StatusAcc}) ->
-            pack_plugin_in_order(PluginList, Acc, StatusAcc)
-                    end, {[], StatusMap}, List),
+        lists:foldl(
+            fun({_Node, PluginList}, {Acc, StatusAcc}) ->
+                pack_plugin_in_order(PluginList, Acc, StatusAcc)
+            end,
+            {[], StatusMap},
+            List
+        ),
     lists:reverse(Plugins).
 
-pack_plugin_in_order([], Acc, StatusAcc) -> {Acc, StatusAcc};
-pack_plugin_in_order(_, Acc, StatusAcc)when map_size(StatusAcc) =:= 0 -> {Acc, StatusAcc};
+pack_plugin_in_order([], Acc, StatusAcc) ->
+    {Acc, StatusAcc};
+pack_plugin_in_order(_, Acc, StatusAcc) when map_size(StatusAcc) =:= 0 -> {Acc, StatusAcc};
 pack_plugin_in_order([Plugin0 | Plugins], Acc, StatusAcc) ->
     #{<<"name">> := Name, <<"rel_vsn">> := Vsn} = Plugin0,
     case maps:find({Name, Vsn}, StatusAcc) of
@@ -413,15 +491,20 @@ pack_plugin_in_order([Plugin0 | Plugins], Acc, StatusAcc) ->
 
 aggregate_status(List) -> aggregate_status(List, #{}).
 
-aggregate_status([], Acc) -> Acc;
+aggregate_status([], Acc) ->
+    Acc;
 aggregate_status([{Node, Plugins} | List], Acc) ->
     NewAcc =
-        lists:foldl(fun(Plugin, SubAcc) ->
-            #{<<"name">> := Name, <<"rel_vsn">> := Vsn} = Plugin,
-            Key = {Name, Vsn},
-            Value = #{node => Node, status => plugin_status(Plugin)},
-            SubAcc#{Key => [Value | maps:get(Key, Acc, [])]}
-                    end, Acc, Plugins),
+        lists:foldl(
+            fun(Plugin, SubAcc) ->
+                #{<<"name">> := Name, <<"rel_vsn">> := Vsn} = Plugin,
+                Key = {Name, Vsn},
+                Value = #{node => Node, status => plugin_status(Plugin)},
+                SubAcc#{Key => [Value | maps:get(Key, Acc, [])]}
+            end,
+            Acc,
+            Plugins
+        ),
     aggregate_status(List, NewAcc).
 
 % running_status: running loaded, stopped

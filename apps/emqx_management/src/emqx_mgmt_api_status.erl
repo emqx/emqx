@@ -17,10 +17,11 @@
 %% API
 -behaviour(minirest_api).
 
--export([ api_spec/0
-        , paths/0
-        , schema/1
-        ]).
+-export([
+    api_spec/0,
+    paths/0,
+    schema/1
+]).
 
 -export([running_status/2]).
 
@@ -31,22 +32,30 @@ paths() ->
     ["/status"].
 
 schema("/status") ->
-    #{ 'operationId' => running_status
-     , get =>
-           #{ description => <<"Node running status">>
-            , security => []
-            , responses =>
-                  #{200 =>
-                        #{ description => <<"Node is running">>
-                         , content =>
-                              #{ 'text/plain' =>
-                                     #{ schema => #{type => string}
-                                      , example => <<"Node emqx@127.0.0.1 is started\nemqx is running">>}
-                               }
-                         }
-                   }
+    #{
+        'operationId' => running_status,
+        get =>
+            #{
+                description => <<"Node running status">>,
+                security => [],
+                responses =>
+                    #{
+                        200 =>
+                            #{
+                                description => <<"Node is running">>,
+                                content =>
+                                    #{
+                                        'text/plain' =>
+                                            #{
+                                                schema => #{type => string},
+                                                example =>
+                                                    <<"Node emqx@127.0.0.1 is started\nemqx is running">>
+                                            }
+                                    }
+                            }
+                    }
             }
-     }.
+    }.
 
 %%--------------------------------------------------------------------
 %% API Handler funcs
@@ -62,7 +71,7 @@ running_status(get, _Params) ->
         end,
     AppStatus =
         case lists:keysearch(emqx, 1, application:which_applications()) of
-            false         -> not_running;
+            false -> not_running;
             {value, _Val} -> running
         end,
     Status = io_lib:format("Node ~ts is ~ts~nemqx is ~ts", [node(), BrokerStatus, AppStatus]),

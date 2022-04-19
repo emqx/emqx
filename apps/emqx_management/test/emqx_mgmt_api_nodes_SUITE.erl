@@ -67,19 +67,21 @@ t_nodes_api(_) ->
     BadNodePath = emqx_mgmt_api_test_util:api_path(["nodes", "badnode"]),
     ?assertMatch(
         {error, {_, 400, _}},
-        emqx_mgmt_api_test_util:request_api(get, BadNodePath)).
+        emqx_mgmt_api_test_util:request_api(get, BadNodePath)
+    ).
 
 t_log_path(_) ->
     NodePath = emqx_mgmt_api_test_util:api_path(["nodes", atom_to_list(node())]),
     {ok, NodeInfo} = emqx_mgmt_api_test_util:request_api(get, NodePath),
     #{<<"log_path">> := Path} = emqx_json:decode(NodeInfo, [return_maps]),
     ?assertEqual(
-       <<"emqx-test.log">>,
-       filename:basename(Path)).
+        <<"emqx-test.log">>,
+        filename:basename(Path)
+    ).
 
 t_node_stats_api(_) ->
     StatsPath = emqx_mgmt_api_test_util:api_path(["nodes", atom_to_binary(node(), utf8), "stats"]),
-    SystemStats= emqx_mgmt:get_stats(),
+    SystemStats = emqx_mgmt:get_stats(),
     {ok, StatsResponse} = emqx_mgmt_api_test_util:request_api(get, StatsPath),
     Stats = emqx_json:decode(StatsResponse, [return_maps]),
     Fun =
@@ -91,12 +93,13 @@ t_node_stats_api(_) ->
     BadNodePath = emqx_mgmt_api_test_util:api_path(["nodes", "badnode", "stats"]),
     ?assertMatch(
         {error, {_, 400, _}},
-        emqx_mgmt_api_test_util:request_api(get, BadNodePath)).
+        emqx_mgmt_api_test_util:request_api(get, BadNodePath)
+    ).
 
 t_node_metrics_api(_) ->
     MetricsPath =
         emqx_mgmt_api_test_util:api_path(["nodes", atom_to_binary(node(), utf8), "metrics"]),
-    SystemMetrics= emqx_mgmt:get_metrics(),
+    SystemMetrics = emqx_mgmt:get_metrics(),
     {ok, MetricsResponse} = emqx_mgmt_api_test_util:request_api(get, MetricsPath),
     Metrics = emqx_json:decode(MetricsResponse, [return_maps]),
     Fun =
@@ -108,4 +111,5 @@ t_node_metrics_api(_) ->
     BadNodePath = emqx_mgmt_api_test_util:api_path(["nodes", "badnode", "metrics"]),
     ?assertMatch(
         {error, {_, 400, _}},
-        emqx_mgmt_api_test_util:request_api(get, BadNodePath)).
+        emqx_mgmt_api_test_util:request_api(get, BadNodePath)
+    ).
