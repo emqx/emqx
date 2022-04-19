@@ -25,9 +25,6 @@ help() {
     echo "--src_dir <SRC_DIR>:       EMQX source ode in this dir, default to PWD"
     echo "--builder <BUILDER>:       Builder image to pull"
     echo "                           E.g. ghcr.io/emqx/emqx-builder/5.0-10:1.13.3-24.2.1-1-debian10"
-    echo "--otp <OTP_VSN>:           OTP version being used in the builder"
-    echo "--elixir-vsn <ELIXIR_VSN>: Elixir version being used in the builder"
-    echo "--system <SYSTEM>:         OS used in the builder image"
 }
 
 while [ "$#" -gt 0 ]; do
@@ -56,14 +53,6 @@ while [ "$#" -gt 0 ]; do
         ARCH="$2"
         shift 2
         ;;
-    --otp)
-        OTP_VSN="$2"
-        shift 2
-        ;;
-    --elixir-vsn)
-        ELIXIR_VSN="$2"
-        shift 2
-        ;;
     --elixir)
         shift 1
         case ${1:-novalue} in
@@ -84,10 +73,6 @@ while [ "$#" -gt 0 ]; do
                 ;;
         esac
         ;;
-    --system)
-        SYSTEM="$2"
-        shift 2
-        ;;
     *)
       echo "WARN: Unknown arg (ignored): $1"
       shift
@@ -99,10 +84,7 @@ done
 if [ -z "${PROFILE:-}" ]    ||
    [ -z "${PKGTYPE:-}" ]    ||
    [ -z "${BUILDER:-}" ]    ||
-   [ -z "${ARCH:-}" ]       ||
-   [ -z "${OTP_VSN:-}" ]    ||
-   [ -z "${ELIXIR_VSN:-}" ] ||
-   [ -z "${SYSTEM:-}" ]; then
+   [ -z "${ARCH:-}" ]; then
     help
     exit 1
 fi
@@ -135,25 +117,41 @@ else
   MAKE_TARGET="${PROFILE}-${PKGTYPE}"
 fi
 
+HOST_SYSTEM="$(./scripts/get-distro.sh)"
+BUILDER_SYSTEM="$(docker run --rm -v "$(pwd)":/emqx "$BUILDER" /emqx/scripts/get-distro.sh)"
+
 CMD_RUN="make ${MAKE_TARGET} && ./scripts/pkg-tests.sh ${MAKE_TARGET}"
 
-if [[ $(uname -m) = "x86_64" && "$ARCH" = "amd64" ]]; then
-    eval "$CMD_RUN"
-elif [[ $(uname -m) = "aarch64" && "$ARCH" = "arm64" ]]; then
-    eval "$CMD_RUN"
-elif [[ $(uname -m) = "arm64" && "$ARCH" = "arm64" ]]; then
-    eval "$CMD_RUN"
-elif [[ $(uname -m) = "armv7l" && "$ARCH" = "arm64" ]]; then
+IS_NATIVE_SYSTEM='no'
+if [[ "$HOST_SYSTEM" = "$BUILDER_SYSTEM" ]]; then
+    IS_NATIVE_SYSTEM='yes'
+fi
+
+IS_NATIVE_ARCH='no'
+if [[ $(uname -m) == "x86_64" && "$ARCH" == "amd64" ]]; then
+    IS_NATIVE_ARCH='yes'
+elif [[ $(uname -m) == "aarch64" && "$ARCH" == "arm64" ]]; then
+    IS_NATIVE_ARCH='yes'
+elif [[ $(uname -m) == "arm64" && "$ARCH" == "arm64" ]]; then
+    IS_NATIVE_ARCH='yes'
+elif [[ $(uname -m) == "armv7l" && "$ARCH" == "arm64" ]]; then
+    IS_NATIVE_ARCH='yes'
+fi
+
+
+if [[ "${IS_NATIVE_SYSTEM}" == 'yes' && "${IS_NATIVE_ARCH}" == 'yes' ]]; then
     eval "$CMD_RUN"
 elif docker info; then
-   docker run --rm --privileged tonistiigi/binfmt:latest --install "${ARCH}"
-   docker run -i --rm \
-   -v "$(pwd)":/emqx \
-   --workdir /emqx \
-   --platform="linux/$ARCH" \
-   "$BUILDER" \
-   bash -euc "$CMD_RUN"
+    if [[ "${IS_NATIVE_ARCH}" == 'no' ]]; then
+        docker run --rm --privileged tonistiigi/binfmt:latest --install "${ARCH}"
+    fi
+    docker run -i --rm \
+        -v "$(pwd)":/emqx \
+        --workdir /emqx \
+        --platform="linux/$ARCH" \
+        "$BUILDER" \
+        bash -euc "$CMD_RUN"
 else
-  echo "Error: Docker not available on unsupported platform"
-  exit 1;
+    echo "Error: Docker not available on unsupported platform"
+    exit 1;
 fi
