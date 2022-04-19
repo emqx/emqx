@@ -17,6 +17,7 @@
 
 -include("emqx_connector.hrl").
 -include_lib("typerefl/include/types.hrl").
+-include_lib("hocon/include/hoconsc.hrl").
 -include_lib("emqx/include/logger.hrl").
 
 -export([roots/0, fields/1]).
@@ -56,7 +57,7 @@ fields(single) ->
     [ {server, fun server/1}
     , {redis_type, #{type => hoconsc:enum([single]),
                      default => single,
-                     desc => "Redis type."
+                     desc => ?DESC("single")
                     }}
     ] ++
     redis_fields() ++
@@ -65,7 +66,7 @@ fields(cluster) ->
     [ {servers, fun servers/1}
     , {redis_type, #{type => hoconsc:enum([cluster]),
                      default => cluster,
-                     desc => "Redis type."
+                     desc => ?DESC("cluster")
                     }}
     ] ++
     redis_fields() ++
@@ -74,9 +75,9 @@ fields(sentinel) ->
     [ {servers, fun servers/1}
     , {redis_type, #{type => hoconsc:enum([sentinel]),
                      default => sentinel,
-                     desc => "Redis type."
+                     desc => ?DESC("sentinel")
                     }}
-    , {sentinel, #{type => string(), desc => "The cluster name in Redis sentinel mode."
+    , {sentinel, #{type => string(), desc => ?DESC("sentinel_desc")
                   }}
     ] ++
     redis_fields() ++
@@ -86,14 +87,14 @@ server(type) -> emqx_schema:ip_port();
 server(required) -> true;
 server(validator) -> [?NOT_EMPTY("the value of the field 'server' cannot be empty")];
 server(converter) -> fun to_server_raw/1;
-server(desc) -> ?SERVER_DESC("Redis", integer_to_list(?REDIS_DEFAULT_PORT));
+server(desc) -> ?DESC("server");
 server(_) -> undefined.
 
 servers(type) -> list();
 servers(required) -> true;
 servers(validator) -> [?NOT_EMPTY("the value of the field 'servers' cannot be empty")];
 servers(converter) -> fun to_servers_raw/1;
-servers(desc) -> ?SERVERS_DESC ++ server(desc);
+servers(desc) -> ?DESC("servers");
 servers(_) -> undefined.
 
 %% ===================================================================
@@ -209,7 +210,7 @@ redis_fields() ->
     , {password, fun emqx_connector_schema_lib:password/1}
     , {database, #{type => integer(),
                    default => 0,
-                   desc => "Redis database ID."
+                   desc => ?DESC("database")
                   }}
     , {auto_reconnect, fun emqx_connector_schema_lib:auto_reconnect/1}
     ].
