@@ -61,10 +61,13 @@ schema("/listeners_status") ->
         get => #{
             tags => [<<"listeners">>],
             desc => <<"List all running node's listeners live status. group by listener type">>,
-            responses => #{200 =>
-            emqx_dashboard_swagger:schema_with_example(
-                ?ARRAY(?R_REF(listener_type_status)),
-                listener_type_status_example())}
+            responses => #{
+                200 =>
+                    emqx_dashboard_swagger:schema_with_example(
+                        ?ARRAY(?R_REF(listener_type_status)),
+                        listener_type_status_example()
+                    )
+            }
         }
     };
 schema("/listeners") ->
@@ -80,10 +83,13 @@ schema("/listeners") ->
                         #{desc => "Listener type", in => query, required => false, example => tcp}
                     )}
             ],
-            responses => #{200 =>
-            emqx_dashboard_swagger:schema_with_example(
-                ?ARRAY(?R_REF(listener_id_status)),
-                listener_id_status_example())}
+            responses => #{
+                200 =>
+                    emqx_dashboard_swagger:schema_with_example(
+                        ?ARRAY(?R_REF(listener_id_status)),
+                        listener_id_status_example()
+                    )
+            }
         }
     };
 schema("/listeners/:id") ->
@@ -188,8 +194,11 @@ fields(listener_id_status) ->
         [
             {enable, ?HOCON(boolean(), #{desc => "Listener enable", required => true})},
             {number, ?HOCON(typerefl:pos_integer(), #{desc => "ListenerId counter"})},
-            {bind, ?HOCON(hoconsc:union([emqx_schema:ip_port(), integer()]),
-                #{desc => "Listener bind addr", required => true})},
+            {bind,
+                ?HOCON(
+                    hoconsc:union([emqx_schema:ip_port(), integer()]),
+                    #{desc => "Listener bind addr", required => true}
+                )},
             {acceptors, ?HOCON(typerefl:pos_integer(), #{desc => "ListenerId acceptors"})},
             {status, ?HOCON(?R_REF(status))},
             {node_status, ?HOCON(?ARRAY(?R_REF(node_status)))}
@@ -210,7 +219,8 @@ fields(Type) ->
 listener_schema(Opts) ->
     emqx_dashboard_swagger:schema_with_example(
         ?UNION(lists:map(fun(#{ref := Ref}) -> Ref end, listeners_info(Opts))),
-        tcp_schema_example()).
+        tcp_schema_example()
+    ).
 
 listeners_type() ->
     lists:map(
@@ -274,11 +284,13 @@ validate_id(Id) ->
 %% api
 listener_type_status(get, _Request) ->
     Listeners = maps:to_list(listener_status_by_type(list_listeners(), #{})),
-    List = lists:map(fun({Type, L}) ->
-        L1 = maps:without([bind, acceptors], L),
-        L1#{type => Type}
-                     end,
-        Listeners),
+    List = lists:map(
+        fun({Type, L}) ->
+            L1 = maps:without([bind, acceptors], L),
+            L1#{type => Type}
+        end,
+        Listeners
+    ),
     {200, List}.
 
 list_listeners(get, #{query_string := Query}) ->
@@ -566,13 +578,15 @@ listener_type_status_example() ->
             node_status => #{
                 'emqx@127.0.0.1' => #{
                     current_connections => 11,
-                    max_connections => 1024000},
+                    max_connections => 1024000
+                },
                 'emqx@127.0.0.2' => #{
                     current_connections => 10,
-                    max_connections => 1024000}
+                    max_connections => 1024000
+                }
             },
             status => #{
-                current_connections  => 21,
+                current_connections => 21,
                 max_connections => 2048000
             },
             type => tcp
@@ -583,13 +597,15 @@ listener_type_status_example() ->
             node_status => #{
                 'emqx@127.0.0.1' => #{
                     current_connections => 31,
-                    max_connections => infinity},
+                    max_connections => infinity
+                },
                 'emqx@127.0.0.2' => #{
                     current_connections => 40,
-                    max_connections => infinity}
+                    max_connections => infinity
+                }
             },
             status => #{
-                current_connections  => 71,
+                current_connections => 71,
                 max_connections => infinity
             },
             type => ssl
@@ -600,8 +616,8 @@ listener_id_status_example() ->
     [
         #{
             acceptors => 16,
-            bind =>  <<"0.0.0.0:1884">>,
-            enable =>  true,
+            bind => <<"0.0.0.0:1884">>,
+            enable => true,
             id => <<"tcp:demo">>,
             node_status => #{
                 'emqx@127.0.0.1' => #{
@@ -621,8 +637,8 @@ listener_id_status_example() ->
         },
         #{
             acceptors => 32,
-            bind =>  <<"0.0.0.0:1883">>,
-            enable =>  true,
+            bind => <<"0.0.0.0:1883">>,
+            enable => true,
             id => <<"tcp:default">>,
             node_status => #{
                 'emqx@127.0.0.1' => #{
@@ -652,8 +668,8 @@ tcp_schema_example() ->
         max_connections => 204800,
         mountpoint => <<"/">>,
         proxy_protocol => false,
-        proxy_protocol_timeout =>  <<"3s">>,
-        running =>  true,
+        proxy_protocol_timeout => <<"3s">>,
+        running => true,
         tcp => #{
             active_n => 100,
             backlog => 1024,
