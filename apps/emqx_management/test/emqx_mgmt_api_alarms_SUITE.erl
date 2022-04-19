@@ -15,7 +15,6 @@
 %%--------------------------------------------------------------------
 -module(emqx_mgmt_api_alarms_SUITE).
 
-
 -compile(export_all).
 -compile(nowarn_export_all).
 
@@ -55,8 +54,8 @@ get_alarms(AssertCount, Activated) ->
     Headers = emqx_mgmt_api_test_util:auth_header_(),
     {ok, Response} = emqx_mgmt_api_test_util:request_api(get, Path, Qs, Headers),
     Data = emqx_json:decode(Response, [return_maps]),
-    Meta  = maps:get(<<"meta">>,  Data),
-    Page  = maps:get(<<"page">>,  Meta),
+    Meta = maps:get(<<"meta">>, Data),
+    Page = maps:get(<<"page">>, Meta),
     Limit = maps:get(<<"limit">>, Meta),
     Count = maps:get(<<"count">>, Meta),
     ?assertEqual(Page, 1),

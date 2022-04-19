@@ -47,13 +47,17 @@ t_create(_Config) ->
         until => Until
     },
     {ok, ClientIdBannedRes} = create_banned(ClientIdBanned),
-    ?assertEqual(#{<<"as">> => As,
-        <<"at">> => At,
-        <<"by">> => By,
-        <<"reason">> => Reason,
-        <<"until">> => Until,
-        <<"who">> => ClientId
-        }, ClientIdBannedRes),
+    ?assertEqual(
+        #{
+            <<"as">> => As,
+            <<"at">> => At,
+            <<"by">> => By,
+            <<"reason">> => Reason,
+            <<"until">> => Until,
+            <<"who">> => ClientId
+        },
+        ClientIdBannedRes
+    ),
     PeerHost = <<"192.168.2.13">>,
     PeerHostBanned = #{
         as => <<"peerhost">>,
@@ -64,15 +68,19 @@ t_create(_Config) ->
         until => Until
     },
     {ok, PeerHostBannedRes} = create_banned(PeerHostBanned),
-    ?assertEqual(#{<<"as">> => <<"peerhost">>,
-        <<"at">> => At,
-        <<"by">> => By,
-        <<"reason">> => Reason,
-        <<"until">> => Until,
-        <<"who">> => PeerHost
-    }, PeerHostBannedRes),
+    ?assertEqual(
+        #{
+            <<"as">> => <<"peerhost">>,
+            <<"at">> => At,
+            <<"by">> => By,
+            <<"reason">> => Reason,
+            <<"until">> => Until,
+            <<"who">> => PeerHost
+        },
+        PeerHostBannedRes
+    ),
     {ok, #{<<"data">> := List}} = list_banned(),
-    Bans = lists:sort(lists:map(fun(#{<<"who">> := W, <<"as">> := A}) ->  {A, W} end, List)),
+    Bans = lists:sort(lists:map(fun(#{<<"who">> := W, <<"as">> := A}) -> {A, W} end, List)),
     ?assertEqual([{<<"clientid">>, ClientId}, {<<"peerhost">>, PeerHost}], Bans),
     ok.
 
@@ -94,8 +102,10 @@ t_create_failed(_Config) ->
     },
     BadRequest = {error, {"HTTP/1.1", 400, "Bad Request"}},
     ?assertEqual(BadRequest, create_banned(BadPeerHost)),
-    Expired = BadPeerHost#{until => emqx_banned:to_rfc3339(Now - 1),
-        who => <<"127.0.0.1">>},
+    Expired = BadPeerHost#{
+        until => emqx_banned:to_rfc3339(Now - 1),
+        who => <<"127.0.0.1">>
+    },
     ?assertEqual(BadRequest, create_banned(Expired)),
     ok.
 
@@ -117,8 +127,10 @@ t_delete(_Config) ->
     },
     {ok, _} = create_banned(Banned),
     ?assertMatch({ok, _}, delete_banned(binary_to_list(As), binary_to_list(Who))),
-    ?assertMatch({error,{"HTTP/1.1",404,"Not Found"}},
-        delete_banned(binary_to_list(As), binary_to_list(Who))),
+    ?assertMatch(
+        {error, {"HTTP/1.1", 404, "Not Found"}},
+        delete_banned(binary_to_list(As), binary_to_list(Who))
+    ),
     ok.
 
 list_banned() ->

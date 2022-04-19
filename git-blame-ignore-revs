@@ -21,3 +21,5 @@ acb3544d4b112121b5d9414237d2af7860ccc2a3
 1a4afabe9fed06bb0038f95c898be69c72b94bf3
 # reformat apps/emqx_retainer
 f1acfece6b79ed69b491da03783a7adaa7627b96
+# reformat apps/emqx_management
+aa7807baebfa5d8678025e43f386bcd9b3259d6a

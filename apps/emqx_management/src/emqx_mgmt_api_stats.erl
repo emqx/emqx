@@ -19,17 +19,22 @@
 
 -include_lib("typerefl/include/types.hrl").
 
--import( hoconsc
-       , [ mk/2
-         , ref/1
-         , ref/2
-         , array/1]).
+-import(
+    hoconsc,
+    [
+        mk/2,
+        ref/1,
+        ref/2,
+        array/1
+    ]
+).
 
--export([ api_spec/0
-        , paths/0
-        , schema/1
-        , fields/1
-        ]).
+-export([
+    api_spec/0,
+    paths/0,
+    schema/1,
+    fields/1
+]).
 
 -export([list/2]).
 
@@ -40,27 +45,38 @@ paths() ->
     ["/stats"].
 
 schema("/stats") ->
-    #{ 'operationId' => list
-     , get =>
-           #{ description => <<"EMQX stats">>
-            , tags => [<<"stats">>]
-            , parameters => [ref(aggregate)]
-            , responses =>
-                  #{ 200 => mk( hoconsc:union([ ref(?MODULE, node_stats_data)
-                                              , array(ref(?MODULE, aggergate_data))
-                                              ])
-                              , #{ desc => <<"List stats ok">> })
-                   }
+    #{
+        'operationId' => list,
+        get =>
+            #{
+                description => <<"EMQX stats">>,
+                tags => [<<"stats">>],
+                parameters => [ref(aggregate)],
+                responses =>
+                    #{
+                        200 => mk(
+                            hoconsc:union([
+                                ref(?MODULE, node_stats_data),
+                                array(ref(?MODULE, aggergate_data))
+                            ]),
+                            #{desc => <<"List stats ok">>}
+                        )
+                    }
             }
-     }.
+    }.
 
 fields(aggregate) ->
-    [ { aggregate
-      , mk( boolean()
-          , #{ desc => <<"Calculation aggregate for all nodes">>
-             , in => query
-             , required => false
-             , example => false})}
+    [
+        {aggregate,
+            mk(
+                boolean(),
+                #{
+                    desc => <<"Calculation aggregate for all nodes">>,
+                    in => query,
+                    required => false,
+                    example => false
+                }
+            )}
     ];
 fields(node_stats_data) ->
     [
@@ -80,17 +96,25 @@ fields(node_stats_data) ->
         stats_schema('suboptions.max', <<"subscriptions.max">>),
         stats_schema('subscribers.count', <<"Number of current subscribers">>),
         stats_schema('subscribers.max', <<"Historical maximum number of subscribers">>),
-        stats_schema('subscriptions.count', <<"Number of current subscriptions, including shared subscriptions">>),
+        stats_schema(
+            'subscriptions.count',
+            <<"Number of current subscriptions, including shared subscriptions">>
+        ),
         stats_schema('subscriptions.max', <<"Historical maximum number of subscriptions">>),
         stats_schema('subscriptions.shared.count', <<"Number of current shared subscriptions">>),
-        stats_schema('subscriptions.shared.max', <<"Historical maximum number of shared subscriptions">>),
+        stats_schema(
+            'subscriptions.shared.max', <<"Historical maximum number of shared subscriptions">>
+        ),
         stats_schema('topics.count', <<"Number of current topics">>),
         stats_schema('topics.max', <<"Historical maximum number of topics">>)
     ];
 fields(aggergate_data) ->
-    [ { node
-      , mk( string(), #{ desc => <<"Node name">>
-                       , example => <<"emqx@127.0.0.1">>})}
+    [
+        {node,
+            mk(string(), #{
+                desc => <<"Node name">>,
+                example => <<"emqx@127.0.0.1">>
+            })}
     ] ++ fields(node_stats_data).
 
 stats_schema(Name, Desc) ->
@@ -103,7 +127,9 @@ list(get, #{query_string := Qs}) ->
         true ->
             {200, emqx_mgmt:get_stats()};
         _ ->
-            Data = [maps:from_list(emqx_mgmt:get_stats(Node) ++ [{node, Node}]) ||
-                        Node <- mria_mnesia:running_nodes()],
+            Data = [
+                maps:from_list(emqx_mgmt:get_stats(Node) ++ [{node, Node}])
+             || Node <- mria_mnesia:running_nodes()
+            ],
             {200, Data}
     end.

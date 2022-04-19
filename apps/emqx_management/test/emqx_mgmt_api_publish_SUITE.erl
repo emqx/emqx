@@ -37,7 +37,9 @@ end_per_suite(_) ->
     emqx_mgmt_api_test_util:end_suite().
 
 t_publish_api(_) ->
-    {ok, Client} = emqtt:start_link(#{username => <<"api_username">>, clientid => <<"api_clientid">>}),
+    {ok, Client} = emqtt:start_link(#{
+        username => <<"api_username">>, clientid => <<"api_clientid">>
+    }),
     {ok, _} = emqtt:connect(Client),
     {ok, _, [0]} = emqtt:subscribe(Client, ?TOPIC1),
     {ok, _, [0]} = emqtt:subscribe(Client, ?TOPIC2),
@@ -50,14 +52,16 @@ t_publish_api(_) ->
     emqtt:disconnect(Client).
 
 t_publish_bulk_api(_) ->
-    {ok, Client} = emqtt:start_link(#{username => <<"api_username">>, clientid => <<"api_clientid">>}),
+    {ok, Client} = emqtt:start_link(#{
+        username => <<"api_username">>, clientid => <<"api_clientid">>
+    }),
     {ok, _} = emqtt:connect(Client),
     {ok, _, [0]} = emqtt:subscribe(Client, ?TOPIC1),
     {ok, _, [0]} = emqtt:subscribe(Client, ?TOPIC2),
     Payload = <<"hello">>,
     Path = emqx_mgmt_api_test_util:api_path(["publish", "bulk"]),
     Auth = emqx_mgmt_api_test_util:auth_header_(),
-    Body =[#{topic => ?TOPIC1, payload => Payload}, #{topic => ?TOPIC2, payload => Payload}],
+    Body = [#{topic => ?TOPIC1, payload => Payload}, #{topic => ?TOPIC2, payload => Payload}],
     {ok, Response} = emqx_mgmt_api_test_util:request_api(post, Path, "", Auth, Body),
     ResponseMap = emqx_json:decode(Response, [return_maps]),
     ?assertEqual(2, erlang:length(ResponseMap)),
@@ -68,12 +72,12 @@ t_publish_bulk_api(_) ->
 receive_assert(Topic, Qos, Payload) ->
     receive
         {publish, Message} ->
-            ReceiveTopic    = maps:get(topic, Message),
-            ReceiveQos      = maps:get(qos, Message),
-            ReceivePayload  = maps:get(payload, Message),
-            ?assertEqual(ReceiveTopic   , Topic),
-            ?assertEqual(ReceiveQos     , Qos),
-            ?assertEqual(ReceivePayload , Payload),
+            ReceiveTopic = maps:get(topic, Message),
+            ReceiveQos = maps:get(qos, Message),
+            ReceivePayload = maps:get(payload, Message),
+            ?assertEqual(ReceiveTopic, Topic),
+            ?assertEqual(ReceiveQos, Qos),
+            ?assertEqual(ReceivePayload, Payload),
             ok
     after 5000 ->
         timeout

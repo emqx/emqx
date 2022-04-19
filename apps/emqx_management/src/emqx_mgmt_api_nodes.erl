@@ -28,18 +28,20 @@
 -define(SOURCE_ERROR, 'SOURCE_ERROR').
 
 %% Swagger specs from hocon schema
--export([ api_spec/0
-        , schema/1
-        , paths/0
-        , fields/1
-        ]).
+-export([
+    api_spec/0,
+    schema/1,
+    paths/0,
+    fields/1
+]).
 
 %% API callbacks
--export([ nodes/2
-        , node/2
-        , node_metrics/2
-        , node_stats/2
-        ]).
+-export([
+    nodes/2,
+    node/2,
+    node_metrics/2,
+    node_stats/2
+]).
 
 %%--------------------------------------------------------------------
 %% API spec funcs
@@ -49,123 +51,183 @@ api_spec() ->
     emqx_dashboard_swagger:spec(?MODULE, #{check_schema => true}).
 
 paths() ->
-    [ "/nodes"
-    , "/nodes/:node"
-    , "/nodes/:node/metrics"
-    , "/nodes/:node/stats"
+    [
+        "/nodes",
+        "/nodes/:node",
+        "/nodes/:node/metrics",
+        "/nodes/:node/stats"
     ].
 
 schema("/nodes") ->
-    #{ 'operationId' => nodes
-     , get =>
-           #{ description => <<"List EMQX nodes">>
-            , responses =>
-                  #{200 => mk( array(ref(node_info))
-                             , #{desc => <<"List all EMQX nodes">>})}
+    #{
+        'operationId' => nodes,
+        get =>
+            #{
+                description => <<"List EMQX nodes">>,
+                responses =>
+                    #{
+                        200 => mk(
+                            array(ref(node_info)),
+                            #{desc => <<"List all EMQX nodes">>}
+                        )
+                    }
             }
-     };
+    };
 schema("/nodes/:node") ->
-    #{ 'operationId' => node
-     , get =>
-           #{ description => <<"Get node info">>
-            , parameters => [ref(node_name)]
-            , responses =>
-                  #{ 200 => mk( ref(node_info)
-                              , #{desc => <<"Get node info successfully">>})
-                   , 400 => node_error()
-                   }
+    #{
+        'operationId' => node,
+        get =>
+            #{
+                description => <<"Get node info">>,
+                parameters => [ref(node_name)],
+                responses =>
+                    #{
+                        200 => mk(
+                            ref(node_info),
+                            #{desc => <<"Get node info successfully">>}
+                        ),
+                        400 => node_error()
+                    }
             }
-     };
+    };
 schema("/nodes/:node/metrics") ->
-    #{ 'operationId' => node_metrics
-     , get =>
-           #{ description => <<"Get node metrics">>
-            , parameters => [ref(node_name)]
-            , responses =>
-                  #{ 200 => mk( ref(?NODE_METRICS_MODULE, node_metrics)
-                              , #{desc => <<"Get node metrics successfully">>})
-                   , 400 => node_error()
-                   }
+    #{
+        'operationId' => node_metrics,
+        get =>
+            #{
+                description => <<"Get node metrics">>,
+                parameters => [ref(node_name)],
+                responses =>
+                    #{
+                        200 => mk(
+                            ref(?NODE_METRICS_MODULE, node_metrics),
+                            #{desc => <<"Get node metrics successfully">>}
+                        ),
+                        400 => node_error()
+                    }
             }
-     };
+    };
 schema("/nodes/:node/stats") ->
-    #{ 'operationId' => node_stats
-     , get =>
-           #{ description => <<"Get node stats">>
-            , parameters => [ref(node_name)]
-            , responses =>
-                  #{ 200 => mk( ref(?NODE_STATS_MODULE, node_stats_data)
-                              , #{desc => <<"Get node stats successfully">>})
-                   , 400 => node_error()
-                   }
+    #{
+        'operationId' => node_stats,
+        get =>
+            #{
+                description => <<"Get node stats">>,
+                parameters => [ref(node_name)],
+                responses =>
+                    #{
+                        200 => mk(
+                            ref(?NODE_STATS_MODULE, node_stats_data),
+                            #{desc => <<"Get node stats successfully">>}
+                        ),
+                        400 => node_error()
+                    }
             }
-     }.
+    }.
 
 %%--------------------------------------------------------------------
 %% Fields
 
 fields(node_name) ->
-    [ { node
-      , mk(atom()
-          , #{ in => path
-             , description => <<"Node name">>
-             , required => true
-             , example => <<"emqx@127.0.0.1">>
-             })
-     }
+    [
+        {node,
+            mk(
+                atom(),
+                #{
+                    in => path,
+                    description => <<"Node name">>,
+                    required => true,
+                    example => <<"emqx@127.0.0.1">>
+                }
+            )}
     ];
 fields(node_info) ->
-    [ { node
-      , mk( atom()
-          , #{desc => <<"Node name">>, example => <<"emqx@127.0.0.1">>})}
-    , { connections
-      , mk( non_neg_integer()
-          , #{desc => <<"Number of clients currently connected to this node">>, example => 0})}
-    , { load1
-      , mk( string()
-          , #{desc => <<"CPU average load in 1 minute">>, example => "2.66"})}
-    , { load5
-      , mk( string()
-          , #{desc => <<"CPU average load in 5 minute">>, example => "2.66"})}
-    , { load15
-      , mk( string()
-          , #{desc => <<"CPU average load in 15 minute">>, example => "2.66"})}
-    , { max_fds
-      , mk( non_neg_integer()
-          , #{desc => <<"File descriptors limit">>, example => 1024})}
-    , { memory_total
-      , mk( emqx_schema:bytesize()
-          , #{desc => <<"Allocated memory">>, example => "512.00M"})}
-    , { memory_used
-      , mk( emqx_schema:bytesize()
-          , #{desc => <<"Used memory">>, example => "256.00M"})}
-    , { node_status
-      , mk( enum(['Running', 'Stopped'])
-          , #{desc => <<"Node status">>, example => "Running"})}
-    , { otp_release
-      , mk( string()
-          , #{ desc => <<"Erlang/OTP version">>, example => "24.2/12.2"})}
-    , { process_available
-      , mk( non_neg_integer()
-          , #{desc => <<"Erlang processes limit">>, example => 2097152})}
-    , { process_used
-      , mk( non_neg_integer()
-          , #{desc => <<"Running Erlang processes">>, example => 1024})}
-    , { uptime
-      , mk( non_neg_integer()
-          , #{desc => <<"System uptime, milliseconds">>, example => 5120000})}
-    , { version
-      , mk( string()
-          , #{desc => <<"Release version">>, example => "5.0.0-beat.3-00000000"})}
-    , { sys_path
-      , mk( string()
-          , #{desc => <<"Path to system files">>, example => "path/to/emqx"})}
-    , { log_path
-      , mk( string()
-          , #{desc => <<"Path to log files">>, example => "path/to/log | not found"})}
-    , { role
-      , mk( enum([core, replicant])
-          , #{desc => <<"Node role">>, example => "core"})}
+    [
+        {node,
+            mk(
+                atom(),
+                #{desc => <<"Node name">>, example => <<"emqx@127.0.0.1">>}
+            )},
+        {connections,
+            mk(
+                non_neg_integer(),
+                #{desc => <<"Number of clients currently connected to this node">>, example => 0}
+            )},
+        {load1,
+            mk(
+                string(),
+                #{desc => <<"CPU average load in 1 minute">>, example => "2.66"}
+            )},
+        {load5,
+            mk(
+                string(),
+                #{desc => <<"CPU average load in 5 minute">>, example => "2.66"}
+            )},
+        {load15,
+            mk(
+                string(),
+                #{desc => <<"CPU average load in 15 minute">>, example => "2.66"}
+            )},
+        {max_fds,
+            mk(
+                non_neg_integer(),
+                #{desc => <<"File descriptors limit">>, example => 1024}
+            )},
+        {memory_total,
+            mk(
+                emqx_schema:bytesize(),
+                #{desc => <<"Allocated memory">>, example => "512.00M"}
+            )},
+        {memory_used,
+            mk(
+                emqx_schema:bytesize(),
+                #{desc => <<"Used memory">>, example => "256.00M"}
+            )},
+        {node_status,
+            mk(
+                enum(['Running', 'Stopped']),
+                #{desc => <<"Node status">>, example => "Running"}
+            )},
+        {otp_release,
+            mk(
+                string(),
+                #{desc => <<"Erlang/OTP version">>, example => "24.2/12.2"}
+            )},
+        {process_available,
+            mk(
+                non_neg_integer(),
+                #{desc => <<"Erlang processes limit">>, example => 2097152}
+            )},
+        {process_used,
+            mk(
+                non_neg_integer(),
+                #{desc => <<"Running Erlang processes">>, example => 1024}
+            )},
+        {uptime,
+            mk(
+                non_neg_integer(),
+                #{desc => <<"System uptime, milliseconds">>, example => 5120000}
+            )},
+        {version,
+            mk(
+                string(),
+                #{desc => <<"Release version">>, example => "5.0.0-beat.3-00000000"}
+            )},
+        {sys_path,
+            mk(
+                string(),
+                #{desc => <<"Path to system files">>, example => "path/to/emqx"}
+            )},
+        {log_path,
+            mk(
+                string(),
+                #{desc => <<"Path to log files">>, example => "path/to/log | not found"}
+            )},
+        {role,
+            mk(
+                enum([core, replicant]),
+                #{desc => <<"Node role">>, example => "core"}
+            )}
     ].
 
 %%--------------------------------------------------------------------
@@ -221,17 +283,20 @@ get_stats(Node) ->
 format(_Node, Info = #{memory_total := Total, memory_used := Used}) ->
     {ok, SysPathBinary} = file:get_cwd(),
     SysPath = list_to_binary(SysPathBinary),
-    LogPath = case log_path() of
-                  undefined ->
-                      <<"not found">>;
-                  Path0 ->
-                      Path = list_to_binary(Path0),
-                      <<SysPath/binary, Path/binary>>
-              end,
-    Info#{ memory_total := emqx_mgmt_util:kmg(Total)
-         , memory_used := emqx_mgmt_util:kmg(Used)
-         , sys_path => SysPath
-         , log_path => LogPath}.
+    LogPath =
+        case log_path() of
+            undefined ->
+                <<"not found">>;
+            Path0 ->
+                Path = list_to_binary(Path0),
+                <<SysPath/binary, Path/binary>>
+        end,
+    Info#{
+        memory_total := emqx_mgmt_util:kmg(Total),
+        memory_used := emqx_mgmt_util:kmg(Used),
+        sys_path => SysPath,
+        log_path => LogPath
+    }.
 
 log_path() ->
     Configs = logger:get_handler_config(),

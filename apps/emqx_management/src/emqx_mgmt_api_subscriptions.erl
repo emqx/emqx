@@ -22,26 +22,30 @@
 -include_lib("emqx/include/emqx.hrl").
 -include_lib("emqx/include/emqx_mqtt.hrl").
 
--export([ api_spec/0
-        , paths/0
-        , schema/1
-        , fields/1]).
+-export([
+    api_spec/0,
+    paths/0,
+    schema/1,
+    fields/1
+]).
 
 -export([subscriptions/2]).
 
--export([ query/4
-        , format/1
-        ]).
+-export([
+    query/4,
+    format/1
+]).
 
 -define(SUBS_QTABLE, emqx_suboption).
 
--define(SUBS_QSCHEMA,
-        [ {<<"clientid">>, binary}
-        , {<<"topic">>, binary}
-        , {<<"share">>, binary}
-        , {<<"share_group">>, binary}
-        , {<<"qos">>, integer}
-        , {<<"match_topic">>, binary}]).
+-define(SUBS_QSCHEMA, [
+    {<<"clientid">>, binary},
+    {<<"topic">>, binary},
+    {<<"share">>, binary},
+    {<<"share_group">>, binary},
+    {<<"qos">>, integer},
+    {<<"match_topic">>, binary}
+]).
 
 -define(QUERY_FUN, {?MODULE, query}).
 
@@ -58,7 +62,9 @@ schema("/subscriptions") ->
             description => <<"List subscriptions">>,
             parameters => parameters(),
             responses => #{
-                200 => hoconsc:mk(hoconsc:array(hoconsc:ref(?MODULE, subscription)), #{})}}
+                200 => hoconsc:mk(hoconsc:array(hoconsc:ref(?MODULE, subscription)), #{})
+            }
+        }
     }.
 
 fields(subscription) ->
@@ -74,41 +80,53 @@ parameters() ->
         hoconsc:ref(emqx_dashboard_swagger, page),
         hoconsc:ref(emqx_dashboard_swagger, limit),
         {
-            node, hoconsc:mk(binary(), #{
-            in => query,
-            required => false,
-            desc => <<"Node name">>,
-            example => atom_to_list(node())})
+            node,
+            hoconsc:mk(binary(), #{
+                in => query,
+                required => false,
+                desc => <<"Node name">>,
+                example => atom_to_list(node())
+            })
         },
         {
-            clientid, hoconsc:mk(binary(), #{
-            in => query,
-            required => false,
-            desc => <<"Client ID">>})
+            clientid,
+            hoconsc:mk(binary(), #{
+                in => query,
+                required => false,
+                desc => <<"Client ID">>
+            })
         },
         {
-            qos, hoconsc:mk(emqx_schema:qos(), #{
-            in => query,
-            required => false,
-            desc => <<"QoS">>})
+            qos,
+            hoconsc:mk(emqx_schema:qos(), #{
+                in => query,
+                required => false,
+                desc => <<"QoS">>
+            })
         },
         {
-            topic, hoconsc:mk(binary(), #{
-            in => query,
-            required => false,
-            desc => <<"Topic, url encoding">>})
+            topic,
+            hoconsc:mk(binary(), #{
+                in => query,
+                required => false,
+                desc => <<"Topic, url encoding">>
+            })
         },
         {
-            match_topic, hoconsc:mk(binary(), #{
-            in => query,
-            required => false,
-            desc => <<"Match topic string, url encoding">>})
+            match_topic,
+            hoconsc:mk(binary(), #{
+                in => query,
+                required => false,
+                desc => <<"Match topic string, url encoding">>
+            })
         },
         {
-            share_group, hoconsc:mk(binary(), #{
-            in => query,
-            required => false,
-            desc => <<"Shared subscription group name">>})
+            share_group,
+            hoconsc:mk(binary(), #{
+                in => query,
+                required => false,
+                desc => <<"Shared subscription group name">>
+            })
         }
     ].
 
@@ -116,11 +134,20 @@ subscriptions(get, #{query_string := QString}) ->
     Response =
         case maps:get(<<"node">>, QString, undefined) of
             undefined ->
-                emqx_mgmt_api:cluster_query(QString, ?SUBS_QTABLE,
-                                            ?SUBS_QSCHEMA, ?QUERY_FUN);
+                emqx_mgmt_api:cluster_query(
+                    QString,
+                    ?SUBS_QTABLE,
+                    ?SUBS_QSCHEMA,
+                    ?QUERY_FUN
+                );
             Node0 ->
-                emqx_mgmt_api:node_query(binary_to_atom(Node0, utf8), QString,
-                                         ?SUBS_QTABLE, ?SUBS_QSCHEMA, ?QUERY_FUN)
+                emqx_mgmt_api:node_query(
+                    binary_to_atom(Node0, utf8),
+                    QString,
+                    ?SUBS_QTABLE,
+                    ?SUBS_QSCHEMA,
+                    ?QUERY_FUN
+                )
         end,
     case Response of
         {error, page_limit_invalid} ->
@@ -134,10 +161,8 @@ subscriptions(get, #{query_string := QString}) ->
 
 format(Items) when is_list(Items) ->
     [format(Item) || Item <- Items];
-
 format({{Subscriber, Topic}, Options}) ->
     format({Subscriber, Topic, Options});
-
 format({_Subscriber, Topic, Options = #{share := Group}}) ->
     QoS = maps:get(qos, Options),
     #{
@@ -161,19 +186,30 @@ format({_Subscriber, Topic, Options}) ->
 
 query(Tab, {Qs, []}, Continuation, Limit) ->
     Ms = qs2ms(Qs),
-    emqx_mgmt_api:select_table_with_count( Tab, Ms
-                                         , Continuation, Limit, fun format/1);
-
+    emqx_mgmt_api:select_table_with_count(
+        Tab,
+        Ms,
+        Continuation,
+        Limit,
+        fun format/1
+    );
 query(Tab, {Qs, Fuzzy}, Continuation, Limit) ->
     Ms = qs2ms(Qs),
     FuzzyFilterFun = fuzzy_filter_fun(Fuzzy),
-    emqx_mgmt_api:select_table_with_count( Tab, {Ms, FuzzyFilterFun}
-                                         , Continuation, Limit, fun format/1).
+    emqx_mgmt_api:select_table_with_count(
+        Tab,
+        {Ms, FuzzyFilterFun},
+        Continuation,
+        Limit,
+        fun format/1
+    ).
 
 fuzzy_filter_fun(Fuzzy) ->
     fun(MsRaws) when is_list(MsRaws) ->
-            lists:filter( fun(E) -> run_fuzzy_filter(E, Fuzzy) end
-                        , MsRaws)
+        lists:filter(
+            fun(E) -> run_fuzzy_filter(E, Fuzzy) end,
+            MsRaws
+        )
     end.
 
 run_fuzzy_filter(_, []) ->

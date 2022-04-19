@@ -22,10 +22,11 @@
 
 all() -> [{group, parallel}, {group, sequence}].
 suite() -> [{timetrap, {minutes, 1}}].
-groups() -> [
-    {parallel, [parallel], [t_create, t_update, t_delete, t_authorize, t_create_unexpired_app]},
-    {sequence, [], [t_create_failed]}
-            ].
+groups() ->
+    [
+        {parallel, [parallel], [t_create, t_update, t_delete, t_authorize, t_create_unexpired_app]},
+        {sequence, [], [t_create_failed]}
+    ].
 
 init_per_suite(Config) ->
     emqx_mgmt_api_test_util:init_suite(),
@@ -37,15 +38,20 @@ end_per_suite(_) ->
 t_create(_Config) ->
     Name = <<"EMQX-API-KEY-1">>,
     {ok, Create} = create_app(Name),
-    ?assertMatch(#{<<"api_key">> := _,
-        <<"api_secret">> := _,
-        <<"created_at">> := _,
-        <<"desc">> := _,
-        <<"enable">> := true,
-        <<"expired_at">> := _,
-        <<"name">> := Name}, Create),
+    ?assertMatch(
+        #{
+            <<"api_key">> := _,
+            <<"api_secret">> := _,
+            <<"created_at">> := _,
+            <<"desc">> := _,
+            <<"enable">> := true,
+            <<"expired_at">> := _,
+            <<"name">> := Name
+        },
+        Create
+    ),
     {ok, List} = list_app(),
-    [App] = lists:filter(fun(#{<<"name">> := NameA}) ->  NameA =:= Name end, List),
+    [App] = lists:filter(fun(#{<<"name">> := NameA}) -> NameA =:= Name end, List),
     ?assertEqual(false, maps:is_key(<<"api_secret">>, App)),
     {ok, App1} = read_app(Name),
     ?assertEqual(Name, maps:get(<<"name">>, App1)),
@@ -64,9 +70,12 @@ t_create_failed(_Config) ->
 
     {ok, List} = list_app(),
     CreateNum = 30 - erlang:length(List),
-    Names = lists:map(fun(Seq) ->
-        <<"EMQX-API-FAILED-KEY-", (integer_to_binary(Seq))/binary>>
-                      end, lists:seq(1, CreateNum)),
+    Names = lists:map(
+        fun(Seq) ->
+            <<"EMQX-API-FAILED-KEY-", (integer_to_binary(Seq))/binary>>
+        end,
+        lists:seq(1, CreateNum)
+    ),
     lists:foreach(fun(N) -> {ok, _} = create_app(N) end, Names),
     ?assertEqual(BadRequest, create_app(<<"EMQX-API-KEY-MAXIMUM">>)),
 
@@ -93,7 +102,8 @@ t_update(_Config) ->
     ?assertEqual(Name, maps:get(<<"name">>, Update1)),
     ?assertEqual(false, maps:get(<<"enable">>, Update1)),
     ?assertEqual(<<"NoteVersion1"/utf8>>, maps:get(<<"desc">>, Update1)),
-    ?assertEqual(calendar:rfc3339_to_system_time(binary_to_list(ExpiredAt)),
+    ?assertEqual(
+        calendar:rfc3339_to_system_time(binary_to_list(ExpiredAt)),
         calendar:rfc3339_to_system_time(binary_to_list(maps:get(<<"expired_at">>, Update1)))
     ),
     Unexpired1 = maps:without([expired_at], Change),
@@ -117,10 +127,14 @@ t_delete(_Config) ->
 t_authorize(_Config) ->
     Name = <<"EMQX-API-AUTHORIZE-KEY">>,
     {ok, #{<<"api_key">> := ApiKey, <<"api_secret">> := ApiSecret}} = create_app(Name),
-    BasicHeader = emqx_common_test_http:auth_header(binary_to_list(ApiKey),
-        binary_to_list(ApiSecret)),
-    SecretError = emqx_common_test_http:auth_header(binary_to_list(ApiKey),
-        binary_to_list(ApiKey)),
+    BasicHeader = emqx_common_test_http:auth_header(
+        binary_to_list(ApiKey),
+        binary_to_list(ApiSecret)
+    ),
+    SecretError = emqx_common_test_http:auth_header(
+        binary_to_list(ApiKey),
+        binary_to_list(ApiKey)
+    ),
     KeyError = emqx_common_test_http:auth_header("not_found_key", binary_to_list(ApiSecret)),
     Unauthorized = {error, {"HTTP/1.1", 401, "Unauthorized"}},
 
@@ -134,8 +148,10 @@ t_authorize(_Config) ->
     ?assertEqual(Unauthorized, emqx_mgmt_api_test_util:request_api(get, ApiKeyPath, BasicHeader)),
     ?assertEqual(Unauthorized, emqx_mgmt_api_test_util:request_api(get, UserPath, BasicHeader)),
 
-    ?assertMatch({ok, #{<<"api_key">> := _, <<"enable">> := false}},
-        update_app(Name, #{enable => false})),
+    ?assertMatch(
+        {ok, #{<<"api_key">> := _, <<"enable">> := false}},
+        update_app(Name, #{enable => false})
+    ),
     ?assertEqual(Unauthorized, emqx_mgmt_api_test_util:request_api(get, BanPath, BasicHeader)),
 
     Expired = #{
@@ -145,8 +161,10 @@ t_authorize(_Config) ->
     ?assertMatch({ok, #{<<"api_key">> := _, <<"enable">> := true}}, update_app(Name, Expired)),
     ?assertEqual(Unauthorized, emqx_mgmt_api_test_util:request_api(get, BanPath, BasicHeader)),
     UnExpired = #{expired_at => undefined},
-    ?assertMatch({ok, #{<<"api_key">> := _, <<"expired_at">> := <<"undefined">>}},
-        update_app(Name, UnExpired)),
+    ?assertMatch(
+        {ok, #{<<"api_key">> := _, <<"expired_at">> := <<"undefined">>}},
+        update_app(Name, UnExpired)
+    ),
     {ok, _Status1} = emqx_mgmt_api_test_util:request_api(get, BanPath, BasicHeader),
     ok.
 
@@ -158,7 +176,6 @@ t_create_unexpired_app(_Config) ->
     {ok, Create2} = create_unexpired_app(Name2, #{expired_at => <<"undefined">>}),
     ?assertMatch(#{<<"expired_at">> := <<"undefined">>}, Create2),
     ok.
-
 
 list_app() ->
     Path = emqx_mgmt_api_test_util:api_path(["api_key"]),

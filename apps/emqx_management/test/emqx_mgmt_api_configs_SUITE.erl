@@ -32,10 +32,13 @@ end_per_suite(_) ->
 
 t_get(_Config) ->
     {ok, Configs} = get_configs(),
-    maps:map(fun(Name, Value) ->
-        {ok, Config} = get_config(Name),
-        ?assertEqual(Value, Config)
-    end, maps:remove(<<"license">>, Configs)),
+    maps:map(
+        fun(Name, Value) ->
+            {ok, Config} = get_config(Name),
+            ?assertEqual(Value, Config)
+        end,
+        maps:remove(<<"license">>, Configs)
+    ),
     ok.
 
 t_update(_Config) ->
@@ -50,8 +53,10 @@ t_update(_Config) ->
 
     %% update failed
     ErrorSysMon = emqx_map_lib:deep_put([<<"vm">>, <<"busy_port">>], SysMon, "123"),
-    ?assertMatch({error, {"HTTP/1.1", 400, _}},
-        update_config(<<"sysmon">>, ErrorSysMon)),
+    ?assertMatch(
+        {error, {"HTTP/1.1", 400, _}},
+        update_config(<<"sysmon">>, ErrorSysMon)
+    ),
     {ok, SysMon2} = get_config(<<"sysmon">>),
     ?assertEqual(SysMon1, SysMon2),
 
@@ -101,8 +106,10 @@ t_global_zone(_Config) ->
     {ok, Zones} = get_global_zone(),
     ZonesKeys = lists:map(fun({K, _}) -> K end, hocon_schema:roots(emqx_zone_schema)),
     ?assertEqual(lists:usort(ZonesKeys), lists:usort(maps:keys(Zones))),
-    ?assertEqual(emqx_config:get_zone_conf(no_default, [mqtt, max_qos_allowed]),
-        emqx_map_lib:deep_get([<<"mqtt">>, <<"max_qos_allowed">>], Zones)),
+    ?assertEqual(
+        emqx_config:get_zone_conf(no_default, [mqtt, max_qos_allowed]),
+        emqx_map_lib:deep_get([<<"mqtt">>, <<"max_qos_allowed">>], Zones)
+    ),
     NewZones = emqx_map_lib:deep_put([<<"mqtt">>, <<"max_qos_allowed">>], Zones, 1),
     {ok, #{}} = update_global_zone(NewZones),
     ?assertEqual(1, emqx_config:get_zone_conf(no_default, [mqtt, max_qos_allowed])),
@@ -133,7 +140,8 @@ get_config(Name) ->
     case emqx_mgmt_api_test_util:request_api(get, Path) of
         {ok, Res} ->
             {ok, emqx_json:decode(Res, [return_maps])};
-        Error -> Error
+        Error ->
+            Error
     end.
 
 get_configs() ->
@@ -153,8 +161,11 @@ update_config(Name, Change) ->
 
 reset_config(Name, Key) ->
     AuthHeader = emqx_mgmt_api_test_util:auth_header_(),
-    Path = binary_to_list(iolist_to_binary(
-        emqx_mgmt_api_test_util:api_path(["configs_reset", Name]))),
+    Path = binary_to_list(
+        iolist_to_binary(
+            emqx_mgmt_api_test_util:api_path(["configs_reset", Name])
+        )
+    ),
     case emqx_mgmt_api_test_util:request_api(post, Path, Key, AuthHeader, []) of
         {ok, []} -> ok;
         Error -> Error

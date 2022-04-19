@@ -58,13 +58,13 @@ t_subscription_api(_) ->
         fun(#{<<"topic">> := T1}, #{<<"topic">> := T2}) ->
             maps:get(T1, ?TOPIC_SORT) =< maps:get(T2, ?TOPIC_SORT)
         end,
-    [Subscriptions1, Subscriptions2]  = lists:sort(Sort, Subscriptions),
+    [Subscriptions1, Subscriptions2] = lists:sort(Sort, Subscriptions),
     ?assertEqual(maps:get(<<"topic">>, Subscriptions1), ?TOPIC1),
     ?assertEqual(maps:get(<<"topic">>, Subscriptions2), ?TOPIC2),
     ?assertEqual(maps:get(<<"clientid">>, Subscriptions1), ?CLIENTID),
     ?assertEqual(maps:get(<<"clientid">>, Subscriptions2), ?CLIENTID),
 
-    QS =  uri_string:compose_query([
+    QS = uri_string:compose_query([
         {"clientid", ?CLIENTID},
         {"topic", ?TOPIC2_TOPIC_ONLY},
         {"node", atom_to_list(node())},
@@ -83,11 +83,11 @@ t_subscription_api(_) ->
     ?assertEqual(length(SubscriptionsList2), 1),
 
     MatchQs = uri_string:compose_query([
-                                        {"clientid", ?CLIENTID},
-                                        {"node", atom_to_list(node())},
-                                        {"qos", "0"},
-                                        {"match_topic", "t/#"}
-                                       ]),
+        {"clientid", ?CLIENTID},
+        {"node", atom_to_list(node())},
+        {"qos", "0"},
+        {"match_topic", "t/#"}
+    ]),
 
     {ok, MatchRes} = emqx_mgmt_api_test_util:request_api(get, Path, MatchQs, Headers),
     MatchData = emqx_json:decode(MatchRes, [return_maps]),

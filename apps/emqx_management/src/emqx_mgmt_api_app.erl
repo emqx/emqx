@@ -31,7 +31,6 @@ api_spec() ->
 paths() ->
     ["/api_key", "/api_key/:name"].
 
-
 schema("/api_key") ->
     #{
         'operationId' => api_key,
@@ -82,41 +81,80 @@ schema("/api_key/:name") ->
 
 fields(app) ->
     [
-        {name, hoconsc:mk(binary(),
-            #{desc => "Unique and format by [a-zA-Z0-9-_]",
-                validator => fun ?MODULE:validate_name/1,
-                example => <<"EMQX-API-KEY-1">>})},
-        {api_key, hoconsc:mk(binary(),
-            #{desc => """TODO:uses HMAC-SHA256 for signing.""",
-                example => <<"a4697a5c75a769f6">>})},
-        {api_secret, hoconsc:mk(binary(),
-            #{desc => """An API secret is a simple encrypted string that identifies"""
-            """an application without any principal."""
-            """They are useful for accessing public data anonymously,"""
-            """and are used to associate API requests.""",
-                example => <<"MzAyMjk3ODMwMDk0NjIzOTUxNjcwNzQ0NzQ3MTE2NDYyMDI">>})},
-        {expired_at, hoconsc:mk(hoconsc:union([undefined, emqx_datetime:epoch_second()]),
-            #{desc => "No longer valid datetime",
-                example => <<"2021-12-05T02:01:34.186Z">>,
-                required => false,
-                default => undefined
-            })},
-        {created_at, hoconsc:mk(emqx_datetime:epoch_second(),
-            #{desc => "ApiKey create datetime",
-                example => <<"2021-12-01T00:00:00.000Z">>
-            })},
-        {desc, hoconsc:mk(binary(),
-            #{example => <<"Note">>, required => false})},
+        {name,
+            hoconsc:mk(
+                binary(),
+                #{
+                    desc => "Unique and format by [a-zA-Z0-9-_]",
+                    validator => fun ?MODULE:validate_name/1,
+                    example => <<"EMQX-API-KEY-1">>
+                }
+            )},
+        {api_key,
+            hoconsc:mk(
+                binary(),
+                #{
+                    desc => "" "TODO:uses HMAC-SHA256 for signing." "",
+                    example => <<"a4697a5c75a769f6">>
+                }
+            )},
+        {api_secret,
+            hoconsc:mk(
+                binary(),
+                #{
+                    desc =>
+                        ""
+                        "An API secret is a simple encrypted string that identifies"
+                        ""
+                        ""
+                        "an application without any principal."
+                        ""
+                        ""
+                        "They are useful for accessing public data anonymously,"
+                        ""
+                        ""
+                        "and are used to associate API requests."
+                        "",
+                    example => <<"MzAyMjk3ODMwMDk0NjIzOTUxNjcwNzQ0NzQ3MTE2NDYyMDI">>
+                }
+            )},
+        {expired_at,
+            hoconsc:mk(
+                hoconsc:union([undefined, emqx_datetime:epoch_second()]),
+                #{
+                    desc => "No longer valid datetime",
+                    example => <<"2021-12-05T02:01:34.186Z">>,
+                    required => false,
+                    default => undefined
+                }
+            )},
+        {created_at,
+            hoconsc:mk(
+                emqx_datetime:epoch_second(),
+                #{
+                    desc => "ApiKey create datetime",
+                    example => <<"2021-12-01T00:00:00.000Z">>
+                }
+            )},
+        {desc,
+            hoconsc:mk(
+                binary(),
+                #{example => <<"Note">>, required => false}
+            )},
         {enable, hoconsc:mk(boolean(), #{desc => "Enable/Disable", required => false})}
     ];
 fields(name) ->
-    [{name, hoconsc:mk(binary(),
-        #{
-            desc => <<"^[A-Za-z]+[A-Za-z0-9-_]*$">>,
-            example => <<"EMQX-API-KEY-1">>,
-            in => path,
-            validator => fun ?MODULE:validate_name/1
-        })}
+    [
+        {name,
+            hoconsc:mk(
+                binary(),
+                #{
+                    desc => <<"^[A-Za-z]+[A-Za-z0-9-_]*$">>,
+                    example => <<"EMQX-API-KEY-1">>,
+                    in => path,
+                    validator => fun ?MODULE:validate_name/1
+                }
+            )}
     ].
 
 -define(NAME_RE, "^[A-Za-z]+[A-Za-z0-9-_]*$").
@@ -129,7 +167,8 @@ validate_name(Name) ->
                 nomatch -> {error, "Name should be " ?NAME_RE};
                 _ -> ok
             end;
-        false -> {error, "Name Length must =< 256"}
+        false ->
+            {error, "Name Length must =< 256"}
     end.
 
 delete(Keys, Fields) ->
@@ -146,10 +185,13 @@ api_key(post, #{body := App}) ->
     ExpiredAt = ensure_expired_at(App),
     Desc = unicode:characters_to_binary(Desc0, unicode),
     case emqx_mgmt_auth:create(Name, Enable, ExpiredAt, Desc) of
-        {ok, NewApp} -> {200, format(NewApp)};
+        {ok, NewApp} ->
+            {200, format(NewApp)};
         {error, Reason} ->
-            {400, #{code => 'BAD_REQUEST',
-                message => iolist_to_binary(io_lib:format("~p", [Reason]))}}
+            {400, #{
+                code => 'BAD_REQUEST',
+                message => iolist_to_binary(io_lib:format("~p", [Reason]))
+            }}
     end.
 
 -define(NOT_FOUND_RESPONSE, #{code => 'NOT_FOUND', message => <<"Name NOT FOUND">>}).
@@ -184,5 +226,5 @@ format(App = #{expired_at := ExpiredAt0, created_at := CreateAt}) ->
         created_at => list_to_binary(calendar:system_time_to_rfc3339(CreateAt))
     }.
 
-ensure_expired_at(#{<<"expired_at">> := ExpiredAt})when is_integer(ExpiredAt) -> ExpiredAt;
+ensure_expired_at(#{<<"expired_at">> := ExpiredAt}) when is_integer(ExpiredAt) -> ExpiredAt;
 ensure_expired_at(_) -> undefined.

@@ -17,12 +17,13 @@
 
 -behaviour(emqx_bpapi).
 
--export([ introduced_in/0
-        , get_plugins/0
-        , install_package/2
-        , describe_package/1
-        , delete_package/1
-        , ensure_action/2
+-export([
+    introduced_in/0,
+    get_plugins/0,
+    install_package/2,
+    describe_package/1,
+    delete_package/1,
+    ensure_action/2
 ]).
 
 -include_lib("emqx/include/bpapi.hrl").

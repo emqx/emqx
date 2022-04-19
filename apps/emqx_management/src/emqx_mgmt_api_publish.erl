@@ -20,14 +20,17 @@
 
 -behaviour(minirest_api).
 
--export([ api_spec/0
-        , paths/0
-        , schema/1
-        , fields/1
-        ]).
+-export([
+    api_spec/0,
+    paths/0,
+    schema/1,
+    fields/1
+]).
 
--export([ publish/2
-        , publish_batch/2]).
+-export([
+    publish/2,
+    publish_batch/2
+]).
 
 api_spec() ->
     emqx_dashboard_swagger:spec(?MODULE, #{check_schema => true, translate_body => true}).
@@ -46,7 +49,6 @@ schema("/publish") ->
             }
         }
     };
-
 schema("/publish/bulk") ->
     #{
         'operationId' => publish_batch,
@@ -61,32 +63,43 @@ schema("/publish/bulk") ->
 
 fields(publish_message) ->
     [
-        {topic, hoconsc:mk(binary(), #{
-            desc => <<"Topic Name">>,
-            required => true,
-            example => <<"api/example/topic">>})},
-        {qos, hoconsc:mk(emqx_schema:qos(), #{
-            desc => <<"MQTT QoS">>,
-            required => false,
-            default => 0})},
-        {from, hoconsc:mk(binary(), #{
-            desc => <<"From client ID">>,
-            required => false,
-            example => <<"api_example_client">>})},
-        {payload, hoconsc:mk(binary(), #{
-            desc => <<"MQTT Payload">>,
-            required => true,
-            example => <<"hello emqx api">>})},
-        {retain, hoconsc:mk(boolean(), #{
-            desc => <<"MQTT Retain Message">>,
-            required => false,
-            default => false})}
+        {topic,
+            hoconsc:mk(binary(), #{
+                desc => <<"Topic Name">>,
+                required => true,
+                example => <<"api/example/topic">>
+            })},
+        {qos,
+            hoconsc:mk(emqx_schema:qos(), #{
+                desc => <<"MQTT QoS">>,
+                required => false,
+                default => 0
+            })},
+        {from,
+            hoconsc:mk(binary(), #{
+                desc => <<"From client ID">>,
+                required => false,
+                example => <<"api_example_client">>
+            })},
+        {payload,
+            hoconsc:mk(binary(), #{
+                desc => <<"MQTT Payload">>,
+                required => true,
+                example => <<"hello emqx api">>
+            })},
+        {retain,
+            hoconsc:mk(boolean(), #{
+                desc => <<"MQTT Retain Message">>,
+                required => false,
+                default => false
+            })}
     ];
-
 fields(publish_message_info) ->
     [
-        {id, hoconsc:mk(binary(), #{
-            desc => <<"Internal Message ID">>})}
+        {id,
+            hoconsc:mk(binary(), #{
+                desc => <<"Internal Message ID">>
+            })}
     ] ++ fields(publish_message).
 
 publish(post, #{body := Body}) ->
@@ -100,19 +113,21 @@ publish_batch(post, #{body := Body}) ->
     {200, format_message(Messages)}.
 
 message(Map) ->
-    From    = maps:get(<<"from">>, Map, http_api),
-    QoS     = maps:get(<<"qos">>, Map, 0),
-    Topic   = maps:get(<<"topic">>, Map),
+    From = maps:get(<<"from">>, Map, http_api),
+    QoS = maps:get(<<"qos">>, Map, 0),
+    Topic = maps:get(<<"topic">>, Map),
     Payload = maps:get(<<"payload">>, Map),
-    Retain  = maps:get(<<"retain">>, Map, false),
+    Retain = maps:get(<<"retain">>, Map, false),
     emqx_message:make(From, QoS, Topic, Payload, #{retain => Retain}, #{}).
 
 messages(List) ->
     [message(MessageMap) || MessageMap <- List].
 
-format_message(Messages) when is_list(Messages)->
+format_message(Messages) when is_list(Messages) ->
     [format_message(Message) || Message <- Messages];
-format_message(#message{id = ID, qos = Qos, from = From, topic = Topic, payload = Payload, flags = Flags}) ->
+format_message(#message{
+    id = ID, qos = Qos, from = From, topic = Topic, payload = Payload, flags = Flags
+}) ->
     #{
         id => emqx_guid:to_hexstr(ID),
         qos => Qos,
@@ -124,5 +139,5 @@ format_message(#message{id = ID, qos = Qos, from = From, topic = Topic, payload 
 
 to_binary(Data) when is_binary(Data) ->
     Data;
-to_binary(Data)  ->
+to_binary(Data) ->
     list_to_binary(io_lib:format("~p", [Data])).
