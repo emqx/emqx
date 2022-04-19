@@ -33,7 +33,7 @@ roots() ->
 
 fields("auto_subscribe") ->
     [ {topics, hoconsc:mk(hoconsc:array(hoconsc:ref(?MODULE, "topic")),
-                          #{desc => "List of auto-subscribe topics."})}
+                          #{desc => ?DESC(auto_subscribe)})}
     ];
 
 fields("topic") ->
