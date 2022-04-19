@@ -2071,7 +2071,13 @@ common_ssl_opts_schema(Defaults) ->
 %% @doc Make schema for SSL listener options.
 %% When it's for ranch listener, an extra field `handshake_timeout' is added.
 -spec server_ssl_opts_schema(map(), boolean()) -> hocon_schema:field_schema().
-server_ssl_opts_schema(Defaults, IsRanchListener) ->
+server_ssl_opts_schema(Defaults1, IsRanchListener) ->
+    Defaults0 = #{
+        cacertfile => emqx:cert_file("cacert.pem"),
+        certfile => emqx:cert_file("cert.pem"),
+        keyfile => emqx:cert_file("key.pem")
+    },
+    Defaults = maps:merge(Defaults0, Defaults1),
     D = fun(Field) -> maps:get(to_atom(Field), Defaults, undefined) end,
     Df = fun(Field, Default) -> maps:get(to_atom(Field), Defaults, Default) end,
     common_ssl_opts_schema(Defaults) ++
@@ -2148,7 +2154,15 @@ server_ssl_opts_schema(Defaults, IsRanchListener) ->
 
 %% @doc Make schema for SSL client.
 -spec client_ssl_opts_schema(map()) -> hocon_schema:field_schema().
-client_ssl_opts_schema(Defaults) ->
+client_ssl_opts_schema(Defaults1) ->
+    %% assert
+    true = lists:all(fun(K) -> is_atom(K) end, maps:keys(Defaults1)),
+    Defaults0 = #{
+        cacertfile => emqx:cert_file("cacert.pem"),
+        certfile => emqx:cert_file("client-cert.pem"),
+        keyfile => emqx:cert_file("client-key.pem")
+    },
+    Defaults = maps:merge(Defaults0, Defaults1),
     common_ssl_opts_schema(Defaults) ++
         [
             {"server_name_indication",

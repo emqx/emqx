@@ -94,9 +94,6 @@
         >>
 }).
 
--define(MATCH_RSA_KEY, <<"-----BEGIN RSA PRIVATE KEY", _/binary>>).
--define(MATCH_CERT, <<"-----BEGIN CERTIFICATE", _/binary>>).
-
 all() ->
     emqx_common_test_helpers:all(?MODULE).
 
@@ -279,9 +276,9 @@ t_api(_) ->
             <<"type">> := <<"mongodb">>,
             <<"ssl">> := #{
                 <<"enable">> := <<"true">>,
-                <<"cacertfile">> := ?MATCH_CERT,
-                <<"certfile">> := ?MATCH_CERT,
-                <<"keyfile">> := ?MATCH_RSA_KEY,
+                <<"cacertfile">> := _,
+                <<"certfile">> := _,
+                <<"keyfile">> := _,
                 <<"verify">> := <<"verify_none">>
             }
         },
@@ -313,9 +310,9 @@ t_api(_) ->
             <<"type">> := <<"mongodb">>,
             <<"ssl">> := #{
                 <<"enable">> := <<"true">>,
-                <<"cacertfile">> := ?MATCH_CERT,
-                <<"certfile">> := ?MATCH_CERT,
-                <<"keyfile">> := ?MATCH_RSA_KEY,
+                <<"cacertfile">> := _,
+                <<"certfile">> := _,
+                <<"keyfile">> := _,
                 <<"verify">> := <<"verify_none">>
             }
         },

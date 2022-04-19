@@ -214,7 +214,7 @@ sources(get, _) ->
                         ])
                 end;
             (Source, AccIn) ->
-                lists:append(AccIn, [read_certs(Source)])
+                lists:append(AccIn, [drop_invalid_certs(Source)])
         end,
         [],
         get_raw_sources()
@@ -248,7 +248,7 @@ source(get, #{bindings := #{type := Type}}) ->
                     }}
             end;
         [Source] ->
-            {200, read_certs(Source)}
+            {200, drop_invalid_certs(Source)}
     end;
 source(put, #{bindings := #{type := <<"file">>}, body := #{<<"type">> := <<"file">>} = Body}) ->
     update_authz_file(Body);
@@ -498,15 +498,9 @@ update_config(Cmd, Sources) ->
             }}
     end.
 
-read_certs(#{<<"ssl">> := SSL} = Source) ->
-    case emqx_tls_lib:file_content_as_options(SSL) of
-        {error, Reason} ->
-            ?SLOG(error, Reason#{msg => failed_to_read_ssl_file}),
-            throw(failed_to_read_ssl_file);
-        {ok, NewSSL} ->
-            Source#{<<"ssl">> => NewSSL}
-    end;
-read_certs(Source) ->
+drop_invalid_certs(#{<<"ssl">> := SSL} = Source) when SSL =/= undefined ->
+    Source#{<<"ssl">> => emqx_tls_lib:drop_invalid_certs(SSL)};
+drop_invalid_certs(Source) ->
     Source.
 
 parameters_field() ->
