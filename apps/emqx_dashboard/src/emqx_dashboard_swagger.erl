@@ -393,34 +393,34 @@ trans_desc(Init, Hocon, Func, Name) ->
     end.
 
 trans_description(Spec, Hocon) ->
-    case trans_desc(<<"desc">>, Hocon, undefined) of
+    Desc =
+        case desc_struct(Hocon) of
+            undefined -> undefined;
+            ?DESC(_, _) = Struct -> get_i18n(<<"desc">>, Struct, undefined);
+            Struct -> to_bin(Struct)
+        end,
+    case Desc of
         undefined -> Spec;
-        Value -> Spec#{description => Value}
+        Desc -> Spec#{description => Desc}
     end.
+
+get_i18n(Key, Struct, Default) ->
+    {ok, #{cache := Cache, lang := Lang}} = emqx_dashboard:get_i18n(),
+    Desc = hocon_schema:resolve_schema(Struct, Cache),
+    emqx_map_lib:deep_get([Key, Lang], Desc, Default).
 
 trans_label(Spec, Hocon, Default) ->
-    Label = trans_desc(<<"label">>, Hocon, Default),
+    Label =
+        case desc_struct(Hocon) of
+            ?DESC(_, _) = Struct -> get_i18n(<<"label">>, Struct, Default);
+            _ -> Default
+        end,
     Spec#{label => Label}.
-
-trans_desc(Key, Hocon, Default) ->
-    case resolve_desc(Key, desc_struct(Hocon)) of
-        undefined -> Default;
-        Value -> to_bin(Value)
-    end.
 
 desc_struct(Hocon) ->
     case hocon_schema:field_schema(Hocon, desc) of
         undefined -> hocon_schema:field_schema(Hocon, description);
         Struct -> Struct
-    end.
-
-resolve_desc(_Key, Bin) when is_binary(Bin) -> Bin;
-resolve_desc(Key, Struct) ->
-    {ok, #{cache := Cache, lang := Lang}} = emqx_dashboard:get_i18n(),
-    Desc = hocon_schema:resolve_schema(Struct, Cache),
-    case is_map(Desc) of
-        true -> emqx_map_lib:deep_get([Key, Lang], Desc, undefined);
-        false -> Desc
     end.
 
 request_body(#{content := _} = Content, _Module, _Options) ->
