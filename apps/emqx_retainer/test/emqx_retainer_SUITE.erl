@@ -27,23 +27,27 @@
 
 all() -> emqx_common_test_helpers:all(?MODULE).
 
--define(BASE_CONF, <<"""
-retainer {
-    enable = true
-    msg_clear_interval = 0s
-    msg_expiry_interval = 0s
-    max_payload_size = 1MB
-    flow_control {
-        batch_read_number = 0
-        batch_deliver_number = 0
-        batch_deliver_limiter = retainer
-     }
-   backend {
-        type = built_in_database
-        storage_type = ram
-        max_retained_messages = 0
-     }
-}""">>).
+-define(BASE_CONF, <<
+    ""
+    "\n"
+    "retainer {\n"
+    "    enable = true\n"
+    "    msg_clear_interval = 0s\n"
+    "    msg_expiry_interval = 0s\n"
+    "    max_payload_size = 1MB\n"
+    "    flow_control {\n"
+    "        batch_read_number = 0\n"
+    "        batch_deliver_number = 0\n"
+    "        batch_deliver_limiter = retainer\n"
+    "     }\n"
+    "   backend {\n"
+    "        type = built_in_database\n"
+    "        storage_type = ram\n"
+    "        max_retained_messages = 0\n"
+    "     }\n"
+    "}"
+    ""
+>>).
 
 %%--------------------------------------------------------------------
 %% Setups
@@ -82,9 +86,11 @@ t_store_and_clean(_) ->
     {ok, _} = emqtt:connect(C1),
 
     emqtt:publish(
-      C1, <<"retained">>,
-      <<"this is a retained message">>,
-      [{qos, 0}, {retain, true}]),
+        C1,
+        <<"retained">>,
+        <<"this is a retained message">>,
+        [{qos, 0}, {retain, true}]
+    ),
     timer:sleep(100),
 
     {ok, List} = emqx_retainer:page_read(<<"retained">>, 1, 10),
@@ -121,9 +127,11 @@ t_retain_handling(_) ->
     {ok, #{}, [0]} = emqtt:unsubscribe(C1, <<"retained/#">>),
 
     emqtt:publish(
-      C1, <<"retained">>,
-      <<"this is a retained message">>,
-      [{qos, 0}, {retain, true}]),
+        C1,
+        <<"retained">>,
+        <<"this is a retained message">>,
+        [{qos, 0}, {retain, true}]
+    ),
 
     {ok, #{}, [0]} = emqtt:subscribe(C1, <<"retained">>, [{qos, 0}, {rh, 0}]),
     ?assertEqual(1, length(receive_messages(1))),
@@ -154,20 +162,26 @@ t_wildcard_subscription(_) ->
     {ok, C1} = emqtt:start_link([{clean_start, true}, {proto_ver, v5}]),
     {ok, _} = emqtt:connect(C1),
     emqtt:publish(
-      C1, <<"retained/0">>,
-      <<"this is a retained message 0">>,
-      [{qos, 0}, {retain, true}]),
+        C1,
+        <<"retained/0">>,
+        <<"this is a retained message 0">>,
+        [{qos, 0}, {retain, true}]
+    ),
     emqtt:publish(
-      C1, <<"retained/1">>,
-      <<"this is a retained message 1">>,
-      [{qos, 0}, {retain, true}]),
+        C1,
+        <<"retained/1">>,
+        <<"this is a retained message 1">>,
+        [{qos, 0}, {retain, true}]
+    ),
     emqtt:publish(
-      C1, <<"retained/a/b/c">>,
-      <<"this is a retained message 2">>,
-      [{qos, 0}, {retain, true}]),
+        C1,
+        <<"retained/a/b/c">>,
+        <<"this is a retained message 2">>,
+        [{qos, 0}, {retain, true}]
+    ),
 
-    {ok, #{}, [0]} = emqtt:subscribe(C1,  <<"retained/+">>, 0),
-    {ok, #{}, [0]} = emqtt:subscribe(C1,  <<"retained/+/b/#">>, 0),
+    {ok, #{}, [0]} = emqtt:subscribe(C1, <<"retained/+">>, 0),
+    {ok, #{}, [0]} = emqtt:subscribe(C1, <<"retained/+/b/#">>, 0),
     ?assertEqual(3, length(receive_messages(3))),
 
     emqtt:publish(C1, <<"retained/0">>, <<"">>, [{qos, 0}, {retain, true}]),
@@ -180,25 +194,38 @@ t_message_expiry(_) ->
     {ok, _} = emqtt:connect(C1),
 
     emqtt:publish(
-      C1, <<"retained/0">>, #{'Message-Expiry-Interval' => 0},
-      <<"don't expire">>,
-      [{qos, 0}, {retain, true}]),
+        C1,
+        <<"retained/0">>,
+        #{'Message-Expiry-Interval' => 0},
+        <<"don't expire">>,
+        [{qos, 0}, {retain, true}]
+    ),
     emqtt:publish(
-      C1, <<"retained/1">>, #{'Message-Expiry-Interval' => 2},
-      <<"expire">>,
-      [{qos, 0}, {retain, true}]),
+        C1,
+        <<"retained/1">>,
+        #{'Message-Expiry-Interval' => 2},
+        <<"expire">>,
+        [{qos, 0}, {retain, true}]
+    ),
     emqtt:publish(
-      C1, <<"retained/2">>, #{'Message-Expiry-Interval' => 5},
-      <<"don't expire">>,
-      [{qos, 0}, {retain, true}]),
+        C1,
+        <<"retained/2">>,
+        #{'Message-Expiry-Interval' => 5},
+        <<"don't expire">>,
+        [{qos, 0}, {retain, true}]
+    ),
     emqtt:publish(
-      C1, <<"retained/3">>,
-      <<"don't expire">>,
-      [{qos, 0}, {retain, true}]),
+        C1,
+        <<"retained/3">>,
+        <<"don't expire">>,
+        [{qos, 0}, {retain, true}]
+    ),
     emqtt:publish(
-      C1, <<"$SYS/retained/4">>,
-      <<"don't expire">>,
-      [{qos, 0}, {retain, true}]),
+        C1,
+        <<"$SYS/retained/4">>,
+        <<"don't expire">>,
+        [{qos, 0}, {retain, true}]
+    ),
 
     {ok, #{}, [0]} = emqtt:subscribe(C1, <<"retained/+">>, 0),
     {ok, #{}, [0]} = emqtt:subscribe(C1, <<"$SYS/retained/+">>, 0),
@@ -240,17 +267,23 @@ t_clean(_) ->
     {ok, C1} = emqtt:start_link([{clean_start, true}, {proto_ver, v5}]),
     {ok, _} = emqtt:connect(C1),
     emqtt:publish(
-      C1, <<"retained/0">>,
-      <<"this is a retained message 0">>,
-      [{qos, 0}, {retain, true}]),
+        C1,
+        <<"retained/0">>,
+        <<"this is a retained message 0">>,
+        [{qos, 0}, {retain, true}]
+    ),
     emqtt:publish(
-      C1, <<"retained/1">>,
-      <<"this is a retained message 1">>,
-      [{qos, 0}, {retain, true}]),
+        C1,
+        <<"retained/1">>,
+        <<"this is a retained message 1">>,
+        [{qos, 0}, {retain, true}]
+    ),
     emqtt:publish(
-      C1, <<"retained/test/0">>,
-      <<"this is a retained message 2">>,
-      [{qos, 0}, {retain, true}]),
+        C1,
+        <<"retained/test/0">>,
+        <<"this is a retained message 2">>,
+        [{qos, 0}, {retain, true}]
+    ),
     {ok, #{}, [0]} = emqtt:subscribe(C1, <<"retained/#">>, [{qos, 0}, {rh, 0}]),
     ?assertEqual(3, length(receive_messages(3))),
 
@@ -266,10 +299,11 @@ t_stop_publish_clear_msg(_) ->
     {ok, C1} = emqtt:start_link([{clean_start, true}, {proto_ver, v5}]),
     {ok, _} = emqtt:connect(C1),
     emqtt:publish(
-      C1, <<"retained/0">>,
-      <<"this is a retained message 0">>,
-      [{qos, 0}, {retain, true}]
-     ),
+        C1,
+        <<"retained/0">>,
+        <<"this is a retained message 0">>,
+        [{qos, 0}, {retain, true}]
+    ),
 
     {ok, #{}, [0]} = emqtt:subscribe(C1, <<"retained/#">>, [{qos, 0}, {rh, 0}]),
     ?assertEqual(1, length(receive_messages(1))),
@@ -282,9 +316,13 @@ t_stop_publish_clear_msg(_) ->
 
 t_flow_control(_) ->
     #{per_client := PerClient} = RetainerCfg = emqx_config:get([limiter, batch, bucket, retainer]),
-    RetainerCfg2 = RetainerCfg#{per_client :=
-                                    PerClient#{rate := emqx_ratelimiter_SUITE:to_rate("1/1s"),
-                                               capacity := 1}},
+    RetainerCfg2 = RetainerCfg#{
+        per_client :=
+            PerClient#{
+                rate := emqx_ratelimiter_SUITE:to_rate("1/1s"),
+                capacity := 1
+            }
+    },
     emqx_config:put([limiter, batch, bucket, retainer], RetainerCfg2),
     emqx_limiter_manager:restart_server(shared),
     timer:sleep(500),
@@ -292,35 +330,44 @@ t_flow_control(_) ->
     emqx_retainer_dispatcher:refresh_limiter(),
     timer:sleep(500),
 
-    emqx_retainer:update_config(#{<<"flow_control">> =>
-                                      #{<<"batch_read_number">> => 1,
-                                        <<"batch_deliver_number">> => 1,
-                                        <<"batch_deliver_limiter">> => retainer}}),
+    emqx_retainer:update_config(#{
+        <<"flow_control">> =>
+            #{
+                <<"batch_read_number">> => 1,
+                <<"batch_deliver_number">> => 1,
+                <<"batch_deliver_limiter">> => retainer
+            }
+    }),
     {ok, C1} = emqtt:start_link([{clean_start, true}, {proto_ver, v5}]),
     {ok, _} = emqtt:connect(C1),
     emqtt:publish(
-      C1, <<"retained/0">>,
-      <<"this is a retained message 0">>,
-      [{qos, 0}, {retain, true}]
-     ),
+        C1,
+        <<"retained/0">>,
+        <<"this is a retained message 0">>,
+        [{qos, 0}, {retain, true}]
+    ),
     emqtt:publish(
-      C1, <<"retained/1">>,
-      <<"this is a retained message 1">>,
-      [{qos, 0}, {retain, true}]
-     ),
+        C1,
+        <<"retained/1">>,
+        <<"this is a retained message 1">>,
+        [{qos, 0}, {retain, true}]
+    ),
     emqtt:publish(
-      C1, <<"retained/3">>,
-      <<"this is a retained message 3">>,
-      [{qos, 0}, {retain, true}]
-     ),
+        C1,
+        <<"retained/3">>,
+        <<"this is a retained message 3">>,
+        [{qos, 0}, {retain, true}]
+    ),
     Begin = erlang:system_time(millisecond),
     {ok, #{}, [0]} = emqtt:subscribe(C1, <<"retained/#">>, [{qos, 0}, {rh, 0}]),
     ?assertEqual(3, length(receive_messages(3))),
     End = erlang:system_time(millisecond),
     Diff = End - Begin,
 
-    ?assert(Diff > timer:seconds(2.5) andalso Diff < timer:seconds(3.9),
-            lists:flatten(io_lib:format("Diff is :~p~n", [Diff]))),
+    ?assert(
+        Diff > timer:seconds(2.5) andalso Diff < timer:seconds(3.9),
+        lists:flatten(io_lib:format("Diff is :~p~n", [Diff]))
+    ),
 
     ok = emqtt:disconnect(C1),
 
@@ -335,56 +382,72 @@ t_flow_control(_) ->
 
 t_clear_expired(_) ->
     ConfMod = fun(Conf) ->
-                      Conf#{<<"msg_clear_interval">> := <<"1s">>,
-                            <<"msg_expiry_interval">> := <<"3s">>}
-              end,
+        Conf#{
+            <<"msg_clear_interval">> := <<"1s">>,
+            <<"msg_expiry_interval">> := <<"3s">>
+        }
+    end,
 
     Case = fun() ->
-                   {ok, C1} = emqtt:start_link([{clean_start, true}, {proto_ver, v5}]),
-                   {ok, _} = emqtt:connect(C1),
+        {ok, C1} = emqtt:start_link([{clean_start, true}, {proto_ver, v5}]),
+        {ok, _} = emqtt:connect(C1),
 
-                   lists:foreach(fun(I) ->
-                                         emqtt:publish(C1,
-                                                       <<"retained/", (I + 60):8/unsigned-integer>>,
-                                                       #{'Message-Expiry-Interval' => 3},
-                                                       <<"retained">>,
-                                                       [{qos, 0}, {retain, true}])
-                                 end,
-                                 lists:seq(1, 5)),
-                   timer:sleep(1000),
+        lists:foreach(
+            fun(I) ->
+                emqtt:publish(
+                    C1,
+                    <<"retained/", (I + 60):8/unsigned-integer>>,
+                    #{'Message-Expiry-Interval' => 3},
+                    <<"retained">>,
+                    [{qos, 0}, {retain, true}]
+                )
+            end,
+            lists:seq(1, 5)
+        ),
+        timer:sleep(1000),
 
-                   {ok, List} = emqx_retainer:page_read(<<"retained/+">>, 1, 10),
-                   ?assertEqual(5, erlang:length(List)),
+        {ok, List} = emqx_retainer:page_read(<<"retained/+">>, 1, 10),
+        ?assertEqual(5, erlang:length(List)),
 
-                   timer:sleep(4500),
+        timer:sleep(4500),
 
-                   {ok, List2} = emqx_retainer:page_read(<<"retained/+">>, 1, 10),
-                   ?assertEqual(0, erlang:length(List2)),
+        {ok, List2} = emqx_retainer:page_read(<<"retained/+">>, 1, 10),
+        ?assertEqual(0, erlang:length(List2)),
 
-                   ok = emqtt:disconnect(C1)
-           end,
+        ok = emqtt:disconnect(C1)
+    end,
     with_conf(ConfMod, Case).
 
 t_max_payload_size(_) ->
     ConfMod = fun(Conf) -> Conf#{<<"max_payload_size">> := 6} end,
     Case = fun() ->
-                   emqx_retainer:clean(),
-                   timer:sleep(500),
-                   {ok, C1} = emqtt:start_link([{clean_start, true}, {proto_ver, v5}]),
-                   {ok, _} = emqtt:connect(C1),
+        emqx_retainer:clean(),
+        timer:sleep(500),
+        {ok, C1} = emqtt:start_link([{clean_start, true}, {proto_ver, v5}]),
+        {ok, _} = emqtt:connect(C1),
 
-                   emqtt:publish(C1,
-                                 <<"retained/1">>, #{}, <<"1234">>, [{qos, 0}, {retain, true}]),
+        emqtt:publish(
+            C1,
+            <<"retained/1">>,
+            #{},
+            <<"1234">>,
+            [{qos, 0}, {retain, true}]
+        ),
 
-                   emqtt:publish(C1,
-                                 <<"retained/2">>, #{}, <<"1234567">>, [{qos, 0}, {retain, true}]),
+        emqtt:publish(
+            C1,
+            <<"retained/2">>,
+            #{},
+            <<"1234567">>,
+            [{qos, 0}, {retain, true}]
+        ),
 
-                   timer:sleep(500),
-                   {ok, List} = emqx_retainer:page_read(<<"retained/+">>, 1, 10),
-                   ?assertEqual(1, erlang:length(List)),
+        timer:sleep(500),
+        {ok, List} = emqx_retainer:page_read(<<"retained/+">>, 1, 10),
+        ?assertEqual(1, erlang:length(List)),
 
-                   ok = emqtt:disconnect(C1)
-           end,
+        ok = emqtt:disconnect(C1)
+    end,
     with_conf(ConfMod, Case).
 
 t_page_read(_) ->
@@ -394,12 +457,13 @@ t_page_read(_) ->
     timer:sleep(500),
 
     Fun = fun(I) ->
-                  emqtt:publish(C1,
-                                <<"retained/", (I + 60)>>,
-                                <<"this is a retained message">>,
-                                [{qos, 0}, {retain, true}]
-                               )
-          end,
+        emqtt:publish(
+            C1,
+            <<"retained/", (I + 60)>>,
+            <<"this is a retained message">>,
+            [{qos, 0}, {retain, true}]
+        )
+    end,
     lists:foreach(Fun, lists:seq(1, 9)),
     timer:sleep(200),
 
@@ -436,12 +500,12 @@ receive_messages(Count, Msgs) ->
     receive
         {publish, Msg} ->
             ct:log("Msg: ~p ~n", [Msg]),
-            receive_messages(Count-1, [Msg|Msgs]);
+            receive_messages(Count - 1, [Msg | Msgs]);
         Other ->
-            ct:log("Other Msg: ~p~n",[Other]),
+            ct:log("Other Msg: ~p~n", [Other]),
             receive_messages(Count, Msgs)
     after 2000 ->
-            Msgs
+        Msgs
     end.
 
 with_conf(ConfMod, Case) ->
@@ -451,7 +515,8 @@ with_conf(ConfMod, Case) ->
     try
         Case(),
         emqx_retainer:update_config(Conf)
-    catch Type:Error:Strace ->
+    catch
+        Type:Error:Strace ->
             emqx_retainer:update_config(Conf),
             erlang:raise(Type, Error, Strace)
     end.
