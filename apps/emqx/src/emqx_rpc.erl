@@ -47,7 +47,7 @@
     ]}
 ).
 
--define(DefaultClientNum, 1).
+-define(DefaultClientNum, 10).
 
 -type badrpc() :: {badrpc, term()} | {badtcp, term()}.
 
@@ -86,11 +86,13 @@ multicall(Key, Nodes, Mod, Fun, Args) ->
 
 -spec cast(node(), module(), atom(), list()) -> cast_result().
 cast(Node, Mod, Fun, Args) ->
+    %% Note: using a non-ordered cast here, since the generated key is
+    %% random anyway:
     gen_rpc:cast(rpc_node(Node), Mod, Fun, Args).
 
 -spec cast(term(), node(), module(), atom(), list()) -> cast_result().
 cast(Key, Node, Mod, Fun, Args) ->
-    gen_rpc:cast(rpc_node({Key, Node}), Mod, Fun, Args).
+    gen_rpc:ordered_cast(rpc_node({Key, Node}), Mod, Fun, Args).
 
 rpc_node(Node) when is_atom(Node) ->
     {Node, rand:uniform(max_client_num())};

@@ -568,7 +568,7 @@ fields("rpc") ->
            })}
     , {"tcp_client_num",
        sc(range(1, 256),
-          #{ default => 1
+          #{ default => 10
            , desc => "Set the maximum number of RPC communication channels initiated by this node "
                      "to each remote node."
            })}
