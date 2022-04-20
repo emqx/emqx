@@ -165,10 +165,11 @@ prepare_sql_to_conn_list([], _PrepareList) -> ok;
 prepare_sql_to_conn_list([Conn | ConnList], PrepareList) ->
     case prepare_sql_to_conn(Conn, PrepareList) of
         ok ->
-            prepare_sql_to_conn(ConnList, PrepareList);
+            prepare_sql_to_conn_list(ConnList, PrepareList);
         {error, R} ->
             %% rollback
-            [unprepare_sql_to_conn(Conn, Key) || {Key, _} <- PrepareList],
+            Fun = fun({Key, _}) -> _ = unprepare_sql_to_conn(Conn, Key), ok end,
+            lists:foreach(Fun, PrepareList),
             {error, R}
     end.
 
