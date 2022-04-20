@@ -89,12 +89,12 @@ create(
     } = Config
 ) ->
     ok = emqx_authn_password_hashing:init(Algorithm),
-    {Query, PlaceHolders} = emqx_authn_utils:parse_sql(Query0, '?'),
+    {PrepareSqlKey, PrepareStatement} = emqx_authn_utils:parse_sql(Query0, '?'),
     ResourceId = emqx_authn_utils:make_resource_id(?MODULE),
     State = #{
         password_hash_algorithm => Algorithm,
-        query => Query,
-        placeholders => PlaceHolders,
+        prepare_sql_key => PrepareSqlKey,
+        prepare_sql_statement => PrepareStatement,
         query_timeout => QueryTimeout,
         resource_id => ResourceId
     },
@@ -107,10 +107,14 @@ create(
             #{}
         )
     of
-        {ok, already_created} ->
-            {ok, State};
         {ok, _} ->
-            {ok, State};
+            case emqx_resource:query(ResourceId,
+                     {prepare_sql, [{PrepareSqlKey, PrepareStatement}]}) of
+                ok ->
+                    {ok, State};
+                {error, Reason} ->
+                    {error, Reason}
+            end;
         {error, Reason} ->
             {error, Reason}
     end.

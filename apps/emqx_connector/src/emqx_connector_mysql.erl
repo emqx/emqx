@@ -94,6 +94,9 @@ on_stop(InstId, #{poolname := PoolName}) ->
                   connector => InstId}),
     emqx_plugin_libs_pool:stop_pool(PoolName).
 
+on_query(_InstId, {prepare_sql, Prepares}, _AfterQuery, #{poolname := PoolName}) ->
+    prepare_sql(Prepares, PoolName);
+
 on_query(InstId, {Type, SQLOrKey}, AfterQuery, #{poolname := _PoolName} = State) ->
     on_query(InstId, {Type, SQLOrKey, [], default_timeout}, AfterQuery, State);
 on_query(InstId, {Type, SQLOrKey, Params}, AfterQuery, #{poolname := _PoolName} = State) ->

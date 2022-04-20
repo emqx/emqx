@@ -52,17 +52,13 @@ init(#{query := SQL} = Source) ->
         {error, Reason} ->
             error({load_config_error, Reason});
         {ok, Id} ->
-            Source#{
-                annotations =>
-                    #{
-                        id => Id,
-                        query => emqx_authz_utils:parse_sql(
-                            SQL,
-                            '?',
-                            ?PLACEHOLDERS
-                        )
-                    }
-            }
+            {PrepareKey, PrepareStatement} = emqx_authz_utils:parse_sql(SQL, '?', ?PLACEHOLDERS),
+            case emqx_resource:query(Id, {prepare_sql, [{PrepareKey, PrepareStatement}]}) of
+                ok ->
+                    Source#{annotations => #{id => Id, prepare => {PrepareKey, PrepareStatement}}};
+                {error, Reason} ->
+                    error({load_config_error, Reason})
+            end
     end.
 
 destroy(#{annotations := #{id := Id}}) ->
@@ -75,12 +71,12 @@ authorize(
     #{
         annotations := #{
             id := ResourceID,
-            query := {Query, Params}
+            prepare := {PrepareKey, PrepareStatement}
         }
     }
 ) ->
-    RenderParams = emqx_authz_utils:render_sql_params(Params, Client),
-    case emqx_resource:query(ResourceID, {sql, Query, RenderParams}) of
+    RenderParams = emqx_authz_utils:render_sql_params(PrepareStatement, Client),
+    case emqx_resource:query(ResourceID, {sql, PrepareKey, RenderParams}) of
         {ok, _Columns, []} ->
             nomatch;
         {ok, Columns, Rows} ->
@@ -89,7 +85,7 @@ authorize(
             ?SLOG(error, #{
                 msg => "query_mysql_error",
                 reason => Reason,
-                query => Query,
+                prepare => {PrepareKey, PrepareStatement},
                 params => RenderParams,
                 resource_id => ResourceID
             }),
