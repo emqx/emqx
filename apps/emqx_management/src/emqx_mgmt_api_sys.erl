@@ -22,14 +22,14 @@
 -include_lib("typerefl/include/types.hrl").
 
 %% API
--export([ api_spec/0
-        , paths/0
-        , schema/1
-        , namespace/0
-        ]).
+-export([
+    api_spec/0,
+    paths/0,
+    schema/1,
+    namespace/0
+]).
 
--export([ sys/2
-        ]).
+-export([sys/2]).
 
 -define(TAGS, [<<"sys">>]).
 
@@ -61,8 +61,8 @@ schema("/mqtt/sys_topics") ->
                 responses =>
                     #{
                         200 => schema_sys_topics()
-                     }
-             },
+                    }
+            },
         put =>
             #{
                 tags => ?TAGS,
@@ -71,20 +71,24 @@ schema("/mqtt/sys_topics") ->
                 responses =>
                     #{
                         200 => schema_sys_topics()
-                     }
-             }
-     }.
+                    }
+            }
+    }.
 
 schema_sys_topics() ->
     emqx_dashboard_swagger:schema_with_example(
-      hoconsc:ref(emqx_schema, "sys_topics"), example_sys_topics()).
+        hoconsc:ref(emqx_schema, "sys_topics"), example_sys_topics()
+    ).
 
 example_sys_topics() ->
-    #{<<"sys_event_messages">> =>
-      #{<<"client_connected">> => true,
-        <<"client_disconnected">> => true,
-        <<"client_subscribed">> => false,
-        <<"client_unsubscribed">> => false},
-      <<"sys_heartbeat_interval">> => <<"30s">>,
-      <<"sys_msg_interval">> => <<"1m">>
-     }.
+    #{
+        <<"sys_event_messages">> =>
+            #{
+                <<"client_connected">> => true,
+                <<"client_disconnected">> => true,
+                <<"client_subscribed">> => false,
+                <<"client_unsubscribed">> => false
+            },
+        <<"sys_heartbeat_interval">> => <<"30s">>,
+        <<"sys_msg_interval">> => <<"1m">>
+    }.

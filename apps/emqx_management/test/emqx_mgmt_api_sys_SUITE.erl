@@ -33,22 +33,27 @@ end_per_suite(_) ->
 t_get_put(_) ->
     {ok, Default} = get_sys_topics_config(),
     ?assertEqual(
-       #{<<"sys_event_messages">> =>
-         #{<<"client_connected">> => true,
-           <<"client_disconnected">> => true,
-           <<"client_subscribed">> => false,
-           <<"client_unsubscribed">> => false
-          },
-         <<"sys_heartbeat_interval">> => <<"30s">>,
-         <<"sys_msg_interval">> => <<"1m">>}, Default),
+        #{
+            <<"sys_event_messages">> =>
+                #{
+                    <<"client_connected">> => true,
+                    <<"client_disconnected">> => true,
+                    <<"client_subscribed">> => false,
+                    <<"client_unsubscribed">> => false
+                },
+            <<"sys_heartbeat_interval">> => <<"30s">>,
+            <<"sys_msg_interval">> => <<"1m">>
+        },
+        Default
+    ),
 
-   NConfig = Default#{
-               <<"sys_msg_interval">> => <<"4m">>,
-               <<"sys_event_messages">> => #{<<"client_subscribed">> => false}
-              },
-   {ok, ConfigResp} = put_sys_topics_config(NConfig),
-   ?assertEqual(NConfig, ConfigResp),
-   {ok, Default} = put_sys_topics_config(Default).
+    NConfig = Default#{
+        <<"sys_msg_interval">> => <<"4m">>,
+        <<"sys_event_messages">> => #{<<"client_subscribed">> => false}
+    },
+    {ok, ConfigResp} = put_sys_topics_config(NConfig),
+    ?assertEqual(NConfig, ConfigResp),
+    {ok, Default} = put_sys_topics_config(Default).
 
 get_sys_topics_config() ->
     Path = emqx_mgmt_api_test_util:api_path(["mqtt", "sys_topics"]),

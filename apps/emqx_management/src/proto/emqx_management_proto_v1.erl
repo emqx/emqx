@@ -26,9 +26,6 @@
     list_subscriptions/1,
 
     list_listeners/1,
-    remove_listener/2,
-
-    update_listener/3,
     subscribe/3,
     unsubscribe/3,
 
@@ -57,15 +54,6 @@ list_subscriptions(Node) ->
 -spec list_listeners(node()) -> map() | {badrpc, _}.
 list_listeners(Node) ->
     rpc:call(Node, emqx_mgmt_api_listeners, do_list_listeners, []).
-
--spec remove_listener(node(), string()) -> ok | {badrpc, _}.
-remove_listener(Node, Id) ->
-    rpc:call(Node, emqx_mgmt_api_listeners, do_remove_listener, [Id]).
-
--spec update_listener(node(), atom(), emqx_config:update_request()) ->
-    {ok, map()} | {error, _} | {badrpc, _}.
-update_listener(Node, Id, Config) ->
-    rpc:call(Node, emqx_mgmt_api_listeners, do_update_listener, [Id, Config]).
 
 -spec subscribe(node(), emqx_types:clientid(), emqx_types:topic_filters()) ->
     {subscribe, _} | {error, atom()} | {badrpc, _}.
