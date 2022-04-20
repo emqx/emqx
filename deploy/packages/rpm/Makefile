@@ -20,9 +20,6 @@ SYSTEMD := $(shell if command -v systemctl >/dev/null 2>&1; then echo yes; fi)
 # Not $(PWD) as it does not work for make -C
 CURDIR := $(shell pwd)
 
-SERVICE_SRC := $(if $(SYSTEMD),$(CURDIR)/emqx.service,$(CURDIR)/init.script)
-SERVICE_DST := $(if $(SYSTEMD),%{_unitdir}/emqx.service,%{_initddir}/emqx)
-
 POST_ADDITION := $(if $(SYSTEMD),%systemd_post %{_name}.service,echo post)
 PREUN_ADDITION := $(if $(SYSTEMD),%systemd_preun %{_name}.service,echo preun)
 
@@ -36,8 +33,6 @@ all: | $(BUILT)
 		--define "_version $(RPM_VSN)" \
 		--define "_reldir $(SRCDIR)" \
 		--define "_release $(RPM_REL)" \
-		--define "_service_src $(SERVICE_SRC)" \
-		--define "_service_dst $(SERVICE_DST)" \
 		--define "_post_addition $(POST_ADDITION)" \
 		--define "_preun_addition $(PREUN_ADDITION)" \
 		--define "_sharedstatedir /var/lib" \
