@@ -661,12 +661,12 @@ fields("log") ->
     [ {"console_handler", ref("console_handler")}
     , {"file_handlers",
        sc(map(name, ref("log_file_handler")),
-          #{desc => "Key-value list of file-based log handlers."})}
+          #{desc => ?DESC("log_file_handlers")})}
     , {"error_logger",
        sc(atom(),
           #{mapping => "kernel.error_logger",
             default => silent,
-            desc => "Deprecated."
+            desc => ?DESC("log_error_logger")
            })}
     ];
 
@@ -676,7 +676,7 @@ fields("console_handler") ->
 fields("log_file_handler") ->
     [ {"file",
        sc(file(),
-          #{ desc => "Name the log file."
+          #{ desc => ?DESC("log_file_handler_file")
            })}
     , {"rotation",
        sc(ref("log_rotation"),
@@ -684,9 +684,7 @@ fields("log_file_handler") ->
     , {"max_size",
        sc(hoconsc:union([infinity, emqx_schema:bytesize()]),
           #{ default => "10MB"
-           , desc => "This parameter controls log file rotation. "
-                     "The value `infinity` means the log file will grow indefinitely, "
-                     "otherwise the log file will be rotated once it reaches `max_size` in bytes."
+           , desc => ?DESC("log_file_handler_max_size")
            })}
     ] ++ log_handler_common_confs();
 
@@ -694,12 +692,12 @@ fields("log_rotation") ->
     [ {"enable",
        sc(boolean(),
           #{ default => true
-           , desc => "Enable log rotation feature."
+           , desc => ?DESC("log_rotation_enable")
            })}
     , {"count",
        sc(range(1, 2048),
           #{ default => 10
-           , desc => "Maximum number of log files."
+           , desc => ?DESC("log_rotation_count")
            })}
     ];
 
@@ -707,23 +705,22 @@ fields("log_overload_kill") ->
     [ {"enable",
        sc(boolean(),
           #{ default => true
-           , desc => "Enable log handler overload kill feature."
+           , desc => ?DESC("log_overload_kill_enable")
            })}
     , {"mem_size",
        sc(emqx_schema:bytesize(),
           #{ default => "30MB"
-           , desc => "Maximum memory size that the handler process is allowed to use."
+           , desc => ?DESC("log_overload_kill_mem_size")
            })}
     , {"qlen",
        sc(integer(),
           #{ default => 20000
-           , desc => "Maximum allowed queue length."
+           , desc => ?DESC("log_overload_kill_qlen")
            })}
     , {"restart_after",
        sc(hoconsc:union([emqx_schema:duration(), infinity]),
           #{ default => "5s"
-           , desc => "If the handler is terminated, it restarts automatically after a "
-                     "delay specified in milliseconds. The value `infinity` prevents restarts."
+           , desc => ?DESC("log_overload_kill_restart_after")
            })}
     ];
 
@@ -731,19 +728,17 @@ fields("log_burst_limit") ->
     [ {"enable",
        sc(boolean(),
           #{ default => true
-           , desc => "Enable log burst control feature."
+           , desc => ?DESC("log_burst_limit_enable")
            })}
     , {"max_count",
        sc(integer(),
           #{ default => 10000
-           , desc => "Maximum number of log events to handle within a `window_time` interval. "
-                     "After the limit is reached, successive events are dropped "
-                     "until the end of the `window_time`."
+           , desc => ?DESC("log_burst_limit_max_count")
            })}
     , {"window_time",
        sc(emqx_schema:duration(),
           #{ default => "1s"
-           , desc => "See `max_count`."
+           , desc => ?DESC("log_burst_limit_window_time")
            })}
     ];
 
@@ -751,59 +746,40 @@ fields("authorization") ->
     emqx_schema:fields("authorization") ++
     emqx_authz_schema:fields("authorization").
 
-
 desc("cluster") ->
-    "EMQX nodes can form a cluster to scale up the total capacity.<br>"
-    "Here holds the configs to instruct how individual nodes "
-    "can discover each other.";
+    ?DESC("desc_cluster");
 desc(cluster_static) ->
-     "Service discovery via static nodes. The new node joins the cluster by "
-     "connecting to one of the bootstrap nodes.";
+    ?DESC("desc_cluster_static");
 desc(cluster_mcast) ->
-    "Service discovery via UDP multicast.";
+    ?DESC("desc_cluster_mcast");
 desc(cluster_dns) ->
-     "Service discovery via DNS SRV records.";
+    ?DESC("desc_cluster_dns");
 desc(cluster_etcd) ->
-    "Service discovery using 'etcd' service.";
+    ?DESC("desc_cluster_etcd");
 desc(cluster_k8s) ->
-    "Service discovery via Kubernetes API server.";
+    ?DESC("desc_cluster_k8s");
 desc("node") ->
-    "Node name, cookie, config & data directories "
-    "and the Erlang virtual machine (BEAM) boot parameters.";
+    ?DESC("desc_node");
 desc("db") ->
-    "Settings for the embedded database.";
+    ?DESC("desc_db");
 desc("cluster_call") ->
-    "Options for the 'cluster call' feature that allows to execute a callback "
-    "on all nodes in the cluster.";
+    ?DESC("desc_cluster_call");
 desc("rpc") ->
-    "EMQX uses a library called <code>gen_rpc</code> for "
-    "inter-broker communication.<br/>Most of the time the default config "
-    "should work, but in case you need to do performance "
-    "fine-tuning or experiment a bit, this is where to look.";
+    ?DESC("desc_rpc");
 desc("log") ->
-    "EMQX logging supports multiple sinks for the log events."
-    " Each sink is represented by a _log handler_, which can be configured independently.";
+    ?DESC("desc_log");
 desc("console_handler") ->
-    "Log handler that prints log events to the EMQX console.";
+    ?DESC("desc_console_handler");
 desc("log_file_handler") ->
-    "Log handler that prints log events to files.";
+    ?DESC("desc_log_file_handler");
 desc("log_rotation") ->
-    "By default, the logs are stored in `./log` directory (for installation from zip file)"
-    " or in `/var/log/emqx` (for binary installation).<br/>"
-    "This section of the configuration controls the number of files kept for each log handler.";
+    ?DESC("desc_log_rotation");
 desc("log_overload_kill") ->
-    "Log overload kill features an overload protection that activates when"
-    " the log handlers use too much memory or have too many buffered log messages.<br/>"
-    "When the overload is detected, the log handler is terminated and restarted after a"
-    " cooldown period.";
+    ?DESC("desc_log_overload_kill");
 desc("log_burst_limit") ->
-    "Large bursts of log events produced in a short time can potentially cause problems, such as:\n"
-     " - Log files grow very large\n"
-     " - Log files are rotated too quickly, and useful information gets overwritten\n"
-     " - Overall performance impact on the system\n\n"
-    "Log burst limit feature can temporarily disable logging to avoid these issues.";
+    ?DESC("desc_log_burst_limit");
 desc("authorization") ->
-    "Settings that control client authorization.";
+    ?DESC("desc_authorization");
 desc(_) ->
     undefined.
 
@@ -913,57 +889,47 @@ log_handler_common_confs() ->
     [ {"enable",
        sc(boolean(),
           #{ default => false
-           , desc => "Enable this log handler."
+           , desc => ?DESC("log_file_handler_enable")
            })}
     , {"level",
        sc(log_level(),
           #{ default => warning
-           , desc => "Global log level. This includes the primary log level "
-                     "and all log handlers."
+           , desc => ?DESC("log_file_handler_level")
            })}
     , {"time_offset",
        sc(string(),
           #{ default => "system"
-           , desc => "The time offset to be used when formatting the timestamp."
+           , desc => ?DESC("log_file_handler_time_offset")
            })}
     , {"chars_limit",
        sc(hoconsc:union([unlimited, range(1, inf)]),
           #{ default => unlimited
-           , desc => "Set the maximum length of a single log message. "
-                     "If this length is exceeded, the log message will be truncated."
+           , desc => ?DESC("log_file_handler_chars_limit")
            })}
     , {"formatter",
        sc(hoconsc:enum([text, json]),
           #{ default => text
-           , desc => "Choose log format. <code>text</code> for free text, and "
-                     "<code>json</code> for structured logging."
+           , desc => ?DESC("log_file_handler_formatter")
            })}
     , {"single_line",
        sc(boolean(),
           #{ default => true
-           , desc => "Print logs in a single line if set to true. "
-                     "Otherwise, log messages may span multiple lines."
+           , desc => ?DESC("log_file_handler_single_line")
            })}
     , {"sync_mode_qlen",
        sc(integer(),
           #{ default => 100
-           , desc => "As long as the number of buffered log events is lower than this value, "
-                     "all log events are handled asynchronously."
+           , desc => ?DESC("log_file_handler_sync_mode_qlen")
            })}
     , {"drop_mode_qlen",
        sc(integer(),
           #{ default => 3000
-           , desc => "When the number of buffered log events is larger than this value, "
-                     "the new log events are dropped.<br/>"
-                     "When drop mode is activated or deactivated, a message is printed in "
-                     "the logs."
+           , desc => ?DESC("log_file_handler_drop_mode_qlen")
            })}
     , {"flush_qlen",
        sc(integer(),
           #{ default => 8000
-           , desc => "If the number of buffered log events grows larger than this threshold, "
-                     "a flush (delete) operation takes place. "
-                     "To flush events, the handler discards the buffered log messages without logging."
+           , desc => ?DESC("log_file_handler_flush_qlen")
            })}
     , {"overload_kill",
        sc(ref("log_overload_kill"), #{})}
@@ -972,15 +938,12 @@ log_handler_common_confs() ->
     , {"supervisor_reports",
        sc(hoconsc:enum([error, progress]),
           #{ default => error
-           , desc => "Type of supervisor reports that are logged.\n"
-                     " - `error`: only log errors in the Erlang processes.\n"
-                     " - `progress`: log process startup."
+           , desc => ?DESC("log_file_handler_supervisor_reports")
            })}
     , {"max_depth",
        sc(hoconsc:union([unlimited, non_neg_integer()]),
           #{ default => 100
-           , desc => "Maximum depth for Erlang term log formatting "
-                     "and Erlang process message queue inspection."
+           , desc => ?DESC("log_file_handler_max_depth")
            })}
     ].
 
