@@ -1954,7 +1954,7 @@ common_ssl_opts_schema(Defaults) ->
             )},
         {"cacertfile",
             sc(
-                string(),
+                binary(),
                 #{
                     default => D("cacertfile"),
                     required => false,
@@ -1970,7 +1970,7 @@ common_ssl_opts_schema(Defaults) ->
             )},
         {"certfile",
             sc(
-                string(),
+                binary(),
                 #{
                     default => D("certfile"),
                     required => false,
@@ -1985,7 +1985,7 @@ common_ssl_opts_schema(Defaults) ->
             )},
         {"keyfile",
             sc(
-                string(),
+                binary(),
                 #{
                     default => D("keyfile"),
                     required => false,

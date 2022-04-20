@@ -32,7 +32,8 @@
     ensure_ssl_files/2,
     delete_ssl_files/3,
     drop_invalid_certs/1,
-    is_valid_pem_file/1
+    is_valid_pem_file/1,
+    is_pem/1
 ]).
 
 -export([
@@ -281,8 +282,10 @@ ensure_ssl_files(_Dir, undefined, _DryRun) ->
     {ok, undefined};
 ensure_ssl_files(_Dir, #{<<"enable">> := False} = Opts, _DryRun) when ?IS_FALSE(False) ->
     {ok, Opts};
+ensure_ssl_files(_Dir, #{enable := False} = Opts, _DryRun) when ?IS_FALSE(False) ->
+    {ok, Opts};
 ensure_ssl_files(Dir, Opts, DryRun) ->
-    ensure_ssl_files(Dir, Opts, ?SSL_FILE_OPT_NAMES, DryRun).
+    ensure_ssl_files(Dir, Opts, ?SSL_FILE_OPT_NAMES ++ ?SSL_FILE_OPT_NAMES_A, DryRun).
 
 ensure_ssl_files(_Dir, Opts, [], _DryRun) ->
     {ok, Opts};
@@ -306,8 +309,11 @@ delete_ssl_files(Dir, NewOpts0, OldOpts0) ->
     end,
     lists:foreach(
         fun(Key) -> delete_old_file(Get(Key, NewOpts), Get(Key, OldOpts)) end,
-        ?SSL_FILE_OPT_NAMES
-    ).
+        ?SSL_FILE_OPT_NAMES ++ ?SSL_FILE_OPT_NAMES_A
+    ),
+    %% try to delete the dir if it is empty
+    _ = file:del_dir(pem_dir(Dir)),
+    ok.
 
 delete_old_file(New, Old) when New =:= Old -> ok;
 delete_old_file(_New, _Old = undefined) ->
@@ -394,8 +400,11 @@ save_pem_file(Dir, Key, Pem, DryRun) ->
 pem_file_name(Dir, Key, Pem) ->
     <<CK:8/binary, _/binary>> = crypto:hash(md5, Pem),
     Suffix = hex_str(CK),
-    FileName = binary:replace(Key, <<"file">>, <<"-", Suffix/binary>>),
-    filename:join([emqx:mutable_certs_dir(), Dir, FileName]).
+    FileName = binary:replace(ensure_bin(Key), <<"file">>, <<"-", Suffix/binary>>),
+    filename:join([pem_dir(Dir), FileName]).
+
+pem_dir(Dir) ->
+    filename:join([emqx:mutable_certs_dir(), Dir]).
 
 hex_str(Bin) ->
     iolist_to_binary([io_lib:format("~2.16.0b", [X]) || <<X:8>> <= Bin]).
@@ -417,20 +426,21 @@ drop_invalid_certs(#{enable := False} = SSL) when ?IS_FALSE(False) ->
 drop_invalid_certs(#{<<"enable">> := False} = SSL) when ?IS_FALSE(False) ->
     maps:without(?SSL_FILE_OPT_NAMES, SSL);
 drop_invalid_certs(#{enable := True} = SSL) when ?IS_TRUE(True) ->
-    drop_invalid_certs(?SSL_FILE_OPT_NAMES_A, SSL);
+    do_drop_invalid_certs(?SSL_FILE_OPT_NAMES_A, SSL);
 drop_invalid_certs(#{<<"enable">> := True} = SSL) when ?IS_TRUE(True) ->
-    drop_invalid_certs(?SSL_FILE_OPT_NAMES, SSL).
+    do_drop_invalid_certs(?SSL_FILE_OPT_NAMES, SSL).
 
-drop_invalid_certs([], SSL) ->
+do_drop_invalid_certs([], SSL) ->
     SSL;
-drop_invalid_certs([Key | Keys], SSL) ->
+do_drop_invalid_certs([Key | Keys], SSL) ->
     case maps:get(Key, SSL, undefined) of
         undefined ->
-            drop_invalid_certs(Keys, SSL);
-        Path ->
-            case is_valid_pem_file(Path) of
-                true -> SSL;
-                {error, _} -> maps:without([Key], SSL)
+            do_drop_invalid_certs(Keys, SSL);
+        PemOrPath ->
+            case is_pem(PemOrPath) orelse is_valid_pem_file(PemOrPath) of
+                true -> do_drop_invalid_certs(Keys, SSL);
+                {error, _} ->
+                    do_drop_invalid_certs(Keys, maps:without([Key], SSL))
             end
     end.
 
@@ -475,6 +485,9 @@ fuzzy_map_get(Key, Options, Default) ->
 ensure_str(undefined) -> undefined;
 ensure_str(L) when is_list(L) -> L;
 ensure_str(B) when is_binary(B) -> unicode:characters_to_list(B, utf8).
+
+ensure_bin(B) when is_binary(B) -> B;
+ensure_bin(A) when is_atom(A) -> atom_to_binary(A, utf8).
 
 -if(?OTP_RELEASE > 22).
 -ifdef(TEST).
