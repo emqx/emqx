@@ -56,12 +56,14 @@
     clean_authz_cache/2,
     clean_authz_cache_all/0,
     clean_authz_cache_all/1,
+    clean_pem_cache_all/0,
+    clean_pem_cache_all/1,
     set_ratelimit_policy/2,
     set_quota_policy/2,
     set_keepalive/2
 ]).
 
-%% Internal funcs
+%% Internal functions
 -export([do_call_client/2]).
 
 %% Subscriptions
@@ -283,6 +285,13 @@ clean_authz_cache(Node, ClientId) ->
 
 clean_authz_cache_all() ->
     Results = [{Node, clean_authz_cache_all(Node)} || Node <- mria_mnesia:running_nodes()],
+    wrap_results(Results).
+
+clean_pem_cache_all() ->
+    Results = [{Node, clean_pem_cache_all(Node)} || Node <- mria_mnesia:running_nodes()],
+    wrap_results(Results).
+
+wrap_results(Results) ->
     case lists:filter(fun({_Node, Item}) -> Item =/= ok end, Results) of
         [] -> ok;
         BadNodes -> {error, BadNodes}
@@ -290,6 +299,9 @@ clean_authz_cache_all() ->
 
 clean_authz_cache_all(Node) ->
     wrap_rpc(emqx_proto_v1:clean_authz_cache(Node)).
+
+clean_pem_cache_all(Node) ->
+    wrap_rpc(emqx_proto_v1:clean_pem_cache(Node)).
 
 set_ratelimit_policy(ClientId, Policy) ->
     call_client(ClientId, {ratelimit, Policy}).

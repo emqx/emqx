@@ -33,7 +33,8 @@
     delete_all_deactivated_alarms/1,
 
     clean_authz_cache/1,
-    clean_authz_cache/2
+    clean_authz_cache/2,
+    clean_pem_cache/1
 ]).
 
 introduced_in() ->
@@ -65,6 +66,10 @@ clean_authz_cache(Node, ClientId) ->
 -spec clean_authz_cache(node()) -> ok | {badrpc, _}.
 clean_authz_cache(Node) ->
     rpc:call(Node, emqx_authz_cache, drain_cache, []).
+
+-spec clean_pem_cache(node()) -> ok | {badrpc, _}.
+clean_pem_cache(Node) ->
+    rpc:call(Node, ssl_pem_cache, clear, []).
 
 -spec deactivate_alarm(node(), binary() | atom()) ->
     ok | {error, not_found} | {badrpc, _}.
