@@ -662,7 +662,12 @@ host() ->
     Host.
 
 ebin_path() ->
-    string:join(["-pa" | lists:filter(fun is_lib/1, code:get_path())], " ").
+    string:join(["-pa" | paths()], " ").
 
-is_lib(Path) ->
-    string:prefix(Path, code:lib_dir()) =:= nomatch.
+paths() ->
+    [
+        Path
+     || Path <- code:get_path(),
+        string:prefix(Path, code:lib_dir()) =:= nomatch,
+        string:str(Path, "_build/default/plugins") =:= 0
+    ].
