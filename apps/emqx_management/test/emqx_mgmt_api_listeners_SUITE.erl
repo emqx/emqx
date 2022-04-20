@@ -39,14 +39,14 @@ t_list_listeners(_) ->
     ?assertEqual(length(Expect), length(Res)),
     ok.
 
-t_crud_listeners_by_id(_) ->
+t_crud_listeners_tcp_by_id(_) ->
     TcpListenerId = <<"tcp:default">>,
     NewListenerId = <<"tcp:new">>,
     TcpPath = emqx_mgmt_api_test_util:api_path(["listeners", TcpListenerId]),
     NewPath = emqx_mgmt_api_test_util:api_path(["listeners", NewListenerId]),
     TcpListener = request(get, TcpPath, [], []),
 
-    %% create
+    %% create with full options
     ?assertEqual({error, not_found}, is_running(NewListenerId)),
     ?assertMatch({error, {"HTTP/1.1", 404, _}}, request(get, NewPath, [], [])),
     NewConf = TcpListener#{
@@ -58,6 +58,22 @@ t_crud_listeners_by_id(_) ->
     Get1 = request(get, NewPath, [], []),
     ?assertMatch(Create, Get1),
     ?assert(is_running(NewListenerId)),
+
+    %% create with required options
+    MinListenerId = <<"tcp:min">>,
+    MinPath = emqx_mgmt_api_test_util:api_path(["listeners", MinListenerId]),
+    ?assertEqual({error, not_found}, is_running(MinListenerId)),
+    ?assertMatch({error, {"HTTP/1.1", 404, _}}, request(get, MinPath, [], [])),
+    MinConf = #{
+        <<"id">> => MinListenerId,
+        <<"bind">> => <<"0.0.0.0:3883">>,
+        <<"type">> => <<"tcp">>
+    },
+    MinCreate = request(post, MinPath, [], MinConf),
+    ?assertEqual(lists:sort(maps:keys(TcpListener)), lists:sort(maps:keys(MinCreate))),
+    MinGet = request(get, MinPath, [], []),
+    ?assertMatch(MinCreate, MinGet),
+    ?assert(is_running(MinListenerId)),
 
     %% bad create(same port)
     BadId = <<"tcp:bad">>,
@@ -79,6 +95,7 @@ t_crud_listeners_by_id(_) ->
 
     %% delete
     ?assertEqual([], delete(NewPath)),
+    ?assertEqual([], delete(MinPath)),
     ?assertEqual({error, not_found}, is_running(NewListenerId)),
     ?assertMatch({error, {"HTTP/1.1", 404, _}}, request(get, NewPath, [], [])),
     ?assertEqual([], delete(NewPath)),

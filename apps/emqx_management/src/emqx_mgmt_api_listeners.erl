@@ -580,8 +580,8 @@ create(Path, Conf) ->
 remove(Path) ->
     wrap(emqx_conf:remove(Path, ?OPTS(cluster))).
 
-wrap({error, {post_config_update, ?MODULE, Reason}}) -> {error, Reason};
-wrap({error, {pre_config_update, ?MODULE, Reason}}) -> {error, Reason};
+wrap({error, {post_config_update, emqx_listeners, Reason}}) -> {error, Reason};
+wrap({error, {pre_config_update, emqx_listeners, Reason}}) -> {error, Reason};
 wrap({error, Reason}) -> {error, Reason};
 wrap(Ok) -> Ok.
 

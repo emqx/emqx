@@ -1677,7 +1677,8 @@ mqtt_listener() ->
                     #{
                         desc =>
                             "The access control rules for this listener.<br/>"
-                            "See: https://github.com/emqtt/esockd#allowdeny"
+                            "See: https://github.com/emqtt/esockd#allowdeny",
+                        default => [<<"allow all">>]
                     }
                 )},
             {"proxy_protocol",
@@ -1697,7 +1698,8 @@ mqtt_listener() ->
                     #{
                         desc =>
                             "Timeout for proxy protocol. EMQX will close the TCP connection "
-                            "if proxy protocol packet is not received within the timeout."
+                            "if proxy protocol packet is not received within the timeout.",
+                        default => "3s"
                     }
                 )},
             {?EMQX_AUTHENTICATION_CONFIG_ROOT_NAME,
