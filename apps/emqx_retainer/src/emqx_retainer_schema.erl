@@ -1,10 +1,9 @@
 -module(emqx_retainer_schema).
 
 -include_lib("typerefl/include/types.hrl").
+-include_lib("hocon/include/hoconsc.hrl").
 
 -export([roots/0, fields/1, desc/1, namespace/0]).
-
--define(TYPE(Type), hoconsc:mk(Type)).
 
 namespace() -> "retainer".
 
@@ -12,51 +11,47 @@ roots() -> ["retainer"].
 
 fields("retainer") ->
     [
-        {enable, sc(boolean(), "Enable retainer feature.", false)},
+        {enable, sc(boolean(), enable, false)},
         {msg_expiry_interval,
             sc(
                 emqx_schema:duration_ms(),
-                "Message retention time. 0 means message will never be expired.",
+                msg_expiry_interval,
                 "0s"
             )},
         {msg_clear_interval,
             sc(
                 emqx_schema:duration_ms(),
-                "Periodic interval for cleaning up expired messages. "
-                "Never clear if the value is 0.",
+                msg_clear_interval,
                 "0s"
             )},
-        {flow_control, ?TYPE(hoconsc:ref(?MODULE, flow_control))},
+        {flow_control, sc(hoconsc:ref(?MODULE, flow_control), flow_control)},
         {max_payload_size,
             sc(
                 emqx_schema:bytesize(),
-                "Maximum retained message size.",
+                max_payload_size,
                 "1MB"
             )},
         {stop_publish_clear_msg,
             sc(
                 boolean(),
-                "When the retained flag of the `PUBLISH` message is set and Payload is empty, "
-                "whether to continue to publish the message.<br/>"
-                "See: "
-                "http://docs.oasis-open.org/mqtt/mqtt/v3.1.1/os/mqtt-v3.1.1-os.html#_Toc398718038",
+                stop_publish_clear_msg,
                 false
             )},
         {backend, backend_config()}
     ];
 fields(mnesia_config) ->
     [
-        {type, hoconsc:mk(hoconsc:union([built_in_database]), #{desc => "Backend type."})},
+        {type, sc(hoconsc:union([built_in_database]), mnesia_config_type, built_in_database)},
         {storage_type,
             sc(
                 hoconsc:union([ram, disc]),
-                "Specifies whether the messages are stored in RAM or persisted on disc.",
+                mnesia_config_storage_type,
                 ram
             )},
         {max_retained_messages,
             sc(
                 integer(),
-                "Maximum number of retained messages. 0 means no limit.",
+                max_retained_messages,
                 0,
                 fun is_pos_integer/1
             )}
@@ -66,27 +61,20 @@ fields(flow_control) ->
         {batch_read_number,
             sc(
                 integer(),
-                "Size of the batch when reading messages from storage. 0 means no limit.",
+                batch_read_number,
                 0,
                 fun is_pos_integer/1
             )},
         {batch_deliver_number,
             sc(
                 range(0, 1000),
-                "The number of retained messages can be delivered per batch.",
+                batch_deliver_number,
                 0
             )},
         {batch_deliver_limiter,
             sc(
                 emqx_limiter_schema:bucket_name(),
-                "The rate limiter name for retained messages' delivery.<br/>"
-                "Limiter helps to avoid delivering too many messages to the client at once, "
-                "which may cause the client "
-                "to block or crash, or drop messages due to exceeding the size of the message"
-                " queue.<br/>"
-                "The names of the available rate limiters are taken from the existing rate "
-                "limiters under `limiter.batch`.<br/>"
-                "If this field is empty, limiter is not used.",
+                batch_deliver_limiter,
                 undefined
             )}
     ].
@@ -103,13 +91,16 @@ desc(_) ->
 %%--------------------------------------------------------------------
 %% Internal functions
 %%--------------------------------------------------------------------
-sc(Type, Desc, Default) ->
-    hoconsc:mk(Type, #{default => Default, desc => Desc}).
+sc(Type, DescId) ->
+    hoconsc:mk(Type, #{required => true, desc => ?DESC(DescId)}).
 
-sc(Type, Desc, Default, Validator) ->
+sc(Type, DescId, Default) ->
+    hoconsc:mk(Type, #{default => Default, desc => ?DESC(DescId)}).
+
+sc(Type, DescId, Default, Validator) ->
     hoconsc:mk(Type, #{
         default => Default,
-        desc => Desc,
+        desc => ?DESC(DescId),
         validator => Validator
     }).
 
@@ -117,7 +108,8 @@ is_pos_integer(V) ->
     V >= 0.
 
 backend_config() ->
-    #{
-        type => hoconsc:union([hoconsc:ref(?MODULE, mnesia_config)]),
-        desc => "Settings for the database storing the retained messages."
-    }.
+    sc(
+        hoconsc:union([hoconsc:ref(?MODULE, mnesia_config)]),
+        backend,
+        mnesia_config
+    ).
