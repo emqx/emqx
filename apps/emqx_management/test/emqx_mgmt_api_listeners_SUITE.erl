@@ -39,10 +39,40 @@ t_list_listeners(_) ->
     ?assertEqual(length(Expect), length(Res)),
     ok.
 
-t_crud_listeners_tcp_by_id(_) ->
-    TcpListenerId = <<"tcp:default">>,
+t_tcp_crud_listeners_by_id(_) ->
+    ListenerId = <<"tcp:default">>,
     NewListenerId = <<"tcp:new">>,
-    TcpPath = emqx_mgmt_api_test_util:api_path(["listeners", TcpListenerId]),
+    MinListenerId = <<"tcp:min">>,
+    BadId = <<"tcp:bad">>,
+    Type = <<"tcp">>,
+    crud_listeners_by_id(ListenerId, NewListenerId, MinListenerId, BadId, Type).
+
+t_ssl_crud_listeners_by_id(_) ->
+    ListenerId = <<"ssl:default">>,
+    NewListenerId = <<"ssl:new">>,
+    MinListenerId = <<"ssl:min">>,
+    BadId = <<"ssl:bad">>,
+    Type = <<"ssl">>,
+    crud_listeners_by_id(ListenerId, NewListenerId, MinListenerId, BadId, Type).
+
+t_ws_crud_listeners_by_id(_) ->
+    ListenerId = <<"ws:default">>,
+    NewListenerId = <<"ws:new">>,
+    MinListenerId = <<"ws:min">>,
+    BadId = <<"ws:bad">>,
+    Type = <<"ws">>,
+    crud_listeners_by_id(ListenerId, NewListenerId, MinListenerId, BadId, Type).
+
+t_wss_crud_listeners_by_id(_) ->
+    ListenerId = <<"wss:default">>,
+    NewListenerId = <<"wss:new">>,
+    MinListenerId = <<"wss:min">>,
+    BadId = <<"wss:bad">>,
+    Type = <<"wss">>,
+    crud_listeners_by_id(ListenerId, NewListenerId, MinListenerId, BadId, Type).
+
+crud_listeners_by_id(ListenerId, NewListenerId, MinListenerId, BadId, Type) ->
+    TcpPath = emqx_mgmt_api_test_util:api_path(["listeners", ListenerId]),
     NewPath = emqx_mgmt_api_test_util:api_path(["listeners", NewListenerId]),
     TcpListener = request(get, TcpPath, [], []),
 
@@ -60,14 +90,13 @@ t_crud_listeners_tcp_by_id(_) ->
     ?assert(is_running(NewListenerId)),
 
     %% create with required options
-    MinListenerId = <<"tcp:min">>,
     MinPath = emqx_mgmt_api_test_util:api_path(["listeners", MinListenerId]),
     ?assertEqual({error, not_found}, is_running(MinListenerId)),
     ?assertMatch({error, {"HTTP/1.1", 404, _}}, request(get, MinPath, [], [])),
     MinConf = #{
         <<"id">> => MinListenerId,
         <<"bind">> => <<"0.0.0.0:3883">>,
-        <<"type">> => <<"tcp">>
+        <<"type">> => Type
     },
     MinCreate = request(post, MinPath, [], MinConf),
     ?assertEqual(lists:sort(maps:keys(TcpListener)), lists:sort(maps:keys(MinCreate))),
@@ -76,7 +105,6 @@ t_crud_listeners_tcp_by_id(_) ->
     ?assert(is_running(MinListenerId)),
 
     %% bad create(same port)
-    BadId = <<"tcp:bad">>,
     BadPath = emqx_mgmt_api_test_util:api_path(["listeners", BadId]),
     BadConf = TcpListener#{
         <<"id">> => BadId,
