@@ -109,12 +109,12 @@ hash_examples() ->
             }
         },
         #{
-            password_hash => <<"9b4d0c43d206d48279e69b9ad7132e22">>,
+            password_hash => <<"1bc29b36f623ba82aaf6724fd3b16718">>,
             salt => <<"salt">>,
             password => <<"md5">>,
             password_hash_algorithm => #{
                 name => md5,
-                salt_position => suffix
+                salt_position => disable
             }
         },
         #{

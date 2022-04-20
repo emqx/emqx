@@ -328,6 +328,27 @@ user_seeds() ->
         #{
             data => #{
                 password_hash =>
+                    <<"a3c7f6b085c3e5897ffb9b86f18a9d905063f8550a74444b5892e193c1b50428">>,
+                is_superuser => <<"1">>
+            },
+            credentials => #{
+                clientid => <<"sha256_no_salt">>,
+                password => <<"sha256_no_salt">>
+            },
+            key => <<"mqtt_user:sha256_no_salt">>,
+            config_params => #{
+                cmd => <<"HMGET mqtt_user:${clientid} password_hash is_superuser">>,
+                password_hash_algorithm => #{
+                    name => <<"sha256">>,
+                    salt_position => <<"disable">>
+                }
+            },
+            result => {ok, #{is_superuser => true}}
+        },
+
+        #{
+            data => #{
+                password_hash =>
                     <<"$2b$12$wtY3h20mUjjmeaClpqZVveDWGlHzCGsvuThMlneGHA7wVeFYyns2u">>,
                 salt => <<"$2b$12$wtY3h20mUjjmeaClpqZVve">>,
                 is_superuser => <<"0">>

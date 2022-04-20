@@ -39,7 +39,7 @@
 -type hash_type_simple() :: plain | md5 | sha | sha256 | sha512.
 -type hash_type() :: hash_type_simple() | bcrypt | pbkdf2.
 
--type salt_position() :: prefix | suffix.
+-type salt_position() :: disable | prefix | suffix.
 -type salt() :: binary().
 
 -type pbkdf2_mac_fun() :: md4 | md5 | ripemd160 | sha | sha224 | sha256 | sha384 | sha512.
@@ -91,6 +91,8 @@ hash({bcrypt, Salt}, Password) ->
         {error, Reason} ->
             error(Reason)
     end;
+hash({SimpleHash, _Salt, disable}, Password) when is_binary(Password) ->
+    hash_data(SimpleHash, Password);
 hash({SimpleHash, Salt, prefix}, Password) when is_binary(Password), is_binary(Salt) ->
     hash_data(SimpleHash, <<Salt/binary, Password/binary>>);
 hash({SimpleHash, Salt, suffix}, Password) when is_binary(Password), is_binary(Salt) ->
