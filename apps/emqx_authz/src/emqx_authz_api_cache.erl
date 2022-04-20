@@ -18,6 +18,8 @@
 
 -behaviour(minirest_api).
 
+-include_lib("hocon/include/hoconsc.hrl").
+
 -export([
     api_spec/0,
     paths/0,
@@ -47,7 +49,7 @@ schema("/authorization/cache") ->
         'operationId' => clean_cache,
         delete =>
             #{
-                description => <<"Clean all authorization cache in the cluster.">>,
+                description => ?DESC(authorization_cache_delete),
                 responses =>
                     #{
                         204 => <<"No Content">>,
