@@ -21,6 +21,7 @@
 -include("emqx_exhook.hrl").
 -include_lib("typerefl/include/types.hrl").
 -include_lib("emqx/include/logger.hrl").
+-include_lib("hocon/include/hoconsc.hrl").
 
 -export([api_spec/0, paths/0, schema/1, fields/1, namespace/0]).
 
@@ -56,12 +57,12 @@ schema(("/exhooks")) ->
         'operationId' => exhooks,
         get => #{
             tags => ?TAGS,
-            desc => <<"List all servers">>,
+            desc => ?DESC(list_all_servers),
             responses => #{200 => mk(array(ref(detail_server_info)), #{})}
         },
         post => #{
             tags => ?TAGS,
-            desc => <<"Add a servers">>,
+            desc => ?DESC(add_server),
             'requestBody' => server_conf_schema(),
             responses => #{
                 201 => mk(ref(detail_server_info), #{}),
@@ -74,7 +75,7 @@ schema("/exhooks/:name") ->
         'operationId' => action_with_name,
         get => #{
             tags => ?TAGS,
-            desc => <<"Get the detail information of server">>,
+            desc => ?DESC(get_detail),
             parameters => params_server_name_in_path(),
             responses => #{
                 200 => mk(ref(detail_server_info), #{}),
@@ -83,7 +84,7 @@ schema("/exhooks/:name") ->
         },
         put => #{
             tags => ?TAGS,
-            desc => <<"Update the server">>,
+            desc => ?DESC(update_server),
             parameters => params_server_name_in_path(),
             'requestBody' => server_conf_schema(),
             responses => #{
@@ -94,7 +95,7 @@ schema("/exhooks/:name") ->
         },
         delete => #{
             tags => ?TAGS,
-            desc => <<"Delete the server">>,
+            desc => ?DESC(delete_server),
             parameters => params_server_name_in_path(),
             responses => #{
                 204 => <<>>,
@@ -107,7 +108,7 @@ schema("/exhooks/:name/hooks") ->
         'operationId' => server_hooks,
         get => #{
             tags => ?TAGS,
-            desc => <<"Get the hooks information of server">>,
+            desc => ?DESC(get_hooks),
             parameters => params_server_name_in_path(),
             responses => #{
                 200 => mk(array(ref(list_hook_info)), #{}),
@@ -120,9 +121,7 @@ schema("/exhooks/:name/move") ->
         'operationId' => move,
         post => #{
             tags => ?TAGS,
-            desc =>
-                <<"Move the server.\n",
-                    "NOTE: The position should be \"front|rear|before:{name}|after:{name}\"\n">>,
+            desc => ?DESC(move_api),
             parameters => params_server_name_in_path(),
             'requestBody' => emqx_dashboard_swagger:schema_with_examples(
                 ref(move_req),
@@ -140,53 +139,47 @@ fields(move_req) ->
     [
         {position,
             mk(string(), #{
-                desc => <<"The target position to be moved.">>,
+                required => true,
+                desc => ?DESC(move_position),
                 example => <<"front">>
             })}
     ];
 fields(detail_server_info) ->
     [
-        {metrics, mk(ref(metrics), #{})},
-        {node_metrics, mk(array(ref(node_metrics)), #{})},
-        {node_status, mk(array(ref(node_status)), #{})},
+        {metrics, mk(ref(metrics), #{desc => ?DESC(server_metrics)})},
+        {node_metrics, mk(array(ref(node_metrics)), #{desc => ?DESC(node_metrics)})},
+        {node_status, mk(array(ref(node_status)), #{desc => ?DESC(node_status)})},
         {hooks, mk(array(ref(hook_info)), #{})}
     ] ++ emqx_exhook_schema:server_config();
 fields(list_hook_info) ->
     [
-        {name, mk(binary(), #{desc => <<"The hook's name">>})},
-        {params,
-            mk(
-                map(name, binary()),
-                #{desc => <<"The parameters used when the hook is registered">>}
-            )},
-        {metrics, mk(ref(metrics), #{})},
-        {node_metrics, mk(array(ref(node_metrics)), #{})}
+        {name, mk(binary(), #{desc => ?DESC(hook_name)})},
+        {params, mk(map(name, binary()), #{desc => ?DESC(hook_params)})},
+        {metrics, mk(ref(metrics), #{desc => ?DESC(hook_metrics)})},
+        {node_metrics, mk(array(ref(node_metrics)), #{desc => ?DESC(node_hook_metrics)})}
     ];
 fields(node_metrics) ->
     [
-        {node, mk(string(), #{})},
-        {metrics, mk(ref(metrics), #{})}
+        {node, mk(string(), #{desc => ?DESC(node)})},
+        {metrics, mk(ref(metrics), #{desc => ?DESC(metrics)})}
     ];
 fields(node_status) ->
     [
-        {node, mk(string(), #{})},
-        {status, mk(enum([connected, connecting, unconnected, disable, error]), #{})}
+        {node, mk(string(), #{desc => ?DESC(node)})},
+        {status,
+            mk(enum([connected, connecting, unconnected, disable, error]), #{desc => ?DESC(status)})}
     ];
 fields(hook_info) ->
     [
-        {name, mk(binary(), #{desc => <<"The hook's name">>})},
-        {params,
-            mk(
-                map(name, binary()),
-                #{desc => <<"The parameters used when the hook is registered">>}
-            )}
+        {name, mk(binary(), #{desc => ?DESC(hook_name)})},
+        {params, mk(map(name, binary()), #{desc => ?DESC(hook_params)})}
     ];
 fields(metrics) ->
     [
-        {succeed, mk(integer(), #{})},
-        {failed, mk(integer(), #{})},
-        {rate, mk(integer(), #{})},
-        {max_rate, mk(integer(), #{})}
+        {succeed, mk(integer(), #{desc => ?DESC(metric_succeed)})},
+        {failed, mk(integer(), #{desc => ?DESC(metric_failed)})},
+        {rate, mk(integer(), #{desc => ?DESC(metric_rate)})},
+        {max_rate, mk(integer(), #{desc => ?DESC(metric_max_rate)})}
     ];
 fields(server_config) ->
     emqx_exhook_schema:server_config().
@@ -195,6 +188,7 @@ params_server_name_in_path() ->
     [
         {name,
             mk(string(), #{
+                desc => ?DESC(server_name),
                 in => path,
                 required => true,
                 example => <<"default">>
