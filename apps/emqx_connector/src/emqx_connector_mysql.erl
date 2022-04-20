@@ -104,8 +104,10 @@ on_query(InstId, {Type, SQLOrKey, Params}, AfterQuery, #{poolname := _PoolName} 
 on_query(InstId, {Type, SQLOrKey, Params, Timeout}, AfterQuery, #{poolname := PoolName} = State) ->
     LogMeta = #{connector => InstId, sql => SQLOrKey, state => State},
     ?TRACE("QUERY", "mysql_connector_received", LogMeta),
-    Conn = ecpool:get_client(PoolName),
-    Result = erlang:apply(mysql, mysql_function(Type), [Conn, SQLOrKey, Params, Timeout]),
+    Worker = ecpool:get_client(PoolName),
+    {ok, Conn} = ecpool_worker:client(Worker),
+    MySqlFunction = mysql_function(Type),
+    Result = erlang:apply(mysql, MySqlFunction, [Conn, SQLOrKey, Params, Timeout]),
     case Result of
         {error, disconnected} ->
             ?SLOG(error,
@@ -154,12 +156,12 @@ prepare_sql(Prepares, PoolName) ->
     end.
 
 do_prepare_sql(Prepares, PoolName) ->
-    Workers =
+    Conns =
         [begin
             {ok, Conn} = ecpool_worker:client(Worker),
             Conn
-         end || Worker <- ecpool:workers(PoolName)],
-    prepare_sql_to_conn_list(Workers, Prepares).
+         end || {_Name, Worker} <- ecpool:workers(PoolName)],
+    prepare_sql_to_conn_list(Conns, Prepares).
 
 prepare_sql_to_conn_list([], _PrepareList) -> ok;
 prepare_sql_to_conn_list([Conn | ConnList], PrepareList) ->
@@ -174,12 +176,12 @@ prepare_sql_to_conn_list([Conn | ConnList], PrepareList) ->
     end.
 
 prepare_sql_to_conn(Conn, []) when is_pid(Conn) -> ok;
-prepare_sql_to_conn(Conn, [{PrepareSqlKey, PrepareStatement} | PrepareList]) when is_pid(Conn) ->
-    LogMeta = #{msg => "MySQL Prepare Statement", name => PrepareSqlKey},
-    ?SLOG(info, LogMeta#{prepare => PrepareStatement}),
-    _ = mysql:unprepare(Conn, PrepareSqlKey),
-    case mysql:prepare(Conn, PrepareSqlKey, PrepareStatement) of
-        {ok, _Name} ->
+prepare_sql_to_conn(Conn, [{Key, SQL} | PrepareList]) when is_pid(Conn) ->
+    LogMeta = #{msg => "MySQL Prepare Statement", name => Key, prepare_sql => SQL},
+    ?SLOG(info, LogMeta),
+    _ = unprepare_sql_to_conn(Conn, Key),
+    case mysql:prepare(Conn, Key, SQL) of
+        {ok, _Key} ->
             ?SLOG(info, LogMeta#{result => success}),
             prepare_sql_to_conn(Conn, PrepareList);
         {error, Reason} ->

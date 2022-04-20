@@ -23,6 +23,8 @@
 -behaviour(hocon_schema).
 -behaviour(emqx_authentication).
 
+-define(PREPARE_KEY, ?MODULE).
+
 -export([
     namespace/0,
     roots/0,
@@ -89,12 +91,11 @@ create(
     } = Config
 ) ->
     ok = emqx_authn_password_hashing:init(Algorithm),
-    {PrepareSqlKey, PrepareStatement} = emqx_authn_utils:parse_sql(Query0, '?'),
+    {PrepareSql, TmplToken} = emqx_authn_utils:parse_sql(Query0, '?'),
     ResourceId = emqx_authn_utils:make_resource_id(?MODULE),
     State = #{
         password_hash_algorithm => Algorithm,
-        prepare_sql_key => PrepareSqlKey,
-        prepare_sql_statement => PrepareStatement,
+        tmpl_token => TmplToken,
         query_timeout => QueryTimeout,
         resource_id => ResourceId
     },
@@ -108,8 +109,7 @@ create(
         )
     of
         {ok, _} ->
-            case emqx_resource:query(ResourceId,
-                     {prepare_sql, [{PrepareSqlKey, PrepareStatement}]}) of
+            case emqx_resource:query(ResourceId, {prepare_sql, [{?PREPARE_KEY, PrepareSql}]}) of
                 ok ->
                     {ok, State};
                 {error, Reason} ->
@@ -133,15 +133,14 @@ authenticate(#{auth_method := _}, _) ->
 authenticate(
     #{password := Password} = Credential,
     #{
-        placeholders := PlaceHolders,
-        query := Query,
+        tmpl_token := TmplToken,
         query_timeout := Timeout,
         resource_id := ResourceId,
         password_hash_algorithm := Algorithm
     }
 ) ->
-    Params = emqx_authn_utils:render_sql_params(PlaceHolders, Credential),
-    case emqx_resource:query(ResourceId, {sql, Query, Params, Timeout}) of
+    Params = emqx_authn_utils:render_sql_params(TmplToken, Credential),
+    case emqx_resource:query(ResourceId, {prepared_query, ?PREPARE_KEY, Params, Timeout}) of
         {ok, _Columns, []} ->
             ignore;
         {ok, Columns, [Row | _]} ->
@@ -160,7 +159,7 @@ authenticate(
             ?SLOG(error, #{
                 msg => "mysql_query_failed",
                 resource => ResourceId,
-                query => Query,
+                tmpl_token => TmplToken,
                 params => Params,
                 timeout => Timeout,
                 reason => Reason
