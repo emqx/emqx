@@ -215,7 +215,7 @@ status(put, #{body := Body}) ->
             Reason =
                 case Enable of
                     true -> <<"Telemetry status is already enabled">>;
-                    false -> <<"Telemetry status is already disable">>
+                    false -> <<"Telemetry status is already disabled">>
                 end,
             {400, #{code => 'BAD_REQUEST', message => Reason}};
         false ->

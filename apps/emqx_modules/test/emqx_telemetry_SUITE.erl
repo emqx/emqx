@@ -242,7 +242,18 @@ t_official_version(_) ->
     false = emqx_telemetry:official_version("1.1-alpha.0"),
     true = emqx_telemetry:official_version("1.1-beta.1"),
     true = emqx_telemetry:official_version("1.1-rc.1"),
-    false = emqx_telemetry:official_version("1.1-alpha.a").
+    false = emqx_telemetry:official_version("1.1-alpha.a"),
+    true = emqx_telemetry:official_version("5.0.0"),
+    true = emqx_telemetry:official_version("5.0.0-alpha.1"),
+    true = emqx_telemetry:official_version("5.0.0-beta.4"),
+    true = emqx_telemetry:official_version("5.0-rc.1"),
+    true = emqx_telemetry:official_version("5.0.0-rc.1"),
+    false = emqx_telemetry:official_version("5.0.0-alpha.a"),
+    false = emqx_telemetry:official_version("5.0.0-beta.a"),
+    false = emqx_telemetry:official_version("5.0.0-rc.a"),
+    false = emqx_telemetry:official_version("5.0.0-foo"),
+    false = emqx_telemetry:official_version("5.0.0-rc.1-ccdf7920"),
+    ok.
 
 t_get_telemetry(_Config) ->
     {ok, TelemetryData} = emqx_telemetry:get_telemetry(),
