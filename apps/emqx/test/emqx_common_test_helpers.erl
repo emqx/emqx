@@ -488,8 +488,9 @@ is_tcp_server_available(Host, Port, Timeout) ->
 start_ekka() ->
     try mnesia_hook:module_info() of
         _ -> ekka:start()
-    catch _:_ ->
-        %% Falling back to using Mnesia DB backend.
-        application:set_env(mria, db_backend, mnesia),
-        ekka:start()
+    catch
+        _:_ ->
+            %% Falling back to using Mnesia DB backend.
+            application:set_env(mria, db_backend, mnesia),
+            ekka:start()
     end.
