@@ -23,6 +23,7 @@
 -dialyzer(no_fail_call).
 
 -include_lib("typerefl/include/types.hrl").
+-include_lib("hocon/include/hoconsc.hrl").
 
 -behaviour(hocon_schema).
 
@@ -45,7 +46,7 @@ fields(exhook) ->
                 hoconsc:array(ref(server)),
                 #{
                     default => [],
-                    desc => "List of exhook servers."
+                    desc => ?DESC(servers)
                 }
             )}
     ];
@@ -54,27 +55,27 @@ fields(server) ->
         {name,
             sc(
                 binary(),
-                #{desc => "Name of the exhook server."}
+                #{required => true, desc => ?DESC(name)}
             )},
         {enable,
             sc(
                 boolean(),
                 #{
                     default => true,
-                    desc => "Enable the exhook server."
+                    desc => ?DESC(enable)
                 }
             )},
         {url,
             sc(
                 binary(),
-                #{desc => "URL of the gRPC server."}
+                #{required => true, desc => ?DESC(url)}
             )},
         {request_timeout,
             sc(
                 duration(),
                 #{
                     default => "5s",
-                    desc => "The timeout to request gRPC server."
+                    desc => ?DESC(request_timeout)
                 }
             )},
         {failed_action, failed_action()},
@@ -84,10 +85,7 @@ fields(server) ->
                 hoconsc:union([false, duration()]),
                 #{
                     default => "60s",
-                    desc =>
-                        "Whether to automatically reconnect (initialize) the gRPC server.<br/>"
-                        "When gRPC is not available, exhook tries to request the gRPC service at "
-                        "that interval and reinitialize the list of mounted hooks."
+                    desc => ?DESC(auto_reconnect)
                 }
             )},
         {pool_size,
@@ -96,7 +94,7 @@ fields(server) ->
                 #{
                     default => 8,
                     example => 8,
-                    desc => "The process pool size for gRPC client."
+                    desc => ?DESC(pool_size)
                 }
             )}
     ];
@@ -124,9 +122,7 @@ failed_action() ->
         hoconsc:enum([deny, ignore]),
         #{
             default => deny,
-            desc =>
-                "The value that is returned when the request "
-                "to the gRPC server fails for any reason."
+            desc => ?DESC(failed_action)
         }
     ).
 
