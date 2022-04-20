@@ -366,9 +366,10 @@ t_mqtt_conn_update(_) ->
     BridgeIDEgress = emqx_bridge:bridge_id(?CONNECTR_TYPE, ?BRIDGE_NAME_EGRESS),
     wait_for_resource_ready(BridgeIDEgress, 5),
 
-    %% then we try to update 'server' of the connector, to an unavailable IP address
-    %% the update should fail because of 'unreachable' or 'connrefused'
-    {ok, 500, _ErrorMsg} = request(put, uri(["connectors", ConnctorID]),
+    %% Then we try to update 'server' of the connector, to an unavailable IP address
+    %% The update OK, we recreate the resource even if the resource is current connected,
+    %% and the target resource we're going to update is unavailable.
+    {ok, 200, _} = request(put, uri(["connectors", ConnctorID]),
                                  ?MQTT_CONNECTOR2(<<"127.0.0.1:2603">>)),
     %% we fix the 'server' parameter to a normal one, it should work
     {ok, 200, _} = request(put, uri(["connectors", ConnctorID]),

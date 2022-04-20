@@ -166,7 +166,8 @@ create_dry_run(ResourceType, Config) ->
 -spec create_dry_run_local(resource_type(), resource_config()) ->
     ok | {error, Reason :: term()}.
 create_dry_run_local(ResourceType, Config) ->
-    call_instance(<<?TEST_ID_PREFIX>>, {create_dry_run, ResourceType, Config}).
+    RandId = iolist_to_binary(emqx_misc:gen_id(16)),
+    call_instance(RandId, {create_dry_run, ResourceType, Config}).
 
 -spec recreate(instance_id(), resource_type(), resource_config(), create_opts()) ->
     {ok, resource_data()} | {error, Reason :: term()}.

@@ -207,6 +207,7 @@ basic_config(#{
         replayq => ReplayQ,
         %% connection opts
         server => Server,
+        connect_timeout => 30, %% 30s
         reconnect_interval => ReconnIntv,
         proto_ver => ProtoVer,
         bridge_mode => true,

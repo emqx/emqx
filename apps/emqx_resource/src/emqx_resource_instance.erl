@@ -166,16 +166,9 @@ code_change(_OldVsn, State, _Extra) ->
 
 do_recreate(InstId, ResourceType, NewConfig, Opts) ->
     case lookup(InstId) of
-        {ok, Group, #{mod := ResourceType, status := connected} = Data} ->
-            %% If this resource is in use (status='connected'), we should make sure
-            %% the new config is OK before removing the old one.
-            case do_create_dry_run(ResourceType, NewConfig) of
-                ok ->
-                    do_remove(Group, Data, false),
-                    do_create(InstId, Group, ResourceType, NewConfig, Opts);
-                Error ->
-                    Error
-            end;
+        %% We recreate the resource no matter if it is connected and in use!
+        %% As we can not know if the resource is "really disconnected" or we mark the status
+        %% to "disconnected" because the emqx_resource_instance process is not responding.
         {ok, Group, #{mod := ResourceType, status := _} = Data} ->
             do_remove(Group, Data, false),
             do_create(InstId, Group, ResourceType, NewConfig, Opts);
