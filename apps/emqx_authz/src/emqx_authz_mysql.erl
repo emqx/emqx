@@ -23,6 +23,8 @@
 
 -behaviour(emqx_authz).
 
+-define(PREPARE_KEY, ?MODULE).
+
 %% AuthZ Callbacks
 -export([
     description/0,
@@ -52,10 +54,11 @@ init(#{query := SQL} = Source) ->
         {error, Reason} ->
             error({load_config_error, Reason});
         {ok, Id} ->
-            {PrepareKey, PrepareStatement} = emqx_authz_utils:parse_sql(SQL, '?', ?PLACEHOLDERS),
-            case emqx_resource:query(Id, {prepare_sql, [{PrepareKey, PrepareStatement}]}) of
+            {PrepareSQL, TmplToken} = emqx_authz_utils:parse_sql(SQL, '?', ?PLACEHOLDERS),
+            case emqx_resource:query(Id, {prepare_sql, [{?MODULE, PrepareSQL}]}) of
                 ok ->
-                    Source#{annotations => #{id => Id, prepare => {PrepareKey, PrepareStatement}}};
+                    Source#{annotations => #{
+                        id => Id, tmpl_oken => TmplToken}};
                 {error, Reason} ->
                     error({load_config_error, Reason})
             end
@@ -71,12 +74,12 @@ authorize(
     #{
         annotations := #{
             id := ResourceID,
-            prepare := {PrepareKey, PrepareStatement}
+            tmpl_oken := TmplToken
         }
     }
 ) ->
-    RenderParams = emqx_authz_utils:render_sql_params(PrepareStatement, Client),
-    case emqx_resource:query(ResourceID, {sql, PrepareKey, RenderParams}) of
+    RenderParams = emqx_authz_utils:render_sql_params(TmplToken, Client),
+    case emqx_resource:query(ResourceID, {prepared_query, ?MODULE, RenderParams}) of
         {ok, _Columns, []} ->
             nomatch;
         {ok, Columns, Rows} ->
@@ -85,7 +88,7 @@ authorize(
             ?SLOG(error, #{
                 msg => "query_mysql_error",
                 reason => Reason,
-                prepare => {PrepareKey, PrepareStatement},
+                tmpl_oken => TmplToken,
                 params => RenderParams,
                 resource_id => ResourceID
             }),
