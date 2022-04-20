@@ -42,9 +42,8 @@ fields("telemetry") ->
     [{enable, hoconsc:mk(boolean(), #{default => false, desc => "Enable telemetry."})}];
 fields("delayed") ->
     [
-        {enable, hoconsc:mk(boolean(), #{default => false, desc => "Enable `delayed` module."})},
-        {max_delayed_messages,
-            sc(integer(), #{desc => "Maximum number of delayed messages (0 is no limit)."})}
+        {enable, hoconsc:mk(boolean(), #{default => false, desc => ?DESC(enable)})},
+        {max_delayed_messages, sc(integer(), #{desc => ?DESC(max_delayed_messages)})}
     ];
 fields("rewrite") ->
     [
