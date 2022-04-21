@@ -86,6 +86,7 @@ on_start(InstId, #{server := {Host, Port},
                {pool_size, PoolSize}],
     PoolName = emqx_plugin_libs_pool:pool_name(InstId),
     Prepares = maps:get(prepare_statement, Config, #{}),
+    io:format("Prepares ~p~n", [Prepares]),
     State = init_prepare(#{poolname => PoolName, prepare_statement => Prepares}),
     case emqx_plugin_libs_pool:start_pool(PoolName, ?MODULE, Options ++ SslOpts) of
         ok              -> {ok, State};
@@ -181,17 +182,20 @@ connect(Options) ->
 to_server(Str) ->
     emqx_connector_schema_lib:parse_server(Str, ?MYSQL_HOST_OPTIONS).
 
-init_prepare(State = #{prepare_statement := #{}}) ->
-    State;
 init_prepare(State = #{prepare_statement := Prepares, poolname := PoolName}) ->
-    case prepare_sql(Prepares, PoolName) of
-        ok ->
+    case maps:size(Prepares) of
+        0 ->
             State;
-        {error, Reason} ->
-            LogMeta = #{msg => <<"MySQL init prepare statement failed">>, reason => Reason},
-            ?SLOG(error, LogMeta),
-            %% mark the prepare_statement as failed
-            State#{prepare_statement => {error, Prepares}}
+        _ ->
+            case prepare_sql(Prepares, PoolName) of
+                ok ->
+                    State;
+                {error, Reason} ->
+                    LogMeta = #{msg => <<"MySQL init prepare statement failed">>, reason => Reason},
+                    ?SLOG(error, LogMeta),
+                    %% mark the prepare_statement as failed
+                    State#{prepare_statement => {error, Prepares}}
+            end
     end.
 
 prepare_sql(Prepares, PoolName) when is_map(Prepares) ->

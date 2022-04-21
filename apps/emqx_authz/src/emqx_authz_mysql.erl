@@ -51,7 +51,7 @@ description() ->
 
 init(#{query := SQL} = Source0) ->
     {PrepareSQL, TmplToken} = emqx_authz_utils:parse_sql(SQL, '?', ?PLACEHOLDERS),
-    Source = Source0#{prepare_statement => #{?MODULE => PrepareSQL}},
+    Source = Source0#{prepare_statement => #{?PREPARE_KEY => PrepareSQL}},
     case emqx_authz_utils:create_resource(emqx_connector_mysql, Source) of
         {error, Reason} ->
             error({load_config_error, Reason});
@@ -74,7 +74,7 @@ authorize(
     }
 ) ->
     RenderParams = emqx_authz_utils:render_sql_params(TmplToken, Client),
-    case emqx_resource:query(ResourceID, {prepared_query, ?MODULE, RenderParams}) of
+    case emqx_resource:query(ResourceID, {prepared_query, ?PREPARE_KEY, RenderParams}) of
         {ok, _Columns, []} ->
             nomatch;
         {ok, Columns, Rows} ->
