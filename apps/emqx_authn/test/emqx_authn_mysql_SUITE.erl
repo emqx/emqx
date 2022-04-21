@@ -24,8 +24,7 @@
 -include_lib("eunit/include/eunit.hrl").
 -include_lib("common_test/include/ct.hrl").
 
--define(MYSQL_HOST, "192.168.1.234").
-% -define(MYSQL_HOST, "mysql").
+-define(MYSQL_HOST, "mysql").
 -define(MYSQL_RESOURCE, <<"emqx_authn_mysql_SUITE">>).
 
 -define(PATH, [authentication]).
