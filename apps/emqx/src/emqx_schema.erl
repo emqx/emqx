@@ -1767,7 +1767,7 @@ desc("conn_congestion") ->
     "get \"congested\", because there are too many packets to be sent.\n"
     "The socket tries to buffer the packets until the buffer is\n"
     "full. If more packets arrive after that, the packets will be\n"
-    "\"pending\" in the queue and we consider the connection\n"
+    "\"pending\" in the queue, and we consider the connection\n"
     "congested.\n\n"
     "Note: `sndbuf` can be set to larger value if the\n"
     "alarm is triggered too often.\n"
