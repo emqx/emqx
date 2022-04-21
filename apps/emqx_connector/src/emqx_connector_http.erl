@@ -102,9 +102,7 @@ fields(config) ->
             })}
     , {request, hoconsc:mk(
         ref("request"),
-        #{ default => undefined
-         , required => false
-         , desc => ?DESC("request")
+        #{ desc => ?DESC("request")
          })}
     ] ++ emqx_connector_schema_lib:ssl_fields();
 

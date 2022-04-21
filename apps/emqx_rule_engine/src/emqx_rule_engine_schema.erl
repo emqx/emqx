@@ -81,7 +81,8 @@ fields("builtin_output_console") ->
 fields("user_provided_function") ->
     [ {function, sc(binary(),
         #{ desc => ?DESC("user_provided_function_function")
-        , example => "module:function"
+         , required => true
+         , example => "module:function"
         })}
     , {args, sc(map(),
         #{ desc => ?DESC("user_provided_function_args")
@@ -113,34 +114,17 @@ fields("republish_args") ->
     ].
 
 desc("rule_engine") ->
-    "Configuration for the EMQX Rule Engine.";
+    ?DESC("desc_rule_engine");
 desc("rules") ->
-    "Configuration for a rule.";
+    ?DESC("desc_rules");
 desc("builtin_output_republish") ->
-    "Configuration for a built-in output.";
+    ?DESC("desc_builtin_output_republish");
 desc("builtin_output_console") ->
-    "Configuration for a built-in output.";
+    ?DESC("desc_builtin_output_console");
 desc("user_provided_function") ->
-    "Configuration for a built-in output.";
+    ?DESC("desc_user_provided_function");
 desc("republish_args") ->
-    "The arguments of the built-in 'republish' output.<br>"
-    "One can use variables in the args.<br>\n"
-    "The variables are selected by the rule. For example, if the rule SQL is defined as following:\n"
-    "<code>\n"
-    "    SELECT clientid, qos, payload FROM \"t/1\"\n"
-    "</code>\n"
-    "Then there are 3 variables available: <code>clientid</code>, <code>qos</code> and\n"
-    "<code>payload</code>. And if we've set the args to:\n"
-    "<code>\n"
-    "    {\n"
-    "        topic = \"t/${clientid}\"\n"
-    "        qos = \"${qos}\"\n"
-    "        payload = \"msg: ${payload}\"\n"
-    "    }\n"
-    "</code>\n"
-    "When the rule is triggered by an MQTT message with payload = `hello`, qos = 1,\n"
-    "clientid = `Steve`, the rule will republish a new MQTT message to topic `t/Steve`,\n"
-    "payload = `msg: hello`, and `qos = 1`.";
+    ?DESC("desc_republish_args");
 desc(_) ->
     undefined.
 

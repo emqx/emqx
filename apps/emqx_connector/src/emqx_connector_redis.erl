@@ -56,7 +56,6 @@ roots() ->
 fields(single) ->
     [ {server, fun server/1}
     , {redis_type, #{type => hoconsc:enum([single]),
-                     default => single,
                      required => true,
                      desc => ?DESC("single")
                     }}
@@ -66,7 +65,6 @@ fields(single) ->
 fields(cluster) ->
     [ {servers, fun servers/1}
     , {redis_type, #{type => hoconsc:enum([cluster]),
-                     default => cluster,
                      required => true,
                      desc => ?DESC("cluster")
                     }}
@@ -76,7 +74,6 @@ fields(cluster) ->
 fields(sentinel) ->
     [ {servers, fun servers/1}
     , {redis_type, #{type => hoconsc:enum([sentinel]),
-                     default => sentinel,
                      required => true,
                      desc => ?DESC("sentinel")
                     }}
