@@ -129,13 +129,13 @@ get_i18n() ->
     application:get_env(emqx_dashboard, i18n).
 
 init_i18n(File, Lang) ->
-    Cache = hocon_schema:new_cache(File),
+    Cache = hocon_schema:new_desc_cache(File),
     application:set_env(emqx_dashboard, i18n, #{lang => atom_to_binary(Lang), cache => Cache}).
 
 clear_i18n() ->
     case application:get_env(emqx_dashboard, i18n) of
         {ok, #{cache := Cache}} ->
-            hocon_schema:delete_cache(Cache),
+            hocon_schema:delete_desc_cache(Cache),
             application:unset_env(emqx_dashboard, i18n);
         undefined ->
             ok
