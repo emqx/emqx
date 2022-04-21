@@ -347,7 +347,7 @@ do_load_server(#{name := Name} = Server, #{servers := Servers} = State) ->
 -spec do_reload_server(server_name(), state()) ->
     {{error, term()}, state()}
     | {ok, state()}.
-do_reload_server(Name, State = #{servers := Servers}) ->
+do_reload_server(Name, State) ->
     case where_is_server(Name, State) of
         not_found ->
             {{error, not_found}, State};
@@ -355,7 +355,7 @@ do_reload_server(Name, State = #{servers := Servers}) ->
             {ok, State};
         Server ->
             clean_reload_timer(Server),
-            do_load_server(Server, Servers)
+            do_load_server(Server, State)
     end.
 
 -spec do_unload_server(server_name(), state()) -> state().
@@ -378,9 +378,8 @@ do_unload_server(Name, #{servers := Servers} = State) ->
             end
     end.
 
-ensure_reload_timer(#{timer := Timer} = Server) when is_reference(Timer) ->
-    Server;
 ensure_reload_timer(#{name := Name, auto_reconnect := Intv} = Server) when is_integer(Intv) ->
+    clean_reload_timer(Server),
     Ref = erlang:start_timer(Intv, self(), {reload, Name}),
     Server#{status := connecting, timer := Ref};
 ensure_reload_timer(Server) ->
