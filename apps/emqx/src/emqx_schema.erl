@@ -128,7 +128,7 @@ roots(high) ->
         {"mqtt",
             sc(
                 ref("mqtt"),
-                #{ desc => ?DESC(mqtt)}
+                #{desc => ?DESC(mqtt)}
             )},
         {?EMQX_AUTHENTICATION_CONFIG_ROOT_NAME,
             authentication(
@@ -1268,7 +1268,7 @@ fields("sys_topics") ->
         {"sys_event_messages",
             sc(
                 ref("event_names"),
-                #{ desc => ?DESC(sys_event_messages) }
+                #{desc => ?DESC(sys_event_messages)}
             )}
     ];
 fields("event_names") ->
