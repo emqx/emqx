@@ -1,5 +1,5 @@
 %%--------------------------------------------------------------------
-%% Copyright (c) 2020-2022 EMQ Technologies Co., Ltd. All Rights Reserved.
+%% Copyright (c) 2022 EMQ Technologies Co., Ltd. All Rights Reserved.
 %%
 %% Licensed under the Apache License, Version 2.0 (the "License");
 %% you may not use this file except in compliance with the License.
@@ -14,19 +14,20 @@
 %% limitations under the License.
 %%--------------------------------------------------------------------
 
--module(emqx_retainer_app).
+-module(emqx_retainer_proto_v1).
 
--behaviour(application).
+-behaviour(emqx_bpapi).
+
+-include_lib("emqx/include/bpapi.hrl").
 
 -export([
-    start/2,
-    stop/1
+    introduced_in/0,
+    wait_dispatch_complete/2
 ]).
 
-start(_Type, _Args) ->
-    ok = emqx_retainer_mnesia_cli:load(),
-    emqx_retainer_sup:start_link().
+introduced_in() ->
+    "5.0.0".
 
-stop(_State) ->
-    ok = emqx_retainer_mnesia_cli:unload(),
-    ok.
+-spec wait_dispatch_complete(list(node()), timeout()) -> emqx_rpc:multicall_result(ok).
+wait_dispatch_complete(Nodes, Timeout) ->
+    rpc:multicall(Nodes, emqx_retainer_dispatcher, wait_dispatch_complete, [Timeout]).

@@ -26,6 +26,7 @@
     start_link/2,
     dispatch/2,
     refresh_limiter/0,
+    wait_dispatch_complete/1,
     worker/0
 ]).
 
@@ -57,6 +58,15 @@ refresh_limiter() ->
     lists:foreach(
         fun({_, Pid}) ->
             gen_server:cast(Pid, ?FUNCTION_NAME)
+        end,
+        Workers
+    ).
+
+wait_dispatch_complete(Timeout) ->
+    Workers = gproc_pool:active_workers(?POOL),
+    lists:foreach(
+        fun({_, Pid}) ->
+            ok = gen_server:call(Pid, ?FUNCTION_NAME, Timeout)
         end,
         Workers
     ).
@@ -120,6 +130,8 @@ init([Pool, Id]) ->
     | {noreply, NewState :: term(), hibernate}
     | {stop, Reason :: term(), Reply :: term(), NewState :: term()}
     | {stop, Reason :: term(), NewState :: term()}.
+handle_call(wait_dispatch_complete, _From, State) ->
+    {reply, ok, State};
 handle_call(Req, _From, State) ->
     ?SLOG(error, #{msg => "unexpected_call", call => Req}),
     {reply, ignored, State}.

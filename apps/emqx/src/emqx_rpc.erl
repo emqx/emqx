@@ -51,11 +51,13 @@
 
 -type badrpc() :: {badrpc, term()} | {badtcp, term()}.
 
--type call_result() :: term() | badrpc().
+-type call_result(Result) :: Result | badrpc().
+
+-type call_result() :: call_result(term()).
 
 -type cast_result() :: true.
 
--type multicall_result(Result) :: {[Result], _BadNodes :: [node()]}.
+-type multicall_result(Result) :: {[call_result(Result)], _BadNodes :: [node()]}.
 
 -type multicall_result() :: multicall_result(term()).
 

@@ -23,3 +23,4 @@
 {emqx_topic_metrics,1}.
 {emqx_delayed,1}.
 {emqx_mgmt_cluster,1}.
+{emqx_retainer,1}.

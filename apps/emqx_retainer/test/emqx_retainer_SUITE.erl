@@ -19,13 +19,30 @@
 -compile(export_all).
 -compile(nowarn_export_all).
 
--define(APP, emqx_retainer).
 -define(CLUSTER_RPC_SHARD, emqx_cluster_rpc_shard).
+
+-include("emqx_retainer.hrl").
 
 -include_lib("eunit/include/eunit.hrl").
 -include_lib("common_test/include/ct.hrl").
+-include_lib("snabbkaffe/include/snabbkaffe.hrl").
 
-all() -> emqx_common_test_helpers:all(?MODULE).
+all() ->
+    [
+        {group, mnesia_without_indices},
+        {group, mnesia_with_indices},
+        {group, mnesia_reindex}
+    ].
+
+groups() ->
+    [
+        {mnesia_without_indices, [sequence], common_tests()},
+        {mnesia_with_indices, [sequence], common_tests()},
+        {mnesia_reindex, [sequence], [t_reindex]}
+    ].
+
+common_tests() ->
+    emqx_common_test_helpers:all(?MODULE) -- [t_reindex].
 
 -define(BASE_CONF, <<
     ""
@@ -54,13 +71,9 @@ all() -> emqx_common_test_helpers:all(?MODULE).
 %%--------------------------------------------------------------------
 
 init_per_suite(Config) ->
-    application:load(emqx_conf),
-    ok = ekka:start(),
-    ok = mria_rlog:wait_for_shards([?CLUSTER_RPC_SHARD], infinity),
-
     load_base_conf(),
     emqx_ratelimiter_SUITE:base_conf(),
-    emqx_common_test_helpers:start_apps([emqx_retainer]),
+    emqx_common_test_helpers:start_apps([emqx_conf, ?APP]),
     Config.
 
 end_per_suite(_Config) ->
@@ -68,11 +81,26 @@ end_per_suite(_Config) ->
     mria:stop(),
     mria_mnesia:delete_schema(),
 
-    emqx_common_test_helpers:stop_apps([emqx_retainer]).
+    emqx_common_test_helpers:stop_apps([?APP, emqx_conf]).
 
-init_per_testcase(_, Config) ->
-    {ok, _} = emqx_cluster_rpc:start_link(),
-    timer:sleep(200),
+init_per_group(mnesia_without_indices, Config) ->
+    mnesia:clear_table(?TAB_INDEX_META),
+    mnesia:clear_table(?TAB_INDEX),
+    mnesia:clear_table(?TAB_MESSAGE),
+    Config;
+init_per_group(mnesia_reindex, Config) ->
+    emqx_retainer_mnesia:populate_index_meta(),
+    mnesia:clear_table(?TAB_INDEX),
+    mnesia:clear_table(?TAB_MESSAGE),
+    Config;
+init_per_group(_, Config) ->
+    emqx_retainer_mnesia:populate_index_meta(),
+    mnesia:clear_table(?TAB_INDEX),
+    mnesia:clear_table(?TAB_MESSAGE),
+    Config.
+
+end_per_group(_Group, Config) ->
+    emqx_retainer_mnesia:populate_index_meta(),
     Config.
 
 load_base_conf() ->
@@ -115,6 +143,8 @@ t_store_and_clean(_) ->
 t_retain_handling(_) ->
     {ok, C1} = emqtt:start_link([{clean_start, true}, {proto_ver, v5}]),
     {ok, _} = emqtt:connect(C1),
+
+    ok = emqx_retainer:clean(),
 
     %% rh = 0, no wildcard, and with empty retained message
     {ok, #{}, [0]} = emqtt:subscribe(C1, <<"retained">>, [{qos, 0}, {rh, 0}]),
@@ -247,21 +277,26 @@ t_message_expiry(_) ->
     ok = emqtt:disconnect(C1).
 
 t_message_expiry_2(_) ->
-    emqx_retainer:update_config(#{<<"msg_expiry_interval">> => <<"2s">>}),
-    {ok, C1} = emqtt:start_link([{clean_start, true}, {proto_ver, v5}]),
-    {ok, _} = emqtt:connect(C1),
-    emqtt:publish(C1, <<"retained">>, <<"expire">>, [{qos, 0}, {retain, true}]),
+    ConfMod = fun(Conf) ->
+        Conf#{<<"msg_expiry_interval">> := <<"2s">>}
+    end,
+    Case = fun() ->
+        {ok, C1} = emqtt:start_link([{clean_start, true}, {proto_ver, v5}]),
+        {ok, _} = emqtt:connect(C1),
+        emqtt:publish(C1, <<"retained">>, <<"expire">>, [{qos, 0}, {retain, true}]),
 
-    {ok, #{}, [0]} = emqtt:subscribe(C1, <<"retained">>, [{qos, 0}, {rh, 0}]),
-    ?assertEqual(1, length(receive_messages(1))),
-    timer:sleep(4000),
-    {ok, #{}, [0]} = emqtt:subscribe(C1, <<"retained">>, [{qos, 0}, {rh, 0}]),
-    ?assertEqual(0, length(receive_messages(1))),
-    {ok, #{}, [0]} = emqtt:unsubscribe(C1, <<"retained">>),
+        {ok, #{}, [0]} = emqtt:subscribe(C1, <<"retained">>, [{qos, 0}, {rh, 0}]),
+        ?assertEqual(1, length(receive_messages(1))),
+        timer:sleep(4000),
+        {ok, #{}, [0]} = emqtt:subscribe(C1, <<"retained">>, [{qos, 0}, {rh, 0}]),
+        ?assertEqual(0, length(receive_messages(1))),
+        {ok, #{}, [0]} = emqtt:unsubscribe(C1, <<"retained">>),
 
-    emqtt:publish(C1, <<"retained">>, <<"">>, [{qos, 0}, {retain, true}]),
+        emqtt:publish(C1, <<"retained">>, <<"">>, [{qos, 0}, {retain, true}]),
 
-    ok = emqtt:disconnect(C1).
+        ok = emqtt:disconnect(C1)
+    end,
+    with_conf(ConfMod, Case).
 
 t_clean(_) ->
     {ok, C1} = emqtt:start_link([{clean_start, true}, {proto_ver, v5}]),
@@ -488,9 +523,106 @@ t_only_for_coverage(_) ->
     true = erlang:exit(Dispatcher, normal),
     ok.
 
+t_reindex(_) ->
+    {ok, C} = emqtt:start_link([{clean_start, true}, {proto_ver, v5}]),
+    {ok, _} = emqtt:connect(C),
+
+    ok = emqx_retainer:clean(),
+    ok = emqx_retainer_mnesia:reindex([[1, 3]], false, fun(_Done) -> ok end),
+
+    %% Prepare retained messages for "retained/N1/N2" topics
+    ?check_trace(
+        ?wait_async_action(
+            lists:foreach(
+                fun(N1) ->
+                    lists:foreach(
+                        fun(N2) ->
+                            emqtt:publish(
+                                C,
+                                erlang:iolist_to_binary([
+                                    <<"retained/">>,
+                                    io_lib:format("~5..0w", [N1]),
+                                    <<"/">>,
+                                    io_lib:format("~5..0w", [N2])
+                                ]),
+                                <<"this is a retained message">>,
+                                [{qos, 0}, {retain, true}]
+                            )
+                        end,
+                        lists:seq(1, 10)
+                    )
+                end,
+                lists:seq(1, 1000)
+            ),
+            #{?snk_kind := message_retained, topic := <<"retained/01000/00010">>},
+            5000
+        ),
+        []
+    ),
+
+    ?check_trace(
+        ?wait_async_action(
+            begin
+                %% Spawn reindexing in the background
+                spawn_link(
+                    fun() ->
+                        timer:sleep(1000),
+                        emqx_retainer_mnesia:reindex(
+                            [[1, 4]],
+                            false,
+                            fun(Done) ->
+                                ?tp(
+                                    info,
+                                    reindexing_progress,
+                                    #{done => Done}
+                                )
+                            end
+                        )
+                    end
+                ),
+
+                %% Subscribe to "retained/N/+" for some time, while reindexing is in progress
+                T = erlang:monotonic_time(millisecond),
+                ok = test_retain_while_reindexing(C, T + 3000)
+            end,
+            #{?snk_kind := reindexing_progress, done := 10000},
+            10000
+        ),
+        fun(Trace) ->
+            ?assertMatch(
+                [_ | _],
+                lists:filter(
+                    fun
+                        (#{done := 10000}) -> true;
+                        (_) -> false
+                    end,
+                    ?of_kind(reindexing_progress, Trace)
+                )
+            )
+        end
+    ).
+
 %%--------------------------------------------------------------------
 %% Helper functions
 %%--------------------------------------------------------------------
+
+test_retain_while_reindexing(C, Deadline) ->
+    case erlang:monotonic_time(millisecond) > Deadline of
+        true ->
+            ok;
+        false ->
+            N = rand:uniform(1000),
+            Topic = iolist_to_binary([
+                <<"retained/">>,
+                io_lib:format("~5..0w", [N]),
+                <<"/+">>
+            ]),
+            {ok, #{}, [0]} = emqtt:subscribe(C, Topic, [{qos, 0}, {rh, 0}]),
+            Messages = receive_messages(10),
+            ?assertEqual(10, length(Messages)),
+            {ok, #{}, [0]} = emqtt:unsubscribe(C, Topic),
+            test_retain_while_reindexing(C, Deadline)
+    end.
 
 receive_messages(Count) ->
     receive_messages(Count, []).
