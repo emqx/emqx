@@ -145,6 +145,7 @@ raw_redis_auth_config(SpecificSSLOpts) ->
         database => <<"1">>,
         password => <<"public">>,
         server => redis_server(),
+        redis_type => <<"single">>,
         ssl => maps:merge(SSLOpts, SpecificSSLOpts)
     }.
 
