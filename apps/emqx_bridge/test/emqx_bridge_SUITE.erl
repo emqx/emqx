@@ -77,7 +77,8 @@ t_get_basic_usage_info_1(_Config) ->
 setup_fake_telemetry_data() ->
     ConnectorConf =
         #{<<"connectors">> =>
-              #{<<"mqtt">> => #{<<"my_mqtt_connector">> => #{}}}},
+              #{<<"mqtt">> => #{<<"my_mqtt_connector">> =>
+                 #{ server => "127.0.0.1:1883" }}}},
     MQTTConfig = #{ connector => <<"mqtt:my_mqtt_connector">>
                   , enable => true
                   , direction => ingress

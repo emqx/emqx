@@ -77,6 +77,7 @@
     <<"type">> => <<"redis">>,
     <<"enable">> => true,
     <<"servers">> => <<?REDIS_SINGLE_HOST, ",127.0.0.1:6380">>,
+    <<"redis_type">> => <<"single">>,
     <<"pool_size">> => 1,
     <<"database">> => 0,
     <<"password">> => <<"ee">>,
