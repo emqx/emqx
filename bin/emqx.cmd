@@ -24,7 +24,7 @@
 
 @set script=%~n0
 
-:: for remote_console
+:: for attach and remote_console
 @set EPMD_ARG=-start_epmd false -epmd_module ekka_epmd -proto_dist ekka
 :: for erl command
 @set ERL_FLAGS=%EPMD_ARG%
@@ -65,6 +65,9 @@
 @set HOCON_ENV_OVERRIDE_PREFIX=EMQX_
 @set node_type=-name
 @set schema_mod=emqx_conf_schema
+:: no advanced DB backend for Windows
+@set EMQX_DB__BACKEND=mnesia
+@set EMQX_DB__ROLE=core
 
 @set conf_path="%etc_dir%\emqx.conf"
 :: Extract node name from emqx.conf
@@ -212,8 +215,7 @@ cd /d "%rel_root_dir%"
 @echo off
 cd /d %rel_root_dir%
 @echo on
-@start "%rel_name% console" %werl% -mode embedded -boot "%boot_file_name%" %args%
-@echo emqx is started!
+%erl_exe% -mode embedded -boot "%boot_file_name%" %args%
 @goto :eof
 
 :: Ping the running node
@@ -234,7 +236,7 @@ cd /d %rel_root_dir%
 
 :: Attach to a running node
 :attach
-@start "remsh_%nodename%" %werl% -hidden -remsh "%node_name%" -boot "%clean_boot_file_name%" "%node_type%" "remsh_%node_name%" -setcookie "%node_cookie%"
+%erl_exe% -hidden -remsh "%node_name%" -boot "%clean_boot_file_name%" "%node_type%" "remsh_%node_name%" -setcookie "%node_cookie%"
 @goto :eof
 
 :: Trim variable
