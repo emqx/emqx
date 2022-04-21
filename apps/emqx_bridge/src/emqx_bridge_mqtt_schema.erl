@@ -1,6 +1,7 @@
 -module(emqx_bridge_mqtt_schema).
 
 -include_lib("typerefl/include/types.hrl").
+-include_lib("hocon/include/hoconsc.hrl").
 
 -import(hoconsc, [mk/2]).
 
@@ -42,7 +43,7 @@ fields("get_egress") ->
     emqx_bridge_schema:metrics_status_fields() ++ fields("post_egress").
 
 desc(Rec) when Rec =:= "ingress"; Rec =:= "egress" ->
-    "Configuration for MQTT bridge.";
+    ?DESC("desc_rec");
 desc(_) ->
     undefined.
 
@@ -50,11 +51,11 @@ desc(_) ->
 type_field() ->
     {type, mk(mqtt,
         #{ required => true
-         , desc => "The bridge type."
+         , desc => ?DESC("desc_type")
          })}.
 
 name_field() ->
     {name, mk(binary(),
         #{ required => true
-         , desc => "Bridge name, used as a human-readable description of the bridge."
+         , desc => ?DESC("desc_name")
          })}.

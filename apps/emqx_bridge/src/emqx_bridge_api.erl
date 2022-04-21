@@ -18,6 +18,7 @@
 -behaviour(minirest_api).
 
 -include_lib("typerefl/include/types.hrl").
+-include_lib("hocon/include/hoconsc.hrl").
 -include_lib("emqx/include/logger.hrl").
 
 -import(hoconsc, [mk/2, array/1, enum/1]).
@@ -96,7 +97,7 @@ param_path_operation_cluster() ->
         #{ in => path
          , required => true
          , example => <<"start">>
-         , desc => <<"Operations can be one of: enable, disable, start, stop, restart">>
+         , desc => ?DESC("desc_param_path_operation_cluster")
          })}.
 
 param_path_operation_on_node() ->
@@ -104,7 +105,7 @@ param_path_operation_on_node() ->
         #{ in => path
          , required => true
          , example => <<"start">>
-         , desc => <<"Operations can be one of: start, stop, restart">>
+         , desc => ?DESC("desc_param_path_operation_on_node")
          })}.
 
 param_path_node() ->
@@ -112,7 +113,7 @@ param_path_node() ->
         #{ in => path
          , required => true
          , example => <<"emqx@127.0.0.1">>
-         , desc => <<"The bridge Id. Must be of format {type}:{name}">>
+         , desc => ?DESC("desc_param_path_node")
          })}.
 
 param_path_id() ->
@@ -120,7 +121,7 @@ param_path_id() ->
         #{ in => path
          , required => true
          , example => <<"http:my_http_bridge">>
-         , desc => <<"The bridge Id. Must be of format {type}:{name}">>
+         , desc => ?DESC("desc_param_path_id")
          })}.
 
 bridge_info_array_example(Method) ->
@@ -227,7 +228,7 @@ schema("/bridges") ->
         get => #{
             tags => [<<"bridges">>],
             summary => <<"List Bridges">>,
-            description => <<"List all created bridges">>,
+            description => ?DESC("desc_api1"),
             responses => #{
                 200 => emqx_dashboard_swagger:schema_with_example(
                         array(emqx_bridge_schema:get_response()),
@@ -237,7 +238,7 @@ schema("/bridges") ->
         post => #{
             tags => [<<"bridges">>],
             summary => <<"Create Bridge">>,
-            description => <<"Create a new bridge by type and name">>,
+            description => ?DESC("desc_api2"),
             'requestBody' => emqx_dashboard_swagger:schema_with_examples(
                             emqx_bridge_schema:post_request(),
                             bridge_info_examples(post)),
@@ -254,7 +255,7 @@ schema("/bridges/:id") ->
         get => #{
             tags => [<<"bridges">>],
             summary => <<"Get Bridge">>,
-            description => <<"Get a bridge by Id">>,
+            description => ?DESC("desc_api3"),
             parameters => [param_path_id()],
             responses => #{
                 200 => get_response_body_schema(),
@@ -264,7 +265,7 @@ schema("/bridges/:id") ->
         put => #{
             tags => [<<"bridges">>],
             summary => <<"Update Bridge">>,
-            description => <<"Update a bridge by Id">>,
+            description => ?DESC("desc_api4"),
             parameters => [param_path_id()],
             'requestBody' => emqx_dashboard_swagger:schema_with_examples(
                             emqx_bridge_schema:put_request(),
@@ -278,7 +279,7 @@ schema("/bridges/:id") ->
         delete => #{
             tags => [<<"bridges">>],
             summary => <<"Delete Bridge">>,
-            description => <<"Delete a bridge by Id">>,
+            description => ?DESC("desc_api5"),
             parameters => [param_path_id()],
             responses => #{
                 204 => <<"Bridge deleted">>,
@@ -293,7 +294,7 @@ schema("/bridges/:id/reset_metrics") ->
         put => #{
             tags => [<<"bridges">>],
             summary => <<"Reset Bridge Metrics">>,
-            description => <<"Reset a bridge metrics by Id">>,
+            description => ?DESC("desc_api6"),
             parameters => [param_path_id()],
             responses => #{
                 200 => <<"Reset success">>,
@@ -307,8 +308,7 @@ schema("/bridges/:id/operation/:operation") ->
         post => #{
             tags => [<<"bridges">>],
             summary => <<"Enable/Disable/Stop/Restart Bridge">>,
-            description => <<"Enable/Disable/Stop/Restart bridges on all nodes"
-                " in the cluster.">>,
+            description => ?DESC("desc_api7"),
             parameters => [
                 param_path_id(),
                 param_path_operation_cluster()
@@ -326,8 +326,7 @@ schema("/nodes/:node/bridges/:id/operation/:operation") ->
         post => #{
             tags => [<<"bridges">>],
             summary => <<"Stop/Restart Bridge">>,
-            description => <<"Stop/Restart bridges on a specific node.\n"
-                "NOTE: It's not allowed to disable/enable bridges on a single node.">>,
+            description => ?DESC("desc_api8"),
             parameters => [
                 param_path_node(),
                 param_path_id(),

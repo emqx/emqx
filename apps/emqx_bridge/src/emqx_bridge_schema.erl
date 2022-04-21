@@ -1,6 +1,7 @@
 -module(emqx_bridge_schema).
 
 -include_lib("typerefl/include/types.hrl").
+-include_lib("hocon/include/hoconsc.hrl").
 
 -import(hoconsc, [mk/2, ref/2]).
 
@@ -43,31 +44,24 @@ http_schema(Method) ->
 common_bridge_fields() ->
     [ {enable,
         mk(boolean(),
-           #{ desc => "Enable or disable this bridge"
+           #{ desc => ?DESC("desc_enable")
             , default => true
             })}
     , {connector,
         mk(binary(),
            #{ required => true
             , example => <<"mqtt:my_mqtt_connector">>
-            , desc =>"""
-The connector ID to be used for this bridge. Connector IDs must be of format:
-<code>{type}:{name}</code>.<br>
-In config files, you can find the corresponding config entry for a connector by such path:
-'connectors.{type}.{name}'.<br>
-"""
+            , desc => ?DESC("desc_connector")
             })}
     ].
 
 metrics_status_fields() ->
-    [ {"metrics", mk(ref(?MODULE, "metrics"), #{desc => "The metrics of the bridge"})}
+    [ {"metrics", mk(ref(?MODULE, "metrics"), #{desc => ?DESC("desc_metrics")})}
     , {"node_metrics", mk(hoconsc:array(ref(?MODULE, "node_metrics")),
-        #{ desc => "The metrics of the bridge for each node"
-         })}
-    , {"status", mk(status(), #{desc => "The status of the bridge"})}
+        #{ desc => ?DESC("desc_node_metrics")})}
+    , {"status", mk(status(), #{desc => ?DESC("desc_status")})}
     , {"node_status", mk(hoconsc:array(ref(?MODULE, "node_status")),
-        #{ desc => "The status of the bridge for each node"
-         })}
+        #{ desc => ?DESC("desc_node_status")})}
     ].
 
 direction_field(Dir, Desc) ->
@@ -87,20 +81,20 @@ roots() -> [bridges].
 
 fields(bridges) ->
     [{http, mk(hoconsc:map(name, ref(emqx_bridge_http_schema, "config")),
-               #{desc => "HTTP bridges to an HTTP server."})}]
+               #{desc => ?DESC("bridges_http")})}]
     ++ [{T, mk(hoconsc:map(name, hoconsc:union([ ref(schema_mod(T), "ingress")
                                                , ref(schema_mod(T), "egress")
                                                ])),
-               #{desc => "MQTT bridges to/from another MQTT broker"})} || T <- ?CONN_TYPES];
+               #{desc => ?DESC("bridges_name")})} || T <- ?CONN_TYPES];
 
 fields("metrics") ->
-    [ {"matched", mk(integer(), #{desc => "Count of this bridge is queried"})}
-    , {"success", mk(integer(), #{desc => "Count of query success"})}
-    , {"failed", mk(integer(), #{desc => "Count of query failed"})}
-    , {"rate", mk(float(), #{desc => "The rate of matched, times/second"})}
-    , {"rate_max", mk(float(), #{desc => "The max rate of matched, times/second"})}
+    [ {"matched", mk(integer(), #{desc => ?DESC("metric_matched")})}
+    , {"success", mk(integer(), #{desc => ?DESC("metric_success")})}
+    , {"failed", mk(integer(), #{desc => ?DESC("metric_failed")})}
+    , {"rate", mk(float(), #{desc => ?DESC("metric_rate")})}
+    , {"rate_max", mk(float(), #{desc => ?DESC("metric_rate_max")})}
     , {"rate_last5m", mk(float(),
-        #{desc => "The average rate of matched in the last 5 minutes, times/second"})}
+        #{desc => ?DESC("metric_rate_last5m")})}
     ];
 
 fields("node_metrics") ->
@@ -114,13 +108,13 @@ fields("node_status") ->
     ].
 
 desc(bridges) ->
-    "Configuration for MQTT bridges.";
+    ?DESC("desc_bridges");
 desc("metrics") ->
-    "Bridge metrics.";
+    ?DESC("desc_metrics");
 desc("node_metrics") ->
-    "Node metrics.";
+    ?DESC("desc_node_metrics");
 desc("node_status") ->
-    "Node status.";
+    ?DESC("desc_node_status");
 desc(_) ->
     undefined.
 
@@ -128,7 +122,7 @@ status() ->
     hoconsc:enum([connected, disconnected, connecting]).
 
 node_name() ->
-    {"node", mk(binary(), #{desc => "The node name.", example => "emqx@127.0.0.1"})}.
+    {"node", mk(binary(), #{desc => ?DESC("desc_node_name"), example => "emqx@127.0.0.1"})}.
 
 schema_mod(Type) ->
     list_to_atom(lists:concat(["emqx_bridge_", Type, "_schema"])).
