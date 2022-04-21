@@ -287,9 +287,8 @@ format(_Node, Info = #{memory_total := Total, memory_used := Used}) ->
         case log_path() of
             undefined ->
                 <<"not found">>;
-            Path0 ->
-                Path = list_to_binary(Path0),
-                <<SysPath/binary, Path/binary>>
+            Path ->
+                filename:join(SysPath, Path)
         end,
     Info#{
         memory_total := emqx_mgmt_util:kmg(Total),
