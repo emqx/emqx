@@ -183,6 +183,7 @@ maybe_with_metrics_example(TypeNameExamp, _) ->
 
 info_example_basic(http, _) ->
     #{
+        enable => true,
         url => <<"http://localhost:9901/messages/${topic}">>,
         request_timeout => <<"15s">>,
         connect_timeout => <<"15s">>,
@@ -198,6 +199,7 @@ info_example_basic(http, _) ->
     };
 info_example_basic(mqtt, ingress) ->
     #{
+        enable => true,
         connector => <<"mqtt:my_mqtt_connector">>,
         direction => ingress,
         remote_topic => <<"aws/#">>,
@@ -209,6 +211,7 @@ info_example_basic(mqtt, ingress) ->
     };
 info_example_basic(mqtt, egress) ->
     #{
+        enable => true,
         connector => <<"mqtt:my_mqtt_connector">>,
         direction => egress,
         local_topic => <<"emqx/#">>,
@@ -512,7 +515,8 @@ aggregate_metrics(AllMetrics) ->
 
 format_resp(#{type := Type, name := BridgeName, raw_config := RawConf,
               resource_data := #{status := Status, metrics := Metrics}}) ->
-    RawConf#{
+    RawConfFull = fill_defaults(Type, RawConf),
+    RawConfFull#{
         type => Type,
         name => maps:get(<<"name">>, RawConf, BridgeName),
         node => node(),
@@ -527,6 +531,18 @@ format_metrics(#{
         } }) ->
     ?METRICS(Match, Succ, Failed + Ex, Rate, Rate5m, RateMax).
 
+fill_defaults(Type, RawConf) ->
+    PackedConf = pack_bridge_conf(Type, RawConf),
+    FullConf = emqx_config:fill_defaults(emqx_bridge_schema, PackedConf),
+    unpack_bridge_conf(Type, FullConf).
+
+pack_bridge_conf(Type, RawConf) ->
+    #{<<"bridges">> => #{Type => #{<<"foo">> => RawConf}}}.
+
+unpack_bridge_conf(Type, PackedConf) ->
+    #{<<"bridges">> := Bridges} = PackedConf,
+    #{<<"foo">> := RawConf} = maps:get(Type, Bridges),
+    RawConf.
 
 is_ok(ResL) ->
     case lists:filter(fun({ok, _}) -> false; (ok) -> false; (_) -> true end, ResL) of
