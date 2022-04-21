@@ -198,10 +198,11 @@ t_update(_Config) ->
                 >>
         },
 
-    {ok, _} = emqx:update_config(
+    %% Code 1146, table not exist
+    {error, {post_config_update,emqx_authentication, {1146, _, _}}} =
+    emqx:update_config(
         ?PATH,
-        {create_authenticator, ?GLOBAL, IncorrectConfig}
-    ),
+        {create_authenticator, ?GLOBAL, IncorrectConfig}),
 
     {error, not_authorized} = emqx_access_control:authenticate(
         #{

@@ -21,6 +21,7 @@
 
 -export([ relational_db_fields/0
         , ssl_fields/0
+        , prepare_statement_fields/0
         ]).
 
 -export([ ip_port_to_string/1
@@ -66,6 +67,15 @@ relational_db_fields() ->
     , {password, fun password/1}
     , {auto_reconnect, fun auto_reconnect/1}
     ].
+
+prepare_statement_fields() ->
+    [ {prepare_statement, fun prepare_statement/1}
+    ].
+
+prepare_statement(type) -> map();
+prepare_statement(desc) -> ?DESC("prepare_statement");
+prepare_statement(required) -> false;
+prepare_statement(_) -> undefined.
 
 database(type) -> binary();
 database(desc) -> ?DESC("database_desc");

@@ -59,7 +59,7 @@ init(#{query := SQL0} = Source) ->
             ResourceID,
             ?RESOURCE_GROUP,
             emqx_connector_pgsql,
-            Source#{named_queries => #{ResourceID => SQL}},
+            Source#{prepare_statement => #{ResourceID => SQL}},
             #{}
         )
     of

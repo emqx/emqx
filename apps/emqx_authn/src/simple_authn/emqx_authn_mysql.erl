@@ -56,7 +56,7 @@ fields(?CONF_NS) ->
         {query, fun query/1},
         {query_timeout, fun query_timeout/1}
     ] ++ emqx_authn_schema:common_fields() ++
-        emqx_connector_mysql:fields(config).
+    proplists:delete(prepare_statement, emqx_connector_mysql:fields(config)).
 
 desc(?CONF_NS) ->
     "Configuration for authentication using MySQL database.";
@@ -104,17 +104,12 @@ create(
             ResourceId,
             ?RESOURCE_GROUP,
             emqx_connector_mysql,
-            Config,
+            Config#{prepare_statement => #{?PREPARE_KEY => PrepareSql}},
             #{}
         )
     of
         {ok, _} ->
-            case emqx_resource:query(ResourceId, {prepare_sql, [{?PREPARE_KEY, PrepareSql}]}) of
-                ok ->
-                    {ok, State};
-                {error, Reason} ->
-                    {error, Reason}
-            end;
+            {ok, State};
         {error, Reason} ->
             {error, Reason}
     end.

@@ -49,19 +49,14 @@
 description() ->
     "AuthZ with Mysql".
 
-init(#{query := SQL} = Source) ->
+init(#{query := SQL} = Source0) ->
+    {PrepareSQL, TmplToken} = emqx_authz_utils:parse_sql(SQL, '?', ?PLACEHOLDERS),
+    Source = Source0#{prepare_statement := #{?MODULE => PrepareSQL}},
     case emqx_authz_utils:create_resource(emqx_connector_mysql, Source) of
         {error, Reason} ->
             error({load_config_error, Reason});
         {ok, Id} ->
-            {PrepareSQL, TmplToken} = emqx_authz_utils:parse_sql(SQL, '?', ?PLACEHOLDERS),
-            case emqx_resource:query(Id, {prepare_sql, [{?MODULE, PrepareSQL}]}) of
-                ok ->
-                    Source#{annotations => #{
-                        id => Id, tmpl_oken => TmplToken}};
-                {error, Reason} ->
-                    error({load_config_error, Reason})
-            end
+            Source#{annotations => #{id => Id, tmpl_oken => TmplToken}}
     end.
 
 destroy(#{annotations := #{id := Id}}) ->
