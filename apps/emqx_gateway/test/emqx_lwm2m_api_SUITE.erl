@@ -112,7 +112,7 @@ end_per_testcase(_AllTestCase, Config) ->
 %%--------------------------------------------------------------------
 %% Cases
 %%--------------------------------------------------------------------
-t_lookup_cmd_read(Config) ->
+t_lookup_read(Config) ->
     UdpSock = ?config(sock, Config),
     Epn = "urn:oma:lwm2m:oma:1",
     MsgId1 = 15,
@@ -175,7 +175,7 @@ t_lookup_cmd_read(Config) ->
     timer:sleep(200),
     normal_received_request(Epn, <<"/3/0/0">>, <<"read">>).
 
-t_lookup_cmd_discover(Config) ->
+t_lookup_discover(Config) ->
     %% step 1, device register ...
     Epn = "urn:oma:lwm2m:oma:2",
     MsgId1 = 15,
@@ -338,7 +338,7 @@ t_observe(Config) ->
 %%% Internal Functions
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 call_lookup_api(ClientId, Path, Action) ->
-    ApiPath = emqx_mgmt_api_test_util:api_path(["gateway/lwm2m/clients", ClientId, "lookup_cmd"]),
+    ApiPath = emqx_mgmt_api_test_util:api_path(["gateway/lwm2m/clients", ClientId, "lookup"]),
     Auth = emqx_mgmt_api_test_util:auth_header_(),
     Query = io_lib:format("path=~ts&action=~ts", [Path, Action]),
     {ok, Response} = emqx_mgmt_api_test_util:request_api(get, ApiPath, Query, Auth),
