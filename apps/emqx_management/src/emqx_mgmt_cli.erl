@@ -41,6 +41,7 @@
     traces/1,
     log/1,
     authz/1,
+    pem_cache/1,
     olp/1
 ]).
 
@@ -601,21 +602,14 @@ listeners(_) ->
 %% @doc authz Command
 
 authz(["cache-clean", "node", Node]) ->
-    case emqx_mgmt:clean_authz_cache_all(erlang:list_to_existing_atom(Node)) of
-        ok ->
-            emqx_ctl:print("Authorization cache drain started on node ~ts.~n", [Node]);
-        {error, Reason} ->
-            emqx_ctl:print("Authorization drain failed on node ~ts: ~0p.~n", [Node, Reason])
-    end;
+    Msg = io_lib:format("Authorization cache drain started on node ~ts", [Node]),
+    with_log(fun() -> for_node(fun emqx_mgmt:clean_authz_cache_all/1, Node) end, Msg);
 authz(["cache-clean", "all"]) ->
-    case emqx_mgmt:clean_authz_cache_all() of
-        ok ->
-            emqx_ctl:print("Started Authorization cache drain in all nodes~n");
-        {error, Reason} ->
-            emqx_ctl:print("Authorization cache-clean failed: ~p.~n", [Reason])
-    end;
+    Msg = "Authorization cache drain started on all nodes",
+    with_log(fun emqx_mgmt:clean_authz_cache_all/0, Msg);
 authz(["cache-clean", ClientId]) ->
-    emqx_mgmt:clean_authz_cache(ClientId);
+    Msg = io_lib:format("Drain ~ts authz cache", [ClientId]),
+    with_log(fun() -> emqx_mgmt:clean_authz_cache(ClientId) end, Msg);
 authz(_) ->
     emqx_ctl:usage(
         [
@@ -624,6 +618,17 @@ authz(_) ->
             {"authz cache-clean <ClientId>", "Clears authorization cache for given client"}
         ]
     ).
+
+pem_cache(["clean", "all"]) ->
+    with_log(fun emqx_mgmt:clean_pem_cache_all/0, "PEM cache clean");
+pem_cache(["clean", "node", Node]) ->
+    Msg = io_lib:format("~ts PEM cache clean", [Node]),
+    with_log(fun() -> for_node(fun emqx_mgmt:clean_pem_cache_all/1, Node) end, Msg);
+pem_cache(_) ->
+    emqx_ctl:usage([
+        {"pem_cache clean all", "Clears x509 certificate cache on all nodes"},
+        {"pem_cache clean node <Node>", "Clears x509 certificate cache on given node"}
+    ]).
 
 %%--------------------------------------------------------------------
 %% @doc OLP (Overload Protection related)
@@ -786,3 +791,20 @@ format_listen_on({Addr, Port}) when is_tuple(Addr) ->
 
 name(Filter) ->
     iolist_to_binary(["CLI-", Filter]).
+
+for_node(Fun, Node) ->
+    try list_to_existing_atom(Node) of
+        NodeAtom ->
+            Fun(NodeAtom)
+    catch
+        error:badarg ->
+            {error, unknown_node}
+    end.
+
+with_log(Fun, Msg) ->
+    case Fun() of
+        ok ->
+            emqx_ctl:print("~s OK~n", [Msg]);
+        {error, Reason} ->
+            emqx_ctl:print("~s FAILED~n~p~n", [Msg, Reason])
+    end.
