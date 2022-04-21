@@ -25,4 +25,4 @@
   {links, [{"Homepage", "https://emqx.io/"},
            {"Github", "https://github.com/emqx/emqx"}
           ]}
-                    ]}.
+]}.
