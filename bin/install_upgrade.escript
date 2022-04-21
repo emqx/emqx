@@ -266,18 +266,20 @@ unpack_zipballs(RelNameStr, Version) ->
         GzFile = filename:absname(filename:join(["releases", RelNameStr ++ "-" ++ Version ++ ".tar.gz"])),
         ZipFiles = filelib:wildcard(filename:join(["releases", RelNameStr ++ "-*" ++ Version ++ "*.zip"])),
         ?INFO("unzip ~p", [ZipFiles]),
-        [begin
-            TmdTarD="/tmp/emqx_untar_" ++ integer_to_list(erlang:system_time()),
-            ok = filelib:ensure_dir(filename:join([TmdTarD, "dummy"])),
-            {ok, _} = file:copy(Zip, filename:join([TmdTarD, "emqx.zip"])),
-            ok = file:set_cwd(filename:join([TmdTarD])),
-            {ok, _FileList} = zip:unzip("emqx.zip"),
-            ok = file:set_cwd(filename:join([TmdTarD, "emqx"])),
-            ok = erl_tar:create(GzFile, filelib:wildcard("*"), [compressed])
-        end || Zip <- ZipFiles]
+        lists:foreach(
+          fun(Zip) ->
+                  TmdTarD = "/tmp/emqx_untar_" ++ integer_to_list(erlang:system_time()),
+                  ok = filelib:ensure_dir(filename:join([TmdTarD, "dummy"])),
+                  {ok, _} = file:copy(Zip, filename:join([TmdTarD, "emqx.zip"])),
+                  ok = file:set_cwd(filename:join([TmdTarD])),
+                  {ok, _FileList} = zip:unzip("emqx.zip"),
+                  ok = file:set_cwd(filename:join([TmdTarD, "emqx"])),
+                  ok = erl_tar:create(GzFile, filelib:wildcard("*"), [compressed])
+          end,
+          ZipFiles)
     after
         % restore cwd
-        file:set_cwd(Cwd)
+        ok = file:set_cwd(Cwd)
     end.
 
 first_value(_Fun, []) -> no_value;
