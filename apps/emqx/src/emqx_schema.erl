@@ -123,7 +123,7 @@ roots(high) ->
         {"zones",
             sc(
                 map("name", ref("zone")),
-                #{}
+                #{desc => ?DESC(zones)}
             )},
         {"mqtt",
             sc(
