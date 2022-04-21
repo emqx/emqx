@@ -26,6 +26,7 @@
 -include("emqx_authentication.hrl").
 -include("emqx_access_control.hrl").
 -include_lib("typerefl/include/types.hrl").
+-include_lib("hocon/include/hoconsc.hrl").
 
 -type duration() :: integer().
 -type duration_s() :: integer().
@@ -122,19 +123,12 @@ roots(high) ->
         {"zones",
             sc(
                 map("name", ref("zone")),
-                #{
-                    desc =>
-                        "A zone is a set of configs grouped by the zone <code>name</code>.<br>\n"
-                        "For flexible configuration mapping, the <code>name</code>\n"
-                        "can be set to a listener's <code>zone</code> config.<br>\n"
-                        "NOTE: A built-in zone named <code>default</code> is auto created\n"
-                        "and can not be deleted."
-                }
+                #{}
             )},
         {"mqtt",
             sc(
                 ref("mqtt"),
-                #{}
+                #{ desc => ?DESC(mqtt)}
             )},
         {?EMQX_AUTHENTICATION_CONFIG_ROOT_NAME,
             authentication(
@@ -171,12 +165,12 @@ roots(medium) ->
         {"broker",
             sc(
                 ref("broker"),
-                #{}
+                #{desc => ?DESC(broker)}
             )},
         {"sys_topics",
             sc(
                 ref("sys_topics"),
-                #{}
+                #{desc => ?DESC(sys_topics)}
             )},
         {"rate_limit",
             sc(
@@ -374,9 +368,7 @@ fields("mqtt") ->
                 hoconsc:union([infinity, duration()]),
                 #{
                     default => "15s",
-                    desc =>
-                        "Close TCP connections from the clients that have not sent MQTT CONNECT\n"
-                        "message within this interval."
+                    desc => ?DESC(mqtt_idle_timeout)
                 }
             )},
         {"max_packet_size",
@@ -384,7 +376,7 @@ fields("mqtt") ->
                 bytesize(),
                 #{
                     default => "1MB",
-                    desc => "Maximum MQTT packet size allowed."
+                    desc => ?DESC(mqtt_max_packet_size)
                 }
             )},
         {"max_clientid_len",
@@ -392,7 +384,7 @@ fields("mqtt") ->
                 range(23, 65535),
                 #{
                     default => 65535,
-                    desc => "Maximum allowed length of MQTT clientId."
+                    desc => ?DESC(mqtt_max_clientid_len)
                 }
             )},
         {"max_topic_levels",
@@ -400,7 +392,7 @@ fields("mqtt") ->
                 range(1, 65535),
                 #{
                     default => 65535,
-                    desc => "Maximum topic levels allowed."
+                    desc => ?DESC(mqtt_max_topic_levels)
                 }
             )},
         {"max_qos_allowed",
@@ -408,7 +400,7 @@ fields("mqtt") ->
                 qos(),
                 #{
                     default => 2,
-                    desc => "Maximum QoS allowed."
+                    desc => ?DESC(mqtt_max_qos_allowed)
                 }
             )},
         {"max_topic_alias",
@@ -416,7 +408,7 @@ fields("mqtt") ->
                 range(0, 65535),
                 #{
                     default => 65535,
-                    desc => "Maximum Topic Alias, 0 means no topic alias supported."
+                    desc => ?DESC(mqtt_max_topic_alias)
                 }
             )},
         {"retain_available",
@@ -424,7 +416,7 @@ fields("mqtt") ->
                 boolean(),
                 #{
                     default => true,
-                    desc => "Support MQTT retained messages."
+                    desc => ?DESC(mqtt_retain_available)
                 }
             )},
         {"wildcard_subscription",
@@ -432,7 +424,7 @@ fields("mqtt") ->
                 boolean(),
                 #{
                     default => true,
-                    desc => "Support MQTT Wildcard Subscriptions."
+                    desc => ?DESC(mqtt_wildcard_subscription)
                 }
             )},
         {"shared_subscription",
@@ -440,7 +432,7 @@ fields("mqtt") ->
                 boolean(),
                 #{
                     default => true,
-                    desc => "Support MQTT Shared Subscriptions."
+                    desc => ?DESC(mqtt_shared_subscription)
                 }
             )},
         {"ignore_loop_deliver",
@@ -448,7 +440,7 @@ fields("mqtt") ->
                 boolean(),
                 #{
                     default => false,
-                    desc => "Ignore loop delivery of messages for MQTT v3.1.1."
+                    desc => ?DESC(mqtt_ignore_loop_deliver)
                 }
             )},
         {"strict_mode",
@@ -456,11 +448,7 @@ fields("mqtt") ->
                 boolean(),
                 #{
                     default => false,
-                    desc =>
-                        "Parse MQTT messages in strict mode. "
-                        "When set to true, invalid utf8 strings in for example "
-                        "client ID, topic name, etc. will cause the client to be "
-                        "disconnected"
+                    desc => ?DESC(mqtt_strict_mode)
                 }
             )},
         {"response_information",
@@ -468,9 +456,7 @@ fields("mqtt") ->
                 string(),
                 #{
                     default => "",
-                    desc =>
-                        "Specify the response information returned to the client\n"
-                        "This feature is disabled if is set to \"\"."
+                    desc => ?DESC(mqtt_response_information)
                 }
             )},
         {"server_keepalive",
@@ -478,10 +464,7 @@ fields("mqtt") ->
                 hoconsc:union([integer(), disabled]),
                 #{
                     default => disabled,
-                    desc =>
-                        "'Server Keep Alive' of MQTT 5.0.\n"
-                        "If the server returns a 'Server Keep Alive' in the CONNACK packet,\n"
-                        "the client MUST use that value instead of the value it sent as the 'Keep Alive'."
+                    desc => ?DESC(mqtt_server_keepalive)
                 }
             )},
         {"keepalive_backoff",
@@ -489,9 +472,7 @@ fields("mqtt") ->
                 float(),
                 #{
                     default => 0.75,
-                    desc =>
-                        "The backoff for MQTT keepalive timeout. The broker will close the connection\n"
-                        "after idling for 'Keepalive * backoff * 2'."
+                    desc => ?DESC(mqtt_keepalive_backoff)
                 }
             )},
         {"max_subscriptions",
@@ -499,7 +480,7 @@ fields("mqtt") ->
                 hoconsc:union([range(1, inf), infinity]),
                 #{
                     default => infinity,
-                    desc => "Maximum number of subscriptions allowed."
+                    desc => ?DESC(mqtt_max_subscriptions)
                 }
             )},
         {"upgrade_qos",
@@ -507,7 +488,7 @@ fields("mqtt") ->
                 boolean(),
                 #{
                     default => false,
-                    desc => "Force upgrade of QoS level according to subscription."
+                    desc => ?DESC(mqtt_upgrade_qos)
                 }
             )},
         {"max_inflight",
@@ -515,9 +496,7 @@ fields("mqtt") ->
                 range(1, 65535),
                 #{
                     default => 32,
-                    desc =>
-                        "Maximum size of the Inflight Window storing QoS1/2 "
-                        "messages delivered but un-acked."
+                    desc => ?DESC(mqtt_max_inflight)
                 }
             )},
         {"retry_interval",
@@ -525,7 +504,7 @@ fields("mqtt") ->
                 duration(),
                 #{
                     default => "30s",
-                    desc => "Retry interval for QoS1/2 message delivering."
+                    desc => ?DESC(mqtt_retry_interval)
                 }
             )},
         {"max_awaiting_rel",
@@ -533,7 +512,7 @@ fields("mqtt") ->
                 hoconsc:union([integer(), infinity]),
                 #{
                     default => 100,
-                    desc => "Maximum QoS2 packets (Client -> Broker) awaiting PUBREL."
+                    desc => ?DESC(mqtt_max_awaiting_rel)
                 }
             )},
         {"await_rel_timeout",
@@ -541,9 +520,7 @@ fields("mqtt") ->
                 duration(),
                 #{
                     default => "300s",
-                    desc =>
-                        "The QoS2 messages (Client -> Broker) will be dropped "
-                        "if awaiting PUBREL timeout."
+                    desc => ?DESC(mqtt_await_rel_timeout)
                 }
             )},
         {"session_expiry_interval",
@@ -551,7 +528,7 @@ fields("mqtt") ->
                 duration(),
                 #{
                     default => "2h",
-                    desc => "Default session expiry interval for MQTT V3.1.1 connections."
+                    desc => ?DESC(mqtt_session_expiry_interval)
                 }
             )},
         {"max_mqueue_len",
@@ -559,9 +536,7 @@ fields("mqtt") ->
                 hoconsc:union([non_neg_integer(), infinity]),
                 #{
                     default => 1000,
-                    desc =>
-                        "Maximum queue length. Enqueued messages when persistent client disconnected,\n"
-                        "or inflight window is full."
+                    desc => ?DESC(mqtt_max_mqueue_len)
                 }
             )},
         {"mqueue_priorities",
@@ -569,19 +544,7 @@ fields("mqtt") ->
                 hoconsc:union([map(), disabled]),
                 #{
                     default => disabled,
-                    desc =>
-                        "Topic priorities.<br>\n"
-                        "There's no priority table by default, hence all messages are treated equal.<br>\n"
-                        "Priority number [1-255]<br>\n"
-                        "\n"
-                        "**NOTE**: Comma and equal signs are not allowed for priority topic names.<br>\n"
-                        "**NOTE**: Messages for topics not in the priority table are treated as\n"
-                        "either highest or lowest priority depending on the configured value for\n"
-                        "<code>mqtt.mqueue_default_priority</code>.\n"
-                        "<br><br>\n"
-                        "**Examples**:\n"
-                        "To configure <code>\"topic/1\" > \"topic/2\"</code>:<br/>\n"
-                        "<code>mqueue_priorities: {\"topic/1\": 10, \"topic/2\": 8}</code>"
+                    desc => ?DESC(mqtt_mqueue_priorities)
                 }
             )},
         {"mqueue_default_priority",
@@ -589,8 +552,7 @@ fields("mqtt") ->
                 hoconsc:enum([highest, lowest]),
                 #{
                     default => lowest,
-                    desc =>
-                        "Default to the highest priority for topics not matching priority table."
+                    desc => ?DESC(mqtt_mqueue_default_priority)
                 }
             )},
         {"mqueue_store_qos0",
@@ -598,7 +560,7 @@ fields("mqtt") ->
                 boolean(),
                 #{
                     default => true,
-                    desc => "Support enqueue QoS0 messages."
+                    desc => ?DESC(mqtt_mqueue_store_qos0)
                 }
             )},
         {"use_username_as_clientid",
@@ -606,7 +568,7 @@ fields("mqtt") ->
                 boolean(),
                 #{
                     default => false,
-                    desc => "Replace client ID with the username."
+                    desc => ?DESC(mqtt_use_username_as_clientid)
                 }
             )},
         {"peer_cert_as_username",
@@ -614,9 +576,7 @@ fields("mqtt") ->
                 hoconsc:enum([disabled, cn, dn, crt, pem, md5]),
                 #{
                     default => disabled,
-                    desc =>
-                        "Use the CN, DN or CRT field from the client certificate as a username.\n"
-                        "Only works for the TLS connection."
+                    desc => ?DESC(mqtt_peer_cert_as_username)
                 }
             )},
         {"peer_cert_as_clientid",
@@ -624,9 +584,7 @@ fields("mqtt") ->
                 hoconsc:enum([disabled, cn, dn, crt, pem, md5]),
                 #{
                     default => disabled,
-                    desc =>
-                        "Use the CN, DN or CRT field from the client certificate as a clientid.\n"
-                        "Only works for the TLS connection."
+                    desc => ?DESC(mqtt_peer_cert_as_clientid)
                 }
             )}
     ];
@@ -1229,7 +1187,7 @@ fields("broker") ->
                 boolean(),
                 #{
                     default => true,
-                    desc => "Enable session registry"
+                    desc => ?DESC(broker_enable_session_registry)
                 }
             )},
         {"session_locking_strategy",
@@ -1237,12 +1195,7 @@ fields("broker") ->
                 hoconsc:enum([local, leader, quorum, all]),
                 #{
                     default => quorum,
-                    desc =>
-                        "Session locking strategy in a cluster.<br/>\n"
-                        " - `local`: only lock the session on the current node\n"
-                        " - `one`: select only one remote node to lock the session\n"
-                        " - `quorum`: select some nodes to lock the session\n"
-                        " - `all`: lock the session on all the nodes in the cluster"
+                    desc => ?DESC(broker_session_locking_strategy)
                 }
             )},
         {"shared_subscription_strategy",
@@ -1250,13 +1203,7 @@ fields("broker") ->
                 hoconsc:enum([random, round_robin, sticky, hash_topic, hash_clientid]),
                 #{
                     default => round_robin,
-                    desc =>
-                        "Dispatch strategy for shared subscription.<br/>\n"
-                        " - `random`: dispatch the message to a random selected subscriber\n"
-                        " - `round_robin`: select the subscribers in a round-robin manner\n"
-                        " - `sticky`: always use the last selected subscriber to dispatch,\n"
-                        "   until the subscriber disconnects.\n"
-                        " - `hash`: select the subscribers by the hash of `clientIds`"
+                    desc => ?DESC(broker_shared_subscription_strategy)
                 }
             )},
         {"shared_dispatch_ack_enabled",
@@ -1264,11 +1211,7 @@ fields("broker") ->
                 boolean(),
                 #{
                     default => false,
-                    desc =>
-                        "Enable/disable shared dispatch acknowledgement for QoS1 and QoS2 messages.<br/>\n"
-                        " This should allow messages to be dispatched to a different subscriber in\n"
-                        " the group in case the picked (based on `shared_subscription_strategy`) subscriber\n"
-                        " is offline."
+                    desc => ?DESC(broker_shared_dispatch_ack_enabled)
                 }
             )},
         {"route_batch_clean",
@@ -1276,7 +1219,7 @@ fields("broker") ->
                 boolean(),
                 #{
                     default => true,
-                    desc => "Enable batch clean for deleted routes."
+                    desc => ?DESC(broker_route_batch_clean)
                 }
             )},
         {"perf",
@@ -1292,15 +1235,7 @@ fields("broker_perf") ->
                 hoconsc:enum([key, tab, global]),
                 #{
                     default => key,
-                    desc =>
-                        "Performance tuning for subscribing/unsubscribing a wildcard topic.<br/>\n"
-                        "Change this parameter only when there are many wildcard topics.<br/>\n"
-                        "NOTE: when changing from/to `global` lock, it requires all\n"
-                        "nodes in the cluster to be stopped before the change.\n\n"
-                        " - `key`: mnesia transactional updates with per-key locks. "
-                        "Recommended for a single-node setup.\n"
-                        " - `tab`: mnesia transactional updates with table lock. Recommended for a cluster setup.\n"
-                        " - `global`: updates are protected with a global lock. Recommended for large clusters."
+                    desc => ?DESC(broker_perf_route_lock_type)
                 }
             )},
         {"trie_compaction",
@@ -1308,15 +1243,7 @@ fields("broker_perf") ->
                 boolean(),
                 #{
                     default => true,
-                    desc =>
-                        "Enable trie path compaction.<br/>\n"
-                        "Enabling it significantly improves wildcard topic subscribe\n"
-                        "rate, if wildcard topics have unique prefixes like:\n"
-                        "'sensor/{{id}}/+/', where ID is unique per subscriber.<br/>\n"
-                        "Topic match performance (when publishing) may degrade if messages\n"
-                        "are mostly published to topics with large number of levels.<br/>\n"
-                        "NOTE: This is a cluster-wide configuration.\n"
-                        "It requires all nodes to be stopped before changing it."
+                    desc => ?DESC(broker_perf_trie_compaction)
                 }
             )}
     ];
@@ -1327,7 +1254,7 @@ fields("sys_topics") ->
                 hoconsc:union([disabled, duration()]),
                 #{
                     default => "1m",
-                    desc => "Time interval of publishing `$SYS` messages."
+                    desc => ?DESC(sys_msg_interval)
                 }
             )},
         {"sys_heartbeat_interval",
@@ -1335,16 +1262,13 @@ fields("sys_topics") ->
                 hoconsc:union([disabled, duration()]),
                 #{
                     default => "30s",
-                    desc =>
-                        "Time interval for publishing following heartbeat messages:<br/>"
-                        " - `$SYS/brokers/<node>/uptime`\n"
-                        " - `$SYS/brokers/<node>/datetime`"
+                    desc => ?DESC(sys_heartbeat_interval)
                 }
             )},
         {"sys_event_messages",
             sc(
                 ref("event_names"),
-                #{}
+                #{ desc => ?DESC(sys_event_messages) }
             )}
     ];
 fields("event_names") ->
@@ -1354,7 +1278,7 @@ fields("event_names") ->
                 boolean(),
                 #{
                     default => true,
-                    desc => "Connection complete"
+                    desc => ?DESC(sys_event_client_connected)
                 }
             )},
         {"client_disconnected",
@@ -1362,7 +1286,7 @@ fields("event_names") ->
                 boolean(),
                 #{
                     default => true,
-                    desc => "Disconnect"
+                    desc => ?DESC(sys_event_client_disconnected)
                 }
             )},
         {"client_subscribed",
@@ -1370,7 +1294,7 @@ fields("event_names") ->
                 boolean(),
                 #{
                     default => false,
-                    desc => "Subscribe"
+                    desc => ?DESC(sys_event_client_subscribed)
                 }
             )},
         {"client_unsubscribed",
@@ -1378,7 +1302,7 @@ fields("event_names") ->
                 boolean(),
                 #{
                     default => false,
-                    desc => "Unsubscribe"
+                    desc => ?DESC(sys_event_client_unsubscribed)
                 }
             )}
     ];
