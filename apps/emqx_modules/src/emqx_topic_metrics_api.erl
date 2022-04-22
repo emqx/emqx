@@ -18,6 +18,7 @@
 
 -behaviour(minirest_api).
 
+-include_lib("hocon/include/hoconsc.hrl").
 -include_lib("typerefl/include/types.hrl").
 -include("emqx_modules.hrl").
 
@@ -68,19 +69,19 @@ schema("/mqtt/topic_metrics") ->
         'operationId' => topic_metrics,
         get =>
             #{
-                description => <<"List topic metrics">>,
+                description => ?DESC(get_topic_metrics_api),
                 tags => ?API_TAG_MQTT,
                 responses =>
                     #{
                         200 =>
                             mk(array(hoconsc:ref(topic_metrics)), #{
-                                desc => <<"List all topic metrics">>
+                                desc => ?DESC(get_topic_metrics_api)
                             })
                     }
             },
         put =>
             #{
-                description => <<"Reset topic metrics by topic name. Or reset all Topic Metrics">>,
+                description => ?DESC(reset_topic_metrics_api),
                 tags => ?API_TAG_MQTT,
                 'requestBody' => emqx_dashboard_swagger:schema_with_examples(
                     ref(reset),
@@ -88,28 +89,28 @@ schema("/mqtt/topic_metrics") ->
                 ),
                 responses =>
                     #{
-                        204 => <<"Reset topic metrics successfully">>,
+                        204 => ?DESC(reset_topic_metrics_api),
                         404 =>
                             emqx_dashboard_swagger:error_codes(
-                                [?TOPIC_NOT_FOUND], <<"Topic not found">>
+                                [?TOPIC_NOT_FOUND], ?DESC(topic_metrics_api_response404)
                             )
                     }
             },
         post =>
             #{
-                description => <<"Create topic metrics">>,
+                description => ?DESC(post_topic_metrics_api),
                 tags => ?API_TAG_MQTT,
                 'requestBody' => [topic(body)],
                 responses =>
                     #{
-                        204 => <<"Create topic metrics success">>,
+                        204 => ?DESC(post_topic_metrics_api),
                         409 => emqx_dashboard_swagger:error_codes(
                             [?EXCEED_LIMIT],
-                            <<"Topic metrics exceeded max limit 512">>
+                            ?DESC(topic_metrics_api_response409)
                         ),
                         400 => emqx_dashboard_swagger:error_codes(
                             [?BAD_REQUEST, ?BAD_TOPIC],
-                            <<"Topic metrics already existed or bad topic">>
+                            ?DESC(topic_metrics_api_response400)
                         )
                     }
             }
@@ -119,29 +120,29 @@ schema("/mqtt/topic_metrics/:topic") ->
         'operationId' => operate_topic_metrics,
         get =>
             #{
-                description => <<"Get topic metrics">>,
+                description => ?DESC(gat_topic_metrics_data_api),
                 tags => ?API_TAG_MQTT,
                 parameters => [topic(path)],
                 responses =>
                     #{
-                        200 => mk(ref(topic_metrics), #{desc => <<"Topic metrics">>}),
+                        200 => mk(ref(topic_metrics), #{desc => ?DESC(topic)}),
                         404 => emqx_dashboard_swagger:error_codes(
                             [?TOPIC_NOT_FOUND],
-                            <<"Topic not found">>
+                            ?DESC(topic_metrics_api_response404)
                         )
                     }
             },
         delete =>
             #{
-                description => <<"Remove the topic metrics">>,
+                description => ?DESC(delete_topic_metrics_data_api),
                 tags => ?API_TAG_MQTT,
                 parameters => [topic(path)],
                 responses =>
                     #{
-                        204 => <<"Removed topic metrics successfully">>,
+                        204 => ?DESC(delete_topic_metrics_data_api),
                         404 => emqx_dashboard_swagger:error_codes(
                             [?TOPIC_NOT_FOUND],
-                            <<"Topic not found">>
+                            ?DESC(topic_metrics_api_response404)
                         )
                     }
             }
@@ -153,11 +154,7 @@ fields(reset) ->
             mk(
                 binary(),
                 #{
-                    desc =>
-                        <<
-                            "Topic Name. If this parameter is not present,"
-                            " all created topic metrics will be reset"
-                        >>,
+                    desc => ?DESC(reset_topic_desc),
                     example => <<"testtopic/1">>,
                     required => false
                 }
@@ -166,7 +163,7 @@ fields(reset) ->
             mk(
                 string(),
                 #{
-                    desc => <<"Action Name. Only as a \"reset\"">>,
+                    desc => ?DESC(action),
                     enum => [reset],
                     required => true,
                     example => <<"reset">>
@@ -179,7 +176,7 @@ fields(topic_metrics) ->
             mk(
                 binary(),
                 #{
-                    desc => <<"Topic Name">>,
+                    desc => ?DESC(topic),
                     example => <<"testtopic/1">>,
                     required => true
                 }
@@ -188,7 +185,7 @@ fields(topic_metrics) ->
             mk(
                 emqx_datetime:epoch_second(),
                 #{
-                    desc => <<"Topic Metrics created date time, in rfc3339">>,
+                    desc => ?DESC(create_time),
                     required => true,
                     example => <<"2022-01-14T21:48:47+08:00">>
                 }
@@ -197,8 +194,7 @@ fields(topic_metrics) ->
             mk(
                 emqx_datetime:epoch_second(),
                 #{
-                    desc =>
-                        <<"Topic Metrics reset date time, in rfc3339. Nullable if never reset">>,
+                    desc => ?DESC(reset_time),
                     required => false,
                     example => <<"2022-01-14T21:48:47+08:00">>
                 }
@@ -207,164 +203,51 @@ fields(topic_metrics) ->
             mk(
                 ref(metrics),
                 #{
-                    desc => <<"Topic Metrics fields">>,
+                    desc => ?DESC(metrics),
                     required => true
                 }
             )}
     ];
 fields(metrics) ->
-    [
-        {'messages.dropped.count',
-            mk(
-                integer(),
-                #{
-                    desc => <<"Message dropped count">>,
-                    example => 0
-                }
-            )},
-        {'messages.dropped.rate',
-            mk(
-                number(),
-                #{
-                    desc => <<"Message dropped rate in 5s">>,
-                    example => 0
-                }
-            )},
-        {'messages.in.count',
-            mk(
-                integer(),
-                #{
-                    desc => <<"Message received count">>,
-                    example => 0
-                }
-            )},
-        {'messages.in.rate',
-            mk(
-                number(),
-                #{
-                    desc => <<"Message received rate in 5s">>,
-                    example => 0
-                }
-            )},
-        {'messages.out.count',
-            mk(
-                integer(),
-                #{
-                    desc => <<"Message sent count">>,
-                    example => 0
-                }
-            )},
-        {'messages.out.rate',
-            mk(
-                number(),
-                #{
-                    desc => <<"Message sent rate in 5s">>,
-                    example => 0
-                }
-            )},
-        {'messages.qos0.in.count',
-            mk(
-                integer(),
-                #{
-                    desc => <<"Message with QoS 0 received count">>,
-                    example => 0
-                }
-            )},
-        {'messages.qos0.in.rate',
-            mk(
-                number(),
-                #{
-                    desc => <<"Message with QoS 0 received rate in 5s">>,
-                    example => 0
-                }
-            )},
-        {'messages.qos0.out.count',
-            mk(
-                integer(),
-                #{
-                    desc => <<"Message with QoS 0 sent count">>,
-                    example => 0
-                }
-            )},
-        {'messages.qos0.out.rate',
-            mk(
-                number(),
-                #{
-                    desc => <<"Message with QoS 0 sent rate in 5s">>,
-                    example => 0
-                }
-            )},
-        {'messages.qos1.in.count',
-            mk(
-                integer(),
-                #{
-                    desc => <<"Message with QoS 1 received count">>,
-                    example => 0
-                }
-            )},
-        {'messages.qos1.in.rate',
-            mk(
-                number(),
-                #{
-                    desc => <<"Message with QoS 1 received rate in 5s">>,
-                    example => 0
-                }
-            )},
-        {'messages.qos1.out.count',
-            mk(
-                integer(),
-                #{
-                    desc => <<"Message with QoS 1 sent count">>,
-                    example => 0
-                }
-            )},
-        {'messages.qos1.out.rate',
-            mk(
-                number(),
-                #{
-                    desc => <<"Message with QoS 1 sent rate in 5s">>,
-                    example => 0
-                }
-            )},
-        {'messages.qos2.in.count',
-            mk(
-                integer(),
-                #{
-                    desc => <<"Message with QoS 2 sent count">>,
-                    example => 0
-                }
-            )},
-        {'messages.qos2.in.rate',
-            mk(
-                number(),
-                #{
-                    desc => <<"Message with QoS 2 received rate in 5s">>,
-                    example => 0
-                }
-            )},
-        {'messages.qos2.out.count',
-            mk(
-                integer(),
-                #{
-                    desc => <<"Message with QoS 2 sent count">>,
-                    example => 0
-                }
-            )},
-        {'messages.qos2.out.rate',
-            mk(
-                number(),
-                #{
-                    desc => <<"Message with QoS 2 sent rate in 5s">>,
-                    example => 0
-                }
-            )}
-    ].
+    Integers = [
+        'message.dropped.count',
+        'message.in.count',
+        'message.out.count',
+        'message.qos0.in.count',
+        'message.qos0.out.count',
+        'message.qos1.in.count',
+        'message.qos1.out.count',
+        'message.qos2.in.count',
+        'message.qos2.out.count'
+    ],
+    Numbers = [
+        'message.dropped.rate',
+        'message.in.rate',
+        'message.out.rate',
+        'message.qos0.in.rate',
+        'message.qos0.out.rate',
+        'message.qos1.in.rate',
+        'message.qos1.out.rate',
+        'message.qos2.in.rate',
+        'message.qos2.out.rate'
+    ],
+    ToDesc =
+        fun(Key) ->
+            %% message.dropped.rate -> message_dropped_rate
+            Str = string:replace(atom_to_binary(Key, utf8), ".", "_", all),
+            NKey = binary_to_atom(list_to_binary(Str), utf8),
+            ?DESC(NKey)
+        end,
+    [{Key, mk(integer(), #{desc => ToDesc(Key), example => 0})} || Key <- Integers]
+    ++
+    [{Key, mk(number(), #{desc => ToDesc(Key), example => 0})} || Key <- Numbers].
+
 
 topic(In) ->
     Desc =
         case In of
-            body -> <<"Raw topic string">>;
-            path -> <<"Notice: Topic string in url path must be encoded">>
+            body -> ?DESC(topic_in_body);
+            path -> ?DESC(topic_in_path)
         end,
     {topic,
         mk(
