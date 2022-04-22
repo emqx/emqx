@@ -56,11 +56,11 @@ fields(mongo_sharded) ->
 fields(mysql) ->
     authz_common_fields(mysql) ++
         [{query, mk(binary(), #{required => true})}] ++
-        emqx_connector_mysql:fields(config);
+        proplists:delete(prepare_statement, emqx_connector_mysql:fields(config));
 fields(postgresql) ->
     authz_common_fields(postgresql) ++
         [{query, mk(binary(), #{required => true})}] ++
-        proplists:delete(named_queries, emqx_connector_pgsql:fields(config));
+        proplists:delete(prepare_statement, emqx_connector_pgsql:fields(config));
 fields(redis_single) ->
     authz_redis_common_fields() ++
         emqx_connector_redis:fields(single);

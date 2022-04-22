@@ -60,7 +60,7 @@ fields(?CONF_NS) ->
         {query, fun query/1}
     ] ++
         emqx_authn_schema:common_fields() ++
-        proplists:delete(named_queries, emqx_connector_pgsql:fields(config)).
+        proplists:delete(prepare_statement, emqx_connector_pgsql:fields(config)).
 
 desc(?CONF_NS) ->
     "Configuration for PostgreSQL authentication backend.";
@@ -101,7 +101,7 @@ create(
             ResourceId,
             ?RESOURCE_GROUP,
             emqx_connector_pgsql,
-            Config#{named_queries => #{ResourceId => Query}},
+            Config#{prepare_statement => #{ResourceId => Query}},
             #{}
         )
     of

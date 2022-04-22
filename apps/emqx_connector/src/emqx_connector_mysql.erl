@@ -29,7 +29,10 @@
         , on_health_check/2
         ]).
 
--export([connect/1]).
+%% ecpool connect & reconnect
+-export([connect/1, prepare_sql_to_conn/2]).
+
+-export([prepare_sql/2]).
 
 -export([roots/0, fields/1]).
 
@@ -48,7 +51,8 @@ fields(config) ->
     [ {server, fun server/1}
     ] ++
     emqx_connector_schema_lib:relational_db_fields() ++
-    emqx_connector_schema_lib:ssl_fields().
+    emqx_connector_schema_lib:ssl_fields() ++
+    emqx_connector_schema_lib:prepare_statement_fields().
 
 server(type) -> emqx_schema:ip_port();
 server(required) -> true;
@@ -81,8 +85,10 @@ on_start(InstId, #{server := {Host, Port},
                {auto_reconnect, reconn_interval(AutoReconn)},
                {pool_size, PoolSize}],
     PoolName = emqx_plugin_libs_pool:pool_name(InstId),
+    Prepares = maps:get(prepare_statement, Config, #{}),
+    State = init_prepare(#{poolname => PoolName, prepare_statement => Prepares}),
     case emqx_plugin_libs_pool:start_pool(PoolName, ?MODULE, Options ++ SslOpts) of
-        ok              -> {ok, #{poolname => PoolName}};
+        ok              -> {ok, State};
         {error, Reason} -> {error, Reason}
     end.
 
@@ -91,30 +97,81 @@ on_stop(InstId, #{poolname := PoolName}) ->
                   connector => InstId}),
     emqx_plugin_libs_pool:stop_pool(PoolName).
 
-on_query(InstId, {sql, SQL}, AfterQuery, #{poolname := _PoolName} = State) ->
-    on_query(InstId, {sql, SQL, [], default_timeout}, AfterQuery, State);
-on_query(InstId, {sql, SQL, Params}, AfterQuery, #{poolname := _PoolName} = State) ->
-    on_query(InstId, {sql, SQL, Params, default_timeout}, AfterQuery, State);
-on_query(InstId, {sql, SQL, Params, Timeout}, AfterQuery, #{poolname := PoolName} = State) ->
-    ?TRACE("QUERY", "mysql_connector_received", #{connector => InstId, sql => SQL, state => State}),
-    case Result = ecpool:pick_and_do(
-                    PoolName,
-                    {mysql, query, [SQL, Params, Timeout]},
-                    no_handover) of
+on_query(InstId, {Type, SQLOrKey}, AfterQuery, State) ->
+    on_query(InstId, {Type, SQLOrKey, [], default_timeout}, AfterQuery, State);
+on_query(InstId, {Type, SQLOrKey, Params}, AfterQuery, State) ->
+    on_query(InstId, {Type, SQLOrKey, Params, default_timeout}, AfterQuery, State);
+on_query(InstId, {Type, SQLOrKey, Params, Timeout}, AfterQuery,
+  #{poolname := PoolName, prepare_statement := Prepares} = State) ->
+    LogMeta = #{connector => InstId, sql => SQLOrKey, state => State},
+    ?TRACE("QUERY", "mysql_connector_received", LogMeta),
+    Worker = ecpool:get_client(PoolName),
+    {ok, Conn} = ecpool_worker:client(Worker),
+    MySqlFunction = mysql_function(Type),
+    Result = erlang:apply(mysql, MySqlFunction, [Conn, SQLOrKey, Params, Timeout]),
+    case Result of
+        {error, disconnected} ->
+            ?SLOG(error,
+                LogMeta#{msg => "mysql_connector_do_sql_query_failed", reason => disconnected}),
+            %% kill the poll worker to trigger reconnection
+            _ = exit(Conn, restart),
+            emqx_resource:query_failed(AfterQuery),
+            Result;
+        {error, not_prepared} ->
+            ?SLOG(warning,
+                LogMeta#{msg => "mysql_connector_prepare_query_failed", reason => not_prepared}),
+            case prepare_sql(Prepares, PoolName) of
+                ok ->
+                    %% not return result, next loop will try again
+                    on_query(InstId, {Type, SQLOrKey, Params, Timeout}, AfterQuery, State);
+                {error, Reason} ->
+                    ?SLOG(error,
+                        LogMeta#{msg => "mysql_connector_do_prepare_failed", reason => Reason}),
+                    emqx_resource:query_failed(AfterQuery),
+                    {error, Reason}
+            end;
         {error, Reason} ->
-            ?SLOG(error, #{msg => "mysql_connector_do_sql_query_failed",
-                connector => InstId, sql => SQL, reason => Reason}),
-            emqx_resource:query_failed(AfterQuery);
+            ?SLOG(error,
+            LogMeta#{msg => "mysql_connector_do_sql_query_failed", reason => Reason}),
+            emqx_resource:query_failed(AfterQuery),
+            Result;
         _ ->
-            emqx_resource:query_success(AfterQuery)
-    end,
-    Result.
+            emqx_resource:query_success(AfterQuery),
+            Result
+    end.
+
+mysql_function(sql) -> query;
+mysql_function(prepared_query) -> execute.
 
 on_health_check(_InstId, #{poolname := PoolName} = State) ->
-    emqx_plugin_libs_pool:health_check(PoolName, fun ?MODULE:do_health_check/1, State).
+    case emqx_plugin_libs_pool:health_check(PoolName, fun ?MODULE:do_health_check/1, State) of
+        {ok, State} ->
+            case do_health_check_prepares(State) of
+                ok->
+                    {ok, State};
+                {ok, NState} ->
+                    {ok, NState};
+                {error, _Reason} ->
+                    {error, health_check_failed, State}
+            end;
+        {error, health_check_failed, State} ->
+            {error, health_check_failed, State}
+    end.
 
 do_health_check(Conn) ->
     ok == element(1, mysql:query(Conn, <<"SELECT count(1) AS T">>)).
+
+do_health_check_prepares(#{prepare_statement := Prepares})when is_map(Prepares) ->
+    ok;
+do_health_check_prepares(State = #{poolname := PoolName, prepare_statement := {error, Prepares}}) ->
+    %% retry to prepare
+    case prepare_sql(Prepares, PoolName) of
+        ok ->
+            %% remove the error
+            {ok, State#{prepare_statement => Prepares}};
+        {error, Reason} ->
+            {error, Reason}
+    end.
 
 %% ===================================================================
 reconn_interval(true) -> 15;
@@ -127,3 +184,68 @@ connect(Options) ->
       -> {inet:ip_address() | inet:hostname(), pos_integer()}.
 to_server(Str) ->
     emqx_connector_schema_lib:parse_server(Str, ?MYSQL_HOST_OPTIONS).
+
+init_prepare(State = #{prepare_statement := Prepares, poolname := PoolName}) ->
+    case maps:size(Prepares) of
+        0 ->
+            State;
+        _ ->
+            case prepare_sql(Prepares, PoolName) of
+                ok ->
+                    State;
+                {error, Reason} ->
+                    LogMeta = #{msg => <<"MySQL init prepare statement failed">>, reason => Reason},
+                    ?SLOG(error, LogMeta),
+                    %% mark the prepare_statement as failed
+                    State#{prepare_statement => {error, Prepares}}
+            end
+    end.
+
+prepare_sql(Prepares, PoolName) when is_map(Prepares) ->
+    prepare_sql(maps:to_list(Prepares), PoolName);
+prepare_sql(Prepares, PoolName) ->
+    case do_prepare_sql(Prepares, PoolName) of
+        ok ->
+            %% prepare for reconnect
+            ecpool:add_reconnect_callback(PoolName, {?MODULE, prepare_sql_to_conn, [Prepares]}),
+            ok;
+        {error, R} ->
+            {error, R}
+    end.
+
+do_prepare_sql(Prepares, PoolName) ->
+    Conns =
+        [begin
+            {ok, Conn} = ecpool_worker:client(Worker),
+            Conn
+         end || {_Name, Worker} <- ecpool:workers(PoolName)],
+    prepare_sql_to_conn_list(Conns, Prepares).
+
+prepare_sql_to_conn_list([], _PrepareList) -> ok;
+prepare_sql_to_conn_list([Conn | ConnList], PrepareList) ->
+    case prepare_sql_to_conn(Conn, PrepareList) of
+        ok ->
+            prepare_sql_to_conn_list(ConnList, PrepareList);
+        {error, R} ->
+            %% rollback
+            Fun = fun({Key, _}) -> _ = unprepare_sql_to_conn(Conn, Key), ok end,
+            lists:foreach(Fun, PrepareList),
+            {error, R}
+    end.
+
+prepare_sql_to_conn(Conn, []) when is_pid(Conn) -> ok;
+prepare_sql_to_conn(Conn, [{Key, SQL} | PrepareList]) when is_pid(Conn) ->
+    LogMeta = #{msg => "MySQL Prepare Statement", name => Key, prepare_sql => SQL},
+    ?SLOG(info, LogMeta),
+    _ = unprepare_sql_to_conn(Conn, Key),
+    case mysql:prepare(Conn, Key, SQL) of
+        {ok, _Key} ->
+            ?SLOG(info, LogMeta#{result => success}),
+            prepare_sql_to_conn(Conn, PrepareList);
+        {error, Reason} ->
+            ?SLOG(error, LogMeta#{result => failed, reason => Reason}),
+            {error, Reason}
+    end.
+
+unprepare_sql_to_conn(Conn, PrepareSqlKey) ->
+    mysql:unprepare(Conn, PrepareSqlKey).

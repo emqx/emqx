@@ -51,15 +51,10 @@ roots() ->
     [{config, #{type => hoconsc:ref(?MODULE, config)}}].
 
 fields(config) ->
-    [ {named_queries, fun named_queries/1}
-    , {server, fun server/1}] ++
+    [{server, fun server/1}] ++
     emqx_connector_schema_lib:relational_db_fields() ++
-    emqx_connector_schema_lib:ssl_fields().
-
-named_queries(type) -> map();
-named_queries(desc) -> ?DESC("name_queries_desc");
-named_queries(required) -> false;
-named_queries(_) -> undefined.
+    emqx_connector_schema_lib:ssl_fields() ++
+    emqx_connector_schema_lib:prepare_statement_fields().
 
 server(type) -> emqx_schema:ip_port();
 server(required) -> true;
@@ -92,7 +87,7 @@ on_start(InstId, #{server := {Host, Port},
                {database, DB},
                {auto_reconnect, reconn_interval(AutoReconn)},
                {pool_size, PoolSize},
-               {named_queries, maps:to_list(maps:get(named_queries, Config, #{}))}],
+               {prepare_statement, maps:to_list(maps:get(prepare_statement, Config, #{}))}],
     PoolName = emqx_plugin_libs_pool:pool_name(InstId),
     case emqx_plugin_libs_pool:start_pool(PoolName, ?MODULE, Options ++ SslOpts) of
         ok              -> {ok, #{poolname => PoolName}};
@@ -135,10 +130,10 @@ connect(Opts) ->
     Host     = proplists:get_value(host, Opts),
     Username = proplists:get_value(username, Opts),
     Password = proplists:get_value(password, Opts),
-    NamedQueries = proplists:get_value(named_queries, Opts),
+    PrepareStatement = proplists:get_value(prepare_statement, Opts),
     case epgsql:connect(Host, Username, Password, conn_opts(Opts)) of
         {ok, Conn} ->
-            case parse(Conn, NamedQueries) of
+            case parse(Conn, PrepareStatement) of
                 ok -> {ok, Conn};
                 {error, Reason} -> {error, Reason}
             end;

@@ -23,6 +23,8 @@
 
 -behaviour(emqx_authz).
 
+-define(PREPARE_KEY, ?MODULE).
+
 %% AuthZ Callbacks
 -export([
     description/0,
@@ -47,22 +49,14 @@
 description() ->
     "AuthZ with Mysql".
 
-init(#{query := SQL} = Source) ->
+init(#{query := SQL} = Source0) ->
+    {PrepareSQL, TmplToken} = emqx_authz_utils:parse_sql(SQL, '?', ?PLACEHOLDERS),
+    Source = Source0#{prepare_statement => #{?PREPARE_KEY => PrepareSQL}},
     case emqx_authz_utils:create_resource(emqx_connector_mysql, Source) of
         {error, Reason} ->
             error({load_config_error, Reason});
         {ok, Id} ->
-            Source#{
-                annotations =>
-                    #{
-                        id => Id,
-                        query => emqx_authz_utils:parse_sql(
-                            SQL,
-                            '?',
-                            ?PLACEHOLDERS
-                        )
-                    }
-            }
+            Source#{annotations => #{id => Id, tmpl_oken => TmplToken}}
     end.
 
 destroy(#{annotations := #{id := Id}}) ->
@@ -75,12 +69,12 @@ authorize(
     #{
         annotations := #{
             id := ResourceID,
-            query := {Query, Params}
+            tmpl_oken := TmplToken
         }
     }
 ) ->
-    RenderParams = emqx_authz_utils:render_sql_params(Params, Client),
-    case emqx_resource:query(ResourceID, {sql, Query, RenderParams}) of
+    RenderParams = emqx_authz_utils:render_sql_params(TmplToken, Client),
+    case emqx_resource:query(ResourceID, {prepared_query, ?PREPARE_KEY, RenderParams}) of
         {ok, _Columns, []} ->
             nomatch;
         {ok, Columns, Rows} ->
@@ -89,7 +83,7 @@ authorize(
             ?SLOG(error, #{
                 msg => "query_mysql_error",
                 reason => Reason,
-                query => Query,
+                tmpl_oken => TmplToken,
                 params => RenderParams,
                 resource_id => ResourceID
             }),

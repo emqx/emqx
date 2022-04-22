@@ -23,6 +23,8 @@
 -behaviour(hocon_schema).
 -behaviour(emqx_authentication).
 
+-define(PREPARE_KEY, ?MODULE).
+
 -export([
     namespace/0,
     roots/0,
@@ -54,7 +56,7 @@ fields(?CONF_NS) ->
         {query, fun query/1},
         {query_timeout, fun query_timeout/1}
     ] ++ emqx_authn_schema:common_fields() ++
-        emqx_connector_mysql:fields(config).
+    proplists:delete(prepare_statement, emqx_connector_mysql:fields(config)).
 
 desc(?CONF_NS) ->
     "Configuration for authentication using MySQL database.";
@@ -89,12 +91,11 @@ create(
     } = Config
 ) ->
     ok = emqx_authn_password_hashing:init(Algorithm),
-    {Query, PlaceHolders} = emqx_authn_utils:parse_sql(Query0, '?'),
+    {PrepareSql, TmplToken} = emqx_authn_utils:parse_sql(Query0, '?'),
     ResourceId = emqx_authn_utils:make_resource_id(?MODULE),
     State = #{
         password_hash_algorithm => Algorithm,
-        query => Query,
-        placeholders => PlaceHolders,
+        tmpl_token => TmplToken,
         query_timeout => QueryTimeout,
         resource_id => ResourceId
     },
@@ -103,12 +104,10 @@ create(
             ResourceId,
             ?RESOURCE_GROUP,
             emqx_connector_mysql,
-            Config,
+            Config#{prepare_statement => #{?PREPARE_KEY => PrepareSql}},
             #{}
         )
     of
-        {ok, already_created} ->
-            {ok, State};
         {ok, _} ->
             {ok, State};
         {error, Reason} ->
@@ -129,15 +128,14 @@ authenticate(#{auth_method := _}, _) ->
 authenticate(
     #{password := Password} = Credential,
     #{
-        placeholders := PlaceHolders,
-        query := Query,
+        tmpl_token := TmplToken,
         query_timeout := Timeout,
         resource_id := ResourceId,
         password_hash_algorithm := Algorithm
     }
 ) ->
-    Params = emqx_authn_utils:render_sql_params(PlaceHolders, Credential),
-    case emqx_resource:query(ResourceId, {sql, Query, Params, Timeout}) of
+    Params = emqx_authn_utils:render_sql_params(TmplToken, Credential),
+    case emqx_resource:query(ResourceId, {prepared_query, ?PREPARE_KEY, Params, Timeout}) of
         {ok, _Columns, []} ->
             ignore;
         {ok, Columns, [Row | _]} ->
@@ -156,7 +154,7 @@ authenticate(
             ?SLOG(error, #{
                 msg => "mysql_query_failed",
                 resource => ResourceId,
-                query => Query,
+                tmpl_token => TmplToken,
                 params => Params,
                 timeout => Timeout,
                 reason => Reason
