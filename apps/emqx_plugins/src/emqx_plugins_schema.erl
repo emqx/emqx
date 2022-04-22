@@ -23,7 +23,7 @@
         , namespace/0
         ]).
 
--include_lib("typerefl/include/types.hrl").
+-include_lib("hocon/include/hoconsc.hrl").
 -include("emqx_plugins.hrl").
 
 namespace() -> "plugin".
@@ -32,33 +32,22 @@ roots() -> [?CONF_ROOT].
 
 fields(?CONF_ROOT) ->
     #{fields => root_fields(),
-      desc => """
-Manage EMQX plugins.
-<br>
-Plugins can be pre-built as a part of EMQX package,
-or installed as a standalone package in a location specified by
-<code>install_dir</code> config key
-<br>
-The standalone-installed plugins are referred to as 'external' plugins.
-"""
+      desc => ?DESC(?CONF_ROOT)
      };
 fields(state) ->
     #{ fields => state_fields(),
-       desc => "A per-plugin config to describe the desired state of the plugin."
+       desc => ?DESC(state)
      }.
 
 state_fields() ->
     [ {name_vsn,
        hoconsc:mk(string(),
-                  #{ desc => "The {name}-{version} of the plugin.<br>"
-                             "It should match the plugin application name-version as the "
-                             "for the plugin release package name<br>"
-                             "For example: my_plugin-0.1.0."
+                  #{ desc =>  ?DESC(name_vsn)
                    , required => true
                    })}
     , {enable,
        hoconsc:mk(boolean(),
-                  #{ desc => "Set to 'true' to enable this plugin"
+                  #{ desc => ?DESC(enable)
                    , required => true
                    })}
     ].
@@ -72,27 +61,16 @@ root_fields() ->
 states(type) -> hoconsc:array(hoconsc:ref(?MODULE, state));
 states(required) -> false;
 states(default) -> [];
-states(desc) -> "An array of plugins in the desired states.<br>"
-                "The plugins are started in the defined order";
+states(desc) -> ?DESC(states);
 states(_) -> undefined.
 
 install_dir(type) -> string();
 install_dir(required) -> false;
 install_dir(default) -> "plugins"; %% runner's root dir
 install_dir(T) when T =/= desc -> undefined;
-install_dir(desc) -> """
-The installation directory for the external plugins.
-The plugin beam files and configuration files should reside in
-the subdirectory named as <code>emqx_foo_bar-0.1.0</code>.
-<br>
-NOTE: For security reasons, this directory should **NOT** be writable
-by anyone except <code>emqx</code> (or any user which runs EMQX).
-""".
+install_dir(desc) -> ?DESC(install_dir).
 
 check_interval(type) -> emqx_schema:duration();
 check_interval(default) -> "5s";
 check_interval(T) when T =/= desc -> undefined;
-check_interval(desc) -> """
-Check interval: check if the status of the plugins in the cluster is consistent, <br>
-if the results of 3 consecutive checks are not consistent, then alarm.
-""".
+check_interval(desc) -> ?DESC(check_interval).

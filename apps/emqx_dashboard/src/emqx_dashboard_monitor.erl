@@ -313,7 +313,7 @@ next_interval() ->
 sample(Time) ->
     Fun =
         fun(Key, Res) ->
-            maps:put(Key, value(Key), Res)
+            maps:put(Key, getstats(Key), Res)
         end,
     Data = lists:foldl(Fun, #{}, ?SAMPLER_LIST),
     #emqx_monit{time = Time, data = Data}.
@@ -362,11 +362,17 @@ count_map(M1, M2) ->
         end,
     lists:foldl(Fun, #{}, ?SAMPLER_LIST).
 
-value(connections) -> emqx_stats:getstat('connections.count');
-value(topics) -> emqx_stats:getstat('topics.count');
-value(subscriptions) -> emqx_stats:getstat('subscriptions.count');
-value(received) -> emqx_metrics:val('messages.received');
-value(received_bytes) -> emqx_metrics:val('bytes.received');
-value(sent) -> emqx_metrics:val('messages.sent');
-value(sent_bytes) -> emqx_metrics:val('bytes.sent');
-value(dropped) -> emqx_metrics:val('messages.dropped').
+getstats(Key) ->
+    %% Stats ets maybe not exist when ekka join.
+    try stats(Key)
+    catch _: _ -> 0
+    end.
+
+stats(connections) -> emqx_stats:getstat('connections.count');
+stats(topics) -> emqx_stats:getstat('topics.count');
+stats(subscriptions) -> emqx_stats:getstat('subscriptions.count');
+stats(received) -> emqx_metrics:val('messages.received');
+stats(received_bytes) -> emqx_metrics:val('bytes.received');
+stats(sent) -> emqx_metrics:val('messages.sent');
+stats(sent_bytes) -> emqx_metrics:val('bytes.sent');
+stats(dropped) -> emqx_metrics:val('messages.dropped').

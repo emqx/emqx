@@ -32,16 +32,7 @@ fields("dashboard") ->
         {listeners,
             sc(
                 ref("listeners"),
-                #{
-                    desc =>
-                        "HTTP(s) listeners are identified by their protocol type and are\n"
-                        "used to serve dashboard UI and restful HTTP API.<br>\n"
-                        "Listeners must have a unique combination of port number and IP address.<br>\n"
-                        "For example, an HTTP listener can listen on all configured IP addresses\n"
-                        "on a given port for a machine by specifying the IP address 0.0.0.0.<br>\n"
-                        "Alternatively, the HTTP listener can specify a unique IP address for each listener,\n"
-                        "but use the same port."
-                }
+                #{ desc => ?DESC(listeners)}
             )},
         {default_username, fun default_username/1},
         {default_password, fun default_password/1},
@@ -50,9 +41,8 @@ fields("dashboard") ->
                 emqx_schema:duration_s(),
                 #{
                     default => "10s",
-                    desc =>
-                        "How often to update metrics displayed in the dashboard.<br/>"
-                        "Note: `sample_interval` should be a divisor of 60."
+                    desc => ?DESC(sample_interval),
+                    validator => fun validate_sample_interval/1
                 }
             )},
         {token_expired_time,
@@ -60,7 +50,7 @@ fields("dashboard") ->
                 emqx_schema:duration(),
                 #{
                     default => "30m",
-                    desc => "JWT token expiration time."
+                    desc => ?DESC(token_expired_time)
                 }
             )},
         {cors, fun cors/1},
@@ -93,7 +83,7 @@ fields("http") ->
                 integer(),
                 #{
                     default => 4,
-                    desc => "Socket acceptor pool size for TCP protocols."
+                    desc => ?DESC(num_acceptors)
                 }
             )},
         {"max_connections",
@@ -101,7 +91,7 @@ fields("http") ->
                 integer(),
                 #{
                     default => 512,
-                    desc => "Maximum number of simultaneous connections."
+                    desc => ?DESC(max_connections)
                 }
             )},
         {"backlog",
@@ -109,8 +99,7 @@ fields("http") ->
                 integer(),
                 #{
                     default => 1024,
-                    desc =>
-                        "Defines the maximum length that the queue of pending connections can grow to."
+                    desc => ?DESC(backlog)
                 }
             )},
         {"send_timeout",
@@ -118,7 +107,7 @@ fields("http") ->
                 emqx_schema:duration(),
                 #{
                     default => "5s",
-                    desc => "Send timeout for the socket."
+                    desc => ?DESC(send_timeout)
                 }
             )},
         {"inet6",
@@ -126,7 +115,7 @@ fields("http") ->
                 boolean(),
                 #{
                     default => false,
-                    desc => "Sets up the listener for IPv6."
+                    desc => ?DESC(inet6)
                 }
             )},
         {"ipv6_v6only",
@@ -134,7 +123,7 @@ fields("http") ->
                 boolean(),
                 #{
                     default => false,
-                    desc => "Disable IPv4-to-IPv6 mapping for the listener."
+                    desc => ?DESC(ipv6_v6only)
                 }
             )}
     ];
@@ -145,27 +134,22 @@ fields("https") ->
             emqx_schema:server_ssl_opts_schema(#{}, true)
         ).
 
-desc("dashboard") ->
-    "Configuration for EMQX dashboard.";
-desc("listeners") ->
-    "Configuration for the dashboard listener.";
-desc("http") ->
-    "Configuration for the dashboard listener (plaintext).";
-desc("https") ->
-    "Configuration for the dashboard listener (TLS).";
-desc(_) ->
-    undefined.
+desc("dashboard") -> ?DESC(desc_dashboard);
+desc("listeners") -> ?DESC(desc_listeners);
+desc("http") -> ?DESC(desc_http);
+desc("https") -> ?DESC(desc_https);
+desc(_) -> undefined.
 
 bind(type) -> hoconsc:union([non_neg_integer(), emqx_schema:ip_port()]);
 bind(default) -> 18083;
 bind(required) -> true;
-bind(desc) -> "Port without IP(18083) or port with specified IP(127.0.0.1:18083).";
+bind(desc) -> ?DESC(bind);
 bind(_) -> undefined.
 
 default_username(type) -> string();
 default_username(default) -> "admin";
 default_username(required) -> true;
-default_username(desc) -> "The default username of the automatically created dashboard user.";
+default_username(desc) ->  ?DESC(default_username);
 default_username('readOnly') -> true;
 default_username(_) -> undefined.
 
@@ -180,11 +164,7 @@ default_password('readOnly') ->
 default_password(sensitive) ->
     true;
 default_password(desc) ->
-    ""
-    "\n"
-    "The initial default password for dashboard 'admin' user.\n"
-    "For safety, it should be changed as soon as possible."
-    "";
+    ?DESC(default_password);
 default_password(_) ->
     undefined.
 
@@ -195,17 +175,21 @@ cors(default) ->
 cors(required) ->
     false;
 cors(desc) ->
-    "Support Cross-Origin Resource Sharing (CORS).\n"
-    "Allows a server to indicate any origins (domain, scheme, or port) other than\n"
-    "its own from which a browser should permit loading resources.";
+    ?DESC(cors);
 cors(_) ->
     undefined.
 
 i18n_lang(type) -> ?ENUM([en, zh]);
 i18n_lang(default) -> en;
 i18n_lang('readOnly') -> true;
-i18n_lang(desc) -> "Internationalization language support.";
+i18n_lang(desc) -> ?DESC(i18n_lang);
 i18n_lang(_) -> undefined.
+
+validate_sample_interval(Second) ->
+    case Second >= 1 andalso Second =< 60 andalso (60 rem Second =:= 0) of
+        true -> ok;
+        false -> error({"Sample interval must be between 1 and 60 and be a divisor of 60.", Second})
+    end.
 
 sc(Type, Meta) -> hoconsc:mk(Type, Meta).
 
