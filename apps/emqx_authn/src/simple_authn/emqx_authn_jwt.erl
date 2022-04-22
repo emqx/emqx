@@ -17,8 +17,8 @@
 -module(emqx_authn_jwt).
 
 -include("emqx_authn.hrl").
--include_lib("typerefl/include/types.hrl").
 -include_lib("emqx/include/logger.hrl").
+-include_lib("hocon/include/hoconsc.hrl").
 
 -behaviour(hocon_schema).
 -behaviour(emqx_authentication).
@@ -55,22 +55,22 @@ roots() ->
 
 fields('hmac-based') ->
     [
-        {use_jwks, sc(hoconsc:enum([false]), #{required => true, desc => ""})},
+        {use_jwks, sc(hoconsc:enum([false]), #{required => true, desc => ?DESC(use_jwks)})},
         {algorithm,
-            sc(hoconsc:enum(['hmac-based']), #{required => true, desc => "Signing algorithm."})},
+            sc(hoconsc:enum(['hmac-based']), #{required => true, desc => ?DESC(algorithm)})},
         {secret, fun secret/1},
         {secret_base64_encoded, fun secret_base64_encoded/1}
     ] ++ common_fields();
 fields('public-key') ->
     [
-        {use_jwks, sc(hoconsc:enum([false]), #{required => true, desc => ""})},
+        {use_jwks, sc(hoconsc:enum([false]), #{required => true, desc => ?DESC(use_jwks)})},
         {algorithm,
-            sc(hoconsc:enum(['public-key']), #{required => true, desc => "Signing algorithm."})},
+            sc(hoconsc:enum(['public-key']), #{required => true, desc => ?DESC(algorithm)})},
         {certificate, fun certificate/1}
     ] ++ common_fields();
 fields('jwks') ->
     [
-        {use_jwks, sc(hoconsc:enum([true]), #{required => true, desc => ""})},
+        {use_jwks, sc(hoconsc:enum([true]), #{required => true, desc => ?DESC(use_jwks)})},
         {endpoint, fun endpoint/1},
         {pool_size, fun pool_size/1},
         {refresh_interval, fun refresh_interval/1},
@@ -79,14 +79,14 @@ fields('jwks') ->
                 hoconsc:ref(?MODULE, ssl_enable),
                 hoconsc:ref(?MODULE, ssl_disable)
             ]),
-            desc => "Enable/disable SSL.",
+            desc => ?DESC(ssl),
             default => #{<<"enable">> => false},
             required => false
         }}
     ] ++ common_fields();
 fields(ssl_enable) ->
     [
-        {enable, #{type => true, desc => ""}},
+        {enable, #{type => true, desc => ?DESC(enable)}},
         {cacertfile, fun cacertfile/1},
         {certfile, fun certfile/1},
         {keyfile, fun keyfile/1},
@@ -94,18 +94,18 @@ fields(ssl_enable) ->
         {server_name_indication, fun server_name_indication/1}
     ];
 fields(ssl_disable) ->
-    [{enable, #{type => false, desc => ""}}].
+    [{enable, #{type => false, desc => ?DESC(enable)}}].
 
 desc('hmac-based') ->
-    "Settings for HMAC-based token signing algorithm.";
+    ?DESC('hmac-based');
 desc('public-key') ->
-    "Settings for public key-based token signing algorithm.";
+    ?DESC('public-key');
 desc('jwks') ->
-    "Settings for a signing using JSON Web Key Set (JWKs).";
+    ?DESC('jwks');
 desc(ssl_disable) ->
-    "";
+    ?DESC(ssl_disable);
 desc(ssl_enable) ->
-    "SSL configuration.";
+    ?DESC(ssl_enable);
 desc(_) ->
     undefined.
 
@@ -116,56 +116,56 @@ common_fields() ->
     ] ++ emqx_authn_schema:common_fields().
 
 secret(type) -> binary();
-secret(desc) -> "The key to verify the JWT Token using HMAC algorithm.";
+secret(desc) -> ?DESC(?FUNCTION_NAME);
 secret(required) -> true;
 secret(_) -> undefined.
 
 secret_base64_encoded(type) -> boolean();
-secret_base64_encoded(desc) -> "Enable/disable base64 encoding of the secret.";
+secret_base64_encoded(desc) -> ?DESC(?FUNCTION_NAME);
 secret_base64_encoded(default) -> false;
 secret_base64_encoded(_) -> undefined.
 
 certificate(type) -> string();
-certificate(desc) -> "The certificate used for signing the token.";
+certificate(desc) -> ?DESC(?FUNCTION_NAME);
 certificate(required) -> ture;
 certificate(_) -> undefined.
 
 endpoint(type) -> string();
-endpoint(desc) -> "JWKs endpoint.";
+endpoint(desc) -> ?DESC(?FUNCTION_NAME);
 endpoint(required) -> true;
 endpoint(_) -> undefined.
 
 refresh_interval(type) -> integer();
-refresh_interval(desc) -> "JWKs refresh interval";
+refresh_interval(desc) -> ?DESC(?FUNCTION_NAME);
 refresh_interval(default) -> 300;
 refresh_interval(validator) -> [fun(I) -> I > 0 end];
 refresh_interval(_) -> undefined.
 
 cacertfile(type) -> string();
-cacertfile(desc) -> "Path to the SSL CA certificate file.";
+cacertfile(desc) -> ?DESC(?FUNCTION_NAME);
 cacertfile(_) -> undefined.
 
 certfile(type) -> string();
-certfile(desc) -> "Path to the SSL certificate file.";
+certfile(desc) -> ?DESC(?FUNCTION_NAME);
 certfile(_) -> undefined.
 
 keyfile(type) -> string();
-keyfile(desc) -> "Path to the SSL secret key file.";
+keyfile(desc) -> ?DESC(?FUNCTION_NAME);
 keyfile(_) -> undefined.
 
 verify(type) -> hoconsc:enum([verify_peer, verify_none]);
-verify(desc) -> "Enable or disable SSL peer verification.";
+verify(desc) -> ?DESC(?FUNCTION_NAME);
 verify(default) -> verify_none;
 verify(_) -> undefined.
 
 server_name_indication(type) -> string();
-server_name_indication(desc) -> "SSL SNI (Server Name Indication)";
+server_name_indication(desc) -> ?DESC(?FUNCTION_NAME);
 server_name_indication(_) -> undefined.
 
 verify_claims(type) ->
     list();
 verify_claims(desc) ->
-    "The list of claims to verify.";
+    ?DESC(?FUNCTION_NAME);
 verify_claims(default) ->
     #{};
 verify_claims(validator) ->
@@ -180,7 +180,7 @@ verify_claims(_) ->
     undefined.
 
 pool_size(type) -> integer();
-pool_size(desc) -> "JWKS connection count";
+pool_size(desc) -> ?DESC(?FUNCTION_NAME);
 pool_size(default) -> 8;
 pool_size(validator) -> [fun(I) -> I > 0 end];
 pool_size(_) -> undefined.

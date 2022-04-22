@@ -17,7 +17,7 @@
 -module(emqx_authz_api_schema).
 
 -include("emqx_authz.hrl").
--include_lib("typerefl/include/types.hrl").
+-include_lib("hocon/include/hoconsc.hrl").
 -include_lib("emqx_connector/include/emqx_connector.hrl").
 
 -import(hoconsc, [mk/2, enum/1]).
@@ -32,14 +32,26 @@
 %% Hocon Schema
 %%------------------------------------------------------------------------------
 
+fields(file) ->
+    authz_common_fields(file) ++
+        [
+            {rules, #{
+                type => binary(),
+                required => true,
+                example =>
+                    <<"{allow,{username,\"^dashboard?\"},", "subscribe,[\"$SYS/#\"]}.\n",
+                        "{allow,{ipaddr,\"127.0.0.1\"},all,[\"$SYS/#\",\"#\"]}.">>,
+                desc => ?DESC(rules)
+            }}
+        ];
 fields(http_get) ->
     [
-        {method, #{type => get, default => get, required => true}},
+        {method, #{type => get, default => get, required => true, desc => ?DESC(method)}},
         {headers, fun headers_no_content_type/1}
     ] ++ authz_http_common_fields();
 fields(http_post) ->
     [
-        {method, #{type => post, default => post, required => true}},
+        {method, #{type => post, default => post, required => true, desc => ?DESC(method)}},
         {headers, fun headers/1}
     ] ++ authz_http_common_fields();
 fields(built_in_database) ->
@@ -55,11 +67,11 @@ fields(mongo_sharded) ->
         emqx_connector_mongo:fields(sharded);
 fields(mysql) ->
     authz_common_fields(mysql) ++
-        [{query, mk(binary(), #{required => true})}] ++
+        [{query, query()}] ++
         proplists:delete(prepare_statement, emqx_connector_mysql:fields(config));
 fields(postgresql) ->
     authz_common_fields(postgresql) ++
-        [{query, mk(binary(), #{required => true})}] ++
+        [{query, query()}] ++
         proplists:delete(prepare_statement, emqx_connector_pgsql:fields(config));
 fields(redis_single) ->
     authz_redis_common_fields() ++
@@ -70,24 +82,13 @@ fields(redis_sentinel) ->
 fields(redis_cluster) ->
     authz_redis_common_fields() ++
         emqx_connector_redis:fields(cluster);
-fields(file) ->
-    authz_common_fields(file) ++
-        [
-            {rules, #{
-                type => binary(),
-                required => true,
-                example =>
-                    <<"{allow,{username,\"^dashboard?\"},", "subscribe,[\"$SYS/#\"]}.\n",
-                        "{allow,{ipaddr,\"127.0.0.1\"},all,[\"$SYS/#\",\"#\"]}.">>
-            }}
-        ];
 fields(position) ->
     [
         {position,
             mk(
                 string(),
                 #{
-                    desc => <<"Where to place the source">>,
+                    desc => ?DESC(position),
                     required => true,
                     in => body
                 }
@@ -102,7 +103,8 @@ authz_http_common_fields() ->
         [
             {url, fun url/1},
             {body, map([{fuzzy, term(), binary()}])},
-            {request_timeout, mk_duration("Request timeout", #{default => "30s"})}
+            {request_timeout,
+                mk_duration("Request timeout", #{default => "30s", desc => ?DESC(request_timeout)})}
         ] ++
         maps:to_list(
             maps:without(
@@ -117,12 +119,13 @@ authz_http_common_fields() ->
 url(type) -> binary();
 url(validator) -> [?NOT_EMPTY("the value of the field 'url' cannot be empty")];
 url(required) -> true;
+url(desc) -> ?DESC(?FUNCTION_NAME);
 url(_) -> undefined.
 
 headers(type) ->
     map();
 headers(desc) ->
-    "List of HTTP headers.";
+    ?DESC(?FUNCTION_NAME);
 headers(converter) ->
     fun(Headers) ->
         maps:merge(default_headers(), transform_header_name(Headers))
@@ -135,7 +138,7 @@ headers(_) ->
 headers_no_content_type(type) ->
     map();
 headers_no_content_type(desc) ->
-    "List of HTTP headers.";
+    ?DESC(?FUNCTION_NAME);
 headers_no_content_type(converter) ->
     fun(Headers) ->
         maps:merge(default_headers_no_content_type(), transform_header_name(Headers))
@@ -182,17 +185,14 @@ authz_mongo_common_fields() ->
         ].
 
 collection(type) -> binary();
-collection(desc) -> "Collection used to store authentication data.";
+collection(desc) -> ?DESC(?FUNCTION_NAME);
 collection(required) -> true;
 collection(_) -> undefined.
 
 selector(type) ->
     map();
 selector(desc) ->
-    "Statement that is executed during the authentication process. "
-    "Commands can support following wildcards:\n"
-    " - `${username}`: substituted with client's username\n"
-    " - `${clientid}`: substituted with the clientid";
+    ?DESC(?FUNCTION_NAME);
 selector(_) ->
     undefined.
 
@@ -205,6 +205,7 @@ authz_redis_common_fields() ->
             {cmd,
                 mk(binary(), #{
                     required => true,
+                    desc => ?DESC(cmd),
                     example => <<"HGETALL mqtt_authz">>
                 })}
         ].
@@ -216,17 +217,34 @@ authz_common_fields(Type) when is_atom(Type) ->
     [
         {enable, fun enable/1},
         {type, #{
-            type => enum([Type]),
+            type => Type,
             default => Type,
             required => true,
+            desc => ?DESC(type),
             in => body
         }}
     ].
 
 enable(type) -> boolean();
 enable(default) -> true;
-enable(desc) -> "Set to <code>false</code> to disable this auth provider";
+enable(desc) -> ?DESC(?FUNCTION_NAME);
 enable(_) -> undefined.
+
+%%------------------------------------------------------------------------------
+%% Authz DB query
+
+query() ->
+    #{
+        type => binary(),
+        desc => ?DESC(query),
+        required => true,
+        validator => fun(S) ->
+            case size(S) > 0 of
+                true -> ok;
+                _ -> {error, "Request query"}
+            end
+        end
+    }.
 
 %%------------------------------------------------------------------------------
 %% Internal funcs

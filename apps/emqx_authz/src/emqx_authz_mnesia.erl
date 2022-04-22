@@ -99,7 +99,7 @@ authorize(
     } = Client,
     PubSub,
     Topic,
-    #{type := 'built_in_database'}
+    #{type := built_in_database}
 ) ->
     Rules =
         case mnesia:dirty_read(?ACL_TABLE, {?ACL_TABLE_CLIENTID, Clientid}) of

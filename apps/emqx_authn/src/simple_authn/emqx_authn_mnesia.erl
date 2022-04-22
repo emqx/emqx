@@ -18,7 +18,7 @@
 
 -include("emqx_authn.hrl").
 -include_lib("stdlib/include/ms_transform.hrl").
--include_lib("typerefl/include/types.hrl").
+-include_lib("hocon/include/hoconsc.hrl").
 
 -behaviour(hocon_schema).
 -behaviour(emqx_authentication).
@@ -110,12 +110,12 @@ fields(?CONF_NS) ->
     ] ++ emqx_authn_schema:common_fields().
 
 desc(?CONF_NS) ->
-    "Configuration for authentication using the built-in database.";
+    ?DESC(?CONF_NS);
 desc(_) ->
     undefined.
 
 user_id_type(type) -> user_id_type();
-user_id_type(desc) -> "Authenticate by client ID or username.";
+user_id_type(desc) -> ?DESC(?FUNCTION_NAME);
 user_id_type(default) -> <<"username">>;
 user_id_type(required) -> true;
 user_id_type(_) -> undefined.

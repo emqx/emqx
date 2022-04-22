@@ -17,7 +17,7 @@
 -module(emqx_authn_schema).
 
 -elvis([{elvis_style, invalid_dynamic_call, disable}]).
--include_lib("typerefl/include/types.hrl").
+-include_lib("hocon/include/hoconsc.hrl").
 -import(hoconsc, [mk/2, ref/2]).
 
 -export([
@@ -38,7 +38,7 @@ common_fields() ->
 
 enable(type) -> boolean();
 enable(default) -> true;
-enable(desc) -> "Set to <code>false</code> to disable this auth provider";
+enable(desc) -> ?DESC(?FUNCTION_NAME);
 enable(_) -> undefined.
 
 authenticator_type() ->
@@ -74,7 +74,7 @@ mechanism(Name) ->
         hoconsc:enum([Name]),
         #{
             required => true,
-            desc => "Authentication mechanism."
+            desc => ?DESC("mechanism")
         }
     ).
 
@@ -83,51 +83,47 @@ backend(Name) ->
         hoconsc:enum([Name]),
         #{
             required => true,
-            desc => "Backend type."
+            desc => ?DESC("backend")
         }
     ).
 
 fields("metrics_status_fields") ->
     [
-        {"metrics", mk(ref(?MODULE, "metrics"), #{desc => "The metrics of the resource"})},
+        {"metrics", mk(ref(?MODULE, "metrics"), #{desc => ?DESC("metrics")})},
         {"node_metrics",
             mk(
                 hoconsc:array(ref(?MODULE, "node_metrics")),
-                #{desc => "The metrics of the resource for each node"}
+                #{desc => ?DESC("node_metrics")}
             )},
-        {"status", mk(status(), #{desc => "The status of the resource"})},
+        {"status", mk(status(), #{desc => ?DESC("status")})},
         {"node_status",
             mk(
                 hoconsc:array(ref(?MODULE, "node_status")),
-                #{desc => "The status of the resource for each node"}
+                #{desc => ?DESC("node_status")}
             )}
     ];
 fields("metrics") ->
     [
-        {"matched", mk(integer(), #{desc => "Count of this resource is queried"})},
-        {"success", mk(integer(), #{desc => "Count of query success"})},
-        {"failed", mk(integer(), #{desc => "Count of query failed"})},
-        {"rate", mk(float(), #{desc => "The rate of matched, times/second"})},
-        {"rate_max", mk(float(), #{desc => "The max rate of matched, times/second"})},
-        {"rate_last5m",
-            mk(
-                float(),
-                #{desc => "The average rate of matched in the last 5 minutes, times/second"}
-            )}
+        {"matched", mk(integer(), #{desc => ?DESC("matched")})},
+        {"success", mk(integer(), #{desc => ?DESC("success")})},
+        {"failed", mk(integer(), #{desc => ?DESC("failed")})},
+        {"rate", mk(float(), #{desc => ?DESC("rate")})},
+        {"rate_max", mk(float(), #{desc => ?DESC("rate_max")})},
+        {"rate_last5m", mk(float(), #{desc => ?DESC("rate_last5m")})}
     ];
 fields("node_metrics") ->
     [
         node_name(),
-        {"metrics", mk(ref(?MODULE, "metrics"), #{})}
+        {"metrics", mk(ref(?MODULE, "metrics"), #{desc => ?DESC("metrics")})}
     ];
 fields("node_status") ->
     [
         node_name(),
-        {"status", mk(status(), #{desc => "Status of the node."})}
+        {"status", mk(status(), #{desc => ?DESC("node_status")})}
     ].
 
 status() ->
     hoconsc:enum([connected, disconnected, connecting]).
 
 node_name() ->
-    {"node", mk(binary(), #{desc => "The node name", example => "emqx@127.0.0.1"})}.
+    {"node", mk(binary(), #{desc => ?DESC("node"), example => "emqx@127.0.0.1"})}.

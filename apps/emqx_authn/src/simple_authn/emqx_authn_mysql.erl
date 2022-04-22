@@ -18,7 +18,7 @@
 
 -include("emqx_authn.hrl").
 -include_lib("emqx/include/logger.hrl").
--include_lib("typerefl/include/types.hrl").
+-include_lib("hocon/include/hoconsc.hrl").
 
 -behaviour(hocon_schema).
 -behaviour(emqx_authentication).
@@ -56,20 +56,20 @@ fields(?CONF_NS) ->
         {query, fun query/1},
         {query_timeout, fun query_timeout/1}
     ] ++ emqx_authn_schema:common_fields() ++
-    proplists:delete(prepare_statement, emqx_connector_mysql:fields(config)).
+        proplists:delete(prepare_statement, emqx_connector_mysql:fields(config)).
 
 desc(?CONF_NS) ->
-    "Configuration for authentication using MySQL database.";
+    ?DESC(?CONF_NS);
 desc(_) ->
     undefined.
 
 query(type) -> string();
-query(desc) -> "SQL query used to lookup client data.";
+query(desc) -> ?DESC(?FUNCTION_NAME);
 query(required) -> true;
 query(_) -> undefined.
 
 query_timeout(type) -> emqx_schema:duration_ms();
-query_timeout(desc) -> "Timeout for the SQL query.";
+query_timeout(desc) -> ?DESC(?FUNCTION_NAME);
 query_timeout(default) -> "5s";
 query_timeout(_) -> undefined.
 

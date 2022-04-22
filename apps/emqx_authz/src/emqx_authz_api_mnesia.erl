@@ -20,7 +20,7 @@
 
 -include("emqx_authz.hrl").
 -include_lib("emqx/include/logger.hrl").
--include_lib("typerefl/include/types.hrl").
+-include_lib("hocon/include/hoconsc.hrl").
 
 -import(hoconsc, [mk/1, mk/2, ref/1, ref/2, array/1, enum/1]).
 
@@ -87,7 +87,7 @@ schema("/authorization/sources/built_in_database/username") ->
         get =>
             #{
                 tags => [<<"authorization">>],
-                description => <<"Show the list of record for username">>,
+                description => ?DESC(users_username_get),
                 parameters =>
                     [
                         ref(emqx_dashboard_swagger, page),
@@ -96,7 +96,7 @@ schema("/authorization/sources/built_in_database/username") ->
                             mk(binary(), #{
                                 in => query,
                                 required => false,
-                                desc => <<"Fuzzy search `username` as substring">>
+                                desc => ?DESC(fuzzy_username)
                             })}
                     ],
                 responses =>
@@ -110,7 +110,7 @@ schema("/authorization/sources/built_in_database/username") ->
         post =>
             #{
                 tags => [<<"authorization">>],
-                description => <<"Add new records for username">>,
+                description => ?DESC(users_username_post),
                 'requestBody' => swagger_with_example(
                     {rules_for_username, ?TYPE_ARRAY},
                     {username, ?POST_ARRAY_EXAMPLE}
@@ -130,7 +130,7 @@ schema("/authorization/sources/built_in_database/clientid") ->
         get =>
             #{
                 tags => [<<"authorization">>],
-                description => <<"Show the list of record for clientid">>,
+                description => ?DESC(users_clientid_get),
                 parameters =>
                     [
                         ref(emqx_dashboard_swagger, page),
@@ -141,7 +141,7 @@ schema("/authorization/sources/built_in_database/clientid") ->
                                 #{
                                     in => query,
                                     required => false,
-                                    desc => <<"Fuzzy search `clientid` as substring">>
+                                    desc => ?DESC(fuzzy_clientid)
                                 }
                             )}
                     ],
@@ -156,7 +156,7 @@ schema("/authorization/sources/built_in_database/clientid") ->
         post =>
             #{
                 tags => [<<"authorization">>],
-                description => <<"Add new records for clientid">>,
+                description => ?DESC(users_clientid_post),
                 'requestBody' => swagger_with_example(
                     {rules_for_clientid, ?TYPE_ARRAY},
                     {clientid, ?POST_ARRAY_EXAMPLE}
@@ -176,7 +176,7 @@ schema("/authorization/sources/built_in_database/username/:username") ->
         get =>
             #{
                 tags => [<<"authorization">>],
-                description => <<"Get record info for username">>,
+                description => ?DESC(user_username_get),
                 parameters => [ref(username)],
                 responses =>
                     #{
@@ -192,7 +192,7 @@ schema("/authorization/sources/built_in_database/username/:username") ->
         put =>
             #{
                 tags => [<<"authorization">>],
-                description => <<"Set record for username">>,
+                description => ?DESC(user_username_put),
                 parameters => [ref(username)],
                 'requestBody' => swagger_with_example(
                     {rules_for_username, ?TYPE_REF},
@@ -209,7 +209,7 @@ schema("/authorization/sources/built_in_database/username/:username") ->
         delete =>
             #{
                 tags => [<<"authorization">>],
-                description => <<"Delete one record for username">>,
+                description => ?DESC(user_username_delete),
                 parameters => [ref(username)],
                 responses =>
                     #{
@@ -229,7 +229,7 @@ schema("/authorization/sources/built_in_database/clientid/:clientid") ->
         get =>
             #{
                 tags => [<<"authorization">>],
-                description => <<"Get record info for clientid">>,
+                description => ?DESC(user_clientid_get),
                 parameters => [ref(clientid)],
                 responses =>
                     #{
@@ -245,7 +245,7 @@ schema("/authorization/sources/built_in_database/clientid/:clientid") ->
         put =>
             #{
                 tags => [<<"authorization">>],
-                description => <<"Set record for clientid">>,
+                description => ?DESC(user_clientid_put),
                 parameters => [ref(clientid)],
                 'requestBody' => swagger_with_example(
                     {rules_for_clientid, ?TYPE_REF},
@@ -262,7 +262,7 @@ schema("/authorization/sources/built_in_database/clientid/:clientid") ->
         delete =>
             #{
                 tags => [<<"authorization">>],
-                description => <<"Delete one record for clientid">>,
+                description => ?DESC(user_clientid_delete),
                 parameters => [ref(clientid)],
                 responses =>
                     #{
@@ -282,17 +282,14 @@ schema("/authorization/sources/built_in_database/all") ->
         get =>
             #{
                 tags => [<<"authorization">>],
-                description => <<"Show the list of rules for all">>,
+                description => ?DESC(rules_for_all_get),
                 responses =>
                     #{200 => swagger_with_example({rules, ?TYPE_REF}, {all, ?PUT_MAP_EXAMPLE})}
             },
         post =>
             #{
                 tags => [<<"authorization">>],
-                description => <<
-                    "Create/Update the list of rules for all. "
-                    "Set a empty list to clean up rules"
-                >>,
+                description => ?DESC(rules_for_all_post),
                 'requestBody' =>
                     swagger_with_example({rules, ?TYPE_REF}, {all, ?PUT_MAP_EXAMPLE}),
                 responses =>
@@ -310,7 +307,7 @@ schema("/authorization/sources/built_in_database/purge-all") ->
         delete =>
             #{
                 tags => [<<"authorization">>],
-                description => <<"Purge all records">>,
+                description => ?DESC(purge_all_delete),
                 responses =>
                     #{
                         204 => <<"Deleted">>,
@@ -328,7 +325,7 @@ fields(rule_item) ->
                 string(),
                 #{
                     required => true,
-                    desc => <<"Rule on specific topic">>,
+                    desc => ?DESC(topic),
                     example => <<"test/topic/1">>
                 }
             )},
@@ -336,7 +333,7 @@ fields(rule_item) ->
             mk(
                 enum([allow, deny]),
                 #{
-                    desc => <<"Permission">>,
+                    desc => ?DESC(permission),
                     required => true,
                     example => allow
                 }
@@ -345,9 +342,9 @@ fields(rule_item) ->
             mk(
                 enum([publish, subscribe, all]),
                 #{
+                    desc => ?DESC(action),
                     required => true,
-                    example => publish,
-                    desc => <<"Authorized action">>
+                    example => publish
                 }
             )}
     ];
@@ -359,7 +356,7 @@ fields(clientid) ->
                 #{
                     in => path,
                     required => true,
-                    desc => <<"ClientID">>,
+                    desc => ?DESC(clientid),
                     example => <<"client1">>
                 }
             )}
@@ -372,7 +369,7 @@ fields(username) ->
                 #{
                     in => path,
                     required => true,
-                    desc => <<"Username">>,
+                    desc => ?DESC(username),
                     example => <<"user1">>
                 }
             )}

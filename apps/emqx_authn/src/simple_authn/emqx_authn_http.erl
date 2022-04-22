@@ -18,7 +18,7 @@
 
 -include("emqx_authn.hrl").
 -include_lib("emqx/include/logger.hrl").
--include_lib("typerefl/include/types.hrl").
+-include_lib("hocon/include/hoconsc.hrl").
 -include_lib("emqx_connector/include/emqx_connector.hrl").
 
 -behaviour(hocon_schema).
@@ -62,19 +62,19 @@ roots() ->
 
 fields(get) ->
     [
-        {method, #{type => get, required => true, default => post, desc => "HTTP method."}},
+        {method, #{type => get, required => true, default => post, desc => ?DESC(method)}},
         {headers, fun headers_no_content_type/1}
     ] ++ common_fields();
 fields(post) ->
     [
-        {method, #{type => post, required => true, default => post, desc => "HTTP method."}},
+        {method, #{type => post, required => true, default => post, desc => ?DESC(method)}},
         {headers, fun headers/1}
     ] ++ common_fields().
 
 desc(get) ->
-    "Settings for HTTP-based authentication (GET).";
+    ?DESC(get);
 desc(post) ->
-    "Settings for HTTP-based authentication (POST).";
+    ?DESC(post);
 desc(_) ->
     undefined.
 
@@ -83,8 +83,7 @@ common_fields() ->
         {mechanism, emqx_authn_schema:mechanism(password_based)},
         {backend, emqx_authn_schema:backend(http)},
         {url, fun url/1},
-        {body,
-            hoconsc:mk(map([{fuzzy, term(), binary()}]), #{desc => "Body of the HTTP request."})},
+        {body, hoconsc:mk(map([{fuzzy, term(), binary()}]), #{desc => ?DESC(body)})},
         {request_timeout, fun request_timeout/1}
     ] ++ emqx_authn_schema:common_fields() ++
         maps:to_list(
@@ -104,7 +103,7 @@ validations() ->
     ].
 
 url(type) -> binary();
-url(desc) -> "URL of the auth server.";
+url(desc) -> ?DESC(?FUNCTION_NAME);
 url(validator) -> [?NOT_EMPTY("the value of the field 'url' cannot be empty")];
 url(required) -> true;
 url(_) -> undefined.
@@ -112,7 +111,7 @@ url(_) -> undefined.
 headers(type) ->
     map();
 headers(desc) ->
-    "List of HTTP headers.";
+    ?DESC(?FUNCTION_NAME);
 headers(converter) ->
     fun(Headers) ->
         maps:merge(default_headers(), transform_header_name(Headers))
@@ -125,7 +124,7 @@ headers(_) ->
 headers_no_content_type(type) ->
     map();
 headers_no_content_type(desc) ->
-    "List of HTTP headers.";
+    ?DESC(?FUNCTION_NAME);
 headers_no_content_type(converter) ->
     fun(Headers) ->
         maps:merge(default_headers_no_content_type(), transform_header_name(Headers))
@@ -136,7 +135,7 @@ headers_no_content_type(_) ->
     undefined.
 
 request_timeout(type) -> emqx_schema:duration_ms();
-request_timeout(desc) -> "HTTP request timeout";
+request_timeout(desc) -> ?DESC(?FUNCTION_NAME);
 request_timeout(default) -> <<"5s">>;
 request_timeout(_) -> undefined.
 

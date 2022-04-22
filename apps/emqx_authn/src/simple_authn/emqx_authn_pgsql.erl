@@ -19,7 +19,7 @@
 -include("emqx_authn.hrl").
 -include_lib("emqx/include/logger.hrl").
 -include_lib("epgsql/include/epgsql.hrl").
--include_lib("typerefl/include/types.hrl").
+-include_lib("hocon/include/hoconsc.hrl").
 
 -behaviour(hocon_schema).
 -behaviour(emqx_authentication).
@@ -63,12 +63,12 @@ fields(?CONF_NS) ->
         proplists:delete(prepare_statement, emqx_connector_pgsql:fields(config)).
 
 desc(?CONF_NS) ->
-    "Configuration for PostgreSQL authentication backend.";
+    ?DESC(?CONF_NS);
 desc(_) ->
     undefined.
 
 query(type) -> string();
-query(desc) -> "`SQL` query for looking up authentication data.";
+query(desc) -> ?DESC(?FUNCTION_NAME);
 query(required) -> true;
 query(_) -> undefined.
 

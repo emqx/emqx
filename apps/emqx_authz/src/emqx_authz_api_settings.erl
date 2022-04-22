@@ -18,6 +18,8 @@
 
 -behaviour(minirest_api).
 
+-include_lib("hocon/include/hoconsc.hrl").
+
 -import(hoconsc, [mk/1, ref/2]).
 
 -export([
@@ -45,13 +47,13 @@ schema("/authorization/settings") ->
         'operationId' => settings,
         get =>
             #{
-                description => <<"Get authorization settings">>,
+                description => ?DESC(authorization_settings_get),
                 responses =>
                     #{200 => ref_authz_schema()}
             },
         put =>
             #{
-                description => <<"Update authorization settings">>,
+                description => ?DESC(authorization_settings_put),
                 'requestBody' => ref_authz_schema(),
                 responses =>
                     #{

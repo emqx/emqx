@@ -18,9 +18,9 @@
 
 -behaviour(minirest_api).
 
--include_lib("typerefl/include/types.hrl").
 -include("emqx_authz.hrl").
 -include_lib("emqx/include/logger.hrl").
+-include_lib("hocon/include/hoconsc.hrl").
 
 -import(hoconsc, [mk/1, mk/2, ref/2, array/1, enum/1]).
 
@@ -63,27 +63,26 @@ paths() ->
 %%--------------------------------------------------------------------
 %% Schema for each URI
 %%--------------------------------------------------------------------
-
 schema("/authorization/sources") ->
     #{
         'operationId' => sources,
         get =>
             #{
-                description => <<"List all authorization sources">>,
+                description => ?DESC(authorization_sources_get),
                 responses =>
                     #{
                         200 => mk(
                             array(hoconsc:union(authz_sources_type_refs())),
-                            #{desc => <<"Authorization source">>}
+                            #{desc => ?DESC(sources)}
                         )
                     }
             },
         post =>
             #{
-                description => <<"Add a new source">>,
+                description => ?DESC(authorization_sources_post),
                 'requestBody' => mk(
                     hoconsc:union(authz_sources_type_refs()),
-                    #{desc => <<"Source config">>}
+                    #{desc => ?DESC(source_config)}
                 ),
                 responses =>
                     #{
@@ -100,20 +99,20 @@ schema("/authorization/sources/:type") ->
         'operationId' => source,
         get =>
             #{
-                description => <<"Get a authorization source">>,
+                description => ?DESC(authorization_sources_type_get),
                 parameters => parameters_field(),
                 responses =>
                     #{
                         200 => mk(
                             hoconsc:union(authz_sources_type_refs()),
-                            #{desc => <<"Authorization source">>}
+                            #{desc => ?DESC(source)}
                         ),
                         404 => emqx_dashboard_swagger:error_codes([?NOT_FOUND], <<"Not Found">>)
                     }
             },
         put =>
             #{
-                description => <<"Update source">>,
+                description => ?DESC(authorization_sources_type_put),
                 parameters => parameters_field(),
                 'requestBody' => mk(hoconsc:union(authz_sources_type_refs())),
                 responses =>
@@ -124,7 +123,7 @@ schema("/authorization/sources/:type") ->
             },
         delete =>
             #{
-                description => <<"Delete source">>,
+                description => ?DESC(authorization_sources_type_delete),
                 parameters => parameters_field(),
                 responses =>
                     #{
@@ -138,7 +137,7 @@ schema("/authorization/sources/:type/status") ->
         'operationId' => source_status,
         get =>
             #{
-                description => <<"Get a authorization source">>,
+                description => ?DESC(authorization_sources_type_status_get),
                 parameters => parameters_field(),
                 responses =>
                     #{
@@ -158,7 +157,7 @@ schema("/authorization/sources/:type/move") ->
         'operationId' => move_source,
         post =>
             #{
-                description => <<"Change the order of sources">>,
+                description => ?DESC(authorization_sources_type_move_post),
                 parameters => parameters_field(),
                 'requestBody' =>
                     emqx_dashboard_swagger:schema_with_examples(
@@ -508,7 +507,7 @@ parameters_field() ->
         {type,
             mk(
                 enum(?API_SCHEMA_MODULE:authz_sources_types(simple)),
-                #{in => path, desc => <<"Authorization type">>}
+                #{in => path, desc => ?DESC(source_type)}
             )}
     ].
 

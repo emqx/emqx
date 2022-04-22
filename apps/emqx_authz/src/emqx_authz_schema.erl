@@ -17,7 +17,7 @@
 -module(emqx_authz_schema).
 
 -include("emqx_authz.hrl").
--include_lib("typerefl/include/types.hrl").
+-include_lib("hocon/include/hoconsc.hrl").
 -include_lib("emqx_connector/include/emqx_connector.hrl").
 
 -reflect_type([
@@ -71,134 +71,104 @@ fields("authorization") ->
                 ]
             ),
             default => [],
-            desc =>
-                "\n"
-                "Authorization data sources.<br>\n"
-                "An array of authorization (ACL) data providers.\n"
-                "It is designed as an array, not a hash-map, so the sources can be\n"
-                "ordered to form a chain of access controls.<br>\n"
-                "\n"
-                "When authorizing a 'publish' or 'subscribe' action, the configured\n"
-                "sources are checked in order. When checking an ACL source,\n"
-                "in case the client (identified by username or client ID) is not found,\n"
-                "it moves on to the next source. And it stops immediately\n"
-                "once an 'allow' or 'deny' decision is returned.<br>\n"
-                "\n"
-                "If the client is not found in any of the sources,\n"
-                "the default action configured in 'authorization.no_match' is applied.<br>\n"
-                "\n"
-                "NOTE:\n"
-                "The source elements are identified by their 'type'.\n"
-                "It is NOT allowed to configure two or more sources of the same type.\n"
+            desc => ?DESC(sources)
         }}
     ];
 fields(file) ->
-    [
-        {type, #{type => file, required => true, desc => "Backend type."}},
-        {enable, #{
-            type => boolean(),
-            default => true,
-            desc => "Enable this backend."
-        }},
-        {path, #{
-            type => string(),
-            required => true,
-            desc =>
-                "\n"
-                "Path to the file which contains the ACL rules.<br>\n"
-                "If the file provisioned before starting EMQX node,\n"
-                "it can be placed anywhere as long as EMQX has read access to it.\n"
-                "\n"
-                "In case the rule-set is created from EMQX dashboard or management API,\n"
-                "the file will be placed in `authz` subdirectory inside EMQX's `data_dir`,\n"
-                "and the new rules will override all rules from the old config file.\n"
-        }}
-    ];
+    authz_common_fields(file) ++
+        [{path, #{type => string(), required => true, desc => ?DESC(path)}}];
 fields(http_get) ->
-    [
-        {method, #{type => get, default => get, required => true, desc => "HTTP method."}},
-        {headers, fun headers_no_content_type/1}
-    ] ++ http_common_fields();
+    authz_common_fields(http) ++
+        http_common_fields() ++
+        [
+            {method, #{type => get, default => get, required => true, desc => ?DESC(method)}},
+            {headers, fun headers_no_content_type/1}
+        ];
 fields(http_post) ->
-    [
-        {method, #{type => post, default => post, required => true, desc => "HTTP method."}},
-        {headers, fun headers/1}
-    ] ++ http_common_fields();
+    authz_common_fields(http) ++
+        http_common_fields() ++
+        [
+            {method, #{type => post, default => post, required => true, desc => ?DESC(method)}},
+            {headers, fun headers/1}
+        ];
 fields(mnesia) ->
-    [
-        {type, #{type => 'built_in_database', required => true, desc => "Backend type."}},
-        {enable, #{
-            type => boolean(),
-            default => true,
-            desc => "Enable this backend."
-        }}
-    ];
+    authz_common_fields(built_in_database);
 fields(mongo_single) ->
-    mongo_common_fields() ++ emqx_connector_mongo:fields(single);
+    authz_common_fields(mongodb) ++
+        mongo_common_fields() ++
+        emqx_connector_mongo:fields(single);
 fields(mongo_rs) ->
-    mongo_common_fields() ++ emqx_connector_mongo:fields(rs);
+    authz_common_fields(mongodb) ++
+        mongo_common_fields() ++
+        emqx_connector_mongo:fields(rs);
 fields(mongo_sharded) ->
-    mongo_common_fields() ++ emqx_connector_mongo:fields(sharded);
+    authz_common_fields(mongodb) ++
+        mongo_common_fields() ++
+        emqx_connector_mongo:fields(sharded);
 fields(mysql) ->
-    connector_fields(mysql) ++
+    authz_common_fields(mysql) ++
+        connector_fields(mysql) ++
         [{query, query()}];
 fields(postgresql) ->
-    [
-        {query, query()},
-        {type, #{type => postgresql, required => true, desc => "Backend type."}},
-        {enable, #{
-            type => boolean(),
-            desc => "Enable this backend.",
-            default => true
-        }}
-    ] ++ emqx_connector_pgsql:fields(config);
+    authz_common_fields(postgresql) ++
+        emqx_connector_pgsql:fields(config) ++
+        [{query, query()}];
 fields(redis_single) ->
-    connector_fields(redis, single) ++
-        [{cmd, query()}];
+    authz_common_fields(redis) ++
+        connector_fields(redis, single) ++
+        [{cmd, cmd()}];
 fields(redis_sentinel) ->
-    connector_fields(redis, sentinel) ++
-        [{cmd, query()}];
+    authz_common_fields(redis) ++
+        connector_fields(redis, sentinel) ++
+        [{cmd, cmd()}];
 fields(redis_cluster) ->
-    connector_fields(redis, cluster) ++
-        [{cmd, query()}].
+    authz_common_fields(redis) ++
+        connector_fields(redis, cluster) ++
+        [{cmd, cmd()}].
 
-desc("authorization") ->
-    "Configuration related to the client authorization.";
+desc(?CONF_NS) ->
+    ?DESC(?CONF_NS);
 desc(file) ->
-    "Authorization using a static file.";
+    ?DESC(file);
 desc(http_get) ->
-    "Authorization using an external HTTP server (via GET requests).";
+    ?DESC(http_get);
 desc(http_post) ->
-    "Authorization using an external HTTP server (via POST requests).";
+    ?DESC(http_post);
 desc(mnesia) ->
-    "Authorization using a built-in database (mnesia).";
+    ?DESC(mnesia);
 desc(mongo_single) ->
-    "Authorization using a single MongoDB instance.";
+    ?DESC(mongo_single);
 desc(mongo_rs) ->
-    "Authorization using a MongoDB replica set.";
+    ?DESC(mongo_rs);
 desc(mongo_sharded) ->
-    "Authorization using a sharded MongoDB cluster.";
+    ?DESC(mongo_sharded);
 desc(mysql) ->
-    "Authorization using a MySQL database.";
+    ?DESC(mysql);
 desc(postgresql) ->
-    "Authorization using a PostgreSQL database.";
+    ?DESC(postgresql);
 desc(redis_single) ->
-    "Authorization using a single Redis instance.";
+    ?DESC(redis_single);
 desc(redis_sentinel) ->
-    "Authorization using a Redis Sentinel.";
+    ?DESC(redis_sentinel);
 desc(redis_cluster) ->
-    "Authorization using a Redis cluster.";
+    ?DESC(redis_cluster);
 desc(_) ->
     undefined.
+
+authz_common_fields(Type) ->
+    [
+        {type, #{type => Type, required => true, desc => ?DESC(type)}},
+        {enable, #{type => boolean(), default => true, desc => ?DESC(enable)}}
+    ].
 
 http_common_fields() ->
     [
         {url, fun url/1},
         {request_timeout,
             emqx_schema:mk_duration("Request timeout", #{
-                default => "30s", desc => "Request timeout."
+                default => "30s", desc => ?DESC(request_timeout)
             })},
-        {body, #{type => map(), required => false, desc => "HTTP request body."}}
+        {body, #{type => map(), required => false, desc => ?DESC(body)}}
     ] ++
         maps:to_list(
             maps:without(
@@ -215,18 +185,12 @@ mongo_common_fields() ->
         {collection, #{
             type => atom(),
             required => true,
-            desc => "`MongoDB` collection containing the authorization data."
+            desc => ?DESC(collection)
         }},
         {selector, #{
             type => map(),
             required => true,
-            desc => "MQL query used to select the authorization record."
-        }},
-        {type, #{type => mongodb, required => true, desc => "Database backend."}},
-        {enable, #{
-            type => boolean(),
-            default => true,
-            desc => "Enable or disable the backend."
+            desc => ?DESC(selector)
         }}
     ].
 
@@ -238,7 +202,7 @@ validations() ->
 headers(type) ->
     list({binary(), binary()});
 headers(desc) ->
-    "List of HTTP headers.";
+    ?DESC(?FUNCTION_NAME);
 headers(converter) ->
     fun(Headers) ->
         maps:to_list(maps:merge(default_headers(), transform_header_name(Headers)))
@@ -251,7 +215,7 @@ headers(_) ->
 headers_no_content_type(type) ->
     list({binary(), binary()});
 headers_no_content_type(desc) ->
-    "List of HTTP headers.";
+    ?DESC(?FUNCTION_NAME);
 headers_no_content_type(converter) ->
     fun(Headers) ->
         maps:to_list(maps:merge(default_headers_no_content_type(), transform_header_name(Headers)))
@@ -269,7 +233,7 @@ headers_no_content_type(_) ->
     undefined.
 
 url(type) -> binary();
-url(desc) -> "URL of the auth server.";
+url(desc) -> ?DESC(?FUNCTION_NAME);
 url(validator) -> [?NOT_EMPTY("the value of the field 'url' cannot be empty")];
 url(required) -> true;
 url(_) -> undefined.
@@ -328,7 +292,20 @@ union_array(Item) when is_list(Item) ->
 query() ->
     #{
         type => binary(),
-        desc => "Database query used to retrieve authorization data.",
+        desc => ?DESC(query),
+        required => true,
+        validator => fun(S) ->
+            case size(S) > 0 of
+                true -> ok;
+                _ -> {error, "Request query"}
+            end
+        end
+    }.
+
+cmd() ->
+    #{
+        type => binary(),
+        desc => ?DESC(cmd),
         required => true,
         validator => fun(S) ->
             case size(S) > 0 of
@@ -351,14 +328,7 @@ connector_fields(DB, Fields) ->
             error:Reason ->
                 erlang:error(Reason)
         end,
-    [
-        {type, #{type => DB, desc => "Database backend."}},
-        {enable, #{
-            type => boolean(),
-            default => true,
-            desc => "Enable or disable the backend."
-        }}
-    ] ++ erlang:apply(Mod, fields, [Fields]).
+    erlang:apply(Mod, fields, [Fields]).
 
 to_list(A) when is_atom(A) ->
     atom_to_list(A);
