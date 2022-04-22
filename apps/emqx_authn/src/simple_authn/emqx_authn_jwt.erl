@@ -376,7 +376,7 @@ do_verify(JWS, [JWK | More], VerifyClaims) ->
             Claims = emqx_json:decode(Payload, [return_maps]),
             case verify_claims(Claims, VerifyClaims) of
                 ok ->
-                    {ok, emqx_authn_utils:is_superuser(Claims)};
+                    {ok, maps:put(jwt, Claims, emqx_authn_utils:is_superuser(Claims))};
                 {error, Reason} ->
                     {error, Reason}
             end;
@@ -393,13 +393,13 @@ verify_claims(Claims, VerifyClaims0) ->
     VerifyClaims =
         [
             {<<"exp">>, fun(ExpireTime) ->
-                Now < ExpireTime
+                is_integer(ExpireTime) andalso Now < ExpireTime
             end},
             {<<"iat">>, fun(IssueAt) ->
-                IssueAt =< Now
+                is_integer(IssueAt) andalso IssueAt =< Now
             end},
             {<<"nbf">>, fun(NotBefore) ->
-                NotBefore =< Now
+                is_integer(NotBefore) andalso NotBefore =< Now
             end}
         ] ++ VerifyClaims0,
     do_verify_claims(Claims, VerifyClaims).

@@ -384,6 +384,8 @@ type(postgresql) -> postgresql;
 type(<<"postgresql">>) -> postgresql;
 type(built_in_database) -> built_in_database;
 type(<<"built_in_database">>) -> built_in_database;
+type(jwt) -> jwt;
+type(<<"jwt">>) -> jwt;
 %% should never happen if the input is type-checked by hocon schema
 type(Unknown) -> throw({unknown_authz_source_type, Unknown}).
 
