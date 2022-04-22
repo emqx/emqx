@@ -39,7 +39,7 @@ init_conf() ->
     emqx_app:set_init_config_load_done().
 
 copy_override_conf_from_core_node() ->
-    case nodes() of
+    case mria_mnesia:running_nodes() -- [node()] of
         [] -> %% The first core nodes is self.
             ?SLOG(debug, #{msg => "skip_copy_overide_conf_from_core_node"}),
             {ok, -1};
