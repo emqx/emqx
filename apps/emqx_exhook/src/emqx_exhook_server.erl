@@ -19,7 +19,9 @@
 -include("emqx_exhook.hrl").
 -include_lib("emqx/include/logger.hrl").
 
--define(PB_CLIENT_MOD, emqx_exhook_v_1_hook_provider_client).
+%% The exhook proto version should be fixed as `v2` in EMQX v5.x
+%% to make sure the exhook proto version is compatible
+-define(PB_CLIENT_MOD, emqx_exhook_v_2_hook_provider_client).
 
 %% Load/Unload
 -export([
@@ -362,14 +364,15 @@ match_topic_filter(TopicName, TopicFilter) ->
 -spec do_call(binary(), atom(), atom(), map(), map()) -> {ok, map()} | {error, term()}.
 do_call(ChannName, Hookpoint, Fun, Req, ReqOpts) ->
     Options = ReqOpts#{channel => ChannName},
+    NReq = Req#{meta => emqx_exhook_handler:request_meta()},
     ?SLOG(debug, #{
         msg => "do_call",
         module => ?PB_CLIENT_MOD,
         function => Fun,
-        req => Req,
+        req => NReq,
         options => Options
     }),
-    case catch ?CALL_PB_CLIENT(ChanneName, Fun, Req, Options) of
+    case catch ?CALL_PB_CLIENT(ChanneName, Fun, NReq, Options) of
         {ok, Resp, Metadata} ->
             ?SLOG(debug, #{msg => "do_call_ok", resp => Resp, metadata => Metadata}),
             update_metrics(Hookpoint, ChannName, fun emqx_exhook_metrics:succeed/2),
@@ -379,7 +382,7 @@ do_call(ChannName, Hookpoint, Fun, Req, ReqOpts) ->
                 msg => "exhook_call_error",
                 module => ?PB_CLIENT_MOD,
                 function => Fun,
-                req => Req,
+                req => NReq,
                 options => Options,
                 code => Code,
                 packet => Msg
@@ -391,7 +394,7 @@ do_call(ChannName, Hookpoint, Fun, Req, ReqOpts) ->
                 msg => "exhook_call_error",
                 module => ?PB_CLIENT_MOD,
                 function => Fun,
-                req => Req,
+                req => NReq,
                 options => Options,
                 reason => Reason
             }),
@@ -402,7 +405,7 @@ do_call(ChannName, Hookpoint, Fun, Req, ReqOpts) ->
                 msg => "exhook_call_exception",
                 module => ?PB_CLIENT_MOD,
                 function => Fun,
-                req => Req,
+                req => NReq,
                 options => Options,
                 stacktrace => Stk
             }),
