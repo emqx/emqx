@@ -76,7 +76,7 @@ t_delayed_message(_) ->
 
     [#delayed_message{msg = #message{payload = Payload}}] = ets:tab2list(emqx_delayed),
     ?assertEqual(<<"delayed_m">>, Payload),
-    ct:sleep(2000),
+    ct:sleep(2500),
 
     EmptyKey = mnesia:dirty_all_keys(emqx_delayed),
     ?assertEqual([], EmptyKey).
