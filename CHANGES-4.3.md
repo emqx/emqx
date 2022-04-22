@@ -15,6 +15,8 @@ File format:
 ### Enhancements
 
 * Made possible for EMQX to boot from a Linux directory which has white spaces in its path.
+* Add support for JWT authorization [#7596]
+  Now MQTT clients may be authorized with respect to a specific claim containing publish/subscribe topic whitelists.
 
 ## v4.3.14
 
