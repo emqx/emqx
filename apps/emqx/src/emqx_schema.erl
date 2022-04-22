@@ -239,10 +239,7 @@ fields("persistent_session_store") ->
                 boolean(),
                 #{
                     default => false,
-                    desc =>
-                        "Use the database to store information about persistent sessions.\n"
-                        "This makes it possible to migrate a client connection to another\n"
-                        "cluster node if a node is stopped.\n"
+                    desc => ?DESC(persistent_session_store_enabled)
                 }
             )},
         {"storage_type",
@@ -250,12 +247,7 @@ fields("persistent_session_store") ->
                 hoconsc:union([ram, disc]),
                 #{
                     default => disc,
-                    desc =>
-                        "Store information about persistent sessions on disc or in ram.\n"
-                        "If ram is chosen, all information about persistent sessions remains\n"
-                        "as long as at least one node in a cluster is alive to keep the information.\n"
-                        "If disc is chosen, the information is persisted on disc and will survive\n"
-                        "cluster restart, at the price of more disc usage and less throughput.\n"
+                    desc => ?DESC(persistent_session_store_storage_type)
                 }
             )},
         {"max_retain_undelivered",
@@ -263,10 +255,7 @@ fields("persistent_session_store") ->
                 duration(),
                 #{
                     default => "1h",
-                    desc =>
-                        "The time messages that was not delivered to a persistent session\n"
-                        "is stored before being garbage collected if the node the previous\n"
-                        "session was handled on restarts of is stopped.\n"
+                    desc => ?DESC(persistent_session_store_max_retain_undelivered)
                 }
             )},
         {"message_gc_interval",
@@ -274,10 +263,7 @@ fields("persistent_session_store") ->
                 duration(),
                 #{
                     default => "1h",
-                    desc =>
-                        "The starting interval for garbage collection of undelivered messages to\n"
-                        "a persistent session. This affects how often the \"max_retain_undelivered\"\n"
-                        "is checked for removal.\n"
+                    desc => ?DESC(persistent_session_store_message_gc_interval)
                 }
             )},
         {"session_message_gc_interval",
@@ -285,10 +271,7 @@ fields("persistent_session_store") ->
                 duration(),
                 #{
                     default => "1m",
-                    desc =>
-                        "The starting interval for garbage collection of transient data for\n"
-                        "persistent session messages. This does not affect the lifetime length\n"
-                        "of persistent session messages.\n"
+                    desc => ?DESC(persistent_session_store_session_message_gc_interval)
                 }
             )}
     ];
@@ -299,7 +282,7 @@ fields("stats") ->
                 boolean(),
                 #{
                     default => true,
-                    desc => "Enable/disable statistic data collection."
+                    desc => ?DESC(stats_enable)
                 }
             )}
     ];
@@ -627,8 +610,7 @@ fields("flapping_detect") ->
                 boolean(),
                 #{
                     default => false,
-                    desc =>
-                        "Enable flapping connection detection feature."
+                    desc => ?DESC(flapping_detect_enable)
                 }
             )},
         {"max_count",
@@ -636,8 +618,7 @@ fields("flapping_detect") ->
                 integer(),
                 #{
                     default => 15,
-                    desc =>
-                        "The maximum number of disconnects allowed for a MQTT Client in `window_time`"
+                    desc => ?DESC(flapping_detect_max_count)
                 }
             )},
         {"window_time",
@@ -645,7 +626,7 @@ fields("flapping_detect") ->
                 duration(),
                 #{
                     default => "1m",
-                    desc => "The time window for flapping detection."
+                    desc => ?DESC(flapping_detect_window_time)
                 }
             )},
         {"ban_time",
@@ -653,7 +634,7 @@ fields("flapping_detect") ->
                 duration(),
                 #{
                     default => "5m",
-                    desc => "How long the flapping clientid will be banned."
+                    desc => ?DESC(flapping_detect_ban_time)
                 }
             )}
     ];
@@ -664,7 +645,7 @@ fields("force_shutdown") ->
                 boolean(),
                 #{
                     default => true,
-                    desc => "Enable `force_shutdown` feature."
+                    desc => ?DESC(force_shutdown_enable)
                 }
             )},
         {"max_message_queue_len",
@@ -672,7 +653,7 @@ fields("force_shutdown") ->
                 range(0, inf),
                 #{
                     default => 1000,
-                    desc => "Maximum message queue length."
+                    desc => ?DESC(force_shutdown_max_message_queue_len)
                 }
             )},
         {"max_heap_size",
@@ -680,7 +661,7 @@ fields("force_shutdown") ->
                 wordsize(),
                 #{
                     default => "32MB",
-                    desc => "Total heap size",
+                    desc => ?DESC(force_shutdown_max_heap_size),
                     validator => fun ?MODULE:validate_heap_size/1
                 }
             )}
@@ -691,7 +672,7 @@ fields("overload_protection") ->
             sc(
                 boolean(),
                 #{
-                    desc => "React on system overload or not",
+                    desc => ?DESC(overload_protection_enable),
                     default => false
                 }
             )},
@@ -699,9 +680,7 @@ fields("overload_protection") ->
             sc(
                 range(0, inf),
                 #{
-                    desc =>
-                        "Some unimportant tasks could be delayed "
-                        "for execution, here set the delays in ms",
+                    desc => ?DESC(overload_protection_backoff_delay),
                     default => 1
                 }
             )},
@@ -709,7 +688,7 @@ fields("overload_protection") ->
             sc(
                 boolean(),
                 #{
-                    desc => "Skip forceful GC if necessary",
+                    desc => ?DESC(overload_protection_backoff_gc),
                     default => false
                 }
             )},
@@ -717,7 +696,7 @@ fields("overload_protection") ->
             sc(
                 boolean(),
                 #{
-                    desc => "Skip process hibernation if necessary",
+                    desc => ?DESC(overload_protection_backoff_hibernation),
                     default => true
                 }
             )},
@@ -725,7 +704,7 @@ fields("overload_protection") ->
             sc(
                 boolean(),
                 #{
-                    desc => "Close new incoming connections if necessary",
+                    desc => ?DESC(overload_protection_backoff_new_conn),
                     default => true
                 }
             )}
@@ -737,7 +716,7 @@ fields("conn_congestion") ->
                 boolean(),
                 #{
                     default => false,
-                    desc => "Enable or disable connection congestion alarm."
+                    desc => ?DESC(conn_congestion_enable_alarm)
                 }
             )},
         {"min_alarm_sustain_duration",
@@ -745,12 +724,7 @@ fields("conn_congestion") ->
                 duration(),
                 #{
                     default => "1m",
-                    desc =>
-                        "Minimal time before clearing the alarm.\n\n"
-                        "The alarm is cleared only when there's no pending data in\n"
-                        "the queue, and at least `min_alarm_sustain_duration`\n"
-                        "milliseconds passed since the last time we considered the connection \"congested\".\n\n"
-                        "This is to avoid clearing and raising the alarm again too often."
+                    desc => ?DESC(conn_congestion_min_alarm_sustain_duration)
                 }
             )}
     ];
@@ -759,14 +733,14 @@ fields("force_gc") ->
         {"enable",
             sc(
                 boolean(),
-                #{default => true, desc => "Enable forced garbage collection."}
+                #{default => true, desc => ?DESC(force_gc_enable)}
             )},
         {"count",
             sc(
                 range(0, inf),
                 #{
                     default => 16000,
-                    desc => "GC the process after this many received messages."
+                    desc => ?DESC(force_gc_count)
                 }
             )},
         {"bytes",
@@ -774,7 +748,7 @@ fields("force_gc") ->
                 bytesize(),
                 #{
                     default => "16MB",
-                    desc => "GC the process after specified number of bytes have passed through."
+                    desc => ?DESC(force_gc_bytes)
                 }
             )}
     ];
@@ -1331,7 +1305,7 @@ fields("sysmon_vm") ->
                 duration(),
                 #{
                     default => "30s",
-                    desc => "The time interval for the periodic process limit check."
+                    desc => ?DESC(sysmon_vm_process_check_interval)
                 }
             )},
         {"process_high_watermark",
@@ -1339,10 +1313,7 @@ fields("sysmon_vm") ->
                 percent(),
                 #{
                     default => "80%",
-                    desc =>
-                        "The threshold, as percentage of processes, for how many\n"
-                        " processes can simultaneously exist at the local node before the corresponding\n"
-                        " alarm is raised."
+                    desc => ?DESC(sysmon_vm_process_high_watermark)
                 }
             )},
         {"process_low_watermark",
@@ -1350,20 +1321,14 @@ fields("sysmon_vm") ->
                 percent(),
                 #{
                     default => "60%",
-                    desc =>
-                        "The threshold, as percentage of processes, for how many\n"
-                        " processes can simultaneously exist at the local node before the corresponding\n"
-                        " alarm is cleared."
+                    desc => ?DESC(sysmon_vm_process_low_watermark)
                 }
             )},
         {"long_gc",
             sc(
                 hoconsc:union([disabled, duration()]),
                 #{
-                    desc =>
-                        "Enable Long GC monitoring.<br/>\n"
-                        "Notice: don't enable the monitor in production, because it adds overhead to\n"
-                        " garbage collection."
+                    desc => ?DESC(sysmon_vm_long_gc)
                 }
             )},
         {"long_schedule",
@@ -1371,7 +1336,7 @@ fields("sysmon_vm") ->
                 hoconsc:union([disabled, duration()]),
                 #{
                     default => "240ms",
-                    desc => "Enable Long Schedule monitoring."
+                    desc => ?DESC(sysmon_vm_long_schedule)
                 }
             )},
         {"large_heap",
@@ -1379,7 +1344,7 @@ fields("sysmon_vm") ->
                 hoconsc:union([disabled, bytesize()]),
                 #{
                     default => "32MB",
-                    desc => "Enable Large Heap monitoring."
+                    desc => ?DESC(sysmon_vm_large_heap)
                 }
             )},
         {"busy_dist_port",
@@ -1387,7 +1352,7 @@ fields("sysmon_vm") ->
                 boolean(),
                 #{
                     default => true,
-                    desc => "Enable Busy Distribution Port monitoring."
+                    desc => ?DESC(sysmon_vm_busy_dist_port)
                 }
             )},
         {"busy_port",
@@ -1395,7 +1360,7 @@ fields("sysmon_vm") ->
                 boolean(),
                 #{
                     default => true,
-                    desc => "Enable Busy Port monitoring."
+                    desc => ?DESC(sysmon_vm_busy_port)
                 }
             )}
     ];
@@ -1406,7 +1371,7 @@ fields("sysmon_os") ->
                 duration(),
                 #{
                     default => "60s",
-                    desc => "The time interval for the periodic CPU check."
+                    desc => ?DESC(sysmon_os_cpu_check_interval)
                 }
             )},
         {"cpu_high_watermark",
@@ -1414,9 +1379,7 @@ fields("sysmon_os") ->
                 percent(),
                 #{
                     default => "80%",
-                    desc =>
-                        "The threshold, as percentage of system CPU load,\n"
-                        " for how much system cpu can be used before the corresponding alarm is raised."
+                    desc => ?DESC(sysmon_os_cpu_high_watermark)
                 }
             )},
         {"cpu_low_watermark",
@@ -1424,9 +1387,7 @@ fields("sysmon_os") ->
                 percent(),
                 #{
                     default => "60%",
-                    desc =>
-                        "The threshold, as percentage of system CPU load,\n"
-                        " for how much system cpu can be used before the corresponding alarm is cleared."
+                    desc => ?DESC(sysmon_os_cpu_low_watermark)
                 }
             )},
         {"mem_check_interval",
@@ -1434,7 +1395,7 @@ fields("sysmon_os") ->
                 hoconsc:union([disabled, duration()]),
                 #{
                     default => "60s",
-                    desc => "The time interval for the periodic memory check."
+                    desc => ?DESC(sysmon_os_mem_check_interval)
                 }
             )},
         {"sysmem_high_watermark",
@@ -1442,9 +1403,7 @@ fields("sysmon_os") ->
                 percent(),
                 #{
                     default => "70%",
-                    desc =>
-                        "The threshold, as percentage of system memory,\n"
-                        " for how much system memory can be allocated before the corresponding alarm is raised."
+                    desc => ?DESC(sysmon_os_sysmem_high_watermark)
                 }
             )},
         {"procmem_high_watermark",
@@ -1452,10 +1411,7 @@ fields("sysmon_os") ->
                 percent(),
                 #{
                     default => "5%",
-                    desc =>
-                        "The threshold, as percentage of system memory,\n"
-                        " for how much system memory can be allocated by one Erlang process before\n"
-                        " the corresponding alarm is raised."
+                    desc => ?DESC(sysmon_os_procmem_high_watermark)
                 }
             )}
     ];
@@ -1467,7 +1423,7 @@ fields("sysmon_top") ->
                 #{
                     mapping => "system_monitor.top_num_items",
                     default => 10,
-                    desc => "The number of top processes per monitoring group"
+                    desc => ?DESC(sysmon_top_num_items)
                 }
             )},
         {"sample_interval",
@@ -1476,7 +1432,7 @@ fields("sysmon_top") ->
                 #{
                     mapping => "system_monitor.top_sample_interval",
                     default => "2s",
-                    desc => "Specifies how often process top should be collected"
+                    desc => ?DESC(sysmon_top_sample_interval)
                 }
             )},
         {"max_procs",
@@ -1485,9 +1441,7 @@ fields("sysmon_top") ->
                 #{
                     mapping => "system_monitor.top_max_procs",
                     default => 1_000_000,
-                    desc =>
-                        "Stop collecting data when the number of processes\n"
-                        "in the VM exceeds this value"
+                    desc => ?DESC(sysmon_top_max_procs)
                 }
             )},
         {"db_hostname",
@@ -1495,7 +1449,7 @@ fields("sysmon_top") ->
                 string(),
                 #{
                     mapping => "system_monitor.db_hostname",
-                    desc => "Hostname of the PostgreSQL database that collects the data points",
+                    desc => ?DESC(sysmon_top_db_hostname),
                     default => ""
                 }
             )},
@@ -1505,7 +1459,7 @@ fields("sysmon_top") ->
                 #{
                     mapping => "system_monitor.db_port",
                     default => 5432,
-                    desc => "Port of the PostgreSQL database that collects the data points"
+                    desc => ?DESC(sysmon_top_db_port)
                 }
             )},
         {"db_username",
@@ -1514,7 +1468,7 @@ fields("sysmon_top") ->
                 #{
                     mapping => "system_monitor.db_username",
                     default => "system_monitor",
-                    desc => "EMQX username in the PostgreSQL database"
+                    desc => ?DESC(sysmon_top_db_username)
                 }
             )},
         {"db_password",
@@ -1523,7 +1477,7 @@ fields("sysmon_top") ->
                 #{
                     mapping => "system_monitor.db_password",
                     default => "system_monitor_password",
-                    desc => "EMQX user password in the PostgreSQL database"
+                    desc => ?DESC(sysmon_top_db_password)
                 }
             )},
         {"db_name",
@@ -1532,7 +1486,7 @@ fields("sysmon_top") ->
                 #{
                     mapping => "system_monitor.db_name",
                     default => "postgres",
-                    desc => "PostgreSQL database name"
+                    desc => ?DESC(sysmon_top_db_name)
                 }
             )}
     ];
@@ -1545,15 +1499,7 @@ fields("alarm") ->
                     default => [log, publish],
                     validator => fun ?MODULE:validate_alarm_actions/1,
                     example => [log, publish],
-                    desc =>
-                        "The actions triggered when the alarm is activated.<br/>\n"
-                        "Currently, the following actions are supported: <code>log</code> and "
-                        "<code>publish</code>.\n"
-                        "<code>log</code> is to write the alarm to log (console or file).\n"
-                        "<code>publish</code> is to publish the alarm as an MQTT message to "
-                        "the system topics:\n"
-                        "<code>$SYS/brokers/emqx@xx.xx.xx.x/alarms/activate</code> and\n"
-                        "<code>$SYS/brokers/emqx@xx.xx.xx.x/alarms/deactivate</code>"
+                    desc => ?DESC(alarm_actions)
                 }
             )},
         {"size_limit",
@@ -1562,10 +1508,7 @@ fields("alarm") ->
                 #{
                     default => 1000,
                     example => 1000,
-                    desc =>
-                        "The maximum total number of deactivated alarms to keep as history.<br>\n"
-                        "When this limit is exceeded, the oldest deactivated alarms are "
-                        "deleted to cap the total number.\n"
+                    desc => ?DESC(alarm_size_limit)
                 }
             )},
         {"validity_period",
@@ -1574,9 +1517,7 @@ fields("alarm") ->
                 #{
                     default => "24h",
                     example => "24h",
-                    desc =>
-                        "Retention time of deactivated alarms. Alarms are not deleted immediately\n"
-                        "when deactivated, but after the retention time.\n"
+                    desc => ?DESC(alarm_validity_period)
                 }
             )}
     ];
