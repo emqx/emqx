@@ -116,7 +116,7 @@ stop() ->
     gen_server:stop(?MODULE).
 
 enable() ->
-    gen_server:call(?MODULE, enable).
+    gen_server:call(?MODULE, enable, 15_000).
 
 disable() ->
     gen_server:call(?MODULE, disable).
@@ -146,21 +146,11 @@ init(_Opts) ->
     {ok, State0#state{node_uuid = NodeUUID, cluster_uuid = ClusterUUID}}.
 
 handle_call(enable, _From, State0) ->
-    case ?MODULE:official_version(emqx_app:get_release()) of
-        true ->
-            State = report_telemetry(State0),
-            {reply, ok, ensure_report_timer(State)};
-        false ->
-            {reply, {error, not_official_version}, State0}
-    end;
+    State = report_telemetry(State0),
+    {reply, ok, ensure_report_timer(State)};
 handle_call(disable, _From, State = #state{timer = Timer}) ->
-    case ?MODULE:official_version(emqx_app:get_release()) of
-        true ->
-            emqx_misc:cancel_timer(Timer),
-            {reply, ok, State#state{timer = undefined}};
-        false ->
-            {reply, {error, not_official_version}, State}
-    end;
+    emqx_misc:cancel_timer(Timer),
+    {reply, ok, State#state{timer = undefined}};
 handle_call(get_node_uuid, _From, State = #state{node_uuid = UUID}) ->
     {reply, {ok, UUID}, State};
 handle_call(get_cluster_uuid, _From, State = #state{cluster_uuid = UUID}) ->
@@ -200,7 +190,7 @@ code_change(_OldVsn, State, _Extra) ->
 %%------------------------------------------------------------------------------
 
 official_version(Version) ->
-    Pt = "^\\d+\\.\\d+(?:(-(?:alpha|beta|rc)\\.[1-9][0-9]*)|\\.\\d+)$",
+    Pt = "^\\d+\\.\\d+(?:\\.\\d+)?(?:(-(?:alpha|beta|rc)\\.[1-9][0-9]*))?$",
     match =:= re:run(Version, Pt, [{capture, none}]).
 
 ensure_report_timer(State = #state{report_interval = ReportInterval}) ->
@@ -454,16 +444,25 @@ advanced_mqtt_features() ->
     maps:map(fun(_K, V) -> bool2int(V) end, AdvancedFeatures).
 
 get_authn_authz_info() ->
-    #{
-        authenticators := AuthnTypes,
-        overridden_listeners := OverriddenListeners
-    } = emqx_authn:get_enabled_authns(),
-    AuthzTypes = emqx_authz:get_enabled_authzs(),
-    #{
-        authn => AuthnTypes,
-        authn_listener => OverriddenListeners,
-        authz => AuthzTypes
-    }.
+    try
+        #{
+            authenticators := AuthnTypes,
+            overridden_listeners := OverriddenListeners
+        } = emqx_authn:get_enabled_authns(),
+        AuthzTypes = emqx_authz:get_enabled_authzs(),
+        #{
+            authn => AuthnTypes,
+            authn_listener => OverriddenListeners,
+            authz => AuthzTypes
+        }
+    catch
+        _:_ ->
+            #{
+                authn => [],
+                authn_listener => [],
+                authz => []
+            }
+    end.
 
 get_gateway_info() ->
     try

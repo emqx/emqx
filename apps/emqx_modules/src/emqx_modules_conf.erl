@@ -84,7 +84,8 @@ remove_topic_metrics(Topic) ->
 
 -spec is_telemetry_enabled() -> boolean().
 is_telemetry_enabled() ->
-    emqx:get_config([telemetry, enable], true).
+    IsOfficial = emqx_telemetry:official_version(emqx_release:version()),
+    emqx:get_config([telemetry, enable], IsOfficial).
 
 -spec set_telemetry_status(boolean()) -> ok | {error, term()}.
 set_telemetry_status(Status) ->

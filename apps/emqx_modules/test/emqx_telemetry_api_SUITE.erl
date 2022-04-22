@@ -52,19 +52,18 @@ end_per_suite(_Config) ->
     ]),
     ok.
 
-init_per_testcase(t_status_fail, Config) ->
+init_per_testcase(t_status_non_official, Config) ->
     meck:new(emqx_telemetry, [non_strict, passthrough]),
     meck:expect(emqx_telemetry, official_version, 1, false),
     Config;
 init_per_testcase(t_status, Config) ->
     meck:new(emqx_telemetry, [non_strict, passthrough]),
-    meck:expect(emqx_telemetry, official_version, 1, true),
     meck:expect(emqx_telemetry, enable, fun() -> ok end),
     Config;
 init_per_testcase(_TestCase, Config) ->
     Config.
 
-end_per_testcase(t_status_fail, _Config) ->
+end_per_testcase(t_status_non_official, _Config) ->
     meck:unload(emqx_telemetry);
 end_per_testcase(t_status, _Config) ->
     meck:unload(emqx_telemetry);
@@ -138,9 +137,9 @@ t_status(_) ->
         )
     ).
 
-t_status_fail(_) ->
+t_status_non_official(_) ->
     ?assertMatch(
-        {ok, 400, _},
+        {ok, 200, _},
         request(
             put,
             uri(["telemetry", "status"]),
