@@ -63,7 +63,12 @@ id_example() -> 'tcp:default'.
 %% @doc List configured listeners.
 -spec list_raw() -> [{ListenerId :: atom(), Type :: binary(), ListenerConf :: map()}].
 list_raw() ->
-    [{listener_id(Type, LName), Type, LConf} || {Type, LName, LConf} <- do_list_raw()].
+    [
+        {listener_id(Type, LName), Type, LConf}
+     || %% FIXME: quic is not supported update vi dashboard yet
+        {Type, LName, LConf} <- do_list_raw(),
+        Type =/= <<"quic">>
+    ].
 
 list() ->
     Listeners = maps:to_list(emqx:get_config([listeners], #{})),

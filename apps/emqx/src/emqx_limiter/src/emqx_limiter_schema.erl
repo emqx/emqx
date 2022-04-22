@@ -86,7 +86,7 @@ roots() -> [limiter].
 fields(limiter) ->
     [
         {bytes_in, sc(ref(limiter_opts), #{desc => ?DESC(bytes_in)})},
-        {message_in, sc(ref(limiter_opts), #{description => ?DESC(message_in)})},
+        {message_in, sc(ref(limiter_opts), #{desc => ?DESC(message_in)})},
         {connection, sc(ref(limiter_opts), #{desc => ?DESC(connection)})},
         {message_routing, sc(ref(limiter_opts), #{desc => ?DESC(message_routing)})},
         {batch, sc(ref(limiter_opts), #{desc => ?DESC(batch)})}
