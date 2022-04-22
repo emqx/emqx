@@ -532,6 +532,28 @@ desc(ssl_server_opts) ->
     "SSL configuration for the server.";
 desc(clientinfo_override) ->
     "ClientInfo override.";
+desc(lwm2m_translators) ->
+    "MQTT topics that correspond to LwM2M events.";
+desc(translator) ->
+    "MQTT topic that corresponds to a particular type of event.";
+desc(udp_listeners) ->
+    "Settings for the UDP listeners.";
+desc(tcp_listeners) ->
+    "Settings for the TCP listeners.";
+desc(tcp_udp_listeners) ->
+    "Settings for the listeners.";
+desc(tcp_listener) ->
+    "Settings for the TCP listener.";
+desc(ssl_listener) ->
+    "Settings for the SSL listener.";
+desc(udp_listener) ->
+    "Settings for the UDP listener.";
+desc(dtls_listener) ->
+    "Settings for the DTLS listener.";
+desc(udp_opts) ->
+    "Settings for the UDP sockets.";
+desc(dtls_opts) ->
+    "Settings for the DTLS protocol.";
 desc(_) ->
     undefined.
 
