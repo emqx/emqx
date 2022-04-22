@@ -1,6 +1,7 @@
 -module(emqx_bridge_http_schema).
 
 -include_lib("typerefl/include/types.hrl").
+-include_lib("hocon/include/hoconsc.hrl").
 
 -import(hoconsc, [mk/2, enum/1]).
 
@@ -16,30 +17,14 @@ fields("config") ->
     basic_config() ++
     [ {url, mk(binary(),
           #{ required => true
-           , desc =>"
-The URL of the HTTP Bridge.<br>
-Template with variables is allowed in the path, but variables cannot be used in the scheme, host,
-or port part.<br>
-For example, <code> http://localhost:9901/${topic} </code> is allowed, but
-<code> http://${host}:9901/message </code> or <code> http://localhost:${port}/message </code>
-is not allowed.
-"
+           , desc => ?DESC("config_url")
            })}
     , {local_topic, mk(binary(),
-          #{ desc =>"
-The MQTT topic filter to be forwarded to the HTTP server. All MQTT 'PUBLISH' messages with the topic
-matching the local_topic will be forwarded.<br/>
-NOTE: if this bridge is used as the output of a rule (EMQX rule engine), and also local_topic is
-configured, then both the data got from the rule and the MQTT messages that match local_topic
-will be forwarded.
-"
+          #{ desc => ?DESC("config_local_topic")
            })}
     , {method, mk(method(),
           #{ default => post
-           , desc =>"
-The method of the HTTP request. All the available methods are: post, put, get, delete.<br>
-Template with variables is allowed.<br>
-"
+           , desc => ?DESC("config_method")
            })}
     , {headers, mk(map(),
           #{ default => #{
@@ -48,22 +33,16 @@ Template with variables is allowed.<br>
                 <<"connection">> => <<"keep-alive">>,
                 <<"content-type">> => <<"application/json">>,
                 <<"keep-alive">> => <<"timeout=5">>}
-           , desc =>"
-The headers of the HTTP request.<br>
-Template with variables is allowed.
-"
+           , desc => ?DESC("config_headers")
            })
       }
     , {body, mk(binary(),
           #{ default => <<"${payload}">>
-           , desc =>"
-The body of the HTTP request.<br>
-Template with variables is allowed.
-"
+           , desc => ?DESC("config_body")
            })}
     , {request_timeout, mk(emqx_schema:duration_ms(),
           #{ default => <<"15s">>
-           , desc => "HTTP request timeout."
+           , desc => ?DESC("config_request_timeout")
            })}
     ];
 
@@ -79,7 +58,7 @@ fields("get") ->
     emqx_bridge_schema:metrics_status_fields() ++ fields("post").
 
 desc("config") ->
-    "Configuration for an HTTP bridge.";
+    ?DESC("desc_config");
 desc(Method) when Method =:= "get"; Method =:= "put"; Method =:= "post" ->
     ["Configuration for HTTP bridge using `", string:to_upper(Method), "` method."];
 desc(_) ->
@@ -88,12 +67,12 @@ desc(_) ->
 basic_config() ->
     [ {enable,
         mk(boolean(),
-           #{ desc => "Enable or disable this bridge"
+           #{ desc => ?DESC("config_enable")
             , default => true
             })}
     , {direction,
         mk(egress,
-           #{ desc => "The direction of this bridge, MUST be 'egress'"
+           #{ desc => ?DESC("config_direction")
             , default => egress
             })}
     ]
@@ -104,13 +83,13 @@ basic_config() ->
 type_field() ->
     {type, mk(http,
         #{ required => true
-         , desc => "The Bridge Type"
+         , desc => ?DESC("desc_type")
          })}.
 
 name_field() ->
     {name, mk(binary(),
         #{ required => true
-         , desc => "Bridge name, used as a human-readable description of the bridge."
+         , desc => ?DESC("desc_name")
          })}.
 
 method() ->
