@@ -70,7 +70,7 @@ make_doc() {
     local libs_dir1 libs_dir2
     libs_dir1="$("$FIND" "_build/default/lib/" -maxdepth 2 -name ebin -type d)"
     libs_dir2="$("$FIND" "_build/$PROFILE/lib/" -maxdepth 2 -name ebin -type d)"
-    libs_dir3="$("$FIND" "_build/$PROFILE/checkouts/" -maxdepth 2 -name ebin -type d || true)"
+    libs_dir3="$("$FIND" "_build/$PROFILE/checkouts/" -maxdepth 2 -name ebin -type d 2>/dev/null || true)"
     case $PROFILE in
         emqx-enterprise)
             SCHEMA_MODULE='emqx_enterprise_conf_schema'

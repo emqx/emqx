@@ -24,9 +24,7 @@
 
 @set script=%~n0
 
-:: for attach and remote_console
 @set EPMD_ARG=-start_epmd false -epmd_module ekka_epmd -proto_dist ekka
-:: for erl command
 @set ERL_FLAGS=%EPMD_ARG%
 
 :: Discover the release root directory from the directory
@@ -70,22 +68,13 @@
 @set EMQX_DB__ROLE=core
 
 @set conf_path="%etc_dir%\emqx.conf"
-:: Extract node name from emqx.conf
-@for /f "usebackq delims=" %%I in (`"%escript% %nodetool% hocon -s %schema_mod% -c %conf_path% get node.name"`) do @(
-  @call :set_trim node_name %%I
-)
-@set node_name=%node_name:"=%
 
-:: Extract node cookie from emqx.conf
-@for /f "usebackq delims=" %%I in (`"%escript% %nodetool% hocon -s %schema_mod% -c %conf_path% get node.cookie"`) do @(
-  @call :set_trim node_cookie %%I
+@for /f "usebackq tokens=1,2 delims==" %%a in (`"%escript% %nodetool% hocon -s %schema_mod% -c %conf_path% multi_get node.name node.cookie node.data_dir"`) do @(
+  if "%%a"=="node.name" set node_name=%%b
+  if "%%a"=="node.cookie" set node_cookie=%%b
+  if "%%a"=="node.data_dir" set data_dir=%%b
 )
-@set node_cookie=%node_cookie:"=%
 
-:: Extract data_dir from emqx.conf
-@for /f "usebackq delims=" %%I in (`"%escript% %nodetool% hocon -s %schema_mod% -c %conf_path% get node.data_dir"`) do @(
-  @call :set_trim data_dir %%I
-)
 @set data_dir=%data_dir:"=%
 :: remove trailing /
 @if %data_dir:~-1%==/ SET data_dir=%data_dir:~0,-1%
@@ -237,9 +226,4 @@ cd /d %rel_root_dir%
 :: Attach to a running node
 :attach
 %erl_exe% -hidden -remsh "%node_name%" -boot "%clean_boot_file_name%" "%node_type%" "remsh_%node_name%" -setcookie "%node_cookie%"
-@goto :eof
-
-:: Trim variable
-:set_trim
-@set %1=%2
 @goto :eof

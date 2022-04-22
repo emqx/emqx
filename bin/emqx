@@ -10,6 +10,7 @@ if [ "$DEBUG" -eq 1 ]; then
 fi
 
 RUNNER_ROOT_DIR="$(cd "$(dirname "$(readlink "$0" || echo "$0")")"/..; pwd -P)"
+
 # shellcheck disable=SC1090,SC1091
 . "$RUNNER_ROOT_DIR"/releases/emqx_vars
 
@@ -39,7 +40,7 @@ export ERTS_LIB_DIR="$RUNNER_ROOT_DIR/lib"
 DYNLIBS_DIR="$RUNNER_ROOT_DIR/dynlibs"
 
 # Echo to stderr on errors
-echoerr() { echo "ERROR: $*" 1>&2; }
+echoerr() { echo -e "$*" 1>&2; }
 
 die() {
     echoerr "ERROR: $1"
@@ -51,20 +52,6 @@ assert_node_alive() {
     if ! relx_nodetool "ping" > /dev/null; then
         die "node_is_not_running!" 1
     fi
-}
-
-
-# Echo to stderr on errors
-echoerr() { echo "$*" 1>&2; }
-
-check_erlang_start() {
-  # RELEASE_LIB is used by Elixir
-  "$BINDIR/$PROGNAME" \
-    -noshell \
-    -boot_var RELEASE_LIB "$ERTS_LIB_DIR/lib" \
-    -boot "$REL_DIR/start_clean" \
-    -s crypto start \
-    -s erlang halt
 }
 
 usage() {
@@ -194,7 +181,7 @@ usage() {
         echo "More:"
         echo "  Shell attach:  remote_console | attach"
         echo "  Up/Down-grade: upgrade | downgrade | install | uninstall"
-        echo "  Install info:  ertspath | root_dir | versions"
+        echo "  Install info:  ertspath | root_dir"
         echo "  Runtime info:  pid | ping | versions"
         echo "  Advanced:      console_clean | escript | rpc | rpcterms | eval | eval-erl"
         echo ''
@@ -221,25 +208,23 @@ if [ "${2:-}" = 'help' ]; then
     fi
 fi
 
-if ! check_erlang_start >/dev/null 2>&1; then
-    BUILD_INFO="$(cat "${REL_DIR}/BUILD_INFO")"
-    ## failed to start, might be due to missing libs, try to be portable
-    export LD_LIBRARY_PATH="${LD_LIBRARY_PATH:-$DYNLIBS_DIR}"
-    if [ "$LD_LIBRARY_PATH" != "$DYNLIBS_DIR" ]; then
-        export LD_LIBRARY_PATH="$DYNLIBS_DIR:$LD_LIBRARY_PATH"
-    fi
-    deps_hint="Please make sure openssl-1.1.1 (libcrypto), libncurses and libatomic1 are installed."
-    if ! check_erlang_start; then
-        ## it's hopeless
-        echoerr "FATAL: Unable to start Erlang."
-        echoerr "$deps_hint"
-        echoerr "Also ensure it's running on the correct platform:"
-        echoerr "$BUILD_INFO"
-        exit 1
-    fi
-    echoerr "Using libs from '${DYNLIBS_DIR}' due to missing from the OS."
-    echoerr "$deps_hint"
-fi
+## IS_BOOT_COMMAND is set for later to inspect node name and cookie from hocon config (or env variable)
+case "${COMMAND}" in
+    start|console|console_clean|foreground)
+        IS_BOOT_COMMAND='yes'
+        ;;
+    ertspath)
+        echo "$ERTS_DIR"
+        exit 0
+        ;;
+    root_dir)
+        echo "$RUNNER_ROOT_DIR"
+        exit 0
+        ;;
+    *)
+        IS_BOOT_COMMAND='no'
+        ;;
+esac
 
 ## backward compatible
 if [ -d "$ERTS_DIR/lib" ]; then
@@ -270,6 +255,68 @@ check_user "$@"
 ES=$?
 if [ "$ES" -ne 0 ]; then
     exit $ES
+fi
+
+COMPATIBILITY_CHECK='
+    io:format("BEAM_OK~n", []),
+    try
+        [_|_] = L = crypto:info_lib(),
+        io:format("CRYPTO_OK ~0p~n", [L])
+    catch
+        _ : _ ->
+            %% so logger has the chance to log something
+            timer:sleep(100),
+            halt(1)
+
+    end,
+    try
+        mnesia_hook:module_info(),
+        io:format("MNESIA_OK~n", [])
+    catch
+        _ : _ ->
+            io:format("WARNING: Mnesia app has no post-coommit hook support~n", []),
+            halt(2)
+    end,
+    halt(0).
+'
+
+compatiblity_info() {
+  # RELEASE_LIB is used by Elixir
+  "$BINDIR/$PROGNAME" \
+    -noshell \
+    -boot_var RELEASE_LIB "$ERTS_LIB_DIR/lib" \
+    -boot "$REL_DIR/start_clean" \
+    -eval "$COMPATIBILITY_CHECK"
+}
+
+# Collect Eralng/OTP runtime sanity and compatibility in one go
+if [ "$IS_BOOT_COMMAND" = 'yes' ]; then
+    # Read BUILD_INFO early as the next commands may mess up the shell
+    BUILD_INFO="$(cat "${REL_DIR}/BUILD_INFO")"
+    COMPATIBILITY_INFO="$(compatiblity_info 2>/dev/null || true)"
+    if ! (echo -e "$COMPATIBILITY_INFO" | grep -q 'CRYPTO_OK'); then
+        ## failed to start, might be due to missing libs, try to be portable
+        export LD_LIBRARY_PATH="${LD_LIBRARY_PATH:-$DYNLIBS_DIR}"
+        if [ "$LD_LIBRARY_PATH" != "$DYNLIBS_DIR" ]; then
+            export LD_LIBRARY_PATH="$DYNLIBS_DIR:$LD_LIBRARY_PATH"
+        fi
+        COMPATIBILITY_INFO="$(compatiblity_info 2>&1 || true)"
+        if ! (echo -e "$COMPATIBILITY_INFO" | grep -q 'BEAM_OK'); then
+            ## not able to start beam.smp
+            echoerr "$COMPATIBILITY_INFO"
+            echoerr "Please ensure it is running on the correct platform:"
+            echoerr "$BUILD_INFO"
+            echoerr "Version=$REL_VSN"
+            echoerr "Required dependencies: openssl-1.1.1 (libcrypto), libncurses and libatomic1"
+            exit 1
+        elif ! (echo -e "$COMPATIBILITY_INFO" | grep -q 'CRYPTO_OK'); then
+            ## not able to start crypto app
+            echoerr "$COMPATIBILITY_INFO"
+            exit 2
+        fi
+        echoerr "Using libs from '${DYNLIBS_DIR}' due to missing from the OS."
+    fi
+    export COMPATIBILITY_INFO
 fi
 
 NO_EPMD="-start_epmd false -epmd_module ekka_epmd -proto_dist ekka"
@@ -356,22 +403,66 @@ call_hocon() {
         || die "call_hocon_failed: $*" $?
 }
 
-get_config_value() {
+## Resolve boot configs in a batch
+## This is because starting the Erlang beam with all modules loaded
+## and parsing HOCON config + environment variables is a non-trivial task
+CONF_KEYS=( 'node.data_dir' 'node.name' 'node.cookie' 'db.backend' )
+if [ "$IS_ENTERPRISE" = 'yes' ]; then
+    CONF_KEYS+=( 'license.file' 'license.key' )
+fi
+
+if [ "$IS_BOOT_COMMAND" = 'yes' ]; then
+    if [ "${EMQX_BOOT_CONFIGS:-}" = '' ]; then
+        EMQX_BOOT_CONFIGS="$(call_hocon -s "$SCHEMA_MOD" -c "$EMQX_ETC_DIR"/emqx.conf multi_get "${CONF_KEYS[@]}")"
+        ## export here so the 'console' command recursively called from
+        ## 'start' command does not have to parse the configs again
+        export EMQX_BOOT_CONFIGS
+    fi
+else
+    # For non-boot commands, we try to get data_dir from ps -ef command
+    # shellcheck disable=SC2009
+    PS_LINE="$(ps -ef | grep "\-[r]oot $RUNNER_ROOT_DIR" | grep -oE "\-emqx_data_dir.*"|| true)"
+    if [ "$(echo -e "$PS_LINE" | wc -l)" -eq 1 ]; then
+        ## only one emqx node is running
+        ## strip 'emqx_data_dir ' and ' --' because the dir in between may contain spaces
+        DATA_DIR="$(echo -e "$PS_LINE" | sed -e 's#.\+emqx_data_dir\s##g' | sed -e 's#\s--$##g')"
+        if [ "$DATA_DIR" = '' ]; then
+            ## this should not happen unless -emqx_data_dir is not set
+            die "node_is_not_running!" 1
+        fi
+        EMQX_BOOT_CONFIGS="node.data_dir=$DATA_DIR"
+    else
+        ## None or more than one node is running, resolve from boot config
+        EMQX_BOOT_CONFIGS="$(call_hocon -s "$SCHEMA_MOD" -c "$EMQX_ETC_DIR"/emqx.conf multi_get "${CONF_KEYS[@]}")"
+    fi
+fi
+
+get_boot_config() {
     path_to_value="$1"
-    call_hocon -s "$SCHEMA_MOD" -c "$EMQX_ETC_DIR"/emqx.conf get "$path_to_value" | tr -d \"
+    echo -e "$EMQX_BOOT_CONFIGS" | grep "$path_to_value=" | sed -e "s/$path_to_value=//g" | tr -d \"
 }
+
+DATA_DIR="$(get_boot_config 'node.data_dir')"
+# ensure no trailing /
+DATA_DIR="${DATA_DIR%/}"
+if [[ $DATA_DIR != /* ]]; then
+    # relative path
+    DATA_DIR="${RUNNER_ROOT_DIR}/${DATA_DIR}"
+fi
+CONFIGS_DIR="$DATA_DIR/configs"
+mkdir -p "$CONFIGS_DIR"
 
 check_license() {
     if [ "$IS_ENTERPRISE" == "no" ]; then
         return 0
     fi
 
-    file_license="${EMQX_LICENSE__FILE:-$(get_config_value license.file)}"
+    file_license="${EMQX_LICENSE__FILE:-$(get_boot_config 'license.file')}"
 
     if [[ -n "$file_license" && ("$file_license" != "undefined") ]]; then
         call_nodetool check_license_file "$file_license"
     else
-        key_license="${EMQX_LICENSE__KEY:-$(get_config_value license.key)}"
+        key_license="${EMQX_LICENSE__KEY:-$(get_boot_config 'license.key')}"
 
         if [[ -n "$key_license" && ("$key_license" != "undefined") ]]; then
             call_nodetool check_license_key "$key_license"
@@ -396,15 +487,6 @@ relx_start_command() {
            "$START_OPTION"
 }
 
-DATA_DIR="$(get_config_value 'node.data_dir')"
-DATA_DIR="${DATA_DIR%/}"
-if [[ $DATA_DIR != /* ]]; then
-    # relative
-    DATA_DIR="${RUNNER_ROOT_DIR}/${DATA_DIR}"
-fi
-CONFIGS_DIR="$DATA_DIR/configs"
-mkdir -p "$CONFIGS_DIR"
-
 # Function to generate app.config and vm.args
 # sets two environment variables CONF_FILE and ARGS_FILE
 generate_config() {
@@ -416,7 +498,7 @@ generate_config() {
 
     ## timestamp for each generation
     local NOW_TIME
-    NOW_TIME="$(call_hocon now_time)"
+    NOW_TIME="$(date +'%Y.%m.%d.%H.%M.%S')"
 
     ## this command populates two files: app.<time>.config and vm.<time>.args
     ## NOTE: the generate command merges environment variables to the base config (emqx.conf),
@@ -524,7 +606,7 @@ latest_vm_args() {
     if [ -f "$vm_args_file" ]; then
         echo "$vm_args_file"
     else
-        echoerr "ERROR: node not initialized?"
+        echoerr "Node not initialized?"
         echoerr "Generated config file vm.*.args is not found for command '$COMMAND'"
         echoerr "in config dir: $CONFIGS_DIR"
         echoerr "In case the file has been deleted while the node is running,"
@@ -575,31 +657,6 @@ maybe_log_to_console() {
     fi
 }
 
-# check if using an OTP version that has the mnesia_hook patch for use
-# in mria.
-is_otp_compatible() {
-  "$BINDIR/$PROGNAME" \
-    -noshell \
-    -boot_var RELEASE_LIB "$ERTS_LIB_DIR/lib" \
-    -boot "$REL_DIR/start_clean" \
-    -eval 'try mnesia_hook:module_info() of _ -> init:stop() catch _:_ -> halt(1) end.' >/dev/null 2>&1
-}
-
-## IS_BOOT_COMMAND is set for later to inspect node name and cookie from hocon config (or env variable)
-case "${COMMAND}" in
-    start|console|console_clean|foreground)
-        IS_BOOT_COMMAND='yes'
-        ;;
-    ertspath)
-        echo "$ERTS_DIR"
-        exit 0
-        ;;
-    *)
-        IS_BOOT_COMMAND='no'
-        ;;
-esac
-
-## make EMQX_NODE_COOKIE right
 if [ -n "${EMQX_NODE_NAME:-}" ]; then
     export EMQX_NODE__NAME="${EMQX_NODE_NAME}"
     unset EMQX_NODE_NAME
@@ -613,7 +670,7 @@ NAME="${EMQX_NODE__NAME:-}"
 if [ -z "$NAME" ]; then
     if [ "$IS_BOOT_COMMAND" = 'yes' ]; then
         # for boot commands, inspect emqx.conf for node name
-        NAME="$(get_config_value node.name)"
+        NAME="$(get_boot_config 'node.name')"
     else
         vm_args_file="$(latest_vm_args 'EMQX_NODE__NAME')"
         NAME="$(grep -E '^-s?name' "${vm_args_file}" | awk '{print $2}')"
@@ -643,7 +700,7 @@ fi
 COOKIE="${EMQX_NODE__COOKIE:-}"
 if [ -z "$COOKIE" ]; then
     if [ "$IS_BOOT_COMMAND" = 'yes' ]; then
-        COOKIE="$(get_config_value node.cookie)"
+        COOKIE="$(get_boot_config 'node.cookie')"
     else
         vm_args_file="$(latest_vm_args 'EMQX_NODE__COOKIE')"
         COOKIE="$(grep -E '^-setcookie' "${vm_args_file}" | awk '{print $2}')"
@@ -654,18 +711,14 @@ if [ -z "$COOKIE" ]; then
     die "Please set node.cookie in $EMQX_ETC_DIR/emqx.conf or override from environment variable EMQX_NODE__COOKIE"
 fi
 
-## check if OTP version has mnesia_hook patch; if not, fallback to
+## check if OTP version has mnesia_hook feature; if not, fallback to
 ## using Mnesia DB backend.
-if [[ "${EMQX_DB__BACKEND:-}" != "mnesia"
-      || "${EMQX_DB__ROLE:-}" != "core" ]]; then
-  if [[ "$IS_BOOT_COMMAND" == 'yes'
-        && "$(get_config_value 'db.backend')" == "rlog" ]]; then
-    if ! is_otp_compatible; then
-      echoerr "DB Backend is RLOG, but an incompatible OTP version has been detected.  Falling back to using Mnesia DB backend."
+if [[ "$IS_BOOT_COMMAND" == 'yes' && "$(get_boot_config 'db.backend')" == "rlog" ]]; then
+    if ! (echo -e "$COMPATIBILITY_INFO" | grep -q 'MNESIA_OK'); then
+      echoerr "DB Backend is RLOG, but an incompatible OTP version has been detected. Falling back to using Mnesia DB backend."
       export EMQX_DB__BACKEND=mnesia
       export EMQX_DB__ROLE=core
     fi
-  fi
 fi
 
 cd "$RUNNER_ROOT_DIR"
@@ -843,12 +896,13 @@ case "${COMMAND}" in
 
         # Setup beam-required vars
         EMU="beam"
-        PROGNAME="${0#*/}"
+        PROGNAME="${0}"
 
         export EMU
         export PROGNAME
 
         # Store passed arguments since they will be erased by `set`
+        # add emqx_data_dir to boot command so it is visible from 'ps -ef'
         ARGS="$*"
 
         # shellcheck disable=SC2086
@@ -879,10 +933,10 @@ case "${COMMAND}" in
         fi
 
         # Log the startup
-        logger -t "${REL_NAME}[$$]" "EXEC: $* -- ${1+$ARGS}"
+        logger -t "${REL_NAME}[$$]" "EXEC: $* -- ${1+$ARGS} -emqx_data_dir ${DATA_DIR}"
 
         # Start the VM
-        exec "$@" -- ${1+$ARGS}
+        exec "$@" -- ${1+$ARGS} -emqx_data_dir "${DATA_DIR}"
         ;;
 
     ctl)
@@ -905,12 +959,6 @@ case "${COMMAND}" in
         shift
 
         relx_nodetool rpcterms "$@"
-        ;;
-    root_dir)
-        assert_node_alive
-
-        shift
-        relx_nodetool "eval" 'code:root_dir()'
         ;;
     eval)
         assert_node_alive
