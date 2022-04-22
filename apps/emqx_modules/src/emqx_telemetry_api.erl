@@ -18,6 +18,7 @@
 
 -behaviour(minirest_api).
 
+-include_lib("hocon/include/hoconsc.hrl").
 -include_lib("typerefl/include/types.hrl").
 
 -import(hoconsc, [mk/2, ref/1, ref/2, array/1]).
@@ -50,18 +51,17 @@ schema("/telemetry/status") ->
         'operationId' => status,
         get =>
             #{
-                description => <<"Get telemetry status">>,
+                description => ?DESC(get_telemetry_status_api),
                 responses =>
-                    #{200 => status_schema(<<"Get telemetry status">>)}
+                    #{200 => status_schema(?DESC(get_telemetry_status_api))}
             },
         put =>
             #{
-                description => <<"Enable or disable telemetry">>,
-                'requestBody' => status_schema(<<"Enable or disable telemetry">>),
+                description => ?DESC(update_telemetry_status_api),
+                'requestBody' => status_schema(?DESC(update_telemetry_status_api)),
                 responses =>
                     #{
-                        200 => status_schema(<<"Enable or disable telemetry successfully">>),
-                        400 => emqx_dashboard_swagger:error_codes([?BAD_REQUEST], <<"Bad Request">>)
+                        200 => status_schema(?DESC(update_telemetry_status_api))
                     }
             }
     };
@@ -70,9 +70,9 @@ schema("/telemetry/data") ->
         'operationId' => data,
         get =>
             #{
-                description => <<"Get telemetry data">>,
+                description => ?DESC(get_telemetry_data_api),
                 responses =>
-                    #{200 => mk(ref(?MODULE, telemetry), #{desc => <<"Get telemetry data">>})}
+                    #{200 => mk(ref(?MODULE, telemetry), #{desc => ?DESC(get_telemetry_data_api)})}
             }
     }.
 
@@ -85,7 +85,7 @@ fields(status) ->
             mk(
                 boolean(),
                 #{
-                    desc => <<"Telemetry status">>,
+                    desc => ?DESC(enable),
                     default => true,
                     example => false
                 }
@@ -97,7 +97,7 @@ fields(telemetry) ->
             mk(
                 string(),
                 #{
-                    desc => <<"EMQX Version">>,
+                    desc => ?DESC(emqx_version),
                     example => <<"5.0.0-beta.3-32d1547c">>
                 }
             )},
@@ -105,7 +105,7 @@ fields(telemetry) ->
             mk(
                 map(),
                 #{
-                    desc => <<"EMQX License">>,
+                    desc => ?DESC(license),
                     example => #{edition => <<"community">>}
                 }
             )},
@@ -113,7 +113,7 @@ fields(telemetry) ->
             mk(
                 string(),
                 #{
-                    desc => <<"OS Name">>,
+                    desc => ?DESC(os_name),
                     example => <<"Linux">>
                 }
             )},
@@ -121,7 +121,7 @@ fields(telemetry) ->
             mk(
                 string(),
                 #{
-                    desc => <<"OS Version">>,
+                    desc => ?DESC(os_version),
                     example => <<"20.04">>
                 }
             )},
@@ -129,7 +129,7 @@ fields(telemetry) ->
             mk(
                 string(),
                 #{
-                    desc => <<"Erlang/OTP Version">>,
+                    desc => ?DESC(otp_version),
                     example => <<"24">>
                 }
             )},
@@ -137,7 +137,7 @@ fields(telemetry) ->
             mk(
                 integer(),
                 #{
-                    desc => <<"EMQX Runtime">>,
+                    desc => ?DESC(up_time),
                     example => 20220113
                 }
             )},
@@ -145,7 +145,7 @@ fields(telemetry) ->
             mk(
                 string(),
                 #{
-                    desc => <<"EMQX UUID">>,
+                    desc => ?DESC(uuid),
                     example => <<"AAAAAAAA-BBBB-CCCC-2022-DDDDEEEEFFF">>
                 }
             )},
@@ -153,7 +153,7 @@ fields(telemetry) ->
             mk(
                 array(binary()),
                 #{
-                    desc => <<"EMQX Cluster Nodes UUID">>,
+                    desc => ?DESC(nodes_uuid),
                     example => [
                         <<"AAAAAAAA-BBBB-CCCC-2022-DDDDEEEEFFF">>,
                         <<"ZZZZZZZZ-CCCC-BBBB-2022-DDDDEEEEFFF">>
@@ -164,7 +164,7 @@ fields(telemetry) ->
             mk(
                 array(binary()),
                 #{
-                    desc => <<"EMQX Active Plugins">>,
+                    desc => ?DESC(active_plugins),
                     example => [<<"Plugin A">>, <<"Plugin B">>]
                 }
             )},
@@ -172,7 +172,7 @@ fields(telemetry) ->
             mk(
                 array(binary()),
                 #{
-                    desc => <<"EMQX Active Modules">>,
+                    desc => ?DESC(active_modules),
                     example => [<<"Module A">>, <<"Module B">>]
                 }
             )},
@@ -180,7 +180,7 @@ fields(telemetry) ->
             mk(
                 integer(),
                 #{
-                    desc => <<"EMQX Current Connections">>,
+                    desc => ?DESC(num_clients),
                     example => 20220113
                 }
             )},
@@ -188,7 +188,7 @@ fields(telemetry) ->
             mk(
                 integer(),
                 #{
-                    desc => <<"EMQX Current Received Message">>,
+                    desc => ?DESC(messages_received),
                     example => 2022
                 }
             )},
@@ -196,7 +196,7 @@ fields(telemetry) ->
             mk(
                 integer(),
                 #{
-                    desc => <<"EMQX Current Sent Message">>,
+                    desc => ?DESC(messages_sent),
                     example => 2022
                 }
             )}
