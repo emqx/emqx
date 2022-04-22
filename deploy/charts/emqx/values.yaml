@@ -195,6 +195,7 @@ ingress:
       # kubernetes.io/ingress.class: nginx
       # kubernetes.io/tls-acme: "true"
     path: /
+    pathType: ImplementationSpecific
     hosts:
     - dashboard.emqx.local
     tls: []
@@ -206,6 +207,7 @@ ingress:
       # kubernetes.io/ingress.class: nginx
       # kubernetes.io/tls-acme: "true"
     path: /
+    pathType: ImplementationSpecific
     hosts:
     - api.emqx.local
     tls: []
@@ -228,6 +230,7 @@ ingress:
       # nginx.ingress.kubernetes.io/use-proxy-protocol: "false"
       # nginx.ingress.kubernetes.io/proxy-protocol-header-timeout: "5s"
     path: /mqtt
+    pathType: ImplementationSpecific
     # path: /wss(\/.*)?
     hosts:
     - wss.emqx.local
