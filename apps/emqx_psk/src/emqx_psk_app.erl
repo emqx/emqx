@@ -18,9 +18,10 @@
 
 -behaviour(application).
 
--export([ start/2
-        , stop/1
-        ]).
+-export([
+    start/2,
+    stop/1
+]).
 
 start(_Type, _Args) ->
     {ok, Sup} = emqx_psk_sup:start_link(),

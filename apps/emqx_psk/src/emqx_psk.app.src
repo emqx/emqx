@@ -1,15 +1,17 @@
 %% -*- mode: erlang -*-
-{application, emqx_psk,
- [{description, "EMQX PSK"},
-  {vsn, "5.0.0"}, % strict semver, bump manually!
-  {modules, []},
-  {registered, [emqx_psk_sup]},
-  {applications, [kernel,stdlib]},
-  {mod, {emqx_psk_app,[]}},
-  {env, []},
-  {licenses, ["Apache-2.0"]},
-  {maintainers, ["EMQX Team <contact@emqx.io>"]},
-  {links, [{"Homepage", "https://emqx.io/"},
-           {"Github", "https://github.com/emqx/emqx"}
-          ]}
- ]}.
+{application, emqx_psk, [
+    {description, "EMQX PSK"},
+    % strict semver, bump manually!
+    {vsn, "5.0.0"},
+    {modules, []},
+    {registered, [emqx_psk_sup]},
+    {applications, [kernel, stdlib]},
+    {mod, {emqx_psk_app, []}},
+    {env, []},
+    {licenses, ["Apache-2.0"]},
+    {maintainers, ["EMQX Team <contact@emqx.io>"]},
+    {links, [
+        {"Homepage", "https://emqx.io/"},
+        {"Github", "https://github.com/emqx/emqx"}
+    ]}
+]}.

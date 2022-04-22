@@ -14,6 +14,7 @@ APPS+=( 'lib-ee/emqx_enterprise_conf' 'lib-ee/emqx_license' )
 APPS+=( 'apps/emqx_exhook')
 APPS+=( 'apps/emqx_retainer' 'apps/emqx_slow_subs')
 APPS+=( 'apps/emqx_management')
+APPS+=( 'apps/emqx_psk')
 
 for app in "${APPS[@]}"; do
     echo "$app ..."
