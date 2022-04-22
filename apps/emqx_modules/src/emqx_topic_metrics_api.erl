@@ -572,16 +572,8 @@ reason2httpresp(quota_exceeded) ->
     ),
     {409, #{code => ?EXCEED_LIMIT, message => Msg}};
 reason2httpresp(bad_topic) ->
-    Msg = <<"Bad Topic, topic cannot have wildcard">>,
+    Msg = <<"Wildcard topic is not supported">>,
     {400, #{code => ?BAD_TOPIC, message => Msg}};
-reason2httpresp({quota_exceeded, bad_topic}) ->
-    Msg = list_to_binary(
-        io_lib:format(
-            "Max topic metrics count is ~p, and topic cannot have wildcard",
-            [emqx_topic_metrics:max_limit()]
-        )
-    ),
-    {400, #{code => ?BAD_REQUEST, message => Msg}};
 reason2httpresp(already_existed) ->
     Msg = <<"Topic already registered">>,
     {400, #{code => ?BAD_TOPIC, message => Msg}};
