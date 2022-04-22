@@ -314,7 +314,7 @@ fields("authorization") ->
         {"cache",
             sc(
                 ref(?MODULE, "cache"),
-                #{}
+                #{desc => "authorization.cache"}
             )}
     ];
 fields("cache") ->
@@ -1095,7 +1095,7 @@ fields("listener_wss_opts") ->
         },
         true
     );
-fields(ssl_client_opts) ->
+fields("ssl_client_opts") ->
     client_ssl_opts_schema(#{});
 fields("deflate_opts") ->
     [
@@ -1738,7 +1738,7 @@ desc("listener_ssl_opts") ->
     "Socket options for SSL connections.";
 desc("listener_wss_opts") ->
     "Socket options for WebSocket/SSL connections.";
-desc(ssl_client_opts) ->
+desc("ssl_client_opts") ->
     "Socket options for SSL clients.";
 desc("deflate_opts") ->
     "Compression options.";
@@ -1914,7 +1914,7 @@ common_ssl_opts_schema(Defaults) ->
                 }
             )},
         {"ciphers", ciphers_schema(D("ciphers"))},
-        {user_lookup_fun,
+        {"user_lookup_fun",
             sc(
                 typerefl:alias("string", any()),
                 #{

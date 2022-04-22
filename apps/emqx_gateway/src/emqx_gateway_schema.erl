@@ -400,7 +400,7 @@ fields(exproto_grpc_handler) ->
         {address, sc(binary(), #{required => true, desc => "gRPC server address."})},
         {ssl,
             sc(
-                ref(emqx_schema, ssl_client_opts),
+                ref(emqx_schema, "ssl_client_opts"),
                 #{
                     required => {false, recursively},
                     desc => "SSL configuration for the gRPC client."
