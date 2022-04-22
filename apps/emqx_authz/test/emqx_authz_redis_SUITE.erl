@@ -240,8 +240,8 @@ setup_config(SpecialParams) ->
 raw_redis_authz_config() ->
     #{
         <<"enable">> => <<"true">>,
-
         <<"type">> => <<"redis">>,
+        <<"redis_type">> => <<"single">>,
         <<"cmd">> => <<"HGETALL mqtt_user:${username}">>,
         <<"database">> => <<"1">>,
         <<"password">> => <<"public">>,

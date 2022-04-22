@@ -49,7 +49,7 @@ fields("connector") ->
             })}
     , {server,
         sc(emqx_schema:ip_port(),
-           #{ default => "127.0.0.1:1883"
+           #{ required => true
             , desc => ?DESC("server")
             })}
     , {reconnect_interval, mk_duration(
@@ -117,7 +117,20 @@ fields("ingress") ->
         sc(binary(),
            #{ desc => ?DESC("ingress_hookpoint")
             })}
-    ] ++ common_inout_confs();
+
+    , {retain,
+       sc(hoconsc:union([boolean(), binary()]),
+          #{ default => <<"${retain}">>
+           , desc => ?DESC("retain")
+           })}
+
+    , {payload,
+       sc(binary(),
+          #{ default => <<"${payload}">>
+           , desc => ?DESC("payload")
+           })}
+    ];
+
 
 fields("egress") ->
     %% the message maybe sent from rules, in this case 'local_topic' is not necessary
@@ -128,16 +141,28 @@ fields("egress") ->
             })}
     , {remote_topic,
         sc(binary(),
-           #{ default => <<"${topic}">>
+           #{ required => true
             , validator => fun ?MODULE:non_empty_string/1
             , desc => ?DESC("egress_remote_topic")
             })}
     , {remote_qos,
         sc(qos(),
-           #{ default => <<"${qos}">>
+           #{ required => true
             , desc => ?DESC("egress_remote_qos")
             })}
-    ] ++ common_inout_confs();
+
+    , {retain,
+        sc(hoconsc:union([boolean(), binary()]),
+           #{ required => true
+            , desc => ?DESC("retain")
+            })}
+
+    , {payload,
+        sc(binary(),
+           #{ required => true
+            , desc => ?DESC("payload")
+            })}
+    ];
 
 fields("replayq") ->
     [ {dir,
@@ -157,13 +182,13 @@ fields("replayq") ->
     ].
 
 desc("connector") ->
-    "Generic configuration for the connector.";
+    ?DESC("desc_connector");
 desc("ingress") ->
     ingress_desc();
 desc("egress") ->
     egress_desc();
 desc("replayq") ->
-    "Queue messages in disk files.";
+    ?DESC("desc_replayq");
 desc(_) ->
     undefined.
 
@@ -196,19 +221,6 @@ NOTE: if this bridge is used as the output of a rule (emqx rule engine), and als
 is configured, then both the data got from the rule and the MQTT messages that matches
 local_topic will be forwarded.
 ".
-
-common_inout_confs() ->
-    [ {retain,
-        sc(hoconsc:union([boolean(), binary()]),
-           #{ default => <<"${retain}">>
-            , desc => ?DESC("retain")
-            })}
-    , {payload,
-        sc(binary(),
-           #{ default => <<"${payload}">>
-            , desc => ?DESC("payload")
-            })}
-    ].
 
 qos() ->
     hoconsc:union([emqx_schema:qos(), binary()]).

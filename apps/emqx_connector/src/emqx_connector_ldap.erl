@@ -144,6 +144,7 @@ ldap_fields() ->
 servers(type) -> list();
 servers(validator) -> [?NOT_EMPTY("the value of the field 'servers' cannot be empty")];
 servers(converter) -> fun to_servers_raw/1;
+servers(required) -> true;
 servers(_) -> undefined.
 
 bind_dn(type) -> binary();

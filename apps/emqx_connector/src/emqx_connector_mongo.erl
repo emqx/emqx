@@ -94,13 +94,13 @@ fields(topology) ->
     ].
 
 desc(single) ->
-    "Settings for a single MongoDB instance.";
+    ?DESC("desc_single");
 desc(rs) ->
-    "Settings for replica set.";
+    ?DESC("desc_rs");
 desc(sharded) ->
-    "Settings for sharded cluster.";
+    ?DESC("desc_sharded");
 desc(topology) ->
-    "Topology of MongoDB.";
+    ?DESC("desc_topology");
 desc(_) ->
     undefined.
 

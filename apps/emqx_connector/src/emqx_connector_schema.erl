@@ -64,10 +64,7 @@ fields("connectors") ->
     ].
 
 desc(Record) when Record =:= connectors;
-                  Record =:= "connectors" ->
-    "Configuration for EMQX connectors.<br/>"
-    "A connector maintains the data related to the external resources,\n"
-    "such as MySQL database.";
+                  Record =:= "connectors" -> ?DESC("desc_connector");
 desc(_) ->
     undefined.
 

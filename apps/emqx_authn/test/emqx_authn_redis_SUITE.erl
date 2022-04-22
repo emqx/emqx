@@ -263,6 +263,7 @@ raw_redis_auth_config() ->
         cmd => <<"HMGET mqtt_user:${username} password_hash salt is_superuser">>,
         database => <<"1">>,
         password => <<"public">>,
+        redis_type => <<"single">>,
         server => redis_server()
     }.
 

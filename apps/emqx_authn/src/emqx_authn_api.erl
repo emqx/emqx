@@ -1406,6 +1406,7 @@ authenticator_examples() ->
                 mechanism => <<"password_based">>,
                 backend => <<"redis">>,
                 server => <<"127.0.0.1:6379">>,
+                redis_type => <<"single">>,
                 database => 0,
                 cmd => <<"HMGET ${username} password_hash salt">>,
                 password_hash_algorithm => #{
