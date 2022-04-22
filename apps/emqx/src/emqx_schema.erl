@@ -123,12 +123,12 @@ roots(high) ->
         {"zones",
             sc(
                 map("name", ref("zone")),
-                #{}
+                #{desc => ?DESC(zones)}
             )},
         {"mqtt",
             sc(
                 ref("mqtt"),
-                #{ desc => ?DESC(mqtt)}
+                #{desc => ?DESC(mqtt)}
             )},
         {?EMQX_AUTHENTICATION_CONFIG_ROOT_NAME,
             authentication(
@@ -1242,7 +1242,7 @@ fields("sys_topics") ->
         {"sys_event_messages",
             sc(
                 ref("event_names"),
-                #{ desc => ?DESC(sys_event_messages) }
+                #{desc => ?DESC(sys_event_messages)}
             )}
     ];
 fields("event_names") ->
@@ -1708,7 +1708,7 @@ desc("conn_congestion") ->
     "get \"congested\", because there are too many packets to be sent.\n"
     "The socket tries to buffer the packets until the buffer is\n"
     "full. If more packets arrive after that, the packets will be\n"
-    "\"pending\" in the queue and we consider the connection\n"
+    "\"pending\" in the queue, and we consider the connection\n"
     "congested.\n\n"
     "Note: `sndbuf` can be set to larger value if the\n"
     "alarm is triggered too often.\n"
