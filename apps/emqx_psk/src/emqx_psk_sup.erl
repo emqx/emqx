@@ -26,10 +26,14 @@ start_link() ->
     supervisor:start_link({local, ?MODULE}, ?MODULE, []).
 
 init([]) ->
-    {ok, {{one_for_one, 10, 3600},
-          [#{id       => emqx_psk,
-             start    => {emqx_psk, start_link, []},
-             restart  => permanent,
-             shutdown => 5000,
-             type     => worker,
-             modules  => [emqx_psk]}]}}.
+    {ok,
+        {{one_for_one, 10, 3600}, [
+            #{
+                id => emqx_psk,
+                start => {emqx_psk, start_link, []},
+                restart => permanent,
+                shutdown => 5000,
+                type => worker,
+                modules => [emqx_psk]
+            }
+        ]}}.

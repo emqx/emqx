@@ -29,16 +29,22 @@ all() ->
 
 init_per_suite(Config) ->
     meck:new(emqx_config, [non_strict, passthrough, no_history, no_link]),
-    meck:expect(emqx_config, get, fun([psk_authentication, enable]) -> true;
-                                     ([psk_authentication, chunk_size]) -> 50;
-                                     (KeyPath) -> meck:passthrough([KeyPath])
-                                  end),
-    meck:expect(emqx_config, get, fun([psk_authentication, init_file], _) ->
-                                         filename:join([code:lib_dir(emqx_psk, test),
-                                                        "data/init.psk"]);
-                                     ([psk_authentication, separator], _) -> <<":">>;
-                                     (KeyPath, Default) -> meck:passthrough([KeyPath, Default])
-                                  end),
+    meck:expect(emqx_config, get, fun
+        ([psk_authentication, enable]) -> true;
+        ([psk_authentication, chunk_size]) -> 50;
+        (KeyPath) -> meck:passthrough([KeyPath])
+    end),
+    meck:expect(emqx_config, get, fun
+        ([psk_authentication, init_file], _) ->
+            filename:join([
+                code:lib_dir(emqx_psk, test),
+                "data/init.psk"
+            ]);
+        ([psk_authentication, separator], _) ->
+            <<":">>;
+        (KeyPath, Default) ->
+            meck:passthrough([KeyPath, Default])
+    end),
     emqx_common_test_helpers:start_apps([emqx_psk]),
     Config.
 
@@ -48,7 +54,6 @@ end_per_suite(_) ->
     ok.
 
 t_psk_lookup(_) ->
-
     PSKIdentity1 = <<"myclient1">>,
     SharedSecret1 = <<"8c701116e9127c57a99d5563709af3deaca75563e2c4dd0865701ae839fb6d79">>,
     ?assertEqual({stop, {ok, SharedSecret1}}, emqx_psk:on_psk_lookup(PSKIdentity1, any)),
@@ -59,24 +64,27 @@ t_psk_lookup(_) ->
 
     ?assertEqual(ignore, emqx_psk:on_psk_lookup(<<"myclient3">>, any)),
 
-    ClientLookup = fun(psk, undefined, _) -> {ok, SharedSecret1};
-                      (psk, _, _) -> error
-                   end,
+    ClientLookup = fun
+        (psk, undefined, _) -> {ok, SharedSecret1};
+        (psk, _, _) -> error
+    end,
 
-    ClientTLSOpts = #{ versions => ['tlsv1.2']
-                     , ciphers => ["PSK-AES256-CBC-SHA"]
-                     , psk_identity => "myclient1"
-                     , verify => verify_none
-                     , user_lookup_fun => {ClientLookup, undefined}
-                     },
+    ClientTLSOpts = #{
+        versions => ['tlsv1.2'],
+        ciphers => ["PSK-AES256-CBC-SHA"],
+        psk_identity => "myclient1",
+        verify => verify_none,
+        user_lookup_fun => {ClientLookup, undefined}
+    },
 
-    ServerTLSOpts = #{ versions => ['tlsv1.2']
-                     , ciphers => ["PSK-AES256-CBC-SHA"]
-                     , verify => verify_none
-                     , reuseaddr => true
-                     , user_lookup_fun => {fun emqx_tls_psk:lookup/3, undefined}
-                     },
-    emqx_config:put([listeners, ssl ,default, ssl], ServerTLSOpts),
+    ServerTLSOpts = #{
+        versions => ['tlsv1.2'],
+        ciphers => ["PSK-AES256-CBC-SHA"],
+        verify => verify_none,
+        reuseaddr => true,
+        user_lookup_fun => {fun emqx_tls_psk:lookup/3, undefined}
+    },
+    emqx_config:put([listeners, ssl, default, ssl], ServerTLSOpts),
     emqx_listeners:restart_listener('ssl:default'),
 
     {ok, Socket} = ssl:connect("127.0.0.1", 8883, maps:to_list(ClientTLSOpts)),
