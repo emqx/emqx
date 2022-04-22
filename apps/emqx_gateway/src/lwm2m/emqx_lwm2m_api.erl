@@ -17,11 +17,13 @@
 -module(emqx_lwm2m_api).
 
 -behaviour(minirest_api).
+
+-include_lib("hocon/include/hoconsc.hrl").
 -include_lib("typerefl/include/types.hrl").
 
 -export([api_spec/0, paths/0, schema/1, fields/1, namespace/0]).
 
--export([lookup_cmd/2, observe/2, read/2, write/2]).
+-export([lookup/2, observe/2, read/2, write/2]).
 
 -define(PATH(Suffix), "/gateway/lwm2m/clients/:clientid" Suffix).
 -define(DATA_TYPE, ['Integer', 'Float', 'Time', 'String', 'Boolean', 'Opaque', 'Objlnk']).
@@ -35,14 +37,14 @@ api_spec() ->
     emqx_dashboard_swagger:spec(?MODULE).
 
 paths() ->
-    [?PATH("/lookup_cmd"), ?PATH("/observe"), ?PATH("/read"), ?PATH("/write")].
+    [?PATH("/lookup"), ?PATH("/observe"), ?PATH("/read"), ?PATH("/write")].
 
-schema(?PATH("/lookup_cmd")) ->
+schema(?PATH("/lookup")) ->
     #{
-        'operationId' => lookup_cmd,
+        'operationId' => lookup,
         get => #{
             tags => [<<"lwm2m">>],
-            desc => <<"Look up resource">>,
+            desc => ?DESC(lookup_resource),
             parameters => [
                 {clientid, mk(binary(), #{in => path, example => "urn:oma:lwm2m:oma:2"})},
                 {path, mk(binary(), #{in => query, required => true, example => "/3/0/7"})},
@@ -66,7 +68,7 @@ schema(?PATH("/observe")) ->
         'operationId' => observe,
         post => #{
             tags => [<<"lwm2m">>],
-            desc => <<"(cancel) observe resource">>,
+            desc => ?DESC(observe_resource),
             parameters => [
                 {clientid, mk(binary(), #{in => path, example => "urn:oma:lwm2m:oma:2"})},
                 {path, mk(binary(), #{in => query, required => true, example => "/3/0/7"})},
@@ -84,7 +86,7 @@ schema(?PATH("/read")) ->
         'operationId' => read,
         post => #{
             tags => [<<"lwm2m">>],
-            desc => <<"Send a read command to resource">>,
+            desc => ?DESC(read_resource),
             parameters => [
                 {clientid, mk(binary(), #{in => path, example => "urn:oma:lwm2m:oma:2"})},
                 {path, mk(binary(), #{in => query, required => true, example => "/3/0/7"})}
@@ -99,7 +101,7 @@ schema(?PATH("/write")) ->
     #{
         'operationId' => write,
         post => #{
-            desc => <<"Send a write command to resource">>,
+            desc => ?DESC(write_resource),
             tags => [<<"lwm2m">>],
             parameters => [
                 {clientid, mk(binary(), #{in => path, example => "urn:oma:lwm2m:oma:2"})},
@@ -120,17 +122,17 @@ schema(?PATH("/write")) ->
 
 fields(resource) ->
     [
-        {operations, mk(binary(), #{desc => <<"Resource Operations">>, example => "E"})},
+        {operations, mk(binary(), #{desc => ?DESC(operations), example => "E"})},
         {'dataType',
             mk(hoconsc:enum(?DATA_TYPE), #{
-                desc => <<"Data Type">>,
+                desc => ?DESC(dataType),
                 example => 'Integer'
             })},
-        {path, mk(binary(), #{desc => <<"Resource Path">>, example => "urn:oma:lwm2m:oma:2"})},
-        {name, mk(binary(), #{desc => <<"Resource Name">>, example => "lwm2m-test"})}
+        {path, mk(binary(), #{desc => ?DESC(path), example => "urn:oma:lwm2m:oma:2"})},
+        {name, mk(binary(), #{desc => ?DESC(name), example => "lwm2m-test"})}
     ].
 
-lookup_cmd(get, #{bindings := Bindings, query_string := QS}) ->
+lookup(get, #{bindings := Bindings, query_string := QS}) ->
     ClientId = maps:get(clientid, Bindings),
     case emqx_gateway_cm_registry:lookup_channels(lwm2m, ClientId) of
         [Channel | _] ->
@@ -139,12 +141,12 @@ lookup_cmd(get, #{bindings := Bindings, query_string := QS}) ->
                 <<"action">> := Action
             } = QS,
             {ok, Result} = emqx_lwm2m_channel:lookup_cmd(Channel, Path, Action),
-            lookup_cmd_return(Result, ClientId, Action, Path);
+            lookup_return(Result, ClientId, Action, Path);
         _ ->
             {404, #{code => 'CLIENT_NOT_FOUND'}}
     end.
 
-lookup_cmd_return(undefined, ClientId, Action, Path) ->
+lookup_return(undefined, ClientId, Action, Path) ->
     {200, #{
         clientid => ClientId,
         action => Action,
@@ -152,7 +154,7 @@ lookup_cmd_return(undefined, ClientId, Action, Path) ->
         codeMsg => <<"reply_not_received">>,
         path => Path
     }};
-lookup_cmd_return({Code, CodeMsg, Content}, ClientId, Action, Path) ->
+lookup_return({Code, CodeMsg, Content}, ClientId, Action, Path) ->
     {200,
         format_cmd_content(
             Content,

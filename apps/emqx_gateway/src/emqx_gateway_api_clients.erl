@@ -468,7 +468,7 @@ schema("/gateway/:name/clients") ->
         'operationId' => clients,
         get =>
             #{
-                desc => <<"Get the gateway client list">>,
+                desc => ?DESC(list_clients),
                 parameters => params_client_query(),
                 responses =>
                     ?STANDARD_RESP(#{200 => schema_client_list()})
@@ -479,14 +479,14 @@ schema("/gateway/:name/clients/:clientid") ->
         'operationId' => clients_insta,
         get =>
             #{
-                desc => <<"Get the gateway client information">>,
+                desc => ?DESC(get_client),
                 parameters => params_client_insta(),
                 responses =>
                     ?STANDARD_RESP(#{200 => schema_client()})
             },
         delete =>
             #{
-                desc => <<"Kick out the gateway client">>,
+                desc => ?DESC(kick_client),
                 parameters => params_client_insta(),
                 responses =>
                     ?STANDARD_RESP(#{204 => <<"Kicked">>})
@@ -497,7 +497,7 @@ schema("/gateway/:name/clients/:clientid/subscriptions") ->
         'operationId' => subscriptions,
         get =>
             #{
-                desc => <<"Get the gateway client subscriptions">>,
+                desc => ?DESC(list_subscriptions),
                 parameters => params_client_insta(),
                 responses =>
                     ?STANDARD_RESP(
@@ -511,7 +511,7 @@ schema("/gateway/:name/clients/:clientid/subscriptions") ->
             },
         post =>
             #{
-                desc => <<"Create a subscription membership">>,
+                desc => ?DESC(add_subscription),
                 parameters => params_client_insta(),
                 'requestBody' => emqx_dashboard_swagger:schema_with_examples(
                     ref(subscription),
@@ -533,7 +533,7 @@ schema("/gateway/:name/clients/:clientid/subscriptions/:topic") ->
         'operationId' => subscriptions,
         delete =>
             #{
-                desc => <<"Delete a subscriptions membership">>,
+                desc => ?DESC(delete_subscription),
                 parameters => params_topic_name_in_path() ++ params_client_insta(),
                 responses =>
                     ?STANDARD_RESP(#{204 => <<"Unsubscribed">>})
@@ -555,143 +555,105 @@ params_client_searching_in_qs() ->
         {node,
             mk(
                 binary(),
-                M#{desc => <<"Match the client's node name">>}
+                M#{desc => ?DESC(param_node)}
             )},
         {clientid,
             mk(
                 binary(),
-                M#{desc => <<"Match the client's ID">>}
+                M#{desc => ?DESC(param_clientid)}
             )},
         {username,
             mk(
                 binary(),
-                M#{desc => <<"Match the client's Username">>}
+                M#{desc => ?DESC(param_username)}
             )},
         {ip_address,
             mk(
                 binary(),
-                M#{desc => <<"Match the client's ip address">>}
+                M#{desc => ?DESC(param_ip_address)}
             )},
         {conn_state,
             mk(
                 binary(),
-                M#{desc => <<"Match the client's connection state">>}
+                M#{desc => ?DESC(param_conn_state)}
             )},
         {proto_ver,
             mk(
                 binary(),
-                M#{desc => <<"Match the client's protocol version">>}
+                M#{desc => ?DESC(param_proto_ver)}
             )},
         {clean_start,
             mk(
                 boolean(),
-                M#{desc => <<"Match the client's clean start flag">>}
+                M#{desc => ?DESC(param_clean_start)}
             )},
         {like_clientid,
             mk(
                 binary(),
-                M#{desc => <<"Use sub-string to match client's ID">>}
+                M#{desc => ?DESC(param_like_clientid)}
             )},
         {like_username,
             mk(
                 binary(),
-                M#{desc => <<"Use sub-string to match client's username">>}
+                M#{desc => ?DESC(param_like_username)}
             )},
         {gte_created_at,
             mk(
                 emqx_datetime:epoch_millisecond(),
                 M#{
-                    desc => <<
-                        "Match the session created datetime greater than "
-                        "a certain value"
-                    >>
+                    desc => ?DESC(param_gte_created_at)
                 }
             )},
         {lte_created_at,
             mk(
                 emqx_datetime:epoch_millisecond(),
                 M#{
-                    desc => <<
-                        "Match the session created datetime less than "
-                        "a certain value"
-                    >>
+                    desc => ?DESC(param_lte_created_at)
                 }
             )},
         {gte_connected_at,
             mk(
                 emqx_datetime:epoch_millisecond(),
                 M#{
-                    desc => <<
-                        "Match the client socket connected datetime greater "
-                        "than a certain value"
-                    >>
+                    desc => ?DESC(param_gte_connected_at)
                 }
             )},
         {lte_connected_at,
             mk(
                 emqx_datetime:epoch_millisecond(),
                 M#{
-                    desc => <<
-                        "Match the client socket connected datatime less than "
-                        "a certain value"
-                    >>
+                    desc => ?DESC(param_lte_connected_at)
                 }
             )},
         {endpoint_name,
             mk(
                 binary(),
-                M#{desc => <<"Match the lwm2m client's endpoint name">>}
+                M#{desc => ?DESC(param_endpoint_name)}
             )},
         {like_endpoint_name,
             mk(
                 binary(),
-                M#{desc => <<"Use sub-string to match lwm2m client's endpoint name">>}
+                M#{desc => ?DESC(param_like_endpoint_name)}
             )},
         {gte_lifetime,
             mk(
                 binary(),
                 M#{
-                    desc => <<
-                        "Match the lwm2m client registered lifetime greater "
-                        "than a certain value"
-                    >>
+                    desc => ?DESC(param_gte_lifetime)
                 }
             )},
         {lte_lifetime,
             mk(
                 binary(),
                 M#{
-                    desc => <<
-                        "Match the lwm2m client registered lifetime less than "
-                        "a certain value"
-                    >>
+                    desc => ?DESC(param_lte_lifetime)
                 }
             )}
     ].
 
 params_paging() ->
-    [
-        {page,
-            mk(
-                pos_integer(),
-                #{
-                    in => query,
-                    required => false,
-                    desc => <<"Page Index">>,
-                    example => 1
-                }
-            )},
-        {limit,
-            mk(
-                pos_integer(),
-                #{
-                    in => query,
-                    desc => <<"Page Limit">>,
-                    required => false,
-                    example => 100
-                }
-            )}
-    ].
+    emqx_dashboard_swagger:fields(page) ++
+        emqx_dashboard_swagger:fields(limit).
 
 params_gateway_name_in_path() ->
     [
@@ -700,7 +662,7 @@ params_gateway_name_in_path() ->
                 binary(),
                 #{
                     in => path,
-                    desc => <<"Gateway Name">>
+                    desc => ?DESC(emqx_gateway_api, gateway_name)
                 }
             )}
     ].
@@ -712,7 +674,7 @@ params_clientid_in_path() ->
                 binary(),
                 #{
                     in => path,
-                    desc => <<"Client ID">>
+                    desc => ?DESC(clientid)
                 }
             )}
     ].
@@ -724,7 +686,7 @@ params_topic_name_in_path() ->
                 binary(),
                 #{
                     in => path,
-                    desc => <<"Topic Filter/Name">>
+                    desc => ?DESC(topic)
                 }
             )}
     ].
@@ -777,12 +739,12 @@ fields(lwm2m_client) ->
         {endpoint_name,
             mk(
                 binary(),
-                #{desc => <<"The LwM2M client endpoint name">>}
+                #{desc => ?DESC(endpoint_name)}
             )},
         {lifetime,
             mk(
                 integer(),
-                #{desc => <<"Life time">>}
+                #{desc => ?DESC(lifetime)}
             )}
     ] ++ common_client_props();
 fields(exproto_client) ->
@@ -792,33 +754,33 @@ fields(subscription) ->
         {topic,
             mk(
                 binary(),
-                #{desc => <<"Topic Fillter">>}
+                #{desc => ?DESC(topic)}
             )},
         {qos,
             mk(
                 integer(),
-                #{desc => <<"QoS level, enum: 0, 1, 2">>}
+                #{desc => ?DESC(qos)}
             )},
         {nl,
             %% FIXME: why not boolean?
             mk(
                 integer(),
-                #{desc => <<"No Local option, enum: 0, 1">>}
+                #{desc => ?DESC(nl)}
             )},
         {rap,
             mk(
                 integer(),
-                #{desc => <<"Retain as Published option, enum: 0, 1">>}
+                #{desc => ?DESC(rap)}
             )},
         {rh,
             mk(
                 integer(),
-                #{desc => <<"Retain Handling option, enum: 0, 1, 2">>}
+                #{desc => ?DESC(rh)}
             )},
         {sub_props,
             mk(
                 ref(extra_sub_props),
-                #{desc => <<"Subscription properties">>}
+                #{desc => ?DESC(sub_props)}
             )}
     ];
 fields(extra_sub_props) ->
@@ -827,10 +789,7 @@ fields(extra_sub_props) ->
             mk(
                 binary(),
                 #{
-                    desc => <<
-                        "Only stomp protocol, a unique identity for "
-                        "the subscription. range: 1-65535."
-                    >>
+                    desc => ?DESC(subid)
                 }
             )}
     ].
@@ -841,71 +800,62 @@ common_client_props() ->
             mk(
                 binary(),
                 #{
-                    desc => <<
-                        "Name of the node to which the client is "
-                        "connected"
-                    >>
+                    desc => ?DESC(node)
                 }
             )},
         {clientid,
             mk(
                 binary(),
-                #{desc => <<"Client identifier">>}
+                #{desc => ?DESC(clientid)}
             )},
         {username,
             mk(
                 binary(),
-                #{desc => <<"Username of client when connecting">>}
+                #{desc => ?DESC(username)}
             )},
         {proto_name,
             mk(
                 binary(),
-                #{desc => <<"Client protocol name">>}
+                #{desc => ?DESC(proto_name)}
             )},
         {proto_ver,
             mk(
                 binary(),
-                #{desc => <<"Protocol version used by the client">>}
+                #{desc => ?DESC(proto_ver)}
             )},
         {ip_address,
             mk(
                 binary(),
-                #{desc => <<"Client's IP address">>}
+                #{desc => ?DESC(ip_address)}
             )},
         {port,
             mk(
                 integer(),
-                #{desc => <<"Client's port">>}
+                #{desc => ?DESC(port)}
             )},
         {is_bridge,
             mk(
                 boolean(),
                 #{
-                    desc => <<
-                        "Indicates whether the client is connected via "
-                        "bridge"
-                    >>
+                    desc => ?DESC(is_bridge)
                 }
             )},
         {connected_at,
             mk(
                 emqx_datetime:epoch_millisecond(),
-                #{desc => <<"Client connection time">>}
+                #{desc => ?DESC(connected_at)}
             )},
         {disconnected_at,
             mk(
                 emqx_datetime:epoch_millisecond(),
                 #{
-                    desc => <<
-                        "Client offline time, This field is only valid and "
-                        "returned when connected is false"
-                    >>
+                    desc => ?DESC(disconnected_at)
                 }
             )},
         {connected,
             mk(
                 boolean(),
-                #{desc => <<"Whether the client is connected">>}
+                #{desc => ?DESC(connected)}
             )},
         %% FIXME: the will_msg attribute is not a general attribute
         %% for every protocol. But it should be returned to frontend if someone
@@ -913,157 +863,139 @@ common_client_props() ->
         %%
         %, {will_msg,
         %   mk(binary(),
-        %      #{ desc => <<"Client will message">>})}
+        %      #{ desc => ?DESC(will_msg)})}
         {keepalive,
             mk(
                 integer(),
-                #{desc => <<"keepalive time, with the unit of second">>}
+                #{desc => ?DESC(keepalive)}
             )},
         {clean_start,
             mk(
                 boolean(),
                 #{
-                    desc => <<
-                        "Indicate whether the client is using a brand "
-                        "new session"
-                    >>
+                    desc => ?DESC(clean_start)
                 }
             )},
         {expiry_interval,
             mk(
                 integer(),
                 #{
-                    desc => <<
-                        "Session expiration interval, with the unit of "
-                        "second"
-                    >>
+                    desc => ?DESC(expiry_interval)
                 }
             )},
         {created_at,
             mk(
                 emqx_datetime:epoch_millisecond(),
-                #{desc => <<"Session creation time">>}
+                #{desc => ?DESC(created_at)}
             )},
         {subscriptions_cnt,
             mk(
                 integer(),
                 #{
-                    desc => <<
-                        "Number of subscriptions established by this "
-                        "client"
-                    >>
+                    desc => ?DESC(subscriptions_cnt)
                 }
             )},
         {subscriptions_max,
             mk(
                 integer(),
                 #{
-                    desc => <<
-                        "Maximum number of subscriptions allowed by this "
-                        "client"
-                    >>
+                    desc => ?DESC(subscriptions_max)
                 }
             )},
         {inflight_cnt,
             mk(
                 integer(),
-                #{desc => <<"Current length of inflight">>}
+                #{desc => ?DESC(inflight_cnt)}
             )},
         {inflight_max,
             mk(
                 integer(),
-                #{desc => <<"Maximum length of inflight">>}
+                #{desc => ?DESC(inflight_max)}
             )},
         {mqueue_len,
             mk(
                 integer(),
-                #{desc => <<"Current length of message queue">>}
+                #{desc => ?DESC(mqueue_len)}
             )},
         {mqueue_max,
             mk(
                 integer(),
-                #{desc => <<"Maximum length of message queue">>}
+                #{desc => ?DESC(mqueue_max)}
             )},
         {mqueue_dropped,
             mk(
                 integer(),
                 #{
-                    desc => <<
-                        "Number of messages dropped by the message queue "
-                        "due to exceeding the length"
-                    >>
+                    desc => ?DESC(mqueue_dropped)
                 }
             )},
         {awaiting_rel_cnt,
             mk(
                 integer(),
                 %% FIXME: PUBREC ??
-                #{desc => <<"Number of awaiting acknowledge packet">>}
+                #{desc => ?DESC(awaiting_rel_cnt)}
             )},
         {awaiting_rel_max,
             mk(
                 integer(),
                 #{
-                    desc => <<
-                        "Maximum allowed number of awaiting PUBREC "
-                        "packet"
-                    >>
+                    desc => ?DESC(awaiting_rel_max)
                 }
             )},
         {recv_oct,
             mk(
                 integer(),
-                #{desc => <<"Number of bytes received">>}
+                #{desc => ?DESC(recv_oct)}
             )},
         {recv_cnt,
             mk(
                 integer(),
-                #{desc => <<"Number of socket packets received">>}
+                #{desc => ?DESC(recv_cnt)}
             )},
         {recv_pkt,
             mk(
                 integer(),
-                #{desc => <<"Number of protocol packets received">>}
+                #{desc => ?DESC(recv_pkt)}
             )},
         {recv_msg,
             mk(
                 integer(),
-                #{desc => <<"Number of message packets received">>}
+                #{desc => ?DESC(recv_msg)}
             )},
         {send_oct,
             mk(
                 integer(),
-                #{desc => <<"Number of bytes sent">>}
+                #{desc => ?DESC(send_oct)}
             )},
         {send_cnt,
             mk(
                 integer(),
-                #{desc => <<"Number of socket packets sent">>}
+                #{desc => ?DESC(send_cnt)}
             )},
         {send_pkt,
             mk(
                 integer(),
-                #{desc => <<"Number of protocol packets sent">>}
+                #{desc => ?DESC(send_pkt)}
             )},
         {send_msg,
             mk(
                 integer(),
-                #{desc => <<"Number of message packets sent">>}
+                #{desc => ?DESC(send_msg)}
             )},
         {mailbox_len,
             mk(
                 integer(),
-                #{desc => <<"Process mailbox size">>}
+                #{desc => ?DESC(mailbox_len)}
             )},
         {heap_size,
             mk(
                 integer(),
-                #{desc => <<"Process heap size with the unit of byte">>}
+                #{desc => ?DESC(heap_size)}
             )},
         {reductions,
             mk(
                 integer(),
-                #{desc => <<"Erlang reduction">>}
+                #{desc => ?DESC(reductions)}
             )}
     ].
 

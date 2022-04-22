@@ -18,6 +18,7 @@
 
 -behaviour(minirest_api).
 
+-include_lib("hocon/include/hoconsc.hrl").
 -include_lib("typerefl/include/types.hrl").
 -include_lib("emqx/include/logger.hrl").
 -include("src/coap/include/emqx_coap.hrl").
@@ -48,7 +49,7 @@ schema(?PREFIX ++ "/request") ->
         operationId => request,
         post => #{
             tags => [<<"gateway|coap">>],
-            desc => <<"Send a CoAP request message to the client">>,
+            desc => ?DESC(send_coap_request),
             parameters => request_parameters(),
             requestBody => request_body(),
             responses => #{
@@ -97,23 +98,23 @@ request_parameters() ->
 
 request_body() ->
     [
-        {token, mk(binary(), #{desc => "message token, can be empty"})},
-        {method, mk(enum([get, put, post, delete]), #{desc => "request method type"})},
-        {timeout, mk(emqx_schema:duration_ms(), #{desc => "timespan for response"})},
+        {token, mk(binary(), #{desc => ?DESC(token)})},
+        {method, mk(enum([get, put, post, delete]), #{desc => ?DESC(method)})},
+        {timeout, mk(emqx_schema:duration_ms(), #{desc => ?DESC(timeout)})},
         {content_type,
             mk(
                 enum(['text/plain', 'application/json', 'application/octet-stream']),
-                #{desc => "payload type"}
+                #{desc => ?DESC(content_type)}
             )},
-        {payload, mk(binary(), #{desc => "the content of the payload"})}
+        {payload, mk(binary(), #{desc => ?DESC(payload)})}
     ].
 
 coap_message() ->
     [
-        {id, mk(integer(), #{desc => "message id"})},
-        {token, mk(string(), #{desc => "message token, can be empty"})},
-        {method, mk(string(), #{desc => "response code"})},
-        {payload, mk(string(), #{desc => "payload"})}
+        {id, mk(integer(), #{desc => ?DESC(message_id)})},
+        {token, mk(string(), #{desc => ?DESC(token)})},
+        {method, mk(string(), #{desc => ?DESC(response_code)})},
+        {payload, mk(string(), #{desc => ?DESC(payload)})}
     ].
 
 format_to_response(ContentType, #coap_message{
