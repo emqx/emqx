@@ -1,5 +1,5 @@
 %%--------------------------------------------------------------------
-%% Copyright (c) 2020-2021 EMQ Technologies Co., Ltd. All Rights Reserved.
+%% Copyright (c) 2020-2022 EMQ Technologies Co., Ltd. All Rights Reserved.
 %%
 %% Licensed under the Apache License, Version 2.0 (the "License");
 %% you may not use this file except in compliance with the License.
@@ -428,6 +428,14 @@ t_crud_rule_api(_Config) ->
                                    {<<"params">>,[{<<"arg1">>,1}]}]]},
                  {<<"description">>, <<"debug rule">>}]),
     RuleID = maps:get(id, Rule),
+    {ok, #{code := 400, message := <<"Already Exists">>}} =
+        emqx_rule_engine_api:create_rule(#{},
+                [{<<"name">>, <<"debug-rule">>},
+                 {<<"id">>, RuleID},
+                 {<<"rawsql">>, <<"select * from \"t/a\"">>},
+                 {<<"actions">>, [[{<<"name">>,<<"inspect">>},
+                                   {<<"params">>,[{<<"arg1">>,1}]}]]},
+                 {<<"description">>, <<"debug rule">>}]),
     %ct:pal("RCreated : ~p", [Rule]),
 
     {ok, #{code := 0, data := Rules}} = emqx_rule_engine_api:list_rules(#{}, []),

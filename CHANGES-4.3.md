@@ -37,6 +37,7 @@ File format:
   node. It will improves the efficiency of shared messages dispatching in certain
   scenarios, especially when the emqx-bridge-mqtt plugin is configured as shared
   subscription. [#7462]
+* Add some compression functions to rule-engine: gzip, gunzip, zip, unzip, zip_compress, zip_uncompress
 
 ### Bug fixes
 
@@ -50,6 +51,7 @@ File format:
 * Silence grep/sed warnings in docker-entrypoint.sh. [#7520]
 * Generate `loaded_modules` and `loaded_plugins` files with default values when no such files exists. [#7520]
 * Fix the configuration `server_name_indication` set to disable does not take effect.
+* Fix backup files are not deleted and downloaded correctly when the API path has ISO8859-1 escape characters.
 
 ## v4.3.13
 

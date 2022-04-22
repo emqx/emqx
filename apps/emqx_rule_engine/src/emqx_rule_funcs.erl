@@ -1,5 +1,5 @@
 %%--------------------------------------------------------------------
-%% Copyright (c) 2020-2021 EMQ Technologies Co., Ltd. All Rights Reserved.
+%% Copyright (c) 2020-2022 EMQ Technologies Co., Ltd. All Rights Reserved.
 %%
 %% Licensed under the Apache License, Version 2.0 (the "License");
 %% you may not use this file except in compliance with the License.
@@ -177,6 +177,11 @@
 %% zip Funcs
 -export([ zip/1
         , unzip/1
+        ]).
+
+%% compressed Funcs
+-export([ zip_compress/1
+        , zip_uncompress/1
         ]).
 
 %% Data encode and decode
@@ -816,6 +821,16 @@ zip(S) when is_binary(S) ->
 
 unzip(S) when is_binary(S) ->
     zlib:unzip(S).
+
+%%------------------------------------------------------------------------------
+%% zip_compress Funcs
+%%------------------------------------------------------------------------------
+
+zip_compress(S) when is_binary(S) ->
+    zlib:compress(S).
+
+zip_uncompress(S) when is_binary(S) ->
+    zlib:uncompress(S).
 
 %%------------------------------------------------------------------------------
 %% Data encode and decode Funcs
