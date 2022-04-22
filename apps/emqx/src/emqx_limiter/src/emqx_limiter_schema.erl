@@ -17,6 +17,7 @@
 -module(emqx_limiter_schema).
 
 -include_lib("typerefl/include/types.hrl").
+-include_lib("hocon/include/hoconsc.hrl").
 
 -export([
     roots/0,
@@ -84,110 +85,43 @@ roots() -> [limiter].
 
 fields(limiter) ->
     [
-        {bytes_in,
-            sc(
-                ref(limiter_opts),
-                #{
-                    description =>
-                        <<
-                            "The bytes_in limiter.<br>"
-                            "It is used to limit the inbound bytes rate for this EMQX node."
-                            "If the this limiter limit is reached,"
-                            "the restricted client will be slow down even be hung for a while."
-                        >>
-                }
-            )},
-        {message_in,
-            sc(
-                ref(limiter_opts),
-                #{
-                    description =>
-                        <<
-                            "The message_in limiter.<br>"
-                            "This is used to limit the inbound message numbers for this EMQX node"
-                            "If the this limiter limit is reached,"
-                            "the restricted client will be slow down even be hung for a while."
-                        >>
-                }
-            )},
-        {connection,
-            sc(
-                ref(limiter_opts),
-                #{
-                    description =>
-                        <<
-                            "The connection limiter.<br>"
-                            "This is used to limit the connection rate for this EMQX node"
-                            "If the this limiter limit is reached,"
-                            "New connections will be refused"
-                        >>
-                }
-            )},
-        {message_routing,
-            sc(
-                ref(limiter_opts),
-                #{
-                    description =>
-                        <<
-                            "The message_routing limiter.<br>"
-                            "This is used to limite the deliver rate for this EMQX node"
-                            "If the this limiter limit is reached,"
-                            "New publish will be refused"
-                        >>
-                }
-            )},
-        {batch,
-            sc(
-                ref(limiter_opts),
-                #{
-                    description => <<
-                        "The batch limiter.<br>"
-                        "This is used for EMQX internal batch operation"
-                        "e.g. limite the retainer's deliver rate"
-                    >>
-                }
-            )}
+        {bytes_in, sc(ref(limiter_opts), #{desc => ?DESC(bytes_in)})},
+        {message_in, sc(ref(limiter_opts), #{description => ?DESC(message_in)})},
+        {connection, sc(ref(limiter_opts), #{desc => ?DESC(connection)})},
+        {message_routing, sc(ref(limiter_opts), #{desc => ?DESC(message_routing)})},
+        {batch, sc(ref(limiter_opts), #{desc => ?DESC(batch)})}
     ];
 fields(limiter_opts) ->
     [
-        {rate, sc(rate(), #{default => "infinity", desc => "The rate"})},
+        {rate, sc(rate(), #{default => "infinity", desc => ?DESC(rate)})},
         {burst,
             sc(
                 burst_rate(),
                 #{
                     default => "0/0s",
-                    desc =>
-                        "The burst, This value is based on rate.<br/>\n"
-                        " This value + rate = the maximum limit that can be achieved when limiter burst."
+                    desc => ?DESC(burst)
                 }
             )},
-        {bucket, sc(map("bucket_name", ref(bucket_opts)), #{desc => "Buckets config"})}
+        {bucket, sc(map("bucket_name", ref(bucket_opts)), #{desc => ?DESC(bucket_cfg)})}
     ];
 fields(bucket_opts) ->
     [
-        {rate, sc(rate(), #{desc => "Rate for this bucket."})},
-        {capacity, sc(capacity(), #{desc => "The maximum number of tokens for this bucket."})},
-        {initial,
-            sc(initial(), #{
-                default => "0",
-                desc => "The initial number of tokens for this bucket."
-            })},
+        {rate, sc(rate(), #{desc => ?DESC(rate)})},
+        {capacity, sc(capacity(), #{desc => ?DESC(capacity)})},
+        {initial, sc(initial(), #{default => "0", desc => ?DESC(initial)})},
         {per_client,
             sc(
                 ref(client_bucket),
                 #{
                     default => #{},
-                    desc =>
-                        "The rate limit for each user of the bucket,"
-                        " this field is not required"
+                    desc => ?DESC(per_client)
                 }
             )}
     ];
 fields(client_bucket) ->
     [
-        {rate, sc(rate(), #{default => "infinity", desc => "Rate for this bucket."})},
-        {initial,
-            sc(initial(), #{default => "0", desc => "The initial number of tokens for this bucket."})},
+        {rate, sc(rate(), #{default => "infinity", desc => ?DESC(rate)})},
+        {initial, sc(initial(), #{default => "0", desc => ?DESC(initial)})},
         %% low_water_mark add for emqx_channel and emqx_session
         %% both modules consume first and then check
         %% so we need to use this value to prevent excessive consumption
@@ -196,22 +130,20 @@ fields(client_bucket) ->
             sc(
                 initial(),
                 #{
-                    desc =>
-                        "If the remaining tokens are lower than this value,\n"
-                        "the check/consume will succeed, but it will be forced to wait for a short period of time.",
+                    desc => ?DESC(low_water_mark),
                     default => "0"
                 }
             )},
         {capacity,
             sc(capacity(), #{
-                desc => "The capacity of the token bucket.",
+                desc => ?DESC(client_bucket_capacity),
                 default => "infinity"
             })},
         {divisible,
             sc(
                 boolean(),
                 #{
-                    desc => "Is it possible to split the number of requested tokens?",
+                    desc => ?DESC(divisible),
                     default => false
                 }
             )},
@@ -219,7 +151,7 @@ fields(client_bucket) ->
             sc(
                 emqx_schema:duration(),
                 #{
-                    desc => "The maximum retry time when acquire failed.",
+                    desc => ?DESC(max_retry_time),
                     default => "10s"
                 }
             )},
@@ -227,7 +159,7 @@ fields(client_bucket) ->
             sc(
                 failure_strategy(),
                 #{
-                    desc => "The strategy when all the retries failed.",
+                    desc => ?DESC(failure_strategy),
                     default => force
                 }
             )}
