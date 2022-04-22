@@ -348,7 +348,7 @@ fields(exproto_grpc_handler) ->
         {address, sc(binary(), #{required => true, desc => ?DESC(exproto_grpc_handler_address)})},
         {ssl,
             sc(
-                ref(emqx_schema, ssl_client_opts),
+                ref(emqx_schema, "ssl_client_opts"),
                 #{
                     required => {false, recursively},
                     desc => ?DESC(exproto_grpc_handler_ssl)
