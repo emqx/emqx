@@ -29,7 +29,7 @@ spec:
       paths:
       - path: /
         {{- if (semverCompare ">=1.18-0" $.Capabilities.KubeVersion.GitVersion) }}
-        pathType: ImplementationSpecific
+        pathType: {{ .Values.ingress.dashboard.pathType | default "ImplementationSpecific" }}
         {{- end }}
         backend:
           {{- if semverCompare ">=1.19-0" $.Capabilities.KubeVersion.GitVersion }}
@@ -45,56 +45,6 @@ spec:
   {{- if .Values.ingress.dashboard.tls }}
   tls:
     {{- toYaml .Values.ingress.dashboard.tls | nindent 4 }}
-  {{- end }}
----
-{{- end }}
-{{- if .Values.ingress.mgmt.enabled -}}
-{{- if semverCompare ">=1.19-0" .Capabilities.KubeVersion.GitVersion -}}
-apiVersion: networking.k8s.io/v1
-{{- else if semverCompare ">=1.14-0" .Capabilities.KubeVersion.GitVersion -}}
-apiVersion: networking.k8s.io/v1beta1
-{{- else -}}
-apiVersion: extensions/v1beta1
-{{- end }}
-kind: Ingress
-metadata:
-  name: {{ printf "%s-%s" (include "emqx.fullname" .) "mgmt" }}
-  labels:
-    app.kubernetes.io/name: {{ include "emqx.name" . }}
-    helm.sh/chart: {{ include "emqx.chart" . }}
-    app.kubernetes.io/instance: {{ .Release.Name }}
-    app.kubernetes.io/managed-by: {{ .Release.Service }}
-  {{- if .Values.ingress.mgmt.annotations }}
-  annotations:
-    {{- toYaml .Values.ingress.mgmt.annotations | nindent 4 }}
-  {{- end }}
-spec:
-{{- if and .Values.ingress.mgmt.ingressClassName (semverCompare ">=1.18-0" .Capabilities.KubeVersion.GitVersion) }}
-  ingressClassName: {{ .Values.ingress.mgmt.ingressClassName }}
-{{- end }}
-  rules:
-  {{- range $host := .Values.ingress.mgmt.hosts }}
-  - host: {{ $host }}
-    http:
-      paths:
-      - path: /
-        {{- if (semverCompare ">=1.18-0" $.Capabilities.KubeVersion.GitVersion) }}
-        pathType: ImplementationSpecific
-        {{- end }}
-        backend:
-          {{- if semverCompare ">=1.19-0" $.Capabilities.KubeVersion.GitVersion }}
-          service:
-            name: {{ include "emqx.fullname" $ }}
-            port:
-              number: {{ $.Values.service.mgmt }}
-          {{- else }}
-          serviceName: {{ include "emqx.fullname" $ }}
-          servicePort: {{ $.Values.service.mgmt }}
-          {{- end }}
-  {{- end -}}
-  {{- if .Values.ingress.mgmt.tls }}
-  tls:
-    {{- toYaml .Values.ingress.mgmt.tls | nindent 4 }}
   {{- end }}
 ---
 {{- end }}

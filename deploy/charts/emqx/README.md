@@ -69,6 +69,7 @@ The following table lists the configurable parameters of the emqx chart and thei
 | `ingress.dashboard.enabled` |	Enable ingress for EMQX Dashboard |	false |
 | `ingress.dashboard.ingressClassName` |	Set the ingress class for EMQX Dashboard |	 |
 | `ingress.dashboard.path` | Ingress path for EMQX Dashboard |	/ |
+| `ingress.dashboard.pathType` | Ingress pathType for EMQX Dashboard |	`ImplementationSpecific`
 | `ingress.dashboard.hosts` | Ingress hosts for EMQX Mgmt API |	dashboard.emqx.local |
 | `ingress.dashboard.tls` | Ingress tls for EMQX Mgmt API |	[] |
 | `ingress.dashboard.annotations` | Ingress annotations for EMQX Mgmt API |	{} |
@@ -80,4 +81,10 @@ The following table lists the configurable parameters of the emqx chart and thei
 | `ingress.mgmt.annotations` | Ingress annotations for EMQX Mgmt API |	{} |
 | `metrics.enable` | If set to true, [prometheus-operator](https://github.com/prometheus-operator/prometheus-operator) needs to be installed, and emqx_prometheus needs to enable | false |
 | `metrics.type` | Now we only supported "prometheus" | "prometheus" |
-| `emqxConfig` | Emqx configuration item, see the [documentation](https://hub.docker.com/r/emqx/emqx) | |
+
+## EMQX specific settings
+The following table lists the configurable [EMQX](https://www.emqx.io/)-specific parameters of the chart and their default values.
+Parameter  | Description | Default Value
+---        |  ---        | ---
+`emqxConfig` | Map of [configuration](https://www.emqx.io/docs/en/latest/configuration/configuration.html) items expressed as [environment variables](https://www.emqx.io/docs/en/v4.3/configuration/environment-variable.html) (prefix can be omitted) or using the configuration files [namespaced dotted notation](https://www.emqx.io/docs/en/latest/configuration/configuration.html) | `nil`
+`emqxLicenseSecretName` | Name of the secret that holds the license information | `nil`
