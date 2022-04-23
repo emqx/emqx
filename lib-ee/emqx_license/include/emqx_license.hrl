@@ -11,7 +11,7 @@
     "\n"
     "========================================================================\n"
     "Using an evaluation license limited to ~p concurrent connections.\n"
-    "Apply a license at https://emqx.com/apply-licenses/emqx.\n"
+    "Apply for a license at https://emqx.com/apply-licenses/emqx.\n"
     "Or contact EMQ customer services.\n"
     "========================================================================\n"
 ).
@@ -20,7 +20,7 @@
     "\n"
     "========================================================================\n"
     "License has been expired for ~p days.\n"
-    "Apply a new license at https://emqx.com/apply-licenses/emqx.\n"
+    "Apply for a new license at https://emqx.com/apply-licenses/emqx.\n"
     "Or contact EMQ customer services.\n"
     "========================================================================\n"
 ).

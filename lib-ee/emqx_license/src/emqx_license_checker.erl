@@ -11,7 +11,16 @@
 
 -define(CHECK_INTERVAL, 5000).
 -define(EXPIRY_ALARM_CHECK_INTERVAL, 24 * 60 * 60).
--define(OK(EXPR), try _ = begin EXPR end, ok catch _:_ -> ok end).
+-define(OK(EXPR),
+    try
+        _ = begin
+            EXPR
+        end,
+        ok
+    catch
+        _:_ -> ok
+    end
+).
 
 -export([
     start_link/1,

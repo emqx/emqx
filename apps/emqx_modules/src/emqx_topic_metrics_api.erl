@@ -238,10 +238,8 @@ fields(metrics) ->
             NKey = binary_to_atom(list_to_binary(Str), utf8),
             ?DESC(NKey)
         end,
-    [{Key, mk(integer(), #{desc => ToDesc(Key), example => 0})} || Key <- Integers]
-    ++
-    [{Key, mk(number(), #{desc => ToDesc(Key), example => 0})} || Key <- Numbers].
-
+    [{Key, mk(integer(), #{desc => ToDesc(Key), example => 0})} || Key <- Integers] ++
+        [{Key, mk(number(), #{desc => ToDesc(Key), example => 0})} || Key <- Numbers].
 
 topic(In) ->
     Desc =
