@@ -41,6 +41,7 @@
 
 t_nested_put_map(_) ->
     ?assertEqual(#{a => 1}, nested_put(?path([a]), 1, #{})),
+    ?assertEqual(#{a => undefined}, nested_put(?path([a]), undefined, #{})),
     ?assertEqual(#{a => a}, nested_put(?path([a]), a, #{})),
     ?assertEqual(#{a => 1}, nested_put(?path([a]), 1, not_map)),
     ?assertEqual(#{a => #{b => b}}, nested_put(?path([a,b]), b, #{})),
@@ -172,4 +173,3 @@ all() ->
 
 suite() ->
     [{ct_hooks, [cth_surefire]}, {timetrap, {seconds, 30}}].
-

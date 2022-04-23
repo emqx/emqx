@@ -19,10 +19,10 @@ BuildRoot: %{_tmppath}/%{_name}-%{_version}-root
 Provides: %{_name}
 AutoReq: 0
 
-%if "%{_arch} %{?rhel}" == "amd64 7"
-Requires: openssl11 libatomic
+%if "%{_arch} %{?rhel}" == "x86_64 7"
+Requires: openssl11 libatomic procps which findutils
 %else
-Requires: libatomic
+Requires: libatomic procps which findutils
 %endif
 
 %description
