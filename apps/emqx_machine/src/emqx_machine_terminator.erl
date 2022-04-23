@@ -18,15 +18,22 @@
 
 -behaviour(gen_server).
 
--export([ start_link/0
-        , graceful/0
-        , graceful_wait/0
-        , is_running/0
-        ]).
+-export([
+    start_link/0,
+    graceful/0,
+    graceful_wait/0,
+    is_running/0
+]).
 
--export([init/1, format_status/2,
-         handle_cast/2, handle_call/3, handle_info/2,
-         terminate/2, code_change/3]).
+-export([
+    init/1,
+    format_status/2,
+    handle_cast/2,
+    handle_call/3,
+    handle_info/2,
+    terminate/2,
+    code_change/3
+]).
 
 -include_lib("emqx/include/logger.hrl").
 
@@ -47,7 +54,7 @@ graceful() ->
     try
         _ = gen_server:call(?TERMINATOR, ?DO_IT, infinity)
     catch
-        _ : _ ->
+        _:_ ->
             %% failed to notify terminator, probably due to not started yet
             %% or node is going down, either case, the caller
             %% should issue a shutdown to be sure
@@ -82,14 +89,15 @@ handle_call(?DO_IT, _From, State) ->
     try
         emqx_machine_boot:stop_apps()
     catch
-        C : E : St ->
+        C:E:St ->
             Apps = [element(1, A) || A <- application:which_applications()],
-            ?SLOG(error, #{msg => "failed_to_stop_apps",
-                           exception => C,
-                           reason => E,
-                           stacktrace => St,
-                           remaining_apps => Apps
-                          })
+            ?SLOG(error, #{
+                msg => "failed_to_stop_apps",
+                exception => C,
+                reason => E,
+                stacktrace => St,
+                remaining_apps => Apps
+            })
     after
         init:stop()
     end,
@@ -97,7 +105,7 @@ handle_call(?DO_IT, _From, State) ->
 handle_call(_Call, _From, State) ->
     {noreply, State}.
 
-format_status(_Opt, [_Pdict,_S]) ->
+format_status(_Opt, [_Pdict, _S]) ->
     ok.
 
 code_change(_OldVsn, State, _Extra) ->

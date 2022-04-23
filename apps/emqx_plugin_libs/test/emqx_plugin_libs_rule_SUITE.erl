@@ -28,10 +28,12 @@ all() -> emqx_common_test_helpers:all(?MODULE).
 t_http_connectivity(_) ->
     {ok, Socket} = gen_tcp:listen(?PORT, []),
     ok = emqx_plugin_libs_rule:http_connectivity(
-        "http://127.0.0.1:"++emqx_plugin_libs_rule:str(?PORT), 1000),
+        "http://127.0.0.1:" ++ emqx_plugin_libs_rule:str(?PORT), 1000
+    ),
     gen_tcp:close(Socket),
     {error, _} = emqx_plugin_libs_rule:http_connectivity(
-        "http://127.0.0.1:"++emqx_plugin_libs_rule:str(?PORT), 1000).
+        "http://127.0.0.1:" ++ emqx_plugin_libs_rule:str(?PORT), 1000
+    ).
 
 t_tcp_connectivity(_) ->
     {ok, Socket} = gen_tcp:listen(?PORT, []),
@@ -59,7 +61,8 @@ t_bin(_) ->
     ?assertError(_, emqx_plugin_libs_rule:bin({a, v})).
 
 t_atom_key(_) ->
-    _ = erlang, _ = port,
+    _ = erlang,
+    _ = port,
     ?assertEqual([erlang], emqx_plugin_libs_rule:atom_key([<<"erlang">>])),
     ?assertEqual([erlang, port], emqx_plugin_libs_rule:atom_key([<<"erlang">>, port])),
     ?assertEqual([erlang, port], emqx_plugin_libs_rule:atom_key([<<"erlang">>, <<"port">>])),
@@ -70,8 +73,12 @@ t_atom_key(_) ->
 
 t_unsafe_atom_key(_) ->
     ?assertEqual([xyz876gv], emqx_plugin_libs_rule:unsafe_atom_key([<<"xyz876gv">>])),
-    ?assertEqual([xyz876gv33, port],
-        emqx_plugin_libs_rule:unsafe_atom_key([<<"xyz876gv33">>, port])),
-    ?assertEqual([xyz876gv331, port1221],
-        emqx_plugin_libs_rule:unsafe_atom_key([<<"xyz876gv331">>, <<"port1221">>])),
+    ?assertEqual(
+        [xyz876gv33, port],
+        emqx_plugin_libs_rule:unsafe_atom_key([<<"xyz876gv33">>, port])
+    ),
+    ?assertEqual(
+        [xyz876gv331, port1221],
+        emqx_plugin_libs_rule:unsafe_atom_key([<<"xyz876gv331">>, <<"port1221">>])
+    ),
     ?assertEqual(xyz876gv3312, emqx_plugin_libs_rule:unsafe_atom_key(<<"xyz876gv3312">>)).

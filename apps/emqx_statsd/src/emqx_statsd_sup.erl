@@ -7,21 +7,24 @@
 
 -behaviour(supervisor).
 
--export([ start_link/0
-        , ensure_child_started/1
-        , ensure_child_started/2
-        , ensure_child_stopped/1
-        ]).
+-export([
+    start_link/0,
+    ensure_child_started/1,
+    ensure_child_started/2,
+    ensure_child_stopped/1
+]).
 
 -export([init/1]).
 
 %% Helper macro for declaring children of supervisor
--define(CHILD(Mod, Opts), #{id => Mod,
-                            start => {Mod, start_link, [Opts]},
-                            restart => permanent,
-                            shutdown => 5000,
-                            type => worker,
-                            modules => [Mod]}).
+-define(CHILD(Mod, Opts), #{
+    id => Mod,
+    start => {Mod, start_link, [Opts]},
+    restart => permanent,
+    shutdown => 5000,
+    type => worker,
+    modules => [Mod]
+}).
 
 start_link() ->
     supervisor:start_link({local, ?MODULE}, ?MODULE, []).

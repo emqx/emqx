@@ -43,23 +43,24 @@ init_per_suite(Config) ->
     %%
     application:unload(emqx_authz),
     emqx_common_test_helpers:start_apps([emqx_conf]),
-    application:set_env(emqx_machine, applications, [ emqx_prometheus
-                                                    , emqx_modules
-                                                    , emqx_dashboard
-                                                    , emqx_connector
-                                                    , emqx_gateway
-                                                    , emqx_statsd
-                                                    , emqx_resource
-                                                    , emqx_rule_engine
-                                                    , emqx_bridge
-                                                    , emqx_plugin_libs
-                                                    , emqx_management
-                                                    , emqx_retainer
-                                                    , emqx_exhook
-                                                    , emqx_authn
-                                                    , emqx_authz
-                                                    , emqx_plugin
-                                                    ]),
+    application:set_env(emqx_machine, applications, [
+        emqx_prometheus,
+        emqx_modules,
+        emqx_dashboard,
+        emqx_connector,
+        emqx_gateway,
+        emqx_statsd,
+        emqx_resource,
+        emqx_rule_engine,
+        emqx_bridge,
+        emqx_plugin_libs,
+        emqx_management,
+        emqx_retainer,
+        emqx_exhook,
+        emqx_authn,
+        emqx_authz,
+        emqx_plugin
+    ]),
     Config.
 
 end_per_suite(_Config) ->

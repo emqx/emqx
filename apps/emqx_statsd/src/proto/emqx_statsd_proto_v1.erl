@@ -18,12 +18,13 @@
 
 -behaviour(emqx_bpapi).
 
--export([ introduced_in/0
+-export([
+    introduced_in/0,
 
-        , start/1
-        , stop/1
-        , restart/1
-        ]).
+    start/1,
+    stop/1,
+    restart/1
+]).
 
 -include_lib("emqx/include/bpapi.hrl").
 

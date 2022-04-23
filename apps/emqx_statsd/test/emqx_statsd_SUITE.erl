@@ -21,9 +21,8 @@ t_statsd(_) ->
     receive
         {udp, _Socket, _Host, _Port, Bin} ->
             ?assert(length(Bin) > 50)
-    after
-        11*1000 ->
-            ?assert(true, failed)
+    after 11 * 1000 ->
+        ?assert(true, failed)
     end,
     gen_udp:close(Socket).
 

@@ -37,16 +37,18 @@ post_boot() ->
 
 -ifdef(TEST).
 print_vsn() -> ok.
--else. % TEST
+% TEST
+-else.
 print_vsn() ->
     ?ULOG("~ts ~ts is running now!~n", [emqx_app:get_description(), emqx_app:get_release()]).
--endif. % TEST
-
+% TEST
+-endif.
 
 start_autocluster() ->
     ekka:callback(stop, fun emqx_machine_boot:stop_apps/0),
     ekka:callback(start, fun emqx_machine_boot:ensure_apps_started/0),
-    _ = ekka:autocluster(emqx), %% returns 'ok' or a pid or 'any()' as in spec
+    %% returns 'ok' or a pid or 'any()' as in spec
+    _ = ekka:autocluster(emqx),
     ok.
 
 stop_apps() ->
@@ -59,11 +61,13 @@ stop_one_app(App) ->
     try
         _ = application:stop(App)
     catch
-        C : E ->
-            ?SLOG(error, #{msg => "failed_to_stop_app",
+        C:E ->
+            ?SLOG(error, #{
+                msg => "failed_to_stop_app",
                 app => App,
                 exception => C,
-                reason => E})
+                reason => E
+            })
     end.
 
 ensure_apps_started() ->
@@ -121,16 +125,21 @@ sorted_reboot_apps(Apps) ->
 %% Isolated apps without which are not dependency of any other apps are
 %% put to the end of the list in the original order.
 add_apps_to_digraph(G, Apps) ->
-    lists:foldl(fun
+    lists:foldl(
+        fun
             ({App, undefined}, Acc) ->
                 ?SLOG(debug, #{msg => "app_is_not_loaded", app => App}),
                 Acc;
             ({App, []}, Acc) ->
-                Acc ++ [App]; %% use '++' to keep the original order
+                %% use '++' to keep the original order
+                Acc ++ [App];
             ({App, Deps}, Acc) ->
                 add_app_deps_to_digraph(G, App, Deps),
                 Acc
-        end, [], Apps).
+        end,
+        [],
+        Apps
+    ).
 
 add_app_deps_to_digraph(G, App, undefined) ->
     ?SLOG(debug, #{msg => "app_is_not_loaded", app => App}),
@@ -141,14 +150,17 @@ add_app_deps_to_digraph(_G, _App, []) ->
 add_app_deps_to_digraph(G, App, [Dep | Deps]) ->
     digraph:add_vertex(G, App),
     digraph:add_vertex(G, Dep),
-    digraph:add_edge(G, Dep, App), %% dep -> app as dependency
+    %% dep -> app as dependency
+    digraph:add_edge(G, Dep, App),
     add_app_deps_to_digraph(G, App, Deps).
 
 find_loops(G) ->
     lists:filtermap(
-        fun (App) ->
+        fun(App) ->
             case digraph:get_short_cycle(G, App) of
                 false -> false;
                 Apps -> {true, Apps}
             end
-        end, digraph:vertices(G)).
+        end,
+        digraph:vertices(G)
+    ).

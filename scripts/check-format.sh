@@ -15,6 +15,7 @@ APPS+=( 'apps/emqx_exhook')
 APPS+=( 'apps/emqx_retainer' 'apps/emqx_slow_subs')
 APPS+=( 'apps/emqx_management')
 APPS+=( 'apps/emqx_psk')
+APPS+=( 'apps/emqx_plugin_libs' 'apps/emqx_machine' 'apps/emqx_statsd' )
 
 for app in "${APPS[@]}"; do
     echo "$app ..."

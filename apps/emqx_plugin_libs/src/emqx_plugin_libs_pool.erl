@@ -16,11 +16,12 @@
 
 -module(emqx_plugin_libs_pool).
 
--export([ start_pool/3
-        , stop_pool/1
-        , pool_name/1
-        , health_check/3
-        ]).
+-export([
+    start_pool/3,
+    stop_pool/1,
+    pool_name/1,
+    health_check/3
+]).
 
 -include_lib("emqx/include/logger.hrl").
 
@@ -36,8 +37,11 @@ start_pool(Name, Mod, Options) ->
             stop_pool(Name),
             start_pool(Name, Mod, Options);
         {error, Reason} ->
-            ?SLOG(error, #{msg => "start_ecpool_error", pool_name => Name,
-                           reason => Reason}),
+            ?SLOG(error, #{
+                msg => "start_ecpool_error",
+                pool_name => Name,
+                reason => Reason
+            }),
             {error, {start_pool_failed, Name, Reason}}
     end.
 
@@ -48,18 +52,24 @@ stop_pool(Name) ->
         {error, not_found} ->
             ok;
         {error, Reason} ->
-            ?SLOG(error, #{msg => "stop_ecpool_failed", pool_name => Name,
-                           reason => Reason}),
+            ?SLOG(error, #{
+                msg => "stop_ecpool_failed",
+                pool_name => Name,
+                reason => Reason
+            }),
             error({stop_pool_failed, Name, Reason})
     end.
 
 health_check(PoolName, CheckFunc, State) when is_function(CheckFunc) ->
-    Status = [begin
-        case ecpool_worker:client(Worker) of
-            {ok, Conn} -> CheckFunc(Conn);
-            _ -> false
+    Status = [
+        begin
+            case ecpool_worker:client(Worker) of
+                {ok, Conn} -> CheckFunc(Conn);
+                _ -> false
+            end
         end
-    end || {_WorkerName, Worker} <- ecpool:workers(PoolName)],
+     || {_WorkerName, Worker} <- ecpool:workers(PoolName)
+    ],
     case length(Status) > 0 andalso lists:all(fun(St) -> St =:= true end, Status) of
         true -> {ok, State};
         false -> {error, health_check_failed, State}

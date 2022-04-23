@@ -35,25 +35,39 @@ end_per_suite(_Config) ->
 t_local_allowed(_Config) ->
     LocalProhibited = [halt, q],
     State = undefined,
-    lists:foreach(fun(LocalFunc) ->
-        ?assertEqual({false, State}, emqx_restricted_shell:local_allowed(LocalFunc, [], State))
-                  end, LocalProhibited),
+    lists:foreach(
+        fun(LocalFunc) ->
+            ?assertEqual({false, State}, emqx_restricted_shell:local_allowed(LocalFunc, [], State))
+        end,
+        LocalProhibited
+    ),
     LocalAllowed = [ls, pwd],
-    lists:foreach(fun(LocalFunc) ->
-        ?assertEqual({true, State},emqx_restricted_shell:local_allowed(LocalFunc, [], State))
-                  end, LocalAllowed),
+    lists:foreach(
+        fun(LocalFunc) ->
+            ?assertEqual({true, State}, emqx_restricted_shell:local_allowed(LocalFunc, [], State))
+        end,
+        LocalAllowed
+    ),
     ok.
 
 t_non_local_allowed(_Config) ->
     RemoteProhibited = [{erlang, halt}, {c, q}, {init, stop}, {init, restart}, {init, reboot}],
     State = undefined,
-    lists:foreach(fun(RemoteFunc) ->
-        ?assertEqual({false, State}, emqx_restricted_shell:non_local_allowed(RemoteFunc, [], State))
-                  end, RemoteProhibited),
+    lists:foreach(
+        fun(RemoteFunc) ->
+            ?assertEqual(
+                {false, State}, emqx_restricted_shell:non_local_allowed(RemoteFunc, [], State)
+            )
+        end,
+        RemoteProhibited
+    ),
     RemoteAllowed = [{erlang, date}, {erlang, system_time}],
-    lists:foreach(fun(RemoteFunc) ->
-        ?assertEqual({true, State}, emqx_restricted_shell:local_allowed(RemoteFunc, [], State))
-                  end, RemoteAllowed),
+    lists:foreach(
+        fun(RemoteFunc) ->
+            ?assertEqual({true, State}, emqx_restricted_shell:local_allowed(RemoteFunc, [], State))
+        end,
+        RemoteAllowed
+    ),
     ok.
 
 t_lock(_Config) ->
@@ -62,11 +76,15 @@ t_lock(_Config) ->
     ?assertEqual({false, State}, emqx_restricted_shell:local_allowed(q, [], State)),
     ?assertEqual({true, State}, emqx_restricted_shell:local_allowed(ls, [], State)),
     ?assertEqual({false, State}, emqx_restricted_shell:non_local_allowed({init, stop}, [], State)),
-    ?assertEqual({true, State}, emqx_restricted_shell:non_local_allowed({inet, getifaddrs}, [], State)),
+    ?assertEqual(
+        {true, State}, emqx_restricted_shell:non_local_allowed({inet, getifaddrs}, [], State)
+    ),
     emqx_restricted_shell:unlock(),
     ?assertEqual({true, State}, emqx_restricted_shell:local_allowed(q, [], State)),
     ?assertEqual({true, State}, emqx_restricted_shell:local_allowed(ls, [], State)),
     ?assertEqual({true, State}, emqx_restricted_shell:non_local_allowed({init, stop}, [], State)),
-    ?assertEqual({true, State}, emqx_restricted_shell:non_local_allowed({inet, getifaddrs}, [], State)),
+    ?assertEqual(
+        {true, State}, emqx_restricted_shell:non_local_allowed({inet, getifaddrs}, [], State)
+    ),
     emqx_restricted_shell:lock(),
     ok.

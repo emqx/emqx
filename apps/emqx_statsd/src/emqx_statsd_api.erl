@@ -26,16 +26,16 @@
 
 -export([statsd/2]).
 
--export([ api_spec/0
-        , paths/0
-        , schema/1
-        ]).
+-export([
+    api_spec/0,
+    paths/0,
+    schema/1
+]).
 
 -define(API_TAG_STATSD, [<<"statsd">>]).
 -define(SCHEMA_MODULE, emqx_statsd_schema).
 
 -define(INTERNAL_ERROR, 'INTERNAL_ERROR').
-
 
 api_spec() ->
     emqx_dashboard_swagger:spec(?MODULE, #{check_schema => true}).
@@ -44,21 +44,24 @@ paths() ->
     ["/statsd"].
 
 schema("/statsd") ->
-    #{ 'operationId' => statsd
-     , get =>
-           #{ description => <<"Get statsd config">>
-            , tags => ?API_TAG_STATSD
-            , responses =>
-                  #{200 => statsd_config_schema()}
+    #{
+        'operationId' => statsd,
+        get =>
+            #{
+                description => <<"Get statsd config">>,
+                tags => ?API_TAG_STATSD,
+                responses =>
+                    #{200 => statsd_config_schema()}
+            },
+        put =>
+            #{
+                description => <<"Set statsd config">>,
+                tags => ?API_TAG_STATSD,
+                'requestBody' => statsd_config_schema(),
+                responses =>
+                    #{200 => statsd_config_schema()}
             }
-     , put =>
-           #{ description => <<"Set statsd config">>
-            , tags => ?API_TAG_STATSD
-            , 'requestBody' => statsd_config_schema()
-            , responses =>
-                  #{200 => statsd_config_schema()}
-            }
-     }.
+    }.
 
 %%--------------------------------------------------------------------
 %% Helper funcs
@@ -66,19 +69,20 @@ schema("/statsd") ->
 
 statsd_config_schema() ->
     emqx_dashboard_swagger:schema_with_example(
-      ref(?SCHEMA_MODULE, "statsd"),
-      statsd_example()).
+        ref(?SCHEMA_MODULE, "statsd"),
+        statsd_example()
+    ).
 
 statsd_example() ->
-    #{ enable => true
-     , flush_time_interval => "32s"
-     , sample_time_interval => "32s"
-     , server => "127.0.0.1:8125"
-     }.
+    #{
+        enable => true,
+        flush_time_interval => "32s",
+        sample_time_interval => "32s",
+        server => "127.0.0.1:8125"
+    }.
 
 statsd(get, _Params) ->
     {200, emqx:get_raw_config([<<"statsd">>], #{})};
-
 statsd(put, #{body := Body}) ->
     case emqx_statsd:update(Body) of
         {ok, NewConfig} ->
