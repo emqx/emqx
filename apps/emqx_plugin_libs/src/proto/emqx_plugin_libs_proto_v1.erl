@@ -18,19 +18,21 @@
 
 -behaviour(emqx_bpapi).
 
--export([ introduced_in/0
+-export([
+    introduced_in/0,
 
-        , get_metrics/3
-        ]).
+    get_metrics/3
+]).
 
 -include_lib("emqx/include/bpapi.hrl").
 
 introduced_in() ->
     "5.0.0".
 
--spec get_metrics( node()
-                 , emqx_plugin_libs_metrics:handler_name()
-                 , emqx_plugin_libs_metrics:metric_id()
-                 ) -> emqx_plugin_libs_metrics:metrics() | {badrpc, _}.
+-spec get_metrics(
+    node(),
+    emqx_plugin_libs_metrics:handler_name(),
+    emqx_plugin_libs_metrics:metric_id()
+) -> emqx_plugin_libs_metrics:metrics() | {badrpc, _}.
 get_metrics(Node, HandlerName, MetricId) ->
     rpc:call(Node, emqx_plugin_libs_metrics, get_metrics, [HandlerName, MetricId]).

@@ -1,16 +1,18 @@
 %% -*- mode: erlang -*-
-{application, emqx_machine,
- [{id, "emqx_machine"},
-  {description, "The EMQX Machine"},
-  {vsn, "0.1.0"}, % strict semver, bump manually!
-  {modules, []},
-  {registered, []},
-  {applications, [kernel,stdlib]},
-  {mod, {emqx_machine_app,[]}},
-  {env, []},
-  {licenses, ["Apache-2.0"]},
-  {maintainers, ["EMQX Team <contact@emqx.io>"]},
-  {links, [{"Homepage", "https://emqx.io/"},
-           {"Github", "https://github.com/emqx/emqx"}
-          ]}
+{application, emqx_machine, [
+    {id, "emqx_machine"},
+    {description, "The EMQX Machine"},
+    % strict semver, bump manually!
+    {vsn, "0.1.0"},
+    {modules, []},
+    {registered, []},
+    {applications, [kernel, stdlib]},
+    {mod, {emqx_machine_app, []}},
+    {env, []},
+    {licenses, ["Apache-2.0"]},
+    {maintainers, ["EMQX Team <contact@emqx.io>"]},
+    {links, [
+        {"Homepage", "https://emqx.io/"},
+        {"Github", "https://github.com/emqx/emqx"}
+    ]}
 ]}.

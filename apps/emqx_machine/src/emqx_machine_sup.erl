@@ -20,8 +20,7 @@
 
 -behaviour(supervisor).
 
--export([ start_link/0
-        ]).
+-export([start_link/0]).
 
 -export([init/1]).
 
@@ -33,20 +32,22 @@ init([]) ->
     BootApps = child_worker(emqx_machine_boot, post_boot, [], temporary),
     GlobalGC = child_worker(emqx_global_gc, [], permanent),
     Children = [Terminator, BootApps, GlobalGC],
-    SupFlags = #{strategy => one_for_one,
-                 intensity => 100,
-                 period => 10
-                },
+    SupFlags = #{
+        strategy => one_for_one,
+        intensity => 100,
+        period => 10
+    },
     {ok, {SupFlags, Children}}.
 
 child_worker(M, Args, Restart) ->
     child_worker(M, start_link, Args, Restart).
 
 child_worker(M, Func, Args, Restart) ->
-    #{id       => M,
-      start    => {M, Func, Args},
-      restart  => Restart,
-      shutdown => 5000,
-      type     => worker,
-      modules  => [M]
-     }.
+    #{
+        id => M,
+        start => {M, Func, Args},
+        restart => Restart,
+        shutdown => 5000,
+        type => worker,
+        modules => [M]
+    }.

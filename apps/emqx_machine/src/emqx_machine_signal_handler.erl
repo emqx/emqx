@@ -20,17 +20,25 @@
 %% perform graceful shutdown.
 -module(emqx_machine_signal_handler).
 
--export([start/0, init/1, format_status/2,
-         handle_event/2, handle_call/2, handle_info/2,
-         terminate/2, code_change/3]).
+-export([
+    start/0,
+    init/1,
+    format_status/2,
+    handle_event/2,
+    handle_call/2,
+    handle_info/2,
+    terminate/2,
+    code_change/3
+]).
 
 -include_lib("emqx/include/logger.hrl").
 
 start() ->
     ok = gen_event:swap_sup_handler(
-           erl_signal_server,
-           {erl_signal_handler, []},
-           {?MODULE, []}).
+        erl_signal_server,
+        {erl_signal_handler, []},
+        {?MODULE, []}
+    ).
 
 init({[], _}) -> {ok, #{}}.
 
@@ -53,7 +61,7 @@ handle_info(_Other, State) ->
 handle_call(_Request, State) ->
     {ok, ok, State}.
 
-format_status(_Opt, [_Pdict,_S]) ->
+format_status(_Opt, [_Pdict, _S]) ->
     ok.
 
 code_change(_OldVsn, State, _Extra) ->

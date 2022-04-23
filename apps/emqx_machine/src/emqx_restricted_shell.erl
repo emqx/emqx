@@ -46,7 +46,7 @@ prompt_func(PropList) ->
     Line = proplists:get_value(history, PropList, 1),
     Version = emqx_release:version(),
     case is_alive() of
-        true  -> io_lib:format(<<"~ts(~s)~w> ">>, [Version, node(), Line]);
+        true -> io_lib:format(<<"~ts(~s)~w> ">>, [Version, node(), Line]);
         false -> io_lib:format(<<"~ts ~w> ">>, [Version, Line])
     end.
 
@@ -77,27 +77,35 @@ limit_warning(MF, Args) ->
 max_args_warning(MF, Args) ->
     ArgsSize = erts_debug:flat_size(Args),
     case ArgsSize < ?MAX_ARGS_SIZE of
-        true -> ok;
+        true ->
+            ok;
         false ->
             warning("[WARNING] current_args_size:~w, max_args_size:~w", [ArgsSize, ?MAX_ARGS_SIZE]),
-            ?SLOG(warning, #{msg => "execute_function_in_shell_max_args_size",
+            ?SLOG(warning, #{
+                msg => "execute_function_in_shell_max_args_size",
                 function => MF,
                 args => Args,
                 args_size => ArgsSize,
-                max_heap_size => ?MAX_ARGS_SIZE})
+                max_heap_size => ?MAX_ARGS_SIZE
+            })
     end.
 
 max_heap_size_warning(MF, Args) ->
     {heap_size, HeapSize} = erlang:process_info(self(), heap_size),
     case HeapSize < ?MAX_HEAP_SIZE of
-        true -> ok;
+        true ->
+            ok;
         false ->
-            warning("[WARNING] current_heap_size:~w, max_heap_size_warning:~w", [HeapSize, ?MAX_HEAP_SIZE]),
-            ?SLOG(warning, #{msg => "shell_process_exceed_max_heap_size",
+            warning("[WARNING] current_heap_size:~w, max_heap_size_warning:~w", [
+                HeapSize, ?MAX_HEAP_SIZE
+            ]),
+            ?SLOG(warning, #{
+                msg => "shell_process_exceed_max_heap_size",
                 current_heap_size => HeapSize,
                 function => MF,
                 args => Args,
-                max_heap_size => ?MAX_HEAP_SIZE})
+                max_heap_size => ?MAX_HEAP_SIZE
+            })
     end.
 
 log(prohibited, MF, Args) ->
@@ -105,8 +113,11 @@ log(prohibited, MF, Args) ->
     ?SLOG(error, #{msg => "execute_function_in_shell_prohibited", function => MF, args => Args});
 log(exempted, MF, Args) ->
     limit_warning(MF, Args),
-    ?SLOG(error, #{msg => "execute_dangerous_function_in_shell_exempted", function => MF, args => Args});
-log(ignore, MF, Args) -> limit_warning(MF, Args).
+    ?SLOG(error, #{
+        msg => "execute_dangerous_function_in_shell_exempted", function => MF, args => Args
+    });
+log(ignore, MF, Args) ->
+    limit_warning(MF, Args).
 
 warning(Format, Args) ->
     io:format(?RED_BG ++ Format ++ ?RESET ++ "~n", Args).

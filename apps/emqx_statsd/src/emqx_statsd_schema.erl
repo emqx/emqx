@@ -23,10 +23,12 @@
 
 -export([to_ip_port/1]).
 
--export([ namespace/0
-        , roots/0
-        , fields/1
-        , desc/1]).
+-export([
+    namespace/0,
+    roots/0,
+    fields/1,
+    desc/1
+]).
 
 -typerefl_from_string({ip_port/0, emqx_statsd_schema, to_ip_port}).
 
@@ -35,19 +37,23 @@ namespace() -> "statsd".
 roots() -> ["statsd"].
 
 fields("statsd") ->
-    [ {enable, hoconsc:mk(boolean(),
-                          #{ default => false
-                           , required => true
-                           , desc => ?DESC(enable)
-                           })}
-    , {server, fun server/1}
-    , {sample_time_interval, fun sample_interval/1}
-    , {flush_time_interval, fun flush_interval/1}
+    [
+        {enable,
+            hoconsc:mk(
+                boolean(),
+                #{
+                    default => false,
+                    required => true,
+                    desc => ?DESC(enable)
+                }
+            )},
+        {server, fun server/1},
+        {sample_time_interval, fun sample_interval/1},
+        {flush_time_interval, fun flush_interval/1}
     ].
 
 desc("statsd") -> ?DESC(statsd);
-desc(_) ->
-    undefined.
+desc(_) -> undefined.
 
 server(type) -> emqx_schema:ip_port();
 server(required) -> true;
@@ -68,11 +74,12 @@ flush_interval(desc) -> ?DESC(?FUNCTION_NAME);
 flush_interval(_) -> undefined.
 
 to_ip_port(Str) ->
-     case string:tokens(Str, ":") of
-         [Ip, Port] ->
-             case inet:parse_address(Ip) of
-                 {ok, R} -> {ok, {R, list_to_integer(Port)}};
-                 _ -> {error, Str}
-             end;
-         _ -> {error, Str}
-     end.
+    case string:tokens(Str, ":") of
+        [Ip, Port] ->
+            case inet:parse_address(Ip) of
+                {ok, R} -> {ok, {R, list_to_integer(Port)}};
+                _ -> {error, Str}
+            end;
+        _ ->
+            {error, Str}
+    end.

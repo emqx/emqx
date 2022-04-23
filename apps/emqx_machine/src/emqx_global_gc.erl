@@ -23,13 +23,14 @@
 -export([run/0]).
 
 %% gen_server callbacks
--export([ init/1
-        , handle_call/3
-        , handle_cast/2
-        , handle_info/2
-        , terminate/2
-        , code_change/3
-        ]).
+-export([
+    init/1,
+    handle_call/3,
+    handle_cast/2,
+    handle_info/2,
+    terminate/2,
+    code_change/3
+]).
 
 %% 5 minutes
 %% -define(DEFAULT_INTERVAL, 300000).
@@ -38,14 +39,14 @@
 %% APIs
 %%--------------------------------------------------------------------
 
--spec(start_link() -> {ok, pid()} | ignore | {error, term()}).
+-spec start_link() -> {ok, pid()} | ignore | {error, term()}.
 start_link() ->
     gen_server:start_link({local, ?MODULE}, ?MODULE, [], []).
 
--spec(run() -> {ok, timer:time()}).
+-spec run() -> {ok, timer:time()}.
 run() -> gen_server:call(?MODULE, run, infinity).
 
--spec(stop() -> ok).
+-spec stop() -> ok.
 stop() -> gen_server:stop(?MODULE).
 
 %%--------------------------------------------------------------------
@@ -58,7 +59,6 @@ init([]) ->
 handle_call(run, _From, State) ->
     {Time, ok} = timer:tc(fun run_gc/0),
     {reply, {ok, Time div 1000}, State, hibernate};
-
 handle_call(_Req, _From, State) ->
     {reply, ignored, State}.
 
@@ -68,7 +68,6 @@ handle_cast(_Msg, State) ->
 handle_info({timeout, TRef, run}, State = #{timer := TRef}) ->
     ok = run_gc(),
     {noreply, ensure_timer(State), hibernate};
-
 handle_info(_Info, State) ->
     {noreply, State}.
 
@@ -84,8 +83,9 @@ code_change(_OldVsn, State, _Extra) ->
 
 ensure_timer(State) ->
     case application:get_env(emqx_machine, global_gc_interval) of
-        undefined -> State;
-        {ok, Interval}  ->
+        undefined ->
+            State;
+        {ok, Interval} ->
             TRef = emqx_misc:start_timer(Interval, run),
             State#{timer := TRef}
     end.
