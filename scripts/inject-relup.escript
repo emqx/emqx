@@ -123,7 +123,7 @@ do_filter_and_get(Instr, {UpExtra, DnExtra, EmqxMods, RemainInstrs}) ->
 
 assert_mandatory_modules(up, Mods) ->
     assert(lists:member(emqx_relup, Mods) andalso lists:member(emqx_app, Mods),
-        "cannot find any 'load_object_code' instructions for emqx_app and emqx_rel: ~p", [Mods]);
+        "cannot find any 'load_object_code' instructions for emqx_app and emqx_relup: ~p", [Mods]);
 
 assert_mandatory_modules(down, Mods) ->
     assert(lists:member(emqx_app, Mods),
