@@ -425,7 +425,7 @@ else
     if [ "$(echo -e "$PS_LINE" | wc -l)" -eq 1 ]; then
         ## only one emqx node is running
         ## strip 'emqx_data_dir ' and ' --' because the dir in between may contain spaces
-        DATA_DIR="$(echo -e "$PS_LINE" | sed -e 's#.\+emqx_data_dir\s##g' | sed -e 's#\s--$##g')"
+        DATA_DIR="$(echo -e "$PS_LINE" | sed -E 's#.+emqx_data_dir[[:blank:]]##g' | sed -E 's#[[:blank:]]--$##g')"
         if [ "$DATA_DIR" = '' ]; then
             ## this should not happen unless -emqx_data_dir is not set
             die "node_is_not_running!" 1
