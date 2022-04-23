@@ -26,6 +26,8 @@
 -define(BASE_PATH, "api").
 -define(CLUSTER_RPC_SHARD, emqx_cluster_rpc_shard).
 
+-define(DEFAULT_CLUSTER_NAME_ATOM, emqxcl).
+
 -define(CONF_DEFAULT, <<
     "\n"
     "exhook {\n"
@@ -54,18 +56,20 @@ all() ->
 init_per_suite(Config) ->
     application:load(emqx_conf),
     ok = ekka:start(),
+    application:set_env(ekka, cluster_name, ?DEFAULT_CLUSTER_NAME_ATOM),
     ok = mria_rlog:wait_for_shards([?CLUSTER_RPC_SHARD], infinity),
     meck:new(emqx_alarm, [non_strict, passthrough, no_link]),
     meck:expect(emqx_alarm, activate, 3, ok),
     meck:expect(emqx_alarm, deactivate, 3, ok),
 
     _ = emqx_exhook_demo_svr:start(),
-    ok = emqx_common_test_helpers:load_config(emqx_exhook_schema, ?CONF_DEFAULT),
+    load_cfg(?CONF_DEFAULT),
     emqx_mgmt_api_test_util:init_suite([emqx_exhook]),
     [Conf] = emqx:get_config([exhook, servers]),
     [{template, Conf} | Config].
 
 end_per_suite(Config) ->
+    application:set_env(ekka, cluster_name, ?DEFAULT_CLUSTER_NAME_ATOM),
     ekka:stop(),
     mria:stop(),
     mria_mnesia:delete_schema(),
@@ -95,6 +99,13 @@ end_per_testcase(_, Config) ->
             erlang:exit(P, kill)
     end,
     Config.
+
+load_cfg(Cfg) ->
+    ok = emqx_common_test_helpers:load_config(emqx_exhook_schema, Cfg).
+
+%%--------------------------------------------------------------------
+%% Test cases
+%%--------------------------------------------------------------------
 
 t_list(_) ->
     {ok, Data} = request_api(
