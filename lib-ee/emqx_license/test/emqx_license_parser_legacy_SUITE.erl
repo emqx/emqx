@@ -58,6 +58,7 @@ t_dump(_Config) ->
         [
             {customer, <<"EMQ X Evaluation">>},
             {email, "contact@emqx.io"},
+            {deployment, "default"},
             {max_connections, 10},
             {start_at, <<"2020-06-20">>},
             {expiry_at, <<"2049-01-01">>},

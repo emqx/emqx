@@ -11,6 +11,7 @@
 
 -define(CHECK_INTERVAL, 5000).
 -define(EXPIRY_ALARM_CHECK_INTERVAL, 24 * 60 * 60).
+-define(OK(EXPR), try _ = begin EXPR end, ok catch _:_ -> ok end).
 
 -export([
     start_link/1,
@@ -18,7 +19,8 @@
     update/1,
     dump/0,
     purge/0,
-    limits/0
+    limits/0,
+    print_warnings/1
 ]).
 
 %% gen_server callbacks
@@ -78,7 +80,7 @@ init([LicenseFetcher, CheckInterval]) ->
             ?LICENSE_TAB = ets:new(?LICENSE_TAB, [
                 set, protected, named_table, {read_concurrency, true}
             ]),
-            #{} = check_license(License),
+            ok = print_warnings(check_license(License)),
             State0 = ensure_check_license_timer(#{
                 check_license_interval => CheckInterval,
                 license => License
@@ -90,7 +92,7 @@ init([LicenseFetcher, CheckInterval]) ->
     end.
 
 handle_call({update, License}, _From, State) ->
-    _ = expiry_early_alarm(License),
+    ok = expiry_early_alarm(License),
     {reply, check_license(License), State#{license => License}};
 handle_call(dump, _From, #{license := License} = State) ->
     {reply, emqx_license_parser:dump(License), State};
@@ -109,7 +111,7 @@ handle_info(check_license, #{license := License} = State) ->
     ?tp(debug, emqx_license_checked, #{}),
     {noreply, NewState};
 handle_info(check_expiry_alarm, #{license := License} = State) ->
-    _ = expiry_early_alarm(License),
+    ok = expiry_early_alarm(License),
     NewState = ensure_check_expiry_timer(State),
     {noreply, NewState};
 handle_info(_Msg, State) ->
@@ -138,20 +140,20 @@ cancel_timer(State, Key) ->
 
 check_license(License) ->
     DaysLeft = days_left(License),
-    NeedRestrict = need_restrict(License, DaysLeft),
-    Limits = limits(License, NeedRestrict),
+    IsOverdue = is_overdue(License, DaysLeft),
+    NeedRestriction = IsOverdue,
+    MaxConn = emqx_license_parser:max_connections(License),
+    Limits = limits(License, NeedRestriction),
     true = apply_limits(Limits),
     #{
-        warn_evaluation => warn_evaluation(License, NeedRestrict),
-        warn_expiry => warn_expiry(License, NeedRestrict)
+        warn_evaluation => warn_evaluation(License, NeedRestriction, MaxConn),
+        warn_expiry => {(DaysLeft < 0), -DaysLeft}
     }.
 
-warn_evaluation(License, false) ->
-    emqx_license_parser:customer_type(License) == ?EVALUATION_CUSTOMER;
-warn_evaluation(_License, _NeedRestrict) ->
+warn_evaluation(License, false, MaxConn) ->
+    {emqx_license_parser:customer_type(License) == ?EVALUATION_CUSTOMER, MaxConn};
+warn_evaluation(_License, _NeedRestrict, _Limits) ->
     false.
-
-warn_expiry(_License, NeedRestrict) -> NeedRestrict.
 
 limits(License, false) -> #{max_connections => emqx_license_parser:max_connections(License)};
 limits(_License, true) -> #{max_connections => ?ERR_EXPIRED}.
@@ -161,19 +163,20 @@ days_left(License) ->
     {DateNow, _} = calendar:universal_time(),
     calendar:date_to_gregorian_days(DateEnd) - calendar:date_to_gregorian_days(DateNow).
 
-need_restrict(License, DaysLeft) ->
+is_overdue(License, DaysLeft) ->
     CType = emqx_license_parser:customer_type(License),
     Type = emqx_license_parser:license_type(License),
 
-    DaysLeft < 0 andalso
-        (Type =/= ?OFFICIAL) orelse small_customer_over_expired(CType, DaysLeft).
+    small_customer_overdue(CType, DaysLeft) orelse
+        non_official_license_overdue(Type, DaysLeft).
 
-small_customer_over_expired(?SMALL_CUSTOMER, DaysLeft) when
-    DaysLeft < ?EXPIRED_DAY
-->
-    true;
-small_customer_over_expired(_CType, _DaysLeft) ->
-    false.
+%% small customers overdue 90 days after license expiry date
+small_customer_overdue(?SMALL_CUSTOMER, DaysLeft) -> DaysLeft < ?EXPIRED_DAY;
+small_customer_overdue(_CType, _DaysLeft) -> false.
+
+%% never restrict official license
+non_official_license_overdue(?OFFICIAL, _) -> false;
+non_official_license_overdue(_, DaysLeft) -> DaysLeft < 0.
 
 apply_limits(Limits) ->
     ets:insert(?LICENSE_TAB, {limits, Limits}).
@@ -181,8 +184,23 @@ apply_limits(Limits) ->
 expiry_early_alarm(License) ->
     case days_left(License) < 30 of
         true ->
-            DateEnd = emqx_license_parser:expiry_date(License),
-            catch emqx_alarm:activate(license_expiry, #{expiry_at => DateEnd});
+            {Y, M, D} = emqx_license_parser:expiry_date(License),
+            Date = iolist_to_binary(io_lib:format("~B~2..0B~2..0B", [Y, M, D])),
+            ?OK(emqx_alarm:activate(license_expiry, #{expiry_at => Date}));
         false ->
-            catch emqx_alarm:deactivate(license_expiry)
+            ?OK(emqx_alarm:deactivate(license_expiry))
     end.
+
+print_warnings(Warnings) ->
+    ok = print_evaluation_warning(Warnings),
+    ok = print_expiry_warning(Warnings).
+
+print_evaluation_warning(#{warn_evaluation := {true, MaxConn}}) ->
+    io:format(?EVALUATION_LOG, [MaxConn]);
+print_evaluation_warning(_) ->
+    ok.
+
+print_expiry_warning(#{warn_expiry := {true, Days}}) ->
+    io:format(?EXPIRY_LOG, [Days]);
+print_expiry_warning(_) ->
+    ok.

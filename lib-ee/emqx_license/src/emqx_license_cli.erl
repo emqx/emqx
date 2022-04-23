@@ -66,19 +66,4 @@ unload() ->
     ok = emqx_ctl:unregister_command(license).
 
 print_warnings(Warnings) ->
-    ok = print_evaluation_warning(Warnings),
-    ok = print_expiry_warning(Warnings).
-
-%%------------------------------------------------------------------------------
-%% Private functions
-%%------------------------------------------------------------------------------
-
-print_evaluation_warning(#{warn_evaluation := true}) ->
-    ?PRINT_MSG(?EVALUATION_LOG);
-print_evaluation_warning(_) ->
-    ok.
-
-print_expiry_warning(#{warn_expiry := true}) ->
-    ?PRINT_MSG(?EXPIRY_LOG);
-print_expiry_warning(_) ->
-    ok.
+    emqx_license_checker:print_warnings(Warnings).

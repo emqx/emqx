@@ -102,6 +102,7 @@ t_check_exceeded(_Config) ->
             "10",
             "Foo",
             "contact@foo.com",
+            "bar",
             "20220111",
             "100000",
             "10"
@@ -130,6 +131,7 @@ t_check_ok(_Config) ->
             "10",
             "Foo",
             "contact@foo.com",
+            "bar",
             "20220111",
             "100000",
             "10"
@@ -160,6 +162,7 @@ t_check_expired(_Config) ->
             "0",
             "Foo",
             "contact@foo.com",
+            "bar",
             %% Expired long ago
             "20211101",
             "10",

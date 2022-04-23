@@ -55,6 +55,7 @@ t_dump(_Config) ->
             "10",
             "Foo",
             "contact@foo.com",
+            "bar",
             "20220111",
             "100000",
             "10"
@@ -67,6 +68,7 @@ t_dump(_Config) ->
         [
             {customer, <<"Foo">>},
             {email, <<"contact@foo.com">>},
+            {deployment, <<"bar">>},
             {max_connections, 10},
             {start_at, <<"2022-01-11">>},
             {expiry_at, <<"2295-10-27">>},
@@ -85,6 +87,7 @@ t_update(_Config) ->
             "10",
             "Foo",
             "contact@foo.com",
+            "bar",
             "20220111",
             "100000",
             "123"
@@ -129,6 +132,7 @@ t_expired_trial(_Config) ->
             "10",
             "Foo",
             "contact@foo.com",
+            "bar",
             format_date(Date10DaysAgo),
             "1",
             "123"
@@ -154,6 +158,7 @@ t_overexpired_small_client(_Config) ->
             "0",
             "Foo",
             "contact@foo.com",
+            "bar",
             format_date(Date100DaysAgo),
             "1",
             "123"
@@ -179,6 +184,7 @@ t_overexpired_medium_client(_Config) ->
             "1",
             "Foo",
             "contact@foo.com",
+            "bar",
             format_date(Date100DaysAgo),
             "1",
             "123"
@@ -204,6 +210,7 @@ t_recently_expired_small_client(_Config) ->
             "0",
             "Foo",
             "contact@foo.com",
+            "bar",
             format_date(Date10DaysAgo),
             "1",
             "123"
