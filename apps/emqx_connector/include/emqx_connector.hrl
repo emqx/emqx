@@ -24,12 +24,12 @@
 -define(REDIS_DEFAULT_PORT, 6379).
 -define(PGSQL_DEFAULT_PORT, 5432).
 
--define(SERVERS_DESC, "A Node list for Cluster to connect to. The nodes should be separated with commas, such as: `Node[,Node].<br/>`
+-define(SERVERS_DESC, "A Node list for Cluster to connect to. The nodes should be separated with commas, such as: `Node[,Node].`
 For each Node should be: ").
 
 -define(SERVER_DESC(TYPE, DEFAULT_PORT), "
-The IPv4 or IPv6 address or the hostname to connect to.<br/>
-A host entry has the following form: `Host[:Port]`.<br/>
+The IPv4 or IPv6 address or the hostname to connect to.</br>
+A host entry has the following form: `Host[:Port]`.</br>
 The " ++ TYPE ++ " default port " ++ DEFAULT_PORT ++ " is used if `[:Port]` is not specified."
 ).
 

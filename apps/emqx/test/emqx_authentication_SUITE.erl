@@ -52,14 +52,14 @@ roots() ->
 
 fields(type1) ->
     [
-        {mechanism, {enum, ['password_based']}},
-        {backend, {enum, ['built_in_database']}},
+        {mechanism, {enum, [password_based]}},
+        {backend, {enum, [built_in_database]}},
         {enable, fun enable/1}
     ];
 fields(type2) ->
     [
-        {mechanism, {enum, ['password_based']}},
-        {backend, {enum, ['mysql']}},
+        {mechanism, {enum, [password_based]}},
+        {backend, {enum, [mysql]}},
         {enable, fun enable/1}
     ].
 
@@ -131,15 +131,15 @@ t_chain(Config) when is_list(Config) ->
 
 t_authenticator({'init', Config}) ->
     [
-        {"auth1", {'password_based', 'built_in_database'}},
-        {"auth2", {'password_based', mysql}}
+        {"auth1", {password_based, built_in_database}},
+        {"auth2", {password_based, mysql}}
         | Config
     ];
 t_authenticator(Config) when is_list(Config) ->
     ChainName = 'test',
     AuthenticatorConfig1 = #{
-        mechanism => 'password_based',
-        backend => 'built_in_database',
+        mechanism => password_based,
+        backend => built_in_database,
         enable => true
     },
 
@@ -231,7 +231,7 @@ t_authenticator({'end', Config}) ->
 t_authenticate({init, Config}) ->
     [
         {listener_id, 'tcp:default'},
-        {authn_type, {'password_based', 'built_in_database'}}
+        {authn_type, {password_based, built_in_database}}
         | Config
     ];
 t_authenticate(Config) when is_list(Config) ->
@@ -249,8 +249,8 @@ t_authenticate(Config) when is_list(Config) ->
     register_provider(AuthNType, ?MODULE),
 
     AuthenticatorConfig = #{
-        mechanism => 'password_based',
-        backend => 'built_in_database',
+        mechanism => password_based,
+        backend => built_in_database,
         enable => true
     },
     ?AUTHN:create_chain(ListenerID),
@@ -272,8 +272,8 @@ t_authenticate({'end', Config}) ->
 
 t_update_config({init, Config}) ->
     Global = 'mqtt:global',
-    AuthNType1 = {'password_based', 'built_in_database'},
-    AuthNType2 = {'password_based', mysql},
+    AuthNType1 = {password_based, built_in_database},
+    AuthNType2 = {password_based, mysql},
     [
         {global, Global},
         {"auth1", AuthNType1},

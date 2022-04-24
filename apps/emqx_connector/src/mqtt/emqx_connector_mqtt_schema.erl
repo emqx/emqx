@@ -205,9 +205,9 @@ topic_mappings() ->
 
 ingress_desc() -> "
 The ingress config defines how this bridge receive messages from the remote MQTT broker, and then
-send them to the local broker.<br/>
+send them to the local broker.</br>
 Template with variables is allowed in 'local_topic', 'remote_qos', 'qos', 'retain',
-'payload'.<br/>
+'payload'.</br>
 NOTE: if this bridge is used as the input of a rule (emqx rule engine), and also local_topic is
 configured, then messages got from the remote broker will be sent to both the 'local_topic' and
 the rule.
@@ -215,8 +215,8 @@ the rule.
 
 egress_desc() -> "
 The egress config defines how this bridge forwards messages from the local broker to the remote
-broker.<br/>
-Template with variables is allowed in 'remote_topic', 'qos', 'retain', 'payload'.<br/>
+broker.</br>
+Template with variables is allowed in 'remote_topic', 'qos', 'retain', 'payload'.</br>
 NOTE: if this bridge is used as the output of a rule (emqx rule engine), and also local_topic
 is configured, then both the data got from the rule and the MQTT messages that matches
 local_topic will be forwarded.
