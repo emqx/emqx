@@ -82,7 +82,7 @@ max_args_warning(MF, Args) ->
             warning("[WARNING] current_args_size:~w, max_args_size:~w", [ArgsSize, ?MAX_ARGS_SIZE]),
             ?SLOG(warning, #{msg => "execute_function_in_shell_max_args_size",
                 function => MF,
-                args => Args,
+                %%args => Args,
                 args_size => ArgsSize,
                 max_heap_size => ?MAX_ARGS_SIZE})
     end.
