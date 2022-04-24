@@ -223,7 +223,10 @@ schema("/connectors/:id") ->
                 {error, Error} ->
                     {400, error_msg('BAD_REQUEST', Error)}
             end
-    end.
+    end;
+
+'/connectors'(post, _) ->
+    {400, error_msg('BAD_REQUEST', <<"missing some required fields: [name, type]">>)}.
 
 '/connectors/:id'(get, #{bindings := #{id := Id}}) ->
     ?TRY_PARSE_ID(Id,

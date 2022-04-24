@@ -137,6 +137,11 @@ t_mqtt_crud_apis(_) ->
     %% then we add a mqtt connector, using POST
     %% POST /connectors/ will create a connector
     User1 = <<"user1">>,
+    {ok, 400, <<"{\"code\":\"BAD_REQUEST\",\"message\""
+                ":\"missing some required fields: [name, type]\"}">>}
+        = request(post, uri(["connectors"]),
+        ?MQTT_CONNECTOR(User1)#{ <<"type">> => ?CONNECTR_TYPE
+                               }),
     {ok, 201, Connector} = request(post, uri(["connectors"]),
         ?MQTT_CONNECTOR(User1)#{ <<"type">> => ?CONNECTR_TYPE
                                , <<"name">> => ?CONNECTR_NAME
