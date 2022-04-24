@@ -127,7 +127,7 @@ retainer_indices(type) ->
 retainer_indices(desc) ->
     "Retainer index specifications: list of arrays of positive ascending integers. "
     "Each array specifies an index. Numbers in an index specification are 1-based "
-    "word positions in topics. Words from specified positions will be used for indexing.<br>"
+    "word positions in topics. Words from specified positions will be used for indexing.</br>"
     "For example, it is good to have <code>[2, 4]</code> index to optimize "
     "<code>+/X/+/Y/...</code> topic wildcard subscriptions.";
 retainer_indices(example) ->

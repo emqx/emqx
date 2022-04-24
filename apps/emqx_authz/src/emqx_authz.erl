@@ -363,7 +363,7 @@ find_action_in_hooks() ->
     [Action] = [Action || {callback, {?MODULE, authorize, _} = Action, _, _} <- Callbacks],
     Action.
 
-authz_module('built_in_database') ->
+authz_module(built_in_database) ->
     emqx_authz_mnesia;
 authz_module(Type) ->
     list_to_existing_atom("emqx_authz_" ++ atom_to_list(Type)).
@@ -382,8 +382,8 @@ type(redis) -> redis;
 type(<<"redis">>) -> redis;
 type(postgresql) -> postgresql;
 type(<<"postgresql">>) -> postgresql;
-type('built_in_database') -> 'built_in_database';
-type(<<"built_in_database">>) -> 'built_in_database';
+type(built_in_database) -> built_in_database;
+type(<<"built_in_database">>) -> built_in_database;
 %% should never happen if the input is type-checked by hocon schema
 type(Unknown) -> throw({unknown_authz_source_type, Unknown}).
 

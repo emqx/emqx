@@ -68,7 +68,7 @@ direction_field(Dir, Desc) ->
     {direction, mk(Dir,
         #{ required => true
          , default => egress
-         , desc => "The direction of the bridge. Can be one of 'ingress' or 'egress'.<br>"
+         , desc => "The direction of the bridge. Can be one of 'ingress' or 'egress'.</br>"
             ++ Desc
          })}.
 

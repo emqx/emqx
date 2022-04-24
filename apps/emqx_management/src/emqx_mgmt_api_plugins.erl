@@ -69,8 +69,8 @@ schema("/plugins") ->
         'operationId' => list_plugins,
         get => #{
             description =>
-                "List all install plugins.<br>"
-                "Plugins are launched in top-down order.<br>"
+                "List all install plugins.</br>"
+                "Plugins are launched in top-down order.</br>"
                 "Using `POST /plugins/{name}/move` to change the boot order.",
             responses => #{
                 200 => hoconsc:array(hoconsc:ref(plugin))
@@ -129,9 +129,9 @@ schema("/plugins/:name/:action") ->
         'operationId' => update_plugin,
         put => #{
             description =>
-                "start/stop a installed plugin.<br>"
-                "- **start**: start the plugin.<br>"
-                "- **stop**: stop the plugin.<br>",
+                "start/stop a installed plugin.</br>"
+                "- **start**: start the plugin.</br>"
+                "- **stop**: stop the plugin.</br>",
             parameters => [
                 hoconsc:ref(name),
                 {action, hoconsc:mk(hoconsc:enum([start, stop]), #{desc => "Action", in => path})}
@@ -264,8 +264,8 @@ fields(running_status) ->
             hoconsc:mk(hoconsc:enum([running, stopped]), #{
                 desc =>
                     "Install plugin status at runtime</br>"
-                    "1. running: plugin is running.<br>"
-                    "2. stopped: plugin is stopped.<br>"
+                    "1. running: plugin is running.</br>"
+                    "2. stopped: plugin is stopped.</br>"
             })}
     ].
 
