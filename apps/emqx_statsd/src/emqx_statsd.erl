@@ -70,9 +70,9 @@ update(Config) ->
             ok = stop(),
             case maps:get(<<"enable">>, Config, true) of
                 true ->
-                    ok = start();
+                    ok = restart();
                 false ->
-                    ignore
+                    ok = stop()
             end,
             {ok, NewConfigRows};
         {error, Reason} ->

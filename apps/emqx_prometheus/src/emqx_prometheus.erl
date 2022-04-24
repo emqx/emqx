@@ -95,8 +95,8 @@ stop() ->
     ok.
 
 restart() ->
-    stop(),
-    stop().
+    ok = stop(),
+    ok = start().
 
 do_start() ->
     emqx_prometheus_sup:start_child(?APP, emqx_conf:get([prometheus])).
