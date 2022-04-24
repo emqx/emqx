@@ -102,7 +102,7 @@
 
 -elvis([{elvis_style, god_modules, disable}]).
 
-namespace() -> undefined.
+namespace() -> broker.
 
 roots() ->
     %% TODO change config importance to a field metadata
@@ -2219,7 +2219,7 @@ authentication(Desc) ->
                 undefined -> Default;
                 Module -> hoconsc:lazy(Module:root_type())
             end,
-        desc_id => authentication_0,
+        desc_id => "authentication_0",
         desc => iolist_to_binary([
             Desc,
             "\nAuthentication can be one single authenticator instance or a chain of "

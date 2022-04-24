@@ -22,11 +22,14 @@
 -include_lib("hocon/include/hoconsc.hrl").
 
 -export([
+    namespace/0,
     roots/0,
     fields/1
 ]).
 
 -import(emqx_schema, [sc/2]).
+
+namespace() -> "authn-psk".
 
 roots() -> ["psk_authentication"].
 

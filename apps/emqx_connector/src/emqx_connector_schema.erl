@@ -22,7 +22,7 @@
 
 -import(hoconsc, [mk/2, ref/2]).
 
--export([roots/0, fields/1, desc/1]).
+-export([namespace/0, roots/0, fields/1, desc/1]).
 
 -export([ get_response/0
         , put_request/0
@@ -50,6 +50,8 @@ http_schema(Method) ->
 
 %%======================================================================================
 %% Hocon Schema Definitions
+
+namespace() -> connector.
 
 roots() -> ["connectors"].
 
