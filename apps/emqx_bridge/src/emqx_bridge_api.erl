@@ -532,7 +532,7 @@ format_metrics(#{
 
 fill_defaults(Type, RawConf) ->
     PackedConf = pack_bridge_conf(Type, RawConf),
-    FullConf = emqx_config:fill_defaults(emqx_bridge_schema, PackedConf),
+    FullConf = emqx_config:fill_defaults(emqx_bridge_schema, PackedConf, #{}),
     unpack_bridge_conf(Type, FullConf).
 
 pack_bridge_conf(Type, RawConf) ->

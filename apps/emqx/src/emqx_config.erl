@@ -26,6 +26,7 @@
     check_config/2,
     fill_defaults/1,
     fill_defaults/2,
+    fill_defaults/3,
     save_configs/5,
     save_to_app_env/1,
     save_to_config_map/2,
@@ -246,7 +247,7 @@ get_default_value([RootName | _] = KeyPath) ->
     case find_raw([RootName]) of
         {ok, RawConf} ->
             RawConf1 = emqx_map_lib:deep_remove(BinKeyPath, #{bin(RootName) => RawConf}),
-            try fill_defaults(get_schema_mod(RootName), RawConf1) of
+            try fill_defaults(get_schema_mod(RootName), RawConf1, #{}) of
                 FullConf ->
                     case emqx_map_lib:deep_find(BinKeyPath, FullConf) of
                         {not_found, _, _} -> {error, no_default_value};
@@ -360,15 +361,18 @@ check_config(SchemaMod, RawConf, Opts0) ->
         hocon_tconf:map_translate(SchemaMod, RawConf, Opts),
     {AppEnvs, emqx_map_lib:unsafe_atom_key_map(CheckedConf)}.
 
--spec fill_defaults(raw_config()) -> map().
 fill_defaults(RawConf) ->
+    fill_defaults(RawConf, #{}).
+
+-spec fill_defaults(raw_config(), hocon_tconf:opts()) -> map().
+fill_defaults(RawConf, Opts) ->
     RootNames = get_root_names(),
     maps:fold(
         fun(Key, Conf, Acc) ->
             SubMap = #{Key => Conf},
             WithDefaults =
                 case lists:member(Key, RootNames) of
-                    true -> fill_defaults(get_schema_mod(Key), SubMap);
+                    true -> fill_defaults(get_schema_mod(Key), SubMap, Opts);
                     false -> SubMap
                 end,
             maps:merge(Acc, WithDefaults)
@@ -377,12 +381,13 @@ fill_defaults(RawConf) ->
         RawConf
     ).
 
--spec fill_defaults(module(), raw_config()) -> map().
-fill_defaults(SchemaMod, RawConf) ->
+-spec fill_defaults(module(), raw_config(), hocon_tconf:opts()) -> map().
+fill_defaults(SchemaMod, RawConf, Opts0) ->
+    Opts = maps:merge(#{required => false, only_fill_defaults => true}, Opts0),
     hocon_tconf:check_plain(
         SchemaMod,
         RawConf,
-        #{required => false, only_fill_defaults => true},
+        Opts,
         root_names_from_conf(RawConf)
     ).
 
