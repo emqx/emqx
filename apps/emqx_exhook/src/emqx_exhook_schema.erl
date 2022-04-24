@@ -100,7 +100,7 @@ fields(server) ->
     ];
 fields(ssl_conf) ->
     Schema = emqx_schema:client_ssl_opts_schema(#{}),
-    lists:keydelete(user_lookup_fun, 1, Schema).
+    lists:keydelete("user_lookup_fun", 1, Schema).
 
 desc(exhook) ->
     "External hook (exhook) configuration.";
