@@ -46,6 +46,11 @@ auth.jwt.verify_claims = off
 ##  - %u: username
 ##  - %c: clientid
 # auth.jwt.verify_claims.username = %u
+
+## Name of the claim containg ACL rules
+##
+## Value: String
+#auth.jwt.acl_claim_name = acl
 ```
 
 Load the Plugin
@@ -61,6 +66,33 @@ Example
 ```
 mosquitto_pub -t 'pub' -m 'hello' -i test -u test -P eyJ0eXAiOiJKV1QiLCJhbGciOiJIUzI1NiJ9.eyJuYW1lIjoiYm9iIiwiYWdlIjoyOX0.bIV_ZQ8D5nQi0LT8AVkpM4Pd6wmlbpR9S8nOLJAsA8o
 ```
+
+ACL
+---
+JWT may contain lists of topics allowed for subscribing/publishing (ACL rules):
+
+Payload example:
+```json
+{
+  "sub": "emqx",
+  "name": "John Doe",
+  "iat": 1516239022,
+  "exp": 1516239122,
+  "acl": {
+    "sub": [
+      "a/b",
+      "c/+",
+      "%u/%c"
+    ],
+    "pub": [
+      "a/b",
+      "c/+",
+      "%u/%c"
+    ]
+  }
+}
+```
+
 
 Algorithms
 ----------

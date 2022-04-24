@@ -1,5 +1,5 @@
 %%--------------------------------------------------------------------
-%% Copyright (c) 2020-2021 EMQ Technologies Co., Ltd. All Rights Reserved.
+%% Copyright (c) 2020-2022 EMQ Technologies Co., Ltd. All Rights Reserved.
 %%
 %% Licensed under the Apache License, Version 2.0 (the "License");
 %% you may not use this file except in compliance with the License.
@@ -177,7 +177,8 @@ dump_to_tmp_file(Content) ->
     ok = file:write_file(fullname(Filename), Bin),
     Filename.
 
-fullname(Name) ->
+fullname(Name0) ->
+    Name = uri_string:percent_decode(Name0),
     filename:join(emqx:get_env(data_dir), Name).
 
 tmp_filename() ->

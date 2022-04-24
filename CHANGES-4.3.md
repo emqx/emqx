@@ -12,8 +12,15 @@ File format:
 
 ## v4.3.15
 
+### Enhancements
+
+* Made possible for EMQX to boot from a Linux directory which has white spaces in its path.
+* Add support for JWT authorization [#7596]
+  Now MQTT clients may be authorized with respect to a specific claim containing publish/subscribe topic whitelists.
+  
 ### Bug fixes
-* List subscription topic (/api/v4/subscriptions), the result do not match with multiple conditions.
+* List subscription topic (/api/v4/subscriptions), the result do not match with multiple conditions.  
+
 
 ## v4.3.14
 
@@ -36,6 +43,7 @@ File format:
   node. It will improves the efficiency of shared messages dispatching in certain
   scenarios, especially when the emqx-bridge-mqtt plugin is configured as shared
   subscription. [#7462]
+* Add some compression functions to rule-engine: gzip, gunzip, zip, unzip, zip_compress, zip_uncompress
 
 ### Bug fixes
 
@@ -47,8 +55,9 @@ File format:
   default value of emqx_dashboard.conf after the node left cluster.
   Now we persist changed password to protect against reset. [#7518]
 * Silence grep/sed warnings in docker-entrypoint.sh. [#7520]
-* Generate `loaded_modules` and `loaded_plugins` files with default
-  values when no such files exists. [#7520]
+* Generate `loaded_modules` and `loaded_plugins` files with default values when no such files exists. [#7520]
+* Fix the configuration `server_name_indication` set to disable does not take effect.
+* Fix backup files are not deleted and downloaded correctly when the API path has ISO8859-1 escape characters.
 
 ## v4.3.13
 

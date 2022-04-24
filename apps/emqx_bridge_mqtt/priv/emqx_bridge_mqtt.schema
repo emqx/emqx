@@ -183,8 +183,12 @@
                     [{verify, verify_peer}];
                (verify, false) ->
                     [{verify, verify_none}];
-               (server_name_indication, "disabled") ->
-                    [{server_name_indication, disabled}];
+               (server_name_indication, "disable") ->
+                    [{server_name_indication, disable}];
+               (server_name_indication, undefined) ->
+                    [];
+               (server_name_indication, "") ->
+                    [];
                (server_name_indication, Hostname) ->
                     [{server_name_indication, Hostname}];
                (Opt, Val) ->
@@ -210,8 +214,19 @@
             end,
     Subscriptions = fun(Name) ->
                         Configs = cuttlefish_variable:filter_by_prefix("bridge.mqtt." ++ Name ++ ".subscription", Conf),
-                        lists:zip([Topic || {_, Topic} <- lists:sort([{I, Topic} || {[_, _, _, "subscription", I, "topic"], Topic} <- Configs])],
-                                  [QoS || {_, QoS} <- lists:sort([{I, QoS} || {[_, _, _, "subscription", I, "qos"], QoS} <- Configs])])
+                        Configs = cuttlefish_variable:filter_by_prefix("bridge.mqtt." ++ Name ++ ".subscription", Conf),
+                        SubConfId = lists:usort([{T, I} || {[_, _, _, "subscription", I, "topic"], T} <- Configs]),
+                        FindQoS = fun({T, I}) ->
+                          QoSFilter = fun
+                            ({[_, _, _, "subscription", Index, "qos"], QoS}) -> I == Index andalso {true, QoS};
+                            (_Topic) -> false
+                          end,
+                          case lists:filtermap(QoSFilter, Configs) of
+                            [] -> {T, 0};
+                            QoSList -> {T, hd(QoSList)}
+                          end
+                        end,
+                        [FindQoS(TopicAndIndex) || TopicAndIndex <- SubConfId]
                     end,
     IsNodeAddr = fun(Addr) ->
                       case string:tokens(Addr, "@") of

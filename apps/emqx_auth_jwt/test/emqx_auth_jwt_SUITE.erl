@@ -1,5 +1,5 @@
 %%--------------------------------------------------------------------
-%% Copyright (c) 2020-2021 EMQ Technologies Co., Ltd. All Rights Reserved.
+%% Copyright (c) 2020-2022 EMQ Technologies Co., Ltd. All Rights Reserved.
 %%
 %% Licensed under the Apache License, Version 2.0 (the "License");
 %% you may not use this file except in compliance with the License.
@@ -19,29 +19,18 @@
 -compile(export_all).
 -compile(nowarn_export_all).
 
--include_lib("emqx/include/emqx.hrl").
+-include_lib("emqx/include/emqx_mqtt.hrl").
 -include_lib("eunit/include/eunit.hrl").
 -include_lib("common_test/include/ct.hrl").
 
--define(APP, emqx_auth_jwt).
+all() -> emqx_ct:all(?MODULE).
 
-all() ->
-    [{group, emqx_auth_jwt}].
-
-groups() ->
-    [{emqx_auth_jwt, [sequence], [ t_check_auth
-                                 , t_check_claims
-                                 , t_check_claims_clientid
-                                 , t_check_claims_username
-                                 , t_check_claims_kid_in_header
-                                 ]}
-    ].
-
-init_per_suite(Config) ->
+init_per_testcase(TestCase, Config) ->
+    ?MODULE:TestCase(init, Config),
     emqx_ct_helpers:start_apps([emqx_auth_jwt], fun set_special_configs/1),
     Config.
 
-end_per_suite(_Config) ->
+end_per_testcase(_Case, _Config) ->
     emqx_ct_helpers:stop_apps([emqx_auth_jwt]).
 
 set_special_configs(emqx) ->
@@ -78,7 +67,9 @@ sign(Payload, Alg, Key) ->
 %% Testcases
 %%------------------------------------------------------------------------------
 
-t_check_auth(_) ->
+t_check_auth(init, _Config) ->
+    application:unset_env(emqx_auth_jwt, verify_claims).
+t_check_auth(_Config) ->
     Plain = #{clientid => <<"client1">>, username => <<"plain">>, zone => external},
     Jwt = sign([{clientid, <<"client1">>},
                 {username, <<"plain">>},
@@ -102,10 +93,9 @@ t_check_auth(_) ->
     ?assertEqual({error, invalid_signature}, Result2),
     ?assertMatch({error, _}, emqx_access_control:authenticate(Plain#{password => <<"asd">>})).
 
-t_check_claims(_) ->
-    application:set_env(emqx_auth_jwt, verify_claims, [{sub, <<"value">>}]),
-    application:stop(emqx_auth_jwt), application:start(emqx_auth_jwt),
-
+t_check_claims(init, _Config) ->
+    application:set_env(emqx_auth_jwt, verify_claims, [{sub, <<"value">>}]).
+t_check_claims(_Config) ->
     Plain = #{clientid => <<"client1">>, username => <<"plain">>, zone => external},
     Jwt = sign([{client_id, <<"client1">>},
                 {username, <<"plain">>},
@@ -120,9 +110,9 @@ t_check_claims(_) ->
     ct:pal("Auth result for the invalid jwt: ~p~n", [Result2]),
     ?assertEqual({error, invalid_signature}, Result2).
 
-t_check_claims_clientid(_) ->
-    application:set_env(emqx_auth_jwt, verify_claims, [{clientid, <<"%c">>}]),
-    application:stop(emqx_auth_jwt), application:start(emqx_auth_jwt),
+t_check_claims_clientid(init, _Config) ->
+    application:set_env(emqx_auth_jwt, verify_claims, [{clientid, <<"%c">>}]).
+t_check_claims_clientid(_Config) ->
     Plain = #{clientid => <<"client23">>, username => <<"plain">>, zone => external},
     Jwt = sign([{clientid, <<"client23">>},
                 {username, <<"plain">>},
@@ -136,10 +126,9 @@ t_check_claims_clientid(_) ->
     ct:pal("Auth result for the invalid jwt: ~p~n", [Result2]),
     ?assertEqual({error, invalid_signature}, Result2).
 
-t_check_claims_username(_) ->
-    application:set_env(emqx_auth_jwt, verify_claims, [{username, <<"%u">>}]),
-    application:stop(emqx_auth_jwt), application:start(emqx_auth_jwt),
-
+t_check_claims_username(init, _Config) ->
+    application:set_env(emqx_auth_jwt, verify_claims, [{username, <<"%u">>}]).
+t_check_claims_username(_Config) ->
     Plain = #{clientid => <<"client23">>, username => <<"plain">>, zone => external},
     Jwt = sign([{client_id, <<"client23">>},
                 {username, <<"plain">>},
@@ -153,8 +142,9 @@ t_check_claims_username(_) ->
     ct:pal("Auth result for the invalid jwt: ~p~n", [Result3]),
     ?assertEqual({error, invalid_signature}, Result3).
 
-t_check_claims_kid_in_header(_) ->
-    application:set_env(emqx_auth_jwt, verify_claims, []),
+t_check_claims_kid_in_header(init, _Config) ->
+    application:set_env(emqx_auth_jwt, verify_claims, []).
+t_check_claims_kid_in_header(_Config) ->
     Plain = #{clientid => <<"client23">>, username => <<"plain">>, zone => external},
     Jwt = sign([{clientid, <<"client23">>},
                 {username, <<"plain">>},
@@ -164,3 +154,125 @@ t_check_claims_kid_in_header(_) ->
     Result0 = emqx_access_control:authenticate(Plain#{password => Jwt}),
     ct:pal("Auth result: ~p~n", [Result0]),
     ?assertMatch({ok, #{auth_result := success, jwt_claims := _}}, Result0).
+
+t_check_jwt_acl(init, _Config) ->
+    application:set_env(emqx_auth_jwt, verify_claims, [{sub, <<"value">>}]).
+t_check_jwt_acl(_Config) ->
+    Jwt = sign([{client_id, <<"client1">>},
+                {username, <<"plain">>},
+                {sub, value},
+                {acl, [{sub, [<<"a/b">>]},
+                       {pub, [<<"c/d">>]}]},
+                {exp, os:system_time(seconds) + 10}],
+               <<"HS256">>,
+               <<"emqxsecret">>),
+
+    {ok, C} = emqtt:start_link(
+                [{clean_start, true},
+                 {proto_ver, v5},
+                 {client_id, <<"client1">>},
+                 {password, Jwt}]),
+    {ok, _} = emqtt:connect(C),
+
+    ?assertMatch(
+       {ok, #{}, [0]},
+       emqtt:subscribe(C, <<"a/b">>, 0)),
+
+    ?assertMatch(
+       ok,
+       emqtt:publish(C, <<"c/d">>, <<"hi">>, 0)),
+
+    ?assertMatch(
+       {ok, #{}, [?RC_NOT_AUTHORIZED]},
+       emqtt:subscribe(C, <<"c/d">>, 0)),
+
+    ok = emqtt:publish(C, <<"a/b">>, <<"hi">>, 0),
+
+    receive
+        {publish, #{topic := <<"a/b">>}} ->
+            ?assert(false, "Publish to `a/b` should not be allowed")
+    after 100 -> ok
+    end,
+
+    ok = emqtt:disconnect(C).
+
+t_check_jwt_acl_no_recs(init, _Config) ->
+    application:set_env(emqx_auth_jwt, verify_claims, [{sub, <<"value">>}]).
+t_check_jwt_acl_no_recs(_Config) ->
+    Jwt = sign([{client_id, <<"client1">>},
+                {username, <<"plain">>},
+                {sub, value},
+                {acl, []},
+                {exp, os:system_time(seconds) + 10}],
+               <<"HS256">>,
+               <<"emqxsecret">>),
+
+    {ok, C} = emqtt:start_link(
+                [{clean_start, true},
+                 {proto_ver, v5},
+                 {client_id, <<"client1">>},
+                 {password, Jwt}]),
+    {ok, _} = emqtt:connect(C),
+
+    ?assertMatch(
+       {ok, #{}, [?RC_NOT_AUTHORIZED]},
+       emqtt:subscribe(C, <<"a/b">>, 0)),
+
+    ok = emqtt:disconnect(C).
+
+t_check_jwt_acl_no_acl_claim(init, _Config) ->
+    application:set_env(emqx_auth_jwt, verify_claims, [{sub, <<"value">>}]).
+t_check_jwt_acl_no_acl_claim(_Config) ->
+    Jwt = sign([{client_id, <<"client1">>},
+                {username, <<"plain">>},
+                {sub, value},
+                {exp, os:system_time(seconds) + 10}],
+               <<"HS256">>,
+               <<"emqxsecret">>),
+
+    {ok, C} = emqtt:start_link(
+                [{clean_start, true},
+                 {proto_ver, v5},
+                 {client_id, <<"client1">>},
+                 {password, Jwt}]),
+    {ok, _} = emqtt:connect(C),
+
+    ?assertMatch(
+       {ok, #{}, [?RC_NOT_AUTHORIZED]},
+       emqtt:subscribe(C, <<"a/b">>, 0)),
+
+    ok = emqtt:disconnect(C).
+
+t_check_jwt_acl_expire(init, _Config) ->
+    application:set_env(emqx_auth_jwt, verify_claims, [{sub, <<"value">>}]).
+t_check_jwt_acl_expire(_Config) ->
+    Jwt = sign([{client_id, <<"client1">>},
+                {username, <<"plain">>},
+                {sub, value},
+                {acl, [{sub, [<<"a/b">>]}]},
+                {exp, os:system_time(seconds) + 1}],
+               <<"HS256">>,
+               <<"emqxsecret">>),
+
+    {ok, C} = emqtt:start_link(
+                [{clean_start, true},
+                 {proto_ver, v5},
+                 {client_id, <<"client1">>},
+                 {password, Jwt}]),
+    {ok, _} = emqtt:connect(C),
+
+    ?assertMatch(
+       {ok, #{}, [0]},
+       emqtt:subscribe(C, <<"a/b">>, 0)),
+
+    ?assertMatch(
+       {ok, #{}, [0]},
+       emqtt:unsubscribe(C, <<"a/b">>)),
+
+    timer:sleep(2000),
+
+    ?assertMatch(
+       {ok, #{}, [?RC_NOT_AUTHORIZED]},
+       emqtt:subscribe(C, <<"a/b">>, 0)),
+
+    ok = emqtt:disconnect(C).

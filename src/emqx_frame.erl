@@ -1,5 +1,5 @@
 %%--------------------------------------------------------------------
-%% Copyright (c) 2018-2021 EMQ Technologies Co., Ltd. All Rights Reserved.
+%% Copyright (c) 2018-2022 EMQ Technologies Co., Ltd. All Rights Reserved.
 %%
 %% Licensed under the Apache License, Version 2.0 (the "License");
 %% you may not use this file except in compliance with the License.
@@ -273,7 +273,6 @@ parse_packet(#mqtt_packet_header{type = ?PUBLISH, qos = QoS}, Bin,
     (PacketId =/= undefined) andalso
       StrictMode andalso validate_packet_id(PacketId),
     {Properties, Payload} = parse_properties(Rest1, Ver, StrictMode),
-    ok = ensure_topic_name_valid(StrictMode, TopicName, Properties),
     Publish = #mqtt_packet_publish{topic_name = TopicName,
                                    packet_id  = PacketId,
                                    properties = Properties
@@ -360,7 +359,6 @@ parse_will_message(Packet = #mqtt_packet_connect{will_flag = true,
     {Props, Rest} = parse_properties(Bin, Ver, StrictMode),
     {Topic, Rest1} = parse_utf8_string(Rest, StrictMode),
     {Payload, Rest2} = parse_binary_data(Rest1),
-    ok = ensure_topic_name_valid(StrictMode, Topic, Props),
     {Packet#mqtt_packet_connect{will_props   = Props,
                                 will_topic   = Topic,
                                 will_payload = Payload
@@ -525,15 +523,6 @@ parse_binary_data(<<Len:16/big, Rest/binary>>)
 parse_binary_data(Bin)
   when 2 > byte_size(Bin) ->
     error(malformed_binary_data_length).
-
-ensure_topic_name_valid(false, _TopicName, _Properties) ->
-    ok;
-ensure_topic_name_valid(true, TopicName, _Properties) when TopicName =/= <<>> ->
-    ok;
-ensure_topic_name_valid(true, <<>>, #{'Topic-Alias' := _}) ->
-    ok;
-ensure_topic_name_valid(true, <<>>, _) ->
-    error(empty_topic_name).
 
 %%--------------------------------------------------------------------
 %% Serialize MQTT Packet

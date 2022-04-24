@@ -1,5 +1,5 @@
 %%--------------------------------------------------------------------
-%% Copyright (c) 2020-2021 EMQ Technologies Co., Ltd. All Rights Reserved.
+%% Copyright (c) 2020-2022 EMQ Technologies Co., Ltd. All Rights Reserved.
 %%
 %% Licensed under the Apache License, Version 2.0 (the "License");
 %% you may not use this file except in compliance with the License.
@@ -71,6 +71,7 @@ translate_env(EnvName) ->
                                      end,
                             SNI = case application:get_env(?APP, server_name_indication, undefined) of
                                     "disable" -> disable;
+                                    "" -> undefined;
                                     SNI0 -> SNI0
                                   end,
                             TLSOpts = lists:filter(

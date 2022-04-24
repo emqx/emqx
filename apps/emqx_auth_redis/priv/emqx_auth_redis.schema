@@ -98,6 +98,7 @@
                      end,
            SNI = case cuttlefish:conf_get("auth.redis.ssl.server_name_indication", Conf, undefined) of
                    "disable" -> disable;
+                   "" -> undefined;
                    SNI0 -> SNI0
                  end,
            [{options, [{ssl_options,

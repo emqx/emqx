@@ -8,8 +8,10 @@
 :: * restart - run the stop command and start command
 :: * uninstall - uninstall the service and kill a running node
 :: * ping - check if the node is running
+:: * ctl - run management commands
 :: * console - start the Erlang release in a `werl` Windows shell
 :: * attach - connect to a running node and open an interactive console
+:: * remote_console - same as attach
 :: * list - display a listing of installed Erlang services
 :: * usage - display available commands
 
@@ -23,6 +25,9 @@
 @set "CUTTLEFISH_ENV_OVERRIDE_PREFIX=EMQX_"
 
 @set script=%~n0
+
+@set EPMD_ARG=-start_epmd false -epmd_module ekka_epmd -proto_dist ekka
+@set ERL_FLAGS=%EPMD_ARG%
 
 :: Discover the release root directory from the directory
 :: of this script
@@ -46,7 +51,7 @@
 @set service_name=%rel_name%_%rel_vsn%
 @set bindir=%erts_dir%\bin
 @set progname=erl.exe
-@set clean_boot_script=%rel_root_dir%\bin\start_clean
+@set clean_boot_script=%rel_dir%\start_clean
 @set erlsrv="%bindir%\erlsrv.exe"
 @set epmd="%bindir%\epmd.exe"
 @set escript="%bindir%\escript.exe"
@@ -83,8 +88,10 @@
 ::@if "%1"=="downgrade" @goto relup
 @if "%1"=="console" @goto console
 @if "%1"=="ping" @goto ping
+@if "%1"=="ctl" @goto ctl
 @if "%1"=="list" @goto list
 @if "%1"=="attach" @goto attach
+@if "%1"=="remote_console" @goto attach
 @if "%1"=="" @goto usage
 @echo Unknown command: "%1"
 
@@ -239,13 +246,19 @@ cd /d %rel_root_dir%
 @echo off
 cd /d %rel_root_dir%
 @echo on
-@start "bin\%rel_name% console" %werl% -boot "%boot_script%" %args%
+%erl_exe% -boot "%boot_script%" %args%
 @echo emqx is started!
 @goto :eof
 
 :: Ping the running node
 :ping
 @%escript% %nodetool% ping %node_type% "%node_name%" -setcookie "%node_cookie%"
+@goto :eof
+
+:: ctl to execute management commands
+:ctl
+@for /f "usebackq tokens=1*" %%i in (`echo %*`) DO @ set params=%%j
+@%escript% %nodetool% %node_type% "%node_name%" -setcookie "%node_cookie%" rpc_infinity emqx_ctl run_command %params%
 @goto :eof
 
 :: List installed Erlang services
@@ -255,9 +268,8 @@ cd /d %rel_root_dir%
 
 :: Attach to a running node
 :attach
-:: @start "%node_name% attach" 
-@start "%node_name% attach" %werl% -boot "%clean_boot_script%" ^
-  -remsh %node_name% %node_type% console_%node_name% -setcookie %node_cookie%
+:: @start "%node_name% attach"
+%erl_exe% -boot "%clean_boot_script%" -remsh %node_name% %node_type% remsh_%node_name% -setcookie %node_cookie%
 @goto :eof
 
 :: Trim variable

@@ -1,5 +1,5 @@
 %%--------------------------------------------------------------------
-%% Copyright (c) 2020-2021 EMQ Technologies Co., Ltd. All Rights Reserved.
+%% Copyright (c) 2020-2022 EMQ Technologies Co., Ltd. All Rights Reserved.
 %%
 %% Licensed under the Apache License, Version 2.0 (the "License");
 %% you may not use this file except in compliance with the License.
@@ -631,6 +631,17 @@ t_zip_funcs(_) ->
 prop_zip_fun() ->
     ?FORALL(S, binary(),
             S == apply_func(unzip, [apply_func(zip, [S])])).
+
+%%------------------------------------------------------------------------------
+%% Test cases for zip funcs
+%%------------------------------------------------------------------------------
+
+t_zip_compress_funcs(_) ->
+    ?PROPTEST(prop_zip_compress_fun).
+
+prop_zip_compress_fun() ->
+    ?FORALL(S, binary(),
+            S == apply_func(zip_uncompress, [apply_func(zip_compress, [S])])).
 
 %%------------------------------------------------------------------------------
 %% Test cases for base64

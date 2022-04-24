@@ -5,6 +5,9 @@ latest_release=$(git describe --abbrev=0 --tags --exclude '*rc*' --exclude '*alp
 
 bad_app_count=0
 
+no_comment_re='(^[^\s?%])'
+## TODO: c source code comments re (in $app_path/c_src dirs)
+
 while read -r app; do
     if [ "$app" != "emqx" ]; then
         app_path="$app"
@@ -15,11 +18,12 @@ while read -r app; do
     old_app_version="$(git show "$latest_release":"$src_file" | grep vsn | grep -oE '"[0-9]+.[0-9]+.[0-9]+"' | tr -d '"')"
     now_app_version=$(grep -E 'vsn' "$src_file" | grep -oE '"[0-9]+\.[0-9]+\.[0-9]+"' | tr -d '"')
     if [ "$old_app_version" = "$now_app_version" ]; then
-        changed="$(git diff --name-only "$latest_release"...HEAD \
-                    -- "$app_path/src" \
-                    -- "$app_path/priv" \
-                    -- "$app_path/c_src" | { grep -v -E 'appup\.src' || true; } | wc -l)"
-        if [ "$changed" -gt 0 ]; then
+        changed_lines="$(git diff "$latest_release"...HEAD --ignore-blank-lines -G "$no_comment_re" \
+                             -- "$app_path/src" \
+                             -- ":(exclude)"$app_path/src/*.appup.src"" \
+                             -- "$app_path/priv" \
+                             -- "$app_path/c_src" | wc -l ) "
+        if [ "$changed_lines" -gt 0 ]; then
             echo "$src_file needs a vsn bump"
             bad_app_count=$(( bad_app_count + 1))
         elif [[ ${app_path} = *emqx_dashboard* ]]; then

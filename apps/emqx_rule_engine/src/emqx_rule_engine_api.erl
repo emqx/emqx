@@ -1,5 +1,5 @@
 %%--------------------------------------------------------------------
-%% Copyright (c) 2020-2021 EMQ Technologies Co., Ltd. All Rights Reserved.
+%% Copyright (c) 2020-2022 EMQ Technologies Co., Ltd. All Rights Reserved.
 %%
 %% Licensed under the Apache License, Version 2.0 (the "License");
 %% you may not use this file except in compliance with the License.
@@ -222,14 +222,24 @@ test_rule_sql(Params) ->
 do_create_rule(Params) ->
     case parse_rule_params(Params) of
         {ok, ParsedParams} ->
-            case emqx_rule_engine:create_rule(ParsedParams) of
-                {ok, Rule} -> return({ok, record_to_map(Rule)});
-                {error, {action_not_found, ActionName}} ->
-                    return({error, 400, ?ERR_NO_ACTION(ActionName)});
-                {error, Reason} ->
-                    ?LOG(error, "~p failed: ~0p", [?FUNCTION_NAME, Reason]),
-                    return({error, 400, ?ERR_BADARGS(Reason)})
+            case maps:find(id, ParsedParams) of
+                {ok, RuleId} ->
+                    case emqx_rule_registry:get_rule(RuleId) of
+                        {ok, _} -> return({error, 400, <<"Already Exists">>});
+                        not_found -> do_create_rule2(ParsedParams)
+                    end;
+                error -> do_create_rule2(ParsedParams)
             end;
+        {error, Reason} ->
+            ?LOG(error, "~p failed: ~0p", [?FUNCTION_NAME, Reason]),
+            return({error, 400, ?ERR_BADARGS(Reason)})
+    end.
+
+do_create_rule2(ParsedParams) ->
+    case emqx_rule_engine:create_rule(ParsedParams) of
+        {ok, Rule} -> return({ok, record_to_map(Rule)});
+        {error, {action_not_found, ActionName}} ->
+            return({error, 400, ?ERR_NO_ACTION(ActionName)});
         {error, Reason} ->
             ?LOG(error, "~p failed: ~0p", [?FUNCTION_NAME, Reason]),
             return({error, 400, ?ERR_BADARGS(Reason)})

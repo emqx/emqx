@@ -1,5 +1,5 @@
 %%--------------------------------------------------------------------
-%% Copyright (c) 2017-2021 EMQ Technologies Co., Ltd. All Rights Reserved.
+%% Copyright (c) 2017-2022 EMQ Technologies Co., Ltd. All Rights Reserved.
 %%
 %% Licensed under the Apache License, Version 2.0 (the "License");
 %% you may not use this file except in compliance with the License.
@@ -19,6 +19,7 @@
 %% APIs
 -export([ match/3
         , compile/1
+        , feed_var/2
         ]).
 
 -export_type([rule/0]).
@@ -158,4 +159,3 @@ feed_var(ClientInfo = #{username := Username}, [<<"%u">>|Words], Acc) ->
     feed_var(ClientInfo, Words, [Username|Acc]);
 feed_var(ClientInfo, [W|Words], Acc) ->
     feed_var(ClientInfo, Words, [W|Acc]).
-

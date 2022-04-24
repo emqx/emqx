@@ -1,5 +1,5 @@
 %%--------------------------------------------------------------------
-%% Copyright (c) 2020-2021 EMQ Technologies Co., Ltd. All Rights Reserved.
+%% Copyright (c) 2020-2022 EMQ Technologies Co., Ltd. All Rights Reserved.
 %%
 %% Licensed under the Apache License, Version 2.0 (the "License");
 %% you may not use this file except in compliance with the License.
@@ -44,8 +44,6 @@ do_nested_get([], Val, _OrgData, _Default) ->
 nested_put(Key, Val, Data) when not is_map(Data),
                                 not is_list(Data) ->
     nested_put(Key, Val, #{});
-nested_put(_, undefined, Map) ->
-    Map;
 nested_put({var, Key}, Val, Map) ->
     general_map_put({key, Key}, Val, Map, Map);
 nested_put({path, Path}, Val, Map) when is_list(Path) ->
@@ -65,8 +63,6 @@ general_map_get(Key, Map, OrgData, Default) ->
             (not_found) -> Default
         end).
 
-general_map_put(_Key, undefined, Map, _OrgData) ->
-    Map;
 general_map_put(Key, Val, Map, OrgData) ->
     general_find(Key, Map, OrgData,
         fun
