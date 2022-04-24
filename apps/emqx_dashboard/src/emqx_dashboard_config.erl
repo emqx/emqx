@@ -19,7 +19,38 @@
 
 %% API
 -export([add_handler/0, remove_handler/0]).
--export([post_config_update/5]).
+-export([pre_config_update/3, post_config_update/5]).
+
+-behaviour(gen_server).
+
+-export([start_link/0]).
+
+-export([init/1, handle_call/3, handle_cast/2, handle_info/2, terminate/2, code_change/3]).
+
+start_link() ->
+    gen_server:start_link({local, ?MODULE}, ?MODULE, [], []).
+
+init([]) ->
+    {ok, #{}, hibernate}.
+
+handle_call(_Request, _From, State) ->
+    {reply, ok, State}.
+
+handle_cast(_Request, State) ->
+    {noreply, State}.
+
+handle_info({update_listeners, OldListeners, NewListeners}, State) ->
+    ok = emqx_dashboard:stop_listeners(OldListeners),
+    ok = emqx_dashboard:start_listeners(NewListeners),
+    {noreply, State};
+handle_info(_Info, State) ->
+    {noreply, State}.
+
+terminate(_Reason, _State) ->
+    ok.
+
+code_change(_OldVsn, State, _Extra) ->
+    {ok, State}.
 
 add_handler() ->
     Roots = emqx_dashboard_schema:roots(),
@@ -31,13 +62,22 @@ remove_handler() ->
     ok = emqx_config_handler:remove_handler(Roots),
     ok.
 
+pre_config_update(_Path, UpdateConf0, RawConf) ->
+    UpdateConf =
+        case UpdateConf0 of
+            #{<<"default_password">> := <<"******">>} ->
+                maps:remove(<<"default_password">>, UpdateConf0);
+            _ ->
+                UpdateConf0
+        end,
+    NewConf = emqx_map_lib:deep_merge(RawConf, UpdateConf),
+    {ok, NewConf}.
+
 post_config_update(_, _Req, NewConf, OldConf, _AppEnvs) ->
     #{listeners := NewListeners} = NewConf,
     #{listeners := OldListeners} = OldConf,
     case NewListeners =:= OldListeners of
         true -> ok;
-        false ->
-            ok = emqx_dashboard:stop_listeners(OldListeners),
-            ok = emqx_dashboard:start_listeners(NewListeners)
+        false -> erlang:send_after(500, ?MODULE, {update_listeners, OldListeners, NewListeners})
     end,
     ok.
