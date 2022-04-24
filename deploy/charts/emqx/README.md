@@ -70,18 +70,21 @@ Parameter  | Description | Default Value
 `ingress.dashboard.enabled` |	Enable ingress for EMQX Dashboard |	false
 `ingress.dashboard.ingressClassName` |	Set the ingress class for EMQX Dashboard
 `ingress.dashboard.path` | Ingress path for EMQX Dashboard |	`/`
+`ingress.dashboard.pathType` | Ingress pathType for EMQX Dashboard |	`ImplementationSpecific`
 `ingress.dashboard.hosts` | Ingress hosts for EMQX Mgmt API |	dashboard.emqx.local
 `ingress.dashboard.tls` | Ingress tls for EMQX Mgmt API |	`[]`
 `ingress.dashboard.annotations` | Ingress annotations for EMQX Mgmt API |	`{}`
 `ingress.mgmt.enabled` |	Enable ingress for EMQX Mgmt API |	`false`
 `ingress.mqtt.ingressClassName` |	Set the ingress class for EMQX Mgmt API | `nil`
 `ingress.mgmt.path` | Ingress path for EMQX Mgmt API | `/`
+`ingress.mgmt.pathType` | Ingress pathType for EMQX Mgmt API |	`ImplementationSpecific`
 `ingress.mgmt.hosts` | Ingress hosts for EMQX Mgmt API |	`api.emqx.local`
 `ingress.mgmt.tls` | Ingress tls for EMQX Mgmt API |	`[]`
 `ingress.mgmt.annotations` | Ingress annotations for EMQX Mgmt API |	`{}`
 `ingress.wss.enabled` |	Enable ingress for EMQX Mgmt API |	`false`
 `ingress.wss.ingressClassName` |	Set the ingress class for EMQX Mgmt API | `nil`
 `ingress.wss.path` | Ingress path for EMQX WSS |	`/`
+`ingress.wss.pathType` | Ingress pathType for EMQX WSS |	`ImplementationSpecific`
 `ingress.wss.hosts` | Ingress hosts for EMQX WSS |    `wss.emqx.local`
 `ingress.wss.tls` | Ingress tls for EMQX WSS |	`[]`
 `ingress.wss.annotations` | Ingress annotations for EMQX WSS |	`{}`
@@ -122,6 +125,7 @@ ingress:
       nginx.ingress.kubernetes.io/use-proxy-protocol: "false"
       nginx.ingress.kubernetes.io/proxy-protocol-header-timeout: "5s"
     path: /mqtt
+    pathType: ImplementationSpecific
     hosts:
     - myhost.example.com
     tls:
