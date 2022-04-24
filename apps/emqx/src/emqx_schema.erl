@@ -841,30 +841,30 @@ fields("mqtt_quic_listener") ->
         {"enabled",
             sc(
                 boolean(),
-                #{ default => true
-                 , desc => ?DESC(fields_mqtt_quic_listener_enabled)
-                 }
+                #{
+                    default => true,
+                    desc => ?DESC(fields_mqtt_quic_listener_enabled)
+                }
             )},
         %% TODO: ensure cacertfile is configurable
         {"certfile",
             sc(
                 string(),
-                #{ desc => ?DESC(fields_mqtt_quic_listener_certfile)
-                 }
+                #{desc => ?DESC(fields_mqtt_quic_listener_certfile)}
             )},
         {"keyfile",
             sc(
                 string(),
-                #{ desc => ?DESC(fields_mqtt_quic_listener_keyfile)
-                 }
+                #{desc => ?DESC(fields_mqtt_quic_listener_keyfile)}
             )},
         {"ciphers", ciphers_schema(quic)},
         {"idle_timeout",
             sc(
                 duration(),
-                #{ default => "15s"
-                 , desc => ?DESC(fields_mqtt_quic_listener_idle_timeout)
-                 }
+                #{
+                    default => "15s",
+                    desc => ?DESC(fields_mqtt_quic_listener_idle_timeout)
+                }
             )}
     ] ++ base_listener();
 fields("ws_opts") ->
@@ -1008,20 +1008,17 @@ fields("tcp_opts") ->
         {"recbuf",
             sc(
                 bytesize(),
-                #{ desc => ?DESC(fields_tcp_opts_recbuf)
-                 }
+                #{desc => ?DESC(fields_tcp_opts_recbuf)}
             )},
         {"sndbuf",
             sc(
                 bytesize(),
-                #{ desc => ?DESC(fields_tcp_opts_sndbuf)
-                 }
+                #{desc => ?DESC(fields_tcp_opts_sndbuf)}
             )},
         {"buffer",
             sc(
                 bytesize(),
-                #{ desc => ?DESC(fields_tcp_opts_buffer)
-                 }
+                #{desc => ?DESC(fields_tcp_opts_buffer)}
             )},
         {"high_watermark",
             sc(
@@ -1075,8 +1072,7 @@ fields("deflate_opts") ->
         {"level",
             sc(
                 hoconsc:enum([none, default, best_compression, best_speed]),
-                #{ desc => ?DESC(fields_deflate_opts_level)
-                 }
+                #{desc => ?DESC(fields_deflate_opts_level)}
             )},
         {"mem_level",
             sc(
@@ -1089,8 +1085,7 @@ fields("deflate_opts") ->
         {"strategy",
             sc(
                 hoconsc:enum([default, filtered, huffman_only, rle]),
-                #{ desc => ?DESC(fields_deflate_opts_strategy)
-                 }
+                #{desc => ?DESC(fields_deflate_opts_strategy)}
             )},
         {"server_context_takeover",
             sc(
@@ -1954,7 +1949,8 @@ ciphers_schema(Default) ->
                     true -> undefined;
                     false -> fun validate_ciphers/1
                 end,
-            desc_id => "ciphers_schema_" ++ case Default of
+            desc_id => "ciphers_schema_" ++
+                case Default of
                     quic -> "quic";
                     _ -> "0"
                 end,
