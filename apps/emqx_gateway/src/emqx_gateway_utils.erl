@@ -188,7 +188,7 @@ start_listener(
             {ok, {ListenerId, ListenOn, Pid}};
         {error, Reason} ->
             ?ELOG(
-                "Failed to start gateway ~ts:~ts:~ts on ~ts: ~0p~n",
+                "Gateway failed to start ~ts:~ts:~ts on ~ts: ~0p~n",
                 [GwName, Type, LisName, ListenOnStr, Reason]
             ),
             emqx_gateway_utils:supervisor_ret({error, Reason})
