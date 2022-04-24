@@ -19,8 +19,15 @@
 -compile(export_all).
 -compile(nowarn_export_all).
 
+-include("emqx_exhook.hrl").
+
 -include_lib("eunit/include/eunit.hrl").
 -include_lib("common_test/include/ct.hrl").
+
+-define(DEFAULT_CLUSTER_NAME_ATOM, emqxcl).
+
+-define(OTHER_CLUSTER_NAME_ATOM, test_emqx_cluster).
+-define(OTHER_CLUSTER_NAME_STRING, "test_emqx_cluster").
 -define(CLUSTER_RPC_SHARD, emqx_cluster_rpc_shard).
 
 -define(CONF_DEFAULT, <<
@@ -54,6 +61,7 @@ all() -> emqx_common_test_helpers:all(?MODULE).
 init_per_suite(Cfg) ->
     application:load(emqx_conf),
     ok = ekka:start(),
+    application:set_env(ekka, cluster_name, ?DEFAULT_CLUSTER_NAME_ATOM),
     ok = mria_rlog:wait_for_shards([?CLUSTER_RPC_SHARD], infinity),
     meck:new(emqx_alarm, [non_strict, passthrough, no_link]),
     meck:expect(emqx_alarm, activate, 3, ok),
@@ -65,6 +73,7 @@ init_per_suite(Cfg) ->
     Cfg.
 
 end_per_suite(_Cfg) ->
+    application:set_env(ekka, cluster_name, ?DEFAULT_CLUSTER_NAME_ATOM),
     ekka:stop(),
     mria:stop(),
     mria_mnesia:delete_schema(),
@@ -95,7 +104,7 @@ load_cfg(Cfg) ->
 %% Test cases
 %%--------------------------------------------------------------------
 
-t_access_failed_if_no_server_running(_) ->
+t_access_failed_if_no_server_running(Config) ->
     emqx_exhook_mgr:disable(<<"default">>),
     ClientInfo = #{
         clientid => <<"user-id-1">>,
@@ -120,7 +129,8 @@ t_access_failed_if_no_server_running(_) ->
         {stop, Message},
         emqx_exhook_handler:on_message_publish(Message)
     ),
-    emqx_exhook_mgr:enable(<<"default">>).
+    emqx_exhook_mgr:enable(<<"default">>),
+    assert_get_basic_usage_info(Config).
 
 t_lookup(_) ->
     Result = emqx_exhook_mgr:lookup(<<"default">>),
@@ -250,7 +260,36 @@ t_misc_test(_) ->
     _ = emqx_exhook_server:format(#{name => <<"test">>, hookspec => #{}}),
     ok.
 
-t_get_basic_usage_info(_Config) ->
+t_cluster_name(_) ->
+    SetEnvFun =
+        fun
+            (emqx) ->
+                application:set_env(ekka, cluster_name, ?OTHER_CLUSTER_NAME_ATOM);
+            (emqx_exhook) ->
+                ok
+        end,
+
+    emqx_common_test_helpers:stop_apps([emqx, emqx_exhook]),
+    emqx_common_test_helpers:start_apps([emqx, emqx_exhook], SetEnvFun),
+
+    ?assertEqual(?OTHER_CLUSTER_NAME_STRING, emqx_sys:cluster_name()),
+
+    emqx_exhook_mgr:disable(<<"default">>),
+    emqx_exhook_mgr:enable(<<"default">>),
+    %% See emqx_exhook_demo_svr:on_provider_loaded/2
+    ?assertEqual([], emqx_hooks:lookup('session.created')),
+    ?assertEqual([], emqx_hooks:lookup('message_publish')),
+    ?assertEqual(
+        true,
+        erlang:length(emqx_hooks:lookup('client.connected')) > 1
+    ),
+    emqx_exhook_mgr:disable(<<"default">>).
+
+%%--------------------------------------------------------------------
+%% Cases Helpers
+%%--------------------------------------------------------------------
+
+assert_get_basic_usage_info(_Config) ->
     #{
         num_servers := NumServers,
         servers := Servers

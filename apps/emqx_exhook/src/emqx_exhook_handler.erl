@@ -57,7 +57,8 @@
     merge_responsed_bool/2,
     merge_responsed_message/2,
     assign_to_message/2,
-    clientinfo/1
+    clientinfo/1,
+    request_meta/0
 ]).
 
 -import(
@@ -455,3 +456,11 @@ merge_responsed_message(_Req, Resp) ->
 
 ret('CONTINUE') -> ok;
 ret('STOP_AND_RETURN') -> stop.
+
+request_meta() ->
+    #{
+        node => stringfy(node()),
+        version => emqx_sys:version(),
+        sysdescr => emqx_sys:sysdescr(),
+        cluster_name => emqx_sys:cluster_name()
+    }.

@@ -16,7 +16,7 @@
 
 -module(emqx_exhook_demo_svr).
 
--behaviour(emqx_exhook_v_1_hook_provider_bhvr).
+-behaviour(emqx_exhook_v_2_hook_provider_bhvr).
 
 %%
 -export([
@@ -55,6 +55,8 @@
 
 -define(PORT, 9000).
 -define(NAME, ?MODULE).
+-define(DEFAULT_CLUSTER_NAME, <<"emqxcl">>).
+-define(OTHER_CLUSTER_NAME_BIN, <<"test_emqx_cluster">>).
 
 %%--------------------------------------------------------------------
 %% Server APIs
@@ -89,7 +91,7 @@ mgr_main(Name, Port) ->
     application:ensure_all_started(grpc),
     Services = #{
         protos => [emqx_exhook_pb],
-        services => #{'emqx.exhook.v1.HookProvider' => emqx_exhook_demo_svr}
+        services => #{'emqx.exhook.v2.HookProvider' => emqx_exhook_demo_svr}
     },
     Options = [],
     Svr = grpc:start_server(Name, Port, Services, Options),
@@ -134,34 +136,43 @@ to_atom_name(Name) ->
     {ok, emqx_exhook_pb:loaded_response(), grpc:metadata()}
     | {error, grpc_cowboy_h:error_response()}.
 
-on_provider_loaded(Req, Md) ->
+on_provider_loaded(#{meta := #{cluster_name := Name}} = Req, Md) ->
     ?MODULE:in({?FUNCTION_NAME, Req}),
-    %io:format("fun: ~p, req: ~0p~n", [?FUNCTION_NAME, Req]),
-    {ok,
-        #{
-            hooks => [
-                #{name => <<"client.connect">>},
-                #{name => <<"client.connack">>},
-                #{name => <<"client.connected">>},
-                #{name => <<"client.disconnected">>},
-                #{name => <<"client.authenticate">>},
-                #{name => <<"client.authorize">>},
-                #{name => <<"client.subscribe">>},
-                #{name => <<"client.unsubscribe">>},
-                #{name => <<"session.created">>},
-                #{name => <<"session.subscribed">>},
-                #{name => <<"session.unsubscribed">>},
-                #{name => <<"session.resumed">>},
-                #{name => <<"session.discarded">>},
-                #{name => <<"session.takenover">>},
-                #{name => <<"session.terminated">>},
-                #{name => <<"message.publish">>},
-                #{name => <<"message.delivered">>},
-                #{name => <<"message.acked">>},
-                #{name => <<"message.dropped">>}
-            ]
-        },
-        Md}.
+    %% io:format("fun: ~p, req: ~0p~n", [?FUNCTION_NAME, Req]),
+    HooksClient =
+        [
+            #{name => <<"client.connect">>},
+            #{name => <<"client.connack">>},
+            #{name => <<"client.connected">>},
+            #{name => <<"client.disconnected">>},
+            #{name => <<"client.authenticate">>},
+            #{name => <<"client.authorize">>},
+            #{name => <<"client.subscribe">>},
+            #{name => <<"client.unsubscribe">>}
+        ],
+    HooksSession =
+        [
+            #{name => <<"session.created">>},
+            #{name => <<"session.subscribed">>},
+            #{name => <<"session.unsubscribed">>},
+            #{name => <<"session.resumed">>},
+            #{name => <<"session.discarded">>},
+            #{name => <<"session.takenover">>},
+            #{name => <<"session.terminated">>}
+        ],
+    HooksMessage =
+        [
+            #{name => <<"message.publish">>},
+            #{name => <<"message.delivered">>},
+            #{name => <<"message.acked">>},
+            #{name => <<"message.dropped">>}
+        ],
+    case Name of
+        ?DEFAULT_CLUSTER_NAME ->
+            {ok, #{hooks => HooksClient ++ HooksSession ++ HooksMessage}, Md};
+        ?OTHER_CLUSTER_NAME_BIN ->
+            {ok, #{hooks => HooksClient}, Md}
+    end.
 -spec on_provider_unloaded(emqx_exhook_pb:provider_unloaded_request(), grpc:metadata()) ->
     {ok, emqx_exhook_pb:empty_success(), grpc:metadata()}
     | {error, grpc_cowboy_h:error_response()}.

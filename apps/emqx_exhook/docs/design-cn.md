@@ -50,7 +50,7 @@
 ```protobuff
 syntax = "proto3";
 
-package emqx.exhook.v1;
+package emqx.exhook.v2;
 
 service HookProvider {
 

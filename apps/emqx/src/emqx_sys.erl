@@ -29,6 +29,7 @@
 
 -export([
     version/0,
+    cluster_name/0,
     uptime/0,
     datetime/0,
     sysdescr/0
@@ -100,6 +101,10 @@ stop() ->
 %% @doc Get sys version
 -spec version() -> string().
 version() -> emqx_app:get_release().
+
+%% @doc Get cluster name
+-spec cluster_name() -> string().
+cluster_name() -> atom_to_list(ekka:cluster_name()).
 
 %% @doc Get sys description
 -spec sysdescr() -> string().

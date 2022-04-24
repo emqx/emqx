@@ -16,13 +16,15 @@
 
 syntax = "proto3";
 
-option csharp_namespace = "Emqx.Exhook.V1";
+option csharp_namespace = "Emqx.Exhook.V2";
 option go_package = "emqx.io/grpc/exhook";
 option java_multiple_files = true;
 option java_package = "io.emqx.exhook";
 option java_outer_classname = "EmqxExHookProto";
 
-package emqx.exhook.v1;
+// The exhook proto version should be fixed as `v2` in EMQX v5.x
+// to make sure the exhook proto version is compatible
+package emqx.exhook.v2;
 
 service HookProvider {
 
@@ -70,20 +72,20 @@ service HookProvider {
 }
 
 //------------------------------------------------------------------------------
-// Request & Response
+// Request
 //------------------------------------------------------------------------------
 
 message ProviderLoadedRequest {
 
   BrokerInfo broker = 1;
+
+  RequestMeta meta = 2;
 }
 
-message LoadedResponse {
+message ProviderUnloadedRequest {
 
-  repeated HookSpec hooks = 1;
+  RequestMeta meta = 1;
 }
-
-message ProviderUnloadedRequest { }
 
 message ClientConnectRequest {
 
@@ -93,6 +95,8 @@ message ClientConnectRequest {
   //
   // It should be empty on MQTT v3.1.1/v3.1 or others protocol
   repeated Property props = 2;
+
+  RequestMeta meta = 3;
 }
 
 message ClientConnackRequest {
@@ -102,11 +106,15 @@ message ClientConnackRequest {
   string result_code = 2;
 
   repeated Property props = 3;
+
+  RequestMeta meta = 4;
 }
 
 message ClientConnectedRequest {
 
   ClientInfo clientinfo = 1;
+
+  RequestMeta meta = 2;
 }
 
 message ClientDisconnectedRequest {
@@ -114,6 +122,8 @@ message ClientDisconnectedRequest {
   ClientInfo clientinfo = 1;
 
   string reason = 2;
+
+  RequestMeta meta = 3;
 }
 
 message ClientAuthenticateRequest {
@@ -121,6 +131,8 @@ message ClientAuthenticateRequest {
   ClientInfo clientinfo = 1;
 
   bool result = 2;
+
+  RequestMeta meta = 3;
 }
 
 message ClientAuthorizeRequest {
@@ -139,6 +151,8 @@ message ClientAuthorizeRequest {
   string topic = 3;
 
   bool result = 4;
+
+  RequestMeta meta = 5;
 }
 
 message ClientSubscribeRequest {
@@ -148,6 +162,8 @@ message ClientSubscribeRequest {
   repeated Property props = 2;
 
   repeated TopicFilter topic_filters = 3;
+
+  RequestMeta meta = 4;
 }
 
 message ClientUnsubscribeRequest {
@@ -157,11 +173,15 @@ message ClientUnsubscribeRequest {
   repeated Property props = 2;
 
   repeated TopicFilter topic_filters = 3;
+
+  RequestMeta meta = 4;
 }
 
 message SessionCreatedRequest {
 
   ClientInfo clientinfo = 1;
+
+  RequestMeta meta = 2;
 }
 
 message SessionSubscribedRequest {
@@ -171,6 +191,8 @@ message SessionSubscribedRequest {
   string topic = 2;
 
   SubOpts subopts = 3;
+
+  RequestMeta meta = 4;
 }
 
 message SessionUnsubscribedRequest {
@@ -178,21 +200,29 @@ message SessionUnsubscribedRequest {
   ClientInfo clientinfo = 1;
 
   string topic = 2;
+
+  RequestMeta meta = 3;
 }
 
 message SessionResumedRequest {
 
   ClientInfo clientinfo = 1;
+
+  RequestMeta meta = 2;
 }
 
 message SessionDiscardedRequest {
 
   ClientInfo clientinfo = 1;
+
+  RequestMeta meta = 2;
 }
 
 message SessionTakenoverRequest {
 
   ClientInfo clientinfo = 1;
+
+  RequestMeta meta = 2;
 }
 
 message SessionTerminatedRequest {
@@ -200,11 +230,15 @@ message SessionTerminatedRequest {
   ClientInfo clientinfo = 1;
 
   string reason = 2;
+
+  RequestMeta meta = 3;
 }
 
 message MessagePublishRequest {
 
   Message message = 1;
+
+  RequestMeta meta = 2;
 }
 
 message MessageDeliveredRequest {
@@ -212,6 +246,8 @@ message MessageDeliveredRequest {
   ClientInfo clientinfo = 1;
 
   Message message = 2;
+
+  RequestMeta meta = 3;
 }
 
 message MessageDroppedRequest {
@@ -219,6 +255,8 @@ message MessageDroppedRequest {
   Message message = 1;
 
   string reason = 2;
+
+  RequestMeta meta = 3;
 }
 
 message MessageAckedRequest {
@@ -226,13 +264,22 @@ message MessageAckedRequest {
   ClientInfo clientinfo = 1;
 
   Message message = 2;
+
+  RequestMeta meta = 3;
 }
 
 //------------------------------------------------------------------------------
-// Basic data types
+// Response
 //------------------------------------------------------------------------------
 
-message EmptySuccess { }
+// Responsed by `ProviderLoadedRequest`
+
+message LoadedResponse {
+
+  repeated HookSpec hooks = 1;
+}
+
+// Responsed by `ClientAuthenticateRequest` `ClientAuthorizeRequest` `MessagePublishRequest`
 
 message ValuedResponse {
 
@@ -261,6 +308,14 @@ message ValuedResponse {
   }
 }
 
+// no Response by other Requests
+
+message EmptySuccess { }
+
+//------------------------------------------------------------------------------
+// Basic data types
+//------------------------------------------------------------------------------
+
 message BrokerInfo {
 
   string version = 1;
@@ -271,6 +326,7 @@ message BrokerInfo {
 
   string datetime = 4;
 }
+
 
 message HookSpec {
 
@@ -429,4 +485,15 @@ message SubOpts {
   // If the value is 1, Application Messages MUST NOT be forwarded to a
   // connection with a ClientID equal to the ClientID of the publishing
   uint32 nl = 5;
+}
+
+message RequestMeta {
+
+  string node = 1;
+
+  string version = 2;
+
+  string sysdescr = 3;
+
+  string cluster_name = 4;
 }
