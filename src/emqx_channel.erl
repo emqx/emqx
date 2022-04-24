@@ -1509,8 +1509,11 @@ init_alias_maximum(_ConnPkt, _ClientInfo) -> undefined.
 %%--------------------------------------------------------------------
 %% Ensure Keepalive
 
-ensure_keepalive(#{'Server-Keep-Alive' := Interval}, Channel) ->
-    ensure_keepalive_timer(Interval, Channel);
+%% MQTT 5
+ensure_keepalive(#{'Server-Keep-Alive' := Interval}, Channel = #channel{conninfo = ConnInfo}) ->
+    ensure_keepalive_timer(Interval, Channel#channel{conninfo = ConnInfo#{keepalive => Interval}});
+
+%% MQTT 3,4
 ensure_keepalive(_AckProps, Channel = #channel{conninfo = ConnInfo}) ->
     ensure_keepalive_timer(maps:get(keepalive, ConnInfo), Channel).
 
