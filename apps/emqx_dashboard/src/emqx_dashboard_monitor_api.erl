@@ -110,8 +110,9 @@ fields(sampler) ->
     [{time_stamp, hoconsc:mk(non_neg_integer(), #{desc => <<"Timestamp">>})} | Samplers];
 
 fields(sampler_current) ->
+    Names = maps:values(?DELTA_SAMPLER_RATE_MAP) ++ ?GAUGE_SAMPLER_LIST,
     [{SamplerName, hoconsc:mk(integer(), #{desc => swagger_desc(SamplerName)})}
-    || SamplerName <- maps:values(?DELTA_SAMPLER_RATE_MAP) ++ ?GAUGE_SAMPLER_LIST].
+    || SamplerName <- Names].
 
 %% -------------------------------------------------------------------------------------------------
 %% API
@@ -155,11 +156,11 @@ swagger_desc(connections) ->
     <<"Connections at the time of sampling."
     " Can only represent the approximate state">>;
 
-swagger_desc(received_rate)       -> swagger_desc_format("Dropped messages ", per);
-swagger_desc(received_bytes_rate) -> swagger_desc_format("Received bytes ", per);
-swagger_desc(sent_rate)           -> swagger_desc_format("Sent messages ", per);
-swagger_desc(sent_bytes_rate)     -> swagger_desc_format("Sent bytes ", per);
-swagger_desc(dropped_rate)        -> swagger_desc_format("Dropped messages ", per).
+swagger_desc(received_msg_rate)   -> swagger_desc_format("Dropped messages ", per);
+%swagger_desc(received_bytes_rate) -> swagger_desc_format("Received bytes ", per);
+swagger_desc(sent_msg_rate)       -> swagger_desc_format("Sent messages ", per);
+%swagger_desc(sent_bytes_rate)     -> swagger_desc_format("Sent bytes ", per);
+swagger_desc(dropped_msg_rate)    -> swagger_desc_format("Dropped messages ", per).
 
 swagger_desc_format(Format) ->
     swagger_desc_format(Format, last).

@@ -51,9 +51,9 @@
 
 -define(DELTA_SAMPLER_LIST,
     [ received
-    , received_bytes
+    %, received_bytes
     , sent
-    , sent_bytes
+    %, sent_bytes
     , dropped
     ]).
 
@@ -66,9 +66,10 @@
 -define(SAMPLER_LIST, ?GAUGE_SAMPLER_LIST ++ ?DELTA_SAMPLER_LIST).
 
 -define(DELTA_SAMPLER_RATE_MAP, #{
-    received        => received_rate,
-    received_bytes  => received_bytes_rate,
-    sent            => sent_rate,
-    sent_bytes      => sent_bytes_rate,
-    dropped         => dropped_rate
+    received        => received_msg_rate,
+    %% In 5.0.0, temporarily comment it to suppress bytes rate
+    %received_bytes  => received_bytes_rate,
+    %sent_bytes      => sent_bytes_rate,
+    sent            => sent_msg_rate,
+    dropped         => dropped_msg_rate
     }).
