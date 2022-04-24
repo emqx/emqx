@@ -53,7 +53,7 @@ roots() -> [].
 fields(_) -> [].
 
 ssl_fields() ->
-    [ {ssl, #{type => hoconsc:ref(emqx_schema, ssl_client_opts),
+    [ {ssl, #{type => hoconsc:ref(emqx_schema, "ssl_client_opts"),
               default => #{<<"enable">> => false},
               desc => ?DESC("ssl")
              }

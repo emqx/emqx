@@ -102,11 +102,6 @@
 
 -elvis([{elvis_style, god_modules, disable}]).
 
--define(IDLE_TIMOUT_DESC,
-    "Close transport-layer connections from the clients that have not sent MQTT CONNECT\n"
-    "message within this interval."
-).
-
 namespace() -> undefined.
 
 roots() ->
@@ -295,11 +290,7 @@ fields("authorization") ->
                     default => allow,
                     required => true,
                     %% TODO: make sources a reference link
-                    desc =>
-                        "Default access control action if the user or client matches no ACL rules,\n"
-                        "or if no such user or client is found by the configurable authorization\n"
-                        "sources such as built_in_database, an HTTP API, or a query against PostgreSQL.\n"
-                        "Find more details in 'authorization.sources' config."
+                    desc => ?DESC(fields_authorization_no_match)
                 }
             )},
         {"deny_action",
@@ -308,7 +299,7 @@ fields("authorization") ->
                 #{
                     default => ignore,
                     required => true,
-                    desc => "The action when the authorization check rejects an operation."
+                    desc => ?DESC(fields_authorization_deny_action)
                 }
             )},
         {"cache",
@@ -324,7 +315,7 @@ fields("cache") ->
                 boolean(),
                 #{
                     default => true,
-                    desc => "Enable or disable the authorization cache."
+                    desc => ?DESC(fields_cache_enable)
                 }
             )},
         {"max_size",
@@ -332,7 +323,7 @@ fields("cache") ->
                 range(1, 1048576),
                 #{
                     default => 32,
-                    desc => "Maximum number of cached items."
+                    desc => ?DESC(fields_cache_max_size)
                 }
             )},
         {"ttl",
@@ -340,7 +331,7 @@ fields("cache") ->
                 duration(),
                 #{
                     default => "1m",
-                    desc => "Time to live for the cached data."
+                    desc => ?DESC(fields_cache_ttl)
                 }
             )}
     ];
@@ -581,7 +572,7 @@ fields("rate_limit") ->
                 hoconsc:union([infinity, integer()]),
                 #{
                     default => 1000,
-                    desc => "Maximum connections per second."
+                    desc => ?DESC(fields_rate_limit_max_conn_rate)
                 }
             )},
         {"conn_messages_in",
@@ -589,7 +580,7 @@ fields("rate_limit") ->
                 hoconsc:union([infinity, comma_separated_list()]),
                 #{
                     default => infinity,
-                    desc => "Message limit for the external MQTT connections."
+                    desc => ?DESC(fields_rate_limit_conn_messages_in)
                 }
             )},
         {"conn_bytes_in",
@@ -597,9 +588,7 @@ fields("rate_limit") ->
                 hoconsc:union([infinity, comma_separated_list()]),
                 #{
                     default => infinity,
-                    desc =>
-                        "Limit the rate of receiving packets for a MQTT connection.\n"
-                        "The rate is counted by bytes of packets per second."
+                    desc => ?DESC(fields_rate_limit_conn_bytes_in)
                 }
             )}
     ];
@@ -758,7 +747,7 @@ fields("listeners") ->
             sc(
                 map(name, ref("mqtt_tcp_listener")),
                 #{
-                    desc => "TCP listeners",
+                    desc => ?DESC(fields_listeners_tcp),
                     required => {false, recursively}
                 }
             )},
@@ -766,7 +755,7 @@ fields("listeners") ->
             sc(
                 map(name, ref("mqtt_ssl_listener")),
                 #{
-                    desc => "SSL listeners",
+                    desc => ?DESC(fields_listeners_ssl),
                     required => {false, recursively}
                 }
             )},
@@ -774,7 +763,7 @@ fields("listeners") ->
             sc(
                 map(name, ref("mqtt_ws_listener")),
                 #{
-                    desc => "HTTP websocket listeners",
+                    desc => ?DESC(fields_listeners_ws),
                     required => {false, recursively}
                 }
             )},
@@ -782,7 +771,7 @@ fields("listeners") ->
             sc(
                 map(name, ref("mqtt_wss_listener")),
                 #{
-                    desc => "HTTPS websocket listeners",
+                    desc => ?DESC(fields_listeners_wss),
                     required => {false, recursively}
                 }
             )},
@@ -790,7 +779,7 @@ fields("listeners") ->
             sc(
                 map(name, ref("mqtt_quic_listener")),
                 #{
-                    desc => "QUIC listeners",
+                    desc => ?DESC(fields_listeners_quic),
                     required => {false, recursively}
                 }
             )}
@@ -852,24 +841,30 @@ fields("mqtt_quic_listener") ->
         {"enabled",
             sc(
                 boolean(),
-                #{default => true, desc => "Enable QUIC listener."}
+                #{
+                    default => true,
+                    desc => ?DESC(fields_mqtt_quic_listener_enabled)
+                }
             )},
         %% TODO: ensure cacertfile is configurable
         {"certfile",
             sc(
                 string(),
-                #{desc => "Path to the certificate file."}
+                #{desc => ?DESC(fields_mqtt_quic_listener_certfile)}
             )},
         {"keyfile",
             sc(
                 string(),
-                #{desc => "Path to the secret key file."}
+                #{desc => ?DESC(fields_mqtt_quic_listener_keyfile)}
             )},
         {"ciphers", ciphers_schema(quic)},
         {"idle_timeout",
             sc(
                 duration(),
-                #{default => "15s", desc => ?IDLE_TIMOUT_DESC}
+                #{
+                    default => "15s",
+                    desc => ?DESC(fields_mqtt_quic_listener_idle_timeout)
+                }
             )}
     ] ++ base_listener();
 fields("ws_opts") ->
@@ -879,9 +874,7 @@ fields("ws_opts") ->
                 string(),
                 #{
                     default => "/mqtt",
-                    desc =>
-                        "WebSocket's MQTT protocol path. So the address of\n"
-                        " EMQX Broker's WebSocket is: <code>ws://{ip}:{port}/mqtt</code>"
+                    desc => ?DESC(fields_ws_opts_mqtt_path)
                 }
             )},
         {"mqtt_piggyback",
@@ -889,8 +882,7 @@ fields("ws_opts") ->
                 hoconsc:enum([single, multiple]),
                 #{
                     default => multiple,
-                    desc =>
-                        "Whether a WebSocket message is allowed to contain multiple MQTT packets."
+                    desc => ?DESC(fields_ws_opts_mqtt_piggyback)
                 }
             )},
         {"compress",
@@ -898,10 +890,7 @@ fields("ws_opts") ->
                 boolean(),
                 #{
                     default => false,
-                    desc =>
-                        "If <code>true</code>, compress WebSocket messages using <code>zlib</code>.<br/>\n"
-                        "The configuration items under <code>deflate_opts</code> "
-                        "belong to the compression-related parameter configuration."
+                    desc => ?DESC(fields_ws_opts_compress)
                 }
             )},
         {"idle_timeout",
@@ -909,7 +898,7 @@ fields("ws_opts") ->
                 duration(),
                 #{
                     default => "15s",
-                    desc => ?IDLE_TIMOUT_DESC
+                    desc => ?DESC(fields_mqtt_quic_listener_idle_timeout)
                 }
             )},
         {"max_frame_size",
@@ -917,7 +906,7 @@ fields("ws_opts") ->
                 hoconsc:union([infinity, integer()]),
                 #{
                     default => infinity,
-                    desc => "The maximum length of a single MQTT packet."
+                    desc => ?DESC(fields_ws_opts_max_frame_size)
                 }
             )},
         {"fail_if_no_subprotocol",
@@ -925,10 +914,7 @@ fields("ws_opts") ->
                 boolean(),
                 #{
                     default => true,
-                    desc =>
-                        "If <code>true</code>, the server will return an error when\n"
-                        " the client does not carry the <code>Sec-WebSocket-Protocol</code> field.\n"
-                        " <br/>Note: WeChat applet needs to disable this verification."
+                    desc => ?DESC(fields_ws_opts_fail_if_no_subprotocol)
                 }
             )},
         {"supported_subprotocols",
@@ -936,7 +922,7 @@ fields("ws_opts") ->
                 comma_separated_list(),
                 #{
                     default => "mqtt, mqtt-v3, mqtt-v3.1.1, mqtt-v5",
-                    desc => "Comma-separated list of supported subprotocols."
+                    desc => ?DESC(fields_ws_opts_supported_subprotocols)
                 }
             )},
         {"check_origin_enable",
@@ -944,10 +930,7 @@ fields("ws_opts") ->
                 boolean(),
                 #{
                     default => false,
-                    desc =>
-                        "If <code>true</code>, <code>origin</code> HTTP header will be\n"
-                        " validated against the list of allowed origins configured in <code>check_origins</code>\n"
-                        " parameter."
+                    desc => ?DESC(fields_ws_opts_check_origin_enable)
                 }
             )},
         {"allow_origin_absence",
@@ -955,10 +938,7 @@ fields("ws_opts") ->
                 boolean(),
                 #{
                     default => true,
-                    desc =>
-                        "If <code>false</code> and <code>check_origin_enable</code> is\n"
-                        " <code>true</code>, the server will reject requests that don't have <code>origin</code>\n"
-                        " HTTP header."
+                    desc => ?DESC(fields_ws_opts_allow_origin_absence)
                 }
             )},
         {"check_origins",
@@ -966,7 +946,7 @@ fields("ws_opts") ->
                 hoconsc:array(binary()),
                 #{
                     default => [],
-                    desc => "List of allowed origins.<br/>See <code>check_origin_enable</code>."
+                    desc => ?DESC(fields_ws_opts_check_origins)
                 }
             )},
         {"proxy_address_header",
@@ -974,9 +954,7 @@ fields("ws_opts") ->
                 string(),
                 #{
                     default => "x-forwarded-for",
-                    desc =>
-                        "HTTP header used to pass information about the client IP address.\n"
-                        " Relevant when the EMQX cluster is deployed behind a load-balancer."
+                    desc => ?DESC(fields_ws_opts_proxy_address_header)
                 }
             )},
         {"proxy_port_header",
@@ -984,9 +962,7 @@ fields("ws_opts") ->
                 string(),
                 #{
                     default => "x-forwarded-port",
-                    desc =>
-                        "HTTP header used to pass information about the client port.\n"
-                        " Relevant when the EMQX cluster is deployed behind a load-balancer."
+                    desc => ?DESC(fields_ws_opts_proxy_port_header)
                 }
             )},
         {"deflate_opts",
@@ -1002,9 +978,7 @@ fields("tcp_opts") ->
                 integer(),
                 #{
                     default => 100,
-                    desc =>
-                        "Specify the {active, N} option for this Socket.<br/>\n"
-                        " See: https://erlang.org/doc/man/inet.html#setopts-2"
+                    desc => ?DESC(fields_tcp_opts_active_n)
                 }
             )},
         {"backlog",
@@ -1012,9 +986,7 @@ fields("tcp_opts") ->
                 integer(),
                 #{
                     default => 1024,
-                    desc =>
-                        "TCP backlog defines the maximum length that the queue of\n"
-                        " pending connections can grow to."
+                    desc => ?DESC(fields_tcp_opts_backlog)
                 }
             )},
         {"send_timeout",
@@ -1022,7 +994,7 @@ fields("tcp_opts") ->
                 duration(),
                 #{
                     default => "15s",
-                    desc => "The TCP send timeout for the connections."
+                    desc => ?DESC(fields_tcp_opts_send_timeout)
                 }
             )},
         {"send_timeout_close",
@@ -1030,32 +1002,30 @@ fields("tcp_opts") ->
                 boolean(),
                 #{
                     default => true,
-                    desc => "Close the connection if send timeout."
+                    desc => ?DESC(fields_tcp_opts_send_timeout_close)
                 }
             )},
         {"recbuf",
             sc(
                 bytesize(),
-                #{desc => "The TCP receive buffer (OS kernel) for the connections."}
+                #{desc => ?DESC(fields_tcp_opts_recbuf)}
             )},
         {"sndbuf",
             sc(
                 bytesize(),
-                #{desc => "The TCP send buffer (OS kernel) for the connections."}
+                #{desc => ?DESC(fields_tcp_opts_sndbuf)}
             )},
         {"buffer",
             sc(
                 bytesize(),
-                #{desc => "The size of the user-space buffer used by the driver."}
+                #{desc => ?DESC(fields_tcp_opts_buffer)}
             )},
         {"high_watermark",
             sc(
                 bytesize(),
                 #{
                     default => "1MB",
-                    desc =>
-                        "The socket is set to a busy state when the amount of data queued internally\n"
-                        "  by the VM socket implementation reaches this limit."
+                    desc => ?DESC(fields_tcp_opts_high_watermark)
                 }
             )},
         {"nodelay",
@@ -1063,7 +1033,7 @@ fields("tcp_opts") ->
                 boolean(),
                 #{
                     default => false,
-                    desc => "The TCP_NODELAY flag for the connections."
+                    desc => ?DESC(fields_tcp_opts_nodelay)
                 }
             )},
         {"reuseaddr",
@@ -1071,7 +1041,7 @@ fields("tcp_opts") ->
                 boolean(),
                 #{
                     default => true,
-                    desc => "The SO_REUSEADDR flag for the connections."
+                    desc => ?DESC(fields_tcp_opts_reuseaddr)
                 }
             )}
     ];
@@ -1095,62 +1065,56 @@ fields("listener_wss_opts") ->
         },
         true
     );
-fields(ssl_client_opts) ->
+fields("ssl_client_opts") ->
     client_ssl_opts_schema(#{});
 fields("deflate_opts") ->
     [
         {"level",
             sc(
                 hoconsc:enum([none, default, best_compression, best_speed]),
-                #{desc => "Compression level."}
+                #{desc => ?DESC(fields_deflate_opts_level)}
             )},
         {"mem_level",
             sc(
                 range(1, 9),
                 #{
                     default => 8,
-                    desc =>
-                        "Specifies the size of the compression state.<br/>\n"
-                        " Lower values decrease memory usage per connection."
+                    desc => ?DESC(fields_deflate_opts_mem_level)
                 }
             )},
         {"strategy",
             sc(
                 hoconsc:enum([default, filtered, huffman_only, rle]),
-                #{desc => "Specifies the compression strategy."}
+                #{desc => ?DESC(fields_deflate_opts_strategy)}
             )},
         {"server_context_takeover",
             sc(
                 hoconsc:enum([takeover, no_takeover]),
                 #{
-                    desc =>
-                        "Takeover means the compression state is retained\n"
-                        " between server messages."
+                    desc => ?DESC(fields_deflate_opts_server_context_takeover)
                 }
             )},
         {"client_context_takeover",
             sc(
                 hoconsc:enum([takeover, no_takeover]),
                 #{
-                    desc =>
-                        "Takeover means the compression state is retained\n"
-                        " between client messages."
+                    desc => ?DESC(fields_deflate_opts_client_context_takeover)
                 }
             )},
         {"server_max_window_bits",
             sc(
                 range(8, 15),
                 #{
-                    default => 15,
-                    desc => "Specifies the size of the compression context for the server."
+                    desc => ?DESC(fields_deflate_opts_server_max_window_bits),
+                    default => 15
                 }
             )},
         {"client_max_window_bits",
             sc(
                 range(8, 15),
                 #{
-                    default => 15,
-                    desc => "Specifies the size of the compression context for the client."
+                    desc => ?DESC(fields_deflate_opts_client_max_window_bits),
+                    default => 15
                 }
             )}
     ];
@@ -1526,13 +1490,7 @@ fields("trace") ->
         {"payload_encode",
             sc(hoconsc:enum([hex, text, hidden]), #{
                 default => text,
-                desc =>
-                    "Determine the format of the payload format in the trace file.<br>\n"
-                    "`text`: Text-based protocol or plain text protocol.\n"
-                    " It is recommended when payload is JSON encoded.<br>\n"
-                    "`hex`: Binary hexadecimal encode. It is recommended when payload is "
-                    "a custom binary protocol.<br>\n"
-                    "`hidden`: payload is obfuscated as `******`\n"
+                desc => ?DESC(fields_trace_payload_encode)
             })}
     ].
 
@@ -1543,9 +1501,7 @@ mqtt_listener() ->
                 sc(
                     hoconsc:array(string()),
                     #{
-                        desc =>
-                            "The access control rules for this listener.<br/>"
-                            "See: https://github.com/emqtt/esockd#allowdeny",
+                        desc => ?DESC(mqtt_listener_access_rules),
                         default => [<<"allow all">>]
                     }
                 )},
@@ -1553,20 +1509,15 @@ mqtt_listener() ->
                 sc(
                     boolean(),
                     #{
-                        default => false,
-                        desc =>
-                            "Enable the Proxy Protocol V1/2 if the EMQX cluster is deployed\n"
-                            " behind HAProxy or Nginx.<br/>"
-                            "See: https://www.haproxy.com/blog/haproxy/proxy-protocol/"
+                        desc => ?DESC(mqtt_listener_proxy_protocol),
+                        default => false
                     }
                 )},
             {"proxy_protocol_timeout",
                 sc(
                     duration(),
                     #{
-                        desc =>
-                            "Timeout for proxy protocol. EMQX will close the TCP connection "
-                            "if proxy protocol packet is not received within the timeout.",
+                        desc => ?DESC(mqtt_listener_proxy_protocol_timeout),
                         default => "3s"
                     }
                 )},
@@ -1580,8 +1531,8 @@ base_listener() ->
             sc(
                 hoconsc:union([ip_port(), integer()]),
                 #{
-                    required => true,
-                    desc => "IP address and port for the listening socket."
+                    desc => ?DESC(base_listener_bind),
+                    required => true
                 }
             )},
         {"acceptors",
@@ -1589,7 +1540,7 @@ base_listener() ->
                 integer(),
                 #{
                     default => 16,
-                    desc => "The size of the listener's receiving pool."
+                    desc => ?DESC(base_listener_acceptors)
                 }
             )},
         {"max_connections",
@@ -1597,7 +1548,7 @@ base_listener() ->
                 hoconsc:union([infinity, integer()]),
                 #{
                     default => infinity,
-                    desc => "The maximum number of concurrent connections allowed by the listener."
+                    desc => ?DESC(base_listener_max_connections)
                 }
             )},
         {"mountpoint",
@@ -1605,38 +1556,23 @@ base_listener() ->
                 binary(),
                 #{
                     default => <<>>,
-                    desc =>
-                        "When publishing or subscribing, prefix all topics with a mountpoint string.\n"
-                        " The prefixed string will be removed from the topic name when the message\n"
-                        " is delivered to the subscriber. The mountpoint is a way that users can use\n"
-                        " to implement isolation of message routing between different listeners.\n"
-                        " For example if a client A subscribes to `t` with `listeners.tcp.<name>.mountpoint`\n"
-                        " set to `some_tenant`, then the client actually subscribes to the topic\n"
-                        " `some_tenant/t`. Similarly, if another client B (connected to the same listener\n"
-                        " as the client A) sends a message to topic `t`, the message is routed\n"
-                        " to all the clients subscribed `some_tenant/t`, so client A will receive the\n"
-                        " message, with topic name `t`.<br/>\n"
-                        " Set to `\"\"` to disable the feature.<br/>\n"
-                        "\n"
-                        " Variables in mountpoint string:\n"
-                        " - <code>${clientid}</code>: clientid\n"
-                        " - <code>${username}</code>: username"
+                    desc => ?DESC(base_listener_mountpoint)
                 }
             )},
         {"zone",
             sc(
                 atom(),
                 #{
-                    default => 'default',
-                    desc => "The configuration zone to which the listener belongs."
+                    desc => ?DESC(base_listener_zone),
+                    default => 'default'
                 }
             )},
         {"limiter",
             sc(
                 map("ratelimit's type", emqx_limiter_schema:bucket_name()),
                 #{
-                    default => #{},
-                    desc => "Type of the rate limit."
+                    desc => ?DESC(base_listener_limiter),
+                    default => #{}
                 }
             )}
     ].
@@ -1738,7 +1674,7 @@ desc("listener_ssl_opts") ->
     "Socket options for SSL connections.";
 desc("listener_wss_opts") ->
     "Socket options for WebSocket/SSL connections.";
-desc(ssl_client_opts) ->
+desc("ssl_client_opts") ->
     "Socket options for SSL clients.";
 desc("deflate_opts") ->
     "Compression options.";
@@ -1814,7 +1750,7 @@ common_ssl_opts_schema(Defaults) ->
                 boolean(),
                 #{
                     default => Df("enable", false),
-                    desc => "Enable TLS."
+                    desc => ?DESC(common_ssl_opts_schema_enable)
                 }
             )},
         {"cacertfile",
@@ -1823,14 +1759,7 @@ common_ssl_opts_schema(Defaults) ->
                 #{
                     default => D("cacertfile"),
                     required => false,
-                    desc =>
-                        "Trusted PEM format CA certificates bundle file.<br>\n"
-                        "The certificates in this file are used to verify the TLS peer's certificates.\n"
-                        "Append new certificates to the file if new CAs are to be trusted.\n"
-                        "There is no need to restart EMQX to have the updated file loaded, because\n"
-                        "the system regularly checks if file has been updated (and reload).<br>\n"
-                        "NOTE: invalidating (deleting) a certificate from the file will not affect\n"
-                        "already established connections.\n"
+                    desc => ?DESC(common_ssl_opts_schema_cacertfile)
                 }
             )},
         {"certfile",
@@ -1839,13 +1768,7 @@ common_ssl_opts_schema(Defaults) ->
                 #{
                     default => D("certfile"),
                     required => false,
-                    desc =>
-                        "PEM format certificates chain file.<br>\n"
-                        "The certificates in this file should be in reversed order of the certificate\n"
-                        "issue chain. That is, the host's certificate should be placed in the beginning\n"
-                        "of the file, followed by the immediate issuer certificate and so on.\n"
-                        "Although the root CA certificate is optional, it should be placed at the end of\n"
-                        "the file if it is to be added."
+                    desc => ?DESC(common_ssl_opts_schema_certfile)
                 }
             )},
         {"keyfile",
@@ -1854,8 +1777,7 @@ common_ssl_opts_schema(Defaults) ->
                 #{
                     default => D("keyfile"),
                     required => false,
-                    desc =>
-                        "PEM format private key file."
+                    desc => ?DESC(common_ssl_opts_schema_keyfile)
                 }
             )},
         {"verify",
@@ -1863,8 +1785,7 @@ common_ssl_opts_schema(Defaults) ->
                 hoconsc:enum([verify_peer, verify_none]),
                 #{
                     default => Df("verify", verify_none),
-                    desc =>
-                        "Enable or disable peer verification."
+                    desc => ?DESC(common_ssl_opts_schema_verify)
                 }
             )},
         {"reuse_sessions",
@@ -1872,8 +1793,7 @@ common_ssl_opts_schema(Defaults) ->
                 boolean(),
                 #{
                     default => Df("reuse_sessions", true),
-                    desc =>
-                        "Enable TLS session reuse."
+                    desc => ?DESC(common_ssl_opts_schema_reuse_sessions)
                 }
             )},
         {"depth",
@@ -1881,12 +1801,7 @@ common_ssl_opts_schema(Defaults) ->
                 integer(),
                 #{
                     default => Df("depth", 10),
-                    desc =>
-                        "Maximum number of non-self-issued intermediate certificates that can follow "
-                        "the peer certificate in a valid certification path. "
-                        "So, if depth is 0 the PEER must be signed by the trusted ROOT-CA directly; "
-                        "if 1 the path can be PEER, CA, ROOT-CA; if 2 the path can be PEER, CA, CA, ROOT-CA, "
-                        "and so on. The default value is 10."
+                    desc => ?DESC(common_ssl_opts_schema_depth)
                 }
             )},
         {"password",
@@ -1895,9 +1810,7 @@ common_ssl_opts_schema(Defaults) ->
                 #{
                     sensitive => true,
                     required => false,
-                    desc =>
-                        "String containing the user's password. Only used if the private\n"
-                        "key file is password-protected."
+                    desc => ?DESC(common_ssl_opts_schema_password)
                 }
             )},
         {"versions",
@@ -1905,23 +1818,18 @@ common_ssl_opts_schema(Defaults) ->
                 hoconsc:array(typerefl:atom()),
                 #{
                     default => default_tls_vsns(maps:get(versions, Defaults, tls_all_available)),
-                    desc =>
-                        "All TLS/DTLS versions to be supported.<br>\n"
-                        "NOTE: PSK ciphers are suppressed by 'tlsv1.3' version config<br>\n"
-                        "In case PSK cipher suites are intended, make sure to configured\n"
-                        "<code>['tlsv1.2', 'tlsv1.1']</code> here.",
+                    desc => ?DESC(common_ssl_opts_schema_versions),
                     validator => fun validate_tls_versions/1
                 }
             )},
         {"ciphers", ciphers_schema(D("ciphers"))},
-        {user_lookup_fun,
+        {"user_lookup_fun",
             sc(
                 typerefl:alias("string", any()),
                 #{
                     default => <<"emqx_tls_psk:lookup">>,
                     converter => fun ?MODULE:parse_user_lookup_fun/1,
-                    desc =>
-                        "EMQX-internal callback that is used to lookup pre-shared key (PSK) identity."
+                    desc => ?DESC(common_ssl_opts_schema_user_lookup_fun)
                 }
             )},
         {"secure_renegotiate",
@@ -1929,11 +1837,7 @@ common_ssl_opts_schema(Defaults) ->
                 boolean(),
                 #{
                     default => Df("secure_renegotiate", true),
-                    desc =>
-                        "SSL parameter renegotiation is a feature that allows a client and a server\n"
-                        "to renegotiate the parameters of the SSL connection on the fly.\n"
-                        "RFC 5746 defines a more secure way of doing this. By enabling secure renegotiation,\n"
-                        "you drop support for the insecure renegotiation, prone to MitM attacks."
+                    desc => ?DESC(common_ssl_opts_schema_secure_renegotiate)
                 }
             )}
     ].
@@ -1958,12 +1862,7 @@ server_ssl_opts_schema(Defaults1, IsRanchListener) ->
                     #{
                         default => D("dhfile"),
                         required => false,
-                        desc =>
-                            "Path to a file containing PEM-encoded Diffie-Hellman parameters\n"
-                            "to be used by the server if a cipher suite using Diffie-Hellman\n"
-                            "key exchange is negotiated. If not specified, default parameters\n"
-                            "are used.<br>\n"
-                            "NOTE: The <code>dhfile</code> option is not supported by TLS 1.3."
+                        desc => ?DESC(server_ssl_opts_schema_dhfile)
                     }
                 )},
             {"fail_if_no_peer_cert",
@@ -1971,12 +1870,7 @@ server_ssl_opts_schema(Defaults1, IsRanchListener) ->
                     boolean(),
                     #{
                         default => Df("fail_if_no_peer_cert", false),
-                        desc =>
-                            "Used together with {verify, verify_peer} by an TLS/DTLS server.\n"
-                            "If set to true, the server fails if the client does not have a\n"
-                            "certificate to send, that is, sends an empty certificate.\n"
-                            "If set to false, it fails only if the client sends an invalid\n"
-                            "certificate (an empty certificate is considered valid)."
+                        desc => ?DESC(server_ssl_opts_schema_fail_if_no_peer_cert)
                     }
                 )},
             {"honor_cipher_order",
@@ -1984,11 +1878,7 @@ server_ssl_opts_schema(Defaults1, IsRanchListener) ->
                     boolean(),
                     #{
                         default => Df("honor_cipher_order", true),
-                        desc =>
-                            "An important security setting, it forces the cipher to be set based\n"
-                            " on the server-specified order instead of the client-specified order,\n"
-                            " hence enforcing the (usually more properly configured) security\n"
-                            " ordering of the server administrator."
+                        desc => ?DESC(server_ssl_opts_schema_honor_cipher_order)
                     }
                 )},
             {"client_renegotiation",
@@ -1996,17 +1886,7 @@ server_ssl_opts_schema(Defaults1, IsRanchListener) ->
                     boolean(),
                     #{
                         default => Df("client_renegotiation", true),
-                        desc =>
-                            "In protocols that support client-initiated renegotiation,\n"
-                            "the cost of resources of such an operation is higher for the "
-                            "server than the client.\n"
-                            "This can act as a vector for denial of service attacks.\n"
-                            "The SSL application already takes measures to counter-act such attempts,\n"
-                            "but client-initiated renegotiation can be strictly disabled by setting "
-                            "this option to false.\n"
-                            "The default value is true. Note that disabling renegotiation can result in\n"
-                            "long-lived connections becoming unusable due to limits on\n"
-                            "the number of messages the underlying cipher suite can encipher."
+                        desc => ?DESC(server_ssl_opts_schema_client_renegotiation)
                     }
                 )}
             | [
@@ -2015,7 +1895,7 @@ server_ssl_opts_schema(Defaults1, IsRanchListener) ->
                         duration(),
                         #{
                             default => Df("handshake_timeout", "15s"),
-                            desc => "Maximum time duration allowed for the handshake to complete"
+                            desc => ?DESC(server_ssl_opts_schema_handshake_timeout)
                         }
                     )}
              || IsRanchListener
@@ -2040,18 +1920,7 @@ client_ssl_opts_schema(Defaults1) ->
                     hoconsc:union([disable, string()]),
                     #{
                         required => false,
-                        desc =>
-                            "Specify the host name to be used in TLS Server Name Indication extension.<br>\n"
-                            "For instance, when connecting to \"server.example.net\", the genuine server\n"
-                            "which accepts the connection and performs TLS handshake may differ from the\n"
-                            "host the TLS client initially connects to, e.g. when connecting to an IP address\n"
-                            "or when the host has multiple resolvable DNS records <br>\n"
-                            "If not specified, it will default to the host name string which is used\n"
-                            "to establish the connection, unless it is IP addressed used.<br>\n"
-                            "The host name is then also used in the host name verification of the peer\n"
-                            "certificate.<br> The special value 'disable' prevents the Server Name\n"
-                            "Indication extension from being sent and disables the hostname\n"
-                            "verification check."
+                        desc => ?DESC(client_ssl_opts_schema_server_name_indication)
                     }
                 )}
         ].
@@ -2080,7 +1949,12 @@ ciphers_schema(Default) ->
                     true -> undefined;
                     false -> fun validate_ciphers/1
                 end,
-            desc =>
+            desc_id => "ciphers_schema_" ++
+                case Default of
+                    quic -> "quic";
+                    _ -> "0"
+                end,
+            desc_en =>
                 "This config holds TLS cipher suite names separated by comma,\n"
                 "or as an array of strings. e.g.\n"
                 "<code>\"TLS_AES_256_GCM_SHA384,TLS_AES_128_GCM_SHA256\"</code> or\n"
@@ -2345,6 +2219,7 @@ authentication(Desc) ->
                 undefined -> Default;
                 Module -> hoconsc:lazy(Module:root_type())
             end,
+        desc_id => authentication_0,
         desc => iolist_to_binary([
             Desc,
             "\nAuthentication can be one single authenticator instance or a chain of "
