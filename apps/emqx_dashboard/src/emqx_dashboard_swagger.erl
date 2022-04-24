@@ -813,7 +813,9 @@ schema_converter(Options) ->
 
 serialize_hocon_error_msg({_Schema, Errors}) ->
     Msg = lists:map(fun hocon_error/1, Errors),
-    iolist_to_binary(string:join(Msg, ",")).
+    iolist_to_binary(string:join(Msg, ","));
+serialize_hocon_error_msg(Error) ->
+    iolist_to_binary(io_lib:format("~p", [Error])).
 
 hocon_error({validation_error, #{reason := #{exception := Exception}, path := Path}}) ->
     io_lib:format("~ts: ~p", [sub_path(Path), Exception]);

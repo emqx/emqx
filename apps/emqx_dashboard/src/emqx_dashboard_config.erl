@@ -76,8 +76,9 @@ pre_config_update(_Path, UpdateConf0, RawConf) ->
 post_config_update(_, _Req, NewConf, OldConf, _AppEnvs) ->
     #{listeners := NewListeners} = NewConf,
     #{listeners := OldListeners} = OldConf,
-    case NewListeners =:= OldListeners of
-        true -> ok;
-        false -> erlang:send_after(500, ?MODULE, {update_listeners, OldListeners, NewListeners})
-    end,
+    _ =
+        case NewListeners =:= OldListeners of
+            true -> ok;
+            false -> erlang:send_after(500, ?MODULE, {update_listeners, OldListeners, NewListeners})
+        end,
     ok.
