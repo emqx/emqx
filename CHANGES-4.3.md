@@ -10,6 +10,11 @@ File format:
 - One list item per change topic
   Change log ends with a list of github PRs
 
+## v4.3.15
+
+### Bug fixes
+* List subscription topic (/api/v4/subscriptions), the result do not match with multiple conditions.
+
 ## v4.3.14
 
 ### Enhancements
