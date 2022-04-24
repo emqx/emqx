@@ -3,7 +3,7 @@
 -mode(compile).
 
 main(_) ->
-    {ok, BaseConf} = file:read_file("apps/emqx_dashboard/i18n/emqx_dashboard_schema.conf"),
+    {ok, BaseConf} = file:read_file("apps/emqx_dashboard/i18n/emqx_dashboard_i18n.conf"),
 
     Cfgs = get_all_cfgs("apps/"),
     Conf = [merge(BaseConf, Cfgs),

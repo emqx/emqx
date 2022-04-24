@@ -47,12 +47,10 @@
 %%--------------------------------------------------------------------
 
 start_listeners() ->
-    Listeners = emqx_conf:get([dashboard, listeners], []),
-    start_listeners(Listeners).
+    start_listeners(listeners()).
 
 stop_listeners() ->
-    Listeners = emqx_conf:get([dashboard, listeners], []),
-    stop_listeners(Listeners).
+    stop_listeners(listeners()).
 
 start_listeners(Listeners) ->
     {ok, _} = application:ensure_all_started(minirest),
@@ -155,10 +153,13 @@ apps() ->
     ].
 
 listeners(Listeners) ->
-    lists:map(fun({Protocol, Conf}) ->
+    lists:map(
+        fun({Protocol, Conf}) ->
             {Conf1, Bind} = ip_port(Conf),
             {listener_name(Protocol, Conf1), Protocol, Bind, ranch_opts(Conf1)}
-        end, maps:to_list(Listeners)).
+        end,
+        maps:to_list(Listeners)
+    ).
 
 ip_port(Opts) -> ip_port(maps:take(bind, Opts), Opts).
 
@@ -268,3 +269,6 @@ i18n_file() ->
         undefined -> emqx:etc_file("i18n.conf");
         {ok, File} -> File
     end.
+
+listeners() ->
+    emqx_conf:get([dashboard, listeners], []).

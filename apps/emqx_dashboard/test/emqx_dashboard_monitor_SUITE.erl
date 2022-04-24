@@ -47,10 +47,10 @@ set_special_configs(_) ->
 
 t_monitor_samplers_all(_Config) ->
     timer:sleep(?DEFAULT_SAMPLE_INTERVAL * 2 * 1000 + 20),
-    Size = mnesia:table_info(emqx_dashboard_monitor,size),
-    All  = emqx_dashboard_monitor:samplers(all, infinity),
+    Size = mnesia:table_info(emqx_dashboard_monitor, size),
+    All = emqx_dashboard_monitor:samplers(all, infinity),
     All2 = emqx_dashboard_monitor:samplers(),
-    ?assert(erlang:length(All)  == Size),
+    ?assert(erlang:length(All) == Size),
     ?assert(erlang:length(All2) == Size),
     ok.
 
@@ -87,18 +87,24 @@ t_monitor_api(_) ->
 t_monitor_current_api(_) ->
     timer:sleep(?DEFAULT_SAMPLE_INTERVAL * 2 * 1000 + 20),
     {ok, Rate} = request(["monitor_current"]),
-    [?assert(maps:is_key(atom_to_binary(Key, utf8), Rate))
-        || Key <- maps:values(?DELTA_SAMPLER_RATE_MAP) ++ ?GAUGE_SAMPLER_LIST],
+    [
+        ?assert(maps:is_key(atom_to_binary(Key, utf8), Rate))
+     || Key <- maps:values(?DELTA_SAMPLER_RATE_MAP) ++ ?GAUGE_SAMPLER_LIST
+    ],
     {ok, NodeRate} = request(["monitor_current", "nodes", node()]),
-    [?assert(maps:is_key(atom_to_binary(Key, utf8), NodeRate))
-        || Key <- maps:values(?DELTA_SAMPLER_RATE_MAP) ++ ?GAUGE_SAMPLER_LIST],
+    [
+        ?assert(maps:is_key(atom_to_binary(Key, utf8), NodeRate))
+     || Key <- maps:values(?DELTA_SAMPLER_RATE_MAP) ++ ?GAUGE_SAMPLER_LIST
+    ],
     ok.
 
 t_monitor_reset(_) ->
     restart_monitor(),
     {ok, Rate} = request(["monitor_current"]),
-    [?assert(maps:is_key(atom_to_binary(Key, utf8), Rate))
-        || Key <- maps:values(?DELTA_SAMPLER_RATE_MAP) ++ ?GAUGE_SAMPLER_LIST],
+    [
+        ?assert(maps:is_key(atom_to_binary(Key, utf8), Rate))
+     || Key <- maps:values(?DELTA_SAMPLER_RATE_MAP) ++ ?GAUGE_SAMPLER_LIST
+    ],
     {ok, Samplers} = request(["monitor"], "latest=1"),
     ?assertEqual(1, erlang:length(Samplers)),
     ok.
@@ -121,7 +127,7 @@ request(Path, QS) ->
     Url = url(Path, QS),
     do_request_api(get, {Url, [auth_header_()]}).
 
-url(Parts, QS)->
+url(Parts, QS) ->
     case QS of
         "" ->
             ?SERVER ++ filename:join([?BASE_PATH | Parts]);
@@ -129,16 +135,17 @@ url(Parts, QS)->
             ?SERVER ++ filename:join([?BASE_PATH | Parts]) ++ "?" ++ QS
     end.
 
-do_request_api(Method, Request)->
+do_request_api(Method, Request) ->
     ct:pal("Req ~p ~p~n", [Method, Request]),
     case httpc:request(Method, Request, [], []) of
         {error, socket_closed_remotely} ->
             {error, socket_closed_remotely};
-        {ok, {{"HTTP/1.1", Code, _}, _, Return} }
-            when Code >= 200 andalso Code =< 299 ->
+        {ok, {{"HTTP/1.1", Code, _}, _, Return}} when
+            Code >= 200 andalso Code =< 299
+        ->
             ct:pal("Resp ~p ~p~n", [Code, Return]),
             {ok, emqx_json:decode(Return, [return_maps])};
-        {ok, {{"HTTP/1.1", Code, _}, _, Return} } ->
+        {ok, {{"HTTP/1.1", Code, _}, _, Return}} ->
             ct:pal("Resp ~p ~p~n", [Code, Return]),
             {error, {Code, emqx_json:decode(Return, [return_maps])}};
         {error, Reason} ->
@@ -158,7 +165,8 @@ wait_new_monitor(_OldMonitor, Count) when Count =< 0 -> timeout;
 wait_new_monitor(OldMonitor, Count) ->
     NewMonitor = erlang:whereis(emqx_dashboard_monitor),
     case is_pid(NewMonitor) andalso NewMonitor =/= OldMonitor of
-        true -> ok;
+        true ->
+            ok;
         false ->
             timer:sleep(100),
             wait_new_monitor(OldMonitor, Count - 1)

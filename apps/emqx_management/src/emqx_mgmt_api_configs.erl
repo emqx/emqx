@@ -284,7 +284,8 @@ get_full_config() ->
         maps:without(
             ?EXCLUDES,
             emqx:get_raw_config([])
-        )
+        ),
+        #{obfuscate_sensitive_values => true}
     ).
 
 get_config_with_default(Path) ->

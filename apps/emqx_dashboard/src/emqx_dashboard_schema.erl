@@ -32,7 +32,7 @@ fields("dashboard") ->
         {listeners,
             sc(
                 ref("listeners"),
-                #{ desc => ?DESC(listeners)}
+                #{desc => ?DESC(listeners)}
             )},
         {default_username, fun default_username/1},
         {default_password, fun default_password/1},
@@ -146,38 +146,26 @@ bind(required) -> true;
 bind(desc) -> ?DESC(bind);
 bind(_) -> undefined.
 
-default_username(type) -> string();
+default_username(type) -> binary();
 default_username(default) -> "admin";
 default_username(required) -> true;
-default_username(desc) ->  ?DESC(default_username);
+default_username(desc) -> ?DESC(default_username);
 default_username('readOnly') -> true;
 default_username(_) -> undefined.
 
-default_password(type) ->
-    string();
-default_password(default) ->
-    "public";
-default_password(required) ->
-    true;
-default_password('readOnly') ->
-    true;
-default_password(sensitive) ->
-    true;
-default_password(desc) ->
-    ?DESC(default_password);
-default_password(_) ->
-    undefined.
+default_password(type) -> binary();
+default_password(default) -> "public";
+default_password(required) -> true;
+default_password('readOnly') -> true;
+default_password(sensitive) -> true;
+default_password(desc) -> ?DESC(default_password);
+default_password(_) -> undefined.
 
-cors(type) ->
-    boolean();
-cors(default) ->
-    false;
-cors(required) ->
-    false;
-cors(desc) ->
-    ?DESC(cors);
-cors(_) ->
-    undefined.
+cors(type) -> boolean();
+cors(default) -> false;
+cors(required) -> false;
+cors(desc) -> ?DESC(cors);
+cors(_) -> undefined.
 
 i18n_lang(type) -> ?ENUM([en, zh]);
 i18n_lang(default) -> en;
@@ -187,8 +175,11 @@ i18n_lang(_) -> undefined.
 
 validate_sample_interval(Second) ->
     case Second >= 1 andalso Second =< 60 andalso (60 rem Second =:= 0) of
-        true -> ok;
-        false -> error({"Sample interval must be between 1 and 60 and be a divisor of 60.", Second})
+        true ->
+            ok;
+        false ->
+            Msg = "must be between 1 and 60 and be a divisor of 60.",
+            {error, Msg}
     end.
 
 sc(Type, Meta) -> hoconsc:mk(Type, Meta).

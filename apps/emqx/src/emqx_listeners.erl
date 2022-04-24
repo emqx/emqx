@@ -88,7 +88,7 @@ do_list_raw() ->
     Key = <<"listeners">>,
     Raw = emqx_config:get_raw([Key], #{}),
     SchemaMod = emqx_config:get_schema_mod(Key),
-    #{Key := RawWithDefault} = emqx_config:fill_defaults(SchemaMod, #{Key => Raw}),
+    #{Key := RawWithDefault} = emqx_config:fill_defaults(SchemaMod, #{Key => Raw}, #{}),
     Listeners = maps:to_list(RawWithDefault),
     lists:flatmap(fun format_raw_listeners/1, Listeners).
 

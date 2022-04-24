@@ -138,7 +138,7 @@ fields(limit) ->
     [{limit, hoconsc:mk(range(1, ?MAX_ROW_LIMIT), Meta)}];
 fields(count) ->
     Meta = #{desc => <<"Results count.">>, required => true},
-    [{count, hoconsc:mk(range(0, inf), Meta)}];
+    [{count, hoconsc:mk(non_neg_integer(), Meta)}];
 fields(meta) ->
     fields(page) ++ fields(limit) ++ fields(count).
 
@@ -184,12 +184,14 @@ translate_req(Request, #{module := Module, path := Path, method := Method}, Chec
         NewBody = check_request_body(Request, Body, Module, CheckFun, hoconsc:is_schema(Body)),
         {ok, Request#{bindings => Bindings, query_string => QueryStr, body => NewBody}}
     catch
-        throw:{_, ValidErrors} ->
-            Msg = [
-                io_lib:format("~ts : ~p", [Key, Reason])
-             || {validation_error, #{path := Key, reason := Reason}} <- ValidErrors
-            ],
-            {400, 'BAD_REQUEST', iolist_to_binary(string:join(Msg, ","))}
+        throw:HoconError ->
+            Msg = serialize_hocon_error_msg(HoconError),
+            %Msg = [
+            %    io_lib:format("~ts : ~p", [Key -- "root.", Reason])
+            %    || {validation_error, #{path := Key, reason := Reason}} <- ValidErrors
+            % ],
+            % iolist_to_binary(string:join(Msg, ",")
+            {400, 'BAD_REQUEST', Msg}
     end.
 
 check_and_translate(Schema, Map, Opts) ->
@@ -808,3 +810,20 @@ to_ref(Mod, StructName, Acc, RefsAcc) ->
 
 schema_converter(Options) ->
     maps:get(schema_converter, Options, fun hocon_schema_to_spec/2).
+
+serialize_hocon_error_msg({_Schema, Errors}) ->
+    Msg = lists:map(fun hocon_error/1, Errors),
+    iolist_to_binary(string:join(Msg, ","));
+serialize_hocon_error_msg(Error) ->
+    iolist_to_binary(io_lib:format("~p", [Error])).
+
+hocon_error({validation_error, #{reason := #{exception := Exception}, path := Path}}) ->
+    io_lib:format("~ts: ~p", [sub_path(Path), Exception]);
+hocon_error({validation_error, #{reason := Reason, path := Path, value := Value}}) ->
+    io_lib:format("~ts: ~p ~p", [sub_path(Path), Value, Reason]);
+hocon_error({validation_error, #{reason := Reason, path := Path}}) ->
+    io_lib:format("~ts: ~p", [sub_path(Path), Reason]);
+hocon_error({translation_error, #{reason := Reason, value_path := Path}}) ->
+    io_lib:format("~ts: ~p", [sub_path(Path), Reason]).
+
+sub_path(Path) -> string:trim(Path, leading, "root.").

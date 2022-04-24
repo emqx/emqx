@@ -55,13 +55,7 @@ t_http_test(_Config) ->
     ErrorTrace = #{},
     {error, {"HTTP/1.1", 400, "Bad Request"}, Body} =
         request_api(post, api_path("trace"), Header, ErrorTrace),
-    ?assertEqual(
-        #{
-            <<"code">> => <<"BAD_REQUEST">>,
-            <<"message">> => <<"name : mandatory_required_field">>
-        },
-        json(Body)
-    ),
+    ?assertMatch(#{<<"code">> := <<"BAD_REQUEST">>}, json(Body)),
 
     Name = <<"test-name">>,
     Trace = [

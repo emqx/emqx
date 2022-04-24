@@ -36,125 +36,262 @@ end_suite() ->
 
 t_object(_Config) ->
     Spec = #{
-        post => #{parameters => [],
-            requestBody => #{<<"content">> =>
-            #{<<"application/json">> =>
-            #{<<"schema">> =>
-            #{required => [<<"timeout">>, <<"per_page">>],
-                <<"properties">> =>[
-                    {<<"per_page">>, #{description => <<"good per page desc">>,
-                        maximum => 100, minimum => 1, type => integer}},
-                    {<<"timeout">>, #{default => 5, <<"oneOf">> =>
-                    [#{example => <<"1h">>, type => string},
-                        #{enum => [infinity], type => string}]}},
-                    {<<"inner_ref">>,
-                        #{<<"$ref">> =>
-                        <<"#/components/schemas/emqx_swagger_requestBody_SUITE.good_ref">>}}],
-                <<"type">> => object}}}},
-            responses => #{<<"200">> => #{description => <<"ok">>}}}},
+        post => #{
+            parameters => [],
+            requestBody => #{
+                <<"content">> =>
+                    #{
+                        <<"application/json">> =>
+                            #{
+                                <<"schema">> =>
+                                    #{
+                                        required => [<<"timeout">>, <<"per_page">>],
+                                        <<"properties">> => [
+                                            {<<"per_page">>, #{
+                                                description => <<"good per page desc">>,
+                                                maximum => 100,
+                                                minimum => 1,
+                                                type => integer
+                                            }},
+                                            {<<"timeout">>, #{
+                                                default => 5,
+                                                <<"oneOf">> =>
+                                                    [
+                                                        #{example => <<"1h">>, type => string},
+                                                        #{enum => [infinity], type => string}
+                                                    ]
+                                            }},
+                                            {<<"inner_ref">>, #{
+                                                <<"$ref">> =>
+                                                    <<"#/components/schemas/emqx_swagger_requestBody_SUITE.good_ref">>
+                                            }}
+                                        ],
+                                        <<"type">> => object
+                                    }
+                            }
+                    }
+            },
+            responses => #{<<"200">> => #{description => <<"ok">>}}
+        }
+    },
     Refs = [{?MODULE, good_ref}],
     validate("/object", Spec, Refs),
     ok.
 
 t_nest_object(_Config) ->
+    GoodRef = <<"#/components/schemas/emqx_swagger_requestBody_SUITE.good_ref">>,
     Spec = #{
-        post => #{parameters => [],
-            requestBody => #{<<"content">> => #{<<"application/json">> =>
-            #{<<"schema">> =>
-            #{required => [<<"timeout">>],
-                <<"properties">> =>
-                [{<<"per_page">>, #{description => <<"good per page desc">>,
-                    maximum => 100, minimum => 1, type => integer}},
-                    {<<"timeout">>, #{default => 5, <<"oneOf">> =>
-                    [#{example => <<"1h">>, type => string},
-                        #{enum => [infinity], type => string}]}},
-                    {<<"nest_object">>,
-                        #{<<"properties">> =>
-                        [{<<"good_nest_1">>, #{type => integer}},
-                            {<<"good_nest_2">>, #{<<"$ref">> =>
-                            <<"#/components/schemas/emqx_swagger_requestBody_SUITE.good_ref">>}}],
-                            <<"type">> => object}},
-                    {<<"inner_ref">>,
-                        #{<<"$ref">> =>
-                        <<"#/components/schemas/emqx_swagger_requestBody_SUITE.good_ref">>}}],
-                <<"type">> => object}}}},
-            responses => #{<<"200">> => #{description => <<"ok">>}}}},
+        post => #{
+            parameters => [],
+            requestBody => #{
+                <<"content">> => #{
+                    <<"application/json">> =>
+                        #{
+                            <<"schema">> =>
+                                #{
+                                    required => [<<"timeout">>],
+                                    <<"properties">> =>
+                                        [
+                                            {<<"per_page">>, #{
+                                                description => <<"good per page desc">>,
+                                                maximum => 100,
+                                                minimum => 1,
+                                                type => integer
+                                            }},
+                                            {<<"timeout">>, #{
+                                                default => 5,
+                                                <<"oneOf">> =>
+                                                    [
+                                                        #{example => <<"1h">>, type => string},
+                                                        #{enum => [infinity], type => string}
+                                                    ]
+                                            }},
+                                            {<<"nest_object">>, #{
+                                                <<"properties">> =>
+                                                    [
+                                                        {<<"good_nest_1">>, #{type => integer}},
+                                                        {<<"good_nest_2">>, #{
+                                                            <<"$ref">> => GoodRef
+                                                        }}
+                                                    ],
+                                                <<"type">> => object
+                                            }},
+                                            {<<"inner_ref">>, #{
+                                                <<"$ref">> =>
+                                                    <<"#/components/schemas/emqx_swagger_requestBody_SUITE.good_ref">>
+                                            }}
+                                        ],
+                                    <<"type">> => object
+                                }
+                        }
+                }
+            },
+            responses => #{<<"200">> => #{description => <<"ok">>}}
+        }
+    },
     Refs = [{?MODULE, good_ref}],
     validate("/nest/object", Spec, Refs),
     ok.
 
 t_local_ref(_Config) ->
     Spec = #{
-        post => #{parameters => [],
-            requestBody => #{<<"content">> => #{<<"application/json">> =>
-            #{<<"schema">> => #{<<"$ref">> =>
-            <<"#/components/schemas/emqx_swagger_requestBody_SUITE.good_ref">>}}}},
-            responses => #{<<"200">> => #{description => <<"ok">>}}}},
+        post => #{
+            parameters => [],
+            requestBody => #{
+                <<"content">> => #{
+                    <<"application/json">> =>
+                        #{
+                            <<"schema">> => #{
+                                <<"$ref">> =>
+                                    <<"#/components/schemas/emqx_swagger_requestBody_SUITE.good_ref">>
+                            }
+                        }
+                }
+            },
+            responses => #{<<"200">> => #{description => <<"ok">>}}
+        }
+    },
     Refs = [{?MODULE, good_ref}],
     validate("/ref/local", Spec, Refs),
     ok.
 
 t_remote_ref(_Config) ->
     Spec = #{
-        post => #{parameters => [],
-            requestBody => #{<<"content">> => #{<<"application/json">> =>
-            #{<<"schema">> => #{<<"$ref">> =>
-            <<"#/components/schemas/emqx_swagger_remote_schema.ref2">>}}}},
-            responses => #{<<"200">> => #{description => <<"ok">>}}}},
+        post => #{
+            parameters => [],
+            requestBody => #{
+                <<"content">> => #{
+                    <<"application/json">> =>
+                        #{
+                            <<"schema">> => #{
+                                <<"$ref">> =>
+                                    <<"#/components/schemas/emqx_swagger_remote_schema.ref2">>
+                            }
+                        }
+                }
+            },
+            responses => #{<<"200">> => #{description => <<"ok">>}}
+        }
+    },
     Refs = [{emqx_swagger_remote_schema, "ref2"}],
     {_, Components} = validate("/ref/remote", Spec, Refs),
     ExpectComponents = [
-        #{<<"emqx_swagger_remote_schema.ref2">> => #{<<"properties">> => [
-            {<<"page">>, #{description => <<"good page">>,
-                maximum => 100,minimum => 1,type => integer}},
-        {<<"another_ref">>, #{<<"$ref">> =>
-        <<"#/components/schemas/emqx_swagger_remote_schema.ref3">>}}], <<"type">> => object}},
-        #{<<"emqx_swagger_remote_schema.ref3">> => #{<<"properties">> => [
-            {<<"ip">>, #{description => <<"IP:Port">>,
-                example => <<"127.0.0.1:80">>,type => string}},
-            {<<"version">>, #{description => <<"a good version">>,
-                example => <<"1.0.0">>,type => string}}],
-            <<"type">> => object}}],
+        #{
+            <<"emqx_swagger_remote_schema.ref2">> => #{
+                <<"properties">> => [
+                    {<<"page">>, #{
+                        description => <<"good page">>,
+                        maximum => 100,
+                        minimum => 1,
+                        type => integer
+                    }},
+                    {<<"another_ref">>, #{
+                        <<"$ref">> =>
+                            <<"#/components/schemas/emqx_swagger_remote_schema.ref3">>
+                    }}
+                ],
+                <<"type">> => object
+            }
+        },
+        #{
+            <<"emqx_swagger_remote_schema.ref3">> => #{
+                <<"properties">> => [
+                    {<<"ip">>, #{
+                        description => <<"IP:Port">>,
+                        example => <<"127.0.0.1:80">>,
+                        type => string
+                    }},
+                    {<<"version">>, #{
+                        description => <<"a good version">>,
+                        example => <<"1.0.0">>,
+                        type => string
+                    }}
+                ],
+                <<"type">> => object
+            }
+        }
+    ],
     ?assertEqual(ExpectComponents, Components),
     ok.
 
 t_nest_ref(_Config) ->
     Spec = #{
-        post => #{parameters => [],
-            requestBody => #{<<"content">> => #{<<"application/json">> =>
-            #{<<"schema">> => #{<<"$ref">> =>
-            <<"#/components/schemas/emqx_swagger_requestBody_SUITE.nest_ref">>}}}},
-            responses => #{<<"200">> => #{description => <<"ok">>}}}},
+        post => #{
+            parameters => [],
+            requestBody => #{
+                <<"content">> => #{
+                    <<"application/json">> =>
+                        #{
+                            <<"schema">> => #{
+                                <<"$ref">> =>
+                                    <<"#/components/schemas/emqx_swagger_requestBody_SUITE.nest_ref">>
+                            }
+                        }
+                }
+            },
+            responses => #{<<"200">> => #{description => <<"ok">>}}
+        }
+    },
     Refs = [{?MODULE, nest_ref}],
     ExpectComponents = lists:sort([
-        #{<<"emqx_swagger_requestBody_SUITE.nest_ref">> => #{<<"properties">> => [
-            {<<"env">>, #{enum => [test,dev,prod],type => string}},
-            {<<"another_ref">>, #{description => <<"nest ref">>,
-                <<"$ref">> => <<"#/components/schemas/emqx_swagger_requestBody_SUITE.good_ref">>}}],
-            <<"type">> => object}},
-        #{<<"emqx_swagger_requestBody_SUITE.good_ref">> => #{<<"properties">> => [
-            {<<"webhook-host">>, #{default => <<"127.0.0.1:80">>,
-                example => <<"127.0.0.1:80">>,type => string}},
-            {<<"log_dir">>, #{example => <<"var/log/emqx">>,type => string}},
-            {<<"tag">>, #{description => <<"tag">>,type => string}}],
-            <<"type">> => object}}]),
+        #{
+            <<"emqx_swagger_requestBody_SUITE.nest_ref">> => #{
+                <<"properties">> => [
+                    {<<"env">>, #{enum => [test, dev, prod], type => string}},
+                    {<<"another_ref">>, #{
+                        description => <<"nest ref">>,
+                        <<"$ref">> =>
+                            <<"#/components/schemas/emqx_swagger_requestBody_SUITE.good_ref">>
+                    }}
+                ],
+                <<"type">> => object
+            }
+        },
+        #{
+            <<"emqx_swagger_requestBody_SUITE.good_ref">> => #{
+                <<"properties">> => [
+                    {<<"webhook-host">>, #{
+                        default => <<"127.0.0.1:80">>,
+                        example => <<"127.0.0.1:80">>,
+                        type => string
+                    }},
+                    {<<"log_dir">>, #{example => <<"var/log/emqx">>, type => string}},
+                    {<<"tag">>, #{description => <<"tag">>, type => string}}
+                ],
+                <<"type">> => object
+            }
+        }
+    ]),
     {_, Components} = validate("/ref/nest/ref", Spec, Refs),
     ?assertEqual(ExpectComponents, Components),
     ok.
 
 t_none_ref(_Config) ->
     Path = "/ref/none",
-    ?assertThrow({error, #{mfa := {?MODULE, schema, [Path]}}},
-        emqx_dashboard_swagger:parse_spec_ref(?MODULE, Path, #{})),
+    ?assertThrow(
+        {error, #{mfa := {?MODULE, schema, [Path]}}},
+        emqx_dashboard_swagger:parse_spec_ref(?MODULE, Path, #{})
+    ),
     ok.
 
 t_sub_fields(_Config) ->
     Spec = #{
-        post => #{parameters => [],
-            requestBody => #{<<"content">> => #{<<"application/json">> =>
-            #{<<"schema">> => #{<<"$ref">> =>
-            <<"#/components/schemas/emqx_swagger_requestBody_SUITE.sub_fields">>}}}},
-            responses => #{<<"200">> => #{description => <<"ok">>}}}},
+        post => #{
+            parameters => [],
+            requestBody => #{
+                <<"content">> => #{
+                    <<"application/json">> =>
+                        #{
+                            <<"schema">> => #{
+                                <<"$ref">> =>
+                                    <<"#/components/schemas/emqx_swagger_requestBody_SUITE.sub_fields">>
+                            }
+                        }
+                }
+            },
+            responses => #{<<"200">> => #{description => <<"ok">>}}
+        }
+    },
     Refs = [{?MODULE, sub_fields}],
     validate("/fields/sub", Spec, Refs),
     ok.
@@ -162,44 +299,97 @@ t_sub_fields(_Config) ->
 t_bad_ref(_Config) ->
     Path = "/ref/bad",
     Spec = #{
-        post => #{parameters => [],
-            requestBody => #{<<"content">> => #{<<"application/json">> => #{<<"schema">> =>
-            #{<<"$ref">> => <<"#/components/schemas/emqx_swagger_requestBody_SUITE.bad_ref">>}}}},
-            responses => #{<<"200">> => #{description => <<"ok">>}}}},
+        post => #{
+            parameters => [],
+            requestBody => #{
+                <<"content">> => #{
+                    <<"application/json">> => #{
+                        <<"schema">> =>
+                            #{
+                                <<"$ref">> =>
+                                    <<"#/components/schemas/emqx_swagger_requestBody_SUITE.bad_ref">>
+                            }
+                    }
+                }
+            },
+            responses => #{<<"200">> => #{description => <<"ok">>}}
+        }
+    },
     Refs = [{?MODULE, bad_ref}],
     Fields = fields(bad_ref),
-    ?assertThrow({error, #{msg := <<"Object only supports not empty proplists">>, args := Fields}},
-        validate(Path, Spec, Refs)),
+    ?assertThrow(
+        {error, #{msg := <<"Object only supports not empty proplists">>, args := Fields}},
+        validate(Path, Spec, Refs)
+    ),
     ok.
 
 t_ref_array_with_key(_Config) ->
     Spec = #{
-        post => #{parameters => [],
-            requestBody => #{<<"content">> => #{<<"application/json">> =>
-            #{<<"schema">> => #{required => [<<"timeout">>],
-                <<"type">> => object, <<"properties">> =>
-                [
-                    {<<"per_page">>, #{description => <<"good per page desc">>,
-                        maximum => 100, minimum => 1, type => integer}},
-                    {<<"timeout">>, #{default => 5, <<"oneOf">> =>
-                    [#{example => <<"1h">>, type => string},
-                        #{enum => [infinity], type => string}]}},
-                    {<<"array_refs">>, #{items => #{<<"$ref">> =>
-                    <<"#/components/schemas/emqx_swagger_requestBody_SUITE.good_ref">>},
-                        type => array}}
-                ]}}}},
-            responses => #{<<"200">> => #{description => <<"ok">>}}}},
+        post => #{
+            parameters => [],
+            requestBody => #{
+                <<"content">> => #{
+                    <<"application/json">> =>
+                        #{
+                            <<"schema">> => #{
+                                required => [<<"timeout">>],
+                                <<"type">> => object,
+                                <<"properties">> =>
+                                    [
+                                        {<<"per_page">>, #{
+                                            description => <<"good per page desc">>,
+                                            maximum => 100,
+                                            minimum => 1,
+                                            type => integer
+                                        }},
+                                        {<<"timeout">>, #{
+                                            default => 5,
+                                            <<"oneOf">> =>
+                                                [
+                                                    #{example => <<"1h">>, type => string},
+                                                    #{enum => [infinity], type => string}
+                                                ]
+                                        }},
+                                        {<<"array_refs">>, #{
+                                            items => #{
+                                                <<"$ref">> =>
+                                                    <<"#/components/schemas/emqx_swagger_requestBody_SUITE.good_ref">>
+                                            },
+                                            type => array
+                                        }}
+                                    ]
+                            }
+                        }
+                }
+            },
+            responses => #{<<"200">> => #{description => <<"ok">>}}
+        }
+    },
     Refs = [{?MODULE, good_ref}],
     validate("/ref/array/with/key", Spec, Refs),
     ok.
 
 t_ref_array_without_key(_Config) ->
     Spec = #{
-        post => #{parameters => [],
-            requestBody => #{<<"content">> => #{<<"application/json">> => #{<<"schema">> =>
-            #{items => #{<<"$ref">> =>
-            <<"#/components/schemas/emqx_swagger_requestBody_SUITE.good_ref">>}, type => array}}}},
-            responses => #{<<"200">> => #{description => <<"ok">>}}}},
+        post => #{
+            parameters => [],
+            requestBody => #{
+                <<"content">> => #{
+                    <<"application/json">> => #{
+                        <<"schema">> =>
+                            #{
+                                items => #{
+                                    <<"$ref">> =>
+                                        <<"#/components/schemas/emqx_swagger_requestBody_SUITE.good_ref">>
+                                },
+                                type => array
+                            }
+                    }
+                }
+            },
+            responses => #{<<"200">> => #{description => <<"ok">>}}
+        }
+    },
     Refs = [{?MODULE, good_ref}],
     validate("/ref/array/without/key", Spec, Refs),
     ok.
@@ -220,15 +410,18 @@ t_api_spec(_Config) ->
     Filter0 = filter(Spec0, Path),
     ?assertMatch(
         {ok, #{body := #{<<"timeout">> := <<"infinity">>}}},
-        trans_requestBody(Path, Body, Filter0)),
+        trans_requestBody(Path, Body, Filter0)
+    ),
 
-    {Spec1, _} = emqx_dashboard_swagger:spec(?MODULE,
-        #{check_schema => true, translate_body => true}),
+    {Spec1, _} = emqx_dashboard_swagger:spec(
+        ?MODULE,
+        #{check_schema => true, translate_body => true}
+    ),
     Filter1 = filter(Spec1, Path),
     ?assertMatch(
         {ok, #{body := #{<<"timeout">> := infinity}}},
-        trans_requestBody(Path, Body, Filter1)).
-
+        trans_requestBody(Path, Body, Filter1)
+    ).
 
 t_object_trans(_Config) ->
     Path = "/object",
@@ -246,14 +439,15 @@ t_object_trans(_Config) ->
             bindings => #{},
             query_string => #{},
             body =>
-            #{
-                <<"per_page">> => 1,
-                <<"timeout">> => infinity,
-                <<"inner_ref">> => #{
-                    <<"log_dir">> => "var/log/test",
-                    <<"tag">> => <<"god_tag">>,
-                    <<"webhook-host">> => {{127, 0, 0, 1}, 80}}
-            }
+                #{
+                    <<"per_page">> => 1,
+                    <<"timeout">> => infinity,
+                    <<"inner_ref">> => #{
+                        <<"log_dir">> => "var/log/test",
+                        <<"tag">> => <<"god_tag">>,
+                        <<"webhook-host">> => {{127, 0, 0, 1}, 80}
+                    }
+                }
         },
     {ok, ActualBody} = trans_requestBody(Path, Body),
     ?assertEqual(Expect, ActualBody),
@@ -270,8 +464,11 @@ t_object_notrans(_Config) ->
             <<"tag">> => <<"god_tag">>
         }
     },
-    {ok, #{body := ActualBody}} = trans_requestBody(Path, Body,
-        fun emqx_dashboard_swagger:filter_check_request/2),
+    {ok, #{body := ActualBody}} = trans_requestBody(
+        Path,
+        Body,
+        fun emqx_dashboard_swagger:filter_check_request/2
+    ),
     ?assertEqual(Body, ActualBody),
     ok.
 
@@ -297,8 +494,10 @@ todo_t_nest_object_check(_Config) ->
     Expect = #{
         bindings => #{},
         query_string => #{},
-        body => #{<<"per_page">> => 10,
-            <<"timeout">> => 600}
+        body => #{
+            <<"per_page">> => 10,
+            <<"timeout">> => 600
+        }
     },
     {ok, NewRequest} = check_requestBody(Path, Body),
     ?assertEqual(Expect, NewRequest),
@@ -330,7 +529,8 @@ t_remote_ref_trans(_Config) ->
         <<"page">> => 10,
         <<"another_ref">> => #{
             <<"version">> => "2.1.0",
-            <<"ip">> => <<"198.12.2.1:89">>}
+            <<"ip">> => <<"198.12.2.1:89">>
+        }
     },
     Expect = #{
         bindings => #{},
@@ -339,7 +539,8 @@ t_remote_ref_trans(_Config) ->
             <<"page">> => 10,
             <<"another_ref">> => #{
                 <<"version">> => "2.1.0",
-                <<"ip">> => {{198,12,2,1}, 89}}
+                <<"ip">> => {{198, 12, 2, 1}, 89}
+            }
         }
     },
     {ok, NewRequest} = trans_requestBody(Path, Body),
@@ -348,20 +549,25 @@ t_remote_ref_trans(_Config) ->
 
 t_nest_ref_trans(_Config) ->
     Path = "/ref/nest/ref",
-    Body = #{<<"env">> => <<"prod">>,
+    Body = #{
+        <<"env">> => <<"prod">>,
         <<"another_ref">> => #{
             <<"log_dir">> => "var/log/dev",
             <<"tag">> => <<"A">>,
             <<"webhook-host">> => "127.0.0.1:80"
-        }},
+        }
+    },
     Expect = #{
         bindings => #{},
         query_string => #{},
         body => #{
             <<"another_ref">> => #{
-                <<"log_dir">> => "var/log/dev", <<"tag">> => <<"A">>,
-                <<"webhook-host">> => {{127, 0, 0, 1}, 80}},
-            <<"env">> => prod}
+                <<"log_dir">> => "var/log/dev",
+                <<"tag">> => <<"A">>,
+                <<"webhook-host">> => {{127, 0, 0, 1}, 80}
+            },
+            <<"env">> => prod
+        }
     },
     {ok, NewRequest} = trans_requestBody(Path, Body),
     ?assertEqual(Expect, NewRequest),
@@ -382,7 +588,8 @@ t_ref_array_with_key_trans(_Config) ->
                 <<"log_dir">> => "var/log/test",
                 <<"tag">> => <<"B">>,
                 <<"webhook-host">> => "127.0.0.1:81"
-            }]
+            }
+        ]
     },
     Expect = #{
         bindings => #{},
@@ -410,16 +617,18 @@ t_ref_array_with_key_trans(_Config) ->
 
 t_ref_array_without_key_trans(_Config) ->
     Path = "/ref/array/without/key",
-    Body = [#{
-        <<"log_dir">> => "var/log/dev",
-        <<"tag">> => <<"A">>,
-        <<"webhook-host">> => "127.0.0.1:80"
-    },
+    Body = [
+        #{
+            <<"log_dir">> => "var/log/dev",
+            <<"tag">> => <<"A">>,
+            <<"webhook-host">> => "127.0.0.1:80"
+        },
         #{
             <<"log_dir">> => "var/log/test",
             <<"tag">> => <<"B">>,
             <<"webhook-host">> => "127.0.0.1:81"
-        }],
+        }
+    ],
     Expect = #{
         bindings => #{},
         query_string => #{},
@@ -433,7 +642,8 @@ t_ref_array_without_key_trans(_Config) ->
                 <<"log_dir">> => "var/log/test",
                 <<"tag">> => <<"B">>,
                 <<"webhook-host">> => {{127, 0, 0, 1}, 81}
-            }]
+            }
+        ]
     },
     {ok, NewRequest} = trans_requestBody(Path, Body),
     ?assertEqual(Expect, NewRequest),
@@ -441,12 +651,14 @@ t_ref_array_without_key_trans(_Config) ->
 
 t_ref_trans_error(_Config) ->
     Path = "/ref/nest/ref",
-    Body = #{<<"env">> => <<"prod">>,
+    Body = #{
+        <<"env">> => <<"prod">>,
         <<"another_ref">> => #{
             <<"log_dir">> => "var/log/dev",
             <<"tag">> => <<"A">>,
             <<"webhook-host">> => "127.0..0.1:80"
-        }},
+        }
+    },
     {400, 'BAD_REQUEST', _} = trans_requestBody(Path, Body),
     ok.
 
@@ -472,18 +684,23 @@ validate(Path, ExpectSpec, ExpectRefs) ->
     ?assertEqual(ExpectRefs, Refs),
     {Spec, emqx_dashboard_swagger:components(Refs, #{})}.
 
-
 filter(ApiSpec, Path) ->
     [Filter] = [F || {P, _, _, #{filter := F}} <- ApiSpec, P =:= Path],
     Filter.
 
 trans_requestBody(Path, Body) ->
-    trans_requestBody(Path, Body,
-        fun emqx_dashboard_swagger:filter_check_request_and_translate_body/2).
+    trans_requestBody(
+        Path,
+        Body,
+        fun emqx_dashboard_swagger:filter_check_request_and_translate_body/2
+    ).
 
 check_requestBody(Path, Body) ->
-    trans_requestBody(Path, Body,
-        fun emqx_dashboard_swagger:filter_check_request/2).
+    trans_requestBody(
+        Path,
+        Body,
+        fun emqx_dashboard_swagger:filter_check_request/2
+    ).
 
 trans_requestBody(Path, Body, Filter) ->
     Meta = #{module => ?MODULE, method => post, path => Path},
@@ -492,21 +709,34 @@ trans_requestBody(Path, Body, Filter) ->
 
 api_spec() -> emqx_dashboard_swagger:spec(?MODULE).
 paths() ->
-    ["/object", "/nest/object", "/ref/local", "/ref/nest/ref", "/fields/sub",
-        "/ref/array/with/key", "/ref/array/without/key"].
+    [
+        "/object",
+        "/nest/object",
+        "/ref/local",
+        "/ref/nest/ref",
+        "/fields/sub",
+        "/ref/array/with/key",
+        "/ref/array/without/key"
+    ].
 
 schema("/object") ->
     to_schema([
         {per_page, mk(range(1, 100), #{required => true, desc => <<"good per page desc">>})},
-        {timeout, mk(hoconsc:union([infinity, emqx_schema:duration_s()]),
-            #{default => 5, required => true})},
+        {timeout,
+            mk(
+                hoconsc:union([infinity, emqx_schema:duration_s()]),
+                #{default => 5, required => true}
+            )},
         {inner_ref, mk(hoconsc:ref(?MODULE, good_ref), #{})}
     ]);
 schema("/nest/object") ->
     to_schema([
         {per_page, mk(range(1, 100), #{desc => <<"good per page desc">>})},
-        {timeout, mk(hoconsc:union([infinity, emqx_schema:duration_s()]),
-            #{default => 5, required => true})},
+        {timeout,
+            mk(
+                hoconsc:union([infinity, emqx_schema:duration_s()]),
+                #{default => 5, required => true}
+            )},
         {nest_object, [
             {good_nest_1, mk(integer(), #{})},
             {good_nest_2, mk(hoconsc:ref(?MODULE, good_ref), #{})}
@@ -526,8 +756,11 @@ schema("/ref/nest/ref") ->
 schema("/ref/array/with/key") ->
     to_schema([
         {per_page, mk(range(1, 100), #{desc => <<"good per page desc">>})},
-        {timeout, mk(hoconsc:union([infinity, emqx_schema:duration_s()]),
-            #{default => 5, required => true})},
+        {timeout,
+            mk(
+                hoconsc:union([infinity, emqx_schema:duration_s()]),
+                #{default => 5, required => true}
+            )},
         {array_refs, mk(hoconsc:array(hoconsc:ref(?MODULE, good_ref)), #{})}
     ]);
 schema("/ref/array/without/key") ->
@@ -550,18 +783,20 @@ fields(nest_ref) ->
         {env, mk(hoconsc:enum([test, dev, prod]), #{})},
         {another_ref, mk(hoconsc:ref(good_ref), #{desc => "nest ref"})}
     ];
-
-fields(bad_ref) -> %% don't support maps
+%% don't support maps
+fields(bad_ref) ->
     #{
         username => mk(string(), #{}),
         is_admin => mk(boolean(), #{})
     };
 fields(sub_fields) ->
-    #{fields => [
-        {enable,     fun enable/1},
-        {init_file,  fun init_file/1}
-    ],
-        desc => <<"test sub fields">>}.
+    #{
+        fields => [
+            {enable, fun enable/1},
+            {init_file, fun init_file/1}
+        ],
+        desc => <<"test sub fields">>
+    }.
 
 enable(type) -> boolean();
 enable(desc) -> <<"Whether to enable tls psk support">>;

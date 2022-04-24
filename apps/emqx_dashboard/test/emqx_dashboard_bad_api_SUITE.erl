@@ -50,7 +50,7 @@ end_suite() ->
 
 t_bad_api_path(_) ->
     Url = ?SERVER ++ "/for/test/some/path/not/exist",
-    {error,{"HTTP/1.1", 404, "Not Found"}} = request(Url),
+    {error, {"HTTP/1.1", 404, "Not Found"}} = request(Url),
     ok.
 
 request(Url) ->
@@ -58,8 +58,9 @@ request(Url) ->
     case httpc:request(get, Request, [], []) of
         {error, Reason} ->
             {error, Reason};
-        {ok, {{"HTTP/1.1", Code, _}, _, Return} }
-            when Code >= 200 andalso Code =< 299 ->
+        {ok, {{"HTTP/1.1", Code, _}, _, Return}} when
+            Code >= 200 andalso Code =< 299
+        ->
             {ok, emqx_json:decode(Return, [return_maps])};
         {ok, {Reason, _, _}} ->
             {error, Reason}

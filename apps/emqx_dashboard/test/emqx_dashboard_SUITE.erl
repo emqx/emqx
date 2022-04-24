@@ -19,11 +19,14 @@
 -compile(nowarn_export_all).
 -compile(export_all).
 
--import(emqx_common_test_http,
-        [ request_api/3
-        , request_api/5
-        , get_http_data/1
-        ]).
+-import(
+    emqx_common_test_http,
+    [
+        request_api/3,
+        request_api/5,
+        get_http_data/1
+    ]
+).
 
 -include_lib("eunit/include/eunit.hrl").
 -include_lib("emqx/include/emqx.hrl").
@@ -40,18 +43,19 @@
 -define(APP_DASHBOARD, emqx_dashboard).
 -define(APP_MANAGEMENT, emqx_management).
 
--define(OVERVIEWS, ['alarms/activated',
-                    'alarms/deactivated',
-                    banned,
-                    brokers,
-                    stats,
-                    metrics,
-                    listeners,
-                    clients,
-                    subscriptions,
-                    routes,
-                    plugins
-                   ]).
+-define(OVERVIEWS, [
+    'alarms/activated',
+    'alarms/deactivated',
+    banned,
+    brokers,
+    stats,
+    metrics,
+    listeners,
+    clients,
+    subscriptions,
+    routes,
+    plugins
+]).
 
 all() ->
     %% TODO: V5 API
@@ -66,8 +70,10 @@ end_suite(Apps) ->
     emqx_common_test_helpers:stop_apps(Apps ++ [emqx_dashboard]).
 
 init_per_suite(Config) ->
-    emqx_common_test_helpers:start_apps([emqx_management, emqx_dashboard],
-        fun set_special_configs/1),
+    emqx_common_test_helpers:start_apps(
+        [emqx_management, emqx_dashboard],
+        fun set_special_configs/1
+    ),
     Config.
 
 end_per_suite(_Config) ->
@@ -76,8 +82,10 @@ end_per_suite(_Config) ->
 
 set_special_configs(emqx_management) ->
     Listeners = #{http => #{port => 8081}},
-    Config = #{listeners => Listeners,
-               applications => [#{id => "admin", secret => "public"}]},
+    Config = #{
+        listeners => Listeners,
+        applications => [#{id => "admin", secret => "public"}]
+    },
     emqx_config:put([emqx_management], Config),
     ok;
 set_special_configs(emqx_dashboard) ->
@@ -89,8 +97,16 @@ set_special_configs(_) ->
 t_overview(_) ->
     mnesia:clear_table(?ADMIN),
     emqx_dashboard_admin:add_user(<<"admin">>, <<"public">>, <<"simple_description">>),
-    [?assert(request_dashboard(get, api_path(erlang:atom_to_list(Overview)),
-                               auth_header_())) || Overview <- ?OVERVIEWS].
+    [
+        ?assert(
+            request_dashboard(
+                get,
+                api_path(erlang:atom_to_list(Overview)),
+                auth_header_()
+            )
+        )
+     || Overview <- ?OVERVIEWS
+    ].
 
 t_admins_add_delete(_) ->
     mnesia:clear_table(?ADMIN),
@@ -102,9 +118,11 @@ t_admins_add_delete(_) ->
     ok = emqx_dashboard_admin:remove_user(<<"username1">>),
     Users = emqx_dashboard_admin:all_users(),
     ?assertEqual(1, length(Users)),
-    ok = emqx_dashboard_admin:change_password(<<"username">>,
-                                              <<"password">>,
-                                              <<"pwd">>),
+    ok = emqx_dashboard_admin:change_password(
+        <<"username">>,
+        <<"password">>,
+        <<"pwd">>
+    ),
     timer:sleep(10),
     Header = auth_header_(<<"username">>, <<"pwd">>),
     ?assert(request_dashboard(get, api_path("brokers"), Header)),
@@ -117,25 +135,38 @@ t_rest_api(_Config) ->
     Desc = <<"administrator">>,
     emqx_dashboard_admin:add_user(<<"admin">>, <<"public">>, Desc),
     {ok, 200, Res0} = http_get(["users"]),
-    ?assertEqual([#{<<"username">> => <<"admin">>,
-                    <<"description">> => <<"administrator">>}], get_http_data(Res0)),
+    ?assertEqual(
+        [
+            #{
+                <<"username">> => <<"admin">>,
+                <<"description">> => <<"administrator">>
+            }
+        ],
+        get_http_data(Res0)
+    ),
     {ok, 200, _} = http_put(["users", "admin"], #{<<"description">> => <<"a_new_description">>}),
-    {ok, 200, _} = http_post(["users"], #{<<"username">> => <<"usera">>,
-                                          <<"password">> => <<"passwd">>,
-                                          <<"description">> => Desc}),
+    {ok, 200, _} = http_post(["users"], #{
+        <<"username">> => <<"usera">>,
+        <<"password">> => <<"passwd">>,
+        <<"description">> => Desc
+    }),
     {ok, 204, _} = http_delete(["users", "usera"]),
     {ok, 404, _} = http_delete(["users", "usera"]),
-    {ok, 204, _} = http_put( ["users", "admin", "change_pwd"]
-                           , #{<<"old_pwd">> => <<"public">>,
-                               <<"new_pwd">> => <<"newpwd">>}),
+    {ok, 204, _} = http_put(
+        ["users", "admin", "change_pwd"],
+        #{
+            <<"old_pwd">> => <<"public">>,
+            <<"new_pwd">> => <<"newpwd">>
+        }
+    ),
     mnesia:clear_table(?ADMIN),
     emqx_dashboard_admin:add_user(<<"admin">>, <<"public">>, <<"administrator">>),
     ok.
 
 t_cli(_Config) ->
-    [mria:dirty_delete(?ADMIN, Admin) ||  Admin <- mnesia:dirty_all_keys(?ADMIN)],
+    [mria:dirty_delete(?ADMIN, Admin) || Admin <- mnesia:dirty_all_keys(?ADMIN)],
     emqx_dashboard_cli:admins(["add", "username", "password"]),
-    [#?ADMIN{ username = <<"username">>, pwdhash = <<Salt:4/binary, Hash/binary>>}] =
+    [#?ADMIN{username = <<"username">>, pwdhash = <<Salt:4/binary, Hash/binary>>}] =
         emqx_dashboard_admin:lookup_user(<<"username">>),
     ?assertEqual(Hash, crypto:hash(sha256, <<Salt/binary, <<"password">>/binary>>)),
     emqx_dashboard_cli:admins(["passwd", "username", "newpassword"]),
@@ -153,8 +184,10 @@ t_lookup_by_username_jwt(_Config) ->
     User = bin(["user-", integer_to_list(random_num())]),
     Pwd = bin(integer_to_list(random_num())),
     emqx_dashboard_token:sign(User, Pwd),
-    ?assertMatch([#?ADMIN_JWT{username = User}],
-                 emqx_dashboard_token:lookup_by_username(User)),
+    ?assertMatch(
+        [#?ADMIN_JWT{username = User}],
+        emqx_dashboard_token:lookup_by_username(User)
+    ),
     ok = emqx_dashboard_token:destroy_by_username(User),
     %% issue a gen_server call to sync the async destroy gen_server cast
     ok = gen_server:call(emqx_dashboard_token, dummy, infinity),
@@ -168,8 +201,10 @@ t_clean_expired_jwt(_Config) ->
     [#?ADMIN_JWT{username = User, exptime = ExpTime}] =
         emqx_dashboard_token:lookup_by_username(User),
     ok = emqx_dashboard_token:clean_expired_jwt(_Now1 = ExpTime),
-    ?assertMatch([#?ADMIN_JWT{username = User}],
-                 emqx_dashboard_token:lookup_by_username(User)),
+    ?assertMatch(
+        [#?ADMIN_JWT{username = User}],
+        emqx_dashboard_token:lookup_by_username(User)
+    ),
     ok = emqx_dashboard_token:clean_expired_jwt(_Now2 = ExpTime + 1),
     ?assertMatch([], emqx_dashboard_token:lookup_by_username(User)),
     ok.
@@ -201,13 +236,14 @@ request_dashboard(Method, Url, Auth) ->
 request_dashboard(Method, Url, QueryParams, Auth) ->
     Request = {Url ++ "?" ++ QueryParams, [Auth]},
     do_request_dashboard(Method, Request).
-do_request_dashboard(Method, Request)->
+do_request_dashboard(Method, Request) ->
     ct:pal("Method: ~p, Request: ~p", [Method, Request]),
     case httpc:request(Method, Request, [], []) of
         {error, socket_closed_remotely} ->
             {error, socket_closed_remotely};
-        {ok, {{"HTTP/1.1", Code, _}, _Headers, Return} }
-          when Code >= 200 andalso Code =< 299 ->
+        {ok, {{"HTTP/1.1", Code, _}, _Headers, Return}} when
+            Code >= 200 andalso Code =< 299
+        ->
             {ok, Return};
         {ok, {Reason, _, _}} ->
             {error, Reason}
@@ -218,10 +254,11 @@ auth_header_() ->
 
 auth_header_(Username, Password) ->
     {ok, Token} = emqx_dashboard_admin:sign_token(Username, Password),
-    {"Authorization","Bearer " ++ binary_to_list(Token)}.
+    {"Authorization", "Bearer " ++ binary_to_list(Token)}.
 
 api_path(Parts) ->
     ?HOST ++ filename:join([?BASE_PATH | Parts]).
 
 json(Data) ->
-    {ok, Jsx} = emqx_json:safe_decode(Data, [return_maps]), Jsx.
+    {ok, Jsx} = emqx_json:safe_decode(Data, [return_maps]),
+    Jsx.

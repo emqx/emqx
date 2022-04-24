@@ -16,13 +16,15 @@
 
 -module(emqx_dashboard_api_test_helpers).
 
--export([set_default_config/0,
-         set_default_config/1,
-         request/2,
-         request/3,
-         request/4,
-         uri/0,
-         uri/1]).
+-export([
+    set_default_config/0,
+    set_default_config/1,
+    request/2,
+    request/3,
+    request/4,
+    uri/0,
+    uri/1
+]).
 
 -define(HOST, "http://127.0.0.1:18083/").
 -define(API_VERSION, "v5").
@@ -32,15 +34,16 @@ set_default_config() ->
     set_default_config(<<"admin">>).
 
 set_default_config(DefaultUsername) ->
-    Config = #{listeners => #{
-                  http => #{
-                    port => 18083
-                  }
-               },
-               default_username => DefaultUsername,
-               default_password => <<"public">>,
-               i18n_lang => en
-              },
+    Config = #{
+        listeners => #{
+            http => #{
+                port => 18083
+            }
+        },
+        default_username => DefaultUsername,
+        default_password => <<"public">>,
+        i18n_lang => en
+    },
     emqx_config:put([dashboard], Config),
     I18nFile = filename:join([
         filename:dirname(code:priv_dir(emqx_dashboard)),
@@ -57,17 +60,22 @@ request(Method, Url, Body) ->
     request(<<"admin">>, Method, Url, Body).
 
 request(Username, Method, Url, Body) ->
-    Request = case Body of
-        [] when Method =:= get orelse Method =:= put orelse
-                Method =:= head orelse Method =:= delete orelse
-                Method =:= trace -> {Url, [auth_header(Username)]};
-        _ -> {Url, [auth_header(Username)], "application/json", jsx:encode(Body)}
-    end,
+    Request =
+        case Body of
+            [] when
+                Method =:= get orelse Method =:= put orelse
+                    Method =:= head orelse Method =:= delete orelse
+                    Method =:= trace
+            ->
+                {Url, [auth_header(Username)]};
+            _ ->
+                {Url, [auth_header(Username)], "application/json", jsx:encode(Body)}
+        end,
     ct:pal("Method: ~p, Request: ~p", [Method, Request]),
     case httpc:request(Method, Request, [], [{body_format, binary}]) of
         {error, socket_closed_remotely} ->
             {error, socket_closed_remotely};
-        {ok, {{"HTTP/1.1", Code, _}, _Headers, Return} } ->
+        {ok, {{"HTTP/1.1", Code, _}, _Headers, Return}} ->
             {ok, Code, Return};
         {ok, {Reason, _, _}} ->
             {error, Reason}

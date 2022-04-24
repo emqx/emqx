@@ -82,13 +82,18 @@ t_format_code(_) ->
 t_api_codes(_) ->
     Url = ?SERVER ++ "/error_codes",
     {ok, List} = request(Url),
-    [?assert(exist(atom_to_binary(CodeName, utf8), List)) || CodeName <- emqx_dashboard_error_code:all()],
+    [
+        ?assert(exist(atom_to_binary(CodeName, utf8), List))
+     || CodeName <- emqx_dashboard_error_code:all()
+    ],
     ok.
 
 t_api_code(_) ->
     Url = ?SERVER ++ "/error_codes/BAD_REQUEST",
-    {ok, #{<<"code">> := <<"BAD_REQUEST">>,
-           <<"description">> := <<"Request parameters are not legal">>}} = request(Url),
+    {ok, #{
+        <<"code">> := <<"BAD_REQUEST">>,
+        <<"description">> := <<"Request parameters are not legal">>
+    }} = request(Url),
     ok.
 
 exist(_CodeName, []) ->
@@ -105,8 +110,9 @@ request(Url) ->
     case httpc:request(get, Request, [], []) of
         {error, Reason} ->
             {error, Reason};
-        {ok, {{"HTTP/1.1", Code, _}, _, Return} }
-            when Code >= 200 andalso Code =< 299 ->
+        {ok, {{"HTTP/1.1", Code, _}, _, Return}} when
+            Code >= 200 andalso Code =< 299
+        ->
             {ok, emqx_json:decode(Return, [return_maps])};
         {ok, {Reason, _, _}} ->
             {error, Reason}

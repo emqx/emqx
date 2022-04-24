@@ -202,32 +202,28 @@ to_rate(Str, CanInfinity, CanZero) ->
             {ok, infinity};
         %% if time unit is 1s, it can be omitted
         [QuotaStr] ->
-            {ok, Val} = to_capacity(QuotaStr),
-            check_capacity(
-                Str,
-                Val,
-                CanZero,
-                fun(Quota) ->
-                    {ok, Quota * minimum_period() / ?UNIT_TIME_IN_MS}
-                end
-            );
+            Fun = fun(Quota) ->
+                {ok, Quota * minimum_period() / ?UNIT_TIME_IN_MS}
+            end,
+            to_capacity(QuotaStr, Str, CanZero, Fun);
         [QuotaStr, Interval] ->
-            {ok, Val} = to_capacity(QuotaStr),
-            check_capacity(
-                Str,
-                Val,
-                CanZero,
-                fun(Quota) ->
-                    case emqx_schema:to_duration_ms(Interval) of
-                        {ok, Ms} when Ms > 0 ->
-                            {ok, Quota * minimum_period() / Ms};
-                        _ ->
-                            {error, Str}
-                    end
+            Fun = fun(Quota) ->
+                case emqx_schema:to_duration_ms(Interval) of
+                    {ok, Ms} when Ms > 0 ->
+                        {ok, Quota * minimum_period() / Ms};
+                    _ ->
+                        {error, Str}
                 end
-            );
+            end,
+            to_capacity(QuotaStr, Str, CanZero, Fun);
         _ ->
             {error, Str}
+    end.
+
+to_capacity(QuotaStr, Str, CanZero, Fun) ->
+    case to_capacity(QuotaStr) of
+        {ok, Val} -> check_capacity(Str, Val, CanZero, Fun);
+        {error, _Error} -> {error, Str}
     end.
 
 check_capacity(_Str, 0, true, _Cont) ->
@@ -247,18 +243,23 @@ to_initial(Str) ->
 
 to_quota(Str, Regex) ->
     {ok, MP} = re:compile(Regex),
-    Result = re:run(Str, MP, [{capture, all_but_first, list}]),
-    case Result of
-        {match, [Quota, Unit]} ->
-            Val = erlang:list_to_integer(Quota),
-            Unit2 = string:to_lower(Unit),
-            {ok, apply_unit(Unit2, Val)};
-        {match, [Quota, ""]} ->
-            {ok, erlang:list_to_integer(Quota)};
-        {match, ""} ->
-            {ok, infinity};
-        _ ->
-            {error, Str}
+    try
+        Result = re:run(Str, MP, [{capture, all_but_first, list}]),
+        case Result of
+            {match, [Quota, Unit]} ->
+                Val = erlang:list_to_integer(Quota),
+                Unit2 = string:to_lower(Unit),
+                {ok, apply_unit(Unit2, Val)};
+            {match, [Quota, ""]} ->
+                {ok, erlang:list_to_integer(Quota)};
+            {match, ""} ->
+                {ok, infinity};
+            _ ->
+                {error, Str}
+        end
+    catch
+        _:Error ->
+            {error, Error}
     end.
 
 apply_unit("", Val) -> Val;
