@@ -188,7 +188,7 @@ start_listener(Type, ListenerName, #{bind := Bind} = Conf) ->
             Reason =:= quic_app_missing
         ->
             console_print(
-                "Listener ~ts is NOT started due to: ~p~n.",
+                "Listener ~ts is NOT started due to: ~p.~n",
                 [listener_id(Type, ListenerName), Reason]
             ),
             ok;
@@ -204,7 +204,7 @@ start_listener(Type, ListenerName, #{bind := Bind} = Conf) ->
             ListenerId = listener_id(Type, ListenerName),
             BindStr = format_addr(Bind),
             ?ELOG(
-                "Failed to start listener ~ts on ~ts: ~0p~n",
+                "Failed to start listener ~ts on ~ts: ~0p.~n",
                 [ListenerId, BindStr, Reason]
             ),
             Msg = lists:flatten(

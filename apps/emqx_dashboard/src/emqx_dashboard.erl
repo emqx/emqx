@@ -89,7 +89,7 @@ start_listeners(Listeners) ->
                 Minirest = BaseMinirest#{protocol => Protocol},
                 case minirest:start(Name, RanchOptions, Minirest) of
                     {ok, _} ->
-                        ?ULOG("Start listener ~ts on ~ts successfully.~n", [
+                        ?ULOG("Listener ~ts on ~ts started.~n", [
                             Name, emqx_listeners:format_addr(Bind)
                         ]),
                         Acc;
