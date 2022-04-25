@@ -24,6 +24,8 @@
 -include_lib("emqx/include/logger.hrl").
 -include("emqx_conf.hrl").
 
+-define(DEFAULT_INIT_TXN_ID, -1).
+
 start(_StartType, _StartArgs) ->
     init_conf(),
     emqx_conf_sup:start_link().
