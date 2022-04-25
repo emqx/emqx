@@ -120,21 +120,45 @@ t_listener_authenticator_import_users(_) ->
     test_authenticator_import_users(["listeners", ?TCP_DEFAULT]).
 
 t_aggregate_metrics(_) ->
-    Metrics = #{ 'emqx@node1.emqx.io' => #{metrics =>
-                                               #{failed => 0,matched => 1,rate => 0.0,
-                                                 rate_last5m => 0.0,rate_max => 0.1,
-                                                 success => 1}
-                                          },
-                 'emqx@node2.emqx.io' => #{metrics =>
-                                               #{failed => 0,matched => 1,rate => 0.0,
-                                                 rate_last5m => 0.0,rate_max => 0.1,
-                                                 success => 1}
-                                          }
-               },
+    Metrics = #{
+        'emqx@node1.emqx.io' => #{
+            metrics =>
+                #{
+                    failed => 0,
+                    matched => 1,
+                    rate => 0.0,
+                    rate_last5m => 0.0,
+                    rate_max => 0.1,
+                    success => 1
+                }
+        },
+        'emqx@node2.emqx.io' => #{
+            metrics =>
+                #{
+                    failed => 0,
+                    matched => 1,
+                    rate => 0.0,
+                    rate_last5m => 0.0,
+                    rate_max => 0.1,
+                    success => 1
+                }
+        }
+    },
     Res = emqx_authn_api:aggregate_metrics(maps:values(Metrics)),
-    ?assertEqual(#{metrics =>
-                       #{failed => 0,matched => 2,rate => 0.0,rate_last5m => 0.0,
-                         rate_max => 0.2,success => 2}}, Res).
+    ?assertEqual(
+        #{
+            metrics =>
+                #{
+                    failed => 0,
+                    matched => 2,
+                    rate => 0.0,
+                    rate_last5m => 0.0,
+                    rate_max => 0.2,
+                    success => 2
+                }
+        },
+        Res
+    ).
 
 test_authenticators(PathPrefix) ->
     ValidConfig = emqx_authn_test_lib:http_example(),
