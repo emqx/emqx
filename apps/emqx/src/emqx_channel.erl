@@ -1857,9 +1857,11 @@ put_subid_in_subopts(_Properties, TopicFilters) ->
 
 enrich_subopts(SubOpts, _Channel = ?IS_MQTT_V5) ->
     SubOpts;
-enrich_subopts(SubOpts, #channel{clientinfo = #{zone := Zone, is_bridge := IsBridge}}) ->
+enrich_subopts(SubOpts, #channel{clientinfo = #{zone := Zone}}) ->
     NL = flag(get_mqtt_conf(Zone, ignore_loop_deliver)),
-    SubOpts#{rap => flag(IsBridge), nl => NL}.
+    %% rap should always set to 1 in MQTT 3.x
+    %% http://docs.oasis-open.org/mqtt/mqtt/v3.1.1/os/mqtt-v3.1.1-os.html
+    SubOpts#{rap => 1, nl => NL}.
 
 %%--------------------------------------------------------------------
 %% Enrich ConnAck Caps

@@ -662,11 +662,14 @@ enrich_subopts(
     Session = #session{upgrade_qos = false}
 ) ->
     enrich_subopts(Opts, Msg#message{qos = min(SubQoS, PubQoS)}, Session);
-enrich_subopts([{rap, 1} | Opts], Msg, Session) ->
+%% only rap is 1 and the message dispatch by retainer should keep the retain flag, other conditions:
+%% 1. rap is 0 always set retain flag to 0
+%% 2. rap is 1 and without retained header, it is a publish message, should set retain flag to 0 too
+%% see following link
+%% http://docs.oasis-open.org/mqtt/mqtt/v3.1.1/os/mqtt-v3.1.1-os.html at 3.3.1.3
+enrich_subopts([{rap, 1} | Opts], Msg = #message{headers = #{retained := true}}, Session) ->
     enrich_subopts(Opts, Msg, Session);
-enrich_subopts([{rap, 0} | Opts], Msg = #message{headers = #{retained := true}}, Session) ->
-    enrich_subopts(Opts, Msg, Session);
-enrich_subopts([{rap, 0} | Opts], Msg, Session) ->
+enrich_subopts([{rap, _} | Opts], Msg, Session) ->
     enrich_subopts(Opts, emqx_message:set_flag(retain, false, Msg), Session);
 enrich_subopts([{subid, SubId} | Opts], Msg, Session) ->
     Props = emqx_message:get_header(properties, Msg, #{}),
