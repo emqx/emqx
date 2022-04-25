@@ -117,7 +117,13 @@ remove_user(Username) when is_binary(Username) ->
                         _  -> mnesia:delete({?ADMIN, Username})
                     end
             end,
-    return(mria:transaction(?DASHBOARD_SHARD, Trans)).
+    case return(mria:transaction(?DASHBOARD_SHARD, Trans)) of
+        {ok, Result} ->
+            _ = emqx_dashboard_token:destroy_by_username(Username),
+            {ok, Result};
+        {error, Reason} ->
+            {error, Reason}
+    end.
 
 -spec(update_user(binary(), binary()) -> {ok, map()} | {error, term()}).
 update_user(Username, Desc) when is_binary(Username) ->
@@ -160,20 +166,28 @@ change_password(Username, Password) when is_binary(Username), is_binary(Password
     change_password_hash(Username, hash(Password)).
 
 change_password_hash(Username, PasswordHash) ->
-    update_pwd(Username, fun(User) ->
-                        User#?ADMIN{pwdhash = PasswordHash}
-                end).
+    ChangePWD =
+        fun(User) ->
+            User#?ADMIN{pwdhash = PasswordHash}
+        end,
+    case update_pwd(Username, ChangePWD) of
+        {ok, Result} ->
+            _ = emqx_dashboard_token:destroy_by_username(Username),
+            {ok, Result};
+        {error, Reason} -> {error, Reason}
+    end.
 
 update_pwd(Username, Fun) ->
-    Trans = fun() ->
-                    User =
-                    case lookup_user(Username) of
+    Trans =
+        fun() ->
+            User =
+                case lookup_user(Username) of
                     [Admin] -> Admin;
                     [] ->
-                           mnesia:abort(<<"Username Not Found">>)
-                    end,
-                    mnesia:write(Fun(User))
-            end,
+                            mnesia:abort(<<"Username Not Found">>)
+                end,
+            mnesia:write(Fun(User))
+        end,
     return(mria:transaction(?DASHBOARD_SHARD, Trans)).
 
 
