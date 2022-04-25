@@ -45,7 +45,9 @@
         , verify_hash/2
         ]).
 
--export([add_default_user/0]).
+-export([ add_default_user/0
+        , default_username/0
+        ]).
 
 -type emqx_admin() :: #?ADMIN{}.
 
@@ -239,6 +241,9 @@ destroy_token_by_username(Username, Token) ->
 -spec(add_default_user() -> {ok, map() | empty | default_user_exists } | {error, any()}).
 add_default_user() ->
     add_default_user(binenv(default_username), binenv(default_password)).
+
+default_username() ->
+    binenv(default_username).
 
 binenv(Key) ->
     iolist_to_binary(emqx_conf:get([dashboard, Key], "")).

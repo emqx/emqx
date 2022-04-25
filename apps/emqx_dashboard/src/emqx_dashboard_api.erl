@@ -239,7 +239,7 @@ user(put, #{bindings := #{username := Username}, body := Params}) ->
     end;
 
 user(delete, #{bindings := #{username := Username}}) ->
-    case Username == <<"admin">> of
+    case Username == emqx_dashboard_admin:default_username() of
         true ->
             {400, #{code => <<"ACTION_NOT_ALLOWED">>,
                     message => <<"Cannot delete admin">>}};
