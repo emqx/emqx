@@ -367,7 +367,15 @@ t_send_after_enable(_) ->
     ok = snabbkaffe:start_trace(),
     try
         ok = emqx_telemetry:enable(),
-        ?assertMatch({ok, _}, ?block_until(#{?snk_kind := telemetry_data_reported}, 2000, 100)),
+        Timeout = 12_000,
+        ?assertMatch(
+            {ok, _},
+            ?wait_async_action(
+                ok = emqx_telemetry:enable(),
+                #{?snk_kind := telemetry_data_reported},
+                Timeout
+            )
+        ),
         receive
             {request, post, _URL, _Headers, Body} ->
                 {ok, Decoded} = emqx_json:safe_decode(Body, [return_maps]),
