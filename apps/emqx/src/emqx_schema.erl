@@ -1933,10 +1933,11 @@ default_tls_vsns(tls_all_available) ->
 -spec ciphers_schema(quic | dtls_all_available | tls_all_available | undefined) ->
     hocon_schema:field_schema().
 ciphers_schema(Default) ->
-    Desc = case Default of
-               quic -> ?DESC(ciphers_schema_quic);
-               _ -> ?DESC(ciphers_schema_common)
-           end,
+    Desc =
+        case Default of
+            quic -> ?DESC(ciphers_schema_quic);
+            _ -> ?DESC(ciphers_schema_common)
+        end,
     sc(
         hoconsc:array(string()),
         #{
