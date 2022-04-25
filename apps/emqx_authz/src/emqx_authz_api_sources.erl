@@ -46,7 +46,8 @@
 -export([
     sources/2,
     source/2,
-    move_source/2
+    move_source/2,
+    aggregate_metrics/1
 ]).
 
 api_spec() ->
@@ -373,7 +374,7 @@ aggregate_metrics([]) ->
     empty_metrics_and_status;
 aggregate_metrics([HeadMetrics | AllMetrics]) ->
     CombinerFun =
-        fun ComFun(Val1, Val2) ->
+        fun ComFun(_Key, Val1, Val2) ->
             case erlang:is_map(Val1) of
                 true -> emqx_map_lib:merge_with(ComFun, Val1, Val2);
                 false -> Val1 + Val2

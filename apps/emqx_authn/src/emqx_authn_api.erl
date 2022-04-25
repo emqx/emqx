@@ -89,7 +89,8 @@
     delete_user/3,
     find_user/3,
     update_user/4,
-    serialize_error/1
+    serialize_error/1,
+    aggregate_metrics/1
 ]).
 
 -elvis([{elvis_style, god_modules, disable}]).
@@ -992,7 +993,7 @@ aggregate_metrics([]) ->
     empty_metrics_and_status;
 aggregate_metrics([HeadMetrics | AllMetrics]) ->
     CombinerFun =
-        fun ComFun(Val1, Val2) ->
+        fun ComFun(_Key, Val1, Val2) ->
             case erlang:is_map(Val1) of
                 true -> emqx_map_lib:merge_with(ComFun, Val1, Val2);
                 false -> Val1 + Val2
