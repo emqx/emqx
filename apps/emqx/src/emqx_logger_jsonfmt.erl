@@ -31,8 +31,8 @@
 
 -export([format/2]).
 
-%% For CLI outputs
--export([best_effort_json/1]).
+%% For CLI HTTP API outputs
+-export([best_effort_json/1, best_effort_json/2]).
 
 -ifdef(TEST).
 -include_lib("proper/include/proper.hrl").
@@ -62,9 +62,11 @@
 %% The JSON object is pretty-printed.
 %% NOTE: do not use this function for logging.
 best_effort_json(Input) ->
+    best_effort_json(Input, [space, {indent, 4}]).
+best_effort_json(Input, Opts) ->
     Config = #{depth => unlimited, single_line => true},
     JsonReady = best_effort_json_obj(Input, Config),
-    jsx:encode(JsonReady, [space, {indent, 4}]).
+    jsx:encode(JsonReady, Opts).
 
 -spec format(logger:log_event(), config()) -> iodata().
 format(#{level := Level, msg := Msg, meta := Meta}, Config0) when is_map(Config0) ->
