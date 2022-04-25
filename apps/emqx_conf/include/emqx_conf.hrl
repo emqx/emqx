@@ -1,4 +1,3 @@
-
 -ifndef(EMQX_CONF_HRL).
 -define(EMQX_CONF_HRL, true).
 

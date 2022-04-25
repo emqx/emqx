@@ -21,12 +21,18 @@
 -include("emqx_conf.hrl").
 
 -export([start_link/0, start_link/2]).
--export([init/1, handle_call/3, handle_cast/2, handle_info/2, terminate/2,
-    code_change/3]).
+-export([
+    init/1,
+    handle_call/3,
+    handle_cast/2,
+    handle_info/2,
+    terminate/2,
+    code_change/3
+]).
 
 start_link() ->
     MaxHistory = emqx_conf:get(["node", "cluster_call", "max_history"], 100),
-    CleanupMs = emqx_conf:get(["node", "cluster_call", "cleanup_interval"], 5*60*1000),
+    CleanupMs = emqx_conf:get(["node", "cluster_call", "cleanup_interval"], 5 * 60 * 1000),
     start_link(MaxHistory, CleanupMs).
 
 start_link(MaxHistory, CleanupMs) ->
@@ -55,7 +61,6 @@ handle_info({timeout, TRef, del_stale_mfa}, State = #{timer := TRef, max_history
         Error -> ?SLOG(error, #{msg => "del_stale_cluster_rpc_mfa_error", error => Error})
     end,
     {noreply, ensure_timer(State), hibernate};
-
 handle_info(Info, State) ->
     ?SLOG(error, #{msg => "unexpected_info", info => Info}),
     {noreply, State}.
@@ -75,11 +80,15 @@ ensure_timer(State = #{cleanup_ms := Ms}) ->
 %% @doc Keep the latest completed 100 records for querying and troubleshooting.
 del_stale_mfa(MaxHistory) ->
     DoneId =
-        mnesia:foldl(fun(Rec, Min) -> min(Rec#cluster_rpc_commit.tnx_id, Min) end,
-            infinity, ?CLUSTER_COMMIT),
+        mnesia:foldl(
+            fun(Rec, Min) -> min(Rec#cluster_rpc_commit.tnx_id, Min) end,
+            infinity,
+            ?CLUSTER_COMMIT
+        ),
     delete_stale_mfa(mnesia:last(?CLUSTER_MFA), DoneId, MaxHistory).
 
-delete_stale_mfa('$end_of_table', _DoneId, _Count) -> ok;
+delete_stale_mfa('$end_of_table', _DoneId, _Count) ->
+    ok;
 delete_stale_mfa(CurrId, DoneId, Count) when CurrId > DoneId ->
     delete_stale_mfa(mnesia:prev(?CLUSTER_MFA, CurrId), DoneId, Count);
 delete_stale_mfa(CurrId, DoneId, Count) when Count > 0 ->

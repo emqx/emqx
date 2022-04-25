@@ -29,5 +29,7 @@ bf54f571fb8b27e76ada4ca75137d96ce4211d60
 83511f8a4c1570a2c89d9c6c5b6f462520199ed8
 # reformat apps/emqx_psk
 b168102615e574df15ec6a91304747b4637a9171
-# revormat apps/emqx_machine|emqx_plugin_libs|emqx_statsd
+# reformat apps/emqx_machine|emqx_plugin_libs|emqx_statsd
 b4451823350ec46126c49ca915b4b169dd4cf49e
+# reformat apps/emqx_auto_subscribe and apps/emqx_conf
+a4feb3e6e95c18cb531416112e57520c5ba00d40

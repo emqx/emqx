@@ -18,10 +18,11 @@
 
 -behaviour(minirest_api).
 
--export([ api_spec/0
-        , paths/0
-        , schema/1
-        ]).
+-export([
+    api_spec/0,
+    paths/0,
+    schema/1
+]).
 
 -export([auto_subscribe/2]).
 
@@ -45,8 +46,8 @@ schema("/mqtt/auto_subscribe") ->
             description => ?DESC(list_auto_subscribe_api),
             responses => #{
                 200 => hoconsc:ref(emqx_auto_subscribe_schema, "auto_subscribe")
-                }
-            },
+            }
+        },
         put => #{
             description => ?DESC(update_auto_subscribe_api),
             'requestBody' => hoconsc:ref(emqx_auto_subscribe_schema, "auto_subscribe"),
@@ -54,23 +55,27 @@ schema("/mqtt/auto_subscribe") ->
                 200 => hoconsc:ref(emqx_auto_subscribe_schema, "auto_subscribe"),
                 409 => emqx_dashboard_swagger:error_codes(
                     [?EXCEED_LIMIT],
-                    ?DESC(update_auto_subscribe_api_response409))
-                }
+                    ?DESC(update_auto_subscribe_api_response409)
+                )
             }
+        }
     }.
 
 %%%==============================================================================================
 %% api apply
 auto_subscribe(get, _) ->
     {200, emqx_auto_subscribe:list()};
-
 auto_subscribe(put, #{body := #{}}) ->
     {400, #{code => ?BAD_REQUEST, message => <<"Request body required">>}};
 auto_subscribe(put, #{body := Params}) ->
     case emqx_auto_subscribe:update(Params) of
         {error, quota_exceeded} ->
-            Message = list_to_binary(io_lib:format("Max auto subscribe topic count is  ~p",
-                                        [emqx_auto_subscribe:max_limit()])),
+            Message = list_to_binary(
+                io_lib:format(
+                    "Max auto subscribe topic count is  ~p",
+                    [emqx_auto_subscribe:max_limit()]
+                )
+            ),
             {409, #{code => ?EXCEED_LIMIT, message => Message}};
         {error, Reason} ->
             Message = list_to_binary(io_lib:format("Update config failed ~p", [Reason])),

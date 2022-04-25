@@ -22,12 +22,25 @@
 %% Note: multicall functions are statically checked by
 %% `emqx_bapi_trans' and `emqx_bpapi_static_checks' modules. Don't
 %% forget to update it when adding or removing them here:
--export([multicall/3, multicall/5, query/1, reset/0, status/0,
-         skip_failed_commit/1, fast_forward_to_commit/2]).
+-export([
+    multicall/3, multicall/5,
+    query/1,
+    reset/0,
+    status/0,
+    skip_failed_commit/1,
+    fast_forward_to_commit/2
+]).
 -export([get_node_tnx_id/1, latest_tnx_id/0]).
 
--export([init/1, handle_call/3, handle_cast/2, handle_info/2, terminate/2,
-         handle_continue/2, code_change/3]).
+-export([
+    init/1,
+    handle_call/3,
+    handle_cast/2,
+    handle_info/2,
+    terminate/2,
+    handle_continue/2,
+    code_change/3
+]).
 
 -export_type([txn_id/0, succeed_num/0, multicall_return/1, multicall_return/0]).
 
@@ -48,9 +61,10 @@
 
 -type succeed_num() :: pos_integer() | all.
 
--type multicall_return(Result) :: {ok, txn_id(), Result}
-                                | {error, term()}
-                                | {retry, txn_id(), Result, node()}.
+-type multicall_return(Result) ::
+    {ok, txn_id(), Result}
+    | {error, term()}
+    | {retry, txn_id(), Result, node()}.
 
 -type multicall_return() :: multicall_return(_).
 
@@ -63,13 +77,15 @@ mnesia(boot) ->
         {rlog_shard, ?CLUSTER_RPC_SHARD},
         {storage, disc_copies},
         {record_name, cluster_rpc_mfa},
-        {attributes, record_info(fields, cluster_rpc_mfa)}]),
+        {attributes, record_info(fields, cluster_rpc_mfa)}
+    ]),
     ok = mria:create_table(?CLUSTER_COMMIT, [
         {type, set},
         {rlog_shard, ?CLUSTER_RPC_SHARD},
         {storage, disc_copies},
         {record_name, cluster_rpc_commit},
-        {attributes, record_info(fields, cluster_rpc_commit)}]).
+        {attributes, record_info(fields, cluster_rpc_commit)}
+    ]).
 
 start_link() ->
     start_link(node(), ?MODULE, get_retry_ms()).
@@ -97,7 +113,8 @@ multicall(M, F, A, RequireNum, Timeout) when RequireNum =:= all orelse RequireNu
     Begin = erlang:monotonic_time(),
     InitRes =
         case mria_rlog:role() of
-            core -> gen_server:call(?MODULE, MFA, Timeout);
+            core ->
+                gen_server:call(?MODULE, MFA, Timeout);
             replicant ->
                 %% the initiate transaction must happened on core node
                 %% make sure MFA(in the transaction) and the transaction on the same node
@@ -119,11 +136,14 @@ multicall(M, F, A, RequireNum, Timeout) when RequireNum =:= all orelse RequireNu
                 wait_for_all_nodes_commit(TnxId, MinDelay, RetryTimeout);
             {ok, TnxId, _} when is_integer(RequireNum) ->
                 wait_for_nodes_commit(RequireNum, TnxId, MinDelay, RetryTimeout);
-            Error -> Error
+            Error ->
+                Error
         end,
     case OkOrFailed of
-        ok -> InitRes;
-        {error, Error0} -> {error, Error0};
+        ok ->
+            InitRes;
+        {error, Error0} ->
+            {error, Error0};
         {retry, Node0} ->
             {ok, TnxId0, MFARes} = InitRes,
             {retry, TnxId0, MFARes, Node0}
@@ -187,7 +207,6 @@ handle_call(reset, _From, State) ->
     _ = mria:clear_table(?CLUSTER_COMMIT),
     _ = mria:clear_table(?CLUSTER_MFA),
     {reply, ok, State, {continue, ?CATCH_UP}};
-
 handle_call({initiate, MFA}, _From, State = #{node := Node}) ->
     case transaction(fun init_mfa/2, [Node, MFA]) of
         {atomic, {ok, TnxId, Result}} ->
@@ -226,21 +245,25 @@ catch_up(State) -> catch_up(State, false).
 
 catch_up(#{node := Node, retry_interval := RetryMs} = State, SkipResult) ->
     case transaction(fun read_next_mfa/1, [Node]) of
-        {atomic, caught_up} -> ?TIMEOUT;
+        {atomic, caught_up} ->
+            ?TIMEOUT;
         {atomic, {still_lagging, NextId, MFA}} ->
             {Succeed, _} = apply_mfa(NextId, MFA),
             case Succeed orelse SkipResult of
                 true ->
                     case transaction(fun commit/2, [Node, NextId]) of
-                        {atomic, ok} -> catch_up(State, false);
+                        {atomic, ok} ->
+                            catch_up(State, false);
                         Error ->
                             ?SLOG(error, #{
                                 msg => "failed_to_commit_applied_call",
                                 applied_id => NextId,
-                                error => Error}),
+                                error => Error
+                            }),
                             RetryMs
                     end;
-                false -> RetryMs
+                false ->
+                    RetryMs
             end;
         {aborted, Reason} ->
             ?SLOG(error, #{msg => "read_next_mfa_transaction_failed", error => Reason}),
@@ -256,9 +279,12 @@ read_next_mfa(Node) ->
                 commit(Node, TnxId),
                 ?SLOG(notice, #{
                     msg => "new_node_first_catch_up_and_start_commit.",
-                    node => Node, tnx_id => TnxId}),
+                    node => Node,
+                    tnx_id => TnxId
+                }),
                 TnxId;
-            [#cluster_rpc_commit{tnx_id = LastAppliedID}] -> LastAppliedID + 1
+            [#cluster_rpc_commit{tnx_id = LastAppliedID}] ->
+                LastAppliedID + 1
         end,
     case mnesia:read(?CLUSTER_MFA, NextId) of
         [] -> caught_up;
@@ -281,8 +307,11 @@ do_catch_up(ToTnxId, Node) ->
             end;
         [#cluster_rpc_commit{tnx_id = LastAppliedId}] ->
             Reason = lists:flatten(
-                io_lib:format("~p catch up failed by LastAppliedId(~p) > ToTnxId(~p)",
-                [Node, LastAppliedId, ToTnxId])),
+                io_lib:format(
+                    "~p catch up failed by LastAppliedId(~p) > ToTnxId(~p)",
+                    [Node, LastAppliedId, ToTnxId]
+                )
+            ),
             ?SLOG(error, #{
                 msg => "catch_up_failed!",
                 last_applied_id => LastAppliedId,
@@ -297,11 +326,13 @@ commit(Node, TnxId) ->
 do_fast_forward_to_commit(ToTnxId, State = #{node := Node}) ->
     {atomic, NodeId} = transaction(fun get_node_tnx_id/1, [Node]),
     case NodeId >= ToTnxId of
-        true -> NodeId;
+        true ->
+            NodeId;
         false ->
             {atomic, LatestId} = transaction(fun get_latest_id/0, []),
             case LatestId =< NodeId of
-                true -> NodeId;
+                true ->
+                    NodeId;
                 false ->
                     catch_up(State, true),
                     do_fast_forward_to_commit(ToTnxId, State)
@@ -319,8 +350,12 @@ init_mfa(Node, MFA) ->
     LatestId = get_latest_id(),
     ok = do_catch_up_in_one_trans(LatestId, Node),
     TnxId = LatestId + 1,
-    MFARec = #cluster_rpc_mfa{tnx_id = TnxId, mfa = MFA,
-        initiator = Node, created_at = erlang:localtime()},
+    MFARec = #cluster_rpc_mfa{
+        tnx_id = TnxId,
+        mfa = MFA,
+        initiator = Node,
+        created_at = erlang:localtime()
+    },
     ok = mnesia:write(?CLUSTER_MFA, MFARec, write),
     ok = commit(Node, TnxId),
     case apply_mfa(TnxId, MFA) of
@@ -338,24 +373,35 @@ transaction(Func, Args) ->
     mria:transaction(?CLUSTER_RPC_SHARD, Func, Args).
 
 trans_status() ->
-    mnesia:foldl(fun(Rec, Acc) ->
-        #cluster_rpc_commit{node = Node, tnx_id = TnxId} = Rec,
-        case mnesia:read(?CLUSTER_MFA, TnxId) of
-            [MFARec] ->
-                #cluster_rpc_mfa{mfa = MFA, initiator = InitNode, created_at = CreatedAt} = MFARec,
-                [#{
-                    node => Node,
-                    tnx_id => TnxId,
-                    initiator => InitNode,
-                    mfa => MFA,
-                    created_at => CreatedAt
-                } | Acc];
-            [] -> Acc
-        end end, [], ?CLUSTER_COMMIT).
+    mnesia:foldl(
+        fun(Rec, Acc) ->
+            #cluster_rpc_commit{node = Node, tnx_id = TnxId} = Rec,
+            case mnesia:read(?CLUSTER_MFA, TnxId) of
+                [MFARec] ->
+                    #cluster_rpc_mfa{mfa = MFA, initiator = InitNode, created_at = CreatedAt} =
+                        MFARec,
+                    [
+                        #{
+                            node => Node,
+                            tnx_id => TnxId,
+                            initiator => InitNode,
+                            mfa => MFA,
+                            created_at => CreatedAt
+                        }
+                        | Acc
+                    ];
+                [] ->
+                    Acc
+            end
+        end,
+        [],
+        ?CLUSTER_COMMIT
+    ).
 
 trans_query(TnxId) ->
     case mnesia:read(?CLUSTER_MFA, TnxId) of
-        [] -> mnesia:abort(not_found);
+        [] ->
+            mnesia:abort(not_found);
         [#cluster_rpc_mfa{mfa = MFA, initiator = InitNode, created_at = CreatedAt}] ->
             #{tnx_id => TnxId, mfa => MFA, initiator => InitNode, created_at => CreatedAt}
     end.
@@ -364,11 +410,12 @@ trans_query(TnxId) ->
 
 apply_mfa(TnxId, {M, F, A}) ->
     Res =
-        try erlang:apply(M, F, A)
+        try
+            erlang:apply(M, F, A)
         catch
-            throw : Reason ->
+            throw:Reason ->
                 {error, #{reason => Reason}};
-            Class : Reason : Stacktrace ->
+            Class:Reason:Stacktrace ->
                 {error, #{exception => Class, reason => Reason, stacktrace => Stacktrace}}
         end,
     %% Do not log args as it might be sensitive information
@@ -400,19 +447,23 @@ wait_for_all_nodes_commit(TnxId, Delay, Remain) ->
         [_ | _] when Remain > 0 ->
             ok = timer:sleep(Delay),
             wait_for_all_nodes_commit(TnxId, Delay, Remain - Delay);
-        [] -> ok;
-        Nodes -> {retry, Nodes}
+        [] ->
+            ok;
+        Nodes ->
+            {retry, Nodes}
     end.
 
 wait_for_nodes_commit(RequiredNum, TnxId, Delay, Remain) ->
     ok = timer:sleep(Delay),
     case length(synced_nodes(TnxId)) >= RequiredNum of
-        true -> ok;
+        true ->
+            ok;
         false when Remain > 0 ->
             wait_for_nodes_commit(RequiredNum, TnxId, Delay, Remain - Delay);
         false ->
             case lagging_node(TnxId) of
-                [] -> ok; %% All commit but The succeedNum > length(nodes()).
+                %% All commit but The succeedNum > length(nodes()).
+                [] -> ok;
                 Nodes -> {retry, Nodes}
             end
     end.
@@ -434,7 +485,7 @@ commit_status_trans(Operator, TnxId) ->
 get_retry_ms() ->
     emqx_conf:get(["node", "cluster_call", "retry_interval"], 1000).
 
-maybe_init_tnx_id(_Node, TnxId)when TnxId < 0 -> ok;
+maybe_init_tnx_id(_Node, TnxId) when TnxId < 0 -> ok;
 maybe_init_tnx_id(Node, TnxId) ->
     {atomic, _} = transaction(fun init_node_tnx_id/2, [Node, TnxId]),
     ok.

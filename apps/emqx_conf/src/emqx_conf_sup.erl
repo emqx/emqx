@@ -28,12 +28,15 @@ start_link() ->
     supervisor:start_link({local, ?SERVER}, ?MODULE, []).
 
 init([]) ->
-    SupFlags = #{strategy => one_for_all,
+    SupFlags = #{
+        strategy => one_for_all,
         intensity => 10,
-        period => 100},
+        period => 100
+    },
     ChildSpecs =
-        [ child_spec(emqx_cluster_rpc, [])
-        , child_spec(emqx_cluster_rpc_handler, [])
+        [
+            child_spec(emqx_cluster_rpc, []),
+            child_spec(emqx_cluster_rpc_handler, [])
         ],
     {ok, {SupFlags, ChildSpecs}}.
 
