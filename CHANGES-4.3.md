@@ -17,9 +17,10 @@ File format:
 * Made possible for EMQX to boot from a Linux directory which has white spaces in its path.
 * Add support for JWT authorization [#7596]
   Now MQTT clients may be authorized with respect to a specific claim containing publish/subscribe topic whitelists.
-  
+* Better randomisation of app screts (changed from timestamp seeded sha hash (uuid) to crypto:strong_rand_bytes)
+
 ### Bug fixes
-* List subscription topic (/api/v4/subscriptions), the result do not match with multiple conditions.  
+* List subscription topic (/api/v4/subscriptions), the result do not match with multiple conditions.
 
 
 ## v4.3.14
