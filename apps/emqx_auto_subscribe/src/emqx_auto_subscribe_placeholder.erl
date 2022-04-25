@@ -22,37 +22,45 @@
 
 -export([to_topic_table/3]).
 
--spec(generate(list() | map()) -> list() | map()).
+-spec generate(list() | map()) -> list() | map().
 generate(Topics) when is_list(Topics) ->
     [generate(Topic) || Topic <- Topics];
-
 generate(T = #{topic := Topic}) ->
     T#{placeholder => generate(Topic, [])}.
 
--spec(to_topic_table(list(), map(), map()) -> list()).
+-spec to_topic_table(list(), map(), map()) -> list().
 to_topic_table(PHs, ClientInfo, ConnInfo) ->
-    Fold = fun(#{qos := Qos, rh := RH, rap := RAP, nl := NL,
-                 placeholder := PlaceHolder, topic := RawTopic
-                },
-               Acc) ->
-                   case to_topic(PlaceHolder, ClientInfo, ConnInfo, []) of
-                       {error, Reason} ->
-                           ?SLOG(warning, #{msg => "auto_subscribe_ignored",
-                                            topic => RawTopic,
-                                            reason => Reason
-                                           }),
-                           Acc;
-                       <<>> ->
-                           ?SLOG(warning, #{msg => "auto_subscribe_ignored",
-                                            topic => RawTopic,
-                                            reason => empty_topic
-                                           }),
-                           Acc;
-                       Topic0 ->
-                           {Topic, Opts} = emqx_topic:parse(Topic0),
-                           [{Topic, Opts#{qos => Qos, rh => RH, rap => RAP, nl => NL}} | Acc]
-                   end
-           end,
+    Fold = fun(
+        #{
+            qos := Qos,
+            rh := RH,
+            rap := RAP,
+            nl := NL,
+            placeholder := PlaceHolder,
+            topic := RawTopic
+        },
+        Acc
+    ) ->
+        case to_topic(PlaceHolder, ClientInfo, ConnInfo, []) of
+            {error, Reason} ->
+                ?SLOG(warning, #{
+                    msg => "auto_subscribe_ignored",
+                    topic => RawTopic,
+                    reason => Reason
+                }),
+                Acc;
+            <<>> ->
+                ?SLOG(warning, #{
+                    msg => "auto_subscribe_ignored",
+                    topic => RawTopic,
+                    reason => empty_topic
+                }),
+                Acc;
+            Topic0 ->
+                {Topic, Opts} = emqx_topic:parse(Topic0),
+                [{Topic, Opts#{qos => Qos, rh => RH, rap => RAP, nl => NL}} | Acc]
+        end
+    end,
     lists:foldl(Fold, [], PHs).
 
 %%--------------------------------------------------------------------

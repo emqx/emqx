@@ -26,16 +26,17 @@
 -define(NODE2, emqx_cluster_rpc2).
 -define(NODE3, emqx_cluster_rpc3).
 
-all() -> [
-    t_base_test,
-    t_commit_fail_test,
-    t_commit_crash_test,
-    t_commit_ok_but_apply_fail_on_other_node,
-    t_commit_ok_apply_fail_on_other_node_then_recover,
-    t_del_stale_mfa,
-    t_skip_failed_commit,
-    t_fast_forward_commit
-].
+all() ->
+    [
+        t_base_test,
+        t_commit_fail_test,
+        t_commit_crash_test,
+        t_commit_ok_but_apply_fail_on_other_node,
+        t_commit_ok_apply_fail_on_other_node_then_recover,
+        t_del_stale_mfa,
+        t_skip_failed_commit,
+        t_fast_forward_commit
+    ].
 suite() -> [{timetrap, {minutes, 3}}].
 groups() -> [].
 
@@ -77,7 +78,8 @@ t_base_test(_Config) ->
     ?assertEqual({ok, 2, ok}, emqx_cluster_rpc:multicall(M, F, A)),
     {atomic, Status} = emqx_cluster_rpc:status(),
     case length(Status) =:= 3 of
-        true -> ?assert(lists:all(fun(I) -> maps:get(tnx_id, I) =:= 2 end, Status));
+        true ->
+            ?assert(lists:all(fun(I) -> maps:get(tnx_id, I) =:= 2 end, Status));
         false ->
             %% wait for mnesia to write in.
             ct:sleep(42),
@@ -117,7 +119,7 @@ t_commit_ok_but_apply_fail_on_other_node(_Config) ->
     ?assertEqual(MFA, maps:get(mfa, Status)),
     ?assertEqual(node(), maps:get(node, Status)),
     erlang:send(?NODE2, test),
-    Res = gen_server:call(?NODE2,  {initiate, {M, F, A}}),
+    Res = gen_server:call(?NODE2, {initiate, {M, F, A}}),
     ?assertEqual({error, "MFA return not ok"}, Res),
     ok.
 
@@ -126,7 +128,7 @@ t_catch_up_status_handle_next_commit(_Config) ->
     {atomic, []} = emqx_cluster_rpc:status(),
     {M, F, A} = {?MODULE, failed_on_node_by_odd, [erlang:whereis(?NODE1)]},
     {ok, 1, ok} = emqx_cluster_rpc:multicall(M, F, A, 1, 1000),
-    {ok, 2} = gen_server:call(?NODE2,  {initiate, {M, F, A}}),
+    {ok, 2} = gen_server:call(?NODE2, {initiate, {M, F, A}}),
     ok.
 
 t_commit_ok_apply_fail_on_other_node_then_recover(_Config) ->
@@ -139,7 +141,7 @@ t_commit_ok_apply_fail_on_other_node_then_recover(_Config) ->
     {ok, 1, ok} = emqx_cluster_rpc:multicall(M, F, A, 1, 1000),
     ct:pal("222:~p~n", [ets:tab2list(cluster_rpc_commit)]),
     ct:pal("333:~p~n", [emqx_cluster_rpc:status()]),
-    {atomic, [_Status|L]} = emqx_cluster_rpc:status(),
+    {atomic, [_Status | L]} = emqx_cluster_rpc:status(),
     ?assertEqual([], L),
     ets:insert(test, {other_mfa_result, ok}),
     {ok, 2, ok} = emqx_cluster_rpc:multicall(io, format, ["test"], 1, 1000),
@@ -163,25 +165,39 @@ t_del_stale_mfa(_Config) ->
     Keys = lists:seq(1, 50),
     Keys2 = lists:seq(51, 150),
     Ids =
-        [begin
-             {ok, TnxId, ok} = emqx_cluster_rpc:multicall(M, F, A),
-             TnxId end || _ <- Keys],
+        [
+            begin
+                {ok, TnxId, ok} = emqx_cluster_rpc:multicall(M, F, A),
+                TnxId
+            end
+         || _ <- Keys
+        ],
     ?assertEqual(Keys, Ids),
     Ids2 =
-        [begin
-             {ok, TnxId, ok} = emqx_cluster_rpc:multicall(M, F, A),
-             TnxId end || _ <- Keys2],
+        [
+            begin
+                {ok, TnxId, ok} = emqx_cluster_rpc:multicall(M, F, A),
+                TnxId
+            end
+         || _ <- Keys2
+        ],
     ?assertEqual(Keys2, Ids2),
     ct:sleep(1200),
-    [begin
-         ?assertEqual({aborted, not_found}, emqx_cluster_rpc:query(I))
-     end || I <- lists:seq(1, 50)],
-    [begin
-         {atomic, Map} = emqx_cluster_rpc:query(I),
-         ?assertEqual(MFA, maps:get(mfa, Map)),
-         ?assertEqual(node(), maps:get(initiator, Map)),
-         ?assert(maps:is_key(created_at, Map))
-     end || I <- lists:seq(51, 150)],
+    [
+        begin
+            ?assertEqual({aborted, not_found}, emqx_cluster_rpc:query(I))
+        end
+     || I <- lists:seq(1, 50)
+    ],
+    [
+        begin
+            {atomic, Map} = emqx_cluster_rpc:query(I),
+            ?assertEqual(MFA, maps:get(mfa, Map)),
+            ?assertEqual(node(), maps:get(initiator, Map)),
+            ?assert(maps:is_key(created_at, Map))
+        end
+     || I <- lists:seq(51, 150)
+    ],
     ok.
 
 t_skip_failed_commit(_Config) ->
@@ -191,14 +207,18 @@ t_skip_failed_commit(_Config) ->
     ct:sleep(180),
     {atomic, List1} = emqx_cluster_rpc:status(),
     Node = node(),
-    ?assertEqual([{Node, 1}, {{Node, ?NODE2}, 1}, {{Node, ?NODE3}, 1}],
-        tnx_ids(List1)),
+    ?assertEqual(
+        [{Node, 1}, {{Node, ?NODE2}, 1}, {{Node, ?NODE3}, 1}],
+        tnx_ids(List1)
+    ),
     {M, F, A} = {?MODULE, failed_on_node, [erlang:whereis(?NODE1)]},
     {ok, 2, ok} = emqx_cluster_rpc:multicall(M, F, A, 1, 1000),
     2 = gen_server:call(?NODE2, skip_failed_commit, 5000),
     {atomic, List2} = emqx_cluster_rpc:status(),
-    ?assertEqual([{Node, 2}, {{Node, ?NODE2}, 2}, {{Node, ?NODE3}, 1}],
-        tnx_ids(List2)),
+    ?assertEqual(
+        [{Node, 2}, {{Node, ?NODE2}, 2}, {{Node, ?NODE3}, 1}],
+        tnx_ids(List2)
+    ),
     ok.
 
 t_fast_forward_commit(_Config) ->
@@ -208,8 +228,10 @@ t_fast_forward_commit(_Config) ->
     ct:sleep(180),
     {atomic, List1} = emqx_cluster_rpc:status(),
     Node = node(),
-    ?assertEqual([{Node, 1}, {{Node, ?NODE2}, 1}, {{Node, ?NODE3}, 1}],
-        tnx_ids(List1)),
+    ?assertEqual(
+        [{Node, 1}, {{Node, ?NODE2}, 1}, {{Node, ?NODE3}, 1}],
+        tnx_ids(List1)
+    ),
     {M, F, A} = {?MODULE, failed_on_node, [erlang:whereis(?NODE1)]},
     {ok, 2, ok} = emqx_cluster_rpc:multicall(M, F, A, 1, 1000),
     {ok, 3, ok} = emqx_cluster_rpc:multicall(M, F, A, 1, 1000),
@@ -221,8 +243,10 @@ t_fast_forward_commit(_Config) ->
     6 = gen_server:call(?NODE2, {fast_forward_to_commit, 7}, 5000),
     2 = gen_server:call(?NODE3, {fast_forward_to_commit, 2}, 5000),
     {atomic, List2} = emqx_cluster_rpc:status(),
-    ?assertEqual([{Node, 6}, {{Node, ?NODE2}, 6}, {{Node, ?NODE3}, 2}],
-        tnx_ids(List2)),
+    ?assertEqual(
+        [{Node, 6}, {{Node, ?NODE2}, 6}, {{Node, ?NODE3}, 2}],
+        tnx_ids(List2)
+    ),
     ok.
 
 t_handler_unexpected_msg(_Config) ->
@@ -236,8 +260,14 @@ t_handler_unexpected_msg(_Config) ->
     ok.
 
 tnx_ids(Status) ->
-    lists:sort(lists:map(fun(#{tnx_id := TnxId, node := Node}) ->
-        {Node, TnxId} end, Status)).
+    lists:sort(
+        lists:map(
+            fun(#{tnx_id := TnxId, node := Node}) ->
+                {Node, TnxId}
+            end,
+            Status
+        )
+    ).
 
 start() ->
     {ok, Pid1} = emqx_cluster_rpc:start_link(),
@@ -248,19 +278,26 @@ start() ->
     {ok, [Pid1, Pid2, Pid3, Pid4]}.
 
 stop() ->
-    [begin
-         case erlang:whereis(N) of
-             undefined -> ok;
-             P ->
-                 erlang:unlink(P),
-                 erlang:exit(P, kill)
-         end end || N <- [?NODE1, ?NODE2, ?NODE3]],
+    [
+        begin
+            case erlang:whereis(N) of
+                undefined ->
+                    ok;
+                P ->
+                    erlang:unlink(P),
+                    erlang:exit(P, kill)
+            end
+        end
+     || N <- [?NODE1, ?NODE2, ?NODE3]
+    ],
     gen_server:stop(emqx_cluster_rpc_handler, normal, 5000).
 
-receive_msg(0, _Msg) -> ok;
+receive_msg(0, _Msg) ->
+    ok;
 receive_msg(Count, Msg) when Count > 0 ->
-    receive Msg ->
-        receive_msg(Count - 1, Msg)
+    receive
+        Msg ->
+            receive_msg(Count - 1, Msg)
     after 800 ->
         timeout
     end.
@@ -277,7 +314,8 @@ failed_on_node(Pid) ->
 
 failed_on_node_by_odd(Pid) ->
     case Pid =:= self() of
-        true -> ok;
+        true ->
+            ok;
         false ->
             catch ets:new(test, [named_table, set, public]),
             Num = ets:update_counter(test, self(), {2, 1}, {self(), 1}),
@@ -289,7 +327,8 @@ failed_on_node_by_odd(Pid) ->
 
 failed_on_other_recover_after_retry(Pid) ->
     case Pid =:= self() of
-        true -> ok;
+        true ->
+            ok;
         false ->
             [{_, Res}] = ets:lookup(test, other_mfa_result),
             Res

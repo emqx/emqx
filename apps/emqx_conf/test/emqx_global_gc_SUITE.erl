@@ -30,4 +30,3 @@ t_run_gc(_) ->
     {ok, MilliSecs} = emqx_global_gc:run(),
     ct:print("Global GC: ~w(ms)~n", [MilliSecs]),
     emqx_global_gc:stop().
-

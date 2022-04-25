@@ -19,11 +19,11 @@
 
 -export([handle/3]).
 
--spec(init(Config :: map()) -> HandlerOptions :: term()).
+-spec init(Config :: map()) -> HandlerOptions :: term().
 init(#{topics := Topics}) ->
     emqx_auto_subscribe_placeholder:generate(Topics).
 
--spec(handle(ClientInfo :: map(), ConnInfo :: map(), HandlerOptions :: term()) ->
-    TopicTables :: list()).
+-spec handle(ClientInfo :: map(), ConnInfo :: map(), HandlerOptions :: term()) ->
+    TopicTables :: list().
 handle(ClientInfo, ConnInfo, PlaceHolders) ->
     emqx_auto_subscribe_placeholder:to_topic_table(PlaceHolders, ClientInfo, ConnInfo).

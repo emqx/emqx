@@ -21,10 +21,12 @@
 -include_lib("typerefl/include/types.hrl").
 -include_lib("emqx/include/emqx_placeholder.hrl").
 
--export([ namespace/0
-        , roots/0
-        , fields/1
-        , desc/1]).
+-export([
+    namespace/0,
+    roots/0,
+    fields/1,
+    desc/1
+]).
 
 namespace() -> "auto_subscribe".
 
@@ -32,27 +34,41 @@ roots() ->
     ["auto_subscribe"].
 
 fields("auto_subscribe") ->
-    [ {topics, hoconsc:mk(hoconsc:array(hoconsc:ref(?MODULE, "topic")),
-                          #{desc => ?DESC(auto_subscribe)})}
+    [
+        {topics,
+            hoconsc:mk(
+                hoconsc:array(hoconsc:ref(?MODULE, "topic")),
+                #{desc => ?DESC(auto_subscribe)}
+            )}
     ];
-
 fields("topic") ->
-    [ {topic, sc(binary(), #{
-        required => true,
-        example => topic_example(),
-        desc => ?DESC("topic")})}
-    , {qos, sc(emqx_schema:qos(), #{
-        default => 0,
-        desc => ?DESC("qos")})}
-    , {rh, sc(range(0,2), #{
-        default => 0,
-        desc => ?DESC("rh")})}
-    , {rap, sc(range(0, 1), #{
-        default => 0,
-        desc => ?DESC("rap")})}
-    , {nl, sc(range(0, 1), #{
-        default => 0,
-        desc => ?DESC(nl)})}
+    [
+        {topic,
+            sc(binary(), #{
+                required => true,
+                example => topic_example(),
+                desc => ?DESC("topic")
+            })},
+        {qos,
+            sc(emqx_schema:qos(), #{
+                default => 0,
+                desc => ?DESC("qos")
+            })},
+        {rh,
+            sc(range(0, 2), #{
+                default => 0,
+                desc => ?DESC("rh")
+            })},
+        {rap,
+            sc(range(0, 1), #{
+                default => 0,
+                desc => ?DESC("rap")
+            })},
+        {nl,
+            sc(range(0, 1), #{
+                default => 0,
+                desc => ?DESC(nl)
+            })}
     ].
 
 desc("auto_subscribe") -> ?DESC("auto_subscribe");
@@ -60,10 +76,8 @@ desc("topic") -> ?DESC("topic");
 desc(_) -> undefined.
 
 topic_example() ->
-    <<"/clientid/", ?PH_S_CLIENTID,
-      "/username/", ?PH_S_USERNAME,
-      "/host/", ?PH_S_HOST,
-      "/port/", ?PH_S_PORT>>.
+    <<"/clientid/", ?PH_S_CLIENTID, "/username/", ?PH_S_USERNAME, "/host/", ?PH_S_HOST, "/port/",
+        ?PH_S_PORT>>.
 
 %%--------------------------------------------------------------------
 %% Internal functions
