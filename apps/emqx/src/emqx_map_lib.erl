@@ -197,7 +197,6 @@ covert_keys_to_atom(BinKeyMap, Conv) ->
     ).
 
 %% copy from maps.erl OTP24.0
--compile({inline, [error_with_info/2]}).
 merge_with(Combiner, Map1, Map2) when
     is_map(Map1),
     is_map(Map2),
