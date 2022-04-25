@@ -1933,6 +1933,10 @@ default_tls_vsns(tls_all_available) ->
 -spec ciphers_schema(quic | dtls_all_available | tls_all_available | undefined) ->
     hocon_schema:field_schema().
 ciphers_schema(Default) ->
+    Desc = case Default of
+               quic -> ?DESC(ciphers_schema_quic);
+               _ -> ?DESC(ciphers_schema_common)
+           end,
     sc(
         hoconsc:array(string()),
         #{
@@ -1949,43 +1953,7 @@ ciphers_schema(Default) ->
                     true -> undefined;
                     false -> fun validate_ciphers/1
                 end,
-            desc_id => "ciphers_schema_" ++
-                case Default of
-                    quic -> "quic";
-                    _ -> "0"
-                end,
-            desc_en =>
-                "This config holds TLS cipher suite names separated by comma,\n"
-                "or as an array of strings. e.g.\n"
-                "<code>\"TLS_AES_256_GCM_SHA384,TLS_AES_128_GCM_SHA256\"</code> or\n"
-                "<code>[\"TLS_AES_256_GCM_SHA384\",\"TLS_AES_128_GCM_SHA256\"]</code>.\n"
-                "</br>\n"
-                "Ciphers (and their ordering) define the way in which the\n"
-                "client and server encrypts information over the network connection.\n"
-                "Selecting a good cipher suite is critical for the\n"
-                "application's data security, confidentiality and performance.\n"
-                "\n"
-                "The names should be in OpenSSL string format (not RFC format).\n"
-                "All default values and examples provided by EMQX config\n"
-                "documentation are all in OpenSSL format.</br>\n"
-                "\n"
-                "NOTE: Certain cipher suites are only compatible with\n"
-                "specific TLS <code>versions</code> ('tlsv1.1', 'tlsv1.2' or 'tlsv1.3')\n"
-                "incompatible cipher suites will be silently dropped.\n"
-                "For instance, if only 'tlsv1.3' is given in the <code>versions</code>,\n"
-                "configuring cipher suites for other versions will have no effect.\n"
-                "</br>\n"
-                "\n"
-                "NOTE: PSK ciphers are suppressed by 'tlsv1.3' version config</br>\n"
-                "If PSK cipher suites are intended, 'tlsv1.3' should be disabled from <code>versions</code>.</br>\n"
-                "PSK cipher suites: <code>\"RSA-PSK-AES256-GCM-SHA384,RSA-PSK-AES256-CBC-SHA384,\n"
-                "RSA-PSK-AES128-GCM-SHA256,RSA-PSK-AES128-CBC-SHA256,\n"
-                "RSA-PSK-AES256-CBC-SHA,RSA-PSK-AES128-CBC-SHA,\n"
-                "RSA-PSK-DES-CBC3-SHA,RSA-PSK-RC4-SHA\"</code></br>\n" ++
-                case Default of
-                    quic -> "NOTE: QUIC listener supports only 'tlsv1.3' ciphers</br>";
-                    _ -> ""
-                end
+            desc => Desc
         }
     ).
 
