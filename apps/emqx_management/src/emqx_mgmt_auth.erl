@@ -182,4 +182,5 @@ trans(Fun) ->
     end.
 
 generate_api_secret() ->
-    emqx_guid:to_base62(emqx_guid:gen()).
+    Random = crypto:strong_rand_bytes(32),
+    emqx_base62:encode(Random).
