@@ -147,14 +147,12 @@ bind(desc) -> ?DESC(bind);
 bind(_) -> undefined.
 
 default_username(type) -> binary();
-default_username(default) -> "admin";
 default_username(required) -> true;
 default_username(desc) -> ?DESC(default_username);
 default_username('readOnly') -> true;
 default_username(_) -> undefined.
 
 default_password(type) -> binary();
-default_password(default) -> "public";
 default_password(required) -> true;
 default_password('readOnly') -> true;
 default_password(sensitive) -> true;

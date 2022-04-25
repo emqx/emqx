@@ -206,7 +206,7 @@ all_users() ->
                         description => Desc
                        }
               end, ets:tab2list(?ADMIN)).
-
+-spec(return({atomic | aborted, term()}) -> {ok, term()} | {error, Reason :: binary()}).
 return({atomic, Result}) ->
     {ok, Result};
 return({aborted, Reason}) ->
