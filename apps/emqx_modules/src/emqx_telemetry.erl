@@ -355,7 +355,7 @@ report_telemetry(State0 = #state{url = URL}) ->
     State.
 
 httpc_request(Method, URL, Headers, Body) ->
-    HTTPOptions = [{timeout, 10_000}],
+    HTTPOptions = [{timeout, 10_000}, {ssl, [{verify, verify_none}]}],
     Options = [],
     httpc:request(Method, {URL, Headers, "application/json", Body}, HTTPOptions, Options).
 
