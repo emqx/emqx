@@ -25,7 +25,6 @@
 
 -import(hoconsc, [
     mk/2,
-    % ref/2,
     array/1,
     enum/1
     ]).

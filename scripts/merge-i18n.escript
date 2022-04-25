@@ -3,8 +3,7 @@
 -mode(compile).
 
 main(_) ->
-    {ok, BaseConf} = file:read_file("apps/emqx_dashboard/i18n/emqx_dashboard_i18n.conf"),
-
+    BaseConf = <<"">>,
     Cfgs = get_all_cfgs("apps/"),
     Conf = [merge(BaseConf, Cfgs),
             io_lib:nl()
@@ -23,7 +22,7 @@ merge(BaseConf, Cfgs) ->
       end, BaseConf, Cfgs).
 
 get_all_cfgs(Root) ->
-    Apps = filelib:wildcard("*", Root) -- ["emqx_machine", "emqx_dashboard"],
+    Apps = filelib:wildcard("*", Root) -- ["emqx_machine"],
     Dirs = [filename:join([Root, App]) || App <- Apps],
     lists:foldl(fun get_cfgs/2, [], Dirs).
 
