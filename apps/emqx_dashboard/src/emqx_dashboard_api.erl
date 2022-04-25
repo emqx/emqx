@@ -101,8 +101,8 @@ schema("/users") ->
             tags => [<<"dashboard">>],
             desc => ?DESC(list_users_api),
             responses => #{
-                200 => mk(array(fields([username, description])),
-                        #{desc => ?DESC(list_users_api)})
+                200 => mk(array(hoconsc:ref(user)),
+                    #{desc => ?DESC(list_users_api)})
             }
         },
         post => #{
@@ -164,6 +164,8 @@ response_schema(401) ->
 response_schema(404) ->
     emqx_dashboard_swagger:error_codes([?USER_NOT_FOUND], ?DESC(users_api404)).
 
+fields(user) ->
+    fields([username, description]);
 fields(List) ->
     [field(Key) || Key <- List].
 
