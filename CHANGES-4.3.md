@@ -21,6 +21,7 @@ File format:
 ### Bug fixes
 * List subscription topic (/api/v4/subscriptions), the result do not match with multiple conditions.  
 
+* SSL closed error bug fixed
 
 ## v4.3.14
 
