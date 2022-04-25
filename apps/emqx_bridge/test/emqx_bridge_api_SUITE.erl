@@ -324,6 +324,10 @@ t_enable_disable_bridges(_) ->
                   }, jsx:decode(Bridge3)),
     %% disable it again
     {ok, 200, <<>>} = request(post, operation_path(cluster, disable, BridgeID), <<"">>),
+
+    {ok, 403, Res} = request(post, operation_path(node, restart, BridgeID), <<"">>),
+    ?assertEqual(<<"{\"code\":\"FORBIDDEN_REQUEST\",\"message\":\"forbidden operation\"}">>, Res),
+
     %% enable a stopped bridge
     {ok, 200, <<>>} = request(post, operation_path(cluster, enable, BridgeID), <<"">>),
     {ok, 200, Bridge4} = request(get, uri(["bridges", BridgeID]), []),

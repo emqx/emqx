@@ -334,7 +334,9 @@ schema("/nodes/:node/bridges/:id/operation/:operation") ->
             ],
             responses => #{
                 200 => <<"Operation success">>,
-                400 => error_schema('INVALID_ID', "Bad bridge ID")
+                400 => error_schema('INVALID_ID', "Bad bridge ID"),
+                403 => error_schema('FORBIDDEN_REQUEST', "forbidden operation")
+
             }
         }
     }.
@@ -428,11 +430,16 @@ lookup_from_local_node(BridgeType, BridgeName) ->
     ?TRY_PARSE_ID(Id, case operation_func(Op) of
         invalid -> {400, error_msg('BAD_REQUEST', <<"invalid operation">>)};
         OperFunc when OperFunc == restart; OperFunc == stop ->
-            case emqx_bridge:OperFunc(BridgeType, BridgeName) of
-                ok -> {200};
-                {error, Reason} ->
-                    {500, error_msg('INTERNAL_ERROR', Reason)}
-            end
+             ConfMap = emqx:get_config([bridges, BridgeType, BridgeName]),
+             case maps:get(enable, ConfMap, false) of
+                 false -> {403, error_msg('FORBIDDEN_REQUEST', <<"forbidden operation">>)};
+                 true ->
+                     case emqx_bridge:OperFunc(BridgeType, BridgeName) of
+                         ok -> {200};
+                         {error, Reason} ->
+                             {500, error_msg('INTERNAL_ERROR', Reason)}
+                     end
+             end
     end).
 
 operation_func(<<"stop">>) -> stop;
