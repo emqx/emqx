@@ -440,6 +440,12 @@ schema("/authentication/:id/users") ->
                         in => query,
                         desc => ?DESC(like_clientid),
                         required => false
+                    })},
+                {is_superuser,
+                    mk(boolean(), #{
+                        in => query,
+                        desc => ?DESC(is_superuser),
+                        required => false
                     })}
             ],
             responses => #{
@@ -478,7 +484,13 @@ schema("/listeners/:listener_id/authentication/:id/users") ->
                 param_listener_id(),
                 param_auth_id(),
                 ref(emqx_dashboard_swagger, page),
-                ref(emqx_dashboard_swagger, limit)
+                ref(emqx_dashboard_swagger, limit),
+                {is_superuser,
+                    mk(boolean(), #{
+                        in => query,
+                        desc => ?DESC(is_superuser),
+                        required => false
+                    })}
             ],
             responses => #{
                 200 => emqx_dashboard_swagger:schema_with_example(

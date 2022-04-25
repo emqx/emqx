@@ -74,7 +74,8 @@
 -define(AUTHN_QSCHEMA, [
     {<<"like_username">>, binary},
     {<<"like_clientid">>, binary},
-    {<<"user_group">>, binary}
+    {<<"user_group">>, binary},
+    {<<"is_superuser">>, atom}
 ]).
 -define(QUERY_FUN, {?MODULE, query}).
 
@@ -469,21 +470,26 @@ format_user_info(#user_info{user_id = {_, UserID}, is_superuser = IsSuperuser}) 
     #{user_id => UserID, is_superuser => IsSuperuser}.
 
 ms_from_qstring(QString) ->
-    [Ms] = lists:foldl(
-        fun
-            ({user_group, '=:=', UserGroup}, AccIn) ->
-                [group_match_spec(UserGroup) | AccIn];
-            (_, AccIn) ->
-                AccIn
-        end,
-        [],
-        QString
-    ),
-    Ms.
+    case lists:keytake(user_group, 1, QString) of
+        {value, {user_group, '=:=', UserGroup}, QString2} ->
+            group_match_spec(UserGroup, QString2);
+        _ ->
+            []
+    end.
 
 group_match_spec(UserGroup) ->
-    ets:fun2ms(
-        fun(#user_info{user_id = {Group, _}} = User) when Group =:= UserGroup ->
-            User
-        end
-    ).
+    group_match_spec(UserGroup, []).
+
+group_match_spec(UserGroup, QString) ->
+    case lists:keyfind(is_superuser, 1, QString) of
+        false ->
+            ets:fun2ms(fun(#user_info{user_id = {Group, _}} = User) when Group =:= UserGroup ->
+                User
+            end);
+        {is_superuser, '=:=', Value} ->
+            ets:fun2ms(fun(#user_info{user_id = {Group, _}, is_superuser = IsSuper} = User) when
+                Group =:= UserGroup, IsSuper =:= Value
+            ->
+                User
+            end)
+    end.
