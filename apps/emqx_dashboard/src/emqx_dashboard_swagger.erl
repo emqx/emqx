@@ -408,7 +408,9 @@ trans_description(Spec, Hocon) ->
         end,
     case Desc of
         undefined -> Spec;
-        Desc -> Spec#{description => Desc}
+        Desc ->
+            Desc1 = binary:replace(Desc, [<<"</br>\n">>, <<"\n">>], <<"</br>">>, [global]),
+            Spec#{description => Desc1}
     end.
 
 get_i18n(Key, Struct, Default) ->
@@ -813,17 +815,15 @@ schema_converter(Options) ->
 
 serialize_hocon_error_msg({_Schema, Errors}) ->
     Msg = lists:map(fun hocon_error/1, Errors),
-    iolist_to_binary(string:join(Msg, ","));
+    iolist_to_binary(Msg);
 serialize_hocon_error_msg(Error) ->
     iolist_to_binary(io_lib:format("~p", [Error])).
 
-hocon_error({validation_error, #{reason := #{exception := Exception}, path := Path}}) ->
-    io_lib:format("~ts: ~p", [sub_path(Path), Exception]);
-hocon_error({validation_error, #{reason := Reason, path := Path, value := Value}}) ->
-    io_lib:format("~ts: ~p ~p", [sub_path(Path), Value, Reason]);
-hocon_error({validation_error, #{reason := Reason, path := Path}}) ->
-    io_lib:format("~ts: ~p", [sub_path(Path), Reason]);
-hocon_error({translation_error, #{reason := Reason, value_path := Path}}) ->
-    io_lib:format("~ts: ~p", [sub_path(Path), Reason]).
+hocon_error({validation_error, #{path := Path} = Error}) ->
+    Error1 = maps:without([path, stacktrace], Error),
+    emqx_logger_jsonfmt:best_effort_json(Error1#{<<"path">> => sub_path(Path)}, []);
+hocon_error({translation_error, #{value_path := Path} = Error}) ->
+    Error1 = maps:without([value_path, stacktrace], Error),
+    emqx_logger_jsonfmt:best_effort_json(Error1#{<<"path">> => sub_path(Path)}, []).
 
 sub_path(Path) -> string:trim(Path, leading, "root.").
