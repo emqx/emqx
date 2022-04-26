@@ -21,7 +21,7 @@ File format:
 ### Bug fixes
 * List subscription topic (/api/v4/subscriptions), the result do not match with multiple conditions.  
 
-* SSL closed error bug fixed
+* SSL closed error bug fixed for redis client.
 
 ## v4.3.14
 
