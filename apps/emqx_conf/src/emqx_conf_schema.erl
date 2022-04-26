@@ -801,8 +801,8 @@ fields("log") ->
                     mapping => "kernel.error_logger",
                     default => silent,
                     desc => ?DESC("log_error_logger")
-                }
-            )}
+                })
+        }
     ];
 fields("console_handler") ->
     log_handler_common_confs();
@@ -866,7 +866,7 @@ fields("log_overload_kill") ->
             )},
         {"qlen",
             sc(
-                integer(),
+                pos_integer(),
                 #{
                     default => 20000,
                     desc => ?DESC("log_overload_kill_qlen")
@@ -874,7 +874,7 @@ fields("log_overload_kill") ->
             )},
         {"restart_after",
             sc(
-                hoconsc:union([emqx_schema:duration(), infinity]),
+                hoconsc:union([emqx_schema:duration_ms(), infinity]),
                 #{
                     default => "5s",
                     desc => ?DESC("log_overload_kill_restart_after")
@@ -893,7 +893,7 @@ fields("log_burst_limit") ->
             )},
         {"max_count",
             sc(
-                integer(),
+                pos_integer(),
                 #{
                     default => 10000,
                     desc => ?DESC("log_burst_limit_max_count")
@@ -1073,7 +1073,7 @@ log_handler_common_confs() ->
                 boolean(),
                 #{
                     default => false,
-                    desc => ?DESC("log_file_handler_enable")
+                    desc => ?DESC("common_handler_enable")
                 }
             )},
         {"level",
@@ -1081,7 +1081,7 @@ log_handler_common_confs() ->
                 log_level(),
                 #{
                     default => warning,
-                    desc => ?DESC("log_file_handler_level")
+                    desc => ?DESC("common_handler_level")
                 }
             )},
         {"time_offset",
@@ -1089,15 +1089,15 @@ log_handler_common_confs() ->
                 string(),
                 #{
                     default => "system",
-                    desc => ?DESC("log_file_handler_time_offset")
+                    desc => ?DESC("common_handler_time_offset")
                 }
             )},
         {"chars_limit",
             sc(
-                hoconsc:union([unlimited, range(1, inf)]),
+                hoconsc:union([unlimited, range(100, inf)]),
                 #{
                     default => unlimited,
-                    desc => ?DESC("log_file_handler_chars_limit")
+                    desc => ?DESC("common_handler_chars_limit")
                 }
             )},
         {"formatter",
@@ -1105,7 +1105,7 @@ log_handler_common_confs() ->
                 hoconsc:enum([text, json]),
                 #{
                     default => text,
-                    desc => ?DESC("log_file_handler_formatter")
+                    desc => ?DESC("common_handler_formatter")
                 }
             )},
         {"single_line",
@@ -1113,31 +1113,31 @@ log_handler_common_confs() ->
                 boolean(),
                 #{
                     default => true,
-                    desc => ?DESC("log_file_handler_single_line")
+                    desc => ?DESC("common_handler_single_line")
                 }
             )},
         {"sync_mode_qlen",
             sc(
-                integer(),
+                non_neg_integer(),
                 #{
                     default => 100,
-                    desc => ?DESC("log_file_handler_sync_mode_qlen")
+                    desc => ?DESC("common_handler_sync_mode_qlen")
                 }
             )},
         {"drop_mode_qlen",
             sc(
-                integer(),
+                pos_integer(),
                 #{
                     default => 3000,
-                    desc => ?DESC("log_file_handler_drop_mode_qlen")
+                    desc => ?DESC("common_handler_drop_mode_qlen")
                 }
             )},
         {"flush_qlen",
             sc(
-                integer(),
+                pos_integer(),
                 #{
                     default => 8000,
-                    desc => ?DESC("log_file_handler_flush_qlen")
+                    desc => ?DESC("common_handler_flush_qlen")
                 }
             )},
         {"overload_kill", sc(ref("log_overload_kill"), #{})},
@@ -1147,7 +1147,7 @@ log_handler_common_confs() ->
                 hoconsc:enum([error, progress]),
                 #{
                     default => error,
-                    desc => ?DESC("log_file_handler_supervisor_reports")
+                    desc => ?DESC("common_handler_supervisor_reports")
                 }
             )},
         {"max_depth",
@@ -1155,7 +1155,7 @@ log_handler_common_confs() ->
                 hoconsc:union([unlimited, non_neg_integer()]),
                 #{
                     default => 100,
-                    desc => ?DESC("log_file_handler_max_depth")
+                    desc => ?DESC("common_handler_max_depth")
                 }
             )}
     ].
