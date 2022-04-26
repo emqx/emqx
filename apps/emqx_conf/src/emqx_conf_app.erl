@@ -35,11 +35,10 @@ stop(_State) ->
 
 get_override_config_file() ->
     Node = node(),
-    Role = mria_rlog:role(),
     case emqx_app:get_init_config_load_done() of
         false ->
             {error, #{node => Node, msg => "init_conf_load_not_done"}};
-        true when Role =:= core ->
+        true ->
             case erlang:whereis(emqx_config_handler) of
                 undefined ->
                     {error, #{node => Node, msg => "emqx_config_handler_not_ready"}};
@@ -54,9 +53,7 @@ get_override_config_file() ->
                         {atomic, Res} -> {ok, Res};
                         {aborted, Reason} -> {error, #{node => Node, msg => Reason}}
                     end
-            end;
-        true when Role =:= replicant ->
-            {ignore, #{node => Node}}
+            end
     end.
 
 %% ------------------------------------------------------------------------------
