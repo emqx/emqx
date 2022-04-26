@@ -31,6 +31,10 @@
     set_procmem_high_watermark/1
 ]).
 
+-export([
+    current_sysmem_percent/0
+]).
+
 %% gen_server callbacks
 -export([
     init/1,
@@ -71,6 +75,20 @@ get_procmem_high_watermark() ->
 
 set_procmem_high_watermark(Float) ->
     memsup:set_procmem_high_watermark(Float).
+
+current_sysmem_percent() ->
+    case erlang:whereis(memsup) of
+        undefined ->
+            undefined;
+        _Pid ->
+            {Total, Allocated, _Worst} = memsup:get_memory_data(),
+            case Total =/= 0 of
+                true ->
+                    erlang:floor((Allocated / Total) * 10000) / 100;
+                false ->
+                    undefined
+            end
+    end.
 
 %%--------------------------------------------------------------------
 %% gen_server callbacks
@@ -163,14 +181,12 @@ start_check_timer() ->
 %% and there is no exported function to remove the alerted flag,
 %% so it can only be checked again at startup.
 
-ensure_system_memory_alarm(HW) ->
-    case erlang:whereis(memsup) of
-        undefined ->
-            ok;
-        _Pid ->
-            {Total, Allocated, _Worst} = memsup:get_memory_data(),
-            case Total =/= 0 andalso Allocated / Total > HW of
-                true -> emqx_alarm:activate(high_system_memory_usage, #{high_watermark => HW});
-                false -> ok
-            end
+ensure_system_memory_alarm(HW) when HW =< 1.0 andalso HW >= 0 ->
+    case current_sysmem_percent() of
+        Usage when Usage > (HW * 100) ->
+            gen_event:notify(
+                alarm_handler, {set_alarm, {system_memory_high_watermark, []}}
+            );
+        _ ->
+            ok
     end.
