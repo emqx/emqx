@@ -1654,14 +1654,14 @@ do_authenticate(
 ) ->
     Properties = #{'Authentication-Method' => AuthMethod},
     case emqx_access_control:authenticate(Credential) of
-        {ok, Result} ->
+        {ok, AuthResult} ->
             {ok, Properties, Channel#channel{
-                clientinfo = ClientInfo#{is_superuser => maps:get(is_superuser, Result, false)},
+                clientinfo = merge_auth_result(ClientInfo, AuthResult),
                 auth_cache = #{}
             }};
-        {ok, Result, AuthData} ->
+        {ok, AuthResult, AuthData} ->
             {ok, Properties#{'Authentication-Data' => AuthData}, Channel#channel{
-                clientinfo = ClientInfo#{is_superuser => maps:get(is_superuser, Result, false)},
+                clientinfo = merge_auth_result(ClientInfo, AuthResult),
                 auth_cache = #{}
             }};
         {continue, AuthCache} ->
@@ -1675,11 +1675,15 @@ do_authenticate(
     end;
 do_authenticate(Credential, #channel{clientinfo = ClientInfo} = Channel) ->
     case emqx_access_control:authenticate(Credential) of
-        {ok, #{is_superuser := IsSuperuser}} ->
-            {ok, #{}, Channel#channel{clientinfo = ClientInfo#{is_superuser => IsSuperuser}}};
+        {ok, AuthResult} ->
+            {ok, #{}, Channel#channel{clientinfo = merge_auth_result(ClientInfo, AuthResult)}};
         {error, Reason} ->
             {error, emqx_reason_codes:connack_error(Reason)}
     end.
+
+merge_auth_result(ClientInfo, AuthResult) when is_map(ClientInfo) andalso is_map(AuthResult) ->
+    IsSuperuser = maps:get(is_superuser, AuthResult, false),
+    maps:merge(ClientInfo, AuthResult#{is_superuser => IsSuperuser}).
 
 %%--------------------------------------------------------------------
 %% Process Topic Alias

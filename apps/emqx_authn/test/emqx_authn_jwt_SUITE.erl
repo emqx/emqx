@@ -70,7 +70,7 @@ t_jwt_authenticator_hmac_based(_) ->
         username => <<"myuser">>,
         password => JWS
     },
-    ?assertEqual({ok, #{is_superuser => false}}, emqx_authn_jwt:authenticate(Credential, State)),
+    ?assertMatch({ok, #{is_superuser := false}}, emqx_authn_jwt:authenticate(Credential, State)),
 
     Payload1 = #{<<"username">> => <<"myuser">>, <<"is_superuser">> => true},
     JWS1 = generate_jws('hmac-based', Payload1, Secret),
@@ -78,7 +78,7 @@ t_jwt_authenticator_hmac_based(_) ->
         username => <<"myuser">>,
         password => JWS1
     },
-    ?assertEqual({ok, #{is_superuser => true}}, emqx_authn_jwt:authenticate(Credential1, State)),
+    ?assertMatch({ok, #{is_superuser := true}}, emqx_authn_jwt:authenticate(Credential1, State)),
 
     BadJWS = generate_jws('hmac-based', Payload, <<"bad_secret">>),
     Credential2 = Credential#{password => BadJWS},
@@ -90,7 +90,7 @@ t_jwt_authenticator_hmac_based(_) ->
         secret_base64_encoded => true
     },
     {ok, State2} = emqx_authn_jwt:update(Config2, State),
-    ?assertEqual({ok, #{is_superuser => false}}, emqx_authn_jwt:authenticate(Credential, State2)),
+    ?assertMatch({ok, #{is_superuser := false}}, emqx_authn_jwt:authenticate(Credential, State2)),
 
     %% invalid secret
     BadConfig = Config#{
@@ -101,7 +101,7 @@ t_jwt_authenticator_hmac_based(_) ->
 
     Config3 = Config#{verify_claims => [{<<"username">>, <<"${username}">>}]},
     {ok, State3} = emqx_authn_jwt:update(Config3, State2),
-    ?assertEqual({ok, #{is_superuser => false}}, emqx_authn_jwt:authenticate(Credential, State3)),
+    ?assertMatch({ok, #{is_superuser := false}}, emqx_authn_jwt:authenticate(Credential, State3)),
     ?assertEqual(
         {error, bad_username_or_password},
         emqx_authn_jwt:authenticate(Credential#{username => <<"otheruser">>}, State3)
@@ -124,7 +124,7 @@ t_jwt_authenticator_hmac_based(_) ->
     },
     JWS4 = generate_jws('hmac-based', Payload4, Secret),
     Credential4 = Credential#{password => JWS4},
-    ?assertEqual({ok, #{is_superuser => false}}, emqx_authn_jwt:authenticate(Credential4, State3)),
+    ?assertMatch({ok, #{is_superuser := false}}, emqx_authn_jwt:authenticate(Credential4, State3)),
 
     %% Issued At
     Payload5 = #{
@@ -133,7 +133,7 @@ t_jwt_authenticator_hmac_based(_) ->
     },
     JWS5 = generate_jws('hmac-based', Payload5, Secret),
     Credential5 = Credential#{password => JWS5},
-    ?assertEqual({ok, #{is_superuser => false}}, emqx_authn_jwt:authenticate(Credential5, State3)),
+    ?assertMatch({ok, #{is_superuser := false}}, emqx_authn_jwt:authenticate(Credential5, State3)),
 
     Payload6 = #{
         <<"username">> => <<"myuser">>,
@@ -152,7 +152,7 @@ t_jwt_authenticator_hmac_based(_) ->
     },
     JWS7 = generate_jws('hmac-based', Payload7, Secret),
     Credential7 = Credential6#{password => JWS7},
-    ?assertEqual({ok, #{is_superuser => false}}, emqx_authn_jwt:authenticate(Credential7, State3)),
+    ?assertMatch({ok, #{is_superuser := false}}, emqx_authn_jwt:authenticate(Credential7, State3)),
 
     Payload8 = #{
         <<"username">> => <<"myuser">>,
@@ -185,7 +185,7 @@ t_jwt_authenticator_public_key(_) ->
         username => <<"myuser">>,
         password => JWS
     },
-    ?assertEqual({ok, #{is_superuser => false}}, emqx_authn_jwt:authenticate(Credential, State)),
+    ?assertMatch({ok, #{is_superuser := false}}, emqx_authn_jwt:authenticate(Credential, State)),
     ?assertEqual(
         ignore, emqx_authn_jwt:authenticate(Credential#{password => <<"badpassword">>}, State)
     ),
@@ -280,7 +280,7 @@ t_jwks_renewal(_Config) ->
 
     ok = snabbkaffe:stop(),
 
-    ?assertEqual({ok, #{is_superuser => false}}, emqx_authn_jwt:authenticate(Credential1, State2)),
+    ?assertMatch({ok, #{is_superuser := false}}, emqx_authn_jwt:authenticate(Credential1, State2)),
     ?assertEqual(
         {error, bad_username_or_password},
         emqx_authn_jwt:authenticate(Credential1#{password => JWS2}, State2)
@@ -307,7 +307,7 @@ t_jwt_authenticator_verify_claims(_) ->
         username => <<"myuser">>,
         password => JWS0
     },
-    ?assertEqual({ok, #{is_superuser => false}}, emqx_authn_jwt:authenticate(Credential0, State0)),
+    ?assertMatch({ok, #{is_superuser := false}}, emqx_authn_jwt:authenticate(Credential0, State0)),
 
     Config1 = Config0#{
         verify_claims => [{<<"foo">>, <<"${username}">>}]
@@ -340,7 +340,7 @@ t_jwt_authenticator_verify_claims(_) ->
         username => <<"myuser">>,
         password => JWS3
     },
-    ?assertEqual({ok, #{is_superuser => false}}, emqx_authn_jwt:authenticate(Credential3, State1)).
+    ?assertMatch({ok, #{is_superuser := false}}, emqx_authn_jwt:authenticate(Credential3, State1)).
 
 %%------------------------------------------------------------------------------
 %% Helpers
