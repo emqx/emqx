@@ -242,7 +242,7 @@ handle_event({call, From}, health_check, disconnected, Data) ->
 handle_event({call, From}, health_check, _State, Data) ->
     handle_health_check_event(From, Data);
 handle_event(enter, connecting, connecting, Data) ->
-    handle_connecting_state_enter_event(Data);
+    handle_connection_attempt(Data);
 handle_event(enter, _OldState, connecting, Data) ->
     Actions = [{state_timeout, 0, healthcheck}],
     {next_state, connecting, Data, Actions};
@@ -257,16 +257,31 @@ handle_event(enter, _OldState, connected, Data) ->
     {next_state, connected, Data, Actions};
 handle_event(state_timeout, healthcheck, connected, Data) ->
     perform_connected_healthcheck(Data);
-handle_event(enter, _OldState, disconnected, #data{id = InstId} = Data) ->
+handle_event(enter, _OldState, disconnected, Data) ->
+    handle_disconnected_state_enter(Data);
+handle_event(state_timeout, auto_retry, disconnected, Data) ->
+    handle_connection_attempt(Data);
+handle_event(enter, _OldState, stopped, Data) ->
     UpdatedData = Data#data{status = disconnected},
-    ets:delete(?ETS_TABLE, InstId),
-    {next_state, disconnected, UpdatedData}.
+    ets:delete(?ETS_TABLE, Data#data.id),
+    {next_state, stopped, UpdatedData}.
 
 %%------------------------------------------------------------------------------
 %% internal functions
 %%------------------------------------------------------------------------------
 
-handle_connecting_state_enter_event(Data) ->
+handle_disconnected_state_enter(Data) ->
+    UpdatedData = Data#data{status = disconnected},
+    ets:delete(?ETS_TABLE, Data#data.id),
+    case maps:get(auto_retry_interval, Data#data.config, undefined) of
+        undefined ->
+            {next_state, disconnected, UpdatedData};
+        RetryInterval ->
+            Actions = [{state_timeout, RetryInterval, auto_retry}],
+            {next_state, disconnected, UpdatedData, Actions}
+    end.
+
+handle_connection_attempt(Data) ->
     case emqx_resource:call_start(Data#data.id, Data#data.mod, Data#data.config) of
         {ok, ResourceState} ->
             UpdatedData = Data#data{state = ResourceState, status = connecting},

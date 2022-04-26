@@ -295,7 +295,7 @@ t_create_dry_run_local(_) ->
 
 t_create_dry_run_local_failed(_) ->
     {Res1, _} = emqx_resource:create_dry_run_local(?TEST_RESOURCE,
-                       #{cteate_error => true}),
+                       #{create_error => true}),
     ?assertEqual(error, Res1),
 
     {Res2, _} = emqx_resource:create_dry_run_local(?TEST_RESOURCE,
@@ -324,6 +324,14 @@ t_reset_metrics(_) ->
     ?assert(is_process_alive(Pid)),
     ok = emqx_resource:remove(?ID),
     ?assertNot(is_process_alive(Pid)).
+
+t_auto_retry(_) ->
+    {Res, _} = emqx_resource:create(
+                ?ID,
+                ?DEFAULT_RESOURCE_GROUP,
+                ?TEST_RESOURCE,
+                #{name => test_resource, create_error => true, auto_retry_interval => 1000}),
+    ?assertEqual(error, Res).
 
 %%------------------------------------------------------------------------------
 %% Helpers
