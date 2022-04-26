@@ -66,13 +66,12 @@ fields('public-key') ->
         {use_jwks, sc(hoconsc:enum([false]), #{required => true, desc => ?DESC(use_jwks)})},
         {algorithm,
             sc(hoconsc:enum(['public-key']), #{required => true, desc => ?DESC(algorithm)})},
-        {certificate, fun certificate/1}
+        {public_key, fun public_key/1}
     ] ++ common_fields();
 fields('jwks') ->
     [
         {use_jwks, sc(hoconsc:enum([true]), #{required => true, desc => ?DESC(use_jwks)})},
         {endpoint, fun endpoint/1},
-        {pool_size, fun pool_size/1},
         {refresh_interval, fun refresh_interval/1},
         {ssl, #{
             type => hoconsc:union([
@@ -125,10 +124,10 @@ secret_base64_encoded(desc) -> ?DESC(?FUNCTION_NAME);
 secret_base64_encoded(default) -> false;
 secret_base64_encoded(_) -> undefined.
 
-certificate(type) -> string();
-certificate(desc) -> ?DESC(?FUNCTION_NAME);
-certificate(required) -> ture;
-certificate(_) -> undefined.
+public_key(type) -> string();
+public_key(desc) -> ?DESC(?FUNCTION_NAME);
+public_key(required) -> ture;
+public_key(_) -> undefined.
 
 endpoint(type) -> string();
 endpoint(desc) -> ?DESC(?FUNCTION_NAME);
@@ -178,12 +177,6 @@ verify_claims(required) ->
     false;
 verify_claims(_) ->
     undefined.
-
-pool_size(type) -> integer();
-pool_size(desc) -> ?DESC(?FUNCTION_NAME);
-pool_size(default) -> 8;
-pool_size(validator) -> [fun(I) -> I > 0 end];
-pool_size(_) -> undefined.
 
 %%------------------------------------------------------------------------------
 %% APIs
@@ -294,10 +287,10 @@ create2(#{
 create2(#{
     use_jwks := false,
     algorithm := 'public-key',
-    certificate := Certificate,
+    public_key := PublicKey,
     verify_claims := VerifyClaims
 }) ->
-    JWK = create_jwk_from_pem_or_file(Certificate),
+    JWK = create_jwk_from_public_key(PublicKey),
     {ok, #{
         jwk => JWK,
         verify_claims => VerifyClaims
@@ -320,15 +313,14 @@ create2(
         verify_claims => VerifyClaims
     }}.
 
-create_jwk_from_pem_or_file(CertfileOrFilePath) when
-    is_binary(CertfileOrFilePath);
-    is_list(CertfileOrFilePath)
+create_jwk_from_public_key(PublicKey) when
+    is_binary(PublicKey); is_list(PublicKey)
 ->
-    case filelib:is_file(CertfileOrFilePath) of
+    case filelib:is_file(PublicKey) of
         true ->
-            jose_jwk:from_pem_file(CertfileOrFilePath);
+            jose_jwk:from_pem_file(PublicKey);
         false ->
-            jose_jwk:from_pem(iolist_to_binary(CertfileOrFilePath))
+            jose_jwk:from_pem(iolist_to_binary(PublicKey))
     end.
 
 connector_opts(#{ssl := #{enable := Enable} = SSL} = Config) ->

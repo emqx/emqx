@@ -174,7 +174,7 @@ t_jwt_authenticator_public_key(_) ->
         mechanism => jwt,
         use_jwks => false,
         algorithm => 'public-key',
-        certificate => PublicKey,
+        public_key => PublicKey,
         verify_claims => []
     },
     {ok, State} = emqx_authn_jwt:create(?AUTHN_ID, Config),
