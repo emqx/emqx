@@ -407,7 +407,8 @@ trans_description(Spec, Hocon) ->
             Struct -> to_bin(Struct)
         end,
     case Desc of
-        undefined -> Spec;
+        undefined ->
+            Spec;
         Desc ->
             Desc1 = binary:replace(Desc, [<<"</br>\n">>, <<"\n">>], <<"</br>">>, [global]),
             Spec#{description => Desc1}

@@ -18,12 +18,13 @@
 
 -include("emqx_dashboard.hrl").
 
--export([ sign/2
-        , verify/1
-        , lookup/1
-        , destroy/1
-        , destroy_by_username/1
-        ]).
+-export([
+    sign/2,
+    verify/1,
+    lookup/1,
+    destroy/1,
+    destroy_by_username/1
+]).
 
 -boot_mnesia({mnesia, [boot]}).
 
@@ -42,54 +43,60 @@
 
 -export([start_link/0, salt/0]).
 
--export([ init/1
-        , handle_call/3
-        , handle_cast/2
-        , handle_info/2
-        , terminate/2
-        , code_change/3
-        ]).
+-export([
+    init/1,
+    handle_call/3,
+    handle_cast/2,
+    handle_info/2,
+    terminate/2,
+    code_change/3
+]).
 
 %%--------------------------------------------------------------------
 %% jwt function
--spec(sign(Username :: binary(), Password :: binary()) ->
-        {ok, Token :: binary()} | {error, Reason :: term()}).
+-spec sign(Username :: binary(), Password :: binary()) ->
+    {ok, Token :: binary()} | {error, Reason :: term()}.
 sign(Username, Password) ->
     do_sign(Username, Password).
 
--spec(verify(Token :: binary()) -> Result :: ok | {error, token_timeout | not_found}).
+-spec verify(Token :: binary()) -> Result :: ok | {error, token_timeout | not_found}.
 verify(Token) ->
     do_verify(Token).
 
--spec(destroy(KeyOrKeys :: list() | binary() | #?ADMIN_JWT{}) -> ok).
+-spec destroy(KeyOrKeys :: list() | binary() | #?ADMIN_JWT{}) -> ok.
 destroy([]) ->
     ok;
-destroy(JWTorTokenList) when is_list(JWTorTokenList)->
+destroy(JWTorTokenList) when is_list(JWTorTokenList) ->
     lists:foreach(fun destroy/1, JWTorTokenList);
 destroy(#?ADMIN_JWT{token = Token}) ->
     destroy(Token);
-destroy(Token) when is_binary(Token)->
+destroy(Token) when is_binary(Token) ->
     do_destroy(Token).
 
--spec(destroy_by_username(Username :: binary()) -> ok).
+-spec destroy_by_username(Username :: binary()) -> ok.
 destroy_by_username(Username) ->
     do_destroy_by_username(Username).
 
 %% @doc create 4 bytes salt.
--spec(salt() -> binary()).
+-spec salt() -> binary().
 salt() ->
     <<X:16/big-unsigned-integer>> = crypto:strong_rand_bytes(2),
     iolist_to_binary(io_lib:format("~4.16.0b", [X])).
 
 mnesia(boot) ->
     ok = mria:create_table(?TAB, [
-                {type, set},
-                {rlog_shard, ?DASHBOARD_SHARD},
-                {storage, disc_copies},
-                {record_name, ?ADMIN_JWT},
-                {attributes, record_info(fields, ?ADMIN_JWT)},
-                {storage_properties, [{ets, [{read_concurrency, true},
-                                             {write_concurrency, true}]}]}]).
+        {type, set},
+        {rlog_shard, ?DASHBOARD_SHARD},
+        {storage, disc_copies},
+        {record_name, ?ADMIN_JWT},
+        {attributes, record_info(fields, ?ADMIN_JWT)},
+        {storage_properties, [
+            {ets, [
+                {read_concurrency, true},
+                {write_concurrency, true}
+            ]}
+        ]}
+    ]).
 
 %%--------------------------------------------------------------------
 %% jwt apply
@@ -110,15 +117,17 @@ do_sign(Username, Password) ->
     _ = mria:transaction(?DASHBOARD_SHARD, fun mnesia:write/1, [JWTRec]),
     {ok, Token}.
 
-do_verify(Token)->
+do_verify(Token) ->
     case lookup(Token) of
         {ok, JWT = #?ADMIN_JWT{exptime = ExpTime}} ->
             case ExpTime > erlang:system_time(millisecond) of
                 true ->
                     NewJWT = JWT#?ADMIN_JWT{exptime = jwt_expiration_time()},
-                    {atomic, Res} = mria:transaction(?DASHBOARD_SHARD,
-                                                     fun mnesia:write/1,
-                                                     [NewJWT]),
+                    {atomic, Res} = mria:transaction(
+                        ?DASHBOARD_SHARD,
+                        fun mnesia:write/1,
+                        [NewJWT]
+                    ),
                     Res;
                 _ ->
                     {error, token_timeout}
@@ -137,7 +146,7 @@ do_destroy_by_username(Username) ->
 
 %%--------------------------------------------------------------------
 %% jwt internal util function
--spec(lookup(Token :: binary()) -> {ok, #?ADMIN_JWT{}} | {error, not_found}).
+-spec lookup(Token :: binary()) -> {ok, #?ADMIN_JWT{}} | {error, not_found}.
 lookup(Token) ->
     Fun = fun() -> mnesia:read(?TAB, Token) end,
     case mria:ro_transaction(?DASHBOARD_SHARD, Fun) of
@@ -167,9 +176,9 @@ token_ttl() ->
 
 format(Token, Username, ExpTime) ->
     #?ADMIN_JWT{
-        token    = Token,
+        token = Token,
         username = Username,
-        exptime  = ExpTime
+        exptime = ExpTime
     }.
 
 %%--------------------------------------------------------------------
@@ -210,8 +219,9 @@ timer_clean(Pid) ->
 
 -dialyzer({nowarn_function, clean_expired_jwt/1}).
 clean_expired_jwt(Now) ->
-    Spec = [{#?ADMIN_JWT{exptime = '$1', token = '$2', _ = '_'},
-             [{'<', '$1', Now}], ['$2']}],
-    {atomic, JWTList} = mria:ro_transaction(?DASHBOARD_SHARD,
-        fun() -> mnesia:select(?TAB, Spec) end),
+    Spec = [{#?ADMIN_JWT{exptime = '$1', token = '$2', _ = '_'}, [{'<', '$1', Now}], ['$2']}],
+    {atomic, JWTList} = mria:ro_transaction(
+        ?DASHBOARD_SHARD,
+        fun() -> mnesia:select(?TAB, Spec) end
+    ),
     ok = destroy(JWTList).

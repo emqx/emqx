@@ -16,22 +16,23 @@
 -define(ADMIN, emqx_admin).
 
 -record(?ADMIN, {
-    username         :: binary(),
-    pwdhash          :: binary(),
-    description      :: binary(),
+    username :: binary(),
+    pwdhash :: binary(),
+    description :: binary(),
     role = undefined :: atom(),
-    extra = []       :: term() %% not used so far, for future extension
-    }).
-
+    %% not used so far, for future extension
+    extra = [] :: term()
+}).
 
 -define(ADMIN_JWT, emqx_admin_jwt).
 
 -record(?ADMIN_JWT, {
-    token      :: binary(),
-    username   :: binary(),
-    exptime    :: integer(),
-    extra = [] :: term() %% not used so far, fur future extension
-    }).
+    token :: binary(),
+    username :: binary(),
+    exptime :: integer(),
+    %% not used so far, fur future extension
+    extra = [] :: term()
+}).
 
 -define(TAB_COLLECT, emqx_collect).
 
@@ -49,27 +50,27 @@
 -define(RPC_TIMEOUT, 5000).
 -endif.
 
--define(DELTA_SAMPLER_LIST,
-    [ received
+-define(DELTA_SAMPLER_LIST, [
+    received,
     %, received_bytes
-    , sent
+    sent,
     %, sent_bytes
-    , dropped
-    ]).
+    dropped
+]).
 
--define(GAUGE_SAMPLER_LIST,
-    [ subscriptions
-    , topics
-    , connections
-    ]).
+-define(GAUGE_SAMPLER_LIST, [
+    subscriptions,
+    topics,
+    connections
+]).
 
 -define(SAMPLER_LIST, ?GAUGE_SAMPLER_LIST ++ ?DELTA_SAMPLER_LIST).
 
 -define(DELTA_SAMPLER_RATE_MAP, #{
-    received        => received_msg_rate,
+    received => received_msg_rate,
     %% In 5.0.0, temporarily comment it to suppress bytes rate
     %received_bytes  => received_bytes_rate,
     %sent_bytes      => sent_bytes_rate,
-    sent            => sent_msg_rate,
-    dropped         => dropped_msg_rate
-    }).
+    sent => sent_msg_rate,
+    dropped => dropped_msg_rate
+}).

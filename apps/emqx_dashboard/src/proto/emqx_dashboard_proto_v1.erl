@@ -18,10 +18,11 @@
 
 -behaviour(emqx_bpapi).
 
--export([ introduced_in/0
-        , do_sample/2
-        , current_rate/1
-        ]).
+-export([
+    introduced_in/0,
+    do_sample/2,
+    current_rate/1
+]).
 
 -include("emqx_dashboard.hrl").
 -include_lib("emqx/include/bpapi.hrl").
@@ -29,7 +30,7 @@
 introduced_in() ->
     "5.0.0".
 
--spec do_sample(node(), Latest:: pos_integer() | infinity) -> list(map()) | emqx_rpc:badrpc().
+-spec do_sample(node(), Latest :: pos_integer() | infinity) -> list(map()) | emqx_rpc:badrpc().
 do_sample(Node, Latest) ->
     rpc:call(Node, emqx_dashboard_monitor, do_sample, [Node, Latest], ?RPC_TIMEOUT).
 

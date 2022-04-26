@@ -1,15 +1,17 @@
 %% -*- mode: erlang -*-
-{application, emqx_dashboard,
- [{description, "EMQX Web Dashboard"},
-  {vsn, "5.0.0"}, % strict semver, bump manually!
-  {modules, []},
-  {registered, [emqx_dashboard_sup]},
-  {applications, [kernel,stdlib,mnesia,minirest,emqx]},
-  {mod, {emqx_dashboard_app,[]}},
-  {env, []},
-  {licenses, ["Apache-2.0"]},
-  {maintainers, ["EMQX Team <contact@emqx.io>"]},
-  {links, [{"Homepage", "https://emqx.io/"},
-           {"Github", "https://github.com/emqx/emqx-dashboard"}
-          ]}
- ]}.
+{application, emqx_dashboard, [
+    {description, "EMQX Web Dashboard"},
+    % strict semver, bump manually!
+    {vsn, "5.0.0"},
+    {modules, []},
+    {registered, [emqx_dashboard_sup]},
+    {applications, [kernel, stdlib, mnesia, minirest, emqx]},
+    {mod, {emqx_dashboard_app, []}},
+    {env, []},
+    {licenses, ["Apache-2.0"]},
+    {maintainers, ["EMQX Team <contact@emqx.io>"]},
+    {links, [
+        {"Homepage", "https://emqx.io/"},
+        {"Github", "https://github.com/emqx/emqx-dashboard"}
+    ]}
+]}.

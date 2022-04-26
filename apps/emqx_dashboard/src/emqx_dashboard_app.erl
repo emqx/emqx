@@ -18,9 +18,10 @@
 
 -behaviour(application).
 
--export([ start/2
-        , stop/1
-        ]).
+-export([
+    start/2,
+    stop/1
+]).
 
 -include("emqx_dashboard.hrl").
 
@@ -33,7 +34,8 @@ start(_StartType, _StartArgs) ->
             {ok, _Result} = emqx_dashboard_admin:add_default_user(),
             ok = emqx_dashboard_config:add_handler(),
             {ok, Sup};
-        {error, Reason} -> {error, Reason}
+        {error, Reason} ->
+            {error, Reason}
     end.
 
 stop(_State) ->
