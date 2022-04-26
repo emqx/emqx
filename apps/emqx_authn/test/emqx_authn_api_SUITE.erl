@@ -356,7 +356,43 @@ test_authenticator_users(PathPrefix) ->
     ?assertEqual(
         [<<"u1">>, <<"u2">>, <<"u3">>],
         lists:usort([UserId || #{<<"user_id">> := UserId} <- Page1Users ++ Page2Users])
-    ).
+    ),
+
+    {ok, 200, Super1Data} = request(get, UsersUri ++ "?page=1&limit=3&is_superuser=true"),
+
+    #{
+        <<"data">> := Super1Users,
+        <<"meta">> :=
+            #{
+                <<"page">> := 1,
+                <<"limit">> := 3,
+                <<"count">> := 1
+            }
+    } = jiffy:decode(Super1Data, [return_maps]),
+
+    ?assertEqual(
+        [<<"u2">>],
+        lists:usort([UserId || #{<<"user_id">> := UserId} <- Super1Users])
+    ),
+
+    {ok, 200, Super2Data} = request(get, UsersUri ++ "?page=1&limit=3&is_superuser=false"),
+
+    #{
+        <<"data">> := Super2Users,
+        <<"meta">> :=
+            #{
+                <<"page">> := 1,
+                <<"limit">> := 3,
+                <<"count">> := 2
+            }
+    } = jiffy:decode(Super2Data, [return_maps]),
+
+    ?assertEqual(
+        [<<"u1">>, <<"u3">>],
+        lists:usort([UserId || #{<<"user_id">> := UserId} <- Super2Users])
+    ),
+
+    ok.
 
 test_authenticator_user(PathPrefix) ->
     UsersUri = uri(PathPrefix ++ [?CONF_NS, "password_based:built_in_database", "users"]),
