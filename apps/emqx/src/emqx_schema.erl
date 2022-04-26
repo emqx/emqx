@@ -125,28 +125,7 @@ roots(high) ->
                 ref("mqtt"),
                 #{desc => ?DESC(mqtt)}
             )},
-        {?EMQX_AUTHENTICATION_CONFIG_ROOT_NAME,
-            authentication(
-                "Default authentication configs for all MQTT listeners.\n"
-                "</br>\n"
-                "For per-listener overrides see <code>authentication</code>\n"
-                "in listener configs\n"
-                "</br>\n"
-                "</br>\n"
-                "EMQX can be configured with:\n"
-                "</br>\n"
-                "<ul>\n"
-                "<li><code>[]</code>: The default value, it allows *ALL* logins</li>\n"
-                "<li>one: For example <code>{enable:true,backend:\"built_in_database\",mechanism=\"password_based\"}\n"
-                "</code></li>\n"
-                "<li>chain: An array of structs.</li>\n"
-                "</ul>\n"
-                "</br>\n"
-                "When a chain is configured, the login credentials are checked against the backends\n"
-                "per the configured order, until an 'allow' or 'deny' decision can be made.\n"
-                "</br>\n"
-                "If there is no decision after a full chain exhaustion, the login is rejected.\n"
-            )},
+        {?EMQX_AUTHENTICATION_CONFIG_ROOT_NAME, authentication(global)},
         %% NOTE: authorization schema here is only to keep emqx app prue
         %% the full schema for EMQX node is injected in emqx_conf_schema.
         {?EMQX_AUTHORIZATION_CONFIG_ROOT_NAME,
@@ -1521,8 +1500,7 @@ mqtt_listener() ->
                         default => "3s"
                     }
                 )},
-            {?EMQX_AUTHENTICATION_CONFIG_ROOT_NAME,
-                authentication("Per-listener authentication override")}
+            {?EMQX_AUTHENTICATION_CONFIG_ROOT_NAME, authentication(listener)}
         ].
 
 base_listener() ->
@@ -1933,6 +1911,11 @@ default_tls_vsns(tls_all_available) ->
 -spec ciphers_schema(quic | dtls_all_available | tls_all_available | undefined) ->
     hocon_schema:field_schema().
 ciphers_schema(Default) ->
+    Desc =
+        case Default of
+            quic -> ?DESC(ciphers_schema_quic);
+            _ -> ?DESC(ciphers_schema_common)
+        end,
     sc(
         hoconsc:array(string()),
         #{
@@ -1949,43 +1932,7 @@ ciphers_schema(Default) ->
                     true -> undefined;
                     false -> fun validate_ciphers/1
                 end,
-            desc_id => "ciphers_schema_" ++
-                case Default of
-                    quic -> "quic";
-                    _ -> "0"
-                end,
-            desc_en =>
-                "This config holds TLS cipher suite names separated by comma,\n"
-                "or as an array of strings. e.g.\n"
-                "<code>\"TLS_AES_256_GCM_SHA384,TLS_AES_128_GCM_SHA256\"</code> or\n"
-                "<code>[\"TLS_AES_256_GCM_SHA384\",\"TLS_AES_128_GCM_SHA256\"]</code>.\n"
-                "</br>\n"
-                "Ciphers (and their ordering) define the way in which the\n"
-                "client and server encrypts information over the network connection.\n"
-                "Selecting a good cipher suite is critical for the\n"
-                "application's data security, confidentiality and performance.\n"
-                "\n"
-                "The names should be in OpenSSL string format (not RFC format).\n"
-                "All default values and examples provided by EMQX config\n"
-                "documentation are all in OpenSSL format.</br>\n"
-                "\n"
-                "NOTE: Certain cipher suites are only compatible with\n"
-                "specific TLS <code>versions</code> ('tlsv1.1', 'tlsv1.2' or 'tlsv1.3')\n"
-                "incompatible cipher suites will be silently dropped.\n"
-                "For instance, if only 'tlsv1.3' is given in the <code>versions</code>,\n"
-                "configuring cipher suites for other versions will have no effect.\n"
-                "</br>\n"
-                "\n"
-                "NOTE: PSK ciphers are suppressed by 'tlsv1.3' version config</br>\n"
-                "If PSK cipher suites are intended, 'tlsv1.3' should be disabled from <code>versions</code>.</br>\n"
-                "PSK cipher suites: <code>\"RSA-PSK-AES256-GCM-SHA384,RSA-PSK-AES256-CBC-SHA384,\n"
-                "RSA-PSK-AES128-GCM-SHA256,RSA-PSK-AES128-CBC-SHA256,\n"
-                "RSA-PSK-AES256-CBC-SHA,RSA-PSK-AES128-CBC-SHA,\n"
-                "RSA-PSK-DES-CBC3-SHA,RSA-PSK-RC4-SHA\"</code></br>\n" ++
-                case Default of
-                    quic -> "NOTE: QUIC listener supports only 'tlsv1.3' ciphers</br>";
-                    _ -> ""
-                end
+            desc => Desc
         }
     ).
 
@@ -2201,7 +2148,12 @@ str(B) when is_binary(B) ->
 str(S) when is_list(S) ->
     S.
 
-authentication(Desc) ->
+authentication(Type) ->
+    Desc =
+        case Type of
+            global -> ?DESC(global_authentication);
+            listener -> ?DESC(listener_authentication)
+        end,
     %% authentication schema is lazy to make it more 'plugable'
     %% the type checks are done in emqx_auth application when it boots.
     %% and in emqx_authentication_config module for runtime changes.
@@ -2219,14 +2171,7 @@ authentication(Desc) ->
                 undefined -> Default;
                 Module -> hoconsc:lazy(Module:root_type())
             end,
-        desc_id => "authentication_0",
-        desc => iolist_to_binary([
-            Desc,
-            "\nAuthentication can be one single authenticator instance or a chain of "
-            "authenticators as an array.\n"
-            "When authenticating a login (username, client ID, etc.) "
-            "the authenticators are checked in the configured order.</br>\n"
-        ])
+        desc => Desc
     }.
 
 -spec qos() -> typerefl:type().
