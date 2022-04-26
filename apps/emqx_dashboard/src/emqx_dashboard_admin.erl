@@ -45,7 +45,9 @@
         , verify_hash/2
         ]).
 
--export([add_default_user/0]).
+-export([ add_default_user/0
+        , default_username/0
+        ]).
 
 -type emqx_admin() :: #?ADMIN{}.
 
@@ -104,18 +106,24 @@ add_user_(Username, Password, Desc) ->
             mnesia:write(Admin),
             #{username => Username, description => Desc};
         [_] ->
-            mnesia:abort(<<"Username Already Exist">>)
+            mnesia:abort(<<"username_already_exist">>)
     end.
 
 -spec(remove_user(binary()) -> {ok, any()} | {error, any()}).
 remove_user(Username) when is_binary(Username) ->
     Trans = fun() ->
                     case lookup_user(Username) of
-                        [] -> mnesia:abort(<<"Username Not Found">>);
+                        [] -> mnesia:abort(<<"username_not_found">>);
                         _  -> mnesia:delete({?ADMIN, Username})
                     end
             end,
-    return(mria:transaction(?DASHBOARD_SHARD, Trans)).
+    case return(mria:transaction(?DASHBOARD_SHARD, Trans)) of
+        {ok, Result} ->
+            _ = emqx_dashboard_token:destroy_by_username(Username),
+            {ok, Result};
+        {error, Reason} ->
+            {error, Reason}
+    end.
 
 -spec(update_user(binary(), binary()) -> {ok, map()} | {error, term()}).
 update_user(Username, Desc) when is_binary(Username) ->
@@ -142,7 +150,7 @@ sha256(SaltBin, Password) ->
 update_user_(Username, Desc) ->
     case mnesia:wread({?ADMIN, Username}) of
         [] ->
-            mnesia:abort(<<"Username Not Found">>);
+            mnesia:abort(<<"username_not_found">>);
         [Admin] ->
             mnesia:write(Admin#?ADMIN{description = Desc}),
             #{username => Username, description => Desc}
@@ -158,20 +166,28 @@ change_password(Username, Password) when is_binary(Username), is_binary(Password
     change_password_hash(Username, hash(Password)).
 
 change_password_hash(Username, PasswordHash) ->
-    update_pwd(Username, fun(User) ->
-                        User#?ADMIN{pwdhash = PasswordHash}
-                end).
+    ChangePWD =
+        fun(User) ->
+            User#?ADMIN{pwdhash = PasswordHash}
+        end,
+    case update_pwd(Username, ChangePWD) of
+        {ok, Result} ->
+            _ = emqx_dashboard_token:destroy_by_username(Username),
+            {ok, Result};
+        {error, Reason} -> {error, Reason}
+    end.
 
 update_pwd(Username, Fun) ->
-    Trans = fun() ->
-                    User =
-                    case lookup_user(Username) of
+    Trans =
+        fun() ->
+            User =
+                case lookup_user(Username) of
                     [Admin] -> Admin;
                     [] ->
-                           mnesia:abort(<<"Username Not Found">>)
-                    end,
-                    mnesia:write(Fun(User))
-            end,
+                        mnesia:abort(<<"username_not_found">>)
+                end,
+            mnesia:write(Fun(User))
+        end,
     return(mria:transaction(?DASHBOARD_SHARD, Trans)).
 
 
@@ -190,7 +206,7 @@ all_users() ->
                         description => Desc
                        }
               end, ets:tab2list(?ADMIN)).
-
+-spec(return({atomic | aborted, term()}) -> {ok, term()} | {error, Reason :: binary()}).
 return({atomic, Result}) ->
     {ok, Result};
 return({aborted, Reason}) ->
@@ -239,6 +255,9 @@ destroy_token_by_username(Username, Token) ->
 -spec(add_default_user() -> {ok, map() | empty | default_user_exists } | {error, any()}).
 add_default_user() ->
     add_default_user(binenv(default_username), binenv(default_password)).
+
+default_username() ->
+    binenv(default_username).
 
 binenv(Key) ->
     iolist_to_binary(emqx_conf:get([dashboard, Key], "")).
