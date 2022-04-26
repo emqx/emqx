@@ -24,7 +24,7 @@
     desc/1
 ]).
 
-namespace() -> <<"dashboard">>.
+namespace() -> dashboard.
 roots() -> ["dashboard"].
 
 fields("dashboard") ->

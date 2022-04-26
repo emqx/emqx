@@ -21,7 +21,8 @@
 
 -behaviour(hocon_schema).
 
--export([ roots/0
+-export([ namespace/0
+        , roots/0
         , fields/1
         , desc/1
         ]).
@@ -33,6 +34,8 @@
 -export([non_empty_string/1]).
 
 -import(emqx_schema, [mk_duration/2]).
+
+namespace() -> "connector-mqtt".
 
 roots() ->
     fields("config").

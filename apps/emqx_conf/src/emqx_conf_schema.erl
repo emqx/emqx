@@ -64,7 +64,7 @@
     emqx_slow_subs_schema
 ]).
 
-namespace() -> undefined.
+namespace() -> cluster.
 
 roots() ->
     PtKey = ?EMQX_AUTHENTICATION_SCHEMA_MODULE_PT_KEY,
