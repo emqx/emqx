@@ -800,6 +800,7 @@ fields("log") ->
                 #{
                     mapping => "kernel.error_logger",
                     default => silent,
+                    readOnly => true,
                     desc => ?DESC("log_error_logger")
                 })
         }
@@ -811,7 +812,8 @@ fields("log_file_handler") ->
         {"file",
             sc(
                 file(),
-                #{desc => ?DESC("log_file_handler_file")}
+                #{desc => ?DESC("log_file_handler_file"),
+                    validator => fun file_location/1 }
             )},
         {"rotation",
             sc(
@@ -822,7 +824,7 @@ fields("log_file_handler") ->
             sc(
                 hoconsc:union([infinity, emqx_schema:bytesize()]),
                 #{
-                    default => "10MB",
+                    default => "50MB",
                     desc => ?DESC("log_file_handler_max_size")
                 }
             )}
@@ -1328,3 +1330,14 @@ emqx_schema_high_prio_roots() ->
                 #{desc => ?DESC(authorization)}
             )},
     lists:keyreplace("authorization", 1, Roots, Authz).
+
+-define(VALID_FILE, "^[/\_a-zA-Z0-9\.\-]*$").
+file_location(File) ->
+    Error = {error, "Invalid file name: " ++ ?VALID_FILE},
+    try
+        case re:run(File, ?VALID_FILE) of
+            nomatch -> Error;
+            _ -> ok
+        end
+    catch _:_ -> Error
+    end.
