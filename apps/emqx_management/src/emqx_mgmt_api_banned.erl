@@ -158,7 +158,8 @@ banned(post, #{body := Body}) ->
             {400, 'BAD_REQUEST', list_to_binary(Reason)};
         Ban ->
             case emqx_banned:create(Ban) of
-                {ok, Banned} -> {200, format(Banned)};
+                {ok, Banned} ->
+                    {200, format(Banned)};
                 {error, {already_exist, Old}} ->
                     OldBannedFormat = emqx_json:encode(format(Old)),
                     {400, 'ALREADY_EXISTS', OldBannedFormat}
