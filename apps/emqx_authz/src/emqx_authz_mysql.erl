@@ -52,12 +52,8 @@ description() ->
 init(#{query := SQL} = Source0) ->
     {PrepareSQL, TmplToken} = emqx_authz_utils:parse_sql(SQL, '?', ?PLACEHOLDERS),
     Source = Source0#{prepare_statement => #{?PREPARE_KEY => PrepareSQL}},
-    case emqx_authz_utils:create_resource(emqx_connector_mysql, Source) of
-        {error, Reason} ->
-            error({load_config_error, Reason});
-        {ok, Id} ->
-            Source#{annotations => #{id => Id, tmpl_oken => TmplToken}}
-    end.
+    {ok, Id} = emqx_authz_utils:create_resource(emqx_connector_mysql, Source),
+    Source#{annotations => #{id => Id, tmpl_oken => TmplToken}}.
 
 destroy(#{annotations := #{id := Id}}) ->
     ok = emqx_resource:remove_local(Id).

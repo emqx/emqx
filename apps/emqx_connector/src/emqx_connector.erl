@@ -125,6 +125,8 @@ lookup_raw(Type, Name) ->
             end
     end.
 
+-spec create_dry_run(module(), binary() | #{binary() => term()} | [#{binary() => term()}]) ->
+    ok | {error, Reason :: term()}.
 create_dry_run(Type, Conf) ->
     emqx_bridge:create_dry_run(Type, Conf).
 

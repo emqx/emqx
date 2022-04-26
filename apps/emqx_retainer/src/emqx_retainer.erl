@@ -385,22 +385,14 @@ create_resource(Context, #{type := built_in_database} = Cfg) ->
     Context;
 create_resource(Context, #{type := DB} = Config) ->
     ResourceID = erlang:iolist_to_binary([io_lib:format("~ts_~ts", [?APP, DB])]),
-    case
-        emqx_resource:create(
-            ResourceID,
-            <<"emqx_retainer">>,
-            list_to_existing_atom(io_lib:format("~ts_~ts", [emqx_connector, DB])),
-            Config,
-            #{}
-        )
-    of
-        {ok, already_created} ->
-            Context#{resource_id => ResourceID};
-        {ok, _} ->
-            Context#{resource_id => ResourceID};
-        {error, Reason} ->
-            error({load_config_error, Reason})
-    end.
+    _ = emqx_resource:create(
+        ResourceID,
+        <<"emqx_retainer">>,
+        list_to_existing_atom(io_lib:format("~ts_~ts", [emqx_connector, DB])),
+        Config,
+        #{}
+    ),
+    Context#{resource_id => ResourceID}.
 
 -spec close_resource(context()) -> ok | {error, term()}.
 close_resource(#{resource_id := ResourceId}) ->

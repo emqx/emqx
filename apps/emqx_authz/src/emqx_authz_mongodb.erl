@@ -46,18 +46,14 @@ description() ->
     "AuthZ with MongoDB".
 
 init(#{filter := Filter} = Source) ->
-    case emqx_authz_utils:create_resource(emqx_connector_mongo, Source) of
-        {error, Reason} ->
-            error({load_config_error, Reason});
-        {ok, Id} ->
-            Source#{
-                annotations => #{id => Id},
-                filter_template => emqx_authz_utils:parse_deep(
-                    Filter,
-                    ?PLACEHOLDERS
-                )
-            }
-    end.
+    {ok, Id} = emqx_authz_utils:create_resource(emqx_connector_mongo, Source),
+    Source#{
+        annotations => #{id => Id},
+        filter_template => emqx_authz_utils:parse_deep(
+            Filter,
+            ?PLACEHOLDERS
+        )
+    }.
 
 destroy(#{annotations := #{id := Id}}) ->
     ok = emqx_resource:remove_local(Id).

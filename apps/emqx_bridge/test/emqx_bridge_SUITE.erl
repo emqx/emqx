@@ -134,7 +134,7 @@ setup_fake_telemetry_data() ->
     Predicate = fun(#{?snk_kind := K}) -> K =:= emqx_bridge_monitor_loaded_bridge end,
     NEvents = 3,
     BackInTime = 0,
-    Timeout = 1_000,
+    Timeout = 11_000,
     {ok, Sub} = snabbkaffe_collector:subscribe(Predicate, NEvents, Timeout, BackInTime),
     ok = emqx_bridge:load(),
     {ok, _} = snabbkaffe_collector:receive_events(Sub),

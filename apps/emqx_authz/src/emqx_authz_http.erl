@@ -52,10 +52,8 @@ description() ->
 
 init(Config) ->
     NConfig = parse_config(Config),
-    case emqx_authz_utils:create_resource(emqx_connector_http, NConfig) of
-        {error, Reason} -> error({load_config_error, Reason});
-        {ok, Id} -> NConfig#{annotations => #{id => Id}}
-    end.
+    {ok, Id} = emqx_authz_utils:create_resource(emqx_connector_http, NConfig),
+    NConfig#{annotations => #{id => Id}}.
 
 destroy(#{annotations := #{id := Id}}) ->
     ok = emqx_resource:remove_local(Id).

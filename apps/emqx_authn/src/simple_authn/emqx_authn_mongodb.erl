@@ -146,31 +146,19 @@ create(#{filter := Filter} = Config) ->
         filter_template => FilterTemplate,
         resource_id => ResourceId
     },
-    case
-        emqx_resource:create_local(
-            ResourceId,
-            ?RESOURCE_GROUP,
-            emqx_connector_mongo,
-            Config,
-            #{}
-        )
-    of
-        {ok, already_created} ->
-            {ok, NState};
-        {ok, _} ->
-            {ok, NState};
-        {error, Reason} ->
-            {error, Reason}
-    end.
+    {ok, _Data} = emqx_resource:create_local(
+        ResourceId,
+        ?RESOURCE_GROUP,
+        emqx_connector_mongo,
+        Config,
+        #{}
+    ),
+    {ok, NState}.
 
 update(Config, State) ->
-    case create(Config) of
-        {ok, NewState} ->
-            ok = destroy(State),
-            {ok, NewState};
-        {error, Reason} ->
-            {error, Reason}
-    end.
+    {ok, NewState} = create(Config),
+    ok = destroy(State),
+    {ok, NewState}.
 
 authenticate(#{auth_method := _}, _) ->
     ignore;

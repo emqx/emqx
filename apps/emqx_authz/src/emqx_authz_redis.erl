@@ -50,15 +50,11 @@ description() ->
 init(#{cmd := CmdStr} = Source) ->
     Cmd = tokens(CmdStr),
     CmdTemplate = emqx_authz_utils:parse_deep(Cmd, ?PLACEHOLDERS),
-    case emqx_authz_utils:create_resource(emqx_connector_redis, Source) of
-        {error, Reason} ->
-            error({load_config_error, Reason});
-        {ok, Id} ->
-            Source#{
-                annotations => #{id => Id},
-                cmd_template => CmdTemplate
-            }
-    end.
+    {ok, Id} = emqx_authz_utils:create_resource(emqx_connector_redis, Source),
+    Source#{
+        annotations => #{id => Id},
+        cmd_template => CmdTemplate
+    }.
 
 destroy(#{annotations := #{id := Id}}) ->
     ok = emqx_resource:remove_local(Id).
