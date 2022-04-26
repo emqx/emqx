@@ -237,8 +237,18 @@ merge_cluster_samplers(TS, NodeData, Cluster) ->
         undefined ->
             Cluster#{TS => NodeData};
         ClusterData ->
-            Cluster#{TS => count_map(NodeData, ClusterData)}
+            Cluster#{TS => merge_cluster_sampler_map(NodeData, ClusterData)}
     end.
+
+merge_cluster_sampler_map(M1, M2) ->
+    Fun =
+        fun
+            (topics, Map) ->
+                Map;
+            (Key, Map) ->
+                Map#{Key => maps:get(Key, M1) + maps:get(Key, M2)}
+        end,
+    lists:foldl(Fun, #{}, ?SAMPLER_LIST).
 
 merge_cluster_rate(Node, Cluster) ->
     Fun =
@@ -364,13 +374,6 @@ internal_format(List) when is_list(List) ->
     lists:foldl(Fun, #{}, List);
 internal_format(#emqx_monit{time = Time, data = Data}) ->
     #{Time => Data}.
-
-count_map(M1, M2) ->
-    Fun =
-        fun(Key, Map) ->
-            Map#{Key => maps:get(Key, M1) + maps:get(Key, M2)}
-        end,
-    lists:foldl(Fun, #{}, ?SAMPLER_LIST).
 
 getstats(Key) ->
     %% Stats ets maybe not exist when ekka join.
