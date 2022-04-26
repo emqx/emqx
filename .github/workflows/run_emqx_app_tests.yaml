@@ -14,7 +14,7 @@ on:
   pull_request:
 
 jobs:
-  check_all:
+  run_emqx_app_tests:
     strategy:
       matrix:
         otp:

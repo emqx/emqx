@@ -215,7 +215,7 @@ jobs:
         run: make coveralls
 
     # do this in a separate job
-    finish:
+    upload_coverdata:
       needs: make_cover
       runs-on: aws-amd64
       steps:
@@ -226,3 +226,18 @@ jobs:
             curl -v -k https://coveralls.io/webhook \
                  --header "Content-Type: application/json" \
                  --data "{\"repo_name\":\"$GITHUB_REPOSITORY\",\"repo_token\":\"$GITHUB_TOKEN\",\"payload\":{\"build_num\":$GITHUB_RUN_ID,\"status\":\"done\"}}" || true
+
+    functional_tests_allgood:
+      runs-on: ubuntu-20.04
+      if: always()
+      needs:
+        - eunit_and_proper
+        - ct_docker
+        - ct
+      steps:
+      - name: Check if all functional tests succeeded
+        uses: re-actors/alls-green@release/v1
+        with:
+          #allowed-failures:
+          #allowed-skips:
+          jobs: ${{ toJSON(needs) }}

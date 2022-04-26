@@ -233,3 +233,18 @@ jobs:
         cd /LanguageTool
         bash start.sh > /dev/null &
         ./emqx_schema_validate /tmp/${{ matrix.profile }}/lib/emqx_dashboard/priv/www/static/schema.json
+
+  packaging_allgood:
+    runs-on: ubuntu-20.04
+    if: always()
+    needs:
+      - linux
+      - windows
+      - mac
+    steps:
+    - name: Check if all packging builds succeeded
+      uses: re-actors/alls-green@release/v1
+      with:
+        #allowed-failures:
+        #allowed-skips:
+        jobs: ${{ toJSON(needs) }}

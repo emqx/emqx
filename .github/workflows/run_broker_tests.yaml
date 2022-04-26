@@ -519,3 +519,15 @@ jobs:
     - uses: geekyeggo/delete-artifact@v1
       with:
         name: emqx.tar
+
+  integration_tests_allgood:
+    runs-on: ubuntu-20.04
+    if: always()
+    needs: [advanced_feat,pgsql_authn_authz,JWT_authn,mysql_authn_authz,built_in_database_authn_authz]
+    steps:
+    - name: Check if all integration tests succeeded
+      uses: re-actors/alls-green@release/v1
+      with:
+        #allowed-failures:
+        #allowed-skips:
+        jobs: ${{ toJSON(needs) }}

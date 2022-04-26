@@ -3,7 +3,7 @@ name: Code style check
 on: [pull_request]
 
 jobs:
-  build:
+  code_style_check:
     strategy:
       matrix:
         otp:
