@@ -15,7 +15,10 @@
 %%--------------------------------------------------------------------
 -module(emqx_connector).
 
--export([config_key_path/0]).
+-export([ config_key_path/0
+        , pre_config_update/3
+        , post_config_update/5
+        ]).
 
 -export([ parse_connector_id/1
         , connector_id/2
@@ -31,20 +34,26 @@
         , delete/2
         ]).
 
--export([ post_config_update/5
-        ]).
-
 config_key_path() ->
     [connectors].
 
+pre_config_update(Path, Conf, _OldConfig) when is_map(Conf) ->
+    case emqx_connector_ssl:convert_certs(filename:join(Path), Conf) of
+        {error, Reason} ->
+            {error, Reason};
+        {ok, ConfNew} ->
+            {ok, ConfNew}
+    end.
+
 -dialyzer([{nowarn_function, [post_config_update/5]}, error_handling]).
-post_config_update([connectors, Type, Name], '$remove', _, _OldConf, _AppEnvs) ->
+post_config_update([connectors, Type, Name] = Path, '$remove', _, OldConf, _AppEnvs) ->
     ConnId = connector_id(Type, Name),
     try foreach_linked_bridges(ConnId, fun(#{type := BType, name := BName}) ->
             throw({dependency_bridges_exist, emqx_bridge:bridge_id(BType, BName)})
         end)
     catch throw:Error -> {error, Error}
-    end;
+    end,
+    _ = emqx_connector_ssl:clear_certs(filename:join(Path), OldConf);
 post_config_update([connectors, Type, Name], _Req, NewConf, OldConf, _AppEnvs) ->
     ConnId = connector_id(Type, Name),
     foreach_linked_bridges(ConnId,

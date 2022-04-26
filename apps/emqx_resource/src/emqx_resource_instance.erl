@@ -196,32 +196,14 @@ do_create(InstId, Group, ResourceType, Config, Opts) ->
         {ok, _, _} ->
             {ok, already_created};
         {error, not_found} ->
-            case emqx_resource_ssl:convert_certs(InstId, Config) of
-                {error, Reason} ->
-                    {error, Reason};
-                {ok, Config1} ->
-                    do_create2(InstId, Group, ResourceType, Config1, Opts)
-            end
+            ok = do_start(InstId, Group, ResourceType, Config, Opts),
+            ok = emqx_plugin_libs_metrics:create_metrics(resource_metrics, InstId,
+                    [matched, success, failed, exception], [matched]),
+            {ok, force_lookup(InstId)}
     end.
-
-do_create2(InstId, Group, ResourceType, Config, Opts) ->
-    ok = do_start(InstId, Group, ResourceType, Config, Opts),
-    ok = emqx_plugin_libs_metrics:create_metrics(resource_metrics, InstId,
-            [matched, success, failed, exception], [matched]),
-    {ok, force_lookup(InstId)}.
 
 do_create_dry_run(ResourceType, Config) ->
     InstId = make_test_id(),
-    case emqx_resource_ssl:convert_certs(InstId, Config) of
-        {error, Reason} ->
-            {error, Reason};
-        {ok, Config1} ->
-            Result = do_create_dry_run2(InstId, ResourceType, Config1),
-            _ = emqx_resource_ssl:clear_certs(InstId, Config1),
-            Result
-    end.
-
-do_create_dry_run2(InstId, ResourceType, Config) ->
     case emqx_resource:call_start(InstId, ResourceType, Config) of
         {ok, ResourceState} ->
             case emqx_resource:call_health_check(InstId, ResourceType, ResourceState) of
@@ -245,9 +227,8 @@ do_remove(Instance) ->
 do_remove(InstId, ClearMetrics) when is_binary(InstId) ->
     do_with_group_and_instance_data(InstId, fun do_remove/3, [ClearMetrics]).
 
-do_remove(Group, #{id := InstId, config := Config} = Data, ClearMetrics) ->
+do_remove(Group, #{id := InstId} = Data, ClearMetrics) ->
     _ = do_stop(Group, Data),
-    _ = emqx_resource_ssl:clear_certs(InstId, Config),
     ets:delete(emqx_resource_instance, InstId),
     case ClearMetrics of
         true -> ok = emqx_plugin_libs_metrics:clear_metrics(resource_metrics, InstId);

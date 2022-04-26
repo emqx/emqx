@@ -20,6 +20,7 @@
 -export([start/2, stop/1]).
 
 -export([ pre_config_update/3
+        , post_config_update/5
         ]).
 
 -define(TOP_LELVE_HDLR_PATH, (emqx_bridge:config_key_path())).
@@ -46,8 +47,18 @@ pre_config_update(_, {_Oper, _, _}, undefined) ->
 pre_config_update(_, {Oper, _Type, _Name}, OldConfig) ->
     %% to save the 'enable' to the config files
     {ok, OldConfig#{<<"enable">> => operation_to_enable(Oper)}};
-pre_config_update(_, Conf, _OldConfig) when is_map(Conf) ->
-    {ok, Conf}.
+pre_config_update(Path, Conf, _OldConfig) when is_map(Conf) ->
+    case emqx_connector_ssl:convert_certs(filename:join(Path), Conf) of
+        {error, Reason} ->
+            {error, Reason};
+        {ok, ConfNew} ->
+            {ok, ConfNew}
+    end.
+
+post_config_update(Path, '$remove', _, OldConf, _AppEnvs) ->
+    _ = emqx_connector_ssl:clear_certs(filename:join(Path), OldConf);
+post_config_update(_Path, _Req, _, _OldConf, _AppEnvs) ->
+    ok.
 
 %% internal functions
 operation_to_enable(disable) -> false;
