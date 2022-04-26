@@ -417,6 +417,7 @@ list_users(ChainName, AuthenticatorID, FuzzyParams) ->
 %%--------------------------------------------------------------------
 
 init(_Opts) ->
+    process_flag(trap_exit, true),
     ok = emqx_config_handler:add_handler([?CONF_ROOT], ?MODULE),
     ok = emqx_config_handler:add_handler([listeners, '?', '?', ?CONF_ROOT], ?MODULE),
     {ok, #{hooked => false, providers => #{}}}.
@@ -784,7 +785,12 @@ update_chain(ChainName, UpdateFun) ->
         [] ->
             {error, {not_found, {chain, ChainName}}};
         [Chain] ->
-            UpdateFun(Chain)
+            try
+                UpdateFun(Chain)
+            catch
+                Class:Reason:Stk ->
+                    {error, {exception, {Class, Reason, Stk}}}
+            end
     end.
 
 call_authenticator(ChainName, AuthenticatorID, Func, Args) ->
