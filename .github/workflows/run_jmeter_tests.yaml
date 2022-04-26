@@ -1,4 +1,4 @@
-name: Broker tests
+name: JMeter integration tests
 
 on:
   push:
@@ -9,7 +9,7 @@ on:
       - "master"
 
 jobs:
-  build:
+  build_emqx_for_jmeter_tests:
     runs-on: ubuntu-latest
     outputs:
       version: ${{ steps.build_docker.outputs.version}}
@@ -52,7 +52,7 @@ jobs:
         - mqtt_topic_rewrite
 #        - mqtt_retainer
 
-    needs: build
+    needs: build_emqx_for_jmeter_tests
     steps:
     - uses: actions/checkout@v2
     - uses: actions/download-artifact@v2
@@ -65,7 +65,7 @@ jobs:
     - name: docker compose up
       timeout-minutes: 5
       env:
-        _EMQX_DOCKER_IMAGE_TAG: emqx/emqx:${{ needs.build.outputs.version }}
+        _EMQX_DOCKER_IMAGE_TAG: emqx/emqx:${{ needs.build_emqx_for_jmeter_tests.outputs.version }}
       run: |
         docker-compose \
           -f .ci/docker-compose-file/docker-compose-emqx-cluster.yaml \
@@ -143,7 +143,7 @@ jobs:
         - pgsql_authn
         - pgsql_authz
 
-    needs: build
+    needs: build_emqx_for_jmeter_tests
     steps:
     - uses: actions/checkout@v2
     - uses: actions/download-artifact@v2
@@ -244,7 +244,7 @@ jobs:
         - mysql_authn
         - mysql_authz
 
-    needs: build
+    needs: build_emqx_for_jmeter_tests
     steps:
     - uses: actions/checkout@v2
     - uses: actions/download-artifact@v2
@@ -341,7 +341,7 @@ jobs:
         scripts_type:
         - jwt_authn
 
-    needs: build
+    needs: build_emqx_for_jmeter_tests
     steps:
     - uses: actions/checkout@v2
     - uses: actions/download-artifact@v2
@@ -435,7 +435,7 @@ jobs:
         - built_in_database_authn
         - built_in_database_authz
 
-    needs: build
+    needs: build_emqx_for_jmeter_tests
     steps:
     - uses: actions/checkout@v2
     - uses: actions/download-artifact@v2
@@ -448,7 +448,7 @@ jobs:
     - name: docker compose up
       timeout-minutes: 5
       env:
-        _EMQX_DOCKER_IMAGE_TAG: emqx/emqx:${{ needs.build.outputs.version }}
+        _EMQX_DOCKER_IMAGE_TAG: emqx/emqx:${{ needs.build_emqx_for_jmeter_tests.outputs.version }}
         PGSQL_TAG: ${{ matrix.mysql_tag }}
       run: |
         docker-compose \
