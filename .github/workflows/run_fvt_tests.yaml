@@ -114,6 +114,10 @@ jobs:
           echo "DUMP_CONTAINER_LOGS_END"
           exit 1
         fi
+    # simple smoke test for node_dump
+    - name: test node_dump
+      run: |
+        docker exec node1.emqx.io node_dump
 
   helm_test:
     runs-on: ubuntu-20.04
