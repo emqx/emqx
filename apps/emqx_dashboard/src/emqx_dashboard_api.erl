@@ -192,10 +192,10 @@ field(version) ->
     {version, mk(string(), #{desc => ?DESC(version), example => <<"5.0.0">>})};
 
 field(old_pwd) ->
-    {password, mk(binary(), #{desc => ?DESC(old_pwd)})};
+    {old_pwd, mk(binary(), #{desc => ?DESC(old_pwd)})};
 
 field(new_pwd) ->
-    {password, mk(binary(), #{desc => ?DESC(new_pwd)})}.
+    {new_pwd, mk(binary(), #{desc => ?DESC(new_pwd)})}.
 
 %% -------------------------------------------------------------------------------------------------
 %% API
@@ -275,20 +275,26 @@ user(delete, #{bindings := #{username := Username}}) ->
     end.
 
 change_pwd(put, #{bindings := #{username := Username}, body := Params}) ->
+    LogMeta = #{msg => "Dashboard change password", username => Username},
     OldPwd = maps:get(<<"old_pwd">>, Params),
     NewPwd = maps:get(<<"new_pwd">>, Params),
     case ?EMPTY(OldPwd) orelse ?EMPTY(NewPwd) of
         true ->
+            ?SLOG(error, LogMeta#{result => failed, reason => "password undefined or empty"}),
             {400, ?BAD_REQUEST, <<"Old password or new password undefined">>};
         false ->
             case emqx_dashboard_admin:change_password(Username, OldPwd, NewPwd) of
                 {ok, _} ->
+                    ?SLOG(info, LogMeta#{result => success}),
                     {204};
                 {error, <<"username_not_found">>} ->
+                    ?SLOG(error, LogMeta#{result => failed, reason => "username not found"}),
                     {404, ?USER_NOT_FOUND, <<"User not found">>};
                 {error, <<"password_error">>} ->
+                    ?SLOG(error, LogMeta#{result => failed, reason => "error old pwd"}),
                     {401, ?ERROR_PWD_NOT_MATCH, <<"Old password not match">>};
                 {error, Reason} ->
+                    ?SLOG(error, LogMeta#{result => failed, reason => Reason}),
                     {400, ?BAD_REQUEST, Reason}
             end
     end.

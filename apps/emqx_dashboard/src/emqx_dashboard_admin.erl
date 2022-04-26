@@ -106,14 +106,14 @@ add_user_(Username, Password, Desc) ->
             mnesia:write(Admin),
             #{username => Username, description => Desc};
         [_] ->
-            mnesia:abort(<<"Username Already Exist">>)
+            mnesia:abort(<<"username_already_exist">>)
     end.
 
 -spec(remove_user(binary()) -> {ok, any()} | {error, any()}).
 remove_user(Username) when is_binary(Username) ->
     Trans = fun() ->
                     case lookup_user(Username) of
-                        [] -> mnesia:abort(<<"Username Not Found">>);
+                        [] -> mnesia:abort(<<"username_not_found">>);
                         _  -> mnesia:delete({?ADMIN, Username})
                     end
             end,
@@ -150,7 +150,7 @@ sha256(SaltBin, Password) ->
 update_user_(Username, Desc) ->
     case mnesia:wread({?ADMIN, Username}) of
         [] ->
-            mnesia:abort(<<"Username Not Found">>);
+            mnesia:abort(<<"username_not_found">>);
         [Admin] ->
             mnesia:write(Admin#?ADMIN{description = Desc}),
             #{username => Username, description => Desc}
@@ -184,7 +184,7 @@ update_pwd(Username, Fun) ->
                 case lookup_user(Username) of
                     [Admin] -> Admin;
                     [] ->
-                            mnesia:abort(<<"Username Not Found">>)
+                        mnesia:abort(<<"username_not_found">>)
                 end,
             mnesia:write(Fun(User))
         end,
