@@ -34,9 +34,33 @@ init([]) ->
     SupFlags = #{strategy => one_for_one, intensity => 10, period => 10},
     Metrics = emqx_plugin_libs_metrics:child_spec(resource_metrics),
 
-    ResourceManager = 
-            #{id => emqx_resource_manager_sup,
-              start => {emqx_resource_manager_sup, start_link, []},
-              restart => permanent,
-              shutdown => infinity, type => supervisor, modules => [emqx_resource_manager_sup]},
-    {ok, {SupFlags, [Metrics, ResourceManager]}}.
+    Pool = ?RESOURCE_INST_MOD,
+    Mod = ?RESOURCE_INST_MOD,
+    ensure_pool(Pool, hash, [{size, ?POOL_SIZE}]),
+    ResourceInsts = [
+        begin
+            ensure_pool_worker(Pool, {Pool, Idx}, Idx),
+            #{id => {Mod, Idx},
+              start => {Mod, start_link, [Pool, Idx]},
+              restart => transient,
+              shutdown => 5000, type => worker, modules => [Mod]}
+        end || Idx <- lists:seq(1, ?POOL_SIZE)],
+    HealthCheck = 
+            #{id => emqx_resource_health_check_sup,
+              start => {emqx_resource_health_check_sup, start_link, []},
+              restart => transient,
+              shutdown => infinity, type => supervisor, modules => [emqx_resource_health_check_sup]},
+    {ok, {SupFlags, [HealthCheck, Metrics | ResourceInsts]}}.
+
+%% internal functions
+ensure_pool(Pool, Type, Opts) ->
+    try gproc_pool:new(Pool, Type, Opts)
+    catch
+        error:exists -> ok
+    end.
+
+ensure_pool_worker(Pool, Name, Slot) ->
+    try gproc_pool:add_worker(Pool, Name, Slot)
+    catch
+        error:exists -> ok
+    end.

@@ -71,7 +71,7 @@ t_create_remove(_) ->
                 ?TEST_RESOURCE,
                 #{name => test_resource}),
 
-    {ok, _} = emqx_resource:recreate(
+    emqx_resource:recreate(
                 ?ID,
                 ?TEST_RESOURCE,
                 #{name => test_resource},
@@ -166,6 +166,7 @@ t_healthy(_) ->
                 #{name => <<"test_resource">>}),
     timer:sleep(400),
 
+    emqx_resource_health_check:create_checker(?ID, 15000, 10000),
     #{pid := Pid} = emqx_resource:query(?ID, get_state),
     timer:sleep(300),
     emqx_resource:set_resource_status_connecting(?ID),
@@ -183,7 +184,7 @@ t_healthy(_) ->
         emqx_resource:health_check(?ID)),
 
     ?assertMatch(
-        [],
+        [#{status := connecting}],
         emqx_resource:list_instances_verbose()),
 
     ok = emqx_resource:remove_local(?ID).
@@ -215,7 +216,7 @@ t_stop_start(_) ->
 
     ?assertNot(is_process_alive(Pid0)),
 
-    ?assertMatch({error, {emqx_resource, #{reason := not_found}}},
+    ?assertMatch({error, {emqx_resource, #{reason := disconnected}}},
         emqx_resource:query(?ID, get_state)),
 
     ok = emqx_resource:restart(?ID),
@@ -253,7 +254,7 @@ t_stop_start_local(_) ->
 
     ?assertNot(is_process_alive(Pid0)),
 
-    ?assertMatch({error, {emqx_resource, #{reason := not_found}}},
+    ?assertMatch({error, {emqx_resource, #{reason := disconnected}}},
         emqx_resource:query(?ID, get_state)),
 
     ok = emqx_resource:restart(?ID),
@@ -294,17 +295,17 @@ t_create_dry_run_local(_) ->
     ?assertEqual(undefined, whereis(test_resource)).
 
 t_create_dry_run_local_failed(_) ->
-    {Res1, _} = emqx_resource:create_dry_run_local(?TEST_RESOURCE,
+    {Res, _} = emqx_resource:create_dry_run_local(?TEST_RESOURCE,
                        #{cteate_error => true}),
-    ?assertEqual(error, Res1),
+    ?assertEqual(error, Res),
 
-    {Res2, _} = emqx_resource:create_dry_run_local(?TEST_RESOURCE,
+    {Res, _} = emqx_resource:create_dry_run_local(?TEST_RESOURCE,
                        #{name => test_resource, health_check_error => true}),
-    ?assertEqual(error, Res2),
+    ?assertEqual(error, Res),
 
-    {Res3, _} = emqx_resource:create_dry_run_local(?TEST_RESOURCE,
+    {Res, _} = emqx_resource:create_dry_run_local(?TEST_RESOURCE,
                        #{name => test_resource, stop_error => true}),
-    ?assertEqual(error, Res3).
+    ?assertEqual(error, Res).
 
 t_test_func(_) ->
     ?assertEqual(ok, erlang:apply(emqx_resource_validator:not_empty("not_empty"), [<<"someval">>])),
