@@ -476,7 +476,7 @@ to_client_opts(Opts) ->
     CertFile = ensure_str(Get(certfile)),
     CAFile = ensure_str(Get(cacertfile)),
     Verify = GetD(verify, verify_none),
-    SNI = ensure_str(Get(server_name_indication)),
+    SNI = ensure_sni(Get(server_name_indication)),
     Versions = integral_versions(Get(versions)),
     Ciphers = integral_ciphers(Versions, Get(ciphers)),
     filter([
@@ -504,6 +504,11 @@ fuzzy_map_get(Key, Options, Default) ->
         error ->
             Default
     end.
+
+ensure_sni(disable) -> disable;
+ensure_sni(undefined) -> undefined;
+ensure_sni(L) when is_list(L) -> L;
+ensure_sni(B) when is_binary(B) -> unicode:characters_to_list(B, utf8).
 
 ensure_str(undefined) -> undefined;
 ensure_str(L) when is_list(L) -> L;
