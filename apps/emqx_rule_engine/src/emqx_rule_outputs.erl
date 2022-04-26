@@ -82,7 +82,7 @@ republish(Selected, #{flags := Flags, metadata := #{rule_id := RuleId}},
             topic := TopicTks,
             payload := PayloadTks}}) ->
     Topic = emqx_plugin_libs_rule:proc_tmpl(TopicTks, Selected),
-    Payload = emqx_plugin_libs_rule:proc_tmpl(PayloadTks, Selected),
+    Payload = format_msg(PayloadTks, Selected),
     QoS = replace_simple_var(QoSTks, Selected, 0),
     Retain = replace_simple_var(RetainTks, Selected, false),
     ?TRACE("RULE", "republish_message", #{topic => Topic, payload => Payload}),
@@ -96,7 +96,7 @@ republish(Selected, #{metadata := #{rule_id := RuleId}},
                 topic := TopicTks,
                 payload := PayloadTks}}) ->
     Topic = emqx_plugin_libs_rule:proc_tmpl(TopicTks, Selected),
-    Payload = emqx_plugin_libs_rule:proc_tmpl(PayloadTks, Selected),
+    Payload = format_msg(PayloadTks, Selected),
     QoS = replace_simple_var(QoSTks, Selected, 0),
     Retain = replace_simple_var(RetainTks, Selected, false),
     ?TRACE("RULE", "republish_message_with_flags", #{topic => Topic, payload => Payload}),
@@ -163,3 +163,8 @@ replace_simple_var(Tokens, Data, Default) when is_list(Tokens) ->
     end;
 replace_simple_var(Val, _Data, _Default) ->
     Val.
+
+format_msg([], Selected) ->
+    emqx_json:encode(Selected);
+format_msg(Tokens, Selected) ->
+    emqx_plugin_libs_rule:proc_tmpl(Tokens, Selected).
