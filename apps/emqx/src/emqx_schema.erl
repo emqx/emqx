@@ -125,28 +125,7 @@ roots(high) ->
                 ref("mqtt"),
                 #{desc => ?DESC(mqtt)}
             )},
-        {?EMQX_AUTHENTICATION_CONFIG_ROOT_NAME,
-            authentication(
-                "Default authentication configs for all MQTT listeners.\n"
-                "</br>\n"
-                "For per-listener overrides see <code>authentication</code>\n"
-                "in listener configs\n"
-                "</br>\n"
-                "</br>\n"
-                "EMQX can be configured with:\n"
-                "</br>\n"
-                "<ul>\n"
-                "<li><code>[]</code>: The default value, it allows *ALL* logins</li>\n"
-                "<li>one: For example <code>{enable:true,backend:\"built_in_database\",mechanism=\"password_based\"}\n"
-                "</code></li>\n"
-                "<li>chain: An array of structs.</li>\n"
-                "</ul>\n"
-                "</br>\n"
-                "When a chain is configured, the login credentials are checked against the backends\n"
-                "per the configured order, until an 'allow' or 'deny' decision can be made.\n"
-                "</br>\n"
-                "If there is no decision after a full chain exhaustion, the login is rejected.\n"
-            )},
+        {?EMQX_AUTHENTICATION_CONFIG_ROOT_NAME, authentication(global)},
         %% NOTE: authorization schema here is only to keep emqx app prue
         %% the full schema for EMQX node is injected in emqx_conf_schema.
         {?EMQX_AUTHORIZATION_CONFIG_ROOT_NAME,
@@ -1521,8 +1500,7 @@ mqtt_listener() ->
                         default => "3s"
                     }
                 )},
-            {?EMQX_AUTHENTICATION_CONFIG_ROOT_NAME,
-                authentication("Per-listener authentication override")}
+            {?EMQX_AUTHENTICATION_CONFIG_ROOT_NAME, authentication(listener)}
         ].
 
 base_listener() ->
@@ -2170,7 +2148,12 @@ str(B) when is_binary(B) ->
 str(S) when is_list(S) ->
     S.
 
-authentication(Desc) ->
+authentication(Type) ->
+    Desc =
+        case Type of
+            global -> ?DESC(global_authentication);
+            listener -> ?DESC(listener_authentication)
+        end,
     %% authentication schema is lazy to make it more 'plugable'
     %% the type checks are done in emqx_auth application when it boots.
     %% and in emqx_authentication_config module for runtime changes.
@@ -2188,14 +2171,7 @@ authentication(Desc) ->
                 undefined -> Default;
                 Module -> hoconsc:lazy(Module:root_type())
             end,
-        desc_id => "authentication_0",
-        desc => iolist_to_binary([
-            Desc,
-            "\nAuthentication can be one single authenticator instance or a chain of "
-            "authenticators as an array.\n"
-            "When authenticating a login (username, client ID, etc.) "
-            "the authenticators are checked in the configured order.</br>\n"
-        ])
+        desc => Desc
     }.
 
 -spec qos() -> typerefl:type().
