@@ -431,23 +431,30 @@ if_only_to_toggle_enable(OldConf, Conf) ->
                   }
            } when BridgeType :: atom().
 get_basic_usage_info() ->
-    lists:foldl(
-      fun(#{resource_data := #{config := #{enable := false}}}, Acc) ->
-              Acc;
-         (#{type := BridgeType}, Acc) ->
-              NumBridges = maps:get(num_bridges, Acc),
-              CountByType0 = maps:get(count_by_type, Acc),
-              CountByType = maps:update_with(
-                              binary_to_atom(BridgeType, utf8),
-                              fun(X) -> X + 1 end,
-                              1,
-                              CountByType0),
-              Acc#{ num_bridges => NumBridges + 1
-                  , count_by_type => CountByType
-                  }
-      end,
-      #{num_bridges => 0, count_by_type => #{}},
-      list()).
+    InitialAcc = #{num_bridges => 0, count_by_type => #{}},
+    try
+        lists:foldl(
+          fun(#{resource_data := #{config := #{enable := false}}}, Acc) ->
+                  Acc;
+             (#{type := BridgeType}, Acc) ->
+                  NumBridges = maps:get(num_bridges, Acc),
+                  CountByType0 = maps:get(count_by_type, Acc),
+                  CountByType = maps:update_with(
+                                  binary_to_atom(BridgeType, utf8),
+                                  fun(X) -> X + 1 end,
+                                  1,
+                                  CountByType0),
+                  Acc#{ num_bridges => NumBridges + 1
+                      , count_by_type => CountByType
+                      }
+          end,
+          InitialAcc,
+          list())
+    catch
+        %% for instance, when the bridge app is not ready yet.
+        _:_ ->
+            InitialAcc
+    end.
 
 bin(Bin) when is_binary(Bin) -> Bin;
 bin(Str) when is_list(Str) -> list_to_binary(Str);

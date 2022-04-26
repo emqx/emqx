@@ -145,9 +145,13 @@ init(_Opts) ->
     {NodeUUID, ClusterUUID} = ensure_uuids(),
     {ok, State0#state{node_uuid = NodeUUID, cluster_uuid = ClusterUUID}}.
 
-handle_call(enable, _From, State0) ->
-    State = report_telemetry(State0),
-    {reply, ok, ensure_report_timer(State)};
+handle_call(enable, _From, State) ->
+    %% Wait a few moments before reporting the first telemetry, as the
+    %% apps might still be starting up.  Also, this avoids hanging
+    %% `emqx_modules_app' initialization in case the POST request
+    %% takes a lot of time.
+    FirstReportTimeoutMS = timer:seconds(10),
+    {reply, ok, ensure_report_timer(FirstReportTimeoutMS, State)};
 handle_call(disable, _From, State = #state{timer = Timer}) ->
     emqx_misc:cancel_timer(Timer),
     {reply, ok, State#state{timer = undefined}};
@@ -194,6 +198,9 @@ official_version(Version) ->
     match =:= re:run(Version, Pt, [{capture, none}]).
 
 ensure_report_timer(State = #state{report_interval = ReportInterval}) ->
+    ensure_report_timer(ReportInterval, State).
+
+ensure_report_timer(ReportInterval, State) ->
     State#state{timer = emqx_misc:start_timer(ReportInterval, time_to_report_telemetry_data)}.
 
 os_info() ->
