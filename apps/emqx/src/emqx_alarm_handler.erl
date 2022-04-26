@@ -61,7 +61,10 @@ handle_event({set_alarm, {system_memory_high_watermark, []}}, State) ->
     Message = to_bin("System memory usage is higher than ~p%", [HighWatermark]),
     emqx_alarm:activate(
         high_system_memory_usage,
-        #{high_watermark => HighWatermark},
+        #{
+            high_watermark => HighWatermark,
+            percent => emqx_os_mon:current_sysmem_percent()
+        },
         Message
     ),
     {ok, State};

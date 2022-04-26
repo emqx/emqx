@@ -45,9 +45,9 @@ start(_Type, _Args) ->
     ok = maybe_start_quicer(),
     ok = emqx_bpapi:start(),
     wait_boot_shards(),
+    ok = emqx_alarm_handler:load(),
     {ok, Sup} = emqx_sup:start_link(),
     ok = maybe_start_listeners(),
-    ok = emqx_alarm_handler:load(),
     emqx_config:add_handlers(),
     register(emqx, self()),
     {ok, Sup}.
