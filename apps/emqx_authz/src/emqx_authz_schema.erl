@@ -293,12 +293,12 @@ check_ssl_opts(Conf) ->
             true;
         Url ->
             case emqx_authz_http:parse_url(Url) of
-                #{scheme := https} ->
+                {<<"https", _>>, _, _} ->
                     case hocon_maps:get("config.ssl.enable", Conf) of
                         true -> true;
                         _ -> {error, ssl_not_enable}
                     end;
-                #{scheme := http} ->
+                {<<"http", _>>, _, _} ->
                     true;
                 Bad ->
                     {bad_scheme, Url, Bad}

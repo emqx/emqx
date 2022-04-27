@@ -25,8 +25,10 @@
     create_resource/2,
     update_config/2,
     parse_deep/2,
+    parse_str/2,
     parse_sql/3,
     render_deep/2,
+    render_str/2,
     render_sql_params/2
 ]).
 
@@ -69,6 +71,9 @@ update_config(Path, ConfigRequest) ->
 parse_deep(Template, PlaceHolders) ->
     emqx_placeholder:preproc_tmpl_deep(Template, #{placeholders => PlaceHolders}).
 
+parse_str(Template, PlaceHolders) ->
+    emqx_placeholder:preproc_tmpl(Template, #{placeholders => PlaceHolders}).
+
 parse_sql(Template, ReplaceWith, PlaceHolders) ->
     emqx_placeholder:preproc_sql(
         Template,
@@ -80,6 +85,13 @@ parse_sql(Template, ReplaceWith, PlaceHolders) ->
 
 render_deep(Template, Values) ->
     emqx_placeholder:proc_tmpl_deep(
+        Template,
+        client_vars(Values),
+        #{return => full_binary, var_trans => fun handle_var/2}
+    ).
+
+render_str(Template, Values) ->
+    emqx_placeholder:proc_tmpl(
         Template,
         client_vars(Values),
         #{return => full_binary, var_trans => fun handle_var/2}

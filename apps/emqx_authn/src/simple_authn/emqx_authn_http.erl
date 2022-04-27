@@ -161,17 +161,19 @@ create(_AuthenticatorID, Config) ->
 create(
     #{
         method := Method,
-        url := RawURL,
+        url := RawUrl,
         headers := Headers,
         request_timeout := RequestTimeout
     } = Config
 ) ->
-    {BsaeUrlWithPath, Query} = parse_fullpath(RawURL),
-    URIMap = parse_url(BsaeUrlWithPath),
+    {BaseUrl0, Path, Query} = parse_url(RawUrl),
+    {ok, BaseUrl} = emqx_http_lib:uri_parse(BaseUrl0),
     ResourceId = emqx_authn_utils:make_resource_id(?MODULE),
     State = #{
         method => Method,
-        path => maps:get(path, URIMap),
+        path => Path,
+        headers => Headers,
+        base_path_templete => emqx_authn_utils:parse_str(Path),
         base_query_template => emqx_authn_utils:parse_deep(
             cow_qs:parse_qs(to_bin(Query))
         ),
@@ -185,7 +187,7 @@ create(
             ?RESOURCE_GROUP,
             emqx_connector_http,
             Config#{
-                base_url => maps:remove(query, URIMap),
+                base_url => BaseUrl,
                 pool_type => random
             },
             #{}
@@ -274,9 +276,6 @@ destroy(#{resource_id := ResourceId}) ->
 %% Internal functions
 %%--------------------------------------------------------------------
 
-parse_fullpath(RawURL) ->
-    cow_http:parse_fullpath(to_bin(RawURL)).
-
 default_headers() ->
     maps:put(
         <<"content-type">>,
@@ -303,14 +302,14 @@ transform_header_name(Headers) ->
     ).
 
 check_ssl_opts(Conf) ->
-    {BaseUrlWithPath, _Query} = parse_fullpath(get_conf_val("url", Conf)),
-    case parse_url(BaseUrlWithPath) of
-        #{scheme := https} ->
+    {BaseUrl, _Path, _Query} = parse_url(get_conf_val("url", Conf)),
+    case BaseUrl of
+        <<"https://", _/binary>> ->
             case get_conf_val("ssl.enable", Conf) of
                 true -> ok;
                 false -> false
             end;
-        #{scheme := http} ->
+        <<"http://", _/binary>> ->
             ok
     end.
 
@@ -319,39 +318,51 @@ check_headers(Conf) ->
     Headers = get_conf_val("headers", Conf),
     Method =:= <<"post">> orelse (not maps:is_key(<<"content-type">>, Headers)).
 
-parse_url(URL) ->
-    {ok, URIMap} = emqx_http_lib:uri_parse(URL),
-    case maps:get(query, URIMap, undefined) of
-        undefined ->
-            URIMap#{query => ""};
-        _ ->
-            URIMap
+parse_url(Url) ->
+    case string:split(Url, "//", leading) of
+        [Scheme, UrlRem] ->
+            case string:split(UrlRem, "/", leading) of
+                [HostPort, Remaining] ->
+                    BaseUrl = iolist_to_binary([Scheme, "//", HostPort]),
+                    case string:split(Remaining, "?", leading) of
+                        [Path, QueryString] ->
+                            {BaseUrl, Path, QueryString};
+                        [Path] ->
+                            {BaseUrl, Path, <<>>}
+                    end;
+                [HostPort] ->
+                    {iolist_to_binary([Scheme, "//", HostPort]), <<>>, <<>>}
+            end;
+        [Url] ->
+            throw({invalid_url, Url})
     end.
 
 generate_request(Credential, #{
     method := Method,
-    path := Path,
+    headers := Headers0,
+    base_path_templete := BasePathTemplate,
     base_query_template := BaseQueryTemplate,
-    headers := Headers,
     body_template := BodyTemplate
 }) ->
+    Headers = maps:to_list(Headers0),
+    Path = emqx_authn_utils:render_str(BasePathTemplate, Credential),
+    Query = emqx_authn_utils:render_deep(BaseQueryTemplate, Credential),
     Body = emqx_authn_utils:render_deep(BodyTemplate, Credential),
-    NBaseQuery = emqx_authn_utils:render_deep(BaseQueryTemplate, Credential),
     case Method of
         get ->
-            NPath = append_query(Path, NBaseQuery ++ Body),
-            {NPath, Headers};
+            NPathQuery = append_query(to_list(Path), to_list(Query) ++ maps:to_list(Body)),
+            {NPathQuery, Headers};
         post ->
-            NPath = append_query(Path, NBaseQuery),
+            NPathQuery = append_query(to_list(Path), to_list(Query)),
             ContentType = proplists:get_value(<<"content-type">>, Headers),
             NBody = serialize_body(ContentType, Body),
-            {NPath, Headers, NBody}
+            {NPathQuery, Headers, NBody}
     end.
 
 append_query(Path, []) ->
-    Path;
+    encode_path(Path);
 append_query(Path, Query) ->
-    Path ++ "?" ++ binary_to_list(qs(Query)).
+    encode_path(Path) ++ "?" ++ binary_to_list(qs(Query)).
 
 qs(KVs) ->
     qs(KVs, []).
@@ -388,12 +399,18 @@ may_append_body(Output, {ok, _, _}) ->
     Output.
 
 uri_encode(T) ->
-    emqx_http_lib:uri_encode(to_bin(T)).
+    emqx_http_lib:uri_encode(to_list(T)).
+
+encode_path(Path) ->
+    Parts = string:split(Path, "/", all),
+    lists:flatten(["/" ++ Part || Part <- lists:map(fun uri_encode/1, Parts)]).
 
 to_list(A) when is_atom(A) ->
     atom_to_list(A);
 to_list(B) when is_binary(B) ->
-    binary_to_list(B).
+    binary_to_list(B);
+to_list(L) when is_list(L) ->
+    L.
 
 to_bin(A) when is_atom(A) ->
     atom_to_binary(A);
