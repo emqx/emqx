@@ -185,8 +185,21 @@ ranch_opts(Options) ->
         socket
     ],
     RanchOpts = maps:with(Keys, Options),
-    SocketOpts = maps:fold(fun filter_false/3, [], maps:without([enable | Keys], Options)),
-    RanchOpts#{socket_opts => SocketOpts}.
+    SocketOpts = maps:fold(
+        fun filter_false/3,
+        [],
+        maps:without([enable, inet6, ipv6_v6only | Keys], Options)
+    ),
+    InetOpts =
+        case Options of
+            #{inet6 := true, ipv6_v6only := true} ->
+                [inet6, {ipv6_v6only, true}];
+            #{inet6 := true, ipv6_v6only := false} ->
+                [inet6];
+            _ ->
+                [inet]
+        end,
+    RanchOpts#{socket_opts => InetOpts ++ SocketOpts}.
 
 filter_false(_K, false, S) -> S;
 filter_false(K, V, S) -> [{K, V} | S].
