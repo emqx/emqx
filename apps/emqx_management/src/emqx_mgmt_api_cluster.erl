@@ -43,7 +43,8 @@ schema("/cluster") ->
             responses => #{
                 200 => [
                     {name, ?HOCON(string(), #{desc => "Cluster name"})},
-                    {nodes, ?HOCON(?ARRAY(string()), #{desc => "Node name"})}
+                    {nodes, ?HOCON(?ARRAY(string()), #{desc => "Node name"})},
+                    {self, ?HOCON(string(), #{desc => "Self node name"})}
                 ]
             }
         }
@@ -97,7 +98,8 @@ cluster_info(get, _) ->
     ClusterName = application:get_env(ekka, cluster_name, emqxcl),
     Info = #{
         name => ClusterName,
-        nodes => mria_mnesia:running_nodes()
+        nodes => mria_mnesia:running_nodes(),
+        self => node()
     },
     {200, Info}.
 
