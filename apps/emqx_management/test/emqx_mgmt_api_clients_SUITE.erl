@@ -105,6 +105,32 @@ t_clients(_) ->
     ?assertEqual(AfterSubTopic, Topic),
     ?assertEqual(AfterSubQos, Qos),
 
+    %% get /clients/:clientid/subscriptions
+    SubscriptionsPath = emqx_mgmt_api_test_util:api_path([
+        "clients",
+        binary_to_list(ClientId1),
+        "subscriptions"
+    ]),
+    {ok, SubscriptionsRes} = emqx_mgmt_api_test_util:request_api(
+        get,
+        SubscriptionsPath,
+        "",
+        AuthHeader
+    ),
+    [SubscriptionsData] = emqx_json:decode(SubscriptionsRes, [return_maps]),
+    ?assertMatch(
+        #{
+            <<"clientid">> := ClientId1,
+            <<"nl">> := _,
+            <<"rap">> := _,
+            <<"rh">> := _,
+            <<"node">> := _,
+            <<"qos">> := Qos,
+            <<"topic">> := Topic
+        },
+        SubscriptionsData
+    ),
+
     %% post /clients/:clientid/unsubscribe
     UnSubscribePath = emqx_mgmt_api_test_util:api_path([
         "clients",

@@ -564,12 +564,14 @@ subscriptions(get, #{bindings := #{clientid := ClientID}}) ->
         {Node, Subs} ->
             Formatter =
                 fun({Topic, SubOpts}) ->
-                    #{
-                        node => Node,
-                        clientid => ClientID,
-                        topic => Topic,
-                        qos => maps:get(qos, SubOpts)
-                    }
+                    maps:merge(
+                        #{
+                            node => Node,
+                            clientid => ClientID,
+                            topic => Topic
+                        },
+                        maps:with([qos, nl, rap, rh], SubOpts)
+                    )
                 end,
             {200, lists:map(Formatter, Subs)}
     end.
