@@ -72,7 +72,10 @@ fields(subscription) ->
         {node, hoconsc:mk(binary(), #{desc => <<"Access type">>})},
         {topic, hoconsc:mk(binary(), #{desc => <<"Topic name">>})},
         {clientid, hoconsc:mk(binary(), #{desc => <<"Client identifier">>})},
-        {qos, hoconsc:mk(emqx_schema:qos(), #{desc => <<"QoS">>})}
+        {qos, hoconsc:mk(emqx_schema:qos(), #{desc => <<"QoS">>})},
+        {nl, hoconsc:mk(integer(), #{desc => <<"No Local">>})},
+        {rap, hoconsc:mk(integer(), #{desc => <<"Retain as Published">>})},
+        {rh, hoconsc:mk(integer(), #{desc => <<"Retain Handling">>})}
     ].
 
 parameters() ->
@@ -163,22 +166,20 @@ format(Items) when is_list(Items) ->
     [format(Item) || Item <- Items];
 format({{Subscriber, Topic}, Options}) ->
     format({Subscriber, Topic, Options});
-format({_Subscriber, Topic, Options = #{share := Group}}) ->
-    QoS = maps:get(qos, Options),
-    #{
-        topic => filename:join([<<"$share">>, Group, Topic]),
-        clientid => maps:get(subid, Options),
-        qos => QoS,
-        node => node()
-    };
 format({_Subscriber, Topic, Options}) ->
-    QoS = maps:get(qos, Options),
-    #{
-        topic => Topic,
-        clientid => maps:get(subid, Options),
-        qos => QoS,
-        node => node()
-    }.
+    maps:merge(
+        #{
+            topic => get_topic(Topic, Options),
+            clientid => maps:get(subid, Options),
+            node => node()
+        },
+        maps:with([qos, nl, rap, rh], Options)
+    ).
+
+get_topic(Topic, #{share := Group}) ->
+    filename:join([<<"$share">>, Group, Topic]);
+get_topic(Topic, _) ->
+    Topic.
 
 %%--------------------------------------------------------------------
 %% Query Function
