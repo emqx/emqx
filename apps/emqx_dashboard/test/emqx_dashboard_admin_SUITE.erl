@@ -43,7 +43,7 @@ end_per_suite(Config) ->
 
 end_per_testcase(_, _Config) ->
     All = emqx_dashboard_admin:all_users(),
-    [emqx_dashboard_admin:remove_user(Name) || #{username := Name}  <- All].
+    [emqx_dashboard_admin:remove_user(Name) || #{username := Name} <- All].
 
 end_suite() ->
     application:unload(emqx_management),
@@ -144,7 +144,7 @@ t_update_user(_) ->
     UpdateUser = maps:get(username, NewUserInfo),
     NewDesc = maps:get(description, NewUserInfo),
 
-    {error,<<"username_not_found">>} = emqx_dashboard_admin:update_user(BadUpdateUser, NewDesc),
+    {error, <<"username_not_found">>} = emqx_dashboard_admin:update_user(BadUpdateUser, NewDesc),
     ok.
 
 t_change_password(_) ->
@@ -160,7 +160,7 @@ t_change_password(_) ->
 
     {ok, ok} = emqx_dashboard_admin:change_password(User, OldPassword, NewPassword),
     %% change pwd again
-    {error,<<"password_error">>} =
+    {error, <<"password_error">>} =
         emqx_dashboard_admin:change_password(User, OldPassword, NewPassword),
 
     {error, <<"username_not_found">>} =
@@ -185,4 +185,3 @@ t_clean_token(_) ->
     timer:sleep(5),
     {error, not_found} = emqx_dashboard_admin:verify_token(Token2),
     ok.
-

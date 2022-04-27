@@ -21,16 +21,18 @@
 -include("emqx_dashboard.hrl").
 -include_lib("typerefl/include/types.hrl").
 
--export([ api_spec/0
-        , fields/1
-        , paths/0
-        , schema/1
-        , namespace/0
-        ]).
+-export([
+    api_spec/0,
+    fields/1,
+    paths/0,
+    schema/1,
+    namespace/0
+]).
 
--export([ error_codes/2
-        , error_code/2
-        ]).
+-export([
+    error_codes/2,
+    error_code/2
+]).
 
 namespace() -> "dashboard".
 
@@ -38,8 +40,9 @@ api_spec() ->
     emqx_dashboard_swagger:spec(?MODULE, #{check_schema => true, translate_body => true}).
 
 paths() ->
-    [ "/error_codes"
-    , "/error_codes/:code"
+    [
+        "/error_codes",
+        "/error_codes/:code"
     ].
 
 schema("/error_codes") ->
@@ -60,10 +63,12 @@ schema("/error_codes/:code") ->
             security => [],
             description => <<"API Error Codes">>,
             parameters => [
-                {code, hoconsc:mk(hoconsc:enum(emqx_dashboard_error_code:all()), #{
-                    desc => <<"API Error Codes">>,
-                    in => path,
-                    example => hd(emqx_dashboard_error_code:all())})}
+                {code,
+                    hoconsc:mk(hoconsc:enum(emqx_dashboard_error_code:all()), #{
+                        desc => <<"API Error Codes">>,
+                        in => path,
+                        example => hd(emqx_dashboard_error_code:all())
+                    })}
             ],
             responses => #{
                 200 => hoconsc:ref(?MODULE, error_code)
@@ -76,7 +81,6 @@ fields(error_code) ->
         {code, hoconsc:mk(string(), #{desc => <<"Code Name">>})},
         {description, hoconsc:mk(string(), #{desc => <<"Description">>})}
     ].
-
 
 error_codes(_, _) ->
     {200, emqx_dashboard_error_code:list()}.

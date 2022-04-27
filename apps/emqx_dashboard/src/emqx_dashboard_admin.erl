@@ -26,28 +26,32 @@
 %% Mnesia bootstrap
 -export([mnesia/1]).
 
--export([ add_user/3
-        , force_add_user/3
-        , remove_user/1
-        , update_user/2
-        , lookup_user/1
-        , change_password/2
-        , change_password/3
-        , all_users/0
-        , check/2
-        ]).
+-export([
+    add_user/3,
+    force_add_user/3,
+    remove_user/1,
+    update_user/2,
+    lookup_user/1,
+    change_password/2,
+    change_password/3,
+    all_users/0,
+    check/2
+]).
 
--export([ sign_token/2
-        , verify_token/1
-        , destroy_token_by_username/2
-        ]).
--export([ hash/1
-        , verify_hash/2
-        ]).
+-export([
+    sign_token/2,
+    verify_token/1,
+    destroy_token_by_username/2
+]).
+-export([
+    hash/1,
+    verify_hash/2
+]).
 
--export([ add_default_user/0
-        , default_username/0
-        ]).
+-export([
+    add_default_user/0,
+    default_username/0
+]).
 
 -type emqx_admin() :: #?ADMIN{}.
 
@@ -57,42 +61,52 @@
 
 mnesia(boot) ->
     ok = mria:create_table(?ADMIN, [
-                {type, set},
-                {rlog_shard, ?DASHBOARD_SHARD},
-                {storage, disc_copies},
-                {record_name, ?ADMIN},
-                {attributes, record_info(fields, ?ADMIN)},
-                {storage_properties, [{ets, [{read_concurrency, true},
-                                             {write_concurrency, true}]}]}]).
+        {type, set},
+        {rlog_shard, ?DASHBOARD_SHARD},
+        {storage, disc_copies},
+        {record_name, ?ADMIN},
+        {attributes, record_info(fields, ?ADMIN)},
+        {storage_properties, [
+            {ets, [
+                {read_concurrency, true},
+                {write_concurrency, true}
+            ]}
+        ]}
+    ]).
 
 %%--------------------------------------------------------------------
 %% API
 %%--------------------------------------------------------------------
 
--spec(add_user(binary(), binary(), binary()) -> {ok, map()} | {error, any()}).
-add_user(Username, Password, Desc)
-  when is_binary(Username), is_binary(Password) ->
+-spec add_user(binary(), binary(), binary()) -> {ok, map()} | {error, any()}.
+add_user(Username, Password, Desc) when
+    is_binary(Username), is_binary(Password)
+->
     case legal_username(Username) of
         true ->
             return(
-                mria:transaction(?DASHBOARD_SHARD, fun add_user_/3, [Username, Password, Desc]));
+                mria:transaction(?DASHBOARD_SHARD, fun add_user_/3, [Username, Password, Desc])
+            );
         false ->
-            {error, <<"Bad Username."
-                    " Only upper and lower case letters, numbers and underscores are supported">>}
+            {error, <<
+                "Bad Username."
+                " Only upper and lower case letters, numbers and underscores are supported"
+            >>}
     end.
 
 %% 0 - 9 or A -Z or a - z or $_
 legal_username(<<>>) -> false;
-legal_username(UserName) ->
-    nomatch /= re:run(UserName, "^[_a-zA-Z0-9]*$").
+legal_username(UserName) -> nomatch /= re:run(UserName, "^[_a-zA-Z0-9]*$").
 
 %% black-magic: force overwrite a user
 force_add_user(Username, Password, Desc) ->
     AddFun = fun() ->
-                 mnesia:write(#?ADMIN{username = Username,
-                                      pwdhash = hash(Password),
-                                      description = Desc})
-             end,
+        mnesia:write(#?ADMIN{
+            username = Username,
+            pwdhash = hash(Password),
+            description = Desc
+        })
+    end,
     case mria:transaction(?DASHBOARD_SHARD, AddFun) of
         {atomic, ok} -> ok;
         {aborted, Reason} -> {error, Reason}
@@ -101,7 +115,7 @@ force_add_user(Username, Password, Desc) ->
 %% @private
 add_user_(Username, Password, Desc) ->
     case mnesia:wread({?ADMIN, Username}) of
-        []  ->
+        [] ->
             Admin = #?ADMIN{username = Username, pwdhash = hash(Password), description = Desc},
             mnesia:write(Admin),
             #{username => Username, description => Desc};
@@ -109,14 +123,14 @@ add_user_(Username, Password, Desc) ->
             mnesia:abort(<<"username_already_exist">>)
     end.
 
--spec(remove_user(binary()) -> {ok, any()} | {error, any()}).
+-spec remove_user(binary()) -> {ok, any()} | {error, any()}.
 remove_user(Username) when is_binary(Username) ->
     Trans = fun() ->
-                    case lookup_user(Username) of
-                        [] -> mnesia:abort(<<"username_not_found">>);
-                        _  -> mnesia:delete({?ADMIN, Username})
-                    end
-            end,
+        case lookup_user(Username) of
+            [] -> mnesia:abort(<<"username_not_found">>);
+            _ -> mnesia:delete({?ADMIN, Username})
+        end
+    end,
     case return(mria:transaction(?DASHBOARD_SHARD, Trans)) of
         {ok, Result} ->
             _ = emqx_dashboard_token:destroy_by_username(Username),
@@ -125,7 +139,7 @@ remove_user(Username) when is_binary(Username) ->
             {error, Reason}
     end.
 
--spec(update_user(binary(), binary()) -> {ok, map()} | {error, term()}).
+-spec update_user(binary(), binary()) -> {ok, map()} | {error, term()}.
 update_user(Username, Desc) when is_binary(Username) ->
     return(mria:transaction(?DASHBOARD_SHARD, fun update_user_/2, [Username, Desc])).
 
@@ -140,7 +154,8 @@ verify_hash(Origin, SaltHash) ->
                 true -> ok;
                 false -> error
             end;
-        _ -> error
+        _ ->
+            error
     end.
 
 sha256(SaltBin, Password) ->
@@ -174,7 +189,8 @@ change_password_hash(Username, PasswordHash) ->
         {ok, Result} ->
             _ = emqx_dashboard_token:destroy_by_username(Username),
             {ok, Result};
-        {error, Reason} -> {error, Reason}
+        {error, Reason} ->
+            {error, Reason}
     end.
 
 update_pwd(Username, Fun) ->
@@ -183,30 +199,35 @@ update_pwd(Username, Fun) ->
             User =
                 case lookup_user(Username) of
                     [Admin] -> Admin;
-                    [] ->
-                        mnesia:abort(<<"username_not_found">>)
+                    [] -> mnesia:abort(<<"username_not_found">>)
                 end,
             mnesia:write(Fun(User))
         end,
     return(mria:transaction(?DASHBOARD_SHARD, Trans)).
 
-
--spec(lookup_user(binary()) -> [emqx_admin()]).
+-spec lookup_user(binary()) -> [emqx_admin()].
 lookup_user(Username) when is_binary(Username) ->
     Fun = fun() -> mnesia:read(?ADMIN, Username) end,
     {atomic, User} = mria:ro_transaction(?DASHBOARD_SHARD, Fun),
     User.
 
--spec(all_users() -> [map()]).
+-spec all_users() -> [map()].
 all_users() ->
-    lists:map(fun(#?ADMIN{username = Username,
-                          description = Desc
-                         }) ->
-                      #{username => Username,
-                        description => Desc
-                       }
-              end, ets:tab2list(?ADMIN)).
--spec(return({atomic | aborted, term()}) -> {ok, term()} | {error, Reason :: binary()}).
+    lists:map(
+        fun(
+            #?ADMIN{
+                username = Username,
+                description = Desc
+            }
+        ) ->
+            #{
+                username => Username,
+                description => Desc
+            }
+        end,
+        ets:tab2list(?ADMIN)
+    ).
+-spec return({atomic | aborted, term()}) -> {ok, term()} | {error, Reason :: binary()}.
 return({atomic, Result}) ->
     {ok, Result};
 return({aborted, Reason}) ->
@@ -220,7 +241,7 @@ check(Username, Password) ->
     case lookup_user(Username) of
         [#?ADMIN{pwdhash = PwdHash}] ->
             case verify_hash(Password, PwdHash) of
-                ok  -> ok;
+                ok -> ok;
                 error -> {error, <<"password_error">>}
             end;
         [] ->
@@ -252,7 +273,7 @@ destroy_token_by_username(Username, Token) ->
 %% Internal functions
 %%--------------------------------------------------------------------
 
--spec(add_default_user() -> {ok, map() | empty | default_user_exists } | {error, any()}).
+-spec add_default_user() -> {ok, map() | empty | default_user_exists} | {error, any()}.
 add_default_user() ->
     add_default_user(binenv(default_username), binenv(default_password)).
 
@@ -264,9 +285,8 @@ binenv(Key) ->
 
 add_default_user(Username, Password) when ?EMPTY_KEY(Username) orelse ?EMPTY_KEY(Password) ->
     {ok, empty};
-
 add_default_user(Username, Password) ->
     case lookup_user(Username) of
         [] -> add_user(Username, Password, <<"administrator">>);
-        _  -> {ok, default_user_exists}
+        _ -> {ok, default_user_exists}
     end.

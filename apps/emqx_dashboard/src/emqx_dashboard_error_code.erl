@@ -18,12 +18,13 @@
 
 -include_lib("emqx/include/http_api.hrl").
 
--export([ all/0
-        , list/0
-        , look_up/1
-        , description/1
-        , format/1
-        ]).
+-export([
+    all/0,
+    list/0,
+    look_up/1,
+    description/1,
+    format/1
+]).
 
 all() ->
     [Name || {Name, _Description} <- ?ERROR_CODES].
@@ -51,6 +52,6 @@ description(Code, [_ | List]) ->
 
 format({Code, Description}) ->
     #{
-        code        => Code,
+        code => Code,
         description => Description
     }.

@@ -27,7 +27,7 @@
     mk/2,
     array/1,
     enum/1
-    ]).
+]).
 
 -export([
     api_spec/0,
@@ -35,7 +35,7 @@
     paths/0,
     schema/1,
     namespace/0
-    ]).
+]).
 
 -export([
     login/2,
@@ -43,7 +43,7 @@
     users/2,
     user/2,
     change_pwd/2
-    ]).
+]).
 
 -define(EMPTY(V), (V == undefined orelse V == <<>>)).
 
@@ -60,11 +60,13 @@ api_spec() ->
     emqx_dashboard_swagger:spec(?MODULE, #{check_schema => true, translate_body => true}).
 
 paths() ->
-    [ "/login"
-    , "/logout"
-    , "/users"
-    , "/users/:username"
-    , "/users/:username/change_pwd"].
+    [
+        "/login",
+        "/logout",
+        "/users",
+        "/users/:username",
+        "/users/:username/change_pwd"
+    ].
 
 schema("/login") ->
     #{
@@ -101,8 +103,10 @@ schema("/users") ->
             tags => [<<"dashboard">>],
             desc => ?DESC(list_users_api),
             responses => #{
-                200 => mk(array(hoconsc:ref(user)),
-                    #{desc => ?DESC(list_users_api)})
+                200 => mk(
+                    array(hoconsc:ref(user)),
+                    #{desc => ?DESC(list_users_api)}
+                )
             }
         },
         post => #{
@@ -114,7 +118,6 @@ schema("/users") ->
             }
         }
     };
-
 schema("/users/:username") ->
     #{
         'operationId' => user,
@@ -135,7 +138,8 @@ schema("/users/:username") ->
             responses => #{
                 204 => <<"Delete User successfully">>,
                 400 => emqx_dashboard_swagger:error_codes(
-                    [?BAD_REQUEST, ?NOT_ALLOWED], ?DESC(login_failed_response400)),
+                    [?BAD_REQUEST, ?NOT_ALLOWED], ?DESC(login_failed_response400)
+                ),
                 404 => response_schema(404)
             }
         }
@@ -151,10 +155,12 @@ schema("/users/:username/change_pwd") ->
             responses => #{
                 204 => <<"Update user password successfully">>,
                 401 => emqx_dashboard_swagger:error_codes(
-                        [?WRONG_USERNAME_OR_PWD, ?ERROR_PWD_NOT_MATCH], ?DESC(login_failed401)),
+                    [?WRONG_USERNAME_OR_PWD, ?ERROR_PWD_NOT_MATCH], ?DESC(login_failed401)
+                ),
                 404 => response_schema(404),
                 400 => emqx_dashboard_swagger:error_codes(
-                        [?BAD_REQUEST], ?DESC(login_failed_response400))
+                    [?BAD_REQUEST], ?DESC(login_failed_response400)
+                )
             }
         }
     }.
@@ -174,26 +180,32 @@ field(username) ->
         mk(binary(), #{desc => ?DESC(username), 'maxLength' => 100, example => <<"admin">>})};
 field(username_in_path) ->
     {username,
-        mk(binary(), #{desc => ?DESC(username), 'maxLength' => 100, example => <<"admin">>,
-                       in => path, required => true})};
+        mk(binary(), #{
+            desc => ?DESC(username),
+            'maxLength' => 100,
+            example => <<"admin">>,
+            in => path,
+            required => true
+        })};
 field(password) ->
     {password,
         mk(binary(), #{desc => ?DESC(password), 'maxLength' => 100, example => <<"public">>})};
 field(description) ->
-    {description,
-        mk(binary(), #{desc => ?DESC(user_description), example => <<"administrator">>})};
+    {description, mk(binary(), #{desc => ?DESC(user_description), example => <<"administrator">>})};
 field(token) ->
     {token, mk(binary(), #{desc => ?DESC(token)})};
 field(license) ->
     {license, [
-        {edition, mk(enum([community, enterprise]),
-        #{desc => ?DESC(license), example => community})}]};
+        {edition,
+            mk(
+                enum([community, enterprise]),
+                #{desc => ?DESC(license), example => community}
+            )}
+    ]};
 field(version) ->
     {version, mk(string(), #{desc => ?DESC(version), example => <<"5.0.0">>})};
-
 field(old_pwd) ->
     {old_pwd, mk(binary(), #{desc => ?DESC(old_pwd)})};
-
 field(new_pwd) ->
     {new_pwd, mk(binary(), #{desc => ?DESC(new_pwd)})}.
 
@@ -207,17 +219,20 @@ login(post, #{body := Params}) ->
         {ok, Token} ->
             ?SLOG(info, #{msg => "Dashboard login successfully", username => Username}),
             Version = iolist_to_binary(proplists:get_value(version, emqx_sys:info())),
-            {200, #{token => Token,
-                    version => Version,
-                    license => #{edition => emqx_release:edition()}
-                   }};
+            {200, #{
+                token => Token,
+                version => Version,
+                license => #{edition => emqx_release:edition()}
+            }};
         {error, R} ->
             ?SLOG(info, #{msg => "Dashboard login failed", username => Username, reason => R}),
             {401, ?WRONG_USERNAME_OR_PWD, <<"Auth filed">>}
     end.
 
-logout(_, #{body := #{<<"username">> := Username},
-    headers := #{<<"authorization">> := <<"Bearer ", Token/binary>>}}) ->
+logout(_, #{
+    body := #{<<"username">> := Username},
+    headers := #{<<"authorization">> := <<"Bearer ", Token/binary>>}
+}) ->
     case emqx_dashboard_admin:destroy_token_by_username(Username, Token) of
         ok ->
             ?SLOG(info, #{msg => "Dashboard logout successfully", username => Username}),
@@ -229,7 +244,6 @@ logout(_, #{body := #{<<"username">> := Username},
 
 users(get, _Request) ->
     {200, emqx_dashboard_admin:all_users()};
-
 users(post, #{body := Params}) ->
     Desc = maps:get(<<"description">>, Params, <<"">>),
     Username = maps:get(<<"username">>, Params),
@@ -243,8 +257,11 @@ users(post, #{body := Params}) ->
                     ?SLOG(info, #{msg => "Create dashboard success", username => Username}),
                     {200, Result};
                 {error, Reason} ->
-                    ?SLOG(info, #{msg => "Create dashboard failed",
-                                  username => Username, reason => Reason}),
+                    ?SLOG(info, #{
+                        msg => "Create dashboard failed",
+                        username => Username,
+                        reason => Reason
+                    }),
                     {400, ?BAD_REQUEST, Reason}
             end
     end.
@@ -257,7 +274,6 @@ user(put, #{bindings := #{username := Username}, body := Params}) ->
         {error, Reason} ->
             {404, ?USER_NOT_FOUND, Reason}
     end;
-
 user(delete, #{bindings := #{username := Username}}) ->
     case Username == emqx_dashboard_admin:default_username() of
         true ->

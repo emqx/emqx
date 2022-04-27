@@ -9,25 +9,28 @@
 
 -behaviour(minirest_api).
 
--export([ api_spec/0]).
+-export([api_spec/0]).
 
--export([ paths/0
-        , schema/1
-        , fields/1
-        ]).
+-export([
+    paths/0,
+    schema/1,
+    fields/1
+]).
 
--export([ monitor/2
-        , monitor_current/2
-        ]).
+-export([
+    monitor/2,
+    monitor_current/2
+]).
 
 api_spec() ->
     emqx_dashboard_swagger:spec(?MODULE, #{check_schema => true, translate_body => true}).
 
 paths() ->
-    [ "/monitor"
-    , "/monitor/nodes/:node"
-    , "/monitor_current"
-    , "/monitor_current/nodes/:node"
+    [
+        "/monitor",
+        "/monitor/nodes/:node",
+        "/monitor_current",
+        "/monitor_current/nodes/:node"
     ].
 
 schema("/monitor") ->
@@ -43,7 +46,6 @@ schema("/monitor") ->
             }
         }
     };
-
 schema("/monitor/nodes/:node") ->
     #{
         'operationId' => monitor,
@@ -57,7 +59,6 @@ schema("/monitor/nodes/:node") ->
             }
         }
     };
-
 schema("/monitor_current") ->
     #{
         'operationId' => monitor_current,
@@ -69,7 +70,6 @@ schema("/monitor_current") ->
             }
         }
     };
-
 schema("/monitor_current/nodes/:node") ->
     #{
         'operationId' => monitor_current,
@@ -102,17 +102,19 @@ parameter_node() ->
     },
     {node, hoconsc:mk(binary(), Info)}.
 
-
 fields(sampler) ->
     Samplers =
-        [{SamplerName, hoconsc:mk(integer(), #{desc => swagger_desc(SamplerName)})}
-        || SamplerName <- ?SAMPLER_LIST],
+        [
+            {SamplerName, hoconsc:mk(integer(), #{desc => swagger_desc(SamplerName)})}
+         || SamplerName <- ?SAMPLER_LIST
+        ],
     [{time_stamp, hoconsc:mk(non_neg_integer(), #{desc => <<"Timestamp">>})} | Samplers];
-
 fields(sampler_current) ->
     Names = maps:values(?DELTA_SAMPLER_RATE_MAP) ++ ?GAUGE_SAMPLER_LIST,
-    [{SamplerName, hoconsc:mk(integer(), #{desc => swagger_desc(SamplerName)})}
-    || SamplerName <- Names].
+    [
+        {SamplerName, hoconsc:mk(integer(), #{desc => swagger_desc(SamplerName)})}
+     || SamplerName <- Names
+    ].
 
 %% -------------------------------------------------------------------------------------------------
 %% API
@@ -141,26 +143,39 @@ monitor_current(get, #{bindings := Bindings}) ->
 %% -------------------------------------------------------------------------------------------------
 %% Internal
 
-swagger_desc(received)       -> swagger_desc_format("Received messages ");
-swagger_desc(received_bytes) -> swagger_desc_format("Received bytes ");
-swagger_desc(sent)           -> swagger_desc_format("Sent messages ");
-swagger_desc(sent_bytes)     -> swagger_desc_format("Sent bytes ");
-swagger_desc(dropped)        -> swagger_desc_format("Dropped messages ");
+swagger_desc(received) ->
+    swagger_desc_format("Received messages ");
+swagger_desc(received_bytes) ->
+    swagger_desc_format("Received bytes ");
+swagger_desc(sent) ->
+    swagger_desc_format("Sent messages ");
+swagger_desc(sent_bytes) ->
+    swagger_desc_format("Sent bytes ");
+swagger_desc(dropped) ->
+    swagger_desc_format("Dropped messages ");
 swagger_desc(subscriptions) ->
-    <<"Subscriptions at the time of sampling."
-    " Can only represent the approximate state">>;
+    <<
+        "Subscriptions at the time of sampling."
+        " Can only represent the approximate state"
+    >>;
 swagger_desc(topics) ->
-    <<"Count topics at the time of sampling."
-    " Can only represent the approximate state">>;
+    <<
+        "Count topics at the time of sampling."
+        " Can only represent the approximate state"
+    >>;
 swagger_desc(connections) ->
-    <<"Connections at the time of sampling."
-    " Can only represent the approximate state">>;
-
-swagger_desc(received_msg_rate)   -> swagger_desc_format("Dropped messages ", per);
+    <<
+        "Connections at the time of sampling."
+        " Can only represent the approximate state"
+    >>;
+swagger_desc(received_msg_rate) ->
+    swagger_desc_format("Dropped messages ", per);
 %swagger_desc(received_bytes_rate) -> swagger_desc_format("Received bytes ", per);
-swagger_desc(sent_msg_rate)       -> swagger_desc_format("Sent messages ", per);
+swagger_desc(sent_msg_rate) ->
+    swagger_desc_format("Sent messages ", per);
 %swagger_desc(sent_bytes_rate)     -> swagger_desc_format("Sent bytes ", per);
-swagger_desc(dropped_msg_rate)    -> swagger_desc_format("Dropped messages ", per).
+swagger_desc(dropped_msg_rate) ->
+    swagger_desc_format("Dropped messages ", per).
 
 swagger_desc_format(Format) ->
     swagger_desc_format(Format, last).

@@ -16,17 +16,17 @@
 
 -module(emqx_dashboard_cli).
 
--export([ load/0
-        , admins/1
-        , unload/0
-        ]).
+-export([
+    load/0,
+    admins/1,
+    unload/0
+]).
 
 load() ->
     emqx_ctl:register_command(admins, {?MODULE, admins}, []).
 
 admins(["add", Username, Password]) ->
     admins(["add", Username, Password, ""]);
-
 admins(["add", Username, Password, Desc]) ->
     case emqx_dashboard_admin:add_user(bin(Username), bin(Password), bin(Desc)) of
         {ok, _} ->
@@ -34,20 +34,20 @@ admins(["add", Username, Password, Desc]) ->
         {error, Reason} ->
             emqx_ctl:print("Error: ~p~n", [Reason])
     end;
-
 admins(["passwd", Username, Password]) ->
-    Status  = emqx_dashboard_admin:change_password(bin(Username), bin(Password)),
+    Status = emqx_dashboard_admin:change_password(bin(Username), bin(Password)),
     emqx_ctl:print("~p~n", [Status]);
-
 admins(["del", Username]) ->
-    Status  = emqx_dashboard_admin:remove_user(bin(Username)),
+    Status = emqx_dashboard_admin:remove_user(bin(Username)),
     emqx_ctl:print("~p~n", [Status]);
-
 admins(_) ->
     emqx_ctl:usage(
-      [{"admins add <Username> <Password> <Description>",  "Add dashboard user"},
-       {"admins passwd <Username> <Password>",             "Reset dashboard user password"},
-       {"admins del <Username>",                           "Delete dashboard user" }]).
+        [
+            {"admins add <Username> <Password> <Description>", "Add dashboard user"},
+            {"admins passwd <Username> <Password>", "Reset dashboard user password"},
+            {"admins del <Username>", "Delete dashboard user"}
+        ]
+    ).
 
 unload() ->
     emqx_ctl:unregister_command(admins).

@@ -28,8 +28,8 @@ start_link() ->
     supervisor:start_link({local, ?MODULE}, ?MODULE, []).
 
 init([]) ->
-    {ok, {{one_for_one, 10, 100},
-        [
+    {ok,
+        {{one_for_one, 10, 100}, [
             ?CHILD(emqx_dashboard_token),
             ?CHILD(emqx_dashboard_monitor),
             ?CHILD(emqx_dashboard_config)
