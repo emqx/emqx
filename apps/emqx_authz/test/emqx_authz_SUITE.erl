@@ -91,7 +91,7 @@ set_special_configs(_App) ->
     <<"database">> => <<"mqtt">>,
     <<"ssl">> => #{<<"enable">> => false},
     <<"collection">> => <<"authz">>,
-    <<"selector">> => #{<<"a">> => <<"b">>}
+    <<"filter">> => #{<<"a">> => <<"b">>}
 }).
 -define(SOURCE3, #{
     <<"type">> => <<"mysql">>,

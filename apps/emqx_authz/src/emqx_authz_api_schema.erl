@@ -181,7 +181,7 @@ authz_mongo_common_fields() ->
     authz_common_fields(mongodb) ++
         [
             {collection, fun collection/1},
-            {selector, fun selector/1}
+            {filter, fun filter/1}
         ].
 
 collection(type) -> binary();
@@ -189,11 +189,11 @@ collection(desc) -> ?DESC(?FUNCTION_NAME);
 collection(required) -> true;
 collection(_) -> undefined.
 
-selector(type) ->
+filter(type) ->
     map();
-selector(desc) ->
+filter(desc) ->
     ?DESC(?FUNCTION_NAME);
-selector(_) ->
+filter(_) ->
     undefined.
 
 %%------------------------------------------------------------------------------

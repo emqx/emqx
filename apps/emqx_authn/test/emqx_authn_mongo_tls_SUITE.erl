@@ -189,7 +189,7 @@ raw_mongo_auth_config(SpecificSSLOpts) ->
         server => mongo_server(),
         w_mode => <<"unsafe">>,
 
-        selector => #{<<"username">> => <<"${username}">>},
+        filter => #{<<"username">> => <<"${username}">>},
         password_hash_field => <<"password_hash">>,
         salt_field => <<"salt">>,
         is_superuser_field => <<"is_superuser">>,

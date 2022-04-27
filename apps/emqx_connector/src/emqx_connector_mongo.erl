@@ -155,14 +155,14 @@ on_stop(InstId, #{poolname := PoolName}) ->
     emqx_plugin_libs_pool:stop_pool(PoolName).
 
 on_query(InstId,
-         {Action, Collection, Selector, Projector},
+         {Action, Collection, Filter, Projector},
          AfterQuery,
          #{poolname := PoolName} = State) ->
-    Request = {Action, Collection, Selector, Projector},
+    Request = {Action, Collection, Filter, Projector},
     ?TRACE("QUERY", "mongodb_connector_received",
         #{request => Request, connector => InstId, state => State}),
     case ecpool:pick_and_do(PoolName,
-                            {?MODULE, mongo_query, [Action, Collection, Selector, Projector]},
+                            {?MODULE, mongo_query, [Action, Collection, Filter, Projector]},
                             no_handover) of
         {error, Reason} ->
             ?SLOG(error, #{msg => "mongodb_connector_do_query_failed",
@@ -242,14 +242,14 @@ connect(Opts) ->
     WorkerOptions = proplists:get_value(worker_options, Opts, []),
     mongo_api:connect(Type, Hosts, Options, WorkerOptions).
 
-mongo_query(Conn, find, Collection, Selector, Projector) ->
-    mongo_api:find(Conn, Collection, Selector, Projector);
+mongo_query(Conn, find, Collection, Filter, Projector) ->
+    mongo_api:find(Conn, Collection, Filter, Projector);
 
-mongo_query(Conn, find_one, Collection, Selector, Projector) ->
-    mongo_api:find_one(Conn, Collection, Selector, Projector);
+mongo_query(Conn, find_one, Collection, Filter, Projector) ->
+    mongo_api:find_one(Conn, Collection, Filter, Projector);
 
 %% Todo xxx
-mongo_query(_Conn, _Action, _Collection, _Selector, _Projector) ->
+mongo_query(_Conn, _Action, _Collection, _Filter, _Projector) ->
     ok.
 
 init_type(#{mongo_type := rs, replica_set_name := ReplicaSetName}) ->

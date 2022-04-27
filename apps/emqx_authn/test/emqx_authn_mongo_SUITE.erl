@@ -84,7 +84,7 @@ t_create_invalid(_Config) ->
     InvalidConfigs =
         [
             AuthConfig#{mongo_type => <<"unknown">>},
-            AuthConfig#{selector => <<"{ \"username\": \"${username}\" }">>},
+            AuthConfig#{filter => <<"{ \"username\": \"${username}\" }">>},
             AuthConfig#{w_mode => <<"unknown">>}
         ],
 
@@ -177,7 +177,7 @@ t_update(_Config) ->
     ok = init_seeds(),
     CorrectConfig = raw_mongo_auth_config(),
     IncorrectConfig =
-        CorrectConfig#{selector => #{<<"wrongfield">> => <<"wrongvalue">>}},
+        CorrectConfig#{filter => #{<<"wrongfield">> => <<"wrongvalue">>}},
 
     {ok, _} = emqx:update_config(
         ?PATH,
@@ -193,7 +193,7 @@ t_update(_Config) ->
         }
     ),
 
-    % We update with config with correct selector, provider should update and work properly
+    % We update with config with correct filter, provider should update and work properly
     {ok, _} = emqx:update_config(
         ?PATH,
         {update_authenticator, ?GLOBAL, <<"password_based:mongodb">>, CorrectConfig}
@@ -276,7 +276,7 @@ raw_mongo_auth_config() ->
         server => mongo_server(),
         w_mode => <<"unsafe">>,
 
-        selector => #{<<"username">> => <<"${username}">>},
+        filter => #{<<"username">> => <<"${username}">>},
         password_hash_field => <<"password_hash">>,
         salt_field => <<"salt">>,
         is_superuser_field => <<"is_superuser">>
@@ -332,7 +332,7 @@ user_seeds() ->
                 password => <<"sha256">>
             },
             config_params => #{
-                selector => #{<<"username">> => <<"${clientid}">>},
+                filter => #{<<"username">> => <<"${clientid}">>},
                 password_hash_algorithm => #{
                     name => <<"sha256">>,
                     salt_position => <<"prefix">>
@@ -373,7 +373,7 @@ user_seeds() ->
             },
             config_params => #{
                 % clientid variable & username credentials
-                selector => #{<<"username">> => <<"${clientid}">>},
+                filter => #{<<"username">> => <<"${clientid}">>},
                 password_hash_algorithm => #{name => <<"bcrypt">>}
             },
             result => {error, not_authorized}
@@ -392,7 +392,7 @@ user_seeds() ->
                 password => <<"bcrypt">>
             },
             config_params => #{
-                selector => #{<<"userid">> => <<"${clientid}">>},
+                filter => #{<<"userid">> => <<"${clientid}">>},
                 password_hash_algorithm => #{name => <<"bcrypt">>}
             },
             result => {error, not_authorized}

@@ -74,7 +74,7 @@ common_fields() ->
         {mechanism, emqx_authn_schema:mechanism(password_based)},
         {backend, emqx_authn_schema:backend(mongodb)},
         {collection, fun collection/1},
-        {selector, fun selector/1},
+        {filter, fun filter/1},
         {password_hash_field, fun password_hash_field/1},
         {salt_field, fun salt_field/1},
         {is_superuser_field, fun is_superuser_field/1},
@@ -86,11 +86,11 @@ collection(desc) -> ?DESC(?FUNCTION_NAME);
 collection(required) -> true;
 collection(_) -> undefined.
 
-selector(type) ->
+filter(type) ->
     map();
-selector(desc) ->
+filter(desc) ->
     ?DESC(?FUNCTION_NAME);
-selector(_) ->
+filter(_) ->
     undefined.
 
 password_hash_field(type) -> binary();
@@ -122,8 +122,8 @@ refs() ->
 create(_AuthenticatorID, Config) ->
     create(Config).
 
-create(#{selector := Selector} = Config) ->
-    SelectorTemplate = emqx_authn_utils:parse_deep(Selector),
+create(#{filter := Filter} = Config) ->
+    FilterTemplate = emqx_authn_utils:parse_deep(Filter),
     State = maps:with(
         [
             collection,
@@ -139,7 +139,7 @@ create(#{selector := Selector} = Config) ->
     ok = emqx_authn_password_hashing:init(Algorithm),
     ResourceId = emqx_authn_utils:make_resource_id(?MODULE),
     NState = State#{
-        selector_template => SelectorTemplate,
+        filter_template => FilterTemplate,
         resource_id => ResourceId
     },
     case
@@ -174,12 +174,12 @@ authenticate(
     #{password := Password} = Credential,
     #{
         collection := Collection,
-        selector_template := SelectorTemplate,
+        filter_template := FilterTemplate,
         resource_id := ResourceId
     } = State
 ) ->
-    Selector = emqx_authn_utils:render_deep(SelectorTemplate, Credential),
-    case emqx_resource:query(ResourceId, {find_one, Collection, Selector, #{}}) of
+    Filter = emqx_authn_utils:render_deep(FilterTemplate, Credential),
+    case emqx_resource:query(ResourceId, {find_one, Collection, Filter, #{}}) of
         undefined ->
             ignore;
         {error, Reason} ->
@@ -187,7 +187,7 @@ authenticate(
                 msg => "mongodb_query_failed",
                 resource => ResourceId,
                 collection => Collection,
-                selector => Selector,
+                filter => Filter,
                 reason => Reason
             }),
             ignore;
@@ -200,7 +200,7 @@ authenticate(
                         msg => "cannot_find_password_hash_field",
                         resource => ResourceId,
                         collection => Collection,
-                        selector => Selector,
+                        filter => Filter,
                         password_hash_field => PasswordHashField
                     }),
                     ignore;

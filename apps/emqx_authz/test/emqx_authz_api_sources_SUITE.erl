@@ -47,7 +47,7 @@
     <<"database">> => <<"mqtt">>,
     <<"ssl">> => #{<<"enable">> => false},
     <<"collection">> => <<"fake">>,
-    <<"selector">> => #{<<"a">> => <<"b">>}
+    <<"filter">> => #{<<"a">> => <<"b">>}
 }).
 -define(SOURCE3, #{
     <<"type">> => <<"mysql">>,
