@@ -366,6 +366,28 @@ t_events(_Config) ->
     session_unsubscribed(Client2),
     ct:pal("====== verify $events/client_disconnected"),
     client_disconnected(Client, Client2),
+    ct:pal("====== verify $events/client_connack"),
+    client_connack_failed(),
+    ok.
+
+client_connack_failed() ->
+    {ok, Client} = emqtt:start_link(
+                     [ {username, <<"u_event3">>}
+                     , {clientid, <<"c_event3">>}
+                     , {proto_ver, v5}
+                     , {properties, #{'Session-Expiry-Interval' => 60}}
+                     ]),
+    try
+        meck:new(emqx_access_control, [non_strict, passthrough]),
+        meck:expect(emqx_access_control, authenticate,
+                    fun(_) -> {error, bad_username_or_password} end),
+        process_flag(trap_exit, true),
+        ?assertMatch({error, _}, emqtt:connect(Client)),
+        timer:sleep(300),
+        verify_event('client.connack')
+    after
+        meck:unload(emqx_access_control)
+    end,
     ok.
 
 message_publish(Client) ->
@@ -1745,14 +1767,14 @@ verify_event_fields('client.connack', Fields) ->
       keepalive := Keepalive,
       expiry_interval := ExpiryInterval,
       conn_props := Properties,
-      timestamp := Timestamp,
-      connected_at := EventAt
+      reason_code := Reason,
+      timestamp := Timestamp
     } = Fields,
     Now = erlang:system_time(millisecond),
     TimestampElapse = Now - Timestamp,
-    RcvdAtElapse = Now - EventAt,
-    ?assert(lists:member(ClientId, [<<"c_event">>, <<"c_event2">>])),
-    ?assert(lists:member(Username, [<<"u_event">>, <<"u_event2">>])),
+    ?assert(lists:member(Reason, [success, bad_username_or_password])),
+    ?assert(lists:member(ClientId, [<<"c_event">>, <<"c_event2">>, <<"c_event3">>])),
+    ?assert(lists:member(Username, [<<"u_event">>, <<"u_event2">>, <<"u_event3">>])),
     verify_peername(PeerName),
     verify_peername(SockName),
     ?assertEqual(<<"MQTT">>, ProtoName),
@@ -1761,9 +1783,7 @@ verify_event_fields('client.connack', Fields) ->
     ?assert(is_boolean(CleanStart)),
     ?assertEqual(60000, ExpiryInterval),
     ?assertMatch(#{'Session-Expiry-Interval' := 60}, Properties),
-    ?assert(0 =< TimestampElapse andalso TimestampElapse =< 60*1000),
-    ?assert(0 =< RcvdAtElapse andalso RcvdAtElapse =< 60*1000),
-    ?assert(EventAt =< Timestamp);
+    ?assert(0 =< TimestampElapse andalso TimestampElapse =< 60*1000);
 
 verify_event_fields('client.check_authz_complete', Fields) ->
     #{clientid := ClientId,
