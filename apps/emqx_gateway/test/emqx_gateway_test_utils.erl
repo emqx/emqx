@@ -50,8 +50,11 @@ do_assert_confs(_Key, Expected, Effected) when
         Ks1
     );
 do_assert_confs(Key, Expected, Effected) when
+    Key == cacertfile;
     Key == <<"cacertfile">>;
+    Key == certfile;
     Key == <<"certfile">>;
+    Key == keyfile;
     Key == <<"keyfile">>
 ->
     case Expected == Effected of
@@ -117,6 +120,32 @@ request(put = Mth, Path, Body) ->
     do_request(Mth, req(Path, [], Body));
 request(post = Mth, Path, Body) ->
     do_request(Mth, req(Path, [], Body)).
+
+%%--------------------------------------------------------------------
+%% default pems
+
+ssl_server_opts() ->
+    #{
+        cacertfile => file_content(cert_path("cacert.pem")),
+        certfile => file_content(cert_path("cert.pem")),
+        keyfile => file_content(cert_path("key.pem"))
+    }.
+
+ssl_client_opts() ->
+    #{
+        cacertfile => file_content(cert_path("cacert.pem")),
+        certfile => file_content(cert_path("client-cert.pem")),
+        keyfile => file_content(cert_path("client-key.pem"))
+    }.
+
+cert_path(Name) ->
+    filename:join(["../../lib/emqx/etc/certs/", Name]).
+
+file_content(Filename) ->
+    case file:read_file(Filename) of
+        {ok, Bin} -> Bin;
+        Err -> error(Err)
+    end.
 
 do_request(Mth, Req) ->
     case httpc:request(Mth, Req, [], [{body_format, binary}]) of

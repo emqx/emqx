@@ -163,7 +163,7 @@ start_grpc_server(GwName, Options = #{bind := ListenOn}) ->
                 [
                     {ssl_options,
                         maps:to_list(
-                            maps:without([enable], maps:get(ssl, Options, #{}))
+                            maps:without([enable, handshake_timeout], maps:get(ssl, Options, #{}))
                         )}
                 ]
         end,
