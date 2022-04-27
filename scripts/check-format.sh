@@ -7,19 +7,8 @@ set -euo pipefail
 
 cd -P -- "$(dirname -- "$0")/.."
 
-APPS=()
-APPS+=( 'apps/emqx' 'apps/emqx_modules' 'apps/emqx_gateway')
-APPS+=( 'apps/emqx_authn' 'apps/emqx_authz' )
-APPS+=( 'lib-ee/emqx_enterprise_conf' 'lib-ee/emqx_license' )
-APPS+=( 'apps/emqx_exhook')
-APPS+=( 'apps/emqx_retainer' 'apps/emqx_slow_subs')
-APPS+=( 'apps/emqx_management')
-APPS+=( 'apps/emqx_psk')
-APPS+=( 'apps/emqx_plugin_libs' 'apps/emqx_machine' 'apps/emqx_statsd' )
-APPS+=( 'apps/emqx_auto_subscribe' 'apps/emqx_conf')
-APPS+=( 'apps/emqx_dashboard')
-
-for app in "${APPS[@]}"; do
+APPS="$(./scripts/find-apps.sh | xargs)"
+for app in ${APPS}; do
     echo "$app ..."
     ./scripts/format_app.py -a "$app" -f
 done
