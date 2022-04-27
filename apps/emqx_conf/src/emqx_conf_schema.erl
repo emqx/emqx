@@ -800,10 +800,10 @@ fields("log") ->
                 #{
                     mapping => "kernel.error_logger",
                     default => silent,
-                    readOnly => true,
+                    'readOnly' => true,
                     desc => ?DESC("log_error_logger")
-                })
-        }
+                }
+            )}
     ];
 fields("console_handler") ->
     log_handler_common_confs();
@@ -812,8 +812,10 @@ fields("log_file_handler") ->
         {"file",
             sc(
                 file(),
-                #{desc => ?DESC("log_file_handler_file"),
-                    validator => fun file_location/1 }
+                #{
+                    desc => ?DESC("log_file_handler_file"),
+                    validator => fun file_location/1
+                }
             )},
         {"rotation",
             sc(
@@ -1339,5 +1341,6 @@ file_location(File) ->
             nomatch -> Error;
             _ -> ok
         end
-    catch _:_ -> Error
+    catch
+        _:_ -> Error
     end.
