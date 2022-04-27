@@ -183,12 +183,20 @@ check(Username, Password) ->
     case lookup_user(Username) of
         [#mqtt_admin{password = PwdHash}] ->
             case is_valid_pwd(PwdHash, Password) of
-                true  -> ok;
-                false -> {error, <<"Username/Password error">>}
+                true  ->
+                    ok;
+                false ->
+                    ok = bad_login_penalty(),
+                    {error, <<"Username/Password error">>}
             end;
         [] ->
+            ok = bad_login_penalty(),
             {error, <<"Username/Password error">>}
     end.
+
+bad_login_penalty() ->
+    timer:sleep(2000),
+    ok.
 
 is_valid_pwd(<<Salt:4/binary, Hash/binary>>, Password) ->
     Hash =:= md5_hash(Salt, Password).
