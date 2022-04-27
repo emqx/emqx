@@ -127,7 +127,10 @@ headers_no_content_type(desc) ->
     ?DESC(?FUNCTION_NAME);
 headers_no_content_type(converter) ->
     fun(Headers) ->
-        maps:merge(default_headers_no_content_type(), transform_header_name(Headers))
+        maps:without(
+            [<<"content-type">>],
+            maps:merge(default_headers_no_content_type(), transform_header_name(Headers))
+        )
     end;
 headers_no_content_type(default) ->
     default_headers_no_content_type();
@@ -156,12 +159,11 @@ create(
     #{
         method := Method,
         url := RawURL,
-        headers := HeadersT,
+        headers := Headers,
         body := Body,
         request_timeout := RequestTimeout
     } = Config
 ) ->
-    Headers = ensure_header_name_type(HeadersT),
     {BsaeUrlWithPath, Query} = parse_fullpath(RawURL),
     URIMap = parse_url(BsaeUrlWithPath),
     ResourceId = emqx_authn_utils:make_resource_id(?MODULE),
@@ -171,7 +173,7 @@ create(
         base_query_template => emqx_authn_utils:parse_deep(
             cow_qs:parse_qs(to_bin(Query))
         ),
-        headers => maps:to_list(Headers),
+        headers => Headers,
         body_template => emqx_authn_utils:parse_deep(
             maps:to_list(Body)
         ),
@@ -403,14 +405,3 @@ to_bin(L) when is_list(L) ->
 
 get_conf_val(Name, Conf) ->
     hocon_maps:get(?CONF_NS ++ "." ++ Name, Conf).
-
-ensure_header_name_type(Headers) ->
-    Fun = fun
-        (Key, _Val, Acc) when is_binary(Key) ->
-            Acc;
-        (Key, Val, Acc) when is_atom(Key) ->
-            Acc2 = maps:remove(Key, Acc),
-            BinKey = erlang:atom_to_binary(Key),
-            Acc2#{BinKey => Val}
-    end,
-    maps:fold(Fun, Headers, Headers).

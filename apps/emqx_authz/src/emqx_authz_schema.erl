@@ -230,7 +230,12 @@ headers_no_content_type(desc) ->
     ?DESC(?FUNCTION_NAME);
 headers_no_content_type(converter) ->
     fun(Headers) ->
-        maps:to_list(maps:merge(default_headers_no_content_type(), transform_header_name(Headers)))
+        maps:to_list(
+            maps:without(
+                [<<"content-type">>],
+                maps:merge(default_headers_no_content_type(), transform_header_name(Headers))
+            )
+        )
     end;
 headers_no_content_type(default) ->
     default_headers_no_content_type();
