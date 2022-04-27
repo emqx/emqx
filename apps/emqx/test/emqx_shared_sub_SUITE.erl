@@ -49,9 +49,9 @@ t_is_ack_required(_) ->
     ?assertEqual(false, emqx_shared_sub:is_ack_required(#message{headers = #{}})).
 
 t_maybe_nack_dropped(_) ->
-    ?assertEqual(ok, emqx_shared_sub:maybe_nack_dropped(#message{headers = #{}})),
-    Msg = #message{headers = #{shared_dispatch_ack => {self(), for_test}}},
-    ?assertEqual(ok, emqx_shared_sub:maybe_nack_dropped(Msg)),
+    ?assertEqual(false, emqx_shared_sub:maybe_nack_dropped(#message{headers = #{}})),
+    Msg = #message{headers = #{shared_dispatch_ack => {<<"group">>, self(), for_test}}},
+    ?assertEqual(true, emqx_shared_sub:maybe_nack_dropped(Msg)),
     ?assertEqual(
         ok,
         receive
@@ -61,7 +61,7 @@ t_maybe_nack_dropped(_) ->
     ).
 
 t_nack_no_connection(_) ->
-    Msg = #message{headers = #{shared_dispatch_ack => {self(), for_test}}},
+    Msg = #message{headers = #{shared_dispatch_ack => {<<"group">>, self(), for_test}}},
     ?assertEqual(ok, emqx_shared_sub:nack_no_connection(Msg)),
     ?assertEqual(
         ok,
@@ -73,7 +73,7 @@ t_nack_no_connection(_) ->
 
 t_maybe_ack(_) ->
     ?assertEqual(#message{headers = #{}}, emqx_shared_sub:maybe_ack(#message{headers = #{}})),
-    Msg = #message{headers = #{shared_dispatch_ack => {self(), for_test}}},
+    Msg = #message{headers = #{shared_dispatch_ack => {<<"group">>, self(), for_test}}},
     ?assertEqual(
         #message{headers = #{shared_dispatch_ack => ?no_ack}},
         emqx_shared_sub:maybe_ack(Msg)
@@ -313,11 +313,15 @@ test_two_messages(Strategy, Group) ->
     ok.
 
 last_message(ExpectedPayload, Pids) ->
+    last_message(ExpectedPayload, Pids, 100).
+
+last_message(ExpectedPayload, Pids, Timeout) ->
     receive
         {publish, #{client_pid := Pid, payload := ExpectedPayload}} ->
             ct:pal("~p ====== ~p", [Pids, Pid]),
             {true, Pid}
-    after 500 ->
+    after Timeout ->
+        ct:pal("not yet"),
         <<"not yet?">>
     end.
 
@@ -334,11 +338,6 @@ t_dispatch(_) ->
         emqx_shared_sub:dispatch(<<"group1">>, Topic, #delivery{message = #message{}})
     ).
 
-% t_unsubscribe(_) ->
-%     error('TODO').
-
-% t_subscribe(_) ->
-%     error('TODO').
 t_uncovered_func(_) ->
     ignored = gen_server:call(emqx_shared_sub, ignored),
     ok = gen_server:cast(emqx_shared_sub, ignored),
@@ -438,6 +437,36 @@ t_local_fallback(_) ->
     stop_slave(Node),
 
     ?assertEqual(UsedSubPid1, UsedSubPid2),
+
+%% This one tests that broker tries to select another shared subscriber
+%% If the first one doesn't return an ACK
+t_redispatch(_) ->
+    ok = ensure_config(sticky, true),
+
+    Group = <<"group1">>,
+    Topic = <<"foo/bar">>,
+    ClientId1 = <<"ClientId1">>,
+    ClientId2 = <<"ClientId2">>,
+    {ok, ConnPid1} = emqtt:start_link([{clientid, ClientId1}, {auto_ack, false}]),
+    {ok, ConnPid2} = emqtt:start_link([{clientid, ClientId2}, {auto_ack, false}]),
+    {ok, _} = emqtt:connect(ConnPid1),
+    {ok, _} = emqtt:connect(ConnPid2),
+
+    emqtt:subscribe(ConnPid1, {<<"$share/", Group/binary, "/foo/bar">>, 1}),
+    emqtt:subscribe(ConnPid2, {<<"$share/", Group/binary, "/foo/bar">>, 1}),
+
+    Message = emqx_message:make(ClientId1, 1, Topic, <<"hello1">>),
+
+    emqx:publish(Message),
+
+    {true, UsedSubPid1} = last_message(<<"hello1">>, [ConnPid1, ConnPid2]),
+    ok = emqtt:stop(UsedSubPid1),
+
+    Res = last_message(<<"hello1">>, [ConnPid1, ConnPid2], 6000),
+    ?assertMatch({true, Pid} when Pid =/= UsedSubPid1, Res),
+
+    {true, UsedSubPid2} = Res,
+    emqtt:stop(UsedSubPid2),
     ok.
 
 %%--------------------------------------------------------------------
