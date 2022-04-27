@@ -141,7 +141,8 @@ fields(app) ->
                 binary(),
                 #{example => <<"Note">>, required => false}
             )},
-        {enable, hoconsc:mk(boolean(), #{desc => "Enable/Disable", required => false})}
+        {enable, hoconsc:mk(boolean(), #{desc => "Enable/Disable", required => false})},
+        {expired, hoconsc:mk(boolean(), #{desc => "Expired", required => false})}
     ];
 fields(name) ->
     [
