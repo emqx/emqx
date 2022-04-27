@@ -43,7 +43,9 @@ t_clients(_) ->
 
     AuthHeader = emqx_mgmt_api_test_util:auth_header_(),
 
-    {ok, C1} = emqtt:start_link(#{username => Username1, clientid => ClientId1}),
+    {ok, C1} = emqtt:start_link(#{
+        username => Username1, clientid => ClientId1, proto_ver => v5
+    }),
     {ok, _} = emqtt:connect(C1),
     {ok, C2} = emqtt:start_link(#{username => Username2, clientid => ClientId2}),
     {ok, _} = emqtt:connect(C2),
@@ -87,7 +89,7 @@ t_clients(_) ->
     ?assertEqual("[]", Client1AuthzCache),
 
     %% post /clients/:clientid/subscribe
-    SubscribeBody = #{topic => Topic, qos => Qos},
+    SubscribeBody = #{topic => Topic, qos => Qos, nl => 1, rh => 1},
     SubscribePath = emqx_mgmt_api_test_util:api_path([
         "clients",
         binary_to_list(ClientId1),
@@ -121,9 +123,9 @@ t_clients(_) ->
     ?assertMatch(
         #{
             <<"clientid">> := ClientId1,
-            <<"nl">> := _,
-            <<"rap">> := _,
-            <<"rh">> := _,
+            <<"nl">> := 1,
+            <<"rap">> := 0,
+            <<"rh">> := 1,
             <<"node">> := _,
             <<"qos">> := Qos,
             <<"topic">> := Topic
