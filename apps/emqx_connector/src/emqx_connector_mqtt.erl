@@ -34,12 +34,11 @@
 -export([on_message_received/3]).
 
 %% callbacks of behaviour emqx_resource
--export([
-    on_start/2,
-    on_stop/2,
-    on_query/4,
-    on_health_check/2
-]).
+-export([ on_start/2
+        , on_stop/2
+        , on_query/4
+        , on_get_status/2
+        ]).
 
 -behaviour(hocon_schema).
 
@@ -188,10 +187,10 @@ on_query(_InstId, {send_message, Msg}, AfterQuery, #{name := InstanceId}) ->
     emqx_connector_mqtt_worker:send_to_remote(InstanceId, Msg),
     emqx_resource:query_success(AfterQuery).
 
-on_health_check(_InstId, #{name := InstanceId} = State) ->
-    case emqx_connector_mqtt_worker:ping(InstanceId) of
-        pong -> {ok, State};
-        _ -> {error, {connector_down, InstanceId}, State}
+on_get_status(_InstId, #{name := InstanceId}) ->
+    case emqx_connector_mqtt_worker:status(InstanceId) of
+        connected -> connected;
+        _ -> disconnected
     end.
 
 ensure_mqtt_worker_started(InstanceId) ->

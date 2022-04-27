@@ -192,10 +192,7 @@ t_healthy(_) ->
 
     erlang:exit(Pid, shutdown),
 
-    ?assertEqual(
-        {error, dead},
-        emqx_resource:health_check(?ID)
-    ),
+    ?assertEqual(ok, emqx_resource:health_check(?ID)),
 
     ?assertMatch(
         [#{status := connecting}],

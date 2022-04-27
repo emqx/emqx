@@ -77,11 +77,9 @@ perform_lifecycle_check(PoolName, InitialConfig) ->
     ),
     ?assertEqual(InitialStatus, connected),
     % Instance should match the state and status of the just started resource
-    {ok, ?CONNECTOR_RESOURCE_GROUP, #{
-        state := State,
-        status := InitialStatus
-    }} =
-        emqx_resource:get_instance(PoolName),
+    {ok, ?CONNECTOR_RESOURCE_GROUP, #{state := State,
+                                     status := InitialStatus}}
+                                    = emqx_resource:get_instance(PoolName),
     ?assertEqual(ok, emqx_resource:health_check(PoolName)),
     % % Perform query as further check that the resource is working as expected
     ?assertMatch({ok, _, [[1]]}, emqx_resource:query(PoolName, test_query_no_params())),
@@ -102,7 +100,7 @@ perform_lifecycle_check(PoolName, InitialConfig) ->
     }} =
         emqx_resource:get_instance(PoolName),
     ?assertEqual(StoppedStatus, disconnected),
-    ?assertEqual({error, health_check_failed}, emqx_resource:health_check(PoolName)),
+    ?assertEqual(ok, emqx_resource:health_check(PoolName)),
     % Resource healthcheck shortcuts things by checking ets. Go deeper by checking pool itself.
     ?assertEqual({error, not_found}, ecpool:stop_sup_pool(ReturnedPoolName)),
     % Can call stop/1 again on an already stopped instance

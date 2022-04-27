@@ -19,20 +19,20 @@
 -include_lib("typerefl/include/types.hrl").
 -include_lib("hocon/include/hoconsc.hrl").
 -include_lib("emqx/include/logger.hrl").
+-include_lib("emqx_resource/include/emqx_resource.hrl").
 
 -export([roots/0, fields/1]).
 
 -behaviour(emqx_resource).
 
 %% callbacks of behaviour emqx_resource
--export([
-    on_start/2,
-    on_stop/2,
-    on_query/4,
-    on_health_check/2
-]).
+-export([ on_start/2
+        , on_stop/2
+        , on_query/4
+        , on_get_status/2
+        ]).
 
--export([do_health_check/1]).
+-export([do_get_status/1]).
 
 -export([connect/1]).
 
@@ -146,18 +146,17 @@ on_start(
                 [{ssl, false}]
         end ++ [{sentinel, maps:get(sentinel, Config, undefined)}],
     PoolName = emqx_plugin_libs_pool:pool_name(InstId),
+    State = #{poolname => PoolName, type => Type, auto_reconnect => AutoReconn},
     case Type of
         cluster ->
             case eredis_cluster:start_pool(PoolName, Opts ++ [{options, Options}]) of
-                {ok, _} -> {ok, #{poolname => PoolName, type => Type}};
-                {ok, _, _} -> {ok, #{poolname => PoolName, type => Type}};
+                {ok, _}         -> {ok, State};
+                {ok, _, _}      -> {ok, State};
                 {error, Reason} -> {error, Reason}
             end;
         _ ->
-            case
-                emqx_plugin_libs_pool:start_pool(PoolName, ?MODULE, Opts ++ [{options, Options}])
-            of
-                ok -> {ok, #{poolname => PoolName, type => Type}};
+            case emqx_plugin_libs_pool:start_pool(PoolName, ?MODULE, Opts ++ [{options, Options}]) of
+                ok              -> {ok, State};
                 {error, Reason} -> {error, Reason}
             end
     end.
@@ -212,25 +211,29 @@ eredis_cluster_workers_exist_and_are_connected(Workers) ->
             Workers
         ).
 
-on_health_check(_InstId, #{type := cluster, poolname := PoolName} = State) ->
+on_get_status(_InstId, #{type := cluster, poolname := PoolName, auto_reconnect := AutoReconn}) ->
     case eredis_cluster:pool_exists(PoolName) of
         true ->
             Workers = extract_eredis_cluster_workers(PoolName),
-            case eredis_cluster_workers_exist_and_are_connected(Workers) of
-                true -> {ok, State};
-                false -> {error, health_check_failed, State}
-            end;
+            Health = eredis_cluster_workers_exist_and_are_connected(Workers),
+            status_result(Health, AutoReconn);
         false ->
-            {error, health_check_failed, State}
+            disconnect
     end;
-on_health_check(_InstId, #{poolname := PoolName} = State) ->
-    emqx_plugin_libs_pool:health_check(PoolName, fun ?MODULE:do_health_check/1, State).
 
-do_health_check(Conn) ->
+
+on_get_status(_InstId, #{poolname := PoolName, auto_reconnect := AutoReconn}) ->
+   emqx_plugin_libs_pool:get_status(PoolName, fun ?MODULE:do_get_status/1, AutoReconn).
+
+do_get_status(Conn) ->
     case eredis:q(Conn, ["PING"]) of
         {ok, _} -> true;
         _ -> false
     end.
+
+status_result(_Status = true, _AutoReconn) -> connected;
+status_result(_Status = false, _AutoReconn = true) -> connecting;
+status_result(_Status = false, _AutoReconn = false) -> disconnected.
 
 reconn_interval(true) -> 15;
 reconn_interval(false) -> false.

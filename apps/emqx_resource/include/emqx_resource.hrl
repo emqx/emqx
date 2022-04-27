@@ -20,12 +20,13 @@
 -type resource_config() :: term().
 -type resource_spec() :: map().
 -type resource_state() :: term().
+-type resource_connection_status() :: connected | disconnected | connecting.
 -type resource_data() :: #{
     id := instance_id(),
     mod := module(),
     config := resource_config(),
     state := resource_state(),
-    status := connected | disconnected | connecting,
+    status := resource_connection_status(),
     metrics := emqx_plugin_libs_metrics:metrics()
 }.
 -type resource_group() :: binary().
