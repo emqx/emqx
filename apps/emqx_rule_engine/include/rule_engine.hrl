@@ -23,7 +23,7 @@
 -type rule_id() :: binary().
 -type rule_name() :: binary().
 
--type mf() :: {Module::atom(), Fun::atom()}.
+-type mf() :: {Module :: atom(), Fun :: atom()}.
 
 -type hook() :: atom() | 'any'.
 -type topic() :: binary().
@@ -36,60 +36,73 @@
 -type bridge_channel_id() :: binary().
 -type output_fun_args() :: map().
 
--type output() :: #{
-    mod := builtin_output_module() | module(),
-    func := builtin_output_func() | atom(),
-    args => output_fun_args()
-} | bridge_channel_id().
+-type output() ::
+    #{
+        mod := builtin_output_module() | module(),
+        func := builtin_output_func() | atom(),
+        args => output_fun_args()
+    }
+    | bridge_channel_id().
 
 -type rule() ::
-       #{ id := rule_id()
-        , name := binary()
-        , sql := binary()
-        , outputs := [output()]
-        , enable := boolean()
-        , description => binary()
-        , created_at := integer() %% epoch in millisecond precision
-        , updated_at := integer() %% epoch in millisecond precision
-        , from := list(topic())
-        , is_foreach := boolean()
-        , fields := list()
-        , doeach := term()
-        , incase := term()
-        , conditions := tuple()
-        }.
+    #{
+        id := rule_id(),
+        name := binary(),
+        sql := binary(),
+        outputs := [output()],
+        enable := boolean(),
+        description => binary(),
+        %% epoch in millisecond precision
+        created_at := integer(),
+        %% epoch in millisecond precision
+        updated_at := integer(),
+        from := list(topic()),
+        is_foreach := boolean(),
+        fields := list(),
+        doeach := term(),
+        incase := term(),
+        conditions := tuple()
+    }.
 
 %% Arithmetic operators
--define(is_arith(Op), (Op =:= '+' orelse
-                       Op =:= '-' orelse
-                       Op =:= '*' orelse
-                       Op =:= '/' orelse
-                       Op =:= 'div')).
+-define(is_arith(Op),
+    (Op =:= '+' orelse
+        Op =:= '-' orelse
+        Op =:= '*' orelse
+        Op =:= '/' orelse
+        Op =:= 'div')
+).
 
 %% Compare operators
--define(is_comp(Op), (Op =:= '=' orelse
-                      Op =:= '=~' orelse
-                      Op =:= '>' orelse
-                      Op =:= '<' orelse
-                      Op =:= '<=' orelse
-                      Op =:= '>=' orelse
-                      Op =:= '<>' orelse
-                      Op =:= '!=')).
+-define(is_comp(Op),
+    (Op =:= '=' orelse
+        Op =:= '=~' orelse
+        Op =:= '>' orelse
+        Op =:= '<' orelse
+        Op =:= '<=' orelse
+        Op =:= '>=' orelse
+        Op =:= '<>' orelse
+        Op =:= '!=')
+).
 
 %% Logical operators
 -define(is_logical(Op), (Op =:= 'and' orelse Op =:= 'or')).
 
 -define(RAISE(_EXP_, _ERROR_),
-        ?RAISE(_EXP_, _ = do_nothing, _ERROR_)).
+    ?RAISE(_EXP_, _ = do_nothing, _ERROR_)
+).
 
 -define(RAISE(_EXP_, _EXP_ON_FAIL_, _ERROR_),
-        fun() ->
-            try (_EXP_)
-            catch _EXCLASS_:_EXCPTION_:_ST_ ->
+    fun() ->
+        try
+            (_EXP_)
+        catch
+            _EXCLASS_:_EXCPTION_:_ST_ ->
                 _EXP_ON_FAIL_,
                 throw(_ERROR_)
-            end
-        end()).
+        end
+    end()
+).
 
 %% Tables
 -define(RULE_TAB, emqx_rule_engine).

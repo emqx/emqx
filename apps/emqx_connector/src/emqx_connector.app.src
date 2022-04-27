@@ -1,27 +1,27 @@
 %% -*- mode: erlang -*-
-{application, emqx_connector,
- [{description, "An OTP application"},
-  {vsn, "0.1.1"},
-  {registered, []},
-  {mod, {emqx_connector_app, []}},
-  {applications,
-   [kernel,
-    stdlib,
-    ecpool,
-    emqx_resource,
-    eredis_cluster,
-    eredis,
-    epgsql,
-    eldap2,
-    mysql,
-    mongodb,
-    ehttpc,
-    emqx,
-    emqtt
-   ]},
-  {env,[]},
-  {modules, []},
+{application, emqx_connector, [
+    {description, "An OTP application"},
+    {vsn, "0.1.1"},
+    {registered, []},
+    {mod, {emqx_connector_app, []}},
+    {applications, [
+        kernel,
+        stdlib,
+        ecpool,
+        emqx_resource,
+        eredis_cluster,
+        eredis,
+        epgsql,
+        eldap2,
+        mysql,
+        mongodb,
+        ehttpc,
+        emqx,
+        emqtt
+    ]},
+    {env, []},
+    {modules, []},
 
-  {licenses, ["Apache 2.0"]},
-  {links, []}
- ]}.
+    {licenses, ["Apache 2.0"]},
+    {links, []}
+]}.

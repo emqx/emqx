@@ -23,25 +23,28 @@
 -export([start_link/2]).
 
 %% load resource instances from *.conf files
--export([ lookup/1
-        , get_metrics/1
-        , reset_metrics/1
-        , list_all/0
-        , list_group/1
-        ]).
+-export([
+    lookup/1,
+    get_metrics/1,
+    reset_metrics/1,
+    list_all/0,
+    list_group/1
+]).
 
--export([ hash_call/2
-        , hash_call/3
-        ]).
+-export([
+    hash_call/2,
+    hash_call/3
+]).
 
 %% gen_server Callbacks
--export([ init/1
-        , handle_call/3
-        , handle_cast/2
-        , handle_info/2
-        , terminate/2
-        , code_change/3
-        ]).
+-export([
+    init/1,
+    handle_call/3,
+    handle_cast/2,
+    handle_info/2,
+    terminate/2,
+    code_change/3
+]).
 
 -record(state, {worker_pool, worker_id}).
 
@@ -52,8 +55,12 @@
 %%------------------------------------------------------------------------------
 
 start_link(Pool, Id) ->
-    gen_server:start_link({local, proc_name(?MODULE, Id)},
-                          ?MODULE, {Pool, Id}, []).
+    gen_server:start_link(
+        {local, proc_name(?MODULE, Id)},
+        ?MODULE,
+        {Pool, Id},
+        []
+    ).
 
 %% call the worker by the hash of resource-instance-id, to make sure we always handle
 %% operations on the same instance in the same worker.
@@ -67,8 +74,7 @@ hash_call(InstId, Request, Timeout) ->
 lookup(InstId) ->
     case ets:lookup(emqx_resource_instance, InstId) of
         [] -> {error, not_found};
-        [{_, Group, Data}] ->
-            {ok, Group, Data#{id => InstId, metrics => get_metrics(InstId)}}
+        [{_, Group, Data}] -> {ok, Group, Data#{id => InstId, metrics => get_metrics(InstId)}}
     end.
 
 make_test_id() ->
@@ -103,39 +109,32 @@ list_group(Group) ->
 %%------------------------------------------------------------------------------
 
 -spec init({atom(), integer()}) ->
-    {ok, State :: state()} | {ok, State :: state(), timeout() | hibernate | {continue, term()}} |
-    {stop, Reason :: term()} | ignore.
+    {ok, State :: state()}
+    | {ok, State :: state(), timeout() | hibernate | {continue, term()}}
+    | {stop, Reason :: term()}
+    | ignore.
 init({Pool, Id}) ->
     true = gproc_pool:connect_worker(Pool, {Pool, Id}),
     {ok, #state{worker_pool = Pool, worker_id = Id}}.
 
 handle_call({create, InstId, Group, ResourceType, Config, Opts}, _From, State) ->
     {reply, do_create(InstId, Group, ResourceType, Config, Opts), State};
-
 handle_call({create_dry_run, ResourceType, Config}, _From, State) ->
     {reply, do_create_dry_run(ResourceType, Config), State};
-
 handle_call({recreate, InstId, ResourceType, Config, Opts}, _From, State) ->
     {reply, do_recreate(InstId, ResourceType, Config, Opts), State};
-
 handle_call({reset_metrics, InstId}, _From, State) ->
     {reply, do_reset_metrics(InstId), State};
-
 handle_call({remove, InstId}, _From, State) ->
     {reply, do_remove(InstId), State};
-
 handle_call({restart, InstId, Opts}, _From, State) ->
     {reply, do_restart(InstId, Opts), State};
-
 handle_call({stop, InstId}, _From, State) ->
     {reply, do_stop(InstId), State};
-
 handle_call({health_check, InstId}, _From, State) ->
     {reply, do_health_check(InstId), State};
-
 handle_call({set_resource_status_connecting, InstId}, _From, State) ->
     {reply, do_set_resource_status_connecting(InstId), State};
-
 handle_call(Req, _From, State) ->
     logger:error("Received unexpected call: ~p", [Req]),
     {reply, ignored, State}.
@@ -155,14 +154,17 @@ code_change(_OldVsn, State, _Extra) ->
 %%------------------------------------------------------------------------------
 
 %% suppress the race condition check, as these functions are protected in gproc workers
--dialyzer({nowarn_function, [ do_recreate/4
-                            , do_create/5
-                            , do_restart/2
-                            , do_start/5
-                            , do_stop/1
-                            , do_health_check/1
-                            , start_and_check/6
-                            ]}).
+-dialyzer(
+    {nowarn_function, [
+        do_recreate/4,
+        do_create/5,
+        do_restart/2,
+        do_start/5,
+        do_stop/1,
+        do_health_check/1,
+        start_and_check/6
+    ]}
+).
 
 do_recreate(InstId, ResourceType, NewConfig, Opts) ->
     case lookup(InstId) of
@@ -185,10 +187,11 @@ do_wait_for_resource_ready(_InstId, 0) ->
     timeout;
 do_wait_for_resource_ready(InstId, Retry) ->
     case force_lookup(InstId) of
-        #{status := connected} -> ok;
+        #{status := connected} ->
+            ok;
         _ ->
             timer:sleep(100),
-            do_wait_for_resource_ready(InstId, Retry-1)
+            do_wait_for_resource_ready(InstId, Retry - 1)
     end.
 
 do_create(InstId, Group, ResourceType, Config, Opts) ->
@@ -197,8 +200,12 @@ do_create(InstId, Group, ResourceType, Config, Opts) ->
             {ok, already_created};
         {error, not_found} ->
             ok = do_start(InstId, Group, ResourceType, Config, Opts),
-            ok = emqx_plugin_libs_metrics:create_metrics(resource_metrics, InstId,
-                    [matched, success, failed, exception], [matched]),
+            ok = emqx_plugin_libs_metrics:create_metrics(
+                resource_metrics,
+                InstId,
+                [matched, success, failed, exception],
+                [matched]
+            ),
             {ok, force_lookup(InstId)}
     end.
 
@@ -212,7 +219,8 @@ do_create_dry_run(ResourceType, Config) ->
                         {error, _} = Error -> Error;
                         _ -> ok
                     end;
-                {error, Reason, _} -> {error, Reason}
+                {error, Reason, _} ->
+                    {error, Reason}
             end;
         {error, Reason} ->
             {error, Reason}
@@ -246,13 +254,18 @@ do_restart(InstId, Opts) ->
     end.
 
 do_start(InstId, Group, ResourceType, Config, Opts) when is_binary(InstId) ->
-    InitData = #{id => InstId, mod => ResourceType, config => Config,
-                 status => connecting, state => undefined},
+    InitData = #{
+        id => InstId,
+        mod => ResourceType,
+        config => Config,
+        status => connecting,
+        state => undefined
+    },
     %% The `emqx_resource:call_start/3` need the instance exist beforehand
     ets:insert(emqx_resource_instance, {InstId, Group, InitData}),
     spawn(fun() ->
-            start_and_check(InstId, Group, ResourceType, Config, Opts, InitData)
-        end),
+        start_and_check(InstId, Group, ResourceType, Config, Opts, InitData)
+    end),
     _ = wait_for_resource_ready(InstId, maps:get(wait_for_resource_ready, Opts, 5000)),
     ok.
 
@@ -268,9 +281,11 @@ start_and_check(InstId, Group, ResourceType, Config, Opts, Data) ->
     end.
 
 create_default_checker(InstId, Opts) ->
-    emqx_resource_health_check:create_checker(InstId,
+    emqx_resource_health_check:create_checker(
+        InstId,
         maps:get(health_check_interval, Opts, 15000),
-        maps:get(health_check_timeout, Opts, 10000)).
+        maps:get(health_check_timeout, Opts, 10000)
+    ).
 
 do_stop(InstId) when is_binary(InstId) ->
     do_with_group_and_instance_data(InstId, fun do_stop/2, []).
@@ -291,18 +306,24 @@ do_health_check(_Group, #{state := undefined}) ->
 do_health_check(Group, #{id := InstId, mod := Mod, state := ResourceState0} = Data) ->
     case emqx_resource:call_health_check(InstId, Mod, ResourceState0) of
         {ok, ResourceState1} ->
-            ets:insert(emqx_resource_instance,
-                {InstId, Group, Data#{status => connected, state => ResourceState1}}),
+            ets:insert(
+                emqx_resource_instance,
+                {InstId, Group, Data#{status => connected, state => ResourceState1}}
+            ),
             ok;
         {error, Reason} ->
             logger:error("health check for ~p failed: ~p", [InstId, Reason]),
-            ets:insert(emqx_resource_instance,
-                {InstId, Group, Data#{status => connecting}}),
+            ets:insert(
+                emqx_resource_instance,
+                {InstId, Group, Data#{status => connecting}}
+            ),
             {error, Reason};
         {error, Reason, ResourceState1} ->
             logger:error("health check for ~p failed: ~p", [InstId, Reason]),
-            ets:insert(emqx_resource_instance,
-                {InstId, Group, Data#{status => connecting, state => ResourceState1}}),
+            ets:insert(
+                emqx_resource_instance,
+                {InstId, Group, Data#{status => connecting, state => ResourceState1}}
+            ),
             {error, Reason}
     end.
 
@@ -311,7 +332,8 @@ do_set_resource_status_connecting(InstId) ->
         {ok, Group, #{id := InstId} = Data} ->
             logger:error("health check for ~p failed: timeout", [InstId]),
             ets:insert(emqx_resource_instance, {InstId, Group, Data#{status => connecting}});
-        Error -> {error, Error}
+        Error ->
+            {error, Error}
     end.
 
 %%------------------------------------------------------------------------------

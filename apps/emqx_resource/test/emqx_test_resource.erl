@@ -21,17 +21,21 @@
 -behaviour(emqx_resource).
 
 %% callbacks of behaviour emqx_resource
--export([ on_start/2
-        , on_stop/2
-        , on_query/4
-        , on_health_check/2
-        ]).
+-export([
+    on_start/2,
+    on_stop/2,
+    on_query/4,
+    on_health_check/2
+]).
 
 %% callbacks for emqx_resource config schema
 -export([roots/0]).
 
-roots() -> [{name, fun name/1},
-            {register, fun register/1}].
+roots() ->
+    [
+        {name, fun name/1},
+        {register, fun register/1}
+    ].
 
 name(type) -> atom();
 name(required) -> true;
@@ -46,21 +50,27 @@ on_start(_InstId, #{create_error := true}) ->
     error("some error");
 on_start(InstId, #{name := Name, stop_error := true} = Opts) ->
     Register = maps:get(register, Opts, false),
-    {ok, #{name => Name,
-           id => InstId,
-           stop_error => true,
-           pid => spawn_dummy_process(Name, Register)}};
+    {ok, #{
+        name => Name,
+        id => InstId,
+        stop_error => true,
+        pid => spawn_dummy_process(Name, Register)
+    }};
 on_start(InstId, #{name := Name, health_check_error := true} = Opts) ->
     Register = maps:get(register, Opts, false),
-    {ok, #{name => Name,
-           id => InstId,
-           health_check_error => true,
-           pid => spawn_dummy_process(Name, Register)}};
+    {ok, #{
+        name => Name,
+        id => InstId,
+        health_check_error => true,
+        pid => spawn_dummy_process(Name, Register)
+    }};
 on_start(InstId, #{name := Name} = Opts) ->
     Register = maps:get(register, Opts, false),
-    {ok, #{name => Name,
-           id => InstId,
-           pid => spawn_dummy_process(Name, Register)}}.
+    {ok, #{
+        name => Name,
+        id => InstId,
+        pid => spawn_dummy_process(Name, Register)
+    }}.
 
 on_stop(_InstId, #{stop_error := true}) ->
     {error, stop_error};
@@ -86,13 +96,15 @@ on_health_check(_InstId, State = #{pid := Pid}) ->
 
 spawn_dummy_process(Name, Register) ->
     spawn(
-      fun() ->
-              true = case Register of
-                         true -> register(Name, self());
-                         _ -> true
-                     end,
-              Ref = make_ref(),
-              receive
-                  Ref -> ok
-              end
-      end).
+        fun() ->
+            true =
+                case Register of
+                    true -> register(Name, self());
+                    _ -> true
+                end,
+            Ref = make_ref(),
+            receive
+                Ref -> ok
+            end
+        end
+    ).

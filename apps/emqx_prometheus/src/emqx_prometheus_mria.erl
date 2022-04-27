@@ -15,9 +15,10 @@
 %%--------------------------------------------------------------------
 -module(emqx_prometheus_mria).
 
--export([deregister_cleanup/1,
-         collect_mf/2
-        ]).
+-export([
+    deregister_cleanup/1,
+    collect_mf/2
+]).
 
 -include_lib("prometheus/include/prometheus.hrl").
 
@@ -43,39 +44,45 @@ deregister_cleanup(_) -> ok.
     _Registry :: prometheus_registry:registry(),
     Callback :: prometheus_collector:callback().
 collect_mf(_Registry, Callback) ->
-  case mria_rlog:backend() of
-      rlog ->
-          Metrics = metrics(),
-          _ = [add_metric_family(Metric, Callback) || Metric <- Metrics],
-          ok;
-      mnesia ->
-          ok
-  end.
+    case mria_rlog:backend() of
+        rlog ->
+            Metrics = metrics(),
+            _ = [add_metric_family(Metric, Callback) || Metric <- Metrics],
+            ok;
+        mnesia ->
+            ok
+    end.
 
 add_metric_family({Name, Metrics}, Callback) ->
-    Callback(prometheus_model_helpers:create_mf( ?METRIC_NAME(Name)
-                                               , <<"">>
-                                               , gauge
-                                               , catch_all(Metrics)
-                                               )).
+    Callback(
+        prometheus_model_helpers:create_mf(
+            ?METRIC_NAME(Name),
+            <<"">>,
+            gauge,
+            catch_all(Metrics)
+        )
+    ).
 
 %%====================================================================
 %% Internal functions
 %%====================================================================
 
 metrics() ->
-    Metrics = case mria_rlog:role() of
-                  replicant ->
-                      [lag, bootstrap_time, bootstrap_num_keys, message_queue_len, replayq_len];
-                  core ->
-                      [last_intercepted_trans, weight, replicants, server_mql]
-              end,
+    Metrics =
+        case mria_rlog:role() of
+            replicant ->
+                [lag, bootstrap_time, bootstrap_num_keys, message_queue_len, replayq_len];
+            core ->
+                [last_intercepted_trans, weight, replicants, server_mql]
+        end,
     [{MetricId, fun() -> get_shard_metric(MetricId) end} || MetricId <- Metrics].
 
 get_shard_metric(Metric) ->
     %% TODO: only report shards that are up
-    [{[{shard, Shard}], get_shard_metric(Metric, Shard)} ||
-        Shard <- mria_schema:shards(), Shard =/= undefined].
+    [
+        {[{shard, Shard}], get_shard_metric(Metric, Shard)}
+     || Shard <- mria_schema:shards(), Shard =/= undefined
+    ].
 
 get_shard_metric(replicants, Shard) ->
     length(mria_status:agents(Shard));
@@ -88,6 +95,8 @@ get_shard_metric(Metric, Shard) ->
     end.
 
 catch_all(DataFun) ->
-    try DataFun()
-    catch _:_ -> undefined
+    try
+        DataFun()
+    catch
+        _:_ -> undefined
     end.

@@ -27,20 +27,24 @@ start_link() ->
     supervisor:start_link({local, ?SERVER}, ?MODULE, []).
 
 init([]) ->
-    SupFlags = #{strategy => one_for_all,
-                 intensity => 5,
-                 period => 20},
+    SupFlags = #{
+        strategy => one_for_all,
+        intensity => 5,
+        period => 20
+    },
     ChildSpecs = [
         child_spec(emqx_connector_mqtt)
     ],
     {ok, {SupFlags, ChildSpecs}}.
 
 child_spec(Mod) ->
-    #{id => Mod,
-      start => {Mod, start_link, []},
-      restart => permanent,
-      shutdown => 3000,
-      type => supervisor,
-      modules => [Mod]}.
+    #{
+        id => Mod,
+        start => {Mod, start_link, []},
+        restart => permanent,
+        shutdown => 3000,
+        type => supervisor,
+        modules => [Mod]
+    }.
 
 %% internal functions

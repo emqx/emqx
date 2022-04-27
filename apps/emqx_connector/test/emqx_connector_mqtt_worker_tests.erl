@@ -23,13 +23,13 @@
 -define(BRIDGE_NAME, test).
 -define(BRIDGE_REG_NAME, emqx_connector_mqtt_worker_test).
 -define(WAIT(PATTERN, TIMEOUT),
-        receive
-            PATTERN ->
-                ok
-        after
-            TIMEOUT ->
-                error(timeout)
-        end).
+    receive
+        PATTERN ->
+            ok
+    after TIMEOUT ->
+        error(timeout)
+    end
+).
 
 -export([start/1, send/2, stop/1]).
 
@@ -125,7 +125,7 @@ manual_start_stop_test() ->
         Ref = make_ref(),
         TestPid = self(),
         BridgeName = manual_start_stop,
-        Config0 = make_config(Ref, TestPid, {ok, #{client_pid =>  TestPid}}),
+        Config0 = make_config(Ref, TestPid, {ok, #{client_pid => TestPid}}),
         Config = Config0#{start_type := manual},
         {ok, Pid} = emqx_connector_mqtt_worker:start_link(Config#{name => BridgeName}),
         %% call ensure_started again should yield the same result

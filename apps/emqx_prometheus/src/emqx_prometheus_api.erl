@@ -22,14 +22,16 @@
 
 -import(hoconsc, [ref/2]).
 
--export([ api_spec/0
-        , paths/0
-        , schema/1
-        ]).
+-export([
+    api_spec/0,
+    paths/0,
+    schema/1
+]).
 
--export([ prometheus/2
-        , stats/2
-        ]).
+-export([
+    prometheus/2,
+    stats/2
+]).
 
 -define(SCHEMA_MODULE, emqx_prometheus_schema).
 
@@ -37,32 +39,38 @@ api_spec() ->
     emqx_dashboard_swagger:spec(?MODULE, #{check_schema => true}).
 
 paths() ->
-    [ "/prometheus"
-    , "/prometheus/stats"
+    [
+        "/prometheus",
+        "/prometheus/stats"
     ].
 
 schema("/prometheus") ->
-    #{ 'operationId' => prometheus
-     , get =>
-           #{ description => <<"Get Prometheus config info">>
-            , responses =>
-                  #{200 => prometheus_config_schema()}
+    #{
+        'operationId' => prometheus,
+        get =>
+            #{
+                description => <<"Get Prometheus config info">>,
+                responses =>
+                    #{200 => prometheus_config_schema()}
+            },
+        put =>
+            #{
+                description => <<"Update Prometheus config">>,
+                'requestBody' => prometheus_config_schema(),
+                responses =>
+                    #{200 => prometheus_config_schema()}
             }
-     , put =>
-           #{ description => <<"Update Prometheus config">>
-            , 'requestBody' => prometheus_config_schema()
-            , responses =>
-                  #{200 => prometheus_config_schema()}
-            }
-     };
+    };
 schema("/prometheus/stats") ->
-    #{ 'operationId' => stats
-     , get =>
-           #{ description => <<"Get Prometheus Data">>
-            , responses =>
-                  #{200 => prometheus_data_schema()}
+    #{
+        'operationId' => stats,
+        get =>
+            #{
+                description => <<"Get Prometheus Data">>,
+                responses =>
+                    #{200 => prometheus_data_schema()}
             }
-     }.
+    }.
 
 %%--------------------------------------------------------------------
 %% API Handler funcs
@@ -70,7 +78,6 @@ schema("/prometheus/stats") ->
 
 prometheus(get, _Params) ->
     {200, emqx:get_raw_config([<<"prometheus">>], #{})};
-
 prometheus(put, #{body := Body}) ->
     case emqx_prometheus:update(Body) of
         {ok, NewConfig} ->
@@ -100,21 +107,25 @@ stats(get, #{headers := Headers}) ->
 
 prometheus_config_schema() ->
     emqx_dashboard_swagger:schema_with_example(
-      ref(?SCHEMA_MODULE, "prometheus"),
-      prometheus_config_example()).
+        ref(?SCHEMA_MODULE, "prometheus"),
+        prometheus_config_example()
+    ).
 
 prometheus_config_example() ->
-    #{ enable => true
-     , interval => "15s"
-     , push_gateway_server => <<"http://127.0.0.1:9091">>
-     }.
+    #{
+        enable => true,
+        interval => "15s",
+        push_gateway_server => <<"http://127.0.0.1:9091">>
+    }.
 
 prometheus_data_schema() ->
-    #{ description => <<"Get Prometheus Data">>
-     , content =>
-           #{ 'application/json' =>
-                  #{schema => #{type => object}}
-            , 'text/plain' =>
-                  #{schema => #{type => string}}
+    #{
+        description => <<"Get Prometheus Data">>,
+        content =>
+            #{
+                'application/json' =>
+                    #{schema => #{type => object}},
+                'text/plain' =>
+                    #{schema => #{type => string}}
             }
-     }.
+    }.

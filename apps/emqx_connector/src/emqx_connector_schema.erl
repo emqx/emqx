@@ -24,10 +24,11 @@
 
 -export([namespace/0, roots/0, fields/1, desc/1]).
 
--export([ get_response/0
-        , put_request/0
-        , post_request/0
-        ]).
+-export([
+    get_response/0,
+    put_request/0,
+    post_request/0
+]).
 
 %% the config for http bridges do not need connectors
 -define(CONN_TYPES, [mqtt]).
@@ -55,18 +56,25 @@ namespace() -> connector.
 
 roots() -> ["connectors"].
 
-fields(connectors) -> fields("connectors");
+fields(connectors) ->
+    fields("connectors");
 fields("connectors") ->
-    [ {mqtt,
-       mk(hoconsc:map(name,
-            hoconsc:union([ ref(emqx_connector_mqtt_schema, "connector")
-                          ])),
-          #{ desc => ?DESC("mqtt")
-          })}
+    [
+        {mqtt,
+            mk(
+                hoconsc:map(
+                    name,
+                    hoconsc:union([ref(emqx_connector_mqtt_schema, "connector")])
+                ),
+                #{desc => ?DESC("mqtt")}
+            )}
     ].
 
-desc(Record) when Record =:= connectors;
-                  Record =:= "connectors" -> ?DESC("desc_connector");
+desc(Record) when
+    Record =:= connectors;
+    Record =:= "connectors"
+->
+    ?DESC("desc_connector");
 desc(_) ->
     undefined.
 

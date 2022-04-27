@@ -16,21 +16,23 @@
 
 -module(emqx_plugins_cli).
 
--export([ list/1
-        , describe/2
-        , ensure_installed/2
-        , ensure_uninstalled/2
-        , ensure_started/2
-        , ensure_stopped/2
-        , restart/2
-        , ensure_disabled/2
-        , ensure_enabled/3
-        ]).
+-export([
+    list/1,
+    describe/2,
+    ensure_installed/2,
+    ensure_uninstalled/2,
+    ensure_started/2,
+    ensure_stopped/2,
+    restart/2,
+    ensure_disabled/2,
+    ensure_enabled/3
+]).
 
 -include_lib("emqx/include/logger.hrl").
 
 -define(PRINT(EXPR, LOG_FUN),
-        print(NameVsn, fun()-> EXPR end(), LOG_FUN, ?FUNCTION_NAME)).
+    print(NameVsn, fun() -> EXPR end(), LOG_FUN, ?FUNCTION_NAME)
+).
 
 list(LogFun) ->
     LogFun("~ts~n", [to_json(emqx_plugins:list())]).
@@ -43,9 +45,11 @@ describe(NameVsn, LogFun) ->
             %% this should not happen unless the package is manually installed
             %% corrupted packages installed from emqx_plugins:ensure_installed
             %% should not leave behind corrupted files
-            ?SLOG(error, #{msg => "failed_to_describe_plugin",
-                           name_vsn => NameVsn,
-                           cause => Reason}),
+            ?SLOG(error, #{
+                msg => "failed_to_describe_plugin",
+                name_vsn => NameVsn,
+                cause => Reason
+            }),
             %% do nothing to the CLI console
             ok
     end.
@@ -75,14 +79,18 @@ to_json(Input) ->
     emqx_logger_jsonfmt:best_effort_json(Input).
 
 print(NameVsn, Res, LogFun, Action) ->
-    Obj = #{action => Action,
-            name_vsn => NameVsn},
+    Obj = #{
+        action => Action,
+        name_vsn => NameVsn
+    },
     JsonReady =
         case Res of
             ok ->
                 Obj#{result => ok};
             {error, Reason} ->
-                Obj#{result => not_ok,
-                     cause => Reason}
+                Obj#{
+                    result => not_ok,
+                    cause => Reason
+                }
         end,
     LogFun("~ts~n", [to_json(JsonReady)]).

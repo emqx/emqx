@@ -67,9 +67,14 @@ t_prometheus_api(_) ->
     {ok, Response} = emqx_mgmt_api_test_util:request_api(get, Path, "", Auth),
 
     Conf = emqx_json:decode(Response, [return_maps]),
-    ?assertMatch(#{<<"push_gateway_server">> := _,
-                   <<"interval">> := _,
-                   <<"enable">> := _}, Conf),
+    ?assertMatch(
+        #{
+            <<"push_gateway_server">> := _,
+            <<"interval">> := _,
+            <<"enable">> := _
+        },
+        Conf
+    ),
 
     NewConf = Conf#{<<"interval">> := <<"2s">>},
     {ok, Response2} = emqx_mgmt_api_test_util:request_api(put, Path, "", Auth, NewConf),

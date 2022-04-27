@@ -22,17 +22,20 @@
 -include_lib("snabbkaffe/include/snabbkaffe.hrl").
 
 %% API functions
--export([ start_link/0
-        , ensure_all_started/1
-        ]).
+-export([
+    start_link/0,
+    ensure_all_started/1
+]).
 
 %% gen_server callbacks
--export([init/1,
-         handle_call/3,
-         handle_cast/2,
-         handle_info/2,
-         terminate/2,
-         code_change/3]).
+-export([
+    init/1,
+    handle_call/3,
+    handle_cast/2,
+    handle_info/2,
+    terminate/2,
+    code_change/3
+]).
 
 -record(state, {}).
 
@@ -52,7 +55,6 @@ handle_call(_Request, _From, State) ->
 handle_cast({start_and_monitor, Configs}, State) ->
     ok = load_bridges(Configs),
     {noreply, State};
-
 handle_cast(_Msg, State) ->
     {noreply, State}.
 
@@ -67,13 +69,22 @@ code_change(_OldVsn, State, _Extra) ->
 
 %%============================================================================
 load_bridges(Configs) ->
-    lists:foreach(fun({Type, NamedConf}) ->
-            lists:foreach(fun({Name, Conf}) ->
+    lists:foreach(
+        fun({Type, NamedConf}) ->
+            lists:foreach(
+                fun({Name, Conf}) ->
                     _Res = emqx_bridge:create(Type, Name, Conf),
-                    ?tp(emqx_bridge_monitor_loaded_bridge,
-                        #{ type => Type
-                         , name => Name
-                         , res  => _Res
-                         })
-                end, maps:to_list(NamedConf))
-        end, maps:to_list(Configs)).
+                    ?tp(
+                        emqx_bridge_monitor_loaded_bridge,
+                        #{
+                            type => Type,
+                            name => Name,
+                            res => _Res
+                        }
+                    )
+                end,
+                maps:to_list(NamedConf)
+            )
+        end,
+        maps:to_list(Configs)
+    ).

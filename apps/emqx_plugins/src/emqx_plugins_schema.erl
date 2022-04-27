@@ -18,10 +18,11 @@
 
 -behaviour(hocon_schema).
 
--export([ roots/0
-        , fields/1
-        , namespace/0
-        ]).
+-export([
+    roots/0,
+    fields/1,
+    namespace/0
+]).
 
 -include_lib("hocon/include/hoconsc.hrl").
 -include("emqx_plugins.hrl").
@@ -31,31 +32,41 @@ namespace() -> "plugin".
 roots() -> [?CONF_ROOT].
 
 fields(?CONF_ROOT) ->
-    #{fields => root_fields(),
-      desc => ?DESC(?CONF_ROOT)
-     };
+    #{
+        fields => root_fields(),
+        desc => ?DESC(?CONF_ROOT)
+    };
 fields(state) ->
-    #{ fields => state_fields(),
-       desc => ?DESC(state)
-     }.
+    #{
+        fields => state_fields(),
+        desc => ?DESC(state)
+    }.
 
 state_fields() ->
-    [ {name_vsn,
-       hoconsc:mk(string(),
-                  #{ desc =>  ?DESC(name_vsn)
-                   , required => true
-                   })}
-    , {enable,
-       hoconsc:mk(boolean(),
-                  #{ desc => ?DESC(enable)
-                   , required => true
-                   })}
+    [
+        {name_vsn,
+            hoconsc:mk(
+                string(),
+                #{
+                    desc => ?DESC(name_vsn),
+                    required => true
+                }
+            )},
+        {enable,
+            hoconsc:mk(
+                boolean(),
+                #{
+                    desc => ?DESC(enable),
+                    required => true
+                }
+            )}
     ].
 
 root_fields() ->
-    [ {states, fun states/1}
-    , {install_dir, fun install_dir/1}
-    , {check_interval, fun check_interval/1}
+    [
+        {states, fun states/1},
+        {install_dir, fun install_dir/1},
+        {check_interval, fun check_interval/1}
     ].
 
 states(type) -> hoconsc:array(hoconsc:ref(?MODULE, state));
@@ -66,7 +77,8 @@ states(_) -> undefined.
 
 install_dir(type) -> string();
 install_dir(required) -> false;
-install_dir(default) -> "plugins"; %% runner's root dir
+%% runner's root dir
+install_dir(default) -> "plugins";
 install_dir(T) when T =/= desc -> undefined;
 install_dir(desc) -> ?DESC(install_dir).
 
