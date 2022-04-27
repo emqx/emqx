@@ -31,8 +31,6 @@
         , egress_desc/0
         ]).
 
--export([non_empty_string/1]).
-
 -import(emqx_schema, [mk_duration/2]).
 
 namespace() -> "connector-mqtt".
@@ -98,7 +96,7 @@ fields("ingress") ->
     [ {remote_topic,
         sc(binary(),
            #{ required => true
-            , validator => fun ?MODULE:non_empty_string/1
+            , validator => fun emqx_schema:non_empty_string/1
             , desc => ?DESC("ingress_remote_topic")
             })}
     , {remote_qos,
@@ -108,7 +106,7 @@ fields("ingress") ->
             })}
     , {local_topic,
         sc(binary(),
-           #{ validator => fun ?MODULE:non_empty_string/1
+           #{ validator => fun emqx_schema:non_empty_string/1
             , desc => ?DESC("ingress_local_topic")
             })}
     , {local_qos,
@@ -140,12 +138,12 @@ fields("egress") ->
     [ {local_topic,
         sc(binary(),
            #{ desc => ?DESC("egress_local_topic")
-            , validator => fun ?MODULE:non_empty_string/1
+            , validator => fun emqx_schema:non_empty_string/1
             })}
     , {remote_topic,
         sc(binary(),
            #{ required => true
-            , validator => fun ?MODULE:non_empty_string/1
+            , validator => fun emqx_schema:non_empty_string/1
             , desc => ?DESC("egress_remote_topic")
             })}
     , {remote_qos,
@@ -227,11 +225,6 @@ local_topic will be forwarded.
 
 qos() ->
     hoconsc:union([emqx_schema:qos(), binary()]).
-
-non_empty_string(<<>>) -> {error, empty_string_not_allowed};
-non_empty_string("") -> {error, empty_string_not_allowed};
-non_empty_string(S) when is_binary(S); is_list(S) -> ok;
-non_empty_string(_) -> {error, invalid_string}.
 
 sc(Type, Meta) -> hoconsc:mk(Type, Meta).
 ref(Field) -> hoconsc:ref(?MODULE, Field).
