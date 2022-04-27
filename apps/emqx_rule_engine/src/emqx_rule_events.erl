@@ -258,8 +258,7 @@ eventmsg_connack(ConnInfo = #{
                     peername := PeerName,
                     sockname := SockName,
                     proto_name := ProtoName,
-                    proto_ver := ProtoVer,
-                    connected_at := ConnectedAt
+                    proto_ver := ProtoVer
                    }, Reason) ->
     Keepalive = maps:get(keepalive, ConnInfo, 0),
     ConnProps = maps:get(conn_props, ConnInfo, #{}),
@@ -275,7 +274,6 @@ eventmsg_connack(ConnInfo = #{
           proto_ver => ProtoVer,
           keepalive => Keepalive,
           expiry_interval => ExpiryInterval,
-          connected_at => ConnectedAt,
           conn_props => printable_maps(ConnProps)
         }).
 
