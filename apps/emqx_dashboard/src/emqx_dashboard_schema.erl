@@ -77,26 +77,14 @@ fields("listeners") ->
     ];
 fields("http") ->
     [
-        {"enable",
-            sc(
-                boolean(),
-                #{
-                    default => true,
-                    desc => ?DESC(listener_enable)
-                }
-            )}
+        enable(true),
+        bind(18803)
         | common_listener_fields()
     ];
 fields("https") ->
     [
-        {"enable",
-            sc(
-                boolean(),
-                #{
-                    default => false,
-                    desc => ?DESC(listener_enable)
-                }
-            )}
+        enable(false),
+        bind(18804)
         | common_listener_fields() ++
             exclude_fields(
                 ["enable", "fail_if_no_peer_cert"],
@@ -115,7 +103,6 @@ exclude_fields([FieldName | Rest], Fields) ->
 
 common_listener_fields() ->
     [
-        {"bind", fun bind/1},
         {"num_acceptors",
             sc(
                 integer(),
@@ -166,6 +153,28 @@ common_listener_fields() ->
             )}
     ].
 
+enable(Bool) ->
+    {"enable",
+        sc(
+            boolean(),
+            #{
+                default => Bool,
+                required => true,
+                desc => ?DESC(listener_enable)
+            }
+        )}.
+
+bind(Port) ->
+    {"bind",
+        sc(
+            hoconsc:union([non_neg_integer(), emqx_schema:ip_port()]),
+            #{
+                default => Port,
+                required => true,
+                desc => ?DESC(bind)
+            }
+        )}.
+
 desc("dashboard") ->
     ?DESC(desc_dashboard);
 desc("listeners") ->
@@ -176,12 +185,6 @@ desc("https") ->
     ?DESC(desc_https);
 desc(_) ->
     undefined.
-
-bind(type) -> hoconsc:union([non_neg_integer(), emqx_schema:ip_port()]);
-bind(default) -> 18083;
-bind(required) -> true;
-bind(desc) -> ?DESC(bind);
-bind(_) -> undefined.
 
 default_username(type) -> binary();
 default_username(default) -> "admin";
