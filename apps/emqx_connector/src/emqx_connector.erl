@@ -48,12 +48,13 @@ pre_config_update(Path, Conf, _OldConfig) when is_map(Conf) ->
 -dialyzer([{nowarn_function, [post_config_update/5]}, error_handling]).
 post_config_update([connectors, Type, Name] = Path, '$remove', _, OldConf, _AppEnvs) ->
     ConnId = connector_id(Type, Name),
-    try foreach_linked_bridges(ConnId, fun(#{type := BType, name := BName}) ->
+    try
+        foreach_linked_bridges(ConnId, fun(#{type := BType, name := BName}) ->
             throw({dependency_bridges_exist, emqx_bridge:bridge_id(BType, BName)})
-        end)
+        end),
+        _ = emqx_connector_ssl:clear_certs(filename:join(Path), OldConf)
     catch throw:Error -> {error, Error}
-    end,
-    _ = emqx_connector_ssl:clear_certs(filename:join(Path), OldConf);
+    end;
 post_config_update([connectors, Type, Name], _Req, NewConf, OldConf, _AppEnvs) ->
     ConnId = connector_id(Type, Name),
     foreach_linked_bridges(ConnId,
