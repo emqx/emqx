@@ -175,34 +175,21 @@ init_i18n() ->
     Lang = emqx_conf:get([dashboard, i18n_lang], en),
     init_i18n(File, Lang).
 
-ranch_opts(RanchOptions) ->
+ranch_opts(Options) ->
     Keys = [
-        {ack_timeout, handshake_timeout},
+        handshake_timeout,
         connection_type,
         max_connections,
         num_acceptors,
         shutdown,
         socket
     ],
-    {S, R} = lists:foldl(fun key_take/2, {RanchOptions, #{}}, Keys),
-    R#{socket_opts => maps:fold(fun key_only/3, [], S)}.
+    RanchOpts = maps:with(Keys, Options),
+    SocketOpts = maps:fold(fun filter_false/3, [], maps:without([enable | Keys], Options)),
+    RanchOpts#{socket_opts => SocketOpts}.
 
-key_take(Key, {All, R}) ->
-    {K, KX} =
-        case Key of
-            {K1, K2} -> {K1, K2};
-            _ -> {Key, Key}
-        end,
-    case maps:get(K, All, undefined) of
-        undefined ->
-            {All, R};
-        V ->
-            {maps:remove(K, All), R#{KX => V}}
-    end.
-
-key_only(K, true, S) -> [K | S];
-key_only(_K, false, S) -> S;
-key_only(K, V, S) -> [{K, V} | S].
+filter_false(_K, false, S) -> S;
+filter_false(K, V, S) -> [{K, V} | S].
 
 listener_name(Protocol, #{port := Port, ip := IP}) ->
     Name =
