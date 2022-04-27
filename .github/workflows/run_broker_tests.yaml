@@ -127,7 +127,7 @@ jobs:
         name: jmeter_logs
         path: ./jmeter_logs
 
-  pgslq_authn_authz:
+  pgsql_authn_authz:
     runs-on: ubuntu-latest
 
     strategy:
@@ -514,7 +514,7 @@ jobs:
 
   delete-artifact:
     runs-on: ubuntu-latest
-    needs: [advanced_feat,pgslq_authn_authz,JWT_authn,mysql_authn_authz,built_in_database_authn_authz]
+    needs: [advanced_feat,pgsql_authn_authz,JWT_authn,mysql_authn_authz,built_in_database_authn_authz]
     steps:
     - uses: geekyeggo/delete-artifact@v1
       with:
