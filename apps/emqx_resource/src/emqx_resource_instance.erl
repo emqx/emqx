@@ -303,7 +303,13 @@ do_health_check(InstId) when is_binary(InstId) ->
 
 do_health_check(_Group, #{state := undefined}) ->
     {error, resource_not_initialized};
-do_health_check(Group, #{id := InstId, mod := Mod, state := ResourceState0} = Data) ->
+do_health_check(Group,
+        #{id := InstId, mod := Mod, state := ResourceState0, config := Config} = Data) ->
+    FailedConnectStatus =
+        case maps:get(auto_reconnect, Config, true) of
+            true -> connecting;
+            false -> disconnected
+        end,
     case emqx_resource:call_health_check(InstId, Mod, ResourceState0) of
         {ok, ResourceState1} ->
             ets:insert(
@@ -313,17 +319,13 @@ do_health_check(Group, #{id := InstId, mod := Mod, state := ResourceState0} = Da
             ok;
         {error, Reason} ->
             logger:error("health check for ~p failed: ~p", [InstId, Reason]),
-            ets:insert(
-                emqx_resource_instance,
-                {InstId, Group, Data#{status => connecting}}
-            ),
+            ets:insert(emqx_resource_instance,
+                {InstId, Group, Data#{status => FailedConnectStatus}}),
             {error, Reason};
         {error, Reason, ResourceState1} ->
             logger:error("health check for ~p failed: ~p", [InstId, Reason]),
-            ets:insert(
-                emqx_resource_instance,
-                {InstId, Group, Data#{status => connecting, state => ResourceState1}}
-            ),
+            ets:insert(emqx_resource_instance,
+                {InstId, Group, Data#{status => FailedConnectStatus, state => ResourceState1}}),
             {error, Reason}
     end.
 
