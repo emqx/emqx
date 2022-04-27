@@ -60,3 +60,16 @@ jobs:
       with:
         name: logs
         path: apps/emqx/_build/test/logs
+
+  allgood_emqx_app_tests:
+    runs-on: ubuntu-latest
+    if: always()
+    needs:
+      - run_emqx_app_tests
+    steps:
+    - name: Check if all emqx app tests succeeded
+      uses: re-actors/alls-green@release/v1
+      with:
+        #allowed-failures:
+        #allowed-skips:
+        jobs: ${{ toJSON(needs) }}

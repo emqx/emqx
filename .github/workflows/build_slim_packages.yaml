@@ -220,7 +220,7 @@ jobs:
         - emqx-edge
         - emqx
         - emqx-enterprise
-    runs-on: ubuntu-20.04
+    runs-on: aws-amd64
     container: "ghcr.io/iequ1/emqx-schema-validate:0.3.1"
     steps:
     - uses: actions/download-artifact@v2
@@ -234,8 +234,8 @@ jobs:
         bash start.sh > /dev/null &
         ./emqx_schema_validate /tmp/${{ matrix.profile }}/lib/emqx_dashboard/priv/www/static/schema.json
 
-  packaging_allgood:
-    runs-on: ubuntu-20.04
+  allgood_packaging:
+    runs-on: ubuntu-latest
     if: always()
     needs:
       - linux

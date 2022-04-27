@@ -227,7 +227,7 @@ jobs:
                  --header "Content-Type: application/json" \
                  --data "{\"repo_name\":\"$GITHUB_REPOSITORY\",\"repo_token\":\"$GITHUB_TOKEN\",\"payload\":{\"build_num\":$GITHUB_RUN_ID,\"status\":\"done\"}}" || true
 
-    functional_tests_allgood:
+    allgood_functional_tests:
       runs-on: ubuntu-20.04
       if: always()
       needs:

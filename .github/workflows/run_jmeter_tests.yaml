@@ -156,7 +156,7 @@ jobs:
     - name: docker compose up
       timeout-minutes: 5
       env:
-        _EMQX_DOCKER_IMAGE_TAG: emqx/emqx:${{ needs.build.outputs.version }}
+        _EMQX_DOCKER_IMAGE_TAG: emqx/emqx:${{ needs.build_emqx_for_jmeter_tests.outputs.version }}
         PGSQL_TAG: ${{ matrix.pgsql_tag }}
       run: |
         docker-compose \
@@ -257,7 +257,7 @@ jobs:
     - name: docker compose up
       timeout-minutes: 5
       env:
-        _EMQX_DOCKER_IMAGE_TAG: emqx/emqx:${{ needs.build.outputs.version }}
+        _EMQX_DOCKER_IMAGE_TAG: emqx/emqx:${{ needs.build_emqx_for_jmeter_tests.outputs.version }}
         PGSQL_TAG: ${{ matrix.mysql_tag }}
       run: |
         docker-compose \
@@ -354,7 +354,7 @@ jobs:
     - name: docker compose up
       timeout-minutes: 5
       env:
-        _EMQX_DOCKER_IMAGE_TAG: emqx/emqx:${{ needs.build.outputs.version }}
+        _EMQX_DOCKER_IMAGE_TAG: emqx/emqx:${{ needs.build_emqx_for_jmeter_tests.outputs.version }}
       run: |
         docker-compose \
           -f .ci/docker-compose-file/docker-compose-emqx-cluster.yaml \
@@ -520,7 +520,7 @@ jobs:
       with:
         name: emqx.tar
 
-  integration_tests_allgood:
+  allgood_integration_tests:
     runs-on: ubuntu-20.04
     if: always()
     needs: [advanced_feat,pgsql_authn_authz,JWT_authn,mysql_authn_authz,built_in_database_authn_authz]
