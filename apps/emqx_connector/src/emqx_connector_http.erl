@@ -80,10 +80,10 @@ fields(config) ->
            #{ default => 5
             , desc => ?DESC("max_retries")
             })}
-    , {retry_interval,
+    , {retry_timeout,
         sc(emqx_schema:duration(),
            #{ default => "1s"
-            , desc => ?DESC("retry_interval")
+            , desc => ?DESC("retry_timeout")
             })}
     , {pool_type,
         sc(pool_type(),
@@ -141,7 +141,7 @@ on_start(InstId, #{base_url := #{scheme := Scheme,
                                  path := BasePath},
                    connect_timeout := ConnectTimeout,
                    max_retries := MaxRetries,
-                   retry_interval := RetryInterval,
+                   retry_timeout := RetryTimeout,
                    pool_type := PoolType,
                    pool_size := PoolSize} = Config) ->
     ?SLOG(info, #{msg => "starting_http_connector",
@@ -159,7 +159,7 @@ on_start(InstId, #{base_url := #{scheme := Scheme,
                , {port, Port}
                , {connect_timeout, ConnectTimeout}
                , {retry, MaxRetries}
-               , {retry_timeout, RetryInterval}
+               , {retry_timeout, RetryTimeout}
                , {keepalive, 30000}
                , {pool_type, PoolType}
                , {pool_size, PoolSize}
