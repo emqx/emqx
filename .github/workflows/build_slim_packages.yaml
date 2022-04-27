@@ -23,7 +23,7 @@ on:
 
 jobs:
   linux:
-    runs-on: ubuntu-20.04
+    runs-on: aws-amd64
 
     strategy:
       fail-fast: false
