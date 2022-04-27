@@ -153,10 +153,13 @@ apps() ->
     ].
 
 listeners(Listeners) ->
-    lists:map(
+    lists:filtermap(
         fun({Protocol, Conf}) ->
-            {Conf1, Bind} = ip_port(Conf),
-            {listener_name(Protocol, Conf1), Protocol, Bind, ranch_opts(Conf1)}
+            maps:get(enable, Conf) andalso
+                begin
+                    {Conf1, Bind} = ip_port(Conf),
+                    {true, {listener_name(Protocol, Conf1), Protocol, Bind, ranch_opts(Conf1)}}
+                end
         end,
         maps:to_list(Listeners)
     ).
