@@ -95,7 +95,7 @@ fields("metrics_status_fields") ->
                 hoconsc:array(ref(?MODULE, "node_metrics")),
                 #{desc => ?DESC("node_metrics")}
             )},
-        {"status", mk(status(), #{desc => ?DESC("status")})},
+        {"status", mk(cluster_status(), #{desc => ?DESC("status")})},
         {"node_status",
             mk(
                 hoconsc:array(ref(?MODULE, "node_status")),
@@ -124,6 +124,9 @@ fields("node_status") ->
 
 status() ->
     hoconsc:enum([connected, disconnected, connecting]).
+
+cluster_status() ->
+    hoconsc:enum([connected, disconnected, connecting, inconsistent]).
 
 node_name() ->
     {"node", mk(binary(), #{desc => ?DESC("node"), example => "emqx@127.0.0.1"})}.
