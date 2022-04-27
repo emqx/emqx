@@ -48,7 +48,7 @@ defmodule EMQXUmbrella.MixProject do
     [
       {:lc, github: "emqx/lc", tag: "0.2.1"},
       {:redbug, "2.0.7"},
-      {:typerefl, github: "ieQu1/typerefl", tag: "0.9.0", override: true},
+      {:typerefl, github: "ieQu1/typerefl", tag: "0.9.1", override: true},
       {:ehttpc, github: "emqx/ehttpc", tag: "0.1.12"},
       {:gproc, github: "uwiger/gproc", tag: "0.8.0", override: true},
       {:jiffy, github: "emqx/jiffy", tag: "1.0.5", override: true},
