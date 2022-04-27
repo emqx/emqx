@@ -441,6 +441,11 @@ check_claim_name(iat) ->
     false;
 check_claim_name(nbf) ->
     false;
+check_claim_name(Name) when
+    Name == <<>>;
+    Name == ""
+->
+    false;
 check_claim_name(_) ->
     true.
 
