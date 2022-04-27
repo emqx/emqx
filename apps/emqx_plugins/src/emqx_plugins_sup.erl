@@ -29,7 +29,8 @@ init([]) ->
     %% TODO: Add monitor plugins change.
     Monitor = emqx_plugins_monitor,
     _Children = [
-        #{id => Monitor,
+        #{
+            id => Monitor,
             start => {Monitor, start_link, []},
             restart => permanent,
             shutdown => brutal_kill,

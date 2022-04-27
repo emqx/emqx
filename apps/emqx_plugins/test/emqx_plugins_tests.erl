@@ -23,23 +23,26 @@
 
 ensure_configured_test_todo() ->
     meck_emqx(),
-    try test_ensure_configured()
-    after emqx_plugins:put_configured([])
+    try
+        test_ensure_configured()
+    after
+        emqx_plugins:put_configured([])
     end,
     meck:unload(emqx).
 
-
 test_ensure_configured() ->
     ok = emqx_plugins:put_configured([]),
-    P1 =#{name_vsn => "p-1", enable => true},
-    P2 =#{name_vsn => "p-2", enable => true},
-    P3 =#{name_vsn => "p-3", enable => false},
+    P1 = #{name_vsn => "p-1", enable => true},
+    P2 = #{name_vsn => "p-2", enable => true},
+    P3 = #{name_vsn => "p-3", enable => false},
     emqx_plugins:ensure_configured(P1, front),
     emqx_plugins:ensure_configured(P2, {before, <<"p-1">>}),
     emqx_plugins:ensure_configured(P3, {before, <<"p-1">>}),
     ?assertEqual([P2, P3, P1], emqx_plugins:configured()),
-    ?assertThrow(#{error := "position_anchor_plugin_not_configured"},
-                 emqx_plugins:ensure_configured(P3, {before, <<"unknown-x">>})).
+    ?assertThrow(
+        #{error := "position_anchor_plugin_not_configured"},
+        emqx_plugins:ensure_configured(P3, {before, <<"unknown-x">>})
+    ).
 
 read_plugin_test() ->
     meck_emqx(),
@@ -47,16 +50,20 @@ read_plugin_test() ->
         fun(_Dir) ->
             NameVsn = "bar-5",
             InfoFile = emqx_plugins:info_file(NameVsn),
-            FakeInfo = "name=bar, rel_vsn=\"5\", rel_apps=[justname_no_vsn],"
-                       "description=\"desc bar\"",
+            FakeInfo =
+                "name=bar, rel_vsn=\"5\", rel_apps=[justname_no_vsn],"
+                "description=\"desc bar\"",
             try
                 ok = write_file(InfoFile, FakeInfo),
-                ?assertMatch({error, #{error := "bad_rel_apps"}},
-                             emqx_plugins:read_plugin(NameVsn, #{}))
+                ?assertMatch(
+                    {error, #{error := "bad_rel_apps"}},
+                    emqx_plugins:read_plugin(NameVsn, #{})
+                )
             after
                 emqx_plugins:purge(NameVsn)
             end
-        end),
+        end
+    ),
     meck:unload(emqx).
 
 with_rand_install_dir(F) ->
@@ -91,7 +98,8 @@ delete_package_test() ->
             Dir = File,
             ok = filelib:ensure_dir(filename:join([Dir, "foo"])),
             ?assertMatch({error, _}, emqx_plugins:delete_package("a-1"))
-        end),
+        end
+    ),
     meck:unload(emqx).
 
 %% purge plugin's install dir should mostly work and return ok
@@ -110,15 +118,19 @@ purge_test() ->
             %% write a file for the dir path
             ok = file:write_file(Dir, "a"),
             ?assertEqual(ok, emqx_plugins:purge("a-1"))
-        end),
+        end
+    ),
     meck:unload(emqx).
 
 meck_emqx() ->
     meck:new(emqx, [unstick, passthrough]),
-    meck:expect(emqx, update_config,
+    meck:expect(
+        emqx,
+        update_config,
         fun(Path, Values, _Opts) ->
             emqx_config:put(Path, Values)
-        end),
+        end
+    ),
     %meck:expect(emqx, get_config,
     %    fun(KeyPath, Default) ->
     %        Map = emqx:get_raw_config(KeyPath, Default),

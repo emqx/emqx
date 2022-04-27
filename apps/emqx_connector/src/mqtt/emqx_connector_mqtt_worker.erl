@@ -66,43 +66,46 @@
 -include_lib("emqx/include/logger.hrl").
 
 %% APIs
--export([ start_link/1
-        , register_metrics/0
-        , stop/1
-        ]).
+-export([
+    start_link/1,
+    register_metrics/0,
+    stop/1
+]).
 
 %% gen_statem callbacks
--export([ terminate/3
-        , code_change/4
-        , init/1
-        , callback_mode/0
-        ]).
+-export([
+    terminate/3,
+    code_change/4,
+    init/1,
+    callback_mode/0
+]).
 
 %% state functions
--export([ idle/3
-        , connected/3
-        ]).
+-export([
+    idle/3,
+    connected/3
+]).
 
 %% management APIs
--export([ ensure_started/1
-        , ensure_stopped/1
-        , status/1
-        , ping/1
-        , send_to_remote/2
-        ]).
+-export([
+    ensure_started/1,
+    ensure_stopped/1,
+    status/1,
+    ping/1,
+    send_to_remote/2
+]).
 
--export([ get_forwards/1
-        ]).
+-export([get_forwards/1]).
 
--export([ get_subscriptions/1
-        ]).
+-export([get_subscriptions/1]).
 
 %% Internal
 -export([msg_marshaller/1]).
 
--export_type([ config/0
-             , ack_ref/0
-             ]).
+-export_type([
+    config/0,
+    ack_ref/0
+]).
 
 -type id() :: atom() | string() | pid().
 -type qos() :: emqx_types:qos().
@@ -112,7 +115,6 @@
 
 -include_lib("emqx/include/logger.hrl").
 -include_lib("emqx/include/emqx_mqtt.hrl").
-
 
 %% same as default in-flight limit for emqtt
 -define(DEFAULT_INFLIGHT_SIZE, 32).
@@ -188,8 +190,10 @@ callback_mode() -> [state_functions].
 
 %% @doc Config should be a map().
 init(#{name := Name} = ConnectOpts) ->
-    ?SLOG(debug, #{msg => "starting_bridge_worker",
-                   name => Name}),
+    ?SLOG(debug, #{
+        msg => "starting_bridge_worker",
+        name => Name
+    }),
     erlang:process_flag(trap_exit, true),
     Queue = open_replayq(Name, maps:get(replayq, ConnectOpts, #{})),
     State = init_state(ConnectOpts),
@@ -205,31 +209,44 @@ init_state(Opts) ->
     Mountpoint = maps:get(forward_mountpoint, Opts, undefined),
     MaxInflightSize = maps:get(max_inflight, Opts, ?DEFAULT_INFLIGHT_SIZE),
     Name = maps:get(name, Opts, undefined),
-    #{start_type => StartType,
-      reconnect_interval => ReconnDelayMs,
-      mountpoint => format_mountpoint(Mountpoint),
-      inflight => [],
-      max_inflight => MaxInflightSize,
-      connection => undefined,
-      name => Name}.
+    #{
+        start_type => StartType,
+        reconnect_interval => ReconnDelayMs,
+        mountpoint => format_mountpoint(Mountpoint),
+        inflight => [],
+        max_inflight => MaxInflightSize,
+        connection => undefined,
+        name => Name
+    }.
 
 open_replayq(Name, QCfg) ->
     Dir = maps:get(dir, QCfg, undefined),
     SegBytes = maps:get(seg_bytes, QCfg, ?DEFAULT_SEG_BYTES),
     MaxTotalSize = maps:get(max_total_size, QCfg, ?DEFAULT_MAX_TOTAL_SIZE),
-    QueueConfig = case Dir =:= undefined orelse Dir =:= "" of
-        true -> #{mem_only => true};
-        false -> #{dir => filename:join([Dir, node(), Name]),
-                   seg_bytes => SegBytes, max_total_size => MaxTotalSize}
-    end,
-    replayq:open(QueueConfig#{sizer => fun emqx_connector_mqtt_msg:estimate_size/1,
-                              marshaller => fun ?MODULE:msg_marshaller/1}).
+    QueueConfig =
+        case Dir =:= undefined orelse Dir =:= "" of
+            true ->
+                #{mem_only => true};
+            false ->
+                #{
+                    dir => filename:join([Dir, node(), Name]),
+                    seg_bytes => SegBytes,
+                    max_total_size => MaxTotalSize
+                }
+        end,
+    replayq:open(QueueConfig#{
+        sizer => fun emqx_connector_mqtt_msg:estimate_size/1,
+        marshaller => fun ?MODULE:msg_marshaller/1
+    }).
 
 pre_process_opts(#{subscriptions := InConf, forwards := OutConf} = ConnectOpts) ->
-    ConnectOpts#{subscriptions => pre_process_in_out(in, InConf),
-                 forwards => pre_process_in_out(out, OutConf)}.
+    ConnectOpts#{
+        subscriptions => pre_process_in_out(in, InConf),
+        forwards => pre_process_in_out(out, OutConf)
+    }.
 
-pre_process_in_out(_, undefined) -> undefined;
+pre_process_in_out(_, undefined) ->
+    undefined;
 pre_process_in_out(in, Conf) when is_map(Conf) ->
     Conf1 = pre_process_conf(local_topic, Conf),
     Conf2 = pre_process_conf(local_qos, Conf1),
@@ -245,7 +262,8 @@ pre_process_in_out_common(Conf) ->
 
 pre_process_conf(Key, Conf) ->
     case maps:find(Key, Conf) of
-        error -> Conf;
+        error ->
+            Conf;
         {ok, Val} when is_binary(Val) ->
             Conf#{Key => emqx_plugin_libs_rule:preproc_tmpl(Val)};
         {ok, Val} ->
@@ -276,7 +294,6 @@ idle(info, idle, #{start_type := auto} = State) ->
     connecting(State);
 idle(state_timeout, reconnect, State) ->
     connecting(State);
-
 idle(Type, Content, State) ->
     common(idle, Type, Content, State).
 
@@ -298,13 +315,16 @@ connected(state_timeout, connected, #{inflight := Inflight} = State) ->
 connected(internal, maybe_send, State) ->
     {_, NewState} = pop_and_send(State),
     {keep_state, NewState};
-
-connected(info, {disconnected, Conn, Reason},
-          #{connection := Connection, name := Name, reconnect_interval := ReconnectDelayMs} = State) ->
+connected(
+    info,
+    {disconnected, Conn, Reason},
+    #{connection := Connection, name := Name, reconnect_interval := ReconnectDelayMs} = State
+) ->
     ?tp(info, disconnected, #{name => Name, reason => Reason}),
-    case Conn =:= maps:get(client_pid, Connection, undefined)  of
+    case Conn =:= maps:get(client_pid, Connection, undefined) of
         true ->
-            {next_state, idle, State#{connection => undefined}, {state_timeout, ReconnectDelayMs, reconnect}};
+            {next_state, idle, State#{connection => undefined},
+                {state_timeout, ReconnectDelayMs, reconnect}};
         false ->
             keep_state_and_data
     end;
@@ -317,7 +337,7 @@ connected(Type, Content, State) ->
 %% Common handlers
 common(StateName, {call, From}, status, _State) ->
     {keep_state_and_data, [{reply, From, StateName}]};
-common(_StateName, {call, From}, ping, #{connection := Conn} =_State) ->
+common(_StateName, {call, From}, ping, #{connection := Conn} = _State) ->
     Reply = emqx_connector_mqtt_mod:ping(Conn),
     {keep_state_and_data, [{reply, From, Reply}]};
 common(_StateName, {call, From}, ensure_stopped, #{connection := undefined} = _State) ->
@@ -335,27 +355,39 @@ common(_StateName, cast, {send_to_remote, Msg}, #{replayq := Q} = State) ->
     NewQ = replayq:append(Q, [Msg]),
     {keep_state, State#{replayq => NewQ}, {next_event, internal, maybe_send}};
 common(StateName, Type, Content, #{name := Name} = State) ->
-    ?SLOG(notice, #{msg => "bridge_discarded_event",
-        name => Name, type => Type, state_name => StateName,
-        content => Content}),
+    ?SLOG(notice, #{
+        msg => "bridge_discarded_event",
+        name => Name,
+        type => Type,
+        state_name => StateName,
+        content => Content
+    }),
     {keep_state, State}.
 
-do_connect(#{connect_opts := ConnectOpts,
-             inflight := Inflight,
-             name := Name} = State) ->
+do_connect(
+    #{
+        connect_opts := ConnectOpts,
+        inflight := Inflight,
+        name := Name
+    } = State
+) ->
     case emqx_connector_mqtt_mod:start(ConnectOpts) of
         {ok, Conn} ->
             ?tp(info, connected, #{name => Name, inflight => length(Inflight)}),
             {ok, State#{connection => Conn}};
         {error, Reason} ->
             ConnectOpts1 = obfuscate(ConnectOpts),
-            ?SLOG(error, #{msg => "failed_to_connect",
-                config => ConnectOpts1, reason => Reason}),
+            ?SLOG(error, #{
+                msg => "failed_to_connect",
+                config => ConnectOpts1,
+                reason => Reason
+            }),
             {error, Reason, State}
     end.
 
 %% Retry all inflight (previously sent but not acked) batches.
-retry_inflight(State, []) -> {ok, State};
+retry_inflight(State, []) ->
+    {ok, State};
 retry_inflight(State, [#{q_ack_ref := QAckRef, msg := Msg} | Rest] = OldInf) ->
     case do_send(State, QAckRef, Msg) of
         {ok, State1} ->
@@ -386,28 +418,49 @@ pop_and_send_loop(#{replayq := Q} = State, N) ->
     end.
 
 do_send(#{connect_opts := #{forwards := undefined}}, _QAckRef, Msg) ->
-    ?SLOG(error, #{msg => "cannot_forward_messages_to_remote_broker"
-                          "_as_'egress'_is_not_configured",
-                   messages => Msg});
-do_send(#{inflight := Inflight,
-          connection := Connection,
-          mountpoint := Mountpoint,
-          connect_opts := #{forwards := Forwards}} = State, QAckRef, Msg) ->
+    ?SLOG(error, #{
+        msg =>
+            "cannot_forward_messages_to_remote_broker"
+            "_as_'egress'_is_not_configured",
+        messages => Msg
+    });
+do_send(
+    #{
+        inflight := Inflight,
+        connection := Connection,
+        mountpoint := Mountpoint,
+        connect_opts := #{forwards := Forwards}
+    } = State,
+    QAckRef,
+    Msg
+) ->
     Vars = emqx_connector_mqtt_msg:make_pub_vars(Mountpoint, Forwards),
     ExportMsg = fun(Message) ->
-                    emqx_metrics:inc('bridge.mqtt.message_sent_to_remote'),
-                    emqx_connector_mqtt_msg:to_remote_msg(Message, Vars)
-                end,
-    ?SLOG(debug, #{msg => "publish_to_remote_broker",
-        message => Msg, vars => Vars}),
+        emqx_metrics:inc('bridge.mqtt.message_sent_to_remote'),
+        emqx_connector_mqtt_msg:to_remote_msg(Message, Vars)
+    end,
+    ?SLOG(debug, #{
+        msg => "publish_to_remote_broker",
+        message => Msg,
+        vars => Vars
+    }),
     case emqx_connector_mqtt_mod:send(Connection, [ExportMsg(Msg)]) of
         {ok, Refs} ->
-            {ok, State#{inflight := Inflight ++ [#{q_ack_ref => QAckRef,
-                                                   send_ack_ref => map_set(Refs),
-                                                   msg => Msg}]}};
+            {ok, State#{
+                inflight := Inflight ++
+                    [
+                        #{
+                            q_ack_ref => QAckRef,
+                            send_ack_ref => map_set(Refs),
+                            msg => Msg
+                        }
+                    ]
+            }};
         {error, Reason} ->
-            ?SLOG(info, #{msg => "mqtt_bridge_produce_failed",
-                reason => Reason}),
+            ?SLOG(info, #{
+                msg => "mqtt_bridge_produce_failed",
+                reason => Reason
+            }),
             {error, State}
     end.
 
@@ -427,8 +480,10 @@ handle_batch_ack(#{inflight := Inflight0, replayq := Q} = State, Ref) ->
     State#{inflight := Inflight}.
 
 do_ack([], Ref) ->
-    ?SLOG(debug, #{msg => "stale_batch_ack_reference",
-                   ref => Ref}),
+    ?SLOG(debug, #{
+        msg => "stale_batch_ack_reference",
+        ref => Ref
+    }),
     [];
 do_ack([#{send_ack_ref := Refs} = First | Rest], Ref) ->
     case maps:is_key(Ref, Refs) of
@@ -443,8 +498,16 @@ do_ack([#{send_ack_ref := Refs} = First | Rest], Ref) ->
 drop_acked_batches(_Q, []) ->
     ?tp(debug, inflight_drained, #{}),
     [];
-drop_acked_batches(Q, [#{send_ack_ref := Refs,
-                         q_ack_ref := QAckRef} | Rest] = All) ->
+drop_acked_batches(
+    Q,
+    [
+        #{
+            send_ack_ref := Refs,
+            q_ack_ref := QAckRef
+        }
+        | Rest
+    ] = All
+) ->
     case maps:size(Refs) of
         0 ->
             %% all messages are acked by bridge target
@@ -475,18 +538,25 @@ format_mountpoint(Prefix) ->
 name(Id) -> list_to_atom(str(Id)).
 
 register_metrics() ->
-    lists:foreach(fun emqx_metrics:ensure/1,
-                  ['bridge.mqtt.message_sent_to_remote',
-                   'bridge.mqtt.message_received_from_remote'
-                  ]).
+    lists:foreach(
+        fun emqx_metrics:ensure/1,
+        [
+            'bridge.mqtt.message_sent_to_remote',
+            'bridge.mqtt.message_received_from_remote'
+        ]
+    ).
 
 obfuscate(Map) ->
-    maps:fold(fun(K, V, Acc) ->
-                      case is_sensitive(K) of
-                          true -> [{K, '***'} | Acc];
-                          false -> [{K, V} | Acc]
-                      end
-              end, [], Map).
+    maps:fold(
+        fun(K, V, Acc) ->
+            case is_sensitive(K) of
+                true -> [{K, '***'} | Acc];
+                false -> [{K, V} | Acc]
+            end
+        end,
+        [],
+        Map
+    ).
 
 is_sensitive(password) -> true;
 is_sensitive(_) -> false.

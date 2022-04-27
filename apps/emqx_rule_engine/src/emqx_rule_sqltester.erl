@@ -17,10 +17,11 @@
 -include("rule_engine.hrl").
 -include_lib("emqx/include/logger.hrl").
 
--export([ test/1
-        , echo_action/2
-        , get_selected_data/3
-        ]).
+-export([
+    test/1,
+    echo_action/2,
+    get_selected_data/3
+]).
 
 -spec test(#{sql := binary(), context := map()}) -> {ok, map() | list()} | {error, term()}.
 test(#{sql := Sql, context := Context}) ->
@@ -60,9 +61,7 @@ test_rule(Sql, Select, Context, EventTopics) ->
         created_at => erlang:system_time(millisecond)
     },
     FullContext = fill_default_values(hd(EventTopics), emqx_rule_maps:atom_key_map(Context)),
-    try
-        emqx_rule_runtime:apply_rule(Rule, FullContext)
-    of
+    try emqx_rule_runtime:apply_rule(Rule, FullContext) of
         {ok, Data} -> {ok, flatten(Data)};
         {error, Reason} -> {error, Reason}
     after
@@ -76,8 +75,10 @@ is_publish_topic(<<"$events/", _/binary>>) -> false;
 is_publish_topic(<<"$bridges/", _/binary>>) -> false;
 is_publish_topic(_Topic) -> true.
 
-flatten([]) -> [];
-flatten([D1]) -> D1;
+flatten([]) ->
+    [];
+flatten([D1]) ->
+    D1;
 flatten([D1 | L]) when is_list(D1) ->
     D1 ++ flatten(L).
 
@@ -92,4 +93,6 @@ envs_examp(EventTopic) ->
     EventName = emqx_rule_events:event_name(EventTopic),
     emqx_rule_maps:atom_key_map(
         maps:from_list(
-            emqx_rule_events:columns_with_exam(EventName))).
+            emqx_rule_events:columns_with_exam(EventName)
+        )
+    ).

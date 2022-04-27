@@ -20,11 +20,12 @@
 
 -behaviour(hocon_schema).
 
--export([ namespace/0
-        , roots/0
-        , fields/1
-        , desc/1
-        ]).
+-export([
+    namespace/0,
+    roots/0,
+    fields/1,
+    desc/1
+]).
 
 namespace() -> "prometheus".
 
@@ -32,25 +33,36 @@ roots() -> ["prometheus"].
 
 fields("prometheus") ->
     [
-        {push_gateway_server, sc(string(),
-                               #{ default => "http://127.0.0.1:9091"
-                                , required => true
-                                , desc => ?DESC(push_gateway_server)
-                                })},
-        {interval, sc(emqx_schema:duration_ms(),
-                    #{ default => "15s"
-                     , required => true
-                     , desc => ?DESC(interval)
-                     })},
-        {enable, sc(boolean(),
-                  #{ default => false
-                   , required => true
-                   , desc => ?DESC(enable)
-                   })}
+        {push_gateway_server,
+            sc(
+                string(),
+                #{
+                    default => "http://127.0.0.1:9091",
+                    required => true,
+                    desc => ?DESC(push_gateway_server)
+                }
+            )},
+        {interval,
+            sc(
+                emqx_schema:duration_ms(),
+                #{
+                    default => "15s",
+                    required => true,
+                    desc => ?DESC(interval)
+                }
+            )},
+        {enable,
+            sc(
+                boolean(),
+                #{
+                    default => false,
+                    required => true,
+                    desc => ?DESC(enable)
+                }
+            )}
     ].
 
 desc("prometheus") -> ?DESC(prometheus);
-desc(_) ->
-    undefined.
+desc(_) -> undefined.
 
 sc(Type, Meta) -> hoconsc:mk(Type, Meta).

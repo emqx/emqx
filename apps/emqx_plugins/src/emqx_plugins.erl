@@ -19,35 +19,37 @@
 -include_lib("emqx/include/emqx.hrl").
 -include_lib("emqx/include/logger.hrl").
 
--export([ ensure_installed/1
-        , ensure_uninstalled/1
-        , ensure_enabled/1
-        , ensure_enabled/2
-        , ensure_disabled/1
-        , purge/1
-        , delete_package/1
-        ]).
+-export([
+    ensure_installed/1,
+    ensure_uninstalled/1,
+    ensure_enabled/1,
+    ensure_enabled/2,
+    ensure_disabled/1,
+    purge/1,
+    delete_package/1
+]).
 
--export([ ensure_started/0
-        , ensure_started/1
-        , ensure_stopped/0
-        , ensure_stopped/1
-        , restart/1
-        , list/0
-        , describe/1
-        , parse_name_vsn/1
-        ]).
+-export([
+    ensure_started/0,
+    ensure_started/1,
+    ensure_stopped/0,
+    ensure_stopped/1,
+    restart/1,
+    list/0,
+    describe/1,
+    parse_name_vsn/1
+]).
 
--export([ get_config/2
-        , put_config/2
-        ]).
+-export([
+    get_config/2,
+    put_config/2
+]).
 
 %% internal
--export([ do_ensure_started/1
-        ]).
+-export([do_ensure_started/1]).
 -export([
-         install_dir/0
-        ]).
+    install_dir/0
+]).
 
 -ifdef(TEST).
 -compile(export_all).
@@ -58,8 +60,10 @@
 -include_lib("emqx/include/logger.hrl").
 -include("emqx_plugins.hrl").
 
--type name_vsn() :: binary() | string(). %% "my_plugin-0.1.0"
--type plugin() :: map(). %% the parse result of the JSON info file
+%% "my_plugin-0.1.0"
+-type name_vsn() :: binary() | string().
+%% the parse result of the JSON info file
+-type plugin() :: map().
 -type position() :: no_move | front | rear | {before, name_vsn()} | {behind, name_vsn()}.
 
 %%--------------------------------------------------------------------
@@ -86,22 +90,25 @@ do_ensure_installed(NameVsn) ->
     case erl_tar:extract(TarGz, [{cwd, install_dir()}, compressed]) of
         ok ->
             case read_plugin(NameVsn, #{}) of
-                {ok, _} -> ok;
+                {ok, _} ->
+                    ok;
                 {error, Reason} ->
                     ?SLOG(warning, Reason#{msg => "failed_to_read_after_install"}),
                     _ = ensure_uninstalled(NameVsn),
                     {error, Reason}
             end;
         {error, {_, enoent}} ->
-            {error, #{ reason => "failed_to_extract_plugin_package"
-                     , path => TarGz
-                     , return => not_found
-                     }};
+            {error, #{
+                reason => "failed_to_extract_plugin_package",
+                path => TarGz,
+                return => not_found
+            }};
         {error, Reason} ->
-            {error, #{ reason => "bad_plugin_package"
-                     , path => TarGz
-                     , return => Reason
-                     }}
+            {error, #{
+                reason => "bad_plugin_package",
+                path => TarGz,
+                return => Reason
+            }}
     end.
 
 %% @doc Ensure files and directories for the given plugin are delete.
@@ -110,13 +117,15 @@ do_ensure_installed(NameVsn) ->
 ensure_uninstalled(NameVsn) ->
     case read_plugin(NameVsn, #{}) of
         {ok, #{running_status := RunningSt}} when RunningSt =/= stopped ->
-            {error, #{reason => "bad_plugin_running_status",
-                      hint => "stop_the_plugin_first"
-                     }};
+            {error, #{
+                reason => "bad_plugin_running_status",
+                hint => "stop_the_plugin_first"
+            }};
         {ok, #{config_status := enabled}} ->
-            {error, #{reason => "bad_plugin_config_status",
-                      hint => "disable_the_plugin_first"
-                     }};
+            {error, #{
+                reason => "bad_plugin_config_status",
+                hint => "disable_the_plugin_first"
+            }};
         _ ->
             purge(NameVsn)
     end.
@@ -141,9 +150,10 @@ ensure_state(NameVsn, Position, State) when is_binary(NameVsn) ->
 ensure_state(NameVsn, Position, State) ->
     case read_plugin(NameVsn, #{}) of
         {ok, _} ->
-            Item = #{ name_vsn => NameVsn
-                    , enable => State
-                    },
+            Item = #{
+                name_vsn => NameVsn,
+                enable => State
+            },
             tryit("ensure_state", fun() -> ensure_configured(Item, Position) end);
         {error, Reason} ->
             {error, Reason}
@@ -175,17 +185,18 @@ add_new_configured(Configured, {Action, NameVsn}, Item) ->
     SplitFun = fun(#{name_vsn := Nv}) -> bin(Nv) =/= bin(NameVsn) end,
     {Front, Rear} = lists:splitwith(SplitFun, Configured),
     Rear =:= [] andalso
-        throw(#{error => "position_anchor_plugin_not_configured",
-                hint => "maybe_install_and_configure",
-                name_vsn => NameVsn
-               }),
+        throw(#{
+            error => "position_anchor_plugin_not_configured",
+            hint => "maybe_install_and_configure",
+            name_vsn => NameVsn
+        }),
     case Action of
-        before -> Front ++ [Item | Rear];
+        before ->
+            Front ++ [Item | Rear];
         behind ->
             [Anchor | Rear0] = Rear,
             Front ++ [Anchor, Item | Rear0]
     end.
-
 
 %% @doc Delete the package file.
 -spec delete_package(name_vsn()) -> ok.
@@ -198,9 +209,11 @@ delete_package(NameVsn) ->
         {error, enoent} ->
             ok;
         {error, Reason} ->
-            ?SLOG(error, #{msg => "failed_to_delete_package_file",
-                           path => File,
-                           reason => Reason}),
+            ?SLOG(error, #{
+                msg => "failed_to_delete_package_file",
+                path => File,
+                reason => Reason
+            }),
             {error, Reason}
     end.
 
@@ -219,9 +232,11 @@ purge(NameVsn) ->
         {error, enoent} ->
             ok;
         {error, Reason} ->
-            ?SLOG(error, #{msg => "failed_to_purge_plugin_dir",
-                           dir => Dir,
-                           reason => Reason}),
+            ?SLOG(error, #{
+                msg => "failed_to_purge_plugin_dir",
+                dir => Dir,
+                reason => Reason
+            }),
             {error, Reason}
     end.
 
@@ -235,10 +250,13 @@ ensure_started() ->
 -spec ensure_started(name_vsn()) -> ok | {error, term()}.
 ensure_started(NameVsn) ->
     case do_ensure_started(NameVsn) of
-        ok -> ok;
+        ok ->
+            ok;
         {error, Reason} ->
-            ?SLOG(alert, #{msg => "failed_to_start_plugin",
-                           reason => Reason}),
+            ?SLOG(alert, #{
+                msg => "failed_to_start_plugin",
+                reason => Reason
+            }),
             {error, Reason}
     end.
 
@@ -250,11 +268,13 @@ ensure_stopped() ->
 %% @doc Stop a plugin from Management API or CLI.
 -spec ensure_stopped(name_vsn()) -> ok | {error, term()}.
 ensure_stopped(NameVsn) ->
-    tryit("stop_plugin",
-          fun() ->
-                  Plugin = do_read_plugin(NameVsn),
-                  ensure_apps_stopped(Plugin)
-          end).
+    tryit(
+        "stop_plugin",
+        fun() ->
+            Plugin = do_read_plugin(NameVsn),
+            ensure_apps_stopped(Plugin)
+        end
+    ).
 
 %% @doc Stop and then start the plugin.
 restart(NameVsn) ->
@@ -269,39 +289,45 @@ restart(NameVsn) ->
 list() ->
     Pattern = filename:join([install_dir(), "*", "release.json"]),
     All = lists:filtermap(
-            fun(JsonFile) ->
-                    case read_plugin({file, JsonFile}, #{}) of
-                        {ok, Info} ->
-                            {true, Info};
-                        {error, Reason} ->
-                            ?SLOG(warning, Reason),
-                            false
-                    end
-            end, filelib:wildcard(Pattern)),
+        fun(JsonFile) ->
+            case read_plugin({file, JsonFile}, #{}) of
+                {ok, Info} ->
+                    {true, Info};
+                {error, Reason} ->
+                    ?SLOG(warning, Reason),
+                    false
+            end
+        end,
+        filelib:wildcard(Pattern)
+    ),
     list(configured(), All).
 
 %% Make sure configured ones are ordered in front.
-list([], All) -> All;
+list([], All) ->
+    All;
 list([#{name_vsn := NameVsn} | Rest], All) ->
     SplitF = fun(#{<<"name">> := Name, <<"rel_vsn">> := Vsn}) ->
-                     bin([Name, "-", Vsn]) =/= bin(NameVsn)
-             end,
+        bin([Name, "-", Vsn]) =/= bin(NameVsn)
+    end,
     case lists:splitwith(SplitF, All) of
         {_, []} ->
-            ?SLOG(warning, #{msg => "configured_plugin_not_installed",
-                             name_vsn => NameVsn
-                            }),
+            ?SLOG(warning, #{
+                msg => "configured_plugin_not_installed",
+                name_vsn => NameVsn
+            }),
             list(Rest, All);
         {Front, [I | Rear]} ->
             [I | list(Rest, Front ++ Rear)]
     end.
 
 do_ensure_started(NameVsn) ->
-    tryit("start_plugins",
-          fun() ->
-                  Plugin = do_read_plugin(NameVsn),
-                  ok = load_code_start_apps(NameVsn, Plugin)
-          end).
+    tryit(
+        "start_plugins",
+        fun() ->
+            Plugin = do_read_plugin(NameVsn),
+            ok = load_code_start_apps(NameVsn, Plugin)
+        end
+    ).
 
 %% try the function, catch 'throw' exceptions as normal 'error' return
 %% other exceptions with stacktrace returned.
@@ -309,25 +335,28 @@ tryit(WhichOp, F) ->
     try
         F()
     catch
-        throw : Reason ->
+        throw:Reason ->
             %% thrown exceptions are known errors
             %% translate to a return value without stacktrace
             {error, Reason};
-        error : Reason : Stacktrace ->
+        error:Reason:Stacktrace ->
             %% unexpected errors, log stacktrace
-            ?SLOG(warning, #{ msg => "plugin_op_failed"
-                            , which_op => WhichOp
-                            , exception => Reason
-                            , stacktrace => Stacktrace
-                            }),
+            ?SLOG(warning, #{
+                msg => "plugin_op_failed",
+                which_op => WhichOp,
+                exception => Reason,
+                stacktrace => Stacktrace
+            }),
             {error, {failed, WhichOp}}
     end.
 
 %% read plugin info from the JSON file
 %% returns {ok, Info} or {error, Reason}
 read_plugin(NameVsn, Options) ->
-    tryit("read_plugin_info",
-          fun() -> {ok, do_read_plugin(NameVsn, Options)} end).
+    tryit(
+        "read_plugin_info",
+        fun() -> {ok, do_read_plugin(NameVsn, Options)} end
+    ).
 
 do_read_plugin(Plugin) -> do_read_plugin(Plugin, #{}).
 
@@ -339,10 +368,11 @@ do_read_plugin({file, InfoFile}, Options) ->
             Info1 = plugins_readme(NameVsn, Options, Info0),
             plugin_status(NameVsn, Info1);
         {error, Reason} ->
-            throw(#{error => "bad_info_file",
-                    path => InfoFile,
-                    return => Reason
-                   })
+            throw(#{
+                error => "bad_info_file",
+                path => InfoFile,
+                return => Reason
+            })
     end;
 do_read_plugin(NameVsn, Options) ->
     do_read_plugin({file, info_file(NameVsn)}, Options).
@@ -352,7 +382,8 @@ plugins_readme(NameVsn, #{fill_readme := true}, Info) ->
         {ok, Bin} -> Info#{readme => Bin};
         _ -> Info#{readme => <<>>}
     end;
-plugins_readme(_NameVsn, _Options, Info) -> Info.
+plugins_readme(_NameVsn, _Options, Info) ->
+    Info.
 
 plugin_status(NameVsn, Info) ->
     {AppName, _AppVsn} = parse_name_vsn(NameVsn),
@@ -368,74 +399,91 @@ plugin_status(NameVsn, Info) ->
         end,
     Configured = lists:filtermap(
         fun(#{name_vsn := Nv, enable := St}) ->
-                case bin(Nv) =:= bin(NameVsn) of
-                    true -> {true, St};
-                    false -> false
-                end
-        end, configured()),
-    ConfSt = case Configured of
-                 [] -> not_configured;
-                 [true] -> enabled;
-                 [false] -> disabled
-             end,
-    Info#{ running_status => RunningSt
-         , config_status => ConfSt
+            case bin(Nv) =:= bin(NameVsn) of
+                true -> {true, St};
+                false -> false
+            end
+        end,
+        configured()
+    ),
+    ConfSt =
+        case Configured of
+            [] -> not_configured;
+            [true] -> enabled;
+            [false] -> disabled
+        end,
+    Info#{
+        running_status => RunningSt,
+        config_status => ConfSt
     }.
 
 bin(A) when is_atom(A) -> atom_to_binary(A, utf8);
 bin(L) when is_list(L) -> unicode:characters_to_binary(L, utf8);
 bin(B) when is_binary(B) -> B.
 
-check_plugin(#{ <<"name">> := Name
-              , <<"rel_vsn">> := Vsn
-              , <<"rel_apps">> := Apps
-              , <<"description">> := _
-              } = Info, NameVsn, File) ->
+check_plugin(
+    #{
+        <<"name">> := Name,
+        <<"rel_vsn">> := Vsn,
+        <<"rel_apps">> := Apps,
+        <<"description">> := _
+    } = Info,
+    NameVsn,
+    File
+) ->
     case bin(NameVsn) =:= bin([Name, "-", Vsn]) of
         true ->
             try
-                [_ | _ ] = Apps, %% assert
+                %% assert
+                [_ | _] = Apps,
                 %% validate if the list is all <app>-<vsn> strings
                 lists:foreach(fun parse_name_vsn/1, Apps)
             catch
-                _ : _ ->
-                    throw(#{ error => "bad_rel_apps"
-                           , rel_apps => Apps
-                           , hint => "A non-empty string list of app_name-app_vsn format"
-                           })
+                _:_ ->
+                    throw(#{
+                        error => "bad_rel_apps",
+                        rel_apps => Apps,
+                        hint => "A non-empty string list of app_name-app_vsn format"
+                    })
             end,
             Info;
         false ->
-            throw(#{ error => "name_vsn_mismatch"
-                   , name_vsn => NameVsn
-                   , path => File
-                   , name => Name
-                   , rel_vsn => Vsn
-                   })
+            throw(#{
+                error => "name_vsn_mismatch",
+                name_vsn => NameVsn,
+                path => File,
+                name => Name,
+                rel_vsn => Vsn
+            })
     end;
 check_plugin(_What, NameVsn, File) ->
-    throw(#{ error => "bad_info_file_content"
-           , mandatory_fields => [rel_vsn, name, rel_apps, description]
-           , name_vsn => NameVsn
-           , path => File
-           }).
+    throw(#{
+        error => "bad_info_file_content",
+        mandatory_fields => [rel_vsn, name, rel_apps, description],
+        name_vsn => NameVsn,
+        path => File
+    }).
 
 load_code_start_apps(RelNameVsn, #{<<"rel_apps">> := Apps}) ->
     LibDir = filename:join([install_dir(), RelNameVsn]),
     RunningApps = running_apps(),
     %% load plugin apps and beam code
     AppNames =
-        lists:map(fun(AppNameVsn) ->
-                          {AppName, AppVsn} = parse_name_vsn(AppNameVsn),
-                          EbinDir = filename:join([LibDir, AppNameVsn, "ebin"]),
-                          ok = load_plugin_app(AppName, AppVsn, EbinDir, RunningApps),
-                          AppName
-                  end, Apps),
+        lists:map(
+            fun(AppNameVsn) ->
+                {AppName, AppVsn} = parse_name_vsn(AppNameVsn),
+                EbinDir = filename:join([LibDir, AppNameVsn, "ebin"]),
+                ok = load_plugin_app(AppName, AppVsn, EbinDir, RunningApps),
+                AppName
+            end,
+            Apps
+        ),
     lists:foreach(fun start_app/1, AppNames).
 
 load_plugin_app(AppName, AppVsn, Ebin, RunningApps) ->
     case lists:keyfind(AppName, 1, RunningApps) of
-        false -> do_load_plugin_app(AppName, Ebin);
+        false ->
+            do_load_plugin_app(AppName, Ebin);
         {_, Vsn} ->
             case bin(Vsn) =:= bin(AppVsn) of
                 true ->
@@ -443,10 +491,12 @@ load_plugin_app(AppName, AppVsn, Ebin, RunningApps) ->
                     ok;
                 false ->
                     %% running but a different version
-                    ?SLOG(warning, #{msg => "plugin_app_already_running", name => AppName,
-                                     running_vsn => Vsn,
-                                     loading_vsn => AppVsn
-                                    })
+                    ?SLOG(warning, #{
+                        msg => "plugin_app_already_running",
+                        name => AppName,
+                        running_vsn => Vsn,
+                        loading_vsn => AppVsn
+                    })
             end
     end.
 
@@ -457,21 +507,31 @@ do_load_plugin_app(AppName, Ebin) ->
     Modules = filelib:wildcard(filename:join([Ebin, "*.beam"])),
     lists:foreach(
         fun(BeamFile) ->
-                Module = list_to_atom(filename:basename(BeamFile, ".beam")),
-                case code:load_file(Module) of
-                    {module, _} -> ok;
-                    {error, Reason} -> throw(#{error => "failed_to_load_plugin_beam",
-                                               path => BeamFile,
-                                               reason => Reason
-                                              })
-                end
-        end, Modules),
+            Module = list_to_atom(filename:basename(BeamFile, ".beam")),
+            case code:load_file(Module) of
+                {module, _} ->
+                    ok;
+                {error, Reason} ->
+                    throw(#{
+                        error => "failed_to_load_plugin_beam",
+                        path => BeamFile,
+                        reason => Reason
+                    })
+            end
+        end,
+        Modules
+    ),
     case application:load(AppName) of
-        ok -> ok;
-        {error, {already_loaded, _}} -> ok;
-        {error, Reason} -> throw(#{error => "failed_to_load_plugin_app",
-                                   name => AppName,
-                                   reason => Reason})
+        ok ->
+            ok;
+        {error, {already_loaded, _}} ->
+            ok;
+        {error, Reason} ->
+            throw(#{
+                error => "failed_to_load_plugin_app",
+                name => AppName,
+                reason => Reason
+            })
     end.
 
 start_app(App) ->
@@ -484,11 +544,12 @@ start_app(App) ->
             ?SLOG(debug, #{msg => "started_plugin_app", app => App}),
             ok;
         {error, {ErrApp, Reason}} ->
-            throw(#{error => "failed_to_start_plugin_app",
-                    app => App,
-                    err_app => ErrApp,
-                    reason => Reason
-                   })
+            throw(#{
+                error => "failed_to_start_plugin_app",
+                app => App,
+                err_app => ErrApp,
+                reason => Reason
+            })
     end.
 
 %% Stop all apps installed by the plugin package,
@@ -496,18 +557,22 @@ start_app(App) ->
 ensure_apps_stopped(#{<<"rel_apps">> := Apps}) ->
     %% load plugin apps and beam code
     AppsToStop =
-        lists:map(fun(NameVsn) ->
-                          {AppName, _AppVsn} = parse_name_vsn(NameVsn),
-                          AppName
-                  end, Apps),
+        lists:map(
+            fun(NameVsn) ->
+                {AppName, _AppVsn} = parse_name_vsn(NameVsn),
+                AppName
+            end,
+            Apps
+        ),
     case tryit("stop_apps", fun() -> stop_apps(AppsToStop) end) of
         {ok, []} ->
             %% all apps stopped
             ok;
         {ok, Left} ->
-            ?SLOG(warning, #{msg => "unabled_to_stop_plugin_apps",
-                             apps => Left
-                            }),
+            ?SLOG(warning, #{
+                msg => "unabled_to_stop_plugin_apps",
+                apps => Left
+            }),
             ok;
         {error, Reason} ->
             {error, Reason}
@@ -516,9 +581,12 @@ ensure_apps_stopped(#{<<"rel_apps">> := Apps}) ->
 stop_apps(Apps) ->
     RunningApps = running_apps(),
     case do_stop_apps(Apps, [], RunningApps) of
-        {ok, []} -> {ok, []}; %% all stopped
-        {ok, Remain} when Remain =:= Apps -> {ok, Apps}; %% no progress
-        {ok, Remain} -> stop_apps(Remain) %% try again
+        %% all stopped
+        {ok, []} -> {ok, []};
+        %% no progress
+        {ok, Remain} when Remain =:= Apps -> {ok, Apps};
+        %% try again
+        {ok, Remain} -> stop_apps(Remain)
     end.
 
 do_stop_apps([], Remain, _AllApps) ->
@@ -553,11 +621,15 @@ unload_moudle_and_app(App) ->
     ok.
 
 is_needed_by_any(AppToStop, RunningApps) ->
-    lists:any(fun({RunningApp, _RunningAppVsn}) ->
-                      is_needed_by(AppToStop, RunningApp)
-              end, RunningApps).
+    lists:any(
+        fun({RunningApp, _RunningAppVsn}) ->
+            is_needed_by(AppToStop, RunningApp)
+        end,
+        RunningApps
+    ).
 
-is_needed_by(AppToStop, AppToStop) -> false;
+is_needed_by(AppToStop, AppToStop) ->
+    false;
 is_needed_by(AppToStop, RunningApp) ->
     case application:get_key(RunningApp, applications) of
         {ok, Deps} -> lists:member(AppToStop, Deps);
@@ -577,7 +649,8 @@ bin_key(Map) when is_map(Map) ->
     maps:fold(fun(K, V, Acc) -> Acc#{bin(K) => V} end, #{}, Map);
 bin_key(List = [#{} | _]) ->
     lists:map(fun(M) -> bin_key(M) end, List);
-bin_key(Term) -> Term.
+bin_key(Term) ->
+    Term.
 
 get_config(Key, Default) when is_atom(Key) ->
     get_config([Key], Default);
@@ -604,8 +677,10 @@ for_plugin(#{name_vsn := NameVsn, enable := true}, Fun) ->
         {error, Reason} -> [{NameVsn, Reason}]
     end;
 for_plugin(#{name_vsn := NameVsn, enable := false}, _Fun) ->
-    ?SLOG(debug, #{msg => "plugin_disabled",
-                   name_vsn => NameVsn}),
+    ?SLOG(debug, #{
+        msg => "plugin_disabled",
+        name_vsn => NameVsn
+    }),
     [].
 
 parse_name_vsn(NameVsn) when is_binary(NameVsn) ->
@@ -627,6 +702,9 @@ readme_file(NameVsn) ->
     filename:join([dir(NameVsn), "README.md"]).
 
 running_apps() ->
-    lists:map(fun({N, _, V}) ->
-                      {N, V}
-              end, application:which_applications(infinity)).
+    lists:map(
+        fun({N, _, V}) ->
+            {N, V}
+        end,
+        application:which_applications(infinity)
+    ).

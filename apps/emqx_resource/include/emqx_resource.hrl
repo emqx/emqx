@@ -30,12 +30,13 @@
 }.
 -type resource_group() :: binary().
 -type create_opts() :: #{
-        health_check_interval => integer(),
-        health_check_timeout => integer(),
-        waiting_connect_complete  => integer()
-    }.
--type after_query() :: {[OnSuccess :: after_query_fun()], [OnFailed :: after_query_fun()]} |
-    undefined.
+    health_check_interval => integer(),
+    health_check_timeout => integer(),
+    waiting_connect_complete => integer()
+}.
+-type after_query() ::
+    {[OnSuccess :: after_query_fun()], [OnFailed :: after_query_fun()]}
+    | undefined.
 
 %% the `after_query_fun()` is mainly for callbacks that increment counters or do some fallback
 %% actions upon query failure

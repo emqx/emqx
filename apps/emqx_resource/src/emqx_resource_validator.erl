@@ -16,10 +16,11 @@
 
 -module(emqx_resource_validator).
 
--export([ min/2
-        , max/2
-        , not_empty/1
-        ]).
+-export([
+    min/2,
+    max/2,
+    not_empty/1
+]).
 
 max(Type, Max) ->
     limit(Type, '=<', Max).
@@ -28,16 +29,19 @@ min(Type, Min) ->
     limit(Type, '>=', Min).
 
 not_empty(ErrMsg) ->
-    fun(<<>>) -> {error, ErrMsg};
-       (_) -> ok
+    fun
+        (<<>>) -> {error, ErrMsg};
+        (_) -> ok
     end.
 
 limit(Type, Op, Expected) ->
     L = len(Type),
     fun(Value) ->
         Got = L(Value),
-        return(erlang:Op(Got, Expected),
-            err_limit({Type, {Op, Expected}, {got, Got}}))
+        return(
+            erlang:Op(Got, Expected),
+            err_limit({Type, {Op, Expected}, {got, Got}})
+        )
     end.
 
 len(array) -> fun erlang:length/1;
@@ -48,5 +52,4 @@ err_limit({Type, {Op, Expected}, {got, Got}}) ->
     io_lib:format("Expect the ~ts value ~ts ~p but got: ~p", [Type, Op, Expected, Got]).
 
 return(true, _) -> ok;
-return(false, Error) ->
-    {error, Error}.
+return(false, Error) -> {error, Error}.

@@ -22,7 +22,8 @@
 -export([init/1]).
 
 -define(RESOURCE_INST_MOD, emqx_resource_instance).
--define(POOL_SIZE, 64). %% set a very large pool size in case all the workers busy
+%% set a very large pool size in case all the workers busy
+-define(POOL_SIZE, 64).
 
 start_link() ->
     supervisor:start_link({local, ?MODULE}, ?MODULE, []).
@@ -40,27 +41,39 @@ init([]) ->
     ResourceInsts = [
         begin
             ensure_pool_worker(Pool, {Pool, Idx}, Idx),
-            #{id => {Mod, Idx},
-              start => {Mod, start_link, [Pool, Idx]},
-              restart => transient,
-              shutdown => 5000, type => worker, modules => [Mod]}
-        end || Idx <- lists:seq(1, ?POOL_SIZE)],
-    HealthCheck = 
-            #{id => emqx_resource_health_check_sup,
-              start => {emqx_resource_health_check_sup, start_link, []},
-              restart => transient,
-              shutdown => infinity, type => supervisor, modules => [emqx_resource_health_check_sup]},
+            #{
+                id => {Mod, Idx},
+                start => {Mod, start_link, [Pool, Idx]},
+                restart => transient,
+                shutdown => 5000,
+                type => worker,
+                modules => [Mod]
+            }
+        end
+     || Idx <- lists:seq(1, ?POOL_SIZE)
+    ],
+    HealthCheck =
+        #{
+            id => emqx_resource_health_check_sup,
+            start => {emqx_resource_health_check_sup, start_link, []},
+            restart => transient,
+            shutdown => infinity,
+            type => supervisor,
+            modules => [emqx_resource_health_check_sup]
+        },
     {ok, {SupFlags, [HealthCheck, Metrics | ResourceInsts]}}.
 
 %% internal functions
 ensure_pool(Pool, Type, Opts) ->
-    try gproc_pool:new(Pool, Type, Opts)
+    try
+        gproc_pool:new(Pool, Type, Opts)
     catch
         error:exists -> ok
     end.
 
 ensure_pool_worker(Pool, Name, Slot) ->
-    try gproc_pool:add_worker(Pool, Name, Slot)
+    try
+        gproc_pool:add_worker(Pool, Name, Slot)
     catch
         error:exists -> ok
     end.

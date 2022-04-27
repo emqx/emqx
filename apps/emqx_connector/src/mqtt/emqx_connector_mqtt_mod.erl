@@ -18,21 +18,24 @@
 
 -module(emqx_connector_mqtt_mod).
 
--export([ start/1
-        , send/2
-        , stop/1
-        , ping/1
-        ]).
+-export([
+    start/1,
+    send/2,
+    stop/1,
+    ping/1
+]).
 
--export([ ensure_subscribed/3
-        , ensure_unsubscribed/2
-        ]).
+-export([
+    ensure_subscribed/3,
+    ensure_unsubscribed/2
+]).
 
 %% callbacks for emqtt
--export([ handle_puback/2
-        , handle_publish/3
-        , handle_disconnected/2
-        ]).
+-export([
+    handle_puback/2,
+    handle_publish/3,
+    handle_disconnected/2
+]).
 
 -include_lib("emqx/include/logger.hrl").
 -include_lib("emqx/include/emqx_mqtt.hrl").
@@ -69,7 +72,7 @@ start(Config) ->
                         ok = sub_remote_topics(Pid, Subscriptions),
                         {ok, #{client_pid => Pid, subscriptions => Subscriptions}}
                     catch
-                        throw : Reason ->
+                        throw:Reason ->
                             ok = stop(#{client_pid => Pid}),
                             {error, error_reason(Reason, ServerStr)}
                     end;
@@ -90,13 +93,14 @@ stop(#{client_pid := Pid}) ->
 
 ping(undefined) ->
     pang;
-
 ping(#{client_pid := Pid}) ->
     emqtt:ping(Pid).
 
-ensure_subscribed(#{client_pid := Pid, subscriptions := Subs} = Conn, Topic, QoS) when is_pid(Pid) ->
+ensure_subscribed(#{client_pid := Pid, subscriptions := Subs} = Conn, Topic, QoS) when
+    is_pid(Pid)
+->
     case emqtt:subscribe(Pid, Topic, QoS) of
-        {ok, _, _} -> Conn#{subscriptions => [{Topic, QoS}|Subs]};
+        {ok, _, _} -> Conn#{subscriptions => [{Topic, QoS} | Subs]};
         Error -> {error, Error}
     end;
 ensure_subscribed(_Conn, _Topic, _QoS) ->
@@ -120,15 +124,14 @@ safe_stop(Pid, StopF, Timeout) ->
     try
         StopF()
     catch
-        _ : _ ->
+        _:_ ->
             ok
     end,
     receive
         {'DOWN', MRef, _, _, _} ->
             ok
-    after
-        Timeout ->
-            exit(Pid, kill)
+    after Timeout ->
+        exit(Pid, kill)
     end.
 
 send(Conn, Msgs) ->
@@ -157,26 +160,38 @@ send(#{client_pid := ClientPid} = Conn, [Msg | Rest], PktIds) ->
             {error, Reason}
     end.
 
-handle_puback(#{packet_id := PktId, reason_code := RC}, Parent)
-  when RC =:= ?RC_SUCCESS;
-       RC =:= ?RC_NO_MATCHING_SUBSCRIBERS ->
-    Parent ! {batch_ack, PktId}, ok;
+handle_puback(#{packet_id := PktId, reason_code := RC}, Parent) when
+    RC =:= ?RC_SUCCESS;
+    RC =:= ?RC_NO_MATCHING_SUBSCRIBERS
+->
+    Parent ! {batch_ack, PktId},
+    ok;
 handle_puback(#{packet_id := PktId, reason_code := RC}, _Parent) ->
-    ?SLOG(warning, #{msg => "publish_to_remote_node_falied",
-        packet_id => PktId, reason_code => RC}).
+    ?SLOG(warning, #{
+        msg => "publish_to_remote_node_falied",
+        packet_id => PktId,
+        reason_code => RC
+    }).
 
 handle_publish(Msg, undefined, _Opts) ->
-    ?SLOG(error, #{msg => "cannot_publish_to_local_broker_as"
-                          "_'ingress'_is_not_configured",
-                   message => Msg});
+    ?SLOG(error, #{
+        msg =>
+            "cannot_publish_to_local_broker_as"
+            "_'ingress'_is_not_configured",
+        message => Msg
+    });
 handle_publish(#{properties := Props} = Msg0, Vars, Opts) ->
     Msg = format_msg_received(Msg0, Opts),
-    ?SLOG(debug, #{msg => "publish_to_local_broker",
-                   message => Msg, vars => Vars}),
+    ?SLOG(debug, #{
+        msg => "publish_to_local_broker",
+        message => Msg,
+        vars => Vars
+    }),
     case Vars of
         #{on_message_received := {Mod, Func, Args}} ->
             _ = erlang:apply(Mod, Func, [Msg | Args]);
-        _ -> ok
+        _ ->
+            ok
     end,
     maybe_publish_to_local_broker(Msg, Vars, Props).
 
@@ -184,12 +199,14 @@ handle_disconnected(Reason, Parent) ->
     Parent ! {disconnected, self(), Reason}.
 
 make_hdlr(Parent, Vars, Opts) ->
-    #{puback => {fun ?MODULE:handle_puback/2, [Parent]},
-      publish => {fun ?MODULE:handle_publish/3, [Vars, Opts]},
-      disconnected => {fun ?MODULE:handle_disconnected/2, [Parent]}
-     }.
+    #{
+        puback => {fun ?MODULE:handle_puback/2, [Parent]},
+        publish => {fun ?MODULE:handle_publish/3, [Vars, Opts]},
+        disconnected => {fun ?MODULE:handle_disconnected/2, [Parent]}
+    }.
 
-sub_remote_topics(_ClientPid, undefined) -> ok;
+sub_remote_topics(_ClientPid, undefined) ->
+    ok;
 sub_remote_topics(ClientPid, #{remote_topic := FromTopic, remote_qos := QoS}) ->
     case emqtt:subscribe(ClientPid, FromTopic, QoS) of
         {ok, _, _} -> ok;
@@ -199,52 +216,82 @@ sub_remote_topics(ClientPid, #{remote_topic := FromTopic, remote_qos := QoS}) ->
 process_config(Config) ->
     maps:without([conn_type, address, receive_mountpoint, subscriptions, name], Config).
 
-maybe_publish_to_local_broker(#{topic := Topic} = Msg, #{remote_topic := SubTopic} = Vars,
-        Props) ->
+maybe_publish_to_local_broker(
+    #{topic := Topic} = Msg,
+    #{remote_topic := SubTopic} = Vars,
+    Props
+) ->
     case maps:get(local_topic, Vars, undefined) of
         undefined ->
-            ok; %% local topic is not set, discard it
+            %% local topic is not set, discard it
+            ok;
         _ ->
             case emqx_topic:match(Topic, SubTopic) of
                 true ->
-                    _ = emqx_broker:publish(emqx_connector_mqtt_msg:to_broker_msg(Msg, Vars, Props)),
+                    _ = emqx_broker:publish(
+                        emqx_connector_mqtt_msg:to_broker_msg(Msg, Vars, Props)
+                    ),
                     ok;
                 false ->
-                    ?SLOG(warning, #{msg => "discard_message_as_topic_not_matched",
-                        message => Msg, subscribed => SubTopic, got_topic => Topic})
+                    ?SLOG(warning, #{
+                        msg => "discard_message_as_topic_not_matched",
+                        message => Msg,
+                        subscribed => SubTopic,
+                        got_topic => Topic
+                    })
             end
     end.
 
-format_msg_received(#{dup := Dup, payload := Payload, properties := Props,
-        qos := QoS, retain := Retain, topic := Topic}, #{server := Server}) ->
-    #{ id => emqx_guid:to_hexstr(emqx_guid:gen())
-     , server => Server
-     , payload => Payload
-     , topic => Topic
-     , qos => QoS
-     , dup => Dup
-     , retain => Retain
-     , pub_props => printable_maps(Props)
-     , message_received_at => erlang:system_time(millisecond)
-     }.
+format_msg_received(
+    #{
+        dup := Dup,
+        payload := Payload,
+        properties := Props,
+        qos := QoS,
+        retain := Retain,
+        topic := Topic
+    },
+    #{server := Server}
+) ->
+    #{
+        id => emqx_guid:to_hexstr(emqx_guid:gen()),
+        server => Server,
+        payload => Payload,
+        topic => Topic,
+        qos => QoS,
+        dup => Dup,
+        retain => Retain,
+        pub_props => printable_maps(Props),
+        message_received_at => erlang:system_time(millisecond)
+    }.
 
-printable_maps(undefined) -> #{};
+printable_maps(undefined) ->
+    #{};
 printable_maps(Headers) ->
     maps:fold(
-        fun ('User-Property', V0, AccIn) when is_list(V0) ->
+        fun
+            ('User-Property', V0, AccIn) when is_list(V0) ->
                 AccIn#{
                     'User-Property' => maps:from_list(V0),
-                    'User-Property-Pairs' => [#{
-                        key => Key,
-                        value => Value
-                     } || {Key, Value} <- V0]
+                    'User-Property-Pairs' => [
+                        #{
+                            key => Key,
+                            value => Value
+                        }
+                     || {Key, Value} <- V0
+                    ]
                 };
-            (K, V0, AccIn) -> AccIn#{K => V0}
-        end, #{}, Headers).
+            (K, V0, AccIn) ->
+                AccIn#{K => V0}
+        end,
+        #{},
+        Headers
+    ).
 
 ip_port_to_server_str(Host, Port) ->
-    HostStr = case inet:ntoa(Host) of
-        {error, einval} -> Host;
-        IPStr -> IPStr
-    end,
+    HostStr =
+        case inet:ntoa(Host) of
+            {error, einval} -> Host;
+            IPStr -> IPStr
+        end,
     list_to_binary(io_lib:format("~s:~w", [HostStr, Port])).

@@ -1,4 +1,3 @@
-
 %%--------------------------------------------------------------------
 %% Copyright (c) 2020-2022 EMQ Technologies Co., Ltd. All Rights Reserved.
 %%
@@ -17,9 +16,10 @@
 
 -module(emqx_connector_ssl).
 
--export([ convert_certs/2
-        , clear_certs/2
-        ]).
+-export([
+    convert_certs/2,
+    clear_certs/2
+]).
 
 convert_certs(RltvDir, NewConfig) ->
     NewSSL = drop_invalid_certs(maps:get(<<"ssl">>, NewConfig, undefined)),
@@ -40,7 +40,8 @@ new_ssl_config(Config, SSL) -> Config#{<<"ssl">> => SSL}.
 drop_invalid_certs(undefined) -> undefined;
 drop_invalid_certs(SSL) -> emqx_tls_lib:drop_invalid_certs(SSL).
 
-map_get_oneof([], _Map, Default) -> Default;
+map_get_oneof([], _Map, Default) ->
+    Default;
 map_get_oneof([Key | Keys], Map, Default) ->
     case maps:find(Key, Map) of
         error ->

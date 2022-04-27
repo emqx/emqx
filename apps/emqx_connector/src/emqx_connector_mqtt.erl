@@ -23,28 +23,32 @@
 -behaviour(emqx_resource).
 
 %% API and callbacks for supervisor
--export([ start_link/0
-        , init/1
-        , create_bridge/1
-        , drop_bridge/1
-        , bridges/0
-        ]).
+-export([
+    start_link/0,
+    init/1,
+    create_bridge/1,
+    drop_bridge/1,
+    bridges/0
+]).
 
 -export([on_message_received/3]).
 
 %% callbacks of behaviour emqx_resource
--export([ on_start/2
-        , on_stop/2
-        , on_query/4
-        , on_health_check/2
-        ]).
+-export([
+    on_start/2,
+    on_stop/2,
+    on_query/4,
+    on_health_check/2
+]).
 
 -behaviour(hocon_schema).
 
 -import(hoconsc, [mk/2]).
 
--export([ roots/0
-        , fields/1]).
+-export([
+    roots/0,
+    fields/1
+]).
 
 %%=====================================================================
 %% Hocon schema
@@ -53,25 +57,34 @@ roots() ->
 
 fields("config") ->
     emqx_connector_mqtt_schema:fields("config");
-
 fields("get") ->
-    [ {num_of_bridges, mk(integer(),
-        #{ desc => ?DESC("num_of_bridges")
-         })}
+    [
+        {num_of_bridges,
+            mk(
+                integer(),
+                #{desc => ?DESC("num_of_bridges")}
+            )}
     ] ++ fields("post");
-
 fields("put") ->
     emqx_connector_mqtt_schema:fields("connector");
-
 fields("post") ->
-    [ {type, mk(mqtt,
-        #{ required => true
-         , desc => ?DESC("type")
-         })}
-    , {name, mk(binary(),
-        #{ required => true
-         , desc => ?DESC("name")
-         })}
+    [
+        {type,
+            mk(
+                mqtt,
+                #{
+                    required => true,
+                    desc => ?DESC("type")
+                }
+            )},
+        {name,
+            mk(
+                binary(),
+                #{
+                    required => true,
+                    desc => ?DESC("name")
+                }
+            )}
     ] ++ fields("put").
 
 %% ===================================================================
@@ -80,23 +93,29 @@ start_link() ->
     supervisor:start_link({local, ?MODULE}, ?MODULE, []).
 
 init([]) ->
-    SupFlag = #{strategy => one_for_one,
-                intensity => 100,
-                period => 10},
+    SupFlag = #{
+        strategy => one_for_one,
+        intensity => 100,
+        period => 10
+    },
     {ok, {SupFlag, []}}.
 
 bridge_spec(Config) ->
-    #{id => maps:get(name, Config),
-      start => {emqx_connector_mqtt_worker, start_link, [Config]},
-      restart => permanent,
-      shutdown => 5000,
-      type => worker,
-      modules => [emqx_connector_mqtt_worker]}.
+    #{
+        id => maps:get(name, Config),
+        start => {emqx_connector_mqtt_worker, start_link, [Config]},
+        restart => permanent,
+        shutdown => 5000,
+        type => worker,
+        modules => [emqx_connector_mqtt_worker]
+    }.
 
--spec(bridges() -> [{node(), map()}]).
+-spec bridges() -> [{node(), map()}].
 bridges() ->
-    [{Name, emqx_connector_mqtt_worker:status(Name)}
-     || {Name, _Pid, _, _} <- supervisor:which_children(?MODULE)].
+    [
+        {Name, emqx_connector_mqtt_worker:status(Name)}
+     || {Name, _Pid, _, _} <- supervisor:which_children(?MODULE)
+    ].
 
 create_bridge(Config) ->
     supervisor:start_child(?MODULE, bridge_spec(Config)).
@@ -121,8 +140,11 @@ on_message_received(Msg, HookPoint, InstId) ->
 %% ===================================================================
 on_start(InstId, Conf) ->
     InstanceId = binary_to_atom(InstId, utf8),
-    ?SLOG(info, #{msg => "starting_mqtt_connector",
-                  connector => InstanceId, config => Conf}),
+    ?SLOG(info, #{
+        msg => "starting_mqtt_connector",
+        connector => InstanceId,
+        config => Conf
+    }),
     BasicConf = basic_config(Conf),
     BridgeConf = BasicConf#{
         name => InstanceId,
@@ -142,19 +164,25 @@ on_start(InstId, Conf) ->
     end.
 
 on_stop(_InstId, #{name := InstanceId}) ->
-    ?SLOG(info, #{msg => "stopping_mqtt_connector",
-                  connector => InstanceId}),
+    ?SLOG(info, #{
+        msg => "stopping_mqtt_connector",
+        connector => InstanceId
+    }),
     case ?MODULE:drop_bridge(InstanceId) of
-        ok -> ok;
-        {error, not_found} -> ok;
+        ok ->
+            ok;
+        {error, not_found} ->
+            ok;
         {error, Reason} ->
-            ?SLOG(error, #{msg => "stop_mqtt_connector",
-                connector => InstanceId, reason => Reason})
+            ?SLOG(error, #{
+                msg => "stop_mqtt_connector",
+                connector => InstanceId,
+                reason => Reason
+            })
     end.
 
 on_query(_InstId, {message_received, _Msg}, AfterQuery, _State) ->
     emqx_resource:query_success(AfterQuery);
-
 on_query(_InstId, {send_message, Msg}, AfterQuery, #{name := InstanceId}) ->
     ?TRACE("QUERY", "send_msg_to_remote_node", #{message => Msg, connector => InstanceId}),
     emqx_connector_mqtt_worker:send_to_remote(InstanceId, Msg),
@@ -178,7 +206,8 @@ make_sub_confs(undefined, _) ->
     undefined;
 make_sub_confs(SubRemoteConf, InstId) ->
     case maps:take(hookpoint, SubRemoteConf) of
-        error -> SubRemoteConf;
+        error ->
+            SubRemoteConf;
         {HookPoint, SubConf} ->
             MFA = {?MODULE, on_message_received, [HookPoint, InstId]},
             SubConf#{on_message_received => MFA}
@@ -192,22 +221,24 @@ make_forward_confs(FrowardConf) ->
     FrowardConf.
 
 basic_config(#{
-        server := Server,
-        reconnect_interval := ReconnIntv,
-        proto_ver := ProtoVer,
-        username := User,
-        password := Password,
-        clean_start := CleanStart,
-        keepalive := KeepAlive,
-        retry_interval := RetryIntv,
-        max_inflight := MaxInflight,
-        replayq := ReplayQ,
-        ssl := #{enable := EnableSsl} = Ssl}) ->
+    server := Server,
+    reconnect_interval := ReconnIntv,
+    proto_ver := ProtoVer,
+    username := User,
+    password := Password,
+    clean_start := CleanStart,
+    keepalive := KeepAlive,
+    retry_interval := RetryIntv,
+    max_inflight := MaxInflight,
+    replayq := ReplayQ,
+    ssl := #{enable := EnableSsl} = Ssl
+}) ->
     #{
         replayq => ReplayQ,
         %% connection opts
         server => Server,
-        connect_timeout => 30, %% 30s
+        %% 30s
+        connect_timeout => 30,
         reconnect_interval => ReconnIntv,
         proto_ver => ProtoVer,
         bridge_mode => true,

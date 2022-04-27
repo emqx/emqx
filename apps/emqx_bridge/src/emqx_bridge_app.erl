@@ -19,9 +19,10 @@
 
 -export([start/2, stop/1]).
 
--export([ pre_config_update/3
-        , post_config_update/5
-        ]).
+-export([
+    pre_config_update/3,
+    post_config_update/5
+]).
 
 -define(TOP_LELVE_HDLR_PATH, (emqx_bridge:config_key_path())).
 -define(LEAF_NODE_HDLR_PATH, (emqx_bridge:config_key_path() ++ ['?', '?'])).
