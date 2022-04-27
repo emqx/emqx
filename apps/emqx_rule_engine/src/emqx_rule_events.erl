@@ -236,19 +236,18 @@ eventmsg_disconnected(_ClientInfo = #{
           disconnected_at => DisconnectedAt
         }).
 
-eventmsg_connack(_ConnInfo = #{
+eventmsg_connack(ConnInfo = #{
                     clientid := ClientId,
                     clean_start := CleanStart,
                     username := Username,
                     peername := PeerName,
                     sockname := SockName,
                     proto_name := ProtoName,
-                    proto_ver := ProtoVer,
-                    keepalive := Keepalive,
-                    connected_at := ConnectedAt,
-                    conn_props := ConnProps,
-                    expiry_interval := ExpiryInterval
+                    proto_ver := ProtoVer
                    }, Reason) ->
+    Keepalive = maps:get(keepalive, ConnInfo, 0),
+    ConnProps = maps:get(conn_props, ConnInfo, #{}),
+    ExpiryInterval = maps:get(expiry_interval, ConnInfo, 0),
     with_basic_columns('client.connack',
         #{reason_code => reason(Reason),
           clientid => ClientId,
@@ -260,7 +259,6 @@ eventmsg_connack(_ConnInfo = #{
           proto_ver => ProtoVer,
           keepalive => Keepalive,
           expiry_interval => ExpiryInterval,
-          connected_at => ConnectedAt,
           conn_props => printable_maps(ConnProps)
         }).
 eventmsg_check_acl_complete(_ClientInfo = #{
