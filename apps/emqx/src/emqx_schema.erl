@@ -1515,7 +1515,7 @@ base_listener() ->
             )},
         {"acceptors",
             sc(
-                integer(),
+                pos_integer(),
                 #{
                     default => 16,
                     desc => ?DESC(base_listener_acceptors)
@@ -1523,7 +1523,7 @@ base_listener() ->
             )},
         {"max_connections",
             sc(
-                hoconsc:union([infinity, integer()]),
+                hoconsc:union([infinity, pos_integer()]),
                 #{
                     default => infinity,
                     desc => ?DESC(base_listener_max_connections)
