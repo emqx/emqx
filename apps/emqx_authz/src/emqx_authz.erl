@@ -180,7 +180,6 @@ do_post_config_update({{?CMD_REPLACE, Type}, RawNewSource}, Sources) ->
     {OldSource, Front, Rear} = take(Type, OldSources),
     NewSource = get_source_by_type(type(RawNewSource), Sources),
     ok = ensure_resource_deleted(OldSource),
-    clear_certs(OldSource),
     InitedSources = init_source(NewSource),
     Front ++ [InitedSources] ++ Rear;
 do_post_config_update({{?CMD_DELETE, Type}, _RawNewSource}, _Sources) ->
