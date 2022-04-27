@@ -57,6 +57,7 @@
     validate_heap_size/1,
     parse_user_lookup_fun/1,
     validate_alarm_actions/1,
+    non_empty_string/1,
     validations/0
 ]).
 
@@ -1898,6 +1899,7 @@ client_ssl_opts_schema(Defaults1) ->
                     hoconsc:union([disable, string()]),
                     #{
                         required => false,
+                        validator => fun emqx_schema:non_empty_string/1,
                         desc => ?DESC(client_ssl_opts_schema_server_name_indication)
                     }
                 )}
@@ -2177,3 +2179,8 @@ authentication(Type) ->
 -spec qos() -> typerefl:type().
 qos() ->
     typerefl:alias("qos", typerefl:union([0, 1, 2])).
+
+non_empty_string(<<>>) -> {error, empty_string_not_allowed};
+non_empty_string("") -> {error, empty_string_not_allowed};
+non_empty_string(S) when is_binary(S); is_list(S) -> ok;
+non_empty_string(_) -> {error, invalid_string}.
