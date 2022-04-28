@@ -14,7 +14,7 @@
 %% limitations under the License.
 %%--------------------------------------------------------------------
 
--module(emqx_kernel_sup).
+-module(emqx_authn_authz_metrics_sup).
 
 -behaviour(supervisor).
 
@@ -26,38 +26,11 @@ start_link() ->
     supervisor:start_link({local, ?MODULE}, ?MODULE, []).
 
 init([]) ->
+    AuthnMetrics = emqx_plugin_libs_metrics:child_spec(emqx_authn_metrics, authn_metrics),
+    AuthzMetrics = emqx_plugin_libs_metrics:child_spec(eqmx_authz_metrics, authz_metrics),
     {ok, {
         {one_for_one, 10, 100},
-        %% always start emqx_config_handler first to load the emqx.conf to emqx_config
-        [
-            child_spec(emqx_config_handler, worker),
-            child_spec(emqx_pool_sup, supervisor),
-            child_spec(emqx_hooks, worker),
-            child_spec(emqx_stats, worker),
-            child_spec(emqx_metrics, worker),
-            child_spec(emqx_ctl, worker),
-            child_spec(emqx_authn_authz_metrics_sup, supervisor)
+        [ AuthnMetrics,
+          AuthzMetrics
         ]
     }}.
-
-child_spec(M, Type) ->
-    child_spec(M, Type, []).
-
-child_spec(M, worker, Args) ->
-    #{
-        id => M,
-        start => {M, start_link, Args},
-        restart => permanent,
-        shutdown => 5000,
-        type => worker,
-        modules => [M]
-    };
-child_spec(M, supervisor, Args) ->
-    #{
-        id => M,
-        start => {M, start_link, Args},
-        restart => permanent,
-        shutdown => infinity,
-        type => supervisor,
-        modules => [M]
-    }.

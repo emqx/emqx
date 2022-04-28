@@ -580,7 +580,9 @@ handle_delete_authenticator(Chain, AuthenticatorID) ->
     end,
     case do_delete_authenticators(MatchFun, Chain) of
         [] -> {error, {not_found, {authenticator, AuthenticatorID}}};
-        [AuthenticatorID] -> ok
+        [AuthenticatorID] ->
+            emqx_plugin_libs_metrics:clear_metrics(authn_metrics, AuthenticatorID),
+            ok
     end.
 
 handle_move_authenticator(Chain, AuthenticatorID, Position) ->

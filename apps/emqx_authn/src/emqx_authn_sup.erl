@@ -27,6 +27,5 @@ start_link() ->
     supervisor:start_link({local, ?MODULE}, ?MODULE, []).
 
 init([]) ->
-    Metrics = emqx_plugin_libs_metrics:child_spec(authn_metrics),
-    ChildSpecs = [Metrics],
+    ChildSpecs = [],
     {ok, {{one_for_one, 10, 10}, ChildSpecs}}.

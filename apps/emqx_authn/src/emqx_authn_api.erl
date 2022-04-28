@@ -1100,7 +1100,6 @@ update_authenticator(ConfKeyPath, ChainName, AuthenticatorID, Config) ->
 delete_authenticator(ConfKeyPath, ChainName, AuthenticatorID) ->
     case update_config(ConfKeyPath, {delete_authenticator, ChainName, AuthenticatorID}) of
         {ok, _} ->
-            emqx_plugin_libs_metrics:clear_metrics(authn_metrics, AuthenticatorID),
             {204};
         {error, {_PrePostConfigUpdate, emqx_authentication, Reason}} ->
             serialize_error(Reason);

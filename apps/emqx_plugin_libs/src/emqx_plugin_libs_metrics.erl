@@ -22,7 +22,8 @@
 -export([
     start_link/1,
     stop/1,
-    child_spec/1
+    child_spec/1,
+    child_spec/2
 ]).
 
 -export([
@@ -99,14 +100,17 @@
 
 -spec child_spec(handler_name()) -> supervisor:child_spec().
 child_spec(Name) ->
+    child_spec(emqx_plugin_libs_metrics, Name).
+
+child_spec(ChldName, Name) ->
     #{
-        id => emqx_plugin_libs_metrics,
-        start => {emqx_plugin_libs_metrics, start_link, [Name]},
-        restart => permanent,
-        shutdown => 5000,
-        type => worker,
-        modules => [emqx_plugin_libs_metrics]
-    }.
+      id => ChldName,
+      start => {emqx_plugin_libs_metrics, start_link, [Name]},
+      restart => permanent,
+      shutdown => 5000,
+      type => worker,
+      modules => [emqx_plugin_libs_metrics]
+     }.
 
 -spec create_metrics(handler_name(), metric_id(), [atom()]) -> ok | {error, term()}.
 create_metrics(Name, Id, Metrics) ->
