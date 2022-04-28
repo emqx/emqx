@@ -77,7 +77,32 @@ fields("listeners") ->
     ];
 fields("http") ->
     [
-        {"bind", fun bind/1},
+        enable(true),
+        bind(18803)
+        | common_listener_fields()
+    ];
+fields("https") ->
+    [
+        enable(false),
+        bind(18804)
+        | common_listener_fields() ++
+            exclude_fields(
+                ["enable", "fail_if_no_peer_cert"],
+                emqx_schema:server_ssl_opts_schema(#{}, true)
+            )
+    ].
+
+exclude_fields([], Fields) ->
+    Fields;
+exclude_fields([FieldName | Rest], Fields) ->
+    %% assert field exists
+    case lists:keytake(FieldName, 1, Fields) of
+        {value, _, New} -> exclude_fields(Rest, New);
+        false -> error({FieldName, Fields})
+    end.
+
+common_listener_fields() ->
+    [
         {"num_acceptors",
             sc(
                 integer(),
@@ -126,25 +151,40 @@ fields("http") ->
                     desc => ?DESC(ipv6_v6only)
                 }
             )}
-    ];
-fields("https") ->
-    fields("http") ++
-        proplists:delete(
-            "fail_if_no_peer_cert",
-            emqx_schema:server_ssl_opts_schema(#{}, true)
-        ).
+    ].
 
-desc("dashboard") -> ?DESC(desc_dashboard);
-desc("listeners") -> ?DESC(desc_listeners);
-desc("http") -> ?DESC(desc_http);
-desc("https") -> ?DESC(desc_https);
-desc(_) -> undefined.
+enable(Bool) ->
+    {"enable",
+        sc(
+            boolean(),
+            #{
+                default => Bool,
+                required => true,
+                desc => ?DESC(listener_enable)
+            }
+        )}.
 
-bind(type) -> hoconsc:union([non_neg_integer(), emqx_schema:ip_port()]);
-bind(default) -> 18083;
-bind(required) -> true;
-bind(desc) -> ?DESC(bind);
-bind(_) -> undefined.
+bind(Port) ->
+    {"bind",
+        sc(
+            hoconsc:union([non_neg_integer(), emqx_schema:ip_port()]),
+            #{
+                default => Port,
+                required => true,
+                desc => ?DESC(bind)
+            }
+        )}.
+
+desc("dashboard") ->
+    ?DESC(desc_dashboard);
+desc("listeners") ->
+    ?DESC(desc_listeners);
+desc("http") ->
+    ?DESC(desc_http);
+desc("https") ->
+    ?DESC(desc_https);
+desc(_) ->
+    undefined.
 
 default_username(type) -> binary();
 default_username(default) -> "admin";

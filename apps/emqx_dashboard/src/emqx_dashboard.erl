@@ -153,10 +153,13 @@ apps() ->
     ].
 
 listeners(Listeners) ->
-    lists:map(
+    lists:filtermap(
         fun({Protocol, Conf}) ->
-            {Conf1, Bind} = ip_port(Conf),
-            {listener_name(Protocol, Conf1), Protocol, Bind, ranch_opts(Conf1)}
+            maps:get(enable, Conf) andalso
+                begin
+                    {Conf1, Bind} = ip_port(Conf),
+                    {true, {listener_name(Protocol, Conf1), Protocol, Bind, ranch_opts(Conf1)}}
+                end
         end,
         maps:to_list(Listeners)
     ).
@@ -172,34 +175,34 @@ init_i18n() ->
     Lang = emqx_conf:get([dashboard, i18n_lang], en),
     init_i18n(File, Lang).
 
-ranch_opts(RanchOptions) ->
+ranch_opts(Options) ->
     Keys = [
-        {ack_timeout, handshake_timeout},
+        handshake_timeout,
         connection_type,
         max_connections,
         num_acceptors,
         shutdown,
         socket
     ],
-    {S, R} = lists:foldl(fun key_take/2, {RanchOptions, #{}}, Keys),
-    R#{socket_opts => maps:fold(fun key_only/3, [], S)}.
-
-key_take(Key, {All, R}) ->
-    {K, KX} =
-        case Key of
-            {K1, K2} -> {K1, K2};
-            _ -> {Key, Key}
+    RanchOpts = maps:with(Keys, Options),
+    SocketOpts = maps:fold(
+        fun filter_false/3,
+        [],
+        maps:without([enable, inet6, ipv6_v6only | Keys], Options)
+    ),
+    InetOpts =
+        case Options of
+            #{inet6 := true, ipv6_v6only := true} ->
+                [inet6, {ipv6_v6only, true}];
+            #{inet6 := true, ipv6_v6only := false} ->
+                [inet6];
+            _ ->
+                [inet]
         end,
-    case maps:get(K, All, undefined) of
-        undefined ->
-            {All, R};
-        V ->
-            {maps:remove(K, All), R#{KX => V}}
-    end.
+    RanchOpts#{socket_opts => InetOpts ++ SocketOpts}.
 
-key_only(K, true, S) -> [K | S];
-key_only(_K, false, S) -> S;
-key_only(K, V, S) -> [{K, V} | S].
+filter_false(_K, false, S) -> S;
+filter_false(K, V, S) -> [{K, V} | S].
 
 listener_name(Protocol, #{port := Port, ip := IP}) ->
     Name =
