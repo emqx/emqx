@@ -111,8 +111,9 @@ run_command(help, []) ->
 run_command(Cmd, Args) when is_atom(Cmd) ->
     case lookup_command(Cmd) of
         [{Mod, Fun}] ->
-            try Mod:Fun(Args) of
-                _ -> ok
+            try
+                _ = apply(Mod, Fun, [Args]),
+                ok
             catch
                 _:Reason:Stacktrace ->
                     ?SLOG(error, #{
@@ -147,7 +148,7 @@ help() ->
             lists:foreach(
                 fun({_, {Mod, Cmd}, _}) ->
                     print("~110..-s~n", [""]),
-                    Mod:Cmd(usage)
+                    apply(Mod, Cmd, [usage])
                 end,
                 Cmds
             )
