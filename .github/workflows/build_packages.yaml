@@ -324,10 +324,7 @@ jobs:
             --profile "${PROFILE}" \
             --pkgtype "${PKGTYPE}" \
             --arch "${ARCH}" \
-            --otp "${OTP}" \
             --elixir "${IsElixir}" \
-            --elixir-vsn "${ELIXIR}" \
-            --system "${SYSTEM}" \
             --builder "ghcr.io/emqx/emqx-builder/5.0-10:${ELIXIR}-${OTP}-${SYSTEM}"
         done
     - uses: actions/upload-artifact@v1
