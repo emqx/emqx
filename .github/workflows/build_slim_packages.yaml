@@ -236,7 +236,6 @@ jobs:
 
   allgood_packaging:
     runs-on: ubuntu-latest
-    if: always()
     needs:
       - linux
       - windows

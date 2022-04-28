@@ -522,7 +522,6 @@ jobs:
 
   allgood_integration_tests:
     runs-on: ubuntu-20.04
-    if: always()
     needs: [advanced_feat,pgsql_authn_authz,JWT_authn,mysql_authn_authz,built_in_database_authn_authz]
     steps:
     - name: Check if all integration tests succeeded

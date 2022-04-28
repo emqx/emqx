@@ -81,7 +81,6 @@ jobs:
 
   allgood_emqx_app_tests:
     runs-on: ubuntu-latest
-    if: always()
     needs:
       - run_emqx_app_tests
     steps:

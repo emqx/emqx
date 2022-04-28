@@ -229,7 +229,6 @@ jobs:
 
     allgood_functional_tests:
       runs-on: ubuntu-20.04
-      if: always()
       needs:
         - eunit_and_proper
         - ct_docker
