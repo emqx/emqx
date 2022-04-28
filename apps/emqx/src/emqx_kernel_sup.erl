@@ -35,7 +35,8 @@ init([]) ->
             child_spec(emqx_hooks, worker),
             child_spec(emqx_stats, worker),
             child_spec(emqx_metrics, worker),
-            child_spec(emqx_ctl, worker)
+            child_spec(emqx_ctl, worker),
+            child_spec(emqx_authn_authz_metrics_sup, supervisor)
         ]
     }}.
 
