@@ -5,6 +5,7 @@ set -euo pipefail
 ## rebar3 tag 3.18.0-emqx-1 is compiled using otp24.1.5.
 ## we have to use an otp24-compiled rebar3 because the defination of record #application{}
 ## in systools.hrl is changed in otp24.
+OTP_VSN="${OTP_VSN:-$(./scripts/get-otp-vsn.sh)}"
 case ${OTP_VSN} in
     23*)
         VERSION="3.16.1-emqx-1"

@@ -36,7 +36,7 @@ jobs:
         with:
           fetch-depth: 0
       - name: ensure rebar
-        run: ./scripts/ensure-rebar3.sh 3.16.1-emqx-1
+        run: ./scripts/ensure-rebar3.sh
       - name: check applications
         run: ./scripts/check-elixir-applications.exs
       - name: check applications started with emqx_machine
