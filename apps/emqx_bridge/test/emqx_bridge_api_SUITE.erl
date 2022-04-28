@@ -171,6 +171,7 @@ t_http_crud_apis(_) ->
     #{
         <<"type">> := ?BRIDGE_TYPE,
         <<"name">> := ?BRIDGE_NAME,
+        <<"enable">> := true,
         <<"status">> := _,
         <<"node_status">> := [_ | _],
         <<"metrics">> := _,
@@ -208,6 +209,7 @@ t_http_crud_apis(_) ->
         #{
             <<"type">> := ?BRIDGE_TYPE,
             <<"name">> := ?BRIDGE_NAME,
+            <<"enable">> := true,
             <<"status">> := _,
             <<"node_status">> := [_ | _],
             <<"metrics">> := _,
@@ -224,6 +226,7 @@ t_http_crud_apis(_) ->
             #{
                 <<"type">> := ?BRIDGE_TYPE,
                 <<"name">> := ?BRIDGE_NAME,
+                <<"enable">> := true,
                 <<"status">> := _,
                 <<"node_status">> := [_ | _],
                 <<"metrics">> := _,
@@ -240,6 +243,7 @@ t_http_crud_apis(_) ->
         #{
             <<"type">> := ?BRIDGE_TYPE,
             <<"name">> := ?BRIDGE_NAME,
+            <<"enable">> := true,
             <<"status">> := _,
             <<"node_status">> := [_ | _],
             <<"metrics">> := _,
@@ -305,6 +309,7 @@ do_start_stop_bridges(Type) ->
     #{
         <<"type">> := ?BRIDGE_TYPE,
         <<"name">> := ?BRIDGE_NAME,
+        <<"enable">> := true,
         <<"status">> := <<"connected">>,
         <<"node_status">> := [_ | _],
         <<"metrics">> := _,
@@ -349,6 +354,7 @@ t_enable_disable_bridges(_) ->
     #{
         <<"type">> := ?BRIDGE_TYPE,
         <<"name">> := ?BRIDGE_NAME,
+        <<"enable">> := true,
         <<"status">> := <<"connected">>,
         <<"node_status">> := [_ | _],
         <<"metrics">> := _,
@@ -397,6 +403,7 @@ t_reset_bridges(_) ->
     #{
         <<"type">> := ?BRIDGE_TYPE,
         <<"name">> := ?BRIDGE_NAME,
+        <<"enable">> := true,
         <<"status">> := <<"connected">>,
         <<"node_status">> := [_ | _],
         <<"metrics">> := _,

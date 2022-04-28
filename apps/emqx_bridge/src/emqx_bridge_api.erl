@@ -648,11 +648,11 @@ fill_defaults(Type, RawConf) ->
     unpack_bridge_conf(Type, FullConf).
 
 pack_bridge_conf(Type, RawConf) ->
-    #{<<"bridges">> => #{Type => #{<<"foo">> => RawConf}}}.
+    #{<<"bridges">> => #{bin(Type) => #{<<"foo">> => RawConf}}}.
 
 unpack_bridge_conf(Type, PackedConf) ->
     #{<<"bridges">> := Bridges} = PackedConf,
-    #{<<"foo">> := RawConf} = maps:get(Type, Bridges),
+    #{<<"foo">> := RawConf} = maps:get(bin(Type), Bridges),
     RawConf.
 
 is_ok(ResL) ->
@@ -689,4 +689,8 @@ error_msg(Code, Msg) ->
     #{code => Code, message => bin(io_lib:format("~p", [Msg]))}.
 
 bin(S) when is_list(S) ->
-    list_to_binary(S).
+    list_to_binary(S);
+bin(S) when is_atom(S) ->
+    atom_to_binary(S, utf8);
+bin(S) when is_binary(S) ->
+    S.

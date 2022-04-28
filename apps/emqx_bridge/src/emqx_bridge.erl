@@ -343,20 +343,18 @@ recreate(Type, Name, Conf) ->
     ).
 
 create_dry_run(Type, Conf) ->
-    Conf0 = Conf#{
-        <<"egress">> =>
-            #{
-                <<"remote_topic">> => <<"t">>,
-                <<"remote_qos">> => 0,
-                <<"retain">> => true,
-                <<"payload">> => <<"val">>
-            },
-        <<"ingress">> =>
-            #{<<"remote_topic">> => <<"t">>}
-    },
+    Conf0 = fill_dry_run_conf(Conf),
     case emqx_resource:check_config(emqx_bridge:resource_type(Type), Conf0) of
         {ok, Conf1} ->
-            emqx_resource:create_dry_run_local(emqx_bridge:resource_type(Type), Conf1);
+            TmpPath = iolist_to_binary(["bridges-create-dry-run:", emqx_misc:gen_id(8)]),
+            try emqx_connector_ssl:convert_certs(TmpPath, Conf1) of
+                {error, Reason} ->
+                    {error, Reason};
+                {ok, ConfNew} ->
+                    emqx_resource:create_dry_run_local(emqx_bridge:resource_type(Type), ConfNew)
+            after
+                emqx_connector_ssl:clear_certs(TmpPath, Conf1)
+            end;
         {error, _} = Error ->
             Error
     end.
@@ -556,6 +554,19 @@ get_basic_usage_info() ->
         _:_ ->
             InitialAcc
     end.
+
+fill_dry_run_conf(Conf) ->
+    Conf#{
+        <<"egress">> =>
+            #{
+                <<"remote_topic">> => <<"t">>,
+                <<"remote_qos">> => 0,
+                <<"retain">> => true,
+                <<"payload">> => <<"val">>
+            },
+        <<"ingress">> =>
+            #{<<"remote_topic">> => <<"t">>}
+    }.
 
 bin(Bin) when is_binary(Bin) -> Bin;
 bin(Str) when is_list(Str) -> list_to_binary(Str);
