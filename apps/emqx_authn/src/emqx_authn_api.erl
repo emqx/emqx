@@ -902,12 +902,6 @@ create_authenticator(ConfKeyPath, ChainName, Config) ->
             raw_config := AuthenticatorsConfig
         }} ->
             {ok, AuthenticatorConfig} = find_config(ID, AuthenticatorsConfig),
-            ok = emqx_plugin_libs_metrics:create_metrics(
-                authn_metrics,
-                ID,
-                [matched, success, failed, ignore],
-                [matched]
-            ),
             {200, maps:put(id, ID, convert_certs(fill_defaults(AuthenticatorConfig)))};
         {error, {_PrePostConfigUpdate, emqx_authentication, Reason}} ->
             serialize_error(Reason);
