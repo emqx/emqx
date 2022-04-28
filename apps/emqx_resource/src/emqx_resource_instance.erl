@@ -82,10 +82,10 @@ make_test_id() ->
     <<?TEST_ID_PREFIX, RandId/binary>>.
 
 get_metrics(InstId) ->
-    emqx_plugin_libs_metrics:get_metrics(resource_metrics, InstId).
+    emqx_metrics_worker:get_metrics(resource_metrics, InstId).
 
 reset_metrics(InstId) ->
-    emqx_plugin_libs_metrics:reset_metrics(resource_metrics, InstId).
+    emqx_metrics_worker:reset_metrics(resource_metrics, InstId).
 
 force_lookup(InstId) ->
     {ok, _Group, Data} = lookup(InstId),
@@ -200,7 +200,7 @@ do_create(InstId, Group, ResourceType, Config, Opts) ->
             {ok, already_created};
         {error, not_found} ->
             ok = do_start(InstId, Group, ResourceType, Config, Opts),
-            ok = emqx_plugin_libs_metrics:create_metrics(
+            ok = emqx_metrics_worker:create_metrics(
                 resource_metrics,
                 InstId,
                 [matched, success, failed, exception],
@@ -243,7 +243,7 @@ do_remove(Group, #{id := InstId} = Data, ClearMetrics) ->
     _ = do_stop(Group, Data),
     ets:delete(emqx_resource_instance, InstId),
     case ClearMetrics of
-        true -> ok = emqx_plugin_libs_metrics:clear_metrics(resource_metrics, InstId);
+        true -> ok = emqx_metrics_worker:clear_metrics(resource_metrics, InstId);
         false -> ok
     end,
     ok.

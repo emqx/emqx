@@ -14,7 +14,7 @@
 %% limitations under the License.
 %%--------------------------------------------------------------------
 
--module(emqx_plugin_libs_metrics_SUITE).
+-module(emqx_metrics_worker_SUITE).
 
 -compile(export_all).
 -compile(nowarn_export_all).
@@ -31,18 +31,15 @@ suite() ->
 -define(NAME, ?MODULE).
 
 init_per_suite(Config) ->
-    emqx_common_test_helpers:start_apps([emqx_conf]),
-    {ok, _} = emqx_plugin_libs_metrics:start_link(?NAME),
+    {ok, _} = emqx_metrics_worker:start_link(?NAME),
     Config.
 
 end_per_suite(_Config) ->
-    catch emqx_plugin_libs_metrics:stop(?NAME),
-    emqx_common_test_helpers:stop_apps([emqx_conf]),
-    ok.
+    ok = emqx_metrics_worker:stop(?NAME).
 
 init_per_testcase(_, Config) ->
-    catch emqx_plugin_libs_metrics:stop(?NAME),
-    {ok, _} = emqx_plugin_libs_metrics:start_link(?NAME),
+    ok = emqx_metrics_worker:stop(?NAME),
+    {ok, _} = emqx_metrics_worker:start_link(?NAME),
     Config.
 
 end_per_testcase(_, _Config) ->
@@ -50,7 +47,7 @@ end_per_testcase(_, _Config) ->
 
 t_get_metrics(_) ->
     Metrics = [a, b, c],
-    ok = emqx_plugin_libs_metrics:create_metrics(?NAME, <<"testid">>, Metrics),
+    ok = emqx_metrics_worker:create_metrics(?NAME, <<"testid">>, Metrics),
     %% all the metrics are set to zero at start
     ?assertMatch(
         #{
@@ -65,12 +62,12 @@ t_get_metrics(_) ->
                 c := 0
             }
         },
-        emqx_plugin_libs_metrics:get_metrics(?NAME, <<"testid">>)
+        emqx_metrics_worker:get_metrics(?NAME, <<"testid">>)
     ),
-    ok = emqx_plugin_libs_metrics:inc(?NAME, <<"testid">>, a),
-    ok = emqx_plugin_libs_metrics:inc(?NAME, <<"testid">>, b),
-    ok = emqx_plugin_libs_metrics:inc(?NAME, <<"testid">>, c),
-    ok = emqx_plugin_libs_metrics:inc(?NAME, <<"testid">>, c),
+    ok = emqx_metrics_worker:inc(?NAME, <<"testid">>, a),
+    ok = emqx_metrics_worker:inc(?NAME, <<"testid">>, b),
+    ok = emqx_metrics_worker:inc(?NAME, <<"testid">>, c),
+    ok = emqx_metrics_worker:inc(?NAME, <<"testid">>, c),
     ct:sleep(1500),
     ?LET(
         #{
@@ -85,7 +82,7 @@ t_get_metrics(_) ->
                 c := 2
             }
         },
-        emqx_plugin_libs_metrics:get_metrics(?NAME, <<"testid">>),
+        emqx_metrics_worker:get_metrics(?NAME, <<"testid">>),
         {
             ?assert(CurrA > 0),
             ?assert(CurrB > 0),
@@ -95,11 +92,11 @@ t_get_metrics(_) ->
             ?assert(MaxC > 0)
         }
     ),
-    ok = emqx_plugin_libs_metrics:clear_metrics(?NAME, <<"testid">>).
+    ok = emqx_metrics_worker:clear_metrics(?NAME, <<"testid">>).
 
 t_reset_metrics(_) ->
     Metrics = [a, b, c],
-    ok = emqx_plugin_libs_metrics:create_metrics(?NAME, <<"testid">>, Metrics),
+    ok = emqx_metrics_worker:create_metrics(?NAME, <<"testid">>, Metrics),
     %% all the metrics are set to zero at start
     ?assertMatch(
         #{
@@ -114,14 +111,14 @@ t_reset_metrics(_) ->
                 c := 0
             }
         },
-        emqx_plugin_libs_metrics:get_metrics(?NAME, <<"testid">>)
+        emqx_metrics_worker:get_metrics(?NAME, <<"testid">>)
     ),
-    ok = emqx_plugin_libs_metrics:inc(?NAME, <<"testid">>, a),
-    ok = emqx_plugin_libs_metrics:inc(?NAME, <<"testid">>, b),
-    ok = emqx_plugin_libs_metrics:inc(?NAME, <<"testid">>, c),
-    ok = emqx_plugin_libs_metrics:inc(?NAME, <<"testid">>, c),
+    ok = emqx_metrics_worker:inc(?NAME, <<"testid">>, a),
+    ok = emqx_metrics_worker:inc(?NAME, <<"testid">>, b),
+    ok = emqx_metrics_worker:inc(?NAME, <<"testid">>, c),
+    ok = emqx_metrics_worker:inc(?NAME, <<"testid">>, c),
     ct:sleep(1500),
-    ok = emqx_plugin_libs_metrics:reset_metrics(?NAME, <<"testid">>),
+    ok = emqx_metrics_worker:reset_metrics(?NAME, <<"testid">>),
     ?LET(
         #{
             rate := #{
@@ -135,7 +132,7 @@ t_reset_metrics(_) ->
                 c := 0
             }
         },
-        emqx_plugin_libs_metrics:get_metrics(?NAME, <<"testid">>),
+        emqx_metrics_worker:get_metrics(?NAME, <<"testid">>),
         {
             ?assert(CurrA == 0),
             ?assert(CurrB == 0),
@@ -145,19 +142,19 @@ t_reset_metrics(_) ->
             ?assert(MaxC == 0)
         }
     ),
-    ok = emqx_plugin_libs_metrics:clear_metrics(?NAME, <<"testid">>).
+    ok = emqx_metrics_worker:clear_metrics(?NAME, <<"testid">>).
 
 t_get_metrics_2(_) ->
     Metrics = [a, b, c],
-    ok = emqx_plugin_libs_metrics:create_metrics(
+    ok = emqx_metrics_worker:create_metrics(
         ?NAME,
         <<"testid">>,
         Metrics,
         [a]
     ),
-    ok = emqx_plugin_libs_metrics:inc(?NAME, <<"testid">>, a),
-    ok = emqx_plugin_libs_metrics:inc(?NAME, <<"testid">>, b),
-    ok = emqx_plugin_libs_metrics:inc(?NAME, <<"testid">>, c),
+    ok = emqx_metrics_worker:inc(?NAME, <<"testid">>, a),
+    ok = emqx_metrics_worker:inc(?NAME, <<"testid">>, b),
+    ok = emqx_metrics_worker:inc(?NAME, <<"testid">>, c),
     ?assertMatch(
         #{
             rate := Rate = #{
@@ -169,13 +166,13 @@ t_get_metrics_2(_) ->
                 c := 1
             }
         } when map_size(Rate) =:= 1,
-        emqx_plugin_libs_metrics:get_metrics(?NAME, <<"testid">>)
+        emqx_metrics_worker:get_metrics(?NAME, <<"testid">>)
     ),
-    ok = emqx_plugin_libs_metrics:clear_metrics(?NAME, <<"testid">>).
+    ok = emqx_metrics_worker:clear_metrics(?NAME, <<"testid">>).
 
 t_recreate_metrics(_) ->
-    ok = emqx_plugin_libs_metrics:create_metrics(?NAME, <<"testid">>, [a]),
-    ok = emqx_plugin_libs_metrics:inc(?NAME, <<"testid">>, a),
+    ok = emqx_metrics_worker:create_metrics(?NAME, <<"testid">>, [a]),
+    ok = emqx_metrics_worker:inc(?NAME, <<"testid">>, a),
     ?assertMatch(
         #{
             rate := R = #{
@@ -185,12 +182,12 @@ t_recreate_metrics(_) ->
                 a := 1
             }
         } when map_size(R) == 1 andalso map_size(C) == 1,
-        emqx_plugin_libs_metrics:get_metrics(?NAME, <<"testid">>)
+        emqx_metrics_worker:get_metrics(?NAME, <<"testid">>)
     ),
     %% we create the metrics again, to add some counters
-    ok = emqx_plugin_libs_metrics:create_metrics(?NAME, <<"testid">>, [a, b, c]),
-    ok = emqx_plugin_libs_metrics:inc(?NAME, <<"testid">>, b),
-    ok = emqx_plugin_libs_metrics:inc(?NAME, <<"testid">>, c),
+    ok = emqx_metrics_worker:create_metrics(?NAME, <<"testid">>, [a, b, c]),
+    ok = emqx_metrics_worker:inc(?NAME, <<"testid">>, b),
+    ok = emqx_metrics_worker:inc(?NAME, <<"testid">>, c),
     ?assertMatch(
         #{
             rate := R = #{
@@ -202,42 +199,42 @@ t_recreate_metrics(_) ->
                 a := 1, b := 1, c := 1
             }
         } when map_size(R) == 3 andalso map_size(C) == 3,
-        emqx_plugin_libs_metrics:get_metrics(?NAME, <<"testid">>)
+        emqx_metrics_worker:get_metrics(?NAME, <<"testid">>)
     ),
-    ok = emqx_plugin_libs_metrics:clear_metrics(?NAME, <<"testid">>).
+    ok = emqx_metrics_worker:clear_metrics(?NAME, <<"testid">>).
 
 t_inc_matched(_) ->
     Metrics = ['rules.matched'],
-    ok = emqx_plugin_libs_metrics:create_metrics(?NAME, <<"rule1">>, Metrics),
-    ok = emqx_plugin_libs_metrics:create_metrics(?NAME, <<"rule2">>, Metrics),
-    ok = emqx_plugin_libs_metrics:inc(?NAME, <<"rule1">>, 'rules.matched'),
-    ok = emqx_plugin_libs_metrics:inc(?NAME, <<"rule2">>, 'rules.matched'),
-    ok = emqx_plugin_libs_metrics:inc(?NAME, <<"rule2">>, 'rules.matched'),
-    ?assertEqual(1, emqx_plugin_libs_metrics:get(?NAME, <<"rule1">>, 'rules.matched')),
-    ?assertEqual(2, emqx_plugin_libs_metrics:get(?NAME, <<"rule2">>, 'rules.matched')),
-    ?assertEqual(0, emqx_plugin_libs_metrics:get(?NAME, <<"rule3">>, 'rules.matched')),
-    ok = emqx_plugin_libs_metrics:clear_metrics(?NAME, <<"rule1">>),
-    ok = emqx_plugin_libs_metrics:clear_metrics(?NAME, <<"rule2">>).
+    ok = emqx_metrics_worker:create_metrics(?NAME, <<"rule1">>, Metrics),
+    ok = emqx_metrics_worker:create_metrics(?NAME, <<"rule2">>, Metrics),
+    ok = emqx_metrics_worker:inc(?NAME, <<"rule1">>, 'rules.matched'),
+    ok = emqx_metrics_worker:inc(?NAME, <<"rule2">>, 'rules.matched'),
+    ok = emqx_metrics_worker:inc(?NAME, <<"rule2">>, 'rules.matched'),
+    ?assertEqual(1, emqx_metrics_worker:get(?NAME, <<"rule1">>, 'rules.matched')),
+    ?assertEqual(2, emqx_metrics_worker:get(?NAME, <<"rule2">>, 'rules.matched')),
+    ?assertEqual(0, emqx_metrics_worker:get(?NAME, <<"rule3">>, 'rules.matched')),
+    ok = emqx_metrics_worker:clear_metrics(?NAME, <<"rule1">>),
+    ok = emqx_metrics_worker:clear_metrics(?NAME, <<"rule2">>).
 
 t_rate(_) ->
-    ok = emqx_plugin_libs_metrics:create_metrics(?NAME, <<"rule1">>, ['rules.matched']),
-    ok = emqx_plugin_libs_metrics:create_metrics(?NAME, <<"rule:2">>, ['rules.matched']),
-    ok = emqx_plugin_libs_metrics:inc(?NAME, <<"rule1">>, 'rules.matched'),
-    ok = emqx_plugin_libs_metrics:inc(?NAME, <<"rule1">>, 'rules.matched'),
-    ok = emqx_plugin_libs_metrics:inc(?NAME, <<"rule:2">>, 'rules.matched'),
-    ?assertEqual(2, emqx_plugin_libs_metrics:get(?NAME, <<"rule1">>, 'rules.matched')),
+    ok = emqx_metrics_worker:create_metrics(?NAME, <<"rule1">>, ['rules.matched']),
+    ok = emqx_metrics_worker:create_metrics(?NAME, <<"rule:2">>, ['rules.matched']),
+    ok = emqx_metrics_worker:inc(?NAME, <<"rule1">>, 'rules.matched'),
+    ok = emqx_metrics_worker:inc(?NAME, <<"rule1">>, 'rules.matched'),
+    ok = emqx_metrics_worker:inc(?NAME, <<"rule:2">>, 'rules.matched'),
+    ?assertEqual(2, emqx_metrics_worker:get(?NAME, <<"rule1">>, 'rules.matched')),
     ct:sleep(1000),
     ?LET(
         #{'rules.matched' := #{max := Max, current := Current}},
-        emqx_plugin_libs_metrics:get_rate(?NAME, <<"rule1">>),
+        emqx_metrics_worker:get_rate(?NAME, <<"rule1">>),
         {?assert(Max =< 2), ?assert(Current =< 2)}
     ),
     ct:sleep(2100),
     ?LET(
         #{'rules.matched' := #{max := Max, current := Current, last5m := Last5Min}},
-        emqx_plugin_libs_metrics:get_rate(?NAME, <<"rule1">>),
+        emqx_metrics_worker:get_rate(?NAME, <<"rule1">>),
         {?assert(Max =< 2), ?assert(Current == 0), ?assert(Last5Min =< 0.67)}
     ),
     ct:sleep(3000),
-    ok = emqx_plugin_libs_metrics:clear_metrics(?NAME, <<"rule1">>),
-    ok = emqx_plugin_libs_metrics:clear_metrics(?NAME, <<"rule:2">>).
+    ok = emqx_metrics_worker:clear_metrics(?NAME, <<"rule1">>),
+    ok = emqx_metrics_worker:clear_metrics(?NAME, <<"rule:2">>).

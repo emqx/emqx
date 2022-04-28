@@ -214,19 +214,19 @@ load_hooks_for_rule(#{from := Topics}) ->
     lists:foreach(fun emqx_rule_events:load/1, Topics).
 
 maybe_add_metrics_for_rule(Id) ->
-    case emqx_plugin_libs_metrics:has_metrics(rule_metrics, Id) of
+    case emqx_metrics_worker:has_metrics(rule_metrics, Id) of
         true ->
             ok;
         false ->
-            ok = emqx_plugin_libs_metrics:create_metrics(rule_metrics, Id, ?METRICS, ?RATE_METRICS)
+            ok = emqx_metrics_worker:create_metrics(rule_metrics, Id, ?METRICS, ?RATE_METRICS)
     end.
 
 clear_metrics_for_rule(Id) ->
-    ok = emqx_plugin_libs_metrics:clear_metrics(rule_metrics, Id).
+    ok = emqx_metrics_worker:clear_metrics(rule_metrics, Id).
 
 -spec reset_metrics_for_rule(rule_id()) -> ok.
 reset_metrics_for_rule(Id) ->
-    emqx_plugin_libs_metrics:reset_metrics(rule_metrics, Id).
+    emqx_metrics_worker:reset_metrics(rule_metrics, Id).
 
 unload_hooks_for_rule(#{id := Id, from := Topics}) ->
     lists:foreach(

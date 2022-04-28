@@ -943,7 +943,7 @@ lookup_from_local_node(ChainName, AuthenticatorID) ->
     NodeId = node(self()),
     case emqx_authentication:lookup_authenticator(ChainName, AuthenticatorID) of
         {ok, #{provider := Provider, state := State}} ->
-            Metrics = emqx_plugin_libs_metrics:get_metrics(authn_metrics, AuthenticatorID),
+            Metrics = emqx_metrics_worker:get_metrics(authn_metrics, AuthenticatorID),
             case lists:member(Provider, resource_provider()) of
                 false ->
                     {ok, {NodeId, connected, Metrics, #{}}};
