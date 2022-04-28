@@ -101,7 +101,7 @@ else
         git fetch "$REMOTE"
     fi
     git reset --hard
-    git clean -fdx
+    git clean -ffdx
     git checkout "${PREV_TAG}"
     make "$PROFILE"
     popd
