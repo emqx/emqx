@@ -570,7 +570,7 @@ bin(Term) -> erlang:iolist_to_binary(io_lib:format("~p", [Term])).
 
 status_metrics_example() ->
     #{
-        metrics => #{
+        resource_metrics => #{
             matched => 0,
             success => 0,
             failed => 0,
@@ -578,7 +578,7 @@ status_metrics_example() ->
             rate_last5m => 0.0,
             rate_max => 0.0
         },
-        node_metrics => [
+        node_resource_metrics => [
             #{
                 node => node(),
                 metrics => #{
@@ -591,6 +591,30 @@ status_metrics_example() ->
                 }
             }
         ],
+        metrics => #{
+            matched => 0,
+            allow => 0,
+            deny => 0,
+            ignore => 0,
+            rate => 0.0,
+            rate_last5m => 0.0,
+            rate_max => 0.0
+        },
+        node_metrics => [
+            #{
+                node => node(),
+                metrics => #{
+                    matched => 0,
+                    allow => 0,
+                    deny => 0,
+                    ignore => 0,
+                    rate => 0.0,
+                    rate_last5m => 0.0,
+                    rate_max => 0.0
+                }
+            }
+        ],
+
         status => connected,
         node_status => [
             #{
