@@ -213,13 +213,18 @@ do_create_dry_run(ResourceType, Config) ->
     InstId = make_test_id(),
     case emqx_resource:call_start(InstId, ResourceType, Config) of
         {ok, ResourceState} ->
-            case emqx_resource:call_health_check(InstId, ResourceType, ResourceState) of
-                connected ->
-                    case emqx_resource:call_stop(InstId, ResourceType, ResourceState) of
-                        {error, _} = Error -> Error;
-                        _ -> ok
-                    end;
-                ConnectStatus -> {error, ConnectStatus}
+            Health =
+                case emqx_resource:call_health_check(InstId, ResourceType, ResourceState) of
+                    connected ->
+                        ok;
+                    {connected, _N} ->
+                        ok;
+                    ConnectStatus ->
+                        {error, ConnectStatus}
+                end,
+            case emqx_resource:call_stop(InstId, ResourceType, ResourceState) of
+                {error, _} = Error -> Error;
+                _ -> Health
             end;
         {error, Reason} ->
             {error, Reason}
