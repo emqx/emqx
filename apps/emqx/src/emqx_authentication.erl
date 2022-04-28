@@ -609,6 +609,9 @@ handle_create_authenticator(Chain, Config, Providers) ->
                         ?CHAINS_TAB,
                         Chain#chain{authenticators = NAuthenticators}
                     ),
+
+                    ok = emqx_plugin_libs_metrics:create_metrics(authn_metrics, AuthenticatorID,
+                                                                 [matched, success, failed, ignore], [matched]),
                     {ok, serialize_authenticator(Authenticator)};
                 {error, Reason} ->
                     {error, Reason}
@@ -618,8 +621,10 @@ handle_create_authenticator(Chain, Config, Providers) ->
 do_authenticate([], _) ->
     {stop, {error, not_authorized}};
 do_authenticate([#authenticator{id = ID, provider = Provider, state = State} | More], Credential) ->
+    emqx_plugin_libs_metrics:inc(authn_metrics, ID, matched),
     try Provider:authenticate(Credential, State) of
         ignore ->
+            ok = emqx_plugin_libs_metrics:inc(authn_metrics, ID, ignore),
             do_authenticate(More, Credential);
         Result ->
             %% {ok, Extra}
@@ -627,6 +632,12 @@ do_authenticate([#authenticator{id = ID, provider = Provider, state = State} | M
             %% {continue, AuthCache}
             %% {continue, AuthData, AuthCache}
             %% {error, Reason}
+            case Result of
+                {ok, _} ->
+                    emqx_plugin_libs_metrics:inc(authn_metrics, ID, success);
+                {error, _} ->
+                    emqx_plugin_libs_metrics:inc(authn_metrics, ID, failed)
+             end,
             {stop, Result}
     catch
         Class:Reason:Stacktrace ->
@@ -637,6 +648,7 @@ do_authenticate([#authenticator{id = ID, provider = Provider, state = State} | M
                 stacktrace => Stacktrace,
                 authenticator => ID
             }),
+            emqx_plugin_libs_metrics:inc(authn_metrics, ID, ignore),
             do_authenticate(More, Credential)
     end.
 

@@ -902,6 +902,8 @@ create_authenticator(ConfKeyPath, ChainName, Config) ->
             raw_config := AuthenticatorsConfig
         }} ->
             {ok, AuthenticatorConfig} = find_config(ID, AuthenticatorsConfig),
+            ok = emqx_plugin_libs_metrics:create_metrics(authn_metrics, ID,
+                                                         [matched, success, failed, ignore], [matched]),
             {200, maps:put(id, ID, convert_certs(fill_defaults(AuthenticatorConfig)))};
         {error, {_PrePostConfigUpdate, emqx_authentication, Reason}} ->
             serialize_error(Reason);
@@ -930,61 +932,55 @@ list_authenticator(_, ConfKeyPath, AuthenticatorID) ->
             serialize_error(Reason)
     end.
 
+resource_provider() ->
+    [
+     emqx_authn_mysql,
+     emqx_authn_pgsql,
+     emqx_authn_mongodb,
+     emqx_authn_redis,
+     emqx_authn_http
+    ].
+
 lookup_from_local_node(ChainName, AuthenticatorID) ->
     NodeId = node(self()),
     case emqx_authentication:lookup_authenticator(ChainName, AuthenticatorID) of
         {ok, #{provider := Provider, state := State}} ->
+            Metrics = emqx_plugin_libs_metrics:get_metrics(authn_metrics, AuthenticatorID),
             case lists:member(Provider, resource_provider()) of
                 false ->
-                    {error, {NodeId, resource_unsupport_metrics_and_status}};
+                    {ok, {NodeId, connected, Metrics}};
                 true ->
                     #{resource_id := ResourceId} = State,
                     case emqx_resource:get_instance(ResourceId) of
                         {error, not_found} ->
                             {error, {NodeId, not_found_resource}};
-                        {ok, _, #{status := Status, metrics := Metrics}} ->
+                        {ok, _, #{status := Status}} ->
                             {ok, {NodeId, Status, Metrics}}
                     end
             end;
         {error, Reason} ->
-            {error, {NodeId, Reason}}
+            {error, {NodeId, list_to_binary(io_lib:format("~p", [Reason]))}}
     end.
-
-resource_provider() ->
-    [
-        emqx_authn_mysql,
-        emqx_authn_pgsql,
-        emqx_authn_mongodb,
-        emqx_authn_redis,
-        emqx_authn_http
-    ].
 
 lookup_from_all_nodes(ChainName, AuthenticatorID) ->
     Nodes = mria_mnesia:running_nodes(),
     case is_ok(emqx_authn_proto_v1:lookup_from_all_nodes(Nodes, ChainName, AuthenticatorID)) of
         {ok, ResList} ->
-            {StatusMap, MetricsMap, _} = make_result_map(ResList),
+            {StatusMap, MetricsMap, ErrorMap} = make_result_map(ResList),
             AggregateStatus = aggregate_status(maps:values(StatusMap)),
             AggregateMetrics = aggregate_metrics(maps:values(MetricsMap)),
             Fun = fun(_, V1) -> restructure_map(V1) end,
             MKMap = fun(Name) -> fun({Key, Val}) -> #{node => Key, Name => Val} end end,
             HelpFun = fun(M, Name) -> lists:map(MKMap(Name), maps:to_list(M)) end,
-            case AggregateStatus of
-                empty_metrics_and_status ->
-                    {400, #{
-                        code => <<"BAD_REQUEST">>,
-                        message => <<"Resource Not Support Status">>
-                    }};
-                _ ->
-                    {200, #{
-                        node_status => HelpFun(StatusMap, status),
-                        node_metrics => HelpFun(maps:map(Fun, MetricsMap), metrics),
-                        status => AggregateStatus,
-                        metrics => restructure_map(AggregateMetrics)
-                    }}
-            end;
+            {200, #{
+                node_metrics => HelpFun(maps:map(Fun, MetricsMap), metrics),
+                metrics => restructure_map(AggregateMetrics),
+                node_status => HelpFun(StatusMap, status),
+                status => AggregateStatus,
+                node_error => HelpFun(maps:map(Fun, ErrorMap), reason)
+            }};
         {error, ErrL} ->
-            {500, #{
+            {400, #{
                 code => <<"INTERNAL_ERROR">>,
                 message => list_to_binary(io_lib:format("~p", [ErrL]))
             }}
@@ -1019,27 +1015,28 @@ aggregate_metrics([HeadMetrics | AllMetrics]) ->
 make_result_map(ResList) ->
     Fun =
         fun(Elem, {StatusMap, MetricsMap, ErrorMap}) ->
-            case Elem of
-                {ok, {NodeId, Status, Metrics}} ->
-                    {
-                        maps:put(NodeId, Status, StatusMap),
-                        maps:put(NodeId, Metrics, MetricsMap),
-                        ErrorMap
-                    };
-                {error, {NodeId, Reason}} ->
-                    {StatusMap, MetricsMap, maps:put(NodeId, Reason, ErrorMap)}
-            end
+                case Elem of
+                    {ok, {NodeId, Status, Metrics}} ->
+                        {
+                         maps:put(NodeId, Status, StatusMap),
+                         maps:put(NodeId, Metrics, MetricsMap),
+                         ErrorMap
+                        };
+                    {error, {NodeId, Reason}} ->
+                        {StatusMap, MetricsMap, maps:put(NodeId, Reason, ErrorMap)}
+                end
         end,
     lists:foldl(Fun, {maps:new(), maps:new(), maps:new()}, ResList).
 
 restructure_map(#{
-    counters := #{failed := Failed, matched := Match, success := Succ},
+    counters := #{failed := Failed, matched := Match, success := Succ, ignore := Ignore},
     rate := #{matched := #{current := Rate, last5m := Rate5m, max := RateMax}}
 }) ->
     #{
         matched => Match,
         success => Succ,
         failed => Failed,
+        ignore => Ignore,
         rate => Rate,
         rate_last5m => Rate5m,
         rate_max => RateMax
@@ -1083,6 +1080,7 @@ update_authenticator(ConfKeyPath, ChainName, AuthenticatorID, Config) ->
 delete_authenticator(ConfKeyPath, ChainName, AuthenticatorID) ->
     case update_config(ConfKeyPath, {delete_authenticator, ChainName, AuthenticatorID}) of
         {ok, _} ->
+            emqx_plugin_libs_metrics:clear_metrics(authn_metrics, AuthenticatorID),
             {204};
         {error, {_PrePostConfigUpdate, emqx_authentication, Reason}} ->
             serialize_error(Reason);
@@ -1439,10 +1437,12 @@ status_metrics_example() ->
                     matched => 0,
                     success => 0,
                     failed => 0,
+                    ignore => 0,
                     rate => 0.0,
                     rate_last5m => 0.0,
                     rate_max => 0.0
                 },
+                node_error => [],
                 node_metrics => [
                     #{
                         node => node(),
@@ -1450,6 +1450,7 @@ status_metrics_example() ->
                             matched => 0,
                             success => 0,
                             failed => 0,
+                            ignore => 0,
                             rate => 0.0,
                             rate_last5m => 0.0,
                             rate_max => 0.0

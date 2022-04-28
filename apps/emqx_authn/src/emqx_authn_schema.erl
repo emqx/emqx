@@ -100,6 +100,11 @@ fields("metrics_status_fields") ->
             mk(
                 hoconsc:array(ref(?MODULE, "node_status")),
                 #{desc => ?DESC("node_status")}
+            )},
+        {"node_error",
+            mk(
+                hoconsc:array(ref(?MODULE, "node_error")),
+                #{desc => ?DESC("node_error")}
             )}
     ];
 fields("metrics") ->
@@ -107,6 +112,7 @@ fields("metrics") ->
         {"matched", mk(integer(), #{desc => ?DESC("matched")})},
         {"success", mk(integer(), #{desc => ?DESC("success")})},
         {"failed", mk(integer(), #{desc => ?DESC("failed")})},
+        {"ignore", mk(integer(), #{desc => ?DESC("failed")})},
         {"rate", mk(float(), #{desc => ?DESC("rate")})},
         {"rate_max", mk(float(), #{desc => ?DESC("rate_max")})},
         {"rate_last5m", mk(float(), #{desc => ?DESC("rate_last5m")})}
@@ -120,6 +126,12 @@ fields("node_status") ->
     [
         node_name(),
         {"status", mk(status(), #{desc => ?DESC("node_status")})}
+    ];
+
+fields("node_error") ->
+    [
+     node_name(),
+     {"error", mk(string(), #{desc => ?DESC("node_error")})}
     ].
 
 status() ->
