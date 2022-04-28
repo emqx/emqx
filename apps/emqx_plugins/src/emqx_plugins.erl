@@ -386,7 +386,7 @@ plugins_readme(_NameVsn, _Options, Info) ->
     Info.
 
 plugin_status(NameVsn, Info) ->
-    {AppName, _AppVsn} = parse_name_vsn(NameVsn),
+    {ok, AppName, _AppVsn} = parse_name_vsn(NameVsn),
     RunningSt =
         case application:get_key(AppName, vsn) of
             {ok, _} ->
@@ -437,7 +437,7 @@ check_plugin(
                 %% assert
                 [_ | _] = Apps,
                 %% validate if the list is all <app>-<vsn> strings
-                lists:foreach(fun parse_name_vsn/1, Apps)
+                lists:foreach(fun(App) -> {ok, _, _} = parse_name_vsn(App) end, Apps)
             catch
                 _:_ ->
                     throw(#{
@@ -471,7 +471,7 @@ load_code_start_apps(RelNameVsn, #{<<"rel_apps">> := Apps}) ->
     AppNames =
         lists:map(
             fun(AppNameVsn) ->
-                {AppName, AppVsn} = parse_name_vsn(AppNameVsn),
+                {ok, AppName, AppVsn} = parse_name_vsn(AppNameVsn),
                 EbinDir = filename:join([LibDir, AppNameVsn, "ebin"]),
                 ok = load_plugin_app(AppName, AppVsn, EbinDir, RunningApps),
                 AppName
@@ -559,7 +559,7 @@ ensure_apps_stopped(#{<<"rel_apps">> := Apps}) ->
     AppsToStop =
         lists:map(
             fun(NameVsn) ->
-                {AppName, _AppVsn} = parse_name_vsn(NameVsn),
+                {ok, AppName, _AppVsn} = parse_name_vsn(NameVsn),
                 AppName
             end,
             Apps
@@ -686,8 +686,10 @@ for_plugin(#{name_vsn := NameVsn, enable := false}, _Fun) ->
 parse_name_vsn(NameVsn) when is_binary(NameVsn) ->
     parse_name_vsn(binary_to_list(NameVsn));
 parse_name_vsn(NameVsn) when is_list(NameVsn) ->
-    {AppName, [$- | Vsn]} = lists:splitwith(fun(X) -> X =/= $- end, NameVsn),
-    {list_to_atom(AppName), Vsn}.
+    case lists:splitwith(fun(X) -> X =/= $- end, NameVsn) of
+        {AppName, [$- | Vsn]} -> {ok, list_to_atom(AppName), Vsn};
+        _ -> {error, "bad_name_vsn"}
+    end.
 
 pkg_file(NameVsn) ->
     filename:join([install_dir(), bin([NameVsn, ".tar.gz"])]).

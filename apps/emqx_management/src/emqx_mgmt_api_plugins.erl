@@ -100,7 +100,9 @@ schema("/plugins/install") ->
             },
             responses => #{
                 200 => <<"OK">>,
-                400 => emqx_dashboard_swagger:error_codes(['UNEXPECTED_ERROR', 'ALREADY_INSTALLED'])
+                400 => emqx_dashboard_swagger:error_codes(
+                    ['UNEXPECTED_ERROR', 'ALREADY_INSTALLED', 'BAD_PLUGIN_INFO']
+                )
             }
         }
     };
@@ -319,20 +321,27 @@ upload_install(post, #{body := #{<<"plugin">> := Plugin}}) when is_map(Plugin) -
     %% emqx_plugins_monitor should copy plugins from other core node when boot-up.
     case emqx_plugins:describe(string:trim(FileName, trailing, ".tar.gz")) of
         {error, #{error := "bad_info_file", return := {enoent, _}}} ->
-            {AppName, _Vsn} = emqx_plugins:parse_name_vsn(FileName),
-            AppDir = filename:join(emqx_plugins:install_dir(), AppName),
-            case filelib:wildcard(AppDir ++ "*.tar.gz") of
-                [] ->
-                    do_install_package(FileName, Bin);
-                OtherVsn ->
+            case emqx_plugins:parse_name_vsn(FileName) of
+                {ok, AppName, _Vsn} ->
+                    AppDir = filename:join(emqx_plugins:install_dir(), AppName),
+                    case filelib:wildcard(AppDir ++ "*.tar.gz") of
+                        [] ->
+                            do_install_package(FileName, Bin);
+                        OtherVsn ->
+                            {400, #{
+                                code => 'ALREADY_INSTALLED',
+                                message => iolist_to_binary(
+                                    io_lib:format(
+                                        "~p already installed",
+                                        [OtherVsn]
+                                    )
+                                )
+                            }}
+                    end;
+                {error, Reason} ->
                     {400, #{
-                        code => 'ALREADY_INSTALLED',
-                        message => iolist_to_binary(
-                            io_lib:format(
-                                "~p already installed",
-                                [OtherVsn]
-                            )
-                        )
+                        code => 'BAD_PLUGIN_INFO',
+                        message => iolist_to_binary([Reason, ":", FileName])
                     }}
             end;
         {ok, _} ->
