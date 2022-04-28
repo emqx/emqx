@@ -262,6 +262,17 @@ enrich_clientinfo(
     ),
     {ok, NPacket, Channel#channel{clientinfo = NClientInfo}}.
 
+assign_clientid_to_conninfo(
+    Packet,
+    Channel = #channel{
+        conninfo = ConnInfo,
+        clientinfo = ClientInfo
+    }
+) ->
+    ClientId = maps:get(clientid, ClientInfo),
+    NConnInfo = maps:put(clientid, ClientId, ConnInfo),
+    {ok, Packet, Channel#channel{conninfo = NConnInfo}}.
+
 feedvar(Override, Packet, ConnInfo, ClientInfo) ->
     Envs = #{
         'ConnInfo' => ConnInfo,
@@ -409,6 +420,7 @@ handle_in(Packet = ?PACKET(?CMD_CONNECT), Channel) ->
                 fun run_conn_hooks/2,
                 fun negotiate_version/2,
                 fun enrich_clientinfo/2,
+                fun assign_clientid_to_conninfo/2,
                 fun set_log_meta/2,
                 %% TODO: How to implement the banned in the gateway instance?
                 %, fun check_banned/2
