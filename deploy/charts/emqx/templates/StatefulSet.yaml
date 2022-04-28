@@ -5,7 +5,7 @@
 {{ $configData := printf "%s\n%s\n%s\n%s" $cfgEnv $cfgAcl $cfgPlugins $cfgModules}}
   ## Compatible with previous misspellings
 {{ $licenseSecretName := coalesce .Values.emqxLicenseSecretName .Values.emqxLicneseSecretName }}
-{{ $image := printf "%s:%s" .Values.image.repository (default .Values.image.tag .Chart.AppVersion) }}
+{{ $image := printf "%s:%s" .Values.image.repository (.Values.image.tag | default .Chart.AppVersion) }}
 
 apiVersion: apps/v1
 kind: StatefulSet
