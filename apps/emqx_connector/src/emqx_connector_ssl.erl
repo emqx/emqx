@@ -22,7 +22,7 @@
 ]).
 
 convert_certs(RltvDir, NewConfig) ->
-    NewSSL = drop_invalid_certs(maps:get(<<"ssl">>, NewConfig, undefined)),
+    NewSSL = drop_invalid_certs(map_get_oneof([<<"ssl">>, ssl], NewConfig, undefined)),
     case emqx_tls_lib:ensure_ssl_files(RltvDir, NewSSL) of
         {ok, NewSSL1} ->
             {ok, new_ssl_config(NewConfig, NewSSL1)};
@@ -35,7 +35,10 @@ clear_certs(RltvDir, Config) ->
     ok = emqx_tls_lib:delete_ssl_files(RltvDir, undefined, OldSSL).
 
 new_ssl_config(Config, undefined) -> Config;
-new_ssl_config(Config, SSL) -> Config#{<<"ssl">> => SSL}.
+new_ssl_config(Config, #{<<"enable">> := _} = SSL) ->
+    Config#{<<"ssl">> => SSL};
+new_ssl_config(Config, #{enable := _} = SSL) ->
+    Config#{ssl => SSL}.
 
 drop_invalid_certs(undefined) -> undefined;
 drop_invalid_certs(SSL) -> emqx_tls_lib:drop_invalid_certs(SSL).
