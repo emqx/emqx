@@ -97,6 +97,8 @@ gateway(post, Request) ->
     catch
         error:{badkey, K} ->
             return_http_error(400, [K, " is required"]);
+        error:{badconf, _} = Reason1 ->
+            emqx_gateway_http:reason2resp(Reason1);
         error:badarg ->
             return_http_error(404, "Bad gateway name")
     end.

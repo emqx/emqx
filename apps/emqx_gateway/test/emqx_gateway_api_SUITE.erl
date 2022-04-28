@@ -278,7 +278,7 @@ t_authn_data_mgmt(_) ->
     {204, _} = request(get, "/gateway/stomp/authentication"),
     {204, _} = request(delete, "/gateway/stomp").
 
-t_listeners(_) ->
+t_listeners_tcp(_) ->
     GwConf = #{name => <<"stomp">>},
     {201, _} = request(post, "/gateway", GwConf),
     {404, _} = request(get, "/gateway/stomp/listeners"),

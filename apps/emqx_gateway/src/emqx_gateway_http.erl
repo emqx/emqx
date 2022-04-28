@@ -381,7 +381,7 @@ reason2msg({badconf, #{key := Key, value := Value, reason := Reason}}) ->
         end,
     fmtstr(
         "Bad config value '~s' for '~s', reason: ~s",
-        [NValue, Key, Reason]
+        [NValue, Key, emqx_gateway_utils:stringfy(Reason)]
     );
 reason2msg(
     {badres, #{
@@ -506,13 +506,16 @@ with_gateway(GwName0, Fun) ->
             return_http_error(400, [K, " is required"]);
         %% Exceptions from emqx_gateway_utils:parse_listener_id/1
         error:{invalid_listener_id, Id} ->
-            return_http_error(400, ["invalid listener id: ", Id]);
-        %% Exceptions from: emqx:get_config/1
+            return_http_error(400, ["Invalid listener id: ", Id]);
+        %% Exceptions from emqx:get_config/1
         error:{config_not_found, Path0} ->
             Path = lists:concat(
                 lists:join(".", lists:map(fun to_list/1, Path0))
             ),
             return_http_error(404, "Resource not found. path: " ++ Path);
+        %% Exceptions from emqx_gateway_conf:convert_certs/2,3
+        error:{bad_ssl_config, #{which_option := Option}} ->
+            return_http_error(400, ["Bad SSL config, option: ", Option]);
         Class:Reason:Stk ->
             ?SLOG(error, #{
                 msg => "uncatched_error",
