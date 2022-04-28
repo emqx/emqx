@@ -89,13 +89,20 @@ backend(Name) ->
 
 fields("metrics_status_fields") ->
     [
+
+        {"resource_metrics", mk(ref(?MODULE, "resource_metrics"), #{desc => ?DESC("metrics")})},
+        {"node_resource_metrics",
+            mk(
+                hoconsc:array(ref(?MODULE, "node_resource_metrics")),
+                #{desc => ?DESC("node_metrics")}
+            )},
         {"metrics", mk(ref(?MODULE, "metrics"), #{desc => ?DESC("metrics")})},
         {"node_metrics",
             mk(
                 hoconsc:array(ref(?MODULE, "node_metrics")),
                 #{desc => ?DESC("node_metrics")}
             )},
-        {"status", mk(status(), #{desc => ?DESC("status")})},
+        {"status", mk(cluster_status(), #{desc => ?DESC("status")})},
         {"node_status",
             mk(
                 hoconsc:array(ref(?MODULE, "node_status")),
@@ -117,10 +124,26 @@ fields("metrics") ->
         {"rate_max", mk(float(), #{desc => ?DESC("rate_max")})},
         {"rate_last5m", mk(float(), #{desc => ?DESC("rate_last5m")})}
     ];
+
+fields("resource_metrics") ->
+    [
+     {"matched", mk(integer(), #{desc => ?DESC("matched")})},
+     {"success", mk(integer(), #{desc => ?DESC("success")})},
+     {"failed", mk(integer(), #{desc => ?DESC("failed")})},
+     {"rate", mk(float(), #{desc => ?DESC("rate")})},
+     {"rate_max", mk(float(), #{desc => ?DESC("rate_max")})},
+     {"rate_last5m", mk(float(), #{desc => ?DESC("rate_last5m")})}
+    ];
 fields("node_metrics") ->
     [
         node_name(),
         {"metrics", mk(ref(?MODULE, "metrics"), #{desc => ?DESC("metrics")})}
+    ];
+
+fields("node_resource_metrics") ->
+    [
+        node_name(),
+        {"metrics", mk(ref(?MODULE, "resource_metrics"), #{desc => ?DESC("metrics")})}
     ];
 fields("node_status") ->
     [
@@ -136,6 +159,9 @@ fields("node_error") ->
 
 status() ->
     hoconsc:enum([connected, disconnected, connecting]).
+
+cluster_status() ->
+    hoconsc:enum([connected, disconnected, connecting, inconsistent]).
 
 node_name() ->
     {"node", mk(binary(), #{desc => ?DESC("node"), example => "emqx@127.0.0.1"})}.
