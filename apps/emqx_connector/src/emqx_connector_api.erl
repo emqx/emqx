@@ -40,9 +40,14 @@
             EXPR
     catch
         error:{invalid_connector_id, Id0} ->
-            {400, #{code => 'INVALID_ID', message => <<"invalid_connector_id: ", Id0/binary,
-                ". Connector Ids must be of format {type}:{name}">>}}
-    end).
+            {400, #{
+                code => 'INVALID_ID',
+                message =>
+                    <<"invalid_connector_id: ", Id0/binary,
+                        ". Connector Ids must be of format {type}:{name}">>
+            }}
+    end
+).
 
 namespace() -> "connector".
 
@@ -58,21 +63,25 @@ error_schema(Codes, Message) when is_binary(Message) ->
 
 put_request_body_schema() ->
     emqx_dashboard_swagger:schema_with_examples(
-        emqx_connector_schema:put_request(), connector_info_examples(put)).
+        emqx_connector_schema:put_request(), connector_info_examples(put)
+    ).
 
 post_request_body_schema() ->
     emqx_dashboard_swagger:schema_with_examples(
-        emqx_connector_schema:post_request(), connector_info_examples(post)).
+        emqx_connector_schema:post_request(), connector_info_examples(post)
+    ).
 
 get_response_body_schema() ->
     emqx_dashboard_swagger:schema_with_examples(
-        emqx_connector_schema:get_response(), connector_info_examples(get)).
+        emqx_connector_schema:get_response(), connector_info_examples(get)
+    ).
 
 connector_info_array_example(Method) ->
     [Config || #{value := Config} <- maps:values(connector_info_examples(Method))].
 
 connector_info_examples(Method) ->
-    lists:foldl(fun(Type, Acc) ->
+    lists:foldl(
+        fun(Type, Acc) ->
             SType = atom_to_list(Type),
             maps:merge(Acc, #{
                 Type => #{
@@ -80,11 +89,16 @@ connector_info_examples(Method) ->
                     value => info_example(Type, Method)
                 }
             })
-        end, #{}, ?CONN_TYPES).
+        end,
+        #{},
+        ?CONN_TYPES
+    ).
 
 info_example(Type, Method) ->
-    maps:merge(info_example_basic(Type),
-               method_example(Type, Method)).
+    maps:merge(
+        info_example_basic(Type),
+        method_example(Type, Method)
+    ).
 
 method_example(Type, Method) when Method == get; Method == post ->
     SType = atom_to_list(Type),
@@ -115,11 +129,17 @@ info_example_basic(mqtt) ->
     }.
 
 param_path_id() ->
-    [{id, mk(binary(),
-        #{ in => path
-         , example => <<"mqtt:my_mqtt_connector">>
-         , desc => ?DESC("id")
-         })}].
+    [
+        {id,
+            mk(
+                binary(),
+                #{
+                    in => path,
+                    example => <<"mqtt:my_mqtt_connector">>,
+                    desc => ?DESC("id")
+                }
+            )}
+    ].
 
 schema("/connectors_test") ->
     #{
@@ -135,7 +155,6 @@ schema("/connectors_test") ->
             }
         }
     };
-
 schema("/connectors") ->
     #{
         'operationId' => '/connectors',
@@ -145,8 +164,9 @@ schema("/connectors") ->
             summary => <<"List connectors">>,
             responses => #{
                 200 => emqx_dashboard_swagger:schema_with_example(
-                            array(emqx_connector_schema:get_response()),
-                            connector_info_array_example(get))
+                    array(emqx_connector_schema:get_response()),
+                    connector_info_array_example(get)
+                )
             }
         },
         post => #{
@@ -160,7 +180,6 @@ schema("/connectors") ->
             }
         }
     };
-
 schema("/connectors/:id") ->
     #{
         'operationId' => '/connectors/:id',
@@ -185,7 +204,8 @@ schema("/connectors/:id") ->
                 200 => get_response_body_schema(),
                 404 => error_schema(['NOT_FOUND'], "Connector not found"),
                 400 => error_schema(['INVALID_ID'], "Bad connector ID")
-            }},
+            }
+        },
         delete => #{
             tags => [<<"connectors">>],
             desc => ?DESC("conn_id_delete"),
@@ -196,7 +216,8 @@ schema("/connectors/:id") ->
                 403 => error_schema(['DEPENDENCY_EXISTS'], "Cannot remove dependent connector"),
                 404 => error_schema(['NOT_FOUND'], "Delete failed, not found"),
                 400 => error_schema(['INVALID_ID'], "Bad connector ID")
-            }}
+            }
+        }
     }.
 
 '/connectors_test'(post, #{body := #{<<"type">> := ConnType} = Params}) ->
@@ -209,67 +230,83 @@ schema("/connectors/:id") ->
 
 '/connectors'(get, _Request) ->
     {200, [format_resp(Conn) || Conn <- emqx_connector:list_raw()]};
-
 '/connectors'(post, #{body := #{<<"type">> := ConnType, <<"name">> := ConnName} = Params}) ->
     case emqx_connector:lookup_raw(ConnType, ConnName) of
         {ok, _} ->
             {400, error_msg('ALREADY_EXISTS', <<"connector already exists">>)};
         {error, not_found} ->
-            case emqx_connector:update(ConnType, ConnName,
-                    filter_out_request_body(Params)) of
+            case
+                emqx_connector:update(
+                    ConnType,
+                    ConnName,
+                    filter_out_request_body(Params)
+                )
+            of
                 {ok, #{raw_config := RawConf}} ->
-                    {201, format_resp(RawConf#{<<"type">> => ConnType,
-                                               <<"name">> => ConnName})};
+                    {201,
+                        format_resp(RawConf#{
+                            <<"type">> => ConnType,
+                            <<"name">> => ConnName
+                        })};
                 {error, Error} ->
                     {400, error_msg('BAD_REQUEST', Error)}
             end
     end;
-
 '/connectors'(post, _) ->
     {400, error_msg('BAD_REQUEST', <<"missing some required fields: [name, type]">>)}.
 
 '/connectors/:id'(get, #{bindings := #{id := Id}}) ->
-    ?TRY_PARSE_ID(Id,
+    ?TRY_PARSE_ID(
+        Id,
         case emqx_connector:lookup_raw(ConnType, ConnName) of
             {ok, Conf} ->
                 {200, format_resp(Conf)};
             {error, not_found} ->
                 {404, error_msg('NOT_FOUND', <<"connector not found">>)}
-        end);
-
+        end
+    );
 '/connectors/:id'(put, #{bindings := #{id := Id}, body := Params0}) ->
     Params = filter_out_request_body(Params0),
-    ?TRY_PARSE_ID(Id,
+    ?TRY_PARSE_ID(
+        Id,
         case emqx_connector:lookup_raw(ConnType, ConnName) of
             {ok, _} ->
                 case emqx_connector:update(ConnType, ConnName, Params) of
                     {ok, #{raw_config := RawConf}} ->
-                        {200, format_resp(RawConf#{<<"type">> => ConnType,
-                                                   <<"name">> => ConnName})};
+                        {200,
+                            format_resp(RawConf#{
+                                <<"type">> => ConnType,
+                                <<"name">> => ConnName
+                            })};
                     {error, Error} ->
                         {500, error_msg('INTERNAL_ERROR', Error)}
                 end;
             {error, not_found} ->
                 {404, error_msg('NOT_FOUND', <<"connector not found">>)}
-        end);
-
+        end
+    );
 '/connectors/:id'(delete, #{bindings := #{id := Id}}) ->
-    ?TRY_PARSE_ID(Id,
+    ?TRY_PARSE_ID(
+        Id,
         case emqx_connector:lookup_raw(ConnType, ConnName) of
             {ok, _} ->
                 case emqx_connector:delete(ConnType, ConnName) of
                     {ok, _} ->
                         {204};
                     {error, {post_config_update, _, {dependency_bridges_exist, BridgeID}}} ->
-                        {403, error_msg('DEPENDENCY_EXISTS',
-                             <<"Cannot remove the connector as it's in use by a bridge: ",
-                                BridgeID/binary>>)};
+                        {403,
+                            error_msg(
+                                'DEPENDENCY_EXISTS',
+                                <<"Cannot remove the connector as it's in use by a bridge: ",
+                                    BridgeID/binary>>
+                            )};
                     {error, Error} ->
                         {500, error_msg('INTERNAL_ERROR', Error)}
                 end;
             {error, not_found} ->
                 {404, error_msg('NOT_FOUND', <<"connector not found">>)}
-        end).
+        end
+    ).
 
 error_msg(Code, Msg) when is_binary(Msg) ->
     #{code => Code, message => Msg};
@@ -277,8 +314,11 @@ error_msg(Code, Msg) ->
     #{code => Code, message => bin(io_lib:format("~p", [Msg]))}.
 
 format_resp(#{<<"type">> := ConnType, <<"name">> := ConnName} = RawConf) ->
-    NumOfBridges = length(emqx_bridge:list_bridges_by_connector(
-        emqx_connector:connector_id(ConnType, ConnName))),
+    NumOfBridges = length(
+        emqx_bridge:list_bridges_by_connector(
+            emqx_connector:connector_id(ConnType, ConnName)
+        )
+    ),
     RawConf#{
         <<"type">> => ConnType,
         <<"name">> => ConnName,

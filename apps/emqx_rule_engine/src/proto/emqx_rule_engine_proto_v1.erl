@@ -18,10 +18,11 @@
 
 -behaviour(emqx_bpapi).
 
--export([ introduced_in/0
+-export([
+    introduced_in/0,
 
-        , reset_metrics/1
-        ]).
+    reset_metrics/1
+]).
 
 -include_lib("emqx/include/bpapi.hrl").
 -include_lib("emqx_rule_engine/include/rule_engine.hrl").
@@ -30,6 +31,6 @@ introduced_in() ->
     "5.0.0".
 
 -spec reset_metrics(rule_id()) ->
-          emqx_cluster_rpc:multicall_return(ok).
+    emqx_cluster_rpc:multicall_return(ok).
 reset_metrics(RuleId) ->
     emqx_cluster_rpc:multicall(emqx_rule_engine, reset_metrics_for_rule, [RuleId]).

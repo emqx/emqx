@@ -415,6 +415,53 @@ t_listeners_authn_data_mgmt(_) ->
     ),
     {204, _} = request(delete, "/gateway/stomp").
 
+t_authn_fuzzy_search(_) ->
+    GwConf = #{name => <<"stomp">>},
+    {201, _} = request(post, "/gateway", GwConf),
+    {204, _} = request(get, "/gateway/stomp/authentication"),
+
+    AuthConf = #{
+        mechanism => <<"password_based">>,
+        backend => <<"built_in_database">>,
+        user_id_type => <<"clientid">>
+    },
+    {201, _} = request(post, "/gateway/stomp/authentication", AuthConf),
+    {200, ConfResp} = request(get, "/gateway/stomp/authentication"),
+    assert_confs(AuthConf, ConfResp),
+
+    Checker = fun({User, Fuzzy}) ->
+        {200, #{data := [UserRespd]}} = request(
+            get, "/gateway/stomp/authentication/users", Fuzzy
+        ),
+        assert_confs(UserRespd, User)
+    end,
+
+    Create = fun(User) ->
+        {201, _} = request(post, "/gateway/stomp/authentication/users", User)
+    end,
+
+    UserDatas = [
+        #{
+            user_id => <<"test">>,
+            password => <<"123456">>,
+            is_superuser => false
+        },
+        #{
+            user_id => <<"foo">>,
+            password => <<"123456">>,
+            is_superuser => true
+        }
+    ],
+
+    FuzzyDatas = [[{<<"like_username">>, <<"test">>}], [{<<"is_superuser">>, <<"true">>}]],
+
+    lists:foreach(Create, UserDatas),
+    lists:foreach(Checker, lists:zip(UserDatas, FuzzyDatas)),
+
+    {204, _} = request(delete, "/gateway/stomp/authentication"),
+    {204, _} = request(get, "/gateway/stomp/authentication"),
+    {204, _} = request(delete, "/gateway/stomp").
+
 %%--------------------------------------------------------------------
 %% Asserts
 

@@ -63,22 +63,42 @@ remove_handler() ->
     ok.
 
 pre_config_update(_Path, UpdateConf0, RawConf) ->
-    UpdateConf =
-        case UpdateConf0 of
-            #{<<"default_password">> := <<"******">>} ->
-                maps:remove(<<"default_password">>, UpdateConf0);
-            _ ->
-                UpdateConf0
-        end,
+    UpdateConf = remove_sensitive_data(UpdateConf0),
     NewConf = emqx_map_lib:deep_merge(RawConf, UpdateConf),
     {ok, NewConf}.
 
+-define(SENSITIVE_PASSWORD, <<"******">>).
+
+remove_sensitive_data(Conf0) ->
+    Conf1 =
+        case Conf0 of
+            #{<<"default_password">> := ?SENSITIVE_PASSWORD} ->
+                maps:remove(<<"default_password">>, Conf0);
+            _ ->
+                Conf0
+        end,
+    case Conf1 of
+        #{<<"listeners">> := #{<<"https">> := #{<<"password">> := ?SENSITIVE_PASSWORD}}} ->
+            emqx_map_lib:deep_remove([<<"listeners">>, <<"https">>, <<"password">>], Conf1);
+        _ ->
+            Conf1
+    end.
+
 post_config_update(_, _Req, NewConf, OldConf, _AppEnvs) ->
-    #{listeners := NewListeners} = NewConf,
-    #{listeners := OldListeners} = OldConf,
+    #{listeners := #{http := NewHttp, https := NewHttps}} = NewConf,
+    #{listeners := #{http := OldHttp, https := OldHttps}} = OldConf,
     _ =
-        case NewListeners =:= OldListeners of
-            true -> ok;
-            false -> erlang:send_after(500, ?MODULE, {update_listeners, OldListeners, NewListeners})
+        case diff_listeners(OldHttp, NewHttp, OldHttps, NewHttps) of
+            identical -> ok;
+            {Stop, Start} -> erlang:send_after(500, ?MODULE, {update_listeners, Stop, Start})
         end,
     ok.
+
+diff_listeners(Http, Http, Https, Https) ->
+    identical;
+diff_listeners(OldHttp, NewHttp, Https, Https) ->
+    {#{http => OldHttp}, #{http => NewHttp}};
+diff_listeners(Http, Http, OldHttps, NewHttps) ->
+    {#{https => OldHttps}, #{https => NewHttps}};
+diff_listeners(OldHttp, NewHttp, OldHttps, NewHttps) ->
+    {#{http => OldHttp, https => OldHttps}, #{http => NewHttp, https => NewHttps}}.

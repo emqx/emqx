@@ -1,4 +1,3 @@
-
 %%--------------------------------------------------------------------
 %% Copyright (c) 2020-2022 EMQ Technologies Co., Ltd. All Rights Reserved.
 %%
@@ -15,37 +14,38 @@
 %% limitations under the License.
 %%--------------------------------------------------------------------
 
--module(emqx_resource_ssl).
+-module(emqx_connector_ssl).
 
--export([ convert_certs/2
-        , convert_certs/3
-        , clear_certs/2
-        ]).
+-export([
+    convert_certs/2,
+    clear_certs/2
+]).
 
-convert_certs(ResId, NewConfig) ->
-    convert_certs(ResId, NewConfig, #{}).
-
-convert_certs(ResId, NewConfig, OldConfig) ->
-    OldSSL = drop_invalid_certs(maps:get(ssl, OldConfig, undefined)),
-    NewSSL = drop_invalid_certs(maps:get(ssl, NewConfig, undefined)),
-    CertsDir = cert_dir(ResId),
-    case emqx_tls_lib:ensure_ssl_files(CertsDir, NewSSL) of
+convert_certs(RltvDir, NewConfig) ->
+    NewSSL = drop_invalid_certs(maps:get(<<"ssl">>, NewConfig, undefined)),
+    case emqx_tls_lib:ensure_ssl_files(RltvDir, NewSSL) of
         {ok, NewSSL1} ->
-            ok = emqx_tls_lib:delete_ssl_files(CertsDir, NewSSL1, OldSSL),
             {ok, new_ssl_config(NewConfig, NewSSL1)};
         {error, Reason} ->
             {error, {bad_ssl_config, Reason}}
     end.
 
-clear_certs(ResId, Config) ->
-    OldSSL = drop_invalid_certs(maps:get(ssl, Config, undefined)),
-    ok = emqx_tls_lib:delete_ssl_files(cert_dir(ResId), undefined, OldSSL).
-
-cert_dir(ResId) ->
-    filename:join(["resources", ResId]).
+clear_certs(RltvDir, Config) ->
+    OldSSL = drop_invalid_certs(map_get_oneof([<<"ssl">>, ssl], Config, undefined)),
+    ok = emqx_tls_lib:delete_ssl_files(RltvDir, undefined, OldSSL).
 
 new_ssl_config(Config, undefined) -> Config;
-new_ssl_config(Config, SSL) -> Config#{ssl => SSL}.
+new_ssl_config(Config, SSL) -> Config#{<<"ssl">> => SSL}.
 
 drop_invalid_certs(undefined) -> undefined;
 drop_invalid_certs(SSL) -> emqx_tls_lib:drop_invalid_certs(SSL).
+
+map_get_oneof([], _Map, Default) ->
+    Default;
+map_get_oneof([Key | Keys], Map, Default) ->
+    case maps:find(Key, Map) of
+        error ->
+            map_get_oneof(Keys, Map, Default);
+        {ok, Value} ->
+            Value
+    end.

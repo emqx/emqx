@@ -16,24 +16,25 @@
 
 -module(emqx_connector_mqtt_msg).
 
--export([ to_binary/1
-        , from_binary/1
-        , make_pub_vars/2
-        , to_remote_msg/2
-        , to_broker_msg/3
-        , estimate_size/1
-        ]).
+-export([
+    to_binary/1,
+    from_binary/1,
+    make_pub_vars/2,
+    to_remote_msg/2,
+    to_broker_msg/3,
+    estimate_size/1
+]).
 
--export([ replace_vars_in_str/2
-        , replace_simple_var/2
-        ]).
+-export([
+    replace_vars_in_str/2,
+    replace_simple_var/2
+]).
 
 -export_type([msg/0]).
 
 -include_lib("emqx/include/emqx.hrl").
 
 -include_lib("emqtt/include/emqtt.hrl").
-
 
 -type msg() :: emqx_types:message().
 -type exp_msg() :: emqx_types:message() | #mqtt_msg{}.
@@ -46,7 +47,8 @@
     payload := binary()
 }.
 
-make_pub_vars(_, undefined) -> undefined;
+make_pub_vars(_, undefined) ->
+    undefined;
 make_pub_vars(Mountpoint, Conf) when is_map(Conf) ->
     Conf#{mountpoint => Mountpoint}.
 
@@ -57,37 +59,56 @@ make_pub_vars(Mountpoint, Conf) when is_map(Conf) ->
 %% Shame that we have to know the callback module here
 %% would be great if we can get rid of #mqtt_msg{} record
 %% and use #message{} in all places.
--spec to_remote_msg(msg() | map(), variables())
-        -> exp_msg().
+-spec to_remote_msg(msg() | map(), variables()) ->
+    exp_msg().
 to_remote_msg(#message{flags = Flags0} = Msg, Vars) ->
     Retain0 = maps:get(retain, Flags0, false),
     MapMsg = maps:put(retain, Retain0, emqx_rule_events:eventmsg_publish(Msg)),
     to_remote_msg(MapMsg, Vars);
-to_remote_msg(MapMsg, #{remote_topic := TopicToken, payload := PayloadToken,
-        remote_qos := QoSToken, retain := RetainToken, mountpoint := Mountpoint}) when is_map(MapMsg) ->
+to_remote_msg(MapMsg, #{
+    remote_topic := TopicToken,
+    payload := PayloadToken,
+    remote_qos := QoSToken,
+    retain := RetainToken,
+    mountpoint := Mountpoint
+}) when is_map(MapMsg) ->
     Topic = replace_vars_in_str(TopicToken, MapMsg),
     Payload = process_payload(PayloadToken, MapMsg),
     QoS = replace_simple_var(QoSToken, MapMsg),
     Retain = replace_simple_var(RetainToken, MapMsg),
-    #mqtt_msg{qos = QoS,
-              retain = Retain,
-              topic = topic(Mountpoint, Topic),
-              props = #{},
-              payload = Payload};
+    #mqtt_msg{
+        qos = QoS,
+        retain = Retain,
+        topic = topic(Mountpoint, Topic),
+        props = #{},
+        payload = Payload
+    };
 to_remote_msg(#message{topic = Topic} = Msg, #{mountpoint := Mountpoint}) ->
     Msg#message{topic = topic(Mountpoint, Topic)}.
 
 %% published from remote node over a MQTT connection
-to_broker_msg(#{dup := Dup} = MapMsg,
-            #{local_topic := TopicToken, payload := PayloadToken,
-              local_qos := QoSToken, retain := RetainToken, mountpoint := Mountpoint}, Props) ->
+to_broker_msg(
+    #{dup := Dup} = MapMsg,
+    #{
+        local_topic := TopicToken,
+        payload := PayloadToken,
+        local_qos := QoSToken,
+        retain := RetainToken,
+        mountpoint := Mountpoint
+    },
+    Props
+) ->
     Topic = replace_vars_in_str(TopicToken, MapMsg),
     Payload = process_payload(PayloadToken, MapMsg),
     QoS = replace_simple_var(QoSToken, MapMsg),
     Retain = replace_simple_var(RetainToken, MapMsg),
-    set_headers(Props,
-        emqx_message:set_flags(#{dup => Dup, retain => Retain},
-            emqx_message:make(bridge, QoS, topic(Mountpoint, Topic), Payload))).
+    set_headers(
+        Props,
+        emqx_message:set_flags(
+            #{dup => Dup, retain => Retain},
+            emqx_message:make(bridge, QoS, topic(Mountpoint, Topic), Payload)
+        )
+    ).
 
 process_payload([], Msg) ->
     emqx_json:encode(Msg);

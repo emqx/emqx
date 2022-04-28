@@ -22,20 +22,18 @@
 -include_lib("emqx/include/emqx.hrl").
 
 %% APIs
--export([ parse_output/1
-        ]).
+-export([parse_output/1]).
 
 %% callbacks of emqx_rule_output
--export([ pre_process_output_args/2
-        ]).
+-export([pre_process_output_args/2]).
 
 %% output functions
--export([ console/3
-        , republish/3
-        ]).
+-export([
+    console/3,
+    republish/3
+]).
 
--optional_callbacks([ pre_process_output_args/2
-                    ]).
+-optional_callbacks([pre_process_output_args/2]).
 
 -callback pre_process_output_args(FuncName :: atom(), output_fun_args()) -> output_fun_args().
 
@@ -44,20 +42,32 @@
 %%--------------------------------------------------------------------
 parse_output(#{function := OutputFunc} = Output) ->
     {Mod, Func} = parse_output_func(OutputFunc),
-    #{mod => Mod, func => Func,
-      args => pre_process_args(Mod, Func, maps:get(args, Output, #{}))}.
+    #{
+        mod => Mod,
+        func => Func,
+        args => pre_process_args(Mod, Func, maps:get(args, Output, #{}))
+    }.
 
 %%--------------------------------------------------------------------
 %% callbacks of emqx_rule_output
 %%--------------------------------------------------------------------
-pre_process_output_args(republish, #{topic := Topic, qos := QoS, retain := Retain,
-        payload := Payload} = Args) ->
-    Args#{preprocessed_tmpl => #{
+pre_process_output_args(
+    republish,
+    #{
+        topic := Topic,
+        qos := QoS,
+        retain := Retain,
+        payload := Payload
+    } = Args
+) ->
+    Args#{
+        preprocessed_tmpl => #{
             topic => emqx_plugin_libs_rule:preproc_tmpl(Topic),
             qos => preproc_vars(QoS),
             retain => preproc_vars(Retain),
             payload => emqx_plugin_libs_rule:preproc_tmpl(Payload)
-        }};
+        }
+    };
 pre_process_output_args(_, Args) ->
     Args.
 
@@ -66,37 +76,57 @@ pre_process_output_args(_, Args) ->
 %%--------------------------------------------------------------------
 -spec console(map(), map(), map()) -> any().
 console(Selected, #{metadata := #{rule_id := RuleId}} = Envs, _Args) ->
-    ?ULOG("[rule output] ~ts~n"
-          "\tOutput Data: ~p~n"
-          "\tEnvs: ~p~n", [RuleId, Selected, Envs]).
+    ?ULOG(
+        "[rule output] ~ts~n"
+        "\tOutput Data: ~p~n"
+        "\tEnvs: ~p~n",
+        [RuleId, Selected, Envs]
+    ).
 
-republish(_Selected, #{topic := Topic, headers := #{republish_by := RuleId},
-        metadata := #{rule_id := RuleId}}, _Args) ->
+republish(
+    _Selected,
+    #{
+        topic := Topic,
+        headers := #{republish_by := RuleId},
+        metadata := #{rule_id := RuleId}
+    },
+    _Args
+) ->
     ?SLOG(error, #{msg => "recursive_republish_detected", topic => Topic});
-
 %% republish a PUBLISH message
-republish(Selected, #{flags := Flags, metadata := #{rule_id := RuleId}},
-        #{preprocessed_tmpl := #{
+republish(
+    Selected,
+    #{flags := Flags, metadata := #{rule_id := RuleId}},
+    #{
+        preprocessed_tmpl := #{
             qos := QoSTks,
             retain := RetainTks,
             topic := TopicTks,
-            payload := PayloadTks}}) ->
+            payload := PayloadTks
+        }
+    }
+) ->
     Topic = emqx_plugin_libs_rule:proc_tmpl(TopicTks, Selected),
-    Payload = emqx_plugin_libs_rule:proc_tmpl(PayloadTks, Selected),
+    Payload = format_msg(PayloadTks, Selected),
     QoS = replace_simple_var(QoSTks, Selected, 0),
     Retain = replace_simple_var(RetainTks, Selected, false),
     ?TRACE("RULE", "republish_message", #{topic => Topic, payload => Payload}),
     safe_publish(RuleId, Topic, QoS, Flags#{retain => Retain}, Payload);
-
 %% in case this is a "$events/" event
-republish(Selected, #{metadata := #{rule_id := RuleId}},
-        #{preprocessed_tmpl := #{
-                qos := QoSTks,
-                retain := RetainTks,
-                topic := TopicTks,
-                payload := PayloadTks}}) ->
+republish(
+    Selected,
+    #{metadata := #{rule_id := RuleId}},
+    #{
+        preprocessed_tmpl := #{
+            qos := QoSTks,
+            retain := RetainTks,
+            topic := TopicTks,
+            payload := PayloadTks
+        }
+    }
+) ->
     Topic = emqx_plugin_libs_rule:proc_tmpl(TopicTks, Selected),
-    Payload = emqx_plugin_libs_rule:proc_tmpl(PayloadTks, Selected),
+    Payload = format_msg(PayloadTks, Selected),
     QoS = replace_simple_var(QoSTks, Selected, 0),
     Retain = replace_simple_var(RetainTks, Selected, false),
     ?TRACE("RULE", "republish_message_with_flags", #{topic => Topic, payload => Payload}),
@@ -114,8 +144,10 @@ get_output_mod_func(OutputFunc) when is_atom(OutputFunc) ->
     {emqx_rule_outputs, OutputFunc};
 get_output_mod_func(OutputFunc) when is_binary(OutputFunc) ->
     ToAtom = fun(Bin) ->
-        try binary_to_existing_atom(Bin) of Atom -> Atom
-        catch error:badarg -> error({unknown_output_function, OutputFunc})
+        try binary_to_existing_atom(Bin) of
+            Atom -> Atom
+        catch
+            error:badarg -> error({unknown_output_function, OutputFunc})
         end
     end,
     case string:split(OutputFunc, ":", all) of
@@ -158,8 +190,14 @@ preproc_vars(Data) ->
 replace_simple_var(Tokens, Data, Default) when is_list(Tokens) ->
     [Var] = emqx_plugin_libs_rule:proc_tmpl(Tokens, Data, #{return => rawlist}),
     case Var of
-        undefined -> Default; %% cannot find the variable from Data
+        %% cannot find the variable from Data
+        undefined -> Default;
         _ -> Var
     end;
 replace_simple_var(Val, _Data, _Default) ->
     Val.
+
+format_msg([], Selected) ->
+    emqx_json:encode(Selected);
+format_msg(Tokens, Selected) ->
+    emqx_plugin_libs_rule:proc_tmpl(Tokens, Selected).

@@ -22,13 +22,14 @@
 -compile(export_all).
 
 -define(CLUSTER_RPC_SHARD, emqx_cluster_rpc_shard).
--define(CONF_DEFAULT, <<"
-prometheus {
-  push_gateway_server = \"http://127.0.0.1:9091\"
-  interval = \"1s\"
-  enable = true
-}
-">>).
+-define(CONF_DEFAULT, <<
+    "\n"
+    "prometheus {\n"
+    "  push_gateway_server = \"http://127.0.0.1:9091\"\n"
+    "  interval = \"1s\"\n"
+    "  enable = true\n"
+    "}\n"
+>>).
 
 %%--------------------------------------------------------------------
 %% Setups

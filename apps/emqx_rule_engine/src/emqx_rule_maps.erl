@@ -16,14 +16,15 @@
 
 -module(emqx_rule_maps).
 
--export([ nested_get/2
-        , nested_get/3
-        , nested_put/3
-        , range_gen/2
-        , range_get/3
-        , atom_key_map/1
-        , unsafe_atom_key_map/1
-        ]).
+-export([
+    nested_get/2,
+    nested_get/3,
+    nested_put/3,
+    range_gen/2,
+    range_get/3,
+    atom_key_map/1,
+    unsafe_atom_key_map/1
+]).
 
 nested_get(Key, Data) ->
     nested_get(Key, Data, undefined).
@@ -41,8 +42,10 @@ do_nested_get([Key | More], Data, OrgData, Default) ->
 do_nested_get([], Val, _OrgData, _Default) ->
     Val.
 
-nested_put(Key, Val, Data) when not is_map(Data),
-                                not is_list(Data) ->
+nested_put(Key, Val, Data) when
+    not is_map(Data),
+    not is_list(Data)
+->
     nested_put(Key, Val, #{});
 nested_put({var, Key}, Val, Map) ->
     general_map_put({key, Key}, Val, Map, Map);
@@ -56,19 +59,27 @@ do_nested_put([], Val, _Map, _OrgData) ->
     Val.
 
 general_map_get(Key, Map, OrgData, Default) ->
-    general_find(Key, Map, OrgData,
+    general_find(
+        Key,
+        Map,
+        OrgData,
         fun
             ({equivalent, {_EquiKey, Val}}) -> Val;
             ({found, {_Key, Val}}) -> Val;
             (not_found) -> Default
-        end).
+        end
+    ).
 
 general_map_put(Key, Val, Map, OrgData) ->
-    general_find(Key, Map, OrgData,
+    general_find(
+        Key,
+        Map,
+        OrgData,
         fun
             ({equivalent, {EquiKey, _Val}}) -> do_put(EquiKey, Val, Map, OrgData);
             (_) -> do_put(Key, Val, Map, OrgData)
-        end).
+        end
+    ).
 
 general_find(KeyOrIndex, Data, OrgData, Handler) when is_binary(Data) ->
     try emqx_json:decode(Data, [return_maps]) of
@@ -78,7 +89,8 @@ general_find(KeyOrIndex, Data, OrgData, Handler) when is_binary(Data) ->
     end;
 general_find({key, Key}, Map, _OrgData, Handler) when is_map(Map) ->
     case maps:find(Key, Map) of
-        {ok, Val} -> Handler({found, {{key, Key}, Val}});
+        {ok, Val} ->
+            Handler({found, {{key, Key}, Val}});
         error when is_atom(Key) ->
             %% the map may have an equivalent binary-form key
             BinKey = emqx_plugin_libs_rule:bin(Key),
@@ -87,14 +99,16 @@ general_find({key, Key}, Map, _OrgData, Handler) when is_map(Map) ->
                 error -> Handler(not_found)
             end;
         error when is_binary(Key) ->
-            try %% the map may have an equivalent atom-form key
+            %% the map may have an equivalent atom-form key
+            try
                 AtomKey = list_to_existing_atom(binary_to_list(Key)),
                 case maps:find(AtomKey, Map) of
                     {ok, Val} -> Handler({equivalent, {{key, AtomKey}, Val}});
                     error -> Handler(not_found)
                 end
-            catch error:badarg ->
-                Handler(not_found)
+            catch
+                error:badarg ->
+                    Handler(not_found)
             end;
         error ->
             Handler(not_found)
@@ -122,18 +136,21 @@ do_put({index, Index0}, Val, List, OrgData) ->
 setnth(_, Data, Val) when not is_list(Data) ->
     setnth(head, [], Val);
 setnth(head, List, Val) when is_list(List) -> [Val | List];
-setnth(head, _List, Val) -> [Val];
+setnth(head, _List, Val) ->
+    [Val];
 setnth(tail, List, Val) when is_list(List) -> List ++ [Val];
-setnth(tail, _List, Val) -> [Val];
+setnth(tail, _List, Val) ->
+    [Val];
 setnth(I, List, _Val) when not is_integer(I) -> List;
-setnth(0, List, _Val) -> List;
+setnth(0, List, _Val) ->
+    List;
 setnth(I, List, Val) when is_integer(I), I > 0 ->
     do_setnth(I, List, Val);
 setnth(I, List, Val) when is_integer(I), I < 0 ->
     lists:reverse(do_setnth(-I, lists:reverse(List), Val)).
 
 do_setnth(1, [_ | Rest], Val) -> [Val | Rest];
-do_setnth(I, [E | Rest], Val) -> [E | setnth(I-1, Rest, Val)];
+do_setnth(I, [E | Rest], Val) -> [E | setnth(I - 1, Rest, Val)];
 do_setnth(_, [], _Val) -> [].
 
 getnth(0, _) ->
@@ -144,8 +161,10 @@ getnth(I, L) when I < 0 ->
     do_getnth(-I, lists:reverse(L)).
 
 do_getnth(I, L) ->
-    try {ok, lists:nth(I, L)}
-    catch error:_ -> {error, not_found}
+    try
+        {ok, lists:nth(I, L)}
+    catch
+        error:_ -> {error, not_found}
     end.
 
 handle_getnth(Index, List, IndexPattern, Handler) ->
@@ -170,7 +189,8 @@ do_range_get(Begin, End, List) ->
     EndIndex = index(End, TotalLen),
     lists:sublist(List, BeginIndex, (EndIndex - BeginIndex + 1)).
 
-index(0, _) -> error({invalid_index, 0});
+index(0, _) ->
+    error({invalid_index, 0});
 index(Index, _) when Index > 0 -> Index;
 index(Index, Len) when Index < 0 ->
     Len + Index + 1.
@@ -180,26 +200,36 @@ index(Index, Len) when Index < 0 ->
 %%%-------------------------------------------------------------------
 atom_key_map(BinKeyMap) when is_map(BinKeyMap) ->
     maps:fold(
-        fun(K, V, Acc) when is_binary(K) ->
-              Acc#{binary_to_existing_atom(K, utf8) => atom_key_map(V)};
-           (K, V, Acc) when is_list(K) ->
-              Acc#{list_to_existing_atom(K) => atom_key_map(V)};
-           (K, V, Acc) when is_atom(K) ->
-              Acc#{K => atom_key_map(V)}
-        end, #{}, BinKeyMap);
+        fun
+            (K, V, Acc) when is_binary(K) ->
+                Acc#{binary_to_existing_atom(K, utf8) => atom_key_map(V)};
+            (K, V, Acc) when is_list(K) ->
+                Acc#{list_to_existing_atom(K) => atom_key_map(V)};
+            (K, V, Acc) when is_atom(K) ->
+                Acc#{K => atom_key_map(V)}
+        end,
+        #{},
+        BinKeyMap
+    );
 atom_key_map(ListV) when is_list(ListV) ->
     [atom_key_map(V) || V <- ListV];
-atom_key_map(Val) -> Val.
+atom_key_map(Val) ->
+    Val.
 
 unsafe_atom_key_map(BinKeyMap) when is_map(BinKeyMap) ->
     maps:fold(
-        fun(K, V, Acc) when is_binary(K) ->
-              Acc#{binary_to_atom(K, utf8) => unsafe_atom_key_map(V)};
-           (K, V, Acc) when is_list(K) ->
-              Acc#{list_to_atom(K) => unsafe_atom_key_map(V)};
-           (K, V, Acc) when is_atom(K) ->
-              Acc#{K => unsafe_atom_key_map(V)}
-        end, #{}, BinKeyMap);
+        fun
+            (K, V, Acc) when is_binary(K) ->
+                Acc#{binary_to_atom(K, utf8) => unsafe_atom_key_map(V)};
+            (K, V, Acc) when is_list(K) ->
+                Acc#{list_to_atom(K) => unsafe_atom_key_map(V)};
+            (K, V, Acc) when is_atom(K) ->
+                Acc#{K => unsafe_atom_key_map(V)}
+        end,
+        #{},
+        BinKeyMap
+    );
 unsafe_atom_key_map(ListV) when is_list(ListV) ->
     [unsafe_atom_key_map(V) || V <- ListV];
-unsafe_atom_key_map(Val) -> Val.
+unsafe_atom_key_map(Val) ->
+    Val.

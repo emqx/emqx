@@ -98,6 +98,7 @@ t_status(_Config) ->
 
 t_messages(_) ->
     clear_all_record(),
+    emqx_delayed:enable(),
 
     {ok, C1} = emqtt:start_link([{clean_start, true}]),
     {ok, _} = emqtt:connect(C1),
@@ -114,7 +115,7 @@ t_messages(_) ->
     end,
 
     lists:foreach(Each, lists:seq(1, 5)),
-    timer:sleep(500),
+    timer:sleep(1000),
 
     Msgs = get_messages(5),
     [First | _] = Msgs,
@@ -197,6 +198,7 @@ t_messages(_) ->
 
 t_large_payload(_) ->
     clear_all_record(),
+    emqx_delayed:enable(),
 
     {ok, C1} = emqtt:start_link([{clean_start, true}]),
     {ok, _} = emqtt:connect(C1),
@@ -209,7 +211,7 @@ t_large_payload(_) ->
         [{qos, 0}, {retain, true}]
     ),
 
-    timer:sleep(500),
+    timer:sleep(1000),
 
     [#{msgid := MsgId}] = get_messages(1),
 
@@ -241,8 +243,13 @@ get_messages(Len) ->
     {ok, 200, MsgsJson} = request(get, uri(["mqtt", "delayed", "messages"])),
     #{data := Msgs} = decode_json(MsgsJson),
     MsgLen = erlang:length(Msgs),
-    ?assert(
-        MsgLen =:= Len,
-        lists:flatten(io_lib:format("message length is:~p~n", [MsgLen]))
+    ?assertEqual(
+        Len,
+        MsgLen,
+        lists:flatten(
+            io_lib:format("message length is:~p~nWhere:~p~nHooks:~p~n", [
+                MsgLen, erlang:whereis(emqx_delayed), ets:tab2list(emqx_hooks)
+            ])
+        )
     ),
     Msgs.

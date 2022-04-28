@@ -19,32 +19,36 @@
 -include_lib("typerefl/include/types.hrl").
 -include_lib("hocon/include/hoconsc.hrl").
 
--export([ relational_db_fields/0
-        , ssl_fields/0
-        , prepare_statement_fields/0
-        ]).
+-export([
+    relational_db_fields/0,
+    ssl_fields/0,
+    prepare_statement_fields/0
+]).
 
--export([ ip_port_to_string/1
-        , parse_server/2
-        ]).
+-export([
+    ip_port_to_string/1,
+    parse_server/2
+]).
 
--export([ pool_size/1
-        , database/1
-        , username/1
-        , password/1
-        , auto_reconnect/1
-        ]).
+-export([
+    pool_size/1,
+    database/1,
+    username/1,
+    password/1,
+    auto_reconnect/1
+]).
 
 -type database() :: binary().
 -type pool_size() :: pos_integer().
 -type username() :: binary().
 -type password() :: binary().
 
--reflect_type([ database/0
-              , pool_size/0
-              , username/0
-              , password/0
-              ]).
+-reflect_type([
+    database/0,
+    pool_size/0,
+    username/0,
+    password/0
+]).
 
 -export([roots/0, fields/1]).
 
@@ -53,24 +57,25 @@ roots() -> [].
 fields(_) -> [].
 
 ssl_fields() ->
-    [ {ssl, #{type => hoconsc:ref(emqx_schema, "ssl_client_opts"),
-              default => #{<<"enable">> => false},
-              desc => ?DESC("ssl")
-             }
-      }
+    [
+        {ssl, #{
+            type => hoconsc:ref(emqx_schema, "ssl_client_opts"),
+            default => #{<<"enable">> => false},
+            desc => ?DESC("ssl")
+        }}
     ].
 
 relational_db_fields() ->
-    [ {database, fun database/1}
-    , {pool_size, fun pool_size/1}
-    , {username, fun username/1}
-    , {password, fun password/1}
-    , {auto_reconnect, fun auto_reconnect/1}
+    [
+        {database, fun database/1},
+        {pool_size, fun pool_size/1},
+        {username, fun username/1},
+        {password, fun password/1},
+        {auto_reconnect, fun auto_reconnect/1}
     ].
 
 prepare_statement_fields() ->
-    [ {prepare_statement, fun prepare_statement/1}
-    ].
+    [{prepare_statement, fun prepare_statement/1}].
 
 prepare_statement(type) -> map();
 prepare_statement(desc) -> ?DESC("prepare_statement");
@@ -113,16 +118,16 @@ parse_server(Str, #{host_type := inet_addr, default_port := DefaultPort}) ->
     try string:tokens(str(Str), ": ") of
         [Ip, Port] ->
             case parse_ip(Ip) of
-                {ok, R}    -> {R, list_to_integer(Port)}
+                {ok, R} -> {R, list_to_integer(Port)}
             end;
         [Ip] ->
             case parse_ip(Ip) of
-                {ok, R}    -> {R, DefaultPort}
+                {ok, R} -> {R, DefaultPort}
             end;
         _ ->
             ?THROW_ERROR("Bad server schema.")
     catch
-        error : Reason ->
+        error:Reason ->
             ?THROW_ERROR(Reason)
     end;
 parse_server(Str, #{host_type := hostname, default_port := DefaultPort}) ->
@@ -134,7 +139,7 @@ parse_server(Str, #{host_type := hostname, default_port := DefaultPort}) ->
         _ ->
             ?THROW_ERROR("Bad server schema.")
     catch
-        error : Reason ->
+        error:Reason ->
             ?THROW_ERROR(Reason)
     end;
 parse_server(_, _) ->

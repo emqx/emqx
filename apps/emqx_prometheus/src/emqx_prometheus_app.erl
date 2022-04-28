@@ -21,9 +21,10 @@
 -include("emqx_prometheus.hrl").
 
 %% Application callbacks
--export([ start/2
-        , stop/1
-        ]).
+-export([
+    start/2,
+    stop/1
+]).
 
 start(_StartType, _StartArgs) ->
     {ok, Sup} = emqx_prometheus_sup:start_link(),

@@ -21,96 +21,140 @@
 
 -behaviour(hocon_schema).
 
--export([ namespace/0
-        , roots/0
-        , fields/1
-        , desc/1
-        ]).
+-export([
+    namespace/0,
+    roots/0,
+    fields/1,
+    desc/1
+]).
 
--export([ validate_sql/1
-        ]).
+-export([validate_sql/1]).
 
 namespace() -> rule_engine.
 
 roots() -> ["rule_engine"].
 
 fields("rule_engine") ->
-    [ {ignore_sys_message, sc(boolean(), #{default => true, desc => ?DESC("rule_engine_ignore_sys_message")
-    })}
-    , {rules, sc(hoconsc:map("id", ref("rules")), #{desc => ?DESC("rule_engine_rules"), default => #{}})}
+    [
+        {ignore_sys_message,
+            sc(boolean(), #{default => true, desc => ?DESC("rule_engine_ignore_sys_message")})},
+        {rules,
+            sc(hoconsc:map("id", ref("rules")), #{
+                desc => ?DESC("rule_engine_rules"), default => #{}
+            })}
     ];
-
 fields("rules") ->
-    [ rule_name()
-    , {"sql", sc(binary(),
-        #{ desc => ?DESC("rules_sql")
-         , example => "SELECT * FROM \"test/topic\" WHERE payload.x = 1"
-         , required => true
-         , validator => fun ?MODULE:validate_sql/1
-         })}
-    , {"outputs", sc(hoconsc:array(hoconsc:union(outputs())),
-        #{ desc => ?DESC("rules_outputs")
-        , default => []
-        , example => [
-            <<"http:my_http_bridge">>,
-            #{function => republish, args => #{
-                topic => <<"t/1">>, payload => <<"${payload}">>}},
-            #{function => console}
-          ]
-        })}
-    , {"enable", sc(boolean(), #{desc => ?DESC("rules_enable"), default => true})}
-    , {"description", sc(binary(),
-        #{ desc => ?DESC("rules_description")
-         , example => "Some description"
-         , default => <<>>
-         })}
+    [
+        rule_name(),
+        {"sql",
+            sc(
+                binary(),
+                #{
+                    desc => ?DESC("rules_sql"),
+                    example => "SELECT * FROM \"test/topic\" WHERE payload.x = 1",
+                    required => true,
+                    validator => fun ?MODULE:validate_sql/1
+                }
+            )},
+        {"outputs",
+            sc(
+                hoconsc:array(hoconsc:union(outputs())),
+                #{
+                    desc => ?DESC("rules_outputs"),
+                    default => [],
+                    example => [
+                        <<"http:my_http_bridge">>,
+                        #{
+                            function => republish,
+                            args => #{
+                                topic => <<"t/1">>, payload => <<"${payload}">>
+                            }
+                        },
+                        #{function => console}
+                    ]
+                }
+            )},
+        {"enable", sc(boolean(), #{desc => ?DESC("rules_enable"), default => true})},
+        {"description",
+            sc(
+                binary(),
+                #{
+                    desc => ?DESC("rules_description"),
+                    example => "Some description",
+                    default => <<>>
+                }
+            )}
     ];
-
 fields("builtin_output_republish") ->
-    [ {function, sc(republish, #{desc => ?DESC("republish_function")})}
-    , {args, sc(ref("republish_args"), #{default => #{}})}
+    [
+        {function, sc(republish, #{desc => ?DESC("republish_function")})},
+        {args, sc(ref("republish_args"), #{default => #{}})}
     ];
-
 fields("builtin_output_console") ->
-    [ {function, sc(console, #{desc => ?DESC("console_function")})}
-    %% we may support some args for the console output in the future
-    %, {args, sc(map(), #{desc => "The arguments of the built-in 'console' output",
-    %    default => #{}})}
+    [
+        {function, sc(console, #{desc => ?DESC("console_function")})}
+        %% we may support some args for the console output in the future
+        %, {args, sc(map(), #{desc => "The arguments of the built-in 'console' output",
+        %    default => #{}})}
     ];
-
 fields("user_provided_function") ->
-    [ {function, sc(binary(),
-        #{ desc => ?DESC("user_provided_function_function")
-         , required => true
-         , example => "module:function"
-        })}
-    , {args, sc(map(),
-        #{ desc => ?DESC("user_provided_function_args")
-         , default => #{}
-         })}
+    [
+        {function,
+            sc(
+                binary(),
+                #{
+                    desc => ?DESC("user_provided_function_function"),
+                    required => true,
+                    example => "module:function"
+                }
+            )},
+        {args,
+            sc(
+                map(),
+                #{
+                    desc => ?DESC("user_provided_function_args"),
+                    default => #{}
+                }
+            )}
     ];
-
 fields("republish_args") ->
-    [ {topic, sc(binary(),
-        #{ desc => ?DESC("republish_args_topic")
-          , required => true
-          , example => <<"a/1">>
-          })}
-    , {qos, sc(qos(),
-        #{ desc => ?DESC("republish_args_qos")
-         , default => <<"${qos}">>
-         , example => <<"${qos}">>
-         })}
-    , {retain, sc(hoconsc:union([binary(), boolean()]),
-        #{ desc => ?DESC("republish_args_retain")
-        , default => <<"${retain}">>
-        , example => <<"${retain}">>
-        })}
-    , {payload, sc(binary(),
-        #{ desc => ?DESC("republish_args_payload")
-         , default => <<"${payload}">>
-         , example => <<"${payload}">>
-         })}
+    [
+        {topic,
+            sc(
+                binary(),
+                #{
+                    desc => ?DESC("republish_args_topic"),
+                    required => true,
+                    example => <<"a/1">>
+                }
+            )},
+        {qos,
+            sc(
+                qos(),
+                #{
+                    desc => ?DESC("republish_args_qos"),
+                    default => <<"${qos}">>,
+                    example => <<"${qos}">>
+                }
+            )},
+        {retain,
+            sc(
+                hoconsc:union([binary(), boolean()]),
+                #{
+                    desc => ?DESC("republish_args_retain"),
+                    default => <<"${retain}">>,
+                    example => <<"${retain}">>
+                }
+            )},
+        {payload,
+            sc(
+                binary(),
+                #{
+                    desc => ?DESC("republish_args_payload"),
+                    default => <<"${payload}">>,
+                    example => <<"${payload}">>
+                }
+            )}
     ].
 
 desc("rule_engine") ->
@@ -129,18 +173,23 @@ desc(_) ->
     undefined.
 
 rule_name() ->
-    {"name", sc(binary(),
-        #{ desc => ?DESC("rules_name")
-         , default => ""
-         , required => true
-         , example => "foo"
-         })}.
+    {"name",
+        sc(
+            binary(),
+            #{
+                desc => ?DESC("rules_name"),
+                default => "",
+                required => true,
+                example => "foo"
+            }
+        )}.
 
 outputs() ->
-    [ binary()
-    , ref("builtin_output_republish")
-    , ref("builtin_output_console")
-    , ref("user_provided_function")
+    [
+        binary(),
+        ref("builtin_output_republish"),
+        ref("builtin_output_console"),
+        ref("user_provided_function")
     ].
 
 qos() ->

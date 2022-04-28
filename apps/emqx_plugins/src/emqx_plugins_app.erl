@@ -18,12 +18,14 @@
 
 -behaviour(application).
 
--export([ start/2
-        , stop/1
-        ]).
+-export([
+    start/2,
+    stop/1
+]).
 
 start(_Type, _Args) ->
-    ok = emqx_plugins:ensure_started(), %% load all pre-configured
+    %% load all pre-configured
+    ok = emqx_plugins:ensure_started(),
     {ok, Sup} = emqx_plugins_sup:start_link(),
     {ok, Sup}.
 

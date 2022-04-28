@@ -27,15 +27,19 @@ start_link() ->
     supervisor:start_link({local, ?SERVER}, ?MODULE, []).
 
 init([]) ->
-    SupFlags = #{strategy => one_for_one,
-                 intensity => 10,
-                 period => 10},
+    SupFlags = #{
+        strategy => one_for_one,
+        intensity => 10,
+        period => 10
+    },
     ChildSpecs = [
-        #{id => emqx_bridge_monitor,
-          start => {emqx_bridge_monitor, start_link, []},
-          restart => permanent,
-          type => worker,
-          modules => [emqx_bridge_monitor]}
+        #{
+            id => emqx_bridge_monitor,
+            start => {emqx_bridge_monitor, start_link, []},
+            restart => permanent,
+            type => worker,
+            modules => [emqx_bridge_monitor]
+        }
     ],
     {ok, {SupFlags, ChildSpecs}}.
 

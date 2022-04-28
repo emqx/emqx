@@ -72,19 +72,19 @@ t_wss_crud_listeners_by_id(_) ->
     crud_listeners_by_id(ListenerId, NewListenerId, MinListenerId, BadId, Type).
 
 crud_listeners_by_id(ListenerId, NewListenerId, MinListenerId, BadId, Type) ->
-    TcpPath = emqx_mgmt_api_test_util:api_path(["listeners", ListenerId]),
+    OriginPath = emqx_mgmt_api_test_util:api_path(["listeners", ListenerId]),
     NewPath = emqx_mgmt_api_test_util:api_path(["listeners", NewListenerId]),
-    TcpListener = request(get, TcpPath, [], []),
+    OriginListener = request(get, OriginPath, [], []),
 
     %% create with full options
     ?assertEqual({error, not_found}, is_running(NewListenerId)),
     ?assertMatch({error, {"HTTP/1.1", 404, _}}, request(get, NewPath, [], [])),
-    NewConf = TcpListener#{
+    NewConf = OriginListener#{
         <<"id">> => NewListenerId,
         <<"bind">> => <<"0.0.0.0:2883">>
     },
     Create = request(post, NewPath, [], NewConf),
-    ?assertEqual(lists:sort(maps:keys(TcpListener)), lists:sort(maps:keys(Create))),
+    ?assertEqual(lists:sort(maps:keys(OriginListener)), lists:sort(maps:keys(Create))),
     Get1 = request(get, NewPath, [], []),
     ?assertMatch(Create, Get1),
     ?assert(is_running(NewListenerId)),
@@ -93,20 +93,42 @@ crud_listeners_by_id(ListenerId, NewListenerId, MinListenerId, BadId, Type) ->
     MinPath = emqx_mgmt_api_test_util:api_path(["listeners", MinListenerId]),
     ?assertEqual({error, not_found}, is_running(MinListenerId)),
     ?assertMatch({error, {"HTTP/1.1", 404, _}}, request(get, MinPath, [], [])),
-    MinConf = #{
-        <<"id">> => MinListenerId,
-        <<"bind">> => <<"0.0.0.0:3883">>,
-        <<"type">> => Type
-    },
+    MinConf =
+        case OriginListener of
+            #{
+                <<"ssl">> :=
+                    #{
+                        <<"cacertfile">> := CaCertFile,
+                        <<"certfile">> := CertFile,
+                        <<"keyfile">> := KeyFile
+                    }
+            } ->
+                #{
+                    <<"id">> => MinListenerId,
+                    <<"bind">> => <<"0.0.0.0:3883">>,
+                    <<"type">> => Type,
+                    <<"ssl">> => #{
+                        <<"cacertfile">> => CaCertFile,
+                        <<"certfile">> => CertFile,
+                        <<"keyfile">> => KeyFile
+                    }
+                };
+            _ ->
+                #{
+                    <<"id">> => MinListenerId,
+                    <<"bind">> => <<"0.0.0.0:3883">>,
+                    <<"type">> => Type
+                }
+        end,
     MinCreate = request(post, MinPath, [], MinConf),
-    ?assertEqual(lists:sort(maps:keys(TcpListener)), lists:sort(maps:keys(MinCreate))),
+    ?assertEqual(lists:sort(maps:keys(OriginListener)), lists:sort(maps:keys(MinCreate))),
     MinGet = request(get, MinPath, [], []),
     ?assertMatch(MinCreate, MinGet),
     ?assert(is_running(MinListenerId)),
 
     %% bad create(same port)
     BadPath = emqx_mgmt_api_test_util:api_path(["listeners", BadId]),
-    BadConf = TcpListener#{
+    BadConf = OriginListener#{
         <<"id">> => BadId,
         <<"bind">> => <<"0.0.0.0:2883">>
     },

@@ -42,6 +42,8 @@
     code_change/3
 ]).
 
+-export([get_tables_status/0]).
+
 -export_type([txn_id/0, succeed_num/0, multicall_return/1, multicall_return/0]).
 
 -ifdef(TEST).
@@ -170,6 +172,29 @@ get_node_tnx_id(Node) ->
     case mnesia:wread({?CLUSTER_COMMIT, Node}) of
         [] -> -1;
         [#cluster_rpc_commit{tnx_id = TnxId}] -> TnxId
+    end.
+
+%% Checks whether the Mnesia tables used by this module are waiting to
+%% be loaded and from where.
+-spec get_tables_status() -> #{atom() => {waiting, [node()]} | {disc | network, node()}}.
+get_tables_status() ->
+    maps:from_list([
+        {Tab, do_get_tables_status(Tab)}
+     || Tab <- [?CLUSTER_COMMIT, ?CLUSTER_MFA]
+    ]).
+
+do_get_tables_status(Tab) ->
+    Props = mnesia:table_info(Tab, all),
+    TabNodes = proplists:get_value(all_nodes, Props),
+    KnownDown = mnesia_recover:get_mnesia_downs(),
+    LocalNode = node(),
+    case proplists:get_value(load_node, Props) of
+        unknown ->
+            {waiting, TabNodes -- [LocalNode | KnownDown]};
+        LocalNode ->
+            {disc, LocalNode};
+        Node ->
+            {network, Node}
     end.
 
 %% Regardless of what MFA is returned, consider it a success),

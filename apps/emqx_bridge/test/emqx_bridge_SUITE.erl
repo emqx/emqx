@@ -23,7 +23,7 @@
 -include_lib("snabbkaffe/include/snabbkaffe.hrl").
 
 all() ->
-     emqx_common_test_helpers:all(?MODULE).
+    emqx_common_test_helpers:all(?MODULE).
 
 init_per_suite(Config) ->
     %% to avoid inter-suite dependencies
@@ -32,8 +32,12 @@ init_per_suite(Config) ->
     Config.
 
 end_per_suite(_Config) ->
-    emqx_common_test_helpers:stop_apps([emqx, emqx_bridge,
-                                        emqx_resource, emqx_connector]).
+    emqx_common_test_helpers:stop_apps([
+        emqx,
+        emqx_bridge,
+        emqx_resource,
+        emqx_connector
+    ]).
 
 init_per_testcase(t_get_basic_usage_info_1, Config) ->
     setup_fake_telemetry_data(),
@@ -43,13 +47,15 @@ init_per_testcase(_TestCase, Config) ->
 
 end_per_testcase(t_get_basic_usage_info_1, _Config) ->
     lists:foreach(
-      fun({BridgeType, BridgeName}) ->
-              ok = emqx_bridge:remove(BridgeType, BridgeName)
-      end,
-      [ {http, <<"basic_usage_info_http">>}
-      , {http, <<"basic_usage_info_http_disabled">>}
-      , {mqtt, <<"basic_usage_info_mqtt">>}
-      ]),
+        fun({BridgeType, BridgeName}) ->
+            ok = emqx_bridge:remove(BridgeType, BridgeName)
+        end,
+        [
+            {http, <<"basic_usage_info_http">>},
+            {http, <<"basic_usage_info_http_disabled">>},
+            {mqtt, <<"basic_usage_info_mqtt">>}
+        ]
+    ),
     ok = emqx_config:delete_override_conf_files(),
     ok = emqx_config:put([bridges], #{}),
     ok = emqx_config:put_raw([bridges], #{}),
@@ -59,53 +65,68 @@ end_per_testcase(_TestCase, _Config) ->
 
 t_get_basic_usage_info_0(_Config) ->
     ?assertEqual(
-       #{ num_bridges => 0
-        , count_by_type => #{}
+        #{
+            num_bridges => 0,
+            count_by_type => #{}
         },
-       emqx_bridge:get_basic_usage_info()).
+        emqx_bridge:get_basic_usage_info()
+    ).
 
 t_get_basic_usage_info_1(_Config) ->
     BasicUsageInfo = emqx_bridge:get_basic_usage_info(),
     ?assertEqual(
-       #{ num_bridges => 2
-        , count_by_type => #{ http => 1
-                            , mqtt => 1
-                            }
+        #{
+            num_bridges => 2,
+            count_by_type => #{
+                http => 1,
+                mqtt => 1
+            }
         },
-       BasicUsageInfo).
+        BasicUsageInfo
+    ).
 
 setup_fake_telemetry_data() ->
     ConnectorConf =
-        #{<<"connectors">> =>
-              #{<<"mqtt">> => #{<<"my_mqtt_connector">> =>
-                 #{ server => "127.0.0.1:1883" }}}},
-    MQTTConfig = #{ connector => <<"mqtt:my_mqtt_connector">>
-                  , enable => true
-                  , direction => ingress
-                  , remote_topic => <<"aws/#">>
-                  , remote_qos => 1
-                  },
-    HTTPConfig = #{ url => <<"http://localhost:9901/messages/${topic}">>
-                  , enable => true
-                  , direction => egress
-                  , local_topic => "emqx_http/#"
-                  , method => post
-                  , body => <<"${payload}">>
-                  , headers => #{}
-                  , request_timeout => "15s"
-                  },
-    Conf =
-        #{ <<"bridges">> =>
-               #{ <<"http">> =>
-                      #{ <<"basic_usage_info_http">> => HTTPConfig
-                       , <<"basic_usage_info_http_disabled">> =>
-                             HTTPConfig#{enable => false}
-                       }
-                , <<"mqtt">> =>
-                      #{ <<"basic_usage_info_mqtt">> => MQTTConfig
-                       }
+        #{
+            <<"connectors">> =>
+                #{
+                    <<"mqtt">> => #{
+                        <<"my_mqtt_connector">> =>
+                            #{server => "127.0.0.1:1883"}
+                    }
                 }
-         },
+        },
+    MQTTConfig = #{
+        connector => <<"mqtt:my_mqtt_connector">>,
+        enable => true,
+        direction => ingress,
+        remote_topic => <<"aws/#">>,
+        remote_qos => 1
+    },
+    HTTPConfig = #{
+        url => <<"http://localhost:9901/messages/${topic}">>,
+        enable => true,
+        direction => egress,
+        local_topic => "emqx_http/#",
+        method => post,
+        body => <<"${payload}">>,
+        headers => #{},
+        request_timeout => "15s"
+    },
+    Conf =
+        #{
+            <<"bridges">> =>
+                #{
+                    <<"http">> =>
+                        #{
+                            <<"basic_usage_info_http">> => HTTPConfig,
+                            <<"basic_usage_info_http_disabled">> =>
+                                HTTPConfig#{enable => false}
+                        },
+                    <<"mqtt">> =>
+                        #{<<"basic_usage_info_mqtt">> => MQTTConfig}
+                }
+        },
     ok = emqx_common_test_helpers:load_config(emqx_connector_schema, ConnectorConf),
     ok = emqx_common_test_helpers:load_config(emqx_bridge_schema, Conf),
 

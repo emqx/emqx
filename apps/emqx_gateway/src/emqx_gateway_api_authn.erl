@@ -195,7 +195,8 @@ parse_qstring(Qs) ->
             <<"page">>,
             <<"limit">>,
             <<"like_username">>,
-            <<"like_clientid">>
+            <<"like_clientid">>,
+            <<"is_superuser">>
         ],
         Qs
     ).
@@ -396,6 +397,15 @@ params_fuzzy_in_qs() ->
                     required => false,
                     desc => ?DESC(like_clientid),
                     example => <<"clientid">>
+                }
+            )},
+        {is_superuser,
+            mk(
+                boolean(),
+                #{
+                    in => query,
+                    required => false,
+                    desc => ?DESC(is_superuser)
                 }
             )}
     ].

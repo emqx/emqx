@@ -22,23 +22,36 @@
 send_and_ack_test() ->
     %% delegate from gen_rpc to rpc for unit test
     meck:new(emqtt, [passthrough, no_history]),
-    meck:expect(emqtt, start_link, 1,
-                fun(_) ->
-                        {ok, spawn_link(fun() -> ok end)}
-                end),
+    meck:expect(
+        emqtt,
+        start_link,
+        1,
+        fun(_) ->
+            {ok, spawn_link(fun() -> ok end)}
+        end
+    ),
     meck:expect(emqtt, connect, 1, {ok, dummy}),
-    meck:expect(emqtt, stop, 1,
-                fun(Pid) -> Pid ! stop end),
-    meck:expect(emqtt, publish, 2,
-                fun(Client, Msg) ->
-                    Client ! {publish, Msg},
-                    {ok, Msg} %% as packet id
-                end),
+    meck:expect(
+        emqtt,
+        stop,
+        1,
+        fun(Pid) -> Pid ! stop end
+    ),
+    meck:expect(
+        emqtt,
+        publish,
+        2,
+        fun(Client, Msg) ->
+            Client ! {publish, Msg},
+            %% as packet id
+            {ok, Msg}
+        end
+    ),
     try
         Max = 1,
         Batch = lists:seq(1, Max),
-        {ok, Conn} = emqx_connector_mqtt_mod:start(#{server => {{127,0,0,1}, 1883}}),
-    %     %% return last packet id as batch reference
+        {ok, Conn} = emqx_connector_mqtt_mod:start(#{server => {{127, 0, 0, 1}, 1883}}),
+        %     %% return last packet id as batch reference
         {ok, _AckRef} = emqx_connector_mqtt_mod:send(Conn, Batch),
 
         ok = emqx_connector_mqtt_mod:stop(Conn)

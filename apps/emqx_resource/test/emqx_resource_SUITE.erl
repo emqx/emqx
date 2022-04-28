@@ -60,22 +60,25 @@ t_check_config(_) ->
 
 t_create_remove(_) ->
     {error, _} = emqx_resource:check_and_create_local(
-                   ?ID,
-                   ?DEFAULT_RESOURCE_GROUP,
-                   ?TEST_RESOURCE,
-                   #{unknown => test_resource}),
+        ?ID,
+        ?DEFAULT_RESOURCE_GROUP,
+        ?TEST_RESOURCE,
+        #{unknown => test_resource}
+    ),
 
     {ok, _} = emqx_resource:create(
-                ?ID,
-                ?DEFAULT_RESOURCE_GROUP,
-                ?TEST_RESOURCE,
-                #{name => test_resource}),
+        ?ID,
+        ?DEFAULT_RESOURCE_GROUP,
+        ?TEST_RESOURCE,
+        #{name => test_resource}
+    ),
 
     emqx_resource:recreate(
-                ?ID,
-                ?TEST_RESOURCE,
-                #{name => test_resource},
-                #{}),
+        ?ID,
+        ?TEST_RESOURCE,
+        #{name => test_resource},
+        #{}
+    ),
     #{pid := Pid} = emqx_resource:query(?ID, get_state),
 
     ?assert(is_process_alive(Pid)),
@@ -87,22 +90,25 @@ t_create_remove(_) ->
 
 t_create_remove_local(_) ->
     {error, _} = emqx_resource:check_and_create_local(
-                   ?ID,
-                   ?DEFAULT_RESOURCE_GROUP,
-                   ?TEST_RESOURCE,
-                   #{unknown => test_resource}),
+        ?ID,
+        ?DEFAULT_RESOURCE_GROUP,
+        ?TEST_RESOURCE,
+        #{unknown => test_resource}
+    ),
 
     {ok, _} = emqx_resource:create_local(
-                ?ID,
-                ?DEFAULT_RESOURCE_GROUP,
-                ?TEST_RESOURCE,
-                #{name => test_resource}),
+        ?ID,
+        ?DEFAULT_RESOURCE_GROUP,
+        ?TEST_RESOURCE,
+        #{name => test_resource}
+    ),
 
     emqx_resource:recreate_local(
-                ?ID,
-                ?TEST_RESOURCE,
-                #{name => test_resource},
-                #{}),
+        ?ID,
+        ?TEST_RESOURCE,
+        #{name => test_resource},
+        #{}
+    ),
     #{pid := Pid} = emqx_resource:query(?ID, get_state),
 
     ?assert(is_process_alive(Pid)),
@@ -110,10 +116,11 @@ t_create_remove_local(_) ->
     emqx_resource:set_resource_status_connecting(?ID),
 
     emqx_resource:recreate_local(
-            ?ID,
-            ?TEST_RESOURCE,
-            #{name => test_resource},
-            #{}),
+        ?ID,
+        ?TEST_RESOURCE,
+        #{name => test_resource},
+        #{}
+    ),
 
     ok = emqx_resource:remove_local(?ID),
     {error, _} = emqx_resource:remove_local(?ID),
@@ -122,10 +129,11 @@ t_create_remove_local(_) ->
 
 t_query(_) ->
     {ok, _} = emqx_resource:create_local(
-                ?ID,
-                ?DEFAULT_RESOURCE_GROUP,
-                ?TEST_RESOURCE,
-                #{name => test_resource}),
+        ?ID,
+        ?DEFAULT_RESOURCE_GROUP,
+        ?TEST_RESOURCE,
+        #{name => test_resource}
+    ),
 
     Pid = self(),
     Success = fun() -> Pid ! success end,
@@ -142,28 +150,32 @@ t_query(_) ->
         ?assert(false)
     end,
 
-    ?assertMatch({error, {emqx_resource, #{reason := not_found}}},
-       emqx_resource:query(<<"unknown">>, get_state)),
+    ?assertMatch(
+        {error, {emqx_resource, #{reason := not_found}}},
+        emqx_resource:query(<<"unknown">>, get_state)
+    ),
 
     ok = emqx_resource:remove_local(?ID).
 
 t_healthy_timeout(_) ->
     {ok, _} = emqx_resource:create_local(
-                ?ID,
-                ?DEFAULT_RESOURCE_GROUP,
-                ?TEST_RESOURCE,
-                #{name => <<"test_resource">>},
-                #{health_check_timeout => 200}),
+        ?ID,
+        ?DEFAULT_RESOURCE_GROUP,
+        ?TEST_RESOURCE,
+        #{name => <<"test_resource">>},
+        #{health_check_timeout => 200}
+    ),
     timer:sleep(500),
 
     ok = emqx_resource:remove_local(?ID).
 
 t_healthy(_) ->
     {ok, _} = emqx_resource:create_local(
-                ?ID,
-                ?DEFAULT_RESOURCE_GROUP,
-                ?TEST_RESOURCE,
-                #{name => <<"test_resource">>}),
+        ?ID,
+        ?DEFAULT_RESOURCE_GROUP,
+        ?TEST_RESOURCE,
+        #{name => <<"test_resource">>}
+    ),
     timer:sleep(400),
 
     emqx_resource_health_check:create_checker(?ID, 15000, 10000),
@@ -175,38 +187,44 @@ t_healthy(_) ->
 
     ?assertMatch(
         [#{status := connected}],
-        emqx_resource:list_instances_verbose()),
+        emqx_resource:list_instances_verbose()
+    ),
 
     erlang:exit(Pid, shutdown),
 
     ?assertEqual(
         {error, dead},
-        emqx_resource:health_check(?ID)),
+        emqx_resource:health_check(?ID)
+    ),
 
     ?assertMatch(
         [#{status := connecting}],
-        emqx_resource:list_instances_verbose()),
+        emqx_resource:list_instances_verbose()
+    ),
 
     ok = emqx_resource:remove_local(?ID).
 
 t_stop_start(_) ->
     {error, _} = emqx_resource:check_and_create(
-                   ?ID,
-                   ?DEFAULT_RESOURCE_GROUP,
-                   ?TEST_RESOURCE,
-                   #{unknown => test_resource}),
+        ?ID,
+        ?DEFAULT_RESOURCE_GROUP,
+        ?TEST_RESOURCE,
+        #{unknown => test_resource}
+    ),
 
     {ok, _} = emqx_resource:check_and_create(
-                ?ID,
-                ?DEFAULT_RESOURCE_GROUP,
-                ?TEST_RESOURCE,
-                #{<<"name">> => <<"test_resource">>}),
+        ?ID,
+        ?DEFAULT_RESOURCE_GROUP,
+        ?TEST_RESOURCE,
+        #{<<"name">> => <<"test_resource">>}
+    ),
 
     {ok, _} = emqx_resource:check_and_recreate(
-                ?ID,
-                ?TEST_RESOURCE,
-                #{<<"name">> => <<"test_resource">>},
-                #{}),
+        ?ID,
+        ?TEST_RESOURCE,
+        #{<<"name">> => <<"test_resource">>},
+        #{}
+    ),
 
     #{pid := Pid0} = emqx_resource:query(?ID, get_state),
 
@@ -216,8 +234,10 @@ t_stop_start(_) ->
 
     ?assertNot(is_process_alive(Pid0)),
 
-    ?assertMatch({error, {emqx_resource, #{reason := disconnected}}},
-        emqx_resource:query(?ID, get_state)),
+    ?assertMatch(
+        {error, {emqx_resource, #{reason := disconnected}}},
+        emqx_resource:query(?ID, get_state)
+    ),
 
     ok = emqx_resource:restart(?ID),
 
@@ -229,22 +249,25 @@ t_stop_start(_) ->
 
 t_stop_start_local(_) ->
     {error, _} = emqx_resource:check_and_create_local(
-                   ?ID,
-                   ?DEFAULT_RESOURCE_GROUP,
-                   ?TEST_RESOURCE,
-                   #{unknown => test_resource}),
+        ?ID,
+        ?DEFAULT_RESOURCE_GROUP,
+        ?TEST_RESOURCE,
+        #{unknown => test_resource}
+    ),
 
     {ok, _} = emqx_resource:check_and_create_local(
-                ?ID,
-                ?DEFAULT_RESOURCE_GROUP,
-                ?TEST_RESOURCE,
-                #{<<"name">> => <<"test_resource">>}),
+        ?ID,
+        ?DEFAULT_RESOURCE_GROUP,
+        ?TEST_RESOURCE,
+        #{<<"name">> => <<"test_resource">>}
+    ),
 
     {ok, _} = emqx_resource:check_and_recreate_local(
-                ?ID,
-                ?TEST_RESOURCE,
-                #{<<"name">> => <<"test_resource">>},
-                #{}),
+        ?ID,
+        ?TEST_RESOURCE,
+        #{<<"name">> => <<"test_resource">>},
+        #{}
+    ),
 
     #{pid := Pid0} = emqx_resource:query(?ID, get_state),
 
@@ -254,8 +277,10 @@ t_stop_start_local(_) ->
 
     ?assertNot(is_process_alive(Pid0)),
 
-    ?assertMatch({error, {emqx_resource, #{reason := disconnected}}},
-        emqx_resource:query(?ID, get_state)),
+    ?assertMatch(
+        {error, {emqx_resource, #{reason := disconnected}}},
+        emqx_resource:query(?ID, get_state)
+    ),
 
     ok = emqx_resource:restart(?ID),
 
@@ -265,60 +290,73 @@ t_stop_start_local(_) ->
 
 t_list_filter(_) ->
     {ok, _} = emqx_resource:create_local(
-                emqx_resource:generate_id(<<"a">>),
-                <<"group1">>,
-                ?TEST_RESOURCE,
-                #{name => a}),
+        emqx_resource:generate_id(<<"a">>),
+        <<"group1">>,
+        ?TEST_RESOURCE,
+        #{name => a}
+    ),
     {ok, _} = emqx_resource:create_local(
-                emqx_resource:generate_id(<<"a">>),
-                <<"group2">>,
-                ?TEST_RESOURCE,
-                #{name => grouped_a}),
+        emqx_resource:generate_id(<<"a">>),
+        <<"group2">>,
+        ?TEST_RESOURCE,
+        #{name => grouped_a}
+    ),
 
     [Id1] = emqx_resource:list_group_instances(<<"group1">>),
     ?assertMatch(
         {ok, <<"group1">>, #{config := #{name := a}}},
-        emqx_resource:get_instance(Id1)),
+        emqx_resource:get_instance(Id1)
+    ),
 
     [Id2] = emqx_resource:list_group_instances(<<"group2">>),
     ?assertMatch(
         {ok, <<"group2">>, #{config := #{name := grouped_a}}},
-        emqx_resource:get_instance(Id2)).
+        emqx_resource:get_instance(Id2)
+    ).
 
 t_create_dry_run_local(_) ->
     ?assertEqual(
-       ok,
-       emqx_resource:create_dry_run_local(
-         ?TEST_RESOURCE,
-         #{name => test_resource, register => true})),
+        ok,
+        emqx_resource:create_dry_run_local(
+            ?TEST_RESOURCE,
+            #{name => test_resource, register => true}
+        )
+    ),
 
     ?assertEqual(undefined, whereis(test_resource)).
 
 t_create_dry_run_local_failed(_) ->
-    {Res, _} = emqx_resource:create_dry_run_local(?TEST_RESOURCE,
-                       #{cteate_error => true}),
+    {Res, _} = emqx_resource:create_dry_run_local(
+        ?TEST_RESOURCE,
+        #{cteate_error => true}
+    ),
     ?assertEqual(error, Res),
 
-    {Res, _} = emqx_resource:create_dry_run_local(?TEST_RESOURCE,
-                       #{name => test_resource, health_check_error => true}),
+    {Res, _} = emqx_resource:create_dry_run_local(
+        ?TEST_RESOURCE,
+        #{name => test_resource, health_check_error => true}
+    ),
     ?assertEqual(error, Res),
 
-    {Res, _} = emqx_resource:create_dry_run_local(?TEST_RESOURCE,
-                       #{name => test_resource, stop_error => true}),
+    {Res, _} = emqx_resource:create_dry_run_local(
+        ?TEST_RESOURCE,
+        #{name => test_resource, stop_error => true}
+    ),
     ?assertEqual(error, Res).
 
 t_test_func(_) ->
     ?assertEqual(ok, erlang:apply(emqx_resource_validator:not_empty("not_empty"), [<<"someval">>])),
     ?assertEqual(ok, erlang:apply(emqx_resource_validator:min(int, 3), [4])),
-    ?assertEqual(ok, erlang:apply(emqx_resource_validator:max(array, 10), [[a,b,c,d]])),
+    ?assertEqual(ok, erlang:apply(emqx_resource_validator:max(array, 10), [[a, b, c, d]])),
     ?assertEqual(ok, erlang:apply(emqx_resource_validator:max(string, 10), ["less10"])).
 
 t_reset_metrics(_) ->
     {ok, _} = emqx_resource:create(
-                ?ID,
-                ?DEFAULT_RESOURCE_GROUP,
-                ?TEST_RESOURCE,
-                #{name => test_resource}),
+        ?ID,
+        ?DEFAULT_RESOURCE_GROUP,
+        ?TEST_RESOURCE,
+        #{name => test_resource}
+    ),
 
     #{pid := Pid} = emqx_resource:query(?ID, get_state),
     emqx_resource:reset_metrics(?ID),

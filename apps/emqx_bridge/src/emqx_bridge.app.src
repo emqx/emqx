@@ -1,18 +1,18 @@
 %% -*- mode: erlang -*-
-{application, emqx_bridge,
- [{description, "An OTP application"},
-  {vsn, "0.1.0"},
-  {registered, []},
-  {mod, {emqx_bridge_app, []}},
-  {applications,
-   [kernel,
-    stdlib,
-    emqx,
-    emqx_connector
-   ]},
-  {env,[]},
-  {modules, []},
+{application, emqx_bridge, [
+    {description, "An OTP application"},
+    {vsn, "0.1.0"},
+    {registered, []},
+    {mod, {emqx_bridge_app, []}},
+    {applications, [
+        kernel,
+        stdlib,
+        emqx,
+        emqx_connector
+    ]},
+    {env, []},
+    {modules, []},
 
-  {licenses, ["Apache 2.0"]},
-  {links, []}
- ]}.
+    {licenses, ["Apache 2.0"]},
+    {links, []}
+]}.

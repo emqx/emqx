@@ -20,72 +20,82 @@
 -include_lib("emqx/include/emqx.hrl").
 -include_lib("emqx/include/logger.hrl").
 
+-export([
+    reload/0,
+    load/1,
+    unload/0,
+    unload/1,
+    event_names/0,
+    event_name/1,
+    event_topic/1,
+    eventmsg_publish/1
+]).
 
--export([ reload/0
-        , load/1
-        , unload/0
-        , unload/1
-        , event_names/0
-        , event_name/1
-        , event_topic/1
-        , eventmsg_publish/1
-        ]).
+-export([
+    on_client_connected/3,
+    on_client_disconnected/4,
+    on_client_connack/4,
+    on_client_check_authz_complete/6,
+    on_session_subscribed/4,
+    on_session_unsubscribed/4,
+    on_message_publish/2,
+    on_message_dropped/4,
+    on_message_delivered/3,
+    on_message_acked/3,
+    on_delivery_dropped/4,
+    on_bridge_message_received/2
+]).
 
--export([ on_client_connected/3
-        , on_client_disconnected/4
-        , on_client_connack/4
-        , on_client_check_authz_complete/6
-        , on_session_subscribed/4
-        , on_session_unsubscribed/4
-        , on_message_publish/2
-        , on_message_dropped/4
-        , on_message_delivered/3
-        , on_message_acked/3
-        , on_delivery_dropped/4
-        , on_bridge_message_received/2
-        ]).
-
--export([ event_info/0
-        , columns/1
-        , columns_with_exam/1
-        ]).
+-export([
+    event_info/0,
+    columns/1,
+    columns_with_exam/1
+]).
 
 -ifdef(TEST).
--export([ reason/1
-        , hook_fun/1
-        , printable_maps/1
-        ]).
+-export([
+    reason/1,
+    hook_fun/1,
+    printable_maps/1
+]).
 -endif.
 
 -elvis([{elvis_style, dont_repeat_yourself, disable}]).
 
 event_names() ->
-    [ 'client.connected'
-    , 'client.disconnected'
-    , 'client.connack'
-    , 'client.check_authz_complete'
-    , 'session.subscribed'
-    , 'session.unsubscribed'
-    , 'message.publish'
-    , 'message.delivered'
-    , 'message.acked'
-    , 'message.dropped'
-    , 'delivery.dropped'
+    [
+        'client.connected',
+        'client.disconnected',
+        'client.connack',
+        'client.check_authz_complete',
+        'session.subscribed',
+        'session.unsubscribed',
+        'message.publish',
+        'message.delivered',
+        'message.acked',
+        'message.dropped',
+        'delivery.dropped'
     ].
 
 reload() ->
-    lists:foreach(fun(Rule) ->
+    lists:foreach(
+        fun(Rule) ->
             ok = emqx_rule_engine:load_hooks_for_rule(Rule)
-        end, emqx_rule_engine:get_rules()).
+        end,
+        emqx_rule_engine:get_rules()
+    ).
 
 load(Topic) ->
     HookPoint = event_name(Topic),
     emqx_hooks:put(HookPoint, {?MODULE, hook_fun(HookPoint), [#{event_topic => Topic}]}).
 
 unload() ->
-    lists:foreach(fun(HookPoint) ->
+    lists:foreach(
+        fun(HookPoint) ->
             emqx_hooks:del(HookPoint, {?MODULE, hook_fun(HookPoint)})
-        end, event_names()).
+        end,
+        event_names()
+    ).
 
 unload(Topic) ->
     HookPoint = event_name(Topic),
@@ -96,7 +106,8 @@ unload(Topic) ->
 %%--------------------------------------------------------------------
 on_message_publish(Message = #message{topic = Topic}, _Env) ->
     case ignore_sys_message(Message) of
-        true -> ok;
+        true ->
+            ok;
         false ->
             case emqx_rule_engine:get_rules_for_topic(Topic) of
                 [] -> ok;
@@ -109,70 +120,108 @@ on_bridge_message_received(Message, Env = #{event_topic := BridgeTopic}) ->
     apply_event(BridgeTopic, fun() -> with_basic_columns(BridgeTopic, Message) end, Env).
 
 on_client_connected(ClientInfo, ConnInfo, Env) ->
-    apply_event('client.connected',
-        fun() -> eventmsg_connected(ClientInfo, ConnInfo) end, Env).
+    apply_event(
+        'client.connected',
+        fun() -> eventmsg_connected(ClientInfo, ConnInfo) end,
+        Env
+    ).
 
 on_client_connack(ConnInfo, Reason, _, Env) ->
-    apply_event('client.connack',
-                          fun() -> eventmsg_connack(ConnInfo, Reason) end, Env).
+    apply_event(
+        'client.connack',
+        fun() -> eventmsg_connack(ConnInfo, Reason) end,
+        Env
+    ).
 
 on_client_check_authz_complete(ClientInfo, PubSub, Topic, Result, AuthzSource, Env) ->
-    apply_event('client.check_authz_complete',
-                          fun() -> eventmsg_check_authz_complete(ClientInfo,
-                                                               PubSub,
-                                                               Topic,
-                                                               Result,
-                                                               AuthzSource) end, Env).
+    apply_event(
+        'client.check_authz_complete',
+        fun() ->
+            eventmsg_check_authz_complete(
+                ClientInfo,
+                PubSub,
+                Topic,
+                Result,
+                AuthzSource
+            )
+        end,
+        Env
+    ).
 
 on_client_disconnected(ClientInfo, Reason, ConnInfo, Env) ->
-    apply_event('client.disconnected',
-        fun() -> eventmsg_disconnected(ClientInfo, ConnInfo, Reason) end, Env).
+    apply_event(
+        'client.disconnected',
+        fun() -> eventmsg_disconnected(ClientInfo, ConnInfo, Reason) end,
+        Env
+    ).
 
 on_session_subscribed(ClientInfo, Topic, SubOpts, Env) ->
-    apply_event('session.subscribed',
+    apply_event(
+        'session.subscribed',
         fun() ->
             eventmsg_sub_or_unsub('session.subscribed', ClientInfo, Topic, SubOpts)
-        end, Env).
+        end,
+        Env
+    ).
 
 on_session_unsubscribed(ClientInfo, Topic, SubOpts, Env) ->
-    apply_event('session.unsubscribed',
+    apply_event(
+        'session.unsubscribed',
         fun() ->
             eventmsg_sub_or_unsub('session.unsubscribed', ClientInfo, Topic, SubOpts)
-        end, Env).
+        end,
+        Env
+    ).
 
 on_message_dropped(Message, _, Reason, Env) ->
     case ignore_sys_message(Message) of
-        true -> ok;
+        true ->
+            ok;
         false ->
-            apply_event('message.dropped',
-                fun() -> eventmsg_dropped(Message, Reason) end, Env)
+            apply_event(
+                'message.dropped',
+                fun() -> eventmsg_dropped(Message, Reason) end,
+                Env
+            )
     end,
     {ok, Message}.
 
 on_message_delivered(ClientInfo, Message, Env) ->
     case ignore_sys_message(Message) of
-        true -> ok;
+        true ->
+            ok;
         false ->
-            apply_event('message.delivered',
-                fun() -> eventmsg_delivered(ClientInfo, Message) end, Env)
+            apply_event(
+                'message.delivered',
+                fun() -> eventmsg_delivered(ClientInfo, Message) end,
+                Env
+            )
     end,
     {ok, Message}.
 
 on_message_acked(ClientInfo, Message, Env) ->
     case ignore_sys_message(Message) of
-        true -> ok;
+        true ->
+            ok;
         false ->
-            apply_event('message.acked',
-                fun() -> eventmsg_acked(ClientInfo, Message) end, Env)
+            apply_event(
+                'message.acked',
+                fun() -> eventmsg_acked(ClientInfo, Message) end,
+                Env
+            )
     end,
     {ok, Message}.
 
 on_delivery_dropped(ClientInfo, Message, Reason, Env) ->
     case ignore_sys_message(Message) of
-        true -> ok;
+        true ->
+            ok;
         false ->
-            apply_event('delivery.dropped',
-                fun() -> eventmsg_delivery_dropped(ClientInfo, Message, Reason) end, Env)
+            apply_event(
+                'delivery.dropped',
+                fun() -> eventmsg_delivery_dropped(ClientInfo, Message, Reason) end,
+                Env
+            )
     end,
     {ok, Message}.
 
@@ -180,237 +229,335 @@ on_delivery_dropped(ClientInfo, Message, Reason, Env) ->
 %% Event Messages
 %%--------------------------------------------------------------------
 
-eventmsg_publish(Message = #message{id = Id, from = ClientId, qos = QoS, flags = Flags,
-    topic = Topic, headers = Headers, payload = Payload, timestamp = Timestamp}) ->
-    with_basic_columns('message.publish',
-        #{id => emqx_guid:to_hexstr(Id),
-          clientid => ClientId,
-          username => emqx_message:get_header(username, Message, undefined),
-          payload => Payload,
-          peerhost => ntoa(emqx_message:get_header(peerhost, Message, undefined)),
-          topic => Topic,
-          qos => QoS,
-          flags => Flags,
-          pub_props => printable_maps(emqx_message:get_header(properties, Message, #{})),
-          %% the column 'headers' will be removed in the next major release
-          headers => printable_maps(Headers),
-          publish_received_at => Timestamp
-        }).
+eventmsg_publish(
+    Message = #message{
+        id = Id,
+        from = ClientId,
+        qos = QoS,
+        flags = Flags,
+        topic = Topic,
+        headers = Headers,
+        payload = Payload,
+        timestamp = Timestamp
+    }
+) ->
+    with_basic_columns(
+        'message.publish',
+        #{
+            id => emqx_guid:to_hexstr(Id),
+            clientid => ClientId,
+            username => emqx_message:get_header(username, Message, undefined),
+            payload => Payload,
+            peerhost => ntoa(emqx_message:get_header(peerhost, Message, undefined)),
+            topic => Topic,
+            qos => QoS,
+            flags => Flags,
+            pub_props => printable_maps(emqx_message:get_header(properties, Message, #{})),
+            %% the column 'headers' will be removed in the next major release
+            headers => printable_maps(Headers),
+            publish_received_at => Timestamp
+        }
+    ).
 
-eventmsg_connected(_ClientInfo = #{
-                    clientid := ClientId,
-                    username := Username,
-                    is_bridge := IsBridge,
-                    mountpoint := Mountpoint
-                   },
-                   ConnInfo = #{
-                    peername := PeerName,
-                    sockname := SockName,
-                    clean_start := CleanStart,
-                    proto_name := ProtoName,
-                    proto_ver := ProtoVer,
-                    connected_at := ConnectedAt
-                   }) ->
+eventmsg_connected(
+    _ClientInfo = #{
+        clientid := ClientId,
+        username := Username,
+        is_bridge := IsBridge,
+        mountpoint := Mountpoint
+    },
+    ConnInfo = #{
+        peername := PeerName,
+        sockname := SockName,
+        clean_start := CleanStart,
+        proto_name := ProtoName,
+        proto_ver := ProtoVer,
+        connected_at := ConnectedAt
+    }
+) ->
     Keepalive = maps:get(keepalive, ConnInfo, 0),
     ConnProps = maps:get(conn_props, ConnInfo, #{}),
     RcvMax = maps:get(receive_maximum, ConnInfo, 0),
     ExpiryInterval = maps:get(expiry_interval, ConnInfo, 0),
-    with_basic_columns('client.connected',
-        #{clientid => ClientId,
-          username => Username,
-          mountpoint => Mountpoint,
-          peername => ntoa(PeerName),
-          sockname => ntoa(SockName),
-          proto_name => ProtoName,
-          proto_ver => ProtoVer,
-          keepalive => Keepalive,
-          clean_start => CleanStart,
-          receive_maximum => RcvMax,
-          expiry_interval => ExpiryInterval div 1000,
-          is_bridge => IsBridge,
-          conn_props => printable_maps(ConnProps),
-          connected_at => ConnectedAt
-        }).
+    with_basic_columns(
+        'client.connected',
+        #{
+            clientid => ClientId,
+            username => Username,
+            mountpoint => Mountpoint,
+            peername => ntoa(PeerName),
+            sockname => ntoa(SockName),
+            proto_name => ProtoName,
+            proto_ver => ProtoVer,
+            keepalive => Keepalive,
+            clean_start => CleanStart,
+            receive_maximum => RcvMax,
+            expiry_interval => ExpiryInterval div 1000,
+            is_bridge => IsBridge,
+            conn_props => printable_maps(ConnProps),
+            connected_at => ConnectedAt
+        }
+    ).
 
-eventmsg_disconnected(_ClientInfo = #{
-                       clientid := ClientId,
-                       username := Username
-                      },
-                      ConnInfo = #{
-                        peername := PeerName,
-                        sockname := SockName,
-                        disconnected_at := DisconnectedAt
-                      }, Reason) ->
-    with_basic_columns('client.disconnected',
-        #{reason => reason(Reason),
-          clientid => ClientId,
-          username => Username,
-          peername => ntoa(PeerName),
-          sockname => ntoa(SockName),
-          disconn_props => printable_maps(maps:get(disconn_props, ConnInfo, #{})),
-          disconnected_at => DisconnectedAt
-        }).
+eventmsg_disconnected(
+    _ClientInfo = #{
+        clientid := ClientId,
+        username := Username
+    },
+    ConnInfo = #{
+        peername := PeerName,
+        sockname := SockName,
+        disconnected_at := DisconnectedAt
+    },
+    Reason
+) ->
+    with_basic_columns(
+        'client.disconnected',
+        #{
+            reason => reason(Reason),
+            clientid => ClientId,
+            username => Username,
+            peername => ntoa(PeerName),
+            sockname => ntoa(SockName),
+            disconn_props => printable_maps(maps:get(disconn_props, ConnInfo, #{})),
+            disconnected_at => DisconnectedAt
+        }
+    ).
 
-eventmsg_connack(ConnInfo = #{
-                    clientid := ClientId,
-                    clean_start := CleanStart,
-                    username := Username,
-                    peername := PeerName,
-                    sockname := SockName,
-                    proto_name := ProtoName,
-                    proto_ver := ProtoVer,
-                    connected_at := ConnectedAt
-                   }, Reason) ->
+eventmsg_connack(
+    ConnInfo = #{
+        clientid := ClientId,
+        clean_start := CleanStart,
+        username := Username,
+        peername := PeerName,
+        sockname := SockName,
+        proto_name := ProtoName,
+        proto_ver := ProtoVer
+    },
+    Reason
+) ->
     Keepalive = maps:get(keepalive, ConnInfo, 0),
     ConnProps = maps:get(conn_props, ConnInfo, #{}),
     ExpiryInterval = maps:get(expiry_interval, ConnInfo, 0),
-    with_basic_columns('client.connack',
-        #{reason_code => reason(Reason),
-          clientid => ClientId,
-          clean_start => CleanStart,
-          username => Username,
-          peername => ntoa(PeerName),
-          sockname => ntoa(SockName),
-          proto_name => ProtoName,
-          proto_ver => ProtoVer,
-          keepalive => Keepalive,
-          expiry_interval => ExpiryInterval,
-          connected_at => ConnectedAt,
-          conn_props => printable_maps(ConnProps)
-        }).
+    with_basic_columns(
+        'client.connack',
+        #{
+            reason_code => reason(Reason),
+            clientid => ClientId,
+            clean_start => CleanStart,
+            username => Username,
+            peername => ntoa(PeerName),
+            sockname => ntoa(SockName),
+            proto_name => ProtoName,
+            proto_ver => ProtoVer,
+            keepalive => Keepalive,
+            expiry_interval => ExpiryInterval,
+            conn_props => printable_maps(ConnProps)
+        }
+    ).
 
-eventmsg_check_authz_complete(_ClientInfo = #{
-                                            clientid := ClientId,
-                                            username := Username,
-                                            peerhost := PeerHost
-                                           }, PubSub, Topic, Result, AuthzSource) ->
-    with_basic_columns('client.check_authz_complete',
-                       #{clientid => ClientId,
-                         username => Username,
-                         peerhost => ntoa(PeerHost),
-                         topic    => Topic,
-                         action   => PubSub,
-                         authz_source => AuthzSource,
-                         result   => Result
-                        }).
+eventmsg_check_authz_complete(
+    _ClientInfo = #{
+        clientid := ClientId,
+        username := Username,
+        peerhost := PeerHost
+    },
+    PubSub,
+    Topic,
+    Result,
+    AuthzSource
+) ->
+    with_basic_columns(
+        'client.check_authz_complete',
+        #{
+            clientid => ClientId,
+            username => Username,
+            peerhost => ntoa(PeerHost),
+            topic => Topic,
+            action => PubSub,
+            authz_source => AuthzSource,
+            result => Result
+        }
+    ).
 
-eventmsg_sub_or_unsub(Event, _ClientInfo = #{
-                    clientid := ClientId,
-                    username := Username,
-                    peerhost := PeerHost
-                   }, Topic, SubOpts = #{qos := QoS}) ->
+eventmsg_sub_or_unsub(
+    Event,
+    _ClientInfo = #{
+        clientid := ClientId,
+        username := Username,
+        peerhost := PeerHost
+    },
+    Topic,
+    SubOpts = #{qos := QoS}
+) ->
     PropKey = sub_unsub_prop_key(Event),
-    with_basic_columns(Event,
-        #{clientid => ClientId,
-          username => Username,
-          peerhost => ntoa(PeerHost),
-          PropKey => printable_maps(maps:get(PropKey, SubOpts, #{})),
-          topic => Topic,
-          qos => QoS
-        }).
+    with_basic_columns(
+        Event,
+        #{
+            clientid => ClientId,
+            username => Username,
+            peerhost => ntoa(PeerHost),
+            PropKey => printable_maps(maps:get(PropKey, SubOpts, #{})),
+            topic => Topic,
+            qos => QoS
+        }
+    ).
 
-eventmsg_dropped(Message = #message{id = Id, from = ClientId, qos = QoS, flags = Flags,
-    topic = Topic, headers = Headers, payload = Payload, timestamp = Timestamp}, Reason) ->
-    with_basic_columns('message.dropped',
-        #{id => emqx_guid:to_hexstr(Id),
-          reason => Reason,
-          clientid => ClientId,
-          username => emqx_message:get_header(username, Message, undefined),
-          payload => Payload,
-          peerhost => ntoa(emqx_message:get_header(peerhost, Message, undefined)),
-          topic => Topic,
-          qos => QoS,
-          flags => Flags,
-          %% the column 'headers' will be removed in the next major release
-          headers => printable_maps(Headers),
-          pub_props => printable_maps(emqx_message:get_header(properties, Message, #{})),
-          publish_received_at => Timestamp
-        }).
+eventmsg_dropped(
+    Message = #message{
+        id = Id,
+        from = ClientId,
+        qos = QoS,
+        flags = Flags,
+        topic = Topic,
+        headers = Headers,
+        payload = Payload,
+        timestamp = Timestamp
+    },
+    Reason
+) ->
+    with_basic_columns(
+        'message.dropped',
+        #{
+            id => emqx_guid:to_hexstr(Id),
+            reason => Reason,
+            clientid => ClientId,
+            username => emqx_message:get_header(username, Message, undefined),
+            payload => Payload,
+            peerhost => ntoa(emqx_message:get_header(peerhost, Message, undefined)),
+            topic => Topic,
+            qos => QoS,
+            flags => Flags,
+            %% the column 'headers' will be removed in the next major release
+            headers => printable_maps(Headers),
+            pub_props => printable_maps(emqx_message:get_header(properties, Message, #{})),
+            publish_received_at => Timestamp
+        }
+    ).
 
-eventmsg_delivered(_ClientInfo = #{
-                    peerhost := PeerHost,
-                    clientid := ReceiverCId,
-                    username := ReceiverUsername
-                  }, Message = #message{id = Id, from = ClientId, qos = QoS, flags = Flags,
-                       topic = Topic, headers = Headers, payload = Payload,
-                       timestamp = Timestamp}) ->
-    with_basic_columns('message.delivered',
-        #{id => emqx_guid:to_hexstr(Id),
-          from_clientid => ClientId,
-          from_username => emqx_message:get_header(username, Message, undefined),
-          clientid => ReceiverCId,
-          username => ReceiverUsername,
-          payload => Payload,
-          peerhost => ntoa(PeerHost),
-          topic => Topic,
-          qos => QoS,
-          flags => Flags,
-          %% the column 'headers' will be removed in the next major release
-          headers => printable_maps(Headers),
-          pub_props => printable_maps(emqx_message:get_header(properties, Message, #{})),
-          publish_received_at => Timestamp
-        }).
+eventmsg_delivered(
+    _ClientInfo = #{
+        peerhost := PeerHost,
+        clientid := ReceiverCId,
+        username := ReceiverUsername
+    },
+    Message = #message{
+        id = Id,
+        from = ClientId,
+        qos = QoS,
+        flags = Flags,
+        topic = Topic,
+        headers = Headers,
+        payload = Payload,
+        timestamp = Timestamp
+    }
+) ->
+    with_basic_columns(
+        'message.delivered',
+        #{
+            id => emqx_guid:to_hexstr(Id),
+            from_clientid => ClientId,
+            from_username => emqx_message:get_header(username, Message, undefined),
+            clientid => ReceiverCId,
+            username => ReceiverUsername,
+            payload => Payload,
+            peerhost => ntoa(PeerHost),
+            topic => Topic,
+            qos => QoS,
+            flags => Flags,
+            %% the column 'headers' will be removed in the next major release
+            headers => printable_maps(Headers),
+            pub_props => printable_maps(emqx_message:get_header(properties, Message, #{})),
+            publish_received_at => Timestamp
+        }
+    ).
 
-eventmsg_acked(_ClientInfo = #{
-                    peerhost := PeerHost,
-                    clientid := ReceiverCId,
-                    username := ReceiverUsername
-                  },
-               Message = #message{id = Id, from = ClientId, qos = QoS, flags = Flags,
-                   topic = Topic, headers = Headers, payload = Payload,
-                   timestamp = Timestamp}) ->
-    with_basic_columns('message.acked',
-        #{id => emqx_guid:to_hexstr(Id),
-          from_clientid => ClientId,
-          from_username => emqx_message:get_header(username, Message, undefined),
-          clientid => ReceiverCId,
-          username => ReceiverUsername,
-          payload => Payload,
-          peerhost => ntoa(PeerHost),
-          topic => Topic,
-          qos => QoS,
-          flags => Flags,
-          %% the column 'headers' will be removed in the next major release
-          headers => printable_maps(Headers),
-          pub_props => printable_maps(emqx_message:get_header(properties, Message, #{})),
-          puback_props => printable_maps(emqx_message:get_header(puback_props, Message, #{})),
-          publish_received_at => Timestamp
-        }).
+eventmsg_acked(
+    _ClientInfo = #{
+        peerhost := PeerHost,
+        clientid := ReceiverCId,
+        username := ReceiverUsername
+    },
+    Message = #message{
+        id = Id,
+        from = ClientId,
+        qos = QoS,
+        flags = Flags,
+        topic = Topic,
+        headers = Headers,
+        payload = Payload,
+        timestamp = Timestamp
+    }
+) ->
+    with_basic_columns(
+        'message.acked',
+        #{
+            id => emqx_guid:to_hexstr(Id),
+            from_clientid => ClientId,
+            from_username => emqx_message:get_header(username, Message, undefined),
+            clientid => ReceiverCId,
+            username => ReceiverUsername,
+            payload => Payload,
+            peerhost => ntoa(PeerHost),
+            topic => Topic,
+            qos => QoS,
+            flags => Flags,
+            %% the column 'headers' will be removed in the next major release
+            headers => printable_maps(Headers),
+            pub_props => printable_maps(emqx_message:get_header(properties, Message, #{})),
+            puback_props => printable_maps(emqx_message:get_header(puback_props, Message, #{})),
+            publish_received_at => Timestamp
+        }
+    ).
 
-eventmsg_delivery_dropped(_ClientInfo = #{
-            peerhost := PeerHost,
-            clientid := ReceiverCId,
-            username := ReceiverUsername
-        },
-        Message = #message{id = Id, from = ClientId, qos = QoS, flags = Flags, topic = Topic,
-            headers = Headers, payload = Payload, timestamp = Timestamp},
-        Reason) ->
-    with_basic_columns('delivery.dropped',
-        #{id => emqx_guid:to_hexstr(Id),
-        reason => Reason,
-        from_clientid => ClientId,
-        from_username => emqx_message:get_header(username, Message, undefined),
-        clientid => ReceiverCId,
-        username => ReceiverUsername,
-        payload => Payload,
-        peerhost => ntoa(PeerHost),
-        topic => Topic,
-        qos => QoS,
-        flags => Flags,
-        %% the column 'headers' will be removed in the next major release
-        headers => printable_maps(Headers),
-        pub_props => printable_maps(emqx_message:get_header(properties, Message, #{})),
-        publish_received_at => Timestamp
-        }).
+eventmsg_delivery_dropped(
+    _ClientInfo = #{
+        peerhost := PeerHost,
+        clientid := ReceiverCId,
+        username := ReceiverUsername
+    },
+    Message = #message{
+        id = Id,
+        from = ClientId,
+        qos = QoS,
+        flags = Flags,
+        topic = Topic,
+        headers = Headers,
+        payload = Payload,
+        timestamp = Timestamp
+    },
+    Reason
+) ->
+    with_basic_columns(
+        'delivery.dropped',
+        #{
+            id => emqx_guid:to_hexstr(Id),
+            reason => Reason,
+            from_clientid => ClientId,
+            from_username => emqx_message:get_header(username, Message, undefined),
+            clientid => ReceiverCId,
+            username => ReceiverUsername,
+            payload => Payload,
+            peerhost => ntoa(PeerHost),
+            topic => Topic,
+            qos => QoS,
+            flags => Flags,
+            %% the column 'headers' will be removed in the next major release
+            headers => printable_maps(Headers),
+            pub_props => printable_maps(emqx_message:get_header(properties, Message, #{})),
+            publish_received_at => Timestamp
+        }
+    ).
 
 sub_unsub_prop_key('session.subscribed') -> sub_props;
 sub_unsub_prop_key('session.unsubscribed') -> unsub_props.
 
 with_basic_columns(EventName, Data) when is_map(Data) ->
-    Data#{event => EventName,
-          timestamp => erlang:system_time(millisecond),
-          node => node()
-        }.
+    Data#{
+        event => EventName,
+        timestamp => erlang:system_time(millisecond),
+        node => node()
+    }.
 
 %%--------------------------------------------------------------------
 %% rules applying
@@ -418,7 +565,8 @@ with_basic_columns(EventName, Data) when is_map(Data) ->
 apply_event(EventName, GenEventMsg, _Env) ->
     EventTopic = event_topic(EventName),
     case emqx_rule_engine:get_rules_for_topic(EventTopic) of
-        [] -> ok;
+        [] ->
+            ok;
         Rules ->
             %% delay the generating of eventmsg after we have found some rules to apply
             emqx_rule_runtime:apply_rules(Rules, GenEventMsg())
@@ -431,18 +579,19 @@ columns(Event) ->
     [Key || {Key, _ExampleVal} <- columns_with_exam(Event)].
 
 event_info() ->
-    [ event_info_message_publish()
-    , event_info_message_deliver()
-    , event_info_message_acked()
-    , event_info_message_dropped()
-    , event_info_client_connected()
-    , event_info_client_disconnected()
-    , event_info_client_connack()
-    , event_info_client_check_authz_complete()
-    , event_info_session_subscribed()
-    , event_info_session_unsubscribed()
-    , event_info_delivery_dropped()
-    , event_info_bridge_mqtt()
+    [
+        event_info_message_publish(),
+        event_info_message_deliver(),
+        event_info_message_acked(),
+        event_info_message_dropped(),
+        event_info_client_connected(),
+        event_info_client_disconnected(),
+        event_info_client_connack(),
+        event_info_client_check_authz_complete(),
+        event_info_session_subscribed(),
+        event_info_session_unsubscribed(),
+        event_info_delivery_dropped(),
+        event_info_bridge_mqtt()
     ].
 
 event_info_message_publish() ->
@@ -471,7 +620,7 @@ event_info_message_dropped() ->
         'message.dropped',
         {<<"message routing-drop">>, <<"消息转发丢弃"/utf8>>},
         {<<"messages are discarded during routing, usually because there are no subscribers">>,
-         <<"消息在转发的过程中被丢弃，一般是由于没有订阅者"/utf8>>},
+            <<"消息在转发的过程中被丢弃，一般是由于没有订阅者"/utf8>>},
         <<"SELECT * FROM \"$events/message_dropped\" WHERE topic =~ 't/#'">>
     ).
 event_info_delivery_dropped() ->
@@ -479,7 +628,7 @@ event_info_delivery_dropped() ->
         'delivery.dropped',
         {<<"message delivery-drop">>, <<"消息投递丢弃"/utf8>>},
         {<<"messages are discarded during delivery, i.e. because the message queue is full">>,
-         <<"消息在投递的过程中被丢弃，比如由于消息队列已满"/utf8>>},
+            <<"消息在投递的过程中被丢弃，比如由于消息队列已满"/utf8>>},
         <<"SELECT * FROM \"$events/delivery_dropped\" WHERE topic =~ 't/#'">>
     ).
 event_info_client_connected() ->
@@ -498,18 +647,18 @@ event_info_client_disconnected() ->
     ).
 event_info_client_connack() ->
     event_info_common(
-      'client.connack',
-      {<<"client connack">>, <<"连接确认"/utf8>>},
-      {<<"client connack">>, <<"连接确认"/utf8>>},
-      <<"SELECT * FROM \"$events/client_connack\"">>
-     ).
+        'client.connack',
+        {<<"client connack">>, <<"连接确认"/utf8>>},
+        {<<"client connack">>, <<"连接确认"/utf8>>},
+        <<"SELECT * FROM \"$events/client_connack\"">>
+    ).
 event_info_client_check_authz_complete() ->
     event_info_common(
-      'client.check_authz_complete',
-      {<<"client check authz complete">>, <<"鉴权结果"/utf8>>},
-      {<<"client check authz complete">>, <<"鉴权结果"/utf8>>},
-      <<"SELECT * FROM \"$events/client_check_authz_complete\"">>
-     ).
+        'client.check_authz_complete',
+        {<<"client check authz complete">>, <<"鉴权结果"/utf8>>},
+        {<<"client check authz complete">>, <<"鉴权结果"/utf8>>},
+        <<"SELECT * FROM \"$events/client_check_authz_complete\"">>
+    ).
 event_info_session_subscribed() ->
     event_info_common(
         'session.subscribed',
@@ -524,7 +673,7 @@ event_info_session_unsubscribed() ->
         {<<"session unsubscribed">>, <<"会话取消订阅完成"/utf8>>},
         <<"SELECT * FROM \"$events/session_unsubscribed\" WHERE topic =~ 't/#'">>
     ).
-event_info_bridge_mqtt()->
+event_info_bridge_mqtt() ->
     event_info_common(
         <<"$bridges/mqtt:*">>,
         {<<"MQTT bridge message">>, <<"MQTT 桥接消息"/utf8>>},
@@ -533,239 +682,255 @@ event_info_bridge_mqtt()->
     ).
 
 event_info_common(Event, {TitleEN, TitleZH}, {DescrEN, DescrZH}, SqlExam) ->
-    #{event => event_topic(Event),
-      title => #{en => TitleEN, zh => TitleZH},
-      description => #{en => DescrEN, zh => DescrZH},
-      test_columns => test_columns(Event),
-      columns => columns(Event),
-      sql_example => SqlExam
+    #{
+        event => event_topic(Event),
+        title => #{en => TitleEN, zh => TitleZH},
+        description => #{en => DescrEN, zh => DescrZH},
+        test_columns => test_columns(Event),
+        columns => columns(Event),
+        sql_example => SqlExam
     }.
 
 test_columns('message.dropped') ->
-    [ {<<"reason">>, [<<"no_subscribers">>, <<"the reason of dropping">>]}
-    ] ++ test_columns('message.publish');
+    [{<<"reason">>, [<<"no_subscribers">>, <<"the reason of dropping">>]}] ++
+        test_columns('message.publish');
 test_columns('message.publish') ->
-    [ {<<"clientid">>, [<<"c_emqx">>, <<"the clientid of the sender">>]}
-    , {<<"username">>, [<<"u_emqx">>, <<"the username of the sender">>]}
-    , {<<"topic">>, [<<"t/a">>, <<"the topic of the MQTT message">>]}
-    , {<<"qos">>, [1, <<"the QoS of the MQTT message">>]}
-    , {<<"payload">>, [<<"{\"msg\": \"hello\"}">>, <<"the payload of the MQTT message">>]}
+    [
+        {<<"clientid">>, [<<"c_emqx">>, <<"the clientid of the sender">>]},
+        {<<"username">>, [<<"u_emqx">>, <<"the username of the sender">>]},
+        {<<"topic">>, [<<"t/a">>, <<"the topic of the MQTT message">>]},
+        {<<"qos">>, [1, <<"the QoS of the MQTT message">>]},
+        {<<"payload">>, [<<"{\"msg\": \"hello\"}">>, <<"the payload of the MQTT message">>]}
     ];
 test_columns('delivery.dropped') ->
-    [ {<<"reason">>, [<<"queue_full">>, <<"the reason of dropping">>]}
-    ] ++ test_columns('message.delivered');
+    [{<<"reason">>, [<<"queue_full">>, <<"the reason of dropping">>]}] ++
+        test_columns('message.delivered');
 test_columns('message.acked') ->
     test_columns('message.delivered');
 test_columns('message.delivered') ->
-    [ {<<"from_clientid">>, [<<"c_emqx_1">>, <<"the clientid of the sender">>]}
-    , {<<"from_username">>, [<<"u_emqx_1">>, <<"the username of the sender">>]}
-    , {<<"clientid">>, [<<"c_emqx_2">>, <<"the clientid of the receiver">>]}
-    , {<<"username">>, [<<"u_emqx_2">>, <<"the username of the receiver">>]}
-    , {<<"topic">>, [<<"t/a">>, <<"the topic of the MQTT message">>]}
-    , {<<"qos">>, [1, <<"the QoS of the MQTT message">>]}
-    , {<<"payload">>, [<<"{\"msg\": \"hello\"}">>, <<"the payload of the MQTT message">>]}
+    [
+        {<<"from_clientid">>, [<<"c_emqx_1">>, <<"the clientid of the sender">>]},
+        {<<"from_username">>, [<<"u_emqx_1">>, <<"the username of the sender">>]},
+        {<<"clientid">>, [<<"c_emqx_2">>, <<"the clientid of the receiver">>]},
+        {<<"username">>, [<<"u_emqx_2">>, <<"the username of the receiver">>]},
+        {<<"topic">>, [<<"t/a">>, <<"the topic of the MQTT message">>]},
+        {<<"qos">>, [1, <<"the QoS of the MQTT message">>]},
+        {<<"payload">>, [<<"{\"msg\": \"hello\"}">>, <<"the payload of the MQTT message">>]}
     ];
 test_columns('client.connected') ->
-    [ {<<"clientid">>, [<<"c_emqx">>, <<"the clientid if the client">>]}
-    , {<<"username">>, [<<"u_emqx">>, <<"the username if the client">>]}
-    , {<<"peername">>, [<<"127.0.0.1:52918">>, <<"the IP address and port of the client">>]}
+    [
+        {<<"clientid">>, [<<"c_emqx">>, <<"the clientid if the client">>]},
+        {<<"username">>, [<<"u_emqx">>, <<"the username if the client">>]},
+        {<<"peername">>, [<<"127.0.0.1:52918">>, <<"the IP address and port of the client">>]}
     ];
 test_columns('client.disconnected') ->
-    [ {<<"clientid">>, [<<"c_emqx">>, <<"the clientid if the client">>]}
-    , {<<"username">>, [<<"u_emqx">>, <<"the username if the client">>]}
-    , {<<"reason">>, [<<"normal">>, <<"the reason for shutdown">>]}
+    [
+        {<<"clientid">>, [<<"c_emqx">>, <<"the clientid if the client">>]},
+        {<<"username">>, [<<"u_emqx">>, <<"the username if the client">>]},
+        {<<"reason">>, [<<"normal">>, <<"the reason for shutdown">>]}
     ];
 test_columns('client.connack') ->
-    [ {<<"clientid">>, [<<"c_emqx">>, <<"the clientid if the client">>]}
-    , {<<"username">>, [<<"u_emqx">>, <<"the username if the client">>]}
-    , {<<"reason_code">>, [<<"sucess">>, <<"the reason code">>]}
+    [
+        {<<"clientid">>, [<<"c_emqx">>, <<"the clientid if the client">>]},
+        {<<"username">>, [<<"u_emqx">>, <<"the username if the client">>]},
+        {<<"reason_code">>, [<<"sucess">>, <<"the reason code">>]}
     ];
 test_columns('client.check_authz_complete') ->
-    [ {<<"clientid">>, [<<"c_emqx">>, <<"the clientid if the client">>]}
-    , {<<"username">>, [<<"u_emqx">>, <<"the username if the client">>]}
-    , {<<"topic">>,    [<<"t/1">>, <<"the topic of the MQTT message">>]}
-    , {<<"action">>,   [<<"publish">>, <<"the action of publish or subscribe">>]}
-    , {<<"result">>,   [<<"allow">>,<<"the authz check complete result">>]}
+    [
+        {<<"clientid">>, [<<"c_emqx">>, <<"the clientid if the client">>]},
+        {<<"username">>, [<<"u_emqx">>, <<"the username if the client">>]},
+        {<<"topic">>, [<<"t/1">>, <<"the topic of the MQTT message">>]},
+        {<<"action">>, [<<"publish">>, <<"the action of publish or subscribe">>]},
+        {<<"result">>, [<<"allow">>, <<"the authz check complete result">>]}
     ];
 test_columns('session.unsubscribed') ->
     test_columns('session.subscribed');
 test_columns('session.subscribed') ->
-    [ {<<"clientid">>, [<<"c_emqx">>, <<"the clientid if the client">>]}
-    , {<<"username">>, [<<"u_emqx">>, <<"the username if the client">>]}
-    , {<<"topic">>, [<<"t/a">>, <<"the topic of the MQTT message">>]}
-    , {<<"qos">>, [1, <<"the QoS of the MQTT message">>]}
+    [
+        {<<"clientid">>, [<<"c_emqx">>, <<"the clientid if the client">>]},
+        {<<"username">>, [<<"u_emqx">>, <<"the username if the client">>]},
+        {<<"topic">>, [<<"t/a">>, <<"the topic of the MQTT message">>]},
+        {<<"qos">>, [1, <<"the QoS of the MQTT message">>]}
     ];
 test_columns(<<"$bridges/mqtt", _/binary>>) ->
-    [ {<<"topic">>, [<<"t/a">>, <<"the topic of the MQTT message">>]}
-    , {<<"qos">>, [1, <<"the QoS of the MQTT message">>]}
-    , {<<"payload">>, [<<"{\"msg\": \"hello\"}">>, <<"the payload of the MQTT message">>]}
+    [
+        {<<"topic">>, [<<"t/a">>, <<"the topic of the MQTT message">>]},
+        {<<"qos">>, [1, <<"the QoS of the MQTT message">>]},
+        {<<"payload">>, [<<"{\"msg\": \"hello\"}">>, <<"the payload of the MQTT message">>]}
     ].
 
 columns_with_exam('message.publish') ->
-    [ {<<"event">>, 'message.publish'}
-    , {<<"id">>, emqx_guid:to_hexstr(emqx_guid:gen())}
-    , {<<"clientid">>, <<"c_emqx">>}
-    , {<<"username">>, <<"u_emqx">>}
-    , {<<"payload">>, <<"{\"msg\": \"hello\"}">>}
-    , {<<"peerhost">>, <<"192.168.0.10">>}
-    , {<<"topic">>, <<"t/a">>}
-    , {<<"qos">>, 1}
-    , {<<"flags">>, #{}}
-    , {<<"headers">>, undefined}
-    , {<<"publish_received_at">>, erlang:system_time(millisecond)}
-    , columns_example_props(pub_props)
-    , {<<"timestamp">>, erlang:system_time(millisecond)}
-    , {<<"node">>, node()}
+    [
+        {<<"event">>, 'message.publish'},
+        {<<"id">>, emqx_guid:to_hexstr(emqx_guid:gen())},
+        {<<"clientid">>, <<"c_emqx">>},
+        {<<"username">>, <<"u_emqx">>},
+        {<<"payload">>, <<"{\"msg\": \"hello\"}">>},
+        {<<"peerhost">>, <<"192.168.0.10">>},
+        {<<"topic">>, <<"t/a">>},
+        {<<"qos">>, 1},
+        {<<"flags">>, #{}},
+        {<<"headers">>, undefined},
+        {<<"publish_received_at">>, erlang:system_time(millisecond)},
+        columns_example_props(pub_props),
+        {<<"timestamp">>, erlang:system_time(millisecond)},
+        {<<"node">>, node()}
     ];
 columns_with_exam('message.delivered') ->
     columns_message_ack_delivered('message.delivered');
 columns_with_exam('message.acked') ->
-    [ columns_example_props(puback_props)
-    ] ++
-    columns_message_ack_delivered('message.acked');
+    [columns_example_props(puback_props)] ++
+        columns_message_ack_delivered('message.acked');
 columns_with_exam('message.dropped') ->
-    [ {<<"event">>, 'message.dropped'}
-    , {<<"id">>, emqx_guid:to_hexstr(emqx_guid:gen())}
-    , {<<"reason">>, no_subscribers}
-    , {<<"clientid">>, <<"c_emqx">>}
-    , {<<"username">>, <<"u_emqx">>}
-    , {<<"payload">>, <<"{\"msg\": \"hello\"}">>}
-    , {<<"peerhost">>, <<"192.168.0.10">>}
-    , {<<"topic">>, <<"t/a">>}
-    , {<<"qos">>, 1}
-    , {<<"flags">>, #{}}
-    , {<<"publish_received_at">>, erlang:system_time(millisecond)}
-    , columns_example_props(pub_props)
-    , {<<"timestamp">>, erlang:system_time(millisecond)}
-    , {<<"node">>, node()}
+    [
+        {<<"event">>, 'message.dropped'},
+        {<<"id">>, emqx_guid:to_hexstr(emqx_guid:gen())},
+        {<<"reason">>, no_subscribers},
+        {<<"clientid">>, <<"c_emqx">>},
+        {<<"username">>, <<"u_emqx">>},
+        {<<"payload">>, <<"{\"msg\": \"hello\"}">>},
+        {<<"peerhost">>, <<"192.168.0.10">>},
+        {<<"topic">>, <<"t/a">>},
+        {<<"qos">>, 1},
+        {<<"flags">>, #{}},
+        {<<"publish_received_at">>, erlang:system_time(millisecond)},
+        columns_example_props(pub_props),
+        {<<"timestamp">>, erlang:system_time(millisecond)},
+        {<<"node">>, node()}
     ];
 columns_with_exam('delivery.dropped') ->
-    [ {<<"event">>, 'delivery.dropped'}
-    , {<<"id">>, emqx_guid:to_hexstr(emqx_guid:gen())}
-    , {<<"reason">>, queue_full}
-    , {<<"from_clientid">>, <<"c_emqx_1">>}
-    , {<<"from_username">>, <<"u_emqx_1">>}
-    , {<<"clientid">>, <<"c_emqx_2">>}
-    , {<<"username">>, <<"u_emqx_2">>}
-    , {<<"payload">>, <<"{\"msg\": \"hello\"}">>}
-    , {<<"peerhost">>, <<"192.168.0.10">>}
-    , {<<"topic">>, <<"t/a">>}
-    , {<<"qos">>, 1}
-    , {<<"flags">>, #{}}
-    , columns_example_props(pub_props)
-    , {<<"publish_received_at">>, erlang:system_time(millisecond)}
-    , {<<"timestamp">>, erlang:system_time(millisecond)}
-    , {<<"node">>, node()}
+    [
+        {<<"event">>, 'delivery.dropped'},
+        {<<"id">>, emqx_guid:to_hexstr(emqx_guid:gen())},
+        {<<"reason">>, queue_full},
+        {<<"from_clientid">>, <<"c_emqx_1">>},
+        {<<"from_username">>, <<"u_emqx_1">>},
+        {<<"clientid">>, <<"c_emqx_2">>},
+        {<<"username">>, <<"u_emqx_2">>},
+        {<<"payload">>, <<"{\"msg\": \"hello\"}">>},
+        {<<"peerhost">>, <<"192.168.0.10">>},
+        {<<"topic">>, <<"t/a">>},
+        {<<"qos">>, 1},
+        {<<"flags">>, #{}},
+        columns_example_props(pub_props),
+        {<<"publish_received_at">>, erlang:system_time(millisecond)},
+        {<<"timestamp">>, erlang:system_time(millisecond)},
+        {<<"node">>, node()}
     ];
 columns_with_exam('client.connected') ->
-    [ {<<"event">>, 'client.connected'}
-    , {<<"clientid">>, <<"c_emqx">>}
-    , {<<"username">>, <<"u_emqx">>}
-    , {<<"mountpoint">>, undefined}
-    , {<<"peername">>, <<"192.168.0.10:56431">>}
-    , {<<"sockname">>, <<"0.0.0.0:1883">>}
-    , {<<"proto_name">>, <<"MQTT">>}
-    , {<<"proto_ver">>, 5}
-    , {<<"keepalive">>, 60}
-    , {<<"clean_start">>, true}
-    , {<<"expiry_interval">>, 3600}
-    , {<<"is_bridge">>, false}
-    , columns_example_props(conn_props)
-    , {<<"connected_at">>, erlang:system_time(millisecond)}
-    , {<<"timestamp">>, erlang:system_time(millisecond)}
-    , {<<"node">>, node()}
+    [
+        {<<"event">>, 'client.connected'},
+        {<<"clientid">>, <<"c_emqx">>},
+        {<<"username">>, <<"u_emqx">>},
+        {<<"mountpoint">>, undefined},
+        {<<"peername">>, <<"192.168.0.10:56431">>},
+        {<<"sockname">>, <<"0.0.0.0:1883">>},
+        {<<"proto_name">>, <<"MQTT">>},
+        {<<"proto_ver">>, 5},
+        {<<"keepalive">>, 60},
+        {<<"clean_start">>, true},
+        {<<"expiry_interval">>, 3600},
+        {<<"is_bridge">>, false},
+        columns_example_props(conn_props),
+        {<<"connected_at">>, erlang:system_time(millisecond)},
+        {<<"timestamp">>, erlang:system_time(millisecond)},
+        {<<"node">>, node()}
     ];
 columns_with_exam('client.disconnected') ->
-    [ {<<"event">>, 'client.disconnected'}
-    , {<<"reason">>, normal}
-    , {<<"clientid">>, <<"c_emqx">>}
-    , {<<"username">>, <<"u_emqx">>}
-    , {<<"peername">>, <<"192.168.0.10:56431">>}
-    , {<<"sockname">>, <<"0.0.0.0:1883">>}
-    , columns_example_props(disconn_props)
-    , {<<"disconnected_at">>, erlang:system_time(millisecond)}
-    , {<<"timestamp">>, erlang:system_time(millisecond)}
-    , {<<"node">>, node()}
+    [
+        {<<"event">>, 'client.disconnected'},
+        {<<"reason">>, normal},
+        {<<"clientid">>, <<"c_emqx">>},
+        {<<"username">>, <<"u_emqx">>},
+        {<<"peername">>, <<"192.168.0.10:56431">>},
+        {<<"sockname">>, <<"0.0.0.0:1883">>},
+        columns_example_props(disconn_props),
+        {<<"disconnected_at">>, erlang:system_time(millisecond)},
+        {<<"timestamp">>, erlang:system_time(millisecond)},
+        {<<"node">>, node()}
     ];
 columns_with_exam('client.connack') ->
-    [ {<<"event">>, 'client.connected'}
-    , {<<"reason_code">>, success}
-    , {<<"clientid">>, <<"c_emqx">>}
-    , {<<"username">>, <<"u_emqx">>}
-    , {<<"peername">>, <<"192.168.0.10:56431">>}
-    , {<<"sockname">>, <<"0.0.0.0:1883">>}
-    , {<<"proto_name">>, <<"MQTT">>}
-    , {<<"proto_ver">>, 5}
-    , {<<"keepalive">>, 60}
-    , {<<"clean_start">>, true}
-    , {<<"expiry_interval">>, 3600}
-    , {<<"connected_at">>, erlang:system_time(millisecond)}
-    , columns_example_props(conn_props)
-    , {<<"timestamp">>, erlang:system_time(millisecond)}
-    , {<<"node">>, node()}
+    [
+        {<<"event">>, 'client.connected'},
+        {<<"reason_code">>, success},
+        {<<"clientid">>, <<"c_emqx">>},
+        {<<"username">>, <<"u_emqx">>},
+        {<<"peername">>, <<"192.168.0.10:56431">>},
+        {<<"sockname">>, <<"0.0.0.0:1883">>},
+        {<<"proto_name">>, <<"MQTT">>},
+        {<<"proto_ver">>, 5},
+        {<<"keepalive">>, 60},
+        {<<"clean_start">>, true},
+        {<<"expiry_interval">>, 3600},
+        {<<"connected_at">>, erlang:system_time(millisecond)},
+        columns_example_props(conn_props),
+        {<<"timestamp">>, erlang:system_time(millisecond)},
+        {<<"node">>, node()}
     ];
 columns_with_exam('client.check_authz_complete') ->
-    [ {<<"event">>, 'client.check_authz_complete'}
-    , {<<"clientid">>, <<"c_emqx">>}
-    , {<<"username">>, <<"u_emqx">>}
-    , {<<"peerhost">>, <<"192.168.0.10">>}
-    , {<<"topic">>, <<"t/a">>}
-    , {<<"action">>, <<"publish">>}
-    , {<<"authz_source">>, <<"cache">>}
-    , {<<"result">>, <<"allow">>}
-    , {<<"timestamp">>, erlang:system_time(millisecond)}
-    , {<<"node">>, node()}
+    [
+        {<<"event">>, 'client.check_authz_complete'},
+        {<<"clientid">>, <<"c_emqx">>},
+        {<<"username">>, <<"u_emqx">>},
+        {<<"peerhost">>, <<"192.168.0.10">>},
+        {<<"topic">>, <<"t/a">>},
+        {<<"action">>, <<"publish">>},
+        {<<"authz_source">>, <<"cache">>},
+        {<<"result">>, <<"allow">>},
+        {<<"timestamp">>, erlang:system_time(millisecond)},
+        {<<"node">>, node()}
     ];
 columns_with_exam('session.subscribed') ->
-    [ columns_example_props(sub_props)
-    ] ++ columns_message_sub_unsub('session.subscribed');
+    [columns_example_props(sub_props)] ++ columns_message_sub_unsub('session.subscribed');
 columns_with_exam('session.unsubscribed') ->
-    [ columns_example_props(unsub_props)
-    ] ++ columns_message_sub_unsub('session.unsubscribed');
+    [columns_example_props(unsub_props)] ++ columns_message_sub_unsub('session.unsubscribed');
 columns_with_exam(<<"$bridges/mqtt", _/binary>> = EventName) ->
-    [ {<<"event">>, EventName}
-    , {<<"id">>, emqx_guid:to_hexstr(emqx_guid:gen())}
-    , {<<"payload">>, <<"{\"msg\": \"hello\"}">>}
-    , {<<"server">>, <<"192.168.0.10:1883">>}
-    , {<<"topic">>, <<"t/a">>}
-    , {<<"qos">>, 1}
-    , {<<"dup">>, false}
-    , {<<"retain">>, false}
-    , columns_example_props(pub_props)
-    %% the time that we receiced the message from remote broker
-    , {<<"message_received_at">>, erlang:system_time(millisecond)}
-    %% the time that the rule is triggered
-    , {<<"timestamp">>, erlang:system_time(millisecond)}
-    , {<<"node">>, node()}
+    [
+        {<<"event">>, EventName},
+        {<<"id">>, emqx_guid:to_hexstr(emqx_guid:gen())},
+        {<<"payload">>, <<"{\"msg\": \"hello\"}">>},
+        {<<"server">>, <<"192.168.0.10:1883">>},
+        {<<"topic">>, <<"t/a">>},
+        {<<"qos">>, 1},
+        {<<"dup">>, false},
+        {<<"retain">>, false},
+        columns_example_props(pub_props),
+        %% the time that we receiced the message from remote broker
+        {<<"message_received_at">>, erlang:system_time(millisecond)},
+        %% the time that the rule is triggered
+        {<<"timestamp">>, erlang:system_time(millisecond)},
+        {<<"node">>, node()}
     ].
 
 columns_message_sub_unsub(EventName) ->
-    [ {<<"event">>, EventName}
-    , {<<"clientid">>, <<"c_emqx">>}
-    , {<<"username">>, <<"u_emqx">>}
-    , {<<"peerhost">>, <<"192.168.0.10">>}
-    , {<<"topic">>, <<"t/a">>}
-    , {<<"qos">>, 1}
-    , {<<"timestamp">>, erlang:system_time(millisecond)}
-    , {<<"node">>, node()}
+    [
+        {<<"event">>, EventName},
+        {<<"clientid">>, <<"c_emqx">>},
+        {<<"username">>, <<"u_emqx">>},
+        {<<"peerhost">>, <<"192.168.0.10">>},
+        {<<"topic">>, <<"t/a">>},
+        {<<"qos">>, 1},
+        {<<"timestamp">>, erlang:system_time(millisecond)},
+        {<<"node">>, node()}
     ].
 
 columns_message_ack_delivered(EventName) ->
-    [ {<<"event">>, EventName}
-    , {<<"id">>, emqx_guid:to_hexstr(emqx_guid:gen())}
-    , {<<"from_clientid">>, <<"c_emqx_1">>}
-    , {<<"from_username">>, <<"u_emqx_1">>}
-    , {<<"clientid">>, <<"c_emqx_2">>}
-    , {<<"username">>, <<"u_emqx_2">>}
-    , {<<"payload">>, <<"{\"msg\": \"hello\"}">>}
-    , {<<"peerhost">>, <<"192.168.0.10">>}
-    , {<<"topic">>, <<"t/a">>}
-    , {<<"qos">>, 1}
-    , {<<"flags">>, #{}}
-    , {<<"publish_received_at">>, erlang:system_time(millisecond)}
-    , columns_example_props(pub_props)
-    , {<<"timestamp">>, erlang:system_time(millisecond)}
-    , {<<"node">>, node()}
+    [
+        {<<"event">>, EventName},
+        {<<"id">>, emqx_guid:to_hexstr(emqx_guid:gen())},
+        {<<"from_clientid">>, <<"c_emqx_1">>},
+        {<<"from_username">>, <<"u_emqx_1">>},
+        {<<"clientid">>, <<"c_emqx_2">>},
+        {<<"username">>, <<"u_emqx_2">>},
+        {<<"payload">>, <<"{\"msg\": \"hello\"}">>},
+        {<<"peerhost">>, <<"192.168.0.10">>},
+        {<<"topic">>, <<"t/a">>},
+        {<<"qos">>, 1},
+        {<<"flags">>, #{}},
+        {<<"publish_received_at">>, erlang:system_time(millisecond)},
+        columns_example_props(pub_props),
+        {<<"timestamp">>, erlang:system_time(millisecond)},
+        {<<"node">>, node()}
     ].
 
 columns_example_props(PropType) ->
@@ -779,21 +944,23 @@ columns_example_props(PropType) ->
     {PropType, maps:merge(Props, UserProps)}.
 
 columns_example_props_specific(pub_props) ->
-    #{ 'Payload-Format-Indicator' => 0
-     , 'Message-Expiry-Interval' => 30
-     };
+    #{
+        'Payload-Format-Indicator' => 0,
+        'Message-Expiry-Interval' => 30
+    };
 columns_example_props_specific(puback_props) ->
-    #{ 'Reason-String' => <<"OK">>
-     };
+    #{'Reason-String' => <<"OK">>};
 columns_example_props_specific(conn_props) ->
-    #{ 'Session-Expiry-Interval' => 7200
-     , 'Receive-Maximum' => 32
-     };
+    #{
+        'Session-Expiry-Interval' => 7200,
+        'Receive-Maximum' => 32
+    };
 columns_example_props_specific(disconn_props) ->
-    #{ 'Session-Expiry-Interval' => 7200
-     , 'Reason-String' => <<"Redirect to another server">>
-     , 'Server Reference' => <<"192.168.22.129">>
-     };
+    #{
+        'Session-Expiry-Interval' => 7200,
+        'Reason-String' => <<"Redirect to another server">>,
+        'Server Reference' => <<"192.168.22.129">>
+    };
 columns_example_props_specific(sub_props) ->
     #{};
 columns_example_props_specific(unsub_props) ->
@@ -819,19 +986,15 @@ reason({Error, _}) when is_atom(Error) -> Error;
 reason(_) -> internal_error.
 
 ntoa(undefined) -> undefined;
-ntoa({IpAddr, Port}) ->
-    iolist_to_binary([inet:ntoa(IpAddr), ":", integer_to_list(Port)]);
-ntoa(IpAddr) ->
-    iolist_to_binary(inet:ntoa(IpAddr)).
+ntoa({IpAddr, Port}) -> iolist_to_binary([inet:ntoa(IpAddr), ":", integer_to_list(Port)]);
+ntoa(IpAddr) -> iolist_to_binary(inet:ntoa(IpAddr)).
 
 event_name(<<"$events/client_connected", _/binary>>) -> 'client.connected';
 event_name(<<"$events/client_disconnected", _/binary>>) -> 'client.disconnected';
 event_name(<<"$events/client_connack", _/binary>>) -> 'client.connack';
-event_name(<<"$events/client_check_authz_complete", _/binary>>) ->
-    'client.check_authz_complete';
+event_name(<<"$events/client_check_authz_complete", _/binary>>) -> 'client.check_authz_complete';
 event_name(<<"$events/session_subscribed", _/binary>>) -> 'session.subscribed';
-event_name(<<"$events/session_unsubscribed", _/binary>>) ->
-    'session.unsubscribed';
+event_name(<<"$events/session_unsubscribed", _/binary>>) -> 'session.unsubscribed';
 event_name(<<"$events/message_delivered", _/binary>>) -> 'message.delivered';
 event_name(<<"$events/message_acked", _/binary>>) -> 'message.acked';
 event_name(<<"$events/message_dropped", _/binary>>) -> 'message.dropped';
@@ -842,8 +1005,7 @@ event_name(_) -> 'message.publish'.
 event_topic('client.connected') -> <<"$events/client_connected">>;
 event_topic('client.disconnected') -> <<"$events/client_disconnected">>;
 event_topic('client.connack') -> <<"$events/client_connack">>;
-event_topic('client.check_authz_complete') ->
-    <<"$events/client_check_authz_complete">>;
+event_topic('client.check_authz_complete') -> <<"$events/client_check_authz_complete">>;
 event_topic('session.subscribed') -> <<"$events/session_subscribed">>;
 event_topic('session.unsubscribed') -> <<"$events/session_unsubscribed">>;
 event_topic('message.delivered') -> <<"$events/message_delivered">>;
@@ -853,10 +1015,12 @@ event_topic('delivery.dropped') -> <<"$events/delivery_dropped">>;
 event_topic('message.publish') -> <<"$events/message_publish">>;
 event_topic(<<"$bridges/", _/binary>> = Topic) -> Topic.
 
-printable_maps(undefined) -> #{};
+printable_maps(undefined) ->
+    #{};
 printable_maps(Headers) ->
     maps:fold(
-        fun (K, V0, AccIn) when K =:= peerhost; K =:= peername; K =:= sockname ->
+        fun
+            (K, V0, AccIn) when K =:= peerhost; K =:= peername; K =:= sockname ->
                 AccIn#{K => ntoa(V0)};
             ('User-Property', V0, AccIn) when is_list(V0) ->
                 AccIn#{
@@ -865,15 +1029,22 @@ printable_maps(Headers) ->
                     %% However, this does not allow duplicate property keys. To allow
                     %% duplicate keys, we have to use the 'User-Property-Pairs' field instead.
                     'User-Property' => maps:from_list(V0),
-                    'User-Property-Pairs' => [#{
-                        key => Key,
-                        value => Value
-                     } || {Key, Value} <- V0]
+                    'User-Property-Pairs' => [
+                        #{
+                            key => Key,
+                            value => Value
+                        }
+                     || {Key, Value} <- V0
+                    ]
                 };
-            (K, V0, AccIn) -> AccIn#{K => V0}
-        end, #{}, Headers).
+            (K, V0, AccIn) ->
+                AccIn#{K => V0}
+        end,
+        #{},
+        Headers
+    ).
 
 ignore_sys_message(#message{flags = Flags}) ->
     ConfigRootKey = emqx_rule_engine_schema:namespace(),
     maps:get(sys, Flags, false) andalso
-      emqx:get_config([ConfigRootKey, ignore_sys_message]).
+        emqx:get_config([ConfigRootKey, ignore_sys_message]).

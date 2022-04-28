@@ -25,6 +25,10 @@
 
 %% notice: integer topic for sort response
 -define(TOPIC1, <<"t/0000">>).
+-define(TOPIC1RH, 1).
+-define(TOPIC1RAP, false).
+-define(TOPIC1NL, false).
+-define(TOPIC1QOS, 1).
 -define(TOPIC2, <<"$share/test_group/t/0001">>).
 -define(TOPIC2_TOPIC_ONLY, <<"t/0001">>).
 
@@ -41,9 +45,13 @@ end_per_suite(_) ->
     emqx_mgmt_api_test_util:end_suite().
 
 t_subscription_api(_) ->
-    {ok, Client} = emqtt:start_link(#{username => ?USERNAME, clientid => ?CLIENTID}),
+    {ok, Client} = emqtt:start_link(#{username => ?USERNAME, clientid => ?CLIENTID, proto_ver => v5}),
     {ok, _} = emqtt:connect(Client),
-    {ok, _, _} = emqtt:subscribe(Client, ?TOPIC1),
+    {ok, _, _} = emqtt:subscribe(
+        Client, [
+            {?TOPIC1, [{rh, ?TOPIC1RH}, {rap, ?TOPIC1RAP}, {nl, ?TOPIC1NL}, {qos, ?TOPIC1QOS}]}
+        ]
+    ),
     {ok, _, _} = emqtt:subscribe(Client, ?TOPIC2),
     Path = emqx_mgmt_api_test_util:api_path(["subscriptions"]),
     {ok, Response} = emqx_mgmt_api_test_util:request_api(get, Path),
@@ -59,9 +67,21 @@ t_subscription_api(_) ->
             maps:get(T1, ?TOPIC_SORT) =< maps:get(T2, ?TOPIC_SORT)
         end,
     [Subscriptions1, Subscriptions2] = lists:sort(Sort, Subscriptions),
-    ?assertEqual(maps:get(<<"topic">>, Subscriptions1), ?TOPIC1),
+
+    ?assertMatch(
+        #{
+            <<"topic">> := ?TOPIC1,
+            <<"qos">> := ?TOPIC1QOS,
+            <<"nl">> := _,
+            <<"rap">> := _,
+            <<"rh">> := ?TOPIC1RH,
+            <<"clientid">> := ?CLIENTID,
+            <<"node">> := _
+        },
+        Subscriptions1
+    ),
+
     ?assertEqual(maps:get(<<"topic">>, Subscriptions2), ?TOPIC2),
-    ?assertEqual(maps:get(<<"clientid">>, Subscriptions1), ?CLIENTID),
     ?assertEqual(maps:get(<<"clientid">>, Subscriptions2), ?CLIENTID),
 
     QS = uri_string:compose_query([
@@ -94,8 +114,8 @@ t_subscription_api(_) ->
     MatchMeta = maps:get(<<"meta">>, MatchData),
     ?assertEqual(1, maps:get(<<"page">>, MatchMeta)),
     ?assertEqual(emqx_mgmt:max_row_limit(), maps:get(<<"limit">>, MatchMeta)),
-    ?assertEqual(2, maps:get(<<"count">>, MatchMeta)),
+    ?assertEqual(1, maps:get(<<"count">>, MatchMeta)),
     MatchSubs = maps:get(<<"data">>, MatchData),
-    ?assertEqual(length(MatchSubs), 2),
+    ?assertEqual(1, length(MatchSubs)),
 
     emqtt:disconnect(Client).

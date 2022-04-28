@@ -129,17 +129,20 @@ ensure_not_undefined(undefined, Old) -> Old;
 ensure_not_undefined(New, _Old) -> New.
 
 to_map(Apps) when is_list(Apps) ->
-    Fields = record_info(fields, ?APP),
-    lists:map(
-        fun(Trace0 = #?APP{}) ->
-            [_ | Values] = tuple_to_list(Trace0),
-            maps:remove(api_secret_hash, maps:from_list(lists:zip(Fields, Values)))
-        end,
-        Apps
-    );
-to_map(App0) ->
-    [App] = to_map([App0]),
-    App.
+    [to_map(App) || App <- Apps];
+to_map(#?APP{name = N, api_key = K, enable = E, expired_at = ET, created_at = CT, desc = D}) ->
+    #{
+        name => N,
+        api_key => K,
+        enable => E,
+        expired_at => ET,
+        created_at => CT,
+        desc => D,
+        expired => is_expired(ET)
+    }.
+
+is_expired(undefined) -> false;
+is_expired(ExpiredTime) -> ExpiredTime < erlang:system_time(second).
 
 create_app(Name, Enable, ExpiredAt, Desc) ->
     ApiSecret = generate_api_secret(),
