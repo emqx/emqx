@@ -342,6 +342,40 @@ t_jwt_authenticator_verify_claims(_) ->
     },
     ?assertMatch({ok, #{is_superuser := false}}, emqx_authn_jwt:authenticate(Credential3, State1)).
 
+t_jwt_not_allow_empty_claim_name(_) ->
+    Request = #{
+        <<"use_jwks">> => false,
+        <<"algorithm">> => <<"hmac-based">>,
+        <<"secret">> => <<"secret">>,
+        <<"mechanism">> => <<"jwt">>
+    },
+    ?assertMatch(
+        {200, _},
+        emqx_authn_api:authenticators(
+            post, #{body => Request}
+        )
+    ),
+
+    ?assertMatch(
+        {400, _},
+        emqx_authn_api:authenticator(
+            put, #{
+                bindings => #{id => <<"jwt">>},
+                body => Request#{<<"verify_claims">> => #{<<>> => <<>>}}
+            }
+        )
+    ),
+
+    ?assertMatch(
+        {200, _},
+        emqx_authn_api:authenticator(
+            put, #{
+                bindings => #{id => <<"jwt">>},
+                body => Request#{<<"verify_claims">> => #{<<"key">> => <<>>}}
+            }
+        )
+    ).
+
 %%------------------------------------------------------------------------------
 %% Helpers
 %%------------------------------------------------------------------------------
