@@ -23,11 +23,12 @@
 -behaviour(emqx_resource).
 
 %% callbacks of behaviour emqx_resource
--export([ on_start/2
-        , on_stop/2
-        , on_query/4
-        , on_get_status/2
-        ]).
+-export([
+    on_start/2,
+    on_stop/2,
+    on_query/4,
+    on_get_status/2
+]).
 
 %% ecpool connect & reconnect
 -export([connect/1, prepare_sql_to_conn/2]).
@@ -99,7 +100,7 @@ on_start(
     Prepares = maps:get(prepare_statement, Config, #{}),
     State = #{poolname => PoolName, prepare_statement => Prepares, auto_reconnect => AutoReconn},
     case emqx_plugin_libs_pool:start_pool(PoolName, ?MODULE, Options ++ SslOpts) of
-        ok              -> {ok, init_prepare(State)};
+        ok -> {ok, init_prepare(State)};
         {error, Reason} -> {error, Reason}
     end.
 

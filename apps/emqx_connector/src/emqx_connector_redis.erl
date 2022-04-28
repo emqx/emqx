@@ -26,11 +26,12 @@
 -behaviour(emqx_resource).
 
 %% callbacks of behaviour emqx_resource
--export([ on_start/2
-        , on_stop/2
-        , on_query/4
-        , on_get_status/2
-        ]).
+-export([
+    on_start/2,
+    on_stop/2,
+    on_query/4,
+    on_get_status/2
+]).
 
 -export([do_get_status/1]).
 
@@ -150,13 +151,15 @@ on_start(
     case Type of
         cluster ->
             case eredis_cluster:start_pool(PoolName, Opts ++ [{options, Options}]) of
-                {ok, _}         -> {ok, State};
-                {ok, _, _}      -> {ok, State};
+                {ok, _} -> {ok, State};
+                {ok, _, _} -> {ok, State};
                 {error, Reason} -> {error, Reason}
             end;
         _ ->
-            case emqx_plugin_libs_pool:start_pool(PoolName, ?MODULE, Opts ++ [{options, Options}]) of
-                ok              -> {ok, State};
+            case
+                emqx_plugin_libs_pool:start_pool(PoolName, ?MODULE, Opts ++ [{options, Options}])
+            of
+                ok -> {ok, State};
                 {error, Reason} -> {error, Reason}
             end
     end.
@@ -220,10 +223,8 @@ on_get_status(_InstId, #{type := cluster, poolname := PoolName, auto_reconnect :
         false ->
             disconnect
     end;
-
-
 on_get_status(_InstId, #{poolname := PoolName, auto_reconnect := AutoReconn}) ->
-   emqx_plugin_libs_pool:get_status(PoolName, fun ?MODULE:do_get_status/1, AutoReconn).
+    emqx_plugin_libs_pool:get_status(PoolName, fun ?MODULE:do_get_status/1, AutoReconn).
 
 do_get_status(Conn) ->
     case eredis:q(Conn, ["PING"]) of

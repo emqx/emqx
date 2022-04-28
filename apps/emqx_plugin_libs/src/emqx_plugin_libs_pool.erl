@@ -75,7 +75,8 @@ get_status(PoolName, CheckFunc, AutoReconn) when is_function(CheckFunc) ->
      || {_WorkerName, Worker} <- ecpool:workers(PoolName)
     ],
     case length(Status) > 0 andalso lists:all(fun(St) -> St =:= true end, Status) of
-        true -> connected;
+        true ->
+            connected;
         false ->
             case AutoReconn of
                 true ->

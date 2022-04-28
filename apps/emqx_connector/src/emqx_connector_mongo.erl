@@ -24,11 +24,12 @@
 -behaviour(emqx_resource).
 
 %% callbacks of behaviour emqx_resource
--export([ on_start/2
-        , on_stop/2
-        , on_query/4
-        , on_get_status/2
-        ]).
+-export([
+    on_start/2,
+    on_stop/2,
+    on_query/4,
+    on_get_status/2
+]).
 
 %% ecpool callback
 -export([connect/1]).
@@ -225,12 +226,16 @@ on_query(
 on_get_status(InstId, #{poolname := PoolName} = _State) ->
     case health_check(PoolName) of
         true ->
-            ?tp(debug, emqx_connector_mongo_health_check, #{instance_id => InstId,
-                                                            status => ok}),
+            ?tp(debug, emqx_connector_mongo_health_check, #{
+                instance_id => InstId,
+                status => ok
+            }),
             connected;
         false ->
-            ?tp(warning, emqx_connector_mongo_health_check, #{instance_id => InstId,
-                                                              status => failed}),
+            ?tp(warning, emqx_connector_mongo_health_check, #{
+                instance_id => InstId,
+                status => failed
+            }),
             disconnected
     end.
 
@@ -247,24 +252,30 @@ check_worker_health(Worker) ->
             %% we don't care if this returns something or not, we just to test the connection
             try do_test_query(Conn) of
                 {error, Reason} ->
-                    ?SLOG(warning, #{msg => "mongo_connection_get_status_error",
-                                     worker => Worker,
-                                     reason => Reason}),
+                    ?SLOG(warning, #{
+                        msg => "mongo_connection_get_status_error",
+                        worker => Worker,
+                        reason => Reason
+                    }),
                     false;
                 _ ->
                     true
             catch
                 Class:Error ->
-                    ?SLOG(warning, #{msg => "mongo_connection_get_status_exception",
-                                     worker => Worker,
-                                     class => Class,
-                                     error => Error}),
+                    ?SLOG(warning, #{
+                        msg => "mongo_connection_get_status_exception",
+                        worker => Worker,
+                        class => Class,
+                        error => Error
+                    }),
                     false
             end;
         _ ->
-            ?SLOG(warning, #{msg => "mongo_connection_get_status_error",
-                             worker => Worker,
-                             reason => worker_not_found}),
+            ?SLOG(warning, #{
+                msg => "mongo_connection_get_status_error",
+                worker => Worker,
+                reason => worker_not_found
+            }),
             false
     end.
 

@@ -77,9 +77,11 @@ perform_lifecycle_check(PoolName, InitialConfig) ->
     ),
     ?assertEqual(InitialStatus, connected),
     % Instance should match the state and status of the just started resource
-    {ok, ?CONNECTOR_RESOURCE_GROUP, #{state := State,
-                                     status := InitialStatus}}
-                                    = emqx_resource:get_instance(PoolName),
+    {ok, ?CONNECTOR_RESOURCE_GROUP, #{
+        state := State,
+        status := InitialStatus
+    }} =
+        emqx_resource:get_instance(PoolName),
     ?assertEqual(ok, emqx_resource:health_check(PoolName)),
     % % Perform query as further check that the resource is working as expected
     ?assertMatch({ok, _, [[1]]}, emqx_resource:query(PoolName, test_query_no_params())),

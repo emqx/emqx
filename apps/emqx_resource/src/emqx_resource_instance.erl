@@ -307,8 +307,10 @@ do_health_check(InstId) when is_binary(InstId) ->
 
 do_health_check(_Group, #{state := undefined}) ->
     {error, resource_not_initialized};
-do_health_check(Group,
-        #{id := InstId, mod := Mod, state := ResourceState, status := OldStatus} = Data) ->
+do_health_check(
+    Group,
+    #{id := InstId, mod := Mod, state := ResourceState, status := OldStatus} = Data
+) ->
     case emqx_resource:call_health_check(InstId, Mod, ResourceState) of
         {NewConnStatus, NewResourceState} ->
             NData = Data#{status => NewConnStatus, state => NewResourceState},
@@ -333,7 +335,8 @@ do_set_resource_status_connecting(InstId) ->
         {ok, Group, #{id := InstId} = Data} ->
             logger:error("health check for ~p failed: timeout", [InstId]),
             update_resource(InstId, Group, Data#{status => connecting});
-        Error -> {error, Error}
+        Error ->
+            {error, Error}
     end.
 
 %%------------------------------------------------------------------------------

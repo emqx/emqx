@@ -25,11 +25,12 @@
 -behaviour(emqx_resource).
 
 %% callbacks of behaviour emqx_resource
--export([ on_start/2
-        , on_stop/2
-        , on_query/4
-        , on_get_status/2
-        ]).
+-export([
+    on_start/2,
+    on_stop/2,
+    on_query/4,
+    on_get_status/2
+]).
 
 -type url() :: emqx_http_lib:uri_map().
 -reflect_type([url/0]).
@@ -307,11 +308,15 @@ on_query(
 
 on_get_status(_InstId, #{host := Host, port := Port, connect_timeout := Timeout}) ->
     case do_get_status(Host, Port, Timeout) of
-        ok -> connected;
+        ok ->
+            connected;
         {error, Reason} ->
-            ?SLOG(error, #{msg => "http_connector_get_status_failed",
-                           reason => Reason,
-                           host => Host, port => Port}),
+            ?SLOG(error, #{
+                msg => "http_connector_get_status_failed",
+                reason => Reason,
+                host => Host,
+                port => Port
+            }),
             disconnected
     end.
 

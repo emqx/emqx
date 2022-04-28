@@ -85,22 +85,33 @@
 ]).
 
 %% Direct calls to the callback module
--export([ call_start/3  %% start the instance
-        , call_health_check/3 %% verify if the resource is working normally
-        , call_stop/3   %% stop the instance
-        ]).
 
--export([ list_instances/0 %% list all the instances, id only.
-        , list_instances_verbose/0 %% list all the instances
-        , get_instance/1 %% return the data of the instance
-        , list_instances_by_type/1 %% return all the instances of the same resource type
-        , generate_id/1
-        , list_group_instances/1
-        ]).
+%% start the instance
+-export([
+    call_start/3,
+    %% verify if the resource is working normally
+    call_health_check/3,
+    %% stop the instance
+    call_stop/3
+]).
 
--optional_callbacks([ on_query/4
-                    , on_get_status/2
-                    ]).
+%% list all the instances, id only.
+-export([
+    list_instances/0,
+    %% list all the instances
+    list_instances_verbose/0,
+    %% return the data of the instance
+    get_instance/1,
+    %% return all the instances of the same resource type
+    list_instances_by_type/1,
+    generate_id/1,
+    list_group_instances/1
+]).
+
+-optional_callbacks([
+    on_query/4,
+    on_get_status/2
+]).
 
 %% when calling emqx_resource:start/1
 -callback on_start(instance_id(), resource_config()) ->
@@ -114,8 +125,8 @@
 
 %% when calling emqx_resource:health_check/2
 -callback on_get_status(instance_id(), resource_state()) ->
-    resource_connection_status() |
-    {resource_connection_status(), resource_state()}.
+    resource_connection_status()
+    | {resource_connection_status(), resource_state()}.
 
 -spec list_types() -> [module()].
 list_types() ->
@@ -304,8 +315,8 @@ call_start(InstId, Mod, Config) ->
     ?SAFE_CALL(Mod:on_start(InstId, Config)).
 
 -spec call_health_check(instance_id(), module(), resource_state()) ->
-    resource_connection_status() |
-    {resource_connection_status(), resource_state()}.
+    resource_connection_status()
+    | {resource_connection_status(), resource_state()}.
 call_health_check(InstId, Mod, ResourceState) ->
     ?SAFE_CALL(Mod:on_get_status(InstId, ResourceState)).
 
