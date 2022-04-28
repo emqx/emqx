@@ -392,7 +392,7 @@ schema("/nodes/:node/bridges/:id/operation/:operation") ->
 '/bridges'(get, _Params) ->
     {200,
         zip_bridges([
-            [format_resp(Data) || Data <- emqx_bridge_proto_v1:list_bridges(Node)]
+            [format_resp(Data, Node) || Data <- emqx_bridge_proto_v1:list_bridges(Node)]
          || Node <- mria_mnesia:running_nodes()
         ])}.
 
@@ -619,17 +619,19 @@ aggregate_metrics(AllMetrics) ->
         AllMetrics
     ).
 
+format_resp(Data) ->
+    format_resp(Data, node()).
+
 format_resp(#{
     type := Type,
     name := BridgeName,
     raw_config := RawConf,
-    resource_data := #{status := Status, metrics := Metrics}
-}) ->
+    resource_data := #{status := Status, metrics := Metrics}}, Node) ->
     RawConfFull = fill_defaults(Type, RawConf),
     RawConfFull#{
         type => Type,
         name => maps:get(<<"name">>, RawConf, BridgeName),
-        node => node(),
+        node => Node,
         status => Status,
         metrics => format_metrics(Metrics)
     }.
