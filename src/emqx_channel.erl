@@ -22,6 +22,8 @@
 -include("logger.hrl").
 -include("types.hrl").
 
+-include_lib("snabbkaffe/include/snabbkaffe.hrl").
+
 -logger_header("[Channel]").
 
 -ifdef(TEST).
@@ -850,11 +852,14 @@ handle_out(disconnect, ReasonCode, Channel) when is_integer(ReasonCode) ->
     ReasonName = disconnect_reason(ReasonCode),
     handle_out(disconnect, {ReasonCode, ReasonName}, Channel);
 
-handle_out(disconnect, {ReasonCode, ReasonName}, Channel = ?IS_MQTT_V5) ->
-    Packet = ?DISCONNECT_PACKET(ReasonCode),
+handle_out(disconnect, {ReasonCode, ReasonName}, Channel) ->
+    handle_out(disconnect, {ReasonCode, ReasonName, #{}}, Channel);
+
+handle_out(disconnect, {ReasonCode, ReasonName, Props}, Channel = ?IS_MQTT_V5) ->
+    Packet = ?DISCONNECT_PACKET(ReasonCode, Props),
     {ok, [{outgoing, Packet}, {close, ReasonName}], Channel};
 
-handle_out(disconnect, {_ReasonCode, ReasonName}, Channel) ->
+handle_out(disconnect, {_ReasonCode, ReasonName, _Props}, Channel) ->
     {ok, {close, ReasonName}, Channel};
 
 handle_out(auth, {ReasonCode, Properties}, Channel) ->
@@ -954,11 +959,15 @@ handle_call({takeover, 'begin'}, Channel = #channel{session = Session}) ->
     reply(Session, Channel#channel{takeover = true});
 
 handle_call({takeover, 'end'}, Channel = #channel{session  = Session,
-                                                  pendings = Pendings}) ->
+                                                  pendings = Pendings,
+                                                  conninfo = #{clientid := ClientId}}) ->
     ok = emqx_session:takeover(Session),
     %% TODO: Should not drain deliver here (side effect)
     Delivers = emqx_misc:drain_deliver(),
     AllPendings = lists:append(Delivers, Pendings),
+    ?tp(debug,
+        emqx_channel_takeover_end,
+        #{clientid => ClientId}),
     disconnect_and_shutdown(takeovered, AllPendings, Channel);
 
 handle_call(list_acl_cache, Channel) ->
@@ -1018,6 +1027,9 @@ handle_info({sock_closed, _Reason}, Channel = #channel{conn_state = disconnected
 handle_info(clean_acl_cache, Channel) ->
     ok = emqx_acl_cache:empty_acl_cache(),
     {ok, Channel};
+
+handle_info({disconnect, ReasonCode, ReasonName, Props}, Channel) ->
+    handle_out(disconnect, {ReasonCode, ReasonName, Props}, Channel);
 
 handle_info(Info, Channel) ->
     ?LOG(error, "Unexpected info: ~p", [Info]),

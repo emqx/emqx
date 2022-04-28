@@ -1,0 +1,18 @@
+{application, emqx_eviction_agent,
+ [{description, "EMQX Eviction Agent"},
+  {vsn, "4.3.0"},
+  {registered, [emqx_eviction_agent_sup,
+                emqx_eviction_agent,
+                emqx_eviction_agent_conn_sup]},
+  {applications,
+   [kernel,
+    stdlib
+   ]},
+  {mod, {emqx_eviction_agent_app,[]}},
+  {env,[]},
+  {modules, []},
+  {maintainers, ["EMQX Team <contact@emqx.io>"]},
+  {links, [{"Homepage", "https://emqx.io/"},
+           {"Github", "https://github.com/emqx"}
+          ]}
+ ]}.

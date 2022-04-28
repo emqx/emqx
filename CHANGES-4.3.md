@@ -21,6 +21,7 @@ File format:
 
 - Improve error message for LwM2M plugin when object ID is not valid [#8654](https://github.com/emqx/emqx/pull/8654).
 - Add tzdata apk package to alpine docker image. [#8671](https://github.com/emqx/emqx/pull/8671)
+- Add node evacuation and cluster rebalancing features [#8597]
 
 ## v4.3.19
 
@@ -55,6 +56,7 @@ File format:
 - HTTP API(GET /rules/) support for pagination and fuzzy filtering. [#8450]
 - Add check_conf cli to check config format. [#8486]
 - Optimize performance of shared subscription
+- Make possible to debug-print SSL handshake procedure by setting listener config `log_level=debug` [#8553](https://github.com/emqx/emqx/pull/8553)
 
 ## v4.3.16
 
