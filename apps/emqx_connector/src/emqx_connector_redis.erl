@@ -19,7 +19,6 @@
 -include_lib("typerefl/include/types.hrl").
 -include_lib("hocon/include/hoconsc.hrl").
 -include_lib("emqx/include/logger.hrl").
--include_lib("emqx_resource/include/emqx_resource.hrl").
 
 -export([roots/0, fields/1]).
 
