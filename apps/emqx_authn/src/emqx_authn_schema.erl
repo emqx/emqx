@@ -115,23 +115,10 @@ fields("metrics_status_fields") ->
     ];
 fields("metrics") ->
     [
-        {"matched", mk(integer(), #{desc => ?DESC("matched")})},
-        {"success", mk(integer(), #{desc => ?DESC("success")})},
-        {"failed", mk(integer(), #{desc => ?DESC("failed")})},
-        {"ignore", mk(integer(), #{desc => ?DESC("failed")})},
-        {"rate", mk(float(), #{desc => ?DESC("rate")})},
-        {"rate_max", mk(float(), #{desc => ?DESC("rate_max")})},
-        {"rate_last5m", mk(float(), #{desc => ?DESC("rate_last5m")})}
-    ];
+        {"ignore", mk(integer(), #{desc => ?DESC("failed")})}
+    ] ++ common_field();
 fields("resource_metrics") ->
-    [
-        {"matched", mk(integer(), #{desc => ?DESC("matched")})},
-        {"success", mk(integer(), #{desc => ?DESC("success")})},
-        {"failed", mk(integer(), #{desc => ?DESC("failed")})},
-        {"rate", mk(float(), #{desc => ?DESC("rate")})},
-        {"rate_max", mk(float(), #{desc => ?DESC("rate_max")})},
-        {"rate_last5m", mk(float(), #{desc => ?DESC("rate_last5m")})}
-    ];
+    common_field();
 fields("node_metrics") ->
     [
         node_name(),
@@ -151,6 +138,16 @@ fields("node_error") ->
     [
         node_name(),
         {"error", mk(string(), #{desc => ?DESC("node_error")})}
+    ].
+
+common_field() ->
+    [
+        {"matched", mk(integer(), #{desc => ?DESC("matched")})},
+        {"success", mk(integer(), #{desc => ?DESC("success")})},
+        {"failed", mk(integer(), #{desc => ?DESC("failed")})},
+        {"rate", mk(float(), #{desc => ?DESC("rate")})},
+        {"rate_max", mk(float(), #{desc => ?DESC("rate_max")})},
+        {"rate_last5m", mk(float(), #{desc => ?DESC("rate_last5m")})}
     ].
 
 status() ->
