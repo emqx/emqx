@@ -201,6 +201,54 @@ t_query_params(_Config) ->
         emqx_access_control:authorize(ClientInfo, publish, <<"t">>)
     ).
 
+t_path(_Config) ->
+    ok = setup_handler_and_config(
+        fun(Req0, State) ->
+            ?assertEqual(
+                <<
+                    "/authz/users/"
+                    "user%20name/"
+                    "client%20id/"
+                    "127.0.0.1/"
+                    "MQTT/"
+                    "MOUNTPOINT/"
+                    "t/1/"
+                    "publish"
+                >>,
+                cowboy_req:path(Req0)
+            ),
+            Req = cowboy_req:reply(200, Req0),
+            {ok, Req, State}
+        end,
+        #{
+            <<"url">> => <<
+                "http://127.0.0.1:33333/authz/users/"
+                "${username}/"
+                "${clientid}/"
+                "${peerhost}/"
+                "${proto_name}/"
+                "${mountpoint}/"
+                "${topic}/"
+                "${action}"
+            >>
+        }
+    ),
+
+    ClientInfo = #{
+        clientid => <<"client id">>,
+        username => <<"user name">>,
+        peerhost => {127, 0, 0, 1},
+        protocol => <<"MQTT">>,
+        mountpoint => <<"MOUNTPOINT">>,
+        zone => default,
+        listener => {tcp, default}
+    },
+
+    ?assertEqual(
+        allow,
+        emqx_access_control:authorize(ClientInfo, publish, <<"t/1">>)
+    ).
+
 t_json_body(_Config) ->
     ok = setup_handler_and_config(
         fun(Req0, State) ->
