@@ -208,10 +208,17 @@ to_rate(Str, CanInfinity, CanZero) ->
             to_capacity(QuotaStr, Str, CanZero, Fun);
         [QuotaStr, Interval] ->
             Fun = fun(Quota) ->
-                case emqx_schema:to_duration_ms(Interval) of
-                    {ok, Ms} when Ms > 0 ->
-                        {ok, Quota * minimum_period() / Ms};
-                    _ ->
+                try
+                    case emqx_schema:to_duration_ms(Interval) of
+                        {ok, Ms} when Ms > 0 ->
+                            {ok, Quota * minimum_period() / Ms};
+                        {ok, 0} when CanZero ->
+                            {ok, 0};
+                        _ ->
+                            {error, Str}
+                    end
+                catch
+                    _:_ ->
                         {error, Str}
                 end
             end,
@@ -226,8 +233,9 @@ to_capacity(QuotaStr, Str, CanZero, Fun) ->
         {error, _Error} -> {error, Str}
     end.
 
-check_capacity(_Str, 0, true, _Cont) ->
-    {ok, 0};
+check_capacity(_Str, 0, true, Cont) ->
+    %% must check the interval part or maybe will get incorrect config, e.g. "0/0sHello"
+    Cont(0);
 check_capacity(Str, 0, false, _Cont) ->
     {error, Str};
 check_capacity(_Str, Quota, _CanZero, Cont) ->
