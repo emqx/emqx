@@ -303,34 +303,37 @@ test_authenticator_users(PathPrefix) ->
     ),
 
     {ok, Client} = emqtt:start_link(
-                     [ {username, <<"u_event">>}
-                     , {clientid, <<"c_event">>}
-                     , {proto_ver, v5}
-                     , {properties, #{'Session-Expiry-Interval' => 60}}
-                     ]),
+        [
+            {username, <<"u_event">>},
+            {clientid, <<"c_event">>},
+            {proto_ver, v5},
+            {properties, #{'Session-Expiry-Interval' => 60}}
+        ]
+    ),
 
     process_flag(trap_exit, true),
     ?assertMatch({error, _}, emqtt:connect(Client)),
     timer:sleep(300),
 
-
     UsersUri0 = uri(PathPrefix ++ [?CONF_NS, "password_based:built_in_database", "status"]),
     {ok, 200, PageData0} = request(get, UsersUri0),
     case PathPrefix of
         [] ->
-            #{ <<"metrics">> := #{
-                                  <<"matched">> := 1,
-                                  <<"success">> := 0,
-                                  <<"ignore">> := 1
-                                 }
-             } = jiffy:decode(PageData0, [return_maps]);
-        ["listeners",'tcp:default'] ->
-            #{ <<"metrics">> := #{
-                                  <<"matched">> := 1,
-                                  <<"success">> := 0,
-                                  <<"ignore">> := 1
-                                 }
-             } = jiffy:decode(PageData0, [return_maps])
+            #{
+                <<"metrics">> := #{
+                    <<"matched">> := 1,
+                    <<"success">> := 0,
+                    <<"ignore">> := 1
+                }
+            } = jiffy:decode(PageData0, [return_maps]);
+        ["listeners", 'tcp:default'] ->
+            #{
+                <<"metrics">> := #{
+                    <<"matched">> := 1,
+                    <<"success">> := 0,
+                    <<"ignore">> := 1
+                }
+            } = jiffy:decode(PageData0, [return_maps])
     end,
 
     InvalidUsers = [
@@ -360,31 +363,35 @@ test_authenticator_users(PathPrefix) ->
     ),
 
     {ok, Client1} = emqtt:start_link(
-                     [ {username, <<"u1">>}
-                     , {password, <<"p1">>}
-                     , {clientid, <<"c_event">>}
-                     , {proto_ver, v5}
-                     , {properties, #{'Session-Expiry-Interval' => 60}}
-                     ]),
+        [
+            {username, <<"u1">>},
+            {password, <<"p1">>},
+            {clientid, <<"c_event">>},
+            {proto_ver, v5},
+            {properties, #{'Session-Expiry-Interval' => 60}}
+        ]
+    ),
     {ok, _} = emqtt:connect(Client1),
     timer:sleep(300),
     UsersUri01 = uri(PathPrefix ++ [?CONF_NS, "password_based:built_in_database", "status"]),
     {ok, 200, PageData01} = request(get, UsersUri01),
     case PathPrefix of
         [] ->
-            #{ <<"metrics">> := #{
-                                  <<"matched">> := 2,
-                                  <<"success">> := 1,
-                                  <<"ignore">> := 1
-                                 }
-             } = jiffy:decode(PageData01, [return_maps]);
-        ["listeners",'tcp:default'] ->
-            #{ <<"metrics">> := #{
-                                  <<"matched">> := 2,
-                                  <<"success">> := 1,
-                                  <<"ignore">> := 1
-                                 }
-             } = jiffy:decode(PageData01, [return_maps])
+            #{
+                <<"metrics">> := #{
+                    <<"matched">> := 2,
+                    <<"success">> := 1,
+                    <<"ignore">> := 1
+                }
+            } = jiffy:decode(PageData01, [return_maps]);
+        ["listeners", 'tcp:default'] ->
+            #{
+                <<"metrics">> := #{
+                    <<"matched">> := 2,
+                    <<"success">> := 1,
+                    <<"ignore">> := 1
+                }
+            } = jiffy:decode(PageData01, [return_maps])
     end,
 
     {ok, 200, Page1Data} = request(get, UsersUri ++ "?page=1&limit=2"),

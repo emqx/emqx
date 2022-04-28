@@ -89,7 +89,6 @@ backend(Name) ->
 
 fields("metrics_status_fields") ->
     [
-
         {"resource_metrics", mk(ref(?MODULE, "resource_metrics"), #{desc => ?DESC("metrics")})},
         {"node_resource_metrics",
             mk(
@@ -124,22 +123,20 @@ fields("metrics") ->
         {"rate_max", mk(float(), #{desc => ?DESC("rate_max")})},
         {"rate_last5m", mk(float(), #{desc => ?DESC("rate_last5m")})}
     ];
-
 fields("resource_metrics") ->
     [
-     {"matched", mk(integer(), #{desc => ?DESC("matched")})},
-     {"success", mk(integer(), #{desc => ?DESC("success")})},
-     {"failed", mk(integer(), #{desc => ?DESC("failed")})},
-     {"rate", mk(float(), #{desc => ?DESC("rate")})},
-     {"rate_max", mk(float(), #{desc => ?DESC("rate_max")})},
-     {"rate_last5m", mk(float(), #{desc => ?DESC("rate_last5m")})}
+        {"matched", mk(integer(), #{desc => ?DESC("matched")})},
+        {"success", mk(integer(), #{desc => ?DESC("success")})},
+        {"failed", mk(integer(), #{desc => ?DESC("failed")})},
+        {"rate", mk(float(), #{desc => ?DESC("rate")})},
+        {"rate_max", mk(float(), #{desc => ?DESC("rate_max")})},
+        {"rate_last5m", mk(float(), #{desc => ?DESC("rate_last5m")})}
     ];
 fields("node_metrics") ->
     [
         node_name(),
         {"metrics", mk(ref(?MODULE, "metrics"), #{desc => ?DESC("metrics")})}
     ];
-
 fields("node_resource_metrics") ->
     [
         node_name(),
@@ -150,11 +147,10 @@ fields("node_status") ->
         node_name(),
         {"status", mk(status(), #{desc => ?DESC("node_status")})}
     ];
-
 fields("node_error") ->
     [
-     node_name(),
-     {"error", mk(string(), #{desc => ?DESC("node_error")})}
+        node_name(),
+        {"error", mk(string(), #{desc => ?DESC("node_error")})}
     ].
 
 status() ->

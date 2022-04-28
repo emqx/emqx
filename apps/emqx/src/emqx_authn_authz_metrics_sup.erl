@@ -28,9 +28,11 @@ start_link() ->
 init([]) ->
     AuthnMetrics = emqx_plugin_libs_metrics:child_spec(emqx_authn_metrics, authn_metrics),
     AuthzMetrics = emqx_plugin_libs_metrics:child_spec(eqmx_authz_metrics, authz_metrics),
-    {ok, {
-        {one_for_one, 10, 100},
-        [ AuthnMetrics,
-          AuthzMetrics
-        ]
-    }}.
+    {ok,
+        {
+            {one_for_one, 10, 100},
+            [
+                AuthnMetrics,
+                AuthzMetrics
+            ]
+        }}.

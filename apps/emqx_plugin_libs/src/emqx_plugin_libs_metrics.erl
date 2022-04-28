@@ -104,13 +104,13 @@ child_spec(Name) ->
 
 child_spec(ChldName, Name) ->
     #{
-      id => ChldName,
-      start => {emqx_plugin_libs_metrics, start_link, [Name]},
-      restart => permanent,
-      shutdown => 5000,
-      type => worker,
-      modules => [emqx_plugin_libs_metrics]
-     }.
+        id => ChldName,
+        start => {emqx_plugin_libs_metrics, start_link, [Name]},
+        restart => permanent,
+        shutdown => 5000,
+        type => worker,
+        modules => [emqx_plugin_libs_metrics]
+    }.
 
 -spec create_metrics(handler_name(), metric_id(), [atom()]) -> ok | {error, term()}.
 create_metrics(Name, Id, Metrics) ->

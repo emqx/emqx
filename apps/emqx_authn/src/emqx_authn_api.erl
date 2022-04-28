@@ -902,8 +902,12 @@ create_authenticator(ConfKeyPath, ChainName, Config) ->
             raw_config := AuthenticatorsConfig
         }} ->
             {ok, AuthenticatorConfig} = find_config(ID, AuthenticatorsConfig),
-            ok = emqx_plugin_libs_metrics:create_metrics(authn_metrics, ID,
-                                                         [matched, success, failed, ignore], [matched]),
+            ok = emqx_plugin_libs_metrics:create_metrics(
+                authn_metrics,
+                ID,
+                [matched, success, failed, ignore],
+                [matched]
+            ),
             {200, maps:put(id, ID, convert_certs(fill_defaults(AuthenticatorConfig)))};
         {error, {_PrePostConfigUpdate, emqx_authentication, Reason}} ->
             serialize_error(Reason);
@@ -934,11 +938,11 @@ list_authenticator(_, ConfKeyPath, AuthenticatorID) ->
 
 resource_provider() ->
     [
-     emqx_authn_mysql,
-     emqx_authn_pgsql,
-     emqx_authn_mongodb,
-     emqx_authn_redis,
-     emqx_authn_http
+        emqx_authn_mysql,
+        emqx_authn_pgsql,
+        emqx_authn_mongodb,
+        emqx_authn_redis,
+        emqx_authn_http
     ].
 
 lookup_from_local_node(ChainName, AuthenticatorID) ->
@@ -975,10 +979,11 @@ lookup_from_all_nodes(ChainName, AuthenticatorID) ->
             HelpFun = fun(M, Name) -> lists:map(MKMap(Name), maps:to_list(M)) end,
             {200, #{
                 node_resource_metrics => HelpFun(maps:map(Fun, ResourceMetricsMap), metrics),
-                resource_metrics => case maps:size(AggregateResourceMetrics) of
-                                        0 -> #{};
-                                        _ -> restructure_map(AggregateResourceMetrics)
-                                        end,
+                resource_metrics =>
+                    case maps:size(AggregateResourceMetrics) of
+                        0 -> #{};
+                        _ -> restructure_map(AggregateResourceMetrics)
+                    end,
                 node_metrics => HelpFun(maps:map(Fun, MetricsMap), metrics),
                 metrics => restructure_map(AggregateMetrics),
 
@@ -1022,17 +1027,17 @@ aggregate_metrics([HeadMetrics | AllMetrics]) ->
 make_result_map(ResList) ->
     Fun =
         fun(Elem, {StatusMap, MetricsMap, ResourceMetricsMap, ErrorMap}) ->
-                case Elem of
-                    {ok, {NodeId, Status, Metrics, ResourceMetrics}} ->
-                        {
-                         maps:put(NodeId, Status, StatusMap),
-                         maps:put(NodeId, Metrics, MetricsMap),
-                         maps:put(NodeId, ResourceMetrics, ResourceMetricsMap),
-                         ErrorMap
-                        };
-                    {error, {NodeId, Reason}} ->
-                        {StatusMap, MetricsMap, ResourceMetricsMap, maps:put(NodeId, Reason, ErrorMap)}
-                end
+            case Elem of
+                {ok, {NodeId, Status, Metrics, ResourceMetrics}} ->
+                    {
+                        maps:put(NodeId, Status, StatusMap),
+                        maps:put(NodeId, Metrics, MetricsMap),
+                        maps:put(NodeId, ResourceMetrics, ResourceMetricsMap),
+                        ErrorMap
+                    };
+                {error, {NodeId, Reason}} ->
+                    {StatusMap, MetricsMap, ResourceMetricsMap, maps:put(NodeId, Reason, ErrorMap)}
+            end
         end,
     lists:foldl(Fun, {maps:new(), maps:new(), maps:new(), maps:new()}, ResList).
 
@@ -1050,17 +1055,17 @@ restructure_map(#{
         rate_max => RateMax
     };
 restructure_map(#{
-                  counters := #{failed := Failed, matched := Match, success := Succ},
-                  rate := #{matched := #{current := Rate, last5m := Rate5m, max := RateMax}}
-                 }) ->
+    counters := #{failed := Failed, matched := Match, success := Succ},
+    rate := #{matched := #{current := Rate, last5m := Rate5m, max := RateMax}}
+}) ->
     #{
-      matched => Match,
-      success => Succ,
-      failed => Failed,
-      rate => Rate,
-      rate_last5m => Rate5m,
-      rate_max => RateMax
-     };
+        matched => Match,
+        success => Succ,
+        failed => Failed,
+        rate => Rate,
+        rate_last5m => Rate5m,
+        rate_max => RateMax
+    };
 restructure_map(Error) ->
     Error.
 

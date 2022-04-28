@@ -579,7 +579,8 @@ handle_delete_authenticator(Chain, AuthenticatorID) ->
         ID =:= AuthenticatorID
     end,
     case do_delete_authenticators(MatchFun, Chain) of
-        [] -> {error, {not_found, {authenticator, AuthenticatorID}}};
+        [] ->
+            {error, {not_found, {authenticator, AuthenticatorID}}};
         [AuthenticatorID] ->
             emqx_plugin_libs_metrics:clear_metrics(authn_metrics, AuthenticatorID),
             ok
@@ -612,8 +613,12 @@ handle_create_authenticator(Chain, Config, Providers) ->
                         Chain#chain{authenticators = NAuthenticators}
                     ),
 
-                    ok = emqx_plugin_libs_metrics:create_metrics(authn_metrics, AuthenticatorID,
-                                                                 [matched, success, failed, ignore], [matched]),
+                    ok = emqx_plugin_libs_metrics:create_metrics(
+                        authn_metrics,
+                        AuthenticatorID,
+                        [matched, success, failed, ignore],
+                        [matched]
+                    ),
                     {ok, serialize_authenticator(Authenticator)};
                 {error, Reason} ->
                     {error, Reason}
@@ -639,7 +644,8 @@ do_authenticate([#authenticator{id = ID, provider = Provider, state = State} | M
                     emqx_plugin_libs_metrics:inc(authn_metrics, ID, success);
                 {error, _} ->
                     emqx_plugin_libs_metrics:inc(authn_metrics, ID, failed);
-                _ -> ok
+                _ ->
+                    ok
             end,
             {stop, Result}
     catch
