@@ -118,7 +118,7 @@ else
 fi
 
 HOST_SYSTEM="$(./scripts/get-distro.sh)"
-BUILDER_SYSTEM="$(docker run --rm -v "$(pwd)":/emqx "$BUILDER" /emqx/scripts/get-distro.sh)"
+BUILDER_SYSTEM="$(echo "$BUILDER" | awk -F'-' '{print $NF}')"
 
 CMD_RUN="make ${MAKE_TARGET} && ./scripts/pkg-tests.sh ${MAKE_TARGET}"
 
