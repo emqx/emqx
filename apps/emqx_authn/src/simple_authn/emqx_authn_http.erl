@@ -83,7 +83,10 @@ common_fields() ->
         {mechanism, emqx_authn_schema:mechanism(password_based)},
         {backend, emqx_authn_schema:backend(http)},
         {url, fun url/1},
-        {body, hoconsc:mk(map([{fuzzy, term(), binary()}]), #{desc => ?DESC(body)})},
+        {body,
+            hoconsc:mk(map([{fuzzy, term(), binary()}]), #{
+                required => false, desc => ?DESC(body)
+            })},
         {request_timeout, fun request_timeout/1}
     ] ++ emqx_authn_schema:common_fields() ++
         maps:to_list(
@@ -160,7 +163,6 @@ create(
         method := Method,
         url := RawURL,
         headers := Headers,
-        body := Body,
         request_timeout := RequestTimeout
     } = Config
 ) ->
@@ -173,10 +175,7 @@ create(
         base_query_template => emqx_authn_utils:parse_deep(
             cow_qs:parse_qs(to_bin(Query))
         ),
-        headers => Headers,
-        body_template => emqx_authn_utils:parse_deep(
-            maps:to_list(Body)
-        ),
+        body_template => emqx_authn_utils:parse_deep(maps:get(body, Config, #{})),
         request_timeout => RequestTimeout,
         resource_id => ResourceId
     },

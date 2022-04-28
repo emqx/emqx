@@ -102,9 +102,14 @@ authz_http_common_fields() ->
     authz_common_fields(http) ++
         [
             {url, fun url/1},
-            {body, map([{fuzzy, term(), binary()}])},
+            {body,
+                hoconsc:mk(map([{fuzzy, term(), binary()}]), #{
+                    required => false, desc => ?DESC(body)
+                })},
             {request_timeout,
-                mk_duration("Request timeout", #{default => "30s", desc => ?DESC(request_timeout)})}
+                mk_duration("Request timeout", #{
+                    required => false, default => "30s", desc => ?DESC(request_timeout)
+                })}
         ] ++
         maps:to_list(
             maps:without(
