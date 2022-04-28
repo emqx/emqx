@@ -326,9 +326,9 @@ test_authenticator_users(PathPrefix) ->
              } = jiffy:decode(PageData0, [return_maps]);
         ["listeners",'tcp:default'] ->
             #{ <<"metrics">> := #{
-                                  <<"matched">> := 3,
-                                  <<"success">> := 1,
-                                  <<"ignore">> := 2
+                                  <<"matched">> := 1,
+                                  <<"success">> := 0,
+                                  <<"ignore">> := 1
                                  }
              } = jiffy:decode(PageData0, [return_maps])
     end,
@@ -380,9 +380,9 @@ test_authenticator_users(PathPrefix) ->
              } = jiffy:decode(PageData01, [return_maps]);
         ["listeners",'tcp:default'] ->
             #{ <<"metrics">> := #{
-                                  <<"matched">> := 4,
-                                  <<"success">> := 2,
-                                  <<"ignore">> := 2
+                                  <<"matched">> := 2,
+                                  <<"success">> := 1,
+                                  <<"ignore">> := 1
                                  }
              } = jiffy:decode(PageData01, [return_maps])
     end,

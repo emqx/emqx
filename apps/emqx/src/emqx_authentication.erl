@@ -638,8 +638,9 @@ do_authenticate([#authenticator{id = ID, provider = Provider, state = State} | M
                 {ok, _} ->
                     emqx_plugin_libs_metrics:inc(authn_metrics, ID, success);
                 {error, _} ->
-                    emqx_plugin_libs_metrics:inc(authn_metrics, ID, failed)
-             end,
+                    emqx_plugin_libs_metrics:inc(authn_metrics, ID, failed);
+                _ -> ok
+            end,
             {stop, Result}
     catch
         Class:Reason:Stacktrace ->
