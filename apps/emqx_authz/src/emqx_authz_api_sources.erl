@@ -143,7 +143,7 @@ schema("/authorization/sources/:type/status") ->
                 responses =>
                     #{
                         200 => emqx_dashboard_swagger:schema_with_examples(
-                            hoconsc:ref(emqx_authn_schema, "metrics_status_fields_authz"),
+                            hoconsc:ref(emqx_authz_schema, "metrics_status_fields"),
                             status_metrics_example()
                         ),
                         400 => emqx_dashboard_swagger:error_codes(
