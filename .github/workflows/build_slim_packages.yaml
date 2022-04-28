@@ -220,7 +220,7 @@ jobs:
         - emqx-edge
         - emqx
         - emqx-enterprise
-    runs-on: ubuntu-20.04
+    runs-on: aws-amd64
     container: "ghcr.io/iequ1/emqx-schema-validate:0.3.1"
     steps:
     - uses: actions/download-artifact@v2
@@ -233,3 +233,17 @@ jobs:
         cd /LanguageTool
         bash start.sh > /dev/null &
         ./emqx_schema_validate /tmp/${{ matrix.profile }}/lib/emqx_dashboard/priv/www/static/schema.json
+
+  allgood_packaging:
+    runs-on: ubuntu-latest
+    needs:
+      - linux
+      - windows
+      - mac
+    steps:
+    - name: Check if all packging builds succeeded
+      uses: re-actors/alls-green@release/v1
+      with:
+        #allowed-failures:
+        #allowed-skips:
+        jobs: ${{ toJSON(needs) }}

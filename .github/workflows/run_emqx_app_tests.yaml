@@ -14,7 +14,7 @@ on:
   pull_request:
 
 jobs:
-  check_all:
+  run_emqx_app_tests:
     strategy:
       matrix:
         otp:
@@ -30,11 +30,17 @@ jobs:
         arch:
           - amd64
 
-    runs-on: ubuntu-20.04
+    runs-on: aws-amd64
     container: "ghcr.io/emqx/emqx-builder/5.0-10:${{ matrix.elixir}}-${{ matrix.otp }}-${{ matrix.os }}"
+
+    defaults:
+      run:
+        shell: bash
 
     steps:
     - uses: actions/checkout@v2
+      with:
+        fetch-depth: 0
     - name: Get deps git refs for cache
       id: deps-refs
       run: |
@@ -47,6 +53,18 @@ jobs:
         key: ${{ matrix.os }}-${{ matrix.otp }}-${{ matrix.arch }}-${{ steps.deps-refs.outputs.DEP_QUICER_REF }}
     - name: run
       run: |
+        echo "git diff base: $GITHUB_BASE_REF"
+        if [[ "$GITHUB_BASE_REF" =~ [0-9a-f]{8,40} ]]; then
+          # base is a commit sha1
+          compare_base="$GITHUB_BASE_REF"
+        else
+          compare_base="origin/$GITHUB_BASE_REF"
+        fi
+        changed_files="$(git diff --name-only ${compare_base}...HEAD apps/emqx)"
+        if [ "$changed_files" = '' ]; then
+          echo "nothing changed in apps/emqx, ignored."
+          exit 0
+        fi
         make ensure-rebar3
         cp rebar3 apps/emqx/
         cd apps/emqx
@@ -60,3 +78,15 @@ jobs:
       with:
         name: logs
         path: apps/emqx/_build/test/logs
+
+  allgood_emqx_app_tests:
+    runs-on: ubuntu-latest
+    needs:
+      - run_emqx_app_tests
+    steps:
+    - name: Check if all emqx app tests succeeded
+      uses: re-actors/alls-green@release/v1
+      with:
+        #allowed-failures:
+        #allowed-skips:
+        jobs: ${{ toJSON(needs) }}
