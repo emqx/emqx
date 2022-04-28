@@ -30,7 +30,7 @@
 introduced_in() ->
     "5.0.0".
 
--spec lookup_from_all_nodes([node()], binary()) ->
+-spec lookup_from_all_nodes([node()], atom()) ->
     emqx_rpc:erpc_multicall().
-lookup_from_all_nodes(Nodes, ResourceId) ->
-    erpc:multicall(Nodes, emqx_authz_api_sources, lookup_from_local_node, [ResourceId], ?TIMEOUT).
+lookup_from_all_nodes(Nodes, Type) ->
+    erpc:multicall(Nodes, emqx_authz_api_sources, lookup_from_local_node, [Type], ?TIMEOUT).

@@ -188,38 +188,6 @@ t_api(_) ->
     ],
     {ok, 204, _} = request(post, uri(["authorization", "sources"]), ?SOURCE1),
 
-    Snd = fun({_, Val}) -> Val end,
-    LookupVal = fun LookupV(List, RestJson) ->
-        case List of
-            [Name] -> Snd(lists:keyfind(Name, 1, RestJson));
-            [Name | NS] -> LookupV(NS, Snd(lists:keyfind(Name, 1, RestJson)))
-        end
-    end,
-    EqualFun = fun(RList) ->
-        fun({M, V}) ->
-            ?assertEqual(
-                V,
-                LookupVal(
-                    [<<"metrics">>, M],
-                    RList
-                )
-            )
-        end
-    end,
-    AssertFun =
-        fun(ResultJson) ->
-            {ok, RList} = emqx_json:safe_decode(ResultJson),
-            MetricsList = [
-                {<<"failed">>, 0},
-                {<<"matched">>, 0},
-                {<<"rate">>, 0.0},
-                {<<"rate_last5m">>, 0.0},
-                {<<"rate_max">>, 0.0},
-                {<<"success">>, 0}
-            ],
-            lists:map(EqualFun(RList), MetricsList)
-        end,
-
     {ok, 200, Result2} = request(get, uri(["authorization", "sources"]), []),
     Sources = get_sources(Result2),
     ?assertMatch(
@@ -271,7 +239,14 @@ t_api(_) ->
     ),
     {ok, 200, Result4} = request(get, uri(["authorization", "sources", "mongodb"]), []),
     {ok, 200, Status4} = request(get, uri(["authorization", "sources", "mongodb", "status"]), []),
-    AssertFun(Status4),
+    #{
+        <<"metrics">> := #{
+            <<"allow">> := 0,
+            <<"deny">> := 0,
+            <<"matched">> := 0,
+            <<"ignore">> := 0
+        }
+    } = jiffy:decode(Status4, [return_maps]),
     ?assertMatch(
         #{
             <<"type">> := <<"mongodb">>,
@@ -304,8 +279,6 @@ t_api(_) ->
         }
     ),
     {ok, 200, Result5} = request(get, uri(["authorization", "sources", "mongodb"]), []),
-    {ok, 200, Status5} = request(get, uri(["authorization", "sources", "mongodb", "status"]), []),
-    AssertFun(Status5),
     ?assertMatch(
         #{
             <<"type">> := <<"mongodb">>,
@@ -319,6 +292,16 @@ t_api(_) ->
         },
         jsx:decode(Result5)
     ),
+
+    {ok, 200, Status5_1} = request(get, uri(["authorization", "sources", "mongodb", "status"]), []),
+    #{
+        <<"metrics">> := #{
+            <<"allow">> := 0,
+            <<"deny">> := 0,
+            <<"matched">> := 0,
+            <<"ignore">> := 0
+        }
+    } = jiffy:decode(Status5_1, [return_maps]),
 
     #{
         ssl := #{
@@ -367,6 +350,77 @@ t_api(_) ->
     {ok, 200, Result6} = request(get, uri(["authorization", "sources"]), []),
     ?assertEqual([], get_sources(Result6)),
     ?assertEqual([], emqx:get_config([authorization, sources])),
+
+    {ok, 204, _} = request(post, uri(["authorization", "sources"]), ?SOURCE6),
+
+    {ok, Client} = emqtt:start_link(
+        [
+            {username, <<"u_event3">>},
+            {clientid, <<"c_event3">>},
+            {proto_ver, v5},
+            {properties, #{'Session-Expiry-Interval' => 60}}
+        ]
+    ),
+    emqtt:connect(Client),
+    timer:sleep(50),
+
+    emqtt:publish(
+        Client,
+        <<"t1">>,
+        #{'Message-Expiry-Interval' => 60},
+        <<"{\"id\": 1, \"name\": \"ha\"}">>,
+        [{qos, 1}]
+    ),
+
+    {ok, 200, Status5} = request(get, uri(["authorization", "sources", "file", "status"]), []),
+    #{
+        <<"metrics">> := #{
+            <<"allow">> := 1,
+            <<"deny">> := 0,
+            <<"matched">> := 1,
+            <<"ignore">> := 0
+        }
+    } = jiffy:decode(Status5, [return_maps]),
+
+    timer:sleep(50),
+    emqtt:publish(
+        Client,
+        <<"t2">>,
+        #{'Message-Expiry-Interval' => 60},
+        <<"{\"id\": 1, \"name\": \"ha\"}">>,
+        [{qos, 1}]
+    ),
+
+    {ok, 200, Status6} = request(get, uri(["authorization", "sources", "file", "status"]), []),
+    #{
+        <<"metrics">> := #{
+            <<"allow">> := 2,
+            <<"deny">> := 0,
+            <<"matched">> := 2,
+            <<"ignore">> := 0
+        }
+    } = jiffy:decode(Status6, [return_maps]),
+
+    timer:sleep(50),
+    emqtt:publish(
+        Client,
+        <<"t3">>,
+        #{'Message-Expiry-Interval' => 60},
+        <<"{\"id\": 1, \"name\": \"ha\"}">>,
+        [{qos, 1}]
+    ),
+
+    timer:sleep(50),
+    {ok, 200, Status7} = request(get, uri(["authorization", "sources", "file", "status"]), []),
+    #{
+        <<"metrics">> := #{
+            <<"allow">> := 3,
+            <<"deny">> := 0,
+            <<"matched">> := 3,
+            <<"ignore">> := 0
+        }
+    } = jiffy:decode(Status7, [return_maps]),
+
     ok.
 
 t_move_source(_) ->

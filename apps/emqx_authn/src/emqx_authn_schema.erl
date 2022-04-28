@@ -89,41 +89,45 @@ backend(Name) ->
 
 fields("metrics_status_fields") ->
     [
-        {"resource_metrics", mk(ref(?MODULE, "resource_metrics"), #{desc => ?DESC("metrics")})},
-        {"node_resource_metrics",
-            mk(
-                hoconsc:array(ref(?MODULE, "node_resource_metrics")),
-                #{desc => ?DESC("node_metrics")}
-            )},
         {"metrics", mk(ref(?MODULE, "metrics"), #{desc => ?DESC("metrics")})},
         {"node_metrics",
             mk(
                 hoconsc:array(ref(?MODULE, "node_metrics")),
                 #{desc => ?DESC("node_metrics")}
-            )},
-        {"status", mk(cluster_status(), #{desc => ?DESC("status")})},
-        {"node_status",
-            mk(
-                hoconsc:array(ref(?MODULE, "node_status")),
-                #{desc => ?DESC("node_status")}
-            )},
-        {"node_error",
-            mk(
-                hoconsc:array(ref(?MODULE, "node_error")),
-                #{desc => ?DESC("node_error")}
             )}
-    ];
+    ] ++ common_metrics_field();
+fields("metrics_status_fields_authz") ->
+    [
+        {"metrics", mk(ref(?MODULE, "metrics_authz"), #{desc => ?DESC("metrics")})},
+        {"node_metrics",
+            mk(
+                hoconsc:array(ref(?MODULE, "node_metrics_authz")),
+                #{desc => ?DESC("node_metrics")}
+            )}
+    ] ++ common_metrics_field();
 fields("metrics") ->
     [
         {"ignore", mk(integer(), #{desc => ?DESC("failed")})}
     ] ++ common_field();
-fields("resource_metrics") ->
-    common_field();
+fields("metrics_authz") ->
+    [
+        {"matched", mk(integer(), #{desc => ?DESC("matched")})},
+        {"allow", mk(integer(), #{desc => ?DESC("allow")})},
+        {"deny", mk(integer(), #{desc => ?DESC("deny")})},
+        {"ignore", mk(float(), #{desc => ?DESC("ignore")})}
+    ];
 fields("node_metrics") ->
     [
         node_name(),
         {"metrics", mk(ref(?MODULE, "metrics"), #{desc => ?DESC("metrics")})}
     ];
+fields("node_metrics_authz") ->
+    [
+        node_name(),
+        {"metrics", mk(ref(?MODULE, "metrics_authz"), #{desc => ?DESC("metrics")})}
+    ];
+fields("resource_metrics") ->
+    common_field();
 fields("node_resource_metrics") ->
     [
         node_name(),
@@ -148,6 +152,27 @@ common_field() ->
         {"rate", mk(float(), #{desc => ?DESC("rate")})},
         {"rate_max", mk(float(), #{desc => ?DESC("rate_max")})},
         {"rate_last5m", mk(float(), #{desc => ?DESC("rate_last5m")})}
+    ].
+
+common_metrics_field() ->
+    [
+        {"resource_metrics", mk(ref(?MODULE, "resource_metrics"), #{desc => ?DESC("metrics")})},
+        {"node_resource_metrics",
+            mk(
+                hoconsc:array(ref(?MODULE, "node_resource_metrics")),
+                #{desc => ?DESC("node_metrics")}
+            )},
+        {"status", mk(cluster_status(), #{desc => ?DESC("status")})},
+        {"node_status",
+            mk(
+                hoconsc:array(ref(?MODULE, "node_status")),
+                #{desc => ?DESC("node_status")}
+            )},
+        {"node_error",
+            mk(
+                hoconsc:array(ref(?MODULE, "node_error")),
+                #{desc => ?DESC("node_error")}
+            )}
     ].
 
 status() ->

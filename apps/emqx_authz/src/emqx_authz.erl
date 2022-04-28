@@ -171,6 +171,14 @@ do_post_config_update({?CMD_MOVE, _Type, _Where} = Cmd, _Sources) ->
     do_move(Cmd, InitedSources);
 do_post_config_update({?CMD_PREPEND, RawNewSource}, Sources) ->
     InitedNewSource = init_source(get_source_by_type(type(RawNewSource), Sources)),
+    %% create metrics
+    TypeName = type(RawNewSource),
+    ok = emqx_plugin_libs_metrics:create_metrics(
+        authz_metrics,
+        TypeName,
+        [matched, allow, deny, ignore],
+        [matched]
+    ),
     [InitedNewSource] ++ lookup();
 do_post_config_update({?CMD_APPEND, RawNewSource}, Sources) ->
     InitedNewSource = init_source(get_source_by_type(type(RawNewSource), Sources)),
@@ -185,6 +193,8 @@ do_post_config_update({{?CMD_REPLACE, Type}, RawNewSource}, Sources) ->
 do_post_config_update({{?CMD_DELETE, Type}, _RawNewSource}, _Sources) ->
     OldInitedSources = lookup(),
     {OldSource, Front, Rear} = take(Type, OldInitedSources),
+    %% delete metrics
+    ok = emqx_plugin_libs_metrics:clear_metrics(authz_metrics, Type),
     ok = ensure_resource_deleted(OldSource),
     clear_certs(OldSource),
     Front ++ Rear;
@@ -247,6 +257,7 @@ init_sources(Sources) ->
         true -> ?SLOG(info, #{msg => "disabled_sources_ignored", sources => Disabled});
         false -> ok
     end,
+    lists:map(fun init_metrics/1, Sources),
     lists:map(fun init_source/1, Sources).
 
 init_source(#{enable := false} = Source) ->
@@ -254,6 +265,15 @@ init_source(#{enable := false} = Source) ->
 init_source(#{type := Type} = Source) ->
     Module = authz_module(Type),
     Module:init(Source).
+
+init_metrics(Source) ->
+    TypeName = type(Source),
+    ok = emqx_plugin_libs_metrics:create_metrics(
+        authz_metrics,
+        TypeName,
+        [matched, allow, deny, ignore],
+        [matched]
+    ).
 
 %%--------------------------------------------------------------------
 %% AuthZ callbacks
@@ -290,6 +310,7 @@ authorize(
                 ipaddr => IpAddress,
                 topic => Topic
             }),
+            emqx_plugin_libs_metrics:inc(authz_metrics, AuthzSource, allow),
             emqx_metrics:inc(?METRIC_ALLOW),
             {stop, allow};
         {{matched, deny}, AuthzSource} ->
@@ -303,6 +324,7 @@ authorize(
                 ipaddr => IpAddress,
                 topic => Topic
             }),
+            emqx_plugin_libs_metrics:inc(authz_metrics, AuthzSource, deny),
             emqx_metrics:inc(?METRIC_DENY),
             {stop, deny};
         nomatch ->
@@ -332,9 +354,13 @@ do_authorize(
     [Connector = #{type := Type} | Tail]
 ) ->
     Module = authz_module(Type),
+    emqx_plugin_libs_metrics:inc(authz_metrics, Type, matched),
     case Module:authorize(Client, PubSub, Topic, Connector) of
-        nomatch -> do_authorize(Client, PubSub, Topic, Tail);
-        Matched -> {Matched, Type}
+        nomatch ->
+            emqx_plugin_libs_metrics:inc(authz_metrics, Type, ignore),
+            do_authorize(Client, PubSub, Topic, Tail);
+        Matched ->
+            {Matched, Type}
     end.
 
 get_enabled_authzs() ->

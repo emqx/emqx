@@ -143,7 +143,7 @@ schema("/authorization/sources/:type/status") ->
                 responses =>
                     #{
                         200 => emqx_dashboard_swagger:schema_with_examples(
-                            hoconsc:ref(emqx_authn_schema, "metrics_status_fields"),
+                            hoconsc:ref(emqx_authn_schema, "metrics_status_fields_authz"),
                             status_metrics_example()
                         ),
                         400 => emqx_dashboard_swagger:error_codes(
@@ -258,24 +258,7 @@ source(delete, #{bindings := #{type := Type}}) ->
     update_config({?CMD_DELETE, Type}, #{}).
 
 source_status(get, #{bindings := #{type := Type}}) ->
-    BinType = atom_to_binary(Type, utf8),
-    case get_raw_source(BinType) of
-        [] ->
-            {404, #{
-                code => <<"NOT_FOUND">>,
-                message => <<"Not found", BinType/binary>>
-            }};
-        [#{<<"type">> := <<"file">>}] ->
-            {400, #{
-                code => <<"BAD_REQUEST">>,
-                message => <<"Not Support Status">>
-            }};
-        [_] ->
-            case emqx_authz:lookup(Type) of
-                #{annotations := #{id := ResourceId}} -> lookup_from_all_nodes(ResourceId);
-                _ -> {400, #{code => <<"BAD_REQUEST">>, message => <<"Resource Disable">>}}
-            end
-    end.
+    lookup_from_all_nodes(Type).
 
 move_source(Method, #{bindings := #{type := Type} = Bindings} = Req) when
     is_atom(Type)
@@ -321,39 +304,51 @@ move_source(post, #{bindings := #{type := Type}, body := #{<<"position">> := Pos
 %% Internal functions
 %%--------------------------------------------------------------------
 
-lookup_from_local_node(ResourceId) ->
+lookup_from_local_node(Type) ->
     NodeId = node(self()),
-    case emqx_resource:get_instance(ResourceId) of
-        {error, not_found} -> {error, {NodeId, not_found_resource}};
-        {ok, _, #{status := Status, metrics := Metrics}} -> {ok, {NodeId, Status, Metrics}}
+    try emqx_authz:lookup(Type) of
+        #{annotations := #{id := ResourceId}} ->
+            Metrics = emqx_plugin_libs_metrics:get_metrics(authz_metrics, Type),
+            case emqx_resource:get_instance(ResourceId) of
+                {error, not_found} ->
+                    {error, {NodeId, not_found_resource}};
+                {ok, _, #{status := Status, metrics := ResourceMetrics}} ->
+                    {ok, {NodeId, Status, Metrics, ResourceMetrics}}
+            end;
+        _ ->
+            Metrics = emqx_plugin_libs_metrics:get_metrics(authz_metrics, Type),
+            {ok, {NodeId, connected, Metrics, #{}}}
+    catch
+        Reason -> {error, {NodeId, list_to_binary(io_lib:format("~p", [Reason]))}}
     end.
 
-lookup_from_all_nodes(ResourceId) ->
+lookup_from_all_nodes(Type) ->
     Nodes = mria_mnesia:running_nodes(),
-    case is_ok(emqx_authz_proto_v1:lookup_from_all_nodes(Nodes, ResourceId)) of
+    case is_ok(emqx_authz_proto_v1:lookup_from_all_nodes(Nodes, Type)) of
         {ok, ResList} ->
-            {StatusMap, MetricsMap, _} = make_result_map(ResList),
+            {StatusMap, MetricsMap, ResourceMetricsMap, ErrorMap} = make_result_map(ResList),
             AggregateStatus = aggregate_status(maps:values(StatusMap)),
             AggregateMetrics = aggregate_metrics(maps:values(MetricsMap)),
+            AggregateResourceMetrics = aggregate_metrics(maps:values(ResourceMetricsMap)),
             Fun = fun(_, V1) -> restructure_map(V1) end,
             MKMap = fun(Name) -> fun({Key, Val}) -> #{node => Key, Name => Val} end end,
             HelpFun = fun(M, Name) -> lists:map(MKMap(Name), maps:to_list(M)) end,
-            case AggregateStatus of
-                empty_metrics_and_status ->
-                    {400, #{
-                        code => <<"BAD_REQUEST">>,
-                        message => <<"Resource Not Support Status">>
-                    }};
-                _ ->
-                    {200, #{
-                        node_status => HelpFun(StatusMap, status),
-                        node_metrics => HelpFun(maps:map(Fun, MetricsMap), metrics),
-                        status => AggregateStatus,
-                        metrics => restructure_map(AggregateMetrics)
-                    }}
-            end;
+            {200, #{
+                node_resource_metrics => HelpFun(maps:map(Fun, ResourceMetricsMap), metrics),
+                resource_metrics =>
+                    case maps:size(AggregateResourceMetrics) of
+                        0 -> #{};
+                        _ -> restructure_map(AggregateResourceMetrics)
+                    end,
+                node_metrics => HelpFun(maps:map(Fun, MetricsMap), metrics),
+                metrics => restructure_map(AggregateMetrics),
+
+                node_status => HelpFun(StatusMap, status),
+                status => AggregateStatus,
+                node_error => HelpFun(maps:map(Fun, ErrorMap), reason)
+            }};
         {error, ErrL} ->
-            {500, #{
+            {400, #{
                 code => <<"INTERNAL_ERROR">>,
                 message => bin_t(io_lib:format("~p", [ErrL]))
             }}
@@ -371,7 +366,7 @@ aggregate_status(AllStatus) ->
     end.
 
 aggregate_metrics([]) ->
-    empty_metrics_and_status;
+    #{};
 aggregate_metrics([HeadMetrics | AllMetrics]) ->
     CombinerFun =
         fun ComFun(_Key, Val1, Val2) ->
@@ -387,20 +382,34 @@ aggregate_metrics([HeadMetrics | AllMetrics]) ->
 
 make_result_map(ResList) ->
     Fun =
-        fun(Elem, {StatusMap, MetricsMap, ErrorMap}) ->
+        fun(Elem, {StatusMap, MetricsMap, ResourceMetricsMap, ErrorMap}) ->
             case Elem of
-                {ok, {NodeId, Status, Metrics}} ->
+                {ok, {NodeId, Status, Metrics, ResourceMetrics}} ->
                     {
                         maps:put(NodeId, Status, StatusMap),
                         maps:put(NodeId, Metrics, MetricsMap),
+                        maps:put(NodeId, ResourceMetrics, ResourceMetricsMap),
                         ErrorMap
                     };
                 {error, {NodeId, Reason}} ->
-                    {StatusMap, MetricsMap, maps:put(NodeId, Reason, ErrorMap)}
+                    {StatusMap, MetricsMap, ResourceMetricsMap, maps:put(NodeId, Reason, ErrorMap)}
             end
         end,
-    lists:foldl(Fun, {maps:new(), maps:new(), maps:new()}, ResList).
+    lists:foldl(Fun, {maps:new(), maps:new(), maps:new(), maps:new()}, ResList).
 
+restructure_map(#{
+    counters := #{deny := Failed, matched := Match, allow := Succ, ignore := Ignore},
+    rate := #{matched := #{current := Rate, last5m := Rate5m, max := RateMax}}
+}) ->
+    #{
+        matched => Match,
+        allow => Succ,
+        deny => Failed,
+        ignore => Ignore,
+        rate => Rate,
+        rate_last5m => Rate5m,
+        rate_max => RateMax
+    };
 restructure_map(#{
     counters := #{failed := Failed, matched := Match, success := Succ},
     rate := #{matched := #{current := Rate, last5m := Rate5m, max := RateMax}}
