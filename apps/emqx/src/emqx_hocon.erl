@@ -19,8 +19,12 @@
 
 -export([
     format_path/1,
-    check/2
+    check/2,
+    remove_env_meta/1
 ]).
+
+%% FIXME: move this to hoconsc.hrl
+-define(FROM_ENV_VAR(Name, Value), {'$FROM_ENV_VAR', Name, Value}).
 
 %% @doc Format hocon config field path to dot-separated string in iolist format.
 -spec format_path([atom() | string() | binary()]) -> iolist().
@@ -51,7 +55,66 @@ check(SchemaModule, HoconText) ->
             {error, Reason}
     end.
 
+%% @doc remove FROM_ENV_VAR from value
+remove_env_meta(Map) when is_map(Map) ->
+    remove_env_meta(maps:iterator(Map), #{});
+remove_env_meta(Array) when is_list(Array) ->
+    [remove_env_meta(R) || R <- Array];
+remove_env_meta(Value) ->
+    Value.
+
+remove_env_meta(Iter, Map) ->
+    case maps:next(Iter) of
+        {K, ?FROM_ENV_VAR(_Env, Val), I} ->
+            remove_env_meta(I, Map#{K => Val});
+        {K, V, I} when is_binary(V) ->
+            remove_env_meta(I, Map#{K => V});
+        {K, V, I} ->
+            remove_env_meta(I, Map#{K => remove_env_meta(V)});
+        none ->
+            Map
+    end.
+
 %% Ensure iolist()
 iol(B) when is_binary(B) -> B;
 iol(A) when is_atom(A) -> atom_to_binary(A, utf8);
 iol(L) when is_list(L) -> L.
+
+-ifdef(TEST).
+-include_lib("eunit/include/eunit.hrl").
+
+make_keys_test() ->
+    Seq = [
+        {
+            #{<<"k1">> => <<"v1">>},
+            #{<<"k1">> => <<"v1">>}
+        },
+        {
+            #{<<"k1">> => ?FROM_ENV_VAR("V1", <<"v1">>)},
+            #{<<"k1">> => <<"v1">>}
+        },
+        {
+            #{<<"k1">> => #{<<"k2">> => <<"v1">>}},
+            #{<<"k1">> => #{<<"k2">> => <<"v1">>}}
+        },
+        {
+            #{<<"k1">> => #{<<"k2">> => ?FROM_ENV_VAR("V1", <<"v1">>)}},
+            #{<<"k1">> => #{<<"k2">> => <<"v1">>}}
+        },
+        {
+            #{<<"k1">> => #{<<"k2">> => ?FROM_ENV_VAR("V1", <<"v1">>), <<"k3">> => <<"v3">>}},
+            #{<<"k1">> => #{<<"k2">> => <<"v1">>, <<"k3">> => <<"v3">>}}
+        },
+        {
+            #{<<"k1">> => #{<<"k2">> => 1024}},
+            #{<<"k1">> => #{<<"k2">> => 1024}}
+        },
+        {
+            #{<<"k1">> => #{<<"k2">> => ?FROM_ENV_VAR("V1", 1024)}},
+            #{<<"k1">> => #{<<"k2">> => 1024}}
+        }
+    ],
+    lists:foreach(fun({Data, Expect}) -> ?assertEqual(Expect, remove_env_meta(Data)) end, Seq),
+    ok.
+
+-endif.
