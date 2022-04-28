@@ -75,7 +75,13 @@ start_link() ->
     gen_server:start_link({local, ?SERVER}, ?MODULE, [], []).
 
 -spec stop() -> ok.
-stop() -> gen_server:stop(?SERVER).
+stop() ->
+    try
+        gen_server:stop(?SERVER)
+    catch
+        exit:R when R =:= noproc orelse R =:= timeout ->
+            ok
+    end.
 
 -spec register_command(cmd(), {module(), atom()}) -> ok.
 register_command(Cmd, MF) when is_atom(Cmd) ->
