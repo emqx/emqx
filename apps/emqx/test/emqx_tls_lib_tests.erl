@@ -115,7 +115,14 @@ ssl_files_failure_test_() ->
                 ok = file:write_file(TmpFile, <<"not a valid pem">>),
                 ?assertMatch(
                     {error, #{file_read := not_pem}},
-                    emqx_tls_lib:ensure_ssl_files("/tmp", #{<<"cacertfile">> => bin(TmpFile)})
+                    emqx_tls_lib:ensure_ssl_files(
+                        "/tmp",
+                        #{
+                            <<"cacertfile">> => bin(TmpFile),
+                            <<"keyfile">> => bin(TmpFile),
+                            <<"certfile">> => bin(TmpFile)
+                        }
+                    )
                 )
             after
                 file:delete(TmpFile)
@@ -124,7 +131,12 @@ ssl_files_failure_test_() ->
     ].
 
 ssl_files_save_delete_test() ->
-    SSL0 = #{<<"keyfile">> => bin(test_key())},
+    Key = bin(test_key()),
+    SSL0 = #{
+        <<"keyfile">> => Key,
+        <<"certfile">> => Key,
+        <<"cacertfile">> => Key
+    },
     Dir = filename:join(["/tmp", "ssl-test-dir"]),
     {ok, SSL} = emqx_tls_lib:ensure_ssl_files(Dir, SSL0),
     File = maps:get(<<"keyfile">>, SSL),
@@ -148,7 +160,11 @@ ssl_files_handle_non_generated_file_test() ->
     KeyFileContent = bin(test_key()),
     ok = file:write_file(TmpKeyFile, KeyFileContent),
     ?assert(filelib:is_regular(TmpKeyFile)),
-    SSL0 = #{<<"keyfile">> => TmpKeyFile},
+    SSL0 = #{
+        <<"keyfile">> => TmpKeyFile,
+        <<"certfile">> => TmpKeyFile,
+        <<"cacertfile">> => TmpKeyFile
+    },
     Dir = filename:join(["/tmp", "ssl-test-dir-00"]),
     {ok, SSL2} = emqx_tls_lib:ensure_ssl_files(Dir, SSL0),
     File1 = maps:get(<<"keyfile">>, SSL2),
@@ -160,8 +176,18 @@ ssl_files_handle_non_generated_file_test() ->
     ?assertEqual({ok, KeyFileContent}, file:read_file(TmpKeyFile)).
 
 ssl_file_replace_test() ->
-    SSL0 = #{<<"keyfile">> => bin(test_key())},
-    SSL1 = #{<<"keyfile">> => bin(test_key2())},
+    Key1 = bin(test_key()),
+    Key2 = bin(test_key2()),
+    SSL0 = #{
+        <<"keyfile">> => Key1,
+        <<"certfile">> => Key1,
+        <<"cacertfile">> => Key1
+    },
+    SSL1 = #{
+        <<"keyfile">> => Key2,
+        <<"certfile">> => Key2,
+        <<"cacertfile">> => Key2
+    },
     Dir = filename:join(["/tmp", "ssl-test-dir2"]),
     {ok, SSL2} = emqx_tls_lib:ensure_ssl_files(Dir, SSL0),
     {ok, SSL3} = emqx_tls_lib:ensure_ssl_files(Dir, SSL1),

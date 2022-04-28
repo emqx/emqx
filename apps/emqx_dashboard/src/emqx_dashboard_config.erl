@@ -15,6 +15,7 @@
 %%--------------------------------------------------------------------
 -module(emqx_dashboard_config).
 
+-include_lib("emqx/include/logger.hrl").
 -behaviour(emqx_config_handler).
 
 %% API
@@ -65,7 +66,7 @@ remove_handler() ->
 pre_config_update(_Path, UpdateConf0, RawConf) ->
     UpdateConf = remove_sensitive_data(UpdateConf0),
     NewConf = emqx_map_lib:deep_merge(RawConf, UpdateConf),
-    {ok, NewConf}.
+    ensure_ssl_cert(NewConf).
 
 -define(SENSITIVE_PASSWORD, <<"******">>).
 
@@ -85,20 +86,39 @@ remove_sensitive_data(Conf0) ->
     end.
 
 post_config_update(_, _Req, NewConf, OldConf, _AppEnvs) ->
-    #{listeners := #{http := NewHttp, https := NewHttps}} = NewConf,
-    #{listeners := #{http := OldHttp, https := OldHttps}} = OldConf,
-    _ =
-        case diff_listeners(OldHttp, NewHttp, OldHttps, NewHttps) of
-            identical -> ok;
-            {Stop, Start} -> erlang:send_after(500, ?MODULE, {update_listeners, Stop, Start})
-        end,
+    OldHttp = get_listener(http, OldConf),
+    OldHttps = get_listener(https, OldConf),
+    NewHttp = get_listener(http, NewConf),
+    NewHttps = get_listener(https, NewConf),
+    {StopHttp, StartHttp} = diff_listeners(http, OldHttp, NewHttp),
+    {StopHttps, StartHttps} = diff_listeners(https, OldHttps, NewHttps),
+    Stop = maps:merge(StopHttp, StopHttps),
+    Start = maps:merge(StartHttp, StartHttps),
+    ?SLOG(error, Stop#{action => stop}),
+    ?SLOG(error, Start#{acton => start}),
+    _ = erlang:send_after(500, ?MODULE, {update_listeners, Stop, Start}),
     ok.
 
-diff_listeners(Http, Http, Https, Https) ->
-    identical;
-diff_listeners(OldHttp, NewHttp, Https, Https) ->
-    {#{http => OldHttp}, #{http => NewHttp}};
-diff_listeners(Http, Http, OldHttps, NewHttps) ->
-    {#{https => OldHttps}, #{https => NewHttps}};
-diff_listeners(OldHttp, NewHttp, OldHttps, NewHttps) ->
-    {#{http => OldHttp, https => OldHttps}, #{http => NewHttp, https => NewHttps}}.
+get_listener(Type, Conf) ->
+    emqx_map_lib:deep_get([listeners, Type], Conf, undefined).
+
+diff_listeners(_, Listener, Listener) -> {#{}, #{}};
+diff_listeners(Type, undefined, Start) -> {#{}, #{Type => Start}};
+diff_listeners(Type, Stop, undefined) -> {#{Type => Stop}, #{}};
+diff_listeners(Type, Stop, Start) -> {#{Type => Stop}, #{Type => Start}}.
+
+-define(DIR, <<"dashboard">>).
+
+ensure_ssl_cert(#{<<"listeners">> := #{<<"https">> := #{<<"enable">> := true}}} = Conf) ->
+    Https = emqx_map_lib:deep_get([<<"listeners">>, <<"https">>], Conf, undefined),
+    case emqx_tls_lib:ensure_ssl_files(?DIR, Https) of
+        {ok, undefined} ->
+            {error, <<"ssl_cert_not_found">>};
+        {ok, NewHttps} ->
+            {ok, emqx_map_lib:deep_merge(Conf, #{<<"listeners">> => #{<<"https">> => NewHttps}})};
+        {error, Reason} ->
+            ?SLOG(error, Reason#{msg => "bad_ssl_config"}),
+            {error, Reason}
+    end;
+ensure_ssl_cert(Conf) ->
+    {ok, Conf}.

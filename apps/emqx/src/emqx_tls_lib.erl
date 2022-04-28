@@ -285,12 +285,19 @@ ensure_ssl_files(_Dir, #{<<"enable">> := False} = Opts, _DryRun) when ?IS_FALSE(
 ensure_ssl_files(_Dir, #{enable := False} = Opts, _DryRun) when ?IS_FALSE(False) ->
     {ok, Opts};
 ensure_ssl_files(Dir, Opts, DryRun) ->
-    ensure_ssl_files(Dir, Opts, ?SSL_FILE_OPT_NAMES ++ ?SSL_FILE_OPT_NAMES_A, DryRun).
+    case ensure_ssl_files(Dir, Opts, ?SSL_FILE_OPT_NAMES_A, DryRun) of
+        {ok, NewOpts} ->
+            {ok, NewOpts};
+        {error, #{reason := file_path_or_pem_string_not_found}} ->
+            ensure_ssl_files(Dir, Opts, ?SSL_FILE_OPT_NAMES, DryRun);
+        {error, Reason} ->
+            {error, Reason}
+    end.
 
 ensure_ssl_files(_Dir, Opts, [], _DryRun) ->
     {ok, Opts};
 ensure_ssl_files(Dir, Opts, [Key | Keys], DryRun) ->
-    case ensure_ssl_file(Dir, Key, Opts, maps:get(Key, Opts, undefined), DryRun) of
+    case ensure_ssl_file(Dir, Key, Opts, maps:find(Key, Opts), DryRun) of
         {ok, NewOpts} ->
             ensure_ssl_files(Dir, NewOpts, Keys, DryRun);
         {error, Reason} ->
@@ -329,9 +336,9 @@ delete_old_file(_New, Old) ->
             ?SLOG(error, #{msg => "failed_to_delete_ssl_file", file_path => Old, reason => Reason})
     end.
 
-ensure_ssl_file(_Dir, _Key, Opts, undefined, _DryRun) ->
-    {ok, Opts};
-ensure_ssl_file(Dir, Key, Opts, MaybePem, DryRun) ->
+ensure_ssl_file(_Dir, _Key, _Opts, error, _DryRun) ->
+    {error, #{reason => file_path_or_pem_string_not_found}};
+ensure_ssl_file(Dir, Key, Opts, {ok, MaybePem}, DryRun) ->
     case is_valid_string(MaybePem) of
         true ->
             do_ensure_ssl_file(Dir, Key, Opts, MaybePem, DryRun);
