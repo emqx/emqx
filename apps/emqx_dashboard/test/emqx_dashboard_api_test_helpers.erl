@@ -37,6 +37,7 @@ set_default_config(DefaultUsername) ->
     Config = #{
         listeners => #{
             http => #{
+                enable => true,
                 port => 18083
             }
         },
