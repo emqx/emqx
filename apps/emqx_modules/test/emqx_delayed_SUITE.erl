@@ -55,13 +55,26 @@ end_per_testcase(_Case, _Config) ->
 %% Test cases
 %%--------------------------------------------------------------------
 
-t_load_case(_) ->
+t_enable_disable_case(_) ->
+    emqx_delayed:disable(),
     Hooks = emqx_hooks:lookup('message.publish'),
     MFA = {emqx_delayed, on_message_publish, []},
     ?assertEqual(false, lists:keyfind(MFA, 2, Hooks)),
+
     ok = emqx_delayed:enable(),
     Hooks1 = emqx_hooks:lookup('message.publish'),
     ?assertNotEqual(false, lists:keyfind(MFA, 2, Hooks1)),
+
+    Ts0 = integer_to_binary(erlang:system_time(second) + 10),
+    DelayedMsg0 = emqx_message:make(
+        ?MODULE, 1, <<"$delayed/", Ts0/binary, "/publish">>, <<"delayed_abs">>
+    ),
+    _ = on_message_publish(DelayedMsg0),
+    ?assertMatch(#{data := Datas} when Datas =/= [], emqx_delayed:list(#{})),
+
+    emqx_delayed:disable(),
+    ?assertEqual(false, lists:keyfind(MFA, 2, Hooks)),
+    ?assertMatch(#{data := []}, emqx_delayed:list(#{})),
     ok.
 
 t_delayed_message(_) ->
@@ -76,7 +89,7 @@ t_delayed_message(_) ->
 
     [#delayed_message{msg = #message{payload = Payload}}] = ets:tab2list(emqx_delayed),
     ?assertEqual(<<"delayed_m">>, Payload),
-    ct:sleep(2000),
+    ct:sleep(2500),
 
     EmptyKey = mnesia:dirty_all_keys(emqx_delayed),
     ?assertEqual([], EmptyKey).
