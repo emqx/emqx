@@ -75,7 +75,13 @@ start_link() ->
     gen_server:start_link({local, ?SERVER}, ?MODULE, [], []).
 
 -spec stop() -> ok.
-stop() -> gen_server:stop(?SERVER).
+stop() ->
+    try
+        gen_server:stop(?SERVER)
+    catch
+        exit:R when R =:= noproc orelse R =:= timeout ->
+            ok
+    end.
 
 -spec register_command(cmd(), {module(), atom()}) -> ok.
 register_command(Cmd, MF) when is_atom(Cmd) ->
@@ -105,8 +111,9 @@ run_command(help, []) ->
 run_command(Cmd, Args) when is_atom(Cmd) ->
     case lookup_command(Cmd) of
         [{Mod, Fun}] ->
-            try Mod:Fun(Args) of
-                _ -> ok
+            try
+                _ = apply(Mod, Fun, [Args]),
+                ok
             catch
                 _:Reason:Stacktrace ->
                     ?SLOG(error, #{
@@ -141,7 +148,7 @@ help() ->
             lists:foreach(
                 fun({_, {Mod, Cmd}, _}) ->
                     print("~110..-s~n", [""]),
-                    Mod:Cmd(usage)
+                    apply(Mod, Cmd, [usage])
                 end,
                 Cmds
             )

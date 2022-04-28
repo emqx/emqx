@@ -107,9 +107,14 @@ cmd2_fun(["arg1", "arg2"]) -> ok;
 cmd2_fun(["arg1", "badarg"]) -> error(badarg).
 
 with_ctl_server(Fun) ->
+    ok = emqx_ctl:stop(),
     {ok, Pid} = emqx_ctl:start_link(),
-    _ = Fun(Pid),
-    ok = emqx_ctl:stop().
+    try
+        _ = Fun(Pid),
+        ok
+    after
+        ok = emqx_ctl:stop()
+    end.
 
 mock_print() ->
     %% proxy usage/1,2 and print/1,2 to format_xx/1,2 funcs
