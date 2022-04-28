@@ -344,7 +344,7 @@ ensure_connected(
         clientinfo = ClientInfo
     }
 ) ->
-    _ = run_hooks(Ctx, 'client.connack', [ConnInfo, connection_accepted, []]),
+    _ = run_hooks(Ctx, 'client.connack', [ConnInfo, connection_accepted, #{}]),
 
     NConnInfo = ConnInfo#{connected_at => erlang:system_time(millisecond)},
     ok = run_hooks(Ctx, 'client.connected', [ClientInfo, NConnInfo]),
