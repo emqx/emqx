@@ -223,7 +223,7 @@ maybe_publish_to_local_broker(Msg, Vars, Props) ->
             ok;
         _ ->
             _ = emqx_broker:publish(emqx_connector_mqtt_msg:to_broker_msg(Msg, Vars, Props))
-end.
+    end.
 
 format_msg_received(
     #{
