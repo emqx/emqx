@@ -35,10 +35,8 @@ clear_certs(RltvDir, Config) ->
     ok = emqx_tls_lib:delete_ssl_files(RltvDir, undefined, OldSSL).
 
 new_ssl_config(Config, undefined) -> Config;
-new_ssl_config(Config, #{<<"enable">> := _} = SSL) ->
-    Config#{<<"ssl">> => SSL};
-new_ssl_config(Config, #{enable := _} = SSL) ->
-    Config#{ssl => SSL}.
+new_ssl_config(Config, #{<<"enable">> := _} = SSL) -> Config#{<<"ssl">> => SSL};
+new_ssl_config(Config, #{enable := _} = SSL) -> Config#{ssl => SSL}.
 
 drop_invalid_certs(undefined) -> undefined;
 drop_invalid_certs(SSL) -> emqx_tls_lib:drop_invalid_certs(SSL).
