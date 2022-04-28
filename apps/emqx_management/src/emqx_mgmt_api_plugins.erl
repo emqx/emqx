@@ -421,7 +421,7 @@ delete_package(Name) ->
     case emqx_plugins:ensure_stopped(Name) of
         ok ->
             _ = emqx_plugins:ensure_disabled(Name),
-            _ = emqx_plugins:purge(Name),
+            _ = emqx_plugins:ensure_uninstalled(Name),
             _ = emqx_plugins:delete_package(Name);
         Error ->
             Error

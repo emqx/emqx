@@ -127,8 +127,15 @@ ensure_uninstalled(NameVsn) ->
                 hint => "disable_the_plugin_first"
             }};
         _ ->
-            purge(NameVsn)
+            purge(NameVsn),
+            ensure_delete(NameVsn)
     end.
+
+ensure_delete(NameVsn0) ->
+    NameVsn = bin(NameVsn0),
+    List = configured(),
+    put_configured(lists:filter(fun(#{name_vsn := N1}) -> bin(N1) =/= NameVsn end, List)),
+    ok.
 
 %% @doc Ensure a plugin is enabled to the end of the plugins list.
 -spec ensure_enabled(name_vsn()) -> ok | {error, any()}.
