@@ -1,0 +1,16 @@
+{application, emqx_eviction_agent,
+ [{description, "EMQ X Node Evacuation"},
+  {vsn, "4.3.0"},
+  {registered, []},
+  {applications,
+   [kernel,
+    stdlib
+   ]},
+  {mod, {emqx_eviction_agent_app,[]}},
+  {env,[]},
+  {modules, []},
+  {maintainers, ["EMQ X Team <contact@emqx.io>"]},
+  {links, [{"Homepage", "https://emqx.io/"},
+           {"Github", "https://github.com/emqx"}
+          ]}
+ ]}.

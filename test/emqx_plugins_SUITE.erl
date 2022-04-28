@@ -99,8 +99,10 @@ t_ensure_default_loaded_plugins_file(Config) ->
     ?assertEqual(
        [ {emqx_bridge_mqtt, false}
        , {emqx_dashboard, true}
+       , {emqx_eviction_agent, true}
        , {emqx_management, true}
        , {emqx_modules, false}
+       , {emqx_node_rebalance, true}
        , {emqx_recon, true}
        , {emqx_retainer, true}
        , {emqx_rule_engine, true}

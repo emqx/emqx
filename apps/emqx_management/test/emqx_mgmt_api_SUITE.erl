@@ -25,13 +25,12 @@
 -include_lib("emqx/include/emqx_mqtt.hrl").
 -include_lib("emqx_management/include/emqx_mgmt.hrl").
 
--define(CONTENT_TYPE, "application/x-www-form-urlencoded").
-
--define(HOST, "http://127.0.0.1:8081/").
-
--define(API_VERSION, "v4").
-
--define(BASE_PATH, "api").
+-import(emqx_mgmt_api_test_helpers,
+        [request_api/3,
+         request_api/4,
+         request_api/5,
+         auth_header_/0,
+         api_path/1]).
 
 all() ->
     emqx_ct:all(?MODULE).
@@ -656,49 +655,6 @@ t_data_import_content(_) ->
     ?assertMatch({ok, "{\"code\":0}"}, request_api(post, api_path(["data","import"]), [], auth_header_(), Content)),
     application:stop(emqx_rule_engine),
     application:stop(emqx_dashboard).
-
-request_api(Method, Url, Auth) ->
-    request_api(Method, Url, [], Auth, []).
-
-request_api(Method, Url, QueryParams, Auth) ->
-    request_api(Method, Url, QueryParams, Auth, []).
-
-request_api(Method, Url, QueryParams, Auth, []) ->
-    NewUrl = case QueryParams of
-                 "" -> Url;
-                 _ -> Url ++ "?" ++ QueryParams
-             end,
-    do_request_api(Method, {NewUrl, [Auth]});
-request_api(Method, Url, QueryParams, Auth, Body) ->
-    NewUrl = case QueryParams of
-                 "" -> Url;
-                 _ -> Url ++ "?" ++ QueryParams
-             end,
-    do_request_api(Method, {NewUrl, [Auth], "application/json", emqx_json:encode(Body)}).
-
-do_request_api(Method, Request)->
-    ct:pal("Method: ~p, Request: ~p", [Method, Request]),
-    case httpc:request(Method, Request, [], []) of
-        {error, socket_closed_remotely} ->
-            {error, socket_closed_remotely};
-        {ok, {{"HTTP/1.1", Code, _}, _, Return} }
-            when Code =:= 200 orelse Code =:= 201 ->
-            {ok, Return};
-        {ok, {Reason, _, _}} ->
-            {error, Reason}
-    end.
-
-auth_header_() ->
-    AppId = <<"admin">>,
-    AppSecret = <<"public">>,
-    auth_header_(binary_to_list(AppId), binary_to_list(AppSecret)).
-
-auth_header_(User, Pass) ->
-    Encoded = base64:encode_to_string(lists:append([User,":",Pass])),
-    {"Authorization","Basic " ++ Encoded}.
-
-api_path(Parts)->
-    ?HOST ++ filename:join([?BASE_PATH, ?API_VERSION] ++ Parts).
 
 filter(List, Key, Value) ->
     lists:filter(fun(Item) ->

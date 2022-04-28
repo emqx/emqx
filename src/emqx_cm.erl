@@ -22,6 +22,8 @@
 -include("emqx.hrl").
 -include("logger.hrl").
 -include("types.hrl").
+-include_lib("stdlib/include/qlc.hrl").
+-include_lib("stdlib/include/ms_transform.hrl").
 -include_lib("snabbkaffe/include/snabbkaffe.hrl").
 
 -logger_header("[CM]").
@@ -60,7 +62,10 @@
         , lookup_channels/2
         ]).
 
--export([all_channels/0]).
+-export([all_channels/0,
+         all_channel_count/0,
+         all_connection_table/0,
+         all_connection_count/0]).
 
 %% gen_server callbacks
 -export([ init/1
@@ -149,8 +154,11 @@ connection_closed(ClientId) ->
     connection_closed(ClientId, self()).
 
 -spec(connection_closed(emqx_types:clientid(), chan_pid()) -> true).
-connection_closed(ClientId, ChanPid) ->
-    ets:delete_object(?CHAN_CONN_TAB, {ClientId, ChanPid}).
+connection_closed(_ClientId, _ChanPid) ->
+    %% We can't clean CHAN_CONN_TAB because records for dead connections
+    %% are required for `get_chann_conn_mod/1` function, and `get_chann_conn_mod/1`
+    %% is used for takeover.
+    true.
 
 %% @doc Get info of a channel.
 -spec(get_chan_info(emqx_types:clientid()) -> maybe(emqx_types:infos())).
@@ -425,6 +433,30 @@ all_channels() ->
     Pat = [{{'_', '$1'}, [], ['$1']}],
     ets:select(?CHAN_TAB, Pat).
 
+%% @doc Get all channel count
+all_channel_count() ->
+    ets:info(?CHAN_TAB, size).
+
+%% @doc Get all local connection query handle
+all_connection_table() ->
+    Ms = ets:fun2ms(
+           fun({{ClientId, ChanPid}, _}) ->
+                   {ClientId, ChanPid}
+           end),
+    Table = ets:table(?CHAN_CONN_TAB, [{traverse, {select, Ms}}]),
+    qlc:q([{ClientId, ChanPid} || {ClientId, ChanPid} <- Table, is_channel_connected(ClientId, ChanPid)]).
+
+%% @doc Get all local connection count
+all_connection_count() ->
+    qlc:fold(fun(_, Acc) -> Acc + 1 end, 0, all_connection_table()).
+
+is_channel_connected(ClientId, ChanPid) when node(ChanPid) =:= node() ->
+    case get_chan_info(ClientId, ChanPid) of
+        #{conn_state := connected} -> true;
+        _ -> false
+    end;
+is_channel_connected(_ClientId, _ChanPid) -> false.
+
 %% @doc Lookup channels.
 -spec(lookup_channels(emqx_types:clientid()) -> list(chan_pid())).
 lookup_channels(ClientId) ->
@@ -523,4 +555,3 @@ get_chann_conn_mod(ClientId, ChanPid) when node(ChanPid) == node() ->
     end;
 get_chann_conn_mod(ClientId, ChanPid) ->
     rpc_call(node(ChanPid), get_chann_conn_mod, [ClientId, ChanPid], ?T_GET_INFO).
-

@@ -1,0 +1,17 @@
+{application, emqx_node_rebalance,
+ [{description, "EMQ X Node Eviction Agent"},
+  {vsn, "4.3.0"},
+  {registered, []},
+  {applications,
+   [kernel,
+    stdlib,
+    emqx_eviction_agent
+   ]},
+  {mod, {emqx_node_rebalance_app,[]}},
+  {env,[]},
+  {modules, []},
+  {maintainers, ["EMQ X Team <contact@emqx.io>"]},
+  {links, [{"Homepage", "https://emqx.io/"},
+           {"Github", "https://github.com/emqx"}
+          ]}
+ ]}.
