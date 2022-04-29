@@ -345,13 +345,6 @@ do_set_resource_status_connecting(InstId) ->
 set_resource_status(InstId, Status) ->
     case lookup(InstId) of
         {ok, Group, #{id := _} = Data} ->
-            ?SLOG(
-                error,
-                #{
-                    msg => "health check failed: timeout",
-                    resource_id => InstId
-                }
-            ),
             update_resource(InstId, Group, Data#{status => Status});
         Error ->
             ?SLOG(
