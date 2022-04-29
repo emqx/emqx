@@ -146,7 +146,7 @@ gateway_status(GwName) ->
 
 cluster_gateway_status(GwName) ->
     Nodes = mria_mnesia:running_nodes(),
-    case emqx_gateway_http_proto_v1:get_node_status(Nodes, GwName) of
+    case emqx_gateway_http_proto_v1:get_cluster_status(Nodes, GwName) of
         {Results, []} ->
             Results;
         {_, _BadNodes} ->
