@@ -319,7 +319,7 @@ lookup_from_local_node(Type) ->
             Metrics = emqx_plugin_libs_metrics:get_metrics(authz_metrics, Type),
             {ok, {NodeId, connected, Metrics, #{}}}
     catch
-        Reason -> {error, {NodeId, list_to_binary(io_lib:format("~p", [Reason]))}}
+        _:Reason -> {error, {NodeId, list_to_binary(io_lib:format("~p", [Reason]))}}
     end.
 
 lookup_from_all_nodes(Type) ->
