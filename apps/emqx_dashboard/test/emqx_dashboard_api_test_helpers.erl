@@ -38,7 +38,13 @@ set_default_config(DefaultUsername) ->
         listeners => #{
             http => #{
                 enable => true,
-                port => 18083
+                bind => 18083,
+                inet6 => false,
+                ipv6_v6only => false,
+                max_connections => 512,
+                num_acceptors => 4,
+                send_timeout => 5000,
+                backlog => 512
             }
         },
         default_username => DefaultUsername,
