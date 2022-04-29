@@ -33,7 +33,8 @@
     "exhook {\n"
     "  servers =\n"
     "    [ { name = default,\n"
-    "        url = \"http://127.0.0.1:9000\"\n"
+    "        url = \"http://127.0.0.1:9000\",\n"
+    "        ssl = {\"enable\": false}"
     "      }\n"
     "    ]\n"
     "}\n"
@@ -44,6 +45,7 @@ all() ->
         t_list,
         t_get,
         t_add,
+        t_add_duplicate,
         t_move_front,
         t_move_rear,
         t_move_before,
@@ -181,6 +183,23 @@ t_add(Cfg) ->
 
     ?assertMatch([<<"default">>, <<"test1">>], emqx_exhook_mgr:running()).
 
+t_add_duplicate(Cfg) ->
+    Template = proplists:get_value(template, Cfg),
+    Instance = Template#{
+        name => <<"test1">>,
+        url => "http://127.0.0.1:9001"
+    },
+
+    {error, _Reason} = request_api(
+        post,
+        api_path(["exhooks"]),
+        "",
+        auth_header_(),
+        Instance
+    ),
+
+    ?assertMatch([<<"default">>, <<"test1">>], emqx_exhook_mgr:running()).
+
 t_move_front(_) ->
     Result = request_api(
         post,
@@ -263,7 +282,7 @@ t_hooks(_Cfg) ->
 t_update(Cfg) ->
     Template = proplists:get_value(template, Cfg),
     Instance = Template#{enable => false},
-    {ok, <<>>} = request_api(
+    {ok, <<"{\"", _/binary>>} = request_api(
         put,
         api_path(["exhooks", "default"]),
         "",

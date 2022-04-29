@@ -178,10 +178,12 @@ t_error_update_conf(_) ->
         <<"url">> => <<"http://127.0.0.1:9001">>,
         <<"enable">> => false
     },
-    {ok, _} = emqx_exhook_mgr:update_config(Path, {add, DisableAnd}),
+    {ok, _} = emqx_exhook_mgr:update_config(Path, {update, Name, DisableAnd}),
 
     {ok, _} = emqx_exhook_mgr:update_config(Path, {delete, <<"error">>}),
-    {ok, _} = emqx_exhook_mgr:update_config(Path, {delete, <<"delete_not_exists">>}),
+    {error, not_found} = emqx_exhook_mgr:update_config(
+        Path, {delete, <<"delete_not_exists">>}
+    ),
     ok.
 
 t_error_server_info(_) ->
