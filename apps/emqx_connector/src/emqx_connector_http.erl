@@ -29,7 +29,7 @@
     on_start/2,
     on_stop/2,
     on_query/4,
-    on_health_check/2
+    on_get_status/2
 ]).
 
 -type url() :: emqx_http_lib:uri_map().
@@ -306,13 +306,21 @@ on_query(
     end,
     Result.
 
-on_health_check(_InstId, #{host := Host, port := Port, connect_timeout := Timeout} = State) ->
-    case do_health_check(Host, Port, Timeout) of
-        ok -> {ok, State};
-        {error, Reason} -> {error, {http_health_check_failed, Reason}, State}
+on_get_status(_InstId, #{host := Host, port := Port, connect_timeout := Timeout}) ->
+    case do_get_status(Host, Port, Timeout) of
+        ok ->
+            connected;
+        {error, Reason} ->
+            ?SLOG(error, #{
+                msg => "http_connector_get_status_failed",
+                reason => Reason,
+                host => Host,
+                port => Port
+            }),
+            disconnected
     end.
 
-do_health_check(Host, Port, Timeout) ->
+do_get_status(Host, Port, Timeout) ->
     case gen_tcp:connect(Host, Port, emqx_misc:ipv6_probe([]), Timeout) of
         {ok, Sock} ->
             gen_tcp:close(Sock),

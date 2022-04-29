@@ -28,7 +28,7 @@
     on_start/2,
     on_stop/2,
     on_query/4,
-    on_health_check/2
+    on_get_status/2
 ]).
 
 %% ecpool callback
@@ -222,21 +222,21 @@ on_query(
             Result
     end.
 
--dialyzer({nowarn_function, [on_health_check/2]}).
-on_health_check(InstId, #{poolname := PoolName} = State) ->
+-dialyzer({nowarn_function, [on_get_status/2]}).
+on_get_status(InstId, #{poolname := PoolName} = _State) ->
     case health_check(PoolName) of
         true ->
             ?tp(debug, emqx_connector_mongo_health_check, #{
                 instance_id => InstId,
                 status => ok
             }),
-            {ok, State};
+            connected;
         false ->
             ?tp(warning, emqx_connector_mongo_health_check, #{
                 instance_id => InstId,
                 status => failed
             }),
-            {error, health_check_failed, State}
+            disconnected
     end.
 
 health_check(PoolName) ->
@@ -253,7 +253,7 @@ check_worker_health(Worker) ->
             try do_test_query(Conn) of
                 {error, Reason} ->
                     ?SLOG(warning, #{
-                        msg => "mongo_connection_health_check_error",
+                        msg => "mongo_connection_get_status_error",
                         worker => Worker,
                         reason => Reason
                     }),
@@ -263,7 +263,7 @@ check_worker_health(Worker) ->
             catch
                 Class:Error ->
                     ?SLOG(warning, #{
-                        msg => "mongo_connection_health_check_exception",
+                        msg => "mongo_connection_get_status_exception",
                         worker => Worker,
                         class => Class,
                         error => Error
@@ -272,7 +272,7 @@ check_worker_health(Worker) ->
             end;
         _ ->
             ?SLOG(warning, #{
-                msg => "mongo_connection_health_check_error",
+                msg => "mongo_connection_get_status_error",
                 worker => Worker,
                 reason => worker_not_found
             }),

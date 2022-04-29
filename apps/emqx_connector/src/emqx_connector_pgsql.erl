@@ -30,7 +30,7 @@
     on_start/2,
     on_stop/2,
     on_query/4,
-    on_health_check/2
+    on_get_status/2
 ]).
 
 -export([connect/1]).
@@ -40,7 +40,7 @@
     prepared_query/3
 ]).
 
--export([do_health_check/1]).
+-export([do_get_status/1]).
 
 -define(PGSQL_HOST_OPTIONS, #{
     host_type => inet_addr,
@@ -105,7 +105,7 @@ on_start(
     ],
     PoolName = emqx_plugin_libs_pool:pool_name(InstId),
     case emqx_plugin_libs_pool:start_pool(PoolName, ?MODULE, Options ++ SslOpts) of
-        ok -> {ok, #{poolname => PoolName}};
+        ok -> {ok, #{poolname => PoolName, auto_reconnect => AutoReconn}};
         {error, Reason} -> {error, Reason}
     end.
 
@@ -139,10 +139,10 @@ on_query(InstId, {Type, NameOrSQL, Params}, AfterQuery, #{poolname := PoolName} 
     end,
     Result.
 
-on_health_check(_InstId, #{poolname := PoolName} = State) ->
-    emqx_plugin_libs_pool:health_check(PoolName, fun ?MODULE:do_health_check/1, State).
+on_get_status(_InstId, #{poolname := PoolName, auto_reconnect := AutoReconn}) ->
+    emqx_plugin_libs_pool:get_status(PoolName, fun ?MODULE:do_get_status/1, AutoReconn).
 
-do_health_check(Conn) ->
+do_get_status(Conn) ->
     ok == element(1, epgsql:squery(Conn, "SELECT count(1) AS T")).
 
 %% ===================================================================

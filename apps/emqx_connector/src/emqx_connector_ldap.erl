@@ -28,10 +28,8 @@
     on_start/2,
     on_stop/2,
     on_query/4,
-    on_health_check/2
+    on_get_status/2
 ]).
-
--export([do_health_check/1]).
 
 -export([connect/1]).
 
@@ -90,7 +88,7 @@ on_start(
     ],
     PoolName = emqx_plugin_libs_pool:pool_name(InstId),
     case emqx_plugin_libs_pool:start_pool(PoolName, ?MODULE, Opts ++ SslOpts) of
-        ok -> {ok, #{poolname => PoolName}};
+        ok -> {ok, #{poolname => PoolName, auto_reconnect => AutoReconn}};
         {error, Reason} -> {error, Reason}
     end.
 
@@ -128,11 +126,7 @@ on_query(InstId, {search, Base, Filter, Attributes}, AfterQuery, #{poolname := P
     end,
     Result.
 
-on_health_check(_InstId, #{poolname := PoolName} = State) ->
-    emqx_plugin_libs_pool:health_check(PoolName, fun ?MODULE:do_health_check/1, State).
-
-do_health_check(_Conn) ->
-    {ok, true}.
+on_get_status(_InstId, _State) -> connected.
 
 reconn_interval(true) -> 15;
 reconn_interval(false) -> false.

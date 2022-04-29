@@ -110,7 +110,7 @@
 
 -optional_callbacks([
     on_query/4,
-    on_health_check/2
+    on_get_status/2
 ]).
 
 %% when calling emqx_resource:start/1
@@ -124,8 +124,9 @@
 -callback on_query(instance_id(), Request :: term(), after_query(), resource_state()) -> term().
 
 %% when calling emqx_resource:health_check/2
--callback on_health_check(instance_id(), resource_state()) ->
-    {ok, resource_state()} | {error, Reason :: term(), resource_state()}.
+-callback on_get_status(instance_id(), resource_state()) ->
+    resource_connection_status()
+    | {resource_connection_status(), resource_state()}.
 
 -spec list_types() -> [module()].
 list_types() ->
@@ -314,11 +315,10 @@ call_start(InstId, Mod, Config) ->
     ?SAFE_CALL(Mod:on_start(InstId, Config)).
 
 -spec call_health_check(instance_id(), module(), resource_state()) ->
-    {ok, resource_state()}
-    | {error, Reason :: term()}
-    | {error, Reason :: term(), resource_state()}.
+    resource_connection_status()
+    | {resource_connection_status(), resource_state()}.
 call_health_check(InstId, Mod, ResourceState) ->
-    ?SAFE_CALL(Mod:on_health_check(InstId, ResourceState)).
+    ?SAFE_CALL(Mod:on_get_status(InstId, ResourceState)).
 
 -spec call_stop(instance_id(), module(), resource_state()) -> term().
 call_stop(InstId, Mod, ResourceState) ->

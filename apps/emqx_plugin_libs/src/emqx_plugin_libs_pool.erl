@@ -20,7 +20,8 @@
     start_pool/3,
     stop_pool/1,
     pool_name/1,
-    health_check/3
+    get_status/2,
+    get_status/3
 ]).
 
 -include_lib("emqx/include/logger.hrl").
@@ -60,7 +61,10 @@ stop_pool(Name) ->
             error({stop_pool_failed, Name, Reason})
     end.
 
-health_check(PoolName, CheckFunc, State) when is_function(CheckFunc) ->
+get_status(PoolName, CheckFunc) ->
+    get_status(PoolName, CheckFunc, false).
+
+get_status(PoolName, CheckFunc, AutoReconn) when is_function(CheckFunc) ->
     Status = [
         begin
             case ecpool_worker:client(Worker) of
@@ -71,6 +75,13 @@ health_check(PoolName, CheckFunc, State) when is_function(CheckFunc) ->
      || {_WorkerName, Worker} <- ecpool:workers(PoolName)
     ],
     case length(Status) > 0 andalso lists:all(fun(St) -> St =:= true end, Status) of
-        true -> {ok, State};
-        false -> {error, health_check_failed, State}
+        true ->
+            connected;
+        false ->
+            case AutoReconn of
+                true ->
+                    connecting;
+                false ->
+                    disconnect
+            end
     end.

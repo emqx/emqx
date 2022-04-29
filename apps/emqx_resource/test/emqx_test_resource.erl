@@ -25,7 +25,7 @@
     on_start/2,
     on_stop/2,
     on_query/4,
-    on_health_check/2
+    on_get_status/2
 ]).
 
 %% callbacks for emqx_resource config schema
@@ -85,13 +85,13 @@ on_query(_InstId, get_state_failed, AfterQuery, State) ->
     emqx_resource:query_failed(AfterQuery),
     State.
 
-on_health_check(_InstId, State = #{health_check_error := true}) ->
-    {error, dead, State};
-on_health_check(_InstId, State = #{pid := Pid}) ->
+on_get_status(_InstId, #{health_check_error := true}) ->
+    disconnected;
+on_get_status(_InstId, #{pid := Pid}) ->
     timer:sleep(300),
     case is_process_alive(Pid) of
-        true -> {ok, State};
-        false -> {error, dead, State}
+        true -> connected;
+        false -> connecting
     end.
 
 spawn_dummy_process(Name, Register) ->

@@ -27,7 +27,7 @@
     on_start/2,
     on_stop/2,
     on_query/4,
-    on_health_check/2
+    on_get_status/2
 ]).
 
 %% ecpool connect & reconnect
@@ -37,7 +37,7 @@
 
 -export([roots/0, fields/1]).
 
--export([do_health_check/1]).
+-export([do_get_status/1]).
 
 -define(MYSQL_HOST_OPTIONS, #{
     host_type => inet_addr,
@@ -98,9 +98,9 @@ on_start(
     ],
     PoolName = emqx_plugin_libs_pool:pool_name(InstId),
     Prepares = maps:get(prepare_statement, Config, #{}),
-    State = init_prepare(#{poolname => PoolName, prepare_statement => Prepares}),
+    State = #{poolname => PoolName, prepare_statement => Prepares, auto_reconnect => AutoReconn},
     case emqx_plugin_libs_pool:start_pool(PoolName, ?MODULE, Options ++ SslOpts) of
-        ok -> {ok, State};
+        ok -> {ok, init_prepare(State)};
         {error, Reason} -> {error, Reason}
     end.
 
@@ -169,27 +169,34 @@ on_query(
 mysql_function(sql) -> query;
 mysql_function(prepared_query) -> execute.
 
-on_health_check(_InstId, #{poolname := PoolName} = State) ->
-    case emqx_plugin_libs_pool:health_check(PoolName, fun ?MODULE:do_health_check/1, State) of
-        {ok, State} ->
-            case do_health_check_prepares(State) of
+on_get_status(_InstId, #{poolname := PoolName, auto_reconnect := AutoReconn} = State) ->
+    case emqx_plugin_libs_pool:get_status(PoolName, fun ?MODULE:do_get_status/1, AutoReconn) of
+        connected ->
+            case do_check_prepares(State) of
                 ok ->
-                    {ok, State};
+                    connected;
                 {ok, NState} ->
-                    {ok, NState};
+                    %% return new state with prepared statements
+                    {connected, NState};
                 {error, _Reason} ->
-                    {error, health_check_failed, State}
+                    %% do not log error, it is logged in prepare_sql_to_conn
+                    case AutoReconn of
+                        true ->
+                            connecting;
+                        false ->
+                            disconnected
+                    end
             end;
-        {error, health_check_failed, State} ->
-            {error, health_check_failed, State}
+        ConnectStatus ->
+            ConnectStatus
     end.
 
-do_health_check(Conn) ->
+do_get_status(Conn) ->
     ok == element(1, mysql:query(Conn, <<"SELECT count(1) AS T">>)).
 
-do_health_check_prepares(#{prepare_statement := Prepares}) when is_map(Prepares) ->
+do_check_prepares(#{prepare_statement := Prepares}) when is_map(Prepares) ->
     ok;
-do_health_check_prepares(State = #{poolname := PoolName, prepare_statement := {error, Prepares}}) ->
+do_check_prepares(State = #{poolname := PoolName, prepare_statement := {error, Prepares}}) ->
     %% retry to prepare
     case prepare_sql(Prepares, PoolName) of
         ok ->

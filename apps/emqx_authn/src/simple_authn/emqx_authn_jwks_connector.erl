@@ -25,7 +25,7 @@
     on_start/2,
     on_stop/2,
     on_query/4,
-    on_health_check/2,
+    on_get_status/2,
     connect/1
 ]).
 
@@ -70,16 +70,15 @@ on_query(_InstId, {update, Opts}, AfterQuery, #{pool_name := PoolName}) ->
     emqx_resource:query_success(AfterQuery),
     ok.
 
-on_health_check(_InstId, State = #{pool_name := PoolName}) ->
-    emqx_plugin_libs_pool:health_check(
+on_get_status(_InstId, #{pool_name := PoolName}) ->
+    emqx_plugin_libs_pool:get_status(
         PoolName,
         fun(Pid) ->
             case emqx_authn_jwks_client:get_jwks(Pid) of
                 {ok, _} -> true;
                 _ -> false
             end
-        end,
-        State
+        end
     ).
 
 connect(Opts) ->
