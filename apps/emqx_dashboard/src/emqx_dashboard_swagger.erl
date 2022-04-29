@@ -820,11 +820,14 @@ serialize_hocon_error_msg({_Schema, Errors}) ->
 serialize_hocon_error_msg(Error) ->
     iolist_to_binary(io_lib:format("~p", [Error])).
 
-hocon_error({validation_error, #{path := Path} = Error}) ->
+hocon_error({Type, #{path := Path} = Error}) ->
     Error1 = maps:without([path, stacktrace], Error),
-    emqx_logger_jsonfmt:best_effort_json(Error1#{<<"path">> => sub_path(Path)}, []);
-hocon_error({translation_error, #{value_path := Path} = Error}) ->
-    Error1 = maps:without([value_path, stacktrace], Error),
-    emqx_logger_jsonfmt:best_effort_json(Error1#{<<"path">> => sub_path(Path)}, []).
+    emqx_logger_jsonfmt:best_effort_json(
+        Error1#{
+            <<"path">> => sub_path(Path),
+            <<"type">> => Type
+        },
+        []
+    ).
 
 sub_path(Path) -> string:trim(Path, leading, "root.").
