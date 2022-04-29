@@ -245,7 +245,7 @@ t_check_expire(_Config) ->
     Payload = #{
         <<"username">> => <<"username">>,
         <<"acl">> => #{<<"sub">> => [<<"a/b">>]},
-        <<"exp">> => erlang:system_time(second) + 1
+        <<"exp">> => erlang:system_time(second) + 5
     },
 
     JWT = generate_jws(Payload),
@@ -270,7 +270,7 @@ t_check_expire(_Config) ->
         emqtt:unsubscribe(C, <<"a/b">>)
     ),
 
-    timer:sleep(2000),
+    timer:sleep(6000),
 
     ?assertMatch(
         {ok, #{}, [?RC_NOT_AUTHORIZED]},
