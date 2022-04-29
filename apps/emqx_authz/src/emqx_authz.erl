@@ -257,7 +257,7 @@ init_sources(Sources) ->
         true -> ?SLOG(info, #{msg => "disabled_sources_ignored", sources => Disabled});
         false -> ok
     end,
-    lists:map(fun init_metrics/1, Sources),
+    ok = lists:foreach(fun init_metrics/1, Sources),
     lists:map(fun init_source/1, Sources).
 
 init_source(#{enable := false} = Source) ->

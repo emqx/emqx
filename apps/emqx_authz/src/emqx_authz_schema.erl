@@ -167,7 +167,10 @@ fields("metrics") ->
         {"matched", mk(integer(), #{desc => ?DESC("matched")})},
         {"allow", mk(integer(), #{desc => ?DESC("allow")})},
         {"deny", mk(integer(), #{desc => ?DESC("deny")})},
-        {"ignore", mk(float(), #{desc => ?DESC("ignore")})}
+        {"ignore", mk(float(), #{desc => ?DESC("ignore")})},
+        {"rate", mk(float(), #{desc => ?DESC("rate")})},
+        {"rate_max", mk(float(), #{desc => ?DESC("rate_max")})},
+        {"rate_last5m", mk(float(), #{desc => ?DESC("rate_last5m")})}
     ];
 fields("node_metrics") ->
     [
