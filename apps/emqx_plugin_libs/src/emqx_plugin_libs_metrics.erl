@@ -72,7 +72,7 @@
     rate := #{atom() => rate()}
 }.
 -type handler_name() :: atom().
--type metric_id() :: binary().
+-type metric_id() :: binary() | atom().
 
 -define(CntrRef(Name), {?MODULE, Name}).
 -define(SAMPCOUNT_5M, (?SECS_5M div ?SAMPLING)).

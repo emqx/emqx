@@ -19,6 +19,7 @@
 -include("emqx_authz.hrl").
 -include_lib("hocon/include/hoconsc.hrl").
 -include_lib("emqx_connector/include/emqx_connector.hrl").
+-import(hoconsc, [mk/2, ref/2]).
 
 -reflect_type([
     permission/0,
@@ -134,7 +135,84 @@ fields(jwt) ->
                 default => <<"acl">>,
                 desc => ?DESC(acl_claim_name)
             }}
-        ].
+        ];
+fields("metrics_status_fields") ->
+    [
+        {"resource_metrics", mk(ref(?MODULE, "resource_metrics"), #{desc => ?DESC("metrics")})},
+        {"node_resource_metrics",
+            mk(
+                hoconsc:array(ref(?MODULE, "node_resource_metrics")),
+                #{desc => ?DESC("node_metrics")}
+            )},
+        {"metrics", mk(ref(?MODULE, "metrics"), #{desc => ?DESC("metrics")})},
+        {"node_metrics",
+            mk(
+                hoconsc:array(ref(?MODULE, "node_metrics")),
+                #{desc => ?DESC("node_metrics")}
+            )},
+        {"status", mk(cluster_status(), #{desc => ?DESC("status")})},
+        {"node_status",
+            mk(
+                hoconsc:array(ref(?MODULE, "node_status")),
+                #{desc => ?DESC("node_status")}
+            )},
+        {"node_error",
+            mk(
+                hoconsc:array(ref(?MODULE, "node_error")),
+                #{desc => ?DESC("node_error")}
+            )}
+    ];
+fields("metrics") ->
+    [
+        {"matched", mk(integer(), #{desc => ?DESC("matched")})},
+        {"allow", mk(integer(), #{desc => ?DESC("allow")})},
+        {"deny", mk(integer(), #{desc => ?DESC("deny")})},
+        {"ignore", mk(float(), #{desc => ?DESC("ignore")})},
+        {"rate", mk(float(), #{desc => ?DESC("rate")})},
+        {"rate_max", mk(float(), #{desc => ?DESC("rate_max")})},
+        {"rate_last5m", mk(float(), #{desc => ?DESC("rate_last5m")})}
+    ];
+fields("node_metrics") ->
+    [
+        node_name(),
+        {"metrics", mk(ref(?MODULE, "metrics"), #{desc => ?DESC("metrics")})}
+    ];
+fields("resource_metrics") ->
+    common_field();
+fields("node_resource_metrics") ->
+    [
+        node_name(),
+        {"metrics", mk(ref(?MODULE, "resource_metrics"), #{desc => ?DESC("metrics")})}
+    ];
+fields("node_status") ->
+    [
+        node_name(),
+        {"status", mk(status(), #{desc => ?DESC("node_status")})}
+    ];
+fields("node_error") ->
+    [
+        node_name(),
+        {"error", mk(string(), #{desc => ?DESC("node_error")})}
+    ].
+
+common_field() ->
+    [
+        {"matched", mk(integer(), #{desc => ?DESC("matched")})},
+        {"success", mk(integer(), #{desc => ?DESC("success")})},
+        {"failed", mk(integer(), #{desc => ?DESC("failed")})},
+        {"rate", mk(float(), #{desc => ?DESC("rate")})},
+        {"rate_max", mk(float(), #{desc => ?DESC("rate_max")})},
+        {"rate_last5m", mk(float(), #{desc => ?DESC("rate_last5m")})}
+    ].
+
+status() ->
+    hoconsc:enum([connected, disconnected, connecting]).
+
+cluster_status() ->
+    hoconsc:enum([connected, disconnected, connecting, inconsistent]).
+
+node_name() ->
+    {"node", mk(binary(), #{desc => ?DESC("node"), example => "emqx@127.0.0.1"})}.
 
 desc(?CONF_NS) ->
     ?DESC(?CONF_NS);
