@@ -5,12 +5,6 @@ name: Check emqx app standalone
 ## as an Erlang/Elixir app works standalone
 
 on:
-  push:
-    branches:
-      - '**'
-    tags:
-      - v*
-      - e*
   pull_request:
 
 jobs:
