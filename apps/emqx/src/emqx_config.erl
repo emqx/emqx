@@ -261,10 +261,10 @@ get_default_value([RootName | _] = KeyPath) ->
     end.
 
 -spec get_raw(emqx_map_lib:config_key_path()) -> term().
-get_raw(KeyPath) -> emqx_hocon:remove_env_meta(do_get(?RAW_CONF, KeyPath)).
+get_raw(KeyPath) -> hocon_tconf:remove_env_meta(do_get(?RAW_CONF, KeyPath)).
 
 -spec get_raw(emqx_map_lib:config_key_path(), term()) -> term().
-get_raw(KeyPath, Default) -> emqx_hocon:remove_env_meta(do_get(?RAW_CONF, KeyPath, Default)).
+get_raw(KeyPath, Default) -> hocon_tconf:remove_env_meta(do_get(?RAW_CONF, KeyPath, Default)).
 
 -spec put_raw(map()) -> ok.
 put_raw(Config) ->
