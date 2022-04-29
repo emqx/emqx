@@ -53,9 +53,8 @@
 ]).
 
 -export([
-    bin2hexstr_A_F/1,
-    bin2hexstr_a_f/1,
-    hexstr2bin/1
+    bin_to_hexstr/2,
+    hexstr_to_bin/1
 ]).
 
 -export([clamp/3]).
@@ -304,20 +303,18 @@ index_of(E, I, [E | _]) ->
 index_of(E, I, [_ | L]) ->
     index_of(E, I + 1, L).
 
--spec bin2hexstr_A_F(binary()) -> binary().
-bin2hexstr_A_F(B) when is_binary(B) ->
-    <<<<(int2hexchar(H, upper)), (int2hexchar(L, upper))>> || <<H:4, L:4>> <= B>>.
-
--spec bin2hexstr_a_f(binary()) -> binary().
-bin2hexstr_a_f(B) when is_binary(B) ->
+-spec bin_to_hexstr(binary(), lower | upper) -> binary().
+bin_to_hexstr(B, upper) when is_binary(B) ->
+    <<<<(int2hexchar(H, upper)), (int2hexchar(L, upper))>> || <<H:4, L:4>> <= B>>;
+bin_to_hexstr(B, lower) when is_binary(B) ->
     <<<<(int2hexchar(H, lower)), (int2hexchar(L, lower))>> || <<H:4, L:4>> <= B>>.
 
 int2hexchar(I, _) when I >= 0 andalso I < 10 -> I + $0;
 int2hexchar(I, upper) -> I - 10 + $A;
 int2hexchar(I, lower) -> I - 10 + $a.
 
--spec hexstr2bin(binary()) -> binary().
-hexstr2bin(B) when is_binary(B) ->
+-spec hexstr_to_bin(binary()) -> binary().
+hexstr_to_bin(B) when is_binary(B) ->
     <<<<(hexchar2int(H) * 16 + hexchar2int(L))>> || <<H:8, L:8>> <= B>>.
 
 hexchar2int(I) when I >= $0 andalso I =< $9 -> I - $0;

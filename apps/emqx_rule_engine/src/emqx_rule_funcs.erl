@@ -20,6 +20,8 @@
 -include_lib("emqx/include/emqx.hrl").
 -include_lib("emqx/include/logger.hrl").
 
+-elvis([{elvis_style, god_modules, disable}]).
+
 %% IoT Funcs
 -export([
     msgid/0,
@@ -617,10 +619,10 @@ map(Data) ->
     emqx_plugin_libs_rule:map(Data).
 
 bin2hexstr(Bin) when is_binary(Bin) ->
-    emqx_misc:bin2hexstr_A_F(Bin).
+    emqx_misc:bin_to_hexstr(Bin, upper).
 
 hexstr2bin(Str) when is_binary(Str) ->
-    emqx_misc:hexstr2bin(Str).
+    emqx_misc:hexstr_to_bin(Str).
 
 %%------------------------------------------------------------------------------
 %% NULL Funcs
@@ -885,7 +887,7 @@ sha256(S) when is_binary(S) ->
     hash(sha256, S).
 
 hash(Type, Data) ->
-    emqx_misc:bin2hexstr_a_f(crypto:hash(Type, Data)).
+    emqx_misc:bin_to_hexstr(crypto:hash(Type, Data), lower).
 
 %%------------------------------------------------------------------------------
 %% Data encode and decode Funcs
