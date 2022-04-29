@@ -326,7 +326,9 @@ parse_listener_id(Id) ->
         _:_ -> error({invalid_listener_id, Id})
     end.
 
-is_running(ListenerId, #{<<"bind">> := ListenOn0}) ->
+is_running(ListenerId, #{<<"bind">> := ListenOn}) ->
+    is_running(ListenerId, ListenOn);
+is_running(ListenerId, ListenOn0) ->
     ListenOn = emqx_gateway_utils:parse_listenon(ListenOn0),
     try esockd:listener({ListenerId, ListenOn}) of
         Pid when is_pid(Pid) ->

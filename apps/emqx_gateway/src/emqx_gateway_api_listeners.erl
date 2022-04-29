@@ -58,6 +58,9 @@
     import_users/2
 ]).
 
+%% RPC
+-export([do_listeners_cluster_status/1]).
+
 %%--------------------------------------------------------------------
 %% minirest behaviour callbacks
 %%--------------------------------------------------------------------
@@ -80,7 +83,38 @@ paths() ->
 
 listeners(get, #{bindings := #{name := Name0}}) ->
     with_gateway(Name0, fun(GwName, _) ->
-        {200, emqx_gateway_conf:listeners(GwName)}
+        Listeners = emqx_gateway_conf:listeners(GwName),
+        ListenOns = lists:map(
+            fun(#{id := Id, <<"bind">> := ListenOn}) ->
+                {Id, ListenOn}
+            end,
+            Listeners
+        ),
+
+        ClusterStatus = listeners_cluster_status(ListenOns),
+
+        Result = lists:map(
+            fun(#{id := Id} = Listener) ->
+                Listener#{
+                    node_status =>
+                        lists:foldl(
+                            fun(Info, Acc) ->
+                                case maps:get(Id, Info, undefined) of
+                                    undefined ->
+                                        Acc;
+                                    Status ->
+                                        [Status | Acc]
+                                end
+                            end,
+                            [],
+                            ClusterStatus
+                        )
+                }
+            end,
+            Listeners
+        ),
+
+        {200, Result}
     end);
 listeners(post, #{bindings := #{name := Name0}, body := LConf}) ->
     with_gateway(Name0, fun(GwName, Gateway) ->
@@ -280,7 +314,7 @@ schema("/gateway/:name/listeners") ->
                     ?STANDARD_RESP(
                         #{
                             200 => emqx_dashboard_swagger:schema_with_example(
-                                hoconsc:array(emqx_gateway_api:listener_schema()),
+                                hoconsc:array(listener_node_status_schema()),
                                 examples_listener_list()
                             )
                         }
@@ -553,8 +587,31 @@ params_paging_in_qs() ->
 roots() ->
     [listener].
 
+fields(listener_node_status) ->
+    [{node_status, mk(hoconsc:array(ref(node_status)), #{desc => ?DESC(listener_node_status)})}];
+fields(node_status) ->
+    [
+        {node, mk(node, #{desc => ?DESC(node)})},
+        {running, mk(boolean(), #{desc => ?DESC(running)})}
+    ];
+fields(tcp_listener) ->
+    emqx_gateway_api:fields(tcp_listener) ++ fields(listener_node_status);
+fields(ssl_listener) ->
+    emqx_gateway_api:fields(ssl_listener) ++ fields(listener_node_status);
+fields(udp_listener) ->
+    emqx_gateway_api:fields(udp_listener) ++ fields(listener_node_status);
+fields(dtls_listener) ->
+    emqx_gateway_api:fields(dtls_listener) ++ fields(listener_node_status);
 fields(_) ->
     [].
+
+listener_node_status_schema() ->
+    hoconsc:union([
+        ref(tcp_listener),
+        ref(ssl_listener),
+        ref(udp_listener),
+        ref(dtls_listener)
+    ]).
 
 %%--------------------------------------------------------------------
 %% examples
@@ -587,7 +644,13 @@ examples_listener() ->
                                 high_watermark => <<"1MB">>,
                                 nodelay => false,
                                 reuseaddr => true
+                            },
+                        node_status => [
+                            #{
+                                node => <<"node@127.0.0.1">>,
+                                running => true
                             }
+                        ]
                     }
             },
         ssl_listener =>
@@ -620,7 +683,13 @@ examples_listener() ->
                             #{
                                 active_n => 100,
                                 backlog => 1024
+                            },
+                        node_status => [
+                            #{
+                                node => <<"node@127.0.0.1">>,
+                                running => true
                             }
+                        ]
                     }
             },
         udp_listener =>
@@ -639,7 +708,13 @@ examples_listener() ->
                                 buffer => <<"10KB">>,
                                 reuseaddr => true
                             }
+                    },
+                node_status => [
+                    #{
+                        node => <<"node@127.0.0.1">>,
+                        running => true
                     }
+                ]
             },
         dtls_listener =>
             #{
@@ -666,7 +741,13 @@ examples_listener() ->
                             #{
                                 active_n => 100,
                                 backlog => 1024
+                            },
+                        node_status => [
+                            #{
+                                node => <<"node@127.0.0.1">>,
+                                running => true
                             }
+                        ]
                     }
             },
         dtls_listener_with_psk_ciphers =>
@@ -694,7 +775,13 @@ examples_listener() ->
                                         "RSA-PSK-AES128-CBC-SHA256,RSA-PSK-AES256-CBC-SHA,RSA-PSK-AES128-CBC-SHA"
                                     >>,
                                 fail_if_no_peer_cert => false
+                            },
+                        node_status => [
+                            #{
+                                node => <<"node@127.0.0.1">>,
+                                running => true
                             }
+                        ]
                     }
             },
         lisetner_with_authn =>
@@ -715,7 +802,36 @@ examples_listener() ->
                                 password_hash_algorithm =>
                                     #{name => <<"sha256">>},
                                 user_id_type => <<"username">>
+                            },
+                        node_status => [
+                            #{
+                                node => <<"node@127.0.0.1">>,
+                                running => true
                             }
+                        ]
                     }
             }
     }.
+
+listeners_cluster_status(Listeners) ->
+    Nodes = mria_mnesia:running_nodes(),
+    case emqx_gateway_api_listeners_proto_v1:listeners_cluster_status(Nodes, Listeners) of
+        {Results, []} ->
+            Results;
+        {_, _BadNodes} ->
+            error(badrpc)
+    end.
+
+do_listeners_cluster_status(Listeners) ->
+    Node = node(),
+    maps:from_list(
+        lists:map(
+            fun({Id, ListenOn}) ->
+                {Id, #{
+                    node => Node,
+                    running => emqx_gateway_utils:is_running(Id, ListenOn)
+                }}
+            end,
+            Listeners
+        )
+    ).
