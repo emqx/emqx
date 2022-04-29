@@ -30,6 +30,7 @@
 %% SSL files
 -export([
     ensure_ssl_files/2,
+    ensure_ssl_files/3,
     delete_ssl_files/3,
     drop_invalid_certs/1,
     is_valid_pem_file/1,
@@ -275,27 +276,31 @@ drop_tls13(SslOpts0) ->
 %% sub-dir in emqx's data_dir, and replace saved file paths for SSL options.
 -spec ensure_ssl_files(file:name_all(), undefined | map()) ->
     {ok, undefined | map()} | {error, map()}.
-ensure_ssl_files(Dir, Opts) ->
-    ensure_ssl_files(Dir, Opts, _DryRun = false).
+ensure_ssl_files(Dir, SSL) ->
+    ensure_ssl_files(Dir, SSL, #{dry_run => false, required_keys => []}).
 
-ensure_ssl_files(_Dir, undefined, _DryRun) ->
+ensure_ssl_files(_Dir, undefined, _Opts) ->
     {ok, undefined};
-ensure_ssl_files(_Dir, #{<<"enable">> := False} = Opts, _DryRun) when ?IS_FALSE(False) ->
-    {ok, Opts};
-ensure_ssl_files(_Dir, #{enable := False} = Opts, _DryRun) when ?IS_FALSE(False) ->
-    {ok, Opts};
-ensure_ssl_files(Dir, Opts, DryRun) ->
-    case ensure_ssl_file_key(Opts) of
-        {ok, Keys} -> ensure_ssl_files(Dir, Opts, Keys, DryRun);
-        {error, _} = Error -> Error
+ensure_ssl_files(_Dir, #{<<"enable">> := False} = SSL, _Opts) when ?IS_FALSE(False) ->
+    {ok, SSL};
+ensure_ssl_files(_Dir, #{enable := False} = SSL, _Opts) when ?IS_FALSE(False) ->
+    {ok, SSL};
+ensure_ssl_files(Dir, SSL, Opts) ->
+    RequiredKeys = maps:get(required_keys, Opts, []),
+    case ensure_ssl_file_key(SSL, RequiredKeys) of
+        ok ->
+            Keys = ?SSL_FILE_OPT_NAMES ++ ?SSL_FILE_OPT_NAMES,
+            ensure_ssl_files(Dir, SSL, Keys, Opts);
+        {error, _} = Error ->
+            Error
     end.
 
-ensure_ssl_files(_Dir, Opts, [], _DryRun) ->
-    {ok, Opts};
-ensure_ssl_files(Dir, Opts, [Key | Keys], DryRun) ->
-    case ensure_ssl_file(Dir, Key, Opts, maps:get(Key, Opts), DryRun) of
-        {ok, NewOpts} ->
-            ensure_ssl_files(Dir, NewOpts, Keys, DryRun);
+ensure_ssl_files(_Dir, SSL, [], _Opts) ->
+    {ok, SSL};
+ensure_ssl_files(Dir, SSL, [Key | Keys], Opts) ->
+    case ensure_ssl_file(Dir, Key, SSL, maps:get(Key, SSL, undefined), Opts) of
+        {ok, NewSSL} ->
+            ensure_ssl_files(Dir, NewSSL, Keys, Opts);
         {error, Reason} ->
             {error, Reason#{which_options => [Key]}}
     end.
@@ -304,8 +309,8 @@ ensure_ssl_files(Dir, Opts, [Key | Keys], DryRun) ->
 -spec delete_ssl_files(file:name_all(), undefined | map(), undefined | map()) -> ok.
 delete_ssl_files(Dir, NewOpts0, OldOpts0) ->
     DryRun = true,
-    {ok, NewOpts} = ensure_ssl_files(Dir, NewOpts0, DryRun),
-    {ok, OldOpts} = ensure_ssl_files(Dir, OldOpts0, DryRun),
+    {ok, NewOpts} = ensure_ssl_files(Dir, NewOpts0, #{dry_run => DryRun}),
+    {ok, OldOpts} = ensure_ssl_files(Dir, OldOpts0, #{dry_run => DryRun}),
     Get = fun
         (_K, undefined) -> undefined;
         (K, Opts) -> maps:get(K, Opts, undefined)
@@ -332,26 +337,29 @@ delete_old_file(_New, Old) ->
             ?SLOG(error, #{msg => "failed_to_delete_ssl_file", file_path => Old, reason => Reason})
     end.
 
-ensure_ssl_file(Dir, Key, Opts, MaybePem, DryRun) ->
+ensure_ssl_file(_Dir, _Key, SSL, undefined, _Opts) ->
+    {ok, SSL};
+ensure_ssl_file(Dir, Key, SSL, MaybePem, Opts) ->
     case is_valid_string(MaybePem) of
         true ->
-            do_ensure_ssl_file(Dir, Key, Opts, MaybePem, DryRun);
+            DryRun = maps:get(dry_run, Opts, false),
+            do_ensure_ssl_file(Dir, Key, SSL, MaybePem, DryRun);
         false ->
             {error, #{reason => invalid_file_path_or_pem_string}}
     end.
 
-do_ensure_ssl_file(Dir, Key, Opts, MaybePem, DryRun) ->
+do_ensure_ssl_file(Dir, Key, SSL, MaybePem, DryRun) ->
     case is_pem(MaybePem) of
         true ->
             case save_pem_file(Dir, Key, MaybePem, DryRun) of
-                {ok, Path} -> {ok, Opts#{Key => Path}};
+                {ok, Path} -> {ok, SSL#{Key => Path}};
                 {error, Reason} -> {error, Reason}
             end;
         false ->
             case is_valid_pem_file(MaybePem) of
                 true ->
-                    {ok, Opts};
-                {error, enoent} when DryRun -> {ok, Opts};
+                    {ok, SSL};
+                {error, enoent} when DryRun -> {ok, SSL};
                 {error, Reason} ->
                     {error, #{
                         pem_check => invalid_pem,
@@ -518,22 +526,14 @@ ensure_str(B) when is_binary(B) -> unicode:characters_to_list(B, utf8).
 ensure_bin(B) when is_binary(B) -> B;
 ensure_bin(A) when is_atom(A) -> atom_to_binary(A, utf8).
 
-ensure_ssl_file_key(Opts) ->
-    Filter = fun(Key) -> not maps:is_key(Key, Opts) end,
-    case lists:filter(Filter, ?SSL_FILE_OPT_NAMES) of
-        [] ->
-            {ok, ?SSL_FILE_OPT_NAMES};
-        ?SSL_FILE_OPT_NAMES ->
-            case lists:filter(Filter, ?SSL_FILE_OPT_NAMES_A) of
-                [] -> {ok, ?SSL_FILE_OPT_NAMES_A};
-                Miss2 -> not_found_key_error(Miss2)
-            end;
-        Miss1 ->
-            not_found_key_error(Miss1)
+ensure_ssl_file_key(_SSL, []) ->
+    ok;
+ensure_ssl_file_key(SSL, RequiredKeys) ->
+    Filter = fun(Key) -> not maps:is_key(Key, SSL) end,
+    case lists:filter(Filter, RequiredKeys) of
+        [] -> ok;
+        Miss -> {error, #{reason => ssl_file_option_not_found, which_options => Miss}}
     end.
-
-not_found_key_error(Keys) ->
-    {error, #{reason => ssl_file_option_not_found, which_options => Keys}}.
 
 -if(?OTP_RELEASE > 22).
 -ifdef(TEST).
