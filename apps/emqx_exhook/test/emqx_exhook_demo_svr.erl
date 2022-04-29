@@ -66,9 +66,14 @@ start() ->
     start(?NAME, ?PORT).
 
 start(Name, Port) ->
-    Pid = spawn(fun() -> mgr_main(Name, Port) end),
+    Parent = self(),
+    Pid = spawn(fun() -> mgr_main(Parent, Name, Port) end),
     register(to_atom_name(Name), Pid),
-    {ok, Pid}.
+    receive
+        grpc_server_started -> {ok, Pid}
+    after 2000 ->
+        error({failed_to_start_grpc_server, Port})
+    end.
 
 stop() ->
     stop(?NAME).
@@ -87,7 +92,7 @@ take() ->
 in({FunName, Req}) ->
     to_atom_name(?NAME) ! {in, FunName, Req}.
 
-mgr_main(Name, Port) ->
+mgr_main(Parent, Name, Port) ->
     application:ensure_all_started(grpc),
     Services = #{
         protos => [emqx_exhook_pb],
@@ -95,6 +100,7 @@ mgr_main(Name, Port) ->
     },
     Options = [],
     Svr = grpc:start_server(Name, Port, Services, Options),
+    Parent ! grpc_server_started,
     mgr_loop([Svr, queue:new(), queue:new()]).
 
 mgr_loop([Svr, Q, Takes]) ->
