@@ -375,7 +375,8 @@ pre_config_update(_, {update_gateway, GwName, Conf}, RawConf) ->
         undefined ->
             badres_gateway(not_found, GwName);
         _ ->
-            NConf = maps:without([<<"listeners">>, ?AUTHN_BIN], Conf),
+            Conf1 = maps:without([<<"listeners">>, ?AUTHN_BIN], Conf),
+            NConf = tune_gw_certs(fun convert_certs/2, GwName, Conf1),
             {ok, emqx_map_lib:deep_merge(RawConf, #{GwName => NConf})}
     end;
 pre_config_update(_, {unload_gateway, GwName}, RawConf) ->
@@ -622,6 +623,13 @@ post_config_update(_, _Req, _NewConfig, _OldConfig, _AppEnvs) ->
 %%--------------------------------------------------------------------
 
 tune_gw_certs(Fun, GwName, Conf) ->
+    apply_to_gateway_basic_confs(
+        Fun,
+        GwName,
+        apply_to_listeners(Fun, GwName, Conf)
+    ).
+
+apply_to_listeners(Fun, GwName, Conf) ->
     SubDir = certs_dir(GwName),
     case maps:get(<<"listeners">>, Conf, undefined) of
         undefined ->
@@ -643,6 +651,15 @@ tune_gw_certs(Fun, GwName, Conf) ->
                 Conf
             )
     end.
+
+apply_to_gateway_basic_confs(Fun, <<"exproto">>, Conf) ->
+    SvrDir = filename:join(["exproto", "server"]),
+    HdrDir = filename:join(["exproto", "handler"]),
+    NServerConf = erlang:apply(Fun, [SvrDir, maps:get(<<"server">>, Conf, #{})]),
+    NHandlerConf = erlang:apply(Fun, [HdrDir, maps:get(<<"handler">>, Conf, #{})]),
+    maps:put(<<"handler">>, NHandlerConf, maps:put(<<"server">>, NServerConf, Conf));
+apply_to_gateway_basic_confs(_Fun, _GwName, Conf) ->
+    Conf.
 
 certs_dir(GwName) when is_binary(GwName) ->
     GwName.

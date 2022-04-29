@@ -103,6 +103,7 @@ fields(gateway) ->
 fields(stomp) ->
     [
         {frame, sc(ref(stomp_frame))},
+        {mountpoint, mountpoint()},
         {listeners, sc(ref(tcp_listeners), #{desc => ?DESC(tcp_listeners)})}
     ] ++ gateway_common_options();
 fields(stomp_frame) ->
@@ -177,6 +178,7 @@ fields(mqttsn) ->
                     desc => ?DESC(mqttsn_predefined)
                 }
             )},
+        {mountpoint, mountpoint()},
         {listeners, sc(ref(udp_listeners), #{desc => ?DESC(udp_listeners)})}
     ] ++ gateway_common_options();
 fields(mqttsn_predefined) ->
@@ -235,6 +237,7 @@ fields(coap) ->
                     desc => ?DESC(coap_publish_qos)
                 }
             )},
+        {mountpoint, mountpoint()},
         {listeners,
             sc(
                 ref(udp_listeners),
@@ -302,6 +305,7 @@ fields(lwm2m) ->
                     desc => ?DESC(lwm2m_translators)
                 }
             )},
+        {mountpoint, mountpoint("lwm2m/${endpoint_name}/")},
         {listeners, sc(ref(udp_listeners), #{desc => ?DESC(udp_listeners)})}
     ] ++ gateway_common_options();
 fields(exproto) ->
@@ -322,6 +326,7 @@ fields(exproto) ->
                     desc => ?DESC(exproto_handler)
                 }
             )},
+        {mountpoint, mountpoint()},
         {listeners, sc(ref(tcp_udp_listeners), #{desc => ?DESC(tcp_udp_listeners)})}
     ] ++ gateway_common_options();
 fields(exproto_grpc_server) ->
@@ -592,15 +597,6 @@ gateway_common_options() ->
                     desc => ?DESC(gateway_common_idle_timeout)
                 }
             )},
-        {mountpoint,
-            sc(
-                binary(),
-                #{
-                    default => <<>>,
-                    %% TODO: variable support?
-                    desc => ?DESC(gateway_common_mountpoint)
-                }
-            )},
         {clientinfo_override,
             sc(
                 ref(clientinfo_override),
@@ -608,6 +604,17 @@ gateway_common_options() ->
             )},
         {?EMQX_AUTHENTICATION_CONFIG_ROOT_NAME_ATOM, authentication_schema()}
     ].
+
+mountpoint() ->
+    mountpoint(<<>>).
+mountpoint(Default) ->
+    sc(
+        binary(),
+        #{
+            default => Default,
+            desc => ?DESC(gateway_common_mountpoint)
+        }
+    ).
 
 common_listener_opts() ->
     [

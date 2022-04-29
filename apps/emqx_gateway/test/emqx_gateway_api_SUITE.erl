@@ -25,7 +25,9 @@
         assert_confs/2,
         assert_feilds_apperence/2,
         request/2,
-        request/3
+        request/3,
+        ssl_server_opts/0,
+        ssl_client_opts/0
     ]
 ).
 
@@ -193,6 +195,44 @@ t_gateway_exproto(_) ->
     assert_confs(GwConf, ConfResp),
     %% put
     GwConf2 = emqx_map_lib:deep_merge(GwConf, #{server => #{bind => <<"9200">>}}),
+    {200, _} = request(put, "/gateway/exproto", maps:without([name, listeners], GwConf2)),
+    {200, ConfResp2} = request(get, "/gateway/exproto"),
+    assert_confs(GwConf2, ConfResp2),
+    {204, _} = request(delete, "/gateway/exproto").
+
+t_gateway_exproto_with_ssl(_) ->
+    {200, Gw} = request(get, "/gateway/exproto"),
+    assert_gw_unloaded(Gw),
+
+    SslSvrOpts = ssl_server_opts(),
+    SslCliOpts = ssl_client_opts(),
+    %% post
+    GwConf = #{
+        name => <<"exproto">>,
+        server => #{
+            bind => <<"9100">>,
+            ssl => SslSvrOpts#{
+                enable => true
+            }
+        },
+        handler => #{
+            address => <<"http://127.0.0.1:9001">>,
+            ssl => SslCliOpts#{enable => true}
+        },
+        listeners => [
+            #{name => <<"def">>, type => <<"tcp">>, bind => <<"7993">>}
+        ]
+    },
+    {201, _} = request(post, "/gateway", GwConf),
+    {200, ConfResp} = request(get, "/gateway/exproto"),
+    assert_confs(GwConf, ConfResp),
+    %% put
+    GwConf2 = emqx_map_lib:deep_merge(GwConf, #{
+        server => #{
+            bind => <<"9200">>,
+            ssl => SslCliOpts#{enable => true}
+        }
+    }),
     {200, _} = request(put, "/gateway/exproto", maps:without([name, listeners], GwConf2)),
     {200, ConfResp2} = request(get, "/gateway/exproto"),
     assert_confs(GwConf2, ConfResp2),
