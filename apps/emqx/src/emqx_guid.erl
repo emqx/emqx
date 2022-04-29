@@ -145,10 +145,10 @@ npid() ->
     NPid.
 
 to_hexstr(I) when byte_size(I) =:= 16 ->
-    emqx_misc:bin2hexstr_A_F(I).
+    emqx_misc:bin_to_hexstr(I, upper).
 
 from_hexstr(S) when byte_size(S) =:= 32 ->
-    emqx_misc:hexstr2bin(S).
+    emqx_misc:hexstr_to_bin(S).
 
 to_base62(<<I:128>>) ->
     emqx_base62:encode(I).
