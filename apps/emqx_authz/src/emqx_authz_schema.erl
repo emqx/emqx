@@ -279,7 +279,8 @@ mongo_common_fields() ->
         }},
         {filter, #{
             type => map(),
-            required => true,
+            required => false,
+            default => #{},
             desc => ?DESC(filter)
         }}
     ].
