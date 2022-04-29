@@ -289,7 +289,7 @@ ensure_ssl_files(Dir, SSL, Opts) ->
     RequiredKeys = maps:get(required_keys, Opts, []),
     case ensure_ssl_file_key(SSL, RequiredKeys) of
         ok ->
-            Keys = ?SSL_FILE_OPT_NAMES ++ ?SSL_FILE_OPT_NAMES,
+            Keys = ?SSL_FILE_OPT_NAMES ++ ?SSL_FILE_OPT_NAMES_A,
             ensure_ssl_files(Dir, SSL, Keys, Opts);
         {error, _} = Error ->
             Error
