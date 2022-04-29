@@ -811,17 +811,19 @@ run_fuzzy_filter(E = {_, #{clientinfo := ClientInfo}, _}, [{Key, like, SubStr} |
 %%--------------------------------------------------------------------
 %% format funcs
 
-format_channel_info({_, ClientInfo, ClientStats}) ->
+format_channel_info({_, ClientInfo0, ClientStats}) ->
     Node =
-        case ClientInfo of
+        case ClientInfo0 of
             #{node := N} -> N;
             _ -> node()
         end,
+    ClientInfo1 = emqx_map_lib:deep_remove([conninfo, clientid], ClientInfo0),
+    ClientInfo2 = emqx_map_lib:deep_remove([conninfo, username], ClientInfo1),
     StatsMap = maps:without(
         [memory, next_pkt_id, total_heap_size],
         maps:from_list(ClientStats)
     ),
-    ClientInfoMap0 = maps:fold(fun take_maps_from_inner/3, #{}, ClientInfo),
+    ClientInfoMap0 = maps:fold(fun take_maps_from_inner/3, #{}, ClientInfo2),
     {IpAddress, Port} = peername_dispart(maps:get(peername, ClientInfoMap0)),
     Connected = maps:get(conn_state, ClientInfoMap0) =:= connected,
     ClientInfoMap1 = maps:merge(StatsMap, ClientInfoMap0),
@@ -829,6 +831,7 @@ format_channel_info({_, ClientInfo, ClientStats}) ->
     ClientInfoMap3 = maps:put(ip_address, IpAddress, ClientInfoMap2),
     ClientInfoMap4 = maps:put(port, Port, ClientInfoMap3),
     ClientInfoMap = maps:put(connected, Connected, ClientInfoMap4),
+
     RemoveList =
         [
             auth_result,
