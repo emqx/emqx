@@ -268,7 +268,7 @@ init_source(#{type := Type} = Source) ->
 
 init_metrics(Source) ->
     TypeName = type(Source),
-    ok = emqx_plugin_libs_metrics:create_metrics(
+    emqx_plugin_libs_metrics:create_metrics(
         authz_metrics,
         TypeName,
         [matched, allow, deny, ignore],
