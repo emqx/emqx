@@ -255,9 +255,9 @@
 
 %% Statistic metrics for ACL checking
 -define(STASTS_ACL_METRICS, [
-    {counter, 'client.acl.allow'},
-    {counter, 'client.acl.deny'},
-    {counter, 'client.acl.cache_hit'}
+    {counter, 'client.authorization.allow'},
+    {counter, 'client.authorization.deny'},
+    {counter, 'client.authorization.cache_hit'}
 ]).
 
 %% Overload protetion counters
@@ -677,9 +677,9 @@ reserved_idx('session.resumed') -> 221;
 reserved_idx('session.takenover') -> 222;
 reserved_idx('session.discarded') -> 223;
 reserved_idx('session.terminated') -> 224;
-reserved_idx('client.acl.allow') -> 300;
-reserved_idx('client.acl.deny') -> 301;
-reserved_idx('client.acl.cache_hit') -> 302;
+reserved_idx('client.authorization.allow') -> 300;
+reserved_idx('client.authorization.deny') -> 301;
+reserved_idx('client.authorization.cache_hit') -> 302;
 reserved_idx('olp.delay.ok') -> 400;
 reserved_idx('olp.delay.timeout') -> 401;
 reserved_idx('olp.hbn') -> 402;
