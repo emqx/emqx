@@ -140,9 +140,16 @@ init_per_testcase(t_exhook_info, Config) ->
                 }
         },
     {ok, _} = emqx_exhook_demo_svr:start(),
+    timer:sleep(2000),
+    {ok, Sock} = gen_tcp:connect("localhost", 9000, [], 3000),
+    _ = gen_tcp:close(Sock),
     ok = emqx_common_test_helpers:load_config(emqx_exhook_schema, ExhookConf),
     {ok, _} = application:ensure_all_started(emqx_exhook),
     Config;
+init_per_testcase(t_cluster_uuid, Config) ->
+    Node = start_slave(n1),
+    ok = setup_slave(Node),
+    [{n1, Node} | Config];
 init_per_testcase(_Testcase, Config) ->
     mock_httpc(),
     Config.
@@ -188,6 +195,9 @@ end_per_testcase(t_exhook_info, _Config) ->
     emqx_exhook_demo_svr:stop(),
     application:stop(emqx_exhook),
     ok;
+end_per_testcase(t_cluster_uuid, Config) ->
+    Node = proplists:get_value(n1, Config),
+    ok = stop_slave(Node);
 end_per_testcase(_Testcase, _Config) ->
     meck:unload([httpc]),
     ok.
@@ -211,23 +221,16 @@ t_node_uuid(_) ->
     ?assertEqual(NodeUUID3, NodeUUID4),
     ?assertMatch({badrpc, nodedown}, emqx_telemetry_proto_v1:get_node_uuid('fake@node')).
 
-t_cluster_uuid(_Config) ->
+t_cluster_uuid(Config) ->
+    Node = proplists:get_value(n1, Config),
     {ok, ClusterUUID0} = emqx_telemetry:get_cluster_uuid(),
     {ok, ClusterUUID1} = emqx_telemetry_proto_v1:get_cluster_uuid(node()),
     ?assertEqual(ClusterUUID0, ClusterUUID1),
     {ok, NodeUUID0} = emqx_telemetry:get_node_uuid(),
-
-    Node = start_slave(n1),
-    try
-        ok = setup_slave(Node),
-        {ok, ClusterUUID2} = emqx_telemetry_proto_v1:get_cluster_uuid(Node),
-        ?assertEqual(ClusterUUID0, ClusterUUID2),
-        {ok, NodeUUID1} = emqx_telemetry_proto_v1:get_node_uuid(Node),
-        ?assertNotEqual(NodeUUID0, NodeUUID1),
-        ok
-    after
-        ok = stop_slave(Node)
-    end,
+    {ok, ClusterUUID2} = emqx_telemetry_proto_v1:get_cluster_uuid(Node),
+    ?assertEqual(ClusterUUID0, ClusterUUID2),
+    {ok, NodeUUID1} = emqx_telemetry_proto_v1:get_node_uuid(Node),
+    ?assertNotEqual(NodeUUID0, NodeUUID1),
     ok.
 
 t_official_version(_) ->
