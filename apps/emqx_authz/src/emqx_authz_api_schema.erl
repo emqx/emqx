@@ -193,6 +193,10 @@ filter(type) ->
     map();
 filter(desc) ->
     ?DESC(?FUNCTION_NAME);
+filter(required) ->
+    false;
+filter(default) ->
+    #{};
 filter(_) ->
     undefined.
 
