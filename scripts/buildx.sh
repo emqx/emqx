@@ -120,6 +120,13 @@ fi
 HOST_SYSTEM="$(./scripts/get-distro.sh)"
 BUILDER_SYSTEM="$(echo "$BUILDER" | awk -F'-' '{print $NF}')"
 
+# quick workaround before builder image is renamed
+if [ "$BUILDER_SYSTEM" = 'centos7' ]; then
+    BUILDER_SYSTEM='el7'
+elif [ "$BUILDER_SYSTEM" = 'rockylinux8' ]; then
+    BUILDER_SYSTEM='el8'
+fi
+
 CMD_RUN="make ${MAKE_TARGET} && ./scripts/pkg-tests.sh ${MAKE_TARGET}"
 
 IS_NATIVE_SYSTEM='no'
