@@ -15,6 +15,8 @@
 %%--------------------------------------------------------------------
 -module(emqx_resource_health_check).
 
+-include_lib("emqx/include/logger.hrl").
+
 -export([
     start_link/3,
     create_checker/3,
@@ -98,7 +100,14 @@ health_check_timeout_checker(Pid, Name, SleepTime, Timeout) ->
             #{name => Name},
             <<Name/binary, " health check timeout">>
         ),
-        emqx_resource:set_resource_status_connecting(Name),
+        ?SLOG(
+            error,
+            #{
+                msg => "health check failed: timeout",
+                name => Name
+            }
+        ),
+        _ = emqx_resource_instance:set_resource_status(Name, disconnected),
         receive
             health_check_finish -> timer:sleep(SleepTime)
         end

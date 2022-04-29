@@ -68,8 +68,10 @@ get_status(PoolName, CheckFunc, AutoReconn) when is_function(CheckFunc) ->
     Status = [
         begin
             case ecpool_worker:client(Worker) of
-                {ok, Conn} -> CheckFunc(Conn);
-                _ -> false
+                {ok, Conn} ->
+                    erlang:is_process_alive(Conn) andalso CheckFunc(Conn);
+                _ ->
+                    false
             end
         end
      || {_WorkerName, Worker} <- ecpool:workers(PoolName)
