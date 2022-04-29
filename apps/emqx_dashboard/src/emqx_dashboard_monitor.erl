@@ -252,9 +252,12 @@ merge_cluster_sampler_map(M1, M2) ->
 
 merge_cluster_rate(Node, Cluster) ->
     Fun =
-        fun(Key, Value, NCluster) ->
-            ClusterValue = maps:get(Key, NCluster, 0),
-            NCluster#{Key => Value + ClusterValue}
+        fun
+            (topics, Value, NCluster) ->
+                NCluster#{topics => Value};
+            (Key, Value, NCluster) ->
+                ClusterValue = maps:get(Key, NCluster, 0),
+                NCluster#{Key => Value + ClusterValue}
         end,
     maps:fold(Fun, Cluster, Node).
 
