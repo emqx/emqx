@@ -94,8 +94,6 @@ post_config_update(_, _Req, NewConf, OldConf, _AppEnvs) ->
     {StopHttps, StartHttps} = diff_listeners(https, OldHttps, NewHttps),
     Stop = maps:merge(StopHttp, StopHttps),
     Start = maps:merge(StartHttp, StartHttps),
-    ?SLOG(error, Stop#{action => stop}),
-    ?SLOG(error, Start#{acton => start}),
     _ = erlang:send_after(500, ?MODULE, {update_listeners, Stop, Start}),
     ok.
 

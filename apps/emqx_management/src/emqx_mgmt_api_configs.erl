@@ -250,7 +250,7 @@ global_zone_configs(put, #{body := Body}, _Req) ->
 config_reset(post, _Params, Req) ->
     %% reset the config specified by the query string param 'conf_path'
     Path = conf_path_reset(Req) ++ conf_path_from_querystr(Req),
-    case emqx:reset_config(Path, #{}) of
+    case emqx_conf:reset(Path, ?OPTS) of
         {ok, _} ->
             {200};
         {error, no_default_value} ->
