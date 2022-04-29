@@ -85,7 +85,7 @@ t_topic_rules(_Config) ->
 
     ok = emqx_authz_test_lib:test_deny_topic_rules(ClientInfo, fun setup_client_samples/2).
 
-t_complex_selector(_) ->
+t_complex_filter(_) ->
     %% atom and string values also supported
     ClientInfo = #{
         clientid => clientid,
@@ -111,7 +111,7 @@ t_complex_selector(_) ->
     ok = setup_samples(Samples),
     ok = setup_config(
         #{
-            <<"selector">> => #{
+            <<"filter">> => #{
                 <<"x">> => #{
                     <<"u">> => <<"${username}">>,
                     <<"c">> => [#{<<"c">> => <<"${clientid}">>}],
@@ -137,7 +137,7 @@ t_mongo_error(_Config) ->
 
     ok = setup_samples([]),
     ok = setup_config(
-        #{<<"selector">> => #{<<"$badoperator">> => <<"$badoperator">>}}
+        #{<<"filter">> => #{<<"$badoperator">> => <<"$badoperator">>}}
     ),
 
     ok = emqx_authz_test_lib:test_samples(
@@ -165,7 +165,7 @@ t_lookups(_Config) ->
 
     ok = setup_samples([ByClientid]),
     ok = setup_config(
-        #{<<"selector">> => #{<<"clientid">> => <<"${clientid}">>}}
+        #{<<"filter">> => #{<<"clientid">> => <<"${clientid}">>}}
     ),
 
     ok = emqx_authz_test_lib:test_samples(
@@ -185,7 +185,7 @@ t_lookups(_Config) ->
 
     ok = setup_samples([ByPeerhost]),
     ok = setup_config(
-        #{<<"selector">> => #{<<"peerhost">> => <<"${peerhost}">>}}
+        #{<<"filter">> => #{<<"peerhost">> => <<"${peerhost}">>}}
     ),
 
     ok = emqx_authz_test_lib:test_samples(
@@ -196,7 +196,7 @@ t_lookups(_Config) ->
         ]
     ).
 
-t_bad_selector(_Config) ->
+t_bad_filter(_Config) ->
     ClientInfo = #{
         clientid => <<"clientid">>,
         cn => <<"cn">>,
@@ -208,7 +208,7 @@ t_bad_selector(_Config) ->
     },
 
     ok = setup_config(
-        #{<<"selector">> => #{<<"$in">> => #{<<"a">> => 1}}}
+        #{<<"filter">> => #{<<"$in">> => #{<<"a">> => 1}}}
     ),
 
     ok = emqx_authz_test_lib:test_samples(
@@ -251,7 +251,7 @@ setup_client_samples(ClientInfo, Samples) ->
         Samples
     ),
     setup_samples(Records),
-    setup_config(#{<<"selector">> => #{<<"username">> => <<"${username}">>}}).
+    setup_config(#{<<"filter">> => #{<<"username">> => <<"${username}">>}}).
 
 reset_samples() ->
     {true, _} = mc_worker_api:delete(?MONGO_CLIENT, <<"acl">>, #{}),
@@ -273,7 +273,7 @@ raw_mongo_authz_config() ->
         <<"collection">> => <<"acl">>,
         <<"server">> => mongo_server(),
 
-        <<"selector">> => #{<<"username">> => <<"${username}">>}
+        <<"filter">> => #{<<"username">> => <<"${username}">>}
     }.
 
 mongo_server() ->

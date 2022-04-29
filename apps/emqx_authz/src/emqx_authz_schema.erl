@@ -199,10 +199,10 @@ mongo_common_fields() ->
             required => true,
             desc => ?DESC(collection)
         }},
-        {selector, #{
+        {filter, #{
             type => map(),
             required => true,
-            desc => ?DESC(selector)
+            desc => ?DESC(filter)
         }}
     ].
 

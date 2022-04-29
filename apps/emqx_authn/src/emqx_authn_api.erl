@@ -1417,7 +1417,7 @@ authenticator_examples() ->
                 server => <<"127.0.0.1:27017">>,
                 database => example,
                 collection => users,
-                selector => #{
+                filter => #{
                     username => ?PH_USERNAME
                 },
                 password_hash_field => <<"password_hash">>,

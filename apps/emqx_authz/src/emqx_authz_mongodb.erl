@@ -45,15 +45,15 @@
 description() ->
     "AuthZ with MongoDB".
 
-init(#{selector := Selector} = Source) ->
+init(#{filter := Filter} = Source) ->
     case emqx_authz_utils:create_resource(emqx_connector_mongo, Source) of
         {error, Reason} ->
             error({load_config_error, Reason});
         {ok, Id} ->
             Source#{
                 annotations => #{id => Id},
-                selector_template => emqx_authz_utils:parse_deep(
-                    Selector,
+                filter_template => emqx_authz_utils:parse_deep(
+                    Filter,
                     ?PLACEHOLDERS
                 )
             }
@@ -68,14 +68,14 @@ authorize(
     Topic,
     #{
         collection := Collection,
-        selector_template := SelectorTemplate,
+        filter_template := FilterTemplate,
         annotations := #{id := ResourceID}
     }
 ) ->
-    RenderedSelector = emqx_authz_utils:render_deep(SelectorTemplate, Client),
+    RenderedFilter = emqx_authz_utils:render_deep(FilterTemplate, Client),
     Result =
         try
-            emqx_resource:query(ResourceID, {find, Collection, RenderedSelector, #{}})
+            emqx_resource:query(ResourceID, {find, Collection, RenderedFilter, #{}})
         catch
             error:Error -> {error, Error}
         end,
@@ -86,7 +86,7 @@ authorize(
                 msg => "query_mongo_error",
                 reason => Reason,
                 collection => Collection,
-                selector => RenderedSelector,
+                filter => RenderedFilter,
                 resource_id => ResourceID
             }),
             nomatch;
