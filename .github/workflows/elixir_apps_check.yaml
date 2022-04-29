@@ -6,9 +6,11 @@ on: [pull_request, push]
 
 jobs:
   elixir_apps_check:
-    runs-on: ubuntu-20.04
+    runs-on: ubuntu-latest
     # just use the latest builder
-    container: "ghcr.io/emqx/emqx-builder/5.0-13:1.13.3-24.2.1-1-ubuntu20.04"
+    container:
+      image: "ghcr.io/emqx/emqx-builder/5.0-13:1.13.3-24.2.1-1-ubuntu20.04"
+      options: --user root
 
     strategy:
       fail-fast: false
