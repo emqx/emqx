@@ -19,6 +19,7 @@
 
 -include("emqx_resource.hrl").
 -include("emqx_resource_utils.hrl").
+-include_lib("emqx/include/logger.hrl").
 
 -export([start_link/2]).
 
@@ -28,7 +29,8 @@
     get_metrics/1,
     reset_metrics/1,
     list_all/0,
-    list_group/1
+    list_group/1,
+    set_resource_status/2
 ]).
 
 -export([
@@ -337,6 +339,30 @@ do_set_resource_status_connecting(InstId) ->
             update_resource(InstId, Group, Data#{status => connecting});
         Error ->
             {error, Error}
+    end.
+
+-spec set_resource_status(instance_id(), resource_connection_status()) -> ok | {error, term()}.
+set_resource_status(InstId, Status) ->
+    case lookup(InstId) of
+        {ok, Group, #{id := _} = Data} ->
+            ?SLOG(
+                error,
+                #{
+                    msg => "health check failed: timeout",
+                    resource_id => InstId
+                }
+            ),
+            update_resource(InstId, Group, Data#{status => Status});
+        Error ->
+            ?SLOG(
+                error,
+                #{
+                    msg => "set resource status field",
+                    resource_id => InstId,
+                    reason => Error
+                }
+            ),
+            Error
     end.
 
 %%------------------------------------------------------------------------------

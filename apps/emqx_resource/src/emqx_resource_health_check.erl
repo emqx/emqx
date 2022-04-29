@@ -98,7 +98,7 @@ health_check_timeout_checker(Pid, Name, SleepTime, Timeout) ->
             #{name => Name},
             <<Name/binary, " health check timeout">>
         ),
-        emqx_resource:set_resource_status_connecting(Name),
+        _ = emqx_resouce_instance:set_resource_status(Name, disconnected),
         receive
             health_check_finish -> timer:sleep(SleepTime)
         end
