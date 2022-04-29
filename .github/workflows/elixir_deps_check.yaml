@@ -13,7 +13,7 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v2.4.0
       - name: ensure rebar
-        run: ./scripts/ensure-rebar3.sh 3.16.1-emqx-1
+        run: ./scripts/ensure-rebar3.sh
       - name: setup mix
         run: |
           mix local.hex --force

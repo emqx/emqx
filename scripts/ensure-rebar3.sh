@@ -2,7 +2,22 @@
 
 set -euo pipefail
 
-VERSION="$1"
+## rebar3 tag 3.18.0-emqx-1 is compiled using otp24.1.5.
+## we have to use an otp24-compiled rebar3 because the defination of record #application{}
+## in systools.hrl is changed in otp24.
+OTP_VSN="${OTP_VSN:-$(./scripts/get-otp-vsn.sh)}"
+case ${OTP_VSN} in
+    23*)
+        VERSION="3.16.1-emqx-1"
+        ;;
+    24*)
+        VERSION="3.18.0-emqx-1"
+        ;;
+    *)
+        echo "Unsupporetd Erlang/OTP version $OTP_VSN"
+        exit 1
+        ;;
+esac
 
 # ensure dir
 cd -P -- "$(dirname -- "${BASH_SOURCE[0]}")/.."
@@ -10,7 +25,8 @@ cd -P -- "$(dirname -- "${BASH_SOURCE[0]}")/.."
 DOWNLOAD_URL='https://github.com/emqx/rebar3/releases/download'
 
 download() {
-    curl --silent --show-error -f -L "${DOWNLOAD_URL}/${VERSION}/rebar3" -o ./rebar3
+    echo "downloading rebar3 ${VERSION}"
+    curl -f -L "${DOWNLOAD_URL}/${VERSION}/rebar3" -o ./rebar3
 }
 
 # get the version number from the second line of the escript
