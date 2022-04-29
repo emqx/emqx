@@ -66,6 +66,9 @@
     reason2msg/1
 ]).
 
+%% RPC
+-export([gateway_status/1, cluster_gateway_status/1]).
+
 -type gateway_summary() ::
     #{
         name := binary(),
@@ -116,7 +119,8 @@ gateways(Status) ->
                     GwInfo1#{
                         max_connections => max_connections_count(Config),
                         current_connections => current_connections_count(GwName),
-                        listeners => get_listeners_status(GwName, Config)
+                        listeners => get_listeners_status(GwName, Config),
+                        node_status => cluster_gateway_status(GwName)
                     }
             end
         end,
@@ -125,6 +129,28 @@ gateways(Status) ->
     case Status of
         all -> Gateways;
         _ -> [Gw || Gw = #{status := S} <- Gateways, S == Status]
+    end.
+
+gateway_status(GwName) ->
+    case emqx_gateway:lookup(GwName) of
+        undefined ->
+            #{node => node(), status => unloaded};
+        #{status := Status, config := Config} ->
+            #{
+                node => node(),
+                status => Status,
+                max_connections => max_connections_count(Config),
+                current_connections => current_connections_count(GwName)
+            }
+    end.
+
+cluster_gateway_status(GwName) ->
+    Nodes = mria_mnesia:running_nodes(),
+    case emqx_gateway_http_proto_v1:get_node_status(Nodes, GwName) of
+        {Results, []} ->
+            Results;
+        {_, _BadNodes} ->
+            error(badrpc)
     end.
 
 %% @private
