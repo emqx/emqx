@@ -36,5 +36,5 @@ init([]) ->
         type => worker,
         modules => [emqx_rule_engine]
     },
-    Metrics = emqx_plugin_libs_metrics:child_spec(rule_metrics),
+    Metrics = emqx_metrics_worker:child_spec(rule_metrics),
     {ok, {{one_for_one, 10, 10}, [Registry, Metrics]}}.

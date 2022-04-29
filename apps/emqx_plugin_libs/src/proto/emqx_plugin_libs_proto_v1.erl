@@ -31,8 +31,8 @@ introduced_in() ->
 
 -spec get_metrics(
     node(),
-    emqx_plugin_libs_metrics:handler_name(),
-    emqx_plugin_libs_metrics:metric_id()
-) -> emqx_plugin_libs_metrics:metrics() | {badrpc, _}.
+    emqx_metrics_worker:handler_name(),
+    emqx_metrics_worker:metric_id()
+) -> emqx_metrics_worker:metrics() | {badrpc, _}.
 get_metrics(Node, HandlerName, MetricId) ->
-    rpc:call(Node, emqx_plugin_libs_metrics, get_metrics, [HandlerName, MetricId]).
+    rpc:call(Node, emqx_metrics_worker, get_metrics, [HandlerName, MetricId]).

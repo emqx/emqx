@@ -14,7 +14,7 @@
 %% limitations under the License.
 %%--------------------------------------------------------------------
 
--module(emqx_plugin_libs_metrics).
+-module(emqx_metrics_worker).
 
 -behaviour(gen_server).
 
@@ -100,16 +100,16 @@
 
 -spec child_spec(handler_name()) -> supervisor:child_spec().
 child_spec(Name) ->
-    child_spec(emqx_plugin_libs_metrics, Name).
+    child_spec(emqx_metrics_worker, Name).
 
 child_spec(ChldName, Name) ->
     #{
         id => ChldName,
-        start => {emqx_plugin_libs_metrics, start_link, [Name]},
+        start => {emqx_metrics_worker, start_link, [Name]},
         restart => permanent,
         shutdown => 5000,
         type => worker,
-        modules => [emqx_plugin_libs_metrics]
+        modules => [emqx_metrics_worker]
     }.
 
 -spec create_metrics(handler_name(), metric_id(), [atom()]) -> ok | {error, term()}.
@@ -284,7 +284,15 @@ terminate(_Reason, #state{metric_ids = MIDs}) ->
     persistent_term:erase(?CntrRef(Name)).
 
 stop(Name) ->
-    gen_server:stop(Name).
+    try
+        gen_server:stop(Name)
+    catch
+        exit:noproc ->
+            ok;
+        exit:timeout ->
+            %% after timeout, the process killed by gen.erl
+            ok
+    end.
 
 %%------------------------------------------------------------------------------
 %% Internal Functions

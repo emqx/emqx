@@ -64,14 +64,14 @@ apply_rule_discard_result(Rule, Input) ->
     ok.
 
 apply_rule(Rule = #{id := RuleID}, Input) ->
-    ok = emqx_plugin_libs_metrics:inc(rule_metrics, RuleID, 'sql.matched'),
+    ok = emqx_metrics_worker:inc(rule_metrics, RuleID, 'sql.matched'),
     clear_rule_payload(),
     try
         do_apply_rule(Rule, add_metadata(Input, #{rule_id => RuleID}))
     catch
         %% ignore the errors if select or match failed
         _:Reason = {select_and_transform_error, Error} ->
-            ok = emqx_plugin_libs_metrics:inc(rule_metrics, RuleID, 'sql.failed.exception'),
+            ok = emqx_metrics_worker:inc(rule_metrics, RuleID, 'sql.failed.exception'),
             ?SLOG(warning, #{
                 msg => "SELECT_clause_exception",
                 rule_id => RuleID,
@@ -79,7 +79,7 @@ apply_rule(Rule = #{id := RuleID}, Input) ->
             }),
             {error, Reason};
         _:Reason = {match_conditions_error, Error} ->
-            ok = emqx_plugin_libs_metrics:inc(rule_metrics, RuleID, 'sql.failed.exception'),
+            ok = emqx_metrics_worker:inc(rule_metrics, RuleID, 'sql.failed.exception'),
             ?SLOG(warning, #{
                 msg => "WHERE_clause_exception",
                 rule_id => RuleID,
@@ -87,7 +87,7 @@ apply_rule(Rule = #{id := RuleID}, Input) ->
             }),
             {error, Reason};
         _:Reason = {select_and_collect_error, Error} ->
-            ok = emqx_plugin_libs_metrics:inc(rule_metrics, RuleID, 'sql.failed.exception'),
+            ok = emqx_metrics_worker:inc(rule_metrics, RuleID, 'sql.failed.exception'),
             ?SLOG(warning, #{
                 msg => "FOREACH_clause_exception",
                 rule_id => RuleID,
@@ -95,7 +95,7 @@ apply_rule(Rule = #{id := RuleID}, Input) ->
             }),
             {error, Reason};
         _:Reason = {match_incase_error, Error} ->
-            ok = emqx_plugin_libs_metrics:inc(rule_metrics, RuleID, 'sql.failed.exception'),
+            ok = emqx_metrics_worker:inc(rule_metrics, RuleID, 'sql.failed.exception'),
             ?SLOG(warning, #{
                 msg => "INCASE_clause_exception",
                 rule_id => RuleID,
@@ -103,7 +103,7 @@ apply_rule(Rule = #{id := RuleID}, Input) ->
             }),
             {error, Reason};
         Class:Error:StkTrace ->
-            ok = emqx_plugin_libs_metrics:inc(rule_metrics, RuleID, 'sql.failed.exception'),
+            ok = emqx_metrics_worker:inc(rule_metrics, RuleID, 'sql.failed.exception'),
             ?SLOG(error, #{
                 msg => "apply_rule_failed",
                 rule_id => RuleID,
@@ -141,13 +141,13 @@ do_apply_rule(
             Collection2 = filter_collection(Input, InCase, DoEach, Collection),
             case Collection2 of
                 [] ->
-                    ok = emqx_plugin_libs_metrics:inc(rule_metrics, RuleId, 'sql.failed.no_result');
+                    ok = emqx_metrics_worker:inc(rule_metrics, RuleId, 'sql.failed.no_result');
                 _ ->
-                    ok = emqx_plugin_libs_metrics:inc(rule_metrics, RuleId, 'sql.passed')
+                    ok = emqx_metrics_worker:inc(rule_metrics, RuleId, 'sql.passed')
             end,
             {ok, [handle_output_list(RuleId, Outputs, Coll, Input) || Coll <- Collection2]};
         false ->
-            ok = emqx_plugin_libs_metrics:inc(rule_metrics, RuleId, 'sql.failed.no_result'),
+            ok = emqx_metrics_worker:inc(rule_metrics, RuleId, 'sql.failed.no_result'),
             {error, nomatch}
     end;
 do_apply_rule(
@@ -171,10 +171,10 @@ do_apply_rule(
         )
     of
         true ->
-            ok = emqx_plugin_libs_metrics:inc(rule_metrics, RuleId, 'sql.passed'),
+            ok = emqx_metrics_worker:inc(rule_metrics, RuleId, 'sql.passed'),
             {ok, handle_output_list(RuleId, Outputs, Selected, Input)};
         false ->
-            ok = emqx_plugin_libs_metrics:inc(rule_metrics, RuleId, 'sql.failed.no_result'),
+            ok = emqx_metrics_worker:inc(rule_metrics, RuleId, 'sql.failed.no_result'),
             {error, nomatch}
     end.
 
@@ -316,21 +316,21 @@ handle_output_list(RuleId, Outputs, Selected, Envs) ->
     [handle_output(RuleId, Out, Selected, Envs) || Out <- Outputs].
 
 handle_output(RuleId, OutId, Selected, Envs) ->
-    ok = emqx_plugin_libs_metrics:inc(rule_metrics, RuleId, 'outputs.total'),
+    ok = emqx_metrics_worker:inc(rule_metrics, RuleId, 'outputs.total'),
     try
         Result = do_handle_output(OutId, Selected, Envs),
-        ok = emqx_plugin_libs_metrics:inc(rule_metrics, RuleId, 'outputs.success'),
+        ok = emqx_metrics_worker:inc(rule_metrics, RuleId, 'outputs.success'),
         Result
     catch
         throw:out_of_service ->
-            ok = emqx_plugin_libs_metrics:inc(rule_metrics, RuleId, 'outputs.failed'),
-            ok = emqx_plugin_libs_metrics:inc(
+            ok = emqx_metrics_worker:inc(rule_metrics, RuleId, 'outputs.failed'),
+            ok = emqx_metrics_worker:inc(
                 rule_metrics, RuleId, 'outputs.failed.out_of_service'
             ),
             ?SLOG(warning, #{msg => "out_of_service", output => OutId});
         Err:Reason:ST ->
-            ok = emqx_plugin_libs_metrics:inc(rule_metrics, RuleId, 'outputs.failed'),
-            ok = emqx_plugin_libs_metrics:inc(rule_metrics, RuleId, 'outputs.failed.unknown'),
+            ok = emqx_metrics_worker:inc(rule_metrics, RuleId, 'outputs.failed'),
+            ok = emqx_metrics_worker:inc(rule_metrics, RuleId, 'outputs.failed.unknown'),
             ?SLOG(error, #{
                 msg => "output_failed",
                 output => OutId,

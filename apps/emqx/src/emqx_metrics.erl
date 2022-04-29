@@ -279,7 +279,14 @@ start_link() ->
     gen_server:start_link({local, ?SERVER}, ?MODULE, [], []).
 
 -spec stop() -> ok.
-stop() -> gen_server:stop(?SERVER).
+stop() ->
+    try
+        gen_server:stop(?SERVER)
+    catch
+        exit:R when R =:= noproc orelse R =:= timeout ->
+            %% pid is killed after timeout
+            ok
+    end.
 
 %% BACKW: v4.3.0
 upgrade_retained_delayed_counter_type() ->

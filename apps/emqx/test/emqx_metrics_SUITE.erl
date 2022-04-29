@@ -166,7 +166,16 @@ t_trans(_) ->
     ).
 
 with_metrics_server(Fun) ->
-    _ = supervisor:terminate_child(emqx_kernel_sup, emqx_metrics),
+    try
+        supervisor:terminate_child(emqx_kernel_sup, emqx_metrics)
+    catch
+        exit:_ ->
+            ok
+    end,
     {ok, _} = emqx_metrics:start_link(),
-    _ = Fun(),
-    ok = emqx_metrics:stop().
+    try
+        _ = Fun(),
+        ok
+    after
+        ok = emqx_metrics:stop()
+    end.

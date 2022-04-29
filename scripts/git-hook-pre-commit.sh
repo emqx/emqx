@@ -2,10 +2,13 @@
 
 set -euo pipefail
 
-files="$(git diff --cached --name-only | grep -E '.*\.erl' || true)"
-if [[ "${files}" == '' ]]; then
+OPT="${1:--c}"
+
+files_dirty="$(git diff --name-only | grep -E '.*\.erl' || true)"
+files_cached="$(git diff --cached --name-only | grep -E '.*\.erl' || true)"
+if [[ "${files_dirty}" == '' ]] && [[ "${files_cached}" == '' ]]; then
     exit 0
 fi
-files="$(echo -e "$files" | xargs)"
+files="$(echo -e "${files_dirty} \n ${files_cached}" | xargs)"
 # shellcheck disable=SC2086
-./scripts/erlfmt -c $files
+./scripts/erlfmt $OPT $files

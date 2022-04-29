@@ -27,7 +27,7 @@
     config := resource_config(),
     state := resource_state(),
     status := resource_connection_status(),
-    metrics := emqx_plugin_libs_metrics:metrics()
+    metrics := emqx_metrics_worker:metrics()
 }.
 -type resource_group() :: binary().
 -type create_opts() :: #{

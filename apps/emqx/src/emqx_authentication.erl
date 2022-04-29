@@ -582,7 +582,7 @@ handle_delete_authenticator(Chain, AuthenticatorID) ->
         [] ->
             {error, {not_found, {authenticator, AuthenticatorID}}};
         [AuthenticatorID] ->
-            emqx_plugin_libs_metrics:clear_metrics(authn_metrics, AuthenticatorID),
+            emqx_metrics_worker:clear_metrics(authn_metrics, AuthenticatorID),
             ok
     end.
 
@@ -613,7 +613,7 @@ handle_create_authenticator(Chain, Config, Providers) ->
                         Chain#chain{authenticators = NAuthenticators}
                     ),
 
-                    ok = emqx_plugin_libs_metrics:create_metrics(
+                    ok = emqx_metrics_worker:create_metrics(
                         authn_metrics,
                         AuthenticatorID,
                         [matched, success, failed, ignore],
@@ -628,10 +628,10 @@ handle_create_authenticator(Chain, Config, Providers) ->
 do_authenticate([], _) ->
     {stop, {error, not_authorized}};
 do_authenticate([#authenticator{id = ID, provider = Provider, state = State} | More], Credential) ->
-    emqx_plugin_libs_metrics:inc(authn_metrics, ID, matched),
+    emqx_metrics_worker:inc(authn_metrics, ID, matched),
     try Provider:authenticate(Credential, State) of
         ignore ->
-            ok = emqx_plugin_libs_metrics:inc(authn_metrics, ID, ignore),
+            ok = emqx_metrics_worker:inc(authn_metrics, ID, ignore),
             do_authenticate(More, Credential);
         Result ->
             %% {ok, Extra}
@@ -641,9 +641,9 @@ do_authenticate([#authenticator{id = ID, provider = Provider, state = State} | M
             %% {error, Reason}
             case Result of
                 {ok, _} ->
-                    emqx_plugin_libs_metrics:inc(authn_metrics, ID, success);
+                    emqx_metrics_worker:inc(authn_metrics, ID, success);
                 {error, _} ->
-                    emqx_plugin_libs_metrics:inc(authn_metrics, ID, failed);
+                    emqx_metrics_worker:inc(authn_metrics, ID, failed);
                 _ ->
                     ok
             end,
@@ -657,7 +657,7 @@ do_authenticate([#authenticator{id = ID, provider = Provider, state = State} | M
                 stacktrace => Stacktrace,
                 authenticator => ID
             }),
-            emqx_plugin_libs_metrics:inc(authn_metrics, ID, ignore),
+            emqx_metrics_worker:inc(authn_metrics, ID, ignore),
             do_authenticate(More, Credential)
     end.
 

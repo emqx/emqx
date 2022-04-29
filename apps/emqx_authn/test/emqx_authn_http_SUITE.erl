@@ -26,7 +26,7 @@
 
 -define(PATH, [?CONF_NS_ATOM]).
 
--define(HTTP_PORT, 33333).
+-define(HTTP_PORT, 32333).
 -define(HTTP_PATH, "/auth").
 -define(CREDENTIALS, #{
     username => <<"plain">>,
@@ -178,7 +178,7 @@ t_destroy(_Config) ->
 t_update(_Config) ->
     CorrectConfig = raw_http_auth_config(),
     IncorrectConfig =
-        CorrectConfig#{url => <<"http://127.0.0.1:33333/invalid">>},
+        CorrectConfig#{url => <<"http://127.0.0.1:32333/invalid">>},
 
     {ok, _} = emqx:update_config(
         ?PATH,
@@ -267,7 +267,7 @@ raw_http_auth_config() ->
 
         backend => <<"http">>,
         method => <<"get">>,
-        url => <<"http://127.0.0.1:33333/auth">>,
+        url => <<"http://127.0.0.1:32333/auth">>,
         body => #{<<"username">> => ?PH_USERNAME, <<"password">> => ?PH_PASSWORD},
         headers => #{<<"X-Test-Header">> => <<"Test Value">>}
     }.

@@ -33,7 +33,7 @@ init([]) ->
     _ = ets:new(emqx_resource_instance, TabOpts),
 
     SupFlags = #{strategy => one_for_one, intensity => 10, period => 10},
-    Metrics = emqx_plugin_libs_metrics:child_spec(resource_metrics),
+    Metrics = emqx_metrics_worker:child_spec(resource_metrics),
 
     Pool = ?RESOURCE_INST_MOD,
     Mod = ?RESOURCE_INST_MOD,

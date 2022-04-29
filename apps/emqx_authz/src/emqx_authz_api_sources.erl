@@ -308,7 +308,7 @@ lookup_from_local_node(Type) ->
     NodeId = node(self()),
     try emqx_authz:lookup(Type) of
         #{annotations := #{id := ResourceId}} ->
-            Metrics = emqx_plugin_libs_metrics:get_metrics(authz_metrics, Type),
+            Metrics = emqx_metrics_worker:get_metrics(authz_metrics, Type),
             case emqx_resource:get_instance(ResourceId) of
                 {error, not_found} ->
                     {error, {NodeId, not_found_resource}};
@@ -316,7 +316,7 @@ lookup_from_local_node(Type) ->
                     {ok, {NodeId, Status, Metrics, ResourceMetrics}}
             end;
         _ ->
-            Metrics = emqx_plugin_libs_metrics:get_metrics(authz_metrics, Type),
+            Metrics = emqx_metrics_worker:get_metrics(authz_metrics, Type),
             {ok, {NodeId, connected, Metrics, #{}}}
     catch
         _:Reason -> {error, {NodeId, list_to_binary(io_lib:format("~p", [Reason]))}}
