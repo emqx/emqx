@@ -285,23 +285,19 @@ ensure_ssl_files(_Dir, #{<<"enable">> := False} = Opts, _DryRun) when ?IS_FALSE(
 ensure_ssl_files(_Dir, #{enable := False} = Opts, _DryRun) when ?IS_FALSE(False) ->
     {ok, Opts};
 ensure_ssl_files(Dir, Opts, DryRun) ->
-    case ensure_ssl_files(Dir, Opts, ?SSL_FILE_OPT_NAMES_A, DryRun) of
-        {ok, NewOpts} ->
-            {ok, NewOpts};
-        {error, #{reason := file_path_or_pem_string_not_found}} ->
-            ensure_ssl_files(Dir, Opts, ?SSL_FILE_OPT_NAMES, DryRun);
-        {error, Reason} ->
-            {error, Reason}
+    case ensure_ssl_file_key(Opts) of
+        {ok, Keys} -> ensure_ssl_files(Dir, Opts, Keys, DryRun);
+        {error, _} = Error -> Error
     end.
 
 ensure_ssl_files(_Dir, Opts, [], _DryRun) ->
     {ok, Opts};
 ensure_ssl_files(Dir, Opts, [Key | Keys], DryRun) ->
-    case ensure_ssl_file(Dir, Key, Opts, maps:find(Key, Opts), DryRun) of
+    case ensure_ssl_file(Dir, Key, Opts, maps:get(Key, Opts), DryRun) of
         {ok, NewOpts} ->
             ensure_ssl_files(Dir, NewOpts, Keys, DryRun);
         {error, Reason} ->
-            {error, Reason#{which_option => Key}}
+            {error, Reason#{which_options => [Key]}}
     end.
 
 %% @doc Compare old and new config, delete the ones in old but not in new.
@@ -336,9 +332,7 @@ delete_old_file(_New, Old) ->
             ?SLOG(error, #{msg => "failed_to_delete_ssl_file", file_path => Old, reason => Reason})
     end.
 
-ensure_ssl_file(_Dir, _Key, _Opts, error, _DryRun) ->
-    {error, #{reason => file_path_or_pem_string_not_found}};
-ensure_ssl_file(Dir, Key, Opts, {ok, MaybePem}, DryRun) ->
+ensure_ssl_file(Dir, Key, Opts, MaybePem, DryRun) ->
     case is_valid_string(MaybePem) of
         true ->
             do_ensure_ssl_file(Dir, Key, Opts, MaybePem, DryRun);
@@ -523,6 +517,23 @@ ensure_str(B) when is_binary(B) -> unicode:characters_to_list(B, utf8).
 
 ensure_bin(B) when is_binary(B) -> B;
 ensure_bin(A) when is_atom(A) -> atom_to_binary(A, utf8).
+
+ensure_ssl_file_key(Opts) ->
+    Filter = fun(Key) -> not maps:is_key(Key, Opts) end,
+    case lists:filter(Filter, ?SSL_FILE_OPT_NAMES) of
+        [] ->
+            {ok, ?SSL_FILE_OPT_NAMES};
+        ?SSL_FILE_OPT_NAMES ->
+            case lists:filter(Filter, ?SSL_FILE_OPT_NAMES_A) of
+                [] -> {ok, ?SSL_FILE_OPT_NAMES_A};
+                Miss2 -> not_found_key_error(Miss2)
+            end;
+        Miss1 ->
+            not_found_key_error(Miss1)
+    end.
+
+not_found_key_error(Keys) ->
+    {error, #{reason => ssl_file_option_not_found, which_options => Keys}}.
 
 -if(?OTP_RELEASE > 22).
 -ifdef(TEST).

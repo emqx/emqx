@@ -96,19 +96,33 @@ ssl_files_failure_test_() ->
             ),
             ?assertMatch(
                 {error, #{file_read := enoent, pem_check := invalid_pem}},
-                emqx_tls_lib:ensure_ssl_files("/tmp", #{<<"keyfile">> => NonExistingFile})
+                emqx_tls_lib:ensure_ssl_files("/tmp", #{
+                    <<"keyfile">> => NonExistingFile,
+                    <<"certfile">> => bin(test_key()),
+                    <<"cacertfile">> => bin(test_key())
+                })
             )
         end},
         {"bad_pem_string", fun() ->
             %% not valid unicode
             ?assertMatch(
-                {error, #{reason := invalid_file_path_or_pem_string, which_option := <<"keyfile">>}},
-                emqx_tls_lib:ensure_ssl_files("/tmp", #{<<"keyfile">> => <<255, 255>>})
+                {error, #{
+                    reason := invalid_file_path_or_pem_string, which_options := [<<"keyfile">>]
+                }},
+                emqx_tls_lib:ensure_ssl_files("/tmp", #{
+                    <<"keyfile">> => <<255, 255>>,
+                    <<"certfile">> => bin(test_key()),
+                    <<"cacertfile">> => bin(test_key())
+                })
             ),
             %% not printable
             ?assertMatch(
                 {error, #{reason := invalid_file_path_or_pem_string}},
-                emqx_tls_lib:ensure_ssl_files("/tmp", #{<<"keyfile">> => <<33, 22>>})
+                emqx_tls_lib:ensure_ssl_files("/tmp", #{
+                    <<"keyfile">> => <<33, 22>>,
+                    <<"certfile">> => bin(test_key()),
+                    <<"cacertfile">> => bin(test_key())
+                })
             ),
             TmpFile = filename:join("/tmp", integer_to_list(erlang:system_time(microsecond))),
             try
