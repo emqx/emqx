@@ -51,6 +51,8 @@ end_per_suite(_Config) ->
             <<"sources">> => []
         }
     ),
+    mnesia:clear_table(cluster_rpc_commit),
+    mnesia:clear_table(cluster_rpc_mfa),
     emqx_common_test_helpers:stop_apps([emqx_conf, emqx_authn, emqx_authz, emqx_modules]),
     meck:unload(emqx_authz),
     ok.
@@ -676,10 +678,23 @@ setup_slave(Node) ->
     ok.
 
 stop_slave(Node) ->
-    ok = ekka:force_leave(Node),
-    emqx_cluster_rpc:skip_failed_commit(Node),
+    % This line don't work!!
+    %emqx_cluster_rpc:fast_forward_to_commit(Node, 100),
+    rpc:call(Node, ?MODULE, leave_cluster, []),
     ok = slave:stop(Node),
-    ?assertEqual([node()], mria_mnesia:running_nodes()).
+    ?assertEqual([node()], mria_mnesia:running_nodes()),
+    ?assertEqual([], nodes()),
+    ok.
+
+leave_cluster() ->
+    try mnesia_hook:module_info() of
+        _ -> ekka:leave()
+    catch
+        _:_ ->
+            %% We have to set the db_backend to mnesia even for `ekka:leave/0`!!
+            application:set_env(mria, db_backend, mnesia),
+            ekka:leave()
+    end.
 
 host() ->
     [_, Host] = string:tokens(atom_to_list(node()), "@"),
