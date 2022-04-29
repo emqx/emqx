@@ -11,10 +11,10 @@ Environment=HOME=/var/lib/emqx
 # Must use a 'bash' wrap for some OS
 # errno=13 'Permission denied'
 # Cannot create FIFO ... for writing
-ExecStart=bash /usr/bin/emqx start
+ExecStart=/bin/bash /usr/bin/emqx start
 
 LimitNOFILE=1048576
-ExecStop=bash /usr/bin/emqx stop
+ExecStop=/bin/bash /usr/bin/emqx stop
 Restart=on-failure
 
 # When clustered, give the peers enough time to get this node's 'DOWN' event
