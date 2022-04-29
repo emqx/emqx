@@ -173,7 +173,7 @@ do_post_config_update({?CMD_PREPEND, RawNewSource}, Sources) ->
     InitedNewSource = init_source(get_source_by_type(type(RawNewSource), Sources)),
     %% create metrics
     TypeName = type(RawNewSource),
-    ok = emqx_plugin_libs_metrics:create_metrics(
+    ok = emqx_metrics_worker:create_metrics(
         authz_metrics,
         TypeName,
         [matched, allow, deny, ignore],
@@ -194,7 +194,7 @@ do_post_config_update({{?CMD_DELETE, Type}, _RawNewSource}, _Sources) ->
     OldInitedSources = lookup(),
     {OldSource, Front, Rear} = take(Type, OldInitedSources),
     %% delete metrics
-    ok = emqx_plugin_libs_metrics:clear_metrics(authz_metrics, Type),
+    ok = emqx_metrics_worker:clear_metrics(authz_metrics, Type),
     ok = ensure_resource_deleted(OldSource),
     clear_certs(OldSource),
     Front ++ Rear;
@@ -268,7 +268,7 @@ init_source(#{type := Type} = Source) ->
 
 init_metrics(Source) ->
     TypeName = type(Source),
-    emqx_plugin_libs_metrics:create_metrics(
+    emqx_metrics_worker:create_metrics(
         authz_metrics,
         TypeName,
         [matched, allow, deny, ignore],
@@ -310,7 +310,7 @@ authorize(
                 ipaddr => IpAddress,
                 topic => Topic
             }),
-            emqx_plugin_libs_metrics:inc(authz_metrics, AuthzSource, allow),
+            emqx_metrics_worker:inc(authz_metrics, AuthzSource, allow),
             emqx_metrics:inc(?METRIC_ALLOW),
             {stop, allow};
         {{matched, deny}, AuthzSource} ->
@@ -324,7 +324,7 @@ authorize(
                 ipaddr => IpAddress,
                 topic => Topic
             }),
-            emqx_plugin_libs_metrics:inc(authz_metrics, AuthzSource, deny),
+            emqx_metrics_worker:inc(authz_metrics, AuthzSource, deny),
             emqx_metrics:inc(?METRIC_DENY),
             {stop, deny};
         nomatch ->
@@ -354,10 +354,10 @@ do_authorize(
     [Connector = #{type := Type} | Tail]
 ) ->
     Module = authz_module(Type),
-    emqx_plugin_libs_metrics:inc(authz_metrics, Type, matched),
+    emqx_metrics_worker:inc(authz_metrics, Type, matched),
     case Module:authorize(Client, PubSub, Topic, Connector) of
         nomatch ->
-            emqx_plugin_libs_metrics:inc(authz_metrics, Type, ignore),
+            emqx_metrics_worker:inc(authz_metrics, Type, ignore),
             do_authorize(Client, PubSub, Topic, Tail);
         Matched ->
             {Matched, Type}
