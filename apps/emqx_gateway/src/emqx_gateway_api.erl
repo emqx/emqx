@@ -302,7 +302,9 @@ fields(gateway_overview) ->
                     required => {false, recursively},
                     desc => ?DESC(gateway_listeners)
                 }
-            )}
+            )},
+        {node_status,
+            mk(hoconsc:array(ref(gateway_node_status)), #{desc => ?DESC(gateway_node_status)})}
     ];
 fields(gateway_listener_overview) ->
     [
@@ -320,6 +322,25 @@ fields(gateway_listener_overview) ->
             mk(
                 hoconsc:enum([tcp, ssl, udp, dtls]),
                 #{desc => ?DESC(gateway_listener_type)}
+            )}
+    ];
+fields(gateway_node_status) ->
+    [
+        {node, mk(node(), #{desc => ?DESC(node)})},
+        {status,
+            mk(
+                hoconsc:enum([running, stopped, unloaded]),
+                #{desc => ?DESC(gateway_status)}
+            )},
+        {max_connections,
+            mk(
+                pos_integer(),
+                #{desc => ?DESC(gateway_max_connections)}
+            )},
+        {current_connections,
+            mk(
+                non_neg_integer(),
+                #{desc => ?DESC(gateway_current_connections)}
             )}
     ];
 fields(Gw) when
@@ -472,7 +493,15 @@ examples_gateway_overview() ->
                     }
                 ],
             created_at => <<"2021-12-08T14:41:26.171+08:00">>,
-            started_at => <<"2021-12-08T14:41:26.202+08:00">>
+            started_at => <<"2021-12-08T14:41:26.202+08:00">>,
+            node_status => [
+                #{
+                    node => <<"node@127.0.0.1">>,
+                    status => <<"running">>,
+                    current_connections => 0,
+                    max_connections => 1024000
+                }
+            ]
         },
         #{
             name => <<"mqttsn">>,
@@ -489,7 +518,15 @@ examples_gateway_overview() ->
                     }
                 ],
             created_at => <<"2021-12-08T14:41:45.071+08:00">>,
-            stopped_at => <<"2021-12-08T14:56:35.576+08:00">>
+            stopped_at => <<"2021-12-08T14:56:35.576+08:00">>,
+            node_status => [
+                #{
+                    node => <<"node@127.0.0.1">>,
+                    status => <<"running">>,
+                    current_connections => 0,
+                    max_connections => 1024000
+                }
+            ]
         },
         #{
             name => <<"stomp">>,
@@ -506,7 +543,15 @@ examples_gateway_overview() ->
                     }
                 ],
             created_at => <<"2021-12-08T14:42:15.272+08:00">>,
-            started_at => <<"2021-12-08T14:42:15.274+08:00">>
+            started_at => <<"2021-12-08T14:42:15.274+08:00">>,
+            node_status => [
+                #{
+                    node => <<"node@127.0.0.1">>,
+                    status => <<"running">>,
+                    current_connections => 0,
+                    max_connections => 1024000
+                }
+            ]
         }
     ].
 
