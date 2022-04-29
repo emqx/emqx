@@ -102,9 +102,14 @@ authz_http_common_fields() ->
     authz_common_fields(http) ++
         [
             {url, fun url/1},
-            {body, map([{fuzzy, term(), binary()}])},
+            {body,
+                hoconsc:mk(map([{fuzzy, term(), binary()}]), #{
+                    required => false, desc => ?DESC(body)
+                })},
             {request_timeout,
-                mk_duration("Request timeout", #{default => "30s", desc => ?DESC(request_timeout)})}
+                mk_duration("Request timeout", #{
+                    required => false, default => "30s", desc => ?DESC(request_timeout)
+                })}
         ] ++
         maps:to_list(
             maps:without(
@@ -141,7 +146,10 @@ headers_no_content_type(desc) ->
     ?DESC(?FUNCTION_NAME);
 headers_no_content_type(converter) ->
     fun(Headers) ->
-        maps:merge(default_headers_no_content_type(), transform_header_name(Headers))
+        maps:without(
+            [<<"content-type">>],
+            maps:merge(default_headers_no_content_type(), transform_header_name(Headers))
+        )
     end;
 headers_no_content_type(default) ->
     default_headers_no_content_type();

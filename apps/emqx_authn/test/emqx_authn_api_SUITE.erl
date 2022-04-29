@@ -184,14 +184,14 @@ test_authenticators(PathPrefix) ->
         InvalidConfig0
     ),
 
-    InvalidConfig1 = ValidConfig#{
+    ValidConfig1 = ValidConfig#{
         method => <<"get">>,
         headers => #{<<"content-type">> => <<"application/json">>}
     },
-    {ok, 400, _} = request(
-        post,
-        uri(PathPrefix ++ [?CONF_NS]),
-        InvalidConfig1
+    {ok, 200, _} = request(
+        put,
+        uri(PathPrefix ++ [?CONF_NS, "password_based:http"]),
+        ValidConfig1
     ),
 
     ?assertAuthenticatorsMatch(
@@ -264,21 +264,21 @@ test_authenticator(PathPrefix) ->
         InvalidConfig0
     ),
 
-    InvalidConfig1 = ValidConfig0#{
+    ValidConfig1 = ValidConfig0#{
         method => <<"get">>,
         headers => #{<<"content-type">> => <<"application/json">>}
     },
-    {ok, 400, _} = request(
-        put,
-        uri(PathPrefix ++ [?CONF_NS, "password_based:http"]),
-        InvalidConfig1
-    ),
-
-    ValidConfig1 = ValidConfig0#{pool_size => 9},
     {ok, 200, _} = request(
         put,
         uri(PathPrefix ++ [?CONF_NS, "password_based:http"]),
         ValidConfig1
+    ),
+
+    ValidConfig2 = ValidConfig0#{pool_size => 9},
+    {ok, 200, _} = request(
+        put,
+        uri(PathPrefix ++ [?CONF_NS, "password_based:http"]),
+        ValidConfig2
     ),
 
     {ok, 404, _} = request(

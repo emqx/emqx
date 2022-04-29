@@ -29,6 +29,8 @@
 -type action() :: publish | subscribe | all.
 -type permission() :: allow | deny.
 
+-import(emqx_schema, [mk_duration/2]).
+
 -export([
     namespace/0,
     roots/0,
@@ -249,8 +251,8 @@ http_common_fields() ->
     [
         {url, fun url/1},
         {request_timeout,
-            emqx_schema:mk_duration("Request timeout", #{
-                default => "30s", desc => ?DESC(request_timeout)
+            mk_duration("Request timeout", #{
+                required => false, default => "30s", desc => ?DESC(request_timeout)
             })},
         {body, #{type => map(), required => false, desc => ?DESC(body)}}
     ] ++
@@ -303,7 +305,12 @@ headers_no_content_type(desc) ->
     ?DESC(?FUNCTION_NAME);
 headers_no_content_type(converter) ->
     fun(Headers) ->
-        maps:to_list(maps:merge(default_headers_no_content_type(), transform_header_name(Headers)))
+        maps:to_list(
+            maps:without(
+                [<<"content-type">>],
+                maps:merge(default_headers_no_content_type(), transform_header_name(Headers))
+            )
+        )
     end;
 headers_no_content_type(default) ->
     default_headers_no_content_type();
@@ -359,12 +366,12 @@ check_ssl_opts(Conf) ->
             true;
         Url ->
             case emqx_authz_http:parse_url(Url) of
-                #{scheme := https} ->
+                {<<"https", _>>, _, _} ->
                     case hocon_maps:get("config.ssl.enable", Conf) of
                         true -> true;
                         _ -> {error, ssl_not_enable}
                     end;
-                #{scheme := http} ->
+                {<<"http", _>>, _, _} ->
                     true;
                 Bad ->
                     {bad_scheme, Url, Bad}

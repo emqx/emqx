@@ -94,45 +94,49 @@ authorize(
 
 parse_config(
     #{
-        url := URL,
+        url := RawUrl,
         method := Method,
         headers := Headers,
         request_timeout := ReqTimeout
     } = Conf
 ) ->
-    {BaseURLWithPath, Query} = parse_fullpath(URL),
-    BaseURLMap = parse_url(BaseURLWithPath),
+    {BaseUrl0, Path, Query} = parse_url(RawUrl),
+    {ok, BaseUrl} = emqx_http_lib:uri_parse(BaseUrl0),
     Conf#{
         method => Method,
-        base_url => maps:remove(query, BaseURLMap),
+        base_url => BaseUrl,
+        headers => Headers,
+        base_path_templete => emqx_authz_utils:parse_str(Path, ?PLACEHOLDERS),
         base_query_template => emqx_authz_utils:parse_deep(
-            cow_qs:parse_qs(bin(Query)),
+            cow_qs:parse_qs(to_bin(Query)),
             ?PLACEHOLDERS
         ),
         body_template => emqx_authz_utils:parse_deep(
             maps:to_list(maps:get(body, Conf, #{})),
             ?PLACEHOLDERS
         ),
-        headers => Headers,
         request_timeout => ReqTimeout,
         %% pool_type default value `random`
         pool_type => random
     }.
 
-parse_fullpath(RawURL) ->
-    cow_http:parse_fullpath(bin(RawURL)).
-
-parse_url(URL) when
-    URL =:= undefined
-->
-    #{};
-parse_url(URL) ->
-    {ok, URIMap} = emqx_http_lib:uri_parse(URL),
-    case maps:get(query, URIMap, undefined) of
-        undefined ->
-            URIMap#{query => ""};
-        _ ->
-            URIMap
+parse_url(Url) ->
+    case string:split(Url, "//", leading) of
+        [Scheme, UrlRem] ->
+            case string:split(UrlRem, "/", leading) of
+                [HostPort, Remaining] ->
+                    BaseUrl = iolist_to_binary([Scheme, "//", HostPort]),
+                    case string:split(Remaining, "?", leading) of
+                        [Path, QueryString] ->
+                            {BaseUrl, Path, QueryString};
+                        [Path] ->
+                            {BaseUrl, Path, <<>>}
+                    end;
+                [HostPort] ->
+                    {iolist_to_binary([Scheme, "//", HostPort]), <<>>, <<>>}
+            end;
+        [Url] ->
+            throw({invalid_url, Url})
     end.
 
 generate_request(
@@ -141,32 +145,33 @@ generate_request(
     Client,
     #{
         method := Method,
-        base_url := #{path := Path},
-        base_query_template := BaseQueryTemplate,
         headers := Headers,
+        base_path_templete := BasePathTemplate,
+        base_query_template := BaseQueryTemplate,
         body_template := BodyTemplate
     }
 ) ->
     Values = client_vars(Client, PubSub, Topic),
+    Path = emqx_authz_utils:render_str(BasePathTemplate, Values),
+    Query = emqx_authz_utils:render_deep(BaseQueryTemplate, Values),
     Body = emqx_authz_utils:render_deep(BodyTemplate, Values),
-    NBaseQuery = emqx_authz_utils:render_deep(BaseQueryTemplate, Values),
     case Method of
         get ->
-            NPath = append_query(Path, NBaseQuery ++ Body),
+            NPath = append_query(Path, Query ++ Body),
             {NPath, Headers};
         _ ->
-            NPath = append_query(Path, NBaseQuery),
+            NPath = append_query(Path, Query),
             NBody = serialize_body(
-                proplists:get_value(<<"Accept">>, Headers, <<"application/json">>),
+                proplists:get_value(<<"accept">>, Headers, <<"application/json">>),
                 Body
             ),
             {NPath, Headers, NBody}
     end.
 
 append_query(Path, []) ->
-    Path;
+    encode_path(Path);
 append_query(Path, Query) ->
-    Path ++ "?" ++ binary_to_list(query_string(Query)).
+    encode_path(Path) ++ "?" ++ to_list(query_string(Query)).
 
 query_string(Body) ->
     query_string(Body, []).
@@ -179,13 +184,14 @@ query_string([], Acc) ->
             <<>>
     end;
 query_string([{K, V} | More], Acc) ->
-    query_string(
-        More,
-        [
-            ["&", emqx_http_lib:uri_encode(K), "=", emqx_http_lib:uri_encode(V)]
-            | Acc
-        ]
-    ).
+    query_string(More, [["&", uri_encode(K), "=", uri_encode(V)] | Acc]).
+
+uri_encode(T) ->
+    emqx_http_lib:uri_encode(to_list(T)).
+
+encode_path(Path) ->
+    Parts = string:split(Path, "/", all),
+    lists:flatten(["/" ++ Part || Part <- lists:map(fun uri_encode/1, Parts)]).
 
 serialize_body(<<"application/json">>, Body) ->
     jsx:encode(Body);
@@ -198,7 +204,13 @@ client_vars(Client, PubSub, Topic) ->
         topic => Topic
     }.
 
-bin(A) when is_atom(A) -> atom_to_binary(A, utf8);
-bin(B) when is_binary(B) -> B;
-bin(L) when is_list(L) -> list_to_binary(L);
-bin(X) -> X.
+to_list(A) when is_atom(A) ->
+    atom_to_list(A);
+to_list(B) when is_binary(B) ->
+    binary_to_list(B);
+to_list(L) when is_list(L) ->
+    L.
+
+to_bin(B) when is_binary(B) -> B;
+to_bin(L) when is_list(L) -> list_to_binary(L);
+to_bin(X) -> X.
