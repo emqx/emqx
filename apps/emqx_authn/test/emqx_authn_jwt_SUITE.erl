@@ -25,7 +25,7 @@
 
 -define(AUTHN_ID, <<"mechanism:jwt">>).
 
--define(JWKS_PORT, 33333).
+-define(JWKS_PORT, 31333).
 -define(JWKS_PATH, "/jwks.json").
 
 all() ->

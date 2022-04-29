@@ -26,7 +26,7 @@
 
 -define(PATH, [?CONF_NS_ATOM]).
 
--define(HTTPS_PORT, 33333).
+-define(HTTPS_PORT, 32334).
 -define(HTTPS_PATH, "/auth").
 -define(CREDENTIALS, #{
     username => <<"plain">>,
@@ -148,7 +148,7 @@ raw_https_auth_config(SpecificSSLOpts) ->
 
         backend => <<"http">>,
         method => <<"get">>,
-        url => <<"https://127.0.0.1:33333/auth">>,
+        url => <<"https://127.0.0.1:32334/auth">>,
         body => #{<<"username">> => ?PH_USERNAME, <<"password">> => ?PH_PASSWORD},
         headers => #{<<"X-Test-Header">> => <<"Test Value">>},
         ssl => maps:merge(SSLOpts, SpecificSSLOpts)
