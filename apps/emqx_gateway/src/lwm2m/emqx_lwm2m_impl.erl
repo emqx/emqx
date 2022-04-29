@@ -75,7 +75,7 @@ on_gateway_load(
                     throw(
                         {badconf, #{
                             key => listeners,
-                            vallue => Listener,
+                            value => Listener,
                             reason => Reason
                         }}
                     )

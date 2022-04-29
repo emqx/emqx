@@ -99,9 +99,9 @@ load_gateway(GwName, Conf) ->
 unconvert_listeners(Ls) when is_list(Ls) ->
     lists:foldl(
         fun(Lis, Acc) ->
-            %% FIXME: params apperence guard?
             {[Type, Name], Lis1} = maps_key_take([<<"type">>, <<"name">>], Lis),
-            NLis1 = maps:without([<<"id">>], Lis1),
+            _ = vaildate_listener_name(Name),
+            NLis1 = maps:without([<<"id">>, <<"running">>], Lis1),
             emqx_map_lib:deep_merge(Acc, #{Type => #{Name => NLis1}})
         end,
         #{},
@@ -114,8 +114,23 @@ maps_key_take([], M, Acc) ->
     {lists:reverse(Acc), M};
 maps_key_take([K | Ks], M, Acc) ->
     case maps:take(K, M) of
-        error -> throw(bad_key);
+        error -> error(bad_key);
         {V, M1} -> maps_key_take(Ks, M1, [V | Acc])
+    end.
+
+vaildate_listener_name(Name) ->
+    try
+        {match, _} = re:run(Name, "^[0-9a-zA-Z_-]+$"),
+        ok
+    catch
+        _:_ ->
+            error(
+                {badconf, #{
+                    key => name,
+                    value => Name,
+                    reason => illegal_listener_name
+                }}
+            )
     end.
 
 -spec update_gateway(atom_or_bin(), map()) -> map_or_err().
