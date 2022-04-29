@@ -138,8 +138,11 @@ generate_appsecret_if_need(InSecrt) when is_binary(InSecrt), byte_size(InSecrt) 
 generate_appsecret_if_need(_) ->
     AppConf = application:get_env(?APP, application, []),
     case proplists:get_value(default_secret,  AppConf) of
-       undefined -> emqx_guid:to_base62(emqx_guid:gen());
-       Secret when is_binary(Secret) -> Secret
+       undefined ->
+            Random = crypto:strong_rand_bytes(32),
+            emqx_base62:encode(Random);
+       Secret when is_binary(Secret) ->
+            Secret
     end.
 
 -spec(get_appsecret(appid()) -> {appsecret() | undefined}).

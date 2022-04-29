@@ -3,7 +3,7 @@ name: Check Apps Version
 on: [pull_request]
 
 jobs:
-  check_apps_version:
+  check_apps_version_4_x:
     runs-on: ubuntu-20.04
 
     strategy:

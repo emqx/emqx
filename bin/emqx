@@ -362,9 +362,9 @@ generate_config() {
     ## NOTE: the -args_file and -vm_args are the same file passed twice because args_file is used by beam, but not possible to get at runtime
     ## by calling init:get_arguments/0
     lines="$(echo "$CUTTLEFISH_OUTPUT" | tail -1 \
-                | sed -e $'s/-config/\\\nconfig=/g' \
-                | sed -e $'s/-args_file/\\\nargs_file=/g' \
-                | sed -e $'s/-vm_args/\\\nvm_args=/g')"
+                    | sed -e $'s/-config/\\\nconfig=/g' \
+                    | sed -e $'s/-args_file/\\\nargs_file=/g' \
+                    | sed -e $'s/-vm_args/\\\nvm_args=/g')"
     CONFIG_FILE="$(trim "$(echo -e "$lines" | grep 'config=' | sed 's/config=//g')")"
     CUTTLE_GEN_ARG_FILE="$(trim "$(echo -e "$lines" | grep 'vm_args=' | sed 's/vm_args=//g')")"
 
