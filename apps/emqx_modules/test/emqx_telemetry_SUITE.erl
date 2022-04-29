@@ -140,7 +140,6 @@ init_per_testcase(t_exhook_info, Config) ->
                 }
         },
     {ok, _} = emqx_exhook_demo_svr:start(),
-    timer:sleep(2000),
     {ok, Sock} = gen_tcp:connect("localhost", 9000, [], 3000),
     _ = gen_tcp:close(Sock),
     ok = emqx_common_test_helpers:load_config(emqx_exhook_schema, ExhookConf),
@@ -677,7 +676,10 @@ setup_slave(Node) ->
     ok.
 
 stop_slave(Node) ->
-    slave:stop(Node).
+    ok = ekka:force_leave(Node),
+    emqx_cluster_rpc:skip_failed_commit(Node),
+    ok = slave:stop(Node),
+    ?assertEqual([node()], mria_mnesia:running_nodes()).
 
 host() ->
     [_, Host] = string:tokens(atom_to_list(node()), "@"),

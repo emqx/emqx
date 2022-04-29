@@ -27,6 +27,8 @@
     <<"topic_metrics">> => []
 }).
 
+suite() -> [{timetrap, {seconds, 30}}].
+
 all() ->
     emqx_common_test_helpers:all(?MODULE).
 
