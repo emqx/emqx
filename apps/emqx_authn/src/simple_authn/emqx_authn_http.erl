@@ -172,7 +172,7 @@ create(
     State = #{
         method => Method,
         path => Path,
-        headers => Headers,
+        headers => ensure_header_name_type(Headers),
         base_path_templete => emqx_authn_utils:parse_str(Path),
         base_query_template => emqx_authn_utils:parse_deep(
             cow_qs:parse_qs(to_bin(Query))
@@ -421,3 +421,14 @@ to_bin(L) when is_list(L) ->
 
 get_conf_val(Name, Conf) ->
     hocon_maps:get(?CONF_NS ++ "." ++ Name, Conf).
+
+ensure_header_name_type(Headers) ->
+    Fun = fun
+        (Key, _Val, Acc) when is_binary(Key) ->
+            Acc;
+        (Key, Val, Acc) when is_atom(Key) ->
+            Acc2 = maps:remove(Key, Acc),
+            BinKey = erlang:atom_to_binary(Key),
+            Acc2#{BinKey => Val}
+    end,
+    maps:fold(Fun, Headers, Headers).
