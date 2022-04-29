@@ -27,10 +27,9 @@ jobs:
               - amd64
 
         runs-on: aws-amd64
-        container: "ghcr.io/emqx/emqx-builder/5.0-10:${{ matrix.elixir }}-${{ matrix.otp }}-${{ matrix.os }}"
+        container: "emqx/emqx-builder/5.0-10:${{ matrix.elixir }}-${{ matrix.otp }}-${{ matrix.os }}"
 
         steps:
-        - uses: AutoModality/action-clean@v1
         - uses: actions/checkout@v2
 
         - name: Get deps git refs for cache
@@ -59,7 +58,7 @@ jobs:
 
     find_apps:
         runs-on: aws-amd64
-        container: ghcr.io/emqx/emqx-builder/5.0-10:1.13.3-24.2.1-1-ubuntu20.04
+        container: emqx/emqx-builder/5.0-10:1.13.3-24.2.1-1-ubuntu20.04
         outputs:
           fast_ct_apps: ${{ steps.run_find_apps.outputs.fast_ct_apps }}
           docker_ct_apps: ${{ steps.run_find_apps.outputs.docker_ct_apps }}
@@ -67,7 +66,6 @@ jobs:
           run:
             shell: bash
         steps:
-        - uses: AutoModality/action-clean@v1
         - uses: actions/checkout@v2
         - name: find apps
           id: run_find_apps
@@ -87,13 +85,12 @@ jobs:
               - "erlang23"
               - "erlang24"
 
-        runs-on: ubuntu-20.04
+        runs-on: aws-amd64
         defaults:
           run:
             shell: bash
 
         steps:
-        - uses: AutoModality/action-clean@v1
         - uses: actions/checkout@v2
         - name: docker compose up
           env:
@@ -144,13 +141,12 @@ jobs:
             arch:
               - amd64
         runs-on: aws-amd64
-        container: "ghcr.io/emqx/emqx-builder/5.0-10:${{ matrix.elixir }}-${{ matrix.otp }}-${{ matrix.os }}"
+        container: "emqx/emqx-builder/5.0-10:${{ matrix.elixir }}-${{ matrix.otp }}-${{ matrix.os }}"
         defaults:
           run:
             shell: bash
 
         steps:
-        - uses: AutoModality/action-clean@v1
         - uses: actions/checkout@v2
           # produces <app-name>.coverdata
         - name: run common test
@@ -184,9 +180,8 @@ jobs:
             - amd64
 
       runs-on: aws-amd64
-      container: "ghcr.io/emqx/emqx-builder/5.0-10:${{ matrix.elixir }}-${{ matrix.otp }}-${{ matrix.os }}"
+      container: "emqx/emqx-builder/5.0-10:${{ matrix.elixir }}-${{ matrix.otp }}-${{ matrix.os }}"
       steps:
-      - uses: AutoModality/action-clean@v1
       - uses: actions/checkout@v2
 
       - name: Get deps git refs for cache
