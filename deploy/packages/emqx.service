@@ -15,7 +15,7 @@ Environment=EMQX_LOG__TO=default
 
 # Start 'foregroun' but not 'start' (daemon) mode.
 # Because systemd monitor/restarts 'simple' services
-ExecStart=/usr/bin/emqx foreground
+ExecStart=/bin/bash /usr/bin/emqx foreground
 
 # Give EMQX enough file descriptors
 LimitNOFILE=1048576
@@ -23,7 +23,7 @@ LimitNOFILE=1048576
 # ExecStop is commented out so systemd will send a SIGTERM when 'systemctl stop'.
 # SIGTERM is handled by EMQX and it then performs a graceful shutdown
 # It's better than command 'emqx stop' because it needs to ping the node
-# ExecStop=/usr/bin/emqx stop
+# ExecStop=/bin/bash /usr/bin/emqx stop
 
 # Wait long enough before force kill for graceful shutdown
 TimeoutStopSec=120s
