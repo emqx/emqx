@@ -167,11 +167,8 @@ fields("metrics") ->
         {"matched", mk(integer(), #{desc => ?DESC("matched")})},
         {"allow", mk(integer(), #{desc => ?DESC("allow")})},
         {"deny", mk(integer(), #{desc => ?DESC("deny")})},
-        {"ignore", mk(float(), #{desc => ?DESC("ignore")})},
-        {"rate", mk(float(), #{desc => ?DESC("rate")})},
-        {"rate_max", mk(float(), #{desc => ?DESC("rate_max")})},
-        {"rate_last5m", mk(float(), #{desc => ?DESC("rate_last5m")})}
-    ];
+        {"ignore", mk(float(), #{desc => ?DESC("ignore")})}
+    ] ++ common_rate_field();
 fields("node_metrics") ->
     [
         node_name(),
@@ -199,11 +196,8 @@ common_field() ->
     [
         {"matched", mk(integer(), #{desc => ?DESC("matched")})},
         {"success", mk(integer(), #{desc => ?DESC("success")})},
-        {"failed", mk(integer(), #{desc => ?DESC("failed")})},
-        {"rate", mk(float(), #{desc => ?DESC("rate")})},
-        {"rate_max", mk(float(), #{desc => ?DESC("rate_max")})},
-        {"rate_last5m", mk(float(), #{desc => ?DESC("rate_last5m")})}
-    ].
+        {"failed", mk(integer(), #{desc => ?DESC("failed")})}
+    ] ++ common_rate_field().
 
 status() ->
     hoconsc:enum([connected, disconnected, connecting]).
@@ -425,3 +419,10 @@ to_list(A) when is_atom(A) ->
     atom_to_list(A);
 to_list(B) when is_binary(B) ->
     binary_to_list(B).
+
+common_rate_field() ->
+    [
+        {"rate", mk(float(), #{desc => ?DESC("rate")})},
+        {"rate_max", mk(float(), #{desc => ?DESC("rate_max")})},
+        {"rate_last5m", mk(float(), #{desc => ?DESC("rate_last5m")})}
+    ].
