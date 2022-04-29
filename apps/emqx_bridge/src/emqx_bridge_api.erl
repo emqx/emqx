@@ -622,11 +622,15 @@ aggregate_metrics(AllMetrics) ->
 format_resp(Data) ->
     format_resp(Data, node()).
 
-format_resp(#{
-    type := Type,
-    name := BridgeName,
-    raw_config := RawConf,
-    resource_data := #{status := Status, metrics := Metrics}}, Node) ->
+format_resp(
+    #{
+        type := Type,
+        name := BridgeName,
+        raw_config := RawConf,
+        resource_data := #{status := Status, metrics := Metrics}
+    },
+    Node
+) ->
     RawConfFull = fill_defaults(Type, RawConf),
     RawConfFull#{
         type => Type,
