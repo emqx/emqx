@@ -48,9 +48,9 @@ t_is_ack_required(_) ->
     ?assertEqual(false, emqx_shared_sub:is_ack_required(#message{headers = #{}})).
 
 t_maybe_nack_dropped(_) ->
-    ?assertEqual(ok, emqx_shared_sub:maybe_nack_dropped(#message{headers = #{}})),
+    ?assertEqual(false, emqx_shared_sub:maybe_nack_dropped(#message{headers = #{}})),
     Msg = #message{headers = #{shared_dispatch_ack => {<<"group">>, self(), for_test}}},
-    ?assertEqual(ok, emqx_shared_sub:maybe_nack_dropped(Msg)),
+    ?assertEqual(true, emqx_shared_sub:maybe_nack_dropped(Msg)),
     ?assertEqual(
         ok,
         receive

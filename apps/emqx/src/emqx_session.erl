@@ -630,7 +630,7 @@ maybe_ack(Msg) ->
     emqx_shared_sub:maybe_ack(Msg).
 
 maybe_nack(Msg) ->
-    ok == emqx_shared_sub:maybe_nack_dropped(Msg).
+    emqx_shared_sub:maybe_nack_dropped(Msg).
 
 get_subopts(Topic, SubMap) ->
     case maps:find(Topic, SubMap) of
@@ -813,16 +813,18 @@ run_terminate_hooks(ClientInfo, Reason, Session) ->
 
 redispatch_shared_messages(#session{inflight = Inflight}) ->
     InflightList = emqx_inflight:to_list(Inflight),
-    lists:map(fun({_, {#message{topic = Topic} = Msg, _}}) ->
-        case emqx_shared_sub:get_group(Msg) of
-            {ok, Group} ->
-                Delivery = #delivery{sender = self(), message = Msg},
-                emqx_shared_sub:dispatch(Group, Topic, Delivery);
-
-            _ ->
-                false
-        end
-    end, InflightList).
+    lists:map(
+        fun({_, {#message{topic = Topic} = Msg, _}}) ->
+            case emqx_shared_sub:get_group(Msg) of
+                {ok, Group} ->
+                    Delivery = #delivery{sender = self(), message = Msg},
+                    emqx_shared_sub:dispatch(Group, Topic, Delivery);
+                _ ->
+                    false
+            end
+        end,
+        InflightList
+    ).
 
 cleanup_self_from_shared_subs() ->
     emqx_shared_sub:cleanup(self()).
