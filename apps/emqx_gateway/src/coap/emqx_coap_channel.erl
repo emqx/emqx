@@ -579,7 +579,7 @@ ensure_connected(
     }
 ) ->
     NConnInfo = ConnInfo#{connected_at => erlang:system_time(millisecond)},
-    _ = run_hooks(Ctx, 'client.connack', [NConnInfo, connection_accepted, []]),
+    _ = run_hooks(Ctx, 'client.connack', [NConnInfo, connection_accepted, #{}]),
     ok = run_hooks(Ctx, 'client.connected', [ClientInfo, NConnInfo]),
     Channel#channel{conninfo = NConnInfo, conn_state = connected}.
 
