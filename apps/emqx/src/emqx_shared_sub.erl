@@ -30,7 +30,7 @@
 
 %% APIs
 -export([start_link/0]).
-export([subscribe/3, unsubscribe/3]).
+-export([subscribe/3, unsubscribe/3]).
 -export([dispatch/3]).
 -export([
     maybe_ack/1,
@@ -217,13 +217,13 @@ is_ack_required(Msg) ->
     ?NO_ACK =/= get_group_ack(Msg).
 
 %% @doc Negative ack dropped message due to inflight window or message queue being full.
--spec maybe_nack_dropped(emqx_types:message()) -> ok.
+-spec maybe_nack_dropped(emqx_types:message()) -> boolean().
 maybe_nack_dropped(Msg) ->
     case get_group_ack(Msg) of
         ?NO_ACK ->
-            ok;
+            false;
         {_Group, Sender, Ref} ->
-            nack(Sender, Ref, dropped)
+            ok == nack(Sender, Ref, dropped)
     end.
 
 %% @doc Negative ack message due to connection down.
