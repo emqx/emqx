@@ -1782,25 +1782,11 @@ message_to_packet(
     | {shutdown, Reason :: term(), Reply :: term(), channel()}
     | {shutdown, Reason :: term(), Reply :: term(), emqx_types:packet(), channel()}.
 handle_call({subscribe, Topic, SubOpts}, _From, Channel) ->
-    %% XXX: Only support short_topic_name
-    SubProps = maps:get(sub_props, SubOpts, #{}),
-    case maps:get(subtype, SubProps, short_topic_name) of
-        short_topic_name ->
-            case byte_size(Topic) of
-                2 ->
-                    case do_subscribe({?SN_INVALID_TOPIC_ID, Topic, SubOpts}, Channel) of
-                        {ok, {_, NTopicName, NSubOpts}, NChannel} ->
-                            reply({ok, {NTopicName, NSubOpts}}, NChannel);
-                        {error, ?SN_RC2_EXCEED_LIMITATION} ->
-                            reply({error, exceed_limitation}, Channel)
-                    end;
-                _ ->
-                    reply({error, bad_topic_name}, Channel)
-            end;
-        predefined_topic_id ->
-            reply({error, only_support_short_name_topic}, Channel);
-        _ ->
-            reply({error, only_support_short_name_topic}, Channel)
+    case do_subscribe({?SN_INVALID_TOPIC_ID, Topic, SubOpts}, Channel) of
+        {ok, {_, NTopicName, NSubOpts}, NChannel} ->
+            reply({ok, {NTopicName, NSubOpts}}, NChannel);
+        {error, ?SN_RC2_EXCEED_LIMITATION} ->
+            reply({error, exceed_limitation}, Channel)
     end;
 handle_call({unsubscribe, Topic}, _From, Channel) ->
     TopicFilters = [emqx_topic:parse(Topic)],
