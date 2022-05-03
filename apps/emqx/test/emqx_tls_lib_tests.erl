@@ -104,6 +104,17 @@ ssl_files_failure_test_() ->
             )
         end},
         {"bad_pem_string", fun() ->
+            %% empty string
+            ?assertMatch(
+                {error, #{
+                    reason := invalid_file_path_or_pem_string, which_options := [<<"keyfile">>]
+                }},
+                emqx_tls_lib:ensure_ssl_files("/tmp", #{
+                    <<"keyfile">> => <<>>,
+                    <<"certfile">> => bin(test_key()),
+                    <<"cacertfile">> => bin(test_key())
+                })
+            ),
             %% not valid unicode
             ?assertMatch(
                 {error, #{
