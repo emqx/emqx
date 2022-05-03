@@ -514,8 +514,9 @@ with_gateway(GwName0, Fun) ->
             ),
             return_http_error(404, "Resource not found. path: " ++ Path);
         %% Exceptions from emqx_gateway_conf:convert_certs/2,3
-        error:{bad_ssl_config, #{which_option := Option}} ->
-            return_http_error(400, ["Bad SSL config, option: ", Option]);
+        error:{bad_ssl_config, Reason0} ->
+            Reason = emqx_gateway_utils:stringfy(Reason0),
+            return_http_error(400, ["Bad SSL config, reason: ", Reason]);
         Class:Reason:Stk ->
             ?SLOG(error, #{
                 msg => "uncatched_error",
