@@ -174,9 +174,7 @@ clients_insta(delete, #{
         {204}
     end).
 
-%% FIXME:
-%% List the subscription without mountpoint, but has SubOpts,
-%% for example, share group ...
+%% List the established subscriptions with mountpoint
 subscriptions(get, #{
     bindings := #{
         name := Name0,
@@ -189,7 +187,7 @@ subscriptions(get, #{
             {error, not_found} ->
                 return_http_error(404, "client process not found");
             {error, Reason} ->
-                return_http_error(500, Reason);
+                return_http_error(400, Reason);
             {ok, Subs} ->
                 {200, Subs}
         end
@@ -216,7 +214,7 @@ subscriptions(post, #{
                     {error, not_found} ->
                         return_http_error(404, "client process not found");
                     {error, Reason} ->
-                        return_http_error(500, Reason);
+                        return_http_error(400, Reason);
                     {ok, {NTopic, NSubOpts}} ->
                         {201, maps:merge(NSubOpts, #{topic => NTopic})}
                 end
@@ -368,6 +366,7 @@ format_channel_info({_, Infos, Stats} = R) ->
         {node, ClientInfo, Node},
         {clientid, ClientInfo},
         {username, ClientInfo},
+        {mountpoint, ClientInfo},
         {proto_name, ConnInfo},
         {proto_ver, ConnInfo},
         {ip_address, {peername, ConnInfo, fun peer_to_binary_addr/1}},
@@ -812,6 +811,11 @@ common_client_props() ->
             mk(
                 binary(),
                 #{desc => ?DESC(username)}
+            )},
+        {mountpoint,
+            mk(
+                binary(),
+                #{desc => ?DESC(mountpoint)}
             )},
         {proto_name,
             mk(
