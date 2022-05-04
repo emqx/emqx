@@ -33,6 +33,7 @@
 all() -> emqx_common_test_helpers:all(?MODULE).
 
 init_per_suite(Config) ->
+    net_kernel:start(['master@127.0.0.1', longnames]),
     ok = meck:new(emqx_authz, [non_strict, passthrough, no_history, no_link]),
     meck:expect(
         emqx_authz,
@@ -159,7 +160,6 @@ init_per_testcase(t_exhook_info, Config) ->
     Config;
 init_per_testcase(t_cluster_uuid, Config) ->
     Node = start_slave(n1),
-    ok = setup_slave(Node),
     [{n1, Node} | Config];
 init_per_testcase(t_uuid_restored_from_file, Config) ->
     mock_httpc(),
@@ -184,7 +184,6 @@ init_per_testcase(t_uuid_restored_from_file, Config) ->
         fun set_special_configs/1
     ),
     Node = start_slave(n1),
-    ok = setup_slave(Node),
     [
         {n1, Node},
         {node_uuid, NodeUUID},
@@ -801,12 +800,6 @@ set_special_configs(emqx_authz) ->
 set_special_configs(_App) ->
     ok.
 
-start_slave(Name) ->
-    % We want VMs to only occupy a single core
-    CommonBeamOpts = "+S 1:1 ",
-    {ok, Node} = slave:start_link(host(), Name, CommonBeamOpts ++ ebin_path()),
-    Node.
-
 %% for some unknown reason, gen_rpc running locally or in CI might
 %% start with different `port_discovery' modes, which means that'll
 %% either be listening at the port in the config (`tcp_server_port',
@@ -822,57 +815,41 @@ find_gen_rpc_port() ->
     {ok, {_, Port}} = inet:sockname(EPort),
     Port.
 
-setup_slave(Node) ->
-    TestNode = node(),
+start_slave(Name) ->
     Port = find_gen_rpc_port(),
-    [ok = rpc:call(Node, application, load, [App]) || App <- [gen_rpc, emqx]],
-    ok = rpc:call(
-        Node,
-        application,
-        set_env,
-        [gen_rpc, tcp_server_port, 9002]
-    ),
-    ok = rpc:call(
-        Node,
-        application,
-        set_env,
-        [gen_rpc, client_config_per_node, {internal, #{TestNode => Port}}]
-    ),
-    ok = rpc:call(
-        Node,
-        application,
-        set_env,
-        [gen_rpc, port_discovery, manual]
-    ),
+    TestNode = node(),
     Handler =
         fun
             (emqx) ->
-                application:set_env(
-                    emqx,
-                    boot_modules,
-                    []
-                ),
+                application:set_env(emqx, boot_modules, []),
                 ekka:join(TestNode),
+                emqx_common_test_helpers:load_config(
+                    emqx_modules_schema, ?BASE_CONF, #{raw_with_default => true}
+                ),
+
                 ok;
-            (_) ->
+            (_App) ->
+                emqx_common_test_helpers:load_config(
+                    emqx_modules_schema, ?BASE_CONF, #{raw_with_default => true}
+                ),
                 ok
         end,
-    ok = rpc:call(
-        Node,
-        emqx_common_test_helpers,
-        load_config,
-        [emqx_modules_schema, ?BASE_CONF, #{raw_with_default => true}]
-    ),
-    ok = rpc:call(
-        Node,
-        emqx_common_test_helpers,
-        start_apps,
-        [
-            [emqx_conf, emqx_modules],
-            Handler
-        ]
-    ),
-    ok.
+    Opts = #{
+        env => [
+            {gen_rpc, tcp_server_port, 9002},
+            {gen_rpc, port_discovery, manual},
+            {gen_rpc, client_config_per_node, {internal, #{TestNode => Port}}}
+        ],
+
+        load_schema => false,
+        configure_gen_rpc => false,
+        env_handler => Handler,
+        load_apps => [gen_rpc, emqx],
+        listener_ports => [],
+        apps => [emqx_conf, emqx_modules]
+    },
+
+    emqx_common_test_helpers:start_slave(Name, Opts).
 
 stop_slave(Node) ->
     % This line don't work!!
@@ -892,18 +869,3 @@ leave_cluster() ->
             application:set_env(mria, db_backend, mnesia),
             ekka:leave()
     end.
-
-host() ->
-    [_, Host] = string:tokens(atom_to_list(node()), "@"),
-    Host.
-
-ebin_path() ->
-    string:join(["-pa" | paths()], " ").
-
-paths() ->
-    [
-        Path
-     || Path <- code:get_path(),
-        string:prefix(Path, code:lib_dir()) =:= nomatch,
-        string:str(Path, "_build/default/plugins") =:= 0
-    ].

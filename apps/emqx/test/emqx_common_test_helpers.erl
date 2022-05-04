@@ -38,25 +38,32 @@
 ]).
 
 -export([
-    ensure_mnesia_stopped/0,
-    wait_for/4,
     change_emqx_opts/1,
     change_emqx_opts/2,
-    client_ssl_twoway/0,
-    client_ssl_twoway/1,
     client_ssl/0,
     client_ssl/1,
-    wait_mqtt_payload/1,
-    not_wait_mqtt_payload/1,
-    render_config_file/2,
-    read_schema_configs/2,
+    client_ssl_twoway/0,
+    client_ssl_twoway/1,
+    ensure_mnesia_stopped/0,
+    ensure_quic_listener/2,
+    is_tcp_server_available/2,
+    is_tcp_server_available/3,
     load_config/2,
     load_config/3,
-    is_tcp_server_available/2,
-    is_tcp_server_available/3
+    not_wait_mqtt_payload/1,
+    read_schema_configs/2,
+    render_config_file/2,
+    wait_for/4,
+    wait_mqtt_payload/1
 ]).
 
--export([ensure_quic_listener/2]).
+-export([
+    emqx_cluster/1,
+    emqx_cluster/2,
+    start_epmd/0,
+    start_slave/2,
+    stop_slave/1
+]).
 
 -define(CERTS_PATH(CertName), filename:join(["etc", "certs", CertName])).
 
@@ -542,3 +549,248 @@ ensure_quic_listener(Name, UdpPort) ->
         ok -> ok;
         {error, {already_started, _Pid}} -> ok
     end.
+
+%%
+%% Clusterisation and multi-node testing
+%%
+
+emqx_cluster(Specs) ->
+    emqx_cluster(Specs, #{}).
+
+emqx_cluster(Specs, CommonOpts) when is_list(CommonOpts) ->
+    emqx_cluster(Specs, maps:from_list(CommonOpts));
+emqx_cluster(Specs0, CommonOpts) ->
+    Specs1 = lists:zip(Specs0, lists:seq(1, length(Specs0))),
+    Specs = expand_node_specs(Specs1, CommonOpts),
+    CoreNodes = [node_name(Name) || {{core, Name, _}, _} <- Specs],
+    %% Assign grpc ports:
+    GenRpcPorts = maps:from_list([
+        {node_name(Name), {tcp, gen_rpc_port(base_port(Num))}}
+     || {{_, Name, _}, Num} <- Specs
+    ]),
+    %% Set the default node of the cluster:
+    JoinTo =
+        case CoreNodes of
+            [First | _] -> First;
+            _ -> undefined
+        end,
+    [
+        {Name,
+            merge_opts(Opts, #{
+                base_port => base_port(Number),
+                join_to => JoinTo,
+                env => [
+                    {mria, core_nodes, CoreNodes},
+                    {mria, node_role, Role},
+                    {gen_rpc, client_config_per_node, {internal, GenRpcPorts}}
+                ]
+            })}
+     || {{Role, Name, Opts}, Number} <- Specs
+    ].
+
+%% Lower level starting API
+start_slave(Name, Opts) ->
+    {ok, Node} = ct_slave:start(
+        list_to_atom(atom_to_list(Name) ++ "@" ++ host()),
+        [
+            {kill_if_fail, true},
+            {monitor_master, true},
+            {init_timeout, 10000},
+            {startup_timeout, 10000},
+            {erl_flags, erl_flags()}
+        ]
+    ),
+
+    pong = net_adm:ping(Node),
+    setup_node(Node, Opts),
+    Node.
+
+%% Node stopping
+stop_slave(Node) ->
+    ct_slave:stop(Node).
+
+%% EPMD starting
+start_epmd() ->
+    [] = os:cmd("\"" ++ epmd_path() ++ "\" -daemon"),
+    ok.
+
+epmd_path() ->
+    case os:find_executable("epmd") of
+        false ->
+            ct:pal(critical, "Could not find epmd.~n"),
+            exit(epmd_not_found);
+        GlobalEpmd ->
+            GlobalEpmd
+    end.
+
+%% Node initialization
+
+setup_node(Node, Opts) when is_list(Opts) ->
+    setup_node(Node, maps:from_list(Opts));
+setup_node(Node, Opts) when is_map(Opts) ->
+    %% Default base port is selected upon Node from 1100 to 65530 with step 10
+    BasePort = maps:get(base_port, Opts, 1100 + erlang:phash2(Node, 6553 - 110) * 10),
+    Apps = maps:get(apps, Opts, []),
+    StartApps = maps:get(start_apps, Opts, true),
+    JoinTo = maps:get(join_to, Opts, undefined),
+    EnvHandler = maps:get(env_handler, Opts, fun(_) -> ok end),
+    ConfigureGenRpc = maps:get(configure_gen_rpc, Opts, true),
+    LoadSchema = maps:get(load_schema, Opts, true),
+    LoadApps = maps:get(load_apps, Opts, [gen_rpc, emqx, ekka, mria] ++ Apps),
+    Env = maps:get(env, Opts, []),
+    Conf = maps:get(conf, Opts, []),
+    ListenerPorts = maps:get(listener_ports, Opts, [
+        {Type, listener_port(BasePort, Type)}
+     || Type <- [tcp, ssl, ws, wss]
+    ]),
+
+    %% Load env before doing anything to avoid overriding
+    [ok = rpc:call(Node, application, load, [App]) || App <- LoadApps],
+
+    %% Needs to be set explicitly because ekka:start() (which calls `gen`) is called without Handler
+    %% in emqx_common_test_helpers:start_apps(...)
+    ConfigureGenRpc andalso
+        begin
+            ok = rpc:call(Node, application, set_env, [
+                gen_rpc, tcp_server_port, gen_rpc_port(BasePort)
+            ]),
+            ok = rpc:call(Node, application, set_env, [gen_rpc, port_discovery, manual])
+        end,
+
+    %% Setting env before starting any applications
+    [
+        ok = rpc:call(Node, application, set_env, [Application, Key, Value])
+     || {Application, Key, Value} <- Env
+    ],
+
+    %% Here we start the apps
+    EnvHandlerForRpc =
+        fun(App) ->
+            %% We load configuration, and than set the special enviroment variable
+            %% which says that emqx shouldn't load configuration at startup
+            %% Otherwise, configuration get's loaded and all preset env in envhandler is lost
+            LoadSchema andalso
+                begin
+                    emqx_config:init_load(emqx_schema),
+                    application:set_env(emqx, init_config_load_done, true)
+                end,
+
+            %% Need to set this otherwise listeners will conflict between each other
+            [
+                ok = emqx_config:put([listeners, Type, default, bind], {
+                    {127, 0, 0, 1}, Port
+                })
+             || {Type, Port} <- ListenerPorts
+            ],
+
+            [ok = emqx_config:put(KeyPath, Value) || {KeyPath, Value} <- Conf],
+            ok = EnvHandler(App),
+            ok
+        end,
+
+    StartApps andalso
+        begin
+            ok = rpc:call(Node, emqx_common_test_helpers, start_apps, [Apps, EnvHandlerForRpc])
+        end,
+
+    %% Join the cluster if JoinTo is specified
+    case JoinTo of
+        undefined ->
+            ok;
+        _ ->
+            case rpc:call(Node, ekka, join, [JoinTo]) of
+                ok ->
+                    ok;
+                ignore ->
+                    ok;
+                Err ->
+                    stop_slave(Node),
+                    error({failed_to_join_cluster, #{node => Node, error => Err}})
+            end
+    end,
+    ok.
+
+%% Helpers
+
+node_name(Name) ->
+    list_to_atom(lists:concat([Name, "@", host()])).
+
+gen_node_name(Num) ->
+    list_to_atom("autocluster_node" ++ integer_to_list(Num)).
+
+host() ->
+    [_, Host] = string:tokens(atom_to_list(node()), "@"),
+    Host.
+
+merge_opts(Opts1, Opts2) ->
+    maps:merge_with(
+        fun
+            (env, Env1, Env2) -> lists:usort(Env2 ++ Env1);
+            (conf, Conf1, Conf2) -> lists:usort(Conf2 ++ Conf1);
+            (apps, Apps1, Apps2) -> lists:usort(Apps2 ++ Apps1);
+            (load_apps, Apps1, Apps2) -> lists:usort(Apps2 ++ Apps1);
+            (_Option, _Old, Value) -> Value
+        end,
+        Opts1,
+        Opts2
+    ).
+
+erl_flags() ->
+    %% One core and redirecting logs to master
+    "+S 1:1 -master " ++ atom_to_list(node()) ++ " " ++ ebin_path().
+
+ebin_path() ->
+    string:join(["-pa" | lists:filter(fun is_lib/1, code:get_path())], " ").
+
+is_lib(Path) ->
+    string:prefix(Path, code:lib_dir()) =:= nomatch andalso
+        string:str(Path, "_build/default/plugins") =:= 0.
+
+%% Ports
+
+base_port(Number) ->
+    10000 + Number * 100.
+
+gen_rpc_port(BasePort) ->
+    BasePort - 1.
+
+listener_port(BasePort, tcp) ->
+    BasePort;
+listener_port(BasePort, ssl) ->
+    BasePort + 1;
+listener_port(BasePort, quic) ->
+    BasePort + 2;
+listener_port(BasePort, ws) ->
+    BasePort + 3;
+listener_port(BasePort, wss) ->
+    BasePort + 4.
+
+%% Autocluster helpers
+
+expand_node_specs(Specs, CommonOpts) ->
+    lists:map(
+        fun({Spec, Num}) ->
+            {
+                case Spec of
+                    core ->
+                        {core, gen_node_name(Num), CommonOpts};
+                    replicant ->
+                        {replicant, gen_node_name(Num), CommonOpts};
+                    {Role, Name} when is_atom(Name) ->
+                        {Role, Name, CommonOpts};
+                    {Role, Opts} when is_list(Opts) ->
+                        Opts1 = maps:from_list(Opts),
+                        {Role, gen_node_name(Num), merge_opts(CommonOpts, Opts1)};
+                    {Role, Name, Opts} when is_list(Opts) ->
+                        Opts1 = maps:from_list(Opts),
+                        {Role, Name, merge_opts(CommonOpts, Opts1)};
+                    {Role, Opts} ->
+                        {Role, gen_node_name(Num), merge_opts(CommonOpts, Opts)};
+                    {Role, Name, Opts} ->
+                        {Role, Name, merge_opts(CommonOpts, Opts)}
+                end,
+                Num
+            }
+        end,
+        Specs
+    ).

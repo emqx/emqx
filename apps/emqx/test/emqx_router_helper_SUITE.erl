@@ -35,7 +35,7 @@ init_per_suite(Config) ->
             ignored ->
                 %% calling `net_kernel:start' without `epmd'
                 %% running will result in a failure.
-                start_epmd(),
+                emqx_common_test_helpers:start_epmd(),
                 {ok, Pid} = net_kernel:start(['test@127.0.0.1', longnames]),
                 Pid;
             _ ->
@@ -60,7 +60,7 @@ init_per_testcase(TestCase, Config) when
     TestCase =:= t_cleanup_monitor_node_down
 ->
     ok = snabbkaffe:start_trace(),
-    Slave = start_slave(some_node),
+    Slave = emqx_common_test_helpers:start_slave(some_node, []),
     [{slave, Slave} | Config];
 init_per_testcase(_TestCase, Config) ->
     Config.
@@ -71,7 +71,7 @@ end_per_testcase(TestCase, Config) when
     TestCase =:= t_cleanup_monitor_node_down
 ->
     Slave = ?config(slave, Config),
-    stop_slave(Slave),
+    emqx_common_test_helpers:stop_slave(Slave),
     mria:transaction(?ROUTE_SHARD, fun() -> mnesia:clear_table(?ROUTE_TAB) end),
     snabbkaffe:stop(),
     ok;
@@ -120,7 +120,7 @@ t_cleanup_monitor_node_down(Config) ->
     emqx_router:add_route(<<"d/e/f">>, node()),
     ?assertMatch([_, _], emqx_router:topics()),
     ?wait_async_action(
-        stop_slave(Slave),
+        emqx_common_test_helpers:stop_slave(Slave),
         #{?snk_kind := emqx_router_helper_cleanup_done, node := Slave},
         1_000
     ),
@@ -130,39 +130,3 @@ t_message(_) ->
     ?ROUTER_HELPER ! testing,
     gen_server:cast(?ROUTER_HELPER, testing),
     gen_server:call(?ROUTER_HELPER, testing).
-
-%%------------------------------------------------------------------------------
-%% Internal functions
-%%------------------------------------------------------------------------------
-
-start_epmd() ->
-    [] = os:cmd("\"" ++ epmd_path() ++ "\" -daemon"),
-    ok.
-
-epmd_path() ->
-    case os:find_executable("epmd") of
-        false ->
-            ct:pal(critical, "Could not find epmd.~n"),
-            exit(epmd_not_found);
-        GlobalEpmd ->
-            GlobalEpmd
-    end.
-
-start_slave(Name) ->
-    % We want VMs to only occupy a single core
-    CommonBeamOpts = "+S 1:1 ",
-    {ok, Node} = slave:start_link(host(), Name, CommonBeamOpts ++ ebin_path()),
-    Node.
-
-stop_slave(Node) ->
-    slave:stop(Node).
-
-host() ->
-    [_, Host] = string:tokens(atom_to_list(node()), "@"),
-    Host.
-
-ebin_path() ->
-    string:join(["-pa" | lists:filter(fun is_lib/1, code:get_path())], " ").
-
-is_lib(Path) ->
-    string:prefix(Path, code:lib_dir()) =:= nomatch.
