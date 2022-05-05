@@ -550,11 +550,12 @@ handle_update_authenticator(Chain, AuthenticatorID, Config) ->
         #authenticator{provider = Provider, state = ST} = Authenticator ->
             case AuthenticatorID =:= authenticator_id(Config) of
                 true ->
-                    case Provider:update(Config, ST) of
+                    NConfig = insert_user_group(Chain, Config),
+                    case Provider:update(NConfig, ST) of
                         {ok, NewST} ->
                             NewAuthenticator = Authenticator#authenticator{
                                 state = NewST,
-                                enable = maps:get(enable, Config)
+                                enable = maps:get(enable, NConfig)
                             },
                             NewAuthenticators = replace_authenticator(
                                 AuthenticatorID,
@@ -603,7 +604,8 @@ handle_create_authenticator(Chain, Config, Providers) ->
         true ->
             {error, {already_exists, {authenticator, AuthenticatorID}}};
         false ->
-            case do_create_authenticator(AuthenticatorID, Config, Providers) of
+            NConfig = insert_user_group(Chain, Config),
+            case do_create_authenticator(AuthenticatorID, NConfig, Providers) of
                 {ok, Authenticator} ->
                     NAuthenticators =
                         Authenticators ++
@@ -860,6 +862,17 @@ authn_type(#{mechanism := Mechanism, backend := Backend}) ->
     {Mechanism, Backend};
 authn_type(#{mechanism := Mechanism}) ->
     Mechanism.
+
+insert_user_group(
+    Chain,
+    Config = #{
+        mechanism := password_based,
+        backend := built_in_database
+    }
+) ->
+    Config#{user_group => Chain#chain.name};
+insert_user_group(_Chain, Config) ->
+    Config.
 
 to_list(undefined) -> [];
 to_list(M) when M =:= #{} -> [];

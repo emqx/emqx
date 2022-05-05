@@ -128,23 +128,26 @@ user_id_type(_) -> undefined.
 refs() ->
     [hoconsc:ref(?MODULE, ?CONF_NS)].
 
+create(_AuthenticatorID, Config) ->
+    create(Config).
+
 create(
-    AuthenticatorID,
     #{
         user_id_type := Type,
-        password_hash_algorithm := Algorithm
+        password_hash_algorithm := Algorithm,
+        user_group := UserGroup
     }
 ) ->
     ok = emqx_authn_password_hashing:init(Algorithm),
     State = #{
-        user_group => AuthenticatorID,
+        user_group => UserGroup,
         user_id_type => Type,
         password_hash_algorithm => Algorithm
     },
     {ok, State}.
 
-update(Config, #{user_group := ID}) ->
-    create(ID, Config).
+update(Config, _State) ->
+    create(Config).
 
 authenticate(#{auth_method := _}, _) ->
     ignore;
