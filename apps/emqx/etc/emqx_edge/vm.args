@@ -118,7 +118,7 @@
 -shutdown_time 10000
 
 ## patches dir
--pa {{ platform_data_dir }}/patches
+-pa "{{ platform_data_dir }}/patches"
 
 ## Mnesia thresholds
 -mnesia dump_log_write_threshold 5000
