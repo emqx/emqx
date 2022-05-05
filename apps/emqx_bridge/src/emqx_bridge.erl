@@ -347,13 +347,15 @@ create_dry_run(Type, Conf) ->
     case emqx_resource:check_config(emqx_bridge:resource_type(Type), Conf0) of
         {ok, Conf1} ->
             TmpPath = iolist_to_binary(["bridges-create-dry-run:", emqx_misc:gen_id(8)]),
-            try emqx_connector_ssl:convert_certs(TmpPath, Conf1) of
+            case emqx_connector_ssl:convert_certs(TmpPath, Conf1) of
                 {error, Reason} ->
                     {error, Reason};
                 {ok, ConfNew} ->
-                    emqx_resource:create_dry_run_local(emqx_bridge:resource_type(Type), ConfNew)
-            after
-                emqx_connector_ssl:clear_certs(TmpPath, Conf1)
+                    Res = emqx_resource:create_dry_run_local(
+                        emqx_bridge:resource_type(Type), ConfNew
+                    ),
+                    _ = maybe_clear_certs(TmpPath, ConfNew),
+                    Res
             end;
         {error, _} = Error ->
             Error
@@ -567,6 +569,28 @@ fill_dry_run_conf(Conf) ->
         <<"ingress">> =>
             #{<<"remote_topic">> => <<"t">>}
     }.
+
+maybe_clear_certs(TmpPath, #{ssl := SslConf} = Conf) ->
+    %% don't remove the cert files if they are in use
+    case is_tmp_path_conf(TmpPath, SslConf) of
+        true -> emqx_connector_ssl:clear_certs(TmpPath, Conf);
+        false -> ok
+    end.
+
+is_tmp_path_conf(TmpPath, #{certfile := Certfile}) ->
+    is_tmp_path(TmpPath, Certfile);
+is_tmp_path_conf(TmpPath, #{keyfile := Keyfile}) ->
+    is_tmp_path(TmpPath, Keyfile);
+is_tmp_path_conf(TmpPath, #{cacertfile := CaCertfile}) ->
+    is_tmp_path(TmpPath, CaCertfile);
+is_tmp_path_conf(_TmpPath, _Conf) ->
+    false.
+
+is_tmp_path(TmpPath, File) ->
+    string:str(str(File), str(TmpPath)) > 0.
+
+str(Bin) when is_binary(Bin) -> binary_to_list(Bin);
+str(Str) when is_list(Str) -> Str.
 
 bin(Bin) when is_binary(Bin) -> Bin;
 bin(Str) when is_list(Str) -> list_to_binary(Str);
