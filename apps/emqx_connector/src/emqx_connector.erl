@@ -41,12 +41,7 @@ config_key_path() ->
     [connectors].
 
 pre_config_update(Path, Conf, _OldConfig) when is_map(Conf) ->
-    case emqx_connector_ssl:convert_certs(filename:join(Path), Conf) of
-        {error, Reason} ->
-            {error, Reason};
-        {ok, ConfNew} ->
-            {ok, ConfNew}
-    end.
+    emqx_connector_ssl:convert_certs(filename:join(Path), Conf).
 
 -dialyzer([{nowarn_function, [post_config_update/5]}, error_handling]).
 post_config_update([connectors, Type, Name] = Path, '$remove', _, OldConf, _AppEnvs) ->
