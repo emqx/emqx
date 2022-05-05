@@ -59,7 +59,7 @@
 %% List of functions in the RPC backend modules that we can ignore:
 
 % TODO: handle pmap
--define(IGNORED_RPC_CALLS, "gen_rpc:nodes/0, emqx_rpc:unwrap_erpc/1, rpc:pmap/3").
+-define(IGNORED_RPC_CALLS, "gen_rpc:nodes/0, emqx_rpc:unwrap_erpc/1").
 %% List of business-layer functions that are exempt from the checks:
 -define(EXEMPTIONS,
     % Reason: legacy code. A fun and a QC query are

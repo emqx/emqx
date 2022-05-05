@@ -49,7 +49,9 @@
     ipv6_probe/1,
     gen_id/0,
     gen_id/1,
-    explain_posix/1
+    explain_posix/1,
+    pmap/2,
+    pmap/3
 ]).
 
 -export([
@@ -60,6 +62,8 @@
 -export([clamp/3]).
 
 -define(SHORT, 8).
+
+-define(DEFAULT_PMAP_TIMEOUT, 5000).
 
 %% @doc Parse v4 or v6 string format address to tuple.
 %% `Host' itself is returned if it's not an ip string.
@@ -371,6 +375,25 @@ explain_posix(estale) -> "Stale remote file handle";
 explain_posix(exdev) -> "Cross-domain link";
 explain_posix(NotPosix) -> NotPosix.
 
+-spec pmap(fun((A) -> B), list(A)) -> list(B | {error, term()}).
+pmap(Fun, List) when is_function(Fun, 1), is_list(List) ->
+    pmap(Fun, List, ?DEFAULT_PMAP_TIMEOUT).
+
+-spec pmap(fun((A) -> B), list(A), timeout()) -> list(B | {error, term()}).
+pmap(Fun, List, Timeout) when
+    is_function(Fun, 1), is_list(List), is_integer(Timeout), Timeout >= 0
+->
+    Self = self(),
+    Pids = lists:map(
+        fun(El) ->
+            spawn_link(
+                fun() -> pmap_exec(Self, Fun, El, Timeout) end
+            )
+        end,
+        List
+    ),
+    pmap_gather(Pids).
+
 %%------------------------------------------------------------------------------
 %% Internal Functions
 %%------------------------------------------------------------------------------
@@ -394,6 +417,29 @@ pad(L, 0) ->
     L;
 pad(L, Count) ->
     pad([$0 | L], Count - 1).
+
+pmap_gather([Pid | Pids]) ->
+    receive
+        {Pid, Result} -> [Result | pmap_gather(Pids)]
+    end;
+pmap_gather([]) ->
+    [].
+
+pmap_exec(CallerPid, Fun, El, Timeout) ->
+    ExecPid = self(),
+    {Pid, Ref} = spawn_monitor(fun() ->
+        Result = Fun(El),
+        ExecPid ! {result, self(), Result}
+    end),
+    ExecResult =
+        receive
+            {result, Pid, Result} -> Result;
+            {'DOWN', Ref, process, Pid, Reason} -> {error, Reason}
+        after Timeout ->
+            true = erlang:exit(Pid, kill),
+            {error, timeout}
+        end,
+    CallerPid ! {ExecPid, ExecResult}.
 
 -ifdef(TEST).
 -include_lib("eunit/include/eunit.hrl").
