@@ -489,7 +489,7 @@ zone(Opts) ->
     maps:get(zone, Opts, undefined).
 
 limiter(Opts) ->
-    maps:get(limiter, Opts).
+    maps:get(limiter, Opts, #{}).
 
 ssl_opts(Opts) ->
     maps:to_list(
