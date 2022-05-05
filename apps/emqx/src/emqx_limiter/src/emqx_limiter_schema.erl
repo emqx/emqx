@@ -199,18 +199,36 @@ ref(Field) -> hoconsc:ref(?MODULE, Field).
 to_burst_rate(Str) ->
     to_rate(Str, false, true).
 
+%% rate can be: 10 10MB 10MB/s 10MB/2s infinity
+%% e.g. the bytes_in regex tree is:
+%%
+%%        __ infinity
+%%        |                 - xMB
+%%  rate -|                 |
+%%        __ ?Size(/?Time) -|            - xMB/s
+%%                          |            |
+%%                          - xMB/?Time -|
+%%                                       - xMB/ys
 to_rate(Str, CanInfinity, CanZero) ->
-    Tokens = [string:trim(T) || T <- string:tokens(Str, "/")],
-    case Tokens of
-        ["infinity"] when CanInfinity ->
+    Regex = "^\s*(?:([0-9]+[a-zA-Z]*)(?:/([0-9]*)([m s h d M S H D]{1,2}))?\s*$)|infinity\s*$",
+    {ok, MP} = re:compile(Regex),
+    case re:run(Str, MP, [{capture, all_but_first, list}]) of
+        {match, []} when CanInfinity ->
             {ok, infinity};
         %% if time unit is 1s, it can be omitted
-        [QuotaStr] ->
+        {match, [QuotaStr]} ->
             Fun = fun(Quota) ->
                 {ok, Quota * minimum_period() / ?UNIT_TIME_IN_MS}
             end,
             to_capacity(QuotaStr, Str, CanZero, Fun);
-        [QuotaStr, Interval] ->
+        {match, [QuotaStr, TimeVal, TimeUnit]} ->
+            Interval =
+                case TimeVal of
+                    %% for xM/s
+                    [] -> "1" ++ TimeUnit;
+                    %% for xM/ys
+                    _ -> TimeVal ++ TimeUnit
+                end,
             Fun = fun(Quota) ->
                 try
                     case emqx_schema:to_duration_ms(Interval) of
@@ -246,11 +264,11 @@ check_capacity(_Str, Quota, _CanZero, Cont) ->
     Cont(Quota).
 
 to_capacity(Str) ->
-    Regex = "^\s*(?:([0-9]+)([a-zA-z]*))|infinity\s*$",
+    Regex = "^\s*(?:([0-9]+)([a-zA-Z]*))|infinity\s*$",
     to_quota(Str, Regex).
 
 to_initial(Str) ->
-    Regex = "^\s*([0-9]+)([a-zA-z]*)\s*$",
+    Regex = "^\s*([0-9]+)([a-zA-Z]*)\s*$",
     to_quota(Str, Regex).
 
 to_quota(Str, Regex) ->

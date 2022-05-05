@@ -667,16 +667,16 @@ typename_to_spec("log_level()", _Mod) ->
         enum => [debug, info, notice, warning, error, critical, alert, emergency, all]
     };
 typename_to_spec("rate()", _Mod) ->
-    #{type => string, example => <<"10M/s">>};
+    #{type => string, example => <<"10MB">>};
 typename_to_spec("capacity()", _Mod) ->
-    #{type => string, example => <<"100M">>};
+    #{type => string, example => <<"100MB">>};
 typename_to_spec("burst_rate()", _Mod) ->
     %% 0/0s = no burst
-    #{type => string, example => <<"10M/1s">>};
+    #{type => string, example => <<"10MB">>};
 typename_to_spec("failure_strategy()", _Mod) ->
     #{type => string, example => <<"force">>};
 typename_to_spec("initial()", _Mod) ->
-    #{type => string, example => <<"0M">>};
+    #{type => string, example => <<"0MB">>};
 typename_to_spec("bucket_name()", _Mod) ->
     #{type => string, example => <<"retainer">>};
 typename_to_spec(Name, Mod) ->
