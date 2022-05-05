@@ -29,7 +29,8 @@
     to_initial/1,
     namespace/0,
     get_bucket_cfg_path/2,
-    desc/1
+    desc/1,
+    types/0
 ]).
 
 -define(KILOBYTE, 1024).
@@ -186,6 +187,9 @@ to_rate(Str) ->
 -spec get_bucket_cfg_path(limiter_type(), bucket_name()) -> bucket_path().
 get_bucket_cfg_path(Type, BucketName) ->
     [limiter, Type, bucket, BucketName].
+
+types() ->
+    [bytes_in, message_in, connection, message_routing, batch].
 
 %%--------------------------------------------------------------------
 %% Internal functions

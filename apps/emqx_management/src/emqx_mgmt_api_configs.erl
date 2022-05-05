@@ -25,6 +25,7 @@
 
 -export([
     config/3,
+    limiter/3,
     config_reset/3,
     configs/3,
     get_full_config/0,
@@ -71,7 +72,12 @@ api_spec() ->
 namespace() -> "configuration".
 
 paths() ->
-    ["/configs", "/configs_reset/:rootname", "/configs/global_zone"] ++
+    [
+        "/configs",
+        "/configs_reset/:rootname",
+        "/configs/global_zone",
+        "/configs/limiter/:limiter_type"
+    ] ++
         lists:map(fun({Name, _Type}) -> ?PREFIX ++ binary_to_list(Name) end, config_list()).
 
 schema("/configs") ->
@@ -156,6 +162,42 @@ schema("/configs/global_zone") ->
             }
         }
     };
+schema("/configs/limiter/:limiter_type") ->
+    Schema = hoconsc:ref(emqx_limiter_schema, limiter_opts),
+    Parameters = [
+        {limiter_type,
+            hoconsc:mk(
+                hoconsc:enum(emqx_limiter_schema:types()),
+                #{
+                    in => query,
+                    required => true,
+                    example => <<"bytes_in">>,
+                    desc => <<"The limiter type">>
+                }
+            )}
+    ],
+    #{
+        'operationId' => limiter,
+        get => #{
+            tags => [conf],
+            description => <<"Get config of this limiter">>,
+            parameters => Parameters,
+            responses => #{
+                200 => Schema,
+                404 => emqx_dashboard_swagger:error_codes(['NOT_FOUND'], <<"config not found">>)
+            }
+        },
+        put => #{
+            tags => [conf],
+            description => <<"Update config of this limiter">>,
+            parameters => Parameters,
+            'requestBody' => Schema,
+            responses => #{
+                200 => Schema,
+                400 => emqx_dashboard_swagger:error_codes(['UPDATE_FAILED'])
+            }
+        }
+    };
 schema(Path) ->
     {RootKey, {_Root, Schema}} = find_schema(Path),
     #{
@@ -201,18 +243,13 @@ fields(Field) ->
 
 %%%==============================================================================================
 %% HTTP API Callbacks
-config(get, _Params, Req) ->
+config(Method, Params, Req) ->
     Path = conf_path(Req),
-    {ok, Conf} = emqx_map_lib:deep_find(Path, get_full_config()),
-    {200, Conf};
-config(put, #{body := Body}, Req) ->
-    Path = conf_path(Req),
-    case emqx_conf:update(Path, Body, ?OPTS) of
-        {ok, #{raw_config := RawConf}} ->
-            {200, RawConf};
-        {error, Reason} ->
-            {400, #{code => 'UPDATE_FAILED', message => ?ERR_MSG(Reason)}}
-    end.
+    do_config(Method, Params, Path).
+
+limiter(Method, #{query_string := QS} = Params, _Req) ->
+    #{<<"limiter_type">> := Type} = QS,
+    do_config(Method, Params, [<<"limiter">>, erlang:atom_to_binary(Type)]).
 
 global_zone_configs(get, _Params, _Req) ->
     Paths = global_zone_roots(),
@@ -340,3 +377,14 @@ global_zone_roots() ->
 global_zone_schema() ->
     Roots = hocon_schema:roots(emqx_zone_schema),
     lists:map(fun({RootKey, {_Root, Schema}}) -> {RootKey, Schema} end, Roots).
+
+do_config(get, _Params, Path) ->
+    {ok, Conf} = emqx_map_lib:deep_find(Path, get_full_config()),
+    {200, Conf};
+do_config(put, #{body := Body}, Path) ->
+    case emqx_conf:update(Path, Body, ?OPTS) of
+        {ok, #{raw_config := RawConf}} ->
+            {200, RawConf};
+        {error, Reason} ->
+            {400, #{code => 'UPDATE_FAILED', message => ?ERR_MSG(Reason)}}
+    end.
