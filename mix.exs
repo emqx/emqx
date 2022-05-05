@@ -91,7 +91,7 @@ defmodule EMQXUmbrella.MixProject do
        github: "ninenines/ranch", ref: "a692f44567034dacf5efcaa24a24183788594eb7", override: true},
       # in conflict by grpc and eetcd
       {:gpb, "4.11.2", override: true, runtime: false}
-    ] ++ umbrella_apps() ++ bcrypt_dep() ++ quicer_dep()
+    ] ++ umbrella_apps() ++ bcrypt_dep() ++ jq_dep() ++ quicer_dep()
   end
 
   defp umbrella_apps() do
@@ -202,6 +202,7 @@ defmodule EMQXUmbrella.MixProject do
     ] ++
       if(enable_quicer?(), do: [quicer: :permanent], else: []) ++
       if(enable_bcrypt?(), do: [bcrypt: :permanent], else: []) ++
+      if(enable_jq?(), do: [jq: :permanent], else: []) ++
       if(edition_type == :enterprise,
         do: [
           emqx_enterprise_conf: :load,
@@ -608,6 +609,12 @@ defmodule EMQXUmbrella.MixProject do
       else: []
   end
 
+  defp jq_dep() do
+    if enable_jq?(),
+      do: [{:jq, github: "emqx/jq", tag: "v0.1.0", override: true}],
+      else: []
+  end
+
   defp quicer_dep() do
     if enable_quicer?(),
       # in conflict with emqx and emqtt
@@ -616,6 +623,10 @@ defmodule EMQXUmbrella.MixProject do
   end
 
   defp enable_bcrypt?() do
+    not win32?()
+  end
+
+  defp enable_jq?() do
     not win32?()
   end
 

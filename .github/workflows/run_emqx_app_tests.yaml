@@ -25,7 +25,7 @@ jobs:
           - amd64
 
     runs-on: aws-amd64
-    container: "ghcr.io/emqx/emqx-builder/5.0-10:${{ matrix.elixir}}-${{ matrix.otp }}-${{ matrix.os }}"
+    container: "ghcr.io/emqx/emqx-builder/5.0-14:${{ matrix.elixir}}-${{ matrix.otp }}-${{ matrix.os }}"
 
     defaults:
       run:
@@ -47,14 +47,19 @@ jobs:
         key: ${{ matrix.os }}-${{ matrix.otp }}-${{ matrix.arch }}-${{ steps.deps-refs.outputs.DEP_QUICER_REF }}
     - name: run
       run: |
+        git config --global --add safe.directory "$GITHUB_WORKSPACE"
         echo "git diff base: $GITHUB_BASE_REF"
         if [[ "$GITHUB_BASE_REF" =~ [0-9a-f]{8,40} ]]; then
           # base is a commit sha1
           compare_base="$GITHUB_BASE_REF"
         else
-          compare_base="origin/$GITHUB_BASE_REF"
+          repo="${GITHUB_REPOSITORY}"
+          git remote -v
+          remote="$(git remote -v | grep -E "github\.com(:|/)$repo((\.git)|(\s))" | grep fetch | awk '{print $1}')"
+          git fetch "$remote" "$GITHUB_BASE_REF"
+          compare_base="$remote/$GITHUB_BASE_REF"
         fi
-        changed_files="$(git diff --name-only ${compare_base}...HEAD apps/emqx)"
+        changed_files="$(git diff --name-only ${compare_base} HEAD apps/emqx)"
         if [ "$changed_files" = '' ]; then
           echo "nothing changed in apps/emqx, ignored."
           exit 0

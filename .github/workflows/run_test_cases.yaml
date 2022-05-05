@@ -27,7 +27,7 @@ jobs:
               - amd64
 
         runs-on: aws-amd64
-        container: "emqx/emqx-builder/5.0-10:${{ matrix.elixir }}-${{ matrix.otp }}-${{ matrix.os }}"
+        container: "emqx/emqx-builder/5.0-14:${{ matrix.elixir }}-${{ matrix.otp }}-${{ matrix.os }}"
 
         steps:
         - uses: actions/checkout@v2
@@ -58,7 +58,7 @@ jobs:
 
     find_apps:
         runs-on: aws-amd64
-        container: emqx/emqx-builder/5.0-10:1.13.3-24.2.1-1-ubuntu20.04
+        container: emqx/emqx-builder/5.0-14:1.13.3-24.2.1-1-ubuntu20.04
         outputs:
           fast_ct_apps: ${{ steps.run_find_apps.outputs.fast_ct_apps }}
           docker_ct_apps: ${{ steps.run_find_apps.outputs.docker_ct_apps }}
@@ -114,7 +114,7 @@ jobs:
           # produces <app-name>.coverdata
         - name: run common test
           run: |
-            docker exec -i ${{ matrix.otp_release }} bash -c "make ${{ matrix.app_name }}-ct"
+            docker exec -i ${{ matrix.otp_release }} bash -c "git config --global --add safe.directory \"$GITHUB_WORKSPACE\" && make ${{ matrix.app_name }}-ct"
         - uses: actions/upload-artifact@v1
           if: matrix.otp_release == 'erlang24'
           with:
@@ -141,7 +141,7 @@ jobs:
             arch:
               - amd64
         runs-on: aws-amd64
-        container: "emqx/emqx-builder/5.0-10:${{ matrix.elixir }}-${{ matrix.otp }}-${{ matrix.os }}"
+        container: "emqx/emqx-builder/5.0-14:${{ matrix.elixir }}-${{ matrix.otp }}-${{ matrix.os }}"
         defaults:
           run:
             shell: bash
@@ -180,7 +180,7 @@ jobs:
             - amd64
 
       runs-on: aws-amd64
-      container: "emqx/emqx-builder/5.0-10:${{ matrix.elixir }}-${{ matrix.otp }}-${{ matrix.os }}"
+      container: "emqx/emqx-builder/5.0-14:${{ matrix.elixir }}-${{ matrix.otp }}-${{ matrix.os }}"
       steps:
       - uses: actions/checkout@v2
 

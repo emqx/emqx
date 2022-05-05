@@ -7,13 +7,16 @@ on: [pull_request, push]
 jobs:
   elixir_deps_check:
     runs-on: ubuntu-20.04
-    container: ghcr.io/emqx/emqx-builder/5.0-10:1.13.3-24.2.1-1-ubuntu20.04
+    container: ghcr.io/emqx/emqx-builder/5.0-14:1.13.3-24.2.1-1-ubuntu20.04
 
     steps:
       - name: Checkout
-        uses: actions/checkout@v2.4.0
+        uses: actions/checkout@v2
       - name: ensure rebar
         run: ./scripts/ensure-rebar3.sh
+      - name: Work around https://github.com/actions/checkout/issues/766
+        run: |
+          git config --global --add safe.directory "$GITHUB_WORKSPACE"
       - name: setup mix
         run: |
           mix local.hex --force
