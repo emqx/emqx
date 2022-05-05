@@ -25,6 +25,10 @@ File format:
 
 * SSL closed error bug fixed for redis client.
 
+* Improved resilience against autocluster partitioning during cluster
+  startup. [#7876]
+  [ekka-158](https://github.com/emqx/ekka/pull/158)
+
 ## v4.3.14
 
 ### Enhancements
