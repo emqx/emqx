@@ -80,4 +80,29 @@ t_crud_rule_api(_Config) ->
         {404, #{code := _, message := _Message}},
         emqx_rule_engine_api:'/rules/:id'(get, #{bindings => #{id => RuleID}})
     ),
+
+    ?assertMatch(
+        {400, #{
+            code := 'BAD_REQUEST',
+            message := <<"{select_and_transform_error,{error,{decode_json_failed,", _/binary>>
+        }},
+        emqx_rule_engine_api:'/rule_test'(post, test_rule_params())
+    ),
     ok.
+
+test_rule_params() ->
+    #{
+        body => #{
+            <<"context">> =>
+                #{
+                    <<"clientid">> => <<"c_emqx">>,
+                    <<"event_type">> => <<"message_publish">>,
+                    <<"payload">> => <<"{\"msg\": \"hel">>,
+                    <<"qos">> => 1,
+                    <<"topic">> => <<"t/a">>,
+                    <<"username">> => <<"u_emqx">>
+                },
+            <<"sql">> =>
+                <<"SELECT\n  payload.msg\nFROM\n  \"t/#\"">>
+        }
+    }.
