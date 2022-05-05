@@ -116,11 +116,13 @@ gateways(Status) ->
                         ],
                         GwInfo0
                     ),
+                    NodeStatus = cluster_gateway_status(GwName),
+                    {MaxCons, CurrCons} = sum_cluster_connections(NodeStatus),
                     GwInfo1#{
-                        max_connections => max_connections_count(Config),
-                        current_connections => current_connections_count(GwName),
+                        max_connections => MaxCons,
+                        current_connections => CurrCons,
                         listeners => get_listeners_status(GwName, Config),
-                        node_status => cluster_gateway_status(GwName)
+                        node_status => NodeStatus
                     }
             end
         end,
@@ -567,3 +569,14 @@ to_list(B) when is_binary(B) ->
 
 %%--------------------------------------------------------------------
 %% Internal funcs
+sum_cluster_connections(List) ->
+    sum_cluster_connections(List, 0, 0).
+
+sum_cluster_connections(
+    [#{max_connections := Max, current_connections := Current} | T], MaxAcc, CurrAcc
+) ->
+    sum_cluster_connections(T, MaxAcc + Max, Current + CurrAcc);
+sum_cluster_connections([_ | T], MaxAcc, CurrAcc) ->
+    sum_cluster_connections(T, MaxAcc, CurrAcc);
+sum_cluster_connections([], MaxAcc, CurrAcc) ->
+    {MaxAcc, CurrAcc}.
