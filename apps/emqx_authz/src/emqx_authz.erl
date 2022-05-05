@@ -176,8 +176,8 @@ do_post_config_update({?CMD_PREPEND, RawNewSource}, Sources) ->
     ok = emqx_metrics_worker:create_metrics(
         authz_metrics,
         TypeName,
-        [matched, allow, deny, ignore],
-        [matched]
+        [total, allow, deny, nomatch],
+        [total]
     ),
     [InitedNewSource] ++ lookup();
 do_post_config_update({?CMD_APPEND, RawNewSource}, Sources) ->
@@ -271,8 +271,8 @@ init_metrics(Source) ->
     emqx_metrics_worker:create_metrics(
         authz_metrics,
         TypeName,
-        [matched, allow, deny, ignore],
-        [matched]
+        [total, allow, deny, nomatch],
+        [total]
     ).
 
 %%--------------------------------------------------------------------
@@ -354,13 +354,24 @@ do_authorize(
     [Connector = #{type := Type} | Tail]
 ) ->
     Module = authz_module(Type),
-    emqx_metrics_worker:inc(authz_metrics, Type, matched),
-    case Module:authorize(Client, PubSub, Topic, Connector) of
+    emqx_metrics_worker:inc(authz_metrics, Type, total),
+    try Module:authorize(Client, PubSub, Topic, Connector) of
         nomatch ->
-            emqx_metrics_worker:inc(authz_metrics, Type, ignore),
+            emqx_metrics_worker:inc(authz_metrics, Type, nomatch),
             do_authorize(Client, PubSub, Topic, Tail);
         Matched ->
             {Matched, Type}
+    catch
+        Class:Reason:Stacktrace ->
+            emqx_metrics_worker:inc(authz_metrics, Type, nomatch),
+            ?SLOG(warning, #{
+                msg => "unexpected_error_in_authorize",
+                exception => Class,
+                reason => Reason,
+                stacktrace => Stacktrace,
+                authorize_type => Type
+            }),
+            do_authorize(Client, PubSub, Topic, Tail)
     end.
 
 get_enabled_authzs() ->

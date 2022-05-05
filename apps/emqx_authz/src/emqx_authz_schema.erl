@@ -166,10 +166,10 @@ fields("metrics_status_fields") ->
     ];
 fields("metrics") ->
     [
-        {"matched", mk(integer(), #{desc => ?DESC("matched")})},
+        {"total", mk(integer(), #{desc => ?DESC("metrics_total")})},
         {"allow", mk(integer(), #{desc => ?DESC("allow")})},
         {"deny", mk(integer(), #{desc => ?DESC("deny")})},
-        {"ignore", mk(float(), #{desc => ?DESC("ignore")})}
+        {"nomatch", mk(float(), #{desc => ?DESC("nomatch")})}
     ] ++ common_rate_field();
 fields("node_metrics") ->
     [
