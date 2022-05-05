@@ -568,11 +568,32 @@ t_decimal(_) ->
 t_schema_unit(_) ->
     M = emqx_limiter_schema,
     ?assertEqual(limiter, M:namespace()),
+
+    %% infinity
     ?assertEqual({ok, infinity}, M:to_rate(" infinity ")),
+
+    %% xMB
     ?assertMatch({ok, _}, M:to_rate("100")),
-    ?assertMatch({error, _}, M:to_rate("0")),
+    ?assertMatch({ok, _}, M:to_rate("  100   ")),
+    ?assertMatch({ok, _}, M:to_rate("100MB")),
+
+    %% xMB/s
+    ?assertMatch({ok, _}, M:to_rate("100/s")),
+    ?assertMatch({ok, _}, M:to_rate("100MB/s")),
+
+    %% xMB/ys
     ?assertMatch({ok, _}, M:to_rate("100/10s")),
+    ?assertMatch({ok, _}, M:to_rate("100MB/10s")),
+
+    ?assertMatch({error, _}, M:to_rate("infini")),
+    ?assertMatch({error, _}, M:to_rate("0")),
+    ?assertMatch({error, _}, M:to_rate("MB")),
+    ?assertMatch({error, _}, M:to_rate("10s")),
+    ?assertMatch({error, _}, M:to_rate("100MB/")),
+    ?assertMatch({error, _}, M:to_rate("100MB/xx")),
+    ?assertMatch({error, _}, M:to_rate("100MB/1")),
     ?assertMatch({error, _}, M:to_rate("100/10x")),
+
     ?assertEqual({ok, infinity}, M:to_capacity("infinity")),
     ?assertEqual({ok, 100}, M:to_capacity("100")),
     ?assertEqual({ok, 100 * 1024}, M:to_capacity("100KB")),
