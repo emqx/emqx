@@ -1216,13 +1216,18 @@ check_connect(ConnPkt, #channel{clientinfo = #{zone := Zone}}) ->
 %% Enrich Client Info
 
 enrich_client(ConnPkt, Channel = #channel{clientinfo = ClientInfo}) ->
-    {ok, NConnPkt, NClientInfo} = pipeline([fun set_username/2,
-                                            fun set_bridge_mode/2,
-                                            fun maybe_username_as_clientid/2,
-                                            fun maybe_assign_clientid/2,
-                                            fun fix_mountpoint/2
-                                           ], ConnPkt, ClientInfo),
-    {ok, NConnPkt, Channel#channel{clientinfo = NClientInfo}}.
+    Pipe = pipeline([fun set_username/2,
+                     fun set_bridge_mode/2,
+                     fun maybe_username_as_clientid/2,
+                     fun maybe_assign_clientid/2,
+                     fun fix_mountpoint/2
+                    ], ConnPkt, ClientInfo),
+    case Pipe of
+        {ok, NConnPkt, NClientInfo} ->
+            {ok, NConnPkt, Channel#channel{clientinfo = NClientInfo}};
+        {error, ReasonCode, NClientInfo} ->
+            {error, ReasonCode, Channel#channel{clientinfo = NClientInfo}}
+    end.
 
 set_username(#mqtt_packet_connect{username = Username},
              ClientInfo = #{username := undefined}) ->
@@ -1237,7 +1242,8 @@ maybe_username_as_clientid(_ConnPkt, ClientInfo = #{username := undefined}) ->
     {ok, ClientInfo};
 maybe_username_as_clientid(_ConnPkt, ClientInfo = #{zone := Zone, username := Username}) ->
     case emqx_zone:use_username_as_clientid(Zone) of
-        true  -> {ok, ClientInfo#{clientid => Username}};
+        true when Username =/= <<>> -> {ok, ClientInfo#{clientid => Username}};
+        true -> {error, ?RC_CLIENT_IDENTIFIER_NOT_VALID, ClientInfo};
         false -> ok
     end.
 

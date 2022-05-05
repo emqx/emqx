@@ -18,6 +18,7 @@ File format:
 * Add support for JWT authorization [#7596]
   Now MQTT clients may be authorized with respect to a specific claim containing publish/subscribe topic whitelists.
 * Better randomisation of app screts (changed from timestamp seeded sha hash (uuid) to crypto:strong_rand_bytes)
+* Return a client_identifier_not_valid error when username is empty and username_as_clientid is set to true [#7862]
 
 ### Bug fixes
 * List subscription topic (/api/v4/subscriptions), the result do not match with multiple conditions.
