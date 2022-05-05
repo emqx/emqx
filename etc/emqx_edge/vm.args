@@ -113,4 +113,4 @@
 -shutdown_time 10000
 
 ## patches dir
--pa {{ platform_data_dir }}/patches
+-pa "{{ platform_data_dir }}/patches"
