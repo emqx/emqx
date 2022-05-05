@@ -301,6 +301,14 @@ t_username_as_clientid(_) ->
     {ok, C} = emqtt:start_link([{username, Username}]),
     {ok, _} = emqtt:connect(C),
     #{clientinfo := #{clientid := Username}} = emqx_cm:get_chan_info(Username),
+    erlang:process_flag(trap_exit, true),
+    {ok, C1} = emqtt:start_link([{username, <<>>}]),
+    ?assertEqual({error, {client_identifier_not_valid, undefined}}, emqtt:connect(C1)),
+    receive
+        {'EXIT', _, {shutdown, client_identifier_not_valid}} -> ok
+    after 100 ->
+        throw({error, "expect_client_identifier_not_valid"})
+    end,
     emqtt:disconnect(C).
 
 t_certcn_as_clientid_default_config_tls(_) ->
