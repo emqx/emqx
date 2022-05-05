@@ -486,26 +486,31 @@ lookup_from_local_node(BridgeType, BridgeName) ->
 
 '/nodes/:node/bridges/:id/operation/:operation'(post, #{
     bindings :=
-        #{id := Id, operation := Op}
+        #{id := Id, operation := Op, node := Node}
 }) ->
     ?TRY_PARSE_ID(
         Id,
-        case operation_func(Op) of
+        case node_operation_func(Op) of
             invalid ->
                 {400, error_msg('BAD_REQUEST', <<"invalid operation">>)};
-            OperFunc when OperFunc == restart; OperFunc == stop ->
+            OperFunc ->
+                TargetNode = binary_to_atom(Node, utf8),
                 ConfMap = emqx:get_config([bridges, BridgeType, BridgeName]),
                 case maps:get(enable, ConfMap, false) of
                     false ->
                         {403, error_msg('FORBIDDEN_REQUEST', <<"forbidden operation">>)};
                     true ->
-                        case emqx_bridge:OperFunc(BridgeType, BridgeName) of
+                        case emqx_bridge_proto_v1:OperFunc(TargetNode, BridgeType, BridgeName) of
                             ok -> {200};
                             {error, Reason} -> {500, error_msg('INTERNAL_ERROR', Reason)}
                         end
                 end
         end
     ).
+
+node_operation_func(<<"stop">>) -> stop_bridge_to_node;
+node_operation_func(<<"restart">>) -> restart_bridge_to_node;
+node_operation_func(_) -> invalid.
 
 operation_func(<<"stop">>) -> stop;
 operation_func(<<"restart">>) -> restart;

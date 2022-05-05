@@ -22,6 +22,8 @@
     introduced_in/0,
 
     list_bridges/1,
+    restart_bridge_to_node/3,
+    stop_bridge_to_node/3,
     lookup_from_all_nodes/3,
     restart_bridges_to_all_nodes/3,
     stop_bridges_to_all_nodes/3
@@ -39,6 +41,28 @@ list_bridges(Node) ->
     rpc:call(Node, emqx_bridge, list, [], ?TIMEOUT).
 
 -type key() :: atom() | binary() | [byte()].
+
+-spec restart_bridge_to_node(node(), key(), key()) ->
+    term().
+restart_bridge_to_node(Node, BridgeType, BridgeName) ->
+    rpc:call(
+        Node,
+        emqx_bridge,
+        restart,
+        [BridgeType, BridgeName],
+        ?TIMEOUT
+    ).
+
+-spec stop_bridge_to_node(node(), key(), key()) ->
+    term().
+stop_bridge_to_node(Node, BridgeType, BridgeName) ->
+    rpc:call(
+        Node,
+        emqx_bridge,
+        stop,
+        [BridgeType, BridgeName],
+        ?TIMEOUT
+    ).
 
 -spec restart_bridges_to_all_nodes([node()], key(), key()) ->
     emqx_rpc:erpc_multicall().
