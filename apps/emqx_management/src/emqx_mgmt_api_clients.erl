@@ -492,6 +492,7 @@ fields(client) ->
                         " Maximum number of subscriptions allowed by this client">>
             })},
         {username, hoconsc:mk(binary(), #{desc => <<"User name of client when connecting">>})},
+        {mountpoint, hoconsc:mk(binary(), #{desc => <<"Topic mountpoint">>})},
         {will_msg, hoconsc:mk(binary(), #{desc => <<"Client will message">>})},
         {zone,
             hoconsc:mk(binary(), #{
@@ -849,7 +850,6 @@ format_channel_info({_, ClientInfo0, ClientStats}) ->
             is_superuser,
             sockport,
             anonymous,
-            mountpoint,
             socktype,
             active_n,
             await_rel_timeout,

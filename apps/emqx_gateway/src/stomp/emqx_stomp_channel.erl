@@ -417,10 +417,10 @@ handle_in(Packet = ?PACKET(?CMD_CONNECT), Channel) ->
         emqx_misc:pipeline(
             [
                 fun enrich_conninfo/2,
-                fun run_conn_hooks/2,
                 fun negotiate_version/2,
                 fun enrich_clientinfo/2,
                 fun assign_clientid_to_conninfo/2,
+                fun run_conn_hooks/2,
                 fun set_log_meta/2,
                 %% TODO: How to implement the banned in the gateway instance?
                 %, fun check_banned/2
@@ -755,7 +755,7 @@ handle_out(
     }
 ) ->
     %% XXX: connection_accepted is not defined by stomp protocol
-    _ = run_hooks(Ctx, 'client.connack', [ConnInfo, connection_accepted, []]),
+    _ = run_hooks(Ctx, 'client.connack', [ConnInfo, connection_accepted, #{}]),
     Replies = [
         {outgoing, connected_frame(Headers)},
         {event, connected}

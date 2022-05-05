@@ -368,6 +368,7 @@ do_ensure_ssl_file(Dir, Key, SSL, MaybePem, DryRun) ->
             end
     end.
 
+is_valid_string(Empty) when Empty == <<>>; Empty == "" -> false;
 is_valid_string(String) when is_list(String) ->
     io_lib:printable_unicode_list(String);
 is_valid_string(Binary) when is_binary(Binary) ->
