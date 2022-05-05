@@ -628,7 +628,7 @@ terminate(
         emqx_congestion:cancel_alarms(Socket, Transport, Channel1),
         emqx_channel:terminate(Reason, Channel1),
         close_socket_ok(State),
-        ?TRACE("SOCKET", "tcp_socket_terminated", #{reason => Reason})
+        ?TRACE("SOCKET", "emqx_connection_terminated", #{reason => Reason})
     catch
         E:C:S ->
             ?tp(warning, unclean_terminate, #{exception => E, context => C, stacktrace => S})
