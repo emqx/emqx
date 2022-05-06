@@ -35,26 +35,7 @@ end_per_suite(_) ->
     ok.
 
 set_special_configs(emqx_dashboard) ->
-    Config = #{
-        default_username => <<"admin">>,
-        default_password => <<"public">>,
-        listeners =>
-            #{
-                http =>
-                    #{
-                        backlog => 512,
-                        bind => 18083,
-                        enable => true,
-                        inet6 => false,
-                        ipv6_v6only => false,
-                        max_connections => 512,
-                        num_acceptors => 4,
-                        send_timeout => 5000
-                    }
-            }
-    },
-    emqx_config:put([dashboard], Config),
-    ok;
+    emqx_dashboard_api_test_helpers:set_default_config();
 set_special_configs(_App) ->
     ok.
 
