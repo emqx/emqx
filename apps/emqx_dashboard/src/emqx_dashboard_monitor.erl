@@ -276,14 +276,25 @@ cal_rate(_Now, undefined) ->
     lists:foldl(fun(Key, Acc) -> Acc#{Key => 0} end, #{}, AllSamples);
 cal_rate(
     #emqx_monit{data = NowData, time = NowTime},
-    #emqx_monit{data = LastData, time = LastTime}
+    #emqx_monit{data = LastData, time = LastTime} = Last
 ) ->
-    TimeDelta = NowTime - LastTime,
-    Filter = fun(Key, _) -> lists:member(Key, ?GAUGE_SAMPLER_LIST) end,
-    Gauge = maps:filter(Filter, NowData),
-    {_, _, _, Rate} =
-        lists:foldl(fun cal_rate_/2, {NowData, LastData, TimeDelta, Gauge}, ?DELTA_SAMPLER_LIST),
-    Rate.
+    case NowTime - LastTime of
+        0 ->
+            %% make sure: not divide by zero
+            timer:sleep(5),
+            NewSamplers = sample(erlang:system_time(millisecond)),
+            cal_rate(NewSamplers, Last);
+        TimeDelta ->
+            Filter = fun(Key, _) -> lists:member(Key, ?GAUGE_SAMPLER_LIST) end,
+            Gauge = maps:filter(Filter, NowData),
+            {_, _, _, Rate} =
+                lists:foldl(
+                    fun cal_rate_/2,
+                    {NowData, LastData, TimeDelta, Gauge},
+                    ?DELTA_SAMPLER_LIST
+                ),
+            Rate
+    end.
 
 cal_rate_(Key, {Now, Last, TDelta, Res}) ->
     NewValue = maps:get(Key, Now),
