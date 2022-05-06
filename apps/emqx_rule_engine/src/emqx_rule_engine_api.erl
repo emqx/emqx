@@ -278,7 +278,9 @@ replace_sql_clrf(#{<<"sql">> := SQL} = Params) ->
             {error, {parse_error, Reason}} ->
                 {400, #{code => 'BAD_REQUEST', message => err_msg(Reason)}};
             {error, nomatch} ->
-                {412, #{code => 'NOT_MATCH', message => <<"SQL Not Match">>}}
+                {412, #{code => 'NOT_MATCH', message => <<"SQL Not Match">>}};
+            {error, Reason} ->
+                {400, #{code => 'BAD_REQUEST', message => err_msg(Reason)}}
         end
     ).
 
