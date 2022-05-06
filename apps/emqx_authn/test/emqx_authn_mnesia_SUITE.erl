@@ -96,9 +96,9 @@ t_update(_) ->
 
 t_destroy(_) ->
     Config = config(),
-    OtherId = list_to_binary([?AUTHN_ID, <<"-other">>]),
+    OtherConfig = Config#{user_group => <<"stomp:global">>},
     {ok, State0} = emqx_authn_mnesia:create(?AUTHN_ID, Config),
-    {ok, StateOther} = emqx_authn_mnesia:create(OtherId, Config),
+    {ok, StateOther} = emqx_authn_mnesia:create(?AUTHN_ID, OtherConfig),
 
     User = #{user_id => <<"u">>, password => <<"p">>},
 
@@ -282,5 +282,6 @@ config() ->
         password_hash_algorithm => #{
             name => bcrypt,
             salt_rounds => 8
-        }
+        },
+        user_group => <<"global:mqtt">>
     }.
