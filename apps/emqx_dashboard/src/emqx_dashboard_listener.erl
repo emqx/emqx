@@ -80,7 +80,9 @@ regenerate_minirest_dispatch() ->
             emqx_dashboard:list_listeners()
         )
     catch
-        _:_ -> emqx_dashboard:clear_i18n()
+        _:_ -> ok
+    after
+        emqx_dashboard:clear_i18n()
     end.
 
 add_handler() ->
