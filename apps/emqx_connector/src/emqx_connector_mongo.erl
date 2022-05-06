@@ -241,8 +241,10 @@ on_get_status(InstId, #{poolname := PoolName} = _State) ->
 
 health_check(PoolName) ->
     Workers = [Worker || {_WorkerName, Worker} <- ecpool:workers(PoolName)],
-    Status = rpc:pmap({?MODULE, check_worker_health}, [], Workers),
-    length(Status) > 0 andalso lists:all(fun(St) -> St end, Status).
+    Status = emqx_misc:pmap(
+        fun check_worker_health/1, Workers, ?HEALTH_CHECK_TIMEOUT + timer:seconds(1)
+    ),
+    length(Status) > 0 andalso lists:all(fun(St) -> St =:= true end, Status).
 
 %% ===================================================================
 
