@@ -75,7 +75,7 @@ regenerate_minirest_dispatch() ->
         emqx_dashboard:init_i18n(),
         lists:foreach(
             fun(Listener) ->
-                minirest:regenerate_dispatch(element(1, Listener))
+                minirest:update_dispatch(element(1, Listener))
             end,
             emqx_dashboard:list_listeners()
         )
