@@ -359,7 +359,7 @@ t_flow_control(_) ->
             }
     },
     emqx_config:put([limiter, batch, bucket, retainer], RetainerCfg2),
-    emqx_limiter_manager:restart_server(shared),
+    emqx_limiter_manager:restart_server(batch),
     timer:sleep(500),
 
     emqx_retainer_dispatcher:refresh_limiter(),
@@ -408,7 +408,7 @@ t_flow_control(_) ->
 
     %% recover the limiter
     emqx_config:put([limiter, batch, bucket, retainer], RetainerCfg),
-    emqx_limiter_manager:restart_server(shared),
+    emqx_limiter_manager:restart_server(batch),
     timer:sleep(500),
 
     emqx_retainer_dispatcher:refresh_limiter(),

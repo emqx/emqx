@@ -135,7 +135,7 @@ start_link() ->
     | {stop, Reason :: term()}
     | ignore.
 init([]) ->
-    emqx_conf:add_handler([limiter], ?MODULE),
+    ok = emqx_config_handler:add_handler([limiter], ?MODULE),
     _ = ets:new(?TAB, [
         set,
         public,
@@ -210,7 +210,7 @@ handle_info(Info, State) ->
     State :: term()
 ) -> any().
 terminate(_Reason, _State) ->
-    emqx_conf:remove_handler([limiter]),
+    emqx_config_handler:remove_handler([limiter]),
     ok.
 
 %%--------------------------------------------------------------------
