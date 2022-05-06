@@ -787,7 +787,7 @@ find_s(S, P, Dir) ->
 jq(FilterProgram, JSONBin) when
     is_binary(FilterProgram), is_binary(JSONBin)
 ->
-    case jq:parse(FilterProgram, JSONBin) of
+    case jq:process_json(FilterProgram, JSONBin) of
         {ok, Result} ->
             [json_decode(JSONString) || JSONString <- Result];
         {error, ErrorReason} ->
