@@ -18,8 +18,7 @@
 
 -behaviour(minirest_api).
 
--include_lib("emqx/include/emqx.hrl").
--include_lib("typerefl/include/types.hrl").
+-include("emqx_retainer.hrl").
 -include_lib("hocon/include/hoconsc.hrl").
 
 %% API
@@ -31,7 +30,7 @@
     config/2
 ]).
 
--import(hoconsc, [mk/2, ref/1, ref/2, array/1]).
+-import(hoconsc, [mk/1, mk/2, ref/1, ref/2, array/1]).
 -import(emqx_dashboard_swagger, [error_codes/2]).
 
 %% 1MB = 1024 x 1024
@@ -76,7 +75,10 @@ schema(?PREFIX ++ "/messages") ->
             description => ?DESC(list_retained_api),
             parameters => page_params(),
             responses => #{
-                200 => mk(array(ref(message_summary)), #{desc => ?DESC(retained_list)}),
+                200 => [
+                    {data, mk(array(ref(message_summary)), #{desc => ?DESC(retained_list)})},
+                    {meta, mk(hoconsc:ref(emqx_dashboard_swagger, meta))}
+                ],
                 400 => error_codes(['BAD_REQUEST'], ?DESC(unsupported_backend))
             }
         }
@@ -163,10 +165,13 @@ config(put, #{body := Body}) ->
 %% Interval Funcs
 %%------------------------------------------------------------------------------
 lookup_retained(get, #{query_string := Qs}) ->
-    Page = maps:get(page, Qs, 1),
-    Limit = maps:get(page, Qs, emqx_mgmt:max_row_limit()),
+    Page = maps:get(<<"page">>, Qs, 1),
+    Limit = maps:get(<<"limit">>, Qs, emqx_mgmt:max_row_limit()),
     {ok, Msgs} = emqx_retainer_mnesia:page_read(undefined, undefined, Page, Limit),
-    {200, [format_message(Msg) || Msg <- Msgs]}.
+    {200, #{
+        data => [format_message(Msg) || Msg <- Msgs],
+        meta => #{page => Page, limit => Limit, count => emqx_retainer_mnesia:size(?TAB_MESSAGE)}
+    }}.
 
 with_topic(get, #{bindings := Bindings}) ->
     Topic = maps:get(topic, Bindings),
