@@ -22,7 +22,8 @@
     start_listeners/0,
     start_listeners/1,
     stop_listeners/1,
-    stop_listeners/0
+    stop_listeners/0,
+    list_listeners/0
 ]).
 
 -export([
@@ -54,7 +55,6 @@ stop_listeners() ->
 
 start_listeners(Listeners) ->
     {ok, _} = application:ensure_all_started(minirest),
-    init_i18n(),
     Authorization = {?MODULE, authorize},
     GlobalSpec = #{
         openapi => "3.0.0",
@@ -101,7 +101,6 @@ start_listeners(Listeners) ->
             [],
             listeners(Listeners)
         ),
-    clear_i18n(),
     case Res of
         [] -> ok;
         _ -> {error, Res}
@@ -163,6 +162,9 @@ listeners(Listeners) ->
         end,
         maps:to_list(Listeners)
     ).
+
+list_listeners() ->
+    listeners(listeners()).
 
 ip_port(Opts) -> ip_port(maps:take(bind, Opts), Opts).
 

@@ -13,7 +13,7 @@
 %% See the License for the specific language governing permissions and
 %% limitations under the License.
 %%--------------------------------------------------------------------
--module(emqx_dashboard_config).
+-module(emqx_dashboard_listener).
 
 -include_lib("emqx/include/logger.hrl").
 -behaviour(emqx_config_handler).
@@ -26,32 +26,62 @@
 
 -export([start_link/0]).
 
--export([init/1, handle_call/3, handle_cast/2, handle_info/2, terminate/2, code_change/3]).
+-export([
+    init/1,
+    handle_continue/2,
+    handle_call/3,
+    handle_cast/2,
+    handle_info/2,
+    terminate/2,
+    code_change/3
+]).
 
 start_link() ->
     gen_server:start_link({local, ?MODULE}, ?MODULE, [], []).
 
 init([]) ->
-    {ok, #{}, hibernate}.
+    erlang:process_flag(trap_exit, true),
+    ok = add_handler(),
+    {ok, #{}, {continue, regenerate_dispatch}}.
+
+handle_continue(regenerate_dispatch, State) ->
+    regenerate_minirest_dispatch(),
+    {noreply, State, hibernate}.
 
 handle_call(_Request, _From, State) ->
-    {reply, ok, State}.
+    {reply, ok, State, hibernate}.
 
 handle_cast(_Request, State) ->
-    {noreply, State}.
+    {noreply, State, hibernate}.
 
 handle_info({update_listeners, OldListeners, NewListeners}, State) ->
     ok = emqx_dashboard:stop_listeners(OldListeners),
     ok = emqx_dashboard:start_listeners(NewListeners),
-    {noreply, State};
+    regenerate_minirest_dispatch(),
+    {noreply, State, hibernate};
 handle_info(_Info, State) ->
-    {noreply, State}.
+    {noreply, State, hibernate}.
 
 terminate(_Reason, _State) ->
+    ok = remove_handler(),
     ok.
 
 code_change(_OldVsn, State, _Extra) ->
     {ok, State}.
+
+%% generate dispatch is very slow.
+regenerate_minirest_dispatch() ->
+    try
+        emqx_dashboard:init_i18n(),
+        lists:foreach(
+            fun(Listener) ->
+                minirest:regenerate_dispatch(element(1, Listener))
+            end,
+            emqx_dashboard:list_listeners()
+        )
+    catch
+        _:_ -> emqx_dashboard:clear_i18n()
+    end.
 
 add_handler() ->
     Roots = emqx_dashboard_schema:roots(),

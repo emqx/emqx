@@ -193,8 +193,11 @@ start_app(App, Schema, ConfigFile, SpecAppConfig) ->
     copy_certs(App, RenderedConfigFile),
     SpecAppConfig(App),
     case application:ensure_all_started(App) of
-        {ok, _} -> ok;
-        {error, Reason} -> error({failed_to_start_app, App, Reason})
+        {ok, _} ->
+            ok = ensure_dashboard_listeners_started(App),
+            ok;
+        {error, Reason} ->
+            error({failed_to_start_app, App, Reason})
     end.
 
 render_config_file(ConfigFile, Vars0) ->
@@ -494,3 +497,9 @@ start_ekka() ->
             application:set_env(mria, db_backend, mnesia),
             ekka:start()
     end.
+
+ensure_dashboard_listeners_started(emqx_dashboard) ->
+    ok = gen_server:call(emqx_dashboard_listener, sync),
+    ok;
+ensure_dashboard_listeners_started(_App) ->
+    ok.

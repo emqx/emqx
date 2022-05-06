@@ -29,8 +29,8 @@ start_link() ->
 
 init([]) ->
     {ok,
-        {{one_for_one, 10, 100}, [
+        {{one_for_one, 5, 100}, [
+            ?CHILD(emqx_dashboard_listener),
             ?CHILD(emqx_dashboard_token),
-            ?CHILD(emqx_dashboard_monitor),
-            ?CHILD(emqx_dashboard_config)
+            ?CHILD(emqx_dashboard_monitor)
         ]}}.
