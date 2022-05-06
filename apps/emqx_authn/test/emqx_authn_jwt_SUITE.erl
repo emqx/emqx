@@ -64,7 +64,7 @@ t_jwt_authenticator_hmac_based(_) ->
     },
     {ok, State} = emqx_authn_jwt:create(?AUTHN_ID, Config),
 
-    Payload = #{<<"username">> => <<"myuser">>},
+    Payload = #{<<"username">> => <<"myuser">>, <<"exp">> => erlang:system_time(second) + 60},
     JWS = generate_jws('hmac-based', Payload, Secret),
     Credential = #{
         username => <<"myuser">>,
@@ -72,7 +72,11 @@ t_jwt_authenticator_hmac_based(_) ->
     },
     ?assertMatch({ok, #{is_superuser := false}}, emqx_authn_jwt:authenticate(Credential, State)),
 
-    Payload1 = #{<<"username">> => <<"myuser">>, <<"is_superuser">> => true},
+    Payload1 = #{
+        <<"username">> => <<"myuser">>,
+        <<"is_superuser">> => true,
+        <<"exp">> => erlang:system_time(second) + 60
+    },
     JWS1 = generate_jws('hmac-based', Payload1, Secret),
     Credential1 = #{
         username => <<"myuser">>,
@@ -129,7 +133,8 @@ t_jwt_authenticator_hmac_based(_) ->
     %% Issued At
     Payload5 = #{
         <<"username">> => <<"myuser">>,
-        <<"iat">> => erlang:system_time(second) - 60
+        <<"iat">> => erlang:system_time(second) - 60,
+        <<"exp">> => erlang:system_time(second) + 60
     },
     JWS5 = generate_jws('hmac-based', Payload5, Secret),
     Credential5 = Credential#{password => JWS5},
@@ -148,7 +153,8 @@ t_jwt_authenticator_hmac_based(_) ->
     %% Not Before
     Payload7 = #{
         <<"username">> => <<"myuser">>,
-        <<"nbf">> => erlang:system_time(second) - 60
+        <<"nbf">> => erlang:system_time(second) - 60,
+        <<"exp">> => erlang:system_time(second) + 60
     },
     JWS7 = generate_jws('hmac-based', Payload7, Secret),
     Credential7 = Credential6#{password => JWS7},
@@ -156,7 +162,8 @@ t_jwt_authenticator_hmac_based(_) ->
 
     Payload8 = #{
         <<"username">> => <<"myuser">>,
-        <<"nbf">> => erlang:system_time(second) + 60
+        <<"nbf">> => erlang:system_time(second) + 60,
+        <<"exp">> => erlang:system_time(second) + 60
     },
     JWS8 = generate_jws('hmac-based', Payload8, Secret),
     Credential8 = Credential#{password => JWS8},
@@ -179,7 +186,7 @@ t_jwt_authenticator_public_key(_) ->
     },
     {ok, State} = emqx_authn_jwt:create(?AUTHN_ID, Config),
 
-    Payload = #{<<"username">> => <<"myuser">>},
+    Payload = #{<<"username">> => <<"myuser">>, <<"exp">> => erlang:system_time(second) + 60},
     JWS = generate_jws('public-key', Payload, PrivateKey),
     Credential = #{
         username => <<"myuser">>,
@@ -261,8 +268,16 @@ t_jwks_renewal(_Config) ->
         verify_claims => [{<<"foo">>, <<"${username}">>}]
     },
 
-    Payload1 = #{<<"username">> => <<"myuser">>, <<"foo">> => <<"myuser">>},
-    Payload2 = #{<<"username">> => <<"myuser">>, <<"foo">> => <<"notmyuser">>},
+    Payload1 = #{
+        <<"username">> => <<"myuser">>,
+        <<"foo">> => <<"myuser">>,
+        <<"exp">> => erlang:system_time(second) + 10
+    },
+    Payload2 = #{
+        <<"username">> => <<"myuser">>,
+        <<"foo">> => <<"notmyuser">>,
+        <<"exp">> => erlang:system_time(second) + 10
+    },
     JWS1 = generate_jws('public-key', Payload1, PrivateKey),
     JWS2 = generate_jws('public-key', Payload2, PrivateKey),
     Credential1 = #{
@@ -301,7 +316,11 @@ t_jwt_authenticator_verify_claims(_) ->
     },
     {ok, State0} = emqx_authn_jwt:create(?AUTHN_ID, Config0),
 
-    Payload0 = #{<<"username">> => <<"myuser">>, <<"foo">> => <<"bar">>},
+    Payload0 = #{
+        <<"username">> => <<"myuser">>,
+        <<"foo">> => <<"bar">>,
+        <<"exp">> => erlang:system_time(second) + 10
+    },
     JWS0 = generate_jws('hmac-based', Payload0, Secret),
     Credential0 = #{
         username => <<"myuser">>,
@@ -314,7 +333,7 @@ t_jwt_authenticator_verify_claims(_) ->
     },
     {ok, State1} = emqx_authn_jwt:update(Config1, State0),
 
-    Payload1 = #{<<"username">> => <<"myuser">>},
+    Payload1 = #{<<"username">> => <<"myuser">>, <<"exp">> => erlang:system_time(second) + 10},
     JWS1 = generate_jws('hmac-based', Payload1, Secret),
     Credential1 = #{
         username => <<"myuser">>,
@@ -324,7 +343,11 @@ t_jwt_authenticator_verify_claims(_) ->
         {error, bad_username_or_password}, emqx_authn_jwt:authenticate(Credential1, State1)
     ),
 
-    Payload2 = #{<<"username">> => <<"myuser">>, <<"foo">> => <<"notmyuser">>},
+    Payload2 = #{
+        <<"username">> => <<"myuser">>,
+        <<"foo">> => <<"notmyuser">>,
+        <<"exp">> => erlang:system_time(second) + 10
+    },
     JWS2 = generate_jws('hmac-based', Payload2, Secret),
     Credential2 = #{
         username => <<"myuser">>,
@@ -334,13 +357,28 @@ t_jwt_authenticator_verify_claims(_) ->
         {error, bad_username_or_password}, emqx_authn_jwt:authenticate(Credential2, State1)
     ),
 
-    Payload3 = #{<<"username">> => <<"myuser">>, <<"foo">> => <<"myuser">>},
+    Payload3 = #{
+        <<"username">> => <<"myuser">>,
+        <<"foo">> => <<"myuser">>,
+        <<"exp">> => erlang:system_time(second) + 10
+    },
     JWS3 = generate_jws('hmac-based', Payload3, Secret),
     Credential3 = #{
         username => <<"myuser">>,
         password => JWS3
     },
-    ?assertMatch({ok, #{is_superuser := false}}, emqx_authn_jwt:authenticate(Credential3, State1)).
+    ?assertMatch({ok, #{is_superuser := false}}, emqx_authn_jwt:authenticate(Credential3, State1)),
+
+    %% No exp
+    Payload4 = #{<<"username">> => <<"myuser">>, <<"foo">> => <<"myuser">>},
+    JWS4 = generate_jws('hmac-based', Payload4, Secret),
+    Credential4 = #{
+        username => <<"myuser">>,
+        password => JWS4
+    },
+    ?assertEqual(
+        {error, bad_username_or_password}, emqx_authn_jwt:authenticate(Credential4, State1)
+    ).
 
 t_jwt_not_allow_empty_claim_name(_) ->
     Request = #{

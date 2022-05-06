@@ -241,6 +241,33 @@ t_check_no_acl_claim(_Config) ->
 
     ok = emqtt:disconnect(C).
 
+t_check_str_exp(_Config) ->
+    Payload = #{
+        <<"username">> => <<"username">>,
+        <<"exp">> => integer_to_binary(erlang:system_time(second) + 10),
+        <<"acl">> => #{<<"sub">> => [<<"a/b">>]}
+    },
+
+    JWT = generate_jws(Payload),
+
+    {ok, C} = emqtt:start_link(
+        [
+            {clean_start, true},
+            {proto_ver, v5},
+            {clientid, <<"clientid">>},
+            {username, <<"username">>},
+            {password, JWT}
+        ]
+    ),
+    {ok, _} = emqtt:connect(C),
+
+    ?assertMatch(
+        {ok, #{}, [0]},
+        emqtt:subscribe(C, <<"a/b">>, 0)
+    ),
+
+    ok = emqtt:disconnect(C).
+
 t_check_expire(_Config) ->
     Payload = #{
         <<"username">> => <<"username">>,
