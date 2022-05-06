@@ -483,7 +483,7 @@ t_ensure_rate_limit(_) ->
     PerClient = emqx_config:get(Path),
     {ok, Rate} = emqx_limiter_schema:to_rate("50MB"),
     emqx_config:put(Path, PerClient#{rate := Rate}),
-    emqx_limiter_server:update_config(bytes_in),
+    emqx_limiter_server:restart(bytes_in),
     timer:sleep(100),
 
     Limiter = init_limiter(),
@@ -502,7 +502,7 @@ t_ensure_rate_limit(_) ->
     ?assertEqual([{active, false}], ?ws_conn:info(postponed, St1)),
 
     emqx_config:put(Path, PerClient),
-    emqx_limiter_server:update_config(bytes_in),
+    emqx_limiter_server:restart(bytes_in),
     timer:sleep(100).
 
 t_parse_incoming(_) ->

@@ -29,7 +29,8 @@
     find_bucket/2,
     insert_bucket/2, insert_bucket/3,
     make_path/2,
-    restart_server/1
+    restart_server/1,
+    post_config_update/5
 ]).
 
 %% gen_server callbacks
@@ -68,7 +69,7 @@ start_server(Type) ->
 
 -spec restart_server(limiter_type()) -> _.
 restart_server(Type) ->
-    emqx_limiter_server_sup:restart(Type).
+    emqx_limiter_server:restart(Type).
 
 -spec find_bucket(limiter_type(), bucket_name()) ->
     {ok, bucket_ref()} | undefined.
@@ -100,6 +101,10 @@ insert_bucket(Path, Bucket) ->
 make_path(Type, BucketName) ->
     [Type | BucketName].
 
+post_config_update([limiter, Type], _Config, NewConf, _OldConf, _AppEnvs) ->
+    Config = maps:get(Type, NewConf),
+    emqx_limiter_server:update_config(Type, Config).
+
 %%--------------------------------------------------------------------
 %% @doc
 %% Starts the server
@@ -130,6 +135,7 @@ start_link() ->
     | {stop, Reason :: term()}
     | ignore.
 init([]) ->
+    emqx_conf:add_handler([limiter], ?MODULE),
     _ = ets:new(?TAB, [
         set,
         public,
@@ -204,6 +210,7 @@ handle_info(Info, State) ->
     State :: term()
 ) -> any().
 terminate(_Reason, _State) ->
+    emqx_conf:remove_handler([limiter]),
     ok.
 
 %%--------------------------------------------------------------------

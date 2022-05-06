@@ -46,7 +46,8 @@
     info/1,
     name/1,
     get_initial_val/1,
-    update_config/1
+    restart/1,
+    update_config/2
 ]).
 
 %% number of tokens generated per period
@@ -87,7 +88,9 @@
 -type decimal() :: emqx_limiter_decimal:decimal().
 -type index() :: pos_integer().
 
--define(CALL(Type), gen_server:call(name(Type), ?FUNCTION_NAME)).
+-define(CALL(Type, Msg), gen_server:call(name(Type), Msg)).
+-define(CALL(Type), ?CALL(Type, ?FUNCTION_NAME)).
+
 %% minimum coefficient for overloaded limiter
 -define(OVERLOAD_MIN_ALLOC, 0.3).
 -define(CURRYING(X, F2), fun(Y) -> F2(X, Y) end).
@@ -145,9 +148,13 @@ info(Type) ->
 name(Type) ->
     erlang:list_to_atom(io_lib:format("~s_~s", [?MODULE, Type])).
 
--spec update_config(limiter_type()) -> ok.
-update_config(Type) ->
+-spec restart(limiter_type()) -> ok.
+restart(Type) ->
     ?CALL(Type).
+
+-spec update_config(limiter_type(), hocons:config()) -> ok.
+update_config(Type, Config) ->
+    ?CALL(Type, {update_config, Type, Config}).
 
 %%--------------------------------------------------------------------
 %% @doc
@@ -197,8 +204,11 @@ init([Type]) ->
     | {stop, Reason :: term(), NewState :: term()}.
 handle_call(info, _From, State) ->
     {reply, State, State};
-handle_call(update_config, _From, #{type := Type}) ->
+handle_call(restart, _From, #{type := Type}) ->
     NewState = init_tree(Type),
+    {reply, ok, NewState};
+handle_call({update_config, Type, Config}, _From, #{type := Type}) ->
+    NewState = init_tree(Type, Config),
     {reply, ok, NewState};
 handle_call(Req, _From, State) ->
     ?SLOG(error, #{msg => "unexpected_call", call => Req}),
@@ -442,7 +452,11 @@ dispatch_burst_to_buckets([], _, Alloced, Buckets) ->
     {Alloced, Buckets}.
 
 -spec init_tree(emqx_limiter_schema:limiter_type()) -> state().
-init_tree(Type) ->
+init_tree(Type) when is_atom(Type) ->
+    Cfg = emqx:get_config([limiter, Type]),
+    init_tree(Type, Cfg).
+
+init_tree(Type, #{bucket := Buckets} = Cfg) ->
     State = #{
         type => Type,
         root => undefined,
@@ -451,7 +465,6 @@ init_tree(Type) ->
         buckets => #{}
     },
 
-    #{bucket := Buckets} = Cfg = emqx:get_config([limiter, Type]),
     {Factor, Root} = make_root(Cfg),
     {CounterNum, DelayBuckets} = make_bucket(maps:to_list(Buckets), Type, Cfg, Factor, 1, []),
 

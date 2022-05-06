@@ -19,7 +19,7 @@
 -behaviour(supervisor).
 
 %% API
--export([start_link/0, start/1, restart/1]).
+-export([start_link/0, start/1]).
 
 %% Supervisor callbacks
 -export([init/1]).
@@ -46,13 +46,6 @@ start_link() ->
 start(Type) ->
     Spec = make_child(Type),
     supervisor:start_child(?MODULE, Spec).
-
-%% XXX This is maybe a workaround, not so good
--spec restart(emqx_limiter_schema:limiter_type()) -> _.
-restart(Type) ->
-    Id = emqx_limiter_server:name(Type),
-    _ = supervisor:terminate_child(?MODULE, Id),
-    supervisor:restart_child(?MODULE, Id).
 
 %%--------------------------------------------------------------------
 %%  Supervisor callbacks
