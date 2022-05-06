@@ -235,8 +235,7 @@ listeners_info(Opts) ->
         fun({Type, #{type := ?MAP(_Name, ?R_REF(Mod, Field))}}) ->
             Fields0 = hocon_schema:fields(Mod, Field),
             Fields1 = lists:keydelete("authentication", 1, Fields0),
-            Fields2 = lists:keydelete("limiter", 1, Fields1),
-            Fields3 = required_bind(Fields2, Opts),
+            Fields3 = required_bind(Fields1, Opts),
             Ref = listeners_ref(Type, Opts),
             TypeAtom = list_to_existing_atom(Type),
             #{
