@@ -63,7 +63,8 @@
     with_listener_authn/3,
     checks/2,
     reason2resp/1,
-    reason2msg/1
+    reason2msg/1,
+    sum_cluster_connections/1
 ]).
 
 %% RPC
@@ -568,11 +569,11 @@ to_list(A) when is_atom(A) ->
 to_list(B) when is_binary(B) ->
     binary_to_list(B).
 
-%%--------------------------------------------------------------------
-%% Internal funcs
 sum_cluster_connections(List) ->
     sum_cluster_connections(List, 0, 0).
 
+%%--------------------------------------------------------------------
+%% Internal funcs
 sum_cluster_connections(
     [#{max_connections := Max, current_connections := Current} | T], MaxAcc, CurrAcc
 ) ->

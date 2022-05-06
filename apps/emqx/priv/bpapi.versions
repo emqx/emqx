@@ -24,6 +24,6 @@
 {emqx_delayed,1}.
 {emqx_mgmt_cluster,1}.
 {emqx_retainer,1}.
-{emqx_gateway_http_proto_v1,1}.
-{emqx_gateway_api_listeners_proto_v1,1}.
+{emqx_gateway_http,1}.
+{emqx_gateway_api_listeners,1}.
 
