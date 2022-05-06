@@ -107,7 +107,7 @@ plugins() ->
         {er_coap_client, {git, "https://github.com/emqx/er_coap_client", {tag, "v1.0.5"}}},
         %% emqx main project does not require port-compiler
         %% pin at root level for deterministic
-        {pc, {git, "https://github.com/emqx/port_compiler.git", {tag, "v1.11.1"}}}
+        {pc, "v1.14.1"}
     ] ++
         %% test plugins are concatenated to default profile plugins
         %% otherwise rebar3 test profile runs are super slow
