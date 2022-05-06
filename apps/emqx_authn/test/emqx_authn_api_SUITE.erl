@@ -125,24 +125,24 @@ t_aggregate_metrics(_) ->
             metrics =>
                 #{
                     failed => 0,
-                    matched => 1,
+                    total => 1,
                     rate => 0.0,
                     rate_last5m => 0.0,
                     rate_max => 0.1,
                     success => 1,
-                    ignore => 1
+                    nomatch => 1
                 }
         },
         'emqx@node2.emqx.io' => #{
             metrics =>
                 #{
                     failed => 0,
-                    matched => 1,
+                    total => 1,
                     rate => 0.0,
                     rate_last5m => 0.0,
                     rate_max => 0.1,
                     success => 1,
-                    ignore => 2
+                    nomatch => 2
                 }
         }
     },
@@ -152,12 +152,12 @@ t_aggregate_metrics(_) ->
             metrics =>
                 #{
                     failed => 0,
-                    matched => 2,
+                    total => 2,
                     rate => 0.0,
                     rate_last5m => 0.0,
                     rate_max => 0.2,
                     success => 2,
-                    ignore => 3
+                    nomatch => 3
                 }
         },
         Res
@@ -226,7 +226,7 @@ test_authenticator(PathPrefix) ->
     LookFun = fun(List) -> LookupVal(List, RList) end,
     MetricsList = [
         {<<"failed">>, 0},
-        {<<"matched">>, 0},
+        {<<"total">>, 0},
         {<<"rate">>, 0.0},
         {<<"rate_last5m">>, 0.0},
         {<<"rate_max">>, 0.0},
@@ -321,17 +321,17 @@ test_authenticator_users(PathPrefix) ->
         [] ->
             #{
                 <<"metrics">> := #{
-                    <<"matched">> := 1,
+                    <<"total">> := 1,
                     <<"success">> := 0,
-                    <<"ignore">> := 1
+                    <<"nomatch">> := 1
                 }
             } = jiffy:decode(PageData0, [return_maps]);
         ["listeners", 'tcp:default'] ->
             #{
                 <<"metrics">> := #{
-                    <<"matched">> := 1,
+                    <<"total">> := 1,
                     <<"success">> := 0,
-                    <<"ignore">> := 1
+                    <<"nomatch">> := 1
                 }
             } = jiffy:decode(PageData0, [return_maps])
     end,
@@ -379,17 +379,17 @@ test_authenticator_users(PathPrefix) ->
         [] ->
             #{
                 <<"metrics">> := #{
-                    <<"matched">> := 2,
+                    <<"total">> := 2,
                     <<"success">> := 1,
-                    <<"ignore">> := 1
+                    <<"nomatch">> := 1
                 }
             } = jiffy:decode(PageData01, [return_maps]);
         ["listeners", 'tcp:default'] ->
             #{
                 <<"metrics">> := #{
-                    <<"matched">> := 2,
+                    <<"total">> := 2,
                     <<"success">> := 1,
-                    <<"ignore">> := 1
+                    <<"nomatch">> := 1
                 }
             } = jiffy:decode(PageData01, [return_maps])
     end,

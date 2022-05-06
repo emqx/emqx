@@ -115,8 +115,14 @@ fields("metrics_status_fields") ->
     ];
 fields("metrics") ->
     [
-        {"ignore", mk(integer(), #{desc => ?DESC("failed")})}
-    ] ++ common_field();
+        {"nomatch", mk(integer(), #{desc => ?DESC("metrics_nomatch")})},
+        {"total", mk(integer(), #{desc => ?DESC("metrics_total")})},
+        {"success", mk(integer(), #{desc => ?DESC("metrics_success")})},
+        {"failed", mk(integer(), #{desc => ?DESC("metrics_failed")})},
+        {"rate", mk(float(), #{desc => ?DESC("metrics_rate")})},
+        {"rate_max", mk(float(), #{desc => ?DESC("metrics_rate_max")})},
+        {"rate_last5m", mk(float(), #{desc => ?DESC("metrics_rate_last5m")})}
+    ];
 fields("resource_metrics") ->
     common_field();
 fields("node_metrics") ->

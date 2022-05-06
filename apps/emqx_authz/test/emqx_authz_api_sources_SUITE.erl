@@ -243,8 +243,8 @@ t_api(_) ->
         <<"metrics">> := #{
             <<"allow">> := 0,
             <<"deny">> := 0,
-            <<"matched">> := 0,
-            <<"ignore">> := 0
+            <<"total">> := 0,
+            <<"nomatch">> := 0
         }
     } = jiffy:decode(Status4, [return_maps]),
     ?assertMatch(
@@ -298,8 +298,8 @@ t_api(_) ->
         <<"metrics">> := #{
             <<"allow">> := 0,
             <<"deny">> := 0,
-            <<"matched">> := 0,
-            <<"ignore">> := 0
+            <<"total">> := 0,
+            <<"nomatch">> := 0
         }
     } = jiffy:decode(Status5_1, [return_maps]),
 
@@ -377,8 +377,8 @@ t_api(_) ->
         <<"metrics">> := #{
             <<"allow">> := 1,
             <<"deny">> := 0,
-            <<"matched">> := 1,
-            <<"ignore">> := 0
+            <<"total">> := 1,
+            <<"nomatch">> := 0
         }
     } = jiffy:decode(Status5, [return_maps]),
 
@@ -396,8 +396,8 @@ t_api(_) ->
         <<"metrics">> := #{
             <<"allow">> := 2,
             <<"deny">> := 0,
-            <<"matched">> := 2,
-            <<"ignore">> := 0
+            <<"total">> := 2,
+            <<"nomatch">> := 0
         }
     } = jiffy:decode(Status6, [return_maps]),
 
@@ -416,8 +416,8 @@ t_api(_) ->
         <<"metrics">> := #{
             <<"allow">> := 3,
             <<"deny">> := 0,
-            <<"matched">> := 3,
-            <<"ignore">> := 0
+            <<"total">> := 3,
+            <<"nomatch">> := 0
         }
     } = jiffy:decode(Status7, [return_maps]),
 
@@ -508,7 +508,7 @@ t_aggregate_metrics(_) ->
             metrics =>
                 #{
                     failed => 0,
-                    matched => 1,
+                    total => 1,
                     rate => 0.0,
                     rate_last5m => 0.0,
                     rate_max => 0.1,
@@ -519,7 +519,7 @@ t_aggregate_metrics(_) ->
             metrics =>
                 #{
                     failed => 0,
-                    matched => 1,
+                    total => 1,
                     rate => 0.0,
                     rate_last5m => 0.0,
                     rate_max => 0.1,
@@ -533,7 +533,7 @@ t_aggregate_metrics(_) ->
             metrics =>
                 #{
                     failed => 0,
-                    matched => 2,
+                    total => 2,
                     rate => 0.0,
                     rate_last5m => 0.0,
                     rate_max => 0.2,

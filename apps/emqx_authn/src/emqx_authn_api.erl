@@ -1036,14 +1036,14 @@ make_result_map(ResList) ->
     lists:foldl(Fun, {maps:new(), maps:new(), maps:new(), maps:new()}, ResList).
 
 restructure_map(#{
-    counters := #{failed := Failed, matched := Match, success := Succ, ignore := Ignore},
-    rate := #{matched := #{current := Rate, last5m := Rate5m, max := RateMax}}
+    counters := #{failed := Failed, total := Total, success := Succ, nomatch := Nomatch},
+    rate := #{total := #{current := Rate, last5m := Rate5m, max := RateMax}}
 }) ->
     #{
-        matched => Match,
+        total => Total,
         success => Succ,
         failed => Failed,
-        ignore => Ignore,
+        nomatch => Nomatch,
         rate => Rate,
         rate_last5m => Rate5m,
         rate_max => RateMax
@@ -1451,11 +1451,32 @@ status_metrics_example() ->
         status_metrics => #{
             summary => <<"Authn status metrics">>,
             value => #{
-                metrics => #{
+                resource_metrics => #{
                     matched => 0,
                     success => 0,
                     failed => 0,
-                    ignore => 0,
+                    rate => 0.0,
+                    rate_last5m => 0.0,
+                    rate_max => 0.0
+                },
+                node_resource_metrics => [
+                    #{
+                        node => node(),
+                        metrics => #{
+                            matched => 0,
+                            success => 0,
+                            failed => 0,
+                            rate => 0.0,
+                            rate_last5m => 0.0,
+                            rate_max => 0.0
+                        }
+                    }
+                ],
+                metrics => #{
+                    total => 0,
+                    success => 0,
+                    failed => 0,
+                    nomatch => 0,
                     rate => 0.0,
                     rate_last5m => 0.0,
                     rate_max => 0.0
@@ -1466,9 +1487,9 @@ status_metrics_example() ->
                         node => node(),
                         metrics => #{
                             matched => 0,
-                            success => 0,
+                            total => 0,
                             failed => 0,
-                            ignore => 0,
+                            nomatch => 0,
                             rate => 0.0,
                             rate_last5m => 0.0,
                             rate_max => 0.0
