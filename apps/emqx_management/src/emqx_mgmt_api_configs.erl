@@ -25,7 +25,6 @@
 
 -export([
     config/3,
-    limiter/3,
     config_reset/3,
     configs/3,
     get_full_config/0,
@@ -169,7 +168,7 @@ schema("/configs/limiter/:limiter_type") ->
             hoconsc:mk(
                 hoconsc:enum(emqx_limiter_schema:types()),
                 #{
-                    in => query,
+                    in => path,
                     required => true,
                     example => <<"bytes_in">>,
                     desc => <<"The limiter type">>
@@ -177,7 +176,7 @@ schema("/configs/limiter/:limiter_type") ->
             )}
     ],
     #{
-        'operationId' => limiter,
+        'operationId' => config,
         get => #{
             tags => [conf],
             description => <<"Get config of this limiter">>,
@@ -243,13 +242,18 @@ fields(Field) ->
 
 %%%==============================================================================================
 %% HTTP API Callbacks
-config(Method, Params, Req) ->
+config(get, _Params, Req) ->
     Path = conf_path(Req),
-    do_config(Method, Params, Path).
-
-limiter(Method, #{query_string := QS} = Params, _Req) ->
-    #{<<"limiter_type">> := Type} = QS,
-    do_config(Method, Params, [<<"limiter">>, erlang:atom_to_binary(Type)]).
+    {ok, Conf} = emqx_map_lib:deep_find(Path, get_full_config()),
+    {200, Conf};
+config(put, #{body := Body}, Req) ->
+    Path = conf_path(Req),
+    case emqx_conf:update(Path, Body, ?OPTS) of
+        {ok, #{raw_config := RawConf}} ->
+            {200, RawConf};
+        {error, Reason} ->
+            {400, #{code => 'UPDATE_FAILED', message => ?ERR_MSG(Reason)}}
+    end.
 
 global_zone_configs(get, _Params, _Req) ->
     Paths = global_zone_roots(),
@@ -377,14 +381,3 @@ global_zone_roots() ->
 global_zone_schema() ->
     Roots = hocon_schema:roots(emqx_zone_schema),
     lists:map(fun({RootKey, {_Root, Schema}}) -> {RootKey, Schema} end, Roots).
-
-do_config(get, _Params, Path) ->
-    {ok, Conf} = emqx_map_lib:deep_find(Path, get_full_config()),
-    {200, Conf};
-do_config(put, #{body := Body}, Path) ->
-    case emqx_conf:update(Path, Body, ?OPTS) of
-        {ok, #{raw_config := RawConf}} ->
-            {200, RawConf};
-        {error, Reason} ->
-            {400, #{code => 'UPDATE_FAILED', message => ?ERR_MSG(Reason)}}
-    end.
