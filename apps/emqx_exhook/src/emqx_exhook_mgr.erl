@@ -147,22 +147,24 @@ update_config(KeyPath, UpdateReq) ->
             Error
     end.
 
-pre_config_update(_, {add, Conf}, OldConf) ->
-    {ok, OldConf ++ [Conf]};
+pre_config_update(_, {add, #{<<"name">> := Name} = Conf}, OldConf) ->
+    case lists:any(fun(#{<<"name">> := ExistedName}) -> ExistedName =:= Name end, OldConf) of
+        true -> throw(already_exists);
+        false -> {ok, OldConf ++ [Conf]}
+    end;
 pre_config_update(_, {update, Name, Conf}, OldConf) ->
     case replace_conf(Name, fun(_) -> Conf end, OldConf) of
-        not_found -> {error, not_found};
+        not_found -> throw(not_found);
         NewConf -> {ok, NewConf}
     end;
 pre_config_update(_, {delete, ToDelete}, OldConf) ->
-    {ok,
-        lists:dropwhile(
-            fun(#{<<"name">> := Name}) -> Name =:= ToDelete end,
-            OldConf
-        )};
+    case do_delete(ToDelete, OldConf) of
+        not_found -> throw(not_found);
+        NewConf -> {ok, NewConf}
+    end;
 pre_config_update(_, {move, Name, Position}, OldConf) ->
     case do_move(Name, Position, OldConf) of
-        not_found -> {error, not_found};
+        not_found -> throw(not_found);
         NewConf -> {ok, NewConf}
     end;
 pre_config_update(_, {enable, Name, Enable}, OldConf) ->
@@ -173,7 +175,7 @@ pre_config_update(_, {enable, Name, Enable}, OldConf) ->
             OldConf
         )
     of
-        not_found -> {error, not_found};
+        not_found -> throw(not_found);
         NewConf -> {ok, NewConf}
     end.
 
@@ -419,6 +421,19 @@ move_to([H | T], Position, Server, HeadL) ->
     move_to(T, Position, Server, [H | HeadL]);
 move_to([], _Position, _Server, _HeadL) ->
     not_found.
+
+-spec do_delete(binary(), list(server_options())) ->
+    not_found | list(server_options()).
+do_delete(ToDelete, OldConf) ->
+    case lists:any(fun(#{<<"name">> := ExistedName}) -> ExistedName =:= ToDelete end, OldConf) of
+        true ->
+            lists:dropwhile(
+                fun(#{<<"name">> := Name}) -> Name =:= ToDelete end,
+                OldConf
+            );
+        false ->
+            not_found
+    end.
 
 -spec reorder(list(server_options()), servers()) -> servers().
 reorder(ServerL, Servers) ->

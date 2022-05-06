@@ -23,14 +23,26 @@
 -include_lib("emqx/include/logger.hrl").
 -include_lib("hocon/include/hoconsc.hrl").
 
--export([api_spec/0, paths/0, schema/1, fields/1, namespace/0]).
+-export([
+    api_spec/0,
+    paths/0,
+    schema/1,
+    fields/1,
+    namespace/0
+]).
 
--export([exhooks/2, action_with_name/2, move/2, server_hooks/2]).
+-export([
+    exhooks/2,
+    action_with_name/2,
+    move/2,
+    server_hooks/2
+]).
 
--import(hoconsc, [mk/2, ref/1, enum/1, array/1, map/2]).
+-import(hoconsc, [mk/1, mk/2, ref/1, enum/1, array/1, map/2]).
 -import(emqx_dashboard_swagger, [schema_with_example/2, error_codes/2]).
 
 -define(TAGS, [<<"exhooks">>]).
+-define(NOT_FOURD, 'NOT_FOUND').
 -define(BAD_REQUEST, 'BAD_REQUEST').
 -define(BAD_RPC, 'BAD_RPC').
 
@@ -58,14 +70,15 @@ schema(("/exhooks")) ->
         get => #{
             tags => ?TAGS,
             desc => ?DESC(list_all_servers),
-            responses => #{200 => mk(array(ref(detail_server_info)), #{})}
+            responses => #{200 => mk(array(ref(detail_server_info)))}
         },
         post => #{
             tags => ?TAGS,
             desc => ?DESC(add_server),
             'requestBody' => server_conf_schema(),
             responses => #{
-                201 => mk(ref(detail_server_info), #{}),
+                200 => mk(ref(detail_server_info)),
+                400 => error_codes([?BAD_REQUEST], <<"Already exists">>),
                 500 => error_codes([?BAD_RPC], <<"Bad RPC">>)
             }
         }
@@ -78,8 +91,8 @@ schema("/exhooks/:name") ->
             desc => ?DESC(get_detail),
             parameters => params_server_name_in_path(),
             responses => #{
-                200 => mk(ref(detail_server_info), #{}),
-                400 => error_codes([?BAD_REQUEST], <<"Bad Request">>)
+                200 => mk(ref(detail_server_info)),
+                404 => error_codes([?NOT_FOURD], <<"Server not found">>)
             }
         },
         put => #{
@@ -88,8 +101,9 @@ schema("/exhooks/:name") ->
             parameters => params_server_name_in_path(),
             'requestBody' => server_conf_schema(),
             responses => #{
-                200 => <<>>,
+                200 => mk(ref(detail_server_info)),
                 400 => error_codes([?BAD_REQUEST], <<"Bad Request">>),
+                404 => error_codes([?NOT_FOURD], <<"Server not found">>),
                 500 => error_codes([?BAD_RPC], <<"Bad RPC">>)
             }
         },
@@ -99,6 +113,7 @@ schema("/exhooks/:name") ->
             parameters => params_server_name_in_path(),
             responses => #{
                 204 => <<>>,
+                404 => error_codes([?NOT_FOURD], <<"Server not found">>),
                 500 => error_codes([?BAD_RPC], <<"Bad RPC">>)
             }
         }
@@ -111,7 +126,7 @@ schema("/exhooks/:name/hooks") ->
             desc => ?DESC(get_hooks),
             parameters => params_server_name_in_path(),
             responses => #{
-                200 => mk(array(ref(list_hook_info)), #{}),
+                200 => mk(array(ref(list_hook_info))),
                 400 => error_codes([?BAD_REQUEST], <<"Bad Request">>)
             }
         }
@@ -149,7 +164,7 @@ fields(detail_server_info) ->
         {metrics, mk(ref(metrics), #{desc => ?DESC(server_metrics)})},
         {node_metrics, mk(array(ref(node_metrics)), #{desc => ?DESC(node_metrics)})},
         {node_status, mk(array(ref(node_status)), #{desc => ?DESC(node_status)})},
-        {hooks, mk(array(ref(hook_info)), #{})}
+        {hooks, mk(array(ref(hook_info)))}
     ] ++ emqx_exhook_schema:server_config();
 fields(list_hook_info) ->
     [
@@ -220,13 +235,19 @@ server_conf_schema() ->
 %% API
 %%--------------------------------------------------------------------
 exhooks(get, _) ->
-    Confs = emqx:get_config([exhook, servers]),
+    Confs = get_raw_config(),
     Infos = nodes_all_server_info(Confs),
     {200, Infos};
-exhooks(post, #{body := Body}) ->
-    {ok, _} = emqx_exhook_mgr:update_config([exhook, servers], {add, Body}),
-    #{<<"name">> := Name} = Body,
-    get_nodes_server_info(Name).
+exhooks(post, #{body := #{<<"name">> := Name} = Body}) ->
+    case emqx_exhook_mgr:update_config([exhook, servers], {add, Body}) of
+        {ok, _} ->
+            get_nodes_server_info(Name);
+        {error, already_exists} ->
+            {400, #{
+                code => <<"BAD_REQUEST">>,
+                message => <<"Already exists">>
+            }}
+    end.
 
 action_with_name(get, #{bindings := #{name := Name}}) ->
     get_nodes_server_info(Name);
@@ -237,20 +258,13 @@ action_with_name(put, #{bindings := #{name := Name}, body := Body}) ->
             {update, Name, Body}
         )
     of
-        {ok, not_found} ->
-            {400, #{
-                code => <<"BAD_REQUEST">>,
+        {ok, _} ->
+            get_nodes_server_info(Name);
+        {error, not_found} ->
+            {404, #{
+                code => <<"NOT_FOUND">>,
                 message => <<"Server not found">>
             }};
-        {ok, {error, Reason}} ->
-            {400, #{
-                code => <<"BAD_REQUEST">>,
-                message => unicode:characters_to_binary(
-                    io_lib:format("Error Reason:~p~n", [Reason])
-                )
-            }};
-        {ok, _} ->
-            {200};
         {error, Error} ->
             {500, #{
                 code => <<"BAD_RPC">>,
@@ -265,7 +279,12 @@ action_with_name(delete, #{bindings := #{name := Name}}) ->
         )
     of
         {ok, _} ->
-            {200};
+            {204};
+        {error, not_found} ->
+            {404, #{
+                code => <<"BAD_REQUEST">>,
+                message => <<"Server not found">>
+            }};
         {error, Error} ->
             {500, #{
                 code => <<"BAD_RPC">>,
@@ -284,8 +303,8 @@ move(post, #{bindings := #{name := Name}, body := #{<<"position">> := RawPositio
             of
                 {ok, ok} ->
                     {204};
-                {ok, not_found} ->
-                    {400, #{
+                {error, not_found} ->
+                    {404, #{
                         code => <<"BAD_REQUEST">>,
                         message => <<"Server not found">>
                     }};
@@ -303,8 +322,8 @@ move(post, #{bindings := #{name := Name}, body := #{<<"position">> := RawPositio
     end.
 
 server_hooks(get, #{bindings := #{name := Name}}) ->
-    Confs = emqx:get_config([exhook, servers]),
-    case lists:search(fun(#{name := CfgName}) -> CfgName =:= Name end, Confs) of
+    Confs = get_raw_config(),
+    case lists:search(fun(#{<<"name">> := CfgName}) -> CfgName =:= Name end, Confs) of
         false ->
             {400, #{
                 code => <<"BAD_REQUEST">>,
@@ -316,10 +335,10 @@ server_hooks(get, #{bindings := #{name := Name}}) ->
     end.
 
 get_nodes_server_info(Name) ->
-    Confs = emqx:get_config([exhook, servers]),
-    case lists:search(fun(#{name := CfgName}) -> CfgName =:= Name end, Confs) of
+    Confs = get_raw_config(),
+    case lists:search(fun(#{<<"name">> := CfgName}) -> CfgName =:= Name end, Confs) of
         false ->
-            {400, #{
+            {404, #{
                 code => <<"BAD_REQUEST">>,
                 message => <<"Server not found">>
             }};
@@ -336,7 +355,7 @@ nodes_all_server_info(ConfL) ->
     Default = emqx_exhook_metrics:new_metrics_info(),
     node_all_server_info(ConfL, AllInfos, Default, []).
 
-node_all_server_info([#{name := ServerName} = Conf | T], AllInfos, Default, Acc) ->
+node_all_server_info([#{<<"name">> := ServerName} = Conf | T], AllInfos, Default, Acc) ->
     Info = fill_cluster_server_info(AllInfos, [], [], ServerName, Default),
     AllInfo = maps:merge(Conf, Info),
     node_all_server_info(T, AllInfos, Default, [AllInfo | Acc]);
@@ -448,6 +467,14 @@ call_cluster(Fun) ->
 %%--------------------------------------------------------------------
 %% Internal Funcs
 %%--------------------------------------------------------------------
+
+get_raw_config() ->
+    RawConfig = emqx:get_raw_config([exhook, servers], []),
+    Schema = #{roots => emqx_exhook_schema:fields(exhook), fields => #{}},
+    Conf = #{<<"servers">> => RawConfig},
+    Options = #{only_fill_defaults => true},
+    #{<<"servers">> := Servers} = hocon_tconf:check_plain(Schema, Conf, Options),
+    Servers.
 
 position_example() ->
     #{
