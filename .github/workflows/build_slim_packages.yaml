@@ -172,6 +172,8 @@ jobs:
         kerl install ${{ matrix.otp }} $HOME/.kerl/${{ matrix.otp }}
     - name: Get deps git refs for cache
       id: deps-refs
+      env:
+        AUTO_INSTALL_BUILD_DEPS: 1
       run: |
         . $HOME/.kerl/${{ matrix.otp }}/activate
         make ensure-rebar3
@@ -184,6 +186,8 @@ jobs:
         path: _build/default/lib/quicer/
         key: ${{ matrix.macos }}-${{ matrix.otp }}-macos-${{ steps.deps-refs.outputs.DEP_QUICER_REF }}
     - name: build ${{ matrix.profile }}
+      env:
+        AUTO_INSTALL_BUILD_DEPS: 1
       run: |
         . $HOME/.kerl/${{ matrix.otp }}/activate
         make ensure-rebar3
