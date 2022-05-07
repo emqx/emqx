@@ -81,7 +81,7 @@ start_listeners(Listeners) ->
         security => [#{'basicAuth' => []}, #{'bearerAuth' => []}],
         swagger_global_spec => GlobalSpec,
         dispatch => Dispatch,
-        middlewares => [cowboy_router, ?EMQX_MIDDLE, cowboy_handler]
+        middlewares => [?EMQX_MIDDLE, cowboy_router, cowboy_handler]
     },
     Res =
         lists:foldl(

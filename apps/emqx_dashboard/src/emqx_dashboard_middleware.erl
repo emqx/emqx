@@ -21,6 +21,7 @@
 -export([execute/2]).
 
 execute(Req, Env) ->
+    waiting_dispatch_ready(),
     CORS = emqx_conf:get([dashboard, cors], false),
     case CORS andalso cowboy_req:header(<<"origin">>, Req, undefined) of
         false ->
@@ -30,4 +31,23 @@ execute(Req, Env) ->
         _ ->
             Req2 = cowboy_req:set_resp_header(<<"Access-Control-Allow-Origin">>, <<"*">>, Req),
             {ok, Req2, Env}
+    end.
+
+waiting_dispatch_ready() ->
+    waiting_dispatch_ready(5).
+
+waiting_dispatch_ready(0) ->
+    ok;
+waiting_dispatch_ready(Count) ->
+    case emqx_sys:uptime() < timer:minutes(1) of
+        true ->
+            case emqx_dashboard_listener:is_ready() of
+                true ->
+                    ok;
+                false ->
+                    timer:sleep(100),
+                    waiting_dispatch_ready(Count - 1)
+            end;
+        false ->
+            ok
     end.

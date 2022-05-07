@@ -27,9 +27,6 @@
     all_ciphers/0
 ]).
 
--compile(export_all).
--compile(nowarn_export_all).
-
 %% SSL files
 -export([
     ensure_ssl_files/2,
@@ -219,19 +216,18 @@ default_versions(_) ->
 %% Deduplicate a list without re-ordering the elements.
 dedup([]) ->
     [];
-dedup(List) ->
-    lists:reverse(
-        lists:foldl(
-            fun(L, Acc) ->
-                case lists:member(L, Acc) of
-                    false -> [L | Acc];
-                    true -> Acc
-                end
-            end,
-            [],
-            List
-        )
-    ).
+dedup(List0) ->
+    List = lists:foldl(
+        fun(L, Acc) ->
+            case lists:member(L, Acc) of
+                false -> [L | Acc];
+                true -> Acc
+            end
+        end,
+        [],
+        List0
+    ),
+    lists:reverse(List).
 
 %% parse comma separated tls version strings
 parse_versions(Versions) ->

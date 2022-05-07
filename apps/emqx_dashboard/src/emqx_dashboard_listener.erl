@@ -25,7 +25,7 @@
 
 -behaviour(gen_server).
 
--export([start_link/0]).
+-export([start_link/0, is_ready/0]).
 
 -export([
     init/1,
@@ -37,29 +37,34 @@
     code_change/3
 ]).
 
+is_ready() ->
+    ready =:= gen_server:call(?MODULE, get_state, 10000).
+
 start_link() ->
     gen_server:start_link({local, ?MODULE}, ?MODULE, [], []).
 
 init([]) ->
     erlang:process_flag(trap_exit, true),
     ok = add_handler(),
-    {ok, #{}, {continue, regenerate_dispatch}}.
+    {ok, undefined, {continue, regenerate_dispatch}}.
 
-handle_continue(regenerate_dispatch, State) ->
+handle_continue(regenerate_dispatch, _State) ->
     regenerate_minirest_dispatch(),
-    {noreply, State, hibernate}.
+    {noreply, ready, hibernate}.
 
+handle_call(get_state, _From, State) ->
+    {reply, State, State, hibernate};
 handle_call(_Request, _From, State) ->
     {reply, ok, State, hibernate}.
 
 handle_cast(_Request, State) ->
     {noreply, State, hibernate}.
 
-handle_info({update_listeners, OldListeners, NewListeners}, State) ->
+handle_info({update_listeners, OldListeners, NewListeners}, _State) ->
     ok = emqx_dashboard:stop_listeners(OldListeners),
     ok = emqx_dashboard:start_listeners(NewListeners),
     regenerate_minirest_dispatch(),
-    {noreply, State, hibernate};
+    {noreply, ready, hibernate};
 handle_info(_Info, State) ->
     {noreply, State, hibernate}.
 
