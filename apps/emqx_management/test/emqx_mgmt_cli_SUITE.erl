@@ -36,13 +36,23 @@ end_per_suite(_) ->
 
 set_special_configs(emqx_dashboard) ->
     Config = #{
-               default_username => <<"admin">>,
-               default_password => <<"public">>,
-               listeners => [#{
-                               protocol => http,
-                               port => 18083
-                              }]
-              },
+        default_username => <<"admin">>,
+        default_password => <<"public">>,
+        listeners =>
+            #{
+                http =>
+                    #{
+                        backlog => 512,
+                        bind => 18083,
+                        enable => true,
+                        inet6 => false,
+                        ipv6_v6only => false,
+                        max_connections => 512,
+                        num_acceptors => 4,
+                        send_timeout => 5000
+                    }
+            }
+    },
     emqx_config:put([dashboard], Config),
     ok;
 set_special_configs(_App) ->
@@ -52,7 +62,6 @@ t_status(_Config) ->
     emqx_ctl:run_command([]),
     emqx_ctl:run_command(["status"]),
     ok.
-    %% --------------------------------------------------------------------------------------------------------------
 
 t_broker(_Config) ->
     %% broker         # Show broker version, uptime and description
@@ -62,7 +71,6 @@ t_broker(_Config) ->
     %% broker metrics # Show broker metrics
     emqx_ctl:run_command(["broker", "metrics"]),
     ok.
-    %% --------------------------------------------------------------------------------------------------------------
 
 t_cluster(_Config) ->
     %% cluster join <Node>        # Join the cluster
@@ -71,7 +79,6 @@ t_cluster(_Config) ->
     %% cluster status             # Cluster status
     emqx_ctl:run_command(["cluster", "status"]),
     ok.
-    %% --------------------------------------------------------------------------------------------------------------
 
 t_clients(_Config) ->
     %% clients list            # List all clients
@@ -79,14 +86,12 @@ t_clients(_Config) ->
     %% clients show <ClientId> # Show a client
     %% clients kick <ClientId> # Kick out a client
     ok.
-    %% --------------------------------------------------------------------------------------------------------------
 
 t_routes(_Config) ->
     %% routes list         # List all routes
     emqx_ctl:run_command(["routes", "list"]),
     %% routes show <Topic> # Show a route
     ok.
-    %% --------------------------------------------------------------------------------------------------------------
 
 t_subscriptions(_Config) ->
     %% subscriptions list                         # List all subscriptions
@@ -95,7 +100,6 @@ t_subscriptions(_Config) ->
     %% subscriptions add <ClientId> <Topic> <QoS> # Add a static subscription manually
     %% subscriptions del <ClientId> <Topic>       # Delete a static subscription manually
     ok.
-    %% --------------------------------------------------------------------------------------------------------------
 
 t_plugins(_Config) ->
     %% plugins <command> [Name-Vsn]          # e.g. 'start emqx_plugin_template-5.0-rc.1'
@@ -118,7 +122,6 @@ t_plugins(_Config) ->
     %%                                       # e.g. plugins disable foo-0.1.0 front
     %%                                       #      plugins enable bar-0.2.0 before foo-0.1.0
     ok.
-    %% --------------------------------------------------------------------------------------------------------------
 
 t_vm(_Config) ->
     %% vm all     # Show info of Erlang VM
@@ -134,13 +137,11 @@ t_vm(_Config) ->
     %% vm ports   # Show Ports of Erlang VM
     emqx_ctl:run_command(["vm", "ports"]),
     ok.
-    %% --------------------------------------------------------------------------------------------------------------
 
 t_mnesia(_Config) ->
     %% mnesia # Mnesia system info
     emqx_ctl:run_command(["mnesia"]),
     ok.
-    %% --------------------------------------------------------------------------------------------------------------
 
 t_log(_Config) ->
     %% log set-level <Level>                      # Set the overall log level
@@ -153,7 +154,6 @@ t_log(_Config) ->
     %% log handlers stop  <HandlerId>             # Stop a log handler
     %% log handlers set-level <HandlerId> <Level> # Set log level of a log handler
     ok.
-    %% --------------------------------------------------------------------------------------------------------------
 
 t_trace(_Config) ->
     %% trace list                                        # List all traces started on local node
@@ -165,7 +165,6 @@ t_trace(_Config) ->
     %% trace start ip_address  <IP>    <File> [<Level>]  # Traces for a client ip on local node
     %% trace stop  ip_addresss  <IP>                     # Stop tracing for a client ip on local node
     ok.
-    %% --------------------------------------------------------------------------------------------------------------
 
 t_traces(_Config) ->
     %% traces list                             # List all cluster traces started
@@ -176,7 +175,6 @@ t_traces(_Config) ->
     %% traces stop  <Name>                     # Stop trace in cluster
     %% traces delete  <Name>                   # Delete trace in cluster
     ok.
-    %% --------------------------------------------------------------------------------------------------------------
 
 t_listeners(_Config) ->
     %% listeners                      # List listeners
@@ -185,7 +183,6 @@ t_listeners(_Config) ->
     %% listeners start   <Identifier> # Start a listener
     %% listeners restart <Identifier> # Restart a listener
     ok.
-    %% --------------------------------------------------------------------------------------------------------------
 
 t_authz(_Config) ->
     %% authz cache-clean all         # Clears authorization cache on all nodes
@@ -193,7 +190,6 @@ t_authz(_Config) ->
     %% authz cache-clean node <Node> # Clears authorization cache on given node
     %% authz cache-clean <ClientId>  # Clears authorization cache for given client
     ok.
-    %% --------------------------------------------------------------------------------------------------------------
 
 t_olp(_Config) ->
     %% olp status  # Return OLP status if system is overloaded
@@ -201,7 +197,6 @@ t_olp(_Config) ->
     %% olp enable  # Enable overload protection
     %% olp disable # Disable overload protection
     ok.
-    %% --------------------------------------------------------------------------------------------------------------
 
 t_admin(_Config) ->
     %% admins add <Username> <Password> <Description> # Add dashboard user
