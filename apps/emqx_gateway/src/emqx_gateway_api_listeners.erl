@@ -83,38 +83,7 @@ paths() ->
 
 listeners(get, #{bindings := #{name := Name0}}) ->
     with_gateway(Name0, fun(GwName, _) ->
-        Listeners = emqx_gateway_conf:listeners(GwName),
-        ListenOns = lists:map(
-            fun(#{id := Id, <<"bind">> := BinListenOn}) ->
-                {Id, erlang:binary_to_integer(BinListenOn)}
-            end,
-            Listeners
-        ),
-
-        ClusterStatus = listeners_cluster_status(ListenOns),
-
-        Result = lists:map(
-            fun(#{id := Id} = Listener) ->
-                NodeStatus = lists:foldl(
-                    fun(Info, Acc) ->
-                        Status = maps:get(Id, Info),
-                        [Status | Acc]
-                    end,
-                    [],
-                    ClusterStatus
-                ),
-
-                {MaxCons, CurrCons} = emqx_gateway_http:sum_cluster_connections(NodeStatus),
-
-                Listener#{
-                    max_connections => MaxCons,
-                    current_connections => CurrCons,
-                    node_status => NodeStatus
-                }
-            end,
-            Listeners
-        ),
-
+        Result = get_cluster_listeners_info(GwName),
         {200, Result}
     end);
 listeners(post, #{bindings := #{name := Name0}, body := LConf}) ->
@@ -299,6 +268,68 @@ import_users(post, #{
 
 page_params(Qs) ->
     maps:with([<<"page">>, <<"limit">>], Qs).
+
+get_cluster_listeners_info(GwName) ->
+    Listeners = emqx_gateway_conf:listeners(GwName),
+    ListenOns = lists:map(
+        fun(#{id := Id} = Conf) ->
+            ListenOn = emqx_gateway_conf:get_bind(Conf),
+            {Id, ListenOn}
+        end,
+        Listeners
+    ),
+
+    ClusterStatus = listeners_cluster_status(ListenOns),
+
+    lists:map(
+        fun(#{id := Id} = Listener) ->
+            NodeStatus = lists:foldl(
+                fun(Info, Acc) ->
+                    Status = maps:get(Id, Info),
+                    [Status | Acc]
+                end,
+                [],
+                ClusterStatus
+            ),
+
+            {MaxCons, CurrCons} = emqx_gateway_http:sum_cluster_connections(NodeStatus),
+
+            Listener#{
+                max_connections => MaxCons,
+                current_connections => CurrCons,
+                node_status => NodeStatus
+            }
+        end,
+        Listeners
+    ).
+
+listeners_cluster_status(Listeners) ->
+    Nodes = mria_mnesia:running_nodes(),
+    case emqx_gateway_api_listeners_proto_v1:listeners_cluster_status(Nodes, Listeners) of
+        {Results, []} ->
+            Results;
+        {_, _BadNodes} ->
+            error(badrpc)
+    end.
+
+do_listeners_cluster_status(Listeners) ->
+    Node = node(),
+    lists:foldl(
+        fun({Id, ListenOn}, Acc) ->
+            BinId = erlang:atom_to_binary(Id),
+            {ok, #{<<"max_connections">> := Max}} = emqx_gateway_conf:listener(BinId),
+            Curr = esockd:get_current_connections({Id, ListenOn}),
+            Acc#{
+                Id => #{
+                    node => Node,
+                    current_connections => Curr,
+                    max_connections => Max
+                }
+            }
+        end,
+        #{},
+        Listeners
+    ).
 
 %%--------------------------------------------------------------------
 %% Swagger defines
@@ -790,31 +821,3 @@ examples_listener() ->
                     }
             }
     }.
-
-listeners_cluster_status(Listeners) ->
-    Nodes = mria_mnesia:running_nodes(),
-    case emqx_gateway_api_listeners_proto_v1:listeners_cluster_status(Nodes, Listeners) of
-        {Results, []} ->
-            Results;
-        {_, _BadNodes} ->
-            error(badrpc)
-    end.
-
-do_listeners_cluster_status(Listeners) ->
-    Node = node(),
-    lists:foldl(
-        fun({Id, ListenOn}, Acc) ->
-            BinId = erlang:atom_to_binary(Id),
-            {ok, #{<<"max_connections">> := Max}} = emqx_gateway_conf:listener(BinId),
-            Curr = esockd:get_current_connections({Id, ListenOn}),
-            Acc#{
-                Id => #{
-                    node => Node,
-                    current_connections => Curr,
-                    max_connections => Max
-                }
-            }
-        end,
-        #{},
-        Listeners
-    ).

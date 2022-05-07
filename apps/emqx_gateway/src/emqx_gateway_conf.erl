@@ -50,6 +50,8 @@
     remove_authn/2
 ]).
 
+-export([get_bind/1]).
+
 %% internal exports
 -export([
     unconvert_listeners/1,
@@ -195,6 +197,15 @@ bind2str(LConf = #{bind := Bind}) when is_binary(Bind) ->
     LConf;
 bind2str(LConf = #{<<"bind">> := Bind}) when is_binary(Bind) ->
     LConf.
+
+get_bind(#{bind := Bind}) when is_integer(Bind) ->
+    Bind;
+get_bind(#{<<"bind">> := Bind}) when is_integer(Bind) ->
+    Bind;
+get_bind(#{bind := Bind}) when is_binary(Bind) ->
+    erlang:binary_to_integer(Bind);
+get_bind(#{<<"bind">> := Bind}) when is_binary(Bind) ->
+    erlang:binary_to_integer(Bind).
 
 -spec listeners(atom_or_bin()) -> [map()].
 listeners(GwName0) ->
