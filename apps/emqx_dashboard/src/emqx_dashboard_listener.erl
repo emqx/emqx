@@ -21,6 +21,7 @@
 %% API
 -export([add_handler/0, remove_handler/0]).
 -export([pre_config_update/3, post_config_update/5]).
+-export([regenerate_minirest_dispatch/0]).
 
 -behaviour(gen_server).
 

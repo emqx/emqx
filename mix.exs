@@ -57,7 +57,7 @@ defmodule EMQXUmbrella.MixProject do
       {:mria, github: "emqx/mria", tag: "0.2.4", override: true},
       {:ekka, github: "emqx/ekka", tag: "0.12.5", override: true},
       {:gen_rpc, github: "emqx/gen_rpc", tag: "2.8.1", override: true},
-      {:minirest, github: "emqx/minirest", tag: "1.3.0", override: true},
+      {:minirest, github: "emqx/minirest", tag: "1.3.1", override: true},
       {:ecpool, github: "emqx/ecpool", tag: "0.5.2"},
       {:replayq, "0.3.4", override: true},
       {:pbkdf2, github: "emqx/erlang-pbkdf2", tag: "2.0.4", override: true},

@@ -27,6 +27,9 @@
     all_ciphers/0
 ]).
 
+-compile(export_all).
+-compile(nowarn_export_all).
+
 %% SSL files
 -export([
     ensure_ssl_files/2,
@@ -99,11 +102,20 @@ all_ciphers(['tlsv1.3']) ->
     ssl:cipher_suites(exclusive, 'tlsv1.3', openssl);
 all_ciphers(Versions) ->
     %% assert non-empty
-    [_ | _] = dedup(lists:append([ssl:cipher_suites(all, V, openssl) || V <- Versions])).
+    List = lists:append([ssl:cipher_suites(all, V, openssl) || V <- Versions]),
+    dedup(List).
 
 %% @doc All Pre-selected TLS ciphers.
+%% ssl:cipher_suites(all, V, openssl) is too slow. so we cache default ciphers.
 default_ciphers() ->
-    selected_ciphers(available_versions()).
+    case persistent_term:get(default_ciphers, undefined) of
+        undefined ->
+            Default = selected_ciphers(available_versions()),
+            persistent_term:put(default_ciphers, Default),
+            Default;
+        Default ->
+            Default
+    end.
 
 %% @doc Pre-selected TLS ciphers for given versions..
 selected_ciphers(Vsns) ->
@@ -205,8 +217,21 @@ default_versions(_) ->
     lists:delete('tlsv1.3', proplists:get_value(available, ssl:versions())).
 
 %% Deduplicate a list without re-ordering the elements.
-dedup([]) -> [];
-dedup([H | T]) -> [H | dedup([I || I <- T, I =/= H])].
+dedup([]) ->
+    [];
+dedup(List) ->
+    lists:reverse(
+        lists:foldl(
+            fun(L, Acc) ->
+                case lists:member(L, Acc) of
+                    false -> [L | Acc];
+                    true -> Acc
+                end
+            end,
+            [],
+            List
+        )
+    ).
 
 %% parse comma separated tls version strings
 parse_versions(Versions) ->
