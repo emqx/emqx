@@ -111,7 +111,7 @@ cover: $(REBAR)
 coveralls: $(REBAR)
 	@ENABLE_COVER_COMPILE=1 $(REBAR) as test coveralls send
 
-COMMON_DEPS := $(REBAR) get-dashboard conf-segs
+COMMON_DEPS := $(REBAR) prepare-build-deps get-dashboard conf-segs
 ELIXIR_COMMON_DEPS := ensure-hex ensure-mix-rebar3 ensure-mix-rebar
 
 .PHONY: $(REL_PROFILES)
@@ -218,6 +218,9 @@ $(foreach zt,$(ALL_DOCKERS),$(eval $(call gen-docker-target,$(zt))))
 conf-segs:
 	@scripts/merge-config.escript
 	@scripts/merge-i18n.escript
+
+prepare-build-deps:
+	@scripts/prepare-build-deps.sh
 
 ## elixir target is to create release packages using Elixir's Mix
 .PHONY: $(REL_PROFILES:%=%-elixir) $(PKG_PROFILES:%=%-elixir)
