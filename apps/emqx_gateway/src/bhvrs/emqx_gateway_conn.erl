@@ -63,7 +63,7 @@
     %% The {active, N} option
     active_n :: pos_integer(),
     %% Limiter
-    limiter :: maybe(emqx_limiter:limiter()),
+    limiter :: maybe(emqx_htb_limiter:limiter()),
     %% Limit Timer
     limit_timer :: maybe(reference()),
     %% Parse State
@@ -277,7 +277,7 @@ init_state(WrappedSock, Peername, Options, FrameMod, ChannMod) ->
         conn_mod => ?MODULE
     },
     ActiveN = emqx_gateway_utils:active_n(Options),
-    %% FIXME:
+    %% FIXME: TODO
     %%Limiter = emqx_limiter:init(Options),
     Limiter = undefined,
     FrameOpts = emqx_gateway_utils:frame_options(Options),
@@ -883,25 +883,31 @@ handle_info(Info, State) ->
 %%--------------------------------------------------------------------
 %% Ensure rate limit
 
-ensure_rate_limit(Stats, State = #state{limiter = Limiter}) ->
-    case ?ENABLED(Limiter) andalso emqx_limiter:check(Stats, Limiter) of
-        false ->
-            State;
-        {ok, Limiter1} ->
-            State#state{limiter = Limiter1};
-        {pause, Time, Limiter1} ->
-            %% XXX: which limiter reached?
-            ?SLOG(warning, #{
-                msg => "reach_rate_limit",
-                pause => Time
-            }),
-            TRef = emqx_misc:start_timer(Time, limit_timeout),
-            State#state{
-                sockstate = blocked,
-                limiter = Limiter1,
-                limit_timer = TRef
-            }
-    end.
+%% ensure_rate_limit(Stats, State = #state{limiter = Limiter}) ->
+%%     case ?ENABLED(Limiter) andalso emqx_limiter:check(Stats, Limiter) of
+%%         false ->
+%%             State;
+%%         {ok, Limiter1} ->
+%%             State#state{limiter = Limiter1};
+%%         {pause, Time, Limiter1} ->
+%%             %% XXX: which limiter reached?
+%%             ?SLOG(warning, #{
+%%                 msg => "reach_rate_limit",
+%%                 pause => Time
+%%             }),
+%%             TRef = emqx_misc:start_timer(Time, limit_timeout),
+%%             State#state{
+%%                 sockstate = blocked,
+%%                 limiter = Limiter1,
+%%                 limit_timer = TRef
+%%             }
+%%     end.
+
+%% TODO
+%% Why do we need this?
+%% Why not use the esockd connection limiter (based on emqx_htb_limiter) directly?
+ensure_rate_limit(_Stats, State) ->
+    State.
 
 %%--------------------------------------------------------------------
 %% Run GC and Check OOM
