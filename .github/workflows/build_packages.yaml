@@ -139,7 +139,7 @@ jobs:
     - name: prepare
       run: |
         brew update
-        brew install curl zip unzip gnu-sed kerl unixodbc freetds automake bison
+        brew install curl zip unzip kerl
         echo "/usr/local/opt/bison/bin" >> $GITHUB_PATH
         echo "/usr/local/bin" >> $GITHUB_PATH
         git config --global credential.helper store
@@ -167,6 +167,8 @@ jobs:
 
     - name: build
       working-directory: source
+      env:
+        AUTO_INSTALL_BUILD_DEPS: 1
       run: |
         . $HOME/.kerl/${{ matrix.otp }}/activate
         make ensure-rebar3
