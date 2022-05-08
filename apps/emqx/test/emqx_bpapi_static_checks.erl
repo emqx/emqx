@@ -168,8 +168,8 @@ typecheck_apis(
                     [
                         logger:error(
                             "Incompatible RPC call: "
-                            "type of the parameter ~p of RPC call ~s on release ~p "
-                            "is not a subtype of the target function ~s on release ~p.~n"
+                            "type of the parameter ~p of RPC call ~s in release ~p "
+                            "is not a subtype of the target function ~s in release ~p.~n"
                             "Caller type: ~s~nCallee type: ~s~n",
                             [
                                 Var,

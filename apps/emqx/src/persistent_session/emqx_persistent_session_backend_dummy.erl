@@ -14,7 +14,7 @@
 %% limitations under the License.
 %%--------------------------------------------------------------------
 
--module(emqx_persistent_session_dummy_backend).
+-module(emqx_persistent_session_backend_dummy).
 
 -include("emqx_persistent_session.hrl").
 

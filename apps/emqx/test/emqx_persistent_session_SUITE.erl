@@ -20,7 +20,7 @@
 -include_lib("common_test/include/ct.hrl").
 -include_lib("snabbkaffe/include/snabbkaffe.hrl").
 -include_lib("../include/emqx.hrl").
--include("../src/emqx_persistent_session.hrl").
+-include("../src/persistent_session/emqx_persistent_session.hrl").
 
 -compile(export_all).
 -compile(nowarn_export_all).
@@ -69,6 +69,12 @@ groups() ->
             {group, snabbkaffe},
             {group, gc_tests}
         ]},
+        {rocks_tables, [], [
+            {group, no_kill_connection_process},
+            {group, kill_connection_process},
+            {group, snabbkaffe},
+            {group, gc_tests}
+        ]},
         {no_kill_connection_process, [], [{group, tcp}, {group, quic}, {group, ws}]},
         {kill_connection_process, [], [{group, tcp}, {group, quic}, {group, ws}]},
         {snabbkaffe, [], [
@@ -101,13 +107,12 @@ init_per_group(Group, Config) when Group =:= ram_tables; Group =:= disc_tables -
     emqx_common_test_helpers:boot_modules(all),
     meck:new(emqx_config, [non_strict, passthrough, no_history, no_link]),
     meck:expect(emqx_config, get, fun
-        (?storage_type_key) -> Reply;
+        (?on_disc_key) -> Reply =:= disc;
         (?is_enabled_key) -> true;
         (Other) -> meck:passthrough([Other])
     end),
     emqx_common_test_helpers:start_apps([], fun set_special_confs/1),
     ?assertEqual(true, emqx_persistent_session:is_store_enabled()),
-    ?assertEqual(Reply, emqx_persistent_session:storage_type()),
     Config;
 init_per_group(persistent_store_disabled, Config) ->
     %% Start Apps
@@ -159,22 +164,17 @@ init_per_group(gc_tests, Config) ->
     end),
     meck:new(mnesia, [non_strict, passthrough, no_history, no_link]),
     meck:expect(mnesia, dirty_first, fun
-        (?SESS_MSG_TAB_RAM) -> ets:first(SessionMsgEts);
-        (?SESS_MSG_TAB_DISC) -> ets:first(SessionMsgEts);
-        (?MSG_TAB_RAM) -> ets:first(MsgEts);
-        (?MSG_TAB_DISC) -> ets:first(MsgEts);
+        (?SESS_MSG_TAB) -> ets:first(SessionMsgEts);
+        (?MSG_TAB) -> ets:first(MsgEts);
         (X) -> meck:passthrough([X])
     end),
     meck:expect(mnesia, dirty_next, fun
-        (?SESS_MSG_TAB_RAM, X) -> ets:next(SessionMsgEts, X);
-        (?SESS_MSG_TAB_DISC, X) -> ets:next(SessionMsgEts, X);
-        (?MSG_TAB_RAM, X) -> ets:next(MsgEts, X);
-        (?MSG_TAB_DISC, X) -> ets:next(MsgEts, X);
+        (?SESS_MSG_TAB, X) -> ets:next(SessionMsgEts, X);
+        (?MSG_TAB, X) -> ets:next(MsgEts, X);
         (Tab, X) -> meck:passthrough([Tab, X])
     end),
     meck:expect(mnesia, dirty_delete, fun
-        (?MSG_TAB_RAM, X) -> ets:delete(MsgEts, X);
-        (?MSG_TAB_DISC, X) -> ets:delete(MsgEts, X);
+        (?MSG_TAB, X) -> ets:delete(MsgEts, X);
         (Tab, X) -> meck:passthrough([Tab, X])
     end),
     [{store_owner, Pid}, {session_msg_store, SessionMsgEts}, {msg_store, MsgEts} | Config].
@@ -193,7 +193,9 @@ end_per_group(gc_tests, Config) ->
     meck:unload(mnesia),
     ?config(store_owner, Config) ! stop,
     ok;
-end_per_group(Group, _Config) when Group =:= ram_tables; Group =:= disc_tables ->
+end_per_group(Group, _Config) when
+    Group =:= ram_tables; Group =:= disc_tables; Group =:= rocks_tables
+->
     meck:unload(emqx_config),
     emqx_common_test_helpers:stop_apps([]);
 end_per_group(persistent_store_disabled, _Config) ->

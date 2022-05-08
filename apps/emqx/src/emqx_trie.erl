@@ -50,8 +50,7 @@
 -compile(nowarn_export_all).
 -endif.
 
--define(SESSION_DISC_TRIE, emqx_session_trie_disc).
--define(SESSION_RAM_TRIE, emqx_session_trie_ram).
+-define(SESSION_TRIE, emqx_session_trie).
 -define(PREFIX(Prefix), {Prefix, 0}).
 -define(TOPIC(Topic), {Topic, 1}).
 
@@ -82,7 +81,12 @@ mnesia(boot) ->
         {storage_properties, StoreProps}
     ]).
 
-create_session_trie(disc) ->
+create_session_trie(Type) ->
+    Storage =
+        case Type of
+            disc -> disc_copies;
+            ram -> ram_copies
+        end,
     StoreProps = [
         {ets, [
             {read_concurrency, true},
@@ -90,28 +94,10 @@ create_session_trie(disc) ->
         ]}
     ],
     ok = mria:create_table(
-        ?SESSION_DISC_TRIE,
+        ?SESSION_TRIE,
         [
             {rlog_shard, ?ROUTE_SHARD},
-            {storage, disc_copies},
-            {record_name, ?TRIE},
-            {attributes, record_info(fields, ?TRIE)},
-            {type, ordered_set},
-            {storage_properties, StoreProps}
-        ]
-    );
-create_session_trie(ram) ->
-    StoreProps = [
-        {ets, [
-            {read_concurrency, true},
-            {write_concurrency, true}
-        ]}
-    ],
-    ok = mria:create_table(
-        ?SESSION_RAM_TRIE,
-        [
-            {rlog_shard, ?ROUTE_SHARD},
-            {storage, ram_copies},
+            {storage, Storage},
             {record_name, ?TRIE},
             {attributes, record_info(fields, ?TRIE)},
             {type, ordered_set},
@@ -204,10 +190,7 @@ lock_session_tables() ->
 %%--------------------------------------------------------------------
 
 session_trie() ->
-    case emqx_persistent_session:storage_type() of
-        disc -> ?SESSION_DISC_TRIE;
-        ram -> ?SESSION_RAM_TRIE
-    end.
+    ?SESSION_TRIE.
 
 make_keys(Topic) ->
     Words = emqx_topic:words(Topic),

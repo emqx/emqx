@@ -19,6 +19,7 @@
 -export([
     is_store_enabled/0,
     init_db_backend/0,
+    storage_backend/0,
     storage_type/0
 ]).
 
@@ -81,6 +82,9 @@
 
 -type gc_traverse_fun() :: fun(('delete' | 'marker' | 'abandoned', sess_msg_key()) -> 'ok').
 
+%% EMQX configuration keys
+-define(conf_storage_backend, [persistent_session_store, backend, type]).
+
 %%--------------------------------------------------------------------
 %% Init
 %%--------------------------------------------------------------------
@@ -91,27 +95,23 @@ init_db_backend() ->
             StorageType = storage_type(),
             ok = emqx_trie:create_session_trie(StorageType),
             ok = emqx_session_router:create_router_tab(StorageType),
-            case StorageType of
-                disc ->
-                    emqx_persistent_session_mnesia_disc_backend:create_tables(),
-                    persistent_term:put(
-                        ?db_backend_key, emqx_persistent_session_mnesia_disc_backend
-                    );
-                ram ->
-                    emqx_persistent_session_mnesia_ram_backend:create_tables(),
-                    persistent_term:put(?db_backend_key, emqx_persistent_session_mnesia_ram_backend)
+            case storage_backend() of
+                builtin ->
+                    emqx_persistent_session_backend_builtin:create_tables(),
+                    persistent_term:put(?db_backend_key, emqx_persistent_session_backend_builtin)
             end,
             ok;
         false ->
-            persistent_term:put(?db_backend_key, emqx_persistent_session_dummy_backend),
+            persistent_term:put(?db_backend_key, emqx_persistent_session_backend_dummy),
             ok
     end.
 
 is_store_enabled() ->
     emqx_config:get(?is_enabled_key).
 
-storage_type() ->
-    emqx_config:get(?storage_type_key).
+-spec storage_backend() -> builtin.
+storage_backend() ->
+    emqx_config:get(?conf_storage_backend).
 
 %%--------------------------------------------------------------------
 %% Session message ADT API
@@ -557,3 +557,10 @@ gc_traverse({S, _MsgID, _STopic, ?DELIVERED} = Key, SessionID, Abandoned, Fun) -
     %% We have a message that is marked as ?DELIVERED, but the ?UNDELIVERED is missing.
     NewAbandoned = S =:= SessionID andalso Abandoned,
     gc_traverse(next_session_message(Key), S, NewAbandoned, Fun).
+
+-spec storage_type() -> ram | disc.
+storage_type() ->
+    case emqx_config:get(?on_disc_key) of
+        true -> disc;
+        false -> ram
+    end.
