@@ -447,8 +447,16 @@ update_mqtt_rates(State) ->
     {#{}, State}.
 
 advanced_mqtt_features() ->
-    AdvancedFeatures = emqx_modules:get_advanced_mqtt_features_in_use(),
-    maps:map(fun(_K, V) -> bool2int(V) end, AdvancedFeatures).
+    #{retained_messages := RetainedMessages} = emqx_retainer:get_basic_usage_info(),
+    #{topic_rewrite_rule_count := RewriteRules} = emqx_rewrite:get_basic_usage_info(),
+    #{delayed_message_count := DelayedCount} = emqx_delayed:get_basic_usage_info(),
+    #{auto_subscribe_count := AutoSubscribe} = emqx_auto_subscribe:get_basic_usage_info(),
+    #{
+        topic_rewrite => RewriteRules,
+        delayed => DelayedCount,
+        retained => RetainedMessages,
+        auto_subscribe => AutoSubscribe
+    }.
 
 get_authn_authz_info() ->
     try
@@ -520,9 +528,6 @@ bin(A) when is_atom(A) ->
     atom_to_binary(A);
 bin(B) when is_binary(B) ->
     B.
-
-bool2int(true) -> 1;
-bool2int(false) -> 0.
 
 ensure_uuids() ->
     Txn = fun() ->

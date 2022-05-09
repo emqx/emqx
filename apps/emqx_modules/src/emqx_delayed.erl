@@ -61,6 +61,9 @@
 
 -export([format_delayed/1]).
 
+%% exported for `emqx_telemetry'
+-export([get_basic_usage_info/0]).
+
 -record(delayed_message, {key, delayed, msg}).
 -type delayed_message() :: #delayed_message{}.
 -type with_id_return() :: ok | {error, not_found}.
@@ -313,6 +316,19 @@ terminate(_Reason, #{stats_timer := StatsTimer} = State) ->
 
 code_change(_Vsn, State, _Extra) ->
     {ok, State}.
+
+%%--------------------------------------------------------------------
+%% Telemetry
+%%--------------------------------------------------------------------
+
+-spec get_basic_usage_info() -> #{delayed_message_count => non_neg_integer()}.
+get_basic_usage_info() ->
+    DelayedCount =
+        case ets:info(?TAB, size) of
+            undefined -> 0;
+            Num -> Num
+        end,
+    #{delayed_message_count => DelayedCount}.
 
 %%--------------------------------------------------------------------
 %% Internal functions

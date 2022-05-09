@@ -33,6 +33,9 @@
 %% hook callback
 -export([on_client_connected/3]).
 
+%% exported for `emqx_telemetry'
+-export([get_basic_usage_info/0]).
+
 load() ->
     ok = emqx_conf:add_handler([auto_subscribe, topics], ?MODULE),
     update_hook().
@@ -66,6 +69,15 @@ on_client_connected(ClientInfo, ConnInfo, {TopicHandler, Options}) ->
     end;
 on_client_connected(_, _, _) ->
     ok.
+
+%%--------------------------------------------------------------------
+%% Telemetry
+%%--------------------------------------------------------------------
+
+-spec get_basic_usage_info() -> #{auto_subscribe_count => non_neg_integer()}.
+get_basic_usage_info() ->
+    AutoSubscribe = emqx_conf:get([auto_subscribe, topics], []),
+    #{auto_subscribe_count => length(AutoSubscribe)}.
 
 %%--------------------------------------------------------------------
 %% internal

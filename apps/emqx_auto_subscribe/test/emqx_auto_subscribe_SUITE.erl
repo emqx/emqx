@@ -41,7 +41,7 @@
 -define(CLIENT_USERNAME, <<"auto_sub_u">>).
 
 all() ->
-    [t_auto_subscribe, t_update].
+    emqx_common_test_helpers:all(?MODULE).
 
 init_per_suite(Config) ->
     mria:start(),
@@ -99,6 +99,18 @@ init_per_suite(Config) ->
     ),
     Config.
 
+init_per_testcase(t_get_basic_usage_info, Config) ->
+    {ok, _} = emqx_auto_subscribe:update([]),
+    Config;
+init_per_testcase(_TestCase, Config) ->
+    Config.
+
+end_per_testcase(t_get_basic_usage_info, _Config) ->
+    {ok, _} = emqx_auto_subscribe:update([]),
+    ok;
+end_per_testcase(_TestCase, _Config) ->
+    ok.
+
 set_special_configs(emqx_dashboard) ->
     emqx_dashboard_api_test_helpers:set_default_config(),
     ok;
@@ -148,6 +160,21 @@ t_update(_) ->
     {ok, GETResponse} = emqx_mgmt_api_test_util:request_api(get, Path),
     GETResponseMap = emqx_json:decode(GETResponse, [return_maps]),
     ?assertEqual(1, erlang:length(GETResponseMap)),
+    ok.
+
+t_get_basic_usage_info(_Config) ->
+    ?assertEqual(#{auto_subscribe_count => 0}, emqx_auto_subscribe:get_basic_usage_info()),
+    AutoSubscribeTopics =
+        lists:map(
+            fun(N) ->
+                Num = integer_to_binary(N),
+                Topic = <<"auto/", Num/binary>>,
+                #{<<"topic">> => Topic}
+            end,
+            lists:seq(1, 3)
+        ),
+    {ok, _} = emqx_auto_subscribe:update(AutoSubscribeTopics),
+    ?assertEqual(#{auto_subscribe_count => 3}, emqx_auto_subscribe:get_basic_usage_info()),
     ok.
 
 check_subs(Count) ->

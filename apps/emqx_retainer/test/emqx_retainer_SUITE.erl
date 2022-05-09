@@ -103,6 +103,14 @@ end_per_group(_Group, Config) ->
     emqx_retainer_mnesia:populate_index_meta(),
     Config.
 
+init_per_testcase(t_get_basic_usage_info, Config) ->
+    mnesia:clear_table(?TAB_INDEX),
+    mnesia:clear_table(?TAB_MESSAGE),
+    emqx_retainer_mnesia:populate_index_meta(),
+    Config;
+init_per_testcase(_TestCase, Config) ->
+    Config.
+
 load_base_conf() ->
     ok = emqx_common_test_helpers:load_config(emqx_retainer_schema, ?BASE_CONF).
 
@@ -601,6 +609,20 @@ t_reindex(_) ->
             )
         end
     ).
+
+t_get_basic_usage_info(_Config) ->
+    ?assertEqual(#{retained_messages => 0}, emqx_retainer:get_basic_usage_info()),
+    Context = undefined,
+    lists:foreach(
+        fun(N) ->
+            Num = integer_to_binary(N),
+            Message = emqx_message:make(<<"retained/", Num/binary>>, <<"payload">>),
+            ok = emqx_retainer:store_retained(Context, Message)
+        end,
+        lists:seq(1, 5)
+    ),
+    ?assertEqual(#{retained_messages => 5}, emqx_retainer:get_basic_usage_info()),
+    ok.
 
 %%--------------------------------------------------------------------
 %% Helper functions

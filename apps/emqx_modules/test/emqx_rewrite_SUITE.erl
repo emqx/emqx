@@ -55,6 +55,18 @@ init_per_suite(Config) ->
 end_per_suite(_Config) ->
     emqx_common_test_helpers:stop_apps([emqx_conf, emqx_modules]).
 
+init_per_testcase(t_get_basic_usage_info, Config) ->
+    ok = emqx_rewrite:update([]),
+    Config;
+init_per_testcase(_TestCase, Config) ->
+    Config.
+
+end_per_testcase(t_get_basic_usage_info, _Config) ->
+    ok = emqx_rewrite:update([]),
+    ok;
+end_per_testcase(_TestCase, _Config) ->
+    ok.
+
 t_subscribe_rewrite(_Config) ->
     {ok, Conn} = init(),
     SubOrigTopics = [<<"y/a/z/b">>, <<"y/def">>],
@@ -198,6 +210,27 @@ t_update_re_failed(_Config) ->
                 ]}}},
         emqx_rewrite:update(Rules)
     ),
+    ok.
+
+t_get_basic_usage_info(_Config) ->
+    ?assertEqual(#{topic_rewrite_rule_count => 0}, emqx_rewrite:get_basic_usage_info()),
+    RewriteTopics =
+        lists:map(
+            fun(N) ->
+                Num = integer_to_binary(N),
+                DestTopic = <<"rewrite/dest/", Num/binary>>,
+                SourceTopic = <<"rewrite/source/", Num/binary>>,
+                #{
+                    <<"source_topic">> => SourceTopic,
+                    <<"dest_topic">> => DestTopic,
+                    <<"action">> => all,
+                    <<"re">> => DestTopic
+                }
+            end,
+            lists:seq(1, 2)
+        ),
+    ok = emqx_rewrite:update(RewriteTopics),
+    ?assertEqual(#{topic_rewrite_rule_count => 2}, emqx_rewrite:get_basic_usage_info()),
     ok.
 
 %%--------------------------------------------------------------------

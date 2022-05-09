@@ -91,14 +91,14 @@ init_per_testcase(t_get_telemetry, Config) ->
     {ok, _} = application:ensure_all_started(emqx_gateway),
     Config;
 init_per_testcase(t_advanced_mqtt_features, Config) ->
-    OldValues = emqx_modules:get_advanced_mqtt_features_in_use(),
-    emqx_modules:set_advanced_mqtt_features_in_use(#{
-        delayed => false,
-        topic_rewrite => false,
-        retained => false,
-        auto_subscribe => false
-    }),
-    [{old_values, OldValues} | Config];
+    {ok, _} = emqx_cluster_rpc:start_link(node(), emqx_cluster_rpc, 1000),
+    {ok, Retainer} = emqx_retainer:start_link(),
+    {atomic, ok} = mria:clear_table(emqx_delayed),
+    mock_advanced_mqtt_features(),
+    [
+        {retainer, Retainer}
+        | Config
+    ];
 init_per_testcase(t_authn_authz_info, Config) ->
     mock_httpc(),
     {ok, _} = emqx_cluster_rpc:start_link(node(), emqx_cluster_rpc, 1000),
@@ -160,8 +160,14 @@ end_per_testcase(t_get_telemetry, _Config) ->
     application:stop(emqx_gateway),
     ok;
 end_per_testcase(t_advanced_mqtt_features, Config) ->
-    OldValues = ?config(old_values, Config),
-    emqx_modules:set_advanced_mqtt_features_in_use(OldValues);
+    Retainer = ?config(retainer, Config),
+    process_flag(trap_exit, true),
+    ok = emqx_retainer:clean(),
+    exit(Retainer, kill),
+    {ok, _} = emqx_auto_subscribe:update([]),
+    ok = emqx_rewrite:update([]),
+    {atomic, ok} = mria:clear_table(emqx_delayed),
+    ok;
 end_per_testcase(t_authn_authz_info, _Config) ->
     meck:unload([httpc]),
     emqx_authz:update({delete, postgresql}, #{}),
@@ -322,27 +328,12 @@ t_advanced_mqtt_features(_) ->
     AdvFeats = get_value(advanced_mqtt_features, TelemetryData),
     ?assertEqual(
         #{
-            retained => 0,
-            topic_rewrite => 0,
-            auto_subscribe => 0,
-            delayed => 0
+            retained => 5,
+            topic_rewrite => 2,
+            auto_subscribe => 3,
+            delayed => 4
         },
         AdvFeats
-    ),
-    lists:foreach(
-        fun(TelemetryKey) ->
-            EnabledFeats = emqx_modules:get_advanced_mqtt_features_in_use(),
-            emqx_modules:set_advanced_mqtt_features_in_use(EnabledFeats#{TelemetryKey => true}),
-            {ok, Data} = emqx_telemetry:get_telemetry(),
-            #{TelemetryKey := Value} = get_value(advanced_mqtt_features, Data),
-            ?assertEqual(1, Value, #{key => TelemetryKey})
-        end,
-        [
-            retained,
-            topic_rewrite,
-            auto_subscribe,
-            delayed
-        ]
     ),
     ok.
 
@@ -513,6 +504,56 @@ mock_httpc() ->
     ) ->
         TestPID ! {request, Method, URL, Headers, Body}
     end).
+
+mock_advanced_mqtt_features() ->
+    Context = undefined,
+    lists:foreach(
+        fun(N) ->
+            Num = integer_to_binary(N),
+            Message = emqx_message:make(<<"retained/", Num/binary>>, <<"payload">>),
+            ok = emqx_retainer:store_retained(Context, Message)
+        end,
+        lists:seq(1, 5)
+    ),
+
+    lists:foreach(
+        fun(N) ->
+            Num = integer_to_binary(N),
+            Message = emqx_message:make(<<"$delayed/", Num/binary, "/delayed">>, <<"payload">>),
+            {stop, _} = emqx_delayed:on_message_publish(Message)
+        end,
+        lists:seq(1, 4)
+    ),
+
+    AutoSubscribeTopics =
+        lists:map(
+            fun(N) ->
+                Num = integer_to_binary(N),
+                Topic = <<"auto/", Num/binary>>,
+                #{<<"topic">> => Topic}
+            end,
+            lists:seq(1, 3)
+        ),
+    {ok, _} = emqx_auto_subscribe:update(AutoSubscribeTopics),
+
+    RewriteTopics =
+        lists:map(
+            fun(N) ->
+                Num = integer_to_binary(N),
+                DestTopic = <<"rewrite/dest/", Num/binary>>,
+                SourceTopic = <<"rewrite/source/", Num/binary>>,
+                #{
+                    <<"source_topic">> => SourceTopic,
+                    <<"dest_topic">> => DestTopic,
+                    <<"action">> => all,
+                    <<"re">> => DestTopic
+                }
+            end,
+            lists:seq(1, 2)
+        ),
+    ok = emqx_rewrite:update(RewriteTopics),
+
+    ok.
 
 create_authn(ChainName, built_in_database) ->
     emqx_authentication:initialize_authentication(
