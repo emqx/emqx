@@ -733,7 +733,7 @@ with_config(Path, Modifier, Case) ->
     NewCfg = Modifier(Cfg),
     ct:pal("test with config:~p~n", [NewCfg]),
     emqx_config:put(Path, NewCfg),
-    emqx_limiter_server:update_config(message_routing),
+    emqx_limiter_server:restart(message_routing),
     timer:sleep(500),
     DelayReturn = delay_return(Case),
     emqx_config:put(Path, Cfg),
