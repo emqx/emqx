@@ -434,7 +434,7 @@ t_rule_engine_and_data_bridge_info(_Config) ->
     RuleInfo = get_value(rule_engine, TelemetryData),
     BridgeInfo = get_value(bridge, TelemetryData),
     ?assertEqual(
-        #{num_rules => 2},
+        #{num_rules => 3},
         RuleInfo
     ),
     ?assertEqual(
@@ -442,9 +442,9 @@ t_rule_engine_and_data_bridge_info(_Config) ->
             data_bridge =>
                 #{
                     http => #{num => 1, num_linked_by_rules => 3},
-                    mqtt => #{num => 1, num_linked_by_rules => 1}
+                    mqtt => #{num => 2, num_linked_by_rules => 2}
                 },
-            num_data_bridges => 2
+            num_data_bridges => 3
         },
         BridgeInfo
     ),
@@ -638,6 +638,17 @@ setup_fake_rule_engine_data() ->
                     [
                         <<"mqtt:my_mqtt_bridge">>,
                         <<"http:my_http_bridge">>
+                    ]
+            }
+        ),
+    {ok, _} =
+        emqx_rule_engine:create_rule(
+            #{
+                id => <<"rule:t_get_basic_usage_info:3">>,
+                sql => <<"select 1 from \"$bridges/mqtt:mqtt_in\"">>,
+                outputs =>
+                    [
+                        #{function => console}
                     ]
             }
         ),

@@ -76,10 +76,10 @@ t_get_basic_usage_info_1(_Config) ->
     BasicUsageInfo = emqx_bridge:get_basic_usage_info(),
     ?assertEqual(
         #{
-            num_bridges => 2,
+            num_bridges => 3,
             count_by_type => #{
                 http => 1,
-                mqtt => 1
+                mqtt => 2
             }
         },
         BasicUsageInfo
@@ -92,15 +92,24 @@ setup_fake_telemetry_data() ->
                 #{
                     <<"mqtt">> => #{
                         <<"my_mqtt_connector">> =>
-                            #{server => "127.0.0.1:1883"}
+                            #{server => "127.0.0.1:1883"},
+                        <<"my_mqtt_connector2">> =>
+                            #{server => "127.0.0.1:1884"}
                     }
                 }
         },
-    MQTTConfig = #{
+    MQTTConfig1 = #{
         connector => <<"mqtt:my_mqtt_connector">>,
         enable => true,
         direction => ingress,
         remote_topic => <<"aws/#">>,
+        remote_qos => 1
+    },
+    MQTTConfig2 = #{
+        connector => <<"mqtt:my_mqtt_connector2">>,
+        enable => true,
+        direction => ingress,
+        remote_topic => <<"$bridges/mqtt:some_bridge_in">>,
         remote_qos => 1
     },
     HTTPConfig = #{
@@ -124,7 +133,10 @@ setup_fake_telemetry_data() ->
                                 HTTPConfig#{enable => false}
                         },
                     <<"mqtt">> =>
-                        #{<<"basic_usage_info_mqtt">> => MQTTConfig}
+                        #{
+                            <<"basic_usage_info_mqtt">> => MQTTConfig1,
+                            <<"basic_usage_info_mqtt_from_select">> => MQTTConfig2
+                        }
                 }
         },
     ok = emqx_common_test_helpers:load_config(emqx_connector_schema, ConnectorConf),

@@ -265,9 +265,10 @@ get_basic_usage_info() ->
         NumRules = length(EnabledRules),
         ReferencedBridges =
             lists:foldl(
-                fun(#{outputs := Outputs}, Acc) ->
-                    BridgeIDs = lists:filter(fun is_binary/1, Outputs),
-                    tally_referenced_bridges(BridgeIDs, Acc)
+                fun(#{outputs := Outputs, from := From}, Acc) ->
+                    BridgeIDs0 = [BridgeID || <<"$bridges/", BridgeID/binary>> <- From],
+                    BridgeIDs1 = lists:filter(fun is_binary/1, Outputs),
+                    tally_referenced_bridges(BridgeIDs0 ++ BridgeIDs1, Acc)
                 end,
                 #{},
                 EnabledRules
