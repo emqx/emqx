@@ -198,6 +198,9 @@
         , now_rfc3339/1
         , unix_ts_to_rfc3339/1
         , unix_ts_to_rfc3339/2
+        , format_date/3
+        , format_date/4
+        , date_to_unix_ts/4
         , rfc3339_to_unix_ts/1
         , rfc3339_to_unix_ts/2
         , now_timestamp/0
@@ -917,6 +920,25 @@ time_unit(<<"second">>) -> second;
 time_unit(<<"millisecond">>) -> millisecond;
 time_unit(<<"microsecond">>) -> microsecond;
 time_unit(<<"nanosecond">>) -> nanosecond.
+
+format_date(TimeUnit, Offset, FormatString) ->
+    emqx_rule_utils:bin(
+      emqx_rule_date:date(time_unit(TimeUnit),
+                          emqx_rule_utils:str(Offset),
+                          emqx_rule_utils:str(FormatString))).
+
+format_date(TimeUnit, Offset, FormatString, TimeEpoch) ->
+    emqx_rule_utils:bin(
+      emqx_rule_date:date(time_unit(TimeUnit),
+                          emqx_rule_utils:str(Offset),
+                          emqx_rule_utils:str(FormatString),
+                          TimeEpoch)).
+
+date_to_unix_ts(TimeUnit, Offset, FormatString, InputString) ->
+    emqx_rule_date:parse_date(time_unit(TimeUnit),
+                              emqx_rule_utils:str(Offset),
+                              emqx_rule_utils:str(FormatString),
+                              emqx_rule_utils:str(InputString)).
 
 mongo_date() ->
     erlang:timestamp().
