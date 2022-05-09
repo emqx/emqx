@@ -115,7 +115,7 @@ desc(?CONF_NS) ->
 desc(_) ->
     undefined.
 
-user_id_type(type) -> user_id_type();
+user_id_type(type) -> typerefl:alias("string", user_id_type());
 user_id_type(desc) -> ?DESC(?FUNCTION_NAME);
 user_id_type(default) -> <<"username">>;
 user_id_type(required) -> true;
