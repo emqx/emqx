@@ -302,7 +302,7 @@ create2(
     } = Config
 ) ->
     ResourceId = emqx_authn_utils:make_resource_id(?MODULE),
-    {ok, _} = emqx_resource:create_local(
+    {ok, _Data} = emqx_resource:create_local(
         ResourceId,
         ?RESOURCE_GROUP,
         emqx_authn_jwks_connector,

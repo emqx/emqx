@@ -273,19 +273,14 @@ create(Type, Name, Conf) ->
         name => Name,
         config => Conf
     }),
-    case
-        emqx_resource:create_local(
-            resource_id(Type, Name),
-            <<"emqx_bridge">>,
-            emqx_bridge:resource_type(Type),
-            parse_confs(Type, Name, Conf),
-            #{}
-        )
-    of
-        {ok, already_created} -> maybe_disable_bridge(Type, Name, Conf);
-        {ok, _} -> maybe_disable_bridge(Type, Name, Conf);
-        {error, Reason} -> {error, Reason}
-    end.
+    {ok, _Data} = emqx_resource:create_local(
+        resource_id(Type, Name),
+        <<"emqx_bridge">>,
+        emqx_bridge:resource_type(Type),
+        parse_confs(Type, Name, Conf),
+        #{}
+    ),
+    maybe_disable_bridge(Type, Name, Conf).
 
 update(BridgeId, {OldConf, Conf}) ->
     {BridgeType, BridgeName} = parse_bridge_id(BridgeId),

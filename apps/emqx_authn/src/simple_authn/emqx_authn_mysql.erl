@@ -99,29 +99,19 @@ create(
         query_timeout => QueryTimeout,
         resource_id => ResourceId
     },
-    case
-        emqx_resource:create_local(
-            ResourceId,
-            ?RESOURCE_GROUP,
-            emqx_connector_mysql,
-            Config#{prepare_statement => #{?PREPARE_KEY => PrepareSql}},
-            #{}
-        )
-    of
-        {ok, _} ->
-            {ok, State};
-        {error, Reason} ->
-            {error, Reason}
-    end.
+    {ok, _Data} = emqx_resource:create_local(
+        ResourceId,
+        ?RESOURCE_GROUP,
+        emqx_connector_mysql,
+        Config#{prepare_statement => #{?PREPARE_KEY => PrepareSql}},
+        #{}
+    ),
+    {ok, State}.
 
 update(Config, State) ->
-    case create(Config) of
-        {ok, NewState} ->
-            ok = destroy(State),
-            {ok, NewState};
-        {error, Reason} ->
-            {error, Reason}
-    end.
+    {ok, NewState} = create(Config),
+    ok = destroy(State),
+    {ok, NewState}.
 
 authenticate(#{auth_method := _}, _) ->
     ignore;

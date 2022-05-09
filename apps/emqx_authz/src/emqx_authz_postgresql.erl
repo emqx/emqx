@@ -54,26 +54,20 @@ init(#{query := SQL0} = Source) ->
         ?PLACEHOLDERS
     ),
     ResourceID = emqx_authz_utils:make_resource_id(emqx_connector_pgsql),
-    case
-        emqx_resource:create_local(
-            ResourceID,
-            ?RESOURCE_GROUP,
-            emqx_connector_pgsql,
-            Source#{prepare_statement => #{ResourceID => SQL}},
-            #{}
-        )
-    of
-        {ok, _} ->
-            Source#{
-                annotations =>
-                    #{
-                        id => ResourceID,
-                        placeholders => PlaceHolders
-                    }
-            };
-        {error, Reason} ->
-            error({load_config_error, Reason})
-    end.
+    {ok, _Data} = emqx_resource:create_local(
+        ResourceID,
+        ?RESOURCE_GROUP,
+        emqx_connector_pgsql,
+        Source#{prepare_statement => #{ResourceID => SQL}},
+        #{}
+    ),
+    Source#{
+        annotations =>
+            #{
+                id => ResourceID,
+                placeholders => PlaceHolders
+            }
+    }.
 
 destroy(#{annotations := #{id := Id}}) ->
     ok = emqx_resource:remove_local(Id).

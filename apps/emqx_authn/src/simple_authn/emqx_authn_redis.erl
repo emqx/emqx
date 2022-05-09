@@ -115,22 +115,14 @@ create(
             cmd => NCmd,
             resource_id => ResourceId
         },
-        case
-            emqx_resource:create_local(
-                ResourceId,
-                ?RESOURCE_GROUP,
-                emqx_connector_redis,
-                Config,
-                #{}
-            )
-        of
-            {ok, already_created} ->
-                {ok, NState};
-            {ok, _} ->
-                {ok, NState};
-            {error, Reason} ->
-                {error, Reason}
-        end
+        {ok, _Data} = emqx_resource:create_local(
+            ResourceId,
+            ?RESOURCE_GROUP,
+            emqx_connector_redis,
+            Config,
+            #{}
+        ),
+        {ok, NState}
     catch
         error:{unsupported_cmd, _Cmd} ->
             {error, {unsupported_cmd, Cmd}};

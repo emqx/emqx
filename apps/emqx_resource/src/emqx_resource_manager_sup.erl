@@ -13,35 +13,37 @@
 %% See the License for the specific language governing permissions and
 %% limitations under the License.
 %%--------------------------------------------------------------------
--module(emqx_resource_sup).
+-module(emqx_resource_manager_sup).
 
 -behaviour(supervisor).
+
+-export([ensure_child/5]).
 
 -export([start_link/0]).
 
 -export([init/1]).
 
--define(RESOURCE_INST_MOD, emqx_resource_instance).
-%% set a very large pool size in case all the workers busy
--define(POOL_SIZE, 64).
+ensure_child(InstId, Group, ResourceType, Config, Opts) ->
+    _ = supervisor:start_child(?MODULE, [InstId, Group, ResourceType, Config, Opts]),
+    ok.
 
 start_link() ->
     supervisor:start_link({local, ?MODULE}, ?MODULE, []).
 
 init([]) ->
     TabOpts = [named_table, set, public, {read_concurrency, true}],
-    _ = ets:new(emqx_resource_instance, TabOpts),
+    _ = ets:new(emqx_resource_manager, TabOpts),
 
-    SupFlags = #{strategy => one_for_one, intensity => 10, period => 10},
-    Metrics = emqx_metrics_worker:child_spec(resource_metrics),
-
-    ResourceManager =
+    ChildSpecs = [
         #{
-            id => emqx_resource_manager_sup,
-            start => {emqx_resource_manager_sup, start_link, []},
-            restart => permanent,
-            shutdown => infinity,
-            type => supervisor,
-            modules => [emqx_resource_manager_sup]
-        },
-    {ok, {SupFlags, [Metrics, ResourceManager]}}.
+            id => emqx_resource_manager,
+            start => {emqx_resource_manager, start_link, []},
+            restart => transient,
+            shutdown => brutal_kill,
+            type => worker,
+            modules => [emqx_resource_manager]
+        }
+    ],
+
+    SupFlags = #{strategy => simple_one_for_one, intensity => 10, period => 10},
+    {ok, {SupFlags, ChildSpecs}}.

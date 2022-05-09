@@ -109,7 +109,7 @@ perform_lifecycle_check(PoolName, InitialConfig, RedisCommand) ->
     }} =
         emqx_resource:get_instance(PoolName),
     ?assertEqual(StoppedStatus, disconnected),
-    ?assertEqual(ok, emqx_resource:health_check(PoolName)),
+    ?assertEqual({error, stopped}, emqx_resource:health_check(PoolName)),
     % Resource healthcheck shortcuts things by checking ets. Go deeper by checking pool itself.
     ?assertEqual({error, not_found}, ecpool:stop_sup_pool(ReturnedPoolName)),
     % Can call stop/1 again on an already stopped instance

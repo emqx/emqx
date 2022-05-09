@@ -186,9 +186,9 @@ create_local(InstId, Group, ResourceType, Config) ->
     resource_config(),
     create_opts()
 ) ->
-    {ok, resource_data() | 'already_created'} | {error, Reason :: term()}.
+    {ok, resource_data()}.
 create_local(InstId, Group, ResourceType, Config, Opts) ->
-    call_instance(InstId, {create, InstId, Group, ResourceType, Config, Opts}).
+    emqx_resource_manager:ensure_resource(InstId, Group, ResourceType, Config, Opts).
 
 -spec create_dry_run(resource_type(), resource_config()) ->
     ok | {error, Reason :: term()}.
@@ -198,8 +198,7 @@ create_dry_run(ResourceType, Config) ->
 -spec create_dry_run_local(resource_type(), resource_config()) ->
     ok | {error, Reason :: term()}.
 create_dry_run_local(ResourceType, Config) ->
-    RandId = iolist_to_binary(emqx_misc:gen_id(16)),
-    call_instance(RandId, {create_dry_run, ResourceType, Config}).
+    emqx_resource_manager:create_dry_run(ResourceType, Config).
 
 -spec recreate(instance_id(), resource_type(), resource_config(), create_opts()) ->
     {ok, resource_data()} | {error, Reason :: term()}.
@@ -209,7 +208,7 @@ recreate(InstId, ResourceType, Config, Opts) ->
 -spec recreate_local(instance_id(), resource_type(), resource_config(), create_opts()) ->
     {ok, resource_data()} | {error, Reason :: term()}.
 recreate_local(InstId, ResourceType, Config, Opts) ->
-    call_instance(InstId, {recreate, InstId, ResourceType, Config, Opts}).
+    emqx_resource_manager:recreate(InstId, ResourceType, Config, Opts).
 
 -spec remove(instance_id()) -> ok | {error, Reason :: term()}.
 remove(InstId) ->
@@ -217,11 +216,11 @@ remove(InstId) ->
 
 -spec remove_local(instance_id()) -> ok | {error, Reason :: term()}.
 remove_local(InstId) ->
-    call_instance(InstId, {remove, InstId}).
+    emqx_resource_manager:remove(InstId).
 
 -spec reset_metrics_local(instance_id()) -> ok.
 reset_metrics_local(InstId) ->
-    call_instance(InstId, {reset_metrics, InstId}).
+    emqx_resource_manager:reset_metrics(InstId).
 
 -spec reset_metrics(instance_id()) -> ok | {error, Reason :: term()}.
 reset_metrics(InstId) ->
@@ -236,17 +235,7 @@ query(InstId, Request) ->
 %% it is the duty of the Module to apply the `after_query()` functions.
 -spec query(instance_id(), Request :: term(), after_query()) -> Result :: term().
 query(InstId, Request, AfterQuery) ->
-    case get_instance(InstId) of
-        {ok, _Group, #{status := connecting}} ->
-            query_error(connecting, <<
-                "cannot serve query when the resource "
-                "instance is still connecting"
-            >>);
-        {ok, _Group, #{status := disconnected}} ->
-            query_error(disconnected, <<
-                "cannot serve query when the resource "
-                "instance is disconnected"
-            >>);
+    case emqx_resource_manager:ets_lookup(InstId) of
         {ok, _Group, #{mod := Mod, state := ResourceState, status := connected}} ->
             %% the resource state is readonly to Module:on_query/4
             %% and the `after_query()` functions should be thread safe
@@ -268,23 +257,23 @@ restart(InstId) ->
 
 -spec restart(instance_id(), create_opts()) -> ok | {error, Reason :: term()}.
 restart(InstId, Opts) ->
-    call_instance(InstId, {restart, InstId, Opts}).
+    emqx_resource_manager:restart(InstId, Opts).
 
 -spec stop(instance_id()) -> ok | {error, Reason :: term()}.
 stop(InstId) ->
-    call_instance(InstId, {stop, InstId}).
+    emqx_resource_manager:stop(InstId).
 
 -spec health_check(instance_id()) -> ok | {error, Reason :: term()}.
 health_check(InstId) ->
-    call_instance(InstId, {health_check, InstId}).
+    emqx_resource_manager:health_check(InstId).
 
 set_resource_status_connecting(InstId) ->
-    call_instance(InstId, {set_resource_status_connecting, InstId}).
+    emqx_resource_manager:set_resource_status_connecting(InstId).
 
 -spec get_instance(instance_id()) ->
     {ok, resource_group(), resource_data()} | {error, Reason :: term()}.
 get_instance(InstId) ->
-    emqx_resource_instance:lookup(InstId).
+    emqx_resource_manager:lookup(InstId).
 
 -spec list_instances() -> [instance_id()].
 list_instances() ->
@@ -292,7 +281,7 @@ list_instances() ->
 
 -spec list_instances_verbose() -> [resource_data()].
 list_instances_verbose() ->
-    emqx_resource_instance:list_all().
+    emqx_resource_manager:list_all().
 
 -spec list_instances_by_type(module()) -> [instance_id()].
 list_instances_by_type(ResourceType) ->
@@ -307,7 +296,7 @@ generate_id(Name) when is_binary(Name) ->
     <<Name/binary, ":", Id/binary>>.
 
 -spec list_group_instances(resource_group()) -> [instance_id()].
-list_group_instances(Group) -> emqx_resource_instance:list_group(Group).
+list_group_instances(Group) -> emqx_resource_manager:list_group(Group).
 
 -spec call_start(instance_id(), module(), resource_config()) ->
     {ok, resource_state()} | {error, Reason :: term()}.
@@ -421,9 +410,6 @@ inc_metrics_funcs(InstId) ->
     OnFailed = [{fun emqx_metrics_worker:inc/3, [resource_metrics, InstId, failed]}],
     OnSucc = [{fun emqx_metrics_worker:inc/3, [resource_metrics, InstId, success]}],
     {OnSucc, OnFailed}.
-
-call_instance(InstId, Query) ->
-    emqx_resource_instance:hash_call(InstId, Query).
 
 safe_apply(Func, Args) ->
     ?SAFE_CALL(erlang:apply(Func, Args)).
