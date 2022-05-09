@@ -63,15 +63,19 @@
 %% Initialize authz backend.
 %% Populate the passed configuration map with necessary data,
 %% like `ResourceID`s
--callback init(source()) -> source().
+-callback create(source()) -> source().
 
-%% Get authz text description.
--callback description() -> string().
+%% Update authz backend.
+%% Change configuration, or simply enable/disable
+-callback update(source()) -> source().
 
 %% Destroy authz backend.
 %% Make cleanup of all allocated data.
 %% An authz backend will not be used after `destroy`.
 -callback destroy(source()) -> ok.
+
+%% Get authz text description.
+-callback description() -> string().
 
 %% Authorize client action.
 -callback authorize(
@@ -80,6 +84,10 @@
     emqx_types:topic(),
     source()
 ) -> match_result().
+
+-optional_callbacks([
+    update/1
+]).
 
 -spec register_metrics() -> ok.
 register_metrics() ->
@@ -90,7 +98,7 @@ init() ->
     emqx_conf:add_handler(?CONF_KEY_PATH, ?MODULE),
     Sources = emqx_conf:get(?CONF_KEY_PATH, []),
     ok = check_dup_types(Sources),
-    NSources = init_sources(Sources),
+    NSources = create_sources(Sources),
     ok = emqx_hooks:add('client.authorize', {?MODULE, authorize, [NSources]}, -1).
 
 deinit() ->
@@ -170,7 +178,7 @@ do_post_config_update({?CMD_MOVE, _Type, _Where} = Cmd, _Sources) ->
     InitedSources = lookup(),
     do_move(Cmd, InitedSources);
 do_post_config_update({?CMD_PREPEND, RawNewSource}, Sources) ->
-    InitedNewSource = init_source(get_source_by_type(type(RawNewSource), Sources)),
+    InitedNewSource = create_source(get_source_by_type(type(RawNewSource), Sources)),
     %% create metrics
     TypeName = type(RawNewSource),
     ok = emqx_metrics_worker:create_metrics(
@@ -181,14 +189,13 @@ do_post_config_update({?CMD_PREPEND, RawNewSource}, Sources) ->
     ),
     [InitedNewSource] ++ lookup();
 do_post_config_update({?CMD_APPEND, RawNewSource}, Sources) ->
-    InitedNewSource = init_source(get_source_by_type(type(RawNewSource), Sources)),
+    InitedNewSource = create_source(get_source_by_type(type(RawNewSource), Sources)),
     lookup() ++ [InitedNewSource];
 do_post_config_update({{?CMD_REPLACE, Type}, RawNewSource}, Sources) ->
     OldSources = lookup(),
     {OldSource, Front, Rear} = take(Type, OldSources),
     NewSource = get_source_by_type(type(RawNewSource), Sources),
-    ok = ensure_resource_deleted(OldSource),
-    InitedSources = init_source(NewSource),
+    InitedSources = update_source(type(RawNewSource), OldSource, NewSource),
     Front ++ [InitedSources] ++ Rear;
 do_post_config_update({{?CMD_DELETE, Type}, _RawNewSource}, _Sources) ->
     OldInitedSources = lookup(),
@@ -203,7 +210,7 @@ do_post_config_update({?CMD_REPLACE, _RawNewSources}, Sources) ->
     OldInitedSources = lookup(),
     lists:foreach(fun ensure_resource_deleted/1, OldInitedSources),
     lists:foreach(fun clear_certs/1, OldInitedSources),
-    init_sources(Sources).
+    create_sources(Sources).
 
 %% @doc do source move
 do_move({?CMD_MOVE, Type, ?CMD_MOVE_FRONT}, Sources) ->
@@ -251,20 +258,22 @@ check_dup_types([Source | Sources], Checked) ->
             check_dup_types(Sources, [Type | Checked])
     end.
 
-init_sources(Sources) ->
+create_sources(Sources) ->
     {_Enabled, Disabled} = lists:partition(fun(#{enable := Enable}) -> Enable end, Sources),
     case Disabled =/= [] of
         true -> ?SLOG(info, #{msg => "disabled_sources_ignored", sources => Disabled});
         false -> ok
     end,
     ok = lists:foreach(fun init_metrics/1, Sources),
-    lists:map(fun init_source/1, Sources).
+    lists:map(fun create_source/1, Sources).
 
-init_source(#{enable := false} = Source) ->
-    Source;
-init_source(#{type := Type} = Source) ->
+create_source(#{type := Type} = Source) ->
     Module = authz_module(Type),
-    Module:init(Source).
+    Module:create(Source).
+
+update_source(Type, OldSource, NewSource) ->
+    Module = authz_module(Type),
+    Module:update(maps:merge(OldSource, NewSource)).
 
 init_metrics(Source) ->
     TypeName = type(Source),

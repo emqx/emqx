@@ -82,33 +82,28 @@ refs() ->
 create(_AuthenticatorID, Config) ->
     create(Config).
 
-create(
-    #{
-        query := Query0,
-        password_hash_algorithm := Algorithm
-    } = Config
-) ->
-    ok = emqx_authn_password_hashing:init(Algorithm),
-    {Query, PlaceHolders} = emqx_authn_utils:parse_sql(Query0, '$n'),
+create(Config0) ->
     ResourceId = emqx_authn_utils:make_resource_id(?MODULE),
-    State = #{
-        placeholders => PlaceHolders,
-        password_hash_algorithm => Algorithm,
-        resource_id => ResourceId
-    },
-    {ok, _Data} = emqx_resource:create_local(
+    {Config, State} = parse_config(Config0, ResourceId),
+    {ok, _Data} = emqx_authn_utils:create_resource(
         ResourceId,
-        ?RESOURCE_GROUP,
         emqx_connector_pgsql,
-        Config#{prepare_statement => #{ResourceId => Query}},
-        #{}
+        Config
     ),
-    {ok, State}.
+    {ok, State#{resource_id => ResourceId}}.
 
-update(Config, State) ->
-    {ok, NewState} = create(Config),
-    ok = destroy(State),
-    {ok, NewState}.
+update(Config0, #{resource_id := ResourceId} = _State) ->
+    {Config, NState} = parse_config(Config0, ResourceId),
+    case emqx_authn_utils:update_resource(emqx_connector_pgsql, Config, ResourceId) of
+        {error, Reason} ->
+            error({load_config_error, Reason});
+        {ok, _} ->
+            {ok, NState#{resource_id => ResourceId}}
+    end.
+
+destroy(#{resource_id := ResourceId}) ->
+    _ = emqx_resource:remove_local(ResourceId),
+    ok.
 
 authenticate(#{auth_method := _}, _) ->
     ignore;
@@ -147,6 +142,17 @@ authenticate(
             ignore
     end.
 
-destroy(#{resource_id := ResourceId}) ->
-    _ = emqx_resource:remove_local(ResourceId),
-    ok.
+parse_config(
+    #{
+        query := Query0,
+        password_hash_algorithm := Algorithm
+    } = Config,
+    ResourceId
+) ->
+    ok = emqx_authn_password_hashing:init(Algorithm),
+    {Query, PlaceHolders} = emqx_authn_utils:parse_sql(Query0, '$n'),
+    State = #{
+        placeholders => PlaceHolders,
+        password_hash_algorithm => Algorithm
+    },
+    {Config#{prepare_statement => #{ResourceId => Query}}, State}.

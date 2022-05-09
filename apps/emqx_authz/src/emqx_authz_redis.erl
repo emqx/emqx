@@ -26,7 +26,8 @@
 %% AuthZ Callbacks
 -export([
     description/0,
-    init/1,
+    create/1,
+    update/1,
     destroy/1,
     authorize/4
 ]).
@@ -47,14 +48,22 @@
 description() ->
     "AuthZ with Redis".
 
-init(#{cmd := CmdStr} = Source) ->
+create(#{cmd := CmdStr} = Source) ->
+    Cmd = tokens(CmdStr),
+    ResourceId = emqx_authz_utils:make_resource_id(?MODULE),
+    CmdTemplate = emqx_authz_utils:parse_deep(Cmd, ?PLACEHOLDERS),
+    {ok, _Data} = emqx_authz_utils:create_resource(ResourceId, emqx_connector_redis, Source),
+    Source#{annotations => #{id => ResourceId}, cmd_template => CmdTemplate}.
+
+update(#{cmd := CmdStr} = Source) ->
     Cmd = tokens(CmdStr),
     CmdTemplate = emqx_authz_utils:parse_deep(Cmd, ?PLACEHOLDERS),
-    {ok, Id} = emqx_authz_utils:create_resource(emqx_connector_redis, Source),
-    Source#{
-        annotations => #{id => Id},
-        cmd_template => CmdTemplate
-    }.
+    case emqx_authz_utils:update_resource(emqx_connector_redis, Source) of
+        {error, Reason} ->
+            error({load_config_error, Reason});
+        {ok, Id} ->
+            Source#{annotations => #{id => Id}, cmd_template => CmdTemplate}
+    end.
 
 destroy(#{annotations := #{id := Id}}) ->
     ok = emqx_resource:remove_local(Id).

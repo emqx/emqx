@@ -317,6 +317,7 @@ lookup_from_local_node(Type) ->
             end;
         _ ->
             Metrics = emqx_metrics_worker:get_metrics(authz_metrics, Type),
+            %% for authz file/authz mnesia
             {ok, {NodeId, connected, Metrics, #{}}}
     catch
         _:Reason -> {error, {NodeId, list_to_binary(io_lib:format("~p", [Reason]))}}

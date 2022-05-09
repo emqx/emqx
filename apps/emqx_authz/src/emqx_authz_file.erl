@@ -29,7 +29,8 @@
 %% APIs
 -export([
     description/0,
-    init/1,
+    create/1,
+    update/1,
     destroy/1,
     authorize/4
 ]).
@@ -37,7 +38,7 @@
 description() ->
     "AuthZ with static rules".
 
-init(#{path := Path} = Source) ->
+create(#{path := Path} = Source) ->
     Rules =
         case file:consult(Path) of
             {ok, Terms} ->
@@ -54,6 +55,9 @@ init(#{path := Path} = Source) ->
                 throw(bad_acl_file_content)
         end,
     Source#{annotations => #{rules => Rules}}.
+
+update(#{path := _Path} = Source) ->
+    create(Source).
 
 destroy(_Source) -> ok.
 
