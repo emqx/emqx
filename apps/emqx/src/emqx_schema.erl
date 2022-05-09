@@ -147,11 +147,6 @@ roots(medium) ->
                 ref("sys_topics"),
                 #{desc => ?DESC(sys_topics)}
             )},
-        {"rate_limit",
-            sc(
-                ref("rate_limit"),
-                #{}
-            )},
         {"force_shutdown",
             sc(
                 ref("force_shutdown"),
@@ -545,33 +540,6 @@ fields("mqtt") ->
 fields("zone") ->
     Fields = emqx_zone_schema:roots(),
     [{F, ref(emqx_zone_schema, F)} || F <- Fields];
-fields("rate_limit") ->
-    [
-        {"max_conn_rate",
-            sc(
-                hoconsc:union([infinity, integer()]),
-                #{
-                    default => 1000,
-                    desc => ?DESC(fields_rate_limit_max_conn_rate)
-                }
-            )},
-        {"conn_messages_in",
-            sc(
-                hoconsc:union([infinity, comma_separated_list()]),
-                #{
-                    default => infinity,
-                    desc => ?DESC(fields_rate_limit_conn_messages_in)
-                }
-            )},
-        {"conn_bytes_in",
-            sc(
-                hoconsc:union([infinity, comma_separated_list()]),
-                #{
-                    default => infinity,
-                    desc => ?DESC(fields_rate_limit_conn_bytes_in)
-                }
-            )}
-    ];
 fields("flapping_detect") ->
     [
         {"enable",
@@ -1602,8 +1570,6 @@ desc("zone") ->
     " - `force_shutdown.*`\n"
     " - `conn_congestion.*`\n"
     " - `force_gc.*`\n\n";
-desc("rate_limit") ->
-    "Rate limit settings.";
 desc("flapping_detect") ->
     "This config controls the allowed maximum number of `CONNECT` packets received\n"
     "from the same clientid in a time frame defined by `window_time`.\n"
