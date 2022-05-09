@@ -63,8 +63,12 @@
     with_listener_authn/3,
     checks/2,
     reason2resp/1,
-    reason2msg/1
+    reason2msg/1,
+    sum_cluster_connections/1
 ]).
+
+%% RPC
+-export([gateway_status/1, cluster_gateway_status/1]).
 
 -type gateway_summary() ::
     #{
@@ -113,10 +117,13 @@ gateways(Status) ->
                         ],
                         GwInfo0
                     ),
+                    NodeStatus = cluster_gateway_status(GwName),
+                    {MaxCons, CurrCons} = sum_cluster_connections(NodeStatus),
                     GwInfo1#{
-                        max_connections => max_connections_count(Config),
-                        current_connections => current_connections_count(GwName),
-                        listeners => get_listeners_status(GwName, Config)
+                        max_connections => MaxCons,
+                        current_connections => CurrCons,
+                        listeners => get_listeners_status(GwName, Config),
+                        node_status => NodeStatus
                     }
             end
         end,
@@ -125,6 +132,28 @@ gateways(Status) ->
     case Status of
         all -> Gateways;
         _ -> [Gw || Gw = #{status := S} <- Gateways, S == Status]
+    end.
+
+gateway_status(GwName) ->
+    case emqx_gateway:lookup(GwName) of
+        undefined ->
+            #{node => node(), status => unloaded};
+        #{status := Status, config := Config} ->
+            #{
+                node => node(),
+                status => Status,
+                max_connections => max_connections_count(Config),
+                current_connections => current_connections_count(GwName)
+            }
+    end.
+
+cluster_gateway_status(GwName) ->
+    Nodes = mria_mnesia:running_nodes(),
+    case emqx_gateway_http_proto_v1:get_cluster_status(Nodes, GwName) of
+        {Results, []} ->
+            Results;
+        {_, _BadNodes} ->
+            error(badrpc)
     end.
 
 %% @private
@@ -540,5 +569,16 @@ to_list(A) when is_atom(A) ->
 to_list(B) when is_binary(B) ->
     binary_to_list(B).
 
+sum_cluster_connections(List) ->
+    sum_cluster_connections(List, 0, 0).
+
 %%--------------------------------------------------------------------
 %% Internal funcs
+sum_cluster_connections(
+    [#{max_connections := Max, current_connections := Current} | T], MaxAcc, CurrAcc
+) ->
+    sum_cluster_connections(T, MaxAcc + Max, Current + CurrAcc);
+sum_cluster_connections([_ | T], MaxAcc, CurrAcc) ->
+    sum_cluster_connections(T, MaxAcc, CurrAcc);
+sum_cluster_connections([], MaxAcc, CurrAcc) ->
+    {MaxAcc, CurrAcc}.
