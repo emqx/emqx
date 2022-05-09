@@ -69,12 +69,6 @@ groups() ->
             {group, snabbkaffe},
             {group, gc_tests}
         ]},
-        {rocks_tables, [], [
-            {group, no_kill_connection_process},
-            {group, kill_connection_process},
-            {group, snabbkaffe},
-            {group, gc_tests}
-        ]},
         {no_kill_connection_process, [], [{group, tcp}, {group, quic}, {group, ws}]},
         {kill_connection_process, [], [{group, tcp}, {group, quic}, {group, ws}]},
         {snabbkaffe, [], [
@@ -194,7 +188,7 @@ end_per_group(gc_tests, Config) ->
     ?config(store_owner, Config) ! stop,
     ok;
 end_per_group(Group, _Config) when
-    Group =:= ram_tables; Group =:= disc_tables; Group =:= rocks_tables
+    Group =:= ram_tables; Group =:= disc_tables
 ->
     meck:unload(emqx_config),
     emqx_common_test_helpers:stop_apps([]);
