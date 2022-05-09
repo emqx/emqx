@@ -443,6 +443,7 @@ fields("node") ->
                 #{
                     mapping => "vm_args.-env ERL_CRASH_DUMP",
                     desc => ?DESC(node_crash_dump_file),
+                    default => "log/erl_crash.dump",
                     'readOnly' => true
                 }
             )},

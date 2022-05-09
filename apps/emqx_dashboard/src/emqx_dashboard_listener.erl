@@ -38,7 +38,7 @@
 ]).
 
 is_ready(Timeout) ->
-    ready =:= gen_server:call(?MODULE, get_state, Timeout).
+    ready =:= gen_server:call(?MODULE, is_ready, Timeout).
 
 start_link() ->
     gen_server:start_link({local, ?MODULE}, ?MODULE, [], []).
@@ -49,10 +49,13 @@ init([]) ->
     {ok, undefined, {continue, regenerate_dispatch}}.
 
 handle_continue(regenerate_dispatch, _State) ->
-    regenerate_minirest_dispatch(),
-    {noreply, ready, hibernate}.
+    NewState = regenerate_minirest_dispatch(),
+    {noreply, NewState, hibernate}.
 
-handle_call(get_state, _From, State) ->
+handle_call(is_ready, _From, retry) ->
+    NewState = regenerate_minirest_dispatch(),
+    {reply, NewState, NewState, hibernate};
+handle_call(is_ready, _From, State) ->
     {reply, State, State, hibernate};
 handle_call(_Request, _From, State) ->
     {reply, ok, State, hibernate}.
@@ -63,8 +66,8 @@ handle_cast(_Request, State) ->
 handle_info({update_listeners, OldListeners, NewListeners}, _State) ->
     ok = emqx_dashboard:stop_listeners(OldListeners),
     ok = emqx_dashboard:start_listeners(NewListeners),
-    regenerate_minirest_dispatch(),
-    {noreply, ready, hibernate};
+    NewState = regenerate_minirest_dispatch(),
+    {noreply, NewState, hibernate};
 handle_info(_Info, State) ->
     {noreply, State, hibernate}.
 
@@ -84,9 +87,17 @@ regenerate_minirest_dispatch() ->
                 minirest:update_dispatch(element(1, Listener))
             end,
             emqx_dashboard:list_listeners()
-        )
+        ),
+        ready
     catch
-        _:_ -> ok
+        T:E:S ->
+            ?SLOG(error, #{
+                msg => "regenerate_minirest_dispatch_failed",
+                reason => E,
+                type => T,
+                stacktrace => S
+            }),
+            retry
     after
         emqx_dashboard:clear_i18n()
     end.
