@@ -25,7 +25,7 @@
 
 -behaviour(gen_server).
 
--export([start_link/0, is_ready/0]).
+-export([start_link/0, is_ready/1]).
 
 -export([
     init/1,
@@ -37,8 +37,8 @@
     code_change/3
 ]).
 
-is_ready() ->
-    ready =:= gen_server:call(?MODULE, get_state, 10000).
+is_ready(Timeout) ->
+    ready =:= gen_server:call(?MODULE, get_state, Timeout).
 
 start_link() ->
     gen_server:start_link({local, ?MODULE}, ?MODULE, [], []).
