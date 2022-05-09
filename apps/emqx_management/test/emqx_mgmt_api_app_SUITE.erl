@@ -108,10 +108,10 @@ t_update(_Config) ->
     ),
     Unexpired1 = maps:without([expired_at], Change),
     {ok, Update2} = update_app(Name, Unexpired1),
-    ?assertEqual(<<"undefined">>, maps:get(<<"expired_at">>, Update2)),
-    Unexpired2 = Change#{expired_at => <<"undefined">>},
+    ?assertEqual(<<"infinity">>, maps:get(<<"expired_at">>, Update2)),
+    Unexpired2 = Change#{expired_at => <<"infinity">>},
     {ok, Update3} = update_app(Name, Unexpired2),
-    ?assertEqual(<<"undefined">>, maps:get(<<"expired_at">>, Update3)),
+    ?assertEqual(<<"infinity">>, maps:get(<<"expired_at">>, Update3)),
 
     ?assertEqual({error, {"HTTP/1.1", 404, "Not Found"}}, update_app(<<"Not-Exist">>, Change)),
     ok.
@@ -160,9 +160,9 @@ t_authorize(_Config) ->
     },
     ?assertMatch({ok, #{<<"api_key">> := _, <<"enable">> := true}}, update_app(Name, Expired)),
     ?assertEqual(Unauthorized, emqx_mgmt_api_test_util:request_api(get, BanPath, BasicHeader)),
-    UnExpired = #{expired_at => undefined},
+    UnExpired = #{expired_at => infinity},
     ?assertMatch(
-        {ok, #{<<"api_key">> := _, <<"expired_at">> := <<"undefined">>}},
+        {ok, #{<<"api_key">> := _, <<"expired_at">> := <<"infinity">>}},
         update_app(Name, UnExpired)
     ),
     {ok, _Status1} = emqx_mgmt_api_test_util:request_api(get, BanPath, BasicHeader),
@@ -172,9 +172,9 @@ t_create_unexpired_app(_Config) ->
     Name1 = <<"EMQX-UNEXPIRED-API-KEY-1">>,
     Name2 = <<"EMQX-UNEXPIRED-API-KEY-2">>,
     {ok, Create1} = create_unexpired_app(Name1, #{}),
-    ?assertMatch(#{<<"expired_at">> := <<"undefined">>}, Create1),
-    {ok, Create2} = create_unexpired_app(Name2, #{expired_at => <<"undefined">>}),
-    ?assertMatch(#{<<"expired_at">> := <<"undefined">>}, Create2),
+    ?assertMatch(#{<<"expired_at">> := <<"infinity">>}, Create1),
+    {ok, Create2} = create_unexpired_app(Name2, #{expired_at => <<"infinity">>}),
+    ?assertMatch(#{<<"expired_at">> := <<"infinity">>}, Create2),
     ok.
 
 list_app() ->

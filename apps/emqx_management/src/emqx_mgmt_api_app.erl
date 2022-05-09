@@ -120,12 +120,12 @@ fields(app) ->
             )},
         {expired_at,
             hoconsc:mk(
-                hoconsc:union([undefined, emqx_datetime:epoch_second()]),
+                hoconsc:union([infinity, emqx_datetime:epoch_second()]),
                 #{
                     desc => "No longer valid datetime",
                     example => <<"2021-12-05T02:01:34.186Z">>,
                     required => false,
-                    default => undefined
+                    default => infinity
                 }
             )},
         {created_at,
@@ -219,7 +219,7 @@ api_key_by_name(put, #{bindings := #{name := Name}, body := Body}) ->
 format(App = #{expired_at := ExpiredAt0, created_at := CreateAt}) ->
     ExpiredAt =
         case ExpiredAt0 of
-            undefined -> <<"undefined">>;
+            infinity -> <<"infinity">>;
             _ -> list_to_binary(calendar:system_time_to_rfc3339(ExpiredAt0))
         end,
     App#{
@@ -228,4 +228,4 @@ format(App = #{expired_at := ExpiredAt0, created_at := CreateAt}) ->
     }.
 
 ensure_expired_at(#{<<"expired_at">> := ExpiredAt}) when is_integer(ExpiredAt) -> ExpiredAt;
-ensure_expired_at(_) -> undefined.
+ensure_expired_at(_) -> infinity.
