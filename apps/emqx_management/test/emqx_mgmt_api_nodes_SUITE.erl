@@ -75,7 +75,7 @@ t_log_path(_) ->
     {ok, NodeInfo} = emqx_mgmt_api_test_util:request_api(get, NodePath),
     #{<<"log_path">> := Path} = emqx_json:decode(NodeInfo, [return_maps]),
     ?assertEqual(
-        <<"emqx-test.log">>,
+        <<"log">>,
         filename:basename(Path)
     ).
 

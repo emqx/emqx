@@ -302,7 +302,7 @@ log_path() ->
     get_log_path(Configs).
 
 get_log_path([#{config := #{file := Path}} | _LoggerConfigs]) ->
-    Path;
+    filename:dirname(Path);
 get_log_path([_LoggerConfig | LoggerConfigs]) ->
     get_log_path(LoggerConfigs);
 get_log_path([]) ->
