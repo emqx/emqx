@@ -209,7 +209,7 @@ start_listener(Type, ListenerName, #{bind := Bind} = Conf) ->
             Msg = lists:flatten(
                 io_lib:format(
                     "~ts(~ts) : ~p",
-                    [ListenerId, BindStr, element(1, Reason)]
+                    [ListenerId, BindStr, filter_stacktrace(Reason)]
                 )
             ),
             {error, {failed_to_start, Msg}}
@@ -514,7 +514,8 @@ foreach_listeners(Do) ->
             {ok, #{type := Type, name := Name}} = parse_listener_id(Id),
             case Do(Type, Name, LConf) of
                 {error, {failed_to_start, _} = Reason} -> error(Reason);
-                _ -> ok
+                {error, {already_started, _}} -> ok;
+                ok -> ok
             end
         end,
         list()
@@ -568,3 +569,6 @@ convert_certs(CertsDir, Conf) ->
 clear_certs(CertsDir, Conf) ->
     OldSSL = maps:get(<<"ssl">>, Conf, undefined),
     emqx_tls_lib:delete_ssl_files(CertsDir, undefined, OldSSL).
+
+filter_stacktrace({Reason, _Stacktrace}) -> Reason;
+filter_stacktrace(Reason) -> Reason.

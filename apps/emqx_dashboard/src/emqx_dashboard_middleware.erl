@@ -21,13 +21,27 @@
 -export([execute/2]).
 
 execute(Req, Env) ->
+    case check_dispatch_ready(Env) of
+        true -> add_cors_flag(Req, Env);
+        false -> {stop, cowboy_req:reply(503, Req)}
+    end.
+
+add_cors_flag(Req, Env) ->
     CORS = emqx_conf:get([dashboard, cors], false),
-    case CORS andalso cowboy_req:header(<<"origin">>, Req, undefined) of
+    Origin = cowboy_req:header(<<"origin">>, Req, undefined),
+    case CORS andalso Origin =/= undefined of
         false ->
             {ok, Req, Env};
-        undefined ->
-            {ok, Req, Env};
-        _ ->
+        true ->
             Req2 = cowboy_req:set_resp_header(<<"Access-Control-Allow-Origin">>, <<"*">>, Req),
             {ok, Req2, Env}
+    end.
+
+check_dispatch_ready(Env) ->
+    case maps:is_key(options, Env) of
+        false ->
+            true;
+        true ->
+            %% dashboard should always ready, if not, is_ready/1 will block until ready.
+            emqx_dashboard_listener:is_ready(timer:seconds(15))
     end.
