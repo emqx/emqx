@@ -100,7 +100,7 @@ all_ciphers(['tlsv1.3']) ->
 all_ciphers(Versions) ->
     %% assert non-empty
     List = lists:append([ssl:cipher_suites(all, V, openssl) || V <- Versions]),
-    dedup(List).
+    [_ | _] = dedup(List).
 
 %% @doc All Pre-selected TLS ciphers.
 %% ssl:cipher_suites(all, V, openssl) is too slow. so we cache default ciphers.
