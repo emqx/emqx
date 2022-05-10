@@ -107,6 +107,9 @@ t_create_invalid(_Config) ->
             },
             AuthConfig#{
                 cmd => <<"HMGET mqtt_user:${username} salt is_superuser">>
+            },
+            AuthConfig#{
+                cmd => <<"HGETALL mqtt_user:${username} salt is_superuser">>
             }
         ],
     lists:foreach(
