@@ -30,6 +30,8 @@ convert_certs(RltvDir, NewConfig) ->
             {error, {bad_ssl_config, Reason}}
     end.
 
+clear_certs(_RltvDir, undefined) ->
+    ok;
 clear_certs(RltvDir, Config) ->
     OldSSL = map_get_oneof([<<"ssl">>, ssl], Config, undefined),
     ok = emqx_tls_lib:delete_ssl_files(RltvDir, undefined, OldSSL).
