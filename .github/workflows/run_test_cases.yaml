@@ -82,7 +82,6 @@ jobs:
           matrix:
             app_name: ${{ fromJson(needs.find_apps.outputs.docker_ct_apps) }}
             otp_release:
-              - "erlang23"
               - "erlang24"
 
         runs-on: aws-amd64
