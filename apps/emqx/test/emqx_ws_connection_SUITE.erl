@@ -19,6 +19,7 @@
 -include_lib("emqx/include/emqx.hrl").
 -include_lib("emqx/include/emqx_mqtt.hrl").
 -include_lib("eunit/include/eunit.hrl").
+-include_lib("common_test/include/ct.hrl").
 
 -compile(export_all).
 -compile(nowarn_export_all).
@@ -89,10 +90,27 @@ init_per_testcase(TestCase, Config) when
     ok = meck:expect(emqx_metrics, inc, fun(_, _) -> ok end),
     ok = meck:expect(emqx_metrics, inc_recv, fun(_) -> ok end),
     ok = meck:expect(emqx_metrics, inc_sent, fun(_) -> ok end),
-    Config;
-init_per_testcase(_, Config) ->
+    PrevConfig = emqx_config:get_listener_conf(ws, default, [websocket]),
+    [
+        {prev_config, PrevConfig}
+        | Config
+    ];
+init_per_testcase(t_ws_non_check_origin, Config) ->
     ok = emqx_common_test_helpers:start_apps([]),
-    Config.
+    PrevConfig = emqx_config:get_listener_conf(ws, default, [websocket]),
+    emqx_config:put_listener_conf(ws, default, [websocket, check_origin_enable], false),
+    emqx_config:put_listener_conf(ws, default, [websocket, check_origins], []),
+    [
+        {prev_config, PrevConfig}
+        | Config
+    ];
+init_per_testcase(_, Config) ->
+    PrevConfig = emqx_config:get_listener_conf(ws, default, [websocket]),
+    ok = emqx_common_test_helpers:start_apps([]),
+    [
+        {prev_config, PrevConfig}
+        | Config
+    ].
 
 end_per_testcase(TestCase, _Config) when
     TestCase =/= t_ws_sub_protocols_mqtt_equivalents,
@@ -112,7 +130,14 @@ end_per_testcase(TestCase, _Config) when
             emqx_metrics
         ]
     );
+end_per_testcase(t_ws_non_check_origin, Config) ->
+    PrevConfig = ?config(prev_config, Config),
+    emqx_config:put_listener_conf(ws, default, [websocket], PrevConfig),
+    emqx_common_test_helpers:stop_apps([]),
+    ok;
 end_per_testcase(_, Config) ->
+    PrevConfig = ?config(prev_config, Config),
+    emqx_config:put_listener_conf(ws, default, [websocket], PrevConfig),
     emqx_common_test_helpers:stop_apps([]),
     Config.
 
@@ -314,8 +339,6 @@ t_ws_check_origin(_) ->
     ).
 
 t_ws_non_check_origin(_) ->
-    emqx_config:put_listener_conf(ws, default, [websocket, check_origin_enable], false),
-    emqx_config:put_listener_conf(ws, default, [websocket, check_origins], []),
     {ok, _} = application:ensure_all_started(gun),
     ?assertMatch(
         {gun_upgrade, _},

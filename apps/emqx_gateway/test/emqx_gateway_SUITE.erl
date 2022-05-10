@@ -54,6 +54,8 @@ end_per_testcase(t_get_basic_usage_info_2, _Config) ->
     emqx_gateway_cm:unregister_channel(lwm2m, <<"client_id">>),
     emqx_config:put([gateway], #{}),
     emqx_common_test_helpers:stop_apps([emqx_gateway]),
+    emqx_config:erase(gateway),
+    emqx_common_test_helpers:load_config(emqx_gateway_schema, ?CONF_DEFAULT),
     emqx_common_test_helpers:start_apps([emqx_gateway]),
     ok;
 end_per_testcase(_TestCase, _Config) ->
