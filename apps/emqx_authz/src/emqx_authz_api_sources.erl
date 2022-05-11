@@ -304,6 +304,15 @@ move_source(post, #{bindings := #{type := Type}, body := #{<<"position">> := Pos
 %% Internal functions
 %%--------------------------------------------------------------------
 
+resource_types() ->
+    [
+        mysql,
+        pgsql,
+        mongodb,
+        redis,
+        http
+    ].
+
 lookup_from_local_node(Type) ->
     NodeId = node(self()),
     try emqx_authz:lookup(Type) of
@@ -317,7 +326,10 @@ lookup_from_local_node(Type) ->
             end;
         _ ->
             Metrics = emqx_metrics_worker:get_metrics(authz_metrics, Type),
-            {ok, {NodeId, connected, Metrics, #{}}}
+            case lists:member(Type, resource_types()) of
+                true -> {ok, {NodeId, disconnected, Metrics, #{}}};
+                false -> {ok, {NodeId, connected, Metrics, #{}}}
+            end
     catch
         _:Reason -> {error, {NodeId, list_to_binary(io_lib:format("~p", [Reason]))}}
     end.
