@@ -568,6 +568,7 @@ fields("db") ->
                 hoconsc:enum([gen_rpc, distr]),
                 #{
                     mapping => "mria.shard_transport",
+                    hidden => true,
                     default => gen_rpc,
                     desc => ?DESC(db_default_shard_transport)
                 }
@@ -577,6 +578,7 @@ fields("db") ->
                 map(shard, hoconsc:enum([gen_rpc, distr])),
                 #{
                     desc => ?DESC(db_shard_transports),
+                    hidden => true,
                     mapping => "emqx_machine.custom_shard_transports",
                     default => #{}
                 }
