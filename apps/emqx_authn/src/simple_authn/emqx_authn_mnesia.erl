@@ -53,7 +53,6 @@
     group_match_spec/1
 ]).
 
--type user_id_type() :: clientid | username.
 -type user_group() :: binary().
 -type user_id() :: binary().
 
@@ -63,8 +62,6 @@
     salt :: binary(),
     is_superuser :: boolean()
 }).
-
--reflect_type([user_id_type/0]).
 
 -export([mnesia/1]).
 
@@ -115,7 +112,7 @@ desc(?CONF_NS) ->
 desc(_) ->
     undefined.
 
-user_id_type(type) -> user_id_type();
+user_id_type(type) -> hoconsc:enum([clientid, username]);
 user_id_type(desc) -> ?DESC(?FUNCTION_NAME);
 user_id_type(default) -> <<"username">>;
 user_id_type(required) -> true;
