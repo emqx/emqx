@@ -77,17 +77,11 @@ set_procmem_high_watermark(Float) ->
     memsup:set_procmem_high_watermark(Float).
 
 current_sysmem_percent() ->
-    case erlang:whereis(memsup) of
-        undefined ->
+    case load_ctl:get_memory_usage() of
+        0 ->
             undefined;
-        _Pid ->
-            {Total, Allocated, _Worst} = memsup:get_memory_data(),
-            case Total =/= 0 of
-                true ->
-                    erlang:floor((Allocated / Total) * 10000) / 100;
-                false ->
-                    undefined
-            end
+        Ratio ->
+            erlang:floor(Ratio * 10000) / 100
     end.
 
 %%--------------------------------------------------------------------
