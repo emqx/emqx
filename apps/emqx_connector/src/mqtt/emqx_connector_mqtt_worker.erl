@@ -521,6 +521,7 @@ drop_acked_batches(
     end.
 
 disconnect(#{connection := Conn} = State) when Conn =/= undefined ->
+    emqx_connector_mqtt_mod:disconnect(Conn),
     emqx_connector_mqtt_mod:stop(Conn),
     State#{connection => undefined};
 disconnect(State) ->

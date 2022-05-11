@@ -22,6 +22,7 @@
     start/1,
     send/2,
     stop/1,
+    disconnect/1,
     ping/1
 ]).
 
@@ -90,6 +91,9 @@ error_reason(Reason, ServerStr) ->
 stop(#{client_pid := Pid}) ->
     safe_stop(Pid, fun() -> emqtt:stop(Pid) end, 1000),
     ok.
+
+disconnect(#{client_pid := Pid}) ->
+    emqtt:disconnect(Pid).
 
 ping(undefined) ->
     pang;
