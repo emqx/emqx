@@ -54,6 +54,9 @@
     code_change/3
 ]).
 
+%% exported for `emqx_telemetry'
+-export([get_basic_usage_info/0]).
+
 -type state() :: #{
     enable := boolean(),
     context_id := non_neg_integer(),
@@ -162,6 +165,20 @@ stats_fun() ->
     gen_server:cast(?MODULE, ?FUNCTION_NAME).
 
 %%--------------------------------------------------------------------
+%% APIs
+%%--------------------------------------------------------------------
+
+-spec get_basic_usage_info() -> #{retained_messages => non_neg_integer()}.
+get_basic_usage_info() ->
+    try
+        RetainedMessages = gen_server:call(?MODULE, retained_count),
+        #{retained_messages => RetainedMessages}
+    catch
+        _:_ ->
+            #{retained_messages => 0}
+    end.
+
+%%--------------------------------------------------------------------
 %% gen_server callbacks
 %%--------------------------------------------------------------------
 
@@ -191,6 +208,10 @@ handle_call({page_read, Topic, Page, Limit}, _, #{context := Context} = State) -
     Mod = get_backend_module(),
     Result = Mod:page_read(Context, Topic, Page, Limit),
     {reply, Result, State};
+handle_call(retained_count, _From, State = #{context := Context}) ->
+    Mod = get_backend_module(),
+    RetainedCount = Mod:size(Context),
+    {reply, RetainedCount, State};
 handle_call(Req, _From, State) ->
     ?SLOG(error, #{msg => "unexpected_call", call => Req}),
     {reply, ignored, State}.

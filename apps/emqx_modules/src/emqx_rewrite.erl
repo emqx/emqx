@@ -45,6 +45,9 @@
     post_config_update/5
 ]).
 
+%% exported for `emqx_telemetry'
+-export([get_basic_usage_info/0]).
+
 %%--------------------------------------------------------------------
 %% Load/Unload
 %%--------------------------------------------------------------------
@@ -97,6 +100,15 @@ rewrite_unsubscribe(_ClientInfo, _Properties, TopicFilters, Rules) ->
 
 rewrite_publish(Message = #message{topic = Topic}, Rules) ->
     {ok, Message#message{topic = match_and_rewrite(Topic, Rules)}}.
+
+%%--------------------------------------------------------------------
+%% Telemetry
+%%--------------------------------------------------------------------
+
+-spec get_basic_usage_info() -> #{topic_rewrite_rule_count => non_neg_integer()}.
+get_basic_usage_info() ->
+    RewriteRules = list(),
+    #{topic_rewrite_rule_count => length(RewriteRules)}.
 
 %%--------------------------------------------------------------------
 %% Internal functions

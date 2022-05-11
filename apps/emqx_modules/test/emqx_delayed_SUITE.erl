@@ -49,6 +49,7 @@ init_per_testcase(_Case, Config) ->
     Config.
 
 end_per_testcase(_Case, _Config) ->
+    {atomic, ok} = mria:clear_table(emqx_delayed),
     ok = emqx_delayed:disable().
 
 %%--------------------------------------------------------------------
@@ -178,3 +179,16 @@ t_unknown_messages(_) ->
         ignored,
         gen_server:call(OldPid, unknown)
     ).
+
+t_get_basic_usage_info(_Config) ->
+    ?assertEqual(#{delayed_message_count => 0}, emqx_delayed:get_basic_usage_info()),
+    lists:foreach(
+        fun(N) ->
+            Num = integer_to_binary(N),
+            Message = emqx_message:make(<<"$delayed/", Num/binary, "/delayed">>, <<"payload">>),
+            {stop, _} = emqx_delayed:on_message_publish(Message)
+        end,
+        lists:seq(1, 4)
+    ),
+    ?assertEqual(#{delayed_message_count => 4}, emqx_delayed:get_basic_usage_info()),
+    ok.
