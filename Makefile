@@ -244,3 +244,7 @@ $1-elixir-tgz: $(COMMON_DEPS) $(ELIXIR_COMMON_DEPS) mix-deps-get
 endef
 ALL_ELIXIR_TGZS = $(REL_PROFILES)
 $(foreach tt,$(ALL_ELIXIR_TGZS),$(eval $(call gen-elixir-tgz-target,$(tt))))
+
+.PHONY: fmt
+fmt: $(REBAR)
+	@./scripts/erlfmt -w '{apps,lib-ee}/*/{src,include,test}/**/*.{erl,hrl,app.src}'

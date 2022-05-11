@@ -7,11 +7,7 @@ set -euo pipefail
 
 cd -P -- "$(dirname -- "$0")/.."
 
-APPS="$(./scripts/find-apps.sh | xargs)"
-for app in ${APPS}; do
-    echo "$app ..."
-    ./scripts/format_app.py -a "$app" -f
-done
+make fmt
 
 DIFF_FILES="$(git diff --name-only)"
 if [ "$DIFF_FILES" != '' ]; then
