@@ -499,7 +499,7 @@ start_ekka() ->
     end.
 
 ensure_dashboard_listeners_started(emqx_dashboard) ->
-    ok = gen_server:call(emqx_dashboard_listener, sync),
+    true = emqx_dashboard_listener:is_ready(infinity),
     ok;
 ensure_dashboard_listeners_started(_App) ->
     ok.
