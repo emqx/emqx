@@ -21,17 +21,27 @@
 
 -include_lib("emqx/include/emqx.hrl").
 -include_lib("eunit/include/eunit.hrl").
+-include_lib("common_test/include/ct.hrl").
 
 -define(R, emqx_router).
 
 all() -> emqx_common_test_helpers:all(?MODULE).
 
 init_per_suite(Config) ->
+    PrevBootModules = application:get_env(emqx, boot_modules),
     emqx_common_test_helpers:boot_modules([router]),
     emqx_common_test_helpers:start_apps([]),
-    Config.
+    [
+        {prev_boot_modules, PrevBootModules}
+        | Config
+    ].
 
-end_per_suite(_Config) ->
+end_per_suite(Config) ->
+    PrevBootModules = ?config(prev_boot_modules, Config),
+    case PrevBootModules of
+        undefined -> ok;
+        {ok, Mods} -> emqx_common_test_helpers:boot_modules(Mods)
+    end,
     emqx_common_test_helpers:stop_apps([]).
 
 init_per_testcase(_TestCase, Config) ->

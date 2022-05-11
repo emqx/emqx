@@ -94,15 +94,15 @@ end_per_testcase(Case, Config) when
 ->
     PrevListener = ?config(prev_listener_conf, Config),
     PrevRateLimit = ?config(prev_rate_limit_conf, Config),
+    emqx_listeners:stop(),
     emqx_config:put([listeners, tcp], PrevListener),
     emqx_config:put([rate_limit], PrevRateLimit),
-    emqx_listeners:stop(),
     _ = emqx_config_handler:stop(),
     ok;
 end_per_testcase(t_wss_conn, Config) ->
     PrevListener = ?config(prev_listener_conf, Config),
-    emqx_config:put([listeners, wss], PrevListener),
     emqx_listeners:stop(),
+    emqx_config:put([listeners, wss], PrevListener),
     _ = emqx_config_handler:stop(),
     ok;
 end_per_testcase(_, _Config) ->
