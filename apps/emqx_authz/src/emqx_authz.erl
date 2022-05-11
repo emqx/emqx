@@ -308,7 +308,8 @@ authorize(
                 msg => "authorization_permission_allowed",
                 username => Username,
                 ipaddr => IpAddress,
-                topic => Topic
+                topic => Topic,
+                source => AuthzSource
             }),
             emqx_metrics_worker:inc(authz_metrics, AuthzSource, allow),
             emqx_metrics:inc(?METRIC_ALLOW),
@@ -322,7 +323,8 @@ authorize(
                 msg => "authorization_permission_denied",
                 username => Username,
                 ipaddr => IpAddress,
-                topic => Topic
+                topic => Topic,
+                source => AuthzSource
             }),
             emqx_metrics_worker:inc(authz_metrics, AuthzSource, deny),
             emqx_metrics:inc(?METRIC_DENY),
