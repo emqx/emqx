@@ -384,25 +384,47 @@ verify_claims(Claims, VerifyClaims0) ->
     Now = os:system_time(seconds),
     VerifyClaims =
         [
-            {<<"exp">>, fun(ExpireTime) ->
-                is_integer(ExpireTime) andalso Now < ExpireTime
-            end},
-            {<<"iat">>, fun(IssueAt) ->
-                is_integer(IssueAt) andalso IssueAt =< Now
-            end},
-            {<<"nbf">>, fun(NotBefore) ->
-                is_integer(NotBefore) andalso NotBefore =< Now
-            end}
+            {<<"exp">>, required,
+                with_int_value(fun(ExpireTime) ->
+                    Now < ExpireTime
+                end)},
+            {<<"iat">>, optional,
+                with_int_value(fun(IssueAt) ->
+                    IssueAt =< Now
+                end)},
+            {<<"nbf">>, optional,
+                with_int_value(fun(NotBefore) ->
+                    NotBefore =< Now
+                end)}
         ] ++ VerifyClaims0,
     do_verify_claims(Claims, VerifyClaims).
 
+with_int_value(Fun) ->
+    fun(Value) ->
+        case Value of
+            Int when is_integer(Int) -> Fun(Int);
+            Bin when is_binary(Bin) ->
+                case string:to_integer(Bin) of
+                    {Int, <<>>} -> Fun(Int);
+                    _ -> false
+                end;
+            Str when is_list(Str) ->
+                case string:to_integer(Str) of
+                    {Int, ""} -> Fun(Int);
+                    _ -> false
+                end
+        end
+    end.
+
 do_verify_claims(_Claims, []) ->
     ok;
-do_verify_claims(Claims, [{Name, Fun} | More]) when is_function(Fun) ->
-    case maps:take(Name, Claims) of
-        error ->
+do_verify_claims(Claims, [{Name, Required, Fun} | More]) when is_function(Fun) ->
+    case {Required, maps:take(Name, Claims)} of
+        {optional, error} ->
             do_verify_claims(Claims, More);
-        {Value, NClaims} ->
+        {required, error} ->
+            {error, {missing_claim, Name}};
+        {_, {Value, NClaims}} ->
             case Fun(Value) of
                 true ->
                     do_verify_claims(NClaims, More);

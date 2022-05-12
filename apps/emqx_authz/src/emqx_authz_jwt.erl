@@ -73,26 +73,53 @@ verify(JWT) ->
     Now = erlang:system_time(second),
     VerifyClaims =
         [
-            {<<"exp">>, fun(ExpireTime) ->
-                is_integer(ExpireTime) andalso Now < ExpireTime
-            end},
-            {<<"iat">>, fun(IssueAt) ->
-                is_integer(IssueAt) andalso IssueAt =< Now
-            end},
-            {<<"nbf">>, fun(NotBefore) ->
-                is_integer(NotBefore) andalso NotBefore =< Now
-            end}
+            {<<"exp">>, required,
+                with_int_value(fun(ExpireTime) ->
+                    Now < ExpireTime
+                end)},
+            {<<"iat">>, optional,
+                with_int_value(fun(IssueAt) ->
+                    IssueAt =< Now
+                end)},
+            {<<"nbf">>, optional,
+                with_int_value(fun(NotBefore) ->
+                    NotBefore =< Now
+                end)}
         ],
     IsValid = lists:all(
-        fun({ClaimName, Validator}) ->
-            (not maps:is_key(ClaimName, JWT)) orelse
-                Validator(maps:get(ClaimName, JWT))
+        fun({ClaimName, Required, Validator}) ->
+            verify_claim(ClaimName, Required, JWT, Validator)
         end,
         VerifyClaims
     ),
     case IsValid of
         true -> {ok, JWT};
         false -> error
+    end.
+
+with_int_value(Fun) ->
+    fun(Value) ->
+        case Value of
+            Int when is_integer(Int) -> Fun(Int);
+            Bin when is_binary(Bin) ->
+                case string:to_integer(Bin) of
+                    {Int, <<>>} -> Fun(Int);
+                    _ -> false
+                end;
+            Str when is_list(Str) ->
+                case string:to_integer(Str) of
+                    {Int, ""} -> Fun(Int);
+                    _ -> false
+                end
+        end
+    end.
+
+verify_claim(ClaimName, Required, JWT, Validator) ->
+    case JWT of
+        #{ClaimName := Value} ->
+            Validator(Value);
+        #{} ->
+            Required =:= optional
     end.
 
 do_authorize(Client, PubSub, Topic, AclRules) ->
