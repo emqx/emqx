@@ -430,8 +430,8 @@ move_to([], _Position, _Server, _HeadL) ->
 do_delete(ToDelete, OldConf) ->
     case lists:any(fun(#{<<"name">> := ExistedName}) -> ExistedName =:= ToDelete end, OldConf) of
         true ->
-            lists:dropwhile(
-                fun(#{<<"name">> := Name}) -> Name =:= ToDelete end,
+            lists:filter(
+                fun(#{<<"name">> := Name}) -> Name =/= ToDelete end,
                 OldConf
             );
         false ->
