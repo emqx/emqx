@@ -1690,14 +1690,6 @@ common_ssl_opts_schema(Defaults) ->
     D = fun(Field) -> maps:get(to_atom(Field), Defaults, undefined) end,
     Df = fun(Field, Default) -> maps:get(to_atom(Field), Defaults, Default) end,
     [
-        {"enable",
-            sc(
-                boolean(),
-                #{
-                    default => Df("enable", false),
-                    desc => ?DESC(common_ssl_opts_schema_enable)
-                }
-            )},
         {"cacertfile",
             sc(
                 binary(),
@@ -1846,6 +1838,14 @@ server_ssl_opts_schema(Defaults, IsRanchListener) ->
 client_ssl_opts_schema(Defaults) ->
     common_ssl_opts_schema(Defaults) ++
         [
+            {"enable",
+                sc(
+                    boolean(),
+                    #{
+                        default => false,
+                        desc => ?DESC(client_ssl_opts_schema_enable)
+                    }
+                )},
             {"server_name_indication",
                 sc(
                     hoconsc:union([disable, string()]),

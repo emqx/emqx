@@ -87,7 +87,7 @@ fields("https") ->
         bind(18804)
         | common_listener_fields() ++
             exclude_fields(
-                ["enable", "fail_if_no_peer_cert"],
+                ["fail_if_no_peer_cert"],
                 emqx_schema:server_ssl_opts_schema(#{}, true)
             )
     ].

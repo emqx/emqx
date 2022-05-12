@@ -495,10 +495,7 @@ limiter(Opts) ->
 ssl_opts(Opts) ->
     maps:to_list(
         emqx_tls_lib:drop_tls13_for_old_otp(
-            maps:without(
-                [enable],
-                maps:get(ssl, Opts, #{})
-            )
+            maps:get(ssl, Opts, #{})
         )
     ).
 
