@@ -429,8 +429,23 @@ trans_label(Spec, Hocon, Default) ->
 
 desc_struct(Hocon) ->
     case hocon_schema:field_schema(Hocon, desc) of
-        undefined -> hocon_schema:field_schema(Hocon, description);
-        Struct -> Struct
+        undefined ->
+            case hocon_schema:field_schema(Hocon, description) of
+                undefined ->
+                    case Hocon of
+                        ?R_REF(Mod, Name) ->
+                            case erlang:function_exported(Mod, desc, 1) of
+                                true -> Mod:desc(Name);
+                                false -> undefined
+                            end;
+                        _ ->
+                            undefined
+                    end;
+                Struct1 ->
+                    Struct1
+            end;
+        Struct ->
+            Struct
     end.
 
 request_body(#{content := _} = Content, _Module, _Options) ->
