@@ -28,7 +28,7 @@
     desc/1
 ]).
 
--export([validate_sql/1]).
+-export([validate_sql/1, validate_rule_name/1]).
 
 namespace() -> rule_engine.
 
@@ -180,9 +180,24 @@ rule_name() ->
                 desc => ?DESC("rules_name"),
                 default => "",
                 required => true,
-                example => "foo"
+                example => "foo",
+                validator => fun ?MODULE:validate_rule_name/1
             }
         )}.
+
+validate_rule_name(Name) ->
+    RE = "^[A-Za-z0-9]+[A-Za-z0-9-_]*$",
+    try re:run(Name, RE) of
+        {match, _} ->
+            ok;
+        _Nomatch ->
+            Reason = list_to_binary(io_lib:format("Bad rule name ~p, expect ~p", [Name, RE])),
+            {error, Reason}
+    catch
+        _:_ ->
+            Reason = list_to_binary(io_lib:format("Bad rule name ~p, expect ~p", [Name, RE])),
+            {error, Reason}
+    end.
 
 outputs() ->
     [
