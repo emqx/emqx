@@ -218,7 +218,7 @@ dump() ->
     case
         {
             filelib:wildcard(project_root_dir() ++ "/*_plt"),
-            filelib:wildcard(project_root_dir() ++ "/_build/emqx*/lib")
+            filelib:wildcard(project_root_dir() ++ "/_build/check/lib")
         }
     of
         {[PLT | _], [RelDir | _]} ->
