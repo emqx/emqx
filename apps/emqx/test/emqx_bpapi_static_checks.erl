@@ -61,15 +61,13 @@
 % TODO: handle pmap
 -define(IGNORED_RPC_CALLS, "gen_rpc:nodes/0, emqx_rpc:unwrap_erpc/1").
 %% List of business-layer functions that are exempt from the checks:
+%% erlfmt-ignore
 -define(EXEMPTIONS,
-    % Reason: legacy code. A fun and a QC query are
-    "emqx_mgmt_api:do_query/6,"
-    % passed in the args, it's futile to try to statically
-    % check it
-
-    % Reason: some sort of external plugin API that we
-    "emqx_plugin_libs_rule:cluster_call/3"
-    % don't want to break?
+    "emqx_mgmt_api:do_query/6,"             % Reason: legacy code. A fun and a QC query are
+                                            % passed in the args, it's futile to try to statically
+                                            % check it
+    "emqx_plugin_libs_rule:cluster_call/3"  % Reason: some sort of external plugin API that we
+                                            % don't want to break?
 ).
 
 -define(XREF, myxref).
@@ -220,7 +218,7 @@ dump() ->
     case
         {
             filelib:wildcard(project_root_dir() ++ "/*_plt"),
-            filelib:wildcard(project_root_dir() ++ "/_build/emqx*/lib")
+            filelib:wildcard(project_root_dir() ++ "/_build/check/lib")
         }
     of
         {[PLT | _], [RelDir | _]} ->
@@ -260,22 +258,11 @@ prepare(#{reldir := RelDir, plt := PLT}) ->
     logger:info("Loading PLT...", []),
     dialyzer_plt:from_file(PLT).
 
+%% erlfmt-ignore
 find_remote_calls(_Opts) ->
     Query =
-        "XC | (A - ["
-        ?IGNORED_APPS
-        "]:App - ["
-        ?IGNORED_MODULES
-        "]:Mod - ["
-        ?EXEMPTIONS
-        "])\n"
-        "               || ((["
-        ?RPC_MODULES
-        "] : Mod + ["
-        ?RPC_FUNCTIONS
-        "]) - ["
-        ?IGNORED_RPC_CALLS
-        "])",
+        "XC | (A - ["?IGNORED_APPS"]:App - ["?IGNORED_MODULES"]:Mod - ["?EXEMPTIONS"])
+           || ((["?RPC_MODULES"] : Mod + ["?RPC_FUNCTIONS"]) - ["?IGNORED_RPC_CALLS"])",
     {ok, Calls} = xref:q(?XREF, Query),
     logger:info("Calls to RPC modules ~p", [Calls]),
     {Callers, _Callees} = lists:unzip(Calls),
