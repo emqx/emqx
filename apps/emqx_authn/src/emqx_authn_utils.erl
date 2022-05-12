@@ -20,6 +20,8 @@
 -include_lib("emqx_authn.hrl").
 
 -export([
+    create_resource/3,
+    update_resource/3,
     check_password_from_selected_map/3,
     parse_deep/1,
     parse_str/1,
@@ -46,6 +48,27 @@
 %%------------------------------------------------------------------------------
 %% APIs
 %%------------------------------------------------------------------------------
+
+create_resource(ResourceId, Module, Config) ->
+    {ok, _Data} = emqx_resource:create_local(
+        ResourceId,
+        ?RESOURCE_GROUP,
+        Module,
+        Config,
+        #{}
+    ).
+
+update_resource(Module, Config, ResourceId) ->
+    %% recreate before maybe stop
+    %% resource will auto start during recreate
+    Result = emqx_resource:recreate_local(ResourceId, Module, Config),
+    case Config of
+        #{enable := true} ->
+            Result;
+        #{enable := false} ->
+            ok = emqx_resource:stop(ResourceId),
+            Result
+    end.
 
 check_password_from_selected_map(_Algorithm, _Selected, undefined) ->
     {error, bad_username_or_password};

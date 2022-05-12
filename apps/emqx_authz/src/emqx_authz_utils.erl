@@ -23,6 +23,8 @@
     cleanup_resources/0,
     make_resource_id/1,
     create_resource/2,
+    create_resource/3,
+    update_resource/2,
     update_config/2,
     parse_deep/2,
     parse_str/2,
@@ -37,15 +39,37 @@
 %%------------------------------------------------------------------------------
 
 create_resource(Module, Config) ->
-    ResourceID = make_resource_id(Module),
+    ResourceId = make_resource_id(Module),
+    create_resource(ResourceId, Module, Config).
+
+create_resource(ResourceId, Module, Config) ->
     {ok, _Data} = emqx_resource:create_local(
-        ResourceID,
+        ResourceId,
         ?RESOURCE_GROUP,
         Module,
         Config,
         #{}
-    ),
-    {ok, ResourceID}.
+    ).
+
+update_resource(Module, #{annotations := #{id := ResourceId}} = Source) ->
+    Result =
+        case
+            emqx_resource:recreate_local(
+                ResourceId,
+                Module,
+                Source
+            )
+        of
+            {ok, _} -> {ok, ResourceId};
+            {error, Reason} -> {error, Reason}
+        end,
+    case Source of
+        #{enable := true} ->
+            Result;
+        #{enable := false} ->
+            ok = emqx_resource:stop(ResourceId),
+            Result
+    end.
 
 cleanup_resources() ->
     lists:foreach(

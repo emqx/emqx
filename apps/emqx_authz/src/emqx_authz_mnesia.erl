@@ -46,7 +46,8 @@
 %% AuthZ Callbacks
 -export([
     description/0,
-    init/1,
+    create/1,
+    update/1,
     destroy/1,
     authorize/4
 ]).
@@ -88,7 +89,9 @@ mnesia(boot) ->
 description() ->
     "AuthZ with Mnesia".
 
-init(Source) -> Source.
+create(Source) -> Source.
+
+update(Source) -> Source.
 
 destroy(_Source) -> ok.
 

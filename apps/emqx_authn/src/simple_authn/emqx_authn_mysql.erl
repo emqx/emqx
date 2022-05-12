@@ -83,35 +83,24 @@ refs() ->
 create(_AuthenticatorID, Config) ->
     create(Config).
 
-create(
-    #{
-        password_hash_algorithm := Algorithm,
-        query := Query0,
-        query_timeout := QueryTimeout
-    } = Config
-) ->
-    ok = emqx_authn_password_hashing:init(Algorithm),
-    {PrepareSql, TmplToken} = emqx_authn_utils:parse_sql(Query0, '?'),
+create(Config0) ->
     ResourceId = emqx_authn_utils:make_resource_id(?MODULE),
-    State = #{
-        password_hash_algorithm => Algorithm,
-        tmpl_token => TmplToken,
-        query_timeout => QueryTimeout,
-        resource_id => ResourceId
-    },
-    {ok, _Data} = emqx_resource:create_local(
-        ResourceId,
-        ?RESOURCE_GROUP,
-        emqx_connector_mysql,
-        Config#{prepare_statement => #{?PREPARE_KEY => PrepareSql}},
-        #{}
-    ),
-    {ok, State}.
+    {Config, State} = parse_config(Config0),
+    {ok, _Data} = emqx_authn_utils:create_resource(ResourceId, emqx_connector_mysql, Config),
+    {ok, State#{resource_id => ResourceId}}.
 
-update(Config, State) ->
-    {ok, NewState} = create(Config),
-    ok = destroy(State),
-    {ok, NewState}.
+update(Config0, #{resource_id := ResourceId} = _State) ->
+    {Config, NState} = parse_config(Config0),
+    case emqx_authn_utils:update_resource(emqx_connector_mysql, Config, ResourceId) of
+        {error, Reason} ->
+            error({load_config_error, Reason});
+        {ok, _} ->
+            {ok, NState#{resource_id => ResourceId}}
+    end.
+
+destroy(#{resource_id := ResourceId}) ->
+    _ = emqx_resource:remove_local(ResourceId),
+    ok.
 
 authenticate(#{auth_method := _}, _) ->
     ignore;
@@ -152,6 +141,18 @@ authenticate(
             ignore
     end.
 
-destroy(#{resource_id := ResourceId}) ->
-    _ = emqx_resource:remove_local(ResourceId),
-    ok.
+parse_config(
+    #{
+        password_hash_algorithm := Algorithm,
+        query := Query0,
+        query_timeout := QueryTimeout
+    } = Config
+) ->
+    ok = emqx_authn_password_hashing:init(Algorithm),
+    {PrepareSql, TmplToken} = emqx_authn_utils:parse_sql(Query0, '?'),
+    State = #{
+        password_hash_algorithm => Algorithm,
+        tmpl_token => TmplToken,
+        query_timeout => QueryTimeout
+    },
+    {Config#{prepare_statement => #{?PREPARE_KEY => PrepareSql}}, State}.

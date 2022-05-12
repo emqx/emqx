@@ -126,39 +126,28 @@ refs() ->
 create(_AuthenticatorID, Config) ->
     create(Config).
 
-create(#{filter := Filter} = Config) ->
-    FilterTemplate = emqx_authn_utils:parse_deep(Filter),
-    State = maps:with(
-        [
-            collection,
-            password_hash_field,
-            salt_field,
-            is_superuser_field,
-            password_hash_algorithm,
-            salt_position
-        ],
+create(Config0) ->
+    ResourceId = emqx_authn_utils:make_resource_id(?MODULE),
+    {Config, State} = parse_config(Config0),
+    {ok, _Data} = emqx_authn_utils:create_resource(
+        ResourceId,
+        emqx_connector_mongo,
         Config
     ),
-    #{password_hash_algorithm := Algorithm} = State,
-    ok = emqx_authn_password_hashing:init(Algorithm),
-    ResourceId = emqx_authn_utils:make_resource_id(?MODULE),
-    NState = State#{
-        filter_template => FilterTemplate,
-        resource_id => ResourceId
-    },
-    {ok, _Data} = emqx_resource:create_local(
-        ResourceId,
-        ?RESOURCE_GROUP,
-        emqx_connector_mongo,
-        Config,
-        #{}
-    ),
-    {ok, NState}.
+    {ok, State#{resource_id => ResourceId}}.
 
-update(Config, State) ->
-    {ok, NewState} = create(Config),
-    ok = destroy(State),
-    {ok, NewState}.
+update(Config0, #{resource_id := ResourceId} = _State) ->
+    {Config, NState} = parse_config(Config0),
+    case emqx_authn_utils:update_resource(emqx_connector_mongo, Config, ResourceId) of
+        {error, Reason} ->
+            error({load_config_error, Reason});
+        {ok, _} ->
+            {ok, NState#{resource_id => ResourceId}}
+    end.
+
+destroy(#{resource_id := ResourceId}) ->
+    _ = emqx_resource:remove_local(ResourceId),
+    ok.
 
 authenticate(#{auth_method := _}, _) ->
     ignore;
@@ -201,13 +190,25 @@ authenticate(
             end
     end.
 
-destroy(#{resource_id := ResourceId}) ->
-    _ = emqx_resource:remove_local(ResourceId),
-    ok.
-
 %%------------------------------------------------------------------------------
 %% Internal functions
 %%------------------------------------------------------------------------------
+
+parse_config(#{filter := Filter} = Config) ->
+    FilterTemplate = emqx_authn_utils:parse_deep(Filter),
+    State = maps:with(
+        [
+            collection,
+            password_hash_field,
+            salt_field,
+            is_superuser_field,
+            password_hash_algorithm,
+            salt_position
+        ],
+        Config
+    ),
+    ok = emqx_authn_password_hashing:init(maps:get(password_hash_algorithm, State)),
+    {Config, State#{filter_template => FilterTemplate}}.
 
 check_password(undefined, _Selected, _State) ->
     {error, bad_username_or_password};

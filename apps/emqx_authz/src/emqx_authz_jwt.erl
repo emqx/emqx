@@ -28,7 +28,8 @@
 %% APIs
 -export([
     description/0,
-    init/1,
+    create/1,
+    update/1,
     destroy/1,
     authorize/4
 ]).
@@ -46,7 +47,10 @@
 description() ->
     "AuthZ with JWT".
 
-init(#{acl_claim_name := _AclClaimName} = Source) ->
+create(#{acl_claim_name := _AclClaimName} = Source) ->
+    Source.
+
+update(#{acl_claim_name := _AclClaimName} = Source) ->
     Source.
 
 destroy(_Source) -> ok.

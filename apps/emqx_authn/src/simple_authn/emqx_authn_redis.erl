@@ -96,50 +96,32 @@ refs() ->
 create(_AuthenticatorID, Config) ->
     create(Config).
 
-create(
-    #{
-        cmd := Cmd,
-        password_hash_algorithm := Algorithm
-    } = Config
-) ->
-    ok = emqx_authn_password_hashing:init(Algorithm),
-    try
-        NCmd = parse_cmd(Cmd),
-        ok = emqx_authn_utils:ensure_apps_started(Algorithm),
-        State = maps:with(
-            [password_hash_algorithm, salt_position],
-            Config
-        ),
-        ResourceId = emqx_authn_utils:make_resource_id(?MODULE),
-        NState = State#{
-            cmd => NCmd,
-            resource_id => ResourceId
-        },
-        {ok, _Data} = emqx_resource:create_local(
-            ResourceId,
-            ?RESOURCE_GROUP,
-            emqx_connector_redis,
-            Config,
-            #{}
-        ),
-        {ok, NState}
-    catch
-        error:{unsupported_cmd, _Cmd} ->
-            {error, {unsupported_cmd, Cmd}};
-        error:missing_password_hash ->
-            {error, missing_password_hash};
-        error:{unsupported_fields, Fields} ->
-            {error, {unsupported_fields, Fields}}
+create(Config0) ->
+    ResourceId = emqx_authn_utils:make_resource_id(?MODULE),
+    case parse_config(Config0) of
+        {error, _} = Res ->
+            Res;
+        {Config, State} ->
+            {ok, _Data} = emqx_authn_utils:create_resource(
+                ResourceId,
+                emqx_connector_redis,
+                Config
+            ),
+            {ok, State#{resource_id => ResourceId}}
     end.
 
-update(Config, State) ->
-    case create(Config) of
-        {ok, NewState} ->
-            ok = destroy(State),
-            {ok, NewState};
+update(Config0, #{resource_id := ResourceId} = _State) ->
+    {Config, NState} = parse_config(Config0),
+    case emqx_authn_utils:update_resource(emqx_connector_redis, Config, ResourceId) of
         {error, Reason} ->
-            {error, Reason}
+            error({load_config_error, Reason});
+        {ok, _} ->
+            {ok, NState#{resource_id => ResourceId}}
     end.
+
+destroy(#{resource_id := ResourceId}) ->
+    _ = emqx_resource:remove_local(ResourceId),
+    ok.
 
 authenticate(#{auth_method := _}, _) ->
     ignore;
@@ -190,13 +172,30 @@ authenticate(
             ignore
     end.
 
-destroy(#{resource_id := ResourceId}) ->
-    _ = emqx_resource:remove_local(ResourceId),
-    ok.
-
 %%------------------------------------------------------------------------------
 %% Internal functions
 %%------------------------------------------------------------------------------
+
+parse_config(
+    #{
+        cmd := Cmd,
+        password_hash_algorithm := Algorithm
+    } = Config
+) ->
+    try
+        NCmd = parse_cmd(Cmd),
+        ok = emqx_authn_password_hashing:init(Algorithm),
+        ok = emqx_authn_utils:ensure_apps_started(Algorithm),
+        State = maps:with([password_hash_algorithm, salt_position], Config),
+        {Config, State#{cmd => NCmd}}
+    catch
+        error:{unsupported_cmd, _Cmd} ->
+            {error, {unsupported_cmd, Cmd}};
+        error:missing_password_hash ->
+            {error, missing_password_hash};
+        error:{unsupported_fields, Fields} ->
+            {error, {unsupported_fields, Fields}}
+    end.
 
 %% Only support HGET and HMGET
 parse_cmd(Cmd) ->

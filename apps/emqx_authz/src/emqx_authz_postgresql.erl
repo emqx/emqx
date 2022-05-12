@@ -26,7 +26,8 @@
 %% AuthZ Callbacks
 -export([
     description/0,
-    init/1,
+    create/1,
+    update/1,
     destroy/1,
     authorize/4
 ]).
@@ -47,27 +48,29 @@
 description() ->
     "AuthZ with PostgreSQL".
 
-init(#{query := SQL0} = Source) ->
-    {SQL, PlaceHolders} = emqx_authz_utils:parse_sql(
-        SQL0,
-        '$n',
-        ?PLACEHOLDERS
-    ),
+create(#{query := SQL0} = Source) ->
+    {SQL, PlaceHolders} = emqx_authz_utils:parse_sql(SQL0, '$n', ?PLACEHOLDERS),
     ResourceID = emqx_authz_utils:make_resource_id(emqx_connector_pgsql),
-    {ok, _Data} = emqx_resource:create_local(
+    {ok, _Data} = emqx_authz_utils:create_resource(
         ResourceID,
-        ?RESOURCE_GROUP,
         emqx_connector_pgsql,
-        Source#{prepare_statement => #{ResourceID => SQL}},
-        #{}
+        Source#{prepare_statement => #{ResourceID => SQL}}
     ),
-    Source#{
-        annotations =>
-            #{
-                id => ResourceID,
-                placeholders => PlaceHolders
-            }
-    }.
+    Source#{annotations => #{id => ResourceID, placeholders => PlaceHolders}}.
+
+update(#{query := SQL0, annotations := #{id := ResourceID}} = Source) ->
+    {SQL, PlaceHolders} = emqx_authz_utils:parse_sql(SQL0, '$n', ?PLACEHOLDERS),
+    case
+        emqx_authz_utils:update_resource(
+            emqx_connector_pgsql,
+            Source#{prepare_statement => #{ResourceID => SQL}}
+        )
+    of
+        {error, Reason} ->
+            error({load_config_error, Reason});
+        {ok, Id} ->
+            Source#{annotations => #{id => Id, placeholders => PlaceHolders}}
+    end.
 
 destroy(#{annotations := #{id := Id}}) ->
     ok = emqx_resource:remove_local(Id).

@@ -28,7 +28,8 @@
 %% AuthZ Callbacks
 -export([
     description/0,
-    init/1,
+    create/1,
+    update/1,
     destroy/1,
     authorize/4
 ]).
@@ -49,11 +50,22 @@
 description() ->
     "AuthZ with Mysql".
 
-init(#{query := SQL} = Source0) ->
+create(#{query := SQL} = Source0) ->
+    {PrepareSQL, TmplToken} = emqx_authz_utils:parse_sql(SQL, '?', ?PLACEHOLDERS),
+    ResourceId = emqx_authz_utils:make_resource_id(?MODULE),
+    Source = Source0#{prepare_statement => #{?PREPARE_KEY => PrepareSQL}},
+    {ok, _Data} = emqx_authz_utils:create_resource(ResourceId, emqx_connector_mysql, Source),
+    Source#{annotations => #{id => ResourceId, tmpl_oken => TmplToken}}.
+
+update(#{query := SQL} = Source0) ->
     {PrepareSQL, TmplToken} = emqx_authz_utils:parse_sql(SQL, '?', ?PLACEHOLDERS),
     Source = Source0#{prepare_statement => #{?PREPARE_KEY => PrepareSQL}},
-    {ok, Id} = emqx_authz_utils:create_resource(emqx_connector_mysql, Source),
-    Source#{annotations => #{id => Id, tmpl_oken => TmplToken}}.
+    case emqx_authz_utils:update_resource(emqx_connector_mysql, Source) of
+        {error, Reason} ->
+            error({load_config_error, Reason});
+        {ok, Id} ->
+            Source#{annotations => #{id => Id, tmpl_oken => TmplToken}}
+    end.
 
 destroy(#{annotations := #{id := Id}}) ->
     ok = emqx_resource:remove_local(Id).

@@ -158,45 +158,24 @@ refs() ->
 create(_AuthenticatorID, Config) ->
     create(Config).
 
-create(
-    #{
-        method := Method,
-        url := RawUrl,
-        headers := Headers,
-        request_timeout := RequestTimeout
-    } = Config
-) ->
-    {BaseUrl0, Path, Query} = parse_url(RawUrl),
-    {ok, BaseUrl} = emqx_http_lib:uri_parse(BaseUrl0),
+create(Config0) ->
     ResourceId = emqx_authn_utils:make_resource_id(?MODULE),
-    State = #{
-        method => Method,
-        path => Path,
-        headers => ensure_header_name_type(Headers),
-        base_path_templete => emqx_authn_utils:parse_str(Path),
-        base_query_template => emqx_authn_utils:parse_deep(
-            cow_qs:parse_qs(to_bin(Query))
-        ),
-        body_template => emqx_authn_utils:parse_deep(maps:get(body, Config, #{})),
-        request_timeout => RequestTimeout,
-        resource_id => ResourceId
-    },
-    {ok, _Data} = emqx_resource:create_local(
+    {Config, State} = parse_config(Config0),
+    {ok, _Data} = emqx_authn_utils:create_resource(
         ResourceId,
-        ?RESOURCE_GROUP,
         emqx_connector_http,
-        Config#{
-            base_url => BaseUrl,
-            pool_type => random
-        },
-        #{}
+        Config
     ),
-    {ok, State}.
+    {ok, State#{resource_id => ResourceId}}.
 
-update(Config, State) ->
-    {ok, NewState} = create(Config),
-    ok = destroy(State),
-    {ok, NewState}.
+update(Config0, #{resource_id := ResourceId} = _State) ->
+    {Config, NState} = parse_config(Config0),
+    case emqx_authn_utils:update_resource(emqx_connector_http, Config, ResourceId) of
+        {error, Reason} ->
+            error({load_config_error, Reason});
+        {ok, _} ->
+            {ok, NState#{resource_id => ResourceId}}
+    end.
 
 authenticate(#{auth_method := _}, _) ->
     ignore;
@@ -324,6 +303,29 @@ parse_url(Url) ->
         [Url] ->
             throw({invalid_url, Url})
     end.
+
+parse_config(
+    #{
+        method := Method,
+        url := RawUrl,
+        headers := Headers,
+        request_timeout := RequestTimeout
+    } = Config
+) ->
+    {BaseUrl0, Path, Query} = parse_url(RawUrl),
+    {ok, BaseUrl} = emqx_http_lib:uri_parse(BaseUrl0),
+    State = #{
+        method => Method,
+        path => Path,
+        headers => ensure_header_name_type(Headers),
+        base_path_templete => emqx_authn_utils:parse_str(Path),
+        base_query_template => emqx_authn_utils:parse_deep(
+            cow_qs:parse_qs(to_bin(Query))
+        ),
+        body_template => emqx_authn_utils:parse_deep(maps:get(body, Config, #{})),
+        request_timeout => RequestTimeout
+    },
+    {Config#{base_url => BaseUrl, pool_type => random}, State}.
 
 generate_request(Credential, #{
     method := Method,

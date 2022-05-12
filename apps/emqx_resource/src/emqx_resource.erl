@@ -56,7 +56,9 @@
     create_dry_run/2,
     create_dry_run_local/2,
     %% this will do create_dry_run, stop the old instance and start a new one
+    recreate/3,
     recreate/4,
+    recreate_local/3,
     recreate_local/4,
     %% remove the config and stop the instance
     remove/1,
@@ -200,10 +202,20 @@ create_dry_run(ResourceType, Config) ->
 create_dry_run_local(ResourceType, Config) ->
     emqx_resource_manager:create_dry_run(ResourceType, Config).
 
+-spec recreate(instance_id(), resource_type(), resource_config()) ->
+    {ok, resource_data()} | {error, Reason :: term()}.
+recreate(InstId, ResourceType, Config) ->
+    recreate(InstId, ResourceType, Config, #{}).
+
 -spec recreate(instance_id(), resource_type(), resource_config(), create_opts()) ->
     {ok, resource_data()} | {error, Reason :: term()}.
 recreate(InstId, ResourceType, Config, Opts) ->
     wrap_rpc(emqx_resource_proto_v1:recreate(InstId, ResourceType, Config, Opts)).
+
+-spec recreate_local(instance_id(), resource_type(), resource_config()) ->
+    {ok, resource_data()} | {error, Reason :: term()}.
+recreate_local(InstId, ResourceType, Config) ->
+    recreate_local(InstId, ResourceType, Config, #{}).
 
 -spec recreate_local(instance_id(), resource_type(), resource_config(), create_opts()) ->
     {ok, resource_data()} | {error, Reason :: term()}.
