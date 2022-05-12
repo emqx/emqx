@@ -578,7 +578,8 @@ ensure_apps_stopped(#{<<"rel_apps">> := Apps}) ->
         {ok, Left} ->
             ?SLOG(warning, #{
                 msg => "unabled_to_stop_plugin_apps",
-                apps => Left
+                apps => Left,
+                reason => "running_apps_still_depends_on_this_apps"
             }),
             ok;
         {error, Reason} ->
