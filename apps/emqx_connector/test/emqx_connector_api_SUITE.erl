@@ -608,7 +608,7 @@ t_ingress_mqtt_bridge_with_rules(_) ->
         post,
         uri(["rules"]),
         #{
-            <<"name">> => <<"A rule get messages from a source mqtt bridge">>,
+            <<"name">> => <<"A_rule_get_messages_from_a_source_mqtt_bridge">>,
             <<"enable">> => true,
             <<"outputs">> => [#{<<"function">> => "emqx_connector_api_SUITE:inspect"}],
             <<"sql">> => <<"SELECT * from \"$bridges/", BridgeIDIngress/binary, "\"">>
@@ -707,7 +707,7 @@ t_egress_mqtt_bridge_with_rules(_) ->
         post,
         uri(["rules"]),
         #{
-            <<"name">> => <<"A rule send messages to a sink mqtt bridge">>,
+            <<"name">> => <<"A_rule_send_messages_to_a_sink_mqtt_bridge">>,
             <<"enable">> => true,
             <<"outputs">> => [BridgeIDEgress],
             <<"sql">> => <<"SELECT * from \"t/1\"">>
