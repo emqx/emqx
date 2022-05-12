@@ -862,10 +862,12 @@ format_channel_info({_, ClientInfo0, ClientStats}) ->
         ],
     TimesKeys = [created_at, connected_at, disconnected_at],
     %% format timestamp to rfc3339
-    lists:foldl(
-        fun result_format_time_fun/2,
-        maps:without(RemoveList, ClientInfoMap),
-        TimesKeys
+    result_format_undefined_to_null(
+        lists:foldl(
+            fun result_format_time_fun/2,
+            maps:without(RemoveList, ClientInfoMap),
+            TimesKeys
+        )
     ).
 
 %% format func helpers
@@ -883,6 +885,15 @@ result_format_time_fun(Key, NClientInfoMap) ->
         #{} ->
             NClientInfoMap
     end.
+
+result_format_undefined_to_null(Map) ->
+    maps:map(
+        fun
+            (_, undefined) -> null;
+            (_, V) -> V
+        end,
+        Map
+    ).
 
 -spec peername_dispart(emqx_types:peername()) -> {binary(), inet:port_number()}.
 peername_dispart({Addr, Port}) ->
