@@ -116,7 +116,7 @@ schema("/trace/:name/download") ->
         'operationId' => download_trace_log,
         get => #{
             description => "Download trace log by name",
-            parameters => [hoconsc:ref(name)],
+            parameters => [hoconsc:ref(name), hoconsc:ref(node)],
             responses => #{
                 200 =>
                     #{
@@ -408,10 +408,16 @@ update_trace(put, #{bindings := #{name := Name}}) ->
 
 %% if HTTP request headers include accept-encoding: gzip and file size > 300 bytes.
 %% cowboy_compress_h will auto encode gzip format.
-download_trace_log(get, #{bindings := #{name := Name}}) ->
+download_trace_log(get, #{bindings := #{name := Name}, query_string := Query}) ->
+    Nodes =
+        case parse_node(Query, undefined) of
+            {ok, undefined} -> mria_mnesia:running_nodes();
+            {ok, Node0} -> [Node0];
+            {error, not_found} -> mria_mnesia:running_nodes()
+        end,
     case emqx_trace:get_trace_filename(Name) of
         {ok, TraceLog} ->
-            TraceFiles = collect_trace_file(TraceLog),
+            TraceFiles = collect_trace_file(Nodes, TraceLog),
             ZipDir = emqx_trace:zip_dir(),
             Zips = group_trace_file(ZipDir, TraceLog, TraceFiles),
             FileName = binary_to_list(Name) ++ ".zip",
@@ -456,8 +462,7 @@ group_trace_file(ZipDir, TraceLog, TraceFiles) ->
         TraceFiles
     ).
 
-collect_trace_file(TraceLog) ->
-    Nodes = mria_mnesia:running_nodes(),
+collect_trace_file(Nodes, TraceLog) ->
     wrap_rpc(emqx_mgmt_trace_proto_v1:trace_file(Nodes, TraceLog)).
 
 wrap_rpc({GoodRes, BadNodes}) ->
@@ -466,10 +471,9 @@ wrap_rpc({GoodRes, BadNodes}) ->
     GoodRes.
 
 stream_log_file(get, #{bindings := #{name := Name}, query_string := Query}) ->
-    Node0 = maps:get(<<"node">>, Query, atom_to_binary(node())),
     Position = maps:get(<<"position">>, Query, 0),
     Bytes = maps:get(<<"bytes">>, Query, 1000),
-    case to_node(Node0) of
+    case parse_node(Query, node()) of
         {ok, Node} ->
             case emqx_mgmt_trace_proto_v1:read_trace_file(Node, Name, Position, Bytes) of
                 {ok, Bin} ->
@@ -561,9 +565,12 @@ read_file(Path, Offset, Bytes) ->
             {error, Reason}
     end.
 
-to_node(Node) ->
+parse_node(Query, Default) ->
     try
-        {ok, binary_to_existing_atom(Node)}
+        case maps:find(<<"node">>, Query) of
+            error -> {ok, Default};
+            {ok, Node} -> {ok, binary_to_existing_atom(Node)}
+        end
     catch
         _:_ ->
             {error, not_found}

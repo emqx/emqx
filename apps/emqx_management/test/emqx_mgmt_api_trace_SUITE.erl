@@ -199,10 +199,14 @@ t_download_log(_Config) ->
             info = #file_info{size = Size, type = regular, access = read_write}
         }
     ]} =
+        ZipTab =
         zip:table(Binary),
     ?assert(Size > 0),
     ZipNamePrefix = lists:flatten(io_lib:format("~s-trace_~s", [node(), Name])),
     ?assertNotEqual(nomatch, re:run(ZipName, [ZipNamePrefix])),
+    Path = api_path("trace/test_client_id/download?node=" ++ atom_to_list(node())),
+    {ok, Binary2} = request_api(get, Path, Header),
+    ?assertEqual(ZipTab, zip:table(Binary2)),
     ok = emqtt:disconnect(Client),
     ok.
 
