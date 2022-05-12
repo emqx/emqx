@@ -34,7 +34,8 @@ t_crud_rule_api(_Config) ->
         <<"enable">> => true,
         <<"id">> => RuleID,
         <<"outputs">> => [#{<<"function">> => <<"console">>}],
-        <<"sql">> => <<"SELECT * from \"t/1\"">>
+        <<"sql">> => <<"SELECT * from \"t/1\"">>,
+        <<"name">> => <<"test_rule">>
     },
     {201, Rule} = emqx_rule_engine_api:'/rules'(post, #{body => Params0}),
     %% if we post again with the same params, it return with 400 "rule id already exists"
