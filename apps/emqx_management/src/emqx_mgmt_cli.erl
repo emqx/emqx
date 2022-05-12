@@ -759,11 +759,6 @@ print({emqx_topic, #route{topic = Topic, dest = {_, Node}}}) ->
     emqx_ctl:print("~ts -> ~ts~n", [Topic, Node]);
 print({emqx_topic, #route{topic = Topic, dest = Node}}) ->
     emqx_ctl:print("~ts -> ~ts~n", [Topic, Node]);
-print(#plugin{name = Name, descr = Descr, active = Active}) ->
-    emqx_ctl:print(
-        "Plugin(~ts, description=~ts, active=~ts)~n",
-        [Name, Descr, Active]
-    );
 print({emqx_suboption, {{Pid, Topic}, Options}}) when is_pid(Pid) ->
     emqx_ctl:print("~ts -> ~ts~n", [maps:get(subid, Options), Topic]).
 
