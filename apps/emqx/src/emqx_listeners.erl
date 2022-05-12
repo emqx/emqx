@@ -47,7 +47,8 @@
 
 -export([
     listener_id/2,
-    parse_listener_id/1
+    parse_listener_id/1,
+    ensure_override_limiter_conf/2
 ]).
 
 -export([pre_config_update/3, post_config_update/5]).
@@ -353,7 +354,8 @@ pre_config_update([listeners, _Type, _Name], {create, _NewConf}, _RawConf) ->
 pre_config_update([listeners, _Type, _Name], {update, _Request}, undefined) ->
     {error, not_found};
 pre_config_update([listeners, Type, Name], {update, Request}, RawConf) ->
-    NewConf = emqx_map_lib:deep_merge(RawConf, Request),
+    NewConfT = emqx_map_lib:deep_merge(RawConf, Request),
+    NewConf = ensure_override_limiter_conf(NewConfT, Request),
     CertsDir = certs_dir(Type, Name),
     {ok, convert_certs(CertsDir, NewConf)};
 pre_config_update(_Path, _Request, RawConf) ->
@@ -572,3 +574,9 @@ clear_certs(CertsDir, Conf) ->
 
 filter_stacktrace({Reason, _Stacktrace}) -> Reason;
 filter_stacktrace(Reason) -> Reason.
+
+%% limiter config should override, not merge
+ensure_override_limiter_conf(Conf, #{<<"limiter">> := Limiter}) ->
+    Conf#{<<"limiter">> => Limiter};
+ensure_override_limiter_conf(Conf, _) ->
+    Conf.
