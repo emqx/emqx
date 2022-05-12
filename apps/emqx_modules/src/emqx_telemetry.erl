@@ -278,11 +278,12 @@ nodes_uuid() ->
 
 active_plugins() ->
     lists:foldl(
-        fun(#plugin{name = Name, active = Active}, Acc) ->
-            case Active of
-                true -> [Name | Acc];
-                false -> Acc
-            end
+        fun
+            (#{running_status := running} = Plugin, Acc) ->
+                #{<<"name">> := Name, <<"rel_vsn">> := Vsn} = Plugin,
+                [iolist_to_binary([Name, "-", Vsn]) | Acc];
+            (_, Acc) ->
+                Acc
         end,
         [],
         emqx_plugins:list()

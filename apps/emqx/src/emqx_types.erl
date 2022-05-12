@@ -88,7 +88,6 @@
 ]).
 
 -export_type([
-    plugin/0,
     banned/0,
     command/0
 ]).
@@ -231,7 +230,6 @@
 -type route() :: #route{}.
 -type group() :: emqx_topic:group().
 -type route_entry() :: {topic(), node()} | {topic, group()}.
--type plugin() :: #plugin{}.
 -type command() :: #command{}.
 
 -type caps() :: emqx_mqtt_caps:caps().
