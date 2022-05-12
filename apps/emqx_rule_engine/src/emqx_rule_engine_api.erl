@@ -334,6 +334,11 @@ replace_sql_clrf(#{<<"sql">> := SQL} = Params) ->
 %% Internal functions
 %%------------------------------------------------------------------------------
 
+err_msg({_, [{validation_error, VMessage}]}) ->
+    Exp = maps:get(expected_data_type, VMessage),
+    Path = maps:get(path, VMessage),
+    ErrorArg = maps:get(got, VMessage),
+    list_to_binary(io_lib:format("Key ~p error, expect ~p , got ~p", [Path, Exp, ErrorArg]));
 err_msg(Msg) ->
     list_to_binary(io_lib:format("~0p", [Msg])).
 
