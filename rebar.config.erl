@@ -104,7 +104,6 @@ project_app_dirs(Edition) ->
 plugins() ->
     [
         {relup_helper, {git, "https://github.com/emqx/relup_helper", {tag, "2.0.0"}}},
-        {er_coap_client, {git, "https://github.com/emqx/er_coap_client", {tag, "v1.0.5"}}},
         %% emqx main project does not require port-compiler
         %% pin at root level for deterministic
         {pc, "v1.14.1"}
@@ -123,7 +122,8 @@ test_deps() ->
     [
         {bbmustache, "1.10.0"},
         {meck, "0.9.2"},
-        {proper, "1.4.0"}
+        {proper, "1.4.0"},
+        {er_coap_client, {git, "https://github.com/emqx/er_coap_client", {tag, "v1.0.5"}}}
     ].
 
 common_compile_opts(Edition, Vsn) ->
