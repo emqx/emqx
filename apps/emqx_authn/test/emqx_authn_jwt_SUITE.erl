@@ -56,6 +56,7 @@ t_jwt_authenticator_hmac_based(_) ->
     Secret = <<"abcdef">>,
     Config = #{
         mechanism => jwt,
+        acl_claim_name => <<"acl">>,
         use_jwks => false,
         algorithm => 'hmac-based',
         secret => Secret,
@@ -179,6 +180,7 @@ t_jwt_authenticator_public_key(_) ->
     PrivateKey = test_rsa_key(private),
     Config = #{
         mechanism => jwt,
+        acl_claim_name => <<"acl">>,
         use_jwks => false,
         algorithm => 'public-key',
         public_key => PublicKey,
@@ -214,6 +216,7 @@ t_jwks_renewal(_Config) ->
 
     BadConfig0 = #{
         mechanism => jwt,
+        acl_claim_name => <<"acl">>,
         algorithm => 'public-key',
         ssl => #{enable => false},
         verify_claims => [],
@@ -308,6 +311,7 @@ t_jwt_authenticator_verify_claims(_) ->
     Secret = <<"abcdef">>,
     Config0 = #{
         mechanism => jwt,
+        acl_claim_name => <<"acl">>,
         use_jwks => false,
         algorithm => 'hmac-based',
         secret => Secret,
@@ -384,6 +388,7 @@ t_jwt_not_allow_empty_claim_name(_) ->
     Request = #{
         <<"use_jwks">> => false,
         <<"algorithm">> => <<"hmac-based">>,
+        <<"acl_claim_name">> => <<"acl">>,
         <<"secret">> => <<"secret">>,
         <<"mechanism">> => <<"jwt">>
     },
