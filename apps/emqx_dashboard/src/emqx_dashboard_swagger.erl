@@ -431,22 +431,20 @@ desc_struct(Hocon) ->
     case hocon_schema:field_schema(Hocon, desc) of
         undefined ->
             case hocon_schema:field_schema(Hocon, description) of
-                undefined ->
-                    case Hocon of
-                        ?R_REF(Mod, Name) ->
-                            case erlang:function_exported(Mod, desc, 1) of
-                                true -> Mod:desc(Name);
-                                false -> undefined
-                            end;
-                        _ ->
-                            undefined
-                    end;
-                Struct1 ->
-                    Struct1
+                undefined -> get_ref_desc(Hocon);
+                Struct1 -> Struct1
             end;
         Struct ->
             Struct
     end.
+
+get_ref_desc(?R_REF(Mod, Name)) ->
+    case erlang:function_exported(Mod, desc, 1) of
+        true -> Mod:desc(Name);
+        false -> undefined
+    end;
+get_ref_desc(_) ->
+    undefined.
 
 request_body(#{content := _} = Content, _Module, _Options) ->
     {Content, []};
