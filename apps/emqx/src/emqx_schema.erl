@@ -212,12 +212,36 @@ fields("persistent_session_store") ->
                     desc => ?DESC(persistent_session_store_enabled)
                 }
             )},
-        {"storage_type",
+        {"on_disc",
             sc(
-                hoconsc:union([ram, disc]),
+                boolean(),
                 #{
-                    default => disc,
-                    desc => ?DESC(persistent_session_store_storage_type)
+                    default => true,
+                    desc => ?DESC(persistent_store_on_disc)
+                }
+            )},
+        {"ram_cache",
+            sc(
+                boolean(),
+                #{
+                    default => false,
+                    desc => ?DESC(persistent_store_ram_cache)
+                }
+            )},
+        {"backend",
+            sc(
+                hoconsc:union([ref("persistent_session_builtin")]),
+                #{
+                    default => #{
+                        <<"type">> => <<"builtin">>,
+                        <<"session">> =>
+                            #{<<"ram_cache">> => <<"true">>},
+                        <<"session_messages">> =>
+                            #{<<"ram_cache">> => <<"true">>},
+                        <<"messages">> =>
+                            #{<<"ram_cache">> => <<"false">>}
+                    },
+                    desc => ?DESC(persistent_session_store_backend)
                 }
             )},
         {"max_retain_undelivered",
@@ -244,6 +268,33 @@ fields("persistent_session_store") ->
                     desc => ?DESC(persistent_session_store_session_message_gc_interval)
                 }
             )}
+    ];
+fields("persistent_table_mria_opts") ->
+    [
+        {"ram_cache",
+            sc(
+                boolean(),
+                #{
+                    default => true,
+                    desc => ?DESC(persistent_store_ram_cache)
+                }
+            )}
+    ];
+fields("persistent_session_builtin") ->
+    [
+        {"type", sc(hoconsc:enum([builtin]), #{default => builtin, desc => ""})},
+        {"session",
+            sc(ref("persistent_table_mria_opts"), #{
+                desc => ?DESC(persistent_session_builtin_session_table)
+            })},
+        {"session_messages",
+            sc(ref("persistent_table_mria_opts"), #{
+                desc => ?DESC(persistent_session_builtin_sess_msg_table)
+            })},
+        {"messages",
+            sc(ref("persistent_table_mria_opts"), #{
+                desc => ?DESC(persistent_session_builtin_messages_table)
+            })}
     ];
 fields("stats") ->
     [
@@ -1526,6 +1577,10 @@ base_listener() ->
 
 desc("persistent_session_store") ->
     "Settings for message persistence.";
+desc("persistent_session_builtin") ->
+    "Settings for the built-in storage engine of persistent messages.";
+desc("persistent_table_mria_opts") ->
+    "Tuning options for the mria table.";
 desc("stats") ->
     "Enable/disable statistic data collection.\n"
     "Statistic data such as message receive/send count/rate etc. "
