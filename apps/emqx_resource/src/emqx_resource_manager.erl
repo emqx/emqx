@@ -122,7 +122,7 @@ remove(InstId, ClearMetrics) when is_binary(InstId) ->
 restart(InstId, Opts) when is_binary(InstId) ->
     case lookup(InstId) of
         {ok, Group, #{mod := ResourceType, config := Config} = _Data} ->
-            _ = remove(InstId),
+            _ = remove(InstId, false),
             do_start(InstId, Group, ResourceType, Config, Opts);
         Error ->
             Error
