@@ -149,13 +149,16 @@ update_config(KeyPath, UpdateReq) ->
 
 pre_config_update(_, {add, #{<<"name">> := Name} = Conf}, OldConf) ->
     case lists:any(fun(#{<<"name">> := ExistedName}) -> ExistedName =:= Name end, OldConf) of
-        true -> throw(already_exists);
-        false -> {ok, OldConf ++ [Conf]}
+        true ->
+            throw(already_exists);
+        false ->
+            NConf = maybe_write_certs(Conf),
+            {ok, OldConf ++ [NConf]}
     end;
 pre_config_update(_, {update, Name, Conf}, OldConf) ->
     case replace_conf(Name, fun(_) -> Conf end, OldConf) of
         not_found -> throw(not_found);
-        NewConf -> {ok, NewConf}
+        NewConf -> {ok, lists:map(fun maybe_write_certs/1, NewConf)}
     end;
 pre_config_update(_, {delete, ToDelete}, OldConf) ->
     case do_delete(ToDelete, OldConf) of
@@ -176,7 +179,7 @@ pre_config_update(_, {enable, Name, Enable}, OldConf) ->
         )
     of
         not_found -> throw(not_found);
-        NewConf -> {ok, NewConf}
+        NewConf -> {ok, lists:map(fun maybe_write_certs/1, NewConf)}
     end.
 
 post_config_update(_KeyPath, UpdateReq, NewConf, _OldConf, _AppEnvs) ->
@@ -427,8 +430,8 @@ move_to([], _Position, _Server, _HeadL) ->
 do_delete(ToDelete, OldConf) ->
     case lists:any(fun(#{<<"name">> := ExistedName}) -> ExistedName =:= ToDelete end, OldConf) of
         true ->
-            lists:dropwhile(
-                fun(#{<<"name">> := Name}) -> Name =:= ToDelete end,
+            lists:filter(
+                fun(#{<<"name">> := Name}) -> Name =/= ToDelete end,
                 OldConf
             );
         false ->
@@ -574,3 +577,24 @@ hooks(Name) ->
         Service ->
             emqx_exhook_server:hooks(Service)
     end.
+
+maybe_write_certs(#{<<"name">> := Name} = Conf) ->
+    case
+        emqx_tls_lib:ensure_ssl_files(
+            ssl_file_path(Name), maps:get(<<"ssl">>, Conf, undefined)
+        )
+    of
+        {ok, SSL} ->
+            new_ssl_source(Conf, SSL);
+        {error, Reason} ->
+            ?SLOG(error, Reason#{msg => "bad_ssl_config"}),
+            throw({bad_ssl_config, Reason})
+    end.
+
+ssl_file_path(Name) ->
+    filename:join(["exhook", Name]).
+
+new_ssl_source(Source, undefined) ->
+    Source;
+new_ssl_source(Source, SSL) ->
+    Source#{<<"ssl">> => SSL}.
