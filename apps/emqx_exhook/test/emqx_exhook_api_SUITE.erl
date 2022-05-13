@@ -200,6 +200,23 @@ t_add_duplicate(Cfg) ->
 
     ?assertMatch([<<"default">>, <<"test1">>], emqx_exhook_mgr:running()).
 
+t_add_with_bad_name(Cfg) ->
+    Template = proplists:get_value(template, Cfg),
+    Instance = Template#{
+        name => <<"🤔">>,
+        url => "http://127.0.0.1:9001"
+    },
+
+    {error, _Reason} = request_api(
+        post,
+        api_path(["exhooks"]),
+        "",
+        auth_header_(),
+        Instance
+    ),
+
+    ?assertMatch([<<"default">>, <<"test1">>], emqx_exhook_mgr:running()).
+
 t_move_front(_) ->
     Result = request_api(
         post,
