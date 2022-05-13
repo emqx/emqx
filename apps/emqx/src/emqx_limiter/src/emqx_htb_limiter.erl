@@ -49,7 +49,7 @@
     %% @see emqx_limiter_schema
     divisible := boolean(),
     %% @see emqx_limiter_schema
-    low_water_mark := non_neg_integer(),
+    low_watermark := non_neg_integer(),
     %% the limiter server's bucket
     bucket := bucket(),
 
@@ -68,7 +68,7 @@
     max_retry_time := non_neg_integer(),
     failure_strategy := failure_strategy(),
     divisible := boolean(),
-    low_water_mark := non_neg_integer(),
+    low_watermark := non_neg_integer(),
     bucket := bucket(),
 
     retry_ctx => undefined | retry_context(ref_limiter()),
@@ -115,7 +115,7 @@
 -type limiter_bucket_cfg() :: #{
     rate := decimal(),
     initial := non_neg_integer(),
-    low_water_mark := non_neg_integer(),
+    low_watermark := non_neg_integer(),
     capacity := decimal(),
     divisible := boolean(),
     max_retry_time := non_neg_integer(),
@@ -401,7 +401,7 @@ try_restore(#{need := Need, diff := Diff}, #{bucket := Bucket} = Limiter) ->
 
 -spec may_return_or_pause(non_neg_integer(), Limiter) -> check_result(Limiter) when
     Limiter :: limiter().
-may_return_or_pause(Left, #{low_water_mark := Mark} = Limiter) when Left >= Mark ->
+may_return_or_pause(Left, #{low_watermark := Mark} = Limiter) when Left >= Mark ->
     {ok, Limiter};
 may_return_or_pause(_, Limiter) ->
     {pause, ?MINIMUM_PAUSE, make_retry_context(undefined, 0), Limiter}.

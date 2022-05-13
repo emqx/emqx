@@ -185,7 +185,7 @@ limiter_conf() ->
                                     divisible => false,
                                     failure_strategy => force,
                                     initial => 0,
-                                    low_water_mark => 0,
+                                    low_watermark => 0,
                                     max_retry_time => 5000,
                                     rate => infinity
                                 }
@@ -303,7 +303,7 @@ modify_limiter() ->
         rate := 5,
         initial := 0,
         capacity := 5,
-        low_water_mark := 1
+        low_watermark := 1
     },
     Default2 = Default#{
         per_client := Client2,
