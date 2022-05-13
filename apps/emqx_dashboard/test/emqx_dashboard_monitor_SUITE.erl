@@ -105,6 +105,7 @@ t_monitor_reset(_) ->
         ?assert(maps:is_key(atom_to_binary(Key, utf8), Rate))
      || Key <- maps:values(?DELTA_SAMPLER_RATE_MAP) ++ ?GAUGE_SAMPLER_LIST
     ],
+    timer:sleep(?DEFAULT_SAMPLE_INTERVAL * 2 * 1000 + 20),
     {ok, Samplers} = request(["monitor"], "latest=1"),
     ?assertEqual(1, erlang:length(Samplers)),
     ok.
@@ -158,7 +159,7 @@ auth_header_() ->
 
 restart_monitor() ->
     OldMonitor = erlang:whereis(emqx_dashboard_monitor),
-    erlang:exit(OldMonitor, killed),
+    erlang:exit(OldMonitor, kill),
     ?assertEqual(ok, wait_new_monitor(OldMonitor, 10)).
 
 wait_new_monitor(_OldMonitor, Count) when Count =< 0 -> timeout;
