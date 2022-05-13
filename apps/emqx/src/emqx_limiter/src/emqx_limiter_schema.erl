@@ -123,15 +123,15 @@ fields(client_bucket) ->
     [
         {rate, sc(rate(), #{default => "infinity", desc => ?DESC(rate)})},
         {initial, sc(initial(), #{default => "0", desc => ?DESC(initial)})},
-        %% low_water_mark add for emqx_channel and emqx_session
+        %% low_watermark add for emqx_channel and emqx_session
         %% both modules consume first and then check
         %% so we need to use this value to prevent excessive consumption
         %% (e.g, consumption from an empty bucket)
-        {low_water_mark,
+        {low_watermark,
             sc(
                 initial(),
                 #{
-                    desc => ?DESC(low_water_mark),
+                    desc => ?DESC(low_watermark),
                     default => "0"
                 }
             )},

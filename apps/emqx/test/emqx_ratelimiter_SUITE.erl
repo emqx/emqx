@@ -206,10 +206,10 @@ t_divisible(_) ->
     end,
     with_per_client(default, Cfg, Case).
 
-t_low_water_mark(_) ->
+t_low_watermark(_) ->
     Cfg = fun(Cfg) ->
         Cfg#{
-            low_water_mark := 400,
+            low_watermark := 400,
             rate := ?RATE("1000/1s"),
             initial := 1000,
             capacity := 1000
