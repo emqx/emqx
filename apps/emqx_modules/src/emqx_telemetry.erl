@@ -290,7 +290,7 @@ active_plugins() ->
     ).
 
 num_clients() ->
-    emqx_stats:getstat('connections.max').
+    emqx_stats:getstat('live_connections.count').
 
 messages_sent() ->
     emqx_metrics:val('messages.sent').
