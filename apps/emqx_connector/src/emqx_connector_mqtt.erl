@@ -241,7 +241,10 @@ basic_config(#{
         connect_timeout => 30,
         reconnect_interval => ReconnIntv,
         proto_ver => ProtoVer,
-        bridge_mode => true,
+        %% If haporxy enables mqtt connection packet checking,
+        %% then using bridge_mode will directly cause the connection to fail.
+        %% Let's disable bridge_mode.
+        bridge_mode => false,
         username => User,
         password => Password,
         clean_start => CleanStart,
