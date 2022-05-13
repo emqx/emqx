@@ -115,7 +115,7 @@ do_cancel_alarm_congestion(Socket, Transport, Channel, Reason) ->
     ok = remove_alarm_sent_at(Reason),
     AlarmDetails = tcp_congestion_alarm_details(Socket, Transport, Channel),
     Message = io_lib:format("connection congested: ~0p", [AlarmDetails]),
-    emqx_alarm:deactivate(?ALARM_CONN_CONGEST(Channel, Reason), AlarmDetails, Message),
+    emqx_alarm:ensure_deactivated(?ALARM_CONN_CONGEST(Channel, Reason), AlarmDetails, Message),
     ok.
 
 is_tcp_congested(Socket, Transport) ->

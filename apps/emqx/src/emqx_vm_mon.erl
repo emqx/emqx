@@ -77,7 +77,7 @@ handle_info({timeout, _Timer, check}, State) ->
         Percent when Percent < ProcLowWatermark ->
             Usage = io_lib:format("~p%", [Percent * 100]),
             Message = [Usage, " process usage"],
-            emqx_alarm:deactivate(
+            emqx_alarm:ensure_deactivated(
                 too_many_processes,
                 #{
                     usage => Usage,

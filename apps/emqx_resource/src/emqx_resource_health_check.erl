@@ -77,7 +77,7 @@ health_check(Name) ->
         {Pid, begin_health_check} ->
             case emqx_resource:health_check(Name) of
                 ok ->
-                    emqx_alarm:deactivate(Name);
+                    emqx_alarm:ensure_deactivated(Name);
                 {error, _} ->
                     emqx_alarm:activate(
                         Name,

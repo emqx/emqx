@@ -233,8 +233,7 @@ mem_info() ->
     [{total_memory, Total}, {used_memory, Total - Free}].
 
 ftos(F) ->
-    S = io_lib:format("~.2f", [F]),
-    S.
+    io_lib:format("~.2f", [F / 1.0]).
 
 %%%% erlang vm scheduler_usage  fun copied from recon
 scheduler_usage(Interval) when is_integer(Interval) ->

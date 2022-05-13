@@ -103,7 +103,7 @@ connection_quota_early_alarm({ok, #{max_connections := Max}}) when is_integer(Ma
             ]),
             ?OK(emqx_alarm:activate(license_quota, #{high_watermark => HighPercent}, Message))
         end,
-    Count < Max * Low andalso ?OK(emqx_alarm:deactivate(license_quota));
+    Count < Max * Low andalso ?OK(emqx_alarm:ensure_deactivated(license_quota));
 connection_quota_early_alarm(_Limits) ->
     ok.
 
