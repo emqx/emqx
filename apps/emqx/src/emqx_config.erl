@@ -47,6 +47,8 @@
     find_raw/1,
     put/1,
     put/2,
+    force_put/2,
+    force_put/3,
     erase/1
 ]).
 
@@ -90,14 +92,6 @@
 -define(PERSIS_KEY(TYPE, ROOT), {?MODULE, TYPE, ROOT}).
 -define(ZONE_CONF_PATH(ZONE, PATH), [zones, ZONE | PATH]).
 -define(LISTENER_CONF_PATH(TYPE, LISTENER, PATH), [listeners, TYPE, LISTENER | PATH]).
-
--define(ATOM_CONF_PATH(PATH, EXP, EXP_ON_FAIL),
-    try [atom(Key) || Key <- PATH] of
-        AtomKeyPath -> EXP
-    catch
-        error:badarg -> EXP_ON_FAIL
-    end
-).
 
 -export_type([
     update_request/0,
@@ -166,10 +160,10 @@ find([]) ->
         Res -> {ok, Res}
     end;
 find(KeyPath) ->
-    ?ATOM_CONF_PATH(
+    atom_conf_path(
         KeyPath,
-        emqx_map_lib:deep_find(AtomKeyPath, get_root(KeyPath)),
-        {not_found, KeyPath}
+        fun(AtomKeyPath) -> emqx_map_lib:deep_find(AtomKeyPath, get_root(KeyPath)) end,
+        {return, {not_found, KeyPath}}
     ).
 
 -spec find_raw(emqx_map_lib:config_key_path()) ->
@@ -239,7 +233,29 @@ erase(RootName) ->
     persistent_term:erase(?PERSIS_KEY(?RAW_CONF, bin(RootName))).
 
 -spec put(emqx_map_lib:config_key_path(), term()) -> ok.
-put(KeyPath, Config) -> do_put(?CONF, KeyPath, Config).
+put(KeyPath, Config) ->
+    Putter = fun(Path, Map, Value) ->
+        emqx_map_lib:deep_put(Path, Map, Value)
+    end,
+    do_put(?CONF, Putter, KeyPath, Config).
+
+%% Puts value into configuration even if path doesn't exist
+%% For paths of non-existing atoms use force_put(KeyPath, Config, unsafe)
+-spec force_put(emqx_map_lib:config_key_path(), term()) -> ok.
+force_put(KeyPath, Config) ->
+    force_put(KeyPath, Config, safe).
+
+-spec force_put(emqx_map_lib:config_key_path(), term(), safe | unsafe) -> ok.
+force_put(KeyPath0, Config, Safety) ->
+    KeyPath =
+        case Safety of
+            safe -> KeyPath0;
+            unsafe -> [unsafe_atom(Key) || Key <- KeyPath0]
+        end,
+    Putter = fun(Path, Map, Value) ->
+        emqx_map_lib:deep_force_put(Path, Map, Value)
+    end,
+    do_put(?CONF, Putter, KeyPath, Config).
 
 -spec get_default_value(emqx_map_lib:config_key_path()) -> {ok, term()} | {error, term()}.
 get_default_value([RootName | _] = KeyPath) ->
@@ -277,7 +293,11 @@ put_raw(Config) ->
     ).
 
 -spec put_raw(emqx_map_lib:config_key_path(), term()) -> ok.
-put_raw(KeyPath, Config) -> do_put(?RAW_CONF, KeyPath, Config).
+put_raw(KeyPath, Config) ->
+    Putter = fun(Path, Map, Value) ->
+        emqx_map_lib:deep_force_put(Path, Map, Value)
+    end,
+    do_put(?RAW_CONF, Putter, KeyPath, Config).
 
 %%============================================================================
 %% Load/Update configs From/To files
@@ -541,40 +561,47 @@ do_get(Type, [RootName | KeyPath], Default) ->
     RootV = persistent_term:get(?PERSIS_KEY(Type, bin(RootName)), #{}),
     do_deep_get(Type, KeyPath, RootV, Default).
 
-do_put(Type, [], DeepValue) ->
+do_put(Type, Putter, [], DeepValue) ->
     maps:fold(
         fun(RootName, Value, _Res) ->
-            do_put(Type, [RootName], Value)
+            do_put(Type, Putter, [RootName], Value)
         end,
         ok,
         DeepValue
     );
-do_put(Type, [RootName | KeyPath], DeepValue) ->
+do_put(Type, Putter, [RootName | KeyPath], DeepValue) ->
     OldValue = do_get(Type, [RootName], #{}),
-    NewValue = do_deep_put(Type, KeyPath, OldValue, DeepValue),
+    NewValue = do_deep_put(Type, Putter, KeyPath, OldValue, DeepValue),
     persistent_term:put(?PERSIS_KEY(Type, bin(RootName)), NewValue).
 
 do_deep_get(?CONF, KeyPath, Map, Default) ->
-    ?ATOM_CONF_PATH(
+    atom_conf_path(
         KeyPath,
-        emqx_map_lib:deep_get(AtomKeyPath, Map, Default),
-        Default
+        fun(AtomKeyPath) -> emqx_map_lib:deep_get(AtomKeyPath, Map, Default) end,
+        {return, Default}
     );
 do_deep_get(?RAW_CONF, KeyPath, Map, Default) ->
     emqx_map_lib:deep_get([bin(Key) || Key <- KeyPath], Map, Default).
 
-do_deep_put(?CONF, KeyPath, Map, Value) ->
-    ?ATOM_CONF_PATH(
+do_deep_put(?CONF, Putter, KeyPath, Map, Value) ->
+    atom_conf_path(
         KeyPath,
-        emqx_map_lib:deep_put(AtomKeyPath, Map, Value),
-        error({not_found, KeyPath})
+        fun(AtomKeyPath) -> Putter(AtomKeyPath, Map, Value) end,
+        {raise_error, {not_found, KeyPath}}
     );
-do_deep_put(?RAW_CONF, KeyPath, Map, Value) ->
-    emqx_map_lib:deep_put([bin(Key) || Key <- KeyPath], Map, Value).
+do_deep_put(?RAW_CONF, Putter, KeyPath, Map, Value) ->
+    Putter([bin(Key) || Key <- KeyPath], Map, Value).
 
 root_names_from_conf(RawConf) ->
     Keys = maps:keys(RawConf),
     [Name || Name <- get_root_names(), lists:member(Name, Keys)].
+
+unsafe_atom(Bin) when is_binary(Bin) ->
+    binary_to_atom(Bin, utf8);
+unsafe_atom(Str) when is_list(Str) ->
+    list_to_atom(Str);
+unsafe_atom(Atom) when is_atom(Atom) ->
+    Atom.
 
 atom(Bin) when is_binary(Bin) ->
     binary_to_existing_atom(Bin, utf8);
@@ -591,3 +618,16 @@ conf_key(?CONF, RootName) ->
     atom(RootName);
 conf_key(?RAW_CONF, RootName) ->
     bin(RootName).
+
+atom_conf_path(Path, ExpFun, OnFail) ->
+    try [atom(Key) || Key <- Path] of
+        AtomKeyPath -> ExpFun(AtomKeyPath)
+    catch
+        error:badarg ->
+            case OnFail of
+                {return, Val} ->
+                    Val;
+                {raise_error, Err} ->
+                    error(Err)
+            end
+    end.

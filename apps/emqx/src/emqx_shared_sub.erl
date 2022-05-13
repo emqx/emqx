@@ -46,7 +46,12 @@
 ]).
 
 %% for testing
--export([subscribers/2]).
+-ifdef(TEST).
+-export([
+    subscribers/2,
+    strategy/1
+]).
+-endif.
 
 %% gen_server callbacks
 -export([
@@ -64,6 +69,7 @@
     random
     | round_robin
     | sticky
+    | local
     %% same as hash_clientid, backward compatible
     | hash
     | hash_clientid
@@ -122,7 +128,7 @@ dispatch(Group, Topic, Delivery) ->
 
 dispatch(Group, Topic, Delivery = #delivery{message = Msg}, FailedSubs) ->
     #message{from = ClientId, topic = SourceTopic} = Msg,
-    case pick(strategy(), ClientId, SourceTopic, Group, Topic, FailedSubs) of
+    case pick(strategy(Group), ClientId, SourceTopic, Group, Topic, FailedSubs) of
         false ->
             {error, no_subscribers};
         {Type, SubPid} ->
@@ -135,9 +141,12 @@ dispatch(Group, Topic, Delivery = #delivery{message = Msg}, FailedSubs) ->
             end
     end.
 
--spec strategy() -> strategy().
-strategy() ->
-    emqx:get_config([broker, shared_subscription_strategy]).
+-spec strategy(emqx_topic:group()) -> strategy().
+strategy(Group) ->
+    case emqx:get_config([broker, shared_subscription_group, Group, strategy], undefined) of
+        undefined -> emqx:get_config([broker, shared_subscription_strategy]);
+        Strategy -> Strategy
+    end.
 
 -spec ack_enabled() -> boolean().
 ack_enabled() ->
@@ -270,6 +279,13 @@ do_pick(Strategy, ClientId, SourceTopic, Group, Topic, FailedSubs) ->
 
 pick_subscriber(_Group, _Topic, _Strategy, _ClientId, _SourceTopic, [Sub]) ->
     Sub;
+pick_subscriber(Group, Topic, local, ClientId, SourceTopic, Subs) ->
+    case lists:filter(fun(Pid) -> erlang:node(Pid) =:= node() end, Subs) of
+        [_ | _] = LocalSubs ->
+            pick_subscriber(Group, Topic, random, ClientId, SourceTopic, LocalSubs);
+        [] ->
+            pick_subscriber(Group, Topic, random, ClientId, SourceTopic, Subs)
+    end;
 pick_subscriber(Group, Topic, Strategy, ClientId, SourceTopic, Subs) ->
     Nth = do_pick_subscriber(Group, Topic, Strategy, ClientId, SourceTopic, length(Subs)),
     lists:nth(Nth, Subs).
