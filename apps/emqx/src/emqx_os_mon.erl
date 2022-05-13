@@ -123,33 +123,28 @@ handle_info({timeout, _Timer, mem_check}, #{sysmem_high_watermark := HWM} = Stat
 handle_info({timeout, _Timer, cpu_check}, State) ->
     CPUHighWatermark = emqx:get_config([sysmon, os, cpu_high_watermark]) * 100,
     CPULowWatermark = emqx:get_config([sysmon, os, cpu_low_watermark]) * 100,
-    %% TODO: should be improved?
     case emqx_vm:cpu_util() of
         0 ->
             ok;
         Busy when Busy > CPUHighWatermark ->
-            Usage = list_to_binary(io_lib:format("~.2f%", [Busy])),
-            Message = <<Usage/binary, " cpu usage">>,
             _ = emqx_alarm:activate(
                 high_cpu_usage,
                 #{
-                    usage => Usage,
+                    usage => Busy,
                     high_watermark => CPUHighWatermark,
                     low_watermark => CPULowWatermark
                 },
-                Message
+                usage_msg(Busy, cpu)
             );
         Busy when Busy < CPULowWatermark ->
-            Usage = list_to_binary(io_lib:format("~.2f%", [Busy])),
-            Message = <<Usage/binary, " cpu usage">>,
             ok = emqx_alarm:ensure_deactivated(
                 high_cpu_usage,
                 #{
-                    usage => Usage,
+                    usage => Busy,
                     high_watermark => CPUHighWatermark,
                     low_watermark => CPULowWatermark
                 },
-                Message
+                usage_msg(Busy, cpu)
             );
         _Busy ->
             ok
@@ -208,8 +203,6 @@ update_mem_alarm_stauts(HWM) when HWM > 1.0 orelse HWM < 0.0 ->
 update_mem_alarm_stauts(HWM0) ->
     HWM = HWM0 * 100,
     Usage = current_sysmem_percent(),
-    UsageStr = list_to_binary(io_lib:format("~.2f%", [Usage])),
-    Message = <<UsageStr/binary, " mem usage">>,
     case Usage > HWM of
         true ->
             _ = emqx_alarm:activate(
@@ -218,7 +211,7 @@ update_mem_alarm_stauts(HWM0) ->
                     usage => Usage,
                     high_watermark => HWM
                 },
-                Message
+                usage_msg(Usage, mem)
             );
         _ ->
             ok = emqx_alarm:ensure_deactivated(
@@ -227,7 +220,11 @@ update_mem_alarm_stauts(HWM0) ->
                     usage => Usage,
                     high_watermark => HWM
                 },
-                Message
+                usage_msg(Usage, mem)
             )
     end,
     ok.
+
+usage_msg(Usage, What) ->
+    %% devide by 1.0 to ensure float point number
+    iolist_to_binary(io_lib:format("~.2f% ~p usage", [Usage / 1.0, What])).
