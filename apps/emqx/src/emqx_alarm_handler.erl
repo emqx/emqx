@@ -69,7 +69,7 @@ handle_event({set_alarm, {process_memory_high_watermark, Pid}}, State) ->
     ),
     {ok, State};
 handle_event({clear_alarm, process_memory_high_watermark}, State) ->
-    _ = emqx_alarm:deactivate(high_process_memory_usage),
+    emqx_alarm:ensure_deactivated(high_process_memory_usage),
     {ok, State};
 handle_event({set_alarm, {?LC_ALARM_ID_RUNQ, Info}}, State) ->
     #{node := Node, runq_length := Len} = Info,
@@ -77,7 +77,7 @@ handle_event({set_alarm, {?LC_ALARM_ID_RUNQ, Info}}, State) ->
     emqx_alarm:activate(runq_overload, Info, Message),
     {ok, State};
 handle_event({clear_alarm, ?LC_ALARM_ID_RUNQ}, State) ->
-    _ = emqx_alarm:deactivate(runq_overload),
+    emqx_alarm:ensure_deactivated(runq_overload),
     {ok, State};
 handle_event(_, State) ->
     {ok, State}.

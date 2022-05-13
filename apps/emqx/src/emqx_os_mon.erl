@@ -174,9 +174,9 @@ start_cpu_check_timer() ->
     Interval = emqx:get_config([sysmon, os, cpu_check_interval]),
     case erlang:system_info(system_architecture) of
         "x86_64-pc-linux-musl" -> ok;
-        _ -> _ = emqx_misc:start_timer(Interval, cpu_check)
-    end,
-    ok.
+        _ -> start_timer(Interval, cpu_check)
+    end.
+
 start_mem_check_timer() ->
     Interval = emqx:get_config([sysmon, os, mem_check_interval]),
     IsSupported =
@@ -189,10 +189,13 @@ start_mem_check_timer() ->
         end,
     case is_integer(Interval) andalso IsSupported of
         true ->
-            _ = emqx_misc:start_timer(Interval, mem_check);
+            start_timer(Interval, mem_check);
         false ->
             ok
-    end,
+    end.
+
+start_timer(Interval, Msg) ->
+    _ = emqx_misc:start_timer(Interval, Msg),
     ok.
 
 update_mem_alarm_stauts(HWM) when HWM > 1.0 orelse HWM < 0.0 ->

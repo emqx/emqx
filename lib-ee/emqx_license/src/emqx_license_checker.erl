@@ -197,7 +197,7 @@ expiry_early_alarm(License) ->
             Date = iolist_to_binary(io_lib:format("~B~2..0B~2..0B", [Y, M, D])),
             ?OK(emqx_alarm:activate(license_expiry, #{expiry_at => Date}));
         false ->
-            ?OK(emqx_alarm:deactivate(license_expiry))
+            ?OK(emqx_alarm:ensure_deactivated(license_expiry))
     end.
 
 print_warnings(Warnings) ->
