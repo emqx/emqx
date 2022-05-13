@@ -244,7 +244,7 @@ merge_cluster_sampler_map(M1, M2) ->
     Fun =
         fun
             (topics, Map) ->
-                Map;
+                Map#{topics => maps:get(topics, M1)};
             (Key, Map) ->
                 Map#{Key => maps:get(Key, M1) + maps:get(Key, M2)}
         end,
