@@ -87,7 +87,9 @@ update(Pid, Config) ->
     call(Pid, {update, Config}).
 
 call(Pid, Req) ->
-    gen_server:call(Pid, Req, 5000).
+    %% The large timeout aim to get the modified results of the dependent
+    %% resources
+    gen_server:call(Pid, Req, 15000).
 
 %%--------------------------------------------------------------------
 %% gen_server callbacks

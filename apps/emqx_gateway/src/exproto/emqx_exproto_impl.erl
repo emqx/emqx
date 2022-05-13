@@ -167,16 +167,17 @@ start_grpc_server(GwName, Options = #{bind := ListenOn}) ->
                         )}
                 ]
         end,
+    ListenOnStr = emqx_listeners:format_addr(ListenOn),
     case grpc:start_server(GwName, ListenOn, Services, SvrOptions) of
         {ok, _SvrPid} ->
             console_print(
-                "Start ~ts gRPC server on ~p successfully.~n",
-                [GwName, ListenOn]
+                "Start ~ts gRPC server on ~s successfully.~n",
+                [GwName, ListenOnStr]
             );
         {error, Reason} ->
             ?ELOG(
-                "Failed to start ~ts gRPC server on ~p, reason: ~0p",
-                [GwName, ListenOn, Reason]
+                "Failed to start ~ts gRPC server on ~s, reason: ~0p",
+                [GwName, ListenOnStr, Reason]
             ),
             throw(
                 {badconf, #{

@@ -211,9 +211,7 @@ t_gateway_exproto_with_ssl(_) ->
         name => <<"exproto">>,
         server => #{
             bind => <<"9100">>,
-            ssl => SslSvrOpts#{
-                enable => true
-            }
+            ssl => SslSvrOpts
         },
         handler => #{
             address => <<"http://127.0.0.1:9001">>,
@@ -230,7 +228,7 @@ t_gateway_exproto_with_ssl(_) ->
     GwConf2 = emqx_map_lib:deep_merge(GwConf, #{
         server => #{
             bind => <<"9200">>,
-            ssl => SslCliOpts#{enable => true}
+            ssl => SslCliOpts
         }
     }),
     {200, _} = request(put, "/gateway/exproto", maps:without([name, listeners], GwConf2)),
