@@ -241,7 +241,12 @@ basic_config(#{
         connect_timeout => 30,
         reconnect_interval => ReconnIntv,
         proto_ver => ProtoVer,
-        bridge_mode => true,
+        %% Opening bridge_mode will form a non-standard mqtt connection message.
+        %% A load balancing server (such as haproxy) is often set up before the emqx broker server.
+        %% When the load balancing server enables mqtt connection packet inspection,
+        %% non-standard mqtt connection packets will be filtered out by LB.
+        %% So let's disable bridge_mode.
+        bridge_mode => false,
         username => User,
         password => Password,
         clean_start => CleanStart,
