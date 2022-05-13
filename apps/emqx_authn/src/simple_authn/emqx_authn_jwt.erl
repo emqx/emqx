@@ -111,6 +111,11 @@ desc(_) ->
 common_fields() ->
     [
         {mechanism, emqx_authn_schema:mechanism('jwt')},
+        {acl_claim_name, #{
+            type => binary(),
+            default => <<"acl">>,
+            desc => ?DESC(acl_claim_name)
+        }},
         {verify_claims, fun verify_claims/1}
     ] ++ emqx_authn_schema:common_fields().
 
@@ -231,17 +236,19 @@ authenticate(
     Credential = #{password := JWT},
     #{
         verify_claims := VerifyClaims0,
-        jwk := JWK
+        jwk := JWK,
+        acl_claim_name := AclClaimName
     }
 ) ->
     JWKs = [JWK],
     VerifyClaims = replace_placeholder(VerifyClaims0, Credential),
-    verify(JWT, JWKs, VerifyClaims);
+    verify(JWT, JWKs, VerifyClaims, AclClaimName);
 authenticate(
     Credential = #{password := JWT},
     #{
         verify_claims := VerifyClaims0,
-        jwk_resource := ResourceId
+        jwk_resource := ResourceId,
+        acl_claim_name := AclClaimName
     }
 ) ->
     case emqx_resource:query(ResourceId, get_jwks) of
@@ -254,7 +261,7 @@ authenticate(
             ignore;
         {ok, JWKs} ->
             VerifyClaims = replace_placeholder(VerifyClaims0, Credential),
-            verify(JWT, JWKs, VerifyClaims)
+            verify(JWT, JWKs, VerifyClaims, AclClaimName)
     end.
 
 destroy(#{jwk_resource := ResourceId}) ->
@@ -272,7 +279,8 @@ create2(#{
     algorithm := 'hmac-based',
     secret := Secret0,
     secret_base64_encoded := Base64Encoded,
-    verify_claims := VerifyClaims
+    verify_claims := VerifyClaims,
+    acl_claim_name := AclClaimName
 }) ->
     case may_decode_secret(Base64Encoded, Secret0) of
         {error, Reason} ->
@@ -281,24 +289,28 @@ create2(#{
             JWK = jose_jwk:from_oct(Secret),
             {ok, #{
                 jwk => JWK,
-                verify_claims => VerifyClaims
+                verify_claims => VerifyClaims,
+                acl_claim_name => AclClaimName
             }}
     end;
 create2(#{
     use_jwks := false,
     algorithm := 'public-key',
     public_key := PublicKey,
-    verify_claims := VerifyClaims
+    verify_claims := VerifyClaims,
+    acl_claim_name := AclClaimName
 }) ->
     JWK = create_jwk_from_public_key(PublicKey),
     {ok, #{
         jwk => JWK,
-        verify_claims => VerifyClaims
+        verify_claims => VerifyClaims,
+        acl_claim_name => AclClaimName
     }};
 create2(
     #{
         use_jwks := true,
-        verify_claims := VerifyClaims
+        verify_claims := VerifyClaims,
+        acl_claim_name := AclClaimName
     } = Config
 ) ->
     ResourceId = emqx_authn_utils:make_resource_id(?MODULE),
@@ -310,7 +322,8 @@ create2(
     ),
     {ok, #{
         jwk_resource => ResourceId,
-        verify_claims => VerifyClaims
+        verify_claims => VerifyClaims,
+        acl_claim_name => AclClaimName
     }}.
 
 create_jwk_from_public_key(PublicKey) when
@@ -352,23 +365,39 @@ replace_placeholder([{Name, {placeholder, PL}} | More], Variables, Acc) ->
 replace_placeholder([{Name, Value} | More], Variables, Acc) ->
     replace_placeholder(More, Variables, [{Name, Value} | Acc]).
 
-verify(JWT, JWKs, VerifyClaims) ->
+verify(JWT, JWKs, VerifyClaims, AclClaimName) ->
     case do_verify(JWT, JWKs, VerifyClaims) of
-        {ok, Extra} -> {ok, Extra};
+        {ok, Extra} -> {ok, acl(Extra, AclClaimName)};
         {error, {missing_claim, _}} -> {error, bad_username_or_password};
         {error, invalid_signature} -> ignore;
         {error, {claims, _}} -> {error, bad_username_or_password}
     end.
+
+acl(Claims, AclClaimName) ->
+    Acl =
+        case Claims of
+            #{<<"exp">> := Expire, AclClaimName := Rules} ->
+                #{
+                    acl => #{
+                        rules => Rules,
+                        expire => Expire
+                    }
+                };
+            _ ->
+                #{}
+        end,
+    maps:merge(emqx_authn_utils:is_superuser(Claims), Acl).
 
 do_verify(_JWS, [], _VerifyClaims) ->
     {error, invalid_signature};
 do_verify(JWS, [JWK | More], VerifyClaims) ->
     try jose_jws:verify(JWK, JWS) of
         {true, Payload, _JWS} ->
-            Claims = emqx_json:decode(Payload, [return_maps]),
+            Claims0 = emqx_json:decode(Payload, [return_maps]),
+            Claims = try_convert_to_int(Claims0, [<<"exp">>, <<"iat">>, <<"nbf">>]),
             case verify_claims(Claims, VerifyClaims) of
                 ok ->
-                    {ok, maps:put(jwt, Claims, emqx_authn_utils:is_superuser(Claims))};
+                    {ok, Claims};
                 {error, Reason} ->
                     {error, Reason}
             end;
@@ -384,37 +413,39 @@ verify_claims(Claims, VerifyClaims0) ->
     Now = os:system_time(seconds),
     VerifyClaims =
         [
-            {<<"exp">>, required,
-                with_int_value(fun(ExpireTime) ->
-                    Now < ExpireTime
-                end)},
-            {<<"iat">>, optional,
-                with_int_value(fun(IssueAt) ->
-                    IssueAt =< Now
-                end)},
-            {<<"nbf">>, optional,
-                with_int_value(fun(NotBefore) ->
-                    NotBefore =< Now
-                end)}
+            {<<"exp">>, required, fun(ExpireTime) ->
+                is_integer(ExpireTime) andalso Now < ExpireTime
+            end},
+            {<<"iat">>, optional, fun(IssueAt) ->
+                is_integer(IssueAt) andalso IssueAt =< Now
+            end},
+            {<<"nbf">>, optional, fun(NotBefore) ->
+                is_integer(NotBefore) andalso NotBefore =< Now
+            end}
         ] ++ VerifyClaims0,
     do_verify_claims(Claims, VerifyClaims).
 
-with_int_value(Fun) ->
-    fun(Value) ->
-        case Value of
-            Int when is_integer(Int) -> Fun(Int);
-            Bin when is_binary(Bin) ->
-                case string:to_integer(Bin) of
-                    {Int, <<>>} -> Fun(Int);
-                    _ -> false
-                end;
-            Str when is_list(Str) ->
-                case string:to_integer(Str) of
-                    {Int, ""} -> Fun(Int);
-                    _ -> false
-                end
-        end
-    end.
+try_convert_to_int(Claims, [Name | Names]) ->
+    case Claims of
+        #{Name := Value} ->
+            case Value of
+                Int when is_integer(Int) ->
+                    try_convert_to_int(Claims#{Name => Int}, Names);
+                Bin when is_binary(Bin) ->
+                    case string:to_integer(Bin) of
+                        {Int, <<>>} ->
+                            try_convert_to_int(Claims#{Name => Int}, Names);
+                        _ ->
+                            try_convert_to_int(Claims, Names)
+                    end;
+                _ ->
+                    try_convert_to_int(Claims, Names)
+            end;
+        _ ->
+            try_convert_to_int(Claims, Names)
+    end;
+try_convert_to_int(Claims, []) ->
+    Claims.
 
 do_verify_claims(_Claims, []) ->
     ok;

@@ -58,7 +58,6 @@ init_per_testcase(_TestCase, Config) ->
     ),
 
     ok = emqx_authz_test_lib:reset_authorizers(),
-    {ok, _} = emqx_authz:update(replace, [authz_config()]),
     Config.
 
 end_per_testcase(_TestCase, _Config) ->
@@ -317,15 +316,10 @@ authn_config() ->
         <<"algorithm">> => <<"hmac-based">>,
         <<"secret">> => ?SECRET,
         <<"secret_base64_encoded">> => <<"false">>,
+        <<"acl_claim_name">> => <<"acl">>,
         <<"verify_claims">> => #{
             <<"username">> => ?PH_USERNAME
         }
-    }.
-
-authz_config() ->
-    #{
-        <<"type">> => <<"jwt">>,
-        <<"acl_claim_name">> => <<"acl">>
     }.
 
 generate_jws(Payload) ->

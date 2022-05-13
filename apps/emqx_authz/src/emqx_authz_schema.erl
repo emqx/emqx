@@ -70,8 +70,7 @@ fields("authorization") ->
                     hoconsc:ref(?MODULE, postgresql),
                     hoconsc:ref(?MODULE, redis_single),
                     hoconsc:ref(?MODULE, redis_sentinel),
-                    hoconsc:ref(?MODULE, redis_cluster),
-                    hoconsc:ref(?MODULE, jwt)
+                    hoconsc:ref(?MODULE, redis_cluster)
                 ]
             ),
             default => [],
@@ -129,15 +128,6 @@ fields(redis_cluster) ->
     authz_common_fields(redis) ++
         connector_fields(redis, cluster) ++
         [{cmd, cmd()}];
-fields(jwt) ->
-    authz_common_fields(jwt) ++
-        [
-            {acl_claim_name, #{
-                type => binary(),
-                default => <<"acl">>,
-                desc => ?DESC(acl_claim_name)
-            }}
-        ];
 fields("metrics_status_fields") ->
     [
         {"resource_metrics", mk(ref(?MODULE, "resource_metrics"), #{desc => ?DESC("metrics")})},
@@ -236,8 +226,6 @@ desc(redis_sentinel) ->
     ?DESC(redis_sentinel);
 desc(redis_cluster) ->
     ?DESC(redis_cluster);
-desc(jwt) ->
-    ?DESC(jwt);
 desc(_) ->
     undefined.
 

@@ -95,6 +95,7 @@ register_metrics() ->
 
 init() ->
     ok = register_metrics(),
+    ok = init_metrics(client_info_source()),
     emqx_conf:add_handler(?CONF_KEY_PATH, ?MODULE),
     Sources = emqx_conf:get(?CONF_KEY_PATH, []),
     ok = check_dup_types(Sources),
@@ -307,7 +308,7 @@ authorize(
     DefaultResult,
     Sources
 ) ->
-    case do_authorize(Client, PubSub, Topic, Sources) of
+    case do_authorize(Client, PubSub, Topic, sources_with_defaults(Sources)) of
         {{matched, allow}, AuthzSource} ->
             emqx:run_hook(
                 'client.check_authz_complete',
@@ -392,6 +393,14 @@ get_enabled_authzs() ->
 %% Internal function
 %%--------------------------------------------------------------------
 
+client_info_source() ->
+    emqx_authz_client_info:create(
+        #{type => client_info, enable => true}
+    ).
+
+sources_with_defaults(Sources) ->
+    [client_info_source() | Sources].
+
 take(Type) -> take(Type, lookup()).
 
 %% Take the source of give type, the sources list is split into two parts
@@ -431,8 +440,8 @@ type(postgresql) -> postgresql;
 type(<<"postgresql">>) -> postgresql;
 type(built_in_database) -> built_in_database;
 type(<<"built_in_database">>) -> built_in_database;
-type(jwt) -> jwt;
-type(<<"jwt">>) -> jwt;
+type(client_info) -> client_info;
+type(<<"client_info">>) -> client_info;
 %% should never happen if the input is type-checked by hocon schema
 type(Unknown) -> throw({unknown_authz_source_type, Unknown}).
 
