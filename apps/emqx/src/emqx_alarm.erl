@@ -35,6 +35,7 @@
     deactivate/1,
     deactivate/2,
     deactivate/3,
+    ensure_deactivated/3,
     delete_all_deactivated_alarms/0,
     get_alarms/0,
     get_alarms/1,
@@ -119,6 +120,17 @@ deactivate(Name) ->
 
 deactivate(Name, Details) ->
     deactivate(Name, Details, <<"">>).
+
+ensure_deactivated(Name, Details, Message) ->
+    case mnesia:dirty_read(?ACTIVATED_ALARM, Name) of
+        [] ->
+            ok;
+        _ ->
+            case deactivate(Name, Details, Message) of
+                {error, not_found} -> ok;
+                Other -> Other
+            end
+    end.
 
 deactivate(Name, Details, Message) ->
     gen_server:call(?MODULE, {deactivate_alarm, Name, Details, Message}).

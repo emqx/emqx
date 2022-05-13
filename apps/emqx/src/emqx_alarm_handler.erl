@@ -56,18 +56,6 @@ init({_Args, {alarm_handler, _ExistingAlarms}}) ->
 init(_) ->
     {ok, []}.
 
-handle_event({set_alarm, {system_memory_high_watermark, []}}, State) ->
-    HighWatermark = emqx_os_mon:get_sysmem_high_watermark(),
-    Message = to_bin("System memory usage is higher than ~p%", [HighWatermark]),
-    emqx_alarm:activate(
-        high_system_memory_usage,
-        #{
-            high_watermark => HighWatermark,
-            percent => emqx_os_mon:current_sysmem_percent()
-        },
-        Message
-    ),
-    {ok, State};
 handle_event({set_alarm, {process_memory_high_watermark, Pid}}, State) ->
     HighWatermark = emqx_os_mon:get_procmem_high_watermark(),
     Message = to_bin("Process memory usage is higher than ~p%", [HighWatermark]),
@@ -79,9 +67,6 @@ handle_event({set_alarm, {process_memory_high_watermark, Pid}}, State) ->
         },
         Message
     ),
-    {ok, State};
-handle_event({clear_alarm, system_memory_high_watermark}, State) ->
-    _ = emqx_alarm:deactivate(high_system_memory_usage),
     {ok, State};
 handle_event({clear_alarm, process_memory_high_watermark}, State) ->
     _ = emqx_alarm:deactivate(high_process_memory_usage),

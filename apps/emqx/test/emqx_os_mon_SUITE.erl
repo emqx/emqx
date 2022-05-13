@@ -33,8 +33,6 @@ init_per_suite(Config) ->
                     {cpu_check_interval, 1},
                     {cpu_high_watermark, 5},
                     {cpu_low_watermark, 80},
-                    {mem_check_interval, 60},
-                    {sysmem_high_watermark, 70},
                     {procmem_high_watermark, 5}
                 ]);
             (_) ->
@@ -53,9 +51,9 @@ t_api(_) ->
     ?assertEqual(ok, emqx_os_mon:set_mem_check_interval(122000)),
     ?assertEqual(120000, emqx_os_mon:get_mem_check_interval()),
 
-    ?assertEqual(70, emqx_os_mon:get_sysmem_high_watermark()),
+    ?assertEqual(0.7, emqx_os_mon:get_sysmem_high_watermark()),
     ?assertEqual(ok, emqx_os_mon:set_sysmem_high_watermark(0.8)),
-    ?assertEqual(80, emqx_os_mon:get_sysmem_high_watermark()),
+    ?assertEqual(0.8, emqx_os_mon:get_sysmem_high_watermark()),
 
     ?assertEqual(5, emqx_os_mon:get_procmem_high_watermark()),
     ?assertEqual(ok, emqx_os_mon:set_procmem_high_watermark(0.11)),
