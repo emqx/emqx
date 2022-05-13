@@ -59,7 +59,14 @@
     hexstr_to_bin/1
 ]).
 
+-export([
+    nolink_apply/1,
+    nolink_apply/2
+]).
+
 -export([clamp/3]).
+
+-dialyzer({nowarn_function, [nolink_apply/2]}).
 
 -define(SHORT, 8).
 
@@ -375,28 +382,100 @@ explain_posix(estale) -> "Stale remote file handle";
 explain_posix(exdev) -> "Cross-domain link";
 explain_posix(NotPosix) -> NotPosix.
 
--spec pmap(fun((A) -> B), list(A)) -> list(B | {error, term()}).
+%% @doc Like lists:map/2, only the callback function is evaluated
+%% concurrently.
+-spec pmap(fun((A) -> B), list(A)) -> list(B).
 pmap(Fun, List) when is_function(Fun, 1), is_list(List) ->
     pmap(Fun, List, ?DEFAULT_PMAP_TIMEOUT).
 
--spec pmap(fun((A) -> B), list(A), timeout()) -> list(B | {error, term()}).
+-spec pmap(fun((A) -> B), list(A), timeout()) -> list(B).
 pmap(Fun, List, Timeout) when
     is_function(Fun, 1), is_list(List), is_integer(Timeout), Timeout >= 0
 ->
-    Self = self(),
-    Pids = lists:map(
-        fun(El) ->
-            spawn_link(
-                fun() -> pmap_exec(Self, Fun, El, Timeout) end
-            )
-        end,
-        List
+    nolink_apply(fun() -> do_parallel_map(Fun, List) end, Timeout).
+
+%% @doc Delegate a function to a worker process.
+%% The function may spawn_link other processes but we do not
+%% want the caller process to be linked.
+%% This is done by isolating the possible link with a not-linked
+%% middleman process.
+nolink_apply(Fun) -> nolink_apply(Fun, infinity).
+
+%% @doc Same as `nolink_apply/1', with a timeout.
+-spec nolink_apply(function(), timer:timeout()) -> term().
+nolink_apply(Fun, Timeout) when is_function(Fun, 0) ->
+    Caller = self(),
+    ResRef = make_ref(),
+    Middleman = erlang:spawn(
+        fun() ->
+            process_flag(trap_exit, true),
+            CallerMRef = erlang:monitor(process, Caller),
+            Worker = erlang:spawn_link(
+                fun() ->
+                    Res =
+                        try
+                            {normal, Fun()}
+                        catch
+                            C:E:S ->
+                                {exception, {C, E, S}}
+                        end,
+                    _ = erlang:send(Caller, {ResRef, Res}),
+                    exit(normal)
+                end
+            ),
+            receive
+                {'DOWN', CallerMRef, process, _, _} ->
+                    %% For whatever reason, if the caller is dead,
+                    %% there is no reason to continue
+                    exit(Worker, kill),
+                    exit(normal);
+                {'EXIT', Worker, normal} ->
+                    exit(normal);
+                {'EXIT', Worker, Reason} ->
+                    %% worker exited with some reason other than 'normal'
+                    _ = erlang:send(Caller, {ResRef, {'EXIT', Reason}}),
+                    exit(normal)
+            end
+        end
     ),
-    pmap_gather(Pids).
+    receive
+        {ResRef, {normal, Result}} ->
+            Result;
+        {ResRef, {exception, {C, E, S}}} ->
+            erlang:raise(C, E, S);
+        {ResRef, {'EXIT', Reason}} ->
+            exit(Reason)
+    after Timeout ->
+        exit(Middleman, kill),
+        exit(timeout)
+    end.
 
 %%------------------------------------------------------------------------------
 %% Internal Functions
 %%------------------------------------------------------------------------------
+
+do_parallel_map(Fun, List) ->
+    Parent = self(),
+    PidList = lists:map(
+        fun(Item) ->
+            erlang:spawn_link(
+                fun() ->
+                    Parent ! {self(), Fun(Item)}
+                end
+            )
+        end,
+        List
+    ),
+    lists:foldr(
+        fun(Pid, Acc) ->
+            receive
+                {Pid, Result} ->
+                    [Result | Acc]
+            end
+        end,
+        [],
+        PidList
+    ).
 
 int_to_hex(I, N) when is_integer(I), I >= 0 ->
     int_to_hex([], I, 1, N).
@@ -417,29 +496,6 @@ pad(L, 0) ->
     L;
 pad(L, Count) ->
     pad([$0 | L], Count - 1).
-
-pmap_gather([Pid | Pids]) ->
-    receive
-        {Pid, Result} -> [Result | pmap_gather(Pids)]
-    end;
-pmap_gather([]) ->
-    [].
-
-pmap_exec(CallerPid, Fun, El, Timeout) ->
-    ExecPid = self(),
-    {Pid, Ref} = spawn_monitor(fun() ->
-        Result = Fun(El),
-        ExecPid ! {result, self(), Result}
-    end),
-    ExecResult =
-        receive
-            {result, Pid, Result} -> Result;
-            {'DOWN', Ref, process, Pid, Reason} -> {error, Reason}
-        after Timeout ->
-            true = erlang:exit(Pid, kill),
-            {error, timeout}
-        end,
-    CallerPid ! {ExecPid, ExecResult}.
 
 -ifdef(TEST).
 -include_lib("eunit/include/eunit.hrl").
