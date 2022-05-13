@@ -25,6 +25,8 @@
 all() -> emqx_common_test_helpers:all(?MODULE).
 
 init_per_suite(Config) ->
+    %% ensure stopped, this suite tests emqx_ctl process independently
+    application:stop(emqx),
     ok = emqx_logger:set_log_level(emergency),
     Config.
 
