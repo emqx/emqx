@@ -23,6 +23,15 @@
 -include_lib("common_test/include/ct.hrl").
 
 -define(BRIDGE_CONF_DEFAULT, <<"bridges: {}">>).
+-define(MQTT_CONNECTOR(Username), #{
+    <<"server">> => <<"127.0.0.1:1883">>,
+    <<"username">> => Username,
+    <<"password">> => <<"">>,
+    <<"proto_ver">> => <<"v4">>,
+    <<"ssl">> => #{<<"enable">> => false}
+}).
+-define(CONNECTOR_TYPE, <<"mqtt">>).
+-define(CONNECTOR_NAME, <<"test_connector">>).
 
 all() ->
     emqx_common_test_helpers:all(?MODULE).
@@ -55,6 +64,7 @@ end_per_suite(_Config) ->
     ok.
 
 init_per_testcase(_, Config) ->
+    {ok, _} = emqx_cluster_rpc:start_link(),
     Config.
 end_per_testcase(_, _Config) ->
     ok.
@@ -72,11 +82,12 @@ t_parse_connector_id_error(_) ->
         {invalid_connector_id, <<"foobar">>}, emqx_connector:parse_connector_id(<<"foobar">>)
     ).
 
-t_update_error(_) ->
-    ?assertException(exit, {noproc, _}, emqx_connector:update(<<"foo:bar">>, #{})).
+t_update_connector_does_not_exist(_) ->
+    Config = ?MQTT_CONNECTOR(<<"user1">>),
+    ?assertMatch({ok, _Config}, emqx_connector:update(?CONNECTOR_TYPE, ?CONNECTOR_NAME, Config)).
 
-t_delete_error(_) ->
-    ?assertException(exit, {noproc, _}, emqx_connector:delete(<<"foo:bar">>)).
+t_delete_connector_does_not_exist(_) ->
+    ?assertEqual({ok, #{post_config_update => #{}}}, emqx_connector:delete(<<"foo:bar">>)).
 
 t_connector_id_using_list(_) ->
     <<"foo:bar">> = emqx_connector:connector_id("foo", "bar").
