@@ -55,7 +55,11 @@ fields(server) ->
         {name,
             sc(
                 binary(),
-                #{required => true, desc => ?DESC(name)}
+                #{
+                    required => true,
+                    validator => fun validate_name/1,
+                    desc => ?DESC(name)
+                }
             )},
         {enable,
             sc(
@@ -125,6 +129,24 @@ failed_action() ->
             desc => ?DESC(failed_action)
         }
     ).
+
+validate_name(Name) ->
+    NameRE = "^[A-Za-z0-9]+[A-Za-z0-9-_]*$",
+    NameLen = byte_size(Name),
+    case NameLen > 0 andalso NameLen =< 256 of
+        true ->
+            case re:run(Name, NameRE) of
+                {match, _} ->
+                    ok;
+                _Nomatch ->
+                    Reason = list_to_binary(
+                        io_lib:format("Bad ExHook Name ~p, expect ~p", [Name, NameRE])
+                    ),
+                    {error, Reason}
+            end;
+        false ->
+            {error, "Name Length must =< 256"}
+    end.
 
 server_config() ->
     fields(server).

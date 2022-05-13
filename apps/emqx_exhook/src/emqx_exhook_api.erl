@@ -45,6 +45,10 @@
 -define(NOT_FOURD, 'NOT_FOUND').
 -define(BAD_REQUEST, 'BAD_REQUEST').
 -define(BAD_RPC, 'BAD_RPC').
+-define(ERR_BADARGS(REASON), begin
+    R0 = err_msg(REASON),
+    <<"Bad Arguments: ", R0/binary>>
+end).
 
 -dialyzer([
     {nowarn_function, [
@@ -246,6 +250,11 @@ exhooks(post, #{body := #{<<"name">> := Name} = Body}) ->
             {400, #{
                 code => <<"BAD_REQUEST">>,
                 message => <<"Already exists">>
+            }};
+        {error, Reason} ->
+            {400, #{
+                code => <<"BAD_REQUEST">>,
+                message => ?ERR_BADARGS(Reason)
             }}
     end.
 
@@ -265,10 +274,10 @@ action_with_name(put, #{bindings := #{name := Name}, body := Body}) ->
                 code => <<"NOT_FOUND">>,
                 message => <<"Server not found">>
             }};
-        {error, Error} ->
-            {500, #{
-                code => <<"BAD_RPC">>,
-                message => Error
+        {error, Reason} ->
+            {400, #{
+                code => <<"BAD_REQUEST">>,
+                message => ?ERR_BADARGS(Reason)
             }}
     end;
 action_with_name(delete, #{bindings := #{name := Name}}) ->
@@ -285,10 +294,10 @@ action_with_name(delete, #{bindings := #{name := Name}}) ->
                 code => <<"BAD_REQUEST">>,
                 message => <<"Server not found">>
             }};
-        {error, Error} ->
-            {500, #{
-                code => <<"BAD_RPC">>,
-                message => Error
+        {error, Reason} ->
+            {400, #{
+                code => <<"BAD_REQUEST">>,
+                message => ?ERR_BADARGS(Reason)
             }}
     end.
 
@@ -467,6 +476,26 @@ call_cluster(Fun) ->
 %%--------------------------------------------------------------------
 %% Internal Funcs
 %%--------------------------------------------------------------------
+err_msg({_, HoconErrors = [{Type, _} | _]}) when
+    Type == translation_error orelse Type == validation_error
+->
+    MessageFormat = [hocon_error(HoconError) || HoconError <- HoconErrors],
+    list_to_binary(MessageFormat);
+err_msg(Msg) ->
+    list_to_binary(io_lib:format("~0p", [Msg])).
+
+hocon_error({Type, Message0}) when
+    Type == translation_error orelse Type == validation_error
+->
+    case maps:get(reason, Message0, undefined) of
+        undefined ->
+            Message = maps:without([stacktrace], Message0),
+            emqx_logger_jsonfmt:best_effort_json(Message#{<<"type">> => Type}, []);
+        Reason when is_binary(Reason) ->
+            Reason;
+        Reason ->
+            list_to_binary(io_lib:format("~0p", [Reason]))
+    end.
 
 get_raw_config() ->
     RawConfig = emqx:get_raw_config([exhook, servers], []),
