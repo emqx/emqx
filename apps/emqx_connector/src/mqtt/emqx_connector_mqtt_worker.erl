@@ -276,6 +276,20 @@ code_change(_Vsn, State, Data, _Extra) ->
 terminate(_Reason, _StateName, #{replayq := Q} = State) ->
     _ = disconnect(State),
     _ = replayq:close(Q),
+    maybe_destroy_session(State).
+
+maybe_destroy_session(#{connect_opts := ConnectOpts = #{clean_start := false}} = State) ->
+    try
+        %% Destroy session if clean_start is not set.
+        %% Ignore any crashes, just refresh the clean_start = true.
+        _ = do_connect(State#{connect_opts => ConnectOpts#{clean_start => true}}),
+        _ = disconnect(State),
+        ok
+    catch
+        _:_ ->
+            ok
+    end;
+maybe_destroy_session(_State) ->
     ok.
 
 %% ensure_started will be deprecated in the future
