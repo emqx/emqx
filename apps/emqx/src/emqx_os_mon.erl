@@ -77,12 +77,8 @@ set_procmem_high_watermark(Float) ->
     memsup:set_procmem_high_watermark(Float).
 
 current_sysmem_percent() ->
-    case load_ctl:get_memory_usage() of
-        0 ->
-            0;
-        Ratio ->
-            erlang:floor(Ratio * 10000) / 100
-    end.
+    Ratio = load_ctl:get_memory_usage(),
+    erlang:floor(Ratio * 10000) / 100.
 
 %%--------------------------------------------------------------------
 %% gen_server callbacks
