@@ -305,7 +305,7 @@ authenticator_id(#{mechanism := Mechanism}) ->
 authenticator_id(#{<<"mechanism">> := Mechanism, <<"backend">> := Backend}) ->
     <<Mechanism/binary, ":", Backend/binary>>;
 authenticator_id(#{<<"mechanism">> := Mechanism}) ->
-    Mechanism;
+    to_bin(Mechanism);
 authenticator_id(_C) ->
     throw({missing_parameter, #{name => mechanism}}).
 
