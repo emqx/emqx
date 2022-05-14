@@ -71,9 +71,15 @@ pre_config_update(_, UpdateReq, OldConfig) ->
     end.
 
 do_pre_config_update({create_authenticator, ChainName, Config}, OldConfig) ->
-    CertsDir = certs_dir(ChainName, Config),
-    NConfig = convert_certs(CertsDir, Config),
-    {ok, OldConfig ++ [NConfig]};
+    NewId = authenticator_id(Config),
+    case lists:filter(fun(OldConfig0) -> authenticator_id(OldConfig0) =:= NewId end, OldConfig) of
+        [] ->
+            CertsDir = certs_dir(ChainName, Config),
+            NConfig = convert_certs(CertsDir, Config),
+            {ok, OldConfig ++ [NConfig]};
+        [_] ->
+            {error, {already_exists, {authenticator, NewId}}}
+    end;
 do_pre_config_update({delete_authenticator, _ChainName, AuthenticatorID}, OldConfig) ->
     NewConfig = lists:filter(
         fun(OldConfig0) ->
@@ -257,9 +263,12 @@ clear_certs(CertsDir, Config) ->
     ok = emqx_tls_lib:delete_ssl_files(CertsDir, undefined, OldSSL).
 
 get_authenticator_config(AuthenticatorID, AuthenticatorsConfig) ->
-    case [C0 || C0 <- AuthenticatorsConfig, AuthenticatorID == authenticator_id(C0)] of
-        [C | _] -> C;
-        [] -> {error, not_found}
+    case
+        lists:filter(fun(C) -> AuthenticatorID =:= authenticator_id(C) end, AuthenticatorsConfig)
+    of
+        [C] -> C;
+        [] -> {error, not_found};
+        _ -> error({duplicated_authenticator_id, AuthenticatorsConfig})
     end.
 
 split_by_id(ID, AuthenticatorsConfig) ->
