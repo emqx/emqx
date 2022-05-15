@@ -72,13 +72,30 @@ check_acl(ClientInfo = #{jwt_claims := Claims},
           Topic,
           _NoMatchAction,
           #{acl_claim_name := AclClaimName}) ->
-    Deadline = erlang:system_time(second),
     case Claims of
-        #{AclClaimName := Acl, <<"exp">> := Exp}
-            when is_integer(Exp) andalso Exp >= Deadline ->
-            verify_acl(ClientInfo, Acl, PubSub, Topic);
-        _ -> ignore
+        #{AclClaimName := Acl, <<"exp">> := Exp} ->
+            try is_expired(Exp) of
+                true ->
+                    ?DEBUG("acl_deny_due_to_jwt_expired", []),
+                    deny;
+                false ->
+                    verify_acl(ClientInfo, Acl, PubSub, Topic)
+            catch
+                _:_ ->
+                    ?DEBUG("acl_deny_due_to_invalid_jwt_exp", []),
+                    deny
+            end;
+        _ ->
+            ?DEBUG("no_acl_jwt_claim", []),
+            ignore
     end.
+
+is_expired(Exp) when is_binary(Exp)  ->
+    ExpInt  = binary_to_integer(Exp),
+    is_expired(ExpInt);
+is_expired(Exp) ->
+    Now = erlang:system_time(second),
+    Now > Exp.
 
 description() -> "Authentication with JWT".
 
