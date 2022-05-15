@@ -47,6 +47,7 @@ cp -R %{_reldir}/releases %{buildroot}%{_lib_home}/
 cp -R %{_reldir}/bin %{buildroot}%{_lib_home}/
 cp -R %{_reldir}/etc/* %{buildroot}%{_conf_dir}/
 cp -R %{_reldir}/data/* %{buildroot}%{_var_home}/
+install -m644 %{_service_src} %{buildroot}%{_service_dst}
 
 %pre
 if [ $1 = 1 ]; then

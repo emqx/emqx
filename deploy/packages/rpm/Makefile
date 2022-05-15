@@ -16,12 +16,14 @@ TAR_PKG     := $(EMQX_REL)/$(TAR_PKG_DIR)/emqx-$(PKG_VSN).tar.gz
 SOURCE_PKG  := emqx-$(RPM_VSN)-$(RPM_REL).$(shell uname -m)
 TARGET_PKG  := $(EMQX_NAME)-$(shell $(EMQX_REL)/pkg-vsn.sh $(EMQX_NAME) --long)
 
-SYSTEMD := $(shell if command -v systemctl >/dev/null 2>&1; then echo yes; fi)
 # Not $(PWD) as it does not work for make -C
 CURDIR := $(shell pwd)
 
-POST_ADDITION := $(if $(SYSTEMD),%systemd_post %{_name}.service,echo post)
-PREUN_ADDITION := $(if $(SYSTEMD),%systemd_preun %{_name}.service,echo preun)
+SERVICE_SRC := $(CURDIR)/emqx.service
+SERVICE_DST := %{_unitdir}/emqx.service
+
+POST_ADDITION := %systemd_post %{_name}.service
+PREUN_ADDITION := %systemd_preun %{_name}.service
 
 .PHONY: all
 all: | $(BUILT)
@@ -33,6 +35,8 @@ all: | $(BUILT)
 		--define "_version $(RPM_VSN)" \
 		--define "_reldir $(SRCDIR)" \
 		--define "_release $(RPM_REL)" \
+		--define "_service_src $(SERVICE_SRC)" \
+		--define "_service_dst $(SERVICE_DST)" \
 		--define "_post_addition $(POST_ADDITION)" \
 		--define "_preun_addition $(PREUN_ADDITION)" \
 		--define "_sharedstatedir /var/lib" \
