@@ -367,7 +367,9 @@ report_telemetry(State = #state{url = URL}) ->
     end.
 
 httpc_request(Method, URL, Headers, Body) ->
-    httpc:request(Method, {URL, Headers, "application/json", Body}, [], []).
+    HTTPOptions = [{timeout, timer:seconds(10)}, {ssl, [{verify, verify_none}]}],
+    Options = [],
+    httpc:request(Method, {URL, Headers, "application/json", Body}, HTTPOptions, Options).
 
 ignore_lib_apps(Apps) ->
     LibApps = [kernel, stdlib, sasl, appmon, eldap, erts,
