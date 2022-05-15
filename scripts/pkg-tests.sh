@@ -150,7 +150,11 @@ emqx_test(){
             fi
         ;;
         "rpm")
-            yum install -y "${PACKAGE_PATH}/${packagename}"
+            YUM_RES=$(yum install -y "${PACKAGE_PATH}/${packagename}"| tee /dev/null)
+            if [[ $YUM_RES =~ "Failed" ]]; then
+               echo "yum install failed"
+               exit 1
+            fi
             if ! rpm -q "${EMQX_NAME}" | grep -q "${EMQX_NAME}"; then
                 echo "package install error"
                 exit 1
@@ -189,7 +193,6 @@ EOF
         echo "Error: cannot locate emqx_vars"
         exit 1
     fi
-
     if ! emqx 'start'; then
         cat /var/log/emqx/erlang.log.1 || true
         cat /var/log/emqx/emqx.log.1 || true
