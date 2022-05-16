@@ -17,7 +17,7 @@ jobs:
     prepare:
         runs-on: ubuntu-20.04
         # prepare source with any OTP version, no need for a matrix
-        container: "ghcr.io/emqx/emqx-builder/5.0-14:1.13.3-24.2.1-1-ubuntu20.04"
+        container: "ghcr.io/emqx/emqx-builder/5.0-15:1.13.3-24.2.1-1-ubuntu20.04"
         outputs:
           fast_ct_apps: ${{ steps.run_find_apps.outputs.fast_ct_apps }}
           docker_ct_apps: ${{ steps.run_find_apps.outputs.docker_ct_apps }}
@@ -54,7 +54,7 @@ jobs:
         defaults:
           run:
             shell: bash
-        container: "ghcr.io/emqx/emqx-builder/5.0-14:1.13.3-24.2.1-1-ubuntu20.04"
+        container: "ghcr.io/emqx/emqx-builder/5.0-15:1.13.3-24.2.1-1-ubuntu20.04"
 
         steps:
         - uses: AutoModality/action-clean@v1
@@ -144,7 +144,7 @@ jobs:
           matrix:
             app_name: ${{ fromJson(needs.prepare.outputs.fast_ct_apps) }}
         runs-on: aws-amd64
-        container: "ghcr.io/emqx/emqx-builder/5.0-14:1.13.3-24.2.1-1-ubuntu20.04"
+        container: "ghcr.io/emqx/emqx-builder/5.0-15:1.13.3-24.2.1-1-ubuntu20.04"
         defaults:
           run:
             shell: bash
@@ -180,7 +180,7 @@ jobs:
         - ct
         - ct_docker
       runs-on: ubuntu-20.04
-      container: "ghcr.io/emqx/emqx-builder/5.0-14:1.13.3-24.2.1-1-ubuntu20.04"
+      container: "ghcr.io/emqx/emqx-builder/5.0-15:1.13.3-24.2.1-1-ubuntu20.04"
       steps:
       - uses: AutoModality/action-clean@v1
       - uses: actions/download-artifact@v2
