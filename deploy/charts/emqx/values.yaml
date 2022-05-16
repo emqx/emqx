@@ -32,9 +32,7 @@ podManagementPolicy: Parallel
 persistence:
   enabled: false
   size: 20Mi
-  ## If defined, volume.beta.kubernetes.io/storage-class: <storageClass>
-  ## Default: volume.alpha.kubernetes.io/storage-class: default
-  # storageClass: "-"
+  storageClassName: ""
   accessMode: ReadWriteOnce
   ## Existing PersistentVolumeClaims
   ## The value is evaluated as a template

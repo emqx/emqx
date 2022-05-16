@@ -21,13 +21,10 @@ spec:
           helm.sh/chart: {{ include "emqx.chart" . }}
           app.kubernetes.io/instance: {{ .Release.Name }}
           app.kubernetes.io/managed-by: {{ .Release.Service }}
-        annotations:
-        {{- if .Values.persistence.storageClass }}
-          volume.beta.kubernetes.io/storage-class: {{ .Values.persistence.storageClass | quote }}
-        {{- else }}
-          volume.alpha.kubernetes.io/storage-class: default
-        {{- end }}
       spec:
+        {{- if .Values.persistence.storageClassName }}
+        storageClassName: {{ .Values.persistence.storageClassName | quote }}
+        {{- end }}
         accessModes:
           - {{ .Values.persistence.accessMode | quote }}
         resources:
