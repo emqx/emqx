@@ -21,7 +21,6 @@
 
 -export([init/1]).
 
--define(RESOURCE_INST_MOD, emqx_resource_instance).
 %% set a very large pool size in case all the workers busy
 -define(POOL_SIZE, 64).
 
@@ -29,9 +28,6 @@ start_link() ->
     supervisor:start_link({local, ?MODULE}, ?MODULE, []).
 
 init([]) ->
-    TabOpts = [named_table, set, public, {read_concurrency, true}],
-    _ = ets:new(emqx_resource_instance, TabOpts),
-
     SupFlags = #{strategy => one_for_one, intensity => 10, period => 10},
     Metrics = emqx_metrics_worker:child_spec(resource_metrics),
 
