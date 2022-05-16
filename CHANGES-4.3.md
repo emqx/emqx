@@ -24,8 +24,8 @@ File format:
 
 ### Bug fixes
 * List subscription topic (/api/v4/subscriptions), the result do not match with multiple conditions.
-
 * SSL closed error bug fixed for redis client.
+* Fix mqtt-sn client disconnected due to re-send a duplicated qos2 message
 
 * Improved resilience against autocluster partitioning during cluster
   startup. [#7876]

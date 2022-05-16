@@ -831,13 +831,15 @@ mqtt2sn(?CONNACK_PACKET(0, _SessPresent),  _State) ->
 mqtt2sn(?CONNACK_PACKET(_ReturnCode, _SessPresent), _State) ->
     ?SN_CONNACK_MSG(?SN_RC_CONGESTION);
 
-mqtt2sn(?PUBREC_PACKET(MsgId), _State) ->
+mqtt2sn(?PUBACK_PACKET(MsgId, _ReasonCode), _State) ->
+    TopicIdFinal =  get_topic_id(puback, MsgId),
+    ?SN_PUBACK_MSG(TopicIdFinal, MsgId, ?SN_RC_ACCEPTED);
+
+mqtt2sn(?PUBREC_PACKET(MsgId, _ReturnCode), _State) ->
     ?SN_PUBREC_MSG(?SN_PUBREC, MsgId);
-
-mqtt2sn(?PUBREL_PACKET(MsgId), _State) ->
+mqtt2sn(?PUBREL_PACKET(MsgId, _ReturnCode), _State) ->
     ?SN_PUBREC_MSG(?SN_PUBREL, MsgId);
-
-mqtt2sn(?PUBCOMP_PACKET(MsgId), _State) ->
+mqtt2sn(?PUBCOMP_PACKET(MsgId, _ReturnCode), _State) ->
     ?SN_PUBREC_MSG(?SN_PUBCOMP, MsgId);
 
 mqtt2sn(?UNSUBACK_PACKET(MsgId), _State)->
@@ -884,11 +886,7 @@ mqtt2sn(?SUBACK_PACKET(MsgId, ReturnCodes), _State)->
                   {?QOS_0, get_topic_id(suback, MsgId), ?SN_RC_NOT_SUPPORTED}
           end,
     Flags = #mqtt_sn_flags{qos = QoS},
-    ?SN_SUBACK_MSG(Flags, TopicId, MsgId, NewReturnCode);
-
-mqtt2sn(?PUBACK_PACKET(MsgId, _ReasonCode), _State) ->
-    TopicIdFinal =  get_topic_id(puback, MsgId),
-    ?SN_PUBACK_MSG(TopicIdFinal, MsgId, ?SN_RC_ACCEPTED).
+    ?SN_SUBACK_MSG(Flags, TopicId, MsgId, NewReturnCode).
 
 send_register(TopicName, TopicId, MsgId, State) ->
     send_message(?SN_REGISTER_MSG(TopicId, MsgId, TopicName), State).
