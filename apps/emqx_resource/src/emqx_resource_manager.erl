@@ -273,7 +273,10 @@ handle_event({call, From}, health_check, stopped, _Data) ->
     Actions = [{reply, From, {error, stopped}}],
     {keep_state_and_data, Actions};
 handle_event({call, From}, health_check, _State, Data) ->
-    handle_health_check_event(From, Data).
+    handle_health_check_event(From, Data);
+% Ignore all other events
+handle_event(_, _, State, Data) ->
+    {next_state, State, Data}.
 
 %%------------------------------------------------------------------------------
 %% internal functions
