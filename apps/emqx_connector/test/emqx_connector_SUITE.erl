@@ -53,7 +53,7 @@ init_per_suite(Config) ->
             emqx_bridge
         ]
     ),
-
+    ok = emqx_common_test_helpers:load_config(emqx_connector_schema, <<"connectors: {}">>),
     Config.
 
 end_per_suite(_Config) ->
