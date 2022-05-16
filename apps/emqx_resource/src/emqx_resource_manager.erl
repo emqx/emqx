@@ -374,7 +374,7 @@ connecting_health_check(Data) ->
             {next_state, connected, UpdatedData};
         ConnectStatus ->
             logger:error("health check for ~p failed: ~p", [Data#data.id, ConnectStatus]),
-            UpdatedData = Data#data{error = ConnectStatus},
+            UpdatedData = Data#data{status = connecting, error = ConnectStatus},
             Actions = [{state_timeout, ?SHORT_HEALTHCHECK_INTERVAL, health_check}],
             {keep_state, UpdatedData, Actions}
     end.
