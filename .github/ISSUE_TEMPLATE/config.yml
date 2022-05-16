@@ -1,0 +1,7 @@
+contact_links:
+  - name: Support Request
+    url: https://github.com/emqx/emqx/discussions
+    about: Asking a question about usages, docs or anything you're insterested in
+  - name: Support Request (CN)
+    url: https://askemq.com
+    about: Feel free to visit our Chinese community for support if it is more convenient for you

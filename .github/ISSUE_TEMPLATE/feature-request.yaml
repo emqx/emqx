@@ -1,0 +1,20 @@
+name: Feature Request
+description: Suggest an idea for this project
+labels: Feature
+body:
+  - type: textarea
+    id: feature
+    attributes:
+      label: What would you like to be added or enhanced?
+      description: |
+        Feature requests are unlikely to make progress as issues.
+        If you have a clear idea about this improvement, you can submit it as a design proposal to [EIP](https://github.com/emqx/eip)
+    validations:
+      required: true
+
+  - type: textarea
+    id: rationale
+    attributes:
+      label: Why is this needed?
+    validations:
+      required: true
