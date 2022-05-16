@@ -1,11 +1,11 @@
-name: Feature Request Issue
+name: Feature Request
 description: Suggest an idea for this project
 labels: Feature
 body:
   - type: textarea
     id: feature
     attributes:
-      label: What would you like to be added/modified?
+      label: What would you like to be added or enhanced?
     validations:
       required: true
 
