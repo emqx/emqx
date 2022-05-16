@@ -36,7 +36,7 @@
 -define(FLAG_RETAIN(X),X).
 -define(FLAG_SESSION(X),X).
 
--define(LOG(Format, Args), ct:print("TEST: " ++ Format, Args)).
+-define(LOG(Format, Args), ct:log("TEST: " ++ Format, Args)).
 
 -define(MAX_PRED_TOPIC_ID, 2).
 -define(PREDEF_TOPIC_ID1, 1).
@@ -822,6 +822,42 @@ t_publish_qos2_case03(_) ->
     timer:sleep(100),
 
     send_disconnect_msg(Socket, undefined),
+    ?assertEqual(<<2, ?SN_DISCONNECT>>, receive_response(Socket)),
+    gen_udp:close(Socket).
+
+t_publish_qos2_re_sent(_) ->
+    Dup = 0,
+    QoS = 2,
+    Retain = 0,
+    Will = 0,
+    CleanSession = 0,
+    MsgId = 7,
+    TopicId0 = 0,
+    {ok, Socket} = gen_udp:open(0, [binary]),
+    send_connect_msg(Socket, <<"test">>),
+    ?assertEqual(<<3, ?SN_CONNACK, 0>>, receive_response(Socket)),
+
+    send_subscribe_msg_normal_topic(Socket, QoS, <<"/#">>, MsgId),
+    ?assertEqual(<<8, ?SN_SUBACK, ?FNU:1, QoS:2, ?FNU:5, TopicId0:16, MsgId:16, ?SN_RC_ACCEPTED>>,
+        receive_response(Socket)),
+
+    Payload1 = <<20, 21, 22, 23>>,
+    send_publish_msg_short_topic(Socket, QoS, MsgId, <<"/a">>, Payload1),
+    ?assertEqual(<<4, ?SN_PUBREC, MsgId:16>>, receive_response(Socket)),
+    ?assertEqual(<<11, ?SN_PUBLISH, Dup:1, QoS:2, Retain:1, Will:1, CleanSession:1, ?SN_SHORT_TOPIC :2, <<"/a">>/binary, 1:16, <<20, 21, 22, 23>>/binary>>, receive_response(Socket)),
+
+    %% re-sent qos2 PUBLISH
+    send_publish_msg_short_topic(Socket, QoS, MsgId, <<"/a">>, Payload1),
+    %% still receive PUBREC normally
+    ?assertEqual(<<4, ?SN_PUBREC, MsgId:16>>, receive_response(Socket)),
+    send_pubrel_msg(Socket, MsgId),
+    ?assertEqual(<<4, ?SN_PUBCOMP, MsgId:16>>, receive_response(Socket)),
+
+    timer:sleep(100),
+
+    send_disconnect_msg(Socket, undefined),
+    %% note: receiving DISCONNECT packet here means that the qos2 is not duplicated
+    %% publish to broker
     ?assertEqual(<<2, ?SN_DISCONNECT>>, receive_response(Socket)),
     gen_udp:close(Socket).
 
