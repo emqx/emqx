@@ -30,7 +30,8 @@
     binary_string/1,
     deep_convert/3,
     diff_maps/2,
-    merge_with/3
+    merge_with/3,
+    best_effort_recursive_sum/3
 ]).
 
 -export_type([config_key/0, config_key_path/0]).
@@ -242,10 +243,8 @@ merge_with(Combiner, Map1, Map2) when
             )
     end;
 merge_with(Combiner, Map1, Map2) ->
-    error_with_info(
-        error_type_merge_intersect(Map1, Map2, Combiner),
-        [Combiner, Map1, Map2]
-    ).
+    ErrorType = error_type_merge_intersect(Map1, Map2, Combiner),
+    throw(#{maps_merge_error => ErrorType, args => [Map1, Map2]}).
 
 merge_with_t({K, V2, Iterator}, Map1, Map2, Combiner) ->
     case Map1 of
@@ -261,12 +260,26 @@ merge_with_t(none, Result, _, _) ->
 error_type_merge_intersect(M1, M2, Combiner) when is_function(Combiner, 3) ->
     error_type_two_maps(M1, M2);
 error_type_merge_intersect(_M1, _M2, _Combiner) ->
-    badarg.
-
-error_with_info(_, _) ->
-    {error_info, #{module => erl_stdlib_errors}}.
+    badarg_combiner_function.
 
 error_type_two_maps(M1, M2) when is_map(M1) ->
     {badmap, M2};
 error_type_two_maps(M1, _M2) ->
     {badmap, M1}.
+
+%% @doc Sum-merge map values.
+%% For bad merges, ErrorLogger is called to log the key, and value in M2 is ignored.
+best_effort_recursive_sum(M1, M2, ErrorLogger) ->
+    F =
+        fun(Key, V1, V2) ->
+            case {erlang:is_map(V1), erlang:is_map(V2)} of
+                {true, true} ->
+                    best_effort_recursive_sum(V1, V2, ErrorLogger);
+                {false, false} when is_number(V1) andalso is_number(V2) ->
+                    V1 + V2;
+                _ ->
+                    ErrorLogger(#{failed_to_merge => Key}),
+                    V1
+            end
+        end,
+    merge_with(F, M1, M2).

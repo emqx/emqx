@@ -1006,15 +1006,9 @@ aggregate_status(AllStatus) ->
 aggregate_metrics([]) ->
     #{};
 aggregate_metrics([HeadMetrics | AllMetrics]) ->
-    CombinerFun =
-        fun ComFun(_Key, Val1, Val2) ->
-            case erlang:is_map(Val1) of
-                true -> emqx_map_lib:merge_with(ComFun, Val1, Val2);
-                false -> Val1 + Val2
-            end
-        end,
+    ErrorLogger = fun(Reason) -> ?SLOG(info, #{msg => "bad_metrics_value", error => Reason}) end,
     Fun = fun(ElemMap, AccMap) ->
-        emqx_map_lib:merge_with(CombinerFun, ElemMap, AccMap)
+        emqx_map_lib:best_effort_recursive_sum(AccMap, ElemMap, ErrorLogger)
     end,
     lists:foldl(Fun, HeadMetrics, AllMetrics).
 
