@@ -186,7 +186,9 @@ fields(node_status) ->
     [
         {node, mk(string(), #{desc => ?DESC(node)})},
         {status,
-            mk(enum([connected, connecting, unconnected, disable, error]), #{desc => ?DESC(status)})}
+            mk(enum([connected, connecting, disconnected, disabled, error]), #{
+                desc => ?DESC(status)
+            })}
     ];
 fields(hook_info) ->
     [
