@@ -16,7 +16,7 @@ jobs:
   prepare:
     runs-on: ubuntu-20.04
     # prepare source with any OTP version, no need for a matrix
-    container: ghcr.io/emqx/emqx-builder/5.0-14:1.13.3-24.2.1-1-alpine3.15.1
+    container: ghcr.io/emqx/emqx-builder/5.0-15:1.13.3-24.2.1-1-alpine3.15.1
 
     steps:
       - uses: actions/checkout@v2
@@ -84,7 +84,7 @@ jobs:
     - name: make docker image
       working-directory: source
       env:
-        EMQX_BUILDER: ghcr.io/emqx/emqx-builder/5.0-14:${{ matrix.elixir }}-${{ matrix.otp }}-${{ matrix.os }}
+        EMQX_BUILDER: ghcr.io/emqx/emqx-builder/5.0-15:${{ matrix.elixir }}-${{ matrix.otp }}-${{ matrix.os }}
       run: |
         make ${{ matrix.profile }}-docker
     - name: run emqx
@@ -162,7 +162,7 @@ jobs:
     - name: make docker image
       working-directory: source
       env:
-        EMQX_BUILDER: ghcr.io/emqx/emqx-builder/5.0-14:${{ matrix.elixir }}-${{ matrix.otp }}-${{ matrix.os }}
+        EMQX_BUILDER: ghcr.io/emqx/emqx-builder/5.0-15:${{ matrix.elixir }}-${{ matrix.otp }}-${{ matrix.os }}
       run: |
         make ${{ matrix.profile }}-docker
         echo "TARGET=emqx/${{ matrix.profile }}" >> $GITHUB_ENV

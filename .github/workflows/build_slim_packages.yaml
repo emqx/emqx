@@ -40,7 +40,7 @@ jobs:
         - ubuntu20.04
         - el8
 
-    container: "ghcr.io/emqx/emqx-builder/5.0-14:${{ matrix.elixir }}-${{ matrix.otp }}-${{ matrix.os }}"
+    container: "ghcr.io/emqx/emqx-builder/5.0-15:${{ matrix.elixir }}-${{ matrix.otp }}-${{ matrix.os }}"
 
     steps:
     - uses: AutoModality/action-clean@v1
