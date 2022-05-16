@@ -31,7 +31,7 @@
     <<"ssl">> => #{<<"enable">> => false}
 }).
 -define(CONNECTOR_TYPE, <<"mqtt">>).
--define(CONNECTOR_NAME, <<"test_connector">>).
+-define(CONNECTOR_NAME, <<"test_connector_42">>).
 
 all() ->
     emqx_common_test_helpers:all(?MODULE).
