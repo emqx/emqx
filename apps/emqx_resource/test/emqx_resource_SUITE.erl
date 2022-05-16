@@ -318,7 +318,7 @@ t_create_dry_run_local(_) ->
             #{name => test_resource, register => true}
         )
     ),
-
+    timer:sleep(100),
     ?assertEqual(undefined, whereis(test_resource)).
 
 t_create_dry_run_local_failed(_) ->
