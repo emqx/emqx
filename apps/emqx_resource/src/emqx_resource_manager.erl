@@ -18,6 +18,7 @@
 
 -include("emqx_resource.hrl").
 -include("emqx_resource_utils.hrl").
+-include_lib("emqx/include/logger.hrl").
 
 % API
 -export([
@@ -273,7 +274,20 @@ handle_event({call, From}, health_check, stopped, _Data) ->
     Actions = [{reply, From, {error, stopped}}],
     {keep_state_and_data, Actions};
 handle_event({call, From}, health_check, _State, Data) ->
-    handle_health_check_event(From, Data).
+    handle_health_check_event(From, Data);
+% Ignore all other events
+handle_event(EventType, EventData, State, Data) ->
+    ?SLOG(
+        error,
+        #{
+            msg => "ignore all other events",
+            event_type => EventType,
+            event_data => EventData,
+            state => State,
+            data => Data
+        }
+    ),
+    {next_state, State, Data}.
 
 %%------------------------------------------------------------------------------
 %% internal functions
