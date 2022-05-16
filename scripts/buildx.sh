@@ -138,8 +138,8 @@ elif [[ $(uname -m) == "armv7l" && "$ARCH" == "arm64" ]]; then
     IS_NATIVE_ARCH='yes'
 fi
 
-
 if [[ "${IS_NATIVE_SYSTEM}" == 'yes' && "${IS_NATIVE_ARCH}" == 'yes' ]]; then
+    export ACLOCAL_PATH="/usr/share/aclocal:/usr/local/share/aclocal"
     eval "$CMD_RUN"
 elif docker info; then
     if [[ "${IS_NATIVE_ARCH}" == 'no' ]]; then
@@ -149,6 +149,7 @@ elif docker info; then
         -v "$(pwd)":/emqx \
         --workdir /emqx \
         --platform="linux/$ARCH" \
+        --env ACLOCAL_PATH="/usr/share/aclocal:/usr/local/share/aclocal" \
         "$BUILDER" \
         bash -euc "$CMD_RUN"
 else
