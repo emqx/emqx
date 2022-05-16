@@ -151,6 +151,10 @@ init_per_testcase(t_cluster_uuid, Config) ->
     Node = start_slave(n1),
     ok = setup_slave(Node),
     [{n1, Node} | Config];
+init_per_testcase(t_num_clients, Config) ->
+    mock_httpc(),
+    ok = snabbkaffe:start_trace(),
+    Config;
 init_per_testcase(_Testcase, Config) ->
     mock_httpc(),
     Config.
@@ -205,6 +209,10 @@ end_per_testcase(t_exhook_info, _Config) ->
 end_per_testcase(t_cluster_uuid, Config) ->
     Node = proplists:get_value(n1, Config),
     ok = stop_slave(Node);
+end_per_testcase(t_num_clients, Config) ->
+    meck:unload([httpc]),
+    ok = snabbkaffe:stop(),
+    Config;
 end_per_testcase(_Testcase, _Config) ->
     meck:unload([httpc]),
     ok.
@@ -321,6 +329,34 @@ t_get_telemetry(_Config) ->
         end,
         maps:to_list(GatewayInfo)
     ),
+    ok.
+
+t_num_clients(_Config) ->
+    {ok, Client} = emqtt:start_link([
+        {client_id, <<"live_client">>},
+        {port, 1883},
+        {clean_start, false}
+    ]),
+    ?wait_async_action(
+        {ok, _} = emqtt:connect(Client),
+        #{
+            ?snk_kind := emqx_stats_setstat,
+            count_stat := 'live_connections.count',
+            value := 1
+        }
+    ),
+    {ok, TelemetryData0} = emqx_telemetry:get_telemetry(),
+    ?assertEqual(1, get_value(num_clients, TelemetryData0)),
+    ?wait_async_action(
+        ok = emqtt:disconnect(Client),
+        #{
+            ?snk_kind := emqx_stats_setstat,
+            count_stat := 'live_connections.count',
+            value := 0
+        }
+    ),
+    {ok, TelemetryData1} = emqx_telemetry:get_telemetry(),
+    ?assertEqual(0, get_value(num_clients, TelemetryData1)),
     ok.
 
 t_advanced_mqtt_features(_) ->
