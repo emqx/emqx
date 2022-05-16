@@ -54,6 +54,7 @@ jobs:
     - name: Get deps git refs for cache
       id: deps-refs
       run: |
+        git config --global --add safe.directory "/__w/emqx/emqx"
         scripts/get-dep-refs.sh
         make clean-all
     - name: load quicer cache

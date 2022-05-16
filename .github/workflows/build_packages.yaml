@@ -308,6 +308,7 @@ jobs:
         SYSTEM: ${{ matrix.os }}
       run: |
         set -eu
+        git config --global --add safe.directory "/__w/emqx/emqx"
         # Align path for CMake caches
         if [ ! "$PWD" = "/emqx" ]; then
           ln -s $PWD /emqx
