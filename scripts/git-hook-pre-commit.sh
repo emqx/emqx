@@ -11,4 +11,7 @@ if [[ "${files_dirty}" == '' ]] && [[ "${files_cached}" == '' ]]; then
 fi
 files="$(echo -e "${files_dirty} \n ${files_cached}" | xargs)"
 # shellcheck disable=SC2086
-./scripts/erlfmt $OPT $files
+if ! (./scripts/erlfmt $OPT $files); then
+    echo "EXECUTE 'make fmt' to fix" >&2
+    exit 1
+fi

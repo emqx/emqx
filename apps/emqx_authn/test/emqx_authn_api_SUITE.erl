@@ -55,6 +55,7 @@ init_per_testcase(_, Config) ->
     Config.
 
 init_per_suite(Config) ->
+    emqx_config:erase(?EMQX_AUTHENTICATION_CONFIG_ROOT_NAME_BINARY),
     _ = application:load(emqx_conf),
     ok = emqx_common_test_helpers:start_apps(
         [emqx_authn, emqx_dashboard],
