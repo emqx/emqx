@@ -1,0 +1,4 @@
+contact_links:
+  - name: Support Request
+    url: https://github.com/emqx/emqx/discussions
+    about: Asking a question about usages, docs or anything you're insterested in

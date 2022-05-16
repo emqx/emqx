@@ -1,0 +1,17 @@
+name: Feature Request Issue
+description: Suggest an idea for this project
+labels: Feature
+body:
+  - type: textarea
+    id: feature
+    attributes:
+      label: What would you like to be added/modified?
+    validations:
+      required: true
+
+  - type: textarea
+    id: rationale
+    attributes:
+      label: Why is this needed?
+    validations:
+      required: true
