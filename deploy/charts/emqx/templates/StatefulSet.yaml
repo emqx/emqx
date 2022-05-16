@@ -23,7 +23,7 @@ spec:
           app.kubernetes.io/managed-by: {{ .Release.Service }}
       spec:
         {{- if .Values.persistence.storageClassName }}
-        storageClassName: {{ .Values.persistence.storageClassName | quote }} 
+        storageClassName: {{ .Values.persistence.storageClassName | quote }}
         {{- end }}
         accessModes:
           - {{ .Values.persistence.accessMode | quote }}
