@@ -326,7 +326,20 @@ int2hexchar(I, lower) -> I - 10 + $a.
 
 -spec hexstr_to_bin(binary()) -> binary().
 hexstr_to_bin(B) when is_binary(B) ->
-    <<<<(hexchar2int(H) * 16 + hexchar2int(L))>> || <<H:8, L:8>> <= B>>.
+    hexstr_to_bin(B, erlang:bit_size(B)).
+
+hexstr_to_bin(B, Size) when is_binary(B) ->
+    case Size rem 16 of
+        0 ->
+            make_binary(B);
+        8 ->
+            <<BH:((Size - 8) div 8)/binary, BL:8>> = B,
+            <<(make_binary(BH))/binary, <<(hexchar2int(BL) * 16)>>/binary>>;
+        _ ->
+            throw({unsupport_hex_string, B, Size})
+    end.
+
+make_binary(B) -> <<<<(hexchar2int(H) * 16 + hexchar2int(L))>> || <<H:8, L:8>> <= B>>.
 
 hexchar2int(I) when I >= $0 andalso I =< $9 -> I - $0;
 hexchar2int(I) when I >= $A andalso I =< $F -> I - $A + 10;
