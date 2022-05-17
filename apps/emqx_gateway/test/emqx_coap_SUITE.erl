@@ -278,6 +278,7 @@ t_clients_api(_) ->
         %% kickout
         {204, _} =
             request(delete, "/gateway/coap/clients/client1"),
+        timer:sleep(200),
         {200, #{data := []}} = request(get, "/gateway/coap/clients")
     end,
     with_connection(Fun).
