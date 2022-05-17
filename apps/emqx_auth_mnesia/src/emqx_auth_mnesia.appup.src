@@ -1,10 +1,10 @@
 %% -*- mode: erlang -*-
 %% Unless you know what you are doing, DO NOT edit manually!!
 {VSN,
-  [{"4\\.3\\.[5-6]",
-       [{load_module,emqx_auth_mnesia_api,brutal_purge,soft_purge,[]},
-        {load_module,emqx_acl_mnesia_db,brutal_purge,soft_purge,[]},
-        {load_module,emqx_acl_mnesia_api,brutal_purge,soft_purge,[]}]},
+  [{<<"4\\.3\\.[5-6]">>,
+   [{load_module,emqx_auth_mnesia_api,brutal_purge,soft_purge,[]},
+    {load_module,emqx_acl_mnesia_db,brutal_purge,soft_purge,[]},
+    {load_module,emqx_acl_mnesia_api,brutal_purge,soft_purge,[]}]},
    {<<"4\\.3\\.[0-3]">>,
     [{load_module,emqx_auth_mnesia_cli,brutal_purge,soft_purge,[]},
      {load_module,emqx_auth_mnesia,brutal_purge,soft_purge,[]},
@@ -26,7 +26,7 @@
      {load_module,emqx_acl_mnesia,brutal_purge,soft_purge,[]},
      {load_module,emqx_auth_mnesia_app,brutal_purge,soft_purge,[]}]},
    {<<".*">>,[]}],
-  [{"4\\.3\\.[5-6]",
+  [{<<"4\\.3\\.[5-6]">>,
     [{load_module,emqx_auth_mnesia_api,brutal_purge,soft_purge,[]},
      {load_module,emqx_acl_mnesia_db,brutal_purge,soft_purge,[]},
      {load_module,emqx_acl_mnesia_api,brutal_purge,soft_purge,[]}]},
