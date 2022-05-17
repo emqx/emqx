@@ -286,20 +286,26 @@ t_clientid_rest_api(_Config) ->
 
     Params3 = [ #{<<"clientid">> => ?CLIENTID, <<"password">> => ?PASSWORD}
               , #{<<"clientid">> => <<"clientid1">>, <<"password">> => ?PASSWORD}
-              , #{<<"clientid">> => <<"clientid2">>, <<"password">> => ?PASSWORD}
+              , #{<<"clientid">> => <<"client2">>, <<"password">> => ?PASSWORD}
               ],
     {ok, Result3} = request_http_rest_add(["auth_clientid"], Params3),
     ?assertMatch(#{ ?CLIENTID := <<"{error,existed}">>
                   , <<"clientid1">> := <<"ok">>
-                  , <<"clientid2">> := <<"ok">>
+                  , <<"client2">> := <<"ok">>
                   }, get_http_data(Result3)),
 
     {ok, Result4} = request_http_rest_list(["auth_clientid"]),
+
     ?assertEqual(3, length(get_http_data(Result4))),
 
+    {ok, Result5} = request_http_rest_list(["auth_clientid?_like_clientid=id"]),
+    ?assertEqual(2, length(get_http_data(Result5))),
+    {ok, Result6} = request_http_rest_list(["auth_clientid?_like_clientid=x"]),
+    ?assertEqual(0, length(get_http_data(Result6))),
+
     {ok, _} = request_http_rest_delete(Path),
-    {ok, Result5} = request_http_rest_lookup(Path),
-    ?assertMatch(#{}, get_http_data(Result5)).
+    {ok, Result7} = request_http_rest_lookup(Path),
+    ?assertMatch(#{}, get_http_data(Result7)).
 
 t_username_rest_api(_Config) ->
     clean_all_users(),
@@ -330,9 +336,14 @@ t_username_rest_api(_Config) ->
     {ok, Result4} = request_http_rest_list(["auth_username"]),
     ?assertEqual(3, length(get_http_data(Result4))),
 
+    {ok, Result5} = request_http_rest_list(["auth_username?_like_username=for"]),
+    ?assertEqual(1, length(get_http_data(Result5))),
+    {ok, Result6} = request_http_rest_list(["auth_username?_like_username=x"]),
+    ?assertEqual(0, length(get_http_data(Result6))),
+
     {ok, _} = request_http_rest_delete(Path),
-    {ok, Result5} = request_http_rest_lookup([Path]),
-    ?assertMatch(#{}, get_http_data(Result5)).
+    {ok, Result7} = request_http_rest_lookup([Path]),
+    ?assertMatch(#{}, get_http_data(Result7)).
 
 t_password_hash(_) ->
     clean_all_users(),

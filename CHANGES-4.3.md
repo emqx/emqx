@@ -21,6 +21,7 @@ File format:
 * Return a client_identifier_not_valid error when username is empty and username_as_clientid is set to true [#7862]
 * Add more rule engine date functions: format_date/3, format_date/4, date_to_unix_ts/4 [#7894]
 * Add proto_name and proto_ver fields for $event/client_disconnected event.
+* Mnesia auth/acl http api support multiple condition queries.
 
 ### Bug fixes
 * List subscription topic (/api/v4/subscriptions), the result do not match with multiple conditions.
