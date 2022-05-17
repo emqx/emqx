@@ -447,6 +447,20 @@ t_pubsub(_) ->
                                    <<"payload">> => <<"hello">>}),
     ?assertEqual(?ERROR8, get(<<"code">>, BadClient2)),
 
+    {ok, BadParams} = request_api(post, api_path(["mqtt/publish"]), [], auth_header_(),
+                                  #{<<"clientid">> => 1,
+                                    <<"topics">> => <<"mytopic">>,
+                                    <<"qos">> => 1,
+                                    <<"payload">> => <<"hello">>,
+                                    <<"user_properties">> =>
+                                        #{<<"id">> => 10010,
+                                          <<"name">> => <<"emqx">>,
+                                          <<"foo">> => ["bad_properties1", "bad_properties2"],
+                                          <<"boolean">> => false
+                                         }
+                                   }),
+    ?assertEqual(?ERROR8, get(<<"code">>, BadParams)),
+
     {ok, BadClient3} = request_api(post, api_path(["mqtt/unsubscribe"]), [], auth_header_(),
                                  #{<<"clientid">> => 1,
                                    <<"topic">> => <<"mytopic">>}),
