@@ -148,7 +148,8 @@
     ascii/1,
     find/2,
     find/3,
-    jq/2
+    jq/2,
+    jq/3
 ]).
 
 %% Map Funcs
@@ -780,22 +781,38 @@ find_s(S, P, Dir) ->
         SubStr -> SubStr
     end.
 
--spec jq(FilterProgram, JSON) -> Result when
+-spec jq(FilterProgram, JSON, TimeoutMS) -> Result when
     FilterProgram :: binary(),
     JSON :: binary() | term(),
+    TimeoutMS :: non_neg_integer(),
     Result :: [term()].
-jq(FilterProgram, JSONBin) when
+jq(FilterProgram, JSONBin, TimeoutMS) when
     is_binary(FilterProgram), is_binary(JSONBin)
 ->
-    case jq:process_json(FilterProgram, JSONBin) of
+    case jq:process_json(FilterProgram, JSONBin, TimeoutMS) of
         {ok, Result} ->
             [json_decode(JSONString) || JSONString <- Result];
         {error, ErrorReason} ->
             erlang:throw({jq_exception, ErrorReason})
     end;
-jq(FilterProgram, JSONTerm) when is_binary(FilterProgram) ->
+jq(FilterProgram, JSONTerm, TimeoutMS) when is_binary(FilterProgram) ->
     JSONBin = json_encode(JSONTerm),
-    jq(FilterProgram, JSONBin).
+    jq(FilterProgram, JSONBin, TimeoutMS).
+
+-spec jq(FilterProgram, JSON) -> Result when
+    FilterProgram :: binary(),
+    JSON :: binary() | term(),
+    Result :: [term()].
+jq(FilterProgram, JSONBin) ->
+    ConfigRootKey = emqx_rule_engine_schema:namespace(),
+    jq(
+        FilterProgram,
+        JSONBin,
+        emqx_config:get([
+            ConfigRootKey,
+            jq_function_default_timeout
+        ])
+    ).
 
 %%------------------------------------------------------------------------------
 %% Array Funcs
