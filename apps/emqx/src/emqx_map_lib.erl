@@ -269,17 +269,50 @@ error_type_two_maps(M1, _M2) ->
 
 %% @doc Sum-merge map values.
 %% For bad merges, ErrorLogger is called to log the key, and value in M2 is ignored.
-best_effort_recursive_sum(M1, M2, ErrorLogger) ->
+best_effort_recursive_sum(M10, M20, ErrorLogger) ->
+    FilterF = fun(K, V) ->
+        case erlang:is_number(V) of
+            true ->
+                true;
+            false ->
+                ErrorLogger(#{failed_to_merge => K, bad_value => V}),
+                false
+        end
+    end,
+    M1 = deep_filter(M10, FilterF),
+    M2 = deep_filter(M20, FilterF),
+    do_best_effort_recursive_sum(M1, M2, ErrorLogger).
+
+do_best_effort_recursive_sum(M1, M2, ErrorLogger) ->
     F =
         fun(Key, V1, V2) ->
             case {erlang:is_map(V1), erlang:is_map(V2)} of
                 {true, true} ->
-                    best_effort_recursive_sum(V1, V2, ErrorLogger);
-                {false, false} when is_number(V1) andalso is_number(V2) ->
-                    V1 + V2;
-                _ ->
-                    ErrorLogger(#{failed_to_merge => Key}),
-                    V1
+                    do_best_effort_recursive_sum(V1, V2, ErrorLogger);
+                {true, false} ->
+                    ErrorLogger(#{failed_to_merge => Key, bad_value => V2}),
+                    do_best_effort_recursive_sum(V1, #{}, ErrorLogger);
+                {false, true} ->
+                    ErrorLogger(#{failed_to_merge => Key, bad_value => V1}),
+                    do_best_effort_recursive_sum(V2, #{}, ErrorLogger);
+                {false, false} ->
+                    true = is_number(V1),
+                    true = is_number(V2),
+                    V1 + V2
             end
         end,
     merge_with(F, M1, M2).
+
+deep_filter(M, F) when is_map(M) ->
+    %% maps:filtermap is not available before OTP 24
+    maps:from_list(
+        lists:filtermap(
+            fun
+                ({K, V}) when is_map(V) ->
+                    {true, {K, deep_filter(V, F)}};
+                ({K, V}) ->
+                    F(K, V) andalso {true, {K, V}}
+            end,
+            maps:to_list(M)
+        )
+    ).
