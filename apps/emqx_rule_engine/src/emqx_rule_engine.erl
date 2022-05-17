@@ -57,6 +57,9 @@
 -export([ restore_action_metrics/2
         ]).
 
+-export([ fetch_resource_status/3
+        ]).
+
 -type(rule() :: #rule{}).
 -type(action() :: #action{}).
 -type(resource() :: #resource{}).
@@ -407,7 +410,7 @@ is_source_alive(Nodes, ResId, _Opts = #{fetch := false}) ->
     end.
 
 %% fetch_resource_status -> #{is_alive => boolean()}
-%% get_resource_status -> {ok #{is_alive => boolean()}}
+%% get_resource_status -> {ok, #{is_alive => boolean()}}
 is_source_alive_([]) -> true;
 is_source_alive_([#{is_alive := true} | ResL]) -> is_source_alive_(ResL);
 is_source_alive_([{ok, #{is_alive := true}} | ResL]) -> is_source_alive_(ResL);
