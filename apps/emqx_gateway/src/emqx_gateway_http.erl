@@ -485,6 +485,20 @@ reason2msg(
         "The authentication already exist on ~s",
         [listener_id(GwName, LType, LName)]
     );
+reason2msg(
+    {bad_ssl_config, #{
+        reason := Reason,
+        which_options := Options
+    }}
+) ->
+    fmtstr("Bad TLS configuration for ~p, reason: ~s", [Options, Reason]);
+reason2msg(
+    {#{roots := [{gateway, _}]}, ErrReports}
+) ->
+    fmtstr(
+        "Invalid configurations, reason: ~s",
+        [validation_error_stringfy(ErrReports, [])]
+    );
 reason2msg(_) ->
     error.
 
@@ -497,6 +511,25 @@ codestr(501) -> 'NOT_IMPLEMENTED'.
 
 fmtstr(Fmt, Args) ->
     lists:flatten(io_lib:format(Fmt, Args)).
+
+validation_error_stringfy([], Reasons) ->
+    lists:join(", ", lists:reverse(Reasons));
+validation_error_stringfy(
+    [
+        {validation_error, #{
+            path := Path,
+            reason := unknown_fields,
+            unknown_fields := Fields
+        }}
+        | More
+    ],
+    Reasons
+) ->
+    ReasonStr = fmtstr("unknown fields ~p for ~s", [Fields, Path]),
+    validation_error_stringfy(More, [ReasonStr | Reasons]);
+validation_error_stringfy([Other | More], Reasons) ->
+    ReasonStr = <<(emqx_gateway_utils:stringfy(Other))/binary>>,
+    validation_error_stringfy(More, [ReasonStr | Reasons]).
 
 -spec with_authn(binary(), function()) -> any().
 with_authn(GwName0, Fun) ->
@@ -542,10 +575,6 @@ with_gateway(GwName0, Fun) ->
                 lists:join(".", lists:map(fun to_list/1, Path0))
             ),
             return_http_error(404, "Resource not found. path: " ++ Path);
-        %% Exceptions from emqx_gateway_conf:convert_certs/2,3
-        error:{bad_ssl_config, Reason0} ->
-            Reason = emqx_gateway_utils:stringfy(Reason0),
-            return_http_error(400, ["Bad SSL config, reason: ", Reason]);
         Class:Reason:Stk ->
             ?SLOG(error, #{
                 msg => "uncatched_error",
