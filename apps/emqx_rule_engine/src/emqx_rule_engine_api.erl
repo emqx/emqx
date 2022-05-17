@@ -60,19 +60,19 @@ end).
     RATE_5
 ),
     #{
-        'sql.matched' => MATCH,
-        'sql.passed' => PASS,
-        'sql.failed' => FAIL,
-        'sql.failed.exception' => FAIL_EX,
-        'sql.failed.no_result' => FAIL_NORES,
+        'matched' => MATCH,
+        'passed' => PASS,
+        'failed' => FAIL,
+        'failed.exception' => FAIL_EX,
+        'failed.no_result' => FAIL_NORES,
         'outputs.total' => O_TOTAL,
         'outputs.failed' => O_FAIL,
         'outputs.failed.out_of_service' => O_FAIL_OOS,
         'outputs.failed.unknown' => O_FAIL_UNKNOWN,
         'outputs.success' => O_SUCC,
-        'sql.matched.rate' => RATE,
-        'sql.matched.rate.max' => RATE_MAX,
-        'sql.matched.rate.last5m' => RATE_5
+        'matched.rate' => RATE,
+        'matched.rate.max' => RATE_MAX,
+        'matched.rate.last5m' => RATE_5
     }
 ).
 -define(metrics(
@@ -91,19 +91,19 @@ end).
     RATE_5
 ),
     #{
-        'sql.matched' := MATCH,
-        'sql.passed' := PASS,
-        'sql.failed' := FAIL,
-        'sql.failed.exception' := FAIL_EX,
-        'sql.failed.no_result' := FAIL_NORES,
+        'matched' := MATCH,
+        'passed' := PASS,
+        'failed' := FAIL,
+        'failed.exception' := FAIL_EX,
+        'failed.no_result' := FAIL_NORES,
         'outputs.total' := O_TOTAL,
         'outputs.failed' := O_FAIL,
         'outputs.failed.out_of_service' := O_FAIL_OOS,
         'outputs.failed.unknown' := O_FAIL_UNKNOWN,
         'outputs.success' := O_SUCC,
-        'sql.matched.rate' := RATE,
-        'sql.matched.rate.max' := RATE_MAX,
-        'sql.matched.rate.last5m' := RATE_5
+        'matched.rate' := RATE,
+        'matched.rate.max' := RATE_MAX,
+        'matched.rate.last5m' := RATE_5
     }
 ).
 
@@ -406,11 +406,11 @@ get_rule_metrics(Id) ->
         #{
             counters :=
                 #{
-                    'sql.matched' := Matched,
-                    'sql.passed' := Passed,
-                    'sql.failed' := Failed,
-                    'sql.failed.exception' := FailedEx,
-                    'sql.failed.no_result' := FailedNoRes,
+                    'matched' := Matched,
+                    'passed' := Passed,
+                    'failed' := Failed,
+                    'failed.exception' := FailedEx,
+                    'failed.no_result' := FailedNoRes,
                     'outputs.total' := OTotal,
                     'outputs.failed' := OFailed,
                     'outputs.failed.out_of_service' := OFailedOOS,
@@ -419,7 +419,7 @@ get_rule_metrics(Id) ->
                 },
             rate :=
                 #{
-                    'sql.matched' :=
+                    'matched' :=
                         #{current := Current, max := Max, last5m := Last5M}
                 }
         }

@@ -103,24 +103,24 @@ fields("rule_test") ->
     ];
 fields("metrics") ->
     [
-        {"sql.matched",
+        {"matched",
             sc(non_neg_integer(), #{
                 desc => ?DESC("metrics_sql_matched")
             })},
-        {"sql.matched.rate", sc(float(), #{desc => ?DESC("metrics_sql_matched_rate")})},
-        {"sql.matched.rate.max", sc(float(), #{desc => ?DESC("metrics_sql_matched_rate_max")})},
-        {"sql.matched.rate.last5m",
+        {"matched.rate", sc(float(), #{desc => ?DESC("metrics_sql_matched_rate")})},
+        {"matched.rate.max", sc(float(), #{desc => ?DESC("metrics_sql_matched_rate_max")})},
+        {"matched.rate.last5m",
             sc(
                 float(),
                 #{desc => ?DESC("metrics_sql_matched_rate_last5m")}
             )},
-        {"sql.passed", sc(non_neg_integer(), #{desc => ?DESC("metrics_sql_passed")})},
-        {"sql.failed", sc(non_neg_integer(), #{desc => ?DESC("metrics_sql_failed")})},
-        {"sql.failed.exception",
+        {"passed", sc(non_neg_integer(), #{desc => ?DESC("metrics_sql_passed")})},
+        {"failed", sc(non_neg_integer(), #{desc => ?DESC("metrics_sql_failed")})},
+        {"failed.exception",
             sc(non_neg_integer(), #{
                 desc => ?DESC("metrics_sql_failed_exception")
             })},
-        {"sql.failed.unknown",
+        {"failed.unknown",
             sc(non_neg_integer(), #{
                 desc => ?DESC("metrics_sql_failed_unknown")
             })},
