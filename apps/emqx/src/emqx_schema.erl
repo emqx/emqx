@@ -896,7 +896,7 @@ fields("ws_opts") ->
             sc(
                 duration(),
                 #{
-                    default => "15s",
+                    default => "24h",
                     desc => ?DESC(fields_mqtt_quic_listener_idle_timeout)
                 }
             )},
@@ -1017,7 +1017,10 @@ fields("tcp_opts") ->
         {"buffer",
             sc(
                 bytesize(),
-                #{desc => ?DESC(fields_tcp_opts_buffer)}
+                #{
+                    desc => ?DESC(fields_tcp_opts_buffer),
+                    default => "4KB"
+                }
             )},
         {"high_watermark",
             sc(
