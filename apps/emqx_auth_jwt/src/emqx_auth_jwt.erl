@@ -85,6 +85,8 @@ check_acl(ClientInfo = #{jwt_claims := Claims},
                     ?DEBUG("acl_deny_due_to_invalid_jwt_exp", []),
                     deny
             end;
+        #{AclClaimName := Acl} ->
+            verify_acl(ClientInfo, Acl, PubSub, Topic);
         _ ->
             ?DEBUG("no_acl_jwt_claim", []),
             ignore
