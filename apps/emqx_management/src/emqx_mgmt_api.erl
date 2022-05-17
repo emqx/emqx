@@ -23,6 +23,7 @@
 %% first_next query APIs
 -export([ params2qs/2
         , node_query/4
+        , node_query/5
         , cluster_query/3
         , traverse_table/5
         , select_table/5
@@ -82,6 +83,9 @@ limit(Params) ->
 %%--------------------------------------------------------------------
 
 node_query(Node, Params, {Tab, QsSchema}, QueryFun) ->
+    node_query(Node, Params, {Tab, QsSchema}, QueryFun, undefined).
+
+node_query(Node, Params, {Tab, QsSchema}, QueryFun, SortFun) ->
     {CodCnt, Qs} = params2qs(Params, QsSchema),
     Limit = limit(Params),
     Page  = page(Params),
@@ -94,7 +98,11 @@ node_query(Node, Params, {Tab, QsSchema}, QueryFun) ->
                 true -> Meta#{count => count(Tab), hasnext => length(Rows) > Limit};
                 _ -> Meta#{count => -1, hasnext => length(Rows) > Limit}
             end,
-    #{meta => NMeta, data => lists:sublist(Rows, Limit)}.
+    NRows = case SortFun of
+                undefined -> Rows;
+                _ -> lists:sort(SortFun, Rows)
+            end,
+    #{meta => NMeta, data => lists:sublist(NRows, Limit)}.
 
 %% @private
 do_query(Node, Qs, {M,F}, Start, Limit) when Node =:= node() ->
