@@ -400,10 +400,14 @@ pre_config_update(_, {update_gateway, GwName, Conf}, RawConf) ->
     case maps:get(GwName, RawConf, undefined) of
         undefined ->
             badres_gateway(not_found, GwName);
-        _ ->
+        GwRawConf ->
             Conf1 = maps:without([<<"listeners">>, ?AUTHN_BIN], Conf),
             NConf = tune_gw_certs(fun convert_certs/2, GwName, Conf1),
-            {ok, emqx_map_lib:deep_put([GwName], RawConf, NConf)}
+            NConf1 = maps:merge(
+                maps:with([<<"listeners">>, ?AUTHN_BIN], GwRawConf),
+                NConf
+            ),
+            {ok, emqx_map_lib:deep_put([GwName], RawConf, NConf1)}
     end;
 pre_config_update(_, {unload_gateway, GwName}, RawConf) ->
     _ = tune_gw_certs(

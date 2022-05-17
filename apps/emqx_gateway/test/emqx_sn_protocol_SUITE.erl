@@ -43,7 +43,7 @@
 -define(FLAG_RETAIN(X), X).
 -define(FLAG_SESSION(X), X).
 
--define(LOG(Format, Args), ct:pal("TEST: " ++ Format, Args)).
+-define(LOG(Format, Args), ct:log("TEST: " ++ Format, Args)).
 
 -define(MAX_PRED_TOPIC_ID, 2).
 -define(PREDEF_TOPIC_ID1, 1).
@@ -106,15 +106,17 @@ end_per_suite(_) ->
     emqx_mgmt_api_test_util:end_suite([emqx_gateway, emqx_conf]).
 
 restart_mqttsn_with_subs_resume_on() ->
+    Conf = emqx:get_raw_config([gateway, mqttsn]),
     emqx_gateway_conf:update_gateway(
         mqttsn,
-        #{<<"subs_resume">> => <<"true">>}
+        Conf#{<<"subs_resume">> => <<"true">>}
     ).
 
 restart_mqttsn_with_subs_resume_off() ->
+    Conf = emqx:get_raw_config([gateway, mqttsn]),
     emqx_gateway_conf:update_gateway(
         mqttsn,
-        #{<<"subs_resume">> => <<"false">>}
+        Conf#{<<"subs_resume">> => <<"false">>}
     ).
 
 default_config() ->
