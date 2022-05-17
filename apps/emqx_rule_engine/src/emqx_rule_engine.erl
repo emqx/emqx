@@ -38,6 +38,8 @@
         , start_resource/1
         , get_resource_status/1
         , is_source_alive/1
+        , is_source_alive/2
+        , is_source_alive/3
         , get_resource_params/1
         , ensure_resource_deleted/1
         , delete_resource/1
@@ -340,7 +342,7 @@ test_resource(#{type := Type} = Params) ->
             try
                 case create_resource(maps:put(id, ResId, Params), no_retry) of
                     {ok, _} ->
-                        case is_source_alive(ResId) of
+                        case is_source_alive(ResId, #{fetch => true}) of
                             true ->
                                 ok;
                             false ->
@@ -363,15 +365,53 @@ test_resource(#{type := Type} = Params) ->
     end.
 
 is_source_alive(ResId) ->
-    case rpc:multicall(ekka_mnesia:running_nodes(), ?MODULE, get_resource_status, [ResId], 5000) of
-        {ResL, []} ->
-            is_source_alive_(ResL);
-        {_, _Errors} ->
-            false
+    is_source_alive(ResId, #{fetch => false}).
+
+is_source_alive(ResId, Opts) ->
+    is_source_alive(ekka_mnesia:running_nodes(), ResId, Opts).
+
+-spec(is_source_alive(list(node()) | node(), resource_id(), #{fetch := boolean()}) -> boolean()).
+is_source_alive(Node, ResId, Opts) when is_atom(Node) ->
+    is_source_alive([Node], ResId, Opts);
+is_source_alive(Nodes, ResId, _Opts = #{fetch := true}) ->
+    try
+        case emqx_rule_registry:find_resource(ResId) of
+            {ok, #resource{type = ResType}} ->
+                {ok, #resource_type{on_status = {Mod, OnStatus}}}
+                    = emqx_rule_registry:find_resource_type(ResType),
+                case rpc:multicall(Nodes,
+                         ?MODULE, fetch_resource_status, [Mod, OnStatus, ResId], 5000) of
+                    {ResL, []} ->
+                        is_source_alive_(ResL);
+                    {_, _Error} ->
+                        false
+                end;
+            not_found ->
+                false
+        end
+    catch E:R:S ->
+        ?LOG(warning, "is_source_alive failed, ~0p:~0p ~0p", [E, R, S]),
+        false
+    end;
+is_source_alive(Nodes, ResId, _Opts = #{fetch := false}) ->
+    try
+        case rpc:multicall(Nodes, ?MODULE, get_resource_status, [ResId], 5000) of
+            {ResL, []} ->
+                is_source_alive_(ResL);
+            {_, _Errors} ->
+                false
+        end
+    catch E:R:S ->
+        ?LOG(warning, "is_source_alive failed, ~0p:~0p ~0p", [E, R, S]),
+        false
     end.
 
+%% fetch_resource_status -> #{is_alive => boolean()}
+%% get_resource_status -> {ok #{is_alive => boolean()}}
 is_source_alive_([]) -> true;
+is_source_alive_([#{is_alive := true} | ResL]) -> is_source_alive_(ResL);
 is_source_alive_([{ok, #{is_alive := true}} | ResL]) -> is_source_alive_(ResL);
+is_source_alive_([#{is_alive := false} | _ResL]) -> false;
 is_source_alive_([{ok, #{is_alive := false}} | _ResL]) -> false;
 is_source_alive_([_Error | _ResL]) -> false.
 
