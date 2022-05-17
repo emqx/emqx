@@ -342,8 +342,8 @@ t_username_rest_api(_Config) ->
     ?assertEqual(0, length(get_http_data(Result6))),
 
     {ok, _} = request_http_rest_delete(Path),
-    {ok, Result6} = request_http_rest_lookup([Path]),
-    ?assertMatch(#{}, get_http_data(Result6)).
+    {ok, Result7} = request_http_rest_lookup([Path]),
+    ?assertMatch(#{}, get_http_data(Result7)).
 
 t_password_hash(_) ->
     clean_all_users(),
