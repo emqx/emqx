@@ -75,6 +75,14 @@ fields("connector") ->
                     desc => ?DESC("proto_ver")
                 }
             )},
+        {bridge_mode,
+            sc(
+                boolean(),
+                #{
+                    default => false,
+                    desc => ?DESC("bridge_mode")
+                }
+            )},
         {username,
             sc(
                 binary(),

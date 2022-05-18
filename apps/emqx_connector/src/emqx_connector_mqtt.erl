@@ -224,6 +224,7 @@ basic_config(#{
     server := Server,
     reconnect_interval := ReconnIntv,
     proto_ver := ProtoVer,
+    bridge_mode := BridgeMode,
     username := User,
     password := Password,
     clean_start := CleanStart,
@@ -246,7 +247,7 @@ basic_config(#{
         %% When the load balancing server enables mqtt connection packet inspection,
         %% non-standard mqtt connection packets will be filtered out by LB.
         %% So let's disable bridge_mode.
-        bridge_mode => false,
+        bridge_mode => BridgeMode,
         username => User,
         password => Password,
         clean_start => CleanStart,
