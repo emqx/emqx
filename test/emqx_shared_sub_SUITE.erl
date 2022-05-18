@@ -47,20 +47,20 @@ t_is_ack_required(_) ->
     ?assertEqual(false, emqx_shared_sub:is_ack_required(#message{headers = #{}})).
 
 t_maybe_nack_dropped(_) ->
-    ?assertEqual(false, emqx_shared_sub:maybe_nack_dropped(#message{headers = #{}})),
-    Msg = #message{headers = #{shared_dispatch_ack => {<<"group">>, self(), for_test}}},
-    ?assertEqual(true, emqx_shared_sub:maybe_nack_dropped(Msg)),
+    ?assertEqual(store, emqx_shared_sub:maybe_nack_dropped(#message{headers = #{}})),
+    Msg = #message{headers = #{shared_dispatch_ack => {self(), {fresh, <<"group">>, for_test}}}},
+    ?assertEqual(drop, emqx_shared_sub:maybe_nack_dropped(Msg)),
     ?assertEqual(ok,receive {for_test, {shared_sub_nack, dropped}} -> ok after 100 -> timeout end).
 
 t_nack_no_connection(_) ->
-    Msg = #message{headers = #{shared_dispatch_ack => {<<"group">>, self(), for_test}}},
+    Msg = #message{headers = #{shared_dispatch_ack => {self(), {fresh, <<"group">>, for_test}}}},
     ?assertEqual(ok, emqx_shared_sub:nack_no_connection(Msg)),
     ?assertEqual(ok,receive {for_test, {shared_sub_nack, no_connection}} -> ok
                     after 100 -> timeout end).
 
 t_maybe_ack(_) ->
     ?assertEqual(#message{headers = #{}}, emqx_shared_sub:maybe_ack(#message{headers = #{}})),
-    Msg = #message{headers = #{shared_dispatch_ack => {<<"group">>, self(), for_test}}},
+    Msg = #message{headers = #{shared_dispatch_ack => {self(), {fresh, <<"group">>, for_test}}}},
     ?assertEqual(#message{headers = #{shared_dispatch_ack => ?no_ack}},
                  emqx_shared_sub:maybe_ack(Msg)),
     ?assertEqual(ok,receive {for_test, ?ack} -> ok after 100 -> timeout end).
@@ -444,6 +444,53 @@ t_redispatch(_) ->
 
     {true, UsedSubPid2} = Res,
     emqtt:stop(UsedSubPid2),
+    ok.
+
+t_dispatch_when_inflights_are_full(_) ->
+    ok = ensure_config(round_robin, true),
+    Topic = <<"foo/bar">>,
+    ClientId1 = <<"ClientId1">>,
+    ClientId2 = <<"ClientId2">>,
+
+    %% Note that max_inflight is 1
+    {ok, ConnPid1} = emqtt:start_link([{clientid, ClientId1}, {max_inflight, 1}]),
+    {ok, ConnPid2} = emqtt:start_link([{clientid, ClientId2}, {max_inflight, 1}]),
+    {ok, _} = emqtt:connect(ConnPid1),
+    {ok, _} = emqtt:connect(ConnPid2),
+
+    emqtt:subscribe(ConnPid1, {<<"$share/group/foo/bar">>, 2}),
+    emqtt:subscribe(ConnPid2, {<<"$share/group/foo/bar">>, 2}),
+
+    Message1 = emqx_message:make(ClientId1, 2, Topic, <<"hello1">>),
+    Message2 = emqx_message:make(ClientId1, 2, Topic, <<"hello2">>),
+    Message3 = emqx_message:make(ClientId1, 2, Topic, <<"hello3">>),
+    Message4 = emqx_message:make(ClientId1, 2, Topic, <<"hello4">>),
+    ct:sleep(100),
+
+    sys:suspend(ConnPid1),
+    sys:suspend(ConnPid2),
+
+    %% Fill in the inflight for first client
+    ?assertMatch([{_, _, {ok, 1}}], emqx:publish(Message1)),
+
+    %% Fill in the inflight for second client
+    ?assertMatch([{_, _, {ok, 1}}], emqx:publish(Message2)),
+
+    %% Now kill any client
+    erlang:exit(ConnPid1, normal),
+    ct:sleep(100),
+
+    %% And try to send the message
+    ?assertMatch([{_, _, {ok, 1}}], emqx:publish(Message3)),
+    ?assertMatch([{_, _, {ok, 1}}], emqx:publish(Message4)),
+
+    %% And see that it gets dispatched to the client which is alive, even if it's inflight is full
+    sys:resume(ConnPid2),
+    ct:sleep(100),
+    ?assertMatch({true, ConnPid2}, last_message(<<"hello3">>, [ConnPid1, ConnPid2])),
+    ?assertMatch({true, ConnPid2}, last_message(<<"hello4">>, [ConnPid1, ConnPid2])),
+
+    emqtt:stop(ConnPid2),
     ok.
 
 %%--------------------------------------------------------------------
