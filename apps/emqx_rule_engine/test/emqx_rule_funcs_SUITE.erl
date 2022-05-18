@@ -171,10 +171,10 @@ t_term_encode(_) ->
     ).
 
 t_hexstr2bin(_) ->
-    ?assertEqual(<<99, 100, 240>>, emqx_rule_funcs:hexstr2bin(<<"6364f">>)),
-    ?assertEqual(<<160>>, emqx_rule_funcs:hexstr2bin(<<"a">>)),
-    ?assertEqual(<<240>>, emqx_rule_funcs:hexstr2bin(<<"f">>)),
-    ?assertEqual(<<80>>, emqx_rule_funcs:hexstr2bin(<<"5">>)),
+    ?assertEqual(<<6, 54, 79>>, emqx_rule_funcs:hexstr2bin(<<"6364f">>)),
+    ?assertEqual(<<10>>, emqx_rule_funcs:hexstr2bin(<<"a">>)),
+    ?assertEqual(<<15>>, emqx_rule_funcs:hexstr2bin(<<"f">>)),
+    ?assertEqual(<<5>>, emqx_rule_funcs:hexstr2bin(<<"5">>)),
     ?assertEqual(<<1, 2>>, emqx_rule_funcs:hexstr2bin(<<"0102">>)),
     ?assertEqual(<<17, 33>>, emqx_rule_funcs:hexstr2bin(<<"1121">>)).
 
