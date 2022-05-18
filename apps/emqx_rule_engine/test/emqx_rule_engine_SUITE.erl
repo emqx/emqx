@@ -165,7 +165,7 @@ end_per_suite(_Config) ->
 
 on_resource_create(_id, _) -> #{}.
 on_resource_destroy(_id, _) -> ok.
-on_get_resource_status(_id, _) -> #{}.
+on_get_resource_status(_id, _) -> #{is_alive => true}.
 
 %%------------------------------------------------------------------------------
 %% Group specific setup/teardown
