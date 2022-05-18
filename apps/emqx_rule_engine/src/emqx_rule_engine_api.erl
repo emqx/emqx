@@ -321,7 +321,7 @@ do_create_resource(Create, ParsedParams) ->
 list_resources(#{}, _Params) ->
     Data0 = lists:foldr(fun maybe_record_to_map/2, [], emqx_rule_registry:get_resources()),
     Data = lists:map(fun(Res = #{id := ResId}) ->
-               Status = emqx_rule_engine:is_source_alive(ResId),
+               Status = emqx_rule_engine:is_resource_alive(ResId),
                maps:put(status, Status, Res)
            end, Data0),
     return({ok, Data}).
@@ -332,14 +332,14 @@ list_resources_by_type(#{type := Type}, _Params) ->
 show_resource(#{id := Id}, _Params) ->
     case emqx_rule_registry:find_resource(Id) of
         {ok, R} ->
-            Status =
-                lists:concat(
-                  [ case rpc:call(Node, emqx_rule_engine, get_resource_status, [Id]) of
-                        {badrpc, _} -> [];
-                        {ok, St} -> [maps:put(node, Node, St)];
-                        {error, _} -> [maps:put(node, Node, #{is_alive => false})]
-                    end
-                    || Node <- ekka_mnesia:running_nodes()]),
+            StatusFun =
+                fun(Node) ->
+                    #{
+                        node => Node,
+                        is_alive => emqx_rule_engine:is_resource_alive(Node, Id, #{fetch => false})
+                    }
+                end,
+            Status = [StatusFun(Node) || Node <- ekka_mnesia:running_nodes()],
             return({ok, maps:put(status, Status, record_to_map(R))});
         not_found ->
             return({error, 404, <<"Not Found">>})

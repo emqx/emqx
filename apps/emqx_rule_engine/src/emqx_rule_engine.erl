@@ -37,7 +37,9 @@
         , test_resource/1
         , start_resource/1
         , get_resource_status/1
-        , is_source_alive/1
+        , is_resource_alive/1
+        , is_resource_alive/2
+        , is_resource_alive/3
         , get_resource_params/1
         , ensure_resource_deleted/1
         , delete_resource/1
@@ -46,7 +48,7 @@
 
 -export([ init_resource/4
         , init_action/4
-        , clear_resource/3
+        , clear_resource/4
         , clear_rule/1
         , clear_actions/1
         , clear_action/3
@@ -54,6 +56,13 @@
 
 -export([ restore_action_metrics/2
         ]).
+
+-export([ fetch_resource_status/3
+        ]).
+
+-ifdef(TEST).
+-export([alarm_name_of_resource_down/2]).
+-endif.
 
 -type(rule() :: #rule{}).
 -type(action() :: #action{}).
@@ -340,11 +349,11 @@ test_resource(#{type := Type} = Params) ->
             try
                 case create_resource(maps:put(id, ResId, Params), no_retry) of
                     {ok, _} ->
-                        case is_source_alive(ResId) of
+                        case is_resource_alive(ResId, #{fetch => true}) of
                             true ->
                                 ok;
                             false ->
-                                %% in is_source_alive, the cluster-call RPC logs errors
+                                %% in is_resource_alive, the cluster-call RPC logs errors
                                 %% so we do not log anything here
                                 {error, {resource_down, ResId}}
                         end;
@@ -362,18 +371,56 @@ test_resource(#{type := Type} = Params) ->
             {error, {resource_type_not_found, Type}}
     end.
 
-is_source_alive(ResId) ->
-    case rpc:multicall(ekka_mnesia:running_nodes(), ?MODULE, get_resource_status, [ResId], 5000) of
-        {ResL, []} ->
-            is_source_alive_(ResL);
-        {_, _Errors} ->
-            false
+is_resource_alive(ResId) ->
+    is_resource_alive(ResId, #{fetch => false}).
+
+is_resource_alive(ResId, Opts) ->
+    is_resource_alive(ekka_mnesia:running_nodes(), ResId, Opts).
+
+-spec(is_resource_alive(list(node()) | node(), resource_id(), #{fetch := boolean()}) -> boolean()).
+is_resource_alive(Node, ResId, Opts) when is_atom(Node) ->
+    is_resource_alive([Node], ResId, Opts);
+is_resource_alive(Nodes, ResId, _Opts = #{fetch := true}) ->
+    try
+        case emqx_rule_registry:find_resource(ResId) of
+            {ok, #resource{type = ResType}} ->
+                {ok, #resource_type{on_status = {Mod, OnStatus}}}
+                    = emqx_rule_registry:find_resource_type(ResType),
+                case rpc:multicall(Nodes,
+                         ?MODULE, fetch_resource_status, [Mod, OnStatus, ResId], 5000) of
+                    {ResL, []} ->
+                        is_resource_alive_(ResL);
+                    {_, _Error} ->
+                        false
+                end;
+            not_found ->
+                false
+        end
+    catch E:R:S ->
+        ?LOG(warning, "is_resource_alive failed, ~0p:~0p ~0p", [E, R, S]),
+        false
+    end;
+is_resource_alive(Nodes, ResId, _Opts = #{fetch := false}) ->
+    try
+        case rpc:multicall(Nodes, ?MODULE, get_resource_status, [ResId], 5000) of
+            {ResL, []} ->
+                is_resource_alive_(ResL);
+            {_, _Errors} ->
+                false
+        end
+    catch E:R:S ->
+        ?LOG(warning, "is_resource_alive failed, ~0p:~0p ~0p", [E, R, S]),
+        false
     end.
 
-is_source_alive_([]) -> true;
-is_source_alive_([{ok, #{is_alive := true}} | ResL]) -> is_source_alive_(ResL);
-is_source_alive_([{ok, #{is_alive := false}} | _ResL]) -> false;
-is_source_alive_([_Error | _ResL]) -> false.
+%% fetch_resource_status -> #{is_alive => boolean()}
+%% get_resource_status -> {ok, #{is_alive => boolean()}}
+is_resource_alive_([]) -> true;
+is_resource_alive_([#{is_alive := true} | ResL]) -> is_resource_alive_(ResL);
+is_resource_alive_([#{is_alive := false} | _ResL]) -> false;
+is_resource_alive_([{ok, #{is_alive := true}} | ResL]) -> is_resource_alive_(ResL);
+is_resource_alive_([{ok, #{is_alive := false}} | _ResL]) -> false;
+is_resource_alive_([_Error | _ResL]) -> false.
 
 -spec(get_resource_status(resource_id()) -> {ok, resource_status()} | {error, Reason :: term()}).
 get_resource_status(ResId) ->
@@ -407,7 +454,7 @@ delete_resource(ResId) ->
             try
                 case emqx_rule_registry:remove_resource(ResId) of
                     ok ->
-                        _ = ?CLUSTER_CALL(clear_resource, [ModD, Destroy, ResId]),
+                        _ = ?CLUSTER_CALL(clear_resource, [ModD, Destroy, ResId, ResType]),
                         ok;
                     {error, _} = R -> R
                 end
@@ -609,9 +656,13 @@ init_action(Module, OnCreate, ActionInstId, Params) ->
                 #action_instance_params{id = ActionInstId, params = Params, apply = Apply})
     end.
 
-clear_resource(_Module, undefined, ResId) ->
+clear_resource(_Module, undefined, Type, ResId) ->
+    Name = alarm_name_of_resource_down(Type, ResId),
+    _ = emqx_alarm:deactivate(Name),
     ok = emqx_rule_registry:remove_resource_params(ResId);
-clear_resource(Module, Destroy, ResId) ->
+clear_resource(Module, Destroy, Type, ResId) ->
+    Name = alarm_name_of_resource_down(Type, ResId),
+    _ = emqx_alarm:deactivate(Name),
     case emqx_rule_registry:find_resource_params(ResId) of
         {ok, #resource_params{params = Params}} ->
             ?RAISE(Module:Destroy(ResId, Params),
