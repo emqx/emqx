@@ -333,8 +333,7 @@ hexstr_to_bin(B, Size) when is_binary(B) ->
         0 ->
             make_binary(B);
         8 ->
-            <<BH:((Size - 8) div 8)/binary, BL:8>> = B,
-            <<(make_binary(BH))/binary, <<(hexchar2int(BL) * 16)>>/binary>>;
+            make_binary(<<"0", B/binary>>);
         _ ->
             throw({unsupport_hex_string, B, Size})
     end.
