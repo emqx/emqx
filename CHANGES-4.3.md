@@ -31,7 +31,7 @@ File format:
 * Improved resilience against autocluster partitioning during cluster
   startup. [#7876]
   [ekka-158](https://github.com/emqx/ekka/pull/158)
-* Fix Added regularity (`^[0-9A-Za-z_\-]+$`) check for node names
+* Add regular expression check ^[0-9A-Za-z_\-]+$ for node name [#7979]
 
 ## v4.3.14
 
