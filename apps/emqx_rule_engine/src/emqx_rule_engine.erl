@@ -83,11 +83,11 @@
 %% NOTE: This order cannot be changed! This is to make the metric working during relup.
 %% Append elements to this list to add new metrics.
 -define(METRICS, [
-    'sql.matched',
-    'sql.passed',
-    'sql.failed',
-    'sql.failed.exception',
-    'sql.failed.no_result',
+    'matched',
+    'passed',
+    'failed',
+    'failed.exception',
+    'failed.no_result',
     'outputs.total',
     'outputs.success',
     'outputs.failed',
@@ -95,7 +95,7 @@
     'outputs.failed.unknown'
 ]).
 
--define(RATE_METRICS, ['sql.matched']).
+-define(RATE_METRICS, ['matched']).
 
 config_key_path() ->
     [rule_engine, rules].
