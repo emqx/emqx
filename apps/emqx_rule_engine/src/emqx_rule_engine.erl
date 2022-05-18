@@ -48,7 +48,7 @@
 
 -export([ init_resource/4
         , init_action/4
-        , clear_resource/3
+        , clear_resource/4
         , clear_rule/1
         , clear_actions/1
         , clear_action/3
@@ -59,6 +59,10 @@
 
 -export([ fetch_resource_status/3
         ]).
+
+-ifdef(TEST).
+-export([alarm_name_of_resource_down/2]).
+-endif.
 
 -type(rule() :: #rule{}).
 -type(action() :: #action{}).
@@ -450,7 +454,7 @@ delete_resource(ResId) ->
             try
                 case emqx_rule_registry:remove_resource(ResId) of
                     ok ->
-                        _ = ?CLUSTER_CALL(clear_resource, [ModD, Destroy, ResId]),
+                        _ = ?CLUSTER_CALL(clear_resource, [ModD, Destroy, ResId, ResType]),
                         ok;
                     {error, _} = R -> R
                 end
@@ -652,9 +656,13 @@ init_action(Module, OnCreate, ActionInstId, Params) ->
                 #action_instance_params{id = ActionInstId, params = Params, apply = Apply})
     end.
 
-clear_resource(_Module, undefined, ResId) ->
+clear_resource(_Module, undefined, Type, ResId) ->
+    Name = alarm_name_of_resource_down(Type, ResId),
+    _ = emqx_alarm:deactivate(Name),
     ok = emqx_rule_registry:remove_resource_params(ResId);
-clear_resource(Module, Destroy, ResId) ->
+clear_resource(Module, Destroy, Type, ResId) ->
+    Name = alarm_name_of_resource_down(Type, ResId),
+    _ = emqx_alarm:deactivate(Name),
     case emqx_rule_registry:find_resource_params(ResId) of
         {ok, #resource_params{params = Params}} ->
             ?RAISE(Module:Destroy(ResId, Params),
