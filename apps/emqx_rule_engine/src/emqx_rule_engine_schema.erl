@@ -19,15 +19,7 @@
 -include_lib("typerefl/include/types.hrl").
 -include_lib("hocon/include/hoconsc.hrl").
 
--type duration_ms() :: integer().
-
--typerefl_from_string({duration_ms/0, emqx_schema, to_duration_ms}).
-
 -behaviour(hocon_schema).
-
--reflect_type([
-    duration_ms/0
-]).
 
 -export([
     namespace/0,
@@ -37,11 +29,6 @@
 ]).
 
 -export([validate_sql/1, validate_rule_name/1]).
-
-% workaround: prevent being recognized as unused functions
--export([
-    to_duration_ms/1
-]).
 
 namespace() -> rule_engine.
 
@@ -57,7 +44,7 @@ fields("rule_engine") ->
             })},
         {jq_function_default_timeout,
             sc(
-                duration_ms(),
+                emqx_schema:duration_ms(),
                 #{
                     default => "10s",
                     desc => ?DESC("rule_engine_jq_function_default_timeout")
@@ -239,20 +226,3 @@ validate_sql(Sql) ->
 
 sc(Type, Meta) -> hoconsc:mk(Type, Meta).
 ref(Field) -> hoconsc:ref(?MODULE, Field).
-
--spec ceiling(number()) -> integer().
-ceiling(X) ->
-    T = erlang:trunc(X),
-    case (X - T) of
-        Neg when Neg < 0 -> T;
-        Pos when Pos > 0 -> T + 1;
-        _ -> T
-    end.
-
--spec to_duration_ms(Input) -> {ok, integer()} | {error, Input} when
-    Input :: string() | binary().
-to_duration_ms(Str) ->
-    case hocon_postprocess:duration(Str) of
-        I when is_number(I) -> {ok, ceiling(I)};
-        _ -> {error, Str}
-    end.
