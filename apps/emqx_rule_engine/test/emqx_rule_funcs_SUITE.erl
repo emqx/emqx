@@ -159,8 +159,12 @@ t_term_encode(_) ->
         end, TestData).
 
 t_hexstr2bin(_) ->
-    ?assertEqual(<<1,2>>, emqx_rule_funcs:hexstr2bin(<<"0102">>)),
-    ?assertEqual(<<17,33>>, emqx_rule_funcs:hexstr2bin(<<"1121">>)).
+    ?assertEqual(<<6, 54, 79>>, emqx_rule_funcs:hexstr2bin(<<"6364f">>)),
+    ?assertEqual(<<10>>, emqx_rule_funcs:hexstr2bin(<<"a">>)),
+    ?assertEqual(<<15>>, emqx_rule_funcs:hexstr2bin(<<"f">>)),
+    ?assertEqual(<<5>>, emqx_rule_funcs:hexstr2bin(<<"5">>)),
+    ?assertEqual(<<1, 2>>, emqx_rule_funcs:hexstr2bin(<<"0102">>)),
+    ?assertEqual(<<17, 33>>, emqx_rule_funcs:hexstr2bin(<<"1121">>)).
 
 t_bin2hexstr(_) ->
     ?assertEqual(<<"0102">>, emqx_rule_funcs:bin2hexstr(<<1,2>>)),
