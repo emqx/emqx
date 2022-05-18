@@ -206,6 +206,21 @@ end}.
   {override_env, "NODE_NAME"}
 ]}.
 
+%% Node name regular expression from net_kernel:valid_name_head/1.
+%% Be same with otp.
+{translation, "vm_args.-name",
+fun(Conf) ->
+  NodeName = cuttlefish:conf_get("node.name", Conf),
+  {Head, _Host} = lists:splitwith(fun(C) -> C =/= $@ end, NodeName),
+  {ok, MP} = re:compile("^[0-9A-Za-z_\\-]+$", [unicode]),
+  case re:run(Head, MP) of
+      {match, _} ->
+        NodeName;
+      nomatch ->
+        cuttlefish:invalid("Bad node name, expect ^[0-9A-Za-z_\\-]+$")
+  end
+end}.
+
 %% @doc Specify SSL Options in the file if using SSL for erlang distribution
 {mapping, "node.ssl_dist_optfile", "vm_args.-ssl_dist_optfile", [
   {datatype, string},
