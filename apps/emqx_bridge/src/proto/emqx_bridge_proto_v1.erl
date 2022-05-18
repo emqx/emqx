@@ -47,7 +47,7 @@ list_bridges(Node) ->
 restart_bridge_to_node(Node, BridgeType, BridgeName) ->
     rpc:call(
         Node,
-        emqx_bridge,
+        emqx_bridge_resource,
         restart,
         [BridgeType, BridgeName],
         ?TIMEOUT
@@ -58,7 +58,7 @@ restart_bridge_to_node(Node, BridgeType, BridgeName) ->
 stop_bridge_to_node(Node, BridgeType, BridgeName) ->
     rpc:call(
         Node,
-        emqx_bridge,
+        emqx_bridge_resource,
         stop,
         [BridgeType, BridgeName],
         ?TIMEOUT
@@ -69,7 +69,7 @@ stop_bridge_to_node(Node, BridgeType, BridgeName) ->
 restart_bridges_to_all_nodes(Nodes, BridgeType, BridgeName) ->
     erpc:multicall(
         Nodes,
-        emqx_bridge,
+        emqx_bridge_resource,
         restart,
         [BridgeType, BridgeName],
         ?TIMEOUT
@@ -80,7 +80,7 @@ restart_bridges_to_all_nodes(Nodes, BridgeType, BridgeName) ->
 stop_bridges_to_all_nodes(Nodes, BridgeType, BridgeName) ->
     erpc:multicall(
         Nodes,
-        emqx_bridge,
+        emqx_bridge_resource,
         stop,
         [BridgeType, BridgeName],
         ?TIMEOUT

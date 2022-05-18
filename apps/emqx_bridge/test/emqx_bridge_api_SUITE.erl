@@ -86,7 +86,7 @@ end_per_testcase(_, _Config) ->
 clear_resources() ->
     lists:foreach(
         fun(#{type := Type, name := Name}) ->
-            ok = emqx_bridge:remove(Type, Name)
+            {ok, _} = emqx_bridge:remove(Type, Name)
         end,
         emqx_bridge:list()
     ).
@@ -179,7 +179,7 @@ t_http_crud_apis(_) ->
         <<"url">> := URL1
     } = jsx:decode(Bridge),
 
-    BridgeID = emqx_bridge:bridge_id(?BRIDGE_TYPE, ?BRIDGE_NAME),
+    BridgeID = emqx_bridge_resource:bridge_id(?BRIDGE_TYPE, ?BRIDGE_NAME),
     %% send an message to emqx and the message should be forwarded to the HTTP server
     Body = <<"my msg">>,
     emqx:publish(emqx_message:make(<<"emqx_http/1">>, Body)),
@@ -316,7 +316,7 @@ do_start_stop_bridges(Type) ->
         <<"node_metrics">> := [_ | _],
         <<"url">> := URL1
     } = jsx:decode(Bridge),
-    BridgeID = emqx_bridge:bridge_id(?BRIDGE_TYPE, ?BRIDGE_NAME),
+    BridgeID = emqx_bridge_resource:bridge_id(?BRIDGE_TYPE, ?BRIDGE_NAME),
     %% stop it
     {ok, 200, <<>>} = request(post, operation_path(Type, stop, BridgeID), <<"">>),
     {ok, 200, Bridge2} = request(get, uri(["bridges", BridgeID]), []),
@@ -361,7 +361,7 @@ t_enable_disable_bridges(_) ->
         <<"node_metrics">> := [_ | _],
         <<"url">> := URL1
     } = jsx:decode(Bridge),
-    BridgeID = emqx_bridge:bridge_id(?BRIDGE_TYPE, ?BRIDGE_NAME),
+    BridgeID = emqx_bridge_resource:bridge_id(?BRIDGE_TYPE, ?BRIDGE_NAME),
     %% disable it
     {ok, 200, <<>>} = request(post, operation_path(cluster, disable, BridgeID), <<"">>),
     {ok, 200, Bridge2} = request(get, uri(["bridges", BridgeID]), []),
@@ -410,7 +410,7 @@ t_reset_bridges(_) ->
         <<"node_metrics">> := [_ | _],
         <<"url">> := URL1
     } = jsx:decode(Bridge),
-    BridgeID = emqx_bridge:bridge_id(?BRIDGE_TYPE, ?BRIDGE_NAME),
+    BridgeID = emqx_bridge_resource:bridge_id(?BRIDGE_TYPE, ?BRIDGE_NAME),
     {ok, 200, <<"Reset success">>} = request(put, uri(["bridges", BridgeID, "reset_metrics"]), []),
 
     %% delete the bridge

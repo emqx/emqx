@@ -47,7 +47,7 @@
 -define(CONN_TYPES, [mqtt]).
 
 -define(TRY_PARSE_ID(ID, EXPR),
-    try emqx_bridge:parse_bridge_id(Id) of
+    try emqx_bridge_resource:parse_bridge_id(Id) of
         {BridgeType, BridgeName} ->
             EXPR
     catch
@@ -417,12 +417,7 @@ schema("/nodes/:node/bridges/:id/operation/:operation") ->
 '/bridges/:id'(delete, #{bindings := #{id := Id}}) ->
     ?TRY_PARSE_ID(
         Id,
-        case
-            emqx_conf:remove(
-                emqx_bridge:config_key_path() ++ [BridgeType, BridgeName],
-                #{override_to => cluster}
-            )
-        of
+        case emqx_bridge:remove(BridgeType, BridgeName) of
             {ok, _} -> {204};
             {error, Reason} -> {500, error_msg('INTERNAL_ERROR', Reason)}
         end
@@ -431,7 +426,11 @@ schema("/nodes/:node/bridges/:id/operation/:operation") ->
 '/bridges/:id/reset_metrics'(put, #{bindings := #{id := Id}}) ->
     ?TRY_PARSE_ID(
         Id,
-        case emqx_bridge:reset_metrics(emqx_bridge:resource_id(BridgeType, BridgeName)) of
+        case
+            emqx_bridge_resource:reset_metrics(
+                emqx_bridge_resource:resource_id(BridgeType, BridgeName)
+            )
+        of
             ok -> {200, <<"Reset success">>};
             Reason -> {400, error_msg('BAD_REQUEST', Reason)}
         end
@@ -464,13 +463,7 @@ lookup_from_local_node(BridgeType, BridgeName) ->
             invalid ->
                 {400, error_msg('BAD_REQUEST', <<"invalid operation">>)};
             OperFunc when OperFunc == enable; OperFunc == disable ->
-                case
-                    emqx_conf:update(
-                        emqx_bridge:config_key_path() ++ [BridgeType, BridgeName],
-                        {OperFunc, BridgeType, BridgeName},
-                        #{override_to => cluster}
-                    )
-                of
+                case emqx_bridge:disable_enable(OperFunc, BridgeType, BridgeName) of
                     {ok, _} ->
                         {200};
                     {error, {pre_config_update, _, bridge_not_found}} ->
@@ -532,13 +525,7 @@ operation_to_all_nodes(Nodes, OperFunc, BridgeType, BridgeName) ->
     end.
 
 ensure_bridge_created(BridgeType, BridgeName, Conf) ->
-    case
-        emqx_conf:update(
-            emqx_bridge:config_key_path() ++ [BridgeType, BridgeName],
-            Conf,
-            #{override_to => cluster}
-        )
-    of
+    case emqx_bridge:create(BridgeType, BridgeName, Conf) of
         {ok, _} -> ok;
         {error, Reason} -> {error, error_msg('BAD_REQUEST', Reason)}
     end.
@@ -569,7 +556,7 @@ pick_bridges_by_id(Type, Name, BridgesAllNodes) ->
                 [] ->
                     ?SLOG(warning, #{
                         msg => "bridge_inconsistent_in_cluster",
-                        bridge => emqx_bridge:bridge_id(Type, Name)
+                        bridge => emqx_bridge_resource:bridge_id(Type, Name)
                     }),
                     Acc
             end
