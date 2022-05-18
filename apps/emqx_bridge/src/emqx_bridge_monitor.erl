@@ -73,7 +73,7 @@ load_bridges(Configs) ->
         fun({Type, NamedConf}) ->
             lists:foreach(
                 fun({Name, Conf}) ->
-                    _Res = emqx_bridge:create(Type, Name, Conf),
+                    _Res = emqx_bridge_resource:create(Type, Name, Conf),
                     ?tp(
                         emqx_bridge_monitor_loaded_bridge,
                         #{

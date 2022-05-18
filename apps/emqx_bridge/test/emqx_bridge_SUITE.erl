@@ -26,6 +26,7 @@ all() ->
     emqx_common_test_helpers:all(?MODULE).
 
 init_per_suite(Config) ->
+    _ = application:load(emqx_conf),
     %% to avoid inter-suite dependencies
     application:stop(emqx_connector),
     ok = emqx_common_test_helpers:start_apps([emqx, emqx_bridge]),
@@ -40,15 +41,17 @@ end_per_suite(_Config) ->
     ]).
 
 init_per_testcase(t_get_basic_usage_info_1, Config) ->
+    {ok, _} = emqx_cluster_rpc:start_link(node(), emqx_cluster_rpc, 1000),
     setup_fake_telemetry_data(),
     Config;
 init_per_testcase(_TestCase, Config) ->
+    {ok, _} = emqx_cluster_rpc:start_link(node(), emqx_cluster_rpc, 1000),
     Config.
 
 end_per_testcase(t_get_basic_usage_info_1, _Config) ->
     lists:foreach(
         fun({BridgeType, BridgeName}) ->
-            ok = emqx_bridge:remove(BridgeType, BridgeName)
+            {ok, _} = emqx_bridge:remove(BridgeType, BridgeName)
         end,
         [
             {http, <<"basic_usage_info_http">>},

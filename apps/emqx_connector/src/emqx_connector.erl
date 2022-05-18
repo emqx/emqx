@@ -48,7 +48,7 @@ post_config_update([connectors, Type, Name] = Path, '$remove', _, OldConf, _AppE
     ConnId = connector_id(Type, Name),
     try
         foreach_linked_bridges(ConnId, fun(#{type := BType, name := BName}) ->
-            throw({dependency_bridges_exist, emqx_bridge:bridge_id(BType, BName)})
+            throw({dependency_bridges_exist, emqx_bridge_resource:bridge_id(BType, BName)})
         end),
         _ = emqx_connector_ssl:clear_certs(filename:join(Path), OldConf)
     catch
@@ -61,7 +61,7 @@ post_config_update([connectors, Type, Name], _Req, NewConf, OldConf, _AppEnvs) -
         fun(#{type := BType, name := BName}) ->
             BridgeConf = emqx:get_config([bridges, BType, BName]),
             case
-                emqx_bridge:update(
+                emqx_bridge_resource:update(
                     BType,
                     BName,
                     {BridgeConf#{connector => OldConf}, BridgeConf#{connector => NewConf}}
@@ -123,7 +123,7 @@ lookup_raw(Type, Name) ->
 -spec create_dry_run(module(), binary() | #{binary() => term()} | [#{binary() => term()}]) ->
     ok | {error, Reason :: term()}.
 create_dry_run(Type, Conf) ->
-    emqx_bridge:create_dry_run(Type, Conf).
+    emqx_bridge_resource:create_dry_run(Type, Conf).
 
 update(Id, Conf) when is_binary(Id) ->
     {Type, Name} = parse_connector_id(Id),
