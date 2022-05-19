@@ -39,6 +39,7 @@
     bool/1,
     int/1,
     float/1,
+    float2str/2,
     map/1,
     utf8_bin/1,
     utf8_str/1,
@@ -257,6 +258,9 @@ float(Bin) when is_binary(Bin) ->
 float(Num) when is_number(Num) -> erlang:float(Num);
 float(Data) ->
     error({invalid_number, Data}).
+
+float2str(Float, Precision) when is_float(Float) and is_integer(Precision) ->
+    float_to_binary(Float, [{decimals, Precision}, compact]).
 
 map(Bin) when is_binary(Bin) ->
     case emqx_json:decode(Bin, [return_maps]) of

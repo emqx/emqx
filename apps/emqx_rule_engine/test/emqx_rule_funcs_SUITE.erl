@@ -169,6 +169,11 @@ t_term_encode(_) ->
         end,
         TestData
     ).
+t_float2str(_) ->
+    ?assertEqual(<<"20.2">>, emqx_rule_funcs:float2str(20.2, 1)),
+    ?assertEqual(<<"20.2">>, emqx_rule_funcs:float2str(20.2, 10)),
+    ?assertEqual(<<"20.199999999999999">>, emqx_rule_funcs:float2str(20.2, 15)),
+    ?assertEqual(<<"20.1999999999999993">>, emqx_rule_funcs:float2str(20.2, 16)).
 
 t_hexstr2bin(_) ->
     ?assertEqual(<<6, 54, 79>>, emqx_rule_funcs:hexstr2bin(<<"6364f">>)),
