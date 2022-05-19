@@ -50,7 +50,6 @@ t_add_hook_order(_) ->
         proper:quickcheck(
             add_hook_order_prop(),
             [
-                {on_output, fun ct:print/2},
                 {numtests, 1000}
             ]
         )
