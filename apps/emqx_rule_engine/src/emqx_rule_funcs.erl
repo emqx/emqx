@@ -103,6 +103,7 @@
     int/1,
     float/1,
     float/2,
+    float2str/2,
     map/1,
     bin2hexstr/1,
     hexstr2bin/1
@@ -615,6 +616,9 @@ float(Data) ->
 float(Data, Decimals) when Decimals > 0 ->
     Data1 = ?MODULE:float(Data),
     list_to_float(float_to_list(Data1, [{decimals, Decimals}])).
+
+float2str(Float, Precision) ->
+    emqx_plugin_libs_rule:float2str(Float, Precision).
 
 map(Data) ->
     emqx_plugin_libs_rule:map(Data).
