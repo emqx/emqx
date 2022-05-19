@@ -22,6 +22,7 @@ File format:
 * Add more rule engine date functions: format_date/3, format_date/4, date_to_unix_ts/4 [#7894]
 * Add proto_name and proto_ver fields for $event/client_disconnected event.
 * Mnesia auth/acl http api support multiple condition queries.
+* Inflight QoS1 Messages for shared topics are now redispatched to another alive subscribers upon chosen subscriber session termination.
 
 ### Bug fixes
 * List subscription topic (/api/v4/subscriptions), the result do not match with multiple conditions.

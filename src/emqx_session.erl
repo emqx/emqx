@@ -454,9 +454,12 @@ deliver_msg(ClientInfo, Msg = #message{qos = QoS}, Session =
                        end,
             {ok, Session1};
         false ->
+            %% Note that we publish message without shared ack header
+            %% But add to inflight with ack headers
+            %% This ack header is required for redispatch-on-terminate feature to work
             Publish = {PacketId, maybe_ack(Msg)},
-            Session1 = await(PacketId, Msg, Session),
-            {ok, [Publish], next_pkt_id(Session1)}
+            Inflight1 = emqx_inflight:insert(PacketId, with_ts(Msg), Inflight),
+            {ok, [Publish], next_pkt_id(Session#session{inflight = Inflight1})}
     end.
 
 -spec(enqueue(emqx_types:clientinfo(), list(emqx_types:deliver())|emqx_types:message(),
@@ -491,14 +494,10 @@ enrich_delivers({deliver, Topic, Msg}, Session = #session{subscriptions = Subs})
     enrich_subopts(get_subopts(Topic, Subs), Msg, Session).
 
 maybe_ack(Msg) ->
-    case emqx_shared_sub:is_ack_required(Msg) of
-        true  -> emqx_shared_sub:maybe_ack(Msg);
-        false -> Msg
-    end.
+    emqx_shared_sub:maybe_ack(Msg).
 
 maybe_nack(Msg) ->
-    emqx_shared_sub:is_ack_required(Msg)
-      andalso (ok == emqx_shared_sub:maybe_nack_dropped(Msg)).
+    emqx_shared_sub:maybe_nack_dropped(Msg).
 
 get_subopts(Topic, SubMap) ->
     case maps:find(Topic, SubMap) of
@@ -530,14 +529,6 @@ enrich_subopts([{subid, SubId}|Opts], Msg, Session) ->
     Props = emqx_message:get_header(properties, Msg, #{}),
     Msg1 = emqx_message:set_header(properties, Props#{'Subscription-Identifier' => SubId}, Msg),
     enrich_subopts(Opts, Msg1, Session).
-
-%%--------------------------------------------------------------------
-%% Awaiting ACK for QoS1/QoS2 Messages
-%%--------------------------------------------------------------------
-
-await(PacketId, Msg, Session = #session{inflight = Inflight}) ->
-    Inflight1 = emqx_inflight:insert(PacketId, with_ts(Msg), Inflight),
-    Session#session{inflight = Inflight1}.
 
 %%--------------------------------------------------------------------
 %% Retry Delivery
@@ -634,16 +625,43 @@ replay(ClientInfo, Session = #session{inflight = Inflight}) ->
     end.
 
 -spec(terminate(emqx_types:clientinfo(), Reason :: term(), session()) -> ok).
-terminate(ClientInfo, discarded, Session) ->
-    run_hook('session.discarded', [ClientInfo, info(Session)]);
-terminate(ClientInfo, takeovered, Session) ->
-    run_hook('session.takeovered', [ClientInfo, info(Session)]);
 terminate(ClientInfo, Reason, Session) ->
+    run_terminate_hooks(ClientInfo, Reason, Session),
+    redispatch_shared_messages(Session),
+    ok.
+
+run_terminate_hooks(ClientInfo, discarded, Session) ->
+    run_hook('session.discarded', [ClientInfo, info(Session)]);
+run_terminate_hooks(ClientInfo, takeovered, Session) ->
+    run_hook('session.takeovered', [ClientInfo, info(Session)]);
+run_terminate_hooks(ClientInfo, Reason, Session) ->
     run_hook('session.terminated', [ClientInfo, Reason, info(Session)]).
+
+redispatch_shared_messages(#session{inflight = Inflight}) ->
+    InflightList = emqx_inflight:to_list(Inflight),
+    lists:foreach(fun
+        %% Only QoS1 messages get redispatched, because QoS2 messages
+        %% must be sent to the same client, once they're in flight
+        ({_, {#message{qos = ?QOS_2} = Msg, _}}) ->
+          ?LOG(warning, "Not redispatching qos2 msg: ~s", [emqx_message:format(Msg)]);
+        ({_, {#message{topic = Topic, qos = ?QOS_1} = Msg, _}}) ->
+          case emqx_shared_sub:get_group(Msg) of
+              {ok, Group} ->
+                  %% Note that dispatch is called with self() in failed subs
+                  %% This is done to avoid dispatching back to caller
+                  Delivery = #delivery{sender = self(), message = Msg},
+                  emqx_shared_sub:dispatch(Group, Topic, Delivery, [self()]);
+              _ ->
+                  false
+          end;
+        (_) ->
+          ok
+    end, InflightList).
 
 -compile({inline, [run_hook/2]}).
 run_hook(Name, Args) ->
-    ok = emqx_metrics:inc(Name), emqx_hooks:run(Name, Args).
+    ok = emqx_metrics:inc(Name),
+    emqx_hooks:run(Name, Args).
 
 %%--------------------------------------------------------------------
 %% Inc message/delivery expired counter
