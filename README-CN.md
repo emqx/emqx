@@ -40,6 +40,10 @@ docker run -d --name emqx -p 1883:1883 -p 8081:8081 -p 8083:8083 -p 8883:8883 -p
 - [单节点安装文档](https://docs.emqx.cn/broker/latest/getting-started/install.html)
 - [集群配置文档](https://docs.emqx.cn/broker/latest/advanced/cluster.html)
 
+#### 在 Kubernetes 上通过 EMQX Operator 部署
+
+详情请参考[使用文档](https://github.com/emqx/emqx-operator/blob/main/docs/zh_CN/getting-started/getting-started.md)
+
 ## 从源码构建
 
 3.0 版本开始，构建 *EMQX* 需要 Erlang/OTP R21+。
