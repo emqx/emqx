@@ -125,6 +125,13 @@ t_float(_) ->
     ?assertError({invalid_number, {a, v}}, emqx_rule_funcs:float({a, v})),
     ?assertError(_, emqx_rule_funcs:float("a")).
 
+
+t_float2str(_) ->
+    ?assertEqual(<<"20.2">>, emqx_rule_funcs:float2str(20.2, 1)),
+    ?assertEqual(<<"20.2">>, emqx_rule_funcs:float2str(20.2, 10)),
+    ?assertEqual(<<"20.199999999999999">>, emqx_rule_funcs:float2str(20.2, 15)),
+    ?assertEqual(<<"20.1999999999999993">>, emqx_rule_funcs:float2str(20.2, 16)).
+
 t_map(_) ->
     ?assertEqual(#{ver => <<"1.0">>, name => "emqx"}, emqx_rule_funcs:map([{ver, <<"1.0">>}, {name, "emqx"}])),
     ?assertEqual(#{<<"a">> => 1}, emqx_rule_funcs:map(<<"{\"a\":1}">>)),

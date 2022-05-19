@@ -93,6 +93,7 @@
         , bool/1
         , int/1
         , float/1
+        , float2str/2
         , map/1
         , bin2hexstr/1
         , hexstr2bin/1
@@ -536,6 +537,9 @@ int(Data) ->
 
 float(Data) ->
     emqx_rule_utils:float(Data).
+
+float2str(Float, Precision) ->
+    emqx_rule_utils:float2str(Float, Precision).
 
 map(Data) ->
     emqx_rule_utils:map(Data).
