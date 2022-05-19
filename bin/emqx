@@ -690,6 +690,11 @@ esac
 SHORT_NAME="$(echo "$NAME" | awk -F'@' '{print $1}')"
 export ESCRIPT_NAME="$SHORT_NAME"
 
+if ! (echo "$SHORT_NAME" | grep -q '^[0-9A-Za-z_\-]\+$'); then
+    echo "Invalid node name, should be of format '^[0-9A-Za-z_-]+$'."
+    exit 1
+fi
+
 PIPE_DIR="${PIPE_DIR:-/$DATA_DIR/${WHOAMI}_erl_pipes/$NAME/}"
 
 ## make EMQX_NODE_COOKIE right
