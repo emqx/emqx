@@ -164,7 +164,6 @@ jobs:
           run: |
             make ${{ matrix.app_name }}-ct
         - uses: actions/upload-artifact@v1
-          if: matrix.otp == '24.2.1-1'
           with:
             name: coverdata
             path: source/_build/test/cover
