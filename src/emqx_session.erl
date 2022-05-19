@@ -644,19 +644,16 @@ redispatch_shared_messages(#session{inflight = Inflight}) ->
         %% must be sent to the same client, once they're in flight
         ({_, {#message{qos = ?QOS_2} = Msg, _}}) ->
           ?LOG(warning, "Not redispatching qos2 msg: ~s", [emqx_message:format(Msg)]);
-
         ({_, {#message{topic = Topic, qos = ?QOS_1} = Msg, _}}) ->
           case emqx_shared_sub:get_group(Msg) of
               {ok, Group} ->
-									%% Note that dispatch is called with self() in failed subs
+                  %% Note that dispatch is called with self() in failed subs
                   %% This is done to avoid dispatching back to caller
                   Delivery = #delivery{sender = self(), message = Msg},
                   emqx_shared_sub:dispatch(Group, Topic, Delivery, [self()]);
-
               _ ->
                   false
           end;
-
         (_) ->
           ok
     end, InflightList).
