@@ -28,6 +28,7 @@ File format:
 * SSL closed error bug fixed for redis client.
 * Fix mqtt-sn client disconnected due to re-send a duplicated qos2 message
 * rule-engine function hexstr2bin/1 support half byte
+* add rule-engine function float2str/2, user can specify the float output precision.
 
 * Improved resilience against autocluster partitioning during cluster
   startup. [#7876]
