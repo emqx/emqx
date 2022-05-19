@@ -72,6 +72,13 @@ init_per_testcase(t_plugins_cmd, Config) ->
     meck:expect(emqx_plugins, reload, fun(_) -> ok end),
     mock_print(),
     Config;
+init_per_testcase(t_import_outside_backup_dir, Config) ->
+    RandomName = emqx_guid:to_hexstr(emqx_guid:gen()),
+    Filepath = "/tmp/" ++ binary_to_list(RandomName) ++ ".json",
+    FakeData = #{version => "4.4"},
+    ok = file:write_file(Filepath, emqx_json:encode(FakeData)),
+    [ {tmp_file, Filepath}
+    | Config];
 init_per_testcase(_Case, Config) ->
     mock_print(),
     Config.
@@ -79,6 +86,10 @@ init_per_testcase(_Case, Config) ->
 end_per_testcase(t_plugins_cmd, _Config) ->
     meck:unload(emqx_plugins),
     unmock_print();
+end_per_testcase(t_import_outside_backup_dir, Config) ->
+    Filepath = ?config(tmp_file, Config),
+    file:delete(Filepath),
+    ok;
 end_per_testcase(_Case, _Config) ->
     unmock_print().
 
@@ -382,6 +393,12 @@ t_backup_file(_)->
     ok = emqx_mgmt_data_backup:delete_backup_file(Filename),
 
     {error, not_found} = emqx_mgmt_data_backup:delete_backup_file(BadFilename),
+    ok.
+
+t_import_outside_backup_dir(Config) ->
+    Filepath = ?config(tmp_file, Config),
+    Env = "{}",
+    ?assertEqual(ok, emqx_mgmt_data_backup:import(Filepath, Env)),
     ok.
 
 mock_print() ->

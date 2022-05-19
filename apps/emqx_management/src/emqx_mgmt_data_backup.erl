@@ -666,7 +666,10 @@ look_up_file(Filename) ->
         end,
     case lists:filter(Filter, backup_files()) of
         [] ->
-            {error, not_found};
+            case filelib:is_file(Filename) of
+                true -> {ok, Filename};
+                false -> {error, not_found}
+            end;
         List ->
             {ok, hd(List)}
     end.
