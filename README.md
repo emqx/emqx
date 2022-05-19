@@ -9,7 +9,7 @@
 [![Twitter](https://img.shields.io/badge/Follow-EMQ-1DA1F2?logo=twitter)](https://twitter.com/EMQTech)
 [![YouTube](https://img.shields.io/badge/Subscribe-EMQ-FF0000?logo=youtube)](https://www.youtube.com/channel/UC5FjR77ErAxvZENEWzQaO5Q)
 
-[![The best IoT MQTT open source team looks forward to your joining](https://static.emqx.net/images/github_readme_en_bg.png)](https://www.emqx.com/en/careers)
+[![The best IoT MQTT open source team looks forward to your joining](https://assets.emqx.com/images/github_readme_en_bg.png)](https://www.emqx.com/en/careers)
 
 English | [简体中文](./README-CN.md) | [日本語](./README-JP.md) | [русский](./README-RU.md)
 
@@ -36,8 +36,8 @@ docker run -d --name emqx -p 1883:1883 -p 8081:8081 -p 8083:8083 -p 8883:8883 -p
 
 Get the binary package of the corresponding OS from [EMQX Download](https://www.emqx.com/en/downloads) page.
 
-- [Single Node Install](https://docs.emqx.io/en/broker/latest/getting-started/install.html)
-- [Multi Node Install](https://docs.emqx.io/en/broker/latest/advanced/cluster.html)
+- [Single Node Install](https://www.emqx.io/docs/en/latest/getting-started/install.html)
+- [Multi Node Install](https://www.emqx.io/docs/en/latest/advanced/cluster.html)
 
 
 ## Build From Source
@@ -111,7 +111,7 @@ DIALYZER_ANALYSE_APP=emqx_lwm2m,emqx_authz make dialyzer
 
 ### FAQ
 
-Visiting [EMQX FAQ](https://docs.emqx.io/en/broker/latest/faq/faq.html) to get help of common problems.
+Visiting [EMQX FAQ](https://www.emqx.io/docs/en/latest/faq/faq.html) to get help of common problems.
 
 
 ### Questions
