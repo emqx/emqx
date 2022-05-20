@@ -299,8 +299,6 @@ handle_call({auth, RequestedClientInfo, Password},
     case emqx_access_control:authenticate(ClientInfo1#{password => Password}) of
         {ok, AuthResult} ->
             emqx_logger:set_metadata_clientid(ClientId),
-            is_anonymous(AuthResult) andalso
-                emqx_metrics:inc('client.auth.anonymous'),
             NClientInfo = maps:merge(ClientInfo1, AuthResult),
             NChannel = Channel1#channel{clientinfo = NClientInfo},
             case emqx_cm:open_session(true, NClientInfo, NConnInfo) of
@@ -423,9 +421,6 @@ handle_info(Info, Channel) ->
 terminate(Reason, Channel) ->
     Req = #{reason => stringfy(Reason)},
     try_dispatch(on_socket_closed, wrap(Req), Channel).
-
-is_anonymous(#{anonymous := true}) -> true;
-is_anonymous(_AuthResult)          -> false.
 
 packet_to_message(Topic, Qos, Payload,
                   #channel{
