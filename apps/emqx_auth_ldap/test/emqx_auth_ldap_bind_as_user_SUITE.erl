@@ -40,7 +40,9 @@ init_per_suite(Config) ->
     Config.
 
 end_per_suite(_Config) ->
-    emqx_ct_helpers:stop_apps([emqx_auth_ldap]).
+    emqx_ct_helpers:stop_apps([emqx_auth_ldap]),
+    %% clear the application envs to avoid cross-suite testcase failure
+    application:unload(emqx_auth_ldap).
 
 check_auth(_) ->
     MqttUser1 = #{clientid => <<"mqttuser1">>,
