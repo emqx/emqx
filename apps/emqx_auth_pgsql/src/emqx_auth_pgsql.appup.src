@@ -1,16 +1,31 @@
 %% -*- mode: erlang -*-
 {VSN,
-  [{"4.3.1", [
-      %% There are only changes to the schema file, so we don't need
-      %% any commands here.
-  ]},
-  {"4.3.0",
-    [{load_module,emqx_auth_pgsql_app,brutal_purge,soft_purge,[]},
-     {load_module,emqx_acl_pgsql,brutal_purge,soft_purge,[]}]},
-   {<<".*">>,[]}],
-  [{"4.3.1", []},
-   {"4.3.0",
-    [{load_module,emqx_auth_pgsql_app,brutal_purge,soft_purge,[]},
-     {load_module,emqx_acl_pgsql,brutal_purge,soft_purge,[]}]},
-   {<<".*">>,[]}]
+  [
+    {"4.3.2", [
+      %% epgsql 4.4.0 -> 4.6.0.
+      %% epgsql has no appup ,so we can only restart it.
+      {restart_application, epgsql}
+    ]},
+    {"4.3.1", [
+      {restart_application, epgsql}
+    ]},
+    {"4.3.0", [
+      {restart_application, epgsql},
+      {load_module,emqx_auth_pgsql_app,brutal_purge,soft_purge,[]},
+      {load_module,emqx_acl_pgsql,brutal_purge,soft_purge,[]}
+    ]},
+     {<<".*">>,[]}],
+  [
+    {"4.3.2", [
+      {restart_application, epgsql}
+    ]},
+    {"4.3.1", [
+      {restart_application, epgsql}
+    ]},
+    {"4.3.0", [
+      {restart_application, epgsql},
+      {load_module,emqx_auth_pgsql_app,brutal_purge,soft_purge,[]},
+      {load_module,emqx_acl_pgsql,brutal_purge,soft_purge,[]}
+    ]},
+    {<<".*">>,[]}]
 }.
