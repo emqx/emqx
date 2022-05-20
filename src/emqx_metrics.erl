@@ -68,8 +68,10 @@
 %% BACKW
 -export([%% v4.3.0
          upgrade_retained_delayed_counter_type/0,
-         %% e4.4.0, e4.3.0-e4.3.6, v4.3.0-v4.3.11
-         assign_acl_stats_from_ets_to_counter/0
+         %% v4.3.0-v4.3.11, e4.3.0-e4.3.6; v4.4.0, e4.4.0
+         assign_acl_stats_from_ets_to_counter/0,
+         %% v4.3.0-v4.3.14, e4.3.0-e4.3.9; v4.4.0-v4.4.3, e4.4.0-e4.4.3,
+         assign_auth_stats_from_ets_to_counter/0
         ]).
 
 -export_type([metric_idx/0]).
@@ -174,7 +176,6 @@
          {counter, 'client.connack'},
          {counter, 'client.connected'},
          {counter, 'client.authenticate'},
-         {counter, 'client.auth.anonymous'},
          {counter, 'client.check_acl'},
          {counter, 'client.subscribe'},
          {counter, 'client.unsubscribe'},
@@ -189,8 +190,16 @@
          {counter, 'session.discarded'},
          {counter, 'session.terminated'}
         ]).
-%% Statistic metrics for ACL checking
--define(STASTS_ACL_METRICS,
+
+%% Statistic metrics for auth checking
+-define(STATS_AUTH_METRICS,
+        [ {counter, 'client.auth.success'},
+          {counter, 'client.auth.success.anonymous'},
+          {counter, 'client.auth.failure'}
+        ]).
+
+%% Statistic metrics for ACL checking stats
+-define(STATS_ACL_METRICS,
         [ {counter, 'client.acl.allow'},
           {counter, 'client.acl.deny'},
           {counter, 'client.acl.cache_hit'}
@@ -217,6 +226,21 @@ upgrade_retained_delayed_counter_type() ->
 assign_acl_stats_from_ets_to_counter() ->
     CRef = persistent_term:get(?MODULE),
     Names = ['client.acl.allow', 'client.acl.deny', 'client.acl.cache_hit'],
+    lists:foreach(fun(Name) ->
+        Val = case emqx_metrics:val(Name) of
+            undefined -> 0;
+            Val0 -> Val0
+        end,
+        Idx = reserved_idx(Name),
+        Metric = #metric{name = Name, type = counter, idx = Idx},
+        ok = gen_server:call(?SERVER, {set, Metric}),
+        ok = counters:put(CRef, Idx, Val)
+    end, Names).
+
+%% BACKW: %% v4.3.0-v4.3.14, e4.3.0-e4.3.9; v4.4.0-v4.4.3, e4.4.0-e4.4.3,
+assign_auth_stats_from_ets_to_counter() ->
+    CRef = persistent_term:get(?MODULE),
+    Names = ['client.auth.success', 'client.auth.success.anonymous', 'client.auth.failure'],
     lists:foreach(fun(Name) ->
         Val = case emqx_metrics:val(Name) of
             undefined -> 0;
@@ -458,7 +482,8 @@ init([]) ->
                             ?DELIVERY_METRICS,
                             ?CLIENT_METRICS,
                             ?SESSION_METRICS,
-                            ?STASTS_ACL_METRICS
+                            ?STATS_AUTH_METRICS,
+                            ?STATS_ACL_METRICS
                            ]),
     % Store reserved indices
     ok = lists:foreach(fun({Type, Name}) ->
@@ -592,7 +617,6 @@ reserved_idx('client.connack')               -> 201;
 reserved_idx('client.connected')             -> 202;
 reserved_idx('client.authenticate')          -> 203;
 reserved_idx('client.enhanced_authenticate') -> 204;
-reserved_idx('client.auth.anonymous')        -> 205;
 reserved_idx('client.check_acl')             -> 206;
 reserved_idx('client.subscribe')             -> 207;
 reserved_idx('client.unsubscribe')           -> 208;
@@ -604,9 +628,13 @@ reserved_idx('session.takeovered')           -> 222;
 reserved_idx('session.discarded')            -> 223;
 reserved_idx('session.terminated')           -> 224;
 %% Stats metrics
+%% ACL
 reserved_idx('client.acl.allow')             -> 300;
 reserved_idx('client.acl.deny')              -> 301;
 reserved_idx('client.acl.cache_hit')         -> 302;
+%% Auth
+reserved_idx('client.auth.success')          -> 310;
+reserved_idx('client.auth.success.anonymous') -> 311;
+reserved_idx('client.auth.failure')          -> 312;
 
 reserved_idx(_)                              -> undefined.
-
