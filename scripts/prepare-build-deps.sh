@@ -4,7 +4,7 @@ set -euo pipefail
 
 AUTO_INSTALL_BUILD_DEPS="${AUTO_INSTALL_BUILD_DEPS:-0}"
 
-required_packages_mac_osx="freetds unixodbc bison"
+required_packages_mac_osx="freetds unixodbc"
 required_cmds_mac_osx="curl zip unzip autoconf automake cmake openssl"
 
 dependency_missing() {
