@@ -66,6 +66,14 @@ spec:
         secret:
           secretName: {{ .Values.emqxLicenseSecretName }}
       {{- end }}
+      {{- range .Values.secretMounts }}
+      - name: {{ .name }}
+        secret:
+          secretName: {{ .secretName }}
+          {{- if .readOnly }}
+          readOnly: {{ .readOnly }}
+          {{- end }}
+      {{- end }}
       serviceAccountName:  {{ include "emqx.fullname" . }}
       {{- if .Values.podSecurityContext.enabled }}
       securityContext: {{- omit .Values.podSecurityContext "enabled" | toYaml | nindent 8 }}
@@ -137,6 +145,13 @@ spec:
             subPath: "emqx.lic"
             readOnly: true
           {{ end }}
+          {{- range .Values.secretMounts }}
+          - name: {{ .name }}
+            mountPath: {{ .path }}
+            {{- if .subPath }}
+            subPath: {{ .subPath }}
+            {{- end }}
+          {{- end }}
           readinessProbe:
             httpGet:
               path: /api/v5/status

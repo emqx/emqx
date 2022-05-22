@@ -105,6 +105,14 @@ emqxConfig:
 ##   kubectl create secret generic emqx-license-secret-name --from-file=/path/to/emqx.lic
 emqxLicenseSecretName:
 
+# A list of secrets and their paths to mount inside the pod
+# This is useful for mounting certificates for security
+secretMounts: []
+#  - name: emqx-certs
+#    secretName: emqx-certs
+#    path: /opt/emqx/etc/certs
+#    readOnly: true
+
 service:
   ## Service type
   ##
