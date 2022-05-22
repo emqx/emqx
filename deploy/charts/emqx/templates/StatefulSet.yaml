@@ -70,9 +70,6 @@ spec:
       - name: {{ .name }}
         secret:
           secretName: {{ .secretName }}
-          {{- if .readOnly }}
-          readOnly: {{ .readOnly }}
-          {{- end }}
       {{- end }}
       serviceAccountName:  {{ include "emqx.fullname" . }}
       {{- if .Values.podSecurityContext.enabled }}
@@ -150,6 +147,9 @@ spec:
             mountPath: {{ .path }}
             {{- if .subPath }}
             subPath: {{ .subPath }}
+            {{- end }}
+            {{- if .readOnly }}
+            readOnly: {{ .readOnly }}
             {{- end }}
           {{- end }}
           readinessProbe:
