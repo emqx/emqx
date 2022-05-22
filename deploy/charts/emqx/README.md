@@ -81,4 +81,4 @@ The following table lists the configurable parameters of the emqx chart and thei
 | `metrics.enable` | If set to true, [prometheus-operator](https://github.com/prometheus-operator/prometheus-operator) needs to be installed, and emqx_prometheus needs to enable | false |
 | `metrics.type` | Now we only supported "prometheus" | "prometheus" |
 | `emqxConfig` | Emqx configuration item, see the [documentation](https://hub.docker.com/r/emqx/emqx) | |
-| `secretMounts` | Allows you easily mount a secret as a file inside the StatefulSet. Useful for mounting certificates and other secrets. See [values.yaml][] for an example | [] |
+| `secretMounts` | Allows you to easily mount secrets as files inside the StatefulSet. Useful for mounting certificates and other secrets. See [values.yaml](values.yaml) for an example | [] |
