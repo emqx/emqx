@@ -9,11 +9,13 @@ UNAME="$(uname -s)"
 
 case "$UNAME" in
     Darwin)
-        SYSTEM='macos'
+        DIST='macos'
+        VERSION_ID="$(sw_vers | grep 'ProductVersion' | cut -d ':' -f2 | cut -d'.' -f1 | tr -d ' \t')"
+        SYSTEM="${DIST}${VERSION_ID}"
         ;;
     Linux)
         if grep -q -i 'rhel' /etc/*-release; then
-            DIST='centos'
+            DIST='el'
             VERSION_ID="$(rpm --eval '%{rhel}')"
         elif grep -q -i 'centos' /etc/*-release; then
             DIST='centos'

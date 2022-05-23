@@ -6,8 +6,12 @@
   {datatype, {enum, [single, unknown, sharded, rs]}}
 ]}.
 
+{mapping, "auth.mongo.srv_record", "emqx_auth_mongo.server", [
+  {default, false},
+  {datatype, {enum, [true, false]}}
+]}.
+
 {mapping, "auth.mongo.rs_set_name", "emqx_auth_mongo.server", [
-  {default, "mqtt"},
   {datatype, string}
 ]}.
 
@@ -41,7 +45,6 @@
 ]}.
 
 {mapping, "auth.mongo.auth_source", "emqx_auth_mongo.server", [
-  {default, "mqtt"},
   {datatype, string}
 ]}.
 
@@ -101,9 +104,9 @@
 ]}.
 
 {translation, "emqx_auth_mongo.server", fun(Conf) ->
-  H = cuttlefish:conf_get("auth.mongo.server", Conf),
-  Hosts = string:tokens(H, ","),
-  Type0 = cuttlefish:conf_get("auth.mongo.type", Conf),
+  SrvRecord = cuttlefish:conf_get("auth.mongo.srv_record", Conf, false),
+  Server = cuttlefish:conf_get("auth.mongo.server", Conf),
+  Type = cuttlefish:conf_get("auth.mongo.type", Conf),
   Pool = cuttlefish:conf_get("auth.mongo.pool", Conf),
   %% FIXME: compatible with 4.0-4.2 version format, plan to delete in 5.0
   Login = cuttlefish:conf_get("auth.mongo.username", Conf,
@@ -111,7 +114,10 @@
                              ),
   Passwd = cuttlefish:conf_get("auth.mongo.password", Conf),
   DB = cuttlefish:conf_get("auth.mongo.database", Conf),
-  AuthSrc = cuttlefish:conf_get("auth.mongo.auth_source", Conf),
+  AuthSource = case cuttlefish:conf_get("auth.mongo.auth_source", Conf, undefined) of
+                   undefined -> [];
+                   AuthSource0 -> [{auth_source, list_to_binary(AuthSource0)}]
+               end,
   R = cuttlefish:conf_get("auth.mongo.w_mode", Conf),
   W = cuttlefish:conf_get("auth.mongo.r_mode", Conf),
   Login0 = case Login =:= [] of
@@ -157,8 +163,8 @@
           false -> []
         end,
 
-  WorkerOptions = [{database, list_to_binary(DB)}, {auth_source, list_to_binary(AuthSrc)}]
-                    ++ Login0 ++ Passwd0 ++ W0 ++ R0 ++ Ssl,
+  WorkerOptions = [{database, list_to_binary(DB)}]
+                    ++ Login0 ++ Passwd0 ++ W0 ++ R0 ++ Ssl ++ AuthSource,
 
   Vars = cuttlefish_variable:fuzzy_matches(["auth", "mongo", "topology", "$name"], Conf),
   Options = lists:map(fun({_, Name}) ->
@@ -175,16 +181,17 @@
     {list_to_atom(Name2), cuttlefish:conf_get("auth.mongo.topology."++Name, Conf)}
   end, Vars),
 
-  Type = case Type0 =:= rs of
-    true -> {Type0, list_to_binary(cuttlefish:conf_get("auth.mongo.rs_set_name", Conf))};
-    false -> Type0
-  end,
-  [{type, Type},
-   {hosts, Hosts},
+  ReplicaSet = case cuttlefish:conf_get("auth.mongo.rs_set_name", Conf, undefined) of
+                   undefined -> [];
+                   ReplicaSet0 -> [{rs_set_name, list_to_binary(ReplicaSet0)}]
+               end,
+  [{srv_record, SrvRecord},
+   {type, Type},
+   {server, Server},
    {options, Options},
    {worker_options, WorkerOptions},
    {auto_reconnect, 1},
-   {pool_size, Pool}]
+   {pool_size, Pool}] ++ ReplicaSet
 end}.
 
 %% The mongodb operation timeout is specified by the value of `cursor_timeout` from application config,

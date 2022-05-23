@@ -5,7 +5,7 @@
 {{ $configData := printf "%s\n%s\n%s\n%s" $cfgEnv $cfgAcl $cfgPlugins $cfgModules}}
   ## Compatible with previous misspellings
 {{ $licenseSecretName := coalesce .Values.emqxLicenseSecretName .Values.emqxLicneseSecretName }}
-{{ $image := printf "%s:%s" .Values.image.repository (default .Values.image.tag .Chart.AppVersion) }}
+{{ $image := printf "%s:%s" .Values.image.repository (.Values.image.tag | default .Chart.AppVersion) }}
 
 apiVersion: apps/v1
 kind: StatefulSet
@@ -104,7 +104,9 @@ spec:
         secret:
           secretName: {{ $licenseSecretName }}
       {{- end }}
+      {{- if eq (.Values.emqxConfig.EMQX_CLUSTER__DISCOVERY | default "k8s") "k8s"  }}
       serviceAccountName:  {{ include "emqx.fullname" . }}
+      {{- end }}
       {{- if .Values.podSecurityContext.enabled }}
       securityContext: {{- omit .Values.podSecurityContext "enabled" | toYaml | nindent 8 }}
       {{- end }}
@@ -154,18 +156,8 @@ spec:
           {{- if .Values.extraEnvFrom }}
 {{ toYaml .Values.extraEnvFrom | indent 10 }}
           {{- end }}
-          env:
-          - name: EMQX_NAME
-            value: {{ .Release.Name }}
-          - name: EMQX_CLUSTER__K8S__APP_NAME
-            value: {{ .Release.Name }}
-          - name: EMQX_CLUSTER__DISCOVERY
-            value: k8s
-          - name: EMQX_CLUSTER__K8S__SERVICE_NAME
-            value: {{ include "emqx.fullname" . }}-headless
-          - name: EMQX_CLUSTER__K8S__NAMESPACE
-            value: {{ .Release.Namespace }}
           {{- if .Values.extraEnv }}
+          env:
 {{ toYaml .Values.extraEnv | indent 10 }}
           {{- end }}
           resources:
