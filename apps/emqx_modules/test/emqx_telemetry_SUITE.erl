@@ -151,6 +151,41 @@ init_per_testcase(t_cluster_uuid, Config) ->
     Node = start_slave(n1),
     ok = setup_slave(Node),
     [{n1, Node} | Config];
+init_per_testcase(t_uuid_restored_from_file, Config) ->
+    mock_httpc(),
+    NodeUUID = <<"AAAAAAAA-BBBB-CCCC-DDDD-EEEEEEEEEEEE">>,
+    ClusterUUID = <<"FFFFFFFF-GGGG-HHHH-IIII-JJJJJJJJJJJJ">>,
+    DataDir = emqx:data_dir(),
+    NodeUUIDFile = filename:join(DataDir, "node.uuid"),
+    ClusterUUIDFile = filename:join(DataDir, "cluster.uuid"),
+    file:delete(NodeUUIDFile),
+    file:delete(ClusterUUIDFile),
+    ok = file:write_file(NodeUUIDFile, NodeUUID),
+    ok = file:write_file(ClusterUUIDFile, ClusterUUID),
+
+    %% clear the UUIDs in the DB
+    {atomic, ok} = mria:clear_table(emqx_telemetry),
+    emqx_common_test_helpers:stop_apps([emqx_conf, emqx_authn, emqx_authz, emqx_modules]),
+    emqx_common_test_helpers:start_apps(
+        [emqx_conf, emqx_authn, emqx_authz, emqx_modules],
+        fun set_special_configs/1
+    ),
+    Node = start_slave(n1),
+    ok = setup_slave(Node),
+    [
+        {n1, Node},
+        {node_uuid, NodeUUID},
+        {cluster_uuid, ClusterUUID}
+        | Config
+    ];
+init_per_testcase(t_uuid_saved_to_file, Config) ->
+    mock_httpc(),
+    DataDir = emqx:data_dir(),
+    NodeUUIDFile = filename:join(DataDir, "node.uuid"),
+    ClusterUUIDFile = filename:join(DataDir, "cluster.uuid"),
+    file:delete(NodeUUIDFile),
+    file:delete(ClusterUUIDFile),
+    Config;
 init_per_testcase(t_num_clients, Config) ->
     mock_httpc(),
     ok = snabbkaffe:start_trace(),
@@ -213,6 +248,14 @@ end_per_testcase(t_num_clients, Config) ->
     meck:unload([httpc]),
     ok = snabbkaffe:stop(),
     Config;
+end_per_testcase(t_uuid_restored_from_file, _Config) ->
+    DataDir = emqx:data_dir(),
+    NodeUUIDFile = filename:join(DataDir, "node.uuid"),
+    ClusterUUIDFile = filename:join(DataDir, "cluster.uuid"),
+    ok = file:delete(NodeUUIDFile),
+    ok = file:delete(ClusterUUIDFile),
+    meck:unload([httpc]),
+    ok;
 end_per_testcase(_Testcase, _Config) ->
     meck:unload([httpc]),
     ok.
@@ -246,6 +289,48 @@ t_cluster_uuid(Config) ->
     ?assertEqual(ClusterUUID0, ClusterUUID2),
     {ok, NodeUUID1} = emqx_telemetry_proto_v1:get_node_uuid(Node),
     ?assertNotEqual(NodeUUID0, NodeUUID1),
+    ok.
+
+%% should attempt read UUID from file in data dir to keep UUIDs
+%% unique, in the event of a database purge.
+t_uuid_restored_from_file(Config) ->
+    ExpectedNodeUUID = ?config(node_uuid, Config),
+    ExpectedClusterUUID = ?config(cluster_uuid, Config),
+    ?assertEqual(
+        {ok, ExpectedNodeUUID},
+        emqx_telemetry:get_node_uuid()
+    ),
+    ?assertEqual(
+        {ok, ExpectedClusterUUID},
+        emqx_telemetry:get_cluster_uuid()
+    ),
+    ok.
+
+t_uuid_saved_to_file(_Config) ->
+    DataDir = emqx:data_dir(),
+    NodeUUIDFile = filename:join(DataDir, "node.uuid"),
+    ClusterUUIDFile = filename:join(DataDir, "cluster.uuid"),
+    %% preconditions
+    ?assertEqual({error, enoent}, file:read_file(NodeUUIDFile)),
+    ?assertEqual({error, enoent}, file:read_file(ClusterUUIDFile)),
+
+    %% clear the UUIDs in the DB
+    {atomic, ok} = mria:clear_table(emqx_telemetry),
+    emqx_common_test_helpers:stop_apps([emqx_conf, emqx_authn, emqx_authz, emqx_modules]),
+    emqx_common_test_helpers:start_apps(
+        [emqx_conf, emqx_authn, emqx_authz, emqx_modules],
+        fun set_special_configs/1
+    ),
+    {ok, NodeUUID} = emqx_telemetry:get_node_uuid(),
+    {ok, ClusterUUID} = emqx_telemetry:get_cluster_uuid(),
+    ?assertEqual(
+        {ok, NodeUUID},
+        file:read_file(NodeUUIDFile)
+    ),
+    ?assertEqual(
+        {ok, ClusterUUID},
+        file:read_file(ClusterUUIDFile)
+    ),
     ok.
 
 t_official_version(_) ->

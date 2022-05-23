@@ -93,6 +93,9 @@
 
 -define(TELEMETRY_SHARD, emqx_telemetry_shard).
 
+-define(NODE_UUID_FILENAME, "node.uuid").
+-define(CLUSTER_UUID_FILENAME, "cluster.uuid").
+
 %%--------------------------------------------------------------------
 %% API
 %%--------------------------------------------------------------------
@@ -535,7 +538,11 @@ ensure_uuids() ->
         NodeUUID =
             case mnesia:wread({?TELEMETRY, node()}) of
                 [] ->
-                    NodeUUID0 = generate_uuid(),
+                    NodeUUID0 =
+                        case get_uuid_from_file(node) of
+                            {ok, NUUID} -> NUUID;
+                            undefined -> generate_uuid()
+                        end,
                     mnesia:write(
                         ?TELEMETRY,
                         #telemetry{
@@ -551,7 +558,11 @@ ensure_uuids() ->
         ClusterUUID =
             case mnesia:wread({?TELEMETRY, ?CLUSTER_UUID_KEY}) of
                 [] ->
-                    ClusterUUID0 = generate_uuid(),
+                    ClusterUUID0 =
+                        case get_uuid_from_file(cluster) of
+                            {ok, CUUID} -> CUUID;
+                            undefined -> generate_uuid()
+                        end,
                     mnesia:write(
                         ?TELEMETRY,
                         #telemetry{
@@ -566,8 +577,35 @@ ensure_uuids() ->
             end,
         {NodeUUID, ClusterUUID}
     end,
-    {atomic, UUIDs} = mria:transaction(?TELEMETRY_SHARD, Txn),
-    UUIDs.
+    {atomic, {NodeUUID, ClusterUUID}} = mria:transaction(?TELEMETRY_SHARD, Txn),
+    save_uuid_to_file(NodeUUID, node),
+    save_uuid_to_file(ClusterUUID, cluster),
+    {NodeUUID, ClusterUUID}.
+
+get_uuid_from_file(Type) ->
+    Path = uuid_file_path(Type),
+    case file:read_file(Path) of
+        {ok,
+            UUID =
+                <<_:8/binary, "-", _:4/binary, "-", _:4/binary, "-", _:4/binary, "-", _:12/binary>>} ->
+            {ok, UUID};
+        _ ->
+            undefined
+    end.
+
+save_uuid_to_file(UUID, Type) when is_binary(UUID) ->
+    Path = uuid_file_path(Type),
+    ok = filelib:ensure_dir(Path),
+    ok = file:write_file(Path, UUID).
+
+uuid_file_path(Type) ->
+    DataDir = emqx:data_dir(),
+    Filename =
+        case Type of
+            node -> ?NODE_UUID_FILENAME;
+            cluster -> ?CLUSTER_UUID_FILENAME
+        end,
+    filename:join(DataDir, Filename).
 
 empty_state() ->
     #state{
