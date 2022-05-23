@@ -528,6 +528,18 @@ end}.
   {datatype, {enum, [text, json]}}
 ]}.
 
+%% @doc format logs as text, date format part
+{mapping, "log.formatter.text.date.format", "kernel.logger", [
+  {default, rfc3339},
+  {datatype, string}
+]}.
+
+%% @doc format logs as text, date format part. local or any UTC offset
+{mapping, "log.formatter.text.date.timezone", "kernel.logger", [
+  {default, local},
+  {datatype, string}
+]}.
+
 %% @doc format logs in a single line.
 {mapping, "log.single_line", "kernel.logger", [
   {default, true},
@@ -629,9 +641,93 @@ end}.
                     single_line => SingleLine
                    }};
         text ->
+            DateFormat =
+              case cuttlefish:conf_get("log.formatter.text.date.format", Conf) of
+                "rfc3339" ->
+                  rfc3339;
+                DateStr ->
+                  DateStrTrans =
+                    fun
+                      DST(<<>>, Formatter) -> lists:reverse(Formatter);
+                      DST(<<"%Y", Tail/binary>>, Formatter) -> DST(Tail, [year | Formatter]);
+                      DST(<<"%m", Tail/binary>>, Formatter) -> DST(Tail, [month | Formatter]);
+                      DST(<<"%d", Tail/binary>>, Formatter) -> DST(Tail, [day | Formatter]);
+                      DST(<<"%H", Tail/binary>>, Formatter) -> DST(Tail, [hour | Formatter]);
+                      DST(<<"%M", Tail/binary>>, Formatter) -> DST(Tail, [minute | Formatter]);
+                      DST(<<"%S", Tail/binary>>, Formatter) -> DST(Tail, [second | Formatter]);
+                      DST(<<"%6N", Tail/binary>>, Formatter) -> DST(Tail, [nano_second | Formatter]);
+                      DST(<<"%z", Tail/binary>>, Formatter) -> DST(Tail, [timezone | Formatter]);
+                      DST(<<Char:8, Tail/binary>>, [Str | Formatter]) when is_list(Str) ->
+                          DST(Tail, [lists:append(Str, [Char]) | Formatter]);
+                      DST(<<Char:8, Tail/binary>>, Formatter) ->
+                          DST(Tail, [[Char] | Formatter])
+                    end,
+                    DateStrTrans(list_to_binary(DateStr), [])
+              end,
+            {DateOffsetStr, DateOffset} =
+              case cuttlefish:conf_get("log.formatter.text.date.timezone", Conf) of
+                "z" ->
+                  {"z", 0};
+                "Z" ->
+                  {"Z", 0};
+                "local" ->
+                    UniversalTime =
+                      calendar:system_time_to_universal_time(
+                        erlang:system_time(second),
+                        second),
+                    LocalTime = erlang:universaltime_to_localtime(UniversalTime),
+                    LocalSecs = calendar:datetime_to_gregorian_seconds(LocalTime),
+                    UniversalSecs = calendar:datetime_to_gregorian_seconds(UniversalTime),
+                    OffsetSecond = LocalSecs - UniversalSecs,
+                    {Sign, PosOffsetSecond} =
+                      case OffsetSecond >= 0 of
+                        true -> {$+, OffsetSecond};
+                        false -> {$-, - OffsetSecond}
+                      end,
+                    {H, M, S} = calendar:seconds_to_time(PosOffsetSecond),
+                    Str =
+                      case S of
+                        0 ->
+                          io_lib:format("~c~p:~p", [Sign, H, M]);
+                        S ->
+                          io_lib:format("~c~p:~p:~p", [Sign, H, M, S])
+                      end,
+                    {Str, OffsetSecond};
+                DateOStr ->
+                  Sign = hd(DateOStr),
+                  Signs = #{$+ => 1, $- => -1},
+                  case maps:get(Sign, Signs, undefined) of
+                      undefined ->
+                        error(bad_logger_offset);
+                      PosNeg ->
+                        try
+                          [Sign | HM] = DateOStr,
+                          {HourStr, MinuteStr, SecondStr} =
+                            case string:tokens(HM, ":") of
+                              [H, M] ->
+                                {H, M, "0"};
+                              [H, M, S] ->
+                                {H, M, S}
+                            end,
+                          Hour = erlang:list_to_integer(HourStr),
+                          Minute = erlang:list_to_integer(MinuteStr),
+                          Second = erlang:list_to_integer(SecondStr),
+                          true = (Hour =< 23),
+                          true = (Minute =< 59),
+                          true = (Second =< 59),
+                          {DateOStr, PosNeg * (Hour * 3600 + Minute * 60 + Second)}
+                        catch _E : _R ->
+                          error(bad_logger_offset)
+                        end
+                  end
+              end,
             {emqx_logger_textfmt,
-                  #{template =>
-                      [time," [",level,"] ",
+                  #{
+                    date_format => DateFormat,
+                    timezone_offset => DateOffset,
+                    timezone => DateOffsetStr,
+                    template =>
+                      [" [",level,"] ",
                        {clientid,
                           [{peername,
                               [clientid,"@",peername," "],
