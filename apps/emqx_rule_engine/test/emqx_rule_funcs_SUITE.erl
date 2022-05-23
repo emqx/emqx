@@ -28,6 +28,14 @@
 -define(PROPTEST(F), ?assert(proper:quickcheck(F()))).
 %%-define(PROPTEST(F), ?assert(proper:quickcheck(F(), [{on_output, fun ct:print/2}]))).
 
+init_per_suite(Config) ->
+    application:load(emqx_conf),
+    ConfigConf = <<"rule_engine {jq_function_default_timeout {}}">>,
+    ok = emqx_common_test_helpers:load_config(emqx_rule_engine_schema, ConfigConf),
+    Config.
+
+end_per_suite(_Config) ->
+    ok.
 %%------------------------------------------------------------------------------
 %% Test cases for IoT Funcs
 %%------------------------------------------------------------------------------
@@ -654,7 +662,46 @@ t_jq(_) ->
     ?assertEqual(
         jq_1_elm_res("{\"b\":2}"),
         apply_func(jq, [<<".">>, <<"{\"b\": 2}">>])
-    ).
+    ),
+    %% Expicitly set timeout
+    ?assertEqual(
+        jq_1_elm_res("{\"b\":2}"),
+        apply_func(jq, [<<".">>, <<"{\"b\": 2}">>, 10000])
+    ),
+    TOProgram = erlang:iolist_to_binary(
+        "def while(cond; update):"
+        "  def _while:"
+        "    if cond then  (update | _while) else . end;"
+        "  _while;"
+        "while(. < 42; . * 2)"
+    ),
+    got_timeout =
+        try
+            apply_func(jq, [TOProgram, <<"-2">>, 10])
+        catch
+            throw:{jq_exception, {timeout, _}} ->
+                %% Got timeout as expected
+                got_timeout
+        end,
+    ConfigRootKey = emqx_rule_engine_schema:namespace(),
+    DefaultTimeOut = emqx_config:get([
+        ConfigRootKey,
+        jq_function_default_timeout
+    ]),
+    case DefaultTimeOut =< 15000 of
+        true ->
+            got_timeout =
+                try
+                    apply_func(jq, [TOProgram, <<"-2">>])
+                catch
+                    throw:{jq_exception, {timeout, _}} ->
+                        %% Got timeout as expected
+                        got_timeout
+                end;
+        false ->
+            %% Skip test as we don't want it to take to long time to run
+            ok
+    end.
 
 ascii_string() -> list(range(0, 127)).
 

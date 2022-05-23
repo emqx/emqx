@@ -41,7 +41,15 @@ fields("rule_engine") ->
         {rules,
             sc(hoconsc:map("id", ref("rules")), #{
                 desc => ?DESC("rule_engine_rules"), default => #{}
-            })}
+            })},
+        {jq_function_default_timeout,
+            sc(
+                emqx_schema:duration_ms(),
+                #{
+                    default => "10s",
+                    desc => ?DESC("rule_engine_jq_function_default_timeout")
+                }
+            )}
     ];
 fields("rules") ->
     [
