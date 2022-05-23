@@ -30,7 +30,8 @@
     namespace/0,
     get_bucket_cfg_path/2,
     desc/1,
-    types/0
+    types/0,
+    is_enable/1
 ]).
 
 -define(KILOBYTE, 1024).
@@ -86,29 +87,31 @@ roots() -> [limiter].
 
 fields(limiter) ->
     [
-        {bytes_in, sc(ref(limiter_opts), #{desc => ?DESC(bytes_in)})},
-        {message_in, sc(ref(limiter_opts), #{desc => ?DESC(message_in)})},
-        {connection, sc(ref(limiter_opts), #{desc => ?DESC(connection)})},
-        {message_routing, sc(ref(limiter_opts), #{desc => ?DESC(message_routing)})},
-        {batch, sc(ref(limiter_opts), #{desc => ?DESC(batch)})}
+        {Type, sc(ref(limiter_opts), #{desc => ?DESC(Type), default => #{<<"enable">> => false}})}
+     || Type <- types()
     ];
 fields(limiter_opts) ->
     [
-        {rate, sc(rate(), #{default => "infinity", desc => ?DESC(rate)})},
+        {enable, sc(boolean(), #{desc => ?DESC(enable), default => true})},
+        {rate, sc(rate(), #{desc => ?DESC(rate), default => "infinity"})},
         {burst,
             sc(
                 burst_rate(),
                 #{
-                    default => "0/0s",
-                    desc => ?DESC(burst)
+                    desc => ?DESC(burst),
+                    default => 0
                 }
             )},
-        {bucket, sc(map("bucket_name", ref(bucket_opts)), #{desc => ?DESC(bucket_cfg)})}
+        {bucket,
+            sc(
+                map("bucket_name", ref(bucket_opts)),
+                #{desc => ?DESC(bucket_cfg), default => #{<<"default">> => #{}}}
+            )}
     ];
 fields(bucket_opts) ->
     [
-        {rate, sc(rate(), #{desc => ?DESC(rate)})},
-        {capacity, sc(capacity(), #{desc => ?DESC(capacity)})},
+        {rate, sc(rate(), #{desc => ?DESC(rate), default => "infinity"})},
+        {capacity, sc(capacity(), #{desc => ?DESC(capacity), default => "infinity"})},
         {initial, sc(initial(), #{default => "0", desc => ?DESC(initial)})},
         {per_client,
             sc(
@@ -187,6 +190,10 @@ to_rate(Str) ->
 -spec get_bucket_cfg_path(limiter_type(), bucket_name()) -> bucket_path().
 get_bucket_cfg_path(Type, BucketName) ->
     [limiter, Type, bucket, BucketName].
+
+-spec is_enable(limiter_type()) -> boolean().
+is_enable(Type) ->
+    emqx:get_config([limiter, Type, enable], false).
 
 types() ->
     [bytes_in, message_in, connection, message_routing, batch].

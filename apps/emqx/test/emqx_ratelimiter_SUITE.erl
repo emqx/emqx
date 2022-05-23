@@ -749,7 +749,8 @@ delay_return(Case) ->
     end.
 
 connect(Name) ->
-    emqx_limiter_server:connect(message_routing, Name).
+    {ok, Limiter} = emqx_limiter_server:connect(message_routing, Name),
+    Limiter.
 
 check_average_rate(Counter, Second, Rate) ->
     Cost = counters:get(Counter, 1),

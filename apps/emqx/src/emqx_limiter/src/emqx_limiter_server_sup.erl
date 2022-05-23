@@ -19,7 +19,7 @@
 -behaviour(supervisor).
 
 %% API
--export([start_link/0, start/1]).
+-export([start_link/0, start/1, start/2, stop/1]).
 
 %% Supervisor callbacks
 -export([init/1]).
@@ -46,6 +46,15 @@ start_link() ->
 start(Type) ->
     Spec = make_child(Type),
     supervisor:start_child(?MODULE, Spec).
+
+-spec start(emqx_limiter_schema:limiter_type(), hocons:config()) -> _.
+start(Type, Cfg) ->
+    Spec = make_child(Type, Cfg),
+    supervisor:start_child(?MODULE, Spec).
+
+stop(Type) ->
+    Id = emqx_limiter_server:name(Type),
+    supervisor:terminate_child(?MODULE, Id).
 
 %%--------------------------------------------------------------------
 %%  Supervisor callbacks
@@ -76,10 +85,14 @@ init([]) ->
 %%  Internal functions
 %%--==================================================================
 make_child(Type) ->
+    Cfg = emqx:get_config([limiter, Type]),
+    make_child(Type, Cfg).
+
+make_child(Type, Cfg) ->
     Id = emqx_limiter_server:name(Type),
     #{
         id => Id,
-        start => {emqx_limiter_server, start_link, [Type]},
+        start => {emqx_limiter_server, start_link, [Type, Cfg]},
         restart => transient,
         shutdown => 5000,
         type => worker,
@@ -88,5 +101,13 @@ make_child(Type) ->
 
 childs() ->
     Conf = emqx:get_config([limiter]),
-    Types = maps:keys(Conf),
-    [make_child(Type) || Type <- Types].
+    lists:foldl(
+        fun
+            ({Type, #{enable := true}}, Acc) ->
+                [make_child(Type) | Acc];
+            (_, Acc) ->
+                Acc
+        end,
+        [],
+        maps:to_list(Conf)
+    ).
