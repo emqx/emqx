@@ -660,13 +660,19 @@ backup_files(Dir) ->
 look_up_file(Filename) when is_binary(Filename) ->
     look_up_file(binary_to_list(Filename));
 look_up_file(Filename) ->
+    DefOnNotFound = fun(_Filename) -> {error, not_found} end,
+    do_look_up_file(Filename, DefOnNotFound).
+
+do_look_up_file(Filename, OnNotFound) when is_binary(Filename) ->
+    do_look_up_file(binary_to_list(Filename), OnNotFound);
+do_look_up_file(Filename, OnNotFound) ->
     Filter =
         fun(MaybeFile) ->
             filename:basename(MaybeFile) == Filename
         end,
     case lists:filter(Filter, backup_files()) of
         [] ->
-            {error, not_found};
+            OnNotFound(Filename);
         List ->
             {ok, hd(List)}
     end.
@@ -810,19 +816,26 @@ import(Filename, OverridesJson) ->
 
 -spec(check_import_json(binary() | string()) -> {ok, map()} | {error, term()}).
 check_import_json(Filename) ->
+    OnNotFound =
+        fun(F) ->
+                case filelib:is_file(F) of
+                    true -> {ok, F};
+                    false -> {error, not_found}
+                end
+        end,
     FunList = [
-        fun look_up_file/1,
+        fun(F) -> do_look_up_file(F, OnNotFound) end,
         fun(F) -> file:read_file(F) end,
         fun check_json/1
     ],
-    check_import_json(Filename, FunList).
+    do_check_import_json(Filename, FunList).
 
-check_import_json(Res, []) ->
+do_check_import_json(Res, []) ->
     {ok, Res};
-check_import_json(Acc, [Fun | FunList]) ->
+do_check_import_json(Acc, [Fun | FunList]) ->
     case Fun(Acc) of
         {ok, Next} ->
-            check_import_json(Next, FunList);
+            do_check_import_json(Next, FunList);
         {error, Reason} ->
             {error, Reason}
     end.
