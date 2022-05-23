@@ -334,14 +334,18 @@ raw_conf_with_default(SchemaMod, RootNames, RawConf) ->
             true ->
                 Acc;
             false ->
-                {_, {_, Schema}} = lists:keyfind(Name, 1, hocon_schema:roots(SchemaMod)),
-                Default =
-                    case hocon_schema:field_schema(Schema, type) of
-                        ?ARRAY(_) -> [];
-                        ?LAZY(?ARRAY(_)) -> [];
-                        _ -> #{}
-                    end,
-                Acc#{Name => Default}
+                case lists:keyfind(Name, 1, hocon_schema:roots(SchemaMod)) of
+                    false ->
+                        Acc;
+                    {_, {_, Schema}} ->
+                        Default =
+                            case hocon_schema:field_schema(Schema, type) of
+                                ?ARRAY(_) -> [];
+                                ?LAZY(?ARRAY(_)) -> [];
+                                _ -> #{}
+                            end,
+                        Acc#{Name => Default}
+                end
         end
     end,
     RawDefault = lists:foldl(Fun, #{}, RootNames),
