@@ -25,14 +25,13 @@ File format:
 * Inflight QoS1 Messages for shared topics are now redispatched to another alive subscribers upon chosen subscriber session termination.
 * Make auth metrics name more understandable.
 * Allow emqx_management http listener binding to specific interface [#8005]
+* Add rule-engine function float2str/2, user can specify the float output precision [#7991]
 
 ### Bug fixes
 * List subscription topic (/api/v4/subscriptions), the result do not match with multiple conditions.
 * SSL closed error bug fixed for redis client.
 * Fix mqtt-sn client disconnected due to re-send a duplicated qos2 message
 * Rule-engine function hexstr2bin/1 support half byte [#7977]
-* Add rule-engine function float2str/2, user can specify the float output precision [#7991]
-
 * Improved resilience against autocluster partitioning during cluster
   startup. [#7876]
   [ekka-158](https://github.com/emqx/ekka/pull/158)
