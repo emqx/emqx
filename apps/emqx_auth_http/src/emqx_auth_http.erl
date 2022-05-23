@@ -30,22 +30,16 @@
         ]).
 
 %% Callbacks
--export([ register_metrics/0
-        , check/3
+-export([ check/3
         , description/0
         ]).
-
--spec(register_metrics() -> ok).
-register_metrics() ->
-    lists:foreach(fun emqx_metrics:ensure/1, ?AUTH_METRICS).
 
 check(ClientInfo, AuthResult, #{auth  := AuthParms = #{path := Path},
                                 super := SuperParams}) ->
     case authenticate(AuthParms, ClientInfo) of
         {ok, 200, <<"ignore">>} ->
-            emqx_metrics:inc(?AUTH_METRICS(ignore)), ok;
+            ok;
         {ok, 200, Body}  ->
-            emqx_metrics:inc(?AUTH_METRICS(success)),
             IsSuperuser = is_superuser(SuperParams, ClientInfo),
             {stop, AuthResult#{is_superuser => IsSuperuser,
                                 auth_result => success,
@@ -54,12 +48,10 @@ check(ClientInfo, AuthResult, #{auth  := AuthParms = #{path := Path},
         {ok, Code, _Body} ->
             ?LOG(error, "Deny connection from path: ~s, response http code: ~p",
                  [Path, Code]),
-            emqx_metrics:inc(?AUTH_METRICS(failure)),
             {stop, AuthResult#{auth_result => http_to_connack_error(Code),
                                anonymous   => false}};
         {error, Error} ->
             ?LOG(error, "Request auth path: ~s, error: ~p", [Path, Error]),
-            emqx_metrics:inc(?AUTH_METRICS(failure)),
             %%FIXME later: server_unavailable is not right.
             {stop, AuthResult#{auth_result => server_unavailable,
                                anonymous   => false}}

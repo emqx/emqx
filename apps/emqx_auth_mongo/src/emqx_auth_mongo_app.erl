@@ -68,7 +68,6 @@ safe_start() ->
 reg_authmod(AuthQuery) ->
     case emqx_auth_mongo:available(?APP, AuthQuery) of
         ok ->
-            emqx_auth_mongo:register_metrics(),
             HookFun = fun emqx_auth_mongo:check/3,
             HookOptions = #{authquery => AuthQuery, superquery => undefined, pool => ?APP},
             case r(super_query, application:get_env(?APP, super_query, undefined)) of
@@ -122,4 +121,3 @@ r(auth_query, Config) ->
 r(acl_query, Config) ->
     #aclquery{collection = list_to_binary(get_value(collection, Config, "mqtt_acl")),
               selector   = get_value(selector, Config, [?DEFAULT_SELECTORS])}.
-

@@ -1285,8 +1285,6 @@ auth_connect(#mqtt_packet_connect{password  = Password},
       username := Username} = ClientInfo,
     case emqx_access_control:authenticate(ClientInfo#{password => Password}) of
         {ok, AuthResult} ->
-            is_anonymous(AuthResult) andalso
-                emqx_metrics:inc('client.auth.anonymous'),
             NClientInfo = maps:merge(ClientInfo, AuthResult),
             {ok, Channel#channel{clientinfo = NClientInfo}};
         {error, Reason} ->
@@ -1294,9 +1292,6 @@ auth_connect(#mqtt_packet_connect{password  = Password},
                  [ClientId, Username, Reason]),
             {error, emqx_reason_codes:connack_error(Reason)}
     end.
-
-is_anonymous(#{anonymous := true}) -> true;
-is_anonymous(_AuthResult)          -> false.
 
 %%--------------------------------------------------------------------
 %% Enhanced Authentication

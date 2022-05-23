@@ -49,7 +49,6 @@ stop(_State) ->
     ok.
 
 load_auth_hook(DeviceDn) ->
-    ok = emqx_auth_ldap:register_metrics(),
     Params = maps:from_list(DeviceDn),
     emqx:hook('client.authenticate', fun emqx_auth_ldap:check/3, [Params#{pool => ?APP}]).
 

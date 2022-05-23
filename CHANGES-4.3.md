@@ -23,6 +23,7 @@ File format:
 * Add proto_name and proto_ver fields for $event/client_disconnected event.
 * Mnesia auth/acl http api support multiple condition queries.
 * Inflight QoS1 Messages for shared topics are now redispatched to another alive subscribers upon chosen subscriber session termination.
+* Make auth metrics name more understandable.
 
 ### Bug fixes
 * List subscription topic (/api/v4/subscriptions), the result do not match with multiple conditions.

@@ -1,0 +1,9 @@
+%% -*- mode: erlang -*-
+%% Unless you know what you are doing, DO NOT edit manually!!
+{VSN,
+  [{"4.3.0",
+    [{load_module,emqx_prometheus,brutal_purge,soft_purge,[]}]},
+   {<<".*">>,[]}],
+  [{"4.3.0",
+    [{load_module,emqx_prometheus,brutal_purge,soft_purge,[]}]},
+   {<<".*">>,[]}]}.

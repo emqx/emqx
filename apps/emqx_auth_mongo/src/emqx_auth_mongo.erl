@@ -23,8 +23,7 @@
 -include_lib("emqx/include/logger.hrl").
 -include_lib("emqx/include/types.hrl").
 
--export([ register_metrics/0
-        , check/3
+-export([ check/3
         , description/0
         ]).
 
@@ -39,20 +38,15 @@
         , available/3
         ]).
 
--spec(register_metrics() -> ok).
-register_metrics() ->
-    lists:foreach(fun emqx_metrics:ensure/1, ?AUTH_METRICS).
-
 check(ClientInfo = #{password := Password}, AuthResult,
       Env = #{authquery := AuthQuery, superquery := SuperQuery}) ->
     #authquery{collection = Collection, field = Fields,
                hash = HashType, selector = Selector} = AuthQuery,
     Pool = maps:get(pool, Env, ?APP),
     case query(Pool, Collection, maps:from_list(replvars(Selector, ClientInfo))) of
-        undefined -> emqx_metrics:inc(?AUTH_METRICS(ignore));
+        undefined -> ok;
         {error, Reason} ->
             ?LOG(error, "[MongoDB] Can't connect to MongoDB server: ~0p", [Reason]),
-            ok = emqx_metrics:inc(?AUTH_METRICS(failure)),
             {stop, AuthResult#{auth_result => not_authorized, anonymous => false}};
         UserMap ->
             Result = case [maps:get(Field, UserMap, undefined) || Field <- Fields] of
@@ -64,13 +58,11 @@ check(ClientInfo = #{password := Password}, AuthResult,
                      end,
             case Result of
                 ok ->
-                    ok = emqx_metrics:inc(?AUTH_METRICS(success)),
                     {stop, AuthResult#{is_superuser => is_superuser(Pool, SuperQuery, ClientInfo),
                                        anonymous => false,
                                        auth_result => success}};
                 {error, Error} ->
                     ?LOG(error, "[MongoDB] check auth fail: ~p", [Error]),
-                    ok = emqx_metrics:inc(?AUTH_METRICS(failure)),
                     {stop, AuthResult#{auth_result => Error, anonymous => false}}
             end
     end.
