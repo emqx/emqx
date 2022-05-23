@@ -14,6 +14,8 @@ File format:
 
 ### Enhancements
 
+* Refactored `bin/emqx` help messages.
+* Upgrade script refuses upgrade from incompatible versions. (e.g. hot upgrade from 4.3 to 4.4 will fail fast).
 * Made possible for EMQX to boot from a Linux directory which has white spaces in its path.
 * Add support for JWT authorization [#7596]
   Now MQTT clients may be authorized with respect to a specific claim containing publish/subscribe topic whitelists.
