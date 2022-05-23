@@ -30,6 +30,8 @@
   startup. [#7876]
   [ekka-158](https://github.com/emqx/ekka/pull/158)
 * Add regular expression check ^[0-9A-Za-z_\-]+$ for node name [#7979]
+* Allow uploading or referencing a backup file outside the
+  `data/backup` directory when restoring a backup.  [#7996]
 
 ## v4.4.3
 
