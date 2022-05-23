@@ -34,11 +34,15 @@
 -spec(authenticate(emqx_types:clientinfo()) -> {ok, result()} | {error, term()}).
 authenticate(ClientInfo = #{zone := Zone}) ->
     AuthResult = default_auth_result(Zone),
-    case emqx_zone:get_env(Zone, bypass_auth_plugins, false) of
+    case
+        begin ok = emqx_metrics:inc('client.authenticate'),
+              emqx_zone:get_env(Zone, bypass_auth_plugins, false)
+        end
+    of
         true ->
             return_auth_result(AuthResult);
         false ->
-            return_auth_result(run_hooks('client.authenticate', [ClientInfo], AuthResult))
+            return_auth_result(emqx_hooks:run_fold('client.authenticate', [ClientInfo], AuthResult))
     end.
 
 %% @doc Check ACL
@@ -52,6 +56,10 @@ check_acl(ClientInfo, PubSub, Topic) ->
     inc_acl_metrics(Result),
     Result.
 
+%%--------------------------------------------------------------------
+%% Internal functions
+%%--------------------------------------------------------------------
+%% ACL
 check_acl_cache(ClientInfo, PubSub, Topic) ->
     case emqx_acl_cache:get_acl_cache(PubSub, Topic) of
         not_found ->
@@ -66,22 +74,13 @@ check_acl_cache(ClientInfo, PubSub, Topic) ->
 
 do_check_acl(ClientInfo = #{zone := Zone}, PubSub, Topic) ->
     Default = emqx_zone:get_env(Zone, acl_nomatch, deny),
-    Result = case run_hooks('client.check_acl', [ClientInfo, PubSub, Topic], Default) of
-                 allow  -> allow;
-                 _Other -> deny
+    ok = emqx_metrics:inc('client.check_acl'),
+    Result = case emqx_hooks:run_fold('client.check_acl', [ClientInfo, PubSub, Topic], Default) of
+                allow  -> allow;
+                _Other -> deny
              end,
     emqx:run_hook('client.check_acl_complete', [ClientInfo, PubSub, Topic, Result, false]),
     Result.
-
-default_auth_result(Zone) ->
-    case emqx_zone:get_env(Zone, allow_anonymous, false) of
-        true  -> #{auth_result => success, anonymous => true};
-        false -> #{auth_result => not_authorized, anonymous => false}
-    end.
-
--compile({inline, [run_hooks/3]}).
-run_hooks(Name, Args, Acc) ->
-    ok = emqx_metrics:inc(Name), emqx_hooks:run_fold(Name, Args, Acc).
 
 -compile({inline, [inc_acl_metrics/1]}).
 inc_acl_metrics(allow) ->
@@ -91,8 +90,26 @@ inc_acl_metrics(deny) ->
 inc_acl_metrics(cache_hit) ->
     emqx_metrics:inc('client.acl.cache_hit').
 
+%% Auth
+default_auth_result(Zone) ->
+    case emqx_zone:get_env(Zone, allow_anonymous, false) of
+        true  -> #{auth_result => success, anonymous => true};
+        false -> #{auth_result => not_authorized, anonymous => false}
+    end.
+
 -compile({inline, [return_auth_result/1]}).
-return_auth_result(Result = #{auth_result := success}) ->
-    {ok, Result};
-return_auth_result(Result) ->
-    {error, maps:get(auth_result, Result, unknown_error)}.
+return_auth_result(AuthResult = #{auth_result := success}) ->
+    inc_auth_success_metrics(AuthResult),
+    {ok, AuthResult};
+return_auth_result(AuthResult) ->
+    emqx_metrics:inc('client.auth.failure'),
+    {error, maps:get(auth_result, AuthResult, unknown_error)}.
+
+-compile({inline, [inc_auth_success_metrics/1]}).
+inc_auth_success_metrics(AuthResult) ->
+    is_anonymous(AuthResult) andalso
+        emqx_metrics:inc('client.auth.success.anonymous'),
+    emqx_metrics:inc('client.auth.success').
+
+is_anonymous(#{anonymous := true}) -> true;
+is_anonymous(_AuthResult)          -> false.

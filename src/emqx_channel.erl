@@ -1254,13 +1254,18 @@ check_connect(ConnPkt, #channel{clientinfo = #{zone := Zone}}) ->
 %% Enrich Client Info
 
 enrich_client(ConnPkt, Channel = #channel{clientinfo = ClientInfo}) ->
-    {ok, NConnPkt, NClientInfo} = pipeline([fun set_username/2,
-                                            fun set_bridge_mode/2,
-                                            fun maybe_username_as_clientid/2,
-                                            fun maybe_assign_clientid/2,
-                                            fun fix_mountpoint/2
-                                           ], ConnPkt, ClientInfo),
-    {ok, NConnPkt, Channel#channel{clientinfo = NClientInfo}}.
+    Pipe = pipeline([fun set_username/2,
+                     fun set_bridge_mode/2,
+                     fun maybe_username_as_clientid/2,
+                     fun maybe_assign_clientid/2,
+                     fun fix_mountpoint/2
+                    ], ConnPkt, ClientInfo),
+    case Pipe of
+        {ok, NConnPkt, NClientInfo} ->
+            {ok, NConnPkt, Channel#channel{clientinfo = NClientInfo}};
+        {error, ReasonCode, NClientInfo} ->
+            {error, ReasonCode, Channel#channel{clientinfo = NClientInfo}}
+    end.
 
 set_username(#mqtt_packet_connect{username = Username},
              ClientInfo = #{username := undefined}) ->
@@ -1275,7 +1280,8 @@ maybe_username_as_clientid(_ConnPkt, ClientInfo = #{username := undefined}) ->
     {ok, ClientInfo};
 maybe_username_as_clientid(_ConnPkt, ClientInfo = #{zone := Zone, username := Username}) ->
     case emqx_zone:use_username_as_clientid(Zone) of
-        true  -> {ok, ClientInfo#{clientid => Username}};
+        true when Username =/= <<>> -> {ok, ClientInfo#{clientid => Username}};
+        true -> {error, ?RC_CLIENT_IDENTIFIER_NOT_VALID, ClientInfo};
         false -> ok
     end.
 
@@ -1317,8 +1323,6 @@ auth_connect(#mqtt_packet_connect{password  = Password},
       username := Username} = ClientInfo,
     case emqx_access_control:authenticate(ClientInfo#{password => Password}) of
         {ok, AuthResult} ->
-            is_anonymous(AuthResult) andalso
-                emqx_metrics:inc('client.auth.anonymous'),
             NClientInfo = maps:merge(ClientInfo, AuthResult),
             {ok, Channel#channel{clientinfo = NClientInfo}};
         {error, Reason} ->
@@ -1326,9 +1330,6 @@ auth_connect(#mqtt_packet_connect{password  = Password},
                  [ClientId, Username, Reason]),
             {error, emqx_reason_codes:connack_error(Reason)}
     end.
-
-is_anonymous(#{anonymous := true}) -> true;
-is_anonymous(_AuthResult)          -> false.
 
 %%--------------------------------------------------------------------
 %% Enhanced Authentication

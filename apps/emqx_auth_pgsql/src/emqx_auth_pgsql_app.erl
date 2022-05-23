@@ -42,7 +42,6 @@ start(_StartType, _StartArgs) ->
                     super_query => SuperQuery,
                     hash_type => HashType,
                     pool => ?APP},
-        ok = emqx_auth_pgsql:register_metrics(),
         ok = emqx:hook('client.authenticate', fun emqx_auth_pgsql:check/3, [AuthEnv])
     end),
     if_enabled(acl_query, fun(AclQuery) ->
@@ -59,4 +58,3 @@ if_enabled(Par, Fun) ->
         {ok, Query} -> Fun(parse_query(Par, Query));
         undefined   -> ok
     end.
-

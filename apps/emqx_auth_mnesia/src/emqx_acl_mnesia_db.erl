@@ -33,6 +33,7 @@
         , remove_acl/2
         , merge_acl_records/3
         , login_acl_table/1
+        , login_acl_table/2
         , is_migration_started/0
         ]).
 
@@ -124,7 +125,7 @@ all_acls_export() ->
 
     {atomic, Records} = mnesia:transaction(
         fun() ->
-            QH = acl_table(MatchSpecNew, MatchSpecOld, fun mnesia:table/2, fun lookup_mnesia/2),
+            QH = acl_table(MatchSpecNew, MatchSpecOld, {#{}, #{}}, fun mnesia:table/2, fun lookup_mnesia/2),
             qlc:eval(QH)
         end),
     Records.
@@ -132,9 +133,15 @@ all_acls_export() ->
 %% @doc QLC table of logins matching spec
 -spec(login_acl_table(acl_target_type()) -> qlc:query_handle()).
 login_acl_table(AclTargetType) ->
-    MatchSpecNew = login_match_spec_new(AclTargetType),
-    MatchSpecOld = login_match_spec_old(AclTargetType),
-    acl_table(MatchSpecNew, MatchSpecOld, fun ets:table/2, fun lookup_ets/2).
+    login_acl_table(AclTargetType, {[], []}).
+
+login_acl_table(AclTargetType, {Qs, Fuzzy}) ->
+    ToMap = fun({Type, Symbol, Val}, Acc) -> Acc#{{Type, Symbol} => Val} end,
+    Qs1 = lists:foldl(ToMap, #{}, Qs),
+    Fuzzy1 = lists:foldl(ToMap, #{}, Fuzzy),
+    MatchSpecNew = login_match_spec_new(AclTargetType, Qs1),
+    MatchSpecOld = login_match_spec_old(AclTargetType, Qs1),
+    acl_table(MatchSpecNew, MatchSpecOld, {Qs1, Fuzzy1}, fun ets:table/2, fun lookup_ets/2).
 
 %% @doc Combine old `emqx_acl` ACL records with a new `emqx_acl2` ACL record for a given login
 -spec(merge_acl_records(acl_target(), [#?ACL_TABLE{}], [#?ACL_TABLE2{}]) -> #?ACL_TABLE2{}).
@@ -223,27 +230,39 @@ comparing({_, _, _, _, CreatedAt1},
           {_, _, _, _, CreatedAt2}) ->
     CreatedAt1 >= CreatedAt2.
 
-login_match_spec_old(all) ->
+login_match_spec_old(Type) -> login_match_spec_old(Type, #{}).
+
+login_match_spec_old(all, _) ->
     ets:fun2ms(fun(#?ACL_TABLE{filter = {all, _}} = Record) ->
                 Record
                end);
 
-login_match_spec_old(Type) when (Type =:= username) or (Type =:= clientid) ->
-    ets:fun2ms(fun(#?ACL_TABLE{filter = {{RecordType, _}, _}} = Record)
-                    when RecordType =:= Type -> Record
-               end).
+login_match_spec_old(Type, Params) when (Type =:= username) orelse (Type =:= clientid) ->
+    case maps:get({Type, '=:='}, Params, undefined) of
+        undefined ->
+            ets:fun2ms(fun(#?ACL_TABLE{filter = {{RType, _}, _}} = Rec) when RType =:= Type -> Rec end);
+        Val ->
+            ets:fun2ms(fun(#?ACL_TABLE{filter = {{RType, RVal}, _}} = Rec)
+                when RType =:= Type andalso RVal =:= Val -> Rec end)
+    end.
 
-login_match_spec_new(all) ->
+login_match_spec_new(Type) -> login_match_spec_new(Type, #{}).
+
+login_match_spec_new(all, _) ->
     ets:fun2ms(fun(#?ACL_TABLE2{who = all} = Record) ->
                 Record
                end);
 
-login_match_spec_new(Type) when (Type =:= username) or (Type =:= clientid) ->
-    ets:fun2ms(fun(#?ACL_TABLE2{who = {RecordType, _}} = Record)
-                    when RecordType =:= Type -> Record
-               end).
+login_match_spec_new(Type, Params) when (Type =:= username) orelse (Type =:= clientid) ->
+    case maps:get({Type, '=:='}, Params, undefined) of
+        undefined ->
+            ets:fun2ms(fun(#?ACL_TABLE2{who = {RType, _}} = Rec) when RType =:= Type -> Rec end);
+        Val ->
+            ets:fun2ms(fun(#?ACL_TABLE2{who = {RType, RVal}} = Rec)
+                when RType =:= Type andalso RVal =:= Val  -> Rec end)
+    end.
 
-acl_table(MatchSpecNew, MatchSpecOld, TableFun, LookupFun) ->
+acl_table(MatchSpecNew, MatchSpecOld, Params, TableFun, LookupFun) ->
     TraverseFun =
         fun() ->
            CursorNew =
@@ -252,7 +271,7 @@ acl_table(MatchSpecNew, MatchSpecOld, TableFun, LookupFun) ->
            CursorOld =
                qlc:cursor(
                    TableFun(?ACL_TABLE, [{traverse, {select, MatchSpecOld}}])),
-           traverse_new(CursorNew, CursorOld, #{}, LookupFun)
+           traverse_new(CursorNew, CursorOld, Params, #{}, LookupFun)
         end,
 
     qlc:table(TraverseFun, []).
@@ -265,12 +284,12 @@ acl_table(MatchSpecNew, MatchSpecOld, TableFun, LookupFun) ->
 % After migration, number of such logins is zero, so traversing starts working in
 % constant memory.
 
-traverse_new(CursorNew, CursorOld, FoundKeys, LookupFun) ->
+traverse_new(CursorNew, CursorOld, Params, FoundKeys, LookupFun) ->
     Acls = qlc:next_answers(CursorNew, 1),
     case Acls of
         [] ->
             qlc:delete_cursor(CursorNew),
-            traverse_old(CursorOld, FoundKeys);
+            traverse_old(CursorOld, Params, FoundKeys);
         [#?ACL_TABLE2{who = Login, rules = Rules} = Acl] ->
             Keys = lists:usort([{Login, Topic} || {_, _, Topic, _} <- Rules]),
             OldRecs = lists:flatmap(fun(Key) -> LookupFun(?ACL_TABLE, Key) end, Keys),
@@ -281,27 +300,57 @@ traverse_new(CursorNew, CursorOld, FoundKeys, LookupFun) ->
                             OldRecs),
             case acl_to_list(MergedAcl) of
                 [] ->
-                    traverse_new(CursorNew, CursorOld, NewFoundKeys, LookupFun);
+                    traverse_new(CursorNew, CursorOld, Params, NewFoundKeys, LookupFun);
                 List ->
-                    List ++ fun() -> traverse_new(CursorNew, CursorOld, NewFoundKeys, LookupFun) end
+                    filter_params(List, Params) ++
+                    fun() -> traverse_new(CursorNew, CursorOld, Params, NewFoundKeys, LookupFun) end
             end
     end.
 
-traverse_old(CursorOld, FoundKeys) ->
+filter_params(List, {Qs, Fuzzy}) ->
+    case maps:size(Qs) =:= 0 andalso maps:size(Fuzzy) =:= 0 of
+        false ->
+            Topic = maps:get({topic, '=:='}, Qs, undefined),
+            Action = maps:get({action, '=:='}, Qs, undefined),
+            Access = maps:get({access, '=:='}, Qs, undefined),
+            lists:filter(fun({Target, Topic0, Action0, Access0, _CreatedAt}) ->
+                CheckList = [{Topic, Topic0}, {Action, Action0}, {Access, Access0}],
+                case lists:all(fun is_match/1, CheckList) of
+                    true ->
+                        case Target of
+                            {Type, Login} ->
+                                case maps:get({Type, 'like'}, Fuzzy, <<>>) of
+                                    <<>> -> true;
+                                    LikeSchema -> binary:match(Login, LikeSchema) =/= nomatch
+                                end;
+                            all -> true
+                        end;
+                    false -> false
+                end
+                         end, List);
+        true -> List
+    end.
+
+is_match({Schema, Val}) ->
+    Schema =:= undefined orelse Schema =:= Val.
+
+traverse_old(CursorOld, Params, FoundKeys) ->
     OldAcls = qlc:next_answers(CursorOld),
     case OldAcls of
         [] ->
             qlc:delete_cursor(CursorOld),
             [];
         _ ->
-            Records = [ {Login, Topic, Action, Access, CreatedAt}
+            Records = [{Login, Topic, Action, Access, CreatedAt}
                 || #?ACL_TABLE{filter = {Login, Topic}, action = LegacyAction, access = Access, created_at = CreatedAt} <- OldAcls,
                 {_, Action, _, _} <- normalize_rule({Access, LegacyAction, Topic, CreatedAt}),
                 not maps:is_key({Login, Topic}, FoundKeys)
             ],
             case Records of
-                [] -> traverse_old(CursorOld, FoundKeys);
-                List -> List ++ fun() -> traverse_old(CursorOld, FoundKeys) end
+                [] -> traverse_old(CursorOld, Params, FoundKeys);
+                List ->
+                    filter_params(List, Params)
+                    ++ fun() -> traverse_old(CursorOld, Params, FoundKeys) end
             end
     end.
 

@@ -203,17 +203,31 @@ do_verify(JwsCompacted, [Jwk|More]) ->
 
 check_claims(Claims) ->
     Now = os:system_time(seconds),
-    Checker = [{<<"exp">>, fun(ExpireTime) ->
-                               Now < ExpireTime
-                           end},
-               {<<"iat">>, fun(IssueAt) ->
-                               IssueAt =< Now
-                           end},
-               {<<"nbf">>, fun(NotBefore) ->
-                               NotBefore =< Now
-                           end}
+    Checker = [{<<"exp">>, with_int_value(
+                             fun(ExpireTime) -> Now < ExpireTime end)},
+               {<<"iat">>, with_int_value(
+                             fun(IssueAt) -> IssueAt =< Now end)},
+               {<<"nbf">>, with_int_value(
+                             fun(NotBefore) -> NotBefore =< Now end)}
               ],
     do_check_claim(Checker, Claims).
+
+with_int_value(Fun) ->
+    fun(Value) ->
+            case Value of
+                Int when is_integer(Int) -> Fun(Int);
+                Bin when is_binary(Bin) ->
+                    case string:to_integer(Bin) of
+                        {Int, <<>>} -> Fun(Int);
+                        _ -> false
+                    end;
+                Str when is_list(Str) ->
+                    case string:to_integer(Str) of
+                        {Int, ""} -> Fun(Int);
+                        _ -> false
+                    end
+            end
+    end.
 
 do_check_claim([], Claims) ->
     Claims;

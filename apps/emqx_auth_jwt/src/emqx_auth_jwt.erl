@@ -21,27 +21,10 @@
 
 -logger_header("[JWT]").
 
--export([ register_metrics/0
-        , check_auth/3
+-export([ check_auth/3
         , check_acl/5
         , description/0
         ]).
-
--record(auth_metrics, {
-        success = 'client.auth.success',
-        failure = 'client.auth.failure',
-        ignore = 'client.auth.ignore'
-    }).
-
--define(METRICS(Type), tl(tuple_to_list(#Type{}))).
--define(METRICS(Type, K), #Type{}#Type.K).
-
--define(AUTH_METRICS, ?METRICS(auth_metrics)).
--define(AUTH_METRICS(K), ?METRICS(auth_metrics, K)).
-
--spec(register_metrics() -> ok).
-register_metrics() ->
-    lists:foreach(fun emqx_metrics:ensure/1, ?AUTH_METRICS).
 
 %%--------------------------------------------------------------------
 %% Authentication callbacks
@@ -50,17 +33,16 @@ register_metrics() ->
 check_auth(ClientInfo, AuthResult, #{from := From, checklists := Checklists}) ->
     case maps:find(From, ClientInfo) of
         error ->
-            ok = emqx_metrics:inc(?AUTH_METRICS(ignore));
+            ok;
         {ok, undefined} ->
-            ok = emqx_metrics:inc(?AUTH_METRICS(ignore));
+            ok;
         {ok, Token} ->
             case emqx_auth_jwt_svr:verify(Token) of
                 {error, not_found} ->
-                    ok = emqx_metrics:inc(?AUTH_METRICS(ignore));
+                    ok;
                 {error, not_token} ->
-                    ok = emqx_metrics:inc(?AUTH_METRICS(ignore));
+                    ok;
                 {error, Reason} ->
-                    ok = emqx_metrics:inc(?AUTH_METRICS(failure)),
                     {stop, AuthResult#{auth_result => Reason, anonymous => false}};
                 {ok, Claims} ->
                     {stop, maps:merge(AuthResult, verify_claims(Checklists, Claims, ClientInfo))}
@@ -72,13 +54,32 @@ check_acl(ClientInfo = #{jwt_claims := Claims},
           Topic,
           _NoMatchAction,
           #{acl_claim_name := AclClaimName}) ->
-    Deadline = erlang:system_time(second),
     case Claims of
-        #{AclClaimName := Acl, <<"exp">> := Exp}
-            when is_integer(Exp) andalso Exp >= Deadline ->
+        #{AclClaimName := Acl, <<"exp">> := Exp} ->
+            try is_expired(Exp) of
+                true ->
+                    ?DEBUG("acl_deny_due_to_jwt_expired", []),
+                    deny;
+                false ->
+                    verify_acl(ClientInfo, Acl, PubSub, Topic)
+            catch
+                _:_ ->
+                    ?DEBUG("acl_deny_due_to_invalid_jwt_exp", []),
+                    deny
+            end;
+        #{AclClaimName := Acl} ->
             verify_acl(ClientInfo, Acl, PubSub, Topic);
-        _ -> ignore
+        _ ->
+            ?DEBUG("no_acl_jwt_claim", []),
+            ignore
     end.
+
+is_expired(Exp) when is_binary(Exp)  ->
+    ExpInt  = binary_to_integer(Exp),
+    is_expired(ExpInt);
+is_expired(Exp) ->
+    Now = erlang:system_time(second),
+    Now > Exp.
 
 description() -> "Authentication with JWT".
 
@@ -102,10 +103,8 @@ verify_acl(ClientInfo, [AclTopic | AclTopics], Topic) ->
 verify_claims(Checklists, Claims, ClientInfo) ->
     case do_verify_claims(feedvar(Checklists, ClientInfo), Claims) of
         {error, Reason} ->
-            ok = emqx_metrics:inc(?AUTH_METRICS(failure)),
             #{auth_result => Reason, anonymous => false};
         ok ->
-            ok = emqx_metrics:inc(?AUTH_METRICS(success)),
             #{auth_result => success, anonymous => false, jwt_claims => Claims}
     end.
 

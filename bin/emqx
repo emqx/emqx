@@ -530,6 +530,10 @@ fi
 NAME_TYPE="$(echo "$NAME_ARG" | awk '{print $1}')"
 NAME="$(echo "$NAME_ARG" | awk '{print $2}')"
 NODENAME="$(echo "$NAME" | awk -F'@' '{print $1}')"
+if ! (echo "$NODENAME" | grep -q '^[0-9A-Za-z_\-]\+$'); then
+    echo "Invalid node name, should be of format '^[0-9A-Za-z_-]+$'."
+    exit 1
+fi
 export ESCRIPT_NAME="$NODENAME"
 
 PIPE_DIR="${PIPE_DIR:-/$RUNNER_DATA_DIR/${WHOAMI}_erl_pipes/$NAME/}"

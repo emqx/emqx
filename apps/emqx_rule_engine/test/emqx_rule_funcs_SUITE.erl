@@ -125,6 +125,13 @@ t_float(_) ->
     ?assertError({invalid_number, {a, v}}, emqx_rule_funcs:float({a, v})),
     ?assertError(_, emqx_rule_funcs:float("a")).
 
+
+t_float2str(_) ->
+    ?assertEqual(<<"20.2">>, emqx_rule_funcs:float2str(20.2, 1)),
+    ?assertEqual(<<"20.2">>, emqx_rule_funcs:float2str(20.2, 10)),
+    ?assertEqual(<<"20.199999999999999">>, emqx_rule_funcs:float2str(20.2, 15)),
+    ?assertEqual(<<"20.1999999999999993">>, emqx_rule_funcs:float2str(20.2, 16)).
+
 t_map(_) ->
     ?assertEqual(#{ver => <<"1.0">>, name => "emqx"}, emqx_rule_funcs:map([{ver, <<"1.0">>}, {name, "emqx"}])),
     ?assertEqual(#{<<"a">> => 1}, emqx_rule_funcs:map(<<"{\"a\":1}">>)),
@@ -159,8 +166,12 @@ t_term_encode(_) ->
         end, TestData).
 
 t_hexstr2bin(_) ->
-    ?assertEqual(<<1,2>>, emqx_rule_funcs:hexstr2bin(<<"0102">>)),
-    ?assertEqual(<<17,33>>, emqx_rule_funcs:hexstr2bin(<<"1121">>)).
+    ?assertEqual(<<6, 54, 79>>, emqx_rule_funcs:hexstr2bin(<<"6364f">>)),
+    ?assertEqual(<<10>>, emqx_rule_funcs:hexstr2bin(<<"a">>)),
+    ?assertEqual(<<15>>, emqx_rule_funcs:hexstr2bin(<<"f">>)),
+    ?assertEqual(<<5>>, emqx_rule_funcs:hexstr2bin(<<"5">>)),
+    ?assertEqual(<<1, 2>>, emqx_rule_funcs:hexstr2bin(<<"0102">>)),
+    ?assertEqual(<<17, 33>>, emqx_rule_funcs:hexstr2bin(<<"1121">>)).
 
 t_bin2hexstr(_) ->
     ?assertEqual(<<"0102">>, emqx_rule_funcs:bin2hexstr(<<1,2>>)),
@@ -698,6 +709,25 @@ t_rfc3339_to_unix_ts(_) ->
         ?assertEqual(Epoch, emqx_rule_funcs:rfc3339_to_unix_ts(DateTime, BUnit))
      end || Unit <- [second,millisecond,microsecond,nanosecond]].
 
+t_format_date_funcs(_) ->
+    ?PROPTEST(prop_format_date_fun).
+
+prop_format_date_fun() ->
+    Args1 = [<<"second">>, <<"+07:00">>, <<"%m--%d--%y---%H:%M:%S%Z">>],
+    ?FORALL(S, erlang:system_time(second),
+            S == apply_func(date_to_unix_ts,
+                            Args1 ++ [apply_func(format_date,
+                                                 Args1 ++ [S])])),
+    Args2 = [<<"millisecond">>, <<"+04:00">>, <<"--%m--%d--%y---%H:%M:%S%Z">>],
+    ?FORALL(S, erlang:system_time(millisecond),
+            S == apply_func(date_to_unix_ts,
+                            Args2 ++ [apply_func(format_date,
+                                                 Args2 ++ [S])])),
+    Args = [<<"second">>, <<"+08:00">>, <<"%y-%m-%d-%H:%M:%S%Z">>],
+    ?FORALL(S, erlang:system_time(second),
+            S == apply_func(date_to_unix_ts,
+                            Args ++ [apply_func(format_date,
+                                                Args ++ [S])])).
 %%------------------------------------------------------------------------------
 %% Utility functions
 %%------------------------------------------------------------------------------

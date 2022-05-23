@@ -83,7 +83,7 @@
 ]}.
 
 {mapping, "dashboard.listener.https.verify", "emqx_dashboard.listeners", [
-  {datatype, string}
+  {datatype, atom}
 ]}.
 
 {mapping, "dashboard.listener.https.fail_if_no_peer_cert", "emqx_dashboard.listeners", [
@@ -149,4 +149,3 @@
         end
       end, [http, https]))
 end}.
-

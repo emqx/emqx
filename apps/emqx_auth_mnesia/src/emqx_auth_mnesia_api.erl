@@ -18,18 +18,20 @@
 
 -include_lib("stdlib/include/qlc.hrl").
 -include_lib("stdlib/include/ms_transform.hrl").
+-include("emqx_auth_mnesia.hrl").
 
 -define(TABLE, emqx_user).
 
 -import(proplists, [get_value/2]).
 -import(minirest,  [return/1]).
--export([paginate_qh/5]).
 
 -export([ list_clientid/2
         , lookup_clientid/2
         , add_clientid/2
         , update_clientid/2
         , delete_clientid/2
+        , query_clientid/3
+        , query_username/3
         ]).
 
 -rest_api(#{name   => list_clientid,
@@ -109,13 +111,28 @@
             descr  => "Delete username in the cluster"
            }).
 
+-define(CLIENTID_SCHEMA, {?TABLE,
+    [
+        {<<"clientid">>, binary},
+        {<<"_like_clientid">>, binary}
+    ]}).
+
+-define(USERNAME_SCHEMA, {?TABLE,
+    [
+        {<<"username">>, binary},
+        {<<"_like_username">>, binary}
+    ]}).
+
+-define(query_clientid, {?MODULE, query_clientid}).
+-define(query_username, {?MODULE, query_username}).
+
 %%------------------------------------------------------------------------------
 %% Auth Clientid Api
 %%------------------------------------------------------------------------------
 
 list_clientid(_Bindings, Params) ->
-    MatchSpec = ets:fun2ms(fun({?TABLE, {clientid, Clientid}, Password, CreatedAt}) -> {?TABLE, {clientid, Clientid}, Password, CreatedAt} end),
-    return({ok, paginate(?TABLE, MatchSpec, Params, fun emqx_auth_mnesia_cli:comparing/2, fun({?TABLE, {clientid, X}, _, _}) -> #{clientid => X} end)}).
+    SortFun = fun(#{created_at := C1}, #{created_at := C2}) -> C1 > C2 end,
+    return({ok, emqx_mgmt_api:node_query(node(), Params, ?CLIENTID_SCHEMA, ?query_clientid, SortFun)}).
 
 lookup_clientid(#{clientid := Clientid}, _Params) ->
     return({ok, format(emqx_auth_mnesia_cli:lookup_user({clientid, urldecode(Clientid)}))}).
@@ -164,8 +181,8 @@ delete_clientid(#{clientid := Clientid}, _) ->
 %%------------------------------------------------------------------------------
 
 list_username(_Bindings, Params) ->
-    MatchSpec = ets:fun2ms(fun({?TABLE, {username, Username}, Password, CreatedAt}) -> {?TABLE, {username, Username}, Password, CreatedAt} end),
-    return({ok, paginate(?TABLE, MatchSpec, Params, fun emqx_auth_mnesia_cli:comparing/2, fun({?TABLE, {username, X}, _, _}) -> #{username => X} end)}).
+    SortFun = fun(#{created_at := C1}, #{created_at := C2}) -> C1 > C2 end,
+    return({ok, emqx_mgmt_api:node_query(node(), Params, ?USERNAME_SCHEMA, ?query_username, SortFun)}).
 
 lookup_username(#{username := Username}, _Params) ->
     return({ok, format(emqx_auth_mnesia_cli:lookup_user({username, urldecode(Username)}))}).
@@ -211,57 +228,52 @@ delete_username(#{username := Username}, _) ->
 %%------------------------------------------------------------------------------
 %% Paging Query
 %%------------------------------------------------------------------------------
+query_clientid(Qs, Start, Limit) -> query(clientid, Qs, Start, Limit).
+query_username(Qs, Start, Limit) -> query(username, Qs, Start, Limit).
 
-paginate(Table, MatchSpec, Params, ComparingFun, RowFun) ->
-    Qh = query_handle(Table, MatchSpec),
-    Count = count(Table, MatchSpec),
-    paginate_qh(Qh, Count, Params, ComparingFun, RowFun).
+query(Type, {Qs, []}, Start, Limit) ->
+    Ms = qs2ms(Type, Qs),
+    emqx_mgmt_api:select_table(?TABLE, Ms, Start, Limit, fun format/1);
 
-paginate_qh(Qh, Count, Params, ComparingFun, RowFun) ->
-    Page = page(Params),
-    Limit = limit(Params),
-    Cursor = qlc:cursor(Qh),
-    case Page > 1 of
-        true  ->
-            _ = qlc:next_answers(Cursor, (Page - 1) * Limit),
-            ok;
-        false -> ok
-    end,
-    Rows = qlc:next_answers(Cursor, Limit),
-    qlc:delete_cursor(Cursor),
-    #{meta  => #{page => Page, limit => Limit, count => Count},
-      data  => [RowFun(Row) || Row <- lists:sort(ComparingFun, Rows)]}.
+query(Type, {Qs, Fuzzy}, Start, Limit) ->
+    Ms = qs2ms(Type, Qs),
+    MatchFun = match_fun(Ms, Fuzzy),
+    emqx_mgmt_api:traverse_table(?TABLE, MatchFun, Start, Limit, fun format/1).
 
-query_handle(Table, MatchSpec) when is_atom(Table) ->
-    Options = {traverse, {select, MatchSpec}},
-    qlc:q([R || R <- ets:table(Table, Options)]).
+-spec qs2ms(clientid | username, list()) -> ets:match_spec().
+qs2ms(Type, Qs) ->
+    Init = #?TABLE{login = {Type, '_'}, password  = '_', created_at = '_'},
+    MatchHead = lists:foldl(fun(Q, Acc) ->  match_ms(Q, Acc) end, Init, Qs),
+    [{MatchHead, [], ['$_']}].
 
-count(Table, MatchSpec) when is_atom(Table) ->
-    [{MatchPattern, Where, _Re}] = MatchSpec,
-    NMatchSpec = [{MatchPattern, Where, [true]}],
-    ets:select_count(Table, NMatchSpec).
+match_ms({Type, '=:=', Value}, MatchHead) -> MatchHead#?TABLE{login = {Type, Value}};
+match_ms(_, MatchHead) -> MatchHead.
 
-page(Params) ->
-    binary_to_integer(proplists:get_value(<<"_page">>, Params, <<"1">>)).
-
-limit(Params) ->
-    case proplists:get_value(<<"_limit">>, Params) of
-        undefined -> 10;
-        Size      -> binary_to_integer(Size)
+match_fun(Ms, Fuzzy) ->
+    MsC = ets:match_spec_compile(Ms),
+    fun(Rows) ->
+        Ls = ets:match_spec_run(Rows, MsC),
+        lists:filter(fun(E) -> run_fuzzy_match(E, Fuzzy) end, Ls)
     end.
+
+run_fuzzy_match(_, []) -> true;
+run_fuzzy_match(E = #?TABLE{login = {Key, Str}}, [{Key, like, SubStr}|Fuzzy]) ->
+    binary:match(Str, SubStr) /= nomatch andalso run_fuzzy_match(E, Fuzzy);
+run_fuzzy_match(_E, [{_Key, like, _SubStr}| _Fuzzy]) -> false.
 
 %%------------------------------------------------------------------------------
 %% Interval Funcs
 %%------------------------------------------------------------------------------
 
-format([{?TABLE, {clientid, ClientId}, _Password, _InterTime}]) ->
-    #{clientid => ClientId};
+format([{?TABLE, {clientid, ClientId}, _Password, CreatedAt}]) ->
+    #{clientid => ClientId, created_at => CreatedAt};
 
-format([{?TABLE, {username, Username}, _Password, _InterTime}]) ->
-    #{username => Username};
+format([{?TABLE, {username, Username}, _Password, CreatedAt}]) ->
+    #{username => Username, created_at => CreatedAt};
 
 format([]) ->
-    #{}.
+    #{};
+format(User) -> format([User]).
 
 validate([], []) ->
     ok;

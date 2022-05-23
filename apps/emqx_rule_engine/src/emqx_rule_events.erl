@@ -224,6 +224,8 @@ eventmsg_disconnected(_ClientInfo = #{
                       ConnInfo = #{
                         peername := PeerName,
                         sockname := SockName,
+                        proto_name := ProtoName,
+                        proto_ver := ProtoVer,
                         disconnected_at := DisconnectedAt
                       }, Reason) ->
     with_basic_columns('client.disconnected',
@@ -232,6 +234,8 @@ eventmsg_disconnected(_ClientInfo = #{
           username => Username,
           peername => ntoa(PeerName),
           sockname => ntoa(SockName),
+          proto_name => ProtoName,
+          proto_ver => ProtoVer,
           disconn_props => printable_maps(maps:get(disconn_props, ConnInfo, #{})),
           disconnected_at => DisconnectedAt
         }).
@@ -686,6 +690,8 @@ columns_with_exam('client.disconnected') ->
     , {<<"username">>, <<"u_emqx">>}
     , {<<"peername">>, <<"192.168.0.10:56431">>}
     , {<<"sockname">>, <<"0.0.0.0:1883">>}
+    , {<<"proto_name">>, <<"MQTT">>}
+    , {<<"proto_ver">>, 5}
     , {<<"disconnected_at">>, erlang:system_time(millisecond)}
     , columns_example_props(disconn_props)
     , {<<"timestamp">>, erlang:system_time(millisecond)}

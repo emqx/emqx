@@ -48,7 +48,9 @@ init_per_group(GrpName, Cfg) ->
     Cfg.
 
 end_per_group(_GrpName, _Cfg) ->
-    emqx_ct_helpers:stop_apps([emqx_auth_ldap]).
+    emqx_ct_helpers:stop_apps([emqx_auth_ldap]),
+    %% clear the application envs to avoid cross-suite testcase failure
+    application:unload(emqx_auth_ldap).
 
 %%--------------------------------------------------------------------
 %% Cases

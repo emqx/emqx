@@ -96,18 +96,24 @@
         , delete/2
         ]).
 
+-define(CLIENTID_SCHEMA, [{<<"clientid">>, binary}, {<<"_like_clientid">>, binary}] ++ ?COMMON_SCHEMA).
+-define(USERNAME_SCHEMA, [{<<"username">>, binary}, {<<"_like_username">>, binary}] ++ ?COMMON_SCHEMA).
+-define(COMMON_SCHEMA, [{<<"topic">>, binary}, {<<"action">>, atom}, {<<"access">>, atom}]).
+
 list_clientid(_Bindings, Params) ->
-    Table = emqx_acl_mnesia_db:login_acl_table(clientid),
-    return({ok, emqx_auth_mnesia_api:paginate_qh(Table, count(Table), Params, fun emqx_acl_mnesia_db:comparing/2, fun format/1)}).
+    {_, Params1 = {_Qs, _Fuzzy}} = emqx_mgmt_api:params2qs(Params, ?CLIENTID_SCHEMA),
+    Table = emqx_acl_mnesia_db:login_acl_table(clientid, Params1),
+    return({ok, paginate_qh(Table, count(Table), Params, fun emqx_acl_mnesia_db:comparing/2, fun format/1)}).
 
 list_username(_Bindings, Params) ->
-    Table = emqx_acl_mnesia_db:login_acl_table(username),
-    return({ok, emqx_auth_mnesia_api:paginate_qh(Table, count(Table), Params, fun emqx_acl_mnesia_db:comparing/2, fun format/1)}).
+    {_, Params1 = {_Qs, _Fuzzy}} = emqx_mgmt_api:params2qs(Params, ?USERNAME_SCHEMA),
+    Table = emqx_acl_mnesia_db:login_acl_table(username, Params1),
+    return({ok, paginate_qh(Table, count(Table), Params, fun emqx_acl_mnesia_db:comparing/2, fun format/1)}).
 
 list_all(_Bindings, Params) ->
-    Table = emqx_acl_mnesia_db:login_acl_table(all),
-    return({ok, emqx_auth_mnesia_api:paginate_qh(Table, count(Table), Params, fun emqx_acl_mnesia_db:comparing/2, fun format/1)}).
-
+    {_, Params1 = {_Qs, _Fuzzy}} = emqx_mgmt_api:params2qs(Params, ?COMMON_SCHEMA),
+    Table = emqx_acl_mnesia_db:login_acl_table(all, Params1),
+    return({ok, paginate_qh(Table, count(Table), Params, fun emqx_acl_mnesia_db:comparing/2, fun format/1)}).
 
 lookup(#{clientid := Clientid}, _Params) ->
     return({ok, format(emqx_acl_mnesia_db:lookup_acl({clientid, urldecode(Clientid)}))});
@@ -170,7 +176,11 @@ delete(#{topic := Topic}, _) ->
 %%------------------------------------------------------------------------------
 
 count(QH) ->
-    qlc:fold(fun(_, Count) -> Count + 1 end, 0, QH).
+    Count = qlc:fold(fun(_, Sum) -> Sum + 1 end, 0, QH),
+    case is_integer(Count) of
+        true -> Count;
+        false -> 0
+    end.
 
 format({{clientid, Clientid}, Topic, Action, Access, _CreatedAt}) ->
     #{clientid => Clientid, topic => Topic, action => Action, access => Access};
@@ -222,3 +232,27 @@ format_msg(Message) when is_tuple(Message) ->
 
 urldecode(S) ->
     emqx_http_lib:uri_decode(S).
+
+paginate_qh(Qh, Count, Params, ComparingFun, RowFun) ->
+    Page = page(Params),
+    Limit = limit(Params),
+    Cursor = qlc:cursor(Qh),
+    case Page > 1 of
+        true  ->
+            _ = qlc:next_answers(Cursor, (Page - 1) * Limit),
+            ok;
+        false -> ok
+    end,
+    Rows = qlc:next_answers(Cursor, Limit),
+    qlc:delete_cursor(Cursor),
+    #{meta  => #{page => Page, limit => Limit, count => Count},
+        data  => [RowFun(Row) || Row <- lists:sort(ComparingFun, Rows)]}.
+
+page(Params) ->
+    binary_to_integer(proplists:get_value(<<"_page">>, Params, <<"1">>)).
+
+limit(Params) ->
+    case proplists:get_value(<<"_limit">>, Params) of
+        undefined -> 50;
+        Size      -> binary_to_integer(Size)
+    end.

@@ -112,7 +112,6 @@ load_hooks() ->
     case application:get_env(?APP, auth_req) of
         undefined -> ok;
         {ok, AuthReq} ->
-            ok = emqx_auth_http:register_metrics(),
             PoolOpts = proplists:get_value(pool_opts, AuthReq),
             PoolName = proplists:get_value(pool_name, AuthReq),
             {ok, _} = ehttpc_sup:start_pool(PoolName, PoolOpts),
@@ -160,4 +159,3 @@ path(#{path := ""}) ->
     "/";
 path(#{path := Path}) ->
     Path.
-

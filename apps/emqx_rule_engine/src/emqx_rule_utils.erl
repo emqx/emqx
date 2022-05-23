@@ -32,6 +32,7 @@
 
 %% type converting
 -export([ str/1
+        , float2str/2
         , bin/1
         , bool/1
         , int/1
@@ -264,6 +265,9 @@ str(List) when is_list(List) ->
         false ->  binary_to_list(emqx_json:encode(List))
     end;
 str(Data) -> error({invalid_str, Data}).
+
+float2str(Float, Precision) when is_float(Float) and is_integer(Precision)->
+    float_to_binary(Float, [{decimals, Precision}, compact]).
 
 utf8_bin(Str) when is_binary(Str); is_list(Str) ->
     unicode:characters_to_binary(Str);

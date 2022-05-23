@@ -25,6 +25,7 @@
 -include_lib("snabbkaffe/include/snabbkaffe.hrl").
 
 -import(emqx_ct_http, [ request_api/3
+                      , request_api/4
                       , request_api/5
                       , get_http_data/1
                       , create_default_app/0
@@ -358,13 +359,31 @@ t_rest_api(_Config) ->
                  <<"topic">> => <<"topic/C">>,
                  <<"action">> => <<"pubsub">>,
                  <<"access">> => <<"deny">>
+                },
+               #{<<"clientid">> => <<"good_clientid1">>,
+                 <<"topic">> => <<"topic/D">>,
+                 <<"action">> => <<"pubsub">>,
+                 <<"access">> => <<"deny">>
                 }],
     {ok, _} = request_http_rest_add([], Params1),
+
     {ok, Re1} = request_http_rest_list(["clientid", "test_clientid"]),
     ?assertMatch(4, length(get_http_data(Re1))),
+    {ok, Re11} = request_http_rest_list(["clientid"], "_like_clientid=good"),
+    ?assertMatch(2, length(get_http_data(Re11))),
+    {ok, Re12} = request_http_rest_list(["clientid"], "_like_clientid=clientid"),
+    ?assertMatch(6, length(get_http_data(Re12))),
+    {ok, Re13} = request_http_rest_list(["clientid"], "_like_clientid=clientid&action=pub"),
+    ?assertMatch(3, length(get_http_data(Re13))),
+    {ok, Re14} = request_http_rest_list(["clientid"], "_like_clientid=clientid&access=deny"),
+    ?assertMatch(4, length(get_http_data(Re14))),
+    {ok, Re15} = request_http_rest_list(["clientid"], "_like_clientid=clientid&topic=topic/A"),
+    ?assertMatch(1, length(get_http_data(Re15))),
+
     {ok, _} = request_http_rest_delete(["clientid", "test_clientid", "topic", "topic/A"]),
     {ok, _} = request_http_rest_delete(["clientid", "test_clientid", "topic", "topic/B"]),
     {ok, _} = request_http_rest_delete(["clientid", "test_clientid", "topic", "topic/C"]),
+    {ok, _} = request_http_rest_delete(["clientid", "good_clientid1", "topic", "topic/D"]),
     {ok, Res1} = request_http_rest_list(["clientid"]),
     ?assertMatch([], get_http_data(Res1)),
 
@@ -382,13 +401,30 @@ t_rest_api(_Config) ->
                  <<"topic">> => <<"topic/C">>,
                  <<"action">> => <<"pubsub">>,
                  <<"access">> => <<"deny">>
+                },
+               #{<<"username">> => <<"good_username">>,
+                 <<"topic">> => <<"topic/D">>,
+                 <<"action">> => <<"pubsub">>,
+                 <<"access">> => <<"deny">>
                 }],
     {ok, _} = request_http_rest_add([], Params2),
     {ok, Re2} = request_http_rest_list(["username", "test_username"]),
     ?assertMatch(4, length(get_http_data(Re2))),
+    {ok, Re21} = request_http_rest_list(["username"], "_like_username=good"),
+    ?assertMatch(2, length(get_http_data(Re21))),
+    {ok, Re22} = request_http_rest_list(["username"], "_like_username=username"),
+    ?assertMatch(6, length(get_http_data(Re22))),
+    {ok, Re23} = request_http_rest_list(["username"], "_like_username=username&action=pub"),
+    ?assertMatch(3, length(get_http_data(Re23))),
+    {ok, Re24} = request_http_rest_list(["username"], "_like_username=username&access=deny"),
+    ?assertMatch(4, length(get_http_data(Re24))),
+    {ok, Re25} = request_http_rest_list(["username"], "_like_username=username&topic=topic/A"),
+    ?assertMatch(1, length(get_http_data(Re25))),
+
     {ok, _} = request_http_rest_delete(["username", "test_username", "topic", "topic/A"]),
     {ok, _} = request_http_rest_delete(["username", "test_username", "topic", "topic/B"]),
     {ok, _} = request_http_rest_delete(["username", "test_username", "topic", "topic/C"]),
+    {ok, _} = request_http_rest_delete(["username", "good_username", "topic", "topic/D"]),
     {ok, Res2} = request_http_rest_list(["username"]),
     ?assertMatch([], get_http_data(Res2)),
 
@@ -403,13 +439,29 @@ t_rest_api(_Config) ->
                #{<<"topic">> => <<"topic/C">>,
                  <<"action">> => <<"pubsub">>,
                  <<"access">> => <<"deny">>
-                }],
+                },
+               #{<<"topic">> => <<"topic/D">>,
+                 <<"action">> => <<"pubsub">>,
+                 <<"access">> => <<"deny">>
+                }
+        ],
     {ok, _} = request_http_rest_add([], Params3),
+
     {ok, Re3} = request_http_rest_list(["$all"]),
-    ?assertMatch(4, length(get_http_data(Re3))),
+    ?assertMatch(6, length(get_http_data(Re3))),
+    {ok, Re31} = request_http_rest_list(["$all"], "topic=topic/A"),
+    ?assertMatch(1, length(get_http_data(Re31))),
+    {ok, Re32} = request_http_rest_list(["$all"], "action=sub"),
+    ?assertMatch(3, length(get_http_data(Re32))),
+    {ok, Re33} = request_http_rest_list(["$all"], "access=deny"),
+    ?assertMatch(4, length(get_http_data(Re33))),
+    {ok, Re34} = request_http_rest_list(["$all"], "action=sub&access=deny"),
+    ?assertMatch(2, length(get_http_data(Re34))),
+
     {ok, _} = request_http_rest_delete(["$all", "topic", "topic/A"]),
     {ok, _} = request_http_rest_delete(["$all", "topic", "topic/B"]),
     {ok, _} = request_http_rest_delete(["$all", "topic", "topic/C"]),
+    {ok, _} = request_http_rest_delete(["$all", "topic", "topic/D"]),
     {ok, Res3} = request_http_rest_list(["$all"]),
     ?assertMatch([], get_http_data(Res3)).
 
@@ -442,6 +494,9 @@ combined_conflicting_records() ->
 
 request_http_rest_list(Path) ->
     request_api(get, uri(Path), default_auth_header()).
+
+request_http_rest_list(Path, Qs) ->
+    request_api(get, uri(Path), Qs, default_auth_header()).
 
 request_http_rest_lookup(Path) ->
     request_api(get, uri(Path), default_auth_header()).

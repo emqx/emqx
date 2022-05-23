@@ -165,7 +165,7 @@ end_per_suite(_Config) ->
 
 on_resource_create(_id, _) -> #{}.
 on_resource_destroy(_id, _) -> ok.
-on_get_resource_status(_id, _) -> #{}.
+on_get_resource_status(_id, _) -> #{is_alive => true}.
 
 %%------------------------------------------------------------------------------
 %% Group specific setup/teardown
@@ -327,6 +327,24 @@ t_create_resource(_Config) ->
     ?assert(true, is_binary(ResId)),
     ok = emqx_rule_engine:unload_providers(),
     emqx_rule_registry:remove_resource(ResId),
+    ok.
+
+t_clean_resource_alarms(_Config) ->
+    ok = emqx_rule_engine:load_providers(),
+    {ok, #resource{id = ResId}} = emqx_rule_engine:create_resource(
+            #{type => built_in,
+              config => #{},
+              description => <<"debug resource">>}),
+    ?assert(true, is_binary(ResId)),
+    Name = emqx_rule_engine:alarm_name_of_resource_down(built_in, ResId),
+    _ = emqx_alarm:activate(Name, #{id => ResId, type => built_in}),
+    AlarmExist = fun(#{name := AName}) -> AName == Name end,
+    Len = length(lists:filter(AlarmExist, emqx_alarm:get_alarms())),
+    ?assert(Len == 1),
+    ok = emqx_rule_engine:unload_providers(),
+    emqx_rule_registry:remove_resource(ResId),
+    LenAfterRemove = length(lists:filter(AlarmExist, emqx_alarm:get_alarms())),
+    ?assert(LenAfterRemove == 0),
     ok.
 
 %%------------------------------------------------------------------------------
