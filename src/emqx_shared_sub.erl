@@ -217,8 +217,8 @@ get_group_ack(Msg) ->
 -spec(get_group(emqx_types:message()) -> {ok, any()} | error).
 get_group(Msg) ->
     case get_group_ack(Msg) of
-        ?NO_ACK -> error;
-        {Group, _Sender, _Ref} -> {ok, Group}
+        {Group, _Sender, _Ref} -> {ok, Group};
+        _ -> error
     end.
 
 -spec(is_ack_required(emqx_types:message()) -> boolean()).
