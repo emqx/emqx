@@ -71,8 +71,8 @@
 -type status() ::
     connected
     | connecting
-    | unconnected
-    | disable.
+    | disconnected
+    | disabled.
 
 -type server() :: #{
     status := status(),
@@ -341,7 +341,7 @@ do_load_server(#{name := Name} = Server) ->
                 load_error ->
                     {ok, ensure_reload_timer(Server)};
                 _ ->
-                    {Error, Server#{status => unconnected}}
+                    {Error, Server#{status => disconnected}}
             end
     end.
 
@@ -368,7 +368,7 @@ do_unload_server(Name, #{servers := Servers} = State) ->
     case where_is_server(Name, State) of
         not_found ->
             State;
-        #{status := disable} ->
+        #{status := disabled} ->
             State;
         Server ->
             clean_reload_timer(Server),
@@ -388,7 +388,7 @@ ensure_reload_timer(#{name := Name, auto_reconnect := Intv} = Server) when is_in
     Ref = erlang:start_timer(Intv, self(), {reload, Name}),
     Server#{status := connecting, timer := Ref};
 ensure_reload_timer(Server) ->
-    Server#{status := unconnected}.
+    Server#{status := disconnected}.
 
 -spec clean_reload_timer(server()) -> ok.
 clean_reload_timer(#{timer := undefined}) ->
@@ -516,14 +516,14 @@ refresh_tick() ->
     erlang:send_after(?REFRESH_INTERVAL, self(), ?FUNCTION_NAME).
 
 options_to_server(Options) ->
-    maps:merge(Options, #{status => unconnected, timer => undefined, order => 0}).
+    maps:merge(Options, #{status => disconnected, timer => undefined, order => 0}).
 
 update_servers(Servers, State) ->
     update_order(Servers),
     State#{servers := Servers}.
 
 set_disable(Server) ->
-    Server#{status := disable, timer := undefined}.
+    Server#{status := disabled, timer := undefined}.
 
 %%--------------------------------------------------------------------
 %% Server state persistent
