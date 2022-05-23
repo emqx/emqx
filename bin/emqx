@@ -42,15 +42,15 @@ assert_node_alive() {
     fi
 }
 
-check_eralng_start() {
-    "$BINDIR/$PROGNAME" -noshell -boot "$REL_DIR/start_clean" -s crypto start -s init stop
+check_erlang_start() {
+    "$BINDIR/$PROGNAME" -boot "$REL_DIR/start_clean" -eval "crypto:start(),halt()"
 }
 
-if ! check_eralng_start >/dev/null 2>&1; then
+if ! check_erlang_start >/dev/null 2>&1; then
     BUILT_ON="$(head -1 "${REL_DIR}/BUILT_ON")"
     ## failed to start, might be due to missing libs, try to be portable
     export LD_LIBRARY_PATH="$DYNLIBS_DIR:$LD_LIBRARY_PATH"
-    if ! check_eralng_start; then
+    if ! check_erlang_start; then
         ## it's hopeless
         echoerr "FATAL: Unable to start Erlang."
         echoerr "Please make sure openssl-1.1.1 (libcrypto) and libncurses are installed."

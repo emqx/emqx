@@ -227,6 +227,13 @@ end}.
           Prefix = "management.listener." ++ atom_to_list(Proto),
           case cuttlefish:conf_get(Prefix, Conf, undefined) of
               undefined -> Acc;
+              {IPStr, Port} ->
+                  {ok, IP} = inet:parse_address(IPStr),
+                  [{Proto, Port, [{ip, IP}] ++ TcpOpts(Prefix) ++ Opts(Prefix)
+                    ++ case Proto of
+                         http -> [];
+                         https -> SslOpts(Prefix)
+                       end} | Acc];
               Port ->
                   [{Proto, Port, TcpOpts(Prefix) ++ Opts(Prefix)
                     ++ case Proto of
@@ -236,4 +243,3 @@ end}.
           end
       end, [], [http, https])
 end}.
-
