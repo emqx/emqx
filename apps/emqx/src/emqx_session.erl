@@ -818,7 +818,7 @@ redispatch_shared_messages(#session{inflight = Inflight}) ->
             %% Only QoS1 messages get redispatched, because QoS2 messages
             %% must be sent to the same client, once they're in flight
             ({_, #inflight_data{message = #message{qos = ?QOS_2} = Msg}}) ->
-                ?SLOG(warning, "Not redispatching qos2 msg: ~s", [emqx_message:format(Msg)]);
+                ?SLOG(warning, "Not redispatching qos2 msg: ~s", [Msg]);
             ({_, #inflight_data{message = #message{topic = Topic, qos = ?QOS_1} = Msg}}) ->
                 case emqx_shared_sub:get_group(Msg) of
                     {ok, Group} ->
