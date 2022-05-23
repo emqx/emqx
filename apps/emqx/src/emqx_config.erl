@@ -85,6 +85,7 @@
 ]).
 
 -include("logger.hrl").
+-include_lib("hocon/include/hoconsc.hrl").
 
 -define(CONF, conf).
 -define(RAW_CONF, raw_conf).
@@ -320,14 +321,31 @@ init_load(SchemaMod, RawConf) when is_map(RawConf) ->
     LocalOverrides = read_override_conf(#{override_to => local}),
     Overrides = hocon:deep_merge(ClusterOverrides, LocalOverrides),
     RawConfWithOverrides = hocon:deep_merge(RawConfWithEnvs, Overrides),
-    %% check configs against the schema
-    {_AppEnvs, CheckedConf} =
-        check_config(SchemaMod, RawConfWithOverrides, #{}),
     RootNames = get_root_names(),
-    ok = save_to_config_map(
-        maps:with(get_atom_root_names(), CheckedConf),
-        maps:with(RootNames, RawConfWithOverrides)
-    ).
+    RawConfAll = raw_conf_with_default(SchemaMod, RootNames, RawConfWithOverrides),
+    %% check configs against the schema
+    {_AppEnvs, CheckedConf} = check_config(SchemaMod, RawConfAll, #{}),
+    ok = save_to_config_map(CheckedConf, RawConfAll).
+
+%% keep the raw and non-raw conf has the same keys to make update raw conf easier.
+raw_conf_with_default(SchemaMod, RootNames, RawConf) ->
+    Fun = fun(Name, Acc) ->
+        case maps:is_key(Name, RawConf) of
+            true ->
+                Acc;
+            false ->
+                {_, {_, Schema}} = lists:keyfind(Name, 1, hocon_schema:roots(SchemaMod)),
+                Default =
+                    case hocon_schema:field_schema(Schema, type) of
+                        ?ARRAY(_) -> [];
+                        ?LAZY(?ARRAY(_)) -> [];
+                        _ -> #{}
+                    end,
+                Acc#{Name => Default}
+        end
+    end,
+    RawDefault = lists:foldl(Fun, #{}, RootNames),
+    maps:merge(RawConf, fill_defaults(SchemaMod, RawDefault, #{})).
 
 parse_hocon(Conf) ->
     IncDirs = include_dirs(),
@@ -465,9 +483,6 @@ get_schema_mod(RootName) ->
 -spec get_root_names() -> [binary()].
 get_root_names() ->
     maps:get(names, persistent_term:get(?PERSIS_SCHEMA_MODS, #{names => []})).
-
-get_atom_root_names() ->
-    [atom(N) || N <- get_root_names()].
 
 -spec save_configs(app_envs(), config(), raw_config(), raw_config(), update_opts()) ->
     ok | {error, term()}.

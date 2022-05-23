@@ -20,7 +20,7 @@
 -include_lib("hocon/include/hoconsc.hrl").
 
 -export([add_handler/2, remove_handler/1]).
--export([get/1, get/2, get_raw/2, get_all/1]).
+-export([get/1, get/2, get_raw/1, get_raw/2, get_all/1]).
 -export([get_by_node/2, get_by_node/3]).
 -export([update/3, update/4]).
 -export([remove/2, remove/3]).
@@ -53,6 +53,10 @@ get(KeyPath, Default) ->
 -spec get_raw(emqx_map_lib:config_key_path(), term()) -> term().
 get_raw(KeyPath, Default) ->
     emqx_config:get_raw(KeyPath, Default).
+
+-spec get_raw(emqx_map_lib:config_key_path()) -> term().
+get_raw(KeyPath) ->
+    emqx_config:get_raw(KeyPath).
 
 %% @doc Returns all values in the cluster.
 -spec get_all(emqx_map_lib:config_key_path()) -> #{node() => term()}.

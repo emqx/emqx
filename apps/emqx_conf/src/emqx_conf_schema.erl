@@ -801,7 +801,7 @@ fields("log") ->
             )}
     ];
 fields("console_handler") ->
-    log_handler_common_confs();
+    log_handler_common_confs(false);
 fields("log_file_handler") ->
     [
         {"file",
@@ -825,7 +825,7 @@ fields("log_file_handler") ->
                     desc => ?DESC("log_file_handler_max_size")
                 }
             )}
-    ] ++ log_handler_common_confs();
+    ] ++ log_handler_common_confs(true);
 fields("log_rotation") ->
     [
         {"enable",
@@ -1063,13 +1063,13 @@ tr_logger(Conf) ->
         ],
     [{handler, default, undefined}] ++ ConsoleHandler ++ FileHandlers.
 
-log_handler_common_confs() ->
+log_handler_common_confs(Enable) ->
     [
         {"enable",
             sc(
                 boolean(),
                 #{
-                    default => false,
+                    default => Enable,
                     desc => ?DESC("common_handler_enable")
                 }
             )},

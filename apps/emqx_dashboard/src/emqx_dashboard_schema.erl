@@ -49,7 +49,7 @@ fields("dashboard") ->
             sc(
                 emqx_schema:duration(),
                 #{
-                    default => "30m",
+                    default => "60m",
                     desc => ?DESC(token_expired_time)
                 }
             )},

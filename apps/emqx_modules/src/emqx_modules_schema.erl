@@ -39,11 +39,11 @@ roots() ->
     ].
 
 fields("telemetry") ->
-    [{enable, hoconsc:mk(boolean(), #{default => false, desc => "Enable telemetry."})}];
+    [{enable, hoconsc:mk(boolean(), #{default => true, desc => "Enable telemetry."})}];
 fields("delayed") ->
     [
-        {enable, hoconsc:mk(boolean(), #{default => false, desc => ?DESC(enable)})},
-        {max_delayed_messages, sc(integer(), #{desc => ?DESC(max_delayed_messages)})}
+        {enable, hoconsc:mk(boolean(), #{default => true, desc => ?DESC(enable)})},
+        {max_delayed_messages, sc(integer(), #{desc => ?DESC(max_delayed_messages), default => 0})}
     ];
 fields("rewrite") ->
     [
