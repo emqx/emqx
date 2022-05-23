@@ -496,7 +496,7 @@ deliver_msg(ClientInfo, Msg = #message{qos = QoS}, Session =
             %% This ack header is required for redispatch-on-terminate feature to work
             Publish = {PacketId, maybe_ack(Msg)},
             Msg2 = mark_begin_deliver(Msg),
-            Inflight1 = emqx_inflight:insert(PacketId, with_ts(Msg), Inflight),
+            Inflight1 = emqx_inflight:insert(PacketId, with_ts(Msg2), Inflight),
             {ok, [Publish], next_pkt_id(Session#session{inflight = Inflight1})}
     end.
 
