@@ -1,13 +1,13 @@
 #!/bin/sh
 set -eu
 
-ROOT_DIR="$(cd "$(dirname "$(readlink "$0" || echo "$0")")"/..; pwd -P)"
-echo "Running node dump in ${ROOT_DIR}"
+RUNNER_ROOT_DIR="$(cd "$(dirname "$(readlink "$0" || echo "$0")")"/..; pwd -P)"
+echo "Running node dump in ${RUNNER_ROOT_DIR}"
 
 # shellcheck disable=SC1090
-. "$ROOT_DIR"/releases/emqx_vars
+. "$RUNNER_ROOT_DIR"/releases/emqx_vars
 
-cd "${ROOT_DIR}"
+cd "${RUNNER_ROOT_DIR}"
 
 DUMP="$RUNNER_LOG_DIR/node_dump_$(date +"%Y%m%d_%H%M%S").tar.gz"
 CONF_DUMP="$RUNNER_LOG_DIR/conf.dump"
