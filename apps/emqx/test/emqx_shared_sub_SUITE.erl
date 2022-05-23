@@ -437,6 +437,7 @@ t_local_fallback(_) ->
     stop_slave(Node),
 
     ?assertEqual(UsedSubPid1, UsedSubPid2),
+    ok.
 
 %% This one tests that broker tries to select another shared subscriber
 %% If the first one doesn't return an ACK
