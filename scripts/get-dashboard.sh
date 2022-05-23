@@ -14,7 +14,7 @@ case "${PKG_VSN}" in
     4.4*)
         # keep the above 4.3 untouched, otherwise conflicts!
         EMQX_CE_DASHBOARD_VERSION='v4.4.2'
-        EMQX_EE_DASHBOARD_VERSION='v4.4.9'
+        EMQX_EE_DASHBOARD_VERSION='v4.4.10'
         ;;
     *)
         echo "Unsupported version $PKG_VSN" >&2
