@@ -338,18 +338,19 @@ raw_conf_with_default(SchemaMod, RootNames, RawConf) ->
                     false ->
                         Acc;
                     {_, {_, Schema}} ->
-                        Default =
-                            case hocon_schema:field_schema(Schema, type) of
-                                ?ARRAY(_) -> [];
-                                ?LAZY(?ARRAY(_)) -> [];
-                                _ -> #{}
-                            end,
-                        Acc#{Name => Default}
+                        Acc#{Name => schema_default(Schema)}
                 end
         end
     end,
     RawDefault = lists:foldl(Fun, #{}, RootNames),
     maps:merge(RawConf, fill_defaults(SchemaMod, RawDefault, #{})).
+
+schema_default(Schema) ->
+    case hocon_schema:field_schema(Schema, type) of
+        ?ARRAY(_) -> [];
+        ?LAZY(?ARRAY(_)) -> [];
+        _ -> #{}
+    end.
 
 parse_hocon(Conf) ->
     IncDirs = include_dirs(),
