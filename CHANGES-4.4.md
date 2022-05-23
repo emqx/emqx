@@ -1,9 +1,80 @@
 # EMQX 4.4 Changes
 
+
+## v4.4.4
+
+### Enhancements (synced from v4.3.15)
+
+* Refactored `bin/emqx` help messages.
+* Upgrade script refuses upgrade from incompatible versions. (e.g. hot upgrade from 4.3 to 4.4 will fail fast).
+* Made possible for EMQX to boot from a Linux directory which has white spaces in its path.
+* Add support for JWT authorization [#7596]
+  Now MQTT clients may be authorized with respect to a specific claim containing publish/subscribe topic whitelists.
+* Better randomisation of app screts (changed from timestamp seeded sha hash (uuid) to crypto:strong_rand_bytes)
+* Return a client_identifier_not_valid error when username is empty and username_as_clientid is set to true [#7862]
+* Add more rule engine date functions: format_date/3, format_date/4, date_to_unix_ts/4 [#7894]
+* Add proto_name and proto_ver fields for $event/client_disconnected event.
+* Mnesia auth/acl http api support multiple condition queries.
+* Inflight QoS1 Messages for shared topics are now redispatched to another alive subscribers upon chosen subscriber session termination.
+* Make auth metrics name more understandable.
+
+### Bug fixes (synced from v4.3.15)
+
+* List subscription topic (/api/v4/subscriptions), the result do not match with multiple conditions.
+* SSL closed error bug fixed for redis client.
+* Fix mqtt-sn client disconnected due to re-send a duplicated qos2 message
+* Rule-engine function hexstr2bin/1 support half byte [#7977]
+* Add rule-engine function float2str/2, user can specify the float output precision [#7991]
+
+* Improved resilience against autocluster partitioning during cluster
+  startup. [#7876]
+  [ekka-158](https://github.com/emqx/ekka/pull/158)
+* Add regular expression check ^[0-9A-Za-z_\-]+$ for node name [#7979]
+
+## v4.4.3
+
+** NOTE**: v4.4.3 is in sync with v4.3.14
+
 ### Enhancements
 * Add rule events: client.connack, client.check_acl_complete
 - client.connack The rule event is triggered when the server sends a CONNACK packet to the client. reason_code contains the error reason code.
 - client.check_acl_complete The rule event is triggered when the client check acl complete.
+
+### Enhancements (synced from v4.3.14)
+
+* Add `RequestMeta` for exhook.proto in order to expose `cluster_name` of emqx in each gRPC request. [#7524]
+* Support customize emqx_exhook execution priority. [#7408]
+* add api: PUT /rules/{id}/reset_metrics.
+  This api reset the metrics of the rule engine of a rule, and reset the metrics of the action related to this rule. [#7474]
+* Enhanced rule engine error handling when json parsing error.
+* Add support for `RSA-PSK-AES256-GCM-SHA384`, `RSA-PSK-AES256-CBC-SHA384`,
+ `RSA-PSK-AES128-GCM-SHA256`, `RSA-PSK-AES128-CBC-SHA256` PSK ciphers, and remove `PSK-3DES-EDE-CBC-SHA`,
+ `PSK-RC4-SHA` from the default configuration. [#7427]
+* Diagnostic logging for mnesia `wait_for_table`
+  - prints check points of mnesia internal stats
+  - prints check points of per table loading stats
+  Help to locate the problem of long table loading time.
+* Add `local` strategy for Shared Subscription.
+  That will preferentially dispatch messages to a shared subscriber at the same
+  node. It will improves the efficiency of shared messages dispatching in certain
+  scenarios, especially when the emqx-bridge-mqtt plugin is configured as shared
+  subscription. [#7462]
+* Add some compression functions to rule-engine: gzip, gunzip, zip, unzip, zip_compress, zip_uncompress
+
+### Bug Fixes (synced from v4.3.14)
+
+* Prohibit empty topics in strict mode
+* Make sure ehttpc delete useless pool always succeed.
+* Update mongodb driver to fix potential process leak.
+* Fix a potential security issue #3155 with emqx-dashboard plugin.
+  In the earlier implementation, the Dashboard password is reset back to the
+  default value of emqx_dashboard.conf after the node left cluster.
+  Now we persist changed password to protect against reset. [#7518]
+* Silence grep/sed warnings in docker-entrypoint.sh. [#7520]
+* Generate `loaded_modules` and `loaded_plugins` files with default values when no such files exists. [#7520]
+* Fix the configuration `server_name_indication` set to disable does not take effect.
+* Fix backup files are not deleted and downloaded correctly when the API path has ISO8859-1 escape characters.
+
 
 ## v4.4.2
 
