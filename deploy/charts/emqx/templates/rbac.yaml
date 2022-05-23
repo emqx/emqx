@@ -1,3 +1,4 @@
+{{- if eq (.Values.emqxConfig.EMQX_CLUSTER__DISCOVERY | default "k8s") "k8s"  }}
 apiVersion: v1
 kind: ServiceAccount
 metadata:
@@ -17,8 +18,8 @@ rules:
 - apiGroups:
   - ""
   resources:
-  - endpoints 
-  verbs: 
+  - endpoints
+  verbs:
   - get
   - watch
   - list
@@ -40,3 +41,4 @@ roleRef:
   kind: Role
   name: {{ include "emqx.fullname" . }}
   apiGroup: rbac.authorization.k8s.io
+{{- end }}

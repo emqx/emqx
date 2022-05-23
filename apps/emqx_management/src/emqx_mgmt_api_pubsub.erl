@@ -71,19 +71,10 @@ subscribe(_Bindings, Params) ->
 
 publish(_Bindings, Params) ->
     logger:debug("API publish Params:~p", [Params]),
-    {ClientId, Topic, Qos, Retain, Payload} = parse_publish_params(Params),
-    case do_publish(ClientId, Topic, Qos, Retain, Payload) of
-        {ok, MsgIds} ->
-            case proplists:get_value(<<"return">>, Params, undefined) of
-                undefined -> minirest:return(ok);
-                _Val ->
-                    case proplists:get_value(<<"topics">>, Params, undefined) of
-                        undefined -> minirest:return({ok, #{msgid => lists:last(MsgIds)}});
-                        _ -> minirest:return({ok, #{msgids => MsgIds}})
-                    end
-            end;
-        Result ->
-            minirest:return(Result)
+    try parse_publish_params(Params) of
+        Result -> do_publish(Params, Result)
+    catch
+        _E : _R -> minirest:return({ok, ?ERROR8, bad_params})
     end.
 
 unsubscribe(_Bindings, Params) ->
@@ -114,7 +105,8 @@ loop_subscribe([Params | ParamsN], Acc) ->
         {_, Code0, _Reason} -> Code0
     end,
     Result = #{clientid => ClientId,
-               topic => resp_topic(proplists:get_value(<<"topic">>, Params), proplists:get_value(<<"topics">>, Params, <<"">>)),
+               topic => resp_topic(proplists:get_value(<<"topic">>, Params),
+                                   proplists:get_value(<<"topics">>, Params, <<"">>)),
                code => Code},
     loop_subscribe(ParamsN, [Result | Acc]).
 
@@ -123,13 +115,19 @@ loop_publish(Params) ->
 loop_publish([], Result) ->
     lists:reverse(Result);
 loop_publish([Params | ParamsN], Acc) ->
-    {ClientId, Topic, Qos, Retain, Payload} = parse_publish_params(Params),
-    Code = case do_publish(ClientId, Topic, Qos, Retain, Payload) of
-        {ok, _} -> 0;
-        {_, Code0, _} -> Code0
-    end,
-    Result = #{topic => resp_topic(proplists:get_value(<<"topic">>, Params), proplists:get_value(<<"topics">>, Params, <<"">>)),
-               code => Code},
+    Result =
+        try parse_publish_params(Params) of
+            Res ->
+                Code = case do_publish(Params, Res) of
+                           {ok, _} -> 0;
+                           {_, Code0, _} -> Code0
+                       end,
+                #{topic => resp_topic(proplists:get_value(<<"topic">>, Params),
+                                      proplists:get_value(<<"topics">>, Params, <<"">>)),
+                  code => Code}
+        catch
+            _E : _R -> #{code => ?ERROR8, message => <<"bad_params">>}
+        end,
     loop_publish(ParamsN, [Result | Acc]).
 
 loop_unsubscribe(Params) ->
@@ -143,7 +141,8 @@ loop_unsubscribe([Params | ParamsN], Acc) ->
         {_, Code0, _} -> Code0
     end,
     Result = #{clientid => ClientId,
-               topic => resp_topic(proplists:get_value(<<"topic">>, Params), proplists:get_value(<<"topics">>, Params, <<"">>)),
+               topic => resp_topic(proplists:get_value(<<"topic">>, Params),
+                                   proplists:get_value(<<"topics">>, Params, <<"">>)),
                code => Code},
     loop_unsubscribe(ParamsN, [Result | Acc]).
 
@@ -160,14 +159,32 @@ do_subscribe(ClientId, Topics, QoS) ->
         _ -> ok
     end.
 
-do_publish(ClientId, _Topics, _Qos, _Retain, _Payload) when not (is_binary(ClientId) or (ClientId =:= undefined)) ->
+do_publish(Params, {ClientId, Topic, Qos, Retain, Payload, UserProps}) ->
+    case do_publish(ClientId, Topic, Qos, Retain, Payload, UserProps) of
+        {ok, MsgIds} ->
+            case proplists:get_value(<<"return">>, Params, undefined) of
+                undefined -> minirest:return(ok);
+                _Val ->
+                    case proplists:get_value(<<"topics">>, Params, undefined) of
+                        undefined -> minirest:return({ok, #{msgid => lists:last(MsgIds)}});
+                        _ -> minirest:return({ok, #{msgids => MsgIds}})
+                    end
+            end;
+        Result ->
+            minirest:return(Result)
+    end.
+
+do_publish(ClientId, _Topics, _Qos, _Retain, _Payload, _UserProps)
+  when not (is_binary(ClientId) or (ClientId =:= undefined)) ->
     {ok, ?ERROR8, <<"bad clientid: must be string">>};
-do_publish(_ClientId, [], _Qos, _Retain, _Payload) ->
+do_publish(_ClientId, [], _Qos, _Retain, _Payload, _UserProps) ->
     {ok, ?ERROR15, bad_topic};
-do_publish(ClientId, Topics, Qos, Retain, Payload) ->
+do_publish(ClientId, Topics, Qos, Retain, Payload, UserProps) ->
     MsgIds = lists:map(fun(Topic) ->
         Msg = emqx_message:make(ClientId, Qos, Topic, Payload),
-        _ = emqx_mgmt:publish(Msg#message{flags = #{retain => Retain}}),
+        UserProps1 = #{'User-Property' => UserProps},
+        _ = emqx_mgmt:publish(Msg#message{flags = #{retain => Retain},
+                                          headers = #{properties => UserProps1}}),
         emqx_guid:to_hexstr(Msg#message.id)
     end, Topics),
     {ok, MsgIds}.
@@ -187,19 +204,22 @@ do_unsubscribe(ClientId, Topic) ->
 
 parse_subscribe_params(Params) ->
     ClientId = proplists:get_value(<<"clientid">>, Params),
-    Topics   = topics(filter, proplists:get_value(<<"topic">>, Params), proplists:get_value(<<"topics">>, Params, <<"">>)),
+    Topics   = topics(filter, proplists:get_value(<<"topic">>, Params),
+                              proplists:get_value(<<"topics">>, Params, <<"">>)),
     QoS      = proplists:get_value(<<"qos">>, Params, 0),
     {ClientId, Topics, QoS}.
 
 parse_publish_params(Params) ->
-    Topics   = topics(name, proplists:get_value(<<"topic">>, Params), proplists:get_value(<<"topics">>, Params, <<"">>)),
-    ClientId = proplists:get_value(<<"clientid">>, Params),
-    Payload  = decode_payload(proplists:get_value(<<"payload">>, Params, <<>>),
-                              proplists:get_value(<<"encoding">>, Params, <<"plain">>)),
-    Qos      = proplists:get_value(<<"qos">>, Params, 0),
-    Retain   = proplists:get_value(<<"retain">>, Params, false),
-    Payload1 = maybe_maps_to_binary(Payload),
-    {ClientId, Topics, Qos, Retain, Payload1}.
+    Topics    = topics(name, proplists:get_value(<<"topic">>, Params),
+                             proplists:get_value(<<"topics">>, Params, <<"">>)),
+    ClientId  = proplists:get_value(<<"clientid">>, Params),
+    Payload   = decode_payload(proplists:get_value(<<"payload">>, Params, <<>>),
+                               proplists:get_value(<<"encoding">>, Params, <<"plain">>)),
+    Qos       = proplists:get_value(<<"qos">>, Params, 0),
+    Retain    = proplists:get_value(<<"retain">>, Params, false),
+    Payload1  = maybe_maps_to_binary(Payload),
+    UserProps = generate_user_props(proplists:get_value(<<"user_properties">>, Params, [])),
+    {ClientId, Topics, Qos, Retain, Payload1, UserProps}.
 
 parse_unsubscribe_params(Params) ->
     ClientId = proplists:get_value(<<"clientid">>, Params),
@@ -253,3 +273,24 @@ maybe_maps_to_binary(Payload) ->
       _C : _E : S ->
          error({encode_payload_fail, S})
   end.
+
+generate_user_props(UserProps) when is_list(UserProps)->
+    generate_user_props_(UserProps, []);
+generate_user_props(UserProps) ->
+    error({user_properties_type_error, UserProps}).
+
+generate_user_props_([{Name, Value} | Rest], Acc) ->
+    generate_user_props_(Rest, [{bin(Name), bin(Value)} | Acc]);
+generate_user_props_([], Acc) ->
+    lists:reverse(Acc).
+
+bin(Bin) when is_binary(Bin) -> Bin;
+bin(Num) when is_number(Num) -> number_to_binary(Num);
+bin(Boolean) when is_boolean(Boolean) -> atom_to_binary(Boolean);
+bin(Other) -> error({user_properties_type_error, Other}).
+
+-define(FLOAT_PRECISION, 17).
+number_to_binary(Int) when is_integer(Int) ->
+    integer_to_binary(Int);
+number_to_binary(Float) when is_float(Float) ->
+    float_to_binary(Float, [{decimals, ?FLOAT_PRECISION}, compact]).
