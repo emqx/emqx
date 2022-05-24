@@ -39,6 +39,10 @@ Get the binary package of the corresponding OS from [EMQX Download](https://www.
 - [Single Node Install](https://docs.emqx.io/en/broker/latest/getting-started/install.html)
 - [Multi Node Install](https://docs.emqx.io/en/broker/latest/advanced/cluster.html)
 
+#### Running on Kubernetes by EMQX Operator
+
+Please jump to [getting-started](https://github.com/emqx/emqx-operator/blob/main/docs/en_US/getting-started/getting-started.md) for more details.
+
 
 ## Build From Source
 
