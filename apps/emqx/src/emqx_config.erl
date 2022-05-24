@@ -17,6 +17,7 @@
 
 -compile({no_auto_import, [get/0, get/1, put/2, erase/1]}).
 -elvis([{elvis_style, god_modules, disable}]).
+-include("logger.hrl").
 
 -export([
     init_load/1,
@@ -347,9 +348,17 @@ raw_conf_with_default(SchemaMod, RootNames, RawConf) ->
 
 schema_default(Schema) ->
     case hocon_schema:field_schema(Schema, type) of
-        ?ARRAY(_) -> [];
-        ?LAZY(?ARRAY(_)) -> [];
-        _ -> #{}
+        ?ARRAY(_) ->
+            [];
+        ?LAZY(?ARRAY(_)) ->
+            [];
+        ?LAZY(?UNION(Unions)) ->
+            case [A || ?ARRAY(A) <- Unions] of
+                [_ | _] -> [];
+                _ -> #{}
+            end;
+        _ ->
+            #{}
     end.
 
 parse_hocon(Conf) ->
