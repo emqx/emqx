@@ -1,0 +1,96 @@
+{
+  "version": "4.3",
+  "rules": [],
+  "resources": [],
+  "blacklist": [],
+  "apps": [
+    {
+      "id": "admin",
+      "secret": "public",
+      "name": "Default",
+      "desc": "Application user",
+      "status": true,
+      "expired": "undefined"
+    }
+  ],
+  "users": [
+    {
+      "username": "admin",
+      "password": "02BzoSYaTxkscy2MDtU92EbX7b4=",
+      "tags": "administrator"
+    }
+  ],
+  "auth_mnesia": [
+    {
+      "login": "usera",
+      "type": "clientid",
+      "password": "joYZ7GY2NzcxNTQwMzY4OTRjNWUyMTdmNDlkNmE5Yzc5MDJiNjA5OWRkMWRkZjc5N2E5OGI4YWFlYTdlOWNiMjU5OWE=",
+      "created_at": 1653360665243
+    }
+  ],
+  "acl_mnesia": [
+    {
+      "type": "clientid",
+      "type_value": "clientida",
+      "topic": "t/a",
+      "action": "pub",
+      "access": "allow",
+      "created_at": 1653360687955
+    },
+    {
+      "type": "clientid",
+      "type_value": "clientida",
+      "topic": "t/a",
+      "action": "sub",
+      "access": "allow",
+      "created_at": 1653360687955
+    }
+  ],
+  "modules": [
+    {
+      "id": "module:fcda7532",
+      "type": "mnesia_authentication",
+      "config": {
+        "password_hash": "sha256"
+      },
+      "enabled": true,
+      "created_at": 1653360656060,
+      "description": ""
+    },
+    {
+      "id": "module:db849123",
+      "type": "retainer",
+      "config": {
+        "storage_type": "ram",
+        "max_retained_messages": 0,
+        "max_payload_size": "1MB",
+        "expiry_interval": 0
+      },
+      "enabled": true,
+      "created_at": 1653360591111,
+      "description": ""
+    },
+    {
+      "id": "module:55987aaa",
+      "type": "presence",
+      "config": {
+        "qos": 0
+      },
+      "enabled": true,
+      "created_at": 1653360591111,
+      "description": ""
+    },
+    {
+      "id": "module:78cae4f9",
+      "type": "recon",
+      "config": {},
+      "enabled": true,
+      "created_at": 1653360591111,
+      "description": ""
+    }
+  ],
+  "schemas": [],
+  "configs": [],
+  "listeners_state": [],
+  "date": "2022-05-24 10:51:39"
+}
