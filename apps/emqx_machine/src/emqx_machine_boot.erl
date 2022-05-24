@@ -29,6 +29,9 @@
 %% these apps are always (re)started by emqx_machine
 -define(BASIC_REBOOT_APPS, [gproc, esockd, ranch, cowboy, emqx]).
 
+%% If any of these applications crash, the entire EMQX node shuts down
+-define(BASIC_PERMANENT_APPS, [mria, ekka, esockd, emqx]).
+
 post_boot() ->
     ok = ensure_apps_started(),
     ok = print_vsn(),
@@ -76,12 +79,22 @@ ensure_apps_started() ->
 
 start_one_app(App) ->
     ?SLOG(debug, #{msg => "starting_app", app => App}),
-    case application:ensure_all_started(App) of
+    case application:ensure_all_started(App, restart_type(App)) of
         {ok, Apps} ->
             ?SLOG(debug, #{msg => "started_apps", apps => Apps});
         {error, Reason} ->
             ?SLOG(critical, #{msg => "failed_to_start_app", app => App, reason => Reason}),
             error({failed_to_start_app, App, Reason})
+    end.
+
+restart_type(App) ->
+    PermanentApps =
+        ?BASIC_PERMANENT_APPS ++ application:get_env(emqx_machine, permanent_applications, []),
+    case lists:member(App, PermanentApps) of
+        true ->
+            permanent;
+        false ->
+            temporary
     end.
 
 %% list of app names which should be rebooted when:
