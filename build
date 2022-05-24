@@ -111,12 +111,12 @@ make_relup() {
     mkdir -p "${rel_dir}/lib"
     mkdir -p "${rel_dir}/releases"
     local name_pattern
-    name_pattern="${PROFILE}-$(./pkg-vsn.sh "$PROFILE" --vsn_matcher)"
+    name_pattern="${PROFILE}-$(./pkg-vsn.sh "$PROFILE" --vsn_matcher --long)"
     local releases=()
     while read -r tgzfile ; do
         local base_vsn
-        base_vsn="$(echo "$tgzfile" | grep -oE "[0-9]+\.[0-9]+\.[0-9]+(-(alpha|beta)\.[0-9])?(-[0-9a-f]{8})?" | head -1)"
-        tar -C "$rel_dir" -zxf ---keep-old-files "$tgzfile" emqx/releases emqx/lib
+        base_vsn="$(echo "$tgzfile" | grep -oE "[0-9]+\.[0-9]+\.[0-9]+(-(alpha|beta|rc)\.[0-9])?(-[0-9a-f]{8})?" | head -1)"
+        tar -C "$rel_dir" -zxf "$tgzfile" --keep-old-files releases lib
         releases+=( "$base_vsn" )
     done < <("$FIND" _upgrade_base -maxdepth 1 -name "${name_pattern}.tar.gz" -type f)
     if [ ${#releases[@]} -eq 0 ]; then
@@ -183,8 +183,9 @@ make_tgz() {
     ## for DEB and RPM packages the dependencies are resoved by yum and apt
     cp_dyn_libs "${tard}/emqx"
     ## create tar after change dir (for windows)
-    pushd "${tard}" >/dev/null
-    tar -czf "${target_name}" emqx
+    ## to avoid creating an extra level of 'emqx' dir in the .tar.gz file
+    pushd "${tard}/emqx" >/dev/null
+    tar -zcf "../${target_name}" *
     popd >/dev/null
     mv "${tard}/${target_name}" "${target}"
     case "$SYSTEM" in
