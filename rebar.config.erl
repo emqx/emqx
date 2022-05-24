@@ -57,7 +57,7 @@ overrides() ->
 %% Temporary workaround for a rebar3 erl_opts duplication
 %% bug. Ideally, we want to set this define globally
 snabbkaffe_overrides() ->
-    Apps = [snabbkaffe, ekka, mria],
+    Apps = [snabbkaffe, ekka, mria, gen_rpc],
     [{add, App, [{erl_opts, [{d, snk_kind, msg}]}]} || App <- Apps].
 
 config() ->

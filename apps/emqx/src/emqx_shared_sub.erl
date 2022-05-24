@@ -354,8 +354,10 @@ handle_cast(Msg, State) ->
     ?SLOG(error, #{msg => "unexpected_cast", req => Msg}),
     {noreply, State}.
 
-handle_info({mnesia_table_event, {write, NewRecord, _}}, State = #state{pmon = PMon}) ->
-    #emqx_shared_subscription{subpid = SubPid} = NewRecord,
+handle_info(
+    {mnesia_table_event, {write, #emqx_shared_subscription{subpid = SubPid}, _}},
+    State = #state{pmon = PMon}
+) ->
     {noreply, update_stats(State#state{pmon = emqx_pmon:monitor(SubPid, PMon)})};
 %% The subscriber may have subscribed multiple topics, so we need to keep monitoring the PID until
 %% it `unsubscribed` the last topic.
