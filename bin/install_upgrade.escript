@@ -5,6 +5,9 @@
 
 -define(TIMEOUT, 300000).
 -define(INFO(Fmt,Args), io:format(Fmt++"~n",Args)).
+-define(SEMVER_RE, <<"^(0|[1-9]\\d*)\\.(0|[1-9]\\d*)\\.(0|[1-9]\\d*)(-[a-zA-Z\\d][-a-zA-Z.\\d]*)?(\\+[a-zA-Z\\d][-a-zA-Z.\\d]*)?$">>).
+
+-mode(compile).
 
 main([Command0, DistInfoStr | CommandArgs]) ->
     %% convert the distribution info arguments string to an erlang term
@@ -52,6 +55,7 @@ unpack(_, Args) ->
 install({RelName, NameTypeArg, NodeName, Cookie}, Opts) ->
     TargetNode = start_distribution(NodeName, NameTypeArg, Cookie),
     Version = proplists:get_value(version, Opts),
+    validate_target_version(Version, TargetNode),
     case unpack_release(RelName, TargetNode, Version) of
         {ok, Vsn} ->
             ?INFO("Unpacked successfully: ~p.", [Vsn]),
@@ -142,9 +146,10 @@ parse_arguments([VersionStr|Rest], Acc) ->
     parse_arguments(Rest, [{version, Version}] ++ Acc).
 
 unpack_release(RelName, TargetNode, Version) ->
+    StartScriptExists = filelib:is_dir(filename:join(["releases", Version, "start.boot"])),
     WhichReleases = which_releases(TargetNode),
     case proplists:get_value(Version, WhichReleases) of
-        undefined ->
+        Res when Res =:= undefined; (Res =:= unpacked andalso not StartScriptExists) ->
             %% not installed, so unpack tarball:
             %% look for a release package with the intended version in the following order:
             %%      releases/<relname>-<version>.tar.gz
@@ -159,10 +164,39 @@ unpack_release(RelName, TargetNode, Version) ->
                     case rpc:call(TargetNode, release_handler, unpack_release,
                                   [ReleasePackageLink], ?TIMEOUT) of
                         {ok, Vsn} -> {ok, Vsn};
+                        {error, {existing_release, Vsn}} ->
+                            %% sometimes the user may have removed the release/<vsn> dir
+                            %% for an `unpacked` release, then we need to re-unpack it from
+                            %% the .tar ball
+                            untar_for_unpacked_release(str(RelName), Vsn),
+                            {ok, Vsn};
                         {error, _} = Error -> Error
                     end
             end;
-        Other -> Other
+        Other ->
+            Other
+    end.
+
+untar_for_unpacked_release(RelName, Vsn) ->
+    {ok, Root} = file:get_cwd(),
+    RelDir = filename:join([Root, "releases"]),
+    %% untar the .tar file, so release/<vsn> will be created
+    Tar = filename:join([RelDir, Vsn, RelName ++ ".tar.gz"]),
+    extract_tar(Root, Tar),
+
+    %% create RELEASE file
+    RelFile = filename:join([RelDir, Vsn, RelName ++ ".rel"]),
+    release_handler:create_RELEASES(Root, RelFile),
+
+    %% Clean release
+    _ = file:delete(Tar),
+    _ = file:delete(RelFile).
+
+extract_tar(Cwd, Tar) ->
+    case erl_tar:extract(Tar, [keep_old_files, {cwd, Cwd}, compressed]) of
+        ok -> ok;
+        {error, {Name, Reason}} ->		% New erl_tar (R3A).
+            throw({error, {cannot_extract_file, Name, Reason}})
     end.
 
 %% 1. look for a release package tarball with the provided version in the following order:
@@ -184,6 +218,7 @@ find_and_link_release_package(Version, RelName) ->
     %% we've found where the actual release package is located
     ReleaseLink = filename:join(["releases", Version,
                                  RelNameStr ++ ".tar.gz"]),
+    ok = unpack_zipballs(RelNameStr, Version),
     TarBalls = [
         filename:join(["releases",
                         RelNameStr ++ "-" ++ Version ++ ".tar.gz"]),
@@ -209,13 +244,44 @@ find_and_link_release_package(Version, RelName) ->
             ok = filelib:ensure_dir(filename:join([filename:dirname(ReleaseLink), "dummy"])),
             %% create the symlink pointing to the full path name of the
             %% release package we found
-            case file:make_symlink(filename:absname(Filename), ReleaseLink) of
-                ok ->
-                    ok;
-                {error, eperm} -> % windows!
-                    {ok,_} = file:copy(filename:absname(Filename), ReleaseLink)
-            end,
+            make_symlink_or_copy(filename:absname(Filename), ReleaseLink),
             {Filename, ReleaseHandlerPackageLink}
+    end.
+
+make_symlink_or_copy(Filename, ReleaseLink) ->
+    case file:make_symlink(Filename, ReleaseLink) of
+        ok -> ok;
+        {error, eexist} ->
+            ?INFO("symlink ~p already exists, recreate it", [ReleaseLink]),
+            ok = file:delete(ReleaseLink),
+            make_symlink_or_copy(Filename, ReleaseLink);
+        {error, Reason} when Reason =:= eperm; Reason =:= enotsup ->
+            {ok, _} = file:copy(Filename, ReleaseLink);
+        {error, Reason} ->
+            ?INFO("create symlink ~p failed", [ReleaseLink]),
+            error({Reason, ReleaseLink})
+    end.
+
+unpack_zipballs(RelNameStr, Version) ->
+    {ok, Cwd} = file:get_cwd(),
+    try
+        GzFile = filename:absname(filename:join(["releases", RelNameStr ++ "-" ++ Version ++ ".tar.gz"])),
+        ZipFiles = filelib:wildcard(filename:join(["releases", RelNameStr ++ "-*" ++ Version ++ "*.zip"])),
+        ?INFO("unzip ~p", [ZipFiles]),
+        lists:foreach(
+          fun(Zip) ->
+                  TmdTarD = "/tmp/emqx_untar_" ++ integer_to_list(erlang:system_time()),
+                  ok = filelib:ensure_dir(filename:join([TmdTarD, "dummy"])),
+                  {ok, _} = file:copy(Zip, filename:join([TmdTarD, "emqx.zip"])),
+                  ok = file:set_cwd(filename:join([TmdTarD])),
+                  {ok, _FileList} = zip:unzip("emqx.zip"),
+                  ok = file:set_cwd(filename:join([TmdTarD, "emqx"])),
+                  ok = erl_tar:create(GzFile, filelib:wildcard("*"), [compressed])
+          end,
+          ZipFiles)
+    after
+        % restore cwd
+        ok = file:set_cwd(Cwd)
     end.
 
 first_value(_Fun, []) -> no_value;
@@ -231,6 +297,10 @@ parse_version(V) when is_list(V) ->
     hd(string:tokens(V,"/")).
 
 check_and_install(TargetNode, Vsn) ->
+    %% Backup the vm.args. VM args should be unchanged during hot upgrade
+    %% but we still backup it here
+    {ok, [[CurrVmArgs]]} = rpc:call(TargetNode, init, get_argument, [vm_args], ?TIMEOUT),
+    {ok, _} = file:copy(CurrVmArgs, filename:join(["releases", Vsn, "vm.args"])),
     %% Backup the sys.config, this will be used when we check and install release
     %% NOTE: We cannot backup the old sys.config directly, because the
     %% configs for plugins are only in app-envs, not in the old sys.config
@@ -287,8 +357,8 @@ permafy(TargetNode, RelName, Vsn) ->
                   make_permanent, [Vsn], ?TIMEOUT),
     ?INFO("Made release permanent: ~p", [Vsn]),
     %% upgrade/downgrade the scripts by replacing them
-    Scripts = [RelNameStr, RelNameStr ++ "_ctl",
-               "nodetool", "install_upgrade.escript"],
+    Scripts = [RelNameStr, RelNameStr++"_ctl", "cuttlefish", "nodetool",
+               "install_upgrade.escript"],
     [{ok, _} = file:copy(filename:join(["bin", File++"-"++Vsn]),
                          filename:join(["bin", File]))
      || File <- Scripts],
@@ -330,8 +400,7 @@ start_distribution(TargetNode, NameTypeArg, Cookie) ->
     MyNode = make_script_node(TargetNode),
     {ok, _Pid} = net_kernel:start([MyNode, get_name_type(NameTypeArg)]),
     erlang:set_cookie(node(), Cookie),
-    case {net_kernel:connect_node(TargetNode),
-          net_adm:ping(TargetNode)} of
+    case {net_kernel:hidden_connect_node(TargetNode), net_adm:ping(TargetNode)} of
         {true, pong} ->
             ok;
         {_, pang} ->
@@ -344,7 +413,7 @@ start_distribution(TargetNode, NameTypeArg, Cookie) ->
 
 make_script_node(Node) ->
     [Name, Host] = string:tokens(atom_to_list(Node), "@"),
-    list_to_atom(lists:concat(["remsh_" ++ Name, "_upgrader_", os:getpid(), "@", Host])).
+    list_to_atom(lists:concat(["remsh_", Name, "_upgrader_", os:getpid(), "@", Host])).
 
 %% get name type from arg
 get_name_type(NameTypeArg) ->
@@ -359,3 +428,33 @@ erts_vsn() ->
     {ok, Str} = file:read_file(filename:join(["releases", "start_erl.data"])),
     [ErtsVsn, _] = string:tokens(binary_to_list(Str), " "),
     ErtsVsn.
+
+validate_target_version(TargetVersion, TargetNode) ->
+    CurrentVersion = current_release_version(TargetNode),
+    case {get_major_minor_vsn(CurrentVersion), get_major_minor_vsn(TargetVersion)} of
+        {{Major, Minor}, {Major, Minor}} -> ok;
+        _ ->
+            ?INFO("Cannot upgrade/downgrade to ~s from ~s~n"
+                  "We only support relup between patch versions",
+                [TargetVersion, CurrentVersion]),
+            error({relup_not_allowed, unsupported_target_version})
+    end.
+
+get_major_minor_vsn(Version) ->
+    Parts = parse_semver(Version),
+    [Major | Rem0] = Parts,
+    [Minor | _Rem1] = Rem0,
+    {Major, Minor}.
+
+parse_semver(Version) ->
+    case re:run(Version, ?SEMVER_RE, [{capture, all_but_first, binary}]) of
+        {match, Parts} -> Parts;
+        nomatch -> error({invalid_semver, Version})
+    end.
+
+str(A) when is_atom(A) ->
+    atom_to_list(A);
+str(A) when is_binary(A) ->
+    binary_to_list(A);
+str(A) when is_list(A) ->
+    (A).
