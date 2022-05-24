@@ -29,6 +29,7 @@
     "\n"
     "limiter {\n"
     "  bytes_in {\n"
+    "    enable = true\n"
     "    bucket.default {\n"
     "      rate = infinity\n"
     "      capacity = infinity\n"
@@ -36,6 +37,7 @@
     "  }\n"
     "\n"
     "  message_in {\n"
+    "    enable = true\n"
     "    bucket.default {\n"
     "      rate = infinity\n"
     "      capacity = infinity\n"
@@ -43,6 +45,7 @@
     "  }\n"
     "\n"
     "  connection {\n"
+    "    enable = true\n"
     "    bucket.default {\n"
     "      rate = infinity\n"
     "      capacity = infinity\n"
@@ -50,6 +53,7 @@
     "  }\n"
     "\n"
     "  message_routing {\n"
+    "    enable = true\n"
     "    bucket.default {\n"
     "      rate = infinity\n"
     "      capacity = infinity\n"
@@ -57,6 +61,7 @@
     "  }\n"
     "\n"
     "  batch {\n"
+    "    enable = true\n"
     "    bucket.retainer {\n"
     "      rate = infinity\n"
     "      capacity = infinity\n"
@@ -79,7 +84,6 @@
 -define(LOGT(Format, Args), ct:pal("TEST_SUITE: " ++ Format, Args)).
 -define(RATE(Rate), to_rate(Rate)).
 -define(NOW, erlang:system_time(millisecond)).
--define(CONST(X), fun(_) -> X end).
 
 %%--------------------------------------------------------------------
 %% Setups
@@ -98,8 +102,11 @@ end_per_suite(_Config) ->
 init_per_testcase(_TestCase, Config) ->
     Config.
 
-base_conf() ->
+load_conf() ->
     emqx_common_test_helpers:load_config(emqx_limiter_schema, ?BASE_CONF).
+
+init_config() ->
+    emqx_config:init_load(emqx_limiter_schema, ?BASE_CONF).
 
 %%--------------------------------------------------------------------
 %% Test Cases Bucket Level

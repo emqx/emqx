@@ -24,7 +24,7 @@
 all() -> emqx_common_test_helpers:all(?MODULE).
 
 init_per_suite(Config) ->
-    emqx_retainer_SUITE:load_base_conf(),
+    emqx_retainer_SUITE:load_conf(),
     %% Start Apps
     emqx_common_test_helpers:start_apps([emqx_retainer]),
     Config.

@@ -34,7 +34,7 @@ init_per_suite(Config) ->
     application:load(emqx_conf),
     ok = ekka:start(),
     ok = mria_rlog:wait_for_shards([?CLUSTER_RPC_SHARD], infinity),
-    emqx_retainer_SUITE:load_base_conf(),
+    emqx_retainer_SUITE:load_conf(),
     emqx_mgmt_api_test_util:init_suite([emqx_retainer, emqx_conf]),
     %% make sure no "$SYS/#" topics
     emqx_conf:update([sys_topics], raw_systopic_conf(), #{override_to => cluster}),

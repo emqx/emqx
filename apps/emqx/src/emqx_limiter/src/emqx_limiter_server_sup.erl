@@ -54,7 +54,8 @@ start(Type, Cfg) ->
 
 stop(Type) ->
     Id = emqx_limiter_server:name(Type),
-    supervisor:terminate_child(?MODULE, Id).
+    _ = supervisor:terminate_child(?MODULE, Id),
+    supervisor:delete_child(?MODULE, Id).
 
 %%--------------------------------------------------------------------
 %%  Supervisor callbacks
