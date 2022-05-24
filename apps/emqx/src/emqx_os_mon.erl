@@ -95,7 +95,7 @@ init([]) ->
 
     set_procmem_high_watermark(PHW),
     set_mem_check_interval(MCI),
-    update_mem_alarm_stauts(SysHW),
+    ok = update_mem_alarm_status(SysHW),
     _ = start_mem_check_timer(),
     _ = start_cpu_check_timer(),
     {ok, #{sysmem_high_watermark => SysHW}}.
@@ -103,7 +103,7 @@ init([]) ->
 handle_call(get_sysmem_high_watermark, _From, #{sysmem_high_watermark := HWM} = State) ->
     {reply, HWM, State};
 handle_call({set_sysmem_high_watermark, New}, _From, #{sysmem_high_watermark := _Old} = State) ->
-    ok = update_mem_alarm_stauts(New),
+    ok = update_mem_alarm_status(New),
     {reply, ok, State#{sysmem_high_watermark := New}};
 handle_call(Req, _From, State) ->
     {reply, {error, {unexpected_call, Req}}, State}.
@@ -113,7 +113,7 @@ handle_cast(Msg, State) ->
     {noreply, State}.
 
 handle_info({timeout, _Timer, mem_check}, #{sysmem_high_watermark := HWM} = State) ->
-    ok = update_mem_alarm_stauts(HWM),
+    ok = update_mem_alarm_status(HWM),
     ok = start_mem_check_timer(),
     {noreply, State};
 handle_info({timeout, _Timer, cpu_check}, State) ->
@@ -189,14 +189,14 @@ start_timer(Interval, Msg) ->
     _ = emqx_misc:start_timer(Interval, Msg),
     ok.
 
-update_mem_alarm_stauts(HWM) when HWM > 1.0 orelse HWM < 0.0 ->
+update_mem_alarm_status(HWM) when HWM > 1.0 orelse HWM < 0.0 ->
     ?SLOG(warning, #{msg => "discarded_out_of_range_mem_alarm_threshold", value => HWM}),
     ok = emqx_alarm:ensure_deactivated(
         high_system_memory_usage,
         #{},
         <<"Deactivated mem usage alarm due to out of range threshold">>
     );
-update_mem_alarm_stauts(HWM0) ->
+update_mem_alarm_status(HWM0) ->
     HWM = HWM0 * 100,
     Usage = current_sysmem_percent(),
     case Usage > HWM of
