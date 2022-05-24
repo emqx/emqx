@@ -40,8 +40,8 @@ end_per_suite(_Config) ->
     emqx_common_test_helpers:stop_apps([]).
 
 init_per_testcase(_, Config) ->
-    ok = emqx_trace:clear(),
     reload(),
+    ok = emqx_trace:clear(),
     ct:pal("load:~p~n", [erlang:whereis(emqx_trace)]),
     Config.
 
