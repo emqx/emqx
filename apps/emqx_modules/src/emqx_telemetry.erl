@@ -98,17 +98,6 @@
 %%--------------------------------------------------------------------
 
 start_link() ->
-    ok = mria:create_table(
-        ?TELEMETRY,
-        [
-            {type, set},
-            {storage, disc_copies},
-            {rlog_shard, ?TELEMETRY_SHARD},
-            {record_name, telemetry},
-            {attributes, record_info(fields, telemetry)}
-        ]
-    ),
-    _ = mria:wait_for_tables([?TELEMETRY]),
     Opts = emqx:get_config([telemetry], #{}),
     gen_server:start_link({local, ?MODULE}, ?MODULE, [Opts], []).
 
@@ -134,16 +123,27 @@ get_telemetry() ->
 %% gen_server callbacks
 %%--------------------------------------------------------------------
 
-%% This is to suppress dialyzer warnings for mria:dirty_write and
-%% dirty_read race condition. Given that the init function is not evaluated
-%% concurrently in one node, it should be free of race condition.
-%% Given the chance of having two nodes bootstraping with the write
-%% is very small, it should be safe to ignore.
--dialyzer([{nowarn_function, [init/1]}]).
 init(_Opts) ->
+    {ok, undefined, {continue, init}}.
+
+handle_continue(init, _) ->
+    ok = mria:create_table(
+        ?TELEMETRY,
+        [
+            {type, set},
+            {storage, disc_copies},
+            {rlog_shard, ?TELEMETRY_SHARD},
+            {record_name, telemetry},
+            {attributes, record_info(fields, telemetry)}
+        ]
+    ),
+    ok = mria:wait_for_tables([?TELEMETRY]),
     State0 = empty_state(),
     {NodeUUID, ClusterUUID} = ensure_uuids(),
-    {ok, State0#state{node_uuid = NodeUUID, cluster_uuid = ClusterUUID}}.
+    {noreply, State0#state{node_uuid = NodeUUID, cluster_uuid = ClusterUUID}};
+handle_continue(Continue, State) ->
+    ?SLOG(error, #{msg => "unexpected_continue", continue => Continue}),
+    {noreply, State}.
 
 handle_call(enable, _From, State) ->
     %% Wait a few moments before reporting the first telemetry, as the
@@ -168,10 +168,6 @@ handle_call(Req, _From, State) ->
 
 handle_cast(Msg, State) ->
     ?SLOG(error, #{msg => "unexpected_cast", cast => Msg}),
-    {noreply, State}.
-
-handle_continue(Continue, State) ->
-    ?SLOG(error, #{msg => "unexpected_continue", continue => Continue}),
     {noreply, State}.
 
 handle_info({timeout, TRef, time_to_report_telemetry_data}, State0 = #state{timer = TRef}) ->
