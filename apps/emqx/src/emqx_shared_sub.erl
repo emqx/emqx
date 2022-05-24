@@ -225,7 +225,7 @@ get_group(Msg) ->
     end.
 
 %% @doc Negative ack dropped message due to inflight window or message queue being full.
--spec maybe_nack_dropped(emqx_types:message()) -> ok.
+-spec maybe_nack_dropped(emqx_types:message()) -> boolean().
 maybe_nack_dropped(Msg) ->
     case get_group_ack(Msg) of
         ?NO_ACK -> false;
