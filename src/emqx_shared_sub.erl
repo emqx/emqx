@@ -229,7 +229,9 @@ is_ack_required(Msg) -> ?NO_ACK =/= get_group_ack(Msg).
 maybe_nack_dropped(Msg) ->
     case get_group_ack(Msg) of
         ?NO_ACK -> false;
-        {_Group, Sender, Ref} -> ok == nack(Sender, Ref, dropped)
+        {_Group, Sender, Ref} -> ok == nack(Sender, Ref, dropped);
+        %% Backward compatability
+        {Sender, Ref} -> ok == nack(Sender, Ref, dropped)
     end.
 
 %% @doc Negative ack message due to connection down.
@@ -251,6 +253,10 @@ maybe_ack(Msg) ->
         ?NO_ACK ->
             Msg;
         {_Group, Sender, Ref} ->
+            Sender ! {Ref, ?ACK},
+            without_group_ack(Msg);
+        %% Backward compatability
+        {Sender, Ref} ->
             Sender ! {Ref, ?ACK},
             without_group_ack(Msg)
     end.
