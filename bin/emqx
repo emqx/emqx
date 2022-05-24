@@ -338,14 +338,12 @@ generate_config() {
     ## changing the config 'log.rotation.size'
     rm -rf "${RUNNER_LOG_DIR}"/*.siz
 
-    EMQX_LICENSE_CONF_OPTION=""
-    if [ "${EMQX_LICENSE_CONF:-}" != "" ]; then
-        EMQX_LICENSE_CONF_OPTION="-i ${EMQX_LICENSE_CONF}"
-    fi
-
     set +e
-    # shellcheck disable=SC2086
-    CUTTLEFISH_OUTPUT="$("$ERTS_PATH"/escript "$RUNNER_ROOT_DIR"/bin/cuttlefish -v -i "$REL_DIR"/emqx.schema $EMQX_LICENSE_CONF_OPTION -c "$RUNNER_ETC_DIR"/emqx.conf -d "$RUNNER_DATA_DIR"/configs generate)"
+    if [ "${EMQX_LICENSE_CONF:-}" = "" ]; then
+        CUTTLEFISH_OUTPUT="$("$ERTS_PATH"/escript "$RUNNER_ROOT_DIR"/bin/cuttlefish -v -i "$REL_DIR"/emqx.schema -c "$RUNNER_ETC_DIR"/emqx.conf -d "$RUNNER_DATA_DIR"/configs generate)"
+    else
+        CUTTLEFISH_OUTPUT="$("$ERTS_PATH"/escript "$RUNNER_ROOT_DIR"/bin/cuttlefish -v -i "$REL_DIR"/emqx.schema -i "${EMQX_LICENSE_CONF}" -c "$RUNNER_ETC_DIR"/emqx.conf -d "$RUNNER_DATA_DIR"/configs generate)"
+    fi
     # shellcheck disable=SC2181
     RESULT=$?
     set -e
