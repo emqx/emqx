@@ -15,9 +15,13 @@
 %%--------------------------------------------------------------------
 
 -module(emqx_auth_mnesia_data_export_import_SUITE).
+
+-compile([export_all, nowarn_export_all]).
+
+-ifdef(EMQX_ENTERPRISE).
+
 -include_lib("eunit/include/eunit.hrl").
 -include_lib("emqx_modules/include/emqx_modules.hrl").
--compile([export_all, nowarn_export_all]).
 
 %%--------------------------------------------------------------------
 %% Setups
@@ -51,7 +55,6 @@ import(FilePath, _Version) ->
 %%--------------------------------------------------------------------
 %% Cases
 %%--------------------------------------------------------------------
--ifdef(EMQX_ENTERPRISE).
 
 t_importee427(_) ->
     import("ee427.json", ee427),
@@ -63,8 +66,8 @@ t_importee430(_) ->
     {ok, _} = emqx_mgmt_data_backup:export(),
     remove_all_users_and_acl().
 
--endif.
-
 remove_all_users_and_acl() ->
     mnesia:delete_table(emqx_user),
     mnesia:delete_table(emqx_acl).
+
+-endif.
