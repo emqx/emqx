@@ -40,10 +40,6 @@ get_data_path() ->
     emqx_ct_helpers:deps_path(emqx_management, "test/emqx_auth_mnesia_data_export_import_SUITE_data/").
 
 import(FilePath, _Version) ->
-    dbg:tracer(),dbg:p(all,call),
-    dbg:tpl(emqx_mgmt_data_backup,import_auth_mnesia,x),
-    dbg:tp(emqx_modules_registry,get_modules,x),
-    dbg:tp(emqx_module_internal_acl,on_module_create,x),
     ok = emqx_mgmt_data_backup:import(get_data_path() ++ "/" ++ FilePath, <<"{}">>),
     [_] = lists:filter(
             fun(#module{type = mnesia_authentication}) -> true;
@@ -56,6 +52,11 @@ import(FilePath, _Version) ->
 %% Cases
 %%--------------------------------------------------------------------
 -ifdef(EMQX_ENTERPRISE).
+
+t_importee427(_) ->
+    import("ee427.json", ee427),
+    {ok, _} = emqx_mgmt_data_backup:export(),
+    remove_all_users_and_acl().
 
 t_importee430(_) ->
     import("ee435.json", ee435),
