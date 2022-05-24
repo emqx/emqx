@@ -662,6 +662,9 @@ do_import_data(Data, Version) ->
     import_blacklist(maps:get(<<"blacklist">>, Data, [])),
     import_applications(maps:get(<<"apps">>, Data, [])),
     import_users(maps:get(<<"users">>, Data, [])),
+    %% Import modules first to ensure the data of auth_mnesia module can be imported.
+    %% XXX: In opensource version, can't import if the emqx_auth_mnesia plug-in is not started??
+    do_import_enterprise_modules(Data, Version),
     import_auth_clientid(maps:get(<<"auth_clientid">>, Data, [])),
     import_auth_username(maps:get(<<"auth_username">>, Data, [])),
     import_auth_mnesia(maps:get(<<"auth_mnesia">>, Data, [])),
@@ -670,11 +673,18 @@ do_import_data(Data, Version) ->
 -ifdef(EMQX_ENTERPRISE).
 do_import_extra_data(Data, _Version) ->
     _ = import_confs(maps:get(<<"configs">>, Data, []), maps:get(<<"listeners_state">>, Data, [])),
-    _ = import_modules(maps:get(<<"modules">>, Data, [])),
     _ = import_schemas(maps:get(<<"schemas">>, Data, [])),
     ok.
 -else.
 do_import_extra_data(_Data, _Version) -> ok.
+-endif.
+
+-ifdef(EMQX_ENTERPRISE).
+do_import_enterprise_modules(Data, _Version) ->
+    _ = import_modules(maps:get(<<"modules">>, Data, [])),
+    ok.
+-else.
+do_import_enterprise_modules(_Data, _Version) -> ok.
 -endif.
 
 covert_empty_headers([]) -> #{};
