@@ -199,10 +199,8 @@ extract_tar(Cwd, Tar) ->
             throw({error, {cannot_extract_file, Name, Reason}})
     end.
 
-%% 1. look for a release package tarball with the provided version in the following order:
-%%      releases/<relname>-<version>.tar.gz
-%%      releases/<version>/<relname>-<version>.tar.gz
-%%      releases/<version>/<relname>.tar.gz
+%% 1. look for a release package tarball with the provided version:
+%%      releases/<relname>-*<version>*.tar.gz
 %% 2. create a symlink from a fixed location (ie. releases/<version>/<relname>.tar.gz)
 %%    to the release package tarball found in 1.
 %% 3. return a tuple with the paths to the release package and
@@ -218,26 +216,12 @@ find_and_link_release_package(Version, RelName) ->
     %% we've found where the actual release package is located
     ReleaseLink = filename:join(["releases", Version,
                                  RelNameStr ++ ".tar.gz"]),
-    ok = unpack_zipballs(RelNameStr, Version),
-    TarBalls = [
-        filename:join(["releases",
-                        RelNameStr ++ "-" ++ Version ++ ".tar.gz"]),
-        filename:join(["releases", Version,
-                        RelNameStr ++ "-" ++ Version ++ ".tar.gz"]),
-        filename:join(["releases", Version,
-                        RelNameStr ++ ".tar.gz"])
-    ],
-    case first_value(fun filelib:is_file/1, TarBalls) of
-        no_value ->
+    TarBalls = filename:join(["releases", RelNameStr ++ "-*" ++ Version ++ "*.tar.gz"]),
+    case filelib:wildcard(TarBalls) of
+        [] ->
             {undefined, undefined};
-        %% no need to create the link since the release package we
-        %% found is located in the same place as the link would be
-        {ok, Filename} when is_list(Filename) andalso
-                            Filename =:= ReleaseLink ->
-            {Filename, ReleaseHandlerPackageLink};
-        {ok, Filename} when is_list(Filename) ->
-            %% we now have the location of the release package, however
-            %% release handler expects a fixed nomenclature (<relname>.tar.gz)
+        [Filename | _] when is_list(Filename) ->
+            %% the release handler expects a fixed nomenclature (<relname>.tar.gz)
             %% so give it just that by creating a symlink to the tarball
             %% we found.
             %% make sure that the dir where we're creating the link in exists
@@ -262,45 +246,10 @@ make_symlink_or_copy(Filename, ReleaseLink) ->
             error({Reason, ReleaseLink})
     end.
 
-unpack_zipballs(RelNameStr, Version) ->
-    {ok, Cwd} = file:get_cwd(),
-    try
-        GzFile = filename:absname(filename:join(["releases", RelNameStr ++ "-" ++ Version ++ ".tar.gz"])),
-        ZipFiles = filelib:wildcard(filename:join(["releases", RelNameStr ++ "-*" ++ Version ++ "*.zip"])),
-        ?INFO("unzip ~p", [ZipFiles]),
-        lists:foreach(
-          fun(Zip) ->
-                  TmdTarD = "/tmp/emqx_untar_" ++ integer_to_list(erlang:system_time()),
-                  ok = filelib:ensure_dir(filename:join([TmdTarD, "dummy"])),
-                  {ok, _} = file:copy(Zip, filename:join([TmdTarD, "emqx.zip"])),
-                  ok = file:set_cwd(filename:join([TmdTarD])),
-                  {ok, _FileList} = zip:unzip("emqx.zip"),
-                  ok = file:set_cwd(filename:join([TmdTarD, "emqx"])),
-                  ok = erl_tar:create(GzFile, filelib:wildcard("*"), [compressed])
-          end,
-          ZipFiles)
-    after
-        % restore cwd
-        ok = file:set_cwd(Cwd)
-    end.
-
-first_value(_Fun, []) -> no_value;
-first_value(Fun, [Value | Rest]) ->
-    case Fun(Value) of
-        false ->
-            first_value(Fun, Rest);
-        true ->
-            {ok, Value}
-    end.
-
 parse_version(V) when is_list(V) ->
     hd(string:tokens(V,"/")).
 
 check_and_install(TargetNode, Vsn) ->
-    %% Backup the vm.args. VM args should be unchanged during hot upgrade
-    %% but we still backup it here
-    {ok, [[CurrVmArgs]]} = rpc:call(TargetNode, init, get_argument, [vm_args], ?TIMEOUT),
-    {ok, _} = file:copy(CurrVmArgs, filename:join(["releases", Vsn, "vm.args"])),
     %% Backup the sys.config, this will be used when we check and install release
     %% NOTE: We cannot backup the old sys.config directly, because the
     %% configs for plugins are only in app-envs, not in the old sys.config
@@ -357,8 +306,7 @@ permafy(TargetNode, RelName, Vsn) ->
                   make_permanent, [Vsn], ?TIMEOUT),
     ?INFO("Made release permanent: ~p", [Vsn]),
     %% upgrade/downgrade the scripts by replacing them
-    Scripts = [RelNameStr, RelNameStr++"_ctl", "cuttlefish", "nodetool",
-               "install_upgrade.escript"],
+    Scripts = [RelNameStr, RelNameStr++"_ctl", "nodetool", "install_upgrade.escript"],
     [{ok, _} = file:copy(filename:join(["bin", File++"-"++Vsn]),
                          filename:join(["bin", File]))
      || File <- Scripts],
@@ -434,9 +382,9 @@ validate_target_version(TargetVersion, TargetNode) ->
     case {get_major_minor_vsn(CurrentVersion), get_major_minor_vsn(TargetVersion)} of
         {{Major, Minor}, {Major, Minor}} -> ok;
         _ ->
-            ?INFO("Cannot upgrade/downgrade to ~s from ~s~n"
-                  "We only support relup between patch versions",
-                [TargetVersion, CurrentVersion]),
+            ?INFO("Cannot upgrade/downgrade from ~s to ~s~n"
+                  "Hot upgrade is only supported between patch releases.",
+                [CurrentVersion, TargetVersion]),
             error({relup_not_allowed, unsupported_target_version})
     end.
 
