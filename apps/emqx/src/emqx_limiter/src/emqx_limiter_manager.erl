@@ -24,13 +24,19 @@
 %% API
 -export([
     start_link/0,
-    start_server/1,
     find_bucket/1,
     find_bucket/2,
-    insert_bucket/2, insert_bucket/3,
+    insert_bucket/2,
+    insert_bucket/3,
     make_path/2,
-    restart_server/1,
     post_config_update/5
+]).
+
+-export([
+    start_server/1,
+    start_server/2,
+    restart_server/1,
+    stop_server/1
 ]).
 
 %% gen_server callbacks
@@ -67,9 +73,17 @@
 start_server(Type) ->
     emqx_limiter_server_sup:start(Type).
 
+-spec start_server(limiter_type(), hocons:config()) -> _.
+start_server(Type, Cfg) ->
+    emqx_limiter_server_sup:start(Type, Cfg).
+
 -spec restart_server(limiter_type()) -> _.
 restart_server(Type) ->
     emqx_limiter_server:restart(Type).
+
+-spec stop_server(limiter_type()) -> _.
+stop_server(Type) ->
+    emqx_limiter_server_sup:stop(Type).
 
 -spec find_bucket(limiter_type(), bucket_name()) ->
     {ok, bucket_ref()} | undefined.
@@ -103,7 +117,22 @@ make_path(Type, BucketName) ->
 
 post_config_update([limiter, Type], _Config, NewConf, _OldConf, _AppEnvs) ->
     Config = maps:get(Type, NewConf),
-    emqx_limiter_server:update_config(Type, Config).
+    case emqx_limiter_server:whereis(Type) of
+        undefined ->
+            case Config of
+                #{enable := false} ->
+                    ok;
+                _ ->
+                    start_server(Type)
+            end;
+        _ ->
+            case Config of
+                #{enable := false} ->
+                    stop_server(Type);
+                _ ->
+                    emqx_limiter_server:update_config(Type, Config)
+            end
+    end.
 
 %%--------------------------------------------------------------------
 %% @doc

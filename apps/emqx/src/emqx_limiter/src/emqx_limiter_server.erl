@@ -41,8 +41,9 @@
 ]).
 
 -export([
-    start_link/1,
+    start_link/2,
     connect/2,
+    whereis/1,
     info/1,
     name/1,
     get_initial_val/1,
@@ -88,7 +89,7 @@
 -type decimal() :: emqx_limiter_decimal:decimal().
 -type index() :: pos_integer().
 
--define(CALL(Type, Msg), gen_server:call(name(Type), Msg)).
+-define(CALL(Type, Msg), call(Type, Msg)).
 -define(CALL(Type), ?CALL(Type, ?FUNCTION_NAME)).
 
 %% minimum coefficient for overloaded limiter
@@ -107,16 +108,18 @@
     limiter_type(),
     bucket_name() | #{limiter_type() => bucket_name() | undefined}
 ) ->
-    emqx_htb_limiter:limiter().
+    {ok, emqx_htb_limiter:limiter()} | {error, _}.
 %% If no bucket path is set in config, there will be no limit
 connect(_Type, undefined) ->
-    emqx_htb_limiter:make_infinity_limiter();
+    {ok, emqx_htb_limiter:make_infinity_limiter()};
 connect(Type, BucketName) when is_atom(BucketName) ->
-    CfgPath = emqx_limiter_schema:get_bucket_cfg_path(Type, BucketName),
-    case emqx:get_config(CfgPath, undefined) of
+    case check_enable_and_get_bucket_cfg(Type, BucketName) of
         undefined ->
-            ?SLOG(error, #{msg => "bucket_config_not_found", path => CfgPath}),
-            throw("bucket's config not found");
+            ?SLOG(error, #{msg => "bucket_config_not_found", type => Type, bucket => BucketName}),
+            {error, config_not_found};
+        limiter_not_started ->
+            ?SLOG(error, #{msg => "limiter_not_started", type => Type, bucket => BucketName}),
+            {error, limiter_not_started};
         #{
             rate := AggrRate,
             capacity := AggrSize,
@@ -124,23 +127,24 @@ connect(Type, BucketName) when is_atom(BucketName) ->
         } ->
             case emqx_limiter_manager:find_bucket(Type, BucketName) of
                 {ok, Bucket} ->
-                    if
-                        CliRate < AggrRate orelse CliSize < AggrSize ->
-                            emqx_htb_limiter:make_token_bucket_limiter(Cfg, Bucket);
-                        Bucket =:= infinity ->
-                            emqx_htb_limiter:make_infinity_limiter();
-                        true ->
-                            emqx_htb_limiter:make_ref_limiter(Cfg, Bucket)
-                    end;
+                    {ok,
+                        if
+                            CliRate < AggrRate orelse CliSize < AggrSize ->
+                                emqx_htb_limiter:make_token_bucket_limiter(Cfg, Bucket);
+                            Bucket =:= infinity ->
+                                emqx_htb_limiter:make_infinity_limiter();
+                            true ->
+                                emqx_htb_limiter:make_ref_limiter(Cfg, Bucket)
+                        end};
                 undefined ->
-                    ?SLOG(error, #{msg => "bucket_not_found", path => CfgPath}),
-                    throw("invalid bucket")
+                    ?SLOG(error, #{msg => "bucket_not_found", type => Type, bucket => BucketName}),
+                    {error, invalid_bucket}
             end
     end;
 connect(Type, Paths) ->
     connect(Type, maps:get(Type, Paths, undefined)).
 
--spec info(limiter_type()) -> state().
+-spec info(limiter_type()) -> state() | {error, _}.
 info(Type) ->
     ?CALL(Type).
 
@@ -148,22 +152,26 @@ info(Type) ->
 name(Type) ->
     erlang:list_to_atom(io_lib:format("~s_~s", [?MODULE, Type])).
 
--spec restart(limiter_type()) -> ok.
+-spec restart(limiter_type()) -> ok | {error, _}.
 restart(Type) ->
     ?CALL(Type).
 
--spec update_config(limiter_type(), hocons:config()) -> ok.
+-spec update_config(limiter_type(), hocons:config()) -> ok | {error, _}.
 update_config(Type, Config) ->
     ?CALL(Type, {update_config, Type, Config}).
+
+-spec whereis(limiter_type()) -> pid() | undefined.
+whereis(Type) ->
+    erlang:whereis(name(Type)).
 
 %%--------------------------------------------------------------------
 %% @doc
 %% Starts the server
 %% @end
 %%--------------------------------------------------------------------
--spec start_link(limiter_type()) -> _.
-start_link(Type) ->
-    gen_server:start_link({local, name(Type)}, ?MODULE, [Type], []).
+-spec start_link(limiter_type(), hocons:config()) -> _.
+start_link(Type, Cfg) ->
+    gen_server:start_link({local, name(Type)}, ?MODULE, [Type, Cfg], []).
 
 %%--------------------------------------------------------------------
 %%% gen_server callbacks
@@ -181,8 +189,8 @@ start_link(Type) ->
     | {ok, State :: term(), hibernate}
     | {stop, Reason :: term()}
     | ignore.
-init([Type]) ->
-    State = init_tree(Type),
+init([Type, Cfg]) ->
+    State = init_tree(Type, Cfg),
     #{root := #{period := Perido}} = State,
     oscillate(Perido),
     {ok, State}.
@@ -596,4 +604,24 @@ get_initial_val(#{
             Capacity;
         true ->
             0
+    end.
+
+-spec call(limiter_type(), any()) -> {error, _} | _.
+call(Type, Msg) ->
+    case ?MODULE:whereis(Type) of
+        undefined ->
+            {error, limiter_not_started};
+        Pid ->
+            gen_server:call(Pid, Msg)
+    end.
+
+-spec check_enable_and_get_bucket_cfg(limiter_type(), bucket_name()) ->
+    undefined | limiter_not_started | hocons:config().
+check_enable_and_get_bucket_cfg(Type, Bucket) ->
+    case emqx_limiter_schema:is_enable(Type) of
+        false ->
+            limiter_not_started;
+        _ ->
+            Path = emqx_limiter_schema:get_bucket_cfg_path(Type, Bucket),
+            emqx:get_config(Path, undefined)
     end.

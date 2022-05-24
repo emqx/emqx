@@ -71,16 +71,17 @@ common_tests() ->
 %%--------------------------------------------------------------------
 
 init_per_suite(Config) ->
-    load_base_conf(),
-    emqx_ratelimiter_SUITE:base_conf(),
-    emqx_common_test_helpers:start_apps([emqx_conf, ?APP]),
+    emqx_common_test_helpers:start_apps([emqx_conf]),
+    load_conf(),
+    emqx_limiter_sup:start_link(),
+    timer:sleep(200),
+    ok = application:ensure_started(?APP),
     Config.
 
 end_per_suite(_Config) ->
     ekka:stop(),
     mria:stop(),
     mria_mnesia:delete_schema(),
-
     emqx_common_test_helpers:stop_apps([?APP, emqx_conf]).
 
 init_per_group(mnesia_without_indices, Config) ->
@@ -111,8 +112,10 @@ init_per_testcase(t_get_basic_usage_info, Config) ->
 init_per_testcase(_TestCase, Config) ->
     Config.
 
-load_base_conf() ->
-    ok = emqx_common_test_helpers:load_config(emqx_retainer_schema, ?BASE_CONF).
+load_conf() ->
+    ok = emqx_config:delete_override_conf_files(),
+    emqx_ratelimiter_SUITE:init_config(),
+    ok = emqx_config:init_load(emqx_retainer_schema, ?BASE_CONF).
 
 %%--------------------------------------------------------------------
 %% Test Cases

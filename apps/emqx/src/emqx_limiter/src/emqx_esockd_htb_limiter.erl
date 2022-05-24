@@ -40,7 +40,7 @@ new_create_options(Type, BucketName) ->
 
 -spec create(create_options()) -> esockd_generic_limiter:limiter().
 create(#{module := ?MODULE, type := Type, bucket := BucketName}) ->
-    Limiter = emqx_limiter_server:connect(Type, BucketName),
+    {ok, Limiter} = emqx_limiter_server:connect(Type, BucketName),
     #{module => ?MODULE, name => Type, limiter => Limiter}.
 
 delete(_GLimiter) ->

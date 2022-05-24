@@ -89,7 +89,7 @@ new(Types, Names) ->
 ) -> container().
 get_limiter_by_names(Types, BucketNames) ->
     Init = fun(Type, Acc) ->
-        Limiter = emqx_limiter_server:connect(Type, BucketNames),
+        {ok, Limiter} = emqx_limiter_server:connect(Type, BucketNames),
         add_new(Type, Limiter, Acc)
     end,
     lists:foldl(Init, #{retry_ctx => undefined}, Types).
@@ -101,7 +101,7 @@ get_limiter_by_names(Types, BucketNames) ->
     container()
 ) -> container().
 update_by_name(Type, Buckets, Container) ->
-    Limiter = emqx_limiter_server:connect(Type, Buckets),
+    {ok, Limiter} = emqx_limiter_server:connect(Type, Buckets),
     add_new(Type, Limiter, Container).
 
 -spec add_new(limiter_type(), limiter(), container()) -> container().
