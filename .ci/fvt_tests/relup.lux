@@ -22,7 +22,8 @@
 
 [shell emqx]
     !cd $PACKAGE_PATH
-    !tar -zxf ${PROFILE}-$(echo $old_vsn | sed  -r 's/[v|e]//g')-*-ubuntu20.04-amd64.tar.gz
+    mkdir -p emqx
+    !tar -C emqx -zxf ${PROFILE}-$(echo $old_vsn | sed  -r 's/[v|e]//g')-*-ubuntu20.04-amd64.tar.gz
     ?SH-PROMPT
 
     !cd emqx

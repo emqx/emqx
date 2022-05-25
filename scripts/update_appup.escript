@@ -173,7 +173,7 @@ download_prev_release(Tag, #{binary_rel_url := {ok, URL0}, clone_url := Repo}) -
     Filename = filename:join(BaseDir, Dir),
     Script = "mkdir -p ${OUTFILE} &&
               wget -c -O ${OUTFILE}.tar.gz ${URL} &&
-              tar -zxf ${OUTFILE} ${OUTFILE}.tar.gz",
+              tar -zxf ${OUTFILE}.tar.gz -C ${OUTFILE}",
     Env = [{"TAG", Tag}, {"OUTFILE", Filename}, {"URL", URL}],
     bash(Script, Env),
     {ok, Filename}.

@@ -88,7 +88,8 @@ emqx_test(){
     local packagename="${PACKAGE_FILE_NAME}"
     case "$PKG_SUFFIX" in
         "tar.gz")
-            tar -zxf "${PACKAGE_PATH}/${packagename}"
+            mkdir -p "${PACKAGE_PATH}/emqx"
+            tar -C "${PACKAGE_PATH}/emqx" -zxf "${PACKAGE_PATH}/${packagename}"
             export EMQX_ZONES__DEFAULT__MQTT__SERVER_KEEPALIVE=60
             export EMQX_MQTT__MAX_TOPIC_ALIAS=10
             export EMQX_LOG__CONSOLE_HANDLER__LEVEL=debug
@@ -231,7 +232,8 @@ relup_test(){
     pattern="$EMQX_NAME-$("$CODE_PATH"/pkg-vsn.sh "${EMQX_NAME}" --long --vsn_matcher)"
     while read -r pkg; do
         packagename=$(basename "${pkg}")
-        tar -zxf "$packagename"
+        mkdir -p emqx
+        tar -C emqx -zxf "$packagename"
         if ! ./emqx/bin/emqx start; then
             cat emqx/log/erlang.log.1 || true
             cat emqx/log/emqx.log.1 || true

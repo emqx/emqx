@@ -179,7 +179,8 @@ jobs:
       working-directory: source
       run: |
         pkg_name=$(find _packages/${{ matrix.profile }} -mindepth 1 -maxdepth 1 -iname \*.tar.gz)
-        tar -zxf $pkg_name
+        mkdir -p emqx
+        tar -C emqx -zxf $pkg_name
         # gsed -i '/emqx_telemetry/d' ./emqx/data/loaded_plugins
         ./emqx/bin/emqx start || cat emqx/log/erlang.log.1
         ready='no'
