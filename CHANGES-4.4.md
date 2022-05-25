@@ -1,6 +1,5 @@
 # EMQX 4.4 Changes
 
-
 ## v4.4.4
 
 ### Enhancements (synced from v4.3.15)
@@ -17,6 +16,13 @@
 * Mnesia auth/acl http api support multiple condition queries.
 * Inflight QoS1 Messages for shared topics are now redispatched to another alive subscribers upon chosen subscriber session termination.
 * Make auth metrics name more understandable.
+* Allow emqx_management http listener binding to specific interface [#8005]
+* Add rule-engine function float2str/2, user can specify the float output precision [#7991]
+
+### Bug fixes
+
+- Allow uploading or referencing a backup file outside the
+  `data/backup` directory when restoring a backup.  [#7996]
 
 ### Bug fixes (synced from v4.3.15)
 
@@ -24,14 +30,11 @@
 * SSL closed error bug fixed for redis client.
 * Fix mqtt-sn client disconnected due to re-send a duplicated qos2 message
 * Rule-engine function hexstr2bin/1 support half byte [#7977]
-* Add rule-engine function float2str/2, user can specify the float output precision [#7991]
-
 * Improved resilience against autocluster partitioning during cluster
   startup. [#7876]
   [ekka-158](https://github.com/emqx/ekka/pull/158)
 * Add regular expression check ^[0-9A-Za-z_\-]+$ for node name [#7979]
-* Allow uploading or referencing a backup file outside the
-  `data/backup` directory when restoring a backup.  [#7996]
+* Fix `node_dump` variable sourcing. [#8026]
 
 ## v4.4.3
 
