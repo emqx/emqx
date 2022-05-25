@@ -115,15 +115,15 @@ init([Opts]) ->
     %% make sure memsup will not emit system memory alarms
     memsup:set_sysmem_high_watermark(1),
     set_procmem_high_watermark(proplists:get_value(procmem_high_watermark, Opts)),
-    MemCehckInterval = do_resolve_mem_check_interval(proplists:get_value(mem_check_interval, Opts)),
+    MemCheckInterval = do_resolve_mem_check_interval(proplists:get_value(mem_check_interval, Opts)),
     SysHW = resolve_watermark(proplists:get_value(sysmem_high_watermark, Opts)),
     St = ensure_check_timer(#{cpu_high_watermark => proplists:get_value(cpu_high_watermark, Opts),
                               cpu_low_watermark => proplists:get_value(cpu_low_watermark, Opts),
                               cpu_check_interval => proplists:get_value(cpu_check_interval, Opts),
                               sysmem_high_watermark => SysHW,
-                              mem_check_interval => MemCehckInterval,
+                              mem_check_interval => MemCheckInterval,
                               timer => undefined}),
-    ok = do_set_mem_check_interval(MemCehckInterval),
+    ok = do_set_mem_check_interval(MemCheckInterval),
     %% update immediately after start/restart
     ok = update_mem_alarm_status(SysHW),
     {ok, ensure_mem_check_timer(St)}.
@@ -165,8 +165,6 @@ handle_call(Req, _From, State) ->
     ?LOG(error, "Unexpected call: ~p", [Req]),
     {reply, ignored, State}.
 
-handle_cast(upgrade, State) ->
-    {noreply, State};
 handle_cast(Msg, State) ->
     ?LOG(error, "Unexpected cast: ~p", [Msg]),
     {noreply, State}.
@@ -234,7 +232,9 @@ ensure_mem_check_timer(State) ->
                    mem_check_interval => Interval
                   };
         false ->
-            State
+            State#{mem_check_timer => undefined,
+                   mem_check_interval => Interval
+                  }
     end.
 
 resolve_mem_check_interval(#{mem_check_interval := Seconds}) when is_integer(Seconds) ->
@@ -281,6 +281,15 @@ resolve_watermark(W) when W > 0 andalso W =< 100 ->
     W.
 
 update_mem_alarm_status(SysHW) ->
+    case is_sysmem_check_supported() of
+        true ->
+            do_update_mem_alarm_status(SysHW);
+        false ->
+            %% in case the old alarm is activated
+            ok = emqx_alarm:ensure_deactivated(high_system_memory_usage, #{reason => disabled})
+    end.
+
+do_update_mem_alarm_status(SysHW) ->
     Usage = current_sysmem_percent(),
     case Usage > SysHW of
         true ->

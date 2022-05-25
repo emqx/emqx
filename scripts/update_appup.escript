@@ -272,8 +272,9 @@ merge_update_actions(App, Changes, Vsns, PrevVersion) ->
               end,
               Vsns).
 
-%% say current version is 1.1.2, and the compare baes is version 1.1.1, but there is a 1.1.2 in appup
-%% we may skip merging instructions for 1.1.2 (it's never used)
+%% say current version is 1.1.3, and the compare base is version 1.1.1,
+%% but there is a 1.1.2 in appup we may skip merging instructions for
+%% 1.1.2 because it's not used and no way to know what has been changed
 is_skipped_version(App, Vsn, PrevVersion) when is_list(Vsn) andalso is_list(PrevVersion) ->
     case is_app_external(App) andalso parse_version_number(Vsn) of
         {ok, VsnTuple} ->
@@ -287,7 +288,7 @@ is_skipped_version(App, Vsn, PrevVersion) when is_list(Vsn) andalso is_list(Prev
             false
     end;
 is_skipped_version(_App, _Vsn, _PrevVersion) ->
-    %% if app version is a regexp, we don't konw for sure
+    %% if app version is a regexp, we don't know for sure
     %% return 'false' to be on the safe side
     false.
 
