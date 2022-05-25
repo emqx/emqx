@@ -10,7 +10,7 @@
 [![Community](https://img.shields.io/badge/Community-EMQ%20X-yellow)](https://askemq.com)
 [![YouTube](https://img.shields.io/badge/Subscribe-EMQ%20中文-FF0000?logo=youtube)](https://www.youtube.com/channel/UCir_r04HIsLjf2qqyZ4A8Cg)
 
-[![最棒的物联网 MQTT 开源团队期待您的加入](https://static.emqx.net/images/github_readme_cn_bg.png)](https://careers.emqx.cn/)
+[![最棒的物联网 MQTT 开源团队期待您的加入](https://assets.emqx.com/images/github_readme_cn_bg.png)](https://careers.emqx.com/zh)
 
 [English](./README.md) | 简体中文 | [日本語](./README-JP.md) | [русский](./README-RU.md)
 
@@ -37,8 +37,8 @@ docker run -d --name emqx -p 1883:1883 -p 8081:8081 -p 8083:8083 -p 8883:8883 -p
 
 需从 [EMQX 下载](https://www.emqx.com/zh/downloads) 页面获取相应操作系统的二进制软件包。
 
-- [单节点安装文档](https://docs.emqx.cn/broker/latest/getting-started/install.html)
-- [集群配置文档](https://docs.emqx.cn/broker/latest/advanced/cluster.html)
+- [单节点安装文档](https://www.emqx.io/docs/zh/latest/getting-started/install.html)
+- [集群配置文档](https://www.emqx.io/docs/zh/latest/advanced/cluster.html)
 
 #### 在 Kubernetes 上通过 EMQX Operator 部署
 
@@ -113,7 +113,7 @@ DIALYZER_ANALYSE_APP=emqx_lwm2m,emqx_authz make dialyzer
 
 ### FAQ
 
-访问 [EMQX FAQ](https://docs.emqx.cn/broker/latest/faq/faq.html) 以获取常见问题的帮助。
+访问 [EMQX FAQ](https://www.emqx.io/docs/zh/latest/faq/faq.html) 以获取常见问题的帮助。
 
 ### 问答
 

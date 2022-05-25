@@ -198,7 +198,7 @@ docker run -d --name emqx -p 18083:18083 -p 1883:1883 \
 
 ### Cluster
 
-EMQX supports a variety of clustering methods, see our [documentation](https://docs.emqx.io/broker/latest/en/advanced/cluster.html#emqx-service-discovery) for details.
+EMQX supports a variety of clustering methods, see our [documentation](https://www.emqx.io/docs/en/latest/advanced/cluster.html) for details.
 
 Let's create a static node list cluster from docker-compose.
 
@@ -288,7 +288,7 @@ services:
 
 ### Kernel Tuning
 
-Under linux host machine, the easiest way is [Tuning guide](https://docs.emqx.io/en/broker/latest/tutorial/tune.html#linux-kernel-tuning).
+Under linux host machine, the easiest way is [Tuning guide](https://www.emqx.io/docs/en/latest/tutorial/tune.html).
 
 If you want tune linux kernel by docker, you must ensure your docker is latest version (>=1.12).
 

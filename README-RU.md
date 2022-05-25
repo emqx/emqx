@@ -10,7 +10,7 @@
 [![Community](https://img.shields.io/badge/Community-EMQ%20X-yellow?logo=github)](https://github.com/emqx/emqx/discussions)
 [![YouTube](https://img.shields.io/badge/Subscribe-EMQ-FF0000?logo=youtube)](https://www.youtube.com/channel/UC5FjR77ErAxvZENEWzQaO5Q)
 
-[![The best IoT MQTT open source team looks forward to your joining](https://static.emqx.net/images/github_readme_en_bg.png)](https://www.emqx.com/en/careers)
+[![The best IoT MQTT open source team looks forward to your joining](https://assets.emqx.com/images/github_readme_en_bg.png)](https://www.emqx.com/en/careers)
 
 [English](./README.md) | [简体中文](./README-CN.md) | [日本語](./README-JP.md) | русский
 
@@ -37,8 +37,8 @@ docker run -d --name emqx -p 1883:1883 -p 8081:8081 -p 8083:8083 -p 8883:8883 -p
 
 Сборки для различных операционных систем: [Загрузить EMQX](https://www.emqx.com/en/downloads).
 
-- [Установка на одном сервере](https://docs.emqx.io/en/broker/latest/getting-started/install.html)
-- [Установка на кластере](https://docs.emqx.io/en/broker/latest/advanced/cluster.html)
+- [Установка на одном сервере](https://www.emqx.io/docs/en/latest/getting-started/install.html)
+- [Установка на кластере](https://www.emqx.io/docs/en/latest/advanced/cluster.html)
 
 
 ## Сборка из исходного кода
@@ -112,7 +112,7 @@ DIALYZER_ANALYSE_APP=emqx_lwm2m,emqx_authz make dialyzer
 
 ### FAQ
 
-Наиболее частые проблемы разобраны в [EMQX FAQ](https://docs.emqx.io/en/broker/latest/faq/faq.html).
+Наиболее частые проблемы разобраны в [EMQX FAQ](https://www.emqx.io/docs/en/latest/faq/faq.html).
 
 
 ### Вопросы

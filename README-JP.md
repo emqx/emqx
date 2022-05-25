@@ -9,7 +9,7 @@
 [![Twitter](https://img.shields.io/badge/Twitter-EMQ-1DA1F2?logo=twitter)](https://twitter.com/EMQTech)
 [![YouTube](https://img.shields.io/badge/Subscribe-EMQ-FF0000?logo=youtube)](https://www.youtube.com/channel/UC5FjR77ErAxvZENEWzQaO5Q)
 
-[![The best IoT MQTT open source team looks forward to your joining](https://static.emqx.net/images/github_readme_en_bg.png)](https://www.emqx.com/en/careers)
+[![The best IoT MQTT open source team looks forward to your joining](https://assets.emqx.com/images/github_readme_en_bg.png)](https://www.emqx.com/en/careers)
 
 [English](./README.md) | [简体中文](./README-CN.md) | 日本語 | [русский](./README-RU.md)
 
@@ -38,8 +38,8 @@ docker run -d --name emqx -p 1883:1883 -p 8083:8083 -p 8883:8883 -p 8084:8084 -p
 
 それぞれのOSに対応したバイナリソフトウェアパッケージは、[EMQXのダウンロード](https://www.emqx.com/en/downloads)ページから取得できます。
 
-- [シングルノードインストール](https://docs.emqx.io/broker/latest/en/getting-started/installation.html)
-- [マルチノードインストール](https://docs.emqx.io/broker/latest/en/advanced/cluster.html)
+- [シングルノードインストール](https://www.emqx.io/docs/en/latest/getting-started/install.html)
+- [マルチノードインストール](https://www.emqx.io/docs/en/latest/advanced/cluster.html)
 
 ## ソースからビルド
 
@@ -103,7 +103,7 @@ DIALYZER_ANALYSE_APP=emqx_lwm2m,emqx_authz make dialyzer
 
 ### FAQ
 
-よくある質問については、[EMQX FAQ](https://docs.emqx.io/broker/latest/en/faq/faq.html)をご確認ください。
+よくある質問については、[EMQX FAQ](https://www.emqx.io/docs/en/latest/faq/faq.html)をご確認ください。
 
 ### 質問する
 
