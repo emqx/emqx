@@ -122,7 +122,7 @@ do_apply_rule(
         doeach := DoEach,
         incase := InCase,
         conditions := Conditions,
-        outputs := Outputs
+        actions := Actions
     },
     Input
 ) ->
@@ -145,7 +145,7 @@ do_apply_rule(
                 _ ->
                     ok = emqx_metrics_worker:inc(rule_metrics, RuleId, 'passed')
             end,
-            {ok, [handle_output_list(RuleId, Outputs, Coll, Input) || Coll <- Collection2]};
+            {ok, [handle_action_list(RuleId, Actions, Coll, Input) || Coll <- Collection2]};
         false ->
             ok = emqx_metrics_worker:inc(rule_metrics, RuleId, 'failed.no_result'),
             {error, nomatch}
@@ -156,7 +156,7 @@ do_apply_rule(
         is_foreach := false,
         fields := Fields,
         conditions := Conditions,
-        outputs := Outputs
+        actions := Actions
     },
     Input
 ) ->
@@ -172,7 +172,7 @@ do_apply_rule(
     of
         true ->
             ok = emqx_metrics_worker:inc(rule_metrics, RuleId, 'passed'),
-            {ok, handle_output_list(RuleId, Outputs, Selected, Input)};
+            {ok, handle_action_list(RuleId, Actions, Selected, Input)};
         false ->
             ok = emqx_metrics_worker:inc(rule_metrics, RuleId, 'failed.no_result'),
             {error, nomatch}
@@ -185,24 +185,24 @@ clear_rule_payload() ->
 select_and_transform(Fields, Input) ->
     select_and_transform(Fields, Input, #{}).
 
-select_and_transform([], _Input, Output) ->
-    Output;
-select_and_transform(['*' | More], Input, Output) ->
-    select_and_transform(More, Input, maps:merge(Output, Input));
-select_and_transform([{as, Field, Alias} | More], Input, Output) ->
+select_and_transform([], _Input, Action) ->
+    Action;
+select_and_transform(['*' | More], Input, Action) ->
+    select_and_transform(More, Input, maps:merge(Action, Input));
+select_and_transform([{as, Field, Alias} | More], Input, Action) ->
     Val = eval(Field, Input),
     select_and_transform(
         More,
         nested_put(Alias, Val, Input),
-        nested_put(Alias, Val, Output)
+        nested_put(Alias, Val, Action)
     );
-select_and_transform([Field | More], Input, Output) ->
+select_and_transform([Field | More], Input, Action) ->
     Val = eval(Field, Input),
     Key = alias(Field),
     select_and_transform(
         More,
         nested_put(Key, Val, Input),
-        nested_put(Key, Val, Output)
+        nested_put(Key, Val, Action)
     ).
 
 %% FOREACH Clause
@@ -210,27 +210,27 @@ select_and_transform([Field | More], Input, Output) ->
 select_and_collect(Fields, Input) ->
     select_and_collect(Fields, Input, {#{}, {'item', []}}).
 
-select_and_collect([{as, Field, {_, A} = Alias}], Input, {Output, _}) ->
+select_and_collect([{as, Field, {_, A} = Alias}], Input, {Action, _}) ->
     Val = eval(Field, Input),
-    {nested_put(Alias, Val, Output), {A, ensure_list(Val)}};
-select_and_collect([{as, Field, Alias} | More], Input, {Output, LastKV}) ->
+    {nested_put(Alias, Val, Action), {A, ensure_list(Val)}};
+select_and_collect([{as, Field, Alias} | More], Input, {Action, LastKV}) ->
     Val = eval(Field, Input),
     select_and_collect(
         More,
         nested_put(Alias, Val, Input),
-        {nested_put(Alias, Val, Output), LastKV}
+        {nested_put(Alias, Val, Action), LastKV}
     );
-select_and_collect([Field], Input, {Output, _}) ->
+select_and_collect([Field], Input, {Action, _}) ->
     Val = eval(Field, Input),
     Key = alias(Field),
-    {nested_put(Key, Val, Output), {'item', ensure_list(Val)}};
-select_and_collect([Field | More], Input, {Output, LastKV}) ->
+    {nested_put(Key, Val, Action), {'item', ensure_list(Val)}};
+select_and_collect([Field | More], Input, {Action, LastKV}) ->
     Val = eval(Field, Input),
     Key = alias(Field),
     select_and_collect(
         More,
         nested_put(Key, Val, Input),
-        {nested_put(Key, Val, Output), LastKV}
+        {nested_put(Key, Val, Action), LastKV}
     ).
 
 %% Filter each item got from FOREACH
@@ -312,43 +312,43 @@ number(Bin) ->
         error:badarg -> binary_to_float(Bin)
     end.
 
-handle_output_list(RuleId, Outputs, Selected, Envs) ->
-    [handle_output(RuleId, Out, Selected, Envs) || Out <- Outputs].
+handle_action_list(RuleId, Actions, Selected, Envs) ->
+    [handle_action(RuleId, Act, Selected, Envs) || Act <- Actions].
 
-handle_output(RuleId, OutId, Selected, Envs) ->
-    ok = emqx_metrics_worker:inc(rule_metrics, RuleId, 'outputs.total'),
+handle_action(RuleId, ActId, Selected, Envs) ->
+    ok = emqx_metrics_worker:inc(rule_metrics, RuleId, 'actions.total'),
     try
-        Result = do_handle_output(OutId, Selected, Envs),
-        ok = emqx_metrics_worker:inc(rule_metrics, RuleId, 'outputs.success'),
+        Result = do_handle_action(ActId, Selected, Envs),
+        ok = emqx_metrics_worker:inc(rule_metrics, RuleId, 'actions.success'),
         Result
     catch
         throw:out_of_service ->
-            ok = emqx_metrics_worker:inc(rule_metrics, RuleId, 'outputs.failed'),
+            ok = emqx_metrics_worker:inc(rule_metrics, RuleId, 'actions.failed'),
             ok = emqx_metrics_worker:inc(
-                rule_metrics, RuleId, 'outputs.failed.out_of_service'
+                rule_metrics, RuleId, 'actions.failed.out_of_service'
             ),
-            ?SLOG(warning, #{msg => "out_of_service", output => OutId});
+            ?SLOG(warning, #{msg => "out_of_service", action => ActId});
         Err:Reason:ST ->
-            ok = emqx_metrics_worker:inc(rule_metrics, RuleId, 'outputs.failed'),
-            ok = emqx_metrics_worker:inc(rule_metrics, RuleId, 'outputs.failed.unknown'),
+            ok = emqx_metrics_worker:inc(rule_metrics, RuleId, 'actions.failed'),
+            ok = emqx_metrics_worker:inc(rule_metrics, RuleId, 'actions.failed.unknown'),
             ?SLOG(error, #{
-                msg => "output_failed",
-                output => OutId,
+                msg => "action_failed",
+                action => ActId,
                 exception => Err,
                 reason => Reason,
                 stacktrace => ST
             })
     end.
 
-do_handle_output(BridgeId, Selected, _Envs) when is_binary(BridgeId) ->
-    ?TRACE("BRIDGE", "output_to_bridge", #{bridge_id => BridgeId}),
+do_handle_action(BridgeId, Selected, _Envs) when is_binary(BridgeId) ->
+    ?TRACE("BRIDGE", "bridge_action", #{bridge_id => BridgeId}),
     case emqx_bridge:send_message(BridgeId, Selected) of
         {error, {Err, _}} when Err == bridge_not_found; Err == bridge_stopped ->
             throw(out_of_service);
         Result ->
             Result
     end;
-do_handle_output(#{mod := Mod, func := Func, args := Args}, Selected, Envs) ->
+do_handle_action(#{mod := Mod, func := Func, args := Args}, Selected, Envs) ->
     %% the function can also throw 'out_of_service'
     Mod:Func(Selected, Envs, Args).
 

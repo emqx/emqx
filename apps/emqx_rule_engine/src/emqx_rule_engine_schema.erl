@@ -64,11 +64,11 @@ fields("rules") ->
                     validator => fun ?MODULE:validate_sql/1
                 }
             )},
-        {"outputs",
+        {"actions",
             sc(
-                hoconsc:array(hoconsc:union(outputs())),
+                hoconsc:array(hoconsc:union(actions())),
                 #{
-                    desc => ?DESC("rules_outputs"),
+                    desc => ?DESC("rules_actions"),
                     default => [],
                     example => [
                         <<"http:my_http_bridge">>,
@@ -93,16 +93,16 @@ fields("rules") ->
                 }
             )}
     ];
-fields("builtin_output_republish") ->
+fields("builtin_action_republish") ->
     [
         {function, sc(republish, #{desc => ?DESC("republish_function")})},
         {args, sc(ref("republish_args"), #{default => #{}})}
     ];
-fields("builtin_output_console") ->
+fields("builtin_action_console") ->
     [
         {function, sc(console, #{desc => ?DESC("console_function")})}
-        %% we may support some args for the console output in the future
-        %, {args, sc(map(), #{desc => "The arguments of the built-in 'console' output",
+        %% we may support some args for the console action in the future
+        %, {args, sc(map(), #{desc => "The arguments of the built-in 'console' action",
         %    default => #{}})}
     ];
 fields("user_provided_function") ->
@@ -169,10 +169,10 @@ desc("rule_engine") ->
     ?DESC("desc_rule_engine");
 desc("rules") ->
     ?DESC("desc_rules");
-desc("builtin_output_republish") ->
-    ?DESC("desc_builtin_output_republish");
-desc("builtin_output_console") ->
-    ?DESC("desc_builtin_output_console");
+desc("builtin_action_republish") ->
+    ?DESC("desc_builtin_action_republish");
+desc("builtin_action_console") ->
+    ?DESC("desc_builtin_action_console");
 desc("user_provided_function") ->
     ?DESC("desc_user_provided_function");
 desc("republish_args") ->
@@ -207,11 +207,11 @@ validate_rule_name(Name) ->
             {error, Reason}
     end.
 
-outputs() ->
+actions() ->
     [
         binary(),
-        ref("builtin_output_republish"),
-        ref("builtin_output_console"),
+        ref("builtin_action_republish"),
+        ref("builtin_action_console"),
         ref("user_provided_function")
     ].
 

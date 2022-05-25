@@ -166,9 +166,9 @@ init_per_testcase(t_events, Config) ->
         #{
             id => <<"rule:t_events">>,
             sql => SQL,
-            outputs => [
+            actions => [
                 #{
-                    function => <<"emqx_rule_engine_SUITE:output_record_triggered_events">>,
+                    function => <<"emqx_rule_engine_SUITE:action_record_triggered_events">>,
                     args => #{}
                 }
             ],
@@ -194,7 +194,7 @@ t_create_rule(_Config) ->
         #{
             sql => <<"select * from \"t/a\"">>,
             id => <<"t_create_rule">>,
-            outputs => [#{function => console}],
+            actions => [#{function => console}],
             description => <<"debug rule">>
         }
     ),
@@ -256,7 +256,7 @@ t_create_existing_rule(_Config) ->
         #{
             id => <<"an_existing_rule">>,
             sql => <<"select * from \"t/#\"">>,
-            outputs => [#{function => console}]
+            actions => [#{function => console}]
         }
     ),
     {ok, #{sql := SQL}} = emqx_rule_engine:get_rule(<<"an_existing_rule">>),
@@ -554,12 +554,12 @@ t_match_atom_and_binary(_Config) ->
         "SELECT connected_at as ts, * "
         "FROM \"$events/client_connected\" "
         "WHERE username = 'emqx2' ",
-    Repub = republish_output(<<"t2">>, <<"user:${ts}">>),
+    Repub = republish_action(<<"t2">>, <<"user:${ts}">>),
     {ok, TopicRule} = emqx_rule_engine:create_rule(
         #{
             sql => SQL,
             id => ?TMP_RULEID,
-            outputs => [Repub]
+            actions => [Repub]
         }
     ),
     {ok, Client} = emqtt:start_link([{username, <<"emqx1">>}]),
@@ -750,8 +750,8 @@ t_sqlselect_001(_Config) ->
     Sql2 =
         "SELECT jq('.a|.[]', "
         "'{\"a\": [{\"b\": 1}, {\"b\": 2}, {\"b\": 3}]}') "
-        "as jq_output, "
-        "   jq_output[1].b as first_b from \"t/#\" ",
+        "as jq_action, "
+        "   jq_action[1].b as first_b from \"t/#\" ",
     ?assertMatch(
         {ok, #{<<"first_b">> := 1}},
         emqx_rule_sqltester:test(
@@ -771,12 +771,12 @@ t_sqlselect_01(_Config) ->
         "SELECT json_decode(payload) as p, payload "
         "FROM \"t3/#\", \"t1\" "
         "WHERE p.x = 1",
-    Repub = republish_output(<<"t2">>),
+    Repub = republish_action(<<"t2">>),
     {ok, TopicRule1} = emqx_rule_engine:create_rule(
         #{
             sql => SQL,
             id => ?TMP_RULEID,
-            outputs => [Repub]
+            actions => [Repub]
         }
     ),
     {ok, Client} = emqtt:start_link([{username, <<"emqx">>}]),
@@ -817,12 +817,12 @@ t_sqlselect_02(_Config) ->
         "SELECT * "
         "FROM \"t3/#\", \"t1\" "
         "WHERE payload.x = 1",
-    Repub = republish_output(<<"t2">>),
+    Repub = republish_action(<<"t2">>),
     {ok, TopicRule1} = emqx_rule_engine:create_rule(
         #{
             sql => SQL,
             id => ?TMP_RULEID,
-            outputs => [Repub]
+            actions => [Repub]
         }
     ),
     {ok, Client} = emqtt:start_link([{username, <<"emqx">>}]),
@@ -863,12 +863,12 @@ t_sqlselect_1(_Config) ->
         "SELECT json_decode(payload) as p, payload "
         "FROM \"t1\" "
         "WHERE p.x = 1 and p.y = 2",
-    Repub = republish_output(<<"t2">>),
+    Repub = republish_action(<<"t2">>),
     {ok, TopicRule} = emqx_rule_engine:create_rule(
         #{
             sql => SQL,
             id => ?TMP_RULEID,
-            outputs => [Repub]
+            actions => [Repub]
         }
     ),
     {ok, Client} = emqtt:start_link([{username, <<"emqx">>}]),
@@ -898,12 +898,12 @@ t_sqlselect_1(_Config) ->
 t_sqlselect_2(_Config) ->
     %% recursively republish to t2
     SQL = "SELECT * FROM \"t2\" ",
-    Repub = republish_output(<<"t2">>),
+    Repub = republish_action(<<"t2">>),
     {ok, TopicRule} = emqx_rule_engine:create_rule(
         #{
             sql => SQL,
             id => ?TMP_RULEID,
-            outputs => [Repub]
+            actions => [Repub]
         }
     ),
     {ok, Client} = emqtt:start_link([{username, <<"emqx">>}]),
@@ -932,12 +932,12 @@ t_sqlselect_3(_Config) ->
         "SELECT * "
         "FROM \"$events/client_connected\" "
         "WHERE username = 'emqx1'",
-    Repub = republish_output(<<"t2">>, <<"clientid=${clientid}">>),
+    Repub = republish_action(<<"t2">>, <<"clientid=${clientid}">>),
     {ok, TopicRule} = emqx_rule_engine:create_rule(
         #{
             sql => SQL,
             id => ?TMP_RULEID,
-            outputs => [Repub]
+            actions => [Repub]
         }
     ),
     {ok, Client} = emqtt:start_link([{clientid, <<"emqx0">>}, {username, <<"emqx0">>}]),
@@ -2270,7 +2270,7 @@ t_get_basic_usage_info_1(_Config) ->
             #{
                 id => <<"rule:t_get_basic_usage_info:1">>,
                 sql => <<"select 1 from topic">>,
-                outputs =>
+                actions =>
                     [
                         #{function => <<"erlang:hibernate">>, args => #{}},
                         #{function => console},
@@ -2284,7 +2284,7 @@ t_get_basic_usage_info_1(_Config) ->
             #{
                 id => <<"rule:t_get_basic_usage_info:2">>,
                 sql => <<"select 1 from topic">>,
-                outputs =>
+                actions =>
                     [
                         <<"mqtt:my_mqtt_bridge">>,
                         <<"http:my_http_bridge">>
@@ -2308,9 +2308,9 @@ t_get_basic_usage_info_1(_Config) ->
 %% Internal helpers
 %%------------------------------------------------------------------------------
 
-republish_output(Topic) ->
-    republish_output(Topic, <<"${payload}">>).
-republish_output(Topic, Payload) ->
+republish_action(Topic) ->
+    republish_action(Topic, <<"${payload}">>).
+republish_action(Topic, Payload) ->
     #{
         function => republish,
         args => #{payload => Payload, topic => Topic, qos => 0, retain => false}
@@ -2337,13 +2337,13 @@ make_simple_rule(RuleId, SQL, Topics, Ts) when is_binary(RuleId) ->
         fields => [<<"*">>],
         is_foreach => false,
         conditions => {},
-        outputs => [#{mod => emqx_rule_outputs, func => console, args => #{}}],
+        actions => [#{mod => emqx_rule_actions, func => console, args => #{}}],
         description => <<"simple rule">>,
         created_at => Ts
     }.
 
-output_record_triggered_events(Data = #{event := EventName}, _Envs, _Args) ->
-    ct:pal("applying output_record_triggered_events: ~p", [Data]),
+action_record_triggered_events(Data = #{event := EventName}, _Envs, _Args) ->
+    ct:pal("applying action_record_triggered_events: ~p", [Data]),
     ets:insert(events_record_tab, {EventName, Data}).
 
 verify_event(EventName) ->

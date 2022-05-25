@@ -33,7 +33,7 @@ t_crud_rule_api(_Config) ->
         <<"description">> => <<"A simple rule">>,
         <<"enable">> => true,
         <<"id">> => RuleID,
-        <<"outputs">> => [#{<<"function">> => <<"console">>}],
+        <<"actions">> => [#{<<"function">> => <<"console">>}],
         <<"sql">> => <<"SELECT * from \"t/1\"">>,
         <<"name">> => <<"test_rule">>
     },

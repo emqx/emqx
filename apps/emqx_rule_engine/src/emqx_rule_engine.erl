@@ -88,11 +88,11 @@
     'failed',
     'failed.exception',
     'failed.no_result',
-    'outputs.total',
-    'outputs.success',
-    'outputs.failed',
-    'outputs.failed.out_of_service',
-    'outputs.failed.unknown'
+    'actions.total',
+    'actions.success',
+    'actions.failed',
+    'actions.failed.out_of_service',
+    'actions.failed.unknown'
 ]).
 
 -define(RATE_METRICS, ['matched']).
@@ -265,9 +265,9 @@ get_basic_usage_info() ->
         NumRules = length(EnabledRules),
         ReferencedBridges =
             lists:foldl(
-                fun(#{outputs := Outputs, from := From}, Acc) ->
+                fun(#{actions := Actions, from := From}, Acc) ->
                     BridgeIDs0 = [BridgeID || <<"$bridges/", BridgeID/binary>> <- From],
-                    BridgeIDs1 = lists:filter(fun is_binary/1, Outputs),
+                    BridgeIDs1 = lists:filter(fun is_binary/1, Actions),
                     tally_referenced_bridges(BridgeIDs0 ++ BridgeIDs1, Acc)
                 end,
                 #{},
@@ -342,7 +342,7 @@ code_change(_OldVsn, State, _Extra) ->
 %% Internal Functions
 %%------------------------------------------------------------------------------
 
-parse_and_insert(Params = #{id := RuleId, sql := Sql, outputs := Outputs}, CreatedAt) ->
+parse_and_insert(Params = #{id := RuleId, sql := Sql, actions := Actions}, CreatedAt) ->
     case emqx_rule_sqlparser:parse(Sql) of
         {ok, Select} ->
             Rule = #{
@@ -352,7 +352,7 @@ parse_and_insert(Params = #{id := RuleId, sql := Sql, outputs := Outputs}, Creat
                 updated_at => now_ms(),
                 enable => maps:get(enable, Params, true),
                 sql => Sql,
-                outputs => parse_outputs(Outputs),
+                actions => parse_actions(Actions),
                 description => maps:get(description, Params, ""),
                 %% -- calculated fields:
                 from => emqx_rule_sqlparser:select_from(Select),
@@ -386,12 +386,12 @@ do_delete_rule(RuleId) ->
             ok
     end.
 
-parse_outputs(Outputs) ->
-    [do_parse_output(Out) || Out <- Outputs].
+parse_actions(Actions) ->
+    [do_parse_action(Act) || Act <- Actions].
 
-do_parse_output(Output) when is_map(Output) ->
-    emqx_rule_outputs:parse_output(Output);
-do_parse_output(BridgeChannelId) when is_binary(BridgeChannelId) ->
+do_parse_action(Action) when is_map(Action) ->
+    emqx_rule_actions:parse_action(Action);
+do_parse_action(BridgeChannelId) when is_binary(BridgeChannelId) ->
     BridgeChannelId.
 
 get_all_records(Tab) ->

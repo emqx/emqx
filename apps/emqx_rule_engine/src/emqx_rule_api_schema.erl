@@ -124,25 +124,25 @@ fields("metrics") ->
             sc(non_neg_integer(), #{
                 desc => ?DESC("metrics_sql_failed_unknown")
             })},
-        {"outputs.total",
+        {"actions.total",
             sc(non_neg_integer(), #{
-                desc => ?DESC("metrics_outputs_total")
+                desc => ?DESC("metrics_actions_total")
             })},
-        {"outputs.success",
+        {"actions.success",
             sc(non_neg_integer(), #{
-                desc => ?DESC("metrics_outputs_success")
+                desc => ?DESC("metrics_actions_success")
             })},
-        {"outputs.failed",
+        {"actions.failed",
             sc(non_neg_integer(), #{
-                desc => ?DESC("metrics_outputs_failed")
+                desc => ?DESC("metrics_actions_failed")
             })},
-        {"outputs.failed.out_of_service",
+        {"actions.failed.out_of_service",
             sc(non_neg_integer(), #{
-                desc => ?DESC("metrics_outputs_failed_out_of_service")
+                desc => ?DESC("metrics_actions_failed_out_of_service")
             })},
-        {"outputs.failed.unknown",
+        {"actions.failed.unknown",
             sc(non_neg_integer(), #{
-                desc => ?DESC("metrics_outputs_failed_unknown")
+                desc => ?DESC("metrics_actions_failed_unknown")
             })}
     ];
 fields("node_metrics") ->

@@ -741,7 +741,7 @@ setup_fake_rule_engine_data() ->
             #{
                 id => <<"rule:t_get_basic_usage_info:1">>,
                 sql => <<"select 1 from topic">>,
-                outputs =>
+                actions =>
                     [
                         #{function => <<"erlang:hibernate">>, args => #{}},
                         #{function => console},
@@ -755,7 +755,7 @@ setup_fake_rule_engine_data() ->
             #{
                 id => <<"rule:t_get_basic_usage_info:2">>,
                 sql => <<"select 1 from topic">>,
-                outputs =>
+                actions =>
                     [
                         <<"mqtt:my_mqtt_bridge">>,
                         <<"http:my_http_bridge">>
@@ -767,7 +767,7 @@ setup_fake_rule_engine_data() ->
             #{
                 id => <<"rule:t_get_basic_usage_info:3">>,
                 sql => <<"select 1 from \"$bridges/mqtt:mqtt_in\"">>,
-                outputs =>
+                actions =>
                     [
                         #{function => console}
                     ]

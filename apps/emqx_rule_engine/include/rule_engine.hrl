@@ -31,16 +31,16 @@
 -type selected_data() :: map().
 -type envs() :: map().
 
--type builtin_output_func() :: republish | console.
--type builtin_output_module() :: emqx_rule_outputs.
+-type builtin_action_func() :: republish | console.
+-type builtin_action_module() :: emqx_rule_actions.
 -type bridge_channel_id() :: binary().
--type output_fun_args() :: map().
+-type action_fun_args() :: map().
 
--type output() ::
+-type action() ::
     #{
-        mod := builtin_output_module() | module(),
-        func := builtin_output_func() | atom(),
-        args => output_fun_args()
+        mod := builtin_action_module() | module(),
+        func := builtin_action_func() | atom(),
+        args => action_fun_args()
     }
     | bridge_channel_id().
 
@@ -49,7 +49,7 @@
         id := rule_id(),
         name := binary(),
         sql := binary(),
-        outputs := [output()],
+        actions := [action()],
         enable := boolean(),
         description => binary(),
         %% epoch in millisecond precision

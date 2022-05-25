@@ -15,43 +15,43 @@
 %%--------------------------------------------------------------------
 
 %% Define the default actions.
--module(emqx_rule_outputs).
+-module(emqx_rule_actions).
 
 -include("rule_engine.hrl").
 -include_lib("emqx/include/logger.hrl").
 -include_lib("emqx/include/emqx.hrl").
 
 %% APIs
--export([parse_output/1]).
+-export([parse_action/1]).
 
-%% callbacks of emqx_rule_output
--export([pre_process_output_args/2]).
+%% callbacks of emqx_rule_action
+-export([pre_process_action_args/2]).
 
-%% output functions
+%% action functions
 -export([
     console/3,
     republish/3
 ]).
 
--optional_callbacks([pre_process_output_args/2]).
+-optional_callbacks([pre_process_action_args/2]).
 
--callback pre_process_output_args(FuncName :: atom(), output_fun_args()) -> output_fun_args().
+-callback pre_process_action_args(FuncName :: atom(), action_fun_args()) -> action_fun_args().
 
 %%--------------------------------------------------------------------
 %% APIs
 %%--------------------------------------------------------------------
-parse_output(#{function := OutputFunc} = Output) ->
-    {Mod, Func} = parse_output_func(OutputFunc),
+parse_action(#{function := ActionFunc} = Action) ->
+    {Mod, Func} = parse_action_func(ActionFunc),
     #{
         mod => Mod,
         func => Func,
-        args => pre_process_args(Mod, Func, maps:get(args, Output, #{}))
+        args => pre_process_args(Mod, Func, maps:get(args, Action, #{}))
     }.
 
 %%--------------------------------------------------------------------
-%% callbacks of emqx_rule_output
+%% callbacks of emqx_rule_action
 %%--------------------------------------------------------------------
-pre_process_output_args(
+pre_process_action_args(
     republish,
     #{
         topic := Topic,
@@ -68,17 +68,17 @@ pre_process_output_args(
             payload => emqx_plugin_libs_rule:preproc_tmpl(Payload)
         }
     };
-pre_process_output_args(_, Args) ->
+pre_process_action_args(_, Args) ->
     Args.
 
 %%--------------------------------------------------------------------
-%% output functions
+%% action functions
 %%--------------------------------------------------------------------
 -spec console(map(), map(), map()) -> any().
 console(Selected, #{metadata := #{rule_id := RuleId}} = Envs, _Args) ->
     ?ULOG(
-        "[rule output] ~ts~n"
-        "\tOutput Data: ~p~n"
+        "[rule action] ~ts~n"
+        "\tAction Data: ~p~n"
         "\tEnvs: ~p~n",
         [RuleId, Selected, Envs]
     ).
@@ -135,36 +135,36 @@ republish(
 %%--------------------------------------------------------------------
 %% internal functions
 %%--------------------------------------------------------------------
-parse_output_func(OutputFunc) ->
-    {Mod, Func} = get_output_mod_func(OutputFunc),
+parse_action_func(ActionFunc) ->
+    {Mod, Func} = get_action_mod_func(ActionFunc),
     assert_function_supported(Mod, Func),
     {Mod, Func}.
 
-get_output_mod_func(OutputFunc) when is_atom(OutputFunc) ->
-    {emqx_rule_outputs, OutputFunc};
-get_output_mod_func(OutputFunc) when is_binary(OutputFunc) ->
+get_action_mod_func(ActionFunc) when is_atom(ActionFunc) ->
+    {emqx_rule_actions, ActionFunc};
+get_action_mod_func(ActionFunc) when is_binary(ActionFunc) ->
     ToAtom = fun(Bin) ->
         try binary_to_existing_atom(Bin) of
             Atom -> Atom
         catch
-            error:badarg -> error({unknown_output_function, OutputFunc})
+            error:badarg -> error({unknown_action_function, ActionFunc})
         end
     end,
-    case string:split(OutputFunc, ":", all) of
-        [Func1] -> {emqx_rule_outputs, ToAtom(Func1)};
+    case string:split(ActionFunc, ":", all) of
+        [Func1] -> {emqx_rule_actions, ToAtom(Func1)};
         [Mod1, Func1] -> {ToAtom(Mod1), ToAtom(Func1)};
-        _ -> error({invalid_output_function, OutputFunc})
+        _ -> error({invalid_action_function, ActionFunc})
     end.
 
 assert_function_supported(Mod, Func) ->
     case erlang:function_exported(Mod, Func, 3) of
         true -> ok;
-        false -> error({output_function_not_supported, Func})
+        false -> error({action_function_not_supported, Func})
     end.
 
 pre_process_args(Mod, Func, Args) ->
-    case erlang:function_exported(Mod, pre_process_output_args, 2) of
-        true -> Mod:pre_process_output_args(Func, Args);
+    case erlang:function_exported(Mod, pre_process_action_args, 2) of
+        true -> Mod:pre_process_action_args(Func, Args);
         false -> Args
     end.
 
