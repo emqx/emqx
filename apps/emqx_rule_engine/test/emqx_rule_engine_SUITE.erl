@@ -35,6 +35,7 @@ all() ->
         {group, registry},
         {group, runtime},
         {group, events},
+        {group, telemetry},
         {group, bugs}
     ].
 
@@ -91,6 +92,10 @@ groups() ->
             t_sqlparse_invalid_json
         ]},
         {events, [], [t_events]},
+        {telemetry, [], [
+            t_get_basic_usage_info_0,
+            t_get_basic_usage_info_1
+        ]},
         {bugs, [], [
             t_sqlparse_payload_as,
             t_sqlparse_nested_get
@@ -2297,7 +2302,7 @@ t_get_basic_usage_info_1(_Config) ->
             referenced_bridges =>
                 #{
                     mqtt => 1,
-                    http => 3
+                    webhook => 3
                 }
         },
         emqx_rule_engine:get_basic_usage_info()
