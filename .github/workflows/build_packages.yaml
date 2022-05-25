@@ -218,8 +218,8 @@ jobs:
           - debian11
           - debian10
           - debian9
-          - rockylinux8
-          - centos7
+          - el8
+          - el7
           - raspbian10
         exclude:
         - package: pkg
