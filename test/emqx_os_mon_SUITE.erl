@@ -55,9 +55,9 @@ t_set_sysmem_high_watermark(_) ->
     ?assertEqual(10, emqx_os_mon:get_sysmem_high_watermark()),
     emqx_os_mon:set_sysmem_high_watermark(100),
     ?assertEqual(100, emqx_os_mon:get_sysmem_high_watermark()),
-    emqx_os_mon:set_sysmem_high_watermark(0.9),
+    emqx_os_mon:set_sysmem_high_watermark(90),
     ?assertEqual(90, emqx_os_mon:get_sysmem_high_watermark()),
-    emqx_os_mon:set_sysmem_high_watermark(0.932),
+    emqx_os_mon:set_sysmem_high_watermark(93.2),
     ?assertEqual(93.2, emqx_os_mon:get_sysmem_high_watermark()),
     ok.
 

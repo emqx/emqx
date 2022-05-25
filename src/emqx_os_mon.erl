@@ -87,21 +87,20 @@ get_sysmem_high_watermark() ->
     call(?FUNCTION_NAME).
 
 set_sysmem_high_watermark(HW) ->
-    V = resolve_watermark(HW),
     case load_ctl:get_config() of
         #{ ?MEM_MON_F0 := true } = OldLC ->
             ok = load_ctl:put_config(OldLC#{ ?MEM_MON_F0 => true
-                                           , ?MEM_MON_F1 => V / 100});
+                                           , ?MEM_MON_F1 => HW / 100});
         _ ->
             skip
     end,
-    gen_server:call(?OS_MON, {?FUNCTION_NAME, V}, infinity).
+    gen_server:call(?OS_MON, {?FUNCTION_NAME, HW}, infinity).
 
 get_procmem_high_watermark() ->
     memsup:get_procmem_high_watermark().
 
 set_procmem_high_watermark(HW) ->
-    memsup:set_procmem_high_watermark(resolve_watermark(HW) / 100).
+    memsup:set_procmem_high_watermark(HW / 100).
 
 call(Req) ->
     gen_server:call(?OS_MON, Req, infinity).
@@ -116,7 +115,7 @@ init([Opts]) ->
     memsup:set_sysmem_high_watermark(1),
     set_procmem_high_watermark(proplists:get_value(procmem_high_watermark, Opts)),
     MemCheckInterval = do_resolve_mem_check_interval(proplists:get_value(mem_check_interval, Opts)),
-    SysHW = resolve_watermark(proplists:get_value(sysmem_high_watermark, Opts)),
+    SysHW = proplists:get_value(sysmem_high_watermark, Opts),
     St = ensure_check_timer(#{cpu_high_watermark => proplists:get_value(cpu_high_watermark, Opts),
                               cpu_low_watermark => proplists:get_value(cpu_low_watermark, Opts),
                               cpu_check_interval => proplists:get_value(cpu_check_interval, Opts),
@@ -273,12 +272,7 @@ resolve_sysmem_high_watermark(#{sysmem_high_watermark := SysHW}) -> SysHW;
 resolve_sysmem_high_watermark(_) ->
     %% sysmem_high_watermark is not found in state map
     %% get it from memsup
-    resolve_watermark(memsup:get_sysmem_high_watermark()).
-
-resolve_watermark(W) when W > 0 andalso W =< 1 ->
-    W * 100;
-resolve_watermark(W) when W > 0 andalso W =< 100 ->
-    W.
+    memsup:get_sysmem_high_watermark().
 
 update_mem_alarm_status(SysHW) ->
     case is_sysmem_check_supported() of
