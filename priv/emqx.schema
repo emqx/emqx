@@ -530,13 +530,13 @@ end}.
 
 %% @doc format logs as text, date format part
 {mapping, "log.formatter.text.date.format", "kernel.logger", [
-  {default, rfc3339},
+  {default, "rfc3339"},
   {datatype, string}
 ]}.
 
 %% @doc format logs as text, date format part. local or any UTC offset
 {mapping, "log.formatter.text.date.timezone", "kernel.logger", [
-  {default, local},
+  {default, "local"},
   {datatype, string}
 ]}.
 
@@ -642,7 +642,7 @@ end}.
                    }};
         text ->
             DateFormat =
-              case cuttlefish:conf_get("log.formatter.text.date.format", Conf) of
+              case cuttlefish:conf_get("log.formatter.text.date.format", Conf, "rfc3339") of
                 "rfc3339" ->
                   rfc3339;
                 DateStr ->
@@ -655,7 +655,9 @@ end}.
                       DST(<<"%H", Tail/binary>>, Formatter) -> DST(Tail, [hour | Formatter]);
                       DST(<<"%M", Tail/binary>>, Formatter) -> DST(Tail, [minute | Formatter]);
                       DST(<<"%S", Tail/binary>>, Formatter) -> DST(Tail, [second | Formatter]);
-                      DST(<<"%6N", Tail/binary>>, Formatter) -> DST(Tail, [nano_second | Formatter]);
+                      DST(<<"%N", Tail/binary>>, Formatter) -> DST(Tail, [nanosecond | Formatter]);
+                      DST(<<"%3N", Tail/binary>>, Formatter) -> DST(Tail, [millisecond | Formatter]);
+                      DST(<<"%6N", Tail/binary>>, Formatter) -> DST(Tail, [microsecond | Formatter]);
                       DST(<<"%z", Tail/binary>>, Formatter) -> DST(Tail, [timezone | Formatter]);
                       DST(<<Char:8, Tail/binary>>, [Str | Formatter]) when is_list(Str) ->
                           DST(Tail, [lists:append(Str, [Char]) | Formatter]);
@@ -665,7 +667,7 @@ end}.
                     DateStrTrans(list_to_binary(DateStr), [])
               end,
             {DateOffsetStr, DateOffset} =
-              case cuttlefish:conf_get("log.formatter.text.date.timezone", Conf) of
+              case cuttlefish:conf_get("log.formatter.text.date.timezone", Conf, "local") of
                 "z" ->
                   {"z", 0};
                 "Z" ->
@@ -688,9 +690,9 @@ end}.
                     Str =
                       case S of
                         0 ->
-                          io_lib:format("~c~p:~p", [Sign, H, M]);
+                          io_lib:format("~c~2.10.0B:~2.10.0B", [Sign, H, M]);
                         S ->
-                          io_lib:format("~c~p:~p:~p", [Sign, H, M, S])
+                          io_lib:format("~c~2.10.0B:~2.10.0B:~2.10.0B", [Sign, H, M, S])
                       end,
                     {Str, OffsetSecond};
                 DateOStr ->
