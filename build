@@ -108,15 +108,19 @@ make_elixir_rel() {
 ## extract previous version .tar.gz files to _build/$PROFILE/rel/emqx before making relup
 make_relup() {
     local rel_dir="_build/$PROFILE/rel/emqx"
-    mkdir -p "${rel_dir}/lib"
-    mkdir -p "${rel_dir}/releases"
     local name_pattern
     name_pattern="${PROFILE}-$(./pkg-vsn.sh "$PROFILE" --vsn_matcher --long)"
     local releases=()
     while read -r tgzfile ; do
         local base_vsn
         base_vsn="$(echo "$tgzfile" | grep -oE "[0-9]+\.[0-9]+\.[0-9]+(-(alpha|beta|rc)\.[0-9])?(-[0-9a-f]{8})?" | head -1)"
-        tar -C "$rel_dir" -zxf "$tgzfile" --keep-old-files releases lib
+        ## we have to create tmp dir to untar old tgz, as `tar --skip-old-files` is not supported on all plantforms
+        local tmp_dir
+        tmp_dir="$(mktemp -d -t emqx.XXXXXXX)"
+        tar -C "$tmp_dir" -zxf "$tgzfile"
+        cp -npr "$tmp_dir/releases"/* "${rel_dir}/releases/" || true
+        cp -npr "$tmp_dir/lib"/* "${rel_dir}/lib/" || true
+        rm -rf "$tmp_dir"
         releases+=( "$base_vsn" )
     done < <("$FIND" _upgrade_base -maxdepth 1 -name "${name_pattern}.tar.gz" -type f)
     if [ ${#releases[@]} -eq 0 ]; then
@@ -185,7 +189,7 @@ make_tgz() {
     ## create tar after change dir (for windows)
     ## to avoid creating an extra level of 'emqx' dir in the .tar.gz file
     pushd "${tard}/emqx" >/dev/null
-    tar -zcf "../${target_name}" *
+    tar -zcf "../${target_name}" -- *
     popd >/dev/null
     mv "${tard}/${target_name}" "${target}"
     case "$SYSTEM" in
