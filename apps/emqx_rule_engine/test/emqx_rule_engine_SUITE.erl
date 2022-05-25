@@ -2274,8 +2274,8 @@ t_get_basic_usage_info_1(_Config) ->
                     [
                         #{function => <<"erlang:hibernate">>, args => #{}},
                         #{function => console},
-                        <<"http:my_http_bridge">>,
-                        <<"http:my_http_bridge">>
+                        <<"webhook:my_webhook">>,
+                        <<"webhook:my_webhook">>
                     ]
             }
         ),
@@ -2287,7 +2287,7 @@ t_get_basic_usage_info_1(_Config) ->
                 actions =>
                     [
                         <<"mqtt:my_mqtt_bridge">>,
-                        <<"http:my_http_bridge">>
+                        <<"webhook:my_webhook">>
                     ]
             }
         ),

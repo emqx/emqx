@@ -46,7 +46,7 @@ http_schema(Method) ->
         ?CONN_TYPES
     ),
     hoconsc:union([
-        ref(emqx_bridge_http_schema, Method)
+        ref(emqx_bridge_webhook_schema, Method)
         | Schemas
     ]).
 
@@ -108,10 +108,10 @@ roots() -> [bridges].
 
 fields(bridges) ->
     [
-        {http,
+        {webhook,
             mk(
-                hoconsc:map(name, ref(emqx_bridge_http_schema, "config")),
-                #{desc => ?DESC("bridges_http")}
+                hoconsc:map(name, ref(emqx_bridge_webhook_schema, "config")),
+                #{desc => ?DESC("bridges_webhook")}
             )}
     ] ++
         [

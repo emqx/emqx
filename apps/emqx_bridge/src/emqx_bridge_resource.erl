@@ -43,8 +43,8 @@
 
 bridge_to_resource_type(<<"mqtt">>) -> emqx_connector_mqtt;
 bridge_to_resource_type(mqtt) -> emqx_connector_mqtt;
-bridge_to_resource_type(<<"http">>) -> emqx_connector_http;
-bridge_to_resource_type(http) -> emqx_connector_http.
+bridge_to_resource_type(<<"webhook">>) -> emqx_connector_http;
+bridge_to_resource_type(webhook) -> emqx_connector_http.
 
 resource_id(BridgeId) when is_binary(BridgeId) ->
     <<"bridge:", BridgeId/binary>>.
@@ -104,7 +104,7 @@ update(Type, Name, {OldConf, Conf}) ->
     %% - if the connection related configs like `servers` is updated, we should restart/start
     %% or stop bridges according to the change.
     %% - if the connection related configs are not update, only non-connection configs like
-    %% the `method` or `headers` of a HTTP bridge is changed, then the bridge can be updated
+    %% the `method` or `headers` of a WebHook is changed, then the bridge can be updated
     %% without restarting the bridge.
     %%
     case if_only_to_toggle_enable(OldConf, Conf) of
@@ -237,7 +237,7 @@ is_tmp_path(TmpPath, File) ->
     string:str(str(File), str(TmpPath)) > 0.
 
 parse_confs(
-    http,
+    webhook,
     _Name,
     #{
         url := Url,

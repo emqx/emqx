@@ -745,8 +745,8 @@ setup_fake_rule_engine_data() ->
                     [
                         #{function => <<"erlang:hibernate">>, args => #{}},
                         #{function => console},
-                        <<"http:my_http_bridge">>,
-                        <<"http:my_http_bridge">>
+                        <<"webhook:my_webhook">>,
+                        <<"webhook:my_webhook">>
                     ]
             }
         ),
@@ -758,7 +758,7 @@ setup_fake_rule_engine_data() ->
                 actions =>
                     [
                         <<"mqtt:my_mqtt_bridge">>,
-                        <<"http:my_http_bridge">>
+                        <<"webhook:my_webhook">>
                     ]
             }
         ),

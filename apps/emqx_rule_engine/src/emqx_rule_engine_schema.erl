@@ -71,7 +71,7 @@ fields("rules") ->
                     desc => ?DESC("rules_actions"),
                     default => [],
                     example => [
-                        <<"http:my_http_bridge">>,
+                        <<"webhook:my_webhook">>,
                         #{
                             function => republish,
                             args => #{
