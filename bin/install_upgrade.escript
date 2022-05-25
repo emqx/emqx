@@ -4,7 +4,8 @@
 %% ex: ft=erlang ts=4 sw=4 et
 
 -define(TIMEOUT, 300000).
--define(INFO(Fmt,Args), io:format(Fmt++"~n",Args)).
+-define(INFO(Fmt,Args), io:format(standard_io, Fmt++"~n",Args)).
+-define(ERROR(Fmt,Args), io:format(standard_error, "ERROR: "++Fmt++"~n",Args)).
 -define(SEMVER_RE, <<"^(0|[1-9]\\d*)\\.(0|[1-9]\\d*)\\.(0|[1-9]\\d*)(-[a-zA-Z\\d][-a-zA-Z.\\d]*)?(\\+[a-zA-Z\\d][-a-zA-Z.\\d]*)?$">>).
 
 -mode(compile).
@@ -220,7 +221,7 @@ find_and_link_release_package(Version, RelName) ->
     case filelib:wildcard(TarBalls) of
         [] ->
             {undefined, undefined};
-        [Filename | _] when is_list(Filename) ->
+        [Filename] when is_list(Filename) ->
             %% the release handler expects a fixed nomenclature (<relname>.tar.gz)
             %% so give it just that by creating a symlink to the tarball
             %% we found.
@@ -229,21 +230,25 @@ find_and_link_release_package(Version, RelName) ->
             %% create the symlink pointing to the full path name of the
             %% release package we found
             make_symlink_or_copy(filename:absname(Filename), ReleaseLink),
-            {Filename, ReleaseHandlerPackageLink}
+            {Filename, ReleaseHandlerPackageLink};
+        Files ->
+            ?ERROR("Found more than one package for version: '~s', "
+                   "files: ~p", [Version, Files]),
+            erlang:halt(47)
     end.
 
 make_symlink_or_copy(Filename, ReleaseLink) ->
     case file:make_symlink(Filename, ReleaseLink) of
         ok -> ok;
         {error, eexist} ->
-            ?INFO("symlink ~p already exists, recreate it", [ReleaseLink]),
+            ?INFO("Symlink ~p already exists, recreate it", [ReleaseLink]),
             ok = file:delete(ReleaseLink),
             make_symlink_or_copy(Filename, ReleaseLink);
         {error, Reason} when Reason =:= eperm; Reason =:= enotsup ->
             {ok, _} = file:copy(Filename, ReleaseLink);
         {error, Reason} ->
-            ?INFO("create symlink ~p failed", [ReleaseLink]),
-            error({Reason, ReleaseLink})
+            ?ERROR("Create symlink ~p failed, error: ~p", [ReleaseLink, Reason]),
+            erlang:halt(47)
     end.
 
 parse_version(V) when is_list(V) ->
@@ -265,7 +270,7 @@ check_and_install(TargetNode, Vsn) ->
         {ok, _OtherVsn, _Desc} ->
             ok;
         {error, Reason} ->
-            ?INFO("ERROR: release_handler:check_install_release failed: ~p.",[Reason]),
+            ?ERROR("Call release_handler:check_install_release failed: ~p.", [Reason]),
             erlang:halt(3)
     end,
     case rpc:call(TargetNode, release_handler, install_release,
@@ -278,18 +283,18 @@ check_and_install(TargetNode, Vsn) ->
                 iolist_to_binary(
                     [io_lib:format("* ~s\t~s~n",[V,S]) ||  {V,S} <- which_releases(TargetNode)]),
             ?INFO("Installed versions:~n~s", [VerList]),
-            ?INFO("ERROR: Unable to revert to '~s' - not installed.", [Vsn]),
+            ?ERROR("Unable to revert to '~s' - not installed.", [Vsn]),
             erlang:halt(2);
         %% as described in http://erlang.org/doc/man/appup.html, when performing a relup
         %% with soft purge:
         %%      If the value is soft_purge, release_handler:install_release/1
         %%      returns {error,{old_processes,Mod}}
         {error, {old_processes, Mod}} ->
-            ?INFO("ERROR: unable to install '~s' - old processes still running code from module ~p",
+            ?ERROR("Unable to install '~s' - old processes still running code from module ~p",
                 [Vsn, Mod]),
             erlang:halt(3);
         {error, Reason1} ->
-            ?INFO("ERROR: release_handler:install_release failed: ~p",[Reason1]),
+            ?ERROR("Call release_handler:install_release failed: ~p",[Reason1]),
             erlang:halt(4)
     end.
 
@@ -320,7 +325,7 @@ remove_release(TargetNode, Vsn) ->
             ?INFO("Uninstalled Release: ~s", [Vsn]),
             ok;
         {error, Reason} ->
-            ?INFO("ERROR: release_handler:remove_release failed: ~p", [Reason]),
+            ?ERROR("Call release_handler:remove_release failed: ~p", [Reason]),
             erlang:halt(3)
     end.
 
@@ -382,10 +387,10 @@ validate_target_version(TargetVersion, TargetNode) ->
     case {get_major_minor_vsn(CurrentVersion), get_major_minor_vsn(TargetVersion)} of
         {{Major, Minor}, {Major, Minor}} -> ok;
         _ ->
-            ?INFO("Cannot upgrade/downgrade from ~s to ~s~n"
-                  "Hot upgrade is only supported between patch releases.",
-                [CurrentVersion, TargetVersion]),
-            error({relup_not_allowed, unsupported_target_version})
+            ?ERROR("Cannot upgrade/downgrade from '~s' to '~s'~n"
+                   "Hot upgrade is only supported between patch releases.",
+                   [CurrentVersion, TargetVersion]),
+            erlang:halt(48)
     end.
 
 get_major_minor_vsn(Version) ->
@@ -397,7 +402,9 @@ get_major_minor_vsn(Version) ->
 parse_semver(Version) ->
     case re:run(Version, ?SEMVER_RE, [{capture, all_but_first, binary}]) of
         {match, Parts} -> Parts;
-        nomatch -> error({invalid_semver, Version})
+        nomatch ->
+            ?ERROR("Invalid semantic version: '~s'~n", [Version]),
+            erlang:halt(22)
     end.
 
 str(A) when is_atom(A) ->
