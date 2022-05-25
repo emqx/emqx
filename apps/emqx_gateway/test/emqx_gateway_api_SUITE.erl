@@ -491,7 +491,7 @@ t_authn_fuzzy_search(_) ->
         }
     ],
 
-    FuzzyDatas = [[{<<"like_username">>, <<"test">>}], [{<<"is_superuser">>, <<"true">>}]],
+    FuzzyDatas = [[{<<"like_user_id">>, <<"test">>}], [{<<"is_superuser">>, <<"true">>}]],
 
     lists:foreach(Create, UserDatas),
     lists:foreach(Checker, lists:zip(UserDatas, FuzzyDatas)),

@@ -429,16 +429,10 @@ schema("/authentication/:id/users") ->
                 param_auth_id(),
                 ref(emqx_dashboard_swagger, page),
                 ref(emqx_dashboard_swagger, limit),
-                {like_username,
+                {like_user_id,
                     mk(binary(), #{
                         in => query,
-                        desc => ?DESC(like_username),
-                        required => false
-                    })},
-                {like_clientid,
-                    mk(binary(), #{
-                        in => query,
-                        desc => ?DESC(like_clientid),
+                        desc => ?DESC(like_user_id),
                         required => false
                     })},
                 {is_superuser,
