@@ -69,8 +69,7 @@
 
 -define(TAB, ?MODULE).
 -define(AUTHN_QSCHEMA, [
-    {<<"like_username">>, binary},
-    {<<"like_clientid">>, binary},
+    {<<"like_user_id">>, binary},
     {<<"user_group">>, binary},
     {<<"is_superuser">>, atom}
 ]).
@@ -319,14 +318,9 @@ run_fuzzy_filter(_, []) ->
     true;
 run_fuzzy_filter(
     E = #user_info{user_id = {_, UserID}},
-    [{username, like, UsernameSubStr} | Fuzzy]
+    [{user_id, like, UsernameSubStr} | Fuzzy]
 ) ->
-    binary:match(UserID, UsernameSubStr) /= nomatch andalso run_fuzzy_filter(E, Fuzzy);
-run_fuzzy_filter(
-    E = #user_info{user_id = {_, UserID}},
-    [{clientid, like, ClientIDSubStr} | Fuzzy]
-) ->
-    binary:match(UserID, ClientIDSubStr) /= nomatch andalso run_fuzzy_filter(E, Fuzzy).
+    binary:match(UserID, UsernameSubStr) /= nomatch andalso run_fuzzy_filter(E, Fuzzy).
 
 %%------------------------------------------------------------------------------
 %% Internal functions

@@ -194,8 +194,7 @@ parse_qstring(Qs) ->
         [
             <<"page">>,
             <<"limit">>,
-            <<"like_username">>,
-            <<"like_clientid">>,
+            <<"like_user_id">>,
             <<"is_superuser">>
         ],
         Qs
@@ -379,24 +378,14 @@ params_paging_in_qs() ->
 
 params_fuzzy_in_qs() ->
     [
-        {like_username,
+        {like_user_id,
             mk(
                 binary(),
                 #{
                     in => query,
                     required => false,
-                    desc => ?DESC(like_username),
+                    desc => ?DESC(like_user_id),
                     example => <<"username">>
-                }
-            )},
-        {like_clientid,
-            mk(
-                binary(),
-                #{
-                    in => query,
-                    required => false,
-                    desc => ?DESC(like_clientid),
-                    example => <<"clientid">>
                 }
             )},
         {is_superuser,
