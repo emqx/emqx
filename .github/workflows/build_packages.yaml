@@ -227,7 +227,7 @@ jobs:
           - centos8
           - centos7
           - centos6
-          - raspbian10
+          # - raspbian10 #armv6l is too slow to emulate
           # - raspbian9
         exclude:
         - os: centos6
