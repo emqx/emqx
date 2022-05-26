@@ -205,7 +205,6 @@ jobs:
           - zip
           - pkg
         otp:
-          - 23.3.4.9-3
           - 24.1.5-3
         arch:
           - amd64
@@ -221,8 +220,6 @@ jobs:
           - centos7
           - raspbian10
         exclude:
-        - package: pkg
-          otp: 23.3.4.9-3
         - os: raspbian9
           arch: amd64
         - os: raspbian10
@@ -376,7 +373,6 @@ jobs:
       matrix:
         profile: ${{fromJSON(needs.prepare.outputs.profiles)}}
         otp:
-          - 23.3.4.9-3
           - 24.1.5-3
         include:
           - profile: emqx
