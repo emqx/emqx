@@ -41,6 +41,7 @@ groups() ->
     ].
 
 init_per_suite(Config) ->
+    _ = application:stop(grpoc),
     ok = emqx_logger:set_log_level(emergency),
     application:ensure_all_started(gproc),
     Config.
