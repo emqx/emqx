@@ -10,12 +10,12 @@ jobs:
       - uses: actions/checkout@v2
         with:
           fetch-depth: 1000
-      - name: Check line-break at EOF
-        run: |
-          ./scripts/check-nl-at-eof.sh
       - name: Work around https://github.com/actions/checkout/issues/766
         run: |
           git config --global --add safe.directory "$GITHUB_WORKSPACE"
+      - name: Check line-break at EOF
+        run: |
+          ./scripts/check-nl-at-eof.sh
       - name: Check Elixir code formatting
         run: |
           mix format --check-formatted
@@ -27,4 +27,3 @@ jobs:
       - name: Run elvis check
         run: |
           ./scripts/elvis-check.sh $GITHUB_BASE_REF
-
