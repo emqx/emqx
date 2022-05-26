@@ -30,6 +30,7 @@ File format:
 * Fix mqtt-sn client disconnected due to re-send a duplicated qos2 message
 * Rule-engine function hexstr2bin/1 support half byte [#7977]
 * Add rule-engine function float2str/2, user can specify the float output precision [#7991]
+* Shared message delivery when all alive shared subs have full inflight
 
 * Improved resilience against autocluster partitioning during cluster
   startup. [#7876]
