@@ -736,8 +736,7 @@ prop_format_date_fun() ->
     Args3 = [<<"second">>, <<"+04:00">>, <<"--%m--%d--%Y---%H:%M:%S">>, Second],
     Formatters3 = apply_func(format_date, Args3),
     % -04:00 remove offset
-    OffsetSeconds = emqx_rule_funcs:timezone_to_second(<<"-04:00">>),
-    Args3DTUS = [<<"second">>, OffsetSeconds, <<"--%m--%d--%Y---%H:%M:%S">>, Formatters3],
+    Args3DTUS = [<<"second">>, <<"-04:00">>, <<"--%m--%d--%Y---%H:%M:%S">>, Formatters3],
     Second == apply_func(date_to_unix_ts, Args3DTUS).
 
 apply_func(Name, Args) when is_atom(Name) ->
@@ -888,9 +887,9 @@ message() ->
 %% CT functions
 %%------------------------------------------------------------------------------
 
-all() -> [t_format_date_funcs].
-    % IsTestCase = fun("t_" ++ _) -> true; (_) -> false end,
-    % [F || {F, _A} <- module_info(exports), IsTestCase(atom_to_list(F))].
+all() ->
+    IsTestCase = fun("t_" ++ _) -> true; (_) -> false end,
+    [F || {F, _A} <- module_info(exports), IsTestCase(atom_to_list(F))].
 
 suite() ->
     [{ct_hooks, [cth_surefire]}, {timetrap, {seconds, 30}}].

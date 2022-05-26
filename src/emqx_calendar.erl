@@ -71,7 +71,6 @@ parse(DateStr, Unit, Formatter) ->
     do_parse(DateStr, Unit, Formatter).
 %% -------------------------------------------------------------------------------------------------
 %% internal
-%% emqx_calendar:format(erlang:system_time(second), <<"second">>, <<"+8:00">> ,<<"%Y-%m-%d-%H:%M:%S%Z">>).
 
 time_unit(second) -> second;
 time_unit(millisecond) -> millisecond;
