@@ -27,7 +27,7 @@ start_link() ->
 
 init([]) ->
     AuthnMetrics = emqx_metrics_worker:child_spec(emqx_authn_metrics, authn_metrics),
-    AuthzMetrics = emqx_metrics_worker:child_spec(eqmx_authz_metrics, authz_metrics),
+    AuthzMetrics = emqx_metrics_worker:child_spec(emqx_authz_metrics, authz_metrics),
     {ok,
         {
             {one_for_one, 10, 100},
