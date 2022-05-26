@@ -165,20 +165,6 @@ profiles_ce() ->
             {overrides, prod_overrides()},
             {project_app_dirs, project_app_dirs(ce)},
             {post_hooks, [{compile, "bash build emqx-pkg doc"}]}
-        ]},
-        {'emqx-edge', [
-            {erl_opts, prod_compile_opts(edge, Vsn)},
-            {relx, relx(Vsn, edge, bin, ce)},
-            {overrides, prod_overrides()},
-            {project_app_dirs, project_app_dirs(ce)},
-            {post_hooks, [{compile, "bash build emqx-edge doc"}]}
-        ]},
-        {'emqx-edge-pkg', [
-            {erl_opts, prod_compile_opts(edge, Vsn)},
-            {relx, relx(Vsn, edge, pkg, ce)},
-            {overrides, prod_overrides()},
-            {project_app_dirs, project_app_dirs(ce)},
-            {post_hooks, [{compile, "bash build emqx-edge-pkg doc"}]}
         ]}
     ].
 
@@ -217,7 +203,7 @@ profiles_dev() ->
         ]}
     ].
 
-%% RelType: cloud (full size) | edge (slim size)
+%% RelType: cloud (full size)
 %% PkgType: bin | pkg
 %% Edition: ce (community) | ee (enterprise)
 relx(Vsn, RelType, PkgType, Edition) ->
@@ -257,23 +243,15 @@ relform() ->
     end.
 
 emqx_description(cloud, ee) -> "EMQX Enterprise";
-emqx_description(cloud, ce) -> "EMQX";
-emqx_description(edge, ce) -> "EMQX Edge".
+emqx_description(cloud, ce) -> "EMQX".
 
 overlay_vars(RelType, PkgType, Edition) ->
     overlay_vars_rel(RelType) ++
         overlay_vars_pkg(PkgType) ++
         overlay_vars_edition(Edition).
 
-%% vars per release type, cloud or edge
-overlay_vars_rel(RelType) ->
-    VmArgs =
-        case RelType of
-            cloud -> "vm.args";
-            edge -> "vm.args.edge"
-        end,
-
-    [{vm_args_file, VmArgs}].
+overlay_vars_rel(cloud) ->
+    [{vm_args_file, "vm.args"}].
 
 overlay_vars_edition(ce) ->
     [
@@ -330,6 +308,7 @@ relx_apps(ReleaseType, Edition) ->
         compiler,
         runtime_tools,
         redbug,
+        xmerl,
         {hocon, load},
         % started by emqx_machine
         {emqx, load},
@@ -365,16 +344,8 @@ relx_apps(ReleaseType, Edition) ->
         [quicer || is_quicer_supported()] ++
         [bcrypt || provide_bcrypt_release(ReleaseType)] ++
         [jq || provide_jq()] ++
-        relx_apps_per_rel(ReleaseType) ++
-        relx_additional_apps(ReleaseType, Edition).
-
-relx_apps_per_rel(cloud) ->
-    [
-        xmerl
-        | [{observer, load} || is_app(observer)]
-    ];
-relx_apps_per_rel(edge) ->
-    [].
+        [{observer, load} || is_app(observer)] ++
+        relx_apps_per_edition(Edition).
 
 is_app(Name) ->
     case application:load(Name) of
@@ -382,15 +353,6 @@ is_app(Name) ->
         {error, {already_loaded, _}} -> true;
         _ -> false
     end.
-
-relx_additional_apps(ReleaseType, Edition) ->
-    relx_plugin_apps_per_rel(ReleaseType) ++
-        relx_apps_per_edition(Edition).
-
-relx_plugin_apps_per_rel(cloud) ->
-    [];
-relx_plugin_apps_per_rel(edge) ->
-    [].
 
 relx_apps_per_edition(ee) ->
     [
@@ -480,9 +442,7 @@ emqx_etc_overlay(ReleaseType, Edition) ->
         emqx_etc_overlay_common().
 
 emqx_etc_overlay_per_rel(cloud) ->
-    [{"{{base_dir}}/lib/emqx/etc/emqx_cloud/vm.args", "etc/vm.args"}];
-emqx_etc_overlay_per_rel(edge) ->
-    [{"{{base_dir}}/lib/emqx/etc/emqx_edge/vm.args", "etc/vm.args"}].
+    [{"{{base_dir}}/lib/emqx/etc/emqx_cloud/vm.args", "etc/vm.args"}].
 
 emqx_etc_overlay_common() ->
     [{"{{base_dir}}/lib/emqx/etc/ssl_dist.conf", "etc/ssl_dist.conf"}].

@@ -41,7 +41,6 @@ jobs:
       matrix:
         profile:
           - emqx
-          - emqx-edge
           - emqx-enterprise
           - emqx-elixir
         cluster_db_backend:
@@ -55,9 +54,6 @@ jobs:
           - 1.13.3
         arch:
           - amd64
-        exclude:
-          - profile: emqx-edge
-            cluster_db_backend: rlog
     steps:
     - uses: actions/download-artifact@v2
       with:

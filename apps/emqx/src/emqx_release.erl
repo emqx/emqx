@@ -26,14 +26,12 @@
 
 -define(EMQX_DESCS, #{
     ee => "EMQX Enterprise",
-    ce => "EMQX",
-    edge => "EMQX Edge"
+    ce => "EMQX"
 }).
 
 -define(EMQX_REL_VSNS, #{
     ee => ?EMQX_RELEASE_EE,
-    ce => ?EMQX_RELEASE_CE,
-    edge => ?EMQX_RELEASE_CE
+    ce => ?EMQX_RELEASE_CE
 }).
 
 %% @doc Return EMQX description.
@@ -43,7 +41,7 @@ description() ->
 %% @doc Return EMQX edition info.
 %% Read info from persistent_term at runtime.
 %% Or meck this function to run tests for another edition.
--spec edition() -> ce | ee | edge.
+-spec edition() -> ce | ee.
 -ifdef(EMQX_RELEASE_EDITION).
 edition() -> ?EMQX_RELEASE_EDITION.
 -else.

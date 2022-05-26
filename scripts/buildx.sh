@@ -16,7 +16,7 @@ set -euo pipefail
 help() {
     echo
     echo "-h|--help:                 To display this usage information"
-    echo "--profile <PROFILE>:       EMQX profile to build (emqx|emqx-edge|emqx-enterprise)"
+    echo "--profile <PROFILE>:       EMQX profile to build (emqx|emqx-enterprise)"
     echo "--pkgtype tgz|pkg:         Specify which package to build, tgz for .tar.gz,"
     echo "                           pkg for .rpm or .deb"
     echo "--elixir:                  Specify if the release should be built with Elixir, "

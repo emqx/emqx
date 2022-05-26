@@ -21,10 +21,6 @@ case $PROFILE in
         DIR='enterprise'
         EDITION='enterprise'
         ;;
-    "emqx-edge")
-        DIR='edge'
-        EDITION='edge'
-        ;;
     *)
         echo "Unknown profile $PROFILE"
         exit 1

@@ -22,7 +22,7 @@ defmodule CheckElixirApplications do
       env: [{"DEBUG", "1"}]
     )
 
-    mix_apps = mix_applications(inputs.release_type, inputs.edition_type)
+    mix_apps = mix_applications(inputs.edition_type)
     rebar_apps = rebar_applications(profile)
     results = diff_apps(mix_apps, rebar_apps)
 
@@ -70,8 +70,8 @@ defmodule CheckElixirApplications do
     end
   end
 
-  defp mix_applications(release_type, edition_type) do
-    EMQXUmbrella.MixProject.applications(release_type, edition_type)
+  defp mix_applications(edition_type) do
+    EMQXUmbrella.MixProject.applications(edition_type)
   end
 
   defp rebar_applications(profile) do

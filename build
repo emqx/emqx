@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 
 # This script helps to build release artifacts.
-# arg1: profile, e.g. emqx | emqx-edge | emqx-pkg | emqx-edge-pkg
+# arg1: profile, e.g. emqx | emqx-pkg
 # arg2: artifact, e.g. rel | relup | tgz | pkg
 
 if [[ -n "$DEBUG" ]]; then
@@ -237,10 +237,10 @@ function join {
 export_release_vars() {
   local profile="$1"
   case "$profile" in
-    emqx|emqx-edge|emqx-enterprise)
+    emqx|emqx-enterprise)
       export ELIXIR_MAKE_TAR=${ELIXIR_MAKE_TAR:-no}
       ;;
-    emqx-pkg|emqx-edge-pkg|emqx-enterprise-pkg)
+    emqx-pkg|emqx-enterprise-pkg)
       export ELIXIR_MAKE_TAR=${ELIXIR_MAKE_TAR:-yes}
       ;;
     *)
@@ -254,9 +254,6 @@ export_release_vars() {
   case "$profile" in
     *enterprise*)
       erl_opts+=( "{d, 'EMQX_RELEASE_EDITION', ee}" )
-      ;;
-    *edge*)
-      erl_opts+=( "{d, 'EMQX_RELEASE_EDITION', edge}" )
       ;;
     *)
       erl_opts+=( "{d, 'EMQX_RELEASE_EDITION', ce}" )

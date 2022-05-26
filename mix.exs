@@ -16,10 +16,8 @@ defmodule EMQXUmbrella.MixProject do
   The following profiles are valid:
 
     * `emqx`
-    * `emqx-edge`
     * `emqx-enterprise`
     * `emqx-pkg`
-    * `emqx-edge-pkg`
     * `emqx-enterprise-pkg`
     * `dev` -> same as `emqx`, for convenience
 
@@ -132,7 +130,7 @@ defmodule EMQXUmbrella.MixProject do
           end
 
         [
-          applications: applications(release_type, edition_type),
+          applications: applications(edition_type),
           skip_mode_validation_for: [
             :emqx_gateway,
             :emqx_dashboard,
@@ -156,7 +154,7 @@ defmodule EMQXUmbrella.MixProject do
     ]
   end
 
-  def applications(release_type, edition_type) do
+  def applications(edition_type) do
     [
       crypto: :permanent,
       public_key: :permanent,
@@ -168,6 +166,7 @@ defmodule EMQXUmbrella.MixProject do
       compiler: :permanent,
       runtime_tools: :permanent,
       redbug: :permanent,
+      xmerl: :permanent,
       hocon: :load,
       emqx: :load,
       emqx_conf: :load,
@@ -203,15 +202,15 @@ defmodule EMQXUmbrella.MixProject do
       if(enable_quicer?(), do: [quicer: :permanent], else: []) ++
       if(enable_bcrypt?(), do: [bcrypt: :permanent], else: []) ++
       if(enable_jq?(), do: [jq: :permanent], else: []) ++
-      if(edition_type == :enterprise,
-        do: [
-          emqx_enterprise_conf: :load,
-          emqx_license: :permanent
-        ],
+      if(is_app(:observer),
+        do: [observer: :load],
         else: []
       ) ++
-      if(release_type == :cloud,
-        do: [xmerl: :permanent, observer: :load],
+      if(edition_type == :enterprise,
+        do: [
+          emqx_license: :permanent,
+          emqx_enterprise_conf: :load
+        ],
         else: []
       )
   end
@@ -244,6 +243,19 @@ defmodule EMQXUmbrella.MixProject do
       []
   end
 
+  defp is_app(name) do
+    case Application.load(name) do
+      :ok ->
+        true
+
+      {:error, {:already_loaded, _}} ->
+        true
+
+      _ ->
+        false
+    end
+  end
+
   defp emqx_machine_boot_app_list(edition_type) do
     edition_type
     |> emqx_machine_boot_apps()
@@ -257,9 +269,7 @@ defmodule EMQXUmbrella.MixProject do
       :emqx,
       :"emqx-pkg",
       :"emqx-enterprise",
-      :"emqx-enterprise-pkg",
-      :"emqx-edge",
-      :"emqx-edge-pkg"
+      :"emqx-enterprise-pkg"
     ]
 
     if Mix.env() not in valid_envs do
@@ -286,17 +296,11 @@ defmodule EMQXUmbrella.MixProject do
         :emqx ->
           {:cloud, :bin, :community}
 
-        :"emqx-edge" ->
-          {:edge, :bin, :community}
-
         :"emqx-enterprise" ->
           {:cloud, :bin, :enterprise}
 
         :"emqx-pkg" ->
           {:cloud, :pkg, :community}
-
-        :"emqx-edge-pkg" ->
-          {:edge, :pkg, :community}
 
         :"emqx-enterprise-pkg" ->
           {:cloud, :pkg, :enterprise}
@@ -390,9 +394,6 @@ defmodule EMQXUmbrella.MixProject do
       case release_type do
         :cloud ->
           "apps/emqx/etc/emqx_cloud/vm.args"
-
-        :edge ->
-          "apps/emqx/etc/emqx_edge/vm.args"
       end
 
     render_template(
@@ -594,9 +595,6 @@ defmodule EMQXUmbrella.MixProject do
 
       {:cloud, :community} ->
         "EMQX"
-
-      {:edge, :community} ->
-        "EMQX Edge"
     end
   end
 

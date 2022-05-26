@@ -9,9 +9,6 @@ case "${MAKE_TARGET}" in
     emqx-enterprise-*)
         EMQX_NAME='emqx-enterprise'
         ;;
-    emqx-edge-*)
-        EMQX_NAME='emqx-edge'
-        ;;
     emqx-*)
         EMQX_NAME='emqx'
         ;;
