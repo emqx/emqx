@@ -1,14 +1,9 @@
 %% -*- mode: erlang -*-
+%% Unless you know what you are doing, DO NOT edit manually!!
 {VSN,
-  [
-   {"4.3.6",
-    [ %% There are only changes to the schema file, so we don't need any
-      %% commands here
-    ]},
-   {<<"4\\.3\\.[4-5]">>,
-    [{load_module,emqx_exproto_conn,brutal_purge,soft_purge,[]},
-     {load_module,emqx_exproto_channel,brutal_purge,soft_purge,[]}]},
-   {<<"4\\.3\\.[2-3]">>,
+  [{<<"4\\.3\\.[6-7]">>,
+    [{load_module,emqx_exproto_channel,brutal_purge,soft_purge,[]}]},
+   {<<"4\\.3\\.[2-5]">>,
     [{load_module,emqx_exproto_conn,brutal_purge,soft_purge,[]},
      {load_module,emqx_exproto_channel,brutal_purge,soft_purge,[]}]},
    {<<"4\\.3\\.[0-1]">>,
@@ -17,11 +12,9 @@
      {load_module,emqx_exproto_conn,brutal_purge,soft_purge,[]},
      {load_module,emqx_exproto_channel,brutal_purge,soft_purge,[]}]},
    {<<".*">>,[]}],
-  [{"4.3.6", []},
-   {<<"4\\.3\\.[4-5]">>,
-    [{load_module,emqx_exproto_conn,brutal_purge,soft_purge,[]},
-     {load_module,emqx_exproto_channel,brutal_purge,soft_purge,[]}]},
-   {<<"4\\.3\\.[2-3]">>,
+  [{<<"4\\.3\\.[6-7]">>,
+    [{load_module,emqx_exproto_channel,brutal_purge,soft_purge,[]}]},
+   {<<"4\\.3\\.[2-5]">>,
     [{load_module,emqx_exproto_conn,brutal_purge,soft_purge,[]},
      {load_module,emqx_exproto_channel,brutal_purge,soft_purge,[]}]},
    {<<"4\\.3\\.[0-1]">>,

@@ -5,6 +5,7 @@
 
 -define(TIMEOUT, 300000).
 -define(INFO(Fmt,Args), io:format(Fmt++"~n",Args)).
+-define(SEMVER_RE, <<"^(0|[1-9]\\d*)\\.(0|[1-9]\\d*)\\.(0|[1-9]\\d*)(-[a-zA-Z\\d][-a-zA-Z.\\d]*)?(\\+[a-zA-Z\\d][-a-zA-Z.\\d]*)?$">>).
 
 -mode(compile).
 
@@ -54,6 +55,7 @@ unpack(_, Args) ->
 install({RelName, NameTypeArg, NodeName, Cookie}, Opts) ->
     TargetNode = start_distribution(NodeName, NameTypeArg, Cookie),
     Version = proplists:get_value(version, Opts),
+    validate_target_version(Version, TargetNode),
     case unpack_release(RelName, TargetNode, Version) of
         {ok, Vsn} ->
             ?INFO("Unpacked successfully: ~p.", [Vsn]),
@@ -426,6 +428,29 @@ erts_vsn() ->
     {ok, Str} = file:read_file(filename:join(["releases", "start_erl.data"])),
     [ErtsVsn, _] = string:tokens(binary_to_list(Str), " "),
     ErtsVsn.
+
+validate_target_version(TargetVersion, TargetNode) ->
+    CurrentVersion = current_release_version(TargetNode),
+    case {get_major_minor_vsn(CurrentVersion), get_major_minor_vsn(TargetVersion)} of
+        {{Major, Minor}, {Major, Minor}} -> ok;
+        _ ->
+            ?INFO("Cannot upgrade/downgrade to ~s from ~s~n"
+                  "We only support relup between patch versions",
+                [TargetVersion, CurrentVersion]),
+            error({relup_not_allowed, unsupported_target_version})
+    end.
+
+get_major_minor_vsn(Version) ->
+    Parts = parse_semver(Version),
+    [Major | Rem0] = Parts,
+    [Minor | _Rem1] = Rem0,
+    {Major, Minor}.
+
+parse_semver(Version) ->
+    case re:run(Version, ?SEMVER_RE, [{capture, all_but_first, binary}]) of
+        {match, Parts} -> Parts;
+        nomatch -> error({invalid_semver, Version})
+    end.
 
 str(A) when is_atom(A) ->
     atom_to_list(A);

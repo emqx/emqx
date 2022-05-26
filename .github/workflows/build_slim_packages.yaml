@@ -29,6 +29,8 @@ jobs:
         else
           echo "EMQX_NAME=emqx" >> $GITHUB_ENV
         fi
+    - name: fix-git-unsafe-repository
+      run: git config --global --add safe.directory /__w/emqx/emqx
     - name: build zip packages
       run: make ${EMQX_NAME}-zip
     - name: build deb/rpm packages

@@ -201,6 +201,8 @@
         , unix_ts_to_rfc3339/2
         , format_date/3
         , format_date/4
+        , timezone_to_second/1
+        , date_to_unix_ts/3
         , date_to_unix_ts/4
         , rfc3339_to_unix_ts/1
         , rfc3339_to_unix_ts/2
@@ -923,26 +925,37 @@ now_timestamp(Unit) ->
 time_unit(<<"second">>) -> second;
 time_unit(<<"millisecond">>) -> millisecond;
 time_unit(<<"microsecond">>) -> microsecond;
-time_unit(<<"nanosecond">>) -> nanosecond.
+time_unit(<<"nanosecond">>) -> nanosecond;
+time_unit(second) -> second;
+time_unit(millisecond) -> millisecond;
+time_unit(microsecond) -> microsecond;
+time_unit(nanosecond) -> nanosecond.
 
 format_date(TimeUnit, Offset, FormatString) ->
-    emqx_rule_utils:bin(
-      emqx_rule_date:date(time_unit(TimeUnit),
-                          emqx_rule_utils:str(Offset),
-                          emqx_rule_utils:str(FormatString))).
+    Unit = time_unit(TimeUnit),
+    TimeEpoch = erlang:system_time(Unit),
+    format_date(Unit, Offset, FormatString, TimeEpoch).
+
+timezone_to_second(TimeZone) ->
+    emqx_calendar:offset_second(TimeZone).
 
 format_date(TimeUnit, Offset, FormatString, TimeEpoch) ->
+    Unit = time_unit(TimeUnit),
     emqx_rule_utils:bin(
-      emqx_rule_date:date(time_unit(TimeUnit),
-                          emqx_rule_utils:str(Offset),
-                          emqx_rule_utils:str(FormatString),
-                          TimeEpoch)).
+        lists:concat(
+            emqx_calendar:format(TimeEpoch, Unit, Offset, FormatString))).
 
+%% date string has timezone information, calculate the offset.
+date_to_unix_ts(TimeUnit, FormatString, InputString) ->
+    Unit = time_unit(TimeUnit),
+    emqx_calendar:parse(InputString, Unit, FormatString).
+
+%% date string has no timezone information, force add the offset.
 date_to_unix_ts(TimeUnit, Offset, FormatString, InputString) ->
-    emqx_rule_date:parse_date(time_unit(TimeUnit),
-                              emqx_rule_utils:str(Offset),
-                              emqx_rule_utils:str(FormatString),
-                              emqx_rule_utils:str(InputString)).
+    Unit = time_unit(TimeUnit),
+    OffsetSecond = emqx_calendar:offset_second(Offset),
+    OffsetDelta = erlang:convert_time_unit(OffsetSecond, second, Unit),
+    date_to_unix_ts(Unit, FormatString, InputString) - OffsetDelta.
 
 mongo_date() ->
     erlang:timestamp().

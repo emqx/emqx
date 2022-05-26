@@ -1,13 +1,9 @@
 %% -*- mode: erlang -*-
 %% Unless you know what you are doing, DO NOT edit manually!!
 {VSN,
-  [{"4.3.2",
-    [{restart_application,emqx_auth_jwt}]},
-   {<<"4\\.3\\.[0-1]">>,
+  [{<<"4\\.3\\.[0-2]">>,
     [{restart_application,emqx_auth_jwt}]},
    {<<".*">>,[]}],
-  [{"4.3.2",
-    [{restart_application,emqx_auth_jwt}]},
-   {<<"4\\.3\\.[0-1]">>,
+  [{<<"4\\.3\\.[0-2]">>,
     [{restart_application,emqx_auth_jwt}]},
    {<<".*">>,[]}]}.

@@ -56,7 +56,6 @@ load_auth_hook() ->
     ClientidList = application:get_env(?APP, clientid_list, []),
     UsernameList = application:get_env(?APP, username_list, []),
     ok = emqx_auth_mnesia:init(#{clientid_list => ClientidList, username_list => UsernameList}),
-    ok = emqx_auth_mnesia:register_metrics(),
     Params = #{hash_type => emqx_auth_mnesia:hash_type()},
     emqx:hook('client.authenticate', fun emqx_auth_mnesia:check/3, [Params]).
 

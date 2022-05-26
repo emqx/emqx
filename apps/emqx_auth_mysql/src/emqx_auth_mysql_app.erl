@@ -50,7 +50,6 @@ stop(_State) ->
     ok.
 
 load_auth_hook(AuthQuery) ->
-    ok = emqx_auth_mysql:register_metrics(),
     SuperQuery = parse_query(application:get_env(?APP, super_query, undefined)),
     {ok, HashType} = application:get_env(?APP, password_hash),
     Params = #{auth_query  => AuthQuery,

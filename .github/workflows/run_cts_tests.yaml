@@ -45,6 +45,8 @@ jobs:
           if make emqx-ee --dry-run > /dev/null 2>&1; then
             docker exec -i erlang bash -c "echo \"https://ci%40emqx.io:${{ secrets.CI_GIT_TOKEN }}@github.com\" > /root/.git-credentials && git config --global credential.helper store"
           fi
+      - name: fix-git-unsafe-repository
+        run: docker exec -i erlang sh -c "git config --global --add safe.directory /emqx"
       - name: run test cases
         run: |
           docker exec -i erlang sh -c "make ensure-rebar3"
@@ -115,6 +117,8 @@ jobs:
           if make emqx-ee --dry-run > /dev/null 2>&1; then
             docker exec -i erlang bash -c "echo \"https://ci%40emqx.io:${{ secrets.CI_GIT_TOKEN }}@github.com\" > /root/.git-credentials && git config --global credential.helper store"
           fi
+      - name: fix-git-unsafe-repository
+        run: docker exec -i erlang sh -c "git config --global --add safe.directory /emqx"
       - name: run test cases
         run: |
           printenv | grep "^EMQX_" > .env
@@ -197,6 +201,8 @@ jobs:
           if make emqx-ee --dry-run > /dev/null 2>&1; then
             docker exec -i erlang bash -c "echo \"https://ci%40emqx.io:${{ secrets.CI_GIT_TOKEN }}@github.com\" > /root/.git-credentials && git config --global credential.helper store"
           fi
+      - name: fix-git-unsafe-repository
+        run: docker exec -i erlang sh -c "git config --global --add safe.directory /emqx"
       - name: run test cases
         run: |
           printenv | grep "^EMQX_" > .env
@@ -268,6 +274,8 @@ jobs:
           if make emqx-ee --dry-run > /dev/null 2>&1; then
             docker exec -i erlang bash -c "echo \"https://ci%40emqx.io:${{ secrets.CI_GIT_TOKEN }}@github.com\" > /root/.git-credentials && git config --global credential.helper store"
           fi
+      - name: fix-git-unsafe-repository
+        run: docker exec -i erlang sh -c "git config --global --add safe.directory /emqx"
       - name: run test cases
         run: |
           export EMQX_AUTH__PGSQL__USERNAME=root \
@@ -391,6 +399,8 @@ jobs:
           if make emqx-ee --dry-run > /dev/null 2>&1; then
             docker exec -i erlang bash -c "echo \"https://ci%40emqx.io:${{ secrets.CI_GIT_TOKEN }}@github.com\" > /root/.git-credentials && git config --global credential.helper store"
           fi
+      - name: fix-git-unsafe-repository
+        run: docker exec -i erlang sh -c "git config --global --add safe.directory /emqx"
       - name: run test cases
         run: |
           export EMQX_AUTH__REIDS__PASSWORD=public
