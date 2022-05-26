@@ -19,6 +19,8 @@ jobs:
       - uses: actions/checkout@v2
         with:
           fetch-depth: 0 # need full history
+      - name: fix-git-unsafe-repository
+        run: git config --global --add safe.directory /__w/emqx/emqx
       - name: Check relup (ce)
         if: endsWith(github.repository, 'emqx')
         run: ./scripts/update-appup.sh emqx --check
