@@ -168,8 +168,8 @@ find_appup_actions(App,
     OldDowngrade = ensure_all_patch_versions(App, CurrVersion, OldDowngrade0),
     UpDiff = diff_app(up, App, CurrAppIdx, PrevAppIdx),
     DownDiff = diff_app(down, App, PrevAppIdx, CurrAppIdx),
-    Upgrade = merge_update_actions(App, UpDiff, OldUpgrade),
-    Downgrade = merge_update_actions(App, DownDiff, OldDowngrade),
+    Upgrade = merge_update_actions(App, UpDiff, OldUpgrade, PrevVersion),
+    Downgrade = merge_update_actions(App, DownDiff, OldDowngrade, PrevVersion),
     case OldUpgrade =:= Upgrade andalso OldDowngrade =:= Downgrade of
         true -> [];
         false -> [{App, {Upgrade, Downgrade, OldUpgrade, OldDowngrade}}]
@@ -258,13 +258,39 @@ find_base_appup_actions(App, PrevVersion) ->
         end,
     {ensure_version(PrevVersion, Upgrade), ensure_version(PrevVersion, Downgrade)}.
 
-merge_update_actions(App, Changes, Vsns) ->
+merge_update_actions(App, Changes, Vsns, PrevVersion) ->
     lists:map(fun(Ret = {<<".*">>, _}) ->
                       Ret;
                  ({Vsn, Actions}) ->
-                      {Vsn, do_merge_update_actions(App, Changes, Actions)}
+                      case is_skipped_version(App, Vsn, PrevVersion) of
+                          true ->
+                              log("WARN: ~p has version ~s skipped over?~n", [App, Vsn]),
+                              {Vsn, Actions};
+                          false ->
+                              {Vsn, do_merge_update_actions(App, Changes, Actions)}
+                      end
               end,
               Vsns).
+
+%% say current version is 1.1.3, and the compare base is version 1.1.1,
+%% but there is a 1.1.2 in appup we may skip merging instructions for
+%% 1.1.2 because it's not used and no way to know what has been changed
+is_skipped_version(App, Vsn, PrevVersion) when is_list(Vsn) andalso is_list(PrevVersion) ->
+    case is_app_external(App) andalso parse_version_number(Vsn) of
+        {ok, VsnTuple} ->
+            case parse_version_number(PrevVersion) of
+                {ok, PrevVsnTuple} ->
+                    VsnTuple > PrevVsnTuple;
+                _ ->
+                    false
+            end;
+        _ ->
+            false
+    end;
+is_skipped_version(_App, _Vsn, _PrevVersion) ->
+    %% if app version is a regexp, we don't know for sure
+    %% return 'false' to be on the safe side
+    false.
 
 do_merge_update_actions(App, {New0, Changed0, Deleted0}, OldActions) ->
     AppSpecific = app_specific_actions(App) -- OldActions,

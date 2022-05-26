@@ -39,6 +39,8 @@
         , deactivate/1
         , deactivate/2
         , delete_all_deactivated_alarms/0
+        , ensure_deactivated/1
+        , ensure_deactivated/2
         , get_alarms/0
         , get_alarms/1
         ]).
@@ -131,6 +133,24 @@ activate(Name) ->
 
 activate(Name, Details) ->
     gen_server:call(?MODULE, {activate_alarm, Name, Details}).
+
+-spec ensure_deactivated(binary() | atom()) -> ok.
+ensure_deactivated(Name) ->
+    ensure_deactivated(Name, no_details).
+
+-spec ensure_deactivated(binary() | atom(), atom() | map()) -> ok.
+ensure_deactivated(Name, Data) ->
+    %% this duplicates the dirty read in handle_call,
+    %% intention is to avoid making gen_server calls when there is no alarm
+    case mnesia:dirty_read(?ACTIVATED_ALARM, Name) of
+        [] ->
+            ok;
+        _ ->
+            case deactivate(Name, Data) of
+                {error, not_found} -> ok;
+                Other -> Other
+            end
+    end.
 
 deactivate(Name) ->
     gen_server:call(?MODULE, {deactivate_alarm, Name, no_details}).

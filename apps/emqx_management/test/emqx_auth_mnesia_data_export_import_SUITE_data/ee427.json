@@ -1,0 +1,88 @@
+{
+  "version": "4.2",
+  "date": "2022-05-24 12:09:56",
+  "modules": [
+    {
+      "id": "module:842a5c57",
+      "type": "mnesia_authentication",
+      "config": {
+        "password_hash": "sha256"
+      },
+      "enabled": true,
+      "created_at": 1653365372585,
+      "description": ""
+    },
+    {
+      "id": "module:e3d38e5a",
+      "type": "retainer",
+      "config": {
+        "storage_type": "ram",
+        "max_retained_messages": 0,
+        "max_payload_size": "1MB",
+        "expiry_interval": 0
+      },
+      "enabled": true,
+      "created_at": 1652436434273,
+      "description": ""
+    },
+    {
+      "id": "module:4f911150",
+      "type": "presence",
+      "config": {
+        "qos": 0
+      },
+      "enabled": true,
+      "created_at": 1652436434273,
+      "description": ""
+    },
+    {
+      "id": "module:db11d08f",
+      "type": "recon",
+      "config": {},
+      "enabled": true,
+      "created_at": 1652436434273,
+      "description": ""
+    }
+  ],
+  "rules": [],
+  "resources": [],
+  "blacklist": [],
+  "apps": [
+    {
+      "id": "admin",
+      "secret": "public",
+      "name": "Default",
+      "desc": "Application user",
+      "status": true,
+      "expired": "undefined"
+    }
+  ],
+  "users": [
+    {
+      "username": "admin",
+      "password": "oFu0ZiOAYJmB1DyOzoLwEervBK0=",
+      "tags": "administrator"
+    }
+  ],
+  "auth_mnesia": [
+    {
+      "login": "usera",
+      "type": "clientid",
+      "password": "WVlGsjBiNGJkOWRkN2QyZmYyOWViYjI4MzRiZjQyMDgzNDhkYzJjZmZlOGVjMjUzOGU5NDkwYmYyYjY5N2Q3NjUyMDU=",
+      "created_at": 1653365382492
+    }
+  ],
+  "acl_mnesia": [
+    {
+      "type": "clientid",
+      "type_value": "clientida",
+      "topic": "t/a",
+      "action": "pubsub",
+      "access": "allow",
+      "created_at": 1653365390351
+    }
+  ],
+  "schemas": [],
+  "configs": [],
+  "listeners_state": []
+}
