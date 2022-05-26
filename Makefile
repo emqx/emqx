@@ -3,12 +3,11 @@ REBAR = $(CURDIR)/rebar3
 BUILD = $(CURDIR)/build
 SCRIPTS = $(CURDIR)/scripts
 export EMQX_RELUP ?= true
-export EMQX_DEFAULT_BUILDER = ghcr.io/emqx/emqx-builder/5.0-16:1.13.4-24.2.1-1-alpine3.15.1
-export EMQX_DEFAULT_RUNNER = alpine:3.15.1
+export EMQX_DEFAULT_BUILDER = ghcr.io/emqx/emqx-builder/5.0-16:1.13.4-24.2.1-1-debian11
+export EMQX_DEFAULT_RUNNER = debian:11-slim
 export OTP_VSN ?= $(shell $(CURDIR)/scripts/get-otp-vsn.sh)
 export ELIXIR_VSN ?= $(shell $(CURDIR)/scripts/get-elixir-vsn.sh)
 export EMQX_DASHBOARD_VERSION ?= v0.35.0
-export DOCKERFILE := deploy/docker/Dockerfile
 export EMQX_REL_FORM ?= tgz
 ifeq ($(OS),Windows_NT)
 	export REBAR_COLOR=none
