@@ -209,13 +209,18 @@ make_tgz() {
     log "Tarball sha256sum: $(cat "${target}.sha256")"
 }
 
-## This function builds the default docker image based on alpine:3.15.1 (by default)
+## This function builds the default docker image based on debian 11
 make_docker() {
     EMQX_BUILDER="${EMQX_BUILDER:-${EMQX_DEFAULT_BUILDER}}"
     EMQX_RUNNER="${EMQX_RUNNER:-${EMQX_DEFAULT_RUNNER}}"
-
-    if [[ "$PROFILE" = *-elixir ]]
-    then
+    if [ -z "${EMQX_DOCKERFILE:-}" ]; then
+        if [[ "$EMQX_BUILDER" =~ "alpine" ]]; then
+            EMQX_DOCKERFILE='deploy/docker/Dockerfile.alpine'
+        else
+            EMQX_DOCKERFILE='deploy/docker/Dockerfile'
+        fi
+    fi
+    if [[ "$PROFILE" = *-elixir ]]; then
       PKG_VSN="$PKG_VSN-elixir"
     fi
 
@@ -225,7 +230,7 @@ make_docker() {
        --build-arg RUN_FROM="${EMQX_RUNNER}" \
        --build-arg EMQX_NAME="$PROFILE" \
        --tag "emqx/${PROFILE%%-elixir}:${PKG_VSN}" \
-       -f "${DOCKERFILE}" .
+       -f "${EMQX_DOCKERFILE}" .
 }
 
 function join {

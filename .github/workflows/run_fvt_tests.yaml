@@ -47,7 +47,7 @@ jobs:
           - mnesia
           - rlog
         os:
-          - alpine3.15.1
+          - ["alpine3.15.1", "alpine:3.15.1"]
         otp:
           - 24.2.1-1
         elixir:
@@ -78,12 +78,13 @@ jobs:
         path: |
           source/_build/default/lib/quicer/
           source/deps/quicer/
-        key: ${{ matrix.os }}-${{ matrix.elixir }}-${{ matrix.otp }}-${{ matrix.arch }}-${{ steps.deps-refs.outputs.DEP_QUICER_REF }}
+        key: ${{ matrix.os[0] }}-${{ matrix.elixir }}-${{ matrix.otp }}-${{ matrix.arch }}-${{ steps.deps-refs.outputs.DEP_QUICER_REF }}
 
     - name: make docker image
       working-directory: source
       env:
-        EMQX_BUILDER: ghcr.io/emqx/emqx-builder/5.0-16:${{ matrix.elixir }}-${{ matrix.otp }}-${{ matrix.os }}
+        EMQX_BUILDER: ghcr.io/emqx/emqx-builder/5.0-16:${{ matrix.elixir }}-${{ matrix.otp }}-${{ matrix.os[0] }}
+        EMQX_RUNNER: ${{ matrix.os[1] }}
       run: |
         make ${{ matrix.profile }}-docker
     - name: run emqx
@@ -128,7 +129,7 @@ jobs:
         profile:
         - emqx
         os:
-          - alpine3.15.1
+          - ["debian11", "debian:11-slim"]
         otp:
           - 24.2.1-1
         elixir:
@@ -158,12 +159,13 @@ jobs:
       uses: actions/cache@v2
       with:
         path: source/_build/default/lib/quicer/
-        key: ${{ matrix.os }}-${{ matrix.otp }}-${{ matrix.arch }}-${{ steps.deps-refs.outputs.DEP_QUICER_REF }}
+        key: ${{ matrix.os[0] }}-${{ matrix.otp }}-${{ matrix.arch }}-${{ steps.deps-refs.outputs.DEP_QUICER_REF }}
 
     - name: make docker image
       working-directory: source
       env:
-        EMQX_BUILDER: ghcr.io/emqx/emqx-builder/5.0-16:${{ matrix.elixir }}-${{ matrix.otp }}-${{ matrix.os }}
+        EMQX_BUILDER: ghcr.io/emqx/emqx-builder/5.0-16:${{ matrix.elixir }}-${{ matrix.otp }}-${{ matrix.os[0] }}
+        EMQX_RUNNER: ${{ matrix.os[1] }}
       run: |
         make ${{ matrix.profile }}-docker
         echo "TARGET=emqx/${{ matrix.profile }}" >> $GITHUB_ENV

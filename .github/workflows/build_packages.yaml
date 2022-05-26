@@ -344,7 +344,8 @@ jobs:
       fail-fast: false
       matrix:
         os:
-          - alpine3.15.1
+          - [alpine3.15.1, "alpine:3.15.1", "deploy/docker/Dockerfile.alpine"]
+          - [debian11, "debian:11-slim", "deploy/docker/Dockerfile"]
         profile: ${{ fromJson(needs.prepare.outputs.BUILD_PROFILES) }}
         # NOTE: for docker, only support latest otp and elixir
         # versions, not a matrix
@@ -368,7 +369,7 @@ jobs:
           - arch: amd64
             build_machine: aws-arm64
         include:
-          - os: alpine3.15.1
+          - os: [debian11, "debian:11-slim", "deploy/docker/Dockerfile"]
             profile: emqx
             otp: 24.2.1-1
             elixir: 1.13.4
@@ -376,7 +377,7 @@ jobs:
             build_elixir: no_elixir
             build_machine: ubuntu-20.04
             registry: public.ecr.aws
-          - os: alpine3.15.1
+          - os: [debian11, "debian:11-slim", "deploy/docker/Dockerfile"]
             profile: emqx
             otp: 24.2.1-1
             elixir: 1.13.4
@@ -402,7 +403,7 @@ jobs:
         path: |
           source/_build/default/lib/quicer/
           source/deps/quicer/
-        key: ${{ matrix.os }}-${{ matrix.otp }}-${{ matrix.arch }}-${{ needs.prepare.outputs.DEP_QUICER_REF }}
+        key: ${{ matrix.os[0] }}-${{ matrix.otp }}-${{ matrix.arch }}-${{ needs.prepare.outputs.DEP_QUICER_REF }}
 
     - name: Login for docker.
       uses: docker/login-action@v1
@@ -423,7 +424,6 @@ jobs:
     - name: prepare for docker-action-parms
       id: pre-meta
       run: |
-        img=$(echo ${{ matrix.os }} | sed 's#\([0-9.]\+\)$#:\1#g')
         emqx_name=${{ matrix.profile }}
         img_suffix=${{ matrix.arch }}
         img_labels="org.opencontainers.image.otp.version=${{ matrix.otp }}"
@@ -433,7 +433,9 @@ jobs:
           img_suffix="elixir-${{ matrix.arch }}"
           img_labels="org.opencontainers.image.elixir.version=${{ matrix.elixir }}\n${img_labels}"
         fi
-        echo "::set-output name=img::${img}"
+        if [[ ${{ matrix.os[0] }} =~ "alpine" ]]; then
+          img_suffix="${img_suffix}-alpine"
+        fi
         echo "::set-output name=emqx_name::${emqx_name}"
         echo "::set-output name=img_suffix::${img_suffix}"
         echo "::set-output name=img_labels::${img_labels}"
@@ -465,10 +467,10 @@ jobs:
         tags: ${{ steps.meta.outputs.tags }}
         labels: ${{ steps.meta.outputs.labels }}
         build-args: |
-          BUILD_FROM=ghcr.io/emqx/emqx-builder/5.0-16:${{ matrix.elixir }}-${{ matrix.otp }}-${{ matrix.os }}
-          RUN_FROM=${{ steps.pre-meta.outputs.img }}
+          BUILD_FROM=ghcr.io/emqx/emqx-builder/5.0-16:${{ matrix.elixir }}-${{ matrix.otp }}-${{ matrix.os[0] }}
+          RUN_FROM=${{ matrix.os[1] }}
           EMQX_NAME=${{ steps.pre-meta.outputs.emqx_name }}
-        file: source/deploy/docker/Dockerfile
+        file: source/${{ matrix.os[2] }}
         context: source
 
   docker-push-multi-arch-manifest:
@@ -483,6 +485,9 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
+        os:
+          - [alpine3.15.1, "alpine:3.15.1", "deploy/docker/Dockerfile.alpine"]
+          - [debian11, "debian:11-slim", "deploy/docker/Dockerfile"]
         profile: ${{ fromJson(needs.prepare.outputs.BUILD_PROFILES) }}
         # NOTE: for docker, only support latest otp version, not a matrix
         otp:
@@ -506,7 +511,7 @@ jobs:
           - arch: amd64
             build_machine: aws-arm64
         include:
-          - os: alpine3.15.1
+          - os: [debian11, "debian:11-slim", "deploy/docker/Dockerfile"]
             profile: emqx
             otp: 24.2.1-1
             elixir: 1.13.4
@@ -514,7 +519,7 @@ jobs:
             build_elixir: no_elixir
             build_machine: ubuntu-20.04
             registry: public.ecr.aws
-          - os: alpine3.15.1
+          - os: [debian11, "debian:11-slim", "deploy/docker/Dockerfile"]
             profile: emqx
             otp: 24.2.1-1
             elixir: 1.13.4
@@ -551,7 +556,6 @@ jobs:
       - name: prepare for docker-action-parms
         id: pre-meta
         run: |
-          img=$(echo ${{ matrix.os }} | sed 's#\([0-9.]\+\)$#:\1#g')
           emqx_name=${{ matrix.profile }}
           img_suffix=${{ matrix.arch }}
           img_labels="org.opencontainers.image.otp.version=${{ matrix.otp }}"
@@ -560,6 +564,9 @@ jobs:
             emqx_name="emqx-elixir"
             img_suffix="elixir-${{ matrix.arch }}"
             img_labels="org.opencontainers.image.elixir.version=${{ matrix.elixir }}\n$img_labels"
+          fi
+          if [[ ${{ matrix.os[0] }} =~ "alpine" ]]; then
+            img_suffix="${img_suffix}-alpine"
           fi
           echo "::set-output name=img::${img}"
           echo "::set-output name=emqx_name::${emqx_name}"
