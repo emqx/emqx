@@ -528,6 +528,12 @@ end}.
   {datatype, {enum, [text, json]}}
 ]}.
 
+%% @doc format logs as text, date format part
+{mapping, "log.formatter.text.date.format", "kernel.logger", [
+  {default, "rfc3339"},
+  {datatype, string}
+]}.
+
 %% @doc format logs in a single line.
 {mapping, "log.single_line", "kernel.logger", [
   {default, true},
@@ -629,9 +635,38 @@ end}.
                     single_line => SingleLine
                    }};
         text ->
+            DateFormat =
+              case cuttlefish:conf_get("log.formatter.text.date.format", Conf, "rfc3339") of
+                "rfc3339" ->
+                  rfc3339;
+                DateStr ->
+                  DateStrTrans =
+                    fun
+                      DST(<<>>, Formatter) -> lists:reverse(Formatter);
+                      DST(<<"%Y", Tail/binary>>, Formatter) -> DST(Tail, [year | Formatter]);
+                      DST(<<"%m", Tail/binary>>, Formatter) -> DST(Tail, [month | Formatter]);
+                      DST(<<"%d", Tail/binary>>, Formatter) -> DST(Tail, [day | Formatter]);
+                      DST(<<"%H", Tail/binary>>, Formatter) -> DST(Tail, [hour | Formatter]);
+                      DST(<<"%M", Tail/binary>>, Formatter) -> DST(Tail, [minute | Formatter]);
+                      DST(<<"%S", Tail/binary>>, Formatter) -> DST(Tail, [second | Formatter]);
+                      DST(<<"%N", Tail/binary>>, Formatter) -> DST(Tail, [nanosecond | Formatter]);
+                      DST(<<"%3N", Tail/binary>>, Formatter) -> DST(Tail, [millisecond | Formatter]);
+                      DST(<<"%6N", Tail/binary>>, Formatter) -> DST(Tail, [microsecond | Formatter]);
+                      DST(<<"%z", Tail/binary>>, Formatter) -> DST(Tail, [timezone | Formatter]);
+                      DST(<<"%:z", Tail/binary>>, Formatter) -> DST(Tail, [timezone1 | Formatter]);
+                      DST(<<"%::z", Tail/binary>>, Formatter) -> DST(Tail, [timezone2 | Formatter]);
+                      DST(<<Char:8, Tail/binary>>, [Str | Formatter]) when is_list(Str) ->
+                          DST(Tail, [lists:append(Str, [Char]) | Formatter]);
+                      DST(<<Char:8, Tail/binary>>, Formatter) ->
+                          DST(Tail, [[Char] | Formatter])
+                    end,
+                    DateStrTrans(list_to_binary(DateStr), [])
+              end,
             {emqx_logger_textfmt,
-                  #{template =>
-                      [time," [",level,"] ",
+                  #{
+                    date_format => DateFormat,
+                    template =>
+                      [" [",level,"] ",
                        {clientid,
                           [{peername,
                               [clientid,"@",peername," "],
