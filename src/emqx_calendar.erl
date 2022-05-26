@@ -55,7 +55,7 @@ formatter(FormatterBin) when is_binary(FormatterBin) ->
     do_formatter(FormatterBin, []).
 
 offset_second(Offset) ->
-    do_offset_second(Offset).
+    offset_second_(Offset).
 
 format(Time, Unit, Formatter) ->
     format(Time, Unit, undefined, Formatter).
@@ -105,24 +105,24 @@ do_formatter(<<Char:8, Tail/binary>>, [Str | Formatter]) when is_list(Str) ->
     do_formatter(Tail, [lists:append(Str, [Char]) | Formatter]);
 do_formatter(<<Char:8, Tail/binary>>, Formatter) -> do_formatter(Tail, [[Char] | Formatter]).
 
-do_offset_second(OffsetSecond) when is_integer(OffsetSecond) -> OffsetSecond;
-do_offset_second(undefined) -> 0;
-do_offset_second("local") -> do_offset_second(local);
-do_offset_second(<<"local">>) -> do_offset_second(local);
-do_offset_second(local) ->
+offset_second_(OffsetSecond) when is_integer(OffsetSecond) -> OffsetSecond;
+offset_second_(undefined) -> 0;
+offset_second_("local") -> offset_second_(local);
+offset_second_(<<"local">>) -> offset_second_(local);
+offset_second_(local) ->
     UniversalTime = calendar:system_time_to_universal_time(erlang:system_time(second), second),
     LocalTime = erlang:universaltime_to_localtime(UniversalTime),
     LocalSecs = calendar:datetime_to_gregorian_seconds(LocalTime),
     UniversalSecs = calendar:datetime_to_gregorian_seconds(UniversalTime),
     LocalSecs - UniversalSecs;
-do_offset_second(Offset) when is_binary(Offset) ->
-    do_offset_second(erlang:binary_to_list(Offset));
-do_offset_second("Z") -> 0;
-do_offset_second("z") -> 0;
-do_offset_second(Offset) when is_list(Offset) ->
+offset_second_(Offset) when is_binary(Offset) ->
+    offset_second_(erlang:binary_to_list(Offset));
+offset_second_("Z") -> 0;
+offset_second_("z") -> 0;
+offset_second_(Offset) when is_list(Offset) ->
     Sign = hd(Offset),
     ((Sign == $+) orelse (Sign == $-))
-        orelse error({bad_zone, Offset}),
+        orelse error({bad_time_offset, Offset}),
     Signs = #{$+ => 1, $- => -1},
     PosNeg = maps:get(Sign, Signs),
     [Sign | HM] = Offset,
@@ -135,14 +135,14 @@ do_offset_second(Offset) when is_list(Offset) ->
             [HHMM] when erlang:length(HHMM) == 4 ->
                 {string:sub_string(HHMM, 1,2), string:sub_string(HHMM, 3,4), "0"};
             _ ->
-                error({bad_zone, Offset})
+                error({bad_time_offset, Offset})
         end,
     Hour = erlang:list_to_integer(HourStr),
     Minute = erlang:list_to_integer(MinuteStr),
     Second = erlang:list_to_integer(SecondStr),
-    (Hour =< 23) orelse error({bad_hour, Hour}),
-    (Minute =< 59) orelse error({bad_minute, Minute}),
-    (Second =< 59) orelse error({bad_second, Second}),
+    (Hour =< 23) orelse error({bad_time_offset_hour, Hour}),
+    (Minute =< 59) orelse error({bad_time_offset_minute, Minute}),
+    (Second =< 59) orelse error({bad_time_offset_second, Second}),
     PosNeg * (Hour * 3600 + Minute * 60 + Second).
 
 do_format(Time, Unit, Offset, Formatter) ->
@@ -345,7 +345,7 @@ padding(Data, _Len) ->
 
 do_parse(DateStr, Unit, Formatter) ->
     DateInfo = do_parse_date_str(DateStr, Formatter, #{}),
-    {Precise, PrecisionUnit} = precise(DateInfo),
+    {Precise, PrecisionUnit} = precision(DateInfo),
     Counter =
         fun
             (year, V, Res) ->
@@ -384,11 +384,11 @@ do_parse(DateStr, Unit, Formatter) ->
     Count = maps:fold(Counter, 0, DateInfo) - (?SECONDS_PER_DAY * Precise),
     erlang:convert_time_unit(Count, PrecisionUnit, Unit).
 
-precise(#{nanosecond := _}) -> {1000_000_000, nanosecond};
-precise(#{microsecond := _}) -> {1000_000, microsecond};
-precise(#{millisecond := _}) -> {1000, millisecond};
-precise(#{second := _}) -> {1, second};
-precise(_) -> {1, second}.
+precision(#{nanosecond := _}) -> {1000_000_000, nanosecond};
+precision(#{microsecond := _}) -> {1000_000, microsecond};
+precision(#{millisecond := _}) -> {1000, millisecond};
+precision(#{second := _}) -> {1, second};
+precision(_) -> {1, second}.
 
 do_parse_date_str(<<>>, _, Result) -> Result;
 do_parse_date_str(_, [], Result) -> Result;
@@ -408,36 +408,29 @@ do_parse_date_str(Date, [Key | Formatter], Result) ->
     end.
 
 date_size(Str) when is_list(Str) -> erlang:length(Str);
-date_size(DateName) ->
-    Map = #{
-        year   => 4,
-        month  => 2,
-        day    => 2,
-        hour   => 2,
-        minute => 2,
-        second => 2,
-        millisecond => 3,
-        microsecond => 6,
-        nanosecond => 9,
-        timezone => 5,
-        timezone1 => 6,
-        timezone2 => 9
-    },
-    maps:get(DateName, Map).
+date_size(year) -> 4;
+date_size(month) -> 2;
+date_size(day) -> 2;
+date_size(hour) -> 2;
+date_size(minute) -> 2;
+date_size(second) -> 2;
+date_size(millisecond) -> 3;
+date_size(microsecond) -> 6;
+date_size(nanosecond) -> 9;
+date_size(timezone) -> 5;
+date_size(timezone1) -> 6;
+date_size(timezone2) -> 9.
 
-dm(Month) ->
-    MonthDays = #{
-        1  => 0,
-        2  => 31,
-        3  => 59,
-        4  => 90,
-        5  => 120,
-        6  => 151,
-        7  => 181,
-        8  => 212,
-        9  => 243,
-        10 => 273,
-        11 => 304,
-        12 => 334
-    },
-    maps:get(Month, MonthDays).
+dm(1) -> 0;
+dm(2) -> 31;
+dm(3) -> 59;
+dm(4) -> 90;
+dm(5) -> 120;
+dm(6) -> 151;
+dm(7) -> 181;
+dm(8) -> 212;
+dm(9) -> 243;
+dm(10) -> 273;
+dm(11) -> 304;
+dm(12) -> 334.
+

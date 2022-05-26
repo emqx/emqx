@@ -29,7 +29,7 @@
         ]).
 
 check_config(Config0) ->
-    Config = maps:without([timezone_offset, timezone, date_format], Config0),
+    Config = maps:without([date_format], Config0),
     logger_formatter:check_config(Config).
 
 format(#{msg := Msg0, meta := Meta} = Event,
@@ -37,7 +37,6 @@ format(#{msg := Msg0, meta := Meta} = Event,
     Msg = maybe_merge(Msg0, Meta),
     Template = [time | Template0],
     logger_formatter:format(Event#{msg := Msg}, Config#{template => Template});
-
 format(#{msg := Msg0, meta := Meta} = Event,
        #{date_format := DFS} = Config) ->
     Msg = maybe_merge(Msg0, Meta),

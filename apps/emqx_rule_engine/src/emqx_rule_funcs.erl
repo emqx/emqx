@@ -955,7 +955,7 @@ date_to_unix_ts(TimeUnit, Offset, FormatString, InputString) ->
     Unit = time_unit(TimeUnit),
     OffsetSecond = emqx_calendar:offset_second(Offset),
     OffsetDelta = erlang:convert_time_unit(OffsetSecond, second, Unit),
-    OffsetDelta + date_to_unix_ts(Unit, FormatString, InputString).
+    date_to_unix_ts(Unit, FormatString, InputString) - OffsetDelta.
 
 mongo_date() ->
     erlang:timestamp().
