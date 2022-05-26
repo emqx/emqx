@@ -15,20 +15,12 @@ jobs:
       matrix:
         release_type:
           - cloud
-          - edge
         package_type:
           - bin
           - pkg
         edition_type:
           - community
           - enterprise
-        exclude:
-          - release_type: edge
-            package_type: bin
-            edition_type: enterprise
-          - release_type: edge
-            package_type: pkg
-            edition_type: enterprise
 
     steps:
       - name: fix_git_permission

@@ -18,8 +18,8 @@ else
 endif
 
 PROFILE ?= emqx
-REL_PROFILES := emqx emqx-edge emqx-enterprise
-PKG_PROFILES := emqx-pkg emqx-edge-pkg emqx-enterprise-pkg
+REL_PROFILES := emqx emqx-enterprise
+PKG_PROFILES := emqx-pkg emqx-enterprise-pkg
 PROFILES := $(REL_PROFILES) $(PKG_PROFILES) default
 
 CT_NODE_NAME ?= 'test@127.0.0.1'

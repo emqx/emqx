@@ -11,7 +11,6 @@ jobs:
       fail-fast: false
       matrix:
         profile:
-          - emqx-edge
           - emqx
           - emqx-enterprise
 
@@ -28,8 +27,6 @@ jobs:
               s3dir='emqx-ce'
           elif [ $PROFILE = 'emqx-enterprise' ]; then
               s3dir='emqx-ee'
-          elif [ $PROFILE = 'emqx-edge' ]; then
-              s3dir='emqx-edge'
           else
               echo "unknown profile $PROFILE"
               exit 1

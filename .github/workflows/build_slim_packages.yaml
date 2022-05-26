@@ -29,7 +29,6 @@ jobs:
       fail-fast: false
       matrix:
         profile:
-        - emqx-edge
         - emqx
         - emqx-enterprise
         otp:
@@ -227,7 +226,6 @@ jobs:
     strategy:
       matrix:
         profile:
-        - emqx-edge
         - emqx
         - emqx-enterprise
     runs-on: aws-amd64

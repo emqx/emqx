@@ -47,14 +47,14 @@ jobs:
           tag=${{ github.ref }}
           case $tag in
             refs/tags/v*)
-              echo "::set-output name=BUILD_PROFILES::[\"emqx\",\"emqx-edge\"]"
+              echo "::set-output name=BUILD_PROFILES::[\"emqx\"]"
               ;;
             refs/tags/e*)
               echo "::set-output name=BUILD_PROFILES::[\"emqx-enterprise\"]"
               ;;
             *)
               # this is for testing ?
-              echo "::set-output name=BUILD_PROFILES::[\"emqx-edge\",\"emqx\",\"emqx-enterprise\"]"
+              echo "::set-output name=BUILD_PROFILES::[\"emqx\",\"emqx-enterprise\"]"
               ;;
           esac
       - name: get_all_deps
@@ -126,8 +126,6 @@ jobs:
         os:
           - macos-11
           - macos-10.15
-        exclude:
-          - profile: emqx-edge
     runs-on: ${{ matrix.os }}
     steps:
     - uses: actions/download-artifact@v2
@@ -638,8 +636,6 @@ jobs:
             s3dir='emqx-ce'
         elif [ $PROFILE = 'emqx-enterprise' ]; then
             s3dir='emqx-ee'
-        elif [ $PROFILE = 'emqx-edge' ]; then
-            s3dir='emqx-edge'
         else
             echo "unknown profile $PROFILE"
             exit 1
