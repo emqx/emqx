@@ -76,5 +76,6 @@ docker run -i --rm \
     -v "$(pwd)":/emqx \
     --workdir /emqx \
     --platform="linux/$ARCH" \
+    --user root \
     "$BUILDER" \
-    bash -euc "git config --global --add safe.directory /emqx && make ${PROFILE}-${PKGTYPE} && .ci/build_packages/tests.sh $PROFILE $PKGTYPE"
+    bash -euc "git config --global --add safe.directory /emqx && chown -R root:root _build && make ${PROFILE}-${PKGTYPE} && .ci/build_packages/tests.sh $PROFILE $PKGTYPE"
