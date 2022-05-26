@@ -296,7 +296,7 @@ egress_desc() ->
     "The egress config defines how this bridge forwards messages from the local broker to the remote\n"
     "broker.</br>\n"
     "Template with variables is allowed in 'remote_topic', 'qos', 'retain', 'payload'.</br>\n"
-    "NOTE: if this bridge is used as the output of a rule (emqx rule engine), and also local_topic\n"
+    "NOTE: if this bridge is used as the action of a rule (emqx rule engine), and also local_topic\n"
     "is configured, then both the data got from the rule and the MQTT messages that matches\n"
     "local_topic will be forwarded.\n".
 

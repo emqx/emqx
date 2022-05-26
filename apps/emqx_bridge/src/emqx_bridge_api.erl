@@ -42,8 +42,6 @@
 
 -export([lookup_from_local_node/2]).
 
--define(TYPES, [mqtt, http]).
-
 -define(CONN_TYPES, [mqtt]).
 
 -define(TRY_PARSE_ID(ID, EXPR),
@@ -148,7 +146,7 @@ param_path_id() ->
             #{
                 in => path,
                 required => true,
-                example => <<"http:my_http_bridge">>,
+                example => <<"webhook:my_webhook">>,
                 desc => ?DESC("desc_param_path_id")
             }
         )}.
@@ -158,9 +156,9 @@ bridge_info_array_example(Method) ->
 
 bridge_info_examples(Method) ->
     maps:merge(conn_bridge_examples(Method), #{
-        <<"http_bridge">> => #{
-            summary => <<"HTTP Bridge">>,
-            value => info_example(http, awesome, Method)
+        <<"my_webhook">> => #{
+            summary => <<"WebHook">>,
+            value => info_example(webhook, awesome, Method)
         }
     }).
 
@@ -196,7 +194,7 @@ method_example(Type, Direction, Method) when Method == get; Method == post ->
     SDir = atom_to_list(Direction),
     SName =
         case Type of
-            http -> "my_" ++ SType ++ "_bridge";
+            webhook -> "my_" ++ SType;
             _ -> "my_" ++ SDir ++ "_" ++ SType ++ "_bridge"
         end,
     TypeNameExamp = #{
@@ -220,7 +218,7 @@ maybe_with_metrics_example(TypeNameExamp, get) ->
 maybe_with_metrics_example(TypeNameExamp, _) ->
     TypeNameExamp.
 
-info_example_basic(http, _) ->
+info_example_basic(webhook, _) ->
     #{
         enable => true,
         url => <<"http://localhost:9901/messages/${topic}">>,
@@ -232,7 +230,7 @@ info_example_basic(http, _) ->
         pool_size => 4,
         enable_pipelining => true,
         ssl => #{enable => false},
-        local_topic => <<"emqx_http/#">>,
+        local_topic => <<"emqx_webhook/#">>,
         method => post,
         body => <<"${payload}">>
     };

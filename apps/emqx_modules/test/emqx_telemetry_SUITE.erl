@@ -562,7 +562,7 @@ t_rule_engine_and_data_bridge_info(_Config) ->
         #{
             data_bridge =>
                 #{
-                    http => #{num => 1, num_linked_by_rules => 3},
+                    webhook => #{num => 1, num_linked_by_rules => 3},
                     mqtt => #{num => 2, num_linked_by_rules => 2}
                 },
             num_data_bridges => 3
@@ -741,12 +741,12 @@ setup_fake_rule_engine_data() ->
             #{
                 id => <<"rule:t_get_basic_usage_info:1">>,
                 sql => <<"select 1 from topic">>,
-                outputs =>
+                actions =>
                     [
                         #{function => <<"erlang:hibernate">>, args => #{}},
                         #{function => console},
-                        <<"http:my_http_bridge">>,
-                        <<"http:my_http_bridge">>
+                        <<"webhook:my_webhook">>,
+                        <<"webhook:my_webhook">>
                     ]
             }
         ),
@@ -755,10 +755,10 @@ setup_fake_rule_engine_data() ->
             #{
                 id => <<"rule:t_get_basic_usage_info:2">>,
                 sql => <<"select 1 from topic">>,
-                outputs =>
+                actions =>
                     [
                         <<"mqtt:my_mqtt_bridge">>,
-                        <<"http:my_http_bridge">>
+                        <<"webhook:my_webhook">>
                     ]
             }
         ),
@@ -767,7 +767,7 @@ setup_fake_rule_engine_data() ->
             #{
                 id => <<"rule:t_get_basic_usage_info:3">>,
                 sql => <<"select 1 from \"$bridges/mqtt:mqtt_in\"">>,
-                outputs =>
+                actions =>
                     [
                         #{function => console}
                     ]

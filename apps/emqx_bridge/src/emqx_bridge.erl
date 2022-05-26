@@ -263,7 +263,7 @@ get_matched_bridges(Topic) ->
                     (_BName, #{direction := ingress}, Acc1) ->
                         Acc1;
                     (BName, #{direction := egress} = Egress, Acc1) ->
-                        %% HTTP, MySQL bridges only have egress direction
+                        %% WebHook, MySQL bridges only have egress direction
                         get_matched_bridge_id(Egress, Topic, BType, BName, Acc1)
                 end,
                 Acc0,

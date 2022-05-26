@@ -610,7 +610,7 @@ t_ingress_mqtt_bridge_with_rules(_) ->
         #{
             <<"name">> => <<"A_rule_get_messages_from_a_source_mqtt_bridge">>,
             <<"enable">> => true,
-            <<"outputs">> => [#{<<"function">> => "emqx_connector_api_SUITE:inspect"}],
+            <<"actions">> => [#{<<"function">> => "emqx_connector_api_SUITE:inspect"}],
             <<"sql">> => <<"SELECT * from \"$bridges/", BridgeIDIngress/binary, "\"">>
         }
     ),
@@ -653,14 +653,14 @@ t_ingress_mqtt_bridge_with_rules(_) ->
             <<"matched.rate">> := _,
             <<"matched.rate.max">> := _,
             <<"matched.rate.last5m">> := _,
-            <<"outputs.total">> := 1,
-            <<"outputs.success">> := 1,
-            <<"outputs.failed">> := 0,
-            <<"outputs.failed.out_of_service">> := 0,
-            <<"outputs.failed.unknown">> := 0
+            <<"actions.total">> := 1,
+            <<"actions.success">> := 1,
+            <<"actions.failed">> := 0,
+            <<"actions.failed.out_of_service">> := 0,
+            <<"actions.failed.unknown">> := 0
         }
     } = jsx:decode(Rule1),
-    %% we also check if the outputs of the rule is triggered
+    %% we also check if the actions of the rule is triggered
     ?assertMatch(
         #{
             inspect := #{
@@ -709,7 +709,7 @@ t_egress_mqtt_bridge_with_rules(_) ->
         #{
             <<"name">> => <<"A_rule_send_messages_to_a_sink_mqtt_bridge">>,
             <<"enable">> => true,
-            <<"outputs">> => [BridgeIDEgress],
+            <<"actions">> => [BridgeIDEgress],
             <<"sql">> => <<"SELECT * from \"t/1\"">>
         }
     ),
@@ -760,11 +760,11 @@ t_egress_mqtt_bridge_with_rules(_) ->
             <<"matched.rate">> := _,
             <<"matched.rate.max">> := _,
             <<"matched.rate.last5m">> := _,
-            <<"outputs.total">> := 1,
-            <<"outputs.success">> := 1,
-            <<"outputs.failed">> := 0,
-            <<"outputs.failed.out_of_service">> := 0,
-            <<"outputs.failed.unknown">> := 0
+            <<"actions.total">> := 1,
+            <<"actions.success">> := 1,
+            <<"actions.failed">> := 0,
+            <<"actions.failed.out_of_service">> := 0,
+            <<"actions.failed.unknown">> := 0
         }
     } = jsx:decode(Rule1),
     %% we should receive a message on the "remote" broker, with specified topic

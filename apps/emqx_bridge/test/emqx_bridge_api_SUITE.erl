@@ -23,7 +23,7 @@
 -include_lib("eunit/include/eunit.hrl").
 -include_lib("common_test/include/ct.hrl").
 -define(CONF_DEFAULT, <<"bridges: {}">>).
--define(BRIDGE_TYPE, <<"http">>).
+-define(BRIDGE_TYPE, <<"webhook">>).
 -define(BRIDGE_NAME, <<"test_bridge">>).
 -define(URL(PORT, PATH),
     list_to_binary(
@@ -37,7 +37,7 @@
     <<"type">> => TYPE,
     <<"name">> => NAME,
     <<"url">> => URL,
-    <<"local_topic">> => <<"emqx_http/#">>,
+    <<"local_topic">> => <<"emqx_webhook/#">>,
     <<"method">> => <<"post">>,
     <<"ssl">> => #{<<"enable">> => false},
     <<"body">> => <<"${payload}">>,
@@ -158,7 +158,7 @@ t_http_crud_apis(_) ->
     %% assert we there's no bridges at first
     {ok, 200, <<"[]">>} = request(get, uri(["bridges"]), []),
 
-    %% then we add a http bridge, using POST
+    %% then we add a webhook bridge, using POST
     %% POST /bridges/ will create a bridge
     URL1 = ?URL(Port, "path1"),
     {ok, 201, Bridge} = request(
@@ -182,7 +182,7 @@ t_http_crud_apis(_) ->
     BridgeID = emqx_bridge_resource:bridge_id(?BRIDGE_TYPE, ?BRIDGE_NAME),
     %% send an message to emqx and the message should be forwarded to the HTTP server
     Body = <<"my msg">>,
-    emqx:publish(emqx_message:make(<<"emqx_http/1">>, Body)),
+    emqx:publish(emqx_message:make(<<"emqx_webhook/1">>, Body)),
     ?assert(
         receive
             {http_server, received, #{
@@ -254,7 +254,7 @@ t_http_crud_apis(_) ->
     ),
 
     %% send an message to emqx again, check the path has been changed
-    emqx:publish(emqx_message:make(<<"emqx_http/1">>, Body)),
+    emqx:publish(emqx_message:make(<<"emqx_webhook/1">>, Body)),
     ?assert(
         receive
             {http_server, received, #{path := <<"/path2">>}} ->

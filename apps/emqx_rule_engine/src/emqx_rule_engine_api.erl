@@ -65,11 +65,11 @@ end).
         'failed' => FAIL,
         'failed.exception' => FAIL_EX,
         'failed.no_result' => FAIL_NORES,
-        'outputs.total' => O_TOTAL,
-        'outputs.failed' => O_FAIL,
-        'outputs.failed.out_of_service' => O_FAIL_OOS,
-        'outputs.failed.unknown' => O_FAIL_UNKNOWN,
-        'outputs.success' => O_SUCC,
+        'actions.total' => O_TOTAL,
+        'actions.failed' => O_FAIL,
+        'actions.failed.out_of_service' => O_FAIL_OOS,
+        'actions.failed.unknown' => O_FAIL_UNKNOWN,
+        'actions.success' => O_SUCC,
         'matched.rate' => RATE,
         'matched.rate.max' => RATE_MAX,
         'matched.rate.last5m' => RATE_5
@@ -96,11 +96,11 @@ end).
         'failed' := FAIL,
         'failed.exception' := FAIL_EX,
         'failed.no_result' := FAIL_NORES,
-        'outputs.total' := O_TOTAL,
-        'outputs.failed' := O_FAIL,
-        'outputs.failed.out_of_service' := O_FAIL_OOS,
-        'outputs.failed.unknown' := O_FAIL_UNKNOWN,
-        'outputs.success' := O_SUCC,
+        'actions.total' := O_TOTAL,
+        'actions.failed' := O_FAIL,
+        'actions.failed.out_of_service' := O_FAIL_OOS,
+        'actions.failed.unknown' := O_FAIL_UNKNOWN,
+        'actions.success' := O_SUCC,
         'matched.rate' := RATE,
         'matched.rate.max' := RATE_MAX,
         'matched.rate.last5m' := RATE_5
@@ -362,7 +362,7 @@ format_rule_resp(#{
     name := Name,
     created_at := CreatedAt,
     from := Topics,
-    outputs := Output,
+    actions := Action,
     sql := SQL,
     enable := Enable,
     description := Descr
@@ -372,7 +372,7 @@ format_rule_resp(#{
         id => Id,
         name => Name,
         from => Topics,
-        outputs => format_output(Output),
+        actions => format_action(Action),
         sql => SQL,
         metrics => aggregate_metrics(NodeMetrics),
         node_metrics => NodeMetrics,
@@ -384,18 +384,18 @@ format_rule_resp(#{
 format_datetime(Timestamp, Unit) ->
     list_to_binary(calendar:system_time_to_rfc3339(Timestamp, [{unit, Unit}])).
 
-format_output(Outputs) ->
-    [do_format_output(Out) || Out <- Outputs].
+format_action(Actions) ->
+    [do_format_action(Act) || Act <- Actions].
 
-do_format_output(#{mod := Mod, func := Func, args := Args}) ->
+do_format_action(#{mod := Mod, func := Func, args := Args}) ->
     #{
         function => printable_function_name(Mod, Func),
         args => maps:remove(preprocessed_tmpl, Args)
     };
-do_format_output(BridgeChannelId) when is_binary(BridgeChannelId) ->
+do_format_action(BridgeChannelId) when is_binary(BridgeChannelId) ->
     BridgeChannelId.
 
-printable_function_name(emqx_rule_outputs, Func) ->
+printable_function_name(emqx_rule_actions, Func) ->
     Func;
 printable_function_name(Mod, Func) ->
     list_to_binary(lists:concat([Mod, ":", Func])).
@@ -411,11 +411,11 @@ get_rule_metrics(Id) ->
                     'failed' := Failed,
                     'failed.exception' := FailedEx,
                     'failed.no_result' := FailedNoRes,
-                    'outputs.total' := OTotal,
-                    'outputs.failed' := OFailed,
-                    'outputs.failed.out_of_service' := OFailedOOS,
-                    'outputs.failed.unknown' := OFailedUnknown,
-                    'outputs.success' := OFailedSucc
+                    'actions.total' := OTotal,
+                    'actions.failed' := OFailed,
+                    'actions.failed.out_of_service' := OFailedOOS,
+                    'actions.failed.unknown' := OFailedUnknown,
+                    'actions.success' := OFailedSucc
                 },
             rate :=
                 #{

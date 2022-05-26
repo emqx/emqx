@@ -54,8 +54,8 @@ end_per_testcase(t_get_basic_usage_info_1, _Config) ->
             {ok, _} = emqx_bridge:remove(BridgeType, BridgeName)
         end,
         [
-            {http, <<"basic_usage_info_http">>},
-            {http, <<"basic_usage_info_http_disabled">>},
+            {webhook, <<"basic_usage_info_webhook">>},
+            {webhook, <<"basic_usage_info_webhook_disabled">>},
             {mqtt, <<"basic_usage_info_mqtt">>}
         ]
     ),
@@ -81,7 +81,7 @@ t_get_basic_usage_info_1(_Config) ->
         #{
             num_bridges => 3,
             count_by_type => #{
-                http => 1,
+                webhook => 1,
                 mqtt => 2
             }
         },
@@ -119,7 +119,7 @@ setup_fake_telemetry_data() ->
         url => <<"http://localhost:9901/messages/${topic}">>,
         enable => true,
         direction => egress,
-        local_topic => "emqx_http/#",
+        local_topic => "emqx_webhook/#",
         method => post,
         body => <<"${payload}">>,
         headers => #{},
@@ -129,10 +129,10 @@ setup_fake_telemetry_data() ->
         #{
             <<"bridges">> =>
                 #{
-                    <<"http">> =>
+                    <<"webhook">> =>
                         #{
-                            <<"basic_usage_info_http">> => HTTPConfig,
-                            <<"basic_usage_info_http_disabled">> =>
+                            <<"basic_usage_info_webhook">> => HTTPConfig,
+                            <<"basic_usage_info_webhook_disabled">> =>
                                 HTTPConfig#{enable => false}
                         },
                     <<"mqtt">> =>

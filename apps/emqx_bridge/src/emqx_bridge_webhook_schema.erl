@@ -1,4 +1,4 @@
--module(emqx_bridge_http_schema).
+-module(emqx_bridge_webhook_schema).
 
 -include_lib("typerefl/include/types.hrl").
 -include_lib("hocon/include/hoconsc.hrl").
@@ -81,7 +81,7 @@ fields("get") ->
 desc("config") ->
     ?DESC("desc_config");
 desc(Method) when Method =:= "get"; Method =:= "put"; Method =:= "post" ->
-    ["Configuration for HTTP bridge using `", string:to_upper(Method), "` method."];
+    ["Configuration for WebHook using `", string:to_upper(Method), "` method."];
 desc(_) ->
     undefined.
 
@@ -111,7 +111,7 @@ basic_config() ->
 type_field() ->
     {type,
         mk(
-            http,
+            webhook,
             #{
                 required => true,
                 desc => ?DESC("desc_type")
