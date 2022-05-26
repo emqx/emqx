@@ -14,8 +14,8 @@ services:
     restart: on-failure
     environment:
       - "EMQX_HOST=node1.emqx.io"
-      - "EMQX_DB__BACKEND=mnesia"
-      - "EMQX_DB__ROLE=core"
+      - "EMQX_NODE__DB_BACKEND=mnesia"
+      - "EMQX_NODE__DB_ROLE=core"
 
   emqx2:
     <<: *default-emqx
@@ -25,5 +25,5 @@ services:
     restart: on-failure
     environment:
       - "EMQX_HOST=node2.emqx.io"
-      - "EMQX_DB__BACKEND=mnesia"
-      - "EMQX_DB__ROLE=core"
+      - "EMQX_NODE__DB_BACKEND=mnesia"
+      - "EMQX_NODE__DB_ROLE=core"
