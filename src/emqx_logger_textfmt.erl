@@ -39,7 +39,7 @@ format(#{msg := Msg0, meta := Meta} = Event,
     logger_formatter:format(Event#{msg := Msg}, Config#{template => Template});
 
 format(#{msg := Msg0, meta := Meta} = Event,
-       #{timezone_offset := TZO, timezone := TZ, date_format := DFS} = Config) ->
+       #{timezone_offset := TZO, date_format := DFS} = Config) ->
     Msg = maybe_merge(Msg0, Meta),
     Time =
         case maps:get(time, Event, undefined) of
@@ -48,7 +48,7 @@ format(#{msg := Msg0, meta := Meta} = Event,
             T ->
                 T
         end,
-    Date = emqx_calendar:format(Time, microsecond, TZO, TZ, DFS),
+    Date = emqx_calendar:format(Time, microsecond, TZO, DFS),
     [Date | logger_formatter:format(Event#{msg := Msg}, Config)].
 
 maybe_merge({report, Report}, Meta) when is_map(Report) ->

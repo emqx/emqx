@@ -659,6 +659,8 @@ end}.
                       DST(<<"%3N", Tail/binary>>, Formatter) -> DST(Tail, [millisecond | Formatter]);
                       DST(<<"%6N", Tail/binary>>, Formatter) -> DST(Tail, [microsecond | Formatter]);
                       DST(<<"%z", Tail/binary>>, Formatter) -> DST(Tail, [timezone | Formatter]);
+                      DST(<<"%:z", Tail/binary>>, Formatter) -> DST(Tail, [timezone1 | Formatter]);
+                      DST(<<"%::z", Tail/binary>>, Formatter) -> DST(Tail, [timezone2 | Formatter]);
                       DST(<<Char:8, Tail/binary>>, [Str | Formatter]) when is_list(Str) ->
                           DST(Tail, [lists:append(Str, [Char]) | Formatter]);
                       DST(<<Char:8, Tail/binary>>, Formatter) ->
@@ -669,9 +671,9 @@ end}.
             {DateOffsetStr, DateOffset} =
               case cuttlefish:conf_get("log.formatter.text.date.timezone", Conf, "local") of
                 "z" ->
-                  {"z", 0};
+                  {"z", "z"};
                 "Z" ->
-                  {"Z", 0};
+                  {"Z", "Z"};
                 "local" ->
                     UniversalTime =
                       calendar:system_time_to_universal_time(
@@ -709,7 +711,9 @@ end}.
                               [H, M] ->
                                 {H, M, "0"};
                               [H, M, S] ->
-                                {H, M, S}
+                                {H, M, S};
+                              [HHMM] when erlang:length(HHMM) == 4 ->
+                                {string:sub_string(HHMM, 1,2), string:sub_string(HHMM, 3,4), "0"}
                             end,
                           Hour = erlang:list_to_integer(HourStr),
                           Minute = erlang:list_to_integer(MinuteStr),

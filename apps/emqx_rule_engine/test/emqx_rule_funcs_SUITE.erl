@@ -713,24 +713,32 @@ t_format_date_funcs(_) ->
     ?PROPTEST(prop_format_date_fun).
 
 prop_format_date_fun() ->
-    Args1 = [<<"second">>, <<"+07:00">>, <<"%m--%d--%y---%H:%M:%S%Z">>],
+    Args1 = [<<"second">>, <<"+07:00">>, <<"%m--%d--%Y---%H:%M:%S%z">>],
+    Args1DTUS = [<<"second">>, 0, <<"%m--%d--%Y---%H:%M:%S%z">>],
     ?FORALL(S, erlang:system_time(second),
             S == apply_func(date_to_unix_ts,
-                            Args1 ++ [apply_func(format_date,
+                            Args1DTUS ++ [apply_func(format_date,
                                                  Args1 ++ [S])])),
-    Args2 = [<<"millisecond">>, <<"+04:00">>, <<"--%m--%d--%y---%H:%M:%S%Z">>],
+    Args2 = [<<"millisecond">>, <<"+04:00">>, <<"--%m--%d--%Y---%H:%M:%S:%3N%z">>],
+    Args2DTUS = [<<"millisecond">>, <<"--%m--%d--%Y---%H:%M:%S:%3N%z">>],
     ?FORALL(S, erlang:system_time(millisecond),
             S == apply_func(date_to_unix_ts,
-                            Args2 ++ [apply_func(format_date,
+                            Args2DTUS ++ [apply_func(format_date,
                                                  Args2 ++ [S])])),
-    Args = [<<"second">>, <<"+08:00">>, <<"%y-%m-%d-%H:%M:%S%Z">>],
+    Args = [<<"second">>, <<"+08:00">>, <<"%Y-%m-%d-%H:%M:%S%z">>],
+    ArgsDTUS = [<<"second">>, <<"%Y-%m-%d-%H:%M:%S%z">>],
     ?FORALL(S, erlang:system_time(second),
             S == apply_func(date_to_unix_ts,
-                            Args ++ [apply_func(format_date,
-                                                Args ++ [S])])).
-%%------------------------------------------------------------------------------
-%% Utility functions
-%%------------------------------------------------------------------------------
+                            ArgsDTUS ++ [apply_func(format_date,
+                                                Args ++ [S])])),
+    % no offset in format string. force add offset
+    Second = erlang:system_time(second),
+    Args3 = [<<"second">>, <<"+04:00">>, <<"--%m--%d--%Y---%H:%M:%S">>, Second],
+    Formatters3 = apply_func(format_date, Args3),
+    % -04:00 remove offset
+    OffsetSeconds = emqx_rule_funcs:timezone_to_second(<<"-04:00">>),
+    Args3DTUS = [<<"second">>, OffsetSeconds, <<"--%m--%d--%Y---%H:%M:%S">>, Formatters3],
+    Second == apply_func(date_to_unix_ts, Args3DTUS).
 
 apply_func(Name, Args) when is_atom(Name) ->
     erlang:apply(emqx_rule_funcs, Name, Args);
@@ -880,9 +888,9 @@ message() ->
 %% CT functions
 %%------------------------------------------------------------------------------
 
-all() ->
-    IsTestCase = fun("t_" ++ _) -> true; (_) -> false end,
-    [F || {F, _A} <- module_info(exports), IsTestCase(atom_to_list(F))].
+all() -> [t_format_date_funcs].
+    % IsTestCase = fun("t_" ++ _) -> true; (_) -> false end,
+    % [F || {F, _A} <- module_info(exports), IsTestCase(atom_to_list(F))].
 
 suite() ->
     [{ct_hooks, [cth_surefire]}, {timetrap, {seconds, 30}}].

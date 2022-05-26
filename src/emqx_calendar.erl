@@ -27,13 +27,9 @@
 -export([ formatter/1
         , format/3
         , format/4
-        , format/5
         , parse/3
-        , parse/4
         , offset_second/1
         ]).
-
--export([test/0]).
 
 -define(DATE_PART,
     [ year
@@ -69,174 +65,10 @@ format(Time, Unit, Offset, FormatterBin) when is_binary(FormatterBin) ->
 format(Time, Unit, Offset, Formatter) ->
     do_format(Time, time_unit(Unit), offset_second(Offset), Formatter).
 
-%% for logger format
-format(Time, Unit, Offset, Zones, Formatter) ->
-    do_format(Time, time_unit(Unit), offset_second(Offset), Zones, Formatter).
-
-test() ->
-    Units = [second, millisecond, microsecond, nanosecond],
-    Formatters = [
-        <<"%Y-%m-%d %H:%M:%S:%N%z">>,
-        <<"%Y-%m-%d %H:%M:%S:%N%:z">>,
-        <<"%Y-%m-%d %H:%M:%S:%N%::z">>,
-        <<"%Y-%m-%d %H:%M:%S:%N">>,
-        <<"%Y-%m-%d %H:%M:%S:%3N">>,
-        <<"%Y-%m-%d %H:%M:%S:%6N">>
-    ],
-    Offsets = [
-        0,
-        8 * 3600,
-        -8 * 3600,
-        <<"+08:00">>,
-        <<"+08:00:01">>,
-        <<"+0802">>,
-        <<"-08:00">>,
-        <<"local">>
-    ],
-    [
-        [
-            [begin
-                Time = erlang:system_time(U),
-                FormatDate = erlang:list_to_binary(format(Time, U, O, F)),
-                PTime = emqx_calendar:parse(FormatDate, U, O, F),
-                io:format("~p ~p ~p ~p ~n~p~n~p~n", [U, O, F, FormatDate, Time, PTime]),
-                % Equal = (PTime == Time),
-                % F2 =
-                %     fun() ->
-                %         Delta = Time - PTime,
-                %         DeltaFmt = erlang:list_to_binary(format(Delta, U, 0, <<"%Y-%m-%d %H:%M:%S:%N">>)),
-                %         io:format("delta ~p~n ~p~n-----~n", [Delta, DeltaFmt])
-                %     end,
-                % Equal orelse F2()
-                ok
-            end||O <- Offsets]
-        || F <-Formatters]
-    || U <-Units],
-    ok.
-
-parse(DateStr, Unit, FormatterBin) ->
-    parse(DateStr, Unit, 0, FormatterBin).
-
-parse(DateStr, Unit, Offset, FormatterBin) when is_binary(FormatterBin) ->
-    parse(DateStr, Unit, Offset, formatter(FormatterBin));
-parse(DateStr, Unit, Offset, Formatter) ->
-    do_parse(DateStr, Unit, offset_second(Offset), Formatter).
-
-do_parse(DateStr, Unit, Offset, Formatter) ->
-    DateInfo = do_parse_date_str(DateStr, Formatter, #{}),
-    {Precise, PrecisionUnit} = precise(DateInfo),
-    Counter =
-        fun
-            (year, V, Res) ->
-                Res + dy(V) * ?SECONDS_PER_DAY * Precise - (?SECONDS_FROM_0_TO_1970 * Precise);
-            (month, V, Res) ->
-                Res + nano_sm(V);
-            (day, V, Res) ->
-                Res + (V * ?SECONDS_PER_DAY * Precise);
-            (hour, V, Res) ->
-                Res + (V * ?SECONDS_PER_HOUR * Precise);
-            (minute, V, Res) ->
-                Res + (V * ?SECONDS_PER_MINUTE * Precise);
-            (second, V, Res) ->
-                Res + V * Precise;
-            (millisecond, V, Res) ->
-                case PrecisionUnit of
-                    millisecond ->
-                        Res + V;
-                    microsecond ->
-                        Res + (V * 1000);
-                    nanosecond ->
-                        Res + (V * 1000000)
-                end;
-            (microsecond, V, Res) ->
-                case PrecisionUnit of
-                    microsecond ->
-                        Res + V;
-                    nanosecond ->
-                        Res + (V * 1000)
-                end;
-            (nanosecond, V, Res) ->
-                Res + V;
-            (parsed_offset, V, Res) ->
-                Res - V
-        end,
-    Counter1 =
-        fun(K,V,R) ->
-            Res = Counter(K,V,R),
-            % io:format("K, V, R = ~p, ~p, ~p, Res = ~p~n", [K, V, R, Res - R]),
-            Res
-        end,
-    Count0 = maps:fold(Counter1, 0, DateInfo) - (?SECONDS_PER_DAY * Precise),
-    Count =
-        case maps:is_key(parsed_offset, DateInfo) of
-            true ->
-                Count0;
-            false ->
-                (Offset * Precise) + Count0
-        end,
-    erlang:convert_time_unit(Count, PrecisionUnit, Unit).
-
-precise(#{nanosecond := _}) -> {1000_000_000, nanosecond};
-precise(#{microsecond := _}) -> {1000_000, microsecond};
-precise(#{millisecond := _}) -> {1000, millisecond};
-precise(#{second := _}) -> {1, second};
-precise(_) -> {1, second}.
-
-do_parse_date_str(<<>>, _, Result) -> Result;
-do_parse_date_str(_, [], Result) -> Result;
-do_parse_date_str(Date, [Key | Formatter], Result) ->
-    Size = date_size(Key),
-    <<DatePart:Size/binary-unit:8, Tail/binary>> = Date,
-    case lists:member(Key, ?DATE_PART) of
-        true ->
-            do_parse_date_str(Tail, Formatter, Result#{Key => erlang:binary_to_integer(DatePart)});
-        false ->
-            case lists:member(Key, ?DATE_ZONE_NAME) of
-                true ->
-                    io:format("DatePart -------------- ~p ~p~n", [DatePart, offset_second(DatePart)]),
-                    do_parse_date_str(Tail, Formatter, Result#{parsed_offset => offset_second(DatePart)});
-                false ->
-                    do_parse_date_str(Tail, Formatter, Result)
-            end
-    end.
-
-date_size(Str) when is_list(Str) -> erlang:length(Str);
-date_size(DateName) ->
-    Map = #{
-        year   => 4,
-        month  => 2,
-        day    => 2,
-        hour   => 2,
-        minute => 2,
-        second => 2,
-        millisecond => 3,
-        microsecond => 6,
-        nanosecond => 9,
-        timezone => 5,
-        timezone1 => 6,
-        timezone2 => 9
-    },
-    maps:get(DateName, Map).
-
-nano_sm(Month) -> dm(Month) * ?SECONDS_PER_DAY * 1000_000.
-
-dm(Month) ->
-    MonthDays = #{
-        1  => 0,
-        2  => 31,
-        3  => 59,
-        4  => 90,
-        5  => 120,
-        6  => 151,
-        7  => 181,
-        8  => 212,
-        9  => 243,
-        10 => 273,
-        11 => 304,
-        12 => 334
-    },
-    maps:get(Month, MonthDays).
-
+parse(DateStr, Unit, FormatterBin) when is_binary(FormatterBin) ->
+    parse(DateStr, Unit, formatter(FormatterBin));
+parse(DateStr, Unit, Formatter) ->
+    do_parse(DateStr, Unit, Formatter).
 %% -------------------------------------------------------------------------------------------------
 %% internal
 %% emqx_calendar:format(erlang:system_time(second), <<"second">>, <<"+8:00">> ,<<"%Y-%m-%d-%H:%M:%S%Z">>).
@@ -315,10 +147,6 @@ do_offset_second(Offset) when is_list(Offset) ->
     PosNeg * (Hour * 3600 + Minute * 60 + Second).
 
 do_format(Time, Unit, Offset, Formatter) ->
-    Timezones = formatter_timezones(Offset, Formatter, #{}),
-    do_format(Time, Unit, Offset, Timezones, Formatter).
-
-do_format(Time, Unit, Offset, Timezones, Formatter) ->
     Adjustment = erlang:convert_time_unit(Offset, second, Unit),
     AdjustedTime = Time + Adjustment,
     Factor = factor(Unit),
@@ -336,6 +164,7 @@ do_format(Time, Unit, Offset, Timezones, Formatter) ->
         microsecond => trans_x_second(Unit, microsecond, Time),
         nanosecond => trans_x_second(Unit, nanosecond, Time)
     },
+    Timezones = formatter_timezones(Offset, Formatter, #{}),
     DateWithZone = maps:merge(Date, Timezones),
     [maps:get(Key, DateWithZone, Key) || Key <- Formatter].
 
@@ -493,12 +322,12 @@ do_trans_x_second(second, second, Time) -> Time div 60;
 do_trans_x_second(second, _, _Time) -> 0;
 
 do_trans_x_second(millisecond, millisecond, Time) -> Time rem 1000;
-do_trans_x_second(millisecond, microsecond, _Time) -> 0;
-do_trans_x_second(millisecond, nanosecond, _Time) -> 0;
+do_trans_x_second(millisecond, microsecond, Time) -> (Time rem 1000) * 1000;
+do_trans_x_second(millisecond, nanosecond, Time) -> (Time rem 1000) * 1000_000;
 
 do_trans_x_second(microsecond, millisecond, Time) -> Time div 1000 rem 1000;
 do_trans_x_second(microsecond, microsecond, Time) -> Time rem 1000000;
-do_trans_x_second(microsecond, nanosecond, _Time) -> 0;
+do_trans_x_second(microsecond, nanosecond, Time) -> (Time rem 1000000) * 1000;
 
 do_trans_x_second(nanosecond, millisecond, Time) -> Time div 1000000 rem 1000;
 do_trans_x_second(nanosecond, microsecond, Time) -> Time div 1000 rem 1000000;
@@ -510,3 +339,106 @@ padding(Data, Len) when Len > 0 andalso erlang:length(Data) < Len ->
     [$0 | padding(Data, Len - 1)];
 padding(Data, _Len) ->
     Data.
+
+%% -------------------------------------------------------------------------------------------------
+%% internal
+%% parse part
+
+do_parse(DateStr, Unit, Formatter) ->
+    DateInfo = do_parse_date_str(DateStr, Formatter, #{}),
+    {Precise, PrecisionUnit} = precise(DateInfo),
+    Counter =
+        fun
+            (year, V, Res) ->
+                Res + dy(V) * ?SECONDS_PER_DAY * Precise - (?SECONDS_FROM_0_TO_1970 * Precise);
+            (month, V, Res) ->
+                Res + dm(V) * ?SECONDS_PER_DAY * Precise;
+            (day, V, Res) ->
+                Res + (V * ?SECONDS_PER_DAY * Precise);
+            (hour, V, Res) ->
+                Res + (V * ?SECONDS_PER_HOUR * Precise);
+            (minute, V, Res) ->
+                Res + (V * ?SECONDS_PER_MINUTE * Precise);
+            (second, V, Res) ->
+                Res + V * Precise;
+            (millisecond, V, Res) ->
+                case PrecisionUnit of
+                    millisecond ->
+                        Res + V;
+                    microsecond ->
+                        Res + (V * 1000);
+                    nanosecond ->
+                        Res + (V * 1000000)
+                end;
+            (microsecond, V, Res) ->
+                case PrecisionUnit of
+                    microsecond ->
+                        Res + V;
+                    nanosecond ->
+                        Res + (V * 1000)
+                end;
+            (nanosecond, V, Res) ->
+                Res + V;
+            (parsed_offset, V, Res) ->
+                Res - V
+        end,
+    Count = maps:fold(Counter, 0, DateInfo) - (?SECONDS_PER_DAY * Precise),
+    erlang:convert_time_unit(Count, PrecisionUnit, Unit).
+
+precise(#{nanosecond := _}) -> {1000_000_000, nanosecond};
+precise(#{microsecond := _}) -> {1000_000, microsecond};
+precise(#{millisecond := _}) -> {1000, millisecond};
+precise(#{second := _}) -> {1, second};
+precise(_) -> {1, second}.
+
+do_parse_date_str(<<>>, _, Result) -> Result;
+do_parse_date_str(_, [], Result) -> Result;
+do_parse_date_str(Date, [Key | Formatter], Result) ->
+    Size = date_size(Key),
+    <<DatePart:Size/binary-unit:8, Tail/binary>> = Date,
+    case lists:member(Key, ?DATE_PART) of
+        true ->
+            do_parse_date_str(Tail, Formatter, Result#{Key => erlang:binary_to_integer(DatePart)});
+        false ->
+            case lists:member(Key, ?DATE_ZONE_NAME) of
+                true ->
+                    do_parse_date_str(Tail, Formatter, Result#{parsed_offset => offset_second(DatePart)});
+                false ->
+                    do_parse_date_str(Tail, Formatter, Result)
+            end
+    end.
+
+date_size(Str) when is_list(Str) -> erlang:length(Str);
+date_size(DateName) ->
+    Map = #{
+        year   => 4,
+        month  => 2,
+        day    => 2,
+        hour   => 2,
+        minute => 2,
+        second => 2,
+        millisecond => 3,
+        microsecond => 6,
+        nanosecond => 9,
+        timezone => 5,
+        timezone1 => 6,
+        timezone2 => 9
+    },
+    maps:get(DateName, Map).
+
+dm(Month) ->
+    MonthDays = #{
+        1  => 0,
+        2  => 31,
+        3  => 59,
+        4  => 90,
+        5  => 120,
+        6  => 151,
+        7  => 181,
+        8  => 212,
+        9  => 243,
+        10 => 273,
+        11 => 304,
+        12 => 334
+    },
+    maps:get(Month, MonthDays).
