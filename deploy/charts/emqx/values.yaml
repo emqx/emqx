@@ -91,6 +91,8 @@ emqxConfig:
   EMQX_CLUSTER__K8S__SUFFIX: "svc.cluster.local"
   ## if EMQX_CLUSTER__K8S__ADDRESS_TYPE eq dns
   # EMQX_CLUSTER__K8S__SUFFIX: "pod.cluster.local"
+  EMQX_MANAGEMENT__DEFAULT_APPLICATION__ID: "admin"
+  EMQX_MANAGEMENT__DEFAULT_APPLICATION__SECRET: "public"
 
 ## --------------------------------------------------------------------
 ##  [ACL](https://docs.emqx.io/broker/latest/en/advanced/acl-file.html)
@@ -263,3 +265,7 @@ containerSecurityContext:
   enabled: true
   runAsNonRoot: true
   runAsUser: 1000
+
+metrics:
+  enabled: false
+  type: prometheus

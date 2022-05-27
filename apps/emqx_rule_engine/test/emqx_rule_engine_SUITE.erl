@@ -336,7 +336,7 @@ t_clean_resource_alarms(_Config) ->
               config => #{},
               description => <<"debug resource">>}),
     ?assert(true, is_binary(ResId)),
-    Name = emqx_rule_engine:alarm_name_of_resource_down(built_in, ResId),
+    Name = emqx_rule_engine:alarm_name_of_resource_down(ResId, built_in),
     _ = emqx_alarm:activate(Name, #{id => ResId, type => built_in}),
     AlarmExist = fun(#{name := AName}) -> AName == Name end,
     Len = length(lists:filter(AlarmExist, emqx_alarm:get_alarms())),
