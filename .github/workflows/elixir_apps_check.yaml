@@ -13,14 +13,11 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        release_type:
-          - cloud
-        package_type:
-          - bin
-          - pkg
-        edition_type:
-          - community
-          - enterprise
+        profile:
+          - emqx
+          - emqx-enterprise
+          - emqx-pkg
+          - emqx-enterprise-pkg
 
     steps:
       - name: fix_git_permission
@@ -36,11 +33,11 @@ jobs:
           git config --global --add safe.directory "$GITHUB_WORKSPACE"
       - name: check applications
         run: ./scripts/check-elixir-applications.exs
+        env:
+          MIX_ENV: ${{ matrix.profile }}
       - name: check applications started with emqx_machine
         run: ./scripts/check-elixir-emqx-machine-boot-discrepancies.exs
         env:
-          EMQX_RELEASE_TYPE: ${{ matrix.release_type }}
-          EMQX_PACKAGE_TYPE: ${{ matrix.package_type }}
-          EMQX_EDITION_TYPE: ${{ matrix.edition_type }}
+          MIX_ENV: ${{ matrix.profile }}
 
 ...
