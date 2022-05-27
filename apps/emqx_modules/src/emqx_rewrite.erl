@@ -23,7 +23,7 @@
 -ifdef(TEST).
 -export([
     compile/1,
-    match_and_rewrite/2
+    match_and_rewrite/3
 ]).
 -endif.
 
@@ -92,14 +92,17 @@ unregister_hook() ->
     emqx_hooks:del('client.unsubscribe', {?MODULE, rewrite_unsubscribe}),
     emqx_hooks:del('message.publish', {?MODULE, rewrite_publish}).
 
-rewrite_subscribe(_ClientInfo, _Properties, TopicFilters, Rules) ->
-    {ok, [{match_and_rewrite(Topic, Rules), Opts} || {Topic, Opts} <- TopicFilters]}.
+rewrite_subscribe(ClientInfo, _Properties, TopicFilters, Rules) ->
+    Binds = fill_client_binds(ClientInfo),
+    {ok, [{match_and_rewrite(Topic, Rules, Binds), Opts} || {Topic, Opts} <- TopicFilters]}.
 
-rewrite_unsubscribe(_ClientInfo, _Properties, TopicFilters, Rules) ->
-    {ok, [{match_and_rewrite(Topic, Rules), Opts} || {Topic, Opts} <- TopicFilters]}.
+rewrite_unsubscribe(ClientInfo, _Properties, TopicFilters, Rules) ->
+    Binds = fill_client_binds(ClientInfo),
+    {ok, [{match_and_rewrite(Topic, Rules, Binds), Opts} || {Topic, Opts} <- TopicFilters]}.
 
 rewrite_publish(Message = #message{topic = Topic}, Rules) ->
-    {ok, Message#message{topic = match_and_rewrite(Topic, Rules)}}.
+    Binds = fill_client_binds(Message),
+    {ok, Message#message{topic = match_and_rewrite(Topic, Rules, Binds)}}.
 
 %%--------------------------------------------------------------------
 %% Telemetry
@@ -135,15 +138,15 @@ compile(Rules) ->
         Rules
     ).
 
-match_and_rewrite(Topic, []) ->
+match_and_rewrite(Topic, [], _) ->
     Topic;
-match_and_rewrite(Topic, [{Filter, MP, Dest} | Rules]) ->
+match_and_rewrite(Topic, [{Filter, MP, Dest} | Rules], Binds) ->
     case emqx_topic:match(Topic, Filter) of
-        true -> rewrite(Topic, MP, Dest);
-        false -> match_and_rewrite(Topic, Rules)
+        true -> rewrite(Topic, MP, Dest, Binds);
+        false -> match_and_rewrite(Topic, Rules, Binds)
     end.
 
-rewrite(Topic, MP, Dest) ->
+rewrite(Topic, MP, Dest, Binds) ->
     case re:run(Topic, MP, [{capture, all_but_first, list}]) of
         {match, Captured} ->
             Vars = lists:zip(
@@ -159,9 +162,26 @@ rewrite(Topic, MP, Dest) ->
                         re:replace(Acc, Var, Val, [global])
                     end,
                     Dest,
-                    Vars
+                    Binds ++ Vars
                 )
             );
         nomatch ->
             Topic
     end.
+
+fill_client_binds(#{clientid := ClientId, username := Username}) ->
+    filter_client_binds([{"\\${clientid}", ClientId}, {"\\${username}", Username}]);
+fill_client_binds(#message{from = ClientId, headers = Headers}) ->
+    Username = maps:get(username, Headers, undefined),
+    filter_client_binds([{"\\${clientid}", ClientId}, {"\\${username}", Username}]).
+
+filter_client_binds(Binds) ->
+    lists:filter(
+        fun
+            ({_, undefined}) -> false;
+            ({_, <<"">>}) -> false;
+            ({_, ""}) -> false;
+            (_) -> true
+        end,
+        Binds
+    ).
