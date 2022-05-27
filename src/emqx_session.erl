@@ -486,8 +486,8 @@ deliver_msg(ClientInfo, Msg = #message{qos = QoS}, Session =
     case emqx_inflight:is_full(Inflight) of
         true ->
             Session1 = case maybe_nack(Msg) of
-                           true  -> Session;
-                           false -> enqueue(ClientInfo, Msg, Session)
+                           drop -> Session;
+                           store -> enqueue(ClientInfo, Msg, Session)
                        end,
             {ok, Session1};
         false ->
@@ -695,7 +695,7 @@ redispatch_shared_messages(#session{inflight = Inflight}) ->
                   %% Note that dispatch is called with self() in failed subs
                   %% This is done to avoid dispatching back to caller
                   Delivery = #delivery{sender = self(), message = Msg},
-                  emqx_shared_sub:dispatch(Group, Topic, Delivery, [self()]);
+                  emqx_shared_sub:dispatch_to_non_self(Group, Topic, Delivery);
               _ ->
                   false
           end;
