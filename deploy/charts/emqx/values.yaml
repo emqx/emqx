@@ -70,6 +70,8 @@ initContainers: {}
 
 ## EMQX configuration item, see the documentation (https://hub.docker.com/r/emqx/emqx)
 emqxConfig:
+  EMQX_MANAGEMENT__DEFAULT_APPLICATION__ID: "admin"
+  EMQX_MANAGEMENT__DEFAULT_APPLICATION__SECRET: "public"
   EMQX_CLUSTER__K8S__APISERVER: "https://kubernetes.default.svc:443"
   ## The address type is used to extract host from k8s service.
   ## Value: ip | dns | hostname
@@ -248,3 +250,7 @@ containerSecurityContext:
   enabled: true
   runAsNonRoot: true
   runAsUser: 1000
+
+metrics:
+  enabled: false
+  type: prometheus
