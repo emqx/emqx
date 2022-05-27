@@ -30,6 +30,7 @@ File format:
 * Add rule-engine function float2str/2, user can specify the float output precision [#7991]
 
 ### Bug fixes
+
 * List subscription topic (/api/v4/subscriptions), the result do not match with multiple conditions.
 * SSL closed error bug fixed for redis client.
 * Fix mqtt-sn client disconnected due to re-send a duplicated qos2 message
@@ -40,6 +41,7 @@ File format:
   [ekka-158](https://github.com/emqx/ekka/pull/158)
 * Add regular expression check ^[0-9A-Za-z_\-]+$ for node name [#7979]
 * Fix `node_dump` variable sourcing. [#8026]
+* Support customized timestamp format of the log messages.
 
 ## v4.3.14
 
