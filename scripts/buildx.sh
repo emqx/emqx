@@ -8,7 +8,7 @@
 ## i.e. will not work if docker command has to be executed with sudo
 
 ## example:
-## ./scripts/buildx.sh --profile emqx --pkgtype zip --builder ghcr.io/emqx/emqx-builder/4.4-8:24.1.5-3-debian10 --arch arm64
+## ./scripts/buildx.sh --profile emqx --pkgtype zip --builder ghcr.io/emqx/emqx-builder/4.4-12:24.1.5-3-debian10 --arch arm64
 
 set -euo pipefail
 
@@ -20,7 +20,7 @@ help() {
     echo "--arch amd64|arm64:  Target arch to build the EMQ X package for"
     echo "--src_dir <SRC_DIR>: EMQ X source ode in this dir, default to PWD"
     echo "--builder <BUILDER>: Builder image to pull"
-    echo "                     E.g. ghcr.io/emqx/emqx-builder/4.4-8:24.1.5-3-debian10"
+    echo "                     E.g. ghcr.io/emqx/emqx-builder/4.4-12:24.1.5-3-debian10"
 }
 
 while [ "$#" -gt 0 ]; do
@@ -76,5 +76,6 @@ docker run -i --rm \
     -v "$(pwd)":/emqx \
     --workdir /emqx \
     --platform="linux/$ARCH" \
+    --user root \
     "$BUILDER" \
-    bash -euc "make ${PROFILE}-${PKGTYPE} && .ci/build_packages/tests.sh $PROFILE $PKGTYPE"
+    bash -euc "git config --global --add safe.directory /emqx && chown -R root:root _build && make ${PROFILE}-${PKGTYPE} && .ci/build_packages/tests.sh $PROFILE $PKGTYPE"
