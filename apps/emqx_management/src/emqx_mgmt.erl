@@ -121,14 +121,14 @@ list_nodes() ->
 lookup_node(Node) -> node_info(Node).
 
 node_info() ->
-    Memory = emqx_vm:get_memory(),
+    {UsedRatio, Total} = load_ctl:get_sys_memory(),
     Info = maps:from_list([{K, list_to_binary(V)} || {K, V} <- emqx_vm:loads()]),
     BrokerInfo = emqx_sys:info(),
     Info#{
         node => node(),
         otp_release => otp_rel(),
-        memory_total => proplists:get_value(allocated, Memory),
-        memory_used => proplists:get_value(used, Memory),
+        memory_total => Total,
+        memory_used => erlang:round(Total * UsedRatio),
         process_available => erlang:system_info(process_limit),
         process_used => erlang:system_info(process_count),
 

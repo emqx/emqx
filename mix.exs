@@ -44,7 +44,7 @@ defmodule EMQXUmbrella.MixProject do
     # we need several overrides here because dependencies specify
     # other exact versions, and not ranges.
     [
-      {:lc, github: "emqx/lc", tag: "0.3.0"},
+      {:lc, github: "emqx/lc", tag: "0.3.1"},
       {:redbug, "2.0.7"},
       {:typerefl, github: "ieQu1/typerefl", tag: "0.9.1", override: true},
       {:ehttpc, github: "emqx/ehttpc", tag: "0.2.0"},
