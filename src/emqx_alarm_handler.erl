@@ -61,7 +61,7 @@ handle_event({set_alarm, {process_memory_high_watermark, Pid}}, State) ->
                                                      high_watermark => emqx_os_mon:get_procmem_high_watermark()}),
     {ok, State};
 handle_event({clear_alarm, process_memory_high_watermark}, State) ->
-    emqx_alarm:ensure_deactivate(high_process_memory_usage),
+    emqx_alarm:ensure_deactivated(high_process_memory_usage),
     {ok, State};
 
 handle_event(_, State) ->

@@ -427,18 +427,18 @@ format_header(#mqtt_packet_header{type = Type,
                                   dup = Dup,
                                   qos = QoS,
                                   retain = Retain}, S) ->
-    S1 = case S == undefined of
-             true -> <<>>;
-             false -> [", ", S]
-         end,
-    io_lib:format("~s(Q~p, R~p, D~p~s)", [type_name(Type), QoS, i(Retain), i(Dup), S1]).
+    Header = io_lib:format("~s(Q~p, R~p, D~p", [type_name(Type), QoS, i(Retain), i(Dup)]),
+    case S == undefined of
+        true -> [Header, ")"];
+        false -> [Header, S, ")"]
+    end.
 
 format_variable(undefined, _) ->
     undefined;
 format_variable(Variable, undefined) ->
     format_variable(Variable);
 format_variable(Variable, Payload) ->
-    io_lib:format("~s, Payload=~0p", [format_variable(Variable), Payload]).
+    [format_variable(Variable), ", Payload=", Payload].
 
 format_variable(#mqtt_packet_connect{
                  proto_ver    = ProtoVer,

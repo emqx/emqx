@@ -1,0 +1,39 @@
+{{- if and (.Values.metrics.enabled) (eq .Values.metrics.type "prometheus") }}
+apiVersion: monitoring.coreos.com/v1
+kind: ServiceMonitor
+metadata:
+  name: {{ include "emqx.fullname" . }}
+  namespace: {{ .Release.Namespace }}
+  labels:
+    app.kubernetes.io/name: {{ include "emqx.name" . }}
+    helm.sh/chart: {{ include "emqx.chart" . }}
+    app.kubernetes.io/instance: {{ .Release.Name }}
+    app.kubernetes.io/managed-by: {{ .Release.Service }}
+  {{- if .Values.service.annotations }}
+  annotations:
+    {{ toYaml .Values.service.annotations | indent 4 }}
+  {{- end }}
+spec:
+  endpoints:
+  - interval: 10s
+    port: mgmt 
+    scheme: http
+    path: /api/v4/emqx_prometheus
+    params:
+      type:
+        - prometheus
+    basicAuth:
+      password:
+        name: {{ include "emqx.fullname" . }}-basic-auth
+        key: password
+      username:
+        name: {{ include "emqx.fullname" . }}-basic-auth
+        key: username
+  jobLabel: {{ .Release.Name }}-scraping
+  namespaceSelector:
+    matchNames:
+      -  {{ .Release.Namespace }}
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: {{ include "emqx.name" . }}
+{{- end }}

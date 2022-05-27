@@ -88,6 +88,8 @@ Parameter  | Description | Default Value
 `ingress.wss.hosts` | Ingress hosts for EMQX WSS |    `wss.emqx.local`
 `ingress.wss.tls` | Ingress tls for EMQX WSS |	`[]`
 `ingress.wss.annotations` | Ingress annotations for EMQX WSS |	`{}`
+| `metrics.enable` | If set to true, [prometheus-operator](https://github.com/prometheus-operator/prometheus-operator) needs to be installed, and [emqx_prometheus](https://github.com/emqx/emqx/tree/main-v4.4/apps/emqx_prometheus) needs to enable | false |
+| `metrics.type` | Now we only supported "prometheus" | "prometheus" |
 `extraEnv` | Aditional container env vars | `[]`
 `extraEnvFrom` | Aditional container env from vars (eg. [config map](https://kubernetes.io/docs/tasks/configure-pod-container/configure-pod-configmap/), [secrets](https://kubernetes.io/docs/concepts/configuration/secret/) | `[]`
 `extraArgs` | Additional container executable arguments | `[]`

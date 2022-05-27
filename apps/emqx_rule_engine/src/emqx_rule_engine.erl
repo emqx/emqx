@@ -656,11 +656,11 @@ init_action(Module, OnCreate, ActionInstId, Params) ->
                 #action_instance_params{id = ActionInstId, params = Params, apply = Apply})
     end.
 
-clear_resource(_Module, undefined, Type, ResId) ->
+clear_resource(_Module, undefined, ResId, Type) ->
     Name = alarm_name_of_resource_down(Type, ResId),
     _ = emqx_alarm:deactivate(Name),
     ok = emqx_rule_registry:remove_resource_params(ResId);
-clear_resource(Module, Destroy, Type, ResId) ->
+clear_resource(Module, Destroy, ResId, Type) ->
     Name = alarm_name_of_resource_down(Type, ResId),
     _ = emqx_alarm:deactivate(Name),
     case emqx_rule_registry:find_resource_params(ResId) of
