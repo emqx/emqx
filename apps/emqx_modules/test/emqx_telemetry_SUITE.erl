@@ -248,13 +248,15 @@ end_per_testcase(t_num_clients, Config) ->
     meck:unload([httpc]),
     ok = snabbkaffe:stop(),
     Config;
-end_per_testcase(t_uuid_restored_from_file, _Config) ->
+end_per_testcase(t_uuid_restored_from_file, Config) ->
+    Node = ?config(n1, Config),
     DataDir = emqx:data_dir(),
     NodeUUIDFile = filename:join(DataDir, "node.uuid"),
     ClusterUUIDFile = filename:join(DataDir, "cluster.uuid"),
     ok = file:delete(NodeUUIDFile),
     ok = file:delete(ClusterUUIDFile),
     meck:unload([httpc]),
+    ok = stop_slave(Node),
     ok;
 end_per_testcase(_Testcase, _Config) ->
     meck:unload([httpc]),
