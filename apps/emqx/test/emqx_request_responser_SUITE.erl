@@ -30,11 +30,15 @@ end_per_suite(_Config) ->
     emqx_common_test_helpers:stop_apps([]).
 
 all() ->
-    [request_response].
+    emqx_common_test_helpers:all(?MODULE).
 
-request_response(_Config) ->
-    request_response_per_qos(?QOS_0),
-    request_response_per_qos(?QOS_1),
+t_request_response_qos0(_Config) ->
+    request_response_per_qos(?QOS_0).
+
+t_request_response_qos1(_Config) ->
+    request_response_per_qos(?QOS_1).
+
+t_request_response_qos2(_Config) ->
     request_response_per_qos(?QOS_2).
 
 request_response_per_qos(QoS) ->

@@ -95,6 +95,7 @@ t_check(_) ->
     ?assertEqual(0, emqx_banned:info(size)).
 
 t_unused(_) ->
+    catch emqx_banned:stop(),
     {ok, Banned} = emqx_banned:start_link(),
     {ok, _} = emqx_banned:create(#banned{
         who = {clientid, <<"BannedClient1">>},

@@ -43,6 +43,7 @@ end_per_suite(_Config) ->
 init_per_testcase(Case, Config) when
     Case =:= t_max_conns_tcp; Case =:= t_current_conns_tcp
 ->
+    catch emqx_config_handler:stop(),
     {ok, _} = emqx_config_handler:start_link(),
     PrevListeners = emqx_config:get([listeners, tcp], #{}),
     PrevRateLimit = emqx_config:get([rate_limit], #{}),
@@ -64,6 +65,7 @@ init_per_testcase(Case, Config) when
         | Config
     ];
 init_per_testcase(t_wss_conn, Config) ->
+    catch emqx_config_handler:stop(),
     {ok, _} = emqx_config_handler:start_link(),
     PrevListeners = emqx_config:get([listeners, wss], #{}),
     emqx_config:put(
@@ -86,6 +88,7 @@ init_per_testcase(t_wss_conn, Config) ->
         | Config
     ];
 init_per_testcase(_, Config) ->
+    catch emqx_config_handler:stop(),
     {ok, _} = emqx_config_handler:start_link(),
     Config.
 
