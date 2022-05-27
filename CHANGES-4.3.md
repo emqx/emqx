@@ -40,6 +40,7 @@ File format:
   [ekka-158](https://github.com/emqx/ekka/pull/158)
 * Add regular expression check ^[0-9A-Za-z_\-]+$ for node name [#7979]
 * Fix `node_dump` variable sourcing. [#8026]
+* Fix heap size is growing too fast when trace large message.
 
 ## v4.3.14
 
