@@ -806,8 +806,8 @@ terminate(ClientInfo, Reason, Session) ->
 
 run_terminate_hooks(ClientInfo, discarded, Session) ->
     run_hook('session.discarded', [ClientInfo, info(Session)]);
-run_terminate_hooks(ClientInfo, takeovered, Session) ->
-    run_hook('session.takeovered', [ClientInfo, info(Session)]);
+run_terminate_hooks(ClientInfo, takenover, Session) ->
+    run_hook('session.takenover', [ClientInfo, info(Session)]);
 run_terminate_hooks(ClientInfo, Reason, Session) ->
     run_hook('session.terminated', [ClientInfo, Reason, info(Session)]).
 
