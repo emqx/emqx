@@ -19,7 +19,7 @@ jobs:
   prepare:
     runs-on: ubuntu-20.04
     # prepare source with any OTP version, no need for a matrix
-    container: ghcr.io/emqx/emqx-builder/4.4-8:24.1.5-3-ubuntu20.04
+    container: ghcr.io/emqx/emqx-builder/4.4-12:24.1.5-3-ubuntu20.04
 
     outputs:
       profiles: ${{ steps.set_profile.outputs.profiles}}
@@ -34,6 +34,7 @@ jobs:
         shell: bash
         working-directory: source
         run: |
+          git config --global --add safe.directory "$GITHUB_WORKSPACE"
           if make emqx-ee --dry-run > /dev/null 2>&1; then
             echo "::set-output name=profiles::[\"emqx-ee\"]"
           else
@@ -216,8 +217,8 @@ jobs:
           - debian11
           - debian10
           - debian9
-          - rockylinux8
-          - centos7
+          - el8
+          - el7
           # - raspbian10 #armv6l is too slow to emulate
         exclude:
         - os: raspbian9
@@ -262,7 +263,7 @@ jobs:
           --profile "${PROFILE}" \
           --pkgtype "${PACKAGE}" \
           --arch "${ARCH}" \
-          --builder "ghcr.io/emqx/emqx-builder/4.4-8:${OTP}-${SYSTEM}"
+          --builder "ghcr.io/emqx/emqx-builder/4.4-12:${OTP}-${SYSTEM}"
     - uses: actions/upload-artifact@v1
       if: startsWith(github.ref, 'refs/tags/')
       with:
@@ -339,7 +340,7 @@ jobs:
         tags: ${{ steps.meta.outputs.tags }}
         labels: ${{ steps.meta.outputs.labels }}
         build-args: |
-          BUILD_FROM=ghcr.io/emqx/emqx-builder/4.4-8:${{ matrix.otp }}-alpine3.15.1
+          BUILD_FROM=ghcr.io/emqx/emqx-builder/4.4-12:${{ matrix.otp }}-alpine3.15.1
           RUN_FROM=alpine:3.15.1
           EMQX_NAME=${{ matrix.profile }}
         file: source/deploy/docker/Dockerfile
@@ -355,7 +356,7 @@ jobs:
         tags: ${{ steps.meta.outputs.tags }}
         labels: ${{ steps.meta.outputs.labels }}
         build-args: |
-          BUILD_FROM=ghcr.io/emqx/emqx-builder/4.4-8:${{ matrix.otp }}-alpine3.15.1
+          BUILD_FROM=ghcr.io/emqx/emqx-builder/4.4-12:${{ matrix.otp }}-alpine3.15.1
           RUN_FROM=alpine:3.15.1
           EMQX_NAME=${{ matrix.profile }}
         file: source/deploy/docker/Dockerfile.enterprise
