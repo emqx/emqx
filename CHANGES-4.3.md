@@ -21,7 +21,7 @@ File format:
   Now MQTT clients may be authorized with respect to a specific claim containing publish/subscribe topic whitelists.
 * Better randomisation of app screts (changed from timestamp seeded sha hash (uuid) to crypto:strong_rand_bytes)
 * Return a client_identifier_not_valid error when username is empty and username_as_clientid is set to true [#7862]
-* Add more rule engine date functions: format_date/3, format_date/4, date_to_unix_ts/4 [#7894]
+* Add more rule engine date functions: format_date/3, format_date/4, date_to_unix_ts/3, date_to_unix_ts/4 [#7894]
 * Add proto_name and proto_ver fields for $event/client_disconnected event.
 * Mnesia auth/acl http api support multiple condition queries.
 * Inflight QoS1 Messages for shared topics are now redispatched to another alive subscribers upon chosen subscriber session termination.
@@ -34,6 +34,7 @@ File format:
 * SSL closed error bug fixed for redis client.
 * Fix mqtt-sn client disconnected due to re-send a duplicated qos2 message
 * Rule-engine function hexstr2bin/1 support half byte [#7977]
+* Shared message delivery when all alive shared subs have full inflight [#7984]
 * Improved resilience against autocluster partitioning during cluster
   startup. [#7876]
   [ekka-158](https://github.com/emqx/ekka/pull/158)
