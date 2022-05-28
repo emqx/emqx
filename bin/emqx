@@ -406,7 +406,7 @@ call_hocon() {
 ## Resolve boot configs in a batch
 ## This is because starting the Erlang beam with all modules loaded
 ## and parsing HOCON config + environment variables is a non-trivial task
-CONF_KEYS=( 'node.data_dir' 'node.name' 'node.cookie' 'db.backend' )
+CONF_KEYS=( 'node.data_dir' 'node.name' 'node.cookie' 'node.db_backend' )
 if [ "$IS_ENTERPRISE" = 'yes' ]; then
     CONF_KEYS+=( 'license.file' 'license.key' )
 fi
@@ -718,11 +718,11 @@ fi
 
 ## check if OTP version has mnesia_hook feature; if not, fallback to
 ## using Mnesia DB backend.
-if [[ "$IS_BOOT_COMMAND" == 'yes' && "$(get_boot_config 'db.backend')" == "rlog" ]]; then
+if [[ "$IS_BOOT_COMMAND" == 'yes' && "$(get_boot_config 'node.db_backend')" == "rlog" ]]; then
     if ! (echo -e "$COMPATIBILITY_INFO" | grep -q 'MNESIA_OK'); then
       echoerr "DB Backend is RLOG, but an incompatible OTP version has been detected. Falling back to using Mnesia DB backend."
-      export EMQX_DB__BACKEND=mnesia
-      export EMQX_DB__ROLE=core
+      export EMQX_NODE__DB_BACKEND=mnesia
+      export EMQX_NODE__DB_ROLE=core
     fi
 fi
 

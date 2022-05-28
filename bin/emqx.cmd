@@ -64,8 +64,8 @@
 @set node_type=-name
 @set schema_mod=emqx_conf_schema
 :: no advanced DB backend for Windows
-@set EMQX_DB__BACKEND=mnesia
-@set EMQX_DB__ROLE=core
+@set EMQX_NODE__DB_BACKEND=mnesia
+@set EMQX_NODE__DB_ROLE=core
 
 @set conf_path="%etc_dir%\emqx.conf"
 

@@ -93,11 +93,6 @@ roots() ->
                 sc(
                     ref("rpc"),
                     #{translate_to => ["gen_rpc"]}
-                )},
-            {"db",
-                sc(
-                    ref("db"),
-                    #{}
                 )}
         ] ++
         emqx_schema:roots(medium) ++
@@ -127,6 +122,16 @@ fields("cluster") ->
                     default => manual,
                     desc => ?DESC(cluster_discovery_strategy),
                     'readOnly' => true
+                }
+            )},
+        {"core_nodes",
+            sc(
+                emqx_schema:comma_separated_atoms(),
+                #{
+                    mapping => "mria.core_nodes",
+                    default => [],
+                    'readOnly' => true,
+                    desc => ?DESC(db_core_nodes)
                 }
             )},
         {"autoclean",
@@ -509,11 +514,8 @@ fields("node") ->
             sc(
                 ref("cluster_call"),
                 #{'readOnly' => true}
-            )}
-    ];
-fields("db") ->
-    [
-        {"backend",
+            )},
+        {"db_backend",
             sc(
                 hoconsc:enum([mnesia, rlog]),
                 #{
@@ -523,7 +525,7 @@ fields("db") ->
                     desc => ?DESC(db_backend)
                 }
             )},
-        {"role",
+        {"db_role",
             sc(
                 hoconsc:enum([core, replicant]),
                 #{
@@ -531,16 +533,6 @@ fields("db") ->
                     default => core,
                     'readOnly' => true,
                     desc => ?DESC(db_role)
-                }
-            )},
-        {"core_nodes",
-            sc(
-                emqx_schema:comma_separated_atoms(),
-                #{
-                    mapping => "mria.core_nodes",
-                    default => [],
-                    'readOnly' => true,
-                    desc => ?DESC(db_core_nodes)
                 }
             )},
         {"rpc_module",
@@ -933,8 +925,6 @@ desc(cluster_k8s) ->
     ?DESC("desc_cluster_k8s");
 desc("node") ->
     ?DESC("desc_node");
-desc("db") ->
-    ?DESC("desc_db");
 desc("cluster_call") ->
     ?DESC("desc_cluster_call");
 desc("rpc") ->
