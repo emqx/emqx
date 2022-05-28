@@ -106,10 +106,13 @@ end).
 
 start() ->
     application:ensure_all_started(grpc),
-    [start_channel(), start_server()].
+    [ensure_channel(), start_server()].
 
-start_channel() ->
-    grpc_client_sup:create_channel_pool(ct_test_channel, "http://127.0.0.1:9100", #{}).
+ensure_channel() ->
+    case grpc_client_sup:create_channel_pool(ct_test_channel, "http://127.0.0.1:9100", #{}) of
+        {error, {already_started, Pid}} -> {ok, Pid};
+        {ok, Pid} -> {ok, Pid}
+    end.
 
 start_server() ->
     Services = #{
