@@ -56,8 +56,10 @@ fi
 if [ "${SYSTEM}" = 'windows' ]; then
     # windows does not like the find
     FIND="/usr/bin/find"
+    TAR="/usr/bin/tar"
 else
     FIND='find'
+    TAR='tar'
 fi
 
 log() {
@@ -117,7 +119,7 @@ make_relup() {
         ## we have to create tmp dir to untar old tgz, as `tar --skip-old-files` is not supported on all plantforms
         local tmp_dir
         tmp_dir="$(mktemp -d -t emqx.XXXXXXX)"
-        tar -C "$tmp_dir" -zxf "$tgzfile"
+        $TAR -C "$tmp_dir" -zxf "$tgzfile"
         cp -npr "$tmp_dir/releases"/* "${rel_dir}/releases/" || true
         cp -npr "$tmp_dir/lib"/* "${rel_dir}/lib/" || true
         rm -rf "$tmp_dir"
@@ -181,7 +183,7 @@ make_tgz() {
     if [ ! -f "$src_tarball" ]; then
         log "ERROR: $src_tarball is not found"
     fi
-    tar zxf "${src_tarball}" -C "${tard}/emqx"
+    $TAR zxf "${src_tarball}" -C "${tard}/emqx"
     if [ -f "${tard}/emqx/releases/${PKG_VSN}/relup" ]; then
         ./scripts/inject-relup.escript "${tard}/emqx/releases/${PKG_VSN}/relup"
     fi
@@ -191,7 +193,7 @@ make_tgz() {
     ## create tar after change dir
     ## to avoid creating an extra level of 'emqx' dir in the .tar.gz file
     pushd "${tard}/emqx" >/dev/null
-    tar -zcf "../${target_name}" -- *
+    $TAR -zcf "../${target_name}" -- *
     popd >/dev/null
     mv "${tard}/${target_name}" "${target}"
     case "$SYSTEM" in
