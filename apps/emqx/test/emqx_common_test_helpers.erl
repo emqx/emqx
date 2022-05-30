@@ -55,6 +55,8 @@
     is_tcp_server_available/3
 ]).
 
+-export([ensure_quic_listener/2]).
+
 -define(CERTS_PATH(CertName), filename:join(["etc", "certs", CertName])).
 
 -define(MQTT_SSL_TWOWAY, [
@@ -503,3 +505,30 @@ ensure_dashboard_listeners_started(emqx_dashboard) ->
     ok;
 ensure_dashboard_listeners_started(_App) ->
     ok.
+
+-spec ensure_quic_listener(Name :: atom(), UdpPort :: inet:port_number()) -> ok.
+ensure_quic_listener(Name, UdpPort) ->
+    application:ensure_all_started(quicer),
+    emqx_config:put([listeners, quic, Name, mountpoint], <<>>),
+    Conf = #{
+        acceptors => 16,
+        bind => {{0, 0, 0, 0}, UdpPort},
+        certfile => filename:join(code:lib_dir(emqx), "etc/certs/cert.pem"),
+        ciphers =>
+            [
+                "TLS_AES_256_GCM_SHA384",
+                "TLS_AES_128_GCM_SHA256",
+                "TLS_CHACHA20_POLY1305_SHA256"
+            ],
+        enabled => true,
+        idle_timeout => 15000,
+        keyfile => filename:join(code:lib_dir(emqx), "etc/certs/key.pem"),
+        limiter => #{},
+        max_connections => 1024000,
+        mountpoint => <<>>,
+        zone => default
+    },
+    case emqx_listeners:start_listener(quic, Name, Conf) of
+        ok -> ok;
+        {error, {already_started, _Pid}} -> ok
+    end.

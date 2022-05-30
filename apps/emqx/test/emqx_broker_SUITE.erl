@@ -75,9 +75,11 @@ init_per_group(ws, Config) ->
 init_per_group(quic, Config) ->
     emqx_common_test_helpers:boot_modules(all),
     emqx_common_test_helpers:start_apps([]),
+    UdpPort = 14567,
+    ok = emqx_common_test_helpers:ensure_quic_listener(?MODULE, UdpPort),
     [
         {conn_fun, quic_connect},
-        {port, 14567}
+        {port, UdpPort}
         | Config
     ];
 init_per_group(_Group, Config) ->
