@@ -76,7 +76,7 @@ init_per_group(GrpName, Cfg) ->
     [{servers, Svrs}, {listener_type, GrpName} | Cfg].
 
 end_per_group(_, Cfg) ->
-    {ok, _} = emqx:remove_config([gateway, exproto]),
+    emqx_config:erase(gateway),
     emqx_common_test_helpers:stop_apps([emqx_gateway]),
     emqx_exproto_echo_svr:stop(proplists:get_value(servers, Cfg)).
 
