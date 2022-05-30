@@ -99,7 +99,19 @@ init([]) ->
     process_flag(trap_exit, true),
     ok = ekka:monitor(membership),
     _ = mria:wait_for_tables([?ROUTING_NODE]),
-    {ok, _} = mnesia:subscribe({table, ?ROUTING_NODE, simple}),
+    %{ok, _} = mnesia:subscribe({table, ?ROUTING_NODE, simple}),
+    %% Temporary fix for debugging:
+    WhereToRead = ets:lookup(mnesia_gvar, {?ROUTING_NODE, where_to_read}),
+    case mnesia:subscribe({table, ?ROUTING_NODE, simple}) of
+        {ok, _} ->
+            ok;
+        Err ->
+            error(#{
+                failed_to_subscribe => Err,
+                where_to_read => WhereToRead,
+                status => mria_rlog:status()
+            })
+    end,
     Nodes = lists:foldl(
         fun(Node, Acc) ->
             case ekka:is_member(Node) of
