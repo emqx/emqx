@@ -90,7 +90,11 @@
     find_user/3,
     update_user/4,
     serialize_error/1,
-    aggregate_metrics/1
+    aggregate_metrics/1,
+
+    with_chain/2,
+    param_auth_id/0,
+    param_listener_id/0
 ]).
 
 -elvis([{elvis_style, god_modules, disable}]).

@@ -385,7 +385,8 @@ list_authenticators(ChainName) ->
 move_authenticator(ChainName, AuthenticatorID, Position) ->
     call({move_authenticator, ChainName, AuthenticatorID, Position}).
 
--spec import_users(chain_name(), authenticator_id(), binary()) -> ok | {error, term()}.
+-spec import_users(chain_name(), authenticator_id(), binary() | {binary(), binary()}) ->
+    ok | {error, term()}.
 import_users(ChainName, AuthenticatorID, Filename) ->
     call({import_users, ChainName, AuthenticatorID, Filename}).
 

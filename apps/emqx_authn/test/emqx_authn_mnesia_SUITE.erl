@@ -228,53 +228,138 @@ t_import_users(_) ->
     Config = Config0#{password_hash_algorithm => #{name => sha256}},
     {ok, State} = emqx_authn_mnesia:create(?AUTHN_ID, Config),
 
-    ok = emqx_authn_mnesia:import_users(
-        data_filename(<<"user-credentials.json">>),
-        State
+    ?assertEqual(
+        ok,
+        emqx_authn_mnesia:import_users(
+            sample_filename(<<"user-credentials.json">>),
+            State
+        )
     ),
 
-    ok = emqx_authn_mnesia:import_users(
-        data_filename(<<"user-credentials.csv">>),
-        State
+    ?assertEqual(
+        ok,
+        emqx_authn_mnesia:import_users(
+            sample_filename_and_data(<<"user-credentials.json">>),
+            State
+        )
     ),
 
-    {error, {unsupported_file_format, _}} = emqx_authn_mnesia:import_users(
-        <<"/file/with/unknown.extension">>,
-        State
+    ?assertEqual(
+        ok,
+        emqx_authn_mnesia:import_users(
+            sample_filename(<<"user-credentials.csv">>),
+            State
+        )
     ),
 
-    {error, unknown_file_format} = emqx_authn_mnesia:import_users(
-        <<"/file/with/no/extension">>,
-        State
+    ?assertEqual(
+        ok,
+        emqx_authn_mnesia:import_users(
+            sample_filename_and_data(<<"user-credentials.csv">>),
+            State
+        )
     ),
 
-    {error, enoent} = emqx_authn_mnesia:import_users(
-        <<"/file/that/not/exist.json">>,
-        State
+    ?assertMatch(
+        {error, {unsupported_file_format, _}},
+        emqx_authn_mnesia:import_users(
+            <<"/file/with/unknown.extension">>,
+            State
+        )
     ),
 
-    {error, bad_format} = emqx_authn_mnesia:import_users(
-        data_filename(<<"user-credentials-malformed-0.json">>),
-        State
+    ?assertMatch(
+        {error, {unsupported_file_format, _}},
+        emqx_authn_mnesia:import_users(
+            {<<"/file/with/unknown.extension">>, <<>>},
+            State
+        )
     ),
 
-    {error, {_, invalid_json}} = emqx_authn_mnesia:import_users(
-        data_filename(<<"user-credentials-malformed-1.json">>),
-        State
+    ?assertEqual(
+        {error, unknown_file_format},
+        emqx_authn_mnesia:import_users(
+            <<"/file/with/no/extension">>,
+            State
+        )
     ),
 
-    {error, bad_format} = emqx_authn_mnesia:import_users(
-        data_filename(<<"user-credentials-malformed.csv">>),
-        State
+    ?assertEqual(
+        {error, unknown_file_format},
+        emqx_authn_mnesia:import_users(
+            {<<"/file/with/no/extension">>, <<>>},
+            State
+        )
+    ),
+
+    ?assertEqual(
+        {error, enoent},
+        emqx_authn_mnesia:import_users(
+            <<"/file/that/not/exist.json">>,
+            State
+        )
+    ),
+
+    ?assertEqual(
+        {error, bad_format},
+        emqx_authn_mnesia:import_users(
+            sample_filename(<<"user-credentials-malformed-0.json">>),
+            State
+        )
+    ),
+
+    ?assertEqual(
+        {error, bad_format},
+        emqx_authn_mnesia:import_users(
+            sample_filename_and_data(<<"user-credentials-malformed-0.json">>),
+            State
+        )
+    ),
+
+    ?assertMatch(
+        {error, {_, invalid_json}},
+        emqx_authn_mnesia:import_users(
+            sample_filename(<<"user-credentials-malformed-1.json">>),
+            State
+        )
+    ),
+
+    ?assertMatch(
+        {error, {_, invalid_json}},
+        emqx_authn_mnesia:import_users(
+            sample_filename_and_data(<<"user-credentials-malformed-1.json">>),
+            State
+        )
+    ),
+
+    ?assertEqual(
+        {error, bad_format},
+        emqx_authn_mnesia:import_users(
+            sample_filename(<<"user-credentials-malformed.csv">>),
+            State
+        )
+    ),
+
+    ?assertEqual(
+        {error, bad_format},
+        emqx_authn_mnesia:import_users(
+            sample_filename_and_data(<<"user-credentials-malformed.csv">>),
+            State
+        )
     ).
 
 %%------------------------------------------------------------------------------
 %% Helpers
 %%------------------------------------------------------------------------------
 
-data_filename(Name) ->
+sample_filename(Name) ->
     Dir = code:lib_dir(emqx_authn, test),
     filename:join([Dir, <<"data">>, Name]).
+
+sample_filename_and_data(Name) ->
+    Filename = sample_filename(Name),
+    {ok, Data} = file:read_file(Filename),
+    {Filename, Data}.
 
 config() ->
     #{

@@ -312,6 +312,23 @@ t_authn_data_mgmt(_) ->
         "/gateway/stomp/authentication/users"
     ),
 
+    UploadUri = emqx_dashboard_api_test_helpers:uri(
+        ["gateway", "stomp", "authentication", "upload_users"]
+    ),
+
+    Dir = code:lib_dir(emqx_authn, test),
+    JSONFileName = filename:join([Dir, <<"data/user-credentials.json">>]),
+    {ok, JSONData} = file:read_file(JSONFileName),
+    {ok, 204, _} = emqx_dashboard_api_test_helpers:multipart_formdata_request(UploadUri, [], [
+        {filename, "user-credentials.json", JSONData}
+    ]),
+
+    CSVFileName = filename:join([Dir, <<"data/user-credentials.csv">>]),
+    {ok, CSVData} = file:read_file(CSVFileName),
+    {ok, 204, _} = emqx_dashboard_api_test_helpers:multipart_formdata_request(UploadUri, [], [
+        {filename, "user-credentials.csv", CSVData}
+    ]),
+
     {204, _} = request(delete, "/gateway/stomp/authentication"),
     {204, _} = request(get, "/gateway/stomp/authentication"),
     {204, _} = request(delete, "/gateway/stomp").
@@ -451,6 +468,24 @@ t_listeners_authn_data_mgmt(_) ->
         get,
         Path ++ "/users"
     ),
+
+    UploadUri = emqx_dashboard_api_test_helpers:uri(
+        ["gateway", "stomp", "listeners", "stomp:tcp:def", "authentication", "upload_users"]
+    ),
+
+    Dir = code:lib_dir(emqx_authn, test),
+    JSONFileName = filename:join([Dir, <<"data/user-credentials.json">>]),
+    {ok, JSONData} = file:read_file(JSONFileName),
+    {ok, 204, _} = emqx_dashboard_api_test_helpers:multipart_formdata_request(UploadUri, [], [
+        {filename, "user-credentials.json", JSONData}
+    ]),
+
+    CSVFileName = filename:join([Dir, <<"data/user-credentials.csv">>]),
+    {ok, CSVData} = file:read_file(CSVFileName),
+    {ok, 204, _} = emqx_dashboard_api_test_helpers:multipart_formdata_request(UploadUri, [], [
+        {filename, "user-credentials.csv", CSVData}
+    ]),
+
     {204, _} = request(delete, "/gateway/stomp").
 
 t_authn_fuzzy_search(_) ->

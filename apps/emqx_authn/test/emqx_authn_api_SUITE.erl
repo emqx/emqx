@@ -18,7 +18,7 @@
 -compile(nowarn_export_all).
 -compile(export_all).
 
--import(emqx_dashboard_api_test_helpers, [request/3, uri/1]).
+-import(emqx_dashboard_api_test_helpers, [request/3, uri/1, multipart_formdata_request/3]).
 
 -include("emqx_authn.hrl").
 -include_lib("eunit/include/eunit.hrl").
@@ -102,6 +102,9 @@ t_authenticator_move(_) ->
 t_authenticator_import_users(_) ->
     test_authenticator_import_users([]).
 
+t_authenticator_upload_users(_) ->
+    test_authenticator_upload_users([]).
+
 t_listener_authenticators(_) ->
     test_authenticators(["listeners", ?TCP_DEFAULT]).
 
@@ -119,6 +122,9 @@ t_listener_authenticator_move(_) ->
 
 t_listener_authenticator_import_users(_) ->
     test_authenticator_import_users(["listeners", ?TCP_DEFAULT]).
+
+t_listener_authenticator_upload_users(_) ->
+    test_authenticator_upload_users(["listeners", ?TCP_DEFAULT]).
 
 t_aggregate_metrics(_) ->
     Metrics = #{
@@ -656,6 +662,36 @@ test_authenticator_import_users(PathPrefix) ->
     {ok, 204, _} = request(post, ImportUri, #{filename => JSONFileName}),
 
     {ok, 204, _} = request(post, ImportUri, #{filename => CSVFileName}).
+
+test_authenticator_upload_users(PathPrefix) ->
+    UploadUri = uri(
+        PathPrefix ++
+            [?CONF_NS, "password_based:built_in_database", "upload_users"]
+    ),
+
+    {ok, 200, _} = request(
+        post,
+        uri(PathPrefix ++ [?CONF_NS]),
+        emqx_authn_test_lib:built_in_database_example()
+    ),
+
+    {ok, 400, _} = multipart_formdata_request(UploadUri, [], [
+        {filenam, "user-credentials.json", <<>>}
+    ]),
+
+    Dir = code:lib_dir(emqx_authn, test),
+    JSONFileName = filename:join([Dir, <<"data/user-credentials.json">>]),
+    CSVFileName = filename:join([Dir, <<"data/user-credentials.csv">>]),
+
+    {ok, JSONData} = file:read_file(JSONFileName),
+    {ok, 204, _} = multipart_formdata_request(UploadUri, [], [
+        {filename, "user-credentials.json", JSONData}
+    ]),
+
+    {ok, CSVData} = file:read_file(CSVFileName),
+    {ok, 204, _} = multipart_formdata_request(UploadUri, [], [
+        {filename, "user-credentials.csv", CSVData}
+    ]).
 
 %%------------------------------------------------------------------------------
 %% Helpers
