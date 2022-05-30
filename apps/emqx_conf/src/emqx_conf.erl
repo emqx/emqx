@@ -27,6 +27,7 @@
 -export([reset/2, reset/3]).
 -export([dump_schema/1, dump_schema/3]).
 -export([schema_module/0]).
+-export([gen_example_conf/4]).
 
 %% for rpc
 -export([get_node_and_config/1]).
@@ -144,8 +145,9 @@ dump_schema(Dir, SchemaModule, I18nFile) ->
     lists:foreach(
         fun(Lang) ->
             gen_config_md(Dir, I18nFile, SchemaModule, Lang),
-            gen_hot_conf_schema_json(Dir, I18nFile, Lang),
-            gen_example_conf(Dir, I18nFile, SchemaModule, Lang)
+            gen_hot_conf_schema_json(Dir, I18nFile, Lang)
+        %% TODO
+        %%gen_example_conf(Dir, I18nFile, SchemaModule, Lang)
         end,
         [en, zh]
     ),

@@ -324,7 +324,10 @@ fmt_desc(_, _) ->
 fmt_type(Type, Indent) ->
     [Indent, ?COMMENT2, ?TYPE, Type, ?NL].
 
-fmt_path(Path, Indent) -> [Indent, ?COMMENT2, ?PATH, hocon_schema:path(Path), ?NL].
+fmt_path(Path, Indent) -> [Indent, ?COMMENT2, ?PATH, path(Path), ?NL].
+
+path(Stack) when is_list(Stack) ->
+    string:join(lists:reverse(lists:map(fun str/1, Stack)), ".").
 
 fmt_fix_header(Field, Type, Path, #{indent := Indent}) ->
     [
@@ -350,7 +353,7 @@ fmt_map_link2(Path0, ValueName, All, Opts) ->
             {ok, #{paths := SubPaths}} -> SubPaths;
             _ -> []
         end,
-    PathStr = hocon_schema:path(Path0),
+    PathStr = path(Path0),
     Path = bin(PathStr),
     #{indent := Indent} = Opts,
     case find_link(Opts, {map, PathStr}) of
@@ -391,7 +394,7 @@ fmt_array_link(Type = #{elements := ElemT}, Path, Opts = #{indent := Indent}) ->
     end.
 
 link(Link, Indent) ->
-    [Indent, ?COMMENT2, ?LINK, hocon_schema:path(Link), ?NL].
+    [Indent, ?COMMENT2, ?LINK, path(Link), ?NL].
 
 is_simple_type(Types) when is_list(Types) ->
     lists:all(
@@ -404,7 +407,7 @@ is_simple_type(Type) ->
     is_simple_type([Type]).
 
 need_comment_example(map, Opts, Path) ->
-    case find_link(Opts, {map, hocon_schema:path(Path)}) of
+    case find_link(Opts, {map, path(Path)}) of
         {ok, _} -> false;
         {error, not_found} -> true
     end.
