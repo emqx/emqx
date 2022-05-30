@@ -512,11 +512,5 @@ get_retry_ms() ->
 
 maybe_init_tnx_id(_Node, TnxId) when TnxId < 0 -> ok;
 maybe_init_tnx_id(Node, TnxId) ->
-    {atomic, _} = transaction(fun init_node_tnx_id/2, [Node, TnxId]),
+    {atomic, _} = transaction(fun commit/2, [Node, TnxId]),
     ok.
-
-init_node_tnx_id(Node, TnxId) ->
-    case mnesia:read(?CLUSTER_COMMIT, Node) of
-        [] -> commit(Node, TnxId);
-        _ -> ok
-    end.
