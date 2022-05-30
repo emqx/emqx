@@ -7,7 +7,7 @@ export EMQX_DEFAULT_BUILDER = ghcr.io/emqx/emqx-builder/5.0-15:1.13.3-24.2.1-1-a
 export EMQX_DEFAULT_RUNNER = alpine:3.15.1
 export OTP_VSN ?= $(shell $(CURDIR)/scripts/get-otp-vsn.sh)
 export ELIXIR_VSN ?= $(shell $(CURDIR)/scripts/get-elixir-vsn.sh)
-export EMQX_DASHBOARD_VERSION ?= v0.33.0
+export EMQX_DASHBOARD_VERSION ?= v0.34.0
 export DOCKERFILE := deploy/docker/Dockerfile
 export EMQX_REL_FORM ?= tgz
 ifeq ($(OS),Windows_NT)
