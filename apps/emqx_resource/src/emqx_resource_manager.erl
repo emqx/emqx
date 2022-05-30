@@ -52,6 +52,8 @@
 -define(ETS_TABLE, emqx_resource_manager).
 -define(WAIT_FOR_RESOURCE_DELAY, 100).
 
+-define(IS_STATUS(ST), ST =:= connecting; ST =:= connected; ST =:= disconnected).
+
 %%------------------------------------------------------------------------------
 %% API
 %%------------------------------------------------------------------------------
@@ -188,7 +190,7 @@ list_group(Group) ->
     List = ets:match(?ETS_TABLE, {'$1', Group, '_'}),
     lists:flatten(List).
 
--spec health_check(instance_id()) -> ok | {error, Reason :: term()}.
+-spec health_check(instance_id()) -> resource_status().
 health_check(InstId) ->
     safe_call(InstId, health_check).
 
@@ -209,7 +211,7 @@ start_link(InstId, Group, ResourceType, Config, Opts) ->
     gen_statem:start_link({local, proc_name(InstId)}, ?MODULE, Data, []).
 
 init(Data) ->
-    {ok, connecting, Data}.
+    {ok, connecting, Data, {next_event, internal, try_connect}}.
 
 terminate(_Reason, _State, Data) ->
     ets:delete(?ETS_TABLE, Data#data.id),
@@ -238,25 +240,21 @@ handle_event({call, From}, {remove, ClearMetrics}, _State, Data) ->
 handle_event({call, From}, lookup, _State, #data{group = Group} = Data) ->
     Reply = {ok, Group, data_record_to_external_map_with_metrics(Data)},
     {keep_state_and_data, [{reply, From, Reply}]};
-% An external health check call. Disconnected usually means an error has happened.
-handle_event({call, From}, health_check, disconnected, Data) ->
-    Actions = [{reply, From, {error, Data#data.error}}],
-    {keep_state_and_data, Actions};
 % Connecting state enter
-handle_event(enter, connecting, connecting, Data) ->
+handle_event(internal, try_connect, connecting, Data) ->
     handle_connection_attempt(Data);
 handle_event(enter, _OldState, connecting, Data) ->
+    ets:delete(?ETS_TABLE, Data#data.id),
     Actions = [{state_timeout, 0, health_check}],
     {next_state, connecting, Data, Actions};
 % Connecting state health_check timeouts.
-% First clause supports desired behavior on initial connection.
-handle_event(state_timeout, health_check, connecting, #data{status = disconnected} = Data) ->
-    {next_state, disconnected, Data};
 handle_event(state_timeout, health_check, connecting, Data) ->
     connecting_health_check(Data);
 %% The connected state is entered after a successful start of the callback mod
 %% and successful health_checks
 handle_event(enter, _OldState, connected, Data) ->
+    ets:insert(?ETS_TABLE, {Data#data.id, Data#data.group, Data}),
+    _ = emqx_alarm:deactivate(Data#data.id),
     Actions = [{state_timeout, ?HEALTHCHECK_INTERVAL, health_check}],
     {next_state, connected, Data, Actions};
 handle_event(state_timeout, health_check, connected, Data) ->
@@ -270,11 +268,11 @@ handle_event(enter, _OldState, stopped, Data) ->
     ets:delete(?ETS_TABLE, Data#data.id),
     {next_state, stopped, UpdatedData};
 % Resource has been explicitly stopped, so return that as the error reason.
-handle_event({call, From}, health_check, stopped, _Data) ->
-    Actions = [{reply, From, {error, stopped}}],
+handle_event({call, From}, _, stopped, _Data) ->
+    Actions = [{reply, From, {error, resource_is_stopped}}],
     {keep_state_and_data, Actions};
 handle_event({call, From}, health_check, _State, Data) ->
-    handle_health_check_event(From, Data);
+    handle_health_check_request(From, Data);
 % Ignore all other events
 handle_event(EventType, EventData, State, Data) ->
     ?SLOG(
@@ -296,7 +294,7 @@ handle_event(EventType, EventData, State, Data) ->
 handle_disconnected_state_enter(Data) ->
     UpdatedData = Data#data{status = disconnected},
     ets:delete(?ETS_TABLE, Data#data.id),
-    case maps:get(auto_retry_interval, Data#data.config, undefined) of
+    case maps:get(auto_retry_interval, Data#data.opts, undefined) of
         undefined ->
             {next_state, disconnected, UpdatedData};
         RetryInterval ->
@@ -315,8 +313,7 @@ handle_connection_attempt(Data) ->
             %% Keep track of the error reason why the connection did not work
             %% so that the Reason can be returned when the verification call is made.
             UpdatedData = Data#data{status = disconnected, error = Reason},
-            Actions = [{state_timeout, 0, health_check}],
-            {next_state, connecting, UpdatedData, Actions}
+            {next_state, disconnected, UpdatedData}
     end.
 
 handle_remove_event(From, ClearMetrics, Data) ->
@@ -352,65 +349,65 @@ proc_name(Id) ->
     Connector = <<"_">>,
     binary_to_atom(<<Module/binary, Connector/binary, Id/binary>>).
 
-handle_health_check_event(From, Data) ->
-    case emqx_resource:call_health_check(Data#data.id, Data#data.mod, Data#data.state) of
-        connected ->
-            UpdatedData = Data#data{status = connected, error = undefined},
-            update_resource(Data#data.id, Data#data.group, UpdatedData),
-            Actions = [{reply, From, ok}],
-            {next_state, connected, UpdatedData, Actions};
-        {connected, NewResourceState} ->
-            UpdatedData = Data#data{
-                state = NewResourceState, status = connected, error = undefined
-            },
-            update_resource(Data#data.id, Data#data.group, UpdatedData),
-            Actions = [{reply, From, ok}],
-            {next_state, connected, UpdatedData, Actions};
-        ConnectStatus ->
-            logger:error("health check for ~p failed: ~p", [Data#data.id, ConnectStatus]),
-            UpdatedData = Data#data{status = connecting, error = ConnectStatus},
-            ets:delete(?ETS_TABLE, Data#data.id),
-            Actions = [{reply, From, {error, ConnectStatus}}],
-            {next_state, connecting, UpdatedData, Actions}
-    end.
+handle_health_check_request(From, Data) ->
+    with_health_check(Data, fun(Status, UpdatedData) ->
+        Actions = [{reply, From, Status}],
+        {next_state, Status, UpdatedData, Actions}
+    end).
 
 connecting_health_check(Data) ->
-    case emqx_resource:call_health_check(Data#data.id, Data#data.mod, Data#data.state) of
-        connected ->
-            UpdatedData = Data#data{status = connected, error = undefined},
-            update_resource(Data#data.id, Data#data.group, UpdatedData),
-            {next_state, connected, UpdatedData};
-        {connected, NewResourceState} ->
-            UpdatedData = Data#data{
-                state = NewResourceState, status = connected, error = undefined
-            },
-            update_resource(Data#data.id, Data#data.group, UpdatedData),
-            {next_state, connected, UpdatedData};
-        ConnectStatus ->
-            logger:error("health check for ~p failed: ~p", [Data#data.id, ConnectStatus]),
-            UpdatedData = Data#data{status = connecting, error = ConnectStatus},
-            Actions = [{state_timeout, ?SHORT_HEALTHCHECK_INTERVAL, health_check}],
-            {keep_state, UpdatedData, Actions}
-    end.
+    with_health_check(
+        Data,
+        fun
+            (connected, UpdatedData) ->
+                {next_state, connected, UpdatedData};
+            (connecting, UpdatedData) ->
+                Actions = [{state_timeout, ?SHORT_HEALTHCHECK_INTERVAL, health_check}],
+                {keep_state, UpdatedData, Actions};
+            (disconnected, UpdatedData) ->
+                {next_state, disconnected, UpdatedData}
+        end
+    ).
 
 perform_connected_health_check(Data) ->
-    case emqx_resource:call_health_check(Data#data.id, Data#data.mod, Data#data.state) of
-        connected ->
-            Actions = [{state_timeout, ?HEALTHCHECK_INTERVAL, health_check}],
-            {keep_state_and_data, Actions};
-        {connected, NewResourceState} ->
-            UpdatedData = Data#data{
-                state = NewResourceState, status = connected, error = undefined
-            },
-            update_resource(Data#data.id, Data#data.group, UpdatedData),
-            Actions = [{state_timeout, ?HEALTHCHECK_INTERVAL, health_check}],
-            {keep_state, NewResourceState, Actions};
-        ConnectStatus ->
-            logger:error("health check for ~p failed: ~p", [Data#data.id, ConnectStatus]),
-            UpdatedData = Data#data{error = ConnectStatus},
-            ets:delete(?ETS_TABLE, Data#data.id),
-            {next_state, connecting, UpdatedData}
-    end.
+    with_health_check(
+        Data,
+        fun
+            (connected, UpdatedData) ->
+                Actions = [{state_timeout, ?HEALTHCHECK_INTERVAL, health_check}],
+                {keep_state, UpdatedData, Actions};
+            (Status, UpdatedData) ->
+                logger:error("health check for ~p failed: ~p", [Data#data.id, Status]),
+                {next_state, Status, UpdatedData}
+        end
+    ).
+
+with_health_check(Data, Func) ->
+    ResId = Data#data.id,
+    HCRes = emqx_resource:call_health_check(ResId, Data#data.mod, Data#data.state),
+    {Status, NewState, Err} = parse_health_check_result(HCRes, Data#data.state),
+    _ =
+        case Status of
+            connected ->
+                ok;
+            _ ->
+                emqx_alarm:activate(
+                    ResId,
+                    #{resource_id => ResId, reason => resource_down},
+                    <<"resource down: ", ResId/binary>>
+                )
+        end,
+    UpdatedData = Data#data{
+        state = NewState, status = Status, error = Err
+    },
+    Func(Status, UpdatedData).
+
+parse_health_check_result(Status, OldState) when ?IS_STATUS(Status) ->
+    {Status, OldState, undefined};
+parse_health_check_result({Status, NewState}, _OldState) when ?IS_STATUS(Status) ->
+    {Status, NewState, undefined};
+parse_health_check_result({Status, NewState, Error}, _OldState) when ?IS_STATUS(Status) ->
+    {Status, NewState, Error}.
 
 data_record_to_external_map_with_metrics(Data) ->
     #{
@@ -448,6 +445,3 @@ safe_call(InstId, Message) ->
         exit:_ ->
             {error, not_found}
     end.
-
-update_resource(InstId, Group, Data) ->
-    ets:insert(?ETS_TABLE, {InstId, Group, Data}).

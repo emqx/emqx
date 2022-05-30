@@ -90,7 +90,7 @@ create(Type, Name, Conf) ->
         <<"emqx_bridge">>,
         bridge_to_resource_type(Type),
         parse_confs(Type, Name, Conf),
-        #{}
+        #{auto_retry_interval => 60000}
     ),
     maybe_disable_bridge(Type, Name, Conf).
 
@@ -146,7 +146,7 @@ recreate(Type, Name, Conf) ->
         resource_id(Type, Name),
         bridge_to_resource_type(Type),
         parse_confs(Type, Name, Conf),
-        #{}
+        #{auto_retry_interval => 60000}
     ).
 
 create_dry_run(Type, Conf) ->

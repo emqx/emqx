@@ -361,9 +361,12 @@ t_reset_metrics(_) ->
     ?assertNot(is_process_alive(Pid)).
 
 t_auto_retry(_) ->
-    {Res, _} = emqx_resource:create_dry_run_local(
+    {Res, _} = emqx_resource:create_local(
+        ?ID,
+        ?DEFAULT_RESOURCE_GROUP,
         ?TEST_RESOURCE,
-        #{name => test_resource, create_error => true, auto_retry_interval => 1000}
+        #{name => test_resource, create_error => true},
+        #{auto_retry_interval => 100}
     ),
     ?assertEqual(error, Res).
 

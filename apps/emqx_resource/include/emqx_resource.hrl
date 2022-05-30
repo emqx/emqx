@@ -20,20 +20,21 @@
 -type resource_config() :: term().
 -type resource_spec() :: map().
 -type resource_state() :: term().
--type resource_connection_status() :: connected | disconnected | connecting.
+-type resource_status() :: connected | disconnected | connecting.
 -type resource_data() :: #{
     id := instance_id(),
     mod := module(),
     config := resource_config(),
     state := resource_state(),
-    status := resource_connection_status(),
+    status := resource_status(),
     metrics := emqx_metrics_worker:metrics()
 }.
 -type resource_group() :: binary().
 -type create_opts() :: #{
     health_check_interval => integer(),
     health_check_timeout => integer(),
-    waiting_connect_complete => integer()
+    waiting_connect_complete => integer(),
+    auto_retry_interval => integer()
 }.
 -type after_query() ::
     {[OnSuccess :: after_query_fun()], [OnFailed :: after_query_fun()]}

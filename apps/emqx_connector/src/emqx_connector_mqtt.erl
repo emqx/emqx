@@ -154,11 +154,11 @@ on_start(InstId, Conf) ->
     },
     case ?MODULE:create_bridge(BridgeConf) of
         {ok, _Pid} ->
-            ensure_mqtt_worker_started(InstanceId);
+            ensure_mqtt_worker_started(InstanceId, BridgeConf);
         {error, {already_started, _Pid}} ->
             ok = ?MODULE:drop_bridge(InstanceId),
             {ok, _} = ?MODULE:create_bridge(BridgeConf),
-            ensure_mqtt_worker_started(InstanceId);
+            ensure_mqtt_worker_started(InstanceId, BridgeConf);
         {error, Reason} ->
             {error, Reason}
     end.
@@ -188,15 +188,17 @@ on_query(_InstId, {send_message, Msg}, AfterQuery, #{name := InstanceId}) ->
     emqx_connector_mqtt_worker:send_to_remote(InstanceId, Msg),
     emqx_resource:query_success(AfterQuery).
 
-on_get_status(_InstId, #{name := InstanceId}) ->
+on_get_status(_InstId, #{name := InstanceId, bridge_conf := Conf}) ->
+    AutoReconn = maps:get(auto_reconnect, Conf, true),
     case emqx_connector_mqtt_worker:status(InstanceId) of
         connected -> connected;
-        _ -> disconnected
+        _ when AutoReconn == true -> connecting;
+        _ when AutoReconn == false -> disconnected
     end.
 
-ensure_mqtt_worker_started(InstanceId) ->
+ensure_mqtt_worker_started(InstanceId, BridgeConf) ->
     case emqx_connector_mqtt_worker:ensure_started(InstanceId) of
-        ok -> {ok, #{name => InstanceId}};
+        ok -> {ok, #{name => InstanceId, bridge_conf => BridgeConf}};
         {error, Reason} -> {error, Reason}
     end.
 
@@ -240,6 +242,7 @@ basic_config(#{
         server => Server,
         %% 30s
         connect_timeout => 30,
+        auto_reconnect => true,
         reconnect_interval => ReconnIntv,
         proto_ver => ProtoVer,
         %% Opening bridge_mode will form a non-standard mqtt connection message.
