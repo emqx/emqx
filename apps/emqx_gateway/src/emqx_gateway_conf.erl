@@ -73,6 +73,8 @@
 -type map_or_err() :: {ok, map()} | {error, term()}.
 -type listener_ref() :: {ListenerType :: atom_or_bin(), ListenerName :: atom_or_bin()}.
 
+-define(IS_SSL(T), (T == <<"ssl">> orelse T == <<"dtls">>)).
+
 %%--------------------------------------------------------------------
 %%  Load/Unload
 %%--------------------------------------------------------------------
@@ -403,10 +405,7 @@ pre_config_update(_, {update_gateway, GwName, Conf}, RawConf) ->
         GwRawConf ->
             Conf1 = maps:without([<<"listeners">>, ?AUTHN_BIN], Conf),
             NConf = tune_gw_certs(fun convert_certs/2, GwName, Conf1),
-            NConf1 = maps:merge(
-                maps:with([<<"listeners">>, ?AUTHN_BIN], GwRawConf),
-                NConf
-            ),
+            NConf1 = maps:merge(GwRawConf, NConf),
             {ok, emqx_map_lib:deep_put([GwName], RawConf, NConf1)}
     end;
 pre_config_update(_, {unload_gateway, GwName}, RawConf) ->
@@ -680,9 +679,17 @@ apply_to_listeners(Fun, GwName, Conf) ->
 apply_to_gateway_basic_confs(Fun, <<"exproto">>, Conf) ->
     SvrDir = filename:join(["exproto", "server"]),
     HdrDir = filename:join(["exproto", "handler"]),
-    NServerConf = erlang:apply(Fun, [SvrDir, maps:get(<<"server">>, Conf, #{})]),
-    NHandlerConf = erlang:apply(Fun, [HdrDir, maps:get(<<"handler">>, Conf, #{})]),
-    maps:put(<<"handler">>, NHandlerConf, maps:put(<<"server">>, NServerConf, Conf));
+    Conf1 =
+        case maps:get(<<"server">>, Conf, undefined) of
+            undefined ->
+                Conf;
+            ServerConf ->
+                maps:put(<<"server">>, erlang:apply(Fun, [SvrDir, ServerConf]), Conf)
+        end,
+    case maps:get(<<"handler">>, Conf1, undefined) of
+        undefined -> Conf1;
+        HandlerConf -> maps:put(<<"handler">>, erlang:apply(Fun, [HdrDir, HandlerConf]), Conf1)
+    end;
 apply_to_gateway_basic_confs(_Fun, _GwName, Conf) ->
     Conf.
 
@@ -690,34 +697,43 @@ certs_dir(GwName) when is_binary(GwName) ->
     GwName.
 
 convert_certs(SubDir, Conf) ->
+    convert_certs(<<"dtls">>, SubDir, convert_certs(<<"ssl">>, SubDir, Conf)).
+
+convert_certs(Type, SubDir, Conf) when ?IS_SSL(Type) ->
     case
         emqx_tls_lib:ensure_ssl_files(
             SubDir,
-            maps:get(<<"ssl">>, Conf, undefined)
+            maps:get(Type, Conf, undefined)
         )
     of
         {ok, SSL} ->
-            new_ssl_config(Conf, SSL);
+            new_ssl_config(Type, Conf, SSL);
         {error, Reason} ->
             ?SLOG(error, Reason#{msg => bad_ssl_config}),
             throw({bad_ssl_config, Reason})
-    end.
+    end;
+convert_certs(SubDir, NConf, OConf) when is_map(NConf); is_map(OConf) ->
+    convert_certs(<<"dtls">>, SubDir, convert_certs(<<"ssl">>, SubDir, NConf, OConf), OConf).
 
-convert_certs(SubDir, NConf, OConf) ->
-    OSSL = maps:get(<<"ssl">>, OConf, undefined),
-    NSSL = maps:get(<<"ssl">>, NConf, undefined),
+convert_certs(Type, SubDir, NConf, OConf) when ?IS_SSL(Type) ->
+    OSSL = maps:get(Type, OConf, undefined),
+    NSSL = maps:get(Type, NConf, undefined),
     case emqx_tls_lib:ensure_ssl_files(SubDir, NSSL) of
         {ok, NSSL1} ->
             ok = emqx_tls_lib:delete_ssl_files(SubDir, NSSL1, OSSL),
-            new_ssl_config(NConf, NSSL1);
+            new_ssl_config(Type, NConf, NSSL1);
         {error, Reason} ->
             ?SLOG(error, Reason#{msg => bad_ssl_config}),
             throw({bad_ssl_config, Reason})
     end.
 
-new_ssl_config(Conf, undefined) -> Conf;
-new_ssl_config(Conf, SSL) -> Conf#{<<"ssl">> => SSL}.
+new_ssl_config(_Type, Conf, undefined) -> Conf;
+new_ssl_config(Type, Conf, SSL) when ?IS_SSL(Type) -> Conf#{Type => SSL}.
 
 clear_certs(SubDir, Conf) ->
-    SSL = maps:get(<<"ssl">>, Conf, undefined),
+    clear_certs(<<"ssl">>, SubDir, Conf),
+    clear_certs(<<"dtls">>, SubDir, Conf).
+
+clear_certs(Type, SubDir, Conf) when ?IS_SSL(Type) ->
+    SSL = maps:get(Type, Conf, undefined),
     ok = emqx_tls_lib:delete_ssl_files(SubDir, undefined, SSL).
