@@ -36,13 +36,17 @@
     unsubscribe/3
 ]).
 
--export([dispatch/3]).
+-export([
+    dispatch/3,
+    dispatch/4
+]).
 
 -export([
     maybe_ack/1,
     maybe_nack_dropped/1,
     nack_no_connection/1,
-    is_ack_required/1
+    is_ack_required/1,
+    get_group/1
 ]).
 
 %% for testing
@@ -132,7 +136,7 @@ dispatch(Group, Topic, Delivery = #delivery{message = Msg}, FailedSubs) ->
         false ->
             {error, no_subscribers};
         {Type, SubPid} ->
-            case do_dispatch(SubPid, Topic, Msg, Type) of
+            case do_dispatch(SubPid, Group, Topic, Msg, Type) of
                 ok ->
                     {ok, 1};
                 {error, _Reason} ->
@@ -152,36 +156,33 @@ strategy(Group) ->
 ack_enabled() ->
     emqx:get_config([broker, shared_dispatch_ack_enabled]).
 
-do_dispatch(SubPid, Topic, Msg, _Type) when SubPid =:= self() ->
+do_dispatch(SubPid, _Group, Topic, Msg, _Type) when SubPid =:= self() ->
     %% Deadlock otherwise
-    _ = erlang:send(SubPid, {deliver, Topic, Msg}),
+    SubPid ! {deliver, Topic, Msg},
     ok;
-do_dispatch(SubPid, Topic, Msg, Type) ->
-    dispatch_per_qos(SubPid, Topic, Msg, Type).
-
 %% return either 'ok' (when everything is fine) or 'error'
-dispatch_per_qos(SubPid, Topic, #message{qos = ?QOS_0} = Msg, _Type) ->
+do_dispatch(SubPid, _Group, Topic, #message{qos = ?QOS_0} = Msg, _Type) ->
     %% For QoS 0 message, send it as regular dispatch
-    _ = erlang:send(SubPid, {deliver, Topic, Msg}),
+    SubPid ! {deliver, Topic, Msg},
     ok;
-dispatch_per_qos(SubPid, Topic, Msg, retry) ->
+do_dispatch(SubPid, _Group, Topic, Msg, retry) ->
     %% Retry implies all subscribers nack:ed, send again without ack
-    _ = erlang:send(SubPid, {deliver, Topic, Msg}),
+    SubPid ! {deliver, Topic, Msg},
     ok;
-dispatch_per_qos(SubPid, Topic, Msg, fresh) ->
+do_dispatch(SubPid, Group, Topic, Msg, fresh) ->
     case ack_enabled() of
         true ->
-            dispatch_with_ack(SubPid, Topic, Msg);
+            dispatch_with_ack(SubPid, Group, Topic, Msg);
         false ->
-            _ = erlang:send(SubPid, {deliver, Topic, Msg}),
+            SubPid ! {deliver, Topic, Msg},
             ok
     end.
 
-dispatch_with_ack(SubPid, Topic, Msg) ->
+dispatch_with_ack(SubPid, Group, Topic, Msg) ->
     %% For QoS 1/2 message, expect an ack
     Ref = erlang:monitor(process, SubPid),
     Sender = self(),
-    _ = erlang:send(SubPid, {deliver, Topic, with_ack_ref(Msg, {Sender, Ref})}),
+    SubPid ! {deliver, Topic, with_group_ack(Msg, Group, Sender, Ref)},
     Timeout =
         case Msg#message.qos of
             ?QOS_1 -> timer:seconds(?SHARED_SUB_QOS1_DISPATCH_TIMEOUT_SECONDS);
@@ -203,24 +204,32 @@ dispatch_with_ack(SubPid, Topic, Msg) ->
         ok = emqx_pmon:demonitor(Ref)
     end.
 
-with_ack_ref(Msg, SenderRef) ->
-    emqx_message:set_headers(#{shared_dispatch_ack => SenderRef}, Msg).
+with_group_ack(Msg, Group, Sender, Ref) ->
+    emqx_message:set_headers(#{shared_dispatch_ack => {Group, Sender, Ref}}, Msg).
 
-without_ack_ref(Msg) ->
+-spec without_group_ack(emqx_types:message()) -> emqx_types:message().
+without_group_ack(Msg) ->
     emqx_message:set_headers(#{shared_dispatch_ack => ?NO_ACK}, Msg).
 
-get_ack_ref(Msg) ->
+get_group_ack(Msg) ->
     emqx_message:get_header(shared_dispatch_ack, Msg, ?NO_ACK).
 
 -spec is_ack_required(emqx_types:message()) -> boolean().
-is_ack_required(Msg) -> ?NO_ACK =/= get_ack_ref(Msg).
+is_ack_required(Msg) -> ?NO_ACK =/= get_group_ack(Msg).
+
+-spec get_group(emqx_types:message()) -> {ok, any()} | error.
+get_group(Msg) ->
+    case get_group_ack(Msg) of
+        ?NO_ACK -> error;
+        {Group, _Sender, _Ref} -> {ok, Group}
+    end.
 
 %% @doc Negative ack dropped message due to inflight window or message queue being full.
--spec maybe_nack_dropped(emqx_types:message()) -> ok.
+-spec maybe_nack_dropped(emqx_types:message()) -> boolean().
 maybe_nack_dropped(Msg) ->
-    case get_ack_ref(Msg) of
-        ?NO_ACK -> ok;
-        {Sender, Ref} -> nack(Sender, Ref, dropped)
+    case get_group_ack(Msg) of
+        ?NO_ACK -> false;
+        {_Group, Sender, Ref} -> ok == nack(Sender, Ref, dropped)
     end.
 
 %% @doc Negative ack message due to connection down.
@@ -228,22 +237,22 @@ maybe_nack_dropped(Msg) ->
 %% i.e is_ack_required returned true.
 -spec nack_no_connection(emqx_types:message()) -> ok.
 nack_no_connection(Msg) ->
-    {Sender, Ref} = get_ack_ref(Msg),
+    {_Group, Sender, Ref} = get_group_ack(Msg),
     nack(Sender, Ref, no_connection).
 
 -spec nack(pid(), reference(), dropped | no_connection) -> ok.
 nack(Sender, Ref, Reason) ->
-    erlang:send(Sender, {Ref, ?NACK(Reason)}),
+    Sender ! {Ref, ?NACK(Reason)},
     ok.
 
 -spec maybe_ack(emqx_types:message()) -> emqx_types:message().
 maybe_ack(Msg) ->
-    case get_ack_ref(Msg) of
+    case get_group_ack(Msg) of
         ?NO_ACK ->
             Msg;
-        {Sender, Ref} ->
-            erlang:send(Sender, {Ref, ?ACK}),
-            without_ack_ref(Msg)
+        {_Group, Sender, Ref} ->
+            Sender ! {Ref, ?ACK},
+            without_group_ack(Msg)
     end.
 
 pick(sticky, ClientId, SourceTopic, Group, Topic, FailedSubs) ->
