@@ -171,6 +171,7 @@ bind(Port) ->
             #{
                 default => Port,
                 required => true,
+                extra => #{example => [Port, "0.0.0.0:" ++ integer_to_list(Port)]},
                 desc => ?DESC(bind)
             }
         )}.

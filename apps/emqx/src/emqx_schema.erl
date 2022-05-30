@@ -118,7 +118,7 @@ roots(high) ->
             )},
         {"zones",
             sc(
-                map("name", ref("zone")),
+                map("my_zone_name", ref("zone")),
                 #{desc => ?DESC(zones)}
             )},
         {"mqtt",
@@ -744,7 +744,7 @@ fields("listeners") ->
     [
         {"tcp",
             sc(
-                map(name, ref("mqtt_tcp_listener")),
+                map(default, ref("mqtt_tcp_listener")),
                 #{
                     desc => ?DESC(fields_listeners_tcp),
                     required => {false, recursively}
@@ -752,7 +752,7 @@ fields("listeners") ->
             )},
         {"ssl",
             sc(
-                map(name, ref("mqtt_ssl_listener")),
+                map(default, ref("mqtt_ssl_listener")),
                 #{
                     desc => ?DESC(fields_listeners_ssl),
                     required => {false, recursively}
@@ -760,7 +760,7 @@ fields("listeners") ->
             )},
         {"ws",
             sc(
-                map(name, ref("mqtt_ws_listener")),
+                map(default, ref("mqtt_ws_listener")),
                 #{
                     desc => ?DESC(fields_listeners_ws),
                     required => {false, recursively}
@@ -768,7 +768,7 @@ fields("listeners") ->
             )},
         {"wss",
             sc(
-                map(name, ref("mqtt_wss_listener")),
+                map(default, ref("mqtt_wss_listener")),
                 #{
                     desc => ?DESC(fields_listeners_wss),
                     required => {false, recursively}
@@ -776,7 +776,7 @@ fields("listeners") ->
             )},
         {"quic",
             sc(
-                map(name, ref("mqtt_quic_listener")),
+                map(default, ref("mqtt_quic_listener")),
                 #{
                     desc => ?DESC(fields_listeners_quic),
                     required => {false, recursively}
@@ -1582,7 +1582,7 @@ base_listener() ->
             )},
         {"limiter",
             sc(
-                map("ratelimit's type", emqx_limiter_schema:bucket_name()),
+                map("ratelimit_name", emqx_limiter_schema:bucket_name()),
                 #{
                     desc => ?DESC(base_listener_limiter),
                     default => #{}
@@ -2183,7 +2183,7 @@ authentication(Type) ->
     %% authentication schema is lazy to make it more 'plugable'
     %% the type checks are done in emqx_auth application when it boots.
     %% and in emqx_authentication_config module for runtime changes.
-    Default = hoconsc:lazy(hoconsc:union([typerefl:map(), hoconsc:array(typerefl:map())])),
+    Default = hoconsc:lazy(hoconsc:union([hoconsc:array(typerefl:map())])),
     %% as the type is lazy, the runtime module injection
     %% from EMQX_AUTHENTICATION_SCHEMA_MODULE_PT_KEY
     %% is for now only affecting document generation.

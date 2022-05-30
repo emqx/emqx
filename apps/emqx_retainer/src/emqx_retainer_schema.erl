@@ -109,10 +109,7 @@ sc(Type, DescId, Default) ->
     hoconsc:mk(Type, #{default => Default, desc => ?DESC(DescId)}).
 
 backend_config() ->
-    hoconsc:mk(
-        hoconsc:union([hoconsc:ref(?MODULE, mnesia_config)]),
-        #{desc => ?DESC(backend)}
-    ).
+    hoconsc:mk(hoconsc:ref(?MODULE, mnesia_config), #{desc => ?DESC(backend)}).
 
 retainer_indices(type) ->
     list(list(integer()));

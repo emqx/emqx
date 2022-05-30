@@ -144,7 +144,8 @@ dump_schema(Dir, SchemaModule, I18nFile) ->
     lists:foreach(
         fun(Lang) ->
             gen_config_md(Dir, I18nFile, SchemaModule, Lang),
-            gen_hot_conf_schema_json(Dir, I18nFile, Lang)
+            gen_hot_conf_schema_json(Dir, I18nFile, Lang),
+            gen_example_conf(Dir, I18nFile, SchemaModule, Lang)
         end,
         [en, zh]
     ),
@@ -173,6 +174,12 @@ gen_config_md(Dir, I18nFile, SchemaModule, Lang0) ->
     io:format(user, "===< Generating: ~s~n", [SchemaMdFile]),
     ok = gen_doc(SchemaMdFile, SchemaModule, I18nFile, Lang).
 
+gen_example_conf(Dir, I18nFile, SchemaModule, Lang0) ->
+    Lang = atom_to_list(Lang0),
+    SchemaMdFile = filename:join([Dir, "emqx-" ++ Lang ++ ".conf.example"]),
+    io:format(user, "===< Generating: ~s~n", [SchemaMdFile]),
+    ok = gen_example(SchemaMdFile, SchemaModule, I18nFile, Lang).
+
 %% @doc return the root schema module.
 -spec schema_module() -> module().
 schema_module() ->
@@ -194,6 +201,11 @@ gen_doc(File, SchemaModule, I18nFile, Lang) ->
     Opts = #{title => Title, body => Body, desc_file => I18nFile, lang => Lang},
     Doc = hocon_schema_md:gen(SchemaModule, Opts),
     file:write_file(File, Doc).
+
+gen_example(File, SchemaModule, I18nFile, Lang) ->
+    Opts = #{title => <<"Title">>, body => <<"Body">>, desc_file => I18nFile, lang => Lang},
+    Example = hocon_schema_example:gen(SchemaModule, Opts),
+    file:write_file(File, Example).
 
 check_cluster_rpc_result(Result) ->
     case Result of
