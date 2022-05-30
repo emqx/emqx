@@ -34,6 +34,7 @@ end_per_suite(_Config) ->
     meck:unload(),
     [mnesia:dirty_delete({?TAB, Key}) || #?TAB{key = Key} <- fake_records()],
     emqx_bpapi:announce(emqx),
+    emqx_common_test_helpers:stop_apps([emqx]),
     ok.
 
 t_max_supported_version(_Config) ->
