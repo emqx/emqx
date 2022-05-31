@@ -218,8 +218,11 @@ when
 authenticate(#{listener := Listener, protocol := Protocol} = Credential, _AuthResult) ->
     Authenticators = get_authenticators(Listener, global_chain(Protocol)),
     case get_enabled(Authenticators) of
-        [] -> ignore;
-        NAuthenticators -> do_authenticate(NAuthenticators, Credential)
+        [] ->
+            ignore;
+        NAuthenticators ->
+            ct:print("NAuthenticators: ~p", [NAuthenticators]),
+            do_authenticate(NAuthenticators, Credential)
     end.
 
 get_authenticators(Listener, Global) ->
@@ -584,6 +587,7 @@ handle_delete_authenticator(Chain, AuthenticatorID) ->
         [] ->
             {error, {not_found, {authenticator, AuthenticatorID}}};
         [AuthenticatorID] ->
+            ct:print("handle_delete_authenticator: ~p", [AuthenticatorID]),
             emqx_metrics_worker:clear_metrics(authn_metrics, AuthenticatorID),
             ok
     end.
@@ -751,7 +755,7 @@ do_create_authenticator(AuthenticatorID, #{enable := Enable} = Config, Providers
             end
     end.
 
-do_delete_authenticators(MatchFun, #chain{authenticators = Authenticators} = Chain) ->
+do_delete_authenticators(MatchFun, #chain{name = Name, authenticators = Authenticators} = Chain) ->
     {Matching, Others} = lists:partition(MatchFun, Authenticators),
 
     MatchingIDs = lists:map(
@@ -760,7 +764,14 @@ do_delete_authenticators(MatchFun, #chain{authenticators = Authenticators} = Cha
     ),
 
     ok = lists:foreach(fun do_destroy_authenticator/1, Matching),
-    true = ets:insert(?CHAINS_TAB, Chain#chain{authenticators = Others}),
+    true =
+        case Others of
+            [] ->
+                ets:delete(?CHAINS_TAB, Name);
+            %% ets:insert(?CHAINS_TAB, Chain#chain{authenticators = Others});
+            _ ->
+                ets:insert(?CHAINS_TAB, Chain#chain{authenticators = Others})
+        end,
     MatchingIDs.
 
 do_destroy_authenticator(#authenticator{provider = Provider, state = State}) ->
