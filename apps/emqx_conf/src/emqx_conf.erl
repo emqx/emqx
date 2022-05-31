@@ -145,9 +145,8 @@ dump_schema(Dir, SchemaModule, I18nFile) ->
     lists:foreach(
         fun(Lang) ->
             gen_config_md(Dir, I18nFile, SchemaModule, Lang),
-            gen_hot_conf_schema_json(Dir, I18nFile, Lang)
-        %% TODO
-        %%gen_example_conf(Dir, I18nFile, SchemaModule, Lang)
+            gen_hot_conf_schema_json(Dir, I18nFile, Lang),
+            gen_example_conf(Dir, I18nFile, SchemaModule, Lang)
         end,
         [en, zh]
     ),
