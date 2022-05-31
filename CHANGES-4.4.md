@@ -30,11 +30,14 @@
 * SSL closed error bug fixed for redis client.
 * Fix mqtt-sn client disconnected due to re-send a duplicated qos2 message
 * Rule-engine function hexstr2bin/1 support half byte [#7977]
+* Shared message delivery when all alive shared subs have full inflight [#7984]
 * Improved resilience against autocluster partitioning during cluster
   startup. [#7876]
   [ekka-158](https://github.com/emqx/ekka/pull/158)
 * Add regular expression check ^[0-9A-Za-z_\-]+$ for node name [#7979]
 * Fix `node_dump` variable sourcing. [#8026]
+* Fix heap size is growing too fast when trace large message.
+* Support customized timestamp format of the log messages.
 
 ## v4.4.3
 
