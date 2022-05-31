@@ -104,23 +104,6 @@ init_per_testcase(Case, Config) ->
 end_per_testcase(Case, Config) ->
     ?MODULE:Case({'end', Config}).
 
-set_special_configs(emqx) ->
-    Quic = #{
-        enabled => true,
-        bind => {{0, 0, 0, 0}, 14567},
-        acceptors => 16,
-        max_connections => 1024000,
-        keyfile => "etc/certs/key.pem",
-        certfile => "etc/certs/cert.pem",
-        mountpoint => <<"">>,
-        zone => default,
-        idle_timeout => 15000
-    },
-    emqx_config:put_listener_conf(quic, default, [], Quic),
-    ok;
-set_special_configs(_) ->
-    ok.
-
 %%--------------------------------------------------------------------
 %% PubSub Test
 %%--------------------------------------------------------------------
@@ -435,10 +418,7 @@ t_connected_client_count_persistent(Config) when is_list(Config) ->
         {clientid, ClientID}
         | Config
     ]),
-    {{ok, _}, {ok, [_]}} = wait_for_events(
-        fun() -> emqtt:ConnFun(ConnPid2) end,
-        [emqx_cm_connected_client_count_inc]
-    ),
+
     {{ok, _}, {ok, [_, _]}} = wait_for_events(
         fun() -> emqtt:ConnFun(ConnPid2) end,
         [

@@ -467,7 +467,8 @@ copy_certs(_, _) ->
 
 load_config(SchemaModule, Config) ->
     ok = emqx_config:delete_override_conf_files(),
-    ok = emqx_config:init_load(SchemaModule, Config).
+    ok = emqx_config:init_load(SchemaModule, Config),
+    ok.
 
 -spec is_tcp_server_available(
     Host :: inet:socket_address() | inet:hostname(),

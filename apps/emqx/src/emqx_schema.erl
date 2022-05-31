@@ -118,7 +118,7 @@ roots(high) ->
             )},
         {"zones",
             sc(
-                map("my_zone_name", ref("zone")),
+                map("name", ref("zone")),
                 #{desc => ?DESC(zones)}
             )},
         {"mqtt",
@@ -703,7 +703,7 @@ fields("conn_congestion") ->
             sc(
                 boolean(),
                 #{
-                    default => false,
+                    default => true,
                     desc => ?DESC(conn_congestion_enable_alarm)
                 }
             )},
@@ -744,7 +744,7 @@ fields("listeners") ->
     [
         {"tcp",
             sc(
-                map(default, ref("mqtt_tcp_listener")),
+                map(name, ref("mqtt_tcp_listener")),
                 #{
                     desc => ?DESC(fields_listeners_tcp),
                     required => {false, recursively}
@@ -752,7 +752,7 @@ fields("listeners") ->
             )},
         {"ssl",
             sc(
-                map(default, ref("mqtt_ssl_listener")),
+                map(name, ref("mqtt_ssl_listener")),
                 #{
                     desc => ?DESC(fields_listeners_ssl),
                     required => {false, recursively}
@@ -760,7 +760,7 @@ fields("listeners") ->
             )},
         {"ws",
             sc(
-                map(default, ref("mqtt_ws_listener")),
+                map(name, ref("mqtt_ws_listener")),
                 #{
                     desc => ?DESC(fields_listeners_ws),
                     required => {false, recursively}
@@ -768,7 +768,7 @@ fields("listeners") ->
             )},
         {"wss",
             sc(
-                map(default, ref("mqtt_wss_listener")),
+                map(name, ref("mqtt_wss_listener")),
                 #{
                     desc => ?DESC(fields_listeners_wss),
                     required => {false, recursively}
@@ -776,7 +776,7 @@ fields("listeners") ->
             )},
         {"quic",
             sc(
-                map(default, ref("mqtt_quic_listener")),
+                map(name, ref("mqtt_quic_listener")),
                 #{
                     desc => ?DESC(fields_listeners_quic),
                     required => {false, recursively}

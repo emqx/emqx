@@ -306,15 +306,21 @@ put_raw(KeyPath, Config) ->
 %%============================================================================
 init_load(SchemaMod) ->
     ConfFiles = application:get_env(emqx, config_files, []),
-    init_load(SchemaMod, ConfFiles).
+    init_load(SchemaMod, ConfFiles, #{raw_with_default => true}).
+
+init_load(SchemaMod, Opts) when is_map(Opts) ->
+    ConfFiles = application:get_env(emqx, config_files, []),
+    init_load(SchemaMod, ConfFiles, Opts);
+init_load(SchemaMod, ConfFiles) ->
+    init_load(SchemaMod, ConfFiles, #{raw_with_default => false}).
 
 %% @doc Initial load of the given config files.
 %% NOTE: The order of the files is significant, configs from files ordered
 %% in the rear of the list overrides prior values.
 -spec init_load(module(), [string()] | binary() | hocon:config()) -> ok.
-init_load(SchemaMod, Conf) when is_list(Conf) orelse is_binary(Conf) ->
-    init_load(SchemaMod, parse_hocon(Conf));
-init_load(SchemaMod, RawConf) when is_map(RawConf) ->
+init_load(SchemaMod, Conf, Opts) when is_list(Conf) orelse is_binary(Conf) ->
+    init_load(SchemaMod, parse_hocon(Conf), Opts);
+init_load(SchemaMod, RawConf, Opts) when is_map(RawConf) ->
     ok = save_schema_mod_and_names(SchemaMod),
     %% Merge environment variable overrides on top
     RawConfWithEnvs = merge_envs(SchemaMod, RawConf),
@@ -323,13 +329,13 @@ init_load(SchemaMod, RawConf) when is_map(RawConf) ->
     Overrides = hocon:deep_merge(ClusterOverrides, LocalOverrides),
     RawConfWithOverrides = hocon:deep_merge(RawConfWithEnvs, Overrides),
     RootNames = get_root_names(),
-    RawConfAll = raw_conf_with_default(SchemaMod, RootNames, RawConfWithOverrides),
+    RawConfAll = raw_conf_with_default(SchemaMod, RootNames, RawConfWithOverrides, Opts),
     %% check configs against the schema
     {_AppEnvs, CheckedConf} = check_config(SchemaMod, RawConfAll, #{}),
     ok = save_to_config_map(CheckedConf, RawConfAll).
 
 %% keep the raw and non-raw conf has the same keys to make update raw conf easier.
-raw_conf_with_default(SchemaMod, RootNames, RawConf) ->
+raw_conf_with_default(SchemaMod, RootNames, RawConf, #{raw_with_default := true}) ->
     Fun = fun(Name, Acc) ->
         case maps:is_key(Name, RawConf) of
             true ->
@@ -344,7 +350,9 @@ raw_conf_with_default(SchemaMod, RootNames, RawConf) ->
         end
     end,
     RawDefault = lists:foldl(Fun, #{}, RootNames),
-    maps:merge(RawConf, fill_defaults(SchemaMod, RawDefault, #{})).
+    maps:merge(RawConf, fill_defaults(SchemaMod, RawDefault, #{}));
+raw_conf_with_default(_SchemaMod, _RootNames, RawConf, _Opts) ->
+    RawConf.
 
 schema_default(Schema) ->
     case hocon_schema:field_schema(Schema, type) of
