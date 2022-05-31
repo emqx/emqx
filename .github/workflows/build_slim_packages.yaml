@@ -229,7 +229,7 @@ jobs:
         - emqx
         - emqx-enterprise
     runs-on: aws-amd64
-    container: "ghcr.io/iequ1/emqx-schema-validate:0.3.1"
+    container: "ghcr.io/emqx/emqx-schema-validate:0.3.3"
     steps:
     - uses: actions/download-artifact@v2
       name: Download schema dump
