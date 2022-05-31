@@ -76,22 +76,22 @@ roots() ->
         [
             {"node",
                 sc(
-                    ref("node"),
+                    ?R_REF("node"),
                     #{translate_to => ["emqx"]}
                 )},
             {"cluster",
                 sc(
-                    ref("cluster"),
+                    ?R_REF("cluster"),
                     #{translate_to => ["ekka"]}
                 )},
             {"log",
                 sc(
-                    ref("log"),
+                    ?R_REF("log"),
                     #{translate_to => ["kernel"]}
                 )},
             {"rpc",
                 sc(
-                    ref("rpc"),
+                    ?R_REF("rpc"),
                     #{translate_to => ["gen_rpc"]}
                 )}
         ] ++
@@ -166,27 +166,27 @@ fields("cluster") ->
             )},
         {"static",
             sc(
-                ref(cluster_static),
+                ?R_REF(cluster_static),
                 #{}
             )},
         {"mcast",
             sc(
-                ref(cluster_mcast),
+                ?R_REF(cluster_mcast),
                 #{}
             )},
         {"dns",
             sc(
-                ref(cluster_dns),
+                ?R_REF(cluster_dns),
                 #{}
             )},
         {"etcd",
             sc(
-                ref(cluster_etcd),
+                ?R_REF(cluster_etcd),
                 #{}
             )},
         {"k8s",
             sc(
-                ref(cluster_k8s),
+                ?R_REF(cluster_k8s),
                 #{}
             )}
     ];
@@ -328,7 +328,7 @@ fields(cluster_etcd) ->
             )},
         {"ssl",
             sc(
-                hoconsc:ref(emqx_schema, "ssl_client_opts"),
+                ?R_REF(emqx_schema, "ssl_client_opts"),
                 #{
                     desc => ?DESC(cluster_etcd_ssl),
                     'readOnly' => true
@@ -512,7 +512,7 @@ fields("node") ->
             )},
         {"cluster_call",
             sc(
-                ref("cluster_call"),
+                ?R_REF("cluster_call"),
                 #{'readOnly' => true}
             )},
         {"db_backend",
@@ -783,10 +783,10 @@ fields("rpc") ->
     ];
 fields("log") ->
     [
-        {"console_handler", ref("console_handler")},
+        {"console_handler", ?R_REF("console_handler")},
         {"file_handlers",
             sc(
-                map(name, ref("log_file_handler")),
+                map(name, ?R_REF("log_file_handler")),
                 #{desc => ?DESC("log_file_handlers")}
             )},
         {"error_logger",
@@ -801,7 +801,7 @@ fields("log") ->
             )}
     ];
 fields("console_handler") ->
-    log_handler_common_confs();
+    log_handler_common_confs(false);
 fields("log_file_handler") ->
     [
         {"file",
@@ -814,7 +814,7 @@ fields("log_file_handler") ->
             )},
         {"rotation",
             sc(
-                ref("log_rotation"),
+                ?R_REF("log_rotation"),
                 #{}
             )},
         {"max_size",
@@ -825,7 +825,7 @@ fields("log_file_handler") ->
                     desc => ?DESC("log_file_handler_max_size")
                 }
             )}
-    ] ++ log_handler_common_confs();
+    ] ++ log_handler_common_confs(true);
 fields("log_rotation") ->
     [
         {"enable",
@@ -1063,13 +1063,13 @@ tr_logger(Conf) ->
         ],
     [{handler, default, undefined}] ++ ConsoleHandler ++ FileHandlers.
 
-log_handler_common_confs() ->
+log_handler_common_confs(Enable) ->
     [
         {"enable",
             sc(
                 boolean(),
                 #{
-                    default => false,
+                    default => Enable,
                     desc => ?DESC("common_handler_enable")
                 }
             )},
@@ -1137,8 +1137,8 @@ log_handler_common_confs() ->
                     desc => ?DESC("common_handler_flush_qlen")
                 }
             )},
-        {"overload_kill", sc(ref("log_overload_kill"), #{})},
-        {"burst_limit", sc(ref("log_burst_limit"), #{})},
+        {"overload_kill", sc(?R_REF("log_overload_kill"), #{})},
+        {"burst_limit", sc(?R_REF("log_burst_limit"), #{})},
         {"supervisor_reports",
             sc(
                 hoconsc:enum([error, progress]),
@@ -1251,8 +1251,6 @@ sc(Type, Meta) -> hoconsc:mk(Type, Meta).
 
 map(Name, Type) -> hoconsc:map(Name, Type).
 
-ref(Field) -> hoconsc:ref(?MODULE, Field).
-
 options(static, Conf) ->
     [{seeds, conf_get("cluster.static.seeds", Conf, [])}];
 options(mcast, Conf) ->
@@ -1321,7 +1319,7 @@ emqx_schema_high_prio_roots() ->
     Authz =
         {"authorization",
             sc(
-                hoconsc:ref(?MODULE, "authorization"),
+                ?R_REF("authorization"),
                 #{desc => ?DESC(authorization)}
             )},
     lists:keyreplace("authorization", 1, Roots, Authz).

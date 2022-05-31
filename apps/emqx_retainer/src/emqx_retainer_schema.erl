@@ -18,7 +18,7 @@ roots() -> ["retainer"].
 
 fields("retainer") ->
     [
-        {enable, sc(boolean(), enable, false)},
+        {enable, sc(boolean(), enable, true)},
         {msg_expiry_interval,
             sc(
                 emqx_schema:duration_ms(),
@@ -31,7 +31,11 @@ fields("retainer") ->
                 msg_clear_interval,
                 "0s"
             )},
-        {flow_control, sc(hoconsc:ref(?MODULE, flow_control), flow_control)},
+        {flow_control,
+            sc(
+                ?R_REF(flow_control),
+                flow_control
+            )},
         {max_payload_size,
             sc(
                 emqx_schema:bytesize(),
@@ -48,7 +52,7 @@ fields("retainer") ->
     ];
 fields(mnesia_config) ->
     [
-        {type, sc(hoconsc:union([built_in_database]), mnesia_config_type, built_in_database)},
+        {type, sc(hoconsc:enum([built_in_database]), mnesia_config_type, built_in_database)},
         {storage_type,
             sc(
                 hoconsc:union([ram, disc]),
@@ -57,10 +61,9 @@ fields(mnesia_config) ->
             )},
         {max_retained_messages,
             sc(
-                integer(),
+                non_neg_integer(),
                 max_retained_messages,
-                0,
-                fun is_pos_integer/1
+                0
             )},
         {index_specs, fun retainer_indices/1}
     ];
@@ -68,10 +71,9 @@ fields(flow_control) ->
     [
         {batch_read_number,
             sc(
-                integer(),
+                non_neg_integer(),
                 batch_read_number,
-                0,
-                fun is_pos_integer/1
+                0
             )},
         {batch_deliver_number,
             sc(
@@ -99,28 +101,15 @@ desc(_) ->
 %%--------------------------------------------------------------------
 %% Internal functions
 %%--------------------------------------------------------------------
+
 sc(Type, DescId) ->
-    hoconsc:mk(Type, #{required => true, desc => ?DESC(DescId)}).
+    hoconsc:mk(Type, #{desc => ?DESC(DescId)}).
 
 sc(Type, DescId, Default) ->
     hoconsc:mk(Type, #{default => Default, desc => ?DESC(DescId)}).
 
-sc(Type, DescId, Default, Validator) ->
-    hoconsc:mk(Type, #{
-        default => Default,
-        desc => ?DESC(DescId),
-        validator => Validator
-    }).
-
-is_pos_integer(V) ->
-    V >= 0.
-
 backend_config() ->
-    sc(
-        hoconsc:union([hoconsc:ref(?MODULE, mnesia_config)]),
-        backend,
-        mnesia_config
-    ).
+    hoconsc:mk(hoconsc:ref(?MODULE, mnesia_config), #{desc => ?DESC(backend)}).
 
 retainer_indices(type) ->
     list(list(integer()));

@@ -17,10 +17,12 @@
 
 -compile({no_auto_import, [get/0, get/1, put/2, erase/1]}).
 -elvis([{elvis_style, god_modules, disable}]).
+-include("logger.hrl").
 
 -export([
     init_load/1,
     init_load/2,
+    init_load/3,
     read_override_conf/1,
     delete_override_conf_files/0,
     check_config/2,
@@ -85,6 +87,7 @@
 ]).
 
 -include("logger.hrl").
+-include_lib("hocon/include/hoconsc.hrl").
 
 -define(CONF, conf).
 -define(RAW_CONF, raw_conf).
@@ -304,15 +307,21 @@ put_raw(KeyPath, Config) ->
 %%============================================================================
 init_load(SchemaMod) ->
     ConfFiles = application:get_env(emqx, config_files, []),
-    init_load(SchemaMod, ConfFiles).
+    init_load(SchemaMod, ConfFiles, #{raw_with_default => true}).
+
+init_load(SchemaMod, Opts) when is_map(Opts) ->
+    ConfFiles = application:get_env(emqx, config_files, []),
+    init_load(SchemaMod, ConfFiles, Opts);
+init_load(SchemaMod, ConfFiles) ->
+    init_load(SchemaMod, ConfFiles, #{raw_with_default => false}).
 
 %% @doc Initial load of the given config files.
 %% NOTE: The order of the files is significant, configs from files ordered
 %% in the rear of the list overrides prior values.
 -spec init_load(module(), [string()] | binary() | hocon:config()) -> ok.
-init_load(SchemaMod, Conf) when is_list(Conf) orelse is_binary(Conf) ->
-    init_load(SchemaMod, parse_hocon(Conf));
-init_load(SchemaMod, RawConf) when is_map(RawConf) ->
+init_load(SchemaMod, Conf, Opts) when is_list(Conf) orelse is_binary(Conf) ->
+    init_load(SchemaMod, parse_hocon(Conf), Opts);
+init_load(SchemaMod, RawConf, Opts) when is_map(RawConf) ->
     ok = save_schema_mod_and_names(SchemaMod),
     %% Merge environment variable overrides on top
     RawConfWithEnvs = merge_envs(SchemaMod, RawConf),
@@ -320,14 +329,46 @@ init_load(SchemaMod, RawConf) when is_map(RawConf) ->
     LocalOverrides = read_override_conf(#{override_to => local}),
     Overrides = hocon:deep_merge(ClusterOverrides, LocalOverrides),
     RawConfWithOverrides = hocon:deep_merge(RawConfWithEnvs, Overrides),
-    %% check configs against the schema
-    {_AppEnvs, CheckedConf} =
-        check_config(SchemaMod, RawConfWithOverrides, #{}),
     RootNames = get_root_names(),
-    ok = save_to_config_map(
-        maps:with(get_atom_root_names(), CheckedConf),
-        maps:with(RootNames, RawConfWithOverrides)
-    ).
+    RawConfAll = raw_conf_with_default(SchemaMod, RootNames, RawConfWithOverrides, Opts),
+    %% check configs against the schema
+    {_AppEnvs, CheckedConf} = check_config(SchemaMod, RawConfAll, #{}),
+    ok = save_to_config_map(CheckedConf, RawConfAll).
+
+%% keep the raw and non-raw conf has the same keys to make update raw conf easier.
+raw_conf_with_default(SchemaMod, RootNames, RawConf, #{raw_with_default := true}) ->
+    Fun = fun(Name, Acc) ->
+        case maps:is_key(Name, RawConf) of
+            true ->
+                Acc;
+            false ->
+                case lists:keyfind(Name, 1, hocon_schema:roots(SchemaMod)) of
+                    false ->
+                        Acc;
+                    {_, {_, Schema}} ->
+                        Acc#{Name => schema_default(Schema)}
+                end
+        end
+    end,
+    RawDefault = lists:foldl(Fun, #{}, RootNames),
+    maps:merge(RawConf, fill_defaults(SchemaMod, RawDefault, #{}));
+raw_conf_with_default(_SchemaMod, _RootNames, RawConf, _Opts) ->
+    RawConf.
+
+schema_default(Schema) ->
+    case hocon_schema:field_schema(Schema, type) of
+        ?ARRAY(_) ->
+            [];
+        ?LAZY(?ARRAY(_)) ->
+            [];
+        ?LAZY(?UNION(Unions)) ->
+            case [A || ?ARRAY(A) <- Unions] of
+                [_ | _] -> [];
+                _ -> #{}
+            end;
+        _ ->
+            #{}
+    end.
 
 parse_hocon(Conf) ->
     IncDirs = include_dirs(),
@@ -465,9 +506,6 @@ get_schema_mod(RootName) ->
 -spec get_root_names() -> [binary()].
 get_root_names() ->
     maps:get(names, persistent_term:get(?PERSIS_SCHEMA_MODS, #{names => []})).
-
-get_atom_root_names() ->
-    [atom(N) || N <- get_root_names()].
 
 -spec save_configs(app_envs(), config(), raw_config(), raw_config(), update_opts()) ->
     ok | {error, term()}.

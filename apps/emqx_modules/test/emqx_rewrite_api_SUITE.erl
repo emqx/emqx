@@ -33,7 +33,9 @@ init_per_testcase(_, Config) ->
     Config.
 
 init_per_suite(Config) ->
-    ok = emqx_common_test_helpers:load_config(emqx_modules_schema, ?BASE_CONF),
+    ok = emqx_common_test_helpers:load_config(emqx_modules_schema, jsx:encode(?BASE_CONF), #{
+        raw_with_default => true
+    }),
 
     ok = emqx_common_test_helpers:start_apps(
         [emqx_conf, emqx_modules, emqx_dashboard],

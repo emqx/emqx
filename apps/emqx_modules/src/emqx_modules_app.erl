@@ -35,7 +35,7 @@ stop(_State) ->
 maybe_enable_modules() ->
     emqx_conf:get([delayed, enable], true) andalso emqx_delayed:enable(),
     emqx_modules_conf:is_telemetry_enabled() andalso emqx_telemetry:enable(),
-    emqx_conf:get([observer_cli, enable], true) andalso emqx_observer_cli:enable(),
+    emqx_observer_cli:enable(),
     emqx_conf_cli:load(),
     ok = emqx_rewrite:enable(),
     emqx_topic_metrics:enable(),

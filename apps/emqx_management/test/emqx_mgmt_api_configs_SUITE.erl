@@ -178,6 +178,7 @@ t_dashboard(_Config) ->
 
     {ok, Dashboard1} = get_config("dashboard"),
     ?assertNotEqual(Dashboard, Dashboard1),
+    timer:sleep(1000),
     ok.
 
 get_config(Name) ->

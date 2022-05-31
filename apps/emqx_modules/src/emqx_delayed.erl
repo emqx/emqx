@@ -382,7 +382,7 @@ do_publish(Key = {Ts, _Id}, Now, Acc) when Ts =< Now ->
 delayed_count() -> mnesia:table_info(?TAB, size).
 
 enable(Enable) ->
-    case emqx:get_raw_config([delayed]) of
+    case emqx_conf:get_raw([delayed]) of
         #{<<"enable">> := Enable} ->
             ok;
         Cfg ->

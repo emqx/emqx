@@ -186,7 +186,7 @@ rule_name() ->
             binary(),
             #{
                 desc => ?DESC("rules_name"),
-                default => "",
+                default => <<"">>,
                 required => false,
                 example => "foo"
             }

@@ -567,7 +567,8 @@ authentication_schema() ->
         emqx_authn_schema:authenticator_type(),
         #{
             required => {false, recursively},
-            desc => ?DESC(gateway_common_authentication)
+            desc => ?DESC(gateway_common_authentication),
+            examples => emqx_authn_api:authenticator_examples()
         }
     ).
 
@@ -606,7 +607,7 @@ gateway_common_options() ->
     ].
 
 mountpoint() ->
-    mountpoint(<<>>).
+    mountpoint(<<"">>).
 mountpoint(Default) ->
     sc(
         binary(),

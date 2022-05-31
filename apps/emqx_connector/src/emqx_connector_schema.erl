@@ -64,7 +64,7 @@ fields("connectors") ->
             mk(
                 hoconsc:map(
                     name,
-                    hoconsc:union([ref(emqx_connector_mqtt_schema, "connector")])
+                    ref(emqx_connector_mqtt_schema, "connector")
                 ),
                 #{desc => ?DESC("mqtt")}
             )}

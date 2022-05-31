@@ -418,6 +418,7 @@ t_connected_client_count_persistent(Config) when is_list(Config) ->
         {clientid, ClientID}
         | Config
     ]),
+
     {{ok, _}, {ok, [_, _]}} = wait_for_events(
         fun() -> emqtt:ConnFun(ConnPid2) end,
         [

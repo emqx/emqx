@@ -111,7 +111,7 @@ start_link(Pool, Id) ->
 init([Pool, Id]) ->
     erlang:process_flag(trap_exit, true),
     true = gproc_pool:connect_worker(Pool, {Pool, Id}),
-    BucketName = emqx:get_config([retainer, flow_control, batch_deliver_limiter], undefined),
+    BucketName = emqx_conf:get([retainer, flow_control, batch_deliver_limiter], undefined),
     {ok, Limiter} = emqx_limiter_server:connect(batch, BucketName),
     {ok, #{pool => Pool, id => Id, limiter => Limiter}}.
 
@@ -151,7 +151,7 @@ handle_cast({dispatch, Context, Pid, Topic}, #{limiter := Limiter} = State) ->
     {ok, Limiter2} = dispatch(Context, Pid, Topic, undefined, Limiter),
     {noreply, State#{limiter := Limiter2}};
 handle_cast(refresh_limiter, State) ->
-    BucketName = emqx:get_config([retainer, flow_control, batch_deliver_limiter]),
+    BucketName = emqx_conf:get([retainer, flow_control, batch_deliver_limiter]),
     {ok, Limiter} = emqx_limiter_server:connect(batch, BucketName),
     {noreply, State#{limiter := Limiter}};
 handle_cast(Msg, State) ->
@@ -249,7 +249,7 @@ deliver(Result, Context, Pid, Topic, Cursor, Limiter) ->
         false ->
             {ok, Limiter};
         _ ->
-            DeliverNum = emqx:get_config([retainer, flow_control, batch_deliver_number]),
+            DeliverNum = emqx_conf:get([retainer, flow_control, batch_deliver_number], undefined),
             case DeliverNum of
                 0 ->
                     do_deliver(Result, Pid, Topic),
