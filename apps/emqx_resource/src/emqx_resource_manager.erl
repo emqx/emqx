@@ -214,6 +214,7 @@ init(Data) ->
     {ok, connecting, Data, {next_event, internal, try_connect}}.
 
 terminate(_Reason, _State, Data) ->
+    _ = maybe_clear_alarm(Data#data.id),
     ets:delete(?ETS_TABLE, Data#data.id),
     ok.
 
@@ -342,6 +343,7 @@ do_stop(#data{state = undefined} = _Data) ->
 do_stop(Data) ->
     Result = emqx_resource:call_stop(Data#data.id, Data#data.mod, Data#data.state),
     ets:delete(?ETS_TABLE, Data#data.id),
+    _ = maybe_clear_alarm(Data#data.id),
     Result.
 
 proc_name(Id) ->
@@ -386,21 +388,27 @@ with_health_check(Data, Func) ->
     ResId = Data#data.id,
     HCRes = emqx_resource:call_health_check(ResId, Data#data.mod, Data#data.state),
     {Status, NewState, Err} = parse_health_check_result(HCRes, Data#data.state),
-    _ =
-        case Status of
-            connected ->
-                ok;
-            _ ->
-                emqx_alarm:activate(
-                    ResId,
-                    #{resource_id => ResId, reason => resource_down},
-                    <<"resource down: ", ResId/binary>>
-                )
-        end,
+    _ = maybe_alarm_resource_down(connected, ResId),
     UpdatedData = Data#data{
         state = NewState, status = Status, error = Err
     },
     Func(Status, UpdatedData).
+
+maybe_alarm_resource_down(connected, _ResId) ->
+    ok;
+maybe_alarm_resource_down(_Status, <<?TEST_ID_PREFIX, _/binary>>) ->
+    ok;
+maybe_alarm_resource_down(_Status, ResId) ->
+    emqx_alarm:activate(
+        ResId,
+        #{resource_id => ResId, reason => resource_down},
+        <<"resource down: ", ResId/binary>>
+    ).
+
+maybe_clear_alarm(<<?TEST_ID_PREFIX, _/binary>>) ->
+    ok;
+maybe_clear_alarm(ResId) ->
+    emqx_alarm:deactivate(ResId).
 
 parse_health_check_result(Status, OldState) when ?IS_STATUS(Status) ->
     {Status, OldState, undefined};
