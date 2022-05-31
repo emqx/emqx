@@ -260,8 +260,10 @@ query(InstId, Request, AfterQuery) ->
                     emqx_metrics_worker:inc(resource_metrics, InstId, exception),
                     erlang:raise(Err, Reason, ST)
             end;
+        {ok, _Group, _Data} ->
+            query_error(not_found, <<"resource not connected">>);
         {error, not_found} ->
-            query_error(not_found, <<"resource not found or not connected">>)
+            query_error(not_found, <<"resource not found">>)
     end.
 
 -spec restart(instance_id()) -> ok | {error, Reason :: term()}.

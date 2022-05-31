@@ -573,6 +573,7 @@ obfuscate(Map) ->
     ).
 
 is_sensitive(password) -> true;
+is_sensitive(ssl_opts) -> true;
 is_sensitive(_) -> false.
 
 str(A) when is_atom(A) ->

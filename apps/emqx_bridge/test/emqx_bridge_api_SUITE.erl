@@ -378,7 +378,10 @@ t_enable_disable_bridges(_) ->
     {ok, 200, <<>>} = request(post, operation_path(cluster, disable, BridgeID), <<"">>),
 
     {ok, 403, Res} = request(post, operation_path(node, restart, BridgeID), <<"">>),
-    ?assertEqual(<<"{\"code\":\"FORBIDDEN_REQUEST\",\"message\":\"forbidden operation\"}">>, Res),
+    ?assertEqual(
+        <<"{\"code\":\"FORBIDDEN_REQUEST\",\"message\":\"forbidden operation: bridge disabled\"}">>,
+        Res
+    ),
 
     %% enable a stopped bridge
     {ok, 200, <<>>} = request(post, operation_path(cluster, enable, BridgeID), <<"">>),

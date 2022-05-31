@@ -21,6 +21,7 @@
 -include_lib("eunit/include/eunit.hrl").
 -include_lib("common_test/include/ct.hrl").
 -include("emqx_resource.hrl").
+-include_lib("stdlib/include/ms_transform.hrl").
 
 -define(TEST_RESOURCE, emqx_test_resource).
 -define(ID, <<"id">>).
@@ -183,7 +184,6 @@ t_healthy(_) ->
     emqx_resource:set_resource_status_connecting(?ID),
 
     {ok, connected} = emqx_resource:health_check(?ID),
-
     ?assertMatch(
         [#{status := connected}],
         emqx_resource:list_instances_verbose()
@@ -194,7 +194,7 @@ t_healthy(_) ->
     ?assertEqual({ok, connecting}, emqx_resource:health_check(?ID)),
 
     ?assertMatch(
-        [],
+        [#{status := connecting}],
         emqx_resource:list_instances_verbose()
     ),
 
@@ -236,7 +236,6 @@ t_stop_start(_) ->
     ),
 
     ok = emqx_resource:restart(?ID),
-
     timer:sleep(300),
 
     #{pid := Pid1} = emqx_resource:query(?ID, get_state),
@@ -334,11 +333,11 @@ t_create_dry_run_local_failed(_) ->
     ),
     ?assertEqual(error, Res2),
 
-    {Res3, _} = emqx_resource:create_dry_run_local(
+    Res3 = emqx_resource:create_dry_run_local(
         ?TEST_RESOURCE,
         #{name => test_resource, stop_error => true}
     ),
-    ?assertEqual(error, Res3).
+    ?assertEqual(ok, Res3).
 
 t_test_func(_) ->
     ?assertEqual(ok, erlang:apply(emqx_resource_validator:not_empty("not_empty"), [<<"someval">>])),

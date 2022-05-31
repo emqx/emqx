@@ -321,7 +321,8 @@ schema("/bridges/:id") ->
             parameters => [param_path_id()],
             responses => #{
                 204 => <<"Bridge deleted">>,
-                400 => error_schema(['INVALID_ID'], "Update bridge failed")
+                400 => error_schema(['INVALID_ID'], "Update bridge failed"),
+                503 => error_schema('SERVICE_UNAVAILABLE', "Service unavailable")
             }
         }
     };
@@ -352,6 +353,7 @@ schema("/bridges/:id/operation/:operation") ->
             ],
             responses => #{
                 200 => <<"Operation success">>,
+                503 => error_schema('SERVICE_UNAVAILABLE', "Service unavailable"),
                 400 => error_schema('INVALID_ID', "Bad bridge ID")
             }
         }
@@ -371,7 +373,8 @@ schema("/nodes/:node/bridges/:id/operation/:operation") ->
             responses => #{
                 200 => <<"Operation success">>,
                 400 => error_schema('INVALID_ID', "Bad bridge ID"),
-                403 => error_schema('FORBIDDEN_REQUEST', "forbidden operation")
+                403 => error_schema('FORBIDDEN_REQUEST', "forbidden operation"),
+                503 => error_schema('SERVICE_UNAVAILABLE', "Service unavailable")
             }
         }
     }.
@@ -417,6 +420,7 @@ schema("/nodes/:node/bridges/:id/operation/:operation") ->
         Id,
         case emqx_bridge:remove(BridgeType, BridgeName) of
             {ok, _} -> {204};
+            {error, timeout} -> {503, error_msg('SERVICE_UNAVAILABLE', <<"request timeout">>)};
             {error, Reason} -> {500, error_msg('INTERNAL_ERROR', Reason)}
         end
     ).
@@ -466,6 +470,10 @@ lookup_from_local_node(BridgeType, BridgeName) ->
                         {200};
                     {error, {pre_config_update, _, bridge_not_found}} ->
                         {404, error_msg('NOT_FOUND', <<"bridge not found">>)};
+                    {error, {_, _, timeout}} ->
+                        {503, error_msg('SERVICE_UNAVAILABLE', <<"request timeout">>)};
+                    {error, timeout} ->
+                        {503, error_msg('SERVICE_UNAVAILABLE', <<"request timeout">>)};
                     {error, Reason} ->
                         {500, error_msg('INTERNAL_ERROR', Reason)}
                 end;
@@ -489,11 +497,18 @@ lookup_from_local_node(BridgeType, BridgeName) ->
                 ConfMap = emqx:get_config([bridges, BridgeType, BridgeName]),
                 case maps:get(enable, ConfMap, false) of
                     false ->
-                        {403, error_msg('FORBIDDEN_REQUEST', <<"forbidden operation">>)};
+                        {403,
+                            error_msg(
+                                'FORBIDDEN_REQUEST', <<"forbidden operation: bridge disabled">>
+                            )};
                     true ->
                         case emqx_bridge_proto_v1:OperFunc(TargetNode, BridgeType, BridgeName) of
-                            ok -> {200};
-                            {error, Reason} -> {500, error_msg('INTERNAL_ERROR', Reason)}
+                            ok ->
+                                {200};
+                            {error, timeout} ->
+                                {503, error_msg('SERVICE_UNAVAILABLE', <<"request timeout">>)};
+                            {error, Reason} ->
+                                {500, error_msg('INTERNAL_ERROR', Reason)}
                         end
                 end
         end
@@ -518,6 +533,8 @@ operation_to_all_nodes(Nodes, OperFunc, BridgeType, BridgeName) ->
     case is_ok(emqx_bridge_proto_v1:RpcFunc(Nodes, BridgeType, BridgeName)) of
         {ok, _} ->
             {200};
+        {error, [timeout | _]} ->
+            {503, error_msg('SERVICE_UNAVAILABLE', <<"request timeout">>)};
         {error, ErrL} ->
             {500, error_msg('INTERNAL_ERROR', ErrL)}
     end.
