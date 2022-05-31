@@ -14,7 +14,7 @@
 %% limitations under the License.
 %%--------------------------------------------------------------------
 
--module(emqx_authn_user_upload_api).
+-module(emqx_authn_user_import_api).
 
 -behaviour(minirest_api).
 
@@ -46,8 +46,8 @@
 ]).
 
 -export([
-    authenticator_upload_users/2,
-    listener_authenticator_upload_users/2
+    authenticator_import_users/2,
+    listener_authenticator_import_users/2
 ]).
 
 api_spec() ->
@@ -55,16 +55,16 @@ api_spec() ->
 
 paths() ->
     [
-        "/authentication/:id/upload_users",
-        "/listeners/:listener_id/authentication/:id/upload_users"
+        "/authentication/:id/import_users",
+        "/listeners/:listener_id/authentication/:id/import_users"
     ].
 
-schema("/authentication/:id/upload_users") ->
+schema("/authentication/:id/import_users") ->
     #{
-        'operationId' => authenticator_upload_users,
+        'operationId' => authenticator_import_users,
         post => #{
             tags => ?API_TAGS_GLOBAL,
-            description => ?DESC(authentication_id_upload_users_post),
+            description => ?DESC(authentication_id_import_users_post),
             parameters => [emqx_authn_api:param_auth_id()],
             'requestBody' => #{
                 content => #{
@@ -82,12 +82,12 @@ schema("/authentication/:id/upload_users") ->
             }
         }
     };
-schema("/listeners/:listener_id/authentication/:id/upload_users") ->
+schema("/listeners/:listener_id/authentication/:id/import_users") ->
     #{
-        'operationId' => listener_authenticator_upload_users,
+        'operationId' => listener_authenticator_import_users,
         post => #{
             tags => ?API_TAGS_SINGLE,
-            description => ?DESC(listeners_listener_id_authentication_id_upload_users_post),
+            description => ?DESC(listeners_listener_id_authentication_id_import_users_post),
             parameters => [emqx_authn_api:param_listener_id(), emqx_authn_api:param_auth_id()],
             'requestBody' => #{
                 content => #{
@@ -106,7 +106,7 @@ schema("/listeners/:listener_id/authentication/:id/upload_users") ->
         }
     }.
 
-authenticator_upload_users(
+authenticator_import_users(
     post,
     #{
         bindings := #{id := AuthenticatorID},
@@ -118,10 +118,10 @@ authenticator_upload_users(
         ok -> {204};
         {error, Reason} -> emqx_authn_api:serialize_error(Reason)
     end;
-authenticator_upload_users(post, #{bindings := #{id := _}, body := _}) ->
+authenticator_import_users(post, #{bindings := #{id := _}, body := _}) ->
     emqx_authn_api:serialize_error({missing_parameter, filename}).
 
-listener_authenticator_upload_users(
+listener_authenticator_import_users(
     post,
     #{
         bindings := #{listener_id := ListenerID, id := AuthenticatorID},
@@ -140,5 +140,5 @@ listener_authenticator_upload_users(
             end
         end
     );
-listener_authenticator_upload_users(post, #{bindings := #{listener_id := _, id := _}, body := _}) ->
+listener_authenticator_import_users(post, #{bindings := #{listener_id := _, id := _}, body := _}) ->
     emqx_authn_api:serialize_error({missing_parameter, filename}).

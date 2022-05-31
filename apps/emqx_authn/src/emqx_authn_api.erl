@@ -62,8 +62,6 @@
     listener_authenticator_status/2,
     authenticator_move/2,
     listener_authenticator_move/2,
-    authenticator_import_users/2,
-    listener_authenticator_import_users/2,
     authenticator_users/2,
     authenticator_user/2,
     listener_authenticator_users/2,
@@ -75,7 +73,6 @@
 -export([
     authenticator_examples/0,
     request_move_examples/0,
-    request_import_users_examples/0,
     request_user_create_examples/0,
     request_user_update_examples/0,
     response_user_examples/0,
@@ -108,7 +105,6 @@ paths() ->
         "/authentication/:id",
         "/authentication/:id/status",
         "/authentication/:id/move",
-        "/authentication/:id/import_users",
         "/authentication/:id/users",
         "/authentication/:id/users/:user_id",
 
@@ -116,7 +112,6 @@ paths() ->
         "/listeners/:listener_id/authentication/:id",
         "/listeners/:listener_id/authentication/:id/status",
         "/listeners/:listener_id/authentication/:id/move",
-        "/listeners/:listener_id/authentication/:id/import_users",
         "/listeners/:listener_id/authentication/:id/users",
         "/listeners/:listener_id/authentication/:id/users/:user_id"
     ].
@@ -126,7 +121,6 @@ roots() ->
         request_user_create,
         request_user_update,
         request_move,
-        request_import_users,
         response_user,
         response_users
     ].
@@ -143,9 +137,6 @@ fields(request_user_update) ->
     ];
 fields(request_move) ->
     [{position, mk(binary(), #{required => true})}];
-fields(request_import_users) ->
-    %% TODO: add file update
-    [{filename, mk(binary(), #{required => true})}];
 fields(response_user) ->
     [
         {user_id, mk(binary(), #{required => true})},
@@ -374,42 +365,6 @@ schema("/listeners/:listener_id/authentication/:id/move") ->
             ),
             responses => #{
                 204 => <<"Authenticator moved">>,
-                400 => error_codes([?BAD_REQUEST], <<"Bad Request">>),
-                404 => error_codes([?NOT_FOUND], <<"Not Found">>)
-            }
-        }
-    };
-schema("/authentication/:id/import_users") ->
-    #{
-        'operationId' => authenticator_import_users,
-        post => #{
-            tags => ?API_TAGS_GLOBAL,
-            description => ?DESC(authentication_id_import_users_post),
-            parameters => [param_auth_id()],
-            'requestBody' => emqx_dashboard_swagger:schema_with_examples(
-                ref(request_import_users),
-                request_import_users_examples()
-            ),
-            responses => #{
-                204 => <<"Users imported">>,
-                400 => error_codes([?BAD_REQUEST], <<"Bad Request">>),
-                404 => error_codes([?NOT_FOUND], <<"Not Found">>)
-            }
-        }
-    };
-schema("/listeners/:listener_id/authentication/:id/import_users") ->
-    #{
-        'operationId' => listener_authenticator_import_users,
-        post => #{
-            tags => ?API_TAGS_SINGLE,
-            description => ?DESC(listeners_listener_id_authentication_id_import_users_post),
-            parameters => [param_listener_id(), param_auth_id()],
-            'requestBody' => emqx_dashboard_swagger:schema_with_examples(
-                ref(request_import_users),
-                request_import_users_examples()
-            ),
-            responses => #{
-                204 => <<"Users imported">>,
                 400 => error_codes([?BAD_REQUEST], <<"Bad Request">>),
                 404 => error_codes([?NOT_FOUND], <<"Not Found">>)
             }
@@ -750,39 +705,6 @@ listener_authenticator_move(
     );
 listener_authenticator_move(post, #{bindings := #{listener_id := _, id := _}, body := _}) ->
     serialize_error({missing_parameter, position}).
-
-authenticator_import_users(
-    post,
-    #{
-        bindings := #{id := AuthenticatorID},
-        body := #{<<"filename">> := Filename}
-    }
-) ->
-    case emqx_authentication:import_users(?GLOBAL, AuthenticatorID, Filename) of
-        ok -> {204};
-        {error, Reason} -> serialize_error(Reason)
-    end;
-authenticator_import_users(post, #{bindings := #{id := _}, body := _}) ->
-    serialize_error({missing_parameter, filename}).
-
-listener_authenticator_import_users(
-    post,
-    #{
-        bindings := #{listener_id := ListenerID, id := AuthenticatorID},
-        body := #{<<"filename">> := Filename}
-    }
-) ->
-    with_chain(
-        ListenerID,
-        fun(ChainName) ->
-            case emqx_authentication:import_users(ChainName, AuthenticatorID, Filename) of
-                ok -> {204};
-                {error, Reason} -> serialize_error(Reason)
-            end
-        end
-    );
-listener_authenticator_import_users(post, #{bindings := #{listener_id := _, id := _}, body := _}) ->
-    serialize_error({missing_parameter, filename}).
 
 authenticator_users(post, #{bindings := #{id := AuthenticatorID}, body := UserInfo}) ->
     add_user(?GLOBAL, AuthenticatorID, UserInfo);
@@ -1579,22 +1501,6 @@ request_move_examples() ->
             summary => <<"Move authenticator to the position preceding some other authenticator">>,
             value => #{
                 position => <<"before:password_based:built_in_database">>
-            }
-        }
-    }.
-
-request_import_users_examples() ->
-    #{
-        import_csv => #{
-            summary => <<"Import users from CSV file">>,
-            value => #{
-                filename => <<"/path/to/user/data.csv">>
-            }
-        },
-        import_json => #{
-            summary => <<"Import users from JSON file">>,
-            value => #{
-                filename => <<"/path/to/user/data.json">>
             }
         }
     }.

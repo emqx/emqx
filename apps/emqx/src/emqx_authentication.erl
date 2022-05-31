@@ -166,11 +166,11 @@ when
 when
     State :: state().
 
--callback import_users(Filename, State) ->
+-callback import_users({Filename, FileData}, State) ->
     ok
     | {error, term()}
 when
-    Filename :: binary(), State :: state().
+    Filename :: binary(), FileData :: binary(), State :: state().
 
 -callback add_user(UserInfo, State) ->
     {ok, User}
@@ -385,7 +385,7 @@ list_authenticators(ChainName) ->
 move_authenticator(ChainName, AuthenticatorID, Position) ->
     call({move_authenticator, ChainName, AuthenticatorID, Position}).
 
--spec import_users(chain_name(), authenticator_id(), binary() | {binary(), binary()}) ->
+-spec import_users(chain_name(), authenticator_id(), {binary(), binary()}) ->
     ok | {error, term()}.
 import_users(ChainName, AuthenticatorID, Filename) ->
     call({import_users, ChainName, AuthenticatorID, Filename}).

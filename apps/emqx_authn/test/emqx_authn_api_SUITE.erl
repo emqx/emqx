@@ -102,9 +102,6 @@ t_authenticator_move(_) ->
 t_authenticator_import_users(_) ->
     test_authenticator_import_users([]).
 
-t_authenticator_upload_users(_) ->
-    test_authenticator_upload_users([]).
-
 t_listener_authenticators(_) ->
     test_authenticators(["listeners", ?TCP_DEFAULT]).
 
@@ -122,9 +119,6 @@ t_listener_authenticator_move(_) ->
 
 t_listener_authenticator_import_users(_) ->
     test_authenticator_import_users(["listeners", ?TCP_DEFAULT]).
-
-t_listener_authenticator_upload_users(_) ->
-    test_authenticator_upload_users(["listeners", ?TCP_DEFAULT]).
 
 t_aggregate_metrics(_) ->
     Metrics = #{
@@ -649,33 +643,8 @@ test_authenticator_import_users(PathPrefix) ->
         emqx_authn_test_lib:built_in_database_example()
     ),
 
-    {ok, 400, _} = request(post, ImportUri, #{}),
-
-    {ok, 400, _} = request(post, ImportUri, #{filename => <<"/etc/passwd">>}),
-
-    {ok, 400, _} = request(post, ImportUri, #{filename => <<"/not_exists.csv">>}),
-
-    Dir = code:lib_dir(emqx_authn, test),
-    JSONFileName = filename:join([Dir, <<"data/user-credentials.json">>]),
-    CSVFileName = filename:join([Dir, <<"data/user-credentials.csv">>]),
-
-    {ok, 204, _} = request(post, ImportUri, #{filename => JSONFileName}),
-
-    {ok, 204, _} = request(post, ImportUri, #{filename => CSVFileName}).
-
-test_authenticator_upload_users(PathPrefix) ->
-    UploadUri = uri(
-        PathPrefix ++
-            [?CONF_NS, "password_based:built_in_database", "upload_users"]
-    ),
-
-    {ok, 200, _} = request(
-        post,
-        uri(PathPrefix ++ [?CONF_NS]),
-        emqx_authn_test_lib:built_in_database_example()
-    ),
-
-    {ok, 400, _} = multipart_formdata_request(UploadUri, [], [
+    {ok, 400, _} = multipart_formdata_request(ImportUri, [], []),
+    {ok, 400, _} = multipart_formdata_request(ImportUri, [], [
         {filenam, "user-credentials.json", <<>>}
     ]),
 
@@ -684,12 +653,12 @@ test_authenticator_upload_users(PathPrefix) ->
     CSVFileName = filename:join([Dir, <<"data/user-credentials.csv">>]),
 
     {ok, JSONData} = file:read_file(JSONFileName),
-    {ok, 204, _} = multipart_formdata_request(UploadUri, [], [
+    {ok, 204, _} = multipart_formdata_request(ImportUri, [], [
         {filename, "user-credentials.json", JSONData}
     ]),
 
     {ok, CSVData} = file:read_file(CSVFileName),
-    {ok, 204, _} = multipart_formdata_request(UploadUri, [], [
+    {ok, 204, _} = multipart_formdata_request(ImportUri, [], [
         {filename, "user-credentials.csv", CSVData}
     ]).
 

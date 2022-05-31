@@ -14,7 +14,7 @@
 %% limitations under the License.
 %%--------------------------------------------------------------------
 
--module(emqx_gateway_api_authn_user_upload).
+-module(emqx_gateway_api_authn_user_import).
 
 -behaviour(minirest_api).
 
@@ -32,7 +32,7 @@
     ]
 ).
 
-%% minirest/dashbaord_swagger behaviour callbacks
+%% minirest/dashboard_swagger behaviour callbacks
 -export([
     api_spec/0,
     paths/0,
@@ -41,8 +41,8 @@
 
 %% http handlers
 -export([
-    upload_users/2,
-    upload_listener_users/2
+    import_users/2,
+    import_listener_users/2
 ]).
 
 %%--------------------------------------------------------------------
@@ -54,14 +54,14 @@ api_spec() ->
 
 paths() ->
     [
-        "/gateway/:name/authentication/upload_users",
-        "/gateway/:name/listeners/:id/authentication/upload_users"
+        "/gateway/:name/authentication/import_users",
+        "/gateway/:name/listeners/:id/authentication/import_users"
     ].
 
 %%--------------------------------------------------------------------
 %% http handlers
 
-upload_users(post, #{
+import_users(post, #{
     bindings := #{name := Name0},
     body := Body
 }) ->
@@ -88,7 +88,7 @@ upload_users(post, #{
         end
     end).
 
-upload_listener_users(post, #{
+import_listener_users(post, #{
     bindings := #{name := Name0, id := Id},
     body := Body
 }) ->
@@ -117,12 +117,12 @@ upload_listener_users(post, #{
 %% Swagger defines
 %%--------------------------------------------------------------------
 
-schema("/gateway/:name/authentication/upload_users") ->
+schema("/gateway/:name/authentication/import_users") ->
     #{
-        'operationId' => upload_users,
+        'operationId' => import_users,
         post =>
             #{
-                desc => ?DESC(upload_users),
+                desc => ?DESC(emqx_gateway_api_authn, import_users),
                 parameters => params_gateway_name_in_path(),
                 'requestBody' => #{
                     content => #{
@@ -137,12 +137,12 @@ schema("/gateway/:name/authentication/upload_users") ->
                     ?STANDARD_RESP(#{204 => <<"Imported">>})
             }
     };
-schema("/gateway/:name/listeners/:id/authentication/upload_users") ->
+schema("/gateway/:name/listeners/:id/authentication/import_users") ->
     #{
-        'operationId' => upload_listener_users,
+        'operationId' => import_listener_users,
         post =>
             #{
-                desc => ?DESC(upload_listener_users),
+                desc => ?DESC(emqx_gateway_api_listeners, import_users),
                 parameters => params_gateway_name_in_path() ++
                     params_listener_id_in_path(),
                 'requestBody' => #{

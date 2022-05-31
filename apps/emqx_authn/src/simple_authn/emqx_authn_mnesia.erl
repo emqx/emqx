@@ -188,28 +188,8 @@ import_users({Filename0, FileData}, State) ->
         <<".json">> ->
             import_users_from_json(FileData, State);
         <<".csv">> ->
-            {ok, CSV} = csv_data_reader(FileData),
+            CSV = csv_data(FileData),
             import_users_from_csv(CSV, State);
-        <<>> ->
-            {error, unknown_file_format};
-        Extension ->
-            {error, {unsupported_file_format, Extension}}
-    end;
-import_users(Filename0, State) ->
-    Filename = to_binary(Filename0),
-    case filename:extension(Filename) of
-        <<".json">> ->
-            case file:read_file(Filename) of
-                {ok, Data} -> import_users_from_json(Data, State);
-                {error, _} = Error -> Error
-            end;
-        <<".csv">> ->
-            case csv_file_reader(Filename) of
-                {ok, CSV} ->
-                    import_users_from_csv(CSV, State);
-                {error, _} = Error ->
-                    Error
-            end;
         <<>> ->
             {error, unknown_file_format};
         Extension ->
@@ -360,9 +340,7 @@ import_users_from_json(Bin, #{user_group := UserGroup}) ->
 import_users_from_csv(CSV, #{user_group := UserGroup}) ->
     case get_csv_header(CSV) of
         {ok, Seq, NewCSV} ->
-            Result = trans(fun import_csv/3, [UserGroup, NewCSV, Seq]),
-            _ = csv_close(CSV),
-            Result;
+            trans(fun import_csv/3, [UserGroup, NewCSV, Seq]);
         {error, Reason} ->
             {error, Reason}
     end.
@@ -404,9 +382,7 @@ import_csv(UserGroup, CSV, Seq) ->
                     {error, Reason}
             end;
         eof ->
-            ok;
-        {error, Reason} ->
-            {error, Reason}
+            ok
     end.
 
 get_csv_header(CSV) ->
@@ -415,9 +391,7 @@ get_csv_header(CSV) ->
             Seq = binary:split(Line, [<<",">>, <<" ">>, <<"\n">>], [global, trim_all]),
             {ok, Seq, NewCSV};
         eof ->
-            {error, empty_file};
-        {error, Reason} ->
-            {error, Reason}
+            {error, empty_file}
     end.
 
 get_user_info_by_seq(Fields, Seq) ->
@@ -499,33 +473,11 @@ group_match_spec(UserGroup, QString) ->
             end)
     end.
 
-csv_file_reader(Filename) ->
-    case file:open(Filename, [read, binary]) of
-        {ok, File} ->
-            {ok, {csv_file_reader, File}};
-        {error, Reason} ->
-            {error, Reason}
-    end.
-
-csv_data_reader(Data) ->
+csv_data(Data) ->
     Lines = binary:split(Data, [<<"\r">>, <<"\n">>], [global, trim_all]),
-    {ok, {csv_data_reader, Lines}}.
+    {csv_data, Lines}.
 
-csv_read_line({csv_file_reader, File} = CSV) ->
-    case file:read_line(File) of
-        {ok, Line} ->
-            {ok, Line, CSV};
-        eof ->
-            eof;
-        {error, Reason} ->
-            {error, Reason}
-    end;
-csv_read_line({csv_data_reader, [Line | Lines]}) ->
-    {ok, Line, {csv_data_reader, Lines}};
-csv_read_line({csv_data_reader, []}) ->
+csv_read_line({csv_data, [Line | Lines]}) ->
+    {ok, Line, {csv_data, Lines}};
+csv_read_line({csv_data, []}) ->
     eof.
-
-csv_close({csv_file_reader, File}) ->
-    file:close(File);
-csv_close({csv_data_reader, _}) ->
-    ok.

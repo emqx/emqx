@@ -231,23 +231,7 @@ t_import_users(_) ->
     ?assertEqual(
         ok,
         emqx_authn_mnesia:import_users(
-            sample_filename(<<"user-credentials.json">>),
-            State
-        )
-    ),
-
-    ?assertEqual(
-        ok,
-        emqx_authn_mnesia:import_users(
             sample_filename_and_data(<<"user-credentials.json">>),
-            State
-        )
-    ),
-
-    ?assertEqual(
-        ok,
-        emqx_authn_mnesia:import_users(
-            sample_filename(<<"user-credentials.csv">>),
             State
         )
     ),
@@ -263,14 +247,6 @@ t_import_users(_) ->
     ?assertMatch(
         {error, {unsupported_file_format, _}},
         emqx_authn_mnesia:import_users(
-            <<"/file/with/unknown.extension">>,
-            State
-        )
-    ),
-
-    ?assertMatch(
-        {error, {unsupported_file_format, _}},
-        emqx_authn_mnesia:import_users(
             {<<"/file/with/unknown.extension">>, <<>>},
             State
         )
@@ -279,31 +255,7 @@ t_import_users(_) ->
     ?assertEqual(
         {error, unknown_file_format},
         emqx_authn_mnesia:import_users(
-            <<"/file/with/no/extension">>,
-            State
-        )
-    ),
-
-    ?assertEqual(
-        {error, unknown_file_format},
-        emqx_authn_mnesia:import_users(
             {<<"/file/with/no/extension">>, <<>>},
-            State
-        )
-    ),
-
-    ?assertEqual(
-        {error, enoent},
-        emqx_authn_mnesia:import_users(
-            <<"/file/that/not/exist.json">>,
-            State
-        )
-    ),
-
-    ?assertEqual(
-        {error, bad_format},
-        emqx_authn_mnesia:import_users(
-            sample_filename(<<"user-credentials-malformed-0.json">>),
             State
         )
     ),
@@ -319,23 +271,7 @@ t_import_users(_) ->
     ?assertMatch(
         {error, {_, invalid_json}},
         emqx_authn_mnesia:import_users(
-            sample_filename(<<"user-credentials-malformed-1.json">>),
-            State
-        )
-    ),
-
-    ?assertMatch(
-        {error, {_, invalid_json}},
-        emqx_authn_mnesia:import_users(
             sample_filename_and_data(<<"user-credentials-malformed-1.json">>),
-            State
-        )
-    ),
-
-    ?assertEqual(
-        {error, bad_format},
-        emqx_authn_mnesia:import_users(
-            sample_filename(<<"user-credentials-malformed.csv">>),
             State
         )
     ),
