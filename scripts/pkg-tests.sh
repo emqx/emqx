@@ -91,9 +91,9 @@ emqx_test(){
             export EMQX_MQTT__MAX_TOPIC_ALIAS=10
             export EMQX_LOG__CONSOLE_HANDLER__LEVEL=debug
             export EMQX_LOG__FILE_HANDLERS__DEFAULT__LEVEL=debug
-            if [[ $(arch) == *arm* || $(arch) == aarch64 ]]; then
-                export EMQX_LISTENERS__QUIC__DEFAULT__ENABLED=false
-            fi
+            # if [[ $(arch) == *arm* || $(arch) == aarch64 ]]; then
+            #     export EMQX_LISTENERS__QUIC__DEFAULT__ENABLED=false
+            # fi
             # sed -i '/emqx_telemetry/d' "${PACKAGE_PATH}"/emqx/data/loaded_plugins
 
             echo "running ${packagename} start"
