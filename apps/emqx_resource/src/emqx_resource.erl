@@ -127,8 +127,9 @@
 
 %% when calling emqx_resource:health_check/2
 -callback on_get_status(instance_id(), resource_state()) ->
-    resource_connection_status()
-    | {resource_connection_status(), resource_state()}.
+    resource_status()
+    | {resource_status(), resource_state()}
+    | {resource_status(), resource_state(), term()}.
 
 -spec list_types() -> [module()].
 list_types() ->
@@ -260,7 +261,7 @@ query(InstId, Request, AfterQuery) ->
                     erlang:raise(Err, Reason, ST)
             end;
         {error, not_found} ->
-            query_error(not_found, <<"the resource id not exists">>)
+            query_error(not_found, <<"resource not found or not connected">>)
     end.
 
 -spec restart(instance_id()) -> ok | {error, Reason :: term()}.
@@ -275,7 +276,7 @@ restart(InstId, Opts) ->
 stop(InstId) ->
     emqx_resource_manager:stop(InstId).
 
--spec health_check(instance_id()) -> ok | {error, Reason :: term()}.
+-spec health_check(instance_id()) -> {ok, resource_status()} | {error, term()}.
 health_check(InstId) ->
     emqx_resource_manager:health_check(InstId).
 
@@ -316,8 +317,9 @@ call_start(InstId, Mod, Config) ->
     ?SAFE_CALL(Mod:on_start(InstId, Config)).
 
 -spec call_health_check(instance_id(), module(), resource_state()) ->
-    resource_connection_status()
-    | {resource_connection_status(), resource_state()}.
+    resource_status()
+    | {resource_status(), resource_state()}
+    | {resource_status(), resource_state(), term()}.
 call_health_check(InstId, Mod, ResourceState) ->
     ?SAFE_CALL(Mod:on_get_status(InstId, ResourceState)).
 

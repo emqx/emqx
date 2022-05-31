@@ -306,7 +306,7 @@ on_query(
     end,
     Result.
 
-on_get_status(_InstId, #{host := Host, port := Port, connect_timeout := Timeout}) ->
+on_get_status(_InstId, #{host := Host, port := Port, connect_timeout := Timeout} = State) ->
     case do_get_status(Host, Port, Timeout) of
         ok ->
             connected;
@@ -317,7 +317,7 @@ on_get_status(_InstId, #{host := Host, port := Port, connect_timeout := Timeout}
                 host => Host,
                 port => Port
             }),
-            disconnected
+            {disconnected, State, Reason}
     end.
 
 do_get_status(Host, Port, Timeout) ->
