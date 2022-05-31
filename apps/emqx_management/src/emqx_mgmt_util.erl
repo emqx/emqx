@@ -78,7 +78,8 @@ kmg(Byte) when Byte > ?MB ->
 kmg(Byte) when Byte > ?KB ->
     kmg(Byte / ?KB, "K");
 kmg(Byte) ->
-    Byte.
+    integer_to_binary(Byte).
+
 kmg(F, S) ->
     iolist_to_binary(io_lib:format("~.2f~ts", [F, S])).
 
