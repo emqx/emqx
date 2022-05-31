@@ -81,7 +81,7 @@
 ]).
 
 %% utility functions
--export([authenticator_id/1]).
+-export([authenticator_id/1, metrics_id/2]).
 
 %% proxy callback
 -export([
@@ -216,25 +216,28 @@ when
 %%------------------------------------------------------------------------------
 
 authenticate(#{listener := Listener, protocol := Protocol} = Credential, _AuthResult) ->
-    Authenticators = get_authenticators(Listener, global_chain(Protocol)),
-    case get_enabled(Authenticators) of
-        [] ->
-            ignore;
-        NAuthenticators ->
-            ct:print("NAuthenticators: ~p", [NAuthenticators]),
-            do_authenticate(NAuthenticators, Credential)
+    case get_authenticators(Listener, global_chain(Protocol)) of
+        {ok, ChainName, Authenticators} ->
+            case get_enabled(Authenticators) of
+                [] ->
+                    ignore;
+                NAuthenticators ->
+                    do_authenticate(ChainName, NAuthenticators, Credential)
+            end;
+        none ->
+            ignore
     end.
 
 get_authenticators(Listener, Global) ->
     case ets:lookup(?CHAINS_TAB, Listener) of
-        [#chain{authenticators = Authenticators}] ->
-            Authenticators;
+        [#chain{name = Name, authenticators = Authenticators}] ->
+            {ok, Name, Authenticators};
         _ ->
             case ets:lookup(?CHAINS_TAB, Global) of
-                [#chain{authenticators = Authenticators}] ->
-                    Authenticators;
+                [#chain{name = Name, authenticators = Authenticators}] ->
+                    {ok, Name, Authenticators};
                 _ ->
-                    []
+                    none
             end
     end.
 
@@ -464,8 +467,8 @@ handle_call({delete_chain, Name}, _From, State) ->
     case ets:lookup(?CHAINS_TAB, Name) of
         [] ->
             reply({error, {not_found, {chain, Name}}}, State);
-        [#chain{authenticators = Authenticators}] ->
-            _ = [do_destroy_authenticator(Authenticator) || Authenticator <- Authenticators],
+        [#chain{} = Chain] ->
+            _MatchedIDs = do_delete_authenticators(fun(_) -> true end, Chain),
             true = ets:delete(?CHAINS_TAB, Name),
             reply(ok, maybe_unhook(State))
     end;
@@ -587,8 +590,6 @@ handle_delete_authenticator(Chain, AuthenticatorID) ->
         [] ->
             {error, {not_found, {authenticator, AuthenticatorID}}};
         [AuthenticatorID] ->
-            ct:print("handle_delete_authenticator: ~p", [AuthenticatorID]),
-            emqx_metrics_worker:clear_metrics(authn_metrics, AuthenticatorID),
             ok
     end.
 
@@ -603,7 +604,7 @@ handle_move_authenticator(Chain, AuthenticatorID, Position) ->
     end.
 
 handle_create_authenticator(Chain, Config, Providers) ->
-    #chain{authenticators = Authenticators} = Chain,
+    #chain{name = Name, authenticators = Authenticators} = Chain,
     AuthenticatorID = authenticator_id(Config),
     case lists:keymember(AuthenticatorID, #authenticator.id, Authenticators) of
         true ->
@@ -622,7 +623,7 @@ handle_create_authenticator(Chain, Config, Providers) ->
 
                     ok = emqx_metrics_worker:create_metrics(
                         authn_metrics,
-                        AuthenticatorID,
+                        metrics_id(Name, AuthenticatorID),
                         [total, success, failed, nomatch],
                         [total]
                     ),
@@ -632,14 +633,17 @@ handle_create_authenticator(Chain, Config, Providers) ->
             end
     end.
 
-do_authenticate([], _) ->
+do_authenticate(_ChainName, [], _) ->
     {stop, {error, not_authorized}};
-do_authenticate([#authenticator{id = ID, provider = Provider, state = State} | More], Credential) ->
-    emqx_metrics_worker:inc(authn_metrics, ID, total),
+do_authenticate(
+    ChainName, [#authenticator{id = ID, provider = Provider, state = State} | More], Credential
+) ->
+    MetricsID = metrics_id(ChainName, ID),
+    emqx_metrics_worker:inc(authn_metrics, MetricsID, total),
     try Provider:authenticate(Credential, State) of
         ignore ->
-            ok = emqx_metrics_worker:inc(authn_metrics, ID, nomatch),
-            do_authenticate(More, Credential);
+            ok = emqx_metrics_worker:inc(authn_metrics, MetricsID, nomatch),
+            do_authenticate(ChainName, More, Credential);
         Result ->
             %% {ok, Extra}
             %% {ok, Extra, AuthData}
@@ -648,9 +652,9 @@ do_authenticate([#authenticator{id = ID, provider = Provider, state = State} | M
             %% {error, Reason}
             case Result of
                 {ok, _} ->
-                    emqx_metrics_worker:inc(authn_metrics, ID, success);
+                    emqx_metrics_worker:inc(authn_metrics, MetricsID, success);
                 {error, _} ->
-                    emqx_metrics_worker:inc(authn_metrics, ID, failed);
+                    emqx_metrics_worker:inc(authn_metrics, MetricsID, failed);
                 _ ->
                     ok
             end,
@@ -664,8 +668,8 @@ do_authenticate([#authenticator{id = ID, provider = Provider, state = State} | M
                 stacktrace => Stacktrace,
                 authenticator => ID
             }),
-            emqx_metrics_worker:inc(authn_metrics, ID, nomatch),
-            do_authenticate(More, Credential)
+            emqx_metrics_worker:inc(authn_metrics, MetricsID, nomatch),
+            do_authenticate(ChainName, More, Credential)
     end.
 
 reply(Reply, State) ->
@@ -763,12 +767,17 @@ do_delete_authenticators(MatchFun, #chain{name = Name, authenticators = Authenti
         Matching
     ),
 
-    ok = lists:foreach(fun do_destroy_authenticator/1, Matching),
+    ok = lists:foreach(
+        fun(#authenticator{id = ID} = Authenticator) ->
+            do_destroy_authenticator(Authenticator),
+            emqx_metrics_worker:clear_metrics(authn_metrics, metrics_id(Name, ID))
+        end,
+        Matching
+    ),
     true =
         case Others of
             [] ->
                 ets:delete(?CHAINS_TAB, Name);
-            %% ets:insert(?CHAINS_TAB, Chain#chain{authenticators = Others});
             _ ->
                 ets:insert(?CHAINS_TAB, Chain#chain{authenticators = Others})
         end,
@@ -885,6 +894,9 @@ insert_user_group(
     Config#{user_group => Chain#chain.name};
 insert_user_group(_Chain, Config) ->
     Config.
+
+metrics_id(ChainName, AuthenticatorId) ->
+    iolist_to_binary([atom_to_binary(ChainName), <<"-">>, AuthenticatorId]).
 
 to_list(undefined) -> [];
 to_list(M) when M =:= #{} -> [];
