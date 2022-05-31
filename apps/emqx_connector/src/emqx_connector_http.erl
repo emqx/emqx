@@ -54,6 +54,8 @@
     pool_type/0
 ]).
 
+-define(DEFAULT_PIPELINE_SIZE, 100).
+
 %%=====================================================================
 %% Hocon schema
 
@@ -120,9 +122,9 @@ fields(config) ->
             )},
         {enable_pipelining,
             sc(
-                boolean(),
+                pos_integer(),
                 #{
-                    default => true,
+                    default => ?DEFAULT_PIPELINE_SIZE,
                     desc => ?DESC("enable_pipelining")
                 }
             )},
@@ -210,7 +212,8 @@ on_start(
         {pool_type, PoolType},
         {pool_size, PoolSize},
         {transport, Transport},
-        {transport_opts, NTransportOpts}
+        {transport_opts, NTransportOpts},
+        {enable_pipelining, maps:get(enable_pipelining, Config, ?DEFAULT_PIPELINE_SIZE)}
     ],
     PoolName = emqx_plugin_libs_pool:pool_name(InstId),
     State = #{
