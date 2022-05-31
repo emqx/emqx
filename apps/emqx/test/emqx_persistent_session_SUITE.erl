@@ -131,7 +131,9 @@ init_per_group(Group, Config) when Group == ws; Group == ws_snabbkaffe ->
 init_per_group(Group, Config) when Group == tcp; Group == tcp_snabbkaffe ->
     [{port, 1883}, {conn_fun, connect} | Config];
 init_per_group(Group, Config) when Group == quic; Group == quic_snabbkaffe ->
-    [{port, 14567}, {conn_fun, quic_connect} | Config];
+    UdpPort = 1883,
+    emqx_common_test_helpers:ensure_quic_listener(?MODULE, UdpPort),
+    [{port, UdpPort}, {conn_fun, quic_connect} | Config];
 init_per_group(no_kill_connection_process, Config) ->
     [{kill_connection_process, false} | Config];
 init_per_group(kill_connection_process, Config) ->
