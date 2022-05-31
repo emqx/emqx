@@ -168,17 +168,12 @@ start_cpu_check_timer() ->
         _ -> start_timer(Interval, cpu_check)
     end.
 
+is_sysmem_check_supported() ->
+    {unix, linux} =:= os:type().
+
 start_mem_check_timer() ->
     Interval = emqx:get_config([sysmon, os, mem_check_interval]),
-    IsSupported =
-        case os:type() of
-            {unix, linux} ->
-                true;
-            _ ->
-                %% sorry Mac and windows, for now
-                false
-        end,
-    case is_integer(Interval) andalso IsSupported of
+    case is_integer(Interval) andalso is_sysmem_check_supported() of
         true ->
             start_timer(Interval, mem_check);
         false ->
@@ -196,7 +191,11 @@ update_mem_alarm_status(HWM) when HWM > 1.0 orelse HWM < 0.0 ->
         #{},
         <<"Deactivated mem usage alarm due to out of range threshold">>
     );
-update_mem_alarm_status(HWM0) ->
+update_mem_alarm_status(HWM) ->
+    is_sysmem_check_supported() andalso
+        do_update_mem_alarm_status(HWM).
+
+do_update_mem_alarm_status(HWM0) ->
     HWM = HWM0 * 100,
     Usage = current_sysmem_percent(),
     case Usage > HWM of
