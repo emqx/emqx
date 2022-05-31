@@ -24,7 +24,7 @@ File format:
 * Add more rule engine date functions: format_date/3, format_date/4, date_to_unix_ts/3, date_to_unix_ts/4 [#7894]
 * Add proto_name and proto_ver fields for $event/client_disconnected event.
 * Mnesia auth/acl http api support multiple condition queries.
-* Inflight QoS1 Messages for shared topics are now redispatched to another alive subscribers upon chosen subscriber session termination.
+* Inflight QoS1 Messages for shared topics are now redispatched to other alive subscribers upon chosen subscriber session termination.
 * Make auth metrics name more understandable.
 * Allow emqx_management http listener binding to specific interface [#8005]
 * Add rule-engine function float2str/2, user can specify the float output precision [#7991]
