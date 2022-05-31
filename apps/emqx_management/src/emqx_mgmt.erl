@@ -121,7 +121,7 @@ list_nodes() ->
 lookup_node(Node) -> node_info(Node).
 
 node_info() ->
-    {UsedRatio, Total} = load_ctl:get_sys_memory(),
+    {UsedRatio, Total} = get_sys_memory(),
     Info = maps:from_list([{K, list_to_binary(V)} || {K, V} <- emqx_vm:loads()]),
     BrokerInfo = emqx_sys:info(),
     Info#{
@@ -141,6 +141,14 @@ node_info() ->
         version => iolist_to_binary(proplists:get_value(version, BrokerInfo)),
         role => mria_rlog:role()
     }.
+
+get_sys_memory() ->
+    case os:type() of
+        {unix, linux} ->
+            load_ctl:get_sys_memory();
+        _ ->
+            {0, 0}
+    end.
 
 node_info(Node) ->
     wrap_rpc(emqx_management_proto_v1:node_info(Node)).
