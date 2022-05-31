@@ -693,6 +693,84 @@ test_authenticator_upload_users(PathPrefix) ->
         {filename, "user-credentials.csv", CSVData}
     ]).
 
+t_switch_to_global_chain(_) ->
+    {ok, 200, _} = request(
+        post,
+        uri([?CONF_NS]),
+        emqx_authn_test_lib:built_in_database_example()
+    ),
+
+    {ok, 200, _} = request(
+        post,
+        uri([listeners, "tcp:default", ?CONF_NS]),
+        emqx_authn_test_lib:built_in_database_example()
+    ),
+
+    GlobalUser = #{user_id => <<"global_user">>, password => <<"p1">>},
+
+    {ok, 201, _} = request(
+        post,
+        uri([?CONF_NS, "password_based:built_in_database", "users"]),
+        GlobalUser
+    ),
+
+    ListenerUser = #{user_id => <<"listener_user">>, password => <<"p1">>},
+
+    {ok, 201, _} = request(
+        post,
+        uri([listeners, "tcp:default", ?CONF_NS, "password_based:built_in_database", "users"]),
+        ListenerUser
+    ),
+
+    process_flag(trap_exit, true),
+
+    %% Listener user should be OK
+    {ok, Client0} = emqtt:start_link([
+        {username, <<"listener_user">>},
+        {password, <<"p1">>}
+    ]),
+    ?assertMatch(
+        {ok, _},
+        emqtt:connect(Client0)
+    ),
+    ok = emqtt:disconnect(Client0),
+
+    %% Global user should not be OK
+    {ok, Client1} = emqtt:start_link([
+        {username, <<"global_user">>},
+        {password, <<"p1">>}
+    ]),
+    ?assertMatch(
+        {error, {unauthorized_client, _}},
+        emqtt:connect(Client1)
+    ),
+
+    {ok, 204, _} = request(
+        delete,
+        uri([listeners, "tcp:default", ?CONF_NS])
+    ),
+
+    %% Listener user should not be OK — local chain removed
+    {ok, Client2} = emqtt:start_link([
+        {username, <<"listener_user">>},
+        {password, <<"p1">>}
+    ]),
+    ?assertMatch(
+        {error, {unauthorized_client, _}},
+        emqtt:connect(Client2)
+    ),
+
+    %% Global user should be now OK, switched back to the global chain
+    {ok, Client3} = emqtt:start_link([
+        {username, <<"global_user">>},
+        {password, <<"p1">>}
+    ]),
+    ?assertMatch(
+        {ok, _},
+        emqtt:connect(Client3)
+    ),
+    ok = emqtt:disconnect(Client3).
+
 %%------------------------------------------------------------------------------
 %% Helpers
 %%------------------------------------------------------------------------------

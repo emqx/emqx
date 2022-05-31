@@ -257,6 +257,15 @@ schema("/listeners/:listener_id/authentication") ->
                 )
             }
         },
+        delete => #{
+            tags => ?API_TAGS_SINGLE,
+            description => ?DESC(listeners_listener_id_authentication_delete),
+            parameters => [param_listener_id()],
+            responses => #{
+                204 => <<"Authentication chain deleted">>,
+                404 => error_codes([?NOT_FOUND], <<"Not Found">>)
+            }
+        },
         post => #{
             tags => ?API_TAGS_SINGLE,
             description => ?DESC(listeners_listener_id_authentication_post),
@@ -645,6 +654,13 @@ listener_authenticators(get, #{bindings := #{listener_id := ListenerID}}) ->
         ListenerID,
         fun(Type, Name, _) ->
             list_authenticators([listeners, Type, Name, authentication])
+        end
+    );
+listener_authenticators(delete, #{bindings := #{listener_id := ListenerID}}) ->
+    with_listener(
+        ListenerID,
+        fun(Type, Name, ChainName) ->
+            delete_authenticators([listeners, Type, Name, authentication], ChainName)
         end
     ).
 
@@ -1090,6 +1106,16 @@ update_authenticator(ConfKeyPath, ChainName, AuthenticatorID, Config) ->
 
 delete_authenticator(ConfKeyPath, ChainName, AuthenticatorID) ->
     case update_config(ConfKeyPath, {delete_authenticator, ChainName, AuthenticatorID}) of
+        {ok, _} ->
+            {204};
+        {error, {_PrePostConfigUpdate, emqx_authentication, Reason}} ->
+            serialize_error(Reason);
+        {error, Reason} ->
+            serialize_error(Reason)
+    end.
+
+delete_authenticators(ConfKeyPath, ChainName) ->
+    case update_config(ConfKeyPath, {delete_authenticators, ChainName}) of
         {ok, _} ->
             {204};
         {error, {_PrePostConfigUpdate, emqx_authentication, Reason}} ->
