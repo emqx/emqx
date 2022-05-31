@@ -276,7 +276,7 @@ restart(InstId, Opts) ->
 stop(InstId) ->
     emqx_resource_manager:stop(InstId).
 
--spec health_check(instance_id()) -> resource_status().
+-spec health_check(instance_id()) -> {ok, resource_status()} | {error, term()}.
 health_check(InstId) ->
     emqx_resource_manager:health_check(InstId).
 

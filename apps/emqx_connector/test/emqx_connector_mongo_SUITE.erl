@@ -83,7 +83,7 @@ perform_lifecycle_check(PoolName, InitialConfig) ->
         status := InitialStatus
     }} =
         emqx_resource:get_instance(PoolName),
-    ?assertEqual(ok, emqx_resource:health_check(PoolName)),
+    ?assertEqual({ok, connected}, emqx_resource:health_check(PoolName)),
     % % Perform query as further check that the resource is working as expected
     ?assertMatch([], emqx_resource:query(PoolName, test_query_find())),
     ?assertMatch(undefined, emqx_resource:query(PoolName, test_query_find_one())),
@@ -96,7 +96,7 @@ perform_lifecycle_check(PoolName, InitialConfig) ->
     }} =
         emqx_resource:get_instance(PoolName),
     ?assertEqual(StoppedStatus, disconnected),
-    ?assertEqual({error, stopped}, emqx_resource:health_check(PoolName)),
+    ?assertEqual({error, resource_is_stopped}, emqx_resource:health_check(PoolName)),
     % Resource healthcheck shortcuts things by checking ets. Go deeper by checking pool itself.
     ?assertEqual({error, not_found}, ecpool:stop_sup_pool(ReturnedPoolName)),
     % Can call stop/1 again on an already stopped instance
@@ -107,7 +107,7 @@ perform_lifecycle_check(PoolName, InitialConfig) ->
     timer:sleep(500),
     {ok, ?CONNECTOR_RESOURCE_GROUP, #{status := InitialStatus}} =
         emqx_resource:get_instance(PoolName),
-    ?assertEqual(ok, emqx_resource:health_check(PoolName)),
+    ?assertEqual({ok, connected}, emqx_resource:health_check(PoolName)),
     ?assertMatch([], emqx_resource:query(PoolName, test_query_find())),
     ?assertMatch(undefined, emqx_resource:query(PoolName, test_query_find_one())),
     % Stop and remove the resource in one go.

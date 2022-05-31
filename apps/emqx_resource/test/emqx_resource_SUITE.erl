@@ -182,7 +182,7 @@ t_healthy(_) ->
     timer:sleep(300),
     emqx_resource:set_resource_status_connecting(?ID),
 
-    ok = emqx_resource:health_check(?ID),
+    {ok, connected} = emqx_resource:health_check(?ID),
 
     ?assertMatch(
         [#{status := connected}],
@@ -191,7 +191,7 @@ t_healthy(_) ->
 
     erlang:exit(Pid, shutdown),
 
-    ?assertEqual({error, connecting}, emqx_resource:health_check(?ID)),
+    ?assertEqual({ok, connecting}, emqx_resource:health_check(?ID)),
 
     ?assertMatch(
         [],
@@ -368,7 +368,7 @@ t_auto_retry(_) ->
         #{name => test_resource, create_error => true},
         #{auto_retry_interval => 100}
     ),
-    ?assertEqual(error, Res).
+    ?assertEqual(ok, Res).
 
 %%------------------------------------------------------------------------------
 %% Helpers

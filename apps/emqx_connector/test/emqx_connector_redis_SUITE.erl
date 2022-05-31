@@ -97,7 +97,7 @@ perform_lifecycle_check(PoolName, InitialConfig, RedisCommand) ->
         status := InitialStatus
     }} =
         emqx_resource:get_instance(PoolName),
-    ?assertEqual(ok, emqx_resource:health_check(PoolName)),
+    ?assertEqual({ok, connected}, emqx_resource:health_check(PoolName)),
     % Perform query as further check that the resource is working as expected
     ?assertEqual({ok, <<"PONG">>}, emqx_resource:query(PoolName, {cmd, RedisCommand})),
     ?assertEqual(ok, emqx_resource:stop(PoolName)),
@@ -109,7 +109,7 @@ perform_lifecycle_check(PoolName, InitialConfig, RedisCommand) ->
     }} =
         emqx_resource:get_instance(PoolName),
     ?assertEqual(StoppedStatus, disconnected),
-    ?assertEqual({error, stopped}, emqx_resource:health_check(PoolName)),
+    ?assertEqual({error, resource_is_stopped}, emqx_resource:health_check(PoolName)),
     % Resource healthcheck shortcuts things by checking ets. Go deeper by checking pool itself.
     ?assertEqual({error, not_found}, ecpool:stop_sup_pool(ReturnedPoolName)),
     % Can call stop/1 again on an already stopped instance
@@ -120,7 +120,7 @@ perform_lifecycle_check(PoolName, InitialConfig, RedisCommand) ->
     timer:sleep(500),
     {ok, ?CONNECTOR_RESOURCE_GROUP, #{status := InitialStatus}} =
         emqx_resource:get_instance(PoolName),
-    ?assertEqual(ok, emqx_resource:health_check(PoolName)),
+    ?assertEqual({ok, connected}, emqx_resource:health_check(PoolName)),
     ?assertEqual({ok, <<"PONG">>}, emqx_resource:query(PoolName, {cmd, RedisCommand})),
     % Stop and remove the resource in one go.
     ?assertEqual(ok, emqx_resource:remove_local(PoolName)),

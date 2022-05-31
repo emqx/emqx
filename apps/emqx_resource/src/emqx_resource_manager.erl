@@ -190,7 +190,7 @@ list_group(Group) ->
     List = ets:match(?ETS_TABLE, {'$1', Group, '_'}),
     lists:flatten(List).
 
--spec health_check(instance_id()) -> resource_status().
+-spec health_check(instance_id()) -> {ok, resource_status()} | {error, term()}.
 health_check(InstId) ->
     safe_call(InstId, health_check).
 
@@ -351,7 +351,7 @@ proc_name(Id) ->
 
 handle_health_check_request(From, Data) ->
     with_health_check(Data, fun(Status, UpdatedData) ->
-        Actions = [{reply, From, Status}],
+        Actions = [{reply, From, {ok, Status}}],
         {next_state, Status, UpdatedData, Actions}
     end).
 
