@@ -1017,7 +1017,10 @@ fields("tcp_opts") ->
         {"buffer",
             sc(
                 bytesize(),
-                #{desc => ?DESC(fields_tcp_opts_buffer)}
+                #{
+                    desc => ?DESC(fields_tcp_opts_buffer),
+                    default => "4KB"
+                }
             )},
         {"high_watermark",
             sc(
