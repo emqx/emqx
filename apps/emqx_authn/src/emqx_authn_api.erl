@@ -1406,7 +1406,7 @@ authenticator_examples() ->
                 pool_size => 8,
                 connect_timeout => 5000,
                 request_timeout => 5000,
-                enable_pipelining => true,
+                enable_pipelining => 100,
                 ssl => #{enable => false}
             }
         },
