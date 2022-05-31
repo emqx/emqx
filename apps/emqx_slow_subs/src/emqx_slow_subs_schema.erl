@@ -32,7 +32,7 @@ fields("slow_subs") ->
             )},
         {stats_type,
             sc(
-                hoconsc:union([whole, internal, response]),
+                hoconsc:enum([whole, internal, response]),
                 whole,
                 stats_type
             )}

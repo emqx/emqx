@@ -703,7 +703,7 @@ fields("conn_congestion") ->
             sc(
                 boolean(),
                 #{
-                    default => false,
+                    default => true,
                     desc => ?DESC(conn_congestion_enable_alarm)
                 }
             )},
@@ -1582,7 +1582,7 @@ base_listener() ->
             )},
         {"limiter",
             sc(
-                map("ratelimit's type", emqx_limiter_schema:bucket_name()),
+                map("ratelimit_name", emqx_limiter_schema:bucket_name()),
                 #{
                     desc => ?DESC(base_listener_limiter),
                     default => #{}
@@ -2183,7 +2183,7 @@ authentication(Type) ->
     %% authentication schema is lazy to make it more 'plugable'
     %% the type checks are done in emqx_auth application when it boots.
     %% and in emqx_authentication_config module for runtime changes.
-    Default = hoconsc:lazy(hoconsc:union([typerefl:map(), hoconsc:array(typerefl:map())])),
+    Default = hoconsc:lazy(hoconsc:union([hoconsc:array(typerefl:map())])),
     %% as the type is lazy, the runtime module injection
     %% from EMQX_AUTHENTICATION_SCHEMA_MODULE_PT_KEY
     %% is for now only affecting document generation.

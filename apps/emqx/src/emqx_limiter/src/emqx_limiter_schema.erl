@@ -105,7 +105,18 @@ fields(limiter_opts) ->
         {bucket,
             sc(
                 map("bucket_name", ref(bucket_opts)),
-                #{desc => ?DESC(bucket_cfg), default => #{<<"default">> => #{}}}
+                #{
+                    desc => ?DESC(bucket_cfg),
+                    default => #{<<"default">> => #{}},
+                    examples => #{
+                        <<"mybucket-name">> => #{
+                            <<"rate">> => <<"infinity">>,
+                            <<"capcity">> => <<"infinity">>,
+                            <<"initial">> => <<"100">>,
+                            <<"per_client">> => #{<<"rate">> => <<"infinity">>}
+                        }
+                    }
+                }
             )}
     ];
 fields(bucket_opts) ->

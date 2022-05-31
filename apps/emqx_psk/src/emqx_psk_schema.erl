@@ -44,6 +44,7 @@ fields() ->
         {enable,
             sc(boolean(), #{
                 default => false,
+                require => true,
                 desc => ?DESC(enable)
             })},
         {init_file,

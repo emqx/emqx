@@ -51,6 +51,7 @@
     render_config_file/2,
     read_schema_configs/2,
     load_config/2,
+    load_config/3,
     is_tcp_server_available/2,
     is_tcp_server_available/3
 ]).
@@ -465,9 +466,18 @@ copy_certs(emqx_conf, Dest0) ->
 copy_certs(_, _) ->
     ok.
 
-load_config(SchemaModule, Config) ->
+load_config(SchemaModule, Config, Opts) ->
+    ConfigBin =
+        case is_map(Config) of
+            true -> jsx:encode(Config);
+            false -> Config
+        end,
     ok = emqx_config:delete_override_conf_files(),
-    ok = emqx_config:init_load(SchemaModule, Config).
+    ok = emqx_config:init_load(SchemaModule, ConfigBin, Opts),
+    ok.
+
+load_config(SchemaModule, Config) ->
+    load_config(SchemaModule, Config, #{raw_with_default => false}).
 
 -spec is_tcp_server_available(
     Host :: inet:socket_address() | inet:hostname(),

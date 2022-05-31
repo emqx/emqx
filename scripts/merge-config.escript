@@ -9,15 +9,19 @@
 %% edition due to backward-compatibility reasons.
 
 -mode(compile).
+-define(APPS, ["emqx", "emqx_dashboard", "emqx_authz"]).
 
 main(_) ->
     {ok, BaseConf} = file:read_file("apps/emqx_conf/etc/emqx_conf.conf"),
 
     Cfgs = get_all_cfgs("apps/"),
-    Conf = [merge(BaseConf, Cfgs),
-            io_lib:nl(),
-            "include emqx_enterprise.conf",
-            io_lib:nl()],
+    Conf = [
+        merge(BaseConf, Cfgs),
+        io_lib:nl(),
+        io_lib:nl(),
+        "include emqx_enterprise.conf",
+        io_lib:nl()
+    ],
     ok = file:write_file("apps/emqx_conf/etc/emqx.conf.all", Conf),
 
     EnterpriseCfgs = get_all_cfgs("lib-ee/"),
@@ -27,25 +31,33 @@ main(_) ->
 
 merge(BaseConf, Cfgs) ->
     lists:foldl(
-      fun(CfgFile, Acc) ->
-              case filelib:is_regular(CfgFile) of
-                  true ->
-                      {ok, Bin1} = file:read_file(CfgFile),
-                      [Acc, io_lib:nl(), Bin1];
-                  false -> Acc
-              end
-      end, BaseConf, Cfgs).
+        fun(CfgFile, Acc) ->
+            case filelib:is_regular(CfgFile) of
+                true ->
+                    {ok, Bin1} = file:read_file(CfgFile),
+                    case string:trim(Bin1, both) of
+                        <<>> -> Acc;
+                        Bin2 -> [Acc, io_lib:nl(), io_lib:nl(), Bin2]
+                    end;
+                false ->
+                    Acc
+            end
+        end,
+        BaseConf,
+        Cfgs
+    ).
 
 get_all_cfgs(Root) ->
-    Apps = filelib:wildcard("*", Root) -- ["emqx_machine", "emqx_conf"],
-    Dirs = [filename:join([Root, App]) || App <- Apps],
+    Apps0 = filelib:wildcard("*", Root) -- ["emqx_machine", "emqx_conf"],
+    Apps1 = (Apps0 -- ?APPS) ++ lists:reverse(?APPS),
+    Dirs = [filename:join([Root, App]) || App <- Apps1],
     lists:foldl(fun get_cfgs/2, [], Dirs).
 
 get_all_cfgs(Dir, Cfgs) ->
     Fun = fun(E, Acc) ->
-                  Path = filename:join([Dir, E]),
-                  get_cfgs(Path, Acc)
-          end,
+        Path = filename:join([Dir, E]),
+        get_cfgs(Path, Acc)
+    end,
     lists:foldl(Fun, Cfgs, filelib:wildcard("*", Dir)).
 
 get_cfgs(Dir, Cfgs) ->
