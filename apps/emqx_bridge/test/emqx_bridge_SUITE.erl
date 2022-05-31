@@ -142,8 +142,9 @@ setup_fake_telemetry_data() ->
                         }
                 }
         },
-    ok = emqx_common_test_helpers:load_config(emqx_connector_schema, ConnectorConf),
-    ok = emqx_common_test_helpers:load_config(emqx_bridge_schema, Conf),
+    Opts = #{raw_with_default => true},
+    ok = emqx_common_test_helpers:load_config(emqx_connector_schema, ConnectorConf, Opts),
+    ok = emqx_common_test_helpers:load_config(emqx_bridge_schema, Conf, Opts),
 
     ok = snabbkaffe:start_trace(),
     Predicate = fun(#{?snk_kind := K}) -> K =:= emqx_bridge_monitor_loaded_bridge end,

@@ -22,6 +22,7 @@
 -export([
     init_load/1,
     init_load/2,
+    init_load/3,
     read_override_conf/1,
     delete_override_conf_files/0,
     check_config/2,
