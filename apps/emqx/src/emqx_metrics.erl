@@ -337,11 +337,17 @@ all() ->
 %% @doc Get metric value
 -spec val(metric_name()) -> non_neg_integer().
 val(Name) ->
-    case ets:lookup(?TAB, Name) of
-        [#metric{idx = Idx}] ->
-            CRef = persistent_term:get(?MODULE),
-            counters:get(CRef, Idx);
-        [] ->
+    try
+        case ets:lookup(?TAB, Name) of
+            [#metric{idx = Idx}] ->
+                CRef = persistent_term:get(?MODULE),
+                counters:get(CRef, Idx);
+            [] ->
+                0
+        end
+        %% application will restart when join cluster, then ets not exist.
+    catch
+        error:badarg ->
             0
     end.
 
