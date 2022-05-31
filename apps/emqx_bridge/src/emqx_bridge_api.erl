@@ -228,7 +228,7 @@ info_example_basic(webhook, _) ->
         retry_interval => <<"10s">>,
         pool_type => <<"random">>,
         pool_size => 4,
-        enable_pipelining => true,
+        enable_pipelining => 100,
         ssl => #{enable => false},
         local_topic => <<"emqx_webhook/#">>,
         method => post,
