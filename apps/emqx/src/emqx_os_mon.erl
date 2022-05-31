@@ -193,7 +193,8 @@ update_mem_alarm_status(HWM) when HWM > 1.0 orelse HWM < 0.0 ->
     );
 update_mem_alarm_status(HWM) ->
     is_sysmem_check_supported() andalso
-        do_update_mem_alarm_status(HWM).
+        do_update_mem_alarm_status(HWM),
+    ok.
 
 do_update_mem_alarm_status(HWM0) ->
     HWM = HWM0 * 100,
