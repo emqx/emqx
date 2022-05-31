@@ -52,7 +52,6 @@
 -type update_request() ::
     {create_authenticator, chain_name(), map()}
     | {delete_authenticator, chain_name(), authenticator_id()}
-    | {delete_authenticators, chain_name()}
     | {update_authenticator, chain_name(), authenticator_id(), map()}
     | {move_authenticator, chain_name(), authenticator_id(), position()}.
 
@@ -89,8 +88,6 @@ do_pre_config_update({delete_authenticator, _ChainName, AuthenticatorID}, OldCon
         OldConfig
     ),
     {ok, NewConfig};
-do_pre_config_update({delete_authenticators, _ChainName}, _OldConfig) ->
-    {ok, []};
 do_pre_config_update({update_authenticator, ChainName, AuthenticatorID, Config}, OldConfig) ->
     CertsDir = certs_dir(ChainName, AuthenticatorID),
     NewConfig = lists:map(
@@ -156,25 +153,6 @@ do_post_config_update(
             Config = get_authenticator_config(AuthenticatorID, to_list(OldConfig)),
             CertsDir = certs_dir(ChainName, AuthenticatorID),
             ok = clear_certs(CertsDir, Config);
-        {error, Reason} ->
-            {error, Reason}
-    end;
-do_post_config_update(
-    {delete_authenticators, ChainName},
-    _NewConfig,
-    OldConfig,
-    _AppEnvs
-) ->
-    case emqx_authentication:delete_chain(ChainName) of
-        ok ->
-            lists:foreach(
-                fun(Config) ->
-                    AuthenticatorID = authenticator_id(Config),
-                    CertsDir = certs_dir(ChainName, AuthenticatorID),
-                    ok = clear_certs(CertsDir, Config)
-                end,
-                to_list(OldConfig)
-            );
         {error, Reason} ->
             {error, Reason}
     end;
