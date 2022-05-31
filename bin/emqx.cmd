@@ -67,6 +67,14 @@
 @set EMQX_NODE__DB_BACKEND=mnesia
 @set EMQX_NODE__DB_ROLE=core
 
+:: Write the erl.ini file to set up paths relative to this script
+@call :write_ini
+
+:: If a start.boot file is not present, copy one from the named .boot file
+@if not exist "%rel_dir%\start.boot" (
+  copy "%rel_dir%\%rel_name%.boot" "%rel_dir%\start.boot" >nul
+)
+
 @set conf_path="%etc_dir%\emqx.conf"
 
 @for /f "usebackq tokens=1,2 delims==" %%a in (`"%escript% %nodetool% hocon -s %schema_mod% -c %conf_path% multi_get node.name node.cookie node.data_dir"`) do @(
@@ -89,14 +97,6 @@
 @if not exist %data_dir%\ (
   @echo ERROR: data_dir %data_dir% does not exist
   @goto :eof
-)
-
-:: Write the erl.ini file to set up paths relative to this script
-@call :write_ini
-
-:: If a start.boot file is not present, copy one from the named .boot file
-@if not exist "%rel_dir%\start.boot" (
-  copy "%rel_dir%\%rel_name%.boot" "%rel_dir%\start.boot" >nul
 )
 
 @if "%1"=="install" @goto install
