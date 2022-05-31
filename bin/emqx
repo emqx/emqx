@@ -5,9 +5,7 @@
 set -euo pipefail
 
 DEBUG="${DEBUG:-0}"
-if [ "$DEBUG" -eq 1 ]; then
-    set -x
-fi
+[ "$DEBUG" -eq 1 ] && set -x
 
 RUNNER_ROOT_DIR="$(cd "$(dirname "$(readlink "$0" || echo "$0")")"/..; pwd -P)"
 
@@ -40,9 +38,12 @@ export ERTS_LIB_DIR="$RUNNER_ROOT_DIR/lib"
 DYNLIBS_DIR="$RUNNER_ROOT_DIR/dynlibs"
 
 # Echo to stderr on errors
-echoerr() { echo -e "$*" 1>&2; }
+echoerr() {
+    echo -e "$*" 1>&2;
+}
 
 die() {
+    set +x
     echoerr "ERROR: $1"
     errno=${2:-1}
     exit "$errno"
@@ -300,6 +301,8 @@ if [ "$IS_BOOT_COMMAND" = 'yes' ]; then
         if [ "$LD_LIBRARY_PATH" != "$DYNLIBS_DIR" ]; then
             export LD_LIBRARY_PATH="$DYNLIBS_DIR:$LD_LIBRARY_PATH"
         fi
+        ## Turn off debug, because COMPATIBILITY_INFO needs to capture stderr
+        set +x
         COMPATIBILITY_INFO="$(compatiblity_info 2>&1 || true)"
         if ! (echo -e "$COMPATIBILITY_INFO" | grep -q 'BEAM_OK'); then
             ## not able to start beam.smp
@@ -316,7 +319,7 @@ if [ "$IS_BOOT_COMMAND" = 'yes' ]; then
         fi
         echoerr "Using libs from '${DYNLIBS_DIR}' due to missing from the OS."
     fi
-    export COMPATIBILITY_INFO
+    [ "$DEBUG" -eq 1 ] && set -x
 fi
 
 NO_EPMD="-start_epmd false -epmd_module ekka_epmd -proto_dist ekka"
@@ -606,6 +609,7 @@ latest_vm_args() {
     if [ -f "$vm_args_file" ]; then
         echo "$vm_args_file"
     else
+        set +x
         echoerr "Node not initialized?"
         echoerr "Generated config file vm.*.args is not found for command '$COMMAND'"
         echoerr "in config dir: $CONFIGS_DIR"
@@ -785,8 +789,7 @@ case "${COMMAND}" in
         # Wait for the node to completely stop...
         PID="$(relx_get_pid)"
         if ! relx_nodetool "stop"; then
-            echoerr "Graceful shutdown failed PID=[$PID]"
-            exit 1
+            die "Graceful shutdown failed PID=[$PID]"
         fi
         WAIT_TIME="${EMQX_WAIT_FOR_STOP:-120}"
         if ! wait_for "$WAIT_TIME" 'is_down' "$PID"; then
