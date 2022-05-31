@@ -45,6 +45,10 @@ init_per_testcase(Case, Config) when
 ->
     catch emqx_config_handler:stop(),
     {ok, _} = emqx_config_handler:start_link(),
+    case emqx_config:get([listeners], undefined) of
+        undefined -> ok;
+        Listeners -> emqx_config:put([listeners], maps:remove(quic, Listeners))
+    end,
     PrevListeners = emqx_config:get([listeners, tcp], #{}),
     PrevRateLimit = emqx_config:get([rate_limit], #{}),
     emqx_config:put(
