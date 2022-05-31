@@ -21,6 +21,7 @@
 
 -include("emqx_mqtt.hrl").
 -include("logger.hrl").
+-include_lib("snabbkaffe/include/snabbkaffe.hrl").
 
 %% APIs
 -export([
@@ -193,6 +194,7 @@ start_listener(Type, ListenerName, #{bind := Bind} = Conf) ->
             ),
             ok;
         {ok, _} ->
+            ?tp(listener_started, #{type => Type, bind => Bind}),
             console_print(
                 "Listener ~ts on ~ts started.~n",
                 [listener_id(Type, ListenerName), format_addr(Bind)]
