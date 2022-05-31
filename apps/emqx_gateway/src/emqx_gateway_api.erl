@@ -352,6 +352,8 @@ fields(Gw) when
 ->
     [{name, mk(Gw, #{desc => ?DESC(gateway_name)})}] ++
         convert_listener_struct(emqx_gateway_schema:fields(Gw));
+fields(update_disable_enable_only) ->
+    [{enable, mk(boolean(), #{desc => <<"Enable/Disable the gateway">>})}];
 fields(Gw) when
     Gw == update_stomp;
     Gw == update_mqttsn;
@@ -411,7 +413,8 @@ schema_update_gateways_conf() ->
             ref(?MODULE, update_mqttsn),
             ref(?MODULE, update_coap),
             ref(?MODULE, update_lwm2m),
-            ref(?MODULE, update_exproto)
+            ref(?MODULE, update_exproto),
+            ref(?MODULE, update_disable_enable_only)
         ]),
         examples_update_gateway_confs()
     ).
