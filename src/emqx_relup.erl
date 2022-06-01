@@ -30,13 +30,13 @@
 %% What to do after upgraded from an old release vsn.
 post_release_upgrade(FromRelVsn, _) ->
     {_, CurrRelVsn} = ?EMQX_RELEASE,
-    ?INFO("emqx has been upgraded to from ~s to ~s!", [FromRelVsn, CurrRelVsn]),
+    ?INFO("emqx has been upgraded from ~s to ~s!", [FromRelVsn, CurrRelVsn]),
     reload_components().
 
 %% What to do after downgraded to an old release vsn.
 post_release_downgrade(ToRelVsn, _) ->
     {_, CurrRelVsn} = ?EMQX_RELEASE,
-    ?INFO("emqx has been downgraded to from ~s to ~s!", [CurrRelVsn, ToRelVsn]),
+    ?INFO("emqx has been downgraded from ~s to ~s!", [CurrRelVsn, ToRelVsn]),
     reload_components().
 
 -ifdef(EMQX_ENTERPRISE).
