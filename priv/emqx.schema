@@ -666,7 +666,7 @@ end}.
                   #{
                     date_format => DateFormat,
                     template =>
-                      [" [",level,"] ",
+                      [time," [",level,"] ",
                        {clientid,
                           [{peername,
                               [clientid,"@",peername," "],
