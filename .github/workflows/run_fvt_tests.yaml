@@ -54,6 +54,8 @@ jobs:
           - 1.13.3
         arch:
           - amd64
+    container: ghcr.io/emqx/emqx-builder/5.0-15:${{ matrix.elixir }}-${{ matrix.otp }}-${{ matrix.os }}
+
     steps:
     - uses: actions/download-artifact@v2
       with:
@@ -67,7 +69,7 @@ jobs:
       run: |
         cd source
         make ensure-rebar3
-        sudo cp rebar3 /usr/local/bin/rebar3
+        cp rebar3 /usr/local/bin/rebar3
         scripts/get-dep-refs.sh
     - name: load quicer cache
       uses: actions/cache@v2
@@ -133,6 +135,7 @@ jobs:
         arch:
           - amd64
       # - emqx-enterprise # TODO test enterprise
+    container: ghcr.io/emqx/emqx-builder/5.0-15:${{ matrix.elixir }}-${{ matrix.otp }}-${{ matrix.os }}
 
     steps:
     - uses: actions/download-artifact@v2
@@ -147,7 +150,7 @@ jobs:
       run: |
         cd source
         make ensure-rebar3
-        sudo cp rebar3 /usr/local/bin/rebar3
+        cp rebar3 /usr/local/bin/rebar3
         scripts/get-dep-refs.sh
     - name: load quicer cache
       uses: actions/cache@v2
