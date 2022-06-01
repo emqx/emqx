@@ -825,19 +825,24 @@ schema_converter(Options) ->
     maps:get(schema_converter, Options, fun hocon_schema_to_spec/2).
 
 serialize_hocon_error_msg({_Schema, Errors}) ->
-    Msg = lists:map(fun hocon_error/1, Errors),
-    iolist_to_binary(Msg);
+    Msg =
+        case lists:map(fun hocon_error/1, Errors) of
+            [Error0] -> Error0;
+            Errors -> Errors
+        end,
+    iolist_to_binary(io_lib:format("~0p", [Msg]));
 serialize_hocon_error_msg(Error) ->
-    iolist_to_binary(io_lib:format("~p", [Error])).
+    iolist_to_binary(io_lib:format("~0p", [Error])).
 
 hocon_error({Type, #{path := Path} = Error}) ->
     Error1 = maps:without([path, stacktrace], Error),
-    emqx_logger_jsonfmt:best_effort_json(
-        Error1#{
-            <<"path">> => sub_path(Path),
-            <<"type">> => Type
-        },
-        []
-    ).
+    Error1#{
+        path => sub_path(Path),
+        type => Type,
+        reason => remove_useless_field(maps:get(reason, Error, #{}))
+    }.
 
 sub_path(Path) -> string:trim(Path, leading, "root.").
+
+remove_useless_field(#{} = Field) -> maps:without([stacktrace], Field);
+remove_useless_field(Field) -> Field.
