@@ -28,6 +28,7 @@
 -export([
     create/2,
     create/3,
+    create/4,
     recreate/2,
     recreate/3,
     create_dry_run/2,
@@ -79,6 +80,9 @@ create(BridgeId, Conf) ->
     create(BridgeType, BridgeName, Conf).
 
 create(Type, Name, Conf) ->
+    create(Type, Name, Conf, #{auto_retry_interval => 60000}).
+
+create(Type, Name, Conf, Opts) ->
     ?SLOG(info, #{
         msg => "create bridge",
         type => Type,
@@ -90,7 +94,7 @@ create(Type, Name, Conf) ->
         <<"emqx_bridge">>,
         bridge_to_resource_type(Type),
         parse_confs(Type, Name, Conf),
-        #{auto_retry_interval => 60000}
+        Opts
     ),
     maybe_disable_bridge(Type, Name, Conf).
 
@@ -132,13 +136,14 @@ update(Type, Name, {OldConf, Conf}) ->
         true ->
             %% we don't need to recreate the bridge if this config change is only to
             %% toggole the config 'bridge.{type}.{name}.enable'
-            case maps:get(enable, Conf, true) of
-                true ->
-                    _ = restart(Type, Name),
-                    ok;
-                false ->
-                    stop(Type, Name)
-            end
+            _ =
+                case maps:get(enable, Conf, true) of
+                    true ->
+                        restart(Type, Name);
+                    false ->
+                        stop(Type, Name)
+                end,
+            ok
     end.
 
 recreate(Type, Name) ->

@@ -147,7 +147,7 @@ setup_fake_telemetry_data() ->
     ok = emqx_common_test_helpers:load_config(emqx_bridge_schema, Conf, Opts),
 
     ok = snabbkaffe:start_trace(),
-    Predicate = fun(#{?snk_kind := K}) -> K =:= emqx_bridge_monitor_loaded_bridge end,
+    Predicate = fun(#{?snk_kind := K}) -> K =:= emqx_bridge_loaded end,
     NEvents = 3,
     BackInTime = 0,
     Timeout = 11_000,

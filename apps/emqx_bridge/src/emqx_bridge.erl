@@ -17,6 +17,7 @@
 -behaviour(emqx_config_handler).
 -include_lib("emqx/include/emqx.hrl").
 -include_lib("emqx/include/logger.hrl").
+-include_lib("snabbkaffe/include/snabbkaffe.hrl").
 
 -export([post_config_update/5]).
 
@@ -45,6 +46,30 @@
 
 %% exported for `emqx_telemetry'
 -export([get_basic_usage_info/0]).
+
+load() ->
+    %% set wait_for_resource_ready => 0 to start resources async
+    Opts = #{auto_retry_interval => 60000, wait_for_resource_ready => 0},
+    Bridges = emqx:get_config([bridges], #{}),
+    lists:foreach(
+        fun({Type, NamedConf}) ->
+            lists:foreach(
+                fun({Name, Conf}) ->
+                    _Res = emqx_bridge_resource:create(Type, Name, Conf, Opts),
+                    ?tp(
+                        emqx_bridge_loaded,
+                        #{
+                            type => Type,
+                            name => Name,
+                            res => _Res
+                        }
+                    )
+                end,
+                maps:to_list(NamedConf)
+            )
+        end,
+        maps:to_list(Bridges)
+    ).
 
 load_hook() ->
     Bridges = emqx:get_config([bridges], #{}),
@@ -137,10 +162,6 @@ post_config_update(_, _Req, NewConf, OldConf, _AppEnv) ->
     ok = unload_hook(),
     ok = load_hook(NewConf),
     Result.
-
-load() ->
-    Bridges = emqx:get_config([bridges], #{}),
-    emqx_bridge_monitor:ensure_all_started(Bridges).
 
 list() ->
     lists:foldl(
