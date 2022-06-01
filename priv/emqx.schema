@@ -406,6 +406,23 @@ end}.
   {datatype, integer}
 ]}.
 
+%% RPC server, network interface.
+{mapping, "rpc.tcp_server_ip", "gen_rpc.socket_ip", [
+  {default, "0.0.0.0"},
+  {datatype, string}
+]}.
+
+{translation, "gen_rpc.socket_ip",
+fun(Conf) ->
+  Addr = cuttlefish:conf_get("rpc.tcp_server_ip", Conf, "0.0.0.0"),
+  case inet:parse_address(Addr) of
+    {ok, IP} ->
+      IP;
+    _ ->
+      error({bad_gen_rpc_socket_ip, Addr})
+  end
+end}.
+
 %% Number of tcp connections when connecting to RPC server
 {mapping, "rpc.tcp_client_num", "gen_rpc.tcp_client_num", [
   {default, 0},
