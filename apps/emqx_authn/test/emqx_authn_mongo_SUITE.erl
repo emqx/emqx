@@ -95,7 +95,10 @@ t_create_invalid(_Config) ->
                 {create_authenticator, ?GLOBAL, Config}
             ),
 
-            {ok, []} = emqx_authentication:list_authenticators(?GLOBAL)
+            ?assertEqual(
+                {error, {not_found, {chain, ?GLOBAL}}},
+                emqx_authentication:list_authenticators(?GLOBAL)
+            )
         end,
         InvalidConfigs
     ).

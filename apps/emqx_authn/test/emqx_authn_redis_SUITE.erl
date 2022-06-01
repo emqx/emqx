@@ -85,8 +85,10 @@ end_per_suite(_Config) ->
 %%------------------------------------------------------------------------------
 
 t_create(_Config) ->
-    {ok, []} = emqx_authentication:list_authenticators(?GLOBAL),
-
+    ?assertEqual(
+        {error, {not_found, {chain, ?GLOBAL}}},
+        emqx_authentication:list_authenticators(?GLOBAL)
+    ),
     AuthConfig = raw_redis_auth_config(),
     {ok, _} = emqx:update_config(
         ?PATH,
@@ -119,7 +121,10 @@ t_create_invalid(_Config) ->
                 {create_authenticator, ?GLOBAL, Config}
             ),
 
-            {ok, []} = emqx_authentication:list_authenticators(?GLOBAL)
+            ?assertEqual(
+                {error, {not_found, {chain, ?GLOBAL}}},
+                emqx_authentication:list_authenticators(?GLOBAL)
+            )
         end,
         InvalidConfigs
     ),
@@ -139,7 +144,10 @@ t_create_invalid(_Config) ->
                 {create_authenticator, ?GLOBAL, Config}
             ),
             emqx_authn_test_lib:delete_config(?ResourceID),
-            {ok, []} = emqx_authentication:list_authenticators(?GLOBAL)
+            ?assertEqual(
+                {error, {not_found, {chain, ?GLOBAL}}},
+                emqx_authentication:list_authenticators(?GLOBAL)
+            )
         end,
         InvalidConfigs1
     ).

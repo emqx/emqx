@@ -113,7 +113,10 @@ t_create_invalid(_Config) ->
                 {create_authenticator, ?GLOBAL, Config}
             ),
             emqx_authn_test_lib:delete_config(?ResourceID),
-            {ok, _} = emqx_authentication:list_authenticators(?GLOBAL)
+            ?assertEqual(
+                {error, {not_found, {chain, ?GLOBAL}}},
+                emqx_authentication:list_authenticators(?GLOBAL)
+            )
         end,
         InvalidConfigs
     ).

@@ -141,7 +141,9 @@ jobs:
         path: .
     - name: unzip source code
       run: unzip -q source.zip
-
+    - uses: erlef/setup-beam@v1
+        with:
+          otp-version: "24.2"
     - name: Get deps git refs for cache
       id: deps-refs
       run: |
