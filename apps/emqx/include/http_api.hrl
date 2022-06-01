@@ -49,6 +49,7 @@
 
 %% Internal error
 -define(INTERNAL_ERROR, 'INTERNAL_ERROR').
+-define(SERVICE_UNAVAILABLE, 'SERVICE_UNAVAILABLE').
 -define(SOURCE_ERROR, 'SOURCE_ERROR').
 -define(UPDATE_FAILED, 'UPDATE_FAILED').
 -define(REST_FAILED, 'REST_FAILED').
@@ -81,6 +82,7 @@
     {'TOPIC_NOT_FOUND', <<"Topic not found">>},
     {'USER_NOT_FOUND', <<"User not found">>},
     {'INTERNAL_ERROR', <<"Server inter error">>},
+    {'SERVICE_UNAVAILABLE', <<"Service unavailable">>},
     {'SOURCE_ERROR', <<"Source error">>},
     {'UPDATE_FAILED', <<"Update failed">>},
     {'REST_FAILED', <<"Reset source or config failed">>},

@@ -33,7 +33,7 @@
 -type create_opts() :: #{
     health_check_interval => integer(),
     health_check_timeout => integer(),
-    waiting_connect_complete => integer(),
+    wait_for_resource_ready => integer(),
     auto_retry_interval => integer()
 }.
 -type after_query() ::

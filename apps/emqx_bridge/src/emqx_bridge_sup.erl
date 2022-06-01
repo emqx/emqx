@@ -32,15 +32,7 @@ init([]) ->
         intensity => 10,
         period => 10
     },
-    ChildSpecs = [
-        #{
-            id => emqx_bridge_monitor,
-            start => {emqx_bridge_monitor, start_link, []},
-            restart => permanent,
-            type => worker,
-            modules => [emqx_bridge_monitor]
-        }
-    ],
+    ChildSpecs = [],
     {ok, {SupFlags, ChildSpecs}}.
 
 %% internal functions
