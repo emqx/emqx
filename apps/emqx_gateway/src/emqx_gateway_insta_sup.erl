@@ -277,37 +277,17 @@ authn_conf(Conf) ->
     maps:get(authentication, Conf, #{enable => false}).
 
 do_create_authn_chain(ChainName, AuthConf) ->
-    case ensure_chain(ChainName) of
-        ok ->
-            case emqx_authentication:create_authenticator(ChainName, AuthConf) of
-                {ok, _} ->
-                    ok;
-                {error, Reason} ->
-                    ?SLOG(error, #{
-                        msg => "failed_to_create_authenticator",
-                        chain_name => ChainName,
-                        reason => Reason,
-                        config => AuthConf
-                    }),
-                    throw({badauth, Reason})
-            end;
+    case emqx_authentication:create_authenticator(ChainName, AuthConf) of
+        {ok, _} ->
+            ok;
         {error, Reason} ->
             ?SLOG(error, #{
-                msg => "failed_to_create_authn_chanin",
+                msg => "failed_to_create_authenticator",
                 chain_name => ChainName,
-                reason => Reason
+                reason => Reason,
+                config => AuthConf
             }),
             throw({badauth, Reason})
-    end.
-
-ensure_chain(ChainName) ->
-    case emqx_authentication:create_chain(ChainName) of
-        {ok, _ChainInfo} ->
-            ok;
-        {error, {already_exists, _}} ->
-            ok;
-        {error, Reason} ->
-            {error, Reason}
     end.
 
 do_deinit_authn(Names) ->

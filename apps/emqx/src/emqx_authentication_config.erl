@@ -140,7 +140,6 @@ post_config_update(_, UpdateReq, NewConfig, OldConfig, AppEnvs) ->
 
 do_post_config_update({create_authenticator, ChainName, Config}, NewConfig, _OldConfig, _AppEnvs) ->
     NConfig = get_authenticator_config(authenticator_id(Config), NewConfig),
-    _ = emqx_authentication:create_chain(ChainName),
     emqx_authentication:create_authenticator(ChainName, NConfig);
 do_post_config_update(
     {delete_authenticator, ChainName, AuthenticatorID},

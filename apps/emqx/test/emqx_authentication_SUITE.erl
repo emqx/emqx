@@ -113,20 +113,32 @@ end_per_testcase(Case, Config) ->
     _ = ?MODULE:Case({'end', Config}),
     ok.
 
-t_chain({_, Config}) ->
+t_chain({'init', Config}) ->
     Config;
 t_chain(Config) when is_list(Config) ->
     % CRUD of authentication chain
     ChainName = 'test',
     ?assertMatch({ok, []}, ?AUTHN:list_chains()),
     ?assertMatch({ok, []}, ?AUTHN:list_chain_names()),
-    ?assertMatch({ok, #{name := ChainName, authenticators := []}}, ?AUTHN:create_chain(ChainName)),
-    ?assertEqual({error, {already_exists, {chain, ChainName}}}, ?AUTHN:create_chain(ChainName)),
-    ?assertMatch({ok, #{name := ChainName, authenticators := []}}, ?AUTHN:lookup_chain(ChainName)),
+
+    %% to create a chain we need create an authenticator
+    AuthenticatorConfig = #{
+        mechanism => password_based,
+        backend => built_in_database,
+        enable => true
+    },
+    register_provider({password_based, built_in_database}, ?MODULE),
+    ?AUTHN:create_authenticator(ChainName, AuthenticatorConfig),
+
+    ?assertMatch({ok, #{name := ChainName, authenticators := [_]}}, ?AUTHN:lookup_chain(ChainName)),
     ?assertMatch({ok, [#{name := ChainName}]}, ?AUTHN:list_chains()),
     ?assertEqual({ok, [ChainName]}, ?AUTHN:list_chain_names()),
     ?assertEqual(ok, ?AUTHN:delete_chain(ChainName)),
     ?assertMatch({error, {not_found, {chain, ChainName}}}, ?AUTHN:lookup_chain(ChainName)),
+    ok;
+t_chain({'end', _Config}) ->
+    ?AUTHN:delete_chain(test),
+    ?AUTHN:deregister_providers([{password_based, built_in_database}]),
     ok.
 
 t_authenticator({'init', Config}) ->
@@ -143,13 +155,6 @@ t_authenticator(Config) when is_list(Config) ->
         enable => true
     },
 
-    % Create an authenticator when the authentication chain does not exist
-    ?assertEqual(
-        {error, {not_found, {chain, ChainName}}},
-        ?AUTHN:create_authenticator(ChainName, AuthenticatorConfig1)
-    ),
-
-    ?AUTHN:create_chain(ChainName),
     % Create an authenticator when the provider does not exist
 
     ?assertEqual(
@@ -183,11 +188,14 @@ t_authenticator(Config) when is_list(Config) ->
     ?assertEqual(ok, ?AUTHN:delete_authenticator(ChainName, ID1)),
 
     ?assertEqual(
-        {error, {not_found, {authenticator, ID1}}},
+        {error, {not_found, {chain, test}}},
         ?AUTHN:update_authenticator(ChainName, ID1, AuthenticatorConfig1)
     ),
 
-    ?assertMatch({ok, []}, ?AUTHN:list_authenticators(ChainName)),
+    ?assertMatch(
+        {error, {not_found, {chain, ChainName}}},
+        ?AUTHN:list_authenticators(ChainName)
+    ),
 
     % Multiple authenticators exist at the same time
     AuthNType2 = ?config("auth2"),
@@ -253,7 +261,6 @@ t_authenticate(Config) when is_list(Config) ->
         backend => built_in_database,
         enable => true
     },
-    ?AUTHN:create_chain(ListenerID),
     ?assertMatch({ok, _}, ?AUTHN:create_authenticator(ListenerID, AuthenticatorConfig)),
 
     ?assertEqual(
@@ -352,7 +359,7 @@ t_update_config(Config) when is_list(Config) ->
     ),
 
     ?assertEqual(
-        {error, {not_found, {authenticator, ID2}}},
+        {error, {not_found, {chain, Global}}},
         ?AUTHN:lookup_authenticator(Global, ID2)
     ),
 
@@ -427,7 +434,15 @@ t_restart({'init', Config}) ->
 t_restart(Config) when is_list(Config) ->
     ?assertEqual({ok, []}, ?AUTHN:list_chain_names()),
 
-    ?AUTHN:create_chain(test_chain),
+    %% to create a chain we need create an authenticator
+    AuthenticatorConfig = #{
+        mechanism => password_based,
+        backend => built_in_database,
+        enable => true
+    },
+    register_provider({password_based, built_in_database}, ?MODULE),
+    ?AUTHN:create_authenticator(test_chain, AuthenticatorConfig),
+
     ?assertEqual({ok, [test_chain]}, ?AUTHN:list_chain_names()),
 
     ok = supervisor:terminate_child(emqx_authentication_sup, ?AUTHN),
@@ -436,6 +451,7 @@ t_restart(Config) when is_list(Config) ->
     ?assertEqual({ok, [test_chain]}, ?AUTHN:list_chain_names());
 t_restart({'end', _Config}) ->
     ?AUTHN:delete_chain(test_chain),
+    ?AUTHN:deregister_providers([{password_based, built_in_database}]),
     ok.
 
 t_convert_certs({_, Config}) ->

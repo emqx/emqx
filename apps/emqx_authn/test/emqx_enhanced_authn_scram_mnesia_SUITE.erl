@@ -87,7 +87,10 @@ t_create_invalid(_Config) ->
         {create_authenticator, ?GLOBAL, InvalidConfig}
     ),
 
-    {ok, []} = emqx_authentication:list_authenticators(?GLOBAL).
+    ?assertEqual(
+        {error, {not_found, {chain, ?GLOBAL}}},
+        emqx_authentication:list_authenticators(?GLOBAL)
+    ).
 
 t_authenticate(_Config) ->
     Algorithm = sha512,
