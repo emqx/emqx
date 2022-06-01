@@ -141,8 +141,23 @@ spec:
             httpGet:
               path: /api/v5/status
               port: {{ .Values.emqxConfig.EMQX_DASHBOARD__LISTENER__HTTP | default 18083 }}
-            initialDelaySeconds: 5
+            initialDelaySeconds: 10
             periodSeconds: 5
+            failureThreshold: 30
+          livenessProbe:
+            httpGet:
+              path: /api/v5/status
+              port: {{ .Values.emqxConfig.EMQX_DASHBOARD__LISTENER__HTTP | default 18083 }}
+            initialDelaySeconds: 60
+            periodSeconds: 30
+            failureThreshold: 10
+          lifecycle:
+            preStop:
+              exec:
+                command:
+                  - "/opt/emqx/bin/emqx_ctl"
+                  - "cluster"
+                  - "leave"
     {{- with .Values.nodeSelector }}
       nodeSelector:
         {{- toYaml . | nindent 8 }}
