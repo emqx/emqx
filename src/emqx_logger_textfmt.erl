@@ -32,13 +32,18 @@ check_config(Config0) ->
     Config = maps:without([date_format], Config0),
     logger_formatter:check_config(Config).
 
-format(#{msg := Msg0, meta := Meta} = Event,
-       #{date_format := rfc3339, template := Template0} = Config) ->
+format(Event, Config) ->
+    case maps:get(date_format, Config, rfc3339) of
+        rfc3339 ->
+            format(Event, Config, rfc3339);
+        DateFormatString ->
+            format(Event, Config, DateFormatString)
+    end.
+
+format(#{msg := Msg0, meta := Meta} = Event, Config, rfc3339) ->
     Msg = maybe_merge(Msg0, Meta),
-    Template = [time | Template0],
-    logger_formatter:format(Event#{msg := Msg}, Config#{template => Template});
-format(#{msg := Msg0, meta := Meta} = Event,
-       #{date_format := DFS} = Config) ->
+    logger_formatter:format(Event#{msg := Msg}, Config);
+format(#{msg := Msg0, meta := Meta} = Event,  #{template := Template} = Config, DFS) ->
     Msg = maybe_merge(Msg0, Meta),
     Time =
         case maps:get(time, Event, undefined) of
@@ -48,7 +53,10 @@ format(#{msg := Msg0, meta := Meta} = Event,
                 T
         end,
     Date = emqx_calendar:format(Time, microsecond, local, DFS),
-    [Date | logger_formatter:format(Event#{msg := Msg}, Config)].
+    [Date | logger_formatter:format(Event#{msg := Msg}, Config#{template => remove_time(Template)})].
+
+remove_time([time | Tail]) -> Tail;
+remove_time(Template) -> Template.
 
 maybe_merge({report, Report}, Meta) when is_map(Report) ->
     {report, maps:merge(Report, filter(Meta))};
