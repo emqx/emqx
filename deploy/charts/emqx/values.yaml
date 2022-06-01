@@ -174,20 +174,9 @@ ingress:
       # kubernetes.io/ingress.class: nginx
       # kubernetes.io/tls-acme: "true"
     path: /
+    pathType: ImplementationSpecific
     hosts:
     - dashboard.emqx.local
-    tls: []
-
-  ## ingress for EMQX Mgmt API
-  mgmt:
-    enabled: false
-    # ingressClassName: nginx
-    annotations: {}
-      # kubernetes.io/ingress.class: nginx
-      # kubernetes.io/tls-acme: "true"
-    path: /
-    hosts:
-    - api.emqx.local
     tls: []
 
 podSecurityContext:
