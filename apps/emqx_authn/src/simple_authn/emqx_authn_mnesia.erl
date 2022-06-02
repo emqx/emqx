@@ -182,13 +182,14 @@ destroy(#{user_group := UserGroup}) ->
         end
     ).
 
-import_users(Filename0, State) ->
+import_users({Filename0, FileData}, State) ->
     Filename = to_binary(Filename0),
     case filename:extension(Filename) of
         <<".json">> ->
-            import_users_from_json(Filename, State);
+            import_users_from_json(FileData, State);
         <<".csv">> ->
-            import_users_from_csv(Filename, State);
+            CSV = csv_data(FileData),
+            import_users_from_csv(CSV, State);
         <<>> ->
             {error, unknown_file_format};
         Extension ->
@@ -327,31 +328,19 @@ run_fuzzy_filter(
 %%------------------------------------------------------------------------------
 
 %% Example: data/user-credentials.json
-import_users_from_json(Filename, #{user_group := UserGroup}) ->
-    case file:read_file(Filename) of
-        {ok, Bin} ->
-            case emqx_json:safe_decode(Bin, [return_maps]) of
-                {ok, List} ->
-                    trans(fun import/2, [UserGroup, List]);
-                {error, Reason} ->
-                    {error, Reason}
-            end;
+import_users_from_json(Bin, #{user_group := UserGroup}) ->
+    case emqx_json:safe_decode(Bin, [return_maps]) of
+        {ok, List} ->
+            trans(fun import/2, [UserGroup, List]);
         {error, Reason} ->
             {error, Reason}
     end.
 
 %% Example: data/user-credentials.csv
-import_users_from_csv(Filename, #{user_group := UserGroup}) ->
-    case file:open(Filename, [read, binary]) of
-        {ok, File} ->
-            case get_csv_header(File) of
-                {ok, Seq} ->
-                    Result = trans(fun import/3, [UserGroup, File, Seq]),
-                    _ = file:close(File),
-                    Result;
-                {error, Reason} ->
-                    {error, Reason}
-            end;
+import_users_from_csv(CSV, #{user_group := UserGroup}) ->
+    case get_csv_header(CSV) of
+        {ok, Seq, NewCSV} ->
+            trans(fun import_csv/3, [UserGroup, NewCSV, Seq]);
         {error, Reason} ->
             {error, Reason}
     end.
@@ -375,9 +364,9 @@ import(_UserGroup, [_ | _More]) ->
     {error, bad_format}.
 
 %% Importing 5w users needs 1.7 seconds
-import(UserGroup, File, Seq) ->
-    case file:read_line(File) of
-        {ok, Line} ->
+import_csv(UserGroup, CSV, Seq) ->
+    case csv_read_line(CSV) of
+        {ok, Line, NewCSV} ->
             Fields = binary:split(Line, [<<",">>, <<" ">>, <<"\n">>], [global, trim_all]),
             case get_user_info_by_seq(Fields, Seq) of
                 {ok,
@@ -388,25 +377,21 @@ import(UserGroup, File, Seq) ->
                     Salt = maps:get(salt, UserInfo, <<>>),
                     IsSuperuser = maps:get(is_superuser, UserInfo, false),
                     insert_user(UserGroup, UserID, PasswordHash, Salt, IsSuperuser),
-                    import(UserGroup, File, Seq);
+                    import_csv(UserGroup, NewCSV, Seq);
                 {error, Reason} ->
                     {error, Reason}
             end;
         eof ->
-            ok;
-        {error, Reason} ->
-            {error, Reason}
+            ok
     end.
 
-get_csv_header(File) ->
-    case file:read_line(File) of
-        {ok, Line} ->
+get_csv_header(CSV) ->
+    case csv_read_line(CSV) of
+        {ok, Line, NewCSV} ->
             Seq = binary:split(Line, [<<",">>, <<" ">>, <<"\n">>], [global, trim_all]),
-            {ok, Seq};
+            {ok, Seq, NewCSV};
         eof ->
-            {error, empty_file};
-        {error, Reason} ->
-            {error, Reason}
+            {error, empty_file}
     end.
 
 get_user_info_by_seq(Fields, Seq) ->
@@ -487,3 +472,12 @@ group_match_spec(UserGroup, QString) ->
                 User
             end)
     end.
+
+csv_data(Data) ->
+    Lines = binary:split(Data, [<<"\r">>, <<"\n">>], [global, trim_all]),
+    {csv_data, Lines}.
+
+csv_read_line({csv_data, [Line | Lines]}) ->
+    {ok, Line, {csv_data, Lines}};
+csv_read_line({csv_data, []}) ->
+    eof.

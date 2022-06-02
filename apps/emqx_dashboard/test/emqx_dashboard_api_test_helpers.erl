@@ -22,6 +22,8 @@
     request/2,
     request/3,
     request/4,
+    multipart_formdata_request/3,
+    multipart_formdata_request/4,
     uri/0,
     uri/1
 ]).
@@ -97,3 +99,67 @@ auth_header(Username) ->
     Password = <<"public">>,
     {ok, Token} = emqx_dashboard_admin:sign_token(Username, Password),
     {"Authorization", "Bearer " ++ binary_to_list(Token)}.
+
+multipart_formdata_request(Url, Fields, Files) ->
+    multipart_formdata_request(Url, <<"admin">>, Fields, Files).
+
+multipart_formdata_request(Url, Username, Fields, Files) ->
+    Boundary =
+        "------------" ++ integer_to_list(rand:uniform(99999999999999999)) ++
+            integer_to_list(erlang:system_time(millisecond)),
+    Body = format_multipart_formdata(Boundary, Fields, Files),
+    ContentType = lists:concat(["multipart/form-data; boundary=", Boundary]),
+    Headers =
+        [
+            auth_header(Username),
+            {"Content-Length", integer_to_list(length(Body))}
+        ],
+    case httpc:request(post, {Url, Headers, ContentType, Body}, [], []) of
+        {error, socket_closed_remotely} ->
+            {error, socket_closed_remotely};
+        {ok, {{"HTTP/1.1", Code, _}, _Headers, Return}} ->
+            {ok, Code, Return};
+        {ok, {Reason, _, _}} ->
+            {error, Reason}
+    end.
+
+format_multipart_formdata(Boundary, Fields, Files) ->
+    FieldParts = lists:map(
+        fun({FieldName, FieldContent}) ->
+            [
+                lists:concat(["--", Boundary]),
+                lists:concat([
+                    "Content-Disposition: form-data; name=\"", atom_to_list(FieldName), "\""
+                ]),
+                "",
+                to_list(FieldContent)
+            ]
+        end,
+        Fields
+    ),
+    FieldParts2 = lists:append(FieldParts),
+    FileParts = lists:map(
+        fun({FieldName, FileName, FileContent}) ->
+            [
+                lists:concat(["--", Boundary]),
+                lists:concat([
+                    "Content-Disposition: form-data; name=\"",
+                    atom_to_list(FieldName),
+                    "\"; filename=\"",
+                    FileName,
+                    "\""
+                ]),
+                lists:concat(["Content-Type: ", "application/octet-stream"]),
+                "",
+                to_list(FileContent)
+            ]
+        end,
+        Files
+    ),
+    FileParts2 = lists:append(FileParts),
+    EndingParts = [lists:concat(["--", Boundary, "--"]), ""],
+    Parts = lists:append([FieldParts2, FileParts2, EndingParts]),
+    string:join(Parts, "\r\n").
+
+to_list(Bin) when is_binary(Bin) -> binary_to_list(Bin);
+to_list(Str) when is_list(Str) -> Str.

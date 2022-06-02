@@ -54,8 +54,7 @@
     listeners_insta/2,
     listeners_insta_authn/2,
     users/2,
-    users_insta/2,
-    import_users/2
+    users_insta/2
 ]).
 
 %% RPC
@@ -74,8 +73,7 @@ paths() ->
         "/gateway/:name/listeners/:id",
         "/gateway/:name/listeners/:id/authentication",
         "/gateway/:name/listeners/:id/authentication/users",
-        "/gateway/:name/listeners/:id/authentication/users/:uid",
-        "/gateway/:name/listeners/:id/authentication/import_users"
+        "/gateway/:name/listeners/:id/authentication/users/:uid"
     ].
 
 %%--------------------------------------------------------------------
@@ -236,30 +234,6 @@ users_insta(delete, #{bindings := #{name := Name0, id := Id, uid := UserId}}) ->
         Id,
         fun(_GwName, #{id := AuthId, chain_name := ChainName}) ->
             emqx_authn_api:delete_user(ChainName, AuthId, UserId)
-        end
-    ).
-
-import_users(post, #{
-    bindings := #{name := Name0, id := Id},
-    body := Body
-}) ->
-    with_listener_authn(
-        Name0,
-        Id,
-        fun(_GwName, #{id := AuthId, chain_name := ChainName}) ->
-            case maps:get(<<"filename">>, Body, undefined) of
-                undefined ->
-                    emqx_authn_api:serialize_error({missing_parameter, filename});
-                Filename ->
-                    case
-                        emqx_authentication:import_users(
-                            ChainName, AuthId, Filename
-                        )
-                    of
-                        ok -> {204};
-                        {error, Reason} -> emqx_authn_api:serialize_error(Reason)
-                    end
-            end
         end
     ).
 
@@ -548,22 +522,6 @@ schema("/gateway/:name/listeners/:id/authentication/users/:uid") ->
                     params_userid_in_path(),
                 responses =>
                     ?STANDARD_RESP(#{204 => <<"Deleted">>})
-            }
-    };
-schema("/gateway/:name/listeners/:id/authentication/import_users") ->
-    #{
-        'operationId' => import_users,
-        post =>
-            #{
-                desc => ?DESC(import_users),
-                parameters => params_gateway_name_in_path() ++
-                    params_listener_id_in_path(),
-                'requestBody' => emqx_dashboard_swagger:schema_with_examples(
-                    ref(emqx_authn_api, request_import_users),
-                    emqx_authn_api:request_import_users_examples()
-                ),
-                responses =>
-                    ?STANDARD_RESP(#{204 => <<"Imported">>})
             }
     }.
 

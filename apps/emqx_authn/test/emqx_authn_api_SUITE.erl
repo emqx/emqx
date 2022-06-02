@@ -18,7 +18,7 @@
 -compile(nowarn_export_all).
 -compile(export_all).
 
--import(emqx_dashboard_api_test_helpers, [request/3, uri/1]).
+-import(emqx_dashboard_api_test_helpers, [request/3, uri/1, multipart_formdata_request/3]).
 
 -include("emqx_authn.hrl").
 -include_lib("eunit/include/eunit.hrl").
@@ -643,19 +643,24 @@ test_authenticator_import_users(PathPrefix) ->
         emqx_authn_test_lib:built_in_database_example()
     ),
 
-    {ok, 400, _} = request(post, ImportUri, #{}),
-
-    {ok, 400, _} = request(post, ImportUri, #{filename => <<"/etc/passwd">>}),
-
-    {ok, 400, _} = request(post, ImportUri, #{filename => <<"/not_exists.csv">>}),
+    {ok, 400, _} = multipart_formdata_request(ImportUri, [], []),
+    {ok, 400, _} = multipart_formdata_request(ImportUri, [], [
+        {filenam, "user-credentials.json", <<>>}
+    ]),
 
     Dir = code:lib_dir(emqx_authn, test),
     JSONFileName = filename:join([Dir, <<"data/user-credentials.json">>]),
     CSVFileName = filename:join([Dir, <<"data/user-credentials.csv">>]),
 
-    {ok, 204, _} = request(post, ImportUri, #{filename => JSONFileName}),
+    {ok, JSONData} = file:read_file(JSONFileName),
+    {ok, 204, _} = multipart_formdata_request(ImportUri, [], [
+        {filename, "user-credentials.json", JSONData}
+    ]),
 
-    {ok, 204, _} = request(post, ImportUri, #{filename => CSVFileName}).
+    {ok, CSVData} = file:read_file(CSVFileName),
+    {ok, 204, _} = multipart_formdata_request(ImportUri, [], [
+        {filename, "user-credentials.csv", CSVData}
+    ]).
 
 t_switch_to_global_chain(_) ->
     {ok, 200, _} = request(
