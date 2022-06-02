@@ -13,6 +13,9 @@ jobs:
 
         steps:
         - uses: actions/checkout@v1
+        - uses: erlef/setup-beam@v1
+          with:
+            otp-version: "24.1.5"
         - name: prepare
           run: |
             if make emqx-ee --dry-run > /dev/null 2>&1; then
