@@ -27,6 +27,9 @@ jobs:
         name: apache-jmeter.tgz
         path: /tmp/apache-jmeter.tgz
     - uses: actions/checkout@v2
+    - uses: erlef/setup-beam@v1
+      with:
+        otp-version: "23.3.4.13"
     - name: build docker
       id: build_docker
       run: |
