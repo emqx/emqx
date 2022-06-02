@@ -27,6 +27,9 @@ jobs:
         name: apache-jmeter.tgz
         path: /tmp/apache-jmeter.tgz
     - uses: actions/checkout@v2
+    - uses: erlef/setup-beam@v1
+      with:
+        otp-version: "24.1.5"
     - name: prepare
       id: prepare
       run: |
@@ -43,8 +46,6 @@ jobs:
           echo "::set-output name=version::$(./pkg-vsn.sh)"
         fi
     - name: build docker image
-      env:
-        OTP_VSN: 24.1.5-3
       run: |
         make ${{ steps.prepare.outputs.imgname }}-docker
         docker save emqx/${{ steps.prepare.outputs.imgname }}:${{ steps.prepare.outputs.version }} -o image.tar.gz
