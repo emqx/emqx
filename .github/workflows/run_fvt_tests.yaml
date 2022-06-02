@@ -34,8 +34,6 @@ jobs:
               make emqx-docker
             fi
         - name: make emqx image
-          env:
-            OTP_VSN: 24.1.5-3
           run: make ${PROFILE}-docker
         - name: run emqx
           timeout-minutes: 5
@@ -78,6 +76,9 @@ jobs:
 
         steps:
         - uses: actions/checkout@v1
+        - uses: erlef/setup-beam@v1
+          with:
+            otp-version: "24.1.5"
         - name: prepare
           run: |
             if make emqx-ee --dry-run > /dev/null 2>&1; then
@@ -94,8 +95,6 @@ jobs:
               echo "EMQX_TAG=$(./pkg-vsn.sh)" >> $GITHUB_ENV
             fi
         - name: make emqx image
-          env:
-            OTP_VSN: 24.1.5-3
           run: make ${PROFILE}-docker
         - name: install k3s
           env:
