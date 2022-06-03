@@ -674,6 +674,11 @@ t_switch_to_global_chain(_) ->
         uri([listeners, "tcp:default", ?CONF_NS]),
         emqx_authn_test_lib:built_in_database_example()
     ),
+    {ok, 200, _} = request(
+        post,
+        uri([listeners, "tcp:default", ?CONF_NS]),
+        maps:put(enable, false, emqx_authn_test_lib:http_example())
+    ),
 
     GlobalUser = #{user_id => <<"global_user">>, password => <<"p1">>},
 
@@ -716,29 +721,46 @@ t_switch_to_global_chain(_) ->
 
     {ok, 204, _} = request(
         delete,
-        uri([listeners, "tcp:default", ?CONF_NS])
+        uri([listeners, "tcp:default", ?CONF_NS, "password_based:built_in_database"])
     ),
 
-    %% Listener user should not be OK — local chain removed
+    %% Now listener has only disabled authenticators, should allow anonymous access
     {ok, Client2} = emqtt:start_link([
+        {username, <<"any_user">>},
+        {password, <<"any_password">>}
+    ]),
+    ?assertMatch(
+        {ok, _},
+        emqtt:connect(Client2)
+    ),
+    ok = emqtt:disconnect(Client2),
+
+    {ok, 204, _} = request(
+        delete,
+        uri([listeners, "tcp:default", ?CONF_NS, "password_based:http"])
+    ),
+
+    %% Local chain is empty now and should be removed
+    %% Listener user should not be OK
+    {ok, Client3} = emqtt:start_link([
         {username, <<"listener_user">>},
         {password, <<"p1">>}
     ]),
     ?assertMatch(
         {error, {unauthorized_client, _}},
-        emqtt:connect(Client2)
+        emqtt:connect(Client3)
     ),
 
     %% Global user should be now OK, switched back to the global chain
-    {ok, Client3} = emqtt:start_link([
+    {ok, Client4} = emqtt:start_link([
         {username, <<"global_user">>},
         {password, <<"p1">>}
     ]),
     ?assertMatch(
         {ok, _},
-        emqtt:connect(Client3)
+        emqtt:connect(Client4)
     ),
-    ok = emqtt:disconnect(Client3).
+    ok = emqtt:disconnect(Client4).
 
 %%------------------------------------------------------------------------------
 %% Helpers

@@ -248,15 +248,6 @@ schema("/listeners/:listener_id/authentication") ->
                 )
             }
         },
-        delete => #{
-            tags => ?API_TAGS_SINGLE,
-            description => ?DESC(listeners_listener_id_authentication_delete),
-            parameters => [param_listener_id()],
-            responses => #{
-                204 => <<"Authentication chain deleted">>,
-                404 => error_codes([?NOT_FOUND], <<"Not Found">>)
-            }
-        },
         post => #{
             tags => ?API_TAGS_SINGLE,
             description => ?DESC(listeners_listener_id_authentication_post),
@@ -610,13 +601,6 @@ listener_authenticators(get, #{bindings := #{listener_id := ListenerID}}) ->
         fun(Type, Name, _) ->
             list_authenticators([listeners, Type, Name, authentication])
         end
-    );
-listener_authenticators(delete, #{bindings := #{listener_id := ListenerID}}) ->
-    with_listener(
-        ListenerID,
-        fun(Type, Name, ChainName) ->
-            delete_authenticators([listeners, Type, Name, authentication], ChainName)
-        end
     ).
 
 listener_authenticator(get, #{bindings := #{listener_id := ListenerID, id := AuthenticatorID}}) ->
@@ -879,7 +863,8 @@ lookup_from_local_node(ChainName, AuthenticatorID) ->
     NodeId = node(self()),
     case emqx_authentication:lookup_authenticator(ChainName, AuthenticatorID) of
         {ok, #{provider := Provider, state := State}} ->
-            Metrics = emqx_metrics_worker:get_metrics(authn_metrics, AuthenticatorID),
+            MetricsId = emqx_authentication:metrics_id(ChainName, AuthenticatorID),
+            Metrics = emqx_metrics_worker:get_metrics(authn_metrics, MetricsId),
             case lists:member(Provider, resource_provider()) of
                 false ->
                     {ok, {NodeId, connected, Metrics, #{}}};
@@ -1028,16 +1013,6 @@ update_authenticator(ConfKeyPath, ChainName, AuthenticatorID, Config) ->
 
 delete_authenticator(ConfKeyPath, ChainName, AuthenticatorID) ->
     case update_config(ConfKeyPath, {delete_authenticator, ChainName, AuthenticatorID}) of
-        {ok, _} ->
-            {204};
-        {error, {_PrePostConfigUpdate, emqx_authentication, Reason}} ->
-            serialize_error(Reason);
-        {error, Reason} ->
-            serialize_error(Reason)
-    end.
-
-delete_authenticators(ConfKeyPath, ChainName) ->
-    case update_config(ConfKeyPath, {delete_authenticators, ChainName}) of
         {ok, _} ->
             {204};
         {error, {_PrePostConfigUpdate, emqx_authentication, Reason}} ->

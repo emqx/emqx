@@ -55,6 +55,9 @@ jobs:
         arch:
           - amd64
     steps:
+    - uses: erlef/setup-beam@v1
+      with:
+        otp-version: "24.2"
     - uses: actions/download-artifact@v2
       with:
         name: source
@@ -135,13 +138,15 @@ jobs:
       # - emqx-enterprise # TODO test enterprise
 
     steps:
+    - uses: erlef/setup-beam@v1
+      with:
+        otp-version: "24.2"
     - uses: actions/download-artifact@v2
       with:
         name: source
         path: .
     - name: unzip source code
       run: unzip -q source.zip
-
     - name: Get deps git refs for cache
       id: deps-refs
       run: |

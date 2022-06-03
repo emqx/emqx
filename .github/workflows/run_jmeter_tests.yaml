@@ -14,6 +14,9 @@ jobs:
     outputs:
       version: ${{ steps.build_docker.outputs.version}}
     steps:
+    - uses: erlef/setup-beam@v1
+      with:
+        otp-version: "24.2"
     - name: download jmeter
       timeout-minutes: 3
       env:
@@ -54,6 +57,9 @@ jobs:
 
     needs: build_emqx_for_jmeter_tests
     steps:
+    - uses: erlef/setup-beam@v1
+      with:
+        otp-version: "24.2"
     - uses: actions/checkout@v2
     - uses: actions/download-artifact@v2
       with:
@@ -145,6 +151,9 @@ jobs:
 
     needs: build_emqx_for_jmeter_tests
     steps:
+    - uses: erlef/setup-beam@v1
+      with:
+        otp-version: "24.2"
     - uses: actions/checkout@v2
     - uses: actions/download-artifact@v2
       with:
@@ -246,6 +255,9 @@ jobs:
 
     needs: build_emqx_for_jmeter_tests
     steps:
+    - uses: erlef/setup-beam@v1
+      with:
+        otp-version: "24.2"
     - uses: actions/checkout@v2
     - uses: actions/download-artifact@v2
       with:
@@ -343,6 +355,9 @@ jobs:
 
     needs: build_emqx_for_jmeter_tests
     steps:
+    - uses: erlef/setup-beam@v1
+      with:
+        otp-version: "24.2"
     - uses: actions/checkout@v2
     - uses: actions/download-artifact@v2
       with:
@@ -437,6 +452,9 @@ jobs:
 
     needs: build_emqx_for_jmeter_tests
     steps:
+    - uses: erlef/setup-beam@v1
+      with:
+        otp-version: "24.2"
     - uses: actions/checkout@v2
     - uses: actions/download-artifact@v2
       with:
