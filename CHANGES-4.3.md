@@ -10,6 +10,14 @@ File format:
 - One list item per change topic
   Change log ends with a list of github PRs
 
+## v4.3.16
+
+### Enhancements
+
+- Add the possibility of configuring the password for
+  password-protected private key files used for dashboard and
+  management HTTPS listeners. [#8129]
+
 ## v4.3.15
 
 ### Enhancements

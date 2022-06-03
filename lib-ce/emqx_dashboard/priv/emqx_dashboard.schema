@@ -74,6 +74,10 @@
   {datatype, string}
 ]}.
 
+{mapping, "dashboard.listener.https.key_password", "emqx_dashboard.listeners", [
+  {datatype, string}
+]}.
+
 {mapping, "dashboard.listener.https.certfile", "emqx_dashboard.listeners", [
   {datatype, string}
 ]}.
@@ -127,6 +131,7 @@
                         {ciphers, SplitFun(cuttlefish:conf_get(Prefix ++ ".ciphers", Conf, undefined))},
                         {dhfile, cuttlefish:conf_get(Prefix ++ ".dhfile", Conf, undefined)},
                         {keyfile,    cuttlefish:conf_get(Prefix ++ ".keyfile", Conf, undefined)},
+                        {password,   cuttlefish:conf_get(Prefix ++ ".key_password", Conf, undefined)},
                         {certfile,   cuttlefish:conf_get(Prefix ++ ".certfile", Conf, undefined)},
                         {cacertfile, cuttlefish:conf_get(Prefix ++ ".cacertfile", Conf, undefined)},
                         {verify,     cuttlefish:conf_get(Prefix ++ ".verify", Conf, undefined)},
