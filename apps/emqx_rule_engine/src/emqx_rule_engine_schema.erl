@@ -37,13 +37,13 @@ roots() -> ["rule_engine"].
 fields("rule_engine") ->
     [
         {ignore_sys_message,
-            sc(boolean(), #{default => true, desc => ?DESC("rule_engine_ignore_sys_message")})},
+            ?HOCON(boolean(), #{default => true, desc => ?DESC("rule_engine_ignore_sys_message")})},
         {rules,
-            sc(hoconsc:map("id", ref("rules")), #{
+            ?HOCON(hoconsc:map("id", ?R_REF("rules")), #{
                 desc => ?DESC("rule_engine_rules"), default => #{}
             })},
         {jq_function_default_timeout,
-            sc(
+            ?HOCON(
                 emqx_schema:duration_ms(),
                 #{
                     default => "10s",
@@ -55,7 +55,7 @@ fields("rules") ->
     [
         rule_name(),
         {"sql",
-            sc(
+            ?HOCON(
                 binary(),
                 #{
                     desc => ?DESC("rules_sql"),
@@ -65,8 +65,8 @@ fields("rules") ->
                 }
             )},
         {"actions",
-            sc(
-                hoconsc:array(hoconsc:union(actions())),
+            ?HOCON(
+                ?ARRAY(?UNION(actions())),
                 #{
                     desc => ?DESC("rules_actions"),
                     default => [],
@@ -82,9 +82,9 @@ fields("rules") ->
                     ]
                 }
             )},
-        {"enable", sc(boolean(), #{desc => ?DESC("rules_enable"), default => true})},
+        {"enable", ?HOCON(boolean(), #{desc => ?DESC("rules_enable"), default => true})},
         {"description",
-            sc(
+            ?HOCON(
                 binary(),
                 #{
                     desc => ?DESC("rules_description"),
@@ -95,12 +95,12 @@ fields("rules") ->
     ];
 fields("builtin_action_republish") ->
     [
-        {function, sc(republish, #{desc => ?DESC("republish_function")})},
-        {args, sc(ref("republish_args"), #{default => #{}})}
+        {function, ?HOCON(republish, #{desc => ?DESC("republish_function")})},
+        {args, ?HOCON(?R_REF("republish_args"), #{default => #{}})}
     ];
 fields("builtin_action_console") ->
     [
-        {function, sc(console, #{desc => ?DESC("console_function")})}
+        {function, ?HOCON(console, #{desc => ?DESC("console_function")})}
         %% we may support some args for the console action in the future
         %, {args, sc(map(), #{desc => "The arguments of the built-in 'console' action",
         %    default => #{}})}
@@ -108,7 +108,7 @@ fields("builtin_action_console") ->
 fields("user_provided_function") ->
     [
         {function,
-            sc(
+            ?HOCON(
                 binary(),
                 #{
                     desc => ?DESC("user_provided_function_function"),
@@ -117,7 +117,7 @@ fields("user_provided_function") ->
                 }
             )},
         {args,
-            sc(
+            ?HOCON(
                 map(),
                 #{
                     desc => ?DESC("user_provided_function_args"),
@@ -128,7 +128,7 @@ fields("user_provided_function") ->
 fields("republish_args") ->
     [
         {topic,
-            sc(
+            ?HOCON(
                 binary(),
                 #{
                     desc => ?DESC("republish_args_topic"),
@@ -137,7 +137,7 @@ fields("republish_args") ->
                 }
             )},
         {qos,
-            sc(
+            ?HOCON(
                 qos(),
                 #{
                     desc => ?DESC("republish_args_qos"),
@@ -146,8 +146,8 @@ fields("republish_args") ->
                 }
             )},
         {retain,
-            sc(
-                hoconsc:union([binary(), boolean()]),
+            ?HOCON(
+                hoconsc:union([boolean(), binary()]),
                 #{
                     desc => ?DESC("republish_args_retain"),
                     default => <<"${retain}">>,
@@ -155,7 +155,7 @@ fields("republish_args") ->
                 }
             )},
         {payload,
-            sc(
+            ?HOCON(
                 binary(),
                 #{
                     desc => ?DESC("republish_args_payload"),
@@ -182,7 +182,7 @@ desc(_) ->
 
 rule_name() ->
     {"name",
-        sc(
+        ?HOCON(
             binary(),
             #{
                 desc => ?DESC("rules_name"),
@@ -195,19 +195,16 @@ rule_name() ->
 actions() ->
     [
         binary(),
-        ref("builtin_action_republish"),
-        ref("builtin_action_console"),
-        ref("user_provided_function")
+        ?R_REF("builtin_action_republish"),
+        ?R_REF("builtin_action_console"),
+        ?R_REF("user_provided_function")
     ].
 
 qos() ->
-    hoconsc:union([emqx_schema:qos(), binary()]).
+    ?UNION([emqx_schema:qos(), binary()]).
 
 validate_sql(Sql) ->
     case emqx_rule_sqlparser:parse(Sql) of
         {ok, _Result} -> ok;
         {error, Reason} -> {error, Reason}
     end.
-
-sc(Type, Meta) -> hoconsc:mk(Type, Meta).
-ref(Field) -> hoconsc:ref(?MODULE, Field).

@@ -341,6 +341,7 @@ fields(cluster_k8s) ->
             sc(
                 string(),
                 #{
+                    default => "http://10.110.111.204:8080",
                     desc => ?DESC(cluster_k8s_apiserver),
                     'readOnly' => true
                 }
@@ -358,6 +359,7 @@ fields(cluster_k8s) ->
             sc(
                 hoconsc:enum([ip, dns, hostname]),
                 #{
+                    default => ip,
                     desc => ?DESC(cluster_k8s_address_type),
                     'readOnly' => true
                 }
@@ -731,7 +733,7 @@ fields("rpc") ->
                 emqx_schema:duration_s(),
                 #{
                     mapping => "gen_rpc.socket_keepalive_idle",
-                    default => "7200s",
+                    default => "15m",
                     desc => ?DESC(rpc_socket_keepalive_idle)
                 }
             )},

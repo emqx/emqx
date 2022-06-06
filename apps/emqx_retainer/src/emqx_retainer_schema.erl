@@ -52,10 +52,10 @@ fields("retainer") ->
     ];
 fields(mnesia_config) ->
     [
-        {type, sc(hoconsc:enum([built_in_database]), mnesia_config_type, built_in_database)},
+        {type, sc(built_in_database, mnesia_config_type, built_in_database)},
         {storage_type,
             sc(
-                hoconsc:union([ram, disc]),
+                hoconsc:enum([ram, disc]),
                 mnesia_config_storage_type,
                 ram
             )},

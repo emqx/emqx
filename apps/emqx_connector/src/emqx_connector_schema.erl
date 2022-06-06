@@ -20,8 +20,6 @@
 -include_lib("typerefl/include/types.hrl").
 -include_lib("hocon/include/hoconsc.hrl").
 
--import(hoconsc, [mk/2, ref/2]).
-
 -export([namespace/0, roots/0, fields/1, desc/1]).
 
 -export([
@@ -46,8 +44,8 @@ post_request() ->
     http_schema("post").
 
 http_schema(Method) ->
-    Schemas = [ref(schema_mod(Type), Method) || Type <- ?CONN_TYPES],
-    hoconsc:union(Schemas).
+    Schemas = [?R_REF(schema_mod(Type), Method) || Type <- ?CONN_TYPES],
+    ?UNION(Schemas).
 
 %%======================================================================================
 %% Hocon Schema Definitions
@@ -61,11 +59,8 @@ fields(connectors) ->
 fields("connectors") ->
     [
         {mqtt,
-            mk(
-                hoconsc:map(
-                    name,
-                    ref(emqx_connector_mqtt_schema, "connector")
-                ),
+            ?HOCON(
+                ?MAP(name, ?R_REF(emqx_connector_mqtt_schema, "connector")),
                 #{desc => ?DESC("mqtt")}
             )}
     ].

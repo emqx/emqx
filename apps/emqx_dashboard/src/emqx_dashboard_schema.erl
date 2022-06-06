@@ -30,14 +30,14 @@ roots() -> ["dashboard"].
 fields("dashboard") ->
     [
         {listeners,
-            sc(
-                ref("listeners"),
+            ?HOCON(
+                ?R_REF("listeners"),
                 #{desc => ?DESC(listeners)}
             )},
         {default_username, fun default_username/1},
         {default_password, fun default_password/1},
         {sample_interval,
-            sc(
+            ?HOCON(
                 emqx_schema:duration_s(),
                 #{
                     default => "10s",
@@ -46,7 +46,7 @@ fields("dashboard") ->
                 }
             )},
         {token_expired_time,
-            sc(
+            ?HOCON(
                 emqx_schema:duration(),
                 #{
                     default => "60m",
@@ -59,16 +59,16 @@ fields("dashboard") ->
 fields("listeners") ->
     [
         {"http",
-            sc(
-                ref("http"),
+            ?HOCON(
+                ?R_REF("http"),
                 #{
                     desc => "TCP listeners",
                     required => {false, recursively}
                 }
             )},
         {"https",
-            sc(
-                ref("https"),
+            ?HOCON(
+                ?R_REF("https"),
                 #{
                     desc => "SSL listeners",
                     required => {false, recursively}
@@ -78,13 +78,13 @@ fields("listeners") ->
 fields("http") ->
     [
         enable(true),
-        bind(18803)
+        bind(18083)
         | common_listener_fields()
     ];
 fields("https") ->
     [
         enable(false),
-        bind(18804)
+        bind(18084)
         | common_listener_fields() ++
             exclude_fields(
                 ["fail_if_no_peer_cert"],
@@ -104,7 +104,7 @@ exclude_fields([FieldName | Rest], Fields) ->
 common_listener_fields() ->
     [
         {"num_acceptors",
-            sc(
+            ?HOCON(
                 integer(),
                 #{
                     default => 4,
@@ -112,7 +112,7 @@ common_listener_fields() ->
                 }
             )},
         {"max_connections",
-            sc(
+            ?HOCON(
                 integer(),
                 #{
                     default => 512,
@@ -120,7 +120,7 @@ common_listener_fields() ->
                 }
             )},
         {"backlog",
-            sc(
+            ?HOCON(
                 integer(),
                 #{
                     default => 1024,
@@ -128,7 +128,7 @@ common_listener_fields() ->
                 }
             )},
         {"send_timeout",
-            sc(
+            ?HOCON(
                 emqx_schema:duration(),
                 #{
                     default => "5s",
@@ -136,7 +136,7 @@ common_listener_fields() ->
                 }
             )},
         {"inet6",
-            sc(
+            ?HOCON(
                 boolean(),
                 #{
                     default => false,
@@ -144,7 +144,7 @@ common_listener_fields() ->
                 }
             )},
         {"ipv6_v6only",
-            sc(
+            ?HOCON(
                 boolean(),
                 #{
                     default => false,
@@ -155,7 +155,7 @@ common_listener_fields() ->
 
 enable(Bool) ->
     {"enable",
-        sc(
+        ?HOCON(
             boolean(),
             #{
                 default => Bool,
@@ -166,12 +166,12 @@ enable(Bool) ->
 
 bind(Port) ->
     {"bind",
-        sc(
-            hoconsc:union([non_neg_integer(), emqx_schema:ip_port()]),
+        ?HOCON(
+            ?UNION([non_neg_integer(), emqx_schema:ip_port()]),
             #{
                 default => Port,
                 required => true,
-                extra => #{example => [Port, "0.0.0.0:" ++ integer_to_list(Port)]},
+                example => "0.0.0.0:" ++ integer_to_list(Port),
                 desc => ?DESC(bind)
             }
         )}.
@@ -222,7 +222,3 @@ validate_sample_interval(Second) ->
             Msg = "must be between 1 and 60 and be a divisor of 60.",
             {error, Msg}
     end.
-
-sc(Type, Meta) -> hoconsc:mk(Type, Meta).
-
-ref(Field) -> hoconsc:ref(?MODULE, Field).

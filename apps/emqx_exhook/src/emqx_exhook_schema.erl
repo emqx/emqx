@@ -27,12 +27,6 @@
 
 -behaviour(hocon_schema).
 
--type duration() :: integer().
-
--typerefl_from_string({duration/0, emqx_schema, to_duration}).
-
--reflect_type([duration/0]).
-
 -export([namespace/0, roots/0, fields/1, desc/1, server_config/0]).
 
 namespace() -> exhook.
@@ -42,65 +36,48 @@ roots() -> [exhook].
 fields(exhook) ->
     [
         {servers,
-            sc(
-                hoconsc:array(ref(server)),
-                #{
-                    default => [],
-                    desc => ?DESC(servers)
-                }
-            )}
+            ?HOCON(?ARRAY(?R_REF(server)), #{
+                default => [],
+                desc => ?DESC(servers)
+            })}
     ];
 fields(server) ->
     [
         {name,
-            sc(
-                binary(),
-                #{
-                    required => true,
-                    validator => fun validate_name/1,
-                    desc => ?DESC(name)
-                }
-            )},
+            ?HOCON(binary(), #{
+                example => <<"default">>,
+                required => true,
+                validator => fun validate_name/1,
+                desc => ?DESC(name)
+            })},
         {enable,
-            sc(
-                boolean(),
-                #{
-                    default => true,
-                    desc => ?DESC(enable)
-                }
-            )},
+            ?HOCON(boolean(), #{
+                default => true,
+                desc => ?DESC(enable)
+            })},
         {url,
-            sc(
-                binary(),
-                #{required => true, desc => ?DESC(url)}
-            )},
+            ?HOCON(binary(), #{
+                required => true,
+                desc => ?DESC(url),
+                example => <<"http://127.0.0.1:9000">>
+            })},
         {request_timeout,
-            sc(
-                duration(),
-                #{
-                    default => "5s",
-                    desc => ?DESC(request_timeout)
-                }
-            )},
+            ?HOCON(emqx_schema:duration(), #{
+                default => "5s",
+                desc => ?DESC(request_timeout)
+            })},
         {failed_action, failed_action()},
-        {ssl, sc(ref(ssl_conf), #{})},
+        {ssl, ?HOCON(?R_REF(ssl_conf), #{})},
         {auto_reconnect,
-            sc(
-                hoconsc:union([false, duration()]),
-                #{
-                    default => "60s",
-                    desc => ?DESC(auto_reconnect)
-                }
-            )},
+            ?HOCON(hoconsc:union([false, emqx_schema:duration()]), #{
+                default => "60s",
+                desc => ?DESC(auto_reconnect)
+            })},
         {pool_size,
-            sc(
-                pos_integer(),
-                #{
-                    default => 8,
-                    example => 8,
-                    desc => ?DESC(pool_size)
-                }
-            )}
+            ?HOCON(pos_integer(), #{
+                default => 8,
+                desc => ?DESC(pool_size)
+            })}
     ];
 fields(ssl_conf) ->
     Schema = emqx_schema:client_ssl_opts_schema(#{}),
@@ -115,20 +92,11 @@ desc(ssl_conf) ->
 desc(_) ->
     undefined.
 
-%% types
-sc(Type, Meta) -> Meta#{type => Type}.
-
-ref(Field) ->
-    hoconsc:ref(?MODULE, Field).
-
 failed_action() ->
-    sc(
-        hoconsc:enum([deny, ignore]),
-        #{
-            default => deny,
-            desc => ?DESC(failed_action)
-        }
-    ).
+    ?HOCON(?ENUM([deny, ignore]), #{
+        default => deny,
+        desc => ?DESC(failed_action)
+    }).
 
 validate_name(Name) ->
     NameRE = "^[A-Za-z0-9]+[A-Za-z0-9-_]*$",
@@ -138,7 +106,7 @@ validate_name(Name) ->
             case re:run(Name, NameRE) of
                 {match, _} ->
                     ok;
-                _Nomatch ->
+                _NoMatch ->
                     Reason = list_to_binary(
                         io_lib:format("Bad ExHook Name ~p, expect ~p", [Name, NameRE])
                     ),

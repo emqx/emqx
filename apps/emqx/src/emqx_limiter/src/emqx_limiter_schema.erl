@@ -78,7 +78,6 @@
 
 -export_type([limiter_type/0, bucket_path/0]).
 
--import(emqx_schema, [sc/2, map/2]).
 -define(UNIT_TIME_IN_MS, 1000).
 
 namespace() -> limiter.
@@ -87,28 +86,29 @@ roots() -> [limiter].
 
 fields(limiter) ->
     [
-        {Type, sc(ref(limiter_opts), #{desc => ?DESC(Type), default => #{<<"enable">> => false}})}
+        {Type,
+            ?HOCON(?R_REF(limiter_opts), #{
+                desc => ?DESC(Type),
+                default => #{<<"enable">> => false}
+            })}
      || Type <- types()
     ];
 fields(limiter_opts) ->
     [
-        {enable, sc(boolean(), #{desc => ?DESC(enable), default => true})},
-        {rate, sc(rate(), #{desc => ?DESC(rate), default => "infinity"})},
+        {enable, ?HOCON(boolean(), #{desc => ?DESC(enable), default => true})},
+        {rate, ?HOCON(rate(), #{desc => ?DESC(rate), default => "infinity"})},
         {burst,
-            sc(
-                burst_rate(),
-                #{
-                    desc => ?DESC(burst),
-                    default => 0
-                }
-            )},
+            ?HOCON(burst_rate(), #{
+                desc => ?DESC(burst),
+                default => 0
+            })},
         {bucket,
-            sc(
-                map("bucket_name", ref(bucket_opts)),
+            ?HOCON(
+                ?MAP("bucket_name", ?R_REF(bucket_opts)),
                 #{
                     desc => ?DESC(bucket_cfg),
                     default => #{<<"default">> => #{}},
-                    examples => #{
+                    example => #{
                         <<"mybucket-name">> => #{
                             <<"rate">> => <<"infinity">>,
                             <<"capcity">> => <<"infinity">>,
@@ -121,12 +121,12 @@ fields(limiter_opts) ->
     ];
 fields(bucket_opts) ->
     [
-        {rate, sc(rate(), #{desc => ?DESC(rate), default => "infinity"})},
-        {capacity, sc(capacity(), #{desc => ?DESC(capacity), default => "infinity"})},
-        {initial, sc(initial(), #{default => "0", desc => ?DESC(initial)})},
+        {rate, ?HOCON(rate(), #{desc => ?DESC(rate), default => "infinity"})},
+        {capacity, ?HOCON(capacity(), #{desc => ?DESC(capacity), default => "infinity"})},
+        {initial, ?HOCON(initial(), #{default => "0", desc => ?DESC(initial)})},
         {per_client,
-            sc(
-                ref(client_bucket),
+            ?HOCON(
+                ?R_REF(client_bucket),
                 #{
                     default => #{},
                     desc => ?DESC(per_client)
@@ -135,14 +135,14 @@ fields(bucket_opts) ->
     ];
 fields(client_bucket) ->
     [
-        {rate, sc(rate(), #{default => "infinity", desc => ?DESC(rate)})},
-        {initial, sc(initial(), #{default => "0", desc => ?DESC(initial)})},
+        {rate, ?HOCON(rate(), #{default => "infinity", desc => ?DESC(rate)})},
+        {initial, ?HOCON(initial(), #{default => "0", desc => ?DESC(initial)})},
         %% low_watermark add for emqx_channel and emqx_session
         %% both modules consume first and then check
         %% so we need to use this value to prevent excessive consumption
         %% (e.g, consumption from an empty bucket)
         {low_watermark,
-            sc(
+            ?HOCON(
                 initial(),
                 #{
                     desc => ?DESC(low_watermark),
@@ -150,12 +150,12 @@ fields(client_bucket) ->
                 }
             )},
         {capacity,
-            sc(capacity(), #{
+            ?HOCON(capacity(), #{
                 desc => ?DESC(client_bucket_capacity),
                 default => "infinity"
             })},
         {divisible,
-            sc(
+            ?HOCON(
                 boolean(),
                 #{
                     desc => ?DESC(divisible),
@@ -163,7 +163,7 @@ fields(client_bucket) ->
                 }
             )},
         {max_retry_time,
-            sc(
+            ?HOCON(
                 emqx_schema:duration(),
                 #{
                     desc => ?DESC(max_retry_time),
@@ -171,7 +171,7 @@ fields(client_bucket) ->
                 }
             )},
         {failure_strategy,
-            sc(
+            ?HOCON(
                 failure_strategy(),
                 #{
                     desc => ?DESC(failure_strategy),
@@ -212,7 +212,6 @@ types() ->
 %%--------------------------------------------------------------------
 %% Internal functions
 %%--------------------------------------------------------------------
-ref(Field) -> hoconsc:ref(?MODULE, Field).
 
 to_burst_rate(Str) ->
     to_rate(Str, false, true).

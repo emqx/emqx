@@ -32,7 +32,7 @@ fields("slow_subs") ->
             )},
         {stats_type,
             sc(
-                hoconsc:enum([whole, internal, response]),
+                ?ENUM([whole, internal, response]),
                 whole,
                 stats_type
             )}
@@ -47,4 +47,4 @@ desc(_) ->
 %% Internal functions
 %%--------------------------------------------------------------------
 sc(Type, Default, Desc) ->
-    hoconsc:mk(Type, #{default => Default, desc => ?DESC(Desc)}).
+    ?HOCON(Type, #{default => Default, desc => ?DESC(Desc)}).
