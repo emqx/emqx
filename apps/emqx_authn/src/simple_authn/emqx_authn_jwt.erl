@@ -72,6 +72,7 @@ fields('jwks') ->
     [
         {use_jwks, sc(hoconsc:enum([true]), #{required => true, desc => ?DESC(use_jwks)})},
         {endpoint, fun endpoint/1},
+        {pool_size, fun emqx_connector_schema_lib:pool_size/1},
         {refresh_interval, fun refresh_interval/1},
         {ssl, #{
             type => hoconsc:union([
