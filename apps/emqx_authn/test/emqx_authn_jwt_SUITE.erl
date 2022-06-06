@@ -61,7 +61,7 @@ t_jwt_authenticator_hmac_based(_) ->
         algorithm => 'hmac-based',
         secret => Secret,
         secret_base64_encoded => false,
-        verify_claims => []
+        verify_claims => [{<<"username">>, <<"${username}">>}]
     },
     {ok, State} = emqx_authn_jwt:create(?AUTHN_ID, Config),
 
