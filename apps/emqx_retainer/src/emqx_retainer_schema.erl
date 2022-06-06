@@ -12,6 +12,8 @@
     [3]
 ]).
 
+-define(INVALID_SPEC(_REASON_), throw({_REASON_, #{default => ?DEFAULT_INDICES}})).
+
 namespace() -> "retainer".
 
 roots() -> ["retainer"].
@@ -124,22 +126,30 @@ retainer_indices(example) ->
 retainer_indices(default) ->
     ?DEFAULT_INDICES;
 retainer_indices(validator) ->
-    fun is_valid_index_specs/1;
+    fun check_index_specs/1;
 retainer_indices(_) ->
     undefined.
 
-is_valid_index_specs(IndexSpecs) ->
-    case lists:all(fun is_valid_index_spec/1, IndexSpecs) of
-        true ->
-            case length(IndexSpecs) =:= ordsets:size(ordsets:from_list(IndexSpecs)) of
-                true -> ok;
-                false -> {error, duplicate_index_specs}
-            end;
-        false ->
-            {error, invalid_index_spec}
-    end.
+check_index_specs([]) ->
+    ok;
+check_index_specs(IndexSpecs) when is_list(IndexSpecs) ->
+    lists:foreach(fun check_index_spec/1, IndexSpecs),
+    check_duplicate(IndexSpecs);
+check_index_specs(_IndexSpecs) ->
+    ?INVALID_SPEC(list_index_spec_limited).
 
-is_valid_index_spec(IndexSpec) ->
-    length(IndexSpec) > 0 andalso
-        lists:all(fun(Idx) -> Idx > 0 end, IndexSpec) andalso
-        IndexSpec =:= ordsets:to_list(ordsets:from_list(IndexSpec)).
+check_index_spec([]) ->
+    ?INVALID_SPEC(non_empty_index_spec_limited);
+check_index_spec(IndexSpec) when is_list(IndexSpec) ->
+    case lists:all(fun(Idx) -> is_integer(Idx) andalso Idx > 0 end, IndexSpec) of
+        false -> ?INVALID_SPEC(pos_integer_index_limited);
+        true -> check_duplicate(IndexSpec)
+    end;
+check_index_spec(_IndexSpec) ->
+    ?INVALID_SPEC(list_index_spec_limited).
+
+check_duplicate(List) ->
+    case length(List) =:= length(lists:usort(List)) of
+        false -> ?INVALID_SPEC(unique_index_spec_limited);
+        true -> ok
+    end.
