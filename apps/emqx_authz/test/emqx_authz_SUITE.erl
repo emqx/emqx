@@ -78,6 +78,7 @@ set_special_configs(_App) ->
     <<"enable">> => true,
     <<"url">> => <<"https://example.com:443/a/b?c=d">>,
     <<"headers">> => #{},
+    <<"ssl">> => #{<<"enable">> => true},
     <<"method">> => <<"get">>,
     <<"request_timeout">> => 5000
 }).
