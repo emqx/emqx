@@ -12,6 +12,8 @@
     [3]
 ]).
 
+-define(INVALID_SPEC(_REASON_), throw({_REASON_, #{default => ?DEFAULT_INDICES}})).
+
 namespace() -> "retainer".
 
 roots() -> ["retainer"].
@@ -134,23 +136,20 @@ check_index_specs(IndexSpecs) when is_list(IndexSpecs) ->
     lists:foreach(fun check_index_spec/1, IndexSpecs),
     check_duplicate(IndexSpecs);
 check_index_specs(_IndexSpecs) ->
-    invalid_spec(list_index_spec_limited).
+    ?INVALID_SPEC(list_index_spec_limited).
 
 check_index_spec([]) ->
-    invalid_spec(non_empty_index_spec_limited);
+    ?INVALID_SPEC(non_empty_index_spec_limited);
 check_index_spec(IndexSpec) when is_list(IndexSpec) ->
     case lists:all(fun(Idx) -> is_integer(Idx) andalso Idx > 0 end, IndexSpec) of
-        false -> invalid_spec(pos_integer_index_limited);
+        false -> ?INVALID_SPEC(pos_integer_index_limited);
         true -> check_duplicate(IndexSpec)
     end;
 check_index_spec(_IndexSpec) ->
-    invalid_spec(list_index_spec_limited).
+    ?INVALID_SPEC(list_index_spec_limited).
 
 check_duplicate(List) ->
     case length(List) =:= length(lists:usort(List)) of
-        false -> invalid_spec(unique_index_spec_limited);
+        false -> ?INVALID_SPEC(unique_index_spec_limited);
         true -> ok
     end.
-
-invalid_spec(Reason) ->
-    throw({Reason, #{default => ?DEFAULT_INDICES}}).
