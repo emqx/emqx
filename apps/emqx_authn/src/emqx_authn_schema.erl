@@ -18,7 +18,6 @@
 
 -elvis([{elvis_style, invalid_dynamic_call, disable}]).
 -include_lib("hocon/include/hoconsc.hrl").
--import(hoconsc, [mk/2, ref/2]).
 
 -export([
     common_fields/0,
@@ -45,20 +44,18 @@ authenticator_type() ->
     hoconsc:union(config_refs([Module || {_AuthnType, Module} <- emqx_authn:providers()])).
 
 authenticator_type_without_scram() ->
-    Providers = lists:filter(
+    Providers = lists:filtermap(
         fun
-            ({{password_based, _Backend}, _Mod}) ->
-                true;
-            ({jwt, _Mod}) ->
-                true;
+            ({{password_based, _Backend}, Mod}) ->
+                {true, Mod};
+            ({jwt, Mod}) ->
+                {true, Mod};
             ({{scram, _Backend}, _Mod}) ->
                 false
         end,
         emqx_authn:providers()
     ),
-    hoconsc:union(
-        config_refs([Module || {_AuthnType, Module} <- Providers])
-    ).
+    hoconsc:union(config_refs(Providers)).
 
 config_refs(Modules) ->
     lists:append([Module:refs() || Module <- Modules]).
@@ -70,8 +67,8 @@ root_type() ->
     hoconsc:array(authenticator_type()).
 
 mechanism(Name) ->
-    hoconsc:mk(
-        hoconsc:enum([Name]),
+    ?HOCON(
+        Name,
         #{
             required => true,
             desc => ?DESC("mechanism")
@@ -79,81 +76,62 @@ mechanism(Name) ->
     ).
 
 backend(Name) ->
-    hoconsc:mk(
-        hoconsc:enum([Name]),
-        #{
-            required => true,
-            desc => ?DESC("backend")
-        }
-    ).
+    ?HOCON(Name, #{
+        required => true,
+        desc => ?DESC("backend")
+    }).
 
 fields("metrics_status_fields") ->
     [
-        {"resource_metrics", mk(ref(?MODULE, "resource_metrics"), #{desc => ?DESC("metrics")})},
-        {"node_resource_metrics",
-            mk(
-                hoconsc:array(ref(?MODULE, "node_resource_metrics")),
-                #{desc => ?DESC("node_metrics")}
-            )},
-        {"metrics", mk(ref(?MODULE, "metrics"), #{desc => ?DESC("metrics")})},
-        {"node_metrics",
-            mk(
-                hoconsc:array(ref(?MODULE, "node_metrics")),
-                #{desc => ?DESC("node_metrics")}
-            )},
-        {"status", mk(cluster_status(), #{desc => ?DESC("status")})},
-        {"node_status",
-            mk(
-                hoconsc:array(ref(?MODULE, "node_status")),
-                #{desc => ?DESC("node_status")}
-            )},
-        {"node_error",
-            mk(
-                hoconsc:array(ref(?MODULE, "node_error")),
-                #{desc => ?DESC("node_error")}
-            )}
+        {"resource_metrics", ?HOCON(?R_REF("resource_metrics"), #{desc => ?DESC("metrics")})},
+        array("node_resource_metrics", "node_metrics"),
+        {"metrics", ?HOCON(?R_REF("metrics"), #{desc => ?DESC("metrics")})},
+        array("node_metrics"),
+        {"status", ?HOCON(cluster_status(), #{desc => ?DESC("status")})},
+        array("node_status"),
+        array("node_error")
     ];
 fields("metrics") ->
     [
-        {"nomatch", mk(integer(), #{desc => ?DESC("metrics_nomatch")})},
-        {"total", mk(integer(), #{desc => ?DESC("metrics_total")})},
-        {"success", mk(integer(), #{desc => ?DESC("metrics_success")})},
-        {"failed", mk(integer(), #{desc => ?DESC("metrics_failed")})},
-        {"rate", mk(float(), #{desc => ?DESC("metrics_rate")})},
-        {"rate_max", mk(float(), #{desc => ?DESC("metrics_rate_max")})},
-        {"rate_last5m", mk(float(), #{desc => ?DESC("metrics_rate_last5m")})}
+        {"nomatch", ?HOCON(integer(), #{desc => ?DESC("metrics_nomatch")})},
+        {"total", ?HOCON(integer(), #{desc => ?DESC("metrics_total")})},
+        {"success", ?HOCON(integer(), #{desc => ?DESC("metrics_success")})},
+        {"failed", ?HOCON(integer(), #{desc => ?DESC("metrics_failed")})},
+        {"rate", ?HOCON(float(), #{desc => ?DESC("metrics_rate")})},
+        {"rate_max", ?HOCON(float(), #{desc => ?DESC("metrics_rate_max")})},
+        {"rate_last5m", ?HOCON(float(), #{desc => ?DESC("metrics_rate_last5m")})}
     ];
 fields("resource_metrics") ->
     common_field();
 fields("node_metrics") ->
     [
         node_name(),
-        {"metrics", mk(ref(?MODULE, "metrics"), #{desc => ?DESC("metrics")})}
+        {"metrics", ?HOCON(?R_REF("metrics"), #{desc => ?DESC("metrics")})}
     ];
 fields("node_resource_metrics") ->
     [
         node_name(),
-        {"metrics", mk(ref(?MODULE, "resource_metrics"), #{desc => ?DESC("metrics")})}
+        {"metrics", ?HOCON(?R_REF("resource_metrics"), #{desc => ?DESC("metrics")})}
     ];
 fields("node_status") ->
     [
         node_name(),
-        {"status", mk(status(), #{desc => ?DESC("node_status")})}
+        {"status", ?HOCON(status(), #{desc => ?DESC("node_status")})}
     ];
 fields("node_error") ->
     [
         node_name(),
-        {"error", mk(string(), #{desc => ?DESC("node_error")})}
+        {"error", ?HOCON(string(), #{desc => ?DESC("node_error")})}
     ].
 
 common_field() ->
     [
-        {"matched", mk(integer(), #{desc => ?DESC("matched")})},
-        {"success", mk(integer(), #{desc => ?DESC("success")})},
-        {"failed", mk(integer(), #{desc => ?DESC("failed")})},
-        {"rate", mk(float(), #{desc => ?DESC("rate")})},
-        {"rate_max", mk(float(), #{desc => ?DESC("rate_max")})},
-        {"rate_last5m", mk(float(), #{desc => ?DESC("rate_last5m")})}
+        {"matched", ?HOCON(integer(), #{desc => ?DESC("matched")})},
+        {"success", ?HOCON(integer(), #{desc => ?DESC("success")})},
+        {"failed", ?HOCON(integer(), #{desc => ?DESC("failed")})},
+        {"rate", ?HOCON(float(), #{desc => ?DESC("rate")})},
+        {"rate_max", ?HOCON(float(), #{desc => ?DESC("rate_max")})},
+        {"rate_last5m", ?HOCON(float(), #{desc => ?DESC("rate_last5m")})}
     ].
 
 status() ->
@@ -163,4 +141,10 @@ cluster_status() ->
     hoconsc:enum([connected, disconnected, connecting, inconsistent]).
 
 node_name() ->
-    {"node", mk(binary(), #{desc => ?DESC("node"), example => "emqx@127.0.0.1"})}.
+    {"node", ?HOCON(binary(), #{desc => ?DESC("node"), example => "emqx@127.0.0.1"})}.
+
+array(Name) ->
+    array(Name, Name).
+
+array(Name, DescId) ->
+    {Name, ?HOCON(?R_REF(Name), #{desc => ?DESC(DescId)})}.

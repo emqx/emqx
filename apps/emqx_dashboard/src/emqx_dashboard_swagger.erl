@@ -667,6 +667,8 @@ typename_to_spec("{binary(), binary()}", _Mod) ->
     #{type => object, example => #{}};
 typename_to_spec("comma_separated_list()", _Mod) ->
     #{type => string, example => <<"item1,item2">>};
+typename_to_spec("comma_separated_binary()", _Mod) ->
+    #{type => string, example => <<"item1,item2">>};
 typename_to_spec("comma_separated_atoms()", _Mod) ->
     #{type => string, example => <<"item1,item2">>};
 typename_to_spec("pool_type()", _Mod) ->

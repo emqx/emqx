@@ -34,7 +34,7 @@ roots() -> ["prometheus"].
 fields("prometheus") ->
     [
         {push_gateway_server,
-            sc(
+            ?HOCON(
                 string(),
                 #{
                     default => "http://127.0.0.1:9091",
@@ -43,7 +43,7 @@ fields("prometheus") ->
                 }
             )},
         {interval,
-            sc(
+            ?HOCON(
                 emqx_schema:duration_ms(),
                 #{
                     default => "15s",
@@ -52,7 +52,7 @@ fields("prometheus") ->
                 }
             )},
         {enable,
-            sc(
+            ?HOCON(
                 boolean(),
                 #{
                     default => false,
@@ -64,5 +64,3 @@ fields("prometheus") ->
 
 desc("prometheus") -> ?DESC(prometheus);
 desc(_) -> undefined.
-
-sc(Type, Meta) -> hoconsc:mk(Type, Meta).

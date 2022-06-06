@@ -39,33 +39,34 @@ roots() ->
     ].
 
 fields("telemetry") ->
-    [{enable, hoconsc:mk(boolean(), #{default => true, desc => "Enable telemetry."})}];
+    [{enable, ?HOCON(boolean(), #{default => true, desc => "Enable telemetry."})}];
 fields("delayed") ->
     [
-        {enable, hoconsc:mk(boolean(), #{default => true, desc => ?DESC(enable)})},
-        {max_delayed_messages, sc(integer(), #{desc => ?DESC(max_delayed_messages), default => 0})}
+        {enable, ?HOCON(boolean(), #{default => true, desc => ?DESC(enable)})},
+        {max_delayed_messages,
+            ?HOCON(integer(), #{desc => ?DESC(max_delayed_messages), default => 0})}
     ];
 fields("rewrite") ->
     [
         {action,
-            sc(
+            ?HOCON(
                 hoconsc:enum([subscribe, publish, all]),
                 #{required => true, desc => ?DESC(tr_action), example => publish}
             )},
         {source_topic,
-            sc(
+            ?HOCON(
                 binary(),
                 #{required => true, desc => ?DESC(tr_source_topic), example => "x/#"}
             )},
         {dest_topic,
-            sc(
+            ?HOCON(
                 binary(),
                 #{required => true, desc => ?DESC(tr_dest_topic), example => "z/y/$1"}
             )},
         {re, fun regular_expression/1}
     ];
 fields("topic_metrics") ->
-    [{topic, sc(binary(), #{desc => "Collect metrics for the topic."})}].
+    [{topic, ?HOCON(binary(), #{desc => "Collect metrics for the topic."})}].
 
 desc("telemetry") ->
     "Settings for the telemetry module.";
@@ -91,6 +92,4 @@ is_re(Bin) ->
         {error, Reason} -> {error, {Bin, Reason}}
     end.
 
-array(Name, Meta) -> {Name, hoconsc:mk(hoconsc:array(hoconsc:ref(?MODULE, Name)), Meta)}.
-
-sc(Type, Meta) -> hoconsc:mk(Type, Meta).
+array(Name, Meta) -> {Name, ?HOCON(?ARRAY(?R_REF(Name)), Meta)}.

@@ -27,8 +27,6 @@
     fields/1
 ]).
 
--import(emqx_schema, [sc/2]).
-
 namespace() -> "authn-psk".
 
 roots() -> ["psk_authentication"].
@@ -42,33 +40,24 @@ fields("psk_authentication") ->
 fields() ->
     [
         {enable,
-            sc(boolean(), #{
+            ?HOCON(boolean(), #{
                 default => false,
                 require => true,
                 desc => ?DESC(enable)
             })},
         {init_file,
-            sc(
-                binary(),
-                #{
-                    required => false,
-                    desc => ?DESC(init_file)
-                }
-            )},
+            ?HOCON(binary(), #{
+                required => false,
+                desc => ?DESC(init_file)
+            })},
         {separator,
-            sc(
-                binary(),
-                #{
-                    default => <<":">>,
-                    desc => ?DESC(separator)
-                }
-            )},
+            ?HOCON(binary(), #{
+                default => <<":">>,
+                desc => ?DESC(separator)
+            })},
         {chunk_size,
-            sc(
-                integer(),
-                #{
-                    default => 50,
-                    desc => ?DESC(chunk_size)
-                }
-            )}
+            ?HOCON(integer(), #{
+                default => 50,
+                desc => ?DESC(chunk_size)
+            })}
     ].

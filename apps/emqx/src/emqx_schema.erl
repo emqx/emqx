@@ -36,6 +36,7 @@
 -type percent() :: float().
 -type file() :: string().
 -type comma_separated_list() :: list().
+-type comma_separated_binary() :: [binary()].
 -type comma_separated_atoms() :: [atom()].
 -type bar_separated_list() :: list().
 -type ip_port() :: tuple().
@@ -48,6 +49,7 @@
 -typerefl_from_string({wordsize/0, emqx_schema, to_wordsize}).
 -typerefl_from_string({percent/0, emqx_schema, to_percent}).
 -typerefl_from_string({comma_separated_list/0, emqx_schema, to_comma_separated_list}).
+-typerefl_from_string({comma_separated_binary/0, emqx_schema, to_comma_separated_binary}).
 -typerefl_from_string({bar_separated_list/0, emqx_schema, to_bar_separated_list}).
 -typerefl_from_string({ip_port/0, emqx_schema, to_ip_port}).
 -typerefl_from_string({cipher/0, emqx_schema, to_erl_cipher_suite}).
@@ -73,6 +75,7 @@
     to_wordsize/1,
     to_percent/1,
     to_comma_separated_list/1,
+    to_comma_separated_binary/1,
     to_bar_separated_list/1,
     to_ip_port/1,
     to_erl_cipher_suite/1,
@@ -90,6 +93,7 @@
     percent/0,
     file/0,
     comma_separated_list/0,
+    comma_separated_binary/0,
     bar_separated_list/0,
     ip_port/0,
     cipher/0,
@@ -315,7 +319,6 @@ fields("authorization") ->
                 #{
                     default => allow,
                     required => true,
-                    %% TODO: make sources a reference link
                     desc => ?DESC(fields_authorization_no_match)
                 }
             )},
@@ -455,7 +458,7 @@ fields("mqtt") ->
             sc(
                 string(),
                 #{
-                    default => "",
+                    default => <<"">>,
                     desc => ?DESC(mqtt_response_information)
                 }
             )},
@@ -790,7 +793,7 @@ fields("mqtt_tcp_listener") ->
                 ref("tcp_opts"),
                 #{}
             )}
-    ] ++ mqtt_listener();
+    ] ++ mqtt_listener(1883);
 fields("mqtt_ssl_listener") ->
     [
         {"tcp",
@@ -803,7 +806,7 @@ fields("mqtt_ssl_listener") ->
                 ref("listener_ssl_opts"),
                 #{}
             )}
-    ] ++ mqtt_listener();
+    ] ++ mqtt_listener(8883);
 fields("mqtt_ws_listener") ->
     [
         {"tcp",
@@ -816,7 +819,7 @@ fields("mqtt_ws_listener") ->
                 ref("ws_opts"),
                 #{}
             )}
-    ] ++ mqtt_listener();
+    ] ++ mqtt_listener(8083);
 fields("mqtt_wss_listener") ->
     [
         {"tcp",
@@ -834,7 +837,7 @@ fields("mqtt_wss_listener") ->
                 ref("ws_opts"),
                 #{}
             )}
-    ] ++ mqtt_listener();
+    ] ++ mqtt_listener(8084);
 fields("mqtt_quic_listener") ->
     [
         {"enabled",
@@ -865,7 +868,7 @@ fields("mqtt_quic_listener") ->
                     desc => ?DESC(fields_mqtt_quic_listener_idle_timeout)
                 }
             )}
-    ] ++ base_listener();
+    ] ++ base_listener(14567);
 fields("ws_opts") ->
     [
         {"mqtt_path",
@@ -942,9 +945,10 @@ fields("ws_opts") ->
             )},
         {"check_origins",
             sc(
-                hoconsc:array(binary()),
+                comma_separated_binary(),
                 #{
-                    default => [],
+                    default => "",
+                    example => <<"http://localhost:18083, http://127.0.0.1:18083">>,
                     desc => ?DESC(fields_ws_opts_check_origins)
                 }
             )},
@@ -1007,19 +1011,25 @@ fields("tcp_opts") ->
         {"recbuf",
             sc(
                 bytesize(),
-                #{desc => ?DESC(fields_tcp_opts_recbuf)}
+                #{
+                    example => <<"2KB">>,
+                    desc => ?DESC(fields_tcp_opts_recbuf)
+                }
             )},
         {"sndbuf",
             sc(
                 bytesize(),
-                #{desc => ?DESC(fields_tcp_opts_sndbuf)}
+                #{
+                    example => <<"4KB">>,
+                    desc => ?DESC(fields_tcp_opts_sndbuf)
+                }
             )},
         {"buffer",
             sc(
                 bytesize(),
                 #{
-                    desc => ?DESC(fields_tcp_opts_buffer),
-                    default => "4KB"
+                    example => <<"4KB">>,
+                    desc => ?DESC(fields_tcp_opts_buffer)
                 }
             )},
         {"high_watermark",
@@ -1087,12 +1097,16 @@ fields("deflate_opts") ->
         {"strategy",
             sc(
                 hoconsc:enum([default, filtered, huffman_only, rle]),
-                #{desc => ?DESC(fields_deflate_opts_strategy)}
+                #{
+                    default => default,
+                    desc => ?DESC(fields_deflate_opts_strategy)
+                }
             )},
         {"server_context_takeover",
             sc(
                 hoconsc:enum([takeover, no_takeover]),
                 #{
+                    default => takeover,
                     desc => ?DESC(fields_deflate_opts_server_context_takeover)
                 }
             )},
@@ -1100,6 +1114,7 @@ fields("deflate_opts") ->
             sc(
                 hoconsc:enum([takeover, no_takeover]),
                 #{
+                    default => takeover,
                     desc => ?DESC(fields_deflate_opts_client_context_takeover)
                 }
             )},
@@ -1107,16 +1122,16 @@ fields("deflate_opts") ->
             sc(
                 range(8, 15),
                 #{
-                    desc => ?DESC(fields_deflate_opts_server_max_window_bits),
-                    default => 15
+                    default => 15,
+                    desc => ?DESC(fields_deflate_opts_server_max_window_bits)
                 }
             )},
         {"client_max_window_bits",
             sc(
                 range(8, 15),
                 #{
-                    desc => ?DESC(fields_deflate_opts_client_max_window_bits),
-                    default => 15
+                    default => 15,
+                    desc => ?DESC(fields_deflate_opts_client_max_window_bits)
                 }
             )}
     ];
@@ -1170,7 +1185,10 @@ fields("broker") ->
         {"shared_subscription_group",
             sc(
                 map(name, ref("shared_subscription_group")),
-                #{desc => ?DESC(shared_subscription_group_strategy)}
+                #{
+                    example => #{<<"example_group">> => #{<<"strategy">> => <<"random">>}},
+                    desc => ?DESC(shared_subscription_group_strategy)
+                }
             )}
     ];
 fields("shared_subscription_group") ->
@@ -1179,6 +1197,7 @@ fields("shared_subscription_group") ->
             sc(
                 hoconsc:enum([random, round_robin, sticky, local, hash_topic, hash_clientid]),
                 #{
+                    default => random,
                     desc => ?DESC(shared_subscription_strategy_enum)
                 }
             )}
@@ -1309,6 +1328,7 @@ fields("sysmon_vm") ->
             sc(
                 hoconsc:union([disabled, duration()]),
                 #{
+                    default => disabled,
                     desc => ?DESC(sysmon_vm_long_gc)
                 }
             )},
@@ -1511,8 +1531,8 @@ fields("trace") ->
             })}
     ].
 
-mqtt_listener() ->
-    base_listener() ++
+mqtt_listener(Bind) ->
+    base_listener(Bind) ++
         [
             {"access_rules",
                 sc(
@@ -1541,14 +1561,15 @@ mqtt_listener() ->
             {?EMQX_AUTHENTICATION_CONFIG_ROOT_NAME, authentication(listener)}
         ].
 
-base_listener() ->
+base_listener(Bind) ->
     [
         {"bind",
             sc(
                 hoconsc:union([ip_port(), integer()]),
                 #{
-                    desc => ?DESC(base_listener_bind),
-                    required => true
+                    default => Bind,
+                    required => true,
+                    desc => ?DESC(base_listener_bind)
                 }
             )},
         {"acceptors",
@@ -1822,6 +1843,7 @@ common_ssl_opts_schema(Defaults) ->
                 #{
                     sensitive => true,
                     required => false,
+                    example => <<"">>,
                     desc => ?DESC(common_ssl_opts_schema_password)
                 }
             )},
@@ -1926,6 +1948,7 @@ client_ssl_opts_schema(Defaults) ->
                     hoconsc:union([disable, string()]),
                     #{
                         required => false,
+                        example => disable,
                         validator => fun emqx_schema:non_empty_string/1,
                         desc => ?DESC(client_ssl_opts_schema_server_name_indication)
                     }
@@ -2059,6 +2082,9 @@ to_percent(Str) ->
 
 to_comma_separated_list(Str) ->
     {ok, string:tokens(Str, ", ")}.
+
+to_comma_separated_binary(Str) ->
+    {ok, lists:map(fun erlang:list_to_binary/1, string:tokens(Str, ", "))}.
 
 to_comma_separated_atoms(Str) ->
     {ok, lists:map(fun to_atom/1, string:tokens(Str, ", "))}.
