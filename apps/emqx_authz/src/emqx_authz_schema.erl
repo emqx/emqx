@@ -19,7 +19,6 @@
 -include("emqx_authz.hrl").
 -include_lib("hocon/include/hoconsc.hrl").
 -include_lib("emqx_connector/include/emqx_connector.hrl").
--import(hoconsc, [mk/2, ref/2]).
 
 -reflect_type([
     permission/0,
@@ -55,43 +54,46 @@ namespace() -> authz.
 roots() -> [].
 
 fields("authorization") ->
+    Types = [
+        file,
+        http_get,
+        http_post,
+        mnesia,
+        mongo_single,
+        mongo_rs,
+        mongo_sharded,
+        mysql,
+        postgresql,
+        redis_single,
+        redis_sentinel,
+        redis_cluster
+    ],
+    Unions = [?R_REF(Type) || Type <- Types],
     [
-        {sources, #{
-            type => union_array(
-                [
-                    hoconsc:ref(?MODULE, file),
-                    hoconsc:ref(?MODULE, http_get),
-                    hoconsc:ref(?MODULE, http_post),
-                    hoconsc:ref(?MODULE, mnesia),
-                    hoconsc:ref(?MODULE, mongo_single),
-                    hoconsc:ref(?MODULE, mongo_rs),
-                    hoconsc:ref(?MODULE, mongo_sharded),
-                    hoconsc:ref(?MODULE, mysql),
-                    hoconsc:ref(?MODULE, postgresql),
-                    hoconsc:ref(?MODULE, redis_single),
-                    hoconsc:ref(?MODULE, redis_sentinel),
-                    hoconsc:ref(?MODULE, redis_cluster)
-                ]
-            ),
-            default => [],
-            desc => ?DESC(sources)
-        }}
+        {sources,
+            ?HOCON(
+                ?ARRAY(?UNION(Unions)),
+                #{
+                    default => [],
+                    desc => ?DESC(sources)
+                }
+            )}
     ];
 fields(file) ->
     authz_common_fields(file) ++
-        [{path, #{type => string(), required => true, desc => ?DESC(path)}}];
+        [{path, ?HOCON(string(), #{required => true, desc => ?DESC(path)})}];
 fields(http_get) ->
     authz_common_fields(http) ++
         http_common_fields() ++
         [
-            {method, #{type => get, default => get, required => true, desc => ?DESC(method)}},
+            {method, method(get)},
             {headers, fun headers_no_content_type/1}
         ];
 fields(http_post) ->
     authz_common_fields(http) ++
         http_common_fields() ++
         [
-            {method, #{type => post, default => post, required => true, desc => ?DESC(method)}},
+            {method, method(post)},
             {headers, fun headers/1}
         ];
 fields(mnesia) ->
@@ -130,65 +132,49 @@ fields(redis_cluster) ->
         [{cmd, cmd()}];
 fields("metrics_status_fields") ->
     [
-        {"resource_metrics", mk(ref(?MODULE, "resource_metrics"), #{desc => ?DESC("metrics")})},
-        {"node_resource_metrics",
-            mk(
-                hoconsc:array(ref(?MODULE, "node_resource_metrics")),
-                #{desc => ?DESC("node_metrics")}
-            )},
-        {"metrics", mk(ref(?MODULE, "metrics"), #{desc => ?DESC("metrics")})},
-        {"node_metrics",
-            mk(
-                hoconsc:array(ref(?MODULE, "node_metrics")),
-                #{desc => ?DESC("node_metrics")}
-            )},
-        {"status", mk(cluster_status(), #{desc => ?DESC("status")})},
-        {"node_status",
-            mk(
-                hoconsc:array(ref(?MODULE, "node_status")),
-                #{desc => ?DESC("node_status")}
-            )},
-        {"node_error",
-            mk(
-                hoconsc:array(ref(?MODULE, "node_error")),
-                #{desc => ?DESC("node_error")}
-            )}
+        {"resource_metrics", ?HOCON(?R_REF("resource_metrics"), #{desc => ?DESC("metrics")})},
+        {"node_resource_metrics", array("node_resource_metrics", "node_metrics")},
+        {"metrics", ?HOCON(?R_REF("metrics"), #{desc => ?DESC("metrics")})},
+        {"node_metrics", array("node_metrics")},
+        {"status", ?HOCON(cluster_status(), #{desc => ?DESC("status")})},
+        {"node_status", array("node_status")},
+        {"node_error", array("node_error")}
     ];
 fields("metrics") ->
     [
-        {"total", mk(integer(), #{desc => ?DESC("metrics_total")})},
-        {"allow", mk(integer(), #{desc => ?DESC("allow")})},
-        {"deny", mk(integer(), #{desc => ?DESC("deny")})},
-        {"nomatch", mk(float(), #{desc => ?DESC("nomatch")})}
+        {"total", ?HOCON(integer(), #{desc => ?DESC("metrics_total")})},
+        {"allow", ?HOCON(integer(), #{desc => ?DESC("allow")})},
+        {"deny", ?HOCON(integer(), #{desc => ?DESC("deny")})},
+        {"nomatch", ?HOCON(float(), #{desc => ?DESC("nomatch")})}
     ] ++ common_rate_field();
 fields("node_metrics") ->
     [
         node_name(),
-        {"metrics", mk(ref(?MODULE, "metrics"), #{desc => ?DESC("metrics")})}
+        {"metrics", ?HOCON(?R_REF("metrics"), #{desc => ?DESC("metrics")})}
     ];
 fields("resource_metrics") ->
     common_field();
 fields("node_resource_metrics") ->
     [
         node_name(),
-        {"metrics", mk(ref(?MODULE, "resource_metrics"), #{desc => ?DESC("metrics")})}
+        {"metrics", ?HOCON(?R_REF("resource_metrics"), #{desc => ?DESC("metrics")})}
     ];
 fields("node_status") ->
     [
         node_name(),
-        {"status", mk(status(), #{desc => ?DESC("node_status")})}
+        {"status", ?HOCON(status(), #{desc => ?DESC("node_status")})}
     ];
 fields("node_error") ->
     [
         node_name(),
-        {"error", mk(string(), #{desc => ?DESC("node_error")})}
+        {"error", ?HOCON(string(), #{desc => ?DESC("node_error")})}
     ].
 
 common_field() ->
     [
-        {"matched", mk(integer(), #{desc => ?DESC("matched")})},
-        {"success", mk(integer(), #{desc => ?DESC("success")})},
-        {"failed", mk(integer(), #{desc => ?DESC("failed")})}
+        {"matched", ?HOCON(integer(), #{desc => ?DESC("matched")})},
+        {"success", ?HOCON(integer(), #{desc => ?DESC("success")})},
+        {"failed", ?HOCON(integer(), #{desc => ?DESC("failed")})}
     ] ++ common_rate_field().
 
 status() ->
@@ -198,7 +184,7 @@ cluster_status() ->
     hoconsc:enum([connected, disconnected, connecting, inconsistent]).
 
 node_name() ->
-    {"node", mk(binary(), #{desc => ?DESC("node"), example => "emqx@127.0.0.1"})}.
+    {"node", ?HOCON(binary(), #{desc => ?DESC("node"), example => "emqx@127.0.0.1"})}.
 
 desc(?CONF_NS) ->
     ?DESC(?CONF_NS);
@@ -231,8 +217,8 @@ desc(_) ->
 
 authz_common_fields(Type) ->
     [
-        {type, #{type => Type, required => true, desc => ?DESC(type)}},
-        {enable, #{type => boolean(), default => true, desc => ?DESC(enable)}}
+        {type, ?HOCON(Type, #{required => true, desc => ?DESC(type)})},
+        {enable, ?HOCON(boolean(), #{default => true, desc => ?DESC(enable)})}
     ].
 
 http_common_fields() ->
@@ -242,7 +228,7 @@ http_common_fields() ->
             mk_duration("Request timeout", #{
                 required => false, default => "30s", desc => ?DESC(request_timeout)
             })},
-        {body, #{type => map(), required => false, desc => ?DESC(body)}}
+        {body, ?HOCON(map(), #{required => false, desc => ?DESC(body)})}
     ] ++
         maps:to_list(
             maps:without(
@@ -256,17 +242,17 @@ http_common_fields() ->
 
 mongo_common_fields() ->
     [
-        {collection, #{
-            type => atom(),
-            required => true,
-            desc => ?DESC(collection)
-        }},
-        {filter, #{
-            type => map(),
-            required => false,
-            default => #{},
-            desc => ?DESC(filter)
-        }}
+        {collection,
+            ?HOCON(atom(), #{
+                required => true,
+                desc => ?DESC(collection)
+            })},
+        {filter,
+            ?HOCON(map(), #{
+                required => false,
+                default => #{},
+                desc => ?DESC(filter)
+            })}
     ].
 
 validations() ->
@@ -347,31 +333,31 @@ transform_header_name(Headers) ->
         Headers
     ).
 
-%% TODO: fix me, not work
 check_ssl_opts(Conf) ->
-    case hocon_maps:get("config.url", Conf) of
-        undefined ->
-            true;
-        Url ->
-            case emqx_authz_http:parse_url(Url) of
-                {<<"https", _>>, _, _} ->
-                    case hocon_maps:get("config.ssl.enable", Conf) of
-                        true -> true;
-                        _ -> {error, ssl_not_enable}
-                    end;
-                {<<"http", _>>, _, _} ->
-                    true;
-                Bad ->
-                    {bad_scheme, Url, Bad}
-            end
-    end.
-
-union_array(Item) when is_list(Item) ->
-    hoconsc:array(hoconsc:union(Item)).
+    Sources = hocon_maps:get("authorization.sources", Conf, []),
+    lists:foreach(
+        fun
+            (#{<<"url">> := Url} = Source) ->
+                case emqx_authz_http:parse_url(Url) of
+                    {<<"https", _/binary>>, _, _} ->
+                        case emqx_map_lib:deep_find([<<"ssl">>, <<"enable">>], Source) of
+                            {ok, true} -> true;
+                            {ok, false} -> throw({ssl_not_enable, Url});
+                            _ -> throw({ssl_enable_not_found, Url})
+                        end;
+                    {<<"http", _/binary>>, _, _} ->
+                        ok;
+                    Bad ->
+                        throw({bad_scheme, Url, Bad})
+                end;
+            (_Source) ->
+                ok
+        end,
+        Sources
+    ).
 
 query() ->
-    #{
-        type => binary(),
+    ?HOCON(binary(), #{
         desc => ?DESC(query),
         required => true,
         validator => fun(S) ->
@@ -380,11 +366,10 @@ query() ->
                 _ -> {error, "Request query"}
             end
         end
-    }.
+    }).
 
 cmd() ->
-    #{
-        type => binary(),
+    ?HOCON(binary(), #{
         desc => ?DESC(cmd),
         required => true,
         validator => fun(S) ->
@@ -393,7 +378,7 @@ cmd() ->
                 _ -> {error, "Request query"}
             end
         end
-    }.
+    }).
 
 connector_fields(DB) ->
     connector_fields(DB, config).
@@ -417,7 +402,15 @@ to_list(B) when is_binary(B) ->
 
 common_rate_field() ->
     [
-        {"rate", mk(float(), #{desc => ?DESC("rate")})},
-        {"rate_max", mk(float(), #{desc => ?DESC("rate_max")})},
-        {"rate_last5m", mk(float(), #{desc => ?DESC("rate_last5m")})}
+        {"rate", ?HOCON(float(), #{desc => ?DESC("rate")})},
+        {"rate_max", ?HOCON(float(), #{desc => ?DESC("rate_max")})},
+        {"rate_last5m", ?HOCON(float(), #{desc => ?DESC("rate_last5m")})}
     ].
+
+method(Method) ->
+    ?HOCON(Method, #{default => Method, required => true, desc => ?DESC(method)}).
+
+array(Ref) -> array(Ref, Ref).
+
+array(Ref, DescId) ->
+    ?HOCON(?ARRAY(?R_REF(Ref)), #{desc => ?DESC(DescId)}).

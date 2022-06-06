@@ -36,36 +36,36 @@ roots() ->
 fields("auto_subscribe") ->
     [
         {topics,
-            hoconsc:mk(
-                hoconsc:array(hoconsc:ref(?MODULE, "topic")),
+            ?HOCON(
+                ?ARRAY(?R_REF("topic")),
                 #{desc => ?DESC(auto_subscribe), default => []}
             )}
     ];
 fields("topic") ->
     [
         {topic,
-            sc(binary(), #{
+            ?HOCON(binary(), #{
                 required => true,
                 example => topic_example(),
                 desc => ?DESC("topic")
             })},
         {qos,
-            sc(emqx_schema:qos(), #{
+            ?HOCON(emqx_schema:qos(), #{
                 default => 0,
                 desc => ?DESC("qos")
             })},
         {rh,
-            sc(range(0, 2), #{
+            ?HOCON(range(0, 2), #{
                 default => 0,
                 desc => ?DESC("rh")
             })},
         {rap,
-            sc(range(0, 1), #{
+            ?HOCON(range(0, 1), #{
                 default => 0,
                 desc => ?DESC("rap")
             })},
         {nl,
-            sc(range(0, 1), #{
+            ?HOCON(range(0, 1), #{
                 default => 0,
                 desc => ?DESC(nl)
             })}
@@ -78,10 +78,3 @@ desc(_) -> undefined.
 topic_example() ->
     <<"/clientid/", ?PH_S_CLIENTID, "/username/", ?PH_S_USERNAME, "/host/", ?PH_S_HOST, "/port/",
         ?PH_S_PORT>>.
-
-%%--------------------------------------------------------------------
-%% Internal functions
-%%--------------------------------------------------------------------
-
-sc(Type, Meta) ->
-    hoconsc:mk(Type, Meta).

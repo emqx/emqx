@@ -215,7 +215,7 @@ fields(coap) ->
             )},
         {notify_type,
             sc(
-                hoconsc:union([non, con, qos]),
+                hoconsc:enum([non, con, qos]),
                 #{
                     default => qos,
                     desc => ?DESC(coap_notify_type)
@@ -291,9 +291,9 @@ fields(lwm2m) ->
         %% FIXME: not working now
         {update_msg_publish_condition,
             sc(
-                hoconsc:union([always, contains_object_list]),
+                hoconsc:enum([always, contains_object_list]),
                 #{
-                    default => "contains_object_list",
+                    default => contains_object_list,
                     desc => ?DESC(lwm2m_update_msg_publish_condition)
                 }
             )},

@@ -62,7 +62,7 @@ roots() ->
 
 fields(get) ->
     [
-        {method, #{type => get, required => true, default => post, desc => ?DESC(method)}},
+        {method, #{type => get, required => true, default => get, desc => ?DESC(method)}},
         {headers, fun headers_no_content_type/1}
     ] ++ common_fields();
 fields(post) ->

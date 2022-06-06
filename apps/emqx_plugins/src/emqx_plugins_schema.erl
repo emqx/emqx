@@ -45,7 +45,7 @@ fields(state) ->
 state_fields() ->
     [
         {name_vsn,
-            hoconsc:mk(
+            ?HOCON(
                 string(),
                 #{
                     desc => ?DESC(name_vsn),
@@ -53,7 +53,7 @@ state_fields() ->
                 }
             )},
         {enable,
-            hoconsc:mk(
+            ?HOCON(
                 boolean(),
                 #{
                     desc => ?DESC(enable),
@@ -69,7 +69,7 @@ root_fields() ->
         {check_interval, fun check_interval/1}
     ].
 
-states(type) -> hoconsc:array(hoconsc:ref(?MODULE, state));
+states(type) -> ?ARRAY(?R_REF(state));
 states(required) -> false;
 states(default) -> [];
 states(desc) -> ?DESC(states);
