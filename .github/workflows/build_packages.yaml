@@ -22,7 +22,7 @@ jobs:
   prepare:
     runs-on: ubuntu-20.04
     # prepare source with any OTP version, no need for a matrix
-    container: "ghcr.io/emqx/emqx-builder/5.0-15:1.13.3-24.2.1-1-ubuntu20.04"
+    container: "ghcr.io/emqx/emqx-builder/5.0-16:1.13.4-24.2.1-1-ubuntu20.04"
 
     outputs:
       BUILD_PROFILES: ${{ steps.get_profiles.outputs.BUILD_PROFILES }}
@@ -207,7 +207,7 @@ jobs:
     needs: prepare
     runs-on: ${{ matrix.build_machine }}
     container:
-      image: "ghcr.io/emqx/emqx-builder/5.0-15:${{ matrix.elixir }}-${{ matrix.otp }}-${{ matrix.os }}"
+      image: "ghcr.io/emqx/emqx-builder/5.0-16:${{ matrix.elixir }}-${{ matrix.otp }}-${{ matrix.os }}"
 
     strategy:
       fail-fast: false
@@ -216,7 +216,7 @@ jobs:
         otp:
           - 24.2.1-1 # we test with OTP 23, but only build package on OTP 24 versions
         elixir:
-          - 1.13.3
+          - 1.13.4
         # used to split elixir packages into a separate job, since the
         # entire job may take a lot of time, especially on arm64
         # emulation.
@@ -264,14 +264,14 @@ jobs:
         include:
           - profile: emqx
             otp: 24.2.1-1
-            elixir: 1.13.3
+            elixir: 1.13.4
             build_elixir: with_elixir
             arch: amd64
             os: ubuntu20.04
             build_machine: ubuntu-20.04
           - profile: emqx
             otp: 24.2.1-1
-            elixir: 1.13.3
+            elixir: 1.13.4
             build_elixir: with_elixir
             arch: amd64
             os: el7
@@ -328,7 +328,7 @@ jobs:
             --pkgtype "${PKGTYPE}" \
             --arch "${ARCH}" \
             --elixir "${IsElixir}" \
-            --builder "ghcr.io/emqx/emqx-builder/5.0-15:${ELIXIR}-${OTP}-${SYSTEM}"
+            --builder "ghcr.io/emqx/emqx-builder/5.0-16:${ELIXIR}-${OTP}-${SYSTEM}"
         done
     - uses: actions/upload-artifact@v1
       if: startsWith(github.ref, 'refs/tags/')
@@ -351,7 +351,7 @@ jobs:
         otp:
           - 24.2.1-1 # update to latest
         elixir:
-          - 1.13.3 # update to latest
+          - 1.13.4 # update to latest
         arch:
           - amd64
           - arm64
@@ -371,7 +371,7 @@ jobs:
           - os: alpine3.15.1
             profile: emqx
             otp: 24.2.1-1
-            elixir: 1.13.3
+            elixir: 1.13.4
             arch: amd64
             build_elixir: no_elixir
             build_machine: ubuntu-20.04
@@ -379,7 +379,7 @@ jobs:
           - os: alpine3.15.1
             profile: emqx
             otp: 24.2.1-1
-            elixir: 1.13.3
+            elixir: 1.13.4
             arch: amd64
             build_elixir: with_elixir
             build_machine: ubuntu-20.04
@@ -465,7 +465,7 @@ jobs:
         tags: ${{ steps.meta.outputs.tags }}
         labels: ${{ steps.meta.outputs.labels }}
         build-args: |
-          BUILD_FROM=ghcr.io/emqx/emqx-builder/5.0-15:${{ matrix.elixir }}-${{ matrix.otp }}-${{ matrix.os }}
+          BUILD_FROM=ghcr.io/emqx/emqx-builder/5.0-16:${{ matrix.elixir }}-${{ matrix.otp }}-${{ matrix.os }}
           RUN_FROM=${{ steps.pre-meta.outputs.img }}
           EMQX_NAME=${{ steps.pre-meta.outputs.emqx_name }}
         file: source/deploy/docker/Dockerfile
@@ -489,7 +489,7 @@ jobs:
           - 24.2.1-1 # update to latest
           #
         elixir:
-          - 1.13.3 # update to latest
+          - 1.13.4 # update to latest
         arch:
           - amd64
           - arm64
@@ -509,7 +509,7 @@ jobs:
           - os: alpine3.15.1
             profile: emqx
             otp: 24.2.1-1
-            elixir: 1.13.3
+            elixir: 1.13.4
             arch: amd64
             build_elixir: no_elixir
             build_machine: ubuntu-20.04
@@ -517,7 +517,7 @@ jobs:
           - os: alpine3.15.1
             profile: emqx
             otp: 24.2.1-1
-            elixir: 1.13.3
+            elixir: 1.13.4
             arch: amd64
             build_elixir: with_elixir
             build_machine: ubuntu-20.04
