@@ -14,7 +14,7 @@ help() {
     echo "--long:          Print log vsn number. e.g. 5.0.0-otp24.2.1-1-ubuntu20.04-amd64"
     echo "                 Otherwise short e.g. 5.0.0"
     echo "--elixir:        Include elixir version in the long version string"
-    echo "                 e.g. 5.0.0-elixir1.13.3-otp24.2.1-1-ubuntu20.04-amd64"
+    echo "                 e.g. 5.0.0-elixir1.13.4-otp24.2.1-1-ubuntu20.04-amd64"
     echo "--vsn_matcher:   For --long option, replace the EMQX version with '*'"
     echo "                 so it can be used in find commands"
 }
