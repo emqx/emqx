@@ -33,6 +33,7 @@
     <<"type">> => <<"http">>,
     <<"enable">> => true,
     <<"url">> => <<"https://fake.com:443/acl?username=", ?PH_USERNAME/binary>>,
+    <<"ssl">> => #{<<"enable">> => true},
     <<"headers">> => #{},
     <<"method">> => <<"get">>,
     <<"request_timeout">> => <<"5s">>
