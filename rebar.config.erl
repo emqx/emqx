@@ -256,14 +256,12 @@ overlay_vars_rel(cloud) ->
 overlay_vars_edition(ce) ->
     [
         {emqx_schema_mod, emqx_conf_schema},
-        {is_enterprise, "no"},
-        {emqx_machine_boot_apps, emqx_machine_boot_app_list(ce)}
+        {is_enterprise, "no"}
     ];
 overlay_vars_edition(ee) ->
     [
         {emqx_schema_mod, emqx_enterprise_conf_schema},
-        {is_enterprise, "yes"},
-        {emqx_machine_boot_apps, emqx_machine_boot_app_list(ee)}
+        {is_enterprise, "yes"}
     ].
 
 %% vars per packaging type, bin(zip/tar.gz/docker) or pkg(rpm/deb)
@@ -361,37 +359,6 @@ relx_apps_per_edition(ee) ->
     ];
 relx_apps_per_edition(ce) ->
     [].
-
-emqx_machine_boot_apps(ce) ->
-    [
-        emqx_prometheus,
-        emqx_modules,
-        emqx_dashboard,
-        emqx_connector,
-        emqx_gateway,
-        emqx_statsd,
-        emqx_resource,
-        emqx_rule_engine,
-        emqx_bridge,
-        emqx_plugin_libs,
-        emqx_management,
-        emqx_retainer,
-        emqx_exhook,
-        emqx_authn,
-        emqx_authz,
-        emqx_slow_subs,
-        emqx_auto_subscribe,
-        emqx_plugins
-    ];
-emqx_machine_boot_apps(ee) ->
-    emqx_machine_boot_apps(ce) ++
-        [].
-
-emqx_machine_boot_app_list(Edition) ->
-    string:join(
-        [atom_to_list(AppName) || AppName <- emqx_machine_boot_apps(Edition)],
-        ", "
-    ).
 
 relx_overlay(ReleaseType, Edition) ->
     [
