@@ -57,6 +57,7 @@
 
 -define(BAD_REQUEST, 'BAD_REQUEST').
 -define(NOT_FOUND, 'NOT_FOUND').
+-define(ALREADY_EXISTS, 'ALREADY_EXISTS').
 
 -define(TYPE_REF, ref).
 -define(TYPE_ARRAY, array).
@@ -120,6 +121,9 @@ schema("/authorization/sources/built_in_database/username") ->
                         204 => <<"Created">>,
                         400 => emqx_dashboard_swagger:error_codes(
                             [?BAD_REQUEST], <<"Bad username or bad rule schema">>
+                        ),
+                        409 => emqx_dashboard_swagger:error_codes(
+                            [?ALREADY_EXISTS], <<"ALREADY_EXISTS">>
                         )
                     }
             }
@@ -416,13 +420,21 @@ users(get, #{query_string := QueryString}) ->
             {200, Result}
     end;
 users(post, #{body := Body}) when is_list(Body) ->
-    lists:foreach(
-        fun(#{<<"username">> := Username, <<"rules">> := Rules}) ->
-            emqx_authz_mnesia:store_rules({username, Username}, format_rules(Rules))
-        end,
-        Body
-    ),
-    {204}.
+    case ensure_all_not_exists(<<"username">>, username, Body) of
+        [] ->
+            lists:foreach(
+                fun(#{<<"username">> := Username, <<"rules">> := Rules}) ->
+                    emqx_authz_mnesia:store_rules({username, Username}, format_rules(Rules))
+                end,
+                Body
+            ),
+            {204};
+        Exists ->
+            {409, #{
+                code => <<"ALREADY_EXISTS">>,
+                message => binfmt("Users '~ts' already exist", [binjoin(Exists)])
+            }}
+    end.
 
 clients(get, #{query_string := QueryString}) ->
     case
@@ -443,13 +455,21 @@ clients(get, #{query_string := QueryString}) ->
             {200, Result}
     end;
 clients(post, #{body := Body}) when is_list(Body) ->
-    lists:foreach(
-        fun(#{<<"clientid">> := ClientID, <<"rules">> := Rules}) ->
-            emqx_authz_mnesia:store_rules({clientid, ClientID}, format_rules(Rules))
-        end,
-        Body
-    ),
-    {204}.
+    case ensure_all_not_exists(<<"clientid">>, clientid, Body) of
+        [] ->
+            lists:foreach(
+                fun(#{<<"clientid">> := ClientID, <<"rules">> := Rules}) ->
+                    emqx_authz_mnesia:store_rules({clientid, ClientID}, format_rules(Rules))
+                end,
+                Body
+            ),
+            {204};
+        Exists ->
+            {409, #{
+                code => <<"ALREADY_EXISTS">>,
+                message => binfmt("Clients '~ts' already exist", [binjoin(Exists)])
+            }}
+    end.
 
 user(get, #{bindings := #{username := Username}}) ->
     case emqx_authz_mnesia:get_rules({username, Username}) of
@@ -715,3 +735,29 @@ rules_example({ExampleName, ExampleType}) ->
             value => Value
         }
     }.
+
+ensure_all_not_exists(Key, Type, Cfgs) ->
+    lists:foldl(
+        fun(#{Key := Id}, Acc) ->
+            case emqx_authz_mnesia:get_rules({Type, Id}) of
+                not_found ->
+                    Acc;
+                _ ->
+                    [Id | Acc]
+            end
+        end,
+        [],
+        Cfgs
+    ).
+
+binjoin([Bin]) ->
+    Bin;
+binjoin(Bins) ->
+    binjoin(Bins, <<>>).
+
+binjoin([H | T], Acc) ->
+    binjoin(T, <<H/binary, $,, Acc/binary>>);
+binjoin([], Acc) ->
+    Acc.
+
+binfmt(Fmt, Args) -> iolist_to_binary(io_lib:format(Fmt, Args)).
