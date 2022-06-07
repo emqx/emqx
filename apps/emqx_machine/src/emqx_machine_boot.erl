@@ -22,6 +22,8 @@
 -export([sorted_reboot_apps/0]).
 -export([start_autocluster/0]).
 
+-dialyzer({no_match, [basic_reboot_apps/0]}).
+
 -ifdef(TEST).
 -export([sorted_reboot_apps/1]).
 -endif.
