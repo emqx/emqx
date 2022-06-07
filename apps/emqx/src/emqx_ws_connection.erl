@@ -1046,4 +1046,4 @@ get_ws_opts(Type, Listener, Key) ->
     emqx_config:get_listener_conf(Type, Listener, [websocket, Key]).
 
 get_active_n(Type, Listener) ->
-    emqx_config:get_listener_conf(Type, Listener, [tcp, active_n]).
+    emqx_config:get_listener_conf(Type, Listener, [tcp_options, active_n]).

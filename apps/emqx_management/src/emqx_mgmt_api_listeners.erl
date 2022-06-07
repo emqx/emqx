@@ -685,7 +685,7 @@ tcp_schema_example() ->
         proxy_protocol => false,
         proxy_protocol_timeout => <<"3s">>,
         running => true,
-        tcp => #{
+        tcp_options => #{
             active_n => 100,
             backlog => 1024,
             buffer => <<"4KB">>,
