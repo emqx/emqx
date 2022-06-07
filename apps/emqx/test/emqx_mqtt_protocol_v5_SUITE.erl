@@ -70,6 +70,9 @@ init_per_group(_, Config) ->
     emqx_common_test_helpers:stop_apps([]),
     Config.
 
+end_per_group(quic, _Config) ->
+    emqx_config:put([listeners, quic], #{}),
+    ok;
 end_per_group(_Group, _Config) ->
     ok.
 
