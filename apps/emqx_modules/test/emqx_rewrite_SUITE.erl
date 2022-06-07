@@ -160,7 +160,7 @@ t_rewrite_re_error(_Config) ->
     ok.
 
 t_list(_Config) ->
-    ok = emqx_common_test_helpers:load_config(emqx_modules_schema, jsx:encode(?REWRITE), #{
+    ok = emqx_common_test_helpers:load_config(emqx_modules_schema, ?REWRITE, #{
         raw_with_default => true
     }),
     Expect = maps:get(<<"rewrite">>, ?REWRITE),
@@ -168,7 +168,7 @@ t_list(_Config) ->
     ok.
 
 t_update(_Config) ->
-    ok = emqx_common_test_helpers:load_config(emqx_modules_schema, jsx:encode(?REWRITE), #{
+    ok = emqx_common_test_helpers:load_config(emqx_modules_schema, ?REWRITE, #{
         raw_with_default => true
     }),
     Init = emqx_rewrite:list(),
@@ -186,7 +186,7 @@ t_update(_Config) ->
     ok.
 
 t_update_disable(_Config) ->
-    ok = emqx_common_test_helpers:load_config(emqx_modules_schema, jsx:encode(?REWRITE), #{
+    ok = emqx_common_test_helpers:load_config(emqx_modules_schema, ?REWRITE, #{
         raw_with_default => true
     }),
     ?assertEqual(ok, emqx_rewrite:update([])),
@@ -203,7 +203,7 @@ t_update_disable(_Config) ->
     ok.
 
 t_update_re_failed(_Config) ->
-    ok = emqx_common_test_helpers:load_config(emqx_modules_schema, jsx:encode(?REWRITE), #{
+    ok = emqx_common_test_helpers:load_config(emqx_modules_schema, ?REWRITE, #{
         raw_with_default => true
     }),
     Re = <<"*^test/*">>,
@@ -260,7 +260,7 @@ receive_publish(Timeout) ->
     end.
 
 init() ->
-    ok = emqx_common_test_helpers:load_config(emqx_modules_schema, jsx:encode(?REWRITE), #{
+    ok = emqx_common_test_helpers:load_config(emqx_modules_schema, ?REWRITE, #{
         raw_with_default => true
     }),
     ok = emqx_rewrite:enable(),

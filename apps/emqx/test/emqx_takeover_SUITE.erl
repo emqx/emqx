@@ -35,9 +35,9 @@ all() -> emqx_common_test_helpers:all(?MODULE).
 init_per_suite(Config) ->
     ?check_trace(
         ?wait_async_action(
-            emqx_common_test_helpers:start_apps([]),
+            emqx_common_test_helpers:start_apps([emqx_conf]),
             #{?snk_kind := listener_started, bind := 1883},
-            timer:seconds(5)
+            timer:seconds(10)
         ),
         fun(Trace) ->
             %% more than one listener

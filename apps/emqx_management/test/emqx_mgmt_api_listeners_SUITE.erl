@@ -96,7 +96,7 @@ crud_listeners_by_id(ListenerId, NewListenerId, MinListenerId, BadId, Type) ->
     MinConf =
         case OriginListener of
             #{
-                <<"ssl">> :=
+                <<"ssl_options">> :=
                     #{
                         <<"cacertfile">> := CaCertFile,
                         <<"certfile">> := CertFile,
@@ -107,7 +107,7 @@ crud_listeners_by_id(ListenerId, NewListenerId, MinListenerId, BadId, Type) ->
                     <<"id">> => MinListenerId,
                     <<"bind">> => <<"0.0.0.0:3883">>,
                     <<"type">> => Type,
-                    <<"ssl">> => #{
+                    <<"ssl_options">> => #{
                         <<"cacertfile">> => CaCertFile,
                         <<"certfile">> => CertFile,
                         <<"keyfile">> => KeyFile

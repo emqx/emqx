@@ -78,7 +78,7 @@ groups() ->
 init_per_suite(Config) ->
     emqx_common_test_helpers:boot_modules(all),
     emqx_common_test_helpers:start_apps([]),
-    emqx_config:put_listener_conf(ssl, default, [ssl, verify], verify_peer),
+    emqx_config:put_listener_conf(ssl, default, [ssl_options, verify], verify_peer),
     emqx_listeners:restart_listener('ssl:default'),
     Config.
 

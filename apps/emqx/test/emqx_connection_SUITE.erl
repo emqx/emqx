@@ -256,9 +256,9 @@ t_handle_msg_deliver(_) ->
 
 t_handle_msg_inet_reply(_) ->
     ok = meck:expect(emqx_pd, get_counter, fun(_) -> 10 end),
-    emqx_config:put_listener_conf(tcp, default, [tcp, active_n], 0),
+    emqx_config:put_listener_conf(tcp, default, [tcp_options, active_n], 0),
     ?assertMatch({ok, _St}, handle_msg({inet_reply, for_testing, ok}, st())),
-    emqx_config:put_listener_conf(tcp, default, [tcp, active_n], 100),
+    emqx_config:put_listener_conf(tcp, default, [tcp_options, active_n], 100),
     ?assertEqual(ok, handle_msg({inet_reply, for_testing, ok}, st())),
     ?assertMatch(
         {stop, {shutdown, for_testing}, _St},

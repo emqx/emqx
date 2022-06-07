@@ -84,7 +84,7 @@ t_psk_lookup(_) ->
         reuseaddr => true,
         user_lookup_fun => {fun emqx_tls_psk:lookup/3, undefined}
     },
-    emqx_config:put([listeners, ssl, default, ssl], ServerTLSOpts),
+    emqx_config:put([listeners, ssl, default, ssl_options], ServerTLSOpts),
     emqx_listeners:restart_listener('ssl:default'),
 
     {ok, Socket} = ssl:connect("127.0.0.1", 8883, maps:to_list(ClientTLSOpts)),
