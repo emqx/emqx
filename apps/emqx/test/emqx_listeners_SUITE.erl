@@ -78,7 +78,7 @@ init_per_testcase(t_wss_conn, Config) ->
             listener_test => #{
                 bind => {{127, 0, 0, 1}, 9998},
                 limiter => #{},
-                ssl => #{
+                ssl_options => #{
                     cacertfile => ?CERTS_PATH("cacert.pem"),
                     certfile => ?CERTS_PATH("cert.pem"),
                     keyfile => ?CERTS_PATH("key.pem")
