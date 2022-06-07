@@ -74,6 +74,13 @@ t_api(_) ->
             [?USERNAME_RULES_EXAMPLE]
         ),
 
+    {ok, 409, _} =
+        request(
+            post,
+            uri(["authorization", "sources", "built_in_database", "username"]),
+            [?USERNAME_RULES_EXAMPLE]
+        ),
+
     {ok, 200, Request1} =
         request(
             get,
@@ -158,6 +165,14 @@ t_api(_) ->
             uri(["authorization", "sources", "built_in_database", "clientid"]),
             [?CLIENTID_RULES_EXAMPLE]
         ),
+
+    {ok, 409, _} =
+        request(
+            post,
+            uri(["authorization", "sources", "built_in_database", "clientid"]),
+            [?CLIENTID_RULES_EXAMPLE]
+        ),
+
     {ok, 200, Request4} =
         request(
             get,
