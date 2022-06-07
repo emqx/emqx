@@ -22,6 +22,8 @@
 -export([sorted_reboot_apps/0]).
 -export([start_autocluster/0]).
 
+-dialyzer({no_match, [basic_reboot_apps/0]}).
+
 -ifdef(TEST).
 -export([sorted_reboot_apps/1]).
 -endif.
@@ -102,10 +104,39 @@ restart_type(App) ->
 %% 2. after join a cluster
 
 %% the list of (re)started apps depends on release type/edition
-%% and is configured in rebar.config.erl/mix.exs
 reboot_apps() ->
-    {ok, Apps} = application:get_env(emqx_machine, applications),
-    ?BASIC_REBOOT_APPS ++ Apps.
+    {ok, ConfigApps0} = application:get_env(emqx_machine, applications),
+    BaseRebootApps = basic_reboot_apps(),
+    ConfigApps = lists:filter(fun(App) -> not lists:member(App, BaseRebootApps) end, ConfigApps0),
+    BaseRebootApps ++ ConfigApps.
+
+basic_reboot_apps() ->
+    CE =
+        ?BASIC_REBOOT_APPS ++
+            [
+                emqx_prometheus,
+                emqx_modules,
+                emqx_dashboard,
+                emqx_connector,
+                emqx_gateway,
+                emqx_statsd,
+                emqx_resource,
+                emqx_rule_engine,
+                emqx_bridge,
+                emqx_plugin_libs,
+                emqx_management,
+                emqx_retainer,
+                emqx_exhook,
+                emqx_authn,
+                emqx_authz,
+                emqx_slow_subs,
+                emqx_auto_subscribe,
+                emqx_plugins
+            ],
+    case emqx_release:edition() of
+        ce -> CE;
+        ee -> CE ++ []
+    end.
 
 sorted_reboot_apps() ->
     Apps = [{App, app_deps(App)} || App <- reboot_apps()],

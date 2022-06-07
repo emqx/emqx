@@ -215,34 +215,6 @@ defmodule EMQXUmbrella.MixProject do
       )
   end
 
-  def emqx_machine_boot_apps(:community) do
-    [
-      :emqx_prometheus,
-      :emqx_modules,
-      :emqx_dashboard,
-      :emqx_connector,
-      :emqx_gateway,
-      :emqx_statsd,
-      :emqx_resource,
-      :emqx_rule_engine,
-      :emqx_bridge,
-      :emqx_plugin_libs,
-      :emqx_management,
-      :emqx_retainer,
-      :emqx_exhook,
-      :emqx_authn,
-      :emqx_authz,
-      :emqx_auto_subscribe,
-      :emqx_slow_subs,
-      :emqx_plugins
-    ]
-  end
-
-  def emqx_machine_boot_apps(:enterprise) do
-    emqx_machine_boot_apps(:community) ++
-      []
-  end
-
   defp is_app(name) do
     case Application.load(name) do
       :ok ->
@@ -254,13 +226,6 @@ defmodule EMQXUmbrella.MixProject do
       _ ->
         false
     end
-  end
-
-  defp emqx_machine_boot_app_list(edition_type) do
-    edition_type
-    |> emqx_machine_boot_apps()
-    |> Enum.map(&Atom.to_string/1)
-    |> Enum.join(", ")
   end
 
   def check_profile!() do
@@ -559,7 +524,6 @@ defmodule EMQXUmbrella.MixProject do
       erl_opts: "",
       emqx_description: emqx_description(release_type, edition_type),
       emqx_schema_mod: emqx_schema_mod(edition_type),
-      emqx_machine_boot_apps: emqx_machine_boot_app_list(edition_type),
       is_elixir: "yes",
       is_enterprise: if(edition_type == :enterprise, do: "yes", else: "no")
     ] ++ build_info()
@@ -582,7 +546,6 @@ defmodule EMQXUmbrella.MixProject do
       erl_opts: "",
       emqx_description: emqx_description(release_type, edition_type),
       emqx_schema_mod: emqx_schema_mod(edition_type),
-      emqx_machine_boot_apps: emqx_machine_boot_app_list(edition_type),
       is_elixir: "yes",
       is_enterprise: if(edition_type == :enterprise, do: "yes", else: "no")
     ] ++ build_info()
