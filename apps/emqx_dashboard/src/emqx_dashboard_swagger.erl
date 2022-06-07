@@ -563,7 +563,7 @@ hocon_schema_to_spec(?R_REF(Module, StructName), _LocalModule) ->
 hocon_schema_to_spec(?REF(StructName), LocalModule) ->
     {#{<<"$ref">> => ?TO_COMPONENTS_SCHEMA(LocalModule, StructName)}, [{LocalModule, StructName}]};
 hocon_schema_to_spec(Type, LocalModule) when ?IS_TYPEREFL(Type) ->
-    {typename_to_spec(typerefl:name(Type), LocalModule), []};
+    {typename_to_spec(lists:flatten(typerefl:name(Type)), LocalModule), []};
 hocon_schema_to_spec(?ARRAY(Item), LocalModule) ->
     {Schema, Refs} = hocon_schema_to_spec(Item, LocalModule),
     {#{type => array, items => Schema}, Refs};
