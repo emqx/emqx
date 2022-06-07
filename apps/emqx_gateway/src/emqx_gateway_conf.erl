@@ -200,14 +200,10 @@ bind2str(LConf = #{bind := Bind}) when is_binary(Bind) ->
 bind2str(LConf = #{<<"bind">> := Bind}) when is_binary(Bind) ->
     LConf.
 
-get_bind(#{bind := Bind}) when is_integer(Bind) ->
-    Bind;
-get_bind(#{<<"bind">> := Bind}) when is_integer(Bind) ->
-    Bind;
-get_bind(#{bind := Bind}) when is_binary(Bind) ->
-    erlang:binary_to_integer(Bind);
-get_bind(#{<<"bind">> := Bind}) when is_binary(Bind) ->
-    erlang:binary_to_integer(Bind).
+get_bind(#{bind := Bind}) ->
+    emqx_gateway_utils:parse_listenon(Bind);
+get_bind(#{<<"bind">> := Bind}) ->
+    emqx_gateway_utils:parse_listenon(Bind).
 
 -spec listeners(atom_or_bin()) -> [map()].
 listeners(GwName0) ->
