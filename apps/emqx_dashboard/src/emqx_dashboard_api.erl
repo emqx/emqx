@@ -226,7 +226,7 @@ login(post, #{body := Params}) ->
             }};
         {error, R} ->
             ?SLOG(info, #{msg => "Dashboard login failed", username => Username, reason => R}),
-            {401, ?WRONG_USERNAME_OR_PWD, <<"Auth filed">>}
+            {401, ?WRONG_USERNAME_OR_PWD, <<"Auth failed">>}
     end.
 
 logout(_, #{
