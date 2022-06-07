@@ -28,10 +28,10 @@ all() -> emqx_common_test_helpers:all(?MODULE).
 
 init_per_suite(Config) ->
     emqx_common_test_helpers:boot_modules(all),
-    emqx_common_test_helpers:start_apps([emqx_conf, emqx_modules]),
     ok = emqx_common_test_helpers:load_config(emqx_modules_schema, jsx:encode(?TOPIC), #{
         raw_with_default => true
     }),
+    emqx_common_test_helpers:start_apps([emqx_conf, emqx_modules]),
     Config.
 
 end_per_suite(_Config) ->
