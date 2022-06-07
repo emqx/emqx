@@ -204,7 +204,7 @@ init_per_testcase(_CaseName, Conf) ->
 -define(CONF_STOMP_LISTENER_2, #{<<"bind">> => <<"61614">>}).
 -define(CONF_STOMP_LISTENER_SSL, #{
     <<"bind">> => <<"61614">>,
-    <<"ssl">> =>
+    <<"ssl_options">> =>
         #{
             <<"cacertfile">> => ?SVR_CA,
             <<"certfile">> => ?SVR_CERT,
@@ -213,7 +213,7 @@ init_per_testcase(_CaseName, Conf) ->
 }).
 -define(CONF_STOMP_LISTENER_SSL_2, #{
     <<"bind">> => <<"61614">>,
-    <<"ssl">> =>
+    <<"ssl_options">> =>
         #{
             <<"cacertfile">> => ?SVR_CA,
             <<"certfile">> => ?SVR_CERT2,
@@ -223,7 +223,7 @@ init_per_testcase(_CaseName, Conf) ->
 -define(CERTS_PATH(CertName), filename:join(["../../lib/emqx/etc/certs/", CertName])).
 -define(CONF_STOMP_LISTENER_SSL_PATH, #{
     <<"bind">> => <<"61614">>,
-    <<"ssl">> =>
+    <<"ssl_options">> =>
         #{
             <<"cacertfile">> => ?CERTS_PATH("cacert.pem"),
             <<"certfile">> => ?CERTS_PATH("cert.pem"),
@@ -409,7 +409,7 @@ t_load_gateway_with_certs_content(_) ->
     {ok, _} = emqx_gateway_conf:load_gateway(<<"stomp">>, StompConf),
     assert_confs(StompConf, emqx:get_raw_config([gateway, stomp])),
     SslConf = emqx_map_lib:deep_get(
-        [<<"listeners">>, <<"ssl">>, <<"default">>, <<"ssl">>],
+        [<<"listeners">>, <<"ssl">>, <<"default">>, <<"ssl_options">>],
         emqx:get_raw_config([gateway, stomp])
     ),
     ok = emqx_gateway_conf:unload_gateway(<<"stomp">>),
@@ -432,7 +432,7 @@ t_load_gateway_with_certs_content(_) ->
 %    {ok, _} = emqx_gateway_conf:load_gateway(<<"stomp">>, StompConf),
 %    assert_confs(StompConf, emqx:get_raw_config([gateway, stomp])),
 %    SslConf = emqx_map_lib:deep_get(
-%                [<<"listeners">>, <<"ssl">>, <<"default">>, <<"ssl">>],
+%                [<<"listeners">>, <<"ssl">>, <<"default">>, <<"ssl_options">>],
 %                emqx:get_raw_config([gateway, stomp])
 %               ),
 %    ok = emqx_gateway_conf:unload_gateway(<<"stomp">>),
@@ -467,7 +467,7 @@ t_add_listener_with_certs_content(_) ->
     ),
 
     SslConf = emqx_map_lib:deep_get(
-        [<<"listeners">>, <<"ssl">>, <<"default">>, <<"ssl">>],
+        [<<"listeners">>, <<"ssl">>, <<"default">>, <<"ssl_options">>],
         emqx:get_raw_config([gateway, stomp])
     ),
     ok = emqx_gateway_conf:remove_listener(

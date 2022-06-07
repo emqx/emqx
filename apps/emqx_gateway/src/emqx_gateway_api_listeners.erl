@@ -635,7 +635,7 @@ examples_listener() ->
                         acceptors => 16,
                         max_connections => 1024000,
                         max_conn_rate => 1000,
-                        tcp =>
+                        tcp_options =>
                             #{
                                 active_n => 100,
                                 backlog => 1024,
@@ -662,7 +662,7 @@ examples_listener() ->
                         max_connections => 1024000,
                         max_conn_rate => 1000,
                         access_rules => [<<"allow all">>],
-                        ssl =>
+                        ssl_options =>
                             #{
                                 versions => [
                                     <<"tlsv1.3">>,
@@ -676,7 +676,7 @@ examples_listener() ->
                                 verify => <<"verify_none">>,
                                 fail_if_no_peer_cert => false
                             },
-                        tcp =>
+                        tcp_options =>
                             #{
                                 active_n => 100,
                                 backlog => 1024
@@ -691,7 +691,7 @@ examples_listener() ->
                         name => <<"udp-def">>,
                         type => udp,
                         bind => <<"22212">>,
-                        udp =>
+                        udp_options =>
                             #{
                                 active_n => 100,
                                 recbuf => <<"10KB">>,
@@ -713,7 +713,7 @@ examples_listener() ->
                         max_connections => 1024000,
                         max_conn_rate => 1000,
                         access_rules => [<<"allow all">>],
-                        dtls =>
+                        dtls_options =>
                             #{
                                 versions => [<<"dtlsv1.2">>, <<"dtlsv1">>],
                                 cacertfile => emqx:cert_file(<<"cacert.pem">>),
@@ -722,7 +722,7 @@ examples_listener() ->
                                 verify => <<"verify_none">>,
                                 fail_if_no_peer_cert => false
                             },
-                        udp =>
+                        udp_options =>
                             #{
                                 active_n => 100,
                                 backlog => 1024
@@ -740,7 +740,7 @@ examples_listener() ->
                         acceptors => 16,
                         max_connections => 1024000,
                         max_conn_rate => 1000,
-                        dtls =>
+                        dtls_options =>
                             #{
                                 versions => [<<"dtlsv1.2">>, <<"dtlsv1">>],
                                 cacertfile => emqx:cert_file(<<"cacert.pem">>),
