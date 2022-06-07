@@ -89,7 +89,7 @@ fields(limiter) ->
         {Type,
             ?HOCON(?R_REF(limiter_opts), #{
                 desc => ?DESC(Type),
-                default => #{<<"enable">> => false}
+                default => make_default_opts(Type)
             })}
      || Type <- types()
     ];
@@ -314,3 +314,18 @@ apply_unit("kb", Val) -> Val * ?KILOBYTE;
 apply_unit("mb", Val) -> Val * ?KILOBYTE * ?KILOBYTE;
 apply_unit("gb", Val) -> Val * ?KILOBYTE * ?KILOBYTE * ?KILOBYTE;
 apply_unit(Unit, _) -> throw("invalid unit:" ++ Unit).
+
+make_default_opts(connection) ->
+    #{
+        <<"enable">> => true,
+        <<"rate">> => <<"1000/s">>,
+        <<"bucket">> => #{
+            <<"default">> =>
+                #{
+                    <<"rate">> => <<"1000/s">>,
+                    <<"capacity">> => <<"1000">>
+                }
+        }
+    };
+make_default_opts(_) ->
+    #{<<"enable">> => false}.
