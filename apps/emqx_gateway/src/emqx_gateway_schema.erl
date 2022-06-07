@@ -339,7 +339,7 @@ fields(exproto_grpc_server) ->
                     desc => ?DESC(exproto_grpc_server_bind)
                 }
             )},
-        {ssl,
+        {ssl_options,
             sc(
                 ref(ssl_server_opts),
                 #{
@@ -351,7 +351,7 @@ fields(exproto_grpc_server) ->
 fields(exproto_grpc_handler) ->
     [
         {address, sc(binary(), #{required => true, desc => ?DESC(exproto_grpc_handler_address)})},
-        {ssl,
+        {ssl_options,
             sc(
                 ref(emqx_schema, "ssl_client_opts"),
                 #{
@@ -466,7 +466,7 @@ fields(tcp_listener) ->
 fields(ssl_listener) ->
     fields(tcp_listener) ++
         [
-            {ssl,
+            {ssl_options,
                 sc(
                     hoconsc:ref(emqx_schema, "listener_ssl_opts"),
                     #{desc => ?DESC(ssl_listener_options)}
@@ -481,7 +481,7 @@ fields(udp_listener) ->
 fields(dtls_listener) ->
     [{acceptors, sc(integer(), #{default => 16, desc => ?DESC(dtls_listener_acceptors)})}] ++
         fields(udp_listener) ++
-        [{dtls, sc(ref(dtls_opts), #{desc => ?DESC(dtls_listener_dtls_opts)})}];
+        [{dtls_options, sc(ref(dtls_opts), #{desc => ?DESC(dtls_listener_dtls_opts)})}];
 fields(udp_opts) ->
     [
         {active_n,
@@ -668,10 +668,10 @@ common_listener_opts() ->
     ].
 
 tcp_opts() ->
-    [{tcp, sc(ref(emqx_schema, "tcp_opts"), #{desc => ?DESC(tcp_listener_tcp_opts)})}].
+    [{tcp_options, sc(ref(emqx_schema, "tcp_opts"), #{desc => ?DESC(tcp_listener_tcp_opts)})}].
 
 udp_opts() ->
-    [{udp, sc(ref(udp_opts), #{})}].
+    [{udp_options, sc(ref(udp_opts), #{})}].
 
 proxy_protocol_opts() ->
     [
