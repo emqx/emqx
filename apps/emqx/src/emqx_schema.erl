@@ -787,57 +787,61 @@ fields("listeners") ->
             )}
     ];
 fields("mqtt_tcp_listener") ->
-    [
-        {"tcp",
-            sc(
-                ref("tcp_opts"),
-                #{}
-            )}
-    ] ++ mqtt_listener(1883);
+    mqtt_listener(1883) ++
+        [
+            {"tcp_options",
+                sc(
+                    ref("tcp_opts"),
+                    #{}
+                )}
+        ];
 fields("mqtt_ssl_listener") ->
-    [
-        {"tcp",
-            sc(
-                ref("tcp_opts"),
-                #{}
-            )},
-        {"ssl",
-            sc(
-                ref("listener_ssl_opts"),
-                #{}
-            )}
-    ] ++ mqtt_listener(8883);
+    mqtt_listener(8883) ++
+        [
+            {"tcp_options",
+                sc(
+                    ref("tcp_opts"),
+                    #{}
+                )},
+            {"ssl_options",
+                sc(
+                    ref("listener_ssl_opts"),
+                    #{}
+                )}
+        ];
 fields("mqtt_ws_listener") ->
-    [
-        {"tcp",
-            sc(
-                ref("tcp_opts"),
-                #{}
-            )},
-        {"websocket",
-            sc(
-                ref("ws_opts"),
-                #{}
-            )}
-    ] ++ mqtt_listener(8083);
+    mqtt_listener(8083) ++
+        [
+            {"tcp_options",
+                sc(
+                    ref("tcp_opts"),
+                    #{}
+                )},
+            {"websocket",
+                sc(
+                    ref("ws_opts"),
+                    #{}
+                )}
+        ];
 fields("mqtt_wss_listener") ->
-    [
-        {"tcp",
-            sc(
-                ref("tcp_opts"),
-                #{}
-            )},
-        {"ssl",
-            sc(
-                ref("listener_wss_opts"),
-                #{}
-            )},
-        {"websocket",
-            sc(
-                ref("ws_opts"),
-                #{}
-            )}
-    ] ++ mqtt_listener(8084);
+    mqtt_listener(8084) ++
+        [
+            {"tcp_options",
+                sc(
+                    ref("tcp_opts"),
+                    #{}
+                )},
+            {"ssl_options",
+                sc(
+                    ref("listener_wss_opts"),
+                    #{}
+                )},
+            {"websocket",
+                sc(
+                    ref("ws_opts"),
+                    #{}
+                )}
+        ];
 fields("mqtt_quic_listener") ->
     [
         {"enabled",

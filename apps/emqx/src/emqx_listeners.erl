@@ -406,7 +406,7 @@ esockd_opts(Type, Opts0) ->
 
 ws_opts(Type, ListenerName, Opts) ->
     WsPaths = [
-        {maps:get(mqtt_path, Opts, "/mqtt"), emqx_ws_connection, #{
+        {emqx_map_lib:deep_get([websocket, mqtt_path], Opts, "/mqtt"), emqx_ws_connection, #{
             zone => zone(Opts),
             listener => {Type, ListenerName},
             limiter => limiter(Opts)
@@ -497,7 +497,7 @@ limiter(Opts) ->
 ssl_opts(Opts) ->
     maps:to_list(
         emqx_tls_lib:drop_tls13_for_old_otp(
-            maps:get(ssl, Opts, #{})
+            maps:get(ssl_options, Opts, #{})
         )
     ).
 
@@ -505,7 +505,7 @@ tcp_opts(Opts) ->
     maps:to_list(
         maps:without(
             [active_n],
-            maps:get(tcp, Opts, #{})
+            maps:get(tcp_options, Opts, #{})
         )
     ).
 
@@ -557,18 +557,18 @@ certs_dir(Type, Name) ->
     iolist_to_binary(filename:join(["listeners", Type, Name])).
 
 convert_certs(CertsDir, Conf) ->
-    case emqx_tls_lib:ensure_ssl_files(CertsDir, maps:get(<<"ssl">>, Conf, undefined)) of
+    case emqx_tls_lib:ensure_ssl_files(CertsDir, maps:get(<<"ssl_options">>, Conf, undefined)) of
         {ok, undefined} ->
             Conf;
         {ok, SSL} ->
-            Conf#{<<"ssl">> => SSL};
+            Conf#{<<"ssl_options">> => SSL};
         {error, Reason} ->
             ?SLOG(error, Reason#{msg => "bad_ssl_config"}),
             throw({bad_ssl_config, Reason})
     end.
 
 clear_certs(CertsDir, Conf) ->
-    OldSSL = maps:get(<<"ssl">>, Conf, undefined),
+    OldSSL = maps:get(<<"ssl_options">>, Conf, undefined),
     emqx_tls_lib:delete_ssl_files(CertsDir, undefined, OldSSL).
 
 filter_stacktrace({Reason, _Stacktrace}) -> Reason;

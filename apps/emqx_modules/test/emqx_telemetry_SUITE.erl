@@ -41,7 +41,7 @@ init_per_suite(Config) ->
             emqx_common_test_helpers:deps_path(emqx_authz, "etc/acl.conf")
         end
     ),
-    ok = emqx_common_test_helpers:load_config(emqx_modules_schema, jsx:encode(?BASE_CONF), #{
+    ok = emqx_common_test_helpers:load_config(emqx_modules_schema, ?BASE_CONF, #{
         raw_with_default => true
     }),
     emqx_common_test_helpers:start_apps(
@@ -176,7 +176,7 @@ init_per_testcase(t_uuid_restored_from_file, Config) ->
     %% clear the UUIDs in the DB
     {atomic, ok} = mria:clear_table(emqx_telemetry),
     emqx_common_test_helpers:stop_apps([emqx_conf, emqx_authn, emqx_authz, emqx_modules]),
-    ok = emqx_common_test_helpers:load_config(emqx_modules_schema, jsx:encode(?BASE_CONF), #{
+    ok = emqx_common_test_helpers:load_config(emqx_modules_schema, ?BASE_CONF, #{
         raw_with_default => true
     }),
     emqx_common_test_helpers:start_apps(
@@ -332,7 +332,7 @@ t_uuid_saved_to_file(_Config) ->
     %% clear the UUIDs in the DB
     {atomic, ok} = mria:clear_table(emqx_telemetry),
     emqx_common_test_helpers:stop_apps([emqx_conf, emqx_authn, emqx_authz, emqx_modules]),
-    ok = emqx_common_test_helpers:load_config(emqx_modules_schema, jsx:encode(?BASE_CONF), #{
+    ok = emqx_common_test_helpers:load_config(emqx_modules_schema, ?BASE_CONF, #{
         raw_with_default => true
     }),
     emqx_common_test_helpers:start_apps(
@@ -861,7 +861,7 @@ setup_slave(Node) ->
         Node,
         emqx_common_test_helpers,
         load_config,
-        [emqx_modules_schema, jsx:encode(?BASE_CONF), #{raw_with_default => true}]
+        [emqx_modules_schema, ?BASE_CONF, #{raw_with_default => true}]
     ),
     ok = rpc:call(
         Node,

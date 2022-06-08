@@ -106,7 +106,7 @@ listener_mqtt_tcp_conf() ->
         mountpoint => <<>>,
         proxy_protocol => false,
         proxy_protocol_timeout => 3000,
-        tcp => #{
+        tcp_options => #{
             active_n => 100,
             backlog => 1024,
             buffer => 4096,
@@ -128,7 +128,7 @@ listener_mqtt_ws_conf() ->
         mountpoint => <<>>,
         proxy_protocol => false,
         proxy_protocol_timeout => 3000,
-        tcp =>
+        tcp_options =>
             #{
                 active_n => 100,
                 backlog => 1024,
