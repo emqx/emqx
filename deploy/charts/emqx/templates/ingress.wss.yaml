@@ -34,7 +34,7 @@ spec:
       paths:
       - path: {{ $.Values.ingress.wss.path | default "/mqtt" }}
         {{- if (semverCompare ">=1.18-0" $.Capabilities.KubeVersion.GitVersion) }}
-        pathType: {{ .Values.ingress.wss.pathType | default "ImplementationSpecific" }}
+        pathType: {{ $.Values.ingress.wss.pathType | default "ImplementationSpecific" }}
         {{- end }}
         backend:
           {{- if semverCompare ">=1.19-0" $.Capabilities.KubeVersion.GitVersion }}
