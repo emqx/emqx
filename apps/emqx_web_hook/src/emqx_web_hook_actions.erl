@@ -258,7 +258,7 @@ on_action_data_to_webserver(Selected, _Envs =
                                 'Pool' := Pool,
                                 'RequestTimeout' := RequestTimeout},
                               clientid := ClientID}) ->
-    NBody = format_msg(BodyTokens, Selected),
+    NBody = format_msg(BodyTokens, clear_user_property_header(Selected)),
     NPath = emqx_rule_utils:proc_tmpl(PathTokens, Selected),
     Req = create_req(Method, NPath, Headers, NBody),
     case ehttpc:request({Pool, ClientID}, Method, Req, RequestTimeout) of
@@ -280,7 +280,12 @@ on_action_data_to_webserver(Selected, _Envs =
 format_msg([], Data) ->
     emqx_json:encode(Data);
 format_msg(Tokens, Data) ->
-     emqx_rule_utils:proc_tmpl(Tokens, Data).
+    emqx_rule_utils:proc_tmpl(Tokens, Data).
+
+clear_user_property_header(#{headers := #{properties := #{'User-Property' := _} = P} = H} = S) ->
+    S#{headers => H#{properties => P#{'User-Property' => []}}};
+clear_user_property_header(S) ->
+    S.
 
 %%------------------------------------------------------------------------------
 %% Internal functions
@@ -365,9 +370,7 @@ get_ssl_opts(Opts, ResId) ->
 
 test_http_connect(Conf) ->
     Url = fun() -> maps:get(<<"url">>, Conf) end,
-    try
-       emqx_rule_utils:http_connectivity(Url())
-    of
+    try emqx_rule_utils:http_connectivity(Url()) of
        ok -> true;
        {error, _Reason} ->
            ?LOG(error, "check http_connectivity failed: ~p", [Url()]),

@@ -509,7 +509,7 @@ refresh_resource_status() ->
         fun(#resource{id = ResId, type = ResType}) ->
             case emqx_rule_registry:find_resource_type(ResType) of
                 {ok, #resource_type{on_status = {Mod, OnStatus}}} ->
-                    _ = fetch_resource_status(Mod, OnStatus, ResId);
+                    fetch_resource_status(Mod, OnStatus, ResId);
                 _ -> ok
             end
         end, emqx_rule_registry:get_resources()).
