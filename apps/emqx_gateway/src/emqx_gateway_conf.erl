@@ -73,7 +73,7 @@
 -type map_or_err() :: {ok, map()} | {error, term()}.
 -type listener_ref() :: {ListenerType :: atom_or_bin(), ListenerName :: atom_or_bin()}.
 
--define(IS_SSL(T), (T == <<"ssl">> orelse T == <<"dtls">>)).
+-define(IS_SSL(T), (T == <<"ssl_options">> orelse T == <<"dtls_options">>)).
 
 %%--------------------------------------------------------------------
 %%  Load/Unload
@@ -693,7 +693,7 @@ certs_dir(GwName) when is_binary(GwName) ->
     GwName.
 
 convert_certs(SubDir, Conf) ->
-    convert_certs(<<"dtls">>, SubDir, convert_certs(<<"ssl">>, SubDir, Conf)).
+    convert_certs(<<"dtls_options">>, SubDir, convert_certs(<<"ssl_options">>, SubDir, Conf)).
 
 convert_certs(Type, SubDir, Conf) when ?IS_SSL(Type) ->
     case
@@ -709,7 +709,9 @@ convert_certs(Type, SubDir, Conf) when ?IS_SSL(Type) ->
             throw({bad_ssl_config, Reason})
     end;
 convert_certs(SubDir, NConf, OConf) when is_map(NConf); is_map(OConf) ->
-    convert_certs(<<"dtls">>, SubDir, convert_certs(<<"ssl">>, SubDir, NConf, OConf), OConf).
+    convert_certs(
+        <<"dtls_options">>, SubDir, convert_certs(<<"ssl_options">>, SubDir, NConf, OConf), OConf
+    ).
 
 convert_certs(Type, SubDir, NConf, OConf) when ?IS_SSL(Type) ->
     OSSL = maps:get(Type, OConf, undefined),
@@ -727,8 +729,8 @@ new_ssl_config(_Type, Conf, undefined) -> Conf;
 new_ssl_config(Type, Conf, SSL) when ?IS_SSL(Type) -> Conf#{Type => SSL}.
 
 clear_certs(SubDir, Conf) ->
-    clear_certs(<<"ssl">>, SubDir, Conf),
-    clear_certs(<<"dtls">>, SubDir, Conf).
+    clear_certs(<<"ssl_options">>, SubDir, Conf),
+    clear_certs(<<"dtls_options">>, SubDir, Conf).
 
 clear_certs(Type, SubDir, Conf) when ?IS_SSL(Type) ->
     SSL = maps:get(Type, Conf, undefined),
