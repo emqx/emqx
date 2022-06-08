@@ -507,6 +507,7 @@ make_bucket([{Name, Conf} | T], Type, GlobalCfg, Factor, CounterNum, DelayBucket
         infinity ->
             Rate = infinity,
             Capacity = infinity,
+            Initial = 0,
             Ref = emqx_limiter_bucket_ref:new(undefined, undefined, Rate),
             emqx_limiter_manager:insert_bucket(Path, Ref),
             CounterNum2 = CounterNum,
@@ -528,7 +529,7 @@ make_bucket([{Name, Conf} | T], Type, GlobalCfg, Factor, CounterNum, DelayBucket
     Bucket = #{
         name => Name,
         rate => Rate,
-        obtained => 0,
+        obtained => Initial,
         correction => 0,
         capacity => Capacity,
         counter => undefined,
