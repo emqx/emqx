@@ -176,11 +176,11 @@ condition([NIndex | OtherIndex], ['+' | OtherTokens], N, IndexMatch, OtherMatch)
 condition(Index, ['+' | OtherTokens], N, IndexMatch, OtherMatch) ->
     condition(Index, OtherTokens, N + 1, IndexMatch, ['_' | OtherMatch]);
 condition([NIndex | OtherIndex], [Token | OtherTokens], N, IndexMatch, OtherMatch) when
-    NIndex =:= N, is_binary(Token)
+    NIndex =:= N, is_binary(Token) orelse Token =:= ''
 ->
     condition(OtherIndex, OtherTokens, N + 1, [Token | IndexMatch], OtherMatch);
 condition(Index, [Token | OtherTokens], N, IndexMatch, OtherMatch) when
-    is_binary(Token)
+    is_binary(Token) orelse Token =:= ''
 ->
     condition(Index, OtherTokens, N + 1, IndexMatch, [Token | OtherMatch]).
 

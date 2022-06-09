@@ -193,6 +193,14 @@ t_condition_index(_Config) ->
             [1],
             [<<"a">>, '#']
         )
+    ),
+
+    ?assertEqual(
+        {[1, 2, 3], {['', <<"saya">>, '_'], []}},
+        emqx_retainer_index:condition(
+            [1, 2, 3],
+            ['', <<"saya">>, '+']
+        )
     ).
 
 t_restore_topic(_Config) ->
