@@ -472,7 +472,6 @@ ensure_dashboard_listeners_started(_App) ->
 -spec ensure_quic_listener(Name :: atom(), UdpPort :: inet:port_number()) -> ok.
 ensure_quic_listener(Name, UdpPort) ->
     application:ensure_all_started(quicer),
-    emqx_config:put([listeners, quic, Name, mountpoint], <<>>),
     Conf = #{
         acceptors => 16,
         bind => {{0, 0, 0, 0}, UdpPort},
@@ -491,6 +490,7 @@ ensure_quic_listener(Name, UdpPort) ->
         mountpoint => <<>>,
         zone => default
     },
+    emqx_config:put([listeners, quic, Name], Conf),
     case emqx_listeners:start_listener(quic, Name, Conf) of
         ok -> ok;
         {error, {already_started, _Pid}} -> ok

@@ -143,9 +143,13 @@ is_running(Type, ListenerId, _Conf) when Type =:= ws; Type =:= wss ->
         _:_ ->
             false
     end;
-is_running(quic, _ListenerId, _Conf) ->
-    %% TODO: quic support
-    false.
+is_running(quic, ListenerId, _Conf) ->
+    case quicer:listener(ListenerId) of
+        {ok, Pid} when is_pid(Pid) ->
+            true;
+        _ ->
+            false
+    end.
 
 current_conns(ID, ListenOn) ->
     {ok, #{type := Type, name := Name}} = parse_listener_id(ID),
