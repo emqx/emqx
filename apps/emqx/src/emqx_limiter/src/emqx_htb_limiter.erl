@@ -374,7 +374,7 @@ return_pause(infinity, PauseType, Fun, Diff, Limiter) ->
     %% workaround when emqx_limiter_server's rate is infinity
     {PauseType, ?MINIMUM_PAUSE, make_retry_context(Fun, Diff), Limiter};
 return_pause(Rate, PauseType, Fun, Diff, Limiter) ->
-    Val = erlang:round(Diff * emqx_limiter_schema:minimum_period() / Rate),
+    Val = erlang:round(Diff * emqx_limiter_schema:default_period() / Rate),
     Pause = emqx_misc:clamp(Val, ?MINIMUM_PAUSE, ?MAXIMUM_PAUSE),
     {PauseType, Pause, make_retry_context(Fun, Diff), Limiter}.
 
@@ -408,5 +408,5 @@ may_return_or_pause(_, Limiter) ->
 
 %% @doc apply the elapsed time to the limiter
 apply_elapsed_time(Rate, Elapsed, Tokens, Capacity) ->
-    Inc = floor_div(mul(Elapsed, Rate), emqx_limiter_schema:minimum_period()),
+    Inc = floor_div(mul(Elapsed, Rate), emqx_limiter_schema:default_period()),
     erlang:min(add(Tokens, Inc), Capacity).
