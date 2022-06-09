@@ -93,6 +93,7 @@ jobs:
                 -f .ci/docker-compose-file/docker-compose-enterprise-pgsql-and-timescale-client.yaml \
                 up -d --build
             docker exec -i erlang bash -c "echo \"https://ci%40emqx.io:${{ secrets.CI_GIT_TOKEN }}@github.com\" > /root/.git-credentials && git config --global credential.helper store"
+            docker exec -i erlang bash -c "git config --global --add safe.directory /emqx"
             while [ $(docker ps -a --filter name=client --filter exited=0 | wc -l) \
                  != $(docker ps -a --filter name=client | wc -l) ]; do
               sleep 5
