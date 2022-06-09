@@ -790,16 +790,6 @@ fields("log") ->
             sc(
                 map(name, ?R_REF("log_file_handler")),
                 #{desc => ?DESC("log_file_handlers")}
-            )},
-        {"error_logger",
-            sc(
-                atom(),
-                #{
-                    mapping => "kernel.error_logger",
-                    default => silent,
-                    'readOnly' => true,
-                    desc => ?DESC("log_error_logger")
-                }
             )}
     ];
 fields("console_handler") ->
@@ -811,7 +801,7 @@ fields("log_file_handler") ->
                 file(),
                 #{
                     desc => ?DESC("log_file_handler_file"),
-                    validator => fun file_location/1
+                    validator => fun validate_file_location/1
                 }
             )},
         {"rotation",
@@ -955,7 +945,8 @@ translation("ekka") ->
 translation("kernel") ->
     [
         {"logger_level", fun tr_logger_level/1},
-        {"logger", fun tr_logger/1}
+        {"logger", fun tr_logger/1},
+        {"error_logger", fun(_) -> silent end}
     ];
 translation("emqx") ->
     [
@@ -1088,7 +1079,8 @@ log_handler_common_confs(Enable) ->
                 string(),
                 #{
                     default => "system",
-                    desc => ?DESC("common_handler_time_offset")
+                    desc => ?DESC("common_handler_time_offset"),
+                    validator => fun validate_time_offset/1
                 }
             )},
         {"chars_limit",
@@ -1326,14 +1318,22 @@ emqx_schema_high_prio_roots() ->
             )},
     lists:keyreplace("authorization", 1, Roots, Authz).
 
--define(VALID_FILE, "^[/\_a-zA-Z0-9\.\-]*$").
-file_location(File) ->
-    Error = {error, "Invalid file name: " ++ ?VALID_FILE},
-    try
-        case re:run(File, ?VALID_FILE) of
-            nomatch -> Error;
-            _ -> ok
-        end
+validate_file_location(File) ->
+    ValidFile = "^[/\\_a-zA-Z0-9\\.\\-]*$",
+    Error = "Invalid file name: " ++ ValidFile,
+    validator_string_re(File, ValidFile, Error).
+
+validate_time_offset(Offset) ->
+    ValidTimeOffset = "^([\\-\\+][0-1][0-9]:[0-6][0-9]|system|utc)$",
+    Error =
+        "Invalid time offset, should be of format: +[hh]:[mm], "
+        "i.e. +08:00 or -02:00",
+    validator_string_re(Offset, ValidTimeOffset, Error).
+
+validator_string_re(Val, RE, Error) ->
+    try re:run(Val, RE) of
+        nomatch -> {error, Error};
+        _ -> ok
     catch
-        _:_ -> Error
+        _:_ -> {error, Error}
     end.
