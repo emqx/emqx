@@ -329,7 +329,7 @@ authorize(
                 'client.check_authz_complete',
                 [Client, PubSub, Topic, deny, AuthzSource]
             ),
-            ?SLOG(info, #{
+            ?SLOG(warning, #{
                 msg => "authorization_permission_denied",
                 username => Username,
                 ipaddr => IpAddress,
