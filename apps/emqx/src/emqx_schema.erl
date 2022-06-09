@@ -903,7 +903,7 @@ fields("ws_opts") ->
             sc(
                 duration(),
                 #{
-                    default => "15s",
+                    default => "7200s",
                     desc => ?DESC(fields_mqtt_quic_listener_idle_timeout)
                 }
             )},
