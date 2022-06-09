@@ -19,7 +19,7 @@ LOCAL_IP=$(hostname -i | grep -oE '((25[0-5]|(2[0-4]|1[0-9]|[1-9]|)[0-9])\.){3}(
 if [[ -z "$EMQX_NODE_NAME" ]]; then
 
     if [[ -z "$EMQX_NAME" ]]; then
-        EMQX_NAME="$(hostname)"
+        EMQX_NAME='emqx'
     fi
 
     if [[ -z "$EMQX_HOST" ]]; then
