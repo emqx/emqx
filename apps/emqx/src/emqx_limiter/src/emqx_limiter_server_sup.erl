@@ -101,14 +101,4 @@ make_child(Type, Cfg) ->
     }.
 
 childs() ->
-    Conf = emqx:get_config([limiter]),
-    lists:foldl(
-        fun
-            ({Type, #{enable := true}}, Acc) ->
-                [make_child(Type) | Acc];
-            (_, Acc) ->
-                Acc
-        end,
-        [],
-        maps:to_list(Conf)
-    ).
+    [make_child(Type) || Type <- emqx_limiter_schema:types()].

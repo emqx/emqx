@@ -113,13 +113,10 @@
 connect(_Type, undefined) ->
     {ok, emqx_htb_limiter:make_infinity_limiter()};
 connect(Type, BucketName) when is_atom(BucketName) ->
-    case check_enable_and_get_bucket_cfg(Type, BucketName) of
+    case get_bucket_cfg(Type, BucketName) of
         undefined ->
             ?SLOG(error, #{msg => "bucket_config_not_found", type => Type, bucket => BucketName}),
             {error, config_not_found};
-        limiter_not_started ->
-            ?SLOG(error, #{msg => "limiter_not_started", type => Type, bucket => BucketName}),
-            {error, limiter_not_started};
         #{
             rate := AggrRate,
             capacity := AggrSize,
@@ -478,7 +475,7 @@ init_tree(Type, #{bucket := Buckets} = Cfg) ->
 
     State2 = State#{
         root := Root,
-        counter := counters:new(CounterNum, [write_concurrency])
+        counter := counters:new(CounterNum, [atomics])
     },
 
     lists:foldl(fun(F, Acc) -> F(Acc) end, State2, DelayBuckets).
@@ -602,13 +599,8 @@ call(Type, Msg) ->
             gen_server:call(Pid, Msg)
     end.
 
--spec check_enable_and_get_bucket_cfg(limiter_type(), bucket_name()) ->
+-spec get_bucket_cfg(limiter_type(), bucket_name()) ->
     undefined | limiter_not_started | hocons:config().
-check_enable_and_get_bucket_cfg(Type, Bucket) ->
-    case emqx_limiter_schema:is_enable(Type) of
-        false ->
-            limiter_not_started;
-        _ ->
-            Path = emqx_limiter_schema:get_bucket_cfg_path(Type, Bucket),
-            emqx:get_config(Path, undefined)
-    end.
+get_bucket_cfg(Type, Bucket) ->
+    Path = emqx_limiter_schema:get_bucket_cfg_path(Type, Bucket),
+    emqx:get_config(Path, undefined).

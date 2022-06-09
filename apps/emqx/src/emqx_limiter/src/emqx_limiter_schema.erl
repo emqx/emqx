@@ -30,8 +30,7 @@
     namespace/0,
     get_bucket_cfg_path/2,
     desc/1,
-    types/0,
-    is_enable/1
+    types/0
 ]).
 
 -define(KILOBYTE, 1024).
@@ -89,13 +88,12 @@ fields(limiter) ->
         {Type,
             ?HOCON(?R_REF(limiter_opts), #{
                 desc => ?DESC(Type),
-                default => #{<<"enable">> => false}
+                default => #{}
             })}
      || Type <- types()
     ];
 fields(limiter_opts) ->
     [
-        {enable, ?HOCON(boolean(), #{desc => ?DESC(enable), default => true})},
         {rate, ?HOCON(rate(), #{desc => ?DESC(rate), default => "infinity"})},
         {burst,
             ?HOCON(burst_rate(), #{
@@ -201,10 +199,6 @@ to_rate(Str) ->
 -spec get_bucket_cfg_path(limiter_type(), bucket_name()) -> bucket_path().
 get_bucket_cfg_path(Type, BucketName) ->
     [limiter, Type, bucket, BucketName].
-
--spec is_enable(limiter_type()) -> boolean().
-is_enable(Type) ->
-    emqx:get_config([limiter, Type, enable], false).
 
 types() ->
     [bytes_in, message_in, connection, message_routing, batch].

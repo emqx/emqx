@@ -119,19 +119,9 @@ post_config_update([limiter, Type], _Config, NewConf, _OldConf, _AppEnvs) ->
     Config = maps:get(Type, NewConf),
     case emqx_limiter_server:whereis(Type) of
         undefined ->
-            case Config of
-                #{enable := false} ->
-                    ok;
-                _ ->
-                    start_server(Type)
-            end;
+            start_server(Type, Config);
         _ ->
-            case Config of
-                #{enable := false} ->
-                    stop_server(Type);
-                _ ->
-                    emqx_limiter_server:update_config(Type, Config)
-            end
+            emqx_limiter_server:update_config(Type, Config)
     end.
 
 %%--------------------------------------------------------------------
