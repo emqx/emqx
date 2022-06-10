@@ -16,6 +16,10 @@
 
 -module(emqx_rule_utils).
 
+-export([ replace_vars_in_str/2
+        , replace_simple_var/2
+        ]).
+
 %% preprocess and process tempalte string with place holders
 -export([ preproc_tmpl/1
         , proc_tmpl/2
@@ -86,6 +90,22 @@ preproc_tmpl([[Str, Phld]| Tokens], Acc) ->
             put_head(str, Str, Acc)));
 preproc_tmpl([[Str]| Tokens], Acc) ->
     preproc_tmpl(Tokens, put_head(str, Str, Acc)).
+
+%% Replace a string contains vars to another string in which the placeholders are replace by the
+%% corresponding values. For example, given "a: ${var}", if the var=1, the result string will be:
+%% "a: 1".
+replace_vars_in_str(Tokens, Data) when is_list(Tokens) ->
+    proc_tmpl(Tokens, Data, #{return => full_binary});
+replace_vars_in_str(Val, _Data) ->
+    Val.
+
+%% Replace a simple var to its value. For example, given "${var}", if the var=1, then the result
+%% value will be an integer 1.
+replace_simple_var(Tokens, Data) when is_list(Tokens) ->
+    [Var] = proc_tmpl(Tokens, Data, #{return => rawlist}),
+    Var;
+replace_simple_var(Val, _Data) ->
+    Val.
 
 put_head(_Type, <<>>, List) -> List;
 put_head(Type, Term, List) ->

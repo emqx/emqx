@@ -47,6 +47,7 @@
         , array
         , file
         , cfgselect %% TODO: [5.0] refactor this
+        , editable_select
         ]).
 
 %%------------------------------------------------------------------------------
@@ -84,6 +85,9 @@ validate_spec(ParamsSepc) ->
 %% Internal Functions
 %%------------------------------------------------------------------------------
 
+%% Validate editable_select first, because editable_select has enum selection.
+validate_value(Val, #{type := editable_select}) ->
+    Val;
 validate_value(Val, #{enum := Enum}) ->
     validate_enum(Val, Enum);
 validate_value(Val, #{type := object} = Spec) ->

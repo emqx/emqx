@@ -35,23 +35,27 @@
             },
             target_qos => #{
                 order => 2,
-                type => string,
+                type => editable_select,
+                enum => [<<"0">>, <<"1">>, <<"2">>],
                 required => true,
                 default => <<"0">>,
                 title => #{en => <<"Target QoS">>,
                            zh => <<"目的 QoS"/utf8>>},
                 description => #{en =>
                                     <<"The QoS Level to be uses when republishing the message."
-                                      " Set to -1 to use the original QoS."
-                                      " Support placeholder variables.">>,
+                                      " Support placeholder variables."
+                                      " Set to ${qos} to use the original QoS."
+                                      " Or other variable, value is 0 or 1 or 2">>,
                                  zh =>
-                                    <<"重新发布消息时用的 QoS 级别, 设置为 -1 以使用原消息中的 QoS。"
-                                      "支持占位符变量"/utf8>>}
+                                    <<"重新发布消息时用的 QoS 级别。"
+                                      "支持占位符变量，可以使用 ${qos} 来使用原消息的 QoS，"
+                                      "或其他值为 0 或 1 或 2 的变量。"/utf8>>}
             },
             target_retain => #{
                 order => 3,
-                type => string,
-                required => true,
+                type => editable_select,
+                enum => [<<"true">>, <<"false">>],
+                required => false,
                 default => <<"false">>,
                 title => #{en => <<"Target Retain">>,
                            zh => <<"目标保留消息标识"/utf8>>},
@@ -226,9 +230,9 @@ on_action_republish(Selected, _Envs = #{
                     timestamp = erlang:system_time(millisecond)
                 },
             increase_and_publish(ActId, Message);
-        Error ->
+        Errors ->
             emqx_rule_metrics:inc_actions_error(ActId),
-            _ = log_error(Error),
+            _ = log_error(Errors),
             {badact, bad_qos_retain}
     end.
 
@@ -257,54 +261,53 @@ format_msg([], Data) ->
 format_msg(Tokens, Data) ->
      emqx_rule_utils:proc_tmpl(Tokens, Data).
 
-get_qos(-1, _Data) -> {ok, 0};
-get_qos(0, _Data) ->  {ok, 0};
-get_qos(1, _Data) ->  {ok, 1};
-get_qos(2, _Data) ->  {ok, 2};
-get_qos({path, Path}, Data) ->
-    to_qos(emqx_rule_maps:nested_get({path, Path}, Data, 0)).
-
-to_qos(0) ->        {ok, 0};
-to_qos(1) ->        {ok, 1};
-to_qos(2) ->        {ok, 2};
-to_qos(<<"-1">>) -> {ok, 0};
-to_qos(<<"0">>) ->  {ok, 0};
-to_qos(<<"1">>) ->  {ok, 1};
-to_qos(<<"2">>) ->  {ok, 2};
 to_qos(TargetQoS) ->
-    case parse_value_or_placeholder(TargetQoS) of
-        {path, P} ->
-            {ok, {path, P}};
-        _ ->
-            {error, bad_qos}
+    case get_qos(TargetQoS) of
+        {ok, QoS} ->
+            {ok, QoS};
+        _Error ->
+            case emqx_rule_utils:preproc_tmpl(TargetQoS) of
+                Tmpl = [{var, _}] ->
+                    {ok, Tmpl};
+                _ ->
+                    {error, bad_qos}
+            end
     end.
 
-get_retain(false, _Data) -> {ok, false};
-get_retain(true, _Data) ->  {ok, true};
-get_retain({path, Path}, Data) ->
-    to_retain(emqx_rule_maps:nested_get({path, Path}, Data, true)).
+get_qos(Tmpl, Data) ->
+    get_qos(emqx_rule_utils:replace_simple_var(Tmpl, Data)).
 
-to_retain(true) ->        {ok, true};
-to_retain(false) ->       {ok, false};
-to_retain(<<"true">>) ->  {ok, true};
-to_retain(<<"false">>) -> {ok, false};
-to_retain(<<"1">>) ->     {ok, true};
-to_retain(<<"0">>) ->     {ok, false};
-to_retain(1) ->           {ok, true};
-to_retain(0) ->           {ok, false};
+get_qos(<<"-1">>) -> {ok, 0};
+get_qos(<<"0">>) ->  {ok, 0};
+get_qos(<<"1">>) ->  {ok, 1};
+get_qos(<<"2">>) ->  {ok, 2};
+get_qos(0) ->        {ok, 0};
+get_qos(1) ->        {ok, 1};
+get_qos(2) ->        {ok, 2};
+get_qos(_) ->        {error, bad_qos}.
+
 to_retain(TargetRetain) ->
-    case parse_value_or_placeholder(TargetRetain) of
-        {path, P} ->
-            {ok, {path, P}};
-        _ ->
-            {error, bad_retain}
+    case get_retain(TargetRetain) of
+        {ok, Retain} ->
+            {ok, Retain};
+        _Error ->
+            case emqx_rule_utils:preproc_tmpl(TargetRetain) of
+                Tmpl = [{var, _}] ->
+                    {ok, Tmpl};
+                _ ->
+                    {error, bad_retain}
+            end
     end.
 
-parse_value_or_placeholder(ValueOrPlaceholder) ->
-    case re:run(ValueOrPlaceholder, "^\\$\{.+\}$") of
-        nomatch ->
-            ValueOrPlaceholder;
-        {match, [{0, Length}]} ->
-            Placeholder = binary:part(ValueOrPlaceholder, 2, Length - 3),
-            {path, [{key, Key} || Key <- string:lexemes(Placeholder, ". ")]}
-    end.
+get_retain(Tmpl, Data) ->
+    get_retain(emqx_rule_utils:replace_simple_var(Tmpl, Data)).
+
+get_retain(true) ->        {ok, true};
+get_retain(false) ->       {ok, false};
+get_retain(<<"true">>) ->  {ok, true};
+get_retain(<<"false">>) -> {ok, false};
+get_retain(<<"1">>) ->     {ok, true};
+get_retain(<<"0">>) ->     {ok, false};
+get_retain(1) ->           {ok, true};
+get_retain(0) ->           {ok, false};
+get_retain(_) ->           {error, bad_retain}.
