@@ -79,7 +79,12 @@ is_enterprise(ee) -> true.
 
 is_quicer_supported() ->
     not (false =/= os:getenv("BUILD_WITHOUT_QUIC") orelse
-        is_win32() orelse is_centos_6()).
+        is_macos() orelse
+        is_win32() orelse is_centos_6()) orelse
+        "1" == os:getenv("BUILD_WITH_QUIC").
+
+is_macos() ->
+    {unix, darwin} =:= os:type().
 
 is_centos_6() ->
     %% reason:
