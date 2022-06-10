@@ -43,14 +43,12 @@
                 title => #{en => <<"Target QoS">>,
                            zh => <<"目的 QoS"/utf8>>},
                 description => #{en =>
-                                    <<"The QoS Level to be uses when republishing the message."
+                                    <<"The QoS Level to be used when republishing the message."
                                       " Support placeholder variables."
-                                      " Set to ${qos} to use the original QoS."
-                                      " Or other variable, value is 0 or 1 or 2">>,
+                                      " Set to ${qos} to use the original QoS. Default is 0">>,
                                  zh =>
                                     <<"重新发布消息时用的 QoS 级别。"
-                                      "支持占位符变量，可以填写 ${qos} 来使用原消息的 QoS，"
-                                      "或其他值为 0 或 1 或 2 的变量。"/utf8>>}
+                                      "支持占位符变量，可以填写 ${qos} 来使用原消息的 QoS。默认 0"/utf8>>}
             },
             target_retain => #{
                 order => 3,
@@ -61,7 +59,7 @@
                 default => false,
                 title => #{en => <<"Target Retain">>,
                            zh => <<"目标保留消息标识"/utf8>>},
-                description => #{en => <<"The Retain flag to be uses when republishing the message."
+                description => #{en => <<"The Retain flag to be used when republishing the message."
                                          " Set to ${flags.retain} to use the original Retain."
                                          " Support placeholder variables. Default is false">>,
                                  zh => <<"重新发布消息时用的保留消息标识。"
