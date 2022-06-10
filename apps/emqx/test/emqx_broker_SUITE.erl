@@ -678,6 +678,41 @@ t_connect_client_never_negative(Config) when is_list(Config) ->
 t_connect_client_never_negative({'end', _Config}) ->
     ok.
 
+t_connack_auth_error({init, Config}) ->
+    process_flag(trap_exit, true),
+    ok = emqx_common_test_helpers:start_apps([]),
+    ChainName = 'mqtt:global',
+    AuthenticatorConfig = #{
+        enable => true,
+        mechanism => password_based,
+        backend => built_in_database,
+        user_id_type => username,
+        password_hash_algorithm => #{
+            name => plain,
+            salt_position => disable
+        },
+        user_group => <<"global:mqtt">>
+    },
+    ok = emqx_authentication:register_providers(
+        [{{password_based, built_in_database}, emqx_authn_mnesia}]
+    ),
+    emqx_authentication:initialize_authentication(ChainName, AuthenticatorConfig),
+    Config;
+t_connack_auth_error({'end', _Config}) ->
+    ok = emqx_common_test_helpers:stop_apps([]),
+    ok;
+t_connack_auth_error(Config) when is_list(Config) ->
+    %% MQTT 3.1
+    ?assertEqual(0, emqx_metrics:val('packets.connack.auth_error')),
+    {ok, C0} = emqtt:start_link([{proto_ver, v4}]),
+    ?assertEqual({error, {unauthorized_client, undefined}}, emqtt:connect(C0)),
+    ?assertEqual(1, emqx_metrics:val('packets.connack.auth_error')),
+    %% MQTT 5.0
+    {ok, C1} = emqtt:start_link([{proto_ver, v5}]),
+    ?assertEqual({error, {not_authorized, #{}}}, emqtt:connect(C1)),
+    ?assertEqual(2, emqx_metrics:val('packets.connack.auth_error')),
+    ok.
+
 wait_for_events(Action, Kinds) ->
     wait_for_events(Action, Kinds, 500).
 
