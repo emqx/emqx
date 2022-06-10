@@ -13,11 +13,11 @@ roots() -> [].
 
 fields("ingress") ->
     [emqx_bridge_schema:direction_field(ingress, emqx_connector_mqtt_schema:ingress_desc())] ++
-        emqx_bridge_schema:common_bridge_fields() ++
+        emqx_bridge_schema:common_bridge_fields(mqtt_connector_ref()) ++
         proplists:delete(hookpoint, emqx_connector_mqtt_schema:fields("ingress"));
 fields("egress") ->
     [emqx_bridge_schema:direction_field(egress, emqx_connector_mqtt_schema:egress_desc())] ++
-        emqx_bridge_schema:common_bridge_fields() ++
+        emqx_bridge_schema:common_bridge_fields(mqtt_connector_ref()) ++
         emqx_connector_mqtt_schema:fields("egress");
 fields("post_ingress") ->
     [
@@ -63,3 +63,6 @@ name_field() ->
                 desc => ?DESC("desc_name")
             }
         )}.
+
+mqtt_connector_ref() ->
+    ?R_REF(emqx_connector_mqtt_schema, "connector").
