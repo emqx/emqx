@@ -29,3 +29,10 @@ jobs:
         run: ./scripts/update-appup.sh emqx-ee --check
       - name: Check apps version
         run: ./scripts/apps-version-check.sh
+      - uses: actions/upload-artifact@v3.1.0
+        if: failure()
+        with:
+          name: expected_appup_files
+          path: |
+            {src,apps}/**/*.appup.src
+          retention-days: 1
