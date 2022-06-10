@@ -49,32 +49,33 @@ init_per_testcase(Case, Config) when
         undefined -> ok;
         Listeners -> emqx_config:put([listeners], maps:remove(quic, Listeners))
     end,
-    PrevListeners = emqx_config:get([listeners, tcp], #{}),
-    PrevRateLimit = emqx_config:get([rate_limit], #{}),
-    emqx_config:put(
-        [listeners, tcp],
-        #{
+
+    PrevListeners = emqx_config:get([listeners]),
+    PureListeners = remove_default_limiter(PrevListeners),
+    PureListeners2 = PureListeners#{
+        tcp => #{
             listener_test => #{
                 bind => {"127.0.0.1", 9999},
                 max_connections => 4321,
                 limiter => #{}
             }
         }
-    ),
-    emqx_config:put([rate_limit], #{max_conn_rate => 1000}),
+    },
+    emqx_config:put([listeners], PureListeners2),
+
     ok = emqx_listeners:start(),
     [
-        {prev_listener_conf, PrevListeners},
-        {prev_rate_limit_conf, PrevRateLimit}
+        {prev_listener_conf, PrevListeners}
         | Config
     ];
 init_per_testcase(t_wss_conn, Config) ->
     catch emqx_config_handler:stop(),
     {ok, _} = emqx_config_handler:start_link(),
-    PrevListeners = emqx_config:get([listeners, wss], #{}),
-    emqx_config:put(
-        [listeners, wss],
-        #{
+
+    PrevListeners = emqx_config:get([listeners]),
+    PureListeners = remove_default_limiter(PrevListeners),
+    PureListeners2 = PureListeners#{
+        wss => #{
             listener_test => #{
                 bind => {{127, 0, 0, 1}, 9998},
                 limiter => #{},
@@ -85,7 +86,9 @@ init_per_testcase(t_wss_conn, Config) ->
                 }
             }
         }
-    ),
+    },
+    emqx_config:put([listeners], PureListeners2),
+
     ok = emqx_listeners:start(),
     [
         {prev_listener_conf, PrevListeners}
@@ -94,25 +97,31 @@ init_per_testcase(t_wss_conn, Config) ->
 init_per_testcase(_, Config) ->
     catch emqx_config_handler:stop(),
     {ok, _} = emqx_config_handler:start_link(),
-    Config.
+    PrevListeners = emqx_config:get([listeners]),
+    PureListeners = remove_default_limiter(PrevListeners),
+    emqx_config:put([listeners], PureListeners),
+    [
+        {prev_listener_conf, PrevListeners}
+        | Config
+    ].
 
 end_per_testcase(Case, Config) when
     Case =:= t_max_conns_tcp; Case =:= t_current_conns_tcp
 ->
     PrevListener = ?config(prev_listener_conf, Config),
-    PrevRateLimit = ?config(prev_rate_limit_conf, Config),
     emqx_listeners:stop(),
-    emqx_config:put([listeners, tcp], PrevListener),
-    emqx_config:put([rate_limit], PrevRateLimit),
+    emqx_config:put([listeners], PrevListener),
     _ = emqx_config_handler:stop(),
     ok;
 end_per_testcase(t_wss_conn, Config) ->
     PrevListener = ?config(prev_listener_conf, Config),
     emqx_listeners:stop(),
-    emqx_config:put([listeners, wss], PrevListener),
+    emqx_config:put([listeners], PrevListener),
     _ = emqx_config_handler:stop(),
     ok;
-end_per_testcase(_, _Config) ->
+end_per_testcase(_, Config) ->
+    PrevListener = ?config(prev_listener_conf, Config),
+    emqx_config:put([listeners], PrevListener),
     _ = emqx_config_handler:stop(),
     ok.
 
@@ -184,3 +193,16 @@ get_base_dir(Module) ->
 
 get_base_dir() ->
     get_base_dir(?MODULE).
+
+remove_default_limiter(Listeners) ->
+    maps:map(
+        fun(_, X) ->
+            maps:map(
+                fun(_, E) ->
+                    maps:remove(limiter, E)
+                end,
+                X
+            )
+        end,
+        Listeners
+    ).

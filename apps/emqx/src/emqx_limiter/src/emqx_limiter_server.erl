@@ -475,7 +475,7 @@ init_tree(Type, #{bucket := Buckets} = Cfg) ->
 
     State2 = State#{
         root := Root,
-        counter := counters:new(CounterNum, [atomics])
+        counter := counters:new(CounterNum, [write_concurrency])
     },
 
     lists:foldl(fun(F, Acc) -> F(Acc) end, State2, DelayBuckets).
