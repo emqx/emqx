@@ -59,7 +59,7 @@ defmodule EMQXUmbrella.MixProject do
       {:ecpool, github: "emqx/ecpool", tag: "0.5.2"},
       {:replayq, "0.3.4", override: true},
       {:pbkdf2, github: "emqx/erlang-pbkdf2", tag: "2.0.4", override: true},
-      {:emqtt, github: "emqx/emqtt", tag: "1.5.0", override: true},
+      {:emqtt, github: "emqx/emqtt", tag: "1.5.1", override: true},
       {:rulesql, github: "emqx/rulesql", tag: "0.1.4"},
       {:observer_cli, "1.7.1"},
       {:system_monitor, github: "ieQu1/system_monitor", tag: "3.0.3"},
@@ -595,8 +595,9 @@ defmodule EMQXUmbrella.MixProject do
     not Enum.any?([
       build_without_quic?(),
       win32?(),
-      centos6?()
-    ])
+      centos6?(),
+      macos?()
+    ]) or "1" == System.get_env("BUILD_WITH_QUIC")
   end
 
   defp pkg_vsn() do
@@ -622,6 +623,10 @@ defmodule EMQXUmbrella.MixProject do
       _ ->
         false
     end
+  end
+
+  defp macos?() do
+    {:unix, :darwin} == :os.type()
   end
 
   defp build_without_quic?() do

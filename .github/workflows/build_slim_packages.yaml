@@ -155,6 +155,7 @@ jobs:
         echo "/usr/local/opt/bison/bin" >> $GITHUB_PATH
         echo "/usr/local/bin" >> $GITHUB_PATH
         echo "EMQX_NAME=${{ matrix.profile }}" >> $GITHUB_ENV
+        echo "BUILD_WITH_QUIC=1" >> $GITHUB_ENV
     - uses: actions/cache@v2
       id: cache
       with:
