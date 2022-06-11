@@ -163,8 +163,7 @@ get_counters(Name, Id) ->
 reset_counters(Name, Id) ->
     Indexes = maps:values(get_indexes(Name, Id)),
     Ref = get_ref(Name, Id),
-    [counters:put(Ref, Idx, 0) || Idx <- Indexes],
-    ok.
+    lists:foreach(fun(Idx) -> counters:put(Ref, Idx, 0) end, Indexes).
 
 -spec get_metrics(handler_name(), metric_id()) -> metrics().
 get_metrics(Name, Id) ->

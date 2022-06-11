@@ -556,7 +556,7 @@ with_gateway(GwName0, Fun) ->
             end,
         case emqx_gateway:lookup(GwName) of
             undefined ->
-                return_http_error(404, "Gateway not load");
+                return_http_error(404, "Gateway not loaded");
             Gateway ->
                 Fun(GwName, Gateway)
         end

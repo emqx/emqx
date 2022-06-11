@@ -317,7 +317,7 @@ get_plugins() ->
 upload_install(post, #{body := #{<<"plugin">> := Plugin}}) when is_map(Plugin) ->
     [{FileName, Bin}] = maps:to_list(maps:without([type], Plugin)),
     %% File bin is too large, we use rpc:multicall instead of cluster_rpc:multicall
-    %% TODO what happened when a new node join in?
+    %% TODO what happens when a new node join in?
     %% emqx_plugins_monitor should copy plugins from other core node when boot-up.
     case emqx_plugins:describe(string:trim(FileName, trailing, ".tar.gz")) of
         {error, #{error := "bad_info_file", return := {enoent, _}}} ->
@@ -358,16 +358,11 @@ upload_install(post, #{}) ->
     }}.
 
 do_install_package(FileName, Bin) ->
-    {Res, _} = emqx_mgmt_api_plugins_proto_v1:install_package(FileName, Bin),
-    case lists:filter(fun(R) -> R =/= ok end, Res) of
-        [] ->
-            {200};
-        [{error, Reason} | _] ->
-            {400, #{
-                code => 'UNEXPECTED_ERROR',
-                message => iolist_to_binary(io_lib:format("~p", [Reason]))
-            }}
-    end.
+    %% TODO: handle bad nodes
+    {[_ | _] = Res, []} = emqx_mgmt_api_plugins_proto_v1:install_package(FileName, Bin),
+    %% TODO: handle non-OKs
+    [] = lists:filter(fun(R) -> R =/= ok end, Res),
+    {200}.
 
 plugin(get, #{bindings := #{name := Name}}) ->
     {Plugins, _} = emqx_mgmt_api_plugins_proto_v1:describe_package(Name),
@@ -376,11 +371,11 @@ plugin(get, #{bindings := #{name := Name}}) ->
         [] -> {404, #{code => 'NOT_FOUND', message => Name}}
     end;
 plugin(delete, #{bindings := #{name := Name}}) ->
-    {ok, _TnxId, Res} = emqx_mgmt_api_plugins_proto_v1:delete_package(Name),
+    Res = emqx_mgmt_api_plugins_proto_v1:delete_package(Name),
     return(204, Res).
 
 update_plugin(put, #{bindings := #{name := Name, action := Action}}) ->
-    {ok, _TnxId, Res} = emqx_mgmt_api_plugins_proto_v1:ensure_action(Name, Action),
+    Res = emqx_mgmt_api_plugins_proto_v1:ensure_action(Name, Action),
     return(204, Res).
 
 update_boot_order(post, #{bindings := #{name := Name}, body := Body}) ->
@@ -422,7 +417,8 @@ delete_package(Name) ->
         ok ->
             _ = emqx_plugins:ensure_disabled(Name),
             _ = emqx_plugins:ensure_uninstalled(Name),
-            _ = emqx_plugins:delete_package(Name);
+            _ = emqx_plugins:delete_package(Name),
+            ok;
         Error ->
             Error
     end.
@@ -430,20 +426,19 @@ delete_package(Name) ->
 %% for RPC plugin update
 ensure_action(Name, start) ->
     _ = emqx_plugins:ensure_enabled(Name),
-    _ = emqx_plugins:ensure_started(Name);
+    _ = emqx_plugins:ensure_started(Name),
+    ok;
 ensure_action(Name, stop) ->
     _ = emqx_plugins:ensure_stopped(Name),
-    _ = emqx_plugins:ensure_disabled(Name);
+    _ = emqx_plugins:ensure_disabled(Name),
+    ok;
 ensure_action(Name, restart) ->
     _ = emqx_plugins:ensure_enabled(Name),
-    _ = emqx_plugins:restart(Name).
+    _ = emqx_plugins:restart(Name),
+    ok.
 
 return(Code, ok) ->
     {Code};
-return(Code, {ok, Result}) ->
-    {Code, Result};
-return(_, {error, #{error := "bad_info_file", return := {enoent, _}, path := Path}}) ->
-    {404, #{code => 'NOT_FOUND', message => Path}};
 return(_, {error, Reason}) ->
     {400, #{code => 'PARAM_ERROR', message => iolist_to_binary(io_lib:format("~p", [Reason]))}}.
 

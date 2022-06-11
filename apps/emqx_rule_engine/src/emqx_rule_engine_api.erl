@@ -321,7 +321,7 @@ replace_sql_clrf(#{<<"sql">> := SQL} = Params) ->
     end.
 '/rules/:id/reset_metrics'(put, #{bindings := #{id := RuleId}}) ->
     case emqx_rule_engine_proto_v1:reset_metrics(RuleId) of
-        {ok, _TxnId, _Result} ->
+        ok ->
             {200, <<"Reset Success">>};
         Failed ->
             {400, #{
