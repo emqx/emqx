@@ -2,14 +2,6 @@
 
 set -euo pipefail
 
-## This script takes the first argument as docker image name,
-## starts two containers running with the built code mount
-## into docker containers.
-##
-## NOTE: containers are not instructed to rebuild emqx,
-##       Please use a docker image which is compatible with
-##       the docker host.
-##
 ## EMQX can only start with longname (https://erlang.org/doc/reference_manual/distributed.html)
 ## The host name part of EMQX's node name has to be static, this means we should either
 ## pre-assign static IP for containers, or ensure containers can communiate with each other by name
@@ -19,7 +11,6 @@ set -euo pipefail
 cd -P -- "$(dirname -- "$0")/.."
 
 IMAGE="${1}"
-PROJ_DIR="$(pwd)"
 
 NET='emqx.io'
 NODE1="node1.$NET"
@@ -35,23 +26,23 @@ docker network create "$NET"
 
 docker run -d -t --restart=always --name "$NODE1" \
   --net "$NET" \
+  -e EMQX_LOG__CONSOLE_HANDLER__LEVEL=debug \
   -e EMQX_NODE_NAME="emqx@$NODE1" \
   -e EMQX_NODE_COOKIE="$COOKIE" \
   -p 18083:18083 \
-  -v "$PROJ_DIR"/_build/emqx/rel/emqx:/built \
-  "$IMAGE" sh -c 'cp -r /built /emqx && /emqx/bin/emqx console'
+  "$IMAGE"
 
 docker run -d -t --restart=always --name "$NODE2" \
   --net "$NET" \
+  -e EMQX_LOG__CONSOLE_HANDLER__LEVEL=debug \
   -e EMQX_NODE_NAME="emqx@$NODE2" \
   -e EMQX_NODE_COOKIE="$COOKIE" \
   -p 18084:18083 \
-  -v "$PROJ_DIR"/_build/emqx/rel/emqx:/built \
-  "$IMAGE" sh -c 'cp -r /built /emqx && /emqx/bin/emqx console'
+  "$IMAGE"
 
 wait (){
   container="$1"
-  while ! docker exec "$container" /emqx/bin/emqx_ctl status >/dev/null 2>&1; do
+  while ! docker exec "$container" emqx_ctl status >/dev/null 2>&1; do
     echo -n '.'
     sleep 1
   done
@@ -61,4 +52,4 @@ wait $NODE1
 wait $NODE2
 echo
 
-docker exec $NODE1 /emqx/bin/emqx_ctl cluster join "emqx@$NODE2"
+docker exec $NODE1 emqx_ctl cluster join "emqx@$NODE2"
