@@ -14,7 +14,7 @@
 ]).
 
 -export([
-    common_bridge_fields/0,
+    common_bridge_fields/1,
     metrics_status_fields/0,
     direction_field/2
 ]).
@@ -50,7 +50,7 @@ http_schema(Method) ->
         | Schemas
     ]).
 
-common_bridge_fields() ->
+common_bridge_fields(ConnectorRef) ->
     [
         {enable,
             mk(
@@ -62,7 +62,7 @@ common_bridge_fields() ->
             )},
         {connector,
             mk(
-                binary(),
+                hoconsc:union([binary(), ConnectorRef]),
                 #{
                     required => true,
                     example => <<"mqtt:my_mqtt_connector">>,
