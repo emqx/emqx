@@ -223,7 +223,10 @@ check_cluster_rpc_result(Result) ->
             Res;
         %% all MFA return not ok or {ok, term()}.
         {error, Error} ->
-            Error
+            %% a lot of the callers do not handle
+            %% this error return, some even ignore
+            %% throw here to ensure the code will not proceed
+            erlang:throw(Error)
     end.
 
 %% Only gen hot_conf schema, not all configuration fields.
