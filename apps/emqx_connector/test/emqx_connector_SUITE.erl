@@ -70,6 +70,7 @@ end_per_testcase(_, _Config) ->
     ok.
 
 t_list_raw_empty(_) ->
+    ok = emqx_config:erase(hd(emqx_connector:config_key_path())),
     Result = emqx_connector:list_raw(),
     ?assertEqual([], Result).
 

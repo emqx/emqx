@@ -337,7 +337,7 @@ do_ensure_started(NameVsn) ->
     ).
 
 %% try the function, catch 'throw' exceptions as normal 'error' return
-%% other exceptions with stacktrace returned.
+%% other exceptions with stacktrace logged.
 tryit(WhichOp, F) ->
     try
         F()

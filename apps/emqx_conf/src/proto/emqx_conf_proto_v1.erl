@@ -61,7 +61,7 @@ get_all(KeyPath) ->
     update_config_key_path(),
     emqx_config:update_request(),
     emqx_config:update_opts()
-) -> emqx_cluster_rpc:multicall_return().
+) -> {ok, emqx_config:update_result()} | {error, emqx_config:update_error()}.
 update(KeyPath, UpdateReq, Opts) ->
     emqx_cluster_rpc:multicall(emqx, update_config, [KeyPath, UpdateReq, Opts]).
 
@@ -78,7 +78,7 @@ update(Node, KeyPath, UpdateReq, Opts) ->
     rpc:call(Node, emqx, update_config, [KeyPath, UpdateReq, Opts], 5000).
 
 -spec remove_config(update_config_key_path(), emqx_config:update_opts()) ->
-    emqx_cluster_rpc:multicall_result().
+    {ok, emqx_config:update_result()} | {error, emqx_config:update_error()}.
 remove_config(KeyPath, Opts) ->
     emqx_cluster_rpc:multicall(emqx, remove_config, [KeyPath, Opts]).
 
@@ -90,7 +90,7 @@ remove_config(Node, KeyPath, Opts) ->
     rpc:call(Node, emqx, remove_config, [KeyPath, Opts], 5000).
 
 -spec reset(update_config_key_path(), emqx_config:update_opts()) ->
-    emqx_cluster_rpc:multicall_return().
+    {ok, emqx_config:update_result()} | {error, emqx_config:update_error()}.
 reset(KeyPath, Opts) ->
     emqx_cluster_rpc:multicall(emqx, reset_config, [KeyPath, Opts]).
 

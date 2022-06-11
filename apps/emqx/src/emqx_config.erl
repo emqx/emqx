@@ -233,7 +233,8 @@ put(Config) ->
 
 erase(RootName) ->
     persistent_term:erase(?PERSIS_KEY(?CONF, bin(RootName))),
-    persistent_term:erase(?PERSIS_KEY(?RAW_CONF, bin(RootName))).
+    persistent_term:erase(?PERSIS_KEY(?RAW_CONF, bin(RootName))),
+    ok.
 
 -spec put(emqx_map_lib:config_key_path(), term()) -> ok.
 put(KeyPath, Config) ->

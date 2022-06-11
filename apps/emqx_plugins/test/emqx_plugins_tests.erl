@@ -125,20 +125,10 @@ purge_test() ->
 meck_emqx() ->
     meck:new(emqx, [unstick, passthrough]),
     meck:expect(
-        emqx,
-        update_config,
+        emqx_conf,
+        update,
         fun(Path, Values, _Opts) ->
             emqx_config:put(Path, Values)
         end
     ),
-    %meck:expect(emqx, get_config,
-    %    fun(KeyPath, Default) ->
-    %        Map = emqx:get_raw_config(KeyPath, Default),
-    %        Map1 = emqx_map_lib:safe_atom_key_map(Map),
-    %        case Map1 of
-    %            #{states := Plugins} ->
-    %                Map1#{states => [emqx_map_lib:safe_atom_key_map(P) ||P <- Plugins]};
-    %            _ -> Map1
-    %        end
-    %    end),
     ok.

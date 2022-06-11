@@ -69,13 +69,13 @@ t_base_test(_Config) ->
     ?assertEqual(emqx_cluster_rpc:status(), {atomic, []}),
     Pid = self(),
     MFA = {M, F, A} = {?MODULE, echo, [Pid, test]},
-    {ok, TnxId, ok} = emqx_cluster_rpc:multicall(M, F, A),
+    {ok, TnxId, ok} = multicall(M, F, A),
     {atomic, Query} = emqx_cluster_rpc:query(TnxId),
     ?assertEqual(MFA, maps:get(mfa, Query)),
     ?assertEqual(node(), maps:get(initiator, Query)),
     ?assert(maps:is_key(created_at, Query)),
     ?assertEqual(ok, receive_msg(3, test)),
-    ?assertEqual({ok, 2, ok}, emqx_cluster_rpc:multicall(M, F, A)),
+    ?assertEqual({ok, 2, ok}, multicall(M, F, A)),
     {atomic, Status} = emqx_cluster_rpc:status(),
     case length(Status) =:= 3 of
         true ->
@@ -95,7 +95,7 @@ t_commit_fail_test(_Config) ->
     emqx_cluster_rpc:reset(),
     {atomic, []} = emqx_cluster_rpc:status(),
     {M, F, A} = {?MODULE, failed_on_node, [erlang:whereis(?NODE2)]},
-    {error, "MFA return not ok"} = emqx_cluster_rpc:multicall(M, F, A),
+    {init_failure, "MFA return not ok"} = multicall(M, F, A),
     ?assertEqual({atomic, []}, emqx_cluster_rpc:status()),
     ok.
 
@@ -103,7 +103,7 @@ t_commit_crash_test(_Config) ->
     emqx_cluster_rpc:reset(),
     {atomic, []} = emqx_cluster_rpc:status(),
     {M, F, A} = {?MODULE, no_exist_function, []},
-    {error, {error, Meta}} = emqx_cluster_rpc:multicall(M, F, A),
+    {init_failure, {error, Meta}} = multicall(M, F, A),
     ?assertEqual(undef, maps:get(reason, Meta)),
     ?assertEqual(error, maps:get(exception, Meta)),
     ?assertEqual(true, maps:is_key(stacktrace, Meta)),
@@ -114,21 +114,23 @@ t_commit_ok_but_apply_fail_on_other_node(_Config) ->
     emqx_cluster_rpc:reset(),
     {atomic, []} = emqx_cluster_rpc:status(),
     MFA = {M, F, A} = {?MODULE, failed_on_node, [erlang:whereis(?NODE1)]},
-    {ok, _, ok} = emqx_cluster_rpc:multicall(M, F, A, 1, 1000),
+    {ok, _, ok} = multicall(M, F, A, 1, 1000),
     {atomic, [Status]} = emqx_cluster_rpc:status(),
     ?assertEqual(MFA, maps:get(mfa, Status)),
     ?assertEqual(node(), maps:get(node, Status)),
     erlang:send(?NODE2, test),
-    Res = gen_server:call(?NODE2, {initiate, {M, F, A}}),
-    ?assertEqual({error, "MFA return not ok"}, Res),
+    Call = emqx_cluster_rpc:make_initiate_call_req(M, F, A),
+    Res = gen_server:call(?NODE2, Call),
+    ?assertEqual({init_failure, "MFA return not ok"}, Res),
     ok.
 
 t_catch_up_status_handle_next_commit(_Config) ->
     emqx_cluster_rpc:reset(),
     {atomic, []} = emqx_cluster_rpc:status(),
     {M, F, A} = {?MODULE, failed_on_node_by_odd, [erlang:whereis(?NODE1)]},
-    {ok, 1, ok} = emqx_cluster_rpc:multicall(M, F, A, 1, 1000),
-    {ok, 2} = gen_server:call(?NODE2, {initiate, {M, F, A}}),
+    {ok, 1, ok} = multicall(M, F, A, 1, 1000),
+    Call = emqx_cluster_rpc:make_initiate_call_req(M, F, A),
+    {ok, 2} = gen_server:call(?NODE2, Call),
     ok.
 
 t_commit_ok_apply_fail_on_other_node_then_recover(_Config) ->
@@ -138,19 +140,19 @@ t_commit_ok_apply_fail_on_other_node_then_recover(_Config) ->
     ets:insert(test, {other_mfa_result, failed}),
     ct:pal("111:~p~n", [ets:tab2list(cluster_rpc_commit)]),
     {M, F, A} = {?MODULE, failed_on_other_recover_after_retry, [erlang:whereis(?NODE1)]},
-    {ok, 1, ok} = emqx_cluster_rpc:multicall(M, F, A, 1, 1000),
+    {ok, 1, ok} = multicall(M, F, A, 1, 1000),
     ct:pal("222:~p~n", [ets:tab2list(cluster_rpc_commit)]),
     ct:pal("333:~p~n", [emqx_cluster_rpc:status()]),
     {atomic, [_Status | L]} = emqx_cluster_rpc:status(),
     ?assertEqual([], L),
     ets:insert(test, {other_mfa_result, ok}),
-    {ok, 2, ok} = emqx_cluster_rpc:multicall(io, format, ["test"], 1, 1000),
+    {ok, 2, ok} = multicall(io, format, ["test"], 1, 1000),
     ct:sleep(1000),
     {atomic, NewStatus} = emqx_cluster_rpc:status(),
     ?assertEqual(3, length(NewStatus)),
     Pid = self(),
     MFAEcho = {M1, F1, A1} = {?MODULE, echo, [Pid, test]},
-    {ok, TnxId, ok} = emqx_cluster_rpc:multicall(M1, F1, A1),
+    {ok, TnxId, ok} = multicall(M1, F1, A1),
     {atomic, Query} = emqx_cluster_rpc:query(TnxId),
     ?assertEqual(MFAEcho, maps:get(mfa, Query)),
     ?assertEqual(node(), maps:get(initiator, Query)),
@@ -167,7 +169,7 @@ t_del_stale_mfa(_Config) ->
     Ids =
         [
             begin
-                {ok, TnxId, ok} = emqx_cluster_rpc:multicall(M, F, A),
+                {ok, TnxId, ok} = multicall(M, F, A),
                 TnxId
             end
          || _ <- Keys
@@ -176,7 +178,7 @@ t_del_stale_mfa(_Config) ->
     Ids2 =
         [
             begin
-                {ok, TnxId, ok} = emqx_cluster_rpc:multicall(M, F, A),
+                {ok, TnxId, ok} = multicall(M, F, A),
                 TnxId
             end
          || _ <- Keys2
@@ -203,7 +205,7 @@ t_del_stale_mfa(_Config) ->
 t_skip_failed_commit(_Config) ->
     emqx_cluster_rpc:reset(),
     {atomic, []} = emqx_cluster_rpc:status(),
-    {ok, 1, ok} = emqx_cluster_rpc:multicall(io, format, ["test~n"], all, 1000),
+    {ok, 1, ok} = multicall(io, format, ["test~n"], all, 1000),
     ct:sleep(180),
     {atomic, List1} = emqx_cluster_rpc:status(),
     Node = node(),
@@ -212,7 +214,7 @@ t_skip_failed_commit(_Config) ->
         tnx_ids(List1)
     ),
     {M, F, A} = {?MODULE, failed_on_node, [erlang:whereis(?NODE1)]},
-    {ok, 2, ok} = emqx_cluster_rpc:multicall(M, F, A, 1, 1000),
+    {ok, 2, ok} = multicall(M, F, A, 1, 1000),
     2 = gen_server:call(?NODE2, skip_failed_commit, 5000),
     {atomic, List2} = emqx_cluster_rpc:status(),
     ?assertEqual(
@@ -224,7 +226,7 @@ t_skip_failed_commit(_Config) ->
 t_fast_forward_commit(_Config) ->
     emqx_cluster_rpc:reset(),
     {atomic, []} = emqx_cluster_rpc:status(),
-    {ok, 1, ok} = emqx_cluster_rpc:multicall(io, format, ["test~n"], all, 1000),
+    {ok, 1, ok} = multicall(io, format, ["test~n"], all, 1000),
     ct:sleep(180),
     {atomic, List1} = emqx_cluster_rpc:status(),
     Node = node(),
@@ -233,11 +235,11 @@ t_fast_forward_commit(_Config) ->
         tnx_ids(List1)
     ),
     {M, F, A} = {?MODULE, failed_on_node, [erlang:whereis(?NODE1)]},
-    {ok, 2, ok} = emqx_cluster_rpc:multicall(M, F, A, 1, 1000),
-    {ok, 3, ok} = emqx_cluster_rpc:multicall(M, F, A, 1, 1000),
-    {ok, 4, ok} = emqx_cluster_rpc:multicall(M, F, A, 1, 1000),
-    {ok, 5, ok} = emqx_cluster_rpc:multicall(M, F, A, 1, 1000),
-    {retry, 6, ok, _} = emqx_cluster_rpc:multicall(M, F, A, 2, 1000),
+    {ok, 2, ok} = multicall(M, F, A, 1, 1000),
+    {ok, 3, ok} = multicall(M, F, A, 1, 1000),
+    {ok, 4, ok} = multicall(M, F, A, 1, 1000),
+    {ok, 5, ok} = multicall(M, F, A, 1, 1000),
+    {peers_lagging, 6, ok, _} = multicall(M, F, A, 2, 1000),
     3 = gen_server:call(?NODE2, {fast_forward_to_commit, 3}, 5000),
     4 = gen_server:call(?NODE2, {fast_forward_to_commit, 4}, 5000),
     6 = gen_server:call(?NODE2, {fast_forward_to_commit, 7}, 5000),
@@ -333,3 +335,9 @@ failed_on_other_recover_after_retry(Pid) ->
             [{_, Res}] = ets:lookup(test, other_mfa_result),
             Res
     end.
+
+multicall(M, F, A, N, T) ->
+    emqx_cluster_rpc:do_multicall(M, F, A, N, T).
+
+multicall(M, F, A) ->
+    multicall(M, F, A, all, timer:minutes(2)).
