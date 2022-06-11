@@ -38,6 +38,7 @@ fi
 # having static node names. So it's troulbe-free for multiple emqx nodes
 # running on the same host.
 # When start emqx in docker, it's mostly one emqx node in one container
+# i.e. use port 5369 (or per tcp_server_port | ssl_server_port config) for gen_rpc
 export EMQX_RPC__PORT_DISCOVERY="${EMQX_RPC__PORT_DISCOVERY:-manual}"
 
 exec "$@"
