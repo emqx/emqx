@@ -17,11 +17,7 @@ shopt -s nullglob
 LOCAL_IP=$(hostname -i | grep -oE '((25[0-5]|(2[0-4]|1[0-9]|[1-9]|)[0-9])\.){3}(25[0-5]|(2[0-4]|1[0-9]|[1-9]|)[0-9])' | head -n 1)
 
 if [[ -z "$EMQX_NODE_NAME" ]]; then
-
-    if [[ -z "$EMQX_NAME" ]]; then
-        EMQX_NAME='emqx'
-    fi
-
+    EMQX_NAME="${EMQX_NAME:-emqx}"
     if [[ -z "$EMQX_HOST" ]]; then
         if [[ "$EMQX_CLUSTER__K8S__ADDRESS_TYPE" == "dns" ]] && [[ -n "$EMQX_CLUSTER__K8S__NAMESPACE" ]]; then
             EMQX_CLUSTER__K8S__SUFFIX=${EMQX_CLUSTER__K8S__SUFFIX:-"pod.cluster.local"}
@@ -37,25 +33,6 @@ if [[ -z "$EMQX_NODE_NAME" ]]; then
     unset EMQX_NAME
     unset EMQX_HOST
 fi
-
-# fill tuples on specific file
-# SYNOPSIS
-#     fill_tuples FILE [ELEMENTS ...]
-fill_tuples() {
-    local file=$1
-    local elements=${*:2}
-    for var in $elements; do
-        if grep -qE "\{\s*$var\s*,\s*(true|false)\s*\}\s*\." "$file"; then
-            sed -r "s/\{\s*($var)\s*,\s*(true|false)\s*\}\s*\./{\1, true}./1" "$file" > tmpfile && cat tmpfile > "$file" 
-        elif grep -q "$var\s*\." "$file"; then
-            # backward compatible.
-            sed -r "s/($var)\s*\./{\1, true}./1" "$file" > tmpfile && cat tmpfile > "$file"
-        else
-            sed '$a'\\ "$file" > tmpfile && cat tmpfile > "$file"
-            echo "{$var, true}." >> "$file"
-        fi
-    done
-}
 
 # The default rpc port discovery 'stateless' is mostly for clusters
 # having static node names. So it's troulbe-free for multiple emqx nodes
