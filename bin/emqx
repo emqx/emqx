@@ -368,7 +368,9 @@ remsh() {
             -remsh "$NAME" -boot "$REL_DIR/start_clean" \
             -boot_var ERTS_LIB_DIR "$ERTS_LIB_DIR" \
             -boot_var RELEASE_LIB "$ERTS_LIB_DIR" \
-            -setcookie "$COOKIE" -hidden -kernel net_ticktime "$TICKTIME" \
+            -setcookie "$COOKIE" \
+            -hidden \
+            -kernel net_ticktime "$TICKTIME" \
             $EPMD_ARGS
     else
         set -- "$REL_DIR/iex" \
@@ -692,12 +694,13 @@ case "$NAME" in
         NAME_TYPE='-sname'
 esac
 SHORT_NAME="$(echo "$NAME" | awk -F'@' '{print $1}')"
-export ESCRIPT_NAME="$SHORT_NAME"
-
 if ! (echo "$SHORT_NAME" | grep -q '^[0-9A-Za-z_\-]\+$'); then
     echo "Invalid node name, should be of format '^[0-9A-Za-z_-]+$'."
     exit 1
 fi
+# This also changes the program name from 'beam.smp' to node name
+# e.g. the 'ps' command output
+export ESCRIPT_NAME="$SHORT_NAME"
 
 PIPE_DIR="${PIPE_DIR:-/$DATA_DIR/${WHOAMI}_erl_pipes/$NAME/}"
 
