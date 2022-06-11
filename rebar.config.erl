@@ -393,7 +393,9 @@ etc_overlay(ReleaseType, Edition) ->
     Templates = emqx_etc_overlay(ReleaseType, Edition),
     [
         {mkdir, "etc/"},
-        {copy, "{{base_dir}}/lib/emqx/etc/certs", "etc/"}
+        {copy, "{{base_dir}}/lib/emqx/etc/certs", "etc/"},
+        {copy, "{{base_dir}}/lib/emqx_dashboard/etc/emqx-en.conf.example", "etc/"},
+        {copy, "{{base_dir}}/lib/emqx_dashboard/etc/emqx-zh.conf.example", "etc/"}
     ] ++
         lists:map(
             fun

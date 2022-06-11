@@ -247,3 +247,4 @@ $(foreach tt,$(ALL_ELIXIR_TGZS),$(eval $(call gen-elixir-tgz-target,$(tt))))
 .PHONY: fmt
 fmt: $(REBAR)
 	@./scripts/erlfmt -w '{apps,lib-ee}/*/{src,include,test}/**/*.{erl,hrl,app.src}'
+	@./scripts/erlfmt -w 'rebar.config.erl'
