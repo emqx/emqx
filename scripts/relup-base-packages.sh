@@ -57,7 +57,7 @@ for tag in $(../scripts/relup-base-vsns.sh $EDITION | xargs echo -n); do
     filename="$PROFILE-$SYSTEM-${tag#[e|v]}-$ARCH.zip"
     url="https://www.emqx.com/downloads/$DIR/${tag#[e|v]}/$filename"
     echo "downloading base package from ${url} ..."
-    if [ ! -f "$filename" ] && curl -I -m 10 -o /dev/null -s -w "%{http_code}" "${url}" | grep -q -oE "^[23]+" ; then
+    if [ ! -f "$filename" ] && curl -L -I -m 10 -o /dev/null -s -w "%{http_code}" "${url}" | grep -q -oE "^[23]+" ; then
         curl -L -o "${filename}" "${url}"
         if [ "$SYSTEM" != "centos6" ]; then
             curl -L -o "${filename}.sha256" "${url}.sha256"
