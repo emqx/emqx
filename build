@@ -68,11 +68,19 @@ log() {
     echo "===< $msg"
 }
 
-make_doc() {
-    local libs_dir1 libs_dir2
-    libs_dir1="$("$FIND" "_build/default/lib/" -maxdepth 2 -name ebin -type d)"
-    libs_dir2="$("$FIND" "_build/$PROFILE/lib/" -maxdepth 2 -name ebin -type d)"
-    libs_dir3="$("$FIND" "_build/$PROFILE/checkouts/" -maxdepth 2 -name ebin -type d 2>/dev/null || true)"
+make_docs() {
+    local libs_dir1 libs_dir2 libs_dir3
+    libs_dir1="$("$FIND" "_build/$PROFILE/lib/" -maxdepth 2 -name ebin -type d)"
+    if [ -d "_build/default/lib/" ]; then
+        libs_dir2="$("$FIND" "_build/default/lib/" -maxdepth 2 -name ebin -type d)"
+    else
+        libs_dir2=''
+    fi
+    if [ -d "_build/$PROFILE/checkouts" ]; then
+        libs_dir3="$("$FIND" "_build/$PROFILE/checkouts/" -maxdepth 2 -name ebin -type d 2>/dev/null || true)"
+    else
+        libs_dir3=''
+    fi
     case $PROFILE in
         emqx-enterprise)
             SCHEMA_MODULE='emqx_enterprise_conf_schema'
@@ -83,8 +91,8 @@ make_doc() {
     esac
     # shellcheck disable=SC2086
     erl -noshell -pa $libs_dir1 $libs_dir2 $libs_dir3 -eval \
-        "Dir = filename:join(['_build', '${PROFILE}', lib, emqx_dashboard, priv, www, static]), \
-         I18nFile = filename:join(['_build', '${PROFILE}', lib, emqx_dashboard, etc, 'i18n.conf.all']), \
+        "Dir = filename:join([apps, emqx_dashboard, priv, www, static]), \
+         I18nFile = filename:join([apps, emqx_dashboard, etc, 'i18n.conf.all']), \
          ok = emqx_conf:dump_schema(Dir, $SCHEMA_MODULE, I18nFile), \
          halt(0)."
 }
@@ -97,6 +105,11 @@ assert_no_compile_time_only_deps() {
 }
 
 make_rel() {
+    # compile all beams
+    ./rebar3 as "$PROFILE" compile
+    # generate docs (require beam compiled), generated to etc and priv dirs
+    make_docs
+    # now assemble the release tar
     ./rebar3 as "$PROFILE" tar
     assert_no_compile_time_only_deps
 }
