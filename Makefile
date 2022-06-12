@@ -224,7 +224,7 @@ prepare-build-deps:
 ## elixir target is to create release packages using Elixir's Mix
 .PHONY: $(REL_PROFILES:%=%-elixir) $(PKG_PROFILES:%=%-elixir)
 $(REL_PROFILES:%=%-elixir) $(PKG_PROFILES:%=%-elixir): $(COMMON_DEPS) $(ELIXIR_COMMON_DEPS) mix-deps-get
-	@$(BUILD) $(subst -elixir,,$(@)) elixir
+	@env IS_ELIXIR=yes $(BUILD) $(subst -elixir,,$(@)) elixir
 
 .PHONY: $(REL_PROFILES:%=%-elixir-pkg)
 define gen-elixir-pkg-target
