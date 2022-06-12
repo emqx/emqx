@@ -22,6 +22,7 @@
 -include_lib("common_test/include/ct.hrl").
 -include_lib("eunit/include/eunit.hrl").
 -include_lib("emqx/include/emqx.hrl").
+-include_lib("snabbkaffe/include/snabbkaffe.hrl").
 
 -record(emqx_trace, {name, type, filter, enable = true, start_at, end_at}).
 
@@ -33,7 +34,19 @@ all() ->
     emqx_common_test_helpers:all(?MODULE).
 
 init_per_suite(Config) ->
-    emqx_common_test_helpers:start_apps([]),
+    %% ensure dependent apps stopped
+    emqx_common_test_helpers:stop_apps([]),
+    ?check_trace(
+        ?wait_async_action(
+            emqx_common_test_helpers:start_apps([]),
+            #{?snk_kind := listener_started, bind := 1883},
+            timer:seconds(10)
+        ),
+        fun(Trace) ->
+            %% more than one listener
+            ?assertMatch([_ | _], ?of_kind(listener_started, Trace))
+        end
+    ),
     Config.
 
 end_per_suite(_Config) ->
