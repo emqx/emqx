@@ -114,6 +114,7 @@ defmodule EMQXUmbrella.MixProject do
         } = check_profile!()
 
         base_steps = [
+          &make_docs(&1),
           :assemble,
           &create_RELEASES/1,
           &copy_files(&1, release_type, package_type, edition_type),
@@ -283,6 +284,12 @@ defmodule EMQXUmbrella.MixProject do
   #  Custom Steps
   #############################################################################
 
+  defp make_docs(release) do
+    profile = System.get_env("MIX_ENV")
+    os_cmd("build", [profile, "docs"])
+    release
+  end
+
   defp copy_files(release, release_type, package_type, edition_type) do
     overwrite? = Keyword.get(release.options, :overwrite, false)
 
@@ -320,6 +327,21 @@ defmodule EMQXUmbrella.MixProject do
       "apps/emqx_dashboard/etc/i18n.conf.all",
       Path.join(etc, "i18n.conf"),
       force: overwrite?
+    )
+
+    # copy generated docs
+    Enum.each(
+      [
+        "apps/emqx_dashboard/priv/www/static/emqx-en.conf.example",
+        "apps/emqx_dashboard/priv/www/static/emqx-zh.conf.example"
+      ],
+      fn file ->
+        Mix.Generator.copy_file(
+          file,
+          Path.join(etc, Path.basename(file)),
+          force: overwrite?
+        )
+      end
     )
 
     # this is required by the produced escript / nodetool

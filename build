@@ -293,8 +293,8 @@ export_release_vars() {
 log "building artifact=$ARTIFACT for profile=$PROFILE"
 
 case "$ARTIFACT" in
-    doc)
-        make_doc
+    doc|docs)
+        make_docs
         ;;
     rel)
         make_rel
