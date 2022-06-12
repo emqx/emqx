@@ -115,7 +115,7 @@ ELIXIR_COMMON_DEPS := ensure-hex ensure-mix-rebar3 ensure-mix-rebar
 
 .PHONY: $(REL_PROFILES)
 $(REL_PROFILES:%=%): $(COMMON_DEPS)
-	@$(REBAR) as $(@) do release
+	@$(BUILD) $(@) rel
 
 ## Not calling rebar3 clean because
 ## 1. rebar3 clean relies on rebar3, meaning it reads config, fetches dependencies etc.
