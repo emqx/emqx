@@ -156,15 +156,13 @@ profiles_ce() ->
             {erl_opts, prod_compile_opts(ce, Vsn)},
             {relx, relx(Vsn, cloud, bin, ce)},
             {overrides, prod_overrides()},
-            {project_app_dirs, project_app_dirs(ce)},
-            {post_hooks, [{compile, "bash build emqx doc"}]}
+            {project_app_dirs, project_app_dirs(ce)}
         ]},
         {'emqx-pkg', [
             {erl_opts, prod_compile_opts(ce, Vsn)},
             {relx, relx(Vsn, cloud, pkg, ce)},
             {overrides, prod_overrides()},
-            {project_app_dirs, project_app_dirs(ce)},
-            {post_hooks, [{compile, "bash build emqx-pkg doc"}]}
+            {project_app_dirs, project_app_dirs(ce)}
         ]}
     ].
 
@@ -175,15 +173,13 @@ profiles_ee() ->
             {erl_opts, prod_compile_opts(ee, Vsn)},
             {relx, relx(Vsn, cloud, bin, ee)},
             {overrides, prod_overrides()},
-            {project_app_dirs, project_app_dirs(ee)},
-            {post_hooks, [{compile, "bash build emqx-enterprise doc"}]}
+            {project_app_dirs, project_app_dirs(ee)}
         ]},
         {'emqx-enterprise-pkg', [
             {erl_opts, prod_compile_opts(ee, Vsn)},
             {relx, relx(Vsn, cloud, pkg, ee)},
             {overrides, prod_overrides()},
-            {project_app_dirs, project_app_dirs(ee)},
-            {post_hooks, [{compile, "bash build emqx-enterprise-pkg doc"}]}
+            {project_app_dirs, project_app_dirs(ee)}
         ]}
     ].
 
@@ -394,8 +390,8 @@ etc_overlay(ReleaseType, Edition) ->
     [
         {mkdir, "etc/"},
         {copy, "{{base_dir}}/lib/emqx/etc/certs", "etc/"},
-        {copy, "{{base_dir}}/lib/emqx_dashboard/etc/emqx-en.conf.example", "etc/"},
-        {copy, "{{base_dir}}/lib/emqx_dashboard/etc/emqx-zh.conf.example", "etc/"}
+        {copy, "apps/emqx_dashboard/priv/www/static/emqx-en.conf.example", "etc/"},
+        {copy, "apps/emqx_dashboard/priv/www/static/emqx-zh.conf.example", "etc/"}
     ] ++
         lists:map(
             fun
