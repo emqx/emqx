@@ -1,13 +1,13 @@
 %% -*- mode: erlang -*-
 {VSN,
- [ {<<"4\\.3\\.([0-9]|1[0-4])">>,
+ [ {<<"4\\.3\\.[0-9]+">>,
     [ {apply,{minirest,stop_http,['http:management']}},
       {apply,{minirest,stop_http,['https:management']}},
       {restart_application, emqx_management}
     ]},
    {<<".*">>, []}
  ],
- [ {<<"4\\.3\\.([0-9]|1[0-4])">>,
+ [ {<<"4\\.3\\.[0-9]+">>,
     [ {apply,{minirest,stop_http,['http:management']}},
       {apply,{minirest,stop_http,['https:management']}},
       {restart_application, emqx_management}
