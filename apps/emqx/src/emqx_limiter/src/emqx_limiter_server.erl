@@ -570,10 +570,7 @@ init_counter(Path, Counter, Index, Rate, Initial, State) ->
     {Counter, Index, State}.
 
 %% @doc find first limited node
-get_counter_rate(#{rate := Rate, capacity := Capacity}, _GlobalCfg) when
-    %% TODO maybe no need to check capacity
-    Rate =/= infinity orelse Capacity =/= infinity
-->
+get_counter_rate(#{rate := Rate}, _GlobalCfg) when Rate =/= infinity ->
     Rate;
 get_counter_rate(_Cfg, #{rate := Rate}) ->
     Rate.
