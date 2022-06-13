@@ -414,6 +414,38 @@ fields("node") ->
                     desc => ?DESC(node_cookie)
                 }
             )},
+        {"process_limit",
+            sc(
+                range(1024, 134217727),
+                #{
+                    mapping => "vm_args.+P",
+                    desc => ?DESC(process_limit)
+                }
+            )},
+        {"max_ports",
+            sc(
+                range(1024, 134217727),
+                #{
+                    mapping => "vm_args.+Q",
+                    desc => ?DESC(max_ports)
+                }
+            )},
+        {"dist_buffer_size",
+            sc(
+                range(1, 2097151),
+                #{
+                    mapping => "vm_args.+zdbbl",
+                    desc => ?DESC(dist_buffer_size)
+                }
+            )},
+        {"max_ets_tables",
+            sc(
+                pos_integer(),
+                #{
+                    mapping => "vm_args.+e",
+                    desc => ?DESC(max_ets_tables)
+                }
+            )},
         {"data_dir",
             sc(
                 string(),
