@@ -18,6 +18,11 @@ File format:
   password-protected private key files used for dashboard and
   management HTTPS listeners. [#8129]
 
+### Bug-fixes
+
+- Correctly tally `connack.auth_error` metrics when a client uses MQTT
+  3.1. [#8177]
+
 ## v4.3.15
 
 ### Enhancements
