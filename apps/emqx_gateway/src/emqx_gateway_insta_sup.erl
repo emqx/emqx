@@ -173,14 +173,14 @@ handle_info(
 ) ->
     case lists:member(Pid, Pids) of
         true ->
-            ?SLOG(error, #{
+            ?SLOG(info, #{
                 msg => "child_process_exited",
                 child => Pid,
                 reason => Reason
             }),
             case Pids -- [Pid] of
                 [] ->
-                    ?SLOG(error, #{
+                    ?SLOG(info, #{
                         msg => "gateway_all_children_process_existed",
                         gateway_name => Name
                     }),
@@ -193,7 +193,7 @@ handle_info(
                     {noreply, State#state{child_pids = RemainPids}}
             end;
         _ ->
-            ?SLOG(error, #{
+            ?SLOG(info, #{
                 msg => "gateway_catch_a_unknown_process_exited",
                 child => Pid,
                 reason => Reason,

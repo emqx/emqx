@@ -292,7 +292,14 @@ do_listeners_cluster_status(Listeners) ->
         fun({Id, ListenOn}, Acc) ->
             BinId = erlang:atom_to_binary(Id),
             {ok, #{<<"max_connections">> := Max}} = emqx_gateway_conf:listener(BinId),
-            Curr = esockd:get_current_connections({Id, ListenOn}),
+            Curr =
+                try esockd:get_current_connections({Id, ListenOn}) of
+                    Int -> Int
+                catch
+                    %% not started
+                    error:not_found ->
+                        0
+                end,
             Acc#{
                 Id => #{
                     node => Node,
