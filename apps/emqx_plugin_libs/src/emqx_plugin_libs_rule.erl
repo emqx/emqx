@@ -61,8 +61,6 @@
     can_topic_match_oneof/2
 ]).
 
--export([cluster_call/3]).
-
 -compile({no_auto_import, [float/1]}).
 
 -define(EX_PLACE_HOLDER, "(\\$\\{[a-zA-Z0-9\\._]+\\})").
@@ -307,7 +305,3 @@ can_topic_match_oneof(Topic, Filters) ->
         end,
         Filters
     ).
-
-cluster_call(Module, Func, Args) ->
-    {ok, _TnxId, Result} = emqx_cluster_rpc:multicall(Module, Func, Args),
-    Result.

@@ -92,7 +92,7 @@ get_node_and_config(KeyPath) ->
 ) ->
     {ok, emqx_config:update_result()} | {error, emqx_config:update_error()}.
 update(KeyPath, UpdateReq, Opts) ->
-    check_cluster_rpc_result(emqx_conf_proto_v1:update(KeyPath, UpdateReq, Opts)).
+    emqx_conf_proto_v1:update(KeyPath, UpdateReq, Opts).
 
 %% @doc Update the specified node's key path in local-override.conf.
 -spec update(
@@ -111,7 +111,7 @@ update(Node, KeyPath, UpdateReq, Opts) ->
 -spec remove(emqx_map_lib:config_key_path(), emqx_config:update_opts()) ->
     {ok, emqx_config:update_result()} | {error, emqx_config:update_error()}.
 remove(KeyPath, Opts) ->
-    check_cluster_rpc_result(emqx_conf_proto_v1:remove_config(KeyPath, Opts)).
+    emqx_conf_proto_v1:remove_config(KeyPath, Opts).
 
 %% @doc remove the specified node's key path in local-override.conf.
 -spec remove(node(), emqx_map_lib:config_key_path(), emqx_config:update_opts()) ->
@@ -125,7 +125,7 @@ remove(Node, KeyPath, Opts) ->
 -spec reset(emqx_map_lib:config_key_path(), emqx_config:update_opts()) ->
     {ok, emqx_config:update_result()} | {error, emqx_config:update_error()}.
 reset(KeyPath, Opts) ->
-    check_cluster_rpc_result(emqx_conf_proto_v1:reset(KeyPath, Opts)).
+    emqx_conf_proto_v1:reset(KeyPath, Opts).
 
 %% @doc reset the specified node's key path in local-override.conf.
 -spec reset(node(), emqx_map_lib:config_key_path(), emqx_config:update_opts()) ->
@@ -207,24 +207,6 @@ gen_example(File, SchemaModule, I18nFile, Lang) ->
     Opts = #{title => <<"Title">>, body => <<"Body">>, desc_file => I18nFile, lang => Lang},
     Example = hocon_schema_example:gen(SchemaModule, Opts),
     file:write_file(File, Example).
-
-check_cluster_rpc_result(Result) ->
-    case Result of
-        {ok, _TnxId, Res} ->
-            Res;
-        {retry, TnxId, Res, Nodes} ->
-            %% The init MFA return ok, but other nodes failed.
-            %% We return ok and alert an alarm.
-            ?SLOG(error, #{
-                msg => "failed_to_update_config_in_cluster",
-                nodes => Nodes,
-                tnx_id => TnxId
-            }),
-            Res;
-        %% all MFA return not ok or {ok, term()}.
-        {error, Error} ->
-            Error
-    end.
 
 %% Only gen hot_conf schema, not all configuration fields.
 gen_hot_conf_schema(File) ->

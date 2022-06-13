@@ -174,7 +174,7 @@ create(InstId, Group, ResourceType, Config) ->
 -spec create(instance_id(), resource_group(), resource_type(), resource_config(), create_opts()) ->
     {ok, resource_data() | 'already_created'} | {error, Reason :: term()}.
 create(InstId, Group, ResourceType, Config, Opts) ->
-    wrap_rpc(emqx_resource_proto_v1:create(InstId, Group, ResourceType, Config, Opts)).
+    emqx_resource_proto_v1:create(InstId, Group, ResourceType, Config, Opts).
 % --------------------------------------------
 
 -spec create_local(instance_id(), resource_group(), resource_type(), resource_config()) ->
@@ -196,7 +196,7 @@ create_local(InstId, Group, ResourceType, Config, Opts) ->
 -spec create_dry_run(resource_type(), resource_config()) ->
     ok | {error, Reason :: term()}.
 create_dry_run(ResourceType, Config) ->
-    wrap_rpc(emqx_resource_proto_v1:create_dry_run(ResourceType, Config)).
+    emqx_resource_proto_v1:create_dry_run(ResourceType, Config).
 
 -spec create_dry_run_local(resource_type(), resource_config()) ->
     ok | {error, Reason :: term()}.
@@ -211,7 +211,7 @@ recreate(InstId, ResourceType, Config) ->
 -spec recreate(instance_id(), resource_type(), resource_config(), create_opts()) ->
     {ok, resource_data()} | {error, Reason :: term()}.
 recreate(InstId, ResourceType, Config, Opts) ->
-    wrap_rpc(emqx_resource_proto_v1:recreate(InstId, ResourceType, Config, Opts)).
+    emqx_resource_proto_v1:recreate(InstId, ResourceType, Config, Opts).
 
 -spec recreate_local(instance_id(), resource_type(), resource_config()) ->
     {ok, resource_data()} | {error, Reason :: term()}.
@@ -225,7 +225,7 @@ recreate_local(InstId, ResourceType, Config, Opts) ->
 
 -spec remove(instance_id()) -> ok | {error, Reason :: term()}.
 remove(InstId) ->
-    wrap_rpc(emqx_resource_proto_v1:remove(InstId)).
+    emqx_resource_proto_v1:remove(InstId).
 
 -spec remove_local(instance_id()) -> ok | {error, Reason :: term()}.
 remove_local(InstId) ->
@@ -237,7 +237,7 @@ reset_metrics_local(InstId) ->
 
 -spec reset_metrics(instance_id()) -> ok | {error, Reason :: term()}.
 reset_metrics(InstId) ->
-    wrap_rpc(emqx_resource_proto_v1:reset_metrics(InstId)).
+    emqx_resource_proto_v1:reset_metrics(InstId).
 
 %% =================================================================================
 -spec query(instance_id(), Request :: term()) -> Result :: term().
@@ -429,12 +429,6 @@ inc_metrics_funcs(InstId) ->
 
 safe_apply(Func, Args) ->
     ?SAFE_CALL(erlang:apply(Func, Args)).
-
-wrap_rpc(Ret) ->
-    case Ret of
-        {ok, _TxnId, Result} -> Result;
-        Failed -> Failed
-    end.
 
 query_error(Reason, Msg) ->
     {error, {?MODULE, #{reason => Reason, msg => Msg}}}.

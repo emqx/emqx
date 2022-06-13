@@ -337,7 +337,7 @@ do_ensure_started(NameVsn) ->
     ).
 
 %% try the function, catch 'throw' exceptions as normal 'error' return
-%% other exceptions with stacktrace returned.
+%% other exceptions with stacktrace logged.
 tryit(WhichOp, F) ->
     try
         F()
@@ -648,7 +648,7 @@ put_config(Key, Value) when is_atom(Key) ->
     put_config([Key], Value);
 put_config(Path, Values) when is_list(Path) ->
     Opts = #{rawconf_with_defaults => true, override_to => cluster},
-    case emqx:update_config([?CONF_ROOT | Path], bin_key(Values), Opts) of
+    case emqx_conf:update([?CONF_ROOT | Path], bin_key(Values), Opts) of
         {ok, _} -> ok;
         Error -> Error
     end.

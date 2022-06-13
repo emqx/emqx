@@ -1,0 +1,4 @@
+*
+!_build/emqx
+!_build/emqx-enterprise
+!deploy

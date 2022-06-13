@@ -30,7 +30,6 @@
 introduced_in() ->
     "5.0.0".
 
--spec reset_metrics(rule_id()) ->
-    emqx_cluster_rpc:multicall_return(ok).
+-spec reset_metrics(rule_id()) -> ok | {error, any()}.
 reset_metrics(RuleId) ->
     emqx_cluster_rpc:multicall(emqx_rule_engine, reset_metrics_for_rule, [RuleId]).

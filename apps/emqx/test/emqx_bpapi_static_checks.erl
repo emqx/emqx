@@ -53,8 +53,7 @@
 -define(RPC_MODULES, "gen_rpc, erpc, rpc, emqx_rpc").
 %% List of known functions also known to do RPC:
 -define(RPC_FUNCTIONS,
-    "emqx_cluster_rpc:multicall/3, emqx_cluster_rpc:multicall/5, "
-    "emqx_plugin_libs_rule:cluster_call/3"
+    "emqx_cluster_rpc:multicall/3, emqx_cluster_rpc:multicall/5"
 ).
 %% List of functions in the RPC backend modules that we can ignore:
 
@@ -63,11 +62,9 @@
 %% List of business-layer functions that are exempt from the checks:
 %% erlfmt-ignore
 -define(EXEMPTIONS,
-    "emqx_mgmt_api:do_query/6,"             % Reason: legacy code. A fun and a QC query are
-                                            % passed in the args, it's futile to try to statically
-                                            % check it
-    "emqx_plugin_libs_rule:cluster_call/3"  % Reason: some sort of external plugin API that we
-                                            % don't want to break?
+    "emqx_mgmt_api:do_query/6"  % Reason: legacy code. A fun and a QC query are
+                                % passed in the args, it's futile to try to statically
+                                % check it
 ).
 
 -define(XREF, myxref).

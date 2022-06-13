@@ -43,11 +43,10 @@ install_package(Filename, Bin) ->
 describe_package(Name) ->
     rpc:multicall(emqx_mgmt_api_plugins, describe_package, [Name], 10000).
 
--spec delete_package(binary() | string()) -> emqx_cluster_rpc:multicall_return().
+-spec delete_package(binary() | string()) -> ok | {error, any()}.
 delete_package(Name) ->
     emqx_cluster_rpc:multicall(emqx_mgmt_api_plugins, delete_package, [Name], all, 10000).
 
--spec ensure_action(binary() | string(), 'restart' | 'start' | 'stop') ->
-    emqx_cluster_rpc:multicall_return().
+-spec ensure_action(binary() | string(), 'restart' | 'start' | 'stop') -> ok | {error, any()}.
 ensure_action(Name, Action) ->
     emqx_cluster_rpc:multicall(emqx_mgmt_api_plugins, ensure_action, [Name, Action], all, 10000).
