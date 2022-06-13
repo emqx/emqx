@@ -575,6 +575,8 @@ with_gateway(GwName0, Fun) ->
                 lists:join(".", lists:map(fun to_list/1, Path0))
             ),
             return_http_error(404, "Resource not found. path: " ++ Path);
+        error:{badmatch, {error, einval}} ->
+            return_http_error(400, "Invalid bind address");
         Class:Reason:Stk ->
             ?SLOG(error, #{
                 msg => "uncatched_error",
