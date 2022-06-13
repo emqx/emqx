@@ -63,6 +63,8 @@
 -define(INITIATE(MFA, LatestIdLastSeen), {initiate, MFA, LatestIdLastSeen}).
 -define(CATCH_UP, catch_up).
 -define(TIMEOUT, timer:minutes(1)).
+-define(APPLY_KIND_REPLICATE, replicate).
+-define(APPLY_KIND_INITIATE, initiate).
 
 -type tnx_id() :: pos_integer().
 
@@ -330,7 +332,7 @@ catch_up(#{node := Node, retry_interval := RetryMs} = State, SkipResult) ->
         {atomic, caught_up} ->
             ?TIMEOUT;
         {atomic, {still_lagging, NextId, MFA}} ->
-            {Succeed, _} = apply_mfa(NextId, MFA, catch_up),
+            {Succeed, _} = apply_mfa(NextId, MFA, ?APPLY_KIND_REPLICATE),
             case Succeed orelse SkipResult of
                 true ->
                     case transaction(fun commit/2, [Node, NextId]) of
@@ -420,7 +422,7 @@ init_mfa(Node, MFA, LatestIdLastSeen) ->
             },
             ok = mnesia:write(?CLUSTER_MFA, MFARec, write),
             ok = commit(Node, TnxId),
-            case apply_mfa(TnxId, MFA, init) of
+            case apply_mfa(TnxId, MFA, ?APPLY_KIND_ORIGINATE) of
                 {true, Result} -> {ok, TnxId, Result};
                 {false, Error} -> mnesia:abort(Error)
             end;
@@ -495,6 +497,15 @@ is_success(ok) -> true;
 is_success({ok, _}) -> true;
 is_success(_) -> false.
 
+log_and_alarm(IsSuccess, _Res, #{kind := ?APPLY_KIND_INITIATE}) ->
+    %% no alarm or error log in case of failure at originating a new cluster-call
+    %% because nothing is committed
+    case IsSuccess of
+        true ->
+            ?SLOG(debug, Meta#{msg => "cluster_rpc_apply_result", result => Res});
+        false ->
+            ?SLOG(warning, Meta#{msg => "cluster_rpc_apply_result", result => Res})
+    end;
 log_and_alarm(true, Res, Meta) ->
     ?SLOG(debug, Meta#{msg => "cluster_rpc_apply_ok", result => Res}),
     do_alarm(deactivate, Res, Meta);
