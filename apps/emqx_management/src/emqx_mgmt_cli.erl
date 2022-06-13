@@ -82,7 +82,9 @@ status(_) ->
 broker([]) ->
     Funs = [sysdescr, version, datetime],
     [emqx_ctl:print("~-10s: ~ts~n", [Fun, emqx_sys:Fun()]) || Fun <- Funs],
-    emqx_ctl:print("~-10s: ~p~n", [uptime, emqx_sys:uptime()]);
+    emqx_ctl:print("~-10s: ~ts~n", [
+        uptime, emqx_datetime:human_readable_duration_string(emqx_sys:uptime())
+    ]);
 broker(["stats"]) ->
     [
         emqx_ctl:print("~-30s: ~w~n", [Stat, Val])

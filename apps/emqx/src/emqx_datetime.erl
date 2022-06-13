@@ -20,7 +20,8 @@
 %% API
 -export([
     to_epoch_millisecond/1,
-    to_epoch_second/1
+    to_epoch_second/1,
+    human_readable_duration_string/1
 ]).
 -export([
     epoch_to_rfc3339/1,
@@ -60,6 +61,15 @@ epoch_to_rfc3339(TimeStamp) ->
 
 epoch_to_rfc3339(TimeStamp, Unit) when is_integer(TimeStamp) ->
     list_to_binary(calendar:system_time_to_rfc3339(TimeStamp, [{unit, Unit}])).
+
+-spec human_readable_duration_string(integer()) -> string().
+human_readable_duration_string(Milliseconds) ->
+    Seconds = Milliseconds div 1000,
+    {D, {H, M, S}} = calendar:seconds_to_daystime(Seconds),
+    L0 = [{D, " days"}, {H, " hours"}, {M, " minutes"}, {S, " seconds"}],
+    L1 = lists:dropwhile(fun({K, _}) -> K =:= 0 end, L0),
+    L2 = lists:map(fun({Time, Unit}) -> [integer_to_list(Time), Unit] end, L1),
+    lists:flatten(lists:join(", ", L2)).
 
 -ifdef(TEST).
 -include_lib("eunit/include/eunit.hrl").
