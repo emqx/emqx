@@ -18,6 +18,10 @@ File format:
   password-protected private key files used for dashboard and
   management HTTPS listeners. [#8129]
 
+### Bug fixes
+
+- Avoid repeated writing `loaded_plugins` file if the plugin enable stauts has not changed [#8179]
+
 ## v4.3.15
 
 ### Enhancements
