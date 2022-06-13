@@ -579,8 +579,9 @@ with_gateway(GwName0, Fun) ->
             return_http_error(400, "Invalid bind address");
         Class:Reason:Stk ->
             ?SLOG(error, #{
-                msg => "uncatched_error",
-                reason => {Class, Reason},
+                msg => "uncaught_exception",
+                exception => Class,
+                reason => Reason,
                 stacktrace => Stk
             }),
             reason2resp(Reason)
