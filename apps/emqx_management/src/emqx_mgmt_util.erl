@@ -17,8 +17,6 @@
 -module(emqx_mgmt_util).
 
 -export([
-    strftime/1,
-    datetime/1,
     kmg/1,
     ntoa/1,
     merge_maps/2,
@@ -50,26 +48,6 @@
 -define(KB, 1024).
 -define(MB, (1024 * 1024)).
 -define(GB, (1024 * 1024 * 1024)).
-
-%%--------------------------------------------------------------------
-%% Strftime
-%%--------------------------------------------------------------------
-
-strftime({MegaSecs, Secs, _MicroSecs}) ->
-    strftime(datetime(MegaSecs * 1000000 + Secs));
-strftime(Secs) when is_integer(Secs) ->
-    strftime(datetime(Secs));
-strftime({{Y, M, D}, {H, MM, S}}) ->
-    lists:flatten(
-        io_lib:format(
-            "~4..0w-~2..0w-~2..0w ~2..0w:~2..0w:~2..0w", [Y, M, D, H, MM, S]
-        )
-    ).
-
-datetime(Timestamp) when is_integer(Timestamp) ->
-    Epoch = calendar:datetime_to_gregorian_seconds({{1970, 1, 1}, {0, 0, 0}}),
-    Universal = calendar:gregorian_seconds_to_datetime(Timestamp + Epoch),
-    calendar:universal_time_to_local_time(Universal).
 
 kmg(Byte) when Byte > ?GB ->
     kmg(Byte / ?GB, "G");
