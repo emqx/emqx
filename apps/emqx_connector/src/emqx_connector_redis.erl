@@ -88,7 +88,11 @@ fields(sentinel) ->
             required => true,
             desc => ?DESC("sentinel")
         }},
-        {sentinel, #{type => string(), desc => ?DESC("sentinel_desc")}}
+        {sentinel, #{
+            type => string(),
+            required => true,
+            desc => ?DESC("sentinel_desc")
+        }}
     ] ++
         redis_fields() ++
         emqx_connector_schema_lib:ssl_fields().
