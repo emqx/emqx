@@ -55,7 +55,10 @@ app_specific_actions(_) ->
     [].
 
 ignored_apps() ->
-    [gpb, emqx_dashboard, emqx_management] ++ otp_standard_apps().
+    [gpb, %% only a build tool
+     emqx_dashboard, %% generic appup file for all versions
+     emqx_management %% generic appup file for all versions
+    ] ++ otp_standard_apps().
 
 main(Args) ->
     #{prev_tag := Baseline} = Options = parse_args(Args, default_options()),
@@ -530,8 +533,10 @@ contains_contents(File, Upgrade, Downgrade) ->
 
 index_apps(ReleaseDir) ->
     log("INFO: indexing apps in ~s~n", [ReleaseDir]),
-    Apps0 = maps:from_list([index_app(filename:join(ReleaseDir, AppFile)) ||
-                               AppFile <- filelib:wildcard("**/ebin/*.app", ReleaseDir)]),
+    AppFiles0 = filelib:wildcard("**/ebin/*.app", ReleaseDir),
+    %% everything in _build sub-dir e.g. cuttlefish/_build should be ignored
+    AppFiles = lists:filter(fun(File) -> re:run(File, "_build") =:= nomatch end, AppFiles0),
+    Apps0 = maps:from_list([index_app(filename:join(ReleaseDir, AppFile)) || AppFile <- AppFiles]),
     maps:without(ignored_apps(), Apps0).
 
 index_app(AppFile) ->
