@@ -261,7 +261,7 @@ to_qos(TargetQoS) ->
 
 get_qos(-1, _Data, Default) -> Default;
 get_qos(TargetQoS, Data, _Default) ->
-    qos(emqx_rule_utils:replace_simple_var(TargetQoS, Data)).
+    qos(emqx_rule_utils:replace_var(TargetQoS, Data)).
 
 qos(<<"0">>) ->  0;
 qos(<<"1">>) ->  1;
@@ -285,7 +285,7 @@ to_retain(TargetRetain) ->
     end.
 
 get_retain(TargetRetain, Data) ->
-    retain(emqx_rule_utils:replace_simple_var(TargetRetain, Data)).
+    retain(emqx_rule_utils:replace_var(TargetRetain, Data)).
 
 retain(true) ->        true;
 retain(false) ->       false;
