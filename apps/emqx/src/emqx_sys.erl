@@ -119,12 +119,7 @@ uptime() ->
 %% @doc Get sys datetime
 -spec datetime() -> string().
 datetime() ->
-    {{Y, M, D}, {H, MM, S}} = calendar:local_time(),
-    lists:flatten(
-        io_lib:format(
-            "~4..0w-~2..0w-~2..0w ~2..0w:~2..0w:~2..0w", [Y, M, D, H, MM, S]
-        )
-    ).
+    calendar:system_time_to_rfc3339(erlang:system_time(), [{unit, nanosecond}]).
 
 sys_interval() ->
     emqx:get_config([sys_topics, sys_msg_interval]).
