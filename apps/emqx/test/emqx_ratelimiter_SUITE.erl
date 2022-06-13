@@ -646,7 +646,7 @@ client_loop(
     } = State
 ) ->
     Now = ?NOW,
-    Period = emqx_limiter_schema:minimum_period(),
+    Period = emqx_limiter_schema:default_period(),
     MinPeriod = erlang:ceil(0.25 * Period),
     if
         Now >= EndTime ->

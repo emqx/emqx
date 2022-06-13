@@ -24,7 +24,7 @@
     fields/1,
     to_rate/1,
     to_capacity/1,
-    minimum_period/0,
+    default_period/0,
     to_burst_rate/1,
     to_initial/1,
     namespace/0,
@@ -191,8 +191,8 @@ desc(client_bucket) ->
 desc(_) ->
     undefined.
 
-%% minimum period is 100ms
-minimum_period() ->
+%% default period is 100ms
+default_period() ->
     100.
 
 to_rate(Str) ->
@@ -235,7 +235,7 @@ to_rate(Str, CanInfinity, CanZero) ->
         %% if time unit is 1s, it can be omitted
         {match, [QuotaStr]} ->
             Fun = fun(Quota) ->
-                {ok, Quota * minimum_period() / ?UNIT_TIME_IN_MS}
+                {ok, Quota * default_period() / ?UNIT_TIME_IN_MS}
             end,
             to_capacity(QuotaStr, Str, CanZero, Fun);
         {match, [QuotaStr, TimeVal, TimeUnit]} ->
@@ -250,7 +250,7 @@ to_rate(Str, CanInfinity, CanZero) ->
                 try
                     case emqx_schema:to_duration_ms(Interval) of
                         {ok, Ms} when Ms > 0 ->
-                            {ok, Quota * minimum_period() / Ms};
+                            {ok, Quota * default_period() / Ms};
                         {ok, 0} when CanZero ->
                             {ok, 0};
                         _ ->
