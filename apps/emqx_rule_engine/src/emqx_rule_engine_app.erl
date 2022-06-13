@@ -30,8 +30,10 @@ start(_Type, _Args) ->
     SupRet = emqx_rule_engine_sup:start_link(),
     ok = emqx_rule_engine:load_rules(),
     emqx_conf:add_handler(emqx_rule_engine:config_key_path(), emqx_rule_engine),
+    emqx_rule_engine_cli:load(),
     SupRet.
 
 stop(_State) ->
+    emqx_rule_engine_cli:unload(),
     emqx_conf:remove_handler(emqx_rule_engine:config_key_path()),
     ok = emqx_rule_events:unload().
