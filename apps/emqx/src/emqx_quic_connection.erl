@@ -15,6 +15,7 @@
 %%--------------------------------------------------------------------
 
 -module(emqx_quic_connection).
+-include_lib("quicer/include/quicer.hrl").
 
 %% Callbacks
 -export([
@@ -59,5 +60,5 @@ connected(_Conn, S) ->
 
 -spec shutdown(quicer:connection_handler(), cb_state()) -> {ok, cb_state()} | {error, any()}.
 shutdown(Conn, S) ->
-    quicer:async_close_connection(Conn),
+    quicer:async_shutdown_connection(Conn, ?QUIC_CONNECTION_SHUTDOWN_FLAG_NONE, 0),
     {ok, S}.
