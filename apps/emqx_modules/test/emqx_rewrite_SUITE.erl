@@ -219,10 +219,11 @@ t_update_re_failed(_Config) ->
         {badmatch,
             {error,
                 {_, [
-                    {validation_error, #{
+                    #{
+                        kind := validation_error,
                         reason := {Re, {"nothing to repeat", 0}},
                         value := Re
-                    }}
+                    }
                 ]}}},
         emqx_rewrite:update(Rules)
     ),

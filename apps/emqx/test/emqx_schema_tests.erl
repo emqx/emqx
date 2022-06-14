@@ -99,7 +99,7 @@ bad_cipher_test() ->
     Sc = emqx_schema:server_ssl_opts_schema(#{}, false),
     Reason = {bad_ciphers, ["foo"]},
     ?assertThrow(
-        {_Sc, [{validation_error, #{reason := Reason}}]},
+        {_Sc, [#{kind := validation_error, reason := Reason}]},
         validate(Sc, #{
             <<"versions">> => [<<"tlsv1.2">>],
             <<"ciphers">> => [<<"foo">>]
@@ -129,7 +129,7 @@ ciperhs_schema_test() ->
     Sc = emqx_schema:ciphers_schema(undefined),
     WSc = #{roots => [{ciphers, Sc}]},
     ?assertThrow(
-        {_, [{validation_error, _}]},
+        {_, [#{kind := validation_error}]},
         hocon_tconf:check_plain(WSc, #{<<"ciphers">> => <<"foo,bar">>})
     ).
 
@@ -137,7 +137,7 @@ bad_tls_version_test() ->
     Sc = emqx_schema:server_ssl_opts_schema(#{}, false),
     Reason = {unsupported_ssl_versions, [foo]},
     ?assertThrow(
-        {_Sc, [{validation_error, #{reason := Reason}}]},
+        {_Sc, [#{kind := validation_error, reason := Reason}]},
         validate(Sc, #{<<"versions">> => [<<"foo">>]})
     ),
     ok.

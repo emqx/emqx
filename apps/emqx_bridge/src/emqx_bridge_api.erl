@@ -699,21 +699,8 @@ filter_out_request_body(Conf) ->
     ],
     maps:without(ExtraConfs, Conf).
 
-error_msg(Code, Msg) when is_binary(Msg) ->
-    #{code => Code, message => Msg};
-error_msg(Code, {_, HoconErrors = [{Type, _} | _]}) when
-    Type == translation_error orelse Type == validation_error
-->
-    MessageFormat = [hocon_error(HoconError) || HoconError <- HoconErrors],
-    #{code => Code, message => bin(MessageFormat)};
 error_msg(Code, Msg) ->
-    #{code => Code, message => bin(io_lib:format("~p", [Msg]))}.
-
-hocon_error({Type, Message0}) when
-    Type == translation_error orelse Type == validation_error
-->
-    Message = maps:without([stacktrace], Message0),
-    emqx_logger_jsonfmt:best_effort_json(Message#{<<"type">> => Type}, []).
+    #{code => Code, message => emqx_misc:readable_error_msg(Msg)}.
 
 bin(S) when is_list(S) ->
     list_to_binary(S);
