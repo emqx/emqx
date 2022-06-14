@@ -115,48 +115,46 @@ ip_port_to_string({Ip, Port}) when is_tuple(Ip) ->
     iolist_to_binary([inet:ntoa(Ip), ":", integer_to_list(Port)]).
 
 parse_server(Str, #{host_type := inet_addr, default_port := DefaultPort}) ->
-    try string:tokens(str(Str), ": ") of
+    case string:tokens(str(Str), ": ") of
         [Ip, Port] ->
-            case parse_ip(Ip) of
-                {ok, R} -> {R, list_to_integer(Port)}
-            end;
+            {parse_ip(Ip), parse_port(Port)};
         [Ip] ->
-            case parse_ip(Ip) of
-                {ok, R} -> {R, DefaultPort}
-            end;
+            {parse_ip(Ip), DefaultPort};
         _ ->
-            ?THROW_ERROR("Bad server schema.")
-    catch
-        error:Reason ->
-            ?THROW_ERROR(Reason)
+            throw("Bad server schema")
     end;
 parse_server(Str, #{host_type := hostname, default_port := DefaultPort}) ->
-    try string:tokens(str(Str), ": ") of
-        [Ip, Port] ->
-            {Ip, list_to_integer(Port)};
-        [Ip] ->
-            {Ip, DefaultPort};
+    case string:tokens(str(Str), ": ") of
+        [Hostname, Port] ->
+            {Hostname, parse_port(Port)};
+        [Hostname] ->
+            {Hostname, DefaultPort};
         _ ->
-            ?THROW_ERROR("Bad server schema.")
-    catch
-        error:Reason ->
-            ?THROW_ERROR(Reason)
+            throw("Bad server schema")
     end;
 parse_server(_, _) ->
-    ?THROW_ERROR("Invalid Host").
+    throw("Invalid Host").
 
 parse_ip(Str) ->
     case inet:parse_address(Str) of
         {ok, R} ->
-            {ok, R};
+            R;
         _ ->
             %% check is a rfc1035's hostname
             case inet_parse:domain(Str) of
                 true ->
-                    {ok, Str};
+                    Str;
                 _ ->
-                    ?THROW_ERROR("Bad IP or Host")
+                    throw("Bad IP or Host")
             end
+    end.
+
+parse_port(Port) ->
+    try
+        list_to_integer(Port)
+    catch
+        _:_ ->
+            throw("Bad port number")
     end.
 
 str(A) when is_atom(A) ->
