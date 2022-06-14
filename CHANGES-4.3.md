@@ -18,8 +18,9 @@ File format:
   password-protected private key files used for dashboard and
   management HTTPS listeners. [#8129]
 
-### Bug-fixes
+### Bug fixes
 
+- Avoid repeated writing `loaded_plugins` file if the plugin enable stauts has not changed [#8179]
 - Correctly tally `connack.auth_error` metrics when a client uses MQTT
   3.1. [#8177]
 
