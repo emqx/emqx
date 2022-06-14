@@ -45,7 +45,7 @@
     name :: gateway_name(),
     config :: emqx_config:config(),
     ctx :: emqx_gateway_ctx:context(),
-    authns :: [emqx_authentication:chain_name()],
+    authns :: [{emqx_authentication:chain_name(), map()}],
     status :: stopped | running,
     child_pids :: [pid()],
     gw_state :: emqx_gateway_impl:state() | undefined,
@@ -115,11 +115,11 @@ init([Gateway, Ctx, _GwDscrptr]) ->
             }),
             {ok, State};
         true ->
-            case cb_gateway_load(State) of
+            case cb_gateway_load(ensure_authn_created(State)) of
                 {error, Reason} ->
                     {stop, Reason};
-                {ok, NState} ->
-                    {ok, NState}
+                {ok, NState1} ->
+                    {ok, NState1}
             end
     end.
 
@@ -130,7 +130,7 @@ handle_call(disable, _From, State = #state{status = Status}) ->
         running ->
             case cb_gateway_unload(State) of
                 {ok, NState} ->
-                    {reply, ok, NState};
+                    {reply, ok, disable_authns(NState)};
                 {error, Reason} ->
                     {reply, {error, Reason}, State}
             end;
@@ -140,11 +140,11 @@ handle_call(disable, _From, State = #state{status = Status}) ->
 handle_call(enable, _From, State = #state{status = Status}) ->
     case Status of
         stopped ->
-            case cb_gateway_load(State) of
+            case cb_gateway_load(ensure_authn_running(State)) of
                 {error, Reason} ->
                     {reply, {error, Reason}, State};
-                {ok, NState} ->
-                    {reply, ok, NState}
+                {ok, NState1} ->
+                    {reply, ok, NState1}
             end;
         _ ->
             {reply, {error, already_started}, State}
@@ -233,15 +233,52 @@ detailed_gateway_info(State) ->
 %% Internal funcs
 %%--------------------------------------------------------------------
 
+%%--------------------------------------------------------------------
+%% Authn resources managing funcs
+
+%% ensure authentication chain, authenticator created and keep its status
+%% as expected
+ensure_authn_created(State = #state{ctx = Ctx, name = GwName, config = Config}) ->
+    Authns = init_authn(GwName, Config),
+    AuthnNames = lists:map(fun({ChainName, _}) -> ChainName end, Authns),
+    State#state{authns = Authns, ctx = maps:put(auth, AuthnNames, Ctx)}.
+
+%% temporarily disable authenticators after gateway disabled
+disable_authns(State = #state{ctx = Ctx, authns = Authns}) ->
+    lists:foreach(
+        fun({ChainName, AuthConf}) ->
+            TempConf = maps:put(enable, false, AuthConf),
+            do_update_authenticator(ChainName, TempConf)
+        end,
+        Authns
+    ),
+    State#state{ctx = maps:remove(auth, Ctx)}.
+
+%% keep authenticators running as expected
+ensure_authn_running(State = #state{ctx = Ctx, authns = Authns}) ->
+    AuthnNames = lists:map(
+        fun({ChainName, AuthConf}) ->
+            ok = do_update_authenticator(ChainName, AuthConf),
+            ChainName
+        end,
+        Authns
+    ),
+    State#state{ctx = maps:put(auth, AuthnNames, Ctx)}.
+
+do_update_authenticator(ChainName, Confs) ->
+    [#{id := AuthenticatorId}] = emqx_authentication:list_authenticators(ChainName),
+    {ok, _} = emqx_authentication:update_authenticator(ChainName, AuthenticatorId, Confs),
+    ok.
+
 %% There are two layer authentication configs
 %%       stomp.authn
 %%           /                   \
 %%   listeners.tcp.default.authn  *.ssl.default.authn
 %%
-
 init_authn(GwName, Config) ->
     Authns = authns(GwName, Config),
     try
+        _ = application:ensure_all_started(emqx_authn),
         do_init_authn(Authns, [])
     catch
         throw:Reason = {badauth, _} ->
@@ -249,32 +286,37 @@ init_authn(GwName, Config) ->
             throw(Reason)
     end.
 
-do_init_authn([], Names) ->
-    Names;
-do_init_authn([{_ChainName, _AuthConf = #{enable := false}} | More], Names) ->
-    do_init_authn(More, Names);
-do_init_authn([{ChainName, AuthConf} | More], Names) when is_map(AuthConf) ->
-    _ = application:ensure_all_started(emqx_authn),
-    do_create_authn_chain(ChainName, AuthConf),
-    do_init_authn(More, [ChainName | Names]);
-do_init_authn([_BadConf | More], Names) ->
-    do_init_authn(More, Names).
+do_init_authn([], Authns) ->
+    lists:reverse(Authns);
+do_init_authn([{ChainName, AuthConf} | More], Authns) when is_map(AuthConf) ->
+    ok = do_create_authn_chain(ChainName, AuthConf),
+    do_init_authn(More, [{ChainName, AuthConf} | Authns]);
+do_init_authn([_BadConf | More], Authns) ->
+    do_init_authn(More, Authns).
 
 authns(GwName, Config) ->
     Listeners = maps:to_list(maps:get(listeners, Config, #{})),
-    lists:append(
-        [
+    Authns0 =
+        lists:append(
             [
-                {emqx_gateway_utils:listener_chain(GwName, LisType, LisName), authn_conf(Opts)}
-             || {LisName, Opts} <- maps:to_list(LisNames)
+                [
+                    {emqx_gateway_utils:listener_chain(GwName, LisType, LisName), authn_conf(Opts)}
+                 || {LisName, Opts} <- maps:to_list(LisNames)
+                ]
+             || {LisType, LisNames} <- Listeners
             ]
-         || {LisType, LisNames} <- Listeners
-        ]
-    ) ++
-        [{emqx_gateway_utils:global_chain(GwName), authn_conf(Config)}].
+        ) ++
+            [{emqx_gateway_utils:global_chain(GwName), authn_conf(Config)}],
+    lists:filter(
+        fun
+            ({_, undefined}) -> false;
+            (_) -> true
+        end,
+        Authns0
+    ).
 
 authn_conf(Conf) ->
-    maps:get(authentication, Conf, #{enable => false}).
+    maps:get(authentication, Conf, undefined).
 
 do_create_authn_chain(ChainName, AuthConf) ->
     case emqx_authentication:create_authenticator(ChainName, AuthConf) of
@@ -325,7 +367,7 @@ do_update_one_by_one(
     case {Status, NEnable} of
         {stopped, true} ->
             NState = State#state{config = NCfg},
-            cb_gateway_load(NState);
+            cb_gateway_load(ensure_authn_running(NState));
         {stopped, false} ->
             {ok, State#state{config = NCfg}};
         {running, true} ->
@@ -336,14 +378,14 @@ do_update_one_by_one(
                     false ->
                         %% Reset Authentication first
                         _ = do_deinit_authn(State#state.authns),
-                        AuthnNames = init_authn(State#state.name, NCfg),
-                        State#state{authns = AuthnNames}
+                        Authns = init_authn(State#state.name, NCfg),
+                        State#state{authns = Authns}
                 end,
             %% TODO: minimum impact update ???
             cb_gateway_update(NCfg, NState);
         {running, false} ->
             case cb_gateway_unload(State) of
-                {ok, NState} -> {ok, NState#state{config = NCfg}};
+                {ok, NState} -> {ok, disable_authns(NState#state{config = NCfg})};
                 {error, Reason} -> {error, Reason}
             end;
         _ ->
@@ -378,8 +420,6 @@ cb_gateway_unload(
                 stacktrace => Stk
             }),
             {error, Reason}
-    after
-        _ = do_deinit_authn(State#state.authns)
     end.
 
 %% @doc 1. Create Authentcation Context
@@ -389,24 +429,19 @@ cb_gateway_unload(
 cb_gateway_load(
     State = #state{
         name = GwName,
-        config = Config,
         ctx = Ctx
     }
 ) ->
     Gateway = detailed_gateway_info(State),
     try
-        AuthnNames = init_authn(GwName, Config),
-        NCtx = Ctx#{auth => AuthnNames},
         #{cbkmod := CbMod} = emqx_gateway_registry:lookup(GwName),
-        case CbMod:on_gateway_load(Gateway, NCtx) of
+        case CbMod:on_gateway_load(Gateway, Ctx) of
             {error, Reason} ->
-                do_deinit_authn(AuthnNames),
                 {error, Reason};
             {ok, ChildPidOrSpecs, GwState} ->
                 ChildPids = start_child_process(ChildPidOrSpecs),
                 {ok, State#state{
-                    ctx = NCtx,
-                    authns = AuthnNames,
+                    ctx = Ctx,
                     status = running,
                     child_pids = ChildPids,
                     gw_state = GwState,
