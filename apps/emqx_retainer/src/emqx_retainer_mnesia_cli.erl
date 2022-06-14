@@ -31,6 +31,15 @@
 load() ->
     ok = emqx_ctl:register_command(retainer, {?MODULE, retainer}, []).
 
+retainer(["info"]) ->
+    ?PRINT("Number of retained messages: ~p~n", [emqx_retainer:retained_count()]);
+retainer(["topics"]) ->
+    [?PRINT("~ts~n", [I]) || I <- emqx_retainer_mnesia:topics()],
+    ok;
+retainer(["clean", Topic]) ->
+    emqx_retainer:delete(list_to_binary(Topic));
+retainer(["clean"]) ->
+    emqx_retainer:clean();
 retainer(["reindex", "status"]) ->
     case emqx_retainer_mnesia:reindex_status() of
         true ->
@@ -66,6 +75,10 @@ retainer(["reindex", "start", ForceParam]) ->
 retainer(_) ->
     emqx_ctl:usage(
         [
+            {"retainer info", "Show the count of retained messages"},
+            {"retainer topics", "Show all topics of retained messages"},
+            {"retainer clean", "Clean all retained messages"},
+            {"retainer clean <Topic>", "Clean retained messages by the specified topic filter"},
             {"retainer reindex status", "Show reindex status"},
             {"retainer reindex start [force]",
                 "Generate new retainer topic indices config settings.\n"

@@ -38,6 +38,18 @@ end_per_suite(_Config) ->
 t_reindex_status(_Config) ->
     ok = emqx_retainer_mnesia_cli:retainer(["reindex", "status"]).
 
+t_info(_Config) ->
+    ok = emqx_retainer_mnesia_cli:retainer(["info"]).
+
+t_topics(_Config) ->
+    ok = emqx_retainer_mnesia_cli:retainer(["topics"]).
+
+t_clean(_Config) ->
+    ok = emqx_retainer_mnesia_cli:retainer(["clean"]).
+
+t_topic(_Config) ->
+    ok = emqx_retainer_mnesia_cli:retainer(["clean", "foo/bar"]).
+
 t_reindex(_Config) ->
     {ok, C} = emqtt:start_link([{clean_start, true}, {proto_ver, v5}]),
     {ok, _} = emqtt:connect(C),
