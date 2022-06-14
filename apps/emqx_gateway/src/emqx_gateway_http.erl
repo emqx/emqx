@@ -493,12 +493,10 @@ reason2msg(
 ) ->
     fmtstr("Bad TLS configuration for ~p, reason: ~s", [Options, Reason]);
 reason2msg(
-    {#{roots := [{gateway, _}]}, ErrReports}
+    {#{roots := [{gateway, _}]}, [_ | _]} = Error
 ) ->
-    fmtstr(
-        "Invalid configurations, reason: ~s",
-        [validation_error_stringfy(ErrReports, [])]
-    );
+    Bin = emqx_misc:readable_error_msg(Error),
+    <<"Invalid configurations: ", Bin/binary>>;
 reason2msg(_) ->
     error.
 
@@ -511,25 +509,6 @@ codestr(501) -> 'NOT_IMPLEMENTED'.
 
 fmtstr(Fmt, Args) ->
     lists:flatten(io_lib:format(Fmt, Args)).
-
-validation_error_stringfy([], Reasons) ->
-    lists:join(", ", lists:reverse(Reasons));
-validation_error_stringfy(
-    [
-        {validation_error, #{
-            path := Path,
-            reason := unknown_fields,
-            unknown_fields := Fields
-        }}
-        | More
-    ],
-    Reasons
-) ->
-    ReasonStr = fmtstr("unknown fields ~p for ~s", [Fields, Path]),
-    validation_error_stringfy(More, [ReasonStr | Reasons]);
-validation_error_stringfy([Other | More], Reasons) ->
-    ReasonStr = <<(emqx_gateway_utils:stringfy(Other))/binary>>,
-    validation_error_stringfy(More, [ReasonStr | Reasons]).
 
 -spec with_authn(binary(), function()) -> any().
 with_authn(GwName0, Fun) ->
