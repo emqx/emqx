@@ -90,7 +90,6 @@ fields(sentinel) ->
         }},
         {sentinel, #{
             type => string(),
-            required => true,
             desc => ?DESC("sentinel_desc")
         }}
     ] ++
