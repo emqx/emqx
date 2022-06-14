@@ -429,8 +429,12 @@ inc_sent(Packet) ->
 
 do_inc_sent(?CONNACK_PACKET(ReasonCode)) ->
     (ReasonCode == ?RC_SUCCESS) orelse inc('packets.connack.error'),
-    (ReasonCode == ?RC_NOT_AUTHORIZED) andalso inc('packets.connack.auth_error'),
-    (ReasonCode == ?RC_BAD_USER_NAME_OR_PASSWORD) andalso inc('packets.connack.auth_error'),
+    ((ReasonCode == ?RC_NOT_AUTHORIZED)
+     orelse (ReasonCode == ?CONNACK_AUTH))
+        andalso inc('packets.connack.auth_error'),
+    ((ReasonCode == ?RC_BAD_USER_NAME_OR_PASSWORD)
+     orelse (ReasonCode == ?CONNACK_CREDENTIALS))
+        andalso inc('packets.connack.auth_error'),
     inc('packets.connack.sent');
 
 do_inc_sent(?PUBLISH_PACKET(QoS)) ->
