@@ -41,7 +41,8 @@
     delete/1,
     page_read/3,
     post_config_update/5,
-    stats_fun/0
+    stats_fun/0,
+    retained_count/0
 ]).
 
 %% gen_server callbacks
@@ -151,6 +152,9 @@ clean() ->
 
 delete(Topic) ->
     call({?FUNCTION_NAME, Topic}).
+
+retained_count() ->
+    call(?FUNCTION_NAME).
 
 page_read(Topic, Page, Limit) ->
     call({?FUNCTION_NAME, Topic, Page, Limit}).
