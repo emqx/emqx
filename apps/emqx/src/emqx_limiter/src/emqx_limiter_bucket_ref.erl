@@ -50,13 +50,7 @@
 %%--------------------------------------------------------------------
 %%  API
 %%--------------------------------------------------------------------
--spec new(
-    undefined | counters:countres_ref(),
-    undefined | index(),
-    rate()
-) -> bucket_ref().
-new(undefined, _, _) ->
-    infinity;
+-spec new(counters:countres_ref(), index(), rate()) -> bucket_ref().
 new(Counter, Index, Rate) ->
     #{
         counter => Counter,
