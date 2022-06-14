@@ -154,12 +154,10 @@ schema("/users/:username/change_pwd") ->
             'requestBody' => fields([old_pwd, new_pwd]),
             responses => #{
                 204 => <<"Update user password successfully">>,
-                401 => emqx_dashboard_swagger:error_codes(
-                    [?WRONG_USERNAME_OR_PWD, ?ERROR_PWD_NOT_MATCH], ?DESC(login_failed401)
-                ),
                 404 => response_schema(404),
                 400 => emqx_dashboard_swagger:error_codes(
-                    [?BAD_REQUEST], ?DESC(login_failed_response400)
+                    [?BAD_REQUEST, ?ERROR_PWD_NOT_MATCH],
+                    ?DESC(login_failed_response400)
                 )
             }
         }
@@ -308,7 +306,7 @@ change_pwd(put, #{bindings := #{username := Username}, body := Params}) ->
                     {404, ?USER_NOT_FOUND, <<"User not found">>};
                 {error, <<"password_error">>} ->
                     ?SLOG(error, LogMeta#{result => failed, reason => "error old pwd"}),
-                    {401, ?ERROR_PWD_NOT_MATCH, <<"Old password not match">>};
+                    {400, ?ERROR_PWD_NOT_MATCH, <<"Old password not match">>};
                 {error, Reason} ->
                     ?SLOG(error, LogMeta#{result => failed, reason => Reason}),
                     {400, ?BAD_REQUEST, Reason}
