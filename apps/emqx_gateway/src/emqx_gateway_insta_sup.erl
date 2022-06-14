@@ -265,8 +265,11 @@ ensure_authn_running(State = #state{ctx = Ctx, authns = Authns}) ->
     ),
     State#state{ctx = maps:put(auth, AuthnNames, Ctx)}.
 
+do_update_authenticator({ChainName, Confs}) ->
+    do_update_authenticator(ChainName, Confs).
+
 do_update_authenticator(ChainName, Confs) ->
-    [#{id := AuthenticatorId}] = emqx_authentication:list_authenticators(ChainName),
+    {ok, [#{id := AuthenticatorId}]} = emqx_authentication:list_authenticators(ChainName),
     {ok, _} = emqx_authentication:update_authenticator(ChainName, AuthenticatorId, Confs),
     ok.
 
@@ -278,21 +281,19 @@ do_update_authenticator(ChainName, Confs) ->
 init_authn(GwName, Config) ->
     Authns = authns(GwName, Config),
     try
-        _ = application:ensure_all_started(emqx_authn),
-        do_init_authn(Authns, [])
+        ok = do_init_authn(Authns),
+        Authns
     catch
         throw:Reason = {badauth, _} ->
-            do_deinit_authn(proplists:get_keys(Authns)),
+            do_deinit_authn(Authns),
             throw(Reason)
     end.
 
-do_init_authn([], Authns) ->
-    lists:reverse(Authns);
-do_init_authn([{ChainName, AuthConf} | More], Authns) when is_map(AuthConf) ->
+do_init_authn([]) ->
+    ok;
+do_init_authn([{ChainName, AuthConf} | More]) when is_map(AuthConf) ->
     ok = do_create_authn_chain(ChainName, AuthConf),
-    do_init_authn(More, [{ChainName, AuthConf} | Authns]);
-do_init_authn([_BadConf | More], Authns) ->
-    do_init_authn(More, Authns).
+    do_init_authn(More).
 
 authns(GwName, Config) ->
     Listeners = maps:to_list(maps:get(listeners, Config, #{})),
@@ -332,9 +333,9 @@ do_create_authn_chain(ChainName, AuthConf) ->
             throw({badauth, Reason})
     end.
 
-do_deinit_authn(Names) ->
+do_deinit_authn(Authns) ->
     lists:foreach(
-        fun(ChainName) ->
+        fun({ChainName, _}) ->
             case emqx_authentication:delete_chain(ChainName) of
                 ok ->
                     ok;
@@ -348,7 +349,7 @@ do_deinit_authn(Names) ->
                     })
             end
         end,
-        Names
+        Authns
     ).
 
 do_update_one_by_one(
@@ -361,8 +362,8 @@ do_update_one_by_one(
 ) ->
     NEnable = maps:get(enable, NCfg, true),
 
-    OAuths = authns(GwName, OCfg),
-    NAuths = authns(GwName, NCfg),
+    OAuthns = authns(GwName, OCfg),
+    NAuthns = authns(GwName, NCfg),
 
     case {Status, NEnable} of
         {stopped, true} ->
@@ -371,16 +372,11 @@ do_update_one_by_one(
         {stopped, false} ->
             {ok, State#state{config = NCfg}};
         {running, true} ->
-            NState =
-                case NAuths == OAuths of
-                    true ->
-                        State;
-                    false ->
-                        %% Reset Authentication first
-                        _ = do_deinit_authn(State#state.authns),
-                        Authns = init_authn(State#state.name, NCfg),
-                        State#state{authns = Authns}
-                end,
+            {Added, Updated, Deleted} = diff_auths(NAuthns, OAuthns),
+            _ = do_deinit_authn(Deleted),
+            _ = do_init_authn(Added),
+            _ = lists:foreach(fun do_update_authenticator/1, Updated),
+            NState = State#state{authns = NAuthns},
             %% TODO: minimum impact update ???
             cb_gateway_update(NCfg, NState);
         {running, false} ->
@@ -391,6 +387,31 @@ do_update_one_by_one(
         _ ->
             throw(nomatch)
     end.
+
+diff_auths(NAuthns, OAuthns) ->
+    NNames = proplists:get_keys(NAuthns),
+    ONames = proplists:get_keys(OAuthns),
+    AddedNames = NNames -- ONames,
+    DeletedNames = ONames -- NNames,
+    BothNames = NNames -- AddedNames,
+    UpdatedNames = lists:foldl(
+        fun(Name, Acc) ->
+            case
+                proplists:get_value(Name, NAuthns) ==
+                    proplists:get_value(Name, OAuthns)
+            of
+                true -> Acc;
+                false -> [Name | Acc]
+            end
+        end,
+        [],
+        BothNames
+    ),
+    {
+        lists:filter(fun({Name, _}) -> lists:member(Name, AddedNames) end, NAuthns),
+        lists:filter(fun({Name, _}) -> lists:member(Name, UpdatedNames) end, NAuthns),
+        lists:filter(fun({Name, _}) -> lists:member(Name, DeletedNames) end, OAuthns)
+    }.
 
 cb_gateway_unload(
     State = #state{
@@ -404,7 +425,6 @@ cb_gateway_unload(
         CbMod:on_gateway_unload(Gateway, GwState),
         {ok, State#state{
             child_pids = [],
-            authns = [],
             status = stopped,
             gw_state = undefined,
             started_at = undefined,

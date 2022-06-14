@@ -1914,8 +1914,6 @@ t_register_subs_resume_on(_) ->
     _ = emqx:publish(emqx_message:make(test, ?QOS_1, <<"topic-b">>, <<"m2">>)),
     _ = emqx:publish(emqx_message:make(test, ?QOS_2, <<"topic-b">>, <<"m3">>)),
 
-    emqx_logger:set_log_level(debug),
-
     {ok, NSocket} = gen_udp:open(0, [binary]),
     send_connect_msg(NSocket, <<"test">>, 0),
     ?assertMatch(
@@ -2087,8 +2085,6 @@ t_register_skip_failure_topic_name_and_reach_max_retry_times(_) ->
     send_disconnect_msg(Socket, undefined),
     ?assertMatch(<<2, ?SN_DISCONNECT>>, receive_response(Socket)),
     gen_udp:close(Socket),
-
-    emqx_logger:set_log_level(debug),
 
     {ok, NSocket} = gen_udp:open(0, [binary]),
     send_connect_msg(NSocket, <<"test">>, 0),
