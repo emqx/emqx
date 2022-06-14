@@ -24,6 +24,7 @@
 -include_lib("stdlib/include/ms_transform.hrl").
 -include_lib("stdlib/include/qlc.hrl").
 
+%% emqx_retainer callbacks
 -export([
     delete_message/2,
     store_retained/2,
@@ -34,6 +35,9 @@
     clean/1,
     size/1
 ]).
+
+%% Management API:
+-export([topics/0]).
 
 -export([create_resource/1]).
 
@@ -53,6 +57,13 @@
 -define(CLEAR_BATCH_SIZE, 1000).
 -define(REINDEX_BATCH_SIZE, 1000).
 -define(REINDEX_DISPATCH_WAIT, 30000).
+
+%%--------------------------------------------------------------------
+%% Management API
+%%--------------------------------------------------------------------
+
+topics() ->
+    [emqx_topic:join(I) || I <- mnesia:dirty_all_keys(?TAB_MESSAGE)].
 
 %%--------------------------------------------------------------------
 %% emqx_retainer callbacks
