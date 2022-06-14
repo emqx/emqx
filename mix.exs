@@ -329,19 +329,10 @@ defmodule EMQXUmbrella.MixProject do
       force: overwrite?
     )
 
-    # copy generated docs
-    Enum.each(
-      [
-        "apps/emqx_dashboard/priv/www/static/emqx-en.conf.example",
-        "apps/emqx_dashboard/priv/www/static/emqx-zh.conf.example"
-      ],
-      fn file ->
-        Mix.Generator.copy_file(
-          file,
-          Path.join(etc, Path.basename(file)),
-          force: overwrite?
-        )
-      end
+    Mix.Generator.copy_file(
+      "apps/emqx_dashboard/etc/emqx.conf.en.example",
+      Path.join(etc, "emqx-example-en.conf"),
+      force: overwrite?
     )
 
     # this is required by the produced escript / nodetool
