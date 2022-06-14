@@ -571,6 +571,9 @@ pick_bridges_by_id(Type, Name, BridgesAllNodes) ->
                 [] ->
                     ?SLOG(warning, #{
                         msg => "bridge_inconsistent_in_cluster",
+                        reason => not_found,
+                        type => Type,
+                        name => Name,
                         bridge => emqx_bridge_resource:bridge_id(Type, Name)
                     }),
                     Acc

@@ -55,21 +55,36 @@ load() ->
         fun({Type, NamedConf}) ->
             lists:foreach(
                 fun({Name, Conf}) ->
-                    _Res = emqx_bridge_resource:create(Type, Name, Conf, Opts),
-                    ?tp(
-                        emqx_bridge_loaded,
-                        #{
-                            type => Type,
-                            name => Name,
-                            res => _Res
-                        }
-                    )
+                    safe_load_bridge(Type, Name, Conf, Opts)
                 end,
                 maps:to_list(NamedConf)
             )
         end,
         maps:to_list(Bridges)
     ).
+
+safe_load_bridge(Type, Name, Conf, Opts) ->
+    try
+        _Res = emqx_bridge_resource:create(Type, Name, Conf, Opts),
+        ?tp(
+            emqx_bridge_loaded,
+            #{
+                type => Type,
+                name => Name,
+                res => _Res
+            }
+        )
+    catch
+        Err:Reason:ST ->
+            ?SLOG(error, #{
+                msg => "load_bridge_failed",
+                type => Type,
+                name => Name,
+                error => Err,
+                reason => Reason,
+                stacktrace => ST
+            })
+    end.
 
 load_hook() ->
     Bridges = emqx:get_config([bridges], #{}),

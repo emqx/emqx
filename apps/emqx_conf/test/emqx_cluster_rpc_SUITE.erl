@@ -44,6 +44,7 @@ init_per_suite(Config) ->
     application:load(emqx_conf),
     ok = ekka:start(),
     ok = mria_rlog:wait_for_shards([?CLUSTER_RPC_SHARD], infinity),
+    ok = emqx_config:put([node, cluster_call, retry_interval], 1000),
     meck:new(emqx_alarm, [non_strict, passthrough, no_link]),
     meck:expect(emqx_alarm, activate, 3, ok),
     meck:expect(emqx_alarm, deactivate, 3, ok),

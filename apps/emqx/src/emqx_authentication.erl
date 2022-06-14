@@ -508,9 +508,9 @@ handle_info(Info, State) ->
 
 terminate(Reason, _State) ->
     case Reason of
-        normal ->
-            ok;
         {shutdown, _} ->
+            ok;
+        Reason when Reason == normal; Reason == shutdown ->
             ok;
         Other ->
             ?SLOG(error, #{
