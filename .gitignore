@@ -6,6 +6,7 @@ deps
 *.o
 *.beam
 *.plt
+*.example
 erl_crash.dump
 ebin
 !ebin/.placeholder

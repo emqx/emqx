@@ -146,7 +146,7 @@ dump_schema(Dir, SchemaModule, I18nFile) ->
         fun(Lang) ->
             gen_config_md(Dir, I18nFile, SchemaModule, Lang),
             gen_hot_conf_schema_json(Dir, I18nFile, Lang),
-            gen_example_conf(Dir, I18nFile, SchemaModule, Lang)
+            gen_example_conf(filename:dirname(I18nFile), I18nFile, SchemaModule, Lang)
         end,
         [en, zh]
     ),
@@ -177,7 +177,7 @@ gen_config_md(Dir, I18nFile, SchemaModule, Lang0) ->
 
 gen_example_conf(Dir, I18nFile, SchemaModule, Lang0) ->
     Lang = atom_to_list(Lang0),
-    SchemaMdFile = filename:join([Dir, "emqx-" ++ Lang ++ ".conf.example"]),
+    SchemaMdFile = filename:join([Dir, "emqx.conf." ++ Lang ++ ".example"]),
     io:format(user, "===< Generating: ~s~n", [SchemaMdFile]),
     ok = gen_example(SchemaMdFile, SchemaModule, I18nFile, Lang).
 
@@ -204,7 +204,12 @@ gen_doc(File, SchemaModule, I18nFile, Lang) ->
     file:write_file(File, Doc).
 
 gen_example(File, SchemaModule, I18nFile, Lang) ->
-    Opts = #{title => <<"Title">>, body => <<"Body">>, desc_file => I18nFile, lang => Lang},
+    Opts = #{
+        title => <<"EMQX Configuration Example">>,
+        body => <<"">>,
+        desc_file => I18nFile,
+        lang => Lang
+    },
     Example = hocon_schema_example:gen(SchemaModule, Opts),
     file:write_file(File, Example).
 
