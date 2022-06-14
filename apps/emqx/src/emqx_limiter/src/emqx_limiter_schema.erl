@@ -30,7 +30,8 @@
     namespace/0,
     get_bucket_cfg_path/2,
     desc/1,
-    types/0
+    types/0,
+    infinity_value/0,
 ]).
 
 -define(KILOBYTE, 1024).
@@ -46,7 +47,7 @@
 -type rate() :: infinity | float().
 -type burst_rate() :: 0 | float().
 %% the capacity of the token bucket
--type capacity() :: infinity | number().
+-type capacity() :: non_neg_integer().
 %% initial capacity of the token bucket
 -type initial() :: non_neg_integer().
 -type bucket_path() :: list(atom()).
@@ -207,6 +208,18 @@ types() ->
 %% Internal functions
 %%--------------------------------------------------------------------
 
+%% `infinity` to `infinity_value` rules:
+%% 1. all infinity capacity will change to infinity_value
+%% 2. if the rate of global and bucket  both are `infinity`,
+%%    use `infinity_value` as bucket rate. see `emqx_limiter_server:get_counter_rate/2`
+infinity_value() ->
+    %% 1 TB
+    1099511627776.
+
+%%--------------------------------------------------------------------
+%% Internal functions
+%%--------------------------------------------------------------------
+
 to_burst_rate(Str) ->
     to_rate(Str, false, true).
 
@@ -294,7 +307,7 @@ to_quota(Str, Regex) ->
             {match, [Quota, ""]} ->
                 {ok, erlang:list_to_integer(Quota)};
             {match, ""} ->
-                {ok, infinity};
+                {ok, infinity_value()};
             _ ->
                 {error, Str}
         end
