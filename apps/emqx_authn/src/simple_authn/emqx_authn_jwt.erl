@@ -117,7 +117,8 @@ common_fields() ->
             default => <<"acl">>,
             desc => ?DESC(acl_claim_name)
         }},
-        {verify_claims, fun verify_claims/1}
+        {verify_claims, fun verify_claims/1},
+        {from, fun from/1}
     ] ++ emqx_authn_schema:common_fields().
 
 secret(type) -> binary();
@@ -184,6 +185,11 @@ verify_claims(required) ->
 verify_claims(_) ->
     undefined.
 
+from(type) -> hoconsc:enum([username, password]);
+from(desc) -> ?DESC(?FUNCTION_NAME);
+from(default) -> password;
+from(_) -> undefined.
+
 %%------------------------------------------------------------------------------
 %% APIs
 %%------------------------------------------------------------------------------
@@ -234,22 +240,25 @@ update(#{use_jwks := true} = Config, _State) ->
 authenticate(#{auth_method := _}, _) ->
     ignore;
 authenticate(
-    Credential = #{password := JWT},
+    Credential,
     #{
         verify_claims := VerifyClaims0,
         jwk := JWK,
-        acl_claim_name := AclClaimName
+        acl_claim_name := AclClaimName,
+        from := From
     }
 ) ->
+    JWT = maps:get(From, Credential),
     JWKs = [JWK],
     VerifyClaims = replace_placeholder(VerifyClaims0, Credential),
     verify(JWT, JWKs, VerifyClaims, AclClaimName);
 authenticate(
-    Credential = #{password := JWT},
+    Credential,
     #{
         verify_claims := VerifyClaims0,
         jwk_resource := ResourceId,
-        acl_claim_name := AclClaimName
+        acl_claim_name := AclClaimName,
+        from := From
     }
 ) ->
     case emqx_resource:query(ResourceId, get_jwks) of
@@ -261,6 +270,7 @@ authenticate(
             }),
             ignore;
         {ok, JWKs} ->
+            JWT = maps:get(From, Credential),
             VerifyClaims = replace_placeholder(VerifyClaims0, Credential),
             verify(JWT, JWKs, VerifyClaims, AclClaimName)
     end.
@@ -281,7 +291,8 @@ create2(#{
     secret := Secret0,
     secret_base64_encoded := Base64Encoded,
     verify_claims := VerifyClaims,
-    acl_claim_name := AclClaimName
+    acl_claim_name := AclClaimName,
+    from := From
 }) ->
     case may_decode_secret(Base64Encoded, Secret0) of
         {error, Reason} ->
@@ -291,7 +302,8 @@ create2(#{
             {ok, #{
                 jwk => JWK,
                 verify_claims => VerifyClaims,
-                acl_claim_name => AclClaimName
+                acl_claim_name => AclClaimName,
+                from => From
             }}
     end;
 create2(#{
@@ -299,19 +311,22 @@ create2(#{
     algorithm := 'public-key',
     public_key := PublicKey,
     verify_claims := VerifyClaims,
-    acl_claim_name := AclClaimName
+    acl_claim_name := AclClaimName,
+    from := From
 }) ->
     JWK = create_jwk_from_public_key(PublicKey),
     {ok, #{
         jwk => JWK,
         verify_claims => VerifyClaims,
-        acl_claim_name => AclClaimName
+        acl_claim_name => AclClaimName,
+        from => From
     }};
 create2(
     #{
         use_jwks := true,
         verify_claims := VerifyClaims,
-        acl_claim_name := AclClaimName
+        acl_claim_name := AclClaimName,
+        from := From
     } = Config
 ) ->
     ResourceId = emqx_authn_utils:make_resource_id(?MODULE),
@@ -324,7 +339,8 @@ create2(
     {ok, #{
         jwk_resource => ResourceId,
         verify_claims => VerifyClaims,
-        acl_claim_name => AclClaimName
+        acl_claim_name => AclClaimName,
+        from => From
     }}.
 
 create_jwk_from_public_key(PublicKey) when
@@ -366,6 +382,8 @@ replace_placeholder([{Name, {placeholder, PL}} | More], Variables, Acc) ->
 replace_placeholder([{Name, Value} | More], Variables, Acc) ->
     replace_placeholder(More, Variables, [{Name, Value} | Acc]).
 
+verify(undefined, _, _, _) ->
+    ignore;
 verify(JWT, JWKs, VerifyClaims, AclClaimName) ->
     case do_verify(JWT, JWKs, VerifyClaims) of
         {ok, Extra} -> {ok, acl(Extra, AclClaimName)};
