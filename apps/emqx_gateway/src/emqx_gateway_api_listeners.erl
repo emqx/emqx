@@ -304,13 +304,19 @@ do_listeners_cluster_status(Listeners) ->
                 Id => #{
                     node => Node,
                     current_connections => Curr,
-                    max_connections => Max
+                    %% XXX: Since it is taken from raw-conf, it is possible a string
+                    max_connections => int(Max)
                 }
             }
         end,
         #{},
         Listeners
     ).
+
+int(B) when is_binary(B) ->
+    binary_to_integer(B);
+int(I) when is_integer(I) ->
+    I.
 
 %%--------------------------------------------------------------------
 %% Swagger defines
