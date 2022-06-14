@@ -82,8 +82,8 @@ run_hooks(Name, Args, Acc) ->
 
 -compile({inline, [inc_authz_metrics/1]}).
 inc_authz_metrics(allow) ->
-    emqx_metrics:inc('client.authorization.allow');
+    emqx_metrics:inc('authorization.allow');
 inc_authz_metrics(deny) ->
-    emqx_metrics:inc('client.authorization.deny');
+    emqx_metrics:inc('authorization.deny');
 inc_authz_metrics(cache_hit) ->
-    emqx_metrics:inc('client.authorization.cache_hit').
+    emqx_metrics:inc('authorization.cache_hit').

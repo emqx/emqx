@@ -52,9 +52,9 @@
 
 -type sources() :: [source()].
 
--define(METRIC_ALLOW, 'client.authorization.matched.allow').
--define(METRIC_DENY, 'client.authorization.matched.deny').
--define(METRIC_NOMATCH, 'client.authorization.nomatch').
+-define(METRIC_ALLOW, 'authorization.matched.allow').
+-define(METRIC_DENY, 'authorization.matched.deny').
+-define(METRIC_NOMATCH, 'authorization.nomatch').
 
 -define(METRICS, [?METRIC_ALLOW, ?METRIC_DENY, ?METRIC_NOMATCH]).
 
