@@ -34,7 +34,7 @@ all() -> emqx_common_test_helpers:all(?MODULE).
 init_per_suite(Conf) ->
     emqx_config:erase(gateway),
     emqx_common_test_helpers:load_config(emqx_gateway_schema, ?CONF_DEFAULT),
-    emqx_common_test_helpers:start_apps([emqx_gateway]),
+    emqx_common_test_helpers:start_apps([emqx_authn, emqx_gateway]),
     Conf.
 
 end_per_suite(_Conf) ->
@@ -44,7 +44,7 @@ end_per_suite(_Conf) ->
 
 init_per_testcase(t_get_basic_usage_info_2, Config) ->
     DataDir = ?config(data_dir, Config),
-    emqx_common_test_helpers:stop_apps([emqx_gateway]),
+    application:stop(emqx_gateway),
     ok = setup_fake_usage_data(DataDir),
     Config;
 init_per_testcase(_TestCase, Config) ->
