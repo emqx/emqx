@@ -547,7 +547,7 @@ commit_status_trans(Operator, TnxId) ->
     mnesia:select(?CLUSTER_COMMIT, [{MatchHead, [Guard], [Result]}]).
 
 get_retry_ms() ->
-    emqx_conf:get(["node", "cluster_call", "retry_interval"], timer:minutes(1)).
+    emqx_conf:get([node, cluster_call, retry_interval], timer:minutes(1)).
 
 maybe_init_tnx_id(_Node, TnxId) when TnxId < 0 -> ok;
 maybe_init_tnx_id(Node, TnxId) ->
