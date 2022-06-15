@@ -260,6 +260,12 @@ stop_listener(Type, ListenerName, #{bind := Bind} = Conf) ->
                 [listener_id(Type, ListenerName), format_addr(Bind)]
             ),
             ok;
+        {error, not_found} ->
+            ?ELOG(
+                "Failed to stop listener ~ts on ~ts: ~0p~n",
+                [listener_id(Type, ListenerName), format_addr(Bind), already_stopped]
+            ),
+            ok;
         {error, Reason} ->
             ?ELOG(
                 "Failed to stop listener ~ts on ~ts: ~0p~n",
@@ -360,6 +366,9 @@ pre_config_update([listeners, Type, Name], {update, Request}, RawConf) ->
     NewConf = ensure_override_limiter_conf(NewConfT, Request),
     CertsDir = certs_dir(Type, Name),
     {ok, convert_certs(CertsDir, NewConf)};
+pre_config_update([listeners, _Type, _Name], {action, _Action, Updated}, RawConf) ->
+    NewConf = emqx_map_lib:deep_merge(RawConf, Updated),
+    {ok, NewConf};
 pre_config_update(_Path, _Request, RawConf) ->
     {ok, RawConf}.
 
@@ -377,6 +386,15 @@ post_config_update([listeners, Type, Name], '$remove', undefined, OldConf, _AppE
             clear_certs(CertsDir, OldConf);
         Err ->
             Err
+    end;
+post_config_update([listeners, Type, Name], {action, _Action, _}, NewConf, OldConf, _AppEnvs) ->
+    #{enabled := NewEnabled} = NewConf,
+    #{enabled := OldEnabled} = OldConf,
+    case {NewEnabled, OldEnabled} of
+        {true, true} -> restart_listener(Type, Name, {OldConf, NewConf});
+        {true, false} -> start_listener(Type, Name, NewConf);
+        {false, true} -> stop_listener(Type, Name, OldConf);
+        {false, false} -> stop_listener(Type, Name, OldConf)
     end;
 post_config_update(_Path, _Request, _NewConf, _OldConf, _AppEnvs) ->
     ok.

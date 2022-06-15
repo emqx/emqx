@@ -148,7 +148,7 @@ schema("/listeners/:id/:action") ->
             ],
             responses => #{
                 200 => <<"Updated">>,
-                400 => error_codes(['BAD_REQUEST'])
+                400 => error_codes(['BAD_REQUEST', 'BAD_LISTENER_ID'])
             }
         }
     }.
@@ -362,66 +362,38 @@ crud_listeners_by_id(delete, #{bindings := #{id := Id}}) ->
     end.
 
 parse_listener_conf(Conf0) ->
-    Conf1 = maps:remove(<<"running">>, Conf0),
-    Conf2 = maps:remove(<<"current_connections">>, Conf1),
-    {IdBin, Conf3} = maps:take(<<"id">>, Conf2),
-    {TypeBin, Conf4} = maps:take(<<"type">>, Conf3),
+    Conf1 = maps:without([<<"running">>, <<"current_connections">>], Conf0),
+    {IdBin, Conf2} = maps:take(<<"id">>, Conf1),
+    {TypeBin, Conf3} = maps:take(<<"type">>, Conf2),
     {ok, #{type := Type, name := Name}} = emqx_listeners:parse_listener_id(IdBin),
     TypeAtom = binary_to_existing_atom(TypeBin),
     case Type =:= TypeAtom of
-        true -> {binary_to_existing_atom(IdBin), TypeAtom, Name, Conf4};
+        true -> {binary_to_existing_atom(IdBin), TypeAtom, Name, Conf3};
         false -> {error, listener_type_inconsistent}
     end.
 
 action_listeners_by_id(post, #{bindings := #{id := Id, action := Action}}) ->
-    Results = [action_listeners(Node, Id, Action) || Node <- mria_mnesia:running_nodes()],
-    case
-        lists:filter(
-            fun
-                ({_, {200}}) -> false;
-                (_) -> true
-            end,
-            Results
-        )
-    of
-        [] -> {200};
-        Errors -> {400, #{code => 'BAD_REQUEST', message => action_listeners_err(Errors)}}
+    {ok, #{type := Type, name := Name}} = emqx_listeners:parse_listener_id(Id),
+    Path = [listeners, Type, Name],
+    case emqx_conf:get_raw(Path, undefined) of
+        undefined ->
+            {404, #{code => 'BAD_LISTENER_ID', message => ?LISTENER_NOT_FOUND}};
+        _PrevConf ->
+            case action(Path, Action, enabled(Action)) of
+                {ok, #{raw_config := _RawConf}} ->
+                    {200};
+                {error, not_found} ->
+                    {404, #{code => 'BAD_LISTENER_ID', message => ?LISTENER_NOT_FOUND}};
+                {error, Reason} ->
+                    {400, #{code => 'BAD_REQUEST', message => err_msg(Reason)}}
+            end
     end.
 
 %%%==============================================================================================
 
-action_listeners(Node, Id, Action) ->
-    {Node, do_action_listeners(Action, Node, Id)}.
-
-do_action_listeners(start, Node, Id) ->
-    case wrap_rpc(emqx_broker_proto_v1:start_listener(Node, Id)) of
-        ok -> {200};
-        {error, {already_started, _}} -> {200};
-        {error, Reason} -> {400, #{code => 'BAD_REQUEST', message => err_msg(Reason)}}
-    end;
-do_action_listeners(stop, Node, Id) ->
-    case wrap_rpc(emqx_broker_proto_v1:stop_listener(Node, Id)) of
-        ok -> {200};
-        {error, not_found} -> {200};
-        {error, Reason} -> {400, #{code => 'BAD_REQUEST', message => err_msg(Reason)}}
-    end;
-do_action_listeners(restart, Node, Id) ->
-    case wrap_rpc(emqx_broker_proto_v1:restart_listener(Node, Id)) of
-        ok -> {200};
-        {error, not_found} -> do_action_listeners(start, Node, Id);
-        {error, Reason} -> {400, #{code => 'BAD_REQUEST', message => err_msg(Reason)}}
-    end.
-
-action_listeners_err(Errors) ->
-    list_to_binary(
-        lists:foldl(
-            fun({Node, Err}, Str) ->
-                err_msg_str(#{node => Node, error => Err}) ++ "; " ++ Str
-            end,
-            "",
-            Errors
-        )
-    ).
+enabled(start) -> #{<<"enabled">> => true};
+enabled(stop) -> #{<<"enabled">> => false};
+enabled(restart) -> #{<<"enabled">> => true}.
 
 err_msg(Atom) when is_atom(Atom) -> atom_to_binary(Atom);
 err_msg(Reason) -> list_to_binary(err_msg_str(Reason)).
@@ -573,6 +545,9 @@ max_conn(Int1, Int2) -> Int1 + Int2.
 
 update(Path, Conf) ->
     wrap(emqx_conf:update(Path, {update, Conf}, ?OPTS(cluster))).
+
+action(Path, Action, Conf) ->
+    wrap(emqx_conf:update(Path, {action, Action, Conf}, ?OPTS(cluster))).
 
 create(Path, Conf) ->
     wrap(emqx_conf:update(Path, {create, Conf}, ?OPTS(cluster))).

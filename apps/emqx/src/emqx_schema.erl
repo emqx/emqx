@@ -844,14 +844,6 @@ fields("mqtt_wss_listener") ->
         ];
 fields("mqtt_quic_listener") ->
     [
-        {"enabled",
-            sc(
-                boolean(),
-                #{
-                    default => true,
-                    desc => ?DESC(fields_mqtt_quic_listener_enabled)
-                }
-            )},
         %% TODO: ensure cacertfile is configurable
         {"certfile",
             sc(
@@ -1567,6 +1559,14 @@ mqtt_listener(Bind) ->
 
 base_listener(Bind) ->
     [
+        {"enabled",
+            sc(
+                boolean(),
+                #{
+                    default => true,
+                    desc => ?DESC(fields_listener_enabled)
+                }
+            )},
         {"bind",
             sc(
                 hoconsc:union([ip_port(), integer()]),
