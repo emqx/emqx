@@ -113,7 +113,7 @@ is_quicer_app_present() ->
     end.
 
 is_quic_listener_configured() ->
-    emqx_listeners:has_enabled_listener_conf_by_type(quic).
+    maps:is_key(quic, emqx:get_config([listeners])).
 
 get_description() -> emqx_release:description().
 
