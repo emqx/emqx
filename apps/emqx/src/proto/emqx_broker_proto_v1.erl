@@ -24,11 +24,7 @@
     forward/3,
     forward_async/3,
     list_client_subscriptions/2,
-    list_subscriptions_via_topic/2,
-
-    start_listener/2,
-    stop_listener/2,
-    restart_listener/2
+    list_subscriptions_via_topic/2
 ]).
 
 -include("bpapi.hrl").
@@ -56,15 +52,3 @@ list_client_subscriptions(Node, ClientId) ->
 -spec list_subscriptions_via_topic(node(), emqx_types:topic()) -> [emqx_types:subopts()].
 list_subscriptions_via_topic(Node, Topic) ->
     rpc:call(Node, emqx_broker, subscriptions_via_topic, [Topic]).
-
--spec start_listener(node(), atom()) -> ok | {error, _} | {badrpc, _}.
-start_listener(Node, Id) ->
-    rpc:call(Node, emqx_listeners, start_listener, [Id]).
-
--spec stop_listener(node(), atom()) -> ok | {error, _} | {badrpc, _}.
-stop_listener(Node, Id) ->
-    rpc:call(Node, emqx_listeners, stop_listener, [Id]).
-
--spec restart_listener(node(), atom()) -> ok | {error, _} | {badrpc, _}.
-restart_listener(Node, Id) ->
-    rpc:call(Node, emqx_listeners, restart_listener, [Id]).
