@@ -1613,7 +1613,7 @@ base_listener(Bind) ->
                 map("ratelimit_name", emqx_limiter_schema:bucket_name()),
                 #{
                     desc => ?DESC(base_listener_limiter),
-                    default => #{}
+                    default => #{<<"connection">> => <<"default">>}
                 }
             )}
     ].
