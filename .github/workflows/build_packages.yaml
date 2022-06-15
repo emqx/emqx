@@ -26,7 +26,6 @@ jobs:
 
     outputs:
       BUILD_PROFILES: ${{ steps.get_profiles.outputs.BUILD_PROFILES }}
-      DEP_QUICER_REF: ${{ steps.deps-refs.outputs.DEP_QUICER_REF }}
 
     steps:
       - uses: actions/checkout@v2
@@ -35,12 +34,6 @@ jobs:
           path: source
           fetch-depth: 0
 
-      - name: Get deps git refs for cache
-        id: deps-refs
-        working-directory: source
-        run: |
-          bash -x scripts/get-dep-refs.sh
-          make clean-all
       - name: Get profiles to build
         id: get_profiles
         run: |
@@ -155,12 +148,6 @@ jobs:
         kerl update releases
         kerl build ${{ matrix.otp }}
         kerl install ${{ matrix.otp }} $HOME/.kerl/${{ matrix.otp }}
-
-    - name: load quicer cache
-      uses: actions/cache@v2
-      with:
-        path: source/_build/default/lib/quicer/
-        key: ${{ matrix.os }}-${{ matrix.otp }}-${{ matrix.arch }}-${{ needs.prepare.outputs.DEP_QUICER_REF }}
 
     - name: build
       working-directory: source
@@ -288,13 +275,6 @@ jobs:
         path: .
     - name: unzip source code
       run: unzip -q source.zip
-    - name: load quicer cache
-      uses: actions/cache@v2
-      with:
-        path: |
-          source/_build/default/lib/quicer/
-          source/deps/quicer/
-        key: ${{ matrix.os }}-${{ matrix.otp }}-${{ matrix.arch }}-${{ needs.prepare.outputs.DEP_QUICER_REF }}
     - name: build emqx packages
       working-directory: source
       env:
@@ -393,14 +373,6 @@ jobs:
       run: unzip -q source.zip
 
     - uses: docker/setup-buildx-action@v1
-
-    - name: load quicer cache
-      uses: actions/cache@v2
-      with:
-        path: |
-          source/_build/default/lib/quicer/
-          source/deps/quicer/
-        key: ${{ matrix.os[0] }}-${{ matrix.otp }}-${{ matrix.arch }}-${{ needs.prepare.outputs.DEP_QUICER_REF }}
 
     - name: Login for docker.
       uses: docker/login-action@v1
