@@ -26,11 +26,9 @@
 %% configuration, register devices and other common operations.
 %%
 -type context() ::
-    %% Gateway Name
     #{
+        %% Gateway Name
         gwname := gateway_name(),
-        %% Authentication chains
-        auth := [emqx_authentication:chain_name()],
         %% The ConnectionManager PID
         cm := pid()
     }.
@@ -67,9 +65,7 @@
 -spec authenticate(context(), emqx_types:clientinfo()) ->
     {ok, emqx_types:clientinfo()}
     | {error, any()}.
-authenticate(_Ctx = #{auth := _ChainNames}, ClientInfo0) when
-    is_list(_ChainNames)
-->
+authenticate(_Ctx, ClientInfo0) ->
     ClientInfo = ClientInfo0#{zone => default},
     case emqx_access_control:authenticate(ClientInfo) of
         {ok, _} ->

@@ -649,6 +649,14 @@ common_listener_opts() ->
                 }
             )},
         {?EMQX_AUTHENTICATION_CONFIG_ROOT_NAME_ATOM, authentication_schema()},
+        {"enable_authn",
+            sc(
+                boolean(),
+                #{
+                    desc => ?DESC(gateway_common_listener_enable_authn),
+                    default => true
+                }
+            )},
         {mountpoint,
             sc(
                 binary(),

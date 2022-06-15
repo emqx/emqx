@@ -50,7 +50,7 @@ end_per_suite(_Conf) ->
 %%--------------------------------------------------------------------
 
 t_authenticate(_) ->
-    Ctx = #{gwname => mqttsn, auth => [], cm => self()},
+    Ctx = #{gwname => mqttsn, cm => self()},
     Info1 = #{
         mountpoint => undefined,
         clientid => <<"user1">>

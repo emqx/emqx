@@ -1616,6 +1616,14 @@ base_listener(Bind) ->
                     desc => ?DESC(base_listener_limiter),
                     default => #{<<"connection">> => <<"default">>}
                 }
+            )},
+        {"enable_authn",
+            sc(
+                boolean(),
+                #{
+                    desc => ?DESC(base_listener_enable_authn),
+                    default => true
+                }
             )}
     ].
 

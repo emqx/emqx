@@ -131,6 +131,7 @@ init(
 ) ->
     Peercert = maps:get(peercert, ConnInfo, undefined),
     Mountpoint = maps:get(mountpoint, Config, <<>>),
+    EnableAuthn = maps:get(enable_authn, Config, true),
     ListenerId =
         case maps:get(listener, Config, undefined) of
             undefined -> undefined;
@@ -148,6 +149,7 @@ init(
             username => undefined,
             is_bridge => false,
             is_superuser => false,
+            enable_authn => EnableAuthn,
             mountpoint => Mountpoint
         }
     ),

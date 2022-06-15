@@ -304,7 +304,8 @@ do_start_listener(Type, ListenerName, #{bind := ListenOn} = Opts) when
             #{
                 listener => {Type, ListenerName},
                 zone => zone(Opts),
-                limiter => limiter(Opts)
+                limiter => limiter(Opts),
+                enable_authn => enable_authn(Opts)
             }
         ]}
     );
@@ -430,7 +431,8 @@ ws_opts(Type, ListenerName, Opts) ->
         {emqx_map_lib:deep_get([websocket, mqtt_path], Opts, "/mqtt"), emqx_ws_connection, #{
             zone => zone(Opts),
             listener => {Type, ListenerName},
-            limiter => limiter(Opts)
+            limiter => limiter(Opts),
+            enable_authn => enable_authn(Opts)
         }}
     ],
     Dispatch = cowboy_router:compile([{'_', WsPaths}]),
@@ -514,6 +516,9 @@ zone(Opts) ->
 
 limiter(Opts) ->
     maps:get(limiter, Opts, #{}).
+
+enable_authn(Opts) ->
+    maps:get(enable_authn, Opts, true).
 
 ssl_opts(Opts) ->
     maps:to_list(
