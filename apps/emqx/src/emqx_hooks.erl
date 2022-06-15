@@ -121,7 +121,7 @@ callback_priority(#callback{priority = P}) -> P.
 %% Hooks API
 %%--------------------------------------------------------------------
 
-%% @doc Register a callback
+%% @doc `add/2,3,4` add a new hook, returns 'already_exists' if the hook exists.
 -spec add(hookpoint(), action() | callback()) -> ok_or_error(already_exists).
 add(HookPoint, Callback) when is_record(Callback, callback) ->
     gen_server:call(?SERVER, {add, HookPoint, Callback}, infinity);
@@ -140,7 +140,7 @@ add(HookPoint, Action, Priority) when is_integer(Priority) ->
 add(HookPoint, Action, Filter, Priority) when is_integer(Priority) ->
     add(HookPoint, #callback{action = Action, filter = Filter, priority = Priority}).
 
-%% @doc Like add/2, it register a callback, discard 'already_exists' error.
+%% @doc `put/2,3,4` updates the existing hook, add it if not exists.
 -spec put(hookpoint(), action() | callback()) -> ok.
 put(HookPoint, Callback) when is_record(Callback, callback) ->
     case add(HookPoint, Callback) of
@@ -296,7 +296,7 @@ insert_hook(HookPoint, Callbacks) ->
     ets:insert(?TAB, #hook{name = HookPoint, callbacks = Callbacks}),
     ok.
 update_hook(HookPoint, Callbacks) ->
-    Ms = ets:fun2ms(fun({hook, K, V}) when K =:= HookPoint -> {hook, K, Callbacks} end),
+    Ms = ets:fun2ms(fun({hook, K, _V}) when K =:= HookPoint -> {hook, K, Callbacks} end),
     ets:select_replace(emqx_hooks, Ms),
     ok.
 

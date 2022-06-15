@@ -19,6 +19,7 @@
 -behaviour(gen_server).
 
 -include_lib("emqx/include/logger.hrl").
+-include_lib("emqx/include/emqx_hooks.hrl").
 
 -export([
     load/0,
@@ -85,10 +86,10 @@ mnesia(boot) ->
 %%------------------------------------------------------------------------------
 
 load() ->
-    emqx:hook('tls_handshake.psk_lookup', {?MODULE, on_psk_lookup, []}).
+    ok = emqx_hooks:put('tls_handshake.psk_lookup', {?MODULE, on_psk_lookup, []}, ?HP_PSK).
 
 unload() ->
-    emqx:unhook('tls_handshake.psk_lookup', {?MODULE, on_psk_lookup}).
+    ok = emqx_hooks:del('tls_handshake.psk_lookup', {?MODULE, on_psk_lookup}).
 
 on_psk_lookup(PSKIdentity, _UserState) ->
     case mnesia:dirty_read(?TAB, PSKIdentity) of

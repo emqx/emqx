@@ -20,6 +20,7 @@
 
 -include("emqx_retainer.hrl").
 -include_lib("emqx/include/logger.hrl").
+-include_lib("emqx/include/emqx_hooks.hrl").
 
 -export([start_link/0]).
 
@@ -423,13 +424,15 @@ close_resource(_) ->
 
 -spec load(context()) -> ok.
 load(Context) ->
-    _ = emqx:hook('session.subscribed', {?MODULE, on_session_subscribed, [Context]}),
-    _ = emqx:hook('message.publish', {?MODULE, on_message_publish, [Context]}),
+    ok = emqx_hooks:put(
+        'session.subscribed', {?MODULE, on_session_subscribed, [Context]}, ?HP_RETAINER
+    ),
+    ok = emqx_hooks:put('message.publish', {?MODULE, on_message_publish, [Context]}, ?HP_RETAINER),
     emqx_stats:update_interval(emqx_retainer_stats, fun ?MODULE:stats_fun/0),
     ok.
 
 unload() ->
-    emqx:unhook('message.publish', {?MODULE, on_message_publish}),
-    emqx:unhook('session.subscribed', {?MODULE, on_session_subscribed}),
+    ok = emqx_hooks:del('message.publish', {?MODULE, on_message_publish}),
+    ok = emqx_hooks:del('session.subscribed', {?MODULE, on_session_subscribed}),
     emqx_stats:cancel_update(emqx_retainer_stats),
     ok.

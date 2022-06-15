@@ -25,7 +25,7 @@
 -include("emqx.hrl").
 -include("logger.hrl").
 -include("emqx_authentication.hrl").
-
+-include_lib("emqx/include/emqx_hooks.hrl").
 -include_lib("stdlib/include/ms_transform.hrl").
 
 -define(CONF_ROOT, ?EMQX_AUTHENTICATION_CONFIG_ROOT_NAME_ATOM).
@@ -696,7 +696,7 @@ maybe_hook(#{hooked := false} = State) ->
         )
     of
         true ->
-            _ = emqx:hook('client.authenticate', {?MODULE, authenticate, []}),
+            ok = emqx_hooks:put('client.authenticate', {?MODULE, authenticate, []}, ?HP_AUTHN),
             State#{hooked => true};
         false ->
             State
@@ -715,7 +715,7 @@ maybe_unhook(#{hooked := true} = State) ->
         )
     of
         true ->
-            _ = emqx:unhook('client.authenticate', {?MODULE, authenticate, []}),
+            ok = emqx_hooks:del('client.authenticate', {?MODULE, authenticate, []}),
             State#{hooked => false};
         false ->
             State

@@ -16,6 +16,8 @@
 
 -module(emqx_auto_subscribe).
 
+-include_lib("emqx/include/emqx_hooks.hrl").
+
 -define(HOOK_POINT, 'client.connected').
 
 -define(MAX_AUTO_SUBSCRIBE, 20).
@@ -114,5 +116,7 @@ update_hook() ->
 
 update_hook(Config) ->
     {TopicHandler, Options} = emqx_auto_subscribe_handler:init(Config),
-    emqx_hooks:put(?HOOK_POINT, {?MODULE, on_client_connected, [{TopicHandler, Options}]}),
+    emqx_hooks:put(
+        ?HOOK_POINT, {?MODULE, on_client_connected, [{TopicHandler, Options}]}, ?HP_AUTO_SUB
+    ),
     ok.

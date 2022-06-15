@@ -19,6 +19,7 @@
 
 -include("emqx_authz.hrl").
 -include_lib("emqx/include/logger.hrl").
+-include_lib("emqx/include/emqx_hooks.hrl").
 
 -ifdef(TEST).
 -compile(export_all).
@@ -100,7 +101,7 @@ init() ->
     Sources = emqx_conf:get(?CONF_KEY_PATH, []),
     ok = check_dup_types(Sources),
     NSources = create_sources(Sources),
-    ok = emqx_hooks:add('client.authorize', {?MODULE, authorize, [NSources]}, -1).
+    ok = emqx_hooks:put('client.authorize', {?MODULE, authorize, [NSources]}, ?HP_AUTHZ).
 
 deinit() ->
     ok = emqx_hooks:del('client.authorize', {?MODULE, authorize}),
@@ -501,7 +502,7 @@ get_source_by_type(Type, Sources) ->
 
 %% @doc put hook with (maybe) initialized new source and old sources
 update_authz_chain(Actions) ->
-    emqx_hooks:put('client.authorize', {?MODULE, authorize, [Actions]}, -1).
+    emqx_hooks:put('client.authorize', {?MODULE, authorize, [Actions]}, ?HP_AUTHZ).
 
 check_acl_file_rules(RawRules) ->
     %% TODO: make sure the bin rules checked
