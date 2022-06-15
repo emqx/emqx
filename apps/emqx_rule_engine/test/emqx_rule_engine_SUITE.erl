@@ -407,15 +407,31 @@ t_reset_metrics(_Config) ->
     ok.
 
 t_republish_action(_Config) ->
-    Qos0Received = emqx_metrics:val('messages.qos0.received'),
+    TargetQoSList = [-1, 0, 1, 2, <<"${qos}">>],
+    TargetRetainList = [true, false, <<"${flags.retain}">>],
+    [[republish_action_test(TargetQoS, TargetRetain) || TargetRetain <- TargetRetainList]
+        || TargetQoS <- TargetQoSList],
+    ok.
+
+republish_action_test(TargetQoS, TargetRetain) ->
+    {QoSReceivedMetricsName, PubQoS} =
+        case TargetQoS of
+            <<"${qos}">> -> {'messages.qos0.received', 0};
+            -1 -> {'messages.qos0.received', 0};
+            0 -> {'messages.qos0.received', 0};
+            1 -> {'messages.qos1.received', 1};
+            2 -> {'messages.qos2.received', 2}
+        end,
+    QosReceived = emqx_metrics:val(QoSReceivedMetricsName),
     Received = emqx_metrics:val('messages.received'),
     ok = emqx_rule_engine:load_providers(),
     {ok, #rule{id = Id, for = [<<"t1">>]}} =
         emqx_rule_engine:create_rule(
-                    #{rawsql => <<"select topic, payload, qos from \"t1\"">>,
+                    #{rawsql => <<"select * from \"t1\"">>,
                       actions => [#{name => 'republish',
                                     args => #{<<"target_topic">> => <<"t2">>,
-                                              <<"target_qos">> => -1,
+                                              <<"target_qos">> => TargetQoS,
+                                              <<"target_retain">> => TargetRetain,
                                               <<"payload_tmpl">> => <<"${payload}">>}}],
                       description => <<"builtin-republish-rule">>}),
     {ok, Client} = emqtt:start_link([{username, <<"emqx">>}]),
@@ -423,7 +439,7 @@ t_republish_action(_Config) ->
     {ok, _, _} = emqtt:subscribe(Client, <<"t2">>, 0),
 
     Msg = <<"{\"id\": 1, \"name\": \"ha\"}">>,
-    emqtt:publish(Client, <<"t1">>, Msg, 0),
+    emqtt:publish(Client, <<"t1">>, Msg, PubQoS),
     receive {publish, #{topic := <<"t2">>, payload := Payload}} ->
         ?assertEqual(Msg, Payload)
     after 1000 ->
@@ -431,7 +447,7 @@ t_republish_action(_Config) ->
     end,
     emqtt:stop(Client),
     emqx_rule_registry:remove_rule(Id),
-    ?assertEqual(2, emqx_metrics:val('messages.qos0.received') - Qos0Received),
+    ?assertEqual(2, emqx_metrics:val(QoSReceivedMetricsName) - QosReceived),
     ?assertEqual(2, emqx_metrics:val('messages.received') - Received),
     ok.
 
@@ -481,7 +497,7 @@ t_crud_rule_api(_Config) ->
                         {<<"params">>,[
                             {<<"arg1">>,1},
                             {<<"target_topic">>, <<"t2">>},
-                            {<<"target_qos">>, -1},
+                            {<<"target_qos">>, 0},
                             {<<"payload_tmpl">>, <<"${payload}">>}
                         ]}
                     ]]

@@ -587,6 +587,38 @@ t_connect_client_never_negative(Config) when is_list(Config) ->
 t_connect_client_never_negative({'end', _Config}) ->
     ok.
 
+t_connack_auth_error({init, Config}) ->
+    process_flag(trap_exit, true),
+    emqx_ct_helpers:stop_apps([]),
+    emqx_ct_helpers:boot_modules(all),
+    Handler =
+        fun(emqx) ->
+                application:set_env(emqx, acl_nomatch, deny),
+                application:set_env(emqx, allow_anonymous, false),
+                application:set_env(emqx, enable_acl_cache, false),
+                ok;
+           (_) ->
+                ok
+        end,
+    emqx_ct_helpers:start_apps([], Handler),
+    Config;
+t_connack_auth_error({'end', _Config}) ->
+    emqx_ct_helpers:stop_apps([]),
+    emqx_ct_helpers:boot_modules(all),
+    emqx_ct_helpers:start_apps([]),
+    ok;
+t_connack_auth_error(Config) when is_list(Config) ->
+    %% MQTT 3.1
+    ?assertEqual(0, emqx_metrics:val('packets.connack.auth_error')),
+    {ok, C0} = emqtt:start_link([{proto_ver, v4}]),
+    ?assertEqual({error, {unauthorized_client, undefined}}, emqtt:connect(C0)),
+    ?assertEqual(1, emqx_metrics:val('packets.connack.auth_error')),
+    %% MQTT 5.0
+    {ok, C1} = emqtt:start_link([{proto_ver, v5}]),
+    ?assertEqual({error, {not_authorized, #{}}}, emqtt:connect(C1)),
+    ?assertEqual(2, emqx_metrics:val('packets.connack.auth_error')),
+    ok.
+
 wait_for_events(Action, Kinds) ->
     wait_for_events(Action, Kinds, 500).
 

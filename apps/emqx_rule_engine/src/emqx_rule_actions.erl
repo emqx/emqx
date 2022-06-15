@@ -35,24 +35,47 @@
             },
             target_qos => #{
                 order => 2,
-                type => number,
-                enum => [-1, 0, 1, 2],
+                input => editable_select,
+                type => [number, string],
+                enum => [0, 1, 2, <<"${qos}">>],
                 required => true,
                 default => 0,
                 title => #{en => <<"Target QoS">>,
                            zh => <<"目的 QoS"/utf8>>},
-                description => #{en => <<"The QoS Level to be uses when republishing the message. Set to -1 to use the original QoS">>,
-                                 zh => <<"重新发布消息时用的 QoS 级别, 设置为 -1 以使用原消息中的 QoS"/utf8>>}
+                description => #{en =>
+                                    <<"The QoS Level to be used when republishing the message."
+                                      " Support placeholder variables."
+                                      " Set to ${qos} to use the original QoS. Default is 0">>,
+                                 zh =>
+                                    <<"重新发布消息时用的 QoS 级别。"
+                                      "支持占位符变量，可以填写 ${qos} 来使用原消息的 QoS。默认 0"/utf8>>}
+            },
+            target_retain => #{
+                order => 3,
+                input => editable_select,
+                type => [boolean, string],
+                enum => [true, false, <<"${flags.retain}">>],
+                required => false,
+                default => false,
+                title => #{en => <<"Target Retain">>,
+                           zh => <<"目标保留消息标识"/utf8>>},
+                description => #{en => <<"The Retain flag to be used when republishing the message."
+                                         " Set to ${flags.retain} to use the original Retain."
+                                         " Support placeholder variables. Default is false">>,
+                                 zh => <<"重新发布消息时用的保留消息标识。"
+                                         "支持占位符变量，可以填写 ${flags.retain} 来使用原消息的 Retain。"
+                                         "默认 false"/utf8>>}
             },
             payload_tmpl => #{
-                order => 3,
+                order => 4,
                 type => string,
                 input => textarea,
                 required => false,
                 default => <<"${payload}">>,
                 title => #{en => <<"Payload Template">>,
                            zh => <<"消息内容模板"/utf8>>},
-                description => #{en => <<"The payload template, variable interpolation is supported">>,
+                description => #{en => <<"The payload template, "
+                                         "variable interpolation is supported">>,
                                  zh => <<"消息内容模板，支持变量"/utf8>>}
             }
         }).
@@ -89,7 +112,8 @@
                params => #{},
                title => #{en => <<"Do Nothing (debug)">>,
                           zh => <<"空动作 (调试)"/utf8>>},
-               description => #{en => <<"This action does nothing and never fails. It's for debug purpose">>,
+               description => #{en => <<"This action does nothing and never fails. "
+                                        "It's for debug purpose">>,
                                 zh => <<"此动作什么都不做，并且不会失败 (用以调试)"/utf8>>}
               }).
 
@@ -113,7 +137,8 @@ on_resource_create(_Name, Conf) ->
 %%------------------------------------------------------------------------------
 %% Action 'inspect'
 %%------------------------------------------------------------------------------
--spec on_action_create_inspect(Id :: action_instance_id(), Params :: map()) -> {bindings(), NewParams :: map()}.
+-spec on_action_create_inspect(Id :: action_instance_id(), Params :: map()) ->
+    {bindings(), NewParams :: map()}.
 on_action_create_inspect(Id, Params) ->
     Params.
 
@@ -129,12 +154,15 @@ on_action_inspect(Selected, Envs) ->
 %%------------------------------------------------------------------------------
 %% Action 'republish'
 %%------------------------------------------------------------------------------
--spec on_action_create_republish(action_instance_id(), Params :: map()) -> {bindings(), NewParams :: map()}.
+-spec on_action_create_republish(action_instance_id(), Params :: map()) ->
+    {bindings(), NewParams :: map()}.
 on_action_create_republish(Id, Params = #{
         <<"target_topic">> := TargetTopic,
-        <<"target_qos">> := TargetQoS,
+        <<"target_qos">> := TargetQoS0,
         <<"payload_tmpl">> := PayloadTmpl
        }) ->
+    TargetRetain = to_retain(maps:get(<<"target_retain">>, Params, <<"false">>)),
+    TargetQoS = to_qos(TargetQoS0),
     TopicTks = emqx_rule_utils:preproc_tmpl(TargetTopic),
     PayloadTks = emqx_rule_utils:preproc_tmpl(PayloadTmpl),
     Params.
@@ -157,20 +185,21 @@ on_action_republish(Selected, _Envs = #{
                 'TargetQoS' := TargetQoS,
                 'TopicTks' := TopicTks,
                 'PayloadTks' := PayloadTks
-            }}) ->
-    ?LOG(debug, "[republish] republish to: ~p, Payload: ~p",
-        [TargetTopic, Selected]),
-    increase_and_publish(ActId,
+            } = Bindings}) ->
+    ?LOG(debug, "[republish] republish to: ~p, Selected: ~p", [TargetTopic, Selected]),
+    TargetRetain = maps:get('TargetRetain', Bindings, false),
+    Message =
         #message{
             id = emqx_guid:gen(),
-            qos = if TargetQoS =:= -1 -> QoS; true -> TargetQoS end,
+            qos = get_qos(TargetQoS, Selected, QoS),
             from = ActId,
-            flags = Flags,
+            flags = Flags#{retain => get_retain(TargetRetain, Selected)},
             headers = #{republish_by => ActId},
             topic = emqx_rule_utils:proc_tmpl(TopicTks, Selected),
             payload = format_msg(PayloadTks, Selected),
             timestamp = Timestamp
-        });
+        },
+    increase_and_publish(ActId, Message);
 
 %% in case this is not a "message.publish" request
 on_action_republish(Selected, _Envs = #{
@@ -180,27 +209,29 @@ on_action_republish(Selected, _Envs = #{
                 'TargetQoS' := TargetQoS,
                 'TopicTks' := TopicTks,
                 'PayloadTks' := PayloadTks
-            }}) ->
-    ?LOG(debug, "[republish] republish to: ~p, Payload: ~p",
-        [TargetTopic, Selected]),
-    increase_and_publish(ActId,
+            } = Bindings}) ->
+    ?LOG(debug, "[republish] republish to: ~p, Selected: ~p", [TargetTopic, Selected]),
+    TargetRetain = maps:get('TargetRetain', Bindings, false),
+    Message =
         #message{
             id = emqx_guid:gen(),
-            qos = if TargetQoS =:= -1 -> 0; true -> TargetQoS end,
+            qos = get_qos(TargetQoS, Selected, 0),
             from = ActId,
-            flags = #{dup => false, retain => false},
+            flags = #{dup => false, retain => get_retain(TargetRetain, Selected)},
             headers = #{republish_by => ActId},
             topic = emqx_rule_utils:proc_tmpl(TopicTks, Selected),
             payload = format_msg(PayloadTks, Selected),
             timestamp = erlang:system_time(millisecond)
-        }).
+        },
+    increase_and_publish(ActId, Message).
 
 increase_and_publish(ActId, Msg) ->
     _ = emqx_broker:safe_publish(Msg),
     emqx_rule_metrics:inc_actions_success(ActId),
     emqx_metrics:inc_msg(Msg).
 
--spec on_action_create_do_nothing(action_instance_id(), Params :: map()) -> {bindings(), NewParams :: map()}.
+-spec on_action_create_do_nothing(action_instance_id(), Params :: map()) ->
+    {bindings(), NewParams :: map()}.
 on_action_create_do_nothing(ActId, Params) when is_binary(ActId) ->
     Params.
 
@@ -211,3 +242,57 @@ format_msg([], Data) ->
     emqx_json:encode(Data);
 format_msg(Tokens, Data) ->
      emqx_rule_utils:proc_tmpl(Tokens, Data).
+
+%% -1 for old version.
+to_qos(<<"-1">>) -> -1;
+to_qos(-1) -> -1;
+to_qos(TargetQoS) ->
+    try
+        qos(TargetQoS)
+    catch _:_ ->
+        %% Use placeholder.
+        case emqx_rule_utils:preproc_tmpl(TargetQoS) of
+            Tmpl = [{var, _}] ->
+                Tmpl;
+            _BadQoS ->
+                error({bad_qos, TargetQoS})
+        end
+    end.
+
+get_qos(-1, _Data, Default) -> Default;
+get_qos(TargetQoS, Data, _Default) ->
+    qos(emqx_rule_utils:replace_var(TargetQoS, Data)).
+
+qos(<<"0">>) ->  0;
+qos(<<"1">>) ->  1;
+qos(<<"2">>) ->  2;
+qos(0) ->        0;
+qos(1) ->        1;
+qos(2) ->        2;
+qos(BadQoS) -> error({bad_qos, BadQoS}).
+
+to_retain(TargetRetain) ->
+    try
+        retain(TargetRetain)
+    catch _:_ ->
+        %% Use placeholder.
+        case emqx_rule_utils:preproc_tmpl(TargetRetain) of
+            Tmpl = [{var, _}] ->
+                Tmpl;
+            _BadRetain ->
+                error({bad_retain, TargetRetain})
+        end
+    end.
+
+get_retain(TargetRetain, Data) ->
+    retain(emqx_rule_utils:replace_var(TargetRetain, Data)).
+
+retain(true) ->        true;
+retain(false) ->       false;
+retain(<<"true">>) ->  true;
+retain(<<"false">>) -> false;
+retain(<<"1">>) ->     true;
+retain(<<"0">>) ->     false;
+retain(1) ->           true;
+retain(0) ->           false;
+retain(BadRetain) -> error({bad_retain, BadRetain}).

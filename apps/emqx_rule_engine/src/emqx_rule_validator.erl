@@ -84,12 +84,23 @@ validate_spec(ParamsSepc) ->
 %% Internal Functions
 %%------------------------------------------------------------------------------
 
+validate_value(Val, #{type := Types} = Spec) when is_list(Types) ->
+    validate_types(Val, Types, Spec);
 validate_value(Val, #{enum := Enum}) ->
     validate_enum(Val, Enum);
 validate_value(Val, #{type := object} = Spec) ->
     validate_params(Val, maps:get(schema, Spec, any));
 validate_value(Val, #{type := Type} = Spec) ->
     validate_type(Val, Type, Spec).
+
+validate_types(Val, [], _Spec) ->
+    throw({invalid_data_type, Val});
+validate_types(Val, [Type | Types], Spec) ->
+    try
+        validate_type(Val, Type, Spec)
+    catch _:_ ->
+        validate_types(Val, Types, Spec)
+    end.
 
 validate_type(Val, file, _Spec) ->
     validate_file(Val);
@@ -157,6 +168,9 @@ do_validate_spec(Name, #{type := array} = Spec) ->
         fun (not_found) -> throw({required_field_missing, {items, {in, Name}}});
             (Items) -> do_validate_spec(Name, Items)
         end);
+do_validate_spec(_Name, #{type := Types}) when is_list(Types) ->
+    _ = [ok = supported_data_type(Type, ?DATA_TYPES) || Type <- Types],
+    ok;
 do_validate_spec(_Name, #{type := Type}) ->
     _ = supported_data_type(Type, ?DATA_TYPES);
 
