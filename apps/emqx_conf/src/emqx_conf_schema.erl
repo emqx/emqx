@@ -419,7 +419,9 @@ fields("node") ->
                 range(1024, 134217727),
                 #{
                     mapping => "vm_args.+P",
-                    desc => ?DESC(process_limit)
+                    desc => ?DESC(process_limit),
+                    default => 2097152,
+                    'readOnly' => true
                 }
             )},
         {"max_ports",
@@ -427,7 +429,9 @@ fields("node") ->
                 range(1024, 134217727),
                 #{
                     mapping => "vm_args.+Q",
-                    desc => ?DESC(max_ports)
+                    desc => ?DESC(max_ports),
+                    default => 1048576,
+                    'readOnly' => true
                 }
             )},
         {"dist_buffer_size",
@@ -435,7 +439,9 @@ fields("node") ->
                 range(1, 2097151),
                 #{
                     mapping => "vm_args.+zdbbl",
-                    desc => ?DESC(dist_buffer_size)
+                    desc => ?DESC(dist_buffer_size),
+                    default => 8192,
+                    'readOnly' => true
                 }
             )},
         {"max_ets_tables",
@@ -443,7 +449,9 @@ fields("node") ->
                 pos_integer(),
                 #{
                     mapping => "vm_args.+e",
-                    desc => ?DESC(max_ets_tables)
+                    desc => ?DESC(max_ets_tables),
+                    default => 262144,
+                    'readOnly' => true
                 }
             )},
         {"data_dir",
