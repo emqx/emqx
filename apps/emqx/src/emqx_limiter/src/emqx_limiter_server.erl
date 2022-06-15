@@ -558,11 +558,13 @@ get_counter_rate(_Cfg, _GlobalCfg) ->
     emqx_limiter_schema:infinity_value().
 
 -spec get_initial_val(hocons:config()) -> decimal().
-get_initial_val(#{
-    initial := Initial,
-    rate := Rate,
-    capacity := Capacity
-}) ->
+get_initial_val(
+    #{
+        initial := Initial,
+        rate := Rate,
+        capacity := Capacity
+    }
+) ->
     %% initial will nevner be infinity(see the emqx_limiter_schema)
     InfVal = emqx_limiter_schema:infinity_value(),
     if
@@ -570,7 +572,7 @@ get_initial_val(#{
             Initial;
         Rate =/= infinity ->
             erlang:min(Rate, Capacity);
-        Capacity =/= InfVal ->
+        Capacity =/= infinity andalso Capacity =/= InfVal ->
             Capacity;
         true ->
             0
