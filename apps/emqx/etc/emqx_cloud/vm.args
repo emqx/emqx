@@ -10,13 +10,16 @@
 ## such as `node.name` for `-name` and `node.cooke` for `-setcookie`.
 
 ## Sets the maximum number of simultaneously existing processes for this system.
-+P 2097152
+## Preferably set in `emqx.conf`,
+#+P 2097152
 
 ## Sets the maximum number of simultaneously existing ports for this system.
-+Q 1048576
+## Preferably set in `emqx.conf`,
+#+Q 1048576
 
 ## Sets the maximum number of ETS tables
-+e 262144
+## Preferably set in `emqx.conf`,
+#+e 262144
 
 ## Sets the maximum number of atoms the virtual machine can handle.
 #+t 1048576
@@ -51,6 +54,7 @@
 -kernel net_ticktime 120
 
 ## Sets the distribution buffer busy limit (dist_buf_busy_limit).
+## Preferably set in `emqx.conf`,
 #+zdbbl 8192
 
 ## Sets default scheduler hint for port parallelism.
