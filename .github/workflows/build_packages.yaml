@@ -110,7 +110,6 @@ jobs:
         ./_build/${{ matrix.profile }}/rel/emqx/bin/emqx uninstall
         echo "EMQX uninstalled"
     - uses: actions/upload-artifact@v1
-      if: startsWith(github.ref, 'refs/tags/')
       with:
         name: ${{ matrix.profile }}-windows
         path: source/_packages/${{ matrix.profile }}/.
@@ -198,7 +197,6 @@ jobs:
         ./emqx/bin/emqx stop
         rm -rf emqx
     - uses: actions/upload-artifact@v1
-      if: startsWith(github.ref, 'refs/tags/')
       with:
         name: ${{ matrix.profile }}-${{ matrix.otp }}
         path: source/_packages/${{ matrix.profile }}/.
@@ -331,7 +329,6 @@ jobs:
             --builder "ghcr.io/emqx/emqx-builder/5.0-16:${ELIXIR}-${OTP}-${SYSTEM}"
         done
     - uses: actions/upload-artifact@v1
-      if: startsWith(github.ref, 'refs/tags/')
       with:
         name: ${{ matrix.profile }}-${{ matrix.otp }}
         path: source/_packages/${{ matrix.profile }}/.
@@ -597,7 +594,7 @@ jobs:
           IsPushLatest=${{ github.event_name == 'release' && !github.event.release.prerelease }};
           scripts/docker-create-push-manifests.sh "${{ steps.meta.outputs.tags }}" "$IsPushLatest"
 
-  upload:
+  publish_artifacts:
     runs-on: ubuntu-20.04
 
     if: startsWith(github.ref, 'refs/tags/')
@@ -634,7 +631,7 @@ jobs:
         aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
         aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
         aws-region: ${{ secrets.AWS_DEFAULT_REGION }}
-    - name: upload aws s3
+    - name: upload to aws s3
       env:
         PROFILE: ${{ matrix.profile }}
       run: |
