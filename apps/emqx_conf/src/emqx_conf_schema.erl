@@ -287,7 +287,7 @@ fields(cluster_dns) ->
                     desc => ?DESC(cluster_dns_name),
                     'readOnly' => true
                 }
-            )},
+            )}
     ];
 fields(cluster_etcd) ->
     [
