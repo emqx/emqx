@@ -61,12 +61,12 @@ format_error(X) ->
     format_error(X, #{}).
 
 format_error({_Schema, [#{kind := K} = First | Rest] = All}, Opts) when
-    K =:= validation_erorr orelse K =:= translation_error
+    K =:= validation_error orelse K =:= translation_error
 ->
     Update =
-        case maps:get(no_stracktrace, Opts) of
+        case maps:get(no_stacktrace, Opts, false) of
             true ->
-                fun no_stracktrace/1;
+                fun no_stacktrace/1;
             false ->
                 fun(X) -> X end
         end,
@@ -84,5 +84,5 @@ iol(B) when is_binary(B) -> B;
 iol(A) when is_atom(A) -> atom_to_binary(A, utf8);
 iol(L) when is_list(L) -> L.
 
-no_stracktrace(Map) ->
+no_stacktrace(Map) ->
     maps:without([stacktrace], Map).
