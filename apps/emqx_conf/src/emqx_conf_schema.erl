@@ -364,15 +364,6 @@ fields(cluster_k8s) ->
                     'readOnly' => true
                 }
             )},
-        {"app_name",
-            sc(
-                string(),
-                #{
-                    default => "emqx",
-                    'readOnly' => true,
-                    desc => ?DESC(cluster_k8s_app_name)
-                }
-            )},
         {"namespace",
             sc(
                 string(),
@@ -1320,7 +1311,6 @@ options(k8s, Conf) ->
         {apiserver, conf_get("cluster.k8s.apiserver", Conf)},
         {service_name, conf_get("cluster.k8s.service_name", Conf)},
         {address_type, conf_get("cluster.k8s.address_type", Conf, ip)},
-        {app_name, conf_get("cluster.k8s.app_name", Conf)},
         {namespace, conf_get("cluster.k8s.namespace", Conf)},
         {suffix, conf_get("cluster.k8s.suffix", Conf, "")}
     ];
