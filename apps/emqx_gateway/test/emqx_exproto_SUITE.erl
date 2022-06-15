@@ -19,6 +19,8 @@
 -compile(export_all).
 -compile(nowarn_export_all).
 
+-include_lib("emqx/include/emqx_hooks.hrl").
+
 -import(
     emqx_exproto_echo_svr,
     [
@@ -262,8 +264,8 @@ t_hook_connected_disconnected(Cfg) ->
     ConnAckBin = frame_connack(0),
 
     Parent = self(),
-    emqx:hook('client.connected', {?MODULE, hook_fun1, [Parent]}),
-    emqx:hook('client.disconnected', {?MODULE, hook_fun2, [Parent]}),
+    emqx_hooks:add('client.connected', {?MODULE, hook_fun1, [Parent]}, 1000),
+    emqx_hooks:add('client.disconnected', {?MODULE, hook_fun2, [Parent]}, 1000),
 
     send(Sock, ConnBin),
     {ok, ConnAckBin} = recv(Sock, 5000),
@@ -287,8 +289,8 @@ t_hook_connected_disconnected(Cfg) ->
         begin
             {error, closed} = recv(Sock, 5000)
         end,
-    emqx:unhook('client.connected', {?MODULE, hook_fun1}),
-    emqx:unhook('client.disconnected', {?MODULE, hook_fun2}).
+    emqx_hooks:del('client.connected', {?MODULE, hook_fun1}),
+    emqx_hooks:del('client.disconnected', {?MODULE, hook_fun2}).
 
 t_hook_session_subscribed_unsubscribed(Cfg) ->
     SockType = proplists:get_value(listener_type, Cfg),
@@ -308,8 +310,8 @@ t_hook_session_subscribed_unsubscribed(Cfg) ->
     {ok, ConnAckBin} = recv(Sock, 5000),
 
     Parent = self(),
-    emqx:hook('session.subscribed', {?MODULE, hook_fun3, [Parent]}),
-    emqx:hook('session.unsubscribed', {?MODULE, hook_fun4, [Parent]}),
+    emqx_hooks:add('session.subscribed', {?MODULE, hook_fun3, [Parent]}, 1000),
+    emqx_hooks:add('session.unsubscribed', {?MODULE, hook_fun4, [Parent]}, 1000),
 
     SubBin = frame_subscribe(<<"t/#">>, 1),
     SubAckBin = frame_suback(0),
@@ -336,8 +338,8 @@ t_hook_session_subscribed_unsubscribed(Cfg) ->
     end,
 
     close(Sock),
-    emqx:unhook('session.subscribed', {?MODULE, hook_fun3}),
-    emqx:unhook('session.unsubscribed', {?MODULE, hook_fun4}).
+    emqx_hooks:del('session.subscribed', {?MODULE, hook_fun3}),
+    emqx_hooks:del('session.unsubscribed', {?MODULE, hook_fun4}).
 
 t_hook_message_delivered(Cfg) ->
     SockType = proplists:get_value(listener_type, Cfg),
@@ -362,14 +364,14 @@ t_hook_message_delivered(Cfg) ->
     send(Sock, SubBin),
     {ok, SubAckBin} = recv(Sock, 5000),
 
-    emqx:hook('message.delivered', {?MODULE, hook_fun5, []}),
+    emqx_hooks:add('message.delivered', {?MODULE, hook_fun5, []}, 1000),
 
     emqx:publish(emqx_message:make(<<"t/dn">>, <<"1">>)),
     PubBin1 = frame_publish(<<"t/dn">>, 0, <<"2">>),
     {ok, PubBin1} = recv(Sock, 5000),
 
     close(Sock),
-    emqx:unhook('message.delivered', {?MODULE, hook_fun5}).
+    emqx_hooks:del('message.delivered', {?MODULE, hook_fun5}).
 
 %%--------------------------------------------------------------------
 %% Utils

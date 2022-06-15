@@ -27,6 +27,11 @@
 
 -define(CONF_KEY_PATH, [license]).
 
+%% Give the license app the highest priority.
+%% We don't define it in the emqx_hooks.hrl becasue that is an opensource code
+%% and can be changed by the communitiy.
+-define(HP_LICENSE, 2000).
+
 %%------------------------------------------------------------------------------
 %% API
 %%------------------------------------------------------------------------------
@@ -114,7 +119,7 @@ post_config_update(_Path, _Cmd, NewConf, _Old, _AppEnvs) ->
 %%------------------------------------------------------------------------------
 
 add_license_hook() ->
-    ok = emqx_hooks:put('client.connect', {?MODULE, check, []}).
+    ok = emqx_hooks:put('client.connect', {?MODULE, check, []}, ?HP_LICENSE).
 
 del_license_hook() ->
     _ = emqx_hooks:del('client.connect', {?MODULE, check, []}),
