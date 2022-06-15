@@ -22,7 +22,8 @@ if [ "$COMPILE" = '--compile' ]; then
     sync
 fi
 
-export DOCKER_BUILDKIT=1
+# cannot enable DOCKER_BUILDKIT because the COPY often gets stale layers
+#export DOCKER_BUILDKIT=1
 docker build --build-arg PROFILE="${PROFILE}" \
     -t "emqx/emqx:${PKG_VSN}-${DISTRO}" \
     -f "$EMQX_DOCKERFILE" .
