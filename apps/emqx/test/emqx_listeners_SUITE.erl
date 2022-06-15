@@ -50,7 +50,7 @@ init_per_testcase(Case, Config) when
         Listeners -> emqx_config:put([listeners], maps:remove(quic, Listeners))
     end,
 
-    PrevListeners = emqx_config:get([listeners]),
+    PrevListeners = emqx_config:get([listeners], #{}),
     PureListeners = remove_default_limiter(PrevListeners),
     PureListeners2 = PureListeners#{
         tcp => #{
@@ -72,7 +72,7 @@ init_per_testcase(t_wss_conn, Config) ->
     catch emqx_config_handler:stop(),
     {ok, _} = emqx_config_handler:start_link(),
 
-    PrevListeners = emqx_config:get([listeners]),
+    PrevListeners = emqx_config:get([listeners], #{}),
     PureListeners = remove_default_limiter(PrevListeners),
     PureListeners2 = PureListeners#{
         wss => #{
@@ -97,7 +97,7 @@ init_per_testcase(t_wss_conn, Config) ->
 init_per_testcase(_, Config) ->
     catch emqx_config_handler:stop(),
     {ok, _} = emqx_config_handler:start_link(),
-    PrevListeners = emqx_config:get([listeners]),
+    PrevListeners = emqx_config:get([listeners], #{}),
     PureListeners = remove_default_limiter(PrevListeners),
     emqx_config:put([listeners], PureListeners),
     [
