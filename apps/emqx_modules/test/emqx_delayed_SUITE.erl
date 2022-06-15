@@ -65,6 +65,7 @@ end_per_testcase(_Case, _Config) ->
 
 t_enable_disable_case(_) ->
     emqx_delayed:unload(),
+    timer:sleep(100),
     Hooks = emqx_hooks:lookup('message.publish'),
     MFA = {emqx_delayed, on_message_publish, []},
     ?assertEqual(false, lists:keyfind(MFA, 2, Hooks)),
@@ -81,6 +82,7 @@ t_enable_disable_case(_) ->
     ?assertMatch(#{data := Datas} when Datas =/= [], emqx_delayed:list(#{})),
 
     emqx_delayed:unload(),
+    timer:sleep(100),
     ?assertEqual(false, lists:keyfind(MFA, 2, Hooks)),
     ?assertMatch(#{data := []}, emqx_delayed:list(#{})),
     ok.
@@ -188,6 +190,7 @@ t_unknown_messages(_) ->
     ).
 
 t_get_basic_usage_info(_Config) ->
+    emqx:update_config([delayed, max_delayed_messages], 10000),
     ?assertEqual(#{delayed_message_count => 0}, emqx_delayed:get_basic_usage_info()),
     lists:foreach(
         fun(N) ->
