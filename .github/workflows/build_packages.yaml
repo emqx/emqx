@@ -114,7 +114,6 @@ jobs:
         ./_build/${{ matrix.profile }}/rel/emqx/bin/emqx install
         ./_build/${{ matrix.profile }}/rel/emqx/bin/emqx uninstall
     - uses: actions/upload-artifact@v1
-      if: startsWith(github.ref, 'refs/tags/')
       with:
         name: ${{ matrix.profile }}
         path: source/_packages/${{ matrix.profile }}/.
@@ -200,7 +199,6 @@ jobs:
         #sha256sum ./_packages/${{ matrix.profile }}/$pkg_name | head -c64  > ./_packages/${{ matrix.profile }}/$pkg_name.sha256
         openssl dgst -sha256 ./_packages/${{ matrix.profile }}/$pkg_name | awk '{print $2}'  > ./_packages/${{ matrix.profile }}/$pkg_name.sha256
     - uses: actions/upload-artifact@v1
-      if: startsWith(github.ref, 'refs/tags/')
       with:
         name: ${{ matrix.profile }}
         path: source/_packages/${{ matrix.profile }}/.
@@ -301,7 +299,6 @@ jobs:
           cd -
         fi
     - uses: actions/upload-artifact@v1
-      if: startsWith(github.ref, 'refs/tags/')
       with:
         name: ${{ matrix.profile }}
         path: /tmp/packages/${{ matrix.profile }}/.
@@ -397,7 +394,7 @@ jobs:
         file: source/deploy/docker/Dockerfile.enterprise
         context: source
 
-  upload:
+  publish_artifacts:
     runs-on: ubuntu-20.04
 
     if: startsWith(github.ref, 'refs/tags/')
@@ -429,7 +426,7 @@ jobs:
         aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
         aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
         aws-region: ${{ secrets.AWS_DEFAULT_REGION }}
-    - name: upload aws s3
+    - name: upload to aws s3
       run: |
         set -e -u
         if [ "${{ matrix.profile }}"  == "emqx" ];then
