@@ -292,18 +292,31 @@ do_listeners_cluster_status(Listeners) ->
         fun({Id, ListenOn}, Acc) ->
             BinId = erlang:atom_to_binary(Id),
             {ok, #{<<"max_connections">> := Max}} = emqx_gateway_conf:listener(BinId),
-            Curr = esockd:get_current_connections({Id, ListenOn}),
+            Curr =
+                try esockd:get_current_connections({Id, ListenOn}) of
+                    Int -> Int
+                catch
+                    %% not started
+                    error:not_found ->
+                        0
+                end,
             Acc#{
                 Id => #{
                     node => Node,
                     current_connections => Curr,
-                    max_connections => Max
+                    %% XXX: Since it is taken from raw-conf, it is possible a string
+                    max_connections => int(Max)
                 }
             }
         end,
         #{},
         Listeners
     ).
+
+int(B) when is_binary(B) ->
+    binary_to_integer(B);
+int(I) when is_integer(I) ->
+    I.
 
 %%--------------------------------------------------------------------
 %% Swagger defines

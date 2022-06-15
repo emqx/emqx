@@ -72,7 +72,6 @@ init_per_group(GrpName, Cfg) ->
     put(grpname, GrpName),
     Svrs = emqx_exproto_echo_svr:start(),
     emqx_common_test_helpers:start_apps([emqx_gateway], fun set_special_cfg/1),
-    emqx_logger:set_log_level(debug),
     [{servers, Svrs}, {listener_type, GrpName} | Cfg].
 
 end_per_group(_, Cfg) ->
