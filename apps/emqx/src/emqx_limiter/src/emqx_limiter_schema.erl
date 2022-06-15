@@ -31,7 +31,7 @@
     get_bucket_cfg_path/2,
     desc/1,
     types/0,
-    infinity_value/0,
+    infinity_value/0
 ]).
 
 -define(KILOBYTE, 1024).
@@ -89,7 +89,7 @@ fields(limiter) ->
         {Type,
             ?HOCON(?R_REF(limiter_opts), #{
                 desc => ?DESC(Type),
-                default => #{}
+                default => make_limiter_default(Type)
             })}
      || Type <- types()
     ];
@@ -321,3 +321,17 @@ apply_unit("kb", Val) -> Val * ?KILOBYTE;
 apply_unit("mb", Val) -> Val * ?KILOBYTE * ?KILOBYTE;
 apply_unit("gb", Val) -> Val * ?KILOBYTE * ?KILOBYTE * ?KILOBYTE;
 apply_unit(Unit, _) -> throw("invalid unit:" ++ Unit).
+
+make_limiter_default(connection) ->
+    #{
+        <<"rate">> => <<"1000/s">>,
+        <<"bucket">> => #{
+            <<"default">> =>
+                #{
+                    <<"rate">> => <<"1000/s">>,
+                    <<"capacity">> => 1000
+                }
+        }
+    };
+make_limiter_default(_) ->
+    #{}.
