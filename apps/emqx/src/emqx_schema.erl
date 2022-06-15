@@ -344,6 +344,7 @@ fields("cache") ->
                 boolean(),
                 #{
                     default => true,
+                    required => true,
                     desc => ?DESC(fields_cache_enable)
                 }
             )},
