@@ -15,7 +15,12 @@
 %%--------------------------------------------------------------------
 
 -module(emqx_quic_connection).
+
+-ifndef(BUILD_WITHOUT_QUIC).
 -include_lib("quicer/include/quicer.hrl").
+-else.
+-define(QUIC_CONNECTION_SHUTDOWN_FLAG_NONE, 0).
+-endif.
 
 %% Callbacks
 -export([
