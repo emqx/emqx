@@ -201,6 +201,7 @@ init([]) ->
 
 handle_call({update_config, NewConf, OldConf}, _, State) ->
     State2 = update_config(State, NewConf, OldConf),
+    emqx_retainer_dispatcher:refresh_limiter(NewConf),
     {reply, ok, State2};
 handle_call(clean, _, #{context := Context} = State) ->
     clean(Context),
