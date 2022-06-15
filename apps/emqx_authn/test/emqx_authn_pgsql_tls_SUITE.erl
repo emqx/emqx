@@ -131,24 +131,24 @@ create_pgsql_auth_with_ssl_opts(SpecificSSLOpts) ->
 raw_pgsql_auth_config(SpecificSSLOpts) ->
     SSLOpts = maps:merge(
         emqx_authn_test_lib:client_ssl_cert_opts(),
-        #{enable => <<"true">>}
+        #{<<"enable">> => <<"true">>}
     ),
     #{
-        mechanism => <<"password_based">>,
-        password_hash_algorithm => #{
-            name => <<"plain">>,
-            salt_position => <<"suffix">>
+        <<"mechanism">> => <<"password_based">>,
+        <<"password_hash_algorithm">> => #{
+            <<"name">> => <<"plain">>,
+            <<"salt_position">> => <<"suffix">>
         },
-        enable => <<"true">>,
+        <<"enable">> => <<"true">>,
 
-        backend => <<"postgresql">>,
-        database => <<"mqtt">>,
-        username => <<"root">>,
-        password => <<"public">>,
+        <<"backend">> => <<"postgresql">>,
+        <<"database">> => <<"mqtt">>,
+        <<"username">> => <<"root">>,
+        <<"password">> => <<"public">>,
 
-        query => <<"SELECT 1">>,
-        server => pgsql_server(),
-        ssl => maps:merge(SSLOpts, SpecificSSLOpts)
+        <<"query">> => <<"SELECT 1">>,
+        <<"server">> => pgsql_server(),
+        <<"ssl">> => maps:merge(SSLOpts, SpecificSSLOpts)
     }.
 
 pgsql_server() ->
