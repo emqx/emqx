@@ -112,24 +112,26 @@
 %% If no bucket path is set in config, there will be no limit
 connect(_Type, undefined) ->
     {ok, emqx_htb_limiter:make_infinity_limiter()};
+%% Workaround.
+%% After API updated some config, the bucket name maybe become ‘’ (converted from empty binary)
+connect(_Type, '') ->
+    {ok, emqx_htb_limiter:make_infinity_limiter()};
 connect(Type, BucketName) when is_atom(BucketName) ->
     case get_bucket_cfg(Type, BucketName) of
         undefined ->
             ?SLOG(error, #{msg => "bucket_config_not_found", type => Type, bucket => BucketName}),
             {error, config_not_found};
         #{
-            rate := AggrRate,
-            capacity := AggrSize,
+            rate := BucketRate,
+            capacity := BucketSize,
             per_client := #{rate := CliRate, capacity := CliSize} = Cfg
         } ->
             case emqx_limiter_manager:find_bucket(Type, BucketName) of
                 {ok, Bucket} ->
                     {ok,
                         if
-                            CliRate < AggrRate orelse CliSize < AggrSize ->
+                            CliRate < BucketRate orelse CliSize < BucketSize ->
                                 emqx_htb_limiter:make_token_bucket_limiter(Cfg, Bucket);
-                            Bucket =:= infinity ->
-                                emqx_htb_limiter:make_infinity_limiter();
                             true ->
                                 emqx_htb_limiter:make_ref_limiter(Cfg, Bucket)
                         end};
@@ -372,9 +374,6 @@ longitudinal(
 
     case lists:min([ShouldAlloc, Flow, Capacity]) of
         Available when Available > 0 ->
-            %% XXX if capacity is infinity, and flow always > 0, the value in
-            %% counter will be overflow at some point in the future, do we need
-            %% to deal with this situation???
             {Inc, Bucket2} = emqx_limiter_correction:add(Available, Bucket),
             counters:add(Counter, Index, Inc),
 
@@ -491,26 +490,14 @@ make_root(#{rate := Rate, burst := Burst}) ->
 
 make_bucket([{Name, Conf} | T], Type, GlobalCfg, CounterNum, DelayBuckets) ->
     Path = emqx_limiter_manager:make_path(Type, Name),
-    case get_counter_rate(Conf, GlobalCfg) of
-        infinity ->
-            Rate = infinity,
-            Capacity = infinity,
-            Initial = 0,
-            Ref = emqx_limiter_bucket_ref:new(undefined, undefined, Rate),
-            emqx_limiter_manager:insert_bucket(Path, Ref),
-            CounterNum2 = CounterNum,
-            InitFun = fun(#{name := BucketName} = Bucket, #{buckets := Buckets} = State) ->
-                State#{buckets := Buckets#{BucketName => Bucket}}
-            end;
-        Rate ->
-            #{capacity := Capacity} = Conf,
-            Initial = get_initial_val(Conf),
-            CounterNum2 = CounterNum + 1,
-            InitFun = fun(#{name := BucketName} = Bucket, #{buckets := Buckets} = State) ->
-                {Counter, Idx, State2} = alloc_counter(Path, Rate, Initial, State),
-                Bucket2 = Bucket#{counter := Counter, index := Idx},
-                State2#{buckets := Buckets#{BucketName => Bucket2}}
-            end
+    Rate = get_counter_rate(Conf, GlobalCfg),
+    #{capacity := Capacity} = Conf,
+    Initial = get_initial_val(Conf),
+    CounterNum2 = CounterNum + 1,
+    InitFun = fun(#{name := BucketName} = Bucket, #{buckets := Buckets} = State) ->
+        {Counter, Idx, State2} = alloc_counter(Path, Rate, Initial, State),
+        Bucket2 = Bucket#{counter := Counter, index := Idx},
+        State2#{buckets := Buckets#{BucketName => Bucket2}}
     end,
 
     Bucket = #{
@@ -569,22 +556,27 @@ init_counter(Path, Counter, Index, Rate, Initial, State) ->
 %% @doc find first limited node
 get_counter_rate(#{rate := Rate}, _GlobalCfg) when Rate =/= infinity ->
     Rate;
-get_counter_rate(_Cfg, #{rate := Rate}) ->
-    Rate.
+get_counter_rate(_Cfg, #{rate := Rate}) when Rate =/= infinity ->
+    Rate;
+get_counter_rate(_Cfg, _GlobalCfg) ->
+    emqx_limiter_schema:infinity_value().
 
 -spec get_initial_val(hocons:config()) -> decimal().
-get_initial_val(#{
-    initial := Initial,
-    rate := Rate,
-    capacity := Capacity
-}) ->
+get_initial_val(
+    #{
+        initial := Initial,
+        rate := Rate,
+        capacity := Capacity
+    }
+) ->
     %% initial will nevner be infinity(see the emqx_limiter_schema)
+    InfVal = emqx_limiter_schema:infinity_value(),
     if
         Initial > 0 ->
             Initial;
         Rate =/= infinity ->
             erlang:min(Rate, Capacity);
-        Capacity =/= infinity ->
+        Capacity =/= infinity andalso Capacity =/= InfVal ->
             Capacity;
         true ->
             0

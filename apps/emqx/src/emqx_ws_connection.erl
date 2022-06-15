@@ -586,7 +586,7 @@ check_limiter(
                 {ok, Limiter2} ->
                     WhenOk(Data, Msgs, State#state{limiter = Limiter2});
                 {pause, Time, Limiter2} ->
-                    ?SLOG(warning, #{
+                    ?SLOG(debug, #{
                         msg => "pause_time_due_to_rate_limit",
                         needs => Needs,
                         time_in_ms => Time
@@ -634,7 +634,7 @@ retry_limiter(#state{limiter = Limiter} = State) ->
                 }
             );
         {pause, Time, Limiter2} ->
-            ?SLOG(warning, #{
+            ?SLOG(debug, #{
                 msg => "pause_time_due_to_rate_limit",
                 types => Types,
                 time_in_ms => Time

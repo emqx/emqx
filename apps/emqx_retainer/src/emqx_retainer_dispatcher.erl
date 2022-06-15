@@ -26,6 +26,7 @@
     start_link/2,
     dispatch/2,
     refresh_limiter/0,
+    refresh_limiter/1,
     wait_dispatch_complete/1,
     worker/0
 ]).
@@ -51,13 +52,16 @@
 dispatch(Context, Topic) ->
     cast({?FUNCTION_NAME, Context, self(), Topic}).
 
-%% sometimes it is necessary to reset the client's limiter after updated the limiter's config
-%% an limiter update handler maybe added later, now this is a workaround
+%% reset the client's limiter after updated the limiter's config
 refresh_limiter() ->
+    Conf = emqx:get_config([retainer]),
+    refresh_limiter(Conf).
+
+refresh_limiter(Conf) ->
     Workers = gproc_pool:active_workers(?POOL),
     lists:foreach(
         fun({_, Pid}) ->
-            gen_server:cast(Pid, ?FUNCTION_NAME)
+            gen_server:cast(Pid, {?FUNCTION_NAME, Conf})
         end,
         Workers
     ).
@@ -150,8 +154,8 @@ handle_call(Req, _From, State) ->
 handle_cast({dispatch, Context, Pid, Topic}, #{limiter := Limiter} = State) ->
     {ok, Limiter2} = dispatch(Context, Pid, Topic, undefined, Limiter),
     {noreply, State#{limiter := Limiter2}};
-handle_cast(refresh_limiter, State) ->
-    BucketName = emqx_conf:get([retainer, flow_control, batch_deliver_limiter]),
+handle_cast({refresh_limiter, Conf}, State) ->
+    BucketName = emqx_map_lib:deep_get([flow_control, batch_deliver_limiter], Conf, undefined),
     {ok, Limiter} = emqx_limiter_server:connect(batch, BucketName),
     {noreply, State#{limiter := Limiter}};
 handle_cast(Msg, State) ->
@@ -273,7 +277,7 @@ do_deliver(Msgs, DeliverNum, Pid, Topic, Limiter) ->
             do_deliver(ToDelivers, Pid, Topic),
             do_deliver(Msgs2, DeliverNum, Pid, Topic, Limiter2);
         {drop, _} = Drop ->
-            ?SLOG(error, #{
+            ?SLOG(debug, #{
                 msg => "retained_message_dropped",
                 reason => "reached_ratelimit",
                 dropped_count => length(ToDelivers)

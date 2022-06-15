@@ -956,7 +956,7 @@ check_limiter(
                 {ok, Limiter2} ->
                     WhenOk(Data, Msgs, State#state{limiter = Limiter2});
                 {pause, Time, Limiter2} ->
-                    ?SLOG(warning, #{
+                    ?SLOG(debug, #{
                         msg => "pause_time_dueto_rate_limit",
                         needs => Needs,
                         time_in_ms => Time
@@ -982,8 +982,7 @@ check_limiter(
         _ ->
             %% if there has a retry timer,
             %% cache the operation and execute it after the retry is over
-            %% TODO: maybe we need to set socket to passive if size of queue is very large
-            %% because we queue up lots of ops that checks with the limiters.
+            %% the maximum length of the cache queue is equal to the active_n
             New = #cache{need = Needs, data = Data, next = WhenOk},
             {ok, State#state{limiter_cache = queue:in(New, Cache)}}
     end;
@@ -1006,7 +1005,7 @@ retry_limiter(#state{limiter = Limiter} = State) ->
                 }
             );
         {pause, Time, Limiter2} ->
-            ?SLOG(warning, #{
+            ?SLOG(debug, #{
                 msg => "pause_time_dueto_rate_limit",
                 types => Types,
                 time_in_ms => Time

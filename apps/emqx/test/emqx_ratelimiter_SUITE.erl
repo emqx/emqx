@@ -246,7 +246,8 @@ t_infinity_client(_) ->
     end,
     Case = fun() ->
         Client = connect(default),
-        ?assertEqual(infinity, Client),
+        InfVal = emqx_limiter_schema:infinity_value(),
+        ?assertMatch(#{bucket := #{rate := InfVal}}, Client),
         Result = emqx_htb_limiter:check(100000, Client),
         ?assertEqual({ok, Client}, Result)
     end,
@@ -596,7 +597,7 @@ t_schema_unit(_) ->
     ?assertMatch({error, _}, M:to_rate("100MB/1")),
     ?assertMatch({error, _}, M:to_rate("100/10x")),
 
-    ?assertEqual({ok, infinity}, M:to_capacity("infinity")),
+    ?assertEqual({ok, emqx_limiter_schema:infinity_value()}, M:to_capacity("infinity")),
     ?assertEqual({ok, 100}, M:to_capacity("100")),
     ?assertEqual({ok, 100 * 1024}, M:to_capacity("100KB")),
     ?assertEqual({ok, 100 * 1024 * 1024}, M:to_capacity("100MB")),
