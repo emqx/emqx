@@ -49,10 +49,6 @@
 
 %% Hooks API
 -export([
-    hook/2,
-    hook/3,
-    hook/4,
-    unhook/2,
     run_hook/2,
     run_fold_hook/3
 ]).
@@ -160,31 +156,6 @@ subscribed(SubId, Topic) when is_atom(SubId); is_binary(SubId) ->
 %%--------------------------------------------------------------------
 %% Hooks API
 %%--------------------------------------------------------------------
-
--spec hook(emqx_hooks:hookpoint(), emqx_hooks:action()) -> ok | {error, already_exists}.
-hook(HookPoint, Action) ->
-    emqx_hooks:add(HookPoint, Action).
-
--spec hook(
-    emqx_hooks:hookpoint(),
-    emqx_hooks:action(),
-    emqx_hooks:filter() | integer() | list()
-) ->
-    ok | {error, already_exists}.
-hook(HookPoint, Action, Priority) when is_integer(Priority) ->
-    emqx_hooks:add(HookPoint, Action, Priority);
-hook(HookPoint, Action, {_M, _F, _A} = Filter) ->
-    emqx_hooks:add(HookPoint, Action, Filter).
-
--spec hook(emqx_hooks:hookpoint(), emqx_hooks:action(), emqx_hooks:filter(), integer()) ->
-    ok | {error, already_exists}.
-hook(HookPoint, Action, Filter, Priority) ->
-    emqx_hooks:add(HookPoint, Action, Filter, Priority).
-
--spec unhook(emqx_hooks:hookpoint(), emqx_hooks:action() | {module(), atom()}) -> ok.
-unhook(HookPoint, Action) ->
-    emqx_hooks:del(HookPoint, Action).
-
 -spec run_hook(emqx_hooks:hookpoint(), list(any())) -> ok | stop.
 run_hook(HookPoint, Args) ->
     emqx_hooks:run(HookPoint, Args).
