@@ -80,7 +80,6 @@ settings(put, #{
         [authorization, deny_action], DenyAction
     ),
     {ok, _} = emqx_authz_utils:update_config([authorization, cache], Cache),
-    ok = emqx_authz_cache:drain_cache(),
     {200, authorization_settings()}.
 
 authorization_settings() ->
