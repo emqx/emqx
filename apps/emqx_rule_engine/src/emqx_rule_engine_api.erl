@@ -334,26 +334,7 @@ replace_sql_clrf(#{<<"sql">> := SQL} = Params) ->
 %% Internal functions
 %%------------------------------------------------------------------------------
 
-err_msg({_, HoconErrors = [{Type, _} | _]}) when
-    Type == translation_error orelse Type == validation_error
-->
-    MessageFormat = [hocon_error(HoconError) || HoconError <- HoconErrors],
-    list_to_binary(MessageFormat);
-err_msg(Msg) ->
-    list_to_binary(io_lib:format("~0p", [Msg])).
-
-hocon_error({Type, Message0}) when
-    Type == translation_error orelse Type == validation_error
-->
-    case maps:get(reason, Message0, undefined) of
-        undefined ->
-            Message = maps:without([stacktrace], Message0),
-            emqx_logger_jsonfmt:best_effort_json(Message#{<<"type">> => Type}, []);
-        Reason when is_binary(Reason) ->
-            Reason;
-        Reason ->
-            list_to_binary(io_lib:format("~0p", [Reason]))
-    end.
+err_msg(Msg) -> emqx_misc:readable_error_msg(Msg).
 
 format_rule_resp(Rules) when is_list(Rules) ->
     [format_rule_resp(R) || R <- Rules];

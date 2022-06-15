@@ -19,7 +19,9 @@
 
 -export([
     format_path/1,
-    check/2
+    check/2,
+    format_error/1,
+    format_error/2
 ]).
 
 %% @doc Format hocon config field path to dot-separated string in iolist format.
@@ -51,7 +53,36 @@ check(SchemaModule, HoconText) ->
             {error, Reason}
     end.
 
+%% @doc Check if the error error term is a hocon check error.
+%% Return {true, FirstError}, otherwise false.
+%% NOTE: Hocon tries to be comprehensive, so it returns all found errors
+-spec format_error(term()) -> {ok, binary()} | false.
+format_error(X) ->
+    format_error(X, #{}).
+
+format_error({_Schema, [#{kind := K} = First | Rest] = All}, Opts) when
+    K =:= validation_erorr orelse K =:= translation_error
+->
+    Update =
+        case maps:get(no_stracktrace, Opts) of
+            true ->
+                fun no_stracktrace/1;
+            false ->
+                fun(X) -> X end
+        end,
+    case Rest of
+        [] ->
+            {ok, emqx_logger_jsonfmt:best_effort_json(Update(First), [])};
+        _ ->
+            {ok, emqx_logger_jsonfmt:best_effort_json(lists:map(Update, All), [])}
+    end;
+format_error(_Other, _) ->
+    false.
+
 %% Ensure iolist()
 iol(B) when is_binary(B) -> B;
 iol(A) when is_atom(A) -> atom_to_binary(A, utf8);
 iol(L) when is_list(L) -> L.
+
+no_stracktrace(Map) ->
+    maps:without([stacktrace], Map).

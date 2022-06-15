@@ -185,12 +185,7 @@ translate_req(Request, #{module := Module, path := Path, method := Method}, Chec
         {ok, Request#{bindings => Bindings, query_string => QueryStr, body => NewBody}}
     catch
         throw:HoconError ->
-            Msg = serialize_hocon_error_msg(HoconError),
-            %Msg = [
-            %    io_lib:format("~ts : ~p", [Key -- "root.", Reason])
-            %    || {validation_error, #{path := Key, reason := Reason}} <- ValidErrors
-            % ],
-            % iolist_to_binary(string:join(Msg, ",")
+            Msg = hocon_error_msg(HoconError),
             {400, 'BAD_REQUEST', Msg}
     end.
 
@@ -826,25 +821,5 @@ to_ref(Mod, StructName, Acc, RefsAcc) ->
 schema_converter(Options) ->
     maps:get(schema_converter, Options, fun hocon_schema_to_spec/2).
 
-serialize_hocon_error_msg({_Schema, Errors}) ->
-    Msg =
-        case lists:map(fun hocon_error/1, Errors) of
-            [Error0] -> Error0;
-            Errors -> Errors
-        end,
-    iolist_to_binary(io_lib:format("~0p", [Msg]));
-serialize_hocon_error_msg(Error) ->
-    iolist_to_binary(io_lib:format("~0p", [Error])).
-
-hocon_error({Type, #{path := Path} = Error}) ->
-    Error1 = maps:without([path, stacktrace], Error),
-    Error1#{
-        path => sub_path(Path),
-        type => Type,
-        reason => remove_useless_field(maps:get(reason, Error, #{}))
-    }.
-
-sub_path(Path) -> string:trim(Path, leading, "root.").
-
-remove_useless_field(#{} = Field) -> maps:without([stacktrace], Field);
-remove_useless_field(Field) -> Field.
+hocon_error_msg(Reason) ->
+    emqx_misc:readable_error_msg(Reason).
