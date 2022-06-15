@@ -83,9 +83,9 @@ t_create_invalid(_Config) ->
 
     InvalidConfigs =
         [
-            AuthConfig#{mongo_type => <<"unknown">>},
-            AuthConfig#{filter => <<"{ \"username\": \"${username}\" }">>},
-            AuthConfig#{w_mode => <<"unknown">>}
+            AuthConfig#{<<"mongo_type">> => <<"unknown">>},
+            AuthConfig#{<<"filter">> => <<"{ \"username\": \"${username}\" }">>},
+            AuthConfig#{<<"w_mode">> => <<"unknown">>}
         ],
 
     lists:foreach(
@@ -180,7 +180,7 @@ t_update(_Config) ->
     ok = init_seeds(),
     CorrectConfig = raw_mongo_auth_config(),
     IncorrectConfig =
-        CorrectConfig#{filter => #{<<"wrongfield">> => <<"wrongvalue">>}},
+        CorrectConfig#{<<"filter">> => #{<<"wrongfield">> => <<"wrongvalue">>}},
 
     {ok, _} = emqx:update_config(
         ?PATH,
@@ -265,24 +265,24 @@ test_is_superuser({Value, ExpectedValue}) ->
 
 raw_mongo_auth_config() ->
     #{
-        mechanism => <<"password_based">>,
-        password_hash_algorithm => #{
-            name => <<"plain">>,
-            salt_position => <<"suffix">>
+        <<"mechanism">> => <<"password_based">>,
+        <<"password_hash_algorithm">> => #{
+            <<"name">> => <<"plain">>,
+            <<"salt_position">> => <<"suffix">>
         },
-        enable => <<"true">>,
+        <<"enable">> => <<"true">>,
 
-        backend => <<"mongodb">>,
-        mongo_type => <<"single">>,
-        database => <<"mqtt">>,
-        collection => <<"users">>,
-        server => mongo_server(),
-        w_mode => <<"unsafe">>,
+        <<"backend">> => <<"mongodb">>,
+        <<"mongo_type">> => <<"single">>,
+        <<"database">> => <<"mqtt">>,
+        <<"collection">> => <<"users">>,
+        <<"server">> => mongo_server(),
+        <<"w_mode">> => <<"unsafe">>,
 
-        filter => #{<<"username">> => <<"${username}">>},
-        password_hash_field => <<"password_hash">>,
-        salt_field => <<"salt">>,
-        is_superuser_field => <<"is_superuser">>
+        <<"filter">> => #{<<"username">> => <<"${username}">>},
+        <<"password_hash_field">> => <<"password_hash">>,
+        <<"salt_field">> => <<"salt">>,
+        <<"is_superuser_field">> => <<"is_superuser">>
     }.
 
 user_seeds() ->
@@ -314,9 +314,9 @@ user_seeds() ->
                 password => <<"md5">>
             },
             config_params => #{
-                password_hash_algorithm => #{
-                    name => <<"md5">>,
-                    salt_position => <<"suffix">>
+                <<"password_hash_algorithm">> => #{
+                    <<"name">> => <<"md5">>,
+                    <<"salt_position">> => <<"suffix">>
                 }
             },
             result => {ok, #{is_superuser => false}}
@@ -335,10 +335,10 @@ user_seeds() ->
                 password => <<"sha256">>
             },
             config_params => #{
-                filter => #{<<"username">> => <<"${clientid}">>},
-                password_hash_algorithm => #{
-                    name => <<"sha256">>,
-                    salt_position => <<"prefix">>
+                <<"filter">> => #{<<"username">> => <<"${clientid}">>},
+                <<"password_hash_algorithm">> => #{
+                    <<"name">> => <<"sha256">>,
+                    <<"salt_position">> => <<"prefix">>
                 }
             },
             result => {ok, #{is_superuser => true}}
@@ -357,7 +357,7 @@ user_seeds() ->
                 password => <<"bcrypt">>
             },
             config_params => #{
-                password_hash_algorithm => #{name => <<"bcrypt">>}
+                <<"password_hash_algorithm">> => #{<<"name">> => <<"bcrypt">>}
             },
             result => {ok, #{is_superuser => false}}
         },
@@ -376,8 +376,8 @@ user_seeds() ->
             },
             config_params => #{
                 % clientid variable & username credentials
-                filter => #{<<"username">> => <<"${clientid}">>},
-                password_hash_algorithm => #{name => <<"bcrypt">>}
+                <<"filter">> => #{<<"username">> => <<"${clientid}">>},
+                <<"password_hash_algorithm">> => #{<<"name">> => <<"bcrypt">>}
             },
             result => {error, not_authorized}
         },
@@ -395,8 +395,8 @@ user_seeds() ->
                 password => <<"bcrypt">>
             },
             config_params => #{
-                filter => #{<<"userid">> => <<"${clientid}">>},
-                password_hash_algorithm => #{name => <<"bcrypt">>}
+                <<"filter">> => #{<<"userid">> => <<"${clientid}">>},
+                <<"password_hash_algorithm">> => #{<<"name">> => <<"bcrypt">>}
             },
             result => {error, not_authorized}
         },
@@ -415,7 +415,7 @@ user_seeds() ->
                 password => <<"wrongpass">>
             },
             config_params => #{
-                password_hash_algorithm => #{name => <<"bcrypt">>}
+                <<"password_hash_algorithm">> => #{<<"name">> => <<"bcrypt">>}
             },
             result => {error, bad_username_or_password}
         }

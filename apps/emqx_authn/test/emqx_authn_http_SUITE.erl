@@ -84,8 +84,8 @@ t_create_invalid(_Config) ->
 
     InvalidConfigs =
         [
-            AuthConfig#{headers => []},
-            AuthConfig#{method => delete}
+            AuthConfig#{<<"headers">> => []},
+            AuthConfig#{<<"method">> => <<"delete">>}
         ],
 
     lists:foreach(
@@ -181,7 +181,7 @@ t_destroy(_Config) ->
 t_update(_Config) ->
     CorrectConfig = raw_http_auth_config(),
     IncorrectConfig =
-        CorrectConfig#{url => <<"http://127.0.0.1:32333/invalid">>},
+        CorrectConfig#{<<"url">> => <<"http://127.0.0.1:32333/invalid">>},
 
     {ok, _} = emqx:update_config(
         ?PATH,
@@ -265,14 +265,14 @@ test_is_superuser({Kind, Value, ExpectedValue}) ->
 
 raw_http_auth_config() ->
     #{
-        mechanism => <<"password_based">>,
-        enable => <<"true">>,
+        <<"mechanism">> => <<"password_based">>,
+        <<"enable">> => <<"true">>,
 
-        backend => <<"http">>,
-        method => <<"get">>,
-        url => <<"http://127.0.0.1:32333/auth">>,
-        body => #{<<"username">> => ?PH_USERNAME, <<"password">> => ?PH_PASSWORD},
-        headers => #{<<"X-Test-Header">> => <<"Test Value">>}
+        <<"backend">> => <<"http">>,
+        <<"method">> => <<"get">>,
+        <<"url">> => <<"http://127.0.0.1:32333/auth">>,
+        <<"body">> => #{<<"username">> => ?PH_USERNAME, <<"password">> => ?PH_PASSWORD},
+        <<"headers">> => #{<<"X-Test-Header">> => <<"Test Value">>}
     }.
 
 samples() ->
@@ -355,8 +355,8 @@ samples() ->
                 {ok, Req, State}
             end,
             config_params => #{
-                method => post,
-                headers => #{<<"content-type">> => <<"application/json">>}
+                <<"method">> => <<"post">>,
+                <<"headers">> => #{<<"content-type">> => <<"application/json">>}
             },
             result => {ok, #{is_superuser => false}}
         },
@@ -373,8 +373,8 @@ samples() ->
                 {ok, Req, State}
             end,
             config_params => #{
-                method => post,
-                headers => #{
+                <<"method">> => <<"post">>,
+                <<"headers">> => #{
                     <<"content-type">> =>
                         <<"application/x-www-form-urlencoded">>
                 }

@@ -131,28 +131,28 @@ create_mysql_auth_with_ssl_opts(SpecificSSLOpts) ->
 raw_mysql_auth_config(SpecificSSLOpts) ->
     SSLOpts = maps:merge(
         emqx_authn_test_lib:client_ssl_cert_opts(),
-        #{enable => <<"true">>}
+        #{<<"enable">> => <<"true">>}
     ),
     #{
-        mechanism => <<"password_based">>,
-        password_hash_algorithm => #{
-            name => <<"plain">>,
-            salt_position => <<"suffix">>
+        <<"mechanism">> => <<"password_based">>,
+        <<"password_hash_algorithm">> => #{
+            <<"name">> => <<"plain">>,
+            <<"salt_position">> => <<"suffix">>
         },
-        enable => <<"true">>,
+        <<"enable">> => <<"true">>,
 
-        backend => <<"mysql">>,
-        database => <<"mqtt">>,
-        username => <<"root">>,
-        password => <<"public">>,
+        <<"backend">> => <<"mysql">>,
+        <<"database">> => <<"mqtt">>,
+        <<"username">> => <<"root">>,
+        <<"password">> => <<"public">>,
 
-        query =>
+        <<"query">> =>
             <<
                 "SELECT password_hash, salt, is_superuser_str as is_superuser\n"
                 "                      FROM users where username = ${username} LIMIT 1"
             >>,
-        server => mysql_server(),
-        ssl => maps:merge(SSLOpts, SpecificSSLOpts)
+        <<"server">> => mysql_server(),
+        <<"ssl">> => maps:merge(SSLOpts, SpecificSSLOpts)
     }.
 
 mysql_server() ->

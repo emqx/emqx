@@ -171,33 +171,33 @@ create_mongo_auth_with_ssl_opts(SpecificSSLOpts) ->
 raw_mongo_auth_config(SpecificSSLOpts) ->
     SSLOpts = maps:merge(
         emqx_authn_test_lib:client_ssl_cert_opts(),
-        #{enable => <<"true">>}
+        #{<<"enable">> => <<"true">>}
     ),
     #{
-        mechanism => <<"password_based">>,
-        password_hash_algorithm => #{
-            name => <<"plain">>,
-            salt_position => <<"suffix">>
+        <<"mechanism">> => <<"password_based">>,
+        <<"password_hash_algorithm">> => #{
+            <<"name">> => <<"plain">>,
+            <<"salt_position">> => <<"suffix">>
         },
-        enable => <<"true">>,
+        <<"enable">> => <<"true">>,
 
-        backend => <<"mongodb">>,
-        pool_size => 2,
-        mongo_type => <<"single">>,
-        database => <<"mqtt">>,
-        collection => <<"users">>,
-        server => mongo_server(),
-        w_mode => <<"unsafe">>,
+        <<"backend">> => <<"mongodb">>,
+        <<"pool_size">> => 2,
+        <<"mongo_type">> => <<"single">>,
+        <<"database">> => <<"mqtt">>,
+        <<"collection">> => <<"users">>,
+        <<"server">> => mongo_server(),
+        <<"w_mode">> => <<"unsafe">>,
 
-        filter => #{<<"username">> => <<"${username}">>},
-        password_hash_field => <<"password_hash">>,
-        salt_field => <<"salt">>,
-        is_superuser_field => <<"is_superuser">>,
-        topology => #{
-            server_selection_timeout_ms => <<"10000ms">>
+        <<"filter">> => #{<<"username">> => <<"${username}">>},
+        <<"password_hash_field">> => <<"password_hash">>,
+        <<"salt_field">> => <<"salt">>,
+        <<"is_superuser_field">> => <<"is_superuser">>,
+        <<"topology">> => #{
+            <<"server_selection_timeout_ms">> => <<"10000ms">>
         },
 
-        ssl => maps:merge(SSLOpts, SpecificSSLOpts)
+        <<"ssl">> => maps:merge(SSLOpts, SpecificSSLOpts)
     }.
 
 mongo_server() ->
