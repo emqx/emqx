@@ -52,10 +52,11 @@ end_per_suite(_) ->
 %% Tests
 %%------------------------------------------------------------------------------
 
-t_jwt_authenticator_hmac_based(_) ->
+t_hmac_based(_) ->
     Secret = <<"abcdef">>,
     Config = #{
         mechanism => jwt,
+        from => password,
         acl_claim_name => <<"acl">>,
         use_jwks => false,
         algorithm => 'hmac-based',
@@ -175,11 +176,12 @@ t_jwt_authenticator_hmac_based(_) ->
     ?assertEqual(ok, emqx_authn_jwt:destroy(State3)),
     ok.
 
-t_jwt_authenticator_public_key(_) ->
+t_public_key(_) ->
     PublicKey = test_rsa_key(public),
     PrivateKey = test_rsa_key(private),
     Config = #{
         mechanism => jwt,
+        from => password,
         acl_claim_name => <<"acl">>,
         use_jwks => false,
         algorithm => 'public-key',
@@ -202,6 +204,28 @@ t_jwt_authenticator_public_key(_) ->
     ?assertEqual(ok, emqx_authn_jwt:destroy(State)),
     ok.
 
+t_jwt_in_username(_) ->
+    Secret = <<"abcdef">>,
+    Config = #{
+        mechanism => jwt,
+        from => username,
+        acl_claim_name => <<"acl">>,
+        use_jwks => false,
+        algorithm => 'hmac-based',
+        secret => Secret,
+        secret_base64_encoded => false,
+        verify_claims => []
+    },
+    {ok, State} = emqx_authn_jwt:create(?AUTHN_ID, Config),
+
+    Payload = #{<<"exp">> => erlang:system_time(second) + 60},
+    JWS = generate_jws('hmac-based', Payload, Secret),
+    Credential = #{
+        username => JWS,
+        password => <<"pass">>
+    },
+    ?assertMatch({ok, #{is_superuser := false}}, emqx_authn_jwt:authenticate(Credential, State)).
+
 t_jwks_renewal(_Config) ->
     {ok, _} = emqx_authn_http_test_server:start_link(?JWKS_PORT, ?JWKS_PATH, server_ssl_opts()),
     ok = emqx_authn_http_test_server:set_handler(fun jwks_handler/2),
@@ -216,6 +240,7 @@ t_jwks_renewal(_Config) ->
 
     BadConfig0 = #{
         mechanism => jwt,
+        from => password,
         acl_claim_name => <<"acl">>,
         algorithm => 'public-key',
         ssl => #{enable => false},
@@ -307,10 +332,11 @@ t_jwks_renewal(_Config) ->
     ?assertEqual(ok, emqx_authn_jwt:destroy(State2)),
     ok = emqx_authn_http_test_server:stop().
 
-t_jwt_authenticator_verify_claims(_) ->
+t_verify_claims(_) ->
     Secret = <<"abcdef">>,
     Config0 = #{
         mechanism => jwt,
+        from => password,
         acl_claim_name => <<"acl">>,
         use_jwks => false,
         algorithm => 'hmac-based',
