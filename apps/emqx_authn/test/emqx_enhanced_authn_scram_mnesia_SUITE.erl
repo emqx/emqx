@@ -324,7 +324,7 @@ t_list_users(_) ->
         #{
             <<"page">> => 1,
             <<"limit">> => 3,
-            <<"like_username">> => <<"1">>
+            <<"like_user_id">> => <<"1">>
         },
         State
     ).
