@@ -503,9 +503,8 @@ pre_config_update(_, {update_authn, GwName, Conf}, RawConf) ->
     of
         undefined ->
             badres_authn(not_found, GwName);
-        Authn ->
-            NAuthn = maps:merge(Authn, Conf),
-            {ok, emqx_map_lib:deep_put([GwName, ?AUTHN_BIN], RawConf, NAuthn)}
+        _Authn ->
+            {ok, emqx_map_lib:deep_put([GwName, ?AUTHN_BIN], RawConf, Conf)}
     end;
 pre_config_update(_, {update_authn, GwName, {LType, LName}, Conf}, RawConf) ->
     case
@@ -521,10 +520,10 @@ pre_config_update(_, {update_authn, GwName, {LType, LName}, Conf}, RawConf) ->
             case maps:get(?AUTHN_BIN, Listener, undefined) of
                 undefined ->
                     badres_listener_authn(not_found, GwName, LType, LName);
-                Auth ->
+                _Auth ->
                     NListener = maps:put(
                         ?AUTHN_BIN,
-                        maps:merge(Auth, Conf),
+                        Conf,
                         Listener
                     ),
                     {ok,
