@@ -13,26 +13,34 @@ IsWin32 = fun() ->
 end,
 
 IsMacOS = fun() ->
-               {unix, darwin} =:= os:type()
-          end,
+    {unix, darwin} =:= os:type()
+end,
 
 IsQuicSupp = fun() ->
-                not (IsCentos6() orelse IsWin32()
-                     orelse IsMacOS() orelse
-                     false =/= os:getenv("BUILD_WITHOUT_QUIC")
-                    )
-                orelse "1" == os:getenv("BUILD_WITH_QUIC")
-             end,
+    not (IsCentos6() orelse IsWin32() orelse
+        IsMacOS() orelse
+        false =/= os:getenv("BUILD_WITHOUT_QUIC")) orelse
+        "1" == os:getenv("BUILD_WITH_QUIC")
+end,
 
 Bcrypt = {bcrypt, {git, "https://github.com/emqx/erlang-bcrypt.git", {tag, "0.6.0"}}},
 Quicer = {quicer, {git, "https://github.com/emqx/quic.git", {tag, "0.0.11"}}}.
 
 ExtraDeps = fun(C) ->
     {deps, Deps0} = lists:keyfind(deps, 1, C),
-    Deps =
-        Deps0 ++ [Bcrypt || not IsWin32()] ++
-            [Quicer || IsQuicSupp()],
-    lists:keystore(deps, 1, C, {deps, Deps})
+    {erl_opts, ErlOpts0} = lists:keyfind(erl_opts, 1, C),
+    IsQuic = IsQuicSupp(),
+    New = [
+        {deps, Deps0 ++ [Bcrypt || not IsWin32()] ++ [Quicer || IsQuic]},
+        {erl_opts, ErlOpts0 ++ [{d, 'BUILD_WITHOUT_QUIC'} || not IsQuic]}
+    ],
+    lists:foldl(
+        fun({Key, _Val} = KV, Acc) ->
+            lists:keystore(Key, 1, Acc, KV)
+        end,
+        C,
+        New
+    )
 end,
 
 ExtraDeps(CONFIG).
