@@ -19,6 +19,7 @@
 -include("rule_engine.hrl").
 -include_lib("emqx/include/emqx.hrl").
 -include_lib("emqx/include/logger.hrl").
+-include_lib("emqx/include/emqx_hooks.hrl").
 
 -export([
     reload/0,
@@ -87,7 +88,9 @@ reload() ->
 
 load(Topic) ->
     HookPoint = event_name(Topic),
-    emqx_hooks:put(HookPoint, {?MODULE, hook_fun(HookPoint), [#{event_topic => Topic}]}).
+    emqx_hooks:put(
+        HookPoint, {?MODULE, hook_fun(HookPoint), [#{event_topic => Topic}]}, ?HP_RULE_ENGINE
+    ).
 
 unload() ->
     lists:foreach(

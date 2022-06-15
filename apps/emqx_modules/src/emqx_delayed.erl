@@ -22,6 +22,7 @@
 -include_lib("emqx/include/types.hrl").
 -include_lib("emqx/include/logger.hrl").
 -include_lib("snabbkaffe/include/snabbkaffe.hrl").
+-include_lib("emqx/include/emqx_hooks.hrl").
 
 %% Mnesia bootstrap
 -export([mnesia/1]).
@@ -379,7 +380,7 @@ do_publish(Key = {Ts, _Id}, Now, Acc) when Ts =< Now ->
 delayed_count() -> mnesia:table_info(?TAB, size).
 
 do_load_or_unload(true, State) ->
-    emqx_hooks:put('message.publish', {?MODULE, on_message_publish, []}),
+    emqx_hooks:put('message.publish', {?MODULE, on_message_publish, []}, ?HP_DELAY_PUB),
     State;
 do_load_or_unload(false, #{publish_timer := PubTimer} = State) ->
     emqx_hooks:del('message.publish', {?MODULE, on_message_publish}),

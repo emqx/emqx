@@ -19,6 +19,7 @@
 -include_lib("emqx/include/emqx.hrl").
 -include_lib("emqx/include/logger.hrl").
 -include_lib("emqx/include/emqx_mqtt.hrl").
+-include_lib("emqx/include/emqx_hooks.hrl").
 
 -ifdef(TEST).
 -export([
@@ -76,9 +77,9 @@ register_hook([]) ->
     unregister_hook();
 register_hook(Rules) ->
     {PubRules, SubRules, ErrRules} = compile(Rules),
-    emqx_hooks:put('client.subscribe', {?MODULE, rewrite_subscribe, [SubRules]}),
-    emqx_hooks:put('client.unsubscribe', {?MODULE, rewrite_unsubscribe, [SubRules]}),
-    emqx_hooks:put('message.publish', {?MODULE, rewrite_publish, [PubRules]}),
+    emqx_hooks:put('client.subscribe', {?MODULE, rewrite_subscribe, [SubRules]}, ?HP_REWRITE),
+    emqx_hooks:put('client.unsubscribe', {?MODULE, rewrite_unsubscribe, [SubRules]}, ?HP_REWRITE),
+    emqx_hooks:put('message.publish', {?MODULE, rewrite_publish, [PubRules]}, ?HP_REWRITE),
     case ErrRules of
         [] ->
             ok;

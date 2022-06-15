@@ -317,7 +317,7 @@ code_change(_OldVsn, State, _Extra) ->
 
 unload_exhooks() ->
     [
-        emqx:unhook(Name, {M, F})
+        emqx_hooks:del(Name, {M, F})
      || {Name, {M, F, _A}} <- ?ENABLED_HOOKS
     ].
 

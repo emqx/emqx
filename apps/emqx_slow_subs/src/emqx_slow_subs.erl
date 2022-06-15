@@ -21,6 +21,7 @@
 -include_lib("emqx/include/emqx.hrl").
 -include_lib("emqx/include/logger.hrl").
 -include_lib("emqx_slow_subs/include/emqx_slow_subs.hrl").
+-include_lib("emqx/include/emqx_hooks.hrl").
 
 -export([
     start_link/0,
@@ -212,7 +213,7 @@ load(State) ->
         threshold := Threshold
     } = emqx:get_config([slow_subs]),
     MaxSize = erlang:min(MaxSizeT, ?MAX_SIZE),
-    _ = emqx:hook(
+    ok = emqx_hooks:put(
         'delivery.completed',
         {?MODULE, on_delivery_completed, [
             #{
@@ -220,14 +221,15 @@ load(State) ->
                 stats_type => StatsType,
                 threshold => Threshold
             }
-        ]}
+        ]},
+        ?HP_SLOW_SUB
     ),
 
     State1 = start_timer(expire_timer, fun expire_tick/0, State),
     State1#{enable := true, last_tick_at => ?NOW}.
 
 unload(#{expire_timer := ExpireTimer} = State) ->
-    emqx:unhook('delivery.completed', {?MODULE, on_delivery_completed}),
+    emqx_hooks:del('delivery.completed', {?MODULE, on_delivery_completed}),
     State#{
         enable := false,
         expire_timer := cancel_timer(ExpireTimer)

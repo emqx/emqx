@@ -22,6 +22,7 @@
 -include_lib("emqx/include/logger.hrl").
 -include_lib("emqx/include/emqx_mqtt.hrl").
 -include_lib("snabbkaffe/include/snabbkaffe.hrl").
+-include_lib("emqx/include/emqx_hooks.hrl").
 
 -export([
     on_message_publish/1,
@@ -106,9 +107,9 @@ max_limit() ->
     ?MAX_TOPICS.
 
 enable() ->
-    emqx_hooks:put('message.publish', {?MODULE, on_message_publish, []}),
-    emqx_hooks:put('message.dropped', {?MODULE, on_message_dropped, []}),
-    emqx_hooks:put('message.delivered', {?MODULE, on_message_delivered, []}).
+    emqx_hooks:put('message.publish', {?MODULE, on_message_publish, []}, ?HP_TOPIC_METRICS),
+    emqx_hooks:put('message.dropped', {?MODULE, on_message_dropped, []}, ?HP_TOPIC_METRICS),
+    emqx_hooks:put('message.delivered', {?MODULE, on_message_delivered, []}, ?HP_TOPIC_METRICS).
 
 disable() ->
     emqx_hooks:del('message.publish', {?MODULE, on_message_publish}),
