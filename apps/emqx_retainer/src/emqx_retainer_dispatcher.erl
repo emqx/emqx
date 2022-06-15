@@ -277,7 +277,7 @@ do_deliver(Msgs, DeliverNum, Pid, Topic, Limiter) ->
             do_deliver(ToDelivers, Pid, Topic),
             do_deliver(Msgs2, DeliverNum, Pid, Topic, Limiter2);
         {drop, _} = Drop ->
-            ?SLOG(error, #{
+            ?SLOG(debug, #{
                 msg => "retained_message_dropped",
                 reason => "reached_ratelimit",
                 dropped_count => length(ToDelivers)
