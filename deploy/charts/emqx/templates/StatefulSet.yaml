@@ -214,13 +214,6 @@ spec:
             initialDelaySeconds: 60
             periodSeconds: 30
             failureThreshold: 10
-          lifecycle:
-            preStop:
-              exec:
-                command:
-                  - "/opt/emqx/bin/emqx_ctl"
-                  - "cluster"
-                  - "leave"
     {{- with .Values.nodeSelector }}
       nodeSelector:
         {{- toYaml . | nindent 8 }}
