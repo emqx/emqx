@@ -288,15 +288,6 @@ fields(cluster_dns) ->
                     'readOnly' => true
                 }
             )},
-        {"app",
-            sc(
-                string(),
-                #{
-                    default => "emqx",
-                    desc => ?DESC(cluster_dns_app),
-                    'readOnly' => true
-                }
-            )}
     ];
 fields(cluster_etcd) ->
     [
@@ -1291,8 +1282,7 @@ options(mcast, Conf) ->
     ];
 options(dns, Conf) ->
     [
-        {name, conf_get("cluster.dns.name", Conf)},
-        {app, conf_get("cluster.dns.app", Conf)}
+        {name, conf_get("cluster.dns.name", Conf)}
     ];
 options(etcd, Conf) ->
     Namespace = "cluster.etcd.ssl",
