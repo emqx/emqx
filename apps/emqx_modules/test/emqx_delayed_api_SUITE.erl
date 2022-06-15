@@ -40,11 +40,11 @@ init_per_suite(Config) ->
         [emqx_conf, emqx_modules, emqx_dashboard],
         fun set_special_configs/1
     ),
-    emqx_delayed:enable(),
+    emqx_delayed:load(),
     Config.
 
 end_per_suite(Config) ->
-    ok = emqx_delayed:disable(),
+    ok = emqx_delayed:unload(),
     emqx_common_test_helpers:stop_apps([emqx_conf, emqx_dashboard, emqx_modules]),
     Config.
 
@@ -100,7 +100,7 @@ t_status(_Config) ->
 
 t_messages(_) ->
     clear_all_record(),
-    emqx_delayed:enable(),
+    emqx_delayed:load(),
 
     {ok, C1} = emqtt:start_link([{clean_start, true}]),
     {ok, _} = emqtt:connect(C1),
@@ -200,7 +200,7 @@ t_messages(_) ->
 
 t_large_payload(_) ->
     clear_all_record(),
-    emqx_delayed:enable(),
+    emqx_delayed:load(),
 
     {ok, C1} = emqtt:start_link([{clean_start, true}]),
     {ok, _} = emqtt:connect(C1),

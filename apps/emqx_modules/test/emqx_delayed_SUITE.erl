@@ -52,24 +52,24 @@ init_per_testcase(t_load_case, Config) ->
     Config;
 init_per_testcase(_Case, Config) ->
     {atomic, ok} = mria:clear_table(emqx_delayed),
-    ok = emqx_delayed:enable(),
+    ok = emqx_delayed:load(),
     Config.
 
 end_per_testcase(_Case, _Config) ->
     {atomic, ok} = mria:clear_table(emqx_delayed),
-    ok = emqx_delayed:disable().
+    ok = emqx_delayed:unload().
 
 %%--------------------------------------------------------------------
 %% Test cases
 %%--------------------------------------------------------------------
 
 t_enable_disable_case(_) ->
-    emqx_delayed:disable(),
+    emqx_delayed:unload(),
     Hooks = emqx_hooks:lookup('message.publish'),
     MFA = {emqx_delayed, on_message_publish, []},
     ?assertEqual(false, lists:keyfind(MFA, 2, Hooks)),
 
-    ok = emqx_delayed:enable(),
+    ok = emqx_delayed:load(),
     Hooks1 = emqx_hooks:lookup('message.publish'),
     ?assertNotEqual(false, lists:keyfind(MFA, 2, Hooks1)),
 
@@ -80,7 +80,7 @@ t_enable_disable_case(_) ->
     _ = on_message_publish(DelayedMsg0),
     ?assertMatch(#{data := Datas} when Datas =/= [], emqx_delayed:list(#{})),
 
-    emqx_delayed:disable(),
+    emqx_delayed:unload(),
     ?assertEqual(false, lists:keyfind(MFA, 2, Hooks)),
     ?assertMatch(#{data := []}, emqx_delayed:list(#{})),
     ok.
@@ -144,7 +144,7 @@ t_list(_) ->
     ).
 
 t_max(_) ->
-    emqx_delayed:set_max_delayed_messages(1),
+    emqx:update_config([delayed, max_delayed_messages], 1),
 
     DelayedMsg0 = emqx_message:make(?MODULE, 1, <<"$delayed/10/t0">>, <<"delayed0">>),
     DelayedMsg1 = emqx_message:make(?MODULE, 1, <<"$delayed/10/t1">>, <<"delayed1">>),
