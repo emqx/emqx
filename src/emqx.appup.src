@@ -5,6 +5,7 @@
     [{add_module,emqx_calendar},
      {load_module,emqx_logger_textfmt,brutal_purge,soft_purge,[]},
      {load_module,emqx_packet,brutal_purge,soft_purge,[]},
+     {load_module,emqx_plugins,brutal_purge,soft_purge,[]},
      {load_module,emqx_session,brutal_purge,soft_purge,[]},
      {load_module,emqx_misc,brutal_purge,soft_purge,[]},
      {load_module,emqx_shared_sub,brutal_purge,soft_purge,[]},

@@ -387,7 +387,8 @@ plugin_loaded(_Name, false) ->
     ok;
 plugin_loaded(Name, true) ->
     case read_loaded() of
-        {ok, Names} ->
+        {ok, Names0} ->
+            Names = filter_plugins(Names0),
             case lists:member(Name, Names) of
                 false ->
                     %% write file if plugin is loaded

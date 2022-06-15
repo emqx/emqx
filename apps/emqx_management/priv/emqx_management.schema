@@ -143,6 +143,10 @@
   {datatype, string}
 ]}.
 
+{mapping, "management.listener.https.key_password", "emqx_management.listeners", [
+  {datatype, string}
+]}.
+
 {mapping, "management.listener.https.certfile", "emqx_management.listeners", [
   {datatype, string}
 ]}.
@@ -217,6 +221,7 @@ end}.
                 Filter([{versions, Versions},
                         {ciphers, SplitFun(cuttlefish:conf_get(Prefix ++ ".ciphers", Conf, undefined))},
                         {keyfile,    cuttlefish:conf_get(Prefix ++ ".keyfile", Conf, undefined)},
+                        {password,   cuttlefish:conf_get(Prefix ++ ".key_password", Conf, undefined)},
                         {certfile,   cuttlefish:conf_get(Prefix ++ ".certfile", Conf, undefined)},
                         {cacertfile, cuttlefish:conf_get(Prefix ++ ".cacertfile", Conf, undefined)},
                         {verify,     cuttlefish:conf_get(Prefix ++ ".verify", Conf, undefined)},
