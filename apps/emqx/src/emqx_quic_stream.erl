@@ -16,7 +16,6 @@
 
 %% MQTT/QUIC Stream
 -module(emqx_quic_stream).
--include_lib("quicer/include/quicer.hrl").
 
 %% emqx transport Callbacks
 -export([

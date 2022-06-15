@@ -138,7 +138,8 @@ common_compile_opts(Edition, Vsn) ->
         {compile_info, [{emqx_vsn, Vsn}]},
         {d, 'EMQX_RELEASE_EDITION', Edition}
     ] ++
-        [{d, 'EMQX_BENCHMARK'} || os:getenv("EMQX_BENCHMARK") =:= "1"].
+        [{d, 'EMQX_BENCHMARK'} || os:getenv("EMQX_BENCHMARK") =:= "1"] ++
+        [{d, 'BUILD_WITHOUT_QUIC'} || not is_quicer_supported()].
 
 prod_compile_opts(Edition, Vsn) ->
     [
