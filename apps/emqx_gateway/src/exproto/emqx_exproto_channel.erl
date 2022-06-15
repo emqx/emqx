@@ -157,7 +157,12 @@ init(
             undefined -> undefined;
             {GwName, Type, LisName} -> emqx_gateway_utils:listener_id(GwName, Type, LisName)
         end,
-    ClientInfo = maps:put(listener, ListenerId, default_clientinfo(ConnInfo)),
+    EnableAuthn = maps:get(enable_authn, Options, true),
+    DefaultClientInfo = default_clientinfo(ConnInfo),
+    ClientInfo = DefaultClientInfo#{
+        listener => ListenerId,
+        enable_authn => EnableAuthn
+    },
     Channel = #channel{
         ctx = Ctx,
         gcli = #{channel => GRpcChann, pool_name => PoolName},

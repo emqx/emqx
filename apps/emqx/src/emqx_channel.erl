@@ -102,7 +102,11 @@
 
 -type channel() :: #channel{}.
 
--type opts() :: #{zone := atom(), listener := {Type :: atom(), Name :: atom()}, atom() => term()}.
+-type opts() :: #{
+    zone := atom(),
+    listener := {Type :: atom(), Name :: atom()},
+    atom() => term()
+}.
 
 -type conn_state() :: idle | connecting | connected | reauthenticating | disconnected.
 
@@ -235,7 +239,11 @@ init(
         peername := {PeerHost, _Port},
         sockname := {_Host, SockPort}
     },
-    #{zone := Zone, limiter := LimiterCfg, listener := {Type, Listener}}
+    #{
+        zone := Zone,
+        limiter := LimiterCfg,
+        listener := {Type, Listener}
+    } = Opts
 ) ->
     Peercert = maps:get(peercert, ConnInfo, undefined),
     Protocol = maps:get(protocol, ConnInfo, mqtt),
@@ -256,7 +264,8 @@ init(
             username => undefined,
             mountpoint => MountPoint,
             is_bridge => false,
-            is_superuser => false
+            is_superuser => false,
+            enable_authn => maps:get(enable_authn, Opts, true)
         },
         Zone
     ),

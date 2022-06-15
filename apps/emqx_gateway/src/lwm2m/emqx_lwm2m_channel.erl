@@ -128,6 +128,7 @@ init(
             undefined -> undefined;
             {GwName, Type, LisName} -> emqx_gateway_utils:listener_id(GwName, Type, LisName)
         end,
+    EnableAuthn = maps:get(enable_authn, Config, true),
     ClientInfo = set_peercert_infos(
         Peercert,
         #{
@@ -140,6 +141,7 @@ init(
             clientid => undefined,
             is_bridge => false,
             is_superuser => false,
+            enable_authn => EnableAuthn,
             mountpoint => Mountpoint
         }
     ),
