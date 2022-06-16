@@ -38,7 +38,7 @@
 
 -export([mongo_query/5, check_worker_health/1]).
 
--define(HEALTH_CHECK_TIMEOUT, 10000).
+-define(HEALTH_CHECK_TIMEOUT, 30000).
 
 %% mongo servers don't need parse
 -define(MONGO_HOST_OPTIONS, #{

@@ -70,8 +70,9 @@
 %% Calls to the callback module with current resource state
 %% They also save the state after the call finished (except query/2,3).
 
-%% restart the instance.
 -export([
+    start/1,
+    start/2,
     restart/1,
     restart/2,
     %% verify if the resource is working normally
@@ -261,10 +262,18 @@ query(InstId, Request, AfterQuery) ->
                     erlang:raise(Err, Reason, ST)
             end;
         {ok, _Group, _Data} ->
-            query_error(not_found, <<"resource not connected">>);
+            query_error(not_connected, <<"resource not connected">>);
         {error, not_found} ->
             query_error(not_found, <<"resource not found">>)
     end.
+
+-spec start(instance_id()) -> ok | {error, Reason :: term()}.
+start(InstId) ->
+    start(InstId, #{}).
+
+-spec start(instance_id(), create_opts()) -> ok | {error, Reason :: term()}.
+start(InstId, Opts) ->
+    emqx_resource_manager:start(InstId, Opts).
 
 -spec restart(instance_id()) -> ok | {error, Reason :: term()}.
 restart(InstId) ->

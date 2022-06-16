@@ -33,7 +33,15 @@
 -type create_opts() :: #{
     health_check_interval => integer(),
     health_check_timeout => integer(),
+    %% We can choose to block the return of emqx_resource:start until
+    %% the resource connected, wait max to `wait_for_resource_ready` ms.
     wait_for_resource_ready => integer(),
+    %% If `start_after_created` is set to true, the resource is started right
+    %% after it is created. But note that a `started` resource is not guaranteed
+    %% to be `connected`.
+    start_after_created => boolean(),
+    %% If the resource disconnected, we can set to retry starting the resource
+    %% periodically.
     auto_retry_interval => integer()
 }.
 -type after_query() ::

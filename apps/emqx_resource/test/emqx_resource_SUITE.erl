@@ -126,7 +126,45 @@ t_create_remove_local(_) ->
     ok = emqx_resource:remove_local(?ID),
     {error, _} = emqx_resource:remove_local(?ID),
 
+    ?assertMatch(
+        {error, {emqx_resource, #{reason := not_found}}},
+        emqx_resource:query(?ID, get_state)
+    ),
     ?assertNot(is_process_alive(Pid)).
+
+t_do_not_start_after_created(_) ->
+    {ok, _} = emqx_resource:create_local(
+        ?ID,
+        ?DEFAULT_RESOURCE_GROUP,
+        ?TEST_RESOURCE,
+        #{name => test_resource},
+        #{start_after_created => false}
+    ),
+    %% the resource should remain `disconnected` after created
+    timer:sleep(200),
+    ?assertMatch(
+        {error, {emqx_resource, #{reason := not_connected}}},
+        emqx_resource:query(?ID, get_state)
+    ),
+    ?assertMatch(
+        {ok, _, #{status := disconnected}},
+        emqx_resource:get_instance(?ID)
+    ),
+
+    %% start the resource manually..
+    ok = emqx_resource:start(?ID),
+    #{pid := Pid} = emqx_resource:query(?ID, get_state),
+    ?assert(is_process_alive(Pid)),
+
+    %% restart the resource
+    ok = emqx_resource:restart(?ID),
+    ?assertNot(is_process_alive(Pid)),
+    #{pid := Pid2} = emqx_resource:query(?ID, get_state),
+    ?assert(is_process_alive(Pid2)),
+
+    ok = emqx_resource:remove_local(?ID),
+
+    ?assertNot(is_process_alive(Pid2)).
 
 t_query(_) ->
     {ok, _} = emqx_resource:create_local(
@@ -231,7 +269,7 @@ t_stop_start(_) ->
     ?assertNot(is_process_alive(Pid0)),
 
     ?assertMatch(
-        {error, {emqx_resource, #{reason := not_found}}},
+        {error, {emqx_resource, #{reason := not_connected}}},
         emqx_resource:query(?ID, get_state)
     ),
 
@@ -273,7 +311,7 @@ t_stop_start_local(_) ->
     ?assertNot(is_process_alive(Pid0)),
 
     ?assertMatch(
-        {error, {emqx_resource, #{reason := not_found}}},
+        {error, {emqx_resource, #{reason := not_connected}}},
         emqx_resource:query(?ID, get_state)
     ),
 

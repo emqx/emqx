@@ -96,7 +96,10 @@ create(InstId, Group, ResourceType, Config, Opts) ->
         [matched, success, failed, exception],
         [matched]
     ),
-    wait_for_resource_ready(InstId, maps:get(wait_for_resource_ready, Opts, 5000)),
+    case maps:get(start_after_created, Opts, true) of
+        true -> wait_for_resource_ready(InstId, maps:get(wait_for_resource_ready, Opts, 5000));
+        false -> ok
+    end,
     ok.
 
 %% @doc Called from `emqx_resource` when doing a dry run for creating a resource instance.
@@ -108,9 +111,9 @@ create(InstId, Group, ResourceType, Config, Opts) ->
 create_dry_run(ResourceType, Config) ->
     InstId = make_test_id(),
     ok = emqx_resource_manager_sup:ensure_child(InstId, <<"dry_run">>, ResourceType, Config, #{}),
-    case wait_for_resource_ready(InstId, 5000) of
+    case wait_for_resource_ready(InstId, 15000) of
         ok ->
-            _ = remove(InstId);
+            remove(InstId);
         timeout ->
             _ = remove(InstId),
             {error, timeout}
@@ -123,7 +126,9 @@ recreate(InstId, ResourceType, NewConfig, Opts) ->
     case lookup(InstId) of
         {ok, Group, #{mod := ResourceType, status := _} = _Data} ->
             _ = remove(InstId, false),
-            ensure_resource(InstId, Group, ResourceType, NewConfig, Opts);
+            create(InstId, Group, ResourceType, NewConfig, Opts),
+            {ok, _Group, Data} = lookup(InstId),
+            {ok, Data};
         {ok, _, #{mod := Mod}} when Mod =/= ResourceType ->
             {error, updating_to_incorrect_resource_type};
         {error, not_found} ->
@@ -151,7 +156,7 @@ restart(InstId, Opts) when is_binary(InstId) ->
             Error
     end.
 
-%% @doc Stop the resource
+%% @doc Start the resource
 -spec start(instance_id(), create_opts()) -> ok | {error, Reason :: term()}.
 start(InstId, Opts) ->
     case safe_call(InstId, start, ?T_OPERATION) of
@@ -162,7 +167,7 @@ start(InstId, Opts) ->
             Error
     end.
 
-%% @doc Start the resource
+%% @doc Stop the resource
 -spec stop(instance_id()) -> ok | {error, Reason :: term()}.
 stop(InstId) ->
     case safe_call(InstId, stop, ?T_OPERATION) of
@@ -240,13 +245,16 @@ start_link(InstId, Group, ResourceType, Config, Opts) ->
         state = undefined,
         error = undefined
     },
-    gen_statem:start_link({local, proc_name(InstId)}, ?MODULE, Data, []).
+    gen_statem:start_link({local, proc_name(InstId)}, ?MODULE, {Data, Opts}, []).
 
-init(Data) ->
+init({Data, Opts}) ->
     process_flag(trap_exit, true),
     %% init the cache so that lookup/1 will always return something
     ets:insert(?ETS_TABLE, {Data#data.id, Data#data.group, Data}),
-    {ok, connecting, Data, {next_event, internal, try_connect}}.
+    case maps:get(start_after_created, Opts, true) of
+        true -> {ok, connecting, Data, {next_event, internal, start_resource}};
+        false -> {ok, stopped, Data}
+    end.
 
 terminate(_Reason, _State, Data) ->
     _ = maybe_clear_alarm(Data#data.id),
@@ -296,7 +304,7 @@ handle_event(enter, _OldState, connecting, Data) ->
     ets:insert(?ETS_TABLE, {Data#data.id, Data#data.group, Data}),
     Actions = [{state_timeout, 0, health_check}],
     {keep_state_and_data, Actions};
-handle_event(internal, try_connect, connecting, Data) ->
+handle_event(internal, start_resource, connecting, Data) ->
     start_resource(Data, undefined);
 handle_event(state_timeout, health_check, connecting, Data) ->
     handle_connecting_health_check(Data);
