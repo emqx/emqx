@@ -556,6 +556,9 @@ with_gateway(GwName0, Fun) ->
             return_http_error(404, "Resource not found. path: " ++ Path);
         error:{badmatch, {error, einval}} ->
             return_http_error(400, "Invalid bind address");
+        error:{badauth, Reason} ->
+            Reason1 = emqx_gateway_utils:stringfy(Reason),
+            return_http_error(400, ["Bad authentication config: ", Reason1]);
         Class:Reason:Stk ->
             ?SLOG(error, #{
                 msg => "uncaught_exception",
