@@ -50,19 +50,6 @@ jobs:
       run: |
         echo "EMQX_NAME=${{ matrix.profile }}" >> $GITHUB_ENV
         echo "CODE_PATH=$GITHUB_WORKSPACE" >> $GITHUB_ENV
-    - name: Get deps git refs for cache
-      id: deps-refs
-      run: |
-        git config --global --add safe.directory "/__w/emqx/emqx"
-        scripts/get-dep-refs.sh
-        make clean-all
-    - name: load quicer cache
-      uses: actions/cache@v2
-      with:
-        path: |
-          _build/default/lib/quicer/
-          deps/quicer/
-        key: ${{ matrix.os }}-${{ matrix.elixir }}-${{ matrix.otp }}-amd64-${{ steps.deps-refs.outputs.DEP_QUICER_REF }}
     - name: Work around https://github.com/actions/checkout/issues/766
       run: |
         git config --global --add safe.directory "$GITHUB_WORKSPACE"
@@ -171,21 +158,6 @@ jobs:
         kerl update releases
         kerl build ${{ matrix.otp }}
         kerl install ${{ matrix.otp }} $HOME/.kerl/${{ matrix.otp }}
-    - name: Get deps git refs for cache
-      id: deps-refs
-      env:
-        AUTO_INSTALL_BUILD_DEPS: 1
-      run: |
-        . $HOME/.kerl/${{ matrix.otp }}/activate
-        make ensure-rebar3
-        sudo cp rebar3 /usr/local/bin/rebar3
-        scripts/get-dep-refs.sh
-        make clean-all
-    - name: load quicer cache
-      uses: actions/cache@v2
-      with:
-        path: _build/default/lib/quicer/
-        key: ${{ matrix.macos }}-${{ matrix.otp }}-macos-${{ steps.deps-refs.outputs.DEP_QUICER_REF }}
     - name: build ${{ matrix.profile }}
       env:
         AUTO_INSTALL_BUILD_DEPS: 1
