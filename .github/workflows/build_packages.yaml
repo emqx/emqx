@@ -129,7 +129,7 @@ jobs:
     - name: prepare
       run: |
         brew update
-        brew install curl zip unzip kerl
+        brew install curl zip unzip kerl coreutils
         echo "/usr/local/opt/bison/bin" >> $GITHUB_PATH
         echo "/usr/local/bin" >> $GITHUB_PATH
         git config --global credential.helper store
