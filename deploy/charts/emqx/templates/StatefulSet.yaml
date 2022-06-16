@@ -68,7 +68,9 @@ spec:
         secret:
           secretName: {{ .Values.emqxLicenseSecretName }}
       {{- end }}
+      {{- if eq .Values.emqxConfig.EMQX_CLUSTER__DISCOVERY_STRATEGY "k8s"}}
       serviceAccountName:  {{ include "emqx.fullname" . }}
+      {{- end }}
       {{- if .Values.podSecurityContext.enabled }}
       securityContext: {{- omit .Values.podSecurityContext "enabled" | toYaml | nindent 8 }}
       {{- end }}
@@ -117,15 +119,6 @@ spec:
             - secretRef:
                 name: {{ .Values.envFromSecret }}
          {{- end }}
-          env:
-          - name: EMQX_NAME
-            value: {{ .Release.Name }}
-          - name: EMQX_CLUSTER__DISCOVERY_STRATEGY
-            value: k8s
-          - name: EMQX_CLUSTER__K8S__SERVICE_NAME
-            value: {{ include "emqx.fullname" . }}-headless
-          - name: EMQX_CLUSTER__K8S__NAMESPACE
-            value: {{ .Release.Namespace }}
           resources:
 {{ toYaml .Values.resources | indent 12 }}
           volumeMounts:
