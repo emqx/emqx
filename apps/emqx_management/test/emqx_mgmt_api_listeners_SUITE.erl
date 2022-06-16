@@ -166,6 +166,11 @@ crud_listeners_by_id(ListenerId, NewListenerId, MinListenerId, BadId, Type) ->
     ?assertEqual([], delete(NewPath)),
     ok.
 
+t_delete_nonexistent_listener(_) ->
+    NonExist = emqx_mgmt_api_test_util:api_path(["listeners", "tcp:nonexistent"]),
+    ?assertEqual([], delete(NonExist)),
+    ok.
+
 t_action_listeners(_) ->
     ID = "tcp:default",
     action_listener(ID, "stop", false),
