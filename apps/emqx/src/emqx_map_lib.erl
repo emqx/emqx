@@ -31,7 +31,8 @@
     deep_convert/3,
     diff_maps/2,
     merge_with/3,
-    best_effort_recursive_sum/3
+    best_effort_recursive_sum/3,
+    if_only_to_toggle_enable/2
 ]).
 
 -export_type([config_key/0, config_key_path/0]).
@@ -316,3 +317,17 @@ deep_filter(M, F) when is_map(M) ->
             maps:to_list(M)
         )
     ).
+
+if_only_to_toggle_enable(OldConf, Conf) ->
+    #{added := Added, removed := Removed, changed := Updated} =
+        emqx_map_lib:diff_maps(OldConf, Conf),
+    case {Added, Removed, Updated} of
+        {Added, Removed, #{enable := _} = Updated} when
+            map_size(Added) =:= 0,
+            map_size(Removed) =:= 0,
+            map_size(Updated) =:= 1
+        ->
+            true;
+        {_, _, _} ->
+            false
+    end.

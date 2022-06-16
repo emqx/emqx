@@ -17,14 +17,14 @@
 
 -behaviour(supervisor).
 
--export([ensure_child/5]).
+-export([ensure_child/6]).
 
 -export([start_link/0]).
 
 -export([init/1]).
 
-ensure_child(InstId, Group, ResourceType, Config, Opts) ->
-    _ = supervisor:start_child(?MODULE, [InstId, Group, ResourceType, Config, Opts]),
+ensure_child(MgrId, ResId, Group, ResourceType, Config, Opts) ->
+    _ = supervisor:start_child(?MODULE, [MgrId, ResId, Group, ResourceType, Config, Opts]),
     ok.
 
 start_link() ->

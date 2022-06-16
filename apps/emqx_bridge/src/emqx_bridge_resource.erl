@@ -111,7 +111,7 @@ update(Type, Name, {OldConf, Conf}) ->
     %% the `method` or `headers` of a WebHook is changed, then the bridge can be updated
     %% without restarting the bridge.
     %%
-    case if_only_to_toggle_enable(OldConf, Conf) of
+    case emqx_map_lib:if_only_to_toggle_enable(OldConf, Conf) of
         false ->
             ?SLOG(info, #{
                 msg => "update bridge",
@@ -196,20 +196,6 @@ maybe_disable_bridge(Type, Name, Conf) ->
     case maps:get(enable, Conf, true) of
         false -> stop(Type, Name);
         true -> ok
-    end.
-
-if_only_to_toggle_enable(OldConf, Conf) ->
-    #{added := Added, removed := Removed, changed := Updated} =
-        emqx_map_lib:diff_maps(OldConf, Conf),
-    case {Added, Removed, Updated} of
-        {Added, Removed, #{enable := _} = Updated} when
-            map_size(Added) =:= 0,
-            map_size(Removed) =:= 0,
-            map_size(Updated) =:= 1
-        ->
-            true;
-        {_, _, _} ->
-            false
     end.
 
 fill_dry_run_conf(Conf) ->
