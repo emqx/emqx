@@ -73,12 +73,12 @@ metrics() ->
 init_per_group(GrpName, Cfg) ->
     put(grpname, GrpName),
     Svrs = emqx_exproto_echo_svr:start(),
-    emqx_common_test_helpers:start_apps([emqx_gateway], fun set_special_cfg/1),
+    emqx_common_test_helpers:start_apps([emqx_authn, emqx_gateway], fun set_special_cfg/1),
     [{servers, Svrs}, {listener_type, GrpName} | Cfg].
 
 end_per_group(_, Cfg) ->
     emqx_config:erase(gateway),
-    emqx_common_test_helpers:stop_apps([emqx_gateway]),
+    emqx_common_test_helpers:stop_apps([emqx_gateway, emqx_authn]),
     emqx_exproto_echo_svr:stop(proplists:get_value(servers, Cfg)).
 
 set_special_cfg(emqx_gateway) ->
