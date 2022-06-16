@@ -44,8 +44,11 @@ spec:
         version: {{ .Chart.AppVersion }}
         app.kubernetes.io/name: {{ include "emqx.name" . }}
         app.kubernetes.io/instance: {{ .Release.Name }}
-      {{- if .Values.recreatePods }}
       annotations:
+      {{- with .Values.podAnnotations }}
+          {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- if .Values.recreatePods }}
         checksum/config: {{ include (print $.Template.BasePath "/configmap.yaml") . | sha256sum | quote }}
       {{- end }}
     spec:
