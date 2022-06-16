@@ -142,6 +142,21 @@ crud_listeners_by_id(ListenerId, NewListenerId, MinListenerId, BadId, Type) ->
     ?assertMatch(#{<<"acceptors">> := Acceptors1}, Update),
     Get2 = request(get, NewPath, [], []),
     ?assertMatch(#{<<"acceptors">> := Acceptors1}, Get2),
+    ?assert(is_running(NewListenerId)),
+
+    %% update an stopped listener
+    action_listener(NewListenerId, "stop", false),
+    ?assertNot(is_running(NewListenerId)),
+    %% update
+    Get3 = request(get, NewPath, [], []),
+    #{<<"acceptors">> := Acceptors3} = Get3,
+    Acceptors4 = Acceptors3 + 1,
+    Update1 =
+        request(put, NewPath, [], Get3#{<<"acceptors">> => Acceptors4}),
+    ?assertMatch(#{<<"acceptors">> := Acceptors4}, Update1),
+    Get4 = request(get, NewPath, [], []),
+    ?assertMatch(#{<<"acceptors">> := Acceptors4}, Get4),
+    ?assertNot(is_running(NewListenerId)),
 
     %% delete
     ?assertEqual([], delete(NewPath)),
@@ -149,6 +164,11 @@ crud_listeners_by_id(ListenerId, NewListenerId, MinListenerId, BadId, Type) ->
     ?assertEqual({error, not_found}, is_running(NewListenerId)),
     ?assertMatch({error, {"HTTP/1.1", 404, _}}, request(get, NewPath, [], [])),
     ?assertEqual([], delete(NewPath)),
+    ok.
+
+t_delete_nonexistent_listener(_) ->
+    NonExist = emqx_mgmt_api_test_util:api_path(["listeners", "tcp:nonexistent"]),
+    ?assertEqual([], delete(NonExist)),
     ok.
 
 t_action_listeners(_) ->

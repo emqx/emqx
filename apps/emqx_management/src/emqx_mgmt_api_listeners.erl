@@ -355,9 +355,8 @@ crud_listeners_by_id(post, #{bindings := #{id := Id}, body := Body0}) ->
     end;
 crud_listeners_by_id(delete, #{bindings := #{id := Id}}) ->
     {ok, #{type := Type, name := Name}} = emqx_listeners:parse_listener_id(Id),
-    case remove([listeners, Type, Name]) of
+    case ensure_remove([listeners, Type, Name]) of
         {ok, _} -> {204};
-        {error, not_found} -> {204};
         {error, Reason} -> {400, #{code => 'BAD_REQUEST', message => err_msg(Reason)}}
     end.
 
@@ -552,7 +551,7 @@ action(Path, Action, Conf) ->
 create(Path, Conf) ->
     wrap(emqx_conf:update(Path, {create, Conf}, ?OPTS(cluster))).
 
-remove(Path) ->
+ensure_remove(Path) ->
     wrap(emqx_conf:remove(Path, ?OPTS(cluster))).
 
 wrap({error, {post_config_update, emqx_listeners, Reason}}) -> {error, Reason};

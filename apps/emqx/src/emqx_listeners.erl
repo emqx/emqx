@@ -377,11 +377,11 @@ post_config_update([listeners, Type, Name], {create, _Request}, NewConf, undefin
     start_listener(Type, Name, NewConf);
 post_config_update([listeners, Type, Name], {update, _Request}, NewConf, OldConf, _AppEnvs) ->
     case NewConf of
-        #{<<"enabled">> := true} -> restart_listener(Type, Name, {OldConf, NewConf});
+        #{enabled := true} -> restart_listener(Type, Name, {OldConf, NewConf});
         _ -> ok
     end;
 post_config_update([listeners, _Type, _Name], '$remove', undefined, undefined, _AppEnvs) ->
-    {error, not_found};
+    ok;
 post_config_update([listeners, Type, Name], '$remove', undefined, OldConf, _AppEnvs) ->
     case stop_listener(Type, Name, OldConf) of
         ok ->
