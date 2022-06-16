@@ -944,8 +944,7 @@ fields("ws_opts") ->
             sc(
                 comma_separated_binary(),
                 #{
-                    default => "",
-                    example => <<"http://localhost:18083, http://127.0.0.1:18083">>,
+                    default => <<"http://localhost:18083, http://127.0.0.1:18083">>,
                     desc => ?DESC(fields_ws_opts_check_origins)
                 }
             )},
@@ -983,7 +982,7 @@ fields("tcp_opts") ->
             )},
         {"backlog",
             sc(
-                integer(),
+                pos_integer(),
                 #{
                     default => 1024,
                     desc => ?DESC(fields_tcp_opts_backlog)
@@ -1025,6 +1024,7 @@ fields("tcp_opts") ->
             sc(
                 bytesize(),
                 #{
+                    default => <<"4KB">>,
                     example => <<"4KB">>,
                     desc => ?DESC(fields_tcp_opts_buffer)
                 }
@@ -1041,7 +1041,7 @@ fields("tcp_opts") ->
             sc(
                 boolean(),
                 #{
-                    default => false,
+                    default => true,
                     desc => ?DESC(fields_tcp_opts_nodelay)
                 }
             )},
