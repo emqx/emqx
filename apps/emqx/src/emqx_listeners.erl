@@ -381,7 +381,7 @@ post_config_update([listeners, Type, Name], {update, _Request}, NewConf, OldConf
         _ -> ok
     end;
 post_config_update([listeners, _Type, _Name], '$remove', undefined, undefined, _AppEnvs) ->
-    {error, not_found};
+    ok;
 post_config_update([listeners, Type, Name], '$remove', undefined, OldConf, _AppEnvs) ->
     case stop_listener(Type, Name, OldConf) of
         ok ->
