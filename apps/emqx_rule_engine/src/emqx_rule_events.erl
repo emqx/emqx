@@ -257,7 +257,7 @@ eventmsg_publish(
             flags => Flags,
             pub_props => printable_maps(emqx_message:get_header(properties, Message, #{})),
             %% the column 'headers' will be removed in the next major release
-            headers => printable_maps(Headers),
+            headers => printable_headers(Headers),
             publish_received_at => Timestamp
         }
     ).
@@ -436,7 +436,7 @@ eventmsg_dropped(
             qos => QoS,
             flags => Flags,
             %% the column 'headers' will be removed in the next major release
-            headers => printable_maps(Headers),
+            headers => printable_headers(Headers),
             pub_props => printable_maps(emqx_message:get_header(properties, Message, #{})),
             publish_received_at => Timestamp
         }
@@ -473,7 +473,7 @@ eventmsg_delivered(
             qos => QoS,
             flags => Flags,
             %% the column 'headers' will be removed in the next major release
-            headers => printable_maps(Headers),
+            headers => printable_headers(Headers),
             pub_props => printable_maps(emqx_message:get_header(properties, Message, #{})),
             publish_received_at => Timestamp
         }
@@ -510,7 +510,7 @@ eventmsg_acked(
             qos => QoS,
             flags => Flags,
             %% the column 'headers' will be removed in the next major release
-            headers => printable_maps(Headers),
+            headers => printable_headers(Headers),
             pub_props => printable_maps(emqx_message:get_header(properties, Message, #{})),
             puback_props => printable_maps(emqx_message:get_header(puback_props, Message, #{})),
             publish_received_at => Timestamp
@@ -550,7 +550,7 @@ eventmsg_delivery_dropped(
             qos => QoS,
             flags => Flags,
             %% the column 'headers' will be removed in the next major release
-            headers => printable_maps(Headers),
+            headers => printable_headers(Headers),
             pub_props => printable_maps(emqx_message:get_header(properties, Message, #{})),
             publish_received_at => Timestamp
         }
@@ -777,7 +777,7 @@ columns_with_exam('message.publish') ->
         {<<"topic">>, <<"t/a">>},
         {<<"qos">>, 1},
         {<<"flags">>, #{}},
-        {<<"headers">>, undefined},
+        {<<"headers">>, #{properties => #{}}},
         {<<"publish_received_at">>, erlang:system_time(millisecond)},
         columns_example_props(pub_props),
         {<<"timestamp">>, erlang:system_time(millisecond)},
@@ -947,7 +947,7 @@ columns_example_props(PropType) ->
     UserProps = #{
         'User-Property' => #{<<"foo">> => <<"bar">>},
         'User-Property-Pairs' => [
-            #{key => <<"foo">>}, #{value => <<"bar">>}
+            #{key => <<"foo">>, value => <<"bar">>}
         ]
     },
     {PropType, maps:merge(Props, UserProps)}.
@@ -1023,6 +1023,13 @@ event_topic('message.dropped') -> <<"$events/message_dropped">>;
 event_topic('delivery.dropped') -> <<"$events/delivery_dropped">>;
 event_topic('message.publish') -> <<"$events/message_publish">>;
 event_topic(<<"$bridges/", _/binary>> = Topic) -> Topic.
+
+%% User-Property header is lifted up to the wraping object
+printable_headers(#{properties := #{'User-Property' := _} = Props} = Hdrs0) ->
+    Hdrs = Hdrs0#{properties := maps:without(['User-Property'], Props)},
+    printable_maps(Hdrs);
+printable_headers(Hdrs) ->
+    printable_maps(Hdrs).
 
 printable_maps(undefined) ->
     #{};
