@@ -4,8 +4,8 @@ set -euo pipefail
 
 AUTO_INSTALL_BUILD_DEPS="${AUTO_INSTALL_BUILD_DEPS:-0}"
 
-required_packages_mac_osx="freetds unixodbc"
-required_cmds_mac_osx="curl zip unzip autoconf automake cmake openssl coreutils"
+required_packages_mac_osx="freetds unixodbc coreutils"
+required_cmds_mac_osx="curl zip unzip autoconf automake cmake openssl"
 
 dependency_missing() {
     echo "error: $1 is not found in the system"
