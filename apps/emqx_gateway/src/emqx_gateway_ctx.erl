@@ -29,6 +29,7 @@
     #{
         %% Gateway Name
         gwname := gateway_name(),
+        %% FIXME: use process name instead of pid()
         %% The ConnectionManager PID
         cm := pid()
     }.

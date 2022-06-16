@@ -4,7 +4,7 @@
     {vsn, "0.1.0"},
     {registered, []},
     {mod, {emqx_gateway_app, []}},
-    {applications, [kernel, stdlib, grpc, emqx]},
+    {applications, [kernel, stdlib, grpc, emqx, emqx_authn]},
     {env, []},
     {modules, []},
     {licenses, ["Apache 2.0"]},

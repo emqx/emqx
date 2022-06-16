@@ -107,6 +107,7 @@ end_per_testcase(_AllTestCase, Config) ->
     gen_udp:close(?config(sock, Config)),
     emqtt:disconnect(?config(emqx_c, Config)),
     ok = application:stop(emqx_gateway),
+    ok = application:stop(emqx_authn),
     timer:sleep(300).
 
 %%--------------------------------------------------------------------
