@@ -29,10 +29,8 @@
 
 %% Hooks API
 -export([
-    add/2,
     add/3,
     add/4,
-    put/2,
     put/3,
     put/4,
     del/2,
@@ -121,44 +119,34 @@ callback_priority(#callback{priority = P}) -> P.
 %% Hooks API
 %%--------------------------------------------------------------------
 
-%% @doc Register a callback
--spec add(hookpoint(), action() | callback()) -> ok_or_error(already_exists).
-add(HookPoint, Callback) when is_record(Callback, callback) ->
-    gen_server:call(?SERVER, {add, HookPoint, Callback}, infinity);
-add(HookPoint, Action) when is_function(Action); is_tuple(Action) ->
-    add(HookPoint, #callback{action = Action, priority = 0}).
-
--spec add(hookpoint(), action(), filter() | integer() | list()) ->
+%% @doc `add/3,4` add a new hook, returns 'already_exists' if the hook exists.
+-spec add(hookpoint(), action(), integer()) ->
     ok_or_error(already_exists).
-add(HookPoint, Action, {_M, _F, _A} = Filter) ->
-    add(HookPoint, #callback{action = Action, filter = Filter, priority = 0});
 add(HookPoint, Action, Priority) when is_integer(Priority) ->
-    add(HookPoint, #callback{action = Action, priority = Priority}).
+    do_add(HookPoint, #callback{action = Action, priority = Priority}).
 
--spec add(hookpoint(), action(), filter(), integer()) ->
+-spec add(hookpoint(), action(), integer(), filter()) ->
     ok_or_error(already_exists).
-add(HookPoint, Action, Filter, Priority) when is_integer(Priority) ->
-    add(HookPoint, #callback{action = Action, filter = Filter, priority = Priority}).
+add(HookPoint, Action, Priority, Filter) when is_integer(Priority) ->
+    do_add(HookPoint, #callback{action = Action, filter = Filter, priority = Priority}).
 
-%% @doc Like add/2, it register a callback, discard 'already_exists' error.
--spec put(hookpoint(), action() | callback()) -> ok.
-put(HookPoint, Callback) when is_record(Callback, callback) ->
-    case add(HookPoint, Callback) of
+do_add(HookPoint, Callback) ->
+    gen_server:call(?SERVER, {add, HookPoint, Callback}, infinity).
+
+%% @doc `put/3,4` updates the existing hook, add it if not exists.
+-spec put(hookpoint(), action(), integer()) -> ok.
+put(HookPoint, Action, Priority) when is_integer(Priority) ->
+    do_put(HookPoint, #callback{action = Action, priority = Priority}).
+
+-spec put(hookpoint(), action(), integer(), filter()) -> ok.
+put(HookPoint, Action, Priority, Filter) when is_integer(Priority) ->
+    do_put(HookPoint, #callback{action = Action, filter = Filter, priority = Priority}).
+
+do_put(HookPoint, Callback) ->
+    case do_add(HookPoint, Callback) of
         ok -> ok;
         {error, already_exists} -> gen_server:call(?SERVER, {put, HookPoint, Callback}, infinity)
-    end;
-put(HookPoint, Action) when is_function(Action); is_tuple(Action) ->
-    ?MODULE:put(HookPoint, #callback{action = Action, priority = 0}).
-
--spec put(hookpoint(), action(), filter() | integer() | list()) -> ok.
-put(HookPoint, Action, {_M, _F, _A} = Filter) ->
-    ?MODULE:put(HookPoint, #callback{action = Action, filter = Filter, priority = 0});
-put(HookPoint, Action, Priority) when is_integer(Priority) ->
-    ?MODULE:put(HookPoint, #callback{action = Action, priority = Priority}).
-
--spec put(hookpoint(), action(), filter(), integer()) -> ok.
-put(HookPoint, Action, Filter, Priority) when is_integer(Priority) ->
-    ?MODULE:put(HookPoint, #callback{action = Action, filter = Filter, priority = Priority}).
+    end.
 
 %% @doc Unregister a callback.
 -spec del(hookpoint(), action() | {module(), atom()}) -> ok.
@@ -296,7 +284,7 @@ insert_hook(HookPoint, Callbacks) ->
     ets:insert(?TAB, #hook{name = HookPoint, callbacks = Callbacks}),
     ok.
 update_hook(HookPoint, Callbacks) ->
-    Ms = ets:fun2ms(fun({hook, K, V}) when K =:= HookPoint -> {hook, K, Callbacks} end),
+    Ms = ets:fun2ms(fun({hook, K, _V}) when K =:= HookPoint -> {hook, K, Callbacks} end),
     ets:select_replace(emqx_hooks, Ms),
     ok.
 

@@ -114,7 +114,7 @@ do_mock(mria_mnesia) ->
 do_mock(emqx_metrics) ->
     meck:expect(emqx_metrics, all, fun() -> [{hello, 3}] end);
 do_mock(emqx_hooks) ->
-    meck:expect(emqx_hooks, put, fun(_HookPoint, _MFA) -> ok end),
+    meck:expect(emqx_hooks, put, fun(_HookPoint, _MFA, _) -> ok end),
     meck:expect(emqx_hooks, del, fun(_HookPoint, _MF) -> ok end);
 do_mock(emqx_config_handler) ->
     meck:expect(emqx_config_handler, add_handler, fun(_, _) -> ok end).

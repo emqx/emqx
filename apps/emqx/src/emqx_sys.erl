@@ -21,6 +21,7 @@
 -include("emqx.hrl").
 -include("types.hrl").
 -include("logger.hrl").
+-include("emqx_hooks.hrl").
 
 -export([
     start_link/0,
@@ -190,7 +191,7 @@ load_event_hooks(Events) ->
                 ok;
             ({K, true}) ->
                 {HookPoint, Fun} = hook_and_fun(K),
-                emqx_hooks:put(HookPoint, {?MODULE, Fun, []})
+                emqx_hooks:put(HookPoint, {?MODULE, Fun, []}, ?HP_SYS_MSGS)
         end,
         Events
     ).

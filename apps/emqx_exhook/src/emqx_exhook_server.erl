@@ -18,6 +18,7 @@
 
 -include("emqx_exhook.hrl").
 -include_lib("emqx/include/logger.hrl").
+-include_lib("emqx/include/emqx_hooks.hrl").
 
 %% The exhook proto version should be fixed as `v2` in EMQX v5.x
 %% to make sure the exhook proto version is compatible
@@ -255,7 +256,7 @@ ensure_hooks(HookSpecs) ->
                 false ->
                     ?SLOG(error, #{msg => "skipped_unknown_hookpoint", hookpoint => Hookpoint});
                 {Hookpoint, {M, F, A}} ->
-                    emqx_hooks:put(Hookpoint, {M, F, A}),
+                    emqx_hooks:put(Hookpoint, {M, F, A}, ?HP_EXHOOK),
                     ets:update_counter(?HOOKS_REF_COUNTER, Hookpoint, {2, 1}, {Hookpoint, 0})
             end
         end,
