@@ -34,16 +34,6 @@ jobs:
     - uses: actions/checkout@v2
       with:
         fetch-depth: 0
-    - name: Get deps git refs for cache
-      id: deps-refs
-      run: |
-        PATH=$PATH:./ scripts/get-dep-refs.sh
-        make clean-all
-    - name: load quicer cache
-      uses: actions/cache@v2
-      with:
-        path: _build/default/lib/quicer/
-        key: ${{ matrix.os }}-${{ matrix.otp }}-${{ matrix.arch }}-${{ steps.deps-refs.outputs.DEP_QUICER_REF }}
     - name: run
       run: |
         git config --global --add safe.directory "$GITHUB_WORKSPACE"

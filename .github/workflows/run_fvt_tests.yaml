@@ -65,21 +65,6 @@ jobs:
     - name: unzip source code
       run: unzip -q source.zip
 
-    - name: Get deps git refs for cache
-      id: deps-refs
-      run: |
-        cd source
-        make ensure-rebar3
-        sudo cp rebar3 /usr/local/bin/rebar3
-        scripts/get-dep-refs.sh
-    - name: load quicer cache
-      uses: actions/cache@v2
-      with:
-        path: |
-          source/_build/default/lib/quicer/
-          source/deps/quicer/
-        key: ${{ matrix.os[0] }}-${{ matrix.elixir }}-${{ matrix.otp }}-${{ matrix.arch }}-${{ steps.deps-refs.outputs.DEP_QUICER_REF }}
-
     - name: make docker image
       working-directory: source
       env:
@@ -148,18 +133,6 @@ jobs:
         path: .
     - name: unzip source code
       run: unzip -q source.zip
-    - name: Get deps git refs for cache
-      id: deps-refs
-      run: |
-        cd source
-        make ensure-rebar3
-        sudo cp rebar3 /usr/local/bin/rebar3
-        scripts/get-dep-refs.sh
-    - name: load quicer cache
-      uses: actions/cache@v2
-      with:
-        path: source/_build/default/lib/quicer/
-        key: ${{ matrix.os[0] }}-${{ matrix.otp }}-${{ matrix.arch }}-${{ steps.deps-refs.outputs.DEP_QUICER_REF }}
 
     - name: make docker image
       working-directory: source
