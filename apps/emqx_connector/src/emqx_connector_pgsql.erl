@@ -186,8 +186,13 @@ conn_opts([], Acc) ->
     Acc;
 conn_opts([Opt = {database, _} | Opts], Acc) ->
     conn_opts(Opts, [Opt | Acc]);
-conn_opts([Opt = {ssl, _} | Opts], Acc) ->
-    conn_opts(Opts, [Opt | Acc]);
+conn_opts([{ssl, Bool} | Opts], Acc) when is_boolean(Bool) ->
+    Flag =
+        case Bool of
+            true -> required;
+            false -> false
+        end,
+    conn_opts(Opts, [{ssl, Flag} | Acc]);
 conn_opts([Opt = {port, _} | Opts], Acc) ->
     conn_opts(Opts, [Opt | Acc]);
 conn_opts([Opt = {timeout, _} | Opts], Acc) ->
