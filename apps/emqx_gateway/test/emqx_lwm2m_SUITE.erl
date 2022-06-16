@@ -155,13 +155,13 @@ groups() ->
 init_per_suite(Config) ->
     %% load application first for minirest api searching
     application:load(emqx_gateway),
-    emqx_mgmt_api_test_util:init_suite([emqx_conf]),
+    emqx_mgmt_api_test_util:init_suite([emqx_conf, emqx_authn]),
     Config.
 
 end_per_suite(Config) ->
     timer:sleep(300),
     {ok, _} = emqx_conf:remove([<<"gateway">>, <<"lwm2m">>], #{}),
-    emqx_mgmt_api_test_util:end_suite([emqx_conf]),
+    emqx_mgmt_api_test_util:end_suite([emqx_conf, emqx_authn]),
     Config.
 
 init_per_testcase(_AllTestCase, Config) ->
