@@ -348,6 +348,16 @@ t_list_filter(_) ->
     ).
 
 t_create_dry_run_local(_) ->
+    ets:match_delete(emqx_resource_manager, {{owner, '$1'}, '_'}),
+    lists:foreach(
+        fun(_) ->
+            create_dry_run_local_succ()
+        end,
+        lists:seq(1, 10)
+    ),
+    [] = ets:match(emqx_resource_manager, {{owner, '$1'}, '_'}).
+
+create_dry_run_local_succ() ->
     ?assertEqual(
         ok,
         emqx_resource:create_dry_run_local(
@@ -355,7 +365,6 @@ t_create_dry_run_local(_) ->
             #{name => test_resource, register => true}
         )
     ),
-    timer:sleep(100),
     ?assertEqual(undefined, whereis(test_resource)).
 
 t_create_dry_run_local_failed(_) ->
