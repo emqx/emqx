@@ -1,3 +1,4 @@
+{{- if .Values.emqxConfig }}
 apiVersion: v1
 kind: ConfigMap
 metadata:
@@ -9,6 +10,10 @@ metadata:
     app.kubernetes.io/instance: {{ .Release.Name }}
     app.kubernetes.io/managed-by: {{ .Release.Service }}
 data:
-  {{- range $index, $value := .Values.emqxConfig}}
-    {{$index}}: "{{ $value }}" 
-  {{- end}}
+  {{- range $index, $value := .Values.emqxConfig }}
+  {{- if $value }}
+  {{- $key := (regexReplaceAllLiteral "\\." (regexReplaceAllLiteral "EMQX[_\\.]" (upper (trimAll " " $index)) "") "__") }}
+  {{ print "EMQX_" $key }}: "{{ tpl (printf "%v" $value) $ }}"
+  {{- end }}
+  {{- end }}
+{{- end }}
