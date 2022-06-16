@@ -194,8 +194,8 @@ t_pmap_timeout(_) ->
     ).
 
 t_pmap_exception(_) ->
-    ?assertExit(
-        {foobar, _},
+    ?assertError(
+        foobar,
         emqx_misc:pmap(
             fun
                 (error) -> error(foobar);
