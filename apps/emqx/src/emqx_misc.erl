@@ -473,7 +473,14 @@ do_parallel_map(Fun, List) ->
         fun(Item) ->
             erlang:spawn_link(
                 fun() ->
-                    Parent ! {self(), Fun(Item)}
+                    Res =
+                        try
+                            {normal, Fun(Item)}
+                        catch
+                            C:E:St ->
+                                {exception, {C, E, St}}
+                        end,
+                    Parent ! {self(), Res}
                 end
             )
         end,
@@ -482,8 +489,10 @@ do_parallel_map(Fun, List) ->
     lists:foldr(
         fun(Pid, Acc) ->
             receive
-                {Pid, Result} ->
-                    [Result | Acc]
+                {Pid, {normal, Result}} ->
+                    [Result | Acc];
+                {Pid, {exception, {C, E, St}}} ->
+                    erlang:raise(C, E, St)
             end
         end,
         [],
