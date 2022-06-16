@@ -344,15 +344,13 @@ send_http_request(ClientID, Params) ->
             ok
     end.
 
-parse_rule(Rules) ->
-    parse_rule(Rules, []).
-parse_rule([], Acc) ->
-    lists:reverse(Acc);
-parse_rule([{Rule, Conf} | Rules], Acc) ->
+parse_rule([]) ->
+    [];
+parse_rule([{Rule, Conf} | Rules]) ->
     Params = emqx_json:decode(iolist_to_binary(Conf)),
     Action = proplists:get_value(<<"action">>, Params),
     Filter = proplists:get_value(<<"topic">>, Params),
-    parse_rule(Rules, [{list_to_atom(Rule), binary_to_existing_atom(Action, utf8), Filter} | Acc]).
+    [{list_to_atom(Rule), binary_to_existing_atom(Action, utf8), Filter} | parse_rule(Rules)].
 
 with_filter(Fun, _, undefined) ->
     Fun(), ok;
@@ -389,4 +387,3 @@ stringfy(Term) ->
 
 maybe(undefined) -> null;
 maybe(Str) -> Str.
-

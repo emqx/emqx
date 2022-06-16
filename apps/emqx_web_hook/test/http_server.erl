@@ -81,7 +81,7 @@ stop_https() ->
 compile_router(Parent) ->
     {ok, _} = application:ensure_all_started(cowboy),
     cowboy_router:compile([
-        {'_', [{"/", ?MODULE, #{parent => Parent}}]}
+        {'_', [{'_', ?MODULE, #{parent => Parent}}]}
     ]).
 
 init(Req, #{parent := Parent} = State) ->
