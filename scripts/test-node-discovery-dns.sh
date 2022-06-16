@@ -70,6 +70,7 @@ start_emqx() {
         -e EMQX_NODE_COOKIE="$COOKIE" \
         -e EMQX_cluster__discovery_strategy='dns' \
         -e EMQX_cluster__dns__name="$DOMAIN" \
+        -e EMQX_cluster__dns__record_type="a" \
         "$IMAGE"
 }
 
