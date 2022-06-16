@@ -14,7 +14,8 @@
 %% limitations under the License.
 %%--------------------------------------------------------------------
 -type resource_type() :: module().
--type instance_id() :: binary().
+-type resource_id() :: binary().
+-type manager_id() :: binary().
 -type raw_resource_config() :: binary() | raw_term_resource_config().
 -type raw_term_resource_config() :: #{binary() => term()} | [raw_term_resource_config()].
 -type resource_config() :: term().
@@ -22,7 +23,7 @@
 -type resource_state() :: term().
 -type resource_status() :: connected | disconnected | connecting.
 -type resource_data() :: #{
-    id := instance_id(),
+    id := resource_id(),
     mod := module(),
     config := resource_config(),
     state := resource_state(),
@@ -33,7 +34,15 @@
 -type create_opts() :: #{
     health_check_interval => integer(),
     health_check_timeout => integer(),
+    %% We can choose to block the return of emqx_resource:start until
+    %% the resource connected, wait max to `wait_for_resource_ready` ms.
     wait_for_resource_ready => integer(),
+    %% If `start_after_created` is set to true, the resource is started right
+    %% after it is created. But note that a `started` resource is not guaranteed
+    %% to be `connected`.
+    start_after_created => boolean(),
+    %% If the resource disconnected, we can set to retry starting the resource
+    %% periodically.
     auto_retry_interval => integer()
 }.
 -type after_query() ::

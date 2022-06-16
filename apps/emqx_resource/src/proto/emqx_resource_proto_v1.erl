@@ -34,16 +34,16 @@ introduced_in() ->
     "5.0.0".
 
 -spec create(
-    instance_id(),
+    resource_id(),
     resource_group(),
     resource_type(),
     resource_config(),
     create_opts()
 ) ->
     {ok, resource_data() | 'already_created'} | {error, Reason :: term()}.
-create(InstId, Group, ResourceType, Config, Opts) ->
+create(ResId, Group, ResourceType, Config, Opts) ->
     emqx_cluster_rpc:multicall(emqx_resource, create_local, [
-        InstId, Group, ResourceType, Config, Opts
+        ResId, Group, ResourceType, Config, Opts
     ]).
 
 -spec create_dry_run(
@@ -55,19 +55,19 @@ create_dry_run(ResourceType, Config) ->
     emqx_cluster_rpc:multicall(emqx_resource, create_dry_run_local, [ResourceType, Config]).
 
 -spec recreate(
-    instance_id(),
+    resource_id(),
     resource_type(),
     resource_config(),
     create_opts()
 ) ->
     {ok, resource_data()} | {error, Reason :: term()}.
-recreate(InstId, ResourceType, Config, Opts) ->
-    emqx_cluster_rpc:multicall(emqx_resource, recreate_local, [InstId, ResourceType, Config, Opts]).
+recreate(ResId, ResourceType, Config, Opts) ->
+    emqx_cluster_rpc:multicall(emqx_resource, recreate_local, [ResId, ResourceType, Config, Opts]).
 
--spec remove(instance_id()) -> ok | {error, Reason :: term()}.
-remove(InstId) ->
-    emqx_cluster_rpc:multicall(emqx_resource, remove_local, [InstId]).
+-spec remove(resource_id()) -> ok | {error, Reason :: term()}.
+remove(ResId) ->
+    emqx_cluster_rpc:multicall(emqx_resource, remove_local, [ResId]).
 
--spec reset_metrics(instance_id()) -> ok | {error, any()}.
-reset_metrics(InstId) ->
-    emqx_cluster_rpc:multicall(emqx_resource, reset_metrics_local, [InstId]).
+-spec reset_metrics(resource_id()) -> ok | {error, any()}.
+reset_metrics(ResId) ->
+    emqx_cluster_rpc:multicall(emqx_resource, reset_metrics_local, [ResId]).

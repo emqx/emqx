@@ -23,7 +23,6 @@
 % API
 -export([
     ensure_resource/5,
-    create/5,
     recreate/4,
     remove/1,
     create_dry_run/2,
@@ -44,13 +43,13 @@
 ]).
 
 % Server
--export([start_link/5]).
+-export([start_link/6]).
 
 % Behaviour
 -export([init/1, callback_mode/0, handle_event/4, terminate/3]).
 
 % State record
--record(data, {id, group, mod, config, opts, status, state, error}).
+-record(data, {id, manager_id, group, mod, config, opts, status, state, error}).
 
 -define(SHORT_HEALTHCHECK_INTERVAL, 1000).
 -define(HEALTHCHECK_INTERVAL, 15000).
@@ -70,33 +69,55 @@
 %% Triggers the emqx_resource_manager_sup supervisor to actually create
 %% and link the process itself if not already started.
 -spec ensure_resource(
-    instance_id(),
+    resource_id(),
     resource_group(),
     resource_type(),
     resource_config(),
     create_opts()
 ) -> {ok, resource_data()}.
-ensure_resource(InstId, Group, ResourceType, Config, Opts) ->
-    case lookup(InstId) of
+ensure_resource(ResId, Group, ResourceType, Config, Opts) ->
+    case lookup(ResId) of
         {ok, _Group, Data} ->
             {ok, Data};
         {error, not_found} ->
-            create(InstId, Group, ResourceType, Config, Opts),
-            {ok, _Group, Data} = lookup(InstId),
-            {ok, Data}
+            MgrId = set_new_owner(ResId),
+            create_and_return_data(MgrId, ResId, Group, ResourceType, Config, Opts)
     end.
 
+%% @doc Called from emqx_resource when recreating a resource which may or may not exist
+-spec recreate(resource_id(), resource_type(), resource_config(), create_opts()) ->
+    {ok, resource_data()} | {error, not_found} | {error, updating_to_incorrect_resource_type}.
+recreate(ResId, ResourceType, NewConfig, Opts) ->
+    case lookup(ResId) of
+        {ok, Group, #{mod := ResourceType, status := _} = _Data} ->
+            _ = remove(ResId, false),
+            MgrId = set_new_owner(ResId),
+            create_and_return_data(MgrId, ResId, Group, ResourceType, NewConfig, Opts);
+        {ok, _, #{mod := Mod}} when Mod =/= ResourceType ->
+            {error, updating_to_incorrect_resource_type};
+        {error, not_found} ->
+            {error, not_found}
+    end.
+
+create_and_return_data(MgrId, ResId, Group, ResourceType, Config, Opts) ->
+    create(MgrId, ResId, Group, ResourceType, Config, Opts),
+    {ok, _Group, Data} = lookup(ResId),
+    {ok, Data}.
+
 %% @doc Create a resource_manager and wait until it is running
-create(InstId, Group, ResourceType, Config, Opts) ->
+create(MgrId, ResId, Group, ResourceType, Config, Opts) ->
     % The state machine will make the actual call to the callback/resource module after init
-    ok = emqx_resource_manager_sup:ensure_child(InstId, Group, ResourceType, Config, Opts),
+    ok = emqx_resource_manager_sup:ensure_child(MgrId, ResId, Group, ResourceType, Config, Opts),
     ok = emqx_metrics_worker:create_metrics(
         resource_metrics,
-        InstId,
+        ResId,
         [matched, success, failed, exception],
         [matched]
     ),
-    wait_for_resource_ready(InstId, maps:get(wait_for_resource_ready, Opts, 5000)),
+    case maps:get(start_after_created, Opts, true) of
+        true -> wait_for_resource_ready(ResId, maps:get(wait_for_resource_ready, Opts, 5000));
+        false -> ok
+    end,
     ok.
 
 %% @doc Called from `emqx_resource` when doing a dry run for creating a resource instance.
@@ -106,66 +127,55 @@ create(InstId, Group, ResourceType, Config, Opts) ->
 -spec create_dry_run(resource_type(), resource_config()) ->
     ok | {error, Reason :: term()}.
 create_dry_run(ResourceType, Config) ->
-    InstId = make_test_id(),
-    ok = emqx_resource_manager_sup:ensure_child(InstId, <<"dry_run">>, ResourceType, Config, #{}),
-    case wait_for_resource_ready(InstId, 5000) of
+    ResId = make_test_id(),
+    MgrId = set_new_owner(ResId),
+    ok = emqx_resource_manager_sup:ensure_child(
+        MgrId, ResId, <<"dry_run">>, ResourceType, Config, #{}
+    ),
+    case wait_for_resource_ready(ResId, 15000) of
         ok ->
-            _ = remove(InstId);
+            remove(ResId);
         timeout ->
-            _ = remove(InstId),
+            _ = remove(ResId),
             {error, timeout}
     end.
 
-%% @doc Called from emqx_resource when recreating a resource which may or may not exist
--spec recreate(instance_id(), resource_type(), resource_config(), create_opts()) ->
-    {ok, resource_data()} | {error, not_found} | {error, updating_to_incorrect_resource_type}.
-recreate(InstId, ResourceType, NewConfig, Opts) ->
-    case lookup(InstId) of
-        {ok, Group, #{mod := ResourceType, status := _} = _Data} ->
-            _ = remove(InstId, false),
-            ensure_resource(InstId, Group, ResourceType, NewConfig, Opts);
-        {ok, _, #{mod := Mod}} when Mod =/= ResourceType ->
-            {error, updating_to_incorrect_resource_type};
-        {error, not_found} ->
-            {error, not_found}
-    end.
-
 %% @doc Stops a running resource_manager and clears the metrics for the resource
--spec remove(instance_id()) -> ok | {error, Reason :: term()}.
-remove(InstId) when is_binary(InstId) ->
-    remove(InstId, true).
+-spec remove(resource_id()) -> ok | {error, Reason :: term()}.
+remove(ResId) when is_binary(ResId) ->
+    remove(ResId, true).
 
 %% @doc Stops a running resource_manager and optionally clears the metrics for the resource
--spec remove(instance_id(), boolean()) -> ok | {error, Reason :: term()}.
-remove(InstId, ClearMetrics) when is_binary(InstId) ->
-    safe_call(InstId, {remove, ClearMetrics}, ?T_OPERATION).
+-spec remove(resource_id(), boolean()) -> ok | {error, Reason :: term()}.
+remove(ResId, ClearMetrics) when is_binary(ResId) ->
+    safe_call(ResId, {remove, ClearMetrics}, ?T_OPERATION).
 
 %% @doc Stops and then starts an instance that was already running
--spec restart(instance_id(), create_opts()) -> ok | {error, Reason :: term()}.
-restart(InstId, Opts) when is_binary(InstId) ->
-    case safe_call(InstId, restart, ?T_OPERATION) of
+-spec restart(resource_id(), create_opts()) -> ok | {error, Reason :: term()}.
+restart(ResId, Opts) when is_binary(ResId) ->
+    case safe_call(ResId, restart, ?T_OPERATION) of
         ok ->
-            wait_for_resource_ready(InstId, maps:get(wait_for_resource_ready, Opts, 5000)),
-            ok;
-        {error, _Reason} = Error ->
-            Error
-    end.
-
-%% @doc Stop the resource
--spec start(instance_id(), create_opts()) -> ok | {error, Reason :: term()}.
-start(InstId, Opts) ->
-    case safe_call(InstId, start, ?T_OPERATION) of
-        ok ->
-            wait_for_resource_ready(InstId, maps:get(wait_for_resource_ready, Opts, 5000)),
+            wait_for_resource_ready(ResId, maps:get(wait_for_resource_ready, Opts, 5000)),
             ok;
         {error, _Reason} = Error ->
             Error
     end.
 
 %% @doc Start the resource
--spec stop(instance_id()) -> ok | {error, Reason :: term()}.
-stop(InstId) ->
-    case safe_call(InstId, stop, ?T_OPERATION) of
+-spec start(resource_id(), create_opts()) -> ok | {error, Reason :: term()}.
+start(ResId, Opts) ->
+    case safe_call(ResId, start, ?T_OPERATION) of
+        ok ->
+            wait_for_resource_ready(ResId, maps:get(wait_for_resource_ready, Opts, 5000)),
+            ok;
+        {error, _Reason} = Error ->
+            Error
+    end.
+
+%% @doc Stop the resource
+-spec stop(resource_id()) -> ok | {error, Reason :: term()}.
+stop(ResId) ->
+    case safe_call(ResId, stop, ?T_OPERATION) of
         ok ->
             ok;
         {error, _Reason} = Error ->
@@ -173,36 +183,36 @@ stop(InstId) ->
     end.
 
 %% @doc Test helper
--spec set_resource_status_connecting(instance_id()) -> ok.
-set_resource_status_connecting(InstId) ->
-    safe_call(InstId, set_resource_status_connecting, infinity).
+-spec set_resource_status_connecting(resource_id()) -> ok.
+set_resource_status_connecting(ResId) ->
+    safe_call(ResId, set_resource_status_connecting, infinity).
 
 %% @doc Lookup the group and data of a resource
--spec lookup(instance_id()) -> {ok, resource_group(), resource_data()} | {error, not_found}.
-lookup(InstId) ->
-    case safe_call(InstId, lookup, ?T_LOOKUP) of
-        {error, timeout} -> ets_lookup(InstId);
+-spec lookup(resource_id()) -> {ok, resource_group(), resource_data()} | {error, not_found}.
+lookup(ResId) ->
+    case safe_call(ResId, lookup, ?T_LOOKUP) of
+        {error, timeout} -> ets_lookup(ResId);
         Result -> Result
     end.
 
 %% @doc Lookup the group and data of a resource
--spec ets_lookup(instance_id()) -> {ok, resource_group(), resource_data()} | {error, not_found}.
-ets_lookup(InstId) ->
-    case ets:lookup(?ETS_TABLE, InstId) of
-        [{_Id, Group, Data}] ->
+-spec ets_lookup(resource_id()) -> {ok, resource_group(), resource_data()} | {error, not_found}.
+ets_lookup(ResId) ->
+    case read_cache(ResId) of
+        {Group, Data} ->
             {ok, Group, data_record_to_external_map_with_metrics(Data)};
-        [] ->
+        not_found ->
             {error, not_found}
     end.
 
 %% @doc Get the metrics for the specified resource
-get_metrics(InstId) ->
-    emqx_metrics_worker:get_metrics(resource_metrics, InstId).
+get_metrics(ResId) ->
+    emqx_metrics_worker:get_metrics(resource_metrics, ResId).
 
 %% @doc Reset the metrics for the specified resource
--spec reset_metrics(instance_id()) -> ok.
-reset_metrics(InstId) ->
-    emqx_metrics_worker:reset_metrics(resource_metrics, InstId).
+-spec reset_metrics(resource_id()) -> ok.
+reset_metrics(ResId) ->
+    emqx_metrics_worker:reset_metrics(resource_metrics, ResId).
 
 %% @doc Returns the data for all resorces
 -spec list_all() -> [resource_data()] | [].
@@ -217,21 +227,22 @@ list_all() ->
     end.
 
 %% @doc Returns a list of ids for all the resources in a group
--spec list_group(resource_group()) -> [instance_id()].
+-spec list_group(resource_group()) -> [resource_id()].
 list_group(Group) ->
     List = ets:match(?ETS_TABLE, {'$1', Group, '_'}),
     lists:flatten(List).
 
--spec health_check(instance_id()) -> {ok, resource_status()} | {error, term()}.
-health_check(InstId) ->
-    safe_call(InstId, health_check, ?T_OPERATION).
+-spec health_check(resource_id()) -> {ok, resource_status()} | {error, term()}.
+health_check(ResId) ->
+    safe_call(ResId, health_check, ?T_OPERATION).
 
 %% Server start/stop callbacks
 
 %% @doc Function called from the supervisor to actually start the server
-start_link(InstId, Group, ResourceType, Config, Opts) ->
+start_link(MgrId, ResId, Group, ResourceType, Config, Opts) ->
     Data = #data{
-        id = InstId,
+        id = ResId,
+        manager_id = MgrId,
         group = Group,
         mod = ResourceType,
         config = Config,
@@ -240,17 +251,22 @@ start_link(InstId, Group, ResourceType, Config, Opts) ->
         state = undefined,
         error = undefined
     },
-    gen_statem:start_link({local, proc_name(InstId)}, ?MODULE, Data, []).
+    Module = atom_to_binary(?MODULE),
+    ProcName = binary_to_atom(<<Module/binary, "_", MgrId/binary>>, utf8),
+    gen_statem:start_link({local, ProcName}, ?MODULE, {Data, Opts}, []).
 
-init(Data) ->
+init({Data, Opts}) ->
     process_flag(trap_exit, true),
     %% init the cache so that lookup/1 will always return something
-    ets:insert(?ETS_TABLE, {Data#data.id, Data#data.group, Data}),
-    {ok, connecting, Data, {next_event, internal, try_connect}}.
+    insert_cache(Data#data.id, Data#data.group, Data),
+    case maps:get(start_after_created, Opts, true) of
+        true -> {ok, connecting, Data, {next_event, internal, start_resource}};
+        false -> {ok, stopped, Data}
+    end.
 
 terminate(_Reason, _State, Data) ->
     _ = maybe_clear_alarm(Data#data.id),
-    ets:delete(?ETS_TABLE, Data#data.id),
+    delete_cache(Data#data.id, Data#data.manager_id),
     ok.
 
 %% Behavior callback
@@ -271,6 +287,12 @@ handle_event({call, From}, start, stopped, Data) ->
     start_resource(Data, From);
 handle_event({call, From}, start, _State, _Data) ->
     {keep_state_and_data, [{reply, From, ok}]};
+% Called when the resource received a `quit` message
+handle_event(info, quit, stopped, _Data) ->
+    {stop, {shutdown, quit}};
+handle_event(info, quit, _State, Data) ->
+    _ = stop_resource(Data),
+    {stop, {shutdown, quit}};
 % Called when the resource is to be stopped
 handle_event({call, From}, stop, stopped, _Data) ->
     {keep_state_and_data, [{reply, From, ok}]};
@@ -293,10 +315,10 @@ handle_event({call, From}, health_check, _State, Data) ->
     handle_manually_health_check(From, Data);
 % State: CONNECTING
 handle_event(enter, _OldState, connecting, Data) ->
-    ets:insert(?ETS_TABLE, {Data#data.id, Data#data.group, Data}),
+    insert_cache(Data#data.id, Data#data.group, Data),
     Actions = [{state_timeout, 0, health_check}],
     {keep_state_and_data, Actions};
-handle_event(internal, try_connect, connecting, Data) ->
+handle_event(internal, start_resource, connecting, Data) ->
     start_resource(Data, undefined);
 handle_event(state_timeout, health_check, connecting, Data) ->
     handle_connecting_health_check(Data);
@@ -304,7 +326,7 @@ handle_event(state_timeout, health_check, connecting, Data) ->
 %% The connected state is entered after a successful on_start/2 of the callback mod
 %% and successful health_checks
 handle_event(enter, _OldState, connected, Data) ->
-    ets:insert(?ETS_TABLE, {Data#data.id, Data#data.group, Data}),
+    insert_cache(Data#data.id, Data#data.group, Data),
     _ = emqx_alarm:deactivate(Data#data.id),
     Actions = [{state_timeout, ?HEALTHCHECK_INTERVAL, health_check}],
     {next_state, connected, Data, Actions};
@@ -312,7 +334,7 @@ handle_event(state_timeout, health_check, connected, Data) ->
     handle_connected_health_check(Data);
 %% State: DISCONNECTED
 handle_event(enter, _OldState, disconnected, Data) ->
-    ets:insert(?ETS_TABLE, {Data#data.id, Data#data.group, Data}),
+    insert_cache(Data#data.id, Data#data.group, Data),
     handle_disconnected_state_enter(Data);
 handle_event(state_timeout, auto_retry, disconnected, Data) ->
     start_resource(Data, undefined);
@@ -320,14 +342,14 @@ handle_event(state_timeout, auto_retry, disconnected, Data) ->
 %% The stopped state is entered after the resource has been explicitly stopped
 handle_event(enter, _OldState, stopped, Data) ->
     UpdatedData = Data#data{status = disconnected},
-    ets:insert(?ETS_TABLE, {Data#data.id, Data#data.group, UpdatedData}),
+    insert_cache(Data#data.id, Data#data.group, UpdatedData),
     {next_state, stopped, UpdatedData};
 % Ignore all other events
 handle_event(EventType, EventData, State, Data) ->
     ?SLOG(
         error,
         #{
-            msg => "ignore all other events",
+            msg => ignore_all_other_events,
             event_type => EventType,
             event_data => EventData,
             state => State,
@@ -339,6 +361,47 @@ handle_event(EventType, EventData, State, Data) ->
 %%------------------------------------------------------------------------------
 %% internal functions
 %%------------------------------------------------------------------------------
+insert_cache(ResId, Group, Data = #data{manager_id = MgrId}) ->
+    case get_owner(ResId) of
+        not_found -> ets:insert(?ETS_TABLE, {ResId, Group, Data});
+        MgrId -> ets:insert(?ETS_TABLE, {ResId, Group, Data});
+        _ -> self() ! quit
+    end.
+
+read_cache(ResId) ->
+    case ets:lookup(?ETS_TABLE, ResId) of
+        [{_Id, Group, Data}] -> {Group, Data};
+        [] -> not_found
+    end.
+
+delete_cache(ResId, MgrId) ->
+    case get_owner(ResId) of
+        MgrIdNow when MgrIdNow == not_found; MgrIdNow == MgrId ->
+            do_delete_cache(ResId);
+        _ ->
+            ok
+    end.
+
+do_delete_cache(<<?TEST_ID_PREFIX, _/binary>> = ResId) ->
+    ets:delete(?ETS_TABLE, {owner, ResId}),
+    ets:delete(?ETS_TABLE, ResId);
+do_delete_cache(ResId) ->
+    ets:delete(?ETS_TABLE, ResId).
+
+set_new_owner(ResId) ->
+    MgrId = make_manager_id(ResId),
+    ok = set_owner(ResId, MgrId),
+    MgrId.
+
+set_owner(ResId, MgrId) ->
+    ets:insert(?ETS_TABLE, {{owner, ResId}, MgrId}),
+    ok.
+
+get_owner(ResId) ->
+    case ets:lookup(?ETS_TABLE, {owner, ResId}) of
+        [{_, MgrId}] -> MgrId;
+        [] -> not_found
+    end.
 
 handle_disconnected_state_enter(Data) ->
     case maps:get(auto_retry_interval, Data#data.opts, undefined) of
@@ -359,8 +422,8 @@ handle_remove_event(From, ClearMetrics, Data) ->
 
 start_resource(Data, From) ->
     %% in case the emqx_resource:call_start/2 hangs, the lookup/1 can read status from the cache
-    ets:insert(?ETS_TABLE, {Data#data.id, Data#data.group, Data}),
-    case emqx_resource:call_start(Data#data.id, Data#data.mod, Data#data.config) of
+    insert_cache(Data#data.id, Data#data.group, Data),
+    case emqx_resource:call_start(Data#data.manager_id, Data#data.mod, Data#data.config) of
         {ok, ResourceState} ->
             UpdatedData = Data#data{state = ResourceState, status = connecting},
             %% Perform an initial health_check immediately before transitioning into a connected state
@@ -382,14 +445,16 @@ stop_resource(Data) ->
     %% We don't care the return value of the Mod:on_stop/2.
     %% The callback mod should make sure the resource is stopped after on_stop/2
     %% is returned.
-    _ = emqx_resource:call_stop(Data#data.id, Data#data.mod, Data#data.state),
+    _ = emqx_resource:call_stop(Data#data.manager_id, Data#data.mod, Data#data.state),
     _ = maybe_clear_alarm(Data#data.id),
     ok.
 
-proc_name(Id) ->
-    Module = atom_to_binary(?MODULE),
-    Connector = <<"_">>,
-    binary_to_atom(<<Module/binary, Connector/binary, Id/binary>>).
+make_manager_id(ResId) ->
+    emqx_resource:generate_id(ResId).
+
+make_test_id() ->
+    RandId = iolist_to_binary(emqx_misc:gen_id(16)),
+    <<?TEST_ID_PREFIX, RandId/binary>>.
 
 handle_manually_health_check(From, Data) ->
     with_health_check(Data, fun(Status, UpdatedData) ->
@@ -426,13 +491,13 @@ handle_connected_health_check(Data) ->
 
 with_health_check(Data, Func) ->
     ResId = Data#data.id,
-    HCRes = emqx_resource:call_health_check(ResId, Data#data.mod, Data#data.state),
-    {Status, NewState, Err} = parse_health_check_result(HCRes, Data#data.state),
+    HCRes = emqx_resource:call_health_check(Data#data.manager_id, Data#data.mod, Data#data.state),
+    {Status, NewState, Err} = parse_health_check_result(HCRes, Data),
     _ = maybe_alarm(Status, ResId),
     UpdatedData = Data#data{
         state = NewState, status = Status, error = Err
     },
-    ets:insert(?ETS_TABLE, {ResId, UpdatedData#data.group, UpdatedData}),
+    insert_cache(ResId, UpdatedData#data.group, UpdatedData),
     Func(Status, UpdatedData).
 
 maybe_alarm(connected, _ResId) ->
@@ -451,12 +516,22 @@ maybe_clear_alarm(<<?TEST_ID_PREFIX, _/binary>>) ->
 maybe_clear_alarm(ResId) ->
     emqx_alarm:deactivate(ResId).
 
-parse_health_check_result(Status, OldState) when ?IS_STATUS(Status) ->
-    {Status, OldState, undefined};
-parse_health_check_result({Status, NewState}, _OldState) when ?IS_STATUS(Status) ->
+parse_health_check_result(Status, Data) when ?IS_STATUS(Status) ->
+    {Status, Data#data.state, undefined};
+parse_health_check_result({Status, NewState}, _Data) when ?IS_STATUS(Status) ->
     {Status, NewState, undefined};
-parse_health_check_result({Status, NewState, Error}, _OldState) when ?IS_STATUS(Status) ->
-    {Status, NewState, Error}.
+parse_health_check_result({Status, NewState, Error}, _Data) when ?IS_STATUS(Status) ->
+    {Status, NewState, Error};
+parse_health_check_result({error, Error}, Data) ->
+    ?SLOG(
+        error,
+        #{
+            msg => health_check_exception,
+            resource_id => Data#data.id,
+            reason => Error
+        }
+    ),
+    {disconnected, Data#data.state, Error}.
 
 maybe_reply(Actions, undefined, _Reply) ->
     Actions;
@@ -473,29 +548,30 @@ data_record_to_external_map_with_metrics(Data) ->
         metrics => get_metrics(Data#data.id)
     }.
 
-make_test_id() ->
-    RandId = iolist_to_binary(emqx_misc:gen_id(16)),
-    <<?TEST_ID_PREFIX, RandId/binary>>.
+-spec wait_for_resource_ready(resource_id(), integer()) -> ok | timeout.
+wait_for_resource_ready(ResId, WaitTime) ->
+    do_wait_for_resource_ready(ResId, WaitTime div ?WAIT_FOR_RESOURCE_DELAY).
 
--spec wait_for_resource_ready(instance_id(), integer()) -> ok | timeout.
-wait_for_resource_ready(InstId, WaitTime) ->
-    do_wait_for_resource_ready(InstId, WaitTime div ?WAIT_FOR_RESOURCE_DELAY).
-
-do_wait_for_resource_ready(_InstId, 0) ->
+do_wait_for_resource_ready(_ResId, 0) ->
     timeout;
-do_wait_for_resource_ready(InstId, Retry) ->
-    case ets_lookup(InstId) of
+do_wait_for_resource_ready(ResId, Retry) ->
+    case ets_lookup(ResId) of
         {ok, _Group, #{status := connected}} ->
             ok;
         _ ->
             timer:sleep(?WAIT_FOR_RESOURCE_DELAY),
-            do_wait_for_resource_ready(InstId, Retry - 1)
+            do_wait_for_resource_ready(ResId, Retry - 1)
     end.
 
-safe_call(InstId, Message, Timeout) ->
+safe_call(ResId, Message, Timeout) ->
     try
-        gen_statem:call(proc_name(InstId), Message, {clean_timeout, Timeout})
+        Module = atom_to_binary(?MODULE),
+        MgrId = get_owner(ResId),
+        ProcName = binary_to_existing_atom(<<Module/binary, "_", MgrId/binary>>, utf8),
+        gen_statem:call(ProcName, Message, {clean_timeout, Timeout})
     catch
+        error:badarg ->
+            {error, not_found};
         exit:{R, _} when R == noproc; R == normal; R == shutdown ->
             {error, not_found};
         exit:{timeout, _} ->

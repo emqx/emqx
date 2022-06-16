@@ -70,8 +70,9 @@
 %% Calls to the callback module with current resource state
 %% They also save the state after the call finished (except query/2,3).
 
-%% restart the instance.
 -export([
+    start/1,
+    start/2,
     restart/1,
     restart/2,
     %% verify if the resource is working normally
@@ -116,17 +117,17 @@
 ]).
 
 %% when calling emqx_resource:start/1
--callback on_start(instance_id(), resource_config()) ->
+-callback on_start(resource_id(), resource_config()) ->
     {ok, resource_state()} | {error, Reason :: term()}.
 
 %% when calling emqx_resource:stop/1
--callback on_stop(instance_id(), resource_state()) -> term().
+-callback on_stop(resource_id(), resource_state()) -> term().
 
 %% when calling emqx_resource:query/3
--callback on_query(instance_id(), Request :: term(), after_query(), resource_state()) -> term().
+-callback on_query(resource_id(), Request :: term(), after_query(), resource_state()) -> term().
 
 %% when calling emqx_resource:health_check/2
--callback on_get_status(instance_id(), resource_state()) ->
+-callback on_get_status(resource_id(), resource_state()) ->
     resource_status()
     | {resource_status(), resource_state()}
     | {resource_status(), resource_state(), term()}.
@@ -166,32 +167,32 @@ apply_query_after_calls(Funcs) ->
 %% =================================================================================
 %% APIs for resource instances
 %% =================================================================================
--spec create(instance_id(), resource_group(), resource_type(), resource_config()) ->
+-spec create(resource_id(), resource_group(), resource_type(), resource_config()) ->
     {ok, resource_data() | 'already_created'} | {error, Reason :: term()}.
-create(InstId, Group, ResourceType, Config) ->
-    create(InstId, Group, ResourceType, Config, #{}).
+create(ResId, Group, ResourceType, Config) ->
+    create(ResId, Group, ResourceType, Config, #{}).
 
--spec create(instance_id(), resource_group(), resource_type(), resource_config(), create_opts()) ->
+-spec create(resource_id(), resource_group(), resource_type(), resource_config(), create_opts()) ->
     {ok, resource_data() | 'already_created'} | {error, Reason :: term()}.
-create(InstId, Group, ResourceType, Config, Opts) ->
-    emqx_resource_proto_v1:create(InstId, Group, ResourceType, Config, Opts).
+create(ResId, Group, ResourceType, Config, Opts) ->
+    emqx_resource_proto_v1:create(ResId, Group, ResourceType, Config, Opts).
 % --------------------------------------------
 
--spec create_local(instance_id(), resource_group(), resource_type(), resource_config()) ->
+-spec create_local(resource_id(), resource_group(), resource_type(), resource_config()) ->
     {ok, resource_data() | 'already_created'} | {error, Reason :: term()}.
-create_local(InstId, Group, ResourceType, Config) ->
-    create_local(InstId, Group, ResourceType, Config, #{}).
+create_local(ResId, Group, ResourceType, Config) ->
+    create_local(ResId, Group, ResourceType, Config, #{}).
 
 -spec create_local(
-    instance_id(),
+    resource_id(),
     resource_group(),
     resource_type(),
     resource_config(),
     create_opts()
 ) ->
     {ok, resource_data()}.
-create_local(InstId, Group, ResourceType, Config, Opts) ->
-    emqx_resource_manager:ensure_resource(InstId, Group, ResourceType, Config, Opts).
+create_local(ResId, Group, ResourceType, Config, Opts) ->
+    emqx_resource_manager:ensure_resource(ResId, Group, ResourceType, Config, Opts).
 
 -spec create_dry_run(resource_type(), resource_config()) ->
     ok | {error, Reason :: term()}.
@@ -203,94 +204,102 @@ create_dry_run(ResourceType, Config) ->
 create_dry_run_local(ResourceType, Config) ->
     emqx_resource_manager:create_dry_run(ResourceType, Config).
 
--spec recreate(instance_id(), resource_type(), resource_config()) ->
+-spec recreate(resource_id(), resource_type(), resource_config()) ->
     {ok, resource_data()} | {error, Reason :: term()}.
-recreate(InstId, ResourceType, Config) ->
-    recreate(InstId, ResourceType, Config, #{}).
+recreate(ResId, ResourceType, Config) ->
+    recreate(ResId, ResourceType, Config, #{}).
 
--spec recreate(instance_id(), resource_type(), resource_config(), create_opts()) ->
+-spec recreate(resource_id(), resource_type(), resource_config(), create_opts()) ->
     {ok, resource_data()} | {error, Reason :: term()}.
-recreate(InstId, ResourceType, Config, Opts) ->
-    emqx_resource_proto_v1:recreate(InstId, ResourceType, Config, Opts).
+recreate(ResId, ResourceType, Config, Opts) ->
+    emqx_resource_proto_v1:recreate(ResId, ResourceType, Config, Opts).
 
--spec recreate_local(instance_id(), resource_type(), resource_config()) ->
+-spec recreate_local(resource_id(), resource_type(), resource_config()) ->
     {ok, resource_data()} | {error, Reason :: term()}.
-recreate_local(InstId, ResourceType, Config) ->
-    recreate_local(InstId, ResourceType, Config, #{}).
+recreate_local(ResId, ResourceType, Config) ->
+    recreate_local(ResId, ResourceType, Config, #{}).
 
--spec recreate_local(instance_id(), resource_type(), resource_config(), create_opts()) ->
+-spec recreate_local(resource_id(), resource_type(), resource_config(), create_opts()) ->
     {ok, resource_data()} | {error, Reason :: term()}.
-recreate_local(InstId, ResourceType, Config, Opts) ->
-    emqx_resource_manager:recreate(InstId, ResourceType, Config, Opts).
+recreate_local(ResId, ResourceType, Config, Opts) ->
+    emqx_resource_manager:recreate(ResId, ResourceType, Config, Opts).
 
--spec remove(instance_id()) -> ok | {error, Reason :: term()}.
-remove(InstId) ->
-    emqx_resource_proto_v1:remove(InstId).
+-spec remove(resource_id()) -> ok | {error, Reason :: term()}.
+remove(ResId) ->
+    emqx_resource_proto_v1:remove(ResId).
 
--spec remove_local(instance_id()) -> ok | {error, Reason :: term()}.
-remove_local(InstId) ->
-    emqx_resource_manager:remove(InstId).
+-spec remove_local(resource_id()) -> ok | {error, Reason :: term()}.
+remove_local(ResId) ->
+    emqx_resource_manager:remove(ResId).
 
--spec reset_metrics_local(instance_id()) -> ok.
-reset_metrics_local(InstId) ->
-    emqx_resource_manager:reset_metrics(InstId).
+-spec reset_metrics_local(resource_id()) -> ok.
+reset_metrics_local(ResId) ->
+    emqx_resource_manager:reset_metrics(ResId).
 
--spec reset_metrics(instance_id()) -> ok | {error, Reason :: term()}.
-reset_metrics(InstId) ->
-    emqx_resource_proto_v1:reset_metrics(InstId).
+-spec reset_metrics(resource_id()) -> ok | {error, Reason :: term()}.
+reset_metrics(ResId) ->
+    emqx_resource_proto_v1:reset_metrics(ResId).
 
 %% =================================================================================
--spec query(instance_id(), Request :: term()) -> Result :: term().
-query(InstId, Request) ->
-    query(InstId, Request, inc_metrics_funcs(InstId)).
+-spec query(resource_id(), Request :: term()) -> Result :: term().
+query(ResId, Request) ->
+    query(ResId, Request, inc_metrics_funcs(ResId)).
 
 %% same to above, also defines what to do when the Module:on_query success or failed
 %% it is the duty of the Module to apply the `after_query()` functions.
--spec query(instance_id(), Request :: term(), after_query()) -> Result :: term().
-query(InstId, Request, AfterQuery) ->
-    case emqx_resource_manager:ets_lookup(InstId) of
+-spec query(resource_id(), Request :: term(), after_query()) -> Result :: term().
+query(ResId, Request, AfterQuery) ->
+    case emqx_resource_manager:ets_lookup(ResId) of
         {ok, _Group, #{mod := Mod, state := ResourceState, status := connected}} ->
             %% the resource state is readonly to Module:on_query/4
             %% and the `after_query()` functions should be thread safe
-            ok = emqx_metrics_worker:inc(resource_metrics, InstId, matched),
+            ok = emqx_metrics_worker:inc(resource_metrics, ResId, matched),
             try
-                Mod:on_query(InstId, Request, AfterQuery, ResourceState)
+                Mod:on_query(ResId, Request, AfterQuery, ResourceState)
             catch
                 Err:Reason:ST ->
-                    emqx_metrics_worker:inc(resource_metrics, InstId, exception),
+                    emqx_metrics_worker:inc(resource_metrics, ResId, exception),
                     erlang:raise(Err, Reason, ST)
             end;
         {ok, _Group, _Data} ->
-            query_error(not_found, <<"resource not connected">>);
+            query_error(not_connected, <<"resource not connected">>);
         {error, not_found} ->
             query_error(not_found, <<"resource not found">>)
     end.
 
--spec restart(instance_id()) -> ok | {error, Reason :: term()}.
-restart(InstId) ->
-    restart(InstId, #{}).
+-spec start(resource_id()) -> ok | {error, Reason :: term()}.
+start(ResId) ->
+    start(ResId, #{}).
 
--spec restart(instance_id(), create_opts()) -> ok | {error, Reason :: term()}.
-restart(InstId, Opts) ->
-    emqx_resource_manager:restart(InstId, Opts).
+-spec start(resource_id(), create_opts()) -> ok | {error, Reason :: term()}.
+start(ResId, Opts) ->
+    emqx_resource_manager:start(ResId, Opts).
 
--spec stop(instance_id()) -> ok | {error, Reason :: term()}.
-stop(InstId) ->
-    emqx_resource_manager:stop(InstId).
+-spec restart(resource_id()) -> ok | {error, Reason :: term()}.
+restart(ResId) ->
+    restart(ResId, #{}).
 
--spec health_check(instance_id()) -> {ok, resource_status()} | {error, term()}.
-health_check(InstId) ->
-    emqx_resource_manager:health_check(InstId).
+-spec restart(resource_id(), create_opts()) -> ok | {error, Reason :: term()}.
+restart(ResId, Opts) ->
+    emqx_resource_manager:restart(ResId, Opts).
 
-set_resource_status_connecting(InstId) ->
-    emqx_resource_manager:set_resource_status_connecting(InstId).
+-spec stop(resource_id()) -> ok | {error, Reason :: term()}.
+stop(ResId) ->
+    emqx_resource_manager:stop(ResId).
 
--spec get_instance(instance_id()) ->
+-spec health_check(resource_id()) -> {ok, resource_status()} | {error, term()}.
+health_check(ResId) ->
+    emqx_resource_manager:health_check(ResId).
+
+set_resource_status_connecting(ResId) ->
+    emqx_resource_manager:set_resource_status_connecting(ResId).
+
+-spec get_instance(resource_id()) ->
     {ok, resource_group(), resource_data()} | {error, Reason :: term()}.
-get_instance(InstId) ->
-    emqx_resource_manager:lookup(InstId).
+get_instance(ResId) ->
+    emqx_resource_manager:lookup(ResId).
 
--spec list_instances() -> [instance_id()].
+-spec list_instances() -> [resource_id()].
 list_instances() ->
     [Id || #{id := Id} <- list_instances_verbose()].
 
@@ -298,36 +307,37 @@ list_instances() ->
 list_instances_verbose() ->
     emqx_resource_manager:list_all().
 
--spec list_instances_by_type(module()) -> [instance_id()].
+-spec list_instances_by_type(module()) -> [resource_id()].
 list_instances_by_type(ResourceType) ->
     filter_instances(fun
         (_, RT) when RT =:= ResourceType -> true;
         (_, _) -> false
     end).
 
--spec generate_id(term()) -> instance_id().
+-spec generate_id(term()) -> resource_id().
 generate_id(Name) when is_binary(Name) ->
-    Id = integer_to_binary(erlang:unique_integer([positive])),
+    Id = integer_to_binary(erlang:unique_integer([monotonic, positive])),
     <<Name/binary, ":", Id/binary>>.
 
--spec list_group_instances(resource_group()) -> [instance_id()].
+-spec list_group_instances(resource_group()) -> [resource_id()].
 list_group_instances(Group) -> emqx_resource_manager:list_group(Group).
 
--spec call_start(instance_id(), module(), resource_config()) ->
+-spec call_start(manager_id(), module(), resource_config()) ->
     {ok, resource_state()} | {error, Reason :: term()}.
-call_start(InstId, Mod, Config) ->
-    ?SAFE_CALL(Mod:on_start(InstId, Config)).
+call_start(MgrId, Mod, Config) ->
+    ?SAFE_CALL(Mod:on_start(MgrId, Config)).
 
--spec call_health_check(instance_id(), module(), resource_state()) ->
+-spec call_health_check(manager_id(), module(), resource_state()) ->
     resource_status()
     | {resource_status(), resource_state()}
-    | {resource_status(), resource_state(), term()}.
-call_health_check(InstId, Mod, ResourceState) ->
-    ?SAFE_CALL(Mod:on_get_status(InstId, ResourceState)).
+    | {resource_status(), resource_state(), term()}
+    | {error, term()}.
+call_health_check(MgrId, Mod, ResourceState) ->
+    ?SAFE_CALL(Mod:on_get_status(MgrId, ResourceState)).
 
--spec call_stop(instance_id(), module(), resource_state()) -> term().
-call_stop(InstId, Mod, ResourceState) ->
-    ?SAFE_CALL(Mod:on_stop(InstId, ResourceState)).
+-spec call_stop(manager_id(), module(), resource_state()) -> term().
+call_stop(MgrId, Mod, ResourceState) ->
+    ?SAFE_CALL(Mod:on_stop(MgrId, ResourceState)).
 
 -spec check_config(resource_type(), raw_resource_config()) ->
     {ok, resource_config()} | {error, term()}.
@@ -335,85 +345,85 @@ check_config(ResourceType, Conf) ->
     emqx_hocon:check(ResourceType, Conf).
 
 -spec check_and_create(
-    instance_id(),
+    resource_id(),
     resource_group(),
     resource_type(),
     raw_resource_config()
 ) ->
     {ok, resource_data() | 'already_created'} | {error, term()}.
-check_and_create(InstId, Group, ResourceType, RawConfig) ->
-    check_and_create(InstId, Group, ResourceType, RawConfig, #{}).
+check_and_create(ResId, Group, ResourceType, RawConfig) ->
+    check_and_create(ResId, Group, ResourceType, RawConfig, #{}).
 
 -spec check_and_create(
-    instance_id(),
+    resource_id(),
     resource_group(),
     resource_type(),
     raw_resource_config(),
     create_opts()
 ) ->
     {ok, resource_data() | 'already_created'} | {error, term()}.
-check_and_create(InstId, Group, ResourceType, RawConfig, Opts) ->
+check_and_create(ResId, Group, ResourceType, RawConfig, Opts) ->
     check_and_do(
         ResourceType,
         RawConfig,
-        fun(InstConf) -> create(InstId, Group, ResourceType, InstConf, Opts) end
+        fun(ResConf) -> create(ResId, Group, ResourceType, ResConf, Opts) end
     ).
 
 -spec check_and_create_local(
-    instance_id(),
+    resource_id(),
     resource_group(),
     resource_type(),
     raw_resource_config()
 ) ->
     {ok, resource_data()} | {error, term()}.
-check_and_create_local(InstId, Group, ResourceType, RawConfig) ->
-    check_and_create_local(InstId, Group, ResourceType, RawConfig, #{}).
+check_and_create_local(ResId, Group, ResourceType, RawConfig) ->
+    check_and_create_local(ResId, Group, ResourceType, RawConfig, #{}).
 
 -spec check_and_create_local(
-    instance_id(),
+    resource_id(),
     resource_group(),
     resource_type(),
     raw_resource_config(),
     create_opts()
 ) -> {ok, resource_data()} | {error, term()}.
-check_and_create_local(InstId, Group, ResourceType, RawConfig, Opts) ->
+check_and_create_local(ResId, Group, ResourceType, RawConfig, Opts) ->
     check_and_do(
         ResourceType,
         RawConfig,
-        fun(InstConf) -> create_local(InstId, Group, ResourceType, InstConf, Opts) end
+        fun(ResConf) -> create_local(ResId, Group, ResourceType, ResConf, Opts) end
     ).
 
 -spec check_and_recreate(
-    instance_id(),
+    resource_id(),
     resource_type(),
     raw_resource_config(),
     create_opts()
 ) ->
     {ok, resource_data()} | {error, term()}.
-check_and_recreate(InstId, ResourceType, RawConfig, Opts) ->
+check_and_recreate(ResId, ResourceType, RawConfig, Opts) ->
     check_and_do(
         ResourceType,
         RawConfig,
-        fun(InstConf) -> recreate(InstId, ResourceType, InstConf, Opts) end
+        fun(ResConf) -> recreate(ResId, ResourceType, ResConf, Opts) end
     ).
 
 -spec check_and_recreate_local(
-    instance_id(),
+    resource_id(),
     resource_type(),
     raw_resource_config(),
     create_opts()
 ) ->
     {ok, resource_data()} | {error, term()}.
-check_and_recreate_local(InstId, ResourceType, RawConfig, Opts) ->
+check_and_recreate_local(ResId, ResourceType, RawConfig, Opts) ->
     check_and_do(
         ResourceType,
         RawConfig,
-        fun(InstConf) -> recreate_local(InstId, ResourceType, InstConf, Opts) end
+        fun(ResConf) -> recreate_local(ResId, ResourceType, ResConf, Opts) end
     ).
 
 check_and_do(ResourceType, RawConfig, Do) when is_function(Do) ->
     case check_config(ResourceType, RawConfig) of
-        {ok, InstConf} -> Do(InstConf);
+        {ok, ResConf} -> Do(ResConf);
         Error -> Error
     end.
 
@@ -422,9 +432,9 @@ check_and_do(ResourceType, RawConfig, Do) when is_function(Do) ->
 filter_instances(Filter) ->
     [Id || #{id := Id, mod := Mod} <- list_instances_verbose(), Filter(Id, Mod)].
 
-inc_metrics_funcs(InstId) ->
-    OnFailed = [{fun emqx_metrics_worker:inc/3, [resource_metrics, InstId, failed]}],
-    OnSucc = [{fun emqx_metrics_worker:inc/3, [resource_metrics, InstId, success]}],
+inc_metrics_funcs(ResId) ->
+    OnFailed = [{fun emqx_metrics_worker:inc/3, [resource_metrics, ResId, failed]}],
+    OnSucc = [{fun emqx_metrics_worker:inc/3, [resource_metrics, ResId, success]}],
     {OnSucc, OnFailed}.
 
 safe_apply(Func, Args) ->
