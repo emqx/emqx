@@ -34,5 +34,8 @@ jobs:
         with:
           name: expected_appup_files
           path: |
-            {src,apps}/**/*.appup.src
+            apps/*/src/*.appup.src
+            src/*.appup.src
+            lib-ce/*/src/*.appup.src
+            lib-ee/*/src/*.appup.src
           retention-days: 1
