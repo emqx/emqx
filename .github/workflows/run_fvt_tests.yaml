@@ -126,16 +126,19 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
+        discovery:
+        - k8s
+        - dns
         profile:
         - emqx
         os:
-          - ["debian11", "debian:11-slim"]
+        - ["debian11", "debian:11-slim"]
         otp:
-          - 24.2.1-1
+        - 24.2.1-1
         elixir:
-          - 1.13.4
+        - 1.13.4
         arch:
-          - amd64
+        - amd64
       # - emqx-enterprise # TODO test enterprise
 
     steps:
@@ -171,14 +174,15 @@ jobs:
         echo "TARGET=emqx/${{ matrix.profile }}" >> $GITHUB_ENV
         echo "EMQX_TAG=$(./pkg-vsn.sh ${{ matrix.profile }})" >> $GITHUB_ENV
     - run: minikube start
-    - name: run emqx on chart
-      timeout-minutes: 5
+    - name: setup helm chart
       working-directory: source
       run: |
         minikube image load $TARGET:$EMQX_TAG
-
         sed -i -r "s/^appVersion: .*$/appVersion: \"$EMQX_TAG\"/g" deploy/charts/emqx/Chart.yaml
-
+    - name: run emqx on chart
+      working-directory: source
+      if: matrix.discovery == 'k8s'
+      run: |
         helm install emqx \
             --set image.repository=$TARGET \
             --set image.pullPolicy=Never \
@@ -190,7 +194,27 @@ jobs:
             --set emqxConfig.EMQX_AUTHORIZATION__NO_MATCH=allow \
             deploy/charts/emqx \
             --debug
-
+    - name: run emqx on chart
+      working-directory: source
+      if: matrix.discovery == 'dns'
+      run: |
+        helm install emqx \
+            --set emqxConfig.EMQX_CLUSTER__DISCOVERY_STRATEGY="dns" \
+            --set emqxConfig.EMQX_CLUSTER__DNS__NAME="emqx-headless.default.svc.cluster.local" \
+            --set emqxConfig.EMQX_CLUSTER__DNS__RECORD_TYPE="srv" \
+            --set image.repository=$TARGET \
+            --set image.pullPolicy=Never \
+            --set emqxAclConfig="" \
+            --set image.pullPolicy=Never \
+            --set emqxConfig.EMQX_ZONES__DEFAULT__MQTT__RETRY_INTERVAL=2s \
+            --set emqxConfig.EMQX_ZONES__DEFAULT__MQTT__MAX_TOPIC_ALIAS=10 \
+            --set emqxConfig.EMQX_AUTHORIZATION__SOURCES=[] \
+            --set emqxConfig.EMQX_AUTHORIZATION__NO_MATCH=allow \
+            deploy/charts/emqx \
+            --debug
+    - name: waiting emqx started
+      timeout-minutes: 10
+      run: |
         while [ "$(kubectl get StatefulSet -l app.kubernetes.io/name=emqx -o jsonpath='{.items[0].status.replicas}')" \
           != "$(kubectl get StatefulSet -l app.kubernetes.io/name=emqx -o jsonpath='{.items[0].status.readyReplicas}')" ]; do
           echo "==============================";
@@ -198,6 +222,16 @@ jobs:
           echo "==============================";
           echo "waiting emqx started";
           sleep 10;
+        done
+    - name: Check cluster
+      timeout-minutes: 10
+      run: |
+        kubectl port-forward svc/emqx 18083:18083 &
+        while
+          [ "$(curl --silent --basic -u admin:public -X GET http://127.0.0.1:18083/api/v5/cluster| jq '.nodes|length')" != "3" ];
+        do
+          echo "waiting emqx cluster scale"
+          sleep 1
         done
     - name: get emqx-0 pods log
       if: failure()
