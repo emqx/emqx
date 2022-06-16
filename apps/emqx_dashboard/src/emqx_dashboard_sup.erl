@@ -22,7 +22,7 @@
 
 -export([init/1]).
 
--define(CHILD(I), {I, {I, start_link, []}, permanent, 5000, worker, [I]}).
+-define(CHILD(I, ShutDown), {I, {I, start_link, []}, permanent, ShutDown, worker, [I]}).
 
 start_link() ->
     supervisor:start_link({local, ?MODULE}, ?MODULE, []).
@@ -30,7 +30,7 @@ start_link() ->
 init([]) ->
     {ok,
         {{one_for_one, 5, 100}, [
-            ?CHILD(emqx_dashboard_listener),
-            ?CHILD(emqx_dashboard_token),
-            ?CHILD(emqx_dashboard_monitor)
+            ?CHILD(emqx_dashboard_listener, brutal_kill),
+            ?CHILD(emqx_dashboard_token, 5000),
+            ?CHILD(emqx_dashboard_monitor, 5000)
         ]}}.
