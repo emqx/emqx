@@ -59,16 +59,14 @@ create_resource(ResourceId, Module, Config) ->
     ).
 
 update_resource(Module, Config, ResourceId) ->
-    %% recreate before maybe stop
-    %% resource will auto start during recreate
-    Result = emqx_resource:recreate_local(ResourceId, Module, Config),
-    case Config of
-        #{enable := true} ->
-            Result;
-        #{enable := false} ->
-            ok = emqx_resource:stop(ResourceId),
-            Result
-    end.
+    Opts = #{start_after_created => false},
+    Result = emqx_resource:recreate_local(ResourceId, Module, Config, Opts),
+    _ =
+        case Config of
+            #{enable := true} -> emqx_resource:start(ResourceId);
+            #{enable := false} -> ok
+        end,
+    Result.
 
 check_password_from_selected_map(_Algorithm, _Selected, undefined) ->
     {error, bad_username_or_password};
