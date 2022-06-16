@@ -72,18 +72,6 @@ jobs:
     - name: Get old vsn
       run: echo "OLD_VSNS=$(emqx/scripts/relup-base-vsns.sh ${{ matrix.profile }} | xargs echo -n)" >> $GITHUB_ENV
 
-    - name: Get deps git refs for cache
-      id: deps-refs
-      run: |
-        cd emqx
-        scripts/get-dep-refs.sh
-
-    - name: load quicer cache
-      uses: actions/cache@v2
-      with:
-        path: emqx/_build/default/lib/quicer/
-        key: ${{ matrix.os }}-${{ matrix.otp }}-${{ matrix.arch }}-${{ steps.deps-refs.outputs.DEP_QUICER_REF }}
-
     - name: build emqx
       env:
         PROFILE: ${{ matrix.profile }}
