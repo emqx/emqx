@@ -83,13 +83,13 @@ all() ->
 init_per_suite(Config) ->
     ok = emqx_common_test_helpers:load_config(emqx_gateway_schema, ?CONF_DEFAULT),
     application:load(emqx_gateway),
-    emqx_mgmt_api_test_util:init_suite([emqx_conf]),
+    emqx_mgmt_api_test_util:init_suite([emqx_conf, emqx_authn]),
     Config.
 
 end_per_suite(Config) ->
     timer:sleep(300),
     {ok, _} = emqx_conf:remove([<<"gateway">>, <<"lwm2m">>], #{}),
-    emqx_mgmt_api_test_util:end_suite([emqx_conf]),
+    emqx_mgmt_api_test_util:end_suite([emqx_authn, emqx_conf]),
     Config.
 
 init_per_testcase(_AllTestCase, Config) ->
@@ -107,7 +107,6 @@ end_per_testcase(_AllTestCase, Config) ->
     gen_udp:close(?config(sock, Config)),
     emqtt:disconnect(?config(emqx_c, Config)),
     ok = application:stop(emqx_gateway),
-    ok = application:stop(emqx_authn),
     timer:sleep(300).
 
 %%--------------------------------------------------------------------

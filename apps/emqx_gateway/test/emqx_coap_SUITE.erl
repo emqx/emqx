@@ -57,14 +57,14 @@ all() -> emqx_common_test_helpers:all(?MODULE).
 
 init_per_suite(Config) ->
     ok = emqx_common_test_helpers:load_config(emqx_gateway_schema, ?CONF_DEFAULT),
-    emqx_mgmt_api_test_util:init_suite([emqx_gateway]),
+    emqx_mgmt_api_test_util:init_suite([emqx_authn, emqx_gateway]),
     ok = meck:new(emqx_access_control, [passthrough, no_history, no_link]),
     Config.
 
 end_per_suite(_) ->
     meck:unload(emqx_access_control),
     {ok, _} = emqx:remove_config([<<"gateway">>, <<"coap">>]),
-    emqx_mgmt_api_test_util:end_suite([emqx_gateway]).
+    emqx_mgmt_api_test_util:end_suite([emqx_gateway, emqx_authn]).
 
 init_per_testcase(t_connection_with_authn_failed, Config) ->
     ok = meck:expect(
