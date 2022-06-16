@@ -130,23 +130,23 @@ create_redis_auth_with_ssl_opts(SpecificSSLOpts) ->
 raw_redis_auth_config(SpecificSSLOpts) ->
     SSLOpts = maps:merge(
         emqx_authn_test_lib:client_ssl_cert_opts(),
-        #{enable => <<"true">>}
+        #{<<"enable">> => <<"true">>}
     ),
     #{
-        mechanism => <<"password_based">>,
-        password_hash_algorithm => #{
-            name => <<"plain">>,
-            salt_position => <<"suffix">>
+        <<"mechanism">> => <<"password_based">>,
+        <<"password_hash_algorithm">> => #{
+            <<"name">> => <<"plain">>,
+            <<"salt_position">> => <<"suffix">>
         },
-        enable => <<"true">>,
+        <<"enable">> => <<"true">>,
 
-        backend => <<"redis">>,
-        cmd => <<"HMGET mqtt_user:${username} password_hash salt is_superuser">>,
-        database => <<"1">>,
-        password => <<"public">>,
-        server => redis_server(),
-        redis_type => <<"single">>,
-        ssl => maps:merge(SSLOpts, SpecificSSLOpts)
+        <<"backend">> => <<"redis">>,
+        <<"cmd">> => <<"HMGET mqtt_user:${username} password_hash salt is_superuser">>,
+        <<"database">> => <<"1">>,
+        <<"password">> => <<"public">>,
+        <<"server">> => redis_server(),
+        <<"redis_type">> => <<"single">>,
+        <<"ssl">> => maps:merge(SSLOpts, SpecificSSLOpts)
     }.
 
 redis_server() ->

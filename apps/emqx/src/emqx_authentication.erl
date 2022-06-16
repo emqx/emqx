@@ -214,6 +214,8 @@ when
 %% Authenticate
 %%------------------------------------------------------------------------------
 
+authenticate(#{enable_authn := false}, _AuthResult) ->
+    ignore;
 authenticate(#{listener := Listener, protocol := Protocol} = Credential, _AuthResult) ->
     case get_authenticators(Listener, global_chain(Protocol)) of
         {ok, ChainName, Authenticators} ->

@@ -492,14 +492,14 @@ generate_jws('public-key', Payload, PrivateKey) ->
     JWS.
 
 client_ssl_opts() ->
-    maps:merge(
-        emqx_authn_test_lib:client_ssl_cert_opts(),
-        #{
-            enable => true,
-            verify => verify_peer,
-            server_name_indication => "authn-server"
-        }
-    ).
+    #{
+        keyfile => cert_file("client.key"),
+        certfile => cert_file("client.crt"),
+        cacertfile => cert_file("ca.crt"),
+        enable => true,
+        verify => verify_peer,
+        server_name_indication => "authn-server"
+    }.
 
 server_ssl_opts() ->
     [

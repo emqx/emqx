@@ -109,6 +109,12 @@ t_case_coap(_) ->
         Prefix ++
             "/connection?clientid=client1&username=bad&password=bad",
     Login(LeftUrl, ?checkMatch({error, bad_request, _Data})),
+
+    disable_authn(coap, udp, default),
+    NowRightUrl =
+        Prefix ++
+            "/connection?clientid=client1&username=bad&password=bad",
+    Login(NowRightUrl, ?checkMatch({ok, created, _Data})),
     ok.
 
 -record(coap_content, {content_format, payload = <<>>}).
@@ -155,6 +161,11 @@ t_case_lwm2m(_) ->
 
     NoInfoUrl = "coap://127.0.0.1:~b/rd?ep=~ts&lt=345&lwm2m=1",
     Login(NoInfoUrl, MakeCheker(ack, {error, bad_request})),
+
+    disable_authn(lwm2m, udp, default),
+    NowRightUrl = "coap://127.0.0.1:~b/rd?ep=~ts&lt=345&lwm2m=1&imei=bad&password=bad",
+    Login(NowRightUrl, MakeCheker(ack, {ok, created})),
+
     ok.
 
 -define(SN_CONNACK, 16#05).
@@ -182,6 +193,9 @@ t_case_mqttsn(_) ->
     end,
     Login(<<"badadmin">>, <<"badpassowrd">>, <<3, ?SN_CONNACK, 16#80>>),
     Login(<<"admin">>, <<"public">>, <<3, ?SN_CONNACK, 0>>),
+
+    disable_authn(mqttsn, udp, default),
+    Login(<<"badadmin">>, <<"badpassowrd">>, <<3, ?SN_CONNACK, 0>>),
     ok.
 
 t_case_stomp(_) ->
@@ -220,6 +234,15 @@ t_case_stomp(_) ->
         ?assertEqual(<<"Login Failed: not_authorized">>, Mod:get_field(body, Frame))
     end),
 
+    disable_authn(stomp, tcp, default),
+    Login(
+        <<"bad">>,
+        <<"bad">>,
+        ?FUNCTOR(
+            Frame,
+            ?assertEqual(<<"CONNECTED">>, Mod:get_field(command, Frame))
+        )
+    ),
     ok.
 
 t_case_exproto(_) ->
@@ -249,5 +272,18 @@ t_case_exproto(_) ->
     end,
     Login(<<"admin">>, <<"public">>, SvrMod:frame_connack(0)),
     Login(<<"bad">>, <<"bad">>, SvrMod:frame_connack(1)),
+
+    disable_authn(exproto, tcp, default),
+    Login(<<"bad">>, <<"bad">>, SvrMod:frame_connack(0)),
+
     SvrMod:stop(Svrs),
     ok.
+
+disable_authn(GwName, Type, Name) ->
+    RawCfg = emqx_conf:get_raw([gateway, GwName], #{}),
+    ListenerCfg = emqx_map_lib:deep_get(
+        [<<"listeners">>, atom_to_binary(Type), atom_to_binary(Name)], RawCfg
+    ),
+    {ok, _} = emqx_gateway_conf:update_listener(GwName, {Type, Name}, ListenerCfg#{
+        <<"enable_authn">> => false
+    }).
