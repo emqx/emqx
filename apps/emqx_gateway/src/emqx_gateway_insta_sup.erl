@@ -141,12 +141,16 @@ handle_call(disable, _From, State = #state{status = Status}) ->
 handle_call(enable, _From, State = #state{status = Status}) ->
     case Status of
         stopped ->
-            ok = ensure_authn_running(State),
-            case cb_gateway_load(State) of
+            case ensure_authn_running(State) of
+                ok ->
+                    case cb_gateway_load(State) of
+                        {error, Reason} ->
+                            {reply, {error, Reason}, State};
+                        {ok, NState1} ->
+                            {reply, ok, NState1}
+                    end;
                 {error, Reason} ->
-                    {reply, {error, Reason}, State};
-                {ok, NState1} ->
-                    {reply, ok, NState1}
+                    {reply, {error, Reason}, State}
             end;
         _ ->
             {reply, {error, already_started}, State}
@@ -238,12 +242,22 @@ detailed_gateway_info(State) ->
 %%--------------------------------------------------------------------
 %% Authn resources managing funcs
 
+pipeline(_, []) ->
+    ok;
+pipeline(Fun, [Args | More]) ->
+    case Fun(Args) of
+        ok ->
+            pipeline(Fun, More);
+        {error, Reason} ->
+            {error, Reason}
+    end.
+
 %% ensure authentication chain, authenticator created and keep its configured
 %% status
 ensure_authn_running(#state{name = GwName, config = Config}) ->
-    lists:foreach(
+    pipeline(
         fun({ChainName, AuthConf}) ->
-            ok = ensure_authenticator_created(ChainName, AuthConf)
+            ensure_authenticator_created(ChainName, AuthConf)
         end,
         authns(GwName, Config)
     ).
@@ -251,9 +265,9 @@ ensure_authn_running(#state{name = GwName, config = Config}) ->
 %% ensure authentication chain, authenticator created and keep its status
 %% as given
 ensure_authn_running(#state{name = GwName, config = Config}, Enable) ->
-    lists:foreach(
+    pipeline(
         fun({ChainName, AuthConf}) ->
-            ok = ensure_authenticator_created(ChainName, AuthConf#{enable => Enable})
+            ensure_authenticator_created(ChainName, AuthConf#{enable => Enable})
         end,
         authns(GwName, Config)
     ).
@@ -285,12 +299,14 @@ remove_all_authns(#state{name = GwName, config = Config}) ->
 ensure_authenticator_created(ChainName, Confs) ->
     case emqx_authentication:list_authenticators(ChainName) of
         {ok, [#{id := AuthenticatorId}]} ->
-            {ok, _} = emqx_authentication:update_authenticator(ChainName, AuthenticatorId, Confs),
-            ok;
+            case emqx_authentication:update_authenticator(ChainName, AuthenticatorId, Confs) of
+                {ok, _} -> ok;
+                {error, Reason} -> {error, {badauth, Reason}}
+            end;
         {ok, []} ->
-            ok = do_create_authenticator(ChainName, Confs);
+            do_create_authenticator(ChainName, Confs);
         {error, {not_found, {chain, _}}} ->
-            ok = do_create_authenticator(ChainName, Confs)
+            do_create_authenticator(ChainName, Confs)
     end.
 
 authns(GwName, Config) ->
@@ -328,7 +344,7 @@ do_create_authenticator(ChainName, AuthConf) ->
                 reason => Reason,
                 config => AuthConf
             }),
-            throw({badauth, Reason})
+            {error, {badauth, Reason}}
     end.
 
 do_update_one_by_one(
@@ -348,15 +364,27 @@ do_update_one_by_one(
 
     case {Status, NEnable} of
         {stopped, true} ->
-            ok = ensure_authn_running(State#state{config = NCfg}),
-            cb_gateway_load(State#state{config = NCfg});
+            case ensure_authn_running(State#state{config = NCfg}) of
+                ok ->
+                    cb_gateway_load(State#state{config = NCfg});
+                {error, Reason} ->
+                    {error, Reason}
+            end;
         {stopped, false} ->
-            ok = disable_authns(State#state{config = NCfg}),
-            {ok, State#state{config = NCfg}};
+            case disable_authns(State#state{config = NCfg}) of
+                ok ->
+                    {ok, State#state{config = NCfg}};
+                {error, Reason} ->
+                    {error, Reason}
+            end;
         {running, true} ->
             %% FIXME: minimum impact update
-            ok = ensure_authn_running(State#state{config = NCfg}),
-            cb_gateway_update(NCfg, State);
+            case ensure_authn_running(State#state{config = NCfg}) of
+                ok ->
+                    cb_gateway_update(NCfg, State);
+                {error, Reason} ->
+                    {error, Reason}
+            end;
         {running, false} ->
             case cb_gateway_unload(State) of
                 {ok, NState} ->
