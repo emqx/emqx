@@ -287,15 +287,6 @@ fields(cluster_dns) ->
                     desc => ?DESC(cluster_dns_name),
                     'readOnly' => true
                 }
-            )},
-        {"app",
-            sc(
-                string(),
-                #{
-                    default => "emqx",
-                    desc => ?DESC(cluster_dns_app),
-                    'readOnly' => true
-                }
             )}
     ];
 fields(cluster_etcd) ->
@@ -362,15 +353,6 @@ fields(cluster_k8s) ->
                     default => ip,
                     desc => ?DESC(cluster_k8s_address_type),
                     'readOnly' => true
-                }
-            )},
-        {"app_name",
-            sc(
-                string(),
-                #{
-                    default => "emqx",
-                    'readOnly' => true,
-                    desc => ?DESC(cluster_k8s_app_name)
                 }
             )},
         {"namespace",
@@ -1300,8 +1282,7 @@ options(mcast, Conf) ->
     ];
 options(dns, Conf) ->
     [
-        {name, conf_get("cluster.dns.name", Conf)},
-        {app, conf_get("cluster.dns.app", Conf)}
+        {name, conf_get("cluster.dns.name", Conf)}
     ];
 options(etcd, Conf) ->
     Namespace = "cluster.etcd.ssl",
@@ -1320,7 +1301,6 @@ options(k8s, Conf) ->
         {apiserver, conf_get("cluster.k8s.apiserver", Conf)},
         {service_name, conf_get("cluster.k8s.service_name", Conf)},
         {address_type, conf_get("cluster.k8s.address_type", Conf, ip)},
-        {app_name, conf_get("cluster.k8s.app_name", Conf)},
         {namespace, conf_get("cluster.k8s.namespace", Conf)},
         {suffix, conf_get("cluster.k8s.suffix", Conf, "")}
     ];
