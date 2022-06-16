@@ -22,7 +22,7 @@
 -include_lib("emqx/include/emqx.hrl").
 -include_lib("eunit/include/eunit.hrl").
 
--define(EMQX_PLUGIN_TEMPLATE_VSN, "5.0-rc.1").
+-define(EMQX_PLUGIN_TEMPLATE_VSN, "5.0.0-rc.3").
 -define(EMQX_ELIXIR_PLUGIN_TEMPLATE_VSN, "0.1.0").
 -define(PACKAGE_SUFFIX, ".tar.gz").
 

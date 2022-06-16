@@ -16,23 +16,25 @@
 
 %% Definitions for Hook Priorities
 
-%% == Highest Priority
--define(HP_PSK, 1000).
--define(HP_REWRITE, 1000).
--define(HP_AUTHN, 990).
--define(HP_AUTHZ, 980).
--define(HP_SYS_MSGS, 960).
--define(HP_TOPIC_METRICS, 950).
--define(HP_RETAINER, 940).
--define(HP_AUTO_SUB, 930).
+%% Highest Priority = 1000, don't change this value as the plugins may depend on it.
+-define(HP_HIGHEST, 1000).
 
+%% hooks used by the emqx core app
+-define(HP_PSK, 990).
+-define(HP_REWRITE, 980).
+-define(HP_AUTHN, 970).
+-define(HP_AUTHZ, 960).
+-define(HP_SYS_MSGS, 950).
+-define(HP_TOPIC_METRICS, 940).
+-define(HP_RETAINER, 930).
+-define(HP_AUTO_SUB, 920).
 -define(HP_RULE_ENGINE, 900).
-
 %% apps that can work with the republish action
--define(HP_SLOW_SUB, 980).
--define(HP_BRIDGE, 970).
--define(HP_DELAY_PUB, 960).
-
-%% apps that can stop the hooks
+-define(HP_SLOW_SUB, 880).
+-define(HP_BRIDGE, 870).
+-define(HP_DELAY_PUB, 860).
+%% apps that can stop the hooks chain from continuing
 -define(HP_EXHOOK, 100).
-%% == Lowest Priority
+
+%% == Lowest Priority = 0, don't change this value as the plugins may depend on it.
+-define(HP_LOWEST, 0).
