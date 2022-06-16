@@ -38,7 +38,7 @@ bcrypt() ->
     {bcrypt, {git, "https://github.com/emqx/erlang-bcrypt.git", {tag, "0.6.0"}}}.
 
 quicer() ->
-    {quicer, {git, "https://github.com/emqx/quic.git", {tag, "0.0.9"}}}.
+    {quicer, {git, "https://github.com/emqx/quic.git", {tag, "0.0.11"}}}.
 
 jq() ->
     {jq, {git, "https://github.com/emqx/jq", {tag, "v0.3.4"}}}.
@@ -138,7 +138,8 @@ common_compile_opts(Edition, Vsn) ->
         {compile_info, [{emqx_vsn, Vsn}]},
         {d, 'EMQX_RELEASE_EDITION', Edition}
     ] ++
-        [{d, 'EMQX_BENCHMARK'} || os:getenv("EMQX_BENCHMARK") =:= "1"].
+        [{d, 'EMQX_BENCHMARK'} || os:getenv("EMQX_BENCHMARK") =:= "1"] ++
+        [{d, 'BUILD_WITHOUT_QUIC'} || not is_quicer_supported()].
 
 prod_compile_opts(Edition, Vsn) ->
     [

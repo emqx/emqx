@@ -16,6 +16,12 @@
 
 -module(emqx_quic_connection).
 
+-ifndef(BUILD_WITHOUT_QUIC).
+-include_lib("quicer/include/quicer.hrl").
+-else.
+-define(QUIC_CONNECTION_SHUTDOWN_FLAG_NONE, 0).
+-endif.
+
 %% Callbacks
 -export([
     init/1,
@@ -59,5 +65,5 @@ connected(_Conn, S) ->
 
 -spec shutdown(quicer:connection_handler(), cb_state()) -> {ok, cb_state()} | {error, any()}.
 shutdown(Conn, S) ->
-    quicer:async_close_connection(Conn),
+    quicer:async_shutdown_connection(Conn, ?QUIC_CONNECTION_SHUTDOWN_FLAG_NONE, 0),
     {ok, S}.

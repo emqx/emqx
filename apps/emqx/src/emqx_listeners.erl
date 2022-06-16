@@ -143,9 +143,13 @@ is_running(Type, ListenerId, _Conf) when Type =:= ws; Type =:= wss ->
         _:_ ->
             false
     end;
-is_running(quic, _ListenerId, _Conf) ->
-    %% TODO: quic support
-    false.
+is_running(quic, ListenerId, _Conf) ->
+    case quicer:listener(ListenerId) of
+        {ok, Pid} when is_pid(Pid) ->
+            true;
+        _ ->
+            false
+    end.
 
 current_conns(ID, ListenOn) ->
     {ok, #{type := Type, name := Name}} = parse_listener_id(ID),
@@ -325,15 +329,18 @@ do_start_listener(quic, ListenerName, #{bind := ListenOn} = Opts) ->
     case [A || {quicer, _, _} = A <- application:which_applications()] of
         [_] ->
             DefAcceptors = erlang:system_info(schedulers_online) * 8,
+            IdleTimeout = timer:seconds(maps:get(idle_timeout, Opts)),
             ListenOpts = [
                 {cert, maps:get(certfile, Opts)},
                 {key, maps:get(keyfile, Opts)},
                 {alpn, ["mqtt"]},
                 {conn_acceptors, lists:max([DefAcceptors, maps:get(acceptors, Opts, 0)])},
+                {keep_alive_interval_ms, ceil(IdleTimeout / 3)},
+                {server_resumption_level, 2},
                 {idle_timeout_ms,
                     lists:max([
                         emqx_config:get_zone_conf(zone(Opts), [mqtt, idle_timeout]) * 3,
-                        timer:seconds(maps:get(idle_timeout, Opts))
+                        IdleTimeout
                     ])}
             ],
             ConnectionOpts = #{

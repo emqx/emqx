@@ -252,7 +252,8 @@ t_connect_will_message(Config) ->
     {ok, _, [2]} = emqtt:subscribe(Client4, Topic, qos2),
     ok = emqtt:disconnect(Client3),
     %% [MQTT-3.1.2-10]
-    ?assertEqual(0, length(receive_messages(1))),
+    MsgRecv = receive_messages(1),
+    ?assertEqual([], MsgRecv),
     ok = emqtt:disconnect(Client4).
 
 t_batch_subscribe(init, Config) ->
