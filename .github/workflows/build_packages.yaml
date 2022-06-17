@@ -15,7 +15,9 @@ on:
     - e*
   workflow_dispatch:
     inputs:
-      which_branch:
+      branch_or_tag:
+        required: false
+      profile:
         required: false
 
 jobs:
