@@ -25,6 +25,8 @@
 
 -import(hoconsc, [mk/2, ref/2, array/1]).
 
+-export([printable_function_name/2]).
+
 %% Swagger specs from hocon schema
 -export([api_spec/0, paths/0, schema/1, namespace/0]).
 
