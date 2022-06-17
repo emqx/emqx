@@ -16,7 +16,7 @@
 
 -module(emqx_bpapi_static_checks).
 
--export([run/0, dump/1, dump/0, check_compat/1, versions_file/0]).
+-export([run/0, dump/1, dump/0, check_compat/1, versions_file/0, dumps_dir/0]).
 
 %% Using an undocumented API here :(
 -include_lib("dialyzer/src/dialyzer.hrl").
@@ -238,8 +238,7 @@ dump(Opts) ->
     warn_nonbpapi_rpcs(NonBPAPICalls),
     APIDump = collect_bpapis(BPAPICalls),
     DialyzerDump = collect_signatures(PLT, APIDump),
-    [Release | _] = string:split(emqx_app:get_release(), "-"),
-    dump_api(#{api => APIDump, signatures => DialyzerDump, release => Release}),
+    dump_api(#{api => APIDump, signatures => DialyzerDump, release => "master"}),
     dump_versions(APIDump),
     xref:stop(?XREF),
     erase(bpapi_ok).
@@ -293,7 +292,7 @@ is_bpapi_call({Module, _Function, _Arity}) ->
 dump_api(Term = #{api := _, signatures := _, release := Release}) ->
     Filename = filename:join(dumps_dir(), Release ++ ".bpapi"),
     ok = filelib:ensure_dir(Filename),
-    file:write_file(Filename, io_lib:format("~0p.", [Term])).
+    file:write_file(Filename, io_lib:format("~0p.~n", [Term])).
 
 -spec dump_versions(api_dump()) -> ok.
 dump_versions(APIs) ->
