@@ -319,7 +319,7 @@ jobs:
         images: ${{ matrix.registry }}/${{ github.repository_owner }}/${{ matrix.profile }}
         ## only stable tag is latest
         flavor: |
-          latest=${{ contains(github.ref, 'tags') && !contains(github.ref_name, 'rc') && !contains(github.ref_name, 'beta') && !contains(github.ref_name, 'alpha') }}
+          latest=false # latest is now 5.0
         tags: |
           type=ref,event=branch
           type=ref,event=pr
