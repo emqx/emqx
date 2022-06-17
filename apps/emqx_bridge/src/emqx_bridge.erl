@@ -118,7 +118,7 @@ unload_hook() ->
 on_message_publish(Message = #message{topic = Topic, flags = Flags}) ->
     case maps:get(sys, Flags, false) of
         false ->
-            Msg = emqx_rule_events:eventmsg_publish(Message),
+            {Msg, _} = emqx_rule_events:eventmsg_publish(Message),
             send_to_matched_egress_bridges(Topic, Msg);
         true ->
             ok

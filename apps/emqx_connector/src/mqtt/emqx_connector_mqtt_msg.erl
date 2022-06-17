@@ -63,7 +63,8 @@ make_pub_vars(Mountpoint, Conf) when is_map(Conf) ->
     exp_msg().
 to_remote_msg(#message{flags = Flags0} = Msg, Vars) ->
     Retain0 = maps:get(retain, Flags0, false),
-    MapMsg = maps:put(retain, Retain0, emqx_rule_events:eventmsg_publish(Msg)),
+    {Columns, _} = emqx_rule_events:eventmsg_publish(Msg),
+    MapMsg = maps:put(retain, Retain0, Columns),
     to_remote_msg(MapMsg, Vars);
 to_remote_msg(MapMsg, #{
     remote_topic := TopicToken,
