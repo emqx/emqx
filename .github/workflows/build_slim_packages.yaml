@@ -117,6 +117,10 @@ jobs:
         echo "EMQX installed"
         ./_build/${{ matrix.profile }}/rel/emqx/bin/emqx uninstall
         echo "EMQX uninstalled"
+    - uses: actions/upload-artifact@v2
+      with:
+        name: windows
+        path: _packages/${{ matrix.profile}}/*.tar.gz
 
   mac:
     strategy:
