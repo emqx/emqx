@@ -26,6 +26,7 @@ jobs:
       BUILD_PROFILES: ${{ steps.get_profiles.outputs.BUILD_PROFILES }}
       IS_DOCKER_LATEST: ${{ steps.get_profiles.outputs.IS_DOCKER_LATEST }}
       IS_EXACT_TAG: ${{ steps.get_profiles.outputs.IS_EXACT_TAG }}
+      DOCKER_TAG_VERSION: ${{ steps.get_profiles.outputs.DOCKER_TAG_VERSION }}
 
     steps:
       - uses: actions/checkout@v2
@@ -74,6 +75,9 @@ jobs:
                   ;;
               esac
               echo "::set-output name=BUILD_PROFILES::[\"$PROFILE\"]"
+              VSN="$(./pkg-vsn.sh "$PROFILE")"
+              echo "Building $PROFILE image with tag $VSN (latest=$docker_latest)"
+              echo "::set-output name=DOCKER_TAG_VERSION::$VSN"
               ;;
           esac
       - name: get_all_deps
@@ -190,10 +194,7 @@ jobs:
           latest=${{ needs.prepare.outputs.IS_DOCKER_LATEST }}
           suffix=-${{ steps.pre-meta.outputs.img_suffix }}
         tags: |
-          type=ref,event=branch
-          type=ref,event=pr
-          type=ref,event=tag
-          type=semver,pattern={{version}}
+          type=raw,value=${{ needs.prepare.outputs.DOCKER_TAG_VERSION }}
         labels:
           ${{ steps.pre-meta.outputs.img_labels }}
 
@@ -320,10 +321,7 @@ jobs:
             latest=${{ needs.prepare.outputs.IS_DOCKER_LATEST }}
             suffix=-${{ steps.pre-meta.outputs.img_suffix }}
           tags: |
-            type=ref,event=branch
-            type=ref,event=pr
-            type=ref,event=tag
-            type=semver,pattern={{version}}
+            type=raw,value=${{ needs.prepare.outputs.DOCKER_TAG_VERSION }}
           labels:
             ${{ steps.pre-meta.outputs.img_labels }}
 
