@@ -473,7 +473,7 @@ fields("mqtt") ->
             )},
         {"keepalive_backoff",
             sc(
-                float(),
+                number(),
                 #{
                     default => 0.75,
                     desc => ?DESC(mqtt_keepalive_backoff)
