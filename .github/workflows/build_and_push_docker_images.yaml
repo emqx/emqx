@@ -98,22 +98,22 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
+        arch:
+          - amd64
+          - arm64
+        profile:
+          - ${{ needs.prepare.outputs.BUILD_PROFILE }}
+        build_elixir:
+          - no_elixir
         os:
           - [alpine3.15.1, "alpine:3.15.1", "deploy/docker/Dockerfile.alpine"]
           - [debian11, "debian:11-slim", "deploy/docker/Dockerfile"]
-        profile:
-          - ${{ needs.prepare.outputs.BUILD_PROFILE }}
         # NOTE: for docker, only support latest otp and elixir
         # versions, not a matrix
         otp:
           - 24.2.1-1 # update to latest
         elixir:
           - 1.13.4 # update to latest
-        arch:
-          - amd64
-          - arm64
-        build_elixir:
-          - no_elixir
         build_machine:
           - aws-arm64
           - ubuntu-20.04
@@ -225,11 +225,13 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
+        profile:
+          - ${{ needs.prepare.outputs.BUILD_PROFILE }}
+        build_elixir:
+          - no_elixir
         os:
           - [alpine3.15.1, "alpine:3.15.1", "deploy/docker/Dockerfile.alpine"]
           - [debian11, "debian:11-slim", "deploy/docker/Dockerfile"]
-        profile:
-          - ${{ needs.prepare.outputs.BUILD_PROFILE }}
         # NOTE: for docker, only support latest otp version, not a matrix
         otp:
           - 24.2.1-1 # update to latest
@@ -239,8 +241,6 @@ jobs:
         arch:
           - amd64
             #- arm64
-        build_elixir:
-          - no_elixir
         build_machine:
           - aws-arm64
           - ubuntu-20.04
