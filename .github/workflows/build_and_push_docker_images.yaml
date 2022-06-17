@@ -196,7 +196,7 @@ jobs:
   docker-push-multi-arch-manifest:
     # note, we only run on amd64
     if: >
-      ${{ (startsWith(github.ref, 'refs/tags/')
+      ${{ startsWith(github.ref, 'refs/tags/')
       || (github.event.repository.owner != 'emqx' && startsWith(github.ref_name, 'ci/'))
     needs:
       - prepare
