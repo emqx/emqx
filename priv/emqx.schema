@@ -344,6 +344,23 @@ end}.
   hidden
 ]}.
 
+%% @doc http://www.erlang.org/doc/man/kernel_app.html#net_ticktime
+{mapping, "node.dist_use_interface", "kernel.inet_dist_use_interface", [
+  {commented, "0.0.0.0"},
+  {datatype, string}
+]}.
+
+{translation, "kernel.inet_dist_use_interface",
+fun(Conf) ->
+  Addr = cuttlefish:conf_get("node.dist_use_interface", Conf, "0.0.0.0"),
+  case inet:parse_address(Addr) of
+    {ok, IP} ->
+      IP;
+    _ ->
+      error({bad_node_dist_use_interface, Addr})
+  end
+end}.
+
 %% @doc http://www.erlang.org/doc/man/kernel_app.html
 {mapping, "node.dist_listen_min", "kernel.inet_dist_listen_min", [
   {commented, 6369},
@@ -388,6 +405,23 @@ end}.
   {default, 5369},
   {datatype, integer}
 ]}.
+
+%% RPC server, network interface.
+{mapping, "rpc.tcp_server_ip", "gen_rpc.socket_ip", [
+  {default, "0.0.0.0"},
+  {datatype, string}
+]}.
+
+{translation, "gen_rpc.socket_ip",
+fun(Conf) ->
+  Addr = cuttlefish:conf_get("rpc.tcp_server_ip", Conf, "0.0.0.0"),
+  case inet:parse_address(Addr) of
+    {ok, IP} ->
+      IP;
+    _ ->
+      error({bad_gen_rpc_socket_ip, Addr})
+  end
+end}.
 
 %% Number of tcp connections when connecting to RPC server
 {mapping, "rpc.tcp_client_num", "gen_rpc.tcp_client_num", [
