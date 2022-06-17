@@ -25,6 +25,9 @@
     listener_type_status/2,
     list_listeners/2,
     crud_listeners_by_id/2,
+    stop_listeners_by_id/2,
+    start_listeners_by_id/2,
+    restart_listeners_by_id/2,
     action_listeners_by_id/2
 ]).
 
@@ -53,7 +56,9 @@ paths() ->
         "/listeners_status",
         "/listeners",
         "/listeners/:id",
-        "/listeners/:id/:action"
+        "/listeners/:id/stop",
+        "/listeners/:id/start",
+        "/listeners/:id/restart"
     ].
 
 schema("/listeners_status") ->
@@ -136,15 +141,44 @@ schema("/listeners/:id") ->
             }
         }
     };
-schema("/listeners/:id/:action") ->
+schema("/listeners/:id/start") ->
     #{
-        'operationId' => action_listeners_by_id,
+        'operationId' => start_listeners_by_id,
         post => #{
             tags => [<<"listeners">>],
-            desc => <<"Start/stop/restart listeners on all nodes.">>,
+            desc => <<"Start the listener on all nodes.">>,
             parameters => [
-                ?R_REF(listener_id),
-                ?R_REF(action)
+                ?R_REF(listener_id)
+            ],
+            responses => #{
+                200 => <<"Updated">>,
+                400 => error_codes(['BAD_REQUEST', 'BAD_LISTENER_ID'])
+            }
+        }
+    };
+schema("/listeners/:id/stop") ->
+    #{
+        'operationId' => stop_listeners_by_id,
+        post => #{
+            tags => [<<"listeners">>],
+            desc => <<"Stop the listener on all nodes.">>,
+            parameters => [
+                ?R_REF(listener_id)
+            ],
+            responses => #{
+                200 => <<"Updated">>,
+                400 => error_codes(['BAD_REQUEST', 'BAD_LISTENER_ID'])
+            }
+        }
+    };
+schema("/listeners/:id/restart") ->
+    #{
+        'operationId' => restart_listeners_by_id,
+        post => #{
+            tags => [<<"listeners">>],
+            desc => <<"Restart listeners on all nodes.">>,
+            parameters => [
+                ?R_REF(listener_id)
             ],
             responses => #{
                 200 => <<"Updated">>,
@@ -161,15 +195,6 @@ fields(listener_id) ->
                 example => 'tcp:demo',
                 validator => fun validate_id/1,
                 required => true,
-                in => path
-            })}
-    ];
-fields(action) ->
-    [
-        {action,
-            ?HOCON(?ENUM([start, stop, restart]), #{
-                desc => "listener action",
-                example => start,
                 in => path
             })}
     ];
@@ -370,6 +395,22 @@ parse_listener_conf(Conf0) ->
         true -> {binary_to_existing_atom(IdBin), TypeAtom, Name, Conf3};
         false -> {error, listener_type_inconsistent}
     end.
+
+stop_listeners_by_id(Method, Body = #{bindings := Bindings}) ->
+    action_listeners_by_id(
+        Method,
+        Body#{bindings := maps:put(action, stop, Bindings)}
+    ).
+start_listeners_by_id(Method, Body = #{bindings := Bindings}) ->
+    action_listeners_by_id(
+        Method,
+        Body#{bindings := maps:put(action, start, Bindings)}
+    ).
+restart_listeners_by_id(Method, Body = #{bindings := Bindings}) ->
+    action_listeners_by_id(
+        Method,
+        Body#{bindings := maps:put(action, restart, Bindings)}
+    ).
 
 action_listeners_by_id(post, #{bindings := #{id := Id, action := Action}}) ->
     {ok, #{type := Type, name := Name}} = emqx_listeners:parse_listener_id(Id),
