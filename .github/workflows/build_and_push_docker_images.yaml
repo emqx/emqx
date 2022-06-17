@@ -6,11 +6,11 @@ concurrency:
 
 on:
   push:
-     branches:
-      - 'ci/**'
-   tags:
-      - v*
-      - e*
+    branches:
+    - 'ci/**'
+    tags:
+    - v*
+    - e*
   workflow_dispatch:
     inputs:
       which_branch:

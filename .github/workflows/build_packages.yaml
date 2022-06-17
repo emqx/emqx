@@ -6,13 +6,13 @@ concurrency:
 
 on:
   schedule:
-    - cron:  '0 */6 * * *'
+  - cron:  '0 */6 * * *'
   push:
     branches:
-      - 'ci/**'
+    - 'ci/**'
     tags:
-      - v*
-      - e*
+    - v*
+    - e*
   workflow_dispatch:
     inputs:
       which_branch:
