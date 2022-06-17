@@ -197,7 +197,7 @@ jobs:
     # note, we only run on amd64
     if: >
       ${{ startsWith(github.ref, 'refs/tags/')
-      || (github.event.repository.owner != 'emqx' && startsWith(github.ref_name, 'ci/'))
+      || (github.event.repository.owner != 'emqx' && startsWith(github.ref_name, 'ci/')) }}
     needs:
       - prepare
       - docker
