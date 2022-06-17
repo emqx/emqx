@@ -99,7 +99,7 @@ else
     SUFFIX="-$(git rev-parse HEAD | cut -b1-8)"
 fi
 
-PKG_VSN="${RELEASE}${SUFFIX}"
+PKG_VSN="${PKG_VSN:-${RELEASE}${SUFFIX}}"
 
 if [ "${LONG_VERSION:-}" != 'yes' ]; then
     echo "$PKG_VSN"
