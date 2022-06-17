@@ -46,6 +46,7 @@ jobs:
               echo "::set-output name=BUILD_PROFILES::[\"emqx-enterprise\"]"
               ;;
             *)
+              echo "Not a tag? $tag. Trying to build with manual input args"
               # this is for testing ?
               echo "::set-output name=BUILD_PROFILES::[\"emqx\",\"emqx-enterprise\"]"
               ;;

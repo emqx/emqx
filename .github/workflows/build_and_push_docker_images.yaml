@@ -6,14 +6,14 @@ concurrency:
 
 on:
   push:
-    branches:
-    - 'ci/**'
     tags:
     - v*
     - e*
   workflow_dispatch:
     inputs:
-      which_branch:
+      branch_or_tag:
+        required: false
+      profile:
         required: false
 
 jobs:
@@ -24,11 +24,13 @@ jobs:
 
     outputs:
       BUILD_PROFILES: ${{ steps.get_profiles.outputs.BUILD_PROFILES }}
+      IS_DOCKER_LATEST: ${{ steps.get_profiles.outputs.IS_DOCKER_LATEST }}
+      IS_EXACT_TAG: ${{ steps.get_profiles.outputs.IS_EXACT_TAG }}
 
     steps:
       - uses: actions/checkout@v2
         with:
-          ref: ${{ github.event.inputs.which_branch }}
+          ref: ${{ github.event.inputs.branch_or_tag }} # when input is not given, the event tag is used
           path: source
           fetch-depth: 0
 
@@ -36,6 +38,7 @@ jobs:
         id: get_profiles
         run: |
           tag=${{ github.ref }}
+          PROFILE=${{ github.event.inputs.profile }}
           case $tag in
             refs/tags/v*)
               echo "::set-output name=BUILD_PROFILES::[\"emqx\"]"
@@ -44,10 +47,35 @@ jobs:
               echo "::set-output name=BUILD_PROFILES::[\"emqx-enterprise\"]"
               ;;
             *)
-              # this is for testing ?
-              echo "::set-output name=BUILD_PROFILES::[\"emqx\",\"emqx-enterprise\"]"
+              case "$PROFILE" in
+                emqx)
+                  true
+                  ;;
+                emqx-enterprise)
+                  true
+                  ;;
+                *)
+                  echo "ERROR: Failed to resolve build profile"
+                  exit 1
+                  ;;
+              esac
+              echo "::set-output name=BUILD_PROFILES::[\"$PROFILE\"]"
               ;;
           esac
+          # tag docker-latest-ce or docker-latest-ee
+          if git describe --tags --exact --match 'docker-latest-*'; then
+            docker_latest=true
+          else
+            docker_latest=false
+          fi
+          echo "::set-output name=IS_DOCKER_LATEST::${docker_latest}"
+          if git describe --tags --match "[v|e]*" --exact; then
+            is_exact='true'
+          else
+            is_exact='false'
+          fi
+          echo "::set-output name=IS_EXACT_TAG::${is_exact}"
+
       - name: get_all_deps
         run: |
           make -C source deps-all
@@ -149,13 +177,6 @@ jobs:
         if [[ ${{ matrix.os[0] }} =~ "alpine" ]]; then
           img_suffix="${img_suffix}-alpine"
         fi
-        # tag docker-latest-ce or docker-latest-ee
-        if git describe --tags --exact --match 'docker-latest-*'; then
-          docker_latest=true
-        else
-          docker_latest=false
-        fi
-        echo "::set-output name=docker_latest::${docker_latest}"
         echo "::set-output name=emqx_name::${emqx_name}"
         echo "::set-output name=img_suffix::${img_suffix}"
         echo "::set-output name=img_labels::${img_labels}"
@@ -166,7 +187,7 @@ jobs:
       with:
         images: ${{ github.repository_owner }}/${{ matrix.profile }}
         flavor: |
-          latest=${{ steps.pre-meta.outputs.docker_latest }}
+          latest=${{ needs.prepare.outputs.IS_DOCKER_LATEST }}
           suffix=-${{ steps.pre-meta.outputs.img_suffix }}
         tags: |
           type=ref,event=branch
@@ -178,9 +199,7 @@ jobs:
 
     - uses: docker/build-push-action@v2
       with:
-        push: >
-          ${{ startsWith(github.ref, 'refs/tags/')
-          || (github.event.repository.owner != 'emqx' && startsWith(github.ref_name, 'ci/')) }}
+        push: ${{ needs.prepare.outputs.IS_EXACT_TAG }}
         pull: true
         no-cache: true
         platforms: linux/${{ matrix.arch }}
@@ -195,9 +214,7 @@ jobs:
 
   docker-push-multi-arch-manifest:
     # note, we only run on amd64
-    if: >
-      ${{ startsWith(github.ref, 'refs/tags/')
-      || (github.event.repository.owner != 'emqx' && startsWith(github.ref_name, 'ci/')) }}
+    if: ${{ needs.prepare.outputs.IS_EXACT_TAG }}
     needs:
       - prepare
       - docker
@@ -300,7 +317,7 @@ jobs:
         with:
           images: ${{ github.repository_owner }}/${{ matrix.profile }}
           flavor: |
-            latest=${{ steps.pre-meta.outputs.docker_latest }}
+            latest=${{ needs.prepare.outputs.IS_DOCKER_LATEST }}
             suffix=-${{ steps.pre-meta.outputs.img_suffix }}
           tags: |
             type=ref,event=branch
@@ -311,7 +328,7 @@ jobs:
             ${{ steps.pre-meta.outputs.img_labels }}
 
       - name: update manifest for multiarch image
-        if: startsWith(github.ref, 'refs/tags/') && matrix.arch == 'amd64'
+        if: matrix.arch == 'amd64' && ${{ needs.prepare.outputs.IS_EXACT_TAG }}
         working-directory: source
         run: |
           scripts/docker-create-push-manifests.sh "${{ steps.meta.outputs.tags }}" true
