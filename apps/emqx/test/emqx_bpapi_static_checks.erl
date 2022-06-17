@@ -16,7 +16,7 @@
 
 -module(emqx_bpapi_static_checks).
 
--export([run/0, dump/1, dump/0, check_compat/1, versions_file/0]).
+-export([run/0, dump/1, dump/0, check_compat/1, versions_file/0, dumps_dir/0]).
 
 %% Using an undocumented API here :(
 -include_lib("dialyzer/src/dialyzer.hrl").

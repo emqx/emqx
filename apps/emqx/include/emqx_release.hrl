@@ -28,8 +28,11 @@
 %% (Major.Minor.Patch), and extra info can be added after a final
 %% hyphen.
 
+%% NOTE: ALso make sure to follow the instructions in end of
+%% `/home/me/Documents/emqx/apps/emqx/src/bpapi/README.md'
+
 %% Community edition
--define(EMQX_RELEASE_CE, "5.0.0").
+-define(EMQX_RELEASE_CE, "5.1.0").
 
 %% Enterprise edition
 -define(EMQX_RELEASE_EE, "5.0.0-alpha.1").

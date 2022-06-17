@@ -142,3 +142,12 @@ be useful when the protocol involves multicalls or multicasts.
 The business logic can assume that the supported protocol version is
 not going to change on the remote node, while it is running. So it is
 free to cache it for the duration of the session.
+
+# New minor release
+
+After releasing, let's say, 5.1.0, the following actions should be performed to check the next release:
+
+1. Build the code on 5.1.0.
+2. Commit `apps/emqx/test/emqx_static_checks_data/5.1.0.bpapi` file to the repo
+3. Delete the previous file (e.g. `5.0.0.bpapi`)
+4. Merge the commit to `main-5.2` branch
