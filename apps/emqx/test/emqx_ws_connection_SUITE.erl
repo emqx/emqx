@@ -687,7 +687,7 @@ ws_client(State) ->
         Message ->
             ct:pal("Received Unknown Message on Gun: ~p~n", [Message]),
             ws_client(State)
-    after 1000 ->
+    after 5000 ->
         ct:fail(ws_timeout)
     end.
 
