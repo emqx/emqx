@@ -23,10 +23,10 @@ jobs:
     container: "ghcr.io/emqx/emqx-builder/5.0-16:1.13.4-24.2.1-1-ubuntu20.04"
 
     outputs:
-      BUILD_PROFILES: ${{ steps.get_profiles.outputs.BUILD_PROFILES }}
-      IS_DOCKER_LATEST: ${{ steps.get_profiles.outputs.IS_DOCKER_LATEST }}
-      IS_EXACT_TAG: ${{ steps.get_profiles.outputs.IS_EXACT_TAG }}
-      DOCKER_TAG_VERSION: ${{ steps.get_profiles.outputs.DOCKER_TAG_VERSION }}
+      BUILD_PROFILE: ${{ steps.get_profile.outputs.BUILD_PROFILE }}
+      IS_DOCKER_LATEST: ${{ steps.get_profile.outputs.IS_DOCKER_LATEST }}
+      IS_EXACT_TAG: ${{ steps.get_profile.outputs.IS_EXACT_TAG }}
+      DOCKER_TAG_VERSION: ${{ steps.get_profile.outputs.DOCKER_TAG_VERSION }}
 
     steps:
       - uses: actions/checkout@v2
@@ -36,7 +36,7 @@ jobs:
           fetch-depth: 0
 
       - name: Get profiles to build
-        id: get_profiles
+        id: get_profile
         run: |
           cd source
           tag=${{ github.ref }}
@@ -48,17 +48,19 @@ jobs:
           fi
           echo "::set-output name=IS_DOCKER_LATEST::${docker_latest}"
           if git describe --tags --match "[v|e]*" --exact; then
+            echo "This is an exact git tag, will publish images"
             is_exact='true'
           else
+            echo "This is NOT an exact git tag, will not publish images"
             is_exact='false'
           fi
           echo "::set-output name=IS_EXACT_TAG::${is_exact}"
           case $tag in
             refs/tags/v*)
-              echo "::set-output name=BUILD_PROFILES::[\"emqx\"]"
+              PROFILE='emqx'
               ;;
             refs/tags/e*)
-              echo "::set-output name=BUILD_PROFILES::[\"emqx-enterprise\"]"
+              PROFILE=emqx-enterprise
               ;;
             *)
               PROFILE=${{ github.event.inputs.profile }}
@@ -74,12 +76,12 @@ jobs:
                   exit 1
                   ;;
               esac
-              echo "::set-output name=BUILD_PROFILES::[\"$PROFILE\"]"
-              VSN="$(./pkg-vsn.sh "$PROFILE")"
-              echo "Building $PROFILE image with tag $VSN (latest=$docker_latest)"
-              echo "::set-output name=DOCKER_TAG_VERSION::$VSN"
               ;;
           esac
+          echo "::set-output name=BUILD_PROFILE::$PROFILE"
+          VSN="$(./pkg-vsn.sh "$PROFILE")"
+          echo "Building $PROFILE image with tag $VSN (latest=$docker_latest)"
+          echo "::set-output name=DOCKER_TAG_VERSION::$VSN"
       - name: get_all_deps
         run: |
           make -C source deps-all
@@ -99,7 +101,8 @@ jobs:
         os:
           - [alpine3.15.1, "alpine:3.15.1", "deploy/docker/Dockerfile.alpine"]
           - [debian11, "debian:11-slim", "deploy/docker/Dockerfile"]
-        profile: ${{ fromJson(needs.prepare.outputs.BUILD_PROFILES) }}
+        profile:
+          - ${{ needs.prepare.outputs.BUILD_PROFILE }}
         # NOTE: for docker, only support latest otp and elixir
         # versions, not a matrix
         otp:
@@ -226,7 +229,8 @@ jobs:
         os:
           - [alpine3.15.1, "alpine:3.15.1", "deploy/docker/Dockerfile.alpine"]
           - [debian11, "debian:11-slim", "deploy/docker/Dockerfile"]
-        profile: ${{ fromJson(needs.prepare.outputs.BUILD_PROFILES) }}
+        profile:
+          - ${{ needs.prepare.outputs.BUILD_PROFILE }}
         # NOTE: for docker, only support latest otp version, not a matrix
         otp:
           - 24.2.1-1 # update to latest

@@ -20,37 +20,54 @@ on:
 
 jobs:
   prepare:
-    runs-on: ubuntu-20.04
-    # prepare source with any OTP version, no need for a matrix
-    container: "ghcr.io/emqx/emqx-builder/5.0-16:1.13.4-24.2.1-1-ubuntu20.04"
-
     outputs:
-      BUILD_PROFILES: ${{ steps.get_profiles.outputs.BUILD_PROFILES }}
+      BUILD_PROFILE: ${{ steps.get_profile.outputs.BUILD_PROFILE }}
+      IS_EXACT_TAG: ${{ steps.get_profile.outputs.IS_EXACT_TAG }}
 
     steps:
       - uses: actions/checkout@v2
         with:
-          ref: ${{ github.event.inputs.which_branch }}
+          ref: ${{ github.event.inputs.branch_or_tag }} # when input is not given, the event tag is used
           path: source
           fetch-depth: 0
 
-      - name: Get profiles to build
-        id: get_profiles
+      - name: Get profile to build
+        id: get_profile
         run: |
+          cd source
           tag=${{ github.ref }}
+          if git describe --tags --match "[v|e]*" --exact; then
+            echo "This is an exact git tag, will publish release"
+            is_exact='true'
+          else
+            echo "This is NOT an exact git tag, will not publish release"
+            is_exact='false'
+          fi
+          echo "::set-output name=IS_EXACT_TAG::${is_exact}"
           case $tag in
             refs/tags/v*)
-              echo "::set-output name=BUILD_PROFILES::[\"emqx\"]"
+              PROFILE='emqx'
               ;;
             refs/tags/e*)
-              echo "::set-output name=BUILD_PROFILES::[\"emqx-enterprise\"]"
+              PROFILE=emqx-enterprise
               ;;
             *)
-              echo "Not a tag? $tag. Trying to build with manual input args"
-              # this is for testing ?
-              echo "::set-output name=BUILD_PROFILES::[\"emqx\",\"emqx-enterprise\"]"
+              PROFILE=${{ github.event.inputs.profile }}
+              case "$PROFILE" in
+                emqx)
+                  true
+                  ;;
+                emqx-enterprise)
+                  true
+                  ;;
+                *)
+                  echo "ERROR: Failed to resolve build profile"
+                  exit 1
+                  ;;
+              esac
               ;;
           esac
+          echo "::set-output name=BUILD_PROFILE::$PROFILE"
       - name: get_all_deps
         run: |
           make -C source deps-all
@@ -113,7 +130,8 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        profile: ${{ fromJson(needs.prepare.outputs.BUILD_PROFILES) }}
+        profile:
+          - ${{ needs.prepare.outputs.BUILD_PROFILE }}
         otp:
           - 24.2.1-1
         os:
@@ -198,7 +216,8 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        profile: ${{ fromJson(needs.prepare.outputs.BUILD_PROFILES) }}
+        profile:
+          - ${{ needs.prepare.outputs.BUILD_PROFILE }}
         otp:
           - 24.2.1-1 # we test with OTP 23, but only build package on OTP 24 versions
         elixir:
@@ -316,15 +335,13 @@ jobs:
 
   publish_artifacts:
     runs-on: ubuntu-20.04
-
-    if: startsWith(github.ref, 'refs/tags/')
-
     needs: [prepare, mac, linux, docker]
-
+    if: ${{ needs.prepare.outputs.IS_EXACT_TAG }}
     strategy:
       fail-fast: false
       matrix:
-        profile: ${{ fromJson(needs.prepare.outputs.BUILD_PROFILES) }}
+        profile:
+          - ${{ needs.prepare.outputs.BUILD_PROFILE }}
         otp:
           - 24.2.1-1
         include:
