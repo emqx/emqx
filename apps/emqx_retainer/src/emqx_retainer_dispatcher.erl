@@ -115,7 +115,7 @@ start_link(Pool, Id) ->
 init([Pool, Id]) ->
     erlang:process_flag(trap_exit, true),
     true = gproc_pool:connect_worker(Pool, {Pool, Id}),
-    BucketName = emqx_conf:get([retainer, flow_control, batch_deliver_limiter], undefined),
+    BucketName = emqx:get_config([retainer, flow_control, batch_deliver_limiter], undefined),
     {ok, Limiter} = emqx_limiter_server:connect(batch, BucketName),
     {ok, #{pool => Pool, id => Id, limiter => Limiter}}.
 
