@@ -55,7 +55,6 @@ common_tests() ->
     "    flow_control {\n"
     "        batch_read_number = 0\n"
     "        batch_deliver_number = 0\n"
-    "        batch_deliver_limiter = retainer\n"
     "     }\n"
     "   backend {\n"
     "        type = built_in_database\n"

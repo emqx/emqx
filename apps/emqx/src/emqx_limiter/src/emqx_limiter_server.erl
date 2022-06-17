@@ -112,10 +112,6 @@
 %% If no bucket path is set in config, there will be no limit
 connect(_Type, undefined) ->
     {ok, emqx_htb_limiter:make_infinity_limiter()};
-%% Workaround.
-%% After API updated some config, the bucket name maybe become ‘’ (converted from empty binary)
-connect(_Type, '') ->
-    {ok, emqx_htb_limiter:make_infinity_limiter()};
 connect(Type, BucketName) when is_atom(BucketName) ->
     case get_bucket_cfg(Type, BucketName) of
         undefined ->
