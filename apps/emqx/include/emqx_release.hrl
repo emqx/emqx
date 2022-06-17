@@ -29,7 +29,7 @@
 %% hyphen.
 
 %% Community edition
--define(EMQX_RELEASE_CE, "5.0.0-rc.4").
+-define(EMQX_RELEASE_CE, "5.0.0").
 
 %% Enterprise edition
 -define(EMQX_RELEASE_EE, "5.0.0-alpha.1").
