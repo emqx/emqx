@@ -198,6 +198,8 @@ cd /d "%rel_root_dir%"
 
 :: Start a console
 :console
+@set "EMQX_LOG__CONSOLE_HANDLER__ENABLE=true"
+@set "EMQX_LOG__FILE_HANDLERS__DEFAULT__ENABLE=false"
 @call :create_mnesia_dir
 @call :generate_app_config
 @set args=%generated_config_args% -mnesia dir '%mnesia_dir%'
