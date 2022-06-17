@@ -261,4 +261,6 @@ check_bucket_exists(
                 _ ->
                     Cont(Conf)
             end
-    end.
+    end;
+check_bucket_exists(Conf, Cont) ->
+    Cont(Conf).
