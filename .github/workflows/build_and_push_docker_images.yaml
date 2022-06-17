@@ -194,7 +194,6 @@ jobs:
       with:
         images: ${{ github.repository_owner }}/${{ matrix.profile }}
         flavor: |
-          latest=${{ needs.prepare.outputs.IS_DOCKER_LATEST }}
           suffix=-${{ steps.pre-meta.outputs.img_suffix }}
         tags: |
           type=raw,value=${{ needs.prepare.outputs.DOCKER_TAG_VERSION }}
@@ -239,7 +238,7 @@ jobs:
           - 1.13.4 # update to latest
         arch:
           - amd64
-          - arm64
+            #- arm64
         build_elixir:
           - no_elixir
         build_machine:
@@ -272,23 +271,21 @@ jobs:
 
     steps:
       - uses: actions/download-artifact@v2
-        if: matrix.arch == 'amd64'
         with:
           name: source
           path: .
 
       - name: unzip source code
-        if:  matrix.arch == 'amd64'
         run: unzip -q source.zip
 
       - uses: docker/login-action@v1
-        if: matrix.arch == 'amd64' && matrix.registry == 'docker.io'
+        if: matrix.registry == 'docker.io'
         with:
           username: ${{ secrets.DOCKER_HUB_USER }}
           password: ${{ secrets.DOCKER_HUB_TOKEN }}
 
       - uses: docker/login-action@v1
-        if: matrix.arch == 'amd64' && matrix.registry == 'public.ecr.aws'
+        if: matrix.registry == 'public.ecr.aws'
         with:
           registry: public.ecr.aws
           username: ${{ secrets.AWS_ACCESS_KEY_ID }}
@@ -317,12 +314,10 @@ jobs:
 
       # NOTE, Pls make sure this is identical as the one in job 'docker'
       - uses: docker/metadata-action@v3
-        if: matrix.arch == 'amd64'
         id: meta
         with:
           images: ${{ github.repository_owner }}/${{ matrix.profile }}
           flavor: |
-            latest=${{ needs.prepare.outputs.IS_DOCKER_LATEST }}
             suffix=-${{ steps.pre-meta.outputs.img_suffix }}
           tags: |
             type=raw,value=${{ needs.prepare.outputs.DOCKER_TAG_VERSION }}
@@ -330,7 +325,7 @@ jobs:
             ${{ steps.pre-meta.outputs.img_labels }}
 
       - name: update manifest for multiarch image
-        if: matrix.arch == 'amd64' && ${{ needs.prepare.outputs.IS_EXACT_TAG }}
+        if: ${{ needs.prepare.outputs.IS_EXACT_TAG }}
         working-directory: source
         run: |
-          scripts/docker-create-push-manifests.sh "${{ steps.meta.outputs.tags }}" true
+          scripts/docker-create-push-manifests.sh "${{ steps.meta.outputs.tags }}" "${{ needs.prepare.outputs.IS_DOCKER_LATEST }}"
