@@ -37,8 +37,21 @@ jobs:
       - name: Get profiles to build
         id: get_profiles
         run: |
+          cd source
           tag=${{ github.ref }}
-          PROFILE=${{ github.event.inputs.profile }}
+          # tag docker-latest-ce or docker-latest-ee
+          if git describe --tags --exact --match 'docker-latest-*'; then
+            docker_latest=true
+          else
+            docker_latest=false
+          fi
+          echo "::set-output name=IS_DOCKER_LATEST::${docker_latest}"
+          if git describe --tags --match "[v|e]*" --exact; then
+            is_exact='true'
+          else
+            is_exact='false'
+          fi
+          echo "::set-output name=IS_EXACT_TAG::${is_exact}"
           case $tag in
             refs/tags/v*)
               echo "::set-output name=BUILD_PROFILES::[\"emqx\"]"
@@ -47,6 +60,7 @@ jobs:
               echo "::set-output name=BUILD_PROFILES::[\"emqx-enterprise\"]"
               ;;
             *)
+              PROFILE=${{ github.event.inputs.profile }}
               case "$PROFILE" in
                 emqx)
                   true
@@ -62,20 +76,6 @@ jobs:
               echo "::set-output name=BUILD_PROFILES::[\"$PROFILE\"]"
               ;;
           esac
-          # tag docker-latest-ce or docker-latest-ee
-          if git describe --tags --exact --match 'docker-latest-*'; then
-            docker_latest=true
-          else
-            docker_latest=false
-          fi
-          echo "::set-output name=IS_DOCKER_LATEST::${docker_latest}"
-          if git describe --tags --match "[v|e]*" --exact; then
-            is_exact='true'
-          else
-            is_exact='false'
-          fi
-          echo "::set-output name=IS_EXACT_TAG::${is_exact}"
-
       - name: get_all_deps
         run: |
           make -C source deps-all
