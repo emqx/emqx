@@ -125,8 +125,8 @@ purge_test() ->
 meck_emqx() ->
     meck:new(emqx, [unstick, passthrough]),
     meck:expect(
-        emqx_conf,
-        update,
+        emqx,
+        update_config,
         fun(Path, Values, _Opts) ->
             emqx_config:put(Path, Values)
         end
