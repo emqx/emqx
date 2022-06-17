@@ -155,14 +155,14 @@ jobs:
 
     - name: Login for docker.
       uses: docker/login-action@v1
-      if: matrix.arch == 'amd64' && matrix.registry == 'docker.io'
+      if: matrix.registry == 'docker.io'
       with:
         username: ${{ secrets.DOCKER_HUB_USER }}
         password: ${{ secrets.DOCKER_HUB_TOKEN }}
 
     - name: Login for AWS ECR
       uses: docker/login-action@v1
-      if: matrix.profile == 'emqx' && matrix.arch == 'amd64' && matrix.registry == 'public.ecr.aws'
+      if: matrix.registry == 'public.ecr.aws'
       with:
         registry: public.ecr.aws
         username: ${{ secrets.AWS_ACCESS_KEY_ID }}
@@ -288,7 +288,7 @@ jobs:
           password: ${{ secrets.DOCKER_HUB_TOKEN }}
 
       - uses: docker/login-action@v1
-        if: matrix.profile == 'emqx' && matrix.arch == 'amd64' && matrix.registry == 'public.ecr.aws'
+        if: matrix.arch == 'amd64' && matrix.registry == 'public.ecr.aws'
         with:
           registry: public.ecr.aws
           username: ${{ secrets.AWS_ACCESS_KEY_ID }}
