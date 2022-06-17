@@ -192,7 +192,7 @@ fields(listener_id) ->
         {id,
             ?HOCON(atom(), #{
                 desc => "Listener id",
-                example => 'tcp:default',
+                example => 'tcp:demo',
                 validator => fun validate_id/1,
                 required => true,
                 in => path
