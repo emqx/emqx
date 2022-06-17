@@ -132,7 +132,7 @@ jobs:
             arch: amd64
             build_elixir: with_elixir
             build_machine: ubuntu-20.04
-            registry: 'public.ecr.aws'
+            registry: 'docker.io'
           - os: [debian11, "debian:11-slim", "deploy/docker/Dockerfile"]
             profile: emqx
             otp: 24.2.1-1
@@ -140,6 +140,7 @@ jobs:
             arch: arm64
             build_elixir: with_elixir
             build_machine: aws-arm64
+            registry: 'docker.io'
 
     steps:
     - uses: AutoModality/action-clean@v1
