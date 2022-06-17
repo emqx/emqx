@@ -243,7 +243,7 @@ t_add_get_remove_rule(_Config) ->
     ok.
 
 t_add_get_remove_rules(_Config) ->
-    delete_rules_by_ids(emqx_rule_engine:get_rules()),
+    delete_rules_by_ids([Id || #{id := Id} <- emqx_rule_engine:get_rules()]),
     ok = insert_rules(
         [
             make_simple_rule(<<"rule-debug-1">>),
@@ -2386,7 +2386,6 @@ verify_event_fields('message.publish', Fields) ->
         topic := Topic,
         qos := QoS,
         flags := Flags,
-        headers := Headers,
         pub_props := Properties,
         timestamp := Timestamp,
         publish_received_at := EventAt
@@ -2402,7 +2401,6 @@ verify_event_fields('message.publish', Fields) ->
     ?assertEqual(<<"t1">>, Topic),
     ?assertEqual(1, QoS),
     ?assert(is_map(Flags)),
-    ?assert(is_map(Headers)),
     ?assertMatch(#{'Message-Expiry-Interval' := 60}, Properties),
     ?assert(0 =< TimestampElapse andalso TimestampElapse =< 60 * 1000),
     ?assert(0 =< RcvdAtElapse andalso RcvdAtElapse =< 60 * 1000),

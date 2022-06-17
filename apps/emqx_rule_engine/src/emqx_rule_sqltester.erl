@@ -61,7 +61,7 @@ test_rule(Sql, Select, Context, EventTopics) ->
         created_at => erlang:system_time(millisecond)
     },
     FullContext = fill_default_values(hd(EventTopics), emqx_rule_maps:atom_key_map(Context)),
-    try emqx_rule_runtime:apply_rule(Rule, FullContext) of
+    try emqx_rule_runtime:apply_rule(Rule, FullContext, #{}) of
         {ok, Data} -> {ok, flatten(Data)};
         {error, Reason} -> {error, Reason}
     after

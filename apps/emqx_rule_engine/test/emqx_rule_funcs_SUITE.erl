@@ -23,8 +23,6 @@
 -include_lib("eunit/include/eunit.hrl").
 -include_lib("common_test/include/ct.hrl").
 
--import(emqx_rule_events, [eventmsg_publish/1]).
-
 -define(PROPTEST(F), ?assert(proper:quickcheck(F()))).
 %%-define(PROPTEST(F), ?assert(proper:quickcheck(F(), [{on_output, fun ct:print/2}]))).
 
@@ -36,6 +34,11 @@ init_per_suite(Config) ->
 
 end_per_suite(_Config) ->
     ok.
+
+eventmsg_publish(Msg) ->
+    {Columns, _} = emqx_rule_events:eventmsg_publish(Msg),
+    Columns.
+
 %%------------------------------------------------------------------------------
 %% Test cases for IoT Funcs
 %%------------------------------------------------------------------------------

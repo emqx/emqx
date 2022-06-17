@@ -84,10 +84,17 @@ pretty_print_rule(ID) ->
     end.
 
 %% erlfmt-ignore
-format_action(#{func := Func, args := Args}) ->
-    io_lib:format("Function:\n  ~p\n"
-                  "Args:\n  ~p\n"
-                 ,[Func, maps:without([preprocessed_tmpl], Args)]
+format_action(#{mod := Mod, func := Func, args := Args}) ->
+    Name = emqx_rule_engine_api:printable_function_name(Mod, Func),
+    io_lib:format("- Name:  ~s\n"
+                  "  Type:  function\n"
+                  "  Args:  ~p\n"
+                 ,[Name, maps:without([preprocessed_tmpl], Args)]
+                 );
+format_action(BridgeChannelId) when is_binary(BridgeChannelId) ->
+    io_lib:format("- Name:  ~s\n"
+                  "  Type:  data-bridge\n"
+                 ,[BridgeChannelId]
                  ).
 
 left_pad(Str) ->
