@@ -105,6 +105,9 @@ jobs:
           - ${{ needs.prepare.outputs.BUILD_PROFILE }}
         build_elixir:
           - no_elixir
+        registry:
+          - 'docker.io'
+         #- 'public.ecr.aws'
         os:
           - [alpine3.15.1, "alpine:3.15.1", "deploy/docker/Dockerfile.alpine"]
           - [debian11, "debian:11-slim", "deploy/docker/Dockerfile"]
@@ -117,30 +120,28 @@ jobs:
         build_machine:
           - aws-arm64
           - ubuntu-20.04
-        registry:
-          - 'docker.io'
         exclude:
           - arch: arm64
             build_machine: ubuntu-20.04
           - arch: amd64
             build_machine: aws-arm64
         include:
-          - os: [debian11, "debian:11-slim", "deploy/docker/Dockerfile"]
+          - arch: amd64
             profile: emqx
+            build_elixir: with_elixir
+            registry: 'docker.io'
+            os: [debian11, "debian:11-slim", "deploy/docker/Dockerfile"]
             otp: 24.2.1-1
             elixir: 1.13.4
-            arch: amd64
-            build_elixir: with_elixir
             build_machine: ubuntu-20.04
-            registry: 'docker.io'
-          - os: [debian11, "debian:11-slim", "deploy/docker/Dockerfile"]
+          - arch: arm64
             profile: emqx
+            build_elixir: with_elixir
+            registry: 'docker.io'
+            os: [debian11, "debian:11-slim", "deploy/docker/Dockerfile"]
             otp: 24.2.1-1
             elixir: 1.13.4
-            arch: arm64
-            build_elixir: with_elixir
             build_machine: aws-arm64
-            registry: 'docker.io'
 
     steps:
     - uses: AutoModality/action-clean@v1
@@ -246,28 +247,21 @@ jobs:
           - aws-arm64
           - ubuntu-20.04
         registries:
-          - docker.io
+          - 'docker.io'
+         #- 'public.ecr.aws'
         exclude:
           - arch: arm64
             build_machine: ubuntu-20.04
           - arch: amd64
             build_machine: aws-arm64
         include:
-          - os: [debian11, "debian:11-slim", "deploy/docker/Dockerfile"]
+          - arch: amd64
             profile: emqx
+            build_elixir: with_elixir
+            os: [debian11, "debian:11-slim", "deploy/docker/Dockerfile"]
             otp: 24.2.1-1
             elixir: 1.13.4
-            arch: amd64
-            build_elixir: with_elixir
             build_machine: ubuntu-20.04
-            registry: docker.io
-          - os: [debian11, "debian:11-slim", "deploy/docker/Dockerfile"]
-            profile: emqx
-            otp: 24.2.1-1
-            elixir: 1.13.4
-            arch: arm64
-            build_elixir: with_elixir
-            build_machine: aws-arm64
             registry: docker.io
 
     steps:
