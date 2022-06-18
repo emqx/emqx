@@ -194,7 +194,7 @@ jobs:
     - uses: docker/metadata-action@v3
       id: meta
       with:
-        images: ${{ github.repository_owner }}/${{ matrix.profile }}
+        images: ${{ matrix.registry }}/${{ github.repository_owner }}/${{ matrix.profile }}
         flavor: |
           suffix=-${{ steps.pre-meta.outputs.img_suffix }}
         tags: |
@@ -311,7 +311,7 @@ jobs:
       - uses: docker/metadata-action@v3
         id: meta
         with:
-          images: ${{ github.repository_owner }}/${{ matrix.profile }}
+          images: ${{ matrix.registry }}/${{ github.repository_owner }}/${{ matrix.profile }}
           flavor: |
             suffix=-${{ steps.pre-meta.outputs.img_suffix }}
           tags: |
