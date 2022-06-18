@@ -1,5 +1,5 @@
 ##!/usr/bin/env bash
-set -euo pipefail
+set -exuo pipefail
 
 img_amd64=$1
 IsPushLatest=$2
