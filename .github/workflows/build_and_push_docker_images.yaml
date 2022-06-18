@@ -246,7 +246,7 @@ jobs:
         build_machine:
           - aws-arm64
           - ubuntu-20.04
-        registries:
+        registry
           - 'docker.io'
          #- 'public.ecr.aws'
         exclude:
