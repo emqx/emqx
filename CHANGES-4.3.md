@@ -23,6 +23,8 @@ File format:
 - Avoid repeated writing `loaded_plugins` file if the plugin enable stauts has not changed [#8179]
 - Correctly tally `connack.auth_error` metrics when a client uses MQTT
   3.1. [#8177]
+- Do not match ACL rules containing placeholders if there's no
+  information to fill them. [#8280]
 
 ## v4.3.15
 
