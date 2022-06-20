@@ -133,8 +133,15 @@ make_relup() {
         local tmp_dir
         tmp_dir="$(mktemp -d -t emqx.XXXXXXX)"
         $TAR -C "$tmp_dir" -zxf "$tgzfile"
-        cp -npr "$tmp_dir/releases"/* "${rel_dir}/releases/" || true
-        cp -npr "$tmp_dir/lib"/* "${rel_dir}/lib/" || true
+        mkdir -p "${rel_dir}/releases/"
+        cp -npr "$tmp_dir/releases"/* "${rel_dir}/releases/"
+        ## There is for some reason a copy of the '$PROFILE.rel' file to releases dir,
+        ## the content is duplicated to releases/5.0.0/$PROFILE.rel.
+        ## This file seems to be useless, but yet confusing as it does not change after upgrade/downgrade
+        ## Hence we force delete this file.
+        rm -f "${rel_dir}/releases/${PROFILE}.rel"
+        mkdir -p "${rel_dir}/lib/"
+        cp -npr "$tmp_dir/lib"/* "${rel_dir}/lib/"
         rm -rf "$tmp_dir"
         releases+=( "$base_vsn" )
     done < <("$FIND" _upgrade_base -maxdepth 1 -name "${name_pattern}.tar.gz" -type f)
