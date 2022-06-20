@@ -1,18 +1,11 @@
 %% -*- mode: erlang -*-
 {VSN,
  [ {<<".*">>,
-    %% load all plugins
-    %% NOTE: this depends on the fact that emqx_dashboard is always
-    %% the last application gets upgraded
-    [ {apply, {emqx_rule_engine, load_providers, []}}
-    , {restart_application, emqx_dashboard}
-    , {apply, {emqx_plugins, load, []}}
+    [ {restart_application, emqx_dashboard}
     ]}
  ],
  [ {<<".*">>,
-    [ {apply, {emqx_rule_engine, load_providers, []}}
-    , {restart_application, emqx_dashboard}
-    , {apply, {emqx_plugins, load, []}}
+    [ {restart_application, emqx_dashboard}
     ]}
  ]
 }.

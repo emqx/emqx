@@ -17,6 +17,9 @@
 -module(emqx_rule_funcs).
 
 -include("rule_engine.hrl").
+-elvis([{elvis_style, god_modules, disable}]).
+-elvis([{elvis_style, function_naming_convention, disable}]).
+-elvis([{elvis_style, macro_names, disable}]).
 
 %% IoT Funcs
 -export([ msgid/0
@@ -462,7 +465,8 @@ subbits(Bits, Len) when is_integer(Len), is_bitstring(Bits) ->
 subbits(Bits, Start, Len) when is_integer(Start), is_integer(Len), is_bitstring(Bits) ->
     get_subbits(Bits, Start, Len, <<"integer">>, <<"unsigned">>, <<"big">>).
 
-subbits(Bits, Start, Len, Type, Signedness, Endianness) when is_integer(Start), is_integer(Len), is_bitstring(Bits) ->
+subbits(Bits, Start, Len, Type, Signedness, Endianness)
+    when is_integer(Start), is_integer(Len), is_bitstring(Bits) ->
     get_subbits(Bits, Start, Len, Type, Signedness, Endianness).
 
 get_subbits(Bits, Start, Len, Type, Signedness, Endianness) ->
@@ -547,7 +551,7 @@ map(Data) ->
     emqx_rule_utils:map(Data).
 
 bin2hexstr(Bin) when is_binary(Bin) ->
-    emqx_misc:bin2hexstr_A_F(Bin).
+    emqx_misc:bin2hexstr_a_f_upper(Bin).
 
 hexstr2bin(Str) when is_binary(Str) ->
     emqx_misc:hexstr2bin(Str).
@@ -635,7 +639,8 @@ tokens(S, Separators) ->
     [list_to_binary(R) || R <- string:lexemes(binary_to_list(S), binary_to_list(Separators))].
 
 tokens(S, Separators, <<"nocrlf">>) ->
-    [list_to_binary(R) || R <- string:lexemes(binary_to_list(S), binary_to_list(Separators) ++ [$\r,$\n,[$\r,$\n]])].
+    [list_to_binary(R) || R <- string:lexemes(binary_to_list(S),
+        binary_to_list(Separators) ++ [$\r,$\n,[$\r,$\n]])].
 
 concat(S1, S2) when is_binary(S1), is_binary(S2) ->
     unicode:characters_to_binary([S1, S2], unicode).
@@ -673,7 +678,8 @@ replace(SrcStr, P, RepStr) when is_binary(SrcStr), is_binary(P), is_binary(RepSt
 replace(SrcStr, P, RepStr, <<"all">>) when is_binary(SrcStr), is_binary(P), is_binary(RepStr) ->
     iolist_to_binary(string:replace(SrcStr, P, RepStr, all));
 
-replace(SrcStr, P, RepStr, <<"trailing">>) when is_binary(SrcStr), is_binary(P), is_binary(RepStr) ->
+replace(SrcStr, P, RepStr, <<"trailing">>)
+          when is_binary(SrcStr), is_binary(P), is_binary(RepStr) ->
     iolist_to_binary(string:replace(SrcStr, P, RepStr, trailing));
 
 replace(SrcStr, P, RepStr, <<"leading">>) when is_binary(SrcStr), is_binary(P), is_binary(RepStr) ->
@@ -689,7 +695,7 @@ regex_replace(SrcStr, RE, RepStr) ->
     re:replace(SrcStr, RE, RepStr, [global, {return,binary}]).
 
 ascii(Char) when is_binary(Char) ->
-    [FirstC| _] = binary_to_list(Char),
+    [FirstC | _] = binary_to_list(Char),
     FirstC.
 
 find(S, P) when is_binary(S), is_binary(P) ->
@@ -809,7 +815,7 @@ sha256(S) when is_binary(S) ->
     hash(sha256, S).
 
 hash(Type, Data) ->
-    emqx_misc:bin2hexstr_a_f(crypto:hash(Type, Data)).
+    emqx_misc:bin2hexstr_a_f_lower(crypto:hash(Type, Data)).
 
 %%------------------------------------------------------------------------------
 %% gzip Funcs
@@ -980,23 +986,23 @@ convert_timestamp(MillisecondsTimestamp) ->
 %% the function handling to the worker module.
 %% @end
 -ifdef(EMQX_ENTERPRISE).
-'$handle_undefined_function'(schema_decode, [SchemaId, Data|MoreArgs]) ->
+'$handle_undefined_function'(schema_decode, [SchemaId, Data | MoreArgs]) ->
     emqx_schema_parser:decode(SchemaId, Data, MoreArgs);
 '$handle_undefined_function'(schema_decode, Args) ->
     error({args_count_error, {schema_decode, Args}});
 
-'$handle_undefined_function'(schema_encode, [SchemaId, Term|MoreArgs]) ->
+'$handle_undefined_function'(schema_encode, [SchemaId, Term | MoreArgs]) ->
     emqx_schema_parser:encode(SchemaId, Term, MoreArgs);
 '$handle_undefined_function'(schema_encode, Args) ->
     error({args_count_error, {schema_encode, Args}});
 
-'$handle_undefined_function'(sprintf, [Format|Args]) ->
+'$handle_undefined_function'(sprintf, [Format | Args]) ->
     erlang:apply(fun sprintf_s/2, [Format, Args]);
 
 '$handle_undefined_function'(Fun, Args) ->
     error({sql_function_not_supported, function_literal(Fun, Args)}).
 -else.
-'$handle_undefined_function'(sprintf, [Format|Args]) ->
+'$handle_undefined_function'(sprintf, [Format | Args]) ->
     erlang:apply(fun sprintf_s/2, [Format, Args]);
 
 '$handle_undefined_function'(Fun, Args) ->
