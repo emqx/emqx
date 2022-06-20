@@ -15,7 +15,7 @@ export PROFILE
 case $PROFILE in
     "emqx")
         DIR='broker'
-        EDITION='community'
+        EDITION='opensource'
         ;;
     "emqx-enterprise")
         DIR='enterprise'

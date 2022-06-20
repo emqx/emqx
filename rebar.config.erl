@@ -207,7 +207,7 @@ profiles_dev() ->
 
 %% RelType: cloud (full size)
 %% PkgType: bin | pkg
-%% Edition: ce (community) | ee (enterprise)
+%% Edition: ce (opensource) | ee (enterprise)
 relx(Vsn, RelType, PkgType, Edition) ->
     [
         {include_src, false},
