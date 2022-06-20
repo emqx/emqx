@@ -6,6 +6,7 @@
 ## Arg1: EMQX PROFILE
 
 set -euo pipefail
+set -x
 
 usage() {
     echo "$0 PROFILE"
