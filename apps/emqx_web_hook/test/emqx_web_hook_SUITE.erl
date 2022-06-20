@@ -19,9 +19,8 @@
 -compile(export_all).
 -compile(nowarn_export_all).
 
--include_lib("emqx/include/emqx.hrl").
 -include_lib("eunit/include/eunit.hrl").
--include_lib("common_test/include/ct.hrl").
+-include_lib("emqx_rule_engine/include/rule_engine.hrl").
 
 -define(HOOK_LOOKUP(H), emqx_hooks:lookup(list_to_atom(H))).
 -define(ACTION(Name), #{<<"action">> := Name}).
@@ -35,7 +34,7 @@ all() ->
     , {group, https}
     , {group, ipv6http}
     , {group, ipv6https}
-    , {group, all}
+    , test_rule_webhook
     ].
 
 groups() ->
@@ -44,12 +43,18 @@ groups() ->
     , {https, [sequence], Cases}
     , {ipv6http, [sequence], Cases}
     , {ipv6https, [sequence], Cases}
-    , {all, [sequence], emqx_ct:all(?MODULE)}
     ].
 
-start_apps(F) -> emqx_ct_helpers:start_apps(apps(), F).
+start_apps() ->
+    [application:load(App) || App <- apps()],
+    emqx_ct_helpers:start_apps(apps()).
+start_apps(F) ->
+    [application:load(App) || App <- apps()],
+    emqx_ct_helpers:start_apps(apps(), F).
 
+init_per_group(rules, Config) -> Config;
 init_per_group(Name, Config) ->
+    net_kernel:start(['test@127.0.0.1', longnames]),
     application:ensure_all_started(emqx_management),
     set_special_cfgs(),
     BasePort =
@@ -73,6 +78,20 @@ init_per_group(Name, Config) ->
                _ -> [inet]
            end,
     [{base_port, BasePort}, {transport_opts, Opts} | Config].
+
+init_per_testcase(test_rule_webhook, Config) ->
+    net_kernel:start(['test@127.0.0.1', longnames]),
+    ok = ekka_mnesia:start(),
+    ok = emqx_rule_registry:mnesia(boot),
+    Handler = fun(_) ->
+        application:set_env(emqx_web_hook, rules, []),
+        application:set_env(emqx_web_hook, url, "http://127.0.0.1:9999/"),
+        application:set_env(emqx_web_hook, ssl, false),
+        application:set_env(emqx_web_hook, ssloptions, [])
+    end,
+    ok = start_apps(Handler),
+    Config;
+init_per_testcase(_, Config) -> Config.
 
 end_per_group(_Name, Config) ->
     emqx_ct_helpers:stop_apps(apps()),
@@ -119,6 +138,51 @@ set_special_cfgs() ->
 %% Test cases
 %%--------------------------------------------------------------------
 
+test_rule_webhook(_) ->
+    {ok, ServerPid} = http_server:start_link(self(), 9999, []),
+    receive {ServerPid, ready} -> ok
+    after 1000 -> error(timeout)
+    end,
+
+    ok = emqx_rule_engine:load_providers(),
+    {ok, #resource{id = ResId}} = emqx_rule_engine:create_resource(
+            #{type => web_hook,
+              config => #{<<"url">> => "http://127.0.0.1:9999/"},
+              description => <<"For testing">>}),
+    {ok, #rule{id = Id}} = emqx_rule_engine:create_rule(
+                #{rawsql => "select * from \"t1\"",
+                  actions => [#{name => 'data_to_webserver',
+                                args => #{<<"$resource">> => ResId}}],
+                  type => web_hook,
+                  description => <<"For testing">>
+                  }),
+
+    Properties = #{'User-Property' => [{<<"user_property_key">>, <<"user_property_value">>}]},
+    ClientId = iolist_to_binary(["client-", integer_to_list(erlang:unique_integer([positive]))]),
+
+    {ok, Client} = emqtt:start_link([ {clientid, ClientId}
+                                    , {proto_ver, v5}
+                                    , {keepalive, 60}
+                                    ]),
+    {ok, _} = emqtt:connect(Client),
+    {ok, _} = emqtt:publish(Client, <<"t1">>, Properties, <<"Payload...">>, [{qos, 2}]),
+
+    Res = receive {http_server, {Any, _Bool}, _Header} -> {ok, Any}
+          after 100 -> error
+          end,
+
+    ?assertMatch({ok, _}, Res),
+    {ok, Body} = Res,
+    ?assertNotEqual([], binary:matches(Body, <<"User-Property">>)),
+    ?assertNotEqual([], binary:matches(Body, <<"user_property_key">>)),
+    ?assertNotEqual([], binary:matches(Body, <<"user_property_value">>)),
+
+    emqtt:stop(Client),
+    http_server:stop(ServerPid),
+    emqx_rule_registry:remove_rule(Id),
+    emqx_rule_registry:remove_resource(ResId),
+    ok.
+
 test_full_flow(Config) ->
     [_|_] = Opts = proplists:get_value(transport_opts, Config),
     BasePort = proplists:get_value(base_port, Config),
@@ -128,7 +192,7 @@ test_full_flow(Config) ->
     after 1000 -> error(timeout)
     end,
     application:set_env(emqx_web_hook, headers, [{"k1","K1"}, {"k2", "K2"}]),
-    ClientId = iolist_to_binary(["client-", integer_to_list(erlang:system_time())]),
+    ClientId = iolist_to_binary(["client-", integer_to_list(erlang:unique_integer([positive]))]),
     {ok, C} = emqtt:start_link([ {clientid, ClientId}
                                , {proto_ver, v5}
                                , {keepalive, 60}
@@ -174,10 +238,10 @@ validate_params_and_headers(ClientState, ClientId) ->
             end
     after
         5000 ->
-              case ClientState =:= undefined of
-                  true  -> error("client_was_never_connected");
-                  false -> error("terminate_action_is_not_received_in_time")
-              end
+            case ClientState =:= undefined of
+              true  -> error("client_was_never_connected");
+              false -> error("terminate_action_is_not_received_in_time")
+            end
     end.
 
 t_check_hooked(_) ->

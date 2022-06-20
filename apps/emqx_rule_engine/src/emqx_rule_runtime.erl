@@ -51,12 +51,8 @@ apply_rules([], _Input) ->
 apply_rules([#rule{enabled = false}|More], Input) ->
     apply_rules(More, Input);
 apply_rules([Rule|More], Input) ->
-    apply_rule_discard_result(Rule, Input),
+    apply_rule(Rule, Input),
     apply_rules(More, Input).
-
-apply_rule_discard_result(Rule, Input) ->
-    _ = apply_rule(Rule, Input),
-    ok.
 
 apply_rule(Rule = #rule{id = RuleID}, Input) ->
     clear_rule_payload(),
