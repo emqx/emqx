@@ -57,6 +57,37 @@ t_compile(_) ->
     ?assertEqual(Compile4, emqx_access_rule:compile(Rule4)),
     ?assertEqual(Compile5, emqx_access_rule:compile(Rule5)).
 
+t_unmatching_placeholders(_Config) ->
+    EmptyClientInfo = #{ clientid => undefined
+                       , username => undefined
+                       },
+
+    Topic1 = <<"%u">>,
+    Rule1 = {allow, all, pubsub, <<"%u">>},
+    Compiled1 = emqx_access_rule:compile(Rule1),
+    ?assertEqual(
+       nomatch,
+       emqx_access_rule:match(EmptyClientInfo, Topic1, Compiled1)),
+    Rule2 = {allow, all, pubsub, [{eq, <<"%u">>}]},
+    Compiled2 = emqx_access_rule:compile(Rule2),
+    ?assertEqual(
+       {matched, allow},
+       emqx_access_rule:match(EmptyClientInfo, Topic1, Compiled2)),
+
+    Topic2 = <<"%c">>,
+    Rule3 = {allow, all, pubsub, <<"%c">>},
+    Compiled3 = emqx_access_rule:compile(Rule3),
+    ?assertEqual(
+       nomatch,
+       emqx_access_rule:match(EmptyClientInfo, Topic2, Compiled3)),
+    Rule4 = {allow, all, pubsub, [{eq, <<"%c">>}]},
+    Compiled4 = emqx_access_rule:compile(Rule4),
+    ?assertEqual(
+       {matched, allow},
+       emqx_access_rule:match(EmptyClientInfo, Topic2, Compiled4)),
+
+    ok.
+
 t_match(_) ->
     ClientInfo1 = #{zone => external,
                     clientid => <<"testClient">>,
