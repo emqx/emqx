@@ -238,9 +238,9 @@ relup_test(){
         fi
         ./emqx/bin/emqx_ctl status
         ./emqx/bin/emqx versions
-        cp "$PACKAGE_FILE" ./emqx/releases/
+        cp "${PACKAGE_PATH}/${PACKAGE_NAME}.tar.gz" ./emqx/releases/
         ./emqx/bin/emqx install "${PACKAGE_VERSION}"
-        [ "$(./emqx/bin/emqx versions |grep permanent | awk '{print $2}')" = "${PACKAGE_VERSION}" ] || exit 1
+        [ "$(./emqx/bin/emqx versions | grep permanent | awk '{print $2}')" = "${PACKAGE_VERSION}" ] || exit 1
         ./emqx/bin/emqx_ctl status
         ./emqx/bin/emqx stop
         rm -rf emqx
