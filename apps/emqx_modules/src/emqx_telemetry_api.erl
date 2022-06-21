@@ -106,7 +106,7 @@ fields(telemetry) ->
                 map(),
                 #{
                     desc => ?DESC(license),
-                    example => #{edition => <<"community">>}
+                    example => #{edition => <<"opensource">>}
                 }
             )},
         {os_name,

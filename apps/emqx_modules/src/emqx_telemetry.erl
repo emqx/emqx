@@ -326,7 +326,7 @@ get_telemetry(State0 = #state{node_uuid = NodeUUID, cluster_uuid = ClusterUUID})
     } = get_rule_engine_and_bridge_info(),
     {State, [
         {emqx_version, bin(emqx_app:get_release())},
-        {license, [{edition, <<"community">>}]},
+        {license, [{edition, <<"opensource">>}]},
         {os_name, bin(get_value(os_name, OSInfo))},
         {os_version, bin(get_value(os_version, OSInfo))},
         {otp_version, bin(otp_version())},

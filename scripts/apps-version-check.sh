@@ -1,77 +1,54 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-## compare to the latest 5.0 release version tag:
-## but do not include alpha, beta and rc versions
-latest_release="$(git describe --abbrev=0 --tags --match '[v|e]5.0*' --exclude '*beta*' --exclude '*alpha*' --exclude '*rc*' || echo 'nomatch')"
-
-if [ "$latest_release" = 'nomatch' ]; then
-    echo "No base release found, skipping app vsn checks"
-    exit 0
-fi
-
-echo "Compare base: $latest_release"
+latest_release=$(git describe --abbrev=0 --tags --exclude '*rc*' --exclude '*alpha*' --exclude '*beta*')
 
 bad_app_count=0
 
-get_vsn() {
-    commit="$1"
-    app_src_file="$2"
-    if [ "$commit" = 'HEAD' ]; then
-        if [ -f "$app_src_file" ]; then
-            grep vsn "$app_src_file" | grep -oE '"[0-9]+.[0-9]+.[0-9]+"' | tr -d '"' || true
-        fi
-    else
-        git show "$commit":"$app_src_file" 2>/dev/null | grep vsn | grep -oE '"[0-9]+.[0-9]+.[0-9]+"' | tr -d '"' || true
-    fi
+no_comment_re='(^[^\s?%])'
+## TODO: c source code comments re (in $app_path/c_src dirs)
+
+parse_semver() {
+    echo "$1" | tr '.|-' ' '
 }
 
-check_apps() {
-    while read -r app_path; do
-        app=$(basename "$app_path")
-        src_file="$app_path/src/$app.app.src"
-        old_app_version="$(get_vsn "$latest_release" "$src_file")"
-        ## TODO: delete it after new version is released with emqx app in apps dir
-        if [ "$app" = 'emqx' ] && [ "$old_app_version" = '' ]; then
-            old_app_version="$(get_vsn "$latest_release" 'src/emqx.app.src')"
-        fi
-        now_app_version="$(get_vsn 'HEAD' "$src_file")"
-        ## TODO: delete it after new version is released with emqx app in apps dir
-        if [ "$app" = 'emqx' ] && [ "$now_app_version" = '' ]; then
-            now_app_version="$(get_vsn 'HEAD' 'src/emqx.app.src')"
-        fi
-        if [ -z "$now_app_version" ]; then
-            echo "failed_to_get_new_app_vsn for $app"
-            exit 1
-        fi
-        if [ -z "${old_app_version:-}" ]; then
-            echo "skipped checking new app ${app}"
-        elif [ "$old_app_version" = "$now_app_version" ]; then
-            lines="$(git diff --name-only "$latest_release"...HEAD \
-                        -- "$app_path/src" \
-                        -- "$app_path/priv" \
-                        -- "$app_path/c_src")"
-            if [ "$lines" != '' ]; then
-                echo "$src_file needs a vsn bump (old=$old_app_version)"
-                echo "changed: $lines"
-                bad_app_count=$(( bad_app_count + 1))
-            fi
-        fi
-    done < <(./scripts/find-apps.sh)
-
-    if [ $bad_app_count -gt 0 ]; then
-        exit 1
+while read -r app; do
+    if [ "$app" != "emqx" ]; then
+        app_path="$app"
     else
-        echo "apps version check successfully"
+        app_path="."
     fi
-}
-
-_main() {
-    if echo "${latest_release}" |grep -oE '[0-9]+.[0-9]+.[0-9]+' > /dev/null 2>&1; then
-        check_apps
+    src_file="$app_path/src/$(basename "$app").app.src"
+    old_app_version="$(git show "$latest_release":"$src_file" | grep vsn | grep -oE '"[0-9]+\.[0-9]+\.[0-9]+"' | tr -d '"')"
+    now_app_version=$(grep -E 'vsn' "$src_file" | grep -oE '"[0-9]+\.[0-9]+\.[0-9]+"' | tr -d '"')
+    if [ "$old_app_version" = "$now_app_version" ]; then
+        changed_lines="$(git diff "$latest_release"...HEAD --ignore-blank-lines -G "$no_comment_re" \
+                             -- "$app_path/src" \
+                             -- ":(exclude)"$app_path/src/*.appup.src"" \
+                             -- "$app_path/priv" \
+                             -- "$app_path/c_src" | wc -l ) "
+        if [ "$changed_lines" -gt 0 ]; then
+            echo "$src_file needs a vsn bump"
+            bad_app_count=$(( bad_app_count + 1))
+        fi
     else
-        echo "skipped unstable tag: ${latest_release}"
+        # shellcheck disable=SC2207
+        old_app_version_semver=($(parse_semver "$old_app_version"))
+        # shellcheck disable=SC2207
+        now_app_version_semver=($(parse_semver "$now_app_version"))
+        if  [ "${old_app_version_semver[0]}" = "${now_app_version_semver[0]}" ] && \
+            [ "${old_app_version_semver[1]}" = "${now_app_version_semver[1]}" ] && \
+            [ "$(( old_app_version_semver[2] + 1 ))" = "${now_app_version_semver[2]}" ]; then
+            true
+        else
+            echo "$src_file: non-strict semver version bump from $old_app_version to $now_app_version"
+            bad_app_count=$(( bad_app_count + 1))
+        fi
     fi
-}
+done < <(./scripts/find-apps.sh)
 
-_main
+if [ $bad_app_count -gt 0 ]; then
+    exit 1
+else
+    echo "apps version check successfully"
+fi

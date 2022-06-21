@@ -3,7 +3,7 @@
     {id, "emqx"},
     {description, "EMQX Core"},
     % strict semver, bump manually!
-    {vsn, "5.0.0"},
+    {vsn, "5.0.1"},
     {modules, []},
     {registered, []},
     {applications, [
