@@ -145,7 +145,7 @@ dump_schema(Dir, SchemaModule, I18nFile) ->
     lists:foreach(
         fun(Lang) ->
             gen_config_md(Dir, I18nFile, SchemaModule, Lang),
-            gen_hot_conf_schema_json(Dir, I18nFile, Lang),
+            gen_api_schema_json(Dir, I18nFile, Lang),
             gen_example_conf(filename:dirname(I18nFile), I18nFile, SchemaModule, Lang)
         end,
         [en, zh]
@@ -161,13 +161,31 @@ gen_schema_json(Dir, I18nFile, SchemaModule) ->
     IoData = jsx:encode(JsonMap, [space, {indent, 4}]),
     ok = file:write_file(SchemaJsonFile, IoData).
 
-gen_hot_conf_schema_json(Dir, I18nFile, Lang) ->
+gen_api_schema_json(Dir, I18nFile, Lang) ->
     emqx_dashboard:init_i18n(I18nFile, Lang),
-    JsonFile = "hot-config-schema-" ++ atom_to_list(Lang) ++ ".json",
-    HotConfigSchemaFile = filename:join([Dir, JsonFile]),
-    io:format(user, "===< Generating: ~s~n", [HotConfigSchemaFile]),
-    ok = gen_hot_conf_schema(HotConfigSchemaFile),
+    gen_api_schema_json_hotconf(Dir, Lang),
+    gen_api_schema_json_connector(Dir, Lang),
+    gen_api_schema_json_bridge(Dir, Lang),
     emqx_dashboard:clear_i18n().
+
+gen_api_schema_json_hotconf(Dir, Lang) ->
+    SchemaInfo = #{title => <<"EMQX Hot Conf API Schema">>, version => <<"0.1.0">>},
+    File = schema_filename(Dir, "hot-config-schema-", Lang),
+    ok = do_gen_api_schema_json(File, emqx_mgmt_api_configs, SchemaInfo).
+
+gen_api_schema_json_connector(Dir, Lang) ->
+    SchemaInfo = #{title => <<"EMQX Connector API Schema">>, version => <<"0.1.0">>},
+    File = schema_filename(Dir, "connector-api-", Lang),
+    ok = do_gen_api_schema_json(File, emqx_connector_api, SchemaInfo).
+
+gen_api_schema_json_bridge(Dir, Lang) ->
+    SchemaInfo = #{title => <<"EMQX Data Bridge API Schema">>, version => <<"0.1.0">>},
+    File = schema_filename(Dir, "bridge-api-", Lang),
+    ok = do_gen_api_schema_json(File, emqx_bridge_api, SchemaInfo).
+
+schema_filename(Dir, Prefix, Lang) ->
+    Filename = Prefix ++ atom_to_list(Lang) ++ ".json",
+    filename:join([Dir, Filename]).
 
 gen_config_md(Dir, I18nFile, SchemaModule, Lang0) ->
     Lang = atom_to_list(Lang0),
@@ -214,9 +232,10 @@ gen_example(File, SchemaModule, I18nFile, Lang) ->
     file:write_file(File, Example).
 
 %% Only gen hot_conf schema, not all configuration fields.
-gen_hot_conf_schema(File) ->
+do_gen_api_schema_json(File, SchemaMod, SchemaInfo) ->
+    io:format(user, "===< Generating: ~s~n", [File]),
     {ApiSpec0, Components0} = emqx_dashboard_swagger:spec(
-        emqx_mgmt_api_configs,
+        SchemaMod,
         #{schema_converter => fun hocon_schema_to_spec/2}
     ),
     ApiSpec = lists:foldl(
@@ -248,7 +267,7 @@ gen_hot_conf_schema(File) ->
     Components = lists:foldl(fun(M, Acc) -> maps:merge(M, Acc) end, #{}, Components0),
     IoData = jsx:encode(
         #{
-            info => #{title => <<"EMQX Hot Conf Schema">>, version => <<"0.1.0">>},
+            info => SchemaInfo,
             paths => ApiSpec,
             components => #{schemas => Components}
         },
