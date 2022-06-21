@@ -52,7 +52,12 @@ t_run_check(_) ->
                     "'bpapi.versions' files to the commit."
                 ),
                 error(version_mismatch)
-            end
+            end,
+        BpapiDumps = filelib:wildcard(
+            filename:join(emqx_bpapi_static_checks:dumps_dir(), "*.bpapi")
+        ),
+        logger:info("Backplane API dump files: ~p", [BpapiDumps]),
+        ?assert(emqx_bpapi_static_checks:check_compat(BpapiDumps))
     catch
         EC:Err:Stack ->
             logger:critical("Test suite failed: ~p:~p~nStack:~p", [EC, Err, Stack]),
