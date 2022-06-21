@@ -162,7 +162,7 @@ lookup_by_username(Username) ->
     {atomic, List} = mria:ro_transaction(?DASHBOARD_SHARD, Fun),
     List.
 
--spec owner(Token :: binary()) -> {ok, Username :: binary} | {error, not_found}.
+-spec owner(Token :: binary()) -> {ok, Username :: binary()} | {error, not_found}.
 owner(Token) ->
     Fun = fun() -> mnesia:read(?TAB, Token) end,
     case mria:ro_transaction(?DASHBOARD_SHARD, Fun) of

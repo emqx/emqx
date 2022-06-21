@@ -44,23 +44,17 @@
 -define(APP_MANAGEMENT, emqx_management).
 
 -define(OVERVIEWS, [
-    'alarms/activated',
-    'alarms/deactivated',
-    banned,
-    brokers,
-    stats,
-    metrics,
-    listeners,
-    clients,
-    subscriptions,
-    routes,
-    plugins
+    "alarms",
+    "banned",
+    "stats",
+    "metrics",
+    "listeners",
+    "clients",
+    "subscriptions"
 ]).
 
 all() ->
-    %% TODO: V5 API
-    %% emqx_common_test_helpers:all(?MODULE).
-    [t_cli, t_lookup_by_username_jwt, t_clean_expired_jwt, t_rest_api].
+    emqx_common_test_helpers:all(?MODULE).
 
 end_suite() ->
     end_suite([]).
@@ -98,37 +92,40 @@ t_overview(_) ->
     mnesia:clear_table(?ADMIN),
     emqx_dashboard_admin:add_user(<<"admin">>, <<"public">>, <<"simple_description">>),
     [
-        ?assert(
-            request_dashboard(
-                get,
-                api_path(erlang:atom_to_list(Overview)),
-                auth_header_()
-            )
-        )
+        {ok, _} = request_dashboard(get, api_path([Overview]), auth_header_())
      || Overview <- ?OVERVIEWS
     ].
 
 t_admins_add_delete(_) ->
     mnesia:clear_table(?ADMIN),
     Desc = <<"simple description">>,
-    ok = emqx_dashboard_admin:add_user(<<"username">>, <<"password">>, Desc),
-    ok = emqx_dashboard_admin:add_user(<<"username1">>, <<"password1">>, Desc),
+    {ok, _} = emqx_dashboard_admin:add_user(<<"username">>, <<"password">>, Desc),
+    {ok, _} = emqx_dashboard_admin:add_user(<<"username1">>, <<"password1">>, Desc),
     Admins = emqx_dashboard_admin:all_users(),
     ?assertEqual(2, length(Admins)),
-    ok = emqx_dashboard_admin:remove_user(<<"username1">>),
+    {ok, _} = emqx_dashboard_admin:remove_user(<<"username1">>),
     Users = emqx_dashboard_admin:all_users(),
     ?assertEqual(1, length(Users)),
-    ok = emqx_dashboard_admin:change_password(
+    {ok, _} = emqx_dashboard_admin:change_password(
         <<"username">>,
         <<"password">>,
         <<"pwd">>
     ),
     timer:sleep(10),
-    Header = auth_header_(<<"username">>, <<"pwd">>),
-    ?assert(request_dashboard(get, api_path("brokers"), Header)),
+    {ok, _} = emqx_dashboard_admin:remove_user(<<"username">>).
 
-    ok = emqx_dashboard_admin:remove_user(<<"username">>),
-    ?assertNotEqual(true, request_dashboard(get, api_path("brokers"), Header)).
+t_admin_delete_self_failed(_) ->
+    mnesia:clear_table(?ADMIN),
+    Desc = <<"simple description">>,
+    _ = emqx_dashboard_admin:add_user(<<"username1">>, <<"password">>, Desc),
+    Admins = emqx_dashboard_admin:all_users(),
+    ?assertEqual(1, length(Admins)),
+    Header = auth_header_(<<"username1">>, <<"password">>),
+    {error, {_, 400, _}} = request_dashboard(delete, api_path(["users", "username1"]), Header),
+    Token = erlang:iolist_to_binary(["Basic ", base64:encode("username1:password")]),
+    Header2 = {"Authorization", Token},
+    {error, {_, 400, _}} = request_dashboard(delete, api_path(["users", "username1"]), Header2),
+    mnesia:clear_table(?ADMIN).
 
 t_rest_api(_Config) ->
     mnesia:clear_table(?ADMIN),
