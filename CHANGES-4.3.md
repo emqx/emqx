@@ -25,6 +25,8 @@ File format:
   3.1. [#8177]
 - Do not match ACL rules containing placeholders if there's no
   information to fill them. [#8280]
+- Fixed issue in Lua hook that didn't prevent a topic from being
+  subscribed to. [#8288]
 
 ## v4.3.15
 
