@@ -221,6 +221,13 @@ listener_name(Protocol, #{port := Port}) ->
     list_to_atom(Name).
 
 authorize(Req) ->
+    Path = cowboy_req:path(Req),
+    authorize(Path, Req).
+
+authorize(<<"/api/v5/prometheus/stats">>, _Req) ->
+    %% allow scraping without auth
+    ok;
+authorize(_Path, Req) ->
     case cowboy_req:parse_header(<<"authorization">>, Req) of
         {basic, Username, Password} ->
             case emqx_dashboard_admin:check(Username, Password) of
