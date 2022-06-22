@@ -1,11 +1,13 @@
 %% -*- mode: erlang -*-
 %% Unless you know what you are doing, DO NOT edit manually!!
 {VSN,
-  [{"5.0.0",[
-    {load_module,emqx_release,brutal_purge,soft_purge,[]},
-    {load_module,emqx_relup}]},
+  [{"5.0.0",
+    [{load_module,emqx_schema,brutal_purge,soft_purge,[]},
+     {load_module,emqx_release,brutal_purge,soft_purge,[]},
+     {load_module,emqx_relup}]},
    {<<".*">>,[]}],
-  [{"5.0.0",[
-    {load_module,emqx_release,brutal_purge,soft_purge,[]},
-    {load_module,emqx_relup}]},
+  [{"5.0.0",
+    [{load_module,emqx_schema,brutal_purge,soft_purge,[]},
+     {load_module,emqx_release,brutal_purge,soft_purge,[]},
+     {load_module,emqx_relup}]},
    {<<".*">>,[]}]}.

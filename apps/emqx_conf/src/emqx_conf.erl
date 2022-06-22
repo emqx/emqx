@@ -196,7 +196,9 @@ schema_module() ->
 -spec gen_doc(file:name_all(), module(), file:name_all(), string()) -> ok.
 gen_doc(File, SchemaModule, I18nFile, Lang) ->
     Version = emqx_release:version(),
-    Title = "# " ++ emqx_release:description() ++ " " ++ Version ++ " Configuration",
+    Title =
+        "# " ++ emqx_release:description() ++ " Configuration\n\n" ++
+            "<!--" ++ Version ++ "-->",
     BodyFile = filename:join([rel, "emqx_conf.template.en.md"]),
     {ok, Body} = file:read_file(BodyFile),
     Opts = #{title => Title, body => Body, desc_file => I18nFile, lang => Lang},

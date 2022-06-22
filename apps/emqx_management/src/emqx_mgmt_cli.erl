@@ -170,7 +170,7 @@ if_client(ClientId, Fun) ->
 %% @doc Topics Command
 
 topics(["list"]) ->
-    dump(emqx_route);
+    dump(emqx_route, emqx_topic);
 topics(["show", Topic]) ->
     Routes = ets:lookup(emqx_route, bin(Topic)),
     [print({emqx_topic, Route}) || Route <- Routes];
@@ -657,9 +657,6 @@ olp(_) ->
 %%--------------------------------------------------------------------
 %% Dump ETS
 %%--------------------------------------------------------------------
-
-dump(Table) ->
-    dump(Table, Table, ets:first(Table), []).
 
 dump(Table, Tag) ->
     dump(Table, Tag, ets:first(Table), []).

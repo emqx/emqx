@@ -1650,7 +1650,7 @@ desc("zone") ->
     "A `Zone` defines a set of configuration items (such as the maximum number of connections)"
     " that can be shared between multiple listeners.\n\n"
     "`Listener` can refer to a `Zone` through the configuration item"
-    " <code>listener.<Protocol>.<Listener Name>.zone</code>.\n\n"
+    " <code>listener.\\<Protocol>.\\<Listener Name>.zone</code>.\n\n"
     "The configs defined in the zones will override the global configs with the same key.\n\n"
     "For example, given the following config:\n"
     "```\n"
