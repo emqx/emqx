@@ -44,6 +44,7 @@
                   wildcard_subscription => boolean(),
                   subscription_identifiers => boolean(),
                   shared_subscription => boolean()
+                  exclusive_subscription => boolean()
                  }).
 
 -define(UNLIMITED, 0).
@@ -56,7 +57,8 @@
 -define(SUBCAP_KEYS, [max_topic_levels,
                       max_qos_allowed,
                       wildcard_subscription,
-                      shared_subscription
+                      shared_subscription,
+                      exclusive_subscription
                      ]).
 
 -define(DEFAULT_CAPS, #{max_packet_size => ?MAX_PACKET_SIZE,
@@ -67,7 +69,8 @@
                         retain_available => true,
                         wildcard_subscription => true,
                         subscription_identifiers => true,
-                        shared_subscription => true
+                        shared_subscription => true,
+                        exclusive_subscription => false
                        }).
 
 -spec(check_pub(emqx_types:zone(),
@@ -106,6 +109,8 @@ check_sub(Zone, Topic, SubOpts) ->
                       Map#{is_wildcard => emqx_topic:wildcard(Topic)};
                  (shared_subscription, Map) ->
                       Map#{is_shared => maps:is_key(share, SubOpts)};
+                 (exclusive_subscription, Map) ->
+                      Map#{is_exclusive => maps:get(is_exclusive, SubOpts, false)};
                  (_Key, Map) -> Map %% Ignore
               end, #{}, maps:keys(Caps)),
     do_check_sub(Flags, Caps).
@@ -117,6 +122,8 @@ do_check_sub(#{is_wildcard := true}, #{wildcard_subscription := false}) ->
     {error, ?RC_WILDCARD_SUBSCRIPTIONS_NOT_SUPPORTED};
 do_check_sub(#{is_shared := true}, #{shared_subscription := false}) ->
     {error, ?RC_SHARED_SUBSCRIPTIONS_NOT_SUPPORTED};
+do_check_sub(#{is_exclusive := true}, #{exclusive_subscription := true}) ->
+    {error, ?RC_QUOTA_EXCEEDED};
 do_check_sub(_Flags, _Caps) -> ok.
 
 default_caps() ->
