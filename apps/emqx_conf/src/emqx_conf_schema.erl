@@ -64,7 +64,8 @@
     emqx_slow_subs_schema
 ]).
 
-namespace() -> cluster.
+%% root config should not have a namespace
+namespace() -> undefined.
 
 roots() ->
     PtKey = ?EMQX_AUTHENTICATION_SCHEMA_MODULE_PT_KEY,

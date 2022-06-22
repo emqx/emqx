@@ -1,8 +1,10 @@
-%% -*- mode: erlang -*-
-{"0.1.1",
+%% Unless you know what you are doing, DO NOT edit manually!!
+{VSN,
   [{"0.1.0",
-    [{load_module,emqx_conf,brutal_purge,soft_purge,[]}]},
+    [{load_module,emqx_conf_schema,brutal_purge,soft_purge,[]},
+     {load_module,emqx_conf,brutal_purge,soft_purge,[]}]},
    {<<".*">>,[]}],
   [{"0.1.0",
-    [{load_module,emqx_conf,brutal_purge,soft_purge,[]}]},
+    [{load_module,emqx_conf_schema,brutal_purge,soft_purge,[]},
+     {load_module,emqx_conf,brutal_purge,soft_purge,[]}]},
    {<<".*">>,[]}]}.
