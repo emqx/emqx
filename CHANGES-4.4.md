@@ -5,6 +5,8 @@
 ### Enhancements (synced from v4.3.16)
 * HTTP API `mqtt/publish` support to publish with properties and user_properties.
 
+### Bug fixes
+- Clean trace zip files when file has been downloaded.
 
 ## v4.4.4
 

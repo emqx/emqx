@@ -226,7 +226,8 @@ handle_info({'DOWN', _Ref, process, Pid, _Reason}, State = #{monitors := Monitor
     case maps:take(Pid, Monitors) of
         error -> {noreply, State};
         {Files, NewMonitors} ->
-            lists:foreach(fun file:delete/1, Files),
+            ZipDir = emqx_trace:zip_dir(),
+            lists:foreach(fun(F) -> file:delete(filename:join([ZipDir, F])) end,  Files),
             {noreply, State#{monitors => NewMonitors}}
     end;
 handle_info({timeout, TRef, update_trace},
@@ -403,7 +404,7 @@ fill_default(Trace = #?TRACE{end_at = undefined, start_at = StartAt}) ->
     fill_default(Trace#?TRACE{end_at = StartAt + 10 * 60});
 fill_default(Trace) -> Trace.
 
--define(NAME_RE, "^[A-Za-z]+[A-Za-z0-9-_]*$").
+-define(NAME_RE, "^[0-9A-Za-z]+[A-Za-z0-9-_]*$").
 
 to_trace(#{name := Name} = Trace, Rec) ->
     case re:run(Name, ?NAME_RE) of
