@@ -1,0 +1,8 @@
+%% -*- mode: erlang -*-
+{"0.1.1",
+  [{"0.1.0",
+    [{load_module,emqx_conf,brutal_purge,soft_purge,[]}]},
+   {<<".*">>,[]}],
+  [{"0.1.0",
+    [{load_module,emqx_conf,brutal_purge,soft_purge,[]}]},
+   {<<".*">>,[]}]}.
