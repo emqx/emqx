@@ -133,9 +133,13 @@ match_who(_ClientInfo, _Who) ->
 match_topics(_ClientInfo, _Topic, []) ->
     false;
 match_topics(ClientInfo, Topic, [{pattern, PatternFilter}|Filters]) ->
-    TopicFilter = feed_var(ClientInfo, PatternFilter),
-    match_topic(emqx_topic:words(Topic), TopicFilter)
-        orelse match_topics(ClientInfo, Topic, Filters);
+    case feed_var(ClientInfo, PatternFilter) of
+        nomatch ->
+            false;
+        TopicFilter ->
+            match_topic(emqx_topic:words(Topic), TopicFilter)
+                orelse match_topics(ClientInfo, Topic, Filters)
+    end;
 match_topics(ClientInfo, Topic, [TopicFilter|Filters]) ->
    match_topic(emqx_topic:words(Topic), TopicFilter)
        orelse match_topics(ClientInfo, Topic, Filters).
@@ -149,14 +153,13 @@ feed_var(ClientInfo, Pattern) ->
     feed_var(ClientInfo, Pattern, []).
 feed_var(_ClientInfo, [], Acc) ->
     lists:reverse(Acc);
-feed_var(ClientInfo = #{clientid := undefined}, [<<"%c">>|Words], Acc) ->
-    feed_var(ClientInfo, Words, [<<"%c">>|Acc]);
+feed_var(#{clientid := undefined}, [<<"%c">>|_Words], _Acc) ->
+    nomatch;
 feed_var(ClientInfo = #{clientid := ClientId}, [<<"%c">>|Words], Acc) ->
     feed_var(ClientInfo, Words, [ClientId |Acc]);
-feed_var(ClientInfo = #{username := undefined}, [<<"%u">>|Words], Acc) ->
-    feed_var(ClientInfo, Words, [<<"%u">>|Acc]);
+feed_var(#{username := undefined}, [<<"%u">>|_Words], _Acc) ->
+    nomatch;
 feed_var(ClientInfo = #{username := Username}, [<<"%u">>|Words], Acc) ->
     feed_var(ClientInfo, Words, [Username|Acc]);
 feed_var(ClientInfo, [W|Words], Acc) ->
     feed_var(ClientInfo, Words, [W|Acc]).
-
