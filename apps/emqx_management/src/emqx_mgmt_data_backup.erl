@@ -206,6 +206,22 @@ import_rule(#{<<"id">> := RuleId,
 map_to_actions(Maps) ->
     [map_to_action(M) || M <- Maps].
 
+map_to_action(Map = #{<<"id">> := ActionInstId,
+                      <<"name">> := <<"data_to_kafka">>,
+                      <<"args">> := Args}) ->
+    NArgs =
+        case maps:get(<<"strategy">>, Args, undefined) of
+            <<"first_key_dispatch">> ->
+                %% Old version(4.2.x) is first_key_dispatch.
+                %% Now is key_dispatch.
+                Args#{<<"strategy">> => <<"key_dispatch">>};
+            _ ->
+                Args
+        end,
+    #{id => ActionInstId,
+      name => 'data_to_kafka',
+      args => NArgs,
+      fallbacks => map_to_actions(maps:get(<<"fallbacks">>, Map, []))};
 map_to_action(Map = #{<<"id">> := ActionInstId, <<"name">> := Name, <<"args">> := Args}) ->
     #{id => ActionInstId,
       name => any_to_atom(Name),
