@@ -74,7 +74,9 @@ publish(_Bindings, Params) ->
     try parse_publish_params(Params) of
         Result -> do_publish(Params, Result)
     catch
-        _E : _R -> minirest:return({ok, ?ERROR8, bad_params})
+        _E : _R ->
+            logger:debug("API publish result:~p ~p", [_E, _R]),
+            minirest:return({ok, ?ERROR8, bad_params})
     end.
 
 unsubscribe(_Bindings, Params) ->
@@ -159,8 +161,8 @@ do_subscribe(ClientId, Topics, QoS) ->
         _ -> ok
     end.
 
-do_publish(Params, {ClientId, Topic, Qos, Retain, Payload, UserProps}) ->
-    case do_publish(ClientId, Topic, Qos, Retain, Payload, UserProps) of
+do_publish(Params, {ClientId, Topic, Qos, Retain, Payload, Props}) ->
+    case do_publish(ClientId, Topic, Qos, Retain, Payload, Props) of
         {ok, MsgIds} ->
             case proplists:get_value(<<"return">>, Params, undefined) of
                 undefined -> minirest:return(ok);
@@ -174,17 +176,16 @@ do_publish(Params, {ClientId, Topic, Qos, Retain, Payload, UserProps}) ->
             minirest:return(Result)
     end.
 
-do_publish(ClientId, _Topics, _Qos, _Retain, _Payload, _UserProps)
+do_publish(ClientId, _Topics, _Qos, _Retain, _Payload, _Props)
   when not (is_binary(ClientId) or (ClientId =:= undefined)) ->
     {ok, ?ERROR8, <<"bad clientid: must be string">>};
-do_publish(_ClientId, [], _Qos, _Retain, _Payload, _UserProps) ->
+do_publish(_ClientId, [], _Qos, _Retain, _Payload, _Props) ->
     {ok, ?ERROR15, bad_topic};
-do_publish(ClientId, Topics, Qos, Retain, Payload, UserProps) ->
+do_publish(ClientId, Topics, Qos, Retain, Payload, Props) ->
     MsgIds = lists:map(fun(Topic) ->
-        Msg = emqx_message:make(ClientId, Qos, Topic, Payload),
-        UserProps1 = #{'User-Property' => UserProps},
-        _ = emqx_mgmt:publish(Msg#message{flags = #{retain => Retain},
-                                          headers = #{properties => UserProps1}}),
+        Msg = emqx_message:make(ClientId, Qos, Topic, Payload,
+            #{retain => Retain}, Props),
+        _ = emqx_mgmt:publish(Msg),
         emqx_guid:to_hexstr(Msg#message.id)
     end, Topics),
     {ok, MsgIds}.
@@ -218,8 +219,8 @@ parse_publish_params(Params) ->
     Qos       = proplists:get_value(<<"qos">>, Params, 0),
     Retain    = proplists:get_value(<<"retain">>, Params, false),
     Payload1  = maybe_maps_to_binary(Payload),
-    UserProps = generate_user_props(proplists:get_value(<<"user_properties">>, Params, [])),
-    {ClientId, Topics, Qos, Retain, Payload1, UserProps}.
+    Props = parse_props(Params),
+    {ClientId, Topics, Qos, Retain, Payload1, Props}.
 
 parse_unsubscribe_params(Params) ->
     ClientId = proplists:get_value(<<"clientid">>, Params),
@@ -274,15 +275,41 @@ maybe_maps_to_binary(Payload) ->
          error({encode_payload_fail, S})
   end.
 
+-define(PROP_MAPPING,
+    #{<<"payload_format_indicator">> => 'Payload-Format-Indicator',
+        <<"message_expiry_interval">> => 'Message-Expiry-Interval',
+        <<"response_topic">> => 'Response-Topic',
+        <<"correlation_data">> => 'Correlation-Data',
+        <<"user_properties">> => 'User-Property',
+        <<"subscription_identifier">> => 'Subscription-Identifier',
+        <<"content_type">> => 'Content-Type'
+    }).
+
+parse_props(Params) ->
+    Properties0 = proplists:get_value(<<"properties">>, Params, []),
+    Properties1 = lists:foldl(fun({Name, Value}, Acc) ->
+        case maps:find(Name, ?PROP_MAPPING) of
+            {ok, Key} -> Acc#{Key => Value};
+            error -> error({invalid_property, Name})
+        end
+                              end, #{}, Properties0),
+    %% Compatible with older API
+    UserProp1 = generate_user_props(proplists:get_value(<<"user_properties">>, Params, [])),
+    UserProp2 =
+        case Properties1 of
+            #{'User-Property' := UserProp1List} -> generate_user_props(UserProp1List);
+            _ -> []
+        end,
+    #{properties => Properties1#{'User-Property' => UserProp1 ++ UserProp2}}.
+
 generate_user_props(UserProps) when is_list(UserProps)->
-    generate_user_props_(UserProps, []);
+    lists:map(fun
+                  ({Name, Value}) ->  {bin(Name), bin(Value)};
+                  (Invalid) -> error({invalid_user_property, Invalid})
+              end
+        , UserProps);
 generate_user_props(UserProps) ->
     error({user_properties_type_error, UserProps}).
-
-generate_user_props_([{Name, Value} | Rest], Acc) ->
-    generate_user_props_(Rest, [{bin(Name), bin(Value)} | Acc]);
-generate_user_props_([], Acc) ->
-    lists:reverse(Acc).
 
 bin(Bin) when is_binary(Bin) -> Bin;
 bin(Num) when is_number(Num) -> number_to_binary(Num);
