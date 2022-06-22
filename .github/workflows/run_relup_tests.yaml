@@ -70,8 +70,9 @@ jobs:
         fetch-depth: 0
 
     - name: Get old vsn
-      run: echo "OLD_VSNS=$(emqx/scripts/relup-base-vsns.sh ${{ matrix.profile }} | xargs echo -n)" >> $GITHUB_ENV
-      run: echo "VSN=$(emqx/pkg-vsn.sh ${{ matrix.profile }})" >> $GITHUB_ENV
+      run: |
+        echo "OLD_VSNS=$(emqx/scripts/relup-base-vsns.sh ${{ matrix.profile }} | xargs echo -n)" >> $GITHUB_ENV
+        echo "VSN=$(emqx/pkg-vsn.sh ${{ matrix.profile }})" >> $GITHUB_ENV
 
     - name: build emqx
       env:
