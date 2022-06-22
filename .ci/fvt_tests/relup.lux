@@ -27,7 +27,7 @@
     ?SH-PROMPT
 
     !cd emqx
-    !./bin/emqx start
+    !./bin/emqx console
     ?EMQ X .* is started successfully!
     ?SH-PROMPT
 
@@ -40,7 +40,7 @@
 
     !sed -i '/emqx_telemetry/d' data/loaded_plugins
 
-    !./bin/emqx start
+    !./bin/emqx console
     ?EMQ X .* is started successfully!
     ?SH-PROMPT
 
