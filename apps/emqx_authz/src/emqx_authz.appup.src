@@ -1,0 +1,8 @@
+%% Unless you know what you are doing, DO NOT edit manually!!
+{VSN,
+  [{"0.1.1",
+    [{load_module,emqx_authn_utils,brutal_purge,soft_purge,[]}]},
+   {<<".*">>,[]}],
+  [{"0.1.1",
+    [{load_module,emqx_authn_utils,brutal_purge,soft_purge,[]}]},
+   {<<".*">>,[]}]}.

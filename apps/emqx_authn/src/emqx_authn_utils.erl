@@ -50,22 +50,24 @@
 %%------------------------------------------------------------------------------
 
 create_resource(ResourceId, Module, Config) ->
-    {ok, _Data} = emqx_resource:create_local(
+    Result = emqx_resource:create_local(
         ResourceId,
         ?RESOURCE_GROUP,
         Module,
         Config,
-        #{}
-    ).
+        #{start_after_created => false}
+    ),
+    start_resource_if_enabled(Result, ResourceId, Config).
 
 update_resource(Module, Config, ResourceId) ->
     Opts = #{start_after_created => false},
     Result = emqx_resource:recreate_local(ResourceId, Module, Config, Opts),
-    _ =
-        case Config of
-            #{enable := true} -> emqx_resource:start(ResourceId);
-            #{enable := false} -> ok
-        end,
+    start_resource_if_enabled(Result, ResourceId, Config).
+
+start_resource_if_enabled({ok, _} = Result, ResourceId, #{enable := true}) ->
+    _ = emqx_resource:start(ResourceId),
+    Result;
+start_resource_if_enabled(Result, _ResourceId, _Config) ->
     Result.
 
 check_password_from_selected_map(_Algorithm, _Selected, undefined) ->

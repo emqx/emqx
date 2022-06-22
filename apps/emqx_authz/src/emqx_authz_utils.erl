@@ -43,33 +43,35 @@ create_resource(Module, Config) ->
     create_resource(ResourceId, Module, Config).
 
 create_resource(ResourceId, Module, Config) ->
-    {ok, _Data} = emqx_resource:create_local(
+    Result = emqx_resource:create_local(
         ResourceId,
         ?RESOURCE_GROUP,
         Module,
         Config,
-        #{}
-    ).
+        #{start_after_created => false}
+    ),
+    start_resource_if_enabled(Result, ResourceId, Config).
 
-update_resource(Module, #{annotations := #{id := ResourceId}} = Source) ->
+update_resource(Module, #{annotations := #{id := ResourceId}} = Config) ->
     Result =
         case
             emqx_resource:recreate_local(
                 ResourceId,
                 Module,
-                Source
+                Config,
+                #{start_after_created => false}
             )
         of
             {ok, _} -> {ok, ResourceId};
             {error, Reason} -> {error, Reason}
         end,
-    case Source of
-        #{enable := true} ->
-            Result;
-        #{enable := false} ->
-            ok = emqx_resource:stop(ResourceId),
-            Result
-    end.
+    start_resource_if_enabled(Result, ResourceId, Config).
+
+start_resource_if_enabled({ok, _} = Result, ResourceId, #{enable := true}) ->
+    _ = emqx_resource:start(ResourceId),
+    Result;
+start_resource_if_enabled(Result, _ResourceId, _Config) ->
+    Result.
 
 cleanup_resources() ->
     lists:foreach(
