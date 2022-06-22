@@ -1,5 +1,11 @@
 # EMQX 4.4 Changes
 
+## v4.4.5
+
+### Enhancements (synced from v4.3.16)
+* HTTP API `mqtt/publish` support to publish with properties and user_properties.
+
+
 ## v4.4.4
 
 ### Enhancements (synced from v4.3.15)

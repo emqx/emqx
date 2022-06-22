@@ -568,11 +568,35 @@ t_pubsub(_) ->
                     false
             end),
 
+    %% properties
+    {ok, Code} = request_api(post, api_path(["mqtt/publish"]), [], auth_header_(),
+        #{<<"clientid">> => ClientId,
+            <<"topic">> => <<"mytopic">>,
+            <<"qos">> => 1,
+            <<"payload">> => <<"hello properties">>,
+            <<"user_properties">> => #{<<"prop_key1">> => <<"prop_val1">>},
+            <<"properties">> => #{
+                <<"message_expiry_interval">> => 1000,
+                <<"user_properties">> => #{<<"prop_key2">> => <<"prop_val2">>}}
+        }),
+    Msg = receive
+              {publish, MsgTmp} ->
+                  MsgTmp
+          after 150 ->
+            false
+          end,
+    ?assertMatch(#{payload := <<"hello properties">>,
+        qos := 1,
+        properties := #{
+            'Message-Expiry-Interval' := 1000,
+            'User-Property' := [{<<"prop_key1">>,<<"prop_val1">>},
+                {<<"prop_key2">>,<<"prop_val2">>}]}}, Msg),
+
     ok = emqtt:disconnect(C1),
 
-    ?assertEqual(4, emqx_metrics:val('messages.qos1.received') - Qos1Received),
+    ?assertEqual(5, emqx_metrics:val('messages.qos1.received') - Qos1Received),
     ?assertEqual(2, emqx_metrics:val('messages.qos2.received') - Qos2Received),
-    ?assertEqual(6, emqx_metrics:val('messages.received') - Received).
+    ?assertEqual(7, emqx_metrics:val('messages.received') - Received).
 
 loop([]) -> [];
 
