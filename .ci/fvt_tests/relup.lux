@@ -85,6 +85,27 @@
 
     !cp -f ../$PROFILE-$VSN-*-ubuntu20.04-amd64.tar.gz releases/
 
+    ## 1. upgrade to the new version
+    !./bin/emqx install $VSN
+    ?Made release permanent: "$VSN"
+    ?SH-PROMPT
+
+    !./bin/emqx versions |grep permanent
+    ?(.*)$VSN
+    ?SH-PROMPT
+
+    ## 2. downgrade to the old version
+    !./bin/emqx install $old_vsn
+    ?Made release permanent:.*
+    ?SH-PROMPT
+
+    !./bin/emqx versions |grep permanent | grep -qs "$old_vsn"
+    ?SH-PROMPT:
+    !echo ==$$?==
+    ?^==0==
+    ?SH-PROMPT:
+
+    ## 3. again, upgrade to the new version
     !./bin/emqx install $VSN
     ?Made release permanent: "$VSN"
     ?SH-PROMPT
@@ -110,6 +131,27 @@
 
     !cp -f ../$PROFILE-$VSN-*-ubuntu20.04-amd64.tar.gz releases/
 
+    ## 1. upgrade to the new version
+    !./bin/emqx install $VSN
+    ?Made release permanent: "$VSN"
+    ?SH-PROMPT
+
+    !./bin/emqx versions |grep permanent
+    ?(.*)$VSN
+    ?SH-PROMPT
+
+    ## 2. downgrade to the old version
+    !./bin/emqx install $old_vsn
+    ?Made release permanent:.*
+    ?SH-PROMPT
+
+    !./bin/emqx versions |grep permanent | grep -qs "$old_vsn"
+    ?SH-PROMPT:
+    !echo ==$$?==
+    ?^==0==
+    ?SH-PROMPT:
+
+    ## 3. again, upgrade to the new version
     !./bin/emqx install $VSN
     ?Made release permanent: "$VSN"
     ?SH-PROMPT
@@ -129,18 +171,20 @@
     ?Plugin\(emqx_management.*active=true\)
     ?SH-PROMPT
 
+## We don't guarantee not to lose a single message!
+## So even if we received 290~300 messages, we consider it as success
 [shell bench]
     ???publish complete
     ??SH-PROMPT:
     !sleep 5
     ?SH-PROMPT
 
-    !curl --user admin:public --silent --show-error http://localhost:8081/api/v4/rules | jq --raw-output ".data[0].metrics[] | select(.node==\"emqx@127.0.0.1\").matched"
+    !curl --user admin:public --silent --show-error http://localhost:18083/api/v5/rules | jq --raw-output ".[0].node_metrics[] | select(.node==\"emqx@127.0.0.1\") | .metrics.matched"
     ?300
     ?SH-PROMPT
 
-    !curl http://127.0.0.1:8080/counter
-    ???{"data":300,"code":0}
+    !curl --user admin:public --silent --show-error http://localhost:18083/api/v5/rules | jq --raw-output ".[0].node_metrics[] | select(.node==\"emqx@127.0.0.1\") | .metrics.\"actions.success\""
+    ?\{"data":(29[0-9])|(300),"code":0\}
     ?SH-PROMPT
 
 [shell emqx2]
