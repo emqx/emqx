@@ -16,7 +16,7 @@
     ???Eshell
     ???>
     !http_server:start().
-    ?Start http_server listener on 8080 successfully.
+    ?Start http_server listener on 7077 successfully.
     ?ok
     ?>
 
@@ -27,9 +27,6 @@
     ?SH-PROMPT
 
     !cd emqx
-    !sed -i 's|listener.wss.external[ \t]*=.*|listener.wss.external = 8085|g' etc/emqx.conf
-    !sed -i '/emqx_telemetry/d' data/loaded_plugins
-
     !./bin/emqx start
     ?EMQ X .* is started successfully!
     ?SH-PROMPT
@@ -53,24 +50,27 @@
 
     !./bin/emqx_ctl cluster status
     """???
-    Cluster status: #{running_nodes => ['emqx2@127.0.0.1','emqx@127.0.0.1'],
-                      stopped_nodes => []}
+    Cluster status: #{running_nodes => ['emqx2@127.0.0.1','emqx@127.0.0.1'],stopped_nodes => []}
     """
     ?SH-PROMPT
 
-    !./bin/emqx_ctl resources create 'web_hook' -i 'resource:691c29ba' -c '{"url": "http://127.0.0.1:8080/counter", "method": "POST"}'
-    ?created
+    ## create a webhook data bridge with id "my_webhook"
+    !curl --user admin:public --silent --show-error 'http://localhost:18083/api/v5/bridges' -X 'POST' -H 'Content-Type: application/json' --data-binary '{"name":"my_webhook","method":"post","url":"http://127.0.0.1:7077/counter","headers":{"content-type":"application/json"},"pool_size":4,"enable_pipelining":100,"connect_timeout":"5s","request_timeout":"5s","max_retries":3,"type":"webhook","ssl":{"enable":false,"verify":"verify_none"}}' | jq '.status'
+    ?connected
     ?SH-PROMPT
-    !./bin/emqx_ctl rules create 'SELECT * FROM "t/#"' '[{"name":"data_to_webserver", "params": {"$$resource":  "resource:691c29ba"}}]'
-    ?created
+
+    ## create a rule that uses the webhook as action, the rule id = "rule_edsy"
+    !curl --user admin:public --silent --show-error 'http://localhost:18083/api/v5/rules' -X 'POST' -H 'Content-Type: application/json' --data-binary '{"id":"rule_edsy","sql":"SELECT\n  *\nFROM\n  \"t/#\"","actions":["webhook:my_webhook"]}' | jq '.id'
+    ?rule_edsy
     ?SH-PROMPT
 
 [shell emqx]
-    !./bin/emqx_ctl resources list
-    ?691c29ba
+    ## verify the bridges and rules are sync to the other node
+    !curl --user admin:public --silent --show-error 'http://localhost:18083/api/v5/bridges/webhook:my_webhook' -X 'GET' -H 'Content-Type: application/json' | jq '.name'
+    ?my_webhook
     ?SH-PROMPT
-    !./bin/emqx_ctl rules list
-    ?691c29ba
+    !curl --user admin:public --silent --show-error 'http://localhost:18083/api/v5/rules/rule_edsy' -X 'GET' -H 'Content-Type: application/json' | jq '.id'
+    ?rule_edsy
     ?SH-PROMPT
 
 [shell bench]
@@ -116,13 +116,8 @@
 
     !./bin/emqx_ctl cluster status
     """???
-    Cluster status: #{running_nodes => ['emqx2@127.0.0.1','emqx@127.0.0.1'],
-                      stopped_nodes => []}
+    Cluster status: #{running_nodes => ['emqx2@127.0.0.1','emqx@127.0.0.1'],stopped_nodes => []}
     """
-    ?SH-PROMPT
-
-    !./bin/emqx_ctl plugins list | grep emqx_management
-    ?Plugin\(emqx_management.*active=true\)
     ?SH-PROMPT
 
 [shell emqx2]
@@ -162,13 +157,8 @@
 
     !./bin/emqx_ctl cluster status
     """???
-    Cluster status: #{running_nodes => ['emqx2@127.0.0.1','emqx@127.0.0.1'],
-                      stopped_nodes => []}
+    Cluster status: #{running_nodes => ['emqx2@127.0.0.1','emqx@127.0.0.1'],stopped_nodes => []}
     """
-    ?SH-PROMPT
-
-    !./bin/emqx_ctl plugins list | grep emqx_management
-    ?Plugin\(emqx_management.*active=true\)
     ?SH-PROMPT
 
 ## We don't guarantee not to lose a single message!
@@ -184,6 +174,11 @@
     ?SH-PROMPT
 
     !curl --user admin:public --silent --show-error http://localhost:18083/api/v5/rules | jq --raw-output ".[0].node_metrics[] | select(.node==\"emqx@127.0.0.1\") | .metrics.\"actions.success\""
+    ?\{"data":(29[0-9])|(300),"code":0\}
+    ?SH-PROMPT
+
+    ## The /counter API is provided by .ci/fvt_test/http_server
+    !curl http://127.0.0.1:7077/counter
     ?\{"data":(29[0-9])|(300),"code":0\}
     ?SH-PROMPT
 
