@@ -111,3 +111,8 @@ jobs:
       with:
         name: lux_logs
         path: lux_logs
+    - uses: actions/upload-artifact@v1
+      if: failure()
+      with:
+        name: packages
+        path: packages
