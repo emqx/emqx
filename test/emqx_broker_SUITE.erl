@@ -619,6 +619,26 @@ t_connack_auth_error(Config) when is_list(Config) ->
     ?assertEqual(2, emqx_metrics:val('packets.connack.auth_error')),
     ok.
 
+t_handle_in_empty_client_subscribe_hook({init, Config}) ->
+    Config;
+t_handle_in_empty_client_subscribe_hook({'end', _Config}) ->
+    ok;
+t_handle_in_empty_client_subscribe_hook(Config) when is_list(Config) ->
+    Hook = fun(_ClientInfo, _Username, TopicFilter) ->
+                   EmptyFilters = [{T, Opts#{delete => true}} || {T, Opts} <- TopicFilter],
+                   {stop, EmptyFilters}
+           end,
+    ok = emqx:hook('client.subscribe', Hook, []),
+    try
+        {ok, C} = emqtt:start_link(),
+        {ok, _} = emqtt:connect(C),
+        {ok, _, RCs} = emqtt:subscribe(C, <<"t">>),
+        ?assertEqual([], RCs),
+        ok
+    after
+        ok = emqx:unhook('client.subscribe', Hook)
+    end.
+
 wait_for_events(Action, Kinds) ->
     wait_for_events(Action, Kinds, 500).
 

@@ -980,6 +980,12 @@ end}.
   {datatype, string}
 ]}.
 
+%% @doc Whether the Server supports Exclusive Subscriptions.
+{mapping, "mqtt.exclusive_subscription", "emqx.exclusive_subscription", [
+    {default, false},
+    {datatype, {enum, [true, false]}}
+]}.
+
 %%--------------------------------------------------------------------
 %% Zones
 %%--------------------------------------------------------------------
@@ -1239,6 +1245,12 @@ end}.
 {mapping, "zone.$name.bypass_auth_plugins", "emqx.zones", [
   {default, false},
   {datatype, {enum, [true, false]}}
+]}.
+
+%% @doc Whether the Server supports Exclusive Subscriptions.
+{mapping, "zone.$name.exclusive_subscription", "emqx.zones", [
+    {default, false},
+    {datatype, {enum, [true, false]}}
 ]}.
 
 {translation, "emqx.zones", fun(Conf) ->

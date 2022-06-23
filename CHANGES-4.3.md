@@ -17,12 +17,18 @@ File format:
 - Add the possibility of configuring the password for
   password-protected private key files used for dashboard and
   management HTTPS listeners. [#8129]
+- Add message republish supports using placeholder variables to specify QoS and Retain values. Set `${qos}` and `${flags.retain}` use the original QoS & Retain flag.
+- Add supports specifying the network interface address of the cluster listener & rcp call listener. Specify `0.0.0.0` use all network interfaces, or a particular network interface IP address.
 
 ### Bug fixes
 
 - Avoid repeated writing `loaded_plugins` file if the plugin enable stauts has not changed [#8179]
 - Correctly tally `connack.auth_error` metrics when a client uses MQTT
   3.1. [#8177]
+- Do not match ACL rules containing placeholders if there's no
+  information to fill them. [#8280]
+- Fixed issue in Lua hook that didn't prevent a topic from being
+  subscribed to. [#8288]
 
 ## v4.3.15
 
