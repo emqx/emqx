@@ -37,7 +37,8 @@ all() ->
      case101,
      case110, case111, case112, case113, case114, case115,
      case201, case202, case203, case204, case205,
-     case301, case302
+     case301, case302,
+     t_stop_sub
     ].
 
 init_per_suite(Config) ->
@@ -214,8 +215,8 @@ case31(_Config) ->
             "\n    return \"on_client_connected\""
             "\nend",
     ok = file:write_file(ScriptName, Code), ok = emqx_lua_hook:load_scripts(),
-    ?assertEqual(ok, 
-                 emqx_hooks:run('client.connected', 
+    ?assertEqual(ok,
+                 emqx_hooks:run('client.connected',
                                 [#{clientid => <<"myclient">>, username => <<"tester">>}, #{}])).
 
 case32(_Config) ->
@@ -228,8 +229,8 @@ case32(_Config) ->
             "\n    return \"on_client_connected\""
             "\nend",
     ok = file:write_file(ScriptName, Code), ok = emqx_lua_hook:load_scripts(),
-    ?assertEqual(ok, 
-                 emqx_hooks:run('client.connected', 
+    ?assertEqual(ok,
+                 emqx_hooks:run('client.connected',
                                 [#{clientid => <<"myclient">>, username => <<"tester">>}, #{}])).
 
 case41(_Config) ->
@@ -336,8 +337,8 @@ case61(_Config) ->
             "\nend",
     ok = file:write_file(ScriptName, Code), ok = emqx_lua_hook:load_scripts(),
 
-    ?assertEqual(ok, 
-                 emqx_hooks:run('client.disconnected', 
+    ?assertEqual(ok,
+                 emqx_hooks:run('client.disconnected',
                                 [#{clientid => <<"myclient">>, username => <<"tester">>}, 0])).
 
 case62(_Config) ->
@@ -351,8 +352,8 @@ case62(_Config) ->
             "\nend",
     ok = file:write_file(ScriptName, Code), ok = emqx_lua_hook:load_scripts(),
 
-    ?assertEqual(ok, 
-                 emqx_hooks:run('client.disconnected', 
+    ?assertEqual(ok,
+                 emqx_hooks:run('client.disconnected',
                                 [#{clientid => <<"myclient">>, username => <<"tester">>}, 0])).
 
 case71(_Config) ->
@@ -691,3 +692,26 @@ case302(_Config) ->
                   },
     ?assertEqual(allow, emqx_hooks:run_fold('client.check_acl',
                                             [ClientInfo, publish, <<"mytopic">>], deny)).
+
+t_stop_sub(_Config) ->
+    ScriptName = filename:join([emqx_lua_hook:lua_dir(), "abc.lua"]),
+    Code = "function on_client_subscribe(clientid, username, topic)"
+           "\n  return false"
+           "\nend"
+           "\n"
+           "\nfunction register_hook()"
+           "\n    return \"on_client_subscribe\""
+           "\nend",
+    ok = file:write_file(ScriptName, Code), ok = emqx_lua_hook:load_scripts(),
+    ClientInfo = #{clientid => undefined,
+                   username => <<"test">>,
+                   peerhost => {127, 0, 0, 1},
+                   password => <<"mqtt">>
+                  },
+    OriginalTopicFilters = [{Topic = <<"u">>,
+                             Opts = #{nl => 0,qos => 0,rap => 0,rh => 0}}],
+    Props = #{},
+    Expected = [{Topic, Opts#{delete => true}}],
+    ?assertEqual(Expected, emqx_hooks:run_fold('client.subscribe',
+                                         [ClientInfo, Props],
+                                         OriginalTopicFilters)).

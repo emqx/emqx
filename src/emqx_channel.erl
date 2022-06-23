@@ -416,11 +416,6 @@ handle_in(Packet = ?SUBSCRIBE_PACKET(PacketId, Properties, TopicFilters),
                            end, TupleTopicFilters0) of
                 true -> handle_out(disconnect, ?RC_NOT_AUTHORIZED, Channel);
                 false ->
-                    Replace = fun
-                                _Fun(TupleList, [ Tuple = {Key, _Value} | More]) ->
-                                      _Fun(lists:keyreplace(Key, 1, TupleList, Tuple), More);
-                                _Fun(TupleList, []) -> TupleList
-                              end,
                     TopicFilters2 = [ TopicFilter || {TopicFilter, 0} <- TupleTopicFilters0],
                     TopicFilters3 = run_hooks('client.subscribe',
                                               [ClientInfo, Properties],
@@ -428,7 +423,16 @@ handle_in(Packet = ?SUBSCRIBE_PACKET(PacketId, Properties, TopicFilters),
                     {TupleTopicFilters1, NChannel} = process_subscribe(TopicFilters3,
                                                                        Properties,
                                                                        Channel),
-                    TupleTopicFilters2 = Replace(TupleTopicFilters0, TupleTopicFilters1),
+                    TupleTopicFilters2 =
+                        lists:foldl(
+                          fun({{Topic, Opts = #{delete := true}}, _QoS}, Acc) ->
+                                  Key = {Topic, maps:without([delete], Opts)},
+                                  lists:keydelete(Key, 1, Acc);
+                             (Tuple = {Key, _Value}, Acc) ->
+                                  lists:keyreplace(Key, 1, Acc, Tuple)
+                          end,
+                          TupleTopicFilters0,
+                          TupleTopicFilters1),
                     ReasonCodes2 = [ ReasonCode
                                      || {_TopicFilter, ReasonCode} <- TupleTopicFilters2],
                     handle_out(suback, {PacketId, ReasonCodes2}, NChannel)
