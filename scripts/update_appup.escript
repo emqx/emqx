@@ -479,18 +479,20 @@ check_appup(App, Upgrade, Downgrade, OldUpgrade, OldDowngrade) ->
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 
 render_appup(App, File, Up, Down) ->
-    IsCheck = getopt(check),
-    case do_read_appup(File) of
-        {ok, {U, D}} when U =:= Up andalso D =:= Down ->
-            ok;
-        {ok, {OldU, OldD}} when IsCheck ->
-            check_appup(App, Up, Down, OldU, OldD);
-        {ok, {_, _}} ->
-            do_render_appup(File, Up, Down);
-        {error, enoent} when IsCheck ->
-            %% failed to read old file, exit
-            log("ERROR: ~s is missing", [File]),
-            set_invalid()
+    case getopt(check) of
+        true ->
+            case do_read_appup(File) of
+                {ok, {U, D}} when U =:= Up andalso D =:= Down ->
+                    ok;
+                {ok, {OldU, OldD}} ->
+                    check_appup(App, Up, Down, OldU, OldD);
+                {error, enoent} ->
+                    %% failed to read old file, exit
+                    log("ERROR: ~s is missing", [File]),
+                    set_invalid()
+            end;
+        false ->
+            do_render_appup(File, Up, Down)
     end.
 
 do_render_appup(File, Up, Down) ->

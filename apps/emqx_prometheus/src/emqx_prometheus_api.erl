@@ -67,6 +67,7 @@ schema("/prometheus/stats") ->
         get =>
             #{
                 description => <<"Get Prometheus Data">>,
+                security => [],
                 responses =>
                     #{200 => prometheus_data_schema()}
             }

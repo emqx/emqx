@@ -8,6 +8,11 @@
 set -euo pipefail
 set -x
 
+[ -d _checkouts ] && {
+    echo "Checkouts directory has been found, the resulting appup files will be incorrect. Exiting."
+    exit 1
+}
+
 usage() {
     echo "$0 PROFILE"
 }
