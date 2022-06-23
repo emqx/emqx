@@ -1,7 +1,6 @@
 [config var=PROFILE]
 [config var=PACKAGE_PATH]
 [config var=BENCH_PATH]
-[config var=ONE_MORE_EMQX_PATH]
 [config var=VSN]
 [config var=OLD_VSNS]
 
@@ -33,14 +32,20 @@
 
 [shell emqx2]
     !cd $PACKAGE_PATH
-    !cp -f $ONE_MORE_EMQX_PATH/one_more_$(echo $PROFILE | sed 's/-/_/g').sh .
-    !./one_more_$(echo $PROFILE | sed 's/-/_/g').sh emqx2
+    !cp -r emqx emqx2
     ?SH-PROMPT
     !cd emqx2
 
-    !sed -i '/emqx_telemetry/d' data/loaded_plugins
-
-    !./bin/emqx console
+    """!
+    EMQX_NODE__NAME='emqx2@127.0.0.1' \
+    EMQX_STATSD__SERVER='127.0.0.1:8124' \
+    EMQX_LISTENERS__TCP__DEFAULT__BIND='0.0.0.0:1882' \
+    EMQX_LISTENERS__SSL__DEFAULT__BIND='0.0.0.0:8882' \
+    EMQX_LISTENERS__WS__DEFAULT__BIND='0.0.0.0:8082' \
+    EMQX_LISTENERS__WSS__DEFAULT__BIND='0.0.0.0:8085' \
+    EMQX_DASHBOARD__LISTENERS__HTTP__BIND='0.0.0.0:18082' \
+    ./bin/emqx console
+    """
     ?EMQ X .* is started successfully!
     ?SH-PROMPT
 

@@ -15,6 +15,8 @@ on:
 
 jobs:
   relup_test:
+    runs-on: aws-amd64
+
     strategy:
       matrix:
         profile:
@@ -32,13 +34,13 @@ jobs:
         arch:
           - amd64
 
-    runs-on: ubuntu-20.04
     container: "ghcr.io/emqx/emqx-builder/5.0-16:${{ matrix.elixir }}-${{ matrix.otp }}-${{ matrix.os }}"
 
     defaults:
       run:
         shell: bash
     steps:
+    - uses: AutoModality/action-clean@v1
     - uses: actions/setup-python@v2
       with:
         python-version: '3.8'
@@ -48,11 +50,6 @@ jobs:
         repository: emqx/paho.mqtt.testing
         ref: develop-4.0
         path: paho.mqtt.testing
-    - uses: actions/checkout@v2
-      with:
-        repository: terry-xiaoyu/one_more_emqx
-        ref: master
-        path: one_more_emqx
     - uses: actions/checkout@v2
       with:
         repository: emqx/emqtt-bench
@@ -103,7 +100,6 @@ jobs:
             --var PROFILE=$PROFILE \
             --var PACKAGE_PATH=$(pwd)/packages \
             --var BENCH_PATH=$(pwd)/emqtt-bench \
-            --var ONE_MORE_EMQX_PATH=$(pwd)/one_more_emqx \
             --var VSN="$VSN" \
             --var OLD_VSNS="$OLD_VSNS" \
             emqx/.ci/fvt_tests/relup.lux
