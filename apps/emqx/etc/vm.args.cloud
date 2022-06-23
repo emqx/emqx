@@ -46,7 +46,7 @@
 
 ## Specify SSL Options in the file if using SSL for Erlang Distribution.
 ## Used only when -proto_dist set to inet_tls
-#-ssl_dist_optfile {{ platform_etc_dir }}/ssl_dist.conf
+-ssl_dist_optfile {{ platform_etc_dir }}/ssl_dist.conf
 
 ## Specifies the net_kernel tick time in seconds.
 ## This is the approximate time a connected node may be unresponsive until
