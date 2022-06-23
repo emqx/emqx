@@ -181,7 +181,6 @@ handle_call({register_command, Cmd, MF, Opts}, _From, State = #state{seq = Seq})
     case ets:match(?CMD_TAB, {{'$1', Cmd}, '_', '_'}) of
         [] -> ets:insert(?CMD_TAB, {{Seq, Cmd}, MF, Opts});
         [[OriginSeq] | _] ->
-            ?LOG(warning, "CMD ~s is overidden by ~p", [Cmd, MF]),
             true = ets:insert(?CMD_TAB, {{OriginSeq, Cmd}, MF, Opts})
     end,
     {reply, ok, next_seq(State)};
