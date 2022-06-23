@@ -206,11 +206,15 @@ is_valid_pwd(<<Salt:4/binary, Hash/binary>>, Password) ->
 %%--------------------------------------------------------------------
 
 init([]) ->
-    %% Add default admin user
-    {ok, _} = mnesia:subscribe({table, mqtt_admin, simple}),
-    PasswordHash = ensure_default_user_in_db(binenv(default_user_username)),
-    ok = ensure_default_user_passwd_hashed_in_pt(PasswordHash),
-    ok = maybe_warn_default_pwd(),
+    case binenv(default_user_username) of
+        <<>> -> ok;
+        UserName ->
+            %% Add default admin user
+            {ok, _} = mnesia:subscribe({table, mqtt_admin, simple}),
+            PasswordHash = ensure_default_user_in_db(UserName),
+            ok = ensure_default_user_passwd_hashed_in_pt(PasswordHash),
+            ok = maybe_warn_default_pwd()
+    end,
     {ok, state}.
 
 handle_call(_Req, _From, State) ->
@@ -220,7 +224,7 @@ handle_cast(_Msg, State) ->
     {noreply, State}.
 
 handle_info({mnesia_table_event, {write, Admin, _}}, State) ->
-    %% the password is chagned from another node, sync it to persistent_term
+    %% the password is changed from another node, sync it to persistent_term
     #mqtt_admin{username = Username, password = HashedPassword} = Admin,
     case binenv(default_user_username) of
         Username ->
@@ -258,6 +262,7 @@ salt() ->
 binenv(Key) ->
     iolist_to_binary(application:get_env(emqx_dashboard, Key, <<>>)).
 
+ensure_default_user_in_db(<<>>) -> <<>>;
 ensure_default_user_in_db(Username) ->
     F =
         fun() ->
@@ -279,13 +284,8 @@ ensure_default_user_in_db(Username) ->
 initial_default_user_passwd_hashed() ->
     case get_default_user_passwd_hashed_from_pt() of
         Empty when ?EMPTY_KEY(Empty) ->
-            %% in case it's not set yet
-            case binenv(default_user_passwd) of
-                Empty when ?EMPTY_KEY(Empty) ->
-                    error({missing_configuration, default_user_passwd});
-                Pwd ->
-                    hash(Pwd)
-            end;
+            Pwd = binenv(default_user_passwd),
+            hash(Pwd);
         PwdHash ->
             PwdHash
     end.
@@ -293,6 +293,7 @@ initial_default_user_passwd_hashed() ->
 %% use this persistent_term for a copy of the value in mnesia database
 %% so that after the node leaves a cluster, db gets purged,
 %% we can still find the changed password back from PT
+ensure_default_user_passwd_hashed_in_pt(<<>>) -> ok;
 ensure_default_user_passwd_hashed_in_pt(Hashed) ->
     ok = persistent_term:put({?MODULE, default_user_passwd_hashed}, Hashed).
 

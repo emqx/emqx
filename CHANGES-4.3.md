@@ -31,6 +31,7 @@ File format:
 - Fixed issue in Lua hook that didn't prevent a topic from being
   subscribed to. [#8288]
 - Ensuring that exhook dispatches the client events are sequential. [#8311]
+- Ensure start dashboard ok event if default_username is missing.
 
 ## v4.3.15
 
