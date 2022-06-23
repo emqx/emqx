@@ -89,7 +89,7 @@ project_app_dirs() ->
 
 plugins(HasElixir) ->
     [ {relup_helper,{git,"https://github.com/emqx/relup_helper", {tag, "2.0.0"}}}
-    , {er_coap_client, {git, "https://github.com/emqx/er_coap_client", {tag, "v1.0"}}}
+    , {er_coap_client, {git, "https://github.com/emqx/er_coap_client", {tag, "v1.0.4"}}}
       %% emqx main project does not require port-compiler
       %% pin at root level for deterministic
     , {pc, {git, "https://github.com/emqx/port_compiler.git", {tag, "v1.11.1"}}}
@@ -106,7 +106,7 @@ test_plugins() ->
 
 test_deps() ->
     [ {bbmustache, "1.10.0"}
-    , {emqx_ct_helpers, {git, "https://github.com/emqx/emqx-ct-helpers", {tag, "1.3.9"}}}
+    , {emqx_ct_helpers, {git, "https://github.com/emqx/emqx-ct-helpers", {tag, "1.3.11"}}}
     , meck
     ].
 
@@ -128,30 +128,23 @@ prod_compile_opts() ->
 prod_overrides() ->
     [{add, [ {erl_opts, [deterministic]}]}].
 
-relup_deps(Profile) ->
-    {post_hooks, [{"(linux|darwin|solaris|freebsd|netbsd|openbsd)", compile, "scripts/inject-deps.escript " ++ atom_to_list(Profile)}]}.
-
 profiles() ->
     Vsn = get_vsn(),
     [ {'emqx',          [ {erl_opts, prod_compile_opts()}
                         , {relx, relx(Vsn, cloud, bin)}
                         , {overrides, prod_overrides()}
-                        , relup_deps('emqx')
                         ]}
     , {'emqx-pkg',      [ {erl_opts, prod_compile_opts()}
                         , {relx, relx(Vsn, cloud, pkg)}
                         , {overrides, prod_overrides()}
-                        , relup_deps('emqx-pkg')
                         ]}
     , {'emqx-edge',     [ {erl_opts, prod_compile_opts()}
                         , {relx, relx(Vsn, edge, bin)}
                         , {overrides, prod_overrides()}
-                        , relup_deps('emqx-edge')
                         ]}
     , {'emqx-edge-pkg', [ {erl_opts, prod_compile_opts()}
                         , {relx, relx(Vsn, edge, pkg)}
                         , {overrides, prod_overrides()}
-                        , relup_deps('emqx-edge-pkg')
                         ]}
     , {check,           [ {erl_opts, common_compile_opts()}
                         ]}
@@ -338,6 +331,7 @@ relx_overlay(ReleaseType) ->
     , {mkdir, "data/configs"}
     , {mkdir, "data/patches"}
     , {mkdir, "data/scripts"}
+    , {mkdir, "data/backup"}
     , {template, "data/loaded_plugins.tmpl", "data/loaded_plugins"}
     , {template, "data/loaded_modules.tmpl", "data/loaded_modules"}
     , {template, "data/emqx_vars", "releases/emqx_vars"}

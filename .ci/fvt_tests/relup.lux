@@ -3,6 +3,8 @@
 [config var=ONE_MORE_EMQX_PATH]
 [config var=VSN]
 [config var=OLD_VSN]
+[config var=FROM_OTP_VSN]
+[config var=TO_OTP_VSN]
 
 [config shell_cmd=/bin/bash]
 [config timeout=600000]
@@ -20,7 +22,7 @@
 [shell emqx]
     !OLD_VSN=$(echo $OLD_VSN | sed  -r 's/[v|e]//g')
     !cd $PACKAGE_PATH
-    !unzip -q -o $PROFILE-ubuntu20.04-$${OLD_VSN}-amd64.zip
+    !unzip -q -o $PROFILE-$(echo $OLD_VSN | sed  -r 's/[v|e]//g')-otp${FROM_OTP_VSN}-ubuntu20.04-amd64.zip
     ?SH-PROMPT
 
     !cd emqx
@@ -82,7 +84,7 @@
     !echo "" > log/emqx.log.1
     ?SH-PROMPT
 
-    !cp -f ../$PROFILE-ubuntu20.04-$VSN-amd64.zip releases/
+    !cp -f ../$PROFILE-$VSN-otp${TO_OTP_VSN}-ubuntu20.04-amd64.zip releases/
 
     ## upgrade to the new version
     !./bin/emqx install $VSN
@@ -128,7 +130,7 @@
     !echo "" > log/emqx.log.1
     ?SH-PROMPT
 
-    !cp -f ../$PROFILE-ubuntu20.04-$VSN-amd64.zip releases/
+    !cp -f ../$PROFILE-$VSN-otp${TO_OTP_VSN}-ubuntu20.04-amd64.zip releases/
 
     ## upgrade to the new version
     !./bin/emqx install $VSN
