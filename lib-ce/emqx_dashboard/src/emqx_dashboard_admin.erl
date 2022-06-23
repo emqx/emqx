@@ -293,7 +293,6 @@ initial_default_user_passwd_hashed() ->
 %% use this persistent_term for a copy of the value in mnesia database
 %% so that after the node leaves a cluster, db gets purged,
 %% we can still find the changed password back from PT
-ensure_default_user_passwd_hashed_in_pt(<<>>) -> ok;
 ensure_default_user_passwd_hashed_in_pt(Hashed) ->
     ok = persistent_term:put({?MODULE, default_user_passwd_hashed}, Hashed).
 
