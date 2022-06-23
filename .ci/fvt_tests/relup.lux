@@ -20,58 +20,46 @@
     ?ok
     ?>
 
-[shell emqx]
+[shell emqx1]
     !cd $PACKAGE_PATH
-    mkdir -p emqx
-    !tar -C emqx -zxf ${PROFILE}-$(echo $old_vsn | sed  -r 's/[v|e]//g')-*-ubuntu20.04-amd64.tar.gz
+    !mkdir -p emqx1
+    !tar -C emqx1 -zxf ${PROFILE}-$(echo $old_vsn | sed  -r 's/[v|e]//g')-*-ubuntu20.04-amd64.tar.gz
     ?SH-PROMPT
-
-    !cd emqx
-    !sed -i 's|listener.wss.external[ \t]*=.*|listener.wss.external = 8085|g' etc/emqx.conf
-    !sed -i '/emqx_telemetry/d' data/loaded_plugins
-
+    !cd emqx1
+    !export EMQX_NODE_NAME='emqx1@127.0.0.1'
     !./bin/emqx start
-    ?EMQ X .* is started successfully!
+    ?EMQX .* is started successfully!
     ?SH-PROMPT
 
 [shell emqx2]
     !cd $PACKAGE_PATH
-    !cp -f $ONE_MORE_EMQX_PATH/one_more_$(echo $PROFILE | sed 's/-/_/g').sh .
-    !./one_more_$(echo $PROFILE | sed 's/-/_/g').sh emqx2
+    !tar -C emqx2 -zxf ${PROFILE}-$(echo $old_vsn | sed  -r 's/[v|e]//g')-*-ubuntu20.04-amd64.tar.gz
+    !mkdir -p emqx2
     ?SH-PROMPT
     !cd emqx2
-
-    !sed -i '/emqx_telemetry/d' data/loaded_plugins
-
+    !export EMQX_NODE_NAME='emqx2@127.0.0.1'
+    !export EMQX_listeners__tcp__default__bind=2883
+    !export EMQX_listeners__ssl__default__bind=9883
+    !export EMQX_listeners__ws__default__bind=9083
+    !export EMQX_listeners__wss__default__bind=9084
     !./bin/emqx start
-    ?EMQ X .* is started successfully!
+    ?EMQX .* is started successfully!
     ?SH-PROMPT
 
-    !./bin/emqx_ctl cluster join emqx@127.0.0.1
+    !./bin/emqx_ctl cluster join emqx1@127.0.0.1
     ???Join the cluster successfully.
     ?SH-PROMPT
 
-    !./bin/emqx_ctl cluster status
-    """???
-    Cluster status: #{running_nodes => ['emqx2@127.0.0.1','emqx@127.0.0.1'],
-                      stopped_nodes => []}
-    """
+    !./bin/emqx_ctl cluster status --json | jq -c .running_nodes
+    ???["emqx1@127.0.0.1","emqx2@127.0.0.1"]
     ?SH-PROMPT
 
-    !./bin/emqx_ctl resources create 'web_hook' -i 'resource:691c29ba' -c '{"url": "http://127.0.0.1:8080/counter", "method": "POST"}'
-    ?created
-    ?SH-PROMPT
-    !./bin/emqx_ctl rules create 'SELECT * FROM "t/#"' '[{"name":"data_to_webserver", "params": {"$$resource":  "resource:691c29ba"}}]'
-    ?created
-    ?SH-PROMPT
-
-[shell emqx]
-    !./bin/emqx_ctl resources list
-    ?691c29ba
-    ?SH-PROMPT
-    !./bin/emqx_ctl rules list
-    ?691c29ba
-    ?SH-PROMPT
+# TODO find another way to create resource
+#    !./bin/emqx_ctl resources create 'web_hook' -i 'resource:691c29ba' -c '{"url": "http://127.0.0.1:8080/counter", "method": "POST"}'
+#    ?created
+#    ?SH-PROMPT
+#    !./bin/emqx_ctl rules create 'SELECT * FROM "t/#"' '[{"name":"data_to_webserver", "params": {"$$resource":  "resource:691c29ba"}}]'
+#    ?created
 
 [shell bench]
     !cd $BENCH_PATH
@@ -79,7 +67,7 @@
     !./emqtt_bench pub -c 10 -I 1000 -t t/%i -s 64 -L 300
     ???sent
 
-[shell emqx]
+[shell emqx1]
     !echo "" > log/emqx.log.1
     ?SH-PROMPT
 
@@ -90,7 +78,7 @@
     ?Made release permanent: "$VSN"
     ?SH-PROMPT
 
-    !./bin/emqx versions |grep permanent
+    !./bin/emqx versions | grep permanent
     ?(.*)$VSN
     ?SH-PROMPT
 
@@ -99,7 +87,7 @@
     ?Made release permanent:.*
     ?SH-PROMPT
 
-    !./bin/emqx versions |grep permanent | grep -qs "$old_vsn"
+    !./bin/emqx versions | grep permanent | grep -qs "$old_vsn"
     ?SH-PROMPT:
     !echo ==$$?==
     ?^==0==
@@ -110,19 +98,12 @@
     ?Made release permanent: "$VSN"
     ?SH-PROMPT
 
-    !./bin/emqx versions |grep permanent
+    !./bin/emqx versions | grep permanent
     ?(.*)$VSN
     ?SH-PROMPT
 
-    !./bin/emqx_ctl cluster status
-    """???
-    Cluster status: #{running_nodes => ['emqx2@127.0.0.1','emqx@127.0.0.1'],
-                      stopped_nodes => []}
-    """
-    ?SH-PROMPT
-
-    !./bin/emqx_ctl plugins list | grep emqx_management
-    ?Plugin\(emqx_management.*active=true\)
+    !./bin/emqx_ctl cluster status --json | jq -c .running_nodes
+    ???["emqx1@127.0.0.1","emqx2@127.0.0.1"]
     ?SH-PROMPT
 
 [shell emqx2]
@@ -145,7 +126,7 @@
     ?Made release permanent:.*
     ?SH-PROMPT
 
-    !./bin/emqx versions |grep permanent | grep -qs "$old_vsn"
+    !./bin/emqx versions | grep permanent | grep -qs "$old_vsn"
     ?SH-PROMPT:
     !echo ==$$?==
     ?^==0==
@@ -160,15 +141,8 @@
     ?(.*)$VSN
     ?SH-PROMPT
 
-    !./bin/emqx_ctl cluster status
-    """???
-    Cluster status: #{running_nodes => ['emqx2@127.0.0.1','emqx@127.0.0.1'],
-                      stopped_nodes => []}
-    """
-    ?SH-PROMPT
-
-    !./bin/emqx_ctl plugins list | grep emqx_management
-    ?Plugin\(emqx_management.*active=true\)
+    !./bin/emqx_ctl cluster status --json | jq -c .running_nodes
+    ???["emqx1@127.0.0.1","emqx2@127.0.0.1"]
     ?SH-PROMPT
 
 ## We don't guarantee not to lose a single message!
@@ -179,13 +153,14 @@
     !sleep 5
     ?SH-PROMPT
 
-    !curl --user admin:public --silent --show-error http://localhost:18083/api/v5/rules | jq --raw-output ".[0].node_metrics[] | select(.node==\"emqx@127.0.0.1\") | .metrics.matched"
-    ?300
-    ?SH-PROMPT
+# TODO adjust rule metrics query API
+#    !curl --user admin:public --silent --show-error http://localhost:18083/api/v5/rules | jq --raw-output ".[0].node_metrics[] | select(.node==\"emqx@127.0.0.1\") | .metrics.matched"
+#    ?300
+#    ?SH-PROMPT
 
-    !curl --user admin:public --silent --show-error http://localhost:18083/api/v5/rules | jq --raw-output ".[0].node_metrics[] | select(.node==\"emqx@127.0.0.1\") | .metrics.\"actions.success\""
-    ?\{"data":(29[0-9])|(300),"code":0\}
-    ?SH-PROMPT
+#    !curl --user admin:public --silent --show-error http://localhost:18083/api/v5/rules | jq --raw-output ".[0].node_metrics[] | select(.node==\"emqx@127.0.0.1\") | .metrics.\"actions.success\""
+#    ?\{"data":(29[0-9])|(300),"code":0\}
+#    ?SH-PROMPT
 
 [shell emqx2]
     !cat log/emqx.log.1 |grep -v 691c29ba |tail -n 100
@@ -199,7 +174,7 @@
     !rm -rf $PACKAGE_PATH/emqx2
     ?SH-PROMPT:
 
-[shell emqx]
+[shell emqx1]
     !cat log/emqx.log.1 |grep -v 691c29ba |tail -n 100
     -error
     ??SH-PROMPT:

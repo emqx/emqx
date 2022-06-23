@@ -50,11 +50,6 @@ jobs:
         path: paho.mqtt.testing
     - uses: actions/checkout@v2
       with:
-        repository: terry-xiaoyu/one_more_emqx
-        ref: master
-        path: one_more_emqx
-    - uses: actions/checkout@v2
-      with:
         repository: emqx/emqtt-bench
         ref: 0.3.4
         path: emqtt-bench
@@ -70,8 +65,12 @@ jobs:
         fetch-depth: 0
 
     - name: Get old vsn
-      run: echo "OLD_VSNS=$(emqx/scripts/relup-base-vsns.sh ${{ matrix.profile }} | xargs echo -n)" >> $GITHUB_ENV
-      run: echo "VSN=$(emqx/pkg-vsn.sh ${{ matrix.profile }})" >> $GITHUB_ENV
+      run: |
+        set -x
+        OLD_VSNS="$(emqx/scripts/relup-base-vsns.sh ${{ matrix.profile }} | xargs echo -n)"
+        NOW_VSN=$(emqx/pkg-vsn.sh ${{ matrix.profile }})
+        echo "OLD_VSNS=$OLD_VSNS" >> $GITHUB_ENV
+        echo "NOW_VSN=$NOW_VSN" >> $GITHUB_ENV
 
     - name: build emqx
       env:
@@ -95,15 +94,15 @@ jobs:
         set -e -x -u
         if [ -n "$OLD_VSNS" ]; then
             mkdir -p packages
-            cp emqx/_packages/${PROFILE}/*.tar.gz packages
-            cp emqx/_upgrade_base/*.tar.gz packages
+            cp emqx/_packages/${PROFILE}/*.tar.gz packages/
+            cp emqx/_upgrade_base/*.tar.gz packages/
             lux \
             --case_timeout infinity \
             --var PROFILE=$PROFILE \
             --var PACKAGE_PATH=$(pwd)/packages \
             --var BENCH_PATH=$(pwd)/emqtt-bench \
             --var ONE_MORE_EMQX_PATH=$(pwd)/one_more_emqx \
-            --var VSN="$VSN" \
+            --var VSN="$NOW_VSN" \
             --var OLD_VSNS="$OLD_VSNS" \
             emqx/.ci/fvt_tests/relup.lux
         fi
