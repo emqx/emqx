@@ -86,7 +86,7 @@ unsubscribe(_Topic, _SubOpts) ->
 %%--------------------------------------------------------------------
 %% Internal functions
 %%--------------------------------------------------------------------
-try_subscribe(Topic, ClientId) ->
+try_subscribe(ClientId, Topic) ->
     case mnesia:wread({?TAB, Topic}) of
         [] ->
             mnesia:write(
