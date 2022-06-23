@@ -68,6 +68,10 @@ do(Args) ->
             halt(1)
     end,
 
+    %% Mute logger from now on.
+    %% Otherwise Erlang distribution over TLS (inet_tls_dist) warning logs
+    %% and supervisor reports may contaminate io:format outputs
+    logger:set_primary_config(level, none),
     case RestArgs of
         ["getpid"] ->
             io:format("~p\n", [list_to_integer(rpc:call(TargetNode, os, getpid, []))]);
