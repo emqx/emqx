@@ -135,13 +135,34 @@ cluster(["force-leave", SNode]) ->
     end;
 cluster(["status"]) ->
     emqx_ctl:print("Cluster status: ~p~n", [ekka_cluster:info()]);
+cluster(["status", "--json"]) ->
+    Info = sort_map_list_fields(ekka_cluster:info()),
+    emqx_ctl:print("~ts~n", [emqx_logger_jsonfmt:best_effort_json(Info)]);
 cluster(_) ->
     emqx_ctl:usage([
         {"cluster join <Node>", "Join the cluster"},
         {"cluster leave", "Leave the cluster"},
         {"cluster force-leave <Node>", "Force the node leave from cluster"},
-        {"cluster status", "Cluster status"}
+        {"cluster status [--json]", "Cluster status"}
     ]).
+
+%% sort lists for deterministic output
+sort_map_list_fields(Map) when is_map(Map) ->
+    lists:foldl(
+        fun(Field, Acc) ->
+            sort_map_list_field(Field, Acc)
+        end,
+        Map,
+        maps:keys(Map)
+    );
+sort_map_list_fields(NotMap) ->
+    NotMap.
+
+sort_map_list_field(Field, Map) ->
+    case maps:get(Field, Map) of
+        [_ | _] = L -> Map#{Field := lists:sort(L)};
+        _ -> Map
+    end.
 
 %%--------------------------------------------------------------------
 %% @doc Query clients
