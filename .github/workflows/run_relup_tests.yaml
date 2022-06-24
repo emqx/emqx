@@ -14,104 +14,141 @@ on:
   pull_request:
 
 jobs:
-  relup_test:
-    runs-on: aws-amd64
-
-    strategy:
-      matrix:
-        profile:
-          - emqx
-          - emqx-enterprise
-        otp:
-          - 24.2.1-1
-        # no need to use more than 1 version of Elixir, since tests
-        # run using only Erlang code.  This is needed just to specify
-        # the base image.
-        elixir:
-          - 1.13.4
-        os:
-          - ubuntu20.04
-        arch:
-          - amd64
-
-    container: "ghcr.io/emqx/emqx-builder/5.0-16:${{ matrix.elixir }}-${{ matrix.otp }}-${{ matrix.os }}"
-
+  relup_test_plan:
+    runs-on: ubuntu-20.04
+    container: ghcr.io/emqx/emqx-builder/4.4-12:24.1.5-3-ubuntu20.04
+    outputs:
+      ce_vsn: ${{ steps.find-versions.outputs.CUR_CE_VSN }}
+      ee_vsn: ${{ steps.find-versions.outputs.CUR_EE_VSN }}
+      old_vsns: ${{ steps.generate-matrix.outputs.OLD_VERSIONS }}
     defaults:
       run:
         shell: bash
     steps:
-    - uses: AutoModality/action-clean@v1
-    - uses: actions/setup-python@v2
-      with:
-        python-version: '3.8'
-        architecture: 'x64'
     - uses: actions/checkout@v2
+      name: Checkout
       with:
-        repository: emqx/paho.mqtt.testing
-        ref: develop-4.0
-        path: paho.mqtt.testing
-    - uses: actions/checkout@v2
-      with:
-        repository: emqx/emqtt-bench
-        ref: 0.3.4
-        path: emqtt-bench
-    - uses: actions/checkout@v2
-      with:
-        repository: hawk/lux
-        ref: lux-2.6
-        path: lux
-    - uses: actions/checkout@v2
-      with:
-        repository: ${{ github.repository }}
         path: emqx
         fetch-depth: 0
-
-    - name: Get old vsn
+    - name: Find versions
+      id: find-versions
       run: |
         set -x
-        echo "OLD_VSNS=$(emqx/scripts/relup-base-vsns.sh ${{ matrix.profile }} | xargs echo -n)" >> $GITHUB_ENV
-        echo "NOW_VSN=$(emqx/pkg-vsn.sh ${{ matrix.profile }})" >> $GITHUB_ENV
+        cd emqx
+        ce_vsn="$(./pkg-vsn.sh opensource)"
+        ee_vsn="$(./pkg-vsn.sh enterprise)"
+        old_ce_vsns="$(./scripts/relup-base-vsns.sh opensource | xargs)"
+        old_ee_vsns="$(./scripts/relup-base-vsns.sh enterprise | xargs)"
+        echo "OLD_CE_VERSIONS=$old_ce_vsns" >> $GITHUB_ENV
+        echo "OLD_EE_VERSIONS=$old_ee_vsns" >> $GITHUB_ENV
+        echo "::set-output name=CUR_CE_VSN::$ce_vsn"
+        echo "::set-output name=CUR_EE_VSN::$ee_vsn"
+    - name: Generate matrix
+      id: generate-matrix
+      run: |
+        set -x
+        old_vsns=$(echo -n "${OLD_CE_VSNS} ${OLD_EE_VSNS}" | sed 's/ $//g' | jq -R -s -c 'split(" ")')
+        echo "::set-output name=OLD_VERSIONS::$old_vsns"
 
+  relup_test_build:
+    needs: relup_test_plan
+    runs-on: ubuntu-20.04
+    strategy:
+      matrix:
+        profile:
+        - emqx
+        - emqx-enterprise
+    container: "ghcr.io/emqx/emqx-builder/5.0-17:1.13.4-24.2.1-1-ubuntu20.04"
+    defaults:
+      run:
+        shell: bash
+    steps:
     - name: build emqx
       env:
         PROFILE: ${{ matrix.profile }}
       run: make -C emqx ${PROFILE}-tgz
-    - name: build emqtt-bench
-      run: make -C emqtt-bench
-    - name: build lux
-      run: |
-        set -e -u -x
-        cd lux
-        autoconf
-        ./configure
-        make
-        make install
-    - name: run relup test
-      env:
-        PROFILE: ${{ matrix.profile }}
-      timeout-minutes: 20
+    - uses: actions/upload-artifact@v2
+      name: Upload built emqx and test scenario
+      with:
+        name: emqx_built
+        path: |
+          emqx/_packages/*/*.tar.gz
+          emqx/.ci/fvt_tests
+
+  relup_test_run:
+    needs:
+      - relup_test_plan
+      - relup_test_build
+    runs-on: ubuntu-20.04
+    container: "ghcr.io/emqx/emqx-builder/5.0-17:1.13.4-24.2.1-1-ubuntu20.04"
+    strategy:
+      fail-fast: false
+      matrix:
+        old_vsn: ${{ fromJson(needs.relup_test_plan.outputs.OLD_VERSIONS) }}
+    env:
+      OLD_VSN: "${{ matrix.old_vsn }}"
+      CUR_CE_VSN: "${{ needs.relup_test_plan.outputs.CUR_CE_VSN }}"
+      CUR_EE_VSN: "${{ needs.relup_test_plan.outputs.CUR_EE_VSN }}"
+    defaults:
+      run:
+        shell: bash
+    steps:
+    - uses: actions/download-artifact@v2
+      name: Download built emqx and test scenario
+      with:
+        name: emqx_built
+        path: emqx_built
+    - name: Prepare packages
       run: |
         set -e -x -u
-        if [ -n "$OLD_VSNS" ]; then
-            mkdir -p packages
-            cp emqx/_packages/${PROFILE}/*.tar.gz packages/
-            cp emqx/_upgrade_base/*.tar.gz packages/
-            lux \
-            --case_timeout infinity \
-            --var PROFILE=$PROFILE \
-            --var PACKAGE_PATH=$(pwd)/packages \
-            --var BENCH_PATH=$(pwd)/emqtt-bench \
-            --var VSN="$NOW_VSN" \
-            --var OLD_VSNS="$OLD_VSNS" \
-            emqx/.ci/fvt_tests/relup.lux
-        fi
-    - uses: actions/upload-artifact@v1
+        mkdir -p packages
+        cp emqx_built/_packages/*/*.tar.gz packages
+        cd packages
+        case "$OLD_VSN" in
+          e*)
+            profile='emqx-enterprise'
+            s3dir='emqx-ee'
+            ;;
+          v*)
+            profile='emqx'
+            s3dir='emqx-ce'
+            ;;
+          *)
+            echo "unknown old version $OLD_VSN"
+            exit 1
+            ;;
+        esac
+        wget --no-verbose https://s3-us-west-2.amazonaws.com/packages.emqx/${s3dir}/$OLD_VSN/${profile}-${OLD_VSN#[e|v]}-24.2.1-1-ubuntu20.04-amd64.tar.gz
+    - name: Run relup test scenario
+      timeout-minutes: 5
+      run: |
+        set -x
+        case "$OLD_VSN" in
+          e*)
+            cur_vsn=$CUR_EE_VSN
+            profile='emqx-enterprise'
+            ;;
+          v*)
+            cur_vsn=$CUR_CE_VSN
+            profile='emqx'
+            ;;
+        esac
+
+        lux \
+        --progress verbose \
+        --case_timeout infinity \
+        --var PROFILE="$profile" \
+        --var PACKAGE_PATH=$(pwd)/packages \
+        --var VSN="$cur_vsn" \
+        --var OLD_VSN="$OLD_VSN" \
+        emqx_built/.ci/fvt_tests/relup.lux
+    - uses: actions/upload-artifact@v2
+      name: Save debug data
       if: failure()
       with:
-        name: lux_logs
-        path: lux_logs
-    - uses: actions/upload-artifact@v1
-      if: failure()
-      with:
-        name: packages
-        path: packages
+        name: debug_data
+        path: |
+          packages/emqx1/log/emqx.log.1
+          packages/emqx2/log/emqx.log.1
+          packages/*.zip
+          lux_logs

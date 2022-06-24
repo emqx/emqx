@@ -1,13 +1,10 @@
 [config var=PROFILE]
 [config var=PACKAGE_PATH]
-[config var=BENCH_PATH]
 [config var=VSN]
-[config var=OLD_VSNS]
+[config var=OLD_VSN]
 
 [config shell_cmd=/bin/bash]
 [config timeout=600000]
-
-[loop old_vsn $OLD_VSNS]
 
 [shell http_server]
     !cd http_server
@@ -22,10 +19,10 @@
 [shell emqx1]
     !cd $PACKAGE_PATH
     !mkdir -p emqx1
-    !tar -C emqx -zxf ${PROFILE}-$(echo $old_vsn | sed  -r 's/[v|e]//g')-*-ubuntu20.04-amd64.tar.gz
+    !tar -C emqx1 -zxf ${PROFILE}-$(echo $OLD_VSN | sed  -r 's/[v|e]//g')-*-ubuntu20.04-amd64.tar.gz
     ?SH-PROMPT
 
-    !cd emqx
+    !cd emqx1
     !export EMQX_NODE_NAME='emqx1@127.0.0.1'
     !./bin/emqx start
     ?EMQX .* is started successfully!
@@ -34,7 +31,7 @@
 [shell emqx2]
     !cd $PACKAGE_PATH
     !mkdir -p emqx2
-    !tar -C emqx -zxf ${PROFILE}-$(echo $old_vsn | sed  -r 's/[v|e]//g')-*-ubuntu20.04-amd64.tar.gz
+    !tar -C emqx2 -zxf ${PROFILE}-$(echo $OLD_VSN | sed  -r 's/[v|e]//g')-*-ubuntu20.04-amd64.tar.gz
     ?SH-PROMPT
 
     !cd emqx2
@@ -58,12 +55,12 @@
     ?SH-PROMPT
 
     ## create a webhook data bridge with id "my_webhook"
-    !curl --user admin:public --silent --show-error 'http://localhost:18083/api/v5/bridges' -X 'POST' -H 'Content-Type: application/json' --data-binary '{"name":"my_webhook","method":"post","url":"http://127.0.0.1:7077/counter","headers":{"content-type":"application/json"},"pool_size":4,"enable_pipelining":100,"connect_timeout":"5s","request_timeout":"5s","max_retries":3,"type":"webhook","ssl":{"enable":false,"verify":"verify_none"}}' | jq '.status'
+    !curl --user admin:public --silent --show-error 'http://localhost:18082/api/v5/bridges' -X 'POST' -H 'Content-Type: application/json' --data-binary '{"name":"my_webhook","method":"post","url":"http://127.0.0.1:7077/counter","headers":{"content-type":"application/json"},"pool_size":4,"enable_pipelining":100,"connect_timeout":"5s","request_timeout":"5s","max_retries":3,"type":"webhook","ssl":{"enable":false,"verify":"verify_none"}}' | jq '.status'
     ?connected
     ?SH-PROMPT
 
     ## create a rule that uses the webhook as action, the rule id = "rule_edsy"
-    !curl --user admin:public --silent --show-error 'http://localhost:18083/api/v5/rules' -X 'POST' -H 'Content-Type: application/json' --data-binary '{"id":"rule_edsy","sql":"SELECT\n  *\nFROM\n  \"t/#\"","actions":["webhook:my_webhook"]}' | jq '.id'
+    !curl --user admin:public --silent --show-error 'http://localhost:18082/api/v5/rules' -X 'POST' -H 'Content-Type: application/json' --data-binary '{"id":"rule_edsy","sql":"SELECT\n  *\nFROM\n  \"t/#\"","actions":["webhook:my_webhook"]}' | jq '.id'
     ?rule_edsy
     ?SH-PROMPT
 
@@ -77,9 +74,8 @@
     ?SH-PROMPT
 
 [shell bench]
-    !cd $BENCH_PATH
 
-    !./emqtt_bench pub -c 10 -I 1000 -t t/%i -s 64 -L 300
+    !emqtt_bench pub -c 10 -I 1000 -t t/%i -s 64 -L 300
     ???sent
 
 [shell emqx1]
@@ -98,11 +94,11 @@
     ?SH-PROMPT
 
     ## 2. downgrade to the old version
-    !./bin/emqx install $old_vsn
+    !./bin/emqx install $OLD_VSN
     ?Made release permanent:.*
     ?SH-PROMPT
 
-    !./bin/emqx versions | grep permanent | grep -qs "$old_vsn"
+    !./bin/emqx versions | grep permanent | grep -qs "$OLD_VSN"
     ?SH-PROMPT:
     !echo ==$$?==
     ?^==0==
@@ -137,11 +133,11 @@
     ?SH-PROMPT
 
     ## 2. downgrade to the old version
-    !./bin/emqx install $old_vsn
+    !./bin/emqx install $OLD_VSN
     ?Made release permanent:.*
     ?SH-PROMPT
 
-    !./bin/emqx versions | grep permanent | grep -qs "$old_vsn"
+    !./bin/emqx versions | grep permanent | grep -qs "$OLD_VSN"
     ?SH-PROMPT:
     !echo ==$$?==
     ?^==0==
@@ -168,11 +164,11 @@
     !sleep 5
     ?SH-PROMPT
 
-    !curl --user admin:public --silent --show-error http://localhost:18083/api/v5/rules | jq --raw-output ".[0].node_metrics[] | select(.node==\"emqx@127.0.0.1\") | .metrics.matched"
+    !curl --user admin:public --silent --show-error http://localhost:18083/api/v5/rules | jq --raw-output ".[0].node_metrics[] | select(.node==\"emqx1@127.0.0.1\") | .metrics.matched"
     ?300
     ?SH-PROMPT
 
-    !curl --user admin:public --silent --show-error http://localhost:18083/api/v5/rules | jq --raw-output ".[0].node_metrics[] | select(.node==\"emqx@127.0.0.1\") | .metrics.\"actions.success\""
+    !curl --user admin:public --silent --show-error http://localhost:18083/api/v5/rules | jq --raw-output ".[0].node_metrics[] | select(.node==\"emqx1@127.0.0.1\") | .metrics.\"actions.success\""
     ?\{"data":(29[0-9])|(300),"code":0\}
     ?SH-PROMPT
 
@@ -211,8 +207,6 @@
     ?>
     !halt(3).
     ?SH-PROMPT:
-
-[endloop]
 
 [cleanup]
     !echo ==$$?==
