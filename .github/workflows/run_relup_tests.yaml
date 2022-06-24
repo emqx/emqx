@@ -15,6 +15,8 @@ on:
 
 jobs:
   relup_test:
+    runs-on: aws-amd64
+
     strategy:
       matrix:
         profile:
@@ -32,13 +34,13 @@ jobs:
         arch:
           - amd64
 
-    runs-on: ubuntu-20.04
     container: "ghcr.io/emqx/emqx-builder/5.0-16:${{ matrix.elixir }}-${{ matrix.otp }}-${{ matrix.os }}"
 
     defaults:
       run:
         shell: bash
     steps:
+    - uses: AutoModality/action-clean@v1
     - uses: actions/setup-python@v2
       with:
         python-version: '3.8'
@@ -67,10 +69,8 @@ jobs:
     - name: Get old vsn
       run: |
         set -x
-        OLD_VSNS="$(emqx/scripts/relup-base-vsns.sh ${{ matrix.profile }} | xargs echo -n)"
-        NOW_VSN=$(emqx/pkg-vsn.sh ${{ matrix.profile }})
-        echo "OLD_VSNS=$OLD_VSNS" >> $GITHUB_ENV
-        echo "NOW_VSN=$NOW_VSN" >> $GITHUB_ENV
+        echo "OLD_VSNS=$(emqx/scripts/relup-base-vsns.sh ${{ matrix.profile }} | xargs echo -n)" >> $GITHUB_ENV
+        echo "NOW_VSN=$(emqx/pkg-vsn.sh ${{ matrix.profile }})" >> $GITHUB_ENV
 
     - name: build emqx
       env:
@@ -101,7 +101,6 @@ jobs:
             --var PROFILE=$PROFILE \
             --var PACKAGE_PATH=$(pwd)/packages \
             --var BENCH_PATH=$(pwd)/emqtt-bench \
-            --var ONE_MORE_EMQX_PATH=$(pwd)/one_more_emqx \
             --var VSN="$NOW_VSN" \
             --var OLD_VSNS="$OLD_VSNS" \
             emqx/.ci/fvt_tests/relup.lux
