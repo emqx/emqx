@@ -257,6 +257,7 @@ relx_apps(ReleaseType) ->
     , inets
     , compiler
     , runtime_tools
+    , redbug
     , cuttlefish
     , emqx
     , {mnesia, load}
