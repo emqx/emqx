@@ -175,7 +175,8 @@ on_action_republish(_Selected, Envs = #{
         }) ->
     ?LOG(error, "[republish] recursively republish detected, msg topic: ~p, target topic: ~p",
         [Topic, ?bound_v('TargetTopic', Envs)]),
-    emqx_rule_metrics:inc_actions_error(?bound_v('Id', Envs));
+    emqx_rule_metrics:inc_actions_error(?bound_v('Id', Envs)),
+    {badact, recursively_republish};
 
 on_action_republish(Selected, _Envs = #{
             qos := QoS, flags := Flags, timestamp := Timestamp,
