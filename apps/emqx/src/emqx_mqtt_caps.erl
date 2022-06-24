@@ -68,7 +68,7 @@
     wildcard_subscription => true,
     subscription_identifiers => true,
     shared_subscription => true,
-    exclusive_subscription => true
+    exclusive_subscription => false
 }).
 
 -spec check_pub(

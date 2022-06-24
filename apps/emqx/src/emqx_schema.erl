@@ -443,7 +443,7 @@ fields("mqtt") ->
             sc(
                 boolean(),
                 #{
-                    default => true,
+                    default => false,
                     desc => ?DESC(mqtt_exclusive_subscription)
                 }
             )},

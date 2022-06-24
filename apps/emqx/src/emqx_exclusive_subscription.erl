@@ -70,7 +70,7 @@ check_subscribe(#{clientid := ClientId}, Topic) ->
     Fun = fun() ->
         try_subscribe(ClientId, Topic)
     end,
-    case mnesia:transaction(Fun) of
+    case mria:transaction(?EXCLUSIVE_SHARD, Fun) of
         {atomic, Res} ->
             Res;
         {aborted, Reason} ->
@@ -81,7 +81,7 @@ check_subscribe(#{clientid := ClientId}, Topic) ->
     end.
 
 unsubscribe(Topic, #{is_exclusive := true}) ->
-    _ = mnesia:transaction(fun() -> mnesia:delete({?TAB, Topic}) end),
+    _ = mria:transaction(?EXCLUSIVE_SHARD, fun() -> mnesia:delete({?TAB, Topic}) end),
     ok;
 unsubscribe(_Topic, _SubOpts) ->
     ok.
