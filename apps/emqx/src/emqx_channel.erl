@@ -1865,8 +1865,8 @@ check_sub_authzs([], _Channel, Acc) ->
 %%--------------------------------------------------------------------
 %% Check Sub Caps
 
-check_sub_caps(TopicFilter, SubOpts, #channel{clientinfo = #{zone := Zone}}) ->
-    emqx_mqtt_caps:check_sub(Zone, TopicFilter, SubOpts).
+check_sub_caps(TopicFilter, SubOpts, #channel{clientinfo = ClientInfo}) ->
+    emqx_mqtt_caps:check_sub(ClientInfo, TopicFilter, SubOpts).
 
 %%--------------------------------------------------------------------
 %% Enrich SubId

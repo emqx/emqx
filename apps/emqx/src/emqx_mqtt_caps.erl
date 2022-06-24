@@ -38,7 +38,8 @@
     retain_available => boolean(),
     wildcard_subscription => boolean(),
     subscription_identifiers => boolean(),
-    shared_subscription => boolean()
+    shared_subscription => boolean(),
+    exclusive_subscription => boolean()
 }.
 
 -define(MAX_TOPIC_LEVELS, 65535).
@@ -53,7 +54,8 @@
     max_topic_levels,
     max_qos_allowed,
     wildcard_subscription,
-    shared_subscription
+    shared_subscription,
+    exclusive_subscription
 ]).
 
 -define(DEFAULT_CAPS, #{
@@ -65,7 +67,8 @@
     retain_available => true,
     wildcard_subscription => true,
     subscription_identifiers => true,
-    shared_subscription => true
+    shared_subscription => true,
+    exclusive_subscription => true
 }).
 
 -spec check_pub(
@@ -102,12 +105,12 @@ do_check_pub(_Flags, _Caps) ->
     ok.
 
 -spec check_sub(
-    emqx_types:zone(),
+    emqx_types:clientinfo(),
     emqx_types:topic(),
     emqx_types:subopts()
 ) ->
     ok_or_error(emqx_types:reason_code()).
-check_sub(Zone, Topic, SubOpts) ->
+check_sub(ClientInfo = #{zone := Zone}, Topic, SubOpts) ->
     Caps = maps:with(?SUBCAP_KEYS, get_caps(Zone)),
     Flags = lists:foldl(
         fun
@@ -117,6 +120,8 @@ check_sub(Zone, Topic, SubOpts) ->
                 Map#{is_wildcard => emqx_topic:wildcard(Topic)};
             (shared_subscription, Map) ->
                 Map#{is_shared => maps:is_key(share, SubOpts)};
+            (exclusive_subscription, Map) ->
+                Map#{is_exclusive => maps:get(is_exclusive, SubOpts, false)};
             %% Ignore
             (_Key, Map) ->
                 Map
@@ -124,17 +129,26 @@ check_sub(Zone, Topic, SubOpts) ->
         #{},
         maps:keys(Caps)
     ),
-    do_check_sub(Flags, Caps).
+    do_check_sub(Flags, Caps, ClientInfo, Topic).
 
-do_check_sub(#{topic_levels := Levels}, #{max_topic_levels := Limit}) when
+do_check_sub(#{topic_levels := Levels}, #{max_topic_levels := Limit}, _, _) when
     Limit > 0, Levels > Limit
 ->
     {error, ?RC_TOPIC_FILTER_INVALID};
-do_check_sub(#{is_wildcard := true}, #{wildcard_subscription := false}) ->
+do_check_sub(#{is_wildcard := true}, #{wildcard_subscription := false}, _, _) ->
     {error, ?RC_WILDCARD_SUBSCRIPTIONS_NOT_SUPPORTED};
-do_check_sub(#{is_shared := true}, #{shared_subscription := false}) ->
+do_check_sub(#{is_shared := true}, #{shared_subscription := false}, _, _) ->
     {error, ?RC_SHARED_SUBSCRIPTIONS_NOT_SUPPORTED};
-do_check_sub(_Flags, _Caps) ->
+do_check_sub(#{is_exclusive := true}, #{exclusive_subscription := false}, _, _) ->
+    {error, ?RC_TOPIC_FILTER_INVALID};
+do_check_sub(#{is_exclusive := true}, #{exclusive_subscription := true}, ClientInfo, Topic) ->
+    case emqx_exclusive_subscription:check_subscribe(ClientInfo, Topic) of
+        deny ->
+            {error, ?RC_QUOTA_EXCEEDED};
+        _ ->
+            ok
+    end;
+do_check_sub(_Flags, _Caps, _, _) ->
     ok.
 
 get_caps(Zone) ->

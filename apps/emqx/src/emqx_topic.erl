@@ -226,5 +226,12 @@ parse(TopicFilter = <<"$share/", Rest/binary>>, Options) ->
                 _ -> error({invalid_topic_filter, TopicFilter})
             end
     end;
+parse(TopicFilter = <<"$exclusive/", Topic/binary>>, Options) ->
+    case Topic of
+        <<>> ->
+            error({invalid_topic_filter, TopicFilter});
+        _ ->
+            {Topic, Options#{is_exclusive => true}}
+    end;
 parse(TopicFilter, Options) ->
     {TopicFilter, Options}.
