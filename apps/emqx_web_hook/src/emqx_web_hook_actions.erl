@@ -268,13 +268,16 @@ on_action_data_to_webserver(Selected, _Envs =
             emqx_rule_metrics:inc_actions_success(Id);
         {ok, StatusCode, _} ->
             ?LOG(warning, "HTTP request failed with path: ~p status code: ~p", [NPath, StatusCode]),
-            emqx_rule_metrics:inc_actions_error(Id);
+            emqx_rule_metrics:inc_actions_error(Id),
+            {badact, StatusCode};
         {ok, StatusCode, _, _} ->
             ?LOG(warning, "HTTP request failed with path: ~p status code: ~p", [NPath, StatusCode]),
-            emqx_rule_metrics:inc_actions_error(Id);
+            emqx_rule_metrics:inc_actions_error(Id),
+            {badact, StatusCode};
         {error, Reason} ->
             ?LOG(error, "HTTP request failed path: ~p error: ~p", [NPath, Reason]),
-            emqx_rule_metrics:inc_actions_error(Id)
+            emqx_rule_metrics:inc_actions_error(Id),
+            {badact, Reason}
     end.
 
 format_msg([], Data) ->
