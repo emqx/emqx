@@ -130,14 +130,19 @@ load(Name, #{request_timeout := Timeout, failed_action := FailedAction} = Opts) 
     end.
 
 %% @private
-channel_opts(Opts = #{url := URL}) ->
+channel_opts(Opts = #{url := URL, socket_options := SockOptsT}) ->
     ClientOpts = maps:merge(
         #{pool_size => erlang:system_info(schedulers)},
         Opts
     ),
+    SockOpts = maps:to_list(SockOptsT),
     case uri_string:parse(URL) of
         #{scheme := <<"http">>, host := Host, port := Port} ->
-            {ok, {format_http_uri("http", Host, Port), ClientOpts}};
+            NClientOpts = ClientOpts#{
+                gun_opts =>
+                    #{transport_opts => SockOpts}
+            },
+            {ok, {format_http_uri("http", Host, Port), NClientOpts}};
         #{scheme := <<"https">>, host := Host, port := Port} ->
             SslOpts =
                 case maps:get(ssl, Opts, undefined) of
@@ -158,7 +163,7 @@ channel_opts(Opts = #{url := URL}) ->
                 gun_opts =>
                     #{
                         transport => ssl,
-                        transport_opts => SslOpts
+                        transport_opts => SockOpts ++ SslOpts
                     }
             },
             {ok, {format_http_uri("https", Host, Port), NClientOpts}};
