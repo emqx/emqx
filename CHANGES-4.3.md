@@ -29,6 +29,7 @@ File format:
   information to fill them. [#8280]
 - Fixed issue in Lua hook that didn't prevent a topic from being
   subscribed to. [#8288]
+- Ensuring that exhook dispatches the client events are sequential. [#8311]
 
 ## v4.3.15
 
