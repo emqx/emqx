@@ -47,12 +47,42 @@ end}.
   {datatype, string}
 ]}.
 
+{mapping, "exhook.server.$name.socket_options.keepalive", "emqx_exhook.servers", [
+  {default, true},
+  {datatype, {enum, [true, false]}}
+]}.
+
+{mapping, "exhook.server.$name.socket_options.nodelay", "emqx_exhook.servers", [
+  {default, true},
+  {datatype, {enum, [true, false]}}
+]}.
+
+{mapping, "exhook.server.$name.socket_options.recbuf", "emqx_exhook.servers", [
+  {datatype, bytesize}
+]}.
+
+{mapping, "exhook.server.$name.socket_options.sndbuf", "emqx_exhook.servers", [
+  {datatype, bytesize}
+]}.
+
 {translation, "emqx_exhook.servers", fun(Conf) ->
   Filter  = fun(Opts) -> [{K, V} || {K, V} <- Opts, V =/= undefined] end,
+
+  MkSockOpts = fun(Prefix, Conf) ->
+                   {socket_options,
+                       Filter([{Opt,
+                                cuttlefish:conf_get(Prefix ++ ".socket_options." ++ atom_to_list(Opt),
+                                                    Conf,
+                                                    undefined)}
+                                || Opt <- [keepalive, nodelay, recbuf, sndbuf]])}
+               end,
+
   ServerOptions = fun(Prefix) ->
                       case http_uri:parse(cuttlefish:conf_get(Prefix ++ ".url", Conf)) of
                           {ok, {http, _, Host, Port, _, _}} ->
-                              [{scheme, http}, {host, Host}, {port, Port}];
+                              [{scheme, http}, {host, Host}, {port, Port},
+                               MkSockOpts(Prefix, Conf)
+                              ];
                           {ok, {https, _, Host, Port, _, _}} ->
                               [{scheme, https}, {host, Host}, {port, Port},
                                {ssl_options,
@@ -60,10 +90,13 @@ end}.
                                          {certfile, cuttlefish:conf_get(Prefix ++ ".ssl.certfile", Conf, undefined)},
                                          {keyfile, cuttlefish:conf_get(Prefix ++ ".ssl.keyfile", Conf, undefined)},
                                          {cacertfile, cuttlefish:conf_get(Prefix ++ ".ssl.cacertfile", Conf, undefined)}
-                                        ])}];
+                                        ])},
+                               MkSockOpts(Prefix, Conf)
+                              ];
                           _ -> error(invalid_server_options)
                       end
                   end,
+
   [{list_to_atom(Name), ServerOptions("exhook.server." ++ Name)}
    || {["exhook", "server", Name, "url"], _} <- cuttlefish_variable:filter_by_prefix("exhook.server", Conf)]
 end}.

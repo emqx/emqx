@@ -124,13 +124,16 @@ channel_opts(Opts) ->
     Host = proplists:get_value(host, Opts),
     Port = proplists:get_value(port, Opts),
     SvrAddr = format_http_uri(Scheme, Host, Port),
+    SockOpts = proplists:get_value(socket_options, Opts),
     ClientOpts = case Scheme of
                      https ->
                          SslOpts = lists:keydelete(ssl, 1, proplists:get_value(ssl_options, Opts, [])),
                          #{gun_opts =>
                            #{transport => ssl,
-                             transport_opts => SslOpts}};
-                     _ -> #{}
+                             transport_opts => SockOpts ++ SslOpts}};
+                     _ ->
+                         #{gun_opts =>
+                           #{transport_opts => SockOpts}}
                  end,
     {SvrAddr, ClientOpts}.
 
