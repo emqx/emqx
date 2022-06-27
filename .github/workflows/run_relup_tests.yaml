@@ -20,7 +20,7 @@ jobs:
     outputs:
       ce_vsn: ${{ steps.find-versions.outputs.CUR_CE_VSN }}
       ee_vsn: ${{ steps.find-versions.outputs.CUR_EE_VSN }}
-      old_vsns: ${{ steps.generate-matrix.outputs.OLD_VERSIONS }}
+      old_vsns: ${{ steps.find-versions.outputs.OLD_VERSIONS }}
     defaults:
       run:
         shell: bash
