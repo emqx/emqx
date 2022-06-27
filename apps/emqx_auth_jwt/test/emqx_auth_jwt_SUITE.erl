@@ -22,6 +22,7 @@
 -include_lib("emqx/include/emqx_mqtt.hrl").
 -include_lib("eunit/include/eunit.hrl").
 -include_lib("common_test/include/ct.hrl").
+-include_lib("snabbkaffe/include/snabbkaffe.hrl").
 
 all() -> emqx_ct:all(?MODULE).
 
@@ -200,6 +201,32 @@ t_check_claims_kid_in_header(_Config) ->
     Result0 = emqx_access_control:authenticate(Plain#{password => Jwt}),
     ct:pal("Auth result: ~p~n", [Result0]),
     ?assertMatch({ok, #{auth_result := success, jwt_claims := _}}, Result0).
+
+t_keys_update(init, _Config) ->
+    ok = meck:new(httpc, [passthrough, no_history]),
+    ok = meck:expect(
+           httpc,
+           request,
+           fun(get, _, _, _) ->
+                   {ok,
+                    {200,
+                     [],
+                     jiffy:encode(#{<<"keys">> => []})}}
+           end),
+
+    application:set_env(emqx_auth_jwt, verify_claims, []),
+    application:set_env(emqx_auth_jwt, refresh_interval, 100),
+    application:set_env(emqx_auth_jwt, jwks, "http://localhost:4001/keys.json").
+t_keys_update(_Config) ->
+    ?check_trace(
+       snabbkaffe:block_until(
+         ?match_n_events(2, #{?snk_kind := emqx_auth_jwt_svr_jwks_updated}),
+         _Timeout    = infinity,
+         _BackInTIme = 0),
+       fun(_, Trace) ->
+               ?assertMatch([#{pid := Pid}, #{pid := Pid} |  _],
+                            ?of_kind(emqx_auth_jwt_svr_jwks_updated, Trace))
+       end).
 
 t_check_jwt_acl(init, _Config) ->
     application:set_env(emqx_auth_jwt, verify_claims, [{sub, <<"value">>}]).
