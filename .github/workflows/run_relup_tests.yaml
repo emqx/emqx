@@ -129,7 +129,7 @@ jobs:
       with:
         name: debug_data
         path: |
-          packages/emqx1/log/emqx.log.1
-          packages/emqx2/log/emqx.log.1
-          packages/*.zip
+          packages/emqx1/log/*
+          packages/emqx2/log/*
+          packages/*.tar.gz
           lux_logs
