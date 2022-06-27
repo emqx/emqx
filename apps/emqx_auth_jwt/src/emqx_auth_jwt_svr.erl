@@ -20,6 +20,7 @@
 
 -include_lib("emqx/include/logger.hrl").
 -include_lib("jose/include/jose_jwk.hrl").
+-include_lib("snabbkaffe/include/snabbkaffe.hrl").
 
 -logger_header("[JWT-SVR]").
 
@@ -114,7 +115,8 @@ handle_cast(_Msg, State) ->
 
 handle_info({timeout, _TRef, refresh}, State = #state{addr = Addr}) ->
     NState = try
-                 true = ets:insert(?TAB, {remote, request_jwks(Addr)})
+                 true = ets:insert(?TAB, {remote, request_jwks(Addr)}),
+                 State
              catch _:_ ->
                  State
              end,
@@ -147,7 +149,9 @@ request_jwks(Addr) ->
         {ok, {_Code, _Headers, Body}} ->
             try
                 JwkSet = jose_jwk:from(emqx_json:decode(Body, [return_maps])),
-                {_, Jwks} = JwkSet#jose_jwk.keys, Jwks
+                {_, Jwks} = JwkSet#jose_jwk.keys,
+                ?tp(debug, emqx_auth_jwt_svr_jwks_updated, #{jwks => Jwks, pid => self()}),
+                Jwks
             catch _:_ ->
                 ?LOG(error, "Invalid jwks server response: ~p~n", [Body]),
                 error(badarg)

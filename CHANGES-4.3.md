@@ -32,6 +32,7 @@ File format:
   subscribed to. [#8288]
 - Ensuring that exhook dispatches the client events are sequential. [#8311]
 - Ensure start dashboard ok event if default_username is missing.
+- Fix key update from JWKS server by JWT auth.
 
 ## v4.3.15
 
