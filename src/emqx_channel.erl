@@ -102,7 +102,7 @@
 
 -type(reply() :: {outgoing, emqx_types:packet()}
                | {outgoing, [emqx_types:packet()]}
-               | {event, conn_state()|updated}
+               | {event, conn_state() | updated}
                | {close, Reason :: atom()}).
 
 -type(replies() :: emqx_types:packet() | reply() | [reply()]).
@@ -118,7 +118,32 @@
           quota_timer  => expire_quota_limit
          }).
 
--define(INFO_KEYS, [conninfo, conn_state, clientinfo, session, will_msg]).
+-define(INFO_KEYS,
+    [ conninfo
+    , conn_state
+    , clientinfo
+    , session
+    , will_msg
+    ]).
+
+-define(CHANNEL_METRICS,
+    [ recv_pkt
+    , recv_msg
+    , 'recv_msg.qos0'
+    , 'recv_msg.qos1'
+    , 'recv_msg.qos2'
+    , 'recv_msg.dropped'
+    , 'recv_msg.dropped.await_pubrel_timeout'
+    , send_pkt
+    , send_msg
+    , 'send_msg.qos0'
+    , 'send_msg.qos1'
+    , 'send_msg.qos2'
+    , 'send_msg.dropped'
+    , 'send_msg.dropped.expired'
+    , 'send_msg.dropped.queue_full'
+    , 'send_msg.dropped.too_large'
+    ]).
 
 -dialyzer({no_match, [shutdown/4, ensure_timer/2, interval/2]}).
 
@@ -131,7 +156,7 @@
 info(Channel) ->
     maps:from_list(info(?INFO_KEYS, Channel)).
 
--spec(info(list(atom())|atom(), channel()) -> term()).
+-spec(info(list(atom()) | atom(), channel()) -> term()).
 info(Keys, Channel) when is_list(Keys) ->
     [{Key, info(Key, Channel)} || Key <- Keys];
 info(conninfo, #channel{conninfo = ConnInfo}) ->
@@ -181,10 +206,9 @@ get_session(#channel{session = Session}) ->
 set_session(Session, Channel) ->
     Channel#channel{session = Session}.
 
-%% TODO: Add more stats.
 -spec(stats(channel()) -> emqx_types:stats()).
 stats(#channel{session = Session})->
-    emqx_session:stats(Session).
+    lists:append(emqx_session:stats(Session), emqx_pd:get_counters(?CHANNEL_METRICS)).
 
 -spec(caps(channel()) -> emqx_types:caps()).
 caps(#channel{clientinfo = #{zone := Zone}}) ->
@@ -275,7 +299,7 @@ take_ws_cookie(ClientInfo, ConnInfo) ->
 handle_in(?CONNECT_PACKET(), Channel = #channel{conn_state = connected}) ->
     handle_out(disconnect, ?RC_PROTOCOL_ERROR, Channel);
 
-handle_in(?CONNECT_PACKET(ConnPkt), Channel) ->
+handle_in(?CONNECT_PACKET(ConnPkt) = Packet, Channel) ->
     case pipeline([fun enrich_conninfo/2,
                    fun run_conn_hooks/2,
                    fun check_connect/2,
@@ -285,6 +309,7 @@ handle_in(?CONNECT_PACKET(ConnPkt), Channel) ->
                    fun auth_connect/2
                   ], ConnPkt, Channel#channel{conn_state = connecting}) of
         {ok, NConnPkt, NChannel = #channel{clientinfo = ClientInfo}} ->
+            ?LOG(debug, "RECV ~s", [emqx_packet:format(Packet)]),
             NChannel1 = NChannel#channel{
                                         will_msg = emqx_packet:will_msg(NConnPkt),
                                         alias_maximum = init_alias_maximum(NConnPkt, ClientInfo)
@@ -624,7 +649,7 @@ ensure_quota(PubRes, Channel = #channel{quota = Limiter}) ->
 
 -compile({inline, [puback_reason_code/1]}).
 puback_reason_code([])    -> ?RC_NO_MATCHING_SUBSCRIBERS;
-puback_reason_code([_|_]) -> ?RC_SUCCESS.
+puback_reason_code([_ | _]) -> ?RC_SUCCESS.
 
 -compile({inline, [after_message_acked/3]}).
 after_message_acked(ClientInfo, Msg, PubAckProps) ->
@@ -643,7 +668,7 @@ process_subscribe(TopicFilters, SubProps, Channel) ->
 process_subscribe([], _SubProps, Channel, Acc) ->
     {lists:reverse(Acc), Channel};
 
-process_subscribe([Topic = {TopicFilter, SubOpts}|More], SubProps, Channel, Acc) ->
+process_subscribe([Topic = {TopicFilter, SubOpts} | More], SubProps, Channel, Acc) ->
     case check_sub_caps(TopicFilter, SubOpts, Channel) of
          ok ->
             {ReasonCode, NChannel} = do_subscribe(TopicFilter,
@@ -681,9 +706,9 @@ process_unsubscribe(TopicFilters, UnSubProps, Channel) ->
 process_unsubscribe([], _UnSubProps, Channel, Acc) ->
     {lists:reverse(Acc), Channel};
 
-process_unsubscribe([{TopicFilter, SubOpts}|More], UnSubProps, Channel, Acc) ->
+process_unsubscribe([{TopicFilter, SubOpts} | More], UnSubProps, Channel, Acc) ->
     {RC, NChannel} = do_unsubscribe(TopicFilter, SubOpts#{unsub_props => UnSubProps}, Channel),
-    process_unsubscribe(More, UnSubProps, NChannel, [RC|Acc]).
+    process_unsubscribe(More, UnSubProps, NChannel, [RC | Acc]).
 
 do_unsubscribe(TopicFilter, SubOpts, Channel =
                #channel{clientinfo = ClientInfo = #{mountpoint := MountPoint},
@@ -968,6 +993,19 @@ handle_call({quota, Policy}, Channel) ->
     Zone = info(zone, Channel),
     Quota = emqx_limiter:init(Zone, Policy),
     reply(ok, Channel#channel{quota = Quota});
+
+handle_call({keepalive, Interval}, Channel = #channel{keepalive = KeepAlive,
+    conninfo = ConnInfo, timers = Timers}) ->
+    AliveTimer = maps:get(alive_timer, Timers, undefined),
+    emqx_misc:cancel_timer(AliveTimer),
+    ClientId = info(clientid, Channel),
+    NKeepalive = emqx_keepalive:set(interval, Interval * 1000, KeepAlive),
+    NConnInfo = maps:put(keepalive, Interval, ConnInfo),
+    NChannel = Channel#channel{keepalive = NKeepalive, conninfo = NConnInfo},
+    SockInfo = maps:get(sockinfo, emqx_cm:get_chan_info(ClientId), #{}),
+    ChanInfo1 = info(NChannel),
+    emqx_cm:set_chan_info(ClientId, ChanInfo1#{sockinfo => SockInfo}),
+    reply(ok, reset_timer(alive_timer, NChannel));
 
 handle_call(Req, Channel) ->
     ?LOG(error, "Unexpected call: ~p", [Req]),
@@ -1659,6 +1697,8 @@ ensure_disconnected(Reason, Channel = #channel{conninfo = ConnInfo,
                                                clientinfo = ClientInfo}) ->
     NConnInfo = ConnInfo#{disconnected_at => erlang:system_time(millisecond)},
     ok = run_hooks('client.disconnected', [ClientInfo, Reason, NConnInfo]),
+    ChanPid = self(),
+    emqx_cm:mark_channel_disconnected(ChanPid),
     Channel#channel{conninfo = NConnInfo, conn_state = disconnected}.
 
 %%--------------------------------------------------------------------
