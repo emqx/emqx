@@ -18,9 +18,9 @@ jobs:
     runs-on: ubuntu-20.04
     container: "ghcr.io/emqx/emqx-builder/5.0-17:1.13.4-24.2.1-1-ubuntu20.04"
     outputs:
-      ce_vsn: ${{ steps.find-versions.outputs.CUR_CE_VSN }}
-      ee_vsn: ${{ steps.find-versions.outputs.CUR_EE_VSN }}
-      old_vsns: ${{ steps.find-versions.outputs.OLD_VERSIONS }}
+      CUR_CE_VSN: ${{ steps.find-versions.outputs.CUR_CE_VSN }}
+      CUR_EE_VSN: ${{ steps.find-versions.outputs.CUR_EE_VSN }}
+      OLD_VERSIONS: ${{ steps.find-versions.outputs.OLD_VERSIONS }}
     defaults:
       run:
         shell: bash
