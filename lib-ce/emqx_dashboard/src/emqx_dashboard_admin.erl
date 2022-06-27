@@ -22,6 +22,7 @@
 
 -include("emqx_dashboard.hrl").
 -include_lib("emqx/include/logger.hrl").
+-define(DEFAULT_PASSWORD, <<"public">>).
 
 -boot_mnesia({mnesia, [boot]}).
 -copy_mnesia({mnesia, [copy]}).
@@ -284,8 +285,10 @@ ensure_default_user_in_db(Username) ->
 initial_default_user_passwd_hashed() ->
     case get_default_user_passwd_hashed_from_pt() of
         Empty when ?EMPTY_KEY(Empty) ->
-            Pwd = binenv(default_user_passwd),
-            hash(Pwd);
+            case binenv(default_user_passwd) of
+                Empty when ?EMPTY_KEY(Empty) -> hash(?DEFAULT_PASSWORD);
+                Pwd -> hash(Pwd)
+            end;
         PwdHash ->
             PwdHash
     end.
@@ -300,7 +303,7 @@ get_default_user_passwd_hashed_from_pt() ->
     persistent_term:get({?MODULE, default_user_passwd_hashed}, <<>>).
 
 maybe_warn_default_pwd() ->
-    case is_valid_pwd(initial_default_user_passwd_hashed(), <<"public">>) of
+    case is_valid_pwd(initial_default_user_passwd_hashed(), ?DEFAULT_PASSWORD) of
         true ->
             ?LOG(warning,
                  "[Dashboard] Using default password for dashboard 'admin' user. "
