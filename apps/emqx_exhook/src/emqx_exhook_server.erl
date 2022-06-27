@@ -273,7 +273,7 @@ match_topic_filter(TopicName, TopicFilter) ->
 -spec do_call(string(), atom(), map(), map()) -> {ok, map()} | {error, term()}.
 do_call(ChannName, Fun, Req, ReqOpts) ->
     NReq = Req#{meta => emqx_exhook:request_meta()},
-    Options = ReqOpts#{channel => ChannName},
+    Options = ReqOpts#{channel => ChannName, key_dispatch => key_dispatch(NReq)},
     ?LOG(debug, "Call ~0p:~0p(~0p, ~0p)", [?PB_CLIENT_MOD, Fun, NReq, Options]),
     case catch apply(?PB_CLIENT_MOD, Fun, [NReq, Options]) of
         {ok, Resp, _Metadata} ->
@@ -331,3 +331,13 @@ available_hooks() ->
      'session.created', 'session.subscribed', 'session.unsubscribed',
      'session.resumed', 'session.discarded', 'session.takeovered',
      'session.terminated' | message_hooks()].
+
+%% @doc Get dispatch_key for each request
+key_dispatch(_Req = #{clientinfo := #{clientid := ClientId}}) ->
+    ClientId;
+key_dispatch(_Req = #{conninfo := #{clientid := ClientId}}) ->
+    ClientId;
+key_dispatch(_Req = #{message := #{from := From}}) ->
+    From;
+key_dispatch(_Req) ->
+    self().
