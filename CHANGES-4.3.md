@@ -19,6 +19,7 @@ File format:
   management HTTPS listeners. [#8129]
 - Add message republish supports using placeholder variables to specify QoS and Retain values. Set `${qos}` and `${flags.retain}` use the original QoS & Retain flag.
 - Add supports specifying the network interface address of the cluster listener & rcp call listener. Specify `0.0.0.0` use all network interfaces, or a particular network interface IP address.
+- ExHook supports to customize the socket parameters for gRPC client. [#8314]
 
 ### Bug fixes
 
