@@ -2216,29 +2216,29 @@ str(B) when is_binary(B) ->
 str(S) when is_list(S) ->
     S.
 
-authentication(Type) ->
+authentication(Which) ->
     Desc =
-        case Type of
+        case Which of
             global -> ?DESC(global_authentication);
             listener -> ?DESC(listener_authentication)
         end,
-    %% authentication schema is lazy to make it more 'plugable'
-    %% the type checks are done in emqx_auth application when it boots.
-    %% and in emqx_authentication_config module for runtime changes.
-    Default = hoconsc:lazy(hoconsc:union([hoconsc:array(typerefl:map())])),
-    %% as the type is lazy, the runtime module injection
+    %% The runtime module injection
     %% from EMQX_AUTHENTICATION_SCHEMA_MODULE_PT_KEY
     %% is for now only affecting document generation.
     %% maybe in the future, we can find a more straightforward way to support
     %% * document generation (at compile time)
     %% * type checks before boot (in bin/emqx config generation)
     %% * type checks at runtime (when changing configs via management API)
+    Type0 =
+        case persistent_term:get(?EMQX_AUTHENTICATION_SCHEMA_MODULE_PT_KEY, undefined) of
+            undefined -> hoconsc:array(typerefl:map());
+            Module -> Module:root_type()
+        end,
+    %% It is a lazy type because when handing runtime update requests
+    %% the config is not checked by emqx_schema, but by the injected schema
+    Type = hoconsc:lazy(Type0),
     #{
-        type =>
-            case persistent_term:get(?EMQX_AUTHENTICATION_SCHEMA_MODULE_PT_KEY, undefined) of
-                undefined -> Default;
-                Module -> hoconsc:lazy(Module:root_type())
-            end,
+        type => Type,
         desc => Desc
     }.
 
