@@ -24,6 +24,8 @@
 
     !cd emqx1
     !export EMQX_NODE_NAME='emqx1@127.0.0.1'
+# debug boot
+    !sed 's/-boot_var RELEASE_LIB/-init_debug -boot_var RELEASE_LIB/g' -i ./bin/emqx
     !./bin/emqx start
     ?EMQX .* is started successfully!
     ?SH-PROMPT
