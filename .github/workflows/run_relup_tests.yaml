@@ -114,7 +114,8 @@ jobs:
             profile='emqx'
             ;;
         esac
-
+        old_pkg="${profile}-${OLD_VSN#[e|v]}-otp24.2.1-1-ubuntu20.04-amd64.tar.gz"
+        cur_pkg="${profile}-${cur_vsn}-otp24.2.1-1-ubuntu20.04-amd64.tar.gz"
         lux \
         --progress verbose \
         --case_timeout infinity \
@@ -122,6 +123,8 @@ jobs:
         --var PACKAGE_PATH=$(pwd)/packages \
         --var VSN="$cur_vsn" \
         --var OLD_VSN="$OLD_VSN" \
+        --var CUR_PKG="$cur_pkg" \
+        --var OLD_PKG="$old_pkg" \
         emqx_built/.ci/fvt_tests/relup.lux
     - uses: actions/upload-artifact@v2
       name: Save debug data
@@ -129,7 +132,6 @@ jobs:
       with:
         name: debug_data
         path: |
-          packages/emqx1/log/*
-          packages/emqx2/log/*
-          packages/*.tar.gz
+          packages/emqx1/*
+          packages/emqx2/*
           lux_logs

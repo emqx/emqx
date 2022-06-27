@@ -1,7 +1,9 @@
 [config var=PROFILE]
 [config var=PACKAGE_PATH]
 [config var=VSN]
+[config var=CUR_PKG]
 [config var=OLD_VSN]
+[config var=OLD_PKG]
 
 [config shell_cmd=/bin/bash]
 [config timeout=600000]
@@ -19,7 +21,7 @@
 [shell emqx1]
     !cd $PACKAGE_PATH
     !mkdir -p emqx1
-    !tar -C emqx1 -zxf ${PROFILE}-$(echo $OLD_VSN | sed  -r 's/[v|e]//g')-*-ubuntu20.04-amd64.tar.gz
+    !tar -C emqx1 -zxf "$OLD_PKG"
     ?SH-PROMPT
 
     !cd emqx1
@@ -33,7 +35,7 @@
 [shell emqx2]
     !cd $PACKAGE_PATH
     !mkdir -p emqx2
-    !tar -C emqx2 -zxf ${PROFILE}-$(echo $OLD_VSN | sed  -r 's/[v|e]//g')-*-ubuntu20.04-amd64.tar.gz
+    !tar -C emqx2 -zxf "$OLD_PKG"
     ?SH-PROMPT
 
     !cd emqx2
@@ -84,7 +86,7 @@
     !echo "" > log/emqx.log.1
     ?SH-PROMPT
 
-    !cp -f ../$PROFILE-$VSN-*-ubuntu20.04-amd64.tar.gz releases/
+    !cp -f ../$CUR_PKG releases/
 
     ## 1. upgrade to the new version
     !./bin/emqx install $VSN
@@ -123,7 +125,7 @@
     !echo "" > log/emqx.log.1
     ?SH-PROMPT
 
-    !cp -f ../$PROFILE-$VSN-*-ubuntu20.04-amd64.tar.gz releases/
+    !cp -f ../$CUR_PKG releases/
 
     ## 1. upgrade to the new version
     !./bin/emqx install $VSN
