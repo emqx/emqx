@@ -106,6 +106,8 @@ desc(server) ->
     "gRPC server configuration.";
 desc(ssl_conf) ->
     "SSL client configuration.";
+desc(socket_options) ->
+    ?DESC(socket_options);
 desc(_) ->
     undefined.
 
