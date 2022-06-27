@@ -45,9 +45,9 @@
 
 load(RawRules) ->
     {PubRules, SubRules} = compile(RawRules),
-    emqx_hooks:put('client.subscribe',   {?MODULE, rewrite_subscribe, [SubRules]}),
-    emqx_hooks:put('client.unsubscribe', {?MODULE, rewrite_unsubscribe, [SubRules]}),
-    emqx_hooks:put('message.publish',    {?MODULE, rewrite_publish, [PubRules]}).
+    emqx_hooks:put('client.subscribe',   {?MODULE, rewrite_subscribe, [SubRules]}, 1000),
+    emqx_hooks:put('client.unsubscribe', {?MODULE, rewrite_unsubscribe, [SubRules]}, 1000),
+    emqx_hooks:put('message.publish',    {?MODULE, rewrite_publish, [PubRules]}, 1000).
 
 rewrite_subscribe(ClientInfo, _Properties, TopicFilters, Rules) ->
     Binds = fill_client_binds(ClientInfo),

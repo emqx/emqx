@@ -140,13 +140,13 @@ list_nodes() ->
 lookup_node(Node) -> node_info(Node).
 
 node_info(Node) when Node =:= node() ->
-    Memory  = emqx_vm:get_memory(),
+    {UsedRatio, Total} = get_sys_memory(),
     Info = maps:from_list([{K, list_to_binary(V)} || {K, V} <- emqx_vm:loads()]),
     BrokerInfo = emqx_sys:info(),
     Info#{node              => node(),
           otp_release       => iolist_to_binary(otp_rel()),
-          memory_total      => proplists:get_value(allocated, Memory),
-          memory_used       => proplists:get_value(used, Memory),
+          memory_total      => Total,
+          memory_used       => erlang:round(Total * UsedRatio),
           process_available => erlang:system_info(process_limit),
           process_used      => erlang:system_info(process_count),
           max_fds           => proplists:get_value(max_fds,
@@ -158,6 +158,14 @@ node_info(Node) when Node =:= node() ->
           };
 node_info(Node) ->
     rpc_call(Node, node_info, [Node]).
+
+get_sys_memory() ->
+    case os:type() of
+        {unix, linux} ->
+            load_ctl:get_sys_memory();
+        _ ->
+            {0, 0}
+    end.
 
 stopped_node_info(Node) ->
     #{name => Node, node_status => 'Stopped'}.

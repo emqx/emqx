@@ -22,6 +22,7 @@
 
 -include("emqx_dashboard.hrl").
 -include_lib("emqx/include/logger.hrl").
+-define(DEFAULT_PASSWORD, <<"public">>).
 
 -boot_mnesia({mnesia, [boot]}).
 -copy_mnesia({mnesia, [copy]}).
@@ -206,11 +207,15 @@ is_valid_pwd(<<Salt:4/binary, Hash/binary>>, Password) ->
 %%--------------------------------------------------------------------
 
 init([]) ->
-    %% Add default admin user
-    {ok, _} = mnesia:subscribe({table, mqtt_admin, simple}),
-    PasswordHash = ensure_default_user_in_db(binenv(default_user_username)),
-    ok = ensure_default_user_passwd_hashed_in_pt(PasswordHash),
-    ok = maybe_warn_default_pwd(),
+    case binenv(default_user_username) of
+        <<>> -> ok;
+        UserName ->
+            %% Add default admin user
+            {ok, _} = mnesia:subscribe({table, mqtt_admin, simple}),
+            PasswordHash = ensure_default_user_in_db(UserName),
+            ok = ensure_default_user_passwd_hashed_in_pt(PasswordHash),
+            ok = maybe_warn_default_pwd()
+    end,
     {ok, state}.
 
 handle_call(_Req, _From, State) ->
@@ -220,7 +225,7 @@ handle_cast(_Msg, State) ->
     {noreply, State}.
 
 handle_info({mnesia_table_event, {write, Admin, _}}, State) ->
-    %% the password is chagned from another node, sync it to persistent_term
+    %% the password is changed from another node, sync it to persistent_term
     #mqtt_admin{username = Username, password = HashedPassword} = Admin,
     case binenv(default_user_username) of
         Username ->
@@ -258,6 +263,7 @@ salt() ->
 binenv(Key) ->
     iolist_to_binary(application:get_env(emqx_dashboard, Key, <<>>)).
 
+ensure_default_user_in_db(<<>>) -> <<>>;
 ensure_default_user_in_db(Username) ->
     F =
         fun() ->
@@ -279,12 +285,9 @@ ensure_default_user_in_db(Username) ->
 initial_default_user_passwd_hashed() ->
     case get_default_user_passwd_hashed_from_pt() of
         Empty when ?EMPTY_KEY(Empty) ->
-            %% in case it's not set yet
             case binenv(default_user_passwd) of
-                Empty when ?EMPTY_KEY(Empty) ->
-                    error({missing_configuration, default_user_passwd});
-                Pwd ->
-                    hash(Pwd)
+                Empty when ?EMPTY_KEY(Empty) -> hash(?DEFAULT_PASSWORD);
+                Pwd -> hash(Pwd)
             end;
         PwdHash ->
             PwdHash
@@ -300,7 +303,7 @@ get_default_user_passwd_hashed_from_pt() ->
     persistent_term:get({?MODULE, default_user_passwd_hashed}, <<>>).
 
 maybe_warn_default_pwd() ->
-    case is_valid_pwd(initial_default_user_passwd_hashed(), <<"public">>) of
+    case is_valid_pwd(initial_default_user_passwd_hashed(), ?DEFAULT_PASSWORD) of
         true ->
             ?LOG(warning,
                  "[Dashboard] Using default password for dashboard 'admin' user. "

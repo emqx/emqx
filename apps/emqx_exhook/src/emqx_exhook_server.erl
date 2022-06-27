@@ -126,6 +126,7 @@ channel_opts(Opts) ->
     Host = proplists:get_value(host, Opts),
     Port = proplists:get_value(port, Opts),
     SvrAddr = format_http_uri(Scheme, Host, Port),
+    SockOpts = proplists:get_value(socket_options, Opts),
     ClientOpts = case Scheme of
                      https ->
                          SslOpts = lists:keydelete(
@@ -135,8 +136,10 @@ channel_opts(Opts) ->
                                     ),
                          #{gun_opts =>
                            #{transport => ssl,
-                             transport_opts => SslOpts}};
-                     _ -> #{}
+                             transport_opts => SockOpts ++ SslOpts}};
+                     _ ->
+                         #{gun_opts =>
+                           #{transport_opts => SockOpts}}
                  end,
     NClientOpts = ClientOpts#{pool_size => emqx_exhook_mngr:get_pool_size()},
     {SvrAddr, NClientOpts}.
@@ -277,7 +280,7 @@ match_topic_filter(TopicName, TopicFilter) ->
 -spec do_call(string(), atom(), map(), map()) -> {ok, map()} | {error, term()}.
 do_call(ChannName, Fun, Req, ReqOpts) ->
     NReq = Req#{meta => emqx_exhook:request_meta()},
-    Options = ReqOpts#{channel => ChannName},
+    Options = ReqOpts#{channel => ChannName, key_dispatch => key_dispatch(NReq)},
     ?LOG(debug, "Call ~0p:~0p(~0p, ~0p)", [?PB_CLIENT_MOD, Fun, NReq, Options]),
     case catch apply(?PB_CLIENT_MOD, Fun, [NReq, Options]) of
         {ok, Resp, Metadata} ->
@@ -335,3 +338,13 @@ available_hooks() ->
      'session.created', 'session.subscribed', 'session.unsubscribed',
      'session.resumed', 'session.discarded', 'session.takeovered',
      'session.terminated' | message_hooks()].
+
+%% @doc Get dispatch_key for each request
+key_dispatch(_Req = #{clientinfo := #{clientid := ClientId}}) ->
+    ClientId;
+key_dispatch(_Req = #{conninfo := #{clientid := ClientId}}) ->
+    ClientId;
+key_dispatch(_Req = #{message := #{from := From}}) ->
+    From;
+key_dispatch(_Req) ->
+    self().
