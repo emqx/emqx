@@ -99,7 +99,7 @@ jobs:
             exit 1
             ;;
         esac
-        wget --no-verbose https://s3-us-west-2.amazonaws.com/packages.emqx/${s3dir}/$OLD_VSN/${profile}-${OLD_VSN#[e|v]}-24.2.1-1-ubuntu20.04-amd64.tar.gz
+        wget --no-verbose https://s3-us-west-2.amazonaws.com/packages.emqx/${s3dir}/$OLD_VSN/${profile}-${OLD_VSN#[e|v]}-otp24.2.1-1-ubuntu20.04-amd64.tar.gz
     - name: Run relup test scenario
       timeout-minutes: 5
       run: |
