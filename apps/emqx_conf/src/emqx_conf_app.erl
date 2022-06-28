@@ -139,17 +139,7 @@ copy_override_conf_from_core_node() ->
                             copy_override_conf_from_core_node()
                     end;
                 _ ->
-                    SortFun = fun(
-                        {ok, #{wall_clock := W1, tnx_id := TnxId1}},
-                        {ok, #{wall_clock := W2, tnx_id := TnxId2}}
-                    ) ->
-                        if
-                            TnxId1 > TnxId2 -> true;
-                            TnxId1 =:= TnxId2 -> W1 > W2;
-                            true -> false
-                        end
-                    end,
-                    [{ok, Info} | _] = lists:sort(SortFun, Ready),
+                    [{ok, Info} | _] = lists:sort(fun conf_sort/2, Ready),
                     #{node := Node, conf := RawOverrideConf, tnx_id := TnxId} = Info,
                     Msg = #{
                         msg => "copy_overide_conf_from_core_node_success",
@@ -177,3 +167,9 @@ should_proceed_with_boot() ->
             %% be up.  Try again.
             false
     end.
+
+conf_sort({ok, #{tnx_id := Id1}}, {ok, #{tnx_id := Id2}}) when Id1 > Id2 -> true;
+conf_sort({ok, #{tnx_id := Id, wall_clock := W1}}, {ok, #{tnx_id := Id, wall_clock := W2}}) ->
+    W1 > W2;
+conf_sort({ok, _}, {ok, _}) ->
+    false.
