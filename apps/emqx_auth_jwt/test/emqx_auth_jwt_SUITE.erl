@@ -22,6 +22,7 @@
 -include_lib("emqx/include/emqx_mqtt.hrl").
 -include_lib("eunit/include/eunit.hrl").
 -include_lib("common_test/include/ct.hrl").
+-include_lib("snabbkaffe/include/snabbkaffe.hrl").
 
 all() -> emqx_ct:all(?MODULE).
 
@@ -73,7 +74,7 @@ t_check_auth(_Config) ->
     Plain = #{clientid => <<"client1">>, username => <<"plain">>, zone => external},
     Jwt = sign([{clientid, <<"client1">>},
                 {username, <<"plain">>},
-                {exp, os:system_time(seconds) + 3}], <<"HS256">>, <<"emqxsecret">>),
+                {exp, os:system_time(seconds) + 2}], <<"HS256">>, <<"emqxsecret">>),
     ct:pal("Jwt: ~p~n", [Jwt]),
 
     Result0 = emqx_access_control:authenticate(Plain#{password => Jwt}),
@@ -82,7 +83,7 @@ t_check_auth(_Config) ->
 
     ct:sleep(3100),
     Result1 = emqx_access_control:authenticate(Plain#{password => Jwt}),
-    ct:pal("Auth result after 1000ms: ~p~n", [Result1]),
+    ct:pal("Auth result after 3100ms: ~p~n", [Result1]),
     ?assertMatch({error, _}, Result1),
 
     Jwt_Error = sign([{client_id, <<"client1">>},
@@ -92,6 +93,32 @@ t_check_auth(_Config) ->
     ct:pal("Auth result for the invalid jwt: ~p~n", [Result2]),
     ?assertEqual({error, invalid_signature}, Result2),
     ?assertMatch({error, _}, emqx_access_control:authenticate(Plain#{password => <<"asd">>})).
+
+t_check_nbf(init, _Config) ->
+    application:unset_env(emqx_auth_jwt, verify_claims).
+t_check_nbf(_Config) ->
+    Plain = #{clientid => <<"client1">>, username => <<"plain">>, zone => external},
+    Jwt = sign([{clientid, <<"client1">>},
+                {username, <<"plain">>},
+                {nbf, os:system_time(seconds) + 3}], <<"HS256">>, <<"emqxsecret">>),
+    ct:pal("Jwt: ~p~n", [Jwt]),
+
+    Result0 = emqx_access_control:authenticate(Plain#{password => Jwt}),
+    ct:pal("Auth result: ~p~n", [Result0]),
+    ?assertEqual({error, {invalid_signature, not_valid_yet}}, Result0).
+
+t_check_iat(init, _Config) ->
+    application:unset_env(emqx_auth_jwt, verify_claims).
+t_check_iat(_Config) ->
+    Plain = #{clientid => <<"client1">>, username => <<"plain">>, zone => external},
+    Jwt = sign([{clientid, <<"client1">>},
+                {username, <<"plain">>},
+                {iat, os:system_time(seconds) + 3}], <<"HS256">>, <<"emqxsecret">>),
+    ct:pal("Jwt: ~p~n", [Jwt]),
+
+    Result0 = emqx_access_control:authenticate(Plain#{password => Jwt}),
+    ct:pal("Auth result: ~p~n", [Result0]),
+    ?assertEqual({error, {invalid_signature, issued_in_future}}, Result0).
 
 t_check_auth_invalid_exp(init, _Config) ->
     application:unset_env(emqx_auth_jwt, verify_claims).
@@ -200,6 +227,32 @@ t_check_claims_kid_in_header(_Config) ->
     Result0 = emqx_access_control:authenticate(Plain#{password => Jwt}),
     ct:pal("Auth result: ~p~n", [Result0]),
     ?assertMatch({ok, #{auth_result := success, jwt_claims := _}}, Result0).
+
+t_keys_update(init, _Config) ->
+    ok = meck:new(httpc, [passthrough, no_history]),
+    ok = meck:expect(
+           httpc,
+           request,
+           fun(get, _, _, _) ->
+                   {ok,
+                    {200,
+                     [],
+                     jiffy:encode(#{<<"keys">> => []})}}
+           end),
+
+    application:set_env(emqx_auth_jwt, verify_claims, []),
+    application:set_env(emqx_auth_jwt, refresh_interval, 100),
+    application:set_env(emqx_auth_jwt, jwks, "http://localhost:4001/keys.json").
+t_keys_update(_Config) ->
+    ?check_trace(
+       snabbkaffe:block_until(
+         ?match_n_events(2, #{?snk_kind := emqx_auth_jwt_svr_jwks_updated}),
+         _Timeout    = infinity,
+         _BackInTIme = 0),
+       fun(_, Trace) ->
+               ?assertMatch([#{pid := Pid}, #{pid := Pid} |  _],
+                            ?of_kind(emqx_auth_jwt_svr_jwks_updated, Trace))
+       end).
 
 t_check_jwt_acl(init, _Config) ->
     application:set_env(emqx_auth_jwt, verify_claims, [{sub, <<"value">>}]).
