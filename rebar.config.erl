@@ -412,7 +412,7 @@ emqx_etc_overlay(ReleaseType, Edition) ->
         emqx_etc_overlay_common().
 
 emqx_etc_overlay_per_rel(cloud) ->
-    [{"{{base_dir}}/lib/emqx/etc/emqx_cloud/vm.args", "etc/vm.args"}].
+    [{"{{base_dir}}/lib/emqx/etc/vm.args.cloud", "etc/vm.args"}].
 
 emqx_etc_overlay_common() ->
     [{"{{base_dir}}/lib/emqx/etc/ssl_dist.conf", "etc/ssl_dist.conf"}].

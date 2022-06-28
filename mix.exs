@@ -370,7 +370,7 @@ defmodule EMQXUmbrella.MixProject do
     vm_args_template_path =
       case release_type do
         :cloud ->
-          "apps/emqx/etc/emqx_cloud/vm.args"
+          "apps/emqx/etc/vm.args.cloud"
       end
 
     render_template(
