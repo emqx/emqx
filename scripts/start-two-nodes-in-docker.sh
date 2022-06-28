@@ -29,6 +29,7 @@ docker run -d -t --restart=always --name "$NODE1" \
   -e EMQX_LOG__CONSOLE_HANDLER__LEVEL=debug \
   -e EMQX_NODE_NAME="emqx@$NODE1" \
   -e EMQX_NODE_COOKIE="$COOKIE" \
+  -e EMQX_CLUSTER__PROTO_DIST='inet_tls' \
   -p 18083:18083 \
   "$IMAGE"
 
@@ -37,6 +38,7 @@ docker run -d -t --restart=always --name "$NODE2" \
   -e EMQX_LOG__CONSOLE_HANDLER__LEVEL=debug \
   -e EMQX_NODE_NAME="emqx@$NODE2" \
   -e EMQX_NODE_COOKIE="$COOKIE" \
+  -e EMQX_CLUSTER__PROTO_DIST='inet_tls' \
   -p 18084:18083 \
   "$IMAGE"
 
