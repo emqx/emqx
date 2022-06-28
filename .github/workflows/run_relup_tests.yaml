@@ -119,8 +119,8 @@ jobs:
         lux \
         --progress verbose \
         --case_timeout infinity \
+        --var PROJ_ROOT="$(pwd)" \
         --var PROFILE="$profile" \
-        --var PACKAGE_PATH=$(pwd)/packages \
         --var VSN="$cur_vsn" \
         --var OLD_VSN="$OLD_VSN" \
         --var CUR_PKG="$cur_pkg" \

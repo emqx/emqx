@@ -40,7 +40,7 @@ docker run -d -t --restart=always --name "$NODE2" \
   -p 18084:18083 \
   "$IMAGE"
 
-wait (){
+wait () {
   container="$1"
   while ! docker exec "$container" emqx_ctl status >/dev/null 2>&1; do
     echo -n '.'

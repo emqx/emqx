@@ -1,5 +1,5 @@
+[config var=PROJ_ROOT]
 [config var=PROFILE]
-[config var=PACKAGE_PATH]
 [config var=VSN]
 [config var=CUR_PKG]
 [config var=OLD_VSN]
@@ -19,21 +19,19 @@
     ?>
 
 [shell emqx1]
-    !cd $PACKAGE_PATH
+    !cd $PROJ_ROOT
     !mkdir -p emqx1
     !tar -C emqx1 -zxf "$OLD_PKG"
     ?SH-PROMPT
 
     !cd emqx1
     !export EMQX_NODE_NAME='emqx1@127.0.0.1'
-# debug boot
-    !sed 's/-boot_var RELEASE_LIB/-init_debug -boot_var RELEASE_LIB/g' -i ./bin/emqx
     !./bin/emqx start
     ?EMQX .* is started successfully!
     ?SH-PROMPT
 
 [shell emqx2]
-    !cd $PACKAGE_PATH
+    !cd $PROJ_ROOT
     !mkdir -p emqx2
     !tar -C emqx2 -zxf "$OLD_PKG"
     ?SH-PROMPT
@@ -182,7 +180,7 @@
     ?SH-PROMPT
 
 [shell emqx2]
-    !cat log/emqx.log.1 |grep -v 691c29ba |tail -n 100
+    !cat log/emqx.log.1 | tail -n 100
     -error
     ??SH-PROMPT:
 
@@ -190,11 +188,11 @@
     ?ok
     ?SH-PROMPT:
 
-    !rm -rf $PACKAGE_PATH/emqx2
+    !rm -rf emqx2/
     ?SH-PROMPT:
 
 [shell emqx1]
-    !cat log/emqx.log.1 |grep -v 691c29ba |tail -n 100
+    !cat log/emqx.log.1 | tail -n 100
     -error
     ??SH-PROMPT:
 
@@ -202,7 +200,7 @@
     ?ok
     ?SH-PROMPT:
 
-    !rm -rf $PACKAGE_PATH/emqx
+    !rm -rf emqx1/
     ?SH-PROMPT:
 
 [shell http_server]
