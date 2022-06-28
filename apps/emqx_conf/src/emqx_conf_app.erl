@@ -140,10 +140,14 @@ copy_override_conf_from_core_node() ->
                     end;
                 _ ->
                     SortFun = fun(
-                        {ok, #{wall_clock := W1}},
-                        {ok, #{wall_clock := W2}}
+                        {ok, #{wall_clock := W1, tnx_id := TnxId1}},
+                        {ok, #{wall_clock := W2, tnx_id := TnxId2}}
                     ) ->
-                        W1 > W2
+                        if
+                            TnxId1 > TnxId2 -> true;
+                            TnxId1 =:= TnxId2 -> W1 > W2;
+                            true -> false
+                        end
                     end,
                     [{ok, Info} | _] = lists:sort(SortFun, Ready),
                     #{node := Node, conf := RawOverrideConf, tnx_id := TnxId} = Info,
