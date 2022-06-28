@@ -54,14 +54,12 @@ jobs:
       with:
         name: emqx_built
         path: |
-          emqx/_packages/*/*.tar.gz
-          emqx/.ci/fvt_tests
+          emqx/*
 
   relup_test_run:
     needs:
       - relup_test_plan
     runs-on: ubuntu-20.04
-    container: "ghcr.io/emqx/emqx-builder/5.0-17:1.13.4-24.2.1-1-ubuntu20.04"
     strategy:
       fail-fast: false
       matrix:
@@ -74,64 +72,41 @@ jobs:
       run:
         shell: bash
     steps:
+      # setup Erlang to run lux
+    - uses: erlef/setup-beam@v1
+      with:
+        otp-version: "24.2"
+    - uses: actions/checkout@v2
+      with:
+        repository: hawk/lux
+        ref: lux-2.8.1
+        path: lux
+    - name: Install lux
+      run: |
+        set -e -u -x
+        cd lux
+        autoconf
+        ./configure
+        make
+        echo "$(pwd)/bin" >> $GITHUB_PATH
     - uses: actions/download-artifact@v2
       name: Download built emqx and test scenario
       with:
         name: emqx_built
-        path: emqx_built
-    - name: Prepare packages
+        path: .
+    - name: run relup test
       run: |
         set -e -x -u
-        mkdir -p packages
-        cp emqx_built/_packages/*/*.tar.gz packages
-        cd packages
-        case "$OLD_VSN" in
-          e*)
-            profile='emqx-enterprise'
-            s3dir='emqx-ee'
-            ;;
-          v*)
-            profile='emqx'
-            s3dir='emqx-ce'
-            ;;
-          *)
-            echo "unknown old version $OLD_VSN"
-            exit 1
-            ;;
-        esac
-        wget --no-verbose https://s3-us-west-2.amazonaws.com/packages.emqx/${s3dir}/$OLD_VSN/${profile}-${OLD_VSN#[e|v]}-otp24.2.1-1-ubuntu20.04-amd64.tar.gz
-    - name: Run relup test scenario
-      timeout-minutes: 5
-      run: |
-        set -x
-        case "$OLD_VSN" in
-          e*)
-            cur_vsn=$CUR_EE_VSN
-            profile='emqx-enterprise'
-            ;;
-          v*)
-            cur_vsn=$CUR_CE_VSN
-            profile='emqx'
-            ;;
-        esac
-        old_pkg="${profile}-${OLD_VSN#[e|v]}-otp24.2.1-1-ubuntu20.04-amd64.tar.gz"
-        cur_pkg="${profile}-${cur_vsn}-otp24.2.1-1-ubuntu20.04-amd64.tar.gz"
-        lux \
-        --progress verbose \
-        --case_timeout infinity \
-        --var PROJ_ROOT="$(pwd)" \
-        --var PROFILE="$profile" \
-        --var VSN="$cur_vsn" \
-        --var OLD_VSN="$OLD_VSN" \
-        --var CUR_PKG="$cur_pkg" \
-        --var OLD_PKG="$old_pkg" \
-        emqx_built/.ci/fvt_tests/relup.lux
+        cd emqx
+        if ! ./scripts/relup/run-relup-lux.sh $OLD_VSN; then
+          docker logs node1.emqx.io | tee lux_logs/emqx1.log
+          docker logs node2.emqx.io | tee lux_logs/emqx2.log
+          exit 1
+        fi
     - uses: actions/upload-artifact@v2
       name: Save debug data
       if: failure()
       with:
         name: debug_data
         path: |
-          packages/emqx1/*
-          packages/emqx2/*
-          lux_logs
+          wd/lux_logs

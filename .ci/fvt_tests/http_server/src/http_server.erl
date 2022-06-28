@@ -32,7 +32,7 @@
 
 start() ->
     application:ensure_all_started(minirest),
-    ets:new(relup_test_message, [named_table, public]),
+    _ = spawn(fun ets_owner/0),
     Handlers = [{"/", minirest:handler(#{modules => [?MODULE]})}],
     Dispatch = [{"/[...]", minirest, Handlers}],
     minirest:start_http(?MODULE, #{socket_opts => [inet, {port, 7077}]}, Dispatch).
@@ -42,7 +42,8 @@ stop() ->
     minirest:stop_http(?MODULE).
 
 get_counter(_Binding, _Params) ->
-    return({ok, ets:info(relup_test_message, size)}).
+    V = ets:info(relup_test_message, size),
+    return({ok, V}).
 
 add_counter(_Binding, Params) ->
     case lists:keymember(<<"payload">>, 1, Params) of
@@ -50,6 +51,13 @@ add_counter(_Binding, Params) ->
             {value, {<<"id">>, ID}, Params1} = lists:keytake(<<"id">>, 1, Params),
             ets:insert(relup_test_message, {ID, Params1});
         _ ->
+            io:format("discarded: ~p\n", [Params]),
             ok
     end,
     return().
+
+ets_owner() ->
+    ets:new(relup_test_message, [named_table, public]),
+    receive
+        stop -> ok
+    end.
