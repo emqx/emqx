@@ -85,6 +85,8 @@ listeners() ->
     application:get_env(?APP, listeners, []).
 
 listener_name(Proto) ->
+    %% NOTE: this name has referenced by emqx_management.appup.src.
+    %% Please don't change it except you have got how to handle it in hot-upgrade
     list_to_atom(atom_to_list(Proto) ++ ":management").
 
 http_handlers() ->

@@ -1,11 +1,21 @@
 %% -*- mode: erlang -*-
 {VSN,
  [ {<<".*">>,
-    [ {restart_application, emqx_dashboard}
+    [ %% Stop the http listener to load the latest http handlers.
+      %% We can only stop these listeners here because we can't get the list of
+      %% currently started http listener via app-env during the hot upgrade.
+      {apply, {minirest, stop_http, ['http:dashboard']}}
+    , {apply, {minirest, stop_http, ['https:dashboard']}}
+    , {restart_application, emqx_dashboard}
     ]}
  ],
  [ {<<".*">>,
-    [ {restart_application, emqx_dashboard}
+    [ %% Stop the http listener to load the latest http handlers.
+      %% We can only stop these listeners here because we can't get the list of
+      %% currently started http listener via app-env during the hot upgrade.
+      {apply, {minirest, stop_http, ['http:dashboard']}}
+    , {apply, {minirest, stop_http, ['https:dashboard']}}
+    , {restart_application, emqx_dashboard}
     ]}
  ]
 }.

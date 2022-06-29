@@ -711,7 +711,7 @@ t_stop_sub(_Config) ->
     OriginalTopicFilters = [{Topic = <<"u">>,
                              Opts = #{nl => 0,qos => 0,rap => 0,rh => 0}}],
     Props = #{},
-    Expected = [{Topic, Opts#{delete => true}}],
+    Expected = [{Topic, Opts#{deny_subscription => true}}],
     ?assertEqual(Expected, emqx_hooks:run_fold('client.subscribe',
                                          [ClientInfo, Props],
                                          OriginalTopicFilters)).
