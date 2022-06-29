@@ -315,7 +315,7 @@ t_handle_in_empty_client_subscribe_hook({'end', _Config}) ->
     ok;
 t_handle_in_empty_client_subscribe_hook(Config) when is_list(Config) ->
     Hook = fun(_ClientInfo, _Username, TopicFilter) ->
-                   EmptyFilters = [{T, Opts#{delete => true}} || {T, Opts} <- TopicFilter],
+                   EmptyFilters = [{T, Opts#{deny_subscription => true}} || {T, Opts} <- TopicFilter],
                    {stop, EmptyFilters}
            end,
     ok = emqx:hook('client.subscribe', Hook, []),
@@ -323,7 +323,7 @@ t_handle_in_empty_client_subscribe_hook(Config) when is_list(Config) ->
         {ok, C} = emqtt:start_link(),
         {ok, _} = emqtt:connect(C),
         {ok, _, RCs} = emqtt:subscribe(C, <<"t">>),
-        ?assertEqual([], RCs),
+        ?assertEqual([?RC_UNSPECIFIED_ERROR], RCs),
         ok
     after
         ok = emqx:unhook('client.subscribe', Hook)

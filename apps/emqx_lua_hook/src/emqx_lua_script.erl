@@ -171,7 +171,7 @@ on_client_subscribe(#{clientid := ClientId, username := Username}, _Properties, 
                         case on_client_subscribe_single(ClientId, Username, TopicFilter, LuaState) of
                             false ->
                                 {Topic, Opts} = TopicFilter,
-                                [{Topic, Opts#{delete => true}} | Acc];
+                                [{Topic, Opts#{deny_subscription => true}} | Acc];
                             NewTopicFilter ->
                                 [NewTopicFilter | Acc]
                         end
