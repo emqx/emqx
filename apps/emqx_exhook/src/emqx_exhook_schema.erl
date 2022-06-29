@@ -68,6 +68,10 @@ fields(server) ->
             })},
         {failed_action, failed_action()},
         {ssl, ?HOCON(?R_REF(ssl_conf), #{})},
+        {socket_options,
+            ?HOCON(?R_REF(socket_options), #{
+                default => #{<<"keepalive">> => true, <<"nodelay">> => true}
+            })},
         {auto_reconnect,
             ?HOCON(hoconsc:union([false, emqx_schema:duration()]), #{
                 default => "60s",
@@ -81,7 +85,20 @@ fields(server) ->
     ];
 fields(ssl_conf) ->
     Schema = emqx_schema:client_ssl_opts_schema(#{}),
-    lists:keydelete("user_lookup_fun", 1, Schema).
+    lists:keydelete("user_lookup_fun", 1, Schema);
+fields(socket_options) ->
+    [
+        {keepalive, ?HOCON(boolean(), #{default => true, desc => ?DESC(keepalive)})},
+        {nodelay, ?HOCON(boolean(), #{default => true, desc => ?DESC(nodelay)})},
+        {recbuf,
+            ?HOCON(emqx_schema:bytesize(), #{
+                desc => ?DESC(recbuf), required => false, example => <<"64KB">>
+            })},
+        {sndbuf,
+            ?HOCON(emqx_schema:bytesize(), #{
+                desc => ?DESC(sndbuf), required => false, example => <<"16KB">>
+            })}
+    ].
 
 desc(exhook) ->
     "External hook (exhook) configuration.";
@@ -89,6 +106,8 @@ desc(server) ->
     "gRPC server configuration.";
 desc(ssl_conf) ->
     "SSL client configuration.";
+desc(socket_options) ->
+    ?DESC(socket_options);
 desc(_) ->
     undefined.
 
