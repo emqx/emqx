@@ -217,7 +217,7 @@ gen_doc(File, SchemaModule, I18nFile, Lang) ->
     Title =
         "# " ++ emqx_release:description() ++ " Configuration\n\n" ++
             "<!--" ++ Version ++ "-->",
-    BodyFile = filename:join([rel, "emqx_conf.template.en.md"]),
+    BodyFile = filename:join([rel, "emqx_conf.template." ++ Lang ++ ".md"]),
     {ok, Body} = file:read_file(BodyFile),
     Opts = #{title => Title, body => Body, desc_file => I18nFile, lang => Lang},
     Doc = hocon_schema_md:gen(SchemaModule, Opts),

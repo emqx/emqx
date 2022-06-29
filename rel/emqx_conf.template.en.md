@@ -15,11 +15,15 @@ From bottom up:
 When environment variable `$EMQX_NODE__DATA_DIR` is not set, config `node.data_dir`
 is used.
 
-The `*-override.conf` files are overwritten at runtime when changes
-are made from dashboard UI, management HTTP API, or CLI.
+The `cluster-override.conf` file is overwritten at runtime when changes
+are made from dashboard UI, management HTTP API, or CLI. When clustered,
+after EMQX restarts, it copies the file from the node which has the greatest `uptime`.
 
-**NOTE** Config values from `*-override.conf` are **not** mapped to boot configs for
+:::tip Tip
+Some of the configs (such as `node.name`) are boot-only configs and not overridable.
+Config values from `*-override.conf` are **not** mapped to boot configs for
 the config fields attributed with `mapping: path.to.boot.config.key`
+:::
 
 For detailed override rules, see [Config Overlay Rules](#config-overlay-rules).
 
@@ -43,7 +47,7 @@ node.cookie = "mysecret"
 This flat format is almost backward compatible with EMQX's config file format
 in 4.x series (the so called 'cuttlefish' format).
 
-It is 'almost' compatible because the often HOCON requires strings to be quoted,
+It is not fully compatible because the often HOCON requires strings to be quoted,
 while cuttlefish treats all characters to the right of the `=` mark as the value.
 
 e.g. cuttlefish: `node.name = emqx@127.0.0.1`, HOCON: `node.name = "emqx@127.0.0.1"`.
@@ -57,20 +61,32 @@ For more HOCON syntax, please refer to the [specification](https://github.com/li
 
 To make the HOCON objects type-safe, EMQX introduced a schema for it.
 The schema defines data types, and data fields' names and metadata for config value validation
-and more. In fact, this config document itself is generated from schema metadata.
+and more.
+
+::: tip Tip
+The configuration document you are reading now is generated from schema metadata.
+:::
 
 ### Complex Data Types
 
 There are 4 complex data types in EMQX's HOCON config:
 
-1. Struct: Named using an unquoted string, followed by a predefined list of fields,
-   fields can not start with a number, and are only allowed to use
-   lowercase letters and underscores as word separator.
+1. Struct: Named using an unquoted string, followed by a predefined list of fields.
+   Only lowercase letters and digits are allowed in struct and field names.
+   Alos, only underscore can be used as word separator.
 1. Map: Map is like Struct, however the fields are not predefined.
-   1-based index number can also be used as map keys for an alternative
-   representation of an Array.
 1. Union: `MemberType1 | MemberType2 | ...`
 1. Array: `[ElementType]`
+
+::: tip Tip
+If map filed name is a positive integer number, it is interpreted as an alternative representation of an `Array`.
+For example:
+```
+myarray.1 = 74
+myarray.2 = 75
+```
+will be interpreated as `myarray = [74, 75]`, which is handy when trying to override array elements.
+:::
 
 ### Primitive Data Types
 
@@ -88,8 +104,10 @@ There are quite some different primitive types, to name a few:
 * `emqx_schema:duration()` # time duration, another format of integer()
 * ...
 
-The primitive types are mostly self-describing, some are built-in, such
-as `atom()`, some are defined in EMQX modules, such as `emqx_schema:duration()`.
+::: tip Tip
+The primitive types are mostly self-describing, so there is usually not a lot to document.
+For types that are not so clear by their names, the field description is to be used to find the details.
+:::
 
 ### Config Paths
 
@@ -128,15 +146,19 @@ For example, this environment variable sets an array value.
 export EMQX_LISTENERS__SSL__L1__AUTHENTICATION__SSL__CIPHERS="[\"TLS_AES_256_GCM_SHA384\"]"
 ```
 
-Unknown environment variables are logged as a `warning` level log, for example:
+::: tip Tip
+Unknown root paths are silently discarded by EMQX, for example `EMQX_UNKNOWN_ROOT__FOOBAR` is
+silently discarded because `unknown_root` is not a predefined root path.
+
+Unknown field names in environment variables are logged as a `warning` level log, for example:
 
 ```
 [warning] unknown_env_vars: ["EMQX_AUTHENTICATION__ENABLED"]
 ```
 
 because the field name is `enable`, not `enabled`.
+:::
 
-<strong>NOTE:</strong> Unknown root keys are however silently discarded.
 
 ### Config Overlay Rules
 
@@ -193,14 +215,16 @@ Arrays in EMQX config have two different representations
 Dot-separated paths with number in it are parsed to indexed-maps
 e.g. `authentication.1={...}` is parsed as `authentication={"1": {...}}`
 
-Indexed-map arrays can be used to override list arrays:
+This feature makes it easy to override array elment values. For example:
 
 ```
 authentication=[{enable=true, backend="built_in_database", mechanism="password_based"}]
 # we can disable this authentication provider with:
 authentication.1.enable=false
 ```
-However, list arrays do not get recursively merged into indexed-map arrays.
+
+::: warning Warning
+List arrays is a full-array override, but not a recursive merge, into indexed-map arrays.
 e.g.
 
 ```
@@ -208,3 +232,4 @@ authentication=[{enable=true, backend="built_in_database", mechanism="password_b
 ## below value will replace the whole array, but not to override just one field.
 authentication=[{enable=true}]
 ```
+:::
