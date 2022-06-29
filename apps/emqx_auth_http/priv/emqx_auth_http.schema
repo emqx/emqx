@@ -110,8 +110,8 @@ end}.
 ]}.
 
 {mapping, "auth.http.enable_pipelining", "emqx_auth_http.enable_pipelining", [
-  {default, true},
-  {datatype, {enum, [true, false]}}
+  {default, 100},
+  {datatype, integer}
 ]}.
 
 {mapping, "auth.http.ssl.cacertfile", "emqx_auth_http.cacertfile", [
