@@ -4,7 +4,7 @@ Priority: optional
 Maintainer: emqx <contact@emqx.io>
 Build-Depends: debhelper (>=9)
 Standards-Version: 3.9.6
-Homepage: https://www.emqx.io
+Homepage: https://www.emqx.com
 
 Package: emqx
 Architecture: any

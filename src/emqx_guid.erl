@@ -39,6 +39,8 @@
         , from_base62/1
         ]).
 
+-elvis([{elvis_style, dont_repeat_yourself, disable}]).
+
 -define(TAG_VERSION, 131).
 -define(PID_EXT, 103).
 -define(NEW_PID_EXT, 88).
@@ -137,7 +139,7 @@ npid() ->
     NPid.
 
 to_hexstr(I) when byte_size(I) =:= 16 ->
-    emqx_misc:bin2hexstr_A_F(I).
+    emqx_misc:bin2hexstr_a_f_upper(I).
 
 from_hexstr(S) when byte_size(S) =:= 32 ->
     emqx_misc:hexstr2bin(S).

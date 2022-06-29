@@ -54,17 +54,46 @@ paginate(Tables, Params, RowFun) ->
 
 query_handle(Table) when is_atom(Table) ->
     qlc:q([R|| R <- ets:table(Table)]);
+
+query_handle({Table, Opts}) when is_atom(Table) ->
+    qlc:q([R|| R <- ets:table(Table, Opts)]);
+
 query_handle([Table]) when is_atom(Table) ->
     qlc:q([R|| R <- ets:table(Table)]);
+
+query_handle([{Table, Opts}]) when is_atom(Table) ->
+    qlc:q([R|| R <- ets:table(Table, Opts)]);
+
 query_handle(Tables) ->
-    qlc:append([qlc:q([E || E <- ets:table(T)]) || T <- Tables]).
+    Fold = fun({Table, Opts}, Acc) ->
+                   Handle = qlc:q([R|| R <- ets:table(Table, Opts)]),
+                   [Handle | Acc];
+              (Table, Acc) ->
+                   Handle = qlc:q([R|| R <- ets:table(Table)]),
+                   [Handle | Acc]
+            end,
+    Handles = lists:foldl(Fold, [], Tables),
+    qlc:append(lists:reverse(Handles)).
 
 count(Table) when is_atom(Table) ->
     ets:info(Table, size);
+
+count({Table, _Opts}) when is_atom(Table) ->
+    ets:info(Table, size);
+
 count([Table]) when is_atom(Table) ->
     ets:info(Table, size);
+
+count([{Table, _Opts}]) when is_atom(Table) ->
+    ets:info(Table, size);
+
 count(Tables) ->
-    lists:sum([count(T) || T <- Tables]).
+    Fold = fun({Table, _Opts}, Acc) ->
+                   count(Table) ++ Acc;
+              (Table, Acc) ->
+                   count(Table) ++ Acc
+           end,
+    lists:foldl(Fold, 0, Tables).
 
 count(Table, Nodes) ->
     lists:sum([rpc_call(Node, ets, info, [Table, size], 5000) || Node <- Nodes]).

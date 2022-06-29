@@ -96,6 +96,11 @@
   {datatype, string}
 ]}.
 
+{mapping, "cluster.dns.type", "ekka.cluster_discovery", [
+  {datatype, {enum, [a, srv]}},
+  {default, a}
+]}.
+
 %%--------------------------------------------------------------------
 %% Cluster using etcd
 
@@ -171,7 +176,8 @@
                   {loop, cuttlefish:conf_get("cluster.mcast.loop", Conf, true)}];
                (dns) ->
                  [{name, cuttlefish:conf_get("cluster.dns.name", Conf)},
-                  {app, cuttlefish:conf_get("cluster.dns.app", Conf)}];
+                  {app, cuttlefish:conf_get("cluster.dns.app", Conf)},
+                  {type, cuttlefish:conf_get("cluster.dns.type", Conf)}];
                (etcd) ->
                  SslOpts = fun(Conf) ->
                               Options = cuttlefish_variable:filter_by_prefix("cluster.etcd.ssl", Conf),
@@ -401,9 +407,38 @@ end}.
 ]}.
 
 %% RPC server port.
+{mapping, "rpc.driver", "gen_rpc.driver",
+[ {default, tcp}
+, {datatype, {enum, [tcp, ssl]}}
+]}.
+
+{mapping, "rpc.default_client_driver", "gen_rpc.default_client_driver",
+[ {default, tcp}
+, {datatype, {enum, [tcp, ssl]}}
+]}.
+
 {mapping, "rpc.tcp_server_port", "gen_rpc.tcp_server_port", [
   {default, 5369},
   {datatype, integer}
+]}.
+
+%% RPC SSL server port.
+{mapping, "rpc.enable_ssl", "gen_rpc.ssl_server_port", [
+  {default, 5369},
+  {datatype, integer}
+]}.
+
+%% RPC SSL certificates
+{mapping, "rpc.certfile", "gen_rpc.certfile", [
+  {datatype, string}
+]}.
+
+{mapping, "rpc.keyfile", "gen_rpc.keyfile", [
+  {datatype, string}
+]}.
+
+{mapping, "rpc.cacertfile", "gen_rpc.cacertfile", [
+  {datatype, string}
 ]}.
 
 %% RPC server, network interface.
@@ -432,7 +467,7 @@ end}.
 
 {translation, "gen_rpc.tcp_client_num", fun(Conf) ->
   case cuttlefish:conf_get("rpc.tcp_client_num", Conf) of
-    0 -> 1; %% keep allowing 0 for backward compatibility
+    0 -> max(1, erlang:system_info(schedulers) div 2);
     V -> V
   end
 end}.
@@ -1075,6 +1110,13 @@ end}.
 {mapping, "zone.$name.retry_interval", "emqx.zones", [
   {default, "30s"},
   {datatype, {duration, s}}
+]}.
+
+%% @doc the number of smaples for calculate the average latency of delivery
+%% @deprecated This is a obsoleted configuration, kept here only for compatibility
+{mapping, "zone.$name.latency_samples", "emqx.zones", [
+  {default, 10},
+  {datatype, integer}
 ]}.
 
 %% @doc Max Packets that Awaiting PUBREL, 0 means no limit
@@ -2319,6 +2361,46 @@ end}.
   {datatype, string}
 ]}.
 
+{mapping, "module.slow_subs.threshold", "emqx.modules", [
+  {default, "500ms"},
+  {datatype, {duration, ms}}
+]}.
+
+{mapping, "module.slow_subs.expire_interval", "emqx.modules", [
+  {default, "300s"},
+  {datatype, {duration, ms}}
+]}.
+
+{mapping, "module.slow_subs.top_k_num", "emqx.modules", [
+  {default, 10},
+  {datatype, integer},
+  {validators, ["range:0-1000"]}
+]}.
+
+{mapping, "module.slow_subs.stats_type", "emqx.modules", [
+  {default, whole},
+  {datatype, {enum, [whole, internal, response]}}
+]}.
+
+%% @deprecated This is a obsoleted configuration, kept here only for compatibility
+{mapping, "module.slow_subs.notice_interval", "emqx.modules", [
+  {default, "0s"},
+  {datatype, {duration, ms}}
+]}.
+
+%% @deprecated This is a obsoleted configuration, kept here only for compatibility
+{mapping, "module.slow_subs.notice_qos", "emqx.modules", [
+  {default, 0},
+  {datatype, integer},
+  {validators, ["range:0-1"]}
+]}.
+
+%% @deprecated This is a obsoleted configuration, kept here only for compatibility
+{mapping, "module.slow_subs.notice_batch_size", "emqx.modules", [
+  {default, 500},
+  {datatype, integer}
+]}.
+
 {translation, "emqx.modules", fun(Conf, _, Conf1) ->
   Subscriptions = fun() ->
       List = cuttlefish_variable:filter_by_prefix("module.subscription", Conf),
@@ -2342,12 +2424,20 @@ end}.
                     {rewrite, list_to_atom(PubOrSub), list_to_binary(Topic), list_to_binary(Re), list_to_binary(Dest)}
                 end, TotalRules)
   end,
+
+  SlowSubs = fun() ->
+                   List = cuttlefish_variable:filter_by_prefix("module.slow_subs", Conf),
+                   [{erlang:list_to_atom(Key), Value} || {[_, _, Key], Value} <- List]
+              end,
+
   lists:append([
     [{emqx_mod_presence, [{qos, cuttlefish:conf_get("module.presence.qos", Conf, 1)}]}],
     [{emqx_mod_subscription, Subscriptions()}],
     [{emqx_mod_rewrite, Rewrites()}],
     [{emqx_mod_topic_metrics, []}],
     [{emqx_mod_delayed, []}],
+    [{emqx_mod_trace, []}],
+    [{emqx_mod_slow_subs, SlowSubs()}],
     [{emqx_mod_acl_internal, [{acl_file, cuttlefish:conf_get("acl_file", Conf1)}]}]
   ])
 end}.
