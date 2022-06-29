@@ -600,7 +600,10 @@ defmodule EMQXUmbrella.MixProject do
   end
 
   defp enable_jq?() do
-    not win32?()
+    not Enum.any?([
+      build_without_jq?(),
+      win32?()
+    ]) or "1" == System.get_env("BUILD_WITH_JQ")
   end
 
   defp enable_quicer?() do
@@ -639,6 +642,12 @@ defmodule EMQXUmbrella.MixProject do
 
   defp macos?() do
     {:unix, :darwin} == :os.type()
+  end
+
+  defp build_without_jq?() do
+    opt = System.get_env("BUILD_WITHOUT_JQ", "false")
+
+    String.downcase(opt) != "false"
   end
 
   defp build_without_quic?() do

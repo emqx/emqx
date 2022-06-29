@@ -47,7 +47,7 @@ deps(Config) ->
     {deps, OldDeps} = lists:keyfind(deps, 1, Config),
     MoreDeps =
         [bcrypt() || provide_bcrypt_dep()] ++
-            [jq() || provide_jq()] ++
+            [jq() || is_jq_supported()] ++
             [quicer() || is_quicer_supported()],
     lists:keystore(deps, 1, Config, {deps, OldDeps ++ MoreDeps}).
 
@@ -76,6 +76,11 @@ is_cover_enabled() ->
 
 is_enterprise(ce) -> false;
 is_enterprise(ee) -> true.
+
+is_jq_supported() ->
+    not (false =/= os:getenv("BUILD_WITHOUT_JQ") orelse
+        is_win32()) orelse
+        "1" == os:getenv("BUILD_WITH_JQ").
 
 is_quicer_supported() ->
     not (false =/= os:getenv("BUILD_WITHOUT_QUIC") orelse
@@ -343,7 +348,7 @@ relx_apps(ReleaseType, Edition) ->
     ] ++
         [quicer || is_quicer_supported()] ++
         [bcrypt || provide_bcrypt_release(ReleaseType)] ++
-        [jq || provide_jq()] ++
+        [jq || is_jq_supported()] ++
         [{observer, load} || is_app(observer)] ++
         relx_apps_per_edition(Edition).
 
@@ -454,9 +459,6 @@ is_debug(VarName) ->
     end.
 
 provide_bcrypt_dep() ->
-    not is_win32().
-
-provide_jq() ->
     not is_win32().
 
 provide_bcrypt_release(ReleaseType) ->
