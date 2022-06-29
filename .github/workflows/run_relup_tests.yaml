@@ -54,7 +54,10 @@ jobs:
       with:
         name: emqx_built
         path: |
-          emqx/*
+          emqx/_upgrade_base
+          emqx/_packages
+          emqx/scripts
+          emqx/.ci
 
   relup_test_run:
     needs:
@@ -98,7 +101,19 @@ jobs:
       run: |
         set -e -x -u
         cd emqx
-        if ! ./scripts/relup/run-relup-lux.sh $OLD_VSN; then
+        case "$OLD_VSN" in
+          e*)
+            export CUR_VSN="$CUR_EE_VSN"
+            ;;
+          v*)
+            export CUR_VSN="$CUR_CE_VSN"
+            ;;
+          *)
+            echo "unknown old version $OLD_VSN"
+            exit 1
+            ;;
+        esac
+        if ! ./scripts/relup-test/run-relup-lux.sh $OLD_VSN; then
           docker logs node1.emqx.io | tee lux_logs/emqx1.log
           docker logs node2.emqx.io | tee lux_logs/emqx2.log
           exit 1
