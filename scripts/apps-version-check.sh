@@ -1,7 +1,16 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-latest_release=$(git describe --abbrev=0 --tags --exclude '*rc*' --exclude '*alpha*' --exclude '*beta*')
+## compare to the latest release version tag:
+##   match rel-e4.4.0, v4.4.*, or e4.4.* tags
+##   but do not include alpha, beta and rc versions
+##
+## NOTE: 'rel-' tags are the merge base of enterprise release in opensource repo.
+## i.e. if we are to release a new enterprise without cutting a new opensource release
+## we should tag rel-e4.4.X in the opensource repo, and merge this tag to enterprise
+## then cut a release from the enterprise repo.
+latest_release="$(git describe --abbrev=0 --tags --match 'rel-e4.4.*' --match '[v|e]4.4*' --exclude '*beta*' --exclude '*alpha*' --exclude '*rc*')"
+echo "Compare base: $latest_release"
 
 bad_app_count=0
 
@@ -12,7 +21,8 @@ parse_semver() {
     echo "$1" | tr '.|-' ' '
 }
 
-while read -r app; do
+check_apps() {
+  while read -r app; do
     if [ "$app" != "emqx" ]; then
         app_path="$app"
     else
@@ -24,18 +34,19 @@ while read -r app; do
     if [ "$old_app_version" = "$now_app_version" ]; then
         changed_lines="$(git diff "$latest_release"...HEAD --ignore-blank-lines -G "$no_comment_re" \
                              -- "$app_path/src" \
-                             -- ":(exclude)"$app_path/src/*.appup.src"" \
+                             -- ":(exclude)'$app_path/src/*.appup.src'" \
                              -- "$app_path/priv" \
                              -- "$app_path/c_src" | wc -l ) "
         if [ "$changed_lines" -gt 0 ]; then
-            echo "$src_file needs a vsn bump"
+            echo "$src_file needs a vsn bump (old=$old_app_version)"
+            echo "changed: $changed_lines"
             bad_app_count=$(( bad_app_count + 1))
-        elif [[ ${app_path} = *emqx_dashboard* ]]; then
+        elif [ "$app" = 'emqx_dashboard' ]; then
             ## emqx_dashboard is ensured to be upgraded after all other plugins
             ## at the end of its appup instructions, there is the final instruction
             ## {apply, {emqx_plugins, load, []}
             ## since we don't know which plugins are stopped during the upgrade
-            ## for safty, we just force a dashboard version bump for each and every release
+            ## for safety, we just force a dashboard version bump for each and every release
             ## even if there is nothing changed in the app
             echo "$src_file needs a vsn bump to ensure plugins loaded after upgrade"
             bad_app_count=$(( bad_app_count + 1))
@@ -54,10 +65,21 @@ while read -r app; do
             bad_app_count=$(( bad_app_count + 1))
         fi
     fi
-done < <(./scripts/find-apps.sh)
+  done < <(./scripts/find-apps.sh)
 
-if [ $bad_app_count -gt 0 ]; then
-    exit 1
-else
-    echo "apps version check successfully"
-fi
+  if [ $bad_app_count -gt 0 ]; then
+      exit 1
+  else
+      echo "apps version check successfully"
+  fi
+}
+
+_main() {
+    if echo "${latest_release}" |grep -oE '[0-9]+.[0-9]+.[0-9]+' > /dev/null 2>&1; then
+        check_apps
+    else
+        echo "skiped unstable tag: ${latest_release}"
+    fi
+}
+
+_main

@@ -18,7 +18,8 @@ on:
 jobs:
   prepare:
     runs-on: ubuntu-20.04
-    container: emqx/build-env:erl23.2.7.2-emqx-3-ubuntu20.04
+    # prepare source with any OTP version, no need for a matrix
+    container: ghcr.io/emqx/emqx-builder/4.4-12:24.1.5-3-ubuntu20.04
 
     outputs:
       profiles: ${{ steps.set_profile.outputs.profiles}}
@@ -31,8 +32,9 @@ jobs:
       - name: set profile
         id: set_profile
         shell: bash
+        working-directory: source
         run: |
-          cd source
+          git config --global --add safe.directory "$GITHUB_WORKSPACE"
           if make emqx-ee --dry-run > /dev/null 2>&1; then
             echo "::set-output name=profiles::[\"emqx-ee\"]"
           else
@@ -43,7 +45,7 @@ jobs:
         run: |
           make -C source deps-all
           zip -ryq source.zip source/* source/.[^.]*
-      - name: get_all_deps
+      - name: get_all_deps_ee
         if: endsWith(github.repository, 'enterprise')
         run: |
           echo "https://ci%40emqx.io:${{ secrets.CI_GIT_TOKEN }}@github.com" > $HOME/.git-credentials
@@ -60,13 +62,13 @@ jobs:
     needs: prepare
     if: endsWith(github.repository, 'emqx')
     strategy:
+      fail-fast: false
       matrix:
         profile: ${{fromJSON(needs.prepare.outputs.profiles)}}
         otp:
-          - 23.3.4.13
+          - 24.2.1
         exclude:
           - profile: emqx-edge
-
     steps:
     - uses: actions/download-artifact@v2
       with:
@@ -82,56 +84,43 @@ jobs:
       env:
         PYTHON: python
         DIAGNOSTIC: 1
+        PROFILE: emqx
+      working-directory: source
       run: |
         erl -eval "erlang:display(crypto:info_lib())" -s init stop
-        $version = $( "${{ github.ref }}" -replace "^(.*)/(.*)/" )
-        if ($version -match "^v[0-9]+\.[0-9]+(\.[0-9]+)?") {
-          $regex = "[0-9]+\.[0-9]+(-alpha|-beta|-rc)?\.[0-9]+"
-          $pkg_name = "${{ matrix.profile }}-windows-$([regex]::matches($version, $regex).value).zip"
-          }
-        else {
-          $pkg_name = "${{ matrix.profile }}-windows-$($version -replace '/').zip"
-          }
-        cd source
-        ## We do not build/release bcrypt for windows package
-        Remove-Item -Recurse -Force -Path _build/default/lib/bcrypt/
-        if (Test-Path rebar.lock) {
-            Remove-Item -Force -Path rebar.lock
-        }
-        make ensure-rebar3
-        make ${{ matrix.profile }}
-        mkdir -p _packages/${{ matrix.profile }}
-        Compress-Archive -Path _build/${{ matrix.profile }}/rel/emqx -DestinationPath _build/${{ matrix.profile }}/rel/$pkg_name
-        mv _build/${{ matrix.profile }}/rel/$pkg_name _packages/${{ matrix.profile }}
-        sha256sum "_packages/${{ matrix.profile }}/$pkg_name" | head -c 64 > "_packages/${{ matrix.profile }}/${pkg_name}.sha256"
+        make ${{ matrix.profile }}-zip
     - name: run emqx
       timeout-minutes: 1
+      working-directory: source
       run: |
-        cd source
         ./_build/${{ matrix.profile }}/rel/emqx/bin/emqx start
         Start-Sleep -s 5
+        echo "EMQX started"
         ./_build/${{ matrix.profile }}/rel/emqx/bin/emqx stop
+        echo "EMQX stopped"
         ./_build/${{ matrix.profile }}/rel/emqx/bin/emqx install
+        echo "EQMX installed"
         ./_build/${{ matrix.profile }}/rel/emqx/bin/emqx uninstall
+        echo "EQMX uninstaled"
     - uses: actions/upload-artifact@v1
       with:
-        name: ${{ matrix.profile }}
+        name: ${{ matrix.profile }}-windows
         path: source/_packages/${{ matrix.profile }}/.
 
   mac:
     needs: prepare
-
     strategy:
+      fail-fast: false
       matrix:
         profile: ${{fromJSON(needs.prepare.outputs.profiles)}}
-        erl_otp:
-          - 23.2.7.2-emqx-3
+        otp:
+          - 24.1.5-3
+        macos:
+          - macos-11
+          - macos-10.15
         exclude:
           - profile: emqx-edge
-        macos:
-          - macos-10.15
-    runs-on: ${{ matrix.macos  }}
-
+    runs-on: ${{ matrix.macos }}
     steps:
     - uses: actions/download-artifact@v2
       with:
@@ -148,8 +137,8 @@ jobs:
     - uses: actions/cache@v2
       id: cache
       with:
-        path: ~/.kerl/${{ matrix.erl_otp }}
-        key: otp-install-${{ matrix.erl_otp }}-${{ matrix.macos }}
+        path: ~/.kerl/${{ matrix.otp }}
+        key: otp-install-${{ matrix.otp }}-${{ matrix.macos }}
     - name: build erlang
       if: steps.cache.outputs.cache-hit != 'true'
       timeout-minutes: 60
@@ -158,21 +147,22 @@ jobs:
         OTP_GITHUB_URL: https://github.com/emqx/otp
       run: |
         kerl update releases
-        kerl build ${{ matrix.erl_otp }}
-        kerl install ${{ matrix.erl_otp }} $HOME/.kerl/${{ matrix.erl_otp }}
+        kerl build ${{ matrix.otp }}
+        kerl install ${{ matrix.otp }} $HOME/.kerl/${{ matrix.otp }}
     - name: build
+      working-directory: source
       run: |
-        . $HOME/.kerl/${{ matrix.erl_otp }}/activate
-        cd source
+        . $HOME/.kerl/${{ matrix.otp }}/activate
         make ensure-rebar3
         sudo cp rebar3 /usr/local/bin/rebar3
         rm -rf _build/${{ matrix.profile }}/lib
         make ${{ matrix.profile }}-zip
     - name: test
+      working-directory: source
       run: |
-        cd source
-        pkg_name=$(basename _packages/${{ matrix.profile }}/${{ matrix.profile }}-*.zip)
-        unzip -q _packages/${{ matrix.profile }}/$pkg_name
+        set -x
+        pkg_name=$(find _packages/${{ matrix.profile }} -mindepth 1 -maxdepth 1 -iname \*.zip)
+        unzip -q $pkg_name
         gsed -i '/emqx_telemetry/d' ./emqx/data/loaded_plugins
         ./emqx/bin/emqx start || cat emqx/log/erlang.log.1
         ready='no'
@@ -196,11 +186,9 @@ jobs:
           exit 1
         fi
         rm -rf emqx
-        #sha256sum ./_packages/${{ matrix.profile }}/$pkg_name | head -c64  > ./_packages/${{ matrix.profile }}/$pkg_name.sha256
-        openssl dgst -sha256 ./_packages/${{ matrix.profile }}/$pkg_name | awk '{print $2}'  > ./_packages/${{ matrix.profile }}/$pkg_name.sha256
     - uses: actions/upload-artifact@v1
       with:
-        name: ${{ matrix.profile }}
+        name: ${{ matrix.profile }}-${{ matrix.otp }}
         path: source/_packages/${{ matrix.profile }}/.
 
   linux:
@@ -212,6 +200,11 @@ jobs:
       fail-fast: false
       matrix:
         profile: ${{fromJSON(needs.prepare.outputs.profiles)}}
+        package:
+          - zip
+          - pkg
+        otp:
+          - 24.1.5-3
         arch:
           - amd64
           - arm64
@@ -219,17 +212,13 @@ jobs:
           - ubuntu20.04
           - ubuntu18.04
           - ubuntu16.04
+          - debian11
           - debian10
           - debian9
-          # - opensuse
-          - centos8
-          - centos7
-          - centos6
+          - el8
+          - el7
           # - raspbian10 #armv6l is too slow to emulate
-          # - raspbian9
         exclude:
-        - os: centos6
-          arch: arm64
         - os: raspbian9
           arch: amd64
         - os: raspbian10
@@ -248,15 +237,11 @@ jobs:
         shell: bash
 
     steps:
-    - name: prepare docker
-      run: |
-        mkdir -p $HOME/.docker
-        echo '{ "experimental": "enabled" }' | tee $HOME/.docker/config.json
-        echo '{ "experimental": true, "storage-driver": "overlay2", "max-concurrent-downloads": 50, "max-concurrent-uploads": 50}' | sudo tee /etc/docker/daemon.json
-        sudo systemctl restart docker
-        docker info
-        docker buildx create --use --name mybuild
-        docker run --rm --privileged tonistiigi/binfmt --install all
+    - uses: docker/setup-buildx-action@v1
+    - uses: docker/setup-qemu-action@v1
+      with:
+        image: tonistiigi/binfmt:latest
+        platforms: all
     - uses: actions/download-artifact@v2
       with:
         name: source
@@ -265,53 +250,33 @@ jobs:
       run: unzip -q source.zip
     - name: build emqx packages
       env:
-        ERL_OTP: erl23.2.7.2-emqx-3
+        OTP: ${{ matrix.otp }}
         PROFILE: ${{ matrix.profile }}
+        PACKAGE: ${{ matrix.package}}
         ARCH: ${{ matrix.arch }}
         SYSTEM: ${{ matrix.os }}
+      working-directory: source
       run: |
-        set -e -u
-        cd source
-        docker buildx build --no-cache \
-          --platform=linux/$ARCH \
-          -t cross_build_emqx_for_$SYSTEM \
-          -f .ci/build_packages/Dockerfile \
-          --build-arg BUILD_FROM=emqx/build-env:$ERL_OTP-$SYSTEM \
-          --build-arg EMQX_NAME=$PROFILE \
-          --output type=tar,dest=/tmp/cross-build-$PROFILE-for-$SYSTEM.tar .
-
-        mkdir -p /tmp/packages/$PROFILE
-        tar -xvf /tmp/cross-build-$PROFILE-for-$SYSTEM.tar --wildcards emqx/_packages/$PROFILE/*
-        mv emqx/_packages/$PROFILE/* /tmp/packages/$PROFILE/
-        rm -rf /tmp/cross-build-$PROFILE-for-$SYSTEM.tar
-
-        docker rm -f $(docker ps -a -q)
-        docker volume prune -f
-    - name: create sha256
-      env:
-        PROFILE: ${{ matrix.profile}}
-      run: |
-        if [ -d /tmp/packages/$PROFILE ]; then
-          cd /tmp/packages/$PROFILE
-            for var in $(ls emqx-* ); do
-              bash -c "echo $(sha256sum $var | awk '{print $1}') > $var.sha256"
-            done
-          cd -
-        fi
+        ./scripts/buildx.sh \
+          --profile "${PROFILE}" \
+          --pkgtype "${PACKAGE}" \
+          --arch "${ARCH}" \
+          --builder "ghcr.io/emqx/emqx-builder/4.4-12:${OTP}-${SYSTEM}"
     - uses: actions/upload-artifact@v1
       with:
-        name: ${{ matrix.profile }}
-        path: /tmp/packages/${{ matrix.profile }}/.
+        name: ${{ matrix.profile }}-${{ matrix.otp }}
+        path: source/_packages/${{ matrix.profile }}/.
 
   docker:
     runs-on: ubuntu-20.04
-
     needs: prepare
 
     strategy:
       fail-fast: false
       matrix:
         profile: ${{fromJSON(needs.prepare.outputs.profiles)}}
+        otp:
+          - 24.1.5-3
         registry:
           - 'docker.io'
           - 'public.ecr.aws'
@@ -354,7 +319,7 @@ jobs:
         images: ${{ matrix.registry }}/${{ github.repository_owner }}/${{ matrix.profile }}
         ## only stable tag is latest
         flavor: |
-          latest=${{ contains(github.ref, 'tags') && !contains(github.ref_name, 'rc') && !contains(github.ref_name, 'beta') && !contains(github.ref_name, 'alpha') }}
+          latest=false # latest is now 5.0
         tags: |
           type=ref,event=branch
           type=ref,event=pr
@@ -372,8 +337,8 @@ jobs:
         tags: ${{ steps.meta.outputs.tags }}
         labels: ${{ steps.meta.outputs.labels }}
         build-args: |
-          BUILD_FROM=emqx/build-env:erl23.2.7.2-emqx-3-alpine
-          RUN_FROM=alpine:3.12
+          BUILD_FROM=ghcr.io/emqx/emqx-builder/4.4-12:${{ matrix.otp }}-alpine3.15.1
+          RUN_FROM=alpine:3.15.1
           EMQX_NAME=${{ matrix.profile }}
         file: source/deploy/docker/Dockerfile
         context: source
@@ -388,8 +353,8 @@ jobs:
         tags: ${{ steps.meta.outputs.tags }}
         labels: ${{ steps.meta.outputs.labels }}
         build-args: |
-          BUILD_FROM=emqx/build-env:erl23.2.7.2-emqx-3-alpine
-          RUN_FROM=alpine:3.12
+          BUILD_FROM=ghcr.io/emqx/emqx-builder/4.4-12:${{ matrix.otp }}-alpine3.15.1
+          RUN_FROM=alpine:3.15.1
           EMQX_NAME=${{ matrix.profile }}
         file: source/deploy/docker/Dockerfile.enterprise
         context: source
@@ -405,10 +370,16 @@ jobs:
       fail-fast: false
       matrix:
         profile: ${{fromJSON(needs.prepare.outputs.profiles)}}
+        otp:
+          - 24.1.5-3
+        include:
+          - profile: emqx
+            otp: windows # otp version on windows is rather fixed
+
     steps:
     - uses: actions/download-artifact@v2
       with:
-        name: ${{ matrix.profile }}
+        name: ${{ matrix.profile }}-${{ matrix.otp }}
         path: packages/${{ matrix.profile }}
     - name: install dos2unix
       run: sudo apt-get update && sudo apt install -y dos2unix

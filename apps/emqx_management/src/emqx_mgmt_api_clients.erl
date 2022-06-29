@@ -121,6 +121,12 @@
             func   => clean_quota,
             descr  => "Clear the quota policy"}).
 
+-rest_api(#{name   => set_keepalive,
+            method => 'PUT',
+            path   => "/clients/:bin:clientid/keepalive",
+            func   => set_keepalive,
+            descr  => "Set the client keepalive"}).
+
 -import(emqx_mgmt_util, [ ntoa/1
                         , strftime/1
                         ]).
@@ -134,23 +140,24 @@
         , set_quota_policy/2
         , clean_ratelimit/2
         , clean_quota/2
+        , set_keepalive/2
         ]).
 
 -export([ query/3
         , format_channel_info/1
         ]).
 
--define(query_fun, {?MODULE, query}).
--define(format_fun, {?MODULE, format_channel_info}).
+-define(QUERY_FUN, {?MODULE, query}).
+-define(FORMAT_FUN, {?MODULE, format_channel_info}).
 
 list(Bindings, Params) when map_size(Bindings) == 0 ->
     fence(fun() ->
-        emqx_mgmt_api:cluster_query(Params, ?CLIENT_QS_SCHEMA, ?query_fun)
+        emqx_mgmt_api:cluster_query(Params, ?CLIENT_QS_SCHEMA, ?QUERY_FUN)
     end);
 
 list(#{node := Node}, Params) when Node =:= node() ->
     fence(fun() ->
-        emqx_mgmt_api:node_query(Node, Params, ?CLIENT_QS_SCHEMA, ?query_fun)
+        emqx_mgmt_api:node_query(Node, Params, ?CLIENT_QS_SCHEMA, ?QUERY_FUN)
     end);
 
 list(Bindings = #{node := Node}, Params) ->
@@ -173,16 +180,20 @@ fence(Func) ->
     end.
 
 lookup(#{node := Node, clientid := ClientId}, _Params) ->
-    minirest:return({ok, emqx_mgmt:lookup_client(Node, {clientid, emqx_mgmt_util:urldecode(ClientId)}, ?format_fun)});
+    minirest:return({ok, emqx_mgmt:lookup_client(Node,
+        {clientid, emqx_mgmt_util:urldecode(ClientId)}, ?FORMAT_FUN)});
 
 lookup(#{clientid := ClientId}, _Params) ->
-    minirest:return({ok, emqx_mgmt:lookup_client({clientid, emqx_mgmt_util:urldecode(ClientId)}, ?format_fun)});
+    minirest:return({ok, emqx_mgmt:lookup_client(
+        {clientid, emqx_mgmt_util:urldecode(ClientId)}, ?FORMAT_FUN)});
 
 lookup(#{node := Node, username := Username}, _Params) ->
-    minirest:return({ok, emqx_mgmt:lookup_client(Node, {username, emqx_mgmt_util:urldecode(Username)}, ?format_fun)});
+    minirest:return({ok, emqx_mgmt:lookup_client(Node,
+        {username, emqx_mgmt_util:urldecode(Username)}, ?FORMAT_FUN)});
 
 lookup(#{username := Username}, _Params) ->
-    minirest:return({ok, emqx_mgmt:lookup_client({username, emqx_mgmt_util:urldecode(Username)}, ?format_fun)}).
+    minirest:return({ok, emqx_mgmt:lookup_client({username,
+        emqx_mgmt_util:urldecode(Username)}, ?FORMAT_FUN)}).
 
 kickout(#{clientid := ClientId}, _Params) ->
     case emqx_mgmt:kickout_client(emqx_mgmt_util:urldecode(ClientId)) of
@@ -208,7 +219,7 @@ list_acl_cache(#{clientid := ClientId}, _Params) ->
 set_ratelimit_policy(#{clientid := ClientId}, Params) ->
     P = [{conn_bytes_in, proplists:get_value(<<"conn_bytes_in">>, Params)},
          {conn_messages_in, proplists:get_value(<<"conn_messages_in">>, Params)}],
-    case [{K, parse_ratelimit_str(V)} || {K, V} <- P, V =/= undefined] of
+    case filter_ratelimit_params(P) of
         [] -> minirest:return();
         Policy ->
             case emqx_mgmt:set_ratelimit_policy(emqx_mgmt_util:urldecode(ClientId), Policy) of
@@ -227,7 +238,7 @@ clean_ratelimit(#{clientid := ClientId}, _Params) ->
 
 set_quota_policy(#{clientid := ClientId}, Params) ->
     P = [{conn_messages_routing, proplists:get_value(<<"conn_messages_routing">>, Params)}],
-    case [{K, parse_ratelimit_str(V)} || {K, V} <- P, V =/= undefined] of
+    case filter_ratelimit_params(P) of
         [] -> minirest:return();
         Policy ->
             case emqx_mgmt:set_quota_policy(emqx_mgmt_util:urldecode(ClientId), Policy) of
@@ -237,12 +248,30 @@ set_quota_policy(#{clientid := ClientId}, Params) ->
             end
     end.
 
+
 clean_quota(#{clientid := ClientId}, _Params) ->
     case emqx_mgmt:set_quota_policy(emqx_mgmt_util:urldecode(ClientId), []) of
         ok -> minirest:return();
         {error, not_found} -> minirest:return({error, ?ERROR12, not_found});
         {error, Reason} -> minirest:return({error, ?ERROR1, Reason})
     end.
+
+set_keepalive(#{clientid := ClientId}, Params) ->
+    case proplists:get_value(<<"interval">>, Params) of
+        undefined ->
+            minirest:return({error, ?ERROR7, params_not_found});
+        Interval0 ->
+            Interval = to_integer(Interval0),
+            case emqx_mgmt:set_keepalive(emqx_mgmt_util:urldecode(ClientId), Interval) of
+                ok -> minirest:return();
+                {error, not_found} -> minirest:return({error, ?ERROR12, not_found});
+                {error, Code, Reason} -> minirest:return({error, Code, Reason});
+                {error, Reason} -> minirest:return({error, ?ERROR1, Reason})
+            end
+    end.
+
+to_integer(Int)when is_integer(Int) -> Int;
+to_integer(Bin) when is_binary(Bin) -> binary_to_integer(Bin).
 
 %% @private
 %% S = 100,1s
@@ -270,7 +299,7 @@ format_channel_info({_Key, Info, Stats0}) ->
     ConnInfo = maps:get(conninfo, Info, #{}),
     Session = case maps:get(session, Info, #{}) of
                   undefined -> #{};
-                  _Sess -> _Sess
+                  Sess -> Sess
               end,
     SessCreated = maps:get(created_at, Session, maps:get(connected_at, ConnInfo)),
     Connected = case maps:get(conn_state, Info, connected) of
@@ -292,8 +321,14 @@ format_channel_info({_Key, Info, Stats0}) ->
                              inflight, max_inflight, awaiting_rel,
                              max_awaiting_rel, mqueue_len, mqueue_dropped,
                              max_mqueue, heap_size, reductions, mailbox_len,
-                             recv_cnt, recv_msg, recv_oct, recv_pkt, send_cnt,
-                             send_msg, send_oct, send_pkt], NStats),
+                             recv_cnt,
+                             recv_msg, 'recv_msg.qos0', 'recv_msg.qos1', 'recv_msg.qos2',
+                            'recv_msg.dropped', 'recv_msg.dropped.expired',
+                             recv_oct, recv_pkt, send_cnt,
+                             send_msg, 'send_msg.qos0', 'send_msg.qos1', 'send_msg.qos2',
+                            'send_msg.dropped', 'send_msg.dropped.expired',
+                            'send_msg.dropped.queue_full', 'send_msg.dropped.too_large',
+                             send_oct, send_pkt], NStats),
                  maps:with([clientid, username, mountpoint, is_bridge, zone], ClientInfo),
                  maps:with([clean_start, keepalive, expiry_interval, proto_name,
                             proto_ver, peername, connected_at, disconnected_at], ConnInfo),
@@ -311,7 +346,8 @@ format(Data) when is_map(Data)->
                       created_at   => iolist_to_binary(strftime(CreatedAt div 1000))},
                case maps:get(disconnected_at, Data, undefined) of
                    undefined -> #{};
-                   DisconnectedAt -> #{disconnected_at => iolist_to_binary(strftime(DisconnectedAt div 1000))}
+                   DisconnectedAt -> #{disconnected_at =>
+                                       iolist_to_binary(strftime(DisconnectedAt div 1000))}
                end).
 
 format_acl_cache({{PubSub, Topic}, {AclResult, Timestamp}}) ->
@@ -326,7 +362,7 @@ format_acl_cache({{PubSub, Topic}, {AclResult, Timestamp}}) ->
 
 query({Qs, Fuzzy}, Start, Limit) ->
     case qs2ms(Qs) of
-        {Ms, []}when Fuzzy =:= [] ->
+        {Ms, []} when Fuzzy =:= [] ->
             emqx_mgmt_api:select_table(emqx_channel_info, Ms, Start, Limit, fun format_channel_info/1);
         {Ms, FuzzyStats} ->
             MatchFun = match_fun(Ms, Fuzzy ++ FuzzyStats),
@@ -350,7 +386,7 @@ match_fun(Ms, Fuzzy) ->
 
 run_fuzzy_match(_, []) ->
     true;
-run_fuzzy_match(E = {_, #{clientinfo := ClientInfo}, _}, [{Key, like, SubStr}|Fuzzy]) ->
+run_fuzzy_match(E = {_, #{clientinfo := ClientInfo}, _}, [{Key, like, SubStr} | Fuzzy]) ->
     Val = case maps:get(Key, ClientInfo, undefined) of
               undefined -> <<>>;
               V -> V
@@ -428,6 +464,9 @@ ms(mqueue_len, _X) ->
     fuzzy_stats;
 ms(mqueue_dropped, _X) ->
     fuzzy_stats.
+
+filter_ratelimit_params(P) ->
+    [{K, parse_ratelimit_str(V)} || {K, V} <- P, V =/= undefined].
 
 %%--------------------------------------------------------------------
 %% EUnits
