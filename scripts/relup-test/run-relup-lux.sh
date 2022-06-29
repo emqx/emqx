@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 
 ## This script needs the 'lux' command in PATH
-## it runs the scripts/relup/relup.lux script
+## it runs the scripts/relup-test/relup.lux script
 
 set -euo pipefail
 
@@ -16,13 +16,18 @@ cd -P -- "$(dirname -- "$0")/../.."
 
 set -x
 
+if [ ! -d '.git' ] && [ -z "${CUR_VSN:-}" ]; then
+    echo "Unable to resolve current version, because it's not a git repo, and CUR_VSN is not set"
+    exit 1
+fi
+
 case "$old_vsn" in
     e*)
-        cur_vsn="$(./pkg-vsn.sh emqx-enterprise)"
+        cur_vsn="${CUR_VSN:-$(./pkg-vsn.sh emqx-enterprise)}"
         profile='emqx-enterprise'
         ;;
     v*)
-        cur_vsn="$(./pkg-vsn.sh emqx)"
+        cur_vsn="${CUR_VSN:-$(./pkg-vsn.sh emqx)}"
         profile='emqx'
         ;;
     *)
@@ -48,7 +53,7 @@ if [ ! -f "$CUR_PKG" ]; then
 fi
 
 # start two nodes and their friends (webhook server and a bench) in docker
-./scripts/relup/start-relup-test-cluster.sh 'ubuntu:20.04' "$OLD_PKG"
+./scripts/relup-test/start-relup-test-cluster.sh 'ubuntu:20.04' "$OLD_PKG"
 
 # run relup tests
 lux \
@@ -61,4 +66,4 @@ lux \
     --var NODE1="node1.emqx.io" \
     --var NODE2="node2.emqx.io" \
     --var BENCH="bench.emqx.io" \
-    ./scripts/relup/relup.lux
+    ./scripts/relup-test/relup.lux

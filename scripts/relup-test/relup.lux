@@ -116,7 +116,7 @@
     !sleep 5
     ?SH-PROMPT
 
-    !$PROJ_ROOT/scripts/relup/check-results.sh
+    !$PROJ_ROOT/scripts/relup-test/check-results.sh
     !echo ==$$?==
     ???ALL_IS_WELL
     ?SH-PROMPT:

@@ -42,7 +42,7 @@ docker run -d -t --name "$NODE1" \
   -e EMQX_NODE_COOKIE="$COOKIE" \
   -p 18083:18083 \
   -v "$PKG:/emqx.tar.gz" \
-  -v "$(pwd)/scripts/relup/run-pkg.sh:/run-pkg.sh" \
+  -v "$(pwd)/scripts/relup-test/run-pkg.sh:/run-pkg.sh" \
   "$IMAGE" /run-pkg.sh emqx.tar.gz
 
 docker run -d -t --name "$NODE2" \
@@ -52,7 +52,7 @@ docker run -d -t --name "$NODE2" \
   -e EMQX_NODE_COOKIE="$COOKIE" \
   -p 18084:18083 \
   -v "$PKG:/emqx.tar.gz" \
-  -v "$(pwd)/scripts/relup/run-pkg.sh:/run-pkg.sh" \
+  -v "$(pwd)/scripts/relup-test/run-pkg.sh:/run-pkg.sh" \
   "$IMAGE" /run-pkg.sh emqx.tar.gz
 
 docker run -d -t --name "$WEBHOOK" \
