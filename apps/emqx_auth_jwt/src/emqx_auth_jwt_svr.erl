@@ -20,6 +20,7 @@
 
 -include_lib("emqx/include/logger.hrl").
 -include_lib("jose/include/jose_jwk.hrl").
+-include_lib("snabbkaffe/include/snabbkaffe.hrl").
 
 -logger_header("[JWT-SVR]").
 
@@ -114,7 +115,8 @@ handle_cast(_Msg, State) ->
 
 handle_info({timeout, _TRef, refresh}, State = #state{addr = Addr}) ->
     NState = try
-                 true = ets:insert(?TAB, {remote, request_jwks(Addr)})
+                 true = ets:insert(?TAB, {remote, request_jwks(Addr)}),
+                 State
              catch _:_ ->
                  State
              end,
@@ -147,7 +149,9 @@ request_jwks(Addr) ->
         {ok, {_Code, _Headers, Body}} ->
             try
                 JwkSet = jose_jwk:from(emqx_json:decode(Body, [return_maps])),
-                {_, Jwks} = JwkSet#jose_jwk.keys, Jwks
+                {_, Jwks} = JwkSet#jose_jwk.keys,
+                ?tp(debug, emqx_auth_jwt_svr_jwks_updated, #{jwks => Jwks, pid => self()}),
+                Jwks
             catch _:_ ->
                 ?LOG(error, "Invalid jwks server response: ~p~n", [Body]),
                 error(badarg)
@@ -194,7 +198,11 @@ do_verify(JwsCompacted, [Jwk|More]) ->
             case check_claims(Claims) of
                 {false, <<"exp">>} ->
                     {error, {invalid_signature, expired}};
-                NClaims ->
+                {false, <<"iat">>} ->
+                    {error, {invalid_signature, issued_in_future}};
+                {false, <<"nbf">>} ->
+                    {error, {invalid_signature, not_valid_yet}};
+                {true, NClaims} ->
                     {ok, NClaims}
             end;
         {false, _, _} ->
@@ -230,7 +238,7 @@ with_int_value(Fun) ->
     end.
 
 do_check_claim([], Claims) ->
-    Claims;
+    {true, Claims};
 do_check_claim([{K, F}|More], Claims) ->
     case Claims of
         #{K := V} ->
