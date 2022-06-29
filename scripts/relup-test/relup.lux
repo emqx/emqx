@@ -1,0 +1,130 @@
+[config var=PROJ_ROOT]
+[config var=VSN]
+[config var=CUR_PKG]
+[config var=OLD_VSN]
+[config var=NODE1]
+[config var=NODE2]
+[config var=BENCH]
+
+[config shell_cmd=/bin/bash]
+[config timeout=600000]
+
+[shell emqx1]
+    !docker exec -it $NODE1 emqx_ctl cluster status
+    ???running_nodes => ['emqx@node1.emqx.io','emqx@node2.emqx.io']
+    ?SH-PROMPT
+
+    ## create a webhook data bridge with id "my_webhook"
+    !curl --user admin:public --silent --show-error 'http://localhost:18083/api/v5/bridges' -X 'POST' -H 'Content-Type: application/json' --data-binary '{"name":"my_webhook","body":"","method":"post","url":"http://webhook.emqx.io:7077/counter","headers":{"content-type":"application/json"},"pool_size":4,"enable_pipelining":100,"connect_timeout":"5s","request_timeout":"5s","max_retries":3,"type":"webhook","ssl":{"enable":false,"verify":"verify_none"}}' | jq '.status'
+    ?connected
+    ?SH-PROMPT
+
+    ## create a rule that uses the webhook as action, the rule id = "rule_edsy"
+    !curl --user admin:public --silent --show-error 'http://localhost:18083/api/v5/rules' -X 'POST' -H 'Content-Type: application/json' --data-binary '{"id":"rule_edsy","sql":"SELECT\n  *\nFROM\n  \"t/#\"","actions":["webhook:my_webhook"]}' | jq '.id'
+    ?rule_edsy
+    ?SH-PROMPT
+
+[shell emqx2]
+    ## verify the bridges and rules are sync to the other node
+    !curl --user admin:public --silent --show-error 'http://localhost:18084/api/v5/bridges/webhook:my_webhook' -X 'GET' -H 'Content-Type: application/json' | jq '.name'
+    ?my_webhook
+    ?SH-PROMPT
+    !curl --user admin:public --silent --show-error 'http://localhost:18084/api/v5/rules/rule_edsy' -X 'GET' -H 'Content-Type: application/json' | jq '.id'
+    ?rule_edsy
+    ?SH-PROMPT
+
+[shell bench]
+    !docker exec -it $BENCH emqtt_bench pub --host 'node1.emqx.io' --port 1883 -c 10 -I 1000 -t t/%i -s 64 -L 300
+
+[shell emqx1]
+    !docker cp $CUR_PKG $NODE1:/emqx/releases/
+
+    ## 1. upgrade to the new version
+    !docker exec -it $NODE1 emqx install $VSN
+    ?Made release permanent: "$VSN"
+    ?SH-PROMPT
+
+    !docker exec -it $NODE1 emqx versions | grep permanent
+    ?(.*)$VSN
+    ?SH-PROMPT
+
+    ## 2. downgrade to the old version
+    !docker exec -it $NODE1 emqx install $OLD_VSN
+    ?Made release permanent:.*
+    ?SH-PROMPT
+
+    !docker exec -it $NODE1 emqx versions | grep permanent | grep -qs "$OLD_VSN"
+    ?SH-PROMPT:
+    !echo ==$$?==
+    ?^==0==
+    ?SH-PROMPT:
+
+    ## 3. again, upgrade to the new version
+    !docker exec -it $NODE1 emqx install $VSN
+    ?Made release permanent: "$VSN"
+    ?SH-PROMPT
+
+    !docker exec -it $NODE1 emqx versions | grep permanent
+    ?(.*)$VSN
+    ?SH-PROMPT
+
+    !docker exec -it $NODE1 emqx_ctl cluster status
+    ???running_nodes => ['emqx@node1.emqx.io','emqx@node2.emqx.io']
+    ?SH-PROMPT
+
+[shell emqx2]
+    !docker cp $CUR_PKG $NODE2:/emqx/releases/
+
+    ## 1. upgrade to the new version
+    !docker exec -it $NODE2 emqx install $VSN
+    ?Made release permanent: "$VSN"
+    ?SH-PROMPT
+
+    !docker exec -it $NODE2 emqx versions | grep permanent
+    ?(.*)$VSN
+    ?SH-PROMPT
+
+    ## 2. downgrade to the old version
+    !docker exec -it $NODE2 emqx install $OLD_VSN
+    ?Made release permanent:.*
+    ?SH-PROMPT
+
+    !docker exec -it $NODE2 emqx versions | grep permanent | grep -qs "$OLD_VSN"
+    ?SH-PROMPT:
+    !echo ==$$?==
+    ?^==0==
+    ?SH-PROMPT:
+
+    ## 3. again, upgrade to the new version
+    !docker exec -it $NODE2 emqx install $VSN
+    ?Made release permanent: "$VSN"
+    ?SH-PROMPT
+
+    !docker exec -it $NODE2 emqx versions | grep permanent
+    ?(.*)$VSN
+    ?SH-PROMPT
+
+    !docker exec -it $NODE1 emqx_ctl cluster status
+    ???running_nodes => ['emqx@node1.emqx.io','emqx@node2.emqx.io']
+    ?SH-PROMPT
+
+## We don't guarantee not to lose a single message!
+## So even if we received 290~300 messages, we consider it as success
+[shell bench]
+    ???publish complete
+    ??SH-PROMPT:
+    !sleep 5
+    ?SH-PROMPT
+
+    !$PROJ_ROOT/scripts/relup-test/check-results.sh
+    !echo ==$$?==
+    ???ALL_IS_WELL
+    ?SH-PROMPT:
+
+    !echo ==$$?==
+    ?^==0==
+    ?SH-PROMPT:
+
+[cleanup]
+    !echo ==$$?==
+    ?==0==
