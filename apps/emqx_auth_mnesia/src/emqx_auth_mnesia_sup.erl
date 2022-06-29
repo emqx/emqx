@@ -22,6 +22,8 @@
 
 -export([start_link/0]).
 
+-export([child_spec/3]).
+
 %% Supervisor callbacks
 -export([init/1]).
 

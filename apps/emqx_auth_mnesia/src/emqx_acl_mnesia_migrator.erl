@@ -64,10 +64,13 @@ start_link(#{name := Name} = Opts) ->
 
 start_supervised() ->
     try
-        {ok, _} = supervisor:restart_child(emqx_auth_mnesia_sup, ?MODULE),
-        ok
+        _ = supervisor:restart_child(emqx_auth_mnesia_sup, ?MODULE)
     catch
-        exit:{noproc, _} -> ok
+        exit:{noproc, _} ->
+            %% The emqx_auth_mnesia app not started, we handover the owner
+            %% to emqx_sup
+            {ok, _} = supervisor:start_child(emqx_sup,
+                emqx_auth_mnesia_sup:child_spec(emqx_acl_mnesia_migrator, worker, []))
     end.
 
 stop_supervised() ->
