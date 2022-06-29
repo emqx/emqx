@@ -100,7 +100,9 @@ jobs:
     - name: run relup test
       run: |
         set -e -x -u
-        cd emqx
+        chmod a+x scripts/**/*.sh
+        ls -l scripts
+        ls -l scripts/relup-test
         case "$OLD_VSN" in
           e*)
             export CUR_VSN="$CUR_EE_VSN"
@@ -113,6 +115,7 @@ jobs:
             exit 1
             ;;
         esac
+        mkdir -p lux_logs
         if ! ./scripts/relup-test/run-relup-lux.sh $OLD_VSN; then
           docker logs node1.emqx.io | tee lux_logs/emqx1.log
           docker logs node2.emqx.io | tee lux_logs/emqx2.log
