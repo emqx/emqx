@@ -127,4 +127,4 @@ jobs:
       with:
         name: debug_data
         path: |
-          wd/lux_logs
+          lux_logs
