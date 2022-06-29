@@ -527,9 +527,9 @@ handle_in(
                     TupleTopicFilters2 =
                         lists:foldl(
                             fun
-                                ({{Topic, Opts = #{delete := true}}, _QoS}, Acc) ->
-                                    Key = {Topic, maps:without([delete], Opts)},
-                                    lists:keydelete(Key, 1, Acc);
+                                ({{Topic, Opts = #{deny_subscription := true}}, _QoS}, Acc) ->
+                                    Key = {Topic, maps:without([deny_subscription], Opts)},
+                                    lists:keyreplace(Key, 1, Acc, {Key, ?RC_UNSPECIFIED_ERROR});
                                 (Tuple = {Key, _Value}, Acc) ->
                                     lists:keyreplace(Key, 1, Acc, Tuple)
                             end,

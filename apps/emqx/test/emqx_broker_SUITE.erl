@@ -727,7 +727,7 @@ t_handle_in_empty_client_subscribe_hook(Config) when is_list(Config) ->
     {ok, _} = emqtt:connect(C),
     try
         {ok, _, RCs} = emqtt:subscribe(C, <<"t">>),
-        ?assertEqual([], RCs),
+        ?assertEqual([?RC_UNSPECIFIED_ERROR], RCs),
         ok
     after
         emqtt:disconnect(C)
@@ -791,5 +791,5 @@ recv_msgs(Count, Msgs) ->
     end.
 
 client_subscribe_delete_all_hook(_ClientInfo, _Username, TopicFilter) ->
-    EmptyFilters = [{T, Opts#{delete => true}} || {T, Opts} <- TopicFilter],
+    EmptyFilters = [{T, Opts#{deny_subscription => true}} || {T, Opts} <- TopicFilter],
     {stop, EmptyFilters}.
