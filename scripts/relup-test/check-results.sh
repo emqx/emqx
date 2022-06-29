@@ -3,13 +3,9 @@
 set -euo pipefail
 
 matched_node1="$(curl --user admin:public -sf http://localhost:18083/api/v5/rules | jq --raw-output ".[0].node_metrics[] | select(.node==\"emqx@node1.emqx.io\") | .metrics.matched")"
-# TODO
-matched_node2=0
-#matched_node2="$(curl --user admin:public -sf http://localhost:18084/api/v5/rules | jq --raw-output ".[0].node_metrics[] | select(.node==\"emqx@node2.emqx.io\") | .metrics.matched")"
+matched_node2="$(curl --user admin:public -sf http://localhost:18084/api/v5/rules | jq --raw-output ".[0].node_metrics[] | select(.node==\"emqx@node2.emqx.io\") | .metrics.matched")"
 success_node1="$(curl --user admin:public -sf http://localhost:18083/api/v5/rules | jq --raw-output ".[0].node_metrics[] | select(.node==\"emqx@node1.emqx.io\") | .metrics.\"actions.success\"")"
-# TODO
-success_node2=0
-#success_node2="$(curl --user admin:public -sf http://localhost:18084/api/v5/rules | jq --raw-output ".[0].node_metrics[] | select(.node==\"emqx@node2.emqx.io\") | .metrics.\"actions.success\"")"
+success_node2="$(curl --user admin:public -sf http://localhost:18084/api/v5/rules | jq --raw-output ".[0].node_metrics[] | select(.node==\"emqx@node2.emqx.io\") | .metrics.\"actions.success\"")"
 webhook="$(curl -sf http://localhost:7077/counter | jq '.data')"
 
 MATCHED_TOTAL="$(( matched_node1 + matched_node2 ))"
