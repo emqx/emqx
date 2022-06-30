@@ -191,48 +191,21 @@ authenticate(
     case emqx_resource:query(ResourceId, {Method, Request, RequestTimeout}) of
         {ok, 204, _Headers} ->
             {ok, #{is_superuser => false}};
-        {ok, 200, _Headers} ->
-            {ok, #{is_superuser => false}};
         {ok, 200, Headers, Body} ->
-            ContentType = proplists:get_value(<<"content-type">>, Headers, <<"application/json">>),
-            case safely_parse_body(ContentType, Body) of
-                {ok, NBody} ->
-                    %% TODO: Return by user property
-                    UserProperty = maps:remove(<<"is_superuser">>, NBody),
-                    IsSuperuser = emqx_authn_utils:is_superuser(NBody),
-                    {ok, IsSuperuser#{user_property => UserProperty}};
-                {error, _Reason} ->
-                    {ok, #{is_superuser => false}}
-            end;
+            handle_response(Headers, Body);
+        {ok, _StatusCode, _Headers} = Response ->
+            log_response(ResourceId, Response),
+            ignore;
+        {ok, _StatusCode, _Headers, _Body} = Response ->
+            log_response(ResourceId, Response),
+            ignore;
         {error, Reason} ->
             ?SLOG(error, #{
                 msg => "http_server_query_failed",
                 resource => ResourceId,
                 reason => Reason
             }),
-            ignore;
-        Other ->
-            Output = may_append_body(#{resource => ResourceId}, Other),
-            case erlang:element(2, Other) of
-                Code5xx when Code5xx >= 500 andalso Code5xx < 600 ->
-                    ?SLOG(error, Output#{
-                        msg => "http_server_error",
-                        code => Code5xx
-                    }),
-                    ignore;
-                Code4xx when Code4xx >= 400 andalso Code4xx < 500 ->
-                    ?SLOG(warning, Output#{
-                        msg => "refused_by_http_server",
-                        code => Code4xx
-                    }),
-                    {error, not_authorized};
-                OtherCode ->
-                    ?SLOG(error, Output#{
-                        msg => "undesired_response_code",
-                        code => OtherCode
-                    }),
-                    ignore
-            end
+            ignore
     end.
 
 destroy(#{resource_id := ResourceId}) ->
@@ -366,20 +339,43 @@ qs([{K, V} | More], Acc) ->
 serialize_body(<<"application/json">>, Body) ->
     emqx_json:encode(Body);
 serialize_body(<<"application/x-www-form-urlencoded">>, Body) ->
-    qs(Body).
+    qs(maps:to_list(Body)).
+
+handle_response(Headers, Body) ->
+    ContentType = proplists:get_value(<<"content-type">>, Headers),
+    case safely_parse_body(ContentType, Body) of
+        {ok, NBody} ->
+            case maps:get(<<"result">>, NBody, <<"ignore">>) of
+                <<"allow">> ->
+                    Res = emqx_authn_utils:is_superuser(NBody),
+                    %% TODO: Return by user property
+                    {ok, Res#{user_property => maps:get(<<"user_property">>, NBody, #{})}};
+                <<"deny">> ->
+                    {error, not_authorized};
+                <<"ignore">> ->
+                    ignore;
+                _ ->
+                    ignore
+            end;
+        {error, _Reason} ->
+            ignore
+    end.
 
 safely_parse_body(ContentType, Body) ->
-    try parse_body(ContentType, Body) of
-        Result -> Result
+    try
+        parse_body(ContentType, Body)
     catch
         _Class:_Reason ->
             {error, invalid_body}
     end.
 
-parse_body(<<"application/json">>, Body) ->
+parse_body(<<"application/json", _/binary>>, Body) ->
     {ok, emqx_json:decode(Body, [return_maps])};
-parse_body(<<"application/x-www-form-urlencoded">>, Body) ->
-    {ok, maps:from_list(cow_qs:parse_qs(Body))};
+parse_body(<<"application/x-www-form-urlencoded", _/binary>>, Body) ->
+    Flags = [<<"result">>, <<"is_superuser">>],
+    RawMap = maps:from_list(cow_qs:parse_qs(Body)),
+    NBody = maps:with(Flags, RawMap),
+    {ok, NBody};
 parse_body(ContentType, _) ->
     {error, {unsupported_content_type, ContentType}}.
 
@@ -394,6 +390,26 @@ uri_encode(T) ->
 encode_path(Path) ->
     Parts = string:split(Path, "/", all),
     lists:flatten(["/" ++ Part || Part <- lists:map(fun uri_encode/1, Parts)]).
+
+log_response(ResourceId, Other) ->
+    Output = may_append_body(#{resource => ResourceId}, Other),
+    case erlang:element(2, Other) of
+        Code5xx when Code5xx >= 500 andalso Code5xx < 600 ->
+            ?SLOG(error, Output#{
+                msg => "http_server_error",
+                code => Code5xx
+            });
+        Code4xx when Code4xx >= 400 andalso Code4xx < 500 ->
+            ?SLOG(warning, Output#{
+                msg => "refused_by_http_server",
+                code => Code4xx
+            });
+        OtherCode ->
+            ?SLOG(error, Output#{
+                msg => "undesired_response_code",
+                code => OtherCode
+            })
+    end.
 
 to_list(A) when is_atom(A) ->
     atom_to_list(A);

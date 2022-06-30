@@ -135,6 +135,18 @@ render_sql_params(ParamList, Credential) ->
         #{return => rawlist, var_trans => fun handle_sql_var/2}
     ).
 
+%% true
+is_superuser(#{<<"is_superuser">> := <<"true">>}) ->
+    #{is_superuser => true};
+is_superuser(#{<<"is_superuser">> := true}) ->
+    #{is_superuser => true};
+is_superuser(#{<<"is_superuser">> := <<"1">>}) ->
+    #{is_superuser => true};
+is_superuser(#{<<"is_superuser">> := I}) when
+    is_integer(I) andalso I >= 1
+->
+    #{is_superuser => true};
+%% false
 is_superuser(#{<<"is_superuser">> := <<"">>}) ->
     #{is_superuser => false};
 is_superuser(#{<<"is_superuser">> := <<"0">>}) ->
@@ -145,10 +157,25 @@ is_superuser(#{<<"is_superuser">> := null}) ->
     #{is_superuser => false};
 is_superuser(#{<<"is_superuser">> := undefined}) ->
     #{is_superuser => false};
+is_superuser(#{<<"is_superuser">> := <<"false">>}) ->
+    #{is_superuser => false};
 is_superuser(#{<<"is_superuser">> := false}) ->
     #{is_superuser => false};
+is_superuser(#{<<"is_superuser">> := MaybeBinInt}) when
+    is_binary(MaybeBinInt)
+->
+    try binary_to_integer(MaybeBinInt) of
+        Int when Int >= 1 ->
+            #{is_superuser => true};
+        Int when Int =< 0 ->
+            #{is_superuser => false}
+    catch
+        error:badarg ->
+            #{is_superuser => false}
+    end;
+%% fallback to default
 is_superuser(#{<<"is_superuser">> := _}) ->
-    #{is_superuser => true};
+    #{is_superuser => false};
 is_superuser(#{}) ->
     #{is_superuser => false}.
 
