@@ -1207,7 +1207,6 @@ end}.
 
 %% @doc Whether the Server supports Exclusive Subscriptions.
 {mapping, "zone.$name.exclusive_subscription", "emqx.zones", [
-    {default, false},
     {datatype, {enum, [true, false]}}
 ]}.
 
