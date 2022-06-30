@@ -58,6 +58,9 @@ case "${EDITION}" in
         ;;
 esac
 
+# must not be empty for MacOS (bash 3.x)
+TAGS=( 'dummy' )
+TAGS_EXCLUDE=( 'dummy' )
 while read -r git_tag; do
     # shellcheck disable=SC2207
     semver=($(parse_semver "$git_tag"))
@@ -68,7 +71,25 @@ while read -r git_tag; do
             # because current version is not an upgrade base
             true
         else
-            echo "$git_tag"
+            TAGS+=( "$git_tag" )
         fi
     fi
 done < <(git tag -l "${GIT_TAG_PREFIX}${CUR_SEMVER[0]}.${CUR_SEMVER[1]}.*")
+
+# debian11 is introduced since v4.4.2 and e4.4.2
+# exclude tags before them
+SYSTEM="${SYSTEM:-$(./scripts/get-distro.sh)}"
+if [ "$SYSTEM" = 'debian11' ]; then
+    TAGS_EXCLUDE+=( 'v4.4.0' 'v4.4.1' )
+    TAGS_EXCLUDE+=( 'e4.4.0' 'e4.4.1' )
+fi
+
+for tag_to_del in "${TAGS_EXCLUDE[@]}"; do
+    TAGS=( "${TAGS[@]/$tag_to_del}" )
+done
+
+for tag in "${TAGS[@]}"; do
+    if [ "$tag" != '' ]; then
+        echo "$tag"
+    fi
+done
