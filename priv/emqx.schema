@@ -1249,7 +1249,6 @@ end}.
 
 %% @doc Whether the Server supports Exclusive Subscriptions.
 {mapping, "zone.$name.exclusive_subscription", "emqx.zones", [
-    {default, false},
     {datatype, {enum, [true, false]}}
 ]}.
 
@@ -2603,6 +2602,10 @@ end}.
 %%--------------------------------------------------------------------
 %% Operating System Monitor
 %%--------------------------------------------------------------------
+{mapping, "os_mon.memsup_improved_system_memory_data", "os_mon.memsup_improved_system_memory_data", [
+  {default, true},
+  {datatype, {enum, [true, false]}}
+]}.
 
 {mapping, "os_mon.cpu_check_interval", "emqx.os_mon", [
   {default, 60},
