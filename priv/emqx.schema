@@ -2512,6 +2512,10 @@ end}.
 %%--------------------------------------------------------------------
 %% Operating System Monitor
 %%--------------------------------------------------------------------
+{mapping, "os_mon.memsup_improved_system_memory_data", "os_mon.memsup_improved_system_memory_data", [
+  {default, true},
+  {datatype, {enum, [true, false]}}
+]}.
 
 {mapping, "os_mon.cpu_check_interval", "emqx.os_mon", [
   {default, 60},
