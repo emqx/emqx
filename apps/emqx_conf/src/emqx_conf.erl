@@ -138,7 +138,7 @@ reset(Node, KeyPath, Opts) ->
 %% @doc Called from build script.
 -spec dump_schema(file:name_all()) -> ok.
 dump_schema(Dir) ->
-    I18nFile = emqx:etc_file("i18n.conf"),
+    I18nFile = emqx_dashboard:i18n_file(),
     dump_schema(Dir, emqx_conf_schema, I18nFile).
 
 dump_schema(Dir, SchemaModule, I18nFile) ->

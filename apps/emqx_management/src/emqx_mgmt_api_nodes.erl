@@ -289,7 +289,7 @@ format(_Node, Info = #{memory_total := Total, memory_used := Used}) ->
     LogPath =
         case log_path() of
             undefined ->
-                <<"The log path is not yet set">>;
+                <<"log.file_handler.default.enable is false,only log to console">>;
             Path ->
                 filename:join(SysPath, Path)
         end,
