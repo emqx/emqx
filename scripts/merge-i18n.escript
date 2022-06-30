@@ -8,7 +8,7 @@ main(_) ->
     Conf = [merge(BaseConf, Cfgs),
             io_lib:nl()
             ],
-    ok = file:write_file("apps/emqx_dashboard/etc/i18n.conf.all", Conf).
+    ok = file:write_file("apps/emqx_dashboard/priv/i18n.conf", Conf).
 
 merge(BaseConf, Cfgs) ->
     lists:foldl(

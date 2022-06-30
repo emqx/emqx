@@ -424,16 +424,12 @@ emqx_etc_overlay_common() ->
 
 emqx_etc_overlay_per_edition(ce) ->
     [
-        {"{{base_dir}}/lib/emqx_conf/etc/emqx.conf.all", "etc/emqx.conf"},
-        {"{{base_dir}}/lib/emqx_dashboard/etc/i18n.conf.all",
-            "{{base_dir}}/lib/emqx_dashboard/priv/i18n.conf"}
+        {"{{base_dir}}/lib/emqx_conf/etc/emqx.conf.all", "etc/emqx.conf"}
     ];
 emqx_etc_overlay_per_edition(ee) ->
     [
         {"{{base_dir}}/lib/emqx_conf/etc/emqx_enterprise.conf.all", "etc/emqx_enterprise.conf"},
-        {"{{base_dir}}/lib/emqx_conf/etc/emqx.conf.all", "etc/emqx.conf"},
-        {"{{base_dir}}/lib/emqx_dashboard/etc/i18n.conf.all",
-            "{{base_dir}}/lib/emqx_dashboard/priv/i18n.conf"}
+        {"{{base_dir}}/lib/emqx_conf/etc/emqx.conf.all", "etc/emqx.conf"}
     ].
 
 get_vsn(Profile) ->

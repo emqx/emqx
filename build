@@ -92,7 +92,7 @@ make_docs() {
     # shellcheck disable=SC2086
     erl -noshell -pa $libs_dir1 $libs_dir2 $libs_dir3 -eval \
         "Dir = filename:join([apps, emqx_dashboard, priv, www, static]), \
-         I18nFile = filename:join([apps, emqx_dashboard, etc, 'i18n.conf.all']), \
+         I18nFile = filename:join([apps, emqx_dashboard, priv, 'i18n.conf']), \
          ok = emqx_conf:dump_schema(Dir, $SCHEMA_MODULE, I18nFile), \
          halt(0)."
 }

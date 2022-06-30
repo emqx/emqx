@@ -49,7 +49,7 @@ VOLUME ["/opt/emqx/log", "/opt/emqx/data"]
 # - 8883 port for MQTT(SSL)
 # - 11883 port for internal MQTT/TCP
 # - 18083 for dashboard
-# - 4370 default Erlang distrbution port
+# - 4370 default Erlang distribution port
 # - 5369 for backplain gen_rpc
 EXPOSE 1883 8081 8083 8084 8883 11883 18083 4370 5369
 
