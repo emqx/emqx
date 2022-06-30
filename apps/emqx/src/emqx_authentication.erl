@@ -909,12 +909,8 @@ to_list(L) when is_list(L) -> L.
 
 call(Call) -> gen_server:call(?MODULE, Call, infinity).
 
-inc_authenticate_metric(Metric) ->
-    emqx_metrics:inc('client.authenticate'),
-    inc_authenticate_metric2(Metric).
-
-inc_authenticate_metric2('authentication.success.anonymous' = Metric) ->
+inc_authenticate_metric('authentication.success.anonymous' = Metric) ->
     emqx_metrics:inc(Metric),
     emqx_metrics:inc('authentication.success');
-inc_authenticate_metric2(Metric) ->
+inc_authenticate_metric(Metric) ->
     emqx_metrics:inc(Metric).
