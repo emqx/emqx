@@ -141,12 +141,14 @@ on_start_auth(authn_http) ->
     %% set handler for test server
     Handler = fun(Req0, State) ->
         ct:pal("Authn Req:~p~nState:~p~n", [Req0, State]),
+        Headers = #{<<"content-type">> => <<"application/json">>},
+        Response = jiffy:encode(#{result => allow, is_superuser => false}),
         case cowboy_req:match_qs([username, password], Req0) of
             #{
                 username := <<"admin">>,
                 password := <<"public">>
             } ->
-                Req = cowboy_req:reply(200, Req0);
+                Req = cowboy_req:reply(200, Headers, Response, Req0);
             _ ->
                 Req = cowboy_req:reply(400, Req0)
         end,
