@@ -331,7 +331,7 @@ defmodule EMQXUmbrella.MixProject do
 
     Mix.Generator.copy_file(
       "apps/emqx_dashboard/etc/emqx.conf.en.example",
-      Path.join(etc, "emqx-example-en.conf"),
+      Path.join(etc, "emqx-example.conf"),
       force: overwrite?
     )
 
