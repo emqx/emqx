@@ -24,6 +24,9 @@
 %% Mnesia bootstrap
 -export([mnesia/1]).
 
+%% For upgrade
+-export([on_add_module/0, on_delete_module/0]).
+
 -boot_mnesia({mnesia, [boot]}).
 -copy_mnesia({mnesia, [copy]}).
 
@@ -60,6 +63,16 @@ mnesia(boot) ->
         {storage_properties, StoreProps}
     ]),
     ok = mria_rlog:wait_for_shards([?EXCLUSIVE_SHARD], infinity).
+
+%%--------------------------------------------------------------------
+%% Upgrade
+%%--------------------------------------------------------------------
+
+on_add_module() ->
+    mnesia(boot).
+
+on_delete_module() ->
+    mria:clear_table(?EXCLUSIVE_SHARD).
 
 %%--------------------------------------------------------------------
 %% APIs
