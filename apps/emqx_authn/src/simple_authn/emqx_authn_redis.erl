@@ -210,8 +210,8 @@ parse_cmd(Cmd) ->
     end.
 
 check_fields(Fields) ->
-    HasPassHash = lists:member("password_hash", Fields),
-    KnownFields = ["password_hash", "salt", "is_superuser"],
+    HasPassHash = lists:member("password_hash", Fields) orelse lists:member("password", Fields),
+    KnownFields = ["password_hash", "password", "salt", "is_superuser"],
     UnknownFields = [F || F <- Fields, not lists:member(F, KnownFields)],
 
     case {HasPassHash, UnknownFields} of
