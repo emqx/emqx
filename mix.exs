@@ -291,8 +291,6 @@ defmodule EMQXUmbrella.MixProject do
   end
 
   defp copy_files(release, release_type, package_type, edition_type) do
-    IO.inspect :zhongwen
-    IO.inspect release.applications.emqx_dashboard
     overwrite? = Keyword.get(release.options, :overwrite, false)
 
     bin = Path.join(release.path, "bin")
@@ -327,7 +325,10 @@ defmodule EMQXUmbrella.MixProject do
     # required by emqx_dashboard
     Mix.Generator.copy_file(
       "apps/emqx_dashboard/etc/i18n.conf.all",
-      Path.join(release.path, "lib/emqx_dashboard-#{release.applications.emqx_dashboard[:vsn]}/priv/i18n.conf"),
+      Path.join(
+        release.path,
+        "lib/emqx_dashboard-#{release.applications.emqx_dashboard[:vsn]}/priv/i18n.conf"
+      ),
       force: overwrite?
     )
 
