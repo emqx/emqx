@@ -453,6 +453,28 @@ user_seeds() ->
                 <<"password_hash_algorithm">> => #{<<"name">> => <<"bcrypt">>}
             },
             result => {error, bad_username_or_password}
+        },
+
+        #{
+            data => #{
+                password =>
+                    <<"a3c7f6b085c3e5897ffb9b86f18a9d905063f8550a74444b5892e193c1b50428">>,
+                is_superuser => <<"1">>
+            },
+            credentials => #{
+                clientid => <<"sha256_no_salt">>,
+                password => <<"sha256_no_salt">>
+            },
+            key => <<"mqtt_user:sha256_no_salt">>,
+            config_params => #{
+                %% Needs to be compatible with emqx 4.x auth data
+                <<"cmd">> => <<"HMGET mqtt_user:${clientid} password is_superuser">>,
+                <<"password_hash_algorithm">> => #{
+                    <<"name">> => <<"sha256">>,
+                    <<"salt_position">> => <<"disable">>
+                }
+            },
+            result => {ok, #{is_superuser => true}}
         }
     ].
 
