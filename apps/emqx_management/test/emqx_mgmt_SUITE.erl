@@ -29,29 +29,35 @@
 -define(LOG_HANDLER_ID, [file, default]).
 
 all() ->
+    OtherTCs = (emqx_ct:all(?MODULE) -- manage_apps_tests()) -- check_cli_tests(),
     [{group, manage_apps},
-     {group, check_cli}].
+     {group, check_cli}] ++ OtherTCs.
+
+manage_apps_tests() ->
+    [t_app].
+
+check_cli_tests() ->
+    [t_cli,
+     t_log_cmd,
+     t_mgmt_cmd,
+     t_status_cmd,
+     t_clients_cmd,
+     t_vm_cmd,
+     t_plugins_cmd,
+     t_trace_cmd,
+     t_traces_cmd,
+     t_broker_cmd,
+     t_router_cmd,
+     t_subscriptions_cmd,
+     t_listeners_cmd_old,
+     t_listeners_cmd_new
+    ].
 
 groups() ->
     [{manage_apps, [sequence],
-      [t_app
-      ]},
-      {check_cli, [sequence],
-       [t_cli,
-        t_log_cmd,
-        t_mgmt_cmd,
-        t_status_cmd,
-        t_clients_cmd,
-        t_vm_cmd,
-        t_plugins_cmd,
-        t_trace_cmd,
-        t_traces_cmd,
-        t_broker_cmd,
-        t_router_cmd,
-        t_subscriptions_cmd,
-        t_listeners_cmd_old,
-        t_listeners_cmd_new
-       ]}].
+      manage_apps_tests()},
+     {check_cli, [sequence],
+      check_cli_tests()}].
 
 apps() ->
     [emqx_management, emqx_auth_mnesia, emqx_modules].
@@ -73,12 +79,26 @@ init_per_testcase(t_plugins_cmd, Config) ->
     mock_print(),
     Config;
 init_per_testcase(t_import_outside_backup_dir, Config) ->
+    BackupDir = emqx_mgmt_data_backup:backup_dir(),
+    {ok, Files} = file:list_dir(BackupDir),
+    lists:foreach(
+      fun(F) ->
+              file:delete(filename:join(BackupDir, F))
+      end, Files),
     RandomName = emqx_guid:to_hexstr(emqx_guid:gen()),
     Filepath = "/tmp/" ++ binary_to_list(RandomName) ++ ".json",
     FakeData = #{version => "4.4"},
     ok = file:write_file(Filepath, emqx_json:encode(FakeData)),
     [ {tmp_file, Filepath}
     | Config];
+init_per_testcase(t_backup_file, Config) ->
+    BackupDir = emqx_mgmt_data_backup:backup_dir(),
+    {ok, Files} = file:list_dir(BackupDir),
+    lists:foreach(
+      fun(F) ->
+              file:delete(filename:join(BackupDir, F))
+      end, Files),
+    Config;
 init_per_testcase(_Case, Config) ->
     mock_print(),
     Config.
@@ -89,6 +109,20 @@ end_per_testcase(t_plugins_cmd, _Config) ->
 end_per_testcase(t_import_outside_backup_dir, Config) ->
     Filepath = ?config(tmp_file, Config),
     file:delete(Filepath),
+    BackupDir = emqx_mgmt_data_backup:backup_dir(),
+    {ok, Files} = file:list_dir(BackupDir),
+    lists:foreach(
+      fun(F) ->
+              file:delete(filename:join(BackupDir, F))
+      end, Files),
+    ok;
+end_per_testcase(t_backup_file, _Config) ->
+    BackupDir = emqx_mgmt_data_backup:backup_dir(),
+    {ok, Files} = file:list_dir(BackupDir),
+    lists:foreach(
+      fun(F) ->
+              file:delete(filename:join(BackupDir, F))
+      end, Files),
     ok;
 end_per_testcase(_Case, _Config) ->
     unmock_print().
