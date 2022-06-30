@@ -80,7 +80,7 @@ check_password_from_selected_map(Algorithm, Selected, Password) ->
     ),
     case Hash of
         undefined ->
-            {error, bad_username_or_password};
+            {error, not_authorized};
         _ ->
             Salt = maps:get(<<"salt">>, Selected, <<>>),
             case

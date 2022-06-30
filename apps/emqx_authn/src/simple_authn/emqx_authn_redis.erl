@@ -138,27 +138,16 @@ authenticate(
         {ok, []} ->
             ignore;
         {ok, Values} ->
-            case merge(Fields, Values) of
-                #{<<"password_hash">> := _} = Selected ->
-                    case
-                        emqx_authn_utils:check_password_from_selected_map(
-                            Algorithm, Selected, Password
-                        )
-                    of
-                        ok ->
-                            {ok, emqx_authn_utils:is_superuser(Selected)};
-                        {error, Reason} ->
-                            {error, Reason}
-                    end;
-                _ ->
-                    ?SLOG(error, #{
-                        msg => "cannot_find_password_hash_field",
-                        cmd => Command,
-                        keys => NKey,
-                        fields => Fields,
-                        resource => ResourceId
-                    }),
-                    ignore
+            Selected = merge(Fields, Values),
+            case
+                emqx_authn_utils:check_password_from_selected_map(
+                    Algorithm, Selected, Password
+                )
+            of
+                ok ->
+                    {ok, emqx_authn_utils:is_superuser(Selected)};
+                {error, Reason} ->
+                    {error, Reason}
             end;
         {error, Reason} ->
             ?SLOG(error, #{
