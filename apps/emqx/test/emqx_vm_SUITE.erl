@@ -50,12 +50,6 @@ t_systeminfo(_Config) ->
     ),
     ?assertEqual(undefined, emqx_vm:get_system_info(undefined)).
 
-t_mem_info(_Config) ->
-    application:ensure_all_started(os_mon),
-    MemInfo = emqx_vm:mem_info(),
-    [{total_memory, _}, {used_memory, _}] = MemInfo,
-    application:stop(os_mon).
-
 t_process_info(_Config) ->
     ProcessInfo = emqx_vm:get_process_info(),
     ?assertEqual(emqx_vm:process_info_keys(), [K || {K, _V} <- ProcessInfo]).

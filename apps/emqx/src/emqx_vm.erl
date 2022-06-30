@@ -24,7 +24,6 @@
     get_system_info/1,
     get_memory/0,
     get_memory/2,
-    mem_info/0,
     loads/0
 ]).
 
@@ -225,12 +224,6 @@ convert_allocated_areas({Key, Value1, Value2}) ->
     {Key, [Value1, Value2]};
 convert_allocated_areas({Key, Value}) ->
     {Key, Value}.
-
-mem_info() ->
-    Dataset = memsup:get_system_memory_data(),
-    Total = proplists:get_value(total_memory, Dataset),
-    Free = proplists:get_value(free_memory, Dataset),
-    [{total_memory, Total}, {used_memory, Total - Free}].
 
 %%%% erlang vm scheduler_usage  fun copied from recon
 scheduler_usage(Interval) when is_integer(Interval) ->
