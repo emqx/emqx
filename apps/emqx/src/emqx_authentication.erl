@@ -215,17 +215,20 @@ when
 %%------------------------------------------------------------------------------
 
 authenticate(#{enable_authn := false}, _AuthResult) ->
+    inc_authenticate_metric('authentication.success.anonymous'),
     ignore;
 authenticate(#{listener := Listener, protocol := Protocol} = Credential, _AuthResult) ->
     case get_authenticators(Listener, global_chain(Protocol)) of
         {ok, ChainName, Authenticators} ->
             case get_enabled(Authenticators) of
                 [] ->
+                    inc_authenticate_metric('authentication.success.anonymous'),
                     ignore;
                 NAuthenticators ->
                     do_authenticate(ChainName, NAuthenticators, Credential)
             end;
         none ->
+            inc_authenticate_metric('authentication.success.anonymous'),
             ignore
     end.
 
@@ -611,6 +614,7 @@ handle_create_authenticator(Chain, Config, Providers) ->
     end.
 
 do_authenticate(_ChainName, [], _) ->
+    inc_authenticate_metric('authentication.failure'),
     {stop, {error, not_authorized}};
 do_authenticate(
     ChainName, [#authenticator{id = ID, provider = Provider, state = State} | More], Credential
@@ -629,8 +633,10 @@ do_authenticate(
             %% {error, Reason}
             case Result of
                 {ok, _} ->
+                    inc_authenticate_metric('authentication.success'),
                     emqx_metrics_worker:inc(authn_metrics, MetricsID, success);
                 {error, _} ->
+                    inc_authenticate_metric('authentication.failure'),
                     emqx_metrics_worker:inc(authn_metrics, MetricsID, failed);
                 _ ->
                     ok
@@ -902,3 +908,13 @@ to_list(M) when is_map(M) -> [M];
 to_list(L) when is_list(L) -> L.
 
 call(Call) -> gen_server:call(?MODULE, Call, infinity).
+
+inc_authenticate_metric(Metric) ->
+    emqx_metrics:inc('client.authenticate'),
+    inc_authenticate_metric2(Metric).
+
+inc_authenticate_metric2('authentication.success.anonymous' = Metric) ->
+    emqx_metrics:inc(Metric),
+    emqx_metrics:inc('authentication.success');
+inc_authenticate_metric2(Metric) ->
+    emqx_metrics:inc(Metric).

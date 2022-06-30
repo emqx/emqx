@@ -34,7 +34,7 @@
     | {continue, binary(), map()}
     | {error, term()}.
 authenticate(Credential) ->
-    case run_hooks('client.authenticate', [Credential], {ok, #{is_superuser => false}}) of
+    case emqx_hooks:run_fold('client.authenticate', [Credential], {ok, #{is_superuser => false}}) of
         ok ->
             {ok, #{is_superuser => false}};
         Other ->

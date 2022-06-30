@@ -260,6 +260,13 @@
     {counter, 'authorization.cache_hit'}
 ]).
 
+%% Statistic metrics for auth checking
+-define(STASTS_AUTHN_METRICS, [
+    {counter, 'authentication.success'},
+    {counter, 'authentication.success.anonymous'},
+    {counter, 'authentication.failure'}
+]).
+
 %% Overload protetion counters
 -define(OLP_METRICS, [
     {counter, 'olp.delay.ok'},
@@ -543,6 +550,7 @@ init([]) ->
         ?CLIENT_METRICS,
         ?SESSION_METRICS,
         ?STASTS_ACL_METRICS,
+        ?STASTS_AUTHN_METRICS,
         ?OLP_METRICS
     ]),
     % Store reserved indices
@@ -690,6 +698,9 @@ reserved_idx('session.terminated') -> 224;
 reserved_idx('authorization.allow') -> 300;
 reserved_idx('authorization.deny') -> 301;
 reserved_idx('authorization.cache_hit') -> 302;
+reserved_idx('authentication.success') -> 310;
+reserved_idx('authentication.success.anonymous') -> 311;
+reserved_idx('authentication.failure') -> 312;
 reserved_idx('olp.delay.ok') -> 400;
 reserved_idx('olp.delay.timeout') -> 401;
 reserved_idx('olp.hbn') -> 402;
