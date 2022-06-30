@@ -106,9 +106,10 @@ check_compat(DumpFilenames) ->
 
 %% Note: sets nok flag
 -spec check_compat(fulldump(), fulldump()) -> ok.
-check_compat(Dump1, Dump2) ->
+check_compat(Dump1 = #{release := Rel1}, Dump2 = #{release := Rel2}) ->
     check_api_immutability(Dump1, Dump2),
-    typecheck_apis(Dump1, Dump2).
+    Rel2 >= Rel1 andalso
+        typecheck_apis(Dump1, Dump2).
 
 %% It's not allowed to change BPAPI modules. Check that no changes
 %% have been made. (sets nok flag)
@@ -202,10 +203,15 @@ typecheck_rpc(Caller, Callee) ->
 -spec get_param_types(dialyzer_dump(), emqx_bpapi:call()) -> param_types().
 get_param_types(Signatures, {M, F, A}) ->
     Arity = length(A),
-    #{{M, F, Arity} := {_RetType, AttrTypes}} = Signatures,
-    % assert
-    Arity = length(AttrTypes),
-    maps:from_list(lists:zip(A, AttrTypes)).
+    case Signatures of
+        #{{M, F, Arity} := {_RetType, AttrTypes}} ->
+            % assert
+            Arity = length(AttrTypes),
+            maps:from_list(lists:zip(A, AttrTypes));
+        _ ->
+            logger:critical("Call ~p:~p/~p is not found in PLT~n", [M, F, Arity]),
+            error(badkey)
+    end.
 
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 %% Functions related to BPAPI dumping
