@@ -142,12 +142,14 @@ message(Map) ->
             {error, R}
     end.
 
-encode_payload(plain, Payload) -> {ok, Payload};
+encode_payload(plain, Payload) ->
+    {ok, Payload};
 encode_payload(base64, Payload) ->
     try
         {ok, base64:decode(Payload)}
-    catch _:_ ->
-        {error, {decode_base64_payload_failed, Payload}}
+    catch
+        _:_ ->
+            {error, {decode_base64_payload_failed, Payload}}
     end.
 
 messages(List) ->

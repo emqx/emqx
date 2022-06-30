@@ -83,7 +83,9 @@
     do_subscribe/2,
     publish/1,
     unsubscribe/2,
-    do_unsubscribe/2
+    do_unsubscribe/2,
+    unsubscribe_batch/2,
+    do_unsubscribe_batch/2
 ]).
 
 %% Alarms
@@ -417,7 +419,6 @@ do_subscribe(ClientId, TopicTables) ->
         [{_, Pid}] -> Pid ! {subscribe, TopicTables}
     end.
 
-%%TODO: ???
 publish(Msg) ->
     emqx_metrics:inc_msg(Msg),
     emqx:publish(Msg).
@@ -443,6 +444,29 @@ do_unsubscribe(ClientId, Topic) ->
     case ets:lookup(emqx_channel, ClientId) of
         [] -> {error, channel_not_found};
         [{_, Pid}] -> Pid ! {unsubscribe, [emqx_topic:parse(Topic)]}
+    end.
+
+-spec unsubscribe_batch(emqx_types:clientid(), [emqx_types:topic()]) ->
+    {unsubscribe, _} | {error, channel_not_found}.
+unsubscribe_batch(ClientId, Topics) ->
+    unsubscribe_batch(mria_mnesia:running_nodes(), ClientId, Topics).
+
+-spec unsubscribe_batch([node()], emqx_types:clientid(), [emqx_types:topic()]) ->
+    {unsubscribe_batch, _} | {error, channel_not_found}.
+unsubscribe_batch([Node | Nodes], ClientId, Topics) ->
+    case wrap_rpc(emqx_management_proto_v2:unsubscribe_batch(Node, ClientId, Topics)) of
+        {error, _} -> unsubscribe_batch(Nodes, ClientId, Topics);
+        Re -> Re
+    end;
+unsubscribe_batch([], _ClientId, _Topics) ->
+    {error, channel_not_found}.
+
+-spec do_unsubscribe_batch(emqx_types:clientid(), [emqx_types:topic()]) ->
+    {unsubscribe_batch, _} | {error, _}.
+do_unsubscribe_batch(ClientId, Topics) ->
+    case ets:lookup(emqx_channel, ClientId) of
+        [] -> {error, channel_not_found};
+        [{_, Pid}] -> Pid ! {unsubscribe, [emqx_topic:parse(Topic) || Topic <- Topics]}
     end.
 
 %%--------------------------------------------------------------------

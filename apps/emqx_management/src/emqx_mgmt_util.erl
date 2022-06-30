@@ -202,23 +202,29 @@ json_content_schema(Schema, Desc) ->
 
 %%%==============================================================================================
 batch_operation(Module, Function, ArgsList) ->
-    Failed = batch_operation(Module, Function, ArgsList, []),
-    Len = erlang:length(Failed),
-    Success = erlang:length(ArgsList) - Len,
-    Fun =
-        fun({Args, Reason}, Detail) ->
-            [#{data => Args, reason => io_lib:format("~p", [Reason])} | Detail]
-        end,
-    #{success => Success, failed => Len, detail => lists:foldl(Fun, [], Failed)}.
+    {Succeed, Failed} = batch_operation(Module, Function, ArgsList, {[], []}),
+    case erlang:length(Failed) of
+        0 ->
+            Succeed;
+        _FLen ->
+            Fun =
+                fun({Args, Reason}, Detail) ->
+                    [
+                        #{data => Args, reason => list_to_binary(io_lib:format("~p", [Reason]))}
+                        | Detail
+                    ]
+                end,
+            #{succeed => Succeed, failed => lists:foldl(Fun, [], Failed)}
+    end.
 
-batch_operation(_Module, _Function, [], Failed) ->
-    lists:reverse(Failed);
-batch_operation(Module, Function, [Args | ArgsList], Failed) ->
+batch_operation(_Module, _Function, [], {Succeed, Failed}) ->
+    {lists:reverse(Succeed), lists:reverse(Failed)};
+batch_operation(Module, Function, [Args | ArgsList], {Succeed, Failed}) ->
     case erlang:apply(Module, Function, Args) of
-        ok ->
-            batch_operation(Module, Function, ArgsList, Failed);
+        {ok, Res} ->
+            batch_operation(Module, Function, ArgsList, {[Res | Succeed], Failed});
         {error, Reason} ->
-            batch_operation(Module, Function, ArgsList, [{Args, Reason} | Failed])
+            batch_operation(Module, Function, ArgsList, {Succeed, [{Args, Reason} | Failed]})
     end.
 
 properties(Props) ->

@@ -13,6 +13,7 @@
 {emqx_gateway_http,1}.
 {emqx_license,1}.
 {emqx_management,1}.
+{emqx_management,2}.
 {emqx_mgmt_api_plugins,1}.
 {emqx_mgmt_cluster,1}.
 {emqx_mgmt_trace,1}.
