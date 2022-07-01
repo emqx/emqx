@@ -22,6 +22,7 @@ on:
 
 jobs:
   prepare:
+    runs-on: ubuntu-20.04
     outputs:
       BUILD_PROFILE: ${{ steps.get_profile.outputs.BUILD_PROFILE }}
       IS_EXACT_TAG: ${{ steps.get_profile.outputs.IS_EXACT_TAG }}
