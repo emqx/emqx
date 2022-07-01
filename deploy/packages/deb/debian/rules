@@ -34,6 +34,8 @@ install: build
 	mkdir -p debian/emqx/var/run/emqx
 	mkdir -p debian/emqx/var/log/emqx
 	mkdir -p debian/emqx/usr/lib/emqx/bin
+	mkdir -p debian/emqx/usr/lib/emqx/plugins
+	touch debian/emqx/usr/lib/emqx/plugins/.keep
 	mkdir -p debian/emqx/etc/emqx
 	cp bin/* debian/emqx/usr/lib/emqx/bin
 	cp -R lib debian/emqx/usr/lib/emqx
