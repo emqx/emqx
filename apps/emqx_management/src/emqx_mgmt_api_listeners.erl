@@ -445,7 +445,7 @@ list_listeners() ->
     [list_listeners(Node) || Node <- mria_mnesia:running_nodes()].
 
 list_listeners(Node) ->
-    wrap_rpc(emqx_management_proto_v1:list_listeners(Node)).
+    wrap_rpc(emqx_management_proto_v2:list_listeners(Node)).
 
 listener_status_by_id(NodeL) ->
     Listeners = maps:to_list(listener_status_by_id(NodeL, #{})),

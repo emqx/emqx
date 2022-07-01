@@ -83,7 +83,9 @@
     do_subscribe/2,
     publish/1,
     unsubscribe/2,
-    do_unsubscribe/2
+    do_unsubscribe/2,
+    unsubscribe_batch/2,
+    do_unsubscribe_batch/2
 ]).
 
 %% Alarms
@@ -151,7 +153,7 @@ get_sys_memory() ->
     end.
 
 node_info(Node) ->
-    wrap_rpc(emqx_management_proto_v1:node_info(Node)).
+    wrap_rpc(emqx_management_proto_v2:node_info(Node)).
 
 stopped_node_info(Node) ->
     #{name => Node, node_status => 'Stopped'}.
@@ -171,7 +173,7 @@ broker_info() ->
     Info#{node => node(), otp_release => otp_rel(), node_status => 'Running'}.
 
 broker_info(Node) ->
-    wrap_rpc(emqx_management_proto_v1:broker_info(Node)).
+    wrap_rpc(emqx_management_proto_v2:broker_info(Node)).
 
 %%--------------------------------------------------------------------
 %% Metrics and Stats
@@ -355,7 +357,7 @@ do_call_client(ClientId, Req) ->
 
 %% @private
 call_client(Node, ClientId, Req) ->
-    wrap_rpc(emqx_management_proto_v1:call_client(Node, ClientId, Req)).
+    wrap_rpc(emqx_management_proto_v2:call_client(Node, ClientId, Req)).
 
 %%--------------------------------------------------------------------
 %% Subscriptions
@@ -374,7 +376,7 @@ do_list_subscriptions() ->
     end.
 
 list_subscriptions(Node) ->
-    wrap_rpc(emqx_management_proto_v1:list_subscriptions(Node)).
+    wrap_rpc(emqx_management_proto_v2:list_subscriptions(Node)).
 
 list_subscriptions_via_topic(Topic, FormatFun) ->
     lists:append([
@@ -402,7 +404,7 @@ subscribe(ClientId, TopicTables) ->
     subscribe(mria_mnesia:running_nodes(), ClientId, TopicTables).
 
 subscribe([Node | Nodes], ClientId, TopicTables) ->
-    case wrap_rpc(emqx_management_proto_v1:subscribe(Node, ClientId, TopicTables)) of
+    case wrap_rpc(emqx_management_proto_v2:subscribe(Node, ClientId, TopicTables)) of
         {error, _} -> subscribe(Nodes, ClientId, TopicTables);
         {subscribe, Res} -> {subscribe, Res, Node}
     end;
@@ -417,7 +419,6 @@ do_subscribe(ClientId, TopicTables) ->
         [{_, Pid}] -> Pid ! {subscribe, TopicTables}
     end.
 
-%%TODO: ???
 publish(Msg) ->
     emqx_metrics:inc_msg(Msg),
     emqx:publish(Msg).
@@ -430,7 +431,7 @@ unsubscribe(ClientId, Topic) ->
 -spec unsubscribe([node()], emqx_types:clientid(), emqx_types:topic()) ->
     {unsubscribe, _} | {error, channel_not_found}.
 unsubscribe([Node | Nodes], ClientId, Topic) ->
-    case wrap_rpc(emqx_management_proto_v1:unsubscribe(Node, ClientId, Topic)) of
+    case wrap_rpc(emqx_management_proto_v2:unsubscribe(Node, ClientId, Topic)) of
         {error, _} -> unsubscribe(Nodes, ClientId, Topic);
         Re -> Re
     end;
@@ -443,6 +444,29 @@ do_unsubscribe(ClientId, Topic) ->
     case ets:lookup(emqx_channel, ClientId) of
         [] -> {error, channel_not_found};
         [{_, Pid}] -> Pid ! {unsubscribe, [emqx_topic:parse(Topic)]}
+    end.
+
+-spec unsubscribe_batch(emqx_types:clientid(), [emqx_types:topic()]) ->
+    {unsubscribe, _} | {error, channel_not_found}.
+unsubscribe_batch(ClientId, Topics) ->
+    unsubscribe_batch(mria_mnesia:running_nodes(), ClientId, Topics).
+
+-spec unsubscribe_batch([node()], emqx_types:clientid(), [emqx_types:topic()]) ->
+    {unsubscribe_batch, _} | {error, channel_not_found}.
+unsubscribe_batch([Node | Nodes], ClientId, Topics) ->
+    case wrap_rpc(emqx_management_proto_v2:unsubscribe_batch(Node, ClientId, Topics)) of
+        {error, _} -> unsubscribe_batch(Nodes, ClientId, Topics);
+        Re -> Re
+    end;
+unsubscribe_batch([], _ClientId, _Topics) ->
+    {error, channel_not_found}.
+
+-spec do_unsubscribe_batch(emqx_types:clientid(), [emqx_types:topic()]) ->
+    {unsubscribe_batch, _} | {error, _}.
+do_unsubscribe_batch(ClientId, Topics) ->
+    case ets:lookup(emqx_channel, ClientId) of
+        [] -> {error, channel_not_found};
+        [{_, Pid}] -> Pid ! {unsubscribe, [emqx_topic:parse(Topic) || Topic <- Topics]}
     end.
 
 %%--------------------------------------------------------------------
