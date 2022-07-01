@@ -284,7 +284,7 @@ jobs:
             elixir: 1.13.4
             build_elixir: with_elixir
             arch: amd64
-            os: el7
+            os: el8
             build_machine: ubuntu-20.04
 
     defaults:
