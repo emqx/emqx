@@ -34,9 +34,14 @@
     render_sql_params/2
 ]).
 
-%%------------------------------------------------------------------------------
+-define(DEFAULT_RESOURCE_OPTS, #{
+    auto_retry_interval => 6000,
+    start_after_created => false
+}).
+
+%%--------------------------------------------------------------------
 %% APIs
-%%------------------------------------------------------------------------------
+%%--------------------------------------------------------------------
 
 create_resource(Module, Config) ->
     ResourceId = make_resource_id(Module),
@@ -48,7 +53,7 @@ create_resource(ResourceId, Module, Config) ->
         ?RESOURCE_GROUP,
         Module,
         Config,
-        #{start_after_created => false}
+        ?DEFAULT_RESOURCE_OPTS
     ),
     start_resource_if_enabled(Result, ResourceId, Config).
 
@@ -59,7 +64,7 @@ update_resource(Module, #{annotations := #{id := ResourceId}} = Config) ->
                 ResourceId,
                 Module,
                 Config,
-                #{start_after_created => false}
+                ?DEFAULT_RESOURCE_OPTS
             )
         of
             {ok, _} -> {ok, ResourceId};
@@ -125,9 +130,9 @@ render_sql_params(ParamList, Values) ->
         #{return => rawlist, var_trans => fun handle_sql_var/2}
     ).
 
-%%------------------------------------------------------------------------------
+%%--------------------------------------------------------------------
 %% Internal functions
-%%------------------------------------------------------------------------------
+%%--------------------------------------------------------------------
 
 client_vars(ClientInfo) ->
     maps:from_list(

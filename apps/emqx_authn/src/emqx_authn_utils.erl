@@ -45,9 +45,14 @@
     ?PH_CERT_CN_NAME
 ]).
 
-%%------------------------------------------------------------------------------
+-define(DEFAULT_RESOURCE_OPTS, #{
+    auto_retry_interval => 6000,
+    start_after_created => false
+}).
+
+%%--------------------------------------------------------------------
 %% APIs
-%%------------------------------------------------------------------------------
+%%--------------------------------------------------------------------
 
 create_resource(ResourceId, Module, Config) ->
     Result = emqx_resource:create_local(
@@ -55,13 +60,14 @@ create_resource(ResourceId, Module, Config) ->
         ?RESOURCE_GROUP,
         Module,
         Config,
-        #{start_after_created => false}
+        ?DEFAULT_RESOURCE_OPTS
     ),
     start_resource_if_enabled(Result, ResourceId, Config).
 
 update_resource(Module, Config, ResourceId) ->
-    Opts = #{start_after_created => false},
-    Result = emqx_resource:recreate_local(ResourceId, Module, Config, Opts),
+    Result = emqx_resource:recreate_local(
+        ResourceId, Module, Config, ?DEFAULT_RESOURCE_OPTS
+    ),
     start_resource_if_enabled(Result, ResourceId, Config).
 
 start_resource_if_enabled({ok, _} = Result, ResourceId, #{enable := true}) ->
@@ -166,9 +172,9 @@ make_resource_id(Name) ->
     NameBin = bin(Name),
     emqx_resource:generate_id(NameBin).
 
-%%------------------------------------------------------------------------------
+%%--------------------------------------------------------------------
 %% Internal functions
-%%------------------------------------------------------------------------------
+%%--------------------------------------------------------------------
 
 handle_var({var, Name}, undefined) ->
     error({cannot_get_variable, Name});
