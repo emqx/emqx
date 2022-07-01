@@ -17,11 +17,10 @@
 * Fixed Erlang distribution over TLS [8309](https://github.com/emqx/emqx/pull/8309)
 * Made possible to override authentication configs from environment variables [8323](https://github.com/emqx/emqx/pull/8309)
 * Made authentication passwords in Mnesia database backward compatible to 4.x, so we can support data migration better. [8351](https://github.com/emqx/emqx/pull/8351)
-
 * Fix plugins upload for rpm/deb installations [8379](https://github.com/emqx/emqx/pull/8379)
 * Sync data/authz/acl.conf and data/certs from clustered nodes after a new node joins the cluster [8369](https://github.com/emqx/emqx/pull/8369)
 * Ensure auto-retry of failed resources [8371](https://github.com/emqx/emqx/pull/8371)
-* Fix matrics name `connack.auth_error` -> `packets.connack.auth_error` [8178](https://github.com/emqx/emqx/pull/8178)
+* Fix the issue that the count of `packets.connack.auth_error` is inaccurate when the client uses a protocol version below MQTT v5.0 to access [8178](https://github.com/emqx/emqx/pull/8178)
 
 ## Others
 
