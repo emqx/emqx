@@ -34,7 +34,10 @@
     render_sql_params/2
 ]).
 
--export([parse_http_resp_body/2]).
+-export([
+    parse_http_resp_body/2,
+    content_type/1
+]).
 
 -define(DEFAULT_RESOURCE_OPTS, #{
     auto_retry_interval => 6000,
@@ -150,6 +153,16 @@ result(#{<<"result">> := <<"allow">>}) -> allow;
 result(#{<<"result">> := <<"deny">>}) -> deny;
 result(#{<<"result">> := <<"ignore">>}) -> ignore;
 result(_) -> error.
+
+-spec content_type(cow_http:headers()) -> binary().
+content_type(Headers) when is_list(Headers) ->
+    %% header name is lower case, see:
+    %% https://github.com/ninenines/cowlib/blob/ce6798c6b2e95b6a34c6a76d2489eaf159827d80/src/cow_http.erl#L192
+    proplists:get_value(
+        <<"content-type">>,
+        Headers,
+        <<"application/json">>
+    ).
 
 %%--------------------------------------------------------------------
 %% Internal functions

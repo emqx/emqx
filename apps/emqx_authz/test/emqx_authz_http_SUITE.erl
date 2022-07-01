@@ -26,6 +26,15 @@
 -define(HTTP_PORT, 33333).
 -define(HTTP_PATH, "/authz/[...]").
 
+-define(AUTHZ_HTTP_RESP(Result, Req),
+    cowboy_req:reply(
+        200,
+        #{<<"content-type">> => <<"application/json">>},
+        "{\"result\": \"" ++ atom_to_list(Result) ++ "\"}",
+        Req
+    )
+).
+
 all() ->
     emqx_common_test_helpers:all(?MODULE).
 
@@ -69,27 +78,10 @@ t_response_handling(_Config) ->
         listener => {tcp, default}
     },
 
-    %% OK, get, no body
-    ok = setup_handler_and_config(
-        fun(Req0, State) ->
-            Req = cowboy_req:reply(200, Req0),
-            {ok, Req, State}
-        end,
-        #{}
-    ),
-
-    allow = emqx_access_control:authorize(ClientInfo, publish, <<"t">>),
-
     %% OK, get, body & headers
     ok = setup_handler_and_config(
         fun(Req0, State) ->
-            Req = cowboy_req:reply(
-                200,
-                #{<<"content-type">> => <<"application/json">>},
-                "{\"result\": \"allow\"}",
-                Req0
-            ),
-            {ok, Req, State}
+            {ok, ?AUTHZ_HTTP_RESP(allow, Req0), State}
         end,
         #{}
     ),
@@ -98,6 +90,17 @@ t_response_handling(_Config) ->
         allow,
         emqx_access_control:authorize(ClientInfo, publish, <<"t">>)
     ),
+
+    %% Not OK, get, no body
+    ok = setup_handler_and_config(
+        fun(Req0, State) ->
+            Req = cowboy_req:reply(200, Req0),
+            {ok, Req, State}
+        end,
+        #{}
+    ),
+
+    deny = emqx_access_control:authorize(ClientInfo, publish, <<"t">>),
 
     %% OK, get, 204
     ok = setup_handler_and_config(
@@ -169,8 +172,7 @@ t_query_params(_Config) ->
                 ],
                 Req0
             ),
-            Req = cowboy_req:reply(200, Req0),
-            {ok, Req, State}
+            {ok, ?AUTHZ_HTTP_RESP(allow, Req0), State}
         end,
         #{
             <<"url">> => <<
@@ -217,8 +219,7 @@ t_path(_Config) ->
                 >>,
                 cowboy_req:path(Req0)
             ),
-            Req = cowboy_req:reply(200, Req0),
-            {ok, Req, State}
+            {ok, ?AUTHZ_HTTP_RESP(allow, Req0), State}
         end,
         #{
             <<"url">> => <<
@@ -271,9 +272,7 @@ t_json_body(_Config) ->
                 },
                 jiffy:decode(RawBody, [return_maps])
             ),
-
-            Req = cowboy_req:reply(200, Req1),
-            {ok, Req, State}
+            {ok, ?AUTHZ_HTTP_RESP(allow, Req1), State}
         end,
         #{
             <<"method">> => <<"post">>,
@@ -326,9 +325,7 @@ t_form_body(_Config) ->
                 },
                 jiffy:decode(PostVars, [return_maps])
             ),
-
-            Req = cowboy_req:reply(200, Req1),
-            {ok, Req, State}
+            {ok, ?AUTHZ_HTTP_RESP(allow, Req1), State}
         end,
         #{
             <<"method">> => <<"post">>,
@@ -372,8 +369,7 @@ t_create_replace(_Config) ->
     %% Create with valid URL
     ok = setup_handler_and_config(
         fun(Req0, State) ->
-            Req = cowboy_req:reply(200, Req0),
-            {ok, Req, State}
+            {ok, ?AUTHZ_HTTP_RESP(allow, Req0), State}
         end,
         #{
             <<"url">> =>
