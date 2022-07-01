@@ -304,7 +304,7 @@ configs(get, Params, _Req) ->
     Node = maps:get(node, Params, node()),
     case
         lists:member(Node, mria_mnesia:running_nodes()) andalso
-            emqx_management_proto_v1:get_full_config(Node)
+            emqx_management_proto_v2:get_full_config(Node)
     of
         false ->
             Message = list_to_binary(io_lib:format("Bad node ~p, reason not found", [Node])),

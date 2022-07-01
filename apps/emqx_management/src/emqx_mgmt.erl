@@ -153,7 +153,7 @@ get_sys_memory() ->
     end.
 
 node_info(Node) ->
-    wrap_rpc(emqx_management_proto_v1:node_info(Node)).
+    wrap_rpc(emqx_management_proto_v2:node_info(Node)).
 
 stopped_node_info(Node) ->
     #{name => Node, node_status => 'Stopped'}.
@@ -173,7 +173,7 @@ broker_info() ->
     Info#{node => node(), otp_release => otp_rel(), node_status => 'Running'}.
 
 broker_info(Node) ->
-    wrap_rpc(emqx_management_proto_v1:broker_info(Node)).
+    wrap_rpc(emqx_management_proto_v2:broker_info(Node)).
 
 %%--------------------------------------------------------------------
 %% Metrics and Stats
@@ -357,7 +357,7 @@ do_call_client(ClientId, Req) ->
 
 %% @private
 call_client(Node, ClientId, Req) ->
-    wrap_rpc(emqx_management_proto_v1:call_client(Node, ClientId, Req)).
+    wrap_rpc(emqx_management_proto_v2:call_client(Node, ClientId, Req)).
 
 %%--------------------------------------------------------------------
 %% Subscriptions
@@ -376,7 +376,7 @@ do_list_subscriptions() ->
     end.
 
 list_subscriptions(Node) ->
-    wrap_rpc(emqx_management_proto_v1:list_subscriptions(Node)).
+    wrap_rpc(emqx_management_proto_v2:list_subscriptions(Node)).
 
 list_subscriptions_via_topic(Topic, FormatFun) ->
     lists:append([
@@ -404,7 +404,7 @@ subscribe(ClientId, TopicTables) ->
     subscribe(mria_mnesia:running_nodes(), ClientId, TopicTables).
 
 subscribe([Node | Nodes], ClientId, TopicTables) ->
-    case wrap_rpc(emqx_management_proto_v1:subscribe(Node, ClientId, TopicTables)) of
+    case wrap_rpc(emqx_management_proto_v2:subscribe(Node, ClientId, TopicTables)) of
         {error, _} -> subscribe(Nodes, ClientId, TopicTables);
         {subscribe, Res} -> {subscribe, Res, Node}
     end;
@@ -431,7 +431,7 @@ unsubscribe(ClientId, Topic) ->
 -spec unsubscribe([node()], emqx_types:clientid(), emqx_types:topic()) ->
     {unsubscribe, _} | {error, channel_not_found}.
 unsubscribe([Node | Nodes], ClientId, Topic) ->
-    case wrap_rpc(emqx_management_proto_v1:unsubscribe(Node, ClientId, Topic)) of
+    case wrap_rpc(emqx_management_proto_v2:unsubscribe(Node, ClientId, Topic)) of
         {error, _} -> unsubscribe(Nodes, ClientId, Topic);
         Re -> Re
     end;
