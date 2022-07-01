@@ -183,7 +183,7 @@ conf_sort({ok, _}, {ok, _}) ->
     false.
 
 sync_data_from_node(Node) ->
-    case emqx_conf_proto_v1:sync_data_from_node(Node) of
+    case emqx_conf_proto_v2:sync_data_from_node(Node) of
         {ok, DataBin} ->
             {ok, Files} = zip:unzip(DataBin, [{cwd, emqx:data_dir()}]),
             ?SLOG(debug, #{node => Node, msg => "sync_data_from_node_ok", files => Files}),
