@@ -62,7 +62,7 @@ get_raw(KeyPath) ->
 %% @doc Returns all values in the cluster.
 -spec get_all(emqx_map_lib:config_key_path()) -> #{node() => term()}.
 get_all(KeyPath) ->
-    {ResL, []} = emqx_conf_proto_v1:get_all(KeyPath),
+    {ResL, []} = emqx_conf_proto_v2:get_all(KeyPath),
     maps:from_list(ResL).
 
 %% @doc Returns the specified node's KeyPath, or exception if not found
@@ -70,14 +70,14 @@ get_all(KeyPath) ->
 get_by_node(Node, KeyPath) when Node =:= node() ->
     emqx:get_config(KeyPath);
 get_by_node(Node, KeyPath) ->
-    emqx_conf_proto_v1:get_config(Node, KeyPath).
+    emqx_conf_proto_v2:get_config(Node, KeyPath).
 
 %% @doc Returns the specified node's KeyPath, or the default value if not found
 -spec get_by_node(node(), emqx_map_lib:config_key_path(), term()) -> term().
 get_by_node(Node, KeyPath, Default) when Node =:= node() ->
     emqx:get_config(KeyPath, Default);
 get_by_node(Node, KeyPath, Default) ->
-    emqx_conf_proto_v1:get_config(Node, KeyPath, Default).
+    emqx_conf_proto_v2:get_config(Node, KeyPath, Default).
 
 %% @doc Returns the specified node's KeyPath, or config_not_found if key path not found
 -spec get_node_and_config(emqx_map_lib:config_key_path()) -> term().
@@ -92,7 +92,7 @@ get_node_and_config(KeyPath) ->
 ) ->
     {ok, emqx_config:update_result()} | {error, emqx_config:update_error()}.
 update(KeyPath, UpdateReq, Opts) ->
-    emqx_conf_proto_v1:update(KeyPath, UpdateReq, Opts).
+    emqx_conf_proto_v2:update(KeyPath, UpdateReq, Opts).
 
 %% @doc Update the specified node's key path in local-override.conf.
 -spec update(
@@ -105,13 +105,13 @@ update(KeyPath, UpdateReq, Opts) ->
 update(Node, KeyPath, UpdateReq, Opts0) when Node =:= node() ->
     emqx:update_config(KeyPath, UpdateReq, Opts0#{override_to => local});
 update(Node, KeyPath, UpdateReq, Opts) ->
-    emqx_conf_proto_v1:update(Node, KeyPath, UpdateReq, Opts).
+    emqx_conf_proto_v2:update(Node, KeyPath, UpdateReq, Opts).
 
 %% @doc remove all value of key path in cluster-override.conf or local-override.conf.
 -spec remove(emqx_map_lib:config_key_path(), emqx_config:update_opts()) ->
     {ok, emqx_config:update_result()} | {error, emqx_config:update_error()}.
 remove(KeyPath, Opts) ->
-    emqx_conf_proto_v1:remove_config(KeyPath, Opts).
+    emqx_conf_proto_v2:remove_config(KeyPath, Opts).
 
 %% @doc remove the specified node's key path in local-override.conf.
 -spec remove(node(), emqx_map_lib:config_key_path(), emqx_config:update_opts()) ->
@@ -119,13 +119,13 @@ remove(KeyPath, Opts) ->
 remove(Node, KeyPath, Opts) when Node =:= node() ->
     emqx:remove_config(KeyPath, Opts#{override_to => local});
 remove(Node, KeyPath, Opts) ->
-    emqx_conf_proto_v1:remove_config(Node, KeyPath, Opts).
+    emqx_conf_proto_v2:remove_config(Node, KeyPath, Opts).
 
 %% @doc reset all value of key path in cluster-override.conf or local-override.conf.
 -spec reset(emqx_map_lib:config_key_path(), emqx_config:update_opts()) ->
     {ok, emqx_config:update_result()} | {error, emqx_config:update_error()}.
 reset(KeyPath, Opts) ->
-    emqx_conf_proto_v1:reset(KeyPath, Opts).
+    emqx_conf_proto_v2:reset(KeyPath, Opts).
 
 %% @doc reset the specified node's key path in local-override.conf.
 -spec reset(node(), emqx_map_lib:config_key_path(), emqx_config:update_opts()) ->
@@ -133,7 +133,7 @@ reset(KeyPath, Opts) ->
 reset(Node, KeyPath, Opts) when Node =:= node() ->
     emqx:reset_config(KeyPath, Opts#{override_to => local});
 reset(Node, KeyPath, Opts) ->
-    emqx_conf_proto_v1:reset(Node, KeyPath, Opts).
+    emqx_conf_proto_v2:reset(Node, KeyPath, Opts).
 
 %% @doc Called from build script.
 -spec dump_schema(file:name_all()) -> ok.

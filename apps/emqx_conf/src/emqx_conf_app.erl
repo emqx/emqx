@@ -97,7 +97,7 @@ copy_override_conf_from_core_node() ->
             ?SLOG(debug, #{msg => "skip_copy_overide_conf_from_core_node"}),
             {ok, ?DEFAULT_INIT_TXN_ID};
         Nodes ->
-            {Results, Failed} = emqx_conf_proto_v1:get_override_config_file(Nodes),
+            {Results, Failed} = emqx_conf_proto_v2:get_override_config_file(Nodes),
             {Ready, NotReady0} = lists:partition(fun(Res) -> element(1, Res) =:= ok end, Results),
             NotReady = lists:filter(fun(Res) -> element(1, Res) =:= error end, NotReady0),
             case (Failed =/= [] orelse NotReady =/= []) andalso Ready =/= [] of
