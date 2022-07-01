@@ -243,7 +243,7 @@ t_is_superuser(_Config) ->
         {is_superuser_str, "", false},
         {is_superuser_str, null, false},
         {is_superuser_str, "1", true},
-        {is_superuser_str, "val", true},
+        {is_superuser_str, "val", false},
 
         {is_superuser_int, 0, false},
         {is_superuser_int, null, false},
