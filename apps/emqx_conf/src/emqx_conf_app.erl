@@ -20,6 +20,7 @@
 
 -export([start/2, stop/1]).
 -export([get_override_config_file/0]).
+-export([sync_data_from_node/0]).
 
 -include_lib("emqx/include/logger.hrl").
 -include("emqx_conf.hrl").
@@ -56,6 +57,16 @@ get_override_config_file() ->
             end
     end.
 
+sync_data_from_node() ->
+    Dir = emqx:data_dir(),
+    TargetDirs = lists:filter(fun(Type) -> filelib:is_dir(filename:join(Dir, Type)) end, [
+        "authz", "certs"
+    ]),
+    {ok, Zip} = zip:zip(atom_to_list(node()) ++ "_data.zip", TargetDirs, [{cwd, Dir}]),
+    Res = {ok, _Bin} = file:read_file(Zip),
+    _ = file:delete(Zip),
+    Res.
+
 %% ------------------------------------------------------------------------------
 %% Internal functions
 %% ------------------------------------------------------------------------------
@@ -86,7 +97,7 @@ copy_override_conf_from_core_node() ->
             ?SLOG(debug, #{msg => "skip_copy_overide_conf_from_core_node"}),
             {ok, ?DEFAULT_INIT_TXN_ID};
         Nodes ->
-            {Results, Failed} = emqx_conf_proto_v1:get_override_config_file(Nodes),
+            {Results, Failed} = emqx_conf_proto_v2:get_override_config_file(Nodes),
             {Ready, NotReady0} = lists:partition(fun(Res) -> element(1, Res) =:= ok end, Results),
             NotReady = lists:filter(fun(Res) -> element(1, Res) =:= error end, NotReady0),
             case (Failed =/= [] orelse NotReady =/= []) andalso Ready =/= [] of
@@ -150,6 +161,7 @@ copy_override_conf_from_core_node() ->
                         RawOverrideConf,
                         #{override_to => cluster}
                     ),
+                    ok = sync_data_from_node(Node),
                     {ok, TnxId}
             end
     end.
@@ -173,3 +185,14 @@ conf_sort({ok, #{tnx_id := Id, wall_clock := W1}}, {ok, #{tnx_id := Id, wall_clo
     W1 > W2;
 conf_sort({ok, _}, {ok, _}) ->
     false.
+
+sync_data_from_node(Node) ->
+    case emqx_conf_proto_v2:sync_data_from_node(Node) of
+        {ok, DataBin} ->
+            {ok, Files} = zip:unzip(DataBin, [{cwd, emqx:data_dir()}]),
+            ?SLOG(debug, #{node => Node, msg => "sync_data_from_node_ok", files => Files}),
+            ok;
+        Error ->
+            ?SLOG(emergency, #{node => Node, msg => "sync_data_from_node_failed", reason => Error}),
+            error(Error)
+    end.
