@@ -6,7 +6,7 @@ if [[ -n "$DEBUG" ]]; then set -x; fi
 set -euo pipefail
 
 # ensure dir
-cd -P -- "$(dirname -- "${BASH_SOURCE[0]}")/.."
+cd -P -- "$(dirname -- "${BASH_SOURCE[0]}")/../.."
 ROOT_DIR="$(pwd)"
 
 PROFILE="${1:-emqx}"
