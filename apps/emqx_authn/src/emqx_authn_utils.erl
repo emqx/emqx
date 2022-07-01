@@ -72,13 +72,25 @@ start_resource_if_enabled(Result, _ResourceId, _Config) ->
 
 check_password_from_selected_map(_Algorithm, _Selected, undefined) ->
     {error, bad_username_or_password};
-check_password_from_selected_map(
-    Algorithm, #{<<"password_hash">> := Hash} = Selected, Password
-) ->
-    Salt = maps:get(<<"salt">>, Selected, <<>>),
-    case emqx_authn_password_hashing:check_password(Algorithm, Salt, Hash, Password) of
-        true -> ok;
-        false -> {error, bad_username_or_password}
+check_password_from_selected_map(Algorithm, Selected, Password) ->
+    Hash = maps:get(
+        <<"password_hash">>,
+        Selected,
+        maps:get(<<"password">>, Selected, undefined)
+    ),
+    case Hash of
+        undefined ->
+            {error, not_authorized};
+        _ ->
+            Salt = maps:get(<<"salt">>, Selected, <<>>),
+            case
+                emqx_authn_password_hashing:check_password(
+                    Algorithm, Salt, Hash, Password
+                )
+            of
+                true -> ok;
+                false -> {error, bad_username_or_password}
+            end
     end.
 
 parse_deep(Template) ->
@@ -160,10 +172,14 @@ make_resource_id(Name) ->
 
 handle_var({var, Name}, undefined) ->
     error({cannot_get_variable, Name});
+handle_var({var, <<"peerhost">>}, PeerHost) ->
+    emqx_placeholder:bin(inet:ntoa(PeerHost));
 handle_var(_, Value) ->
     emqx_placeholder:bin(Value).
 
 handle_sql_var({var, Name}, undefined) ->
     error({cannot_get_variable, Name});
+handle_sql_var({var, <<"peerhost">>}, PeerHost) ->
+    emqx_placeholder:bin(inet:ntoa(PeerHost));
 handle_sql_var(_, Value) ->
     emqx_placeholder:sql_data(Value).

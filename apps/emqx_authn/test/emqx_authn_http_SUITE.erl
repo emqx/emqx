@@ -29,8 +29,10 @@
 -define(HTTP_PORT, 32333).
 -define(HTTP_PATH, "/auth").
 -define(CREDENTIALS, #{
+    clientid => <<"clienta">>,
     username => <<"plain">>,
     password => <<"plain">>,
+    peerhost => {127, 0, 0, 1},
     listener => 'tcp:default',
     protocol => mqtt
 }).
@@ -387,6 +389,32 @@ samples() ->
                 {ok, Req, State}
             end,
             config_params => #{},
+            result => {ok, #{is_superuser => false}}
+        },
+
+        %% simple post request for placeholders, application/json
+        #{
+            handler => fun(Req0, State) ->
+                {ok, RawBody, Req1} = cowboy_req:read_body(Req0),
+                #{
+                    <<"username">> := <<"plain">>,
+                    <<"password">> := <<"plain">>,
+                    <<"clientid">> := <<"clienta">>,
+                    <<"peerhost">> := <<"127.0.0.1">>
+                } = jiffy:decode(RawBody, [return_maps]),
+                Req = cowboy_req:reply(200, Req1),
+                {ok, Req, State}
+            end,
+            config_params => #{
+                <<"method">> => <<"post">>,
+                <<"headers">> => #{<<"content-type">> => <<"application/json">>},
+                <<"body">> => #{
+                    <<"clientid">> => ?PH_CLIENTID,
+                    <<"username">> => ?PH_USERNAME,
+                    <<"password">> => ?PH_PASSWORD,
+                    <<"peerhost">> => ?PH_PEERHOST
+                }
+            },
             result => {ok, #{is_superuser => false}}
         },
 
