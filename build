@@ -205,7 +205,7 @@ make_tgz() {
     fi
     $TAR zxf "${src_tarball}" -C "${tard}/emqx"
     if [ -f "${tard}/emqx/releases/${PKG_VSN}/relup" ]; then
-        ./scripts/inject-relup.escript "${tard}/emqx/releases/${PKG_VSN}/relup"
+        ./scripts/relup-build/inject-relup.escript "${tard}/emqx/releases/${PKG_VSN}/relup"
     fi
     ## try to be portable for tar.gz packages.
     ## for DEB and RPM packages the dependencies are resoved by yum and apt

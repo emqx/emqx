@@ -6,7 +6,7 @@ if [[ -n "$DEBUG" ]]; then set -x; fi
 set -euo pipefail
 
 # ensure dir
-cd -P -- "$(dirname -- "${BASH_SOURCE[0]}")/.."
+cd -P -- "$(dirname -- "${BASH_SOURCE[0]}")/../.."
 ROOT_DIR="$(pwd)"
 
 PROFILE="${1:-emqx}"
@@ -37,7 +37,7 @@ case "$UNAME" in
         ;;
 esac
 
-BASE_VERSIONS="$("${ROOT_DIR}"/scripts/relup-base-vsns.sh "$EDITION" | xargs echo -n)"
+BASE_VERSIONS="$("${ROOT_DIR}"/scripts/relup-build/base-vsns.sh "$EDITION" | xargs echo -n)"
 
 fullvsn() {
     env PKG_VSN="$1" "${ROOT_DIR}"/pkg-vsn.sh "$PROFILE" --long

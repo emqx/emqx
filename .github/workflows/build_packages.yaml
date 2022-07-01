@@ -23,6 +23,7 @@ on:
 jobs:
   prepare:
     runs-on: ubuntu-20.04
+    container: ghcr.io/emqx/emqx-builder/5.0-17:1.13.4-24.2.1-1-ubuntu20.04
     outputs:
       BUILD_PROFILE: ${{ steps.get_profile.outputs.BUILD_PROFILE }}
       IS_EXACT_TAG: ${{ steps.get_profile.outputs.IS_EXACT_TAG }}
@@ -38,6 +39,7 @@ jobs:
         id: get_profile
         run: |
           cd source
+          git config --global --add safe.directory "$(pwd)"
           tag=${{ github.ref }}
           if git describe --tags --match "[v|e]*" --exact; then
             echo "This is an exact git tag, will publish release"
@@ -282,7 +284,7 @@ jobs:
             elixir: 1.13.4
             build_elixir: with_elixir
             arch: amd64
-            os: el7
+            os: el8
             build_machine: ubuntu-20.04
 
     defaults:

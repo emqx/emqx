@@ -2,7 +2,7 @@
 set -euo pipefail
 
 # ensure dir
-cd -P -- "$(dirname -- "${BASH_SOURCE[0]}")/.."
+cd -P -- "$(dirname -- "${BASH_SOURCE[0]}")/../.."
 
 ## This script prints the relup upgrade base versions
 ## for the given EMQX edition (specified as first arg)

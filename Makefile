@@ -167,7 +167,7 @@ $(REL_PROFILES:%=%-rel) $(PKG_PROFILES:%=%-rel): $(COMMON_DEPS)
 .PHONY: $(REL_PROFILES:%=%-relup-downloads)
 define download-relup-packages
 $1-relup-downloads:
-	@if [ "$${EMQX_RELUP}" = "true" ]; then $(CURDIR)/scripts/relup-base-packages.sh $1; fi
+	@if [ "$${EMQX_RELUP}" = "true" ]; then $(CURDIR)/scripts/relup-build/download-base-packages.sh $1; fi
 endef
 ALL_ZIPS = $(REL_PROFILES)
 $(foreach zt,$(ALL_ZIPS),$(eval $(call download-relup-packages,$(zt))))
