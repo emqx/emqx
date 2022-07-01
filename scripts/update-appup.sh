@@ -92,6 +92,8 @@ else
     NEW_COPY='no'
 fi
 
+TOOL_VERSIONS="$PWD/.tool-versions"
+
 if [ "${SKIP_BUILD_BASE:-no}" = 'yes' ]; then
     echo "not building relup base ${PREV_DIR_BASE}/${PREV_TAG}"
 else
@@ -103,6 +105,9 @@ else
     git reset --hard
     git clean -ffdx
     git checkout "${PREV_TAG}"
+    # copy current .tool-versions to ensure same OTP version, even if
+    # overridden.
+    cp "$TOOL_VERSIONS" ./
     make "$PROFILE"
     popd
 fi
