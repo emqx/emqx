@@ -215,17 +215,29 @@ when
 %%------------------------------------------------------------------------------
 
 authenticate(#{enable_authn := false}, _AuthResult) ->
+    inc_authenticate_metric('authentication.success.anonymous'),
     ignore;
 authenticate(#{listener := Listener, protocol := Protocol} = Credential, _AuthResult) ->
     case get_authenticators(Listener, global_chain(Protocol)) of
         {ok, ChainName, Authenticators} ->
             case get_enabled(Authenticators) of
                 [] ->
+                    inc_authenticate_metric('authentication.success.anonymous'),
                     ignore;
                 NAuthenticators ->
-                    do_authenticate(ChainName, NAuthenticators, Credential)
+                    Result = do_authenticate(ChainName, NAuthenticators, Credential),
+                    inc_authenticate_metric(
+                        case Result of
+                            {stop, {ok, _}} ->
+                                'authentication.success';
+                            _ ->
+                                'authentication.failure'
+                        end
+                    ),
+                    Result
             end;
         none ->
+            inc_authenticate_metric('authentication.success.anonymous'),
             ignore
     end.
 
@@ -902,3 +914,9 @@ to_list(M) when is_map(M) -> [M];
 to_list(L) when is_list(L) -> L.
 
 call(Call) -> gen_server:call(?MODULE, Call, infinity).
+
+inc_authenticate_metric('authentication.success.anonymous' = Metric) ->
+    emqx_metrics:inc(Metric),
+    emqx_metrics:inc('authentication.success');
+inc_authenticate_metric(Metric) ->
+    emqx_metrics:inc(Metric).
