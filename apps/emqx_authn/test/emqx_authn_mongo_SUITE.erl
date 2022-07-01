@@ -225,9 +225,10 @@ t_is_superuser(_Config) ->
         {null, false},
         {false, false},
         {0, false},
+        {<<"val">>, false},
 
         {<<"1">>, true},
-        {<<"val">>, true},
+        {<<"123">>, true},
         {1, true},
         {123, true},
         {true, true}

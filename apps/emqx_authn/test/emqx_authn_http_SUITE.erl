@@ -37,6 +37,29 @@
     protocol => mqtt
 }).
 
+-define(SERVER_RESPONSE_JSON(Result), ?SERVER_RESPONSE_JSON(Result, false)).
+-define(SERVER_RESPONSE_JSON(Result, IsSuperuser),
+    jiffy:encode(#{
+        result => Result,
+        is_superuser => IsSuperuser
+    })
+).
+
+-define(SERVER_RESPONSE_URLENCODE(Result), ?SERVER_RESPONSE_URLENCODE(Result, false)).
+-define(SERVER_RESPONSE_URLENCODE(Result, IsSuperuser),
+    list_to_binary(
+        "result=" ++
+            uri_encode(Result) ++ "&" ++
+            "is_superuser=" ++
+            uri_encode(IsSuperuser)
+    )
+).
+
+-define(EXCEPTION_ALLOW, ?EXCEPTION_ALLOW(false)).
+-define(EXCEPTION_ALLOW(IsSuperuser), {ok, #{is_superuser := IsSuperuser}}).
+-define(EXCEPTION_DENY, {error, not_authorized}).
+-define(EXCEPTION_IGNORE, ignore).
+
 all() ->
     emqx_common_test_helpers:all(?MODULE).
 
@@ -149,9 +172,12 @@ t_destroy(_Config) ->
         {create_authenticator, ?GLOBAL, AuthConfig}
     ),
 
+    Headers = #{<<"content-type">> => <<"application/json">>},
+    Response = ?SERVER_RESPONSE_JSON(allow),
+
     ok = emqx_authn_http_test_server:set_handler(
         fun(Req0, State) ->
-            Req = cowboy_req:reply(200, Req0),
+            Req = cowboy_req:reply(200, Headers, Response, Req0),
             {ok, Req, State}
         end
     ),
@@ -161,9 +187,12 @@ t_destroy(_Config) ->
 
     Credentials = maps:with([username, password], ?CREDENTIALS),
 
-    {ok, _} = emqx_authn_http:authenticate(
-        Credentials,
-        State
+    ?assertMatch(
+        ?EXCEPTION_ALLOW,
+        emqx_authn_http:authenticate(
+            Credentials,
+            State
+        )
     ),
 
     emqx_authn_test_lib:delete_authenticators(
@@ -173,7 +202,7 @@ t_destroy(_Config) ->
 
     % Authenticator should not be usable anymore
     ?assertMatch(
-        ignore,
+        ?EXCEPTION_IGNORE,
         emqx_authn_http:authenticate(
             Credentials,
             State
@@ -190,14 +219,20 @@ t_update(_Config) ->
         {create_authenticator, ?GLOBAL, IncorrectConfig}
     ),
 
+    Headers = #{<<"content-type">> => <<"application/json">>},
+    Response = ?SERVER_RESPONSE_JSON(allow),
+
     ok = emqx_authn_http_test_server:set_handler(
         fun(Req0, State) ->
-            Req = cowboy_req:reply(200, Req0),
+            Req = cowboy_req:reply(200, Headers, Response, Req0),
             {ok, Req, State}
         end
     ),
 
-    {error, not_authorized} = emqx_access_control:authenticate(?CREDENTIALS),
+    ?assertMatch(
+        ?EXCEPTION_DENY,
+        emqx_access_control:authenticate(?CREDENTIALS)
+    ),
 
     % We update with config with correct query, provider should update and work properly
     {ok, _} = emqx:update_config(
@@ -205,7 +240,10 @@ t_update(_Config) ->
         {update_authenticator, ?GLOBAL, <<"password_based:http">>, CorrectConfig}
     ),
 
-    {ok, _} = emqx_access_control:authenticate(?CREDENTIALS).
+    ?assertMatch(
+        ?EXCEPTION_ALLOW,
+        emqx_access_control:authenticate(?CREDENTIALS)
+    ).
 
 t_is_superuser(_Config) ->
     Config = raw_http_auth_config(),
@@ -215,33 +253,56 @@ t_is_superuser(_Config) ->
     ),
 
     Checks = [
-        {json, <<"0">>, false},
-        {json, <<"">>, false},
-        {json, null, false},
-        {json, 0, false},
+        %% {ContentType, ExpectedIsSuperuser, ResponseIsSuperuser}
+        %% Is Superuser
+        {json, true, <<"1">>},
+        {json, true, 1},
+        {json, true, 123},
+        {json, true, <<"true">>},
+        {json, true, true},
 
-        {json, <<"1">>, true},
-        {json, <<"val">>, true},
-        {json, 1, true},
-        {json, 123, true},
+        %% Not Superuser
+        {json, false, <<"">>},
+        {json, false, <<"0">>},
+        {json, false, 0},
+        {json, false, null},
+        {json, false, undefined},
+        {json, false, <<"false">>},
+        {json, false, false},
 
-        {form, <<"0">>, false},
-        {form, <<"">>, false},
+        {json, false, <<"val">>},
 
-        {form, <<"1">>, true},
-        {form, <<"val">>, true}
+        %% Is Superuser
+        {form, true, <<"1">>},
+        {form, true, 1},
+        {form, true, 123},
+        {form, true, <<"true">>},
+        {form, true, true},
+
+        %% Not Superuser
+        {form, false, <<"">>},
+        {form, false, <<"0">>},
+        {form, false, 0},
+
+        {form, false, null},
+        {form, false, undefined},
+        {form, false, <<"false">>},
+        {form, false, false},
+
+        {form, false, <<"val">>}
     ],
 
     lists:foreach(fun test_is_superuser/1, Checks).
 
-test_is_superuser({Kind, Value, ExpectedValue}) ->
+test_is_superuser({Kind, ExpectedValue, ServerResponse}) ->
     {ContentType, Res} =
         case Kind of
             json ->
-                {<<"application/json">>, jiffy:encode(#{is_superuser => Value})};
+                {<<"application/json; charset=utf-8">>,
+                    ?SERVER_RESPONSE_JSON(allow, ServerResponse)};
             form ->
-                {<<"application/x-www-form-urlencoded">>,
-                    iolist_to_binary([<<"is_superuser=">>, Value])}
+                {<<"application/x-www-form-urlencoded; charset=utf-8">>,
+                    ?SERVER_RESPONSE_URLENCODE(allow, ServerResponse)}
         end,
 
     ok = emqx_authn_http_test_server:set_handler(
@@ -257,9 +318,57 @@ test_is_superuser({Kind, Value, ExpectedValue}) ->
     ),
 
     ?assertMatch(
-        {ok, #{is_superuser := ExpectedValue}},
+        ?EXCEPTION_ALLOW(ExpectedValue),
         emqx_access_control:authenticate(?CREDENTIALS)
     ).
+
+t_ignore_allow_deny(_Config) ->
+    Config = raw_http_auth_config(),
+    {ok, _} = emqx:update_config(
+        ?PATH,
+        {create_authenticator, ?GLOBAL, Config}
+    ),
+
+    Checks = [
+        %% only one chain, ignore by authn http and deny by default
+        {deny, ?SERVER_RESPONSE_JSON(ignore)},
+
+        {{allow, true}, ?SERVER_RESPONSE_JSON(allow, true)},
+        {{allow, false}, ?SERVER_RESPONSE_JSON(allow)},
+        {{allow, false}, ?SERVER_RESPONSE_JSON(allow, false)},
+
+        {deny, ?SERVER_RESPONSE_JSON(deny)},
+        {deny, ?SERVER_RESPONSE_JSON(deny, true)},
+        {deny, ?SERVER_RESPONSE_JSON(deny, false)}
+    ],
+
+    lists:foreach(fun test_ignore_allow_deny/1, Checks).
+
+test_ignore_allow_deny({ExpectedValue, ServerResponse}) ->
+    ok = emqx_authn_http_test_server:set_handler(
+        fun(Req0, State) ->
+            Req = cowboy_req:reply(
+                200,
+                #{<<"content-type">> => <<"application/json">>},
+                ServerResponse,
+                Req0
+            ),
+            {ok, Req, State}
+        end
+    ),
+
+    case ExpectedValue of
+        {allow, IsSuperuser} ->
+            ?assertMatch(
+                ?EXCEPTION_ALLOW(IsSuperuser),
+                emqx_access_control:authenticate(?CREDENTIALS)
+            );
+        deny ->
+            ?assertMatch(
+                ?EXCEPTION_DENY,
+                emqx_access_control:authenticate(?CREDENTIALS)
+            )
+    end.
 
 %%------------------------------------------------------------------------------
 %% Helpers
@@ -287,11 +396,16 @@ samples() ->
                     password := <<"plain">>
                 } = cowboy_req:match_qs([username, password], Req0),
 
-                Req = cowboy_req:reply(200, Req0),
+                Req = cowboy_req:reply(
+                    200,
+                    #{<<"content-type">> => <<"application/json">>},
+                    jiffy:encode(#{result => allow, is_superuser => false}),
+                    Req0
+                ),
                 {ok, Req, State}
             end,
             config_params => #{},
-            result => {ok, #{is_superuser => false}}
+            result => {ok, #{is_superuser => false, user_property => #{}}}
         },
 
         %% get request with json body response
@@ -300,7 +414,7 @@ samples() ->
                 Req = cowboy_req:reply(
                     200,
                     #{<<"content-type">> => <<"application/json">>},
-                    jiffy:encode(#{is_superuser => true}),
+                    jiffy:encode(#{result => allow, is_superuser => true}),
                     Req0
                 ),
                 {ok, Req, State}
@@ -318,7 +432,7 @@ samples() ->
                         <<"content-type">> =>
                             <<"application/x-www-form-urlencoded">>
                     },
-                    <<"is_superuser=true">>,
+                    <<"is_superuser=true&result=allow">>,
                     Req0
                 ),
                 {ok, Req, State}
@@ -342,7 +456,8 @@ samples() ->
                 {ok, Req, State}
             end,
             config_params => #{},
-            result => {ok, #{is_superuser => false}}
+            %% only one chain, ignore by authn http and deny by default
+            result => {error, not_authorized}
         },
 
         %% simple post request, application/json
@@ -353,14 +468,19 @@ samples() ->
                     <<"username">> := <<"plain">>,
                     <<"password">> := <<"plain">>
                 } = jiffy:decode(RawBody, [return_maps]),
-                Req = cowboy_req:reply(200, Req1),
+                Req = cowboy_req:reply(
+                    200,
+                    #{<<"content-type">> => <<"application/json">>},
+                    jiffy:encode(#{result => allow, is_superuser => false}),
+                    Req1
+                ),
                 {ok, Req, State}
             end,
             config_params => #{
                 <<"method">> => <<"post">>,
                 <<"headers">> => #{<<"content-type">> => <<"application/json">>}
             },
-            result => {ok, #{is_superuser => false}}
+            result => {ok, #{is_superuser => false, user_property => #{}}}
         },
 
         %% simple post request, application/x-www-form-urlencoded
@@ -371,7 +491,12 @@ samples() ->
                     <<"username">> := <<"plain">>,
                     <<"password">> := <<"plain">>
                 } = maps:from_list(PostVars),
-                Req = cowboy_req:reply(200, Req1),
+                Req = cowboy_req:reply(
+                    200,
+                    #{<<"content-type">> => <<"application/json">>},
+                    jiffy:encode(#{result => allow, is_superuser => false}),
+                    Req1
+                ),
                 {ok, Req, State}
             end,
             config_params => #{
@@ -381,15 +506,7 @@ samples() ->
                         <<"application/x-www-form-urlencoded">>
                 }
             },
-            result => {ok, #{is_superuser => false}}
-        }#{
-            %% 204 code
-            handler => fun(Req0, State) ->
-                Req = cowboy_req:reply(204, Req0),
-                {ok, Req, State}
-            end,
-            config_params => #{},
-            result => {ok, #{is_superuser => false}}
+            result => {ok, #{is_superuser => false, user_property => #{}}}
         },
 
         %% simple post request for placeholders, application/json
@@ -402,7 +519,12 @@ samples() ->
                     <<"clientid">> := <<"clienta">>,
                     <<"peerhost">> := <<"127.0.0.1">>
                 } = jiffy:decode(RawBody, [return_maps]),
-                Req = cowboy_req:reply(200, Req1),
+                Req = cowboy_req:reply(
+                    200,
+                    #{<<"content-type">> => <<"application/json">>},
+                    jiffy:encode(#{result => allow, is_superuser => false}),
+                    Req1
+                ),
                 {ok, Req, State}
             end,
             config_params => #{
@@ -415,7 +537,7 @@ samples() ->
                     <<"peerhost">> => ?PH_PEERHOST
                 }
             },
-            result => {ok, #{is_superuser => false}}
+            result => {ok, #{is_superuser => false, user_property => #{}}}
         },
 
         %% custom headers
@@ -423,6 +545,17 @@ samples() ->
             handler => fun(Req0, State) ->
                 <<"Test Value">> = cowboy_req:header(<<"x-test-header">>, Req0),
                 Req = cowboy_req:reply(200, Req0),
+                {ok, Req, State}
+            end,
+            config_params => #{},
+            %% only one chain, ignore by authn http and deny by default
+            result => {error, not_authorized}
+        },
+
+        %% 204 code
+        #{
+            handler => fun(Req0, State) ->
+                Req = cowboy_req:reply(204, Req0),
                 {ok, Req, State}
             end,
             config_params => #{},
@@ -436,6 +569,7 @@ samples() ->
                 {ok, Req, State}
             end,
             config_params => #{},
+            %% only one chain, ignore by authn http and deny by default
             result => {error, not_authorized}
         },
 
@@ -446,6 +580,7 @@ samples() ->
                 {ok, Req, State}
             end,
             config_params => #{},
+            %% only one chain, ignore by authn http and deny by default
             result => {error, not_authorized}
         },
 
@@ -456,6 +591,7 @@ samples() ->
                 {ok, Req0, State}
             end,
             config_params => #{},
+            %% only one chain, ignore by authn http and deny by default
             result => {error, not_authorized}
         }
     ].
@@ -465,3 +601,15 @@ start_apps(Apps) ->
 
 stop_apps(Apps) ->
     lists:foreach(fun application:stop/1, Apps).
+
+uri_encode(T) ->
+    emqx_http_lib:uri_encode(to_list(T)).
+
+to_list(A) when is_atom(A) ->
+    atom_to_list(A);
+to_list(N) when is_integer(N) ->
+    integer_to_list(N);
+to_list(B) when is_binary(B) ->
+    binary_to_list(B);
+to_list(L) when is_list(L) ->
+    L.
