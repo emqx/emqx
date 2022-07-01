@@ -204,6 +204,9 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: make coveralls
+      - name: get coveralls logs
+        if: failure()
+        run: cat rebar3.crashdump
 
     # do this in a separate job
     upload_coverdata:
