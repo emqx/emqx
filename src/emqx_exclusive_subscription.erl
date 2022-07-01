@@ -27,6 +27,9 @@
 -boot_mnesia({mnesia, [boot]}).
 -copy_mnesia({mnesia, [copy]}).
 
+%% For upgrade
+-export([on_add_module/0, on_delete_module/0]).
+
 -export([
     check_subscribe/2,
     unsubscribe/2
@@ -58,7 +61,22 @@ mnesia(boot) ->
         {storage_properties, StoreProps}
     ]);
 mnesia(copy) ->
-    ok = ekka_mnesia:copy_table(?TAB, ram_copies).
+    case ekka_mnesia:copy_table(?TAB, ram_copies) of
+        ok ->
+            ok;
+        {no_exists, _} ->
+            mnesia(boot)
+    end.
+
+%%--------------------------------------------------------------------
+%% Upgrade
+%%--------------------------------------------------------------------
+
+on_add_module() ->
+    mnesia(boot).
+
+on_delete_module() ->
+    mnesia:clear_table(?TAB).
 
 %%--------------------------------------------------------------------
 %% APIs
