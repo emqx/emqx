@@ -33,7 +33,8 @@
     reset/2,
     reset/3,
 
-    get_override_config_file/1
+    get_override_config_file/1,
+    sync_data_from_node/1
 ]).
 
 -include_lib("emqx/include/bpapi.hrl").
@@ -104,3 +105,7 @@ reset(Node, KeyPath, Opts) ->
 -spec get_override_config_file([node()]) -> emqx_rpc:multicall_result().
 get_override_config_file(Nodes) ->
     rpc:multicall(Nodes, emqx_conf_app, get_override_config_file, [], 20000).
+
+-spec sync_data_from_node(node()) -> {ok, binary()} | emqx_rpc:badrpc().
+sync_data_from_node(Node) ->
+    rpc:call(Node, emqx_conf_app, sync_data_from_node, [], 20000).
