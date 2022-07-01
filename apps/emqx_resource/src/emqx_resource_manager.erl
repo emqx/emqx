@@ -484,7 +484,11 @@ handle_connected_health_check(Data) ->
                 Actions = [{state_timeout, ?HEALTHCHECK_INTERVAL, health_check}],
                 {keep_state, UpdatedData, Actions};
             (Status, UpdatedData) ->
-                logger:error("health check for ~p failed: ~p", [Data#data.id, Status]),
+                ?SLOG(error, #{
+                    msg => health_check_failed,
+                    id => Data#data.id,
+                    status => Status
+                }),
                 {next_state, Status, UpdatedData}
         end
     ).

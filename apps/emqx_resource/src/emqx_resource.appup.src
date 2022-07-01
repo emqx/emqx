@@ -1,0 +1,7 @@
+%% -*- mode: erlang -*-
+%% Unless you know what you are doing, DO NOT edit manually!!
+{VSN,
+  [{"0.1.0",[{load_module,emqx_resource_manager,brutal_purge,soft_purge,[]}]}
+   ],
+  [{"0.1.0",[{load_module,emqx_resource_manager,brutal_purge,soft_purge,[]}]}
+   ]}.
