@@ -4,6 +4,7 @@
 {emqx_bridge,1}.
 {emqx_broker,1}.
 {emqx_cm,1}.
+{emqx_conf,1}.
 {emqx_conf,2}.
 {emqx_dashboard,1}.
 {emqx_delayed,1}.
