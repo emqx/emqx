@@ -361,9 +361,16 @@ jobs:
       run: sudo apt-get update && sudo apt install -y dos2unix
     - name: get packages
       run: |
+        DEFAULT_BEAM_PLATFORM='otp24.2.1-1'
         set -e -u
         cd packages/${{ matrix.profile }}
-        for var in $( ls |grep emqx |grep -v sha256); do
+        # Make a copy of the default OTP version package to a file without OTP version infix
+        while read -r fname; do
+          default_fname=$(echo "$fname" | sed "s/-${DEFAULT_BEAM_PLATFORM}//g")
+          echo "$fname -> $default_fname"
+          cp "$fname" "$default_fname"
+        done < <(find . -maxdepth 1 -type f | grep -E "emqx(-enterprise)?-5\.[0-9]+\.[0-9]+.*-${DEFAULT_BEAM_PLATFORM}" | grep -v elixir)
+        for var in $(ls | grep emqx | grep -v sha256); do
           dos2unix $var.sha256
           echo "$(cat $var.sha256) $var" | sha256sum -c || exit 1
         done

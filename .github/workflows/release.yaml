@@ -9,11 +9,6 @@ jobs:
     runs-on: ubuntu-20.04
     strategy:
       fail-fast: false
-      matrix:
-        profile:
-          - emqx
-          - emqx-enterprise
-
     steps:
       - uses: aws-actions/configure-aws-credentials@v1
         with:
@@ -22,16 +17,29 @@ jobs:
           aws-region: ${{ secrets.AWS_DEFAULT_REGION }}
       - name: Get packages
         run: |
-          PROFILE=${{ matrix.profile }}
-          if [ $PROFILE = 'emqx' ]; then
+          REF=${{ github.ref_name }}
+          case "$REF" in
+            v*)
               s3dir='emqx-ce'
-          elif [ $PROFILE = 'emqx-enterprise' ]; then
+              ;;
+            e*)
               s3dir='emqx-ee'
-          else
-              echo "unknown profile $PROFILE"
+              ;;
+            *)
+              echo "tag $REF is not supported"
               exit 1
           fi
           aws s3 cp --recursive s3://${{ secrets.AWS_S3_BUCKET }}/$s3dir/${{ github.ref_name }} packages
+          cd packages
+          DEFAULT_BEAM_PLATFORM='otp24.2.1-1'
+          # all packages including full-name and default-name are uploaded to s3
+          # but we only upload default-name packages (and elixir) as github artifacts
+          # so we rename (overwrite) non-default packages before uploading
+          while read -r fname; do
+            default_fname=$(echo "$fname" | sed "s/-${DEFAULT_BEAM_PLATFORM}//g")
+            echo "$fname -> $default_fname"
+            mv -f "$fname" "$default_fname"
+          done < <(find . -maxdepth 1 -type f | grep -E "emqx(-enterprise)?-5\.[0-9]+\.[0-9]+.*-${DEFAULT_BEAM_PLATFORM}" | grep -v elixir)
       - uses: alexellis/upload-assets@0.2.2
         env:
           GITHUB_TOKEN: ${{ github.token }}
@@ -51,11 +59,15 @@ jobs:
       - name: update repo.emqx.io
         if: github.event_name == 'release'
         run: |
-          if [ "${{ matrix.profile }}" = 'emqx-enterprise' ]; then
-            BOOL_FLAG_NAME="emqx_ee"
-          else
-            BOOL_FLAG_NAME="emqx_ce"
-          fi
+          REF=${{ github.ref_name }}
+          case "$REF" in
+            v*)
+              BOOL_FLAG_NAME="emqx_ce"
+              ;;
+            e*)
+              BOOL_FLAG_NAME="emqx_ee"
+              ;;
+          esac
           curl --silent --show-error \
             -H "Authorization: token ${{ secrets.CI_GIT_TOKEN }}" \
             -H "Accept: application/vnd.github.v3+json" \
@@ -63,8 +75,18 @@ jobs:
             -d "{\"ref\":\"v1.0.4\",\"inputs\":{\"version\": \"${{ github.ref_name }}\", \"${BOOL_FLAG_NAME}\": \"true\"}}" \
             "https://api.github.com/repos/emqx/emqx-ci-helper/actions/workflows/update_emqx_repos.yaml/dispatches"
       - name: update homebrew packages
-        if: github.event_name == 'release' && matrix.profile == 'emqx'
+        if: github.event_name == 'release'
         run: |
+          REF=${{ github.ref_name }}
+          case "$REF" in
+            v*)
+              BOOL_FLAG_NAME="emqx_ce"
+              ;;
+            e*)
+              echo "Not updating homebrew for enterprise eidition"
+              exit 0
+              ;;
+          esac
           if [ -z $(echo $version | grep -oE "(alpha|beta|rc)\.[0-9]") ]; then
               curl --silent --show-error \
                 -H "Authorization: token ${{ secrets.CI_GIT_TOKEN }}" \
