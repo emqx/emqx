@@ -61,6 +61,7 @@ sync_data_from_node() ->
     Dir = emqx:data_dir(),
     {ok, Zip} = zip:zip(atom_to_list(node()) ++ "_data.zip", ["authz", "certs"], [{cwd, Dir}]),
     Res = {ok, _Bin} = file:read_file(Zip),
+    _ = file:delete(Zip),
     Res.
 
 %% ------------------------------------------------------------------------------
