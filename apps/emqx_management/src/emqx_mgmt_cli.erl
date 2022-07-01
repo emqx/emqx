@@ -580,7 +580,7 @@ acl(["cache-clean", "node", Node]) ->
     with_log(fun() -> for_node(fun emqx_mgmt:clean_acl_cache_all/1, Node) end,
              "ACL cache drain start");
 acl(["cache-clean", "all"]) ->
-    with_log(fun emqx_mgmt:clean_acl_cache_all/1,
+    with_log(fun emqx_mgmt:clean_acl_cache_all/0,
              "ACL cache drain start");
 acl(["cache-clean", ClientId]) ->
     emqx_mgmt:clean_acl_cache(ClientId);
