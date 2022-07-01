@@ -61,7 +61,8 @@
         <<"event_message">>,
         <<"prometheus">>,
         <<"telemetry">>,
-        <<"sys_topics">>
+        <<"sys_topics">>,
+        <<"limiter">>
     ] ++ global_zone_roots()
 ).
 
@@ -74,8 +75,8 @@ paths() ->
     [
         "/configs",
         "/configs_reset/:rootname",
-        "/configs/global_zone",
-        "/configs/limiter/:limiter_type"
+        "/configs/global_zone"
+        %%  "/configs/limiter/:limiter_type"
     ] ++
         lists:map(fun({Name, _Type}) -> ?PREFIX ++ binary_to_list(Name) end, config_list()).
 
@@ -161,42 +162,42 @@ schema("/configs/global_zone") ->
             }
         }
     };
-schema("/configs/limiter/:limiter_type") ->
-    Schema = hoconsc:ref(emqx_limiter_schema, limiter_opts),
-    Parameters = [
-        {limiter_type,
-            hoconsc:mk(
-                hoconsc:enum(emqx_limiter_schema:types()),
-                #{
-                    in => path,
-                    required => true,
-                    example => <<"bytes_in">>,
-                    desc => <<"The limiter type">>
-                }
-            )}
-    ],
-    #{
-        'operationId' => config,
-        get => #{
-            tags => [conf],
-            description => <<"Get config of this limiter">>,
-            parameters => Parameters,
-            responses => #{
-                200 => Schema,
-                404 => emqx_dashboard_swagger:error_codes(['NOT_FOUND'], <<"config not found">>)
-            }
-        },
-        put => #{
-            tags => [conf],
-            description => <<"Update config of this limiter">>,
-            parameters => Parameters,
-            'requestBody' => Schema,
-            responses => #{
-                200 => Schema,
-                400 => emqx_dashboard_swagger:error_codes(['UPDATE_FAILED'])
-            }
-        }
-    };
+%% schema("/configs/limiter/:limiter_type") ->
+%%     Schema = hoconsc:ref(emqx_limiter_schema, limiter_opts),
+%%     Parameters = [
+%%         {limiter_type,
+%%             hoconsc:mk(
+%%                 hoconsc:enum(emqx_limiter_schema:types()),
+%%                 #{
+%%                     in => path,
+%%                     required => true,
+%%                     example => <<"bytes_in">>,
+%%                     desc => <<"The limiter type">>
+%%                 }
+%%             )}
+%%     ],
+%%     #{
+%%         'operationId' => config,
+%%         get => #{
+%%             tags => [conf],
+%%             description => <<"Get config of this limiter">>,
+%%             parameters => Parameters,
+%%             responses => #{
+%%                 200 => Schema,
+%%                 404 => emqx_dashboard_swagger:error_codes(['NOT_FOUND'], <<"config not found">>)
+%%             }
+%%         },
+%%         put => #{
+%%             tags => [conf],
+%%             description => <<"Update config of this limiter">>,
+%%             parameters => Parameters,
+%%             'requestBody' => Schema,
+%%             responses => #{
+%%                 200 => Schema,
+%%                 400 => emqx_dashboard_swagger:error_codes(['UPDATE_FAILED'])
+%%             }
+%%         }
+%%     };
 schema(Path) ->
     {RootKey, {_Root, Schema}} = find_schema(Path),
     #{
