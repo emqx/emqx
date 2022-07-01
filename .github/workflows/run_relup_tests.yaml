@@ -37,8 +37,8 @@ jobs:
         cd emqx
         ce_vsn="$(./pkg-vsn.sh opensource)"
         ee_vsn="$(./pkg-vsn.sh enterprise)"
-        old_ce_vsns="$(./scripts/relup-base-vsns.sh opensource | xargs)"
-        old_ee_vsns="$(./scripts/relup-base-vsns.sh enterprise | xargs)"
+        old_ce_vsns="$(./scripts/relup-build/base-vsns.sh opensource | xargs)"
+        old_ee_vsns="$(./scripts/relup-build/base-vsns.sh enterprise | xargs)"
         old_vsns=$(echo -n "${old_ce_vsns} ${old_ee_vsns}" | sed 's/ $//g' | jq -R -s -c 'split(" ")')
         echo "::set-output name=CUR_CE_VSN::$ce_vsn"
         echo "::set-output name=CUR_EE_VSN::$ee_vsn"
