@@ -31,6 +31,8 @@ jobs:
         fi
     - name: fix-git-unsafe-repository
       run: git config --global --add safe.directory /__w/emqx/emqx
+    - name: make xref
+      run: make xref
     - name: build zip packages
       run: make ${EMQX_NAME}-zip
     - name: build deb/rpm packages
