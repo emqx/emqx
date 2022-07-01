@@ -29,9 +29,12 @@ init_per_suite(Config) ->
 
 end_per_suite(_Config) ->
     logger:notice(
-        "If this test suite failed, and you are unsure why, read this:~n"
-        "https://github.com/emqx/emqx/blob/master/apps/emqx/src/bpapi/README.md",
-        []
+        asciiart:visible(
+            $=,
+            "If this test suite failed, and you are unsure why, read this:~n"
+            "https://github.com/emqx/emqx/blob/master/apps/emqx/src/bpapi/README.md",
+            []
+        )
     ).
 
 check_if_versions_consistent(OldData, NewData) ->
@@ -47,9 +50,14 @@ t_run_check(_) ->
         check_if_versions_consistent(OldData, NewData) orelse
             begin
                 logger:critical(
-                    "BPAPI versions were changed, but not committed to the repo.\n"
-                    "Run 'make && make static_checks' and then add the changed "
-                    "'bpapi.versions' files to the commit."
+                    asciiart:visible(
+                        $=,
+                        "BPAPI versions were changed, but not committed to the repo.\n\n"
+                        "Versions file is generated automatically, to update it, run\n"
+                        "'make && make static_checks' locally, and then add the\n"
+                        "changed 'bpapi.versions' files to the commit.\n",
+                        []
+                    )
                 ),
                 error(version_mismatch)
             end,
@@ -59,6 +67,8 @@ t_run_check(_) ->
         logger:info("Backplane API dump files: ~p", [BpapiDumps]),
         ?assert(emqx_bpapi_static_checks:check_compat(BpapiDumps))
     catch
+        error:version_mismatch ->
+            error(tc_failed);
         EC:Err:Stack ->
             logger:critical("Test suite failed: ~p:~p~nStack:~p", [EC, Err, Stack]),
             error(tc_failed)
