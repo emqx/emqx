@@ -34,6 +34,8 @@
     render_sql_params/2
 ]).
 
+-export([parse_http_resp_body/2]).
+
 -define(DEFAULT_RESOURCE_OPTS, #{
     auto_retry_interval => 6000,
     start_after_created => false
@@ -129,6 +131,25 @@ render_sql_params(ParamList, Values) ->
         client_vars(Values),
         #{return => rawlist, var_trans => fun handle_sql_var/2}
     ).
+
+-spec parse_http_resp_body(binary(), binary()) -> allow | deny | ignore | error.
+parse_http_resp_body(<<"application/x-www-form-urlencoded">>, Body) ->
+    try
+        result(maps:from_list(cow_qs:parse_qs(Body)))
+    catch
+        _:_ -> error
+    end;
+parse_http_resp_body(<<"application/json">>, Body) ->
+    try
+        result(emqx_json:decode(Body, [return_maps]))
+    catch
+        _:_ -> error
+    end.
+
+result(#{<<"result">> := <<"allow">>}) -> allow;
+result(#{<<"result">> := <<"deny">>}) -> deny;
+result(#{<<"result">> := <<"ignore">>}) -> ignore;
+result(_) -> error.
 
 %%--------------------------------------------------------------------
 %% Internal functions

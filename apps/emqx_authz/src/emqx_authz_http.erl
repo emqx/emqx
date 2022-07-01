@@ -84,8 +84,25 @@ authorize(
             {matched, allow};
         {ok, 204, _Headers} ->
             {matched, allow};
-        {ok, 200, _Headers, _Body} ->
-            {matched, allow};
+        {ok, 200, Headers, Body} ->
+            ContentType = proplists:get_value(
+                <<"content-type">>,
+                Headers,
+                <<"application/json">>
+            ),
+            case emqx_authz_utils:parse_http_resp_body(ContentType, Body) of
+                error ->
+                    ?SLOG(error, #{
+                        msg => authz_http_response_incorrect,
+                        content_type => proplists:get_value(
+                            <<"content-type">>, Headers
+                        ),
+                        body => Body
+                    }),
+                    nomatch;
+                Result ->
+                    {matched, Result}
+            end;
         {ok, _Status, _Headers} ->
             nomatch;
         {ok, _Status, _Headers, _Body} ->
