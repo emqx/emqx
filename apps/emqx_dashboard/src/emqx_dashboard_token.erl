@@ -22,6 +22,7 @@
     sign/2,
     verify/1,
     lookup/1,
+    owner/1,
     destroy/1,
     destroy_by_username/1
 ]).
@@ -160,6 +161,14 @@ lookup_by_username(Username) ->
     Fun = fun() -> mnesia:select(?TAB, Spec) end,
     {atomic, List} = mria:ro_transaction(?DASHBOARD_SHARD, Fun),
     List.
+
+-spec owner(Token :: binary()) -> {ok, Username :: binary()} | {error, not_found}.
+owner(Token) ->
+    Fun = fun() -> mnesia:read(?TAB, Token) end,
+    case mria:ro_transaction(?DASHBOARD_SHARD, Fun) of
+        {atomic, [#?ADMIN_JWT{username = Username}]} -> {ok, Username};
+        {atomic, []} -> {error, not_found}
+    end.
 
 jwk(Username, Password, Salt) ->
     Key = crypto:hash(md5, <<Salt/binary, Username/binary, Password/binary>>),
