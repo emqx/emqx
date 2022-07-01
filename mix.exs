@@ -322,16 +322,9 @@ defmodule EMQXUmbrella.MixProject do
       Path.join(etc, "certs")
     )
 
-    # required by emqx_dashboard
-    Mix.Generator.copy_file(
-      "apps/emqx_dashboard/etc/i18n.conf.all",
-      Path.join(etc, "i18n.conf"),
-      force: overwrite?
-    )
-
     Mix.Generator.copy_file(
       "apps/emqx_dashboard/etc/emqx.conf.en.example",
-      Path.join(etc, "emqx-example-en.conf"),
+      Path.join(etc, "emqx-example.conf"),
       force: overwrite?
     )
 

@@ -30,6 +30,7 @@
     init_i18n/2,
     init_i18n/0,
     get_i18n/0,
+    i18n_file/0,
     clear_i18n/0
 ]).
 
@@ -271,7 +272,7 @@ return_unauthorized(Code, Message) ->
 
 i18n_file() ->
     case application:get_env(emqx_dashboard, i18n_file) of
-        undefined -> emqx:etc_file("i18n.conf");
+        undefined -> filename:join([code:priv_dir(emqx_dashboard), "i18n.conf"]);
         {ok, File} -> File
     end.
 

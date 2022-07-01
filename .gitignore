@@ -44,6 +44,7 @@ _packages
 elvis
 emqx_dialyzer_*_plt
 */emqx_dashboard/priv/www
+*/emqx_dashboard/priv/i18n.conf
 dist.zip
 scripts/git-token
 apps/*/etc/*.all

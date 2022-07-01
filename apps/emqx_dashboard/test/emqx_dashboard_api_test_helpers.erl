@@ -55,9 +55,8 @@ set_default_config(DefaultUsername) ->
     },
     emqx_config:put([dashboard], Config),
     I18nFile = filename:join([
-        filename:dirname(code:priv_dir(emqx_dashboard)),
-        "etc",
-        "i18n.conf.all"
+        code:priv_dir(emqx_dashboard),
+        "i18n.conf"
     ]),
     application:set_env(emqx_dashboard, i18n_file, I18nFile),
     ok.

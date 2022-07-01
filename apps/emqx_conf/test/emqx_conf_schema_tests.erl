@@ -19,8 +19,8 @@ doc_gen_test() ->
                 "test",
                 "lib",
                 "emqx_dashboard",
-                "etc",
-                "i18n.conf.all"
+                "priv",
+                "i18n.conf"
             ]),
             _ = emqx_conf:dump_schema(Dir, emqx_conf_schema, I18nFile),
             ok

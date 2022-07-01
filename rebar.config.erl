@@ -401,7 +401,7 @@ etc_overlay(ReleaseType, Edition) ->
     [
         {mkdir, "etc/"},
         {copy, "{{base_dir}}/lib/emqx/etc/certs", "etc/"},
-        {copy, "apps/emqx_dashboard/etc/emqx.conf.en.example", "etc/emqx-example-en.conf"}
+        {copy, "apps/emqx_dashboard/etc/emqx.conf.en.example", "etc/emqx-example.conf"}
     ] ++
         lists:map(
             fun
@@ -424,14 +424,12 @@ emqx_etc_overlay_common() ->
 
 emqx_etc_overlay_per_edition(ce) ->
     [
-        {"{{base_dir}}/lib/emqx_conf/etc/emqx.conf.all", "etc/emqx.conf"},
-        {"{{base_dir}}/lib/emqx_dashboard/etc/i18n.conf.all", "etc/i18n.conf"}
+        {"{{base_dir}}/lib/emqx_conf/etc/emqx.conf.all", "etc/emqx.conf"}
     ];
 emqx_etc_overlay_per_edition(ee) ->
     [
         {"{{base_dir}}/lib/emqx_conf/etc/emqx_enterprise.conf.all", "etc/emqx_enterprise.conf"},
-        {"{{base_dir}}/lib/emqx_conf/etc/emqx.conf.all", "etc/emqx.conf"},
-        {"{{base_dir}}/lib/emqx_dashboard/etc/i18n.conf.all", "etc/i18n.conf"}
+        {"{{base_dir}}/lib/emqx_conf/etc/emqx.conf.all", "etc/emqx.conf"}
     ].
 
 get_vsn(Profile) ->

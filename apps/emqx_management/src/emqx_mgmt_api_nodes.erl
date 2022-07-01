@@ -221,7 +221,10 @@ fields(node_info) ->
         {log_path,
             mk(
                 string(),
-                #{desc => <<"Path to log files">>, example => "path/to/log | not found"}
+                #{
+                    desc => <<"Path to log files">>,
+                    example => "path/to/log | The log path is not yet set"
+                }
             )},
         {role,
             mk(
@@ -286,7 +289,7 @@ format(_Node, Info = #{memory_total := Total, memory_used := Used}) ->
     LogPath =
         case log_path() of
             undefined ->
-                <<"not found">>;
+                <<"log.file_handler.default.enable is false,only log to console">>;
             Path ->
                 filename:join(SysPath, Path)
         end,
