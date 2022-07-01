@@ -55,17 +55,18 @@ t_check_sub(_) ->
     emqx_config:put_zone_conf(default, [mqtt, shared_subscription], false),
     emqx_config:put_zone_conf(default, [mqtt, wildcard_subscription], false),
     timer:sleep(50),
-    ok = emqx_mqtt_caps:check_sub(default, <<"topic">>, SubOpts),
+    ClientInfo = #{zone => default},
+    ok = emqx_mqtt_caps:check_sub(ClientInfo, <<"topic">>, SubOpts),
     ?assertEqual(
         {error, ?RC_TOPIC_FILTER_INVALID},
-        emqx_mqtt_caps:check_sub(default, <<"a/b/c/d">>, SubOpts)
+        emqx_mqtt_caps:check_sub(ClientInfo, <<"a/b/c/d">>, SubOpts)
     ),
     ?assertEqual(
         {error, ?RC_WILDCARD_SUBSCRIPTIONS_NOT_SUPPORTED},
-        emqx_mqtt_caps:check_sub(default, <<"+/#">>, SubOpts)
+        emqx_mqtt_caps:check_sub(ClientInfo, <<"+/#">>, SubOpts)
     ),
     ?assertEqual(
         {error, ?RC_SHARED_SUBSCRIPTIONS_NOT_SUPPORTED},
-        emqx_mqtt_caps:check_sub(default, <<"topic">>, SubOpts#{share => true})
+        emqx_mqtt_caps:check_sub(ClientInfo, <<"topic">>, SubOpts#{share => true})
     ),
     emqx_config:put([zones], OldConf).

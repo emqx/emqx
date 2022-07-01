@@ -439,6 +439,14 @@ fields("mqtt") ->
                     desc => ?DESC(mqtt_shared_subscription)
                 }
             )},
+        {"exclusive_subscription",
+            sc(
+                boolean(),
+                #{
+                    default => false,
+                    desc => ?DESC(mqtt_exclusive_subscription)
+                }
+            )},
         {"ignore_loop_deliver",
             sc(
                 boolean(),
