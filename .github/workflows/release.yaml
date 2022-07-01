@@ -28,7 +28,8 @@ jobs:
             *)
               echo "tag $REF is not supported"
               exit 1
-          fi
+              ;;
+          esac
           aws s3 cp --recursive s3://${{ secrets.AWS_S3_BUCKET }}/$s3dir/${{ github.ref_name }} packages
           cd packages
           DEFAULT_BEAM_PLATFORM='otp24.2.1-1'
