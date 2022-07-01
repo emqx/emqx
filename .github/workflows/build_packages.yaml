@@ -338,7 +338,7 @@ jobs:
 
   publish_artifacts:
     runs-on: ubuntu-20.04
-    needs: [prepare, mac, linux, docker]
+    needs: [prepare, mac, linux]
     if: ${{ needs.prepare.outputs.IS_EXACT_TAG }}
     strategy:
       fail-fast: false
