@@ -225,7 +225,16 @@ authenticate(#{listener := Listener, protocol := Protocol} = Credential, _AuthRe
                     inc_authenticate_metric('authentication.success.anonymous'),
                     ignore;
                 NAuthenticators ->
-                    do_authenticate(ChainName, NAuthenticators, Credential)
+                    Result = do_authenticate(ChainName, NAuthenticators, Credential),
+                    inc_authenticate_metric(
+                        case Result of
+                            {stop, {ok, _}} ->
+                                'authentication.success';
+                            _ ->
+                                'authentication.failure'
+                        end
+                    ),
+                    Result
             end;
         none ->
             inc_authenticate_metric('authentication.success.anonymous'),
@@ -614,7 +623,6 @@ handle_create_authenticator(Chain, Config, Providers) ->
     end.
 
 do_authenticate(_ChainName, [], _) ->
-    inc_authenticate_metric('authentication.failure'),
     {stop, {error, not_authorized}};
 do_authenticate(
     ChainName, [#authenticator{id = ID, provider = Provider, state = State} | More], Credential
@@ -633,10 +641,8 @@ do_authenticate(
             %% {error, Reason}
             case Result of
                 {ok, _} ->
-                    inc_authenticate_metric('authentication.success'),
                     emqx_metrics_worker:inc(authn_metrics, MetricsID, success);
                 {error, _} ->
-                    inc_authenticate_metric('authentication.failure'),
                     emqx_metrics_worker:inc(authn_metrics, MetricsID, failed);
                 _ ->
                     ok
