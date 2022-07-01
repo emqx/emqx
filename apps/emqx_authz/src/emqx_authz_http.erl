@@ -84,8 +84,21 @@ authorize(
             {matched, allow};
         {ok, 204, _Headers} ->
             {matched, allow};
-        {ok, 200, _Headers, _Body} ->
-            {matched, allow};
+        {ok, 200, Headers, Body} ->
+            ContentType = content_type(Headers),
+            case emqx_authz_utils:parse_http_resp_body(ContentType, Body) of
+                error ->
+                    ?SLOG(error, #{
+                        msg => authz_http_response_incorrect,
+                        content_type => proplists:get_value(
+                            <<"content-type">>, Headers
+                        ),
+                        body => Body
+                    }),
+                    nomatch;
+                Result ->
+                    {matched, Result}
+            end;
         {ok, _Status, _Headers} ->
             nomatch;
         {ok, _Status, _Headers, _Body} ->
@@ -204,6 +217,15 @@ serialize_body(<<"application/json">>, Body) ->
     jsx:encode(Body);
 serialize_body(<<"application/x-www-form-urlencoded">>, Body) ->
     query_string(Body).
+
+content_type(Headers) when is_list(Headers) ->
+    content_type(maps:from_list(Headers));
+content_type(#{<<"content-type">> := Type}) ->
+    Type;
+content_type(#{<<"Content-Type">> := Type}) ->
+    Type;
+content_type(Headers) when is_map(Headers) ->
+    <<"application/json">>.
 
 client_vars(Client, PubSub, Topic) ->
     Client#{

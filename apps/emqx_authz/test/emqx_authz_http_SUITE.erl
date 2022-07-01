@@ -85,8 +85,8 @@ t_response_handling(_Config) ->
         fun(Req0, State) ->
             Req = cowboy_req:reply(
                 200,
-                #{<<"content-type">> => <<"text/plain">>},
-                "Response body",
+                #{<<"content-type">> => <<"application/json">>},
+                "{\"result\": \"allow\"}",
                 Req0
             ),
             {ok, Req, State}
