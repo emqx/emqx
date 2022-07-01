@@ -4,10 +4,10 @@
 
 * Removed management API auth for prometheus scraping endpoint /api/v5/prometheus/stats [8299](https://github.com/emqx/emqx/pull/8299)
 * Added more TCP options for exhook (gRPC) connections. [8317](https://github.com/emqx/emqx/pull/8317)
-* Allow http authz backend to return a HTTP body to indicate result `deny` | `allow` or `ignore`. [8377](https://github.com/emqx/emqx/pull/8377)
+* HTTP Servers used for authentication and authorization will now indicate the result via the response body. [8374](https://github.com/emqx/emqx/pull/8374) [8377](https://github.com/emqx/emqx/pull/8377)
 * Bulk subscribe/unsubscribe APIs [8356](https://github.com/emqx/emqx/pull/8356)
 * Added exclusive subscription [8315](https://github.com/emqx/emqx/pull/8315)
-* Improve authn failure/error counter metrics [8352](https://github.com/emqx/emqx/pull/8377) [8375](https://github.com/emqx/emqx/pull/8352)
+* Provide authentication counter metrics [8352](https://github.com/emqx/emqx/pull/8352) [8375](https://github.com/emqx/emqx/pull/8375)
 * Do not allow admin user self-deletion [8286](https://github.com/emqx/emqx/pull/8286)
 * After restart, ensure to copy `cluster-override.conf` from the clustered node which has the greatest `tnxid`. [8333](https://github.com/emqx/emqx/pull/8333)
 
