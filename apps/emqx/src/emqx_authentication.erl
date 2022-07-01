@@ -226,14 +226,15 @@ authenticate(#{listener := Listener, protocol := Protocol} = Credential, _AuthRe
                     ignore;
                 NAuthenticators ->
                     Result = do_authenticate(ChainName, NAuthenticators, Credential),
-                    inc_authenticate_metric(
-                        case Result of
-                            {stop, {ok, _}} ->
-                                'authentication.success';
-                            _ ->
-                                'authentication.failure'
-                        end
-                    ),
+
+                    case Result of
+                        {stop, {ok, _}} ->
+                            inc_authenticate_metric('authentication.success');
+                        {stop, {error, _}} ->
+                            inc_authenticate_metric('authentication.failure');
+                        _ ->
+                            ok
+                    end,
                     Result
             end;
         none ->
