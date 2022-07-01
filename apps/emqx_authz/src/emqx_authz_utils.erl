@@ -133,13 +133,13 @@ render_sql_params(ParamList, Values) ->
     ).
 
 -spec parse_http_resp_body(binary(), binary()) -> allow | deny | ignore | error.
-parse_http_resp_body(<<"application/x-www-form-urlencoded">>, Body) ->
+parse_http_resp_body(<<"application/x-www-form-urlencoded", _/binary>>, Body) ->
     try
         result(maps:from_list(cow_qs:parse_qs(Body)))
     catch
         _:_ -> error
     end;
-parse_http_resp_body(<<"application/json">>, Body) ->
+parse_http_resp_body(<<"application/json", _/binary>>, Body) ->
     try
         result(emqx_json:decode(Body, [return_maps]))
     catch
