@@ -13,6 +13,7 @@ This had been the biggest obstacle for EMQX team to act agile enought in deliver
 ## Bug fixes
 
 * Fixed a typo in `bin/emqx` which affects MacOs release when trying to enable Erlang distribution over TLS [8398](https://github.com/emqx/emqx/pull/8398)
+* Ristricted shell was accidentally disabled in 5.0.1, it has been added back. [8396]{https://github.com/emqx/emqx/pull/8396)
 
 # 5.0.1
 
