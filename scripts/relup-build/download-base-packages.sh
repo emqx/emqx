@@ -27,9 +27,13 @@ case $PROFILE in
         ;;
 esac
 
-UNAME="$(uname -s)"
-case "$UNAME" in
-    Darwin)
+SYSTEM="$(./scripts/get-distro.sh)"
+case "$SYSTEM" in
+    windows*)
+        echo "NOTE: no_relup_for_windows"
+        exit 0
+        ;;
+    macos*)
         SHASUM="shasum -a 256"
         ;;
     *)
