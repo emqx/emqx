@@ -11,6 +11,8 @@ if [ -z "$old_vsn" ]; then
     exit 1
 fi
 
+rebuild="${2:-no_rebuild}"
+
 # ensure dir
 cd -P -- "$(dirname -- "$0")/../.."
 
@@ -35,6 +37,10 @@ case "$old_vsn" in
         exit 1
         ;;
 esac
+
+if [ "$rebuild" = "--build" ]; then
+    make "${profile}-tgz"
+fi
 
 # From now on, no need for the v|e prefix
 OLD_VSN="${old_vsn#[e|v]}"

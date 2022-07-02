@@ -13,4 +13,20 @@ tar -C emqx -zxf "$PKG"
 ln -s "$(pwd)/emqx/bin/emqx" /usr/bin/emqx
 ln -s "$(pwd)/emqx/bin/emqx_ctl" /usr/bin/emqx_ctl
 
+if command -v apt; then
+    apt update -y
+    apt install -y \
+        curl \
+        jq \
+        libffi-dev \
+        libkrb5-3 \
+        libkrb5-dev \
+        libncurses5-dev \
+        libsasl2-2 \
+        libsasl2-dev \
+        libsasl2-modules-gssapi-mit \
+        libssl-dev \
+        zip
+fi
+
 emqx console
