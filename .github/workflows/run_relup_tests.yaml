@@ -58,6 +58,7 @@ jobs:
   relup_test_run:
     needs:
       - relup_test_plan
+    if: needs.relup_test_plan.outputs.OLD_VERSIONS != "[]"
     runs-on: ubuntu-20.04
     strategy:
       fail-fast: false
