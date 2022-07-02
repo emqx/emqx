@@ -130,8 +130,8 @@ case "$SYSTEM" in
         ;;
 esac
 
-UNAME="$(uname -m)"
-case "$UNAME" in
+UNAME_M="$(uname -m)"
+case "$UNAME_M" in
     x86_64)
         ARCH='amd64'
         ;;

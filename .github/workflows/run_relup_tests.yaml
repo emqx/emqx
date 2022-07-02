@@ -18,7 +18,6 @@ jobs:
     runs-on: ubuntu-20.04
     container: "ghcr.io/emqx/emqx-builder/5.0-17:1.13.4-24.2.1-1-ubuntu20.04"
     outputs:
-      CUR_CE_VSN: ${{ steps.find-versions.outputs.CUR_CE_VSN }}
       CUR_EE_VSN: ${{ steps.find-versions.outputs.CUR_EE_VSN }}
       OLD_VERSIONS: ${{ steps.find-versions.outputs.OLD_VERSIONS }}
     defaults:
@@ -35,12 +34,9 @@ jobs:
       run: |
         set -x
         cd emqx
-        ce_vsn="$(./pkg-vsn.sh opensource)"
         ee_vsn="$(./pkg-vsn.sh enterprise)"
-        old_ce_vsns="$(./scripts/relup-build/base-vsns.sh opensource | xargs)"
         old_ee_vsns="$(./scripts/relup-build/base-vsns.sh enterprise | xargs)"
-        old_vsns=$(echo -n "${old_ce_vsns} ${old_ee_vsns}" | sed 's/ $//g' | jq -R -s -c 'split(" ")')
-        echo "::set-output name=CUR_CE_VSN::$ce_vsn"
+        old_vsns=$(echo -n "${old_ee_vsns}" | sed 's/ $//g' | jq -R -s -c 'split(" ")')
         echo "::set-output name=CUR_EE_VSN::$ee_vsn"
         echo "::set-output name=OLD_VERSIONS::$old_vsns"
     - name: build emqx
@@ -69,7 +65,6 @@ jobs:
         old_vsn: ${{ fromJson(needs.relup_test_plan.outputs.OLD_VERSIONS) }}
     env:
       OLD_VSN: "${{ matrix.old_vsn }}"
-      CUR_CE_VSN: "${{ needs.relup_test_plan.outputs.CUR_CE_VSN }}"
       CUR_EE_VSN: "${{ needs.relup_test_plan.outputs.CUR_EE_VSN }}"
     defaults:
       run:
@@ -106,9 +101,6 @@ jobs:
         case "$OLD_VSN" in
           e*)
             export CUR_VSN="$CUR_EE_VSN"
-            ;;
-          v*)
-            export CUR_VSN="$CUR_CE_VSN"
             ;;
           *)
             echo "unknown old version $OLD_VSN"
