@@ -9,17 +9,17 @@ set -euo pipefail
 cd -P -- "$(dirname -- "${BASH_SOURCE[0]}")/../.."
 ROOT_DIR="$(pwd)"
 
-PROFILE="${1:-emqx}"
+PROFILE="${1:-emqx-enterprise}"
 export PROFILE
 
 case $PROFILE in
-    "emqx")
-        DIR='broker'
-        EDITION='opensource'
-        ;;
     "emqx-enterprise")
         DIR='enterprise'
         EDITION='enterprise'
+        ;;
+    "emqx")
+        echo "No relup for opensource edition"
+        exit 0
         ;;
     *)
         echo "Unknown profile $PROFILE"
@@ -27,9 +27,13 @@ case $PROFILE in
         ;;
 esac
 
-UNAME="$(uname -s)"
-case "$UNAME" in
-    Darwin)
+SYSTEM="$(./scripts/get-distro.sh)"
+case "$SYSTEM" in
+    windows*)
+        echo "NOTE: no_relup_for_windows"
+        exit 0
+        ;;
+    macos*)
         SHASUM="shasum -a 256"
         ;;
     *)

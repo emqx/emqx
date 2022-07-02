@@ -1,4 +1,43 @@
+# 5.0.2
+
+Announcemnet: EMQX team has decided to stop supporting relup for opensouce edition.
+Going forward, it will be an enterprise only feature.
+
+Main reason: relup requires carefully crafted upgrade instructions from ALL previous versions.
+
+For example, 4.3 is now at 4.3.16, we have `4.3.0->4.3.16`, `4.3.1->4.3.16`, ... 16 such upgrade paths in total to maintain.
+This had been the biggest obstacle for EMQX team to act agile enought in deliverying enhancements and fixes.
+
+## Enhancements
+
+## Bug fixes
+
+* Fixed a typo in `bin/emqx` which affects MacOs release when trying to enable Erlang distribution over TLS [8398](https://github.com/emqx/emqx/pull/8398)
+
 # 5.0.1
+
+5.0.1 is built on [Erlang/OTP 24.2.1-1](https://github.com/emqx/otp/tree/OTP-24.2.1-1). Same as 5.0.0.
+
+5.0.0 (like 4.4.x) had Erlang/OTP version number in the package name.
+This is because we wanted to release different flavor packages (on different Elixir/Erlang/OTP platforms).
+
+However the long package names also causes confusion, as users may not know which to choose if there were more than
+one presented at the same time.
+
+Going forward, (starting from 5.0.1), packages will be released in both default (short) and flavored (long) package names.
+
+For example: `emqx-5.0.1-otp24.2.1-1-ubuntu20.04-amd64.tar.gz`,
+but only the default one is presented to the users: `emqx-5.0.1-ubuntu20.04-amd64.tar.gz`.
+
+In case anyone wants to try a different flavor package, it can be downlowded from the public s3 bucket,
+for example:
+https://s3.us-west-2.amazonaws.com/packages.emqx/emqx-ce/v5.0.1/emqx-5.0.1-otp24.2.1-1-ubuntu20.04-arm64.tar.gz
+
+Exceptions:
+
+* Windows package is always presented with short name (currently on Erlang/OTP 24.2.1).
+* Elixir package name is flavored with both Elixir and Erlang/OTP version numbers,
+  for example: `emqx-5.0.1-elixir1.13.4-otp24.2.1-1-ubuntu20.04-amd64.tar.gz`
 
 ## Enhancements
 

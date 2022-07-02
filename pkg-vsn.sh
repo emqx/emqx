@@ -120,22 +120,18 @@ fi
 OTP_VSN="${OTP_VSN:-$(./scripts/get-otp-vsn.sh)}"
 SYSTEM="$(./scripts/get-distro.sh)"
 
-if [ "${PKG_VSN:-}" = 'v5.0.0' ]; then
-    # 5.0.0 is released only with a full name package
-    # e.g. 5.0.0-otp24.2.1-1-ubuntu20.04-amd64
-    case "$SYSTEM" in
-        windows*)
-            ## alway directly build the default package for windows
-            IS_DEFAULT_RELEASE='yes'
-            ;;
-        *)
-            true
-            ;;
-    esac
-fi
+case "$SYSTEM" in
+    windows*)
+        # directly build the default package for windows
+        IS_DEFAULT_RELEASE='yes'
+        ;;
+    *)
+        true
+        ;;
+esac
 
-UNAME="$(uname -m)"
-case "$UNAME" in
+UNAME_M="$(uname -m)"
+case "$UNAME_M" in
     x86_64)
         ARCH='amd64'
         ;;

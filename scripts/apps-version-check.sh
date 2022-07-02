@@ -24,6 +24,7 @@ while read -r app; do
     if [ "$old_app_version" = "$now_app_version" ]; then
         changed_lines="$(git diff "$latest_release"...HEAD --ignore-blank-lines -G "$no_comment_re" \
                              -- "$app_path/src" \
+                             -- "$app_path/include" \
                              -- ":(exclude)"$app_path/src/*.appup.src"" \
                              -- "$app_path/priv" \
                              -- "$app_path/c_src" | wc -l ) "
