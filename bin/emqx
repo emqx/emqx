@@ -435,7 +435,7 @@ else
             die "node_is_not_running!" 1
         fi
         # get ssl_dist_optfile option
-        SSL_DIST_OPTFILE="$(echo -e "$PS_LINE" | grep -oE '+ssl_dist_optfile\s.+\s' | awk '{print $2}' || true)"
+        SSL_DIST_OPTFILE="$(echo -e "$PS_LINE" | grep -oE '\-ssl_dist_optfile\s.+\s' | awk '{print $2}' || true)"
         if [ -z "$SSL_DIST_OPTFILE" ]; then
             EMQX_BOOT_CONFIGS="node.data_dir=${DATA_DIR}\ncluster.proto_dist=inet_tcp"
         else
@@ -463,11 +463,11 @@ if [ "$EKKA_PROTO_DIST_MOD" = 'inet_tls' ]; then
         case "$SSL_DIST_OPTFILE" in
             *\ *)
                 # there is unfortunately no way to support space for this option because we'd need to grep
-                # from 'ps -ef' result to get this option for non-boot commands (nodtool) to run
+                # from 'ps -ef' result to get this option for non-boot commands (nodetool) to run
                 set +x
                 echoerr "Got space in: $SSL_DIST_OPTFILE"
                 echoerr "No space is allowed for Erlang distribution over SSL option file path."
-                echoerr "Configure it from environment varialbe EMQX_SSL_DIST_OPTFILE."
+                echoerr "Configure it from environment variable EMQX_SSL_DIST_OPTFILE."
                 echoerr "Or make sure emqx root path '$RUNNER_ROOT_DIR' has no space"
                 exit 1
                 ;;
@@ -654,7 +654,7 @@ latest_vm_args() {
     fi
 }
 
-# backward compabible with 4.x
+# backward compatible with 4.x
 tr_log_to_env() {
     local log_to=${EMQX_LOG__TO:-undefined}
     # unset because it's unknown to 5.0
