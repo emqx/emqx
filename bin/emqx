@@ -435,7 +435,7 @@ else
             die "node_is_not_running!" 1
         fi
         # get ssl_dist_optfile option
-        SSL_DIST_OPTFILE="$(echo -e "$PS_LINE" | grep -oE '+ssl_dist_optfile\s.+\s' | awk '{print $2}' || true)"
+        SSL_DIST_OPTFILE="$(echo -e "$PS_LINE" | grep -oE 'ssl_dist_optfile\s.+\s' | awk '{print $2}' || true)"
         if [ -z "$SSL_DIST_OPTFILE" ]; then
             EMQX_BOOT_CONFIGS="node.data_dir=${DATA_DIR}\ncluster.proto_dist=inet_tcp"
         else
@@ -475,8 +475,8 @@ if [ "$EKKA_PROTO_DIST_MOD" = 'inet_tls' ]; then
                 true
                 ;;
         esac
+        EPMD_ARGS="${EPMD_ARGS} -ssl_dist_optfile $SSL_DIST_OPTFILE"
     fi
-    EPMD_ARGS="${EPMD_ARGS} -ssl_dist_optfile $SSL_DIST_OPTFILE"
 fi
 
 DATA_DIR="$(get_boot_config 'node.data_dir')"
@@ -543,7 +543,7 @@ generate_config() {
     ## also include the cluster-override.conf and local-override.conf
     ## (User can update logger_handler from dashboard).
     ## meaning, certain overrides will be mapped to app.<time>.config file
-    call_hocon -v -t "$NOW_TIME" -s "$SCHEMA_MOD" -c "$EMQX_ETC_DIR"/emqx.conf -c "$DATA_DIR"/cluster-override.conf -c -c "$DATA_DIR"/local-override.conf -d "$DATA_DIR"/configs generate
+    call_hocon -v -t "$NOW_TIME" -s "$SCHEMA_MOD" -c "$EMQX_ETC_DIR"/emqx.conf -c "$DATA_DIR"/cluster-override.conf -c "$DATA_DIR"/local-override.conf -d "$DATA_DIR"/configs generate
 
     ## filenames are per-hocon convention
     CONF_FILE="$CONFIGS_DIR/app.$NOW_TIME.config"
