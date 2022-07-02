@@ -42,13 +42,13 @@ jobs:
           git config --global --add safe.directory "$(pwd)"
           tag=${{ github.ref }}
           if git describe --tags --match "[v|e]*" --exact; then
-            echo "This is an exact git tag, will publish release"
-            is_exact='true'
+            echo "WARN: This is an exact git tag, will publish release"
+            is_exact_tag='true'
           else
-            echo "This is NOT an exact git tag, will not publish release"
-            is_exact='false'
+            echo "WARN: This is NOT an exact git tag, will not publish release"
+            is_exact_tag='false'
           fi
-          echo "::set-output name=IS_EXACT_TAG::${is_exact}"
+          echo "::set-output name=IS_EXACT_TAG::${is_exact_tag}"
           case $tag in
             refs/tags/v*)
               PROFILE='emqx'
@@ -66,8 +66,10 @@ jobs:
                   true
                   ;;
                 *)
-                  echo "ERROR: Failed to resolve build profile"
-                  exit 1
+                  # maybe triggered from schedule
+                  echo "WARN: \"$PROFILE\" is not a valid profile."
+                  echo "building the default profile 'emqx' instead"
+                  PROFILE='emqx'
                   ;;
               esac
               ;;
