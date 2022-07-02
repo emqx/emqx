@@ -35,6 +35,11 @@
 ## (Disabled by default..use with caution!)
 #-heart
 
+## The shell is started in a restricted mode.
+## In this mode, the shell evaluates a function call only if allowed.
+## Prevent user from accidentally calling a function from the prompt that could harm a running system.
+-stdlib restricted_shell emqx_restricted_shell
+
 ## Specifies the net_kernel tick time in seconds.
 ## This is the approximate time a connected node may be unresponsive until
 ## it is considered down and thereby disconnected.
