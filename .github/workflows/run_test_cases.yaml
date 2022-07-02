@@ -207,7 +207,6 @@ jobs:
 
       - name: get coveralls logs
         working-directory: source
-        env:
         if: failure()
         run: cat rebar3.crashdump
 
