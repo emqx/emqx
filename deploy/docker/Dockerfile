@@ -20,6 +20,10 @@ RUN export PROFILE="$EMQX_NAME" \
 
 FROM $RUN_FROM
 
+# Elixir complains if runs without UTF-8
+ENV LC_ALL=C.UTF-8
+ENV LANG=C.UTF-8
+
 COPY deploy/docker/docker-entrypoint.sh /usr/bin/
 COPY --from=builder /emqx-rel/emqx /opt/emqx
 
