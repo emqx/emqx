@@ -70,9 +70,9 @@
     enable_pipelining => #{order => 5,
                            type => boolean,
                            default => true,
-                           title => #{en => <<"Enable Pipelining">>, zh => <<"Enable Pipelining"/utf8>>},
+                           title => #{en => <<"Enable HTTP Pipelining">>, zh => <<"开启 HTTP 管线化"/utf8>>},
                            description => #{en => <<"Whether to enable HTTP Pipelining">>,
-                                            zh => <<"是否开启 HTTP Pipelining"/utf8>>}
+                                            zh => <<"是否开启 HTTP 管线化"/utf8>>}
                 },
     cacertfile => #{order => 6,
                     type => file,
