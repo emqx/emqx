@@ -493,7 +493,7 @@ log_and_alarm(true, Res, Meta) ->
     ?SLOG(debug, Meta#{msg => "cluster_rpc_apply_ok", result => Res}),
     do_alarm(deactivate, Res, Meta);
 log_and_alarm(false, Res, Meta) ->
-    ?SLOG(error, Meta#{msg => "cluster_rpc_apply_failed", result => Res}),
+    ?SLOG(warning, Meta#{msg => "cluster_rpc_apply_failed", result => Res}),
     do_alarm(activate, Res, Meta).
 
 do_alarm(Fun, Res, #{tnx_id := Id} = Meta) ->
