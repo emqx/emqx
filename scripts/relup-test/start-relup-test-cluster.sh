@@ -91,7 +91,7 @@ wait_for_webhook() {
     while ! curl -f -s localhost:7077; do
         wait_sec=$(( wait_sec + 1 ))
         if [ $wait_sec -gt "$wait_limit" ]; then
-            echo "timeout wait for EMQX"
+            echo "timeout wait for webhook"
             exit 1
         fi
         echo -n '.'
