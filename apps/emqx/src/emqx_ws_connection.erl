@@ -981,9 +981,8 @@ trigger(Event) -> erlang:send(self(), Event).
 
 get_peer(Req, #{listener := {Type, Listener}}) ->
     {PeerAddr, PeerPort} = cowboy_req:peer(Req),
-    AddrHeader = cowboy_req:header(
-        get_ws_opts(Type, Listener, proxy_address_header), Req, <<>>
-    ),
+    AddrHeaderName = get_ws_header_opts(Type, Listener, proxy_address_header),
+    AddrHeader = cowboy_req:header(AddrHeaderName, Req, <<>>),
     ClientAddr =
         case string:tokens(binary_to_list(AddrHeader), ", ") of
             [] ->
@@ -998,9 +997,8 @@ get_peer(Req, #{listener := {Type, Listener}}) ->
             _ ->
                 PeerAddr
         end,
-    PortHeader = cowboy_req:header(
-        get_ws_opts(Type, Listener, proxy_port_header), Req, <<>>
-    ),
+    PortHeaderName = get_ws_header_opts(Type, Listener, proxy_port_header),
+    PortHeader = cowboy_req:header(PortHeaderName, Req, <<>>),
     ClientPort =
         case string:tokens(binary_to_list(PortHeader), ", ") of
             [] ->
@@ -1041,6 +1039,10 @@ check_max_connection(Type, Listener) ->
 set_field(Name, Value, State) ->
     Pos = emqx_misc:index_of(Name, record_info(fields, state)),
     setelement(Pos + 1, State, Value).
+
+%% ensure lowercase letters in headers
+get_ws_header_opts(Type, Listener, Key) ->
+    iolist_to_binary(string:lowercase(get_ws_opts(Type, Listener, Key))).
 
 get_ws_opts(Type, Listener, Key) ->
     emqx_config:get_listener_conf(Type, Listener, [websocket, Key]).

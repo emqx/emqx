@@ -1,3 +1,9 @@
+# 5.0.3
+
+## Bug fixes
+
+* Websocket listener failed to read headers `X-Forwared-For` and `X-Forwarded-Port` [8415](https://github.com/emqx/emqx/pull/8415)
+
 # 5.0.2
 
 Announcemnet: EMQX team has decided to stop supporting relup for opensouce edition.
