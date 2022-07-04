@@ -10,6 +10,13 @@ File format:
 - One list item per change topic
   Change log ends with a list of github PRs
 
+## v4.3.17
+
+### Bug fixes
+
+- Fixed issue where the dashboard APIs were being exposed under the
+  management listener. [#8411]
+
 ## v4.3.16
 
 ### Enhancements
