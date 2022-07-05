@@ -27,7 +27,7 @@
     !export EMQX_LOG__LEVEL=debug
 
     !./bin/emqx start
-    ?EMQ X .* is started successfully!
+    ?EMQX .* is started successfully!
     ?SH-PROMPT
 
 [shell emqx2]
@@ -41,7 +41,7 @@
     !export EMQX_LOG__LEVEL=debug
 
     !./bin/emqx start
-    ?EMQ X .* is started successfully!
+    ?EMQX .* is started successfully!
     ?SH-PROMPT
 
     !./bin/emqx_ctl cluster join emqx@127.0.0.1

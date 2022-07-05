@@ -191,9 +191,9 @@ distro() ->
         _ -> false
     end.
 
-emqx_description(cloud, true) -> "EMQ X Enterprise";
-emqx_description(cloud, false) -> "EMQ X Broker";
-emqx_description(edge, _) -> "EMQ X Edge".
+emqx_description(cloud, true) -> "EMQX Enterprise";
+emqx_description(cloud, false) -> "EMQX Broker";
+emqx_description(edge, _) -> "EMQX Edge".
 
 overlay_vars(_RelType, PkgType, true) ->
     ee_overlay_vars(PkgType);
