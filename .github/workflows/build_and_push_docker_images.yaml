@@ -323,4 +323,9 @@ jobs:
         if: ${{ needs.prepare.outputs.IS_EXACT_TAG }}
         working-directory: source
         run: |
-          scripts/docker-create-push-manifests.sh "${{ steps.meta.outputs.tags }}" "${{ needs.prepare.outputs.IS_DOCKER_LATEST }}"
+          if [ ${{ matrix.build_elixir }} = 'with_elixir' ]; then
+            is_latest=false
+          else
+            is_latest="${{ needs.prepare.outputs.IS_DOCKER_LATEST }}"
+          fi
+          scripts/docker-create-push-manifests.sh "${{ steps.meta.outputs.tags }}" "$is_latest"
