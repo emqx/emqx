@@ -18,7 +18,7 @@ docker manifest create "${img_march}" \
 docker manifest push "${img_march}"
 
 # PUSH latest if it is a release build
-if [ "$IsPushLatest" = "true" -a "${IS_ELIXIR:-no}" = "no" ]; then
+if [ "$IsPushLatest" = "true" ]; then
     img_latest=$(echo "$img_arm64" | cut -d: -f 1):latest
     docker manifest create "${img_latest}" \
         --amend "$img_amd64_digest" \
