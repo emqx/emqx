@@ -156,7 +156,8 @@ listener_mqtt_ws_conf() ->
                 max_frame_size => infinity,
                 mqtt_path => "/mqtt",
                 mqtt_piggyback => multiple,
-                proxy_address_header => "x-forwarded-for",
+                % should allow uppercase in config
+                proxy_address_header => "X-Forwarded-For",
                 proxy_port_header => "x-forwarded-port",
                 supported_subprotocols =>
                     ["mqtt", "mqtt-v3", "mqtt-v3.1.1", "mqtt-v5"]
