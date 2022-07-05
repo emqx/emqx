@@ -65,11 +65,11 @@ stop_grpc_client_channel(Name) ->
 
 %% @private
 prefix(Name) when is_atom(Name) ->
-    "exproto:" ++ atom_to_list(Name);
+    list_to_atom("exproto:" ++ atom_to_list(Name));
 prefix(Name) when is_binary(Name) ->
-    "exproto:" ++ binary_to_list(Name);
+    list_to_atom("exproto:" ++ binary_to_list(Name));
 prefix(Name) when is_list(Name) ->
-    "exproto:" ++ Name.
+    list_to_atom("exproto:" ++ Name).
 
 %%--------------------------------------------------------------------
 %% Supervisor callbacks
