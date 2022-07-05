@@ -49,15 +49,15 @@ start_listeners() ->
 stop_listeners() ->
     lists:foreach(fun stop_listener/1, listeners()).
 
-start_listener({Proto, Port, Options}) when Proto == http ->
+start_listener({http, Port, Options}) ->
     Dispatch = [{"/status", emqx_mgmt_http, []},
                 {"/api/v4/[...]", minirest, http_handlers()}],
-    minirest:start_http(listener_name(Proto), ranch_opts(Port, Options), Dispatch);
+    minirest:start_http(listener_name(http), ranch_opts(Port, Options), Dispatch);
 
-start_listener({Proto, Port, Options}) when Proto == https ->
+start_listener({https, Port, Options}) ->
     Dispatch = [{"/status", emqx_mgmt_http, []},
                 {"/api/v4/[...]", minirest, http_handlers()}],
-    minirest:start_https(listener_name(Proto), ranch_opts(Port, Options), Dispatch).
+    minirest:start_https(listener_name(https), ranch_opts(Port, Options), Dispatch).
 
 ranch_opts(Port, Options0) ->
     NumAcceptors = proplists:get_value(num_acceptors, Options0, 4),
@@ -87,7 +87,7 @@ listeners() ->
 listener_name(Proto) ->
     %% NOTE: this name has referenced by emqx_management.appup.src.
     %% Please don't change it except you have got how to handle it in hot-upgrade
-    list_to_atom(atom_to_list(Proto) ++ ":management").
+    list_to_atom("management:" ++ atom_to_list(Proto)).
 
 http_handlers() ->
     Plugins = lists:map(fun(Plugin) -> Plugin#plugin.name end, emqx_plugins:list()),

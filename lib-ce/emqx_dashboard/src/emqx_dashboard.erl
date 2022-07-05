@@ -42,17 +42,17 @@ start_listeners() ->
     lists:foreach(fun(Listener) -> start_listener(Listener) end, listeners()).
 
 %% Start HTTP Listener
-start_listener({Proto, Port, Options}) when Proto == http ->
+start_listener({http, Port, Options})  ->
     Dispatch = [{"/", cowboy_static, {priv_file, emqx_dashboard, "www/index.html"}},
                 {"/static/[...]", cowboy_static, {priv_dir, emqx_dashboard, "www/static"}},
                 {"/api/v4/[...]", minirest, http_handlers()}],
-    minirest:start_http(listener_name(Proto), ranch_opts(Port, Options), Dispatch);
+    minirest:start_http(listener_name(http), ranch_opts(Port, Options), Dispatch);
 
-start_listener({Proto, Port, Options}) when Proto == https ->
+start_listener({https, Port, Options}) ->
     Dispatch = [{"/", cowboy_static, {priv_file, emqx_dashboard, "www/index.html"}},
                 {"/static/[...]", cowboy_static, {priv_dir, emqx_dashboard, "www/static"}},
                 {"/api/v4/[...]", minirest, http_handlers()}],
-    minirest:start_https(listener_name(Proto), ranch_opts(Port, Options), Dispatch).
+    minirest:start_https(listener_name(https), ranch_opts(Port, Options), Dispatch).
 
 ranch_opts(Port, Options0) ->
     NumAcceptors = get_value(num_acceptors, Options0, 4),
@@ -82,7 +82,7 @@ listeners() ->
 listener_name(Proto) ->
     %% NOTE: this name has referenced by emqx_dashboard.appup.src.
     %% Please don't change it except you have got how to handle it in hot-upgrade
-    list_to_atom(atom_to_list(Proto) ++ ":dashboard").
+    list_to_atom("dashboard:" ++ atom_to_list(Proto)).
 
 %%--------------------------------------------------------------------
 %% HTTP Handlers and Dispatcher
