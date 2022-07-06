@@ -39,6 +39,7 @@
 
 -include_lib("emqx/include/logger.hrl").
 -include_lib("emqx/include/http_api.hrl").
+-include_lib("emqx/include/emqx_release.hrl").
 
 -define(BASE_PATH, "/api/v5").
 
@@ -59,7 +60,7 @@ start_listeners(Listeners) ->
     Authorization = {?MODULE, authorize},
     GlobalSpec = #{
         openapi => "3.0.0",
-        info => #{title => "EMQX API", version => "5.0.0"},
+        info => #{title => "EMQX API", version => ?EMQX_API_VERSION},
         servers => [#{url => ?BASE_PATH}],
         components => #{
             schemas => #{},
