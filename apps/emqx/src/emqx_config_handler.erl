@@ -452,8 +452,9 @@ merge_to_old_config(UpdateReq, _RawConf) ->
 %% local-override.conf priority is higher than cluster-override.conf
 %% If we want cluster to take effect, we must remove the local.
 remove_from_local_if_cluster_change(BinKeyPath, #{override_to := cluster} = Opts) ->
-    Local = remove_from_override_config(BinKeyPath, Opts#{override_to => local}),
-    _ = emqx_config:save_to_override_conf(Local, Opts),
+    Opts1 = Opts#{override_to => local},
+    Local = remove_from_override_config(BinKeyPath, Opts1),
+    _ = emqx_config:save_to_override_conf(Local, Opts1),
     ok;
 remove_from_local_if_cluster_change(_BinKeyPath, _Opts) ->
     ok.
