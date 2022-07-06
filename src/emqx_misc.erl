@@ -45,6 +45,7 @@
         , index_of/2
         , maybe_parse_ip/1
         , ipv6_probe/1
+        , maybe_middleman/3
         ]).
 
 -export([ bin2hexstr_A_F/1
@@ -334,6 +335,39 @@ make_binary(B) -> <<<<(hexchar2int(H) * 16 + hexchar2int(L))>> || <<H:8, L:8>> <
 hexchar2int(I) when I >= $0 andalso I =< $9 -> I - $0;
 hexchar2int(I) when I >= $A andalso I =< $F -> I - $A + 10;
 hexchar2int(I) when I >= $a andalso I =< $f -> I - $a + 10.
+
+
+-spec maybe_middleman(module(), atom(), list()) -> term().
+maybe_middleman(Mod, Fun, Args) ->
+    [{message_queue_len, MQL}] = process_info(self(), [message_queue_len]),
+    MaxMQL = 10,
+    if MQL >= MaxMQL ->
+            with_middleman(Mod, Fun, Args);
+       true ->
+            apply(Mod, Fun, Args)
+    end.
+
+-spec with_middleman(module(), atom(), list()) -> term().
+with_middleman(Mod, Fun, Args) ->
+    Ref = make_ref(),
+    Parent = self(),
+    spawn_link(fun() ->
+                       Result = try apply(Mod, Fun, Args) of
+                                    R -> {ok, R}
+                                catch
+                                    EC:Err ->
+                                        {EC, Err}
+                                end,
+                       Parent ! {Ref, Result}
+               end),
+    receive
+        {Ref, Result} ->
+            case Result of
+                {ok, R} -> R;
+                {EC, Err} ->
+                    erlang:EC(Err)
+            end
+    end.
 
 -ifdef(TEST).
 -include_lib("eunit/include/eunit.hrl").
