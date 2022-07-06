@@ -93,7 +93,7 @@ default_auth_result(Username, Zone) ->
     IsAnonymous = (Username =:= undefined orelse Username =:= <<>>),
     AllowAnonymous = emqx_zone:get_env(Zone, allow_anonymous, false),
     Bypass = emqx_zone:get_env(Zone, bypass_auth_plugins, false),
-    %% the `anonymous` filed in auth result does not mean the client is
+    %% the `anonymous` field in auth result does not mean the client is
     %% connected without username, but if the auth result is based on
     %% allowing anonymous access.
     IsResultBasedOnAllowAnonymous =
