@@ -107,7 +107,7 @@ jobs:
           - no_elixir
         registry:
           - 'docker.io'
-         #- 'public.ecr.aws'
+          - 'public.ecr.aws'
         os:
           - [alpine3.15.1, "alpine:3.15.1", "deploy/docker/Dockerfile.alpine"]
           - [debian11, "debian:11-slim", "deploy/docker/Dockerfile"]
@@ -248,7 +248,7 @@ jobs:
           - ubuntu-20.04
         registry:
           - 'docker.io'
-         #- 'public.ecr.aws'
+          - 'public.ecr.aws'
         exclude:
           - arch: arm64
             build_machine: ubuntu-20.04
