@@ -123,8 +123,12 @@ PREV_REL_DIR="${PREV_DIR_BASE}/${PREV_TAG}/_build/${PROFILE}/lib"
 if [ "${IS_CHECK:-}" = 'yes' ]; then
     diffs="$(git diff --name-only | grep -E '\.appup\.src' || true)"
     if [ "$diffs" != '' ]; then
-        git --no-pager diff
-        echo "$0 ---check produced git diff"
+        git add "$diffs"
+        git commit -m "chore: Update appup"
+        echo "Appup needs to be updated. Apply the following patch to your local repo:"
+        echo "=========================== Patch ============================"
+        git format-patch --stdout HEAD^
+        echo "======================= End of Patch ========================="
         exit 1
     fi
 fi
