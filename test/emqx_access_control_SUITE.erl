@@ -38,6 +38,12 @@ t_authenticate(_) ->
     emqx_zone:set_env(zone, allow_anonymous, true),
     ?assertMatch({ok, _}, emqx_access_control:authenticate(clientinfo())).
 
+t_authenticate_fast_fail(_) ->
+    emqx_zone:set_env(zone, allow_anonymous, false_quick_deny),
+    ?assertMatch({error, _}, emqx_access_control:authenticate(clientinfo())),
+    emqx_zone:set_env(zone, allow_anonymous, true),
+    ?assertMatch({ok, _}, emqx_access_control:authenticate(clientinfo())).
+
 t_check_acl(_) ->
     emqx_zone:set_env(zone, acl_nomatch, deny),
     application:set_env(emqx, enable_acl_cache, false),
