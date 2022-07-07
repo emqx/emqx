@@ -9,46 +9,86 @@
 [![Twitter](https://img.shields.io/badge/Follow-EMQ-1DA1F2?logo=twitter)](https://twitter.com/EMQTech)
 [![YouTube](https://img.shields.io/badge/Subscribe-EMQ-FF0000?logo=youtube)](https://www.youtube.com/channel/UC5FjR77ErAxvZENEWzQaO5Q)
 
-[![The best IoT MQTT open source team looks forward to your joining](https://assets.emqx.com/images/github_readme_en_bg.png)](https://www.emqx.com/en/careers)
+
 
 English | [简体中文](./README-CN.md) | [日本語](./README-JP.md) | [русский](./README-RU.md)
 
-*EMQX* broker is a fully open source, highly scalable, highly available distributed MQTT messaging broker for IoT, M2M and Mobile applications that can handle tens of millions of concurrent clients.
+EMQX is the most scalable and popular open-source MQTT broker with a high performance that connects 100M+ IoT devices in 1 cluster at 1ms latency. Move and process millions of MQTT messages per second.
 
-Starting from 3.0 release, *EMQX* broker fully supports MQTT V5.0 protocol specifications and backward compatible with MQTT V3.1 and V3.1.1,  as well as other communication protocols such as MQTT-SN, CoAP, LwM2M, WebSocket and STOMP. The 3.0 release of the *EMQX* broker can scale to 10+ million concurrent MQTT connections on one cluster.
+The EMQX v5.0 has been verified in [test scenarios](https://www.emqx.com/en/blog/reaching-100m-mqtt-connections-with-emqx-5-0) to scale to 100 million concurrent device connections, which is a critically important milestone for IoT designers. It also comes with plenty of exciting new features and huge performance improvements, including a more powerful rule engine, enhanced security management, Mria database extension, and much more to enhance the scalability of IoT applications.
 
-- For full list of new features, please read [EMQX Release Notes](https://github.com/emqx/emqx/releases).
-- For more information, please visit [EMQX homepage](https://www.emqx.io/).
+During the last several years, EMQX has gained popularity among IoT companies and is used by more than 20,000 global users from over 50 countries, with more than 100 million IoT device connections supported worldwide.
 
-## Installation
+For more information, please visit [EMQX homepage](https://www.emqx.io/).
 
-The *EMQX* broker is cross-platform, which supports Linux, Unix, macOS and Windows. It means *EMQX* can be deployed on x86_64 architecture servers and ARM devices like Raspberry Pi.
+## Get Started
 
-See more details for building and running *EMQX* on Windows in [Windows.md](./Windows.md)
+#### EMQX Cloud
 
-#### Installing via EMQX Docker Image
+The simplest way to set up EMQX is to create a managed deployment with EMQX Cloud. You can [try EMQX Cloud for free](https://www.emqx.com/en/signup?continue=https%3A%2F%2Fcloud-intl.emqx.com%2Fconsole%2F), no credit card required.
+
+#### Run EMQX using Docker
 
 ```
-docker run -d --name emqx -p 1883:1883 -p 8081:8081 -p 8083:8083 -p 8883:8883 -p 8084:8084 -p 18083:18083 emqx/emqx
+docker run -d --name emqx -p 1883:1883 -p 8083:8083 -p 8084:8084 -p 8883:8883 -p 18083:18083 emqx/emqx:latest
 ```
 
-#### Installing via Binary Package
+Or install EMQX Enterprise with a built-in license for ten connections that never expire.
 
-Get the binary package of the corresponding OS from [EMQX Download](https://www.emqx.com/en/downloads) page.
+```
+docker run -d --name emqx-ee -p 1883:1883 -p 8081:8081 -p 8083:8083 -p 8084:8084 -p 8883:8883 -p 18083:18083 emqx/emqx-ee:latest
+```
 
-- [Single Node Install](https://www.emqx.io/docs/en/latest/getting-started/install.html)
-- [Multi Node Install](https://www.emqx.io/docs/en/latest/advanced/cluster.html)
+Next, please follow the [getting started guide](https://www.emqx.io/docs/en/v5.0/getting-started/getting-started.html#start-emqx) to tour the EMQX features.
 
-#### Running on Kubernetes by EMQX Operator
+#### More installation options
 
-Please jump to [getting-started](https://github.com/emqx/emqx-operator/blob/main/docs/en_US/getting-started/getting-started.md) for more details.
+If you prefer to install and manage EMQX yourself, you can download the latest version from [www.emqx.io/downloads](https://www.emqx.io/downloads).
 
+For more installation options, see the [EMQX installation documentation](https://www.emqx.io/docs/en/v5.0/deploy/install.html).
+
+## Documentation
+
+The EMQX documentation is available at [www.emqx.io/docs/en/latest/](https://www.emqx.io/docs/en/latest/).
+
+The EMQX Enterprise documentation is available at [docs.emqx.com/en/](https://docs.emqx.com/en/).
+
+## Contributing
+
+Please see our [contributing.md](./CONTRIBUTING.md).
+
+For more organised improvement proposals, you can send pull requests to [EIP](https://github.com/emqx/eip).
+
+## Get Involved
+
+- Follow [@EMQTech on Twitter](https://twitter.com/EMQTech).
+- If you have a specific question, check out our [discussion forums](https://github.com/emqx/emqx/discussions).
+- For general discussions, join us on the [official Discord](https://discord.gg/xYGf3fQnES) team.
+- Keep updated on [EMQX YouTube](https://www.youtube.com/channel/UC5FjR77ErAxvZENEWzQaO5Q) by subscribing.
+
+## Resources
+
+- [EMQX FAQ](https://www.emqx.io/docs/en/latest/faq/faq.html)
+
+  Visiting EMQX FAQ to get help of common problems.
+
+- [MQTT client programming](https://www.emqx.com/en/blog/tag/mqtt-client-programming)
+
+  A series of blogs to help developers get started quickly with MQTT in PHP, Node.js, Python, Golang, and other programming languages.
+
+- [Internet of Vehicles](https://www.emqx.com/en/blog/category/internet-of-vehicles)
+
+  Build a reliable, efficient, and industry-specific IoV platform based on EMQ's practical experience, from theoretical knowledge such as protocol selection to practical operations like platform architecture design.
+
+- [MQTT SDKs](https://www.emqx.com/en/mqtt-client-sdk)
+
+  We have selected popular MQTT client SDKs in various programming languages and provided code examples to help you quickly understand the use of MQTT clients.
 
 ## Build From Source
 
-The *EMQX* broker requires Erlang/OTP R21+ to build since 3.0 release.
+The `master` branch is for the latest version 5 release, checkout branch `main-v4.3` for version 4.3 and `main-v4.4` for version 4.4.
 
-For 4.3 and later versions.
+EMQX requires OTP 22 or 23 for version 4.3, and OTP 24 for 4.4 and 5.0.
 
 ```bash
 git clone https://github.com/emqx/emqx.git
@@ -57,7 +97,7 @@ make
 _build/emqx/rel/emqx/bin/emqx console
 ```
 
-For earlier versions, release has to be built from another repo.
+For 4.2 or earlier versions, release has to be built from another repo.
 
 ```bash
 git clone https://github.com/emqx/emqx-rel.git
@@ -65,82 +105,6 @@ cd emqx-rel
 make
 _build/emqx/rel/emqx/bin/emqx console
 ```
-
-## Quick Start
-
-If emqx is built from source, `cd _build/emqx/rel/emqx`.
-Or change to the installation root directory if emqx is installed from a release package.
-
-```bash
-# Start emqx
-./bin/emqx start
-
-# Check Status
-./bin/emqx_ctl status
-
-# Stop emqx
-./bin/emqx stop
-```
-
-To view the dashboard after running, use your browser to open: http://localhost:18083 (default user/password = admin/public)
-
-## Test
-
-### To test everything in one go
-
-```
-make eunit ct
-```
-
-### To run subset of the common tests
-
-Examples
-
-```bash
-make apps/emqx_retainer-ct
-```
-
-### Dialyzer
-##### To Analyze all the apps
-```
-make dialyzer
-```
-
-##### To Analyse specific apps, (list of comma separated apps)
-```
-DIALYZER_ANALYSE_APP=emqx_lwm2m,emqx_authz make dialyzer
-```
-
-## Community
-
-### FAQ
-
-Visiting [EMQX FAQ](https://www.emqx.io/docs/en/latest/faq/faq.html) to get help of common problems.
-
-
-### Questions
-
-- [GitHub Discussions](https://github.com/emqx/emqx/discussions) is where you can ask questions, and share ideas.
-- [Slack](https://slack-invite.emqx.io/) is where you can ask and discuss questions or contact our teams directly.
-- [Discord](https://discord.gg/xYGf3fQnES) is where you can get help and upcoming events related to IoT technologies.
-
-### Proposals
-
-For more organised improvement proposals, you can send pull requests to [EIP](https://github.com/emqx/eip).
-
-### Plugin development
-
-See [PLUGIN.md](./PLUGIN.md)
-
-## MQTT Specifications
-
-You can read the mqtt protocol via the following links:
-
-[MQTT Version 3.1.1](https://docs.oasis-open.org/mqtt/mqtt/v3.1.1/os/mqtt-v3.1.1-os.html)
-
-[MQTT Version 5.0](https://docs.oasis-open.org/mqtt/mqtt/v5.0/cs02/mqtt-v5.0-cs02.html)
-
-[MQTT SN](https://www.oasis-open.org/committees/download.php/66091/MQTT-SN_spec_v1.2.pdf)
 
 ## License
 
