@@ -17,6 +17,8 @@ File format:
 - Fixed issue where the dashboard APIs were being exposed under the
   management listener. [#8411]
 
+- Fixed crash when shared persistent subscription [#8441]
+
 ## v4.3.16
 
 ### Enhancements
