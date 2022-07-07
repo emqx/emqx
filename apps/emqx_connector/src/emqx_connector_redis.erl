@@ -225,8 +225,9 @@ on_get_status(_InstId, #{type := cluster, poolname := PoolName, auto_reconnect :
         false ->
             disconnect
     end;
-on_get_status(_InstId, #{poolname := PoolName, auto_reconnect := AutoReconn}) ->
-    emqx_plugin_libs_pool:get_status(PoolName, fun ?MODULE:do_get_status/1, AutoReconn).
+on_get_status(_InstId, #{poolname := Pool, auto_reconnect := AutoReconn}) ->
+    Health = emqx_plugin_libs_pool:health_check_ecpool_workers(Pool, fun ?MODULE:do_get_status/1),
+    status_result(Health, AutoReconn).
 
 do_get_status(Conn) ->
     case eredis:q(Conn, ["PING"]) of

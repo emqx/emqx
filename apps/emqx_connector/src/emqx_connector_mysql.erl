@@ -169,9 +169,9 @@ on_query(
 mysql_function(sql) -> query;
 mysql_function(prepared_query) -> execute.
 
-on_get_status(_InstId, #{poolname := PoolName, auto_reconnect := AutoReconn} = State) ->
-    case emqx_plugin_libs_pool:get_status(PoolName, fun ?MODULE:do_get_status/1, AutoReconn) of
-        connected ->
+on_get_status(_InstId, #{poolname := Pool, auto_reconnect := AutoReconn} = State) ->
+    case emqx_plugin_libs_pool:health_check_ecpool_workers(Pool, fun ?MODULE:do_get_status/1) of
+        true ->
             case do_check_prepares(State) of
                 ok ->
                     connected;
@@ -180,15 +180,10 @@ on_get_status(_InstId, #{poolname := PoolName, auto_reconnect := AutoReconn} = S
                     {connected, NState};
                 {error, _Reason} ->
                     %% do not log error, it is logged in prepare_sql_to_conn
-                    case AutoReconn of
-                        true ->
-                            connecting;
-                        false ->
-                            disconnected
-                    end
+                    conn_status(AutoReconn)
             end;
-        ConnectStatus ->
-            ConnectStatus
+        false ->
+            conn_status(AutoReconn)
     end.
 
 do_get_status(Conn) ->
@@ -207,6 +202,9 @@ do_check_prepares(State = #{poolname := PoolName, prepare_statement := {error, P
     end.
 
 %% ===================================================================
+conn_status(_AutoReconn = true) -> connecting;
+conn_status(_AutoReconn = false) -> disconnected.
+
 reconn_interval(true) -> 15;
 reconn_interval(false) -> false.
 

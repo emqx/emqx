@@ -309,27 +309,42 @@ on_query(
     end,
     Result.
 
-on_get_status(_InstId, #{host := Host, port := Port, connect_timeout := Timeout} = State) ->
-    case do_get_status(Host, Port, Timeout) of
-        ok ->
+on_get_status(_InstId, #{pool_name := PoolName, connect_timeout := Timeout} = State) ->
+    case do_get_status(PoolName, Timeout) of
+        true ->
             connected;
-        {error, Reason} ->
+        false ->
             ?SLOG(error, #{
                 msg => "http_connector_get_status_failed",
-                reason => Reason,
-                host => Host,
-                port => Port
+                state => State
             }),
-            {disconnected, State, Reason}
+            disconnected
     end.
 
-do_get_status(Host, Port, Timeout) ->
-    case gen_tcp:connect(Host, Port, emqx_misc:ipv6_probe([]), Timeout) of
-        {ok, Sock} ->
-            gen_tcp:close(Sock),
-            ok;
-        {error, Reason} ->
-            {error, Reason}
+do_get_status(PoolName, Timeout) ->
+    Workers = [Worker || {_WorkerName, Worker} <- ehttpc:workers(PoolName)],
+    DoPerWorker =
+        fun(Worker) ->
+            case ehttpc:health_check(Worker, Timeout) of
+                ok ->
+                    true;
+                {error, Reason} ->
+                    ?SLOG(error, #{
+                        msg => "ehttpc_health_check_failed",
+                        reason => Reason,
+                        worker => Worker
+                    }),
+                    false
+            end
+        end,
+    try emqx_misc:pmap(DoPerWorker, Workers, Timeout) of
+        [_ | _] = Status ->
+            lists:all(fun(St) -> St =:= true end, Status);
+        [] ->
+            false
+    catch
+        exit:timeout ->
+            false
     end.
 
 %%--------------------------------------------------------------------

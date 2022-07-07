@@ -240,52 +240,29 @@ on_get_status(InstId, #{poolname := PoolName} = _State) ->
     end.
 
 health_check(PoolName) ->
-    Workers = [Worker || {_WorkerName, Worker} <- ecpool:workers(PoolName)],
-    try
-        emqx_misc:pmap(
-            fun check_worker_health/1, Workers, ?HEALTH_CHECK_TIMEOUT + timer:seconds(1)
-        )
-    of
-        [_ | _] = Status ->
-            lists:all(fun(St) -> St =:= true end, Status);
-        [] ->
-            false
-    catch
-        exit:timeout ->
-            false
-    end.
+    emqx_plugin_libs_pool:health_check_ecpool_workers(
+        PoolName, fun ?MODULE:check_worker_health/1, ?HEALTH_CHECK_TIMEOUT + timer:seconds(1)
+    ).
 
 %% ===================================================================
 
-check_worker_health(Worker) ->
-    case ecpool_worker:client(Worker) of
-        {ok, Conn} ->
-            %% we don't care if this returns something or not, we just to test the connection
-            try do_test_query(Conn) of
-                {error, Reason} ->
-                    ?SLOG(warning, #{
-                        msg => "mongo_connection_get_status_error",
-                        worker => Worker,
-                        reason => Reason
-                    }),
-                    false;
-                _ ->
-                    true
-            catch
-                Class:Error ->
-                    ?SLOG(warning, #{
-                        msg => "mongo_connection_get_status_exception",
-                        worker => Worker,
-                        class => Class,
-                        error => Error
-                    }),
-                    false
-            end;
-        _ ->
+check_worker_health(Conn) ->
+    %% we don't care if this returns something or not, we just to test the connection
+    try do_test_query(Conn) of
+        {error, Reason} ->
             ?SLOG(warning, #{
                 msg => "mongo_connection_get_status_error",
-                worker => Worker,
-                reason => worker_not_found
+                reason => Reason
+            }),
+            false;
+        _ ->
+            true
+    catch
+        Class:Error ->
+            ?SLOG(warning, #{
+                msg => "mongo_connection_get_status_exception",
+                class => Class,
+                error => Error
             }),
             false
     end.
