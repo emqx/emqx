@@ -66,6 +66,8 @@
 %% exported for `emqx_telemetry'
 -export([get_basic_usage_info/0]).
 
+-export([now_ms/0]).
+
 %% gen_server Callbacks
 -export([
     init/1,
@@ -137,16 +139,22 @@ post_config_update(_, _Req, NewRules, OldRules, _AppEnvs) ->
 -spec load_rules() -> ok.
 load_rules() ->
     maps_foreach(
-        fun({Id, Rule}) ->
-            {ok, _} = create_rule(Rule#{id => bin(Id)})
+        fun
+            ({Id, #{metadata := #{created_at := CreatedAt}} = Rule}) ->
+                create_rule(Rule#{id => bin(Id)}, CreatedAt);
+            ({Id, Rule}) ->
+                create_rule(Rule#{id => bin(Id)})
         end,
         emqx:get_config([rule_engine, rules], #{})
     ).
 
 -spec create_rule(map()) -> {ok, rule()} | {error, term()}.
-create_rule(Params = #{id := RuleId}) when is_binary(RuleId) ->
+create_rule(Params) ->
+    create_rule(Params, now_ms()).
+
+create_rule(Params = #{id := RuleId}, CreatedAt) when is_binary(RuleId) ->
     case get_rule(RuleId) of
-        not_found -> parse_and_insert(Params, now_ms());
+        not_found -> parse_and_insert(Params, CreatedAt);
         {ok, _} -> {error, already_exists}
     end.
 
