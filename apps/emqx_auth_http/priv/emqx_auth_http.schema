@@ -110,9 +110,28 @@ end}.
 ]}.
 
 {mapping, "auth.http.enable_pipelining", "emqx_auth_http.enable_pipelining", [
-  {default, true},
-  {datatype, {enum, [true, false]}}
+  {default, "100"},
+  {datatype, string}
 ]}.
+
+{translation, "emqx_auth_http.enable_pipelining", fun(Conf) ->
+  case cuttlefish:conf_get("auth.http.enable_pipelining", Conf, undefined) of
+    undefined -> 100;
+    Str ->
+      try
+        erlang:list_to_integer(Str)
+      catch _:_ ->
+        case erlang:list_to_atom(Str) of
+          true ->
+            100;
+          false ->
+            1;
+          _ ->
+            100
+        end
+      end
+  end
+end}.
 
 {mapping, "auth.http.ssl.cacertfile", "emqx_auth_http.cacertfile", [
   {datatype, string}
