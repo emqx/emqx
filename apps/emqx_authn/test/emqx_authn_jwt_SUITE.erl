@@ -399,15 +399,15 @@ t_verify_claims(_) ->
     },
     ?assertMatch({ok, #{is_superuser := false}}, emqx_authn_jwt:authenticate(Credential3, State1)),
 
-    %% No exp
+    %% No exp treated as unexpired
     Payload4 = #{<<"username">> => <<"myuser">>, <<"foo">> => <<"myuser">>},
     JWS4 = generate_jws('hmac-based', Payload4, Secret),
     Credential4 = #{
         username => <<"myuser">>,
         password => JWS4
     },
-    ?assertEqual(
-        {error, bad_username_or_password}, emqx_authn_jwt:authenticate(Credential4, State1)
+    ?assertMatch(
+        {ok, #{is_superuser := false}}, emqx_authn_jwt:authenticate(Credential4, State1)
     ).
 
 t_jwt_not_allow_empty_claim_name(_) ->

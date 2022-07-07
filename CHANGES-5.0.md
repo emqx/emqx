@@ -5,6 +5,7 @@
 * Websocket listener failed to read headers `X-Forwared-For` and `X-Forwarded-Port` [8415](https://github.com/emqx/emqx/pull/8415)
 * Deleted `cluster_singleton` from MQTT bridge config document. This config is no longer applicable in 5.0 [8407](https://github.com/emqx/emqx/pull/8407)
 * Fix `emqx/emqx:latest` docker image publish to use the Erlang flavor, but not Elixir flavor [8414](https://github.com/emqx/emqx/pull/8414)
+* Changed the `exp` field in JWT auth to be optional rather than required to fix backwards compatability with 4.X releases. [8425](https://github.com/emqx/emqx/pull/8425)
 
 ## Enhancements
 
@@ -18,14 +19,14 @@ Going forward, it will be an enterprise only feature.
 Main reason: relup requires carefully crafted upgrade instructions from ALL previous versions.
 
 For example, 4.3 is now at 4.3.16, we have `4.3.0->4.3.16`, `4.3.1->4.3.16`, ... 16 such upgrade paths in total to maintain.
-This had been the biggest obstacle for EMQX team to act agile enought in deliverying enhancements and fixes.
+This had been the biggest obstacle for EMQX team to act agile enough in deliverying enhancements and fixes.
 
 ## Enhancements
 
 ## Bug fixes
 
 * Fixed a typo in `bin/emqx` which affects MacOs release when trying to enable Erlang distribution over TLS [8398](https://github.com/emqx/emqx/pull/8398)
-* Ristricted shell was accidentally disabled in 5.0.1, it has been added back. [8396]{https://github.com/emqx/emqx/pull/8396)
+* Restricted shell was accidentally disabled in 5.0.1, it has been added back. [8396](https://github.com/emqx/emqx/pull/8396)
 
 # 5.0.1
 
