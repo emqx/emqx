@@ -6,6 +6,10 @@
 * Deleted `cluster_singleton` from MQTT bridge config document. This config is no longer applicable in 5.0 [8407](https://github.com/emqx/emqx/pull/8407)
 * Fix `emqx/emqx:latest` docker image publish to use the Erlang flavor, but not Elixir flavor [8414](https://github.com/emqx/emqx/pull/8414)
 
+## Enhancements
+
+* Improve the speed of dashboard's HTTP API routing rule generation, which sometimes causes timeout [8438](https://github.com/emqx/emqx/pull/8438)
+
 # 5.0.2
 
 Announcemnet: EMQX team has decided to stop supporting relup for opensouce edition.
