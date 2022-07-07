@@ -472,9 +472,9 @@ listeners([]) ->
                     emqx_ctl:print("~s~n", [listener_identifier(Protocol, ListenOn)]),
                 lists:foreach(fun indent_print/1, Info)
             end, esockd:listeners()),
-    lists:foreach(fun({Protocol, Opts}) ->
+    lists:foreach(fun({{Protocol, ListenOn}, Opts}) ->
                 Port = proplists:get_value(port, Opts),
-                Info = [{listen_on,      {string, emqx_listeners:format_listen_on(Port)}},
+                Info = [{listen_on,      {string, emqx_listeners:format_listen_on(ListenOn)}},
                         {acceptors,      maps:get(num_acceptors, proplists:get_value(transport_options, Opts, #{}), 0)},
                         {max_conns,      proplists:get_value(max_connections, Opts)},
                         {current_conn,   proplists:get_value(all_connections, Opts)},
@@ -483,6 +483,7 @@ listeners([]) ->
                 lists:foreach(fun indent_print/1, Info)
             end, ranch:info());
 
+%% TODO: refine stop/restart listener cli
 listeners(["stop",  Name = "http" ++ _N | _MaybePort]) ->
     %% _MaybePort is to be backward compatible, to stop http listener, there is no need for the port number
     case minirest:stop_http(list_to_atom(Name)) of
@@ -503,16 +504,16 @@ listeners(["stop", _Proto, ListenOn]) ->
     end,
     stop_listener(emqx_listeners:find_by_listen_on(ListenOn1), ListenOn1);
 
-listeners(["restart", "http:management"]) ->
+listeners(["restart", "management:http"]) ->
     restart_http_listener(http, emqx_management);
 
-listeners(["restart", "https:management"]) ->
+listeners(["restart", "management:https"]) ->
     restart_http_listener(https, emqx_management);
 
-listeners(["restart", "http:dashboard"]) ->
+listeners(["restart", "dashboard:http"]) ->
     restart_http_listener(http, emqx_dashboard);
 
-listeners(["restart", "https:dashboard"]) ->
+listeners(["restart", "dashboard:https"]) ->
     restart_http_listener(https, emqx_dashboard);
 
 listeners(["restart", Identifier]) ->

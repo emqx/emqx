@@ -44,11 +44,11 @@
 
 %% List listeners on a node.
 list(#{node := Node}, _Params) ->
-    minirest:return({ok, format(emqx_mgmt:list_listeners(Node))});
+    minirest:return({ok, emqx_mgmt:list_listeners(Node)});
 
 %% List listeners in the cluster.
 list(_Binding, _Params) ->
-    minirest:return({ok, [#{node => Node, listeners => format(Listeners)}
+    minirest:return({ok, [#{node => Node, listeners => Listeners}
                               || {Node, Listeners} <- emqx_mgmt:list_listeners()]}).
 
 %% Restart listeners on a node.
@@ -67,10 +67,3 @@ restart(#{identifier := Identifier}, _Params) ->
         [] -> minirest:return(ok);
         Errors -> minirest:return({error, {restart, Errors}})
     end.
-
-format(Listeners) when is_list(Listeners) ->
-    [ Info#{listen_on => list_to_binary(esockd:to_string(ListenOn))}
-     || Info = #{listen_on := ListenOn} <- Listeners ];
-
-format({error, Reason}) -> [{error, Reason}].
-

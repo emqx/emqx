@@ -259,7 +259,7 @@ t_listeners(_) ->
     {ok, _} = request_api(get, api_path(["listeners"]), auth_header_()),
     {ok, _} = request_api(get, api_path(["nodes", atom_to_list(node()), "listeners"]), auth_header_()),
     meck:new(emqx_mgmt, [passthrough, no_history]),
-    meck:expect(emqx_mgmt, list_listeners, 0, fun() -> [{node(), {error, undefined}}] end),
+    meck:expect(emqx_mgmt, list_listeners, 0, fun() -> [{node(), [{error, undefined}]}] end),
     {ok, Return} = request_api(get, api_path(["listeners"]), auth_header_()),
     [Error] = get(<<"data">>, Return),
     ?assertEqual(<<"undefined">>,

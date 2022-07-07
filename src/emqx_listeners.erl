@@ -152,14 +152,17 @@ drop_tls13_for_old_otp(Options) ->
             replace(Options, ssl_options, SslOpts1)
     end.
 
+%% esockd use `Name` and `ListenOn` to identifier a listener
 start_mqtt_listener(Name, ListenOn, Options0) ->
     Options = drop_tls13_for_old_otp(Options0),
     SockOpts = esockd:parse_opt(Options),
     esockd:open(Name, ListenOn, merge_default(SockOpts),
                 {emqx_connection, start_link, [Options -- SockOpts]}).
 
-start_http_listener(Start, Name, ListenOn, RanchOpts, ProtoOpts) ->
-    Start(ws_name(Name, ListenOn), with_port(ListenOn, RanchOpts), ProtoOpts).
+%% ranch only use a `Name` reference to identifier a listener.
+%% So use tuple to take `ListenOn` info
+start_http_listener(StartFun, BaseName, ListenOn, RanchOpts, ProtoOpts) ->
+    StartFun(ws_name(BaseName, ListenOn), with_port(ListenOn, RanchOpts), ProtoOpts).
 
 mqtt_path(Options) ->
     proplists:get_value(mqtt_path, Options, "/mqtt").
@@ -271,10 +274,8 @@ format({Addr, Port}) when is_list(Addr) ->
 format({Addr, Port}) when is_tuple(Addr) ->
     io_lib:format("~s:~w", [inet:ntoa(Addr), Port]).
 
-ws_name(Name, {_Addr, Port}) ->
-    ws_name(Name, Port);
-ws_name(Name, Port) ->
-    list_to_atom(lists:concat([Name, ":", Port])).
+ws_name(BaseName, ListenOn) ->
+    {BaseName, ListenOn}.
 
 identifier(Proto, Name) when is_atom(Proto) ->
     identifier(atom_to_list(Proto), Name);

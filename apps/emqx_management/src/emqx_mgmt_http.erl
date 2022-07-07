@@ -52,12 +52,12 @@ stop_listeners() ->
 start_listener({http, Port, Options}) ->
     Dispatch = [{"/status", emqx_mgmt_http, []},
                 {"/api/v4/[...]", minirest, http_handlers()}],
-    minirest:start_http(listener_name(http), ranch_opts(Port, Options), Dispatch);
+    minirest:start_http(listener_name(http, Port), ranch_opts(Port, Options), Dispatch);
 
 start_listener({https, Port, Options}) ->
     Dispatch = [{"/status", emqx_mgmt_http, []},
                 {"/api/v4/[...]", minirest, http_handlers()}],
-    minirest:start_https(listener_name(https), ranch_opts(Port, Options), Dispatch).
+    minirest:start_https(listener_name(https, Port), ranch_opts(Port, Options), Dispatch).
 
 ranch_opts(Port, Options0) ->
     NumAcceptors = proplists:get_value(num_acceptors, Options0, 4),
@@ -78,16 +78,14 @@ ranch_opts(Port, Options0) ->
     Res.
 
 stop_listener({Proto, Port, _}) ->
-    io:format("Stop http:management listener on ~s successfully.~n",[format(Port)]),
-    minirest:stop_http(listener_name(Proto)).
+    io:format("Stop management:http listener on ~s successfully.~n", [format(Port)]),
+    minirest:stop_http(listener_name(Proto, Port)).
 
 listeners() ->
     application:get_env(?APP, listeners, []).
 
-listener_name(Proto) ->
-    %% NOTE: this name has referenced by emqx_management.appup.src.
-    %% Please don't change it except you have got how to handle it in hot-upgrade
-    list_to_atom("management:" ++ atom_to_list(Proto)).
+listener_name(Proto, Port) ->
+    {list_to_atom("management:" ++ atom_to_list(Proto)), Port}.
 
 http_handlers() ->
     Plugins = lists:map(fun(Plugin) -> Plugin#plugin.name end, emqx_plugins:list()),

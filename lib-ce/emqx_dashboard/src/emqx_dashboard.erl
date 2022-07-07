@@ -46,13 +46,13 @@ start_listener({http, Port, Options})  ->
     Dispatch = [{"/", cowboy_static, {priv_file, emqx_dashboard, "www/index.html"}},
                 {"/static/[...]", cowboy_static, {priv_dir, emqx_dashboard, "www/static"}},
                 {"/api/v4/[...]", minirest, http_handlers()}],
-    minirest:start_http(listener_name(http), ranch_opts(Port, Options), Dispatch);
+    minirest:start_http(listener_name(http, Port), ranch_opts(Port, Options), Dispatch);
 
 start_listener({https, Port, Options}) ->
     Dispatch = [{"/", cowboy_static, {priv_file, emqx_dashboard, "www/index.html"}},
                 {"/static/[...]", cowboy_static, {priv_dir, emqx_dashboard, "www/static"}},
                 {"/api/v4/[...]", minirest, http_handlers()}],
-    minirest:start_https(listener_name(https), ranch_opts(Port, Options), Dispatch).
+    minirest:start_https(listener_name(https, Port), ranch_opts(Port, Options), Dispatch).
 
 ranch_opts(Port, Options0) ->
     NumAcceptors = get_value(num_acceptors, Options0, 4),
@@ -73,16 +73,22 @@ ranch_opts(Port, Options0) ->
 stop_listeners() ->
     lists:foreach(fun(Listener) -> stop_listener(Listener) end, listeners()).
 
-stop_listener({Proto, _Port, _}) ->
-    minirest:stop_http(listener_name(Proto)).
+stop_listener({Proto, Port, _}) ->
+    io:format("Stop dashboard:http listener on ~s successfully.~n",[format(Port)]),
+    minirest:stop_http(listener_name(Proto, Port)).
 
 listeners() ->
     application:get_env(?APP, listeners, []).
 
-listener_name(Proto) ->
-    %% NOTE: this name has referenced by emqx_dashboard.appup.src.
-    %% Please don't change it except you have got how to handle it in hot-upgrade
-    list_to_atom("dashboard:" ++ atom_to_list(Proto)).
+format(Port) when is_integer(Port) ->
+    io_lib:format("0.0.0.0:~w", [Port]);
+format({Addr, Port}) when is_list(Addr) ->
+    io_lib:format("~s:~w", [Addr, Port]);
+format({Addr, Port}) when is_tuple(Addr) ->
+    io_lib:format("~s:~w", [inet:ntoa(Addr), Port]).
+
+listener_name(Proto, Port) ->
+    {list_to_atom("dashboard:" ++ atom_to_list(Proto)), Port}.
 
 %%--------------------------------------------------------------------
 %% HTTP Handlers and Dispatcher

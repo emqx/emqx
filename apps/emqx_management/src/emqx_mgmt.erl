@@ -449,16 +449,19 @@ list_listeners() ->
 list_listeners(Node) when Node =:= node() ->
     Tcp = lists:map(fun({{Protocol, ListenOn}, _Pid}) ->
         #{protocol        => Protocol,
-          listen_on       => ListenOn,
+          listen_on       => iolist_to_binary(emqx_listeners:format_listen_on(ListenOn)),
           identifier      => emqx_listeners:find_id_by_listen_on(ListenOn),
           acceptors       => esockd:get_acceptors({Protocol, ListenOn}),
           max_conns       => esockd:get_max_connections({Protocol, ListenOn}),
           current_conns   => esockd:get_current_connections({Protocol, ListenOn}),
           shutdown_count  => esockd:get_shutdown_count({Protocol, ListenOn})}
     end, esockd:listeners()),
-    Http = lists:map(fun({Protocol, Opts}) ->
+    Http = lists:map(fun({{Protocol, ListenOn}, Opts}) ->
         #{protocol        => Protocol,
-          listen_on       => proplists:get_value(port, Opts),
+          listen_on       => iolist_to_binary(emqx_listeners:format_listen_on(ListenOn)),
+          %% TODO: identifier => ...
+          %% identifier a listener to restart/stop it easily
+          %% see emqx_mgmt_cli.erl line:504 line:518
           acceptors       => maps:get( num_acceptors
                                      , proplists:get_value(transport_options, Opts, #{}), 0),
           max_conns       => proplists:get_value(max_connections, Opts),

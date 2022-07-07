@@ -105,13 +105,13 @@ start(http, Inet) ->
     application:ensure_all_started(minirest),
     Handlers = [{"/", minirest:handler(#{modules => [?MODULE]})}],
     Dispatch = [{"/[...]", minirest, Handlers}],
-    minirest:start_http(http_auth_server, #{socket_opts => [Inet, {port, 8991}]}, Dispatch);
+    minirest:start_http({http_auth_server, 8991}, #{socket_opts => [Inet, {port, 8991}]}, Dispatch);
 
 start(https, Inet) ->
     application:ensure_all_started(minirest),
     Handlers = [{"/", minirest:handler(#{modules => [?MODULE]})}],
     Dispatch = [{"/[...]", minirest, Handlers}],
-    minirest:start_https(http_auth_server, #{socket_opts => [Inet, {port, 8991} | certopts()]}, Dispatch).
+    minirest:start_https({http_auth_server, 8991}, #{socket_opts => [Inet, {port, 8991} | certopts()]}, Dispatch).
 
 %% @private
 certopts() ->
@@ -124,7 +124,7 @@ certopts() ->
      {cacertfile, emqx_ct_helpers:deps_path(emqx, CaCert)}] ++ emqx_ct_helpers:client_ssl().
 
 stop() ->
-    minirest:stop_http(http_auth_server).
+    minirest:stop_http({http_auth_server, 8991}).
 
 -spec check(HttpReqParams :: list(), DefinedConf :: list()) -> allow | deny.
 check(_Params, []) ->
