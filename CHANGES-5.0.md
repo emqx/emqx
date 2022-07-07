@@ -32,6 +32,7 @@
 ## Enhancements
 
 * Improve the speed of dashboard's HTTP API routing rule generation, which sometimes causes timeout [#8438](https://github.com/emqx/emqx/pull/8438)
+* Optimize performance of builtin database operations in processes with long message queue [8439](https://github.com/emqx/emqx/pull/8439)
 
 # 5.0.2
 
