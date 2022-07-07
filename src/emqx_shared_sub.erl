@@ -242,7 +242,7 @@ maybe_nack_dropped(Msg) ->
 
         %% For fresh Ref we send a nack and return true, to note that the inflight is full
         {Sender, {fresh, _Group, Ref}}   -> nack(Sender, Ref, dropped), drop;
-        
+
         %% For retry Ref we can't reject a message if inflight is full, so we mark it as
         %% acknowledged and put it into mqueue
         {_Sender, {retry, _Group, _Ref}} -> maybe_ack(Msg), store;
@@ -311,7 +311,7 @@ do_pick(Strategy, ClientId, SourceTopic, Group, Topic, FailedSubs) ->
             false;
         [] ->
             %% We try redispatch to subs who dropped the message because inflight was full.
-            Found = maps_find_by(FailedSubs, fun({SubPid, FailReason}) ->
+            Found = maps_find_by(FailedSubs, fun(SubPid, FailReason) ->
                 FailReason == dropped andalso is_alive_sub(SubPid)
             end),
             case Found of
