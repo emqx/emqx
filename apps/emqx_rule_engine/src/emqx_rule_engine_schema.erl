@@ -91,7 +91,8 @@ fields("rules") ->
                     example => "Some description",
                     default => <<>>
                 }
-            )}
+            )},
+        {"metadata", ?HOCON(map(), #{desc => ?DESC("rules_metadata")})}
     ];
 fields("builtin_action_republish") ->
     [

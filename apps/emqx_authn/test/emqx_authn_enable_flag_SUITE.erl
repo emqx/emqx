@@ -71,16 +71,17 @@ end_per_testcase(_Case, Config) ->
     Config.
 
 listener_mqtt_tcp_conf(Port, EnableAuthn) ->
+    PortS = integer_to_binary(Port),
     #{
-        acceptors => 16,
-        zone => default,
-        access_rules => ["allow all"],
-        bind => {{0, 0, 0, 0}, Port},
-        max_connections => 1024000,
-        mountpoint => <<>>,
-        proxy_protocol => false,
-        proxy_protocol_timeout => 3000,
-        enable_authn => EnableAuthn
+        <<"acceptors">> => 16,
+        <<"zone">> => <<"default">>,
+        <<"access_rules">> => ["allow all"],
+        <<"bind">> => <<"0.0.0.0:", PortS/binary>>,
+        <<"max_connections">> => 1024000,
+        <<"mountpoint">> => <<>>,
+        <<"proxy_protocol">> => false,
+        <<"proxy_protocol_timeout">> => 3000,
+        <<"enable_authn">> => EnableAuthn
     }.
 
 t_enable_authn(_Config) ->

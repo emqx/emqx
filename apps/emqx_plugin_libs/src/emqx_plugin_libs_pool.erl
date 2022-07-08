@@ -20,11 +20,13 @@
     start_pool/3,
     stop_pool/1,
     pool_name/1,
-    get_status/2,
-    get_status/3
+    health_check_ecpool_workers/2,
+    health_check_ecpool_workers/3
 ]).
 
 -include_lib("emqx/include/logger.hrl").
+
+-define(HEALTH_CHECK_TIMEOUT, 15000).
 
 pool_name(ID) when is_binary(ID) ->
     list_to_atom(binary_to_list(ID)).
@@ -61,29 +63,26 @@ stop_pool(Name) ->
             error({stop_pool_failed, Name, Reason})
     end.
 
-get_status(PoolName, CheckFunc) ->
-    get_status(PoolName, CheckFunc, false).
+health_check_ecpool_workers(PoolName, CheckFunc) ->
+    health_check_ecpool_workers(PoolName, CheckFunc, ?HEALTH_CHECK_TIMEOUT).
 
-get_status(PoolName, CheckFunc, AutoReconn) when is_function(CheckFunc) ->
-    Status = [
-        begin
+health_check_ecpool_workers(PoolName, CheckFunc, Timeout) when is_function(CheckFunc) ->
+    Workers = [Worker || {_WorkerName, Worker} <- ecpool:workers(PoolName)],
+    DoPerWorker =
+        fun(Worker) ->
             case ecpool_worker:client(Worker) of
                 {ok, Conn} ->
                     erlang:is_process_alive(Conn) andalso CheckFunc(Conn);
                 _ ->
                     false
             end
-        end
-     || {_WorkerName, Worker} <- ecpool:workers(PoolName)
-    ],
-    case length(Status) > 0 andalso lists:all(fun(St) -> St =:= true end, Status) of
-        true ->
-            connected;
-        false ->
-            case AutoReconn of
-                true ->
-                    connecting;
-                false ->
-                    disconnect
-            end
+        end,
+    try emqx_misc:pmap(DoPerWorker, Workers, Timeout) of
+        [_ | _] = Status ->
+            lists:all(fun(St) -> St =:= true end, Status);
+        [] ->
+            false
+    catch
+        exit:timeout ->
+            false
     end.
