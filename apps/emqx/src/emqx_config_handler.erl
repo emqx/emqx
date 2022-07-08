@@ -278,22 +278,9 @@ check_and_save_configs(
     case do_post_config_update(ConfKeyPath, Handlers, OldConf, NewConf, AppEnvs, UpdateArgs, #{}) of
         {ok, Result0} ->
             remove_from_local_if_cluster_change(ConfKeyPath, Opts),
-            case
-                save_configs(
-                    ConfKeyPath,
-                    AppEnvs,
-                    NewConf,
-                    NewRawConf,
-                    OverrideConf,
-                    UpdateArgs,
-                    Opts
-                )
-            of
-                {ok, Result1} ->
-                    {ok, Result1#{post_config_update => Result0}};
-                Error ->
-                    Error
-            end;
+            ok = emqx_config:save_configs(AppEnvs, NewConf, NewRawConf, OverrideConf, Opts),
+            Result1 = return_change_result(ConfKeyPath, UpdateArgs),
+            {ok, Result1#{post_config_update => Result0}};
         Error ->
             Error
     end.
@@ -431,12 +418,6 @@ call_post_config_update(
     _ConfKeyPath
 ) ->
     {ok, Result}.
-
-save_configs(ConfKeyPath, AppEnvs, CheckedConf, NewRawConf, OverrideConf, UpdateArgs, Opts) ->
-    case emqx_config:save_configs(AppEnvs, CheckedConf, NewRawConf, OverrideConf, Opts) of
-        ok -> {ok, return_change_result(ConfKeyPath, UpdateArgs)};
-        {error, Reason} -> {error, {save_configs, Reason}}
-    end.
 
 %% The default callback of config handlers
 %% the behaviour is overwriting the old config if:

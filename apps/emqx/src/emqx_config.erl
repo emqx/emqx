@@ -508,12 +508,11 @@ get_schema_mod(RootName) ->
 get_root_names() ->
     maps:get(names, persistent_term:get(?PERSIS_SCHEMA_MODS, #{names => []})).
 
--spec save_configs(app_envs(), config(), raw_config(), raw_config(), update_opts()) ->
-    ok | {error, term()}.
+-spec save_configs(app_envs(), config(), raw_config(), raw_config(), update_opts()) -> ok.
 save_configs(_AppEnvs, Conf, RawConf, OverrideConf, Opts) ->
     %% We first try to save to override.conf, because saving to files is more error prone
     %% than saving into memory.
-    save_to_override_conf(OverrideConf, Opts),
+    ok = save_to_override_conf(OverrideConf, Opts),
     %% We may need also support hot config update for the apps that use application envs.
     %% If that is the case uncomment the following line to update the configs to app env
     %save_to_app_env(_AppEnvs),

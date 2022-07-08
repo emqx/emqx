@@ -79,7 +79,7 @@ on_get_status(_InstId, #{pool_name := PoolName}) ->
             end
         end,
     case emqx_plugin_libs_pool:health_check_ecpool_workers(PoolName, Func) of
-        true -> connecting;
+        true -> connected;
         false -> disconnected
     end.
 
