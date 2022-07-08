@@ -3,9 +3,10 @@
 ## Bug fixes
 
 * The `data/configs/cluster-override.conf` is cleared to 0KB if `hocon_pp:do/2` failed [commits/71f64251](https://github.com/emqx/emqx/pull/8443/commits/71f642518a683cc91a32fd542aafaac6ef915720)
-* Improve the health_check for webhooks. [commits/6b45d2ea](https://github.com/emqx/emqx/commit/6b45d2ea9fde6d3b4a5b007f7a8c5a1c573d141e)
+* Improve the health_check for webhooks.
   Prior to this change, the webhook only checks the connectivity of the TCP port using `gen_tcp:connect/2`, so
   if it's a HTTPs server, we didn't check if TLS handshake was successful.
+  [commits/6b45d2ea](https://github.com/emqx/emqx/commit/6b45d2ea9fde6d3b4a5b007f7a8c5a1c573d141e)
 * The `create_at` field of rules is missing after emqx restarts. [commits/5fc09e6b](https://github.com/emqx/emqx/commit/5fc09e6b950c340243d7be627a0ce1700691221c)
 
 # 5.0.3
