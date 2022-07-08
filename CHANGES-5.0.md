@@ -8,6 +8,7 @@
   if it's a HTTPs server, we didn't check if TLS handshake was successful.
   [commits/6b45d2ea](https://github.com/emqx/emqx/commit/6b45d2ea9fde6d3b4a5b007f7a8c5a1c573d141e)
 * The `create_at` field of rules is missing after emqx restarts. [commits/5fc09e6b](https://github.com/emqx/emqx/commit/5fc09e6b950c340243d7be627a0ce1700691221c)
+* The rule engine's jq function now works even when the path to the EMQX install dir contains spaces
 
 # 5.0.3
 
