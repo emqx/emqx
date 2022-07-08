@@ -68,21 +68,21 @@ For more organised improvement proposals, you can send pull requests to [EIP](ht
 
 ## Resources
 
-- [EMQX FAQ](https://www.emqx.io/docs/en/latest/faq/faq.html)
-
-  Visiting EMQX FAQ to get help of common problems.
-
 - [MQTT client programming](https://www.emqx.com/en/blog/tag/mqtt-client-programming)
 
   A series of blogs to help developers get started quickly with MQTT in PHP, Node.js, Python, Golang, and other programming languages.
 
-- [Internet of Vehicles](https://www.emqx.com/en/blog/category/internet-of-vehicles)
-
-  Build a reliable, efficient, and industry-specific IoV platform based on EMQ's practical experience, from theoretical knowledge such as protocol selection to practical operations like platform architecture design.
-
 - [MQTT SDKs](https://www.emqx.com/en/mqtt-client-sdk)
 
   We have selected popular MQTT client SDKs in various programming languages and provided code examples to help you quickly understand the use of MQTT clients.
+
+- [MQTT X](https://mqttx.app/)
+
+  An elegant cross-platform MQTT 5.0 client tool that provides desktop, command line, and web to help you develop and debug MQTT services and applications faster.
+
+- [Internet of Vehicles](https://www.emqx.com/en/blog/category/internet-of-vehicles)
+
+  Build a reliable, efficient, and industry-specific IoV platform based on EMQ's practical experience, from theoretical knowledge such as protocol selection to practical operations like platform architecture design.
 
 ## Build From Source
 
