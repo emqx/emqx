@@ -19,6 +19,9 @@ File format:
 
 - Fixed crash when shared persistent subscription [#8441]
 
+### Enhancements
+- HTTP API(GET /rules/) support for pagination and fuzzy filtering. [#8450]
+
 ## v4.3.16
 
 ### Enhancements

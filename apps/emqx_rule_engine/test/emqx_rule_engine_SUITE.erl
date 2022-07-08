@@ -62,7 +62,8 @@ groups() ->
        t_show_action_api,
        t_crud_resources_api,
        t_list_resource_types_api,
-       t_show_resource_type_api
+       t_show_resource_type_api,
+       t_list_rule_api
        ]},
      {cli, [],
       [t_rules_cli,
@@ -512,6 +513,75 @@ t_crud_rule_api(_Config) ->
     %ct:pal("Show After Deleted: ~p", [NotFound]),
     ?assertMatch({ok, #{code := 404, message := _Message}}, NotFound),
     ok.
+
+t_list_rule_api(_Config) ->
+    AddIds =
+        lists:map(fun(Seq) ->
+            SeqBin = integer_to_binary(Seq),
+            {ok, #{code := 0, data := #{id := Id}}} =
+                emqx_rule_engine_api:create_rule(#{},
+                    [{<<"name">>, <<"debug-rule-", SeqBin/binary>>},
+                        {<<"rawsql">>, <<"select * from \"t/a/", SeqBin/binary, "\"">>},
+                        {<<"actions">>, [[{<<"name">>,<<"inspect">>}, {<<"params">>,[{<<"arg1">>,1}]}]]},
+                        {<<"description">>, <<"debug rule desc ", SeqBin/binary>>}]),
+            Id
+                  end, lists:seq(1, 20)),
+
+    {ok, #{code := 0, data := Rules11}} = emqx_rule_engine_api:list_rules(#{},
+        [{<<"_limit">>,<<"10">>}, {<<"_page">>, <<"1">>}]),
+    ?assertEqual(10, length(Rules11)),
+    {ok, #{code := 0, data := Rules12}} = emqx_rule_engine_api:list_rules(#{},
+        [{<<"_limit">>,<<"10">>}, {<<"_page">>, <<"2">>}]),
+    ?assertEqual(10, length(Rules12)),
+    Rules1 = Rules11 ++ Rules12,
+
+    [RuleID | _] = AddIds,
+    {ok, #{code := 0}} = emqx_rule_engine_api:update_rule(#{id => RuleID},
+        [{<<"enabled">>, false}]),
+    Params1 = [{<<"enabled">>,<<"true">>}],
+    {ok, #{code := 0, data := Rules2}} = emqx_rule_engine_api:list_rules(#{}, Params1),
+    ?assert(lists:all(fun(#{id := ID}) -> ID =/= RuleID end, Rules2)),
+
+    Params2 = [{<<"for">>, RuleID}],
+    {ok, #{code := 0, data := Rules3}} = emqx_rule_engine_api:list_rules(#{}, Params2),
+    ?assert(lists:all(fun(#{id := ID}) -> ID =:= RuleID end, Rules3)),
+
+    Params3 = [{<<"_like_id">>,<<"rule:">>}],
+    {ok, #{code := 0, data := Rules4}} = emqx_rule_engine_api:list_rules(#{}, Params3),
+    ?assertEqual(length(Rules1), length(Rules4)),
+
+    Params4 = [{<<"_like_for">>,<<"t/a/">>}],
+    {ok, #{code := 0, data := Rules5}} = emqx_rule_engine_api:list_rules(#{}, Params4),
+    ?assertEqual(length(Rules1), length(Rules5)),
+    {ok, #{code := 0}} = emqx_rule_engine_api:update_rule(#{id => RuleID},
+        [{<<"rawsql">>, <<"select * from \"t/b/c\"">>}]),
+    {ok, #{code := 0, data := Rules6}} = emqx_rule_engine_api:list_rules(#{}, Params4),
+    ?assert(lists:all(fun(#{id := ID}) -> ID =/= RuleID end, Rules6)),
+    ?assertEqual(1, length(Rules1) - length(Rules6)),
+
+    Params5 = [{<<"_match_for">>,<<"t/+/+">>}],
+    {ok, #{code := 0, data := Rules7}} = emqx_rule_engine_api:list_rules(#{}, Params5),
+    ?assertEqual(length(Rules1), length(Rules7)),
+    {ok, #{code := 0}} = emqx_rule_engine_api:update_rule(#{id => RuleID},
+        [{<<"rawsql">>, <<"select * from \"t1/b\"">>}]),
+    {ok, #{code := 0, data := Rules8}} = emqx_rule_engine_api:list_rules(#{}, Params5),
+    ?assert(lists:all(fun(#{id := ID}) -> ID =/= RuleID end, Rules8)),
+    ?assertEqual(1, length(Rules1) - length(Rules8)),
+
+    Params6 = [{<<"_like_description">>,<<"rule">>}],
+    {ok, #{code := 0, data := Rules9}} = emqx_rule_engine_api:list_rules(#{}, Params6),
+    ?assertEqual(length(Rules1), length(Rules9)),
+    {ok, #{code := 0}} = emqx_rule_engine_api:update_rule(#{id => RuleID},
+        [{<<"description">>, <<"not me">>}]),
+    {ok, #{code := 0, data := Rules10}} = emqx_rule_engine_api:list_rules(#{}, Params6),
+    ?assert(lists:all(fun(#{id := ID}) -> ID =/= RuleID end, Rules10)),
+    ?assertEqual(1, length(Rules1) - length(Rules10)),
+
+    lists:foreach(fun(ID) ->
+        ?assertMatch({ok, #{code := 0}}, emqx_rule_engine_api:delete_rule(#{id => ID}, []))
+                  end, AddIds),
+    ok.
+
 
 t_list_actions_api(_Config) ->
     {ok, #{code := 0, data := Actions}} = emqx_rule_engine_api:list_actions(#{}, []),
