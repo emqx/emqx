@@ -1,7 +1,7 @@
 %% -*- mode: erlang -*-
 {application, emqx_authn, [
     {description, "EMQX Authentication"},
-    {vsn, "0.1.2"},
+    {vsn, "0.1.3"},
     {modules, []},
     {registered, [emqx_authn_sup, emqx_authn_registry]},
     {applications, [kernel, stdlib, emqx_resource, ehttpc, epgsql, mysql, jose]},
