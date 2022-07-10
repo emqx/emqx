@@ -1,7 +1,7 @@
 Source code in this repository is variously licensed under below licenses.
 
-For EMQX Community Edition: Apache License 2.0, see APL.txt,
+For EMQX: Apache License 2.0, see APL.txt,
 which applies to all source files except for lib-ee sub-directory.
 
-For EMQX Enterprise Edition (since version 5.0): Business Source License 1.1,
+For EMQX Enterprise (since version 5.0): Business Source License 1.1,
 see lib-ee/BSL.txt, which applies to source code in lib-ee sub-directory.
