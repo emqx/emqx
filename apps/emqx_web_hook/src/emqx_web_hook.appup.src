@@ -27,7 +27,8 @@
     [{load_module,emqx_web_hook_actions,brutal_purge,soft_purge,[]},
      {load_module,emqx_web_hook,brutal_purge,soft_purge,[]}]},
    {"4.3.12",
-    [{load_module,emqx_web_hook_actions,brutal_purge,soft_purge,[]}]},
+    [{load_module,emqx_web_hook,brutal_purge,soft_purge,[]},
+     {load_module,emqx_web_hook_actions,brutal_purge,soft_purge,[]}]},
    {<<".*">>,[]}],
   [{<<"4\\.3\\.[0-2]">>,
     [{apply,{application,stop,[emqx_web_hook]}},
@@ -55,5 +56,6 @@
     [{load_module,emqx_web_hook_actions,brutal_purge,soft_purge,[]},
      {load_module,emqx_web_hook,brutal_purge,soft_purge,[]}]},
    {"4.3.12",
-    [{load_module,emqx_web_hook_actions,brutal_purge,soft_purge,[]}]},
+    [{load_module,emqx_web_hook,brutal_purge,soft_purge,[]},
+     {load_module,emqx_web_hook_actions,brutal_purge,soft_purge,[]}]},
    {<<".*">>,[]}]}.
