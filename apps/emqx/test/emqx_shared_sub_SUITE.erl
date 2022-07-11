@@ -195,6 +195,266 @@ t_round_robin(_) ->
     ok = ensure_config(round_robin, true),
     test_two_messages(round_robin).
 
+t_round_robin_per_group(_) ->
+    ok = ensure_config(round_robin_per_group, true),
+    test_two_messages(round_robin_per_group).
+
+%% this would fail if executed with the standard round_robin strategy
+t_round_robin_per_group_even_distribution_one_group(_) ->
+    ok = ensure_config(round_robin_per_group, true),
+    Topic = <<"foo/bar">>,
+    Group = <<"group1">>,
+    {ok, ConnPid1} = emqtt:start_link([{clientid, <<"C0">>}]),
+    {ok, ConnPid2} = emqtt:start_link([{clientid, <<"C1">>}]),
+    {ok, _} = emqtt:connect(ConnPid1),
+    {ok, _} = emqtt:connect(ConnPid2),
+
+    emqtt:subscribe(ConnPid1, {<<"$share/", Group/binary, "/", Topic/binary>>, 0}),
+    emqtt:subscribe(ConnPid2, {<<"$share/", Group/binary, "/", Topic/binary>>, 0}),
+
+    %% publisher with persistent connection
+    {ok, PublisherPid} = emqtt:start_link(),
+    {ok, _} = emqtt:connect(PublisherPid),
+
+    lists:foreach(
+        fun(I) ->
+            Message = erlang:integer_to_binary(I),
+            emqtt:publish(PublisherPid, Topic, Message)
+        end,
+        lists:seq(0, 9)
+    ),
+
+    AllReceivedMessages = lists:map(
+        fun(#{client_pid := SubscriberPid, payload := Payload}) -> {SubscriberPid, Payload} end,
+        lists:reverse(recv_msgs(10))
+    ),
+    MessagesReceivedSubscriber1 = lists:filter(
+        fun({P, _Payload}) -> P == ConnPid1 end, AllReceivedMessages
+    ),
+    MessagesReceivedSubscriber2 = lists:filter(
+        fun({P, _Payload}) -> P == ConnPid2 end, AllReceivedMessages
+    ),
+
+    emqtt:stop(ConnPid1),
+    emqtt:stop(ConnPid2),
+    emqtt:stop(PublisherPid),
+
+    %% ensure each subscriber received 5 messages in alternating fashion
+    %% one receives all even and the other all uneven payloads
+    ?assertEqual(
+        [
+            {ConnPid1, <<"0">>},
+            {ConnPid1, <<"2">>},
+            {ConnPid1, <<"4">>},
+            {ConnPid1, <<"6">>},
+            {ConnPid1, <<"8">>}
+        ],
+        MessagesReceivedSubscriber1
+    ),
+
+    ?assertEqual(
+        [
+            {ConnPid2, <<"1">>},
+            {ConnPid2, <<"3">>},
+            {ConnPid2, <<"5">>},
+            {ConnPid2, <<"7">>},
+            {ConnPid2, <<"9">>}
+        ],
+        MessagesReceivedSubscriber2
+    ),
+    ok.
+
+t_round_robin_per_group_even_distribution_two_groups(_) ->
+    ok = ensure_config(round_robin_per_group, true),
+    Topic = <<"foo/bar">>,
+    {ok, ConnPid1} = emqtt:start_link([{clientid, <<"C0">>}]),
+    {ok, ConnPid2} = emqtt:start_link([{clientid, <<"C1">>}]),
+    {ok, ConnPid3} = emqtt:start_link([{clientid, <<"C2">>}]),
+    {ok, ConnPid4} = emqtt:start_link([{clientid, <<"C3">>}]),
+    ConnPids = [ConnPid1, ConnPid2, ConnPid3, ConnPid4],
+    lists:foreach(fun(P) -> emqtt:connect(P) end, ConnPids),
+
+    %% group1 subscribers
+    emqtt:subscribe(ConnPid1, {<<"$share/group1/", Topic/binary>>, 0}),
+    emqtt:subscribe(ConnPid2, {<<"$share/group1/", Topic/binary>>, 0}),
+    %% group2 subscribers
+    emqtt:subscribe(ConnPid3, {<<"$share/group2/", Topic/binary>>, 0}),
+    emqtt:subscribe(ConnPid4, {<<"$share/group2/", Topic/binary>>, 0}),
+
+    publish_fire_and_forget(10, Topic),
+
+    AllReceivedMessages = lists:map(
+        fun(#{client_pid := SubscriberPid, payload := Payload}) -> {SubscriberPid, Payload} end,
+        lists:reverse(recv_msgs(20))
+    ),
+    MessagesReceivedSubscriber1 = lists:filter(
+        fun({P, _Payload}) -> P == ConnPid1 end, AllReceivedMessages
+    ),
+    MessagesReceivedSubscriber2 = lists:filter(
+        fun({P, _Payload}) -> P == ConnPid2 end, AllReceivedMessages
+    ),
+    MessagesReceivedSubscriber3 = lists:filter(
+        fun({P, _Payload}) -> P == ConnPid3 end, AllReceivedMessages
+    ),
+    MessagesReceivedSubscriber4 = lists:filter(
+        fun({P, _Payload}) -> P == ConnPid4 end, AllReceivedMessages
+    ),
+
+    lists:foreach(fun(P) -> emqtt:stop(P) end, ConnPids),
+
+    %% ensure each subscriber received 5 messages in alternating fashion in each group
+    %% subscriber 1 and 3 should receive all even messages
+    %% subscriber 2 and 4 should receive all uneven messages
+    ?assertEqual(
+        [
+            {ConnPid3, <<"0">>},
+            {ConnPid3, <<"2">>},
+            {ConnPid3, <<"4">>},
+            {ConnPid3, <<"6">>},
+            {ConnPid3, <<"8">>}
+        ],
+        MessagesReceivedSubscriber3
+    ),
+
+    ?assertEqual(
+        [
+            {ConnPid2, <<"1">>},
+            {ConnPid2, <<"3">>},
+            {ConnPid2, <<"5">>},
+            {ConnPid2, <<"7">>},
+            {ConnPid2, <<"9">>}
+        ],
+        MessagesReceivedSubscriber2
+    ),
+
+    ?assertEqual(
+        [
+            {ConnPid4, <<"1">>},
+            {ConnPid4, <<"3">>},
+            {ConnPid4, <<"5">>},
+            {ConnPid4, <<"7">>},
+            {ConnPid4, <<"9">>}
+        ],
+        MessagesReceivedSubscriber4
+    ),
+
+    ?assertEqual(
+        [
+            {ConnPid1, <<"0">>},
+            {ConnPid1, <<"2">>},
+            {ConnPid1, <<"4">>},
+            {ConnPid1, <<"6">>},
+            {ConnPid1, <<"8">>}
+        ],
+        MessagesReceivedSubscriber1
+    ),
+    ok.
+
+t_round_robin_per_group_two_nodes_publish_to_same_node(_) ->
+    ensure_config(round_robin_per_group),
+    Node = start_slave('rr_p_g_t_n', 31337),
+    ensure_node_config(Node, round_robin_per_group),
+
+    %% connect two subscribers on each node
+    Topic = <<"foo/bar">>,
+    {ok, Subscriber0} = emqtt:start_link([{clientid, <<"C0">>}]),
+    {ok, Subscriber1} = emqtt:start_link([{clientid, <<"C1">>}]),
+    {ok, Subscriber2} = emqtt:start_link([{clientid, <<"C2">>}, {port, 31337}]),
+    {ok, Subscriber3} = emqtt:start_link([{clientid, <<"C3">>}, {port, 31337}]),
+    SubscriberPids = [Subscriber0, Subscriber1, Subscriber2, Subscriber3],
+    lists:foreach(fun(P) -> emqtt:connect(P) end, SubscriberPids),
+
+    %% node 1 subscribers
+    emqtt:subscribe(Subscriber0, {<<"$share/group1/", Topic/binary>>, 0}),
+    emqtt:subscribe(Subscriber1, {<<"$share/group1/", Topic/binary>>, 0}),
+    %% node 2 subscribers
+    emqtt:subscribe(Subscriber2, {<<"$share/group1/", Topic/binary>>, 0}),
+    emqtt:subscribe(Subscriber3, {<<"$share/group1/", Topic/binary>>, 0}),
+
+    publish_fire_and_forget(10, Topic),
+
+    AllMessages = recv_msgs(10),
+    MessagesBySubscriber = lists:foldl(
+        fun(#{client_pid := Subscriber, payload := Payload}, Acc) ->
+            maps:update_with(Subscriber, fun(T) -> [Payload | T] end, [Payload], Acc)
+        end,
+        maps:new(),
+        AllMessages
+    ),
+    lists:foreach(fun(Pid) -> emqtt:stop(Pid) end, SubscriberPids),
+    stop_slave(Node),
+
+    ?assertEqual(
+        #{
+            Subscriber0 => [<<"0">>, <<"4">>, <<"8">>],
+            Subscriber1 => [<<"1">>, <<"5">>, <<"9">>],
+            Subscriber2 => [<<"2">>, <<"6">>],
+            Subscriber3 => [<<"3">>, <<"7">>]
+        },
+        MessagesBySubscriber
+    ).
+
+t_round_robin_per_group_two_nodes_alternating_publish(_) ->
+    ensure_config(round_robin_per_group),
+    Node = start_slave('rr_p_g_t_n_2', 41338),
+    ensure_node_config(Node, round_robin_per_group),
+
+    %% connect two subscribers on each node
+    Topic = <<"foo/bar">>,
+    {ok, Subscriber0} = emqtt:start_link([{clientid, <<"C0">>}]),
+    {ok, Subscriber1} = emqtt:start_link([{clientid, <<"C1">>}]),
+    {ok, Subscriber2} = emqtt:start_link([{clientid, <<"C2">>}, {port, 41338}]),
+    {ok, Subscriber3} = emqtt:start_link([{clientid, <<"C3">>}, {port, 41338}]),
+    SubscriberPids = [Subscriber0, Subscriber1, Subscriber2, Subscriber3],
+    lists:foreach(fun(P) -> emqtt:connect(P) end, SubscriberPids),
+
+    %% node 1 subscribers
+    emqtt:subscribe(Subscriber0, {<<"$share/group1/", Topic/binary>>, 0}),
+    emqtt:subscribe(Subscriber1, {<<"$share/group1/", Topic/binary>>, 0}),
+    %% node 2 subscribers
+    emqtt:subscribe(Subscriber2, {<<"$share/group1/", Topic/binary>>, 0}),
+    emqtt:subscribe(Subscriber3, {<<"$share/group1/", Topic/binary>>, 0}),
+
+    %% alternate publish messages between the nodes
+    lists:foreach(
+        fun(I) ->
+            Message = erlang:integer_to_binary(I),
+            {ok, PublisherPid} =
+                case I rem 2 of
+                    0 -> emqtt:start_link();
+                    1 -> emqtt:start_link([{port, 41338}])
+                end,
+            {ok, _} = emqtt:connect(PublisherPid),
+            emqtt:publish(PublisherPid, Topic, Message),
+            emqtt:stop(PublisherPid),
+            ct:sleep(50)
+        end,
+        lists:seq(0, 9)
+    ),
+
+    AllMessages = recv_msgs(10),
+    MessagesBySubscriber = lists:foldl(
+        fun(#{client_pid := Subscriber, payload := Payload}, Acc) ->
+            maps:update_with(Subscriber, fun(T) -> [Payload | T] end, [Payload], Acc)
+        end,
+        maps:new(),
+        AllMessages
+    ),
+    lists:foreach(fun(Pid) -> emqtt:stop(Pid) end, SubscriberPids),
+    stop_slave(Node),
+
+    %% this result show that when clustered round_robin_per_group behaves like the normal round_robin
+    %% strategy meaning that subscribers receive two consecutive messages which is not ideal
+    ?assertEqual(
+        #{
+            Subscriber0 => [<<"0">>, <<"1">>, <<"8">>, <<"9">>],
+            Subscriber1 => [<<"2">>, <<"3">>],
+            Subscriber2 => [<<"4">>, <<"5">>],
+            Subscriber3 => [<<"6">>, <<"7">>]
+        },
+        MessagesBySubscriber
+    ).
+
 t_sticky(_) ->
     ok = ensure_config(sticky, true),
     test_two_messages(sticky).
@@ -292,7 +552,7 @@ test_two_messages(Strategy, Group) ->
     emqtt:subscribe(ConnPid2, {<<"$share/", Group/binary, "/", Topic/binary>>, 0}),
 
     Message1 = emqx_message:make(ClientId1, 0, Topic, <<"hello1">>),
-    Message2 = emqx_message:make(ClientId1, 0, Topic, <<"hello2">>),
+    Message2 = emqx_message:make(ClientId2, 0, Topic, <<"hello2">>),
     ct:sleep(100),
 
     emqx:publish(Message1),
@@ -307,6 +567,7 @@ test_two_messages(Strategy, Group) ->
     case Strategy of
         sticky -> ?assertEqual(UsedSubPid1, UsedSubPid2);
         round_robin -> ?assertNotEqual(UsedSubPid1, UsedSubPid2);
+        round_robin_per_group -> ?assertNotEqual(UsedSubPid1, UsedSubPid2);
         hash -> ?assertEqual(UsedSubPid1, UsedSubPid2);
         _ -> ok
     end,
@@ -348,7 +609,8 @@ t_per_group_config(_) ->
     ok = ensure_group_config(#{
         <<"local_group">> => local,
         <<"round_robin_group">> => round_robin,
-        <<"sticky_group">> => sticky
+        <<"sticky_group">> => sticky,
+        <<"round_robin_per_group_group">> => round_robin_per_group
     }),
     %% Each test is repeated 4 times because random strategy may technically pass the test
     %% so we run 8 tests to make random pass in only 1/256 runs
@@ -360,7 +622,9 @@ t_per_group_config(_) ->
     test_two_messages(sticky, <<"sticky_group">>),
     test_two_messages(sticky, <<"sticky_group">>),
     test_two_messages(round_robin, <<"round_robin_group">>),
-    test_two_messages(round_robin, <<"round_robin_group">>).
+    test_two_messages(round_robin, <<"round_robin_group">>),
+    test_two_messages(round_robin_per_group, <<"round_robin_per_group_group">>),
+    test_two_messages(round_robin_per_group, <<"round_robin_per_group_group">>).
 
 t_local(_) ->
     GroupConfig = #{
@@ -482,6 +746,9 @@ ensure_config(Strategy, AckEnabled) ->
     emqx_config:put([broker, shared_dispatch_ack_enabled], AckEnabled),
     ok.
 
+ensure_node_config(Node, Strategy) ->
+    rpc:call(Node, emqx_config, force_put, [[broker, shared_subscription_strategy], Strategy]).
+
 ensure_group_config(Group2Strategy) ->
     lists:foreach(
         fun({Group, Strategy}) ->
@@ -503,6 +770,19 @@ ensure_group_config(Node, Group2Strategy) ->
             )
         end,
         maps:to_list(Group2Strategy)
+    ).
+
+publish_fire_and_forget(Count, Topic) when Count > 1 ->
+    lists:foreach(
+        fun(I) ->
+            Message = erlang:integer_to_binary(I),
+            {ok, PublisherPid} = emqtt:start_link(),
+            {ok, _} = emqtt:connect(PublisherPid),
+            emqtt:publish(PublisherPid, Topic, Message),
+            emqtt:stop(PublisherPid),
+            ct:sleep(50)
+        end,
+        lists:seq(0, Count - 1)
     ).
 
 subscribed(Group, Topic, Pid) ->
