@@ -1,31 +1,32 @@
-# Quick reference
+# EMQX
+
+## Quick reference
 
 + **Where to get help**:
 
-  https://emqx.io or https://github.com/emqx/emqx
+<https://emqx.io> or <https://github.com/emqx/emqx>
 
 + **Where to file issues:**
 
-  https://github.com/emqx/emqx/issues
+<https://github.com/emqx/emqx/issues>
 
 + **Supported architectures**
 
   `amd64`, `arm64v8`
 
-
 + **Supported Docker versions**:
 
   [the latest release](https://github.com/docker/docker-ce/releases/latest)
 
-# What is EMQX
+## What is EMQX
 
 [EMQX  MQTT broker](https://emqx.io/products/broker) is a fully open source, highly scalable, highly available distributed MQTT messaging broker for IoT, M2M and Mobile applications that can handle tens of millions of concurrent clients.
 
 Starting from 3.0 release, *EMQX* broker fully supports MQTT V5.0 protocol specifications and backward compatible with MQTT V3.1 and V3.1.1, as well as other communication protocols such as MQTT-SN, CoAP, LwM2M, WebSocket and STOMP. The 3.0 release of the *EMQX* broker can scaled to 10+ million concurrent MQTT connections on one cluster.
 
-# How to use this image
+## How to use this image
 
-### Run emqx
+### Run EMQX
 
 Execute some command under this docker image
 
@@ -35,7 +36,7 @@ For example
 
 ``docker run -d --name emqx -p 18083:18083 -p 1883:1883 emqx/emqx:latest``
 
-The emqx broker runs as linux user `emqx` in the docker container.
+The EMQX broker runs as Linux user `emqx` in the docker container.
 
 ### Configuration
 
@@ -43,7 +44,7 @@ Use the environment variable to configure the EMQX docker container.
 
 By default, the environment variables with ``EMQX_`` prefix are mapped to key-value pairs in configuration files.
 
-You can change the prefix by overriding "HOCON_ENV_OVERRIDE_PREFIX".
+You can change the prefix by overriding `HOCON_ENV_OVERRIDE_PREFIX`.
 
 Example:
 
@@ -74,26 +75,26 @@ These environment variables will ignore for configuration file.
 
 #### EMQX Configuration
 
-> NOTE: All EMQX Configuration in [etc/emqx.conf](https://github.com/emqx/emqx/blob/master/etc/emqx.conf) could config by environment. The following list is just an example, not a complete configuration.
+> NOTE: All EMQX Configuration in [`etc/emqx.conf`](https://github.com/emqx/emqx/blob/master/etc/emqx.conf) can be configured via environment variables. The following list is just an example, not a complete configuration.
 
 | Options                    | Default            | Mapped                    | Description                           |
 | ---------------------------| ------------------ | ------------------------- | ------------------------------------- |
-| EMQX_NAME                  | container name     | none                      | emqx node short name                  |
-| EMQX_HOST                  | container IP       | none                      | emqx node host, IP or FQDN            |
+| `EMQX_NAME`                | container name     | none                      | EMQX node short name                  |
+| `EMQX_HOST`                | container IP       | none                      | EMQX node host, IP or FQDN            |
 
-The list is incomplete and may changed with [etc/emqx.conf](https://github.com/emqx/emqx/blob/master/etc/emqx.conf) and plugin configuration files. But the mapping rule is similar.
+The list is incomplete and may changed with [`etc/emqx.conf`](https://github.com/emqx/emqx/blob/master/etc/emqx.conf) and plugin configuration files. But the mapping rule is similar.
 
 If set ``EMQX_NAME`` and ``EMQX_HOST``, and unset ``EMQX_NODE_NAME``, ``EMQX_NODE_NAME=$EMQX_NAME@$EMQX_HOST``.
 
-For example, set mqtt tcp port to 1883
+For example, set MQTT TCP port to 1883
 
 ``docker run -d --name emqx -e EMQX__LISTENERS__TCP__DEFAULT__BIND=1883 -p 18083:18083 -p 1883:1883 emqx/emqx:latest``
 
-#### EMQ Loaded Modules Configuration
+#### EMQX Loaded Modules Configuration
 
 | Oprtions                 | Default            | Description                           |
 | ------------------------ | ------------------ | ------------------------------------- |
-| EMQX_LOADED_MODULES       | see content below  | default modules emqx loaded            |
+| `EMQX_LOADED_MODULES`    | see content below  | default EMQX loaded modules           |
 
 Default environment variable ``EMQX_LOADED_MODULES``, including
 
@@ -116,11 +117,11 @@ EMQX_LOADED_MODULES="emqx_mod_delayed emqx_mod_rewrite"
 EMQX_LOADED_MODULES="emqx_mod_delayed | emqx_mod_rewrite"
 ```
 
-#### EMQ Loaded Plugins Configuration
+#### EMQX Loaded Plugins Configuration
 
 | Oprtions                 | Default            | Description                           |
 | ------------------------ | ------------------ | ------------------------------------- |
-| EMQX_LOADED_PLUGINS       | see content below  | default plugins emqx loaded            |
+| `EMQX_LOADED_PLUGINS`    | see content below  | default EMQX loaded plugins           |
 
 Default environment variable ``EMQX_LOADED_PLUGINS``, including
 
@@ -149,7 +150,7 @@ EMQX_LOADED_PLUGINS="emqx_retainer | emqx_rule_engine"
 
 #### EMQX Plugins Configuration
 
-The environment variables which with ``EMQX_`` prefix are mapped to all emqx plugins' configuration file, ``.`` get replaced by ``__``.
+The environment variables which with ``EMQX_`` prefix are mapped to all EMQX plugins' configuration file, ``.`` get replaced by ``__``.
 
 Example:
 
@@ -158,11 +159,11 @@ EMQX_RETAINER__STORAGE_TYPE <--> retainer.storage_type
 EMQX_RETAINER__MAX_PAYLOAD_SIZE <--> retainer.max_payload_size
 ```
 
-Don't worry about where to find the configuration file of emqx plugins, this docker image will find and config them automatically using some magic.
+Don't worry about where to find the configuration file of EMQX plugins, this docker image will find and configure them automatically using some magic.
 
-All plugin of emqx project could config in this way, following the environment variables mapping rule above.
+All EMQX plugins can be configured this way, following the environment variables mapping rule above.
 
-Assume you are using redis auth plugin, for example:
+Assume you are using Redis auth plugin, for example:
 
 ```bash
 #EMQX_RETAINER__STORAGE_TYPE = "ram"
@@ -181,7 +182,7 @@ For numbered configuration options where the number is next to a ``.`` such as:
 + backend.redis.pool1.server
 + backend.redis.hook.message.publish.1
 
-You can configure an arbitrary number of them as long as each has a uniq unber for it's own configuration option:
+You can configure an arbitrary number of them as long as each has a unique number for its own configuration option:
 
 ```bash
 docker run -d --name emqx -p 18083:18083 -p 1883:1883 \
@@ -288,9 +289,9 @@ services:
 
 ### Kernel Tuning
 
-Under linux host machine, the easiest way is [Tuning guide](https://www.emqx.io/docs/en/latest/tutorial/tune.html).
+Under Linux host machine, the easiest way is [Tuning guide](https://www.emqx.io/docs/en/latest/tutorial/tune.html).
 
-If you want tune linux kernel by docker, you must ensure your docker is latest version (>=1.12).
+If you want tune Linux kernel by docker, you must ensure your docker is latest version (>=1.12).
 
 ```bash
 
