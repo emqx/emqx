@@ -91,7 +91,7 @@ listener_name(Proto) ->
 
 http_handlers() ->
     Plugins = lists:map(fun(Plugin) -> Plugin#plugin.name end, emqx_plugins:list()),
-    [{"/api/v4", minirest:handler(#{apps   => Plugins ++ [emqx_modules] -- ?EXCEPT_PLUGIN,
+    [{"/api/v4", minirest:handler(#{apps   => (Plugins ++ [emqx_modules]) -- ?EXCEPT_PLUGIN,
                                     except => ?EXCEPT,
                                     filter => fun ?MODULE:filter/1}),
                  [{authorization, fun ?MODULE:authorize_appid/1}]}].
