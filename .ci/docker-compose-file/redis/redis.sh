@@ -16,10 +16,14 @@ case $key in
     shift # past argument
     shift # past value
     ;;
-    -t|--tls-enabled)
+    -t)
     tls="$2"
     shift # past argument
     shift # past value
+    ;;
+    --tls-enabled)
+    tls=1
+    shift # past argument
     ;;
     *)
     shift # past argument
