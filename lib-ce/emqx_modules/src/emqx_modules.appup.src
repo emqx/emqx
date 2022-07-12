@@ -1,7 +1,8 @@
 %% -*- mode: erlang -*-
 %% Unless you know what you are doing, DO NOT edit manually!!
 {VSN,
-  [{"4.3.6",[{load_module,emqx_mod_rewrite,brutal_purge,soft_purge,[]}]},
+  [{"4.3.7",[{load_module,emqx_mod_rewrite,brutal_purge,soft_purge,[]}]},
+   {"4.3.6",[{load_module,emqx_mod_rewrite,brutal_purge,soft_purge,[]}]},
    {"4.3.5",
     [{load_module,emqx_modules,brutal_purge,soft_purge,[]},
      {load_module,emqx_mod_rewrite,brutal_purge,soft_purge,[]}]},
@@ -31,7 +32,8 @@
      {load_module,emqx_mod_api_topic_metrics,brutal_purge,soft_purge,[]},
      {load_module,emqx_mod_rewrite,brutal_purge,soft_purge,[]}]},
    {<<".*">>,[]}],
-  [{"4.3.6",[{load_module,emqx_mod_rewrite,brutal_purge,soft_purge,[]}]},
+  [{"4.3.7",[{load_module,emqx_mod_rewrite,brutal_purge,soft_purge,[]}]},
+   {"4.3.6",[{load_module,emqx_mod_rewrite,brutal_purge,soft_purge,[]}]},
    {"4.3.5",
     [{load_module,emqx_modules,brutal_purge,soft_purge,[]},
      {load_module,emqx_mod_rewrite,brutal_purge,soft_purge,[]}]},
