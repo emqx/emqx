@@ -55,7 +55,7 @@ pushd _upgrade_base
 
 for tag in $(../scripts/relup-base-vsns.sh $EDITION | xargs echo -n); do
     filename="$PROFILE-$SYSTEM-${tag#[e|v]}-$ARCH.zip"
-    url="https://packages.emqx.io/$DIR/${tag#[e|v]}/$filename"
+    url="https://packages.emqx.io/$DIR/$tag/$filename"
     echo "downloading base package from ${url} ..."
     if [ ! -f "$filename" ] && curl -L -I -m 10 -o /dev/null -s -w "%{http_code}" "${url}" | grep -q -oE "^[23]+" ; then
         curl -L -o "${filename}" "${url}"
