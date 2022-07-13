@@ -205,14 +205,6 @@ fields(coap) ->
                     desc => ?DESC(coap_heartbeat)
                 }
             )},
-        {connection_required,
-            sc(
-                boolean(),
-                #{
-                    default => false,
-                    desc => ?DESC(coap_connection_required)
-                }
-            )},
         {notify_type,
             sc(
                 hoconsc:enum([non, con, qos]),

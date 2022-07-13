@@ -30,7 +30,6 @@
     "  enable_stats = false\n"
     "  mountpoint = \"\"\n"
     "  notify_type = qos\n"
-    "  connection_required = true\n"
     "  subscribe_qos = qos1\n"
     "  publish_qos = qos1\n"
     "  listeners.udp.default {\n"

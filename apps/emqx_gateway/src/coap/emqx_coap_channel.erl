@@ -162,7 +162,7 @@ init(
         timers = #{},
         session = emqx_coap_session:new(),
         keepalive = emqx_keepalive:init(Heartbeat),
-        connection_required = maps:get(connection_required, Config, false),
+        connection_required = undefined,
         conn_state = idle
     }.
 
@@ -376,6 +376,15 @@ ensure_keepalive_timer(Fun, #channel{keepalive = KeepAlive} = Channel) ->
     Heartbeat = emqx_keepalive:info(interval, KeepAlive),
     Fun(keepalive, Heartbeat, keepalive, Channel).
 
+check_auth_state(Msg, #channel{connection_required = undefined} = Channel) ->
+    Required =
+        case emqx_coap_message:get_option(uri_path, Msg, []) of
+            [<<"mqtt">> | _] ->
+                true;
+            _ ->
+                false
+        end,
+    check_token(Required, Msg, Channel#channel{connection_required = Required});
 check_auth_state(Msg, #channel{connection_required = Required} = Channel) ->
     check_token(Required, Msg, Channel).
 
