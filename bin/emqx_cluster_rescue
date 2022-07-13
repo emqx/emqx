@@ -1,0 +1,187 @@
+#!/usr/bin/env bash
+set -euo pipefail
+# ==================================
+#  RESCUE THE UNBOOTABLE EMQX CLUSTER
+# ==================================
+
+##  Global Vars
+# Steal from emqx_ctl
+THIS_DIR="$(cd "$(dirname "$(readlink "$0" || echo "$0")")" || true; pwd -P)"
+
+usage() {
+    local Script
+    Script=$(basename "$0")
+
+    echo "
+    RESCUE THE UNBOOTABLE EMQX CLUSTER
+
+    Use this script only when the entire cluster is stuck at booting & loading.
+
+    This script provides a list of methods to *hack* the DB of EMQX to bring back
+    the cluster back to service but MAY come with some side effects including:
+
+    - Data loss
+    - Inconsistent data in the cluster
+    - Other undefined behaviors
+
+    *DO NOT* use this script unless you understand the consequences.
+    *DO NOT* use this script when EMQX cluster is partitioned.
+
+    Use Case:
+
+    - Lost one node due to unrecoverable failures (hardware, cloud resource outage)
+      and this node prevents other nodes in the cluster from starting.
+
+Usage:
+
+    # For troubleshooting, find out all the tables that are pending at loading
+    $Script pending-tables
+
+    # For troubleshooting, debug print detailed table info that is pending at loading.
+    $Script table-details
+
+    # Force load one [Tab] or all pending tables from node local storage to bring this node up
+    #  Use local data as the data source for the pending tables, should bring up the node immediately and
+    #  spread the data to other nodes in the cluster.
+    #
+    #  * Take effect immediately
+    #  * This is a node local change but the change will be lost after restart.
+    $Script force-load [Tab]
+
+    # Remove Node from mnesia cluster.
+    # Most likely will fail if the remote Node is unreachable.
+    #
+    #  * This is a cluster wide schema change.
+    $Script remove-node Node
+
+    # Set master node for distributed DB
+    #  The master node will be the data source for pending tables.
+    #
+    #  * This is a node local change
+    #  * Node could be a remote Erlang node in the cluster or local erlang node
+    #  * Use command: 'unset-master' to rollback
+    $Script set-master Node
+
+    # Unset master node for distributed DB, this is a node local change
+    $Script unset-master
+
+    # Cheat the local node that RemoteNode is down so that it will not wait for it to come up.
+    #   Local node will take local data as the data source for pending tables and spread the data
+    #   to the other pending nodes.
+    #
+    #  * Check EMQX logs to find out which remote node(s) the local node is waiting for
+    #  * To take effect, restart this EMQX node
+    #  * This is a node local setting
+
+    $Script lie-node-down RemoteNode
+
+Tips:
+    - Override local node name with envvar: \$EMQX_NODE__NAME
+    "
+}
+
+# Functions
+#
+print_pending_tables() {
+    local erl_cmd='[ io:format("~p :: ~p~n", [T, maps:with([all_nodes, load_order, storage_type,
+                                                            active_replicas, local_content, load_by_force,
+                                                            load_node, load_reason, master_nodes]
+                                                , maps:from_list(mnesia:table_info(T, all)))])
+                   || T <- mnesia:system_info(local_tables), unknown =:= mnesia:table_info(T, load_node) ],
+                   ok
+                   '
+    exec "$THIS_DIR/emqx" eval "$erl_cmd"
+}
+
+print_details_per_table() {
+    local erl_cmd='[ io:format("~p :: ~p~n", [T, mnesia:table_info(T, all)])
+                   || T <- mnesia:system_info(local_tables), unknown =:= mnesia:table_info(T, load_node) ],
+                   ok
+                   '
+    exec "$THIS_DIR/emqx" eval "$erl_cmd"
+}
+
+force-load() {
+    if [ $# -eq 1 ]; then
+        local erl_cmd="mnesia:force_load_table(${1})"
+    else
+        local erl_cmd='[ {T, mnesia:force_load_table(T)}
+                           || T <- mnesia:system_info(local_tables),
+                              unknown =:= mnesia:table_info(T, load_node)
+                       ]
+                      '
+    fi
+    exec "$THIS_DIR/emqx" eval "$erl_cmd"
+}
+
+remove-node() {
+    local target_node=$1
+    local erl_cmd="
+         case  [T || T <- mnesia:system_info(local_tables), unknown =:= mnesia:table_info(T, load_node)] of
+           [] ->
+              io:format(\"No table need to load\\n\"),
+              skipped;
+           TargetTables ->
+             io:format(\"Going to remove node ${target_node} from schema of the tables:~n~p~n\", [TargetTables]),
+             case io:read(\"confirm? [yes.]  OR  Ctrl-D to skip:  \") of
+               {ok, yes} ->
+                 lists:map(fun(T) ->
+                 mnesia:force_load_table(T),
+                   {T, mnesia:del_table_copy(T, '${target_node}') }
+                 end, TargetTables);
+               eof -> skipped;
+               R -> {skipped, R}
+             end
+           end
+        "
+    exec "$THIS_DIR/emqx" eval "$erl_cmd"
+}
+
+set-master-node() {
+    if [ $# -eq 1 ]; then
+        local erl_cmd="mnesia:set_master_nodes(['${1}']), mnesia_recover:dump_decision_tab()"
+    else
+        local erl_cmd="mnesia:set_master_nodes([]), mnesia_recover:dump_decision_tab()"
+    fi
+
+    exec "$THIS_DIR/emqx" eval "$erl_cmd"
+}
+
+lie-node-down() {
+    if [ $# -eq 1 ]; then
+        local erl_cmd="mnesia_recover:log_mnesia_down('${1}'), mnesia_recover:dump_decision_tab()"
+        exec "$THIS_DIR/emqx" eval "$erl_cmd"
+    else
+        usage
+    fi
+}
+
+
+CMD=${1:-usage}
+[ $# -gt 0 ] && shift 1
+
+case "$CMD" in
+    force-load)
+        force-load "$@"
+        ;;
+    remove-node)
+        remove-node "$@"
+        ;;
+    pending-tables)
+        print_pending_tables
+        ;;
+    table-details)
+        print_details_per_table
+        ;;
+    set-master)
+        set-master-node "$@"
+        ;;
+    unset-master)
+        set-master-node
+        ;;
+    lie-node-down)
+        lie-node-down "$@"
+        ;;
+    *)
+        usage
+esac
