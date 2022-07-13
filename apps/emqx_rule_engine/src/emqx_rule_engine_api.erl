@@ -184,6 +184,17 @@
         ]).
 
 -export([list_events/2]).
+-export([query/3]).
+
+-define(RULE_QS_SCHEMA, {?RULE_TAB,
+    [
+        {<<"enabled">>, atom},
+        {<<"for">>, binary},
+        {<<"_like_id">>, binary},
+        {<<"_like_for">>, binary},
+        {<<"_match_for">>, binary},
+        {<<"_like_description">>, binary}
+    ]}).
 
 -define(ERR_NO_RULE(ID), list_to_binary(io_lib:format("Rule ~s Not Found", [(ID)]))).
 -define(ERR_NO_ACTION(NAME), list_to_binary(io_lib:format("Action ~s Not Found", [(NAME)]))).
@@ -261,8 +272,14 @@ update_rule(#{id := Id}, Params) ->
             return({error, 400, ?ERR_BADARGS(Reason)})
     end.
 
-list_rules(_Bindings, _Params) ->
-    return_all(emqx_rule_registry:get_rules_ordered_by_ts()).
+list_rules(_Bindings, Params) ->
+    case proplists:get_value(<<"enable_paging">>, Params, true) of
+        true ->
+            SortFun = fun(#{created_at := C1}, #{created_at := C2}) -> C1 > C2 end,
+            return({ok, emqx_mgmt_api:node_query(node(), Params, ?RULE_QS_SCHEMA, {?MODULE, query}, SortFun)});
+        false ->
+            return_all(emqx_rule_registry:get_rules_ordered_by_ts())
+    end.
 
 show_rule(#{id := Id}, _Params) ->
     reply_with(fun emqx_rule_registry:get_rule/1, Id).
@@ -454,6 +471,7 @@ record_to_map(#rule{id = Id,
                     actions = Actions,
                     on_action_failed = OnFailed,
                     enabled = Enabled,
+                    created_at = CreatedAt,
                     description = Descr}) ->
     #{id => Id,
       for => Hook,
@@ -462,6 +480,7 @@ record_to_map(#rule{id = Id,
       on_action_failed => OnFailed,
       metrics => get_rule_metrics(Id),
       enabled => Enabled,
+      created_at => CreatedAt,
       description => Descr
      };
 
@@ -599,3 +618,41 @@ get_action_metrics(Id) ->
             Res -> [maps:put(node, Node, Res)]
         end
         || Node <- ekka_mnesia:running_nodes()]).
+
+query({Qs, []}, Start, Limit) ->
+    Ms = qs2ms(Qs),
+    emqx_mgmt_api:select_table(?RULE_TAB, Ms, Start, Limit, fun record_to_map/1);
+
+query({Qs, Fuzzy}, Start, Limit) ->
+    Ms = qs2ms(Qs),
+    MatchFun = match_fun(Ms, Fuzzy),
+    emqx_mgmt_api:traverse_table(?RULE_TAB, MatchFun, Start, Limit, fun record_to_map/1).
+
+qs2ms(Qs) ->
+    Init = #rule{for = '_', enabled = '_', _ = '_'},
+    MatchHead = lists:foldl(fun(Q, Acc) ->  match_ms(Q, Acc) end, Init, Qs),
+    [{MatchHead, [], ['$_']}].
+
+match_ms({for, '=:=', Value}, MatchHead) -> MatchHead#rule{for = Value};
+match_ms({enabled, '=:=', Value}, MatchHead) -> MatchHead#rule{enabled = Value};
+match_ms(_, MatchHead) -> MatchHead.
+
+match_fun(Ms, Fuzzy) ->
+    MsC = ets:match_spec_compile(Ms),
+    fun(Rows) ->
+        Ls = ets:match_spec_run(Rows, MsC),
+        lists:filter(fun(E) -> run_fuzzy_match(E, Fuzzy) end, Ls)
+    end.
+
+run_fuzzy_match(_, []) -> true;
+run_fuzzy_match(E = #rule{id = Id}, [{id, like, Pattern}|Fuzzy]) ->
+    binary:match(Id, Pattern) /= nomatch andalso run_fuzzy_match(E, Fuzzy);
+run_fuzzy_match(E = #rule{description = Desc}, [{description, like, Pattern}|Fuzzy]) ->
+    binary:match(Desc, Pattern) /= nomatch andalso run_fuzzy_match(E, Fuzzy);
+run_fuzzy_match(E = #rule{for = Topics}, [{for, match, Pattern}|Fuzzy]) ->
+    lists:any(fun(For) -> emqx_topic:match(For, Pattern) end, Topics)
+        andalso run_fuzzy_match(E, Fuzzy);
+run_fuzzy_match(E = #rule{for = Topics}, [{for, like, Pattern}|Fuzzy]) ->
+    lists:any(fun(For) -> binary:match(For, Pattern) /= nomatch end, Topics)
+        andalso run_fuzzy_match(E, Fuzzy);
+run_fuzzy_match(_E, [{_Key, like, _SubStr}| _Fuzzy]) -> false.
