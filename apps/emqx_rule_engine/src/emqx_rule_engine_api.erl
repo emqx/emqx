@@ -272,11 +272,14 @@ update_rule(#{id := Id}, Params) ->
             return({error, 400, ?ERR_BADARGS(Reason)})
     end.
 
-list_rules(_Bindings, []) ->
-    return_all(emqx_rule_registry:get_rules_ordered_by_ts());
 list_rules(_Bindings, Params) ->
-    SortFun = fun(#{created_at := C1}, #{created_at := C2}) -> C1 > C2 end,
-    return({ok, emqx_mgmt_api:node_query(node(), Params, ?RULE_QS_SCHEMA, {?MODULE, query}, SortFun)}).
+    case proplists:get_value(<<"enable_paging">>, Params, true) of
+        true ->
+            SortFun = fun(#{created_at := C1}, #{created_at := C2}) -> C1 > C2 end,
+            return({ok, emqx_mgmt_api:node_query(node(), Params, ?RULE_QS_SCHEMA, {?MODULE, query}, SortFun)});
+        false ->
+            return_all(emqx_rule_registry:get_rules_ordered_by_ts())
+    end.
 
 show_rule(#{id := Id}, _Params) ->
     reply_with(fun emqx_rule_registry:get_rule/1, Id).

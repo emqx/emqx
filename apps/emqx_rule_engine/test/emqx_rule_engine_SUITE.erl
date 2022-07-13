@@ -528,29 +528,29 @@ t_list_rule_api(_Config) ->
                   end, lists:seq(1, 20)),
 
     {ok, #{code := 0, data := Rules11}} = emqx_rule_engine_api:list_rules(#{},
-        [{<<"_limit">>,<<"10">>}, {<<"_page">>, <<"1">>}]),
+        [{<<"_limit">>,<<"10">>}, {<<"_page">>, <<"1">>}, {<<"enable_paging">>, true}]),
     ?assertEqual(10, length(Rules11)),
     {ok, #{code := 0, data := Rules12}} = emqx_rule_engine_api:list_rules(#{},
-        [{<<"_limit">>,<<"10">>}, {<<"_page">>, <<"2">>}]),
+        [{<<"_limit">>,<<"10">>}, {<<"_page">>, <<"2">>}, {<<"enable_paging">>, true}]),
     ?assertEqual(10, length(Rules12)),
     Rules1 = Rules11 ++ Rules12,
 
     [RuleID | _] = AddIds,
     {ok, #{code := 0}} = emqx_rule_engine_api:update_rule(#{id => RuleID},
         [{<<"enabled">>, false}]),
-    Params1 = [{<<"enabled">>,<<"true">>}],
+    Params1 = [{<<"enabled">>,<<"true">>}, {<<"enable_paging">>, true}],
     {ok, #{code := 0, data := Rules2}} = emqx_rule_engine_api:list_rules(#{}, Params1),
     ?assert(lists:all(fun(#{id := ID}) -> ID =/= RuleID end, Rules2)),
 
-    Params2 = [{<<"for">>, RuleID}],
+    Params2 = [{<<"for">>, RuleID}, {<<"enable_paging">>, true}],
     {ok, #{code := 0, data := Rules3}} = emqx_rule_engine_api:list_rules(#{}, Params2),
     ?assert(lists:all(fun(#{id := ID}) -> ID =:= RuleID end, Rules3)),
 
-    Params3 = [{<<"_like_id">>,<<"rule:">>}],
+    Params3 = [{<<"_like_id">>,<<"rule:">>}, {<<"enable_paging">>, true}],
     {ok, #{code := 0, data := Rules4}} = emqx_rule_engine_api:list_rules(#{}, Params3),
     ?assertEqual(length(Rules1), length(Rules4)),
 
-    Params4 = [{<<"_like_for">>,<<"t/a/">>}],
+    Params4 = [{<<"_like_for">>,<<"t/a/">>}, {<<"enable_paging">>, true}],
     {ok, #{code := 0, data := Rules5}} = emqx_rule_engine_api:list_rules(#{}, Params4),
     ?assertEqual(length(Rules1), length(Rules5)),
     {ok, #{code := 0}} = emqx_rule_engine_api:update_rule(#{id => RuleID},
@@ -559,7 +559,7 @@ t_list_rule_api(_Config) ->
     ?assert(lists:all(fun(#{id := ID}) -> ID =/= RuleID end, Rules6)),
     ?assertEqual(1, length(Rules1) - length(Rules6)),
 
-    Params5 = [{<<"_match_for">>,<<"t/+/+">>}],
+    Params5 = [{<<"_match_for">>,<<"t/+/+">>}, {<<"enable_paging">>, true}],
     {ok, #{code := 0, data := Rules7}} = emqx_rule_engine_api:list_rules(#{}, Params5),
     ?assertEqual(length(Rules1), length(Rules7)),
     {ok, #{code := 0}} = emqx_rule_engine_api:update_rule(#{id => RuleID},
@@ -568,7 +568,7 @@ t_list_rule_api(_Config) ->
     ?assert(lists:all(fun(#{id := ID}) -> ID =/= RuleID end, Rules8)),
     ?assertEqual(1, length(Rules1) - length(Rules8)),
 
-    Params6 = [{<<"_like_description">>,<<"rule">>}],
+    Params6 = [{<<"_like_description">>,<<"rule">>}, {<<"enable_paging">>, true}],
     {ok, #{code := 0, data := Rules9}} = emqx_rule_engine_api:list_rules(#{}, Params6),
     ?assertEqual(length(Rules1), length(Rules9)),
     {ok, #{code := 0}} = emqx_rule_engine_api:update_rule(#{id => RuleID},
@@ -581,7 +581,6 @@ t_list_rule_api(_Config) ->
         ?assertMatch({ok, #{code := 0}}, emqx_rule_engine_api:delete_rule(#{id => ID}, []))
                   end, AddIds),
     ok.
-
 
 t_list_actions_api(_Config) ->
     {ok, #{code := 0, data := Actions}} = emqx_rule_engine_api:list_actions(#{}, []),
