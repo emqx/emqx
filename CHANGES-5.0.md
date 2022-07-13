@@ -10,6 +10,7 @@
 * The `created_at` field of rules is missing after emqx restarts. [commits/5fc09e6b](https://github.com/emqx/emqx/commit/5fc09e6b950c340243d7be627a0ce1700691221c)
 * The rule engine's jq function now works even when the path to the EMQX install dir contains spaces [jq#35](https://github.com/emqx/jq/pull/35) [#8455](https://github.com/emqx/emqx/pull/8455)
 * Avoid applying any ACL checks on superusers [#8452](https://github.com/emqx/emqx/pull/8452)
+* Fix statistics related system topic name error
 
 # 5.0.3
 
