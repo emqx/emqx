@@ -65,7 +65,7 @@
     %% Timer
     timers :: #{atom() => disable | undefined | reference()},
     %% Connection mode
-    connection_required :: boolean(),
+    connection_required :: undefined | boolean(),
     %% Connection State
     conn_state :: conn_state(),
     %% Session token to identity this connection
