@@ -23,8 +23,10 @@
 -include_lib("emqx/include/emqx.hrl").
 -include_lib("stdlib/include/assert.hrl").
 
--define(REDIS_HOST, "redis").
--define(REDIS_PORT, 6379).
+-define(REDIS_SINGLE_HOST, "redis").
+-define(REDIS_SINGLE_PORT, 6379).
+-define(REDIS_SENTINEL_HOST, "redis-sentinel").
+-define(REDIS_SENTINEL_PORT, 26379).
 -define(REDIS_RESOURCE_MOD, emqx_connector_redis).
 
 all() ->
@@ -34,7 +36,14 @@ groups() ->
     [].
 
 init_per_suite(Config) ->
-    case emqx_common_test_helpers:is_tcp_server_available(?REDIS_HOST, ?REDIS_PORT) of
+    case
+        emqx_common_test_helpers:is_all_tcp_servers_available(
+            [
+                {?REDIS_SINGLE_HOST, ?REDIS_SINGLE_PORT},
+                {?REDIS_SENTINEL_HOST, ?REDIS_SENTINEL_PORT}
+            ]
+        )
+    of
         true ->
             ok = emqx_common_test_helpers:start_apps([emqx_conf]),
             ok = emqx_connector_test_helpers:start_apps([emqx_resource, emqx_connector]),
@@ -141,20 +150,35 @@ redis_config_cluster() ->
 redis_config_sentinel() ->
     redis_config_base("sentinel", "servers").
 
+-define(REDIS_CONFIG_BASE(MaybeSentinel),
+    "" ++
+        "\n" ++
+        "    auto_reconnect = true\n" ++
+        "    database = 1\n" ++
+        "    pool_size = 8\n" ++
+        "    redis_type = ~s\n" ++
+        MaybeSentinel ++
+        "    password = public\n" ++
+        "    ~s = \"~s:~b\"\n" ++
+        "    " ++
+        ""
+).
+
 redis_config_base(Type, ServerKey) ->
+    case Type of
+        "sentinel" ->
+            Host = ?REDIS_SENTINEL_HOST,
+            Port = ?REDIS_SENTINEL_PORT,
+            MaybeSentinel = "    sentinel = mymaster\n";
+        _ ->
+            Host = ?REDIS_SINGLE_HOST,
+            Port = ?REDIS_SINGLE_PORT,
+            MaybeSentinel = ""
+    end,
     RawConfig = list_to_binary(
         io_lib:format(
-            ""
-            "\n"
-            "    auto_reconnect = true\n"
-            "    database = 1\n"
-            "    pool_size = 8\n"
-            "    redis_type = ~s\n"
-            "    password = public\n"
-            "    ~s = \"~s:~b\"\n"
-            "    "
-            "",
-            [Type, ServerKey, ?REDIS_HOST, ?REDIS_PORT]
+            ?REDIS_CONFIG_BASE(MaybeSentinel),
+            [Type, ServerKey, Host, Port]
         )
     ),
 

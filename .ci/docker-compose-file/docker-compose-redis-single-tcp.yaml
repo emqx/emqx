@@ -2,7 +2,7 @@ version: '3.9'
 
 services:
   redis_server:
-    container_name: redis 
+    container_name: redis
     image: redis:${REDIS_TAG}
     ports:
       - "6379:6379"

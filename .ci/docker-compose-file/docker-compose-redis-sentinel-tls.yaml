@@ -1,8 +1,8 @@
 version: '3.9'
 
 services:
-  redis_server:
-    container_name: redis
+  redis_sentinel_server_tls:
+    container_name: redis-sentinel-tls
     image: redis:${REDIS_TAG}
     volumes:
       - ../../apps/emqx/etc/certs/cacert.pem:/etc/certs/ca.crt

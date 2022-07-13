@@ -11,6 +11,8 @@
 * The rule engine's jq function now works even when the path to the EMQX install dir contains spaces [jq#35](https://github.com/emqx/jq/pull/35) [#8455](https://github.com/emqx/emqx/pull/8455)
 * Avoid applying any ACL checks on superusers [#8452](https://github.com/emqx/emqx/pull/8452)
 * Fix statistics related system topic name error
+* Fix AuthN JWKS SSL schema. Using schema in `emqx_schema`. [#8458](https://github.com/emqx/emqx/pull/8458)
+* `sentinel` field should be required when AuthN/AuthZ Redis using sentinel mode. [#8458](https://github.com/emqx/emqx/pull/8458)
 
 # 5.0.3
 

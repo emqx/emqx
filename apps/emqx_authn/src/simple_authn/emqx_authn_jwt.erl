@@ -75,26 +75,11 @@ fields('jwks') ->
         {pool_size, fun emqx_connector_schema_lib:pool_size/1},
         {refresh_interval, fun refresh_interval/1},
         {ssl, #{
-            type => hoconsc:union([
-                hoconsc:ref(?MODULE, ssl_enable),
-                hoconsc:ref(?MODULE, ssl_disable)
-            ]),
-            desc => ?DESC(ssl),
+            type => hoconsc:ref(emqx_schema, "ssl_client_opts"),
             default => #{<<"enable">> => false},
-            required => false
+            desc => ?DESC("ssl")
         }}
-    ] ++ common_fields();
-fields(ssl_enable) ->
-    [
-        {enable, #{type => true, desc => ?DESC(enable)}},
-        {cacertfile, fun cacertfile/1},
-        {certfile, fun certfile/1},
-        {keyfile, fun keyfile/1},
-        {verify, fun verify/1},
-        {server_name_indication, fun server_name_indication/1}
-    ];
-fields(ssl_disable) ->
-    [{enable, #{type => false, desc => ?DESC(enable)}}].
+    ] ++ common_fields().
 
 desc('hmac-based') ->
     ?DESC('hmac-based');
@@ -146,27 +131,6 @@ refresh_interval(desc) -> ?DESC(?FUNCTION_NAME);
 refresh_interval(default) -> 300;
 refresh_interval(validator) -> [fun(I) -> I > 0 end];
 refresh_interval(_) -> undefined.
-
-cacertfile(type) -> string();
-cacertfile(desc) -> ?DESC(?FUNCTION_NAME);
-cacertfile(_) -> undefined.
-
-certfile(type) -> string();
-certfile(desc) -> ?DESC(?FUNCTION_NAME);
-certfile(_) -> undefined.
-
-keyfile(type) -> string();
-keyfile(desc) -> ?DESC(?FUNCTION_NAME);
-keyfile(_) -> undefined.
-
-verify(type) -> hoconsc:enum([verify_peer, verify_none]);
-verify(desc) -> ?DESC(?FUNCTION_NAME);
-verify(default) -> verify_none;
-verify(_) -> undefined.
-
-server_name_indication(type) -> string();
-server_name_indication(desc) -> ?DESC(?FUNCTION_NAME);
-server_name_indication(_) -> undefined.
 
 verify_claims(type) ->
     list();
