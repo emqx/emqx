@@ -780,7 +780,12 @@ print({emqx_topic, #route{topic = Topic, dest = {_, Node}}}) ->
 print({emqx_topic, #route{topic = Topic, dest = Node}}) ->
     emqx_ctl:print("~ts -> ~ts~n", [Topic, Node]);
 print({emqx_suboption, {{Pid, Topic}, Options}}) when is_pid(Pid) ->
-    emqx_ctl:print("~ts -> ~ts~n", [maps:get(subid, Options), Topic]).
+    SubId = maps:get(subid, Options),
+    QoS = maps:get(qos, Options, 0),
+    NL = maps:get(nl, Options, 0),
+    RH = maps:get(rh, Options, 0),
+    RAP = maps:get(rap, Options, 0),
+    emqx_ctl:print("~ts -> topic:~ts qos:~p nl:~p rh:~p rap:~p~n", [SubId, Topic, QoS, NL, RH, RAP]).
 
 format(_, undefined) ->
     undefined;
