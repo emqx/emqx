@@ -131,7 +131,6 @@ t_gateway_coap(_) ->
     GwConf = #{
         name => <<"coap">>,
         heartbeat => <<"60s">>,
-        connection_required => true,
         listeners => [
             #{name => <<"def">>, type => <<"udp">>, bind => <<"5683">>}
         ]
