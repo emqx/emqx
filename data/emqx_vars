@@ -12,12 +12,10 @@ RUNNER_LIB_DIR="{{ runner_lib_dir }}"
 RUNNER_ETC_DIR="{{ runner_etc_dir }}"
 RUNNER_DATA_DIR="{{ runner_data_dir }}"
 RUNNER_USER="{{ runner_user }}"
+EMQX_DESCRIPTION='{{ emqx_description }}'
 
-EMQX_LICENSE_CONF=''
-export EMQX_DESCRIPTION='{{ emqx_description }}'
+## Warning: DO NOT create new variables using the above vars in this file,
+## as the vars above can be overwritten by the relup scripts later, like:
+## REL_VSN="new_version"
 
-## computed vars
-REL_NAME="emqx"
-ERTS_PATH="$RUNNER_ROOT_DIR/erts-$ERTS_VSN/bin"
-
-## updated vars here
+## overwritten vars here
