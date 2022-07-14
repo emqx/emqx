@@ -14,6 +14,11 @@
 * Fix AuthN JWKS SSL schema. Using schema in `emqx_schema`. [#8458](https://github.com/emqx/emqx/pull/8458)
 * `sentinel` field should be required when AuthN/AuthZ Redis using sentinel mode. [#8458](https://github.com/emqx/emqx/pull/8458)
 
+## Enhancements
+
+* Improve the dashboard listener startup log, the listener name is no longer spliced with port information,
+  and the colon(:) is no longer displayed when IP is not specified.[#8480](https://github.com/emqx/emqx/pull/8480)
+
 # 5.0.3
 
 ## Bug fixes
