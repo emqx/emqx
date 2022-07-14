@@ -493,7 +493,7 @@ merge_default(Options) ->
     end.
 
 format_addr(Port) when is_integer(Port) ->
-    io_lib:format(":~w", [Port]);
+    io_lib:format("~w", [Port]);
 %% Print only the port number when bound on all interfaces
 format_addr({{0, 0, 0, 0}, Port}) ->
     format_addr(Port);
