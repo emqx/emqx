@@ -36,7 +36,8 @@ fields("retainer") ->
         {flow_control,
             sc(
                 ?R_REF(flow_control),
-                flow_control
+                flow_control,
+                #{}
             )},
         {max_payload_size,
             sc(
@@ -104,8 +105,8 @@ desc(_) ->
 %% Internal functions
 %%--------------------------------------------------------------------
 
-sc(Type, DescId) ->
-    hoconsc:mk(Type, #{desc => ?DESC(DescId)}).
+%%sc(Type, DescId) ->
+%%    hoconsc:mk(Type, #{desc => ?DESC(DescId)}).
 
 sc(Type, DescId, Default) ->
     hoconsc:mk(Type, #{default => Default, desc => ?DESC(DescId)}).
