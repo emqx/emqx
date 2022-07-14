@@ -196,6 +196,7 @@ usage() {
         echo "  Up/Down-grade: upgrade | downgrade | install | uninstall"
         echo "  Install info:  ertspath | root_dir | versions"
         echo "  Runtime info:  pid | ping | versions"
+        echo "  Configure check: check_conf"
         echo "  Advanced:      console_clean | escript | rpc | rpcterms | eval"
         echo ''
         echo "Execute '$REL_NAME COMMAND help' for more information"
@@ -338,9 +339,12 @@ trim() {
 
 # Function to generate app.config and vm.args
 generate_config() {
-    ## Delete the *.siz files first or it cann't start after
-    ## changing the config 'log.rotation.size'
-    rm -rf "${RUNNER_LOG_DIR}"/*.siz
+    check_only="$1"
+    if [ "$check_only" != "check_only" ]; then
+      ## Delete the *.siz files first or it cann't start after
+      ## changing the config 'log.rotation.size'
+      rm -rf "${RUNNER_LOG_DIR}"/*.siz
+    fi
 
     set +e
     if [ "${EMQX_LICENSE_CONF:-}" = "" ]; then
@@ -392,15 +396,22 @@ generate_config() {
             fi
         fi
     done
-    mv -f "$TMP_ARG_FILE" "$CUTTLE_GEN_ARG_FILE"
 
     if ! relx_nodetool chkconfig -config "$CONFIG_FILE"; then
         echoerr "Error reading $CONFIG_FILE"
         exit 1
     fi
+
+    if [ "$check_only" = "check_only" ]; then
+        rm -rf "$TMP_ARG_FILE"
+        rm -rf "$CUTTLE_GEN_ARG_FILE"
+        rm -rf "$CONFIG_FILE"
+    else
+        mv -f "$TMP_ARG_FILE" "$CUTTLE_GEN_ARG_FILE"
+    fi
 }
 
-# Call bootstrapd for daemon commands like start/stop/console
+# Call bootstrap for daemon commands like start/stop/console
 bootstrapd() {
     if [ -e "$RUNNER_DATA_DIR/.erlang.cookie" ]; then
         chown "$RUNNER_USER" "$RUNNER_DATA_DIR"/.erlang.cookie
@@ -449,6 +460,9 @@ case "$1" in
         IS_BOOT_COMMAND='yes'
         ;;
     foreground)
+        IS_BOOT_COMMAND='yes'
+        ;;
+    check_conf)
         IS_BOOT_COMMAND='yes'
         ;;
 esac
@@ -818,6 +832,10 @@ case "$1" in
         ;;
     ertspath)
         echo "$ERTS_PATH"
+        ;;
+    check_conf)
+        generate_config "check_only"
+        echo "$RUNNER_ETC_DIR/emqx.conf is ok"
         ;;
 
     ctl)
