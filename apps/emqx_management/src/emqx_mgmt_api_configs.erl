@@ -62,7 +62,8 @@
         <<"prometheus">>,
         <<"telemetry">>,
         <<"sys_topics">>,
-        <<"limiter">>
+        <<"limiter">>,
+        <<"listeners">>
     ] ++ global_zone_roots()
 ).
 

@@ -17,7 +17,8 @@
 ## Enhancements
 
 * Improve the dashboard listener startup log, the listener name is no longer spliced with port information,
-  and the colon(:) is no longer displayed when IP is not specified.[#8480](https://github.com/emqx/emqx/pull/8480)
+  and the colon(:) is no longer displayed when IP is not specified. [#8480](https://github.com/emqx/emqx/pull/8480)
+* Remove `/configs/listeners` API, use `/listeners/` instead. [#8485](https://github.com/emqx/emqx/pull/8485)
 
 # 5.0.3
 
