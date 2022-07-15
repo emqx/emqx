@@ -22,10 +22,8 @@
 
 %% API
 -export([
-    new/0, new/1, new/2,
-    get_limiter_by_names/2,
+    get_limiter_by_types/3,
     add_new/3,
-    update_by_name/3,
     set_retry_context/2,
     check/3,
     retry/2,
@@ -48,10 +46,10 @@
 }.
 
 -type future() :: pos_integer().
+-type limiter_id() :: emqx_limiter_schema:limiter_id().
 -type limiter_type() :: emqx_limiter_schema:limiter_type().
 -type limiter() :: emqx_htb_limiter:limiter().
 -type retry_context() :: emqx_htb_limiter:retry_context().
--type bucket_name() :: emqx_limiter_schema:bucket_name().
 -type millisecond() :: non_neg_integer().
 -type check_result() ::
     {ok, container()}
@@ -64,45 +62,23 @@
 %%--------------------------------------------------------------------
 %%  API
 %%--------------------------------------------------------------------
--spec new() -> container().
-new() ->
-    new([]).
-
-%% @doc generate default data according to the type of limiter
--spec new(list(limiter_type())) -> container().
-new(Types) ->
-    new(Types, #{}).
-
--spec new(
-    list(limiter_type()),
-    #{limiter_type() => emqx_limiter_schema:bucket_name()}
-) -> container().
-new(Types, Names) ->
-    get_limiter_by_names(Types, Names).
-
 %% @doc generate a container
 %% according to the type of limiter and the bucket name configuration of the limiter
 %% @end
--spec get_limiter_by_names(
+-spec get_limiter_by_types(
+    limiter_id() | {atom(), atom()},
     list(limiter_type()),
-    #{limiter_type() => emqx_limiter_schema:bucket_name()}
+    #{limiter_type() => hocons:config()}
 ) -> container().
-get_limiter_by_names(Types, BucketNames) ->
+get_limiter_by_types({Type, Listener}, Types, BucketCfgs) ->
+    Id = emqx_listeners:listener_id(Type, Listener),
+    get_limiter_by_types(Id, Types, BucketCfgs);
+get_limiter_by_types(Id, Types, BucketCfgs) ->
     Init = fun(Type, Acc) ->
-        {ok, Limiter} = emqx_limiter_server:connect(Type, BucketNames),
+        {ok, Limiter} = emqx_limiter_server:connect(Id, Type, BucketCfgs),
         add_new(Type, Limiter, Acc)
     end,
     lists:foldl(Init, #{retry_ctx => undefined}, Types).
-
-%% @doc add the specified type of limiter to the container
--spec update_by_name(
-    limiter_type(),
-    bucket_name() | #{limiter_type() => bucket_name()},
-    container()
-) -> container().
-update_by_name(Type, Buckets, Container) ->
-    {ok, Limiter} = emqx_limiter_server:connect(Type, Buckets),
-    add_new(Type, Limiter, Container).
 
 -spec add_new(limiter_type(), limiter(), container()) -> container().
 add_new(Type, Limiter, Container) ->

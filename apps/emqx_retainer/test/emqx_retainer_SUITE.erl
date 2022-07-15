@@ -368,27 +368,16 @@ t_stop_publish_clear_msg(_) ->
     ok = emqtt:disconnect(C1).
 
 t_flow_control(_) ->
-    #{per_client := PerClient} = RetainerCfg = emqx_config:get([limiter, batch, bucket, retainer]),
-    RetainerCfg2 = RetainerCfg#{
-        per_client :=
-            PerClient#{
-                rate := emqx_ratelimiter_SUITE:to_rate("1/1s"),
-                capacity := 1
-            }
-    },
-    emqx_config:put([limiter, batch, bucket, retainer], RetainerCfg2),
-    emqx_limiter_manager:restart_server(batch),
-    timer:sleep(500),
-
-    emqx_retainer_dispatcher:refresh_limiter(),
-    timer:sleep(500),
-
+    Rate = emqx_ratelimiter_SUITE:to_rate("1/1s"),
+    LimiterCfg = make_limiter_cfg(Rate),
+    JsonCfg = make_limiter_json(<<"1/1s">>),
+    emqx_limiter_server:add_bucket(emqx_retainer, internal, LimiterCfg),
     emqx_retainer:update_config(#{
         <<"flow_control">> =>
             #{
                 <<"batch_read_number">> => 1,
                 <<"batch_deliver_number">> => 1,
-                <<"batch_deliver_limiter">> => retainer
+                <<"batch_deliver_limiter">> => JsonCfg
             }
     }),
     {ok, C1} = emqtt:start_link([{clean_start, true}, {proto_ver, v5}]),
@@ -424,13 +413,14 @@ t_flow_control(_) ->
 
     ok = emqtt:disconnect(C1),
 
-    %% recover the limiter
-    emqx_config:put([limiter, batch, bucket, retainer], RetainerCfg),
-    emqx_limiter_manager:restart_server(batch),
-    timer:sleep(500),
-
-    emqx_retainer_dispatcher:refresh_limiter(),
-    timer:sleep(500),
+    emqx_limiter_server:del_bucket(emqx_retainer, internal),
+    emqx_retainer:update_config(#{
+        <<"flow_control">> =>
+            #{
+                <<"batch_read_number">> => 1,
+                <<"batch_deliver_number">> => 1
+            }
+    }),
     ok.
 
 t_clear_expired(_) ->
@@ -684,3 +674,33 @@ with_conf(ConfMod, Case) ->
             emqx_retainer:update_config(Conf),
             erlang:raise(Type, Error, Strace)
     end.
+
+make_limiter_cfg(Rate) ->
+    Infinity = emqx_limiter_schema:infinity_value(),
+    Client = #{
+        rate => Rate,
+        initial => 0,
+        capacity => Infinity,
+        low_watermark => 1,
+        divisible => false,
+        max_retry_time => timer:seconds(5),
+        failure_strategy => force
+    },
+    #{client => Client, rate => Infinity, initial => 0, capacity => Infinity}.
+
+make_limiter_json(Rate) ->
+    Client = #{
+        <<"rate">> => Rate,
+        <<"initial">> => 0,
+        <<"capacity">> => <<"infinity">>,
+        <<"low_watermark">> => 0,
+        <<"divisible">> => <<"false">>,
+        <<"max_retry_time">> => <<"5s">>,
+        <<"failure_strategy">> => <<"force">>
+    },
+    #{
+        <<"client">> => Client,
+        <<"rate">> => <<"infinity">>,
+        <<"initial">> => 0,
+        <<"capacity">> => <<"infinity">>
+    }.

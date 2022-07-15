@@ -31,7 +31,9 @@
     get_bucket_cfg_path/2,
     desc/1,
     types/0,
-    infinity_value/0
+    infinity_value/0,
+    bucket_opts/0,
+    bucket_opts_meta/0
 ]).
 
 -define(KILOBYTE, 1024).
@@ -41,8 +43,10 @@
     | message_in
     | connection
     | message_routing
-    | batch.
+    %% internal limiter for unclassified resources
+    | internal.
 
+-type limiter_id() :: atom().
 -type bucket_name() :: atom().
 -type rate() :: infinity | float().
 -type burst_rate() :: 0 | float().
@@ -76,7 +80,7 @@
     bucket_name/0
 ]).
 
--export_type([limiter_type/0, bucket_path/0]).
+-export_type([limiter_id/0, limiter_type/0, bucket_path/0]).
 
 -define(UNIT_TIME_IN_MS, 1000).
 
@@ -87,13 +91,13 @@ roots() -> [limiter].
 fields(limiter) ->
     [
         {Type,
-            ?HOCON(?R_REF(limiter_opts), #{
+            ?HOCON(?R_REF(node_opts), #{
                 desc => ?DESC(Type),
                 default => make_limiter_default(Type)
             })}
      || Type <- types()
     ];
-fields(limiter_opts) ->
+fields(node_opts) ->
     [
         {rate, ?HOCON(rate(), #{desc => ?DESC(rate), default => "infinity"})},
         {burst,
@@ -101,38 +105,16 @@ fields(limiter_opts) ->
                 desc => ?DESC(burst),
                 default => 0
             })},
-        {bucket,
-            ?HOCON(
-                ?MAP("bucket_name", ?R_REF(bucket_opts)),
-                #{
-                    desc => ?DESC(bucket_cfg),
-                    default => #{<<"default">> => #{}},
-                    example => #{
-                        <<"mybucket-name">> => #{
-                            <<"rate">> => <<"infinity">>,
-                            <<"capcity">> => <<"infinity">>,
-                            <<"initial">> => <<"100">>,
-                            <<"per_client">> => #{<<"rate">> => <<"infinity">>}
-                        }
-                    }
-                }
-            )}
+        {client, ?HOCON(?R_REF(client_opts), #{default => #{}})}
     ];
 fields(bucket_opts) ->
     [
         {rate, ?HOCON(rate(), #{desc => ?DESC(rate), default => "infinity"})},
         {capacity, ?HOCON(capacity(), #{desc => ?DESC(capacity), default => "infinity"})},
         {initial, ?HOCON(initial(), #{default => "0", desc => ?DESC(initial)})},
-        {per_client,
-            ?HOCON(
-                ?R_REF(client_bucket),
-                #{
-                    default => #{},
-                    desc => ?DESC(per_client)
-                }
-            )}
+        {client, ?HOCON(?R_REF(client_opts), #{required => false})}
     ];
-fields(client_bucket) ->
+fields(client_opts) ->
     [
         {rate, ?HOCON(rate(), #{default => "infinity", desc => ?DESC(rate)})},
         {initial, ?HOCON(initial(), #{default => "0", desc => ?DESC(initial)})},
@@ -181,14 +163,34 @@ fields(client_bucket) ->
 
 desc(limiter) ->
     "Settings for the rate limiter.";
-desc(limiter_opts) ->
-    "Settings for the limiter.";
+desc(node_opts) ->
+    "Settings for the limiter of the node level.";
+desc(node_client_opts) ->
+    "Settings for the client in the node level.";
 desc(bucket_opts) ->
     "Settings for the bucket.";
-desc(client_bucket) ->
-    "Settings for the client bucket.";
+desc(client_opts) ->
+    "Settings for the client in bucket level.";
 desc(_) ->
     undefined.
+
+bucket_opts() ->
+    ?HOCON(
+        ?MAP("bucket_name", ?R_REF(bucket_opts)),
+        bucket_opts_meta()
+    ).
+
+bucket_opts_meta() ->
+    #{
+        default => #{},
+        example =>
+            #{
+                <<"rate">> => <<"infinity">>,
+                <<"capcity">> => <<"infinity">>,
+                <<"initial">> => <<"100">>,
+                <<"client">> => #{<<"rate">> => <<"infinity">>}
+            }
+    }.
 
 %% default period is 100ms
 default_period() ->
@@ -202,7 +204,7 @@ get_bucket_cfg_path(Type, BucketName) ->
     [limiter, Type, bucket, BucketName].
 
 types() ->
-    [bytes_in, message_in, connection, message_routing, batch].
+    [bytes_in, message_in, connection, message_routing, internal].
 
 %%--------------------------------------------------------------------
 %% Internal functions
@@ -323,15 +325,6 @@ apply_unit("gb", Val) -> Val * ?KILOBYTE * ?KILOBYTE * ?KILOBYTE;
 apply_unit(Unit, _) -> throw("invalid unit:" ++ Unit).
 
 make_limiter_default(connection) ->
-    #{
-        <<"rate">> => <<"1000/s">>,
-        <<"bucket">> => #{
-            <<"default">> =>
-                #{
-                    <<"rate">> => <<"1000/s">>,
-                    <<"capacity">> => 1000
-                }
-        }
-    };
+    #{<<"rate">> => <<"1000/s">>};
 make_limiter_default(_) ->
     #{}.

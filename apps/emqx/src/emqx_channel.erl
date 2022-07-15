@@ -252,11 +252,12 @@ init(
             <<>> -> undefined;
             MP -> MP
         end,
+    ListenerId = emqx_listeners:listener_id(Type, Listener),
     ClientInfo = set_peercert_infos(
         Peercert,
         #{
             zone => Zone,
-            listener => emqx_listeners:listener_id(Type, Listener),
+            listener => ListenerId,
             protocol => Protocol,
             peerhost => PeerHost,
             sockport => SockPort,
@@ -278,7 +279,9 @@ init(
             outbound => #{}
         },
         auth_cache = #{},
-        quota = emqx_limiter_container:get_limiter_by_names([?LIMITER_ROUTING], LimiterCfg),
+        quota = emqx_limiter_container:get_limiter_by_types(
+            ListenerId, [?LIMITER_ROUTING], LimiterCfg
+        ),
         timers = #{},
         conn_state = idle,
         takeover = false,
@@ -1199,9 +1202,6 @@ handle_call(
     disconnect_and_shutdown(takenover, AllPendings, Channel);
 handle_call(list_authz_cache, Channel) ->
     {reply, emqx_authz_cache:list_authz_cache(), Channel};
-handle_call({quota, Bucket}, #channel{quota = Quota} = Channel) ->
-    Quota2 = emqx_limiter_container:update_by_name(message_routing, Bucket, Quota),
-    reply(ok, Channel#channel{quota = Quota2});
 handle_call(
     {keepalive, Interval},
     Channel = #channel{
