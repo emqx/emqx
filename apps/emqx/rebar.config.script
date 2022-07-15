@@ -24,7 +24,7 @@ IsQuicSupp = fun() ->
 end,
 
 Bcrypt = {bcrypt, {git, "https://github.com/emqx/erlang-bcrypt.git", {tag, "0.6.0"}}},
-Quicer = {quicer, {git, "https://github.com/emqx/quic.git", {tag, "0.0.14"}}}.
+Quicer = {quicer, {git, "https://github.com/emqx/quic.git", {tag, "0.0.16"}}}.
 
 ExtraDeps = fun(C) ->
     {deps, Deps0} = lists:keyfind(deps, 1, C),
