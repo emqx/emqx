@@ -411,7 +411,7 @@ generate_config() {
     fi
 }
 
-# Call bootstrap for daemon commands like start/stop/console
+# Call bootstrapd for daemon commands like start/stop/console
 bootstrapd() {
     if [ -e "$RUNNER_DATA_DIR/.erlang.cookie" ]; then
         chown "$RUNNER_USER" "$RUNNER_DATA_DIR"/.erlang.cookie
