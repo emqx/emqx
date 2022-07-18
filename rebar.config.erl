@@ -88,6 +88,10 @@ is_quicer_supported() ->
         is_win32() orelse is_centos_6()) orelse
         "1" == os:getenv("BUILD_WITH_QUIC").
 
+is_rocksdb_supported() ->
+    not (false =/= os:getenv("BUILD_WITHOUT_ROCKSDB")) orelse
+        "1" == os:getenv("BUILD_WITH_ROCKSDB").
+
 is_macos() ->
     {unix, darwin} =:= os:type().
 
@@ -318,34 +322,37 @@ relx_apps(ReleaseType, Edition) ->
         % started by emqx_machine
         {emqx, load},
         {emqx_conf, load},
-        emqx_machine,
-        {mnesia, load},
-        {ekka, load},
-        {emqx_plugin_libs, load},
-        {esasl, load},
-        observer_cli,
-        % started by emqx_machine
-        {system_monitor, load},
-        emqx_http_lib,
-        emqx_resource,
-        emqx_connector,
-        emqx_authn,
-        emqx_authz,
-        emqx_auto_subscribe,
-        emqx_gateway,
-        emqx_exhook,
-        emqx_bridge,
-        emqx_rule_engine,
-        emqx_modules,
-        emqx_management,
-        emqx_dashboard,
-        emqx_retainer,
-        emqx_statsd,
-        emqx_prometheus,
-        emqx_psk,
-        emqx_slow_subs,
-        emqx_plugins
+        emqx_machine
     ] ++
+        [{mnesia_rocksdb, load} || is_rocksdb_supported()] ++
+        [
+            {mnesia, load},
+            {ekka, load},
+            {emqx_plugin_libs, load},
+            {esasl, load},
+            observer_cli,
+            % started by emqx_machine
+            {system_monitor, load},
+            emqx_http_lib,
+            emqx_resource,
+            emqx_connector,
+            emqx_authn,
+            emqx_authz,
+            emqx_auto_subscribe,
+            emqx_gateway,
+            emqx_exhook,
+            emqx_bridge,
+            emqx_rule_engine,
+            emqx_modules,
+            emqx_management,
+            emqx_dashboard,
+            emqx_retainer,
+            emqx_statsd,
+            emqx_prometheus,
+            emqx_psk,
+            emqx_slow_subs,
+            emqx_plugins
+        ] ++
         [quicer || is_quicer_supported()] ++
         [bcrypt || provide_bcrypt_release(ReleaseType)] ++
         [jq || is_jq_supported()] ++
