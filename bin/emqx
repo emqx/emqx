@@ -403,9 +403,9 @@ generate_config() {
     fi
 
     if [ "$check_only" = "check_only" ]; then
-        rm -rf "$TMP_ARG_FILE"
-        rm -rf "$CUTTLE_GEN_ARG_FILE"
-        rm -rf "$CONFIG_FILE"
+        rm -f "$TMP_ARG_FILE"
+        rm -f "$CUTTLE_GEN_ARG_FILE"
+        rm -f "$CONFIG_FILE"
     else
         mv -f "$TMP_ARG_FILE" "$CUTTLE_GEN_ARG_FILE"
     fi
