@@ -196,7 +196,7 @@ usage() {
         echo "  Up/Down-grade: upgrade | downgrade | install | uninstall"
         echo "  Install info:  ertspath | root_dir | versions"
         echo "  Runtime info:  pid | ping | versions"
-        echo "  Config check: check_conf"
+        echo "  Config check:  check_conf"
         echo "  Advanced:      console_clean | escript | rpc | rpcterms | eval"
         echo ''
         echo "Execute '$REL_NAME COMMAND help' for more information"
