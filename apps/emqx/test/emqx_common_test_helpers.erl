@@ -44,6 +44,7 @@
     client_ssl_twoway/1,
     ensure_mnesia_stopped/0,
     ensure_quic_listener/2,
+    is_all_tcp_servers_available/1,
     is_tcp_server_available/2,
     is_tcp_server_available/3,
     load_config/2,
@@ -431,6 +432,18 @@ load_config(SchemaModule, Config, Opts) ->
 
 load_config(SchemaModule, Config) ->
     load_config(SchemaModule, Config, #{raw_with_default => false}).
+
+-spec is_all_tcp_servers_available(Servers) -> Result when
+    Servers :: [{Host, Port}],
+    Host :: inet:socket_address() | inet:hostname(),
+    Port :: inet:port_number(),
+    Result :: boolean().
+is_all_tcp_servers_available(Servers) ->
+    Fun =
+        fun({Host, Port}) ->
+            is_tcp_server_available(Host, Port)
+        end,
+    lists:all(Fun, Servers).
 
 -spec is_tcp_server_available(
     Host :: inet:socket_address() | inet:hostname(),

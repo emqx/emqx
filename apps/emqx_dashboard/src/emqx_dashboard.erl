@@ -159,7 +159,7 @@ listeners(Listeners) ->
             maps:get(enable, Conf) andalso
                 begin
                     {Conf1, Bind} = ip_port(Conf),
-                    {true, {listener_name(Protocol, Conf1), Protocol, Bind, ranch_opts(Conf1)}}
+                    {true, {listener_name(Protocol), Protocol, Bind, ranch_opts(Conf1)}}
                 end
         end,
         maps:to_list(Listeners)
@@ -208,19 +208,8 @@ ranch_opts(Options) ->
 filter_false(_K, false, S) -> S;
 filter_false(K, V, S) -> [{K, V} | S].
 
-listener_name(Protocol, #{port := Port, ip := IP}) ->
-    Name =
-        "dashboard:" ++
-            atom_to_list(Protocol) ++ ":" ++
-            inet:ntoa(IP) ++ ":" ++
-            integer_to_list(Port),
-    list_to_atom(Name);
-listener_name(Protocol, #{port := Port}) ->
-    Name =
-        "dashboard:" ++
-            atom_to_list(Protocol) ++ ":" ++
-            integer_to_list(Port),
-    list_to_atom(Name).
+listener_name(Protocol) ->
+    list_to_atom(atom_to_list(Protocol) ++ ":dashboard").
 
 authorize(Req) ->
     case cowboy_req:parse_header(<<"authorization">>, Req) of

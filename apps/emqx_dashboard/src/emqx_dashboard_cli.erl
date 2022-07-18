@@ -32,14 +32,22 @@ admins(["add", Username, Password, Desc]) ->
         {ok, _} ->
             emqx_ctl:print("ok~n");
         {error, Reason} ->
-            emqx_ctl:print("Error: ~p~n", [Reason])
+            print_error(Reason)
     end;
 admins(["passwd", Username, Password]) ->
-    Status = emqx_dashboard_admin:change_password(bin(Username), bin(Password)),
-    emqx_ctl:print("~p~n", [Status]);
+    case emqx_dashboard_admin:change_password(bin(Username), bin(Password)) of
+        {ok, _} ->
+            emqx_ctl:print("ok~n");
+        {error, Reason} ->
+            print_error(Reason)
+    end;
 admins(["del", Username]) ->
-    Status = emqx_dashboard_admin:remove_user(bin(Username)),
-    emqx_ctl:print("~p~n", [Status]);
+    case emqx_dashboard_admin:remove_user(bin(Username)) of
+        {ok, _} ->
+            emqx_ctl:print("ok~n");
+        {error, Reason} ->
+            print_error(Reason)
+    end;
 admins(_) ->
     emqx_ctl:usage(
         [
@@ -53,3 +61,9 @@ unload() ->
     emqx_ctl:unregister_command(admins).
 
 bin(S) -> iolist_to_binary(S).
+
+print_error(Reason) when is_binary(Reason) ->
+    emqx_ctl:print("Error: ~s~n", [Reason]).
+%% Maybe has more types of error, but there is only binary now. So close it for dialyzer.
+% print_error(Reason) ->
+%     emqx_ctl:print("Error: ~p~n", [Reason]).

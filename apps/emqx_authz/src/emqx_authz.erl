@@ -53,11 +53,12 @@
 
 -type sources() :: [source()].
 
+-define(METRIC_SUPERUSER, 'authorization.superuser').
 -define(METRIC_ALLOW, 'authorization.matched.allow').
 -define(METRIC_DENY, 'authorization.matched.deny').
 -define(METRIC_NOMATCH, 'authorization.nomatch').
 
--define(METRICS, [?METRIC_ALLOW, ?METRIC_DENY, ?METRIC_NOMATCH]).
+-define(METRICS, [?METRIC_SUPERUSER, ?METRIC_ALLOW, ?METRIC_DENY, ?METRIC_NOMATCH]).
 
 -define(IS_ENABLED(Enable), ((Enable =:= true) or (Enable =:= <<"true">>))).
 
@@ -309,14 +310,37 @@ authorize(
     DefaultResult,
     Sources
 ) ->
+    case maps:get(is_superuser, Client, false) of
+        true ->
+            log_allowed(#{
+                username => Username,
+                ipaddr => IpAddress,
+                topic => Topic,
+                is_superuser => true
+            }),
+            emqx_metrics:inc(?METRIC_SUPERUSER),
+            {stop, allow};
+        false ->
+            authorize_non_superuser(Client, PubSub, Topic, DefaultResult, Sources)
+    end.
+
+authorize_non_superuser(
+    #{
+        username := Username,
+        peerhost := IpAddress
+    } = Client,
+    PubSub,
+    Topic,
+    DefaultResult,
+    Sources
+) ->
     case do_authorize(Client, PubSub, Topic, sources_with_defaults(Sources)) of
         {{matched, allow}, AuthzSource} ->
             emqx:run_hook(
                 'client.check_authz_complete',
                 [Client, PubSub, Topic, allow, AuthzSource]
             ),
-            ?SLOG(info, #{
-                msg => "authorization_permission_allowed",
+            log_allowed(#{
                 username => Username,
                 ipaddr => IpAddress,
                 topic => Topic,
@@ -355,6 +379,9 @@ authorize(
             emqx_metrics:inc(?METRIC_NOMATCH),
             {stop, DefaultResult}
     end.
+
+log_allowed(Meta) ->
+    ?SLOG(info, Meta#{msg => "authorization_permission_allowed"}).
 
 do_authorize(_Client, _PubSub, _Topic, []) ->
     nomatch;

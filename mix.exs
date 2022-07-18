@@ -47,7 +47,7 @@ defmodule EMQXUmbrella.MixProject do
       {:lc, github: "emqx/lc", tag: "0.3.1"},
       {:redbug, "2.0.7"},
       {:typerefl, github: "ieQu1/typerefl", tag: "0.9.1", override: true},
-      {:ehttpc, github: "emqx/ehttpc", tag: "0.2.0"},
+      {:ehttpc, github: "emqx/ehttpc", tag: "0.2.1"},
       {:gproc, github: "uwiger/gproc", tag: "0.8.0", override: true},
       {:jiffy, github: "emqx/jiffy", tag: "1.0.5", override: true},
       {:cowboy, github: "emqx/cowboy", tag: "2.9.0", override: true},
@@ -65,7 +65,7 @@ defmodule EMQXUmbrella.MixProject do
       # in conflict by emqtt and hocon
       {:getopt, "1.0.2", override: true},
       {:snabbkaffe, github: "kafka4beam/snabbkaffe", tag: "1.0.0", override: true},
-      {:hocon, github: "emqx/hocon", tag: "0.28.2", override: true},
+      {:hocon, github: "emqx/hocon", tag: "0.28.3", override: true},
       {:emqx_http_lib, github: "emqx/emqx_http_lib", tag: "0.5.1", override: true},
       {:esasl, github: "emqx/esasl", tag: "0.2.0"},
       {:jose, github: "potatosalad/erlang-jose", tag: "1.11.2"},
@@ -408,6 +408,14 @@ defmodule EMQXUmbrella.MixProject do
 
     File.chmod!(Path.join(bin, "node_dump"), 0o755)
 
+    Mix.Generator.copy_file(
+      "bin/emqx_cluster_rescue",
+      Path.join(bin, "emqx_cluster_rescue"),
+      force: overwrite?
+    )
+
+    File.chmod!(Path.join(bin, "emqx_cluster_rescue"), 0o755)
+
     render_template(
       "rel/BUILD_INFO",
       assigns,
@@ -577,7 +585,7 @@ defmodule EMQXUmbrella.MixProject do
 
   defp jq_dep() do
     if enable_jq?(),
-      do: [{:jq, github: "emqx/jq", tag: "v0.3.4", override: true}],
+      do: [{:jq, github: "emqx/jq", tag: "v0.3.5", override: true}],
       else: []
   end
 

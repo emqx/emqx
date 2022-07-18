@@ -1,13 +1,7 @@
 %% -*- mode: erlang -*-
 %% Unless you know what you are doing, DO NOT edit manually!!
 {VSN,
-  [{"5.0.0",
-    [{load_module,emqx_dashboard,brutal_purge,soft_purge,[]},
-     {load_module,emqx_dashboard_api,brutal_purge,soft_purge,[]},
-     {load_module,emqx_dashboard_token,brutal_purge,soft_purge,[]}]},
-   {<<".*">>,[]}],
-  [{"5.0.0",
-    [{load_module,emqx_dashboard,brutal_purge,soft_purge,[]},
-     {load_module,emqx_dashboard_api,brutal_purge,soft_purge,[]},
-     {load_module,emqx_dashboard_token,brutal_purge,soft_purge,[]}]},
-   {<<".*">>,[]}]}.
+  %% we should always restart dashboard to make sure api rules/swagger is updated
+  [{<<".*">>,[{restart_application, emqx_dashboard}]}],
+  [{<<".*">>,[{restart_application, emqx_dashboard}]}]
+}.

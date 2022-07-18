@@ -278,22 +278,9 @@ check_and_save_configs(
     case do_post_config_update(ConfKeyPath, Handlers, OldConf, NewConf, AppEnvs, UpdateArgs, #{}) of
         {ok, Result0} ->
             remove_from_local_if_cluster_change(ConfKeyPath, Opts),
-            case
-                save_configs(
-                    ConfKeyPath,
-                    AppEnvs,
-                    NewConf,
-                    NewRawConf,
-                    OverrideConf,
-                    UpdateArgs,
-                    Opts
-                )
-            of
-                {ok, Result1} ->
-                    {ok, Result1#{post_config_update => Result0}};
-                Error ->
-                    Error
-            end;
+            ok = emqx_config:save_configs(AppEnvs, NewConf, NewRawConf, OverrideConf, Opts),
+            Result1 = return_change_result(ConfKeyPath, UpdateArgs),
+            {ok, Result1#{post_config_update => Result0}};
         Error ->
             Error
     end.
@@ -432,12 +419,6 @@ call_post_config_update(
 ) ->
     {ok, Result}.
 
-save_configs(ConfKeyPath, AppEnvs, CheckedConf, NewRawConf, OverrideConf, UpdateArgs, Opts) ->
-    case emqx_config:save_configs(AppEnvs, CheckedConf, NewRawConf, OverrideConf, Opts) of
-        ok -> {ok, return_change_result(ConfKeyPath, UpdateArgs)};
-        {error, Reason} -> {error, {save_configs, Reason}}
-    end.
-
 %% The default callback of config handlers
 %% the behaviour is overwriting the old config if:
 %%   1. the old config is undefined
@@ -452,8 +433,9 @@ merge_to_old_config(UpdateReq, _RawConf) ->
 %% local-override.conf priority is higher than cluster-override.conf
 %% If we want cluster to take effect, we must remove the local.
 remove_from_local_if_cluster_change(BinKeyPath, #{override_to := cluster} = Opts) ->
-    Local = remove_from_override_config(BinKeyPath, Opts#{override_to => local}),
-    _ = emqx_config:save_to_override_conf(Local, Opts),
+    Opts1 = Opts#{override_to => local},
+    Local = remove_from_override_config(BinKeyPath, Opts1),
+    _ = emqx_config:save_to_override_conf(Local, Opts1),
     ok;
 remove_from_local_if_cluster_change(_BinKeyPath, _Opts) ->
     ok.

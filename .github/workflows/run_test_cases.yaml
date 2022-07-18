@@ -118,6 +118,8 @@ jobs:
                 -f .ci/docker-compose-file/docker-compose-pgsql-tls.yaml \
                 -f .ci/docker-compose-file/docker-compose-redis-single-tcp.yaml \
                 -f .ci/docker-compose-file/docker-compose-redis-single-tls.yaml \
+                -f .ci/docker-compose-file/docker-compose-redis-sentinel-tcp.yaml \
+                -f .ci/docker-compose-file/docker-compose-redis-sentinel-tls.yaml \
                 -f .ci/docker-compose-file/docker-compose.yaml \
                 up -d --build
 

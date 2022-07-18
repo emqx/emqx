@@ -233,11 +233,6 @@ param_path_id() ->
 %% Rules API
 %%------------------------------------------------------------------------------
 
-%% To get around the hocon bug, we replace crlf with spaces
-replace_sql_clrf(#{<<"sql">> := SQL} = Params) ->
-    NewSQL = re:replace(SQL, "[\r\n]", " ", [{return, binary}, global]),
-    Params#{<<"sql">> => NewSQL}.
-
 '/rule_events'(get, _Params) ->
     {200, emqx_rule_events:event_info()}.
 
@@ -249,7 +244,7 @@ replace_sql_clrf(#{<<"sql">> := SQL} = Params) ->
         <<>> ->
             {400, #{code => 'BAD_REQUEST', message => <<"empty rule id is not allowed">>}};
         Id ->
-            Params = filter_out_request_body(replace_sql_clrf(Params0)),
+            Params = filter_out_request_body(add_metadata(Params0)),
             ConfPath = emqx_rule_engine:config_key_path() ++ [Id],
             case emqx_rule_engine:get_rule(Id) of
                 {ok, _Rule} ->
@@ -490,6 +485,13 @@ aggregate_metrics(AllMetrics) ->
 
 get_one_rule(AllRules, Id) ->
     [R || R = #{id := Id0} <- AllRules, Id0 == Id].
+
+add_metadata(Params) ->
+    Params#{
+        <<"metadata">> => #{
+            <<"created_at">> => emqx_rule_engine:now_ms()
+        }
+    }.
 
 filter_out_request_body(Conf) ->
     ExtraConfs = [

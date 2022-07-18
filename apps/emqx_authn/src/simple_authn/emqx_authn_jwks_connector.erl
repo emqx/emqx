@@ -71,15 +71,17 @@ on_query(_InstId, {update, Opts}, AfterQuery, #{pool_name := PoolName}) ->
     ok.
 
 on_get_status(_InstId, #{pool_name := PoolName}) ->
-    emqx_plugin_libs_pool:get_status(
-        PoolName,
-        fun(Pid) ->
-            case emqx_authn_jwks_client:get_jwks(Pid) of
+    Func =
+        fun(Conn) ->
+            case emqx_authn_jwks_client:get_jwks(Conn) of
                 {ok, _} -> true;
                 _ -> false
             end
-        end
-    ).
+        end,
+    case emqx_plugin_libs_pool:health_check_ecpool_workers(PoolName, Func) of
+        true -> connected;
+        false -> disconnected
+    end.
 
 connect(Opts) ->
     ConnectorOpts = proplists:get_value(connector_opts, Opts),

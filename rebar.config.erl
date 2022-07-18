@@ -41,7 +41,7 @@ quicer() ->
     {quicer, {git, "https://github.com/emqx/quic.git", {tag, "0.0.14"}}}.
 
 jq() ->
-    {jq, {git, "https://github.com/emqx/jq", {tag, "v0.3.4"}}}.
+    {jq, {git, "https://github.com/emqx/jq", {tag, "v0.3.5"}}}.
 
 deps(Config) ->
     {deps, OldDeps} = lists:keyfind(deps, 1, Config),
@@ -380,6 +380,7 @@ relx_overlay(ReleaseType, Edition) ->
         {template, "rel/BUILD_INFO", "releases/{{release_version}}/BUILD_INFO"},
         {copy, "bin/emqx", "bin/emqx"},
         {copy, "bin/emqx_ctl", "bin/emqx_ctl"},
+        {copy, "bin/emqx_cluster_rescue", "bin/emqx_cluster_rescue"},
         {copy, "bin/node_dump", "bin/node_dump"},
         {copy, "bin/install_upgrade.escript", "bin/install_upgrade.escript"},
         %% for relup
