@@ -21,6 +21,7 @@ File format:
 
 ### Enhancements
 - HTTP API(GET /rules/) support for pagination and fuzzy filtering. [#8450]
+- Add check_conf cli to check config format. [#8486]
 
 ## v4.3.16
 
