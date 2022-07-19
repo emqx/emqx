@@ -1,10 +1,7 @@
-% -*- mode: erlang -*-
+%% -*- mode: erlang -*-
 %% Unless you know what you are doing, DO NOT edit manually!!
 {VSN,
-  [{"4.4.5", [
-  {load_module,emqx_access_control,brutal_purge,soft_purge,[]},
-  {load_module,emqx_shared_sub,brutal_purge,soft_purge,[]}]},
-   {"4.4.4",
+  [{"4.4.4",
     [{load_module,emqx_access_rule,brutal_purge,soft_purge,[]},
      {load_module,emqx_broker,brutal_purge,soft_purge,[]},
      {load_module,emqx_channel,brutal_purge,soft_purge,[]},
@@ -16,8 +13,6 @@
      {load_module,emqx_relup,brutal_purge,soft_purge,[]},
      {load_module,emqx_app,brutal_purge,soft_purge,[]},
      {load_module,emqx_plugins,brutal_purge,soft_purge,[]},
-     {load_module,emqx_access_control,brutal_purge,soft_purge,[]},
-     {load_module,emqx_shared_sub,brutal_purge,soft_purge,[]},
      {load_module,emqx_metrics,brutal_purge,soft_purge,[]}]},
    {"4.4.3",
     [{add_module,emqx_calendar},
@@ -149,10 +144,7 @@
      {load_module,emqx_message,brutal_purge,soft_purge,[]},
      {load_module,emqx_limiter,brutal_purge,soft_purge,[]}]},
    {<<".*">>,[]}],
-  [{"4.4.5",
-    [{load_module,emqx_access_control,brutal_purge,soft_purge,[]},
-     {load_module,emqx_shared_sub,brutal_purge,soft_purge,[]}]},
-   {"4.4.4",
+  [{"4.4.4",
     [{load_module,emqx_access_rule,brutal_purge,soft_purge,[]},
      {load_module,emqx_broker,brutal_purge,soft_purge,[]},
      {load_module,emqx_channel,brutal_purge,soft_purge,[]},
@@ -164,8 +156,6 @@
      {load_module,emqx_relup,brutal_purge,soft_purge,[]},
      {load_module,emqx_app,brutal_purge,soft_purge,[]},
      {load_module,emqx_plugins,brutal_purge,soft_purge,[]},
-     {load_module,emqx_access_control,brutal_purge,soft_purge,[]},
-     {load_module,emqx_shared_sub,brutal_purge,soft_purge,[]}]},
      {load_module,emqx_metrics,brutal_purge,soft_purge,[]}]},
    {"4.4.3",
     [{load_module,emqx_broker,brutal_purge,soft_purge,[]},
