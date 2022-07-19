@@ -122,7 +122,7 @@ format({_Subscriber, Topic, Options = #{share := Group}}) ->
     #{node => node(), topic => filename:join([<<"$share">>, Group, Topic]), clientid => maps:get(subid, Options), qos => QoS};
 format({_Subscriber, Topic, Options}) ->
     QoS = maps:get(qos, Options),
-    #{node => node(), topic => Topic, clientid => maps:get(subid, Options), qos => QoS}.
+    #{node => node(), topic => Topic, clientid => maps:get(subid, Options, ""), qos => QoS}.
 
 %%--------------------------------------------------------------------
 %% Query Function

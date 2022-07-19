@@ -33,15 +33,13 @@
 
 -spec(authenticate(emqx_types:clientinfo()) -> {ok, result()} | {error, term()}).
 authenticate(ClientInfo = #{zone := Zone}) ->
-    AuthResult = default_auth_result(Zone),
-    case
-        begin ok = emqx_metrics:inc('client.authenticate'),
-              emqx_zone:get_env(Zone, bypass_auth_plugins, false)
-        end
-    of
-        true ->
+    ok = emqx_metrics:inc('client.authenticate'),
+    Username = maps:get(username, ClientInfo, undefined),
+    {MaybeStop, AuthResult} = default_auth_result(Username, Zone),
+    case MaybeStop of
+        stop ->
             return_auth_result(AuthResult);
-        false ->
+        continue ->
             return_auth_result(emqx_hooks:run_fold('client.authenticate', [ClientInfo], AuthResult))
     end.
 
@@ -91,10 +89,29 @@ inc_acl_metrics(cache_hit) ->
     emqx_metrics:inc('client.acl.cache_hit').
 
 %% Auth
-default_auth_result(Zone) ->
-    case emqx_zone:get_env(Zone, allow_anonymous, false) of
-        true  -> #{auth_result => success, anonymous => true};
-        false -> #{auth_result => not_authorized, anonymous => false}
+default_auth_result(Username, Zone) ->
+    IsAnonymous = (Username =:= undefined orelse Username =:= <<>>),
+    AllowAnonymous = emqx_zone:get_env(Zone, allow_anonymous, false),
+    Bypass = emqx_zone:get_env(Zone, bypass_auth_plugins, false),
+    %% the `anonymous` field in auth result does not mean the client is
+    %% connected without username, but if the auth result is based on
+    %% allowing anonymous access.
+    IsResultBasedOnAllowAnonymous =
+        case AllowAnonymous of
+            true -> true;
+            _ -> false
+        end,
+    Result = case AllowAnonymous of
+                 true -> #{auth_result => success, anonymous => IsResultBasedOnAllowAnonymous};
+                 _ -> #{auth_result => not_authorized, anonymous => IsResultBasedOnAllowAnonymous}
+             end,
+    case {IsAnonymous, AllowAnonymous} of
+        {true, false_quick_deny} ->
+            {stop, Result};
+        _ when Bypass ->
+            {stop, Result};
+        _ ->
+            {continue, Result}
     end.
 
 -compile({inline, [return_auth_result/1]}).

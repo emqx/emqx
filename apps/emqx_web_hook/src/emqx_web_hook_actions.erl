@@ -67,10 +67,12 @@
                    description => #{en => <<"Connection Pool">>,
                                     zh => <<"连接池大小"/utf8>>}
                 },
+    %% NOTE: In the new version `enable_pipelining` is changed to integer type
+    %% but it needs to be compatible with the old version, so here keep it as boolean
     enable_pipelining => #{order => 5,
                            type => boolean,
                            default => true,
-                           title => #{en => <<"Enable Pipelining">>, zh => <<"Enable Pipelining"/utf8>>},
+                           title => #{en => <<"Enable Pipelining">>, zh => <<"开启 Pipelining"/utf8>>},
                            description => #{en => <<"Whether to enable HTTP Pipelining">>,
                                             zh => <<"是否开启 HTTP Pipelining"/utf8>>}
                 },
