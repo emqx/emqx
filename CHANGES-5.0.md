@@ -19,6 +19,7 @@
 * Improve the dashboard listener startup log, the listener name is no longer spliced with port information,
   and the colon(:) is no longer displayed when IP is not specified. [#8480](https://github.com/emqx/emqx/pull/8480)
 * Remove `/configs/listeners` API, use `/listeners/` instead. [#8485](https://github.com/emqx/emqx/pull/8485)
+* Optimize performance of builtin database operations in processes with long message queue [8439](https://github.com/emqx/emqx/pull/8439)
 
 # 5.0.3
 
@@ -35,13 +36,13 @@
 
 # 5.0.2
 
-Announcemnet: EMQX team has decided to stop supporting relup for opensouce edition.
-Going forward, it will be an enterprise only feature.
+Announcement: EMQX team has decided to stop supporting relup for opensource edition.
+Going forward, it will be an enterprise-only feature.
 
 Main reason: relup requires carefully crafted upgrade instructions from ALL previous versions.
 
 For example, 4.3 is now at 4.3.16, we have `4.3.0->4.3.16`, `4.3.1->4.3.16`, ... 16 such upgrade paths in total to maintain.
-This had been the biggest obstacle for EMQX team to act agile enough in deliverying enhancements and fixes.
+This had been the biggest obstacle for EMQX team to act agile enough in delivering enhancements and fixes.
 
 ## Enhancements
 

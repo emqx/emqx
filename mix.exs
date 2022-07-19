@@ -52,7 +52,7 @@ defmodule EMQXUmbrella.MixProject do
       {:jiffy, github: "emqx/jiffy", tag: "1.0.5", override: true},
       {:cowboy, github: "emqx/cowboy", tag: "2.9.0", override: true},
       {:esockd, github: "emqx/esockd", tag: "5.9.3", override: true},
-      {:ekka, github: "emqx/ekka", tag: "0.13.1", override: true},
+      {:ekka, github: "emqx/ekka", tag: "0.13.2", override: true},
       {:gen_rpc, github: "emqx/gen_rpc", tag: "2.8.1", override: true},
       {:minirest, github: "emqx/minirest", tag: "1.3.5", override: true},
       {:ecpool, github: "emqx/ecpool", tag: "0.5.2"},
@@ -170,35 +170,40 @@ defmodule EMQXUmbrella.MixProject do
       hocon: :load,
       emqx: :load,
       emqx_conf: :load,
-      emqx_machine: :permanent,
-      mria: :load,
-      mnesia: :load,
-      ekka: :load,
-      emqx_plugin_libs: :load,
-      esasl: :load,
-      observer_cli: :permanent,
-      system_monitor: :load,
-      emqx_http_lib: :permanent,
-      emqx_resource: :permanent,
-      emqx_connector: :permanent,
-      emqx_authn: :permanent,
-      emqx_authz: :permanent,
-      emqx_auto_subscribe: :permanent,
-      emqx_gateway: :permanent,
-      emqx_exhook: :permanent,
-      emqx_bridge: :permanent,
-      emqx_rule_engine: :permanent,
-      emqx_modules: :permanent,
-      emqx_management: :permanent,
-      emqx_dashboard: :permanent,
-      emqx_retainer: :permanent,
-      emqx_statsd: :permanent,
-      emqx_prometheus: :permanent,
-      emqx_psk: :permanent,
-      emqx_slow_subs: :permanent,
-      emqx_plugins: :permanent,
-      emqx_mix: :none
+      emqx_machine: :permanent
     ] ++
+      if(enable_rocksdb?(),
+        do: [mnesia_rocksdb: :load],
+        else: []
+      ) ++
+      [
+        mnesia: :load,
+        ekka: :load,
+        emqx_plugin_libs: :load,
+        esasl: :load,
+        observer_cli: :permanent,
+        system_monitor: :load,
+        emqx_http_lib: :permanent,
+        emqx_resource: :permanent,
+        emqx_connector: :permanent,
+        emqx_authn: :permanent,
+        emqx_authz: :permanent,
+        emqx_auto_subscribe: :permanent,
+        emqx_gateway: :permanent,
+        emqx_exhook: :permanent,
+        emqx_bridge: :permanent,
+        emqx_rule_engine: :permanent,
+        emqx_modules: :permanent,
+        emqx_management: :permanent,
+        emqx_dashboard: :permanent,
+        emqx_retainer: :permanent,
+        emqx_statsd: :permanent,
+        emqx_prometheus: :permanent,
+        emqx_psk: :permanent,
+        emqx_slow_subs: :permanent,
+        emqx_plugins: :permanent,
+        emqx_mix: :none
+      ] ++
       if(enable_quicer?(), do: [quicer: :permanent], else: []) ++
       if(enable_bcrypt?(), do: [bcrypt: :permanent], else: []) ++
       if(enable_jq?(), do: [jq: :permanent], else: []) ++
@@ -616,6 +621,11 @@ defmodule EMQXUmbrella.MixProject do
     ]) or "1" == System.get_env("BUILD_WITH_QUIC")
   end
 
+  defp enable_rocksdb?() do
+    not build_without_rocksdb?() or
+      "1" == System.get_env("BUILD_WITH_QUIC")
+  end
+
   defp pkg_vsn() do
     %{edition_type: edition_type} = check_profile!()
     basedir = Path.dirname(__ENV__.file)
@@ -653,6 +663,12 @@ defmodule EMQXUmbrella.MixProject do
 
   defp build_without_quic?() do
     opt = System.get_env("BUILD_WITHOUT_QUIC", "false")
+
+    String.downcase(opt) != "false"
+  end
+
+  defp build_without_rocksdb?() do
+    opt = System.get_env("BUILD_WITHOUT_ROCKSDB", "false")
 
     String.downcase(opt) != "false"
   end
