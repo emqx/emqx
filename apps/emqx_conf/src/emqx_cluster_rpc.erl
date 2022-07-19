@@ -263,7 +263,7 @@ fast_forward_to_commit(Node, ToTnxId) ->
 %% @private
 init([Node, RetryMs]) ->
     %% Workaround for https://github.com/emqx/mria/issues/94:
-    mria_rlog:wait_for_shards([?CLUSTER_RPC_SHARD], 1000),
+    _ = mria_rlog:wait_for_shards([?CLUSTER_RPC_SHARD], 1000),
     _ = mria:wait_for_tables([?CLUSTER_MFA, ?CLUSTER_COMMIT]),
     {ok, _} = mnesia:subscribe({table, ?CLUSTER_MFA, simple}),
     State = #{node => Node, retry_interval => RetryMs},
