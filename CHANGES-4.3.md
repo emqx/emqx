@@ -10,6 +10,19 @@ File format:
 - One list item per change topic
   Change log ends with a list of github PRs
 
+## v4.3.17
+
+### Bug fixes
+
+- Fixed issue where the dashboard APIs were being exposed under the
+  management listener. [#8411]
+
+- Fixed crash when shared persistent subscription [#8441]
+
+### Enhancements
+- HTTP API(GET /rules/) support for pagination and fuzzy filtering. [#8450]
+- Add check_conf cli to check config format. [#8486]
+
 ## v4.3.16
 
 ### Enhancements

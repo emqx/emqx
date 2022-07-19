@@ -842,7 +842,7 @@ end}.
 %% @doc Allow anonymous authentication.
 {mapping, "allow_anonymous", "emqx.allow_anonymous", [
   {default, false},
-  {datatype, {enum, [true, false]}}
+  {datatype, {enum, [true, false, false_quick_deny]}}
 ]}.
 
 %% @doc ACL nomatch.
@@ -997,7 +997,7 @@ end}.
 ]}.
 
 {mapping, "zone.$name.allow_anonymous", "emqx.zones", [
-  {datatype, {enum, [true, false]}}
+  {datatype, {enum, [true, false, false_quick_deny]}}
 ]}.
 
 {mapping, "zone.$name.acl_nomatch", "emqx.zones", [

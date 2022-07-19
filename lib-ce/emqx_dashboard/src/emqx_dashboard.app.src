@@ -1,4 +1,5 @@
 {application, emqx_dashboard,
+
  [{description, "EMQX Web Dashboard"},
   {vsn, "4.4.6"}, % strict semver, bump manually!
   {modules, []},
