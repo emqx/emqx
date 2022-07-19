@@ -622,8 +622,10 @@ defmodule EMQXUmbrella.MixProject do
   end
 
   defp enable_rocksdb?() do
-    not build_without_rocksdb?() or
-      "1" == System.get_env("BUILD_WITH_QUIC")
+    not Enum.any?([
+      build_without_rocksdb?(),
+      raspbian?()
+    ]) or "1" == System.get_env("BUILD_WITH_ROCKSDB")
   end
 
   defp pkg_vsn() do
@@ -653,6 +655,10 @@ defmodule EMQXUmbrella.MixProject do
 
   defp macos?() do
     {:unix, :darwin} == :os.type()
+  end
+
+  defp raspbian?() do
+    os_cmd("./scripts/get-distro.sh", []) =~ "raspbian"
   end
 
   defp build_without_jq?() do

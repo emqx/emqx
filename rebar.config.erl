@@ -89,7 +89,8 @@ is_quicer_supported() ->
         "1" == os:getenv("BUILD_WITH_QUIC").
 
 is_rocksdb_supported() ->
-    not (false =/= os:getenv("BUILD_WITHOUT_ROCKSDB")) orelse
+    not (false =/= os:getenv("BUILD_WITHOUT_ROCKSDB") orelse
+        is_raspbian()) orelse
         "1" == os:getenv("BUILD_WITH_ROCKSDB").
 
 is_macos() ->
@@ -100,6 +101,14 @@ is_centos_6() ->
     %% glibc is too old
     case file:read_file("/etc/centos-release") of
         {ok, <<"CentOS release 6", _/binary>>} ->
+            true;
+        _ ->
+            false
+    end.
+
+is_raspbian() ->
+    case os_cmd("./scripts/get-distro.sh") of
+        "raspbian" ++ _ ->
             true;
         _ ->
             false
