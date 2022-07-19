@@ -227,6 +227,9 @@ jobs:
           - centos6
           # - raspbian10 #armv6l is too slow to emulate
           # - raspbian9
+        otp_version:
+          - 23.2.7.2-emqx-3
+          - 23.3.4.9-3
         exclude:
         - os: centos6
           arch: arm64
@@ -265,7 +268,7 @@ jobs:
       run: unzip -q source.zip
     - name: build emqx packages
       env:
-        ERL_OTP: erl23.2.7.2-emqx-3
+        ERL_OTP: erl${{ matrix.otp_version }}
         PROFILE: ${{ matrix.profile }}
         ARCH: ${{ matrix.arch }}
         SYSTEM: ${{ matrix.os }}
@@ -289,11 +292,21 @@ jobs:
         docker volume prune -f
     - name: create sha256
       env:
-        PROFILE: ${{ matrix.profile}}
+        PROFILE: ${{ matrix.profile }}
+        ERL_OTP: erl${{ matrix.otp_version }}
+        ARCH: ${{ matrix.arch }}
       run: |
         if [ -d /tmp/packages/$PROFILE ]; then
           cd /tmp/packages/$PROFILE
             for var in $(ls emqx-* ); do
+              if [[ $ERL_OTP == erl23.2* ]]; then
+                # Keep package with new OTP as default
+                # But move package with old otp to track 2
+                echo "rename track 2 package"
+                oldfile="$var"
+                var="${var/${ARCH}/2-${ARCH}}"
+                mv "$oldfile" "$var"
+              fi
               bash -c "echo $(sha256sum $var | awk '{print $1}') > $var.sha256"
             done
           cd -
@@ -372,7 +385,7 @@ jobs:
         tags: ${{ steps.meta.outputs.tags }}
         labels: ${{ steps.meta.outputs.labels }}
         build-args: |
-          BUILD_FROM=emqx/build-env:erl23.2.7.2-emqx-3-alpine
+          BUILD_FROM=emqx/build-env:erl23.3.4.9-3-alpine
           RUN_FROM=alpine:3.12
           EMQX_NAME=${{ matrix.profile }}
         file: source/deploy/docker/Dockerfile
@@ -388,7 +401,7 @@ jobs:
         tags: ${{ steps.meta.outputs.tags }}
         labels: ${{ steps.meta.outputs.labels }}
         build-args: |
-          BUILD_FROM=emqx/build-env:erl23.2.7.2-emqx-3-alpine
+          BUILD_FROM=emqx/build-env:erl23.3.4.9-3-alpine
           RUN_FROM=alpine:3.12
           EMQX_NAME=${{ matrix.profile }}
         file: source/deploy/docker/Dockerfile.enterprise
