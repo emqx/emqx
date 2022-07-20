@@ -131,16 +131,23 @@ storage_properties(_, Backend) when ?IS_ETS(Backend) ->
 storage_properties(_, _) ->
     [].
 
+%% Dialyzer sees the compiled literal in
+%% `mria:rocksdb_backend_available/0' and complains about the
+%% complementar match arm...
+-dialyzer({no_match, table_type/1}).
 -spec table_type(atom()) -> mria_table_type().
 table_type(Table) ->
     DiscPersistence = emqx_config:get([?cfg_root, on_disc]),
     RamCache = get_overlayed(Table, ram_cache),
-    case {DiscPersistence, RamCache} of
-        {true, true} ->
+    RocksDBAvailable = mria:rocksdb_backend_available(),
+    case {DiscPersistence, RamCache, RocksDBAvailable} of
+        {true, true, _} ->
             disc_copies;
-        {true, false} ->
+        {true, false, true} ->
             rocksdb_copies;
-        {false, _} ->
+        {true, false, false} ->
+            disc_copies;
+        {false, _, _} ->
             ram_copies
     end.
 
