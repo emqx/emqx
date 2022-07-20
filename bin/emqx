@@ -16,6 +16,7 @@ RUNNER_ROOT_DIR="$(cd "$(dirname "$(readlink "$0" || echo "$0")")"/..; pwd -P)"
 EMQX_LICENSE_CONF=''
 REL_NAME="emqx"
 ERTS_PATH="$RUNNER_ROOT_DIR/erts-$ERTS_VSN/bin"
+export EMQX_DESCRIPTION
 
 RUNNER_SCRIPT="$RUNNER_BIN_DIR/$REL_NAME"
 CODE_LOADING_MODE="${CODE_LOADING_MODE:-embedded}"

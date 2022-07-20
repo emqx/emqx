@@ -33,7 +33,7 @@
 }.
 
 -type data_type() :: string | password | number | boolean
-    | object | array | file | cfgselect.
+    | object | array | file | binary_file | cfgselect.
 
 -type params_spec() :: #{name() => spec()} | any.
 -type params() :: #{binary() => term()}.
@@ -46,6 +46,7 @@
         , object
         , array
         , file
+        , binary_file
         , cfgselect %% TODO: [5.0] refactor this
         ]).
 
@@ -84,8 +85,8 @@ validate_spec(ParamsSepc) ->
 %% Internal Functions
 %%------------------------------------------------------------------------------
 
-validate_value(Val, #{type := Types} = Spec) when is_list(Types) ->
-    validate_types(Val, Types, Spec);
+validate_value(Val, #{type := Union} = Spec) when is_list(Union) ->
+    validate_union(Val, Union, Spec);
 validate_value(Val, #{enum := Enum}) ->
     validate_enum(Val, Enum);
 validate_value(Val, #{type := object} = Spec) ->
@@ -93,17 +94,22 @@ validate_value(Val, #{type := object} = Spec) ->
 validate_value(Val, #{type := Type} = Spec) ->
     validate_type(Val, Type, Spec).
 
-validate_types(Val, [], _Spec) ->
-    throw({invalid_data_type, Val});
-validate_types(Val, [Type | Types], Spec) ->
+validate_union(Val, Union, _Spec) ->
+    do_validate_union(Val, Union, Union, _Spec).
+
+do_validate_union(Val, Union, [], _Spec) ->
+    throw({invalid_data_type, {union, {Val, Union}}});
+do_validate_union(Val, Union, [Type | Types], Spec) ->
     try
         validate_type(Val, Type, Spec)
     catch _:_ ->
-        validate_types(Val, Types, Spec)
+        do_validate_union(Val, Union, Types, Spec)
     end.
 
 validate_type(Val, file, _Spec) ->
     validate_file(Val);
+validate_type(Val, binary_file, _Spec) ->
+    validate_binary_file(Val);
 validate_type(Val, String, Spec) when String =:= string;
                                       String =:= password ->
     validate_string(Val, reg_exp(maps:get(format, Spec, any)));
@@ -118,6 +124,8 @@ validate_type(Val, cfgselect, _Spec) ->
     %% TODO: [5.0] refactor this.
     Val.
 
+validate_enum(Val, BoolEnum) when BoolEnum == [true, false]; BoolEnum == [false, true] ->
+    validate_boolean(Val);
 validate_enum(Val, Enum) ->
     case lists:member(Val, Enum) of
         true -> Val;
@@ -147,6 +155,10 @@ validate_boolean(false) -> false;
 validate_boolean(<<"false">>) -> false;
 validate_boolean(Val) -> throw({invalid_data_type, {boolean, Val}}).
 
+validate_binary_file(#{<<"file">> := _, <<"filename">> := _} = Val) ->
+    Val;
+validate_binary_file(Val) ->
+    throw({invalid_data_type, {binary_file, Val}}).
 validate_file(Val) when is_map(Val) -> Val;
 validate_file(Val) when is_list(Val) -> Val;
 validate_file(Val) when is_binary(Val) -> Val;
@@ -162,6 +174,14 @@ do_validate_spec(Name, #{type := object} = Spec) ->
     find_field(schema, Spec,
         fun (not_found) -> throw({required_field_missing, {schema, {in, Name}}});
             (Schema) -> validate_spec(Schema)
+        end);
+do_validate_spec(Name, #{type := cfgselect} = Spec) ->
+    find_field(items, Spec,
+        fun (not_found) -> throw({required_field_missing, {items, {in, Name}}});
+            (Items) ->
+                maps:map(fun(_K, Schema) ->
+                        validate_spec(Schema)
+                    end, Items)
         end);
 do_validate_spec(Name, #{type := array} = Spec) ->
     find_field(items, Spec,

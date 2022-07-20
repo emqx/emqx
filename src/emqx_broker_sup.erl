@@ -51,5 +51,4 @@ init([]) ->
                type => worker,
                modules => [emqx_broker_helper]},
 
-    {ok, {{one_for_all, 0, 1}, [BrokerPool, SharedSub, Helper]}}.
-
+    {ok, {{one_for_one, 1, 5}, [BrokerPool, SharedSub, Helper]}}.
