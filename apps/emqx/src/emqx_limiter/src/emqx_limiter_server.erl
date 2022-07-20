@@ -75,11 +75,11 @@
 
 -type state() :: #{
     type := limiter_type(),
-    root := undefined | root(),
+    root := root(),
     buckets := buckets(),
     %% current counter to alloc
-    counter := undefined | counters:counters_ref(),
-    index := index()
+    counter := counters:counters_ref(),
+    index := 0 | index()
 }.
 
 -type buckets() :: #{bucket_name() => bucket()}.
@@ -507,7 +507,7 @@ do_add_bucket(Id, #{rate := Rate, capacity := Capacity} = Cfg, #{buckets := Buck
     end.
 
 make_bucket(Id, Cfg, #{index := ?COUNTER_SIZE} = State) ->
-    add_bucket(Id, Cfg, State#{
+    make_bucket(Id, Cfg, State#{
         counter => counters:new(?COUNTER_SIZE, [write_concurrency]),
         index => 0
     });

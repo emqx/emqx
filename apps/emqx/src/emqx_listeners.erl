@@ -546,7 +546,7 @@ add_limiter_bucket(Id, #{limiter := Limiters}) ->
         ok,
         Limiters
     );
-add_limiter_bucket(_Id, _cfg) ->
+add_limiter_bucket(_Id, _Cfg) ->
     ok.
 
 del_limiter_bucket(Id, #{limiter := Limiters}) ->
@@ -556,7 +556,7 @@ del_limiter_bucket(Id, #{limiter := Limiters}) ->
         end,
         maps:keys(Limiters)
     );
-del_limiter_bucket(_Id, _cfg) ->
+del_limiter_bucket(_Id, _Cfg) ->
     ok.
 
 enable_authn(Opts) ->
