@@ -304,7 +304,7 @@ jobs:
                 # But move package with old otp to track 2
                 echo "rename track 2 package"
                 oldfile="$var"
-                var="${var/${ARCH}/2-${ARCH}}"
+                var="${var/${ARCH}/otp23.2-${ARCH}}"
                 mv "$oldfile" "$var"
               fi
               bash -c "echo $(sha256sum $var | awk '{print $1}') > $var.sha256"
