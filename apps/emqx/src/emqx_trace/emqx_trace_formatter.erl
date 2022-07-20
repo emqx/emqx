@@ -16,7 +16,7 @@
 -module(emqx_trace_formatter).
 
 -export([format/2]).
--export([format_meta/1]).
+-export([format_meta_map/1]).
 
 %%%-----------------------------------------------------------------
 %%% API
@@ -31,32 +31,39 @@ format(
     ClientId = to_iolist(maps:get(clientid, Meta, "")),
     Peername = maps:get(peername, Meta, ""),
     MetaBin = format_meta(Meta, PEncode),
-    [Time, " [", Tag, "] ", ClientId, "@", Peername, " msg: ", Msg, MetaBin, "\n"];
+    [Time, " [", Tag, "] ", ClientId, "@", Peername, " msg: ", Msg, ", ", MetaBin, "\n"];
 format(Event, Config) ->
     emqx_logger_textfmt:format(Event, Config).
 
-format_meta(Meta) ->
+format_meta_map(Meta) ->
     Encode = emqx_trace_handler:payload_encode(),
-    do_format_meta(Meta, Encode).
+    format_meta_map(Meta, Encode).
 
-format_meta(Meta0, Encode) ->
-    Meta1 = #{packet := Packet0, payload := Payload0} = do_format_meta(Meta0, Encode),
-    Packet = enrich(", packet: ", Packet0),
-    Payload = enrich(", payload: ", Payload0),
-    Meta2 = maps:without([msg, clientid, peername, packet, payload, trace_tag], Meta1),
-    case Meta2 =:= #{} of
-        true -> [Packet, Payload];
-        false -> [Packet, ", ", map_to_iolist(Meta2), Payload]
+format_meta_map(Meta, Encode) ->
+    format_meta_map(Meta, Encode, [{packet, fun format_packet/2}, {payload, fun format_payload/2}]).
+
+format_meta_map(Meta, _Encode, []) ->
+    Meta;
+format_meta_map(Meta, Encode, [{Name, FormatFun} | Rest]) ->
+    case Meta of
+        #{Name := Value} ->
+            NewMeta = Meta#{Name => FormatFun(Value, Encode)},
+            format_meta_map(NewMeta, Encode, Rest);
+        #{} ->
+            format_meta_map(Meta, Encode, Rest)
     end.
 
-enrich(_, "") -> "";
-enrich(Key, IoData) -> [Key, IoData].
+format_meta(Meta0, Encode) ->
+    Meta1 = maps:without([msg, clientid, peername, trace_tag], Meta0),
+    Meta2 = format_meta_map(Meta1, Encode),
+    kvs_to_iolist(lists:sort(fun compare_meta_kvs/2, maps:to_list(Meta2))).
 
-do_format_meta(Meta, Encode) ->
-    Meta#{
-        packet => format_packet(maps:get(packet, Meta, undefined), Encode),
-        payload => format_payload(maps:get(payload, Meta, undefined), Encode)
-    }.
+%% packet always goes first; payload always goes last
+compare_meta_kvs(KV1, KV2) -> weight(KV1) =< weight(KV2).
+
+weight({packet, _}) -> {0, packet};
+weight({payload, _}) -> {2, payload};
+weight({K, _}) -> {1, K}.
 
 format_packet(undefined, _) -> "";
 format_packet(Packet, Encode) -> emqx_packet:format(Packet, Encode).
@@ -69,14 +76,14 @@ format_payload(_, hidden) -> "******".
 to_iolist(Atom) when is_atom(Atom) -> atom_to_list(Atom);
 to_iolist(Int) when is_integer(Int) -> integer_to_list(Int);
 to_iolist(Float) when is_float(Float) -> float_to_list(Float, [{decimals, 2}]);
-to_iolist(SubMap) when is_map(SubMap) -> ["[", map_to_iolist(SubMap), "]"];
+to_iolist(SubMap) when is_map(SubMap) -> ["[", kvs_to_iolist(maps:to_list(SubMap)), "]"];
 to_iolist(Char) -> emqx_logger_textfmt:try_format_unicode(Char).
 
-map_to_iolist(Map) ->
+kvs_to_iolist(KVs) ->
     lists:join(
-        ",",
+        ", ",
         lists:map(
             fun({K, V}) -> [to_iolist(K), ": ", to_iolist(V)] end,
-            maps:to_list(Map)
+            KVs
         )
     ).

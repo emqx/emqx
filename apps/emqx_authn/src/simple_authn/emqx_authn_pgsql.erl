@@ -133,8 +133,7 @@ authenticate(
                     {error, Reason}
             end;
         {error, Reason} ->
-            ?SLOG(error, #{
-                msg => "postgresql_query_failed",
+            ?TRACE_AUTHN_PROVIDER(error, "postgresql_query_failed", #{
                 resource => ResourceId,
                 params => Params,
                 reason => Reason

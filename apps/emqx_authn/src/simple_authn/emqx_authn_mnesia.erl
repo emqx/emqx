@@ -17,6 +17,7 @@
 -module(emqx_authn_mnesia).
 
 -include("emqx_authn.hrl").
+-include_lib("emqx/include/logger.hrl").
 -include_lib("stdlib/include/ms_transform.hrl").
 -include_lib("hocon/include/hoconsc.hrl").
 
@@ -158,6 +159,7 @@ authenticate(
     UserID = get_user_identity(Credential, Type),
     case mnesia:dirty_read(?TAB, {UserGroup, UserID}) of
         [] ->
+            ?TRACE_AUTHN_PROVIDER("user_not_found"),
             ignore;
         [#user_info{password_hash = PasswordHash, salt = Salt, is_superuser = IsSuperuser}] ->
             case
@@ -165,8 +167,10 @@ authenticate(
                     Algorithm, Salt, PasswordHash, Password
                 )
             of
-                true -> {ok, #{is_superuser => IsSuperuser}};
-                false -> {error, bad_username_or_password}
+                true ->
+                    {ok, #{is_superuser => IsSuperuser}};
+                false ->
+                    {error, bad_username_or_password}
             end
     end.
 

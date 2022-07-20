@@ -33,7 +33,8 @@
     bin/1,
     ensure_apps_started/1,
     cleanup_resources/0,
-    make_resource_id/1
+    make_resource_id/1,
+    without_password/1
 ]).
 
 -define(AUTHN_PLACEHOLDERS, [
@@ -199,9 +200,22 @@ make_resource_id(Name) ->
     NameBin = bin(Name),
     emqx_resource:generate_id(NameBin).
 
+without_password(Credential) ->
+    without_password(Credential, [password, <<"password">>]).
+
 %%--------------------------------------------------------------------
 %% Internal functions
 %%--------------------------------------------------------------------
+
+without_password(Credential, []) ->
+    Credential;
+without_password(Credential, [Name | Rest]) ->
+    case maps:is_key(Name, Credential) of
+        true ->
+            without_password(Credential#{Name => <<"[password]">>}, Rest);
+        false ->
+            without_password(Credential, Rest)
+    end.
 
 handle_var({var, Name}, undefined) ->
     error({cannot_get_variable, Name});
