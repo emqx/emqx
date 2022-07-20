@@ -70,6 +70,32 @@
                 }
             }
         },
+        type_cfgselect => #{
+            type => cfgselect,
+            enum => [<<"upload">>, <<"path">>],
+            default => <<"upload">>,
+            items =>
+                #{
+                  upload =>
+                      #{
+                        kerberos_keytab =>
+                            #{
+                              order => 6,
+                              type => binary_file,
+                              default => #{file => <<"">>, filename => <<"no_keytab.key">>}
+                             }
+                       },
+                  path =>
+                      #{
+                        kerberos_keytab_path =>
+                            #{
+                              order => 7,
+                              type => string,
+                              default => <<"">>
+                             }
+                       }
+                 }
+        },
         type_array => #{
             type => array,
             required => true,
@@ -88,7 +114,7 @@ t_validate_spec_the_complex(_) ->
 t_validate_spec_invalid_1(_) ->
     ?assertThrow({required_field_missing, {type, _}},
         emqx_rule_validator:validate_spec(#{
-            type_enum_number => #{
+            a => #{
                 required => true
             }
         })).
@@ -96,15 +122,23 @@ t_validate_spec_invalid_1(_) ->
 t_validate_spec_invalid_2(_) ->
     ?assertThrow({required_field_missing, {schema, _}},
         emqx_rule_validator:validate_spec(#{
-            type_enum_number => #{
+            a => #{
                 type => object
+            }
+        })).
+
+t_validate_spec_invalid_2_1(_) ->
+    ?assertThrow({required_field_missing, {items, _}},
+        emqx_rule_validator:validate_spec(#{
+            a => #{
+                type => cfgselect
             }
         })).
 
 t_validate_spec_invalid_3(_) ->
     ?assertThrow({required_field_missing, {items, _}},
         emqx_rule_validator:validate_spec(#{
-            type_enum_number => #{
+            a => #{
                 type => array
             }
         })).
@@ -162,6 +196,22 @@ t_validate_params_fill_default(_) ->
     ?assertMatch(#{<<"abc">> := 1, <<"eee">> := <<"hello">>},
         emqx_rule_validator:validate_params(Params, Specs)).
 
+t_validate_params_binary_file(_) ->
+    Params = #{<<"kfile">> => #{<<"file">> => <<"foo">>, <<"filename">> => <<"foo.key">>}},
+    Specs = #{<<"kfile">> => #{
+                type => binary_file,
+                required => true
+             }},
+    ?assertMatch(#{<<"kfile">> := #{<<"file">> := <<"foo">>, <<"filename">> := <<"foo.key">>}},
+        emqx_rule_validator:validate_params(Params, Specs)),
+    Params1 = #{<<"kfile">> => #{<<"file">> => <<"foo">>}},
+    Specs1 = #{<<"kfile">> => #{
+                type => binary_file,
+                required => true
+             }},
+    ?assertThrow({invalid_data_type, {binary_file, #{<<"file">> := <<"foo">>}}},
+        emqx_rule_validator:validate_params(Params1, Specs1)).
+
 t_validate_params_the_complex(_) ->
     Params = #{
         <<"string_required">> => <<"hello">>,
@@ -173,6 +223,8 @@ t_validate_params_the_complex(_) ->
             <<"string_required">> => <<"hello2">>,
             <<"type_number">> => 1.3
         },
+        <<"type_cfgselect">> => <<"upload">>,
+        <<"kerberos_keytab">> => #{<<"file">> => <<"foo">>, <<"filename">> => <<"foo.key">>},
         <<"type_array">> => [<<"ok">>, <<"no">>]
     },
     ?assertMatch(
@@ -186,6 +238,8 @@ t_validate_params_the_complex(_) ->
                 <<"string_required">> := <<"hello2">>,
                 <<"type_number">> := 1.3
             },
+            <<"kerberos_keytab">> := #{<<"file">> := <<"foo">>, <<"filename">> := <<"foo.key">>},
+            <<"type_cfgselect">> := <<"upload">>,
             <<"type_array">> := [<<"ok">>, <<"no">>]
         },
         emqx_rule_validator:validate_params(Params, ?VALID_SPEC)).
