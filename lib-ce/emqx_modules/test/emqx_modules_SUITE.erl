@@ -46,7 +46,7 @@ end_per_suite(_Config) ->
     emqx_ct_helpers:stop_apps([emqx_modules, emqx_management]).
 
 init_per_testcase(t_ensure_default_loaded_modules_file, Config) ->
-    LoadedModulesFilepath = application:get_env(emqx, modules_loaded_file),
+    {ok, LoadedModulesFilepath} = application:get_env(emqx, modules_loaded_file),
     ok = application:stop(emqx_modules),
     TmpFilepath = filename:join(["/", "tmp", "loaded_modules_tmp"]),
     case file:delete(TmpFilepath) of
@@ -86,8 +86,10 @@ t_ensure_default_loaded_modules_file(_Config) ->
        , {emqx_mod_delayed,false}
        , {emqx_mod_presence,true}
        , {emqx_mod_rewrite,false}
+       , {emqx_mod_slow_subs,false}
        , {emqx_mod_subscription,false}
        , {emqx_mod_topic_metrics,false}
+       , {emqx_mod_trace,false}
        ],
        lists:sort(emqx_modules:list())),
     ok.

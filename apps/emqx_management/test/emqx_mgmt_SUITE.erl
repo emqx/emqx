@@ -29,28 +29,35 @@
 -define(LOG_HANDLER_ID, [file, default]).
 
 all() ->
+    OtherTCs = (emqx_ct:all(?MODULE) -- manage_apps_tests()) -- check_cli_tests(),
     [{group, manage_apps},
-     {group, check_cli}].
+     {group, check_cli}] ++ OtherTCs.
+
+manage_apps_tests() ->
+    [t_app].
+
+check_cli_tests() ->
+    [t_cli,
+     t_log_cmd,
+     t_mgmt_cmd,
+     t_status_cmd,
+     t_clients_cmd,
+     t_vm_cmd,
+     t_plugins_cmd,
+     t_trace_cmd,
+     t_traces_cmd,
+     t_broker_cmd,
+     t_router_cmd,
+     t_subscriptions_cmd,
+     t_listeners_cmd_old,
+     t_listeners_cmd_new
+    ].
 
 groups() ->
     [{manage_apps, [sequence],
-      [t_app
-      ]},
-      {check_cli, [sequence],
-       [t_cli,
-        t_log_cmd,
-        t_mgmt_cmd,
-        t_status_cmd,
-        t_clients_cmd,
-        t_vm_cmd,
-        t_plugins_cmd,
-        t_trace_cmd,
-        t_broker_cmd,
-        t_router_cmd,
-        t_subscriptions_cmd,
-        t_listeners_cmd_old,
-        t_listeners_cmd_new
-       ]}].
+      manage_apps_tests()},
+     {check_cli, [sequence],
+      check_cli_tests()}].
 
 apps() ->
     [emqx_management, emqx_auth_mnesia, emqx_modules].
@@ -63,6 +70,62 @@ init_per_suite(Config) ->
 
 end_per_suite(_Config) ->
     emqx_ct_helpers:stop_apps(apps()).
+
+init_per_testcase(t_plugins_cmd, Config) ->
+    meck:new(emqx_plugins, [non_strict, passthrough]),
+    meck:expect(emqx_plugins, load, fun(_) -> ok end),
+    meck:expect(emqx_plugins, unload, fun(_) -> ok end),
+    meck:expect(emqx_plugins, reload, fun(_) -> ok end),
+    mock_print(),
+    Config;
+init_per_testcase(t_import_outside_backup_dir, Config) ->
+    BackupDir = emqx_mgmt_data_backup:backup_dir(),
+    {ok, Files} = file:list_dir(BackupDir),
+    lists:foreach(
+      fun(F) ->
+              file:delete(filename:join(BackupDir, F))
+      end, Files),
+    RandomName = emqx_guid:to_hexstr(emqx_guid:gen()),
+    Filepath = "/tmp/" ++ binary_to_list(RandomName) ++ ".json",
+    FakeData = #{version => "4.4"},
+    ok = file:write_file(Filepath, emqx_json:encode(FakeData)),
+    [ {tmp_file, Filepath}
+    | Config];
+init_per_testcase(t_backup_file, Config) ->
+    BackupDir = emqx_mgmt_data_backup:backup_dir(),
+    {ok, Files} = file:list_dir(BackupDir),
+    lists:foreach(
+      fun(F) ->
+              file:delete(filename:join(BackupDir, F))
+      end, Files),
+    Config;
+init_per_testcase(_Case, Config) ->
+    mock_print(),
+    Config.
+
+end_per_testcase(t_plugins_cmd, _Config) ->
+    meck:unload(emqx_plugins),
+    unmock_print();
+end_per_testcase(t_import_outside_backup_dir, Config) ->
+    Filepath = ?config(tmp_file, Config),
+    file:delete(Filepath),
+    BackupDir = emqx_mgmt_data_backup:backup_dir(),
+    {ok, Files} = file:list_dir(BackupDir),
+    lists:foreach(
+      fun(F) ->
+              file:delete(filename:join(BackupDir, F))
+      end, Files),
+    ok;
+end_per_testcase(t_backup_file, _Config) ->
+    BackupDir = emqx_mgmt_data_backup:backup_dir(),
+    {ok, Files} = file:list_dir(BackupDir),
+    lists:foreach(
+      fun(F) ->
+              file:delete(filename:join(BackupDir, F))
+      end, Files),
+    ok;
+end_per_testcase(_Case, _Config) ->
+    unmock_print().
 
 t_app(_Config) ->
     {ok, AppSecret} = emqx_mgmt_auth:add_app(<<"app_id">>, <<"app_name">>),
@@ -96,7 +159,6 @@ t_app(_Config) ->
     ok.
 
 t_log_cmd(_) ->
-    mock_print(),
     lists:foreach(fun(Level) ->
                       emqx_mgmt_cli:log(["primary-level", Level]),
                       ?assertEqual(Level ++ "\n", emqx_mgmt_cli:log(["primary-level"]))
@@ -109,12 +171,9 @@ t_log_cmd(_) ->
                          ?assertEqual(Level ++ "\n", emqx_mgmt_cli:log(["handlers", "set-level",
                                                                       atom_to_list(Id), Level]))
                       end, ?LOG_LEVELS)
-        || #{id := Id} <- emqx_logger:get_log_handlers()],
-    meck:unload().
+        || #{id := Id} <- emqx_logger:get_log_handlers()].
 
 t_mgmt_cmd(_) ->
-    % ct:pal("start testing the mgmt command"),
-    mock_print(),
     ?assertMatch({match, _}, re:run(emqx_mgmt_cli:mgmt(
                                       ["lookup", "emqx_appid"]), "Not Found.")),
     ?assertMatch({match, _}, re:run(emqx_mgmt_cli:mgmt(
@@ -127,28 +186,19 @@ t_mgmt_cmd(_) ->
                                       ["update", "emqx_appid", "ts"]), "update successfully")),
     ?assertMatch({match, _}, re:run(emqx_mgmt_cli:mgmt(
                                       ["delete", "emqx_appid"]), "ok")),
-    ok = emqx_mgmt_cli:mgmt(["list"]),
-    meck:unload().
+    ok = emqx_mgmt_cli:mgmt(["list"]).
 
 t_status_cmd(_) ->
-    % ct:pal("start testing status command"),
-    mock_print(),
     %% init internal status seem to be always 'starting' when running ct tests
-    ?assertMatch({match, _}, re:run(emqx_mgmt_cli:status([]), "Node\s.*@.*\sis\sstart(ed|ing)")),
-    meck:unload().
+    ?assertMatch({match, _}, re:run(emqx_mgmt_cli:status([]), "Node\s.*@.*\sis\sstart(ed|ing)")).
 
 t_broker_cmd(_) ->
-    % ct:pal("start testing the broker command"),
-    mock_print(),
     ?assertMatch({match, _}, re:run(emqx_mgmt_cli:broker([]), "sysdescr")),
     ?assertMatch({match, _}, re:run(emqx_mgmt_cli:broker(["stats"]), "subscriptions.shared")),
     ?assertMatch({match, _}, re:run(emqx_mgmt_cli:broker(["metrics"]), "bytes.sent")),
-    ?assertMatch({match, _}, re:run(emqx_mgmt_cli:broker([undefined]), "broker")),
-    meck:unload().
+    ?assertMatch({match, _}, re:run(emqx_mgmt_cli:broker([undefined]), "broker")).
 
 t_clients_cmd(_) ->
-    % ct:pal("start testing the client command"),
-    mock_print(),
     process_flag(trap_exit, true),
     {ok, T} = emqtt:start_link([{clientid, <<"client12">>},
                                 {username, <<"testuser1">>},
@@ -164,7 +214,6 @@ t_clients_cmd(_) ->
     receive
         {'EXIT', T, _} ->
             ok
-            % ct:pal("Connection closed: ~p~n", [Reason])
     after
         500 ->
             erlang:error("Client is not kick")
@@ -179,10 +228,11 @@ t_clients_cmd(_) ->
     {ok, Connack, <<>>, _} = raw_recv_pase(Bin),
     timer:sleep(300),
     ?assertMatch({match, _}, re:run(emqx_mgmt_cli:clients(["show", "client13"]), "client13")),
-    meck:unload().
+
     % emqx_mgmt_cli:clients(["kick", "client13"]),
     % timer:sleep(500),
     % ?assertMatch({match, _}, re:run(emqx_mgmt_cli:clients(["show", "client13"]), "Not Found")).
+    ok.
 
 raw_recv_pase(Packet) ->
     emqx_frame:parse(Packet).
@@ -191,8 +241,6 @@ raw_send_serialize(Packet) ->
     emqx_frame:serialize(Packet).
 
 t_vm_cmd(_) ->
-    % ct:pal("start testing the vm command"),
-    mock_print(),
     [[?assertMatch({match, _}, re:run(Result, Name))
       || Result <- emqx_mgmt_cli:vm([Name])]
      || Name <- ["load", "memory", "process", "io", "ports"]],
@@ -205,12 +253,9 @@ t_vm_cmd(_) ->
     [?assertMatch({match, _}, re:run(Result, "io"))
      || Result <- emqx_mgmt_cli:vm(["io"])],
     [?assertMatch({match, _}, re:run(Result, "ports"))
-     || Result <- emqx_mgmt_cli:vm(["ports"])],
-    unmock_print().
+     || Result <- emqx_mgmt_cli:vm(["ports"])].
 
 t_trace_cmd(_) ->
-    % ct:pal("start testing the trace command"),
-    mock_print(),
     logger:set_primary_config(level, debug),
     {ok, T} = emqtt:start_link([{clientid, <<"client">>},
                                  {username, <<"testuser">>},
@@ -237,12 +282,34 @@ t_trace_cmd(_) ->
     Trace7 = emqx_mgmt_cli:trace(["start", "topic", "a/b/c",
                                   "log/clientid_trace.log", "error"]),
     ?assertMatch({match, _}, re:run(Trace7, "successfully")),
-    logger:set_primary_config(level, error),
-    unmock_print().
+    logger:set_primary_config(level, error).
+
+t_traces_cmd(_) ->
+    emqx_trace:create_table(),
+    Count1 = emqx_mgmt_cli:traces(["list"]),
+    ?assertEqual(0, Count1),
+    Error1 = emqx_mgmt_cli:traces(["start", "test-name", "client", "clientid-dev"]),
+    ?assertMatch({match, _}, re:run(Error1, "Tracer module not started")),
+    emqx_trace:start_link(),
+    Trace1 = emqx_mgmt_cli:traces(["start", "test-name", "client", "clientid-dev"]),
+    ?assertMatch({match, _}, re:run(Trace1, "successfully")),
+    Count2 = emqx_mgmt_cli:traces(["list"]),
+    ?assertEqual(1, Count2),
+    Error2 = emqx_mgmt_cli:traces(["start", "test-name", "client", "clientid-dev"]),
+    ?assertMatch({match, _}, re:run(Error2, "already_existed")),
+    Trace2 = emqx_mgmt_cli:traces(["stop", "test-name"]),
+    ?assertMatch({match, _}, re:run(Trace2, "successfully")),
+    Count3 = emqx_mgmt_cli:traces(["list"]),
+    ?assertEqual(1, Count3),
+    Trace3 = emqx_mgmt_cli:traces(["delete", "test-name"]),
+    ?assertMatch({match, _}, re:run(Trace3, "successfully")),
+    Count4 = emqx_mgmt_cli:traces(["list"]),
+    ?assertEqual(0, Count4),
+    Error3 = emqx_mgmt_cli:traces(["delete", "test-name"]),
+    ?assertMatch({match, _}, re:run(Error3, "not_found")),
+    ok.
 
 t_router_cmd(_) ->
-    % ct:pal("start testing the router command"),
-    mock_print(),
     {ok, T} = emqtt:start_link([{clientid, <<"client1">>},
                                  {username, <<"testuser1">>},
                                  {password, <<"pass1">>}
@@ -257,12 +324,9 @@ t_router_cmd(_) ->
     emqtt:connect(T1),
     emqtt:subscribe(T1, <<"a/b/c/d">>),
     ?assertMatch({match, _}, re:run(emqx_mgmt_cli:routes(["list"]), "a/b/c | a/b/c")),
-    ?assertMatch({match, _}, re:run(emqx_mgmt_cli:routes(["show", "a/b/c"]), "a/b/c")),
-    unmock_print().
+    ?assertMatch({match, _}, re:run(emqx_mgmt_cli:routes(["show", "a/b/c"]), "a/b/c")).
 
 t_subscriptions_cmd(_) ->
-    % ct:pal("Start testing the subscriptions command"),
-    mock_print(),
     {ok, T3} = emqtt:start_link([{clientid, <<"client">>},
                                  {username, <<"testuser">>},
                                  {password, <<"pass">>}
@@ -273,22 +337,18 @@ t_subscriptions_cmd(_) ->
     [?assertMatch({match, _} , re:run(Result, "b/b/c"))
      || Result <- emqx_mgmt_cli:subscriptions(["show", <<"client">>])],
     ?assertEqual(emqx_mgmt_cli:subscriptions(["add", "client", "b/b/c", "0"]), "ok\n"),
-    ?assertEqual(emqx_mgmt_cli:subscriptions(["del", "client", "b/b/c"]), "ok\n"),
-    unmock_print().
+    ?assertEqual(emqx_mgmt_cli:subscriptions(["del", "client", "b/b/c"]), "ok\n").
 
 t_listeners_cmd_old(_) ->
     ok = emqx_listeners:ensure_all_started(),
-    mock_print(),
     ?assertEqual(emqx_mgmt_cli:listeners([]), ok),
     ?assertEqual(
        "Stop mqtt:wss:external listener on 0.0.0.0:8084 successfully.\n",
        emqx_mgmt_cli:listeners(["stop", "wss", "8084"])
-      ),
-    unmock_print().
+      ).
 
 t_listeners_cmd_new(_) ->
     ok = emqx_listeners:ensure_all_started(),
-    mock_print(),
     ?assertEqual(emqx_mgmt_cli:listeners([]), ok),
     ?assertEqual(
        "Stop mqtt:wss:external listener on 0.0.0.0:8084 successfully.\n",
@@ -306,15 +366,9 @@ t_listeners_cmd_new(_) ->
        emqx_mgmt_cli:listeners(["restart", "bad:listener:identifier"]),
        "Failed to restart bad:listener:identifier listener:"
        " {no_such_listener,\"bad:listener:identifier\"}\n"
-      ),
-    unmock_print().
+      ).
 
 t_plugins_cmd(_) ->
-    mock_print(),
-    meck:new(emqx_plugins, [non_strict, passthrough]),
-    meck:expect(emqx_plugins, load, fun(_) -> ok end),
-    meck:expect(emqx_plugins, unload, fun(_) -> ok end),
-    meck:expect(emqx_plugins, reload, fun(_) -> ok end),
     ?assertEqual(emqx_mgmt_cli:plugins(["list"]), ok),
     ?assertEqual(
        emqx_mgmt_cli:plugins(["unload", "emqx_auth_mnesia"]),
@@ -327,11 +381,9 @@ t_plugins_cmd(_) ->
     ?assertEqual(
        emqx_mgmt_cli:plugins(["unload", "emqx_management"]),
        "Plugin emqx_management can not be unloaded.\n"
-      ),
-    unmock_print().
+      ).
 
 t_cli(_) ->
-    mock_print(),
     ?assertMatch({match, _}, re:run(emqx_mgmt_cli:status([""]), "status")),
     [?assertMatch({match, _}, re:run(Value, "broker"))
      || Value <- emqx_mgmt_cli:broker([""])],
@@ -353,12 +405,38 @@ t_cli(_) ->
      || Value <- emqx_mgmt_cli:mnesia([""])],
     [?assertMatch({match, _}, re:run(Value, "trace"))
      || Value <- emqx_mgmt_cli:trace([""])],
+    [?assertMatch({match, _}, re:run(Value, "traces"))
+        || Value <- emqx_mgmt_cli:traces([""])],
     [?assertMatch({match, _}, re:run(Value, "mgmt"))
-     || Value <- emqx_mgmt_cli:mgmt([""])],
-    unmock_print().
+     || Value <- emqx_mgmt_cli:mgmt([""])].
+
+t_backup_file(_)->
+    Filename = <<"test.json">>,
+    BadFilename = <<"bad.notjson">>,
+    Bin = emqx_json:encode(#{a => b}),
+    BadBin = <<"[bad json]">>,
+
+    {error, bad_filename} = emqx_mgmt_data_backup:upload_backup_file(BadFilename, Bin),
+    {error, bad_json} = emqx_mgmt_data_backup:upload_backup_file(Filename, BadBin),
+
+    ok = emqx_mgmt_data_backup:upload_backup_file(Filename, Bin),
+    {ok, #{file := <<"{\"a\":\"b\"}">>, filename := <<"test.json">>}} =
+        emqx_mgmt_data_backup:read_backup_file(Filename),
+    [{_, FileInfoList}] = emqx_mgmt_data_backup:list_backup_file(),
+    Filename = proplists:get_value(filename, FileInfoList),
+    ok = emqx_mgmt_data_backup:delete_backup_file(Filename),
+
+    {error, not_found} = emqx_mgmt_data_backup:delete_backup_file(BadFilename),
+    ok.
+
+t_import_outside_backup_dir(Config) ->
+    Filepath = ?config(tmp_file, Config),
+    Env = "{}",
+    ?assertEqual(ok, emqx_mgmt_data_backup:import(Filepath, Env)),
+    ok.
 
 mock_print() ->
-    catch meck:unload(emqx_ctl),
+    ok = safe_unmeck(emqx_ctl),
     meck:new(emqx_ctl, [non_strict, passthrough]),
     meck:expect(emqx_ctl, print, fun(Arg) -> emqx_ctl:format(Arg, []) end),
     meck:expect(emqx_ctl, print, fun(Msg, Arg) -> emqx_ctl:format(Msg, Arg) end),
@@ -367,3 +445,12 @@ mock_print() ->
 
 unmock_print() ->
     meck:unload(emqx_ctl).
+
+safe_unmeck(Module) ->
+    try
+        meck:unload(Module),
+        ok
+    catch
+        _ : _ ->
+            ok
+    end.
