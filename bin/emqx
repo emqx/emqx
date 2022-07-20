@@ -8,6 +8,11 @@ RUNNER_ROOT_DIR="$(cd "$(dirname "$(readlink "$0" || echo "$0")")"/..; pwd -P)"
 # shellcheck disable=SC1090
 . "$RUNNER_ROOT_DIR"/releases/emqx_vars
 
+EMQX_LICENSE_CONF=''
+REL_NAME="emqx"
+ERTS_PATH="$RUNNER_ROOT_DIR/erts-$ERTS_VSN/bin"
+export EMQX_DESCRIPTION
+
 RUNNER_SCRIPT="$RUNNER_BIN_DIR/$REL_NAME"
 CODE_LOADING_MODE="${CODE_LOADING_MODE:-embedded}"
 REL_DIR="$RUNNER_ROOT_DIR/releases/$REL_VSN"
@@ -192,6 +197,7 @@ usage() {
         echo "  Up/Down-grade: upgrade | downgrade | install | uninstall"
         echo "  Install info:  ertspath | root_dir | versions"
         echo "  Runtime info:  pid | ping | versions"
+        echo "  Config check:  check_conf"
         echo "  Advanced:      console_clean | escript | rpc | rpcterms | eval"
         echo ''
         echo "Execute '$REL_NAME COMMAND help' for more information"
@@ -334,9 +340,12 @@ trim() {
 
 # Function to generate app.config and vm.args
 generate_config() {
-    ## Delete the *.siz files first or it cann't start after
-    ## changing the config 'log.rotation.size'
-    rm -rf "${RUNNER_LOG_DIR}"/*.siz
+    check_only="$1"
+    if [ "$check_only" != "check_only" ]; then
+      ## Delete the *.siz files first or it cann't start after
+      ## changing the config 'log.rotation.size'
+      rm -rf "${RUNNER_LOG_DIR}"/*.siz
+    fi
 
     set +e
     if [ "${EMQX_LICENSE_CONF:-}" = "" ]; then
@@ -388,11 +397,18 @@ generate_config() {
             fi
         fi
     done
-    mv -f "$TMP_ARG_FILE" "$CUTTLE_GEN_ARG_FILE"
 
     if ! relx_nodetool chkconfig -config "$CONFIG_FILE"; then
         echoerr "Error reading $CONFIG_FILE"
         exit 1
+    fi
+
+    if [ "$check_only" = "check_only" ]; then
+        rm -f "$TMP_ARG_FILE"
+        rm -f "$CUTTLE_GEN_ARG_FILE"
+        rm -f "$CONFIG_FILE"
+    else
+        mv -f "$TMP_ARG_FILE" "$CUTTLE_GEN_ARG_FILE"
     fi
 }
 
@@ -445,6 +461,9 @@ case "$1" in
         IS_BOOT_COMMAND='yes'
         ;;
     foreground)
+        IS_BOOT_COMMAND='yes'
+        ;;
+    check_conf)
         IS_BOOT_COMMAND='yes'
         ;;
 esac
@@ -814,6 +833,10 @@ case "$1" in
         ;;
     ertspath)
         echo "$ERTS_PATH"
+        ;;
+    check_conf)
+        generate_config "check_only"
+        echo "$RUNNER_ETC_DIR/emqx.conf is ok"
         ;;
 
     ctl)

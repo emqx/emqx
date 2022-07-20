@@ -72,7 +72,7 @@
     enable_pipelining => #{order => 5,
                            type => boolean,
                            default => true,
-                           title => #{en => <<"Enable Pipelining">>, zh => <<"Enable Pipelining"/utf8>>},
+                           title => #{en => <<"Enable Pipelining">>, zh => <<"开启 Pipelining"/utf8>>},
                            description => #{en => <<"Whether to enable HTTP Pipelining">>,
                                             zh => <<"是否开启 HTTP Pipelining"/utf8>>}
                 },
