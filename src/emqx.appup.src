@@ -7,8 +7,8 @@
      {update,emqx_broker_sup,supervisor},
      {load_module,emqx_app,brutal_purge,soft_purge,[]},
      {load_module,emqx_access_control,brutal_purge,soft_purge,[]},
-     {load_module,emqx_shared_sub,brutal_purge,soft_purge,[]}]
-     {load_module,emqx_session,brutal_purge,soft_purge,[]}},
+     {load_module,emqx_shared_sub,brutal_purge,soft_purge,[]},
+     {load_module,emqx_session,brutal_purge,soft_purge,[]}]},
    {"4.4.4",
     [{load_module,emqx_access_control,brutal_purge,soft_purge,[]},
      {update,emqx_broker_sup,supervisor},
