@@ -320,19 +320,24 @@ prop_message_publish() ->
                 _ ->
                     ExpectedOutMsg = case emqx_message:from(Msg) of
                                          <<"baduser">> ->
-                                             MsgMap = emqx_message:to_map(Msg),
+                                             MsgMap = #{headers := Headers}
+                                                    = emqx_message:to_map(Msg),
                                              emqx_message:from_map(
                                                MsgMap#{qos => 0,
                                                        topic => <<"">>,
-                                                       payload => <<"">>
+                                                       payload => <<"">>,
+                                                       headers => maps:put(allow_publish, false, Headers)
                                                       });
                                          <<"gooduser">> = From ->
-                                             MsgMap = emqx_message:to_map(Msg),
+                                             MsgMap = #{headers := Headers}
+                                                    = emqx_message:to_map(Msg),
                                              emqx_message:from_map(
                                                MsgMap#{topic => From,
-                                                       payload => From
+                                                       payload => From,
+                                                       headers => maps:put(allow_publish, true, Headers)
                                                       });
-                                         _ -> Msg
+                                         _ ->
+                                             Msg
                                      end,
                     ?assertEqual(ExpectedOutMsg, OutMsg),
 
@@ -494,7 +499,9 @@ from_message(Msg) ->
       from => stringfy(emqx_message:from(Msg)),
       topic => emqx_message:topic(Msg),
       payload => emqx_message:payload(Msg),
-      timestamp => emqx_message:timestamp(Msg)
+      timestamp => emqx_message:timestamp(Msg),
+      headers => emqx_exhook_handler:headers(
+                  emqx_message:get_headers(Msg))
      }.
 
 %%--------------------------------------------------------------------

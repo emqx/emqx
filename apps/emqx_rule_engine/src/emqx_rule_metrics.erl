@@ -79,6 +79,8 @@
         , terminate/2
         ]).
 
+-elvis([{elvis_style, god_modules, disable}]).
+
 -ifndef(TEST).
 -define(SECS_5M, 300).
 -define(SAMPLING, 10).
@@ -368,10 +370,10 @@ handle_info(_Info, State) ->
     {noreply, State}.
 
 code_change({down, _Vsn}, State = #state{metric_ids = MIDs}, [Vsn]) ->
-    case string:tokens(Vsn, ".") of
-        ["4", "3", SVal] ->
+    case string:tokens(Vsn, ".") of 
+        ["4", "4", SVal] ->
             {Val, []} = string:to_integer(SVal),
-            case Val =< 6 of
+            case Val == 0 of
                 true ->
                     [begin
                         Passed = get_rules_passed(Id),
@@ -381,7 +383,7 @@ code_change({down, _Vsn}, State = #state{metric_ids = MIDs}, [Vsn]) ->
                         Exception = get_actions_exception(Id),
                         Retry = get_actions_retry(Id),
                         ok = delete_counters(Id),
-                        ok = create_counters(Id, 7),
+                        ok = create_counters(Id, max_counters_size_old()),
                         inc_rules_matched(Id, Passed),
                         inc_actions_taken(Id, Take),
                         inc_actions_success(Id, Success),
@@ -397,9 +399,9 @@ code_change({down, _Vsn}, State = #state{metric_ids = MIDs}, [Vsn]) ->
 
 code_change(_Vsn, State = #state{metric_ids = MIDs}, [Vsn]) ->
     case string:tokens(Vsn, ".") of
-        ["4", "3", SVal] ->
+        ["4", "4", SVal] ->
             {Val, []} = string:to_integer(SVal),
-            case Val =< 6 of
+            case Val == 0 of
                 true ->
                     [begin
                         Matched = get_rules_matched(Id),
@@ -471,17 +473,19 @@ calculate_speed(CurrVal, #rule_speed{max = MaxSpeed0, last_v = LastVal,
 
     %% calculate the max speed since the emqx startup
     MaxSpeed =
-        if MaxSpeed0 >= CurrSpeed -> MaxSpeed0;
-           true -> CurrSpeed
+        case MaxSpeed0 >= CurrSpeed of
+           true -> MaxSpeed0;
+           false -> CurrSpeed
         end,
 
     %% calculate the average speed in last 5 mins
     {Last5MinSamples, Acc5Min, Last5Min} =
-        if Tick =< ?SAMPCOUNT_5M ->
+        case Tick =< ?SAMPCOUNT_5M of
+            true ->
                 Acc = AccSpeed5Min0 + CurrSpeed,
                 {lists:reverse([CurrSpeed | lists:reverse(Last5MinSamples0)]),
                  Acc, Acc / Tick};
-           true ->
+            false ->
                 [FirstSpeed | Speeds] = Last5MinSamples0,
                 Acc =  AccSpeed5Min0 + CurrSpeed - FirstSpeed,
                 {lists:reverse([CurrSpeed | lists:reverse(Speeds)]),
@@ -493,7 +497,7 @@ calculate_speed(CurrVal, #rule_speed{max = MaxSpeed0, last_v = LastVal,
                 last5m_smpl = Last5MinSamples, tick = Tick + 1}.
 
 format_rule_speed(#rule_speed{max = Max, current = Current, last5m = Last5Min}) ->
-    #{max => Max, current => precision(Current, 2), last5m => precision(Last5Min, 2)}.
+    #{max => precision(Max, 2), current => precision(Current, 2), last5m => precision(Last5Min, 2)}.
 
 precision(Float, N) ->
     Base = math:pow(10, N),
@@ -502,6 +506,9 @@ precision(Float, N) ->
 %%------------------------------------------------------------------------------
 %% Metrics Definitions
 %%------------------------------------------------------------------------------
+
+%% for code hot upgrade
+max_counters_size_old() -> 7.
 
 max_counters_size() -> 11.
 

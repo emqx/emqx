@@ -6,7 +6,7 @@
   %% the emqx `release' version, which in turn is comprised of several
   %% apps, one of which is this.  See `emqx_release.hrl' for more
   %% info.
-  {vsn, "4.3.18"}, % strict semver, bump manually!
+  {vsn, "4.4.6"}, % strict semver, bump manually!
   {modules, []},
   {registered, []},
   {applications, [ kernel
