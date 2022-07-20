@@ -565,58 +565,64 @@ bin(Term) -> erlang:iolist_to_binary(io_lib:format("~p", [Term])).
 
 status_metrics_example() ->
     #{
-        resource_metrics => #{
-            matched => 0,
-            success => 0,
-            failed => 0,
-            rate => 0.0,
-            rate_last5m => 0.0,
-            rate_max => 0.0
-        },
-        node_resource_metrics => [
-            #{
-                node => node(),
-                metrics => #{
-                    matched => 0,
-                    success => 0,
-                    failed => 0,
-                    rate => 0.0,
-                    rate_last5m => 0.0,
-                    rate_max => 0.0
-                }
-            }
-        ],
-        metrics => #{
-            total => 0,
-            allow => 0,
-            deny => 0,
-            nomatch => 0,
-            rate => 0.0,
-            rate_last5m => 0.0,
-            rate_max => 0.0
-        },
-        node_metrics => [
-            #{
-                node => node(),
-                metrics => #{
-                    total => 0,
-                    allow => 0,
-                    deny => 0,
-                    nomatch => 0,
-                    rate => 0.0,
-                    rate_last5m => 0.0,
-                    rate_max => 0.0
-                }
-            }
-        ],
+        'metrics_example' => #{
+            summary => <<"Showing a typical metrics example">>,
+            value =>
+                #{
+                    resource_metrics => #{
+                        matched => 0,
+                        success => 0,
+                        failed => 0,
+                        rate => 0.0,
+                        rate_last5m => 0.0,
+                        rate_max => 0.0
+                    },
+                    node_resource_metrics => [
+                        #{
+                            node => node(),
+                            metrics => #{
+                                matched => 0,
+                                success => 0,
+                                failed => 0,
+                                rate => 0.0,
+                                rate_last5m => 0.0,
+                                rate_max => 0.0
+                            }
+                        }
+                    ],
+                    metrics => #{
+                        total => 0,
+                        allow => 0,
+                        deny => 0,
+                        nomatch => 0,
+                        rate => 0.0,
+                        rate_last5m => 0.0,
+                        rate_max => 0.0
+                    },
+                    node_metrics => [
+                        #{
+                            node => node(),
+                            metrics => #{
+                                total => 0,
+                                allow => 0,
+                                deny => 0,
+                                nomatch => 0,
+                                rate => 0.0,
+                                rate_last5m => 0.0,
+                                rate_max => 0.0
+                            }
+                        }
+                    ],
 
-        status => connected,
-        node_status => [
-            #{
-                node => node(),
-                status => connected
-            }
-        ]
+                    status => connected,
+                    node_status => [
+                        #{
+                            node => node(),
+                            status => connected
+                        }
+                    ]
+                }
+        }
     }.
 
 create_authz_file(Body) ->
