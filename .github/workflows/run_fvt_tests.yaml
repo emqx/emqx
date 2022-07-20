@@ -226,7 +226,7 @@ jobs:
 
     relup_test_plan:
         runs-on: ubuntu-20.04
-        container: ghcr.io/emqx/emqx-builder/4.4-12:24.1.5-3-ubuntu20.04
+        container: ghcr.io/emqx/emqx-builder/4.4-18:24.1.5-3-ubuntu20.04
         outputs:
           profile: ${{ steps.profile-and-versions.outputs.profile }}
           vsn: ${{ steps.profile-and-versions.outputs.vsn }}
@@ -277,7 +277,7 @@ jobs:
              otp:
              - 24.1.5-3
         runs-on: ubuntu-20.04
-        container: ghcr.io/emqx/emqx-builder/4.4-12:24.1.5-3-ubuntu20.04
+        container: ghcr.io/emqx/emqx-builder/4.4-18:24.1.5-3-ubuntu20.04
         defaults:
           run:
             shell: bash
