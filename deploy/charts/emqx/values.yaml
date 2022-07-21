@@ -203,3 +203,12 @@ containerSecurityContext:
 metrics:
   enabled: false
   type: prometheus
+
+ssl:
+  enabled: false
+  useExisting: false
+  existingName: emqx-tls
+  dnsnames: {}
+  issuer:
+    name: letsencrypt-dns
+    kind: ClusterIssuer
