@@ -86,7 +86,7 @@ handle_info({timeout, _Timer, check}, State) ->
                 },
                 Message
             );
-        _Precent ->
+        _Percent ->
             ok
     end,
     _ = start_check_timer(),

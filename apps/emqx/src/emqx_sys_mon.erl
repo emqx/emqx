@@ -35,32 +35,52 @@
     terminate/2,
     code_change/3
 ]).
+-export([add_handler/0, remove_handler/0, post_config_update/5]).
+-export([update/1]).
 
 -define(SYSMON, ?MODULE).
+-define(SYSMON_CONF_ROOT, [sysmon]).
 
 %% @doc Start the system monitor.
 -spec start_link() -> startlink_ret().
 start_link() ->
     gen_server:start_link({local, ?SYSMON}, ?MODULE, [], []).
 
+add_handler() ->
+    ok = emqx_config_handler:add_handler(?SYSMON_CONF_ROOT, ?MODULE),
+    ok.
+
+remove_handler() ->
+    ok = emqx_config_handler:remove_handler(?SYSMON_CONF_ROOT),
+    ok.
+
+post_config_update(_, _Req, NewConf, OldConf, _AppEnvs) ->
+    #{os := OS1, vm := VM1} = OldConf,
+    #{os := OS2, vm := VM2} = NewConf,
+    VM1 =/= VM2 andalso ?MODULE:update(VM2),
+    OS1 =/= OS2 andalso emqx_os_mon:update(OS2),
+    ok.
+
+update(VM) ->
+    erlang:send(?MODULE, {monitor_conf_update, VM}).
+
 %%--------------------------------------------------------------------
 %% gen_server callbacks
 %%--------------------------------------------------------------------
 
 init([]) ->
-    _ = erlang:system_monitor(self(), sysm_opts()),
     emqx_logger:set_proc_metadata(#{sysmon => true}),
+    init_system_monitor(),
 
     %% Monitor cluster partition event
     ekka:monitor(partition, fun handle_partition_event/1),
-
     {ok, start_timer(#{timer => undefined, events => []})}.
 
 start_timer(State) ->
     State#{timer := emqx_misc:start_timer(timer:seconds(2), reset)}.
 
-sysm_opts() ->
-    sysm_opts(maps:to_list(emqx:get_config([sysmon, vm])), []).
+sysm_opts(VM) ->
+    sysm_opts(maps:to_list(VM), []).
 sysm_opts([], Acc) ->
     Acc;
 sysm_opts([{_, disabled} | Opts], Acc) ->
@@ -176,12 +196,16 @@ handle_info({monitor, SusPid, busy_dist_port, Port}, State) ->
     );
 handle_info({timeout, _Ref, reset}, State) ->
     {noreply, State#{events := []}, hibernate};
+handle_info({monitor_conf_update, VM}, State) ->
+    init_system_monitor(VM),
+    {noreply, State#{events := []}, hibernate};
 handle_info(Info, State) ->
     ?SLOG(error, #{msg => "unexpected_info", info => Info}),
     {noreply, State}.
 
 terminate(_Reason, #{timer := TRef}) ->
-    emqx_misc:cancel_timer(TRef).
+    emqx_misc:cancel_timer(TRef),
+    ok.
 
 code_change(_OldVsn, State, _Extra) ->
     {ok, State}.
@@ -237,3 +261,11 @@ safe_publish(Event, WarnMsg) ->
 sysmon_msg(Topic, Payload) ->
     Msg = emqx_message:make(?SYSMON, Topic, Payload),
     emqx_message:set_flag(sys, Msg).
+
+init_system_monitor() ->
+    VM = emqx:get_config([sysmon, vm]),
+    init_system_monitor(VM).
+
+init_system_monitor(VM) ->
+    _ = erlang:system_monitor(self(), sysm_opts(VM)),
+    ok.

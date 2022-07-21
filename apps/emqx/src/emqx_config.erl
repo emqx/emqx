@@ -556,10 +556,12 @@ save_to_override_conf(RawConf, Opts) ->
 
 add_handlers() ->
     ok = emqx_config_logger:add_handler(),
+    emqx_sys_mon:add_handler(),
     ok.
 
 remove_handlers() ->
     ok = emqx_config_logger:remove_handler(),
+    emqx_sys_mon:remove_handler(),
     ok.
 
 load_hocon_file(FileName, LoadType) ->
