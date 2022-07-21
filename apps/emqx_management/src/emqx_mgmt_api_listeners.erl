@@ -549,7 +549,7 @@ format_status(Key, Node, Listener, Acc) ->
             NodeStatus =
                 case maps:find(Node, NodeStatus0) of
                     error ->
-                        #{
+                        NodeStatus0#{
                             Node => #{
                                 max_connections => MaxConnections,
                                 current_connections => CurrentConnections
