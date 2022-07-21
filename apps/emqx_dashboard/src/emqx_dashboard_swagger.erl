@@ -24,6 +24,7 @@
 -export([namespace/0, namespace/1, fields/1]).
 -export([schema_with_example/2, schema_with_examples/2]).
 -export([error_codes/1, error_codes/2]).
+-export([file_schema/1]).
 
 -export([filter_check_request/2, filter_check_request_and_translate_body/2]).
 
@@ -164,6 +165,20 @@ error_codes(Codes = [_ | _], MsgDesc) ->
                 desc => MsgDesc
             })}
     ].
+
+file_schema(FileName) ->
+    #{
+        content => #{
+            'multipart/form-data' => #{
+                schema => #{
+                    type => object,
+                    properties => #{
+                        FileName => #{type => string, format => binary}
+                    }
+                }
+            }
+        }
+    }.
 
 %%------------------------------------------------------------------------------
 %% Private functions

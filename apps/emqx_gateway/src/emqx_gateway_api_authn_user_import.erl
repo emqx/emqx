@@ -124,15 +124,7 @@ schema("/gateway/:name/authentication/import_users") ->
             #{
                 desc => ?DESC(emqx_gateway_api_authn, import_users),
                 parameters => params_gateway_name_in_path(),
-                'requestBody' => #{
-                    content => #{
-                        'multipart/form-data' => #{
-                            schema => #{
-                                filename => file
-                            }
-                        }
-                    }
-                },
+                'requestBody' => emqx_dashboard_swagger:file_schema(filename),
                 responses =>
                     ?STANDARD_RESP(#{204 => <<"Imported">>})
             }
@@ -145,15 +137,7 @@ schema("/gateway/:name/listeners/:id/authentication/import_users") ->
                 desc => ?DESC(emqx_gateway_api_listeners, import_users),
                 parameters => params_gateway_name_in_path() ++
                     params_listener_id_in_path(),
-                'requestBody' => #{
-                    content => #{
-                        'multipart/form-data' => #{
-                            schema => #{
-                                filename => file
-                            }
-                        }
-                    }
-                },
+                'requestBody' => emqx_dashboard_swagger:file_schema(filename),
                 responses =>
                     ?STANDARD_RESP(#{204 => <<"Imported">>})
             }
