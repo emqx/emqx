@@ -92,7 +92,7 @@ case02(_Config) ->
 
     Msg = #message{from = <<"myclient">>, qos = 2, flags = #{retain => true}, topic = <<"a/b/c">>, payload = <<"123">>, headers = #{username => <<"tester">>}},
     Ret = emqx_hooks:run_fold('message.publish',[], Msg),
-    ?assertEqual(Msg, Ret).
+    ?assertEqual(Msg#message{headers = #{username => <<"tester">>, allow_publish => false}}, Ret).
 
 case03(_Config) ->
     ScriptName = filename:join([emqx_lua_hook:lua_dir(), "abc.lua"]),
