@@ -50,6 +50,7 @@ t_update(_Config) ->
     {ok, SysMon1} = get_config(<<"sysmon">>),
     #{<<"vm">> := #{<<"busy_port">> := BusyPort1}} = SysMon1,
     ?assertEqual(BusyPort, not BusyPort1),
+    assert_busy_port(BusyPort1),
 
     %% update failed
     ErrorSysMon = emqx_map_lib:deep_put([<<"vm">>, <<"busy_port">>], SysMon, "123"),
@@ -64,6 +65,7 @@ t_update(_Config) ->
     ok = reset_config(<<"sysmon">>, "conf_path=vm.busy_port"),
     {ok, SysMon3} = get_config(<<"sysmon">>),
     ?assertMatch(#{<<"vm">> := #{<<"busy_port">> := true}}, SysMon3),
+    assert_busy_port(true),
 
     %% reset no_default_value config
     NewSysMon1 = emqx_map_lib:deep_put([<<"vm">>, <<"busy_port">>], SysMon, false),
@@ -72,6 +74,11 @@ t_update(_Config) ->
     {ok, SysMon4} = get_config(<<"sysmon">>),
     ?assertMatch(#{<<"vm">> := #{<<"busy_port">> := false}}, SysMon4),
     ok.
+
+assert_busy_port(BusyPort) ->
+    {_Pid, Monitors} = erlang:system_monitor(),
+    RealBusyPort = proplists:get_value(busy_port, Monitors, false),
+    ?assertEqual(BusyPort, RealBusyPort).
 
 t_log(_Config) ->
     {ok, Log} = get_config("log"),
