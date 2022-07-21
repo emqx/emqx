@@ -34,7 +34,9 @@
     password => <<"plain">>,
     peerhost => {127, 0, 0, 1},
     listener => 'tcp:default',
-    protocol => mqtt
+    protocol => mqtt,
+    cert_subject => <<"cert_subject_data">>,
+    cert_common_name => <<"cert_common_name_data">>
 }).
 
 -define(SERVER_RESPONSE_JSON(Result), ?SERVER_RESPONSE_JSON(Result, false)).
@@ -517,7 +519,9 @@ samples() ->
                     <<"username">> := <<"plain">>,
                     <<"password">> := <<"plain">>,
                     <<"clientid">> := <<"clienta">>,
-                    <<"peerhost">> := <<"127.0.0.1">>
+                    <<"peerhost">> := <<"127.0.0.1">>,
+                    <<"cert_subject">> := <<"cert_subject_data">>,
+                    <<"cert_common_name">> := <<"cert_common_name_data">>
                 } = jiffy:decode(RawBody, [return_maps]),
                 Req = cowboy_req:reply(
                     200,
@@ -534,7 +538,9 @@ samples() ->
                     <<"clientid">> => ?PH_CLIENTID,
                     <<"username">> => ?PH_USERNAME,
                     <<"password">> => ?PH_PASSWORD,
-                    <<"peerhost">> => ?PH_PEERHOST
+                    <<"peerhost">> => ?PH_PEERHOST,
+                    <<"cert_subject">> => ?PH_CERT_SUBJECT,
+                    <<"cert_common_name">> => ?PH_CERT_CN_NAME
                 }
             },
             result => {ok, #{is_superuser => false, user_property => #{}}}

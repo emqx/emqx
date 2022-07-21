@@ -479,7 +479,7 @@ user_seeds() ->
 
         #{
             data => #{
-                password =>
+                password_hash =>
                     <<"a3c7f6b085c3e5897ffb9b86f18a9d905063f8550a74444b5892e193c1b50428">>,
                 is_superuser => <<"1">>
             },
@@ -502,7 +502,7 @@ user_seeds() ->
 
         #{
             data => #{
-                password =>
+                password_hash =>
                     <<"a3c7f6b085c3e5897ffb9b86f18a9d905063f8550a74444b5892e193c1b50428">>,
                 is_superuser => <<"1">>
             },

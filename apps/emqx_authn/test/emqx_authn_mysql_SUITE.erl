@@ -320,6 +320,35 @@ user_seeds() ->
 
         #{
             data => #{
+                username => "sha256",
+                password_hash => "ac63a624e7074776d677dd61a003b8c803eb11db004d0ec6ae032a5d7c9c5caf",
+                cert_subject => <<"cert_subject_data">>,
+                cert_common_name => <<"cert_common_name_data">>,
+                salt => "salt",
+                is_superuser_int => 1
+            },
+            credentials => #{
+                clientid => <<"sha256">>,
+                password => <<"sha256">>,
+                cert_subject => <<"cert_subject_data">>,
+                cert_common_name => <<"cert_common_name_data">>
+            },
+            config_params => #{
+                <<"query">> =>
+                    <<
+                        "SELECT password_hash, salt, is_superuser_int as is_superuser\n"
+                        "   FROM users where cert_subject = ${cert_subject} AND cert_common_name = ${cert_common_name} LIMIT 1"
+                    >>,
+                <<"password_hash_algorithm">> => #{
+                    <<"name">> => <<"sha256">>,
+                    <<"salt_position">> => <<"prefix">>
+                }
+            },
+            result => {ok, #{is_superuser => true}}
+        },
+
+        #{
+            data => #{
                 username => <<"bcrypt">>,
                 password_hash => "$2b$12$wtY3h20mUjjmeaClpqZVveDWGlHzCGsvuThMlneGHA7wVeFYyns2u",
                 salt => "$2b$12$wtY3h20mUjjmeaClpqZVve",
@@ -433,6 +462,8 @@ init_seeds() ->
         "                       username VARCHAR(255),\n"
         "                       password_hash VARCHAR(255),\n"
         "                       salt VARCHAR(255),\n"
+        "                       cert_subject VARCHAR(255),\n"
+        "                       cert_common_name VARCHAR(255),\n"
         "                       is_superuser_str VARCHAR(255),\n"
         "                       is_superuser_int TINYINT)"
     ),
