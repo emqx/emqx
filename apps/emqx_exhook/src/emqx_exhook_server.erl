@@ -369,8 +369,11 @@ match_topic_filter(TopicName, TopicFilter) ->
 
 -spec do_call(binary(), atom(), atom(), map(), map()) -> {ok, map()} | {error, term()}.
 do_call(ChannName, Hookpoint, Fun, Req, ReqOpts) ->
-    Options = ReqOpts#{channel => ChannName},
     NReq = Req#{meta => emqx_exhook_handler:request_meta()},
+    Options = ReqOpts#{
+        channel => ChannName,
+        key_dispatch => key_dispatch(NReq)
+    },
     ?SLOG(debug, #{
         msg => "do_call",
         module => ?PB_CLIENT_MOD,
@@ -481,3 +484,13 @@ available_hooks() ->
         'session.terminated'
         | message_hooks()
     ].
+
+%% @doc Get dispatch_key for each request
+key_dispatch(_Req = #{clientinfo := #{clientid := ClientId}}) ->
+    ClientId;
+key_dispatch(_Req = #{conninfo := #{clientid := ClientId}}) ->
+    ClientId;
+key_dispatch(_Req = #{message := #{from := From}}) ->
+    From;
+key_dispatch(_Req) ->
+    self().
