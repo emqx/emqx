@@ -17,6 +17,7 @@
 * Fix `chars_limit` is not working when `formatter` is `json`. [#8518](http://github.com/emqx/emqx/pull/8518)
 * Ensuring that exhook dispatches the client events are sequential. [#8530](https://github.com/emqx/emqx/pull/8530)
 * Avoid using RocksDB backend for persistent sessions when such backend is unavailable. [#8528](https://github.com/emqx/emqx/pull/8528)
+* Fix AuthN `cert_subject` and `cert_common_name` placeholder rendering failure. [#8531](https://github.com/emqx/emqx/pull/8531)
 
 ## Enhancements
 
