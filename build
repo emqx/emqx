@@ -94,6 +94,14 @@ make_relup() {
     fi
     RELX_BASE_VERSIONS="$(IFS=, ; echo "${releases[*]}")"
     export RELX_BASE_VERSIONS
+    if [[ ${PKG_VSN} == 4.3* ]]; then
+        echo "EMQX 4.3 specific, overwrite OTP app versions"
+        local emqx_rel_file="${releases_dir}/${PKG_VSN}/emqx.rel"
+        if [ ! -f "${emqx_rel_file}" ]; then
+            ./rebar3 as "${PROFILE}" release
+        fi
+        scripts/emqx_rel_otp_app_overwrite.escript "${releases_dir}" "${PROFILE}" "${PKG_VSN}" "${RELX_BASE_VERSIONS}"
+    fi
     ./rebar3 as "$PROFILE" relup --relname emqx --relvsn "${PKG_VSN}"
 }
 
