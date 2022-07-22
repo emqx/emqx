@@ -509,8 +509,9 @@ t_handle_timeout_emit_stats(_) ->
 t_ensure_rate_limit(_) ->
     {ok, Rate} = emqx_limiter_schema:to_rate("50MB"),
     Limiter = init_limiter(#{
-        bytes_in => make_limiter_cfg(Rate),
-        message_in => make_limiter_cfg()
+        bytes_in => bucket_cfg(),
+        message_in => bucket_cfg(),
+        client => #{bytes_in => client_cfg(Rate)}
     }),
     St = st(#{limiter => Limiter}),
 
@@ -698,28 +699,32 @@ init_limiter(LimiterCfg) ->
     emqx_limiter_container:get_limiter_by_types(?LIMITER_ID, [bytes_in, message_in], LimiterCfg).
 
 limiter_cfg() ->
-    Cfg = make_limiter_cfg(),
-    #{bytes_in => Cfg, message_in => Cfg}.
+    Cfg = bucket_cfg(),
+    Client = client_cfg(),
+    #{bytes_in => Cfg, message_in => Cfg, client => #{bytes_in => Client, message_in => Client}}.
 
-make_limiter_cfg() ->
+client_cfg() ->
     Infinity = emqx_limiter_schema:infinity_value(),
-    make_limiter_cfg(Infinity).
+    client_cfg(Infinity).
 
-make_limiter_cfg(ClientRate) ->
+client_cfg(Rate) ->
     Infinity = emqx_limiter_schema:infinity_value(),
-    Client = #{
-        rate => ClientRate,
+    #{
+        rate => Rate,
         initial => 0,
         capacity => Infinity,
         low_watermark => 1,
         divisible => false,
         max_retry_time => timer:seconds(5),
         failure_strategy => force
-    },
-    #{client => Client, rate => Infinity, initial => 0, capacity => Infinity}.
+    }.
+
+bucket_cfg() ->
+    Infinity = emqx_limiter_schema:infinity_value(),
+    #{rate => Infinity, initial => 0, capacity => Infinity}.
 
 add_bucket() ->
-    Cfg = make_limiter_cfg(),
+    Cfg = bucket_cfg(),
     emqx_limiter_server:add_bucket(?LIMITER_ID, bytes_in, Cfg),
     emqx_limiter_server:add_bucket(?LIMITER_ID, message_in, Cfg).
 

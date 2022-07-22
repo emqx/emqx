@@ -310,8 +310,8 @@ t_capacity(_) ->
 %% Test Cases Global Level
 %%--------------------------------------------------------------------
 t_collaborative_alloc(_) ->
-    GlobalMod = fun(Cfg) ->
-        Cfg#{rate := ?RATE("600/1s")}
+    GlobalMod = fun(#{message_routing := MR} = Cfg) ->
+        Cfg#{message_routing := MR#{rate := ?RATE("600/1s")}}
     end,
 
     Bucket1 = fun(#{client := Cli} = Bucket) ->
@@ -350,10 +350,12 @@ t_collaborative_alloc(_) ->
     ).
 
 t_burst(_) ->
-    GlobalMod = fun(Cfg) ->
+    GlobalMod = fun(#{message_routing := MR} = Cfg) ->
         Cfg#{
-            rate := ?RATE("200/1s"),
-            burst := ?RATE("400/1s")
+            message_routing := MR#{
+                rate := ?RATE("200/1s"),
+                burst := ?RATE("400/1s")
+            }
         }
     end,
 
@@ -391,8 +393,8 @@ t_burst(_) ->
     ).
 
 t_limit_global_with_unlimit_other(_) ->
-    GlobalMod = fun(Cfg) ->
-        Cfg#{rate := ?RATE("600/1s")}
+    GlobalMod = fun(#{message_routing := MR} = Cfg) ->
+        Cfg#{message_routing := MR#{rate := ?RATE("600/1s")}}
     end,
 
     Bucket = fun(#{client := Cli} = Bucket) ->
@@ -433,11 +435,11 @@ t_check_container(_) ->
             capacity := 1000
         }
     end,
-    Case = fun(BucketCfg) ->
+    Case = fun(#{client := Client} = BucketCfg) ->
         C1 = emqx_limiter_container:get_limiter_by_types(
             ?MODULE,
             [message_routing],
-            #{message_routing => BucketCfg}
+            #{message_routing => BucketCfg, client => #{message_routing => Client}}
         ),
         {ok, C2} = emqx_limiter_container:check(1000, message_routing, C1),
         {pause, Pause, C3} = emqx_limiter_container:check(1000, message_routing, C2),
@@ -455,8 +457,8 @@ t_check_container(_) ->
 %%--------------------------------------------------------------------
 t_bucket_no_client(_) ->
     Rate = ?RATE("1/s"),
-    GlobalMod = fun(#{client := Client} = Cfg) ->
-        Cfg#{client := Client#{rate := Rate}}
+    GlobalMod = fun(#{client := #{message_routing := MR} = Client} = Cfg) ->
+        Cfg#{client := Client#{message_routing := MR#{rate := Rate}}}
     end,
     BucketMod = fun(Bucket) ->
         maps:remove(client, Bucket)
@@ -470,8 +472,8 @@ t_bucket_no_client(_) ->
 t_bucket_client(_) ->
     GlobalRate = ?RATE("1/s"),
     BucketRate = ?RATE("10/s"),
-    GlobalMod = fun(#{client := Client} = Cfg) ->
-        Cfg#{client := Client#{rate := GlobalRate}}
+    GlobalMod = fun(#{client := #{message_routing := MR} = Client} = Cfg) ->
+        Cfg#{client := Client#{message_routing := MR#{rate := GlobalRate}}}
     end,
     BucketMod = fun(#{client := Client} = Bucket) ->
         Bucket#{client := Client#{rate := BucketRate}}
@@ -682,7 +684,7 @@ to_rate(Str) ->
     Rate.
 
 with_global(Modifier, Buckets, Case) ->
-    with_config([limiter, message_routing], Modifier, Buckets, Case).
+    with_config([limiter], Modifier, Buckets, Case).
 
 with_bucket(Modifier, Case) ->
     Cfg = Modifier(make_limiter_cfg()),

@@ -538,13 +538,13 @@ zone(Opts) ->
 limiter(Opts) ->
     maps:get(limiter, Opts, #{}).
 
-add_limiter_bucket(Id, #{limiter := Limiters}) ->
+add_limiter_bucket(Id, #{limiter := Limiter}) ->
     maps:fold(
         fun(Type, Cfg, _) ->
             emqx_limiter_server:add_bucket(Id, Type, Cfg)
         end,
         ok,
-        Limiters
+        maps:without([client], Limiter)
     );
 add_limiter_bucket(_Id, _Cfg) ->
     ok.

@@ -124,19 +124,22 @@ connect(Id, Type, Cfg) ->
             #{
                 rate := BucketRate,
                 capacity := BucketSize
-            } = BucketCfg,
+            },
             #{rate := CliRate, capacity := CliSize} = ClientCfg
         } ->
-            {ok,
-                if
-                    CliRate < BucketRate orelse CliSize < BucketSize ->
-                        emqx_htb_limiter:make_token_bucket_limiter(ClientCfg, BucketCfg);
-                    true ->
-                        emqx_htb_limiter:make_ref_limiter(ClientCfg, BucketCfg)
-                end};
-        undefined ->
-            ?SLOG(error, #{msg => "bucket_not_found", type => Type, id => Id}),
-            {error, invalid_bucket}
+            case emqx_limiter_manager:find_bucket(Id, Type) of
+                {ok, Bucket} ->
+                    {ok,
+                        if
+                            CliRate < BucketRate orelse CliSize < BucketSize ->
+                                emqx_htb_limiter:make_token_bucket_limiter(ClientCfg, Bucket);
+                            true ->
+                                emqx_htb_limiter:make_ref_limiter(ClientCfg, Bucket)
+                        end};
+                undefined ->
+                    ?SLOG(error, #{msg => "bucket_not_found", type => Type, id => Id}),
+                    {error, invalid_bucket}
+            end
     end.
 
 -spec add_bucket(limiter_id(), limiter_type(), hocons:config() | undefined) -> ok.
@@ -523,7 +526,7 @@ make_bucket(
     _ = put_to_counter(Counter, NewIndex, Initial),
     Ref = emqx_limiter_bucket_ref:new(Counter, NewIndex, Rate),
     emqx_limiter_manager:insert_bucket(Id, Type, Ref),
-    State#{buckets := Buckets#{Id => Bucket}}.
+    State#{buckets := Buckets#{Id => Bucket}, index := NewIndex}.
 
 do_del_bucket(Id, #{type := Type, buckets := Buckets} = State) ->
     case maps:get(Id, Buckets, undefined) of
@@ -568,7 +571,7 @@ find_limiter_cfg(Type, #{rate := _} = Cfg) ->
     {Cfg, find_client_cfg(Type, maps:get(client, Cfg, undefined))};
 find_limiter_cfg(Type, Cfg) ->
     {
-        maps:get(Type, Cfg),
+        maps:get(Type, Cfg, undefined),
         find_client_cfg(Type, emqx_map_lib:deep_get([client, Type], Cfg, undefined))
     }.
 

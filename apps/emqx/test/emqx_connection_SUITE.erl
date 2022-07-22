@@ -708,11 +708,8 @@ init_limiter() ->
     emqx_limiter_container:get_limiter_by_types(?LIMITER_ID, [bytes_in, message_in], limiter_cfg()).
 
 limiter_cfg() ->
-    Cfg = make_limiter_cfg(),
-    #{bytes_in => Cfg, message_in => Cfg}.
-
-make_limiter_cfg() ->
     Infinity = emqx_limiter_schema:infinity_value(),
+    Cfg = bucket_cfg(),
     Client = #{
         rate => Infinity,
         initial => 0,
@@ -722,10 +719,14 @@ make_limiter_cfg() ->
         max_retry_time => timer:seconds(5),
         failure_strategy => force
     },
-    #{client => Client, rate => Infinity, initial => 0, capacity => Infinity}.
+    #{bytes_in => Cfg, message_in => Cfg, client => #{bytes_in => Client, message_in => Client}}.
+
+bucket_cfg() ->
+    Infinity = emqx_limiter_schema:infinity_value(),
+    #{rate => Infinity, initial => 0, capacity => Infinity}.
 
 add_bucket() ->
-    Cfg = make_limiter_cfg(),
+    Cfg = bucket_cfg(),
     emqx_limiter_server:add_bucket(?LIMITER_ID, bytes_in, Cfg),
     emqx_limiter_server:add_bucket(?LIMITER_ID, message_in, Cfg).
 

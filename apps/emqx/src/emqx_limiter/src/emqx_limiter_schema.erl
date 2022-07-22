@@ -102,7 +102,10 @@ fields(limiter) ->
                     ?R_REF(client_fields),
                     #{
                         desc => ?DESC(client),
-                        default => #{}
+                        default => maps:from_list([
+                            {erlang:atom_to_binary(Type), #{}}
+                         || Type <- types()
+                        ])
                     }
                 )}
         ];

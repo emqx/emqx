@@ -1205,9 +1205,7 @@ session(InitFields) when is_map(InitFields) ->
 quota() ->
     emqx_limiter_container:get_limiter_by_types(?MODULE, [message_routing], limiter_cfg()).
 
-limiter_cfg() -> #{message_routing => make_limiter_cfg()}.
-
-make_limiter_cfg() ->
+limiter_cfg() ->
     Client = #{
         rate => 5,
         initial => 0,
@@ -1217,10 +1215,16 @@ make_limiter_cfg() ->
         max_retry_time => timer:seconds(5),
         failure_strategy => force
     },
-    #{client => Client, rate => 10, initial => 0, capacity => 10}.
+    #{
+        message_routing => bucket_cfg(),
+        client => #{message_routing => Client}
+    }.
+
+bucket_cfg() ->
+    #{rate => 10, initial => 0, capacity => 10}.
 
 add_bucket() ->
-    emqx_limiter_server:add_bucket(?MODULE, message_routing, make_limiter_cfg()).
+    emqx_limiter_server:add_bucket(?MODULE, message_routing, bucket_cfg()).
 
 del_bucket() ->
     emqx_limiter_server:del_bucket(?MODULE, message_routing).
