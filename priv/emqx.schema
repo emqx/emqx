@@ -1595,6 +1595,10 @@ end}.
   {datatype, {enum, [cn, dn, crt, pem, md5]}}
 ]}.
 
+{mapping, "listener.ssl.$name.log_level", "emqx.listeners", [
+  {datatype, {enum, [emergency, alert, critical, error, warning, notice, info, debug, none, all]}}
+]}.
+
 %%--------------------------------------------------------------------
 %% MQTT/WebSocket Listeners
 
@@ -2047,6 +2051,10 @@ end}.
   hidden
 ]}.
 
+{mapping, "listener.wss.$name.log_level", "emqx.listeners", [
+  {datatype, {enum, [emergency, alert, critical, error, warning, notice, info, debug, none, all]}}
+]}.
+
 {translation, "emqx.listeners", fun(Conf) ->
 
     Filter  = fun(Opts) -> [{K, V} || {K, V} <- Opts, V =/= undefined] end,
@@ -2117,7 +2125,9 @@ end}.
                           {mqtt_piggyback, cuttlefish:conf_get(Prefix ++ ".mqtt_piggyback", Conf, undefined)},
                           {check_origin_enable, cuttlefish:conf_get(Prefix ++ ".check_origin_enable", Conf, undefined)},
                           {allow_origin_absence, cuttlefish:conf_get(Prefix ++ ".allow_origin_absence", Conf, undefined)},
-                          {check_origins, WsOpts(Prefix)} | AccOpts(Prefix)])
+                          {check_origins, WsOpts(Prefix)}
+                         | AccOpts(Prefix)
+                         ])
               end,
     DeflateOpts = fun(Prefix) ->
                       Filter([{level, cuttlefish:conf_get(Prefix ++ ".deflate_opts.level", Conf, undefined)},
@@ -2210,7 +2220,9 @@ end}.
                           {fail_if_no_peer_cert, cuttlefish:conf_get(Prefix ++ ".fail_if_no_peer_cert", Conf, undefined)},
                           {secure_renegotiate, cuttlefish:conf_get(Prefix ++ ".secure_renegotiate", Conf, undefined)},
                           {reuse_sessions, cuttlefish:conf_get(Prefix ++ ".reuse_sessions", Conf, undefined)},
-                          {honor_cipher_order, cuttlefish:conf_get(Prefix ++ ".honor_cipher_order", Conf, undefined)}])
+                          {honor_cipher_order, cuttlefish:conf_get(Prefix ++ ".honor_cipher_order", Conf, undefined)},
+                          {log_level, cuttlefish:conf_get(Prefix ++ ".log_level", Conf, undefined)}
+                         ])
               end,
 
     Listen_fix = fun({Ip, Port}) -> case inet:parse_address(Ip) of
