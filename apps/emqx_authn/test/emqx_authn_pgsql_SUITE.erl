@@ -399,7 +399,8 @@ user_seeds() ->
                 <<"query">> =>
                     <<
                         "SELECT password_hash, salt, is_superuser_int as is_superuser\n"
-                        "      FROM users where cert_subject = ${cert_subject} AND cert_common_name = ${cert_common_name} LIMIT 1"
+                        "      FROM users where cert_subject = ${cert_subject} AND \n"
+                        "                       cert_common_name = ${cert_common_name} LIMIT 1"
                     >>,
                 <<"password_hash_algorithm">> => #{
                     <<"name">> => <<"sha256">>,
@@ -518,12 +519,21 @@ init_seeds() ->
     ).
 
 create_user(Values) ->
-    Fields = [username, password_hash, salt, is_superuser_str, is_superuser_int, is_superuser_bool],
+    Fields = [
+        username,
+        password_hash,
+        salt,
+        cert_subject,
+        cert_common_name,
+        is_superuser_str,
+        is_superuser_int,
+        is_superuser_bool
+    ],
 
     InsertQuery =
-        "INSERT INTO users(username, password_hash, salt,"
+        "INSERT INTO users(username, password_hash, salt, cert_subject, cert_common_name, "
         "is_superuser_str, is_superuser_int, is_superuser_bool) "
-        "VALUES($1, $2, $3, $4, $5, $6)",
+        "VALUES($1, $2, $3, $4, $5, $6, $7, $8)",
 
     Params = [maps:get(F, Values, null) || F <- Fields],
     {ok, 1} = q(InsertQuery, Params),

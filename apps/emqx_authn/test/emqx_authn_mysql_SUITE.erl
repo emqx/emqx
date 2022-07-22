@@ -337,7 +337,8 @@ user_seeds() ->
                 <<"query">> =>
                     <<
                         "SELECT password_hash, salt, is_superuser_int as is_superuser\n"
-                        "   FROM users where cert_subject = ${cert_subject} AND cert_common_name = ${cert_common_name} LIMIT 1"
+                        "   FROM users where cert_subject = ${cert_subject} AND \n"
+                        "                    cert_common_name = ${cert_common_name} LIMIT 1"
                     >>,
                 <<"password_hash_algorithm">> => #{
                     <<"name">> => <<"sha256">>,
@@ -468,10 +469,18 @@ init_seeds() ->
         "                       is_superuser_int TINYINT)"
     ),
 
-    Fields = [username, password_hash, salt, is_superuser_str, is_superuser_int],
+    Fields = [
+        username,
+        password_hash,
+        salt,
+        cert_subject,
+        cert_common_name,
+        is_superuser_str,
+        is_superuser_int
+    ],
     InsertQuery =
-        "INSERT INTO users(username, password_hash, salt, "
-        " is_superuser_str, is_superuser_int) VALUES(?, ?, ?, ?, ?)",
+        "INSERT INTO users(username, password_hash, salt, cert_subject, cert_common_name,"
+        " is_superuser_str, is_superuser_int) VALUES(?, ?, ?, ?, ?, ?, ?)",
 
     lists:foreach(
         fun(#{data := Values}) ->
