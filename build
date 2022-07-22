@@ -103,6 +103,21 @@ make_relup() {
         scripts/emqx_rel_otp_app_overwrite.escript "${releases_dir}" "${PROFILE}" "${PKG_VSN}" "${RELX_BASE_VERSIONS}"
     fi
     ./rebar3 as "$PROFILE" relup --relname emqx --relvsn "${PKG_VSN}"
+
+    # rollback relup
+    #
+    if [[ ${PKG_VSN} == 4.3* ]]; then
+        echo "restore upgrade base rel files... "
+        for rel in ${releases[*]};
+        do
+            bakfile="${releases_dir}/${rel}/${PROFILE}.rel.bak"
+            echo "restore $bakfile ..."
+            if [ -f "$bakfile" ]; then
+                echo "restore from $bakfile"
+                mv "${bakfile}" "${bakfile%.bak}"
+            fi
+        done
+    fi
 }
 
 cp_dyn_libs() {
