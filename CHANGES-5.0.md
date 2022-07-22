@@ -14,6 +14,7 @@
 * Fix AuthN JWKS SSL schema. Using schema in `emqx_schema`. [#8458](https://github.com/emqx/emqx/pull/8458)
 * `sentinel` field should be required when AuthN/AuthZ Redis using sentinel mode. [#8458](https://github.com/emqx/emqx/pull/8458)
 * Fix bad swagger format. [#8517](https://github.com/emqx/emqx/pull/8517)
+* Ensuring that exhook dispatches the client events are sequential. [#8530](https://github.com/emqx/emqx/pull/8530)
 
 ## Enhancements
 
