@@ -101,7 +101,7 @@ if [ "$GIT_EXACT_VSN" != '' ]; then
     fi
     SUFFIX=''
 else
-    SUFFIX="-$(git rev-parse HEAD | cut -b1-8)"
+    SUFFIX="-g$(git rev-parse HEAD | cut -b1-8)"
 fi
 
 PKG_VSN="${PKG_VSN:-${RELEASE}${SUFFIX}}"
