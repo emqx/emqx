@@ -133,7 +133,6 @@ jobs:
         - 24.2.1-1
         macos:
         - macos-11
-        - macos-10.15
 
     runs-on: ${{ matrix.macos }}
 

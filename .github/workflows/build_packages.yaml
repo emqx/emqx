@@ -143,7 +143,6 @@ jobs:
           - 24.2.1-1
         os:
           - macos-11
-          - macos-10.15
     runs-on: ${{ matrix.os }}
     steps:
     - uses: actions/download-artifact@v2
