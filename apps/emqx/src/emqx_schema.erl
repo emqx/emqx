@@ -2113,9 +2113,13 @@ to_comma_separated_atoms(Str) ->
 to_bar_separated_list(Str) ->
     {ok, string:tokens(Str, "| ")}.
 
+%% @doc support the following format:
+%%  - 127.0.0.1:1883
+%%  - ::1:1883
+%%  - [::1]:1883
 to_ip_port(Str) ->
-    case string:tokens(Str, ": ") of
-        [Ip, Port] ->
+    case split_ip_port(Str) of
+        {Ip, Port} ->
             PortVal = list_to_integer(Port),
             case inet:parse_address(Ip) of
                 {ok, R} ->
@@ -2131,6 +2135,25 @@ to_ip_port(Str) ->
             end;
         _ ->
             {error, Str}
+    end.
+
+split_ip_port(Str) ->
+    case lists:split(string:rchr(Str, $:), Str) of
+        %% no port
+        {[], Str} ->
+            error;
+        {IpPlusColon, PortString} ->
+            IpStr0 = lists:droplast(IpPlusColon),
+            case IpStr0 of
+                %% dropp head/tail brackets
+                [$[ | S] ->
+                    case lists:last(S) of
+                        $] -> {lists:droplast(S), PortString};
+                        _ -> error
+                    end;
+                _ ->
+                    {IpStr0, PortString}
+            end
     end.
 
 to_erl_cipher_suite(Str) ->
