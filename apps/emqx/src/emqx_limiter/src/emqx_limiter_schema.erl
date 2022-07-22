@@ -32,8 +32,7 @@
     desc/1,
     types/0,
     infinity_value/0,
-    bucket_opts/0,
-    bucket_opts_meta/0
+    bucket_fields/1
 ]).
 
 -define(KILOBYTE, 1024).
@@ -96,7 +95,17 @@ fields(limiter) ->
                 default => make_limiter_default(Type)
             })}
      || Type <- types()
-    ];
+    ] ++
+        [
+            {client,
+                ?HOCON(
+                    ?R_REF(client_fields),
+                    #{
+                        desc => ?DESC(client),
+                        default => #{}
+                    }
+                )}
+        ];
 fields(node_opts) ->
     [
         {rate, ?HOCON(rate(), #{desc => ?DESC(rate), default => "infinity"})},
@@ -104,15 +113,22 @@ fields(node_opts) ->
             ?HOCON(burst_rate(), #{
                 desc => ?DESC(burst),
                 default => 0
-            })},
-        {client, ?HOCON(?R_REF(client_opts), #{default => #{}})}
+            })}
+    ];
+fields(client_fields) ->
+    [
+        {Type,
+            ?HOCON(?R_REF(client_opts), #{
+                desc => ?DESC(Type),
+                default => #{}
+            })}
+     || Type <- types()
     ];
 fields(bucket_opts) ->
     [
         {rate, ?HOCON(rate(), #{desc => ?DESC(rate), default => "infinity"})},
         {capacity, ?HOCON(capacity(), #{desc => ?DESC(capacity), default => "infinity"})},
-        {initial, ?HOCON(initial(), #{default => "0", desc => ?DESC(initial)})},
-        {client, ?HOCON(?R_REF(client_opts), #{required => false})}
+        {initial, ?HOCON(initial(), #{default => "0", desc => ?DESC(initial)})}
     ];
 fields(client_opts) ->
     [
@@ -159,14 +175,23 @@ fields(client_opts) ->
                     default => force
                 }
             )}
-    ].
+    ];
+fields({client_fields, Types}) ->
+    [
+        {Type,
+            ?HOCON(?R_REF(client_opts), #{
+                desc => ?DESC(Type),
+                required => false
+            })}
+     || Type <- Types
+    ];
+fields({bucket_fields, Types}) ->
+    bucket_fields(Types).
 
 desc(limiter) ->
     "Settings for the rate limiter.";
 desc(node_opts) ->
     "Settings for the limiter of the node level.";
-desc(node_client_opts) ->
-    "Settings for the client in the node level.";
 desc(bucket_opts) ->
     "Settings for the bucket.";
 desc(client_opts) ->
@@ -174,23 +199,37 @@ desc(client_opts) ->
 desc(_) ->
     undefined.
 
-bucket_opts() ->
-    ?HOCON(
-        ?MAP("bucket_name", ?R_REF(bucket_opts)),
-        bucket_opts_meta()
-    ).
-
-bucket_opts_meta() ->
-    #{
-        default => #{},
-        example =>
-            #{
-                <<"rate">> => <<"infinity">>,
-                <<"capcity">> => <<"infinity">>,
-                <<"initial">> => <<"100">>,
-                <<"client">> => #{<<"rate">> => <<"infinity">>}
-            }
-    }.
+bucket_fields(Type) when is_atom(Type) ->
+    fields(bucket_opts) ++
+        [
+            {client,
+                ?HOCON(
+                    ?R_REF(?MODULE, client_opts),
+                    #{
+                        desc => ?DESC(client),
+                        required => false
+                    }
+                )}
+        ];
+bucket_fields(Types) ->
+    [
+        {Type,
+            ?HOCON(?R_REF(?MODULE, bucket_opts), #{
+                desc => ?DESC(?MODULE, Type),
+                required => false
+            })}
+     || Type <- Types
+    ] ++
+        [
+            {client,
+                ?HOCON(
+                    ?R_REF(?MODULE, {client_fields, Types}),
+                    #{
+                        desc => ?DESC(client),
+                        required => false
+                    }
+                )}
+        ].
 
 %% default period is 100ms
 default_period() ->
