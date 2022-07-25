@@ -5,7 +5,8 @@
     {mod, {emqx_ee_connector_app, []}},
     {applications, [
         kernel,
-        stdlib
+        stdlib,
+        hstreamdb_erl
     ]},
     {env, []},
     {modules, []},

@@ -163,7 +163,7 @@ bridge_info_examples(Method) ->
     }).
 
 conn_bridge_examples(Method) ->
-    lists:foldl(
+    Fun =
         fun(Type, Acc) ->
             SType = atom_to_list(Type),
             KeyIngress = bin(SType ++ "_ingress"),
@@ -179,9 +179,17 @@ conn_bridge_examples(Method) ->
                 }
             })
         end,
-        #{},
-        ?CONN_TYPES
-    ).
+    Broker = lists:foldl(Fun, #{}, ?CONN_TYPES),
+    EE = ee_conn_bridge_examples(Method),
+    maps:merge(Broker, EE).
+
+-ifdef(EMQX_RELEASE_EDITION).
+ee_conn_bridge_examples(Method) ->
+    emqx_ee_bridge:conn_bridge_examples(Method).
+-else.
+ee_conn_bridge_examples(_Method) ->
+    #{}.
+-endif.
 
 info_example(Type, Direction, Method) ->
     maps:merge(

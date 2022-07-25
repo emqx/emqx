@@ -42,10 +42,18 @@
     reset_metrics/1
 ]).
 
+-ifdef(EMQX_RELEASE_EDITION).
+bridge_to_resource_type(<<"mqtt">>) -> emqx_connector_mqtt;
+bridge_to_resource_type(mqtt) -> emqx_connector_mqtt;
+bridge_to_resource_type(<<"webhook">>) -> emqx_connector_http;
+bridge_to_resource_type(webhook) -> emqx_connector_http;
+bridge_to_resource_type(BridgeType) -> emqx_ee_bridge:resource_type(BridgeType).
+-else.
 bridge_to_resource_type(<<"mqtt">>) -> emqx_connector_mqtt;
 bridge_to_resource_type(mqtt) -> emqx_connector_mqtt;
 bridge_to_resource_type(<<"webhook">>) -> emqx_connector_http;
 bridge_to_resource_type(webhook) -> emqx_connector_http.
+-endif.
 
 resource_id(BridgeId) when is_binary(BridgeId) ->
     <<"bridge:", BridgeId/binary>>.
@@ -254,7 +262,7 @@ parse_confs(
                 request_timeout => ReqTimeout
             }
     };
-parse_confs(Type, Name, #{connector := ConnId, direction := Direction} = Conf) when
+parse_confs(Type = mqtt, Name, #{connector := ConnId, direction := Direction} = Conf) when
     is_binary(ConnId)
 ->
     case emqx_connector:parse_connector_id(ConnId) of
@@ -270,7 +278,7 @@ parse_confs(Type, Name, #{connector := ConnId, direction := Direction} = Conf) w
         {_ConnType, _ConnName} ->
             error({cannot_use_connector_with_different_type, ConnId})
     end;
-parse_confs(Type, Name, #{connector := ConnectorConfs, direction := Direction} = Conf) when
+parse_confs(Type = mqtt, Name, #{connector := ConnectorConfs, direction := Direction} = Conf) when
     is_map(ConnectorConfs)
 ->
     make_resource_confs(
@@ -279,7 +287,17 @@ parse_confs(Type, Name, #{connector := ConnectorConfs, direction := Direction} =
         maps:without([connector, direction], Conf),
         Type,
         Name
-    ).
+    );
+parse_confs(Type, Name, Conf) ->
+    parse_enterprise_confs(Type, Name, Conf).
+
+-ifdef(EMQX_RELEASE_EDITION).
+parse_enterprise_confs(Type, Name, Conf) ->
+    emqx_ee_bridge:parse_conf(Type, Name, Conf).
+-else.
+parse_enterprise_confs(Type, Name, Conf) ->
+    error({not_supported, Type, Name}).
+-endif.
 
 make_resource_confs(ingress, ConnectorConfs, BridgeConf, Type, Name) ->
     BName = bridge_id(Type, Name),

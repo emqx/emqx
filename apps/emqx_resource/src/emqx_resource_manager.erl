@@ -214,7 +214,7 @@ get_metrics(ResId) ->
 reset_metrics(ResId) ->
     emqx_metrics_worker:reset_metrics(resource_metrics, ResId).
 
-%% @doc Returns the data for all resorces
+%% @doc Returns the data for all resources
 -spec list_all() -> [resource_data()] | [].
 list_all() ->
     try

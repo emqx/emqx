@@ -133,7 +133,7 @@ fields(bridges) ->
                     #{desc => ?DESC("bridges_name")}
                 )}
          || T <- ?CONN_TYPES
-        ];
+        ] ++ ee_fields_bridges();
 fields("metrics") ->
     [
         {"matched", mk(integer(), #{desc => ?DESC("metric_matched")})},
@@ -157,6 +157,14 @@ fields("node_status") ->
         node_name(),
         {"status", mk(status(), #{})}
     ].
+
+-ifdef(EMQX_RELEASE_EDITION).
+ee_fields_bridges() ->
+    emqx_ee_bridge:fields(bridges).
+-else.
+ee_fields_bridges() ->
+    [].
+-endif.
 
 desc(bridges) ->
     ?DESC("desc_bridges");

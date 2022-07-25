@@ -5,18 +5,53 @@
 
 -include_lib("typerefl/include/types.hrl").
 -include_lib("hocon/include/hoconsc.hrl").
+-include("emqx_ee_bridge.hrl").
 
 -import(hoconsc, [mk/2, enum/1]).
 
 -export([
+    conn_bridge_example/1
+]).
+
+-export([
+    namespace/0,
     roots/0,
     fields/1,
     desc/1
 ]).
 
-%%======================================================================================
+%% -------------------------------------------------------------------------------------------------
+%% api
+
+conn_bridge_example(Method) ->
+    #{
+        <<"hstream">> => #{
+            summary => <<"HStreamDB Bridge">>,
+            value => values(Method)
+        }
+    }.
+
+values(get) ->
+    maps:merge(values(post), ?METRICS_EXAMPLE);
+values(post) ->
+    #{
+        type => hstream,
+        name => <<"hstream_bridge_demo">>,
+        url => <<"http://127.0.0.1:6570">>,
+        stream => <<"stream1">>,
+        ordering_key => <<"${topic}">>,
+        pool_size => 8,
+        enable => true,
+        direction => egress,
+        local_topic => <<"local/topic/#">>,
+        payload => <<"${payload}">>
+    };
+values(put) ->
+    values(post).
+
+%% -------------------------------------------------------------------------------------------------
 %% Hocon Schema Definitions
-% namespace() -> "bridge".
+namespace() -> "bridge".
 
 roots() -> [].
 
@@ -47,11 +82,10 @@ basic_config() ->
     ],
     emqx_ee_connector_hstream:fields(config) ++ Basic.
 
-%%======================================================================================
-
+%% -------------------------------------------------------------------------------------------------
+%% internal
 type_field() ->
-    % {type, mk(hstream, #{required => true, desc => ?DESC("desc_type")})}.
-    {type, mk(hstream, #{required => true, desc => <<"desc_type">>})}.
+    {type, mk(enum([hstream]), #{required => true, desc => ?DESC("desc_type")})}.
 
 name_field() ->
     {name, mk(binary(), #{required => true, desc => ?DESC("desc_name")})}.

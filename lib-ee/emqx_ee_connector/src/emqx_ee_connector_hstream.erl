@@ -51,7 +51,12 @@ on_query(_InstId, {OrderingKey, Payload, Record}, AfterQuery, #{producer := Prod
     do_append(AfterQuery, false, Producer, Record).
 
 on_get_status(_InstId, #{client := Client}) ->
-    is_alive(Client).
+    case is_alive(Client) of
+        true ->
+            connected;
+        false ->
+            disconnected
+    end.
 
 %% -------------------------------------------------------------------------------------------------
 %% hstream batch callback
@@ -71,15 +76,23 @@ roots() ->
 fields(config) ->
     [
         {url, mk(binary(), #{required => true, desc => ?DESC("url")})},
-        {stream, mk(binary(), #{required => true, desc => ?DESC("stream")})},
+        {stream, mk(binary(), #{required => true, desc => ?DESC("stream_name")})},
         {ordering_key, mk(binary(), #{required => true, desc => ?DESC("ordering_key")})},
         {pool_size, mk(pos_integer(), #{required => true, desc => ?DESC("pool_size")})}
     ].
 
 %% -------------------------------------------------------------------------------------------------
 %% internal functions
+start_client(InstId, Config) ->
+    try
+        do_start_client(InstId, Config)
+    catch
+        E:R:S ->
+            io:format("E:R:S ~p:~p ~n~p~n", [E, R, S]),
+            error(E)
+    end.
 
-start_client(InstId, Config = #{server := Server, pool_size := PoolSize}) ->
+do_start_client(InstId, Config = #{url := Server, pool_size := PoolSize}) ->
     ?SLOG(info, #{
         msg => "starting hstream connector: client",
         connector => InstId,
@@ -87,7 +100,7 @@ start_client(InstId, Config = #{server := Server, pool_size := PoolSize}) ->
     }),
     ClientName = client_name(InstId),
     ClientOptions = [
-        {url, Server},
+        {url, binary_to_list(Server)},
         {rpc_options, #{pool_size => PoolSize}}
     ],
     case hstreamdb:start_client(ClientName, ClientOptions) of
@@ -154,7 +167,7 @@ start_producer(InstId, Client, Options = #{stream := Stream, pool_size := PoolSi
                 msg => "hstream connector: producer started"
             }),
             EnableBatch = maps:get(enable_batch, Options, false),
-            #{client => Client, producer => Producer, enable_batch => EnableBatch};
+            {ok, #{client => Client, producer => Producer, enable_batch => EnableBatch}};
         {error, {already_started, Pid}} ->
             ?SLOG(info, #{
                 msg => "starting hstream connector: producer, find old producer. restart producer",

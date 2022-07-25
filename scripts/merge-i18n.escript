@@ -4,7 +4,7 @@
 
 main(_) ->
     BaseConf = <<"">>,
-    Cfgs = get_all_cfgs("apps/"),
+    Cfgs = get_all_cfgs("apps/") ++ get_all_cfgs("lib-ee/"),
     Conf = [merge(BaseConf, Cfgs),
             io_lib:nl()
             ],
