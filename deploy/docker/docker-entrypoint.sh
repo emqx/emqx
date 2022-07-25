@@ -16,22 +16,31 @@ shopt -s nullglob
 
 LOCAL_IP=$(hostname -i | grep -oE '((25[0-5]|(2[0-4]|1[0-9]|[1-9]|)[0-9])\.){3}(25[0-5]|(2[0-4]|1[0-9]|[1-9]|)[0-9])' | head -n 1)
 
-if [[ -z "$EMQX_NODE_NAME" ]]; then
-    EMQX_NAME="${EMQX_NAME:-emqx}"
-    if [[ -z "$EMQX_HOST" ]]; then
-        if [[ "$EMQX_CLUSTER__K8S__ADDRESS_TYPE" == "dns" ]] && [[ -n "$EMQX_CLUSTER__K8S__NAMESPACE" ]]; then
+export EMQX_NAME="${EMQX_NAME:-emqx}"
+
+if [[ -z "$EMQX_HOST" ]]; then
+    if [[ "$EMQX_CLUSTER__DISCOVERY_STRATEGY" == "dns" ]] && \
+        [[ "$EMQX_CLUSTER__DNS__RECORD_TYPE" == "srv" ]] && \
+        grep -q "$(hostname).$EMQX_CLUSTER__DNS__NAME" /etc/hosts; then
+            EMQX_HOST="$(hostname).$EMQX_CLUSTER__DNS__NAME"
+    elif [[ "$EMQX_CLUSTER__DISCOVERY_STRATEGY" == "k8s" ]] && \
+        [[ "$EMQX_CLUSTER__K8S__ADDRESS_TYPE" == "dns" ]] && \
+        [[ -n "$EMQX_CLUSTER__K8S__NAMESPACE" ]]; then
             EMQX_CLUSTER__K8S__SUFFIX=${EMQX_CLUSTER__K8S__SUFFIX:-"pod.cluster.local"}
             EMQX_HOST="${LOCAL_IP//./-}.$EMQX_CLUSTER__K8S__NAMESPACE.$EMQX_CLUSTER__K8S__SUFFIX"
-        elif [[ "$EMQX_CLUSTER__K8S__ADDRESS_TYPE" == 'hostname' ]] && [[ -n "$EMQX_CLUSTER__K8S__NAMESPACE" ]]; then
+    elif [[ "$EMQX_CLUSTER__DISCOVERY_STRATEGY" == "k8s" ]] && \
+        [[ "$EMQX_CLUSTER__K8S__ADDRESS_TYPE" == 'hostname' ]] && \
+        [[ -n "$EMQX_CLUSTER__K8S__NAMESPACE" ]]; then
             EMQX_CLUSTER__K8S__SUFFIX=${EMQX_CLUSTER__K8S__SUFFIX:-'svc.cluster.local'}
             EMQX_HOST=$(grep -h "^$LOCAL_IP" /etc/hosts | grep -o "$(hostname).*.$EMQX_CLUSTER__K8S__NAMESPACE.$EMQX_CLUSTER__K8S__SUFFIX")
-        else
-            EMQX_HOST="$LOCAL_IP"
-        fi
+    else
+        EMQX_HOST="$LOCAL_IP"
     fi
+    export EMQX_HOST
+fi
+
+if [[ -z "$EMQX_NODE_NAME" ]]; then
     export EMQX_NODE_NAME="$EMQX_NAME@$EMQX_HOST"
-    unset EMQX_NAME
-    unset EMQX_HOST
 fi
 
 # The default rpc port discovery 'stateless' is mostly for clusters
