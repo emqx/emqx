@@ -26,7 +26,7 @@
 
 -export([alarms/2]).
 
--define(TAGS, [<<"alarms">>]).
+-define(TAGS, [<<"Alarms">>]).
 
 %% internal export (for query)
 -export([query/4]).

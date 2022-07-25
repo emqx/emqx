@@ -29,15 +29,8 @@
 -define(NOT_FOUND, 'NOT_FOUND').
 
 % Swagger
-
--define(API_TAGS_GLOBAL, [
-    ?EMQX_AUTHENTICATION_CONFIG_ROOT_NAME_BINARY,
-    <<"authentication">>
-]).
--define(API_TAGS_SINGLE, [
-    ?EMQX_AUTHENTICATION_CONFIG_ROOT_NAME_BINARY,
-    <<"listener authentication">>
-]).
+-define(API_TAGS_GLOBAL, [<<"authentication">>]).
+-define(API_TAGS_SINGLE, [<<"listener authentication">>]).
 
 -export([
     api_spec/0,

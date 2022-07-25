@@ -48,7 +48,7 @@ schema(?PREFIX ++ "/request") ->
     #{
         operationId => request,
         post => #{
-            tags => [<<"coap">>],
+            tags => [<<"CoAP gateway">>],
             desc => ?DESC(send_coap_request),
             parameters => request_parameters(),
             requestBody => request_body(),

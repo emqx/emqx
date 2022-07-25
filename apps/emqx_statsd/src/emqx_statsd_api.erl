@@ -32,7 +32,7 @@
     schema/1
 ]).
 
--define(API_TAG_STATSD, [<<"monitor">>]).
+-define(API_TAG_STATSD, [<<"Monitor">>]).
 -define(SCHEMA_MODULE, emqx_statsd_schema).
 
 -define(INTERNAL_ERROR, 'INTERNAL_ERROR').

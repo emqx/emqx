@@ -34,7 +34,7 @@
 ]).
 
 -define(SCHEMA_MODULE, emqx_prometheus_schema).
--define(TAGS, [<<"monitor">>]).
+-define(TAGS, [<<"Monitor">>]).
 
 api_spec() ->
     emqx_dashboard_swagger:spec(?MODULE, #{check_schema => true}).
