@@ -2137,7 +2137,8 @@ to_ip_port(Str) ->
             {error, Str}
     end.
 
-split_ip_port(Str) ->
+split_ip_port(Str0) ->
+    Str = re:replace(Str0, " ", "", [{return, list}, global]),
     case lists:split(string:rchr(Str, $:), Str) of
         %% no port
         {[], Str} ->
