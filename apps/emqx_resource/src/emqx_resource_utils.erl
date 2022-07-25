@@ -14,17 +14,4 @@
 %% limitations under the License.
 %%--------------------------------------------------------------------
 
--define(SAFE_CALL(_EXP_),
-    ?SAFE_CALL(_EXP_, {error, {_EXCLASS_, _EXCPTION_, _ST_}})
-).
-
--define(SAFE_CALL(_EXP_, _EXP_ON_FAIL_),
-    fun() ->
-        try
-            (_EXP_)
-        catch
-            _EXCLASS_:_EXCPTION_:_ST_ ->
-                _EXP_ON_FAIL_
-        end
-    end()
-).
+-module(emqx_resource_utils).

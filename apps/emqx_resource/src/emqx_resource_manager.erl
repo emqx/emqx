@@ -109,9 +109,9 @@ create(MgrId, ResId, Group, ResourceType, Config, Opts) ->
     % The state machine will make the actual call to the callback/resource module after init
     ok = emqx_resource_manager_sup:ensure_child(MgrId, ResId, Group, ResourceType, Config, Opts),
     ok = emqx_metrics_worker:create_metrics(
-        resource_metrics,
+        ?RES_METRICS,
         ResId,
-        [matched, success, failed, exception],
+        [matched, success, failed, exception, resource_error],
         [matched]
     ),
     case maps:get(start_after_created, Opts, true) of
@@ -207,12 +207,12 @@ ets_lookup(ResId) ->
 
 %% @doc Get the metrics for the specified resource
 get_metrics(ResId) ->
-    emqx_metrics_worker:get_metrics(resource_metrics, ResId).
+    emqx_metrics_worker:get_metrics(?RES_METRICS, ResId).
 
 %% @doc Reset the metrics for the specified resource
 -spec reset_metrics(resource_id()) -> ok.
 reset_metrics(ResId) ->
-    emqx_metrics_worker:reset_metrics(resource_metrics, ResId).
+    emqx_metrics_worker:reset_metrics(?RES_METRICS, ResId).
 
 %% @doc Returns the data for all resources
 -spec list_all() -> [resource_data()] | [].
@@ -298,8 +298,7 @@ handle_event({call, From}, stop, stopped, _Data) ->
     {keep_state_and_data, [{reply, From, ok}]};
 handle_event({call, From}, stop, _State, Data) ->
     Result = stop_resource(Data),
-    UpdatedData = Data#data{status = disconnected},
-    {next_state, stopped, UpdatedData, [{reply, From, Result}]};
+    {next_state, stopped, Data, [{reply, From, Result}]};
 % Called when a resource is to be stopped and removed.
 handle_event({call, From}, {remove, ClearMetrics}, _State, Data) ->
     handle_remove_event(From, ClearMetrics, Data);
@@ -315,9 +314,10 @@ handle_event({call, From}, health_check, _State, Data) ->
     handle_manually_health_check(From, Data);
 % State: CONNECTING
 handle_event(enter, _OldState, connecting, Data) ->
+    UpdatedData = Data#data{status = connected},
     insert_cache(Data#data.id, Data#data.group, Data),
     Actions = [{state_timeout, 0, health_check}],
-    {keep_state_and_data, Actions};
+    {keep_state, UpdatedData, Actions};
 handle_event(internal, start_resource, connecting, Data) ->
     start_resource(Data, undefined);
 handle_event(state_timeout, health_check, connecting, Data) ->
@@ -326,22 +326,24 @@ handle_event(state_timeout, health_check, connecting, Data) ->
 %% The connected state is entered after a successful on_start/2 of the callback mod
 %% and successful health_checks
 handle_event(enter, _OldState, connected, Data) ->
-    insert_cache(Data#data.id, Data#data.group, Data),
+    UpdatedData = Data#data{status = connected},
+    insert_cache(Data#data.id, Data#data.group, UpdatedData),
     _ = emqx_alarm:deactivate(Data#data.id),
     Actions = [{state_timeout, ?HEALTHCHECK_INTERVAL, health_check}],
-    {next_state, connected, Data, Actions};
+    {next_state, connected, UpdatedData, Actions};
 handle_event(state_timeout, health_check, connected, Data) ->
     handle_connected_health_check(Data);
 %% State: DISCONNECTED
 handle_event(enter, _OldState, disconnected, Data) ->
-    insert_cache(Data#data.id, Data#data.group, Data),
-    handle_disconnected_state_enter(Data);
+    UpdatedData = Data#data{status = disconnected},
+    insert_cache(Data#data.id, Data#data.group, UpdatedData),
+    handle_disconnected_state_enter(UpdatedData);
 handle_event(state_timeout, auto_retry, disconnected, Data) ->
     start_resource(Data, undefined);
 %% State: STOPPED
 %% The stopped state is entered after the resource has been explicitly stopped
 handle_event(enter, _OldState, stopped, Data) ->
-    UpdatedData = Data#data{status = disconnected},
+    UpdatedData = Data#data{status = stopped},
     insert_cache(Data#data.id, Data#data.group, UpdatedData),
     {next_state, stopped, UpdatedData};
 % Ignore all other events
@@ -415,7 +417,7 @@ handle_disconnected_state_enter(Data) ->
 handle_remove_event(From, ClearMetrics, Data) ->
     stop_resource(Data),
     case ClearMetrics of
-        true -> ok = emqx_metrics_worker:clear_metrics(resource_metrics, Data#data.id);
+        true -> ok = emqx_metrics_worker:clear_metrics(?RES_METRICS, Data#data.id);
         false -> ok
     end,
     {stop_and_reply, normal, [{reply, From, ok}]}.
@@ -433,7 +435,7 @@ start_resource(Data, From) ->
             _ = maybe_alarm(disconnected, Data#data.id),
             %% Keep track of the error reason why the connection did not work
             %% so that the Reason can be returned when the verification call is made.
-            UpdatedData = Data#data{status = disconnected, error = Reason},
+            UpdatedData = Data#data{error = Reason},
             Actions = maybe_reply([], From, Err),
             {next_state, disconnected, UpdatedData, Actions}
     end.

@@ -54,3 +54,4 @@
 -type after_query_fun() :: {fun((...) -> ok), Args :: [term()]}.
 
 -define(TEST_ID_PREFIX, "_test_:").
+-define(RES_METRICS, resource_metrics).

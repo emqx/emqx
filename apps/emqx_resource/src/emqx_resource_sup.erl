@@ -15,6 +15,8 @@
 %%--------------------------------------------------------------------
 -module(emqx_resource_sup).
 
+-include("emqx_resource.hrl").
+
 -behaviour(supervisor).
 
 -export([start_link/0]).
@@ -29,7 +31,7 @@ start_link() ->
 
 init([]) ->
     SupFlags = #{strategy => one_for_one, intensity => 10, period => 10},
-    Metrics = emqx_metrics_worker:child_spec(resource_metrics),
+    Metrics = emqx_metrics_worker:child_spec(?RES_METRICS),
 
     ResourceManager =
         #{

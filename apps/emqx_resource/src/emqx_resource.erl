@@ -83,8 +83,7 @@
     stop/1,
     %% query the instance
     query/2,
-    %% query the instance with after_query()
-    query/3
+    query_async/3
 ]).
 
 %% Direct calls to the callback module
@@ -110,6 +109,8 @@
     generate_id/1,
     list_group_instances/1
 ]).
+
+-export([inc_metrics_funcs/1, inc_success/1, inc_failed/1]).
 
 -optional_callbacks([
     on_query/4,
@@ -150,16 +151,16 @@ is_resource_mod(Module) ->
 
 -spec query_success(after_query()) -> ok.
 query_success(undefined) -> ok;
-query_success({OnSucc, _}) -> apply_query_after_calls(OnSucc).
+query_success({OnSucc, _}) -> exec_query_after_calls(OnSucc).
 
 -spec query_failed(after_query()) -> ok.
 query_failed(undefined) -> ok;
-query_failed({_, OnFailed}) -> apply_query_after_calls(OnFailed).
+query_failed({_, OnFailed}) -> exec_query_after_calls(OnFailed).
 
-apply_query_after_calls(Funcs) ->
+exec_query_after_calls(Funcs) ->
     lists:foreach(
-        fun({Fun, Args}) ->
-            safe_apply(Fun, Args)
+        fun({Fun, Arg}) ->
+            emqx_resource_utils:safe_exec(Fun, Arg)
         end,
         Funcs
     ).
@@ -243,29 +244,12 @@ reset_metrics(ResId) ->
 %% =================================================================================
 -spec query(resource_id(), Request :: term()) -> Result :: term().
 query(ResId, Request) ->
-    query(ResId, Request, inc_metrics_funcs(ResId)).
+    emqx_resource_worker:query(ResId, Request).
 
-%% same to above, also defines what to do when the Module:on_query success or failed
-%% it is the duty of the Module to apply the `after_query()` functions.
--spec query(resource_id(), Request :: term(), after_query()) -> Result :: term().
-query(ResId, Request, AfterQuery) ->
-    case emqx_resource_manager:ets_lookup(ResId) of
-        {ok, _Group, #{mod := Mod, state := ResourceState, status := connected}} ->
-            %% the resource state is readonly to Module:on_query/4
-            %% and the `after_query()` functions should be thread safe
-            ok = emqx_metrics_worker:inc(resource_metrics, ResId, matched),
-            try
-                Mod:on_query(ResId, Request, AfterQuery, ResourceState)
-            catch
-                Err:Reason:ST ->
-                    emqx_metrics_worker:inc(resource_metrics, ResId, exception),
-                    erlang:raise(Err, Reason, ST)
-            end;
-        {ok, _Group, _Data} ->
-            query_error(not_connected, <<"resource not connected">>);
-        {error, not_found} ->
-            query_error(not_found, <<"resource not found">>)
-    end.
+-spec query_async(resource_id(), Request :: term(), emqx_resource_worker:reply_fun()) ->
+    ok.
+query_async(ResId, Request, ReplyFun) ->
+    emqx_resource_worker:query_async(ResId, Request, ReplyFun).
 
 -spec start(resource_id()) -> ok | {error, Reason :: term()}.
 start(ResId) ->
@@ -429,16 +413,16 @@ check_and_do(ResourceType, RawConfig, Do) when is_function(Do) ->
 
 %% =================================================================================
 
+inc_success(ResId) ->
+    emqx_metrics_worker:inc(?RES_METRICS, ResId, success).
+
+inc_failed(ResId) ->
+    emqx_metrics_worker:inc(?RES_METRICS, ResId, failed).
+
 filter_instances(Filter) ->
     [Id || #{id := Id, mod := Mod} <- list_instances_verbose(), Filter(Id, Mod)].
 
 inc_metrics_funcs(ResId) ->
-    OnFailed = [{fun emqx_metrics_worker:inc/3, [resource_metrics, ResId, failed]}],
-    OnSucc = [{fun emqx_metrics_worker:inc/3, [resource_metrics, ResId, success]}],
+    OnSucc = [{fun ?MODULE:inc_success/1, ResId}],
+    OnFailed = [{fun ?MODULE:inc_failed/1, ResId}],
     {OnSucc, OnFailed}.
-
-safe_apply(Func, Args) ->
-    ?SAFE_CALL(erlang:apply(Func, Args)).
-
-query_error(Reason, Msg) ->
-    {error, {?MODULE, #{reason => Reason, msg => Msg}}}.
