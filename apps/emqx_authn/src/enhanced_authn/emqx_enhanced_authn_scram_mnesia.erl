@@ -331,7 +331,10 @@ check_client_first_message(Bin, _Cache, #{iteration_count := IterationCount} = S
             {continue, ServerFirstMessage, Cache};
         ignore ->
             ignore;
-        {error, _Reason} ->
+        {error, Reason} ->
+            ?TRACE_AUTHN_PROVIDER("check_client_first_message_error", #{
+                reason => Reason
+            }),
             {error, not_authorized}
     end.
 
@@ -344,7 +347,10 @@ check_client_final_message(Bin, #{is_superuser := IsSuperuser} = Cache, #{algori
     of
         {ok, ServerFinalMessage} ->
             {ok, #{is_superuser => IsSuperuser}, ServerFinalMessage};
-        {error, _Reason} ->
+        {error, Reason} ->
+            ?TRACE_AUTHN_PROVIDER("check_client_final_message_error", #{
+                reason => Reason
+            }),
             {error, not_authorized}
     end.
 

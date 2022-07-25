@@ -92,14 +92,15 @@ unsubscribe(<<"$SYS/", _/binary>>, _SubOpts) ->
 unsubscribe(Topic, SubOpts) ->
     ?TRACE("UNSUBSCRIBE", "unsubscribe", #{topic => Topic, sub_opts => SubOpts}).
 
-log(List, Msg, Meta0) ->
-    Meta =
-        case logger:get_process_metadata() of
-            undefined -> Meta0;
-            ProcMeta -> maps:merge(ProcMeta, Meta0)
-        end,
-    Log = #{level => debug, meta => Meta, msg => Msg},
+log(List, Msg, Meta) ->
+    Log = #{level => debug, meta => enrich_meta(Meta), msg => Msg},
     log_filter(List, Log).
+
+enrich_meta(Meta) ->
+    case logger:get_process_metadata() of
+        undefined -> Meta;
+        ProcMeta -> maps:merge(ProcMeta, Meta)
+    end.
 
 log_filter([], _Log) ->
     ok;

@@ -28,7 +28,8 @@
 * Improve the dashboard listener startup log, the listener name is no longer spliced with port information,
   and the colon(:) is no longer displayed when IP is not specified. [#8480](https://github.com/emqx/emqx/pull/8480)
 * Remove `/configs/listeners` API, use `/listeners/` instead. [#8485](https://github.com/emqx/emqx/pull/8485)
-* Optimize performance of builtin database operations in processes with long message queue [8439](https://github.com/emqx/emqx/pull/8439)
+* Optimize performance of builtin database operations in processes with long message queue [#8439](https://github.com/emqx/emqx/pull/8439)
+* Improve authentication tracing. [#8554](https://github.com/emqx/emqx/pull/8554)
 
 # 5.0.3
 
