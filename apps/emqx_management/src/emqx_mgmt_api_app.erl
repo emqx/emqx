@@ -22,6 +22,7 @@
 -export([api_spec/0, fields/1, paths/0, schema/1, namespace/0]).
 -export([api_key/2, api_key_by_name/2]).
 -export([validate_name/1]).
+-define(TAGS, [<<"API keys">>]).
 
 namespace() -> "api_key".
 
@@ -36,12 +37,14 @@ schema("/api_key") ->
         'operationId' => api_key,
         get => #{
             description => "Return api_key list",
+            tags => ?TAGS,
             responses => #{
                 200 => delete([api_secret], fields(app))
             }
         },
         post => #{
             description => "Create new api_key",
+            tags => ?TAGS,
             'requestBody' => delete([created_at, api_key, api_secret], fields(app)),
             responses => #{
                 200 => hoconsc:ref(app),
@@ -54,6 +57,7 @@ schema("/api_key/:name") ->
         'operationId' => api_key_by_name,
         get => #{
             description => "Return the specific api_key",
+            tags => ?TAGS,
             parameters => [hoconsc:ref(name)],
             responses => #{
                 200 => delete([api_secret], fields(app)),
@@ -62,6 +66,7 @@ schema("/api_key/:name") ->
         },
         put => #{
             description => "Update the specific api_key",
+            tags => ?TAGS,
             parameters => [hoconsc:ref(name)],
             'requestBody' => delete([created_at, api_key, api_secret, name], fields(app)),
             responses => #{
@@ -71,6 +76,7 @@ schema("/api_key/:name") ->
         },
         delete => #{
             description => "Delete the specific api_key",
+            tags => ?TAGS,
             parameters => [hoconsc:ref(name)],
             responses => #{
                 204 => <<"Delete successfully">>,

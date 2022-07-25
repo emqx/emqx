@@ -33,14 +33,8 @@
 
 % Swagger
 
--define(API_TAGS_GLOBAL, [
-    ?EMQX_AUTHENTICATION_CONFIG_ROOT_NAME_BINARY,
-    <<"authentication config(global)">>
-]).
--define(API_TAGS_SINGLE, [
-    ?EMQX_AUTHENTICATION_CONFIG_ROOT_NAME_BINARY,
-    <<"authentication config(single listener)">>
-]).
+-define(API_TAGS_GLOBAL, [<<"authentication">>]).
+-define(API_TAGS_SINGLE, [<<"listener authentication">>]).
 
 -export([
     api_spec/0,

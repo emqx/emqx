@@ -50,7 +50,7 @@ schema("/stats") ->
         get =>
             #{
                 description => <<"EMQX stats">>,
-                tags => [<<"stats">>],
+                tags => [<<"metrics">>],
                 parameters => [ref(aggregate)],
                 responses =>
                     #{

@@ -32,11 +32,11 @@
 
 -define(API_TAGS_GLOBAL, [
     ?EMQX_AUTHENTICATION_CONFIG_ROOT_NAME_BINARY,
-    <<"authentication config(global)">>
+    <<"authentication">>
 ]).
 -define(API_TAGS_SINGLE, [
     ?EMQX_AUTHENTICATION_CONFIG_ROOT_NAME_BINARY,
-    <<"authentication config(single listener)">>
+    <<"listener authentication">>
 ]).
 
 -export([

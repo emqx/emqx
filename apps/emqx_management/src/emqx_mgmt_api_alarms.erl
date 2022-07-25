@@ -26,6 +26,8 @@
 
 -export([alarms/2]).
 
+-define(TAGS, [<<"alarms">>]).
+
 %% internal export (for query)
 -export([query/4]).
 
@@ -40,6 +42,7 @@ schema("/alarms") ->
         'operationId' => alarms,
         get => #{
             description => ?DESC(list_alarms_api),
+            tags => ?TAGS,
             parameters => [
                 hoconsc:ref(emqx_dashboard_swagger, page),
                 hoconsc:ref(emqx_dashboard_swagger, limit),
@@ -59,6 +62,7 @@ schema("/alarms") ->
         },
         delete => #{
             description => ?DESC(delete_alarms_api),
+            tags => ?TAGS,
             responses => #{
                 204 => ?DESC(delete_alarms_api_response204)
             }

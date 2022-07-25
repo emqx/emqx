@@ -52,12 +52,14 @@ schema("/telemetry/status") ->
         get =>
             #{
                 description => ?DESC(get_telemetry_status_api),
+                tags => [<<"Telemetry">>],
                 responses =>
                     #{200 => status_schema(?DESC(get_telemetry_status_api))}
             },
         put =>
             #{
                 description => ?DESC(update_telemetry_status_api),
+                tags => [<<"Telemetry">>],
                 'requestBody' => status_schema(?DESC(update_telemetry_status_api)),
                 responses =>
                     #{
@@ -71,6 +73,7 @@ schema("/telemetry/data") ->
         get =>
             #{
                 description => ?DESC(get_telemetry_data_api),
+                tags => [<<"Telemetry">>],
                 responses =>
                     #{200 => mk(ref(?MODULE, telemetry), #{desc => ?DESC(get_telemetry_data_api)})}
             }

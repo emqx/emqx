@@ -50,6 +50,8 @@
     aggregate_metrics/1
 ]).
 
+-define(TAGS, [<<"Authorization">>]).
+
 api_spec() ->
     emqx_dashboard_swagger:spec(?MODULE, #{check_schema => true}).
 
@@ -70,6 +72,7 @@ schema("/authorization/sources") ->
         get =>
             #{
                 description => ?DESC(authorization_sources_get),
+                tags => ?TAGS,
                 responses =>
                     #{
                         200 => mk(
@@ -81,6 +84,7 @@ schema("/authorization/sources") ->
         post =>
             #{
                 description => ?DESC(authorization_sources_post),
+                tags => ?TAGS,
                 'requestBody' => mk(
                     hoconsc:union(authz_sources_type_refs()),
                     #{desc => ?DESC(source_config)}
@@ -101,6 +105,7 @@ schema("/authorization/sources/:type") ->
         get =>
             #{
                 description => ?DESC(authorization_sources_type_get),
+                tags => ?TAGS,
                 parameters => parameters_field(),
                 responses =>
                     #{
@@ -114,6 +119,7 @@ schema("/authorization/sources/:type") ->
         put =>
             #{
                 description => ?DESC(authorization_sources_type_put),
+                tags => ?TAGS,
                 parameters => parameters_field(),
                 'requestBody' => mk(hoconsc:union(authz_sources_type_refs())),
                 responses =>
@@ -125,6 +131,7 @@ schema("/authorization/sources/:type") ->
         delete =>
             #{
                 description => ?DESC(authorization_sources_type_delete),
+                tags => ?TAGS,
                 parameters => parameters_field(),
                 responses =>
                     #{
@@ -139,6 +146,7 @@ schema("/authorization/sources/:type/status") ->
         get =>
             #{
                 description => ?DESC(authorization_sources_type_status_get),
+                tags => ?TAGS,
                 parameters => parameters_field(),
                 responses =>
                     #{
@@ -159,6 +167,7 @@ schema("/authorization/sources/:type/move") ->
         post =>
             #{
                 description => ?DESC(authorization_sources_type_move_post),
+                tags => ?TAGS,
                 parameters => parameters_field(),
                 'requestBody' =>
                     emqx_dashboard_swagger:schema_with_examples(

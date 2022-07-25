@@ -51,6 +51,7 @@ schema("/error_codes") ->
         get => #{
             security => [],
             description => <<"API Error Codes">>,
+            tags => [<<"Error Codes">>],
             responses => #{
                 200 => hoconsc:array(hoconsc:ref(?MODULE, error_code))
             }
@@ -62,6 +63,7 @@ schema("/error_codes/:code") ->
         get => #{
             security => [],
             description => <<"API Error Codes">>,
+            tags => [<<"Error Codes">>],
             parameters => [
                 {code,
                     hoconsc:mk(hoconsc:enum(emqx_dashboard_error_code:all()), #{

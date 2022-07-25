@@ -37,7 +37,7 @@ schema("/monitor") ->
     #{
         'operationId' => monitor,
         get => #{
-            tags => [dashboard],
+            tags => [<<"metrics">>],
             desc => <<"List monitor data.">>,
             parameters => [parameter_latest()],
             responses => #{
@@ -50,7 +50,7 @@ schema("/monitor/nodes/:node") ->
     #{
         'operationId' => monitor,
         get => #{
-            tags => [dashboard],
+            tags => [<<"metrics">>],
             desc => <<"List the monitor data on the node.">>,
             parameters => [parameter_node(), parameter_latest()],
             responses => #{
@@ -63,7 +63,7 @@ schema("/monitor_current") ->
     #{
         'operationId' => monitor_current,
         get => #{
-            tags => [dashboard],
+            tags => [<<"metrics">>],
             desc => <<"Current status. Gauge and rate.">>,
             responses => #{
                 200 => hoconsc:mk(hoconsc:ref(sampler_current), #{})
@@ -74,7 +74,7 @@ schema("/monitor_current/nodes/:node") ->
     #{
         'operationId' => monitor_current,
         get => #{
-            tags => [dashboard],
+            tags => [<<"metrics">>],
             desc => <<"Node current status. Gauge and rate.">>,
             parameters => [parameter_node()],
             responses => #{
