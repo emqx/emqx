@@ -1,6 +1,7 @@
 %% -*- mode: erlang -*-
 %% Unless you know what you are doing, DO NOT edit manually!!
 {VSN,
+<<<<<<< HEAD
   [{"4.4.5",
     [
      {load_module,emqx_relup,brutal_purge,soft_purge,[]},
@@ -275,6 +276,7 @@
      {delete_module,emqx_relup}]},
    {"4.4.0",
     [{load_module,emqx_broker,brutal_purge,soft_purge,[]},
+     {load_module,emqx_message,brutal_purge,soft_purge,[]},
      {update,emqx_broker_sup,supervisor},
      {load_module,emqx_mqtt_caps,brutal_purge,soft_purge,[]},
      {load_module,emqx_topic,brutal_purge,soft_purge,[]},

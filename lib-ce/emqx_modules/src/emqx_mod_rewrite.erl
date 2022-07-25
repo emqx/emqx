@@ -46,7 +46,7 @@
 
 load(RawRules) ->
     {PubRules, SubRules} = compile(RawRules),
-    ?LOG(info, "[Rewrite] Load rule pub ~0p sub ~0p", [PubRules, SubRules]),
+    log_start(RawRules),
     emqx_hooks:put('client.subscribe',   {?MODULE, rewrite_subscribe, [SubRules]}, 1000),
     emqx_hooks:put('client.unsubscribe', {?MODULE, rewrite_unsubscribe, [SubRules]}, 1000),
     emqx_hooks:put('message.publish',    {?MODULE, rewrite_publish, [PubRules]}, 1000).
@@ -74,6 +74,20 @@ description() ->
 %%--------------------------------------------------------------------
 %% Internal functions
 %%--------------------------------------------------------------------
+
+log_start(Rules) ->
+    PubRules = [{pub, Topic, Re, Dest} || {rewrite, pub, Topic, Re, Dest} <- Rules],
+    SubRules = [{sub, Topic, Re, Dest} || {rewrite, sub, Topic, Re, Dest} <- Rules],
+    ?LOG(info, "[Rewrite] Load: pub rules count ~p sub rules count ~p",
+        [erlang:length(PubRules), erlang:length(SubRules)]),
+    log_rule(PubRules, 1),
+    log_rule(SubRules, 1).
+
+log_rule([], _Index) -> ok;
+log_rule([{Type, Topic, Re, Dest} | Rules], Index) ->
+    ?LOG(info, "[Rewrite] Load ~p rule[~p]: source: ~ts, re: ~ts, dest: ~ts",
+        [Type, Index, Topic, Re, Dest]),
+    log_rule(Rules, Index + 1).
 
 compile(Rules) ->
     PubRules = [ begin

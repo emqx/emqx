@@ -18,6 +18,8 @@ File format:
   management listener. [#8411]
 
 - Fixed crash when shared persistent subscription [#8441]
+- Fixed issue in Lua hook that prevented messages from being
+  rejected [#8535]
 
 ### Enhancements
 - HTTP API(GET /rules/) support for pagination and fuzzy filtering. [#8450]
