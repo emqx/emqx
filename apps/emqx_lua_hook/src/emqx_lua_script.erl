@@ -283,13 +283,14 @@ on_message_publish(Message = #message{from = ClientId,
             ?LOG(error, "Failed to execute function on_message_publish(), which has syntax error, St=~p", [St]),
             {ok, Message};
         {[false], _St} ->
-            {stop, Message};
+            ?LOG(debug, "Lua function on_message_publish() returned false, setting allow_publish header to false", []),
+            {stop, Message#message{headers = Headers#{allow_publish => false}}};
         {[NewTopic, NewPayload, NewQos, NewRetain], _St} ->
-            ?LOG(debug, "Lua function on_message_publish() return ~p", [{NewTopic, NewPayload, NewQos, NewRetain}]),
+            ?LOG(debug, "Lua function on_message_publish() returned ~p", [{NewTopic, NewPayload, NewQos, NewRetain}]),
             {ok, Message#message{topic = NewTopic, payload = NewPayload,
                                  qos = round(NewQos), flags = Flags#{retain => to_retain(NewRetain)}}};
         Other ->
-            ?LOG(error, "Topic=~p, lua function on_message_publish caught exception, ~p", [Topic, Other]),
+            ?LOG(error, "Topic=~p, lua function on_message_publish() caught exception, ~p", [Topic, Other]),
             {ok, Message}
     end.
 
