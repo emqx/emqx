@@ -42,6 +42,8 @@ assert_node_alive() {
 }
 
 check_erlang_start() {
+    # Fix bin permission
+    find "$BINDIR" ! -executable -exec chmod a+x {} \;
     "$BINDIR/$PROGNAME" -boot "$REL_DIR/start_clean" -eval "crypto:start(),halt()"
 }
 
