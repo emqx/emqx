@@ -157,6 +157,10 @@ jobs:
       if: matrix.discovery == 'k8s'
       run: |
         helm install emqx \
+            --set emqxConfig.EMQX_CLUSTER__DISCOVERY_STRATEGY="k8s" \
+            --set emqxConfig.EMQX_CLUSTER__K8S__APISERVER="https://kubernetes.default.svc:443" \
+            --set emqxConfig.EMQX_CLUSTER__K8S__SERVICE_NAME="emqx-headless" \
+            --set emqxConfig.EMQX_CLUSTER__K8S__NAMESPACE="default" \
             --set image.repository=$TARGET \
             --set image.pullPolicy=Never \
             --set emqxAclConfig="" \
@@ -173,8 +177,8 @@ jobs:
       run: |
         helm install emqx \
             --set emqxConfig.EMQX_CLUSTER__DISCOVERY_STRATEGY="dns" \
-            --set emqxConfig.EMQX_CLUSTER__DNS__NAME="emqx-headless.default.svc.cluster.local" \
             --set emqxConfig.EMQX_CLUSTER__DNS__RECORD_TYPE="srv" \
+            --set emqxConfig.EMQX_CLUSTER__DNS__NAME="emqx-headless.default.svc.cluster.local" \
             --set image.repository=$TARGET \
             --set image.pullPolicy=Never \
             --set emqxAclConfig="" \
