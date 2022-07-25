@@ -378,7 +378,9 @@ is_app(Name) ->
 relx_apps_per_edition(ee) ->
     [
         emqx_license,
-        {emqx_enterprise_conf, load}
+        {emqx_enterprise_conf, load},
+        emqx_ee_connector,
+        emqx_ee_bridge
     ];
 relx_apps_per_edition(ce) ->
     [].
