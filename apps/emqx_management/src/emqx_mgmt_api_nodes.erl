@@ -64,6 +64,7 @@ schema("/nodes") ->
         get =>
             #{
                 description => <<"List EMQX nodes">>,
+                tags => [<<"Nodes">>],
                 responses =>
                     #{
                         200 => mk(
@@ -79,6 +80,7 @@ schema("/nodes/:node") ->
         get =>
             #{
                 description => <<"Get node info">>,
+                tags => [<<"Nodes">>],
                 parameters => [ref(node_name)],
                 responses =>
                     #{
@@ -96,6 +98,7 @@ schema("/nodes/:node/metrics") ->
         get =>
             #{
                 description => <<"Get node metrics">>,
+                tags => [<<"Nodes">>],
                 parameters => [ref(node_name)],
                 responses =>
                     #{
@@ -113,6 +116,7 @@ schema("/nodes/:node/stats") ->
         get =>
             #{
                 description => <<"Get node stats">>,
+                tags => [<<"Nodes">>],
                 parameters => [ref(node_name)],
                 responses =>
                     #{

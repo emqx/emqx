@@ -39,6 +39,7 @@
 ]).
 
 -define(TAB, emqx_banned).
+-define(TAGS, [<<"Banned">>]).
 
 -define(BANNED_TYPES, [clientid, username, peerhost]).
 
@@ -55,6 +56,7 @@ schema("/banned") ->
         'operationId' => banned,
         get => #{
             description => ?DESC(list_banned_api),
+            tags => ?TAGS,
             parameters => [
                 hoconsc:ref(emqx_dashboard_swagger, page),
                 hoconsc:ref(emqx_dashboard_swagger, limit)
@@ -68,6 +70,7 @@ schema("/banned") ->
         },
         post => #{
             description => ?DESC(create_banned_api),
+            tags => ?TAGS,
             'requestBody' => hoconsc:mk(hoconsc:ref(ban)),
             responses => #{
                 200 => [{data, hoconsc:mk(hoconsc:array(hoconsc:ref(ban)), #{})}],
@@ -83,6 +86,7 @@ schema("/banned/:as/:who") ->
         'operationId' => delete_banned,
         delete => #{
             description => ?DESC(delete_banned_api),
+            tags => ?TAGS,
             parameters => [
                 {as,
                     hoconsc:mk(hoconsc:enum(?BANNED_TYPES), #{

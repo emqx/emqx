@@ -22,7 +22,7 @@
 
 -import(hoconsc, [mk/2, ref/2]).
 
-%% minirest/dashbaord_swagger behaviour callbacks
+%% minirest/dashboard_swagger behaviour callbacks
 -export([
     api_spec/0,
     paths/0,
@@ -74,6 +74,7 @@ schema("/metrics") ->
         get =>
             #{
                 description => <<"EMQX metrics">>,
+                tags => [<<"Metrics">>],
                 parameters =>
                     [
                         {aggregate,

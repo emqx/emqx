@@ -44,12 +44,14 @@ schema("/mqtt/auto_subscribe") ->
         'operationId' => auto_subscribe,
         get => #{
             description => ?DESC(list_auto_subscribe_api),
+            tags => [<<"Auto subscribe">>],
             responses => #{
                 200 => hoconsc:ref(emqx_auto_subscribe_schema, "auto_subscribe")
             }
         },
         put => #{
             description => ?DESC(update_auto_subscribe_api),
+            tags => [<<"Auto subscribe">>],
             'requestBody' => hoconsc:ref(emqx_auto_subscribe_schema, "auto_subscribe"),
             responses => #{
                 200 => hoconsc:ref(emqx_auto_subscribe_schema, "auto_subscribe"),

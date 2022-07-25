@@ -196,7 +196,7 @@ t_in_mix(_Config) ->
             }
         ],
     ExpectMeta = #{
-        tags => [tags, good],
+        tags => [<<"Tags">>, <<"Good">>],
         description => <<"good description">>,
         summary => <<"good summary">>,
         security => [],

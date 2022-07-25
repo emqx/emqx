@@ -338,10 +338,17 @@ to_spec(Meta, Params, RequestBody, Responses) ->
     maps:put('requestBody', RequestBody, Spec).
 
 generate_method_desc(Spec = #{desc := _Desc}) ->
-    trans_description(maps:remove(desc, Spec), Spec);
+    Spec1 = trans_description(maps:remove(desc, Spec), Spec),
+    trans_tags(Spec1);
 generate_method_desc(Spec = #{description := _Desc}) ->
-    trans_description(Spec, Spec);
+    Spec1 = trans_description(Spec, Spec),
+    trans_tags(Spec1);
 generate_method_desc(Spec) ->
+    trans_tags(Spec).
+
+trans_tags(Spec = #{tags := Tags}) ->
+    Spec#{tags => [string:titlecase(to_bin(Tag)) || Tag <- Tags]};
+trans_tags(Spec) ->
     Spec.
 
 parameters(Params, Module) ->
