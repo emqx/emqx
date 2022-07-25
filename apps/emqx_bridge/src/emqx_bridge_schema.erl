@@ -45,10 +45,16 @@ http_schema(Method) ->
         end,
         ?CONN_TYPES
     ),
-    hoconsc:union([
-        ref(emqx_bridge_webhook_schema, Method)
-        | Schemas
-    ]).
+    ExtSchemas = [ref(Module, Method) || Module <- schema_modules()],
+    hoconsc:union(Schemas ++ ExtSchemas).
+
+-ifdef(EMQX_RELEASE_EDITION).
+schema_modules() ->
+    [emqx_bridge_webhook_schema] ++ emqx_ee_bridge:schema_modules().
+-else.
+schema_modules() ->
+    [emqx_bridge_webhook_schema].
+-endif.
 
 common_bridge_fields(ConnectorRef) ->
     [
