@@ -17,6 +17,10 @@
 * Fix `chars_limit` is not working when `formatter` is `json`. [#8518](http://github.com/emqx/emqx/pull/8518)
 * Ensuring that exhook dispatches the client events are sequential. [#8530](https://github.com/emqx/emqx/pull/8530)
 * Avoid using RocksDB backend for persistent sessions when such backend is unavailable. [#8528](https://github.com/emqx/emqx/pull/8528)
+* GET '/rules' support for pagination and fuzzy search. [#8472](https://github.com/emqx/emqx/pull/8472)
+  **‼️ Note** : The previous API only returns array: `[RuleObj1,RuleObj2]`, after updating, it will become
+  `{"data": [RuleObj1,RuleObj2], "meta":{"count":2, "limit":100, "page":1}`,
+  which will carry the paging meta information.
 
 ## Enhancements
 

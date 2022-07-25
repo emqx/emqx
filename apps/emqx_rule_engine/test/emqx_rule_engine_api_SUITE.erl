@@ -45,7 +45,7 @@ t_crud_rule_api(_Config) ->
     ),
 
     ?assertEqual(RuleID, maps:get(id, Rule)),
-    {200, Rules} = emqx_rule_engine_api:'/rules'(get, #{}),
+    {200, #{data := Rules}} = emqx_rule_engine_api:'/rules'(get, #{query_string => #{}}),
     ct:pal("RList : ~p", [Rules]),
     ?assert(length(Rules) > 0),
 
@@ -88,6 +88,81 @@ t_crud_rule_api(_Config) ->
             message := <<"{select_and_transform_error,{error,{decode_json_failed,", _/binary>>
         }},
         emqx_rule_engine_api:'/rule_test'(post, test_rule_params())
+    ),
+    ok.
+
+t_list_rule_api(_Config) ->
+    AddIds =
+        lists:map(
+            fun(Seq0) ->
+                Seq = integer_to_binary(Seq0),
+                Params = #{
+                    <<"description">> => <<"A simple rule">>,
+                    <<"enable">> => true,
+                    <<"actions">> => [#{<<"function">> => <<"console">>}],
+                    <<"sql">> => <<"SELECT * from \"t/1\"">>,
+                    <<"name">> => <<"test_rule", Seq/binary>>
+                },
+                {201, #{id := Id}} = emqx_rule_engine_api:'/rules'(post, #{body => Params}),
+                Id
+            end,
+            lists:seq(1, 20)
+        ),
+
+    {200, #{data := Rules, meta := #{count := Count}}} =
+        emqx_rule_engine_api:'/rules'(get, #{query_string => #{}}),
+    ?assertEqual(20, length(AddIds)),
+    ?assertEqual(20, length(Rules)),
+    ?assertEqual(20, Count),
+
+    [RuleID | _] = AddIds,
+    UpdateParams = #{
+        <<"description">> => <<"中文的描述也能搜索"/utf8>>,
+        <<"enable">> => false,
+        <<"actions">> => [#{<<"function">> => <<"console">>}],
+        <<"sql">> => <<"SELECT * from \"t/1/+\"">>,
+        <<"name">> => <<"test_rule_update1">>
+    },
+    {200, _Rule2} = emqx_rule_engine_api:'/rules/:id'(put, #{
+        bindings => #{id => RuleID},
+        body => UpdateParams
+    }),
+    QueryStr1 = #{query_string => #{<<"enable">> => false}},
+    {200, Result1 = #{meta := #{count := Count1}}} = emqx_rule_engine_api:'/rules'(get, QueryStr1),
+    ?assertEqual(1, Count1),
+
+    QueryStr2 = #{query_string => #{<<"like_description">> => <<"也能"/utf8>>}},
+    {200, Result2} = emqx_rule_engine_api:'/rules'(get, QueryStr2),
+    ?assertEqual(Result1, Result2),
+
+    QueryStr3 = #{query_string => #{<<"from">> => <<"t/1">>}},
+    {200, #{meta := #{count := Count3}}} = emqx_rule_engine_api:'/rules'(get, QueryStr3),
+    ?assertEqual(19, Count3),
+
+    QueryStr4 = #{query_string => #{<<"like_from">> => <<"t/1/+">>}},
+    {200, Result4} = emqx_rule_engine_api:'/rules'(get, QueryStr4),
+    ?assertEqual(Result1, Result4),
+
+    QueryStr5 = #{query_string => #{<<"match_from">> => <<"t/+/+">>}},
+    {200, Result5} = emqx_rule_engine_api:'/rules'(get, QueryStr5),
+    ?assertEqual(Result1, Result5),
+
+    QueryStr6 = #{query_string => #{<<"like_id">> => RuleID}},
+    {200, Result6} = emqx_rule_engine_api:'/rules'(get, QueryStr6),
+    ?assertEqual(Result1, Result6),
+
+    %% clean up
+    lists:foreach(
+        fun(Id) ->
+            ?assertMatch(
+                {204},
+                emqx_rule_engine_api:'/rules/:id'(
+                    delete,
+                    #{bindings => #{id => Id}}
+                )
+            )
+        end,
+        AddIds
     ),
     ok.
 
