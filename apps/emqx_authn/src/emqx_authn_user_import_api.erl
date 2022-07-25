@@ -29,7 +29,7 @@
 -define(NOT_FOUND, 'NOT_FOUND').
 
 % Swagger
--define(API_TAGS_GLOBAL, [<<"authentication">>]).
+-define(API_TAGS_GLOBAL, [<<"Authentication">>]).
 -define(API_TAGS_SINGLE, [<<"Listener authentication">>]).
 
 -export([
