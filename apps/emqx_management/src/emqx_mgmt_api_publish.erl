@@ -43,7 +43,7 @@ schema("/publish") ->
         'operationId' => publish,
         post => #{
             description => <<"Publish Message">>,
-            tags => [<<"Mqtt">>],
+            tags => [<<"Publish">>],
             'requestBody' => hoconsc:mk(hoconsc:ref(?MODULE, publish_message)),
             responses => #{
                 200 => hoconsc:mk(hoconsc:ref(?MODULE, publish_message_info))
