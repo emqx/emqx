@@ -55,7 +55,7 @@ schema("/publish/bulk") ->
         'operationId' => publish_batch,
         post => #{
             description => <<"Publish Messages">>,
-            tags => [<<"Mqtt">>],
+            tags => [<<"Publish">>],
             'requestBody' => hoconsc:mk(hoconsc:array(hoconsc:ref(?MODULE, publish_message)), #{}),
             responses => #{
                 200 => hoconsc:mk(hoconsc:array(hoconsc:ref(?MODULE, publish_message_info)), #{})
