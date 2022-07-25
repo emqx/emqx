@@ -566,23 +566,23 @@ trace_type(_, _) -> error.
 listeners([]) ->
     lists:foreach(
         fun({ID, Conf}) ->
-            {Host, Port} = maps:get(bind, Conf),
+            Bind = maps:get(bind, Conf),
             Acceptors = maps:get(acceptors, Conf),
             ProxyProtocol = maps:get(proxy_protocol, Conf, undefined),
             Running = maps:get(running, Conf),
             CurrentConns =
-                case emqx_listeners:current_conns(ID, {Host, Port}) of
+                case emqx_listeners:current_conns(ID, Bind) of
                     {error, _} -> [];
                     CC -> [{current_conn, CC}]
                 end,
             MaxConn =
-                case emqx_listeners:max_conns(ID, {Host, Port}) of
+                case emqx_listeners:max_conns(ID, Bind) of
                     {error, _} -> [];
                     MC -> [{max_conns, MC}]
                 end,
             Info =
                 [
-                    {listen_on, {string, format_listen_on(Port)}},
+                    {listen_on, {string, format_listen_on(Bind)}},
                     {acceptors, Acceptors},
                     {proxy_protocol, ProxyProtocol},
                     {running, Running}
@@ -806,8 +806,10 @@ format_listen_on(Port) when is_integer(Port) ->
     io_lib:format("0.0.0.0:~w", [Port]);
 format_listen_on({Addr, Port}) when is_list(Addr) ->
     io_lib:format("~ts:~w", [Addr, Port]);
-format_listen_on({Addr, Port}) when is_tuple(Addr) ->
-    io_lib:format("~ts:~w", [inet:ntoa(Addr), Port]).
+format_listen_on({Addr, Port}) when is_tuple(Addr) andalso tuple_size(Addr) == 4 ->
+    io_lib:format("~ts:~w", [inet:ntoa(Addr), Port]);
+format_listen_on({Addr, Port}) when is_tuple(Addr) andalso tuple_size(Addr) == 8 ->
+    io_lib:format("[~ts]:~w", [inet:ntoa(Addr), Port]).
 
 name(Filter) ->
     iolist_to_binary(["CLI-", Filter]).
