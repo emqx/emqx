@@ -118,21 +118,21 @@ parse_sql(Template, ReplaceWith) ->
 render_deep(Template, Credential) ->
     emqx_placeholder:proc_tmpl_deep(
         Template,
-        Credential,
+        mapping_credential(Credential),
         #{return => full_binary, var_trans => fun handle_var/2}
     ).
 
 render_str(Template, Credential) ->
     emqx_placeholder:proc_tmpl(
         Template,
-        Credential,
+        mapping_credential(Credential),
         #{return => full_binary, var_trans => fun handle_var/2}
     ).
 
 render_sql_params(ParamList, Credential) ->
     emqx_placeholder:proc_tmpl(
         ParamList,
-        Credential,
+        mapping_credential(Credential),
         #{return => rawlist, var_trans => fun handle_sql_var/2}
     ).
 
@@ -230,3 +230,8 @@ handle_sql_var({var, <<"peerhost">>}, PeerHost) ->
     emqx_placeholder:bin(inet:ntoa(PeerHost));
 handle_sql_var(_, Value) ->
     emqx_placeholder:sql_data(Value).
+
+mapping_credential(C = #{cn := CN, dn := DN}) ->
+    C#{cert_common_name => CN, cert_subject => DN};
+mapping_credential(C) ->
+    C.

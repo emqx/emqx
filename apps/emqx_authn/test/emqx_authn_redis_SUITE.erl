@@ -475,6 +475,52 @@ user_seeds() ->
                 }
             },
             result => {ok, #{is_superuser => true}}
+        },
+
+        #{
+            data => #{
+                password_hash =>
+                    <<"a3c7f6b085c3e5897ffb9b86f18a9d905063f8550a74444b5892e193c1b50428">>,
+                is_superuser => <<"1">>
+            },
+            credentials => #{
+                clientid => <<"sha256_no_salt">>,
+                cn => <<"cert_common_name">>,
+                dn => <<"cert_subject_name">>,
+                password => <<"sha256_no_salt">>
+            },
+            key => <<"mqtt_user:cert_common_name">>,
+            config_params => #{
+                <<"cmd">> => <<"HMGET mqtt_user:${cert_common_name} password_hash is_superuser">>,
+                <<"password_hash_algorithm">> => #{
+                    <<"name">> => <<"sha256">>,
+                    <<"salt_position">> => <<"disable">>
+                }
+            },
+            result => {ok, #{is_superuser => true}}
+        },
+
+        #{
+            data => #{
+                password_hash =>
+                    <<"a3c7f6b085c3e5897ffb9b86f18a9d905063f8550a74444b5892e193c1b50428">>,
+                is_superuser => <<"1">>
+            },
+            credentials => #{
+                clientid => <<"sha256_no_salt">>,
+                cn => <<"cert_common_name">>,
+                dn => <<"cert_subject_name">>,
+                password => <<"sha256_no_salt">>
+            },
+            key => <<"mqtt_user:cert_subject_name">>,
+            config_params => #{
+                <<"cmd">> => <<"HMGET mqtt_user:${cert_subject} password_hash is_superuser">>,
+                <<"password_hash_algorithm">> => #{
+                    <<"name">> => <<"sha256">>,
+                    <<"salt_position">> => <<"disable">>
+                }
+            },
+            result => {ok, #{is_superuser => true}}
         }
     ].
 

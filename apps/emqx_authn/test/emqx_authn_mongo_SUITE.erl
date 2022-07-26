@@ -347,6 +347,33 @@ user_seeds() ->
 
         #{
             data => #{
+                cert_subject => <<"cert_subject_data">>,
+                cert_common_name => <<"cert_common_name_data">>,
+                password_hash =>
+                    <<"ac63a624e7074776d677dd61a003b8c803eb11db004d0ec6ae032a5d7c9c5caf">>,
+                salt => <<"salt">>,
+                is_superuser => 1
+            },
+            credentials => #{
+                cert_subject => <<"cert_subject_data">>,
+                cert_common_name => <<"cert_common_name_data">>,
+                password => <<"sha256">>
+            },
+            config_params => #{
+                <<"filter">> => #{
+                    <<"cert_subject">> => <<"${cert_subject}">>,
+                    <<"cert_common_name">> => <<"${cert_common_name}">>
+                },
+                <<"password_hash_algorithm">> => #{
+                    <<"name">> => <<"sha256">>,
+                    <<"salt_position">> => <<"prefix">>
+                }
+            },
+            result => {ok, #{is_superuser => true}}
+        },
+
+        #{
+            data => #{
                 username => <<"bcrypt">>,
                 password_hash =>
                     <<"$2b$12$wtY3h20mUjjmeaClpqZVveDWGlHzCGsvuThMlneGHA7wVeFYyns2u">>,
