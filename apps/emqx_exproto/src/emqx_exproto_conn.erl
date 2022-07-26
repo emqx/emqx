@@ -211,15 +211,34 @@ esockd_setopts({esockd_transport, Socket}, Opts) ->
     %% FIXME: DTLS works??
     esockd_transport:setopts(Socket, Opts).
 
-esockd_getstat({udp, _SockPid, Sock}, Stats) ->
-    inet:getstat(Sock, Stats);
 esockd_getstat({esockd_transport, Sock}, Stats) ->
-    esockd_transport:getstat(Sock, Stats).
+    esockd_transport:getstat(Sock, Stats);
+esockd_getstat({udp, _SockPid, _Sock}, Stats) ->
+    {ok, lists:map(fun(K) -> {K, get_stats(K)} end, Stats)}.
 
-send(Data, #state{socket = {udp, _SockPid, Sock}, peername = {Ip, Port}}) ->
+send(Data, State = #state{socket = {udp, _SockPid, Sock}, peername = {Ip, Port}}) ->
+    incr_send_stats(Data, State),
     gen_udp:send(Sock, Ip, Port, Data);
 send(Data, #state{socket = {esockd_transport, Sock}}) ->
     esockd_transport:async_send(Sock, Data).
+
+incr_recv_stats(Data, #state{socket = {udp, _, _}}) ->
+    incr_stats(recv_oct, byte_size(Data)),
+    incr_stats(recv_cnt, 1).
+
+incr_send_stats(Data, #state{socket = {udp, _, _}}) ->
+    incr_stats(send_oct, byte_size(Data)),
+    incr_stats(send_cnt, 1).
+
+incr_stats(Key, Cnt) ->
+    Cnt0 = get_stats(Key),
+    put({stats, Key}, Cnt0 + Cnt).
+
+get_stats(Key) ->
+    case get({stats, Key}) of
+        undefined -> 0;
+        Cnt -> Cnt
+    end.
 
 %%--------------------------------------------------------------------
 %% callbacks
@@ -386,6 +405,7 @@ handle_msg({'$gen_cast', Req}, State) ->
     with_channel(handle_cast, [Req], State);
 
 handle_msg({datagram, _SockPid, Data}, State) ->
+    incr_recv_stats(Data, State),
     process_incoming(Data, State);
 
 handle_msg({Inet, _Sock, Data}, State) when Inet == tcp; Inet == ssl ->
