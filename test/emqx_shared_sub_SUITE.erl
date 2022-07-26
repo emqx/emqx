@@ -37,11 +37,15 @@ all() -> emqx_ct:all(?SUITE).
 init_per_suite(Config) ->
     net_kernel:start(['master@127.0.0.1', longnames]),
     emqx_ct_helpers:boot_modules(all),
+    PortDiscovery = application:get_env(gen_rpc, port_discovery),
+    application:set_env(gen_rpc, port_discovery, stateless),
+    application:ensure_all_started(gen_rpc),
     emqx_ct_helpers:start_apps([]),
-    Config.
+    [{port_discovery, PortDiscovery} | Config].
 
-end_per_suite(_Config) ->
-    emqx_ct_helpers:stop_apps([]).
+end_per_suite(Config) ->
+    emqx_ct_helpers:stop_apps([gen_rpc]),
+    application:set_env(gen_rpc, port_discovery, proplists:get_value(port_discovery, Config)).
 
 t_is_ack_required(_) ->
     ?assertEqual(false, emqx_shared_sub:is_ack_required(#message{headers = #{}})).
@@ -336,7 +340,7 @@ t_per_group_config(_) ->
     test_two_messages(round_robin, <<"round_robin_group">>).
 
 t_local(_) ->
-    Node = start_slave('local_shared_sub_test', 21884),
+    Node = start_slave('local_shared_sub_test19', 21884),
     GroupConfig = #{
                     <<"local_group_fallback">> => local,
                     <<"local_group">> => local,
@@ -392,7 +396,7 @@ t_local_fallback(_) ->
     Topic = <<"local_foo/bar">>,
     ClientId1 = <<"ClientId1">>,
     ClientId2 = <<"ClientId2">>,
-    Node = start_slave('local_fallback_shared_sub_test', 11885),
+    Node = start_slave('local_fallback_shared_sub_test19', 11885),
 
     {ok, ConnPid1} = emqtt:start_link([{clientid, ClientId1}]),
     {ok, _} = emqtt:connect(ConnPid1),
@@ -563,8 +567,7 @@ setup_node(Node, Port) ->
                      name => "internal",
                      opts => [{zone,internal}],
                      proto => tcp}]),
-                application:set_env(gen_rpc, port_discovery, manual),
-                application:set_env(gen_rpc, tcp_server_port, Port * 2),
+                application:set_env(gen_rpc, port_discovery, stateless),
                 ok;
            (_) ->
                 ok
@@ -572,7 +575,13 @@ setup_node(Node, Port) ->
 
     [ok = rpc:call(Node, application, load, [App]) || App <- [gen_rpc, emqx]],
     ok = rpc:call(Node, emqx_ct_helpers, start_apps, [[emqx], EnvHandler]),
+    rpc:call(Node, ekka, join, [node()]),
 
-    ok = rpc:call(Node, ekka, join, [node()]),
-    true = lists:member(Node, nodes()),
+    %% Sanity check. Assert that `gen_rpc' is set up correctly:
+    ?assertEqual( Node
+                , gen_rpc:call(Node, erlang, node, [])
+                ),
+    ?assertEqual( node()
+                , gen_rpc:call(Node, gen_rpc, call, [node(), erlang, node, []])
+                ),
     ok.
