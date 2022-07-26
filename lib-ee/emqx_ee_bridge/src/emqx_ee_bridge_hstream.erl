@@ -36,10 +36,10 @@ values(get) ->
 values(post) ->
     #{
         type => hstream,
-        name => <<"hstream_bridge_demo">>,
+        name => <<"demo">>,
         url => <<"http://127.0.0.1:6570">>,
         stream => <<"stream1">>,
-        ordering_key => <<"${topic}">>,
+        ordering_key => <<"some_key">>,
         pool_size => 8,
         enable => true,
         direction => egress,

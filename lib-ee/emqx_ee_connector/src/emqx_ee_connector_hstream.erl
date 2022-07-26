@@ -46,9 +46,14 @@ on_stop(InstId, #{client := Client, producer := Producer}) ->
         stop_producer => StopProducerRes
     }).
 
-on_query(_InstId, {OrderingKey, Payload, Record}, AfterQuery, #{producer := Producer}) ->
-    Record = hstreamdb:to_record(OrderingKey, raw, Payload),
-    do_append(AfterQuery, false, Producer, Record).
+on_query(
+    _InstId,
+    {send_message, Data},
+    AfterQuery,
+    #{producer := Producer, ordering_key := OrderingKey, payload := Payload}
+) ->
+    Record = to_record(OrderingKey, Payload, Data),
+    do_append(AfterQuery, Producer, Record).
 
 on_get_status(_InstId, #{client := Client}) ->
     case is_alive(Client) of
@@ -88,8 +93,13 @@ start_client(InstId, Config) ->
         do_start_client(InstId, Config)
     catch
         E:R:S ->
-            io:format("E:R:S ~p:~p ~n~p~n", [E, R, S]),
-            error(E)
+            ?SLOG(error, #{
+                msg => "start hstream connector error",
+                connector => InstId,
+                error => E,
+                reason => R,
+                stack => S
+            })
     end.
 
 do_start_client(InstId, Config = #{url := Server, pool_size := PoolSize}) ->
@@ -167,7 +177,18 @@ start_producer(InstId, Client, Options = #{stream := Stream, pool_size := PoolSi
                 msg => "hstream connector: producer started"
             }),
             EnableBatch = maps:get(enable_batch, Options, false),
-            {ok, #{client => Client, producer => Producer, enable_batch => EnableBatch}};
+            PayloadBin = maps:get(payload, Options, <<"">>),
+            Payload = emqx_plugin_libs_rule:preproc_tmpl(PayloadBin),
+            OrderingKeyBin = maps:get(ordering_key, Options, <<"">>),
+            OrderingKey = emqx_plugin_libs_rule:preproc_tmpl(OrderingKeyBin),
+            State = #{
+                client => Client,
+                producer => Producer,
+                enable_batch => EnableBatch,
+                ordering_key => OrderingKey,
+                payload => Payload
+            },
+            {ok, State};
         {error, {already_started, Pid}} ->
             ?SLOG(info, #{
                 msg => "starting hstream connector: producer, find old producer. restart producer",
@@ -183,6 +204,19 @@ start_producer(InstId, Client, Options = #{stream := Stream, pool_size := PoolSi
             }),
             {error, Reason}
     end.
+
+to_record(OrderingKeyTmpl, PayloadTmpl, Data) ->
+    OrderingKey = emqx_plugin_libs_rule:proc_tmpl(OrderingKeyTmpl, Data),
+    Payload = emqx_plugin_libs_rule:proc_tmpl(PayloadTmpl, Data),
+    to_record(OrderingKey, Payload).
+
+to_record(OrderingKey, Payload) when is_binary(OrderingKey) ->
+    to_record(binary_to_list(OrderingKey), Payload);
+to_record(OrderingKey, Payload) ->
+    hstreamdb:to_record(OrderingKey, raw, Payload).
+
+do_append(AfterQuery, Producer, Record) ->
+    do_append(AfterQuery, false, Producer, Record).
 
 %% TODO: this append is async, remove or change it after we have better disk cache.
 % do_append(AfterQuery, true, Producer, Record) ->
@@ -221,10 +255,10 @@ do_append(AfterQuery, false, Producer, Record) ->
     end.
 
 client_name(InstId) ->
-    "backend_hstream_client:" ++ to_string(InstId).
+    "client:" ++ to_string(InstId).
 
 produce_name(ActionId) ->
-    list_to_atom("backend_hstream_producer:" ++ to_string(ActionId)).
+    list_to_atom("producer:" ++ to_string(ActionId)).
 
 to_string(List) when is_list(List) -> List;
 to_string(Bin) when is_binary(Bin) -> binary_to_list(Bin);

@@ -35,6 +35,6 @@ fields(bridges) ->
         {hstream,
             mk(
                 hoconsc:map(name, ref(emqx_ee_bridge_hstream, "config")),
-                #{desc => <<"hstream_webhook">>}
+                #{desc => <<"emqx enterprise config">>}
             )}
     ].
