@@ -48,7 +48,7 @@ http_schema(Method) ->
     ExtSchemas = [ref(Module, Method) || Module <- schema_modules()],
     hoconsc:union(Schemas ++ ExtSchemas).
 
--ifdef(EMQX_RELEASE_EDITION).
+-if(?EMQX_RELEASE_EDITION == ee).
 schema_modules() ->
     [emqx_bridge_webhook_schema] ++ emqx_ee_bridge:schema_modules().
 -else.
@@ -158,7 +158,7 @@ fields("node_status") ->
         {"status", mk(status(), #{})}
     ].
 
--ifdef(EMQX_RELEASE_EDITION).
+-if(?EMQX_RELEASE_EDITION == ee).
 ee_fields_bridges() ->
     emqx_ee_bridge:fields(bridges).
 -else.

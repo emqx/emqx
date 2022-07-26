@@ -42,7 +42,7 @@
     reset_metrics/1
 ]).
 
--ifdef(EMQX_RELEASE_EDITION).
+-if(?EMQX_RELEASE_EDITION == ee).
 bridge_to_resource_type(<<"mqtt">>) -> emqx_connector_mqtt;
 bridge_to_resource_type(mqtt) -> emqx_connector_mqtt;
 bridge_to_resource_type(<<"webhook">>) -> emqx_connector_http;
@@ -291,11 +291,11 @@ parse_confs(Type = mqtt, Name, #{connector := ConnectorConfs, direction := Direc
 parse_confs(Type, Name, Conf) ->
     parse_enterprise_confs(Type, Name, Conf).
 
--ifdef(EMQX_RELEASE_EDITION).
+-if(?EMQX_RELEASE_EDITION == ee).
 parse_enterprise_confs(Type, Name, Conf) ->
     emqx_ee_bridge:parse_conf(Type, Name, Conf).
 -else.
-parse_enterprise_confs(Type, Name, Conf) ->
+parse_enterprise_confs(Type, Name, _Conf) ->
     error({not_supported, Type, Name}).
 -endif.
 

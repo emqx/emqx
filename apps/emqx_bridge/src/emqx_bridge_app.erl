@@ -42,7 +42,7 @@ stop(_State) ->
     ok = emqx_bridge:unload_hook(),
     ok.
 
--ifdef(EMQX_RELEASE_EDITION).
+-if(?EMQX_RELEASE_EDITION == ee).
 start_ee_apps() ->
     {ok, _} = application:ensure_all_started(emqx_ee_bridge),
     {ok, _} = application:ensure_all_started(emqx_ee_connector),

@@ -183,7 +183,7 @@ conn_bridge_examples(Method) ->
     EE = ee_conn_bridge_examples(Method),
     maps:merge(Broker, EE).
 
--ifdef(EMQX_RELEASE_EDITION).
+-if(?EMQX_RELEASE_EDITION == ee).
 ee_conn_bridge_examples(Method) ->
     emqx_ee_bridge:conn_bridge_examples(Method).
 -else.
