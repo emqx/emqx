@@ -45,7 +45,10 @@ init_per_suite(Config) ->
 
 end_per_suite(Config) ->
     emqx_ct_helpers:stop_apps([gen_rpc]),
-    application:set_env(gen_rpc, port_discovery, proplists:get_value(port_discovery, Config)).
+    case proplists:get_value(port_discovery, Config) of
+      {ok, OldValue} -> application:set_env(gen_rpc, port_discovery, OldValue);
+      _ -> ok
+    end.
 
 t_is_ack_required(_) ->
     ?assertEqual(false, emqx_shared_sub:is_ack_required(#message{headers = #{}})).
