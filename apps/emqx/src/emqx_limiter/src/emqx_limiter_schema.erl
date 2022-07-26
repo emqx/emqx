@@ -193,6 +193,14 @@ desc(bucket_opts) ->
     "Settings for the bucket.";
 desc(client_opts) ->
     "Settings for the client in bucket level.";
+desc(client_fields) ->
+    "Fields of the client level.";
+desc(listener_fields) ->
+    "Fields of the listener.";
+desc(listener_client_fields) ->
+    "Fields of the client level of the listener.";
+desc(internal) ->
+    "Internal limiter.";
 desc(_) ->
     undefined.
 
