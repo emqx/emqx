@@ -47,6 +47,7 @@
 
 -define(TO_BIN(_B_), iolist_to_binary(_B_)).
 -define(NOT_FOUND(N), {404, #{code => 'NOT_FOUND', message => ?TO_BIN([N, " NOT FOUND"])}}).
+-define(TAGS, [<<"Trace">>]).
 
 namespace() -> "trace".
 
@@ -61,12 +62,14 @@ schema("/trace") ->
         'operationId' => trace,
         get => #{
             description => "List all trace",
+            tags => ?TAGS,
             responses => #{
                 200 => hoconsc:ref(trace)
             }
         },
         post => #{
             description => "Create new trace",
+            tags => ?TAGS,
             'requestBody' => delete([status, log_size], fields(trace)),
             responses => #{
                 200 => hoconsc:ref(trace),
@@ -82,6 +85,7 @@ schema("/trace") ->
         },
         delete => #{
             description => "Clear all traces",
+            tags => ?TAGS,
             responses => #{
                 204 => <<"No Content">>
             }
@@ -92,6 +96,7 @@ schema("/trace/:name") ->
         'operationId' => delete_trace,
         delete => #{
             description => "Delete trace by name",
+            tags => ?TAGS,
             parameters => [hoconsc:ref(name)],
             responses => #{
                 204 => <<"Delete successfully">>,
@@ -104,6 +109,7 @@ schema("/trace/:name/stop") ->
         'operationId' => update_trace,
         put => #{
             description => "Stop trace by name",
+            tags => ?TAGS,
             parameters => [hoconsc:ref(name)],
             responses => #{
                 200 => hoconsc:ref(trace),
@@ -116,6 +122,7 @@ schema("/trace/:name/download") ->
         'operationId' => download_trace_log,
         get => #{
             description => "Download trace log by name",
+            tags => ?TAGS,
             parameters => [hoconsc:ref(name), hoconsc:ref(node)],
             responses => #{
                 200 =>
@@ -134,6 +141,7 @@ schema("/trace/:name/log") ->
         'operationId' => stream_log_file,
         get => #{
             description => "view trace log",
+            tags => ?TAGS,
             parameters => [
                 hoconsc:ref(name),
                 hoconsc:ref(bytes),

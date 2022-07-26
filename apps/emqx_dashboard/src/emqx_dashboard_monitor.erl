@@ -115,13 +115,16 @@ granularity_adapter(List) ->
 %% Get the current rate. Not the current sampler data.
 current_rate() ->
     Fun =
-        fun(Node, Cluster) ->
-            case current_rate(Node) of
-                {ok, CurrentRate} ->
-                    merge_cluster_rate(CurrentRate, Cluster);
-                {badrpc, Reason} ->
-                    {badrpc, {Node, Reason}}
-            end
+        fun
+            (Node, Cluster) when is_map(Cluster) ->
+                case current_rate(Node) of
+                    {ok, CurrentRate} ->
+                        merge_cluster_rate(CurrentRate, Cluster);
+                    {badrpc, Reason} ->
+                        {badrpc, {Node, Reason}}
+                end;
+            (_Node, Error) ->
+                Error
         end,
     case lists:foldl(Fun, #{}, mria_mnesia:cluster_nodes(running)) of
         {badrpc, Reason} ->

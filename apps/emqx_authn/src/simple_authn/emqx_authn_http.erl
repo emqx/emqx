@@ -188,23 +188,22 @@ authenticate(
     } = State
 ) ->
     Request = generate_request(Credential, State),
-    case emqx_resource:query(ResourceId, {Method, Request, RequestTimeout}) of
+    Response = emqx_resource:query(ResourceId, {Method, Request, RequestTimeout}),
+    ?TRACE_AUTHN_PROVIDER("http_response", #{
+        request => request_for_log(Credential, State),
+        response => response_for_log(Response),
+        resource => ResourceId
+    }),
+    case Response of
         {ok, 204, _Headers} ->
             {ok, #{is_superuser => false}};
         {ok, 200, Headers, Body} ->
             handle_response(Headers, Body);
         {ok, _StatusCode, _Headers} = Response ->
-            log_response(ResourceId, Response),
             ignore;
         {ok, _StatusCode, _Headers, _Body} = Response ->
-            log_response(ResourceId, Response),
             ignore;
-        {error, Reason} ->
-            ?SLOG(error, #{
-                msg => "http_server_query_failed",
-                resource => ResourceId,
-                reason => Reason
-            }),
+        {error, _Reason} ->
             ignore
     end.
 
@@ -296,7 +295,8 @@ parse_config(
             cow_qs:parse_qs(to_bin(Query))
         ),
         body_template => emqx_authn_utils:parse_deep(maps:get(body, Config, #{})),
-        request_timeout => RequestTimeout
+        request_timeout => RequestTimeout,
+        url => RawUrl
     },
     {Config#{base_url => BaseUrl, pool_type => random}, State}.
 
@@ -379,11 +379,6 @@ parse_body(<<"application/x-www-form-urlencoded", _/binary>>, Body) ->
 parse_body(ContentType, _) ->
     {error, {unsupported_content_type, ContentType}}.
 
-may_append_body(Output, {ok, _, _, Body}) ->
-    Output#{body => Body};
-may_append_body(Output, {ok, _, _}) ->
-    Output.
-
 uri_encode(T) ->
     emqx_http_lib:uri_encode(to_list(T)).
 
@@ -391,25 +386,32 @@ encode_path(Path) ->
     Parts = string:split(Path, "/", all),
     lists:flatten(["/" ++ Part || Part <- lists:map(fun uri_encode/1, Parts)]).
 
-log_response(ResourceId, Other) ->
-    Output = may_append_body(#{resource => ResourceId}, Other),
-    case erlang:element(2, Other) of
-        Code5xx when Code5xx >= 500 andalso Code5xx < 600 ->
-            ?SLOG(error, Output#{
-                msg => "http_server_error",
-                code => Code5xx
-            });
-        Code4xx when Code4xx >= 400 andalso Code4xx < 500 ->
-            ?SLOG(warning, Output#{
-                msg => "refused_by_http_server",
-                code => Code4xx
-            });
-        OtherCode ->
-            ?SLOG(error, Output#{
-                msg => "undesired_response_code",
-                code => OtherCode
-            })
+request_for_log(Credential, #{url := Url} = State) ->
+    SafeCredential = emqx_authn_utils:without_password(Credential),
+    case generate_request(SafeCredential, State) of
+        {PathQuery, Headers} ->
+            #{
+                method => post,
+                base_url => Url,
+                path_query => PathQuery,
+                headers => Headers
+            };
+        {PathQuery, Headers, Body} ->
+            #{
+                method => post,
+                base_url => Url,
+                path_query => PathQuery,
+                headers => Headers,
+                mody => Body
+            }
     end.
+
+response_for_log({ok, StatusCode, Headers}) ->
+    #{status => StatusCode, headers => Headers};
+response_for_log({ok, StatusCode, Headers, Body}) ->
+    #{status => StatusCode, headers => Headers, body => Body};
+response_for_log({error, Error}) ->
+    #{error => Error}.
 
 to_list(A) when is_atom(A) ->
     atom_to_list(A);

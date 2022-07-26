@@ -48,6 +48,7 @@
 ]).
 
 -define(NAME_RE, "^[A-Za-z]+[A-Za-z0-9-_.]*$").
+-define(TAGS, [<<"Plugins">>]).
 
 namespace() -> "plugins".
 
@@ -72,6 +73,7 @@ schema("/plugins") ->
                 "List all install plugins.</br>"
                 "Plugins are launched in top-down order.</br>"
                 "Using `POST /plugins/{name}/move` to change the boot order.",
+            tags => ?TAGS,
             responses => #{
                 200 => hoconsc:array(hoconsc:ref(plugin))
             }
@@ -85,6 +87,7 @@ schema("/plugins/install") ->
                 "Install a plugin(plugin-vsn.tar.gz)."
                 "Follow [emqx-plugin-template](https://github.com/emqx/emqx-plugin-template) "
                 "to develop plugin.",
+            tags => ?TAGS,
             'requestBody' => #{
                 content => #{
                     'multipart/form-data' => #{
@@ -111,6 +114,7 @@ schema("/plugins/:name") ->
         'operationId' => plugin,
         get => #{
             description => "Describe a plugin according `release.json` and `README.md`.",
+            tags => ?TAGS,
             parameters => [hoconsc:ref(name)],
             responses => #{
                 200 => hoconsc:ref(plugin),
@@ -119,6 +123,7 @@ schema("/plugins/:name") ->
         },
         delete => #{
             description => "Uninstall a plugin package.",
+            tags => ?TAGS,
             parameters => [hoconsc:ref(name)],
             responses => #{
                 204 => <<"Uninstall successfully">>,
@@ -134,6 +139,7 @@ schema("/plugins/:name/:action") ->
                 "start/stop a installed plugin.</br>"
                 "- **start**: start the plugin.</br>"
                 "- **stop**: stop the plugin.</br>",
+            tags => ?TAGS,
             parameters => [
                 hoconsc:ref(name),
                 {action, hoconsc:mk(hoconsc:enum([start, stop]), #{desc => "Action", in => path})}
@@ -149,6 +155,7 @@ schema("/plugins/:name/move") ->
         'operationId' => update_boot_order,
         post => #{
             description => "Setting the boot order of plugins.",
+            tags => ?TAGS,
             parameters => [hoconsc:ref(name)],
             'requestBody' => move_request_body(),
             responses => #{200 => <<"OK">>}
