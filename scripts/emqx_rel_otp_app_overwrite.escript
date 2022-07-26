@@ -34,6 +34,8 @@ base_rel_overwrites(RelVsn, Profile, Dir, ErtsVsn, Overwrites) ->
               ],
     ok = file:write_file(RelFile, io_lib:format("~p.", NewData)).
 
+rel_file("emqx-edge", Dir, RelVsn)->
+    rel_file("emqx", Dir, RelVsn);
 rel_file(Profile, Dir, RelVsn)->
     filename:join([Dir, RelVsn, Profile++".rel"]).
 
