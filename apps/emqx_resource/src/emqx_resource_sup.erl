@@ -19,12 +19,9 @@
 
 -behaviour(supervisor).
 
--export([start_link/0]).
+-export([start_link/0, start_workers/2, stop_workers/2]).
 
 -export([init/1]).
-
-%% set a very large pool size in case all the workers busy
--define(POOL_SIZE, 64).
 
 start_link() ->
     supervisor:start_link({local, ?MODULE}, ?MODULE, []).
@@ -43,3 +40,78 @@ init([]) ->
             modules => [emqx_resource_manager_sup]
         },
     {ok, {SupFlags, [Metrics, ResourceManager]}}.
+
+start_workers(ResId, Opts) ->
+    PoolSize = pool_size(Opts),
+    _ = ensure_worker_pool(ResId, hash, [{size, PoolSize}]),
+    lists:foreach(
+        fun(Idx) ->
+            _ = ensure_worker_added(ResId, {ResId, Idx}, Idx),
+            ok = ensure_worker_started(ResId, Idx, Opts)
+        end,
+        lists:seq(1, PoolSize)
+    ).
+
+stop_workers(ResId, Opts) ->
+    PoolSize = pool_size(Opts),
+    lists:foreach(
+        fun(Idx) ->
+            ok = ensure_worker_stopped(ResId, Idx),
+            ok = ensure_worker_removed(ResId, {ResId, Idx})
+        end,
+        lists:seq(1, PoolSize)
+    ),
+    _ = gproc_pool:delete(ResId),
+    ok.
+
+pool_size(Opts) ->
+    maps:get(worker_pool_size, Opts, erlang:system_info(schedulers_online)).
+
+ensure_worker_pool(Pool, Type, Opts) ->
+    try
+        gproc_pool:new(Pool, Type, Opts)
+    catch
+        error:exists -> ok
+    end,
+    ok.
+
+ensure_worker_added(Pool, Name, Slot) ->
+    try
+        gproc_pool:add_worker(Pool, Name, Slot)
+    catch
+        error:exists -> ok
+    end,
+    ok.
+
+ensure_worker_removed(Pool, Name) ->
+    _ = gproc_pool:remove_worker(Pool, Name),
+    ok.
+
+-define(CHILD_ID(MOD, RESID, INDEX), {MOD, RESID, INDEX}).
+ensure_worker_started(ResId, Idx, Opts) ->
+    Mod = emqx_resource_worker,
+    Spec = #{
+        id => ?CHILD_ID(Mod, ResId, Idx),
+        start => {Mod, start_link, [ResId, Idx, Opts]},
+        restart => transient,
+        shutdown => 5000,
+        type => worker,
+        modules => [Mod]
+    },
+    case supervisor:start_child(emqx_resource_sup, Spec) of
+        {ok, _Pid} -> ok;
+        {error, {already_started, _}} -> ok;
+        {error, already_present} -> ok;
+        {error, _} = Err -> Err
+    end.
+
+ensure_worker_stopped(ResId, Idx) ->
+    ChildId = ?CHILD_ID(emqx_resource_worker, ResId, Idx),
+    case supervisor:terminate_child(emqx_resource_sup, ChildId) of
+        ok ->
+            supervisor:delete_child(emqx_resource_sup, ChildId);
+        {error, not_found} ->
+            ok;
+        {error, Reason} ->
+            {error, Reason}
+    end.

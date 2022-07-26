@@ -111,12 +111,15 @@ create(MgrId, ResId, Group, ResourceType, Config, Opts) ->
     ok = emqx_metrics_worker:create_metrics(
         ?RES_METRICS,
         ResId,
-        [matched, success, failed, exception, resource_error],
+        [matched, success, failed, exception, resource_down],
         [matched]
     ),
     case maps:get(start_after_created, Opts, true) of
-        true -> wait_for_resource_ready(ResId, maps:get(wait_for_resource_ready, Opts, 5000));
-        false -> ok
+        true ->
+            ok = emqx_resource_sup:start_workers(ResId, Opts),
+            wait_for_resource_ready(ResId, maps:get(wait_for_resource_ready, Opts, 5000));
+        false ->
+            ok
     end,
     ok.
 
