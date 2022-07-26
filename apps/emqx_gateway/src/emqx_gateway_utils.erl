@@ -287,12 +287,8 @@ apply(F, A2) when
 ->
     erlang:apply(F, A2).
 
-format_listenon(Port) when is_integer(Port) ->
-    io_lib:format("0.0.0.0:~w", [Port]);
-format_listenon({Addr, Port}) when is_list(Addr) ->
-    io_lib:format("~ts:~w", [Addr, Port]);
-format_listenon({Addr, Port}) when is_tuple(Addr) ->
-    io_lib:format("~ts:~w", [inet:ntoa(Addr), Port]).
+format_listenon(Term) ->
+    emqx_mgmt_util:format_listen_on(Term).
 
 parse_listenon(Port) when is_integer(Port) ->
     Port;
