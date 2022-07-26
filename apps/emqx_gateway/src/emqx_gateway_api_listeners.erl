@@ -345,9 +345,9 @@ aggregate_running(R, undefined) -> R;
 aggregate_running(_, _) -> inconsistent.
 
 bind2str(Listener = #{bind := Bind}) ->
-    Listener#{bind := iolist_to_binary(emqx_gateway_utils:format_listenon(Bind))};
+    Listener#{bind := iolist_to_binary(emqx_listeners:format_bind(Bind))};
 bind2str(Listener = #{<<"bind">> := Bind}) ->
-    Listener#{<<"bind">> := iolist_to_binary(emqx_gateway_utils:format_listenon(Bind))}.
+    Listener#{<<"bind">> := iolist_to_binary(emqx_listeners:format_bind(Bind))}.
 
 %%--------------------------------------------------------------------
 %% Swagger defines

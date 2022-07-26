@@ -167,7 +167,7 @@ start_grpc_server(GwName, Options = #{bind := ListenOn}) ->
                         )}
                 ]
         end,
-    ListenOnStr = emqx_listeners:format_addr(ListenOn),
+    ListenOnStr = emqx_listeners:format_bind(ListenOn),
     case grpc:start_server(GwName, ListenOn, Services, SvrOptions) of
         {ok, _SvrPid} ->
             console_print(

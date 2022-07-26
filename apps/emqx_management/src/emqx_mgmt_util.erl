@@ -43,10 +43,7 @@
     batch_schema/1
 ]).
 
--export([
-    urldecode/1,
-    format_listen_on/1
-]).
+-export([urldecode/1]).
 
 -define(KB, 1024).
 -define(MB, (1024 * 1024)).
@@ -88,25 +85,6 @@ merge_maps(Default, New) ->
 
 urldecode(S) ->
     emqx_http_lib:uri_decode(S).
-
--spec format_listen_on(
-    integer() | {tuple(), integer()} | string() | binary()
-) -> io_lib:chars().
-format_listen_on(Port) when is_integer(Port) ->
-    io_lib:format("0.0.0.0:~w", [Port]);
-format_listen_on({Addr, Port}) when is_list(Addr) ->
-    io_lib:format("~ts:~w", [Addr, Port]);
-format_listen_on({Addr, Port}) when is_tuple(Addr) ->
-    io_lib:format("~ts:~w", [inet:ntoa(Addr), Port]);
-format_listen_on(Str) when is_list(Str) ->
-    case emqx_schema:to_ip_port(Str) of
-        {ok, {Ip, Port}} ->
-            format_listen_on({Ip, Port});
-        {error, _} ->
-            format_listen_on(list_to_integer(Str))
-    end;
-format_listen_on(Bin) when is_binary(Bin) ->
-    format_listen_on(binary_to_list(Bin)).
 
 %%%==============================================================================================
 %% schema util

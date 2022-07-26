@@ -543,7 +543,7 @@ format_status(Key, Node, Listener, Acc) ->
                     enable => Enabled,
                     ids => [Id],
                     acceptors => Acceptors,
-                    bind => format_raw_bind(Bind),
+                    bind => iolist_to_binary(emqx_listeners:format_bind(Bind)),
                     status => #{
                         running => Running,
                         max_connections => MaxConnections,
@@ -604,12 +604,6 @@ format_status(Key, Node, Listener, Acc) ->
 max_conn(_Int1, <<"infinity">>) -> <<"infinity">>;
 max_conn(<<"infinity">>, _Int) -> <<"infinity">>;
 max_conn(Int1, Int2) -> Int1 + Int2.
-
-%% @doc returning a uniform format (ip_port string) is more
-%% helpful to users
-format_raw_bind(Bind) when is_integer(Bind) ->
-    <<"0.0.0.0:", (integer_to_binary(Bind))/binary>>;
-format_raw_bind(Bind) when is_binary(Bind) -> Bind.
 
 update(Path, Conf) ->
     wrap(emqx_conf:update(Path, {update, Conf}, ?OPTS(cluster))).
