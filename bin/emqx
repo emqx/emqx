@@ -879,7 +879,12 @@ case "$1" in
         ;;
     check_conf)
         generate_config "check_only"
-        echo "$RUNNER_ETC_DIR/emqx.conf is ok"
+        INCLUDE_CONFS=$(< "$RUNNER_ETC_DIR/emqx.conf" grep "include" |awk '{print $2}'|xargs)
+        if [ "$INCLUDE_CONFS" == "" ]; then
+          echo "$RUNNER_ETC_DIR/emqx.conf is ok"
+        else
+          echo "$RUNNER_ETC_DIR/emqx.conf(include $INCLUDE_CONFS) is ok"
+        fi
         ;;
 
     ctl)

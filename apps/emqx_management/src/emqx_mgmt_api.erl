@@ -127,11 +127,12 @@ node_query(Node, Params, {Tab, QsSchema}, QueryFun, SortFun) ->
                 true -> Meta#{count => count(Tab), hasnext => length(Rows) > Limit};
                 _ -> Meta#{count => -1, hasnext => length(Rows) > Limit}
             end,
-    NRows = case SortFun of
-                undefined -> Rows;
-                _ -> lists:sort(SortFun, Rows)
-            end,
-    #{meta => NMeta, data => lists:sublist(NRows, Limit)}.
+    Data0 = lists:sublist(Rows, Limit),
+    Data = case SortFun of
+               undefined -> Data0;
+               _ -> lists:sort(SortFun, Data0)
+           end,
+    #{meta => NMeta, data => Data}.
 
 %% @private
 do_query(Node, Qs, {M,F}, Start, Limit) when Node =:= node() ->
