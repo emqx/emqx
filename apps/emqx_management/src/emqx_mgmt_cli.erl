@@ -582,7 +582,7 @@ listeners([]) ->
                 end,
             Info =
                 [
-                    {listen_on, {string, emqx_mgmt_util:format_listen_on(Port)}},
+                    {listen_on, {string, emqx_mgmt_util:format_listen_on(Bind)}},
                     {acceptors, Acceptors},
                     {proxy_protocol, ProxyProtocol},
                     {running, Running}
