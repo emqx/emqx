@@ -31,8 +31,7 @@
     get_bucket_cfg_path/2,
     desc/1,
     types/0,
-    infinity_value/0,
-    bucket_fields/1
+    infinity_value/0
 ]).
 
 -define(KILOBYTE, 1024).
@@ -92,7 +91,7 @@ fields(limiter) ->
         {Type,
             ?HOCON(?R_REF(node_opts), #{
                 desc => ?DESC(Type),
-                default => make_limiter_default(Type)
+                default => #{}
             })}
      || Type <- types()
     ] ++
@@ -179,17 +178,12 @@ fields(client_opts) ->
                 }
             )}
     ];
-fields({client_fields, Types}) ->
-    [
-        {Type,
-            ?HOCON(?R_REF(client_opts), #{
-                desc => ?DESC(Type),
-                required => false
-            })}
-     || Type <- Types
-    ];
-fields({bucket_fields, Types}) ->
-    bucket_fields(Types).
+fields(listener_fields) ->
+    bucket_fields([bytes_in, message_in, connection, message_routing], listener_client_fields);
+fields(listener_client_fields) ->
+    client_fields([bytes_in, message_in, connection, message_routing]);
+fields(Type) ->
+    bucket_field(Type).
 
 desc(limiter) ->
     "Settings for the rate limiter.";
@@ -201,38 +195,6 @@ desc(client_opts) ->
     "Settings for the client in bucket level.";
 desc(_) ->
     undefined.
-
-bucket_fields(Type) when is_atom(Type) ->
-    fields(bucket_opts) ++
-        [
-            {client,
-                ?HOCON(
-                    ?R_REF(?MODULE, client_opts),
-                    #{
-                        desc => ?DESC(client),
-                        required => false
-                    }
-                )}
-        ];
-bucket_fields(Types) ->
-    [
-        {Type,
-            ?HOCON(?R_REF(?MODULE, bucket_opts), #{
-                desc => ?DESC(?MODULE, Type),
-                required => false
-            })}
-     || Type <- Types
-    ] ++
-        [
-            {client,
-                ?HOCON(
-                    ?R_REF(?MODULE, {client_fields, Types}),
-                    #{
-                        desc => ?DESC(client),
-                        required => false
-                    }
-                )}
-        ].
 
 %% default period is 100ms
 default_period() ->
@@ -366,7 +328,44 @@ apply_unit("mb", Val) -> Val * ?KILOBYTE * ?KILOBYTE;
 apply_unit("gb", Val) -> Val * ?KILOBYTE * ?KILOBYTE * ?KILOBYTE;
 apply_unit(Unit, _) -> throw("invalid unit:" ++ Unit).
 
-make_limiter_default(connection) ->
-    #{<<"rate">> => <<"1000/s">>};
-make_limiter_default(_) ->
-    #{}.
+bucket_field(Type) when is_atom(Type) ->
+    fields(bucket_opts) ++
+        [
+            {client,
+                ?HOCON(
+                    ?R_REF(?MODULE, client_opts),
+                    #{
+                        desc => ?DESC(client),
+                        required => false
+                    }
+                )}
+        ].
+bucket_fields(Types, ClientRef) ->
+    [
+        {Type,
+            ?HOCON(?R_REF(?MODULE, bucket_opts), #{
+                desc => ?DESC(?MODULE, Type),
+                required => false
+            })}
+     || Type <- Types
+    ] ++
+        [
+            {client,
+                ?HOCON(
+                    ?R_REF(?MODULE, ClientRef),
+                    #{
+                        desc => ?DESC(client),
+                        required => false
+                    }
+                )}
+        ].
+
+client_fields(Types) ->
+    [
+        {Type,
+            ?HOCON(?R_REF(client_opts), #{
+                desc => ?DESC(Type),
+                required => false
+            })}
+     || Type <- Types
+    ].

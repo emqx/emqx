@@ -1621,11 +1621,13 @@ base_listener(Bind) ->
             sc(
                 ?R_REF(
                     emqx_limiter_schema,
-                    {bucket_fields, [bytes_in, message_in, connection, message_routing]}
+                    listener_fields
                 ),
                 #{
                     desc => ?DESC(base_listener_limiter),
-                    default => #{}
+                    default => #{
+                        <<"connection">> => #{<<"rate">> => <<"1000/s">>, <<"capacity">> => 1000}
+                    }
                 }
             )},
         {"enable_authn",
