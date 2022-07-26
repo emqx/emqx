@@ -52,7 +52,7 @@ defmodule EMQXUmbrella.MixProject do
       {:jiffy, github: "emqx/jiffy", tag: "1.0.5", override: true},
       {:cowboy, github: "emqx/cowboy", tag: "2.9.0", override: true},
       {:esockd, github: "emqx/esockd", tag: "5.9.3", override: true},
-      {:ekka, github: "emqx/ekka", tag: "0.13.2", override: true},
+      {:ekka, github: "emqx/ekka", tag: "0.13.3", override: true},
       {:gen_rpc, github: "emqx/gen_rpc", tag: "2.8.1", override: true},
       {:grpc, github: "emqx/grpc-erl", tag: "0.6.6", override: true},
       {:minirest, github: "emqx/minirest", tag: "1.3.5", override: true},
