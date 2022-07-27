@@ -9,7 +9,6 @@
     schema_modules/0,
     conn_bridge_examples/1,
     resource_type/1,
-    parse_conf/3,
     fields/1
 ]).
 
@@ -27,14 +26,11 @@ conn_bridge_examples(Method) ->
 resource_type(hstream) -> emqx_ee_connector_hstream;
 resource_type(<<"hstream">>) -> emqx_ee_connector_hstream.
 
-parse_conf(_Type, _Name, Conf) ->
-    Conf.
-
 fields(bridges) ->
     [
         {hstream,
             mk(
                 hoconsc:map(name, ref(emqx_ee_bridge_hstream, "config")),
-                #{desc => <<"emqx enterprise config">>}
+                #{desc => <<"EMQX Enterprise Config">>}
             )}
     ].

@@ -239,7 +239,7 @@ is_tmp_path(TmpPath, File) ->
     string:str(str(File), str(TmpPath)) > 0.
 
 parse_confs(
-    webhook,
+    Type,
     _Name,
     #{
         url := Url,
@@ -248,7 +248,7 @@ parse_confs(
         headers := Headers,
         request_timeout := ReqTimeout
     } = Conf
-) ->
+) when Type == webhook orelse Type == <<"webhook">> ->
     {BaseUrl, Path} = parse_url(Url),
     {ok, BaseUrl2} = emqx_http_lib:uri_parse(BaseUrl),
     Conf#{
@@ -262,7 +262,7 @@ parse_confs(
                 request_timeout => ReqTimeout
             }
     };
-parse_confs(Type = mqtt, Name, #{connector := ConnId, direction := Direction} = Conf) when
+parse_confs(Type, Name, #{connector := ConnId, direction := Direction} = Conf) when
     is_binary(ConnId)
 ->
     case emqx_connector:parse_connector_id(ConnId) of
@@ -278,7 +278,7 @@ parse_confs(Type = mqtt, Name, #{connector := ConnId, direction := Direction} = 
         {_ConnType, _ConnName} ->
             error({cannot_use_connector_with_different_type, ConnId})
     end;
-parse_confs(Type = mqtt, Name, #{connector := ConnectorConfs, direction := Direction} = Conf) when
+parse_confs(Type, Name, #{connector := ConnectorConfs, direction := Direction} = Conf) when
     is_map(ConnectorConfs)
 ->
     make_resource_confs(
@@ -288,16 +288,8 @@ parse_confs(Type = mqtt, Name, #{connector := ConnectorConfs, direction := Direc
         Type,
         Name
     );
-parse_confs(Type, Name, Conf) ->
-    parse_enterprise_confs(Type, Name, Conf).
-
--if(?EMQX_RELEASE_EDITION == ee).
-parse_enterprise_confs(Type, Name, Conf) ->
-    emqx_ee_bridge:parse_conf(Type, Name, Conf).
--else.
-parse_enterprise_confs(Type, Name, _Conf) ->
-    error({not_supported, Type, Name}).
--endif.
+parse_confs(_Type, _Name, Conf) ->
+    Conf.
 
 make_resource_confs(ingress, ConnectorConfs, BridgeConf, Type, Name) ->
     BName = bridge_id(Type, Name),
