@@ -249,3 +249,4 @@ $(foreach tt,$(ALL_ELIXIR_TGZS),$(eval $(call gen-elixir-tgz-target,$(tt))))
 fmt: $(REBAR)
 	@./scripts/erlfmt -w '{apps,lib-ee}/*/{src,include,test}/**/*.{erl,hrl,app.src}'
 	@./scripts/erlfmt -w 'rebar.config.erl'
+	@mix format
