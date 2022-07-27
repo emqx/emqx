@@ -225,7 +225,6 @@ info_example_basic(webhook, _) ->
         request_timeout => <<"15s">>,
         connect_timeout => <<"15s">>,
         max_retries => 3,
-        retry_interval => <<"10s">>,
         pool_type => <<"random">>,
         pool_size => 4,
         enable_pipelining => 100,

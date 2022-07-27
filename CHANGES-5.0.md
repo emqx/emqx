@@ -23,6 +23,7 @@
   **‼️ Note** : The previous API only returns array: `[RuleObj1,RuleObj2]`, after updating, it will become
   `{"data": [RuleObj1,RuleObj2], "meta":{"count":2, "limit":100, "page":1}`,
   which will carry the paging meta information.
+* Fix the issue that webhook leaks TCP connections. [ehttpc#34](https://github.com/emqx/ehttpc/pull/34), [#8580](https://github.com/emqx/emqx/pull/8580)
 
 ## Enhancements
 

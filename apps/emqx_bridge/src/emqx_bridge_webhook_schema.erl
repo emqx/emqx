@@ -14,60 +14,7 @@ namespace() -> "bridge".
 roots() -> [].
 
 fields("config") ->
-    basic_config() ++
-        [
-            {url,
-                mk(
-                    binary(),
-                    #{
-                        required => true,
-                        desc => ?DESC("config_url")
-                    }
-                )},
-            {local_topic,
-                mk(
-                    binary(),
-                    #{desc => ?DESC("config_local_topic")}
-                )},
-            {method,
-                mk(
-                    method(),
-                    #{
-                        default => post,
-                        desc => ?DESC("config_method")
-                    }
-                )},
-            {headers,
-                mk(
-                    map(),
-                    #{
-                        default => #{
-                            <<"accept">> => <<"application/json">>,
-                            <<"cache-control">> => <<"no-cache">>,
-                            <<"connection">> => <<"keep-alive">>,
-                            <<"content-type">> => <<"application/json">>,
-                            <<"keep-alive">> => <<"timeout=5">>
-                        },
-                        desc => ?DESC("config_headers")
-                    }
-                )},
-            {body,
-                mk(
-                    binary(),
-                    #{
-                        default => <<"${payload}">>,
-                        desc => ?DESC("config_body")
-                    }
-                )},
-            {request_timeout,
-                mk(
-                    emqx_schema:duration_ms(),
-                    #{
-                        default => <<"15s">>,
-                        desc => ?DESC("config_request_timeout")
-                    }
-                )}
-        ];
+    basic_config() ++ request_config();
 fields("post") ->
     [
         type_field(),
@@ -105,6 +52,69 @@ basic_config() ->
             )}
     ] ++
         proplists:delete(base_url, emqx_connector_http:fields(config)).
+
+request_config() ->
+    [
+        {url,
+            mk(
+                binary(),
+                #{
+                    required => true,
+                    desc => ?DESC("config_url")
+                }
+            )},
+        {local_topic,
+            mk(
+                binary(),
+                #{desc => ?DESC("config_local_topic")}
+            )},
+        {method,
+            mk(
+                method(),
+                #{
+                    default => post,
+                    desc => ?DESC("config_method")
+                }
+            )},
+        {headers,
+            mk(
+                map(),
+                #{
+                    default => #{
+                        <<"accept">> => <<"application/json">>,
+                        <<"cache-control">> => <<"no-cache">>,
+                        <<"connection">> => <<"keep-alive">>,
+                        <<"content-type">> => <<"application/json">>,
+                        <<"keep-alive">> => <<"timeout=5">>
+                    },
+                    desc => ?DESC("config_headers")
+                }
+            )},
+        {body,
+            mk(
+                binary(),
+                #{
+                    default => <<"${payload}">>,
+                    desc => ?DESC("config_body")
+                }
+            )},
+        {max_retries,
+            mk(
+                non_neg_integer(),
+                #{
+                    default => 2,
+                    desc => ?DESC("config_max_retries")
+                }
+            )},
+        {request_timeout,
+            mk(
+                emqx_schema:duration_ms(),
+                #{
+                    default => <<"15s">>,
+                    desc => ?DESC("config_request_timeout")
+                }
+            )}
+    ].
 
 %%======================================================================================
 
