@@ -26,6 +26,7 @@
 -include("emqx_dashboard/include/emqx_dashboard.hrl").
 
 %% output functions
+
 -export([inspect/3]).
 
 -define(BRIDGE_CONF_DEFAULT, <<"bridges: {}">>).
