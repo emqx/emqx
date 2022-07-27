@@ -31,6 +31,8 @@
 * Remove `/configs/listeners` API, use `/listeners/` instead. [#8485](https://github.com/emqx/emqx/pull/8485)
 * Optimize performance of builtin database operations in processes with long message queue [#8439](https://github.com/emqx/emqx/pull/8439)
 * Improve authentication tracing. [#8554](https://github.com/emqx/emqx/pull/8554)
+* Standardize the '/listeners' and `/gateway/<name>/listeners` API fields.
+  It will introduce some incompatible updates, see [#8571](https://github.com/emqx/emqx/pull/8571)
 
 # 5.0.3
 

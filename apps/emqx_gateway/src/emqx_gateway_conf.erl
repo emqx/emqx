@@ -181,24 +181,11 @@ do_convert_listener(GwName, LType, Conf) ->
 
 do_convert_listener2(GwName, LType, LName, LConf) ->
     ListenerId = emqx_gateway_utils:listener_id(GwName, LType, LName),
-    Running = emqx_gateway_utils:is_running(ListenerId, LConf),
-    bind2str(
-        LConf#{
-            id => ListenerId,
-            type => LType,
-            name => LName,
-            running => Running
-        }
-    ).
-
-bind2str(LConf = #{bind := Bind}) when is_integer(Bind) ->
-    maps:put(bind, integer_to_binary(Bind), LConf);
-bind2str(LConf = #{<<"bind">> := Bind}) when is_integer(Bind) ->
-    maps:put(<<"bind">>, integer_to_binary(Bind), LConf);
-bind2str(LConf = #{bind := Bind}) when is_binary(Bind) ->
-    LConf;
-bind2str(LConf = #{<<"bind">> := Bind}) when is_binary(Bind) ->
-    LConf.
+    LConf#{
+        id => ListenerId,
+        type => LType,
+        name => LName
+    }.
 
 get_bind(#{bind := Bind}) ->
     emqx_gateway_utils:parse_listenon(Bind);
