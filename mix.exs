@@ -30,17 +30,17 @@ defmodule EMQXUmbrella.MixProject do
   """
 
   def project() do
-    check_profile!()
+    profile_info = check_profile!()
 
     [
       app: :emqx_mix,
       version: pkg_vsn(),
-      deps: deps(),
+      deps: deps(profile_info),
       releases: releases()
     ]
   end
 
-  defp deps() do
+  defp deps(profile_info) do
     # we need several overrides here because dependencies specify
     # other exact versions, and not ranges.
     [
@@ -89,7 +89,8 @@ defmodule EMQXUmbrella.MixProject do
        github: "ninenines/ranch", ref: "a692f44567034dacf5efcaa24a24183788594eb7", override: true},
       # in conflict by grpc and eetcd
       {:gpb, "4.11.2", override: true, runtime: false}
-    ] ++ umbrella_apps() ++ bcrypt_dep() ++ jq_dep() ++ quicer_dep()
+    ] ++
+      umbrella_apps() ++ enterprise_apps(profile_info) ++ bcrypt_dep() ++ jq_dep() ++ quicer_dep()
   end
 
   defp umbrella_apps() do
@@ -103,6 +104,24 @@ defmodule EMQXUmbrella.MixProject do
 
       {app, path: path, manager: :rebar3, override: true}
     end)
+  end
+
+  defp enterprise_apps(_profile_info = %{edition_type: :enterprise}) do
+    "lib-ee/*"
+    |> Path.wildcard()
+    |> Enum.filter(&File.dir?/1)
+    |> Enum.map(fn path ->
+      app =
+        path
+        |> String.trim_leading("lib-ee/")
+        |> String.to_atom()
+
+      {app, path: path, manager: :rebar3, override: true}
+    end)
+  end
+
+  defp enterprise_apps(_profile_info) do
+    []
   end
 
   defp releases() do
