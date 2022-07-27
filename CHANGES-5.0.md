@@ -17,13 +17,20 @@
 * Fix `chars_limit` is not working when `formatter` is `json`. [#8518](http://github.com/emqx/emqx/pull/8518)
 * Ensuring that exhook dispatches the client events are sequential. [#8530](https://github.com/emqx/emqx/pull/8530)
 * Avoid using RocksDB backend for persistent sessions when such backend is unavailable. [#8528](https://github.com/emqx/emqx/pull/8528)
+* Fix AuthN `cert_subject` and `cert_common_name` placeholder rendering failure. [#8531](https://github.com/emqx/emqx/pull/8531)
+* Support listen on an IPv6 address, e.g: [::1]:1883 or ::1:1883. [#8547](https://github.com/emqx/emqx/pull/8547)
+* GET '/rules' support for pagination and fuzzy search. [#8472](https://github.com/emqx/emqx/pull/8472)
+  **‼️ Note** : The previous API only returns array: `[RuleObj1,RuleObj2]`, after updating, it will become
+  `{"data": [RuleObj1,RuleObj2], "meta":{"count":2, "limit":100, "page":1}`,
+  which will carry the paging meta information.
 
 ## Enhancements
 
 * Improve the dashboard listener startup log, the listener name is no longer spliced with port information,
   and the colon(:) is no longer displayed when IP is not specified. [#8480](https://github.com/emqx/emqx/pull/8480)
 * Remove `/configs/listeners` API, use `/listeners/` instead. [#8485](https://github.com/emqx/emqx/pull/8485)
-* Optimize performance of builtin database operations in processes with long message queue [8439](https://github.com/emqx/emqx/pull/8439)
+* Optimize performance of builtin database operations in processes with long message queue [#8439](https://github.com/emqx/emqx/pull/8439)
+* Improve authentication tracing. [#8554](https://github.com/emqx/emqx/pull/8554)
 
 # 5.0.3
 

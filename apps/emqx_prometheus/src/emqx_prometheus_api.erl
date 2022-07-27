@@ -34,6 +34,7 @@
 ]).
 
 -define(SCHEMA_MODULE, emqx_prometheus_schema).
+-define(TAGS, [<<"Monitor">>]).
 
 api_spec() ->
     emqx_dashboard_swagger:spec(?MODULE, #{check_schema => true}).
@@ -50,12 +51,14 @@ schema("/prometheus") ->
         get =>
             #{
                 description => <<"Get Prometheus config info">>,
+                tags => ?TAGS,
                 responses =>
                     #{200 => prometheus_config_schema()}
             },
         put =>
             #{
                 description => <<"Update Prometheus config">>,
+                tags => ?TAGS,
                 'requestBody' => prometheus_config_schema(),
                 responses =>
                     #{200 => prometheus_config_schema()}
@@ -67,6 +70,7 @@ schema("/prometheus/stats") ->
         get =>
             #{
                 description => <<"Get Prometheus Data">>,
+                tags => ?TAGS,
                 security => [],
                 responses =>
                     #{200 => prometheus_data_schema()}

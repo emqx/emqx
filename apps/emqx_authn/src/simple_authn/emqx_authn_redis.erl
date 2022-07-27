@@ -128,13 +128,14 @@ authenticate(#{auth_method := _}, _) ->
 authenticate(
     #{password := Password} = Credential,
     #{
-        cmd := {Command, KeyTemplate, Fields},
+        cmd := {CommandName, KeyTemplate, Fields},
         resource_id := ResourceId,
         password_hash_algorithm := Algorithm
     }
 ) ->
     NKey = emqx_authn_utils:render_str(KeyTemplate, Credential),
-    case emqx_resource:query(ResourceId, {cmd, [Command, NKey | Fields]}) of
+    Command = [CommandName, NKey | Fields],
+    case emqx_resource:query(ResourceId, {cmd, Command}) of
         {ok, []} ->
             ignore;
         {ok, Values} ->
@@ -150,8 +151,7 @@ authenticate(
                     {error, Reason}
             end;
         {error, Reason} ->
-            ?SLOG(error, #{
-                msg => "redis_query_failed",
+            ?TRACE_AUTHN_PROVIDER(error, "redis_query_failed", #{
                 resource => ResourceId,
                 cmd => Command,
                 keys => NKey,

@@ -37,6 +37,7 @@ schema("/status") ->
         get =>
             #{
                 description => <<"Node running status">>,
+                tags => [<<"Status">>],
                 security => [],
                 responses =>
                     #{

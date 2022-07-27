@@ -167,8 +167,7 @@ authenticate(
         undefined ->
             ignore;
         {error, Reason} ->
-            ?SLOG(error, #{
-                msg => "mongodb_query_failed",
+            ?TRACE_AUTHN_PROVIDER(error, "mongodb_query_failed", #{
                 resource => ResourceId,
                 collection => Collection,
                 filter => Filter,
@@ -180,11 +179,11 @@ authenticate(
                 ok ->
                     {ok, is_superuser(Doc, State)};
                 {error, {cannot_find_password_hash_field, PasswordHashField}} ->
-                    ?SLOG(error, #{
-                        msg => "cannot_find_password_hash_field",
+                    ?TRACE_AUTHN_PROVIDER(error, "cannot_find_password_hash_field", #{
                         resource => ResourceId,
                         collection => Collection,
                         filter => Filter,
+                        document => Doc,
                         password_hash_field => PasswordHashField
                     }),
                     ignore;

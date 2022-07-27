@@ -33,7 +33,8 @@
     bin/1,
     ensure_apps_started/1,
     cleanup_resources/0,
-    make_resource_id/1
+    make_resource_id/1,
+    without_password/1
 ]).
 
 -define(AUTHN_PLACEHOLDERS, [
@@ -117,21 +118,21 @@ parse_sql(Template, ReplaceWith) ->
 render_deep(Template, Credential) ->
     emqx_placeholder:proc_tmpl_deep(
         Template,
-        Credential,
+        mapping_credential(Credential),
         #{return => full_binary, var_trans => fun handle_var/2}
     ).
 
 render_str(Template, Credential) ->
     emqx_placeholder:proc_tmpl(
         Template,
-        Credential,
+        mapping_credential(Credential),
         #{return => full_binary, var_trans => fun handle_var/2}
     ).
 
 render_sql_params(ParamList, Credential) ->
     emqx_placeholder:proc_tmpl(
         ParamList,
-        Credential,
+        mapping_credential(Credential),
         #{return => rawlist, var_trans => fun handle_sql_var/2}
     ).
 
@@ -199,9 +200,22 @@ make_resource_id(Name) ->
     NameBin = bin(Name),
     emqx_resource:generate_id(NameBin).
 
+without_password(Credential) ->
+    without_password(Credential, [password, <<"password">>]).
+
 %%--------------------------------------------------------------------
 %% Internal functions
 %%--------------------------------------------------------------------
+
+without_password(Credential, []) ->
+    Credential;
+without_password(Credential, [Name | Rest]) ->
+    case maps:is_key(Name, Credential) of
+        true ->
+            without_password(Credential#{Name => <<"[password]">>}, Rest);
+        false ->
+            without_password(Credential, Rest)
+    end.
 
 handle_var({var, Name}, undefined) ->
     error({cannot_get_variable, Name});
@@ -216,3 +230,8 @@ handle_sql_var({var, <<"peerhost">>}, PeerHost) ->
     emqx_placeholder:bin(inet:ntoa(PeerHost));
 handle_sql_var(_, Value) ->
     emqx_placeholder:sql_data(Value).
+
+mapping_credential(C = #{cn := CN, dn := DN}) ->
+    C#{cert_common_name => CN, cert_subject => DN};
+mapping_credential(C) ->
+    C.
