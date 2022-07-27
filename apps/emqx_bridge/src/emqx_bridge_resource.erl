@@ -42,10 +42,18 @@
     reset_metrics/1
 ]).
 
+-if(?EMQX_RELEASE_EDITION == ee).
+bridge_to_resource_type(<<"mqtt">>) -> emqx_connector_mqtt;
+bridge_to_resource_type(mqtt) -> emqx_connector_mqtt;
+bridge_to_resource_type(<<"webhook">>) -> emqx_connector_http;
+bridge_to_resource_type(webhook) -> emqx_connector_http;
+bridge_to_resource_type(BridgeType) -> emqx_ee_bridge:resource_type(BridgeType).
+-else.
 bridge_to_resource_type(<<"mqtt">>) -> emqx_connector_mqtt;
 bridge_to_resource_type(mqtt) -> emqx_connector_mqtt;
 bridge_to_resource_type(<<"webhook">>) -> emqx_connector_http;
 bridge_to_resource_type(webhook) -> emqx_connector_http.
+-endif.
 
 resource_id(BridgeId) when is_binary(BridgeId) ->
     <<"bridge:", BridgeId/binary>>.
@@ -231,7 +239,7 @@ is_tmp_path(TmpPath, File) ->
     string:str(str(File), str(TmpPath)) > 0.
 
 parse_confs(
-    webhook,
+    Type,
     _Name,
     #{
         url := Url,
@@ -240,7 +248,7 @@ parse_confs(
         headers := Headers,
         request_timeout := ReqTimeout
     } = Conf
-) ->
+) when Type == webhook orelse Type == <<"webhook">> ->
     {BaseUrl, Path} = parse_url(Url),
     {ok, BaseUrl2} = emqx_http_lib:uri_parse(BaseUrl),
     Conf#{
@@ -279,7 +287,9 @@ parse_confs(Type, Name, #{connector := ConnectorConfs, direction := Direction} =
         maps:without([connector, direction], Conf),
         Type,
         Name
-    ).
+    );
+parse_confs(_Type, _Name, Conf) ->
+    Conf.
 
 make_resource_confs(ingress, ConnectorConfs, BridgeConf, Type, Name) ->
     BName = bridge_id(Type, Name),

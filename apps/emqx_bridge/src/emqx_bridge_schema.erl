@@ -45,10 +45,16 @@ http_schema(Method) ->
         end,
         ?CONN_TYPES
     ),
-    hoconsc:union([
-        ref(emqx_bridge_webhook_schema, Method)
-        | Schemas
-    ]).
+    ExtSchemas = [ref(Module, Method) || Module <- schema_modules()],
+    hoconsc:union(Schemas ++ ExtSchemas).
+
+-if(?EMQX_RELEASE_EDITION == ee).
+schema_modules() ->
+    [emqx_bridge_webhook_schema] ++ emqx_ee_bridge:schema_modules().
+-else.
+schema_modules() ->
+    [emqx_bridge_webhook_schema].
+-endif.
 
 common_bridge_fields(ConnectorRef) ->
     [
@@ -127,7 +133,7 @@ fields(bridges) ->
                     #{desc => ?DESC("bridges_name")}
                 )}
          || T <- ?CONN_TYPES
-        ];
+        ] ++ ee_fields_bridges();
 fields("metrics") ->
     [
         {"matched", mk(integer(), #{desc => ?DESC("metric_matched")})},
@@ -151,6 +157,14 @@ fields("node_status") ->
         node_name(),
         {"status", mk(status(), #{})}
     ].
+
+-if(?EMQX_RELEASE_EDITION == ee).
+ee_fields_bridges() ->
+    emqx_ee_bridge:fields(bridges).
+-else.
+ee_fields_bridges() ->
+    [].
+-endif.
 
 desc(bridges) ->
     ?DESC("desc_bridges");

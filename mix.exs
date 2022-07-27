@@ -88,7 +88,8 @@ defmodule EMQXUmbrella.MixProject do
       {:ranch,
        github: "ninenines/ranch", ref: "a692f44567034dacf5efcaa24a24183788594eb7", override: true},
       # in conflict by grpc and eetcd
-      {:gpb, "4.11.2", override: true, runtime: false}
+      {:gpb, "4.11.2", override: true, runtime: false},
+      {:hstreamdb_erl, github: "hstreamdb/hstreamdb_erl", tag: "0.2.5"}
     ] ++ umbrella_apps() ++ bcrypt_dep() ++ jq_dep() ++ quicer_dep()
   end
 
@@ -215,7 +216,9 @@ defmodule EMQXUmbrella.MixProject do
       if(edition_type == :enterprise,
         do: [
           emqx_license: :permanent,
-          emqx_enterprise_conf: :load
+          emqx_enterprise_conf: :load,
+          emqx_ee_connector: :permanent,
+          emqx_ee_bridge: :permanent
         ],
         else: []
       )
