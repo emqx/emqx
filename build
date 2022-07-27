@@ -57,6 +57,7 @@ if [ "${SYSTEM}" = 'windows' ]; then
     # windows does not like the find
     FIND="/usr/bin/find"
     TAR="/usr/bin/tar"
+    export BUILD_WITHOUT_ROCKSDB="on"
 else
     FIND='find'
     TAR='tar'
