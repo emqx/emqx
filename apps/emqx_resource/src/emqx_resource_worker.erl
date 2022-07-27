@@ -27,7 +27,9 @@
 
 -export([
     start_link/3,
+    query/2,
     query/3,
+    query_async/3,
     query_async/4,
     block/1,
     resume/1
@@ -70,9 +72,17 @@ callback_mode() -> [state_functions, state_enter].
 start_link(Id, Index, Opts) ->
     gen_statem:start_link({local, name(Id, Index)}, ?MODULE, {Id, Index, Opts}, []).
 
+-spec query(id(), request()) -> ok.
+query(Id, Request) ->
+    gen_statem:call(pick(Id, self()), {query, Request}).
+
 -spec query(id(), term(), request()) -> ok.
 query(Id, Key, Request) ->
     gen_statem:call(pick(Id, Key), {query, Request}).
+
+-spec query_async(id(), request(), reply_fun()) -> ok.
+query_async(Id, Request, ReplyFun) ->
+    gen_statem:cast(pick(Id, self()), {query, Request, ReplyFun}).
 
 -spec query_async(id(), term(), request(), reply_fun()) -> ok.
 query_async(Id, Key, Request, ReplyFun) ->
@@ -91,7 +101,7 @@ init({Id, Index, Opts}) ->
     BatchSize = maps:get(batch_size, Opts, ?DEFAULT_BATCH_SIZE),
     Queue =
         case maps:get(queue_enabled, Opts, true) of
-            true -> replayq:open(#{dir => disk_queue_dir(Id), seg_bytes => 10000000});
+            true -> replayq:open(#{dir => disk_queue_dir(Id, Index), seg_bytes => 10000000});
             false -> undefined
         end,
     St = #{
@@ -157,13 +167,13 @@ do_resume(#{queue := undefined} = St) ->
 do_resume(#{queue := Q, id := Id} = St) ->
     case replayq:peek(Q) of
         empty ->
-            {next_state, running, St, {state_timeout, ?RESUME_INTERVAL, resume}};
+            {next_state, running, St};
         First ->
             Result = call_query(Id, First),
             case handle_query_result(Id, false, Result) of
                 %% Send failed because resource down
                 true ->
-                    {keep_state, St};
+                    {keep_state, St, {state_timeout, ?RESUME_INTERVAL, resume}};
                 %% Send ok or failed but the resource is working
                 false ->
                     %% We Send 'resume' to the end of the mailbox to give the worker
@@ -309,10 +319,13 @@ maybe_expand_batch_result(Result, Batch) ->
 
 -spec name(id(), integer()) -> atom().
 name(Id, Index) ->
-    list_to_atom(lists:concat([?MODULE, ":", Id, ":", Index])).
+    Mod = atom_to_list(?MODULE),
+    Id1 = binary_to_list(Id),
+    Index1 = integer_to_list(Index),
+    list_to_atom(lists:concat([Mod, ":", Id1, ":", Index1])).
 
-disk_queue_dir(Id) ->
-    filename:join([emqx:data_dir(), Id, queue]).
+disk_queue_dir(Id, Index) ->
+    filename:join([node(), emqx:data_dir(), Id, "queue:" ++ integer_to_list(Index)]).
 
 ensure_flush_timer(St = #{tref := undefined, batch_time := T}) ->
     Ref = make_ref(),
