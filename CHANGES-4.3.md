@@ -20,6 +20,8 @@ File format:
 - Fixed crash when shared persistent subscription [#8441]
 - Fixed issue in Lua hook that prevented messages from being
   rejected [#8535]
+- Fix ExProto UDP client keepalive checking error.
+  This causes the clients to not expire as long as a new UDP packet arrives [#8575]
 
 ### Enhancements
 - HTTP API(GET /rules/) support for pagination and fuzzy filtering. [#8450]
