@@ -99,7 +99,7 @@ defmodule EMQXUmbrella.MixProject do
     |> Enum.map(fn path ->
       app =
         path
-        |> String.trim_leading("apps/")
+        |> Path.basename()
         |> String.to_atom()
 
       {app, path: path, manager: :rebar3, override: true}
@@ -113,7 +113,7 @@ defmodule EMQXUmbrella.MixProject do
     |> Enum.map(fn path ->
       app =
         path
-        |> String.trim_leading("lib-ee/")
+        |> Path.basename()
         |> String.to_atom()
 
       {app, path: path, manager: :rebar3, override: true}
