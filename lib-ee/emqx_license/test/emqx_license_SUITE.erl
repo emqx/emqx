@@ -29,11 +29,13 @@ init_per_testcase(Case, Config) ->
     {ok, _} = emqx_cluster_rpc:start_link(node(), emqx_cluster_rpc, 1000),
     set_invalid_license_file(Case),
     Paths = set_override_paths(Case),
-    Paths ++ Config.
+    Config0 = setup_test(Case, Config),
+    Paths ++ Config0 ++ Config.
 
 end_per_testcase(Case, Config) ->
     restore_valid_license_file(Case),
     clean_overrides(Case, Config),
+    teardown_test(Case, Config),
     ok.
 
 set_override_paths(TestCase) when
@@ -71,6 +73,114 @@ clean_overrides(TestCase, Config) when
 clean_overrides(_TestCase, _Config) ->
     ok.
 
+setup_test(TestCase, Config) when
+    TestCase =:= t_update_file_cluster_backup
+->
+    DataDir = ?config(data_dir, Config),
+    {LicenseKey, _License} = mk_license(
+        [
+            %% license format version
+            "220111",
+            %% license type
+            "0",
+            %% customer type
+            "10",
+            %% customer name
+            "Foo",
+            %% customer email
+            "contact@foo.com",
+            %% deplayment name
+            "bar-deployment",
+            %% start date
+            "20220111",
+            %% days
+            "100000",
+            %% max connections
+            "19"
+        ]
+    ),
+    Cluster = emqx_common_test_helpers:emqx_cluster(
+        [core, core],
+        [
+            {apps, [emqx_conf, emqx_license]},
+            {load_schema, false},
+            {schema_mod, emqx_enterprise_conf_schema},
+            {env_handler, fun
+                (emqx) ->
+                    emqx_config:save_schema_mod_and_names(emqx_enterprise_conf_schema),
+                    %% emqx_config:save_schema_mod_and_names(emqx_license_schema),
+                    application:set_env(emqx, boot_modules, []),
+                    application:set_env(
+                        emqx,
+                        data_dir,
+                        filename:join([
+                            DataDir,
+                            TestCase,
+                            node()
+                        ])
+                    ),
+                    ok;
+                (emqx_conf) ->
+                    emqx_config:save_schema_mod_and_names(emqx_enterprise_conf_schema),
+                    %% emqx_config:save_schema_mod_and_names(emqx_license_schema),
+                    application:set_env(
+                        emqx,
+                        data_dir,
+                        filename:join([
+                            DataDir,
+                            TestCase,
+                            node()
+                        ])
+                    ),
+                    ok;
+                (emqx_license) ->
+                    LicensePath = filename:join(emqx_license:license_dir(), "emqx.lic"),
+                    filelib:ensure_dir(LicensePath),
+                    ok = file:write_file(LicensePath, LicenseKey),
+                    LicConfig = #{type => file, file => LicensePath},
+                    emqx_config:put([license], LicConfig),
+                    RawConfig = #{<<"type">> => file, <<"file">> => LicensePath},
+                    emqx_config:put_raw([<<"license">>], RawConfig),
+                    ok = meck:new(emqx_license, [non_strict, passthrough, no_history, no_link]),
+                    %% meck:expect(emqx_license, read_license, fun() -> {ok, License} end),
+                    meck:expect(
+                        emqx_license_parser,
+                        parse,
+                        fun(X) ->
+                            emqx_license_parser:parse(
+                                X,
+                                emqx_license_test_lib:public_key_pem()
+                            )
+                        end
+                    ),
+                    ok;
+                (_) ->
+                    ok
+            end}
+        ]
+    ),
+    Nodes = [emqx_common_test_helpers:start_slave(Name, Opts) || {Name, Opts} <- Cluster],
+    [{nodes, Nodes}, {cluster, Cluster}, {old_license, LicenseKey}];
+setup_test(_TestCase, _Config) ->
+    [].
+
+teardown_test(TestCase, Config) when
+    TestCase =:= t_update_file_cluster_backup
+->
+    Nodes = ?config(nodes, Config),
+    lists:foreach(
+        fun(N) ->
+            LicenseDir = erpc:call(N, emqx_license, license_dir, []),
+            {ok, _} = emqx_common_test_helpers:stop_slave(N),
+            ok = file:del_dir_r(LicenseDir),
+            ok
+        end,
+        Nodes
+    ),
+    ok;
+teardown_test(_TestCase, _Config) ->
+    ok.
+
 set_invalid_license_file(t_read_license_from_invalid_file) ->
     Config = #{type => file, file => "/invalid/file"},
     emqx_config:put([license], Config);
@@ -91,13 +201,17 @@ set_special_configs(emqx_license) ->
 set_special_configs(_) ->
     ok.
 
+assert_on_nodes(Nodes, RunFun, CheckFun) ->
+    Res = [{N, erpc:call(N, RunFun)} || N <- Nodes],
+    lists:foreach(CheckFun, Res).
+
 %%------------------------------------------------------------------------------
 %% Tests
 %%------------------------------------------------------------------------------
 
 t_update_file(_Config) ->
     ?assertMatch(
-        {error, {invalid_license_file, enoent}},
+        {error, enoent},
         emqx_license:update_file("/unknown/path")
     ),
 
@@ -111,6 +225,115 @@ t_update_file(_Config) ->
         {ok, #{}},
         emqx_license:update_file(emqx_license_test_lib:default_license())
     ).
+
+t_update_file_cluster_backup(Config) ->
+    OldLicenseKey = ?config(old_license, Config),
+    Nodes = [N1 | _] = ?config(nodes, Config),
+
+    %% update the license file for the cluster
+    {NewLicenseKey, NewDecodedLicense} = mk_license(
+        [
+            %% license format version
+            "220111",
+            %% license type
+            "0",
+            %% customer type
+            "10",
+            %% customer name
+            "Foo",
+            %% customer email
+            "contact@foo.com",
+            %% deplayment name
+            "bar-deployment",
+            %% start date
+            "20220111",
+            %% days
+            "100000",
+            %% max connections
+            "190"
+        ]
+    ),
+    NewLicensePath = "tmp_new_license.lic",
+    ok = file:write_file(NewLicensePath, NewLicenseKey),
+    {ok, _} = erpc:call(N1, emqx_license, update_file, [NewLicensePath]),
+
+    assert_on_nodes(
+        Nodes,
+        fun() ->
+            Conf = emqx_conf:get([license]),
+            emqx_license:read_license(Conf)
+        end,
+        fun({N, Res}) ->
+            ?assertMatch({ok, _}, Res, #{node => N}),
+            {ok, License} = Res,
+            ?assertEqual(NewDecodedLicense, License, #{node => N})
+        end
+    ),
+
+    assert_on_nodes(
+        Nodes,
+        fun() ->
+            LicenseDir = emqx_license:license_dir(),
+            file:list_dir(LicenseDir)
+        end,
+        fun({N, Res}) ->
+            ?assertMatch({ok, _}, Res, #{node => N}),
+            {ok, DirContents} = Res,
+            %% the now current license
+            ?assert(lists:member("emqx.lic", DirContents), #{node => N, dir_contents => DirContents}),
+            %% the backed up old license
+            ?assert(
+                lists:any(
+                    fun
+                        ("emqx.lic." ++ Suffix) -> lists:suffix(".backup", Suffix);
+                        (_) -> false
+                    end,
+                    DirContents
+                ),
+                #{node => N, dir_contents => DirContents}
+            )
+        end
+    ),
+
+    assert_on_nodes(
+        Nodes,
+        fun() ->
+            LicenseDir = emqx_license:license_dir(),
+            {ok, DirContents} = file:list_dir(LicenseDir),
+            [BackupLicensePath0] = [
+                F
+             || "emqx.lic." ++ F <- DirContents, lists:suffix(".backup", F)
+            ],
+            BackupLicensePath = "emqx.lic." ++ BackupLicensePath0,
+            {ok, BackupLicense} = file:read_file(filename:join(LicenseDir, BackupLicensePath)),
+            {ok, NewLicense} = file:read_file(filename:join(LicenseDir, "emqx.lic")),
+            #{
+                backup => BackupLicense,
+                new => NewLicense
+            }
+        end,
+        fun({N, #{backup := BackupLicense, new := NewLicense}}) ->
+            ?assertEqual(OldLicenseKey, BackupLicense, #{node => N}),
+            ?assertEqual(NewLicenseKey, NewLicense, #{node => N})
+        end
+    ),
+
+    %% uploading the same license twice should not generate extra backups.
+    {ok, _} = erpc:call(N1, emqx_license, update_file, [NewLicensePath]),
+
+    assert_on_nodes(
+        Nodes,
+        fun() ->
+            LicenseDir = emqx_license:license_dir(),
+            {ok, DirContents} = file:list_dir(LicenseDir),
+            [F || "emqx.lic." ++ F <- DirContents, lists:suffix(".backup", F)]
+        end,
+        fun({N, Backups}) ->
+            ?assertMatch([_], Backups, #{node => N})
+        end
+    ),
+
+    ok.
 
 t_update_value(_Config) ->
     ?assertMatch(
@@ -132,7 +355,7 @@ t_read_license_from_invalid_file(_Config) ->
     ).
 
 t_check_exceeded(_Config) ->
-    License = mk_license(
+    {_, License} = mk_license(
         [
             "220111",
             "0",
@@ -161,7 +384,7 @@ t_check_exceeded(_Config) ->
     ).
 
 t_check_ok(_Config) ->
-    License = mk_license(
+    {_, License} = mk_license(
         [
             "220111",
             "0",
@@ -190,7 +413,7 @@ t_check_ok(_Config) ->
     ).
 
 t_check_expired(_Config) ->
-    License = mk_license(
+    {_, License} = mk_license(
         [
             "220111",
             %% Official customer
@@ -263,4 +486,4 @@ mk_license(Fields) ->
         EncodedLicense,
         emqx_license_test_lib:public_key_pem()
     ),
-    License.
+    {EncodedLicense, License}.

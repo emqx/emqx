@@ -595,6 +595,7 @@ setup_node(Node, Opts) when is_map(Opts) ->
     EnvHandler = maps:get(env_handler, Opts, fun(_) -> ok end),
     ConfigureGenRpc = maps:get(configure_gen_rpc, Opts, true),
     LoadSchema = maps:get(load_schema, Opts, true),
+    SchemaMod = maps:get(schema_mod, Opts, emqx_schema),
     LoadApps = maps:get(load_apps, Opts, [gen_rpc, emqx, ekka, mria] ++ Apps),
     Env = maps:get(env, Opts, []),
     Conf = maps:get(conf, Opts, []),
@@ -630,7 +631,7 @@ setup_node(Node, Opts) when is_map(Opts) ->
             %% Otherwise, configuration get's loaded and all preset env in envhandler is lost
             LoadSchema andalso
                 begin
-                    emqx_config:init_load(emqx_schema),
+                    emqx_config:init_load(SchemaMod),
                     application:set_env(emqx, init_config_load_done, true)
                 end,
 

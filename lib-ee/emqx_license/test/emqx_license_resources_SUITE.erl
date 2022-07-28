@@ -59,9 +59,9 @@ t_connection_count(_Config) ->
     meck:new(emqx_cm, [passthrough]),
     meck:expect(emqx_cm, get_connected_client_count, fun() -> 10 end),
 
-    meck:new(emqx_license_proto_v1, [passthrough]),
+    meck:new(emqx_license_proto_v2, [passthrough]),
     meck:expect(
-        emqx_license_proto_v1,
+        emqx_license_proto_v2,
         remote_connection_counts,
         fun(_Nodes) ->
             [{ok, 5}, {error, some_error}]
@@ -82,8 +82,8 @@ t_connection_count(_Config) ->
         end
     ),
 
-    meck:unload(emqx_license_proto_v1),
+    meck:unload(emqx_license_proto_v2),
     meck:unload(emqx_cm).
 
 t_emqx_license_proto(_Config) ->
-    ?assert("5.0.0" =< emqx_license_proto_v1:introduced_in()).
+    ?assert("5.0.0" =< emqx_license_proto_v2:introduced_in()).
