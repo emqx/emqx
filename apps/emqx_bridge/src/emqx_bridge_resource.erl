@@ -287,9 +287,7 @@ parse_confs(Type, Name, #{connector := ConnectorConfs, direction := Direction} =
         maps:without([connector, direction], Conf),
         Type,
         Name
-    );
-parse_confs(_Type, _Name, Conf) ->
-    Conf.
+    ).
 
 make_resource_confs(ingress, ConnectorConfs, BridgeConf, Type, Name) ->
     BName = bridge_id(Type, Name),
