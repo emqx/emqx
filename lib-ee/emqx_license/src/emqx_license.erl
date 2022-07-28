@@ -130,7 +130,7 @@ do_update({file, Filename}, Conf) ->
         {ok, Content} ->
             case emqx_license_parser:parse(Content) of
                 {ok, _License} ->
-                    maps:remove(<<"key">>, Conf#{<<"file">> => Filename});
+                    maps:remove(<<"key">>, Conf#{<<"type">> => file, <<"file">> => Filename});
                 {error, Reason} ->
                     erlang:throw(Reason)
             end;
@@ -140,7 +140,7 @@ do_update({file, Filename}, Conf) ->
 do_update({key, Content}, Conf) when is_binary(Content); is_list(Content) ->
     case emqx_license_parser:parse(Content) of
         {ok, _License} ->
-            maps:remove(<<"file">>, Conf#{<<"key">> => Content});
+            maps:remove(<<"file">>, Conf#{<<"type">> => key, <<"key">> => Content});
         {error, Reason} ->
             erlang:throw(Reason)
     end;
@@ -151,12 +151,12 @@ do_update(_Other, Conf) ->
 check_max_clients_exceeded(MaxClients) ->
     emqx_license_resources:connection_count() > MaxClients * 1.1.
 
-read_license(#{file := Filename}) ->
+read_license(#{type := file, file := Filename}) ->
     case file:read_file(Filename) of
         {ok, Content} -> emqx_license_parser:parse(Content);
         {error, _} = Error -> Error
     end;
-read_license(#{key := Content}) ->
+read_license(#{type := key, key := Content}) ->
     emqx_license_parser:parse(Content).
 
 handle_config_update_result({error, _} = Error) ->
