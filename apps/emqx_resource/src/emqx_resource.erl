@@ -23,13 +23,6 @@
 
 -export([list_types/0]).
 
-%% APIs for behaviour implementations
-
--export([
-    query_success/1,
-    query_failed/1
-]).
-
 %% APIs for instances
 
 -export([
@@ -113,7 +106,8 @@
 -export([inc_metrics_funcs/1, inc_success/1, inc_failed/1]).
 
 -optional_callbacks([
-    on_query/4,
+    on_query/3,
+    on_batch_query/3,
     on_get_status/2
 ]).
 
@@ -125,7 +119,9 @@
 -callback on_stop(resource_id(), resource_state()) -> term().
 
 %% when calling emqx_resource:query/3
--callback on_query(resource_id(), Request :: term(), after_query(), resource_state()) -> term().
+-callback on_query(resource_id(), Request :: term(), resource_state()) -> query_result().
+
+-callback on_batch_query(resource_id(), Request :: term(), resource_state()) -> query_result().
 
 %% when calling emqx_resource:health_check/2
 -callback on_get_status(resource_id(), resource_state()) ->
@@ -148,22 +144,6 @@ is_resource_mod(Module) ->
         proplists:get_value(behavior, Info, []) ++
             proplists:get_value(behaviour, Info, []),
     lists:member(?MODULE, Behaviour).
-
--spec query_success(after_query()) -> ok.
-query_success(undefined) -> ok;
-query_success({OnSucc, _}) -> exec_query_after_calls(OnSucc).
-
--spec query_failed(after_query()) -> ok.
-query_failed(undefined) -> ok;
-query_failed({_, OnFailed}) -> exec_query_after_calls(OnFailed).
-
-exec_query_after_calls(Funcs) ->
-    lists:foreach(
-        fun({Fun, Arg}) ->
-            emqx_resource_utils:safe_exec(Fun, Arg)
-        end,
-        Funcs
-    ).
 
 %% =================================================================================
 %% APIs for resource instances
@@ -247,7 +227,7 @@ query(ResId, Request) ->
     emqx_resource_worker:query(ResId, Request).
 
 -spec query_async(resource_id(), Request :: term(), emqx_resource_worker:reply_fun()) ->
-    ok.
+    Result :: term().
 query_async(ResId, Request, ReplyFun) ->
     emqx_resource_worker:query_async(ResId, Request, ReplyFun).
 

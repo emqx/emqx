@@ -53,7 +53,7 @@
 
 -define(SHORT_HEALTHCHECK_INTERVAL, 1000).
 -define(HEALTHCHECK_INTERVAL, 15000).
--define(ETS_TABLE, emqx_resource_manager).
+-define(ETS_TABLE, ?MODULE).
 -define(WAIT_FOR_RESOURCE_DELAY, 100).
 -define(T_OPERATION, 5000).
 -define(T_LOOKUP, 1000).
@@ -114,9 +114,9 @@ create(MgrId, ResId, Group, ResourceType, Config, Opts) ->
         [matched, success, failed, exception, resource_down],
         [matched]
     ),
+    ok = emqx_resource_worker_sup:start_workers(ResId, Opts),
     case maps:get(start_after_created, Opts, true) of
         true ->
-            ok = emqx_resource_sup:start_workers(ResId, Opts),
             wait_for_resource_ready(ResId, maps:get(wait_for_resource_ready, Opts, 5000));
         false ->
             ok
@@ -317,7 +317,7 @@ handle_event({call, From}, health_check, _State, Data) ->
     handle_manually_health_check(From, Data);
 % State: CONNECTING
 handle_event(enter, _OldState, connecting, Data) ->
-    UpdatedData = Data#data{status = connected},
+    UpdatedData = Data#data{status = connecting},
     insert_cache(Data#data.id, Data#data.group, Data),
     Actions = [{state_timeout, 0, health_check}],
     {keep_state, UpdatedData, Actions};
@@ -332,7 +332,7 @@ handle_event(enter, _OldState, connected, Data) ->
     UpdatedData = Data#data{status = connected},
     insert_cache(Data#data.id, Data#data.group, UpdatedData),
     _ = emqx_alarm:deactivate(Data#data.id),
-    Actions = [{state_timeout, ?HEALTHCHECK_INTERVAL, health_check}],
+    Actions = [{state_timeout, health_check_interval(Data#data.opts), health_check}],
     {next_state, connected, UpdatedData, Actions};
 handle_event(state_timeout, health_check, connected, Data) ->
     handle_connected_health_check(Data);
@@ -423,7 +423,7 @@ handle_remove_event(From, ClearMetrics, Data) ->
         true -> ok = emqx_metrics_worker:clear_metrics(?RES_METRICS, Data#data.id);
         false -> ok
     end,
-    ok = emqx_resource_sup:stop_workers(Data#data.id, Data#data.opts),
+    ok = emqx_resource_worker_sup:stop_workers(Data#data.id, Data#data.opts),
     {stop_and_reply, normal, [{reply, From, ok}]}.
 
 start_resource(Data, From) ->
@@ -487,7 +487,7 @@ handle_connected_health_check(Data) ->
         Data,
         fun
             (connected, UpdatedData) ->
-                Actions = [{state_timeout, ?HEALTHCHECK_INTERVAL, health_check}],
+                Actions = [{state_timeout, health_check_interval(Data#data.opts), health_check}],
                 {keep_state, UpdatedData, Actions};
             (Status, UpdatedData) ->
                 ?SLOG(error, #{
@@ -509,6 +509,9 @@ with_health_check(Data, Func) ->
     },
     insert_cache(ResId, UpdatedData#data.group, UpdatedData),
     Func(Status, UpdatedData).
+
+health_check_interval(Opts) ->
+    maps:get(health_check_interval, Opts, ?HEALTHCHECK_INTERVAL).
 
 maybe_alarm(connected, _ResId) ->
     ok;

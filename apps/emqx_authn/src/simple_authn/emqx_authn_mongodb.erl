@@ -174,7 +174,7 @@ authenticate(
                 reason => Reason
             }),
             ignore;
-        Doc ->
+        {ok, Doc} ->
             case check_password(Password, Doc, State) of
                 ok ->
                     {ok, is_superuser(Doc, State)};

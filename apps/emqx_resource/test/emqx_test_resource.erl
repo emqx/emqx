@@ -24,7 +24,7 @@
 -export([
     on_start/2,
     on_stop/2,
-    on_query/4,
+    on_query/3,
     on_get_status/2
 ]).
 
@@ -50,24 +50,20 @@ on_start(_InstId, #{create_error := true}) ->
     error("some error");
 on_start(InstId, #{name := Name, stop_error := true} = Opts) ->
     Register = maps:get(register, Opts, false),
-    {ok, #{
-        name => Name,
+    {ok, Opts#{
         id => InstId,
         stop_error => true,
         pid => spawn_dummy_process(Name, Register)
     }};
-on_start(InstId, #{name := Name, health_check_error := true} = Opts) ->
+on_start(InstId, #{name := Name} = Opts) ->
     Register = maps:get(register, Opts, false),
-    {ok, #{
-        name => Name,
+    {ok, Opts#{
         id => InstId,
-        health_check_error => true,
         pid => spawn_dummy_process(Name, Register)
     }};
 on_start(InstId, #{name := Name} = Opts) ->
     Register = maps:get(register, Opts, false),
-    {ok, #{
-        name => Name,
+    {ok, Opts#{
         id => InstId,
         pid => spawn_dummy_process(Name, Register)
     }}.
@@ -78,12 +74,10 @@ on_stop(_InstId, #{pid := Pid}) ->
     erlang:exit(Pid, shutdown),
     ok.
 
-on_query(_InstId, get_state, AfterQuery, State) ->
-    emqx_resource:query_success(AfterQuery),
-    State;
-on_query(_InstId, get_state_failed, AfterQuery, State) ->
-    emqx_resource:query_failed(AfterQuery),
-    State.
+on_query(_InstId, get_state, State) ->
+    {ok, State};
+on_query(_InstId, get_state_failed, State) ->
+    {error, State}.
 
 on_get_status(_InstId, #{health_check_error := true}) ->
     disconnected;
@@ -91,10 +85,11 @@ on_get_status(_InstId, #{pid := Pid}) ->
     timer:sleep(300),
     case is_process_alive(Pid) of
         true -> connected;
-        false -> connecting
+        false -> disconnected
     end.
 
 spawn_dummy_process(Name, Register) ->
+    ct:pal("---- Register Name: ~p", [Name]),
     spawn(
         fun() ->
             true =

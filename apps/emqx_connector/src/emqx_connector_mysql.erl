@@ -26,7 +26,7 @@
 -export([
     on_start/2,
     on_stop/2,
-    on_query/4,
+    on_query/3,
     on_get_status/2
 ]).
 
@@ -122,14 +122,13 @@ on_stop(InstId, #{poolname := PoolName}) ->
     }),
     emqx_plugin_libs_pool:stop_pool(PoolName).
 
-on_query(InstId, {TypeOrKey, SQLOrKey}, AfterQuery, State) ->
-    on_query(InstId, {TypeOrKey, SQLOrKey, [], default_timeout}, AfterQuery, State);
-on_query(InstId, {TypeOrKey, SQLOrKey, Params}, AfterQuery, State) ->
-    on_query(InstId, {TypeOrKey, SQLOrKey, Params, default_timeout}, AfterQuery, State);
+on_query(InstId, {TypeOrKey, SQLOrKey}, State) ->
+    on_query(InstId, {TypeOrKey, SQLOrKey, [], default_timeout}, State);
+on_query(InstId, {TypeOrKey, SQLOrKey, Params}, State) ->
+    on_query(InstId, {TypeOrKey, SQLOrKey, Params, default_timeout}, State);
 on_query(
     InstId,
     {TypeOrKey, SQLOrKey, Params, Timeout},
-    AfterQuery,
     #{poolname := PoolName, prepare_statement := Prepares} = State
 ) ->
     LogMeta = #{connector => InstId, sql => SQLOrKey, state => State},
@@ -147,7 +146,6 @@ on_query(
             ),
             %% kill the poll worker to trigger reconnection
             _ = exit(Conn, restart),
-            emqx_resource:query_failed(AfterQuery),
             Result;
         {error, not_prepared} ->
             ?SLOG(
@@ -157,13 +155,12 @@ on_query(
             case prepare_sql(Prepares, PoolName) of
                 ok ->
                     %% not return result, next loop will try again
-                    on_query(InstId, {TypeOrKey, SQLOrKey, Params, Timeout}, AfterQuery, State);
+                    on_query(InstId, {TypeOrKey, SQLOrKey, Params, Timeout}, State);
                 {error, Reason} ->
                     ?SLOG(
                         error,
                         LogMeta#{msg => "mysql_connector_do_prepare_failed", reason => Reason}
                     ),
-                    emqx_resource:query_failed(AfterQuery),
                     {error, Reason}
             end;
         {error, Reason} ->
@@ -171,10 +168,8 @@ on_query(
                 error,
                 LogMeta#{msg => "mysql_connector_do_sql_query_failed", reason => Reason}
             ),
-            emqx_resource:query_failed(AfterQuery),
             Result;
         _ ->
-            emqx_resource:query_success(AfterQuery),
             Result
     end.
 

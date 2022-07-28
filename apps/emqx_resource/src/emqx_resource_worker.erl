@@ -44,6 +44,8 @@
 
 -export([running/3, blocked/3]).
 
+-export([queue_item_marshaller/1]).
+
 -define(RESUME_INTERVAL, 15000).
 
 %% count
@@ -51,11 +53,15 @@
 %% milliseconds
 -define(DEFAULT_BATCH_TIME, 10).
 
+-define(Q_ITEM(REQUEST), {q_item, REQUEST}).
+
 -define(QUERY(FROM, REQUEST), {FROM, REQUEST}).
 -define(REPLY(FROM, REQUEST, RESULT), {FROM, REQUEST, RESULT}).
 -define(EXPAND(RESULT, BATCH), [?REPLY(FROM, REQUEST, RESULT) || ?QUERY(FROM, REQUEST) <- BATCH]).
 
--define(RESOURCE_ERROR(Reason, Msg), {error, {resource_error, #{reason => Reason, msg => Msg}}}).
+-define(RESOURCE_ERROR(Reason, Msg),
+    {error, {resource_error, #{reason => Reason, msg => iolist_to_binary(Msg)}}}
+).
 -define(RESOURCE_ERROR_M(Reason, Msg), {error, {resource_error, #{reason := Reason, msg := Msg}}}).
 
 -type id() :: binary().
@@ -72,21 +78,21 @@ callback_mode() -> [state_functions, state_enter].
 start_link(Id, Index, Opts) ->
     gen_statem:start_link({local, name(Id, Index)}, ?MODULE, {Id, Index, Opts}, []).
 
--spec query(id(), request()) -> ok.
+-spec query(id(), request()) -> Result :: term().
 query(Id, Request) ->
-    gen_statem:call(pick(Id, self()), {query, Request}).
+    query(Id, self(), Request).
 
--spec query(id(), term(), request()) -> ok.
-query(Id, Key, Request) ->
-    gen_statem:call(pick(Id, Key), {query, Request}).
+-spec query(id(), term(), request()) -> Result :: term().
+query(Id, PickKey, Request) ->
+    pick_query(call, Id, PickKey, {query, Request}).
 
--spec query_async(id(), request(), reply_fun()) -> ok.
+-spec query_async(id(), request(), reply_fun()) -> Result :: term().
 query_async(Id, Request, ReplyFun) ->
-    gen_statem:cast(pick(Id, self()), {query, Request, ReplyFun}).
+    query_async(Id, self(), Request, ReplyFun).
 
--spec query_async(id(), term(), request(), reply_fun()) -> ok.
-query_async(Id, Key, Request, ReplyFun) ->
-    gen_statem:cast(pick(Id, Key), {query, Request, ReplyFun}).
+-spec query_async(id(), term(), request(), reply_fun()) -> Result :: term().
+query_async(Id, PickKey, Request, ReplyFun) ->
+    pick_query(cast, Id, PickKey, {query, Request, ReplyFun}).
 
 -spec block(pid() | atom()) -> ok.
 block(ServerRef) ->
@@ -97,17 +103,24 @@ resume(ServerRef) ->
     gen_statem:cast(ServerRef, resume).
 
 init({Id, Index, Opts}) ->
+    process_flag(trap_exit, true),
     true = gproc_pool:connect_worker(Id, {Id, Index}),
     BatchSize = maps:get(batch_size, Opts, ?DEFAULT_BATCH_SIZE),
     Queue =
         case maps:get(queue_enabled, Opts, true) of
-            true -> replayq:open(#{dir => disk_queue_dir(Id, Index), seg_bytes => 10000000});
-            false -> undefined
+            true ->
+                replayq:open(#{
+                    dir => disk_queue_dir(Id, Index),
+                    seg_bytes => 10000000,
+                    marshaller => fun ?MODULE:queue_item_marshaller/1
+                });
+            false ->
+                undefined
         end,
     St = #{
         id => Id,
         index => Index,
-        batch_enabled => maps:get(batch_enabled, Opts, true),
+        batch_enabled => maps:get(batch_enabled, Opts, false),
         batch_size => BatchSize,
         batch_time => maps:get(batch_time, Opts, ?DEFAULT_BATCH_TIME),
         queue => Queue,
@@ -128,7 +141,7 @@ running(cast, {query, Request, ReplyFun}, St) ->
 running({call, From}, {query, Request}, St) ->
     query_or_acc(From, Request, St);
 running(info, {flush, Ref}, St = #{tref := {_TRef, Ref}}) ->
-    {keep_state, flush(St#{tref := undefined})};
+    flush(St#{tref := undefined});
 running(info, {flush, _Ref}, _St) ->
     keep_state_and_data;
 running(info, Info, _St) ->
@@ -154,12 +167,21 @@ terminate(_Reason, #{id := Id, index := Index}) ->
 code_change(_OldVsn, State, _Extra) ->
     {ok, State}.
 
+queue_item_marshaller(?Q_ITEM(_) = I) ->
+    term_to_binary(I);
+queue_item_marshaller(Bin) when is_binary(Bin) ->
+    binary_to_term(Bin).
+
 %%==============================================================================
-pick(Id, Key) ->
-    Pid = gproc_pool:pick_worker(Id, Key),
-    case is_pid(Pid) of
-        true -> Pid;
-        false -> error({failed_to_pick_worker, {Id, Key}})
+pick_query(Fun, Id, Key, Query) ->
+    try gproc_pool:pick_worker(Id, Key) of
+        Pid when is_pid(Pid) ->
+            gen_statem:Fun(Pid, Query);
+        _ ->
+            ?RESOURCE_ERROR(not_created, "resource not found")
+    catch
+        error:badarg ->
+            ?RESOURCE_ERROR(not_created, "resource not found")
     end.
 
 do_resume(#{queue := undefined} = St) ->
@@ -168,9 +190,9 @@ do_resume(#{queue := Q, id := Id} = St) ->
     case replayq:peek(Q) of
         empty ->
             {next_state, running, St};
-        First ->
+        ?Q_ITEM(First) ->
             Result = call_query(Id, First),
-            case handle_query_result(Id, false, Result) of
+            case handle_query_result(Id, Result, false) of
                 %% Send failed because resource down
                 true ->
                     {keep_state, St, {state_timeout, ?RESUME_INTERVAL, resume}};
@@ -181,6 +203,11 @@ do_resume(#{queue := Q, id := Id} = St) ->
                     {keep_state, St#{queue => drop_head(Q)}, {state_timeout, 0, resume}}
             end
     end.
+
+handle_blocked(From, Request, #{id := Id, queue := Q} = St) ->
+    Error = ?RESOURCE_ERROR(blocked, "resource is blocked"),
+    _ = reply_caller(Id, ?REPLY(From, Request, Error), false),
+    {keep_state, St#{queue := maybe_append_queue(Q, [?Q_ITEM(Request)])}}.
 
 drop_head(Q) ->
     {Q1, AckRef, _} = replayq:pop(Q, #{count_limit => 1}),
@@ -196,26 +223,21 @@ acc_query(From, Request, #{acc := Acc, acc_left := Left} = St0) ->
     Acc1 = [?QUERY(From, Request) | Acc],
     St = St0#{acc := Acc1, acc_left := Left - 1},
     case Left =< 1 of
-        true -> {keep_state, flush(St)};
+        true -> flush(St);
         false -> {keep_state, ensure_flush_timer(St)}
     end.
 
 send_query(From, Request, #{id := Id, queue := Q} = St) ->
     Result = call_query(Id, Request),
-    case reply_caller(Id, Q, ?REPLY(From, Request, Result)) of
+    case reply_caller(Id, ?REPLY(From, Request, Result), false) of
         true ->
-            {keep_state, St#{queue := maybe_append_queue(Q, [Request])}};
+            {next_state, blocked, St#{queue := maybe_append_queue(Q, [?Q_ITEM(Request)])}};
         false ->
-            {next_state, blocked, St}
+            {keep_state, St}
     end.
 
-handle_blocked(From, Request, #{id := Id, queue := Q} = St) ->
-    Error = ?RESOURCE_ERROR(blocked, "resource is blocked"),
-    _ = reply_caller(Id, Q, ?REPLY(From, Request, Error)),
-    {keep_state, St#{queue := maybe_append_queue(Q, [Request])}}.
-
 flush(#{acc := []} = St) ->
-    St;
+    {keep_state, St};
 flush(
     #{
         id := Id,
@@ -228,65 +250,65 @@ flush(
     St1 = cancel_flush_timer(St#{acc_left := Size, acc := []}),
     case batch_reply_caller(Id, BatchResults) of
         true ->
-            Q1 = maybe_append_queue(Q0, [Request || ?QUERY(_, Request) <- Batch]),
-            {keep_state, St1#{queue := Q1}};
+            Q1 = maybe_append_queue(Q0, [?Q_ITEM(Request) || ?QUERY(_, Request) <- Batch]),
+            {next_state, blocked, St1#{queue := Q1}};
         false ->
-            {next_state, blocked, St1}
+            {keep_state, St1}
     end.
 
-maybe_append_queue(undefined, _Query) -> undefined;
-maybe_append_queue(Q, Query) -> replayq:append(Q, Query).
+maybe_append_queue(undefined, _Request) -> undefined;
+maybe_append_queue(Q, Request) -> replayq:append(Q, Request).
 
 batch_reply_caller(Id, BatchResults) ->
     lists:foldl(
         fun(Reply, BlockWorker) ->
-            reply_caller(Id, BlockWorker, Reply)
+            reply_caller(Id, Reply, BlockWorker)
         end,
         false,
         BatchResults
     ).
 
-reply_caller(Id, BlockWorker, ?REPLY(undefined, _, Result)) ->
-    handle_query_result(Id, BlockWorker, Result);
-reply_caller(Id, BlockWorker, ?REPLY({ReplyFun, Args}, _, Result)) ->
+reply_caller(Id, ?REPLY(undefined, _, Result), BlockWorker) ->
+    handle_query_result(Id, Result, BlockWorker);
+reply_caller(Id, ?REPLY({ReplyFun, Args}, _, Result), BlockWorker) when is_function(ReplyFun) ->
     ?SAFE_CALL(ReplyFun(Result, Args)),
-    handle_query_result(Id, BlockWorker, Result);
-reply_caller(Id, BlockWorker, ?REPLY(From, _, Result)) ->
+    handle_query_result(Id, Result, BlockWorker);
+reply_caller(Id, ?REPLY(From, _, Result), BlockWorker) ->
     gen_statem:reply(From, Result),
-    handle_query_result(Id, BlockWorker, Result).
+    handle_query_result(Id, Result, BlockWorker).
 
-handle_query_result(Id, BlockWorker, ok) ->
+handle_query_result(Id, ok, BlockWorker) ->
     emqx_metrics_worker:inc(?RES_METRICS, Id, success),
     BlockWorker;
-handle_query_result(Id, BlockWorker, {ok, _}) ->
+handle_query_result(Id, {ok, _}, BlockWorker) ->
     emqx_metrics_worker:inc(?RES_METRICS, Id, success),
     BlockWorker;
-handle_query_result(Id, BlockWorker, ?RESOURCE_ERROR_M(exception, _)) ->
+handle_query_result(Id, ?RESOURCE_ERROR_M(exception, _), BlockWorker) ->
     emqx_metrics_worker:inc(?RES_METRICS, Id, exception),
     BlockWorker;
-handle_query_result(_Id, _, ?RESOURCE_ERROR_M(NotWorking, _)) when
+handle_query_result(_Id, ?RESOURCE_ERROR_M(NotWorking, _), _) when
     NotWorking == not_connected; NotWorking == blocked
 ->
     true;
-handle_query_result(_Id, BlockWorker, ?RESOURCE_ERROR_M(_, _)) ->
+handle_query_result(_Id, ?RESOURCE_ERROR_M(_, _), BlockWorker) ->
     BlockWorker;
-handle_query_result(Id, BlockWorker, {error, _}) ->
+handle_query_result(Id, {error, _}, BlockWorker) ->
     emqx_metrics_worker:inc(?RES_METRICS, Id, failed),
     BlockWorker;
-handle_query_result(Id, _BlockWorker, {resource_down, _}) ->
+handle_query_result(Id, {resource_down, _}, _BlockWorker) ->
     emqx_metrics_worker:inc(?RES_METRICS, Id, resource_down),
     true.
 
 call_query(Id, Request) ->
-    do_call_query(on_query, Id, Request).
+    do_call_query(on_query, Id, Request, 1).
 
 call_batch_query(Id, Batch) ->
-    do_call_query(on_batch_query, Id, Batch).
+    do_call_query(on_batch_query, Id, Batch, length(Batch)).
 
-do_call_query(Fun, Id, Data) ->
+do_call_query(Fun, Id, Data, Count) ->
     case emqx_resource_manager:ets_lookup(Id) of
         {ok, _Group, #{mod := Mod, state := ResourceState, status := connected}} ->
-            ok = emqx_metrics_worker:inc(?RES_METRICS, Id, matched, length(Data)),
+            ok = emqx_metrics_worker:inc(?RES_METRICS, Id, matched, Count),
             try Mod:Fun(Id, Data, ResourceState) of
                 %% if the callback module (connector) wants to return an error that
                 %% makes the current resource goes into the `error` state, it should

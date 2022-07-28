@@ -37,7 +37,7 @@
 -export([
     on_start/2,
     on_stop/2,
-    on_query/4,
+    on_query/3,
     on_get_status/2
 ]).
 
@@ -181,12 +181,12 @@ on_stop(_InstId, #{name := InstanceId}) ->
             })
     end.
 
-on_query(_InstId, {message_received, _Msg}, AfterQuery, _State) ->
-    emqx_resource:query_success(AfterQuery);
-on_query(_InstId, {send_message, Msg}, AfterQuery, #{name := InstanceId}) ->
+on_query(_InstId, {message_received, _Msg}, _State) ->
+    ok;
+on_query(_InstId, {send_message, Msg}, #{name := InstanceId}) ->
     ?TRACE("QUERY", "send_msg_to_remote_node", #{message => Msg, connector => InstanceId}),
     emqx_connector_mqtt_worker:send_to_remote(InstanceId, Msg),
-    emqx_resource:query_success(AfterQuery).
+    ok.
 
 on_get_status(_InstId, #{name := InstanceId, bridge_conf := Conf}) ->
     AutoReconn = maps:get(auto_reconnect, Conf, true),
