@@ -1,4 +1,4 @@
-{{- if and (Values.ssl.enable) (not .Values.ssl.useExisting) -}}
+{{- if and (.Values.ssl.enable) (not .Values.ssl.useExisting) -}}
 ---
 apiVersion: cert-manager.io/v1
 kind: Certificate
