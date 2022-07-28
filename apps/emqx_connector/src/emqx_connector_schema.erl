@@ -44,7 +44,9 @@ post_request() ->
     http_schema("post").
 
 http_schema(Method) ->
-    Schemas = [?R_REF(schema_mod(Type), Method) || Type <- ?CONN_TYPES],
+    Broker = [?R_REF(schema_mod(Type), Method) || Type <- ?CONN_TYPES],
+    EE = [?R_REF(Module, Method) || Module <- schema_modules()],
+    Schemas = Broker ++ EE,
     ?UNION(Schemas).
 
 %%======================================================================================
@@ -57,13 +59,29 @@ roots() -> ["connectors"].
 fields(connectors) ->
     fields("connectors");
 fields("connectors") ->
-    [
+    Broker = [
         {mqtt,
             ?HOCON(
                 ?MAP(name, ?R_REF(emqx_connector_mqtt_schema, "connector")),
                 #{desc => ?DESC("mqtt")}
             )}
-    ].
+    ],
+    EE = ee_fields_connectors(),
+    Broker ++ EE.
+
+-if(?EMQX_RELEASE_EDITION == ee).
+schema_modules() ->
+    emqx_ee_connector:schema_modules().
+
+ee_fields_connectors() ->
+    emqx_ee_connector:fields(connectors).
+-else.
+ee_fields_connectors() ->
+    [].
+
+schema_modules() ->
+    [].
+-endif.
 
 desc(Record) when
     Record =:= connectors;

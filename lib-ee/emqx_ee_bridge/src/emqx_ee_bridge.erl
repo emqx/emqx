@@ -23,12 +23,12 @@ conn_bridge_examples(Method) ->
         end,
     lists:foldl(Fun, #{}, schema_modules()).
 
-resource_type(hstream) -> emqx_ee_connector_hstream;
-resource_type(<<"hstream">>) -> emqx_ee_connector_hstream.
+resource_type(hstreamdb) -> emqx_ee_connector_hstream;
+resource_type(<<"hstreamdb">>) -> emqx_ee_connector_hstream.
 
 fields(bridges) ->
     [
-        {hstream,
+        {hstreamdb,
             mk(
                 hoconsc:map(name, ref(emqx_ee_bridge_hstream, "config")),
                 #{desc => <<"EMQX Enterprise Config">>}

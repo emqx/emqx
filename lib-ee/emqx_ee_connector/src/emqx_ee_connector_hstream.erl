@@ -25,7 +25,8 @@
 
 -export([
     roots/0,
-    fields/1
+    fields/1,
+    connector_example/1
 ]).
 
 %% -------------------------------------------------------------------------------------------------
@@ -38,7 +39,7 @@ on_stop(InstId, #{client := Client, producer := Producer}) ->
     StopClientRes = hstreamdb:stop_client(Client),
     StopProducerRes = hstreamdb:stop_producer(Producer),
     ?SLOG(info, #{
-        msg => "stop hstream connector",
+        msg => "stop hstreamdb connector",
         connector => InstId,
         client => Client,
         producer => Producer,
@@ -64,7 +65,7 @@ on_get_status(_InstId, #{client := Client}) ->
     end.
 
 %% -------------------------------------------------------------------------------------------------
-%% hstream batch callback
+%% hstreamdb batch callback
 %% TODO: maybe remove it after disk cache is ready
 
 on_flush_result({{flush, _Stream, _Records}, {ok, _Resp}}) ->
@@ -82,9 +83,41 @@ fields(config) ->
     [
         {url, mk(binary(), #{required => true, desc => ?DESC("url")})},
         {stream, mk(binary(), #{required => true, desc => ?DESC("stream_name")})},
-        {ordering_key, mk(binary(), #{required => true, desc => ?DESC("ordering_key")})},
+        {ordering_key, mk(binary(), #{required => false, desc => ?DESC("ordering_key")})},
         {pool_size, mk(pos_integer(), #{required => true, desc => ?DESC("pool_size")})}
-    ].
+    ];
+fields("get") ->
+    fields("post");
+fields("put") ->
+    fields(config);
+fields("post") ->
+    [
+        {type, mk(hstreamdb, #{required => true, desc => ?DESC("type")})},
+        {name, mk(binary(), #{required => true, desc => ?DESC("name")})}
+    ] ++ fields("put").
+
+connector_example(Method) ->
+    #{
+        <<"hstreamdb">> => #{
+            summary => <<"HStreamDB Connector">>,
+            value => values(Method)
+        }
+    }.
+
+values(post) ->
+    maps:merge(values(put), #{name => <<"connector">>});
+values(get) ->
+    values(post);
+values(put) ->
+    #{
+        type => hstreamdb,
+        url => <<"http://127.0.0.1:6570">>,
+        stream => <<"stream1">>,
+        ordering_key => <<"some_key">>,
+        pool_size => 8
+    };
+values(_) ->
+    #{}.
 
 %% -------------------------------------------------------------------------------------------------
 %% internal functions
@@ -94,7 +127,7 @@ start_client(InstId, Config) ->
     catch
         E:R:S ->
             ?SLOG(error, #{
-                msg => "start hstream connector error",
+                msg => "start hstreamdb connector error",
                 connector => InstId,
                 error => E,
                 reason => R,
@@ -104,7 +137,7 @@ start_client(InstId, Config) ->
 
 do_start_client(InstId, Config = #{url := Server, pool_size := PoolSize}) ->
     ?SLOG(info, #{
-        msg => "starting hstream connector: client",
+        msg => "starting hstreamdb connector: client",
         connector => InstId,
         config => Config
     }),
@@ -118,21 +151,21 @@ do_start_client(InstId, Config = #{url := Server, pool_size := PoolSize}) ->
             case is_alive(Client) of
                 true ->
                     ?SLOG(info, #{
-                        msg => "hstream connector: client started",
+                        msg => "hstreamdb connector: client started",
                         connector => InstId,
                         client => Client
                     }),
                     start_producer(InstId, Client, Config);
                 _ ->
                     ?SLOG(error, #{
-                        msg => "hstream connector: client not alive",
+                        msg => "hstreamdb connector: client not alive",
                         connector => InstId
                     }),
                     {error, connect_failed}
             end;
         {error, {already_started, Pid}} ->
             ?SLOG(info, #{
-                msg => "starting hstream connector: client, find old client. restart client",
+                msg => "starting hstreamdb connector: client, find old client. restart client",
                 old_client_pid => Pid,
                 old_client_name => ClientName
             }),
@@ -140,7 +173,7 @@ do_start_client(InstId, Config = #{url := Server, pool_size := PoolSize}) ->
             start_client(InstId, Config);
         {error, Error} ->
             ?SLOG(error, #{
-                msg => "hstream connector: client failed",
+                msg => "hstreamdb connector: client failed",
                 connector => InstId,
                 reason => Error
             }),
@@ -155,7 +188,11 @@ is_alive(Client) ->
             false
     end.
 
-start_producer(InstId, Client, Options = #{stream := Stream, pool_size := PoolSize}) ->
+start_producer(
+    InstId,
+    Client,
+    Options = #{stream := Stream, pool_size := PoolSize, egress := #{payload := PayloadBin}}
+) ->
     %% TODO: change these batch options after we have better disk cache.
     BatchSize = maps:get(batch_size, Options, 100),
     Interval = maps:get(batch_interval, Options, 1000),
@@ -168,16 +205,15 @@ start_producer(InstId, Client, Options = #{stream := Stream, pool_size := PoolSi
     ],
     Name = produce_name(InstId),
     ?SLOG(info, #{
-        msg => "starting hstream connector: producer",
+        msg => "starting hstreamdb connector: producer",
         connector => InstId
     }),
     case hstreamdb:start_producer(Client, Name, ProducerOptions) of
         {ok, Producer} ->
             ?SLOG(info, #{
-                msg => "hstream connector: producer started"
+                msg => "hstreamdb connector: producer started"
             }),
             EnableBatch = maps:get(enable_batch, Options, false),
-            PayloadBin = maps:get(payload, Options, <<"">>),
             Payload = emqx_plugin_libs_rule:preproc_tmpl(PayloadBin),
             OrderingKeyBin = maps:get(ordering_key, Options, <<"">>),
             OrderingKey = emqx_plugin_libs_rule:preproc_tmpl(OrderingKeyBin),
@@ -191,7 +227,8 @@ start_producer(InstId, Client, Options = #{stream := Stream, pool_size := PoolSi
             {ok, State};
         {error, {already_started, Pid}} ->
             ?SLOG(info, #{
-                msg => "starting hstream connector: producer, find old producer. restart producer",
+                msg =>
+                    "starting hstreamdb connector: producer, find old producer. restart producer",
                 old_producer_pid => Pid,
                 old_producer_name => Name
             }),
@@ -199,7 +236,7 @@ start_producer(InstId, Client, Options = #{stream := Stream, pool_size := PoolSi
             start_producer(InstId, Client, Options);
         {error, Reason} ->
             ?SLOG(error, #{
-                msg => "starting hstream connector: producer, failed",
+                msg => "starting hstreamdb connector: producer, failed",
                 reason => Reason
             }),
             {error, Reason}
@@ -223,13 +260,13 @@ do_append(AfterQuery, Producer, Record) ->
 %     case hstreamdb:append(Producer, Record) of
 %         ok ->
 %             ?SLOG(debug, #{
-%                 msg => "hstream producer async append success",
+%                 msg => "hstreamdb producer async append success",
 %                 record => Record
 %             }),
 %             emqx_resource:query_success(AfterQuery);
 %         {error, Reason} ->
 %             ?SLOG(error, #{
-%                 msg => "hstream producer async append failed",
+%                 msg => "hstreamdb producer async append failed",
 %                 reason => Reason,
 %                 record => Record
 %             }),
@@ -241,13 +278,13 @@ do_append(AfterQuery, false, Producer, Record) ->
     case hstreamdb:append_flush(Producer, Record) of
         {ok, _} ->
             ?SLOG(debug, #{
-                msg => "hstream producer sync append success",
+                msg => "hstreamdb producer sync append success",
                 record => Record
             }),
             emqx_resource:query_success(AfterQuery);
         {error, Reason} ->
             ?SLOG(error, #{
-                msg => "hstream producer sync append failed",
+                msg => "hstreamdb producer sync append failed",
                 reason => Reason,
                 record => Record
             }),
