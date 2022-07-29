@@ -66,24 +66,24 @@ jobs:
                -X POST \
                -d "{\"repo\":\"emqx/emqx\", \"tag\": \"${{ github.ref_name }}\" }" \
                ${{ secrets.EMQX_IO_RELEASE_API }}
-      - name: update repo.emqx.io
-        if: github.event_name == 'release' && endsWith(github.repository, 'enterprise') && matrix.profile == 'emqx-ee'
-        run: |
-          curl --silent --show-error \
-            -H "Authorization: token ${{ secrets.CI_GIT_TOKEN }}" \
-            -H "Accept: application/vnd.github.v3+json" \
-            -X POST \
-            -d "{\"ref\":\"v1.0.3\",\"inputs\":{\"version\": \"${{ github.ref_name }}\", \"emqx_ee\": \"true\"}}" \
-            "https://api.github.com/repos/emqx/emqx-ci-helper/actions/workflows/update_emqx_repos.yaml/dispatches"
-      - name: update repo.emqx.io
+      - uses: emqx/push-helm-action@v1
         if: github.event_name == 'release' && endsWith(github.repository, 'emqx') && matrix.profile == 'emqx'
-        run: |
-          curl --silent --show-error \
-            -H "Authorization: token ${{ secrets.CI_GIT_TOKEN }}" \
-            -H "Accept: application/vnd.github.v3+json" \
-            -X POST \
-            -d "{\"ref\":\"v1.0.3\",\"inputs\":{\"version\": \"${{ github.ref_name }}\", \"emqx_ce\": \"true\"}}" \
-            "https://api.github.com/repos/emqx/emqx-ci-helper/actions/workflows/update_emqx_repos.yaml/dispatches"
+        with:
+          charts_dir: "${{ github.workspace }}/deploy/charts/emqx"
+          version: ${{ github.ref_name }}
+          aws_access_key_id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws_secret_access_key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws_region: "us-west-2"
+          aws_bucket_name: "repos-emqx-io"
+      - uses: emqx/push-helm-action@v1
+        if: github.event_name == 'release' && endsWith(github.repository, 'enterprise') && matrix.profile == 'emqx-ee'
+        with:
+          charts_dir: "${{ github.workspace }}/deploy/charts/emqx-ee"
+          version: ${{ github.ref_name }}
+          aws_access_key_id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws_secret_access_key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws_region: "us-west-2"
+          aws_bucket_name: "repos-emqx-io"
       - name: update homebrew packages
         if: github.event_name == 'release' && endsWith(github.repository, 'emqx') && matrix.profile == 'emqx'
         run: |
