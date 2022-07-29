@@ -347,6 +347,10 @@ t_create_dry_run_local(_) ->
     [] = ets:match(emqx_resource_manager, {{owner, '$1'}, '_'}).
 
 create_dry_run_local_succ() ->
+    case whereis(test_resource) of
+        undefined -> ok;
+        Pid -> exit(Pid, kill)
+    end,
     ?assertEqual(
         ok,
         emqx_resource:create_dry_run_local(

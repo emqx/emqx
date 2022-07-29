@@ -73,7 +73,7 @@
 -callback batcher_flush(Acc :: [{from(), request()}], CbState :: term()) ->
     {{from(), result()}, NewCbState :: term()}.
 
-callback_mode() -> [state_functions, state_enter].
+callback_mode() -> [state_functions].
 
 start_link(Id, Index, Opts) ->
     gen_statem:start_link({local, name(Id, Index)}, ?MODULE, {Id, Index, Opts}, []).
@@ -107,7 +107,7 @@ init({Id, Index, Opts}) ->
     true = gproc_pool:connect_worker(Id, {Id, Index}),
     BatchSize = maps:get(batch_size, Opts, ?DEFAULT_BATCH_SIZE),
     Queue =
-        case maps:get(queue_enabled, Opts, true) of
+        case maps:get(queue_enabled, Opts, false) of
             true ->
                 replayq:open(#{
                     dir => disk_queue_dir(Id, Index),
@@ -131,8 +131,6 @@ init({Id, Index, Opts}) ->
     },
     {ok, blocked, St, {next_event, cast, resume}}.
 
-running(enter, _, _St) ->
-    keep_state_and_data;
 running(cast, resume, _St) ->
     keep_state_and_data;
 running(cast, block, St) ->
@@ -149,8 +147,6 @@ running(info, Info, _St) ->
     ?SLOG(error, #{msg => unexpected_msg, info => Info}),
     keep_state_and_data.
 
-blocked(enter, _, _St) ->
-    keep_state_and_data;
 blocked(cast, block, _St) ->
     keep_state_and_data;
 blocked(cast, resume, St) ->
@@ -218,27 +214,24 @@ drop_head(Q) ->
     ok = replayq:ack(Q1, AckRef),
     Q1.
 
-query_or_acc(From, Request, #{batch_enabled := true} = St) ->
-    acc_query(From, Request, St);
-query_or_acc(From, Request, #{batch_enabled := false} = St) ->
-    send_query(From, Request, St).
-
-acc_query(From, Request, #{acc := Acc, acc_left := Left} = St0) ->
+query_or_acc(From, Request, #{batch_enabled := true, acc := Acc, acc_left := Left} = St0) ->
     Acc1 = [?QUERY(From, Request) | Acc],
     St = St0#{acc := Acc1, acc_left := Left - 1},
     case Left =< 1 of
         true -> flush(St);
         false -> {keep_state, ensure_flush_timer(St)}
-    end.
-
-send_query(From, Request, #{id := Id, queue := Q} = St) ->
-    Result = call_query(Id, Request),
-    case reply_caller(Id, ?REPLY(From, Request, Result), false) of
+    end;
+query_or_acc(From, Request, #{batch_enabled := false, queue := Q, id := Id} = St) ->
+    case send_query(From, Request, Id) of
         true ->
             {next_state, blocked, St#{queue := maybe_append_queue(Q, [?Q_ITEM(Request)])}};
         false ->
             {keep_state, St}
     end.
+
+send_query(From, Request, Id) ->
+    Result = call_query(Id, Request),
+    reply_caller(Id, ?REPLY(From, Request, Result), false).
 
 flush(#{acc := []} = St) ->
     {keep_state, St};
