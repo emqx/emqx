@@ -70,9 +70,9 @@ fields("get") ->
 field(connector) ->
     ConnectorConfigRef =
         [
-            ref(emqx_ee_connector_influxdb, udp),
-            ref(emqx_ee_connector_influxdb, api_v1),
-            ref(emqx_ee_connector_influxdb, api_v2)
+            ref(emqx_ee_connector_influxdb, influxdb_udp),
+            ref(emqx_ee_connector_influxdb, influxdb_api_v1),
+            ref(emqx_ee_connector_influxdb, influxdb_api_v2)
         ],
     mk(
         hoconsc:union([binary() | ConnectorConfigRef]),

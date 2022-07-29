@@ -89,7 +89,8 @@ defmodule EMQXUmbrella.MixProject do
        github: "ninenines/ranch", ref: "a692f44567034dacf5efcaa24a24183788594eb7", override: true},
       # in conflict by grpc and eetcd
       {:gpb, "4.11.2", override: true, runtime: false},
-      {:hstreamdb_erl, github: "hstreamdb/hstreamdb_erl", tag: "0.2.5"}
+      {:hstreamdb_erl, github: "hstreamdb/hstreamdb_erl", tag: "0.2.5"},
+      {:influxdb, github: "emqx/influxdb-client-erl", tag: "1.1.2"}
     ] ++ umbrella_apps() ++ bcrypt_dep() ++ jq_dep() ++ quicer_dep()
   end
 
