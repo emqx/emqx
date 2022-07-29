@@ -77,6 +77,8 @@
 
 -dialyzer({nowarn_function, [inc_metrics/2]}).
 
+-elvis([{elvis_style, dont_repeat_yourself, disable}]).
+
 %%--------------------------------------------------------------------
 %% Load/Unload APIs
 %%--------------------------------------------------------------------
@@ -127,7 +129,11 @@ channel_opts(Opts) ->
     SockOpts = proplists:get_value(socket_options, Opts),
     ClientOpts = case Scheme of
                      https ->
-                         SslOpts = lists:keydelete(ssl, 1, proplists:get_value(ssl_options, Opts, [])),
+                         SslOpts = lists:keydelete(
+                                     ssl,
+                                     1,
+                                     proplists:get_value(ssl_options, Opts, [])
+                                    ),
                          #{gun_opts =>
                            #{transport => ssl,
                              transport_opts => SockOpts ++ SslOpts}};
@@ -135,7 +141,8 @@ channel_opts(Opts) ->
                          #{gun_opts =>
                            #{transport_opts => SockOpts}}
                  end,
-    {SvrAddr, ClientOpts}.
+    NClientOpts = ClientOpts#{pool_size => emqx_exhook_mngr:get_pool_size()},
+    {SvrAddr, NClientOpts}.
 
 format_http_uri(Scheme, Host0, Port) ->
     Host = case is_tuple(Host0) of
@@ -259,7 +266,7 @@ call(Hookpoint, Req, #server{name = ChannName, options = ReqOpts,
 %% @private
 inc_metrics(IncFun, Name) when is_function(IncFun) ->
     %% BACKW: e4.2.0-e4.2.2
-    {env, [Prefix|_]} = erlang:fun_info(IncFun, env),
+    {env, [Prefix | _]} = erlang:fun_info(IncFun, env),
     inc_metrics(Prefix, Name);
 inc_metrics(Prefix, Name) when is_list(Prefix) ->
     emqx_metrics:inc(list_to_atom(Prefix ++ atom_to_list(Name))).
@@ -276,8 +283,8 @@ do_call(ChannName, Fun, Req, ReqOpts) ->
     Options = ReqOpts#{channel => ChannName, key_dispatch => key_dispatch(NReq)},
     ?LOG(debug, "Call ~0p:~0p(~0p, ~0p)", [?PB_CLIENT_MOD, Fun, NReq, Options]),
     case catch apply(?PB_CLIENT_MOD, Fun, [NReq, Options]) of
-        {ok, Resp, _Metadata} ->
-            ?LOG(debug, "Response {ok, ~0p, ~0p}", [Resp, _Metadata]),
+        {ok, Resp, Metadata} ->
+            ?LOG(debug, "Response {ok, ~0p, ~0p}", [Resp, Metadata]),
             {ok, Resp};
         {error, {Code, Msg}, _Metadata} ->
             ?LOG(error, "CALL ~0p:~0p(~0p, ~0p) response errcode: ~0p, errmsg: ~0p",

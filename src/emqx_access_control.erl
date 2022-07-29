@@ -51,7 +51,8 @@ check_acl(ClientInfo, PubSub, Topic) ->
         true  -> check_acl_cache(ClientInfo, PubSub, Topic);
         false -> do_check_acl(ClientInfo, PubSub, Topic)
     end,
-    inc_acl_metrics(Result), Result.
+    inc_acl_metrics(Result),
+    Result.
 
 %%--------------------------------------------------------------------
 %% Internal functions
@@ -65,20 +66,19 @@ check_acl_cache(ClientInfo, PubSub, Topic) ->
             AclResult;
         AclResult ->
             inc_acl_metrics(cache_hit),
+            emqx:run_hook('client.check_acl_complete', [ClientInfo, PubSub, Topic, AclResult, true]),
             AclResult
     end.
 
 do_check_acl(ClientInfo = #{zone := Zone}, PubSub, Topic) ->
     Default = emqx_zone:get_env(Zone, acl_nomatch, deny),
-    case
-        begin
-            ok = emqx_metrics:inc('client.check_acl'),
-            emqx_hooks:run_fold('client.check_acl', [ClientInfo, PubSub, Topic], Default)
-        end
-    of
-        allow  -> allow;
-        _Other -> deny
-    end.
+    ok = emqx_metrics:inc('client.check_acl'),
+    Result = case emqx_hooks:run_fold('client.check_acl', [ClientInfo, PubSub, Topic], Default) of
+                allow  -> allow;
+                _Other -> deny
+             end,
+    emqx:run_hook('client.check_acl_complete', [ClientInfo, PubSub, Topic, Result, false]),
+    Result.
 
 -compile({inline, [inc_acl_metrics/1]}).
 inc_acl_metrics(allow) ->
