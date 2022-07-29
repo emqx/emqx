@@ -164,7 +164,7 @@ authenticate(
 ) ->
     Filter = emqx_authn_utils:render_deep(FilterTemplate, Credential),
     case emqx_resource:query(ResourceId, {find_one, Collection, Filter, #{}}) of
-        undefined ->
+        {ok, undefined} ->
             ignore;
         {error, Reason} ->
             ?TRACE_AUTHN_PROVIDER(error, "mongodb_query_failed", #{

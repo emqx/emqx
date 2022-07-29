@@ -134,7 +134,8 @@ drop_bridge(Name) ->
 %% When use this bridge as a data source, ?MODULE:on_message_received will be called
 %% if the bridge received msgs from the remote broker.
 on_message_received(Msg, HookPoint, InstId) ->
-    _ = emqx_resource:query(InstId, {message_received, Msg}),
+    emqx_resource:inc_matched(InstId),
+    emqx_resource:inc_success(InstId),
     emqx:run_hook(HookPoint, [Msg]).
 
 %% ===================================================================
@@ -181,8 +182,6 @@ on_stop(_InstId, #{name := InstanceId}) ->
             })
     end.
 
-on_query(_InstId, {message_received, _Msg}, _State) ->
-    ok;
 on_query(_InstId, {send_message, Msg}, #{name := InstanceId}) ->
     ?TRACE("QUERY", "send_msg_to_remote_node", #{message => Msg, connector => InstanceId}),
     emqx_connector_mqtt_worker:send_to_remote(InstanceId, Msg),

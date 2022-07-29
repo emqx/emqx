@@ -103,7 +103,7 @@
     list_group_instances/1
 ]).
 
--export([inc_metrics_funcs/1, inc_success/1, inc_failed/1]).
+-export([inc_metrics_funcs/1, inc_matched/1, inc_success/1, inc_failed/1]).
 
 -optional_callbacks([
     on_query/3,
@@ -392,6 +392,9 @@ check_and_do(ResourceType, RawConfig, Do) when is_function(Do) ->
     end.
 
 %% =================================================================================
+
+inc_matched(ResId) ->
+    emqx_metrics_worker:inc(?RES_METRICS, ResId, matched).
 
 inc_success(ResId) ->
     emqx_metrics_worker:inc(?RES_METRICS, ResId, success).

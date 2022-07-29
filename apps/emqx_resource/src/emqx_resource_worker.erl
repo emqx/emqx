@@ -44,7 +44,7 @@
 
 -export([running/3, blocked/3]).
 
--export([queue_item_marshaller/1]).
+-export([queue_item_marshaller/1, estimate_size/1]).
 
 -define(RESUME_INTERVAL, 15000).
 
@@ -112,6 +112,7 @@ init({Id, Index, Opts}) ->
                 replayq:open(#{
                     dir => disk_queue_dir(Id, Index),
                     seg_bytes => 10000000,
+                    sizer => fun ?MODULE:estimate_size/1,
                     marshaller => fun ?MODULE:queue_item_marshaller/1
                 });
             false ->
@@ -171,6 +172,9 @@ queue_item_marshaller(?Q_ITEM(_) = I) ->
     term_to_binary(I);
 queue_item_marshaller(Bin) when is_binary(Bin) ->
     binary_to_term(Bin).
+
+estimate_size(QItem) ->
+    size(queue_item_marshaller(QItem)).
 
 %%==============================================================================
 pick_query(Fun, Id, Key, Query) ->
@@ -277,12 +281,6 @@ reply_caller(Id, ?REPLY(From, _, Result), BlockWorker) ->
     gen_statem:reply(From, Result),
     handle_query_result(Id, Result, BlockWorker).
 
-handle_query_result(Id, ok, BlockWorker) ->
-    emqx_metrics_worker:inc(?RES_METRICS, Id, success),
-    BlockWorker;
-handle_query_result(Id, {ok, _}, BlockWorker) ->
-    emqx_metrics_worker:inc(?RES_METRICS, Id, success),
-    BlockWorker;
 handle_query_result(Id, ?RESOURCE_ERROR_M(exception, _), BlockWorker) ->
     emqx_metrics_worker:inc(?RES_METRICS, Id, exception),
     BlockWorker;
@@ -297,7 +295,12 @@ handle_query_result(Id, {error, _}, BlockWorker) ->
     BlockWorker;
 handle_query_result(Id, {resource_down, _}, _BlockWorker) ->
     emqx_metrics_worker:inc(?RES_METRICS, Id, resource_down),
-    true.
+    true;
+handle_query_result(Id, Result, BlockWorker) ->
+    %% assert
+    true = is_ok_result(Result),
+    emqx_metrics_worker:inc(?RES_METRICS, Id, success),
+    BlockWorker.
 
 call_query(Id, Request) ->
     do_call_query(on_query, Id, Request, 1).
@@ -338,6 +341,13 @@ maybe_expand_batch_result(Result, Batch) ->
     ?EXPAND(Result, Batch).
 
 %%==============================================================================
+
+is_ok_result(ok) ->
+    true;
+is_ok_result(R) when is_tuple(R) ->
+    erlang:element(1, R) == ok;
+is_ok_result(_) ->
+    false.
 
 -spec name(id(), integer()) -> atom().
 name(Id, Index) ->
