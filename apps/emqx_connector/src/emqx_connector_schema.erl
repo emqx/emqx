@@ -45,7 +45,7 @@ post_request() ->
 
 http_schema(Method) ->
     Broker = [?R_REF(schema_mod(Type), Method) || Type <- ?CONN_TYPES],
-    EE = [?R_REF(Module, Method) || Module <- schema_modules()],
+    EE = ee_schemas(Method),
     Schemas = Broker ++ EE,
     ?UNION(Schemas).
 
@@ -70,8 +70,8 @@ fields("connectors") ->
     Broker ++ EE.
 
 -if(?EMQX_RELEASE_EDITION == ee).
-schema_modules() ->
-    emqx_ee_connector:schema_modules().
+ee_schemas(Method) ->
+    emqx_ee_connector:api_schemas(Method).
 
 ee_fields_connectors() ->
     emqx_ee_connector:fields(connectors).
@@ -79,7 +79,7 @@ ee_fields_connectors() ->
 ee_fields_connectors() ->
     [].
 
-schema_modules() ->
+ee_schemas(_) ->
     [].
 -endif.
 
