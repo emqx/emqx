@@ -54,7 +54,7 @@
 
 -export([pre_config_update/3, post_config_update/5]).
 
--export([format_addr/1]).
+-export([format_bind/1]).
 
 -define(CONF_KEY_PATH, [listeners, '?', '?']).
 -define(TYPES_STRING, ["tcp", "ssl", "ws", "wss", "quic"]).
@@ -201,14 +201,14 @@ start_listener(Type, ListenerName, #{bind := Bind} = Conf) ->
             ?tp(listener_started, #{type => Type, bind => Bind}),
             console_print(
                 "Listener ~ts on ~ts started.~n",
-                [listener_id(Type, ListenerName), format_addr(Bind)]
+                [listener_id(Type, ListenerName), format_bind(Bind)]
             ),
             ok;
         {error, {already_started, Pid}} ->
             {error, {already_started, Pid}};
         {error, Reason} ->
             ListenerId = listener_id(Type, ListenerName),
-            BindStr = format_addr(Bind),
+            BindStr = format_bind(Bind),
             ?ELOG(
                 "Failed to start listener ~ts on ~ts: ~0p.~n",
                 [ListenerId, BindStr, Reason]
@@ -261,19 +261,19 @@ stop_listener(Type, ListenerName, #{bind := Bind} = Conf) ->
         ok ->
             console_print(
                 "Listener ~ts on ~ts stopped.~n",
-                [listener_id(Type, ListenerName), format_addr(Bind)]
+                [listener_id(Type, ListenerName), format_bind(Bind)]
             ),
             ok;
         {error, not_found} ->
             ?ELOG(
                 "Failed to stop listener ~ts on ~ts: ~0p~n",
-                [listener_id(Type, ListenerName), format_addr(Bind), already_stopped]
+                [listener_id(Type, ListenerName), format_bind(Bind), already_stopped]
             ),
             ok;
         {error, Reason} ->
             ?ELOG(
                 "Failed to stop listener ~ts on ~ts: ~0p~n",
-                [listener_id(Type, ListenerName), format_addr(Bind), Reason]
+                [listener_id(Type, ListenerName), format_bind(Bind), Reason]
             ),
             {error, Reason}
     end.
@@ -492,17 +492,32 @@ merge_default(Options) ->
             [{tcp_options, ?MQTT_SOCKOPTS} | Options]
     end.
 
-format_addr(Port) when is_integer(Port) ->
-    io_lib:format("~w", [Port]);
+-spec format_bind(
+    integer() | {tuple(), integer()} | string() | binary()
+) -> io_lib:chars().
+format_bind(Port) when is_integer(Port) ->
+    io_lib:format(":~w", [Port]);
 %% Print only the port number when bound on all interfaces
-format_addr({{0, 0, 0, 0}, Port}) ->
-    format_addr(Port);
-format_addr({{0, 0, 0, 0, 0, 0, 0, 0}, Port}) ->
-    format_addr(Port);
-format_addr({Addr, Port}) when is_list(Addr) ->
+format_bind({{0, 0, 0, 0}, Port}) ->
+    format_bind(Port);
+format_bind({{0, 0, 0, 0, 0, 0, 0, 0}, Port}) ->
+    format_bind(Port);
+format_bind({Addr, Port}) when is_list(Addr) ->
     io_lib:format("~ts:~w", [Addr, Port]);
-format_addr({Addr, Port}) when is_tuple(Addr) ->
-    io_lib:format("~ts:~w", [inet:ntoa(Addr), Port]).
+format_bind({Addr, Port}) when is_tuple(Addr), tuple_size(Addr) == 4 ->
+    io_lib:format("~ts:~w", [inet:ntoa(Addr), Port]);
+format_bind({Addr, Port}) when is_tuple(Addr), tuple_size(Addr) == 8 ->
+    io_lib:format("[~ts]:~w", [inet:ntoa(Addr), Port]);
+%% Support string, binary type for Port or IP:Port
+format_bind(Str) when is_list(Str) ->
+    case emqx_schema:to_ip_port(Str) of
+        {ok, {Ip, Port}} ->
+            format_bind({Ip, Port});
+        {error, _} ->
+            format_bind(list_to_integer(Str))
+    end;
+format_bind(Bin) when is_binary(Bin) ->
+    format_bind(binary_to_list(Bin)).
 
 listener_id(Type, ListenerName) ->
     list_to_atom(lists:append([str(Type), ":", str(ListenerName)])).

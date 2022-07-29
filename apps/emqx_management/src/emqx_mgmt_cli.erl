@@ -582,7 +582,7 @@ listeners([]) ->
                 end,
             Info =
                 [
-                    {listen_on, {string, format_listen_on(Bind)}},
+                    {listen_on, {string, emqx_listeners:format_bind(Bind)}},
                     {acceptors, Acceptors},
                     {proxy_protocol, ProxyProtocol},
                     {running, Running}
@@ -801,15 +801,6 @@ indent_print({Key, {string, Val}}) ->
     emqx_ctl:print("  ~-16s: ~ts~n", [Key, Val]);
 indent_print({Key, Val}) ->
     emqx_ctl:print("  ~-16s: ~w~n", [Key, Val]).
-
-format_listen_on(Port) when is_integer(Port) ->
-    io_lib:format("0.0.0.0:~w", [Port]);
-format_listen_on({Addr, Port}) when is_list(Addr) ->
-    io_lib:format("~ts:~w", [Addr, Port]);
-format_listen_on({Addr, Port}) when is_tuple(Addr) andalso tuple_size(Addr) == 4 ->
-    io_lib:format("~ts:~w", [inet:ntoa(Addr), Port]);
-format_listen_on({Addr, Port}) when is_tuple(Addr) andalso tuple_size(Addr) == 8 ->
-    io_lib:format("[~ts]:~w", [inet:ntoa(Addr), Port]).
 
 name(Filter) ->
     iolist_to_binary(["CLI-", Filter]).

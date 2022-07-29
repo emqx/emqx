@@ -37,7 +37,6 @@
 
 -export([
     apply/2,
-    format_listenon/1,
     parse_listenon/1,
     unix_ts_to_rfc3339/1,
     unix_ts_to_rfc3339/2,
@@ -165,7 +164,7 @@ start_listener(
     {Type, LisName, ListenOn, SocketOpts, Cfg},
     ModCfg
 ) ->
-    ListenOnStr = emqx_gateway_utils:format_listenon(ListenOn),
+    ListenOnStr = emqx_listeners:format_bind(ListenOn),
     ListenerId = emqx_gateway_utils:listener_id(GwName, Type, LisName),
 
     NCfg = maps:merge(Cfg, ModCfg),
@@ -243,7 +242,7 @@ stop_listeners(GwName, Listeners) ->
 -spec stop_listener(GwName :: atom(), Listener :: tuple()) -> ok.
 stop_listener(GwName, {Type, LisName, ListenOn, SocketOpts, Cfg}) ->
     StopRet = stop_listener(GwName, Type, LisName, ListenOn, SocketOpts, Cfg),
-    ListenOnStr = emqx_gateway_utils:format_listenon(ListenOn),
+    ListenOnStr = emqx_listeners:format_bind(ListenOn),
     case StopRet of
         ok ->
             console_print(
@@ -286,13 +285,6 @@ apply(F, A2) when
     is_list(A2)
 ->
     erlang:apply(F, A2).
-
-format_listenon(Port) when is_integer(Port) ->
-    io_lib:format("0.0.0.0:~w", [Port]);
-format_listenon({Addr, Port}) when is_list(Addr) ->
-    io_lib:format("~ts:~w", [Addr, Port]);
-format_listenon({Addr, Port}) when is_tuple(Addr) ->
-    io_lib:format("~ts:~w", [inet:ntoa(Addr), Port]).
 
 parse_listenon(Port) when is_integer(Port) ->
     Port;
