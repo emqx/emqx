@@ -95,7 +95,7 @@ perform_lifecycle_check(PoolName, InitialConfig) ->
         status := StoppedStatus
     }} =
         emqx_resource:get_instance(PoolName),
-    ?assertEqual(StoppedStatus, disconnected),
+    ?assertEqual(stopped, StoppedStatus),
     ?assertEqual({error, resource_is_stopped}, emqx_resource:health_check(PoolName)),
     % Resource healthcheck shortcuts things by checking ets. Go deeper by checking pool itself.
     ?assertEqual({error, not_found}, ecpool:stop_sup_pool(ReturnedPoolName)),
