@@ -133,9 +133,9 @@ drop_bridge(Name) ->
 %% ===================================================================
 %% When use this bridge as a data source, ?MODULE:on_message_received will be called
 %% if the bridge received msgs from the remote broker.
-on_message_received(Msg, HookPoint, InstId) ->
-    emqx_resource:inc_matched(InstId),
-    emqx_resource:inc_success(InstId),
+on_message_received(Msg, HookPoint, ResId) ->
+    emqx_resource:inc_matched(ResId),
+    emqx_resource:inc_success(ResId),
     emqx:run_hook(HookPoint, [Msg]).
 
 %% ===================================================================
@@ -206,11 +206,12 @@ make_sub_confs(EmptyMap, _) when map_size(EmptyMap) == 0 ->
 make_sub_confs(undefined, _) ->
     undefined;
 make_sub_confs(SubRemoteConf, InstId) ->
+    ResId = emqx_resource_manager:manager_id_to_resource_id(InstId),
     case maps:take(hookpoint, SubRemoteConf) of
         error ->
             SubRemoteConf;
         {HookPoint, SubConf} ->
-            MFA = {?MODULE, on_message_received, [HookPoint, InstId]},
+            MFA = {?MODULE, on_message_received, [HookPoint, ResId]},
             SubConf#{on_message_received => MFA}
     end.
 

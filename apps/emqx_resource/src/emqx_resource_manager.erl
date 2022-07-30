@@ -38,8 +38,12 @@
     list_group/1,
     ets_lookup/1,
     get_metrics/1,
-    reset_metrics/1,
-    set_resource_status_connecting/1
+    reset_metrics/1
+]).
+
+-export([
+    set_resource_status_connecting/1,
+    manager_id_to_resource_id/1
 ]).
 
 % Server
@@ -63,6 +67,13 @@
 %%------------------------------------------------------------------------------
 %% API
 %%------------------------------------------------------------------------------
+
+make_manager_id(ResId) ->
+    emqx_resource:generate_id(ResId).
+
+manager_id_to_resource_id(MgrId) ->
+    [ResId, _Index] = string:split(MgrId, ":", trailing),
+    ResId.
 
 %% @doc Called from emqx_resource when starting a resource instance.
 %%
@@ -454,9 +465,6 @@ stop_resource(Data) ->
     _ = emqx_resource:call_stop(Data#data.manager_id, Data#data.mod, Data#data.state),
     _ = maybe_clear_alarm(Data#data.id),
     ok.
-
-make_manager_id(ResId) ->
-    emqx_resource:generate_id(ResId).
 
 make_test_id() ->
     RandId = iolist_to_binary(emqx_misc:gen_id(16)),
