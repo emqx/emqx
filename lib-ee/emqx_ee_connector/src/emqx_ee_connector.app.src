@@ -4,7 +4,8 @@
     {applications, [
         kernel,
         stdlib,
-        hstreamdb_erl
+        hstreamdb_erl,
+        influxdb
     ]},
     {env, []},
     {modules, []},
