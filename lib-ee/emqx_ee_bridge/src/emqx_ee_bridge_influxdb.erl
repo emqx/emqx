@@ -61,7 +61,11 @@ fields("config") ->
         {connector, field(connector)}
     ];
 fields("post") ->
-    [type_field(), name_field() | fields("config")];
+    [
+        {type, mk(enum([influxdb]), #{required => true, desc => ?DESC("desc_type")})},
+        {name, mk(binary(), #{required => true, desc => ?DESC("desc_name")})}
+        | fields("config")
+    ];
 fields("put") ->
     fields("config");
 fields("get") ->
@@ -89,11 +93,3 @@ desc(Method) when Method =:= "get"; Method =:= "put"; Method =:= "post" ->
     ["Configuration for HStream using `", string:to_upper(Method), "` method."];
 desc(_) ->
     undefined.
-
-%% -------------------------------------------------------------------------------------------------
-%% internal
-type_field() ->
-    {type, mk(enum([influxdb]), #{required => true, desc => ?DESC("desc_type")})}.
-
-name_field() ->
-    {name, mk(binary(), #{required => true, desc => ?DESC("desc_name")})}.
