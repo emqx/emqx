@@ -26,17 +26,16 @@ fields(connectors) ->
                 hoconsc:map(name, ref(emqx_ee_connector_hstream, config)),
                 #{desc => <<"EMQX Enterprise Config">>}
             )}
-    ];
-% ] ++ fields(influxdb);
+    ] ++ fields(influxdb);
 fields(influxdb) ->
     [
         {
-            influxdb,
-            mk(hoconsc:map(name, ref(emqx_ee_connector_influxdb, influxdb_udp)), #{
+            Protocol,
+            mk(hoconsc:map(name, ref(emqx_ee_connector_influxdb, Protocol)), #{
                 desc => <<"EMQX Enterprise Config">>
             })
         }
-        %  || Protocol <- [influxdb_udp, influxdb_api_v1, influxdb_api_v2]
+     || Protocol <- [influxdb_udp, influxdb_api_v1, influxdb_api_v2]
     ].
 
 connector_examples(Method) ->
@@ -52,4 +51,7 @@ connector_examples(Method) ->
     lists:foldl(Fun, #{}, schema_modules()).
 
 schema_modules() ->
-    [emqx_ee_connector_hstream, emqx_ee_connector_influxdb].
+    [
+        emqx_ee_connector_hstream,
+        emqx_ee_connector_influxdb
+    ].
