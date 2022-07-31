@@ -10,7 +10,7 @@
 -import(hoconsc, [mk/2, enum/1, ref/2]).
 
 -export([
-    conn_bridge_example/1
+    conn_bridge_examples/1
 ]).
 
 -export([
@@ -23,13 +23,15 @@
 %% -------------------------------------------------------------------------------------------------
 %% api
 
-conn_bridge_example(Method) ->
-    #{
-        <<"hstreamdb">> => #{
-            summary => <<"HStreamDB Bridge">>,
-            value => values(Method)
+conn_bridge_examples(Method) ->
+    [
+        #{
+            <<"hstreamdb">> => #{
+                summary => <<"HStreamDB Bridge">>,
+                value => values(Method)
+            }
         }
-    }.
+    ].
 
 values(get) ->
     maps:merge(values(post), ?METRICS_EXAMPLE);
