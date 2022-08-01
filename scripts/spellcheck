@@ -7,7 +7,7 @@ else
     SCHEMA="$1"
 fi
 
-docker run -d --name langtool "ghcr.io/emqx/emqx-schema-validate:0.3.3"
+docker run -d --name langtool "ghcr.io/emqx/emqx-schema-validate:0.3.4"
 
 docker exec -i langtool ./emqx_schema_validate - < "${SCHEMA}"
 success="$?"
