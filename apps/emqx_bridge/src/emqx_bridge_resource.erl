@@ -246,7 +246,8 @@ parse_confs(
         method := Method,
         body := Body,
         headers := Headers,
-        request_timeout := ReqTimeout
+        request_timeout := ReqTimeout,
+        max_retries := Retry
     } = Conf
 ) when Type == webhook orelse Type == <<"webhook">> ->
     {BaseUrl, Path} = parse_url(Url),
@@ -259,7 +260,8 @@ parse_confs(
                 method => Method,
                 body => Body,
                 headers => Headers,
-                request_timeout => ReqTimeout
+                request_timeout => ReqTimeout,
+                max_retries => Retry
             }
     };
 parse_confs(Type, Name, #{connector := ConnId, direction := Direction} = Conf) when

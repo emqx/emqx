@@ -416,7 +416,7 @@ call_hocon() {
 ## and parsing HOCON config + environment variables is a non-trivial task
 CONF_KEYS=( 'node.data_dir' 'node.name' 'node.cookie' 'node.db_backend' 'cluster.proto_dist' )
 if [ "$IS_ENTERPRISE" = 'yes' ]; then
-    CONF_KEYS+=( 'license.file' 'license.key' )
+    CONF_KEYS+=( 'license.type' 'license.file' 'license.key' )
 fi
 
 if [ "$IS_BOOT_COMMAND" = 'yes' ]; then

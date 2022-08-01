@@ -30,29 +30,29 @@ defmodule EMQXUmbrella.MixProject do
   """
 
   def project() do
-    check_profile!()
+    profile_info = check_profile!()
 
     [
       app: :emqx_mix,
       version: pkg_vsn(),
-      deps: deps(),
+      deps: deps(profile_info),
       releases: releases()
     ]
   end
 
-  defp deps() do
+  defp deps(profile_info) do
     # we need several overrides here because dependencies specify
     # other exact versions, and not ranges.
     [
       {:lc, github: "emqx/lc", tag: "0.3.1"},
       {:redbug, "2.0.7"},
       {:typerefl, github: "ieQu1/typerefl", tag: "0.9.1", override: true},
-      {:ehttpc, github: "emqx/ehttpc", tag: "0.2.1"},
+      {:ehttpc, github: "emqx/ehttpc", tag: "0.3.0"},
       {:gproc, github: "uwiger/gproc", tag: "0.8.0", override: true},
       {:jiffy, github: "emqx/jiffy", tag: "1.0.5", override: true},
       {:cowboy, github: "emqx/cowboy", tag: "2.9.0", override: true},
       {:esockd, github: "emqx/esockd", tag: "5.9.3", override: true},
-      {:ekka, github: "emqx/ekka", tag: "0.13.2", override: true},
+      {:ekka, github: "emqx/ekka", tag: "0.13.3", override: true},
       {:gen_rpc, github: "emqx/gen_rpc", tag: "2.8.1", override: true},
       {:grpc, github: "emqx/grpc-erl", tag: "0.6.6", override: true},
       {:minirest, github: "emqx/minirest", tag: "1.3.5", override: true},
@@ -90,7 +90,8 @@ defmodule EMQXUmbrella.MixProject do
       # in conflict by grpc and eetcd
       {:gpb, "4.11.2", override: true, runtime: false},
       {:hstreamdb_erl, github: "hstreamdb/hstreamdb_erl", tag: "0.2.5"}
-    ] ++ umbrella_apps() ++ bcrypt_dep() ++ jq_dep() ++ quicer_dep()
+    ] ++
+      umbrella_apps() ++ enterprise_apps(profile_info) ++ bcrypt_dep() ++ jq_dep() ++ quicer_dep()
   end
 
   defp umbrella_apps() do
@@ -99,11 +100,29 @@ defmodule EMQXUmbrella.MixProject do
     |> Enum.map(fn path ->
       app =
         path
-        |> String.trim_leading("apps/")
+        |> Path.basename()
         |> String.to_atom()
 
       {app, path: path, manager: :rebar3, override: true}
     end)
+  end
+
+  defp enterprise_apps(_profile_info = %{edition_type: :enterprise}) do
+    "lib-ee/*"
+    |> Path.wildcard()
+    |> Enum.filter(&File.dir?/1)
+    |> Enum.map(fn path ->
+      app =
+        path
+        |> Path.basename()
+        |> String.to_atom()
+
+      {app, path: path, manager: :rebar3, override: true}
+    end)
+  end
+
+  defp enterprise_apps(_profile_info) do
+    []
   end
 
   defp releases() do

@@ -92,7 +92,7 @@ start_listeners(Listeners) ->
                 case minirest:start(Name, RanchOptions, Minirest) of
                     {ok, _} ->
                         ?ULOG("Listener ~ts on ~ts started.~n", [
-                            Name, emqx_listeners:format_addr(Bind)
+                            Name, emqx_listeners:format_bind(Bind)
                         ]),
                         Acc;
                     {error, _Reason} ->
@@ -114,7 +114,7 @@ stop_listeners(Listeners) ->
             case minirest:stop(Name) of
                 ok ->
                     ?ULOG("Stop listener ~ts on ~ts successfully.~n", [
-                        Name, emqx_listeners:format_addr(Port)
+                        Name, emqx_listeners:format_bind(Port)
                     ]);
                 {error, not_found} ->
                     ?SLOG(warning, #{msg => "stop_listener_failed", name => Name, port => Port})

@@ -31,9 +31,9 @@ end_per_testcase(_Case, _Config) ->
     ok.
 
 set_special_configs(emqx_license) ->
-    Config = #{file => emqx_license_test_lib:default_license()},
+    Config = #{type => file, file => emqx_license_test_lib:default_license()},
     emqx_config:put([license], Config),
-    RawConfig = #{<<"file">> => emqx_license_test_lib:default_license()},
+    RawConfig = #{<<"type">> => file, <<"file">> => emqx_license_test_lib:default_license()},
     emqx_config:put_raw([<<"license">>], RawConfig);
 set_special_configs(_) ->
     ok.
