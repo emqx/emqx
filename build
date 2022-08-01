@@ -104,7 +104,14 @@ make_relup() {
     fi
     ./rebar3 as "$PROFILE" relup --relname emqx --relvsn "${PKG_VSN}"
 
-    # rollback relup
+    # assert that there is no 'restart_emulator' in relup
+    # EMQX wants hot upgrade without VM restart
+    if grep restart_emulator "${releases_dir}/${PKG_VSN}/relup"; then
+        echo "Error: restart_emulator instruction found in relup";
+        exit 1
+    fi
+
+    # rollback rel file per releases
     #
     if [[ ${PKG_VSN} == 4.3* ]]; then
         echo "restore upgrade base rel files... "
