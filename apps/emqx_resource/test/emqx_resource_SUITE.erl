@@ -23,7 +23,7 @@
 -include("emqx_resource.hrl").
 -include_lib("stdlib/include/ms_transform.hrl").
 
--define(TEST_RESOURCE, emqx_test_resource).
+-define(TEST_RESOURCE, emqx_connector_demo).
 -define(ID, <<"id">>).
 -define(DEFAULT_RESOURCE_GROUP, <<"default">>).
 -define(RESOURCE_ERROR(REASON), {error, {resource_error, #{reason := REASON}}}).
@@ -181,6 +181,51 @@ t_query(_) ->
         ?RESOURCE_ERROR(not_created),
         emqx_resource:query(<<"unknown">>, get_state)
     ),
+
+    ok = emqx_resource:remove_local(?ID).
+
+t_query_counter(_) ->
+    {ok, _} = emqx_resource:create_local(
+        ?ID,
+        ?DEFAULT_RESOURCE_GROUP,
+        ?TEST_RESOURCE,
+        #{name => test_resource, register => true}
+    ),
+
+    {ok, 0} = emqx_resource:query(?ID, get_counter),
+    ok = emqx_resource:query(?ID, {inc_counter, 1}),
+    {ok, 1} = emqx_resource:query(?ID, get_counter),
+    ok = emqx_resource:query(?ID, {inc_counter, 5}),
+    {ok, 6} = emqx_resource:query(?ID, get_counter),
+
+    ok = emqx_resource:remove_local(?ID).
+
+t_batch_query_counter(_) ->
+    {ok, _} = emqx_resource:create_local(
+        ?ID,
+        ?DEFAULT_RESOURCE_GROUP,
+        ?TEST_RESOURCE,
+        #{name => test_resource, register => true, batch_enabled => true}
+    ),
+
+    {ok, 0} = emqx_resource:query(?ID, get_counter),
+    Parent = self(),
+    Pids = [
+        erlang:spawn(fun() ->
+            ok = emqx_resource:query(?ID, {inc_counter, 1}),
+            Parent ! {complete, self()}
+        end)
+     || _ <- lists:seq(1, 1000)
+    ],
+    [
+        receive
+            {complete, Pid} -> ok
+        after 1000 ->
+            ct:fail({wait_for_query_timeout, Pid})
+        end
+     || Pid <- Pids
+    ],
+    {ok, 1000} = emqx_resource:query(?ID, get_counter),
 
     ok = emqx_resource:remove_local(?ID).
 

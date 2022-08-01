@@ -14,7 +14,7 @@
 %% limitations under the License.
 %%--------------------------------------------------------------------
 
--module(emqx_test_resource).
+-module(emqx_connector_demo).
 
 -include_lib("typerefl/include/types.hrl").
 
@@ -25,8 +25,11 @@
     on_start/2,
     on_stop/2,
     on_query/3,
+    on_batch_query/3,
     on_get_status/2
 ]).
+
+-export([counter_loop/1]).
 
 %% callbacks for emqx_resource config schema
 -export([roots/0]).
@@ -53,19 +56,19 @@ on_start(InstId, #{name := Name, stop_error := true} = Opts) ->
     {ok, Opts#{
         id => InstId,
         stop_error => true,
-        pid => spawn_dummy_process(Name, Register)
+        pid => spawn_counter_process(Name, Register)
     }};
 on_start(InstId, #{name := Name} = Opts) ->
     Register = maps:get(register, Opts, false),
     {ok, Opts#{
         id => InstId,
-        pid => spawn_dummy_process(Name, Register)
+        pid => spawn_counter_process(Name, Register)
     }};
 on_start(InstId, #{name := Name} = Opts) ->
     Register = maps:get(register, Opts, false),
     {ok, Opts#{
         id => InstId,
-        pid => spawn_dummy_process(Name, Register)
+        pid => spawn_counter_process(Name, Register)
     }}.
 
 on_stop(_InstId, #{stop_error := true}) ->
@@ -77,7 +80,44 @@ on_stop(_InstId, #{pid := Pid}) ->
 on_query(_InstId, get_state, State) ->
     {ok, State};
 on_query(_InstId, get_state_failed, State) ->
-    {error, State}.
+    {error, State};
+on_query(_InstId, {inc_counter, N}, #{pid := Pid}) ->
+    Pid ! {inc, N},
+    ok;
+on_query(_InstId, get_counter, #{pid := Pid}) ->
+    ReqRef = make_ref(),
+    From = {self(), ReqRef},
+    Pid ! {From, get},
+    receive
+        {ReqRef, Num} -> {ok, Num}
+    after 1000 ->
+        {error, timeout}
+    end.
+
+on_batch_query(InstId, BatchReq, State) ->
+    %% Requests can be either 'get_counter' or 'inc_counter', but cannot be mixed.
+    case hd(BatchReq) of
+        {_From, {inc_counter, _}} ->
+            batch_inc_counter(InstId, BatchReq, State);
+        {_From, get_counter} ->
+            batch_get_counter(InstId, State)
+    end.
+
+batch_inc_counter(InstId, BatchReq, State) ->
+    TotalN = lists:foldl(
+        fun
+            ({_From, {inc_counter, N}}, Total) ->
+                Total + N;
+            ({_From, Req}, _Total) ->
+                error({mixed_requests_not_allowed, {inc_counter, Req}})
+        end,
+        0,
+        BatchReq
+    ),
+    on_query(InstId, {inc_counter, TotalN}, State).
+
+batch_get_counter(InstId, State) ->
+    on_query(InstId, get_counter, State).
 
 on_get_status(_InstId, #{health_check_error := true}) ->
     disconnected;
@@ -88,18 +128,25 @@ on_get_status(_InstId, #{pid := Pid}) ->
         false -> disconnected
     end.
 
-spawn_dummy_process(Name, Register) ->
+spawn_counter_process(Name, Register) ->
+    Pid = spawn_link(?MODULE, counter_loop, [#{counter => 0}]),
+    true = maybe_register(Name, Pid, Register),
+    Pid.
+
+counter_loop(#{counter := Num} = State) ->
+    NewState =
+        receive
+            {inc, N} ->
+                #{counter => Num + N};
+            {{FromPid, ReqRef}, get} ->
+                FromPid ! {ReqRef, Num},
+                State
+        end,
+    counter_loop(NewState).
+
+maybe_register(Name, Pid, true) ->
     ct:pal("---- Register Name: ~p", [Name]),
-    spawn(
-        fun() ->
-            true =
-                case Register of
-                    true -> register(Name, self());
-                    _ -> true
-                end,
-            Ref = make_ref(),
-            receive
-                Ref -> ok
-            end
-        end
-    ).
+    ct:pal("---- whereis(): ~p", [whereis(Name)]),
+    erlang:register(Name, Pid);
+maybe_register(_Name, _Pid, false) ->
+    true.
