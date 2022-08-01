@@ -26,7 +26,7 @@
 -export([
     roots/0,
     fields/1,
-    connector_example/1
+    connector_examples/1
 ]).
 
 %% -------------------------------------------------------------------------------------------------
@@ -96,13 +96,15 @@ fields("post") ->
         {name, mk(binary(), #{required => true, desc => ?DESC("name")})}
     ] ++ fields("put").
 
-connector_example(Method) ->
-    #{
-        <<"hstreamdb">> => #{
-            summary => <<"HStreamDB Connector">>,
-            value => values(Method)
+connector_examples(Method) ->
+    [
+        #{
+            <<"hstreamdb">> => #{
+                summary => <<"HStreamDB Connector">>,
+                value => values(Method)
+            }
         }
-    }.
+    ].
 
 values(post) ->
     maps:merge(values(put), #{name => <<"connector">>});
