@@ -321,7 +321,7 @@ init_state(
     },
 
     LimiterTypes = [?LIMITER_BYTES_IN, ?LIMITER_MESSAGE_IN],
-    Limiter = emqx_limiter_container:get_limiter_by_names(LimiterTypes, LimiterCfg),
+    Limiter = emqx_limiter_container:get_limiter_by_types(Listener, LimiterTypes, LimiterCfg),
 
     FrameOpts = #{
         strict_mode => emqx_config:get_zone_conf(Zone, [mqtt, strict_mode]),
@@ -672,12 +672,6 @@ handle_call(_From, info, State) ->
     {reply, info(State), State};
 handle_call(_From, stats, State) ->
     {reply, stats(State), State};
-handle_call(_From, {ratelimit, Changes}, State = #state{limiter = Limiter}) ->
-    Fun = fun({Type, Bucket}, Acc) ->
-        emqx_limiter_container:update_by_name(Type, Bucket, Acc)
-    end,
-    Limiter2 = lists:foldl(Fun, Limiter, Changes),
-    {reply, ok, State#state{limiter = Limiter2}};
 handle_call(_From, Req, State = #state{channel = Channel}) ->
     case emqx_channel:handle_call(Req, Channel) of
         {reply, Reply, NChannel} ->

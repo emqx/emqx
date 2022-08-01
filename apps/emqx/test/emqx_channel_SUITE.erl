@@ -33,18 +33,6 @@ force_gc_conf() ->
 force_shutdown_conf() ->
     #{enable => true, max_heap_size => 4194304, max_message_queue_len => 1000}.
 
-rate_limit_conf() ->
-    #{
-        conn_bytes_in => ["100KB", "10s"],
-        conn_messages_in => ["100", "10s"],
-        max_conn_rate => 1000,
-        quota =>
-            #{
-                conn_messages_routing => infinity,
-                overall_messages_routing => infinity
-            }
-    }.
-
 rpc_conf() ->
     #{
         async_batch_size => 256,
@@ -173,27 +161,9 @@ listeners_conf() ->
 limiter_conf() ->
     Make = fun() ->
         #{
-            bucket =>
-                #{
-                    default =>
-                        #{
-                            capacity => infinity,
-                            initial => 0,
-                            rate => infinity,
-                            per_client =>
-                                #{
-                                    capacity => infinity,
-                                    divisible => false,
-                                    failure_strategy => force,
-                                    initial => 0,
-                                    low_watermark => 0,
-                                    max_retry_time => 5000,
-                                    rate => infinity
-                                }
-                        }
-                },
             burst => 0,
-            rate => infinity
+            rate => infinity,
+            capacity => infinity
         }
     end,
 
@@ -202,7 +172,7 @@ limiter_conf() ->
             Acc#{Name => Make()}
         end,
         #{},
-        [bytes_in, message_in, message_routing, connection, batch]
+        [bytes_in, message_in, message_routing, connection, internal]
     ).
 
 stats_conf() ->
@@ -213,7 +183,6 @@ zone_conf() ->
 
 basic_conf() ->
     #{
-        rate_limit => rate_limit_conf(),
         force_gc => force_gc_conf(),
         force_shutdown => force_shutdown_conf(),
         mqtt => mqtt_conf(),
@@ -274,51 +243,15 @@ end_per_suite(_Config) ->
         emqx_banned
     ]).
 
-init_per_testcase(TestCase, Config) ->
+init_per_testcase(_TestCase, Config) ->
     OldConf = set_test_listener_confs(),
     emqx_common_test_helpers:start_apps([]),
-    check_modify_limiter(TestCase),
     [{config, OldConf} | Config].
 
 end_per_testcase(_TestCase, Config) ->
     emqx_config:put(?config(config, Config)),
     emqx_common_test_helpers:stop_apps([]),
     Config.
-
-check_modify_limiter(TestCase) ->
-    Checks = [t_quota_qos0, t_quota_qos1, t_quota_qos2],
-    case lists:member(TestCase, Checks) of
-        true ->
-            modify_limiter();
-        _ ->
-            ok
-    end.
-
-%% per_client 5/1s,5
-%% aggregated 10/1s,10
-modify_limiter() ->
-    Limiter = emqx_config:get([limiter]),
-    #{message_routing := #{bucket := Bucket} = Routing} = Limiter,
-    #{default := #{per_client := Client} = Default} = Bucket,
-    Client2 = Client#{
-        rate := 5,
-        initial := 0,
-        capacity := 5,
-        low_watermark := 1
-    },
-    Default2 = Default#{
-        per_client := Client2,
-        rate => 10,
-        initial => 0,
-        capacity => 10
-    },
-    Bucket2 = Bucket#{default := Default2},
-    Routing2 = Routing#{bucket := Bucket2},
-
-    emqx_config:put([limiter], Limiter#{message_routing := Routing2}),
-    emqx_limiter_manager:restart_server(message_routing),
-    timer:sleep(100),
-    ok.
 
 %%--------------------------------------------------------------------
 %% Test cases for channel info/stats/caps
@@ -729,6 +662,7 @@ t_process_unsubscribe(_) ->
 
 t_quota_qos0(_) ->
     esockd_limiter:start_link(),
+    add_bucket(),
     Cnter = counters:new(1, []),
     ok = meck:expect(emqx_broker, publish, fun(_) -> [{node(), <<"topic">>, {ok, 4}}] end),
     ok = meck:expect(
@@ -755,10 +689,12 @@ t_quota_qos0(_) ->
 
     ok = meck:expect(emqx_metrics, inc, fun(_) -> ok end),
     ok = meck:expect(emqx_metrics, inc, fun(_, _) -> ok end),
+    del_bucket(),
     esockd_limiter:stop().
 
 t_quota_qos1(_) ->
     esockd_limiter:start_link(),
+    add_bucket(),
     ok = meck:expect(emqx_broker, publish, fun(_) -> [{node(), <<"topic">>, {ok, 4}}] end),
     Chann = channel(#{conn_state => connected, quota => quota()}),
     Pub = ?PUBLISH_PACKET(?QOS_1, <<"topic">>, 1, <<"payload">>),
@@ -769,10 +705,12 @@ t_quota_qos1(_) ->
     {ok, ?PUBACK_PACKET(1, ?RC_SUCCESS), Chann4} = emqx_channel:handle_in(Pub, Chann3),
     %% Quota in overall
     {ok, ?PUBACK_PACKET(1, ?RC_QUOTA_EXCEEDED), _} = emqx_channel:handle_in(Pub, Chann4),
+    del_bucket(),
     esockd_limiter:stop().
 
 t_quota_qos2(_) ->
     esockd_limiter:start_link(),
+    add_bucket(),
     ok = meck:expect(emqx_broker, publish, fun(_) -> [{node(), <<"topic">>, {ok, 4}}] end),
     Chann = channel(#{conn_state => connected, quota => quota()}),
     Pub1 = ?PUBLISH_PACKET(?QOS_2, <<"topic">>, 1, <<"payload">>),
@@ -786,6 +724,7 @@ t_quota_qos2(_) ->
     {ok, ?PUBREC_PACKET(3, ?RC_SUCCESS), Chann4} = emqx_channel:handle_in(Pub3, Chann3),
     %% Quota in overall
     {ok, ?PUBREC_PACKET(4, ?RC_QUOTA_EXCEEDED), _} = emqx_channel:handle_in(Pub4, Chann4),
+    del_bucket(),
     esockd_limiter:stop().
 
 %%--------------------------------------------------------------------
@@ -951,12 +890,6 @@ t_handle_call_takeover_end(_) ->
     ok = meck:expect(emqx_session, takeover, fun(_) -> ok end),
     {shutdown, takenover, [], _, _Chan} =
         emqx_channel:handle_call({takeover, 'end'}, channel()).
-
-t_handle_call_quota(_) ->
-    {reply, ok, _Chan} = emqx_channel:handle_call(
-        {quota, default},
-        channel()
-    ).
 
 t_handle_call_unexpected(_) ->
     {reply, ignored, _Chan} = emqx_channel:handle_call(unexpected_req, channel()).
@@ -1176,7 +1109,7 @@ t_ws_cookie_init(_) ->
         ConnInfo,
         #{
             zone => default,
-            limiter => limiter_cfg(),
+            limiter => undefined,
             listener => {tcp, default}
         }
     ),
@@ -1210,7 +1143,7 @@ channel(InitFields) ->
             ConnInfo,
             #{
                 zone => default,
-                limiter => limiter_cfg(),
+                limiter => undefined,
                 listener => {tcp, default}
             }
         ),
@@ -1270,9 +1203,31 @@ session(InitFields) when is_map(InitFields) ->
 
 %% conn: 5/s; overall: 10/s
 quota() ->
-    emqx_limiter_container:get_limiter_by_names([message_routing], limiter_cfg()).
+    emqx_limiter_container:get_limiter_by_types(?MODULE, [message_routing], limiter_cfg()).
 
-limiter_cfg() -> #{message_routing => default}.
+limiter_cfg() ->
+    Client = #{
+        rate => 5,
+        initial => 0,
+        capacity => 5,
+        low_watermark => 1,
+        divisible => false,
+        max_retry_time => timer:seconds(5),
+        failure_strategy => force
+    },
+    #{
+        message_routing => bucket_cfg(),
+        client => #{message_routing => Client}
+    }.
+
+bucket_cfg() ->
+    #{rate => 10, initial => 0, capacity => 10}.
+
+add_bucket() ->
+    emqx_limiter_server:add_bucket(?MODULE, message_routing, bucket_cfg()).
+
+del_bucket() ->
+    emqx_limiter_server:del_bucket(?MODULE, message_routing).
 
 v4(Channel) ->
     ConnInfo = emqx_channel:info(conninfo, Channel),

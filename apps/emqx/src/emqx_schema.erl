@@ -1619,10 +1619,15 @@ base_listener(Bind) ->
             )},
         {"limiter",
             sc(
-                map("ratelimit_name", emqx_limiter_schema:bucket_name()),
+                ?R_REF(
+                    emqx_limiter_schema,
+                    listener_fields
+                ),
                 #{
                     desc => ?DESC(base_listener_limiter),
-                    default => #{<<"connection">> => <<"default">>}
+                    default => #{
+                        <<"connection">> => #{<<"rate">> => <<"1000/s">>, <<"capacity">> => 1000}
+                    }
                 }
             )},
         {"enable_authn",
