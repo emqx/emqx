@@ -117,13 +117,26 @@ t_license_upload_file_success(_Config) ->
     Path = "/tmp/new.lic",
     ok = file:write_file(Path, NewKey),
     try
+        Res = request(
+            post,
+            uri(["license", "upload"]),
+            #{file => Path}
+        ),
+        ?assertMatch({ok, 200, _}, Res),
+        {ok, 200, Payload} = Res,
         ?assertEqual(
-            {ok, 200, <<"ok">>},
-            request(
-                post,
-                uri(["license", "upload"]),
-                #{file => Path}
-            )
+            #{
+                <<"customer">> => <<"Foo">>,
+                <<"customer_type">> => 10,
+                <<"deployment">> => <<"bar-deployment">>,
+                <<"email">> => <<"contact@foo.com">>,
+                <<"expiry">> => false,
+                <<"expiry_at">> => <<"2295-10-27">>,
+                <<"max_connections">> => 999,
+                <<"start_at">> => <<"2022-01-11">>,
+                <<"type">> => <<"trial">>
+            },
+            emqx_json:decode(Payload, [return_maps])
         ),
         ?assertMatch(
             #{max_connections := 999},
@@ -136,13 +149,20 @@ t_license_upload_file_success(_Config) ->
     end.
 
 t_license_upload_file_not_found(_Config) ->
+    Res = request(
+        post,
+        uri(["license", "upload"]),
+        #{file => "/tmp/inexistent.lic"}
+    ),
+
+    ?assertMatch({ok, 404, _}, Res),
+    {ok, 404, Payload} = Res,
     ?assertEqual(
-        {ok, 404, <<"file not found">>},
-        request(
-            post,
-            uri(["license", "upload"]),
-            #{file => "/tmp/inexistent.lic"}
-        )
+        #{
+            <<"code">> => <<"NOT_FOUND">>,
+            <<"message">> => <<"File not found">>
+        },
+        emqx_json:decode(Payload, [return_maps])
     ),
     assert_untouched_license(),
     ok.
@@ -150,13 +170,19 @@ t_license_upload_file_not_found(_Config) ->
 t_license_upload_file_reading_error(_Config) ->
     %% eisdir
     Path = "/tmp/",
+    Res = request(
+        post,
+        uri(["license", "upload"]),
+        #{file => Path}
+    ),
+    ?assertMatch({ok, 400, _}, Res),
+    {ok, 400, Payload} = Res,
     ?assertEqual(
-        {ok, 400, <<"bad request">>},
-        request(
-            post,
-            uri(["license", "upload"]),
-            #{file => Path}
-        )
+        #{
+            <<"code">> => <<"BAD_REQUEST">>,
+            <<"message">> => <<"Illegal operation on a directory">>
+        },
+        emqx_json:decode(Payload, [return_maps])
     ),
     assert_untouched_license(),
     ok.
@@ -165,13 +191,19 @@ t_license_upload_file_bad_license(_Config) ->
     Path = "/tmp/bad.lic",
     ok = file:write_file(Path, <<"bad key">>),
     try
+        Res = request(
+            post,
+            uri(["license", "upload"]),
+            #{file => Path}
+        ),
+        ?assertMatch({ok, 400, _}, Res),
+        {ok, 400, Payload} = Res,
         ?assertEqual(
-            {ok, 400, <<"bad request">>},
-            request(
-                post,
-                uri(["license", "upload"]),
-                #{file => Path}
-            )
+            #{
+                <<"code">> => <<"BAD_REQUEST">>,
+                <<"message">> => <<"Bad license file">>
+            },
+            emqx_json:decode(Payload, [return_maps])
         ),
         assert_untouched_license(),
         ok
@@ -182,13 +214,26 @@ t_license_upload_file_bad_license(_Config) ->
 
 t_license_upload_key_success(_Config) ->
     NewKey = emqx_license_test_lib:make_license(#{max_connections => "999"}),
+    Res = request(
+        post,
+        uri(["license", "upload"]),
+        #{key => NewKey}
+    ),
+    ?assertMatch({ok, 200, _}, Res),
+    {ok, 200, Payload} = Res,
     ?assertEqual(
-        {ok, 200, <<"ok">>},
-        request(
-            post,
-            uri(["license", "upload"]),
-            #{key => NewKey}
-        )
+        #{
+            <<"customer">> => <<"Foo">>,
+            <<"customer_type">> => 10,
+            <<"deployment">> => <<"bar-deployment">>,
+            <<"email">> => <<"contact@foo.com">>,
+            <<"expiry">> => false,
+            <<"expiry_at">> => <<"2295-10-27">>,
+            <<"max_connections">> => 999,
+            <<"start_at">> => <<"2022-01-11">>,
+            <<"type">> => <<"trial">>
+        },
+        emqx_json:decode(Payload, [return_maps])
     ),
     ?assertMatch(
         #{max_connections := 999},
@@ -198,13 +243,19 @@ t_license_upload_key_success(_Config) ->
 
 t_license_upload_key_bad_key(_Config) ->
     BadKey = <<"bad key">>,
+    Res = request(
+        post,
+        uri(["license", "upload"]),
+        #{key => BadKey}
+    ),
+    ?assertMatch({ok, 400, _}, Res),
+    {ok, 400, Payload} = Res,
     ?assertEqual(
-        {ok, 400, <<"bad request">>},
-        request(
-            post,
-            uri(["license", "upload"]),
-            #{key => BadKey}
-        )
+        #{
+            <<"code">> => <<"BAD_REQUEST">>,
+            <<"message">> => <<"Bad license key">>
+        },
+        emqx_json:decode(Payload, [return_maps])
     ),
     assert_untouched_license(),
     ok.
