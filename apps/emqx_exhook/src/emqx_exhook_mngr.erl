@@ -192,6 +192,10 @@ handle_info({timeout, _Ref, {reload, Name}}, State) ->
             {noreply, NState};
         {error, not_found} ->
             {noreply, NState};
+        {error, already_started} ->
+            {noreply, NState};
+        {error, {already_started, _}} ->
+            {noreply, NState};
         {error, Reason} ->
             ?LOG(warning, "Failed to reload exhook callback server \"~s\", "
                           "Reason: ~0p", [Name, Reason]),
