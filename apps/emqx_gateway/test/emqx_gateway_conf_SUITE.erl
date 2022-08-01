@@ -47,6 +47,7 @@ end_per_suite(_Conf) ->
 
 init_per_testcase(_CaseName, Conf) ->
     _ = emqx_gateway_conf:unload_gateway(stomp),
+    ct:sleep(500),
     Conf.
 
 %%--------------------------------------------------------------------
@@ -282,6 +283,7 @@ t_load_remove_authn(_) ->
 
     {ok, _} = emqx_gateway_conf:load_gateway(<<"stomp">>, StompConf),
     assert_confs(StompConf, emqx:get_raw_config([gateway, stomp])),
+    ct:sleep(500),
 
     {ok, _} = emqx_gateway_conf:add_authn(<<"stomp">>, ?CONF_STOMP_AUTHN_1),
     assert_confs(
@@ -314,6 +316,7 @@ t_load_remove_listeners(_) ->
 
     {ok, _} = emqx_gateway_conf:load_gateway(<<"stomp">>, StompConf),
     assert_confs(StompConf, emqx:get_raw_config([gateway, stomp])),
+    ct:sleep(500),
 
     {ok, _} = emqx_gateway_conf:add_listener(
         <<"stomp">>,
@@ -371,6 +374,7 @@ t_load_remove_listener_authn(_) ->
 
     {ok, _} = emqx_gateway_conf:load_gateway(<<"stomp">>, StompConf),
     assert_confs(StompConf, emqx:get_raw_config([gateway, stomp])),
+    ct:sleep(500),
 
     {ok, _} = emqx_gateway_conf:add_authn(
         <<"stomp">>, {<<"tcp">>, <<"default">>}, ?CONF_STOMP_AUTHN_1
