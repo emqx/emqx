@@ -39,21 +39,9 @@ rel_file("emqx-edge", Dir, RelVsn)->
 rel_file(Profile, Dir, RelVsn)->
     filename:join([Dir, RelVsn, Profile++".rel"]).
 
-
-%% Couldn't find a good way to get this list dynamicly.
 otp_apps() ->
-    [ kernel
-    , stdlib
-    , sasl
-    , crypto
-    , public_key
-    , asn1
-    , syntax_tools
-    , ssl
-    , os_mon
-    , inets
-    , compiler
-    , runtime_tools
-    , mnesia
-    , xmerl
-    ].
+    {ok, [Apps]} = file:consult("scripts/rel_otp_apps.eterm"),
+    true = is_list(Apps),
+    lists:map(fun(App) when is_atom(App) -> App;
+                 ({App, _}) -> App %% handle like {mnesia, load}
+              end, Apps).
