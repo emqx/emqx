@@ -363,11 +363,13 @@ data_to_point(
     TransOptions = #{return => rawlist, var_trans => fun data_filter/1},
     case emqx_plugin_libs_rule:proc_tmpl(Timestamp, Data, TransOptions) of
         [TimestampInt] when is_integer(TimestampInt) ->
+            {_, EncodeTags} = maps:fold(fun maps_config_to_data/3, {Data, #{}}, Tags),
+            {_, EncodeFields} = maps:fold(fun maps_config_to_data/3, {Data, #{}}, Fields),
             Point = #{
                 measurement => emqx_plugin_libs_rule:proc_tmpl(Measurement, Data),
                 timestamp => TimestampInt,
-                tags => maps:fold(fun maps_config_to_data/3, {Data, #{}}, Tags),
-                fields => maps:fold(fun maps_config_to_data/3, {Data, #{}}, Fields)
+                tags => EncodeTags,
+                fields => EncodeFields
             },
             {ok, Point};
         BadTimestamp ->
@@ -380,11 +382,11 @@ maps_config_to_data(K, {IntType, V}, {Data, Res}) when IntType == int orelse Int
     NV = emqx_plugin_libs_rule:proc_tmpl(V, Data, TransOptions),
     case {NK, NV} of
         {[undefined], _} ->
-            Res;
+            {Data, Res};
         {_, [undefined]} ->
-            Res;
+            {Data, Res};
         {_, [IntV]} when is_integer(IntV) ->
-            Res#{NK => {IntType, IntV}}
+            {Data, Res#{NK => {IntType, IntV}}}
     end;
 maps_config_to_data(K, V, {Data, Res}) ->
     TransOptions = #{return => rawlist, var_trans => fun data_filter/1},
@@ -392,11 +394,11 @@ maps_config_to_data(K, V, {Data, Res}) ->
     NV = emqx_plugin_libs_rule:proc_tmpl(V, Data, TransOptions),
     case {NK, NV} of
         {[undefined], _} ->
-            Res;
+            {Data, Res};
         {_, [undefined]} ->
-            Res;
+            {Data, Res};
         _ ->
-            Res#{bin(NK) => NV}
+            {Data, Res#{bin(NK) => NV}}
     end.
 
 data_filter(undefined) -> undefined;
