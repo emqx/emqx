@@ -66,6 +66,7 @@ jobs:
                -X POST \
                -d "{\"repo\":\"emqx/emqx\", \"tag\": \"${{ github.ref_name }}\" }" \
                ${{ secrets.EMQX_IO_RELEASE_API }}
+      - uses: actions/checkout@v2
       - uses: emqx/push-helm-action@v1
         if: github.event_name == 'release' && endsWith(github.repository, 'emqx') && matrix.profile == 'emqx'
         with:
