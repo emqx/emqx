@@ -293,7 +293,7 @@ handle_in(?CONNECT_PACKET(ConnPkt), Channel) ->
                                         },
             case enhanced_auth(?CONNECT_PACKET(NConnPkt), NChannel1) of
                 {ok, Properties, NChannel2} ->
-                    process_connect(Properties, ensure_connected(NChannel2));
+                    process_connect(Properties, NChannel2);
                 {continue, Properties, NChannel2} ->
                     handle_out(auth, {?RC_CONTINUE_AUTHENTICATION, Properties}, NChannel2);
                 {error, ReasonCode, NChannel2} ->
@@ -309,7 +309,7 @@ handle_in(Packet = ?AUTH_PACKET(?RC_CONTINUE_AUTHENTICATION, _Properties),
         {ok, NProperties, NChannel} ->
             case ConnState of
                 connecting ->
-                    process_connect(NProperties, ensure_connected(NChannel));
+                    process_connect(NProperties, NChannel);
                 connected ->
                     handle_out(auth, {?RC_SUCCESS, NProperties}, NChannel);
                 _ ->
@@ -499,14 +499,14 @@ process_connect(AckProps, Channel = #channel{conninfo = ConnInfo,
     case emqx_cm:open_session(CleanStart, ClientInfo, ConnInfo) of
         {ok, #{session := Session, present := false}} ->
             NChannel = Channel#channel{session = Session},
-            handle_out(connack, {?RC_SUCCESS, sp(false), AckProps}, NChannel);
+            handle_out(connack, {?RC_SUCCESS, sp(false), AckProps}, ensure_connected(NChannel));
         {ok, #{session := Session, present := true, pendings := Pendings}} ->
             Pendings1 = lists:usort(lists:append(Pendings, emqx_misc:drain_deliver())),
             NChannel = Channel#channel{session  = Session,
                                        resuming = true,
                                        pendings = Pendings1
                                       },
-            handle_out(connack, {?RC_SUCCESS, sp(true), AckProps}, NChannel);
+            handle_out(connack, {?RC_SUCCESS, sp(true), AckProps}, ensure_connected(NChannel));
         {error, client_id_unavailable} ->
             handle_out(connack, ?RC_CLIENT_IDENTIFIER_NOT_VALID, Channel);
         {error, Reason} ->
