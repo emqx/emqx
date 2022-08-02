@@ -115,31 +115,35 @@ authenticate(
         password_hash_algorithm := Algorithm
     }
 ) ->
-    Params = emqx_authn_utils:render_sql_params(PlaceHolders, Credential),
-    case emqx_resource:query(ResourceId, {prepared_query, ResourceId, Params}) of
-        {ok, _Columns, []} ->
-            ignore;
-        {ok, Columns, [Row | _]} ->
-            NColumns = [Name || #column{name = Name} <- Columns],
-            Selected = maps:from_list(lists:zip(NColumns, erlang:tuple_to_list(Row))),
-            case
-                emqx_authn_utils:check_password_from_selected_map(
-                    Algorithm, Selected, Password
-                )
-            of
-                ok ->
-                    {ok, emqx_authn_utils:is_superuser(Selected)};
+    ?WITH_SUCCESSFUL_RENDER(
+        begin
+            Params = emqx_authn_utils:render_sql_params(PlaceHolders, Credential),
+            case emqx_resource:query(ResourceId, {prepared_query, ResourceId, Params}) of
+                {ok, _Columns, []} ->
+                    ignore;
+                {ok, Columns, [Row | _]} ->
+                    NColumns = [Name || #column{name = Name} <- Columns],
+                    Selected = maps:from_list(lists:zip(NColumns, erlang:tuple_to_list(Row))),
+                    case
+                        emqx_authn_utils:check_password_from_selected_map(
+                            Algorithm, Selected, Password
+                        )
+                    of
+                        ok ->
+                            {ok, emqx_authn_utils:is_superuser(Selected)};
+                        {error, Reason} ->
+                            {error, Reason}
+                    end;
                 {error, Reason} ->
-                    {error, Reason}
-            end;
-        {error, Reason} ->
-            ?TRACE_AUTHN_PROVIDER(error, "postgresql_query_failed", #{
-                resource => ResourceId,
-                params => Params,
-                reason => Reason
-            }),
-            ignore
-    end.
+                    ?TRACE_AUTHN_PROVIDER(error, "postgresql_query_failed", #{
+                        resource => ResourceId,
+                        params => Params,
+                        reason => Reason
+                    }),
+                    ignore
+            end
+        end
+    ).
 
 parse_config(
     #{

@@ -328,6 +328,20 @@ user_seeds() ->
                 is_superuser_str => "1"
             },
             credentials => #{
+                password => <<"plain">>
+            },
+            config_params => #{},
+            result => {error, not_authorized}
+        },
+
+        #{
+            data => #{
+                username => "plain",
+                password_hash => "plainsalt",
+                salt => "salt",
+                is_superuser_str => "1"
+            },
+            credentials => #{
                 username => <<"plain">>,
                 password => <<"plain">>
             },
