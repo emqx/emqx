@@ -142,7 +142,6 @@ setup_test(TestCase, Config) when
                     RawConfig = #{<<"type">> => file, <<"file">> => LicensePath},
                     emqx_config:put_raw([<<"license">>], RawConfig),
                     ok = meck:new(emqx_license, [non_strict, passthrough, no_history, no_link]),
-                    %% meck:expect(emqx_license, read_license, fun() -> {ok, License} end),
                     meck:expect(
                         emqx_license_parser,
                         parse,

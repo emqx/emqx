@@ -1,3 +1,14 @@
+# 5.0.5
+
+## Bug fixes
+
+* Allow changing the license type from key to file (and vice-versa). [#8598](https://github.com/emqx/emqx/pull/8598)
+
+## Enhancements
+
+* The license is now copied to all nodes in the cluster when it's reloaded. [#8598](https://github.com/emqx/emqx/pull/8598)
+* Added a HTTP API to manage licenses. [#8610](https://github.com/emqx/emqx/pull/8610)
+
 # 5.0.4
 
 ## Bug fixes
