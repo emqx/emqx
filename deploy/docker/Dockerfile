@@ -1,4 +1,4 @@
-ARG BUILD_FROM=emqx/build-env:erl23.2.7.2-emqx-3-alpine
+ARG BUILD_FROM=emqx/build-env:erl23.3.4.9-3-alpine
 ARG RUN_FROM=alpine:3.12
 FROM ${BUILD_FROM} AS builder
 

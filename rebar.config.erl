@@ -246,21 +246,10 @@ overlay_vars_pkg(pkg) ->
     ].
 
 relx_apps(ReleaseType) ->
-    [ kernel
-    , sasl
-    , crypto
-    , public_key
-    , asn1
-    , syntax_tools
-    , ssl
-    , os_mon
-    , inets
-    , compiler
-    , runtime_tools
-    , redbug
+    relx_otp_apps() ++
+    [ redbug
     , cuttlefish
     , emqx
-    , {mnesia, load}
     , {ekka, load}
     , {emqx_plugin_libs, load}
     , observer_cli
@@ -271,9 +260,13 @@ relx_apps(ReleaseType) ->
     ++ relx_apps_per_rel(ReleaseType)
     ++ [{N, load} || N <- relx_plugin_apps(ReleaseType)].
 
+relx_otp_apps() ->
+    {ok, [Apps]} = file:consult("scripts/rel_otp_apps.eterm"),
+    true = is_list(Apps),
+    Apps.
+
 relx_apps_per_rel(cloud) ->
     [ luerl
-    , xmerl
     | [{observer, load} || is_app(observer)]
     ];
 relx_apps_per_rel(edge) ->

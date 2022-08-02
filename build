@@ -94,7 +94,37 @@ make_relup() {
     fi
     RELX_BASE_VERSIONS="$(IFS=, ; echo "${releases[*]}")"
     export RELX_BASE_VERSIONS
+    if [[ ${PKG_VSN} == 4.3* ]]; then
+        echo "EMQX 4.3 specific, overwrite OTP app versions"
+        local emqx_rel_file="${releases_dir}/${PKG_VSN}/emqx.rel"
+        if [ ! -f "${emqx_rel_file}" ]; then
+            ./rebar3 as "${PROFILE}" release
+        fi
+        scripts/emqx_rel_otp_app_overwrite.escript "${releases_dir}" "${PROFILE}" "${PKG_VSN}" "${RELX_BASE_VERSIONS}"
+    fi
     ./rebar3 as "$PROFILE" relup --relname emqx --relvsn "${PKG_VSN}"
+
+    # assert that there is no 'restart_emulator' in relup
+    # EMQX wants hot upgrade without VM restart
+    if grep restart_emulator "${releases_dir}/${PKG_VSN}/relup"; then
+        echo "Error: restart_emulator instruction found in relup";
+        exit 1
+    fi
+
+    # rollback rel file per releases
+    #
+    if [[ ${PKG_VSN} == 4.3* ]]; then
+        echo "restore upgrade base rel files... "
+        for rel in ${releases[*]};
+        do
+            bakfile="${releases_dir}/${rel}/${PROFILE}.rel.bak"
+            echo "restore $bakfile ..."
+            if [ -f "$bakfile" ]; then
+                echo "restore from $bakfile"
+                mv "${bakfile}" "${bakfile%.bak}"
+            fi
+        done
+    fi
 }
 
 cp_dyn_libs() {
