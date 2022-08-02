@@ -13,7 +13,7 @@ acb3544d4b112121b5d9414237d2af7860ccc2a3
 # reformat lib-ee/emqx_license
 4f396cceb84d79d5ef540e91c1a8420e8de74a56
 4e3fd9febd0df11f3fe5f221cd2c4362be57c886
-# reformat lib-ee/emqx_enterprise_conf
+# reformat lib-ee/emqx_ee_conf
 1aa82992616ad848539a533a5cd20ba6f9071e5a
 # reformat apps/emqx_gateway
 3f6d78dda03fd0d8e968a352e134f11a7f16bfe8

@@ -84,7 +84,7 @@ make_docs() {
     fi
     case $PROFILE in
         emqx-enterprise)
-            SCHEMA_MODULE='emqx_enterprise_conf_schema'
+            SCHEMA_MODULE='emqx_ee_conf_schema'
             ;;
         *)
             SCHEMA_MODULE='emqx_conf_schema'

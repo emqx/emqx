@@ -104,10 +104,10 @@ setup_test(TestCase, Config) when
         [
             {apps, [emqx_conf, emqx_license]},
             {load_schema, false},
-            {schema_mod, emqx_enterprise_conf_schema},
+            {schema_mod, emqx_ee_conf_schema},
             {env_handler, fun
                 (emqx) ->
-                    emqx_config:save_schema_mod_and_names(emqx_enterprise_conf_schema),
+                    emqx_config:save_schema_mod_and_names(emqx_ee_conf_schema),
                     %% emqx_config:save_schema_mod_and_names(emqx_license_schema),
                     application:set_env(emqx, boot_modules, []),
                     application:set_env(
@@ -121,7 +121,7 @@ setup_test(TestCase, Config) when
                     ),
                     ok;
                 (emqx_conf) ->
-                    emqx_config:save_schema_mod_and_names(emqx_enterprise_conf_schema),
+                    emqx_config:save_schema_mod_and_names(emqx_ee_conf_schema),
                     %% emqx_config:save_schema_mod_and_names(emqx_license_schema),
                     application:set_env(
                         emqx,

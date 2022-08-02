@@ -2,7 +2,7 @@
 %% Copyright (c) 2022 EMQ Technologies Co., Ltd. All Rights Reserved.
 %%--------------------------------------------------------------------
 
--module(emqx_enterprise_conf_schema_tests).
+-module(emqx_ee_conf_schema_tests).
 
 -include_lib("eunit/include/eunit.hrl").
 
@@ -22,7 +22,7 @@ doc_gen_test() ->
                 "priv",
                 "i18n.conf"
             ]),
-            _ = emqx_conf:dump_schema(Dir, emqx_enterprise_conf_schema, I18nFile),
+            _ = emqx_conf:dump_schema(Dir, emqx_ee_conf_schema, I18nFile),
             ok
         end
     }.

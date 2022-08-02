@@ -280,7 +280,7 @@ overlay_vars_edition(ce) ->
     ];
 overlay_vars_edition(ee) ->
     [
-        {emqx_schema_mod, emqx_enterprise_conf_schema},
+        {emqx_schema_mod, emqx_ee_conf_schema},
         {is_enterprise, "yes"}
     ].
 
@@ -378,7 +378,7 @@ is_app(Name) ->
 relx_apps_per_edition(ee) ->
     [
         emqx_license,
-        {emqx_enterprise_conf, load},
+        {emqx_ee_conf, load},
         emqx_ee_connector,
         emqx_ee_bridge
     ];
