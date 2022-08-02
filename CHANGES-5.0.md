@@ -34,6 +34,7 @@
 * Improve authentication tracing. [#8554](https://github.com/emqx/emqx/pull/8554)
 * Standardize the '/listeners' and `/gateway/<name>/listeners` API fields.
   It will introduce some incompatible updates, see [#8571](https://github.com/emqx/emqx/pull/8571)
+* Add option to perform GC on connection process after TLS/SSL handshake is performed. [#8637](https://github.com/emqx/emqx/pull/8637)
 
 # 5.0.3
 
