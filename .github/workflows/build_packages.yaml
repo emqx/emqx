@@ -228,7 +228,7 @@ jobs:
           # - raspbian10 #armv6l is too slow to emulate
           # - raspbian9
         otp_version:
-          - 23.2.7.2-emqx-3
+          #- 23.2.7.2-emqx-3
           - 23.3.4.9-3
         exclude:
         - os: centos6
