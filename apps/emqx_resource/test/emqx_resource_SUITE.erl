@@ -36,6 +36,8 @@ groups() ->
 
 init_per_testcase(_, Config) ->
     Config.
+end_per_testcase(_, _Config) ->
+    _ = emqx_resource:remove(?ID).
 
 init_per_suite(Config) ->
     code:ensure_loaded(?TEST_RESOURCE),
