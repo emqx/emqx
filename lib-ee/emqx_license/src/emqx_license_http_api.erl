@@ -18,11 +18,11 @@
 
 -export([
     '/license'/2,
-    '/license/upload'/2
+    '/license/key'/2,
+    '/license/file'/2
 ]).
 
 -define(BAD_REQUEST, 'BAD_REQUEST').
--define(NOT_FOUND, 'NOT_FOUND').
 
 namespace() -> "license_http_api".
 
@@ -32,7 +32,8 @@ api_spec() ->
 paths() ->
     [
         "/license",
-        "/license/upload"
+        "/license/key",
+        "/license/file"
     ].
 
 schema("/license") ->
@@ -54,28 +55,41 @@ schema("/license") ->
             }
         }
     };
-schema("/license/upload") ->
+schema("/license/file") ->
     #{
-        'operationId' => '/license/upload',
+        'operationId' => '/license/file',
         post => #{
             tags => [<<"license">>],
-            summary => <<"Upload license">>,
-            description => ?DESC("desc_license_upload_api"),
+            summary => <<"Upload license file">>,
+            description => ?DESC("desc_license_file_api"),
+            'requestBody' => emqx_dashboard_swagger:file_schema(filename),
+            responses => #{
+                200 => emqx_dashboard_swagger:schema_with_examples(
+                    map(),
+                    #{
+                        sample_license_info => #{
+                            value => sample_license_info_response()
+                        }
+                    }
+                ),
+                400 => emqx_dashboard_swagger:error_codes([?BAD_REQUEST], <<"Bad license file">>)
+            }
+        }
+    };
+schema("/license/key") ->
+    #{
+        'operationId' => '/license/key',
+        post => #{
+            tags => [<<"license">>],
+            summary => <<"Update license key">>,
+            description => ?DESC("desc_license_key_api"),
             'requestBody' => emqx_dashboard_swagger:schema_with_examples(
-                emqx_license_schema:license_type(),
+                emqx_license_schema:key_license(),
                 #{
                     license_key => #{
                         summary => <<"License key string">>,
                         value => #{
                             <<"key">> => <<"xxx">>,
-                            <<"connection_low_watermark">> => "75%",
-                            <<"connection_high_watermark">> => "80%"
-                        }
-                    },
-                    license_file => #{
-                        summary => <<"Path to a license file">>,
-                        value => #{
-                            <<"file">> => <<"/path/to/license">>,
                             <<"connection_low_watermark">> => "75%",
                             <<"connection_high_watermark">> => "80%"
                         }
@@ -91,8 +105,7 @@ schema("/license/upload") ->
                         }
                     }
                 ),
-                400 => emqx_dashboard_swagger:error_codes([?BAD_REQUEST], <<"Bad license key">>),
-                404 => emqx_dashboard_swagger:error_codes([?NOT_FOUND], <<"File not found">>)
+                400 => emqx_dashboard_swagger:error_codes([?BAD_REQUEST], <<"Bad license file">>)
             }
         }
     }.
@@ -117,37 +130,26 @@ error_msg(Code, Msg) ->
     License = maps:from_list(emqx_license_checker:dump()),
     {200, License}.
 
-'/license/upload'(post, #{body := #{<<"file">> := Filepath}}) ->
-    case emqx_license:update_file(Filepath) of
-        {error, enoent} ->
-            ?SLOG(error, #{
-                msg => "license_file_not_found",
-                path => Filepath
-            }),
-            {404, error_msg(?NOT_FOUND, <<"File not found">>)};
-        {error, Error} when is_atom(Error) ->
-            ?SLOG(error, #{
-                msg => "bad_license_file",
-                reason => Error,
-                path => Filepath
-            }),
-            {400, error_msg(?BAD_REQUEST, emqx_misc:explain_posix(Error))};
+'/license/file'(post, #{body := #{<<"filename">> := #{type := _} = File}}) ->
+    [{_Filename, Contents}] = maps:to_list(maps:without([type], File)),
+    case emqx_license:update_file_contents(Contents) of
         {error, Error} ->
             ?SLOG(error, #{
                 msg => "bad_license_file",
-                reason => Error,
-                path => Filepath
+                reason => Error
             }),
             {400, error_msg(?BAD_REQUEST, <<"Bad license file">>)};
         {ok, _} ->
             ?SLOG(info, #{
-                msg => "updated_license_file",
-                path => Filepath
+                msg => "updated_license_file"
             }),
             License = maps:from_list(emqx_license_checker:dump()),
             {200, License}
     end;
-'/license/upload'(post, #{body := #{<<"key">> := Key}}) ->
+'/license/file'(post, _Params) ->
+    {400, error_msg(?BAD_REQUEST, <<"Invalid request params">>)}.
+
+'/license/key'(post, #{body := #{<<"key">> := Key}}) ->
     case emqx_license:update_key(Key) of
         {error, Error} ->
             ?SLOG(error, #{
@@ -160,5 +162,5 @@ error_msg(Code, Msg) ->
             License = maps:from_list(emqx_license_checker:dump()),
             {200, License}
     end;
-'/license/upload'(post, _Params) ->
+'/license/key'(post, _Params) ->
     {400, error_msg(?BAD_REQUEST, <<"Invalid request params">>)}.

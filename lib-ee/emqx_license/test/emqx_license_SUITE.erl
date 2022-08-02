@@ -16,6 +16,9 @@ all() ->
     emqx_common_test_helpers:all(?MODULE).
 
 init_per_suite(Config) ->
+    %% hack needed to avoid inter-suite flakiness when using meck...
+    ok = cover:stop(),
+    {ok, _} = cover:start(),
     _ = application:load(emqx_conf),
     emqx_config:save_schema_mod_and_names(emqx_license_schema),
     emqx_common_test_helpers:start_apps([emqx_license], fun set_special_configs/1),
@@ -141,7 +144,9 @@ setup_test(TestCase, Config) when
                     emqx_config:put([license], LicConfig),
                     RawConfig = #{<<"type">> => file, <<"file">> => LicensePath},
                     emqx_config:put_raw([<<"license">>], RawConfig),
-                    ok = meck:new(emqx_license, [non_strict, passthrough, no_history, no_link]),
+                    ok = meck:new(emqx_license_parser, [
+                        non_strict, passthrough, no_history, no_link
+                    ]),
                     meck:expect(
                         emqx_license_parser,
                         parse,
