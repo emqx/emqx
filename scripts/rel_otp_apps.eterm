@@ -1,0 +1,16 @@
+%% Single source of truth of list otp apps that we use
+[ kernel
+, stdlib
+, sasl
+, crypto
+, public_key
+, asn1
+, syntax_tools
+, ssl
+, os_mon
+, inets
+, compiler
+, runtime_tools
+, {mnesia, load}
+, xmerl
+].
