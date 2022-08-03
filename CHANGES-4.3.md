@@ -10,6 +10,12 @@ File format:
 - One list item per change topic
   Change log ends with a list of github PRs
 
+## v4.3.19
+
+### Bug fixes
+
+- Add a idle timer for ExProto UDP client to avoid client leaking [#8628]
+
 ## v4.3.18
 
 ### Enhancements
