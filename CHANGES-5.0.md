@@ -8,6 +8,7 @@
 
 * The license is now copied to all nodes in the cluster when it's reloaded. [#8598](https://github.com/emqx/emqx/pull/8598)
 * Added a HTTP API to manage licenses. [#8610](https://github.com/emqx/emqx/pull/8610)
+* Updated `/nodes` API node_status from `Running/Stopped` to `running/stopped`. [#8642](https://github.com/emqx/emqx/pull/8642)
 
 # 5.0.4
 
