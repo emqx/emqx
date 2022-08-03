@@ -232,7 +232,7 @@
      {load_module, emqx_alarm, brutal_purge, soft_purge, []},
      {load_module, emqx_packet, brutal_purge, soft_purge, []},
      {load_module, emqx_banned, brutal_purge, soft_purge, []}    
-   ]}
+   ]},
    {<<".*">>, []}
  ],
  [
@@ -458,7 +458,7 @@
      {load_module, emqx_alarm, brutal_purge, soft_purge, []},
      {load_module, emqx_packet, brutal_purge, soft_purge, []},
      {load_module, emqx_banned, brutal_purge, soft_purge, []}
-   ]}
+   ]},
    {<<".*">>, []}
  ]
 }.
