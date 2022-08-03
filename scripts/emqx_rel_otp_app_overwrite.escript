@@ -7,19 +7,24 @@
 %%
 %% note, we use NEW to overwrite OLD is because the modified NEW rel file will be overwritten by next 'rebar relup'
 %%
-main([Dir, Profile, RelVsn, BASE_VERSIONS]) ->
-    {ErtsVsn, Overwrites} = get_otp_apps(rel_file(Profile, Dir, RelVsn), RelVsn),
+main([Dir, RelVsn, BASE_VERSIONS]) ->
+    {ErtsVsn, Overwrites} = get_otp_apps(rel_file(Dir, RelVsn), RelVsn),
     lists:foreach(fun(BaseVer) ->
-                          base_rel_overwrites(BaseVer, Profile, Dir, ErtsVsn, Overwrites)
+                          base_rel_overwrites(BaseVer, Dir, ErtsVsn, Overwrites)
                   end, string:tokens(BASE_VERSIONS, ",")).
 
 get_otp_apps(RelFile, RelVsn) ->
-    {ok, [{release, {"emqx", RelVsn}, {erts, ErtsVsn}, AppList}]} = file:consult(RelFile),
-    Apps = lists:filter(fun(X) -> lists:member(element(1, X), otp_apps()) end, AppList),
-    {ErtsVsn, Apps}.
+    case file:consult(RelFile) of
+        {ok, [{release, {"emqx", RelVsn}, {erts, ErtsVsn}, AppList}]} ->
+            Apps = lists:filter(fun(X) -> lists:member(element(1, X), otp_apps()) end, AppList),
+            {ErtsVsn, Apps};
+        {error, Reason} ->
+            io:format(standard_error, "failed_to_read_file ~p for release ~p~nreason=~p~n", [RelFile, RelVsn, Reason]),
+            halt(1)
+    end.
 
-base_rel_overwrites(RelVsn, Profile, Dir, ErtsVsn, Overwrites) ->
-    RelFile = rel_file(Profile, Dir, RelVsn),
+base_rel_overwrites(RelVsn, Dir, ErtsVsn, Overwrites) ->
+    RelFile = rel_file(Dir, RelVsn),
     file:copy(RelFile, RelFile++".bak"),
     {ok, [{release, {"emqx", RelVsn}, {erts, _BaseErtsVsn}, BaseAppList}]} = file:consult(RelFile),
     NewData = [ {release, {"emqx", RelVsn}, {erts, ErtsVsn},
@@ -34,10 +39,8 @@ base_rel_overwrites(RelVsn, Profile, Dir, ErtsVsn, Overwrites) ->
               ],
     ok = file:write_file(RelFile, io_lib:format("~p.", NewData)).
 
-rel_file("emqx-edge", Dir, RelVsn)->
-    rel_file("emqx", Dir, RelVsn);
-rel_file(Profile, Dir, RelVsn)->
-    filename:join([Dir, RelVsn, Profile++".rel"]).
+rel_file(Dir, RelVsn)->
+    filename:join([Dir, RelVsn, "emqx.rel"]).
 
 otp_apps() ->
     {ok, [Apps]} = file:consult("scripts/rel_otp_apps.eterm"),
