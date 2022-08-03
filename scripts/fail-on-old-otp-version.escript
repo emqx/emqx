@@ -1,4 +1,4 @@
-#!/usr/bin/env escript
+#!/usr/bin/env -S escript -c
 
 main(_) ->
     OtpRelease = list_to_integer(erlang:system_info(otp_release)),

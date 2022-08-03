@@ -10,6 +10,13 @@ File format:
 - One list item per change topic
   Change log ends with a list of github PRs
 
+## v4.3.18
+
+### Enhancements
+
+- Upgrade Erlang/OTP from 23.2.7.2-emqx-3 to 23.3.4.9-3 [#8511](https://github.com/emqx/emqx/pull/8511)
+- Make possible to debug-print SSL handshake procedure by setting listener config `log_level=debug` [#8553](https://github.com/emqx/emqx/pull/8553)
+
 ## v4.3.17
 
 ### Bug fixes
@@ -24,6 +31,7 @@ File format:
   This causes the clients to not expire as long as a new UDP packet arrives [#8575]
 
 ### Enhancements
+
 - HTTP API(GET /rules/) support for pagination and fuzzy filtering. [#8450]
 - Add check_conf cli to check config format. [#8486]
 - Optimize performance of shared subscription

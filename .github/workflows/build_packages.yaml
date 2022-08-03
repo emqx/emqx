@@ -117,7 +117,6 @@ jobs:
           - 24.1.5-3
         macos:
           - macos-11
-          - macos-10.15
         exclude:
           - profile: emqx-edge
     runs-on: ${{ matrix.macos }}
