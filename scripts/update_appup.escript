@@ -1,5 +1,7 @@
-#!/usr/bin/env -S escript -c
+#!/usr/bin/env escript
 %% -*- erlang-indent-level:4 -*-
+
+-mode(compile).
 
 usage() ->
 "A script that fills in boilerplate for appup files.
