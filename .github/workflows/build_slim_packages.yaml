@@ -104,7 +104,6 @@ jobs:
         - 24.1.5-3
         macos:
         - macos-11
-        - macos-10.15
 
     runs-on: ${{  matrix.macos }}
 
