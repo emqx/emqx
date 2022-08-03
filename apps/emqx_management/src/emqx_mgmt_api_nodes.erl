@@ -288,7 +288,7 @@ get_stats(Node) ->
 %% internal function
 
 format(_Node, Info = #{memory_total := Total, memory_used := Used}) ->
-    RootDir = code:root_dir(),
+    RootDir = list_to_binary(code:root_dir()),
     LogPath =
         case log_path() of
             undefined ->
