@@ -316,11 +316,6 @@ t_handle_timeout(_) ->
         emqx_connection:handle_timeout(TRef, keepalive, State)
     ),
 
-    ok = meck:expect(emqx_transport, getstat, fun(_Sock, _Options) -> {error, for_testing} end),
-    ?assertMatch(
-        {stop, {shutdown, for_testing}, _NState},
-        emqx_connection:handle_timeout(TRef, keepalive, State)
-    ),
     ?assertMatch({ok, _NState}, emqx_connection:handle_timeout(TRef, undefined, State)).
 
 t_parse_incoming(_) ->
