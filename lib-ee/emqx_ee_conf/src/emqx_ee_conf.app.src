@@ -1,5 +1,5 @@
-{application, emqx_enterprise_conf, [
-    {description, "EMQX Enterprise configuration schema"},
+{application, emqx_ee_conf, [
+    {description, "EMQX Enterprise Edition configuration schema"},
     {vsn, "0.1.0"},
     {registered, []},
     {applications, [

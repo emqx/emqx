@@ -1,3 +1,3 @@
-# emqx_enterprise_conf
+# emqx_ee_conf
 
 EMQX Enterprise configuration schema

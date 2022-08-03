@@ -2,7 +2,7 @@
 %% Copyright (c) 2022 EMQ Technologies Co., Ltd. All Rights Reserved.
 %%--------------------------------------------------------------------
 
--module(emqx_enterprise_conf_schema).
+-module(emqx_ee_conf_schema).
 
 -behaviour(hocon_schema).
 
