@@ -78,7 +78,8 @@
 
 [shell bench]
     !emqtt_bench pub -c 10 -I 1000 -t t/%i -s 64 -L 300
-    ???sent
+    # e.g. Start with 20 workers, addrs pool size: 1 and req interval: 200 ms
+    ?^Start
 
 [shell emqx]
     !echo "" > log/emqx.log.1
@@ -173,8 +174,8 @@
     ?SH-PROMPT
 
 [shell bench]
-    ???publish complete
-    ??SH-PROMPT:
+    ?publish complete
+    ?SH-PROMPT
     !sleep 30
     ?SH-PROMPT
 
