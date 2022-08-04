@@ -30,7 +30,7 @@ end_per_suite(_) ->
     emqx_config:put([license], Config),
     RawConfig = #{<<"type">> => file, <<"file">> => emqx_license_test_lib:default_license()},
     emqx_config:put_raw([<<"license">>], RawConfig),
-    persistent_term:erase({emqx_license_parser_test, pubkey}),
+    persistent_term:erase(emqx_license_test_pubkey),
     ok.
 
 set_special_configs(emqx_dashboard) ->
@@ -42,7 +42,7 @@ set_special_configs(emqx_license) ->
     RawConfig = #{<<"type">> => key, <<"key">> => LicenseKey},
     emqx_config:put_raw([<<"license">>], RawConfig),
     ok = persistent_term:put(
-        {emqx_license_parser_test, pubkey},
+        emqx_license_test_pubkey,
         emqx_license_test_lib:public_key_pem()
     ),
     ok;

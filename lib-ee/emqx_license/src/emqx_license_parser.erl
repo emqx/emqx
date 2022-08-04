@@ -75,7 +75,7 @@
 -ifdef(TEST).
 -spec parse(string() | binary()) -> {ok, license()} | {error, term()}.
 parse(Content) ->
-    PubKey = persistent_term:get({emqx_license_parser_test, pubkey}, ?PUBKEY),
+    PubKey = persistent_term:get(emqx_license_test_pubkey, ?PUBKEY),
     parse(Content, PubKey).
 -else.
 -spec parse(string() | binary()) -> {ok, license()} | {error, term()}.

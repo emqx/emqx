@@ -142,7 +142,7 @@ setup_test(TestCase, Config) when
                     RawConfig = #{<<"type">> => file, <<"file">> => LicensePath},
                     emqx_config:put_raw([<<"license">>], RawConfig),
                     ok = persistent_term:put(
-                        {emqx_license_parser_test, pubkey},
+                        emqx_license_test_pubkey,
                         emqx_license_test_lib:public_key_pem()
                     ),
                     ok;
