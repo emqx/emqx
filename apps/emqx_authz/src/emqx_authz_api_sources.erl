@@ -50,6 +50,8 @@
     aggregate_metrics/1
 ]).
 
+-define(TAGS, [<<"Authorization">>]).
+
 api_spec() ->
     emqx_dashboard_swagger:spec(?MODULE, #{check_schema => true}).
 
@@ -70,6 +72,7 @@ schema("/authorization/sources") ->
         get =>
             #{
                 description => ?DESC(authorization_sources_get),
+                tags => ?TAGS,
                 responses =>
                     #{
                         200 => mk(
@@ -81,6 +84,7 @@ schema("/authorization/sources") ->
         post =>
             #{
                 description => ?DESC(authorization_sources_post),
+                tags => ?TAGS,
                 'requestBody' => mk(
                     hoconsc:union(authz_sources_type_refs()),
                     #{desc => ?DESC(source_config)}
@@ -101,6 +105,7 @@ schema("/authorization/sources/:type") ->
         get =>
             #{
                 description => ?DESC(authorization_sources_type_get),
+                tags => ?TAGS,
                 parameters => parameters_field(),
                 responses =>
                     #{
@@ -114,6 +119,7 @@ schema("/authorization/sources/:type") ->
         put =>
             #{
                 description => ?DESC(authorization_sources_type_put),
+                tags => ?TAGS,
                 parameters => parameters_field(),
                 'requestBody' => mk(hoconsc:union(authz_sources_type_refs())),
                 responses =>
@@ -125,6 +131,7 @@ schema("/authorization/sources/:type") ->
         delete =>
             #{
                 description => ?DESC(authorization_sources_type_delete),
+                tags => ?TAGS,
                 parameters => parameters_field(),
                 responses =>
                     #{
@@ -139,6 +146,7 @@ schema("/authorization/sources/:type/status") ->
         get =>
             #{
                 description => ?DESC(authorization_sources_type_status_get),
+                tags => ?TAGS,
                 parameters => parameters_field(),
                 responses =>
                     #{
@@ -159,6 +167,7 @@ schema("/authorization/sources/:type/move") ->
         post =>
             #{
                 description => ?DESC(authorization_sources_type_move_post),
+                tags => ?TAGS,
                 parameters => parameters_field(),
                 'requestBody' =>
                     emqx_dashboard_swagger:schema_with_examples(
@@ -565,58 +574,64 @@ bin(Term) -> erlang:iolist_to_binary(io_lib:format("~p", [Term])).
 
 status_metrics_example() ->
     #{
-        resource_metrics => #{
-            matched => 0,
-            success => 0,
-            failed => 0,
-            rate => 0.0,
-            rate_last5m => 0.0,
-            rate_max => 0.0
-        },
-        node_resource_metrics => [
-            #{
-                node => node(),
-                metrics => #{
-                    matched => 0,
-                    success => 0,
-                    failed => 0,
-                    rate => 0.0,
-                    rate_last5m => 0.0,
-                    rate_max => 0.0
-                }
-            }
-        ],
-        metrics => #{
-            total => 0,
-            allow => 0,
-            deny => 0,
-            nomatch => 0,
-            rate => 0.0,
-            rate_last5m => 0.0,
-            rate_max => 0.0
-        },
-        node_metrics => [
-            #{
-                node => node(),
-                metrics => #{
-                    total => 0,
-                    allow => 0,
-                    deny => 0,
-                    nomatch => 0,
-                    rate => 0.0,
-                    rate_last5m => 0.0,
-                    rate_max => 0.0
-                }
-            }
-        ],
+        'metrics_example' => #{
+            summary => <<"Showing a typical metrics example">>,
+            value =>
+                #{
+                    resource_metrics => #{
+                        matched => 0,
+                        success => 0,
+                        failed => 0,
+                        rate => 0.0,
+                        rate_last5m => 0.0,
+                        rate_max => 0.0
+                    },
+                    node_resource_metrics => [
+                        #{
+                            node => node(),
+                            metrics => #{
+                                matched => 0,
+                                success => 0,
+                                failed => 0,
+                                rate => 0.0,
+                                rate_last5m => 0.0,
+                                rate_max => 0.0
+                            }
+                        }
+                    ],
+                    metrics => #{
+                        total => 0,
+                        allow => 0,
+                        deny => 0,
+                        nomatch => 0,
+                        rate => 0.0,
+                        rate_last5m => 0.0,
+                        rate_max => 0.0
+                    },
+                    node_metrics => [
+                        #{
+                            node => node(),
+                            metrics => #{
+                                total => 0,
+                                allow => 0,
+                                deny => 0,
+                                nomatch => 0,
+                                rate => 0.0,
+                                rate_last5m => 0.0,
+                                rate_max => 0.0
+                            }
+                        }
+                    ],
 
-        status => connected,
-        node_status => [
-            #{
-                node => node(),
-                status => connected
-            }
-        ]
+                    status => connected,
+                    node_status => [
+                        #{
+                            node => node(),
+                            status => connected
+                        }
+                    ]
+                }
+        }
     }.
 
 create_authz_file(Body) ->

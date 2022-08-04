@@ -39,6 +39,7 @@
 -define(TOPIC_NOT_FOUND, 'TOPIC_NOT_FOUND').
 
 -define(TOPICS_QUERY_SCHEMA, [{<<"topic">>, binary}, {<<"node">>, atom}]).
+-define(TAGS, [<<"Topics">>]).
 
 api_spec() ->
     emqx_dashboard_swagger:spec(?MODULE, #{check_schema => true, translate_body => true}).
@@ -51,6 +52,7 @@ schema("/topics") ->
         'operationId' => topics,
         get => #{
             description => <<"Topics list">>,
+            tags => ?TAGS,
             parameters => [
                 topic_param(query),
                 node_param(),
@@ -70,6 +72,7 @@ schema("/topics/:topic") ->
         'operationId' => topic,
         get => #{
             description => <<"Lookup topic info by name">>,
+            tags => ?TAGS,
             parameters => [topic_param(path)],
             responses => #{
                 200 => hoconsc:mk(hoconsc:ref(topic), #{}),

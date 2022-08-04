@@ -53,6 +53,11 @@ spec:
       {{- end }}
     spec:
       volumes:
+      {{- if .Values.ssl.enabled }}
+      - name: ssl-cert
+        secret:
+          secretName: {{ include "emqx.fullname" . }}-tls
+      {{- end }}
       {{- if not .Values.persistence.enabled }}
       - name: emqx-data
         emptyDir: {}
@@ -124,12 +129,17 @@ spec:
           volumeMounts:
           - name: emqx-data
             mountPath: "/opt/emqx/data"
-          {{ if .Values.emqxLicenseSecretName  }}
+          {{- if .Values.ssl.enabled }}
+          - name: ssl-cert
+            mountPath: /tmp/ssl
+            readOnly: true
+          {{- end}}
+          {{ if .Values.emqxLicenseSecretName }}
           - name: emqx-license
             mountPath: "/opt/emqx/etc/emqx.lic"
             subPath: "emqx.lic"
             readOnly: true
-          {{ end }}
+          {{- end }}
           readinessProbe:
             httpGet:
               path: /api/v5/status

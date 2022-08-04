@@ -128,6 +128,6 @@ ensure_timer(#{check_peer_interval := CheckInterval} = State) ->
 
 remote_connection_count() ->
     Nodes = mria_mnesia:running_nodes() -- [node()],
-    Results = emqx_license_proto_v1:remote_connection_counts(Nodes),
+    Results = emqx_license_proto_v2:remote_connection_counts(Nodes),
     Counts = [Count || {ok, Count} <- Results],
     lists:sum(Counts).

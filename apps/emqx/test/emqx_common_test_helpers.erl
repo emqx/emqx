@@ -44,6 +44,7 @@
     client_ssl_twoway/1,
     ensure_mnesia_stopped/0,
     ensure_quic_listener/2,
+    is_all_tcp_servers_available/1,
     is_tcp_server_available/2,
     is_tcp_server_available/3,
     load_config/2,
@@ -432,6 +433,18 @@ load_config(SchemaModule, Config, Opts) ->
 load_config(SchemaModule, Config) ->
     load_config(SchemaModule, Config, #{raw_with_default => false}).
 
+-spec is_all_tcp_servers_available(Servers) -> Result when
+    Servers :: [{Host, Port}],
+    Host :: inet:socket_address() | inet:hostname(),
+    Port :: inet:port_number(),
+    Result :: boolean().
+is_all_tcp_servers_available(Servers) ->
+    Fun =
+        fun({Host, Port}) ->
+            is_tcp_server_available(Host, Port)
+        end,
+    lists:all(Fun, Servers).
+
 -spec is_tcp_server_available(
     Host :: inet:socket_address() | inet:hostname(),
     Port :: inet:port_number()
@@ -582,6 +595,7 @@ setup_node(Node, Opts) when is_map(Opts) ->
     EnvHandler = maps:get(env_handler, Opts, fun(_) -> ok end),
     ConfigureGenRpc = maps:get(configure_gen_rpc, Opts, true),
     LoadSchema = maps:get(load_schema, Opts, true),
+    SchemaMod = maps:get(schema_mod, Opts, emqx_schema),
     LoadApps = maps:get(load_apps, Opts, [gen_rpc, emqx, ekka, mria] ++ Apps),
     Env = maps:get(env, Opts, []),
     Conf = maps:get(conf, Opts, []),
@@ -617,7 +631,7 @@ setup_node(Node, Opts) when is_map(Opts) ->
             %% Otherwise, configuration get's loaded and all preset env in envhandler is lost
             LoadSchema andalso
                 begin
-                    emqx_config:init_load(emqx_schema),
+                    emqx_config:init_load(SchemaMod),
                     application:set_env(emqx, init_config_load_done, true)
                 end,
 

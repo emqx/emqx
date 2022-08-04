@@ -138,7 +138,7 @@ node_info() ->
             max_fds, lists:usort(lists:flatten(erlang:system_info(check_io)))
         ),
         connections => ets:info(emqx_channel, size),
-        node_status => 'Running',
+        node_status => 'running',
         uptime => proplists:get_value(uptime, BrokerInfo),
         version => iolist_to_binary(proplists:get_value(version, BrokerInfo)),
         role => mria_rlog:role()
@@ -156,7 +156,7 @@ node_info(Node) ->
     wrap_rpc(emqx_management_proto_v2:node_info(Node)).
 
 stopped_node_info(Node) ->
-    #{name => Node, node_status => 'Stopped'}.
+    #{name => Node, node_status => 'stopped'}.
 
 %%--------------------------------------------------------------------
 %% Brokers

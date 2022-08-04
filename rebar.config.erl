@@ -38,10 +38,10 @@ bcrypt() ->
     {bcrypt, {git, "https://github.com/emqx/erlang-bcrypt.git", {tag, "0.6.0"}}}.
 
 quicer() ->
-    {quicer, {git, "https://github.com/emqx/quic.git", {tag, "0.0.14"}}}.
+    {quicer, {git, "https://github.com/emqx/quic.git", {tag, "0.0.16"}}}.
 
 jq() ->
-    {jq, {git, "https://github.com/emqx/jq", {tag, "v0.3.4"}}}.
+    {jq, {git, "https://github.com/emqx/jq", {tag, "v0.3.5"}}}.
 
 deps(Config) ->
     {deps, OldDeps} = lists:keyfind(deps, 1, Config),
@@ -88,6 +88,11 @@ is_quicer_supported() ->
         is_win32() orelse is_centos_6()) orelse
         "1" == os:getenv("BUILD_WITH_QUIC").
 
+is_rocksdb_supported() ->
+    not (false =/= os:getenv("BUILD_WITHOUT_ROCKSDB") orelse
+        is_raspbian()) orelse
+        "1" == os:getenv("BUILD_WITH_ROCKSDB").
+
 is_macos() ->
     {unix, darwin} =:= os:type().
 
@@ -96,6 +101,14 @@ is_centos_6() ->
     %% glibc is too old
     case file:read_file("/etc/centos-release") of
         {ok, <<"CentOS release 6", _/binary>>} ->
+            true;
+        _ ->
+            false
+    end.
+
+is_raspbian() ->
+    case os_cmd("./scripts/get-distro.sh") of
+        "raspbian" ++ _ ->
             true;
         _ ->
             false
@@ -318,34 +331,37 @@ relx_apps(ReleaseType, Edition) ->
         % started by emqx_machine
         {emqx, load},
         {emqx_conf, load},
-        emqx_machine,
-        {mnesia, load},
-        {ekka, load},
-        {emqx_plugin_libs, load},
-        {esasl, load},
-        observer_cli,
-        % started by emqx_machine
-        {system_monitor, load},
-        emqx_http_lib,
-        emqx_resource,
-        emqx_connector,
-        emqx_authn,
-        emqx_authz,
-        emqx_auto_subscribe,
-        emqx_gateway,
-        emqx_exhook,
-        emqx_bridge,
-        emqx_rule_engine,
-        emqx_modules,
-        emqx_management,
-        emqx_dashboard,
-        emqx_retainer,
-        emqx_statsd,
-        emqx_prometheus,
-        emqx_psk,
-        emqx_slow_subs,
-        emqx_plugins
+        emqx_machine
     ] ++
+        [{mnesia_rocksdb, load} || is_rocksdb_supported()] ++
+        [
+            {mnesia, load},
+            {ekka, load},
+            {emqx_plugin_libs, load},
+            {esasl, load},
+            observer_cli,
+            % started by emqx_machine
+            {system_monitor, load},
+            emqx_http_lib,
+            emqx_resource,
+            emqx_connector,
+            emqx_authn,
+            emqx_authz,
+            emqx_auto_subscribe,
+            emqx_gateway,
+            emqx_exhook,
+            emqx_bridge,
+            emqx_rule_engine,
+            emqx_modules,
+            emqx_management,
+            emqx_dashboard,
+            emqx_retainer,
+            emqx_statsd,
+            emqx_prometheus,
+            emqx_psk,
+            emqx_slow_subs,
+            emqx_plugins
+        ] ++
         [quicer || is_quicer_supported()] ++
         [bcrypt || provide_bcrypt_release(ReleaseType)] ++
         [jq || is_jq_supported()] ++
@@ -380,6 +396,7 @@ relx_overlay(ReleaseType, Edition) ->
         {template, "rel/BUILD_INFO", "releases/{{release_version}}/BUILD_INFO"},
         {copy, "bin/emqx", "bin/emqx"},
         {copy, "bin/emqx_ctl", "bin/emqx_ctl"},
+        {copy, "bin/emqx_cluster_rescue", "bin/emqx_cluster_rescue"},
         {copy, "bin/node_dump", "bin/node_dump"},
         {copy, "bin/install_upgrade.escript", "bin/install_upgrade.escript"},
         %% for relup

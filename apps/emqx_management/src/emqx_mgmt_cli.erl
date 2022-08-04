@@ -566,23 +566,23 @@ trace_type(_, _) -> error.
 listeners([]) ->
     lists:foreach(
         fun({ID, Conf}) ->
-            {Host, Port} = maps:get(bind, Conf),
+            Bind = maps:get(bind, Conf),
             Acceptors = maps:get(acceptors, Conf),
             ProxyProtocol = maps:get(proxy_protocol, Conf, undefined),
             Running = maps:get(running, Conf),
             CurrentConns =
-                case emqx_listeners:current_conns(ID, {Host, Port}) of
+                case emqx_listeners:current_conns(ID, Bind) of
                     {error, _} -> [];
                     CC -> [{current_conn, CC}]
                 end,
             MaxConn =
-                case emqx_listeners:max_conns(ID, {Host, Port}) of
+                case emqx_listeners:max_conns(ID, Bind) of
                     {error, _} -> [];
                     MC -> [{max_conns, MC}]
                 end,
             Info =
                 [
-                    {listen_on, {string, format_listen_on(Port)}},
+                    {listen_on, {string, emqx_listeners:format_bind(Bind)}},
                     {acceptors, Acceptors},
                     {proxy_protocol, ProxyProtocol},
                     {running, Running}
@@ -780,7 +780,12 @@ print({emqx_topic, #route{topic = Topic, dest = {_, Node}}}) ->
 print({emqx_topic, #route{topic = Topic, dest = Node}}) ->
     emqx_ctl:print("~ts -> ~ts~n", [Topic, Node]);
 print({emqx_suboption, {{Pid, Topic}, Options}}) when is_pid(Pid) ->
-    emqx_ctl:print("~ts -> ~ts~n", [maps:get(subid, Options), Topic]).
+    SubId = maps:get(subid, Options),
+    QoS = maps:get(qos, Options, 0),
+    NL = maps:get(nl, Options, 0),
+    RH = maps:get(rh, Options, 0),
+    RAP = maps:get(rap, Options, 0),
+    emqx_ctl:print("~ts -> topic:~ts qos:~p nl:~p rh:~p rap:~p~n", [SubId, Topic, QoS, NL, RH, RAP]).
 
 format(_, undefined) ->
     undefined;
@@ -796,13 +801,6 @@ indent_print({Key, {string, Val}}) ->
     emqx_ctl:print("  ~-16s: ~ts~n", [Key, Val]);
 indent_print({Key, Val}) ->
     emqx_ctl:print("  ~-16s: ~w~n", [Key, Val]).
-
-format_listen_on(Port) when is_integer(Port) ->
-    io_lib:format("0.0.0.0:~w", [Port]);
-format_listen_on({Addr, Port}) when is_list(Addr) ->
-    io_lib:format("~ts:~w", [Addr, Port]);
-format_listen_on({Addr, Port}) when is_tuple(Addr) ->
-    io_lib:format("~ts:~w", [inet:ntoa(Addr), Port]).
 
 name(Filter) ->
     iolist_to_binary(["CLI-", Filter]).

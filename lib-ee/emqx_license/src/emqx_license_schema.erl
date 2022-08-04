@@ -14,14 +14,15 @@
 
 -export([roots/0, fields/1, validations/0, desc/1]).
 
+-export([
+    license_type/0
+]).
+
 roots() ->
     [
         {license,
             hoconsc:mk(
-                hoconsc:union([
-                    hoconsc:ref(?MODULE, key_license),
-                    hoconsc:ref(?MODULE, file_license)
-                ]),
+                license_type(),
                 #{
                     desc =>
                         "EMQX Enterprise license.\n"
@@ -36,16 +37,35 @@ roots() ->
 
 fields(key_license) ->
     [
+        {type, #{
+            type => key,
+            required => true
+        }},
         {key, #{
             type => string(),
             %% so it's not logged
             sensitive => true,
+            required => true,
             desc => "License string"
+        }},
+        {file, #{
+            type => string(),
+            required => false
         }}
         | common_fields()
     ];
 fields(file_license) ->
     [
+        {type, #{
+            type => file,
+            required => true
+        }},
+        {key, #{
+            type => string(),
+            %% so it's not logged
+            sensitive => true,
+            required => false
+        }},
         {file, #{
             type => string(),
             desc => "Path to the license file"
@@ -76,6 +96,12 @@ common_fields() ->
 
 validations() ->
     [{check_license_watermark, fun check_license_watermark/1}].
+
+license_type() ->
+    hoconsc:union([
+        hoconsc:ref(?MODULE, key_license),
+        hoconsc:ref(?MODULE, file_license)
+    ]).
 
 check_license_watermark(Conf) ->
     case hocon_maps:get("license.connection_low_watermark", Conf) of

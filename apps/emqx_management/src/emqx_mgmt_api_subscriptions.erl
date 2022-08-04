@@ -60,6 +60,7 @@ schema("/subscriptions") ->
         'operationId' => subscriptions,
         get => #{
             description => <<"List subscriptions">>,
+            tags => [<<"Subscriptions">>],
             parameters => parameters(),
             responses => #{
                 200 => hoconsc:mk(hoconsc:array(hoconsc:ref(?MODULE, subscription)), #{})

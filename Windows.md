@@ -66,6 +66,9 @@ Cygwin is what we tested with.
   Start (restart) CMD or powershell console and execute `which bash`, it should
   print out `/usr/bin/bash`
 
+NOTE: Make sure cygwin's bin dir is added before `C:\Windows\system32` in `Path`,
+otherwise the build scripts may end up using binaries from wsl instead of cygwin.
+
 ### Other tools
 
 Some of the unix world tools are required to build EMQX.  Including:

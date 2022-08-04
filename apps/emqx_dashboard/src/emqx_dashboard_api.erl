@@ -180,7 +180,6 @@ field(username_in_path) ->
     {username,
         mk(binary(), #{
             desc => ?DESC(username),
-            'maxLength' => 100,
             example => <<"admin">>,
             in => path,
             required => true

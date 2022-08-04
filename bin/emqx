@@ -169,6 +169,9 @@ usage() {
         echo "     --no-permanent   Install release package VERSION but"
         echo "                      don't make it permanent"
         ;;
+    check_config)
+        echo "Checks the EMQX config without generating any files"
+        ;;
     *)
         echo "Usage: $REL_NAME COMMAND [help]"
         echo ''
@@ -184,6 +187,7 @@ usage() {
         echo "  Up/Down-grade: upgrade | downgrade | install | uninstall"
         echo "  Install info:  ertspath | root_dir"
         echo "  Runtime info:  pid | ping | versions"
+        echo "  Validate Config:  check_config"
         echo "  Advanced:      console_clean | escript | rpc | rpcterms | eval | eval-erl"
         echo ''
         echo "Execute '$REL_NAME COMMAND help' for more information"
@@ -211,7 +215,7 @@ fi
 
 ## IS_BOOT_COMMAND is set for later to inspect node name and cookie from hocon config (or env variable)
 case "${COMMAND}" in
-    start|console|console_clean|foreground)
+    start|console|console_clean|foreground|check_config)
         IS_BOOT_COMMAND='yes'
         ;;
     ertspath)
@@ -412,7 +416,7 @@ call_hocon() {
 ## and parsing HOCON config + environment variables is a non-trivial task
 CONF_KEYS=( 'node.data_dir' 'node.name' 'node.cookie' 'node.db_backend' 'cluster.proto_dist' )
 if [ "$IS_ENTERPRISE" = 'yes' ]; then
-    CONF_KEYS+=( 'license.file' 'license.key' )
+    CONF_KEYS+=( 'license.type' 'license.file' 'license.key' )
 fi
 
 if [ "$IS_BOOT_COMMAND" = 'yes' ]; then
@@ -523,6 +527,12 @@ relx_escript() {
 relx_start_command() {
     printf "exec \"%s\" \"%s\"" "$RUNNER_SCRIPT" \
            "$START_OPTION"
+}
+
+# Function to check configs without generating them
+check_config() {
+    ## this command checks the configs without generating any files
+    call_hocon -v -s "$SCHEMA_MOD" -c "$EMQX_ETC_DIR"/emqx.conf check_schema
 }
 
 # Function to generate app.config and vm.args
@@ -1029,6 +1039,10 @@ case "${COMMAND}" in
 
         shift
         relx_nodetool "eval" "$@"
+        ;;
+
+    check_config)
+        check_config
         ;;
     *)
         usage "$COMMAND"

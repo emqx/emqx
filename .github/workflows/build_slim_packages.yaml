@@ -76,7 +76,7 @@ jobs:
     - uses: actions/upload-artifact@v2
       with:
         name: ${{ matrix.profile}}-${{ matrix.otp }}-${{ matrix.os }}
-        path: _packages/${{ matrix.profile}}/*.tar.gz
+        path: _packages/${{ matrix.profile}}/*
     - uses: actions/upload-artifact@v2
       with:
         name: "${{ matrix.profile }}_schema_dump"
@@ -120,7 +120,7 @@ jobs:
     - uses: actions/upload-artifact@v2
       with:
         name: windows
-        path: _packages/${{ matrix.profile}}/*.tar.gz
+        path: _packages/${{ matrix.profile}}/*
 
   mac:
     strategy:
@@ -133,7 +133,6 @@ jobs:
         - 24.2.1-1
         macos:
         - macos-11
-        - macos-10.15
 
     runs-on: ${{ matrix.macos }}
 
@@ -196,7 +195,7 @@ jobs:
     - uses: actions/upload-artifact@v2
       with:
         name: macos
-        path: _packages/**/*.tar.gz
+        path: _packages/**/*
 
   spellcheck:
     needs: linux

@@ -35,6 +35,8 @@
     current_sysmem_percent/0
 ]).
 
+-export([update/1]).
+
 %% gen_server callbacks
 -export([
     init/1,
@@ -51,6 +53,9 @@
 
 start_link() ->
     gen_server:start_link({local, ?OS_MON}, ?MODULE, [], []).
+
+update(OS) ->
+    erlang:send(?MODULE, {monitor_conf_update, OS}).
 
 %%--------------------------------------------------------------------
 %% API
@@ -87,18 +92,24 @@ current_sysmem_percent() ->
 init([]) ->
     %% memsup is not reliable, ignore
     memsup:set_sysmem_high_watermark(1.0),
+    SysHW = init_os_monitor(),
+    _ = start_mem_check_timer(),
+    _ = start_cpu_check_timer(),
+    {ok, #{sysmem_high_watermark => SysHW}}.
+
+init_os_monitor() ->
+    init_os_monitor(emqx:get_config([sysmon, os])).
+
+init_os_monitor(OS) ->
     #{
         sysmem_high_watermark := SysHW,
         procmem_high_watermark := PHW,
         mem_check_interval := MCI
-    } = emqx:get_config([sysmon, os]),
-
+    } = OS,
     set_procmem_high_watermark(PHW),
     set_mem_check_interval(MCI),
     ok = update_mem_alarm_status(SysHW),
-    _ = start_mem_check_timer(),
-    _ = start_cpu_check_timer(),
-    {ok, #{sysmem_high_watermark => SysHW}}.
+    SysHW.
 
 handle_call(get_sysmem_high_watermark, _From, #{sysmem_high_watermark := HWM} = State) ->
     {reply, HWM, State};
@@ -147,6 +158,9 @@ handle_info({timeout, _Timer, cpu_check}, State) ->
     end,
     ok = start_cpu_check_timer(),
     {noreply, State};
+handle_info({monitor_conf_update, OS}, _State) ->
+    SysHW = init_os_monitor(OS),
+    {noreply, #{sysmem_high_watermark => SysHW}};
 handle_info(Info, State) ->
     ?SLOG(error, #{msg => "unexpected_info", info => Info}),
     {noreply, State}.

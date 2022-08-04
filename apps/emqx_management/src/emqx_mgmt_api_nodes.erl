@@ -64,6 +64,7 @@ schema("/nodes") ->
         get =>
             #{
                 description => <<"List EMQX nodes">>,
+                tags => [<<"Nodes">>],
                 responses =>
                     #{
                         200 => mk(
@@ -79,6 +80,7 @@ schema("/nodes/:node") ->
         get =>
             #{
                 description => <<"Get node info">>,
+                tags => [<<"Nodes">>],
                 parameters => [ref(node_name)],
                 responses =>
                     #{
@@ -96,6 +98,7 @@ schema("/nodes/:node/metrics") ->
         get =>
             #{
                 description => <<"Get node metrics">>,
+                tags => [<<"Nodes">>],
                 parameters => [ref(node_name)],
                 responses =>
                     #{
@@ -113,6 +116,7 @@ schema("/nodes/:node/stats") ->
         get =>
             #{
                 description => <<"Get node stats">>,
+                tags => [<<"Nodes">>],
                 parameters => [ref(node_name)],
                 responses =>
                     #{
@@ -185,8 +189,8 @@ fields(node_info) ->
             )},
         {node_status,
             mk(
-                enum(['Running', 'Stopped']),
-                #{desc => <<"Node status">>, example => "Running"}
+                enum(['running', 'stopped']),
+                #{desc => <<"Node status">>, example => "running"}
             )},
         {otp_release,
             mk(
@@ -284,19 +288,18 @@ get_stats(Node) ->
 %% internal function
 
 format(_Node, Info = #{memory_total := Total, memory_used := Used}) ->
-    {ok, SysPathBinary} = file:get_cwd(),
-    SysPath = list_to_binary(SysPathBinary),
+    RootDir = list_to_binary(code:root_dir()),
     LogPath =
         case log_path() of
             undefined ->
                 <<"log.file_handler.default.enable is false,only log to console">>;
             Path ->
-                filename:join(SysPath, Path)
+                filename:join(RootDir, Path)
         end,
     Info#{
         memory_total := emqx_mgmt_util:kmg(Total),
         memory_used := emqx_mgmt_util:kmg(Used),
-        sys_path => SysPath,
+        sys_path => RootDir,
         log_path => LogPath
     }.
 

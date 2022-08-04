@@ -25,6 +25,7 @@
 -export([api_spec/0, paths/0, schema/1, fields/1, namespace/0]).
 
 -export([slow_subs/2, get_history/0, settings/2]).
+-define(TAGS, [<<"Slow subscriptions">>]).
 
 -import(hoconsc, [mk/2, ref/1, ref/2]).
 -import(emqx_mgmt_util, [bad_request/0]).
@@ -44,14 +45,14 @@ schema(("/slow_subscriptions")) ->
     #{
         'operationId' => slow_subs,
         delete => #{
-            tags => [<<"slow subs">>],
+            tags => ?TAGS,
             description => ?DESC(clear_records_api),
             parameters => [],
             'requestBody' => [],
             responses => #{204 => <<"No Content">>}
         },
         get => #{
-            tags => [<<"slow subs">>],
+            tags => ?TAGS,
             description => ?DESC(get_records_api),
             parameters => [
                 ref(emqx_dashboard_swagger, page),
@@ -65,12 +66,12 @@ schema("/slow_subscriptions/settings") ->
     #{
         'operationId' => settings,
         get => #{
-            tags => [<<"slow subs">>],
+            tags => ?TAGS,
             description => ?DESC(get_setting_api),
             responses => #{200 => conf_schema()}
         },
         put => #{
-            tags => [<<"slow subs">>],
+            tags => ?TAGS,
             description => ?DESC(update_setting_api),
             'requestBody' => conf_schema(),
             responses => #{200 => conf_schema()}

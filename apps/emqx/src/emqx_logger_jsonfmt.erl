@@ -69,9 +69,10 @@ best_effort_json(Input, Opts) ->
     jsx:encode(JsonReady, Opts).
 
 -spec format(logger:log_event(), config()) -> iodata().
-format(#{level := Level, msg := Msg, meta := Meta}, Config0) when is_map(Config0) ->
+format(#{level := Level, msg := Msg, meta := Meta} = Event, Config0) when is_map(Config0) ->
     Config = add_default_config(Config0),
-    [format(Msg, Meta#{level => Level}, Config), "\n"].
+    MsgBin = format(Msg, Meta#{level => Level}, Config),
+    logger_formatter:format(Event#{msg => {string, MsgBin}}, Config).
 
 format(Msg, Meta, Config) ->
     Data0 =

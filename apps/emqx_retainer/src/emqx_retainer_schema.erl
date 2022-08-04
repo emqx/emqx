@@ -36,7 +36,8 @@ fields("retainer") ->
         {flow_control,
             sc(
                 ?R_REF(flow_control),
-                flow_control
+                flow_control,
+                #{}
             )},
         {max_payload_size,
             sc(
@@ -85,7 +86,7 @@ fields(flow_control) ->
             )},
         {batch_deliver_limiter,
             sc(
-                emqx_limiter_schema:bucket_name(),
+                ?R_REF(emqx_limiter_schema, internal),
                 batch_deliver_limiter,
                 undefined
             )}
@@ -104,8 +105,8 @@ desc(_) ->
 %% Internal functions
 %%--------------------------------------------------------------------
 
-sc(Type, DescId) ->
-    hoconsc:mk(Type, #{desc => ?DESC(DescId)}).
+%%sc(Type, DescId) ->
+%%    hoconsc:mk(Type, #{desc => ?DESC(DescId)}).
 
 sc(Type, DescId, Default) ->
     hoconsc:mk(Type, #{default => Default, desc => ?DESC(DescId)}).

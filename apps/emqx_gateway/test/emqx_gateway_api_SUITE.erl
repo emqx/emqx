@@ -239,6 +239,7 @@ t_gateway_exproto_with_ssl(_) ->
 t_authn(_) ->
     GwConf = #{name => <<"stomp">>},
     {201, _} = request(post, "/gateway", GwConf),
+    ct:sleep(500),
     {204, _} = request(get, "/gateway/stomp/authentication"),
 
     AuthConf = #{
@@ -263,6 +264,7 @@ t_authn(_) ->
 t_authn_data_mgmt(_) ->
     GwConf = #{name => <<"stomp">>},
     {201, _} = request(post, "/gateway", GwConf),
+    ct:sleep(500),
     {204, _} = request(get, "/gateway/stomp/authentication"),
 
     AuthConf = #{
@@ -271,6 +273,7 @@ t_authn_data_mgmt(_) ->
         user_id_type => <<"clientid">>
     },
     {201, _} = request(post, "/gateway/stomp/authentication", AuthConf),
+    ct:sleep(500),
     {200, ConfResp} = request(get, "/gateway/stomp/authentication"),
     assert_confs(AuthConf, ConfResp),
 
@@ -340,7 +343,7 @@ t_listeners_tcp(_) ->
     LisConf = #{
         name => <<"def">>,
         type => <<"tcp">>,
-        bind => <<"61613">>
+        bind => <<"127.0.0.1:61613">>
     },
     {201, _} = request(post, "/gateway/stomp/listeners", LisConf),
     {200, ConfResp} = request(get, "/gateway/stomp/listeners"),
@@ -348,7 +351,7 @@ t_listeners_tcp(_) ->
     {200, ConfResp1} = request(get, "/gateway/stomp/listeners/stomp:tcp:def"),
     assert_confs(LisConf, ConfResp1),
 
-    LisConf2 = maps:merge(LisConf, #{bind => <<"61614">>}),
+    LisConf2 = maps:merge(LisConf, #{bind => <<"127.0.0.1:61614">>}),
     {200, _} = request(
         put,
         "/gateway/stomp/listeners/stomp:tcp:def",
@@ -369,11 +372,12 @@ t_listeners_authn(_) ->
             #{
                 name => <<"def">>,
                 type => <<"tcp">>,
-                bind => <<"61613">>
+                bind => <<"127.0.0.1:61613">>
             }
         ]
     },
     {201, _} = request(post, "/gateway", GwConf),
+    ct:sleep(500),
     {200, ConfResp} = request(get, "/gateway/stomp"),
     assert_confs(GwConf, ConfResp),
 
@@ -405,7 +409,7 @@ t_listeners_authn_data_mgmt(_) ->
             #{
                 name => <<"def">>,
                 type => <<"tcp">>,
-                bind => <<"61613">>
+                bind => <<"127.0.0.1:61613">>
             }
         ]
     },

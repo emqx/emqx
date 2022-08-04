@@ -47,6 +47,32 @@ test_key(Filename, Format) ->
             public_key:pem_entry_decode(PemEntry)
     end.
 
+make_license(Values0 = #{}) ->
+    Defaults = #{
+        license_format => "220111",
+        license_type => "0",
+        customer_type => "10",
+        name => "Foo",
+        email => "contact@foo.com",
+        deployment => "bar-deployment",
+        start_date => "20220111",
+        days => "100000",
+        max_connections => "10"
+    },
+    Values1 = maps:merge(Defaults, Values0),
+    Keys = [
+        license_format,
+        license_type,
+        customer_type,
+        name,
+        email,
+        deployment,
+        start_date,
+        days,
+        max_connections
+    ],
+    Values = lists:map(fun(K) -> maps:get(K, Values1) end, Keys),
+    make_license(Values);
 make_license(Values) ->
     Key = private_key(),
     Text = string:join(Values, "\n"),

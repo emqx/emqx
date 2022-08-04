@@ -273,7 +273,7 @@ check_origin_header(Req, #{listener := {Type, Listener}} = Opts) ->
     end.
 
 websocket_init([Req, Opts]) ->
-    #{zone := Zone, limiter := LimiterCfg, listener := {Type, Listener}} = Opts,
+    #{zone := Zone, limiter := LimiterCfg, listener := {Type, Listener} = ListenerCfg} = Opts,
     case check_max_connection(Type, Listener) of
         allow ->
             {Peername, PeerCert} = get_peer_info(Type, Listener, Req, Opts),
@@ -287,8 +287,10 @@ websocket_init([Req, Opts]) ->
                 ws_cookie => WsCookie,
                 conn_mod => ?MODULE
             },
-            Limiter = emqx_limiter_container:get_limiter_by_names(
-                [?LIMITER_BYTES_IN, ?LIMITER_MESSAGE_IN], LimiterCfg
+            Limiter = emqx_limiter_container:get_limiter_by_types(
+                ListenerCfg,
+                [?LIMITER_BYTES_IN, ?LIMITER_MESSAGE_IN],
+                LimiterCfg
             ),
             MQTTPiggyback = get_ws_opts(Type, Listener, mqtt_piggyback),
             FrameOpts = #{
@@ -487,9 +489,6 @@ handle_call(From, info, State) ->
 handle_call(From, stats, State) ->
     gen_server:reply(From, stats(State)),
     return(State);
-handle_call(_From, {ratelimit, Type, Bucket}, State = #state{limiter = Limiter}) ->
-    Limiter2 = emqx_limiter_container:update_by_name(Type, Bucket, Limiter),
-    {reply, ok, State#state{limiter = Limiter2}};
 handle_call(From, Req, State = #state{channel = Channel}) ->
     case emqx_channel:handle_call(Req, Channel) of
         {reply, Reply, NChannel} ->

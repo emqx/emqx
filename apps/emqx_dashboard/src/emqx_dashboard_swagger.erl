@@ -24,6 +24,7 @@
 -export([namespace/0, namespace/1, fields/1]).
 -export([schema_with_example/2, schema_with_examples/2]).
 -export([error_codes/1, error_codes/2]).
+-export([file_schema/1]).
 
 -export([filter_check_request/2, filter_check_request_and_translate_body/2]).
 
@@ -164,6 +165,20 @@ error_codes(Codes = [_ | _], MsgDesc) ->
                 desc => MsgDesc
             })}
     ].
+
+file_schema(FileName) ->
+    #{
+        content => #{
+            'multipart/form-data' => #{
+                schema => #{
+                    type => object,
+                    properties => #{
+                        FileName => #{type => string, format => binary}
+                    }
+                }
+            }
+        }
+    }.
 
 %%------------------------------------------------------------------------------
 %% Private functions
@@ -323,10 +338,17 @@ to_spec(Meta, Params, RequestBody, Responses) ->
     maps:put('requestBody', RequestBody, Spec).
 
 generate_method_desc(Spec = #{desc := _Desc}) ->
-    trans_description(maps:remove(desc, Spec), Spec);
+    Spec1 = trans_description(maps:remove(desc, Spec), Spec),
+    trans_tags(Spec1);
 generate_method_desc(Spec = #{description := _Desc}) ->
-    trans_description(Spec, Spec);
+    Spec1 = trans_description(Spec, Spec),
+    trans_tags(Spec1);
 generate_method_desc(Spec) ->
+    trans_tags(Spec).
+
+trans_tags(Spec = #{tags := Tags}) ->
+    Spec#{tags => [string:titlecase(to_bin(Tag)) || Tag <- Tags]};
+trans_tags(Spec) ->
     Spec.
 
 parameters(Params, Module) ->
@@ -755,6 +777,8 @@ to_bin(List) when is_list(List) ->
     end;
 to_bin(Boolean) when is_boolean(Boolean) -> Boolean;
 to_bin(Atom) when is_atom(Atom) -> atom_to_binary(Atom, utf8);
+to_bin({Type, Args}) ->
+    unicode:characters_to_binary(io_lib:format("~p(~p)", [Type, Args]));
 to_bin(X) ->
     X.
 

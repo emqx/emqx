@@ -29,15 +29,8 @@
 -define(NOT_FOUND, 'NOT_FOUND').
 
 % Swagger
-
--define(API_TAGS_GLOBAL, [
-    ?EMQX_AUTHENTICATION_CONFIG_ROOT_NAME_BINARY,
-    <<"authentication config(global)">>
-]).
--define(API_TAGS_SINGLE, [
-    ?EMQX_AUTHENTICATION_CONFIG_ROOT_NAME_BINARY,
-    <<"authentication config(single listener)">>
-]).
+-define(API_TAGS_GLOBAL, [<<"Authentication">>]).
+-define(API_TAGS_SINGLE, [<<"Listener authentication">>]).
 
 -export([
     api_spec/0,
@@ -66,15 +59,7 @@ schema("/authentication/:id/import_users") ->
             tags => ?API_TAGS_GLOBAL,
             description => ?DESC(authentication_id_import_users_post),
             parameters => [emqx_authn_api:param_auth_id()],
-            'requestBody' => #{
-                content => #{
-                    'multipart/form-data' => #{
-                        schema => #{
-                            filename => file
-                        }
-                    }
-                }
-            },
+            'requestBody' => emqx_dashboard_swagger:file_schema(filename),
             responses => #{
                 204 => <<"Users imported">>,
                 400 => error_codes([?BAD_REQUEST], <<"Bad Request">>),
@@ -89,15 +74,7 @@ schema("/listeners/:listener_id/authentication/:id/import_users") ->
             tags => ?API_TAGS_SINGLE,
             description => ?DESC(listeners_listener_id_authentication_id_import_users_post),
             parameters => [emqx_authn_api:param_listener_id(), emqx_authn_api:param_auth_id()],
-            'requestBody' => #{
-                content => #{
-                    'multipart/form-data' => #{
-                        schema => #{
-                            filename => file
-                        }
-                    }
-                }
-            },
+            'requestBody' => emqx_dashboard_swagger:file_schema(filename),
             responses => #{
                 204 => <<"Users imported">>,
                 400 => error_codes([?BAD_REQUEST], <<"Bad Request">>),

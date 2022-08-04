@@ -296,11 +296,16 @@ topic_metrics(put, #{body := #{<<"action">> := <<"reset">>}}) ->
 topic_metrics(post, #{body := #{<<"topic">> := <<>>}}) ->
     {400, 'BAD_REQUEST', <<"Topic can not be empty">>};
 topic_metrics(post, #{body := #{<<"topic">> := Topic}}) ->
-    case emqx_modules_conf:add_topic_metrics(Topic) of
-        {ok, Topic} ->
-            get_cluster_response([Topic]);
-        {error, Reason} ->
-            reason2httpresp(Reason)
+    case lists:member(Topic, emqx_modules_conf:topic_metrics()) of
+        false ->
+            case emqx_modules_conf:add_topic_metrics(Topic) of
+                {ok, Topic} ->
+                    get_cluster_response([Topic]);
+                {error, Reason} ->
+                    reason2httpresp(Reason)
+            end;
+        true ->
+            reason2httpresp(already_existed)
     end.
 
 operate_topic_metrics(get, #{bindings := #{topic := Topic}}) ->

@@ -43,5 +43,6 @@ check_dispatch_ready(Env) ->
             true;
         true ->
             %% dashboard should always ready, if not, is_ready/1 will block until ready.
-            emqx_dashboard_listener:is_ready(timer:seconds(15))
+            %% if not ready, dashboard will return 503.
+            emqx_dashboard_listener:is_ready(timer:seconds(20))
     end.

@@ -84,8 +84,6 @@ t_ok(_Config) ->
         <<"rules">> => <<"{allow, {user, \"username\"}, publish, [\"t\"]}.">>
     }),
 
-    io:format("~p", [emqx_authz:acl_conf_file()]),
-
     ?assertEqual(
         allow,
         emqx_access_control:authorize(ClientInfo, publish, <<"t">>)
@@ -93,6 +91,31 @@ t_ok(_Config) ->
 
     ?assertEqual(
         deny,
+        emqx_access_control:authorize(ClientInfo, subscribe, <<"t">>)
+    ).
+
+t_superuser(_Config) ->
+    ClientInfo = #{
+        clientid => <<"clientid">>,
+        username => <<"username">>,
+        is_superuser => true,
+        peerhost => {127, 0, 0, 1},
+        zone => default,
+        listener => {tcp, default}
+    },
+
+    %% no rules apply to superuser
+    ok = setup_config(?RAW_SOURCE#{
+        <<"rules">> => <<"{deny, {user, \"username\"}, publish, [\"t\"]}.">>
+    }),
+
+    ?assertEqual(
+        allow,
+        emqx_access_control:authorize(ClientInfo, publish, <<"t">>)
+    ),
+
+    ?assertEqual(
+        allow,
         emqx_access_control:authorize(ClientInfo, subscribe, <<"t">>)
     ).
 

@@ -19,12 +19,13 @@
 -behaviour(esockd_generic_limiter).
 
 %% API
--export([new_create_options/2, create/1, delete/1, consume/2]).
+-export([new_create_options/3, create/1, delete/1, consume/2]).
 
 -type create_options() :: #{
     module := ?MODULE,
+    id := emqx_limiter_schema:limiter_id(),
     type := emqx_limiter_schema:limiter_type(),
-    bucket := emqx_limiter_schema:bucket_name()
+    bucket := hocons:config()
 }.
 
 %%--------------------------------------------------------------------
@@ -32,15 +33,16 @@
 %%--------------------------------------------------------------------
 
 -spec new_create_options(
+    emqx_limiter_schema:limiter_id(),
     emqx_limiter_schema:limiter_type(),
-    emqx_limiter_schema:bucket_name()
+    hocons:config()
 ) -> create_options().
-new_create_options(Type, BucketName) ->
-    #{module => ?MODULE, type => Type, bucket => BucketName}.
+new_create_options(Id, Type, BucketCfg) ->
+    #{module => ?MODULE, id => Id, type => Type, bucket => BucketCfg}.
 
 -spec create(create_options()) -> esockd_generic_limiter:limiter().
-create(#{module := ?MODULE, type := Type, bucket := BucketName}) ->
-    {ok, Limiter} = emqx_limiter_server:connect(Type, BucketName),
+create(#{module := ?MODULE, id := Id, type := Type, bucket := BucketCfg}) ->
+    {ok, Limiter} = emqx_limiter_server:connect(Id, Type, BucketCfg),
     #{module => ?MODULE, name => Type, limiter => Limiter}.
 
 delete(_GLimiter) ->

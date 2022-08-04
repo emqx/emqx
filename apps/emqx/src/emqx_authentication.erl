@@ -101,6 +101,14 @@
 
 -define(CHAINS_TAB, emqx_authn_chains).
 
+-define(TRACE_RESULT(Label, Result, Reason), begin
+    ?TRACE_AUTHN(Label, #{
+        result => (Result),
+        reason => (Reason)
+    }),
+    Result
+end).
+
 -type chain_name() :: atom().
 -type authenticator_id() :: binary().
 -type position() :: front | rear | {before, authenticator_id()} | {'after', authenticator_id()}.
@@ -216,14 +224,14 @@ when
 
 authenticate(#{enable_authn := false}, _AuthResult) ->
     inc_authenticate_metric('authentication.success.anonymous'),
-    ignore;
+    ?TRACE_RESULT("authentication_result", ignore, enable_authn_false);
 authenticate(#{listener := Listener, protocol := Protocol} = Credential, _AuthResult) ->
     case get_authenticators(Listener, global_chain(Protocol)) of
         {ok, ChainName, Authenticators} ->
             case get_enabled(Authenticators) of
                 [] ->
                     inc_authenticate_metric('authentication.success.anonymous'),
-                    ignore;
+                    ?TRACE_RESULT("authentication_result", ignore, empty_chain);
                 NAuthenticators ->
                     Result = do_authenticate(ChainName, NAuthenticators, Credential),
 
@@ -235,11 +243,11 @@ authenticate(#{listener := Listener, protocol := Protocol} = Credential, _AuthRe
                         _ ->
                             ok
                     end,
-                    Result
+                    ?TRACE_RESULT("authentication_result", Result, chain_result)
             end;
         none ->
             inc_authenticate_metric('authentication.success.anonymous'),
-            ignore
+            ?TRACE_RESULT("authentication_result", ignore, no_chain)
     end.
 
 get_authenticators(Listener, Global) ->
@@ -626,11 +634,11 @@ handle_create_authenticator(Chain, Config, Providers) ->
 do_authenticate(_ChainName, [], _) ->
     {stop, {error, not_authorized}};
 do_authenticate(
-    ChainName, [#authenticator{id = ID, provider = Provider, state = State} | More], Credential
+    ChainName, [#authenticator{id = ID} = Authenticator | More], Credential
 ) ->
     MetricsID = metrics_id(ChainName, ID),
     emqx_metrics_worker:inc(authn_metrics, MetricsID, total),
-    try Provider:authenticate(Credential, State) of
+    try authenticate_with_provider(Authenticator, Credential) of
         ignore ->
             ok = emqx_metrics_worker:inc(authn_metrics, MetricsID, nomatch),
             do_authenticate(ChainName, More, Credential);
@@ -651,8 +659,7 @@ do_authenticate(
             {stop, Result}
     catch
         Class:Reason:Stacktrace ->
-            ?SLOG(warning, #{
-                msg => "unexpected_error_in_authentication",
+            ?TRACE_AUTHN(warning, "authenticator_error", #{
                 exception => Class,
                 reason => Reason,
                 stacktrace => Stacktrace,
@@ -661,6 +668,14 @@ do_authenticate(
             emqx_metrics_worker:inc(authn_metrics, MetricsID, nomatch),
             do_authenticate(ChainName, More, Credential)
     end.
+
+authenticate_with_provider(#authenticator{id = ID, provider = Provider, state = State}, Credential) ->
+    AuthnResult = Provider:authenticate(Credential, State),
+    ?TRACE_AUTHN("authenticator_result", #{
+        authenticator => ID,
+        result => AuthnResult
+    }),
+    AuthnResult.
 
 reply(Reply, State) ->
     {reply, Reply, State}.

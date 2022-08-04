@@ -130,8 +130,7 @@ authenticate(
                     {error, Reason}
             end;
         {error, Reason} ->
-            ?SLOG(error, #{
-                msg => "mysql_query_failed",
+            ?TRACE_AUTHN_PROVIDER(error, "mysql_query_failed", #{
                 resource => ResourceId,
                 tmpl_token => TmplToken,
                 params => Params,

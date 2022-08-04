@@ -75,26 +75,11 @@ fields('jwks') ->
         {pool_size, fun emqx_connector_schema_lib:pool_size/1},
         {refresh_interval, fun refresh_interval/1},
         {ssl, #{
-            type => hoconsc:union([
-                hoconsc:ref(?MODULE, ssl_enable),
-                hoconsc:ref(?MODULE, ssl_disable)
-            ]),
-            desc => ?DESC(ssl),
+            type => hoconsc:ref(emqx_schema, "ssl_client_opts"),
             default => #{<<"enable">> => false},
-            required => false
+            desc => ?DESC("ssl")
         }}
-    ] ++ common_fields();
-fields(ssl_enable) ->
-    [
-        {enable, #{type => true, desc => ?DESC(enable)}},
-        {cacertfile, fun cacertfile/1},
-        {certfile, fun certfile/1},
-        {keyfile, fun keyfile/1},
-        {verify, fun verify/1},
-        {server_name_indication, fun server_name_indication/1}
-    ];
-fields(ssl_disable) ->
-    [{enable, #{type => false, desc => ?DESC(enable)}}].
+    ] ++ common_fields().
 
 desc('hmac-based') ->
     ?DESC('hmac-based');
@@ -146,27 +131,6 @@ refresh_interval(desc) -> ?DESC(?FUNCTION_NAME);
 refresh_interval(default) -> 300;
 refresh_interval(validator) -> [fun(I) -> I > 0 end];
 refresh_interval(_) -> undefined.
-
-cacertfile(type) -> string();
-cacertfile(desc) -> ?DESC(?FUNCTION_NAME);
-cacertfile(_) -> undefined.
-
-certfile(type) -> string();
-certfile(desc) -> ?DESC(?FUNCTION_NAME);
-certfile(_) -> undefined.
-
-keyfile(type) -> string();
-keyfile(desc) -> ?DESC(?FUNCTION_NAME);
-keyfile(_) -> undefined.
-
-verify(type) -> hoconsc:enum([verify_peer, verify_none]);
-verify(desc) -> ?DESC(?FUNCTION_NAME);
-verify(default) -> verify_none;
-verify(_) -> undefined.
-
-server_name_indication(type) -> string();
-server_name_indication(desc) -> ?DESC(?FUNCTION_NAME);
-server_name_indication(_) -> undefined.
 
 verify_claims(type) ->
     list();
@@ -263,8 +227,7 @@ authenticate(
 ) ->
     case emqx_resource:query(ResourceId, get_jwks) of
         {error, Reason} ->
-            ?SLOG(error, #{
-                msg => "get_jwks_failed",
+            ?TRACE_AUTHN_PROVIDER(error, "get_jwks_failed", #{
                 resource => ResourceId,
                 reason => Reason
             }),
@@ -386,10 +349,17 @@ verify(undefined, _, _, _) ->
     ignore;
 verify(JWT, JWKs, VerifyClaims, AclClaimName) ->
     case do_verify(JWT, JWKs, VerifyClaims) of
-        {ok, Extra} -> {ok, acl(Extra, AclClaimName)};
-        {error, {missing_claim, _}} -> {error, bad_username_or_password};
-        {error, invalid_signature} -> ignore;
-        {error, {claims, _}} -> {error, bad_username_or_password}
+        {ok, Extra} ->
+            {ok, acl(Extra, AclClaimName)};
+        {error, {missing_claim, Claim}} ->
+            ?TRACE_AUTHN_PROVIDER("missing_jwt_claim", #{jwt => JWT, claim => Claim}),
+            {error, bad_username_or_password};
+        {error, invalid_signature} ->
+            ?TRACE_AUTHN_PROVIDER("invalid_jwt_signature", #{jwks => JWKs, jwt => JWT}),
+            ignore;
+        {error, {claims, Claims}} ->
+            ?TRACE_AUTHN_PROVIDER("invalid_jwt_claims", #{jwt => JWT, claims => Claims}),
+            {error, bad_username_or_password}
     end.
 
 acl(Claims, AclClaimName) ->
@@ -407,11 +377,11 @@ acl(Claims, AclClaimName) ->
         end,
     maps:merge(emqx_authn_utils:is_superuser(Claims), Acl).
 
-do_verify(_JWS, [], _VerifyClaims) ->
+do_verify(_JWT, [], _VerifyClaims) ->
     {error, invalid_signature};
-do_verify(JWS, [JWK | More], VerifyClaims) ->
-    try jose_jws:verify(JWK, JWS) of
-        {true, Payload, _JWS} ->
+do_verify(JWT, [JWK | More], VerifyClaims) ->
+    try jose_jws:verify(JWK, JWT) of
+        {true, Payload, _JWT} ->
             Claims0 = emqx_json:decode(Payload, [return_maps]),
             Claims = try_convert_to_int(Claims0, [<<"exp">>, <<"iat">>, <<"nbf">>]),
             case verify_claims(Claims, VerifyClaims) of
@@ -421,11 +391,11 @@ do_verify(JWS, [JWK | More], VerifyClaims) ->
                     {error, Reason}
             end;
         {false, _, _} ->
-            do_verify(JWS, More, VerifyClaims)
+            do_verify(JWT, More, VerifyClaims)
     catch
-        _:_Reason ->
-            ?TRACE("JWT", "authn_jwt_invalid_signature", #{jwk => JWK, jws => JWS}),
-            {error, invalid_signature}
+        _:Reason ->
+            ?TRACE_AUTHN_PROVIDER("jwt_verify_error", #{jwk => JWK, jwt => JWT, reason => Reason}),
+            do_verify(JWT, More, VerifyClaims)
     end.
 
 verify_claims(Claims, VerifyClaims0) ->

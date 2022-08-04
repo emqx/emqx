@@ -30,31 +30,32 @@ defmodule EMQXUmbrella.MixProject do
   """
 
   def project() do
-    check_profile!()
+    profile_info = check_profile!()
 
     [
       app: :emqx_mix,
       version: pkg_vsn(),
-      deps: deps(),
+      deps: deps(profile_info),
       releases: releases()
     ]
   end
 
-  defp deps() do
+  defp deps(profile_info) do
     # we need several overrides here because dependencies specify
     # other exact versions, and not ranges.
     [
       {:lc, github: "emqx/lc", tag: "0.3.1"},
       {:redbug, "2.0.7"},
       {:typerefl, github: "ieQu1/typerefl", tag: "0.9.1", override: true},
-      {:ehttpc, github: "emqx/ehttpc", tag: "0.2.1"},
+      {:ehttpc, github: "emqx/ehttpc", tag: "0.3.0"},
       {:gproc, github: "uwiger/gproc", tag: "0.8.0", override: true},
       {:jiffy, github: "emqx/jiffy", tag: "1.0.5", override: true},
       {:cowboy, github: "emqx/cowboy", tag: "2.9.0", override: true},
       {:esockd, github: "emqx/esockd", tag: "5.9.3", override: true},
-      {:ekka, github: "emqx/ekka", tag: "0.13.1", override: true},
+      {:ekka, github: "emqx/ekka", tag: "0.13.3", override: true},
       {:gen_rpc, github: "emqx/gen_rpc", tag: "2.8.1", override: true},
-      {:minirest, github: "emqx/minirest", tag: "1.3.5", override: true},
+      {:grpc, github: "emqx/grpc-erl", tag: "0.6.6", override: true},
+      {:minirest, github: "emqx/minirest", tag: "1.3.6", override: true},
       {:ecpool, github: "emqx/ecpool", tag: "0.5.2"},
       {:replayq, "0.3.4", override: true},
       {:pbkdf2, github: "emqx/erlang-pbkdf2", tag: "2.0.4", override: true},
@@ -65,7 +66,7 @@ defmodule EMQXUmbrella.MixProject do
       # in conflict by emqtt and hocon
       {:getopt, "1.0.2", override: true},
       {:snabbkaffe, github: "kafka4beam/snabbkaffe", tag: "1.0.0", override: true},
-      {:hocon, github: "emqx/hocon", tag: "0.28.3", override: true},
+      {:hocon, github: "emqx/hocon", tag: "0.29.0", override: true},
       {:emqx_http_lib, github: "emqx/emqx_http_lib", tag: "0.5.1", override: true},
       {:esasl, github: "emqx/esasl", tag: "0.2.0"},
       {:jose, github: "potatosalad/erlang-jose", tag: "1.11.2"},
@@ -88,7 +89,8 @@ defmodule EMQXUmbrella.MixProject do
        github: "ninenines/ranch", ref: "a692f44567034dacf5efcaa24a24183788594eb7", override: true},
       # in conflict by grpc and eetcd
       {:gpb, "4.11.2", override: true, runtime: false}
-    ] ++ umbrella_apps() ++ bcrypt_dep() ++ jq_dep() ++ quicer_dep()
+    ] ++
+      umbrella_apps() ++ enterprise_apps(profile_info) ++ bcrypt_dep() ++ jq_dep() ++ quicer_dep()
   end
 
   defp umbrella_apps() do
@@ -97,11 +99,29 @@ defmodule EMQXUmbrella.MixProject do
     |> Enum.map(fn path ->
       app =
         path
-        |> String.trim_leading("apps/")
+        |> Path.basename()
         |> String.to_atom()
 
       {app, path: path, manager: :rebar3, override: true}
     end)
+  end
+
+  defp enterprise_apps(_profile_info = %{edition_type: :enterprise}) do
+    "lib-ee/*"
+    |> Path.wildcard()
+    |> Enum.filter(&File.dir?/1)
+    |> Enum.map(fn path ->
+      app =
+        path
+        |> Path.basename()
+        |> String.to_atom()
+
+      {app, path: path, manager: :rebar3, override: true}
+    end)
+  end
+
+  defp enterprise_apps(_profile_info) do
+    []
   end
 
   defp releases() do
@@ -170,35 +190,40 @@ defmodule EMQXUmbrella.MixProject do
       hocon: :load,
       emqx: :load,
       emqx_conf: :load,
-      emqx_machine: :permanent,
-      mria: :load,
-      mnesia: :load,
-      ekka: :load,
-      emqx_plugin_libs: :load,
-      esasl: :load,
-      observer_cli: :permanent,
-      system_monitor: :load,
-      emqx_http_lib: :permanent,
-      emqx_resource: :permanent,
-      emqx_connector: :permanent,
-      emqx_authn: :permanent,
-      emqx_authz: :permanent,
-      emqx_auto_subscribe: :permanent,
-      emqx_gateway: :permanent,
-      emqx_exhook: :permanent,
-      emqx_bridge: :permanent,
-      emqx_rule_engine: :permanent,
-      emqx_modules: :permanent,
-      emqx_management: :permanent,
-      emqx_dashboard: :permanent,
-      emqx_retainer: :permanent,
-      emqx_statsd: :permanent,
-      emqx_prometheus: :permanent,
-      emqx_psk: :permanent,
-      emqx_slow_subs: :permanent,
-      emqx_plugins: :permanent,
-      emqx_mix: :none
+      emqx_machine: :permanent
     ] ++
+      if(enable_rocksdb?(),
+        do: [mnesia_rocksdb: :load],
+        else: []
+      ) ++
+      [
+        mnesia: :load,
+        ekka: :load,
+        emqx_plugin_libs: :load,
+        esasl: :load,
+        observer_cli: :permanent,
+        system_monitor: :load,
+        emqx_http_lib: :permanent,
+        emqx_resource: :permanent,
+        emqx_connector: :permanent,
+        emqx_authn: :permanent,
+        emqx_authz: :permanent,
+        emqx_auto_subscribe: :permanent,
+        emqx_gateway: :permanent,
+        emqx_exhook: :permanent,
+        emqx_bridge: :permanent,
+        emqx_rule_engine: :permanent,
+        emqx_modules: :permanent,
+        emqx_management: :permanent,
+        emqx_dashboard: :permanent,
+        emqx_retainer: :permanent,
+        emqx_statsd: :permanent,
+        emqx_prometheus: :permanent,
+        emqx_psk: :permanent,
+        emqx_slow_subs: :permanent,
+        emqx_plugins: :permanent,
+        emqx_mix: :none
+      ] ++
       if(enable_quicer?(), do: [quicer: :permanent], else: []) ++
       if(enable_bcrypt?(), do: [bcrypt: :permanent], else: []) ++
       if(enable_jq?(), do: [jq: :permanent], else: []) ++
@@ -408,6 +433,14 @@ defmodule EMQXUmbrella.MixProject do
 
     File.chmod!(Path.join(bin, "node_dump"), 0o755)
 
+    Mix.Generator.copy_file(
+      "bin/emqx_cluster_rescue",
+      Path.join(bin, "emqx_cluster_rescue"),
+      force: overwrite?
+    )
+
+    File.chmod!(Path.join(bin, "emqx_cluster_rescue"), 0o755)
+
     render_template(
       "rel/BUILD_INFO",
       assigns,
@@ -577,14 +610,14 @@ defmodule EMQXUmbrella.MixProject do
 
   defp jq_dep() do
     if enable_jq?(),
-      do: [{:jq, github: "emqx/jq", tag: "v0.3.4", override: true}],
+      do: [{:jq, github: "emqx/jq", tag: "v0.3.5", override: true}],
       else: []
   end
 
   defp quicer_dep() do
     if enable_quicer?(),
       # in conflict with emqx and emqtt
-      do: [{:quicer, github: "emqx/quic", tag: "0.0.14", override: true}],
+      do: [{:quicer, github: "emqx/quic", tag: "0.0.16", override: true}],
       else: []
   end
 
@@ -606,6 +639,13 @@ defmodule EMQXUmbrella.MixProject do
       centos6?(),
       macos?()
     ]) or "1" == System.get_env("BUILD_WITH_QUIC")
+  end
+
+  defp enable_rocksdb?() do
+    not Enum.any?([
+      build_without_rocksdb?(),
+      raspbian?()
+    ]) or "1" == System.get_env("BUILD_WITH_ROCKSDB")
   end
 
   defp pkg_vsn() do
@@ -637,6 +677,10 @@ defmodule EMQXUmbrella.MixProject do
     {:unix, :darwin} == :os.type()
   end
 
+  defp raspbian?() do
+    os_cmd("./scripts/get-distro.sh", []) =~ "raspbian"
+  end
+
   defp build_without_jq?() do
     opt = System.get_env("BUILD_WITHOUT_JQ", "false")
 
@@ -645,6 +689,12 @@ defmodule EMQXUmbrella.MixProject do
 
   defp build_without_quic?() do
     opt = System.get_env("BUILD_WITHOUT_QUIC", "false")
+
+    String.downcase(opt) != "false"
+  end
+
+  defp build_without_rocksdb?() do
+    opt = System.get_env("BUILD_WITHOUT_ROCKSDB", "false")
 
     String.downcase(opt) != "false"
   end

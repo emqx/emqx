@@ -81,7 +81,7 @@ paths() ->
 
 listeners(get, #{bindings := #{name := Name0}}) ->
     with_gateway(Name0, fun(GwName, _) ->
-        Result = get_cluster_listeners_info(GwName),
+        Result = lists:map(fun bind2str/1, get_cluster_listeners_info(GwName)),
         {200, Result}
     end);
 listeners(post, #{bindings := #{name := Name0}, body := LConf}) ->
@@ -119,7 +119,7 @@ listeners_insta(get, #{bindings := #{name := Name0, id := ListenerId0}}) ->
     with_gateway(Name0, fun(_GwName, _) ->
         case emqx_gateway_conf:listener(ListenerId) of
             {ok, Listener} ->
-                {200, Listener};
+                {200, bind2str(Listener)};
             {error, not_found} ->
                 return_http_error(404, "Listener not found");
             {error, Reason} ->
@@ -266,11 +266,14 @@ get_cluster_listeners_info(GwName) ->
                 ClusterStatus
             ),
 
-            {MaxCons, CurrCons} = emqx_gateway_http:sum_cluster_connections(NodeStatus),
+            {MaxCons, CurrCons, Running} = aggregate_listener_status(NodeStatus),
 
             Listener#{
-                max_connections => MaxCons,
-                current_connections => CurrCons,
+                status => #{
+                    running => Running,
+                    max_connections => MaxCons,
+                    current_connections => CurrCons
+                },
                 node_status => NodeStatus
             }
         end,
@@ -292,20 +295,23 @@ do_listeners_cluster_status(Listeners) ->
         fun({Id, ListenOn}, Acc) ->
             BinId = erlang:atom_to_binary(Id),
             {ok, #{<<"max_connections">> := Max}} = emqx_gateway_conf:listener(BinId),
-            Curr =
+            {Running, Curr} =
                 try esockd:get_current_connections({Id, ListenOn}) of
-                    Int -> Int
+                    Int -> {true, Int}
                 catch
                     %% not started
                     error:not_found ->
-                        0
+                        {false, 0}
                 end,
             Acc#{
                 Id => #{
                     node => Node,
-                    current_connections => Curr,
-                    %% XXX: Since it is taken from raw-conf, it is possible a string
-                    max_connections => int(Max)
+                    status => #{
+                        running => Running,
+                        current_connections => Curr,
+                        %% XXX: Since it is taken from raw-conf, it is possible a string
+                        max_connections => int(Max)
+                    }
                 }
             }
         end,
@@ -317,6 +323,31 @@ int(B) when is_binary(B) ->
     binary_to_integer(B);
 int(I) when is_integer(I) ->
     I.
+aggregate_listener_status(NodeStatus) ->
+    aggregate_listener_status(NodeStatus, 0, 0, undefined).
+
+aggregate_listener_status(
+    [
+        #{status := #{running := Running, max_connections := Max, current_connections := Current}}
+        | T
+    ],
+    MaxAcc,
+    CurrAcc,
+    RunningAcc
+) ->
+    NRunning = aggregate_running(Running, RunningAcc),
+    aggregate_listener_status(T, MaxAcc + Max, Current + CurrAcc, NRunning);
+aggregate_listener_status([], MaxAcc, CurrAcc, RunningAcc) ->
+    {MaxAcc, CurrAcc, RunningAcc}.
+
+aggregate_running(R, R) -> R;
+aggregate_running(R, undefined) -> R;
+aggregate_running(_, _) -> inconsistent.
+
+bind2str(Listener = #{bind := Bind}) ->
+    Listener#{bind := iolist_to_binary(emqx_listeners:format_bind(Bind))};
+bind2str(Listener = #{<<"bind">> := Bind}) ->
+    Listener#{<<"bind">> := iolist_to_binary(emqx_listeners:format_bind(Bind))}.
 
 %%--------------------------------------------------------------------
 %% Swagger defines
@@ -590,22 +621,25 @@ params_paging_in_qs() ->
 roots() ->
     [listener].
 
-fields(listener_node_status) ->
+fields(listener_status) ->
     [
-        {current_connections, mk(non_neg_integer(), #{desc => ?DESC(current_connections)})},
+        {status,
+            mk(ref(emqx_mgmt_api_listeners, status), #{
+                desc => ?DESC(listener_status)
+            })},
         {node_status,
             mk(hoconsc:array(ref(emqx_mgmt_api_listeners, node_status)), #{
                 desc => ?DESC(listener_node_status)
             })}
     ];
 fields(tcp_listener) ->
-    emqx_gateway_api:fields(tcp_listener) ++ fields(listener_node_status);
+    emqx_gateway_api:fields(tcp_listener) ++ fields(listener_status);
 fields(ssl_listener) ->
-    emqx_gateway_api:fields(ssl_listener) ++ fields(listener_node_status);
+    emqx_gateway_api:fields(ssl_listener) ++ fields(listener_status);
 fields(udp_listener) ->
-    emqx_gateway_api:fields(udp_listener) ++ fields(listener_node_status);
+    emqx_gateway_api:fields(udp_listener) ++ fields(listener_status);
 fields(dtls_listener) ->
-    emqx_gateway_api:fields(dtls_listener) ++ fields(listener_node_status);
+    emqx_gateway_api:fields(dtls_listener) ++ fields(listener_status);
 fields(_) ->
     [].
 
@@ -623,12 +657,19 @@ listener_node_status_schema() ->
 examples_listener_list() ->
     Convert = fun(Cfg) ->
         Cfg#{
-            current_connections => 0,
+            status => #{
+                running => true,
+                max_connections => 1024000,
+                current_connections => 10
+            },
             node_status => [
                 #{
-                    node => <<"127.0.0.1">>,
-                    current_connections => 0,
-                    max_connections => 1024000
+                    node => <<"emqx@127.0.0.1">>,
+                    status => #{
+                        running => true,
+                        current_connections => 10,
+                        max_connections => 1024000
+                    }
                 }
             ]
         }
