@@ -67,11 +67,16 @@ jobs:
                -d "{\"repo\":\"emqx/emqx\", \"tag\": \"${{ github.ref_name }}\" }" \
                ${{ secrets.EMQX_IO_RELEASE_API }}
       - uses: actions/checkout@v2
+        with:
+          fetch-depth: 0
+      - name: get version
+        id: version
+        run: echo "::set-output name=version::$(./pkg-vsn.sh)"
       - uses: emqx/push-helm-action@v1
         if: github.event_name == 'release' && endsWith(github.repository, 'emqx') && matrix.profile == 'emqx'
         with:
           charts_dir: "${{ github.workspace }}/deploy/charts/emqx"
-          version: ${{ github.ref_name }}
+          version: ${{ steps.version.outputs.version }}
           aws_access_key_id: ${{ secrets.AWS_ACCESS_KEY_ID }}
           aws_secret_access_key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
           aws_region: "us-west-2"
@@ -80,7 +85,7 @@ jobs:
         if: github.event_name == 'release' && endsWith(github.repository, 'enterprise') && matrix.profile == 'emqx-ee'
         with:
           charts_dir: "${{ github.workspace }}/deploy/charts/emqx-ee"
-          version: ${{ github.ref_name }}
+          version: ${{ steps.version.outputs.version }}
           aws_access_key_id: ${{ secrets.AWS_ACCESS_KEY_ID }}
           aws_secret_access_key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
           aws_region: "us-west-2"
