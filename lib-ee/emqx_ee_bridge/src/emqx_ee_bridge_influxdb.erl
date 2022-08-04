@@ -68,7 +68,7 @@ values(Protocol, put) ->
 
 %% -------------------------------------------------------------------------------------------------
 %% Hocon Schema Definitions
-namespace() -> "bridge".
+namespace() -> "bridge_influxdb".
 
 roots() -> [].
 

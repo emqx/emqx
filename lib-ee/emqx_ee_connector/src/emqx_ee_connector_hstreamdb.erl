@@ -24,6 +24,7 @@
 ]).
 
 -export([
+    namespace/0,
     roots/0,
     fields/1,
     connector_examples/1
@@ -75,6 +76,7 @@ on_flush_result({{flush, _Stream, _Records}, {error, _Reason}}) ->
 
 %% -------------------------------------------------------------------------------------------------
 %% schema
+namespace() -> connector_hstreamdb.
 
 roots() ->
     fields(config).

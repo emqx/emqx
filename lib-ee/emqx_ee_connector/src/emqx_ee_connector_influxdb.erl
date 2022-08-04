@@ -20,6 +20,7 @@
 ]).
 
 -export([
+    namespace/0,
     fields/1,
     connector_examples/1
 ]).
@@ -46,6 +47,7 @@ on_get_status(_InstId, #{client := Client}) ->
 
 %% -------------------------------------------------------------------------------------------------
 %% schema
+namespace() -> connector_influxdb.
 
 fields("put_udp") ->
     fields(influxdb_udp);

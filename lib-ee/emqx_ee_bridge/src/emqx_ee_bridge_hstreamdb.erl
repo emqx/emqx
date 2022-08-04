@@ -50,7 +50,7 @@ values(put) ->
 
 %% -------------------------------------------------------------------------------------------------
 %% Hocon Schema Definitions
-namespace() -> "bridge".
+namespace() -> "bridge_hstreamdb".
 
 roots() -> [].
 
