@@ -14,9 +14,9 @@
 api_schemas(Method) ->
     [
         ref(emqx_ee_connector_hstreamdb, Method),
-        ref(emqx_ee_connector_influxdb, Method ++ "_udp"),
-        ref(emqx_ee_connector_influxdb, Method ++ "_api_v1"),
-        ref(emqx_ee_connector_influxdb, Method ++ "_api_v2")
+        ref(emqx_ee_connector_influxdb, "udp_" ++ Method),
+        ref(emqx_ee_connector_influxdb, "api_v1_" ++ Method),
+        ref(emqx_ee_connector_influxdb, "api_v2_" ++ Method)
     ].
 
 fields(connectors) ->

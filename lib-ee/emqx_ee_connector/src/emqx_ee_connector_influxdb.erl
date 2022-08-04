@@ -49,30 +49,30 @@ on_get_status(_InstId, #{client := Client}) ->
 %% schema
 namespace() -> connector_influxdb.
 
-fields("put_udp") ->
+fields("udp_get") ->
+    Key = influxdb_udp,
+    fields(Key) ++ type_name_field(Key);
+fields("udp_post") ->
+    Key = influxdb_udp,
+    fields(Key) ++ type_name_field(Key);
+fields("udp_put") ->
     fields(influxdb_udp);
-fields("put_api_v1") ->
+fields("api_v1_get") ->
+    Key = influxdb_api_v1,
+    fields(Key) ++ type_name_field(Key);
+fields("api_v1_post") ->
+    Key = influxdb_api_v1,
+    fields(Key) ++ type_name_field(Key);
+fields("api_v1_put") ->
     fields(influxdb_api_v1);
-fields("put_api_v2") ->
+fields("api_v2_get") ->
+    Key = influxdb_api_v2,
+    fields(Key) ++ type_name_field(Key);
+fields("api_v2_post") ->
+    Key = influxdb_api_v2,
+    fields(Key) ++ type_name_field(Key);
+fields("api_v2_put") ->
     fields(influxdb_api_v2);
-fields("get_udp") ->
-    Key = influxdb_udp,
-    fields(Key) ++ type_name_field(Key);
-fields("get_api_v1") ->
-    Key = influxdb_api_v1,
-    fields(Key) ++ type_name_field(Key);
-fields("get_api_v2") ->
-    Key = influxdb_api_v2,
-    fields(Key) ++ type_name_field(Key);
-fields("post_udp") ->
-    Key = influxdb_udp,
-    fields(Key) ++ type_name_field(Key);
-fields("post_api_v1") ->
-    Key = influxdb_api_v1,
-    fields(Key) ++ type_name_field(Key);
-fields("post_api_v2") ->
-    Key = influxdb_api_v2,
-    fields(Key) ++ type_name_field(Key);
 fields(basic) ->
     [
         {host,
