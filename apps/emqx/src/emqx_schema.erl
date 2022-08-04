@@ -1953,7 +1953,15 @@ server_ssl_opts_schema(Defaults, IsRanchListener) ->
                         }
                     )}
              || IsRanchListener
-            ]
+            ] ++
+                [
+                    {"gc_after_handshake",
+                        sc(boolean(), #{
+                            default => false,
+                            desc => ?DESC(server_ssl_opts_schema_gc_after_handshake)
+                        })}
+                 || not IsRanchListener
+                ]
         ].
 
 %% @doc Make schema for SSL client.
