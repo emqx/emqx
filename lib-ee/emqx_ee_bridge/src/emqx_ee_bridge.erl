@@ -42,7 +42,7 @@ conn_bridge_examples(Method) ->
 
 resource_type(Type) when is_binary(Type) -> resource_type(binary_to_atom(Type, utf8));
 resource_type(hstreamdb) -> emqx_ee_connector_hstream;
-resource_type(mysql) -> emqx_ee_connector_mysql;
+resource_type(mysql) -> emqx_connector_mysql;
 resource_type(influxdb_udp) -> emqx_ee_connector_influxdb;
 resource_type(influxdb_api_v1) -> emqx_ee_connector_influxdb;
 resource_type(influxdb_api_v2) -> emqx_ee_connector_influxdb.

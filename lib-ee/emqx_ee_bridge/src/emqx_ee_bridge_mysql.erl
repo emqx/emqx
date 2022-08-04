@@ -50,11 +50,11 @@ values(post) ->
             pool_size => 8,
             username => <<"root">>,
             password => <<"public">>,
-            auto_reconnect => true
+            auto_reconnect => true,
+            prepare_statement => #{send_message => ?DEFAULT_SQL}
         },
         enable => true,
-        direction => egress,
-        sql => ?DEFAULT_SQL
+        direction => egress
     };
 values(put) ->
     values(post).
@@ -69,27 +69,29 @@ fields("config") ->
     [
         {enable, mk(boolean(), #{desc => ?DESC("config_enable"), default => true})},
         {direction, mk(egress, #{desc => ?DESC("config_direction"), default => egress})},
-        {sql, mk(binary(), #{default => ?DEFAULT_SQL, desc => ?DESC("sql")})},
-        {connector, field(connector)}
+        {connector,
+            mk(
+                ref(?MODULE, connector),
+                #{
+                    required => true,
+                    desc => ?DESC("desc_connector")
+                }
+            )}
     ];
 fields("post") ->
     [type_field(), name_field() | fields("config")];
 fields("put") ->
     fields("config");
 fields("get") ->
-    emqx_bridge_schema:metrics_status_fields() ++ fields("post").
-
-field(connector) ->
-    mk(
-        ref(emqx_ee_connector_mysql, config),
-        #{
-            required => true,
-            desc => ?DESC("desc_connector")
-        }
-    ).
+    emqx_bridge_schema:metrics_status_fields() ++ fields("post");
+fields(connector) ->
+    (emqx_connector_mysql:fields(config) --
+        emqx_connector_schema_lib:prepare_statement_fields()) ++ prepare_statement_fields().
 
 desc("config") ->
     ?DESC("desc_config");
+desc(connector) ->
+    ?DESC("desc_connector");
 desc(Method) when Method =:= "get"; Method =:= "put"; Method =:= "post" ->
     ["Configuration for MySQL using `", string:to_upper(Method), "` method."];
 desc(_) ->
@@ -102,3 +104,13 @@ type_field() ->
 
 name_field() ->
     {name, mk(binary(), #{required => true, desc => ?DESC("desc_name")})}.
+
+prepare_statement_fields() ->
+    [
+        {prepare_statement,
+            mk(map(), #{
+                desc => ?DESC(emqx_connector_schema_lib, prepare_statement),
+                default => #{<<"send_message">> => ?DEFAULT_SQL},
+                example => #{<<"send_message">> => ?DEFAULT_SQL}
+            })}
+    ].
