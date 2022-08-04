@@ -16,6 +16,7 @@ File format:
 
 - Upgrade Erlang/OTP from 23.2.7.2-emqx-3 to 23.3.4.9-3 [#8511](https://github.com/emqx/emqx/pull/8511)
 - Make possible to debug-print SSL handshake procedure by setting listener config `log_level=debug` [#8553](https://github.com/emqx/emqx/pull/8553)
+- Add option to perform GC on connection process after TLS/SSL handshake is performed. [#8649](https://github.com/emqx/emqx/pull/8649)
 
 ## v4.3.17
 
