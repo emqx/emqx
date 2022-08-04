@@ -111,6 +111,7 @@ uninstall({_RelName, NameTypeArg, NodeName, Cookie}, Opts) ->
     TargetNode = start_distribution(NodeName, NameTypeArg, Cookie),
     WhichReleases = which_releases(TargetNode),
     Version = proplists:get_value(version, Opts),
+    ensure_latest_boot_file(current_release_version(TargetNode)),
     case proplists:get_value(Version, WhichReleases) of
         undefined ->
             ?INFO("Release ~s is already uninstalled.", [Version]);
@@ -362,6 +363,9 @@ permafy(TargetNode, RelName, Vsn) ->
     [{ok, _} = file:copy(filename:join(["bin", File++"-"++Vsn]),
                          filename:join(["bin", File]))
      || File <- Scripts],
+
+    ensure_latest_boot_file(Vsn),
+
     %% update the vars
     UpdatedVars = io_lib:format("REL_VSN=\"~s\"~nERTS_VSN=\"~s\"~n", [Vsn, erts_vsn()]),
     file:write_file(filename:absname(filename:join(["releases", "emqx_vars"])), UpdatedVars, [append]).
@@ -458,3 +462,9 @@ str(A) when is_binary(A) ->
     binary_to_list(A);
 str(A) when is_list(A) ->
     (A).
+
+%%% For otp upgrade, the boot file need match the otp version
+%%% This is for emqx cli tool
+ensure_latest_boot_file(Vsn) ->
+    {ok, _} = file:copy(filename:join(["releases", Vsn, "no_dot_erlang.boot"]),
+                        filename:join(["bin", "no_dot_erlang.boot"])).
