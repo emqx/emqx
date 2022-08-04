@@ -143,7 +143,9 @@ on_start_auth(authn_http) ->
     Setup = fun(Gateway) ->
         Path = io_lib:format("/gateway/~ts/authentication", [Gateway]),
         {204, _} = request(delete, Path),
-        {201, _} = request(post, Path, http_authn_config())
+        timer:sleep(200),
+        {201, _} = request(post, Path, http_authn_config()),
+        timer:sleep(200)
     end,
     lists:foreach(Setup, ?GATEWAYS),
 
