@@ -2,7 +2,7 @@
 %% Copyright (c) 2022 EMQ Technologies Co., Ltd. All Rights Reserved.
 %%--------------------------------------------------------------------
 
--module(ee_connector_hstream_SUITE).
+-module(ee_bridge_hstreamdb_SUITE).
 
 -compile(nowarn_export_all).
 -compile(export_all).
