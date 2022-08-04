@@ -72,9 +72,16 @@
 %% API
 %%--------------------------------------------------------------------
 
+-ifdef(TEST).
+-spec parse(string() | binary()) -> {ok, license()} | {error, term()}.
+parse(Content) ->
+    PubKey = persistent_term:get({emqx_license_parser_test, pubkey}, ?PUBKEY),
+    parse(Content, PubKey).
+-else.
 -spec parse(string() | binary()) -> {ok, license()} | {error, term()}.
 parse(Content) ->
     parse(Content, ?PUBKEY).
+-endif.
 
 parse(Content, Pem) ->
     [PemEntry] = public_key:pem_decode(Pem),

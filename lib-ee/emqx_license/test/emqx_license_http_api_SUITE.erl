@@ -25,12 +25,12 @@ init_per_suite(Config) ->
     Config.
 
 end_per_suite(_) ->
-    ok = meck:unload([emqx_license_parser]),
     emqx_common_test_helpers:stop_apps([emqx_license, emqx_dashboard]),
     Config = #{type => file, file => emqx_license_test_lib:default_license()},
     emqx_config:put([license], Config),
     RawConfig = #{<<"type">> => file, <<"file">> => emqx_license_test_lib:default_license()},
     emqx_config:put_raw([<<"license">>], RawConfig),
+    persistent_term:erase({emqx_license_parser_test, pubkey}),
     ok.
 
 set_special_configs(emqx_dashboard) ->
@@ -41,16 +41,9 @@ set_special_configs(emqx_license) ->
     emqx_config:put([license], Config),
     RawConfig = #{<<"type">> => key, <<"key">> => LicenseKey},
     emqx_config:put_raw([<<"license">>], RawConfig),
-    ok = meck:new(emqx_license_parser, [non_strict, passthrough, no_history, no_link]),
-    ok = meck:expect(
-        emqx_license_parser,
-        parse,
-        fun(X) ->
-            emqx_license_parser:parse(
-                X,
-                emqx_license_test_lib:public_key_pem()
-            )
-        end
+    ok = persistent_term:put(
+        {emqx_license_parser_test, pubkey},
+        emqx_license_test_lib:public_key_pem()
     ),
     ok;
 set_special_configs(_) ->
