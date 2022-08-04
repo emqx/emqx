@@ -159,6 +159,24 @@ t_license_upload_file_bad_license(_Config) ->
     assert_untouched_license(),
     ok.
 
+t_license_upload_file_not_json(_Config) ->
+    Res = request(
+        post,
+        uri(["license", "file"]),
+        <<"">>
+    ),
+    ?assertMatch({ok, 400, _}, Res),
+    {ok, 400, Payload} = Res,
+    ?assertEqual(
+        #{
+            <<"code">> => <<"BAD_REQUEST">>,
+            <<"message">> => <<"Invalid request params">>
+        },
+        emqx_json:decode(Payload, [return_maps])
+    ),
+    assert_untouched_license(),
+    ok.
+
 t_license_upload_key_success(_Config) ->
     NewKey = emqx_license_test_lib:make_license(#{max_connections => "999"}),
     Res = request(
@@ -201,6 +219,24 @@ t_license_upload_key_bad_key(_Config) ->
         #{
             <<"code">> => <<"BAD_REQUEST">>,
             <<"message">> => <<"Bad license key">>
+        },
+        emqx_json:decode(Payload, [return_maps])
+    ),
+    assert_untouched_license(),
+    ok.
+
+t_license_upload_key_not_json(_Config) ->
+    Res = request(
+        post,
+        uri(["license", "key"]),
+        <<"">>
+    ),
+    ?assertMatch({ok, 400, _}, Res),
+    {ok, 400, Payload} = Res,
+    ?assertEqual(
+        #{
+            <<"code">> => <<"BAD_REQUEST">>,
+            <<"message">> => <<"Invalid request params">>
         },
         emqx_json:decode(Payload, [return_maps])
     ),
