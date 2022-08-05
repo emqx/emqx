@@ -22,6 +22,7 @@
     read_license/0,
     read_license/1,
     update_file/1,
+    update_file_contents/1,
     update_key/1,
     license_dir/0,
     save_and_backup_license/1
@@ -70,15 +71,20 @@ relative_license_path() ->
 update_file(Filename) when is_binary(Filename); is_list(Filename) ->
     case file:read_file(Filename) of
         {ok, Contents} ->
-            Result = emqx_conf:update(
-                ?CONF_KEY_PATH,
-                {file, Contents},
-                #{rawconf_with_defaults => true, override_to => local}
-            ),
-            handle_config_update_result(Result);
+            update_file_contents(Contents);
         {error, Error} ->
             {error, Error}
     end.
+
+-spec update_file_contents(binary() | string()) ->
+    {ok, emqx_config:update_result()} | {error, emqx_config:update_error()}.
+update_file_contents(Contents) when is_binary(Contents) ->
+    Result = emqx_conf:update(
+        ?CONF_KEY_PATH,
+        {file, Contents},
+        #{rawconf_with_defaults => true, override_to => local}
+    ),
+    handle_config_update_result(Result).
 
 -spec update_key(binary() | string()) ->
     {ok, emqx_config:update_result()} | {error, emqx_config:update_error()}.

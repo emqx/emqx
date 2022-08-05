@@ -21,27 +21,16 @@ all() ->
 init_per_suite(Config) ->
     _ = application:load(emqx_conf),
     emqx_config:save_schema_mod_and_names(emqx_license_schema),
-    ok = meck:new(emqx_license_parser, [non_strict, passthrough, no_history, no_link]),
-    ok = meck:expect(
-        emqx_license_parser,
-        parse,
-        fun(X) ->
-            emqx_license_parser:parse(
-                X,
-                emqx_license_test_lib:public_key_pem()
-            )
-        end
-    ),
     emqx_common_test_helpers:start_apps([emqx_license, emqx_dashboard], fun set_special_configs/1),
     Config.
 
 end_per_suite(_) ->
     emqx_common_test_helpers:stop_apps([emqx_license, emqx_dashboard]),
-    ok = meck:unload([emqx_license_parser]),
     Config = #{type => file, file => emqx_license_test_lib:default_license()},
     emqx_config:put([license], Config),
     RawConfig = #{<<"type">> => file, <<"file">> => emqx_license_test_lib:default_license()},
     emqx_config:put_raw([<<"license">>], RawConfig),
+    persistent_term:erase(emqx_license_test_pubkey),
     ok.
 
 set_special_configs(emqx_dashboard) ->
@@ -51,7 +40,12 @@ set_special_configs(emqx_license) ->
     Config = #{type => key, key => LicenseKey},
     emqx_config:put([license], Config),
     RawConfig = #{<<"type">> => key, <<"key">> => LicenseKey},
-    emqx_config:put_raw([<<"license">>], RawConfig);
+    emqx_config:put_raw([<<"license">>], RawConfig),
+    ok = persistent_term:put(
+        emqx_license_test_pubkey,
+        emqx_license_test_lib:public_key_pem()
+    ),
+    ok;
 set_special_configs(_) ->
     ok.
 
@@ -88,6 +82,14 @@ assert_untouched_license() ->
         get_license()
     ).
 
+multipart_formdata_request(Uri, File) ->
+    emqx_dashboard_api_test_helpers:multipart_formdata_request(
+        Uri,
+        _Username = <<"license_admin">>,
+        _Fields = [],
+        [File]
+    ).
+
 %%------------------------------------------------------------------------------
 %% Testcases
 %%------------------------------------------------------------------------------
@@ -114,109 +116,72 @@ t_license_info(_Config) ->
 
 t_license_upload_file_success(_Config) ->
     NewKey = emqx_license_test_lib:make_license(#{max_connections => "999"}),
-    Path = "/tmp/new.lic",
-    ok = file:write_file(Path, NewKey),
-    try
-        Res = request(
-            post,
-            uri(["license", "upload"]),
-            #{file => Path}
-        ),
-        ?assertMatch({ok, 200, _}, Res),
-        {ok, 200, Payload} = Res,
-        ?assertEqual(
-            #{
-                <<"customer">> => <<"Foo">>,
-                <<"customer_type">> => 10,
-                <<"deployment">> => <<"bar-deployment">>,
-                <<"email">> => <<"contact@foo.com">>,
-                <<"expiry">> => false,
-                <<"expiry_at">> => <<"2295-10-27">>,
-                <<"max_connections">> => 999,
-                <<"start_at">> => <<"2022-01-11">>,
-                <<"type">> => <<"trial">>
-            },
-            emqx_json:decode(Payload, [return_maps])
-        ),
-        ?assertMatch(
-            #{max_connections := 999},
-            get_license()
-        ),
-        ok
-    after
-        ok = file:delete(Path),
-        ok
-    end.
-
-t_license_upload_file_not_found(_Config) ->
-    Res = request(
-        post,
-        uri(["license", "upload"]),
-        #{file => "/tmp/inexistent.lic"}
+    Res = multipart_formdata_request(
+        uri(["license", "file"]),
+        {filename, "emqx.lic", NewKey}
     ),
-
-    ?assertMatch({ok, 404, _}, Res),
-    {ok, 404, Payload} = Res,
+    ?assertMatch({ok, 200, _}, Res),
+    {ok, 200, Payload} = Res,
     ?assertEqual(
         #{
-            <<"code">> => <<"NOT_FOUND">>,
-            <<"message">> => <<"File not found">>
+            <<"customer">> => <<"Foo">>,
+            <<"customer_type">> => 10,
+            <<"deployment">> => <<"bar-deployment">>,
+            <<"email">> => <<"contact@foo.com">>,
+            <<"expiry">> => false,
+            <<"expiry_at">> => <<"2295-10-27">>,
+            <<"max_connections">> => 999,
+            <<"start_at">> => <<"2022-01-11">>,
+            <<"type">> => <<"trial">>
         },
         emqx_json:decode(Payload, [return_maps])
     ),
-    assert_untouched_license(),
+    ?assertMatch(
+        #{max_connections := 999},
+        get_license()
+    ),
     ok.
 
-t_license_upload_file_reading_error(_Config) ->
-    %% eisdir
-    Path = "/tmp/",
-    Res = request(
-        post,
-        uri(["license", "upload"]),
-        #{file => Path}
+t_license_upload_file_bad_license(_Config) ->
+    Res = multipart_formdata_request(
+        uri(["license", "file"]),
+        {filename, "bad.lic", <<"bad key">>}
     ),
     ?assertMatch({ok, 400, _}, Res),
     {ok, 400, Payload} = Res,
     ?assertEqual(
         #{
             <<"code">> => <<"BAD_REQUEST">>,
-            <<"message">> => <<"Illegal operation on a directory">>
+            <<"message">> => <<"Bad license file">>
         },
         emqx_json:decode(Payload, [return_maps])
     ),
     assert_untouched_license(),
     ok.
 
-t_license_upload_file_bad_license(_Config) ->
-    Path = "/tmp/bad.lic",
-    ok = file:write_file(Path, <<"bad key">>),
-    try
-        Res = request(
-            post,
-            uri(["license", "upload"]),
-            #{file => Path}
-        ),
-        ?assertMatch({ok, 400, _}, Res),
-        {ok, 400, Payload} = Res,
-        ?assertEqual(
-            #{
-                <<"code">> => <<"BAD_REQUEST">>,
-                <<"message">> => <<"Bad license file">>
-            },
-            emqx_json:decode(Payload, [return_maps])
-        ),
-        assert_untouched_license(),
-        ok
-    after
-        ok = file:delete(Path),
-        ok
-    end.
+t_license_upload_file_not_json(_Config) ->
+    Res = request(
+        post,
+        uri(["license", "file"]),
+        <<"">>
+    ),
+    ?assertMatch({ok, 400, _}, Res),
+    {ok, 400, Payload} = Res,
+    ?assertEqual(
+        #{
+            <<"code">> => <<"BAD_REQUEST">>,
+            <<"message">> => <<"Invalid request params">>
+        },
+        emqx_json:decode(Payload, [return_maps])
+    ),
+    assert_untouched_license(),
+    ok.
 
 t_license_upload_key_success(_Config) ->
     NewKey = emqx_license_test_lib:make_license(#{max_connections => "999"}),
     Res = request(
         post,
-        uri(["license", "upload"]),
+        uri(["license", "key"]),
         #{key => NewKey}
     ),
     ?assertMatch({ok, 200, _}, Res),
@@ -245,7 +210,7 @@ t_license_upload_key_bad_key(_Config) ->
     BadKey = <<"bad key">>,
     Res = request(
         post,
-        uri(["license", "upload"]),
+        uri(["license", "key"]),
         #{key => BadKey}
     ),
     ?assertMatch({ok, 400, _}, Res),
@@ -254,6 +219,24 @@ t_license_upload_key_bad_key(_Config) ->
         #{
             <<"code">> => <<"BAD_REQUEST">>,
             <<"message">> => <<"Bad license key">>
+        },
+        emqx_json:decode(Payload, [return_maps])
+    ),
+    assert_untouched_license(),
+    ok.
+
+t_license_upload_key_not_json(_Config) ->
+    Res = request(
+        post,
+        uri(["license", "key"]),
+        <<"">>
+    ),
+    ?assertMatch({ok, 400, _}, Res),
+    {ok, 400, Payload} = Res,
+    ?assertEqual(
+        #{
+            <<"code">> => <<"BAD_REQUEST">>,
+            <<"message">> => <<"Invalid request params">>
         },
         emqx_json:decode(Payload, [return_maps])
     ),
