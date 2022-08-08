@@ -219,7 +219,7 @@ ensure_file(File) ->
         false ->
             DefaultPlugins = [ {emqx_management, true}
                              , {emqx_dashboard, true}
-                             , {emqx_modules, false}
+                             , {emqx_modules, true}
                              , {emqx_recon, true}
                              , {emqx_retainer, true}
                              , {emqx_telemetry, true}
