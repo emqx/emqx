@@ -153,7 +153,7 @@ init(
             mountpoint => Mountpoint
         }
     ),
-
+    %% FIXME: it should coap.hearbeat instead of idle_timeout?
     Heartbeat = ?GET_IDLE_TIME(Config),
     #channel{
         ctx = Ctx,
@@ -447,6 +447,7 @@ enrich_conninfo(
         conninfo = ConnInfo
     }
 ) ->
+    %% FIXME: generate a random clientid if absent
     case Queries of
         #{<<"clientid">> := ClientId} ->
             Interval = maps:get(interval, emqx_keepalive:info(KeepAlive)),
@@ -467,6 +468,9 @@ enrich_clientinfo(
     {Queries, Msg},
     Channel = #channel{clientinfo = ClientInfo0}
 ) ->
+    %% FIXME:
+    %% 1. generate a random clientid if absent;
+    %% 2. assgin username, password to `undefined` if absent
     case Queries of
         #{
             <<"username">> := UserName,
@@ -542,6 +546,7 @@ process_connect(
         )
     of
         {ok, _Sess} ->
+            %% FIXME: Token in cluster wide?
             RandVal = rand:uniform(?TOKEN_MAXIMUM),
             Token = erlang:list_to_binary(erlang:integer_to_list(RandVal)),
             NResult = Result#{events => [{event, connected}]},

@@ -69,17 +69,7 @@ handle_method(_, _, Msg, _, _) ->
 check_topic([]) ->
     error;
 check_topic(Path) ->
-    Sep = <<"/">>,
-    {ok,
-        emqx_http_lib:uri_decode(
-            lists:foldl(
-                fun(Part, Acc) ->
-                    <<Acc/binary, Sep/binary, Part/binary>>
-                end,
-                <<>>,
-                Path
-            )
-        )}.
+    {ok, emqx_http_lib:uri_decode(iolist_to_binary(lists:join(<<"/">>, Path)))}.
 
 get_sub_opts(#coap_message{options = Opts} = Msg) ->
     SubOpts = maps:fold(fun parse_sub_opts/3, #{}, Opts),
@@ -124,25 +114,30 @@ get_publish_qos(Msg) ->
     end.
 
 apply_publish_opts(Msg, MQTTMsg) ->
-    maps:fold(
-        fun
-            (<<"retain">>, V, Acc) ->
-                Val = erlang:binary_to_atom(V),
-                emqx_message:set_flag(retain, Val, Acc);
-            (<<"expiry">>, V, Acc) ->
-                Val = erlang:binary_to_integer(V),
-                Props = emqx_message:get_header(properties, Acc),
-                emqx_message:set_header(
-                    properties,
-                    Props#{'Message-Expiry-Interval' => Val},
-                    Acc
-                );
-            (_, _, Acc) ->
-                Acc
-        end,
-        MQTTMsg,
-        emqx_coap_message:get_option(uri_query, Msg)
-    ).
+    case emqx_coap_message:get_option(uri_query, Msg) of
+        undefined ->
+            MQTTMsg;
+        Qs ->
+            maps:fold(
+                fun
+                    (<<"retain">>, V, Acc) ->
+                        Val = erlang:binary_to_atom(V),
+                        emqx_message:set_flag(retain, Val, Acc);
+                    (<<"expiry">>, V, Acc) ->
+                        Val = erlang:binary_to_integer(V),
+                        Props = emqx_message:get_header(properties, Acc),
+                        emqx_message:set_header(
+                            properties,
+                            Props#{'Message-Expiry-Interval' => Val},
+                            Acc
+                        );
+                    (_, _, Acc) ->
+                        Acc
+                end,
+                MQTTMsg,
+                Qs
+            )
+    end.
 
 subscribe(#coap_message{token = <<>>} = Msg, _, _, _) ->
     reply({error, bad_request}, <<"observe without token">>, Msg);
