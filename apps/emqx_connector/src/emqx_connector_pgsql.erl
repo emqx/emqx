@@ -27,6 +27,7 @@
 
 %% callbacks of behaviour emqx_resource
 -export([
+    callback_mode/0,
     on_start/2,
     on_stop/2,
     on_query/3,
@@ -66,6 +67,8 @@ server(desc) -> ?DESC("server");
 server(_) -> undefined.
 
 %% ===================================================================
+callback_mode() -> always_sync.
+
 on_start(
     InstId,
     #{

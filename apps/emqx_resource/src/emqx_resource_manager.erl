@@ -53,7 +53,7 @@
 -export([init/1, callback_mode/0, handle_event/4, terminate/3]).
 
 % State record
--record(data, {id, manager_id, group, mod, config, opts, status, state, error}).
+-record(data, {id, manager_id, group, mod, callback_mode, config, opts, status, state, error}).
 
 -define(SHORT_HEALTHCHECK_INTERVAL, 1000).
 -define(HEALTHCHECK_INTERVAL, 15000).
@@ -259,6 +259,7 @@ start_link(MgrId, ResId, Group, ResourceType, Config, Opts) ->
         manager_id = MgrId,
         group = Group,
         mod = ResourceType,
+        callback_mode = ResourceType:callback_mode(),
         config = Config,
         opts = Opts,
         status = connecting,
@@ -559,10 +560,12 @@ maybe_reply(Actions, undefined, _Reply) ->
 maybe_reply(Actions, From, Reply) ->
     [{reply, From, Reply} | Actions].
 
+-spec data_record_to_external_map_with_metrics(#data{}) -> resource_data().
 data_record_to_external_map_with_metrics(Data) ->
     #{
         id => Data#data.id,
         mod => Data#data.mod,
+        callback_mode => Data#data.callback_mode,
         config => Data#data.config,
         status => Data#data.status,
         state => Data#data.state,

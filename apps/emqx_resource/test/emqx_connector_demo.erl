@@ -22,6 +22,7 @@
 
 %% callbacks of behaviour emqx_resource
 -export([
+    callback_mode/0,
     on_start/2,
     on_stop/2,
     on_query/3,
@@ -49,6 +50,8 @@ register(required) -> true;
 register(default) -> false;
 register(_) -> undefined.
 
+callback_mode() -> always_sync.
+
 on_start(_InstId, #{create_error := true}) ->
     error("some error");
 on_start(InstId, #{name := Name, stop_error := true} = Opts) ->
@@ -56,12 +59,6 @@ on_start(InstId, #{name := Name, stop_error := true} = Opts) ->
     {ok, Opts#{
         id => InstId,
         stop_error => true,
-        pid => spawn_counter_process(Name, Register)
-    }};
-on_start(InstId, #{name := Name} = Opts) ->
-    Register = maps:get(register, Opts, false),
-    {ok, Opts#{
-        id => InstId,
         pid => spawn_counter_process(Name, Register)
     }};
 on_start(InstId, #{name := Name} = Opts) ->

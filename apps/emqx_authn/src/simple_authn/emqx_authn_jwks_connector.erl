@@ -22,6 +22,7 @@
 
 %% callbacks of behaviour emqx_resource
 -export([
+    callback_mode/0,
     on_start/2,
     on_stop/2,
     on_query/3,
@@ -30,6 +31,8 @@
 ]).
 
 -define(DEFAULT_POOL_SIZE, 8).
+
+callback_mode() -> always_sync.
 
 on_start(InstId, Opts) ->
     PoolName = emqx_plugin_libs_pool:pool_name(InstId),

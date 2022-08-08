@@ -75,8 +75,7 @@
     %% stop the instance
     stop/1,
     %% query the instance
-    query/2,
-    query_async/3
+    query/2
 ]).
 
 %% Direct calls to the callback module
@@ -224,12 +223,12 @@ reset_metrics(ResId) ->
 %% =================================================================================
 -spec query(resource_id(), Request :: term()) -> Result :: term().
 query(ResId, Request) ->
-    emqx_resource_worker:query(ResId, Request).
+    query(ResId, Request, #{}).
 
--spec query_async(resource_id(), Request :: term(), emqx_resource_worker:reply_fun()) ->
+-spec query(resource_id(), Request :: term(), emqx_resource_worker:query_opts()) ->
     Result :: term().
-query_async(ResId, Request, ReplyFun) ->
-    emqx_resource_worker:query_async(ResId, Request, ReplyFun).
+query(ResId, Request, Opts) ->
+    emqx_resource_worker:query(ResId, Request, Opts).
 
 -spec start(resource_id()) -> ok | {error, Reason :: term()}.
 start(ResId) ->

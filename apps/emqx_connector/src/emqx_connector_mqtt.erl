@@ -24,6 +24,7 @@
 
 %% API and callbacks for supervisor
 -export([
+    callback_mode/0,
     start_link/0,
     init/1,
     create_bridge/1,
@@ -139,6 +140,8 @@ on_message_received(Msg, HookPoint, ResId) ->
     emqx:run_hook(HookPoint, [Msg]).
 
 %% ===================================================================
+callback_mode() -> always_sync.
+
 on_start(InstId, Conf) ->
     InstanceId = binary_to_atom(InstId, utf8),
     ?SLOG(info, #{

@@ -26,6 +26,7 @@
 
 %% callbacks of behaviour emqx_resource
 -export([
+    callback_mode/0,
     on_start/2,
     on_stop/2,
     on_query/3,
@@ -163,6 +164,8 @@ sc(Type, Meta) -> hoconsc:mk(Type, Meta).
 ref(Field) -> hoconsc:ref(?MODULE, Field).
 
 %% ===================================================================
+
+callback_mode() -> always_sync.
 
 on_start(
     InstId,

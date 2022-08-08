@@ -25,6 +25,7 @@
 -type resource_data() :: #{
     id := resource_id(),
     mod := module(),
+    callback_mode := always_sync | async_if_possible,
     config := resource_config(),
     state := resource_state(),
     status := resource_status(),
