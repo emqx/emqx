@@ -425,7 +425,7 @@ value_type([<<"t">>]) ->
     't';
 value_type([<<"T">>]) ->
     'T';
-value_type([<<"true">>]) ->
+value_type([true]) ->
     'true';
 value_type([<<"TRUE">>]) ->
     'TRUE';
@@ -435,7 +435,7 @@ value_type([<<"f">>]) ->
     'f';
 value_type([<<"F">>]) ->
     'F';
-value_type([<<"false">>]) ->
+value_type([false]) ->
     'false';
 value_type([<<"FALSE">>]) ->
     'FALSE';
