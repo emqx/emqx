@@ -300,10 +300,10 @@ t_clientid_rest_api(_Config) ->
         = emqx_json:decode(Result4, [return_maps]),
 
     ?assertEqual(3, Count4),
-    ?assertEqual(3, length(Data4)),
+    ?assertEqual([<<"client2">>, <<"clientid1">>, ?CLIENTID],
+        lists:sort(lists:map(fun(#{<<"clientid">> := C}) -> C end, Data4))),
 
-    UserNameParams = [ #{<<"username">> => ?USERNAME, <<"password">> => ?PASSWORD}
-        , #{<<"username">> => <<"username1">>, <<"password">> => ?PASSWORD}
+    UserNameParams = [#{<<"username">> => <<"username1">>, <<"password">> => ?PASSWORD}
         , #{<<"username">> => <<"username2">>, <<"password">> => ?PASSWORD}
     ],
     {ok, _} = request_http_rest_add(["auth_username"], UserNameParams),
@@ -315,8 +315,9 @@ t_clientid_rest_api(_Config) ->
     {ok, Result42} = request_http_rest_list(["auth_username"]),
     #{<<"data">> := Data42, <<"meta">> := #{<<"count">> := Count42}}
         = emqx_json:decode(Result42, [return_maps]),
-    ?assertEqual(3, Count42),
-    ?assertEqual(3, length(Data42)),
+    ?assertEqual(2, Count42),
+    ?assertEqual([<<"username1">>, <<"username2">>],
+        lists:sort(lists:map(fun(#{<<"username">> := U}) -> U end, Data42))),
 
     {ok, Result5} = request_http_rest_list(["auth_clientid?_like_clientid=id"]),
     ?assertEqual(2, length(get_http_data(Result5))),

@@ -133,7 +133,7 @@
 list_clientid(_Bindings, Params) ->
     SortFun = fun(#{created_at := C1}, #{created_at := C2}) -> C1 > C2 end,
     CountFun = fun() ->
-        MatchSpec = [{{?TABLE, {clientid, '_'}, '$1', '$2'}, [], [true]}],
+        MatchSpec = [{{?TABLE, {clientid, '_'}, '_', '_'}, [], [true]}],
         ets:select_count(?TABLE, MatchSpec)
                end,
     return({ok, emqx_mgmt_api:node_query(node(), Params, ?CLIENTID_SCHEMA, ?query_clientid, SortFun, CountFun)}).
@@ -187,7 +187,7 @@ delete_clientid(#{clientid := Clientid}, _) ->
 list_username(_Bindings, Params) ->
     SortFun = fun(#{created_at := C1}, #{created_at := C2}) -> C1 > C2 end,
     CountFun = fun() ->
-        MatchSpec = [{{?TABLE, {username, '_'}, '$1', '$2'}, [], [true]}],
+        MatchSpec = [{{?TABLE, {username, '_'}, '_', '_'}, [], [true]}],
         ets:select_count(?TABLE, MatchSpec)
                end,
     return({ok, emqx_mgmt_api:node_query(node(), Params, ?USERNAME_SCHEMA, ?query_username, SortFun, CountFun)}).
