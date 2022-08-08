@@ -3,9 +3,10 @@
 %%--------------------------------------------------------------------
 -module(emqx_ee_bridge_influxdb).
 
+-include("emqx_ee_bridge.hrl").
+-include_lib("emqx_connector/include/emqx_connector.hrl").
 -include_lib("typerefl/include/types.hrl").
 -include_lib("hocon/include/hoconsc.hrl").
--include("emqx_ee_bridge.hrl").
 
 -import(hoconsc, [mk/2, enum/1, ref/2]).
 
@@ -55,13 +56,10 @@ values(Protocol, post) ->
         enable => true,
         direction => egress,
         local_topic => <<"local/topic/#">>,
-        measurement => <<"${topic}">>,
-        tags => #{<<"clientid">> => <<"${clientid}">>},
-        fields => #{
-            <<"payload">> => <<"${payload}">>,
-            <<"int_value">> => [int, <<"${payload.int_key}">>],
-            <<"uint_value">> => [uint, <<"${payload.uint_key}">>]
-        }
+        write_syntax =>
+            <<"${topic},clientid=${clientid}", " ", "payload=${payload},",
+                "${clientid}_int_value=${payload.int_key}i,", "uint_value=${payload.uint_key}u,",
+                "bool=${payload.bool}">>
     };
 values(Protocol, put) ->
     values(Protocol, post).
@@ -77,13 +75,7 @@ fields(basic) ->
         {enable, mk(boolean(), #{desc => ?DESC("config_enable"), default => true})},
         {direction, mk(egress, #{desc => ?DESC("config_direction"), default => egress})},
         {local_topic, mk(binary(), #{desc => ?DESC("local_topic")})},
-        {measurement, mk(binary(), #{desc => ?DESC("measurement"), required => true})},
-        {timestamp,
-            mk(binary(), #{
-                desc => ?DESC("timestamp"), default => <<"${timestamp}">>, required => false
-            })},
-        {tags, mk(map(), #{desc => ?DESC("tags"), required => false})},
-        {fields, mk(map(), #{desc => ?DESC("fields"), required => true})}
+        {write_syntax, fun write_syntax/1}
     ];
 fields("post_udp") ->
     method_fileds(post, influxdb_udp);
@@ -142,3 +134,80 @@ desc(Method) when Method =:= "get"; Method =:= "put"; Method =:= "post" ->
     ["Configuration for HStream using `", string:to_upper(Method), "` method."];
 desc(_) ->
     undefined.
+
+write_syntax(type) ->
+    list();
+write_syntax(required) ->
+    true;
+write_syntax(validator) ->
+    [?NOT_EMPTY("the value of the field 'write_syntax' cannot be empty")];
+write_syntax(converter) ->
+    fun converter_influx_lines/1;
+write_syntax(desc) ->
+    ?DESC("write_syntax");
+write_syntax(_) ->
+    undefined.
+
+converter_influx_lines(RawLines) ->
+    Lines = string:tokens(str(RawLines), "\n"),
+    lists:reverse(lists:foldl(fun converter_influx_line/2, [], Lines)).
+
+converter_influx_line(Line, AccIn) ->
+    case string:tokens(str(Line), " ") of
+        [MeasurementAndTags, Fields, Timestamp] ->
+            {Measurement, Tags} = split_measurement_and_tags(MeasurementAndTags),
+            [
+                #{
+                    measurement => Measurement,
+                    tags => kv_pairs(Tags),
+                    fields => kv_pairs(string:tokens(Fields, ",")),
+                    timestamp => Timestamp
+                }
+                | AccIn
+            ];
+        [MeasurementAndTags, Fields] ->
+            {Measurement, Tags} = split_measurement_and_tags(MeasurementAndTags),
+            %% TODO: fix here both here and influxdb driver.
+            %% Default value should evaluated by InfluxDB.
+            [
+                #{
+                    measurement => Measurement,
+                    tags => kv_pairs(Tags),
+                    fields => kv_pairs(string:tokens(Fields, ",")),
+                    timestamp => "${timestamp}"
+                }
+                | AccIn
+            ];
+        _ ->
+            throw("Bad InfluxDB Line Protocol schema")
+    end.
+
+split_measurement_and_tags(Subject) ->
+    case string:tokens(Subject, ",") of
+        [] ->
+            throw("Bad Measurement schema");
+        [Measurement] ->
+            {Measurement, []};
+        [Measurement | Tags] ->
+            {Measurement, Tags}
+    end.
+
+kv_pairs(Pairs) ->
+    kv_pairs(Pairs, []).
+kv_pairs([], Acc) ->
+    lists:reverse(Acc);
+kv_pairs([Pair | Rest], Acc) ->
+    case string:tokens(Pair, "=") of
+        [K, V] ->
+            %% Reduplicated keys will be overwritten. Follows InfluxDB Line Protocol.
+            kv_pairs(Rest, [{K, V} | Acc]);
+        _ ->
+            throw(io_lib:format("Bad InfluxDB Line Protocol Key Value pair: ~p", Pair))
+    end.
+
+str(A) when is_atom(A) ->
+    atom_to_list(A);
+str(B) when is_binary(B) ->
+    binary_to_list(B);
+str(S) when is_list(S) ->
+    S.
