@@ -379,9 +379,10 @@ data_to_point(
     end.
 
 maps_config_to_data(K, {IntType, V}, {Data, Res}) when IntType == int orelse IntType == uint ->
-    TransOptions = #{return => rawlist, var_trans => fun data_filter/1},
-    NK = emqx_plugin_libs_rule:proc_tmpl(K, Data, TransOptions),
-    NV = emqx_plugin_libs_rule:proc_tmpl(V, Data, TransOptions),
+    KTransOptions = #{return => full_binary},
+    VTransOptions = #{return => rawlist, var_trans => fun data_filter/1},
+    NK = emqx_plugin_libs_rule:proc_tmpl(K, Data, KTransOptions),
+    NV = emqx_plugin_libs_rule:proc_tmpl(V, Data, VTransOptions),
     case {NK, NV} of
         {[undefined], _} ->
             {Data, Res};
@@ -391,16 +392,17 @@ maps_config_to_data(K, {IntType, V}, {Data, Res}) when IntType == int orelse Int
             {Data, Res#{NK => {IntType, IntV}}}
     end;
 maps_config_to_data(K, V, {Data, Res}) ->
-    TransOptions = #{return => rawlist, var_trans => fun data_filter/1},
-    NK = emqx_plugin_libs_rule:proc_tmpl(K, Data, TransOptions),
-    NV = emqx_plugin_libs_rule:proc_tmpl(V, Data, TransOptions),
+    KTransOptions = #{return => full_binary},
+    VTransOptions = #{return => rawlist, var_trans => fun data_filter/1},
+    NK = emqx_plugin_libs_rule:proc_tmpl(K, Data, KTransOptions),
+    NV = emqx_plugin_libs_rule:proc_tmpl(V, Data, VTransOptions),
     case {NK, NV} of
         {[undefined], _} ->
             {Data, Res};
         {_, [undefined]} ->
             {Data, Res};
         _ ->
-            {Data, Res#{bin(NK) => NV}}
+            {Data, Res#{NK => NV}}
     end.
 
 data_filter(undefined) -> undefined;
