@@ -13,7 +13,7 @@ File format:
 ## v4.3.19
 
 ### Bug fixes
-- Fix GET `/auth_clientid`& `/auth_username`'s count. [#8655](https://github.com/emqx/emqx/pull/8655)
+- Fix GET `/auth_clientid` and `/auth_username` counts. [#8655](https://github.com/emqx/emqx/pull/8655)
 
 ## v4.3.18
 
