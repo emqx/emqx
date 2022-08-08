@@ -115,6 +115,9 @@ group_trace_file(ZipDir, TraceLog, TraceFiles) ->
                     ok -> [FileName | Acc];
                     _ -> Acc
                 end;
+            {error, Node, trace_disabled} ->
+                ?LOG(warning, "emqx_mod_trace modules is disabled on ~s ~s", [Node, TraceLog]),
+                Acc;
             {error, Node, Reason} ->
                 ?LOG(error, "download trace log error:~p", [{Node, TraceLog, Reason}]),
                 Acc

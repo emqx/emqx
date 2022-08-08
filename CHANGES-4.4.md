@@ -1,5 +1,12 @@
 # EMQX 4.4 Changes
 
+## v4.4.7
+
+### Enhancements (synced from v4.3.18)
+
+### Bug fixes
+- Fix: Check if emqx_mod_trace is enabled when the trace file is not found.
+
 ## v4.4.5
 
 ### Enhancements (synced from v4.3.16)
