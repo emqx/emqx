@@ -1,5 +1,7 @@
 #!/usr/bin/env -S escript -c
 
+-mode(compile).
+
 main(_) ->
     OtpRelease = list_to_integer(erlang:system_info(otp_release)),
     case OtpRelease < 21 of
@@ -9,4 +11,3 @@ main(_) ->
         false ->
             ok
     end.
-
