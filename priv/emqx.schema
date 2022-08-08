@@ -1641,6 +1641,11 @@ end}.
   {datatype, {enum, [emergency, alert, critical, error, warning, notice, info, debug, none, all]}}
 ]}.
 
+{mapping, "listener.ssl.$name.gc_after_handshake", "emqx.listeners", [
+  {default, false},
+  {datatype, {enum, [true, false]}}
+]}.
+
 %%--------------------------------------------------------------------
 %% MQTT/WebSocket Listeners
 
@@ -2263,7 +2268,8 @@ end}.
                           {secure_renegotiate, cuttlefish:conf_get(Prefix ++ ".secure_renegotiate", Conf, undefined)},
                           {reuse_sessions, cuttlefish:conf_get(Prefix ++ ".reuse_sessions", Conf, undefined)},
                           {honor_cipher_order, cuttlefish:conf_get(Prefix ++ ".honor_cipher_order", Conf, undefined)},
-                          {log_level, cuttlefish:conf_get(Prefix ++ ".log_level", Conf, undefined)}
+                          {log_level, cuttlefish:conf_get(Prefix ++ ".log_level", Conf, undefined)},
+                          {gc_after_handshake, cuttlefish:conf_get(Prefix ++ ".gc_after_handshake", Conf, undefined)}
                          ])
               end,
 
