@@ -49,6 +49,12 @@ conn_bridge_examples(Method) ->
 values(Protocol, get) ->
     maps:merge(values(Protocol, post), ?METRICS_EXAMPLE);
 values(Protocol, post) ->
+    case Protocol of
+        "influxdb_api_v2" ->
+            SupportUint = <<"uint_value=${payload.uint_key}u">>;
+        _ ->
+            SupportUint = <<>>
+    end,
     #{
         type => list_to_atom(Protocol),
         name => <<"demo">>,
@@ -58,7 +64,7 @@ values(Protocol, post) ->
         local_topic => <<"local/topic/#">>,
         write_syntax =>
             <<"${topic},clientid=${clientid}", " ", "payload=${payload},",
-                "${clientid}_int_value=${payload.int_key}i,", "uint_value=${payload.uint_key}u,",
+                "${clientid}_int_value=${payload.int_key}i,", SupportUint/binary,
                 "bool=${payload.bool}">>
     };
 values(Protocol, put) ->
