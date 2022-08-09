@@ -94,18 +94,18 @@ on_query(_InstId, get_counter, #{pid := Pid}) ->
 on_batch_query(InstId, BatchReq, State) ->
     %% Requests can be either 'get_counter' or 'inc_counter', but cannot be mixed.
     case hd(BatchReq) of
-        {_From, {inc_counter, _}} ->
+        {inc_counter, _} ->
             batch_inc_counter(InstId, BatchReq, State);
-        {_From, get_counter} ->
+        get_counter ->
             batch_get_counter(InstId, State)
     end.
 
 batch_inc_counter(InstId, BatchReq, State) ->
     TotalN = lists:foldl(
         fun
-            ({_From, {inc_counter, N}}, Total) ->
+            ({inc_counter, N}, Total) ->
                 Total + N;
-            ({_From, Req}, _Total) ->
+            (Req, _Total) ->
                 error({mixed_requests_not_allowed, {inc_counter, Req}})
         end,
         0,

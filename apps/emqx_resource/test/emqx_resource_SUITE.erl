@@ -22,6 +22,7 @@
 -include_lib("common_test/include/ct.hrl").
 -include("emqx_resource.hrl").
 -include_lib("stdlib/include/ms_transform.hrl").
+-include_lib("snabbkaffe/include/snabbkaffe.hrl").
 
 -define(TEST_RESOURCE, emqx_connector_demo).
 -define(ID, <<"id">>).
@@ -207,17 +208,40 @@ t_batch_query_counter(_) ->
         ?ID,
         ?DEFAULT_RESOURCE_GROUP,
         ?TEST_RESOURCE,
-        #{name => test_resource, register => true, batch_enabled => true}
+        #{name => test_resource, register => true},
+        #{batch_enabled => true}
     ),
 
-    {ok, 0} = emqx_resource:query(?ID, get_counter),
+    ?check_trace(
+        #{timetrap => 10000, timeout => 1000},
+        emqx_resource:query(?ID, get_counter),
+        fun(Result, Trace) ->
+            ?assertMatch({ok, 0}, Result),
+            QueryTrace = ?of_kind(call_batch_query, Trace),
+            ?assertMatch([#{batch := [{query, _, get_counter}]}], QueryTrace)
+        end
+    ),
+
+    ?check_trace(
+        #{timetrap => 10000, timeout => 1000},
+        inc_counter_in_parallel(1000),
+        fun(Trace) ->
+            QueryTrace = ?of_kind(call_batch_query, Trace),
+            ?assertMatch([#{batch := BatchReq} | _] when length(BatchReq) > 1, QueryTrace)
+        end
+    ),
+    {ok, 1000} = emqx_resource:query(?ID, get_counter),
+
+    ok = emqx_resource:remove_local(?ID).
+
+inc_counter_in_parallel(N) ->
     Parent = self(),
     Pids = [
         erlang:spawn(fun() ->
             ok = emqx_resource:query(?ID, {inc_counter, 1}),
             Parent ! {complete, self()}
         end)
-     || _ <- lists:seq(1, 1000)
+     || _ <- lists:seq(1, N)
     ],
     [
         receive
@@ -226,10 +250,7 @@ t_batch_query_counter(_) ->
             ct:fail({wait_for_query_timeout, Pid})
         end
      || Pid <- Pids
-    ],
-    {ok, 1000} = emqx_resource:query(?ID, get_counter),
-
-    ok = emqx_resource:remove_local(?ID).
+    ].
 
 t_healthy_timeout(_) ->
     {ok, _} = emqx_resource:create_local(

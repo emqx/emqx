@@ -22,6 +22,7 @@
 -include("emqx_resource.hrl").
 -include("emqx_resource_utils.hrl").
 -include_lib("emqx/include/logger.hrl").
+-include_lib("snabbkaffe/include/snabbkaffe.hrl").
 
 -behaviour(gen_statem).
 
@@ -351,9 +352,11 @@ call_query(QM, Id, Query, QueryLen) ->
     end
 ).
 
-apply_query_fun(sync, Mod, Id, ?QUERY(_From, Request), ResSt) ->
+apply_query_fun(sync, Mod, Id, ?QUERY(_From, Request) = _Query, ResSt) ->
+    ?tp(call_query, #{id => Id, mod => Mod, query => _Query, res_st => ResSt}),
     ?APPLY_RESOURCE(Mod:on_query(Id, Request, ResSt), Request);
 apply_query_fun(async, Mod, Id, ?QUERY(_From, Request) = Query, ResSt) ->
+    ?tp(call_query_async, #{id => Id, mod => Mod, query => Query, res_st => ResSt}),
     ReplyFun = fun ?MODULE:reply_after_query/4,
     ?APPLY_RESOURCE(
         begin
@@ -363,9 +366,11 @@ apply_query_fun(async, Mod, Id, ?QUERY(_From, Request) = Query, ResSt) ->
         Request
     );
 apply_query_fun(sync, Mod, Id, [?QUERY(_, _) | _] = Batch, ResSt) ->
+    ?tp(call_batch_query, #{id => Id, mod => Mod, batch => Batch, res_st => ResSt}),
     Requests = [Request || ?QUERY(_From, Request) <- Batch],
     ?APPLY_RESOURCE(Mod:on_batch_query(Id, Requests, ResSt), Batch);
 apply_query_fun(async, Mod, Id, [?QUERY(_, _) | _] = Batch, ResSt) ->
+    ?tp(call_batch_query_async, #{id => Id, mod => Mod, batch => Batch, res_st => ResSt}),
     Requests = [Request || ?QUERY(_From, Request) <- Batch],
     ReplyFun = fun ?MODULE:batch_reply_after_query/4,
     ?APPLY_RESOURCE(
