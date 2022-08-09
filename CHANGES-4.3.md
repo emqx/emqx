@@ -15,6 +15,12 @@ File format:
 ### Bug fixes
 - Fix GET `/auth_clientid` and `/auth_username` counts. [#8655](https://github.com/emqx/emqx/pull/8655)
 
+## v4.3.19
+
+### Enhancements
+
+- Improve error message for LwM2M plugin when object ID is not valid [#8654](https://github.com/emqx/emqx/pull/8654).
+
 ## v4.3.18
 
 ### Enhancements
