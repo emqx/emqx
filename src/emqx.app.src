@@ -1,6 +1,6 @@
 {application, emqx,
  [{id, "emqx"},
-  {description, "EMQX"},
+  {description, "EMQ X"},
   %% Note: this version is not the same as the release version!  This
   %% is simply the emqx `application' version, which is separate from
   %% the emqx `release' version, which in turn is comprised of several
