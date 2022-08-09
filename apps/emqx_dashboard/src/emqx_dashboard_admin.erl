@@ -50,7 +50,8 @@
 
 -export([
     add_default_user/0,
-    default_username/0
+    default_username/0,
+    add_bootstrap_user/0
 ]).
 
 -type emqx_admin() :: #?ADMIN{}.
@@ -73,6 +74,28 @@ mnesia(boot) ->
             ]}
         ]}
     ]).
+
+%%--------------------------------------------------------------------
+%% bootstrap API
+%%--------------------------------------------------------------------
+
+-spec add_default_user() -> {ok, map() | empty | default_user_exists} | {error, any()}.
+add_default_user() ->
+    add_default_user(binenv(default_username), binenv(default_password)).
+
+-spec add_bootstrap_user() -> ok | {error, _}.
+add_bootstrap_user() ->
+    case emqx:get_config([dashboard, bootstrap_user], undefined) of
+        undefined ->
+            ok;
+        File ->
+            case mnesia:table_info(?ADMIN, size) of
+                0 ->
+                    add_bootstrap_user(File);
+                _ ->
+                    ok
+            end
+    end.
 
 %%--------------------------------------------------------------------
 %% API
@@ -272,11 +295,6 @@ destroy_token_by_username(Username, Token) ->
 %%--------------------------------------------------------------------
 %% Internal functions
 %%--------------------------------------------------------------------
-
--spec add_default_user() -> {ok, map() | empty | default_user_exists} | {error, any()}.
-add_default_user() ->
-    add_default_user(binenv(default_username), binenv(default_password)).
-
 default_username() ->
     binenv(default_username).
 
@@ -289,4 +307,36 @@ add_default_user(Username, Password) ->
     case lookup_user(Username) of
         [] -> add_user(Username, Password, <<"administrator">>);
         _ -> {ok, default_user_exists}
+    end.
+
+add_bootstrap_user(File) ->
+    case file:open(File, read) of
+        {ok, Dev} ->
+            {ok, MP} = re:compile(<<"(\.+):(\.+)">>),
+            try
+                load_bootstrap_user(Dev, MP)
+            catch
+                Type:Reason ->
+                    {error, {Type, Reason}}
+            after
+                file:close(Dev)
+            end;
+        Error ->
+            Error
+    end.
+
+load_bootstrap_user(Dev, MP) ->
+    case file:read_line(Dev) of
+        {ok, Line} ->
+            case re:run(Line, MP, [global, {capture, all_but_first, binary}]) of
+                {match, Captured} ->
+                    [add_user(Username, Password, <<>>) || [Username, Password] <- Captured];
+                _ ->
+                    ok
+            end,
+            load_bootstrap_user(Dev, MP);
+        eof ->
+            ok;
+        Error ->
+            Error
     end.
