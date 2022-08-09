@@ -115,6 +115,9 @@ group_trace_file(ZipDir, TraceLog, TraceFiles) ->
                     ok -> [FileName | Acc];
                     _ -> Acc
                 end;
+            {error, Node, trace_disabled} ->
+                ?LOG(warning, "emqx_mod_trace modules is disabled on ~s ~s", [Node, TraceLog]),
+                Acc;
             {error, Node, Reason} ->
                 ?LOG(error, "download trace log error:~p", [{Node, TraceLog, Reason}]),
                 Acc
@@ -145,6 +148,8 @@ stream_log_file(#{name := Name}, Params) ->
                 {eof, Size} ->
                     Meta = #{<<"position">> => Size, <<"bytes">> => Bytes},
                     {ok, #{meta => Meta, items => <<"">>}};
+                {error, trace_disabled} ->
+                    {error, io_lib:format("trace_disable_on_~s", [Node0])};
                 {error, Reason} ->
                     logger:log(error, "read_file_failed ~p", [{Node, Name, Reason, Position, Bytes}]),
                     {error, Reason};
@@ -193,6 +198,11 @@ read_file(Path, Offset, Bytes) ->
                 end
             after
                 file:close(IoDevice)
+            end;
+        {error, enoent} ->
+            case emqx_trace:is_enable() of
+                false -> {error, trace_disabled};
+                true -> {error, enoent}
             end;
         {error, Reason} -> {error, Reason}
     end.
