@@ -9,11 +9,11 @@ jobs:
     strategy:
       matrix:
         erl_otp:
-        - erl23.2.7.2-emqx-3
+        - 24.1.5-3
         os:
         - ubuntu20.04
 
-    container: emqx/build-env:${{ matrix.erl_otp }}-${{ matrix.os }}
+    container: ghcr.io/emqx/emqx-builder/4.4-19:${{ matrix.erl_otp }}-${{ matrix.os }}
 
     steps:
       - uses: actions/checkout@v2

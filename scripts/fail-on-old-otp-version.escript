@@ -1,4 +1,4 @@
-#!/usr/bin/env escript
+#!/usr/bin/env -S escript -c
 
 -mode(compile).
 
