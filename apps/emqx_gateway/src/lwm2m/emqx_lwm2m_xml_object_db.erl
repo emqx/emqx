@@ -76,12 +76,9 @@ find_name(Name) ->
         end,
     case ets:lookup(?LWM2M_OBJECT_NAME_TO_ID_TAB, NameBinary) of
         [] ->
-            undefined;
+            {error, no_xml_definition};
         [{NameBinary, ObjectId}] ->
-            case ets:lookup(?LWM2M_OBJECT_DEF_TAB, ObjectId) of
-                [] -> undefined;
-                [{ObjectId, Xml}] -> Xml
-            end
+            find_objectid(ObjectId)
     end.
 
 stop() ->
