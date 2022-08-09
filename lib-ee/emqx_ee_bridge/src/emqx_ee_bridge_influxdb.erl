@@ -131,7 +131,13 @@ type_name_field(Type) ->
 desc("config") ->
     ?DESC("desc_config");
 desc(Method) when Method =:= "get"; Method =:= "put"; Method =:= "post" ->
-    ["Configuration for HStream using `", string:to_upper(Method), "` method."];
+    ["Configuration for InfluxDB using `", string:to_upper(Method), "` method."];
+desc(influxdb_udp) ->
+    ?DESC(emqx_ee_connector_influxdb, "influxdb_udp");
+desc(influxdb_api_v1) ->
+    ?DESC(emqx_ee_connector_influxdb, "influxdb_api_v1");
+desc(influxdb_api_v2) ->
+    ?DESC(emqx_ee_connector_influxdb, "influxdb_api_v2");
 desc(_) ->
     undefined.
 

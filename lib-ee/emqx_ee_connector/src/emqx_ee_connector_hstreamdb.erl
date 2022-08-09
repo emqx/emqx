@@ -27,6 +27,7 @@
     namespace/0,
     roots/0,
     fields/1,
+    desc/1,
     connector_examples/1
 ]).
 
@@ -122,6 +123,9 @@ values(put) ->
     };
 values(_) ->
     #{}.
+
+desc(config) ->
+    ?DESC("config").
 
 %% -------------------------------------------------------------------------------------------------
 %% internal functions

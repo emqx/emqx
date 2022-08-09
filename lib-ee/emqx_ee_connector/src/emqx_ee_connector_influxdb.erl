@@ -22,6 +22,7 @@
 -export([
     namespace/0,
     fields/1,
+    desc/1,
     connector_examples/1
 ]).
 
@@ -161,6 +162,14 @@ values(api_v2, put) ->
         token => <<"my_token">>,
         ssl => #{enable => false}
     }.
+
+desc(influxdb_udp) ->
+    ?DESC("influxdb_udp");
+desc(influxdb_api_v1) ->
+    ?DESC("influxdb_api_v1");
+desc(influxdb_api_v2) ->
+    ?DESC("influxdb_api_v2").
+
 %% -------------------------------------------------------------------------------------------------
 %% internal functions
 
