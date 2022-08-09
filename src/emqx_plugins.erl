@@ -219,7 +219,7 @@ ensure_file(File) ->
         false ->
             DefaultPlugins = [ {emqx_management, true}
                              , {emqx_dashboard, true}
-                             , {emqx_modules, false}
+                             , {emqx_modules, true}
                              , {emqx_recon, true}
                              , {emqx_retainer, true}
                              , {emqx_telemetry, true}
@@ -265,7 +265,7 @@ load_plugins(Names, Persistent) ->
         []       -> ok;
         NotFound -> ?LOG(alert, "cannot_find_plugins: ~p", [NotFound])
     end,
-    NeedToLoad = Names -- NotFound -- names(started_app),
+    NeedToLoad = (Names -- NotFound) -- names(started_app),
     lists:foreach(fun(Name) ->
                       Plugin = find_plugin(Name, Plugins),
                       load_plugin(Plugin#plugin.name, Persistent)

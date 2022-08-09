@@ -6,6 +6,7 @@
 -define(PORT, 1884).
 
 -export([start/0]).
+-export([gen_register_packet/2]).
 
 start() ->
     io:format("start to connect ~p:~p~n", [?HOST, ?PORT]),
