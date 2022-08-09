@@ -275,7 +275,9 @@ handle_timeout(_TRef, {keepalive, StatVal},
         {error, timeout} ->
             Req = #{type => 'KEEPALIVE'},
             NChannel = clean_timer(alive_timer, Channel),
-            {ok, try_dispatch(on_timer_timeout, wrap(Req), NChannel)}
+            %% close connection if keepalive timeout
+            Replies = [{event, disconnected}, {close, normal}],
+            {ok, Replies, try_dispatch(on_timer_timeout, wrap(Req), NChannel)}
     end;
 
 handle_timeout(_TRef, force_close, Channel = #channel{closed_reason = Reason}) ->
