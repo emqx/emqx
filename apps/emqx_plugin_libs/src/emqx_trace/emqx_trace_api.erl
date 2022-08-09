@@ -24,6 +24,7 @@
         , update_trace/2
         , delete_trace/2
         , clear_traces/2
+        , trace_file_detail/2
         , download_zip_log/2
         , stream_log_file/2
 ]).
@@ -105,6 +106,15 @@ download_zip_log(#{name := Name}, _Param) ->
             {error, Reason}
     end.
 
+trace_file_detail(#{name := Name}, _Param) ->
+    case emqx_trace:get_trace_filename(Name) of
+        {ok, TraceLog} ->
+            TraceFiles = collect_trace_file_detail(TraceLog),
+            {ok, group_trace_file_detail(TraceLog, TraceFiles)};
+        {error, Reason} ->
+            {error, Reason}
+    end.
+
 group_trace_file(ZipDir, TraceLog, TraceFiles) ->
     lists:foldl(fun(Res, Acc) ->
         case Res of
@@ -121,8 +131,22 @@ group_trace_file(ZipDir, TraceLog, TraceFiles) ->
         end
                 end, [], TraceFiles).
 
+group_trace_file_detail(TraceLog, TraceFiles) ->
+    lists:foldl(fun(Res, Acc) ->
+        case Res of
+            {ok, Node, Info} ->
+                [Info#{node => Node} | Acc];
+            {error, Node, Reason} ->
+                ?LOG(error, "read trace file detail failed:~p", [{Node, TraceLog, Reason}]),
+                Acc
+        end
+                end, [], TraceFiles).
+
 collect_trace_file(TraceLog) ->
     cluster_call(emqx_trace, trace_file, [TraceLog], 60000).
+
+collect_trace_file_detail(TraceLog) ->
+    cluster_call(emqx_trace, trace_file_detail, [TraceLog], 25000).
 
 cluster_call(Mod, Fun, Args, Timeout) ->
     Nodes = ekka_mnesia:running_nodes(),

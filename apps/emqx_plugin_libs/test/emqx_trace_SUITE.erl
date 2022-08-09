@@ -314,6 +314,25 @@ t_download_log(_Config) ->
     ok = emqtt:disconnect(Client),
     ok.
 
+t_trace_file_detail(_Config) ->
+    ClientId = <<"client-test1">>,
+    Now = erlang:system_time(second),
+    Start = to_rfc3339(Now),
+    Name = <<"test_client_id1">>,
+    ok = emqx_trace:create([{<<"name">>, Name},
+        {<<"type">>, <<"clientid">>}, {<<"clientid">>, ClientId}, {<<"start_at">>, Start}]),
+    {ok, Client} = emqtt:start_link([{clean_start, true}, {clientid, ClientId}]),
+    {ok, _} = emqtt:connect(Client),
+    [begin _ = emqtt:ping(Client) end ||_ <- lists:seq(1, 5)],
+    ok = emqx_trace_handler_SUITE:filesync(Name, clientid),
+    {ok, [#{mtime := Mtime, node := Node, size := Size}]}
+        = emqx_trace_api:trace_file_detail(#{name => Name}, []),
+    ?assertEqual(atom_to_binary(node()), Node),
+    ?assert(Size > 0),
+    ?assert(Mtime >= Now),
+    ok = emqtt:disconnect(Client),
+    ok.
+
 t_find_closed_time(_Config) ->
     DefaultMs = 60 * 15000,
     Now = erlang:system_time(second),

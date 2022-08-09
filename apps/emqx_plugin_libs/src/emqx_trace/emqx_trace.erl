@@ -19,6 +19,7 @@
 
 -include_lib("emqx/include/emqx.hrl").
 -include_lib("emqx/include/logger.hrl").
+-include_lib("kernel/include/file.hrl").
 
 -logger_header("[Tracer]").
 
@@ -42,6 +43,7 @@
         , filename/2
         , trace_dir/0
         , trace_file/1
+        , trace_file_detail/1
         , delete_files_after_send/2
         , is_enable/0
         ]).
@@ -177,6 +179,14 @@ trace_file(File) ->
     Node = atom_to_list(node()),
     case file:read_file(FileName) of
         {ok, Bin} -> {ok, Node, Bin};
+        {error, Reason} -> {error, Node, Reason}
+    end.
+
+trace_file_detail(File) ->
+    FileName = filename:join(trace_dir(), File),
+    Node = atom_to_binary(node()),
+    case file:read_file_info(FileName, [{'time', 'posix'}]) of
+        {ok, #file_info{size = Size, mtime = Mtime}} -> {ok, Node, #{size => Size, mtime => Mtime}};
         {error, Reason} -> {error, Node, Reason}
     end.
 
