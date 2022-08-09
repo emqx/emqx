@@ -381,7 +381,7 @@ handle_call({publish, Topic, Qos, Payload},
     end;
 
 handle_call(kick, Channel) ->
-    {shutdown, kicked, ok, Channel};
+    {reply, ok, [{event, disconnected}, {close, kicked}], Channel};
 
 handle_call(discard, Channel) ->
     {shutdown, discarded, ok, Channel};
