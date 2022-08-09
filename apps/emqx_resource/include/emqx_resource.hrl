@@ -23,6 +23,12 @@
 -type resource_state() :: term().
 -type resource_status() :: connected | disconnected | connecting | stopped.
 -type callback_mode() :: always_sync | async_if_possible.
+-type result() :: term().
+-type reply_fun() :: {fun((result(), Args :: term()) -> any()), Args :: term()} | undefined.
+-type query_opts() :: #{
+    %% The key used for picking a resource worker
+    pick_key => term()
+}.
 -type resource_data() :: #{
     id := resource_id(),
     mod := module(),

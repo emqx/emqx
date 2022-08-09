@@ -28,6 +28,7 @@
 -define(ID, <<"id">>).
 -define(DEFAULT_RESOURCE_GROUP, <<"default">>).
 -define(RESOURCE_ERROR(REASON), {error, {resource_error, #{reason := REASON}}}).
+-define(TRACE_OPTS, #{timetrap => 10000, timeout => 1000}).
 
 all() ->
     emqx_common_test_helpers:all(?MODULE).
@@ -36,6 +37,7 @@ groups() ->
     [].
 
 init_per_testcase(_, Config) ->
+    emqx_connector_demo:set_callback_mode(always_sync),
     Config.
 end_per_testcase(_, _Config) ->
     _ = emqx_resource:remove(?ID).
@@ -213,7 +215,7 @@ t_batch_query_counter(_) ->
     ),
 
     ?check_trace(
-        #{timetrap => 10000, timeout => 1000},
+        ?TRACE_OPTS,
         emqx_resource:query(?ID, get_counter),
         fun(Result, Trace) ->
             ?assertMatch({ok, 0}, Result),
@@ -223,7 +225,7 @@ t_batch_query_counter(_) ->
     ),
 
     ?check_trace(
-        #{timetrap => 10000, timeout => 1000},
+        ?TRACE_OPTS,
         inc_counter_in_parallel(1000),
         fun(Trace) ->
             QueryTrace = ?of_kind(call_batch_query, Trace),
@@ -234,23 +236,90 @@ t_batch_query_counter(_) ->
 
     ok = emqx_resource:remove_local(?ID).
 
-inc_counter_in_parallel(N) ->
-    Parent = self(),
-    Pids = [
-        erlang:spawn(fun() ->
-            ok = emqx_resource:query(?ID, {inc_counter, 1}),
-            Parent ! {complete, self()}
-        end)
-     || _ <- lists:seq(1, N)
-    ],
-    [
-        receive
-            {complete, Pid} -> ok
-        after 1000 ->
-            ct:fail({wait_for_query_timeout, Pid})
+t_query_counter_async(_) ->
+    {ok, _} = emqx_resource:create_local(
+        ?ID,
+        ?DEFAULT_RESOURCE_GROUP,
+        ?TEST_RESOURCE,
+        #{name => test_resource, register => true},
+        #{query_mode => async}
+    ),
+    ?assertMatch({ok, 0}, emqx_resource:simple_sync_query(?ID, get_counter)),
+    ?check_trace(
+        ?TRACE_OPTS,
+        inc_counter_in_parallel(1000),
+        fun(Trace) ->
+            %% the callback_mode if 'emqx_connector_demo' is 'always_sync'.
+            QueryTrace = ?of_kind(call_query, Trace),
+            ?assertMatch([#{query := {query, _, {inc_counter, 1}}} | _], QueryTrace)
         end
-     || Pid <- Pids
-    ].
+    ),
+    %% wait for 1s to make sure all the aysnc query is sent to the resource.
+    timer:sleep(1000),
+    %% simple query ignores the query_mode and batching settings in the resource_worker
+    ?check_trace(
+        ?TRACE_OPTS,
+        emqx_resource:simple_sync_query(?ID, get_counter),
+        fun(Result, Trace) ->
+            ?assertMatch({ok, 1000}, Result),
+            %% the callback_mode if 'emqx_connector_demo' is 'always_sync'.
+            QueryTrace = ?of_kind(call_query, Trace),
+            ?assertMatch([#{query := {query, _, get_counter}}], QueryTrace)
+        end
+    ),
+    {ok, _, #{metrics := #{counters := C}}} = emqx_resource:get_instance(?ID),
+    ?assertMatch(#{matched := 1002, success := 1002, failed := 0}, C),
+    ok = emqx_resource:remove_local(?ID).
+
+t_query_counter_async_2(_) ->
+    emqx_connector_demo:set_callback_mode(async_if_possible),
+
+    Tab0 = ets:new(?FUNCTION_NAME, [bag, public]),
+    Insert = fun(Tab, Result) ->
+        ets:insert(Tab, {make_ref(), Result})
+    end,
+    {ok, _} = emqx_resource:create_local(
+        ?ID,
+        ?DEFAULT_RESOURCE_GROUP,
+        ?TEST_RESOURCE,
+        #{name => test_resource, register => true},
+        #{query_mode => async, async_reply_fun => {Insert, [Tab0]}}
+    ),
+    ?assertMatch({ok, 0}, emqx_resource:simple_sync_query(?ID, get_counter)),
+    ?check_trace(
+        ?TRACE_OPTS,
+        inc_counter_in_parallel(1000),
+        fun(Trace) ->
+            QueryTrace = ?of_kind(call_query_async, Trace),
+            ?assertMatch([#{query := {query, _, {inc_counter, 1}}} | _], QueryTrace)
+        end
+    ),
+
+    %% wait for 1s to make sure all the aysnc query is sent to the resource.
+    timer:sleep(1000),
+    %% simple query ignores the query_mode and batching settings in the resource_worker
+    ?check_trace(
+        ?TRACE_OPTS,
+        emqx_resource:simple_sync_query(?ID, get_counter),
+        fun(Result, Trace) ->
+            ?assertMatch({ok, 1000}, Result),
+            QueryTrace = ?of_kind(call_query, Trace),
+            ?assertMatch([#{query := {query, _, get_counter}}], QueryTrace)
+        end
+    ),
+    {ok, _, #{metrics := #{counters := C}}} = emqx_resource:get_instance(?ID),
+    ?assertMatch(#{matched := 1002, success := 1002, failed := 0}, C),
+    ?assertMatch(1000, ets:info(Tab0, size)),
+    ?assert(
+        lists:all(
+            fun
+                ({_, ok}) -> true;
+                (_) -> false
+            end,
+            ets:tab2list(Tab0)
+        )
+    ),
+    ok = emqx_resource:remove_local(?ID).
 
 t_healthy_timeout(_) ->
     {ok, _} = emqx_resource:create_local(
@@ -480,6 +549,23 @@ t_auto_retry(_) ->
 %%------------------------------------------------------------------------------
 %% Helpers
 %%------------------------------------------------------------------------------
+inc_counter_in_parallel(N) ->
+    Parent = self(),
+    Pids = [
+        erlang:spawn(fun() ->
+            emqx_resource:query(?ID, {inc_counter, 1}),
+            Parent ! {complete, self()}
+        end)
+     || _ <- lists:seq(1, N)
+    ],
+    [
+        receive
+            {complete, Pid} -> ok
+        after 1000 ->
+            ct:fail({wait_for_query_timeout, Pid})
+        end
+     || Pid <- Pids
+    ].
 
 bin_config() ->
     <<"\"name\": \"test_resource\"">>.

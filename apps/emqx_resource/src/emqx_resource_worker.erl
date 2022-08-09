@@ -35,6 +35,11 @@
 ]).
 
 -export([
+    simple_sync_query/2,
+    simple_async_query/3
+]).
+
+-export([
     callback_mode/0,
     init/1,
     terminate/2,
@@ -68,13 +73,7 @@
 -type id() :: binary().
 -type query() :: {query, from(), request()}.
 -type request() :: term().
--type result() :: term().
--type reply_fun() :: {fun((result(), Args :: term()) -> any()), Args :: term()} | undefined.
 -type from() :: pid() | reply_fun().
--type query_opts() :: #{
-    %% The key used for picking a resource worker
-    pick_key => term()
-}.
 
 -export_type([query_opts/0]).
 
@@ -91,6 +90,19 @@ query(Id, Request, Opts) ->
     PickKey = maps:get(pick_key, Opts, self()),
     Timeout = maps:get(timeout, Opts, infinity),
     pick_call(Id, PickKey, {query, Request}, Timeout).
+
+%% simple query the resource without batching and queuing messages.
+-spec simple_sync_query(id(), request()) -> Result :: term().
+simple_sync_query(Id, Request) ->
+    Result = call_query(sync, Id, ?QUERY(self(), Request), 1),
+    _ = handle_query_result(Id, Result, false),
+    Result.
+
+-spec simple_async_query(id(), request(), reply_fun()) -> Result :: term().
+simple_async_query(Id, Request, ReplyFun) ->
+    Result = call_query(async, Id, ?QUERY(ReplyFun, Request), 1),
+    _ = handle_query_result(Id, Result, false),
+    Result.
 
 -spec block(pid() | atom()) -> ok.
 block(ServerRef) ->
@@ -188,7 +200,7 @@ estimate_size(QItem) ->
 maybe_quick_return(sync, From, _ReplyFun) ->
     From;
 maybe_quick_return(async, From, ReplyFun) ->
-    ok = gen_statem:reply(From),
+    gen_statem:reply(From, ok),
     ReplyFun.
 
 pick_call(Id, Key, Query, Timeout) ->
@@ -295,7 +307,11 @@ reply_caller(Id, Reply) ->
 reply_caller(Id, ?REPLY(undefined, _, Result), BlockWorker) ->
     handle_query_result(Id, Result, BlockWorker);
 reply_caller(Id, ?REPLY({ReplyFun, Args}, _, Result), BlockWorker) when is_function(ReplyFun) ->
-    ?SAFE_CALL(ReplyFun(Result, Args)),
+    _ =
+        case Result of
+            {async_return, _} -> ok;
+            _ -> apply(ReplyFun, Args ++ [Result])
+        end,
     handle_query_result(Id, Result, BlockWorker);
 reply_caller(Id, ?REPLY(From, _, Result), BlockWorker) ->
     gen_statem:reply(From, Result),
@@ -316,6 +332,10 @@ handle_query_result(Id, {error, _}, BlockWorker) ->
 handle_query_result(Id, {resource_down, _}, _BlockWorker) ->
     emqx_metrics_worker:inc(?RES_METRICS, Id, resource_down),
     true;
+handle_query_result(_Id, {async_return, {resource_down, _}}, _BlockWorker) ->
+    true;
+handle_query_result(_Id, {async_return, ok}, BlockWorker) ->
+    BlockWorker;
 handle_query_result(Id, Result, BlockWorker) ->
     %% assert
     true = is_ok_result(Result),
@@ -352,16 +372,16 @@ call_query(QM, Id, Query, QueryLen) ->
     end
 ).
 
-apply_query_fun(sync, Mod, Id, ?QUERY(_From, Request) = _Query, ResSt) ->
+apply_query_fun(sync, Mod, Id, ?QUERY(_, Request) = _Query, ResSt) ->
     ?tp(call_query, #{id => Id, mod => Mod, query => _Query, res_st => ResSt}),
     ?APPLY_RESOURCE(Mod:on_query(Id, Request, ResSt), Request);
-apply_query_fun(async, Mod, Id, ?QUERY(_From, Request) = Query, ResSt) ->
+apply_query_fun(async, Mod, Id, ?QUERY(_, Request) = Query, ResSt) ->
     ?tp(call_query_async, #{id => Id, mod => Mod, query => Query, res_st => ResSt}),
     ReplyFun = fun ?MODULE:reply_after_query/4,
     ?APPLY_RESOURCE(
         begin
-            _ = Mod:on_query_async(Id, Request, {ReplyFun, [self(), Id, Query]}, ResSt),
-            ok_async
+            Result = Mod:on_query_async(Id, Request, {ReplyFun, [self(), Id, Query]}, ResSt),
+            {async_return, Result}
         end,
         Request
     );
@@ -375,8 +395,8 @@ apply_query_fun(async, Mod, Id, [?QUERY(_, _) | _] = Batch, ResSt) ->
     ReplyFun = fun ?MODULE:batch_reply_after_query/4,
     ?APPLY_RESOURCE(
         begin
-            _ = Mod:on_batch_query_async(Id, Requests, {ReplyFun, [self(), Id, Batch]}, ResSt),
-            ok_async
+            Result = Mod:on_batch_query_async(Id, Requests, {ReplyFun, [self(), Id, Batch]}, ResSt),
+            {async_return, Result}
         end,
         Batch
     ).

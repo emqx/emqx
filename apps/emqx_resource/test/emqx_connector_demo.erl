@@ -26,11 +26,12 @@
     on_start/2,
     on_stop/2,
     on_query/3,
+    on_query_async/4,
     on_batch_query/3,
     on_get_status/2
 ]).
 
--export([counter_loop/1]).
+-export([counter_loop/1, set_callback_mode/1]).
 
 %% callbacks for emqx_resource config schema
 -export([roots/0]).
@@ -50,7 +51,12 @@ register(required) -> true;
 register(default) -> false;
 register(_) -> undefined.
 
-callback_mode() -> always_sync.
+-define(CM_KEY, {?MODULE, callback_mode}).
+callback_mode() ->
+    persistent_term:get(?CM_KEY).
+
+set_callback_mode(Mode) ->
+    persistent_term:put(?CM_KEY, Mode).
 
 on_start(_InstId, #{create_error := true}) ->
     error("some error");
@@ -90,6 +96,10 @@ on_query(_InstId, get_counter, #{pid := Pid}) ->
     after 1000 ->
         {error, timeout}
     end.
+
+on_query_async(_InstId, Query, ReplyFun, State) ->
+    Result = on_query(_InstId, Query, State),
+    apply_reply(ReplyFun, Result).
 
 on_batch_query(InstId, BatchReq, State) ->
     %% Requests can be either 'get_counter' or 'inc_counter', but cannot be mixed.
@@ -147,3 +157,6 @@ maybe_register(Name, Pid, true) ->
     erlang:register(Name, Pid);
 maybe_register(_Name, _Pid, false) ->
     true.
+
+apply_reply({ReplyFun, Args}, Result) when is_function(ReplyFun) ->
+    apply(ReplyFun, Args ++ [Result]).
