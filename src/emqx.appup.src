@@ -1,9 +1,7 @@
 %% -*- mode: erlang -*-
 %% Unless you know what you are doing, DO NOT edit manually!!
 {VSN,
-  [{"4.3.19",
-    [{load_module,emqx_app,brutal_purge,soft_purge,[]},
-     {load_module,emqx_plugins,brutal_purge,soft_purge,[]}]},
+  [
    {"4.3.18",
     [{load_module,emqx_app,brutal_purge,soft_purge,[]},
      {load_module,emqx_plugins,brutal_purge,soft_purge,[]}]},
@@ -684,9 +682,7 @@
      {load_module,emqx_message,brutal_purge,soft_purge,[]},
      {load_module,emqx_limiter,brutal_purge,soft_purge,[]}]},
    {<<".*">>,[]}],
-  [{"4.3.19",
-    [{load_module,emqx_app,brutal_purge,soft_purge,[]},
-     {load_module,emqx_plugins,brutal_purge,soft_purge,[]}]},
+  [
    {"4.3.18",
      [{load_module,emqx_app,brutal_purge,soft_purge,[]},
       {load_module,emqx_plugins,brutal_purge,soft_purge,[]}]},
