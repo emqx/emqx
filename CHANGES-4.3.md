@@ -8,7 +8,12 @@ File format:
 
 - Use weight-2 heading for releases
 - One list item per change topic
-  Change log ends with a list of github PRs
+  Change log ends with a list of GitHub PRs
+
+## v4.3.19
+
+### Bug fixes
+- Fix GET `/auth_clientid` and `/auth_username` counts. [#8655](https://github.com/emqx/emqx/pull/8655)
 
 ## v4.3.18
 
