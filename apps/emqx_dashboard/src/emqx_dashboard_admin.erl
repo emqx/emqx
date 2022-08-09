@@ -310,7 +310,7 @@ add_default_user(Username, Password) ->
     end.
 
 add_bootstrap_user(File) ->
-    case file:open(File, read) of
+    case file:open(File, [read]) of
         {ok, Dev} ->
             {ok, MP} = re:compile(<<"(\.+):(\.+)">>),
             try
@@ -330,7 +330,8 @@ load_bootstrap_user(Dev, MP) ->
         {ok, Line} ->
             case re:run(Line, MP, [global, {capture, all_but_first, binary}]) of
                 {match, Captured} ->
-                    [add_user(Username, Password, <<>>) || [Username, Password] <- Captured];
+                    _ = [add_user(Username, Password, <<>>) || [Username, Password] <- Captured],
+                    ok;
                 _ ->
                     ok
             end,
