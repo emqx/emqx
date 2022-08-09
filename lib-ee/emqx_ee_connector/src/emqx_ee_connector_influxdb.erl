@@ -13,9 +13,10 @@
 
 %% callbacks of behaviour emqx_resource
 -export([
+    callback_mode/0,
     on_start/2,
     on_stop/2,
-    on_query/4,
+    on_query/3,
     on_get_status/2
 ]).
 
@@ -28,6 +29,7 @@
 
 %% -------------------------------------------------------------------------------------------------
 %% resource callback
+callback_mode() -> always_sync.
 
 on_start(InstId, Config) ->
     start_client(InstId, Config).
@@ -35,8 +37,8 @@ on_start(InstId, Config) ->
 on_stop(_InstId, #{client := Client}) ->
     influxdb:stop_client(Client).
 
-on_query(InstId, {send_message, Data}, AfterQuery, State) ->
-    do_query(InstId, {send_message, Data}, AfterQuery, State).
+on_query(InstId, {send_message, Data}, State) ->
+    do_query(InstId, {send_message, Data}, State).
 
 on_get_status(_InstId, #{client := Client}) ->
     case influxdb:is_alive(Client) of
@@ -308,7 +310,7 @@ ssl_config(SSL = #{enable := true}) ->
 %% -------------------------------------------------------------------------------------------------
 %% Query
 
-do_query(InstId, {send_message, Data}, AfterQuery, State = #{client := Client}) ->
+do_query(InstId, {send_message, Data}, State = #{client := Client}) ->
     {Points, Errs} = data_to_points(Data, State),
     lists:foreach(
         fun({error, Reason}) ->
@@ -326,15 +328,14 @@ do_query(InstId, {send_message, Data}, AfterQuery, State = #{client := Client}) 
                 msg => "influxdb write point success",
                 connector => InstId,
                 points => Points
-            }),
-            emqx_resource:query_success(AfterQuery);
-        {error, Reason} ->
+            });
+        {error, Reason} = Err ->
             ?SLOG(error, #{
                 msg => "influxdb write point failed",
                 connector => InstId,
                 reason => Reason
             }),
-            emqx_resource:query_failed(AfterQuery)
+            Err
     end.
 
 %% -------------------------------------------------------------------------------------------------

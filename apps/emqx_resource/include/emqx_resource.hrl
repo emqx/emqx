@@ -22,10 +22,11 @@
 -type resource_spec() :: map().
 -type resource_state() :: term().
 -type resource_status() :: connected | disconnected | connecting | stopped.
+-type callback_mode() :: always_sync | async_if_possible.
 -type resource_data() :: #{
     id := resource_id(),
     mod := module(),
-    callback_mode := always_sync | async_if_possible,
+    callback_mode := callback_mode(),
     config := resource_config(),
     state := resource_state(),
     status := resource_status(),

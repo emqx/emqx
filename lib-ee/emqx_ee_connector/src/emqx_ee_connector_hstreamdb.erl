@@ -13,9 +13,10 @@
 
 %% callbacks of behaviour emqx_resource
 -export([
+    callback_mode/0,
     on_start/2,
     on_stop/2,
-    on_query/4,
+    on_query/3,
     on_get_status/2
 ]).
 
@@ -33,6 +34,7 @@
 
 %% -------------------------------------------------------------------------------------------------
 %% resource callback
+callback_mode() -> always_sync.
 
 on_start(InstId, Config) ->
     start_client(InstId, Config).
@@ -52,11 +54,10 @@ on_stop(InstId, #{client := Client, producer := Producer}) ->
 on_query(
     _InstId,
     {send_message, Data},
-    AfterQuery,
     #{producer := Producer, ordering_key := OrderingKey, payload := Payload}
 ) ->
     Record = to_record(OrderingKey, Payload, Data),
-    do_append(AfterQuery, Producer, Record).
+    do_append(Producer, Record).
 
 on_get_status(_InstId, #{client := Client}) ->
     case is_alive(Client) of
@@ -260,27 +261,26 @@ to_record(OrderingKey, Payload) when is_binary(OrderingKey) ->
 to_record(OrderingKey, Payload) ->
     hstreamdb:to_record(OrderingKey, raw, Payload).
 
-do_append(AfterQuery, Producer, Record) ->
-    do_append(AfterQuery, false, Producer, Record).
+do_append(Producer, Record) ->
+    do_append(false, Producer, Record).
 
 %% TODO: this append is async, remove or change it after we have better disk cache.
-% do_append(AfterQuery, true, Producer, Record) ->
+% do_append(true, Producer, Record) ->
 %     case hstreamdb:append(Producer, Record) of
 %         ok ->
 %             ?SLOG(debug, #{
 %                 msg => "hstreamdb producer async append success",
 %                 record => Record
-%             }),
-%             emqx_resource:query_success(AfterQuery);
-%         {error, Reason} ->
+%             });
+%         {error, Reason} = Err ->
 %             ?SLOG(error, #{
 %                 msg => "hstreamdb producer async append failed",
 %                 reason => Reason,
 %                 record => Record
 %             }),
-%             emqx_resource:query_failed(AfterQuery)
+%             Err
 %     end;
-do_append(AfterQuery, false, Producer, Record) ->
+do_append(false, Producer, Record) ->
     %% TODO: this append is sync, but it does not support [Record], can only append one Record.
     %% Change it after we have better dick cache.
     case hstreamdb:append_flush(Producer, Record) of
@@ -288,15 +288,14 @@ do_append(AfterQuery, false, Producer, Record) ->
             ?SLOG(debug, #{
                 msg => "hstreamdb producer sync append success",
                 record => Record
-            }),
-            emqx_resource:query_success(AfterQuery);
-        {error, Reason} ->
+            });
+        {error, Reason} = Err ->
             ?SLOG(error, #{
                 msg => "hstreamdb producer sync append failed",
                 reason => Reason,
                 record => Record
             }),
-            emqx_resource:query_failed(AfterQuery)
+            Err
     end.
 
 client_name(InstId) ->

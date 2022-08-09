@@ -80,8 +80,10 @@
 
 %% Direct calls to the callback module
 
-%% start the instance
 -export([
+    %% get the callback mode of a specific module
+    get_callback_mode/1,
+    %% start the instance
     call_start/3,
     %% verify if the resource is working normally
     call_health_check/3,
@@ -284,6 +286,10 @@ generate_id(Name) when is_binary(Name) ->
 
 -spec list_group_instances(resource_group()) -> [resource_id()].
 list_group_instances(Group) -> emqx_resource_manager:list_group(Group).
+
+-spec get_callback_mode(module()) -> callback_mode().
+get_callback_mode(Mod) ->
+    Mod:callback_mode().
 
 -spec call_start(manager_id(), module(), resource_config()) ->
     {ok, resource_state()} | {error, Reason :: term()}.

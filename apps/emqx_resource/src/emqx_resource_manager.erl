@@ -54,6 +54,7 @@
 
 % State record
 -record(data, {id, manager_id, group, mod, callback_mode, config, opts, status, state, error}).
+-type data() :: #data{}.
 
 -define(SHORT_HEALTHCHECK_INTERVAL, 1000).
 -define(HEALTHCHECK_INTERVAL, 15000).
@@ -259,7 +260,7 @@ start_link(MgrId, ResId, Group, ResourceType, Config, Opts) ->
         manager_id = MgrId,
         group = Group,
         mod = ResourceType,
-        callback_mode = ResourceType:callback_mode(),
+        callback_mode = emqx_resource:get_callback_mode(ResourceType),
         config = Config,
         opts = Opts,
         status = connecting,
@@ -560,7 +561,7 @@ maybe_reply(Actions, undefined, _Reply) ->
 maybe_reply(Actions, From, Reply) ->
     [{reply, From, Reply} | Actions].
 
--spec data_record_to_external_map_with_metrics(#data{}) -> resource_data().
+-spec data_record_to_external_map_with_metrics(data()) -> resource_data().
 data_record_to_external_map_with_metrics(Data) ->
     #{
         id => Data#data.id,
