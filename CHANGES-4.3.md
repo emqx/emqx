@@ -20,6 +20,7 @@ File format:
 ### Enhancements
 
 - Improve error message for LwM2M plugin when object ID is not valid [#8654](https://github.com/emqx/emqx/pull/8654).
+- Add tzdata apk package to alpine docker image. [#8671](https://github.com/emqx/emqx/pull/8671)
 
 ## v4.3.18
 
