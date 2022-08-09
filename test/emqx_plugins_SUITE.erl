@@ -100,7 +100,7 @@ t_ensure_default_loaded_plugins_file(Config) ->
        [ {emqx_bridge_mqtt, false}
        , {emqx_dashboard, true}
        , {emqx_management, true}
-       , {emqx_modules, false}
+       , {emqx_modules, true}
        , {emqx_recon, true}
        , {emqx_retainer, true}
        , {emqx_rule_engine, true}
