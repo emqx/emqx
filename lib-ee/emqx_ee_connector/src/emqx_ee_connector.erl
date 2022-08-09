@@ -13,17 +13,17 @@
 
 api_schemas(Method) ->
     [
-        ref(emqx_ee_connector_hstream, Method),
-        ref(emqx_ee_connector_influxdb, Method ++ "_udp"),
-        ref(emqx_ee_connector_influxdb, Method ++ "_api_v1"),
-        ref(emqx_ee_connector_influxdb, Method ++ "_api_v2")
+        ref(emqx_ee_connector_hstreamdb, Method),
+        ref(emqx_ee_connector_influxdb, "udp_" ++ Method),
+        ref(emqx_ee_connector_influxdb, "api_v1_" ++ Method),
+        ref(emqx_ee_connector_influxdb, "api_v2_" ++ Method)
     ].
 
 fields(connectors) ->
     [
         {hstreamdb,
             mk(
-                hoconsc:map(name, ref(emqx_ee_connector_hstream, config)),
+                hoconsc:map(name, ref(emqx_ee_connector_hstreamdb, config)),
                 #{desc => <<"EMQX Enterprise Config">>}
             )}
     ] ++ fields(influxdb);
@@ -52,6 +52,6 @@ connector_examples(Method) ->
 
 schema_modules() ->
     [
-        emqx_ee_connector_hstream,
+        emqx_ee_connector_hstreamdb,
         emqx_ee_connector_influxdb
     ].

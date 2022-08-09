@@ -1,7 +1,7 @@
 %%--------------------------------------------------------------------
 %% Copyright (c) 2022 EMQ Technologies Co., Ltd. All Rights Reserved.
 %%--------------------------------------------------------------------
--module(emqx_ee_connector_hstream).
+-module(emqx_ee_connector_hstreamdb).
 
 -include_lib("hocon/include/hoconsc.hrl").
 -include_lib("typerefl/include/types.hrl").
@@ -24,8 +24,10 @@
 ]).
 
 -export([
+    namespace/0,
     roots/0,
     fields/1,
+    desc/1,
     connector_examples/1
 ]).
 
@@ -75,6 +77,7 @@ on_flush_result({{flush, _Stream, _Records}, {error, _Reason}}) ->
 
 %% -------------------------------------------------------------------------------------------------
 %% schema
+namespace() -> connector_hstreamdb.
 
 roots() ->
     fields(config).
@@ -120,6 +123,9 @@ values(put) ->
     };
 values(_) ->
     #{}.
+
+desc(config) ->
+    ?DESC("config").
 
 %% -------------------------------------------------------------------------------------------------
 %% internal functions

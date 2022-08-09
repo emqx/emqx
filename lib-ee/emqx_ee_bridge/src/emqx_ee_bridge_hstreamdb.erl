@@ -1,7 +1,7 @@
 %%--------------------------------------------------------------------
 %% Copyright (c) 2022 EMQ Technologies Co., Ltd. All Rights Reserved.
 %%--------------------------------------------------------------------
--module(emqx_ee_bridge_hstream).
+-module(emqx_ee_bridge_hstreamdb).
 
 -include_lib("typerefl/include/types.hrl").
 -include_lib("hocon/include/hoconsc.hrl").
@@ -50,7 +50,7 @@ values(put) ->
 
 %% -------------------------------------------------------------------------------------------------
 %% Hocon Schema Definitions
-namespace() -> "bridge".
+namespace() -> "bridge_hstreamdb".
 
 roots() -> [].
 
@@ -71,7 +71,7 @@ fields("get") ->
 
 field(connector) ->
     mk(
-        hoconsc:union([binary(), ref(emqx_ee_connector_hstream, config)]),
+        hoconsc:union([binary(), ref(emqx_ee_connector_hstreamdb, config)]),
         #{
             required => true,
             example => <<"hstreamdb:demo">>,

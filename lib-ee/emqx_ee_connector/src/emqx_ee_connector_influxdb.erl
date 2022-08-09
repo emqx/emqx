@@ -20,7 +20,9 @@
 ]).
 
 -export([
+    namespace/0,
     fields/1,
+    desc/1,
     connector_examples/1
 ]).
 
@@ -46,31 +48,32 @@ on_get_status(_InstId, #{client := Client}) ->
 
 %% -------------------------------------------------------------------------------------------------
 %% schema
+namespace() -> connector_influxdb.
 
-fields("put_udp") ->
+fields("udp_get") ->
+    Key = influxdb_udp,
+    fields(Key) ++ type_name_field(Key);
+fields("udp_post") ->
+    Key = influxdb_udp,
+    fields(Key) ++ type_name_field(Key);
+fields("udp_put") ->
     fields(influxdb_udp);
-fields("put_api_v1") ->
+fields("api_v1_get") ->
+    Key = influxdb_api_v1,
+    fields(Key) ++ type_name_field(Key);
+fields("api_v1_post") ->
+    Key = influxdb_api_v1,
+    fields(Key) ++ type_name_field(Key);
+fields("api_v1_put") ->
     fields(influxdb_api_v1);
-fields("put_api_v2") ->
+fields("api_v2_get") ->
+    Key = influxdb_api_v2,
+    fields(Key) ++ type_name_field(Key);
+fields("api_v2_post") ->
+    Key = influxdb_api_v2,
+    fields(Key) ++ type_name_field(Key);
+fields("api_v2_put") ->
     fields(influxdb_api_v2);
-fields("get_udp") ->
-    Key = influxdb_udp,
-    fields(Key) ++ type_name_field(Key);
-fields("get_api_v1") ->
-    Key = influxdb_api_v1,
-    fields(Key) ++ type_name_field(Key);
-fields("get_api_v2") ->
-    Key = influxdb_api_v2,
-    fields(Key) ++ type_name_field(Key);
-fields("post_udp") ->
-    Key = influxdb_udp,
-    fields(Key) ++ type_name_field(Key);
-fields("post_api_v1") ->
-    Key = influxdb_api_v1,
-    fields(Key) ++ type_name_field(Key);
-fields("post_api_v2") ->
-    Key = influxdb_api_v2,
-    fields(Key) ++ type_name_field(Key);
 fields(basic) ->
     [
         {host,
@@ -159,6 +162,14 @@ values(api_v2, put) ->
         token => <<"my_token">>,
         ssl => #{enable => false}
     }.
+
+desc(influxdb_udp) ->
+    ?DESC("influxdb_udp");
+desc(influxdb_api_v1) ->
+    ?DESC("influxdb_api_v1");
+desc(influxdb_api_v2) ->
+    ?DESC("influxdb_api_v2").
+
 %% -------------------------------------------------------------------------------------------------
 %% internal functions
 
@@ -189,10 +200,7 @@ do_start_client(
     ClientConfig,
     Config = #{
         egress := #{
-            measurement := Measurement,
-            timestamp := Timestamp,
-            tags := Tags,
-            fields := Fields
+            write_syntax := Lines
         }
     }
 ) ->
@@ -202,10 +210,7 @@ do_start_client(
                 true ->
                     State = #{
                         client => Client,
-                        measurement => emqx_plugin_libs_rule:preproc_tmpl(Measurement),
-                        timestamp => emqx_plugin_libs_rule:preproc_tmpl(Timestamp),
-                        tags => to_tags_config(Tags),
-                        fields => to_fields_config(Fields)
+                        write_syntax => to_config(Lines)
                     },
                     ?SLOG(info, #{
                         msg => "starting influxdb connector success",
@@ -304,46 +309,65 @@ ssl_config(SSL = #{enable := true}) ->
 %% Query
 
 do_query(InstId, {send_message, Data}, AfterQuery, State = #{client := Client}) ->
-    case data_to_point(Data, State) of
-        {ok, Point} ->
-            case influxdb:write(Client, [Point]) of
-                ok ->
-                    ?SLOG(debug, #{
-                        msg => "influxdb write point success",
-                        connector => InstId,
-                        point => Point
-                    }),
-                    emqx_resource:query_success(AfterQuery);
-                {error, Reason} ->
-                    ?SLOG(error, #{
-                        msg => "influxdb write point failed",
-                        connector => InstId,
-                        reason => Reason
-                    }),
-                    emqx_resource:query_failed(AfterQuery)
-            end;
-        {error, Reason} ->
+    {Points, Errs} = data_to_points(Data, State),
+    lists:foreach(
+        fun({error, Reason}) ->
             ?SLOG(error, #{
                 msg => "influxdb trans point failed",
                 connector => InstId,
                 reason => Reason
+            })
+        end,
+        Errs
+    ),
+    case influxdb:write(Client, Points) of
+        ok ->
+            ?SLOG(debug, #{
+                msg => "influxdb write point success",
+                connector => InstId,
+                points => Points
             }),
-            {error, Reason}
+            emqx_resource:query_success(AfterQuery);
+        {error, Reason} ->
+            ?SLOG(error, #{
+                msg => "influxdb write point failed",
+                connector => InstId,
+                reason => Reason
+            }),
+            emqx_resource:query_failed(AfterQuery)
     end.
 
 %% -------------------------------------------------------------------------------------------------
 %% Tags & Fields Config Trans
 
-to_tags_config(Tags) ->
-    maps:fold(fun to_maps_config/3, #{}, Tags).
+to_config(Lines) ->
+    to_config(Lines, []).
 
-to_fields_config(Fields) ->
-    maps:fold(fun to_maps_config/3, #{}, Fields).
+to_config([], Acc) ->
+    lists:reverse(Acc);
+to_config(
+    [
+        #{
+            measurement := Measurement,
+            timestamp := Timestamp,
+            tags := Tags,
+            fields := Fields
+        }
+        | Rest
+    ],
+    Acc
+) ->
+    Res = #{
+        measurement => emqx_plugin_libs_rule:preproc_tmpl(Measurement),
+        timestamp => emqx_plugin_libs_rule:preproc_tmpl(Timestamp),
+        tags => to_kv_config(Tags),
+        fields => to_kv_config(Fields)
+    },
+    to_config(Rest, [Res | Acc]).
 
-to_maps_config(K, [IntType, V], Res) when IntType == <<"int">> orelse IntType == <<"uint">> ->
-    NK = emqx_plugin_libs_rule:preproc_tmpl(bin(K)),
-    NV = emqx_plugin_libs_rule:preproc_tmpl(bin(V)),
-    Res#{NK => {binary_to_atom(IntType, utf8), NV}};
+to_kv_config(KVfields) ->
+    maps:fold(fun to_maps_config/3, #{}, proplists:to_map(KVfields)).
+
 to_maps_config(K, V, Res) ->
     NK = emqx_plugin_libs_rule:preproc_tmpl(bin(K)),
     NV = emqx_plugin_libs_rule:preproc_tmpl(bin(V)),
@@ -351,14 +375,24 @@ to_maps_config(K, V, Res) ->
 
 %% -------------------------------------------------------------------------------------------------
 %% Tags & Fields Data Trans
-data_to_point(
+data_to_points(Data, #{write_syntax := Lines}) ->
+    lines_to_points(Data, Lines, [], []).
+
+lines_to_points(_, [], Points, Errs) ->
+    {Points, Errs};
+lines_to_points(
     Data,
-    #{
-        measurement := Measurement,
-        timestamp := Timestamp,
-        tags := Tags,
-        fields := Fields
-    }
+    [
+        #{
+            measurement := Measurement,
+            timestamp := Timestamp,
+            tags := Tags,
+            fields := Fields
+        }
+        | Rest
+    ],
+    ResAcc,
+    ErrAcc
 ) ->
     TransOptions = #{return => rawlist, var_trans => fun data_filter/1},
     case emqx_plugin_libs_rule:proc_tmpl(Timestamp, Data, TransOptions) of
@@ -371,35 +405,53 @@ data_to_point(
                 tags => EncodeTags,
                 fields => EncodeFields
             },
-            {ok, Point};
+            lines_to_points(Data, Rest, [Point | ResAcc], ErrAcc);
         BadTimestamp ->
-            {error, {bad_timestamp, BadTimestamp}}
+            lines_to_points(Data, Rest, ResAcc, [{error, {bad_timestamp, BadTimestamp}} | ErrAcc])
     end.
 
-maps_config_to_data(K, {IntType, V}, {Data, Res}) when IntType == int orelse IntType == uint ->
-    TransOptions = #{return => rawlist, var_trans => fun data_filter/1},
-    NK = emqx_plugin_libs_rule:proc_tmpl(K, Data, TransOptions),
-    NV = emqx_plugin_libs_rule:proc_tmpl(V, Data, TransOptions),
-    case {NK, NV} of
-        {[undefined], _} ->
-            {Data, Res};
-        {_, [undefined]} ->
-            {Data, Res};
-        {_, [IntV]} when is_integer(IntV) ->
-            {Data, Res#{NK => {IntType, IntV}}}
-    end;
 maps_config_to_data(K, V, {Data, Res}) ->
-    TransOptions = #{return => rawlist, var_trans => fun data_filter/1},
-    NK = emqx_plugin_libs_rule:proc_tmpl(K, Data, TransOptions),
-    NV = emqx_plugin_libs_rule:proc_tmpl(V, Data, TransOptions),
+    KTransOptions = #{return => full_binary},
+    VTransOptions = #{return => rawlist, var_trans => fun data_filter/1},
+    NK = emqx_plugin_libs_rule:proc_tmpl(K, Data, KTransOptions),
+    NV = emqx_plugin_libs_rule:proc_tmpl(V, Data, VTransOptions),
     case {NK, NV} of
         {[undefined], _} ->
             {Data, Res};
         {_, [undefined]} ->
             {Data, Res};
         _ ->
-            {Data, Res#{bin(NK) => NV}}
+            {Data, Res#{NK => value_type(NV)}}
     end.
+
+value_type([Int, <<"i">>]) when
+    is_integer(Int)
+->
+    {int, Int};
+value_type([UInt, <<"u">>]) ->
+    {uint, UInt};
+value_type([<<"t">>]) ->
+    't';
+value_type([<<"T">>]) ->
+    'T';
+value_type([true]) ->
+    'true';
+value_type([<<"TRUE">>]) ->
+    'TRUE';
+value_type([<<"True">>]) ->
+    'True';
+value_type([<<"f">>]) ->
+    'f';
+value_type([<<"F">>]) ->
+    'F';
+value_type([false]) ->
+    'false';
+value_type([<<"FALSE">>]) ->
+    'FALSE';
+value_type([<<"False">>]) ->
+    'False';
+value_type(Val) ->
+    Val.
 
 data_filter(undefined) -> undefined;
 data_filter(Int) when is_integer(Int) -> Int;

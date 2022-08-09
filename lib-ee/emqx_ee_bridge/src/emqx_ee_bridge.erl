@@ -14,8 +14,8 @@
 
 api_schemas(Method) ->
     [
-        ref(emqx_ee_bridge_hstream, Method),
         ref(emqx_ee_bridge_mysql, Method),
+        ref(emqx_ee_bridge_hstreamdb, Method),
         ref(emqx_ee_bridge_influxdb, Method ++ "_udp"),
         ref(emqx_ee_bridge_influxdb, Method ++ "_api_v1"),
         ref(emqx_ee_bridge_influxdb, Method ++ "_api_v2")
@@ -23,7 +23,7 @@ api_schemas(Method) ->
 
 schema_modules() ->
     [
-        emqx_ee_bridge_hstream,
+        emqx_ee_bridge_hstreamdb,
         emqx_ee_bridge_influxdb,
         emqx_ee_bridge_mysql
     ].
@@ -41,7 +41,7 @@ conn_bridge_examples(Method) ->
     lists:foldl(Fun, #{}, schema_modules()).
 
 resource_type(Type) when is_binary(Type) -> resource_type(binary_to_atom(Type, utf8));
-resource_type(hstreamdb) -> emqx_ee_connector_hstream;
+resource_type(hstreamdb) -> emqx_ee_connector_hstreamdb;
 resource_type(mysql) -> emqx_connector_mysql;
 resource_type(influxdb_udp) -> emqx_ee_connector_influxdb;
 resource_type(influxdb_api_v1) -> emqx_ee_connector_influxdb;
@@ -51,7 +51,7 @@ fields(bridges) ->
     [
         {hstreamdb,
             mk(
-                hoconsc:map(name, ref(emqx_ee_bridge_hstream, "config")),
+                hoconsc:map(name, ref(emqx_ee_bridge_hstreamdb, "config")),
                 #{desc => <<"EMQX Enterprise Config">>}
             )},
         {mysql,
