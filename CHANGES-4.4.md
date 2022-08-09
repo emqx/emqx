@@ -1,9 +1,15 @@
 # EMQX 4.4 Changes
 
+
 ## v4.4.8
 
 ### Enhancements (synced from v4.3.19)
 * Support HTTP API `/trace/:name/detail`.
+
+
+### Bug fixes
+- Fix: Check if emqx_mod_trace is enabled when the trace file is not found.
+
 
 ## v4.4.5
 
