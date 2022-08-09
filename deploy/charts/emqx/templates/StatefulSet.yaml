@@ -142,14 +142,14 @@ spec:
           {{- end }}
           readinessProbe:
             httpGet:
-              path: /api/v5/status
+              path: /status
               port: {{ .Values.emqxConfig.EMQX_DASHBOARD__LISTENER__HTTP | default 18083 }}
             initialDelaySeconds: 10
             periodSeconds: 5
             failureThreshold: 30
           livenessProbe:
             httpGet:
-              path: /api/v5/status
+              path: /status
               port: {{ .Values.emqxConfig.EMQX_DASHBOARD__LISTENER__HTTP | default 18083 }}
             initialDelaySeconds: 60
             periodSeconds: 30
