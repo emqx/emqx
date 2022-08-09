@@ -1160,7 +1160,15 @@ fields("broker") ->
             )},
         {"shared_subscription_strategy",
             sc(
-                hoconsc:enum([random, round_robin, sticky, local, hash_topic, hash_clientid]),
+                hoconsc:enum([
+                    random,
+                    round_robin,
+                    round_robin_per_group,
+                    sticky,
+                    local,
+                    hash_topic,
+                    hash_clientid
+                ]),
                 #{
                     default => round_robin,
                     desc => ?DESC(broker_shared_subscription_strategy)
@@ -1200,7 +1208,15 @@ fields("shared_subscription_group") ->
     [
         {"strategy",
             sc(
-                hoconsc:enum([random, round_robin, sticky, local, hash_topic, hash_clientid]),
+                hoconsc:enum([
+                    random,
+                    round_robin,
+                    round_robin_per_group,
+                    sticky,
+                    local,
+                    hash_topic,
+                    hash_clientid
+                ]),
                 #{
                     default => random,
                     desc => ?DESC(shared_subscription_strategy_enum)
