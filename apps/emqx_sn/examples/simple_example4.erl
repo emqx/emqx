@@ -5,7 +5,7 @@
 -define(HOST, {127,0,0,1}).
 -define(PORT, 1884).
 
--export([start/0]).
+-export([start/1]).
 
 start(LoopTimes) ->
     io:format("start to connect ~p:~p~n", [?HOST, ?PORT]),
