@@ -88,6 +88,16 @@ fields(config) ->
                     desc => ?DESC("connect_timeout")
                 }
             )},
+        {max_retries,
+            sc(
+                non_neg_integer(),
+                #{deprecated => {since, "5.0.4"}}
+            )},
+        {retry_interval,
+            sc(
+                emqx_schema:duration(),
+                #{deprecated => {since, "5.0.4"}}
+            )},
         {pool_type,
             sc(
                 pool_type(),
