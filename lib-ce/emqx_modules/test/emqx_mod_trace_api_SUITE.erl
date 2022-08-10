@@ -141,6 +141,13 @@ t_stream_log(_Config) ->
     #{<<"code">> := 0, <<"data">> := #{<<"meta">> := Meta1, <<"items">> := Bin1}} = json(Binary1),
     ?assertEqual(#{<<"position">> => 30, <<"bytes">> => 10}, Meta1),
     ?assertEqual(10, byte_size(Bin1)),
+
+    {ok, Detail} = request_api(get, api_path("trace/test_stream_log/detail"), Header),
+    #{<<"data">> := [#{<<"size">> := Size, <<"node">> := Node, <<"mtime">> := Mtime}],
+        <<"code">> := 0} = json(Detail),
+    ?assertEqual(atom_to_binary(node()), Node),
+    ?assert(Size > 0),
+    ?assert(Mtime >= Now),
     unload(),
     ok.
 
