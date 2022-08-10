@@ -3,6 +3,8 @@
 ## Bug fixes
 
 * Allow changing the license type from key to file (and vice-versa). [#8598](https://github.com/emqx/emqx/pull/8598)
+* Add back http connector config keys `max_retries` `retry_interval` as deprecated fields [#8672](https://github.com/emqx/emqx/issues/8672)
+  This caused upgrade failure in 5.0.4, because it would fail to boot on configs created from older version.
 
 ## Enhancements
 
