@@ -179,7 +179,13 @@ trace_file(File) ->
     Node = atom_to_list(node()),
     case file:read_file(FileName) of
         {ok, Bin} -> {ok, Node, Bin};
-        {error, Reason} -> {error, Node, Reason}
+        {error, enoent} ->
+            case emqx_trace:is_enable() of
+                false -> {error, Node, trace_disabled};
+                true -> {error, Node, enoent}
+            end;
+        {error, Reason} ->
+            {error, Node, Reason}
     end.
 
 trace_file_detail(File) ->

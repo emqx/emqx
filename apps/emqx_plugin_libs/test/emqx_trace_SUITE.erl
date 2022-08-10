@@ -300,7 +300,7 @@ t_trace_file(_Config) ->
 
 t_download_log(_Config) ->
     ClientId = <<"client-test">>,
-    Now = erlang:system_time(second),
+    Now = erlang:system_time(second) - 2,
     Start = to_rfc3339(Now),
     Name = <<"test_client_id">>,
     ok = emqx_trace:create([{<<"name">>, Name},
@@ -316,7 +316,7 @@ t_download_log(_Config) ->
 
 t_trace_file_detail(_Config) ->
     ClientId = <<"client-test1">>,
-    Now = erlang:system_time(second),
+    Now = erlang:system_time(second) - 10,
     Start = to_rfc3339(Now),
     Name = <<"test_client_id1">>,
     ok = emqx_trace:create([{<<"name">>, Name},
@@ -330,7 +330,7 @@ t_trace_file_detail(_Config) ->
         = emqx_trace_api:trace_file_detail(#{name => Name}, []),
     ct:pal("~p detail:~p~n", [{Name, Now}, Detail]),
     ?assertEqual(atom_to_binary(node()), Node),
-    ?assert(Size > 0),
+    ?assert(Size >= 0),
     ?assert(Mtime >= Now),
     ok = emqtt:disconnect(Client),
     ok.
