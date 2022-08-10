@@ -323,10 +323,12 @@ t_trace_file_detail(_Config) ->
         {<<"type">>, <<"clientid">>}, {<<"clientid">>, ClientId}, {<<"start_at">>, Start}]),
     {ok, Client} = emqtt:start_link([{clean_start, true}, {clientid, ClientId}]),
     {ok, _} = emqtt:connect(Client),
-    [begin _ = emqtt:ping(Client) end ||_ <- lists:seq(1, 5)],
+    [begin _ = emqtt:ping(Client) end ||_ <- lists:seq(1, 10)],
+    ct:sleep(200),
     ok = emqx_trace_handler_SUITE:filesync(Name, clientid),
-    {ok, [#{mtime := Mtime, node := Node, size := Size}]}
+    {ok, [#{mtime := Mtime, node := Node, size := Size} = Detail]}
         = emqx_trace_api:trace_file_detail(#{name => Name}, []),
+    ct:pal("~p detail:~p~n", [{Name, Now}, Detail]),
     ?assertEqual(atom_to_binary(node()), Node),
     ?assert(Size > 0),
     ?assert(Mtime >= Now),
