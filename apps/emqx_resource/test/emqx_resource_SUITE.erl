@@ -22,10 +22,13 @@
 -include_lib("common_test/include/ct.hrl").
 -include("emqx_resource.hrl").
 -include_lib("stdlib/include/ms_transform.hrl").
+-include_lib("snabbkaffe/include/snabbkaffe.hrl").
 
--define(TEST_RESOURCE, emqx_test_resource).
+-define(TEST_RESOURCE, emqx_connector_demo).
 -define(ID, <<"id">>).
 -define(DEFAULT_RESOURCE_GROUP, <<"default">>).
+-define(RESOURCE_ERROR(REASON), {error, {resource_error, #{reason := REASON}}}).
+-define(TRACE_OPTS, #{timetrap => 10000, timeout => 1000}).
 
 all() ->
     emqx_common_test_helpers:all(?MODULE).
@@ -34,7 +37,10 @@ groups() ->
     [].
 
 init_per_testcase(_, Config) ->
+    emqx_connector_demo:set_callback_mode(always_sync),
     Config.
+end_per_testcase(_, _Config) ->
+    _ = emqx_resource:remove(?ID).
 
 init_per_suite(Config) ->
     code:ensure_loaded(?TEST_RESOURCE),
@@ -80,7 +86,7 @@ t_create_remove(_) ->
         #{name => test_resource},
         #{}
     ),
-    #{pid := Pid} = emqx_resource:query(?ID, get_state),
+    {ok, #{pid := Pid}} = emqx_resource:query(?ID, get_state),
 
     ?assert(is_process_alive(Pid)),
 
@@ -110,7 +116,7 @@ t_create_remove_local(_) ->
         #{name => test_resource},
         #{}
     ),
-    #{pid := Pid} = emqx_resource:query(?ID, get_state),
+    {ok, #{pid := Pid}} = emqx_resource:query(?ID, get_state),
 
     ?assert(is_process_alive(Pid)),
 
@@ -127,7 +133,7 @@ t_create_remove_local(_) ->
     {error, _} = emqx_resource:remove_local(?ID),
 
     ?assertMatch(
-        {error, {emqx_resource, #{reason := not_found}}},
+        ?RESOURCE_ERROR(not_created),
         emqx_resource:query(?ID, get_state)
     ),
     ?assertNot(is_process_alive(Pid)).
@@ -143,23 +149,23 @@ t_do_not_start_after_created(_) ->
     %% the resource should remain `disconnected` after created
     timer:sleep(200),
     ?assertMatch(
-        {error, {emqx_resource, #{reason := not_connected}}},
+        ?RESOURCE_ERROR(stopped),
         emqx_resource:query(?ID, get_state)
     ),
     ?assertMatch(
-        {ok, _, #{status := disconnected}},
+        {ok, _, #{status := stopped}},
         emqx_resource:get_instance(?ID)
     ),
 
     %% start the resource manually..
     ok = emqx_resource:start(?ID),
-    #{pid := Pid} = emqx_resource:query(?ID, get_state),
+    {ok, #{pid := Pid}} = emqx_resource:query(?ID, get_state),
     ?assert(is_process_alive(Pid)),
 
     %% restart the resource
     ok = emqx_resource:restart(?ID),
     ?assertNot(is_process_alive(Pid)),
-    #{pid := Pid2} = emqx_resource:query(?ID, get_state),
+    {ok, #{pid := Pid2}} = emqx_resource:query(?ID, get_state),
     ?assert(is_process_alive(Pid2)),
 
     ok = emqx_resource:remove_local(?ID),
@@ -174,26 +180,145 @@ t_query(_) ->
         #{name => test_resource}
     ),
 
-    Pid = self(),
-    Success = fun() -> Pid ! success end,
-    Failure = fun() -> Pid ! failure end,
-
-    #{pid := _} = emqx_resource:query(?ID, get_state),
-    #{pid := _} = emqx_resource:query(?ID, get_state, {[{Success, []}], [{Failure, []}]}),
-    #{pid := _} = emqx_resource:query(?ID, get_state, undefined),
-    #{pid := _} = emqx_resource:query(?ID, get_state_failed, undefined),
-
-    receive
-        Message -> ?assertEqual(success, Message)
-    after 100 ->
-        ?assert(false)
-    end,
+    {ok, #{pid := _}} = emqx_resource:query(?ID, get_state),
 
     ?assertMatch(
-        {error, {emqx_resource, #{reason := not_found}}},
+        ?RESOURCE_ERROR(not_created),
         emqx_resource:query(<<"unknown">>, get_state)
     ),
 
+    ok = emqx_resource:remove_local(?ID).
+
+t_query_counter(_) ->
+    {ok, _} = emqx_resource:create_local(
+        ?ID,
+        ?DEFAULT_RESOURCE_GROUP,
+        ?TEST_RESOURCE,
+        #{name => test_resource, register => true}
+    ),
+
+    {ok, 0} = emqx_resource:query(?ID, get_counter),
+    ok = emqx_resource:query(?ID, {inc_counter, 1}),
+    {ok, 1} = emqx_resource:query(?ID, get_counter),
+    ok = emqx_resource:query(?ID, {inc_counter, 5}),
+    {ok, 6} = emqx_resource:query(?ID, get_counter),
+
+    ok = emqx_resource:remove_local(?ID).
+
+t_batch_query_counter(_) ->
+    {ok, _} = emqx_resource:create_local(
+        ?ID,
+        ?DEFAULT_RESOURCE_GROUP,
+        ?TEST_RESOURCE,
+        #{name => test_resource, register => true},
+        #{batch_enabled => true}
+    ),
+
+    ?check_trace(
+        ?TRACE_OPTS,
+        emqx_resource:query(?ID, get_counter),
+        fun(Result, Trace) ->
+            ?assertMatch({ok, 0}, Result),
+            QueryTrace = ?of_kind(call_batch_query, Trace),
+            ?assertMatch([#{batch := [{query, _, get_counter}]}], QueryTrace)
+        end
+    ),
+
+    ?check_trace(
+        ?TRACE_OPTS,
+        inc_counter_in_parallel(1000),
+        fun(Trace) ->
+            QueryTrace = ?of_kind(call_batch_query, Trace),
+            ?assertMatch([#{batch := BatchReq} | _] when length(BatchReq) > 1, QueryTrace)
+        end
+    ),
+    {ok, 1000} = emqx_resource:query(?ID, get_counter),
+
+    ok = emqx_resource:remove_local(?ID).
+
+t_query_counter_async(_) ->
+    {ok, _} = emqx_resource:create_local(
+        ?ID,
+        ?DEFAULT_RESOURCE_GROUP,
+        ?TEST_RESOURCE,
+        #{name => test_resource, register => true},
+        #{query_mode => async}
+    ),
+    ?assertMatch({ok, 0}, emqx_resource:simple_sync_query(?ID, get_counter)),
+    ?check_trace(
+        ?TRACE_OPTS,
+        inc_counter_in_parallel(1000),
+        fun(Trace) ->
+            %% the callback_mode if 'emqx_connector_demo' is 'always_sync'.
+            QueryTrace = ?of_kind(call_query, Trace),
+            ?assertMatch([#{query := {query, _, {inc_counter, 1}}} | _], QueryTrace)
+        end
+    ),
+    %% wait for 1s to make sure all the aysnc query is sent to the resource.
+    timer:sleep(1000),
+    %% simple query ignores the query_mode and batching settings in the resource_worker
+    ?check_trace(
+        ?TRACE_OPTS,
+        emqx_resource:simple_sync_query(?ID, get_counter),
+        fun(Result, Trace) ->
+            ?assertMatch({ok, 1000}, Result),
+            %% the callback_mode if 'emqx_connector_demo' is 'always_sync'.
+            QueryTrace = ?of_kind(call_query, Trace),
+            ?assertMatch([#{query := {query, _, get_counter}}], QueryTrace)
+        end
+    ),
+    {ok, _, #{metrics := #{counters := C}}} = emqx_resource:get_instance(?ID),
+    ?assertMatch(#{matched := 1002, success := 1002, failed := 0}, C),
+    ok = emqx_resource:remove_local(?ID).
+
+t_query_counter_async_2(_) ->
+    emqx_connector_demo:set_callback_mode(async_if_possible),
+
+    Tab0 = ets:new(?FUNCTION_NAME, [bag, public]),
+    Insert = fun(Tab, Result) ->
+        ets:insert(Tab, {make_ref(), Result})
+    end,
+    {ok, _} = emqx_resource:create_local(
+        ?ID,
+        ?DEFAULT_RESOURCE_GROUP,
+        ?TEST_RESOURCE,
+        #{name => test_resource, register => true},
+        #{query_mode => async, async_reply_fun => {Insert, [Tab0]}}
+    ),
+    ?assertMatch({ok, 0}, emqx_resource:simple_sync_query(?ID, get_counter)),
+    ?check_trace(
+        ?TRACE_OPTS,
+        inc_counter_in_parallel(1000),
+        fun(Trace) ->
+            QueryTrace = ?of_kind(call_query_async, Trace),
+            ?assertMatch([#{query := {query, _, {inc_counter, 1}}} | _], QueryTrace)
+        end
+    ),
+
+    %% wait for 1s to make sure all the aysnc query is sent to the resource.
+    timer:sleep(1000),
+    %% simple query ignores the query_mode and batching settings in the resource_worker
+    ?check_trace(
+        ?TRACE_OPTS,
+        emqx_resource:simple_sync_query(?ID, get_counter),
+        fun(Result, Trace) ->
+            ?assertMatch({ok, 1000}, Result),
+            QueryTrace = ?of_kind(call_query, Trace),
+            ?assertMatch([#{query := {query, _, get_counter}}], QueryTrace)
+        end
+    ),
+    {ok, _, #{metrics := #{counters := C}}} = emqx_resource:get_instance(?ID),
+    ?assertMatch(#{matched := 1002, success := 1002, failed := 0}, C),
+    ?assertMatch(1000, ets:info(Tab0, size)),
+    ?assert(
+        lists:all(
+            fun
+                ({_, ok}) -> true;
+                (_) -> false
+            end,
+            ets:tab2list(Tab0)
+        )
+    ),
     ok = emqx_resource:remove_local(?ID).
 
 t_healthy_timeout(_) ->
@@ -201,11 +326,14 @@ t_healthy_timeout(_) ->
         ?ID,
         ?DEFAULT_RESOURCE_GROUP,
         ?TEST_RESOURCE,
-        #{name => <<"test_resource">>},
-        #{health_check_timeout => 200}
+        #{name => <<"bad_not_atom_name">>, register => true},
+        %% the ?TEST_RESOURCE always returns the `Mod:on_get_status/2` 300ms later.
+        #{health_check_interval => 200}
     ),
-    timer:sleep(500),
-
+    ?assertMatch(
+        ?RESOURCE_ERROR(not_connected),
+        emqx_resource:query(?ID, get_state)
+    ),
     ok = emqx_resource:remove_local(?ID).
 
 t_healthy(_) ->
@@ -213,11 +341,9 @@ t_healthy(_) ->
         ?ID,
         ?DEFAULT_RESOURCE_GROUP,
         ?TEST_RESOURCE,
-        #{name => <<"test_resource">>}
+        #{name => test_resource}
     ),
-    timer:sleep(400),
-
-    #{pid := Pid} = emqx_resource:query(?ID, get_state),
+    {ok, #{pid := Pid}} = emqx_resource:query(?ID, get_state),
     timer:sleep(300),
     emqx_resource:set_resource_status_connecting(?ID),
 
@@ -229,10 +355,10 @@ t_healthy(_) ->
 
     erlang:exit(Pid, shutdown),
 
-    ?assertEqual({ok, connecting}, emqx_resource:health_check(?ID)),
+    ?assertEqual({ok, disconnected}, emqx_resource:health_check(?ID)),
 
     ?assertMatch(
-        [#{status := connecting}],
+        [#{status := disconnected}],
         emqx_resource:list_instances_verbose()
     ),
 
@@ -260,7 +386,7 @@ t_stop_start(_) ->
         #{}
     ),
 
-    #{pid := Pid0} = emqx_resource:query(?ID, get_state),
+    {ok, #{pid := Pid0}} = emqx_resource:query(?ID, get_state),
 
     ?assert(is_process_alive(Pid0)),
 
@@ -269,14 +395,14 @@ t_stop_start(_) ->
     ?assertNot(is_process_alive(Pid0)),
 
     ?assertMatch(
-        {error, {emqx_resource, #{reason := not_connected}}},
+        ?RESOURCE_ERROR(stopped),
         emqx_resource:query(?ID, get_state)
     ),
 
     ok = emqx_resource:restart(?ID),
     timer:sleep(300),
 
-    #{pid := Pid1} = emqx_resource:query(?ID, get_state),
+    {ok, #{pid := Pid1}} = emqx_resource:query(?ID, get_state),
 
     ?assert(is_process_alive(Pid1)).
 
@@ -302,7 +428,7 @@ t_stop_start_local(_) ->
         #{}
     ),
 
-    #{pid := Pid0} = emqx_resource:query(?ID, get_state),
+    {ok, #{pid := Pid0}} = emqx_resource:query(?ID, get_state),
 
     ?assert(is_process_alive(Pid0)),
 
@@ -311,13 +437,13 @@ t_stop_start_local(_) ->
     ?assertNot(is_process_alive(Pid0)),
 
     ?assertMatch(
-        {error, {emqx_resource, #{reason := not_connected}}},
+        ?RESOURCE_ERROR(stopped),
         emqx_resource:query(?ID, get_state)
     ),
 
     ok = emqx_resource:restart(?ID),
 
-    #{pid := Pid1} = emqx_resource:query(?ID, get_state),
+    {ok, #{pid := Pid1}} = emqx_resource:query(?ID, get_state),
 
     ?assert(is_process_alive(Pid1)).
 
@@ -358,6 +484,10 @@ t_create_dry_run_local(_) ->
     [] = ets:match(emqx_resource_manager, {{owner, '$1'}, '_'}).
 
 create_dry_run_local_succ() ->
+    case whereis(test_resource) of
+        undefined -> ok;
+        Pid -> exit(Pid, kill)
+    end,
     ?assertEqual(
         ok,
         emqx_resource:create_dry_run_local(
@@ -368,17 +498,17 @@ create_dry_run_local_succ() ->
     ?assertEqual(undefined, whereis(test_resource)).
 
 t_create_dry_run_local_failed(_) ->
-    {Res1, _} = emqx_resource:create_dry_run_local(
+    Res1 = emqx_resource:create_dry_run_local(
         ?TEST_RESOURCE,
-        #{cteate_error => true}
+        #{create_error => true}
     ),
-    ?assertEqual(error, Res1),
+    ?assertMatch({error, _}, Res1),
 
-    {Res2, _} = emqx_resource:create_dry_run_local(
+    Res2 = emqx_resource:create_dry_run_local(
         ?TEST_RESOURCE,
         #{name => test_resource, health_check_error => true}
     ),
-    ?assertEqual(error, Res2),
+    ?assertMatch({error, _}, Res2),
 
     Res3 = emqx_resource:create_dry_run_local(
         ?TEST_RESOURCE,
@@ -400,7 +530,7 @@ t_reset_metrics(_) ->
         #{name => test_resource}
     ),
 
-    #{pid := Pid} = emqx_resource:query(?ID, get_state),
+    {ok, #{pid := Pid}} = emqx_resource:query(?ID, get_state),
     emqx_resource:reset_metrics(?ID),
     ?assert(is_process_alive(Pid)),
     ok = emqx_resource:remove(?ID),
@@ -419,6 +549,23 @@ t_auto_retry(_) ->
 %%------------------------------------------------------------------------------
 %% Helpers
 %%------------------------------------------------------------------------------
+inc_counter_in_parallel(N) ->
+    Parent = self(),
+    Pids = [
+        erlang:spawn(fun() ->
+            emqx_resource:query(?ID, {inc_counter, 1}),
+            Parent ! {complete, self()}
+        end)
+     || _ <- lists:seq(1, N)
+    ],
+    [
+        receive
+            {complete, Pid} -> ok
+        after 1000 ->
+            ct:fail({wait_for_query_timeout, Pid})
+        end
+     || Pid <- Pids
+    ].
 
 bin_config() ->
     <<"\"name\": \"test_resource\"">>.

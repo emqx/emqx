@@ -15,22 +15,20 @@
 %%--------------------------------------------------------------------
 -module(emqx_resource_sup).
 
+-include("emqx_resource.hrl").
+
 -behaviour(supervisor).
 
 -export([start_link/0]).
 
 -export([init/1]).
 
-%% set a very large pool size in case all the workers busy
--define(POOL_SIZE, 64).
-
 start_link() ->
     supervisor:start_link({local, ?MODULE}, ?MODULE, []).
 
 init([]) ->
     SupFlags = #{strategy => one_for_one, intensity => 10, period => 10},
-    Metrics = emqx_metrics_worker:child_spec(resource_metrics),
-
+    Metrics = emqx_metrics_worker:child_spec(?RES_METRICS),
     ResourceManager =
         #{
             id => emqx_resource_manager_sup,
@@ -40,4 +38,11 @@ init([]) ->
             type => supervisor,
             modules => [emqx_resource_manager_sup]
         },
-    {ok, {SupFlags, [Metrics, ResourceManager]}}.
+    WorkerSup = #{
+        id => emqx_resource_worker_sup,
+        start => {emqx_resource_worker_sup, start_link, []},
+        restart => permanent,
+        shutdown => infinity,
+        type => supervisor
+    },
+    {ok, {SupFlags, [Metrics, ResourceManager, WorkerSup]}}.

@@ -25,9 +25,10 @@
 
 %% callbacks of behaviour emqx_resource
 -export([
+    callback_mode/0,
     on_start/2,
     on_stop/2,
-    on_query/4,
+    on_query/3,
     on_get_status/2
 ]).
 
@@ -139,6 +140,8 @@ mongo_fields() ->
 
 %% ===================================================================
 
+callback_mode() -> always_sync.
+
 on_start(
     InstId,
     Config = #{
@@ -189,7 +192,6 @@ on_stop(InstId, #{poolname := PoolName}) ->
 on_query(
     InstId,
     {Action, Collection, Filter, Projector},
-    AfterQuery,
     #{poolname := PoolName} = State
 ) ->
     Request = {Action, Collection, Filter, Projector},
@@ -212,14 +214,11 @@ on_query(
                 reason => Reason,
                 connector => InstId
             }),
-            emqx_resource:query_failed(AfterQuery),
             {error, Reason};
         {ok, Cursor} when is_pid(Cursor) ->
-            emqx_resource:query_success(AfterQuery),
-            mc_cursor:foldl(fun(O, Acc2) -> [O | Acc2] end, [], Cursor, 1000);
+            {ok, mc_cursor:foldl(fun(O, Acc2) -> [O | Acc2] end, [], Cursor, 1000)};
         Result ->
-            emqx_resource:query_success(AfterQuery),
-            Result
+            {ok, Result}
     end.
 
 -dialyzer({nowarn_function, [on_get_status/2]}).

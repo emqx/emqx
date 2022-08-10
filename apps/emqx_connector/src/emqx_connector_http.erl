@@ -26,9 +26,10 @@
 
 %% callbacks of behaviour emqx_resource
 -export([
+    callback_mode/0,
     on_start/2,
     on_stop/2,
-    on_query/4,
+    on_query/3,
     on_get_status/2
 ]).
 
@@ -164,6 +165,8 @@ ref(Field) -> hoconsc:ref(?MODULE, Field).
 
 %% ===================================================================
 
+callback_mode() -> always_sync.
+
 on_start(
     InstId,
     #{
@@ -225,7 +228,7 @@ on_stop(InstId, #{pool_name := PoolName}) ->
     }),
     ehttpc_sup:stop_pool(PoolName).
 
-on_query(InstId, {send_message, Msg}, AfterQuery, State) ->
+on_query(InstId, {send_message, Msg}, State) ->
     case maps:get(request, State, undefined) of
         undefined ->
             ?SLOG(error, #{msg => "request_not_found", connector => InstId});
@@ -241,18 +244,16 @@ on_query(InstId, {send_message, Msg}, AfterQuery, State) ->
             on_query(
                 InstId,
                 {undefined, Method, {Path, Headers, Body}, Timeout, Retry},
-                AfterQuery,
                 State
             )
     end;
-on_query(InstId, {Method, Request}, AfterQuery, State) ->
-    on_query(InstId, {undefined, Method, Request, 5000, 2}, AfterQuery, State);
-on_query(InstId, {Method, Request, Timeout}, AfterQuery, State) ->
-    on_query(InstId, {undefined, Method, Request, Timeout, 2}, AfterQuery, State);
+on_query(InstId, {Method, Request}, State) ->
+    on_query(InstId, {undefined, Method, Request, 5000, 2}, State);
+on_query(InstId, {Method, Request, Timeout}, State) ->
+    on_query(InstId, {undefined, Method, Request, Timeout, 2}, State);
 on_query(
     InstId,
     {KeyOrNum, Method, Request, Timeout, Retry},
-    AfterQuery,
     #{pool_name := PoolName, base_path := BasePath} = State
 ) ->
     ?TRACE(
@@ -275,32 +276,29 @@ on_query(
     of
         {error, Reason} ->
             ?SLOG(error, #{
-                msg => "http_connector_do_reqeust_failed",
+                msg => "http_connector_do_request_failed",
                 request => NRequest,
                 reason => Reason,
                 connector => InstId
-            }),
-            emqx_resource:query_failed(AfterQuery);
+            });
         {ok, StatusCode, _} when StatusCode >= 200 andalso StatusCode < 300 ->
-            emqx_resource:query_success(AfterQuery);
+            ok;
         {ok, StatusCode, _, _} when StatusCode >= 200 andalso StatusCode < 300 ->
-            emqx_resource:query_success(AfterQuery);
+            ok;
         {ok, StatusCode, _} ->
             ?SLOG(error, #{
                 msg => "http connector do request, received error response",
                 request => NRequest,
                 connector => InstId,
                 status_code => StatusCode
-            }),
-            emqx_resource:query_failed(AfterQuery);
+            });
         {ok, StatusCode, _, _} ->
             ?SLOG(error, #{
                 msg => "http connector do request, received error response",
                 request => NRequest,
                 connector => InstId,
                 status_code => StatusCode
-            }),
-            emqx_resource:query_failed(AfterQuery)
+            })
     end,
     Result.
 
