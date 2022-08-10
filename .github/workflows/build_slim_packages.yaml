@@ -17,13 +17,12 @@ jobs:
       fail-fast: false
       matrix:
         erl_otp:
-        - 23.3.4.9-3
-        - 24.1.5-3
+        - 24.3.4.2-1
         os:
         - ubuntu20.04
         - el8
 
-    container: ghcr.io/emqx/emqx-builder/4.4-19:${{ matrix.erl_otp }}-${{ matrix.os }}
+    container: ghcr.io/emqx/emqx-builder/4.5-1:${{ matrix.erl_otp }}-${{ matrix.os }}
 
     steps:
     - uses: actions/checkout@v1
@@ -69,7 +68,7 @@ jobs:
         profile:
           - emqx
         otp:
-          - 24.2.1
+          - 24.3.4.2
     steps:
     - uses: actions/checkout@v2
     - uses: ilammy/msvc-dev-cmd@v1
@@ -101,7 +100,7 @@ jobs:
       fail-fast: false
       matrix:
         otp:
-        - 24.1.5-3
+        - 24.3.4.2-1
         macos:
         - macos-11
 
