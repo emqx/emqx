@@ -15,7 +15,9 @@
 -export([roots/0, fields/1, validations/0, desc/1]).
 
 -export([
-    license_type/0
+    license_type/0,
+    key_license/0,
+    file_license/0
 ]).
 
 roots() ->
@@ -99,9 +101,15 @@ validations() ->
 
 license_type() ->
     hoconsc:union([
-        hoconsc:ref(?MODULE, key_license),
-        hoconsc:ref(?MODULE, file_license)
+        key_license(),
+        file_license()
     ]).
+
+key_license() ->
+    hoconsc:ref(?MODULE, key_license).
+
+file_license() ->
+    hoconsc:ref(?MODULE, file_license).
 
 check_license_watermark(Conf) ->
     case hocon_maps:get("license.connection_low_watermark", Conf) of

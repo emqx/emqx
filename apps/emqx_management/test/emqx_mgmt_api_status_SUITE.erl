@@ -31,7 +31,7 @@ end_per_suite(_) ->
     emqx_mgmt_api_test_util:end_suite().
 
 t_status(_Config) ->
-    Path = emqx_mgmt_api_test_util:api_path(["status"]),
+    Path = emqx_mgmt_api_test_util:api_path_without_base_path(["/status"]),
     Status = io_lib:format("Node ~ts is ~ts~nemqx is ~ts", [node(), started, running]),
     {ok, Status} = emqx_mgmt_api_test_util:request_api(get, Path),
     ok.

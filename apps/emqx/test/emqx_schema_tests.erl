@@ -141,3 +141,38 @@ bad_tls_version_test() ->
         validate(Sc, #{<<"versions">> => [<<"foo">>]})
     ),
     ok.
+
+ssl_opts_gc_after_handshake_test_rancher_listener_test() ->
+    Sc = emqx_schema:server_ssl_opts_schema(
+        #{
+            gc_after_handshake => false
+        },
+        _IsRanchListener = true
+    ),
+    ?assertThrow(
+        {_Sc, [
+            #{
+                kind := validation_error,
+                reason := unknown_fields,
+                unknown := <<"gc_after_handshake">>
+            }
+        ]},
+        validate(Sc, #{<<"gc_after_handshake">> => true})
+    ),
+    ok.
+
+ssl_opts_gc_after_handshake_test_not_rancher_listener_test() ->
+    Sc = emqx_schema:server_ssl_opts_schema(
+        #{
+            gc_after_handshake => false
+        },
+        _IsRanchListener = false
+    ),
+    Checked = validate(Sc, #{<<"gc_after_handshake">> => <<"true">>}),
+    ?assertMatch(
+        #{
+            gc_after_handshake := true
+        },
+        Checked
+    ),
+    ok.

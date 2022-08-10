@@ -1160,7 +1160,15 @@ fields("broker") ->
             )},
         {"shared_subscription_strategy",
             sc(
-                hoconsc:enum([random, round_robin, sticky, local, hash_topic, hash_clientid]),
+                hoconsc:enum([
+                    random,
+                    round_robin,
+                    round_robin_per_group,
+                    sticky,
+                    local,
+                    hash_topic,
+                    hash_clientid
+                ]),
                 #{
                     default => round_robin,
                     desc => ?DESC(broker_shared_subscription_strategy)
@@ -1200,7 +1208,15 @@ fields("shared_subscription_group") ->
     [
         {"strategy",
             sc(
-                hoconsc:enum([random, round_robin, sticky, local, hash_topic, hash_clientid]),
+                hoconsc:enum([
+                    random,
+                    round_robin,
+                    round_robin_per_group,
+                    sticky,
+                    local,
+                    hash_topic,
+                    hash_clientid
+                ]),
                 #{
                     default => random,
                     desc => ?DESC(shared_subscription_strategy_enum)
@@ -1619,10 +1635,15 @@ base_listener(Bind) ->
             )},
         {"limiter",
             sc(
-                map("ratelimit_name", emqx_limiter_schema:bucket_name()),
+                ?R_REF(
+                    emqx_limiter_schema,
+                    listener_fields
+                ),
                 #{
                     desc => ?DESC(base_listener_limiter),
-                    default => #{<<"connection">> => <<"default">>}
+                    default => #{
+                        <<"connection">> => #{<<"rate">> => <<"1000/s">>, <<"capacity">> => 1000}
+                    }
                 }
             )},
         {"enable_authn",
@@ -1948,7 +1969,15 @@ server_ssl_opts_schema(Defaults, IsRanchListener) ->
                         }
                     )}
              || IsRanchListener
-            ]
+            ] ++
+                [
+                    {"gc_after_handshake",
+                        sc(boolean(), #{
+                            default => false,
+                            desc => ?DESC(server_ssl_opts_schema_gc_after_handshake)
+                        })}
+                 || not IsRanchListener
+                ]
         ].
 
 %% @doc Make schema for SSL client.

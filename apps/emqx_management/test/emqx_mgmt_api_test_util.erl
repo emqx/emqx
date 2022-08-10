@@ -110,6 +110,9 @@ build_http_header(X) ->
 api_path(Parts) ->
     ?SERVER ++ filename:join([?BASE_PATH | Parts]).
 
+api_path_without_base_path(Parts) ->
+    ?SERVER ++ filename:join([Parts]).
+
 %% Usage:
 %% upload_request(<<"site.com/api/upload">>, <<"path/to/file.png">>,
 %% <<"upload">>, <<"image/png">>, [], <<"some-token">>)

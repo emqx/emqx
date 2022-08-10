@@ -252,11 +252,12 @@ init(
             <<>> -> undefined;
             MP -> MP
         end,
+    ListenerId = emqx_listeners:listener_id(Type, Listener),
     ClientInfo = set_peercert_infos(
         Peercert,
         #{
             zone => Zone,
-            listener => emqx_listeners:listener_id(Type, Listener),
+            listener => ListenerId,
             protocol => Protocol,
             peerhost => PeerHost,
             sockport => SockPort,
@@ -278,7 +279,9 @@ init(
             outbound => #{}
         },
         auth_cache = #{},
-        quota = emqx_limiter_container:get_limiter_by_names([?LIMITER_ROUTING], LimiterCfg),
+        quota = emqx_limiter_container:get_limiter_by_types(
+            ListenerId, [?LIMITER_ROUTING], LimiterCfg
+        ),
         timers = #{},
         conn_state = idle,
         takeover = false,
@@ -354,7 +357,7 @@ handle_in(?CONNECT_PACKET(ConnPkt) = Packet, Channel) ->
             },
             case authenticate(?CONNECT_PACKET(NConnPkt), NChannel1) of
                 {ok, Properties, NChannel2} ->
-                    process_connect(Properties, ensure_connected(NChannel2));
+                    process_connect(Properties, NChannel2);
                 {continue, Properties, NChannel2} ->
                     handle_out(auth, {?RC_CONTINUE_AUTHENTICATION, Properties}, NChannel2);
                 {error, ReasonCode} ->
@@ -378,7 +381,7 @@ handle_in(
             {ok, NProperties, NChannel} ->
                 case ConnState of
                     connecting ->
-                        process_connect(NProperties, ensure_connected(NChannel));
+                        process_connect(NProperties, NChannel);
                     _ ->
                         handle_out(
                             auth,
@@ -608,7 +611,7 @@ process_connect(
     case emqx_cm:open_session(CleanStart, ClientInfo, ConnInfo) of
         {ok, #{session := Session, present := false}} ->
             NChannel = Channel#channel{session = Session},
-            handle_out(connack, {?RC_SUCCESS, sp(false), AckProps}, NChannel);
+            handle_out(connack, {?RC_SUCCESS, sp(false), AckProps}, ensure_connected(NChannel));
         {ok, #{session := Session, present := true, pendings := Pendings}} ->
             Pendings1 = lists:usort(lists:append(Pendings, emqx_misc:drain_deliver())),
             NChannel = Channel#channel{
@@ -616,7 +619,7 @@ process_connect(
                 resuming = true,
                 pendings = Pendings1
             },
-            handle_out(connack, {?RC_SUCCESS, sp(true), AckProps}, NChannel);
+            handle_out(connack, {?RC_SUCCESS, sp(true), AckProps}, ensure_connected(NChannel));
         {error, client_id_unavailable} ->
             handle_out(connack, ?RC_CLIENT_IDENTIFIER_NOT_VALID, Channel);
         {error, Reason} ->
@@ -1199,9 +1202,6 @@ handle_call(
     disconnect_and_shutdown(takenover, AllPendings, Channel);
 handle_call(list_authz_cache, Channel) ->
     {reply, emqx_authz_cache:list_authz_cache(), Channel};
-handle_call({quota, Bucket}, #channel{quota = Quota} = Channel) ->
-    Quota2 = emqx_limiter_container:update_by_name(message_routing, Bucket, Quota),
-    reply(ok, Channel#channel{quota = Quota2});
 handle_call(
     {keepalive, Interval},
     Channel = #channel{

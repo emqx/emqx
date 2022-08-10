@@ -1,3 +1,16 @@
+# 5.0.5
+
+## Bug fixes
+
+* Allow changing the license type from key to file (and vice-versa). [#8598](https://github.com/emqx/emqx/pull/8598)
+
+## Enhancements
+
+* The license is now copied to all nodes in the cluster when it's reloaded. [#8598](https://github.com/emqx/emqx/pull/8598)
+* Added a HTTP API to manage licenses. [#8610](https://github.com/emqx/emqx/pull/8610)
+* Updated `/nodes` API node_status from `Running/Stopped` to `running/stopped`. [#8642](https://github.com/emqx/emqx/pull/8642)
+* Better logging on unknown object IDs. [#8670](https://github.com/emqx/emqx/pull/8670)
+
 # 5.0.4
 
 ## Bug fixes
@@ -34,6 +47,7 @@
 * Improve authentication tracing. [#8554](https://github.com/emqx/emqx/pull/8554)
 * Standardize the '/listeners' and `/gateway/<name>/listeners` API fields.
   It will introduce some incompatible updates, see [#8571](https://github.com/emqx/emqx/pull/8571)
+* Add option to perform GC on connection process after TLS/SSL handshake is performed. [#8637](https://github.com/emqx/emqx/pull/8637)
 
 # 5.0.3
 
