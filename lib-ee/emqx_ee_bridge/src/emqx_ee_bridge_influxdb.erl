@@ -51,7 +51,7 @@ values(Protocol, get) ->
 values(Protocol, post) ->
     case Protocol of
         "influxdb_api_v2" ->
-            SupportUint = <<"uint_value=${payload.uint_key}u">>;
+            SupportUint = <<"uint_value=${payload.uint_key}u,">>;
         _ ->
             SupportUint = <<>>
     end,
