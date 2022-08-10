@@ -6,7 +6,7 @@ on:
 
 jobs:
   build:
-    runs-on: ubuntu-20.04
+    runs-on: ${{ matrix.runs-on }}
 
     strategy:
       matrix:
@@ -15,6 +15,16 @@ jobs:
         os:
         - ubuntu20.04
         - centos7
+        runs-on:
+          - aws-amd64
+          - ubuntu-20.04
+        use-self-hosted:
+          - ${{ github.repository_owner == 'emqx' }}
+        exclude:
+          - runs-on: ubuntu-20.04
+            use-self-hosted: true
+          - runs-on: aws-amd64
+            use-self-hosted: false
 
     container: emqx/build-env:${{ matrix.erl_otp }}-${{ matrix.os }}
 
