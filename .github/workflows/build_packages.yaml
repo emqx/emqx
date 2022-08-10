@@ -365,9 +365,9 @@ jobs:
       id: meta
       with:
         images: ${{ matrix.registry }}/${{ github.repository_owner }}/${{ matrix.profile }}
-        ## only stable tag is latest
+        ## only 5.0 is latest
         flavor: |
-          latest=${{ contains(github.ref, 'tags') && !contains(github.ref_name, 'rc') && !contains(github.ref_name, 'beta') && !contains(github.ref_name, 'alpha') }}
+          latest=false
         tags: |
           type=ref,event=branch
           type=ref,event=pr
