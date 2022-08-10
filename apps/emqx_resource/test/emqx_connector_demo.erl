@@ -31,7 +31,7 @@
     on_get_status/2
 ]).
 
--export([counter_loop/1, set_callback_mode/1]).
+-export([counter_loop/0, set_callback_mode/1]).
 
 %% callbacks for emqx_resource config schema
 -export([roots/0]).
@@ -84,9 +84,22 @@ on_query(_InstId, get_state, State) ->
     {ok, State};
 on_query(_InstId, get_state_failed, State) ->
     {error, State};
-on_query(_InstId, {inc_counter, N}, #{pid := Pid}) ->
-    Pid ! {inc, N},
+on_query(_InstId, block, #{pid := Pid}) ->
+    Pid ! block,
     ok;
+on_query(_InstId, resume, #{pid := Pid}) ->
+    Pid ! resume,
+    ok;
+on_query(_InstId, {inc_counter, N}, #{pid := Pid}) ->
+    ReqRef = make_ref(),
+    From = {self(), ReqRef},
+    Pid ! {From, {inc, N}},
+    receive
+        {ReqRef, ok} -> ok;
+        {ReqRef, incorrect_status} -> {resource_down, incorrect_status}
+    after 1000 ->
+        {error, timeout}
+    end;
 on_query(_InstId, get_counter, #{pid := Pid}) ->
     ReqRef = make_ref(),
     From = {self(), ReqRef},
@@ -97,9 +110,12 @@ on_query(_InstId, get_counter, #{pid := Pid}) ->
         {error, timeout}
     end.
 
-on_query_async(_InstId, Query, ReplyFun, State) ->
-    Result = on_query(_InstId, Query, State),
-    apply_reply(ReplyFun, Result).
+on_query_async(_InstId, {inc_counter, N}, ReplyFun, #{pid := Pid}) ->
+    Pid ! {inc, N, ReplyFun},
+    ok;
+on_query_async(_InstId, get_counter, ReplyFun, #{pid := Pid}) ->
+    Pid ! {get, ReplyFun},
+    ok.
 
 on_batch_query(InstId, BatchReq, State) ->
     %% Requests can be either 'get_counter' or 'inc_counter', but cannot be mixed.
@@ -136,15 +152,35 @@ on_get_status(_InstId, #{pid := Pid}) ->
     end.
 
 spawn_counter_process(Name, Register) ->
-    Pid = spawn_link(?MODULE, counter_loop, [#{counter => 0}]),
+    Pid = spawn_link(?MODULE, counter_loop, []),
     true = maybe_register(Name, Pid, Register),
     Pid.
 
-counter_loop(#{counter := Num} = State) ->
+counter_loop() ->
+    counter_loop(#{counter => 0, status => running}).
+
+counter_loop(#{counter := Num, status := Status} = State) ->
     NewState =
         receive
-            {inc, N} ->
-                #{counter => Num + N};
+            block ->
+                ct:pal("counter recv: ~p", [block]),
+                State#{status => blocked};
+            resume ->
+                {messages, Msgs} = erlang:process_info(self(), messages),
+                ct:pal("counter recv: ~p, buffered msgs: ~p", [resume, length(Msgs)]),
+                State#{status => running};
+            {inc, N, ReplyFun} when Status == running ->
+                apply_reply(ReplyFun, ok),
+                State#{counter => Num + N};
+            {{FromPid, ReqRef}, {inc, N}} when Status == running ->
+                FromPid ! {ReqRef, ok},
+                State#{counter => Num + N};
+            {{FromPid, ReqRef}, {inc, _N}} when Status == blocked ->
+                FromPid ! {ReqRef, incorrect_status},
+                State;
+            {get, ReplyFun} ->
+                apply_reply(ReplyFun, Num),
+                State;
             {{FromPid, ReqRef}, get} ->
                 FromPid ! {ReqRef, Num},
                 State
