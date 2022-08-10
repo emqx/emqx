@@ -399,6 +399,10 @@ typename_to_spec("failure_strategy()", _Mod) ->
     #{type => enum, symbols => [force, drop, throw]};
 typename_to_spec("initial()", _Mod) ->
     #{type => string};
+typename_to_spec("map()", _Mod) ->
+    #{type => object};
+typename_to_spec("#{" ++ _, Mod) ->
+    typename_to_spec("map()", Mod);
 typename_to_spec(Name, Mod) ->
     Spec = range(Name),
     Spec1 = remote_module_type(Spec, Name, Mod),
