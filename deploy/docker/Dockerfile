@@ -16,6 +16,7 @@ RUN apk add --no-cache \
     libc-dev \
     libstdc++ \
     bash \
+    tzdata \
     jq
 
 COPY . /emqx
@@ -48,7 +49,7 @@ COPY deploy/docker/docker-entrypoint.sh /usr/bin/
 COPY --from=builder /emqx/_build/$EMQX_NAME/rel/emqx /opt/emqx
 
 RUN ln -s /opt/emqx/bin/* /usr/local/bin/
-RUN apk add --no-cache curl ncurses-libs openssl sudo libstdc++ bash
+RUN apk add --no-cache curl ncurses-libs openssl sudo libstdc++ bash tzdata
 
 WORKDIR /opt/emqx
 
