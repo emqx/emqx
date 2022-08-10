@@ -177,11 +177,21 @@ relup_test(){
         fi
         ./emqx/bin/emqx_ctl status
         ./emqx/bin/emqx versions
+        OldVsn="$(./emqx/bin/emqx eval 'Versions=[{S, V} ||  {_,V,_, S} <- release_handler:which_releases()],
+                    Current = proplists:get_value(current, Versions, proplists:get_value(permanent, Versions)),
+                    io:format("~s", [Current])')"
         cp "${PACKAGE_PATH}/${PROFILE}-${TARGET_VERSION}"-*.zip ./emqx/releases/
         ./emqx/bin/emqx install "${TARGET_VERSION}"
         [ "$(./emqx/bin/emqx versions |grep permanent | awk '{print $2}')" = "${TARGET_VERSION}" ] || exit 1
         export EMQX_WAIT_FOR_STOP=300
         ./emqx/bin/emqx_ctl status
+
+        # also test remove old rel
+        ./emqx/bin/emqx uninstall "$OldVsn"
+
+        # check emqx still runs
+        ./emqx/bin/emqx ping
+
         if ! ./emqx/bin/emqx stop; then
             cat emqx/log/erlang.log.1 || true
             cat emqx/log/emqx.log.1 || true
