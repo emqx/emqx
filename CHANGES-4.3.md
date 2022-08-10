@@ -21,6 +21,12 @@ File format:
 
 - Improve error message for LwM2M plugin when object ID is not valid [#8654](https://github.com/emqx/emqx/pull/8654).
 
+## v4.3.19
+
+### Bug fixes
+
+- Add a idle timer for ExProto UDP client to avoid client leaking [#8628]
+
 ## v4.3.18
 
 ### Enhancements
