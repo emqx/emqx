@@ -211,7 +211,7 @@ t_batch_query_counter(_) ->
         ?DEFAULT_RESOURCE_GROUP,
         ?TEST_RESOURCE,
         #{name => test_resource, register => true},
-        #{batch_enabled => true}
+        #{enable_batch => true}
     ),
 
     ?check_trace(

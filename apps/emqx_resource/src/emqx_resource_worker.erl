@@ -52,13 +52,6 @@
 
 -export([reply_after_query/6, batch_reply_after_query/6]).
 
--define(RESUME_INTERVAL, 15000).
-
-%% count
--define(DEFAULT_BATCH_SIZE, 100).
-%% milliseconds
--define(DEFAULT_BATCH_TIME, 10).
-
 -define(Q_ITEM(REQUEST), {q_item, REQUEST}).
 
 -define(QUERY(FROM, REQUEST), {query, FROM, REQUEST}).
@@ -69,8 +62,6 @@
     {error, {resource_error, #{reason => Reason, msg => iolist_to_binary(Msg)}}}
 ).
 -define(RESOURCE_ERROR_M(Reason, Msg), {error, {resource_error, #{reason := Reason, msg := Msg}}}).
--define(DEFAULT_QUEUE_SIZE, 1024 * 1024 * 1024).
--define(DEFAULT_INFLIGHT, 100).
 
 -type id() :: binary().
 -type query() :: {query, from(), request()}.
@@ -122,7 +113,7 @@ init({Id, Index, Opts}) ->
     Name = name(Id, Index),
     BatchSize = maps:get(batch_size, Opts, ?DEFAULT_BATCH_SIZE),
     Queue =
-        case maps:get(queue_enabled, Opts, false) of
+        case maps:get(enable_queue, Opts, false) of
             true ->
                 replayq:open(#{
                     dir => disk_queue_dir(Id, Index),
@@ -144,7 +135,7 @@ init({Id, Index, Opts}) ->
         %%  if the resource worker is overloaded
         query_mode => maps:get(query_mode, Opts, sync),
         async_inflight_window => maps:get(async_inflight_window, Opts, ?DEFAULT_INFLIGHT),
-        batch_enabled => maps:get(batch_enabled, Opts, false),
+        enable_batch => maps:get(enable_batch, Opts, false),
         batch_size => BatchSize,
         batch_time => maps:get(batch_time, Opts, ?DEFAULT_BATCH_TIME),
         queue => Queue,
@@ -270,14 +261,14 @@ drop_head(Q) ->
     ok = replayq:ack(Q1, AckRef),
     Q1.
 
-query_or_acc(From, Request, #{batch_enabled := true, acc := Acc, acc_left := Left} = St0) ->
+query_or_acc(From, Request, #{enable_batch := true, acc := Acc, acc_left := Left} = St0) ->
     Acc1 = [?QUERY(From, Request) | Acc],
     St = St0#{acc := Acc1, acc_left := Left - 1},
     case Left =< 1 of
         true -> flush(St);
         false -> {keep_state, ensure_flush_timer(St)}
     end;
-query_or_acc(From, Request, #{batch_enabled := false, queue := Q, id := Id, query_mode := QM} = St) ->
+query_or_acc(From, Request, #{enable_batch := false, queue := Q, id := Id, query_mode := QM} = St) ->
     QueryOpts = #{
         inflight_name => maps:get(name, St),
         inflight_window => maps:get(async_inflight_window, St)

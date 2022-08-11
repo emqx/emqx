@@ -60,5 +60,17 @@
     | {error, term()}
     | {resource_down, term()}.
 
+%% count
+-define(DEFAULT_BATCH_SIZE, 100).
+%% milliseconds
+-define(DEFAULT_BATCH_TIME, 10).
+
+%% bytes
+-define(DEFAULT_QUEUE_SIZE, 1024 * 1024 * 1024).
+
+-define(DEFAULT_INFLIGHT, 100).
+
+-define(RESUME_INTERVAL, 15000).
+
 -define(TEST_ID_PREFIX, "_test_:").
 -define(RES_METRICS, resource_metrics).
