@@ -295,7 +295,7 @@ fetch_creation_opts(Opts) ->
         resume_interval,
         async_inflight_window
     ],
-    maps:with(creation_opts(), SupportedOpts).
+    maps:with(SupportedOpts, Opts).
 
 -spec list_instances() -> [resource_id()].
 list_instances() ->

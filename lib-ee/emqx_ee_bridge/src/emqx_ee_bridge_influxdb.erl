@@ -71,7 +71,9 @@ values(Protocol, post) ->
             <<"${topic},clientid=${clientid}", " ", "payload=${payload},",
                 "${clientid}_int_value=${payload.int_key}i,", SupportUint/binary,
                 "bool=${payload.bool}">>,
-        batch => #{enable_batch => false, batch_size => 5, batch_time => <<"1m">>}
+        enable_batch => false,
+        batch_size => 5,
+        batch_time => <<"1m">>
     };
 values(Protocol, put) ->
     values(Protocol, post).

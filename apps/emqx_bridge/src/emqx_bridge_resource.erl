@@ -34,7 +34,7 @@
     create_dry_run/2,
     remove/1,
     remove/2,
-    remove/3,
+    remove/4,
     update/2,
     update/3,
     stop/2,

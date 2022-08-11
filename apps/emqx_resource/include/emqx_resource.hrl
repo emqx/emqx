@@ -58,7 +58,7 @@
     batch_time => integer(),
     enable_queue => boolean(),
     queue_max_bytes => integer(),
-    query_mode => async | sync | dynamic
+    query_mode => async | sync | dynamic,
     resume_interval => integer(),
     async_inflight_window => integer()
 }.
