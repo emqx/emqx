@@ -19,6 +19,7 @@
 -module(emqx_dashboard_admin).
 
 -include("emqx_dashboard.hrl").
+-include_lib("emqx/include/logger.hrl").
 -include_lib("stdlib/include/ms_transform.hrl").
 
 -boot_mnesia({mnesia, [boot]}).
@@ -91,6 +92,7 @@ add_bootstrap_user() ->
         File ->
             case mnesia:table_info(?ADMIN, size) of
                 0 ->
+                    ?SLOG(debug, #{msg => "Add dashboard bootstrap users", file => File}),
                     add_bootstrap_user(File);
                 _ ->
                     ok

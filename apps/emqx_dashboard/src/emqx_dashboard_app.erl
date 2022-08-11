@@ -31,9 +31,13 @@ start(_StartType, _StartArgs) ->
     case emqx_dashboard:start_listeners() of
         ok ->
             emqx_dashboard_cli:load(),
-            ok = emqx_dashboard_admin:add_bootstrap_user(),
-            {ok, _} = emqx_dashboard_admin:add_default_user(),
-            {ok, Sup};
+            case emqx_dashboard_admin:add_bootstrap_user() of
+                ok ->
+                    {ok, _} = emqx_dashboard_admin:add_default_user(),
+                    {ok, Sup};
+                Error ->
+                    Error
+            end;
         {error, Reason} ->
             {error, Reason}
     end.
