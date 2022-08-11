@@ -30,6 +30,7 @@
     on_start/2,
     on_stop/2,
     on_query/3,
+    on_query_async/4,
     on_get_status/2
 ]).
 
@@ -165,7 +166,7 @@ ref(Field) -> hoconsc:ref(?MODULE, Field).
 
 %% ===================================================================
 
-callback_mode() -> always_sync.
+callback_mode() -> async_if_possible.
 
 on_start(
     InstId,
@@ -231,7 +232,8 @@ on_stop(InstId, #{pool_name := PoolName}) ->
 on_query(InstId, {send_message, Msg}, State) ->
     case maps:get(request, State, undefined) of
         undefined ->
-            ?SLOG(error, #{msg => "request_not_found", connector => InstId});
+            ?SLOG(error, #{msg => "arg_request_not_found", connector => InstId}),
+            {error, arg_request_not_found};
         Request ->
             #{
                 method := Method,
@@ -302,6 +304,51 @@ on_query(
     end,
     Result.
 
+on_query_async(InstId, {send_message, Msg}, ReplyFun, State) ->
+    case maps:get(request, State, undefined) of
+        undefined ->
+            ?SLOG(error, #{msg => "arg_request_not_found", connector => InstId}),
+            {error, arg_request_not_found};
+        Request ->
+            #{
+                method := Method,
+                path := Path,
+                body := Body,
+                headers := Headers,
+                request_timeout := Timeout
+            } = process_request(Request, Msg),
+            on_query_async(
+                InstId,
+                {undefined, Method, {Path, Headers, Body}, Timeout},
+                ReplyFun,
+                State
+            )
+    end;
+on_query_async(
+    InstId,
+    {KeyOrNum, Method, Request, Timeout},
+    ReplyFun,
+    #{pool_name := PoolName, base_path := BasePath} = State
+) ->
+    ?TRACE(
+        "QUERY_ASYNC",
+        "http_connector_received",
+        #{request => Request, connector => InstId, state => State}
+    ),
+    NRequest = formalize_request(Method, BasePath, Request),
+    Worker =
+        case KeyOrNum of
+            undefined -> ehttpc_pool:pick_worker(PoolName);
+            _ -> ehttpc_pool:pick_worker(PoolName, KeyOrNum)
+        end,
+    ok = ehttpc:request_async(
+        Worker,
+        Method,
+        NRequest,
+        Timeout,
+        ReplyFun
+    ).
+
 on_get_status(_InstId, #{pool_name := PoolName, connect_timeout := Timeout} = State) ->
     case do_get_status(PoolName, Timeout) of
         true ->
@@ -343,7 +390,6 @@ do_get_status(PoolName, Timeout) ->
 %%--------------------------------------------------------------------
 %% Internal functions
 %%--------------------------------------------------------------------
-
 preprocess_request(undefined) ->
     undefined;
 preprocess_request(Req) when map_size(Req) == 0 ->

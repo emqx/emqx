@@ -27,15 +27,15 @@
 %%======================================================================================
 %% For HTTP APIs
 get_response() ->
-    http_schema("get").
+    api_schema("get").
 
 put_request() ->
-    http_schema("put").
+    api_schema("put").
 
 post_request() ->
-    http_schema("post").
+    api_schema("post").
 
-http_schema(Method) ->
+api_schema(Method) ->
     Broker =
         lists:flatmap(
             fun(Type) ->
@@ -46,17 +46,17 @@ http_schema(Method) ->
             end,
             ?CONN_TYPES
         ) ++ [ref(Module, Method) || Module <- [emqx_bridge_webhook_schema]],
-    EE = ee_schemas(Method),
+    EE = ee_api_schemas(Method),
     hoconsc:union(Broker ++ EE).
 
 -if(?EMQX_RELEASE_EDITION == ee).
-ee_schemas(Method) ->
+ee_api_schemas(Method) ->
     emqx_ee_bridge:api_schemas(Method).
 
 ee_fields_bridges() ->
     emqx_ee_bridge:fields(bridges).
 -else.
-ee_schemas(_) ->
+ee_api_schemas(_) ->
     [].
 
 ee_fields_bridges() ->
