@@ -37,6 +37,7 @@
     remove/4,
     update/2,
     update/3,
+    update/4,
     stop/2,
     restart/2,
     reset_metrics/1
@@ -111,6 +112,9 @@ update(BridgeId, {OldConf, Conf}) ->
     update(BridgeType, BridgeName, {OldConf, Conf}).
 
 update(Type, Name, {OldConf, Conf}) ->
+    update(Type, Name, {OldConf, Conf}, #{}).
+
+update(Type, Name, {OldConf, Conf}, Opts) ->
     %% TODO: sometimes its not necessary to restart the bridge connection.
     %%
     %% - if the connection related configs like `servers` is updated, we should restart/start
@@ -127,7 +131,7 @@ update(Type, Name, {OldConf, Conf}) ->
                 name => Name,
                 config => Conf
             }),
-            case recreate(Type, Name, Conf) of
+            case recreate(Type, Name, Conf, Opts) of
                 {ok, _} ->
                     maybe_disable_bridge(Type, Name, Conf);
                 {error, not_found} ->
@@ -137,7 +141,7 @@ update(Type, Name, {OldConf, Conf}) ->
                         name => Name,
                         config => Conf
                     }),
-                    create(Type, Name, Conf);
+                    create(Type, Name, Conf, Opts);
                 {error, Reason} ->
                     {error, {update_bridge_failed, Reason}}
             end;
