@@ -44,14 +44,14 @@ values(post) ->
     #{
         type => mysql,
         name => <<"mysql">>,
+        sql_template => ?DEFAULT_SQL,
         connector => #{
             server => <<"127.0.0.1:3306">>,
             database => <<"test">>,
             pool_size => 8,
             username => <<"root">>,
             password => <<"public">>,
-            auto_reconnect => true,
-            prepare_statement => #{send_message => ?DEFAULT_SQL}
+            auto_reconnect => true
         },
         enable => true,
         direction => egress
@@ -69,6 +69,7 @@ fields("config") ->
     [
         {enable, mk(boolean(), #{desc => ?DESC("config_enable"), default => true})},
         {direction, mk(egress, #{desc => ?DESC("config_direction"), default => egress})},
+        {sql_template, mk(binary(), #{desc => ?DESC("sql_template"), default => ?DEFAULT_SQL})},
         {connector,
             mk(
                 ref(?MODULE, connector),
@@ -85,8 +86,7 @@ fields("put") ->
 fields("get") ->
     emqx_bridge_schema:metrics_status_fields() ++ fields("post");
 fields(connector) ->
-    (emqx_connector_mysql:fields(config) --
-        emqx_connector_schema_lib:prepare_statement_fields()) ++ prepare_statement_fields().
+    emqx_connector_mysql:fields(config) -- emqx_connector_schema_lib:prepare_statement_fields().
 
 desc("config") ->
     ?DESC("desc_config");
@@ -104,13 +104,3 @@ type_field() ->
 
 name_field() ->
     {name, mk(binary(), #{required => true, desc => ?DESC("desc_name")})}.
-
-prepare_statement_fields() ->
-    [
-        {prepare_statement,
-            mk(map(), #{
-                desc => ?DESC(emqx_connector_schema_lib, prepare_statement),
-                default => #{<<"send_message">> => ?DEFAULT_SQL},
-                example => #{<<"send_message">> => ?DEFAULT_SQL}
-            })}
-    ].

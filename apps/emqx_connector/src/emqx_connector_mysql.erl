@@ -111,7 +111,7 @@ on_start(
         {pool_size, PoolSize}
     ],
     PoolName = emqx_plugin_libs_pool:pool_name(InstId),
-    Prepares = parse_prepare_sql(maps:get(prepare_statement, Config, #{})),
+    Prepares = parse_prepare_sql(Config),
     State = maps:merge(#{poolname => PoolName, auto_reconnect => AutoReconn}, Prepares),
     case emqx_plugin_libs_pool:start_pool(PoolName, ?MODULE, Options ++ SslOpts) of
         ok -> {ok, init_prepare(State)};
@@ -303,7 +303,19 @@ prepare_sql_to_conn(Conn, [{Key, SQL} | PrepareList]) when is_pid(Conn) ->
 unprepare_sql_to_conn(Conn, PrepareSqlKey) ->
     mysql:unprepare(Conn, PrepareSqlKey).
 
-parse_prepare_sql(SQL) ->
+parse_prepare_sql(Config) ->
+    SQL =
+        case maps:get(prepare_statement, Config, undefined) of
+            undefined ->
+                case emqx_map_lib:deep_get([egress, sql_template], Config, undefined) of
+                    undefined ->
+                        #{};
+                    Template ->
+                        #{send_message => Template}
+                end;
+            Any ->
+                Any
+        end,
     parse_prepare_sql(maps:to_list(SQL), #{}, #{}).
 
 parse_prepare_sql([{Key, H} | T], SQL, Tokens) ->
