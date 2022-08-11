@@ -36,6 +36,13 @@ ERTS_LIB_DIR="$ERTS_DIR/../lib"
 # Echo to stderr on errors
 echoerr() { echo "$*" 1>&2; }
 
+die() {
+    set +x
+    echoerr "ERROR: $1"
+    errno=${2:-1}
+    exit "$errno"
+}
+
 assert_node_alive() {
     if ! relx_nodetool "ping" > /dev/null; then
         die "node_is_not_running!" 1
