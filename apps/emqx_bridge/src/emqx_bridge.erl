@@ -260,6 +260,13 @@ perform_bridge_changes([{Action, MapConfs} | Tasks], Result0) ->
         fun
             ({_Type, _Name}, _Conf, {error, Reason}) ->
                 {error, Reason};
+            %% for emqx_bridge_resource:update/4
+            ({Type, Name}, {OldConf, Conf}, _) ->
+                ResOpts = emqx_resource:fetch_creation_opts(Conf),
+                case Action(Type, Name, {OldConf, Conf}, ResOpts) of
+                    {error, Reason} -> {error, Reason};
+                    Return -> Return
+                end;
             ({Type, Name}, Conf, _) ->
                 ResOpts = emqx_resource:fetch_creation_opts(Conf),
                 case Action(Type, Name, Conf, ResOpts) of
