@@ -52,7 +52,8 @@ assert_node_alive() {
 check_erlang_start() {
     # Fix bin permission
     find "$BINDIR" ! -executable -exec chmod a+x {} \;
-    "$BINDIR/$PROGNAME" -boot "$REL_DIR/start_clean" -eval "crypto:start(),halt()"
+    # set ERL_CRASH_DUMP_BYTES to zero so it will not write a crash dump file
+    env ERL_CRASH_DUMP_BYTES=0 "$BINDIR/$PROGNAME" -boot "$REL_DIR/start_clean" -eval "crypto:start(),halt()"
 }
 
 if ! check_erlang_start >/dev/null 2>&1; then
