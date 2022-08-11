@@ -437,6 +437,8 @@ validate_target_version(TargetVersion, TargetNode) ->
     CurrentVersion = current_release_version(TargetNode),
     case {get_major_minor_vsn(CurrentVersion), get_major_minor_vsn(TargetVersion)} of
         {{Major, Minor}, {Major, Minor}} -> ok;
+        {{<<"4">>, <<"5">>}, {<<"4">>, <<"4">>}} -> ok;
+        {{<<"4">>, <<"4">>}, {<<"4">>, <<"5">>}} -> ok;
         _ ->
             ?INFO("Cannot upgrade/downgrade to ~s from ~s~n"
                   "We only support relup between patch versions",
