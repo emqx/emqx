@@ -70,7 +70,8 @@ values(Protocol, post) ->
         write_syntax =>
             <<"${topic},clientid=${clientid}", " ", "payload=${payload},",
                 "${clientid}_int_value=${payload.int_key}i,", SupportUint/binary,
-                "bool=${payload.bool}">>
+                "bool=${payload.bool}">>,
+        batch => #{enable_batch => false, batch_size => 5, batch_time => <<"1m">>}
     };
 values(Protocol, put) ->
     values(Protocol, post).
@@ -109,7 +110,9 @@ fields("get_api_v2") ->
 fields(Name) when
     Name == influxdb_udp orelse Name == influxdb_api_v1 orelse Name == influxdb_api_v2
 ->
-    fields(basic) ++ connector_field(Name).
+    fields(basic) ++
+        emqx_resource_schema:fields('batch&async&queue') ++
+        connector_field(Name).
 
 method_fileds(post, ConnectorType) ->
     fields(basic) ++ connector_field(ConnectorType) ++ type_name_field(ConnectorType);
@@ -162,6 +165,8 @@ write_syntax(converter) ->
     fun to_influx_lines/1;
 write_syntax(desc) ->
     ?DESC("write_syntax");
+write_syntax(format) ->
+    <<"sql">>;
 write_syntax(_) ->
     undefined.
 
