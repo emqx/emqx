@@ -171,9 +171,9 @@ post_config_update(_, _Req, NewConf, OldConf, _AppEnv) ->
         diff_confs(NewConf, OldConf),
     %% The config update will be failed if any task in `perform_bridge_changes` failed.
     Result = perform_bridge_changes([
-        {fun emqx_bridge_resource:remove/3, Removed},
-        {fun emqx_bridge_resource:create/3, Added},
-        {fun emqx_bridge_resource:update/3, Updated}
+        {fun emqx_bridge_resource:remove/4, Removed},
+        {fun emqx_bridge_resource:create/4, Added},
+        {fun emqx_bridge_resource:update/4, Updated}
     ]),
     ok = unload_hook(),
     ok = load_hook(NewConf),
@@ -261,7 +261,8 @@ perform_bridge_changes([{Action, MapConfs} | Tasks], Result0) ->
             ({_Type, _Name}, _Conf, {error, Reason}) ->
                 {error, Reason};
             ({Type, Name}, Conf, _) ->
-                case Action(Type, Name, Conf) of
+                ResOpts = emqx_resource:fetch_creation_opts(Conf),
+                case Action(Type, Name, Conf, ResOpts) of
                     {error, Reason} -> {error, Reason};
                     Return -> Return
                 end

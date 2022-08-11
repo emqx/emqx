@@ -30,22 +30,14 @@ namespace() -> "resource_schema".
 
 roots() -> [].
 
-fields('batch&async&queue') ->
+fields('creation_opts') ->
     [
         {query_mode, fun query_mode/1},
         {resume_interval, fun resume_interval/1},
         {async_inflight_window, fun async_inflight_window/1},
-        {batch, mk(ref(?MODULE, batch), #{desc => ?DESC("batch")})},
-        {queue, mk(ref(?MODULE, queue), #{desc => ?DESC("queue")})}
-    ];
-fields(batch) ->
-    [
         {enable_batch, fun enable_batch/1},
         {batch_size, fun batch_size/1},
-        {batch_time, fun batch_time/1}
-    ];
-fields(queue) ->
-    [
+        {batch_time, fun batch_time/1},
         {enable_queue, fun enable_queue/1},
         {max_queue_bytes, fun queue_max_bytes/1}
     ].
