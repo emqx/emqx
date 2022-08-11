@@ -27,7 +27,8 @@
 -type reply_fun() :: {fun((result(), Args :: term()) -> any()), Args :: term()} | undefined.
 -type query_opts() :: #{
     %% The key used for picking a resource worker
-    pick_key => term()
+    pick_key => term(),
+    async_reply_fun => reply_fun()
 }.
 -type resource_data() :: #{
     id := resource_id(),

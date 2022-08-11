@@ -236,7 +236,7 @@ t_batch_query_counter(_) ->
 
     ok = emqx_resource:remove_local(?ID).
 
-t_query_counter_async(_) ->
+t_query_counter_async_query(_) ->
     {ok, _} = emqx_resource:create_local(
         ?ID,
         ?DEFAULT_RESOURCE_GROUP,
@@ -271,24 +271,25 @@ t_query_counter_async(_) ->
     ?assertMatch(#{matched := 1002, success := 1002, failed := 0}, C),
     ok = emqx_resource:remove_local(?ID).
 
-t_query_counter_async_2(_) ->
+t_query_counter_async_callback(_) ->
     emqx_connector_demo:set_callback_mode(async_if_possible),
 
     Tab0 = ets:new(?FUNCTION_NAME, [bag, public]),
     Insert = fun(Tab, Result) ->
         ets:insert(Tab, {make_ref(), Result})
     end,
+    ReqOpts = #{async_reply_fun => {Insert, [Tab0]}},
     {ok, _} = emqx_resource:create_local(
         ?ID,
         ?DEFAULT_RESOURCE_GROUP,
         ?TEST_RESOURCE,
         #{name => test_resource, register => true},
-        #{query_mode => async, async_reply_fun => {Insert, [Tab0]}}
+        #{query_mode => async, async_inflight_window => 1000000}
     ),
     ?assertMatch({ok, 0}, emqx_resource:simple_sync_query(?ID, get_counter)),
     ?check_trace(
         ?TRACE_OPTS,
-        inc_counter_in_parallel(1000),
+        inc_counter_in_parallel(1000, ReqOpts),
         fun(Trace) ->
             QueryTrace = ?of_kind(call_query_async, Trace),
             ?assertMatch([#{query := {query, _, {inc_counter, 1}}} | _], QueryTrace)
@@ -310,6 +311,117 @@ t_query_counter_async_2(_) ->
     {ok, _, #{metrics := #{counters := C}}} = emqx_resource:get_instance(?ID),
     ?assertMatch(#{matched := 1002, success := 1002, failed := 0}, C),
     ?assertMatch(1000, ets:info(Tab0, size)),
+    ?assert(
+        lists:all(
+            fun
+                ({_, ok}) -> true;
+                (_) -> false
+            end,
+            ets:tab2list(Tab0)
+        )
+    ),
+    ok = emqx_resource:remove_local(?ID).
+
+t_query_counter_async_inflight(_) ->
+    emqx_connector_demo:set_callback_mode(async_if_possible),
+
+    Tab0 = ets:new(?FUNCTION_NAME, [bag, public]),
+    Insert0 = fun(Tab, Result) ->
+        ets:insert(Tab, {make_ref(), Result})
+    end,
+    ReqOpts = #{async_reply_fun => {Insert0, [Tab0]}},
+    WindowSize = 15,
+    {ok, _} = emqx_resource:create_local(
+        ?ID,
+        ?DEFAULT_RESOURCE_GROUP,
+        ?TEST_RESOURCE,
+        #{name => test_resource, register => true},
+        #{
+            query_mode => async,
+            async_inflight_window => WindowSize,
+            worker_pool_size => 1,
+            resume_interval => 300
+        }
+    ),
+    ?assertMatch({ok, 0}, emqx_resource:simple_sync_query(?ID, get_counter)),
+
+    %% block the resource
+    ?assertMatch(ok, emqx_resource:simple_sync_query(?ID, block)),
+
+    %% send async query to make the inflight window full
+    ?check_trace(
+        ?TRACE_OPTS,
+        inc_counter_in_parallel(WindowSize, ReqOpts),
+        fun(Trace) ->
+            QueryTrace = ?of_kind(call_query_async, Trace),
+            ?assertMatch([#{query := {query, _, {inc_counter, 1}}} | _], QueryTrace)
+        end
+    ),
+
+    %% this will block the resource_worker
+    ok = emqx_resource:query(?ID, {inc_counter, 1}),
+    ?assertMatch(0, ets:info(Tab0, size)),
+    %% sleep to make the resource_worker resume some times
+    timer:sleep(2000),
+
+    %% send query now will fail because the resource is blocked.
+    Insert = fun(Tab, Ref, Result) ->
+        ets:insert(Tab, {Ref, Result})
+    end,
+    ok = emqx_resource:query(?ID, {inc_counter, 1}, #{
+        async_reply_fun => {Insert, [Tab0, tmp_query]}
+    }),
+    ?assertMatch([{_, {error, {resource_error, #{reason := blocked}}}}], ets:take(Tab0, tmp_query)),
+
+    %% all response should be received after the resource is resumed.
+    ?assertMatch(ok, emqx_resource:simple_sync_query(?ID, resume)),
+    timer:sleep(1000),
+    ?assertEqual(WindowSize, ets:info(Tab0, size)),
+
+    %% send async query, this time everything should be ok.
+    Num = 10,
+    ?check_trace(
+        ?TRACE_OPTS,
+        inc_counter_in_parallel(Num, ReqOpts),
+        fun(Trace) ->
+            QueryTrace = ?of_kind(call_query_async, Trace),
+            ?assertMatch([#{query := {query, _, {inc_counter, 1}}} | _], QueryTrace)
+        end
+    ),
+    timer:sleep(1000),
+    ?assertEqual(WindowSize + Num, ets:info(Tab0, size)),
+
+    %% block the resource
+    ?assertMatch(ok, emqx_resource:simple_sync_query(?ID, block)),
+    %% again, send async query to make the inflight window full
+    ?check_trace(
+        ?TRACE_OPTS,
+        inc_counter_in_parallel(WindowSize, ReqOpts),
+        fun(Trace) ->
+            QueryTrace = ?of_kind(call_query_async, Trace),
+            ?assertMatch([#{query := {query, _, {inc_counter, 1}}} | _], QueryTrace)
+        end
+    ),
+
+    %% this will block the resource_worker
+    ok = emqx_resource:query(?ID, {inc_counter, 1}),
+
+    Sent = WindowSize + Num + WindowSize,
+    ?assertMatch(ok, emqx_resource:simple_sync_query(?ID, resume)),
+    timer:sleep(1000),
+    ?assertEqual(Sent, ets:info(Tab0, size)),
+
+    {ok, Counter} = emqx_resource:simple_sync_query(?ID, get_counter),
+    ct:pal("get_counter: ~p, sent: ~p", [Counter, Sent]),
+    ?assert(Sent == Counter),
+
+    {ok, _, #{metrics := #{counters := C}}} = emqx_resource:get_instance(?ID),
+    ct:pal("metrics: ~p", [C]),
+    ?assertMatch(
+        #{matched := M, success := S, exception := E, failed := F, resource_down := RD} when
+            M >= Sent andalso M == S + E + F + RD,
+        C
+    ),
     ?assert(
         lists:all(
             fun
@@ -550,10 +662,13 @@ t_auto_retry(_) ->
 %% Helpers
 %%------------------------------------------------------------------------------
 inc_counter_in_parallel(N) ->
+    inc_counter_in_parallel(N, #{}).
+
+inc_counter_in_parallel(N, Opts) ->
     Parent = self(),
     Pids = [
         erlang:spawn(fun() ->
-            emqx_resource:query(?ID, {inc_counter, 1}),
+            emqx_resource:query(?ID, {inc_counter, 1}, Opts),
             Parent ! {complete, self()}
         end)
      || _ <- lists:seq(1, N)
@@ -566,6 +681,17 @@ inc_counter_in_parallel(N) ->
         end
      || Pid <- Pids
     ].
+
+% verify_inflight_full(WindowSize) ->
+%     ?check_trace(
+%         ?TRACE_OPTS,
+%         emqx_resource:query(?ID, {inc_counter, 1}),
+%         fun(Return, Trace) ->
+%             QueryTrace = ?of_kind(inflight_full, Trace),
+%             ?assertMatch([#{wind_size := WindowSize} | _], QueryTrace),
+%             ?assertMatch(ok, Return)
+%         end
+%     ).
 
 bin_config() ->
     <<"\"name\": \"test_resource\"">>.

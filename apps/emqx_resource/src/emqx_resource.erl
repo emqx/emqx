@@ -76,6 +76,7 @@
     stop/1,
     %% query the instance
     query/2,
+    query/3,
     %% query the instance without batching and queuing messages.
     simple_sync_query/2,
     simple_async_query/3
