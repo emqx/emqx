@@ -21,6 +21,11 @@
     desc/1
 ]).
 
+-type write_syntax() :: list().
+-reflect_type([write_syntax/0]).
+-typerefl_from_string({write_syntax/0, ?MODULE, to_influx_lines}).
+-export([to_influx_lines/1]).
+
 %% -------------------------------------------------------------------------------------------------
 %% api
 
@@ -51,7 +56,7 @@ values(Protocol, get) ->
 values(Protocol, post) ->
     case Protocol of
         "influxdb_api_v2" ->
-            SupportUint = <<"uint_value=${payload.uint_key}u">>;
+            SupportUint = <<"uint_value=${payload.uint_key}u,">>;
         _ ->
             SupportUint = <<>>
     end,
@@ -65,7 +70,10 @@ values(Protocol, post) ->
         write_syntax =>
             <<"${topic},clientid=${clientid}", " ", "payload=${payload},",
                 "${clientid}_int_value=${payload.int_key}i,", SupportUint/binary,
-                "bool=${payload.bool}">>
+                "bool=${payload.bool}">>,
+        enable_batch => false,
+        batch_size => 5,
+        batch_time => <<"1m">>
     };
 values(Protocol, put) ->
     values(Protocol, post).
@@ -104,7 +112,9 @@ fields("get_api_v2") ->
 fields(Name) when
     Name == influxdb_udp orelse Name == influxdb_api_v1 orelse Name == influxdb_api_v2
 ->
-    fields(basic) ++ connector_field(Name).
+    fields(basic) ++
+        emqx_resource_schema:fields('creation_opts') ++
+        connector_field(Name).
 
 method_fileds(post, ConnectorType) ->
     fields(basic) ++ connector_field(ConnectorType) ++ type_name_field(ConnectorType);
@@ -148,19 +158,21 @@ desc(_) ->
     undefined.
 
 write_syntax(type) ->
-    list();
+    ?MODULE:write_syntax();
 write_syntax(required) ->
     true;
 write_syntax(validator) ->
     [?NOT_EMPTY("the value of the field 'write_syntax' cannot be empty")];
 write_syntax(converter) ->
-    fun converter_influx_lines/1;
+    fun to_influx_lines/1;
 write_syntax(desc) ->
     ?DESC("write_syntax");
+write_syntax(format) ->
+    <<"sql">>;
 write_syntax(_) ->
     undefined.
 
-converter_influx_lines(RawLines) ->
+to_influx_lines(RawLines) ->
     Lines = string:tokens(str(RawLines), "\n"),
     lists:reverse(lists:foldl(fun converter_influx_line/2, [], Lines)).
 

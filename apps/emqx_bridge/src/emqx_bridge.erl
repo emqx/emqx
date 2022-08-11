@@ -49,14 +49,14 @@
 -export([get_basic_usage_info/0]).
 
 load() ->
-    %% set wait_for_resource_ready => 0 to start resources async
-    Opts = #{auto_retry_interval => 60000, wait_for_resource_ready => 0},
     Bridges = emqx:get_config([bridges], #{}),
     lists:foreach(
         fun({Type, NamedConf}) ->
             lists:foreach(
                 fun({Name, Conf}) ->
-                    safe_load_bridge(Type, Name, Conf, Opts)
+                    %% fetch opts for `emqx_resource_worker`
+                    ResOpts = emqx_resource:fetch_creation_opts(Conf),
+                    safe_load_bridge(Type, Name, Conf, ResOpts)
                 end,
                 maps:to_list(NamedConf)
             )
@@ -171,9 +171,9 @@ post_config_update(_, _Req, NewConf, OldConf, _AppEnv) ->
         diff_confs(NewConf, OldConf),
     %% The config update will be failed if any task in `perform_bridge_changes` failed.
     Result = perform_bridge_changes([
-        {fun emqx_bridge_resource:remove/3, Removed},
-        {fun emqx_bridge_resource:create/3, Added},
-        {fun emqx_bridge_resource:update/3, Updated}
+        {fun emqx_bridge_resource:remove/4, Removed},
+        {fun emqx_bridge_resource:create/4, Added},
+        {fun emqx_bridge_resource:update/4, Updated}
     ]),
     ok = unload_hook(),
     ok = load_hook(NewConf),
@@ -260,8 +260,16 @@ perform_bridge_changes([{Action, MapConfs} | Tasks], Result0) ->
         fun
             ({_Type, _Name}, _Conf, {error, Reason}) ->
                 {error, Reason};
+            %% for emqx_bridge_resource:update/4
+            ({Type, Name}, {OldConf, Conf}, _) ->
+                ResOpts = emqx_resource:fetch_creation_opts(Conf),
+                case Action(Type, Name, {OldConf, Conf}, ResOpts) of
+                    {error, Reason} -> {error, Reason};
+                    Return -> Return
+                end;
             ({Type, Name}, Conf, _) ->
-                case Action(Type, Name, Conf) of
+                ResOpts = emqx_resource:fetch_creation_opts(Conf),
+                case Action(Type, Name, Conf, ResOpts) of
                     {error, Reason} -> {error, Reason};
                     Return -> Return
                 end

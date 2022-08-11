@@ -40,7 +40,7 @@
     metrics := emqx_metrics_worker:metrics()
 }.
 -type resource_group() :: binary().
--type create_opts() :: #{
+-type creation_opts() :: #{
     health_check_interval => integer(),
     health_check_timeout => integer(),
     %% We can choose to block the return of emqx_resource:start until
@@ -52,13 +52,33 @@
     start_after_created => boolean(),
     %% If the resource disconnected, we can set to retry starting the resource
     %% periodically.
-    auto_retry_interval => integer()
+    auto_retry_interval => integer(),
+    enable_batch => boolean(),
+    batch_size => integer(),
+    batch_time => integer(),
+    enable_queue => boolean(),
+    queue_max_bytes => integer(),
+    query_mode => async | sync | dynamic,
+    resume_interval => integer(),
+    async_inflight_window => integer()
 }.
 -type query_result() ::
     ok
     | {ok, term()}
     | {error, term()}
     | {resource_down, term()}.
+
+%% count
+-define(DEFAULT_BATCH_SIZE, 100).
+%% milliseconds
+-define(DEFAULT_BATCH_TIME, 10).
+
+%% bytes
+-define(DEFAULT_QUEUE_SIZE, 1024 * 1024 * 1024).
+
+-define(DEFAULT_INFLIGHT, 100).
+
+-define(RESUME_INTERVAL, 15000).
 
 -define(TEST_ID_PREFIX, "_test_:").
 -define(RES_METRICS, resource_metrics).

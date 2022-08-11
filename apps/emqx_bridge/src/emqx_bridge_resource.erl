@@ -34,9 +34,10 @@
     create_dry_run/2,
     remove/1,
     remove/2,
-    remove/3,
+    remove/4,
     update/2,
     update/3,
+    update/4,
     stop/2,
     restart/2,
     reset_metrics/1
@@ -111,6 +112,9 @@ update(BridgeId, {OldConf, Conf}) ->
     update(BridgeType, BridgeName, {OldConf, Conf}).
 
 update(Type, Name, {OldConf, Conf}) ->
+    update(Type, Name, {OldConf, Conf}, #{}).
+
+update(Type, Name, {OldConf, Conf}, Opts) ->
     %% TODO: sometimes its not necessary to restart the bridge connection.
     %%
     %% - if the connection related configs like `servers` is updated, we should restart/start
@@ -127,7 +131,7 @@ update(Type, Name, {OldConf, Conf}) ->
                 name => Name,
                 config => Conf
             }),
-            case recreate(Type, Name, Conf) of
+            case recreate(Type, Name, Conf, Opts) of
                 {ok, _} ->
                     maybe_disable_bridge(Type, Name, Conf);
                 {error, not_found} ->
@@ -137,7 +141,7 @@ update(Type, Name, {OldConf, Conf}) ->
                         name => Name,
                         config => Conf
                     }),
-                    create(Type, Name, Conf);
+                    create(Type, Name, Conf, Opts);
                 {error, Reason} ->
                     {error, {update_bridge_failed, Reason}}
             end;
@@ -158,11 +162,14 @@ recreate(Type, Name) ->
     recreate(Type, Name, emqx:get_config([bridges, Type, Name])).
 
 recreate(Type, Name, Conf) ->
+    recreate(Type, Name, Conf, #{}).
+
+recreate(Type, Name, Conf, Opts) ->
     emqx_resource:recreate_local(
         resource_id(Type, Name),
         bridge_to_resource_type(Type),
         parse_confs(Type, Name, Conf),
-        #{auto_retry_interval => 60000}
+        Opts#{auto_retry_interval => 60000}
     ).
 
 create_dry_run(Type, Conf) ->
@@ -186,13 +193,13 @@ create_dry_run(Type, Conf) ->
 
 remove(BridgeId) ->
     {BridgeType, BridgeName} = parse_bridge_id(BridgeId),
-    remove(BridgeType, BridgeName, #{}).
+    remove(BridgeType, BridgeName, #{}, #{}).
 
 remove(Type, Name) ->
-    remove(Type, Name, undefined).
+    remove(Type, Name, #{}, #{}).
 
 %% just for perform_bridge_changes/1
-remove(Type, Name, _Conf) ->
+remove(Type, Name, _Conf, _Opts) ->
     ?SLOG(info, #{msg => "remove_bridge", type => Type, name => Name}),
     case emqx_resource:remove_local(resource_id(Type, Name)) of
         ok -> ok;

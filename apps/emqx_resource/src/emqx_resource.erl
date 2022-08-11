@@ -102,6 +102,7 @@
     list_instances_verbose/0,
     %% return the data of the instance
     get_instance/1,
+    fetch_creation_opts/1,
     %% return all the instances of the same resource type
     list_instances_by_type/1,
     generate_id/1,
@@ -126,6 +127,7 @@
 %% when calling emqx_resource:query/3
 -callback on_query(resource_id(), Request :: term(), resource_state()) -> query_result().
 
+%% when calling emqx_resource:on_batch_query/3
 -callback on_batch_query(resource_id(), Request :: term(), resource_state()) -> query_result().
 
 %% when calling emqx_resource:health_check/2
@@ -158,7 +160,7 @@ is_resource_mod(Module) ->
 create(ResId, Group, ResourceType, Config) ->
     create(ResId, Group, ResourceType, Config, #{}).
 
--spec create(resource_id(), resource_group(), resource_type(), resource_config(), create_opts()) ->
+-spec create(resource_id(), resource_group(), resource_type(), resource_config(), creation_opts()) ->
     {ok, resource_data() | 'already_created'} | {error, Reason :: term()}.
 create(ResId, Group, ResourceType, Config, Opts) ->
     emqx_resource_proto_v1:create(ResId, Group, ResourceType, Config, Opts).
@@ -174,7 +176,7 @@ create_local(ResId, Group, ResourceType, Config) ->
     resource_group(),
     resource_type(),
     resource_config(),
-    create_opts()
+    creation_opts()
 ) ->
     {ok, resource_data()}.
 create_local(ResId, Group, ResourceType, Config, Opts) ->
@@ -195,7 +197,7 @@ create_dry_run_local(ResourceType, Config) ->
 recreate(ResId, ResourceType, Config) ->
     recreate(ResId, ResourceType, Config, #{}).
 
--spec recreate(resource_id(), resource_type(), resource_config(), create_opts()) ->
+-spec recreate(resource_id(), resource_type(), resource_config(), creation_opts()) ->
     {ok, resource_data()} | {error, Reason :: term()}.
 recreate(ResId, ResourceType, Config, Opts) ->
     emqx_resource_proto_v1:recreate(ResId, ResourceType, Config, Opts).
@@ -205,7 +207,7 @@ recreate(ResId, ResourceType, Config, Opts) ->
 recreate_local(ResId, ResourceType, Config) ->
     recreate_local(ResId, ResourceType, Config, #{}).
 
--spec recreate_local(resource_id(), resource_type(), resource_config(), create_opts()) ->
+-spec recreate_local(resource_id(), resource_type(), resource_config(), creation_opts()) ->
     {ok, resource_data()} | {error, Reason :: term()}.
 recreate_local(ResId, ResourceType, Config, Opts) ->
     emqx_resource_manager:recreate(ResId, ResourceType, Config, Opts).
@@ -248,7 +250,7 @@ simple_async_query(ResId, Request, ReplyFun) ->
 start(ResId) ->
     start(ResId, #{}).
 
--spec start(resource_id(), create_opts()) -> ok | {error, Reason :: term()}.
+-spec start(resource_id(), creation_opts()) -> ok | {error, Reason :: term()}.
 start(ResId, Opts) ->
     emqx_resource_manager:start(ResId, Opts).
 
@@ -256,7 +258,7 @@ start(ResId, Opts) ->
 restart(ResId) ->
     restart(ResId, #{}).
 
--spec restart(resource_id(), create_opts()) -> ok | {error, Reason :: term()}.
+-spec restart(resource_id(), creation_opts()) -> ok | {error, Reason :: term()}.
 restart(ResId, Opts) ->
     emqx_resource_manager:restart(ResId, Opts).
 
@@ -275,6 +277,25 @@ set_resource_status_connecting(ResId) ->
     {ok, resource_group(), resource_data()} | {error, Reason :: term()}.
 get_instance(ResId) ->
     emqx_resource_manager:lookup(ResId).
+
+-spec fetch_creation_opts(map()) -> creation_opts().
+fetch_creation_opts(Opts) ->
+    SupportedOpts = [
+        health_check_interval,
+        health_check_timeout,
+        wait_for_resource_ready,
+        start_after_created,
+        auto_retry_interval,
+        enable_batch,
+        batch_size,
+        batch_time,
+        enable_queue,
+        queue_max_bytes,
+        query_mode,
+        resume_interval,
+        async_inflight_window
+    ],
+    maps:with(SupportedOpts, Opts).
 
 -spec list_instances() -> [resource_id()].
 list_instances() ->
@@ -340,7 +361,7 @@ check_and_create(ResId, Group, ResourceType, RawConfig) ->
     resource_group(),
     resource_type(),
     raw_resource_config(),
-    create_opts()
+    creation_opts()
 ) ->
     {ok, resource_data() | 'already_created'} | {error, term()}.
 check_and_create(ResId, Group, ResourceType, RawConfig, Opts) ->
@@ -365,7 +386,7 @@ check_and_create_local(ResId, Group, ResourceType, RawConfig) ->
     resource_group(),
     resource_type(),
     raw_resource_config(),
-    create_opts()
+    creation_opts()
 ) -> {ok, resource_data()} | {error, term()}.
 check_and_create_local(ResId, Group, ResourceType, RawConfig, Opts) ->
     check_and_do(
@@ -378,7 +399,7 @@ check_and_create_local(ResId, Group, ResourceType, RawConfig, Opts) ->
     resource_id(),
     resource_type(),
     raw_resource_config(),
-    create_opts()
+    creation_opts()
 ) ->
     {ok, resource_data()} | {error, term()}.
 check_and_recreate(ResId, ResourceType, RawConfig, Opts) ->
@@ -392,7 +413,7 @@ check_and_recreate(ResId, ResourceType, RawConfig, Opts) ->
     resource_id(),
     resource_type(),
     raw_resource_config(),
-    create_opts()
+    creation_opts()
 ) ->
     {ok, resource_data()} | {error, term()}.
 check_and_recreate_local(ResId, ResourceType, RawConfig, Opts) ->
