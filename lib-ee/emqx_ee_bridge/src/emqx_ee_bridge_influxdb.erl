@@ -111,7 +111,7 @@ fields(Name) when
     Name == influxdb_udp orelse Name == influxdb_api_v1 orelse Name == influxdb_api_v2
 ->
     fields(basic) ++
-        emqx_resource_schema:fields('batch&async&queue') ++
+        emqx_resource_schema:fields('creation_opts') ++
         connector_field(Name).
 
 method_fileds(post, ConnectorType) ->

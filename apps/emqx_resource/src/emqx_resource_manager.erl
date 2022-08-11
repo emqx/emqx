@@ -85,7 +85,7 @@ manager_id_to_resource_id(MgrId) ->
     resource_group(),
     resource_type(),
     resource_config(),
-    create_opts()
+    creation_opts()
 ) -> {ok, resource_data()}.
 ensure_resource(ResId, Group, ResourceType, Config, Opts) ->
     case lookup(ResId) of
@@ -97,7 +97,7 @@ ensure_resource(ResId, Group, ResourceType, Config, Opts) ->
     end.
 
 %% @doc Called from emqx_resource when recreating a resource which may or may not exist
--spec recreate(resource_id(), resource_type(), resource_config(), create_opts()) ->
+-spec recreate(resource_id(), resource_type(), resource_config(), creation_opts()) ->
     {ok, resource_data()} | {error, not_found} | {error, updating_to_incorrect_resource_type}.
 recreate(ResId, ResourceType, NewConfig, Opts) ->
     case lookup(ResId) of
@@ -166,7 +166,7 @@ remove(ResId, ClearMetrics) when is_binary(ResId) ->
     safe_call(ResId, {remove, ClearMetrics}, ?T_OPERATION).
 
 %% @doc Stops and then starts an instance that was already running
--spec restart(resource_id(), create_opts()) -> ok | {error, Reason :: term()}.
+-spec restart(resource_id(), creation_opts()) -> ok | {error, Reason :: term()}.
 restart(ResId, Opts) when is_binary(ResId) ->
     case safe_call(ResId, restart, ?T_OPERATION) of
         ok ->
@@ -177,7 +177,7 @@ restart(ResId, Opts) when is_binary(ResId) ->
     end.
 
 %% @doc Start the resource
--spec start(resource_id(), create_opts()) -> ok | {error, Reason :: term()}.
+-spec start(resource_id(), creation_opts()) -> ok | {error, Reason :: term()}.
 start(ResId, Opts) ->
     case safe_call(ResId, start, ?T_OPERATION) of
         ok ->

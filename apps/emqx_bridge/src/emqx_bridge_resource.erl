@@ -158,11 +158,14 @@ recreate(Type, Name) ->
     recreate(Type, Name, emqx:get_config([bridges, Type, Name])).
 
 recreate(Type, Name, Conf) ->
+    recreate(Type, Name, Conf, #{}).
+
+recreate(Type, Name, Conf, Opts) ->
     emqx_resource:recreate_local(
         resource_id(Type, Name),
         bridge_to_resource_type(Type),
         parse_confs(Type, Name, Conf),
-        #{auto_retry_interval => 60000}
+        Opts#{auto_retry_interval => 60000}
     ).
 
 create_dry_run(Type, Conf) ->
@@ -186,13 +189,13 @@ create_dry_run(Type, Conf) ->
 
 remove(BridgeId) ->
     {BridgeType, BridgeName} = parse_bridge_id(BridgeId),
-    remove(BridgeType, BridgeName, #{}).
+    remove(BridgeType, BridgeName, #{}, #{}).
 
 remove(Type, Name) ->
-    remove(Type, Name, undefined).
+    remove(Type, Name, #{}, #{}).
 
 %% just for perform_bridge_changes/1
-remove(Type, Name, _Conf) ->
+remove(Type, Name, _Conf, _Opts) ->
     ?SLOG(info, #{msg => "remove_bridge", type => Type, name => Name}),
     case emqx_resource:remove_local(resource_id(Type, Name)) of
         ok -> ok;
