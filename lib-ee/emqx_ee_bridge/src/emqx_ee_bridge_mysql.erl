@@ -69,7 +69,11 @@ fields("config") ->
     [
         {enable, mk(boolean(), #{desc => ?DESC("config_enable"), default => true})},
         {direction, mk(egress, #{desc => ?DESC("config_direction"), default => egress})},
-        {sql_template, mk(binary(), #{desc => ?DESC("sql_template"), default => ?DEFAULT_SQL})},
+        {sql_template,
+            mk(
+                binary(),
+                #{desc => ?DESC("sql_template"), default => ?DEFAULT_SQL, format => <<"sql">>}
+            )},
         {connector,
             mk(
                 ref(?MODULE, connector),
