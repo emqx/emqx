@@ -49,14 +49,14 @@
 -export([get_basic_usage_info/0]).
 
 load() ->
-    %% set wait_for_resource_ready => 0 to start resources async
-    Opts = #{auto_retry_interval => 60000, wait_for_resource_ready => 0},
     Bridges = emqx:get_config([bridges], #{}),
     lists:foreach(
         fun({Type, NamedConf}) ->
             lists:foreach(
                 fun({Name, Conf}) ->
-                    safe_load_bridge(Type, Name, Conf, Opts)
+                    %% fetch opts for `emqx_resource_worker`
+                    ResOpts = emqx_resource:fetch_creation_opts(Conf),
+                    safe_load_bridge(Type, Name, Conf, ResOpts)
                 end,
                 maps:to_list(NamedConf)
             )
