@@ -389,13 +389,13 @@ to_maps_config(K, V, Res) ->
 %% Tags & Fields Data Trans
 parse_batch_data(InstId, BatchData, SyntaxLines) ->
     {Points, Errors} = lists:foldl(
-        fun({send_message, Data}, {AccIn, ErrAccIn}) ->
+        fun({send_message, Data}, {ListOfPoints, ErrAccIn}) ->
             case data_to_points(Data, SyntaxLines) of
                 {ok, Points} ->
-                    {[Points | AccIn], ErrAccIn};
+                    {[Points | ListOfPoints], ErrAccIn};
                 {error, ErrorPoints} ->
                     log_error_points(InstId, ErrorPoints),
-                    {AccIn, ErrAccIn + 1}
+                    {ListOfPoints, ErrAccIn + 1}
             end
         end,
         {[], 0},
@@ -403,7 +403,7 @@ parse_batch_data(InstId, BatchData, SyntaxLines) ->
     ),
     case Errors of
         0 ->
-            {ok, Points};
+            {ok, lists:flatten(Points)};
         _ ->
             ?SLOG(error, #{
                 msg => io_lib:format("InfluxDB trans point failed, count: ~p", [Errors]),
