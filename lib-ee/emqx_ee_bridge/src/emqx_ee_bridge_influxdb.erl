@@ -21,6 +21,11 @@
     desc/1
 ]).
 
+-type write_syntax() :: list().
+-reflect_type([write_syntax/0]).
+-typerefl_from_string({write_syntax/0, ?MODULE, to_influx_lines}).
+-export([to_influx_lines/1]).
+
 %% -------------------------------------------------------------------------------------------------
 %% api
 
@@ -148,19 +153,19 @@ desc(_) ->
     undefined.
 
 write_syntax(type) ->
-    list();
+    ?MODULE:write_syntax();
 write_syntax(required) ->
     true;
 write_syntax(validator) ->
     [?NOT_EMPTY("the value of the field 'write_syntax' cannot be empty")];
 write_syntax(converter) ->
-    fun converter_influx_lines/1;
+    fun to_influx_lines/1;
 write_syntax(desc) ->
     ?DESC("write_syntax");
 write_syntax(_) ->
     undefined.
 
-converter_influx_lines(RawLines) ->
+to_influx_lines(RawLines) ->
     Lines = string:tokens(str(RawLines), "\n"),
     lists:reverse(lists:foldl(fun converter_influx_line/2, [], Lines)).
 
