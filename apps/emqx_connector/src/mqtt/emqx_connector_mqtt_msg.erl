@@ -142,11 +142,14 @@ from_binary(Bin) -> binary_to_term(Bin).
 
 %% @doc Estimate the size of a message.
 %% Count only the topic length + payload size
+%% There is no topic and payload for event message. So count all `Msg` term
 -spec estimate_size(msg()) -> integer().
 estimate_size(#message{topic = Topic, payload = Payload}) ->
     size(Topic) + size(Payload);
 estimate_size(#{topic := Topic, payload := Payload}) ->
-    size(Topic) + size(Payload).
+    size(Topic) + size(Payload);
+estimate_size(Term) ->
+    erlang:external_size(Term).
 
 set_headers(undefined, Msg) ->
     Msg;
