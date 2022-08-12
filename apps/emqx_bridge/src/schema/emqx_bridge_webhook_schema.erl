@@ -50,7 +50,7 @@ basic_config() ->
                     default => egress
                 }
             )}
-    ] ++
+    ] ++ webhook_creation_opts() ++
         proplists:delete(base_url, emqx_connector_http:fields(config)).
 
 request_config() ->
@@ -114,6 +114,22 @@ request_config() ->
                     desc => ?DESC("config_request_timeout")
                 }
             )}
+    ].
+
+webhook_creation_opts() ->
+    Opts = emqx_resource_schema:fields(creation_opts),
+    lists:filter(
+        fun({K, _V}) ->
+            not lists:member(K, unsupported_opts())
+        end,
+        Opts
+    ).
+
+unsupported_opts() ->
+    [
+        enable_batch,
+        batch_size,
+        batch_time
     ].
 
 %%======================================================================================

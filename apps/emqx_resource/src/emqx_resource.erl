@@ -282,10 +282,9 @@ get_instance(ResId) ->
 fetch_creation_opts(Opts) ->
     SupportedOpts = [
         health_check_interval,
-        health_check_timeout,
-        wait_for_resource_ready,
+        start_timeout,
         start_after_created,
-        auto_retry_interval,
+        auto_restart_interval,
         enable_batch,
         batch_size,
         batch_time,

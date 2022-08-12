@@ -57,7 +57,6 @@
 -type data() :: #data{}.
 
 -define(SHORT_HEALTHCHECK_INTERVAL, 1000).
--define(HEALTHCHECK_INTERVAL, 15000).
 -define(ETS_TABLE, ?MODULE).
 -define(WAIT_FOR_RESOURCE_DELAY, 100).
 -define(T_OPERATION, 5000).
@@ -127,9 +126,9 @@ create(MgrId, ResId, Group, ResourceType, Config, Opts) ->
         [matched]
     ),
     ok = emqx_resource_worker_sup:start_workers(ResId, Opts),
-    case maps:get(start_after_created, Opts, true) of
+    case maps:get(start_after_created, Opts, ?START_AFTER_CREATED) of
         true ->
-            wait_for_resource_ready(ResId, maps:get(wait_for_resource_ready, Opts, 5000));
+            wait_for_ready(ResId, maps:get(start_timeout, Opts, ?START_TIMEOUT));
         false ->
             ok
     end,
@@ -147,7 +146,7 @@ create_dry_run(ResourceType, Config) ->
     ok = emqx_resource_manager_sup:ensure_child(
         MgrId, ResId, <<"dry_run">>, ResourceType, Config, #{}
     ),
-    case wait_for_resource_ready(ResId, 15000) of
+    case wait_for_ready(ResId, 15000) of
         ok ->
             remove(ResId);
         timeout ->
@@ -170,7 +169,7 @@ remove(ResId, ClearMetrics) when is_binary(ResId) ->
 restart(ResId, Opts) when is_binary(ResId) ->
     case safe_call(ResId, restart, ?T_OPERATION) of
         ok ->
-            wait_for_resource_ready(ResId, maps:get(wait_for_resource_ready, Opts, 5000)),
+            wait_for_ready(ResId, maps:get(start_timeout, Opts, 5000)),
             ok;
         {error, _Reason} = Error ->
             Error
@@ -181,7 +180,7 @@ restart(ResId, Opts) when is_binary(ResId) ->
 start(ResId, Opts) ->
     case safe_call(ResId, start, ?T_OPERATION) of
         ok ->
-            wait_for_resource_ready(ResId, maps:get(wait_for_resource_ready, Opts, 5000)),
+            wait_for_ready(ResId, maps:get(start_timeout, Opts, 5000)),
             ok;
         {error, _Reason} = Error ->
             Error
@@ -422,7 +421,7 @@ get_owner(ResId) ->
     end.
 
 handle_disconnected_state_enter(Data) ->
-    case maps:get(auto_retry_interval, Data#data.opts, undefined) of
+    case maps:get(auto_restart_interval, Data#data.opts, ?AUTO_RESTART_INTERVAL) of
         undefined ->
             {next_state, disconnected, Data};
         RetryInterval ->
@@ -573,19 +572,19 @@ data_record_to_external_map_with_metrics(Data) ->
         metrics => get_metrics(Data#data.id)
     }.
 
--spec wait_for_resource_ready(resource_id(), integer()) -> ok | timeout.
-wait_for_resource_ready(ResId, WaitTime) ->
-    do_wait_for_resource_ready(ResId, WaitTime div ?WAIT_FOR_RESOURCE_DELAY).
+-spec wait_for_ready(resource_id(), integer()) -> ok | timeout.
+wait_for_ready(ResId, WaitTime) ->
+    do_wait_for_ready(ResId, WaitTime div ?WAIT_FOR_RESOURCE_DELAY).
 
-do_wait_for_resource_ready(_ResId, 0) ->
+do_wait_for_ready(_ResId, 0) ->
     timeout;
-do_wait_for_resource_ready(ResId, Retry) ->
+do_wait_for_ready(ResId, Retry) ->
     case ets_lookup(ResId) of
         {ok, _Group, #{status := connected}} ->
             ok;
         _ ->
             timer:sleep(?WAIT_FOR_RESOURCE_DELAY),
-            do_wait_for_resource_ready(ResId, Retry - 1)
+            do_wait_for_ready(ResId, Retry - 1)
     end.
 
 safe_call(ResId, Message, Timeout) ->
