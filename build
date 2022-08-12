@@ -106,6 +106,7 @@ assert_no_compile_time_only_deps() {
 }
 
 make_rel() {
+    ./scripts/pre-compile.sh $PROFILE
     # compile all beams
     ./rebar3 as "$PROFILE" compile
     # generate docs (require beam compiled), generated to etc and priv dirs
@@ -116,6 +117,7 @@ make_rel() {
 }
 
 make_elixir_rel() {
+  ./scripts/pre-compile.sh "$PROFILE"
   export_release_vars "$PROFILE"
   mix release --overwrite
   assert_no_compile_time_only_deps

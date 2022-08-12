@@ -9,6 +9,7 @@ export EMQX_DEFAULT_RUNNER = debian:11-slim
 export OTP_VSN ?= $(shell $(CURDIR)/scripts/get-otp-vsn.sh)
 export ELIXIR_VSN ?= $(shell $(CURDIR)/scripts/get-elixir-vsn.sh)
 export EMQX_DASHBOARD_VERSION ?= v1.0.6
+export EMQX_EE_DASHBOARD_VERSION ?= e1.0.0
 export EMQX_REL_FORM ?= tgz
 export QUICER_DOWNLOAD_FROM_RELEASE = 1
 ifeq ($(OS),Windows_NT)
@@ -56,10 +57,6 @@ mix-deps-get: $(ELIXIR_COMMON_DEPS)
 
 $(REBAR): ensure-rebar3
 
-.PHONY: get-dashboard
-get-dashboard:
-	@$(SCRIPTS)/get-dashboard.sh
-
 .PHONY: eunit
 eunit: $(REBAR) conf-segs
 	@ENABLE_COVER_COMPILE=1 $(REBAR) eunit -v -c
@@ -81,7 +78,12 @@ APPS=$(shell $(CURDIR)/scripts/find-apps.sh)
 ## app/name-ct targets are intended for local tests hence cover is not enabled
 .PHONY: $(APPS:%=%-ct)
 define gen-app-ct-target
-$1-ct: $(REBAR) conf-segs
+$1-ct: $(REBAR)
+ifeq (,$(findstring lib-ee,$1))
+	@./scripts/pre-compile.sh emqx
+else
+	@./scripts/pre-compile.sh emqx-enterprise
+endif
 	@ENABLE_COVER_COMPILE=1 $(REBAR) ct --name $(CT_NODE_NAME) -c -v --cover_export_name $(subst /,-,$1) --suite $(shell $(CURDIR)/scripts/find-suites.sh $1)
 endef
 $(foreach app,$(APPS),$(eval $(call gen-app-ct-target,$(app))))
@@ -112,7 +114,8 @@ cover: $(REBAR)
 coveralls: $(REBAR)
 	@ENABLE_COVER_COMPILE=1 $(REBAR) as test coveralls send
 
-COMMON_DEPS := $(REBAR) get-dashboard conf-segs
+COMMON_DEPS := $(REBAR)
+
 ELIXIR_COMMON_DEPS := ensure-hex ensure-mix-rebar3 ensure-mix-rebar
 
 .PHONY: $(REL_PROFILES)
@@ -148,6 +151,7 @@ deps-all: $(REBAR) $(PROFILES:%=deps-%)
 ## which may not have the right credentials
 .PHONY: $(PROFILES:%=deps-%)
 $(PROFILES:%=deps-%): $(COMMON_DEPS)
+	@./scripts/pre-compile.sh $(@:deps-%=%)
 	@$(REBAR) as $(@:deps-%=%) get-deps
 	@rm -f rebar.lock
 
