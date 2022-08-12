@@ -18,6 +18,7 @@
     on_stop/2,
     on_query/3,
     on_batch_query/3,
+    on_query_async/4,
     on_get_status/2
 ]).
 
@@ -60,6 +61,20 @@ on_batch_query(InstId, BatchData, State = #{write_syntax := SyntaxLines, client 
             end;
         disconnected ->
             {resource_down, disconnected}
+    end.
+
+on_query_async(
+    InstId,
+    {send_message, Data},
+    {ReplayFun, Args},
+    _State = #{write_syntax := SyntaxLines, client := Client}
+) ->
+    case data_to_points(Data, SyntaxLines) of
+        {ok, Points} ->
+            do_async_query(InstId, Client, Points, {ReplayFun, Args});
+        {error, ErrorPoints} = Err ->
+            log_error_points(InstId, ErrorPoints),
+            Err
     end.
 
 on_get_status(_InstId, #{client := Client}) ->
@@ -331,7 +346,6 @@ ssl_config(SSL = #{enable := true}) ->
 
 %% -------------------------------------------------------------------------------------------------
 %% Query
-
 do_query(InstId, Client, Points) ->
     case influxdb:write(Client, Points) of
         ok ->
@@ -348,6 +362,14 @@ do_query(InstId, Client, Points) ->
             }),
             Err
     end.
+
+do_async_query(InstId, Client, Points, ReplayFunAndArgs) ->
+    ?SLOG(info, #{
+        msg => "influxdb write point async",
+        connector => InstId,
+        points => Points
+    }),
+    ok = influxdb:write_async(Client, Points, ReplayFunAndArgs).
 
 %% -------------------------------------------------------------------------------------------------
 %% Tags & Fields Config Trans

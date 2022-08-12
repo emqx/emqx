@@ -304,7 +304,7 @@ on_query(
     end,
     Result.
 
-on_query_async(InstId, {send_message, Msg}, ReplyFun, State) ->
+on_query_async(InstId, {send_message, Msg}, ReplyFunAndArgs, State) ->
     case maps:get(request, State, undefined) of
         undefined ->
             ?SLOG(error, #{msg => "arg_request_not_found", connector => InstId}),
@@ -320,14 +320,14 @@ on_query_async(InstId, {send_message, Msg}, ReplyFun, State) ->
             on_query_async(
                 InstId,
                 {undefined, Method, {Path, Headers, Body}, Timeout},
-                ReplyFun,
+                ReplyFunAndArgs,
                 State
             )
     end;
 on_query_async(
     InstId,
     {KeyOrNum, Method, Request, Timeout},
-    ReplyFun,
+    ReplyFunAndArgs,
     #{pool_name := PoolName, base_path := BasePath} = State
 ) ->
     ?TRACE(
@@ -346,7 +346,7 @@ on_query_async(
         Method,
         NRequest,
         Timeout,
-        ReplyFun
+        ReplyFunAndArgs
     ).
 
 on_get_status(_InstId, #{pool_name := PoolName, connect_timeout := Timeout} = State) ->
