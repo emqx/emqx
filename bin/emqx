@@ -33,8 +33,19 @@ export PROGNAME="erl"
 DYNLIBS_DIR="$RUNNER_ROOT_DIR/dynlibs"
 ERTS_LIB_DIR="$ERTS_DIR/../lib"
 
+# Fix bin permission for all erts bin files
+# the 'x' attributes may get lost if the files are extracted from a relup package
+find "$BINDIR" -exec chmod a+x {} \;
+
 # Echo to stderr on errors
 echoerr() { echo "$*" 1>&2; }
+
+die() {
+    set +x
+    echoerr "ERROR: $1"
+    errno=${2:-1}
+    exit "$errno"
+}
 
 assert_node_alive() {
     if ! relx_nodetool "ping" > /dev/null; then
@@ -43,9 +54,8 @@ assert_node_alive() {
 }
 
 check_erlang_start() {
-    # Fix bin permission
-    find "$BINDIR" ! -executable -exec chmod a+x {} \;
-    "$BINDIR/$PROGNAME" -boot "$REL_DIR/start_clean" -eval "crypto:start(),halt()"
+    # set ERL_CRASH_DUMP_BYTES to zero so it will not write a crash dump file
+    env ERL_CRASH_DUMP_BYTES=0 "$BINDIR/$PROGNAME" -boot "$REL_DIR/start_clean" -eval "crypto:start(),halt()"
 }
 
 if ! check_erlang_start >/dev/null 2>&1; then
