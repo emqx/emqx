@@ -69,6 +69,20 @@ log() {
     echo "===< $msg"
 }
 
+get_dashboard() {
+    case "$PROFILE" in
+        emqx-enterprise|emqx-enterprise-pkg)
+            ./scripts/get-dashboard.sh emqx-enterprise
+            ;;
+        emqx|emqx-pkg)
+            ./scripts/get-dashboard.sh emqx
+            ;;
+        *)
+            echo Invalid profile "$profile"
+            exit 1
+    esac
+}
+
 make_docs() {
     local libs_dir1 libs_dir2 libs_dir3
     libs_dir1="$("$FIND" "_build/$PROFILE/lib/" -maxdepth 2 -name ebin -type d)"
@@ -107,6 +121,7 @@ assert_no_compile_time_only_deps() {
 
 make_rel() {
     # compile all beams
+    get_dashboard
     ./rebar3 as "$PROFILE" compile
     # generate docs (require beam compiled), generated to etc and priv dirs
     make_docs

@@ -1,12 +1,34 @@
 #!/usr/bin/env bash
 
+# arg1: profile, e.g. emqx | emqx-enterprise
+
 set -euo pipefail
+
+EMQX_CE_DASHBOARD_VERSION='v1.0.5'
+EMQX_EE_DASHBOARD_VERSION='e1.0.0'
+
+case "$1" in
+    emqx-enterprise|emqx)
+        PROFILE=$1
+        ;;
+    *)
+        echo Invalid profile "$1"
+        exit 1
+esac
 
 # ensure dir
 cd -P -- "$(dirname -- "${BASH_SOURCE[0]}")/.."
 
-RELEASE_ASSET_FILE="emqx-dashboard.zip"
-VERSION="${EMQX_DASHBOARD_VERSION}"
+case "${PROFILE}" in
+    emqx-enterprise)
+        VERSION="${EMQX_EE_DASHBOARD_VERSION}"
+        RELEASE_ASSET_FILE="emqx-enterprise-dashboard.zip"
+        ;;
+    emqx)
+        VERSION="${EMQX_CE_DASHBOARD_VERSION}"
+        RELEASE_ASSET_FILE="emqx-dashboard.zip"
+        ;;
+esac
 DASHBOARD_PATH='apps/emqx_dashboard/priv'
 DASHBOARD_REPO='emqx-dashboard-web-new'
 DIRECT_DOWNLOAD_URL="https://github.com/emqx/${DASHBOARD_REPO}/releases/download/${VERSION}/${RELEASE_ASSET_FILE}"

@@ -7,7 +7,6 @@ export EMQX_DEFAULT_BUILDER = ghcr.io/emqx/emqx-builder/5.0-17:1.13.4-24.2.1-1-d
 export EMQX_DEFAULT_RUNNER = debian:11-slim
 export OTP_VSN ?= $(shell $(CURDIR)/scripts/get-otp-vsn.sh)
 export ELIXIR_VSN ?= $(shell $(CURDIR)/scripts/get-elixir-vsn.sh)
-export EMQX_DASHBOARD_VERSION ?= v1.0.5
 export EMQX_REL_FORM ?= tgz
 export QUICER_DOWNLOAD_FROM_RELEASE = 1
 ifeq ($(OS),Windows_NT)
@@ -54,10 +53,6 @@ mix-deps-get: $(ELIXIR_COMMON_DEPS)
 	@mix deps.get
 
 $(REBAR): ensure-rebar3
-
-.PHONY: get-dashboard
-get-dashboard:
-	@$(SCRIPTS)/get-dashboard.sh
 
 .PHONY: eunit
 eunit: $(REBAR) conf-segs
@@ -111,7 +106,7 @@ cover: $(REBAR)
 coveralls: $(REBAR)
 	@ENABLE_COVER_COMPILE=1 $(REBAR) as test coveralls send
 
-COMMON_DEPS := $(REBAR) prepare-build-deps get-dashboard conf-segs
+COMMON_DEPS := $(REBAR) prepare-build-deps conf-segs
 ELIXIR_COMMON_DEPS := ensure-hex ensure-mix-rebar3 ensure-mix-rebar
 
 .PHONY: $(REL_PROFILES)
