@@ -56,6 +56,7 @@
 ]).
 
 -type emqx_admin() :: #?ADMIN{}.
+-define(BOOTSTRAP_USER_TAG, <<"bootstrap user">>).
 
 %%--------------------------------------------------------------------
 %% Mnesia bootstrap
@@ -314,7 +315,7 @@ add_default_user(Username, Password) ->
 add_bootstrap_user(File) ->
     case file:open(File, [read]) of
         {ok, Dev} ->
-            {ok, MP} = re:compile(<<"(\.+):(\.+)">>),
+            {ok, MP} = re:compile(<<"(\.+):(\.+$)">>, [ungreedy]),
             try
                 load_bootstrap_user(Dev, MP)
             catch
@@ -331,13 +332,16 @@ load_bootstrap_user(Dev, MP) ->
     case file:read_line(Dev) of
         {ok, Line} ->
             case re:run(Line, MP, [global, {capture, all_but_first, binary}]) of
-                {match, Captured} ->
-                    _ = [add_user(Username, Password, <<>>) || [Username, Password] <- Captured],
-                    ok;
+                {match, [[Username, Password]]} ->
+                    case add_user(Username, Password, ?BOOTSTRAP_USER_TAG) of
+                        {ok, _} ->
+                            load_bootstrap_user(Dev, MP);
+                        Error ->
+                            Error
+                    end;
                 _ ->
-                    ok
-            end,
-            load_bootstrap_user(Dev, MP);
+                    load_bootstrap_user(Dev, MP)
+            end;
         eof ->
             ok;
         Error ->
