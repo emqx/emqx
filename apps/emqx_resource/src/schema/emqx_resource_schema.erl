@@ -90,7 +90,7 @@ enable_queue(_) -> undefined.
 
 resume_interval(type) -> emqx_schema:duration_ms();
 resume_interval(desc) -> ?DESC("resume_interval");
-resume_interval(default) -> ?RESUME_INTERVAL;
+resume_interval(default) -> ?RESUME_INTERVAL_RAW;
 resume_interval(required) -> false;
 resume_interval(_) -> undefined.
 
@@ -108,12 +108,12 @@ batch_size(_) -> undefined.
 
 batch_time(type) -> emqx_schema:duration_ms();
 batch_time(desc) -> ?DESC("batch_time");
-batch_time(default) -> ?DEFAULT_BATCH_TIME;
+batch_time(default) -> ?DEFAULT_BATCH_TIME_RAW;
 batch_time(required) -> false;
 batch_time(_) -> undefined.
 
 queue_max_bytes(type) -> emqx_schema:bytesize();
 queue_max_bytes(desc) -> ?DESC("queue_max_bytes");
-queue_max_bytes(default) -> ?DEFAULT_QUEUE_SIZE;
+queue_max_bytes(default) -> ?DEFAULT_QUEUE_SIZE_RAW;
 queue_max_bytes(required) -> false;
 queue_max_bytes(_) -> undefined.
