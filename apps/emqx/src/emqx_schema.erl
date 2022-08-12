@@ -867,10 +867,26 @@ fields("mqtt_quic_listener") ->
         {"ciphers", ciphers_schema(quic)},
         {"idle_timeout",
             sc(
-                duration(),
+                duration_ms(),
                 #{
-                    default => "15s",
+                    default => "0",
                     desc => ?DESC(fields_mqtt_quic_listener_idle_timeout)
+                }
+            )},
+        {"handshake_idle_timeout",
+            sc(
+                duration_ms(),
+                #{
+                    default => "10s",
+                    desc => ?DESC(fields_mqtt_quic_listener_handshake_idle_timeout)
+                }
+            )},
+        {"keep_alive_interval",
+            sc(
+                duration_ms(),
+                #{
+                    default => 0,
+                    desc => ?DESC(fields_mqtt_quic_listener_keep_alive_interval)
                 }
             )}
     ] ++ base_listener(14567);
@@ -905,7 +921,7 @@ fields("ws_opts") ->
                 duration(),
                 #{
                     default => "7200s",
-                    desc => ?DESC(fields_mqtt_quic_listener_idle_timeout)
+                    desc => ?DESC(fields_ws_opts_idle_timeout)
                 }
             )},
         {"max_frame_size",

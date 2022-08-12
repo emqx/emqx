@@ -335,23 +335,31 @@ do_start_listener(Type, ListenerName, #{bind := ListenOn} = Opts) when
         wss -> cowboy:start_tls(Id, RanchOpts, WsOpts)
     end;
 %% Start MQTT/QUIC listener
-do_start_listener(quic, ListenerName, #{bind := ListenOn} = Opts) ->
+do_start_listener(quic, ListenerName, #{bind := Bind} = Opts) ->
+    ListenOn =
+        case Bind of
+            {Addr, Port} when tuple_size(Addr) == 4 ->
+                %% IPv4
+                lists:flatten(io_lib:format("~ts:~w", [inet:ntoa(Addr), Port]));
+            {Addr, Port} when tuple_size(Addr) == 8 ->
+                %% IPv6
+                lists:flatten(io_lib:format("[~ts]:~w", [inet:ntoa(Addr), Port]));
+            Port ->
+                Port
+        end,
+
     case [A || {quicer, _, _} = A <- application:which_applications()] of
         [_] ->
             DefAcceptors = erlang:system_info(schedulers_online) * 8,
-            IdleTimeout = timer:seconds(maps:get(idle_timeout, Opts)),
             ListenOpts = [
                 {cert, maps:get(certfile, Opts)},
                 {key, maps:get(keyfile, Opts)},
                 {alpn, ["mqtt"]},
                 {conn_acceptors, lists:max([DefAcceptors, maps:get(acceptors, Opts, 0)])},
-                {keep_alive_interval_ms, ceil(IdleTimeout / 3)},
-                {server_resumption_level, 2},
-                {idle_timeout_ms,
-                    lists:max([
-                        emqx_config:get_zone_conf(zone(Opts), [mqtt, idle_timeout]) * 3,
-                        IdleTimeout
-                    ])}
+                {keep_alive_interval_ms, maps:get(keep_alive_interval, Opts, 0)},
+                {idle_timeout_ms, maps:get(idle_timeout, Opts, 0)},
+                {handshake_idle_timeout_ms, maps:get(handshake_idle_timeout, Opts, 10000)},
+                {server_resumption_level, 2}
             ],
             ConnectionOpts = #{
                 conn_callback => emqx_quic_connection,
@@ -366,7 +374,7 @@ do_start_listener(quic, ListenerName, #{bind := ListenOn} = Opts) ->
             add_limiter_bucket(Id, Opts),
             quicer:start_listener(
                 Id,
-                port(ListenOn),
+                ListenOn,
                 {ListenOpts, ConnectionOpts, StreamOpts}
             );
         [] ->
@@ -481,9 +489,6 @@ ip_port(Port) when is_integer(Port) ->
     [{port, Port}];
 ip_port({Addr, Port}) ->
     [{ip, Addr}, {port, Port}].
-
-port(Port) when is_integer(Port) -> Port;
-port({_Addr, Port}) when is_integer(Port) -> Port.
 
 esockd_access_rules(StrRules) ->
     Access = fun(S) ->
