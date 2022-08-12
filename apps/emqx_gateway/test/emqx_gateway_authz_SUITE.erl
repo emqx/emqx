@@ -79,7 +79,7 @@ end_per_suite(Config) ->
     emqx_gateway_auth_ct:stop(),
     ok = emqx_authz_test_lib:restore_authorizers(),
     emqx_config:erase(gateway),
-    emqx_mgmt_api_test_util:end_suite([cowboy, emqx_authz, emqx_authn, emqx_gateway]),
+    emqx_mgmt_api_test_util:end_suite([emqx_gateway, emqx_authn, emqx_authz, emqx_conf]),
     Config.
 
 init_per_testcase(_Case, Config) ->
