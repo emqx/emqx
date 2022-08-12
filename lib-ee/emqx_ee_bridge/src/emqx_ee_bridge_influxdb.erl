@@ -90,7 +90,8 @@ fields(basic) ->
         {direction, mk(egress, #{desc => ?DESC("config_direction"), default => egress})},
         {local_topic, mk(binary(), #{desc => ?DESC("local_topic")})},
         {write_syntax, fun write_syntax/1}
-    ];
+    ] ++
+        emqx_resource_schema:fields('creation_opts');
 fields("post_udp") ->
     method_fileds(post, influxdb_udp);
 fields("post_api_v1") ->
@@ -113,7 +114,6 @@ fields(Name) when
     Name == influxdb_udp orelse Name == influxdb_api_v1 orelse Name == influxdb_api_v2
 ->
     fields(basic) ++
-        emqx_resource_schema:fields('creation_opts') ++
         connector_field(Name).
 
 method_fileds(post, ConnectorType) ->
