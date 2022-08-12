@@ -126,7 +126,7 @@ project_app_dirs(Edition) ->
 
 plugins() ->
     [
-        {relup_helper, {git, "https://github.com/emqx/relup_helper", {tag, "2.0.0"}}},
+        {relup_helper, {git, "https://github.com/emqx/relup_helper", {tag, "2.1.0"}}},
         %% emqx main project does not require port-compiler
         %% pin at root level for deterministic
         {pc, "v1.14.0"}
