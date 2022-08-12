@@ -1,5 +1,3 @@
-$(shell $(CURDIR)/scripts/git-hooks-init.sh)
-$(shell $(CURDIR)/scripts/prepare-build-deps.sh)
 REBAR = $(CURDIR)/rebar3
 BUILD = $(CURDIR)/build
 SCRIPTS = $(CURDIR)/scripts
@@ -32,6 +30,13 @@ export REBAR_GIT_CLONE_OPTIONS += --depth=1
 .PHONY: default
 default: $(REBAR) $(PROFILE)
 
+.PHONY: prepare
+prepare: FORCE
+	@$(SCRIPTS)/git-hooks-init.sh # this is no longer needed since 5.0 but we keep it anyway
+	@$(SCRIPTS)/prepare-build-deps.sh
+
+FORCE:
+
 .PHONY: all
 all: $(REBAR) $(PROFILES)
 
@@ -55,7 +60,7 @@ ensure-mix-rebar: $(REBAR)
 mix-deps-get: $(ELIXIR_COMMON_DEPS)
 	@mix deps.get
 
-$(REBAR): ensure-rebar3
+$(REBAR): prepare ensure-rebar3
 
 .PHONY: eunit
 eunit: $(REBAR) conf-segs
@@ -73,14 +78,14 @@ ct: $(REBAR) conf-segs
 static_checks:
 	@$(REBAR) as check do dialyzer, xref, ct --suite apps/emqx/test/emqx_static_checks --readable $(CT_READABLE)
 
-APPS=$(shell $(CURDIR)/scripts/find-apps.sh)
+APPS=$(shell $(SCRIPTS)/find-apps.sh)
 
 ## app/name-ct targets are intended for local tests hence cover is not enabled
 .PHONY: $(APPS:%=%-ct)
 define gen-app-ct-target
 $1-ct: $(REBAR)
-	@./scripts/pre-compile.sh $(PROFILE)
-	@ENABLE_COVER_COMPILE=1 $(REBAR) ct --name $(CT_NODE_NAME) -c -v --cover_export_name $(subst /,-,$1) --suite $(shell $(CURDIR)/scripts/find-suites.sh $1)
+	@$(SCRIPTS)/pre-compile.sh $(PROFILE)
+	@ENABLE_COVER_COMPILE=1 $(REBAR) ct --name $(CT_NODE_NAME) -c -v --cover_export_name $(subst /,-,$1) --suite $(shell $(SCRIPTS)/find-suites.sh $1)
 endef
 $(foreach app,$(APPS),$(eval $(call gen-app-ct-target,$(app))))
 
@@ -88,7 +93,7 @@ $(foreach app,$(APPS),$(eval $(call gen-app-ct-target,$(app))))
 .PHONY: $(APPS:%=%-prop)
 define gen-app-prop-target
 $1-prop:
-	$(REBAR) proper -d test/props -v -m $(shell $(CURDIR)/scripts/find-props.sh $1)
+	$(REBAR) proper -d test/props -v -m $(shell $(SCRIPTS)/find-props.sh $1)
 endef
 $(foreach app,$(APPS),$(eval $(call gen-app-prop-target,$(app))))
 
@@ -147,7 +152,7 @@ deps-all: $(REBAR) $(PROFILES:%=deps-%)
 ## which may not have the right credentials
 .PHONY: $(PROFILES:%=deps-%)
 $(PROFILES:%=deps-%): $(COMMON_DEPS)
-	@./scripts/pre-compile.sh $(@:deps-%=%)
+	@$(SCRIPTS)/pre-compile.sh $(@:deps-%=%)
 	@$(REBAR) as $(@:deps-%=%) get-deps
 	@rm -f rebar.lock
 
@@ -168,7 +173,7 @@ $(REL_PROFILES:%=%-rel) $(PKG_PROFILES:%=%-rel): $(COMMON_DEPS)
 .PHONY: $(REL_PROFILES:%=%-relup-downloads)
 define download-relup-packages
 $1-relup-downloads:
-	@if [ "$${EMQX_RELUP}" = "true" ]; then $(CURDIR)/scripts/relup-build/download-base-packages.sh $1; fi
+	@if [ "$${EMQX_RELUP}" = "true" ]; then $(SCRIPTS)/relup-build/download-base-packages.sh $1; fi
 endef
 ALL_ZIPS = $(REL_PROFILES)
 $(foreach zt,$(ALL_ZIPS),$(eval $(call download-relup-packages,$(zt))))
@@ -217,8 +222,8 @@ $(foreach zt,$(ALL_DOCKERS),$(eval $(call gen-docker-target,$(zt))))
 
 .PHONY:
 conf-segs:
-	@scripts/merge-config.escript
-	@scripts/merge-i18n.escript
+	@$(SCRIPTS)/merge-config.escript
+	@$(SCRIPTS)/merge-i18n.escript
 
 ## elixir target is to create release packages using Elixir's Mix
 .PHONY: $(REL_PROFILES:%=%-elixir) $(PKG_PROFILES:%=%-elixir)
@@ -245,6 +250,6 @@ $(foreach tt,$(ALL_ELIXIR_TGZS),$(eval $(call gen-elixir-tgz-target,$(tt))))
 
 .PHONY: fmt
 fmt: $(REBAR)
-	@./scripts/erlfmt -w '{apps,lib-ee}/*/{src,include,test}/**/*.{erl,hrl,app.src}'
-	@./scripts/erlfmt -w 'rebar.config.erl'
+	@$(SCRIPTS)/erlfmt -w '{apps,lib-ee}/*/{src,include,test}/**/*.{erl,hrl,app.src}'
+	@$(SCRIPTS)/erlfmt -w 'rebar.config.erl'
 	@mix format
