@@ -79,11 +79,7 @@ APPS=$(shell $(CURDIR)/scripts/find-apps.sh)
 .PHONY: $(APPS:%=%-ct)
 define gen-app-ct-target
 $1-ct: $(REBAR)
-ifeq (,$(findstring lib-ee,$1))
-	@./scripts/pre-compile.sh emqx
-else
-	@./scripts/pre-compile.sh emqx-enterprise
-endif
+	@./scripts/pre-compile.sh $(PROFILE)
 	@ENABLE_COVER_COMPILE=1 $(REBAR) ct --name $(CT_NODE_NAME) -c -v --cover_export_name $(subst /,-,$1) --suite $(shell $(CURDIR)/scripts/find-suites.sh $1)
 endef
 $(foreach app,$(APPS),$(eval $(call gen-app-ct-target,$(app))))

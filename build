@@ -106,7 +106,7 @@ assert_no_compile_time_only_deps() {
 }
 
 make_rel() {
-    ./scripts/pre-compile.sh $PROFILE
+    ./scripts/pre-compile.sh "$PROFILE"
     # compile all beams
     ./rebar3 as "$PROFILE" compile
     # generate docs (require beam compiled), generated to etc and priv dirs
