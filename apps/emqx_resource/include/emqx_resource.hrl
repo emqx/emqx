@@ -41,18 +41,25 @@
 }.
 -type resource_group() :: binary().
 -type creation_opts() :: #{
-    health_check_interval => integer(),
+    %%======================================= Deprecated Opts:
+    %% use health_check_interval instead
     health_check_timeout => integer(),
-    %% We can choose to block the return of emqx_resource:start until
-    %% the resource connected, wait max to `wait_for_resource_ready` ms.
+    %% use start_timeout instead
     wait_for_resource_ready => integer(),
+    %% use auto_restart_interval instead
+    auto_retry_interval => integer(),
+    %%======================================= Deprecated Opts End
+    health_check_interval => integer(),
+    %% We can choose to block the return of emqx_resource:start until
+    %% the resource connected, wait max to `start_timeout` ms.
+    start_timeout => integer(),
     %% If `start_after_created` is set to true, the resource is started right
     %% after it is created. But note that a `started` resource is not guaranteed
     %% to be `connected`.
     start_after_created => boolean(),
     %% If the resource disconnected, we can set to retry starting the resource
     %% periodically.
-    auto_retry_interval => integer(),
+    auto_restart_interval => integer(),
     enable_batch => boolean(),
     batch_size => integer(),
     batch_time => integer(),
@@ -68,17 +75,17 @@
     | {error, term()}
     | {resource_down, term()}.
 
-%% count
--define(DEFAULT_BATCH_SIZE, 100).
-%% milliseconds
--define(DEFAULT_BATCH_TIME, 10).
-
-%% bytes
 -define(DEFAULT_QUEUE_SIZE, 1024 * 1024 * 1024).
-
+-define(DEFAULT_BATCH_SIZE, 100).
+-define(DEFAULT_BATCH_TIME, 10).
 -define(DEFAULT_INFLIGHT, 100).
-
+-define(HEALTHCHECK_INTERVAL, 15000).
+-define(HEALTHCHECK_INTERVAL_RAW, <<"15s">>).
 -define(RESUME_INTERVAL, 15000).
-
+-define(START_AFTER_CREATED, true).
+-define(START_TIMEOUT, 5000).
+-define(START_TIMEOUT_RAW, <<"5s">>).
+-define(AUTO_RESTART_INTERVAL, 60000).
+-define(AUTO_RESTART_INTERVAL_RAW, <<"60s">>).
 -define(TEST_ID_PREFIX, "_test_:").
 -define(RES_METRICS, resource_metrics).

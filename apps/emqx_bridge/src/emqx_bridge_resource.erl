@@ -89,7 +89,7 @@ create(BridgeId, Conf) ->
     create(BridgeType, BridgeName, Conf).
 
 create(Type, Name, Conf) ->
-    create(Type, Name, Conf, #{auto_retry_interval => 60000}).
+    create(Type, Name, Conf, #{}).
 
 create(Type, Name, Conf, Opts) ->
     ?SLOG(info, #{
@@ -169,7 +169,7 @@ recreate(Type, Name, Conf, Opts) ->
         resource_id(Type, Name),
         bridge_to_resource_type(Type),
         parse_confs(Type, Name, Conf),
-        Opts#{auto_retry_interval => 60000}
+        Opts
     ).
 
 create_dry_run(Type, Conf) ->
