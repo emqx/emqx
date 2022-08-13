@@ -56,7 +56,6 @@ File format:
 - HTTP API(GET /rules/) support for pagination and fuzzy filtering. [#8450]
 - Add check_conf cli to check config format. [#8486]
 - Optimize performance of shared subscription
-- Make possible to debug-print SSL handshake procedure by setting listener config `log_level=debug` [#8553](https://github.com/emqx/emqx/pull/8553)
 
 ## v4.3.16
 
