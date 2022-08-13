@@ -178,10 +178,17 @@ jobs:
                 make clean
                 make "${WHICH_APP}-ct"
               else
-                echo "no_common_test_run_for_app ${WHICH_APP}-ct"
+                echo "skip_common_test_run_for_app ${WHICH_APP}-ct"
               fi
             else
-              make "${WHICH_APP}-ct"
+              case "$WHICH_APP" in
+                lib-ee/*)
+                  echo "skip_opensource_edition_test_for_lib-ee"
+                  ;;
+                *)
+                  make "${WHICH_APP}-ct"
+                  ;;
+              esac
             fi
         - uses: actions/upload-artifact@v3
           with:
