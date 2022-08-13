@@ -178,16 +178,17 @@ jobs:
                 make clean
                 make "${WHICH_APP}-ct"
               else
-                echo "no_common_test_run_for_app ${WHICH_APP}"
+                echo "no_common_test_run_for_app ${WHICH_APP}-ct"
               fi
             else
               make "${WHICH_APP}-ct"
             fi
-        - uses: actions/upload-artifact@v1
+        - uses: actions/upload-artifact@v3
           with:
             name: coverdata
             path: source/_build/test/cover
-        - uses: actions/upload-artifact@v1
+            if-no-files-found: warn # do not fail if no coverdata found
+        - uses: actions/upload-artifact@v3
           if: failure()
           with:
             name: logs_${{ matrix.otp_release }}
