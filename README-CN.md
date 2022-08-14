@@ -24,7 +24,7 @@ EMQX 自 2013 年在 GitHub 发布开源版本以来，获得了来自 50 多个
 
 #### EMQX Cloud
 
-使用 EMQX 最简单的方式是在 EMQX Cloud 上创建完全托管的 MQTT 服务。[免费试用 EMQX Cloud](https://www.emqx.com/zh/signup?continue=https%3A%2F%2Fcloud.emqx.com%2Fconsole%2F)，无需绑定信用卡。
+使用 EMQX 最简单的方式是在 EMQX Cloud 上创建完全托管的 MQTT 服务。[免费试用 EMQX Cloud](https://www.emqx.com/zh/signup?utm_source=github.com&utm_medium=referral&utm_campaign=emqx-readme-to-cloud&continue=https://cloud.emqx.com/console/deployments/0?oper=new)，无需绑定信用卡。
 
 #### 使用 Docker 运行 EMQX
 

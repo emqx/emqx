@@ -239,6 +239,7 @@ t_gateway_exproto_with_ssl(_) ->
 t_authn(_) ->
     GwConf = #{name => <<"stomp">>},
     {201, _} = request(post, "/gateway", GwConf),
+    ct:sleep(500),
     {204, _} = request(get, "/gateway/stomp/authentication"),
 
     AuthConf = #{
@@ -263,6 +264,7 @@ t_authn(_) ->
 t_authn_data_mgmt(_) ->
     GwConf = #{name => <<"stomp">>},
     {201, _} = request(post, "/gateway", GwConf),
+    ct:sleep(500),
     {204, _} = request(get, "/gateway/stomp/authentication"),
 
     AuthConf = #{
@@ -271,6 +273,7 @@ t_authn_data_mgmt(_) ->
         user_id_type => <<"clientid">>
     },
     {201, _} = request(post, "/gateway/stomp/authentication", AuthConf),
+    ct:sleep(500),
     {200, ConfResp} = request(get, "/gateway/stomp/authentication"),
     assert_confs(AuthConf, ConfResp),
 
@@ -374,6 +377,7 @@ t_listeners_authn(_) ->
         ]
     },
     {201, _} = request(post, "/gateway", GwConf),
+    ct:sleep(500),
     {200, ConfResp} = request(get, "/gateway/stomp"),
     assert_confs(GwConf, ConfResp),
 

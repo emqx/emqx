@@ -180,15 +180,15 @@ convert_client_var({dn, DN}) -> {cert_subject, DN};
 convert_client_var({protocol, Proto}) -> {proto_name, Proto};
 convert_client_var(Other) -> Other.
 
-handle_var({var, _Name}, undefined) ->
-    "undefined";
+handle_var({var, Name}, undefined) ->
+    error({cannot_get_variable, Name});
 handle_var({var, <<"peerhost">>}, IpAddr) ->
     inet_parse:ntoa(IpAddr);
 handle_var(_Name, Value) ->
     emqx_placeholder:bin(Value).
 
-handle_sql_var({var, _Name}, undefined) ->
-    "undefined";
+handle_sql_var({var, Name}, undefined) ->
+    error({cannot_get_variable, Name});
 handle_sql_var({var, <<"peerhost">>}, IpAddr) ->
     inet_parse:ntoa(IpAddr);
 handle_sql_var(_Name, Value) ->

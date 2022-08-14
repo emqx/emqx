@@ -68,3 +68,4 @@ apps/emqx/test/emqx_static_checks_data/master.bpapi
 # rendered configurations
 *.conf.rendered
 lux_logs/
+.ci/docker-compose-file/redis/*.log

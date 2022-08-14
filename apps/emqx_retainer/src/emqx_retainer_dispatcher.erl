@@ -115,8 +115,8 @@ start_link(Pool, Id) ->
 init([Pool, Id]) ->
     erlang:process_flag(trap_exit, true),
     true = gproc_pool:connect_worker(Pool, {Pool, Id}),
-    BucketName = emqx:get_config([retainer, flow_control, batch_deliver_limiter], undefined),
-    {ok, Limiter} = emqx_limiter_server:connect(batch, BucketName),
+    BucketCfg = emqx:get_config([retainer, flow_control, batch_deliver_limiter], undefined),
+    {ok, Limiter} = emqx_limiter_server:connect(?APP, internal, BucketCfg),
     {ok, #{pool => Pool, id => Id, limiter => Limiter}}.
 
 %%--------------------------------------------------------------------
@@ -155,8 +155,8 @@ handle_cast({dispatch, Context, Pid, Topic}, #{limiter := Limiter} = State) ->
     {ok, Limiter2} = dispatch(Context, Pid, Topic, undefined, Limiter),
     {noreply, State#{limiter := Limiter2}};
 handle_cast({refresh_limiter, Conf}, State) ->
-    BucketName = emqx_map_lib:deep_get([flow_control, batch_deliver_limiter], Conf, undefined),
-    {ok, Limiter} = emqx_limiter_server:connect(batch, BucketName),
+    BucketCfg = emqx_map_lib:deep_get([flow_control, batch_deliver_limiter], Conf, undefined),
+    {ok, Limiter} = emqx_limiter_server:connect(?APP, internal, BucketCfg),
     {noreply, State#{limiter := Limiter}};
 handle_cast(Msg, State) ->
     ?SLOG(error, #{msg => "unexpected_cast", cast => Msg}),

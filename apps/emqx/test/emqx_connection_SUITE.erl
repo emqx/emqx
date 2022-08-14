@@ -78,6 +78,7 @@ end_per_suite(_Config) ->
 init_per_testcase(TestCase, Config) when
     TestCase =/= t_ws_pingreq_before_connected
 ->
+    add_bucket(),
     ok = meck:expect(emqx_transport, wait, fun(Sock) -> {ok, Sock} end),
     ok = meck:expect(emqx_transport, type, fun(_Sock) -> tcp end),
     ok = meck:expect(
@@ -104,9 +105,11 @@ init_per_testcase(TestCase, Config) when
         _ -> Config
     end;
 init_per_testcase(_, Config) ->
+    add_bucket(),
     Config.
 
 end_per_testcase(TestCase, Config) ->
+    del_bucket(),
     case erlang:function_exported(?MODULE, TestCase, 2) of
         true -> ?MODULE:TestCase('end', Config);
         false -> ok
@@ -291,11 +294,6 @@ t_handle_call(_) ->
     ?assertMatch({ok, _St}, handle_msg({event, undefined}, St)),
     ?assertMatch({reply, _Info, _NSt}, handle_call(self(), info, St)),
     ?assertMatch({reply, _Stats, _NSt}, handle_call(self(), stats, St)),
-    ?assertMatch({reply, ok, _NSt}, handle_call(self(), {ratelimit, []}, St)),
-    ?assertMatch(
-        {reply, ok, _NSt},
-        handle_call(self(), {ratelimit, [{bytes_in, default}]}, St)
-    ),
     ?assertEqual({reply, ignored, St}, handle_call(self(), for_testing, St)),
     ?assertMatch(
         {stop, {shutdown, kicked}, ok, _NSt},
@@ -318,11 +316,6 @@ t_handle_timeout(_) ->
         emqx_connection:handle_timeout(TRef, keepalive, State)
     ),
 
-    ok = meck:expect(emqx_transport, getstat, fun(_Sock, _Options) -> {error, for_testing} end),
-    ?assertMatch(
-        {stop, {shutdown, for_testing}, _NState},
-        emqx_connection:handle_timeout(TRef, keepalive, State)
-    ),
     ?assertMatch({ok, _NState}, emqx_connection:handle_timeout(TRef, undefined, State)).
 
 t_parse_incoming(_) ->
@@ -704,7 +697,34 @@ handle_msg(Msg, St) -> emqx_connection:handle_msg(Msg, St).
 
 handle_call(Pid, Call, St) -> emqx_connection:handle_call(Pid, Call, St).
 
-limiter_cfg() -> #{}.
+-define(LIMITER_ID, 'tcp:default').
 
 init_limiter() ->
-    emqx_limiter_container:get_limiter_by_names([bytes_in, message_in], limiter_cfg()).
+    emqx_limiter_container:get_limiter_by_types(?LIMITER_ID, [bytes_in, message_in], limiter_cfg()).
+
+limiter_cfg() ->
+    Infinity = emqx_limiter_schema:infinity_value(),
+    Cfg = bucket_cfg(),
+    Client = #{
+        rate => Infinity,
+        initial => 0,
+        capacity => Infinity,
+        low_watermark => 1,
+        divisible => false,
+        max_retry_time => timer:seconds(5),
+        failure_strategy => force
+    },
+    #{bytes_in => Cfg, message_in => Cfg, client => #{bytes_in => Client, message_in => Client}}.
+
+bucket_cfg() ->
+    Infinity = emqx_limiter_schema:infinity_value(),
+    #{rate => Infinity, initial => 0, capacity => Infinity}.
+
+add_bucket() ->
+    Cfg = bucket_cfg(),
+    emqx_limiter_server:add_bucket(?LIMITER_ID, bytes_in, Cfg),
+    emqx_limiter_server:add_bucket(?LIMITER_ID, message_in, Cfg).
+
+del_bucket() ->
+    emqx_limiter_server:del_bucket(?LIMITER_ID, bytes_in),
+    emqx_limiter_server:del_bucket(?LIMITER_ID, message_in).

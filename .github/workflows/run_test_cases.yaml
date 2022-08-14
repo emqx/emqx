@@ -145,6 +145,10 @@ jobs:
           fail-fast: false
           matrix:
             app_name: ${{ fromJson(needs.prepare.outputs.fast_ct_apps) }}
+            profile:
+              - emqx
+              - emqx-enterprise
+
         runs-on: aws-amd64
         container: "ghcr.io/emqx/emqx-builder/5.0-17:1.13.4-24.2.1-1-ubuntu20.04"
         defaults:
@@ -163,13 +167,35 @@ jobs:
           # produces <app-name>.coverdata
         - name: run common test
           working-directory: source
+          env:
+            PROFILE: ${{ matrix.profile }}
+            WHICH_APP: ${{ matrix.app_name }}
           run: |
-            make ${{ matrix.app_name }}-ct
-        - uses: actions/upload-artifact@v1
+            if [ "$PROFILE" = 'emqx-enterprise' ]; then
+              COMPILE_FLAGS="$(grep -R "EMQX_RELEASE_EDITION" "$WHICH_APP" | wc -l || true)"
+              if [ "$COMPILE_FLAGS" -gt 0 ]; then
+                # need to clean first because the default profile was
+                make clean
+                make "${WHICH_APP}-ct"
+              else
+                echo "skip_common_test_run_for_app ${WHICH_APP}-ct"
+              fi
+            else
+              case "$WHICH_APP" in
+                lib-ee/*)
+                  echo "skip_opensource_edition_test_for_lib-ee"
+                  ;;
+                *)
+                  make "${WHICH_APP}-ct"
+                  ;;
+              esac
+            fi
+        - uses: actions/upload-artifact@v3
           with:
             name: coverdata
             path: source/_build/test/cover
-        - uses: actions/upload-artifact@v1
+            if-no-files-found: warn # do not fail if no coverdata found
+        - uses: actions/upload-artifact@v3
           if: failure()
           with:
             name: logs_${{ matrix.otp_release }}

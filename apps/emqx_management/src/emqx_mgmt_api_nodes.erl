@@ -189,8 +189,8 @@ fields(node_info) ->
             )},
         {node_status,
             mk(
-                enum(['Running', 'Stopped']),
-                #{desc => <<"Node status">>, example => "Running"}
+                enum(['running', 'stopped']),
+                #{desc => <<"Node status">>, example => "running"}
             )},
         {otp_release,
             mk(
@@ -288,19 +288,18 @@ get_stats(Node) ->
 %% internal function
 
 format(_Node, Info = #{memory_total := Total, memory_used := Used}) ->
-    {ok, SysPathBinary} = file:get_cwd(),
-    SysPath = list_to_binary(SysPathBinary),
+    RootDir = list_to_binary(code:root_dir()),
     LogPath =
         case log_path() of
             undefined ->
                 <<"log.file_handler.default.enable is false,only log to console">>;
             Path ->
-                filename:join(SysPath, Path)
+                filename:join(RootDir, Path)
         end,
     Info#{
         memory_total := emqx_mgmt_util:kmg(Total),
         memory_used := emqx_mgmt_util:kmg(Used),
-        sys_path => SysPath,
+        sys_path => RootDir,
         log_path => LogPath
     }.
 
