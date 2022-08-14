@@ -14,8 +14,17 @@ if [ "$DEBUG" -eq 1 ]; then
     set -x
 fi
 
-PROFILE="$1"
+PROFILE_ARG="$1"
 ARTIFACT="$2"
+
+if [[ "${PROFILE:-${PROFILE_ARG}}" != "$PROFILE_ARG" ]]; then
+    echo "PROFILE env var is set to '$PROFILE', but '$0' arg1 is '$1'"
+    exit 1
+fi
+
+# make sure PROFILE is exported, it is needed by rebar.config.erl
+PROFILE=$PROFILE_ARG
+export PROFILE
 
 # ensure dir
 cd -P -- "$(dirname -- "${BASH_SOURCE[0]}")"
@@ -106,6 +115,7 @@ assert_no_compile_time_only_deps() {
 }
 
 make_rel() {
+    ./scripts/pre-compile.sh "$PROFILE"
     # compile all beams
     ./rebar3 as "$PROFILE" compile
     # generate docs (require beam compiled), generated to etc and priv dirs
@@ -116,6 +126,7 @@ make_rel() {
 }
 
 make_elixir_rel() {
+  ./scripts/pre-compile.sh "$PROFILE"
   export_release_vars "$PROFILE"
   mix release --overwrite
   assert_no_compile_time_only_deps
