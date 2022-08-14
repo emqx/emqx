@@ -181,14 +181,10 @@ warn_profile_env() ->
 %% this function is only used for test/check profiles
 get_edition_from_profille_env() ->
     case os:getenv("PROFILE") of
-        "emqx" ->
-            ce;
-        "emqx-" ++ _ ->
-            ce;
-        "emqx-enterprise" ->
+        "emqx-enterprise" ++ _ ->
             ee;
-        "emqx-enterprise-" ++ _ ->
-            ee;
+        "emqx" ++ _ ->
+            ce;
         false ->
             ee;
         V ->
