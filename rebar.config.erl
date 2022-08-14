@@ -51,6 +51,8 @@ overrides() ->
     [ {add, [ {extra_src_dirs, [{"etc", [{recursive,true}]}]}
             , {erl_opts, [{compile_info, [{emqx_vsn, get_vsn()}]}]}
             ]}
+
+    , {add, relx, [{erl_opts, [{d, 'RLX_LOG', rlx_log}]}]}
     , {add, snabbkaffe,
        [{erl_opts, common_compile_opts()}]}
     ] ++ community_plugin_overrides().
@@ -295,6 +297,8 @@ relx_plugin_apps(ReleaseType) ->
     , emqx_recon
     , emqx_rule_engine
     , emqx_sasl
+    , emqx_eviction_agent
+    , emqx_node_rebalance
     ]
     ++ [emqx_telemetry || not is_enterprise()]
     ++ relx_plugin_apps_per_rel(ReleaseType)

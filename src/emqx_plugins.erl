@@ -225,6 +225,8 @@ ensure_file(File) ->
                              , {emqx_telemetry, true}
                              , {emqx_rule_engine, true}
                              , {emqx_bridge_mqtt, false}
+                             , {emqx_eviction_agent, true}
+                             , {emqx_node_rebalance, true}
                              ],
             write_loaded(DefaultPlugins);
         true ->

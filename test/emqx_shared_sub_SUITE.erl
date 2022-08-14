@@ -380,7 +380,7 @@ t_local(_) ->
 
     emqtt:stop(ConnPid1),
     emqtt:stop(ConnPid2),
-    stop_slave(Node),
+    emqx_node_helpers:stop_slave(Node),
 
     ?assertEqual(local, emqx_shared_sub:strategy(<<"local_group">>)),
     ?assertEqual(local, RemoteLocalGroupStrategy),
@@ -415,7 +415,7 @@ t_local_fallback(_) ->
     {true, UsedSubPid2} = last_message(<<"hello2">>, [ConnPid1]),
 
     emqtt:stop(ConnPid1),
-    stop_slave(Node),
+    emqx_node_helpers:stop_slave(Node),
 
     ?assertEqual(UsedSubPid1, UsedSubPid2),
     ok.
@@ -536,55 +536,8 @@ recv_msgs(Count, Msgs) ->
     end.
 
 start_slave(Name, Port) ->
-    {ok, Node} = ct_slave:start(list_to_atom(atom_to_list(Name) ++ "@" ++ host()),
-                                [{kill_if_fail, true},
-                                 {monitor_master, true},
-                                 {init_timeout, 10000},
-                                 {startup_timeout, 10000},
-                                 {erl_flags, ebin_path()}]),
-
-    pong = net_adm:ping(Node),
-    ok = setup_node(Node, Port),
-    Node.
-
-stop_slave(Node) ->
-    rpc:call(Node, ekka, leave, []),
-    ct_slave:stop(Node).
-
-host() ->
-    [_, Host] = string:tokens(atom_to_list(node()), "@"), Host.
-
-ebin_path() ->
-    string:join(["-pa" | lists:filter(fun is_lib/1, code:get_path())], " ").
-
-is_lib(Path) ->
-    string:prefix(Path, code:lib_dir()) =:= nomatch.
-
-setup_node(Node, Port) ->
-    EnvHandler =
-        fun(emqx) ->
-                application:set_env(
-                  emqx,
-                  listeners,
-                  [#{listen_on => {{127,0,0,1},Port},
-                     name => "internal",
-                     opts => [{zone,internal}],
-                     proto => tcp}]),
-                application:set_env(gen_rpc, port_discovery, stateless),
-                ok;
-           (_) ->
-                ok
-        end,
-
-    [ok = rpc:call(Node, application, load, [App]) || App <- [gen_rpc, emqx]],
-    ok = rpc:call(Node, emqx_ct_helpers, start_apps, [[emqx], EnvHandler]),
-    rpc:call(Node, ekka, join, [node()]),
-
-    %% Sanity check. Assert that `gen_rpc' is set up correctly:
-    ?assertEqual( Node
-                , gen_rpc:call(Node, erlang, node, [])
-                ),
-    ?assertEqual( node()
-                , gen_rpc:call(Node, gen_rpc, call, [node(), erlang, node, []])
-                ),
-    ok.
+    Listeners = [#{listen_on => {{127,0,0,1}, Port},
+                   name => "internal",
+                   opts => [{zone,internal}],
+                   proto => tcp}],
+    emqx_node_helpers:start_slave(Name, #{listeners => Listeners}).

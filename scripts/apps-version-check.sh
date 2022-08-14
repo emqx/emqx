@@ -19,6 +19,14 @@ while read -r app; do
         app_path="."
     fi
     src_file="$app_path/src/$(basename "$app").app.src"
+
+    old_app_exists=0
+    git show "$latest_release":"$src_file" >/dev/null 2>&1 || old_app_exists="$?"
+    if [ "$old_app_exists" != "0" ]; then
+        echo "$app is new, skipping version check"
+        continue
+    fi
+
     old_app_version="$(git show "$latest_release":"$src_file" | grep vsn | grep -oE '"[0-9]+\.[0-9]+\.[0-9]+"' | tr -d '"')"
     now_app_version=$(grep -E 'vsn' "$src_file" | grep -oE '"[0-9]+\.[0-9]+\.[0-9]+"' | tr -d '"')
     if [ "$old_app_version" = "$now_app_version" ]; then
@@ -48,7 +56,7 @@ while read -r app; do
         now_app_version_semver=($(parse_semver "$now_app_version"))
         if  [ "${old_app_version_semver[0]}" = "${now_app_version_semver[0]}" ] && \
             [ "${old_app_version_semver[1]}" = "${now_app_version_semver[1]}" ] && \
-            [ "$(( "${old_app_version_semver[2]}" + 1 ))" = "${now_app_version_semver[2]}" ]; then
+            [ "$(( old_app_version_semver[2] + 1 ))" = "${now_app_version_semver[2]}" ]; then
             true
         else
             echo "$src_file: non-strict semver version bump from $old_app_version to $now_app_version"
