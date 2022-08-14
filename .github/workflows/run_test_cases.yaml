@@ -51,6 +51,12 @@ jobs:
     eunit_and_proper:
         needs: prepare
         runs-on: aws-amd64
+        strategy:
+          fail-fast: false
+          matrix:
+            profile:
+              - emqx
+              - emqx-enterprise
         defaults:
           run:
             shell: bash
@@ -63,14 +69,20 @@ jobs:
             name: source
             path: .
         - name: unzip source code
+          env:
+            PROFILE: ${{ matrix.profile }}
           run: unzip -o -q source.zip
           # produces eunit.coverdata
         - name: eunit
+          env:
+            PROFILE: ${{ matrix.profile }}
           working-directory: source
           run: make eunit
 
           # produces proper.coverdata
         - name: proper
+          env:
+            PROFILE: ${{ matrix.profile }}
           working-directory: source
           run: make proper
 
@@ -136,7 +148,7 @@ jobs:
         - uses: actions/upload-artifact@v1
           if: failure()
           with:
-            name: logs_${{ matrix.otp_release }}
+            name: logs_${{ matrix.otp_release }}-${{ matrix.profile }}
             path: source/_build/test/logs
 
     ct:
@@ -198,7 +210,7 @@ jobs:
         - uses: actions/upload-artifact@v3
           if: failure()
           with:
-            name: logs_${{ matrix.otp_release }}
+            name: logs_${{ matrix.otp_release }}-${{ matrix.profile }}
             path: source/_build/test/logs
 
     make_cover:
