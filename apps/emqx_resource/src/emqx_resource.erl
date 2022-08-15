@@ -115,6 +115,7 @@
     on_query/3,
     on_batch_query/3,
     on_query_async/4,
+    on_batch_query_async/4,
     on_get_status/2
 ]).
 
@@ -131,7 +132,16 @@
 %% when calling emqx_resource:on_batch_query/3
 -callback on_batch_query(resource_id(), Request :: term(), resource_state()) -> query_result().
 
+%% when calling emqx_resource:on_query_async/4
 -callback on_query_async(
+    resource_id(),
+    Request :: term(),
+    {ReplyFun :: function(), Args :: list()},
+    resource_state()
+) -> query_result().
+
+%% when calling emqx_resource:on_batch_query_async/4
+-callback on_batch_query_async(
     resource_id(),
     Request :: term(),
     {ReplyFun :: function(), Args :: list()},
