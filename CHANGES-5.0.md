@@ -2,7 +2,7 @@
 
 ## Bug fixes
 
-* remove the `will_msg` field from the client API
+* Remove the needless `will_msg` field from the client API. [#8721](https://github.com/emqx/emqx/pull/8721)
 
 # 5.0.5
 
