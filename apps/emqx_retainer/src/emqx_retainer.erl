@@ -348,12 +348,16 @@ enable_retainer(
     #{context_id := ContextId} = State,
     #{
         msg_clear_interval := ClearInterval,
-        backend := BackendCfg
+        backend := BackendCfg,
+        flow_control := FlowControl
     }
 ) ->
     NewContextId = ContextId + 1,
     Context = create_resource(new_context(NewContextId), BackendCfg),
     load(Context),
+    emqx_limiter_server:add_bucket(
+        ?APP, internal, maps:get(batch_deliver_limiter, FlowControl, undefined)
+    ),
     State#{
         enable := true,
         context_id := NewContextId,
@@ -369,6 +373,7 @@ disable_retainer(
     } = State
 ) ->
     unload(),
+    emqx_limiter_server:del_bucket(?APP, internal),
     ok = close_resource(Context),
     State#{
         enable := false,

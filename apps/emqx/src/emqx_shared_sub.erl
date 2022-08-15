@@ -72,6 +72,7 @@
 -type strategy() ::
     random
     | round_robin
+    | round_robin_per_group
     | sticky
     | local
     %% same as hash_clientid, backward compatible
@@ -81,6 +82,7 @@
 
 -define(SERVER, ?MODULE).
 -define(TAB, emqx_shared_subscription).
+-define(SHARED_SUBS_ROUND_ROBIN_COUNTER, emqx_shared_subscriber_round_robin_counter).
 -define(SHARED_SUBS, emqx_shared_subscriber).
 -define(ALIVE_SUBS, emqx_alive_shared_subscribers).
 -define(SHARED_SUB_QOS1_DISPATCH_TIMEOUT_SECONDS, 5).
@@ -315,7 +317,14 @@ do_pick_subscriber(Group, Topic, round_robin, _ClientId, _SourceTopic, Count) ->
             N -> (N + 1) rem Count
         end,
     _ = erlang:put({shared_sub_round_robin, Group, Topic}, Rem),
-    Rem + 1.
+    Rem + 1;
+do_pick_subscriber(Group, Topic, round_robin_per_group, _ClientId, _SourceTopic, Count) ->
+    %% reset the counter to 1 if counter > subscriber count to avoid the counter to grow larger
+    %% than the current subscriber count.
+    %% if no counter for the given group topic exists - due to a configuration change - create a new one starting at 0
+    ets:update_counter(?SHARED_SUBS_ROUND_ROBIN_COUNTER, {Group, Topic}, {2, 1, Count, 1}, {
+        {Group, Topic}, 0
+    }).
 
 subscribers(Group, Topic) ->
     ets:select(?TAB, [{{emqx_shared_subscription, Group, Topic, '$1'}, [], ['$1']}]).
@@ -330,6 +339,7 @@ init([]) ->
     {atomic, PMon} = mria:transaction(?SHARED_SUB_SHARD, fun init_monitors/0),
     ok = emqx_tables:new(?SHARED_SUBS, [protected, bag]),
     ok = emqx_tables:new(?ALIVE_SUBS, [protected, set, {read_concurrency, true}]),
+    ok = emqx_tables:new(?SHARED_SUBS_ROUND_ROBIN_COUNTER, [public, set, {write_concurrency, true}]),
     {ok, update_stats(#state{pmon = PMon})}.
 
 init_monitors() ->
@@ -348,12 +358,14 @@ handle_call({subscribe, Group, Topic, SubPid}, _From, State = #state{pmon = PMon
         false -> ok = emqx_router:do_add_route(Topic, {Group, node()})
     end,
     ok = maybe_insert_alive_tab(SubPid),
+    ok = maybe_insert_round_robin_count({Group, Topic}),
     true = ets:insert(?SHARED_SUBS, {{Group, Topic}, SubPid}),
     {reply, ok, update_stats(State#state{pmon = emqx_pmon:monitor(SubPid, PMon)})};
 handle_call({unsubscribe, Group, Topic, SubPid}, _From, State) ->
     mria:dirty_delete_object(?TAB, record(Group, Topic, SubPid)),
     true = ets:delete_object(?SHARED_SUBS, {{Group, Topic}, SubPid}),
     delete_route_if_needed({Group, Topic}),
+    maybe_delete_round_robin_count({Group, Topic}),
     {reply, ok, State};
 handle_call(Req, _From, State) ->
     ?SLOG(error, #{msg => "unexpected_call", req => Req}),
@@ -395,6 +407,25 @@ code_change(_OldVsn, State, _Extra) ->
 %% Internal functions
 %%--------------------------------------------------------------------
 
+maybe_insert_round_robin_count({Group, _Topic} = GroupTopic) ->
+    strategy(Group) =:= round_robin_per_group andalso
+        ets:insert(?SHARED_SUBS_ROUND_ROBIN_COUNTER, {GroupTopic, 0}),
+    ok.
+
+maybe_delete_round_robin_count({Group, _Topic} = GroupTopic) ->
+    strategy(Group) =:= round_robin_per_group andalso
+        if_no_more_subscribers(GroupTopic, fun() ->
+            ets:delete(?SHARED_SUBS_ROUND_ROBIN_COUNTER, GroupTopic)
+        end),
+    ok.
+
+if_no_more_subscribers(GroupTopic, Fn) ->
+    case ets:member(?SHARED_SUBS, GroupTopic) of
+        true -> ok;
+        false -> Fn()
+    end,
+    ok.
+
 %% keep track of alive remote pids
 maybe_insert_alive_tab(Pid) when ?IS_LOCAL_PID(Pid) -> ok;
 maybe_insert_alive_tab(Pid) when is_pid(Pid) ->
@@ -407,6 +438,7 @@ cleanup_down(SubPid) ->
         fun(Record = #emqx_shared_subscription{topic = Topic, group = Group}) ->
             ok = mria:dirty_delete_object(?TAB, Record),
             true = ets:delete_object(?SHARED_SUBS, {{Group, Topic}, SubPid}),
+            maybe_delete_round_robin_count({Group, Topic}),
             delete_route_if_needed({Group, Topic})
         end,
         mnesia:dirty_match_object(#emqx_shared_subscription{_ = '_', subpid = SubPid})
@@ -430,8 +462,7 @@ is_alive_sub(Pid) when ?IS_LOCAL_PID(Pid) ->
 is_alive_sub(Pid) ->
     [] =/= ets:lookup(?ALIVE_SUBS, Pid).
 
-delete_route_if_needed({Group, Topic}) ->
-    case ets:member(?SHARED_SUBS, {Group, Topic}) of
-        true -> ok;
-        false -> ok = emqx_router:do_delete_route(Topic, {Group, node()})
-    end.
+delete_route_if_needed({Group, Topic} = GroupTopic) ->
+    if_no_more_subscribers(GroupTopic, fun() ->
+        ok = emqx_router:do_delete_route(Topic, {Group, node()})
+    end).

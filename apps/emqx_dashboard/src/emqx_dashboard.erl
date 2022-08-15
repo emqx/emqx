@@ -73,6 +73,7 @@ start_listeners(Listeners) ->
     Dispatch = [
         {"/", cowboy_static, {priv_file, emqx_dashboard, "www/index.html"}},
         {"/static/[...]", cowboy_static, {priv_dir, emqx_dashboard, "www/static"}},
+        {emqx_mgmt_api_status:path(), emqx_mgmt_api_status, []},
         {?BASE_PATH ++ "/[...]", emqx_dashboard_bad_api, []},
         {'_', cowboy_static, {priv_file, emqx_dashboard, "www/index.html"}}
     ],

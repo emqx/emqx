@@ -113,32 +113,36 @@ authenticate(
         password_hash_algorithm := Algorithm
     }
 ) ->
-    Params = emqx_authn_utils:render_sql_params(TmplToken, Credential),
-    case emqx_resource:query(ResourceId, {prepared_query, ?PREPARE_KEY, Params, Timeout}) of
-        {ok, _Columns, []} ->
-            ignore;
-        {ok, Columns, [Row | _]} ->
-            Selected = maps:from_list(lists:zip(Columns, Row)),
-            case
-                emqx_authn_utils:check_password_from_selected_map(
-                    Algorithm, Selected, Password
-                )
-            of
-                ok ->
-                    {ok, emqx_authn_utils:is_superuser(Selected)};
+    ?WITH_SUCCESSFUL_RENDER(
+        begin
+            Params = emqx_authn_utils:render_sql_params(TmplToken, Credential),
+            case emqx_resource:query(ResourceId, {prepared_query, ?PREPARE_KEY, Params, Timeout}) of
+                {ok, _Columns, []} ->
+                    ignore;
+                {ok, Columns, [Row | _]} ->
+                    Selected = maps:from_list(lists:zip(Columns, Row)),
+                    case
+                        emqx_authn_utils:check_password_from_selected_map(
+                            Algorithm, Selected, Password
+                        )
+                    of
+                        ok ->
+                            {ok, emqx_authn_utils:is_superuser(Selected)};
+                        {error, Reason} ->
+                            {error, Reason}
+                    end;
                 {error, Reason} ->
-                    {error, Reason}
-            end;
-        {error, Reason} ->
-            ?TRACE_AUTHN_PROVIDER(error, "mysql_query_failed", #{
-                resource => ResourceId,
-                tmpl_token => TmplToken,
-                params => Params,
-                timeout => Timeout,
-                reason => Reason
-            }),
-            ignore
-    end.
+                    ?TRACE_AUTHN_PROVIDER(error, "mysql_query_failed", #{
+                        resource => ResourceId,
+                        tmpl_token => TmplToken,
+                        params => Params,
+                        timeout => Timeout,
+                        reason => Reason
+                    }),
+                    ignore
+            end
+        end
+    ).
 
 parse_config(
     #{

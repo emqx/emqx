@@ -86,7 +86,7 @@ fields(flow_control) ->
             )},
         {batch_deliver_limiter,
             sc(
-                emqx_limiter_schema:bucket_name(),
+                ?R_REF(emqx_limiter_schema, internal),
                 batch_deliver_limiter,
                 undefined
             )}

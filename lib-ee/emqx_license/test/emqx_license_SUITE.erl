@@ -141,17 +141,9 @@ setup_test(TestCase, Config) when
                     emqx_config:put([license], LicConfig),
                     RawConfig = #{<<"type">> => file, <<"file">> => LicensePath},
                     emqx_config:put_raw([<<"license">>], RawConfig),
-                    ok = meck:new(emqx_license, [non_strict, passthrough, no_history, no_link]),
-                    %% meck:expect(emqx_license, read_license, fun() -> {ok, License} end),
-                    meck:expect(
-                        emqx_license_parser,
-                        parse,
-                        fun(X) ->
-                            emqx_license_parser:parse(
-                                X,
-                                emqx_license_test_lib:public_key_pem()
-                            )
-                        end
+                    ok = persistent_term:put(
+                        emqx_license_test_pubkey,
+                        emqx_license_test_lib:public_key_pem()
                     ),
                     ok;
                 (_) ->

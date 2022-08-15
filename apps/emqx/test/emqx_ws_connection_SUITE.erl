@@ -59,6 +59,7 @@ init_per_testcase(TestCase, Config) when
     TestCase =/= t_ws_pingreq_before_connected,
     TestCase =/= t_ws_non_check_origin
 ->
+    add_bucket(),
     %% Meck Cm
     ok = meck:new(emqx_cm, [passthrough, no_history, no_link]),
     ok = meck:expect(emqx_cm, mark_channel_connected, fun(_) -> ok end),
@@ -96,6 +97,7 @@ init_per_testcase(TestCase, Config) when
         | Config
     ];
 init_per_testcase(t_ws_non_check_origin, Config) ->
+    add_bucket(),
     ok = emqx_common_test_helpers:start_apps([]),
     PrevConfig = emqx_config:get_listener_conf(ws, default, [websocket]),
     emqx_config:put_listener_conf(ws, default, [websocket, check_origin_enable], false),
@@ -105,6 +107,7 @@ init_per_testcase(t_ws_non_check_origin, Config) ->
         | Config
     ];
 init_per_testcase(_, Config) ->
+    add_bucket(),
     PrevConfig = emqx_config:get_listener_conf(ws, default, [websocket]),
     ok = emqx_common_test_helpers:start_apps([]),
     [
@@ -119,6 +122,7 @@ end_per_testcase(TestCase, _Config) when
     TestCase =/= t_ws_non_check_origin,
     TestCase =/= t_ws_pingreq_before_connected
 ->
+    del_bucket(),
     lists:foreach(
         fun meck:unload/1,
         [
@@ -131,11 +135,13 @@ end_per_testcase(TestCase, _Config) when
         ]
     );
 end_per_testcase(t_ws_non_check_origin, Config) ->
+    del_bucket(),
     PrevConfig = ?config(prev_config, Config),
     emqx_config:put_listener_conf(ws, default, [websocket], PrevConfig),
     emqx_common_test_helpers:stop_apps([]),
     ok;
 end_per_testcase(_, Config) ->
+    del_bucket(),
     PrevConfig = ?config(prev_config, Config),
     emqx_config:put_listener_conf(ws, default, [websocket], PrevConfig),
     emqx_common_test_helpers:stop_apps([]),
@@ -501,15 +507,12 @@ t_handle_timeout_emit_stats(_) ->
     ?assertEqual(undefined, ?ws_conn:info(stats_timer, St)).
 
 t_ensure_rate_limit(_) ->
-    %% XXX In the future, limiter should provide API for config update
-    Path = [limiter, bytes_in, bucket, default, per_client],
-    PerClient = emqx_config:get(Path),
     {ok, Rate} = emqx_limiter_schema:to_rate("50MB"),
-    emqx_config:put(Path, PerClient#{rate := Rate}),
-    emqx_limiter_server:restart(bytes_in),
-    timer:sleep(100),
-
-    Limiter = init_limiter(),
+    Limiter = init_limiter(#{
+        bytes_in => bucket_cfg(),
+        message_in => bucket_cfg(),
+        client => #{bytes_in => client_cfg(Rate)}
+    }),
     St = st(#{limiter => Limiter}),
 
     %% must bigger than value in emqx_ratelimit_SUITE
@@ -522,11 +525,7 @@ t_ensure_rate_limit(_) ->
         St
     ),
     ?assertEqual(blocked, ?ws_conn:info(sockstate, St1)),
-    ?assertEqual([{active, false}], ?ws_conn:info(postponed, St1)),
-
-    emqx_config:put(Path, PerClient),
-    emqx_limiter_server:restart(bytes_in),
-    timer:sleep(100).
+    ?assertEqual([{active, false}], ?ws_conn:info(postponed, St1)).
 
 t_parse_incoming(_) ->
     {Packets, St} = ?ws_conn:parse_incoming(<<48, 3>>, [], st()),
@@ -691,7 +690,44 @@ ws_client(State) ->
         ct:fail(ws_timeout)
     end.
 
-limiter_cfg() -> #{bytes_in => default, message_in => default}.
+-define(LIMITER_ID, 'ws:default').
 
 init_limiter() ->
-    emqx_limiter_container:get_limiter_by_names([bytes_in, message_in], limiter_cfg()).
+    init_limiter(limiter_cfg()).
+
+init_limiter(LimiterCfg) ->
+    emqx_limiter_container:get_limiter_by_types(?LIMITER_ID, [bytes_in, message_in], LimiterCfg).
+
+limiter_cfg() ->
+    Cfg = bucket_cfg(),
+    Client = client_cfg(),
+    #{bytes_in => Cfg, message_in => Cfg, client => #{bytes_in => Client, message_in => Client}}.
+
+client_cfg() ->
+    Infinity = emqx_limiter_schema:infinity_value(),
+    client_cfg(Infinity).
+
+client_cfg(Rate) ->
+    Infinity = emqx_limiter_schema:infinity_value(),
+    #{
+        rate => Rate,
+        initial => 0,
+        capacity => Infinity,
+        low_watermark => 1,
+        divisible => false,
+        max_retry_time => timer:seconds(5),
+        failure_strategy => force
+    }.
+
+bucket_cfg() ->
+    Infinity = emqx_limiter_schema:infinity_value(),
+    #{rate => Infinity, initial => 0, capacity => Infinity}.
+
+add_bucket() ->
+    Cfg = bucket_cfg(),
+    emqx_limiter_server:add_bucket(?LIMITER_ID, bytes_in, Cfg),
+    emqx_limiter_server:add_bucket(?LIMITER_ID, message_in, Cfg).
+
+del_bucket() ->
+    emqx_limiter_server:del_bucket(?LIMITER_ID, bytes_in),
+    emqx_limiter_server:del_bucket(?LIMITER_ID, message_in).
