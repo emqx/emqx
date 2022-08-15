@@ -62,13 +62,6 @@ esac
 TAGS=( 'dummy' )
 TAGS_EXCLUDE=( 'dummy' )
 
-# first 4.5.0 version uses the previous 4.4.X as a base
-# we emulate that we are the last 4.4.X version.
-if [[ "${CUR_SEMVER[0]}" = 4 && "${CUR_SEMVER[1]}" = 5 && "${CUR_SEMVER[2]}" = 0 ]]; then
-  CUR_SEMVER[1]=4
-  CUR_SEMVER[2]=9999
-fi
-
 while read -r git_tag; do
     # shellcheck disable=SC2207
     semver=($(parse_semver "$git_tag"))
@@ -95,6 +88,13 @@ fi
 for tag_to_del in "${TAGS_EXCLUDE[@]}"; do
     TAGS=( "${TAGS[@]/$tag_to_del}" )
 done
+
+# first 4.5.0 version uses the previous 4.4.X as a base we emulate
+# that we are the last 4.4.X version that allows upgrading to 4.4.5.
+if [[ "${CUR_SEMVER[0]}" = 4 && "${CUR_SEMVER[1]}" = 5 && "${CUR_SEMVER[2]}" = 0 ]]; then
+  TAGS+=( "v4.4.8" )
+  TAGS+=( "e4.4.8" )
+fi
 
 for tag in "${TAGS[@]}"; do
     if [ "$tag" != '' ]; then
