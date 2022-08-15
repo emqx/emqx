@@ -2094,9 +2094,9 @@ sc(Type, Meta) -> hoconsc:mk(Type, Meta).
 
 map(Name, Type) -> hoconsc:map(Name, Type).
 
-ref(Field) -> hoconsc:ref(?MODULE, Field).
+ref(StructName) -> hoconsc:ref(?MODULE, StructName).
 
-ref(Module, Field) -> hoconsc:ref(Module, Field).
+ref(Module, StructName) -> hoconsc:ref(Module, StructName).
 
 mk_duration(Desc, OverrideMeta) ->
     DefaultMeta = #{
