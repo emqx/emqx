@@ -200,7 +200,7 @@ $(foreach zt,$(ALL_TGZS),$(eval $(call gen-tgz-target,$(zt))))
 .PHONY: $(PKG_PROFILES)
 define gen-pkg-target
 $1: $(COMMON_DEPS)
-	@$(BUILD) $1 pkg
+	@$(BUILD) $(subst -pkg,,$(1)) pkg
 endef
 $(foreach pt,$(PKG_PROFILES),$(eval $(call gen-pkg-target,$(pt))))
 
