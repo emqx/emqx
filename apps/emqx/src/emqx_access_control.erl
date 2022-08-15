@@ -44,6 +44,8 @@ authenticate(Credential) ->
 %% @doc Check Authorization
 -spec authorize(emqx_types:clientinfo(), emqx_types:pubsub(), emqx_types:topic()) ->
     allow | deny.
+authorize(#{is_superuser := true}, _PubSub, _Topic) ->
+    allow;
 authorize(ClientInfo, PubSub, Topic) ->
     Result =
         case emqx_authz_cache:is_enabled() of
