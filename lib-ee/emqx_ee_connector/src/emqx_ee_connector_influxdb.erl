@@ -502,7 +502,8 @@ maps_config_to_data(K, V, {Data, Res}) ->
     case {NK, NV} of
         {[undefined], _} ->
             {Data, Res};
-        {_, [undefined]} ->
+        %% undefined value in normal format [undefined] or int/uint format [undefined, <<"i">>]
+        {_, [undefined | _]} ->
             {Data, Res};
         _ ->
             {Data, Res#{NK => value_type(NV)}}
@@ -512,7 +513,9 @@ value_type([Int, <<"i">>]) when
     is_integer(Int)
 ->
     {int, Int};
-value_type([UInt, <<"u">>]) ->
+value_type([UInt, <<"u">>]) when
+    is_integer(UInt)
+->
     {uint, UInt};
 value_type([<<"t">>]) ->
     't';
