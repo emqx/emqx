@@ -538,7 +538,6 @@ fields(client) ->
             })},
         {username, hoconsc:mk(binary(), #{desc => <<"User name of client when connecting">>})},
         {mountpoint, hoconsc:mk(binary(), #{desc => <<"Topic mountpoint">>})},
-        {will_msg, hoconsc:mk(binary(), #{desc => <<"Client will message">>})},
         {zone,
             hoconsc:mk(binary(), #{
                 desc =>
@@ -885,7 +884,8 @@ format_channel_info({_, ClientInfo0, ClientStats}) ->
         [memory, next_pkt_id, total_heap_size],
         maps:from_list(ClientStats)
     ),
-    ClientInfoMap0 = maps:fold(fun take_maps_from_inner/3, #{}, ClientInfo2),
+    ClientInfo3 = maps:remove(will_msg, ClientInfo2),
+    ClientInfoMap0 = maps:fold(fun take_maps_from_inner/3, #{}, ClientInfo3),
     {IpAddress, Port} = peername_dispart(maps:get(peername, ClientInfoMap0)),
     Connected = maps:get(conn_state, ClientInfoMap0) =:= connected,
     ClientInfoMap1 = maps:merge(StatsMap, ClientInfoMap0),
