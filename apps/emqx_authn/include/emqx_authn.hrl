@@ -38,4 +38,8 @@
 
 -define(RESOURCE_GROUP, <<"emqx_authn">>).
 
+-define(WITH_SUCCESSFUL_RENDER(Code),
+    emqx_authn_utils:with_successful_render(?MODULE, fun() -> Code end)
+).
+
 -endif.

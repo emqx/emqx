@@ -75,15 +75,31 @@
     | {resource_down, term()}.
 
 -define(DEFAULT_QUEUE_SIZE, 1024 * 1024 * 1024).
+-define(DEFAULT_QUEUE_SIZE_RAW, <<"1GB">>).
+
+%% count
 -define(DEFAULT_BATCH_SIZE, 100).
+
+%% milliseconds
 -define(DEFAULT_BATCH_TIME, 10).
+-define(DEFAULT_BATCH_TIME_RAW, <<"10ms">>).
+
+%% count
 -define(DEFAULT_INFLIGHT, 100).
+
+%% milliseconds
 -define(HEALTHCHECK_INTERVAL, 15000).
 -define(HEALTHCHECK_INTERVAL_RAW, <<"15s">>).
+
 -define(START_AFTER_CREATED, true).
+
+%% milliseconds
 -define(START_TIMEOUT, 5000).
 -define(START_TIMEOUT_RAW, <<"5s">>).
+
+%% milliseconds
 -define(AUTO_RESTART_INTERVAL, 60000).
 -define(AUTO_RESTART_INTERVAL_RAW, <<"60s">>).
+
 -define(TEST_ID_PREFIX, "_test_:").
 -define(RES_METRICS, resource_metrics).

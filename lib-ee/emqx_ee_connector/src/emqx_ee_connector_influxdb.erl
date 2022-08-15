@@ -18,6 +18,8 @@
     on_stop/2,
     on_query/3,
     on_batch_query/3,
+    on_query_async/4,
+    on_batch_query_async/4,
     on_get_status/2
 ]).
 
@@ -30,7 +32,7 @@
 
 %% -------------------------------------------------------------------------------------------------
 %% resource callback
-callback_mode() -> always_sync.
+callback_mode() -> async_if_possible.
 
 on_start(InstId, Config) ->
     start_client(InstId, Config).
@@ -49,12 +51,39 @@ on_query(InstId, {send_message, Data}, _State = #{write_syntax := SyntaxLines, c
 
 %% Once a Batched Data trans to points failed.
 %% This batch query failed
-on_batch_query(InstId, BatchData, State = #{write_syntax := SyntaxLines, client := Client}) ->
+on_batch_query(InstId, BatchData, _State = #{write_syntax := SyntaxLines, client := Client}) ->
+    case parse_batch_data(InstId, BatchData, SyntaxLines) of
+        {ok, Points} ->
+            do_query(InstId, Client, Points);
+        {error, Reason} ->
+            {error, Reason}
+    end.
+
+on_query_async(
+    InstId,
+    {send_message, Data},
+    {ReplayFun, Args},
+    _State = #{write_syntax := SyntaxLines, client := Client}
+) ->
+    case data_to_points(Data, SyntaxLines) of
+        {ok, Points} ->
+            do_async_query(InstId, Client, Points, {ReplayFun, Args});
+        {error, ErrorPoints} = Err ->
+            log_error_points(InstId, ErrorPoints),
+            Err
+    end.
+
+on_batch_query_async(
+    InstId,
+    BatchData,
+    {ReplayFun, Args},
+    State = #{write_syntax := SyntaxLines, client := Client}
+) ->
     case on_get_status(InstId, State) of
         connected ->
             case parse_batch_data(InstId, BatchData, SyntaxLines) of
                 {ok, Points} ->
-                    do_query(InstId, Client, Points);
+                    do_async_query(InstId, Client, Points, {ReplayFun, Args});
                 {error, Reason} ->
                     {error, Reason}
             end;
@@ -107,7 +136,7 @@ fields(basic) ->
             mk(enum([ns, us, ms, s, m, h]), #{
                 required => false, default => ms, desc => ?DESC("precision")
             })},
-        {pool_size, mk(pos_integer(), #{required => true, desc => ?DESC("pool_size")})}
+        {pool_size, mk(pos_integer(), #{desc => ?DESC("pool_size")})}
     ];
 fields(influxdb_udp) ->
     fields(basic);
@@ -331,7 +360,6 @@ ssl_config(SSL = #{enable := true}) ->
 
 %% -------------------------------------------------------------------------------------------------
 %% Query
-
 do_query(InstId, Client, Points) ->
     case influxdb:write(Client, Points) of
         ok ->
@@ -348,6 +376,14 @@ do_query(InstId, Client, Points) ->
             }),
             Err
     end.
+
+do_async_query(InstId, Client, Points, ReplayFunAndArgs) ->
+    ?SLOG(info, #{
+        msg => "influxdb write point async",
+        connector => InstId,
+        points => Points
+    }),
+    ok = influxdb:write_async(Client, Points, ReplayFunAndArgs).
 
 %% -------------------------------------------------------------------------------------------------
 %% Tags & Fields Config Trans
@@ -466,7 +502,8 @@ maps_config_to_data(K, V, {Data, Res}) ->
     case {NK, NV} of
         {[undefined], _} ->
             {Data, Res};
-        {_, [undefined]} ->
+        %% undefined value in normal format [undefined] or int/uint format [undefined, <<"i">>]
+        {_, [undefined | _]} ->
             {Data, Res};
         _ ->
             {Data, Res#{NK => value_type(NV)}}
@@ -476,7 +513,9 @@ value_type([Int, <<"i">>]) when
     is_integer(Int)
 ->
     {int, Int};
-value_type([UInt, <<"u">>]) ->
+value_type([UInt, <<"u">>]) when
+    is_integer(UInt)
+->
     {uint, UInt};
 value_type([<<"t">>]) ->
     't';

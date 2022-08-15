@@ -287,7 +287,8 @@ COMPATIBILITY_CHECK='
 
 compatiblity_info() {
   # RELEASE_LIB is used by Elixir
-  "$BINDIR/$PROGNAME" \
+  # set crash-dump bytes to zero to ensure no crash dump is generated when erl crashes
+  env ERL_CRASH_DUMP_BYTES=0 "$BINDIR/$PROGNAME" \
     -noshell \
     -boot_var RELEASE_LIB "$ERTS_LIB_DIR/lib" \
     -boot "$REL_DIR/start_clean" \

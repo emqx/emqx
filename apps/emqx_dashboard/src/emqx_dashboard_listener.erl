@@ -38,7 +38,12 @@
 ]).
 
 is_ready(Timeout) ->
-    ready =:= gen_server:call(?MODULE, is_ready, Timeout).
+    try
+        ready =:= gen_server:call(?MODULE, is_ready, Timeout)
+    catch
+        exit:{timeout, _} ->
+            false
+    end.
 
 start_link() ->
     gen_server:start_link({local, ?MODULE}, ?MODULE, [], []).

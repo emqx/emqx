@@ -279,12 +279,19 @@ stop_listener(Type, ListenerName, #{bind := Bind} = Conf) ->
     end.
 
 -spec do_stop_listener(atom(), atom(), map()) -> ok | {error, term()}.
-do_stop_listener(Type, ListenerName, #{bind := ListenOn}) when Type == tcp; Type == ssl ->
-    esockd:close(listener_id(Type, ListenerName), ListenOn);
-do_stop_listener(Type, ListenerName, _Conf) when Type == ws; Type == wss ->
-    cowboy:stop_listener(listener_id(Type, ListenerName));
-do_stop_listener(quic, ListenerName, _Conf) ->
-    quicer:stop_listener(listener_id(quic, ListenerName)).
+
+do_stop_listener(Type, ListenerName, #{bind := ListenOn} = Conf) when Type == tcp; Type == ssl ->
+    Id = listener_id(Type, ListenerName),
+    del_limiter_bucket(Id, Conf),
+    esockd:close(Id, ListenOn);
+do_stop_listener(Type, ListenerName, Conf) when Type == ws; Type == wss ->
+    Id = listener_id(Type, ListenerName),
+    del_limiter_bucket(Id, Conf),
+    cowboy:stop_listener(Id);
+do_stop_listener(quic, ListenerName, Conf) ->
+    Id = listener_id(quic, ListenerName),
+    del_limiter_bucket(Id, Conf),
+    quicer:stop_listener(Id).
 
 -ifndef(TEST).
 console_print(Fmt, Args) -> ?ULOG(Fmt, Args).
@@ -300,10 +307,12 @@ do_start_listener(_Type, _ListenerName, #{enabled := false}) ->
 do_start_listener(Type, ListenerName, #{bind := ListenOn} = Opts) when
     Type == tcp; Type == ssl
 ->
+    Id = listener_id(Type, ListenerName),
+    add_limiter_bucket(Id, Opts),
     esockd:open(
-        listener_id(Type, ListenerName),
+        Id,
         ListenOn,
-        merge_default(esockd_opts(Type, Opts)),
+        merge_default(esockd_opts(Id, Type, Opts)),
         {emqx_connection, start_link, [
             #{
                 listener => {Type, ListenerName},
@@ -318,6 +327,7 @@ do_start_listener(Type, ListenerName, #{bind := ListenOn} = Opts) when
     Type == ws; Type == wss
 ->
     Id = listener_id(Type, ListenerName),
+    add_limiter_bucket(Id, Opts),
     RanchOpts = ranch_opts(Type, ListenOn, Opts),
     WsOpts = ws_opts(Type, ListenerName, Opts),
     case Type of
@@ -325,23 +335,31 @@ do_start_listener(Type, ListenerName, #{bind := ListenOn} = Opts) when
         wss -> cowboy:start_tls(Id, RanchOpts, WsOpts)
     end;
 %% Start MQTT/QUIC listener
-do_start_listener(quic, ListenerName, #{bind := ListenOn} = Opts) ->
+do_start_listener(quic, ListenerName, #{bind := Bind} = Opts) ->
+    ListenOn =
+        case Bind of
+            {Addr, Port} when tuple_size(Addr) == 4 ->
+                %% IPv4
+                lists:flatten(io_lib:format("~ts:~w", [inet:ntoa(Addr), Port]));
+            {Addr, Port} when tuple_size(Addr) == 8 ->
+                %% IPv6
+                lists:flatten(io_lib:format("[~ts]:~w", [inet:ntoa(Addr), Port]));
+            Port ->
+                Port
+        end,
+
     case [A || {quicer, _, _} = A <- application:which_applications()] of
         [_] ->
             DefAcceptors = erlang:system_info(schedulers_online) * 8,
-            IdleTimeout = timer:seconds(maps:get(idle_timeout, Opts)),
             ListenOpts = [
                 {cert, maps:get(certfile, Opts)},
                 {key, maps:get(keyfile, Opts)},
                 {alpn, ["mqtt"]},
                 {conn_acceptors, lists:max([DefAcceptors, maps:get(acceptors, Opts, 0)])},
-                {keep_alive_interval_ms, ceil(IdleTimeout / 3)},
-                {server_resumption_level, 2},
-                {idle_timeout_ms,
-                    lists:max([
-                        emqx_config:get_zone_conf(zone(Opts), [mqtt, idle_timeout]) * 3,
-                        IdleTimeout
-                    ])}
+                {keep_alive_interval_ms, maps:get(keep_alive_interval, Opts, 0)},
+                {idle_timeout_ms, maps:get(idle_timeout, Opts, 0)},
+                {handshake_idle_timeout_ms, maps:get(handshake_idle_timeout, Opts, 10000)},
+                {server_resumption_level, 2}
             ],
             ConnectionOpts = #{
                 conn_callback => emqx_quic_connection,
@@ -352,9 +370,11 @@ do_start_listener(quic, ListenerName, #{bind := ListenOn} = Opts) ->
                 limiter => limiter(Opts)
             },
             StreamOpts = [{stream_callback, emqx_quic_stream}],
+            Id = listener_id(quic, ListenerName),
+            add_limiter_bucket(Id, Opts),
             quicer:start_listener(
-                listener_id(quic, ListenerName),
-                port(ListenOn),
+                Id,
+                ListenOn,
                 {ListenOpts, ConnectionOpts, StreamOpts}
             );
         [] ->
@@ -410,16 +430,18 @@ post_config_update([listeners, Type, Name], {action, _Action, _}, NewConf, OldCo
 post_config_update(_Path, _Request, _NewConf, _OldConf, _AppEnvs) ->
     ok.
 
-esockd_opts(Type, Opts0) ->
+esockd_opts(ListenerId, Type, Opts0) ->
     Opts1 = maps:with([acceptors, max_connections, proxy_protocol, proxy_protocol_timeout], Opts0),
     Limiter = limiter(Opts0),
     Opts2 =
         case maps:get(connection, Limiter, undefined) of
             undefined ->
                 Opts1;
-            BucketName ->
+            BucketCfg ->
                 Opts1#{
-                    limiter => emqx_esockd_htb_limiter:new_create_options(connection, BucketName)
+                    limiter => emqx_esockd_htb_limiter:new_create_options(
+                        ListenerId, connection, BucketCfg
+                    )
                 }
         end,
     Opts3 = Opts2#{
@@ -467,9 +489,6 @@ ip_port(Port) when is_integer(Port) ->
     [{port, Port}];
 ip_port({Addr, Port}) ->
     [{ip, Addr}, {port, Port}].
-
-port(Port) when is_integer(Port) -> Port;
-port({_Addr, Port}) when is_integer(Port) -> Port.
 
 esockd_access_rules(StrRules) ->
     Access = fun(S) ->
@@ -538,6 +557,27 @@ zone(Opts) ->
 
 limiter(Opts) ->
     maps:get(limiter, Opts, #{}).
+
+add_limiter_bucket(Id, #{limiter := Limiter}) ->
+    maps:fold(
+        fun(Type, Cfg, _) ->
+            emqx_limiter_server:add_bucket(Id, Type, Cfg)
+        end,
+        ok,
+        maps:without([client], Limiter)
+    );
+add_limiter_bucket(_Id, _Cfg) ->
+    ok.
+
+del_limiter_bucket(Id, #{limiter := Limiters}) ->
+    lists:foreach(
+        fun(Type) ->
+            emqx_limiter_server:del_bucket(Id, Type)
+        end,
+        maps:keys(Limiters)
+    );
+del_limiter_bucket(_Id, _Cfg) ->
+    ok.
 
 enable_authn(Opts) ->
     maps:get(enable_authn, Opts, true).

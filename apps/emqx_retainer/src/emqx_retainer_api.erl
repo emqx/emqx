@@ -151,13 +151,8 @@ config(get, _) ->
     {200, emqx:get_raw_config([retainer])};
 config(put, #{body := Body}) ->
     try
-        check_bucket_exists(
-            Body,
-            fun(Conf) ->
-                {ok, _} = emqx_retainer:update_config(Conf),
-                {200, emqx:get_raw_config([retainer])}
-            end
-        )
+        {ok, _} = emqx_retainer:update_config(Body),
+        {200, emqx:get_raw_config([retainer])}
     catch
         _:Reason:_ ->
             {400, #{
@@ -237,30 +232,3 @@ check_backend(Type, Params, Cont) ->
         _ ->
             {400, 'BAD_REQUEST', <<"This API only support built in database">>}
     end.
-
-check_bucket_exists(
-    #{
-        <<"flow_control">> :=
-            #{<<"batch_deliver_limiter">> := Name} = Flow
-    } = Conf,
-    Cont
-) ->
-    case erlang:binary_to_atom(Name) of
-        '' ->
-            %% workaround, empty string means set the value to undefined,
-            %% but now, we can't store `undefined` in the config file correct,
-            %% but, we can delete this field
-            Cont(Conf#{
-                <<"flow_control">> := maps:remove(<<"batch_deliver_limiter">>, Flow)
-            });
-        Bucket ->
-            Path = emqx_limiter_schema:get_bucket_cfg_path(batch, Bucket),
-            case emqx:get_config(Path, undefined) of
-                undefined ->
-                    {400, 'BAD_REQUEST', <<"The limiter bucket not exists">>};
-                _ ->
-                    Cont(Conf)
-            end
-    end;
-check_bucket_exists(Conf, Cont) ->
-    Cont(Conf).

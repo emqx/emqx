@@ -850,6 +850,75 @@ case10_read(Config) ->
     ),
     ?assertEqual(ReadResult, test_recv_mqtt_response(RespTopic)).
 
+case10_read_bad_request(Config) ->
+    UdpSock = ?config(sock, Config),
+    Epn = "urn:oma:lwm2m:oma:3",
+    MsgId1 = 15,
+    RespTopic = list_to_binary("lwm2m/" ++ Epn ++ "/up/resp"),
+    emqtt:subscribe(?config(emqx_c, Config), RespTopic, qos0),
+    timer:sleep(200),
+    % step 1, device register ...
+    test_send_coap_request(
+        UdpSock,
+        post,
+        sprintf("coap://127.0.0.1:~b/rd?ep=~s&lt=345&lwm2m=1", [?PORT, Epn]),
+        #coap_content{
+            content_format = <<"text/plain">>,
+            payload =
+                <<"</lwm2m>;rt=\"oma.lwm2m\";ct=11543,</lwm2m/1/0>,</lwm2m/2/0>,</lwm2m/3/0>">>
+        },
+        [],
+        MsgId1
+    ),
+    #coap_message{method = Method1} = test_recv_coap_response(UdpSock),
+    ?assertEqual({ok, created}, Method1),
+    test_recv_mqtt_response(RespTopic),
+
+    % step2,  send a READ command to device
+    CmdId = 206,
+    CommandTopic = <<"lwm2m/", (list_to_binary(Epn))/binary, "/dn/dm">>,
+    Command = #{
+        <<"requestID">> => CmdId,
+        <<"cacheID">> => CmdId,
+        <<"msgType">> => <<"read">>,
+        <<"data">> => #{
+            <<"path">> => <<"/3333/0/0">>
+        }
+    },
+    CommandJson = emqx_json:encode(Command),
+    ?LOGT("CommandJson=~p", [CommandJson]),
+    test_mqtt_broker:publish(CommandTopic, CommandJson, 0),
+    timer:sleep(50),
+    Request2 = test_recv_coap_request(UdpSock),
+    #coap_message{method = Method2, payload = Payload2} = Request2,
+    ?LOGT("LwM2M client got ~p", [Request2]),
+    ?assertEqual(get, Method2),
+    ?assertEqual(<<>>, Payload2),
+    timer:sleep(50),
+
+    test_send_coap_response(
+        UdpSock,
+        "127.0.0.1",
+        ?PORT,
+        {ok, content},
+        #coap_content{content_format = <<"text/plain">>, payload = <<"EMQ">>},
+        Request2,
+        true
+    ),
+    timer:sleep(100),
+
+    ReadResult = emqx_json:encode(#{
+        <<"requestID">> => CmdId,
+        <<"cacheID">> => CmdId,
+        <<"msgType">> => <<"read">>,
+        <<"data">> => #{
+            <<"code">> => <<"4.00">>,
+            <<"codeMsg">> => <<"bad_request">>,
+            <<"reqPath">> => <<"/3333/0/0">>
+        }
+    }),
+    ?assertEqual(ReadResult, test_recv_mqtt_response(RespTopic)).
+
 case10_read_separate_ack(Config) ->
     UdpSock = ?config(sock, Config),
     Epn = "urn:oma:lwm2m:oma:3",

@@ -24,11 +24,9 @@
 %% API
 -export([
     start_link/0,
-    find_bucket/1,
     find_bucket/2,
-    insert_bucket/2,
     insert_bucket/3,
-    make_path/2,
+    delete_bucket/2,
     post_config_update/5
 ]).
 
@@ -50,20 +48,19 @@
     format_status/2
 ]).
 
--export_type([path/0]).
-
--type path() :: list(atom()).
+-type limiter_id() :: emqx_limiter_schema:limiter_id().
 -type limiter_type() :: emqx_limiter_schema:limiter_type().
--type bucket_name() :: emqx_limiter_schema:bucket_name().
+-type uid() :: {limiter_id(), limiter_type()}.
 
 %% counter record in ets table
 -record(bucket, {
-    path :: path(),
+    uid :: uid(),
     bucket :: bucket_ref()
 }).
 
 -type bucket_ref() :: emqx_limiter_bucket_ref:bucket_ref().
 
+-define(UID(Id, Type), {Id, Type}).
 -define(TAB, emqx_limiter_counters).
 
 %%--------------------------------------------------------------------
@@ -85,14 +82,10 @@ restart_server(Type) ->
 stop_server(Type) ->
     emqx_limiter_server_sup:stop(Type).
 
--spec find_bucket(limiter_type(), bucket_name()) ->
+-spec find_bucket(limiter_id(), limiter_type()) ->
     {ok, bucket_ref()} | undefined.
-find_bucket(Type, BucketName) ->
-    find_bucket(make_path(Type, BucketName)).
-
--spec find_bucket(path()) -> {ok, bucket_ref()} | undefined.
-find_bucket(Path) ->
-    case ets:lookup(?TAB, Path) of
+find_bucket(Id, Type) ->
+    case ets:lookup(?TAB, ?UID(Id, Type)) of
         [#bucket{bucket = Bucket}] ->
             {ok, Bucket};
         _ ->
@@ -100,20 +93,19 @@ find_bucket(Path) ->
     end.
 
 -spec insert_bucket(
+    limiter_id(),
     limiter_type(),
-    bucket_name(),
     bucket_ref()
 ) -> boolean().
-insert_bucket(Type, BucketName, Bucket) ->
-    inner_insert_bucket(make_path(Type, BucketName), Bucket).
+insert_bucket(Id, Type, Bucket) ->
+    ets:insert(
+        ?TAB,
+        #bucket{uid = ?UID(Id, Type), bucket = Bucket}
+    ).
 
--spec insert_bucket(path(), bucket_ref()) -> true.
-insert_bucket(Path, Bucket) ->
-    inner_insert_bucket(Path, Bucket).
-
--spec make_path(limiter_type(), bucket_name()) -> path().
-make_path(Type, BucketName) ->
-    [Type | BucketName].
+-spec delete_bucket(limiter_id(), limiter_type()) -> true.
+delete_bucket(Type, Id) ->
+    ets:delete(?TAB, ?UID(Id, Type)).
 
 post_config_update([limiter, Type], _Config, NewConf, _OldConf, _AppEnvs) ->
     Config = maps:get(Type, NewConf),
@@ -159,7 +151,7 @@ init([]) ->
         set,
         public,
         named_table,
-        {keypos, #bucket.path},
+        {keypos, #bucket.uid},
         {write_concurrency, true},
         {read_concurrency, true},
         {heir, erlang:whereis(emqx_limiter_sup), none}
@@ -266,9 +258,3 @@ format_status(_Opt, Status) ->
 %%--------------------------------------------------------------------
 %%  Internal functions
 %%--------------------------------------------------------------------
--spec inner_insert_bucket(path(), bucket_ref()) -> true.
-inner_insert_bucket(Path, Bucket) ->
-    ets:insert(
-        ?TAB,
-        #bucket{path = Path, bucket = Bucket}
-    ).

@@ -4,6 +4,7 @@
 
 do(Dir, CONFIG) ->
     ok = assert_otp(),
+    ok = warn_profile_env(),
     case iolist_to_binary(Dir) of
         <<".">> ->
             C1 = deps(CONFIG),
@@ -117,6 +118,9 @@ is_raspbian() ->
 is_win32() ->
     win32 =:= element(1, os:type()).
 
+project_app_dirs() ->
+    project_app_dirs(get_edition_from_profille_env()).
+
 project_app_dirs(Edition) ->
     ["apps/*"] ++
         case is_enterprise(Edition) of
@@ -126,7 +130,7 @@ project_app_dirs(Edition) ->
 
 plugins() ->
     [
-        {relup_helper, {git, "https://github.com/emqx/relup_helper", {tag, "2.0.0"}}},
+        {relup_helper, {git, "https://github.com/emqx/relup_helper", {tag, "2.1.0"}}},
         %% emqx main project does not require port-compiler
         %% pin at root level for deterministic
         {pc, "v1.14.0"}
@@ -149,6 +153,9 @@ test_deps() ->
         {er_coap_client, {git, "https://github.com/emqx/er_coap_client", {tag, "v1.0.5"}}}
     ].
 
+common_compile_opts(Vsn) ->
+    common_compile_opts(get_edition_from_profille_env(), Vsn).
+
 common_compile_opts(Edition, Vsn) ->
     % always include debug_info
     [
@@ -158,6 +165,32 @@ common_compile_opts(Edition, Vsn) ->
     ] ++
         [{d, 'EMQX_BENCHMARK'} || os:getenv("EMQX_BENCHMARK") =:= "1"] ++
         [{d, 'BUILD_WITHOUT_QUIC'} || not is_quicer_supported()].
+
+warn_profile_env() ->
+    case os:getenv("PROFILE") of
+        false ->
+            io:format(
+                standard_error,
+                "WARN: environment variable PROFILE is not set, using 'emqx-enterprise'~n",
+                []
+            );
+        _ ->
+            ok
+    end.
+
+%% this function is only used for test/check profiles
+get_edition_from_profille_env() ->
+    case os:getenv("PROFILE") of
+        "emqx-enterprise" ++ _ ->
+            ee;
+        "emqx" ++ _ ->
+            ce;
+        false ->
+            ee;
+        V ->
+            io:format(standard_error, "ERROR: bad_PROFILE ~p~n", [V]),
+            exit(bad_PROFILE)
+    end.
 
 prod_compile_opts(Edition, Vsn) ->
     [
@@ -212,14 +245,14 @@ profiles_dev() ->
     Vsn = get_vsn('emqx-enterprise'),
     [
         {check, [
-            {erl_opts, common_compile_opts(ee, Vsn)},
-            {project_app_dirs, project_app_dirs(ee)}
+            {erl_opts, common_compile_opts(Vsn)},
+            {project_app_dirs, project_app_dirs()}
         ]},
         {test, [
             {deps, test_deps()},
-            {erl_opts, common_compile_opts(ee, Vsn) ++ erl_opts_i()},
+            {erl_opts, common_compile_opts(Vsn) ++ erl_opts_i()},
             {extra_src_dirs, [{"test", [{recursive, true}]}]},
-            {project_app_dirs, project_app_dirs(ee)}
+            {project_app_dirs, project_app_dirs()}
         ]}
     ].
 

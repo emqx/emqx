@@ -14,55 +14,25 @@
 %% limitations under the License.
 %%--------------------------------------------------------------------
 -module(emqx_mgmt_api_status).
-%% API
--behaviour(minirest_api).
 
 -export([
-    api_spec/0,
-    paths/0,
-    schema/1
+    init/2,
+    path/0
 ]).
 
--export([running_status/2]).
+path() ->
+    "/status".
 
-api_spec() ->
-    emqx_dashboard_swagger:spec(?MODULE, #{check_schema => true}).
-
-paths() ->
-    ["/status"].
-
-schema("/status") ->
-    #{
-        'operationId' => running_status,
-        get =>
-            #{
-                description => <<"Node running status">>,
-                tags => [<<"Status">>],
-                security => [],
-                responses =>
-                    #{
-                        200 =>
-                            #{
-                                description => <<"Node is running">>,
-                                content =>
-                                    #{
-                                        'text/plain' =>
-                                            #{
-                                                schema => #{type => string},
-                                                example =>
-                                                    <<"Node emqx@127.0.0.1 is started\nemqx is running">>
-                                            }
-                                    }
-                            }
-                    }
-            }
-    }.
+init(Req0, State) ->
+    {Code, Headers, Body} = running_status(),
+    Req = cowboy_req:reply(Code, Headers, Body, Req0),
+    {ok, Req, State}.
 
 %%--------------------------------------------------------------------
 %% API Handler funcs
 %%--------------------------------------------------------------------
 
-running_status(get, _Params) ->
+running_status() ->
     BrokerStatus =
         case emqx:is_running() of
             true ->
