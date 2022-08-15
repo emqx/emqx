@@ -21,6 +21,7 @@
 
 -include("emqx_resource.hrl").
 -include("emqx_resource_utils.hrl").
+-include("emqx_resource_errors.hrl").
 -include_lib("emqx/include/logger.hrl").
 -include_lib("snabbkaffe/include/snabbkaffe.hrl").
 

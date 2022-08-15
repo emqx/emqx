@@ -19,6 +19,7 @@
 -include("rule_engine.hrl").
 -include_lib("emqx/include/emqx.hrl").
 -include_lib("emqx/include/logger.hrl").
+-include_lib("emqx_resource/include/emqx_resource_errors.hrl").
 
 -export([
     apply_rule/3,
@@ -322,7 +323,7 @@ handle_action(RuleId, ActId, Selected, Envs) ->
     ok = emqx_metrics_worker:inc(rule_metrics, RuleId, 'actions.total'),
     try
         Result = do_handle_action(ActId, Selected, Envs),
-        ok = emqx_metrics_worker:inc(rule_metrics, RuleId, 'actions.success'),
+        inc_action_metrics(Result, RuleId),
         Result
     catch
         throw:out_of_service ->
@@ -501,3 +502,18 @@ ensure_list(_NotList) -> [].
 nested_put(Alias, Val, Columns0) ->
     Columns = handle_alias(Alias, Columns0),
     emqx_rule_maps:nested_put(Alias, Val, Columns).
+
+-define(IS_RES_DOWN(R), R == stopped; R == not_connected; R == not_found).
+inc_action_metrics(ok, RuleId) ->
+    emqx_metrics_worker:inc(rule_metrics, RuleId, 'actions.success');
+inc_action_metrics({ok, _}, RuleId) ->
+    emqx_metrics_worker:inc(rule_metrics, RuleId, 'actions.success');
+inc_action_metrics({resource_down, _}, RuleId) ->
+    emqx_metrics_worker:inc(rule_metrics, RuleId, 'actions.out_of_service'),
+    emqx_metrics_worker:inc(rule_metrics, RuleId, 'actions.failed.unknown');
+inc_action_metrics(?RESOURCE_ERROR_M(R, _), RuleId) when ?IS_RES_DOWN(R) ->
+    emqx_metrics_worker:inc(rule_metrics, RuleId, 'actions.out_of_service'),
+    emqx_metrics_worker:inc(rule_metrics, RuleId, 'actions.failed.unknown');
+inc_action_metrics(_, RuleId) ->
+    emqx_metrics_worker:inc(rule_metrics, RuleId, 'actions.failed'),
+    emqx_metrics_worker:inc(rule_metrics, RuleId, 'actions.failed.unknown').
