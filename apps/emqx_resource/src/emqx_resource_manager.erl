@@ -56,7 +56,6 @@
 -record(data, {id, manager_id, group, mod, callback_mode, config, opts, status, state, error}).
 -type data() :: #data{}.
 
--define(SHORT_HEALTHCHECK_INTERVAL, 1000).
 -define(ETS_TABLE, ?MODULE).
 -define(WAIT_FOR_RESOURCE_DELAY, 100).
 -define(T_OPERATION, 5000).
@@ -484,7 +483,7 @@ handle_connecting_health_check(Data) ->
             (connected, UpdatedData) ->
                 {next_state, connected, UpdatedData};
             (connecting, UpdatedData) ->
-                Actions = [{state_timeout, ?SHORT_HEALTHCHECK_INTERVAL, health_check}],
+                Actions = [{state_timeout, ?HEALTHCHECK_INTERVAL, health_check}],
                 {keep_state, UpdatedData, Actions};
             (disconnected, UpdatedData) ->
                 {next_state, disconnected, UpdatedData}
