@@ -192,6 +192,17 @@ handle_info({timeout, _Ref, {reload, Name}}, State) ->
             {noreply, NState};
         {error, not_found} ->
             {noreply, NState};
+        {error, {already_started, Pid}} ->
+            ?LOG(warning, "Server ~s already started on ~p, try to restart it", [Name, Pid]),
+            case server(Name) of
+                undefined ->
+                    %% force close grpc client pool
+                    grpc_client_sup:stop_channel_pool(Name);
+                ServerState ->
+                   emqx_exhook_server:unload(ServerState)
+            end,
+            %% try again immediately
+            handle_info({timeout, _Ref, {reload, Name}}, State);
         {error, Reason} ->
             ?LOG(warning, "Failed to reload exhook callback server \"~s\", "
                           "Reason: ~0p", [Name, Reason]),
@@ -202,11 +213,11 @@ handle_info(_Info, State) ->
     {noreply, State}.
 
 terminate(_Reason, State = #state{running = Running}) ->
+    _ = unload_exhooks(),
     _ = maps:fold(fun(Name, _, AccIn) ->
             {ok, NAccIn} = do_unload_server(Name, AccIn),
             NAccIn
         end, State, Running),
-    _ = unload_exhooks(),
     ok.
 
 %% in the emqx_exhook:v4.3.5, we have added one new field in the state last:
@@ -318,7 +329,7 @@ get_request_failed_action() ->
 
 save(Name, ServerState) ->
     Saved = persistent_term:get(?APP, []),
-    persistent_term:put(?APP, lists:reverse([Name | Saved])),
+    persistent_term:put(?APP, lists:usort(lists:reverse([Name | Saved]))),
     persistent_term:put({?APP, Name}, ServerState).
 
 unsave(Name) ->
