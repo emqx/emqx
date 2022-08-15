@@ -1,3 +1,9 @@
+# 5.0.6
+
+## Bug fixes
+
+* remove the `will_msg` field from the client API
+
 # 5.0.5
 
 ## Bug fixes
