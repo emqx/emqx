@@ -32,5 +32,8 @@ init([Env]) ->
              restart  => permanent,
              shutdown => 5000,
              type     => worker,
-             modules  => [emqx_retainer]}]}}.
+             modules  => [emqx_retainer]} || not is_managed_by_modules()]}}.
 
+is_managed_by_modules() ->
+    %% always flase for opensource edition
+    false.
