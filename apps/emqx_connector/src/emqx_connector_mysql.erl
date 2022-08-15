@@ -24,9 +24,10 @@
 
 %% callbacks of behaviour emqx_resource
 -export([
+    callback_mode/0,
     on_start/2,
     on_stop/2,
-    on_query/4,
+    on_query/3,
     on_get_status/2
 ]).
 
@@ -43,6 +44,16 @@
     host_type => inet_addr,
     default_port => ?MYSQL_DEFAULT_PORT
 }).
+
+-type prepares() :: #{atom() => binary()}.
+-type params_tokens() :: #{atom() => list()}.
+-type state() ::
+    #{
+        poolname := atom(),
+        prepare_statement := prepares(),
+        auto_reconnect := boolean(),
+        params_tokens := params_tokens()
+    }.
 
 %%=====================================================================
 %% Hocon schema
@@ -63,6 +74,9 @@ server(desc) -> ?DESC("server");
 server(_) -> undefined.
 
 %% ===================================================================
+callback_mode() -> always_sync.
+
+-spec on_start(binary(), hoconsc:config()) -> {ok, state()} | {error, _}.
 on_start(
     InstId,
     #{
@@ -97,8 +111,8 @@ on_start(
         {pool_size, PoolSize}
     ],
     PoolName = emqx_plugin_libs_pool:pool_name(InstId),
-    Prepares = maps:get(prepare_statement, Config, #{}),
-    State = #{poolname => PoolName, prepare_statement => Prepares, auto_reconnect => AutoReconn},
+    Prepares = parse_prepare_sql(Config),
+    State = maps:merge(#{poolname => PoolName, auto_reconnect => AutoReconn}, Prepares),
     case emqx_plugin_libs_pool:start_pool(PoolName, ?MODULE, Options ++ SslOpts) of
         ok -> {ok, init_prepare(State)};
         {error, Reason} -> {error, Reason}
@@ -111,22 +125,22 @@ on_stop(InstId, #{poolname := PoolName}) ->
     }),
     emqx_plugin_libs_pool:stop_pool(PoolName).
 
-on_query(InstId, {Type, SQLOrKey}, AfterQuery, State) ->
-    on_query(InstId, {Type, SQLOrKey, [], default_timeout}, AfterQuery, State);
-on_query(InstId, {Type, SQLOrKey, Params}, AfterQuery, State) ->
-    on_query(InstId, {Type, SQLOrKey, Params, default_timeout}, AfterQuery, State);
+on_query(InstId, {TypeOrKey, SQLOrKey}, State) ->
+    on_query(InstId, {TypeOrKey, SQLOrKey, [], default_timeout}, State);
+on_query(InstId, {TypeOrKey, SQLOrKey, Params}, State) ->
+    on_query(InstId, {TypeOrKey, SQLOrKey, Params, default_timeout}, State);
 on_query(
     InstId,
-    {Type, SQLOrKey, Params, Timeout},
-    AfterQuery,
+    {TypeOrKey, SQLOrKey, Params, Timeout},
     #{poolname := PoolName, prepare_statement := Prepares} = State
 ) ->
     LogMeta = #{connector => InstId, sql => SQLOrKey, state => State},
     ?TRACE("QUERY", "mysql_connector_received", LogMeta),
     Worker = ecpool:get_client(PoolName),
     {ok, Conn} = ecpool_worker:client(Worker),
-    MySqlFunction = mysql_function(Type),
-    Result = erlang:apply(mysql, MySqlFunction, [Conn, SQLOrKey, Params, Timeout]),
+    MySqlFunction = mysql_function(TypeOrKey),
+    {SQLOrKey2, Data} = proc_sql_params(TypeOrKey, SQLOrKey, Params, State),
+    Result = erlang:apply(mysql, MySqlFunction, [Conn, SQLOrKey2, Data, Timeout]),
     case Result of
         {error, disconnected} ->
             ?SLOG(
@@ -135,7 +149,6 @@ on_query(
             ),
             %% kill the poll worker to trigger reconnection
             _ = exit(Conn, restart),
-            emqx_resource:query_failed(AfterQuery),
             Result;
         {error, not_prepared} ->
             ?SLOG(
@@ -145,13 +158,12 @@ on_query(
             case prepare_sql(Prepares, PoolName) of
                 ok ->
                     %% not return result, next loop will try again
-                    on_query(InstId, {Type, SQLOrKey, Params, Timeout}, AfterQuery, State);
+                    on_query(InstId, {TypeOrKey, SQLOrKey, Params, Timeout}, State);
                 {error, Reason} ->
                     ?SLOG(
                         error,
                         LogMeta#{msg => "mysql_connector_do_prepare_failed", reason => Reason}
                     ),
-                    emqx_resource:query_failed(AfterQuery),
                     {error, Reason}
             end;
         {error, Reason} ->
@@ -159,15 +171,18 @@ on_query(
                 error,
                 LogMeta#{msg => "mysql_connector_do_sql_query_failed", reason => Reason}
             ),
-            emqx_resource:query_failed(AfterQuery),
             Result;
         _ ->
-            emqx_resource:query_success(AfterQuery),
             Result
     end.
 
-mysql_function(sql) -> query;
-mysql_function(prepared_query) -> execute.
+mysql_function(sql) ->
+    query;
+mysql_function(prepared_query) ->
+    execute;
+%% for bridge
+mysql_function(_) ->
+    mysql_function(prepared_query).
 
 on_get_status(_InstId, #{poolname := Pool, auto_reconnect := AutoReconn} = State) ->
     case emqx_plugin_libs_pool:health_check_ecpool_workers(Pool, fun ?MODULE:do_get_status/1) of
@@ -287,3 +302,36 @@ prepare_sql_to_conn(Conn, [{Key, SQL} | PrepareList]) when is_pid(Conn) ->
 
 unprepare_sql_to_conn(Conn, PrepareSqlKey) ->
     mysql:unprepare(Conn, PrepareSqlKey).
+
+parse_prepare_sql(Config) ->
+    SQL =
+        case maps:get(prepare_statement, Config, undefined) of
+            undefined ->
+                case emqx_map_lib:deep_get([egress, sql_template], Config, undefined) of
+                    undefined ->
+                        #{};
+                    Template ->
+                        #{send_message => Template}
+                end;
+            Any ->
+                Any
+        end,
+    parse_prepare_sql(maps:to_list(SQL), #{}, #{}).
+
+parse_prepare_sql([{Key, H} | T], SQL, Tokens) ->
+    {PrepareSQL, ParamsTokens} = emqx_plugin_libs_rule:preproc_sql(H),
+    parse_prepare_sql(T, SQL#{Key => PrepareSQL}, Tokens#{Key => ParamsTokens});
+parse_prepare_sql([], SQL, Tokens) ->
+    #{prepare_statement => SQL, params_tokens => Tokens}.
+
+proc_sql_params(query, SQLOrKey, Params, _State) ->
+    {SQLOrKey, Params};
+proc_sql_params(prepared_query, SQLOrKey, Params, _State) ->
+    {SQLOrKey, Params};
+proc_sql_params(TypeOrKey, SQLOrData, Params, #{params_tokens := ParamsTokens}) ->
+    case maps:get(TypeOrKey, ParamsTokens, undefined) of
+        undefined ->
+            {SQLOrData, Params};
+        Tokens ->
+            {TypeOrKey, emqx_plugin_libs_rule:proc_sql(Tokens, SQLOrData)}
+    end.

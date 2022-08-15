@@ -80,7 +80,7 @@ connector_info_array_example(Method) ->
     [Config || #{value := Config} <- maps:values(connector_info_examples(Method))].
 
 connector_info_examples(Method) ->
-    lists:foldl(
+    Fun =
         fun(Type, Acc) ->
             SType = atom_to_list(Type),
             maps:merge(Acc, #{
@@ -90,9 +90,17 @@ connector_info_examples(Method) ->
                 }
             })
         end,
-        #{},
-        ?CONN_TYPES
-    ).
+    Broker = lists:foldl(Fun, #{}, ?CONN_TYPES),
+    EE = ee_example(Method),
+    maps:merge(Broker, EE).
+
+-if(?EMQX_RELEASE_EDITION == ee).
+ee_example(Method) ->
+    emqx_ee_connector:connector_examples(Method).
+-else.
+ee_example(_Method) ->
+    #{}.
+-endif.
 
 info_example(Type, Method) ->
     maps:merge(

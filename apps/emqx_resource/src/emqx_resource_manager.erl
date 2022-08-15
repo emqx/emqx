@@ -38,8 +38,12 @@
     list_group/1,
     ets_lookup/1,
     get_metrics/1,
-    reset_metrics/1,
-    set_resource_status_connecting/1
+    reset_metrics/1
+]).
+
+-export([
+    set_resource_status_connecting/1,
+    manager_id_to_resource_id/1
 ]).
 
 % Server
@@ -49,11 +53,11 @@
 -export([init/1, callback_mode/0, handle_event/4, terminate/3]).
 
 % State record
--record(data, {id, manager_id, group, mod, config, opts, status, state, error}).
+-record(data, {id, manager_id, group, mod, callback_mode, config, opts, status, state, error}).
+-type data() :: #data{}.
 
 -define(SHORT_HEALTHCHECK_INTERVAL, 1000).
--define(HEALTHCHECK_INTERVAL, 15000).
--define(ETS_TABLE, emqx_resource_manager).
+-define(ETS_TABLE, ?MODULE).
 -define(WAIT_FOR_RESOURCE_DELAY, 100).
 -define(T_OPERATION, 5000).
 -define(T_LOOKUP, 1000).
@@ -64,6 +68,13 @@
 %% API
 %%------------------------------------------------------------------------------
 
+make_manager_id(ResId) ->
+    emqx_resource:generate_id(ResId).
+
+manager_id_to_resource_id(MgrId) ->
+    [ResId, _Index] = string:split(MgrId, ":", trailing),
+    ResId.
+
 %% @doc Called from emqx_resource when starting a resource instance.
 %%
 %% Triggers the emqx_resource_manager_sup supervisor to actually create
@@ -73,7 +84,7 @@
     resource_group(),
     resource_type(),
     resource_config(),
-    create_opts()
+    creation_opts()
 ) -> {ok, resource_data()}.
 ensure_resource(ResId, Group, ResourceType, Config, Opts) ->
     case lookup(ResId) of
@@ -85,7 +96,7 @@ ensure_resource(ResId, Group, ResourceType, Config, Opts) ->
     end.
 
 %% @doc Called from emqx_resource when recreating a resource which may or may not exist
--spec recreate(resource_id(), resource_type(), resource_config(), create_opts()) ->
+-spec recreate(resource_id(), resource_type(), resource_config(), creation_opts()) ->
     {ok, resource_data()} | {error, not_found} | {error, updating_to_incorrect_resource_type}.
 recreate(ResId, ResourceType, NewConfig, Opts) ->
     case lookup(ResId) of
@@ -109,14 +120,17 @@ create(MgrId, ResId, Group, ResourceType, Config, Opts) ->
     % The state machine will make the actual call to the callback/resource module after init
     ok = emqx_resource_manager_sup:ensure_child(MgrId, ResId, Group, ResourceType, Config, Opts),
     ok = emqx_metrics_worker:create_metrics(
-        resource_metrics,
+        ?RES_METRICS,
         ResId,
-        [matched, success, failed, exception],
+        [matched, success, failed, exception, resource_down],
         [matched]
     ),
-    case maps:get(start_after_created, Opts, true) of
-        true -> wait_for_resource_ready(ResId, maps:get(wait_for_resource_ready, Opts, 5000));
-        false -> ok
+    ok = emqx_resource_worker_sup:start_workers(ResId, Opts),
+    case maps:get(start_after_created, Opts, ?START_AFTER_CREATED) of
+        true ->
+            wait_for_ready(ResId, maps:get(start_timeout, Opts, ?START_TIMEOUT));
+        false ->
+            ok
     end,
     ok.
 
@@ -132,7 +146,7 @@ create_dry_run(ResourceType, Config) ->
     ok = emqx_resource_manager_sup:ensure_child(
         MgrId, ResId, <<"dry_run">>, ResourceType, Config, #{}
     ),
-    case wait_for_resource_ready(ResId, 15000) of
+    case wait_for_ready(ResId, 15000) of
         ok ->
             remove(ResId);
         timeout ->
@@ -151,22 +165,22 @@ remove(ResId, ClearMetrics) when is_binary(ResId) ->
     safe_call(ResId, {remove, ClearMetrics}, ?T_OPERATION).
 
 %% @doc Stops and then starts an instance that was already running
--spec restart(resource_id(), create_opts()) -> ok | {error, Reason :: term()}.
+-spec restart(resource_id(), creation_opts()) -> ok | {error, Reason :: term()}.
 restart(ResId, Opts) when is_binary(ResId) ->
     case safe_call(ResId, restart, ?T_OPERATION) of
         ok ->
-            wait_for_resource_ready(ResId, maps:get(wait_for_resource_ready, Opts, 5000)),
+            wait_for_ready(ResId, maps:get(start_timeout, Opts, 5000)),
             ok;
         {error, _Reason} = Error ->
             Error
     end.
 
 %% @doc Start the resource
--spec start(resource_id(), create_opts()) -> ok | {error, Reason :: term()}.
+-spec start(resource_id(), creation_opts()) -> ok | {error, Reason :: term()}.
 start(ResId, Opts) ->
     case safe_call(ResId, start, ?T_OPERATION) of
         ok ->
-            wait_for_resource_ready(ResId, maps:get(wait_for_resource_ready, Opts, 5000)),
+            wait_for_ready(ResId, maps:get(start_timeout, Opts, 5000)),
             ok;
         {error, _Reason} = Error ->
             Error
@@ -207,14 +221,14 @@ ets_lookup(ResId) ->
 
 %% @doc Get the metrics for the specified resource
 get_metrics(ResId) ->
-    emqx_metrics_worker:get_metrics(resource_metrics, ResId).
+    emqx_metrics_worker:get_metrics(?RES_METRICS, ResId).
 
 %% @doc Reset the metrics for the specified resource
 -spec reset_metrics(resource_id()) -> ok.
 reset_metrics(ResId) ->
-    emqx_metrics_worker:reset_metrics(resource_metrics, ResId).
+    emqx_metrics_worker:reset_metrics(?RES_METRICS, ResId).
 
-%% @doc Returns the data for all resorces
+%% @doc Returns the data for all resources
 -spec list_all() -> [resource_data()] | [].
 list_all() ->
     try
@@ -245,6 +259,7 @@ start_link(MgrId, ResId, Group, ResourceType, Config, Opts) ->
         manager_id = MgrId,
         group = Group,
         mod = ResourceType,
+        callback_mode = emqx_resource:get_callback_mode(ResourceType),
         config = Config,
         opts = Opts,
         status = connecting,
@@ -298,8 +313,7 @@ handle_event({call, From}, stop, stopped, _Data) ->
     {keep_state_and_data, [{reply, From, ok}]};
 handle_event({call, From}, stop, _State, Data) ->
     Result = stop_resource(Data),
-    UpdatedData = Data#data{status = disconnected},
-    {next_state, stopped, UpdatedData, [{reply, From, Result}]};
+    {next_state, stopped, Data, [{reply, From, Result}]};
 % Called when a resource is to be stopped and removed.
 handle_event({call, From}, {remove, ClearMetrics}, _State, Data) ->
     handle_remove_event(From, ClearMetrics, Data);
@@ -315,9 +329,10 @@ handle_event({call, From}, health_check, _State, Data) ->
     handle_manually_health_check(From, Data);
 % State: CONNECTING
 handle_event(enter, _OldState, connecting, Data) ->
+    UpdatedData = Data#data{status = connecting},
     insert_cache(Data#data.id, Data#data.group, Data),
     Actions = [{state_timeout, 0, health_check}],
-    {keep_state_and_data, Actions};
+    {keep_state, UpdatedData, Actions};
 handle_event(internal, start_resource, connecting, Data) ->
     start_resource(Data, undefined);
 handle_event(state_timeout, health_check, connecting, Data) ->
@@ -326,22 +341,24 @@ handle_event(state_timeout, health_check, connecting, Data) ->
 %% The connected state is entered after a successful on_start/2 of the callback mod
 %% and successful health_checks
 handle_event(enter, _OldState, connected, Data) ->
-    insert_cache(Data#data.id, Data#data.group, Data),
+    UpdatedData = Data#data{status = connected},
+    insert_cache(Data#data.id, Data#data.group, UpdatedData),
     _ = emqx_alarm:deactivate(Data#data.id),
-    Actions = [{state_timeout, ?HEALTHCHECK_INTERVAL, health_check}],
-    {next_state, connected, Data, Actions};
+    Actions = [{state_timeout, health_check_interval(Data#data.opts), health_check}],
+    {next_state, connected, UpdatedData, Actions};
 handle_event(state_timeout, health_check, connected, Data) ->
     handle_connected_health_check(Data);
 %% State: DISCONNECTED
 handle_event(enter, _OldState, disconnected, Data) ->
-    insert_cache(Data#data.id, Data#data.group, Data),
-    handle_disconnected_state_enter(Data);
+    UpdatedData = Data#data{status = disconnected},
+    insert_cache(Data#data.id, Data#data.group, UpdatedData),
+    handle_disconnected_state_enter(UpdatedData);
 handle_event(state_timeout, auto_retry, disconnected, Data) ->
     start_resource(Data, undefined);
 %% State: STOPPED
 %% The stopped state is entered after the resource has been explicitly stopped
 handle_event(enter, _OldState, stopped, Data) ->
-    UpdatedData = Data#data{status = disconnected},
+    UpdatedData = Data#data{status = stopped},
     insert_cache(Data#data.id, Data#data.group, UpdatedData),
     {next_state, stopped, UpdatedData};
 % Ignore all other events
@@ -404,7 +421,7 @@ get_owner(ResId) ->
     end.
 
 handle_disconnected_state_enter(Data) ->
-    case maps:get(auto_retry_interval, Data#data.opts, undefined) of
+    case maps:get(auto_restart_interval, Data#data.opts, ?AUTO_RESTART_INTERVAL) of
         undefined ->
             {next_state, disconnected, Data};
         RetryInterval ->
@@ -415,9 +432,10 @@ handle_disconnected_state_enter(Data) ->
 handle_remove_event(From, ClearMetrics, Data) ->
     stop_resource(Data),
     case ClearMetrics of
-        true -> ok = emqx_metrics_worker:clear_metrics(resource_metrics, Data#data.id);
+        true -> ok = emqx_metrics_worker:clear_metrics(?RES_METRICS, Data#data.id);
         false -> ok
     end,
+    ok = emqx_resource_worker_sup:stop_workers(Data#data.id, Data#data.opts),
     {stop_and_reply, normal, [{reply, From, ok}]}.
 
 start_resource(Data, From) ->
@@ -433,7 +451,7 @@ start_resource(Data, From) ->
             _ = maybe_alarm(disconnected, Data#data.id),
             %% Keep track of the error reason why the connection did not work
             %% so that the Reason can be returned when the verification call is made.
-            UpdatedData = Data#data{status = disconnected, error = Reason},
+            UpdatedData = Data#data{error = Reason},
             Actions = maybe_reply([], From, Err),
             {next_state, disconnected, UpdatedData, Actions}
     end.
@@ -448,9 +466,6 @@ stop_resource(Data) ->
     _ = emqx_resource:call_stop(Data#data.manager_id, Data#data.mod, Data#data.state),
     _ = maybe_clear_alarm(Data#data.id),
     ok.
-
-make_manager_id(ResId) ->
-    emqx_resource:generate_id(ResId).
 
 make_test_id() ->
     RandId = iolist_to_binary(emqx_misc:gen_id(16)),
@@ -481,7 +496,7 @@ handle_connected_health_check(Data) ->
         Data,
         fun
             (connected, UpdatedData) ->
-                Actions = [{state_timeout, ?HEALTHCHECK_INTERVAL, health_check}],
+                Actions = [{state_timeout, health_check_interval(Data#data.opts), health_check}],
                 {keep_state, UpdatedData, Actions};
             (Status, UpdatedData) ->
                 ?SLOG(error, #{
@@ -503,6 +518,9 @@ with_health_check(Data, Func) ->
     },
     insert_cache(ResId, UpdatedData#data.group, UpdatedData),
     Func(Status, UpdatedData).
+
+health_check_interval(Opts) ->
+    maps:get(health_check_interval, Opts, ?HEALTHCHECK_INTERVAL).
 
 maybe_alarm(connected, _ResId) ->
     ok;
@@ -542,29 +560,31 @@ maybe_reply(Actions, undefined, _Reply) ->
 maybe_reply(Actions, From, Reply) ->
     [{reply, From, Reply} | Actions].
 
+-spec data_record_to_external_map_with_metrics(data()) -> resource_data().
 data_record_to_external_map_with_metrics(Data) ->
     #{
         id => Data#data.id,
         mod => Data#data.mod,
+        callback_mode => Data#data.callback_mode,
         config => Data#data.config,
         status => Data#data.status,
         state => Data#data.state,
         metrics => get_metrics(Data#data.id)
     }.
 
--spec wait_for_resource_ready(resource_id(), integer()) -> ok | timeout.
-wait_for_resource_ready(ResId, WaitTime) ->
-    do_wait_for_resource_ready(ResId, WaitTime div ?WAIT_FOR_RESOURCE_DELAY).
+-spec wait_for_ready(resource_id(), integer()) -> ok | timeout.
+wait_for_ready(ResId, WaitTime) ->
+    do_wait_for_ready(ResId, WaitTime div ?WAIT_FOR_RESOURCE_DELAY).
 
-do_wait_for_resource_ready(_ResId, 0) ->
+do_wait_for_ready(_ResId, 0) ->
     timeout;
-do_wait_for_resource_ready(ResId, Retry) ->
+do_wait_for_ready(ResId, Retry) ->
     case ets_lookup(ResId) of
         {ok, _Group, #{status := connected}} ->
             ok;
         _ ->
             timer:sleep(?WAIT_FOR_RESOURCE_DELAY),
-            do_wait_for_resource_ready(ResId, Retry - 1)
+            do_wait_for_ready(ResId, Retry - 1)
     end.
 
 safe_call(ResId, Message, Timeout) ->

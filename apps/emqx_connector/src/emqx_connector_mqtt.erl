@@ -24,6 +24,7 @@
 
 %% API and callbacks for supervisor
 -export([
+    callback_mode/0,
     start_link/0,
     init/1,
     create_bridge/1,
@@ -37,7 +38,7 @@
 -export([
     on_start/2,
     on_stop/2,
-    on_query/4,
+    on_query/3,
     on_get_status/2
 ]).
 
@@ -133,11 +134,14 @@ drop_bridge(Name) ->
 %% ===================================================================
 %% When use this bridge as a data source, ?MODULE:on_message_received will be called
 %% if the bridge received msgs from the remote broker.
-on_message_received(Msg, HookPoint, InstId) ->
-    _ = emqx_resource:query(InstId, {message_received, Msg}),
+on_message_received(Msg, HookPoint, ResId) ->
+    emqx_resource:inc_matched(ResId),
+    emqx_resource:inc_success(ResId),
     emqx:run_hook(HookPoint, [Msg]).
 
 %% ===================================================================
+callback_mode() -> always_sync.
+
 on_start(InstId, Conf) ->
     InstanceId = binary_to_atom(InstId, utf8),
     ?SLOG(info, #{
@@ -181,12 +185,10 @@ on_stop(_InstId, #{name := InstanceId}) ->
             })
     end.
 
-on_query(_InstId, {message_received, _Msg}, AfterQuery, _State) ->
-    emqx_resource:query_success(AfterQuery);
-on_query(_InstId, {send_message, Msg}, AfterQuery, #{name := InstanceId}) ->
+on_query(_InstId, {send_message, Msg}, #{name := InstanceId}) ->
     ?TRACE("QUERY", "send_msg_to_remote_node", #{message => Msg, connector => InstanceId}),
     emqx_connector_mqtt_worker:send_to_remote(InstanceId, Msg),
-    emqx_resource:query_success(AfterQuery).
+    ok.
 
 on_get_status(_InstId, #{name := InstanceId, bridge_conf := Conf}) ->
     AutoReconn = maps:get(auto_reconnect, Conf, true),
@@ -207,11 +209,12 @@ make_sub_confs(EmptyMap, _) when map_size(EmptyMap) == 0 ->
 make_sub_confs(undefined, _) ->
     undefined;
 make_sub_confs(SubRemoteConf, InstId) ->
+    ResId = emqx_resource_manager:manager_id_to_resource_id(InstId),
     case maps:take(hookpoint, SubRemoteConf) of
         error ->
             SubRemoteConf;
         {HookPoint, SubConf} ->
-            MFA = {?MODULE, on_message_received, [HookPoint, InstId]},
+            MFA = {?MODULE, on_message_received, [HookPoint, ResId]},
             SubConf#{on_message_received => MFA}
     end.
 

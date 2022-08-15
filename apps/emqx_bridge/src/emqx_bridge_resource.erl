@@ -34,18 +34,27 @@
     create_dry_run/2,
     remove/1,
     remove/2,
-    remove/3,
+    remove/4,
     update/2,
     update/3,
+    update/4,
     stop/2,
     restart/2,
     reset_metrics/1
 ]).
 
+-if(?EMQX_RELEASE_EDITION == ee).
+bridge_to_resource_type(<<"mqtt">>) -> emqx_connector_mqtt;
+bridge_to_resource_type(mqtt) -> emqx_connector_mqtt;
+bridge_to_resource_type(<<"webhook">>) -> emqx_connector_http;
+bridge_to_resource_type(webhook) -> emqx_connector_http;
+bridge_to_resource_type(BridgeType) -> emqx_ee_bridge:resource_type(BridgeType).
+-else.
 bridge_to_resource_type(<<"mqtt">>) -> emqx_connector_mqtt;
 bridge_to_resource_type(mqtt) -> emqx_connector_mqtt;
 bridge_to_resource_type(<<"webhook">>) -> emqx_connector_http;
 bridge_to_resource_type(webhook) -> emqx_connector_http.
+-endif.
 
 resource_id(BridgeId) when is_binary(BridgeId) ->
     <<"bridge:", BridgeId/binary>>.
@@ -80,7 +89,7 @@ create(BridgeId, Conf) ->
     create(BridgeType, BridgeName, Conf).
 
 create(Type, Name, Conf) ->
-    create(Type, Name, Conf, #{auto_retry_interval => 60000}).
+    create(Type, Name, Conf, #{}).
 
 create(Type, Name, Conf, Opts) ->
     ?SLOG(info, #{
@@ -103,6 +112,9 @@ update(BridgeId, {OldConf, Conf}) ->
     update(BridgeType, BridgeName, {OldConf, Conf}).
 
 update(Type, Name, {OldConf, Conf}) ->
+    update(Type, Name, {OldConf, Conf}, #{}).
+
+update(Type, Name, {OldConf, Conf}, Opts) ->
     %% TODO: sometimes its not necessary to restart the bridge connection.
     %%
     %% - if the connection related configs like `servers` is updated, we should restart/start
@@ -119,7 +131,7 @@ update(Type, Name, {OldConf, Conf}) ->
                 name => Name,
                 config => Conf
             }),
-            case recreate(Type, Name, Conf) of
+            case recreate(Type, Name, Conf, Opts) of
                 {ok, _} ->
                     maybe_disable_bridge(Type, Name, Conf);
                 {error, not_found} ->
@@ -129,7 +141,7 @@ update(Type, Name, {OldConf, Conf}) ->
                         name => Name,
                         config => Conf
                     }),
-                    create(Type, Name, Conf);
+                    create(Type, Name, Conf, Opts);
                 {error, Reason} ->
                     {error, {update_bridge_failed, Reason}}
             end;
@@ -150,11 +162,14 @@ recreate(Type, Name) ->
     recreate(Type, Name, emqx:get_config([bridges, Type, Name])).
 
 recreate(Type, Name, Conf) ->
+    recreate(Type, Name, Conf, #{}).
+
+recreate(Type, Name, Conf, Opts) ->
     emqx_resource:recreate_local(
         resource_id(Type, Name),
         bridge_to_resource_type(Type),
         parse_confs(Type, Name, Conf),
-        #{auto_retry_interval => 60000}
+        Opts
     ).
 
 create_dry_run(Type, Conf) ->
@@ -178,13 +193,13 @@ create_dry_run(Type, Conf) ->
 
 remove(BridgeId) ->
     {BridgeType, BridgeName} = parse_bridge_id(BridgeId),
-    remove(BridgeType, BridgeName, #{}).
+    remove(BridgeType, BridgeName, #{}, #{}).
 
 remove(Type, Name) ->
-    remove(Type, Name, undefined).
+    remove(Type, Name, #{}, #{}).
 
 %% just for perform_bridge_changes/1
-remove(Type, Name, _Conf) ->
+remove(Type, Name, _Conf, _Opts) ->
     ?SLOG(info, #{msg => "remove_bridge", type => Type, name => Name}),
     case emqx_resource:remove_local(resource_id(Type, Name)) of
         ok -> ok;
@@ -231,7 +246,7 @@ is_tmp_path(TmpPath, File) ->
     string:str(str(File), str(TmpPath)) > 0.
 
 parse_confs(
-    webhook,
+    Type,
     _Name,
     #{
         url := Url,
@@ -241,7 +256,7 @@ parse_confs(
         request_timeout := ReqTimeout,
         max_retries := Retry
     } = Conf
-) ->
+) when Type == webhook orelse Type == <<"webhook">> ->
     {BaseUrl, Path} = parse_url(Url),
     {ok, BaseUrl2} = emqx_http_lib:uri_parse(BaseUrl),
     Conf#{

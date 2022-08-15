@@ -23,6 +23,8 @@
 -include_lib("eunit/include/eunit.hrl").
 -include_lib("common_test/include/ct.hrl").
 
+suite() -> [{timetrap, {seconds, 60}}].
+
 all() ->
     emqx_common_test_helpers:all(?MODULE).
 

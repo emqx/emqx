@@ -166,7 +166,7 @@ authenticate(
         begin
             Filter = emqx_authn_utils:render_deep(FilterTemplate, Credential),
             case emqx_resource:query(ResourceId, {find_one, Collection, Filter, #{}}) of
-                undefined ->
+                {ok, undefined} ->
                     ignore;
                 {error, Reason} ->
                     ?TRACE_AUTHN_PROVIDER(error, "mongodb_query_failed", #{
@@ -176,7 +176,7 @@ authenticate(
                         reason => Reason
                     }),
                     ignore;
-                Doc ->
+                {ok, Doc} ->
                     case check_password(Password, Doc, State) of
                         ok ->
                             {ok, is_superuser(Doc, State)};

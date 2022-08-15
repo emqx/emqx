@@ -112,7 +112,7 @@ make_docs() {
     fi
     case "$(is_enterprise "$PROFILE")" in
         'yes')
-            SCHEMA_MODULE='emqx_enterprise_conf_schema'
+            SCHEMA_MODULE='emqx_ee_conf_schema'
             ;;
         'no')
             SCHEMA_MODULE='emqx_conf_schema'

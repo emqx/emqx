@@ -27,9 +27,10 @@
 
 %% callbacks of behaviour emqx_resource
 -export([
+    callback_mode/0,
     on_start/2,
     on_stop/2,
-    on_query/4,
+    on_query/3,
     on_get_status/2
 ]).
 
@@ -66,6 +67,8 @@ server(desc) -> ?DESC("server");
 server(_) -> undefined.
 
 %% ===================================================================
+callback_mode() -> always_sync.
+
 on_start(
     InstId,
     #{
@@ -116,9 +119,9 @@ on_stop(InstId, #{poolname := PoolName}) ->
     }),
     emqx_plugin_libs_pool:stop_pool(PoolName).
 
-on_query(InstId, {Type, NameOrSQL}, AfterQuery, #{poolname := _PoolName} = State) ->
-    on_query(InstId, {Type, NameOrSQL, []}, AfterQuery, State);
-on_query(InstId, {Type, NameOrSQL, Params}, AfterQuery, #{poolname := PoolName} = State) ->
+on_query(InstId, {Type, NameOrSQL}, #{poolname := _PoolName} = State) ->
+    on_query(InstId, {Type, NameOrSQL, []}, State);
+on_query(InstId, {Type, NameOrSQL, Params}, #{poolname := PoolName} = State) ->
     ?SLOG(debug, #{
         msg => "postgresql connector received sql query",
         connector => InstId,
@@ -132,10 +135,9 @@ on_query(InstId, {Type, NameOrSQL, Params}, AfterQuery, #{poolname := PoolName} 
                 connector => InstId,
                 sql => NameOrSQL,
                 reason => Reason
-            }),
-            emqx_resource:query_failed(AfterQuery);
+            });
         _ ->
-            emqx_resource:query_success(AfterQuery)
+            ok
     end,
     Result.
 

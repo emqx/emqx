@@ -27,28 +27,41 @@
 %%======================================================================================
 %% For HTTP APIs
 get_response() ->
-    http_schema("get").
+    api_schema("get").
 
 put_request() ->
-    http_schema("put").
+    api_schema("put").
 
 post_request() ->
-    http_schema("post").
+    api_schema("post").
 
-http_schema(Method) ->
-    Schemas = lists:flatmap(
-        fun(Type) ->
-            [
-                ref(schema_mod(Type), Method ++ "_ingress"),
-                ref(schema_mod(Type), Method ++ "_egress")
-            ]
-        end,
-        ?CONN_TYPES
-    ),
-    hoconsc:union([
-        ref(emqx_bridge_webhook_schema, Method)
-        | Schemas
-    ]).
+api_schema(Method) ->
+    Broker =
+        lists:flatmap(
+            fun(Type) ->
+                [
+                    ref(schema_mod(Type), Method ++ "_ingress"),
+                    ref(schema_mod(Type), Method ++ "_egress")
+                ]
+            end,
+            ?CONN_TYPES
+        ) ++ [ref(Module, Method) || Module <- [emqx_bridge_webhook_schema]],
+    EE = ee_api_schemas(Method),
+    hoconsc:union(Broker ++ EE).
+
+-if(?EMQX_RELEASE_EDITION == ee).
+ee_api_schemas(Method) ->
+    emqx_ee_bridge:api_schemas(Method).
+
+ee_fields_bridges() ->
+    emqx_ee_bridge:fields(bridges).
+-else.
+ee_api_schemas(_) ->
+    [].
+
+ee_fields_bridges() ->
+    [].
+-endif.
 
 common_bridge_fields(ConnectorRef) ->
     [
@@ -127,7 +140,7 @@ fields(bridges) ->
                     #{desc => ?DESC("bridges_name")}
                 )}
          || T <- ?CONN_TYPES
-        ];
+        ] ++ ee_fields_bridges();
 fields("metrics") ->
     [
         {"matched", mk(integer(), #{desc => ?DESC("metric_matched")})},

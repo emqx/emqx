@@ -2,7 +2,7 @@
 %% Copyright (c) 2022 EMQ Technologies Co., Ltd. All Rights Reserved.
 %%--------------------------------------------------------------------
 
--module(emqx_enterprise_conf_schema_SUITE).
+-module(emqx_ee_conf_schema_SUITE).
 
 -compile(nowarn_export_all).
 -compile(export_all).
@@ -20,12 +20,12 @@ all() ->
 t_namespace(_Config) ->
     ?assertEqual(
         emqx_conf_schema:namespace(),
-        emqx_enterprise_conf_schema:namespace()
+        emqx_ee_conf_schema:namespace()
     ).
 
 t_roots(_Config) ->
     BaseRoots = emqx_conf_schema:roots(),
-    EnterpriseRoots = emqx_enterprise_conf_schema:roots(),
+    EnterpriseRoots = emqx_ee_conf_schema:roots(),
 
     ?assertEqual([], BaseRoots -- EnterpriseRoots),
 
@@ -42,12 +42,12 @@ t_roots(_Config) ->
 t_fields(_Config) ->
     ?assertEqual(
         emqx_conf_schema:fields("node"),
-        emqx_enterprise_conf_schema:fields("node")
+        emqx_ee_conf_schema:fields("node")
     ).
 
 t_translations(_Config) ->
-    [Root | _] = emqx_enterprise_conf_schema:translations(),
+    [Root | _] = emqx_ee_conf_schema:translations(),
     ?assertEqual(
         emqx_conf_schema:translation(Root),
-        emqx_enterprise_conf_schema:translation(Root)
+        emqx_ee_conf_schema:translation(Root)
     ).

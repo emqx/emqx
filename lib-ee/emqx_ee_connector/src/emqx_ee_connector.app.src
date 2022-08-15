@@ -1,0 +1,14 @@
+{application, emqx_ee_connector, [
+    {vsn, "0.1.0"},
+    {registered, []},
+    {applications, [
+        kernel,
+        stdlib,
+        hstreamdb_erl,
+        influxdb
+    ]},
+    {env, []},
+    {modules, []},
+
+    {links, []}
+]}.

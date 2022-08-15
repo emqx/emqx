@@ -26,9 +26,11 @@
 
 %% callbacks of behaviour emqx_resource
 -export([
+    callback_mode/0,
     on_start/2,
     on_stop/2,
-    on_query/4,
+    on_query/3,
+    on_query_async/4,
     on_get_status/2
 ]).
 
@@ -174,6 +176,8 @@ ref(Field) -> hoconsc:ref(?MODULE, Field).
 
 %% ===================================================================
 
+callback_mode() -> async_if_possible.
+
 on_start(
     InstId,
     #{
@@ -235,10 +239,11 @@ on_stop(InstId, #{pool_name := PoolName}) ->
     }),
     ehttpc_sup:stop_pool(PoolName).
 
-on_query(InstId, {send_message, Msg}, AfterQuery, State) ->
+on_query(InstId, {send_message, Msg}, State) ->
     case maps:get(request, State, undefined) of
         undefined ->
-            ?SLOG(error, #{msg => "request_not_found", connector => InstId});
+            ?SLOG(error, #{msg => "arg_request_not_found", connector => InstId}),
+            {error, arg_request_not_found};
         Request ->
             #{
                 method := Method,
@@ -251,18 +256,16 @@ on_query(InstId, {send_message, Msg}, AfterQuery, State) ->
             on_query(
                 InstId,
                 {undefined, Method, {Path, Headers, Body}, Timeout, Retry},
-                AfterQuery,
                 State
             )
     end;
-on_query(InstId, {Method, Request}, AfterQuery, State) ->
-    on_query(InstId, {undefined, Method, Request, 5000, 2}, AfterQuery, State);
-on_query(InstId, {Method, Request, Timeout}, AfterQuery, State) ->
-    on_query(InstId, {undefined, Method, Request, Timeout, 2}, AfterQuery, State);
+on_query(InstId, {Method, Request}, State) ->
+    on_query(InstId, {undefined, Method, Request, 5000, 2}, State);
+on_query(InstId, {Method, Request, Timeout}, State) ->
+    on_query(InstId, {undefined, Method, Request, Timeout, 2}, State);
 on_query(
     InstId,
     {KeyOrNum, Method, Request, Timeout, Retry},
-    AfterQuery,
     #{pool_name := PoolName, base_path := BasePath} = State
 ) ->
     ?TRACE(
@@ -285,34 +288,76 @@ on_query(
     of
         {error, Reason} ->
             ?SLOG(error, #{
-                msg => "http_connector_do_reqeust_failed",
+                msg => "http_connector_do_request_failed",
                 request => NRequest,
                 reason => Reason,
                 connector => InstId
-            }),
-            emqx_resource:query_failed(AfterQuery);
+            });
         {ok, StatusCode, _} when StatusCode >= 200 andalso StatusCode < 300 ->
-            emqx_resource:query_success(AfterQuery);
+            ok;
         {ok, StatusCode, _, _} when StatusCode >= 200 andalso StatusCode < 300 ->
-            emqx_resource:query_success(AfterQuery);
+            ok;
         {ok, StatusCode, _} ->
             ?SLOG(error, #{
                 msg => "http connector do request, received error response",
                 request => NRequest,
                 connector => InstId,
                 status_code => StatusCode
-            }),
-            emqx_resource:query_failed(AfterQuery);
+            });
         {ok, StatusCode, _, _} ->
             ?SLOG(error, #{
                 msg => "http connector do request, received error response",
                 request => NRequest,
                 connector => InstId,
                 status_code => StatusCode
-            }),
-            emqx_resource:query_failed(AfterQuery)
+            })
     end,
     Result.
+
+on_query_async(InstId, {send_message, Msg}, ReplyFunAndArgs, State) ->
+    case maps:get(request, State, undefined) of
+        undefined ->
+            ?SLOG(error, #{msg => "arg_request_not_found", connector => InstId}),
+            {error, arg_request_not_found};
+        Request ->
+            #{
+                method := Method,
+                path := Path,
+                body := Body,
+                headers := Headers,
+                request_timeout := Timeout
+            } = process_request(Request, Msg),
+            on_query_async(
+                InstId,
+                {undefined, Method, {Path, Headers, Body}, Timeout},
+                ReplyFunAndArgs,
+                State
+            )
+    end;
+on_query_async(
+    InstId,
+    {KeyOrNum, Method, Request, Timeout},
+    ReplyFunAndArgs,
+    #{pool_name := PoolName, base_path := BasePath} = State
+) ->
+    ?TRACE(
+        "QUERY_ASYNC",
+        "http_connector_received",
+        #{request => Request, connector => InstId, state => State}
+    ),
+    NRequest = formalize_request(Method, BasePath, Request),
+    Worker =
+        case KeyOrNum of
+            undefined -> ehttpc_pool:pick_worker(PoolName);
+            _ -> ehttpc_pool:pick_worker(PoolName, KeyOrNum)
+        end,
+    ok = ehttpc:request_async(
+        Worker,
+        Method,
+        NRequest,
+        Timeout,
+        ReplyFunAndArgs
+    ).
 
 on_get_status(_InstId, #{pool_name := PoolName, connect_timeout := Timeout} = State) ->
     case do_get_status(PoolName, Timeout) of
@@ -355,7 +400,6 @@ do_get_status(PoolName, Timeout) ->
 %%--------------------------------------------------------------------
 %% Internal functions
 %%--------------------------------------------------------------------
-
 preprocess_request(undefined) ->
     undefined;
 preprocess_request(Req) when map_size(Req) == 0 ->

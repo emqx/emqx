@@ -47,7 +47,7 @@ defmodule EMQXUmbrella.MixProject do
       {:lc, github: "emqx/lc", tag: "0.3.1"},
       {:redbug, "2.0.7"},
       {:typerefl, github: "ieQu1/typerefl", tag: "0.9.1", override: true},
-      {:ehttpc, github: "emqx/ehttpc", tag: "0.3.0"},
+      {:ehttpc, github: "emqx/ehttpc", tag: "0.4.0", override: true},
       {:gproc, github: "uwiger/gproc", tag: "0.8.0", override: true},
       {:jiffy, github: "emqx/jiffy", tag: "1.0.5", override: true},
       {:cowboy, github: "emqx/cowboy", tag: "2.9.0", override: true},
@@ -56,7 +56,7 @@ defmodule EMQXUmbrella.MixProject do
       {:gen_rpc, github: "emqx/gen_rpc", tag: "2.8.1", override: true},
       {:grpc, github: "emqx/grpc-erl", tag: "0.6.6", override: true},
       {:minirest, github: "emqx/minirest", tag: "1.3.6", override: true},
-      {:ecpool, github: "emqx/ecpool", tag: "0.5.2"},
+      {:ecpool, github: "emqx/ecpool", tag: "0.5.2", override: true},
       {:replayq, "0.3.4", override: true},
       {:pbkdf2, github: "emqx/erlang-pbkdf2", tag: "2.0.4", override: true},
       {:emqtt, github: "emqx/emqtt", tag: "1.6.0", override: true},
@@ -88,7 +88,9 @@ defmodule EMQXUmbrella.MixProject do
       {:ranch,
        github: "ninenines/ranch", ref: "a692f44567034dacf5efcaa24a24183788594eb7", override: true},
       # in conflict by grpc and eetcd
-      {:gpb, "4.11.2", override: true, runtime: false}
+      {:gpb, "4.11.2", override: true, runtime: false},
+      {:hstreamdb_erl, github: "hstreamdb/hstreamdb_erl", tag: "0.2.5"},
+      {:influxdb, github: "emqx/influxdb-client-erl", tag: "1.1.3", override: true}
     ] ++
       umbrella_apps() ++ enterprise_apps(profile_info) ++ bcrypt_dep() ++ jq_dep() ++ quicer_dep()
   end
@@ -234,7 +236,9 @@ defmodule EMQXUmbrella.MixProject do
       if(edition_type == :enterprise,
         do: [
           emqx_license: :permanent,
-          emqx_enterprise_conf: :load
+          emqx_ee_conf: :load,
+          emqx_ee_connector: :permanent,
+          emqx_ee_bridge: :permanent
         ],
         else: []
       )
@@ -599,7 +603,7 @@ defmodule EMQXUmbrella.MixProject do
     end
   end
 
-  defp emqx_schema_mod(:enterprise), do: :emqx_enterprise_conf_schema
+  defp emqx_schema_mod(:enterprise), do: :emqx_ee_conf_schema
   defp emqx_schema_mod(:community), do: :emqx_conf_schema
 
   defp bcrypt_dep() do

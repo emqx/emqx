@@ -14,5 +14,5 @@ the config operations (like config validation, config dump back to files), and t
 And we put all the `specific` codes to the callback modules.
 
 See
-* `test/emqx_test_resource.erl` for a minimal `emqx_resource` implementation;
+* `test/emqx_connector_demo.erl` for a minimal `emqx_resource` implementation;
 * `test/emqx_resource_SUITE.erl` for examples of `emqx_resource` usage.
