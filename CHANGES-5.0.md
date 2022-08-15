@@ -3,6 +3,7 @@
 ## Bug fixes
 
 * Remove the needless `will_msg` field from the client API. [#8721](https://github.com/emqx/emqx/pull/8721)
+* fix `is_superuser` not working in authorization
 
 # 5.0.5
 
