@@ -43,14 +43,15 @@ values(get) ->
 values(post) ->
     #{
         type => mysql,
-        name => <<"mysql">>,
+        name => <<"foo">>,
+        local_topic => <<"local/topic/#">>,
         sql_template => ?DEFAULT_SQL,
         connector => #{
             server => <<"127.0.0.1:3306">>,
             database => <<"test">>,
             pool_size => 8,
             username => <<"root">>,
-            password => <<"public">>,
+            password => <<"">>,
             auto_reconnect => true
         },
         enable => true,
@@ -61,7 +62,7 @@ values(put) ->
 
 %% -------------------------------------------------------------------------------------------------
 %% Hocon Schema Definitions
-namespace() -> "bridge".
+namespace() -> "bridge_mysql".
 
 roots() -> [].
 
@@ -69,6 +70,7 @@ fields("config") ->
     [
         {enable, mk(boolean(), #{desc => ?DESC("config_enable"), default => true})},
         {direction, mk(egress, #{desc => ?DESC("config_direction"), default => egress})},
+        {local_topic, mk(binary(), #{desc => ?DESC("local_topic")})},
         {sql_template,
             mk(
                 binary(),
@@ -82,7 +84,7 @@ fields("config") ->
                     desc => ?DESC("desc_connector")
                 }
             )}
-    ];
+    ] ++ emqx_resource_schema:fields("resource_opts");
 fields("post") ->
     [type_field(), name_field() | fields("config")];
 fields("put") ->

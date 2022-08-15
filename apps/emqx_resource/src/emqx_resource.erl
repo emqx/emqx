@@ -280,21 +280,7 @@ get_instance(ResId) ->
 
 -spec fetch_creation_opts(map()) -> creation_opts().
 fetch_creation_opts(Opts) ->
-    SupportedOpts = [
-        health_check_interval,
-        start_timeout,
-        start_after_created,
-        auto_restart_interval,
-        enable_batch,
-        batch_size,
-        batch_time,
-        enable_queue,
-        queue_max_bytes,
-        query_mode,
-        resume_interval,
-        async_inflight_window
-    ],
-    maps:with(SupportedOpts, Opts).
+    maps:get(resource_opts, Opts).
 
 -spec list_instances() -> [resource_id()].
 list_instances() ->

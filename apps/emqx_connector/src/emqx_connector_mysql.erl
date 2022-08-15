@@ -110,9 +110,14 @@ on_start(
         {auto_reconnect, reconn_interval(AutoReconn)},
         {pool_size, PoolSize}
     ],
+    SqlTmpl = emqx_map_lib:deep_get([egress, sql_template], Config, undefined),
+    SqlTmplParts = emqx_connector_utils:split_insert_sql(SqlTmpl),
     PoolName = emqx_plugin_libs_pool:pool_name(InstId),
     Prepares = parse_prepare_sql(Config),
-    State = maps:merge(#{poolname => PoolName, auto_reconnect => AutoReconn}, Prepares),
+    State0 = #{
+        poolname => PoolName, auto_reconnect => AutoReconn, sql_template_parts => SqlTmplParts
+    },
+    State = maps:merge(State0, Prepares),
     case emqx_plugin_libs_pool:start_pool(PoolName, ?MODULE, Options ++ SslOpts) of
         ok -> {ok, init_prepare(State)};
         {error, Reason} -> {error, Reason}
@@ -136,18 +141,17 @@ on_query(
 ) ->
     LogMeta = #{connector => InstId, sql => SQLOrKey, state => State},
     ?TRACE("QUERY", "mysql_connector_received", LogMeta),
-    Worker = ecpool:get_client(PoolName),
-    {ok, Conn} = ecpool_worker:client(Worker),
-    MySqlFunction = mysql_function(TypeOrKey),
-    {SQLOrKey2, Data} = proc_sql_params(TypeOrKey, SQLOrKey, Params, State),
-    Result = erlang:apply(mysql, MySqlFunction, [Conn, SQLOrKey2, Data, Timeout]),
+    {ok, Conn} = ecpool_worker:client(ecpool:get_client(PoolName)),
+    MySqlFun = mysql_function(TypeOrKey),
+    {SQLOrKey2, SqlParams} = proc_sql_params(TypeOrKey, SQLOrKey, Params, State),
+    Result = mysql:MySqlFun(Conn, SQLOrKey2, SqlParams, Timeout),
     case Result of
         {error, disconnected} ->
             ?SLOG(
                 error,
                 LogMeta#{msg => "mysql_connector_do_sql_query_failed", reason => disconnected}
             ),
-            %% kill the poll worker to trigger reconnection
+            %% kill the ecpool worker to trigger reconnection
             _ = exit(Conn, restart),
             Result;
         {error, not_prepared} ->
@@ -182,7 +186,7 @@ mysql_function(prepared_query) ->
     execute;
 %% for bridge
 mysql_function(_) ->
-    mysql_function(prepared_query).
+    execute.
 
 on_get_status(_InstId, #{poolname := Pool, auto_reconnect := AutoReconn} = State) ->
     case emqx_plugin_libs_pool:health_check_ecpool_workers(Pool, fun ?MODULE:do_get_status/1) of
@@ -328,10 +332,10 @@ proc_sql_params(query, SQLOrKey, Params, _State) ->
     {SQLOrKey, Params};
 proc_sql_params(prepared_query, SQLOrKey, Params, _State) ->
     {SQLOrKey, Params};
-proc_sql_params(TypeOrKey, SQLOrData, Params, #{params_tokens := ParamsTokens}) ->
-    case maps:get(TypeOrKey, ParamsTokens, undefined) of
+proc_sql_params(PreparedKey, SQLOrData, Params, #{params_tokens := ParamsTokens}) ->
+    case maps:get(PreparedKey, ParamsTokens, undefined) of
         undefined ->
             {SQLOrData, Params};
         Tokens ->
-            {TypeOrKey, emqx_plugin_libs_rule:proc_sql(Tokens, SQLOrData)}
+            {PreparedKey, emqx_plugin_libs_rule:proc_sql(Tokens, SQLOrData)}
     end.

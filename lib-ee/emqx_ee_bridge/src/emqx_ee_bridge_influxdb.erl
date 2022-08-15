@@ -91,7 +91,7 @@ fields(basic) ->
         {local_topic, mk(binary(), #{desc => ?DESC("local_topic")})},
         {write_syntax, fun write_syntax/1}
     ] ++
-        emqx_resource_schema:fields('creation_opts');
+        emqx_resource_schema:fields("resource_opts");
 fields("post_udp") ->
     method_fileds(post, influxdb_udp);
 fields("post_api_v1") ->

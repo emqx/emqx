@@ -59,11 +59,6 @@
 -define(REPLY(FROM, REQUEST, RESULT), {reply, FROM, REQUEST, RESULT}).
 -define(EXPAND(RESULT, BATCH), [?REPLY(FROM, REQUEST, RESULT) || ?QUERY(FROM, REQUEST) <- BATCH]).
 
--define(RESOURCE_ERROR(Reason, Msg),
-    {error, {resource_error, #{reason => Reason, msg => iolist_to_binary(Msg)}}}
-).
--define(RESOURCE_ERROR_M(Reason, Msg), {error, {resource_error, #{reason := Reason, msg := Msg}}}).
-
 -type id() :: binary().
 -type query() :: {query, from(), request()}.
 -type request() :: term().
@@ -140,7 +135,7 @@ init({Id, Index, Opts}) ->
         batch_size => BatchSize,
         batch_time => maps:get(batch_time, Opts, ?DEFAULT_BATCH_TIME),
         queue => Queue,
-        resume_interval => maps:get(resume_interval, Opts, ?RESUME_INTERVAL),
+        resume_interval => maps:get(health_check_interval, Opts, ?HEALTHCHECK_INTERVAL),
         acc => [],
         acc_left => BatchSize,
         tref => undefined

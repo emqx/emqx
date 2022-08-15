@@ -66,7 +66,6 @@
     enable_queue => boolean(),
     queue_max_bytes => integer(),
     query_mode => async | sync | dynamic,
-    resume_interval => integer(),
     async_inflight_window => integer()
 }.
 -type query_result() ::
@@ -81,7 +80,6 @@
 -define(DEFAULT_INFLIGHT, 100).
 -define(HEALTHCHECK_INTERVAL, 15000).
 -define(HEALTHCHECK_INTERVAL_RAW, <<"15s">>).
--define(RESUME_INTERVAL, 15000).
 -define(START_AFTER_CREATED, true).
 -define(START_TIMEOUT, 5000).
 -define(START_TIMEOUT_RAW, <<"5s">>).

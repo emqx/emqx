@@ -30,14 +30,25 @@ namespace() -> "resource_schema".
 
 roots() -> [].
 
-fields('creation_opts') ->
+fields("resource_opts") ->
+    [
+        {resource_opts,
+            mk(
+                ref(?MODULE, "creation_opts"),
+                #{
+                    required => false,
+                    default => #{},
+                    desc => ?DESC(<<"resource_opts">>)
+                }
+            )}
+    ];
+fields("creation_opts") ->
     [
         {health_check_interval, fun health_check_interval/1},
         {start_after_created, fun start_after_created/1},
         {start_timeout, fun start_timeout/1},
         {auto_restart_interval, fun auto_restart_interval/1},
         {query_mode, fun query_mode/1},
-        {resume_interval, fun resume_interval/1},
         {async_inflight_window, fun async_inflight_window/1},
         {enable_batch, fun enable_batch/1},
         {batch_size, fun batch_size/1},
@@ -87,12 +98,6 @@ enable_queue(required) -> false;
 enable_queue(default) -> false;
 enable_queue(desc) -> ?DESC("enable_queue");
 enable_queue(_) -> undefined.
-
-resume_interval(type) -> emqx_schema:duration_ms();
-resume_interval(desc) -> ?DESC("resume_interval");
-resume_interval(default) -> ?RESUME_INTERVAL;
-resume_interval(required) -> false;
-resume_interval(_) -> undefined.
 
 async_inflight_window(type) -> pos_integer();
 async_inflight_window(desc) -> ?DESC("async_inflight_window");

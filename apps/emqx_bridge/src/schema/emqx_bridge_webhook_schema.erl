@@ -3,7 +3,7 @@
 -include_lib("typerefl/include/types.hrl").
 -include_lib("hocon/include/hoconsc.hrl").
 
--import(hoconsc, [mk/2, enum/1]).
+-import(hoconsc, [mk/2, enum/1, ref/2]).
 
 -export([roots/0, fields/1, namespace/0, desc/1]).
 
@@ -23,7 +23,14 @@ fields("post") ->
 fields("put") ->
     fields("config");
 fields("get") ->
-    emqx_bridge_schema:metrics_status_fields() ++ fields("post").
+    emqx_bridge_schema:metrics_status_fields() ++ fields("post");
+fields("creation_opts") ->
+    lists:filter(
+        fun({K, _V}) ->
+            not lists:member(K, unsupported_opts())
+        end,
+        emqx_resource_schema:fields("creation_opts")
+    ).
 
 desc("config") ->
     ?DESC("desc_config");
@@ -117,13 +124,17 @@ request_config() ->
     ].
 
 webhook_creation_opts() ->
-    Opts = emqx_resource_schema:fields(creation_opts),
-    lists:filter(
-        fun({K, _V}) ->
-            not lists:member(K, unsupported_opts())
-        end,
-        Opts
-    ).
+    [
+        {resource_opts,
+            mk(
+                ref(?MODULE, "creation_opts"),
+                #{
+                    required => false,
+                    default => #{},
+                    desc => ?DESC(emqx_resource_schema, <<"resource_opts">>)
+                }
+            )}
+    ].
 
 unsupported_opts() ->
     [
