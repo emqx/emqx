@@ -126,6 +126,10 @@ groups() ->
        t_sqlparse_array_range_1,
        t_sqlparse_array_range_2,
        t_sqlparse_true_false,
+       t_sqlparse_compare_null_null,
+       t_sqlparse_compare_null_notnull,
+       t_sqlparse_compare_notnull_null,
+       t_sqlparse_compare,
        t_sqlparse_new_map,
        t_sqlparse_invalid_json
       ]},
@@ -2485,6 +2489,210 @@ t_sqlparse_true_false(_Config) ->
                    <<"x">> := #{<<"y">> := false},
                    <<"c">> := [true]
                    }, Res00).
+
+-define(TEST_SQL(SQL),
+    emqx_rule_sqltester:test(
+        #{<<"rawsql">> => SQL,
+          <<"ctx">> => #{<<"payload">> => <<"">>,
+                         <<"topic">> => <<"t/a">>}})).
+t_sqlparse_compare_null_null(_Config) ->
+    %% test undefined == undefined
+    Sql00 = "select "
+            " a = b as c "
+            "from \"t/#\" ",
+    {ok, Res00} = ?TEST_SQL(Sql00),
+    ?assertMatch(#{<<"c">> := true
+                   }, Res00),
+
+    %% test undefined != undefined
+    Sql01 = "select "
+            " a != b as c "
+            "from \"t/#\" ",
+    {ok, Res01} = ?TEST_SQL(Sql01),
+    ?assertMatch(#{<<"c">> := false
+                   }, Res01),
+
+    %% test undefined > undefined
+    Sql02 = "select "
+            " a > b as c "
+            "from \"t/#\" ",
+    {ok, Res02} = ?TEST_SQL(Sql02),
+    ?assertMatch(#{<<"c">> := false
+                   }, Res02),
+
+    %% test undefined < undefined
+    Sql03 = "select "
+            " a < b as c "
+            "from \"t/#\" ",
+    {ok, Res03} = ?TEST_SQL(Sql03),
+    ?assertMatch(#{<<"c">> := false
+                   }, Res03),
+
+    %% test undefined <= undefined
+    Sql04 = "select "
+            " a <= b as c "
+            "from \"t/#\" ",
+    {ok, Res04} = ?TEST_SQL(Sql04),
+    ?assertMatch(#{<<"c">> := true
+                   }, Res04),
+
+    %% test undefined >= undefined
+    Sql05 = "select "
+            " a >= b as c "
+            "from \"t/#\" ",
+    {ok, Res05} = ?TEST_SQL(Sql05),
+    ?assertMatch(#{<<"c">> := true
+                   }, Res05).
+
+t_sqlparse_compare_null_notnull(_Config) ->
+    %% test undefined == b
+    Sql00 = "select "
+            " 'b' as b, a = b as c "
+            "from \"t/#\" ",
+    {ok, Res00} = ?TEST_SQL(Sql00),
+    ?assertMatch(#{<<"c">> := false
+                   }, Res00),
+
+    %% test undefined != b
+    Sql01 = "select "
+            " 'b' as b, a != b as c "
+            "from \"t/#\" ",
+    {ok, Res01} = ?TEST_SQL(Sql01),
+    ?assertMatch(#{<<"c">> := true
+                   }, Res01),
+
+    %% test undefined > b
+    Sql02 = "select "
+            " 'b' as b, a > b as c "
+            "from \"t/#\" ",
+    {ok, Res02} = ?TEST_SQL(Sql02),
+    ?assertMatch(#{<<"c">> := false
+                   }, Res02),
+
+    %% test undefined < b
+    Sql03 = "select "
+            " 'b' as b, a < b as c "
+            "from \"t/#\" ",
+    {ok, Res03} = ?TEST_SQL(Sql03),
+    ?assertMatch(#{<<"c">> := false
+                   }, Res03),
+
+    %% test undefined <= b
+    Sql04 = "select "
+            " 'b' as b, a <= b as c "
+            "from \"t/#\" ",
+    {ok, Res04} = ?TEST_SQL(Sql04),
+    ?assertMatch(#{<<"c">> := false
+                   }, Res04),
+
+    %% test undefined >= b
+    Sql05 = "select "
+            " 'b' as b, a >= b as c "
+            "from \"t/#\" ",
+    {ok, Res05} = ?TEST_SQL(Sql05),
+    ?assertMatch(#{<<"c">> := false
+                   }, Res05).
+
+t_sqlparse_compare_notnull_null(_Config) ->
+    %% test 'a' == undefined
+    Sql00 = "select "
+            " 'a' as a, a = b as c "
+            "from \"t/#\" ",
+    {ok, Res00} = ?TEST_SQL(Sql00),
+    ?assertMatch(#{<<"c">> := false
+                   }, Res00),
+
+    %% test 'a' != undefined
+    Sql01 = "select "
+            " 'a' as a, a != b as c "
+            "from \"t/#\" ",
+    {ok, Res01} = ?TEST_SQL(Sql01),
+    ?assertMatch(#{<<"c">> := true
+                   }, Res01),
+
+    %% test 'a' > undefined
+    Sql02 = "select "
+            " 'a' as a, a > b as c "
+            "from \"t/#\" ",
+    {ok, Res02} = ?TEST_SQL(Sql02),
+    ?assertMatch(#{<<"c">> := false
+                   }, Res02),
+
+    %% test 'a' < undefined
+    Sql03 = "select "
+            " 'a' as a, a < b as c "
+            "from \"t/#\" ",
+    {ok, Res03} = ?TEST_SQL(Sql03),
+    ?assertMatch(#{<<"c">> := false
+                   }, Res03),
+
+    %% test 'a' <= undefined
+    Sql04 = "select "
+            " 'a' as a, a <= b as c "
+            "from \"t/#\" ",
+    {ok, Res04} = ?TEST_SQL(Sql04),
+    ?assertMatch(#{<<"c">> := false
+                   }, Res04),
+
+    %% test 'a' >= undefined
+    Sql05 = "select "
+            " 'a' as a, a >= b as c "
+            "from \"t/#\" ",
+    {ok, Res05} = ?TEST_SQL(Sql05),
+    ?assertMatch(#{<<"c">> := false
+                   }, Res05).
+
+t_sqlparse_compare(_Config) ->
+    Sql00 = "select "
+            " 'a' as a, 'a' as b, a = b as c "
+            "from \"t/#\" ",
+    {ok, Res00} = ?TEST_SQL(Sql00),
+    ?assertMatch(#{<<"c">> := true
+                   }, Res00),
+
+    Sql01 = "select "
+            " is_null(a) as c "
+            "from \"t/#\" ",
+    {ok, Res01} = ?TEST_SQL(Sql01),
+    ?assertMatch(#{<<"c">> := true
+                   }, Res01),
+
+    Sql02 = "select "
+            " 1 as a, 2 as b, a < b as c "
+            "from \"t/#\" ",
+    {ok, Res02} = ?TEST_SQL(Sql02),
+    ?assertMatch(#{<<"c">> := true
+                   }, Res02),
+
+    Sql03 = "select "
+            " 1 as a, 2 as b, a > b as c "
+            "from \"t/#\" ",
+    {ok, Res03} = ?TEST_SQL(Sql03),
+    ?assertMatch(#{<<"c">> := false
+                   }, Res03),
+
+    Sql04 = "select "
+            " 1 as a, 2 as b, a = b as c "
+            "from \"t/#\" ",
+    {ok, Res04} = ?TEST_SQL(Sql04),
+    ?assertMatch(#{<<"c">> := false
+                   }, Res04),
+
+    %% test 'a' >= undefined
+    Sql05 = "select "
+            " 1 as a, 2 as b, a >= b as c "
+            "from \"t/#\" ",
+    {ok, Res05} = ?TEST_SQL(Sql05),
+    ?assertMatch(#{<<"c">> := false
+                   }, Res05),
+
+    %% test 'a' >= undefined
+    Sql06 = "select "
+            " 1 as a, 2 as b, a <= b as c "
+            "from \"t/#\" ",
+    {ok, Res06} = ?TEST_SQL(Sql06),
+    ?assertMatch(#{<<"c">> := true
+                   }, Res06).
 
 t_sqlparse_new_map(_Config) ->
     %% construct a range without 'as'

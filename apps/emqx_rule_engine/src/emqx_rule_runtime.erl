@@ -216,10 +216,8 @@ match_conditions({}, _Data) ->
     true.
 
 %% comparing numbers against strings
-compare(Op, undefined, undefined) ->
-    do_compare(Op, undefined, undefined);
-compare(_Op, L, R) when L == undefined; R == undefined ->
-    false;
+compare(Op, L, R) when L == undefined; R == undefined ->
+    do_compare(Op, L, R);
 compare(Op, L, R) when is_number(L), is_binary(R) ->
     do_compare(Op, L, number(R));
 compare(Op, L, R) when is_binary(L), is_number(R) ->
@@ -232,10 +230,14 @@ compare(Op, L, R) ->
     do_compare(Op, L, R).
 
 do_compare('=', L, R) -> L == R;
+do_compare('>', L, R) when L == undefined; R == undefined -> false;
 do_compare('>', L, R) -> L > R;
+do_compare('<', L, R) when L == undefined; R == undefined -> false;
 do_compare('<', L, R) -> L < R;
-do_compare('<=', L, R) -> L =< R;
-do_compare('>=', L, R) -> L >= R;
+do_compare('<=', L, R) ->
+    do_compare('=', L, R) orelse do_compare('<', L, R);
+do_compare('>=', L, R) ->
+    do_compare('=', L, R) orelse do_compare('>', L, R);
 do_compare('<>', L, R) -> L /= R;
 do_compare('!=', L, R) -> L /= R;
 do_compare('=~', T, F) -> emqx_topic:match(T, F).
