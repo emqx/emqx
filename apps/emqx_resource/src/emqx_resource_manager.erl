@@ -447,6 +447,11 @@ start_resource(Data, From) ->
             Actions = maybe_reply([{state_timeout, 0, health_check}], From, ok),
             {next_state, connecting, UpdatedData, Actions};
         {error, Reason} = Err ->
+            ?SLOG(error, #{
+                msg => start_resource_failed,
+                id => Data#data.id,
+                reason => Reason
+            }),
             _ = maybe_alarm(disconnected, Data#data.id),
             %% Keep track of the error reason why the connection did not work
             %% so that the Reason can be returned when the verification call is made.

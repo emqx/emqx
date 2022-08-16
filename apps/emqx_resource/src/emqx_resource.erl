@@ -298,7 +298,7 @@ get_instance(ResId) ->
 
 -spec fetch_creation_opts(map()) -> creation_opts().
 fetch_creation_opts(Opts) ->
-    maps:get(resource_opts, Opts).
+    maps:get(resource_opts, Opts, #{}).
 
 -spec list_instances() -> [resource_id()].
 list_instances() ->
