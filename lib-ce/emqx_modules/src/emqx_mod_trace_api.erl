@@ -22,6 +22,7 @@
         , disable_trace/2
         , delete_trace/2
         , clear_traces/2
+        , trace_file_detail/2
         , download_zip_log/2
         , stream_log_file/2
 ]).
@@ -57,6 +58,12 @@
             path   => "/trace/:bin:name/stop",
             func   => disable_trace,
             descr  => "stop trace"}).
+
+-rest_api(#{name   => trace_file_detail,
+            method => 'GET',
+            path   => "/trace/:bin:name/detail",
+            func   => trace_file_detail,
+            descr  => "view trace file's detail"}).
 
 -rest_api(#{name   => download_zip_log,
             method => 'GET',
@@ -99,6 +106,12 @@ disable_trace(#{name := Name}, Params) ->
     case is_started() of
         true -> return(emqx_trace_api:update_trace(#{name => Name, operation => disable}, Params));
         false -> return(?NOT_STARTED)
+    end.
+
+trace_file_detail(Path, Params) ->
+    case emqx_trace_api:trace_file_detail(Path, Params) of
+        {ok, Detail} -> return({ok, Detail});
+        {error, Reason} ->  return({error, 'NOT_FOUND', Reason})
     end.
 
 download_zip_log(Path, Params) ->
