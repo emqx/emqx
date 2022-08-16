@@ -34,6 +34,8 @@ fields("creation_opts") ->
 
 desc("config") ->
     ?DESC("desc_config");
+desc("creation_opts") ->
+    ?DESC(emqx_resource_schema, "creation_opts");
 desc(Method) when Method =:= "get"; Method =:= "put"; Method =:= "post" ->
     ["Configuration for WebHook using `", string:to_upper(Method), "` method."];
 desc(_) ->

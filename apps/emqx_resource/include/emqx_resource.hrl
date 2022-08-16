@@ -66,6 +66,7 @@
     enable_queue => boolean(),
     queue_max_bytes => integer(),
     query_mode => async | sync | dynamic,
+    resume_interval => integer(),
     async_inflight_window => integer()
 }.
 -type query_result() ::

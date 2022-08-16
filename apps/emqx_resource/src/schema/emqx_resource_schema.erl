@@ -21,7 +21,7 @@
 
 -import(hoconsc, [mk/2, enum/1, ref/2]).
 
--export([namespace/0, roots/0, fields/1]).
+-export([namespace/0, roots/0, fields/1, desc/1]).
 
 %% -------------------------------------------------------------------------------------------------
 %% Hocon Schema Definitions
@@ -122,3 +122,6 @@ queue_max_bytes(desc) -> ?DESC("queue_max_bytes");
 queue_max_bytes(default) -> ?DEFAULT_QUEUE_SIZE_RAW;
 queue_max_bytes(required) -> false;
 queue_max_bytes(_) -> undefined.
+
+desc("creation_opts") ->
+    ?DESC("creation_opts").

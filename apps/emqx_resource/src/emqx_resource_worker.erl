@@ -135,7 +135,7 @@ init({Id, Index, Opts}) ->
         batch_size => BatchSize,
         batch_time => maps:get(batch_time, Opts, ?DEFAULT_BATCH_TIME),
         queue => Queue,
-        resume_interval => maps:get(health_check_interval, Opts, ?HEALTHCHECK_INTERVAL),
+        resume_interval => maps:get(resume_interval, Opts, ?HEALTHCHECK_INTERVAL),
         acc => [],
         acc_left => BatchSize,
         tref => undefined
