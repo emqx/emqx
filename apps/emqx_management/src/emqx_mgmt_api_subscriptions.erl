@@ -177,6 +177,8 @@ format({_Subscriber, Topic, Options}) ->
         maps:with([qos, nl, rap, rh], Options)
     ).
 
+get_topic(Topic, #{share := <<"$queue">> = Group}) ->
+    filename:join([Group, Topic]);
 get_topic(Topic, #{share := Group}) ->
     filename:join([<<"$share">>, Group, Topic]);
 get_topic(Topic, _) ->
