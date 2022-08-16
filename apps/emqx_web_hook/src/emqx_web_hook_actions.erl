@@ -259,25 +259,27 @@ on_action_data_to_webserver(Selected, _Envs =
                                 'BodyTokens' := BodyTokens,
                                 'Pool' := Pool,
                                 'RequestTimeout' := RequestTimeout},
-                              clientid := ClientID}) ->
+                              clientid := ClientID,
+                              metadata := Metadata}) ->
     NBody = format_msg(BodyTokens, clear_user_property_header(Selected)),
     NPath = emqx_rule_utils:proc_tmpl(PathTokens, Selected),
     Req = create_req(Method, NPath, Headers, NBody),
     case ehttpc:request({Pool, ClientID}, Method, Req, RequestTimeout) of
         {ok, StatusCode, _} when StatusCode >= 200 andalso StatusCode < 300 ->
+            ?LOG_RULE_ACTION(debug, Metadata, "HTTP Request succeeded with path: ~p status code ~p", [NPath, StatusCode]),
             emqx_rule_metrics:inc_actions_success(Id);
         {ok, StatusCode, _, _} when StatusCode >= 200 andalso StatusCode < 300 ->
             emqx_rule_metrics:inc_actions_success(Id);
         {ok, StatusCode, _} ->
-            ?LOG(warning, "HTTP request failed with path: ~p status code: ~p", [NPath, StatusCode]),
+            ?LOG_RULE_ACTION(warning, Metadata, "HTTP request failed with path: ~p status code: ~p", [NPath, StatusCode]),
             emqx_rule_metrics:inc_actions_error(Id),
             {badact, StatusCode};
         {ok, StatusCode, _, _} ->
-            ?LOG(warning, "HTTP request failed with path: ~p status code: ~p", [NPath, StatusCode]),
+            ?LOG_RULE_ACTION(warning, Metadata, "HTTP request failed with path: ~p status code: ~p", [NPath, StatusCode]),
             emqx_rule_metrics:inc_actions_error(Id),
             {badact, StatusCode};
         {error, Reason} ->
-            ?LOG(error, "HTTP request failed path: ~p error: ~p", [NPath, Reason]),
+            ?LOG_RULE_ACTION(error, Metadata, "HTTP request failed path: ~p error: ~p", [NPath, Reason]),
             emqx_rule_metrics:inc_actions_error(Id),
             {badact, Reason}
     end.

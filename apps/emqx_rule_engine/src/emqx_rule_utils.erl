@@ -16,6 +16,9 @@
 
 -module(emqx_rule_utils).
 
+-include("rule_engine.hrl").
+-include_lib("emqx/include/logger.hrl").
+
 -export([ replace_var/2
         ]).
 
@@ -57,6 +60,10 @@
 
 -export([ now_ms/0
         , can_topic_match_oneof/2
+        ]).
+
+-export([ add_metadata/2
+        , log_action/4
         ]).
 
 -compile({no_auto_import,
@@ -371,3 +378,30 @@ can_topic_match_oneof(Topic, Filters) ->
     lists:any(fun(Fltr) ->
         emqx_topic:match(Topic, Fltr)
     end, Filters).
+
+add_metadata(Envs, Metadata) when is_map(Envs), is_map(Metadata) ->
+    NMetadata = maps:merge(maps:get(metadata, Envs, #{}), Metadata),
+    Envs#{metadata => NMetadata};
+add_metadata(Envs, Action) when is_map(Envs), is_record(Action, action_instance)->
+    Metadata = gen_metadata_from_action(Action),
+    NMetadata = maps:merge(maps:get(metadata, Envs, #{}), Metadata),
+    Envs#{metadata => NMetadata}.
+
+gen_metadata_from_action(#action_instance{name = Name, args = undefined}) ->
+    #{action_name => Name, resource_id => undefined};
+gen_metadata_from_action(#action_instance{name = Name, args = Args})
+  when is_map(Args) ->
+    #{action_name => Name, resource_id => maps:get(<<"$resource">>, Args, undefined)};
+gen_metadata_from_action(#action_instance{name = Name}) ->
+    #{action_name => Name, resource_id => undefined}.
+
+log_action(Level, Metadata, Fmt, Args) ->
+    ?LOG(Level,
+         "Rule: ~p; Action: ~p; Rusource: ~p. " ++ Fmt,
+         metadata_values(Metadata) ++ Args).
+
+metadata_values(Metadata) ->
+    RuleId = maps:get(rule_id, Metadata, undefined),
+    ActionName = maps:get(action_name, Metadata, undefined),
+    ResourceName = maps:get(resource_id, Metadata, undefined),
+    [RuleId, ActionName, ResourceName].
