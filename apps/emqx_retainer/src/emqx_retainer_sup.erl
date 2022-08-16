@@ -35,5 +35,5 @@ init([Env]) ->
              modules  => [emqx_retainer]} || not is_managed_by_modules()]}}.
 
 is_managed_by_modules() ->
-    %% always flase for opensource edition
+    %% always false for opensource edition
     false.
