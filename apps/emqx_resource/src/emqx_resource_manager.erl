@@ -56,7 +56,6 @@
 -record(data, {id, manager_id, group, mod, callback_mode, config, opts, status, state, error}).
 -type data() :: #data{}.
 
--define(SHORT_HEALTHCHECK_INTERVAL, 1000).
 -define(ETS_TABLE, ?MODULE).
 -define(WAIT_FOR_RESOURCE_DELAY, 100).
 -define(T_OPERATION, 5000).
@@ -448,6 +447,11 @@ start_resource(Data, From) ->
             Actions = maybe_reply([{state_timeout, 0, health_check}], From, ok),
             {next_state, connecting, UpdatedData, Actions};
         {error, Reason} = Err ->
+            ?SLOG(error, #{
+                msg => start_resource_failed,
+                id => Data#data.id,
+                reason => Reason
+            }),
             _ = maybe_alarm(disconnected, Data#data.id),
             %% Keep track of the error reason why the connection did not work
             %% so that the Reason can be returned when the verification call is made.
@@ -484,7 +488,7 @@ handle_connecting_health_check(Data) ->
             (connected, UpdatedData) ->
                 {next_state, connected, UpdatedData};
             (connecting, UpdatedData) ->
-                Actions = [{state_timeout, ?SHORT_HEALTHCHECK_INTERVAL, health_check}],
+                Actions = [{state_timeout, ?HEALTHCHECK_INTERVAL, health_check}],
                 {keep_state, UpdatedData, Actions};
             (disconnected, UpdatedData) ->
                 {next_state, disconnected, UpdatedData}

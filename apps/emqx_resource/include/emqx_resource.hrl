@@ -92,10 +92,6 @@
 -define(HEALTHCHECK_INTERVAL, 15000).
 -define(HEALTHCHECK_INTERVAL_RAW, <<"15s">>).
 
-%% milliseconds
--define(RESUME_INTERVAL, 15000).
--define(RESUME_INTERVAL_RAW, <<"15s">>).
-
 -define(START_AFTER_CREATED, true).
 
 %% milliseconds
