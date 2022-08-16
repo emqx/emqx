@@ -110,10 +110,8 @@ default_plugins() ->
     [
         {emqx_bridge_mqtt, false},
         {emqx_dashboard, true},
-        {emqx_eviction_agent, true},
         {emqx_management, true},
         {emqx_modules, true},
-        {emqx_node_rebalance, true},
         {emqx_recon, true},
         {emqx_retainer, false},
         {emqx_rule_engine, true},
