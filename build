@@ -188,6 +188,11 @@ make_zip() {
             esac
             ;;
     esac
+    ## one can only upgrade to 4.5.X from 4.4.8, when that's released.
+    ## Until that's released, there's no relup.
+    if [[ -z "$(ls -A _upgrade_base 2>/dev/null || true)" && "${PKG_VSN}" == 4.5.0* ]]; then
+      has_relup='no'
+    fi
     if [ "$has_relup" = 'yes' ]; then
         ./scripts/inject-relup.escript "${tard}/emqx/releases/${PKG_VSN}/relup"
     fi

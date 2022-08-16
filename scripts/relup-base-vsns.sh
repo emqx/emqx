@@ -91,9 +91,10 @@ done
 
 # first 4.5.0 version uses the previous 4.4.X as a base we emulate
 # that we are the last 4.4.X version that allows upgrading to 4.4.5.
+# We add that version, if available.
 if [[ "${CUR_SEMVER[0]}" = 4 && "${CUR_SEMVER[1]}" = 5 && "${CUR_SEMVER[2]}" = 0 ]]; then
-  TAGS+=( "v4.4.8" )
-  TAGS+=( "e4.4.8" )
+  [[ $(git tag -l "v4.4.8") ]] && TAGS+=( "v4.4.8" )
+  [[ $(git tag -l "e4.4.8") ]] && TAGS+=( "e4.4.8" )
 fi
 
 for tag in "${TAGS[@]}"; do
