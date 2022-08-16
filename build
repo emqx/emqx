@@ -17,10 +17,29 @@ fi
 PROFILE_ARG="$1"
 ARTIFACT="$2"
 
-if [[ "${PROFILE:-${PROFILE_ARG}}" != "$PROFILE_ARG" ]]; then
-    echo "PROFILE env var is set to '$PROFILE', but '$0' arg1 is '$1'"
-    exit 1
-fi
+is_enterprise() {
+    case "$1" in
+        *enterprise*)
+            echo 'yes'
+            ;;
+        *)
+            echo 'no'
+            ;;
+    esac
+}
+PROFILE_ENV="${PROFILE:-${PROFILE_ARG}}"
+case "$(is_enterprise "$PROFILE_ARG"),$(is_enterprise "$PROFILE_ENV")" in
+    'yes,yes')
+        true
+        ;;
+    'no,no')
+        true
+        ;;
+    *)
+        echo "PROFILE env var is set to '$PROFILE_ENV', but '$0' arg1 is '$PROFILE_ARG'"
+        exit 1
+        ;;
+esac
 
 # make sure PROFILE is exported, it is needed by rebar.config.erl
 PROFILE=$PROFILE_ARG
@@ -91,11 +110,11 @@ make_docs() {
     else
         libs_dir3=''
     fi
-    case $PROFILE in
-        emqx-enterprise)
+    case "$(is_enterprise "$PROFILE")" in
+        'yes')
             SCHEMA_MODULE='emqx_ee_conf_schema'
             ;;
-        *)
+        'no')
             SCHEMA_MODULE='emqx_conf_schema'
             ;;
     esac
@@ -290,11 +309,11 @@ export_release_vars() {
 
   local erl_opts=()
 
-  case "$profile" in
-    *enterprise*)
+  case "$(is_enterprise "$profile")" in
+    'yes')
       erl_opts+=( "{d, 'EMQX_RELEASE_EDITION', ee}" )
       ;;
-    *)
+    'no')
       erl_opts+=( "{d, 'EMQX_RELEASE_EDITION', ce}" )
       ;;
   esac
