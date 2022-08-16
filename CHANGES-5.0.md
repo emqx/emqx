@@ -3,7 +3,8 @@
 ## Bug fixes
 
 * Remove the needless `will_msg` field from the client API. [#8721](https://github.com/emqx/emqx/pull/8721)
-* Fix `$queue` topic name error in management API return
+* Fix `$queue` topic name error in management API return. [#8728](https://github.com/emqx/emqx/pull/8728)
+* Fix sometimes `client.connected` and `client.disconnected` could be in wrong order. [#8625](https://github.com/emqx/emqx/pull/8625)
 
 # 5.0.5
 
