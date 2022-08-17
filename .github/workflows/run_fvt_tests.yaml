@@ -15,7 +15,7 @@ jobs:
         - uses: actions/checkout@v1
         - uses: erlef/setup-beam@v1
           with:
-            otp-version: "23.2"
+            otp-version: "23.3.4.9"
         - name: make docker
           run: |
             if make emqx-ee --dry-run > /dev/null 2>&1; then
@@ -67,7 +67,7 @@ jobs:
         - uses: actions/checkout@v1
         - uses: erlef/setup-beam@v1
           with:
-            otp-version: "23.2"
+            otp-version: "23.3.4.9"
         - name: prepare
           run: |
             if make emqx-ee --dry-run > /dev/null 2>&1; then
@@ -176,7 +176,7 @@ jobs:
 
     relup_test_plan:
         runs-on: ubuntu-20.04
-        container: emqx/build-env:erl23.2.7.2-emqx-3-ubuntu20.04
+        container: emqx/build-env:erl23.3.4.9-3-ubuntu20.04
         outputs:
           profile: ${{ steps.profile-and-versions.outputs.profile }}
           vsn: ${{ steps.profile-and-versions.outputs.vsn }}
@@ -222,7 +222,7 @@ jobs:
     relup_test_build:
         needs: relup_test_plan
         runs-on: ubuntu-20.04
-        container: emqx/build-env:erl23.2.7.2-emqx-3-ubuntu20.04
+        container: emqx/build-env:erl23.3.4.9-3-ubuntu20.04
         defaults:
           run:
             shell: bash
