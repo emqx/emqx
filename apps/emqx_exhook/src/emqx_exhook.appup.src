@@ -1,44 +1,30 @@
 %% -*- mode: erlang -*-
+%% Unless you know what you are doing, DO NOT edit manually!!
 {VSN,
- [
-    {<<"4\\.3\\.[5-6]">>, [
-        {load_module, emqx_exhook_server, brutal_purge, soft_purge, []},
-        {load_module, emqx_exhook_mngr, brutal_purge, soft_purge, []}
-
-    ]},
-    {"4.3.4", [
-        {load_module, emqx_exhook_sup, brutal_purge, soft_purge, []},
-        {load_module, emqx_exhook_server, brutal_purge, soft_purge, []},
-        {load_module, emqx_exhook_handler, brutal_purge, soft_purge, []},
-        {load_module, emqx_exhook_pb, brutal_purge, soft_purge, []},
-        {load_module, emqx_exhook, brutal_purge, soft_purge, []},
-        {update, emqx_exhook_mngr, {advanced, ["4.3.4"]}}
-    ]},
-    {<<"4\\.3\\.[0-3]">>, [
-        {restart_application, emqx_exhook}
-    ]},
-    {<<".*">>, []}
- ],
- [
-    {<<"4\\.3\\.[5-6]">>, [
-        {load_module, emqx_exhook_server, brutal_purge, soft_purge, []},
-        {load_module, emqx_exhook_mngr, brutal_purge, soft_purge, []}
-
-    ]},
-    {"4.3.5", [
-        {load_module, emqx_exhook_server, brutal_purge, soft_purge, []}
-    ]},
-    {"4.3.4", [
-        {load_module, emqx_exhook_sup, brutal_purge, soft_purge, []},
-        {load_module, emqx_exhook_server, brutal_purge, soft_purge, []},
-        {load_module, emqx_exhook_handler, brutal_purge, soft_purge, []},
-        {load_module, emqx_exhook_pb, brutal_purge, soft_purge, []},
-        {load_module, emqx_exhook, brutal_purge, soft_purge, []},
-        {update, emqx_exhook_mngr, {advanced, ["4.3.4"]}}
-    ]},
-    {<<"4\\.3\\.[0-3]">>, [
-         {restart_application, emqx_exhook}
-    ]},
-    {<<".*">>, []}
- ]
-}.
+ [{<<"4\\.3\\.[5-6]">>,
+   [{load_module,emqx_exhook_server,brutal_purge,soft_purge,[]},
+    {load_module,emqx_exhook_mngr,brutal_purge,soft_purge,[]}]},
+  {"4.3.4",
+   [{load_module,emqx_exhook_sup,brutal_purge,soft_purge,[]},
+    {load_module,emqx_exhook_server,brutal_purge,soft_purge,[]},
+    {load_module,emqx_exhook_handler,brutal_purge,soft_purge,[]},
+    {load_module,emqx_exhook_pb,brutal_purge,soft_purge,[]},
+    {load_module,emqx_exhook,brutal_purge,soft_purge,[]},
+    {update,emqx_exhook_mngr,{advanced,["4.3.4"]}}]},
+  {<<"4\\.3\\.[0-3]">>,[{restart_application,emqx_exhook}]},
+  {<<".*">>,[]}],
+ [{<<"4\\.3\\.[5-6]">>,
+   [{load_module,emqx_exhook_server,brutal_purge,soft_purge,[]},
+    {load_module,emqx_exhook_mngr,brutal_purge,soft_purge,[]}]},
+  {"4.3.5",
+   [{load_module,emqx_exhook_mngr,brutal_purge,soft_purge,[]},
+    {load_module,emqx_exhook_server,brutal_purge,soft_purge,[]}]},
+  {"4.3.4",
+   [{load_module,emqx_exhook_sup,brutal_purge,soft_purge,[]},
+    {load_module,emqx_exhook_server,brutal_purge,soft_purge,[]},
+    {load_module,emqx_exhook_handler,brutal_purge,soft_purge,[]},
+    {load_module,emqx_exhook_pb,brutal_purge,soft_purge,[]},
+    {load_module,emqx_exhook,brutal_purge,soft_purge,[]},
+    {update,emqx_exhook_mngr,{advanced,["4.3.4"]}}]},
+  {<<"4\\.3\\.[0-3]">>,[{restart_application,emqx_exhook}]},
+  {<<".*">>,[]}]}.
