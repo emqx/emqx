@@ -433,7 +433,7 @@ test_resource_status(PoolName) ->
     try
         Status = [
             receive {Pid, R} -> R
-            after 1000 -> %% get_worker_status/1 should be a quick operation
+            after 10000 -> %% get_worker_status/1 should be a quick operation
                 throw({timeout, Pid})
             end || Pid <- Pids],
         lists:any(fun(St) -> St =:= true end, Status)
@@ -444,13 +444,28 @@ test_resource_status(PoolName) ->
             false
     end.
 
+-define(RETRY_TIMES, 4).
+
 get_worker_status(Worker) ->
+    get_worker_status(Worker, ?RETRY_TIMES).
+
+get_worker_status(_Worker, 0) ->
+    false;
+get_worker_status(Worker, Times) ->
     case ecpool_worker:client(Worker) of
         {ok, Bridge} ->
             try emqx_bridge_worker:status(Bridge) of
-                connected -> true;
-                _ -> false
-            catch _Error:_Reason ->
+                connected ->
+                    true;
+                idle ->
+                    ?LOG(info, "MQTT Bridge get status idle. Should not ignore this."),
+                    timer:sleep(100),
+                    get_worker_status(Worker, Times - 1);
+                ErrorStatus ->
+                    ?LOG(error, "MQTT Bridge get status ~p", [ErrorStatus]),
+                    false
+            catch Error:Reason:ST ->
+                    ?LOG(error, "MQTT Bridge get status error: ~p reason: ~p stacktrace: ~p", [Error, Reason, ST]),
                     false
             end;
         {error, _} ->
