@@ -89,12 +89,20 @@ for tag_to_del in "${TAGS_EXCLUDE[@]}"; do
     TAGS=( "${TAGS[@]/$tag_to_del}" )
 done
 
-# first 4.5.0 version uses the previous 4.4.X as a base we emulate
-# that we are the last 4.4.X version that allows upgrading to 4.4.5.
+# 4.5.X versions uses the previous 4.4.Y as a base we emulate
+# that we are the last 4.4.Y version that allows upgrading to 4.5.X
 # We add that version, if available.
-if [[ "${CUR_SEMVER[0]}" = 4 && "${CUR_SEMVER[1]}" = 5 && "${CUR_SEMVER[2]}" = 0 ]]; then
-  [[ $(git tag -l "v4.4.8") ]] && TAGS+=( "v4.4.8" )
-  [[ $(git tag -l "e4.4.8") ]] && TAGS+=( "e4.4.8" )
+maybe_add_tag() {
+  local tag="$1"
+  if [[ $(git tag -l "$tag") ]]; then
+    TAGS+=( "$tag" )
+  fi
+}
+
+if [[ "${CUR_SEMVER[0]}" = 4 && "${CUR_SEMVER[1]}" = 5 ]]; then
+  for tag in "v4.4.8" "e4.4.8"; do
+    maybe_add_tag "$tag"
+  done
 fi
 
 for tag in "${TAGS[@]}"; do
