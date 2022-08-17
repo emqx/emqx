@@ -12,22 +12,17 @@ File format:
 
 ## v4.3.19
 
-### Bug fixes
-- Fix GET `/auth_clientid` and `/auth_username` counts. [#8655](https://github.com/emqx/emqx/pull/8655)
-
-## v4.3.19
-
 ### Enhancements
 
 - Improve error message for LwM2M plugin when object ID is not valid [#8654](https://github.com/emqx/emqx/pull/8654).
 - Add tzdata apk package to alpine docker image. [#8671](https://github.com/emqx/emqx/pull/8671)
-- Add node evacuation and cluster rebalancing features [#8597]
-
-## v4.3.19
+- Add node evacuation and cluster rebalancing features [#8597](https://github.com/emqx/emqx/pull/8597)
+- Refine Rule Engine error log. RuleId will be logged when take action failed. [#8737](https://github.com/emqx/emqx/pull/8737)
 
 ### Bug fixes
 
-- Add a idle timer for ExProto UDP client to avoid client leaking [#8628]
+- Fix GET `/auth_clientid` and `/auth_username` counts. [#8655](https://github.com/emqx/emqx/pull/8655)
+- Add a idle timer for ExProto UDP client to avoid client leaking [#8628](https://github.com/emqx/emqx/pull/8628)
 
 ## v4.3.18
 
