@@ -397,7 +397,7 @@ gen_metadata_from_action(#action_instance{name = Name}) ->
 
 log_action(Level, Metadata, Fmt, Args) ->
     ?LOG(Level,
-         "Rule: ~p; Action: ~p; Rusource: ~p. " ++ Fmt,
+         "Rule: ~p; Action: ~p; Resource: ~p. " ++ Fmt,
          metadata_values(Metadata) ++ Args).
 
 metadata_values(Metadata) ->
