@@ -68,6 +68,9 @@ check_authorization_cache(ClientInfo, PubSub, Topic) ->
             AuthzResult
     end.
 
+do_authorize(_ClientInfo = #{is_superuser := true}, _, _) ->
+    %% Superuser does triggered `client.authorize` hook.
+    allow;
 do_authorize(ClientInfo, PubSub, Topic) ->
     NoMatch = emqx:get_config([authorization, no_match], allow),
     case run_hooks('client.authorize', [ClientInfo, PubSub, Topic], NoMatch) of
