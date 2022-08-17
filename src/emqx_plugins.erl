@@ -235,9 +235,7 @@ default_plugins() ->
         {emqx_recon, true},
         {emqx_telemetry, true},
         {emqx_rule_engine, true},
-        {emqx_bridge_mqtt, false},
-        {emqx_eviction_agent, true},
-        {emqx_node_rebalance, true}
+        {emqx_bridge_mqtt, false}
     ].
 
 -else.
