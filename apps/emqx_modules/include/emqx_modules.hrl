@@ -20,5 +20,5 @@
 %% Interval for reporting telemetry data, Default: 7d
 -define(REPORT_INTERVAL, 604800).
 
--define(API_TAG_MQTT, [<<"mqtt">>]).
+-define(API_TAG_MQTT, [<<"MQTT">>]).
 -define(API_SCHEMA_MODULE, emqx_modules_schema).
