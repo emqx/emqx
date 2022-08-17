@@ -97,7 +97,7 @@ on_start(
         {host, Host},
         {port, Port},
         {username, User},
-        {password, Password},
+        {password, emqx_secret:wrap(Password)},
         {database, DB},
         {auto_reconnect, reconn_interval(AutoReconn)},
         {pool_size, PoolSize},
@@ -158,7 +158,7 @@ reconn_interval(false) -> false.
 connect(Opts) ->
     Host = proplists:get_value(host, Opts),
     Username = proplists:get_value(username, Opts),
-    Password = proplists:get_value(password, Opts),
+    Password = emqx_secret:unwrap(proplists:get_value(password, Opts)),
     PrepareStatement = proplists:get_value(prepare_statement, Opts),
     case epgsql:connect(Host, Username, Password, conn_opts(Opts)) of
         {ok, Conn} ->
