@@ -103,7 +103,7 @@ make_relup() {
     fi
     RELX_BASE_VERSIONS="$(IFS=, ; echo "${releases[*]}")"
     export RELX_BASE_VERSIONS
-    if [[ ${PKG_VSN} == 4.3* || ${PKG_VSN} == 4.5.0* ]]; then
+    if [[ ${PKG_VSN} == 4.3* || ${PKG_VSN} == 4.5.* ]]; then
         echo "EMQX 4.3/4.5 specific, overwrite OTP app versions"
         local emqx_rel_file="${releases_dir}/${PKG_VSN}/emqx.rel"
         if [ ! -f "${emqx_rel_file}" ]; then
@@ -122,7 +122,7 @@ make_relup() {
 
     # rollback rel file per releases
     #
-    if [[ ${PKG_VSN} == 4.3* || ${PKG_VSN} == 4.5.0* ]]; then
+    if [[ ${PKG_VSN} == 4.3* || ${PKG_VSN} == 4.5.* ]]; then
         echo "restore upgrade base rel files... "
         for rel in ${releases[*]};
         do
