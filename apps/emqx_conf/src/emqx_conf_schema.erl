@@ -412,7 +412,7 @@ fields("node") ->
                 #{
                     mapping => "vm_args.+P",
                     desc => ?DESC(process_limit),
-                    default => 2097152,
+                    default => 134217727,
                     'readOnly' => true
                 }
             )},
