@@ -190,7 +190,8 @@ make_zip() {
     esac
     ## one can only upgrade to 4.5.X from 4.4.8 or later, when that's
     ## released.  Until that's released, there's no relup.
-    if [[ -z "$(ls -A _upgrade_base 2>/dev/null || true)" && "${PKG_VSN}" == 4.5.0* ]]; then
+    v44_bases="$(git tag -l "*4.4*" | grep -c -E '4\.4\.([8-9]|1[0-9])' || true)"
+    if [[ "${v44_bases}" -eq 0 ]]; then
       has_relup='no'
     fi
     if [ "$has_relup" = 'yes' ]; then
