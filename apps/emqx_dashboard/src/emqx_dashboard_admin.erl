@@ -87,7 +87,7 @@ add_default_user() ->
 
 -spec add_bootstrap_user() -> ok | {error, _}.
 add_bootstrap_user() ->
-    case emqx:get_config([dashboard, bootstrap_user], undefined) of
+    case emqx:get_config([dashboard, bootstrap_user_file], undefined) of
         undefined ->
             ok;
         File ->
@@ -324,7 +324,12 @@ add_bootstrap_user(File) ->
             after
                 file:close(Dev)
             end;
-        Error ->
+        {error, Reason} = Error ->
+            ?SLOG(error, #{
+                msg => "failed to open the dashboard bootstrap users file",
+                file => File,
+                reason => Reason
+            }),
             Error
     end.
 
