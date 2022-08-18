@@ -126,6 +126,7 @@ groups() ->
        t_sqlparse_array_range_1,
        t_sqlparse_array_range_2,
        t_sqlparse_true_false,
+       t_sqlparse_compare_undefined,
        t_sqlparse_compare_null_null,
        t_sqlparse_compare_null_notnull,
        t_sqlparse_compare_notnull_null,
@@ -2493,8 +2494,33 @@ t_sqlparse_true_false(_Config) ->
 -define(TEST_SQL(SQL),
     emqx_rule_sqltester:test(
         #{<<"rawsql">> => SQL,
-          <<"ctx">> => #{<<"payload">> => <<"">>,
+          <<"ctx">> => #{<<"payload">> => <<"{}">>,
                          <<"topic">> => <<"t/a">>}})).
+
+t_sqlparse_compare_undefined(_Config) ->
+    Sql00 = "select "
+            " * "
+            "from \"t/#\" "
+            "where dev != undefined ",
+    %% no match
+    ?assertMatch({error, nomatch}, ?TEST_SQL(Sql00)),
+
+    Sql01 = "select "
+            " 'd' as dev "
+            "from \"t/#\" "
+            "where dev != undefined ",
+    {ok, Res01} = ?TEST_SQL(Sql01),
+    %% pass
+    ?assertMatch(#{}, Res01),
+
+    Sql02 = "select "
+            " * "
+            "from \"t/#\" "
+            "where dev != 'undefined' ",
+    {ok, Res02} = ?TEST_SQL(Sql02),
+    %% pass
+    ?assertMatch(#{}, Res02).
+
 t_sqlparse_compare_null_null(_Config) ->
     %% test undefined == undefined
     Sql00 = "select "

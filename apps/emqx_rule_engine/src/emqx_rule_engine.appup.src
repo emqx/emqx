@@ -190,7 +190,6 @@
    {"4.3.11",
     [{load_module,emqx_rule_actions,brutal_purge,soft_purge,[]},
      {load_module,emqx_rule_utils,brutal_purge,soft_purge,[]},
-     {load_module,emqx_rule_runtime,brutal_purge,soft_purge,[]},
      {load_module,emqx_rule_registry,brutal_purge,soft_purge,[]},
      {load_module,emqx_rule_validator,brutal_purge,soft_purge,[]},
      {load_module,emqx_rule_runtime,brutal_purge,soft_purge,[]},
