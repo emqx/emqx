@@ -139,6 +139,10 @@ relup_test(){
 
         find . -maxdepth 1 -name "${EMQX_NAME}-*-${ARCH}.zip" |
             while read -r pkg; do
+                if [[ "${pkg}" == *4.3.13* ]]; then
+                    echo "skipping upgrade test from 4.3.13 because this release had crypto linked with openssl 1.1.1n, it was in later version rolled back (to default 1.1.1k)."
+                    continue
+                fi
                 packagename=$(basename "${pkg}")
                 unzip -q "$packagename"
                 ./emqx/bin/emqx start || ( tail emqx/log/emqx.log.1 && exit 1 )

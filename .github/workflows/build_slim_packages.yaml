@@ -11,7 +11,7 @@ jobs:
     strategy:
       matrix:
         erl_otp:
-        - erl23.2.7.2-emqx-3
+        - erl23.3.4.9-3
         os:
         - ubuntu20.04
         - centos7
@@ -55,7 +55,7 @@ jobs:
     strategy:
       matrix:
         erl_otp:
-        - 23.2.7.2-emqx-3
+        - 23.3.4.9-3
         macos:
         - macos-11
     runs-on: ${{ matrix.macos }}

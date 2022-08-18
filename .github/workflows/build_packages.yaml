@@ -18,7 +18,7 @@ on:
 jobs:
   prepare:
     runs-on: ubuntu-20.04
-    container: emqx/build-env:erl23.2.7.2-emqx-3-ubuntu20.04
+    container: emqx/build-env:erl23.3.4.9-3-ubuntu20.04
 
     outputs:
       profiles: ${{ steps.set_profile.outputs.profiles}}
@@ -125,7 +125,7 @@ jobs:
       matrix:
         profile: ${{fromJSON(needs.prepare.outputs.profiles)}}
         erl_otp:
-          - 23.2.7.2-emqx-3
+          - 23.3.4.9-3
         exclude:
           - profile: emqx-edge
         macos:
