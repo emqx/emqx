@@ -37,6 +37,7 @@
 -define(PREFIX_RESET, "/configs_reset/").
 -define(ERR_MSG(MSG), list_to_binary(io_lib:format("~p", [MSG]))).
 -define(OPTS, #{rawconf_with_defaults => true, override_to => cluster}).
+-define(TAGS, ["Configs"]).
 
 -define(EXCLUDES,
     [
@@ -85,7 +86,7 @@ schema("/configs") ->
     #{
         'operationId' => configs,
         get => #{
-            tags => [conf],
+            tags => ?TAGS,
             description =>
                 <<"Get all the configurations of the specified node, including hot and non-hot updatable items.">>,
             parameters => [
@@ -111,7 +112,7 @@ schema("/configs_reset/:rootname") ->
     #{
         'operationId' => config_reset,
         post => #{
-            tags => [conf],
+            tags => ?TAGS,
             description =>
                 <<
                     "Reset the config entry specified by the query string parameter `conf_path`.</br>\n"
@@ -149,12 +150,12 @@ schema("/configs/global_zone") ->
     #{
         'operationId' => global_zone_configs,
         get => #{
-            tags => [conf],
+            tags => ?TAGS,
             description => <<"Get the global zone configs">>,
             responses => #{200 => Schema}
         },
         put => #{
-            tags => [conf],
+            tags => ?TAGS,
             description => <<"Update globbal zone configs">>,
             'requestBody' => Schema,
             responses => #{
@@ -180,7 +181,7 @@ schema("/configs/global_zone") ->
 %%     #{
 %%         'operationId' => config,
 %%         get => #{
-%%             tags => [conf],
+%%             tags => ?TAGS,
 %%             description => <<"Get config of this limiter">>,
 %%             parameters => Parameters,
 %%             responses => #{
@@ -189,7 +190,7 @@ schema("/configs/global_zone") ->
 %%             }
 %%         },
 %%         put => #{
-%%             tags => [conf],
+%%             tags => ?TAGS,
 %%             description => <<"Update config of this limiter">>,
 %%             parameters => Parameters,
 %%             'requestBody' => Schema,
@@ -204,7 +205,7 @@ schema(Path) ->
     #{
         'operationId' => config,
         get => #{
-            tags => [conf],
+            tags => ?TAGS,
             description => iolist_to_binary([
                 <<"Get the sub-configurations under *">>,
                 RootKey,
@@ -216,7 +217,7 @@ schema(Path) ->
             }
         },
         put => #{
-            tags => [conf],
+            tags => ?TAGS,
             description => iolist_to_binary([
                 <<"Update the sub-configurations under *">>,
                 RootKey,
