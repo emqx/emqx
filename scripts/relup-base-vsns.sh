@@ -41,14 +41,6 @@ if [ "${#CUR_SEMVER[@]}" -lt 3 ]; then
     usage
 fi
 
-## when the current version has no suffix such as -abcdef00
-## it is a formal release
-if [ "${#CUR_SEMVER[@]}" -eq 3 ]; then
-    IS_RELEASE=true
-else
-    IS_RELEASE=false
-fi
-
 case "${EDITION}" in
     *enterprise*)
         GIT_TAG_PREFIX="e"
@@ -61,28 +53,11 @@ esac
 # must not be empty for MacOS (bash 3.x)
 TAGS=( 'dummy' )
 TAGS_EXCLUDE=( 'dummy' )
-while read -r git_tag; do
-    # shellcheck disable=SC2207
-    semver=($(parse_semver "$git_tag"))
-    if [ "${#semver[@]}" -eq 3 ] && [ "${semver[2]}" -le "${CUR_SEMVER[2]}" ]; then
-        if [ ${IS_RELEASE} = true ] && [ "${semver[2]}" -eq "${CUR_SEMVER[2]}" ] ; then
-            # do nothing
-            # exact match, do not print current version
-            # because current version is not an upgrade base
-            true
-        else
-            TAGS+=( "$git_tag" )
-        fi
-    fi
-done < <(git tag -l "${GIT_TAG_PREFIX}${CUR_SEMVER[0]}.${CUR_SEMVER[1]}.*")
 
-# debian11 is introduced since v4.4.2 and e4.4.2
-# exclude tags before them
-SYSTEM="${SYSTEM:-$(./scripts/get-distro.sh)}"
-if [ "$SYSTEM" = 'debian11' ]; then
-    TAGS_EXCLUDE+=( 'v4.4.0' 'v4.4.1' )
-    TAGS_EXCLUDE+=( 'e4.4.0' 'e4.4.1' )
-fi
+while read -r vsn; do
+  # shellcheck disable=SC2207
+  TAGS+=($(git tag -l "${GIT_TAG_PREFIX}${vsn}"))
+done < <(./scripts/relup-base-vsns.escript base-vsns "$CUR" ./data/relup_bases.eterm)
 
 for tag_to_del in "${TAGS_EXCLUDE[@]}"; do
     TAGS=( "${TAGS[@]/$tag_to_del}" )
