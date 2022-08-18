@@ -422,7 +422,7 @@ fields("node") ->
                 #{
                     mapping => "vm_args.+Q",
                     desc => ?DESC(max_ports),
-                    default => 1048576,
+                    default => 134217727,
                     'readOnly' => true
                 }
             )},
