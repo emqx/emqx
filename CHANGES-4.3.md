@@ -18,6 +18,7 @@ File format:
 - Add tzdata apk package to alpine docker image. [#8671](https://github.com/emqx/emqx/pull/8671)
 - Add node evacuation and cluster rebalancing features [#8597](https://github.com/emqx/emqx/pull/8597)
 - Refine Rule Engine error log. RuleId will be logged when take action failed. [#8737](https://github.com/emqx/emqx/pull/8737)
+- Improved jwt authentication module initialization process.[#8736](https://github.com/emqx/emqx/pull/8736)
 
 ### Bug fixes
 
