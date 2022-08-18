@@ -23,6 +23,11 @@
     versions_file/1
 ]).
 
+%% Internal exports (RPC)
+-export([
+    announce_fun/1
+]).
+
 -export_type([api/0, api_version/0, var_name/0, call/0, rpc/0, bpapi_meta/0]).
 
 -include("emqx.hrl").
@@ -77,7 +82,7 @@ supported_version(API) ->
 -spec announce(atom()) -> ok.
 announce(App) ->
     {ok, Data} = file:consult(?MODULE:versions_file(App)),
-    {atomic, ok} = mria:transaction(?COMMON_SHARD, fun announce_fun/1, [Data]),
+    {atomic, ok} = mria:transaction(?COMMON_SHARD, fun ?MODULE:announce_fun/1, [Data]),
     ok.
 
 -spec versions_file(atom()) -> file:filename_all().

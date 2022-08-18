@@ -47,6 +47,11 @@
     code_change/3
 ]).
 
+%% Internal exports (RPC)
+-export([
+    cleanup_routes/1
+]).
+
 -record(routing_node, {name, const = unused}).
 
 -define(ROUTE, emqx_route).
@@ -145,7 +150,7 @@ handle_info({nodedown, Node}, State = #{nodes := Nodes}) ->
     global:trans(
         {?LOCK, self()},
         fun() ->
-            mria:transaction(?ROUTE_SHARD, fun cleanup_routes/1, [Node])
+            mria:transaction(?ROUTE_SHARD, fun ?MODULE:cleanup_routes/1, [Node])
         end
     ),
     ok = mria:dirty_delete(?ROUTING_NODE, Node),
