@@ -135,8 +135,7 @@ fields(basic) ->
         {precision,
             mk(enum([ns, us, ms, s, m, h]), #{
                 required => false, default => ms, desc => ?DESC("precision")
-            })},
-        {pool_size, mk(pos_integer(), #{desc => ?DESC("pool_size")})}
+            })}
     ];
 fields(influxdb_udp) ->
     fields(basic);
@@ -190,15 +189,13 @@ values(udp, put) ->
     #{
         host => <<"127.0.0.1">>,
         port => 8089,
-        precision => ms,
-        pool_size => 8
+        precision => ms
     };
 values(api_v1, put) ->
     #{
         host => <<"127.0.0.1">>,
         port => 8086,
         precision => ms,
-        pool_size => 8,
         database => <<"my_db">>,
         username => <<"my_user">>,
         password => <<"my_password">>,
@@ -209,7 +206,6 @@ values(api_v2, put) ->
         host => <<"127.0.0.1">>,
         port => 8086,
         precision => ms,
-        pool_size => 8,
         bucket => <<"my_bucket">>,
         org => <<"my_org">>,
         token => <<"my_token">>,
@@ -302,14 +298,13 @@ client_config(
     InstId,
     Config = #{
         host := Host,
-        port := Port,
-        pool_size := PoolSize
+        port := Port
     }
 ) ->
     [
         {host, binary_to_list(Host)},
         {port, Port},
-        {pool_size, PoolSize},
+        {pool_size, erlang:system_info(schedulers)},
         {pool, binary_to_atom(InstId, utf8)},
         {precision, atom_to_binary(maps:get(precision, Config, ms), utf8)}
     ] ++ protocol_config(Config).

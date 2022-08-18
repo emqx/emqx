@@ -44,6 +44,7 @@ fields("resource_opts") ->
     ];
 fields("creation_opts") ->
     [
+        {worker_pool_size, fun worker_pool_size/1},
         {health_check_interval, fun health_check_interval/1},
         {start_after_created, fun start_after_created/1},
         {start_timeout, fun start_timeout/1},
@@ -56,6 +57,12 @@ fields("creation_opts") ->
         {enable_queue, fun enable_queue/1},
         {max_queue_bytes, fun queue_max_bytes/1}
     ].
+
+worker_pool_size(type) -> pos_integer();
+worker_pool_size(desc) -> ?DESC("worker_pool_size");
+worker_pool_size(default) -> ?WORKER_POOL_SIZE;
+worker_pool_size(required) -> false;
+worker_pool_size(_) -> undefined.
 
 health_check_interval(type) -> emqx_schema:duration_ms();
 health_check_interval(desc) -> ?DESC("health_check_interval");
