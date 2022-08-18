@@ -21,6 +21,10 @@ jobs:
           fetch-depth: 0 # need full history
       - name: fix-git-unsafe-repository
         run: git config --global --add safe.directory /__w/emqx/emqx
+      - name: Check relup version DB
+        run: |
+          PKG_VSN=$(./pkg-vsn.sh)
+          ./scripts/relup-base-vsns.escript check-vsn-db $PKG_VSN ./scripts/relup_bases.eterm
       - name: Check relup (ce)
         if: endsWith(github.repository, 'emqx')
         run: ./scripts/update-appup.sh emqx --check

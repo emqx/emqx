@@ -66,22 +66,21 @@ make_rel() {
     ./rebar3 as "$PROFILE" tar
 }
 
+relup_db() {
+  ./scripts/relup-base-vsns.escript "$@" ./scripts/relup_bases.eterm
+}
+
 ## unzip previous version .zip files to _build/$PROFILE/rel/emqx/releases before making relup
 make_relup() {
     local lib_dir="_build/$PROFILE/rel/emqx/lib"
     local releases_dir="_build/$PROFILE/rel/emqx/releases"
     local name_pattern
-    # 4.5.0 upgraded OTP from 24.1.5-3 to 24.3.4.2-1, so we need to
-    # fool the matcher to make it pick up the previous 4.4.X releases
-    # with older OTP.
-    if [[ "${PKG_VSN}" == 4.5.0* ]]; then
-      name_pattern="${PROFILE}-$(env OTP_VSN=24.1.5-3 ./scripts/pkg-full-vsn.sh 'vsn_matcher')"
-    else
-      name_pattern="${PROFILE}-$(./scripts/pkg-full-vsn.sh 'vsn_matcher')"
-    fi
     mkdir -p "$lib_dir" "$releases_dir" '_upgrade_base'
     local releases=()
     if [ -d "$releases_dir" ]; then
+      for BASE_VSN in $(relup_db base-vsns "$PKG_VSN"); do
+        OTP_BASE=$(relup_db otp-vsn-for "$PKG_VSN")
+        name_pattern="${PROFILE}-$(env OTP_VSN="$OTP_BASE" PKG_VSN="$BASE_VSN" ./scripts/pkg-full-vsn.sh 'vsn_exact')"
         while read -r zip; do
             local base_vsn
             base_vsn="$(echo "$zip" | grep -oE "[0-9]+\.[0-9]+\.[0-9]+(-[0-9a-f]{8})?" | head -1)"
@@ -96,6 +95,7 @@ make_relup() {
             fi
             releases+=( "$base_vsn" )
         done < <("$FIND" _upgrade_base -maxdepth 1 -name "${name_pattern}.zip" -type f)
+      done
     fi
     if [ ${#releases[@]} -eq 0 ]; then
         log "No upgrade base found, relup ignored"
@@ -188,10 +188,9 @@ make_zip() {
             esac
             ;;
     esac
-    ## one can only upgrade to 4.5.X from 4.4.8 or later, when that's
-    ## released.  Until that's released, there's no relup.
-    v44_bases="$(git tag -l "*4.4*" | grep -c -E '4\.4\.([8-9]|1[0-9])' || true)"
-    if [[ "${v44_bases}" -eq 0 ]]; then
+    # shellcheck disable=SC2207
+    bases=($(./scripts/relup-base-vsns.escript base-vsns "$PKG_VSN" ./scripts/relup_bases.eterm))
+    if [[ "${#bases[@]}" -eq 0 ]]; then
       has_relup='no'
     fi
     if [ "$has_relup" = 'yes' ]; then
