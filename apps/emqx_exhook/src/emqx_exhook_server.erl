@@ -153,13 +153,15 @@ format_http_uri(Scheme, Host0, Port) ->
 
 -spec unload(server()) -> ok.
 unload(#server{name = Name, options = ReqOpts, hookspec = HookSpecs}) ->
-    _ = do_deinit(Name, ReqOpts),
     _ = may_unload_hooks(HookSpecs),
+    _ = do_deinit(Name, ReqOpts),
     _ = emqx_exhook_sup:stop_grpc_client_channel(Name),
     ok.
 
 do_deinit(Name, ReqOpts) ->
-    _ = do_call(Name, 'on_provider_unloaded', #{}, ReqOpts),
+    %% Using shorter timeout to deinit grpc server to avoid emqx_exhook_mngr
+    %% force killed by upper supervisor
+    _ = do_call(Name, 'on_provider_unloaded', #{}, ReqOpts#{timeout => 3000}),
     ok.
 
 do_init(ChannName, ReqOpts) ->

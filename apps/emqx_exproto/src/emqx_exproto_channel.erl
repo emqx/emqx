@@ -151,7 +151,7 @@ init(ConnInfo = #{socktype := Socktype,
                   peercert := Peercert}, Options) ->
     GRpcChann = proplists:get_value(handler, Options),
     NConnInfo = default_conninfo(ConnInfo),
-    ClientInfo = default_clientinfo(ConnInfo),
+    ClientInfo = default_clientinfo(NConnInfo),
 
     IdleTimeout = proplists:get_value(idle_timeout, Options, ?DEFAULT_IDLE_TIMEOUT),
 
@@ -275,7 +275,9 @@ handle_timeout(_TRef, {keepalive, StatVal},
         {error, timeout} ->
             Req = #{type => 'KEEPALIVE'},
             NChannel = clean_timer(alive_timer, Channel),
-            {ok, try_dispatch(on_timer_timeout, wrap(Req), NChannel)}
+            %% close connection if keepalive timeout
+            Replies = [{event, disconnected}, {close, normal}],
+            {ok, Replies, try_dispatch(on_timer_timeout, wrap(Req), NChannel)}
     end;
 
 handle_timeout(_TRef, force_close, Channel = #channel{closed_reason = Reason}) ->
@@ -381,7 +383,7 @@ handle_call({publish, Topic, Qos, Payload},
     end;
 
 handle_call(kick, Channel) ->
-    {shutdown, kicked, ok, Channel};
+    {reply, ok, [{event, disconnected}, {close, kicked}], Channel};
 
 handle_call(discard, Channel) ->
     {shutdown, discarded, ok, Channel};
@@ -633,9 +635,10 @@ enrich_clientinfo(InClientInfo = #{proto_name := ProtoName}, ClientInfo) ->
     NClientInfo = maps:merge(ClientInfo, maps:with(Ks, InClientInfo)),
     NClientInfo#{protocol => ProtoName}.
 
-default_conninfo(ConnInfo) ->
+default_conninfo(ConnInfo =
+                 #{peername := {PeerHost, PeerPort}}) ->
     ConnInfo#{clean_start => true,
-              clientid => undefined,
+              clientid => anonymous_clientid(PeerHost, PeerPort),
               username => undefined,
               conn_props => #{},
               connected => true,
@@ -646,13 +649,15 @@ default_conninfo(ConnInfo) ->
               receive_maximum => 0,
               expiry_interval => 0}.
 
-default_clientinfo(#{peername := {PeerHost, PeerPort},
-                     sockname := {_, SockPort}}) ->
+default_clientinfo(#{peername := {PeerHost, _},
+                     sockname := {_, SockPort},
+                     clientid := ClientId
+                    }) ->
     #{zone         => external,
       protocol     => exproto,
       peerhost     => PeerHost,
       sockport     => SockPort,
-      clientid     => anonymous_clientid(PeerHost, PeerPort),
+      clientid     => ClientId,
       username     => undefined,
       is_bridge    => false,
       is_superuser => false,

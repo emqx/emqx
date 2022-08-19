@@ -18,6 +18,8 @@ File format:
 - Add tzdata apk package to alpine docker image. [#8671](https://github.com/emqx/emqx/pull/8671)
 - Add node evacuation and cluster rebalancing features [#8597](https://github.com/emqx/emqx/pull/8597)
 - Refine Rule Engine error log. RuleId will be logged when take action failed. [#8737](https://github.com/emqx/emqx/pull/8737)
+- Close ExProto client process immediately if it's keepalive timeouted. [#8725](https://github.com/emqx/emqx/pull/8725)
+- Upgrade grpc-erl driver to 0.6.7 to support batch operation in sending stream. [#8725](https://github.com/emqx/emqx/pull/8725)
 - Improved jwt authentication module initialization process.[#8736](https://github.com/emqx/emqx/pull/8736)
 
 ### Bug fixes
@@ -28,7 +30,9 @@ File format:
   The `foo` variable is a null value, so `clientid != foo` should be evaluated as true.
 - Fix GET `/auth_clientid` and `/auth_username` counts. [#8655](https://github.com/emqx/emqx/pull/8655)
 - Add an idle timer for ExProto UDP client to avoid client leaking [#8628](https://github.com/emqx/emqx/pull/8628)
+- Fix ExHook can't be un-hooked if the grpc service stop first. [#8725](//github.com/emqx/emqx/pull/8725)
 - Fix GET `/listeners/` crashes when listener is not ready. [#8752](https://github.com/emqx/emqx/pull/8752)
+
 
 ## v4.3.18
 
