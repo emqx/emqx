@@ -13,6 +13,7 @@
 * Updated `/nodes` API node_status from `Running/Stopped` to `running/stopped`. [#8642](https://github.com/emqx/emqx/pull/8642)
 * Improve handling of placeholder interpolation errors [#8635](https://github.com/emqx/emqx/pull/8635)
 * Better logging on unknown object IDs. [#8670](https://github.com/emqx/emqx/pull/8670)
+* The bind option support `:1883` style. [#8758](https://github.com/emqx/emqx/pull/8758)
 
 # 5.0.4
 
