@@ -172,6 +172,7 @@ File format:
   to force an immediate reload of all certificates after the files are updated on disk.
 * Refactor the ExProto so that anonymous clients can also be displayed on the dashboard [#6983]
 * Force shutdown of processes that cannot answer takeover event [#7026]
+* Support set keepalive via queryString & Body HTTP API.
 * `topic` parameter in bridge configuration can have `${node}` substitution (just like in `clientid` parameter)
 * Add UTF-8 string validity check in `strict_mode` for MQTT packet.
   When set to true, invalid UTF-8 strings will cause the client to be disconnected. i.e. client ID, topic name. [#7261]

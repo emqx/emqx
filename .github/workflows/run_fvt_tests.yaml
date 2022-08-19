@@ -15,21 +15,26 @@ jobs:
         - uses: actions/checkout@v1
         - uses: erlef/setup-beam@v1
           with:
-            otp-version: "23.3.4.9"
-        - name: make docker
+            otp-version: "24.1.5"
+        - name: prepare
           run: |
             if make emqx-ee --dry-run > /dev/null 2>&1; then
               echo "https://ci%40emqx.io:${{ secrets.CI_GIT_TOKEN }}@github.com" > $HOME/.git-credentials
               git config --global credential.helper store
               make deps-emqx-ee
+              make clean
               echo "TARGET=emqx/emqx-ee" >> $GITHUB_ENV
+              echo "PROFILE=emqx-ee" >> $GITHUB_ENV
               echo "EMQX_TAG=$(./pkg-vsn.sh)" >> $GITHUB_ENV
               make emqx-ee-docker
             else
               echo "TARGET=emqx/emqx" >> $GITHUB_ENV
+              echo "PROFILE=emqx" >> $GITHUB_ENV
               echo "EMQX_TAG=$(./pkg-vsn.sh)" >> $GITHUB_ENV
               make emqx-docker
             fi
+        - name: make emqx image
+          run: make ${PROFILE}-docker
         - name: run emqx
           timeout-minutes: 5
           run: |
@@ -62,24 +67,35 @@ jobs:
 
     helm_test:
         runs-on: ubuntu-20.04
+        strategy:
+          fail-fast: false
+          matrix:
+            discovery:
+              - k8s
+              - dns
 
         steps:
         - uses: actions/checkout@v1
         - uses: erlef/setup-beam@v1
           with:
-            otp-version: "23.3.4.9"
+            otp-version: "24.1.5"
         - name: prepare
           run: |
             if make emqx-ee --dry-run > /dev/null 2>&1; then
               echo "https://ci%40emqx.io:${{ secrets.CI_GIT_TOKEN }}@github.com" > $HOME/.git-credentials
               git config --global credential.helper store
               make deps-emqx-ee
+              make clean
               echo "TARGET=emqx/emqx-ee" >> $GITHUB_ENV
-              make emqx-ee-docker
+              echo "PROFILE=emqx-ee" >> $GITHUB_ENV
+              echo "EMQX_TAG=$(./pkg-vsn.sh)" >> $GITHUB_ENV
             else
               echo "TARGET=emqx/emqx" >> $GITHUB_ENV
-              make emqx-docker
+              echo "PROFILE=emqx" >> $GITHUB_ENV
+              echo "EMQX_TAG=$(./pkg-vsn.sh)" >> $GITHUB_ENV
             fi
+        - name: make emqx image
+          run: make ${PROFILE}-docker
         - name: install k3s
           env:
             KUBECONFIG: "/etc/rancher/k3s/k3s.yaml"
@@ -96,18 +112,18 @@ jobs:
             sudo chmod 700 get_helm.sh
             sudo ./get_helm.sh
             helm version
-        - name: run emqx on chart
-          env:
-            KUBECONFIG: "/etc/rancher/k3s/k3s.yaml"
-          timeout-minutes: 5
+        - name: setup emqx chart
           run: |
-            version=$(./pkg-vsn.sh)
-            sudo docker save ${TARGET}:$version -o emqx.tar.gz
+            sudo docker save ${TARGET}:${EMQX_TAG} -o emqx.tar.gz
             sudo k3s ctr image import emqx.tar.gz
 
-            sed -i -r "s/^appVersion: .*$/appVersion: \"${version}\"/g" deploy/charts/emqx/Chart.yaml
+            sed -i -r "s/^appVersion: .*$/appVersion: \"${EMQX_TAG}\"/g" deploy/charts/emqx/Chart.yaml
             sed -i '/emqx_telemetry/d' deploy/charts/emqx/values.yaml
-
+        - name: run emqx on chart
+          if: matrix.discovery == 'k8s'
+          env:
+            KUBECONFIG: "/etc/rancher/k3s/k3s.yaml"
+          run: |
             helm install emqx \
                 --set image.repository=${TARGET} \
                 --set image.pullPolicy=Never \
@@ -117,7 +133,29 @@ jobs:
                 --set emqxConfig.EMQX_MQTT__MAX_TOPIC_ALIAS=10 \
                 deploy/charts/emqx \
                 --debug
-
+        - name: run emqx on chart
+          if: matrix.discovery == 'dns'
+          env:
+            KUBECONFIG: "/etc/rancher/k3s/k3s.yaml"
+          run: |
+            helm install emqx \
+                --set emqxConfig.EMQX_CLUSTER__DISCOVERY="dns" \
+                --set emqxConfig.EMQX_CLUSTER__DNS__NAME="emqx-headless.default.svc.cluster.local" \
+                --set emqxConfig.EMQX_CLUSTER__DNS__APP="emqx" \
+                --set emqxConfig.EMQX_CLUSTER__DNS__TYPE="srv" \
+                --set image.repository=${TARGET} \
+                --set image.pullPolicy=Never \
+                --set emqxAclConfig="" \
+                --set image.pullPolicy=Never \
+                --set emqxConfig.EMQX_ZONE__EXTERNAL__RETRY_INTERVAL=2s \
+                --set emqxConfig.EMQX_MQTT__MAX_TOPIC_ALIAS=10 \
+                deploy/charts/emqx \
+                --debug
+        - name: waiting emqx started
+          env:
+            KUBECONFIG: "/etc/rancher/k3s/k3s.yaml"
+          timeout-minutes: 5
+          run: |
             while [ "$(kubectl get StatefulSet -l app.kubernetes.io/name=emqx -o jsonpath='{.items[0].status.replicas}')" \
               != "$(kubectl get StatefulSet -l app.kubernetes.io/name=emqx -o jsonpath='{.items[0].status.readyReplicas}')" ]; do
               echo "==============================";
@@ -125,6 +163,18 @@ jobs:
               echo "==============================";
               echo "waiting emqx started";
               sleep 10;
+            done
+        - name: Check ${{ matrix.kind[0]}} cluster
+          env:
+            KUBECONFIG: "/etc/rancher/k3s/k3s.yaml"
+          timeout-minutes: 10
+          run: |
+            while
+              nodes="$(kubectl exec -i emqx-0 -- curl --silent --basic -u admin:public -X GET http://localhost:8081/api/v4/brokers | jq '.data|length')";
+              [ "$nodes" != "3" ];
+            do
+              echo "waiting emqx cluster scale"
+              sleep 1
             done
         - name: get emqx-0 pods log
           if: failure()
@@ -176,7 +226,7 @@ jobs:
 
     relup_test_plan:
         runs-on: ubuntu-20.04
-        container: emqx/build-env:erl23.3.4.9-3-ubuntu20.04
+        container: ghcr.io/emqx/emqx-builder/4.4-19:24.1.5-3-ubuntu20.04
         outputs:
           profile: ${{ steps.profile-and-versions.outputs.profile }}
           vsn: ${{ steps.profile-and-versions.outputs.vsn }}
@@ -221,8 +271,13 @@ jobs:
 
     relup_test_build:
         needs: relup_test_plan
+        strategy:
+           fail-fast: false
+           matrix:
+             otp:
+             - 24.1.5-3
         runs-on: ubuntu-20.04
-        container: emqx/build-env:erl23.3.4.9-3-ubuntu20.04
+        container: ghcr.io/emqx/emqx-builder/4.4-19:24.1.5-3-ubuntu20.04
         defaults:
           run:
             shell: bash
@@ -257,11 +312,13 @@ jobs:
           - relup_test_plan
           - relup_test_build
         runs-on: ubuntu-20.04
-        container: emqx/relup-test-env:erl23.2.7.2-emqx-3-ubuntu20.04
+        container: ghcr.io/emqx/emqx-builder/4.4-19:24.1.5-3-ubuntu20.04
         strategy:
           fail-fast: false
           matrix:
             old_vsn: ${{ fromJson(needs.relup_test_plan.outputs.matrix) }}
+            otp:
+            - 24.1.5-3
         env:
           OLD_VSN: "${{ matrix.old_vsn }}"
           PROFILE: "${{ needs.relup_test_plan.outputs.profile }}"
@@ -288,7 +345,7 @@ jobs:
             mkdir -p packages
             cp emqx_built/_packages/*/*.zip packages
             cd packages
-            wget --no-verbose https://s3-us-west-2.amazonaws.com/packages.emqx/$BROKER/$OLD_VSN/$PROFILE-ubuntu20.04-${OLD_VSN#[e|v]}-amd64.zip
+            wget --no-verbose https://s3-us-west-2.amazonaws.com/packages.emqx/$BROKER/$OLD_VSN/$PROFILE-${OLD_VSN#[e|v]}-otp${{ matrix.otp }}-ubuntu20.04-amd64.zip
         - name: Run relup test scenario
           timeout-minutes: 5
           run: |
@@ -300,6 +357,8 @@ jobs:
             --var ONE_MORE_EMQX_PATH=$(pwd)/one_more_emqx \
             --var VSN="$VSN" \
             --var OLD_VSN="$OLD_VSN" \
+            --var FROM_OTP_VSN="24.1.5-3" \
+            --var TO_OTP_VSN="24.1.5-3" \
             emqx_built/.ci/fvt_tests/relup.lux
         - uses: actions/upload-artifact@v2
           name: Save debug data
