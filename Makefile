@@ -1,13 +1,14 @@
 $(shell $(CURDIR)/scripts/git-hooks-init.sh)
-REBAR_VERSION = 3.14.3-emqx-8
 REBAR = $(CURDIR)/rebar3
 BUILD = $(CURDIR)/build
 SCRIPTS = $(CURDIR)/scripts
 export EMQX_RELUP ?= true
-export EMQX_DEFAULT_BUILDER = emqx/build-env:erl23.3.4.9-3-alpine
-export EMQX_DEFAULT_RUNNER = alpine:3.12
+export EMQX_DEFAULT_BUILDER = ghcr.io/emqx/emqx-builder/4.4-19:24.1.5-3-alpine3.15.1
+export EMQX_DEFAULT_RUNNER = alpine:3.15.1
+export OTP_VSN ?= $(shell $(CURDIR)/scripts/get-otp-vsn.sh)
 export PKG_VSN ?= $(shell $(CURDIR)/pkg-vsn.sh)
 export DOCKERFILE := deploy/docker/Dockerfile
+export DOCKERFILE_TESTING := deploy/docker/Dockerfile.testing
 ifeq ($(OS),Windows_NT)
 	export REBAR_COLOR=none
 	FIND=/usr/bin/find
@@ -20,7 +21,7 @@ REL_PROFILES := emqx emqx-edge
 PKG_PROFILES := emqx-pkg emqx-edge-pkg
 PROFILES := $(REL_PROFILES) $(PKG_PROFILES) default
 
-export REBAR_GIT_CLONE_OPTIONS += --depth=1
+export REBAR_GIT_CLONE_OPTIONS += --depth=1 --quiet
 
 .PHONY: default
 default: $(REBAR) $(PROFILE)
@@ -31,7 +32,7 @@ all: $(REBAR) $(PROFILES)
 .PHONY: ensure-rebar3
 ensure-rebar3:
 	@$(SCRIPTS)/fail-on-old-otp-version.escript
-	@$(SCRIPTS)/ensure-rebar3.sh $(REBAR_VERSION)
+	@$(SCRIPTS)/ensure-rebar3.sh
 
 $(REBAR): ensure-rebar3
 
@@ -98,6 +99,7 @@ $(PROFILES:%=clean-%):
 
 .PHONY: clean-all
 clean-all:
+	@rm -f rebar.lock
 	@rm -rf _build
 	@rm -f rebar.lock
 
@@ -171,6 +173,18 @@ $1-docker: $(COMMON_DEPS)
 endef
 ALL_ZIPS = $(REL_PROFILES)
 $(foreach zt,$(ALL_ZIPS),$(eval $(call gen-docker-target,$(zt))))
+
+## emqx-docker-testing
+## emqx-ee-docker-testing
+## is to directly copy a unzipped zip-package to a
+## base image such as ubuntu20.04. Mostly for testing
+.PHONY: $(REL_PROFILES:%=%-docker-testing)
+define gen-docker-target-testing
+$1-docker-testing: $(COMMON_DEPS)
+	@$(BUILD) $1 docker-testing
+endef
+ALL_ZIPS = $(REL_PROFILES)
+$(foreach zt,$(ALL_ZIPS),$(eval $(call gen-docker-target-testing,$(zt))))
 
 .PHONY: run
 run: $(PROFILE) quickrun
