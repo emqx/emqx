@@ -54,7 +54,13 @@ start_link(Pool, Id) ->
                           ?MODULE, [Pool, Id], []).
 
 async_call(FunName, Req = #{conn := Conn}, Options) ->
-    cast(pick(Conn), {rpc, FunName, Req, Options, self()}).
+    case pick(Conn) of
+        false ->
+            ?LOG(error, "No available grpc client for ~s: ~p",
+                 [FunName, Req]);
+        Pid when is_pid(Pid) ->
+            cast(Pid, {rpc, FunName, Req, Options, self()})
+    end.
 
 %%--------------------------------------------------------------------
 %% cast, pick
@@ -65,6 +71,7 @@ async_call(FunName, Req = #{conn := Conn}, Options) ->
 cast(Deliver, Msg) ->
     gen_server:cast(Deliver, Msg).
 
+-spec pick(term()) -> pid() | false.
 pick(Conn) ->
     gproc_pool:pick_worker(exproto_gcli_pool, Conn).
 

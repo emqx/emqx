@@ -213,11 +213,13 @@ t_keepalive_timeout(Cfg) ->
     send(Sock, ConnBin),
     {ok, ConnAckBin} = recv(Sock, 5000),
 
-    DisconnectBin = frame_disconnect(),
-    {ok, DisconnectBin} = recv(Sock, 10000),
+    %% Timed out connections are closed immediately,
+    %% so there may not be a disconnect message here
+    %%DisconnectBin = frame_disconnect(),
+    %%{ok, DisconnectBin} = recv(Sock, 10000),
 
     SockType =/= udp andalso begin
-        {error, closed} = recv(Sock, 5000)
+        {error, closed} = recv(Sock, 10000)
     end, ok.
 
 t_hook_connected_disconnected(Cfg) ->
