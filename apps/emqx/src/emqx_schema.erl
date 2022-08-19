@@ -2162,8 +2162,12 @@ to_bar_separated_list(Str) ->
 %%  - 127.0.0.1:1883
 %%  - ::1:1883
 %%  - [::1]:1883
+%%  - :1883
+%%  - :::1883
 to_ip_port(Str) ->
     case split_ip_port(Str) of
+        {"", Port} ->
+            {ok, {{0, 0, 0, 0}, list_to_integer(Port)}};
         {Ip, Port} ->
             PortVal = list_to_integer(Port),
             case inet:parse_address(Ip) of
