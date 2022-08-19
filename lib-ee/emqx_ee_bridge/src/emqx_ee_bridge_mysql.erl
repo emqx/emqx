@@ -56,11 +56,7 @@ values(post) ->
         },
         resource_opts => #{
             health_check_interval => ?HEALTHCHECK_INTERVAL_RAW,
-            start_after_created => ?START_AFTER_CREATED,
-            start_timeout => ?START_TIMEOUT_RAW,
             auto_restart_interval => ?AUTO_RESTART_INTERVAL_RAW,
-            query_mode => sync,
-            async_inflight_window => ?DEFAULT_INFLIGHT,
             enable_batch => false,
             batch_size => ?DEFAULT_BATCH_SIZE,
             batch_time => ?DEFAULT_BATCH_TIME,
@@ -95,8 +91,27 @@ fields("config") ->
                     required => true,
                     desc => ?DESC("desc_connector")
                 }
+            )},
+        {resource_opts,
+            mk(
+                ref(?MODULE, "creation_opts"),
+                #{
+                    required => false,
+                    default => #{},
+                    desc => ?DESC(emqx_resource_schema, <<"resource_opts">>)
+                }
             )}
-    ] ++ emqx_resource_schema:fields("resource_opts");
+    ];
+fields("creation_opts") ->
+    Opts = emqx_resource_schema:fields("creation_opts"),
+    lists:filter(
+        fun({Field, _}) ->
+            not lists:member(Field, [
+                start_after_created, start_timeout, query_mode, async_inflight_window
+            ])
+        end,
+        Opts
+    );
 fields("post") ->
     [type_field(), name_field() | fields("config")];
 fields("put") ->
