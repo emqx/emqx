@@ -61,5 +61,5 @@ t_restart_shared_sub(Config) when is_list(Config) ->
        after 2000 ->
                  false
        end);
-t_restart_shared_sub({'end', Config}) ->
+t_restart_shared_sub({'end', _Config}) ->
     emqx:unsubscribe(<<"$share/grpa/t/a">>).

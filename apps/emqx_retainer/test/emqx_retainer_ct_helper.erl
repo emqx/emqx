@@ -13,27 +13,34 @@
 %% See the License for the specific language governing permissions and
 %% limitations under the License.
 %%--------------------------------------------------------------------
+-module(emqx_retainer_ct_helper).
 
--module(emqx_retainer_sup).
 
--behaviour(supervisor).
+%% API
+-export([ensure_start/0, ensure_stop/0]).
+-ifdef(EMQX_ENTERPRISE).
+ensure_start() ->
+    application:stop(emqx_modules),
+    init_conf(),
+    emqx_ct_helpers:start_apps([emqx_retainer]),
+    ok.
 
--export([start_link/1]).
+-else.
 
--export([init/1]).
+ensure_start() ->
+    init_conf(),
+    emqx_ct_helpers:start_apps([emqx_retainer]),
+    ok.
 
-start_link(Env) ->
-	supervisor:start_link({local, ?MODULE}, ?MODULE, [Env]).
+-endif.
 
-init([Env]) ->
-	{ok, {{one_for_one, 10, 3600},
-          [#{id       => retainer,
-             start    => {emqx_retainer, start_link, [Env]},
-             restart  => permanent,
-             shutdown => 5000,
-             type     => worker,
-             modules  => [emqx_retainer]} || not is_managed_by_modules()]}}.
+ensure_stop() ->
+    emqx_ct_helpers:stop_apps([emqx_retainer]).
 
-is_managed_by_modules() ->
-    %% always false for opensource edition
-    false.
+
+init_conf() ->
+    application:set_env(emqx_retainer, expiry_interval, 0),
+    application:set_env(emqx_retainer, max_payload_size, 1024000),
+    application:set_env(emqx_retainer, max_retained_messages, 0),
+    application:set_env(emqx_retainer, storage_type, ram),
+    ok.

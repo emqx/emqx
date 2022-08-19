@@ -24,6 +24,7 @@
 -export([ params2qs/2
         , node_query/4
         , node_query/5
+        , node_query/6
         , cluster_query/3
         , traverse_table/5
         , select_table/5
@@ -75,6 +76,11 @@ query_handle(Tables) ->
     Handles = lists:foldl(Fold, [], Tables),
     qlc:append(lists:reverse(Handles)).
 
+count_size(Table, undefined) ->
+    count(Table);
+count_size(_Table, CountFun) ->
+    CountFun().
+
 count(Table) when is_atom(Table) ->
     ets:info(Table, size);
 
@@ -112,9 +118,12 @@ limit(Params) ->
 %%--------------------------------------------------------------------
 
 node_query(Node, Params, {Tab, QsSchema}, QueryFun) ->
-    node_query(Node, Params, {Tab, QsSchema}, QueryFun, undefined).
+    node_query(Node, Params, {Tab, QsSchema}, QueryFun, undefined, undefined).
 
 node_query(Node, Params, {Tab, QsSchema}, QueryFun, SortFun) ->
+    node_query(Node, Params, {Tab, QsSchema}, QueryFun, SortFun, undefined).
+
+node_query(Node, Params, {Tab, QsSchema}, QueryFun, SortFun, CountFun) ->
     {CodCnt, Qs} = params2qs(Params, QsSchema),
     Limit = limit(Params),
     Page  = page(Params),
@@ -124,7 +133,7 @@ node_query(Node, Params, {Tab, QsSchema}, QueryFun, SortFun) ->
     {_, Rows} = do_query(Node, Qs, QueryFun, Start, Limit+1),
     Meta = #{page => Page, limit => Limit},
     NMeta = case CodCnt =:= 0 of
-                true -> Meta#{count => count(Tab), hasnext => length(Rows) > Limit};
+                true -> Meta#{count => count_size(Tab, CountFun), hasnext => length(Rows) > Limit};
                 _ -> Meta#{count => -1, hasnext => length(Rows) > Limit}
             end,
     Data0 = lists:sublist(Rows, Limit),

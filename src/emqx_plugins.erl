@@ -217,19 +217,45 @@ load_plugin_conf(AppName, PluginDir) ->
 ensure_file(File) ->
     case filelib:is_file(File) of
         false ->
-            DefaultPlugins = [ {emqx_management, true}
-                             , {emqx_dashboard, true}
-                             , {emqx_modules, false}
-                             , {emqx_recon, true}
-                             , {emqx_retainer, true}
-                             , {emqx_telemetry, true}
-                             , {emqx_rule_engine, true}
-                             , {emqx_bridge_mqtt, false}
-                             ],
+            DefaultPlugins = default_plugins(),
             write_loaded(DefaultPlugins);
         true ->
             ok
     end.
+
+-ifndef(EMQX_ENTERPRISE).
+%% default plugins see rebar.config.erl
+default_plugins() ->
+    [
+        {emqx_management, true},
+        {emqx_dashboard, true},
+        %% emqx_modules is not a plugin, but a normal application starting when boots.
+        {emqx_modules, false},
+        {emqx_retainer, true},
+        {emqx_recon, true},
+        {emqx_telemetry, true},
+        {emqx_rule_engine, true},
+        {emqx_bridge_mqtt, false}
+    ].
+
+-else.
+
+default_plugins() ->
+    [
+        {emqx_management, true},
+        {emqx_dashboard, true},
+        %% enterprise version of emqx_modules is a plugin
+        {emqx_modules, true},
+        %% retainer is managed by emqx_modules.
+        %% default is true in data/load_modules. **NOT HERE**
+        {emqx_retainer, false},
+        {emqx_recon, true},
+        {emqx_telemetry, true},
+        {emqx_rule_engine, true},
+        {emqx_bridge_mqtt, false}
+    ].
+
+-endif.
 
 with_loaded_file(File, SuccFun) ->
     case read_loaded(File) of
@@ -265,7 +291,7 @@ load_plugins(Names, Persistent) ->
         []       -> ok;
         NotFound -> ?LOG(alert, "cannot_find_plugins: ~p", [NotFound])
     end,
-    NeedToLoad = Names -- NotFound -- names(started_app),
+    NeedToLoad = (Names -- NotFound) -- names(started_app),
     lists:foreach(fun(Name) ->
                       Plugin = find_plugin(Name, Plugins),
                       load_plugin(Plugin#plugin.name, Persistent)

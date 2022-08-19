@@ -8,7 +8,27 @@ File format:
 
 - Use weight-2 heading for releases
 - One list item per change topic
-  Change log ends with a list of github PRs
+  Change log ends with a list of GitHub PRs
+
+## v4.3.19
+
+### Enhancements
+
+- Improve error message for LwM2M plugin when object ID is not valid [#8654](https://github.com/emqx/emqx/pull/8654).
+- Add tzdata apk package to alpine docker image. [#8671](https://github.com/emqx/emqx/pull/8671)
+- Add node evacuation and cluster rebalancing features [#8597](https://github.com/emqx/emqx/pull/8597)
+- Refine Rule Engine error log. RuleId will be logged when take action failed. [#8737](https://github.com/emqx/emqx/pull/8737)
+- Improved jwt authentication module initialization process.[#8736](https://github.com/emqx/emqx/pull/8736)
+
+### Bug fixes
+
+- Fix rule SQL compare to null values always returns false. [#8743](https://github.com/emqx/emqx/pull/8743)
+  Before this change, the following SQL failed to match on the WHERE clause (`clientid != foo` returns false):
+  `SELECT 'some_var' as clientid FROM "t" WHERE clientid != foo`.
+  The `foo` variable is a null value, so `clientid != foo` should be evaluated as true.
+- Fix GET `/auth_clientid` and `/auth_username` counts. [#8655](https://github.com/emqx/emqx/pull/8655)
+- Add an idle timer for ExProto UDP client to avoid client leaking [#8628](https://github.com/emqx/emqx/pull/8628)
+- Fix GET `/listeners/` crashes when listener is not ready. [#8752](https://github.com/emqx/emqx/pull/8752)
 
 ## v4.3.18
 

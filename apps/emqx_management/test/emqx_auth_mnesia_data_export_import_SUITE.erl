@@ -70,4 +70,10 @@ remove_all_users_and_acl() ->
     mnesia:delete_table(emqx_user),
     mnesia:delete_table(emqx_acl).
 
+-else.
+
+%% opensource edition
+
+all() -> [].
+
 -endif.

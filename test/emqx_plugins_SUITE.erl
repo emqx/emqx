@@ -89,6 +89,34 @@ t_load(_) ->
     ?assertEqual(ignore, emqx_plugins:load()),
     ?assertEqual(ignore, emqx_plugins:unload()).
 
+-ifndef(EMQX_ENTERPRISE).
+default_plugins() ->
+    [
+        {emqx_bridge_mqtt, false},
+        {emqx_dashboard, true},
+        {emqx_management, true},
+        {emqx_modules, false},
+        {emqx_recon, true},
+        {emqx_retainer, true},
+        {emqx_rule_engine, true},
+        {emqx_telemetry, true}
+    ].
+
+-else.
+
+default_plugins() ->
+    [
+        {emqx_bridge_mqtt, false},
+        {emqx_dashboard, true},
+        {emqx_management, true},
+        {emqx_modules, true},
+        {emqx_recon, true},
+        {emqx_retainer, false},
+        {emqx_rule_engine, true},
+        {emqx_telemetry, true}
+    ].
+
+-endif.
 t_ensure_default_loaded_plugins_file(Config) ->
     %% this will trigger it to write the default plugins to the
     %% inexistent file; but it won't truly load them in this test
@@ -96,17 +124,8 @@ t_ensure_default_loaded_plugins_file(Config) ->
     TmpFilepath = ?config(tmp_filepath, Config),
     ok = emqx_plugins:load(),
     {ok, Contents} = file:consult(TmpFilepath),
-    ?assertEqual(
-       [ {emqx_bridge_mqtt, false}
-       , {emqx_dashboard, true}
-       , {emqx_management, true}
-       , {emqx_modules, false}
-       , {emqx_recon, true}
-       , {emqx_retainer, true}
-       , {emqx_rule_engine, true}
-       , {emqx_telemetry, true}
-       ],
-       lists:sort(Contents)),
+    DefaultPlugins = default_plugins(),
+    ?assertEqual(DefaultPlugins, lists:sort(Contents)),
     ok.
 
 t_init_config(_) ->

@@ -20,7 +20,6 @@ jobs:
     runs-on: ubuntu-20.04
     # prepare source with any OTP version, no need for a matrix
     container: ghcr.io/emqx/emqx-builder/4.4-19:24.1.5-3-ubuntu20.04
-
     outputs:
       profiles: ${{ steps.set_profile.outputs.profiles}}
 
@@ -316,7 +315,7 @@ jobs:
       id: meta
       with:
         images: ${{ matrix.registry }}/${{ github.repository_owner }}/${{ matrix.profile }}
-        ## only stable tag is latest
+        ## only 5.0 is latest
         flavor: |
           latest=false # latest is now 5.0
         tags: |
