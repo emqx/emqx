@@ -52,7 +52,7 @@
 -export([
     add_default_user/0,
     default_username/0,
-    add_bootstrap_user/0
+    add_bootstrap_users/0
 ]).
 
 -type emqx_admin() :: #?ADMIN{}.
@@ -85,16 +85,16 @@ mnesia(boot) ->
 add_default_user() ->
     add_default_user(binenv(default_username), binenv(default_password)).
 
--spec add_bootstrap_user() -> ok | {error, _}.
-add_bootstrap_user() ->
-    case emqx:get_config([dashboard, bootstrap_user_file], undefined) of
+-spec add_bootstrap_users() -> ok | {error, _}.
+add_bootstrap_users() ->
+    case emqx:get_config([dashboard, bootstrap_users_file], undefined) of
         undefined ->
             ok;
         File ->
             case mnesia:table_info(?ADMIN, size) of
                 0 ->
                     ?SLOG(debug, #{msg => "Add dashboard bootstrap users", file => File}),
-                    add_bootstrap_user(File);
+                    add_bootstrap_users(File);
                 _ ->
                     ok
             end
@@ -312,7 +312,7 @@ add_default_user(Username, Password) ->
         _ -> {ok, default_user_exists}
     end.
 
-add_bootstrap_user(File) ->
+add_bootstrap_users(File) ->
     case file:open(File, [read]) of
         {ok, Dev} ->
             {ok, MP} = re:compile(<<"(\.+):(\.+$)">>, [ungreedy]),
