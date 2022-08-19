@@ -142,8 +142,8 @@ fields(influxdb_udp) ->
 fields(influxdb_api_v1) ->
     [
         {database, mk(binary(), #{required => true, desc => ?DESC("database")})},
-        {username, mk(binary(), #{required => true, desc => ?DESC("username")})},
-        {password, mk(binary(), #{required => true, desc => ?DESC("password")})}
+        {username, mk(binary(), #{desc => ?DESC("username")})},
+        {password, mk(binary(), #{desc => ?DESC("password"), format => <<"password">>})}
     ] ++ emqx_connector_schema_lib:ssl_fields() ++ fields(basic);
 fields(influxdb_api_v2) ->
     [

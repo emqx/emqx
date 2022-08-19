@@ -96,6 +96,7 @@ fields("connector") ->
                 binary(),
                 #{
                     default => "emqx",
+                    format => <<"password">>,
                     desc => ?DESC("password")
                 }
             )},
