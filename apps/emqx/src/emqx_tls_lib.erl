@@ -23,8 +23,7 @@
     default_ciphers/0,
     selected_ciphers/1,
     integral_ciphers/2,
-    drop_tls13_for_old_otp/1,
-    all_ciphers/0
+    all_ciphers_set_cached/0
 ]).
 
 %% SSL files
@@ -38,6 +37,7 @@
 ]).
 
 -export([
+    to_server_opts/1,
     to_client_opts/1
 ]).
 
@@ -53,6 +53,63 @@
 -define(IS_STRING(L), (is_list(L) andalso L =/= [] andalso is_integer(hd(L)))).
 %% non-empty list of strings
 -define(IS_STRING_LIST(L), (is_list(L) andalso L =/= [] andalso ?IS_STRING(hd(L)))).
+
+%% The ciphers that ssl:cipher_suites(exclusive, 'tlsv1.3', openssl)
+%% should return when running on otp 23.
+%% But we still have to hard-code them because tlsv1.3 on otp 22 is
+%% not trustworthy.
+-define(TLSV13_EXCLUSIVE_CIPHERS, [
+    "TLS_AES_256_GCM_SHA384",
+    "TLS_AES_128_GCM_SHA256",
+    "TLS_CHACHA20_POLY1305_SHA256",
+    "TLS_AES_128_CCM_SHA256",
+    "TLS_AES_128_CCM_8_SHA256"
+]).
+
+-define(SELECTED_CIPHERS, [
+    "ECDHE-ECDSA-AES256-GCM-SHA384",
+    "ECDHE-RSA-AES256-GCM-SHA384",
+    "ECDHE-ECDSA-AES256-SHA384",
+    "ECDHE-RSA-AES256-SHA384",
+    "ECDH-ECDSA-AES256-GCM-SHA384",
+    "ECDH-RSA-AES256-GCM-SHA384",
+    "ECDH-ECDSA-AES256-SHA384",
+    "ECDH-RSA-AES256-SHA384",
+    "DHE-DSS-AES256-GCM-SHA384",
+    "DHE-DSS-AES256-SHA256",
+    "AES256-GCM-SHA384",
+    "AES256-SHA256",
+    "ECDHE-ECDSA-AES128-GCM-SHA256",
+    "ECDHE-RSA-AES128-GCM-SHA256",
+    "ECDHE-ECDSA-AES128-SHA256",
+    "ECDHE-RSA-AES128-SHA256",
+    "ECDH-ECDSA-AES128-GCM-SHA256",
+    "ECDH-RSA-AES128-GCM-SHA256",
+    "ECDH-ECDSA-AES128-SHA256",
+    "ECDH-RSA-AES128-SHA256",
+    "DHE-DSS-AES128-GCM-SHA256",
+    "DHE-DSS-AES128-SHA256",
+    "AES128-GCM-SHA256",
+    "AES128-SHA256",
+    "ECDHE-ECDSA-AES256-SHA",
+    "ECDHE-RSA-AES256-SHA",
+    "DHE-DSS-AES256-SHA",
+    "ECDH-ECDSA-AES256-SHA",
+    "ECDH-RSA-AES256-SHA",
+    "ECDHE-ECDSA-AES128-SHA",
+    "ECDHE-RSA-AES128-SHA",
+    "DHE-DSS-AES128-SHA",
+    "ECDH-ECDSA-AES128-SHA",
+    "ECDH-RSA-AES128-SHA",
+
+    %% psk
+    "RSA-PSK-AES256-GCM-SHA384",
+    "RSA-PSK-AES256-CBC-SHA384",
+    "RSA-PSK-AES128-GCM-SHA256",
+    "RSA-PSK-AES128-CBC-SHA256",
+    "RSA-PSK-AES256-CBC-SHA",
+    "RSA-PSK-AES128-CBC-SHA"
+]).
 
 %% @doc Returns the default supported tls versions.
 -spec default_versions() -> [atom()].
@@ -86,8 +143,19 @@ integral_versions(Desired) ->
             Filtered
     end.
 
+%% @doc Return a set of all ciphers
+all_ciphers_set_cached() ->
+    case persistent_term:get(?FUNCTION_NAME, false) of
+        false ->
+            S = sets:from_list(all_ciphers()),
+            persistent_term:put(?FUNCTION_NAME, S);
+        Set ->
+            Set
+    end.
+
 %% @doc Return a list of all supported ciphers.
-all_ciphers() -> all_ciphers(default_versions()).
+all_ciphers() ->
+    all_ciphers(default_versions()).
 
 %% @doc Return a list of (openssl string format) cipher suites.
 -spec all_ciphers([ssl:tls_version()]) -> [string()].
@@ -96,23 +164,15 @@ all_ciphers(['tlsv1.3']) ->
     %% because 'all' returns legacy cipher suites too,
     %% which does not make sense since tlsv1.3 can not use
     %% legacy cipher suites.
-    ssl:cipher_suites(exclusive, 'tlsv1.3', openssl);
+    ?TLSV13_EXCLUSIVE_CIPHERS;
 all_ciphers(Versions) ->
     %% assert non-empty
     List = lists:append([ssl:cipher_suites(all, V, openssl) || V <- Versions]),
     [_ | _] = dedup(List).
 
 %% @doc All Pre-selected TLS ciphers.
-%% ssl:cipher_suites(all, V, openssl) is too slow. so we cache default ciphers.
 default_ciphers() ->
-    case persistent_term:get(default_ciphers, undefined) of
-        undefined ->
-            Default = selected_ciphers(available_versions()),
-            persistent_term:put(default_ciphers, Default),
-            Default;
-        Default ->
-            Default
-    end.
+    selected_ciphers(available_versions()).
 
 %% @doc Pre-selected TLS ciphers for given versions..
 selected_ciphers(Vsns) ->
@@ -126,54 +186,11 @@ selected_ciphers(Vsns) ->
 
 do_selected_ciphers('tlsv1.3') ->
     case lists:member('tlsv1.3', proplists:get_value(available, ssl:versions())) of
-        true -> ssl:cipher_suites(exclusive, 'tlsv1.3', openssl);
+        true -> ?TLSV13_EXCLUSIVE_CIPHERS;
         false -> []
     end ++ do_selected_ciphers('tlsv1.2');
 do_selected_ciphers(_) ->
-    [
-        "ECDHE-ECDSA-AES256-GCM-SHA384",
-        "ECDHE-RSA-AES256-GCM-SHA384",
-        "ECDHE-ECDSA-AES256-SHA384",
-        "ECDHE-RSA-AES256-SHA384",
-        "ECDH-ECDSA-AES256-GCM-SHA384",
-        "ECDH-RSA-AES256-GCM-SHA384",
-        "ECDH-ECDSA-AES256-SHA384",
-        "ECDH-RSA-AES256-SHA384",
-        "DHE-DSS-AES256-GCM-SHA384",
-        "DHE-DSS-AES256-SHA256",
-        "AES256-GCM-SHA384",
-        "AES256-SHA256",
-        "ECDHE-ECDSA-AES128-GCM-SHA256",
-        "ECDHE-RSA-AES128-GCM-SHA256",
-        "ECDHE-ECDSA-AES128-SHA256",
-        "ECDHE-RSA-AES128-SHA256",
-        "ECDH-ECDSA-AES128-GCM-SHA256",
-        "ECDH-RSA-AES128-GCM-SHA256",
-        "ECDH-ECDSA-AES128-SHA256",
-        "ECDH-RSA-AES128-SHA256",
-        "DHE-DSS-AES128-GCM-SHA256",
-        "DHE-DSS-AES128-SHA256",
-        "AES128-GCM-SHA256",
-        "AES128-SHA256",
-        "ECDHE-ECDSA-AES256-SHA",
-        "ECDHE-RSA-AES256-SHA",
-        "DHE-DSS-AES256-SHA",
-        "ECDH-ECDSA-AES256-SHA",
-        "ECDH-RSA-AES256-SHA",
-        "ECDHE-ECDSA-AES128-SHA",
-        "ECDHE-RSA-AES128-SHA",
-        "DHE-DSS-AES128-SHA",
-        "ECDH-ECDSA-AES128-SHA",
-        "ECDH-RSA-AES128-SHA",
-
-        %% psk
-        "RSA-PSK-AES256-GCM-SHA384",
-        "RSA-PSK-AES256-CBC-SHA384",
-        "RSA-PSK-AES128-GCM-SHA256",
-        "RSA-PSK-AES128-CBC-SHA256",
-        "RSA-PSK-AES256-CBC-SHA",
-        "RSA-PSK-AES128-CBC-SHA"
-    ].
+    ?SELECTED_CIPHERS.
 
 %% @doc Ensure version & cipher-suites integrity.
 -spec integral_ciphers([ssl:tls_version()], binary() | string() | [string()]) -> [string()].
@@ -209,9 +226,14 @@ available_versions() ->
 
 %% tlsv1.3 is available from OTP-22 but we do not want to use until 23.
 default_versions(OtpRelease) when OtpRelease >= 23 ->
-    proplists:get_value(available, ssl:versions());
+    availables();
 default_versions(_) ->
-    lists:delete('tlsv1.3', proplists:get_value(available, ssl:versions())).
+    lists:delete('tlsv1.3', availables()).
+
+availables() ->
+    All = ssl:versions(),
+    proplists:get_value(available, All) ++
+        proplists:get_value(available_dtls, All).
 
 %% Deduplicate a list without re-ordering the elements.
 dedup([]) ->
@@ -244,6 +266,8 @@ do_parse_versions([V | More], Acc) ->
             do_parse_versions(More, [Parsed | Acc])
     end.
 
+parse_version(<<"dtlsv1.2">>) -> 'dtlsv1.2';
+parse_version(<<"dtlsv1">>) -> dtlsv1;
 parse_version(<<"tlsv", Vsn/binary>>) -> parse_version(Vsn);
 parse_version(<<"v", Vsn/binary>>) -> parse_version(Vsn);
 parse_version(<<"1.3">>) -> 'tlsv1.3';
@@ -258,36 +282,6 @@ split_by_comma(Bin) ->
 %% trim spaces
 trim_space(Bin) ->
     hd([I || I <- binary:split(Bin, <<" ">>), I =/= <<>>]).
-
-%% @doc Drop tlsv1.3 version and ciphers from ssl options
-%% if running on otp 22 or earlier.
-drop_tls13_for_old_otp(SslOpts) ->
-    case list_to_integer(erlang:system_info(otp_release)) < 23 of
-        true -> drop_tls13(SslOpts);
-        false -> SslOpts
-    end.
-
-%% The ciphers that ssl:cipher_suites(exclusive, 'tlsv1.3', openssl)
-%% should return when running on otp 23.
-%% But we still have to hard-code them because tlsv1.3 on otp 22 is
-%% not trustworthy.
--define(TLSV13_EXCLUSIVE_CIPHERS, [
-    "TLS_AES_256_GCM_SHA384",
-    "TLS_AES_128_GCM_SHA256",
-    "TLS_CHACHA20_POLY1305_SHA256",
-    "TLS_AES_128_CCM_SHA256",
-    "TLS_AES_128_CCM_8_SHA256"
-]).
-drop_tls13(SslOpts0) ->
-    SslOpts1 =
-        case maps:find(versions, SslOpts0) of
-            error -> SslOpts0;
-            {ok, Vsns} -> SslOpts0#{versions => (Vsns -- ['tlsv1.3'])}
-        end,
-    case maps:find(ciphers, SslOpts1) of
-        error -> SslOpts1;
-        {ok, Ciphers} -> SslOpts1#{ciphers => Ciphers -- ?TLSV13_EXCLUSIVE_CIPHERS}
-    end.
 
 %% @doc The input map is a HOCON decoded result of a struct defined as
 %% emqx_schema:server_ssl_opts_schema. (NOTE: before schema-checked).
@@ -498,27 +492,46 @@ do_drop_invalid_certs([Key | Keys], SSL) ->
             end
     end.
 
+%% @doc Convert hocon-checked ssl server options (map()) to
+%% proplist accepted by ssl library.
+to_server_opts(Opts) ->
+    Versions = integral_versions(maps:get(versions, Opts, undefined)),
+    Ciphers = integral_ciphers(Versions, maps:get(ciphers, Opts, undefined)),
+    maps:to_list(Opts#{
+        ciphers => Ciphers,
+        versions => Versions
+    }).
+
 %% @doc Convert hocon-checked ssl client options (map()) to
 %% proplist accepted by ssl library.
 to_client_opts(Opts) ->
     GetD = fun(Key, Default) -> fuzzy_map_get(Key, Opts, Default) end,
     Get = fun(Key) -> GetD(Key, undefined) end,
-    KeyFile = ensure_str(Get(keyfile)),
-    CertFile = ensure_str(Get(certfile)),
-    CAFile = ensure_str(Get(cacertfile)),
-    Verify = GetD(verify, verify_none),
-    SNI = ensure_sni(Get(server_name_indication)),
-    Versions = integral_versions(Get(versions)),
-    Ciphers = integral_ciphers(Versions, Get(ciphers)),
-    filter([
-        {keyfile, KeyFile},
-        {certfile, CertFile},
-        {cacertfile, CAFile},
-        {verify, Verify},
-        {server_name_indication, SNI},
-        {versions, Versions},
-        {ciphers, Ciphers}
-    ]).
+    case GetD(enable, false) of
+        true ->
+            KeyFile = ensure_str(Get(keyfile)),
+            CertFile = ensure_str(Get(certfile)),
+            CAFile = ensure_str(Get(cacertfile)),
+            Verify = GetD(verify, verify_none),
+            SNI = ensure_sni(Get(server_name_indication)),
+            Versions = integral_versions(Get(versions)),
+            Ciphers = integral_ciphers(Versions, Get(ciphers)),
+            filter([
+                {keyfile, KeyFile},
+                {certfile, CertFile},
+                {cacertfile, CAFile},
+                {verify, Verify},
+                {server_name_indication, SNI},
+                {versions, Versions},
+                {ciphers, Ciphers},
+                {reuse_sessions, Get(reuse_sessions)},
+                {depth, Get(depth)},
+                {password, ensure_str(Get(password))},
+                {secure_renegotiate, Get(secure_renegotiate)}
+            ]);
+        false ->
+            []
+    end.
 
 filter([]) -> [];
 filter([{_, undefined} | T]) -> filter(T);
@@ -556,28 +569,3 @@ ensure_ssl_file_key(SSL, RequiredKeys) ->
         [] -> ok;
         Miss -> {error, #{reason => ssl_file_option_not_found, which_options => Miss}}
     end.
-
--if(?OTP_RELEASE > 22).
--ifdef(TEST).
--include_lib("eunit/include/eunit.hrl").
-
-drop_tls13_test() ->
-    Versions = default_versions(),
-    ?assert(lists:member('tlsv1.3', Versions)),
-    Ciphers = all_ciphers(),
-    ?assert(has_tlsv13_cipher(Ciphers)),
-    Opts0 = #{versions => Versions, ciphers => Ciphers, other => true},
-    Opts = drop_tls13(Opts0),
-    ?assertNot(lists:member('tlsv1.3', maps:get(versions, Opts, undefined))),
-    ?assertNot(has_tlsv13_cipher(maps:get(ciphers, Opts, undefined))).
-
-drop_tls13_no_versions_cipers_test() ->
-    Opts0 = #{other => 0, bool => true},
-    Opts = drop_tls13(Opts0),
-    ?_assertEqual(Opts0, Opts).
-
-has_tlsv13_cipher(Ciphers) ->
-    lists:any(fun(C) -> lists:member(C, Ciphers) end, ?TLSV13_EXCLUSIVE_CIPHERS).
-
--endif.
--endif.

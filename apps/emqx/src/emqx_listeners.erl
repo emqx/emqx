@@ -583,11 +583,7 @@ enable_authn(Opts) ->
     maps:get(enable_authn, Opts, true).
 
 ssl_opts(Opts) ->
-    maps:to_list(
-        emqx_tls_lib:drop_tls13_for_old_otp(
-            maps:get(ssl_options, Opts, #{})
-        )
-    ).
+    emqx_tls_lib:to_server_opts(maps:get(ssl_options, Opts, #{})).
 
 tcp_opts(Opts) ->
     maps:to_list(

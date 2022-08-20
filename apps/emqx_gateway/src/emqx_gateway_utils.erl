@@ -455,14 +455,7 @@ esockd_access_rules(StrRules) ->
     [Access(R) || R <- StrRules].
 
 ssl_opts(Name, Opts) ->
-    maps:to_list(
-        emqx_tls_lib:drop_tls13_for_old_otp(
-            maps:without(
-                [enable],
-                maps:get(Name, Opts, #{})
-            )
-        )
-    ).
+    emqx_tls_lib:to_server_opts(maps:get(Name, Opts, #{})).
 
 sock_opts(Name, Opts) ->
     maps:to_list(

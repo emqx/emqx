@@ -102,7 +102,7 @@
 
 -export([namespace/0, roots/0, roots/1, fields/1, desc/1]).
 -export([conf_get/2, conf_get/3, keys/2, filter/1]).
--export([server_ssl_opts_schema/2, client_ssl_opts_schema/1, ciphers_schema/1, default_ciphers/1]).
+-export([server_ssl_opts_schema/2, client_ssl_opts_schema/1, ciphers_schema/1]).
 -export([sc/2, map/2]).
 
 -elvis([{elvis_style, god_modules, disable}]).
@@ -2060,19 +2060,15 @@ default_ciphers(Which) ->
         do_default_ciphers(Which)
     ).
 
-do_default_ciphers(undefined) ->
-    do_default_ciphers(tls_all_available);
 do_default_ciphers(quic) ->
     [
         "TLS_AES_256_GCM_SHA384",
         "TLS_AES_128_GCM_SHA256",
         "TLS_CHACHA20_POLY1305_SHA256"
     ];
-do_default_ciphers(dtls_all_available) ->
-    %% as of now, dtls does not support tlsv1.3 ciphers
-    emqx_tls_lib:selected_ciphers(['dtlsv1.2', 'dtlsv1']);
-do_default_ciphers(tls_all_available) ->
-    emqx_tls_lib:default_ciphers().
+do_default_ciphers(_) ->
+    %% otherwise resolve default ciphers list at runtime
+    [].
 
 %% @private return a list of keys in a parent field
 -spec keys(string(), hocon:config()) -> [string()].
@@ -2246,8 +2242,8 @@ parse_user_lookup_fun(StrConf) ->
     {fun Mod:Fun/3, undefined}.
 
 validate_ciphers(Ciphers) ->
-    All = emqx_tls_lib:all_ciphers(),
-    case lists:filter(fun(Cipher) -> not lists:member(Cipher, All) end, Ciphers) of
+    Set = emqx_tls_lib:all_ciphers_set_cached(),
+    case lists:filter(fun(Cipher) -> not sets:is_element(Cipher, Set) end, Ciphers) of
         [] -> ok;
         Bad -> {error, {bad_ciphers, Bad}}
     end.
