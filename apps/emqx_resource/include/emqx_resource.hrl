@@ -95,12 +95,6 @@
 -define(HEALTHCHECK_INTERVAL, 15000).
 -define(HEALTHCHECK_INTERVAL_RAW, <<"15s">>).
 
--define(START_AFTER_CREATED, true).
-
-%% milliseconds
--define(START_TIMEOUT, 5000).
--define(START_TIMEOUT_RAW, <<"5s">>).
-
 %% milliseconds
 -define(AUTO_RESTART_INTERVAL, 60000).
 -define(AUTO_RESTART_INTERVAL_RAW, <<"60s">>).

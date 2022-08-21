@@ -114,6 +114,11 @@ create_and_return_data(MgrId, ResId, Group, ResourceType, Config, Opts) ->
     {ok, _Group, Data} = lookup(ResId),
     {ok, Data}.
 
+%% internal configs
+-define(START_AFTER_CREATED, true).
+%% in milliseconds
+-define(START_TIMEOUT, 5000).
+
 %% @doc Create a resource_manager and wait until it is running
 create(MgrId, ResId, Group, ResourceType, Config, Opts) ->
     % The state machine will make the actual call to the callback/resource module after init
