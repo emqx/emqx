@@ -1843,6 +1843,8 @@ filter(Opts) ->
 common_ssl_opts_schema(Defaults) ->
     D = fun(Field) -> maps:get(to_atom(Field), Defaults, undefined) end,
     Df = fun(Field, Default) -> maps:get(to_atom(Field), Defaults, Default) end,
+    Collection = maps:get(versions, Defaults, tls_all_available),
+    AvailableVersions = default_tls_vsns(Collection),
     [
         {"cacertfile",
             sc(
@@ -1909,9 +1911,9 @@ common_ssl_opts_schema(Defaults) ->
             sc(
                 hoconsc:array(typerefl:atom()),
                 #{
-                    default => default_tls_vsns(maps:get(versions, Defaults, tls_all_available)),
+                    default => AvailableVersions,
                     desc => ?DESC(common_ssl_opts_schema_versions),
-                    validator => fun validate_tls_versions/1
+                    validator => fun(Inputs) -> validate_tls_versions(AvailableVersions, Inputs) end
                 }
             )},
         {"ciphers", ciphers_schema(D("ciphers"))},
@@ -2022,9 +2024,9 @@ client_ssl_opts_schema(Defaults) ->
         ].
 
 default_tls_vsns(dtls_all_available) ->
-    proplists:get_value(available_dtls, ssl:versions());
+    emqx_tls_lib:available_versions(dtls);
 default_tls_vsns(tls_all_available) ->
-    emqx_tls_lib:default_versions().
+    emqx_tls_lib:available_versions(tls).
 
 -spec ciphers_schema(quic | dtls_all_available | tls_all_available | undefined) ->
     hocon_schema:field_schema().
@@ -2248,13 +2250,10 @@ validate_ciphers(Ciphers) ->
         Bad -> {error, {bad_ciphers, Bad}}
     end.
 
-validate_tls_versions(Versions) ->
-    AvailableVersions =
-        proplists:get_value(available, ssl:versions()) ++
-            proplists:get_value(available_dtls, ssl:versions()),
+validate_tls_versions(AvailableVersions, Versions) ->
     case lists:filter(fun(V) -> not lists:member(V, AvailableVersions) end, Versions) of
         [] -> ok;
-        Vs -> {error, {unsupported_ssl_versions, Vs}}
+        Vs -> {error, {unsupported_tls_versions, Vs}}
     end.
 
 validations() ->

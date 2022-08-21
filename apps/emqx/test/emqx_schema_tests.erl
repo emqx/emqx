@@ -134,7 +134,7 @@ ciphers_schema_test() ->
 
 bad_tls_version_test() ->
     Sc = emqx_schema:server_ssl_opts_schema(#{}, false),
-    Reason = {unsupported_ssl_versions, [foo]},
+    Reason = {unsupported_tls_versions, [foo]},
     ?assertThrow(
         {_Sc, [#{kind := validation_error, reason := Reason}]},
         validate(Sc, #{<<"versions">> => [<<"foo">>]})

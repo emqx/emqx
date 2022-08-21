@@ -18,8 +18,8 @@
 
 %% version & cipher suites
 -export([
-    default_versions/0,
-    integral_versions/1,
+    available_versions/1,
+    integral_versions/2,
     default_ciphers/0,
     selected_ciphers/1,
     integral_ciphers/2,
@@ -37,8 +37,9 @@
 ]).
 
 -export([
-    to_server_opts/1,
-    to_client_opts/1
+    to_server_opts/2,
+    to_client_opts/1,
+    to_client_opts/2
 ]).
 
 -include("logger.hrl").
@@ -111,27 +112,23 @@
     "RSA-PSK-AES128-CBC-SHA"
 ]).
 
-%% @doc Returns the default supported tls versions.
--spec default_versions() -> [atom()].
-default_versions() -> available_versions().
-
 %% @doc Validate a given list of desired tls versions.
 %% raise an error exception if non of them are available.
 %% The input list can be a string/binary of comma separated versions.
--spec integral_versions(undefined | string() | binary() | [ssl:tls_version()]) ->
+-spec integral_versions(tls | dtls, undefined | string() | binary() | [ssl:tls_version()]) ->
     [ssl:tls_version()].
-integral_versions(undefined) ->
-    integral_versions(default_versions());
-integral_versions([]) ->
-    integral_versions(default_versions());
-integral_versions(<<>>) ->
-    integral_versions(default_versions());
-integral_versions(Desired) when ?IS_STRING(Desired) ->
-    integral_versions(iolist_to_binary(Desired));
-integral_versions(Desired) when is_binary(Desired) ->
-    integral_versions(parse_versions(Desired));
-integral_versions(Desired) ->
-    Available = available_versions(),
+integral_versions(Type, undefined) ->
+    available_versions(Type);
+integral_versions(Type, []) ->
+    available_versions(Type);
+integral_versions(Type, <<>>) ->
+    available_versions(Type);
+integral_versions(Type, Desired) when ?IS_STRING(Desired) ->
+    integral_versions(Type, iolist_to_binary(Desired));
+integral_versions(Type, Desired) when is_binary(Desired) ->
+    integral_versions(Type, parse_versions(Desired));
+integral_versions(Type, Desired) ->
+    Available = available_versions(Type),
     case lists:filter(fun(V) -> lists:member(V, Available) end, Desired) of
         [] ->
             erlang:error(#{
@@ -153,11 +150,11 @@ all_ciphers_set_cached() ->
             Set
     end.
 
-%% @doc Return a list of all supported ciphers.
+%% @hidden Return a list of all supported ciphers.
 all_ciphers() ->
-    all_ciphers(default_versions()).
+    all_ciphers(available_versions(all)).
 
-%% @doc Return a list of (openssl string format) cipher suites.
+%% @hidden Return a list of (openssl string format) cipher suites.
 -spec all_ciphers([ssl:tls_version()]) -> [string()].
 all_ciphers(['tlsv1.3']) ->
     %% When it's only tlsv1.3 wanted, use 'exclusive' here
@@ -172,7 +169,7 @@ all_ciphers(Versions) ->
 
 %% @doc All Pre-selected TLS ciphers.
 default_ciphers() ->
-    selected_ciphers(available_versions()).
+    selected_ciphers(available_versions(all)).
 
 %% @doc Pre-selected TLS ciphers for given versions..
 selected_ciphers(Vsns) ->
@@ -218,22 +215,17 @@ ensure_tls13_cipher(true, Ciphers) ->
 ensure_tls13_cipher(false, Ciphers) ->
     Ciphers.
 
-%% default ssl versions based on available versions.
--spec available_versions() -> [atom()].
-available_versions() ->
-    OtpRelease = list_to_integer(erlang:system_info(otp_release)),
-    default_versions(OtpRelease).
-
-%% tlsv1.3 is available from OTP-22 but we do not want to use until 23.
-default_versions(OtpRelease) when OtpRelease >= 23 ->
-    availables();
-default_versions(_) ->
-    lists:delete('tlsv1.3', availables()).
-
-availables() ->
+%% @doc Returns the default available tls/dtls versions.
+available_versions(Type) ->
     All = ssl:versions(),
-    proplists:get_value(available, All) ++
-        proplists:get_value(available_dtls, All).
+    available_versions(Type, All).
+
+available_versions(tls, All) ->
+    proplists:get_value(available, All);
+available_versions(dtls, All) ->
+    proplists:get_value(available_dtls, All);
+available_versions(all, All) ->
+    available_versions(tls, All) ++ available_versions(dtls, All).
 
 %% Deduplicate a list without re-ordering the elements.
 dedup([]) ->
@@ -494,17 +486,25 @@ do_drop_invalid_certs([Key | Keys], SSL) ->
 
 %% @doc Convert hocon-checked ssl server options (map()) to
 %% proplist accepted by ssl library.
-to_server_opts(Opts) ->
-    Versions = integral_versions(maps:get(versions, Opts, undefined)),
+-spec to_server_opts(tls | dtls, map()) -> [{atom(), term()}].
+to_server_opts(Type, Opts) ->
+    Versions = integral_versions(Type, maps:get(versions, Opts, undefined)),
     Ciphers = integral_ciphers(Versions, maps:get(ciphers, Opts, undefined)),
     maps:to_list(Opts#{
         ciphers => Ciphers,
         versions => Versions
     }).
 
-%% @doc Convert hocon-checked ssl client options (map()) to
+%% @doc Convert hocon-checked tls client options (map()) to
 %% proplist accepted by ssl library.
+-spec to_client_opts(map()) -> [{atom(), term()}].
 to_client_opts(Opts) ->
+    to_client_opts(tls, Opts).
+
+%% @doc Convert hocon-checked tls or dtls client options (map()) to
+%% proplist accepted by ssl library.
+-spec to_client_opts(tls | dtls, map()) -> [{atom(), term()}].
+to_client_opts(Type, Opts) ->
     GetD = fun(Key, Default) -> fuzzy_map_get(Key, Opts, Default) end,
     Get = fun(Key) -> GetD(Key, undefined) end,
     case GetD(enable, false) of
@@ -514,7 +514,7 @@ to_client_opts(Opts) ->
             CAFile = ensure_str(Get(cacertfile)),
             Verify = GetD(verify, verify_none),
             SNI = ensure_sni(Get(server_name_indication)),
-            Versions = integral_versions(Get(versions)),
+            Versions = integral_versions(Type, Get(versions)),
             Ciphers = integral_ciphers(Versions, Get(ciphers)),
             filter([
                 {keyfile, KeyFile},

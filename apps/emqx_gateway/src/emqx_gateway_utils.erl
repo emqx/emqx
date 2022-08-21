@@ -455,7 +455,12 @@ esockd_access_rules(StrRules) ->
     [Access(R) || R <- StrRules].
 
 ssl_opts(Name, Opts) ->
-    emqx_tls_lib:to_server_opts(maps:get(Name, Opts, #{})).
+    Type =
+        case Name of
+            ssl -> tls;
+            dtls -> dtls
+        end,
+    emqx_tls_lib:to_server_opts(Type, maps:get(Name, Opts, #{})).
 
 sock_opts(Name, Opts) ->
     maps:to_list(
