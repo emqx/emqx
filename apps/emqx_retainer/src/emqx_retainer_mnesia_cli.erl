@@ -45,9 +45,7 @@ retainer(["reindex", "status"]) ->
         true ->
             ?PRINT_MSG("Reindexing is in progress~n");
         false ->
-            ?PRINT_MSG("Reindexing is not running~n");
-        {error, Reason} ->
-            ?PRINT("Can't get reindex status: ~p~n", [Reason])
+            ?PRINT_MSG("Reindexing is not running~n")
     end;
 retainer(["reindex", "start"]) ->
     retainer(["reindex", "start", "false"]);
