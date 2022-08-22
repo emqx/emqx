@@ -49,31 +49,35 @@
     %% use auto_restart_interval instead
     auto_retry_interval => integer(),
     %%======================================= Deprecated Opts End
+    worker_pool_size => pos_integer(),
+    %% use `integer()` compatibility to release 5.0.0 bpapi
     health_check_interval => integer(),
     %% We can choose to block the return of emqx_resource:start until
     %% the resource connected, wait max to `start_timeout` ms.
-    start_timeout => integer(),
+    start_timeout => pos_integer(),
     %% If `start_after_created` is set to true, the resource is started right
     %% after it is created. But note that a `started` resource is not guaranteed
     %% to be `connected`.
     start_after_created => boolean(),
     %% If the resource disconnected, we can set to retry starting the resource
     %% periodically.
-    auto_restart_interval => integer(),
+    auto_restart_interval => pos_integer(),
     enable_batch => boolean(),
-    batch_size => integer(),
-    batch_time => integer(),
+    batch_size => pos_integer(),
+    batch_time => pos_integer(),
     enable_queue => boolean(),
-    queue_max_bytes => integer(),
+    queue_max_bytes => pos_integer(),
     query_mode => async | sync | dynamic,
-    resume_interval => integer(),
-    async_inflight_window => integer()
+    resume_interval => pos_integer(),
+    async_inflight_window => pos_integer()
 }.
 -type query_result() ::
     ok
     | {ok, term()}
     | {error, term()}
     | {resource_down, term()}.
+
+-define(WORKER_POOL_SIZE, 16).
 
 -define(DEFAULT_QUEUE_SIZE, 1024 * 1024 * 1024).
 -define(DEFAULT_QUEUE_SIZE_RAW, <<"1GB">>).
@@ -91,12 +95,6 @@
 %% milliseconds
 -define(HEALTHCHECK_INTERVAL, 15000).
 -define(HEALTHCHECK_INTERVAL_RAW, <<"15s">>).
-
--define(START_AFTER_CREATED, true).
-
-%% milliseconds
--define(START_TIMEOUT, 5000).
--define(START_TIMEOUT_RAW, <<"5s">>).
 
 %% milliseconds
 -define(AUTO_RESTART_INTERVAL, 60000).

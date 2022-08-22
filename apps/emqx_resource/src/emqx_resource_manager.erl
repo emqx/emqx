@@ -114,6 +114,11 @@ create_and_return_data(MgrId, ResId, Group, ResourceType, Config, Opts) ->
     {ok, _Group, Data} = lookup(ResId),
     {ok, Data}.
 
+%% internal configs
+-define(START_AFTER_CREATED, true).
+%% in milliseconds
+-define(START_TIMEOUT, 5000).
+
 %% @doc Create a resource_manager and wait until it is running
 create(MgrId, ResId, Group, ResourceType, Config, Opts) ->
     % The state machine will make the actual call to the callback/resource module after init
@@ -379,9 +384,17 @@ handle_event(EventType, EventData, State, Data) ->
 %%------------------------------------------------------------------------------
 insert_cache(ResId, Group, Data = #data{manager_id = MgrId}) ->
     case get_owner(ResId) of
-        not_found -> ets:insert(?ETS_TABLE, {ResId, Group, Data});
-        MgrId -> ets:insert(?ETS_TABLE, {ResId, Group, Data});
-        _ -> self() ! quit
+        not_found ->
+            ets:insert(?ETS_TABLE, {ResId, Group, Data});
+        MgrId ->
+            ets:insert(?ETS_TABLE, {ResId, Group, Data});
+        _ ->
+            ?SLOG(error, #{
+                msg => get_resource_owner_failed,
+                resource_id => ResId,
+                action => quit_resource
+            }),
+            self() ! quit
     end.
 
 read_cache(ResId) ->
@@ -420,12 +433,14 @@ get_owner(ResId) ->
     end.
 
 handle_disconnected_state_enter(Data) ->
+    {next_state, disconnected, Data, retry_actions(Data)}.
+
+retry_actions(Data) ->
     case maps:get(auto_restart_interval, Data#data.opts, ?AUTO_RESTART_INTERVAL) of
         undefined ->
-            {next_state, disconnected, Data};
+            [];
         RetryInterval ->
-            Actions = [{state_timeout, RetryInterval, auto_retry}],
-            {next_state, disconnected, Data, Actions}
+            [{state_timeout, RetryInterval, auto_retry}]
     end.
 
 handle_remove_event(From, ClearMetrics, Data) ->
@@ -456,7 +471,7 @@ start_resource(Data, From) ->
             %% Keep track of the error reason why the connection did not work
             %% so that the Reason can be returned when the verification call is made.
             UpdatedData = Data#data{error = Reason},
-            Actions = maybe_reply([], From, Err),
+            Actions = maybe_reply(retry_actions(UpdatedData), From, Err),
             {next_state, disconnected, UpdatedData, Actions}
     end.
 

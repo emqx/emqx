@@ -53,23 +53,23 @@ init([]) ->
     {ok, {SupFlags, ChildSpecs}}.
 
 start_workers(ResId, Opts) ->
-    PoolSize = pool_size(Opts),
-    _ = ensure_worker_pool(ResId, hash, [{size, PoolSize}]),
+    WorkerPoolSize = worker_pool_size(Opts),
+    _ = ensure_worker_pool(ResId, hash, [{size, WorkerPoolSize}]),
     lists:foreach(
         fun(Idx) ->
             _ = ensure_worker_added(ResId, Idx),
             ok = ensure_worker_started(ResId, Idx, Opts)
         end,
-        lists:seq(1, PoolSize)
+        lists:seq(1, WorkerPoolSize)
     ).
 
 stop_workers(ResId, Opts) ->
-    PoolSize = pool_size(Opts),
+    WorkerPoolSize = worker_pool_size(Opts),
     lists:foreach(
         fun(Idx) ->
             ensure_worker_removed(ResId, Idx)
         end,
-        lists:seq(1, PoolSize)
+        lists:seq(1, WorkerPoolSize)
     ),
     ensure_worker_pool_removed(ResId),
     ok.
@@ -77,7 +77,7 @@ stop_workers(ResId, Opts) ->
 %%%=============================================================================
 %%% Internal
 %%%=============================================================================
-pool_size(Opts) ->
+worker_pool_size(Opts) ->
     maps:get(worker_pool_size, Opts, erlang:system_info(schedulers_online)).
 
 ensure_worker_pool(ResId, Type, Opts) ->
