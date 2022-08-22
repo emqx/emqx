@@ -10,7 +10,7 @@ on:
 jobs:
     run_proper_test:
         runs-on: ubuntu-20.04
-        container: ghcr.io/emqx/emqx-builder/4.4-19:24.1.5-3-ubuntu20.04
+        container: ghcr.io/emqx/emqx-builder/4.5-1:24.3.4.2-1-ubuntu20.04
 
         steps:
         - uses: actions/checkout@v2

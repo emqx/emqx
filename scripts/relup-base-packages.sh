@@ -63,8 +63,21 @@ cd -P -- "$(dirname -- "${BASH_SOURCE[0]}")/.."
 mkdir -p _upgrade_base
 pushd _upgrade_base
 
+# For 4.5+, we upgrade from OTP 24.1.5-3 to 24.3.4.2-1, so we must manually
+# check the old OTP releases.
+otp_vsn_for() {
+  case "${1#[e|v]}" in
+    4.4.*)
+      echo "24.1.5-3"
+      ;;
+    4.5.*)
+      echo "$OTP_VSN"
+      ;;
+  esac
+}
+
 for tag in $(../scripts/relup-base-vsns.sh $EDITION | xargs echo -n); do
-    filename="$PROFILE-${tag#[e|v]}-otp$OTP_VSN-$SYSTEM-$ARCH.zip"
+    filename="$PROFILE-${tag#[e|v]}-otp$(otp_vsn_for "$tag")-$SYSTEM-$ARCH.zip"
     url="https://packages.emqx.io/$DIR/$tag/$filename"
     if [ ! -f "$filename" ] && curl -L -I -m 10 -o /dev/null -s -w "%{http_code}" "${url}" | grep -q -oE "^[23]+" ; then
         echo "downloading base package from ${url} ..."

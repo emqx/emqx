@@ -15,7 +15,7 @@ jobs:
         - uses: actions/checkout@v1
         - uses: erlef/setup-beam@v1
           with:
-            otp-version: "24.1.5"
+            otp-version: "24.3.4.2"
         - name: prepare
           run: |
             if make emqx-ee --dry-run > /dev/null 2>&1; then
@@ -78,7 +78,7 @@ jobs:
         - uses: actions/checkout@v1
         - uses: erlef/setup-beam@v1
           with:
-            otp-version: "24.1.5"
+            otp-version: "24.3.4.2"
         - name: prepare
           run: |
             if make emqx-ee --dry-run > /dev/null 2>&1; then
@@ -226,7 +226,7 @@ jobs:
 
     relup_test_plan:
         runs-on: ubuntu-20.04
-        container: ghcr.io/emqx/emqx-builder/4.4-19:24.1.5-3-ubuntu20.04
+        container: ghcr.io/emqx/emqx-builder/4.5-1:24.3.4.2-1-ubuntu20.04
         outputs:
           profile: ${{ steps.profile-and-versions.outputs.profile }}
           vsn: ${{ steps.profile-and-versions.outputs.vsn }}
@@ -275,9 +275,9 @@ jobs:
            fail-fast: false
            matrix:
              otp:
-             - 24.1.5-3
+             - 24.3.4.2-1
         runs-on: ubuntu-20.04
-        container: ghcr.io/emqx/emqx-builder/4.4-19:24.1.5-3-ubuntu20.04
+        container: ghcr.io/emqx/emqx-builder/4.5-1:24.3.4.2-1-ubuntu20.04
         defaults:
           run:
             shell: bash
@@ -312,13 +312,15 @@ jobs:
           - relup_test_plan
           - relup_test_build
         runs-on: ubuntu-20.04
-        container: ghcr.io/emqx/emqx-builder/4.4-19:24.1.5-3-ubuntu20.04
+        container: ghcr.io/emqx/emqx-builder/4.5-1:24.3.4.2-1-ubuntu20.04
         strategy:
           fail-fast: false
           matrix:
             old_vsn: ${{ fromJson(needs.relup_test_plan.outputs.matrix) }}
+            old_otp:
+              - 24.1.5-3
             otp:
-            - 24.1.5-3
+              - 24.3.4.2-1
         env:
           OLD_VSN: "${{ matrix.old_vsn }}"
           PROFILE: "${{ needs.relup_test_plan.outputs.profile }}"
@@ -345,7 +347,7 @@ jobs:
             mkdir -p packages
             cp emqx_built/_packages/*/*.zip packages
             cd packages
-            wget --no-verbose https://s3-us-west-2.amazonaws.com/packages.emqx/$BROKER/$OLD_VSN/$PROFILE-${OLD_VSN#[e|v]}-otp${{ matrix.otp }}-ubuntu20.04-amd64.zip
+            wget --no-verbose https://s3-us-west-2.amazonaws.com/packages.emqx/$BROKER/$OLD_VSN/$PROFILE-${OLD_VSN#[e|v]}-otp${{ matrix.old_otp }}-ubuntu20.04-amd64.zip
         - name: Run relup test scenario
           timeout-minutes: 5
           run: |
@@ -357,8 +359,8 @@ jobs:
             --var ONE_MORE_EMQX_PATH=$(pwd)/one_more_emqx \
             --var VSN="$VSN" \
             --var OLD_VSN="$OLD_VSN" \
-            --var FROM_OTP_VSN="24.1.5-3" \
-            --var TO_OTP_VSN="24.1.5-3" \
+            --var FROM_OTP_VSN="${{ matrix.old_otp }}" \
+            --var TO_OTP_VSN="${{ matrix.otp }}" \
             emqx_built/.ci/fvt_tests/relup.lux
         - uses: actions/upload-artifact@v2
           name: Save debug data

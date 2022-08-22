@@ -71,7 +71,14 @@ make_relup() {
     local lib_dir="_build/$PROFILE/rel/emqx/lib"
     local releases_dir="_build/$PROFILE/rel/emqx/releases"
     local name_pattern
-    name_pattern="${PROFILE}-$(./scripts/pkg-full-vsn.sh 'vsn_matcher')"
+    # 4.5.0 upgraded OTP from 24.1.5-3 to 24.3.4.2-1, so we need to
+    # fool the matcher to make it pick up the previous 4.4.X releases
+    # with older OTP.
+    if [[ "${PKG_VSN}" == 4.5.0* ]]; then
+      name_pattern="${PROFILE}-$(env OTP_VSN=24.1.5-3 ./scripts/pkg-full-vsn.sh 'vsn_matcher')"
+    else
+      name_pattern="${PROFILE}-$(./scripts/pkg-full-vsn.sh 'vsn_matcher')"
+    fi
     mkdir -p "$lib_dir" "$releases_dir" '_upgrade_base'
     local releases=()
     if [ -d "$releases_dir" ]; then
@@ -96,8 +103,8 @@ make_relup() {
     fi
     RELX_BASE_VERSIONS="$(IFS=, ; echo "${releases[*]}")"
     export RELX_BASE_VERSIONS
-    if [[ ${PKG_VSN} == 4.3* ]]; then
-        echo "EMQX 4.3 specific, overwrite OTP app versions"
+    if [[ ${PKG_VSN} == 4.3* || ${PKG_VSN} == 4.5.* ]]; then
+        echo "EMQX 4.3/4.5 specific, overwrite OTP app versions"
         local emqx_rel_file="${releases_dir}/${PKG_VSN}/emqx.rel"
         if [ ! -f "${emqx_rel_file}" ]; then
             ./rebar3 as "${PROFILE}" release
@@ -115,7 +122,7 @@ make_relup() {
 
     # rollback rel file per releases
     #
-    if [[ ${PKG_VSN} == 4.3* ]]; then
+    if [[ ${PKG_VSN} == 4.3* || ${PKG_VSN} == 4.5.* ]]; then
         echo "restore upgrade base rel files... "
         for rel in ${releases[*]};
         do
@@ -181,6 +188,12 @@ make_zip() {
             esac
             ;;
     esac
+    ## one can only upgrade to 4.5.X from 4.4.8 or later, when that's
+    ## released.  Until that's released, there's no relup.
+    v44_bases="$(git tag -l "*4.4*" | grep -c -E '4\.4\.([8-9]|1[0-9])' || true)"
+    if [[ "${v44_bases}" -eq 0 ]]; then
+      has_relup='no'
+    fi
     if [ "$has_relup" = 'yes' ]; then
         ./scripts/inject-relup.escript "${tard}/emqx/releases/${PKG_VSN}/relup"
     fi
@@ -232,7 +245,7 @@ make_docker() {
 ## Name               Default                         Example
 ## ---------------------------------------------------------------------
 ## EMQX_BASE_IMAGE    current os                      centos:7
-## EMQX_ZIP_PACKAGE   _packages/<current-zip-target>  /tmp/emqx-4.4.0-otp24.1.5-3-el7-amd64.zip
+## EMQX_ZIP_PACKAGE   _packages/<current-zip-target>  /tmp/emqx-4.4.0-otp24.3.4.2-1-el7-amd64.zip
 ## EMQX_IMAGE_TAG     emqx/emqx:<current-vns-rel>     emqx/emqx:testing-tag
 ##
 make_docker_testing() {

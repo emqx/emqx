@@ -18,7 +18,7 @@ case "${VSN_MATCH}" in
         PKG_VSN='*'
         ;;
     *)
-        echo "$0 ERROR: second arg must "
+        echo "$0 ERROR: arg must be either 'vsn_exact' or 'vsn_matcher'"
         exit 1
         ;;
 esac
