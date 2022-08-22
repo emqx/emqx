@@ -250,7 +250,8 @@ default_plugins() ->
         %% default is true in data/load_modules. **NOT HERE**
         {emqx_retainer, false},
         {emqx_recon, true},
-        {emqx_telemetry, true},
+        %% emqx_telemetry is not exist in enterprise.
+        %% {emqx_telemetry, false},
         {emqx_rule_engine, true},
         {emqx_bridge_mqtt, false}
     ].
