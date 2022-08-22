@@ -18,6 +18,7 @@
 
 -include("emqx_resource.hrl").
 -include("emqx_resource_utils.hrl").
+-include("emqx_resource_errors.hrl").
 
 %% APIs for resource types
 
@@ -254,7 +255,19 @@ query(ResId, Request) ->
 -spec query(resource_id(), Request :: term(), emqx_resource_worker:query_opts()) ->
     Result :: term().
 query(ResId, Request, Opts) ->
-    emqx_resource_worker:query(ResId, Request, Opts).
+    case emqx_resource_manager:ets_lookup(ResId) of
+        {ok, _Group, #{query_mode := QM, status := connected}} ->
+            case QM of
+                sync -> emqx_resource_worker:sync_query(ResId, Request, Opts);
+                async -> emqx_resource_worker:async_query(ResId, Request, Opts)
+            end;
+        {ok, _Group, #{status := stopped}} ->
+            ?RESOURCE_ERROR(stopped, "resource stopped or disabled");
+        {ok, _Group, #{status := S}} when S == connecting; S == disconnected ->
+            ?RESOURCE_ERROR(not_connected, "resource not connected");
+        {error, not_found} ->
+            ?RESOURCE_ERROR(not_found, "resource not found")
+    end.
 
 -spec simple_sync_query(resource_id(), Request :: term()) -> Result :: term().
 simple_sync_query(ResId, Request) ->

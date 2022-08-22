@@ -23,6 +23,7 @@
 -type resource_state() :: term().
 -type resource_status() :: connected | disconnected | connecting | stopped.
 -type callback_mode() :: always_sync | async_if_possible.
+-type query_mode() :: async | sync | dynamic.
 -type result() :: term().
 -type reply_fun() :: {fun((result(), Args :: term()) -> any()), Args :: term()} | undefined.
 -type query_opts() :: #{
@@ -34,6 +35,7 @@
     id := resource_id(),
     mod := module(),
     callback_mode := callback_mode(),
+    query_mode := query_mode(),
     config := resource_config(),
     state := resource_state(),
     status := resource_status(),
@@ -67,7 +69,7 @@
     batch_time => pos_integer(),
     enable_queue => boolean(),
     queue_max_bytes => pos_integer(),
-    query_mode => async | sync | dynamic,
+    query_mode => query_mode(),
     resume_interval => pos_integer(),
     async_inflight_window => pos_integer()
 }.

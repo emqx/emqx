@@ -133,7 +133,7 @@ t_create_remove_local(_) ->
     {error, _} = emqx_resource:remove_local(?ID),
 
     ?assertMatch(
-        ?RESOURCE_ERROR(not_created),
+        ?RESOURCE_ERROR(not_found),
         emqx_resource:query(?ID, get_state)
     ),
     ?assertNot(is_process_alive(Pid)).
@@ -183,7 +183,7 @@ t_query(_) ->
     {ok, #{pid := _}} = emqx_resource:query(?ID, get_state),
 
     ?assertMatch(
-        ?RESOURCE_ERROR(not_created),
+        ?RESOURCE_ERROR(not_found),
         emqx_resource:query(<<"unknown">>, get_state)
     ),
 
@@ -371,6 +371,7 @@ t_query_counter_async_inflight(_) ->
     ok = emqx_resource:query(?ID, {inc_counter, 1}, #{
         async_reply_fun => {Insert, [Tab0, tmp_query]}
     }),
+    timer:sleep(100),
     ?assertMatch([{_, {error, {resource_error, #{reason := blocked}}}}], ets:take(Tab0, tmp_query)),
 
     %% all response should be received after the resource is resumed.
