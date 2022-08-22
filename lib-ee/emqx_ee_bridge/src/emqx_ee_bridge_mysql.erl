@@ -6,6 +6,7 @@
 -include_lib("typerefl/include/types.hrl").
 -include_lib("hocon/include/hoconsc.hrl").
 -include("emqx_ee_bridge.hrl").
+-include_lib("emqx_resource/include/emqx_resource.hrl").
 
 -import(hoconsc, [mk/2, enum/1, ref/2]).
 
@@ -44,7 +45,6 @@ values(post) ->
     #{
         type => mysql,
         name => <<"foo">>,
-        local_topic => <<"local/topic/#">>,
         sql_template => ?DEFAULT_SQL,
         connector => #{
             server => <<"127.0.0.1:3306">>,
@@ -53,6 +53,15 @@ values(post) ->
             username => <<"root">>,
             password => <<"">>,
             auto_reconnect => true
+        },
+        resource_opts => #{
+            health_check_interval => ?HEALTHCHECK_INTERVAL_RAW,
+            auto_restart_interval => ?AUTO_RESTART_INTERVAL_RAW,
+            enable_batch => false,
+            batch_size => ?DEFAULT_BATCH_SIZE,
+            batch_time => ?DEFAULT_BATCH_TIME,
+            enable_queue => false,
+            max_queue_bytes => ?DEFAULT_QUEUE_SIZE
         },
         enable => true,
         direction => egress
@@ -70,7 +79,6 @@ fields("config") ->
     [
         {enable, mk(boolean(), #{desc => ?DESC("config_enable"), default => true})},
         {direction, mk(egress, #{desc => ?DESC("config_direction"), default => egress})},
-        {local_topic, mk(binary(), #{desc => ?DESC("local_topic")})},
         {sql_template,
             mk(
                 binary(),
@@ -83,8 +91,27 @@ fields("config") ->
                     required => true,
                     desc => ?DESC("desc_connector")
                 }
+            )},
+        {resource_opts,
+            mk(
+                ref(?MODULE, "creation_opts"),
+                #{
+                    required => false,
+                    default => #{},
+                    desc => ?DESC(emqx_resource_schema, <<"resource_opts">>)
+                }
             )}
-    ] ++ emqx_resource_schema:fields("resource_opts");
+    ];
+fields("creation_opts") ->
+    Opts = emqx_resource_schema:fields("creation_opts"),
+    lists:filter(
+        fun({Field, _}) ->
+            not lists:member(Field, [
+                start_after_created, start_timeout, query_mode, async_inflight_window
+            ])
+        end,
+        Opts
+    );
 fields("post") ->
     [type_field(), name_field() | fields("config")];
 fields("put") ->
@@ -100,6 +127,8 @@ desc(connector) ->
     ?DESC("desc_connector");
 desc(Method) when Method =:= "get"; Method =:= "put"; Method =:= "post" ->
     ["Configuration for MySQL using `", string:to_upper(Method), "` method."];
+desc("creation_opts" = Name) ->
+    emqx_resource_schema:desc(Name);
 desc(_) ->
     undefined.
 

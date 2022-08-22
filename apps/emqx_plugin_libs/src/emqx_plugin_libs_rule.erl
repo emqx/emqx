@@ -29,7 +29,9 @@
     preproc_sql/2,
     proc_sql/2,
     proc_sql_param_str/2,
-    proc_cql_param_str/2
+    proc_cql_param_str/2,
+    split_insert_sql/1,
+    detect_sql_type/1
 ]).
 
 %% type converting
@@ -122,6 +124,43 @@ proc_sql_param_str(Tokens, Data) ->
 -spec proc_cql_param_str(tmpl_token(), map()) -> binary().
 proc_cql_param_str(Tokens, Data) ->
     emqx_placeholder:proc_cql_param_str(Tokens, Data).
+
+%% SQL = <<"INSERT INTO \"abc\" (c1,c2,c3) VALUES (${1}, ${1}, ${1})">>
+-spec split_insert_sql(binary()) -> {ok, {InsertSQL, Params}} | {error, atom()} when
+    InsertSQL :: binary(),
+    Params :: binary().
+split_insert_sql(SQL) ->
+    case re:split(SQL, "((?i)values)", [{return, binary}]) of
+        [Part1, _, Part3] ->
+            case string:trim(Part1, leading) of
+                <<"insert", _/binary>> = InsertSQL ->
+                    {ok, {InsertSQL, Part3}};
+                <<"INSERT", _/binary>> = InsertSQL ->
+                    {ok, {InsertSQL, Part3}};
+                _ ->
+                    {error, not_insert_sql}
+            end;
+        _ ->
+            {error, not_insert_sql}
+    end.
+
+-spec detect_sql_type(binary()) -> {ok, Type} | {error, atom()} when
+    Type :: insert | select.
+detect_sql_type(SQL) ->
+    case re:run(SQL, "^\\s*([a-zA-Z]+)", [{capture, all_but_first, list}]) of
+        {match, [First]} ->
+            Types = [select, insert],
+            PropTypes = [{erlang:atom_to_list(Type), Type} || Type <- Types],
+            LowFirst = string:lowercase(First),
+            case proplists:lookup(LowFirst, PropTypes) of
+                {LowFirst, Type} ->
+                    {ok, Type};
+                _ ->
+                    {error, invalid_sql}
+            end;
+        _ ->
+            {error, invalid_sql}
+    end.
 
 unsafe_atom_key(Key) when is_atom(Key) ->
     Key;

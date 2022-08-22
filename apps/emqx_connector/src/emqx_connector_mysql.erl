@@ -28,6 +28,7 @@
     on_start/2,
     on_stop/2,
     on_query/3,
+    on_batch_query/3,
     on_get_status/2
 ]).
 
@@ -47,12 +48,15 @@
 
 -type prepares() :: #{atom() => binary()}.
 -type params_tokens() :: #{atom() => list()}.
+-type sqls() :: #{atom() => binary()}.
 -type state() ::
     #{
         poolname := atom(),
-        prepare_statement := prepares(),
         auto_reconnect := boolean(),
-        params_tokens := params_tokens()
+        prepare_statement := prepares(),
+        params_tokens := params_tokens(),
+        batch_inserts := sqls(),
+        batch_params_tokens := params_tokens()
     }.
 
 %%=====================================================================
@@ -134,46 +138,44 @@ on_query(
     {TypeOrKey, SQLOrKey, Params, Timeout},
     #{poolname := PoolName, prepare_statement := Prepares} = State
 ) ->
-    LogMeta = #{connector => InstId, sql => SQLOrKey, state => State},
-    ?TRACE("QUERY", "mysql_connector_received", LogMeta),
-    Worker = ecpool:get_client(PoolName),
-    {ok, Conn} = ecpool_worker:client(Worker),
     MySqlFunction = mysql_function(TypeOrKey),
     {SQLOrKey2, Data} = proc_sql_params(TypeOrKey, SQLOrKey, Params, State),
-    Result = erlang:apply(mysql, MySqlFunction, [Conn, SQLOrKey2, Data, Timeout]),
-    case Result of
-        {error, disconnected} ->
-            ?SLOG(
-                error,
-                LogMeta#{msg => "mysql_connector_do_sql_query_failed", reason => disconnected}
-            ),
-            %% kill the poll worker to trigger reconnection
-            _ = exit(Conn, restart),
-            Result;
+    case on_sql_query(InstId, MySqlFunction, SQLOrKey2, Data, Timeout, State) of
         {error, not_prepared} ->
-            ?SLOG(
-                warning,
-                LogMeta#{msg => "mysql_connector_prepare_query_failed", reason => not_prepared}
-            ),
             case prepare_sql(Prepares, PoolName) of
                 ok ->
                     %% not return result, next loop will try again
                     on_query(InstId, {TypeOrKey, SQLOrKey, Params, Timeout}, State);
                 {error, Reason} ->
+                    LogMeta = #{connector => InstId, sql => SQLOrKey, state => State},
                     ?SLOG(
                         error,
                         LogMeta#{msg => "mysql_connector_do_prepare_failed", reason => Reason}
                     ),
                     {error, Reason}
             end;
-        {error, Reason} ->
-            ?SLOG(
-                error,
-                LogMeta#{msg => "mysql_connector_do_sql_query_failed", reason => Reason}
-            ),
-            Result;
-        _ ->
+        Result ->
             Result
+    end.
+
+on_batch_query(
+    InstId,
+    BatchReq,
+    #{batch_inserts := Inserts, batch_params_tokens := ParamsTokens} = State
+) ->
+    case hd(BatchReq) of
+        {Key, _} ->
+            case maps:get(Key, Inserts, undefined) of
+                undefined ->
+                    {error, batch_select_not_implemented};
+                InsertSQL ->
+                    Tokens = maps:get(Key, ParamsTokens),
+                    on_batch_insert(InstId, BatchReq, InsertSQL, Tokens, State)
+            end;
+        Request ->
+            LogMeta = #{connector => InstId, first_request => Request, state => State},
+            ?SLOG(error, LogMeta#{msg => "invalid request"}),
+            {error, invald_request}
     end.
 
 mysql_function(sql) ->
@@ -316,13 +318,44 @@ parse_prepare_sql(Config) ->
             Any ->
                 Any
         end,
-    parse_prepare_sql(maps:to_list(SQL), #{}, #{}).
+    parse_prepare_sql(maps:to_list(SQL), #{}, #{}, #{}, #{}).
 
-parse_prepare_sql([{Key, H} | T], SQL, Tokens) ->
+parse_prepare_sql([{Key, H} | _] = L, Prepares, Tokens, BatchInserts, BatchTks) ->
     {PrepareSQL, ParamsTokens} = emqx_plugin_libs_rule:preproc_sql(H),
-    parse_prepare_sql(T, SQL#{Key => PrepareSQL}, Tokens#{Key => ParamsTokens});
-parse_prepare_sql([], SQL, Tokens) ->
-    #{prepare_statement => SQL, params_tokens => Tokens}.
+    parse_batch_prepare_sql(
+        L, Prepares#{Key => PrepareSQL}, Tokens#{Key => ParamsTokens}, BatchInserts, BatchTks
+    );
+parse_prepare_sql([], Prepares, Tokens, BatchInserts, BatchTks) ->
+    #{
+        prepare_statement => Prepares,
+        params_tokens => Tokens,
+        batch_inserts => BatchInserts,
+        batch_params_tokens => BatchTks
+    }.
+
+parse_batch_prepare_sql([{Key, H} | T], Prepares, Tokens, BatchInserts, BatchTks) ->
+    case emqx_plugin_libs_rule:detect_sql_type(H) of
+        {ok, select} ->
+            parse_prepare_sql(T, Prepares, Tokens, BatchInserts, BatchTks);
+        {ok, insert} ->
+            case emqx_plugin_libs_rule:split_insert_sql(H) of
+                {ok, {InsertSQL, Params}} ->
+                    ParamsTks = emqx_plugin_libs_rule:preproc_tmpl(Params),
+                    parse_prepare_sql(
+                        T,
+                        Prepares,
+                        Tokens,
+                        BatchInserts#{Key => InsertSQL},
+                        BatchTks#{Key => ParamsTks}
+                    );
+                {error, Reason} ->
+                    ?SLOG(error, #{msg => "split sql failed", sql => H, reason => Reason}),
+                    parse_prepare_sql(T, Prepares, Tokens, BatchInserts, BatchTks)
+            end;
+        {error, Reason} ->
+            ?SLOG(error, #{msg => "detect sql type failed", sql => H, reason => Reason}),
+            parse_prepare_sql(T, Prepares, Tokens, BatchInserts, BatchTks)
+    end.
 
 proc_sql_params(query, SQLOrKey, Params, _State) ->
     {SQLOrKey, Params};
@@ -334,4 +367,61 @@ proc_sql_params(TypeOrKey, SQLOrData, Params, #{params_tokens := ParamsTokens}) 
             {SQLOrData, Params};
         Tokens ->
             {TypeOrKey, emqx_plugin_libs_rule:proc_sql(Tokens, SQLOrData)}
+    end.
+
+on_batch_insert(InstId, BatchReqs, InsertPart, Tokens, State) ->
+    JoinFun = fun
+        ([Msg]) ->
+            emqx_plugin_libs_rule:proc_sql_param_str(Tokens, Msg);
+        ([H | T]) ->
+            lists:foldl(
+                fun(Msg, Acc) ->
+                    Value = emqx_plugin_libs_rule:proc_sql_param_str(Tokens, Msg),
+                    <<Acc/binary, ", ", Value/binary>>
+                end,
+                emqx_plugin_libs_rule:proc_sql_param_str(Tokens, H),
+                T
+            )
+    end,
+    {_, Msgs} = lists:unzip(BatchReqs),
+    JoinPart = JoinFun(Msgs),
+    SQL = <<InsertPart/binary, " values ", JoinPart/binary>>,
+    on_sql_query(InstId, query, SQL, [], default_timeout, State).
+
+on_sql_query(
+    InstId,
+    SQLFunc,
+    SQLOrKey,
+    Data,
+    Timeout,
+    #{poolname := PoolName} = State
+) ->
+    LogMeta = #{connector => InstId, sql => SQLOrKey, state => State},
+    ?TRACE("QUERY", "mysql_connector_received", LogMeta),
+    Worker = ecpool:get_client(PoolName),
+    {ok, Conn} = ecpool_worker:client(Worker),
+    Result = erlang:apply(mysql, SQLFunc, [Conn, SQLOrKey, Data, Timeout]),
+    case Result of
+        {error, disconnected} ->
+            ?SLOG(
+                error,
+                LogMeta#{msg => "mysql_connector_do_sql_query_failed", reason => disconnected}
+            ),
+            %% kill the poll worker to trigger reconnection
+            _ = exit(Conn, restart),
+            Result;
+        {error, not_prepared} = Error ->
+            ?SLOG(
+                warning,
+                LogMeta#{msg => "mysql_connector_prepare_query_failed", reason => not_prepared}
+            ),
+            Error;
+        {error, Reason} ->
+            ?SLOG(
+                error,
+                LogMeta#{msg => "mysql_connector_do_sql_query_failed", reason => Reason}
+            ),
+            Result;
+        _ ->
+            Result
     end.
