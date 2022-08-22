@@ -99,9 +99,9 @@ to_broker_msg(
             topic := TopicToken,
             payload := PayloadToken,
             qos := QoSToken,
-            retain := RetainToken,
-            mountpoint := Mountpoint
-        }
+            retain := RetainToken
+        },
+        mountpoint := Mountpoint
     },
     Props
 ) ->

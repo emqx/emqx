@@ -42,13 +42,13 @@ fields("config") ->
         [
             {ingress,
                 mk(
-                    ref(?MODULE, "ingress"),
-                    #{default => #{}}
+                    hoconsc:union([none, ref(?MODULE, "ingress")]),
+                    #{default => undefined}
                 )},
             {egress,
                 mk(
-                    ref(?MODULE, "egress"),
-                    #{default => #{}}
+                    hoconsc:union([none, ref(?MODULE, "egress")]),
+                    #{default => undefined}
                 )}
         ];
 fields("server_configs") ->

@@ -153,7 +153,7 @@ on_start(InstId, Conf) ->
     BridgeConf = BasicConf#{
         name => InstanceId,
         clientid => clientid(InstId),
-        subscriptions => make_sub_confs(maps:get(ingress, Conf, undefined), InstId),
+        subscriptions => make_sub_confs(maps:get(ingress, Conf, undefined), Conf, InstId),
         forwards => make_forward_confs(maps:get(egress, Conf, undefined))
     },
     case ?MODULE:create_bridge(BridgeConf) of
@@ -204,18 +204,18 @@ ensure_mqtt_worker_started(InstanceId, BridgeConf) ->
         {error, Reason} -> {error, Reason}
     end.
 
-make_sub_confs(EmptyMap, _) when map_size(EmptyMap) == 0 ->
+make_sub_confs(EmptyMap, _Conf, _) when map_size(EmptyMap) == 0 ->
     undefined;
-make_sub_confs(undefined, _) ->
+make_sub_confs(undefined, _Conf, _) ->
     undefined;
-make_sub_confs(SubRemoteConf, InstId) ->
+make_sub_confs(SubRemoteConf, Conf, InstId) ->
     ResId = emqx_resource_manager:manager_id_to_resource_id(InstId),
-    case maps:take(hookpoint, SubRemoteConf) of
+    case maps:find(hookpoint, Conf) of
         error ->
-            SubRemoteConf;
-        {HookPoint, SubConf} ->
+            error({no_hookpoint_provided, Conf});
+        {ok, HookPoint} ->
             MFA = {?MODULE, on_message_received, [HookPoint, ResId]},
-            SubConf#{on_message_received => MFA}
+            SubRemoteConf#{on_message_received => MFA}
     end.
 
 make_forward_confs(EmptyMap) when map_size(EmptyMap) == 0 ->

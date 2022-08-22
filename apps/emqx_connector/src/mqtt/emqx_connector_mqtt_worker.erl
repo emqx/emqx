@@ -250,9 +250,12 @@ pre_process_in_out(in, #{local := LC} = Conf) when is_map(Conf) ->
     Conf#{local => pre_process_in_out_common(LC)};
 pre_process_in_out(in, Conf) when is_map(Conf) ->
     %% have no 'local' field in the config
-    Conf;
+    undefined;
 pre_process_in_out(out, #{remote := RC} = Conf) when is_map(Conf) ->
-    Conf#{remote => pre_process_in_out_common(RC)}.
+    Conf#{remote => pre_process_in_out_common(RC)};
+pre_process_in_out(out, Conf) when is_map(Conf) ->
+    %% have no 'remote' field in the config
+    undefined.
 
 pre_process_in_out_common(Conf0) ->
     Conf1 = pre_process_conf(topic, Conf0),
