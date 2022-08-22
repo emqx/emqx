@@ -67,7 +67,7 @@ make_rel() {
 }
 
 relup_db() {
-  ./scripts/relup-base-vsns.escript "$@" ./data/relup_bases.eterm
+    ./scripts/relup-base-vsns.escript "$@" ./data/relup_bases.eterm
 }
 
 ## unzip previous version .zip files to _build/$PROFILE/rel/emqx/releases before making relup
@@ -78,24 +78,24 @@ make_relup() {
     mkdir -p "$lib_dir" "$releases_dir" '_upgrade_base'
     local releases=()
     if [ -d "$releases_dir" ]; then
-      for BASE_VSN in $(relup_db base-vsns "$PKG_VSN"); do
-        OTP_BASE=$(relup_db otp-vsn-for "$PKG_VSN")
-        name_pattern="${PROFILE}-$(env OTP_VSN="$OTP_BASE" PKG_VSN="$BASE_VSN" ./scripts/pkg-full-vsn.sh 'vsn_exact')"
-        while read -r zip; do
-            local base_vsn
-            base_vsn="$(echo "$zip" | grep -oE "[0-9]+\.[0-9]+\.[0-9]+(-[0-9a-f]{8})?" | head -1)"
-            if [ ! -d "$releases_dir/$base_vsn" ]; then
-                local tmp_dir
-                tmp_dir="$(mktemp -d -t emqx.XXXXXXX)"
-                unzip -q "$zip" "emqx/releases/*" -d "$tmp_dir"
-                unzip -q "$zip" "emqx/lib/*" -d "$tmp_dir"
-                cp -r -n "$tmp_dir/emqx/releases"/* "$releases_dir" || true
-                cp -r -n "$tmp_dir/emqx/lib"/* "$lib_dir" || true
-                rm -rf "$tmp_dir"
-            fi
-            releases+=( "$base_vsn" )
-        done < <("$FIND" _upgrade_base -maxdepth 1 -name "${name_pattern}.zip" -type f)
-      done
+        for BASE_VSN in $(relup_db base-vsns "$PKG_VSN"); do
+            OTP_BASE=$(relup_db otp-vsn-for "$PKG_VSN")
+            name_pattern="${PROFILE}-$(env OTP_VSN="$OTP_BASE" PKG_VSN="$BASE_VSN" ./scripts/pkg-full-vsn.sh 'vsn_exact')"
+            while read -r zip; do
+                local base_vsn
+                base_vsn="$(echo "$zip" | grep -oE "[0-9]+\.[0-9]+\.[0-9]+(-[0-9a-f]{8})?" | head -1)"
+                if [ ! -d "$releases_dir/$base_vsn" ]; then
+                    local tmp_dir
+                    tmp_dir="$(mktemp -d -t emqx.XXXXXXX)"
+                    unzip -q "$zip" "emqx/releases/*" -d "$tmp_dir"
+                    unzip -q "$zip" "emqx/lib/*" -d "$tmp_dir"
+                    cp -r -n "$tmp_dir/emqx/releases"/* "$releases_dir" || true
+                    cp -r -n "$tmp_dir/emqx/lib"/* "$lib_dir" || true
+                    rm -rf "$tmp_dir"
+                fi
+                releases+=( "$base_vsn" )
+            done < <("$FIND" _upgrade_base -maxdepth 1 -name "${name_pattern}.zip" -type f)
+        done
     fi
     if [ ${#releases[@]} -eq 0 ]; then
         log "No upgrade base found, relup ignored"
@@ -191,7 +191,7 @@ make_zip() {
     # shellcheck disable=SC2207
     bases=($(relup_db base-vsns "$PKG_VSN"))
     if [[ "${#bases[@]}" -eq 0 ]]; then
-      has_relup='no'
+        has_relup='no'
     fi
     if [ "$has_relup" = 'yes' ]; then
         ./scripts/inject-relup.escript "${tard}/emqx/releases/${PKG_VSN}/relup"

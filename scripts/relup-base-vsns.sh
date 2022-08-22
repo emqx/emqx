@@ -55,8 +55,8 @@ TAGS=( 'dummy' )
 TAGS_EXCLUDE=( 'dummy' )
 
 while read -r vsn; do
-  # shellcheck disable=SC2207
-  TAGS+=($(git tag -l "${GIT_TAG_PREFIX}${vsn}"))
+    # shellcheck disable=SC2207
+    TAGS+=($(git tag -l "${GIT_TAG_PREFIX}${vsn}"))
 done < <(./scripts/relup-base-vsns.escript base-vsns "$CUR" ./data/relup_bases.eterm)
 
 for tag_to_del in "${TAGS_EXCLUDE[@]}"; do

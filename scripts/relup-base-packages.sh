@@ -64,7 +64,7 @@ mkdir -p _upgrade_base
 pushd _upgrade_base
 
 otp_vsn_for() {
-  ../scripts/relup-base-vsns.escript otp-vsn-for "${1#[e|v]}" ../data/relup_bases.eterm
+    ../scripts/relup-base-vsns.escript otp-vsn-for "${1#[e|v]}" ../data/relup_bases.eterm
 }
 
 for tag in $(../scripts/relup-base-vsns.sh $EDITION | xargs echo -n); do
@@ -82,7 +82,7 @@ for tag in $(../scripts/relup-base-vsns.sh $EDITION | xargs echo -n); do
             echo "${SUMSTR}  ${filename}" | $SHASUM -c || exit 1
         fi
     else
-      echo "file $filename already downloaded or doesn't exist in the archives; skipping it"
+        echo "file $filename already downloaded or doesn't exist in the archives; skipping it"
     fi
 done
 
