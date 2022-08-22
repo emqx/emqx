@@ -30,6 +30,13 @@
 
 -export([authorize/3]).
 
+%% Internal exports (RPC)
+-export([
+    do_update/4,
+    do_delete/1,
+    do_create_app/3
+]).
+
 -define(APP, emqx_app).
 
 -record(?APP, {
@@ -58,40 +65,37 @@ create(Name, Enable, ExpiredAt, Desc) ->
     end.
 
 read(Name) ->
-    Fun = fun() ->
-        case mnesia:read(?APP, Name) of
-            [] -> mnesia:abort(not_found);
-            [App] -> to_map(App)
-        end
-    end,
-    trans(Fun).
+    case mnesia:dirty_read(?APP, Name) of
+        [App] -> {ok, to_map(App)};
+        [] -> {error, not_found}
+    end.
 
 update(Name, Enable, ExpiredAt, Desc) ->
-    Fun = fun() ->
-        case mnesia:read(?APP, Name, write) of
-            [] ->
-                mnesia:abort(not_found);
-            [App0 = #?APP{enable = Enable0, desc = Desc0}] ->
-                App =
-                    App0#?APP{
-                        expired_at = ExpiredAt,
-                        enable = ensure_not_undefined(Enable, Enable0),
-                        desc = ensure_not_undefined(Desc, Desc0)
-                    },
-                ok = mnesia:write(App),
-                to_map(App)
-        end
-    end,
-    trans(Fun).
+    trans(fun ?MODULE:do_update/4, [Name, Enable, ExpiredAt, Desc]).
+
+do_update(Name, Enable, ExpiredAt, Desc) ->
+    case mnesia:read(?APP, Name, write) of
+        [] ->
+            mnesia:abort(not_found);
+        [App0 = #?APP{enable = Enable0, desc = Desc0}] ->
+            App =
+                App0#?APP{
+                    expired_at = ExpiredAt,
+                    enable = ensure_not_undefined(Enable, Enable0),
+                    desc = ensure_not_undefined(Desc, Desc0)
+                },
+            ok = mnesia:write(App),
+            to_map(App)
+    end.
 
 delete(Name) ->
-    Fun = fun() ->
-        case mnesia:read(?APP, Name) of
-            [] -> mnesia:abort(not_found);
-            [_App] -> mnesia:delete({?APP, Name})
-        end
-    end,
-    trans(Fun).
+    trans(fun ?MODULE:do_delete/1, [Name]).
+
+do_delete(Name) ->
+    case mnesia:read(?APP, Name) of
+        [] -> mnesia:abort(not_found);
+        [_App] -> mnesia:delete({?APP, Name})
+    end.
 
 list() ->
     to_map(ets:match_object(?APP, #?APP{_ = '_'})).
@@ -118,8 +122,8 @@ authorize(_Path, ApiKey, ApiSecret) ->
 
 find_by_api_key(ApiKey) ->
     Fun = fun() -> mnesia:match_object(#?APP{api_key = ApiKey, _ = '_'}) end,
-    case trans(Fun) of
-        {ok, [#?APP{api_secret_hash = SecretHash, enable = Enable, expired_at = ExpiredAt}]} ->
+    case mria:ro_transaction(?COMMON_SHARD, Fun) of
+        {atomic, [#?APP{api_secret_hash = SecretHash, enable = Enable, expired_at = ExpiredAt}]} ->
             {ok, Enable, ExpiredAt, SecretHash};
         _ ->
             {error, "not_found"}
@@ -163,23 +167,24 @@ create_app(Name, Enable, ExpiredAt, Desc) ->
     end.
 
 create_app(App = #?APP{api_key = ApiKey, name = Name}) ->
-    trans(fun() ->
-        case mnesia:read(?APP, Name) of
-            [_] ->
-                mnesia:abort(name_already_existed);
-            [] ->
-                case mnesia:match_object(?APP, #?APP{api_key = ApiKey, _ = '_'}, read) of
-                    [] ->
-                        ok = mnesia:write(App),
-                        to_map(App);
-                    _ ->
-                        mnesia:abort(api_key_already_existed)
-                end
-        end
-    end).
+    trans(fun ?MODULE:do_create_app/3, [App, ApiKey, Name]).
 
-trans(Fun) ->
-    case mria:transaction(?COMMON_SHARD, Fun) of
+do_create_app(App, ApiKey, Name) ->
+    case mnesia:read(?APP, Name) of
+        [_] ->
+            mnesia:abort(name_already_existed);
+        [] ->
+            case mnesia:match_object(?APP, #?APP{api_key = ApiKey, _ = '_'}, read) of
+                [] ->
+                    ok = mnesia:write(App),
+                    to_map(App);
+                _ ->
+                    mnesia:abort(api_key_already_existed)
+            end
+    end.
+
+trans(Fun, Args) ->
+    case mria:transaction(?COMMON_SHARD, Fun, Args) of
         {atomic, Res} -> {ok, Res};
         {aborted, Error} -> {error, Error}
     end.
