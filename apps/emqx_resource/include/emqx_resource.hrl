@@ -50,7 +50,8 @@
     auto_retry_interval => integer(),
     %%======================================= Deprecated Opts End
     worker_pool_size => pos_integer(),
-    health_check_interval => pos_integer(),
+    %% use `integer()` compatibility to release 5.0.0 bpapi
+    health_check_interval => integer(),
     %% We can choose to block the return of emqx_resource:start until
     %% the resource connected, wait max to `start_timeout` ms.
     start_timeout => pos_integer(),

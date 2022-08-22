@@ -104,7 +104,7 @@ username(_) -> undefined.
 password(type) -> binary();
 password(desc) -> ?DESC("password");
 password(required) -> false;
-password(format) -> <<"format">>;
+password(format) -> <<"password">>;
 password(_) -> undefined.
 
 auto_reconnect(type) -> boolean();

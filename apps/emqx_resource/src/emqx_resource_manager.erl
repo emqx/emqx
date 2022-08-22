@@ -385,30 +385,14 @@ handle_event(EventType, EventData, State, Data) ->
 insert_cache(ResId, Group, Data = #data{manager_id = MgrId}) ->
     case get_owner(ResId) of
         not_found ->
-            ?SLOG(
-                debug,
-                #{
-                    msg => resource_owner_not_found,
-                    resource_id => ResId,
-                    action => auto_insert_cache
-                }
-            ),
             ets:insert(?ETS_TABLE, {ResId, Group, Data});
         MgrId ->
-            ?SLOG(
-                debug,
-                #{
-                    msg => resource_owner_matched,
-                    resource_id => ResId,
-                    action => reinsert_cache
-                }
-            ),
             ets:insert(?ETS_TABLE, {ResId, Group, Data});
         _ ->
             ?SLOG(error, #{
                 msg => get_resource_owner_failed,
                 resource_id => ResId,
-                action => quit_rusource
+                action => quit_resource
             }),
             self() ! quit
     end.
