@@ -29,12 +29,12 @@ main(["insert-new-vsn", NewVsn0, BaseFromVsn0, OtpVsn0, VsnDB]) ->
     OtpVsn = list_to_binary(OtpVsn0),
     case VsnMap of
       #{NewVsn := _} ->
-          io:format(user, ?RED ++ "Version ~s already in DB!~n" ++ ?RESET, [NewVsn]),
+          print_warning("Version ~s already in DB!~n", [NewVsn]),
           halt(1);
       #{BaseFromVsn := _} ->
           ok;
       _ ->
-          io:format(user, ?RED ++ "Version ~s not found in DB!~n" ++ ?RESET, [BaseFromVsn]),
+          print_warning("Version ~s not found in DB!~n", [BaseFromVsn]),
           halt(1)
     end,
     NewVsnMap = insert_new_vsn(VsnMap, NewVsn, OtpVsn, BaseFromVsn),
@@ -46,13 +46,12 @@ main(["check-vsn-db", NewVsn0, VsnDB]) ->
     case check_all_vsns_schema(VsnMap) of
         [] -> ok;
         Problems ->
-            io:format(user, ?RED ++ "Invalid Version DB ~s!~n", [VsnDB]),
-            io:format(user, "Problems found:~n", []),
+            print_warning("Invalid Version DB ~s!~n", [VsnDB]),
+            print_warning("Problems found:~n"),
             lists:foreach(
               fun(Problem) ->
-                io:format(user, "  ~p~n", [Problem])
+                print_warning("  ~p~n", [Problem])
               end, Problems),
-            io:format(user, ?RESET, []),
             halt(1)
     end,
     case VsnMap of
@@ -61,20 +60,18 @@ main(["check-vsn-db", NewVsn0, VsnDB]) ->
             halt(0);
         _ ->
             Candidates = find_insertion_candidates(NewVsn, VsnMap),
-            io:format(user, ?RED ++ "Version ~s not found in the version DB!~n", [NewVsn]),
+            print_warning("Version ~s not found in the version DB!~n", [NewVsn]),
             [] =/= Candidates
-                andalso io:format(user, "Candidates for to insert this version into:~n", []),
+                andalso print_warning("Candidates for to insert this version into:~n"),
             lists:foreach(
               fun(Vsn) ->
                 io:format(user, "  ~s~n", [Vsn])
               end, Candidates),
-            io:format(
-              user,
+            print_warning(
               "To insert this version automatically, run:~n"
               "./scripts/relup-base-vsns insert-new-vsn NEW-VSN BASE-FROM-VSN NEW-OTP-VSN ~s~n"
               "And commit the results.  Be sure to revise the changes.~n"
-              "Otherwise, edit the file manually~n"
-              ?RESET,
+              "Otherwise, edit the file manually~n",
               [VsnDB]),
             halt(1)
     end.
@@ -84,7 +81,7 @@ strip_pre_release(Vsn0) ->
         {match, [Vsn]} ->
             Vsn;
         _ ->
-            io:format(user, [?RED, "Invalid Version: ~s ~n", ?RESET], [Vsn0]),
+            print_warning("Invalid Version: ~s ~n", [Vsn0]),
             halt(1)
     end.
 
@@ -93,7 +90,7 @@ fetch_version(Vsn, VsnMap) ->
         #{Vsn := VsnData} ->
             VsnData;
         _ ->
-            io:format(user, [?RED, "Version not found in releases: ~s ~n", ?RESET], [Vsn]),
+            print_warning("Version not found in releases: ~s ~n", [Vsn]),
             halt(1)
     end.
 
@@ -176,3 +173,9 @@ insert_new_vsn(VsnMap0, NewVsn, OtpVsn, BaseFromVsn) ->
           VsnMap0,
           Candidates),
     VsnMap1#{NewVsn => #{otp => OtpVsn, from_versions => Froms}}.
+
+print_warning(Msg) ->
+    print_warning(Msg, []).
+
+print_warning(Msg, Args) ->
+    io:format(user, ?RED ++ Msg ++ ?RESET, Args).
