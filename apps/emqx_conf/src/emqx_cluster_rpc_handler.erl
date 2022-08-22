@@ -30,6 +30,11 @@
     code_change/3
 ]).
 
+%% Internal exports (RPC)
+-export([
+    del_stale_mfa/1
+]).
+
 start_link() ->
     MaxHistory = emqx_conf:get(["node", "cluster_call", "max_history"], 100),
     CleanupMs = emqx_conf:get(["node", "cluster_call", "cleanup_interval"], 5 * 60 * 1000),
@@ -56,7 +61,7 @@ handle_cast(Msg, State) ->
     {noreply, State}.
 
 handle_info({timeout, TRef, del_stale_mfa}, State = #{timer := TRef, max_history := MaxHistory}) ->
-    case mria:transaction(?CLUSTER_RPC_SHARD, fun del_stale_mfa/1, [MaxHistory]) of
+    case mria:transaction(?CLUSTER_RPC_SHARD, fun ?MODULE:del_stale_mfa/1, [MaxHistory]) of
         {atomic, ok} -> ok;
         Error -> ?SLOG(error, #{msg => "del_stale_cluster_rpc_mfa_error", error => Error})
     end,

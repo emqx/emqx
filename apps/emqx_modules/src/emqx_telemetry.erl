@@ -54,6 +54,11 @@
 
 -export([official_version/1]).
 
+%% Internal exports (RPC)
+-export([
+    do_ensure_uuids/0
+]).
+
 %% internal export
 -export([read_raw_build_info/0]).
 
@@ -530,52 +535,54 @@ bin(B) when is_binary(B) ->
     B.
 
 ensure_uuids() ->
-    Txn = fun() ->
-        NodeUUID =
-            case mnesia:wread({?TELEMETRY, node()}) of
-                [] ->
-                    NodeUUID0 =
-                        case get_uuid_from_file(node) of
-                            {ok, NUUID} -> NUUID;
-                            undefined -> generate_uuid()
-                        end,
-                    mnesia:write(
-                        ?TELEMETRY,
-                        #telemetry{
-                            id = node(),
-                            uuid = NodeUUID0
-                        },
-                        write
-                    ),
-                    NodeUUID0;
-                [#telemetry{uuid = NodeUUID0}] ->
-                    NodeUUID0
-            end,
-        ClusterUUID =
-            case mnesia:wread({?TELEMETRY, ?CLUSTER_UUID_KEY}) of
-                [] ->
-                    ClusterUUID0 =
-                        case get_uuid_from_file(cluster) of
-                            {ok, CUUID} -> CUUID;
-                            undefined -> generate_uuid()
-                        end,
-                    mnesia:write(
-                        ?TELEMETRY,
-                        #telemetry{
-                            id = ?CLUSTER_UUID_KEY,
-                            uuid = ClusterUUID0
-                        },
-                        write
-                    ),
-                    ClusterUUID0;
-                [#telemetry{uuid = ClusterUUID0}] ->
-                    ClusterUUID0
-            end,
-        {NodeUUID, ClusterUUID}
-    end,
-    {atomic, {NodeUUID, ClusterUUID}} = mria:transaction(?TELEMETRY_SHARD, Txn),
+    {atomic, {NodeUUID, ClusterUUID}} = mria:transaction(
+        ?TELEMETRY_SHARD, fun ?MODULE:do_ensure_uuids/0
+    ),
     save_uuid_to_file(NodeUUID, node),
     save_uuid_to_file(ClusterUUID, cluster),
+    {NodeUUID, ClusterUUID}.
+
+do_ensure_uuids() ->
+    NodeUUID =
+        case mnesia:wread({?TELEMETRY, node()}) of
+            [] ->
+                NodeUUID0 =
+                    case get_uuid_from_file(node) of
+                        {ok, NUUID} -> NUUID;
+                        undefined -> generate_uuid()
+                    end,
+                mnesia:write(
+                    ?TELEMETRY,
+                    #telemetry{
+                        id = node(),
+                        uuid = NodeUUID0
+                    },
+                    write
+                ),
+                NodeUUID0;
+            [#telemetry{uuid = NodeUUID0}] ->
+                NodeUUID0
+        end,
+    ClusterUUID =
+        case mnesia:wread({?TELEMETRY, ?CLUSTER_UUID_KEY}) of
+            [] ->
+                ClusterUUID0 =
+                    case get_uuid_from_file(cluster) of
+                        {ok, CUUID} -> CUUID;
+                        undefined -> generate_uuid()
+                    end,
+                mnesia:write(
+                    ?TELEMETRY,
+                    #telemetry{
+                        id = ?CLUSTER_UUID_KEY,
+                        uuid = ClusterUUID0
+                    },
+                    write
+                ),
+                ClusterUUID0;
+            [#telemetry{uuid = ClusterUUID0}] ->
+                ClusterUUID0
+        end,
     {NodeUUID, ClusterUUID}.
 
 get_uuid_from_file(Type) ->
