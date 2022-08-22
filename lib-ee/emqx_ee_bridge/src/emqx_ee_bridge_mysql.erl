@@ -127,6 +127,8 @@ desc(connector) ->
     ?DESC("desc_connector");
 desc(Method) when Method =:= "get"; Method =:= "put"; Method =:= "post" ->
     ["Configuration for MySQL using `", string:to_upper(Method), "` method."];
+desc("creation_opts" = Name) ->
+    emqx_resource_schema:desc(Name);
 desc(_) ->
     undefined.
 
