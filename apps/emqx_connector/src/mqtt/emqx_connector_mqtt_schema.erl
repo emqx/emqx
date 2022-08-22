@@ -40,15 +40,21 @@ roots() ->
 fields("config") ->
     fields("server_configs") ++
         [
-            {ingress,
+            {"ingress",
                 mk(
                     hoconsc:union([none, ref(?MODULE, "ingress")]),
-                    #{default => undefined}
+                    #{
+                        default => undefined,
+                        desc => ?DESC("ingress_desc")
+                    }
                 )},
-            {egress,
+            {"egress",
                 mk(
                     hoconsc:union([none, ref(?MODULE, "egress")]),
-                    #{default => undefined}
+                    #{
+                        default => undefined,
+                        desc => ?DESC("egress_desc")
+                    }
                 )}
         ];
 fields("server_configs") ->

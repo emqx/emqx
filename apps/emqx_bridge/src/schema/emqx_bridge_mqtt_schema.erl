@@ -25,6 +25,8 @@ fields("put") ->
 fields("get") ->
     emqx_bridge_schema:metrics_status_fields() ++ fields("config").
 
+desc("config") ->
+    ?DESC("config");
 desc(_) ->
     undefined.
 
