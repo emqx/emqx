@@ -37,8 +37,7 @@
     create/3,
     disable_enable/3,
     remove/2,
-    list/0,
-    list_bridges_by_connector/1
+    list/0
 ]).
 
 -export([send_message/2]).
@@ -47,6 +46,8 @@
 
 %% exported for `emqx_telemetry'
 -export([get_basic_usage_info/0]).
+
+-define(EGRESS_DIR_BRIDGES(T), T == webhook; T == mysql).
 
 load() ->
     Bridges = emqx:get_config([bridges], #{}),
@@ -93,10 +94,10 @@ load_hook() ->
 
 load_hook(Bridges) ->
     lists:foreach(
-        fun({_Type, Bridge}) ->
+        fun({Type, Bridge}) ->
             lists:foreach(
                 fun({_Name, BridgeConf}) ->
-                    do_load_hook(BridgeConf)
+                    do_load_hook(Type, BridgeConf)
                 end,
                 maps:to_list(Bridge)
             )
@@ -104,12 +105,13 @@ load_hook(Bridges) ->
         maps:to_list(Bridges)
     ).
 
-do_load_hook(#{local_topic := _} = Conf) ->
-    case maps:get(direction, Conf, egress) of
-        egress -> emqx_hooks:put('message.publish', {?MODULE, on_message_publish, []}, ?HP_BRIDGE);
-        ingress -> ok
-    end;
-do_load_hook(_Conf) ->
+do_load_hook(Type, #{local_topic := _}) when ?EGRESS_DIR_BRIDGES(Type) ->
+    emqx_hooks:put('message.publish', {?MODULE, on_message_publish, []}, ?HP_BRIDGE);
+do_load_hook(mqtt, #{egress := #{local := #{topic := _}}}) ->
+    emqx_hooks:put('message.publish', {?MODULE, on_message_publish, []}, ?HP_BRIDGE);
+do_load_hook(kafka, #{producer := #{mqtt := #{topic := _}}}) ->
+    emqx_hooks:put('message.publish', {?MODULE, on_message_publish, []}, ?HP_BRIDGE);
+do_load_hook(_Type, _Conf) ->
     ok.
 
 unload_hook() ->
@@ -196,13 +198,6 @@ list() ->
         [],
         maps:to_list(emqx:get_raw_config([bridges], #{}))
     ).
-
-list_bridges_by_connector(ConnectorId) ->
-    [
-        B
-     || B = #{raw_config := #{<<"connector">> := Id}} <- list(),
-        ConnectorId =:= Id
-    ].
 
 lookup(Id) ->
     {Type, Name} = emqx_bridge_resource:parse_bridge_id(Id),
@@ -303,13 +298,8 @@ get_matched_bridges(Topic) ->
     maps:fold(
         fun(BType, Conf, Acc0) ->
             maps:fold(
-                fun
-                    %% Confs for MQTT, Kafka bridges have the `direction` flag
-                    (_BName, #{direction := ingress}, Acc1) ->
-                        Acc1;
-                    (BName, #{direction := egress} = Egress, Acc1) ->
-                        %% WebHook, MySQL bridges only have egress direction
-                        get_matched_bridge_id(Egress, Topic, BType, BName, Acc1)
+                fun(BName, BConf, Acc1) ->
+                    get_matched_bridge_id(BType, BConf, Topic, BName, Acc1)
                 end,
                 Acc0,
                 Conf
@@ -319,9 +309,18 @@ get_matched_bridges(Topic) ->
         Bridges
     ).
 
-get_matched_bridge_id(#{enable := false}, _Topic, _BType, _BName, Acc) ->
+get_matched_bridge_id(_BType, #{enable := false}, _Topic, _BName, Acc) ->
     Acc;
-get_matched_bridge_id(#{local_topic := Filter}, Topic, BType, BName, Acc) ->
+get_matched_bridge_id(BType, #{local_topic := Filter}, Topic, BName, Acc) when
+    ?EGRESS_DIR_BRIDGES(BType)
+->
+    do_get_matched_bridge_id(Topic, Filter, BType, BName, Acc);
+get_matched_bridge_id(mqtt, #{egress := #{local := #{topic := Filter}}}, Topic, BName, Acc) ->
+    do_get_matched_bridge_id(Topic, Filter, mqtt, BName, Acc);
+get_matched_bridge_id(kafka, #{producer := #{mqtt := #{topic := Filter}}}, Topic, BName, Acc) ->
+    do_get_matched_bridge_id(Topic, Filter, kafka, BName, Acc).
+
+do_get_matched_bridge_id(Topic, Filter, BType, BName, Acc) ->
     case emqx_topic:match(Topic, Filter) of
         true -> [emqx_bridge_resource:bridge_id(BType, BName) | Acc];
         false -> Acc

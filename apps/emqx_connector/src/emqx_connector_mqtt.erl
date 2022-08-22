@@ -67,7 +67,7 @@ fields("get") ->
             )}
     ] ++ fields("post");
 fields("put") ->
-    emqx_connector_mqtt_schema:fields("connector");
+    emqx_connector_mqtt_schema:fields("server_configs");
 fields("post") ->
     [
         {type,
@@ -236,11 +236,9 @@ basic_config(#{
     keepalive := KeepAlive,
     retry_interval := RetryIntv,
     max_inflight := MaxInflight,
-    replayq := ReplayQ,
     ssl := #{enable := EnableSsl} = Ssl
 }) ->
     #{
-        replayq => ReplayQ,
         %% connection opts
         server => Server,
         %% 30s

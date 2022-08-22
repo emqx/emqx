@@ -42,8 +42,6 @@
 
 -export([lookup_from_local_node/2]).
 
--define(CONN_TYPES, [mqtt]).
-
 -define(TRY_PARSE_ID(ID, EXPR),
     try emqx_bridge_resource:parse_bridge_id(Id) of
         {BridgeType, BridgeName} ->
@@ -146,7 +144,7 @@ param_path_id() ->
             #{
                 in => path,
                 required => true,
-                example => <<"webhook:my_webhook">>,
+                example => <<"webhook:webhook_example">>,
                 desc => ?DESC("desc_param_path_id")
             }
         )}.
@@ -155,66 +153,45 @@ bridge_info_array_example(Method) ->
     [Config || #{value := Config} <- maps:values(bridge_info_examples(Method))].
 
 bridge_info_examples(Method) ->
-    maps:merge(conn_bridge_examples(Method), #{
-        <<"my_webhook">> => #{
-            summary => <<"WebHook">>,
-            value => info_example(webhook, awesome, Method)
-        }
-    }).
-
-conn_bridge_examples(Method) ->
-    Fun =
-        fun(Type, Acc) ->
-            SType = atom_to_list(Type),
-            KeyIngress = bin(SType ++ "_ingress"),
-            KeyEgress = bin(SType ++ "_egress"),
-            maps:merge(Acc, #{
-                KeyIngress => #{
-                    summary => bin(string:uppercase(SType) ++ " Ingress Bridge"),
-                    value => info_example(Type, ingress, Method)
-                },
-                KeyEgress => #{
-                    summary => bin(string:uppercase(SType) ++ " Egress Bridge"),
-                    value => info_example(Type, egress, Method)
-                }
-            })
-        end,
-    Broker = lists:foldl(Fun, #{}, ?CONN_TYPES),
-    EE = ee_conn_bridge_examples(Method),
-    maps:merge(Broker, EE).
-
--if(?EMQX_RELEASE_EDITION == ee).
-ee_conn_bridge_examples(Method) ->
-    emqx_ee_bridge:conn_bridge_examples(Method).
--else.
-ee_conn_bridge_examples(_Method) ->
-    #{}.
--endif.
-
-info_example(Type, Direction, Method) ->
     maps:merge(
-        info_example_basic(Type, Direction),
-        method_example(Type, Direction, Method)
+        #{
+            <<"webhook_example">> => #{
+                summary => <<"WebHook">>,
+                value => info_example(webhook, Method)
+            },
+            <<"mqtt_example">> => #{
+                summary => <<"MQTT Bridge">>,
+                value => info_example(mqtt, Method)
+            }
+        },
+        ee_bridge_examples(Method)
     ).
 
-method_example(Type, Direction, Method) when Method == get; Method == post ->
+ee_bridge_examples(Method) ->
+    case erlang:function_exported(emqx_ee_bridge, examples, 1) of
+        true -> emqx_ee_bridge:examples(Method);
+        false -> #{}
+    end.
+
+info_example(Type, Method) ->
+    maps:merge(
+        info_example_basic(Type),
+        method_example(Type, Method)
+    ).
+
+method_example(Type, Method) when Method == get; Method == post ->
     SType = atom_to_list(Type),
-    SDir = atom_to_list(Direction),
-    SName =
-        case Type of
-            webhook -> "my_" ++ SType;
-            _ -> "my_" ++ SDir ++ "_" ++ SType ++ "_bridge"
-        end,
-    TypeNameExamp = #{
+    SName = SType ++ "_example",
+    TypeNameExam = #{
         type => bin(SType),
         name => bin(SName)
     },
-    maybe_with_metrics_example(TypeNameExamp, Method);
-method_example(_Type, _Direction, put) ->
+    maybe_with_metrics_example(TypeNameExam, Method);
+method_example(_Type, put) ->
     #{}.
 
-maybe_with_metrics_example(TypeNameExamp, get) ->
-    TypeNameExamp#{
+maybe_with_metrics_example(TypeNameExam, get) ->
+    TypeNameExam#{
         metrics => ?METRICS(0, 0, 0, 0, 0, 0),
         node_metrics => [
             #{
@@ -223,10 +200,10 @@ maybe_with_metrics_example(TypeNameExamp, get) ->
             }
         ]
     };
-maybe_with_metrics_example(TypeNameExamp, _) ->
-    TypeNameExamp.
+maybe_with_metrics_example(TypeNameExam, _) ->
+    TypeNameExam.
 
-info_example_basic(webhook, _) ->
+info_example_basic(webhook) ->
     #{
         enable => true,
         url => <<"http://localhost:9901/messages/${topic}">>,
@@ -241,28 +218,52 @@ info_example_basic(webhook, _) ->
         method => post,
         body => <<"${payload}">>
     };
-info_example_basic(mqtt, ingress) ->
+info_example_basic(mqtt) ->
+    (mqtt_main_example())#{
+        egress => mqtt_egress_example(),
+        ingress => mqtt_ingress_example()
+    }.
+
+mqtt_main_example() ->
     #{
         enable => true,
-        connector => <<"mqtt:my_mqtt_connector">>,
-        direction => ingress,
-        remote_topic => <<"aws/#">>,
-        remote_qos => 1,
-        local_topic => <<"from_aws/${topic}">>,
-        local_qos => <<"${qos}">>,
-        payload => <<"${payload}">>,
-        retain => <<"${retain}">>
-    };
-info_example_basic(mqtt, egress) ->
+        mode => cluster_shareload,
+        server => <<"127.0.0.1:1883">>,
+        proto_ver => <<"v4">>,
+        username => <<"foo">>,
+        password => <<"bar">>,
+        clean_start => true,
+        keepalive => <<"300s">>,
+        retry_interval => <<"15s">>,
+        max_inflight => 100,
+        ssl => #{
+            enable => false
+        }
+    }.
+mqtt_egress_example() ->
     #{
-        enable => true,
-        connector => <<"mqtt:my_mqtt_connector">>,
-        direction => egress,
-        local_topic => <<"emqx/#">>,
-        remote_topic => <<"from_emqx/${topic}">>,
-        remote_qos => <<"${qos}">>,
-        payload => <<"${payload}">>,
-        retain => false
+        local => #{
+            topic => <<"emqx/#">>
+        },
+        remote => #{
+            topic => <<"from_emqx/${topic}">>,
+            qos => <<"${qos}">>,
+            payload => <<"${payload}">>,
+            retain => false
+        }
+    }.
+mqtt_ingress_example() ->
+    #{
+        remote => #{
+            topic => <<"aws/#">>,
+            qos => 1
+        },
+        local => #{
+            topic => <<"from_aws/${topic}">>,
+            qos => <<"${qos}">>,
+            payload => <<"${payload}">>,
+            retain => <<"${retain}">>
+        }
     }.
 
 schema("/bridges") ->

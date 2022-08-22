@@ -38,13 +38,15 @@
 
 -type msg() :: emqx_types:message().
 -type exp_msg() :: emqx_types:message() | #mqtt_msg{}.
-
--type variables() :: #{
-    mountpoint := undefined | binary(),
-    remote_topic := binary(),
-    remote_qos := original | integer(),
+-type remote_config() :: #{
+    topic := binary(),
+    qos := original | integer(),
     retain := original | boolean(),
     payload := binary()
+}.
+-type variables() :: #{
+    mountpoint := undefined | binary(),
+    remote := remote_config()
 }.
 
 make_pub_vars(_, undefined) ->
@@ -67,10 +69,12 @@ to_remote_msg(#message{flags = Flags0} = Msg, Vars) ->
     MapMsg = maps:put(retain, Retain0, Columns),
     to_remote_msg(MapMsg, Vars);
 to_remote_msg(MapMsg, #{
-    remote_topic := TopicToken,
-    payload := PayloadToken,
-    remote_qos := QoSToken,
-    retain := RetainToken,
+    remote := #{
+        topic := TopicToken,
+        payload := PayloadToken,
+        qos := QoSToken,
+        retain := RetainToken
+    },
     mountpoint := Mountpoint
 }) when is_map(MapMsg) ->
     Topic = replace_vars_in_str(TopicToken, MapMsg),
@@ -91,11 +95,13 @@ to_remote_msg(#message{topic = Topic} = Msg, #{mountpoint := Mountpoint}) ->
 to_broker_msg(
     #{dup := Dup} = MapMsg,
     #{
-        local_topic := TopicToken,
-        payload := PayloadToken,
-        local_qos := QoSToken,
-        retain := RetainToken,
-        mountpoint := Mountpoint
+        local := #{
+            topic := TopicToken,
+            payload := PayloadToken,
+            qos := QoSToken,
+            retain := RetainToken,
+            mountpoint := Mountpoint
+        }
     },
     Props
 ) ->

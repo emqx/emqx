@@ -68,7 +68,6 @@
 %% APIs
 -export([
     start_link/1,
-    register_metrics/0,
     stop/1
 ]).
 
@@ -247,18 +246,19 @@ pre_process_opts(#{subscriptions := InConf, forwards := OutConf} = ConnectOpts) 
 
 pre_process_in_out(_, undefined) ->
     undefined;
+pre_process_in_out(in, #{local := LC} = Conf) when is_map(Conf) ->
+    Conf#{local => pre_process_in_out_common(LC)};
 pre_process_in_out(in, Conf) when is_map(Conf) ->
-    Conf1 = pre_process_conf(local_topic, Conf),
-    Conf2 = pre_process_conf(local_qos, Conf1),
-    pre_process_in_out_common(Conf2);
-pre_process_in_out(out, Conf) when is_map(Conf) ->
-    Conf1 = pre_process_conf(remote_topic, Conf),
-    Conf2 = pre_process_conf(remote_qos, Conf1),
-    pre_process_in_out_common(Conf2).
+    %% have no 'local' field in the config
+    Conf;
+pre_process_in_out(out, #{remote := RC} = Conf) when is_map(Conf) ->
+    Conf#{remote => pre_process_in_out_common(RC)}.
 
-pre_process_in_out_common(Conf) ->
-    Conf1 = pre_process_conf(payload, Conf),
-    pre_process_conf(retain, Conf1).
+pre_process_in_out_common(Conf0) ->
+    Conf1 = pre_process_conf(topic, Conf0),
+    Conf2 = pre_process_conf(qos, Conf1),
+    Conf3 = pre_process_conf(payload, Conf2),
+    pre_process_conf(retain, Conf3).
 
 pre_process_conf(Key, Conf) ->
     case maps:find(Key, Conf) of
@@ -450,7 +450,6 @@ do_send(
 ) ->
     Vars = emqx_connector_mqtt_msg:make_pub_vars(Mountpoint, Forwards),
     ExportMsg = fun(Message) ->
-        emqx_metrics:inc('bridge.mqtt.message_sent_to_remote'),
         emqx_connector_mqtt_msg:to_remote_msg(Message, Vars)
     end,
     ?SLOG(debug, #{
@@ -550,15 +549,6 @@ format_mountpoint(Prefix) ->
     binary:replace(iolist_to_binary(Prefix), <<"${node}">>, atom_to_binary(node(), utf8)).
 
 name(Id) -> list_to_atom(str(Id)).
-
-register_metrics() ->
-    lists:foreach(
-        fun emqx_metrics:ensure/1,
-        [
-            'bridge.mqtt.message_sent_to_remote',
-            'bridge.mqtt.message_received_from_remote'
-        ]
-    ).
 
 obfuscate(Map) ->
     maps:fold(

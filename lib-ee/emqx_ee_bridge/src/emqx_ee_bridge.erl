@@ -7,7 +7,7 @@
 
 -export([
     api_schemas/1,
-    conn_bridge_examples/1,
+    examples/1,
     resource_type/1,
     fields/1
 ]).
@@ -28,7 +28,7 @@ schema_modules() ->
         emqx_ee_bridge_mysql
     ].
 
-conn_bridge_examples(Method) ->
+examples(Method) ->
     MergeFun =
         fun(Example, Examples) ->
             maps:merge(Examples, Example)

@@ -50,14 +50,6 @@ basic_config() ->
                     desc => ?DESC("config_enable"),
                     default => true
                 }
-            )},
-        {direction,
-            mk(
-                egress,
-                #{
-                    desc => ?DESC("config_direction"),
-                    default => egress
-                }
             )}
     ] ++ webhook_creation_opts() ++
         proplists:delete(
