@@ -29,7 +29,7 @@ The second path is for CMD to setup environment variables.
 
 ### Erlang/OTP
 
-Install Erlang/OTP 23.3 from https://www.erlang.org/downloads
+Install Erlang/OTP 24.2.1 from https://www.erlang.org/downloads
 You may need to edit the `Path` environment variable to allow running
 Erlang commands such as `erl` from CMD.
 
@@ -45,7 +45,7 @@ e.g.
 
 ```
 PS C:\Users\zmsto> erl
-Eshell V11.1.4  (abort with ^G)
+Eshell V12.2.1  (abort with ^G)
 1> halt().
 ```
 

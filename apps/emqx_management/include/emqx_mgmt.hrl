@@ -33,4 +33,4 @@
 -define(ERROR15, 115). %% bad topic
 -define(ERROR16, 116). %% bad QoS
 
--define(VERSIONS, ["4.0", "4.1", "4.2", "4.3"]).
+-define(VERSIONS, ["4.0", "4.1", "4.2", "4.3", "4.4"]).

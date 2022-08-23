@@ -1,5 +1,10 @@
 name: Build slim packages
 
+concurrency:
+  group: slim-${{ github.event_name }}-${{ github.ref }}
+  cancel-in-progress: true
+
+
 on:
   pull_request:
   workflow_dispatch:
@@ -9,19 +14,22 @@ jobs:
     runs-on: ubuntu-20.04
 
     strategy:
+      fail-fast: false
       matrix:
         erl_otp:
-        - erl23.3.4.9-3
+        - 23.3.4.9-3
+        - 24.1.5-3
         os:
         - ubuntu20.04
-        - centos7
+        - el8
 
-    container: emqx/build-env:${{ matrix.erl_otp }}-${{ matrix.os }}
+    container: ghcr.io/emqx/emqx-builder/4.4-19:${{ matrix.erl_otp }}-${{ matrix.os }}
 
     steps:
     - uses: actions/checkout@v1
     - name: prepare
       run: |
+        git config --global --add safe.directory "$GITHUB_WORKSPACE"
         if make emqx-ee --dry-run > /dev/null 2>&1; then
           echo "https://ci%40emqx.io:${{ secrets.CI_GIT_TOKEN }}@github.com" > $HOME/.git-credentials
           git config --global credential.helper store
@@ -42,23 +50,63 @@ jobs:
       with:
         name: rebar3.crashdump
         path: ./rebar3.crashdump
-    - name: pakcages test
+    - name: packages test
       run: |
-        export CODE_PATH=$GITHUB_WORKSPACE
-        .ci/build_packages/tests.sh
+        export CODE_PATH="$GITHUB_WORKSPACE"
+        .ci/build_packages/tests.sh "${EMQX_NAME}" zip
+        .ci/build_packages/tests.sh "${EMQX_NAME}" pkg
     - uses: actions/upload-artifact@v2
       with:
         name: ${{ matrix.os }}
         path: _packages/**/*.zip
 
+  windows:
+    runs-on: windows-2019
+    if: endsWith(github.repository, 'emqx')
+    strategy:
+      fail-fast: false
+      matrix:
+        profile:
+          - emqx
+        otp:
+          - 24.2.1
+    steps:
+    - uses: actions/checkout@v2
+    - uses: ilammy/msvc-dev-cmd@v1
+    - uses: erlef/setup-beam@v1
+      with:
+        otp-version: ${{ matrix.otp }}
+    - name: build
+      env:
+        PYTHON: python
+        DIAGNOSTIC: 1
+      run: |
+        erl -eval "erlang:display(crypto:info_lib())" -s init stop
+        make ${{ matrix.profile }}-zip
+    - name: run emqx
+      timeout-minutes: 1
+      run: |
+        ./_build/${{ matrix.profile }}/rel/emqx/bin/emqx start
+        Start-Sleep -s 5
+        echo "EMQX started"
+        ./_build/${{ matrix.profile }}/rel/emqx/bin/emqx stop
+        echo "EMQX stopped"
+        ./_build/${{ matrix.profile }}/rel/emqx/bin/emqx install
+        echo "EQMX installed"
+        ./_build/${{ matrix.profile }}/rel/emqx/bin/emqx uninstall
+        echo "EQMX uninstaled"
+
   mac:
     strategy:
+      fail-fast: false
       matrix:
-        erl_otp:
-        - 23.3.4.9-3
+        otp:
+        - 24.1.5-3
         macos:
         - macos-11
-    runs-on: ${{ matrix.macos }}
+
+    runs-on: ${{  matrix.macos }}
+
     steps:
     - uses: actions/checkout@v1
     - name: prepare
@@ -79,8 +127,8 @@ jobs:
     - uses: actions/cache@v2
       id: cache
       with:
-        path: ~/.kerl/${{ matrix.erl_otp }}
-        key: otp-install-${{ matrix.erl_otp }}-${{ matrix.macos }}
+        path: ~/.kerl/${{ matrix.otp }}
+        key: otp-install-${{ matrix.otp }}-${{ matrix.macos }}
     - name: build erlang
       if: steps.cache.outputs.cache-hit != 'true'
       timeout-minutes: 60
@@ -89,11 +137,11 @@ jobs:
         OTP_GITHUB_URL: https://github.com/emqx/otp
       run: |
         kerl update releases
-        kerl build ${{ matrix.erl_otp }}
-        kerl install ${{ matrix.erl_otp }} $HOME/.kerl/${{ matrix.erl_otp }}
+        kerl build ${{ matrix.otp }}
+        kerl install ${{ matrix.otp }} $HOME/.kerl/${{ matrix.otp }}
     - name: build
       run: |
-        . $HOME/.kerl/${{ matrix.erl_otp }}/activate
+        . $HOME/.kerl/${{ matrix.otp }}/activate
         make ensure-rebar3
         sudo cp rebar3 /usr/local/bin/rebar3
         make ${EMQX_NAME}-zip
@@ -104,8 +152,8 @@ jobs:
         path: ./rebar3.crashdump
     - name: test
       run: |
-        pkg_name=$(basename _packages/${EMQX_NAME}/emqx-*.zip)
-        unzip -q _packages/${EMQX_NAME}/$pkg_name
+        pkg_name=$(find _packages/${EMQX_NAME} -mindepth 1 -maxdepth 1 -iname \*.zip)
+        unzip -q $pkg_name
         gsed -i '/emqx_telemetry/d' ./emqx/data/loaded_plugins
         ./emqx/bin/emqx start || cat emqx/log/erlang.log.1
         ready='no'
