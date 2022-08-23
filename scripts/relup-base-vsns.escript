@@ -90,7 +90,7 @@ main(["insert-new-vsn", NewVsn0, BaseFromVsn0, OtpVsn0, VsnDB]) ->
     NewVsnList =
         lists:sort(
          fun({Vsn1, _}, {Vsn2, _}) ->
-           Vsn1 < Vsn2
+           parse_vsn(Vsn1) < parse_vsn(Vsn2)
          end, maps:to_list(NewVsnMap)),
     file:write_file(VsnDB, io_lib:format("%% -*- mode: erlang; -*-\n\n~p.~n", [NewVsnList])),
     halt(0);
