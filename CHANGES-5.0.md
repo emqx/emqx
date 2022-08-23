@@ -1,10 +1,16 @@
-# 5.0.6
+# 5.0.7
 
 ## Bug fixes
 
 * Remove the needless `will_msg` field from the client API. [#8721](https://github.com/emqx/emqx/pull/8721)
 * Fix `$queue` topic name error in management API return. [#8728](https://github.com/emqx/emqx/pull/8728)
 * Fix sometimes `client.connected` and `client.disconnected` could be in wrong order. [#8625](https://github.com/emqx/emqx/pull/8625)
+
+# 5.0.6
+
+## Bug fixes
+
+* Upgrade Dashboard version to fix an issue where the node status was not displayed correctly. [#8771](https://github.com/emqx/emqx/pull/8771)
 
 # 5.0.5
 
@@ -21,6 +27,7 @@
 * Updated `/nodes` API node_status from `Running/Stopped` to `running/stopped`. [#8642](https://github.com/emqx/emqx/pull/8642)
 * Improve handling of placeholder interpolation errors [#8635](https://github.com/emqx/emqx/pull/8635)
 * Better logging on unknown object IDs. [#8670](https://github.com/emqx/emqx/pull/8670)
+* The bind option support `:1883` style. [#8758](https://github.com/emqx/emqx/pull/8758)
 
 # 5.0.4
 
