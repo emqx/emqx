@@ -46,14 +46,16 @@ init_per_suite(Config) ->
     of
         true ->
             ok = emqx_common_test_helpers:start_apps([emqx_conf]),
-            ok = emqx_connector_test_helpers:start_apps([emqx_resource, emqx_connector]),
+            ok = emqx_connector_test_helpers:start_apps([emqx_resource]),
+            {ok, _} = application:ensure_all_started(emqx_connector),
             Config;
         false ->
             {skip, no_redis}
     end.
 
 end_per_suite(_Config) ->
-    ok = emqx_common_test_helpers:stop_apps([emqx_resource, emqx_connector]).
+    ok = emqx_common_test_helpers:stop_apps([emqx_resource]),
+    _ = application:stop(emqx_connector).
 
 init_per_testcase(_, Config) ->
     Config.

@@ -20,15 +20,10 @@
 
 -export([start/2, stop/1]).
 
--define(CONF_HDLR_PATH, (emqx_connector:config_key_path() ++ ['?', '?'])).
-
 start(_StartType, _StartArgs) ->
-    ok = emqx_config_handler:add_handler(?CONF_HDLR_PATH, emqx_connector),
-    emqx_connector_mqtt_worker:register_metrics(),
     emqx_connector_sup:start_link().
 
 stop(_State) ->
-    emqx_config_handler:remove_handler(?CONF_HDLR_PATH),
     ok.
 
 %% internal functions

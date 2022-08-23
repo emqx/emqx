@@ -207,7 +207,7 @@ make_hdlr(Parent, Vars, Opts) ->
 
 sub_remote_topics(_ClientPid, undefined) ->
     ok;
-sub_remote_topics(ClientPid, #{remote_topic := FromTopic, remote_qos := QoS}) ->
+sub_remote_topics(ClientPid, #{remote := #{topic := FromTopic, qos := QoS}}) ->
     case emqtt:subscribe(ClientPid, FromTopic, QoS) of
         {ok, _, _} -> ok;
         Error -> throw(Error)
@@ -217,12 +217,10 @@ process_config(Config) ->
     maps:without([conn_type, address, receive_mountpoint, subscriptions, name], Config).
 
 maybe_publish_to_local_broker(Msg, Vars, Props) ->
-    case maps:get(local_topic, Vars, undefined) of
-        undefined ->
-            %% local topic is not set, discard it
-            ok;
-        _ ->
-            _ = emqx_broker:publish(emqx_connector_mqtt_msg:to_broker_msg(Msg, Vars, Props))
+    case emqx_map_lib:deep_get([local, topic], Vars, undefined) of
+        %% local topic is not set, discard it
+        undefined -> ok;
+        _ -> emqx_broker:publish(emqx_connector_mqtt_msg:to_broker_msg(Msg, Vars, Props))
     end.
 
 format_msg_received(

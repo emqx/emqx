@@ -45,7 +45,7 @@ end_per_suite(_Config) ->
             <<"sources">> => []
         }
     ),
-    ok = stop_apps([emqx_resource, emqx_connector]),
+    ok = stop_apps([emqx_resource]),
     emqx_common_test_helpers:stop_apps([emqx_dashboard, emqx_authz, emqx_conf]),
     ok.
 

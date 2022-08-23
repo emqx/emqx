@@ -14,15 +14,12 @@
 ]).
 
 -export([
-    common_bridge_fields/1,
-    metrics_status_fields/0,
-    direction_field/2
+    common_bridge_fields/0,
+    metrics_status_fields/0
 ]).
 
 %%======================================================================================
 %% Hocon Schema Definitions
-
--define(CONN_TYPES, [mqtt]).
 
 %%======================================================================================
 %% For HTTP APIs
@@ -36,34 +33,26 @@ post_request() ->
     api_schema("post").
 
 api_schema(Method) ->
-    Broker =
-        lists:flatmap(
-            fun(Type) ->
-                [
-                    ref(schema_mod(Type), Method ++ "_ingress"),
-                    ref(schema_mod(Type), Method ++ "_egress")
-                ]
-            end,
-            ?CONN_TYPES
-        ) ++ [ref(Module, Method) || Module <- [emqx_bridge_webhook_schema]],
+    Broker = [
+        ref(Mod, Method)
+     || Mod <- [emqx_bridge_webhook_schema, emqx_bridge_mqtt_schema]
+    ],
     EE = ee_api_schemas(Method),
     hoconsc:union(Broker ++ EE).
 
--if(?EMQX_RELEASE_EDITION == ee).
 ee_api_schemas(Method) ->
-    emqx_ee_bridge:api_schemas(Method).
+    case erlang:function_exported(emqx_ee_bridge, api_schemas, 1) of
+        true -> emqx_ee_bridge:api_schemas(Method);
+        false -> []
+    end.
 
 ee_fields_bridges() ->
-    emqx_ee_bridge:fields(bridges).
--else.
-ee_api_schemas(_) ->
-    [].
+    case erlang:function_exported(emqx_ee_bridge, fields, 1) of
+        true -> emqx_ee_bridge:fields(bridges);
+        false -> []
+    end.
 
-ee_fields_bridges() ->
-    [].
--endif.
-
-common_bridge_fields(ConnectorRef) ->
+common_bridge_fields() ->
     [
         {enable,
             mk(
@@ -71,15 +60,6 @@ common_bridge_fields(ConnectorRef) ->
                 #{
                     desc => ?DESC("desc_enable"),
                     default => true
-                }
-            )},
-        {connector,
-            mk(
-                hoconsc:union([binary(), ConnectorRef]),
-                #{
-                    required => true,
-                    example => <<"mqtt:my_mqtt_connector">>,
-                    desc => ?DESC("desc_connector")
                 }
             )}
     ].
@@ -100,18 +80,6 @@ metrics_status_fields() ->
             )}
     ].
 
-direction_field(Dir, Desc) ->
-    {direction,
-        mk(
-            Dir,
-            #{
-                required => true,
-                default => egress,
-                desc => "The direction of the bridge. Can be one of 'ingress' or 'egress'.</br>" ++
-                    Desc
-            }
-        )}.
-
 %%======================================================================================
 %% For config files
 
@@ -125,22 +93,13 @@ fields(bridges) ->
             mk(
                 hoconsc:map(name, ref(emqx_bridge_webhook_schema, "config")),
                 #{desc => ?DESC("bridges_webhook")}
+            )},
+        {mqtt,
+            mk(
+                hoconsc:map(name, ref(emqx_bridge_mqtt_schema, "config")),
+                #{desc => ?DESC("bridges_mqtt")}
             )}
-    ] ++
-        [
-            {T,
-                mk(
-                    hoconsc:map(
-                        name,
-                        hoconsc:union([
-                            ref(schema_mod(T), "ingress"),
-                            ref(schema_mod(T), "egress")
-                        ])
-                    ),
-                    #{desc => ?DESC("bridges_name")}
-                )}
-         || T <- ?CONN_TYPES
-        ] ++ ee_fields_bridges();
+    ] ++ ee_fields_bridges();
 fields("metrics") ->
     [
         {"matched", mk(integer(), #{desc => ?DESC("metric_matched")})},
@@ -181,6 +140,3 @@ status() ->
 
 node_name() ->
     {"node", mk(binary(), #{desc => ?DESC("desc_node_name"), example => "emqx@127.0.0.1"})}.
-
-schema_mod(Type) ->
-    list_to_atom(lists:concat(["emqx_bridge_", Type, "_schema"])).

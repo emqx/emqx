@@ -165,7 +165,6 @@ gen_schema_json(Dir, I18nFile, SchemaModule) ->
 gen_api_schema_json(Dir, I18nFile, Lang) ->
     emqx_dashboard:init_i18n(I18nFile, Lang),
     gen_api_schema_json_hotconf(Dir, Lang),
-    gen_api_schema_json_connector(Dir, Lang),
     gen_api_schema_json_bridge(Dir, Lang),
     emqx_dashboard:clear_i18n().
 
@@ -173,11 +172,6 @@ gen_api_schema_json_hotconf(Dir, Lang) ->
     SchemaInfo = #{title => <<"EMQX Hot Conf API Schema">>, version => <<"0.1.0">>},
     File = schema_filename(Dir, "hot-config-schema-", Lang),
     ok = do_gen_api_schema_json(File, emqx_mgmt_api_configs, SchemaInfo).
-
-gen_api_schema_json_connector(Dir, Lang) ->
-    SchemaInfo = #{title => <<"EMQX Connector API Schema">>, version => <<"0.1.0">>},
-    File = schema_filename(Dir, "connector-api-", Lang),
-    ok = do_gen_api_schema_json(File, emqx_connector_api, SchemaInfo).
 
 gen_api_schema_json_bridge(Dir, Lang) ->
     SchemaInfo = #{title => <<"EMQX Data Bridge API Schema">>, version => <<"0.1.0">>},
