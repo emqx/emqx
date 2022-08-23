@@ -67,7 +67,7 @@ make_rel() {
 }
 
 relup_db() {
-    ./scripts/relup-base-vsns.escript "$@" ./data/relup_bases.eterm
+    ./scripts/relup-base-vsns.escript "$@" ./data/relup-paths.eterm
 }
 
 ## unzip previous version .zip files to _build/$PROFILE/rel/emqx/releases before making relup

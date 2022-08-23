@@ -64,7 +64,7 @@ mkdir -p _upgrade_base
 pushd _upgrade_base
 
 otp_vsn_for() {
-    ../scripts/relup-base-vsns.escript otp-vsn-for "${1#[e|v]}" ../data/relup_bases.eterm
+    ../scripts/relup-base-vsns.escript otp-vsn-for "${1#[e|v]}" ../data/relup-paths.eterm
 }
 
 for tag in $(../scripts/relup-base-vsns.sh $EDITION | xargs echo -n); do

@@ -53,7 +53,7 @@ Usage:
 ".
 
 main(["base-vsns", To0, VsnDB]) ->
-    {ok, [VsnMap]} = file:consult(VsnDB),
+    VsnMap = read_db(VsnDB),
     To = strip_pre_release(To0),
     #{from_versions := Froms} = fetch_version(To, VsnMap),
     AvailableVersionsIndex = available_versions_index(),
@@ -64,13 +64,13 @@ main(["base-vsns", To0, VsnDB]) ->
      filter_froms(Froms, AvailableVersionsIndex)),
     halt(0);
 main(["otp-vsn-for", Vsn0, VsnDB]) ->
-    {ok, [VsnMap]} = file:consult(VsnDB),
+    VsnMap = read_db(VsnDB),
     Vsn = strip_pre_release(Vsn0),
     #{otp := OtpVsn} = fetch_version(Vsn, VsnMap),
     io:format(user, "~s~n", [OtpVsn]),
     halt(0);
 main(["insert-new-vsn", NewVsn0, BaseFromVsn0, OtpVsn0, VsnDB]) ->
-    {ok, [VsnMap]} = file:consult(VsnDB),
+    VsnMap = read_db(VsnDB),
     NewVsn = strip_pre_release(NewVsn0),
     validate_version(NewVsn),
     BaseFromVsn = strip_pre_release(BaseFromVsn0),
@@ -87,10 +87,15 @@ main(["insert-new-vsn", NewVsn0, BaseFromVsn0, OtpVsn0, VsnDB]) ->
           halt(1)
     end,
     NewVsnMap = insert_new_vsn(VsnMap, NewVsn, OtpVsn, BaseFromVsn),
-    file:write_file(VsnDB, io_lib:format("%% -*- mode: erlang; -*-\n\n~p.~n", [NewVsnMap])),
+    NewVsnList =
+        lists:sort(
+         fun({Vsn1, _}, {Vsn2, _}) ->
+           Vsn1 < Vsn2
+         end, maps:to_list(NewVsnMap)),
+    file:write_file(VsnDB, io_lib:format("%% -*- mode: erlang; -*-\n\n~p.~n", [NewVsnList])),
     halt(0);
 main(["check-vsn-db", NewVsn0, VsnDB]) ->
-    {ok, [VsnMap]} = file:consult(VsnDB),
+    VsnMap = read_db(VsnDB),
     NewVsn = strip_pre_release(NewVsn0),
     case check_all_vsns_schema(VsnMap) of
         [] -> ok;
@@ -261,6 +266,10 @@ available_versions_index() ->
     %% FIXME: `maps:from_keys' is available only in OTP 24, but we
     %% still build with 23.  Switch to that once we drop OTP 23.
     maps:from_list([{Vsn, true} || Vsn <- AllVersions]).
+
+read_db(VsnDB) ->
+    {ok, [VsnList]} = file:consult(VsnDB),
+    maps:from_list(VsnList).
 
 print_warning(Msg) ->
     print_warning(Msg, []).
