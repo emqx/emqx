@@ -21,6 +21,7 @@
 -export([
     start/1,
     send/2,
+    send_async/3,
     stop/1,
     ping/1
 ]).
@@ -32,7 +33,6 @@
 
 %% callbacks for emqtt
 -export([
-    handle_puback/2,
     handle_publish/3,
     handle_disconnected/2
 ]).
@@ -134,44 +134,11 @@ safe_stop(Pid, StopF, Timeout) ->
         exit(Pid, kill)
     end.
 
-send(Conn, Msgs) ->
-    send(Conn, Msgs, []).
+send(#{client_pid := ClientPid}, Msg) ->
+    emqtt:publish(ClientPid, Msg).
 
-send(_Conn, [], []) ->
-    %% all messages in the batch are QoS-0
-    Ref = make_ref(),
-    %% QoS-0 messages do not have packet ID
-    %% the batch ack is simulated with a loop-back message
-    self() ! {batch_ack, Ref},
-    {ok, Ref};
-send(_Conn, [], PktIds) ->
-    %% PktIds is not an empty list if there is any non-QoS-0 message in the batch,
-    %% And the worker should wait for all acks
-    {ok, PktIds};
-send(#{client_pid := ClientPid} = Conn, [Msg | Rest], PktIds) ->
-    case emqtt:publish(ClientPid, Msg) of
-        ok ->
-            send(Conn, Rest, PktIds);
-        {ok, PktId} ->
-            send(Conn, Rest, [PktId | PktIds]);
-        {error, Reason} ->
-            %% NOTE: There is no partial success of a batch and recover from the middle
-            %% only to retry all messages in one batch
-            {error, Reason}
-    end.
-
-handle_puback(#{packet_id := PktId, reason_code := RC}, Parent) when
-    RC =:= ?RC_SUCCESS;
-    RC =:= ?RC_NO_MATCHING_SUBSCRIBERS
-->
-    Parent ! {batch_ack, PktId},
-    ok;
-handle_puback(#{packet_id := PktId, reason_code := RC}, _Parent) ->
-    ?SLOG(warning, #{
-        msg => "publish_to_remote_node_falied",
-        packet_id => PktId,
-        reason_code => RC
-    }).
+send_async(#{client_pid := ClientPid}, Msg, Callback) ->
+    emqtt:publish_async(ClientPid, Msg, Callback).
 
 handle_publish(Msg, undefined, _Opts) ->
     ?SLOG(error, #{
@@ -200,7 +167,6 @@ handle_disconnected(Reason, Parent) ->
 
 make_hdlr(Parent, Vars, Opts) ->
     #{
-        puback => {fun ?MODULE:handle_puback/2, [Parent]},
         publish => {fun ?MODULE:handle_publish/3, [Vars, Opts]},
         disconnected => {fun ?MODULE:handle_disconnected/2, [Parent]}
     }.

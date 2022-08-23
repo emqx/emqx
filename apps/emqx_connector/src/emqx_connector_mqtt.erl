@@ -39,6 +39,7 @@
     on_start/2,
     on_stop/2,
     on_query/3,
+    on_query_async/4,
     on_get_status/2
 ]).
 
@@ -188,6 +189,16 @@ on_stop(_InstId, #{name := InstanceId}) ->
 on_query(_InstId, {send_message, Msg}, #{name := InstanceId}) ->
     ?TRACE("QUERY", "send_msg_to_remote_node", #{message => Msg, connector => InstanceId}),
     emqx_connector_mqtt_worker:send_to_remote(InstanceId, Msg),
+    ok.
+
+on_query_async(
+    _InstId,
+    {send_message, Msg},
+    {ReplayFun, Args},
+    #{name := InstanceId}
+) ->
+    ?TRACE("QUERY", "async_send_msg_to_remote_node", #{message => Msg, connector => InstanceId}),
+    emqx_connector_mqtt_worker:send_to_remote_async(InstanceId, Msg, {ReplayFun, Args}),
     ok.
 
 on_get_status(_InstId, #{name := InstanceId, bridge_conf := Conf}) ->
