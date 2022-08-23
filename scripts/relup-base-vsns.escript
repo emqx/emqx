@@ -92,7 +92,14 @@ main(["insert-new-vsn", NewVsn0, BaseFromVsn0, OtpVsn0, VsnDB]) ->
          fun({Vsn1, _}, {Vsn2, _}) ->
            parse_vsn(Vsn1) < parse_vsn(Vsn2)
          end, maps:to_list(NewVsnMap)),
-    file:write_file(VsnDB, io_lib:format("%% -*- mode: erlang; -*-\n\n~p.~n", [NewVsnList])),
+    {ok, FD} = file:open(VsnDB, [write]),
+    io:format(FD, "%% -*- mode: erlang; -*-\n\n", []),
+    lists:foreach(
+      fun(Entry) ->
+        io:format(FD, "~p.~n", [Entry])
+      end,
+      NewVsnList),
+    file:close(FD),
     halt(0);
 main(["check-vsn-db", NewVsn0, VsnDB]) ->
     VsnMap = read_db(VsnDB),
@@ -268,7 +275,7 @@ available_versions_index() ->
     maps:from_list([{Vsn, true} || Vsn <- AllVersions]).
 
 read_db(VsnDB) ->
-    {ok, [VsnList]} = file:consult(VsnDB),
+    {ok, VsnList} = file:consult(VsnDB),
     maps:from_list(VsnList).
 
 print_warning(Msg) ->
