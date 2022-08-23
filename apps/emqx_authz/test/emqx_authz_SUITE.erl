@@ -56,7 +56,6 @@ end_per_suite(_Config) ->
             <<"sources">> => []
         }
     ),
-    ok = stop_apps([emqx_resource]),
     emqx_common_test_helpers:stop_apps([emqx_authz, emqx_conf]),
     meck:unload(emqx_resource),
     ok.
