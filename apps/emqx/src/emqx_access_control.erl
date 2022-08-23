@@ -17,6 +17,7 @@
 -module(emqx_access_control).
 
 -include("emqx.hrl").
+-include("logger.hrl").
 
 -export([
     authenticate/1,
@@ -70,9 +71,26 @@ check_authorization_cache(ClientInfo, PubSub, Topic) ->
 
 do_authorize(ClientInfo, PubSub, Topic) ->
     NoMatch = emqx:get_config([authorization, no_match], allow),
-    case run_hooks('client.authorize', [ClientInfo, PubSub, Topic], NoMatch) of
-        allow -> allow;
-        _Other -> deny
+    Default = #{result => NoMatch, from => default},
+    case run_hooks('client.authorize', [ClientInfo, PubSub, Topic], Default) of
+        AuthzResult = #{result := Result} when Result == allow; Result == deny ->
+            From = maps:get(from, AuthzResult, unknown),
+            emqx:run_hook(
+                'client.check_authz_complete',
+                [ClientInfo, PubSub, Topic, Result, From]
+            ),
+            Result;
+        Other ->
+            ?SLOG(error, #{
+                msg => "unknown_authorization_return_format",
+                expected_example => "#{result => allow, from => default}",
+                got => Other
+            }),
+            emqx:run_hook(
+                'client.check_authz_complete',
+                [ClientInfo, PubSub, Topic, deny, unknown_return_format]
+            ),
+            deny
     end.
 
 -compile({inline, [run_hooks/3]}).

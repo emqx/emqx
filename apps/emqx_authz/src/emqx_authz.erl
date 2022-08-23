@@ -319,7 +319,7 @@ authorize(
                 is_superuser => true
             }),
             emqx_metrics:inc(?METRIC_SUPERUSER),
-            {stop, allow};
+            {stop, #{result => allow, from => superuser}};
         false ->
             authorize_non_superuser(Client, PubSub, Topic, DefaultResult, Sources)
     end.
@@ -331,15 +331,11 @@ authorize_non_superuser(
     } = Client,
     PubSub,
     Topic,
-    DefaultResult,
+    _DefaultResult,
     Sources
 ) ->
     case do_authorize(Client, PubSub, Topic, sources_with_defaults(Sources)) of
         {{matched, allow}, AuthzSource} ->
-            emqx:run_hook(
-                'client.check_authz_complete',
-                [Client, PubSub, Topic, allow, AuthzSource]
-            ),
             log_allowed(#{
                 username => Username,
                 ipaddr => IpAddress,
@@ -348,12 +344,8 @@ authorize_non_superuser(
             }),
             emqx_metrics_worker:inc(authz_metrics, AuthzSource, allow),
             emqx_metrics:inc(?METRIC_ALLOW),
-            {stop, allow};
+            {stop, #{result => allow, from => AuthzSource}};
         {{matched, deny}, AuthzSource} ->
-            emqx:run_hook(
-                'client.check_authz_complete',
-                [Client, PubSub, Topic, deny, AuthzSource]
-            ),
             ?SLOG(warning, #{
                 msg => "authorization_permission_denied",
                 username => Username,
@@ -363,12 +355,8 @@ authorize_non_superuser(
             }),
             emqx_metrics_worker:inc(authz_metrics, AuthzSource, deny),
             emqx_metrics:inc(?METRIC_DENY),
-            {stop, deny};
+            {stop, #{result => deny, from => AuthzSource}};
         nomatch ->
-            emqx:run_hook(
-                'client.check_authz_complete',
-                [Client, PubSub, Topic, DefaultResult, default]
-            ),
             ?SLOG(info, #{
                 msg => "authorization_failed_nomatch",
                 username => Username,
@@ -377,7 +365,7 @@ authorize_non_superuser(
                 reason => "no-match rule"
             }),
             emqx_metrics:inc(?METRIC_NOMATCH),
-            {stop, DefaultResult}
+            ignore
     end.
 
 log_allowed(Meta) ->
