@@ -72,5 +72,4 @@ format(Listeners) when is_list(Listeners) ->
     [ Info#{listen_on => list_to_binary(esockd:to_string(ListenOn))}
      || Info = #{listen_on := ListenOn} <- Listeners ];
 
-format({error, Reason}) -> [{error, Reason}].
-
+format({error, Reason}) -> [{error, iolist_to_binary(io_lib:format("~p", [Reason]))}].

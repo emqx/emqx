@@ -63,17 +63,8 @@ cd -P -- "$(dirname -- "${BASH_SOURCE[0]}")/.."
 mkdir -p _upgrade_base
 pushd _upgrade_base
 
-# For 4.5+, we upgrade from OTP 24.1.5-3 to 24.3.4.2-1, so we must manually
-# check the old OTP releases.
 otp_vsn_for() {
-  case "${1#[e|v]}" in
-    4.4.*)
-      echo "24.1.5-3"
-      ;;
-    4.5.*)
-      echo "$OTP_VSN"
-      ;;
-  esac
+    ../scripts/relup-base-vsns.escript otp-vsn-for "${1#[e|v]}" ../data/relup-paths.eterm
 }
 
 for tag in $(../scripts/relup-base-vsns.sh $EDITION | xargs echo -n); do
@@ -90,6 +81,8 @@ for tag in $(../scripts/relup-base-vsns.sh $EDITION | xargs echo -n); do
             ## https://askubuntu.com/questions/1202208/checking-sha256-checksum
             echo "${SUMSTR}  ${filename}" | $SHASUM -c || exit 1
         fi
+    else
+        echo "file $filename already downloaded or doesn't exist in the archives; skipping it"
     fi
 done
 

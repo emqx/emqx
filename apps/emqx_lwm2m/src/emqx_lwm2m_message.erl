@@ -33,7 +33,7 @@
 tlv_to_json(BaseName, TlvData) ->
     DecodedTlv = emqx_lwm2m_tlv:parse(TlvData),
     ObjectId = object_id(BaseName),
-    ObjDefinition = emqx_lwm2m_xml_object:get_obj_def(ObjectId, true),
+    ObjDefinition = emqx_lwm2m_xml_object:get_obj_def_assertive(ObjectId, true),
     case DecodedTlv of
         [#{tlv_resource_with_value:=Id, value:=Value}] ->
             TrueBaseName = basename(BaseName, undefined, undefined, Id, 3),
@@ -289,7 +289,7 @@ path([H|T], Acc) ->
 
 text_to_json(BaseName, Text) ->
     {ObjectId, ResourceId} = object_resource_id(BaseName),
-    ObjDefinition = emqx_lwm2m_xml_object:get_obj_def(ObjectId, true),
+    ObjDefinition = emqx_lwm2m_xml_object:get_obj_def_assertive(ObjectId, true),
     Val = text_value(Text, ResourceId, ObjDefinition),
     [#{path => BaseName, value => Val}].
 

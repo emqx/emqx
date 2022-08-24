@@ -8,13 +8,13 @@ cd -P -- "$(dirname -- "${BASH_SOURCE[0]}")/.."
 PKG_VSN="${PKG_VSN:-$(./pkg-vsn.sh)}"
 case "${PKG_VSN}" in
     4.3*)
-        EMQX_CE_DASHBOARD_VERSION='v4.3.9'
-        EMQX_EE_DASHBOARD_VERSION='v4.3.23'
+        EMQX_CE_DASHBOARD_VERSION='v4.3.10'
+        EMQX_EE_DASHBOARD_VERSION='v4.3.24'
         ;;
     4.4*)
         # keep the above 4.3 untouched, otherwise conflicts!
-        EMQX_CE_DASHBOARD_VERSION='v4.4.4'
-        EMQX_EE_DASHBOARD_VERSION='v4.4.14'
+        EMQX_CE_DASHBOARD_VERSION='v4.4.5'
+        EMQX_EE_DASHBOARD_VERSION='v4.4.15'
         ;;
     4.5*)
         # keep the above 4.3 untouched, otherwise conflicts!

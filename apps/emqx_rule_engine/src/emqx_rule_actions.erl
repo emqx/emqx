@@ -171,9 +171,13 @@ on_action_create_republish(Id, Params = #{
 on_action_republish(_Selected, Envs = #{
             topic := Topic,
             headers := #{republish_by := ActId},
-            ?BINDING_KEYS := #{'Id' := ActId}
+            ?BINDING_KEYS := #{'Id' := ActId},
+            metadata := Metadata
         }) ->
-    ?LOG(error, "[republish] recursively republish detected, msg topic: ~p, target topic: ~p",
+    ?LOG_RULE_ACTION(
+        error,
+        Metadata,
+        "[republish] recursively republish detected, msg topic: ~p, target topic: ~p",
         [Topic, ?bound_v('TargetTopic', Envs)]),
     emqx_rule_metrics:inc_actions_error(?bound_v('Id', Envs)),
     {badact, recursively_republish};
@@ -186,8 +190,9 @@ on_action_republish(Selected, _Envs = #{
                 'TargetQoS' := TargetQoS,
                 'TopicTks' := TopicTks,
                 'PayloadTks' := PayloadTks
-            } = Bindings}) ->
-    ?LOG(debug, "[republish] republish to: ~p, Selected: ~p", [TargetTopic, Selected]),
+            } = Bindings,
+            metadata := Metadata}) ->
+    ?LOG_RULE_ACTION(debug, Metadata, "[republish] republish to: ~p, Selected: ~p", [TargetTopic, Selected]),
     TargetRetain = maps:get('TargetRetain', Bindings, false),
     Message =
         #message{
@@ -210,8 +215,9 @@ on_action_republish(Selected, _Envs = #{
                 'TargetQoS' := TargetQoS,
                 'TopicTks' := TopicTks,
                 'PayloadTks' := PayloadTks
-            } = Bindings}) ->
-    ?LOG(debug, "[republish] republish to: ~p, Selected: ~p", [TargetTopic, Selected]),
+            } = Bindings,
+            metadata := Metadata}) ->
+    ?LOG_RULE_ACTION(debug, Metadata, "[republish] republish to: ~p, Selected: ~p", [TargetTopic, Selected]),
     TargetRetain = maps:get('TargetRetain', Bindings, false),
     Message =
         #message{

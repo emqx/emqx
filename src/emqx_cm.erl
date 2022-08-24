@@ -22,6 +22,8 @@
 -include("emqx.hrl").
 -include("logger.hrl").
 -include("types.hrl").
+
+-include_lib("stdlib/include/qlc.hrl").
 -include_lib("stdlib/include/ms_transform.hrl").
 -include_lib("snabbkaffe/include/snabbkaffe.hrl").
 
@@ -61,7 +63,9 @@
         , lookup_channels/2
         ]).
 
--export([all_channels/0]).
+-export([all_channels/0,
+         channel_with_session_table/0,
+         live_connection_table/0]).
 
 %% gen_server callbacks
 -export([ init/1
@@ -158,8 +162,11 @@ connection_closed(ClientId) ->
     connection_closed(ClientId, self()).
 
 -spec(connection_closed(emqx_types:clientid(), chan_pid()) -> true).
-connection_closed(ClientId, ChanPid) ->
-    ets:delete_object(?CHAN_CONN_TAB, {ClientId, ChanPid}).
+connection_closed(_ClientId, _ChanPid) ->
+    %% We can't clean CHAN_CONN_TAB because records for dead connections
+    %% are required for `get_chann_conn_mod/1` function, and `get_chann_conn_mod/1`
+    %% is used for takeover.
+    true.
 
 %% @doc Get info of a channel.
 -spec(get_chan_info(emqx_types:clientid()) -> maybe(emqx_types:infos())).
@@ -434,6 +441,38 @@ with_channel(ClientId, Fun) ->
 all_channels() ->
     Pat = [{{'_', '$1'}, [], ['$1']}],
     ets:select(?CHAN_TAB, Pat).
+
+%% @doc Get clientinfo for all clients with sessions
+channel_with_session_table() ->
+    Ms = ets:fun2ms(
+           fun({{ClientId, _ChanPid},
+                Info,
+                _Stats}) ->
+                   {ClientId, Info}
+           end),
+    Table = ets:table(?CHAN_INFO_TAB, [{traverse, {select, Ms}}]),
+    qlc:q([ {ClientId, ConnState, ConnInfo, ClientInfo}
+            || {ClientId,
+                #{conn_state := ConnState,
+                  clientinfo := ClientInfo,
+                  conninfo := #{clean_start := false} = ConnInfo}} <- Table
+          ]).
+
+%% @doc Get all local connection query handle
+live_connection_table() ->
+    Ms = ets:fun2ms(
+           fun({{ClientId, ChanPid}, _}) ->
+                   {ClientId, ChanPid}
+           end),
+    Table = ets:table(?CHAN_CONN_TAB, [{traverse, {select, Ms}}]),
+    qlc:q([{ClientId, ChanPid} || {ClientId, ChanPid} <- Table, is_channel_connected(ClientId, ChanPid)]).
+
+is_channel_connected(ClientId, ChanPid) when node(ChanPid) =:= node() ->
+    case get_chan_info(ClientId, ChanPid) of
+        #{conn_state := disconnected} -> false;
+        _ -> true
+    end;
+is_channel_connected(_ClientId, _ChanPid) -> false.
 
 %% @doc Lookup channels.
 -spec(lookup_channels(emqx_types:clientid()) -> list(chan_pid())).

@@ -17,6 +17,7 @@
 -module(emqx_rule_runtime).
 
 -include("rule_engine.hrl").
+-include("rule_actions.hrl").
 -include_lib("emqx/include/emqx.hrl").
 -include_lib("emqx/include/logger.hrl").
 
@@ -54,36 +55,37 @@ apply_rules([Rule|More], Input) ->
     apply_rule(Rule, Input),
     apply_rules(More, Input).
 
-apply_rule(Rule = #rule{id = RuleID}, Input) ->
+apply_rule(Rule = #rule{id = RuleId}, Input) ->
     clear_rule_payload(),
-    ok = emqx_rule_metrics:inc_rules_matched(RuleID),
-    try do_apply_rule(Rule, add_metadata(Input, #{rule_id => RuleID}))
+    ok = emqx_rule_metrics:inc_rules_matched(RuleId),
+    %% Add metadata here caused we need support `metadata` and `rule_id` in SQL
+    try do_apply_rule(Rule, emqx_rule_utils:add_metadata(Input, #{rule_id => RuleId}))
     catch
         %% ignore the errors if select or match failed
         _:Reason = {select_and_transform_error, Error} ->
-            emqx_rule_metrics:inc_rules_exception(RuleID),
+            emqx_rule_metrics:inc_rules_exception(RuleId),
             ?LOG(warning, "SELECT clause exception for ~s failed: ~p",
-                 [RuleID, Error]),
+                 [RuleId, Error]),
             {error, Reason};
         _:Reason = {match_conditions_error, Error} ->
-            emqx_rule_metrics:inc_rules_exception(RuleID),
+            emqx_rule_metrics:inc_rules_exception(RuleId),
             ?LOG(warning, "WHERE clause exception for ~s failed: ~p",
-                 [RuleID, Error]),
+                 [RuleId, Error]),
             {error, Reason};
         _:Reason = {select_and_collect_error, Error} ->
-            emqx_rule_metrics:inc_rules_exception(RuleID),
+            emqx_rule_metrics:inc_rules_exception(RuleId),
             ?LOG(warning, "FOREACH clause exception for ~s failed: ~p",
-                 [RuleID, Error]),
+                 [RuleId, Error]),
             {error, Reason};
         _:Reason = {match_incase_error, Error} ->
-            emqx_rule_metrics:inc_rules_exception(RuleID),
+            emqx_rule_metrics:inc_rules_exception(RuleId),
             ?LOG(warning, "INCASE clause exception for ~s failed: ~p",
-                 [RuleID, Error]),
+                 [RuleId, Error]),
             {error, Reason};
         _:Error:StkTrace ->
-            emqx_rule_metrics:inc_rules_exception(RuleID),
+            emqx_rule_metrics:inc_rules_exception(RuleId),
             ?LOG(error, "Apply rule ~s failed: ~p. Stacktrace:~n~p",
-                 [RuleID, Error, StkTrace]),
+                 [RuleId, Error, StkTrace]),
             {error, {Error, StkTrace}}
     end.
 
@@ -216,10 +218,8 @@ match_conditions({}, _Data) ->
     true.
 
 %% comparing numbers against strings
-compare(Op, undefined, undefined) ->
-    do_compare(Op, undefined, undefined);
-compare(_Op, L, R) when L == undefined; R == undefined ->
-    false;
+compare(Op, L, R) when L == undefined; R == undefined ->
+    do_compare(Op, L, R);
 compare(Op, L, R) when is_number(L), is_binary(R) ->
     do_compare(Op, L, number(R));
 compare(Op, L, R) when is_binary(L), is_number(R) ->
@@ -232,10 +232,14 @@ compare(Op, L, R) ->
     do_compare(Op, L, R).
 
 do_compare('=', L, R) -> L == R;
+do_compare('>', L, R) when L == undefined; R == undefined -> false;
 do_compare('>', L, R) -> L > R;
+do_compare('<', L, R) when L == undefined; R == undefined -> false;
 do_compare('<', L, R) -> L < R;
-do_compare('<=', L, R) -> L =< R;
-do_compare('>=', L, R) -> L >= R;
+do_compare('<=', L, R) ->
+    do_compare('=', L, R) orelse do_compare('<', L, R);
+do_compare('>=', L, R) ->
+    do_compare('=', L, R) orelse do_compare('>', L, R);
 do_compare('<>', L, R) -> L /= R;
 do_compare('!=', L, R) -> L /= R;
 do_compare('=~', T, F) -> emqx_topic:match(T, F).
@@ -245,9 +249,10 @@ number(Bin) ->
     catch error:badarg -> binary_to_float(Bin)
     end.
 
-%% Step3 -> Take actions
+%% %% Step3 -> Take actions
+%% fallback actions already have `rule_id` in `metadata`
 take_actions(Actions, Selected, Envs, OnFailed) ->
-    [take_action(ActInst, Selected, Envs, OnFailed, ?ActionMaxRetry)
+    [take_action(ActInst, Selected, emqx_rule_utils:add_metadata(Envs, ActInst), OnFailed, ?ActionMaxRetry)
      || ActInst <- Actions].
 
 take_action(#action_instance{id = Id, name = ActName, fallbacks = Fallbacks} = ActInst,
@@ -312,12 +317,12 @@ wait_action_on(Id, RetryN) ->
             end
     end.
 
-handle_action_failure(continue, Id, Fallbacks, Selected, Envs, Reason) ->
-    ?LOG(error, "Take action ~p failed, continue next action, reason: ~0p", [Id, Reason]),
+handle_action_failure(continue, _Id, Fallbacks, Selected, Envs = #{metadata := Metadata}, Reason) ->
+    ?LOG_RULE_ACTION(error, Metadata, "Continue next action, reason: ~0p", [Reason]),
     _ = take_actions(Fallbacks, Selected, Envs, continue),
     failed;
-handle_action_failure(stop, Id, Fallbacks, Selected, Envs, Reason) ->
-    ?LOG(error, "Take action ~p failed, skip all actions, reason: ~0p", [Id, Reason]),
+handle_action_failure(stop, Id, Fallbacks, Selected, Envs = #{metadata := Metadata}, Reason) ->
+    ?LOG_RULE_ACTION(error, Metadata, "Skip all actions, reason: ~0p", [Reason]),
     _ = take_actions(Fallbacks, Selected, Envs, continue),
     error({take_action_failed, {Id, Reason}}).
 
@@ -428,10 +433,6 @@ do_apply_func(Name, Args, Input) ->
             erlang:apply(Func, [Input]);
         Result -> Result
     end.
-
-add_metadata(Input, Metadata) when is_map(Input), is_map(Metadata) ->
-    NewMetadata = maps:merge(maps:get(metadata, Input, #{}), Metadata),
-    Input#{metadata => NewMetadata}.
 
 %%------------------------------------------------------------------------------
 %% Internal Functions
