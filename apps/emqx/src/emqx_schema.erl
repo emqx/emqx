@@ -2041,6 +2041,10 @@ ciphers_schema(Default) ->
         #{
             default => default_ciphers(Default),
             converter => fun
+                (<<>>) ->
+                    [];
+                ("") ->
+                    [];
                 (Ciphers) when is_binary(Ciphers) ->
                     binary:split(Ciphers, <<",">>, [global]);
                 (Ciphers) when is_list(Ciphers) ->
