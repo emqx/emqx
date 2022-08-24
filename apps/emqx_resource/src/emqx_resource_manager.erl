@@ -53,7 +53,9 @@
 -export([init/1, callback_mode/0, handle_event/4, terminate/3]).
 
 % State record
--record(data, {id, manager_id, group, mod, callback_mode, config, opts, status, state, error}).
+-record(data, {
+    id, manager_id, group, mod, callback_mode, query_mode, config, opts, status, state, error
+}).
 -type data() :: #data{}.
 
 -define(ETS_TABLE, ?MODULE).
@@ -264,6 +266,11 @@ start_link(MgrId, ResId, Group, ResourceType, Config, Opts) ->
         group = Group,
         mod = ResourceType,
         callback_mode = emqx_resource:get_callback_mode(ResourceType),
+        %% query_mode = dynamic | sync | async
+        %% TODO:
+        %%  dynamic mode is async mode when things are going well, but becomes sync mode
+        %%  if the resource worker is overloaded
+        query_mode = maps:get(query_mode, Opts, sync),
         config = Config,
         opts = Opts,
         status = connecting,
@@ -585,6 +592,7 @@ data_record_to_external_map_with_metrics(Data) ->
         id => Data#data.id,
         mod => Data#data.mod,
         callback_mode => Data#data.callback_mode,
+        query_mode => Data#data.query_mode,
         config => Data#data.config,
         status => Data#data.status,
         state => Data#data.state,
