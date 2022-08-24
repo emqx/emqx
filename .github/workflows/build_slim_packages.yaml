@@ -17,7 +17,6 @@ jobs:
       fail-fast: false
       matrix:
         erl_otp:
-        - 23.3.4.9-3
         - 24.1.5-3
         os:
         - ubuntu20.04

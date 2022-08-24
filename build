@@ -66,29 +66,32 @@ make_rel() {
     ./rebar3 as "$PROFILE" tar
 }
 
+relup_db() {
+    ./scripts/relup-base-vsns.escript "$@" ./data/relup-paths.eterm
+}
+
 ## unzip previous version .zip files to _build/$PROFILE/rel/emqx/releases before making relup
 make_relup() {
     local lib_dir="_build/$PROFILE/rel/emqx/lib"
     local releases_dir="_build/$PROFILE/rel/emqx/releases"
-    local name_pattern
-    name_pattern="${PROFILE}-$(./scripts/pkg-full-vsn.sh 'vsn_matcher')"
+    local zip_file
     mkdir -p "$lib_dir" "$releases_dir" '_upgrade_base'
     local releases=()
     if [ -d "$releases_dir" ]; then
-        while read -r zip; do
-            local base_vsn
-            base_vsn="$(echo "$zip" | grep -oE "[0-9]+\.[0-9]+\.[0-9]+(-[0-9a-f]{8})?" | head -1)"
-            if [ ! -d "$releases_dir/$base_vsn" ]; then
+        for BASE_VSN in $(relup_db base-vsns "$PKG_VSN"); do
+            OTP_BASE=$(relup_db otp-vsn-for "$PKG_VSN")
+            zip_file="_upgrade_base/${PROFILE}-$(env OTP_VSN="$OTP_BASE" PKG_VSN="$BASE_VSN" ./scripts/pkg-full-vsn.sh 'vsn_exact').zip"
+            if [ ! -d "$releases_dir/$BASE_VSN" ]; then
                 local tmp_dir
                 tmp_dir="$(mktemp -d -t emqx.XXXXXXX)"
-                unzip -q "$zip" "emqx/releases/*" -d "$tmp_dir"
-                unzip -q "$zip" "emqx/lib/*" -d "$tmp_dir"
+                unzip -q "$zip_file" "emqx/releases/*" -d "$tmp_dir"
+                unzip -q "$zip_file" "emqx/lib/*" -d "$tmp_dir"
                 cp -r -n "$tmp_dir/emqx/releases"/* "$releases_dir" || true
                 cp -r -n "$tmp_dir/emqx/lib"/* "$lib_dir" || true
                 rm -rf "$tmp_dir"
             fi
-            releases+=( "$base_vsn" )
-        done < <("$FIND" _upgrade_base -maxdepth 1 -name "${name_pattern}.zip" -type f)
+            releases+=( "$BASE_VSN" )
+        done
     fi
     if [ ${#releases[@]} -eq 0 ]; then
         log "No upgrade base found, relup ignored"
@@ -181,6 +184,11 @@ make_zip() {
             esac
             ;;
     esac
+    # shellcheck disable=SC2207
+    bases=($(relup_db base-vsns "$PKG_VSN"))
+    if [[ "${#bases[@]}" -eq 0 ]]; then
+        has_relup='no'
+    fi
     if [ "$has_relup" = 'yes' ]; then
         ./scripts/inject-relup.escript "${tard}/emqx/releases/${PKG_VSN}/relup"
     fi

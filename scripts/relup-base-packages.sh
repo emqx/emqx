@@ -63,8 +63,12 @@ cd -P -- "$(dirname -- "${BASH_SOURCE[0]}")/.."
 mkdir -p _upgrade_base
 pushd _upgrade_base
 
+otp_vsn_for() {
+    ../scripts/relup-base-vsns.escript otp-vsn-for "${1#[e|v]}" ../data/relup-paths.eterm
+}
+
 for tag in $(../scripts/relup-base-vsns.sh $EDITION | xargs echo -n); do
-    filename="$PROFILE-${tag#[e|v]}-otp$OTP_VSN-$SYSTEM-$ARCH.zip"
+    filename="$PROFILE-${tag#[e|v]}-otp$(otp_vsn_for "$tag")-$SYSTEM-$ARCH.zip"
     url="https://packages.emqx.io/$DIR/$tag/$filename"
     if [ ! -f "$filename" ] && curl -L -I -m 10 -o /dev/null -s -w "%{http_code}" "${url}" | grep -q -oE "^[23]+" ; then
         echo "downloading base package from ${url} ..."
@@ -77,6 +81,8 @@ for tag in $(../scripts/relup-base-vsns.sh $EDITION | xargs echo -n); do
             ## https://askubuntu.com/questions/1202208/checking-sha256-checksum
             echo "${SUMSTR}  ${filename}" | $SHASUM -c || exit 1
         fi
+    else
+        echo "file $filename already downloaded or doesn't exist in the archives; skipping it"
     fi
 done
 
