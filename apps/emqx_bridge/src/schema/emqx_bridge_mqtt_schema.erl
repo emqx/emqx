@@ -40,6 +40,8 @@ fields("get") ->
 
 desc("config") ->
     ?DESC("config");
+desc("creation_opts" = Name) ->
+    emqx_resource_schema:desc(Name);
 desc(_) ->
     undefined.
 
