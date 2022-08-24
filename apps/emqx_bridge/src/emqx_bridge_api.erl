@@ -168,9 +168,10 @@ bridge_info_examples(Method) ->
     ).
 
 ee_bridge_examples(Method) ->
-    case erlang:function_exported(emqx_ee_bridge, examples, 1) of
-        true -> emqx_ee_bridge:examples(Method);
-        false -> #{}
+    try
+        emqx_ee_bridge:examples(Method)
+    catch
+        _:_ -> #{}
     end.
 
 info_example(Type, Method) ->

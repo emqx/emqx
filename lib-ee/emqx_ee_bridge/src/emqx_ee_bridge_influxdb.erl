@@ -84,14 +84,6 @@ namespace() -> "bridge_influxdb".
 
 roots() -> [].
 
-fields(basic) ->
-    [
-        {enable, mk(boolean(), #{desc => ?DESC("config_enable"), default => true})},
-        {direction, mk(egress, #{desc => ?DESC("config_direction"), default => egress})},
-        {local_topic, mk(binary(), #{desc => ?DESC("local_topic")})},
-        {write_syntax, fun write_syntax/1}
-    ] ++
-        emqx_resource_schema:fields("resource_opts");
 fields("post_udp") ->
     method_fileds(post, influxdb_udp);
 fields("post_api_v1") ->
@@ -110,35 +102,37 @@ fields("get_api_v1") ->
     method_fileds(get, influxdb_api_v1);
 fields("get_api_v2") ->
     method_fileds(get, influxdb_api_v2);
-fields(Name) when
-    Name == influxdb_udp orelse Name == influxdb_api_v1 orelse Name == influxdb_api_v2
+fields(Type) when
+    Type == influxdb_udp orelse Type == influxdb_api_v1 orelse Type == influxdb_api_v2
 ->
-    fields(basic) ++
-        connector_field(Name).
+    influxdb_bridge_common_fields() ++
+        connector_fields(Type).
 
 method_fileds(post, ConnectorType) ->
-    fields(basic) ++ connector_field(ConnectorType) ++ type_name_field(ConnectorType);
+    influxdb_bridge_common_fields() ++
+        connector_fields(ConnectorType) ++
+        type_name_fields(ConnectorType);
 method_fileds(get, ConnectorType) ->
-    fields(basic) ++
-        emqx_bridge_schema:metrics_status_fields() ++
-        connector_field(ConnectorType) ++ type_name_field(ConnectorType);
+    influxdb_bridge_common_fields() ++
+        connector_fields(ConnectorType) ++
+        type_name_fields(ConnectorType) ++
+        emqx_bridge_schema:metrics_status_fields();
 method_fileds(put, ConnectorType) ->
-    fields(basic) ++ connector_field(ConnectorType).
+    influxdb_bridge_common_fields() ++
+        connector_fields(ConnectorType).
 
-connector_field(Type) ->
-    [
-        {connector,
-            mk(
-                hoconsc:union([binary(), ref(emqx_ee_connector_influxdb, Type)]),
-                #{
-                    required => true,
-                    example => list_to_binary(atom_to_list(Type) ++ ":connector"),
-                    desc => ?DESC(<<"desc_connector">>)
-                }
-            )}
-    ].
+influxdb_bridge_common_fields() ->
+    emqx_bridge_schema:common_bridge_fields() ++
+        [
+            {local_topic, mk(binary(), #{required => true, desc => ?DESC("local_topic")})},
+            {write_syntax, fun write_syntax/1}
+        ] ++
+        emqx_resource_schema:fields("resource_opts").
 
-type_name_field(Type) ->
+connector_fields(Type) ->
+    emqx_ee_connector_influxdb:fields(Type).
+
+type_name_fields(Type) ->
     [
         {type, mk(Type, #{required => true, desc => ?DESC("desc_type")})},
         {name, mk(binary(), #{required => true, desc => ?DESC("desc_name")})}

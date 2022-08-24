@@ -3,6 +3,9 @@
 %%--------------------------------------------------------------------
 -module(emqx_ee_connector_influxdb).
 
+-include("emqx_ee_connector.hrl").
+-include_lib("emqx_connector/include/emqx_connector.hrl").
+
 -include_lib("hocon/include/hoconsc.hrl").
 -include_lib("typerefl/include/types.hrl").
 -include_lib("emqx/include/logger.hrl").
@@ -26,9 +29,14 @@
 -export([
     namespace/0,
     fields/1,
-    desc/1,
-    connector_examples/1
+    desc/1
 ]).
+
+%% influxdb servers don't need parse
+-define(INFLUXDB_HOST_OPTIONS, #{
+    host_type => hostname,
+    default_port => ?INFLUXDB_DEFAULT_PORT
+}).
 
 %% -------------------------------------------------------------------------------------------------
 %% resource callback
@@ -103,115 +111,41 @@ on_get_status(_InstId, #{client := Client}) ->
 %% schema
 namespace() -> connector_influxdb.
 
-fields("udp_get") ->
-    Key = influxdb_udp,
-    fields(Key) ++ type_name_field(Key);
-fields("udp_post") ->
-    Key = influxdb_udp,
-    fields(Key) ++ type_name_field(Key);
-fields("udp_put") ->
-    fields(influxdb_udp);
-fields("api_v1_get") ->
-    Key = influxdb_api_v1,
-    fields(Key) ++ type_name_field(Key);
-fields("api_v1_post") ->
-    Key = influxdb_api_v1,
-    fields(Key) ++ type_name_field(Key);
-fields("api_v1_put") ->
-    fields(influxdb_api_v1);
-fields("api_v2_get") ->
-    Key = influxdb_api_v2,
-    fields(Key) ++ type_name_field(Key);
-fields("api_v2_post") ->
-    Key = influxdb_api_v2,
-    fields(Key) ++ type_name_field(Key);
-fields("api_v2_put") ->
-    fields(influxdb_api_v2);
-fields(basic) ->
+fields(common) ->
     [
-        {host,
-            mk(binary(), #{required => true, default => <<"127.0.0.1">>, desc => ?DESC("host")})},
-        {port, mk(pos_integer(), #{required => true, default => 8086, desc => ?DESC("port")})},
+        {server, fun server/1},
         {precision,
             mk(enum([ns, us, ms, s, m, h]), #{
                 required => false, default => ms, desc => ?DESC("precision")
             })}
     ];
 fields(influxdb_udp) ->
-    fields(basic);
+    fields(common);
 fields(influxdb_api_v1) ->
-    [
-        {database, mk(binary(), #{required => true, desc => ?DESC("database")})},
-        {username, mk(binary(), #{desc => ?DESC("username")})},
-        {password, mk(binary(), #{desc => ?DESC("password"), format => <<"password">>})}
-    ] ++ emqx_connector_schema_lib:ssl_fields() ++ fields(basic);
+    fields(common) ++
+        [
+            {database, mk(binary(), #{required => true, desc => ?DESC("database")})},
+            {username, mk(binary(), #{desc => ?DESC("username")})},
+            {password, mk(binary(), #{desc => ?DESC("password"), format => <<"password">>})}
+        ] ++ emqx_connector_schema_lib:ssl_fields();
 fields(influxdb_api_v2) ->
-    [
-        {bucket, mk(binary(), #{required => true, desc => ?DESC("bucket")})},
-        {org, mk(binary(), #{required => true, desc => ?DESC("org")})},
-        {token, mk(binary(), #{required => true, desc => ?DESC("token")})}
-    ] ++ emqx_connector_schema_lib:ssl_fields() ++ fields(basic).
+    fields(common) ++
+        [
+            {bucket, mk(binary(), #{required => true, desc => ?DESC("bucket")})},
+            {org, mk(binary(), #{required => true, desc => ?DESC("org")})},
+            {token, mk(binary(), #{required => true, desc => ?DESC("token")})}
+        ] ++ emqx_connector_schema_lib:ssl_fields().
 
-type_name_field(Type) ->
-    [
-        {type, mk(Type, #{required => true, desc => ?DESC("type")})},
-        {name, mk(binary(), #{required => true, desc => ?DESC("name")})}
-    ].
+server(type) -> emqx_schema:ip_port();
+server(required) -> true;
+server(validator) -> [?NOT_EMPTY("the value of the field 'server' cannot be empty")];
+server(converter) -> fun to_server_raw/1;
+server(default) -> <<"127.0.0.1:8086">>;
+server(desc) -> ?DESC("server");
+server(_) -> undefined.
 
-connector_examples(Method) ->
-    [
-        #{
-            <<"influxdb_udp">> => #{
-                summary => <<"InfluxDB UDP Connector">>,
-                value => values(udp, Method)
-            }
-        },
-        #{
-            <<"influxdb_api_v1">> => #{
-                summary => <<"InfluxDB HTTP API V1 Connector">>,
-                value => values(api_v1, Method)
-            }
-        },
-        #{
-            <<"influxdb_api_v2">> => #{
-                summary => <<"InfluxDB HTTP API V2 Connector">>,
-                value => values(api_v2, Method)
-            }
-        }
-    ].
-
-values(Protocol, get) ->
-    values(Protocol, post);
-values(Protocol, post) ->
-    Type = list_to_atom("influxdb_" ++ atom_to_list(Protocol)),
-    maps:merge(values(Protocol, put), #{type => Type, name => <<"connector">>});
-values(udp, put) ->
-    #{
-        host => <<"127.0.0.1">>,
-        port => 8089,
-        precision => ms
-    };
-values(api_v1, put) ->
-    #{
-        host => <<"127.0.0.1">>,
-        port => 8086,
-        precision => ms,
-        database => <<"my_db">>,
-        username => <<"my_user">>,
-        password => <<"my_password">>,
-        ssl => #{enable => false}
-    };
-values(api_v2, put) ->
-    #{
-        host => <<"127.0.0.1">>,
-        port => 8086,
-        precision => ms,
-        bucket => <<"my_bucket">>,
-        org => <<"my_org">>,
-        token => <<"my_token">>,
-        ssl => #{enable => false}
-    }.
-
+desc(common) ->
+    ?DESC("common");
 desc(influxdb_udp) ->
     ?DESC("influxdb_udp");
 desc(influxdb_api_v1) ->
@@ -248,9 +182,7 @@ do_start_client(
     InstId,
     ClientConfig,
     Config = #{
-        egress := #{
-            write_syntax := Lines
-        }
+        write_syntax := Lines
     }
 ) ->
     case influxdb:start_client(ClientConfig) of
@@ -297,12 +229,11 @@ do_start_client(
 client_config(
     InstId,
     Config = #{
-        host := Host,
-        port := Port
+        server := {Host, Port}
     }
 ) ->
     [
-        {host, binary_to_list(Host)},
+        {host, str(Host)},
         {port, Port},
         {pool_size, erlang:system_info(schedulers)},
         {pool, binary_to_atom(InstId, utf8)},
@@ -319,9 +250,9 @@ protocol_config(#{
     [
         {protocol, http},
         {version, v1},
-        {username, binary_to_list(Username)},
-        {password, binary_to_list(Password)},
-        {database, binary_to_list(DB)}
+        {username, str(Username)},
+        {password, str(Password)},
+        {database, str(DB)}
     ] ++ ssl_config(SSL);
 %% api v1 config
 protocol_config(#{
@@ -333,8 +264,8 @@ protocol_config(#{
     [
         {protocol, http},
         {version, v2},
-        {bucket, binary_to_list(Bucket)},
-        {org, binary_to_list(Org)},
+        {bucket, str(Bucket)},
+        {org, str(Org)},
         {token, Token}
     ] ++ ssl_config(SSL);
 %% udp config
@@ -555,3 +486,18 @@ log_error_points(InstId, Errs) ->
         end,
         Errs
     ).
+
+%% ===================================================================
+%% typereflt funcs
+
+-spec to_server_raw(string()) ->
+    {string(), pos_integer()}.
+to_server_raw(Server) ->
+    emqx_connector_schema_lib:parse_server(Server, ?INFLUXDB_HOST_OPTIONS).
+
+str(A) when is_atom(A) ->
+    atom_to_list(A);
+str(B) when is_binary(B) ->
+    binary_to_list(B);
+str(S) when is_list(S) ->
+    S.
