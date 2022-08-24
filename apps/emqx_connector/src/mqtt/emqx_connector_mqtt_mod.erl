@@ -138,7 +138,7 @@ send(#{client_pid := ClientPid}, Msg) ->
     emqtt:publish(ClientPid, Msg).
 
 send_async(#{client_pid := ClientPid}, Msg, Callback) ->
-    emqtt:publish_async(ClientPid, Msg, Callback).
+    emqtt:publish_async(ClientPid, Msg, infinity, Callback).
 
 handle_publish(Msg, undefined, _Opts) ->
     ?SLOG(error, #{

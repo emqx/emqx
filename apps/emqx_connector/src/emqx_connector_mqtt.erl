@@ -141,7 +141,7 @@ on_message_received(Msg, HookPoint, ResId) ->
     emqx:run_hook(HookPoint, [Msg]).
 
 %% ===================================================================
-callback_mode() -> always_sync.
+callback_mode() -> async_if_possible.
 
 on_start(InstId, Conf) ->
     InstanceId = binary_to_atom(InstId, utf8),

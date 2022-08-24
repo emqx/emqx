@@ -306,8 +306,8 @@ connected({call, From}, {send_to_remote, Msg}, State) ->
             {keep_state_and_data, [[reply, From, {error, Reason}]]}
     end;
 connected(cast, {send_to_remote_async, Msg, Callback}, State) ->
-    {_, NewState} = do_send_async(State, Msg, Callback),
-    {keep_state, NewState};
+    _ = do_send_async(State, Msg, Callback),
+    {keep_state, State};
 connected(
     info,
     {disconnected, Conn, Reason},
