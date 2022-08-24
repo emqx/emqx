@@ -47,7 +47,13 @@
 %% exported for `emqx_telemetry'
 -export([get_basic_usage_info/0]).
 
--define(EGRESS_DIR_BRIDGES(T), T == webhook; T == mysql).
+-define(EGRESS_DIR_BRIDGES(T),
+    T == webhook;
+    T == mysql;
+    T == influxdb_api_v1;
+    T == influxdb_api_v2;
+    T == influxdb_udp
+).
 
 load() ->
     Bridges = emqx:get_config([bridges], #{}),
