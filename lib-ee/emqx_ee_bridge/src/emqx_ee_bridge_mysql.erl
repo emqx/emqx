@@ -43,17 +43,17 @@ values(get) ->
     maps:merge(values(post), ?METRICS_EXAMPLE);
 values(post) ->
     #{
+        enable => true,
         type => mysql,
         name => <<"foo">>,
-        sql_template => ?DEFAULT_SQL,
-        connector => #{
-            server => <<"127.0.0.1:3306">>,
-            database => <<"test">>,
-            pool_size => 8,
-            username => <<"root">>,
-            password => <<"">>,
-            auto_reconnect => true
-        },
+        server => <<"127.0.0.1:3306">>,
+        database => <<"test">>,
+        pool_size => 8,
+        username => <<"root">>,
+        password => <<"">>,
+        auto_reconnect => true,
+        sql => ?DEFAULT_SQL,
+        local_topic => <<"local/topic/#">>,
         resource_opts => #{
             health_check_interval => ?HEALTHCHECK_INTERVAL_RAW,
             auto_restart_interval => ?AUTO_RESTART_INTERVAL_RAW,
@@ -62,9 +62,7 @@ values(post) ->
             batch_time => ?DEFAULT_BATCH_TIME,
             enable_queue => false,
             max_queue_bytes => ?DEFAULT_QUEUE_SIZE
-        },
-        enable => true,
-        direction => egress
+        }
     };
 values(put) ->
     values(post).
@@ -78,19 +76,15 @@ roots() -> [].
 fields("config") ->
     [
         {enable, mk(boolean(), #{desc => ?DESC("config_enable"), default => true})},
-        {direction, mk(egress, #{desc => ?DESC("config_direction"), default => egress})},
-        {sql_template,
+        {sql,
             mk(
                 binary(),
                 #{desc => ?DESC("sql_template"), default => ?DEFAULT_SQL, format => <<"sql">>}
             )},
-        {connector,
+        {local_topic,
             mk(
-                ref(?MODULE, connector),
-                #{
-                    required => true,
-                    desc => ?DESC("desc_connector")
-                }
+                binary(),
+                #{desc => ?DESC("local_topic"), default => undefined}
             )},
         {resource_opts,
             mk(
@@ -101,30 +95,20 @@ fields("config") ->
                     desc => ?DESC(emqx_resource_schema, <<"resource_opts">>)
                 }
             )}
-    ];
+    ] ++
+        emqx_connector_mysql:fields(config) -- emqx_connector_schema_lib:prepare_statement_fields();
 fields("creation_opts") ->
     Opts = emqx_resource_schema:fields("creation_opts"),
-    lists:filter(
-        fun({Field, _}) ->
-            not lists:member(Field, [
-                start_after_created, start_timeout, query_mode, async_inflight_window
-            ])
-        end,
-        Opts
-    );
+    [O || {Field, _} = O <- Opts, not is_hidden_opts(Field)];
 fields("post") ->
     [type_field(), name_field() | fields("config")];
 fields("put") ->
     fields("config");
 fields("get") ->
-    emqx_bridge_schema:metrics_status_fields() ++ fields("post");
-fields(connector) ->
-    emqx_connector_mysql:fields(config) -- emqx_connector_schema_lib:prepare_statement_fields().
+    emqx_bridge_schema:metrics_status_fields() ++ fields("post").
 
 desc("config") ->
     ?DESC("desc_config");
-desc(connector) ->
-    ?DESC("desc_connector");
 desc(Method) when Method =:= "get"; Method =:= "put"; Method =:= "post" ->
     ["Configuration for MySQL using `", string:to_upper(Method), "` method."];
 desc("creation_opts" = Name) ->
@@ -134,6 +118,11 @@ desc(_) ->
 
 %% -------------------------------------------------------------------------------------------------
 %% internal
+is_hidden_opts(Field) ->
+    lists:member(Field, [
+        query_mode, async_inflight_window
+    ]).
+
 type_field() ->
     {type, mk(enum([mysql]), #{required => true, desc => ?DESC("desc_type")})}.
 

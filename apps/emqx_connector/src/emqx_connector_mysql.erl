@@ -309,11 +309,9 @@ parse_prepare_sql(Config) ->
     SQL =
         case maps:get(prepare_statement, Config, undefined) of
             undefined ->
-                case emqx_map_lib:deep_get([egress, sql_template], Config, undefined) of
-                    undefined ->
-                        #{};
-                    Template ->
-                        #{send_message => Template}
+                case maps:get(sql, Config, undefined) of
+                    undefined -> #{};
+                    Template -> #{send_message => Template}
                 end;
             Any ->
                 Any
