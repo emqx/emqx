@@ -353,7 +353,7 @@ t_local(_) ->
     ok = ensure_group_config(Node, GroupConfig),
     ok = ensure_group_config(GroupConfig),
 
-    Topic = <<"local_foo/bar">>,
+    Topic = <<"local_foo1/bar">>,
     ClientId1 = <<"ClientId1">>,
     ClientId2 = <<"ClientId2">>,
 
@@ -363,8 +363,8 @@ t_local(_) ->
     {ok, _} = emqtt:connect(ConnPid1),
     {ok, _} = emqtt:connect(ConnPid2),
 
-    emqtt:subscribe(ConnPid1, {<<"$share/local_group/local_foo/bar">>, 0}),
-    emqtt:subscribe(ConnPid2, {<<"$share/local_group/local_foo/bar">>, 0}),
+    emqtt:subscribe(ConnPid1, {<<"$share/local_group/", Topic/binary>>, 0}),
+    emqtt:subscribe(ConnPid2, {<<"$share/local_group/", Topic/binary>>, 0}),
 
     ct:sleep(100),
 
@@ -396,7 +396,7 @@ t_local_fallback(_) ->
                                <<"sticky_group">> => sticky
                               }),
 
-    Topic = <<"local_foo/bar">>,
+    Topic = <<"local_foo2/bar">>,
     ClientId1 = <<"ClientId1">>,
     ClientId2 = <<"ClientId2">>,
     Node = start_slave('local_fallback_shared_sub_test19', 11885),
@@ -406,12 +406,12 @@ t_local_fallback(_) ->
     Message1 = emqx_message:make(ClientId1, 0, Topic, <<"hello1">>),
     Message2 = emqx_message:make(ClientId2, 0, Topic, <<"hello2">>),
 
-    emqtt:subscribe(ConnPid1, {<<"$share/local_group_fallback/local_foo/bar">>, 0}),
+    emqtt:subscribe(ConnPid1, {<<"$share/local_group_fallback/", Topic/binary>>, 0}),
 
-    [{share, <<"local_foo/bar">>, {ok, 1}}] = emqx:publish(Message1),
+    [{share, Topic, {ok, 1}}] = emqx:publish(Message1),
     {true, UsedSubPid1} = last_message(<<"hello1">>, [ConnPid1]),
 
-    [{share, <<"local_foo/bar">>, {ok, 1}}] = rpc:call(Node, emqx, publish, [Message2]),
+    [{share, Topic, {ok, 1}}] = rpc:call(Node, emqx, publish, [Message2]),
     {true, UsedSubPid2} = last_message(<<"hello2">>, [ConnPid1]),
 
     emqtt:stop(ConnPid1),
