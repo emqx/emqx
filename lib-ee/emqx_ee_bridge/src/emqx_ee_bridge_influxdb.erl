@@ -53,30 +53,53 @@ conn_bridge_examples(Method) ->
 
 values(Protocol, get) ->
     maps:merge(values(Protocol, post), ?METRICS_EXAMPLE);
-values(Protocol, post) ->
-    case Protocol of
-        "influxdb_api_v2" ->
-            SupportUint = <<"uint_value=${payload.uint_key}u,">>;
-        _ ->
-            SupportUint = <<>>
-    end,
-    #{
+values("influxdb_api_v2", post) ->
+    SupportUint = <<"uint_value=${payload.uint_key}u,">>,
+    TypeOpts = #{
+        bucket => <<"example_bucket">>,
+        org => <<"examlpe_org">>,
+        token => <<"example_token">>,
+        server => <<"127.0.0.1:8086">>
+    },
+    values(common, "influxdb_api_v2", SupportUint, TypeOpts);
+values("influxdb_api_v1", post) ->
+    SupportUint = <<>>,
+    TypeOpts = #{
+        database => <<"example_database">>,
+        username => <<"example_username">>,
+        password => <<"examlpe_password">>,
+        server => <<"127.0.0.1:8086">>
+    },
+    values(common, "influxdb_api_v1", SupportUint, TypeOpts);
+values("influxdb_udp", post) ->
+    SupportUint = <<>>,
+    TypeOpts = #{
+        server => <<"127.0.0.1:8089">>
+    },
+    values(common, "influxdb_udp", SupportUint, TypeOpts);
+values(Protocol, put) ->
+    values(Protocol, post).
+
+values(common, Protocol, SupportUint, TypeOpts) ->
+    CommonConfigs = #{
         type => list_to_atom(Protocol),
         name => <<"demo">>,
-        connector => list_to_binary(Protocol ++ ":connector"),
         enable => true,
-        direction => egress,
         local_topic => <<"local/topic/#">>,
         write_syntax =>
             <<"${topic},clientid=${clientid}", " ", "payload=${payload},",
                 "${clientid}_int_value=${payload.int_key}i,", SupportUint/binary,
                 "bool=${payload.bool}">>,
-        enable_batch => false,
-        batch_size => 5,
-        batch_time => <<"1m">>
-    };
-values(Protocol, put) ->
-    values(Protocol, post).
+        precision => ms,
+        resource_opts => #{
+            enable_batch => false,
+            batch_size => 5,
+            batch_time => <<"1m">>
+        },
+        server => <<"127.0.0.1:8086">>,
+        ssl => #{enable => false}
+    },
+    maps:merge(TypeOpts, CommonConfigs).
 
 %% -------------------------------------------------------------------------------------------------
 %% Hocon Schema Definitions
@@ -124,7 +147,7 @@ method_fileds(put, ConnectorType) ->
 influxdb_bridge_common_fields() ->
     emqx_bridge_schema:common_bridge_fields() ++
         [
-            {local_topic, mk(binary(), #{required => true, desc => ?DESC("local_topic")})},
+            {local_topic, mk(binary(), #{desc => ?DESC("local_topic")})},
             {write_syntax, fun write_syntax/1}
         ] ++
         emqx_resource_schema:fields("resource_opts").
