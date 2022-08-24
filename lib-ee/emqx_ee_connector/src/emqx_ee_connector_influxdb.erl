@@ -85,18 +85,13 @@ on_batch_query_async(
     InstId,
     BatchData,
     {ReplayFun, Args},
-    State = #{write_syntax := SyntaxLines, client := Client}
+    #{write_syntax := SyntaxLines, client := Client}
 ) ->
-    case on_get_status(InstId, State) of
-        connected ->
-            case parse_batch_data(InstId, BatchData, SyntaxLines) of
-                {ok, Points} ->
-                    do_async_query(InstId, Client, Points, {ReplayFun, Args});
-                {error, Reason} ->
-                    {error, Reason}
-            end;
-        disconnected ->
-            {resource_down, disconnected}
+    case parse_batch_data(InstId, BatchData, SyntaxLines) of
+        {ok, Points} ->
+            do_async_query(InstId, Client, Points, {ReplayFun, Args});
+        {error, Reason} ->
+            {error, Reason}
     end.
 
 on_get_status(_InstId, #{client := Client}) ->

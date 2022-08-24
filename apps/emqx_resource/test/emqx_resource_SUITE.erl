@@ -419,7 +419,7 @@ t_query_counter_async_inflight(_) ->
     {ok, _, #{metrics := #{counters := C}}} = emqx_resource:get_instance(?ID),
     ct:pal("metrics: ~p", [C]),
     ?assertMatch(
-        #{matched := M, success := S, exception := E, failed := F, resource_down := RD} when
+        #{matched := M, success := S, exception := E, failed := F, recoverable_error := RD} when
             M >= Sent andalso M == S + E + F + RD,
         C
     ),

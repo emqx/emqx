@@ -355,13 +355,14 @@ handle_query_result(_Id, ?RESOURCE_ERROR_M(_, _), BlockWorker) ->
 handle_query_result(Id, {error, _}, BlockWorker) ->
     emqx_metrics_worker:inc(?RES_METRICS, Id, failed),
     BlockWorker;
-handle_query_result(Id, {resource_down, _}, _BlockWorker) ->
-    emqx_metrics_worker:inc(?RES_METRICS, Id, resource_down),
+handle_query_result(Id, {recoverable_error, _}, _BlockWorker) ->
+    emqx_metrics_worker:inc(?RES_METRICS, Id, failed),
     true;
 handle_query_result(_Id, {async_return, inflight_full}, _BlockWorker) ->
     true;
-handle_query_result(_Id, {async_return, {resource_down, _}}, _BlockWorker) ->
-    true;
+handle_query_result(Id, {async_return, {error, _}}, BlockWorker) ->
+    emqx_metrics_worker:inc(?RES_METRICS, Id, failed),
+    BlockWorker;
 handle_query_result(_Id, {async_return, ok}, BlockWorker) ->
     BlockWorker;
 handle_query_result(Id, Result, BlockWorker) ->
@@ -390,8 +391,8 @@ call_query(QM0, Id, Query, QueryOpts) ->
 -define(APPLY_RESOURCE(EXPR, REQ),
     try
         %% if the callback module (connector) wants to return an error that
-        %% makes the current resource goes into the `error` state, it should
-        %% return `{resource_down, Reason}`
+        %% makes the current resource goes into the `blocked` state, it should
+        %% return `{recoverable_error, Reason}`
         EXPR
     catch
         ERR:REASON:STACKTRACE ->

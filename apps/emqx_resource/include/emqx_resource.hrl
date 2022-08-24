@@ -77,7 +77,7 @@
     ok
     | {ok, term()}
     | {error, term()}
-    | {resource_down, term()}.
+    | {recoverable_error, term()}.
 
 -define(WORKER_POOL_SIZE, 16).
 

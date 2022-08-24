@@ -128,7 +128,7 @@ create(MgrId, ResId, Group, ResourceType, Config, Opts) ->
     ok = emqx_metrics_worker:create_metrics(
         ?RES_METRICS,
         ResId,
-        [matched, success, failed, exception, resource_down],
+        [matched, success, failed, exception],
         [matched]
     ),
     ok = emqx_resource_worker_sup:start_workers(ResId, Opts),

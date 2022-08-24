@@ -506,12 +506,22 @@ nested_put(Alias, Val, Columns0) ->
 -define(IS_RES_DOWN(R), R == stopped; R == not_connected; R == not_found).
 inc_action_metrics(ok, RuleId) ->
     emqx_metrics_worker:inc(rule_metrics, RuleId, 'actions.success');
-inc_action_metrics({ok, _}, RuleId) ->
-    emqx_metrics_worker:inc(rule_metrics, RuleId, 'actions.success');
-inc_action_metrics({resource_down, _}, RuleId) ->
+inc_action_metrics({recoverable_error, _}, RuleId) ->
     emqx_metrics_worker:inc(rule_metrics, RuleId, 'actions.failed.out_of_service');
 inc_action_metrics(?RESOURCE_ERROR_M(R, _), RuleId) when ?IS_RES_DOWN(R) ->
     emqx_metrics_worker:inc(rule_metrics, RuleId, 'actions.failed.out_of_service');
-inc_action_metrics(_, RuleId) ->
-    emqx_metrics_worker:inc(rule_metrics, RuleId, 'actions.failed'),
-    emqx_metrics_worker:inc(rule_metrics, RuleId, 'actions.failed.unknown').
+inc_action_metrics(R, RuleId) ->
+    case is_ok_result(R) of
+        false ->
+            emqx_metrics_worker:inc(rule_metrics, RuleId, 'actions.failed'),
+            emqx_metrics_worker:inc(rule_metrics, RuleId, 'actions.failed.unknown');
+        true ->
+            emqx_metrics_worker:inc(rule_metrics, RuleId, 'actions.success')
+    end.
+
+is_ok_result(ok) ->
+    true;
+is_ok_result(R) when is_tuple(R) ->
+    ok = erlang:element(1, R);
+is_ok_result(ok) ->
+    false.
