@@ -22,6 +22,8 @@
 -include("logger.hrl").
 -include("types.hrl").
 
+-include_lib("snabbkaffe/include/snabbkaffe.hrl").
+
 -logger_header("[Channel]").
 
 -ifdef(TEST).
@@ -316,7 +318,7 @@ handle_in(?CONNECT_PACKET(ConnPkt) = Packet, Channel) ->
                                         },
             case enhanced_auth(?CONNECT_PACKET(NConnPkt), NChannel1) of
                 {ok, Properties, NChannel2} ->
-                    process_connect(Properties, ensure_connected(NChannel2));
+                    process_connect(Properties, NChannel2);
                 {continue, Properties, NChannel2} ->
                     handle_out(auth, {?RC_CONTINUE_AUTHENTICATION, Properties}, NChannel2);
                 {error, ReasonCode, NChannel2} ->
@@ -332,7 +334,7 @@ handle_in(Packet = ?AUTH_PACKET(?RC_CONTINUE_AUTHENTICATION, _Properties),
         {ok, NProperties, NChannel} ->
             case ConnState of
                 connecting ->
-                    process_connect(NProperties, ensure_connected(NChannel));
+                    process_connect(NProperties, NChannel);
                 connected ->
                     handle_out(auth, {?RC_SUCCESS, NProperties}, NChannel);
                 _ ->
@@ -522,14 +524,14 @@ process_connect(AckProps, Channel = #channel{conninfo = ConnInfo,
     case emqx_cm:open_session(CleanStart, ClientInfo, ConnInfo) of
         {ok, #{session := Session, present := false}} ->
             NChannel = Channel#channel{session = Session},
-            handle_out(connack, {?RC_SUCCESS, sp(false), AckProps}, NChannel);
+            handle_out(connack, {?RC_SUCCESS, sp(false), AckProps}, ensure_connected(NChannel));
         {ok, #{session := Session, present := true, pendings := Pendings}} ->
             Pendings1 = lists:usort(lists:append(Pendings, emqx_misc:drain_deliver())),
             NChannel = Channel#channel{session  = Session,
                                        resuming = true,
                                        pendings = Pendings1
                                       },
-            handle_out(connack, {?RC_SUCCESS, sp(true), AckProps}, NChannel);
+            handle_out(connack, {?RC_SUCCESS, sp(true), AckProps}, ensure_connected(NChannel));
         {error, client_id_unavailable} ->
             handle_out(connack, ?RC_CLIENT_IDENTIFIER_NOT_VALID, Channel);
         {error, Reason} ->
@@ -875,11 +877,14 @@ handle_out(disconnect, ReasonCode, Channel) when is_integer(ReasonCode) ->
     ReasonName = disconnect_reason(ReasonCode),
     handle_out(disconnect, {ReasonCode, ReasonName}, Channel);
 
-handle_out(disconnect, {ReasonCode, ReasonName}, Channel = ?IS_MQTT_V5) ->
-    Packet = ?DISCONNECT_PACKET(ReasonCode),
+handle_out(disconnect, {ReasonCode, ReasonName}, Channel) ->
+    handle_out(disconnect, {ReasonCode, ReasonName, #{}}, Channel);
+
+handle_out(disconnect, {ReasonCode, ReasonName, Props}, Channel = ?IS_MQTT_V5) ->
+    Packet = ?DISCONNECT_PACKET(ReasonCode, Props),
     {ok, [{outgoing, Packet}, {close, ReasonName}], Channel};
 
-handle_out(disconnect, {_ReasonCode, ReasonName}, Channel) ->
+handle_out(disconnect, {_ReasonCode, ReasonName, _Props}, Channel) ->
     {ok, {close, ReasonName}, Channel};
 
 handle_out(auth, {ReasonCode, Properties}, Channel) ->
@@ -979,11 +984,15 @@ handle_call({takeover, 'begin'}, Channel = #channel{session = Session}) ->
     reply(Session, Channel#channel{takeover = true});
 
 handle_call({takeover, 'end'}, Channel = #channel{session  = Session,
-                                                  pendings = Pendings}) ->
+                                                  pendings = Pendings,
+                                                  conninfo = #{clientid := ClientId}}) ->
     ok = emqx_session:takeover(Session),
     %% TODO: Should not drain deliver here (side effect)
     Delivers = emqx_misc:drain_deliver(),
     AllPendings = lists:append(Delivers, Pendings),
+    ?tp(debug,
+        emqx_channel_takeover_end,
+        #{clientid => ClientId}),
     disconnect_and_shutdown(takeovered, AllPendings, Channel);
 
 handle_call(list_acl_cache, Channel) ->
@@ -1056,6 +1065,9 @@ handle_info({sock_closed, _Reason}, Channel = #channel{conn_state = disconnected
 handle_info(clean_acl_cache, Channel) ->
     ok = emqx_acl_cache:empty_acl_cache(),
     {ok, Channel};
+
+handle_info({disconnect, ReasonCode, ReasonName, Props}, Channel) ->
+    handle_out(disconnect, {ReasonCode, ReasonName, Props}, Channel);
 
 handle_info(Info, Channel) ->
     ?LOG(error, "Unexpected info: ~p", [Info]),

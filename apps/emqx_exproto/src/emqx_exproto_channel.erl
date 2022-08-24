@@ -76,7 +76,8 @@
 
 -define(TIMER_TABLE, #{
           alive_timer => keepalive,
-          force_timer => force_close
+          force_timer => force_close,
+          idle_timer => force_close_idle
          }).
 
 -define(INFO_KEYS, [conninfo, conn_state, clientinfo, session, will_msg]).
@@ -93,6 +94,8 @@
          awaiting_rel_cnt,
          awaiting_rel_max
         ]).
+
+-define(DEFAULT_IDLE_TIMEOUT, 30000).
 
 %%--------------------------------------------------------------------
 %% Info, Attrs and Caps
@@ -148,9 +151,13 @@ init(ConnInfo = #{socktype := Socktype,
                   peercert := Peercert}, Options) ->
     GRpcChann = proplists:get_value(handler, Options),
     NConnInfo = default_conninfo(ConnInfo),
-    ClientInfo = default_clientinfo(ConnInfo),
+    ClientInfo = default_clientinfo(NConnInfo),
+
+    IdleTimeout = proplists:get_value(idle_timeout, Options, ?DEFAULT_IDLE_TIMEOUT),
+
+    NConnInfo1 = NConnInfo#{idle_timeout => IdleTimeout},
     Channel = #channel{gcli = #{channel => GRpcChann},
-                       conninfo = NConnInfo,
+                       conninfo = NConnInfo1,
                        clientinfo = ClientInfo,
                        conn_state = accepted,
                        timers = #{}
@@ -165,7 +172,8 @@ init(ConnInfo = #{socktype := Socktype,
                              #{socktype => socktype(Socktype),
                                peername => address(Peername),
                                sockname => address(Sockname)})},
-            try_dispatch(on_socket_created, wrap(Req), Channel)
+            start_idle_checking_timer(
+              try_dispatch(on_socket_created, wrap(Req), Channel))
     end.
 
 register_the_anonymous_client(ClientInfo, ConnInfo) ->
@@ -183,6 +191,12 @@ register_the_anonymous_client(ClientInfo, ConnInfo) ->
 
 unregister_the_anonymous_client(ClientId) ->
     emqx_cm:unregister_channel(ClientId).
+
+start_idle_checking_timer(Channel = #channel{conninfo = #{socktype := udp}}) ->
+    ensure_timer(idle_timer, Channel);
+
+start_idle_checking_timer(Channel) ->
+    Channel.
 
 %% @private
 peercert(NoSsl, ConnInfo) when NoSsl == nossl;
@@ -261,11 +275,16 @@ handle_timeout(_TRef, {keepalive, StatVal},
         {error, timeout} ->
             Req = #{type => 'KEEPALIVE'},
             NChannel = clean_timer(alive_timer, Channel),
-            {ok, try_dispatch(on_timer_timeout, wrap(Req), NChannel)}
+            %% close connection if keepalive timeout
+            Replies = [{event, disconnected}, {close, normal}],
+            {ok, Replies, try_dispatch(on_timer_timeout, wrap(Req), NChannel)}
     end;
 
 handle_timeout(_TRef, force_close, Channel = #channel{closed_reason = Reason}) ->
     {shutdown, Reason, Channel};
+
+handle_timeout(_TRef, force_close_idle, Channel) ->
+    {shutdown, idle_timeout, Channel};
 
 handle_timeout(_TRef, Msg, Channel) ->
     ?WARN("Unexpected timeout: ~p", [Msg]),
@@ -328,7 +347,8 @@ handle_call({start_timer, keepalive, Interval},
     NConnInfo = ConnInfo#{keepalive => Interval},
     NClientInfo = ClientInfo#{keepalive => Interval},
     NChannel = Channel#channel{conninfo = NConnInfo, clientinfo = NClientInfo},
-    {reply, ok, [{event, updated}], ensure_keepalive(NChannel)};
+    {reply, ok, [{event, updated}],
+     ensure_keepalive(cancel_timer(idle_timer, NChannel))};
 
 handle_call({subscribe, TopicFilter, Qos},
             Channel = #channel{
@@ -363,7 +383,7 @@ handle_call({publish, Topic, Qos, Payload},
     end;
 
 handle_call(kick, Channel) ->
-    {shutdown, kicked, ok, Channel};
+    {reply, ok, [{event, disconnected}, {close, kicked}], Channel};
 
 handle_call(discard, Channel) ->
     {shutdown, discarded, ok, Channel};
@@ -561,6 +581,12 @@ reset_timer(Name, Channel) ->
 clean_timer(Name, Channel = #channel{timers = Timers}) ->
     Channel#channel{timers = maps:remove(Name, Timers)}.
 
+cancel_timer(Name, Channel = #channel{timers = Timers}) ->
+    emqx_misc:cancel_timer(maps:get(Name, Timers, undefined)),
+    clean_timer(Name, Channel).
+
+interval(idle_timer, #channel{conninfo = #{idle_timeout := IdleTimeout}}) ->
+    IdleTimeout;
 interval(force_timer, _) ->
     15000;
 interval(alive_timer, #channel{keepalive = Keepalive}) ->
@@ -609,9 +635,10 @@ enrich_clientinfo(InClientInfo = #{proto_name := ProtoName}, ClientInfo) ->
     NClientInfo = maps:merge(ClientInfo, maps:with(Ks, InClientInfo)),
     NClientInfo#{protocol => ProtoName}.
 
-default_conninfo(ConnInfo) ->
+default_conninfo(ConnInfo =
+                 #{peername := {PeerHost, PeerPort}}) ->
     ConnInfo#{clean_start => true,
-              clientid => undefined,
+              clientid => anonymous_clientid(PeerHost, PeerPort),
               username => undefined,
               conn_props => #{},
               connected => true,
@@ -622,13 +649,15 @@ default_conninfo(ConnInfo) ->
               receive_maximum => 0,
               expiry_interval => 0}.
 
-default_clientinfo(#{peername := {PeerHost, PeerPort},
-                     sockname := {_, SockPort}}) ->
+default_clientinfo(#{peername := {PeerHost, _},
+                     sockname := {_, SockPort},
+                     clientid := ClientId
+                    }) ->
     #{zone         => external,
       protocol     => exproto,
       peerhost     => PeerHost,
       sockport     => SockPort,
-      clientid     => anonymous_clientid(PeerHost, PeerPort),
+      clientid     => ClientId,
       username     => undefined,
       is_bridge    => false,
       is_superuser => false,

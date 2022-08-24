@@ -24,11 +24,12 @@
 all() -> emqx_ct:all(?MODULE).
 
 init_per_suite(Config) ->
-    emqx_ct_helpers:start_apps([emqx_retainer]),
+    emqx_retainer_ct_helper:ensure_start(),
     Config.
 
 end_per_suite(_Config) ->
-    emqx_ct_helpers:stop_apps([emqx_retainer]).
+    emqx_retainer_ct_helper:ensure_stop(),
+    ok.
 
 init_per_testcase(_TestCase, Config) ->
     Config.

@@ -20,6 +20,7 @@
 -include_lib("xmerl/include/xmerl.hrl").
 
 -export([ get_obj_def/2
+        , get_obj_def_assertive/2
         , get_object_id/1
         , get_object_name/1
         , get_object_and_resource_id/2
@@ -31,14 +32,18 @@
 -define(LOG(Level, Format, Args),
     logger:Level("LWM2M-OBJ: " ++ Format, Args)).
 
-% This module is for future use. Disabled now.
+get_obj_def_assertive(ObjectId, IsInt) ->
+    case get_obj_def(ObjectId, IsInt) of
+        {error, no_xml_definition} ->
+            erlang:throw({bad_request, {unknown_object_id, ObjectId}});
+        Xml ->
+            Xml
+    end.
 
 get_obj_def(ObjectIdInt, true) ->
     emqx_lwm2m_xml_object_db:find_objectid(ObjectIdInt);
 get_obj_def(ObjectNameStr, false) ->
     emqx_lwm2m_xml_object_db:find_name(ObjectNameStr).
-
-
 
 get_object_id(ObjDefinition) ->
     [#xmlText{value=ObjectId}] = xmerl_xpath:string("ObjectID/text()", ObjDefinition),

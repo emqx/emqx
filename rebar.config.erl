@@ -51,6 +51,8 @@ overrides() ->
     [ {add, [ {extra_src_dirs, [{"etc", [{recursive,true}]}]}
             , {erl_opts, [{compile_info, [{emqx_vsn, get_vsn()}]}]}
             ]}
+
+    , {add, relx, [{erl_opts, [{d, 'RLX_LOG', rlx_log}]}]}
     , {add, snabbkaffe,
        [{erl_opts, common_compile_opts()}]}
     ] ++ community_plugin_overrides().
@@ -88,7 +90,7 @@ project_app_dirs() ->
     ["apps/*", alternative_lib_dir() ++ "/*", "."].
 
 plugins(HasElixir) ->
-    [ {relup_helper,{git,"https://github.com/emqx/relup_helper", {tag, "2.0.0"}}}
+    [ {relup_helper,{git,"https://github.com/emqx/relup_helper", {tag, "2.1.0"}}}
     , {er_coap_client, {git, "https://github.com/emqx/er_coap_client", {tag, "v1.0.4"}}}
       %% emqx main project does not require port-compiler
       %% pin at root level for deterministic

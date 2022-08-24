@@ -316,7 +316,7 @@ jobs:
       id: meta
       with:
         images: ${{ matrix.registry }}/${{ github.repository_owner }}/${{ matrix.profile }}
-        ## only stable tag is latest
+        ## only 5.0 is latest
         flavor: |
           latest=false # latest is now 5.0
         tags: |
