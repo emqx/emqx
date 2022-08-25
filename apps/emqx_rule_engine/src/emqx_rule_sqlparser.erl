@@ -48,10 +48,6 @@
 
 -export_type([select/0]).
 
-%% Dialyzer gives up on the generated code.
-%% probably due to stack depth, or inlines.
--dialyzer({nowarn_function, [parse_select/1]}).
-
 %% Parse one select statement.
 -spec(parse_select(string() | binary())
       -> {ok, select()} | {parse_error, term()} | {lex_error, term()}).
@@ -105,4 +101,3 @@ select_from(#select{from = From}) ->
 -spec(select_where(select()) -> tuple()).
 select_where(#select{where = Where}) ->
     Where.
-

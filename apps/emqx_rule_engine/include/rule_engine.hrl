@@ -61,28 +61,49 @@
         }).
 
 -record(action_instance,
-        { id :: action_instance_id()
-        , name :: action_name()
-        , fallbacks :: list(#action_instance{})
-        , args :: #{binary() => term()} %% the args got from API for initializing action_instance
+        { id
+        , name
+        , fallbacks
+        , args %% the args got from API for initializing action_instance
         }).
+-type(action_instance()
+      :: #action_instance{ id :: action_instance_id()
+                         , name :: action_name()
+                         , fallbacks :: list(#action_instance{})
+                         , args :: #{binary() => term()} %% the args got from API for initializing action_instance
+                         }).
 
 -record(rule,
-        { id :: rule_id()
-        , for :: list(topic())
-        , rawsql :: binary()
-        , is_foreach :: boolean()
-        , fields :: list()
-        , doeach :: term()
-        , incase :: list()
-        , conditions :: tuple()
-        , on_action_failed :: continue | stop
-        , actions :: list(#action_instance{})
-        , enabled :: boolean()
-        , created_at :: integer() %% epoch in millisecond precision
-        , description :: binary()
-        , state = normal :: atom()
+        { id
+        , for
+        , rawsql
+        , is_foreach
+        , fields
+        , doeach
+        , incase
+        , conditions
+        , on_action_failed
+        , actions
+        , enabled
+        , created_at %% epoch in millisecond precision
+        , description
+        , state = normal
         }).
+-type(rule() :: #rule{ id :: rule_id()
+                     , for :: list(topic())
+                     , rawsql :: binary()
+                     , is_foreach :: boolean()
+                     , fields :: list()
+                     , doeach :: term()
+                     , incase :: list()
+                     , conditions :: tuple()
+                     , on_action_failed :: continue | stop
+                     , actions :: list(#action_instance{})
+                     , enabled :: boolean()
+                     , created_at :: integer() %% epoch in millisecond precision
+                     , description :: binary()
+                     , state :: normal | atom()
+                     }).
 
 -record(resource,
         { id :: resource_id()
