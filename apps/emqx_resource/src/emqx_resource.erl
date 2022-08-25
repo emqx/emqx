@@ -256,15 +256,11 @@ query(ResId, Request) ->
     Result :: term().
 query(ResId, Request, Opts) ->
     case emqx_resource_manager:ets_lookup(ResId) of
-        {ok, _Group, #{query_mode := QM, status := connected}} ->
+        {ok, _Group, #{query_mode := QM}} ->
             case QM of
                 sync -> emqx_resource_worker:sync_query(ResId, Request, Opts);
                 async -> emqx_resource_worker:async_query(ResId, Request, Opts)
             end;
-        {ok, _Group, #{status := stopped}} ->
-            ?RESOURCE_ERROR(stopped, "resource stopped or disabled");
-        {ok, _Group, #{status := S}} when S == connecting; S == disconnected ->
-            ?RESOURCE_ERROR(not_connected, "resource not connected");
         {error, not_found} ->
             ?RESOURCE_ERROR(not_found, "resource not found")
     end.

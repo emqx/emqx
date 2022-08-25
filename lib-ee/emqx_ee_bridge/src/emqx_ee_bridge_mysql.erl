@@ -55,6 +55,7 @@ values(post) ->
         sql => ?DEFAULT_SQL,
         local_topic => <<"local/topic/#">>,
         resource_opts => #{
+            worker_pool_size => 1,
             health_check_interval => ?HEALTHCHECK_INTERVAL_RAW,
             auto_restart_interval => ?AUTO_RESTART_INTERVAL_RAW,
             enable_batch => false,
