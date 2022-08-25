@@ -20,6 +20,7 @@ help() {
     echo "--arch amd64|arm64:  Target arch to build the EMQ X package for"
     echo "--src_dir <SRC_DIR>: EMQ X source ode in this dir, default to PWD"
     echo "--builder <BUILDER>: Builder image to pull"
+    echo "--system <SYSTEM>:   The target OS system the package is being built for, ex: debian11"
     echo "                     E.g. ghcr.io/emqx/emqx-builder/4.4-19:24.1.5-3-debian10"
 }
 
@@ -49,6 +50,10 @@ while [ "$#" -gt 0 ]; do
         ARCH="$2"
         shift 2
         ;;
+    --system)
+        SYSTEM="$2"
+        shift 2
+        ;;
     *)
       echo "WARN: Unknown arg (ignored): $1"
       shift
@@ -70,6 +75,8 @@ fi
 cd "${SRC_DIR:-.}"
 
 set -x
+# $SYSTEM below is used by the `relup-base-vsns.escript` to correctly
+# output the list of relup base versions.
 docker info
 docker run --rm --privileged tonistiigi/binfmt:latest --install "${ARCH}"
 docker run -i --rm \
@@ -77,5 +84,6 @@ docker run -i --rm \
     --workdir /emqx \
     --platform="linux/$ARCH" \
     --user root \
+    -e SYSTEM="$SYSTEM" \
     "$BUILDER" \
     bash -euc "git config --global --add safe.directory /emqx && chown -R root:root _build && make ${PROFILE}-${PKGTYPE} && .ci/build_packages/tests.sh $PROFILE $PKGTYPE"

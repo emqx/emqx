@@ -259,6 +259,7 @@ jobs:
           --profile "${PROFILE}" \
           --pkgtype "${PACKAGE}" \
           --arch "${ARCH}" \
+          --system "${SYSTEM}" \
           --builder "ghcr.io/emqx/emqx-builder/4.4-19:${OTP}-${SYSTEM}"
     - uses: actions/upload-artifact@v1
       with:
