@@ -62,6 +62,9 @@
         , call_fold/3
         ]).
 
+-define(STOP_OR_OK(Res),
+        (Res =:= ok orelse Res =:= stop)).
+
 %%--------------------------------------------------------------------
 %% Clients
 %%--------------------------------------------------------------------
@@ -102,10 +105,11 @@ on_client_authenticate(ClientInfo, AuthResult) ->
 
     case call_fold('client.authenticate', Req,
                    fun merge_responsed_bool/2) of
-        {StopOrOk, #{result := Result0}} when is_boolean(Result0) ->
+        {StopOrOk, #{result := Result0}}
+          when is_boolean(Result0) andalso ?STOP_OR_OK(StopOrOk) ->
             Result = case Result0 of true -> success; _ -> not_authorized end,
             {StopOrOk, AuthResult#{auth_result => Result, anonymous => false}};
-        _ ->
+        ignore ->
             {ok, AuthResult}
     end.
 
@@ -122,10 +126,11 @@ on_client_check_acl(ClientInfo, PubSub, Topic, Result) ->
            },
     case call_fold('client.check_acl', Req,
                    fun merge_responsed_bool/2) of
-        {StopOrOk, #{result := Result0}} when is_boolean(Result0) ->
+        {StopOrOk, #{result := Result0}}
+          when is_boolean(Result0) andalso ?STOP_OR_OK(StopOrOk) ->
             NResult = case Result0 of true -> allow; _ -> deny end,
             {StopOrOk, NResult};
-        _ -> {ok, Result}
+        ignore -> {ok, Result}
     end.
 
 on_client_subscribe(ClientInfo, Props, TopicFilters) ->
@@ -190,9 +195,11 @@ on_message_publish(Message) ->
     Req = #{message => message(Message)},
     case call_fold('message.publish', Req,
                    fun emqx_exhook_handler:merge_responsed_message/2) of
-        {StopOrOk, #{message := NMessage}} ->
+        {StopOrOk, #{message := NMessage}}
+          when ?STOP_OR_OK(StopOrOk) ->
             {StopOrOk, assign_to_message(NMessage, Message)};
-        _ -> {ok, Message}
+        ignore ->
+            {ok, Message}
     end.
 
 on_message_dropped(#message{topic = <<"$SYS/", _/binary>>}, _By, _Reason) ->
