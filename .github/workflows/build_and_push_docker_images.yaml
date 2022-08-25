@@ -221,7 +221,7 @@ jobs:
 
   docker-push-multi-arch-manifest:
     # note, we only run on amd64
-    if: ${{ needs.prepare.outputs.IS_EXACT_TAG }} == 'true'
+    if: needs.prepare.outputs.IS_EXACT_TAG == 'true'
     needs:
       - prepare
       - docker
@@ -324,7 +324,7 @@ jobs:
             ${{ steps.pre-meta.outputs.img_labels }}
 
       - name: update manifest for multiarch image
-        if: ${{ needs.prepare.outputs.IS_EXACT_TAG }} == 'true'
+        if: needs.prepare.outputs.IS_EXACT_TAG == 'true'
         working-directory: source
         run: |
           if [ ${{ matrix.build_elixir }} = 'with_elixir' ]; then
