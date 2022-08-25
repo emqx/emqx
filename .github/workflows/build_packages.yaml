@@ -84,6 +84,7 @@ jobs:
         PYTHON: python
         DIAGNOSTIC: 1
         PROFILE: emqx
+        SYSTEM: windows
       working-directory: source
       run: |
         erl -eval "erlang:display(crypto:info_lib())" -s init stop

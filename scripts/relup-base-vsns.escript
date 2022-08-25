@@ -161,6 +161,9 @@ fetch_version(Vsn, VsnMap) ->
 filter_froms(Froms0, AvailableVersionsIndex) ->
     Froms1 =
         case os:getenv("SYSTEM") of
+            %% we do not support relup for windows
+            "windows" ->
+                [];
             %% debian11 is introduced since v4.4.2 and e4.4.2
             %% exclude tags before them
             "debian11" ->
