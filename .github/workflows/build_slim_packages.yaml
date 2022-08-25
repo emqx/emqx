@@ -79,6 +79,7 @@ jobs:
       env:
         PYTHON: python
         DIAGNOSTIC: 1
+        SYSTEM: windows
       run: |
         erl -eval "erlang:display(crypto:info_lib())" -s init stop
         make ${{ matrix.profile }}-zip

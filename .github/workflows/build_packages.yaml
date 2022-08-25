@@ -84,6 +84,7 @@ jobs:
         PYTHON: python
         DIAGNOSTIC: 1
         PROFILE: emqx
+        SYSTEM: windows
       working-directory: source
       run: |
         erl -eval "erlang:display(crypto:info_lib())" -s init stop
@@ -259,6 +260,7 @@ jobs:
           --profile "${PROFILE}" \
           --pkgtype "${PACKAGE}" \
           --arch "${ARCH}" \
+          --system "${SYSTEM}" \
           --builder "ghcr.io/emqx/emqx-builder/4.4-19:${OTP}-${SYSTEM}"
     - uses: actions/upload-artifact@v1
       with:
