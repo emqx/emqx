@@ -252,6 +252,8 @@ jobs:
           - 'docker.io'
           - 'public.ecr.aws'
         exclude:
+          - registry: 'public.ecr.aws'
+            profile: emqx-enterprise
           - arch: arm64
             build_machine: ubuntu-20.04
           - arch: amd64
