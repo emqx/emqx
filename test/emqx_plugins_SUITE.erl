@@ -112,8 +112,7 @@ default_plugins() ->
         {emqx_modules, true},
         {emqx_recon, true},
         {emqx_retainer, false},
-        {emqx_rule_engine, true},
-        {emqx_telemetry, true}
+        {emqx_rule_engine, true}
     ].
 
 -endif.

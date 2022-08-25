@@ -62,12 +62,13 @@ load(ModuleName) ->
 %% @doc Creates a `loaded_modules' file with default values if one
 %% doesn't exist.
 -spec ensure_loaded_modules_file(file:filename()) -> ok.
-ensure_loaded_modules_file(Filepath) ->
-    case filelib:is_regular(Filepath) of
+ensure_loaded_modules_file(FilePath) ->
+    case filelib:is_regular(FilePath) of
         true ->
             ok;
         false ->
-            do_ensure_loaded_modules_file(Filepath)
+            ?LOG(warning, "~s is not found, use the default modules instead", [FilePath]),
+            do_ensure_loaded_modules_file(FilePath)
     end.
 
 do_ensure_loaded_modules_file(Filepath) ->
