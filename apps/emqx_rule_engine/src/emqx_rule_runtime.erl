@@ -509,11 +509,9 @@ inc_action_metrics(ok, RuleId) ->
 inc_action_metrics({ok, _}, RuleId) ->
     emqx_metrics_worker:inc(rule_metrics, RuleId, 'actions.success');
 inc_action_metrics({resource_down, _}, RuleId) ->
-    emqx_metrics_worker:inc(rule_metrics, RuleId, 'actions.failed.out_of_service'),
-    emqx_metrics_worker:inc(rule_metrics, RuleId, 'actions.failed.unknown');
+    emqx_metrics_worker:inc(rule_metrics, RuleId, 'actions.failed.out_of_service');
 inc_action_metrics(?RESOURCE_ERROR_M(R, _), RuleId) when ?IS_RES_DOWN(R) ->
-    emqx_metrics_worker:inc(rule_metrics, RuleId, 'actions.failed.out_of_service'),
-    emqx_metrics_worker:inc(rule_metrics, RuleId, 'actions.failed.unknown');
+    emqx_metrics_worker:inc(rule_metrics, RuleId, 'actions.failed.out_of_service');
 inc_action_metrics(_, RuleId) ->
     emqx_metrics_worker:inc(rule_metrics, RuleId, 'actions.failed'),
     emqx_metrics_worker:inc(rule_metrics, RuleId, 'actions.failed.unknown').
