@@ -60,6 +60,7 @@ values(post) ->
             enable_batch => false,
             batch_size => ?DEFAULT_BATCH_SIZE,
             batch_time => ?DEFAULT_BATCH_TIME,
+            query_mode => sync,
             enable_queue => false,
             max_queue_bytes => ?DEFAULT_QUEUE_SIZE
         }
@@ -120,7 +121,7 @@ desc(_) ->
 %% internal
 is_hidden_opts(Field) ->
     lists:member(Field, [
-        query_mode, async_inflight_window
+        async_inflight_window
     ]).
 
 type_field() ->
