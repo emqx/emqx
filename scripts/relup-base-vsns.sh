@@ -41,14 +41,6 @@ if [ "${#CUR_SEMVER[@]}" -lt 3 ]; then
     usage
 fi
 
-## when the current version has no suffix such as -abcdef00
-## it is a formal release
-if [ "${#CUR_SEMVER[@]}" -eq 3 ]; then
-    IS_RELEASE=true
-else
-    IS_RELEASE=false
-fi
-
 case "${EDITION}" in
     *enterprise*)
         GIT_TAG_PREFIX="e"
@@ -58,17 +50,21 @@ case "${EDITION}" in
         ;;
 esac
 
-while read -r git_tag; do
+# must not be empty for MacOS (bash 3.x)
+TAGS=( 'dummy' )
+TAGS_EXCLUDE=( 'dummy' )
+
+while read -r vsn; do
     # shellcheck disable=SC2207
-    semver=($(parse_semver "$git_tag"))
-    if [ "${#semver[@]}" -eq 3 ] && [ "${semver[2]}" -le "${CUR_SEMVER[2]}" ]; then
-        if [ ${IS_RELEASE} = true ] && [ "${semver[2]}" -eq "${CUR_SEMVER[2]}" ] ; then
-            # do nothing
-            # exact match, do not print current version
-            # because current version is not an upgrade base
-            true
-        else
-            echo "$git_tag"
-        fi
+    TAGS+=($(git tag -l "${GIT_TAG_PREFIX}${vsn}"))
+done < <(./scripts/relup-base-vsns.escript base-vsns "$CUR" ./data/relup-paths.eterm)
+
+for tag_to_del in "${TAGS_EXCLUDE[@]}"; do
+    TAGS=( "${TAGS[@]/$tag_to_del}" )
+done
+
+for tag in "${TAGS[@]}"; do
+    if [ "$tag" != '' ]; then
+        echo "$tag"
     fi
-done < <(git tag -l "${GIT_TAG_PREFIX}${CUR_SEMVER[0]}.${CUR_SEMVER[1]}.*")
+done

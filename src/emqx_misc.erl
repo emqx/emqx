@@ -21,6 +21,8 @@
 -include("types.hrl").
 -include("logger.hrl").
 
+-elvis([{elvis_style, god_modules, disable}]).
+
 -export([ merge_opts/2
         , maybe_apply/2
         , compose/1
@@ -47,8 +49,8 @@
         , ipv6_probe/1
         ]).
 
--export([ bin2hexstr_A_F/1
-        , bin2hexstr_a_f/1
+-export([ bin2hexstr_a_f_upper/1
+        , bin2hexstr_a_f_lower/1
         , hexstr2bin/1
         ]).
 
@@ -111,9 +113,9 @@ maybe_apply(Fun, Arg) when is_function(Fun) ->
 -spec(compose(list(F)) -> G
   when F :: fun((any()) -> any()),
        G :: fun((any()) -> any())).
-compose([F|More]) -> compose(F, More).
+compose([F | More]) -> compose(F, More).
 
--spec(compose(F, G|[Gs]) -> C
+-spec(compose(F, G | [Gs]) -> C
   when F :: fun((X1) -> X2),
        G :: fun((X2) -> X3),
        Gs :: [fun((Xn) -> Xn1)],
@@ -121,19 +123,19 @@ compose([F|More]) -> compose(F, More).
        X3 :: any(), Xn :: any(), Xn1 :: any(), Xm :: any()).
 compose(F, G) when is_function(G) -> fun(X) -> G(F(X)) end;
 compose(F, [G]) -> compose(F, G);
-compose(F, [G|More]) -> compose(compose(F, G), More).
+compose(F, [G | More]) -> compose(compose(F, G), More).
 
 %% @doc RunFold
 run_fold([], Acc, _State) ->
     Acc;
-run_fold([Fun|More], Acc, State) ->
+run_fold([Fun | More], Acc, State) ->
     run_fold(More, Fun(Acc, State), State).
 
 %% @doc Pipeline
 pipeline([], Input, State) ->
     {ok, Input, State};
 
-pipeline([Fun|More], Input, State) ->
+pipeline([Fun | More], Input, State) ->
     case apply_fun(Fun, Input, State) of
         ok -> pipeline(More, Input, State);
         {ok, NState} ->
@@ -182,7 +184,7 @@ drain_deliver(0, Acc) ->
 drain_deliver(N, Acc) ->
     receive
         Deliver = {deliver, _Topic, _Msg} ->
-            drain_deliver(N-1, [Deliver|Acc])
+            drain_deliver(N-1, [Deliver | Acc])
     after 0 ->
         lists:reverse(Acc)
     end.
@@ -197,7 +199,7 @@ drain_down(0, Acc) ->
 drain_down(Cnt, Acc) ->
     receive
         {'DOWN', _MRef, process, Pid, _Reason} ->
-            drain_down(Cnt-1, [Pid|Acc])
+            drain_down(Cnt-1, [Pid | Acc])
     after 0 ->
         lists:reverse(Acc)
     end.
@@ -223,7 +225,7 @@ check_oom(Pid, #{message_queue_len := MaxQLen,
     end.
 
 do_check_oom([]) -> ok;
-do_check_oom([{Val, Max, Reason}|Rest]) ->
+do_check_oom([{Val, Max, Reason} | Rest]) ->
     case is_integer(Max) andalso (0 < Max) andalso (Max < Val) of
         true  -> {shutdown, Reason};
         false -> do_check_oom(Rest)
@@ -270,8 +272,8 @@ proc_stats(Pid) ->
                             reductions,
                             memory]) of
         undefined -> [];
-        [{message_queue_len, Len}|ProcStats] ->
-            [{mailbox_len, Len}|ProcStats]
+        [{message_queue_len, Len} | ProcStats] ->
+            [{mailbox_len, Len} | ProcStats]
     end.
 
 rand_seed() ->
@@ -291,17 +293,17 @@ index_of(E, L) ->
 
 index_of(_E, _I, []) ->
     error(badarg);
-index_of(E, I, [E|_]) ->
+index_of(E, I, [E | _]) ->
     I;
-index_of(E, I, [_|L]) ->
+index_of(E, I, [_ | L]) ->
     index_of(E, I+1, L).
 
--spec(bin2hexstr_A_F(binary()) -> binary()).
-bin2hexstr_A_F(B) when is_binary(B) ->
+-spec(bin2hexstr_a_f_upper(binary()) -> binary()).
+bin2hexstr_a_f_upper(B) when is_binary(B) ->
     << <<(int2hexchar(H, upper)), (int2hexchar(L, upper))>> || <<H:4, L:4>> <= B>>.
 
--spec(bin2hexstr_a_f(binary()) -> binary()).
-bin2hexstr_a_f(B) when is_binary(B) ->
+-spec(bin2hexstr_a_f_lower(binary()) -> binary()).
+bin2hexstr_a_f_lower(B) when is_binary(B) ->
     << <<(int2hexchar(H, lower)), (int2hexchar(L, lower))>> || <<H:4, L:4>> <= B>>.
 
 int2hexchar(I, _) when I >= 0 andalso I < 10 -> I + $0;
