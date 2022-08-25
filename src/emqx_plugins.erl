@@ -218,6 +218,7 @@ ensure_file(File) ->
     case filelib:is_file(File) of
         false ->
             DefaultPlugins = default_plugins(),
+            ?LOG(warning, "~s is not found, use the default plugins instead", [File]),
             write_loaded(DefaultPlugins);
         true ->
             ok
