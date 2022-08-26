@@ -137,7 +137,7 @@ on_provider_loaded(#{meta := #{cluster_name := Name}} = Req, Md) ->
          #{name => <<"session.takeovered">>},
          #{name => <<"session.terminated">>}],
     PublishWithFilter =
-        [#{name => <<"message.publish">>, topics => [<<"t/1">>]}],
+        [#{name => <<"message.publish">>, topics => [<<"t/1">>, <<"a/#">>, <<"b/+">>]}],
     PublishWithOutFilter =
         [#{name => <<"message.publish">>}],
     HooksMessage =
@@ -328,7 +328,7 @@ on_message_publish(#{message := #{from := From} = Msg} = Req, Md) ->
                    value => {message, NMsg}}, Md};
         <<"test_filter_client">> ->
             %% rewrite topic and payload
-            NMsg = Msg#{topic => <<"t/2">>,
+            NMsg = Msg#{topic => <<"exhook/hardcoded">>,
                         payload => ?AFTER_HARDCODED_PAYLOAD},
             {ok, #{type => 'STOP_AND_RETURN',
                    value => {message, NMsg}}, Md};
