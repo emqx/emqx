@@ -17,6 +17,8 @@ on:
 
 jobs:
   prepare:
+    # avoid building when syncing to ee repo
+    if: endsWith(github.repository, 'emqx')
     runs-on: ubuntu-20.04
     container: emqx/build-env:erl23.3.4.9-3-ubuntu20.04
 
