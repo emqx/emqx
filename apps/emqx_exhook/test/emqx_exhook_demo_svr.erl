@@ -53,6 +53,8 @@
 -define(NAME, ?MODULE).
 -define(DEFAULT_CLUSTER_NAME, <<"emqxcl">>).
 -define(OTHER_CLUSTER_NAME_BIN, <<"test_emqx_cluster">>).
+-define(TEST_PUBLISH_FILTERS_BIN, <<"test_message_filters">>).
+-define(AFTER_HARDCODED_PAYLOAD, <<"after_hardcoded">>).
 
 %%--------------------------------------------------------------------
 %% Server APIs
@@ -134,16 +136,21 @@ on_provider_loaded(#{meta := #{cluster_name := Name}} = Req, Md) ->
          #{name => <<"session.discarded">>},
          #{name => <<"session.takeovered">>},
          #{name => <<"session.terminated">>}],
+    PublishWithFilter =
+        [#{name => <<"message.publish">>, topics => [<<"t/1">>, <<"a/#">>, <<"b/+">>]}],
+    PublishWithOutFilter =
+        [#{name => <<"message.publish">>}],
     HooksMessage =
-        [#{name => <<"message.publish">>},
-         #{name => <<"message.delivered">>},
+        [#{name => <<"message.delivered">>},
          #{name => <<"message.acked">>},
          #{name => <<"message.dropped">>}],
     case Name of
         ?DEFAULT_CLUSTER_NAME ->
-            {ok, #{hooks => HooksClient ++ HooksSession ++ HooksMessage}, Md};
+            {ok, #{hooks => HooksClient ++ HooksSession ++ PublishWithOutFilter ++ HooksMessage}, Md};
         ?OTHER_CLUSTER_NAME_BIN ->
-            {ok, #{hooks => HooksClient}, Md}
+            {ok, #{hooks => HooksClient}, Md};
+        ?TEST_PUBLISH_FILTERS_BIN ->
+            {ok, #{hooks => HooksClient ++ HooksSession ++ PublishWithFilter ++ HooksMessage}, Md}
     end.
 -spec on_provider_unloaded(emqx_exhook_pb:provider_unloaded_request(), grpc:metadata())
     -> {ok, emqx_exhook_pb:empty_success(), grpc:metadata()}
@@ -317,6 +324,12 @@ on_message_publish(#{message := #{from := From} = Msg} = Req, Md) ->
         <<"gooduser">> ->
             NMsg = allow(Msg#{topic => From,
                               payload => From}),
+            {ok, #{type => 'STOP_AND_RETURN',
+                   value => {message, NMsg}}, Md};
+        <<"test_filter_client">> ->
+            %% rewrite topic and payload
+            NMsg = Msg#{topic => <<"exhook/hardcoded">>,
+                        payload => ?AFTER_HARDCODED_PAYLOAD},
             {ok, #{type => 'STOP_AND_RETURN',
                    value => {message, NMsg}}, Md};
         _ ->
