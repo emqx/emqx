@@ -1,9 +1,10 @@
 %% -*- mode: erlang -*-
 %% Unless you know what you are doing, DO NOT edit manually!!
 {VSN,
-  [
-   {<<"4\\.4\\.[1-2]">>,
-    [{load_module, emqx_exhook_server, brutal_purge, soft_purge, []},
+  [{<<"4\\.4\\.[1-2]">>,
+    [{load_module,emqx_exhook_handler,brutal_purge,soft_purge,[]},
+     {load_module,emqx_exhook_server,brutal_purge,soft_purge,[]},
+     {load_module,emqx_exhook,brutal_purge,soft_purge,[]},
      {load_module,emqx_exhook_mngr,brutal_purge,soft_purge,[]}]},
    {"4.4.0",
     [{load_module,emqx_exhook_pb,brutal_purge,soft_purge,[]},
@@ -14,7 +15,9 @@
      {update, emqx_exhook_mngr, {advanced, ["4.4.0"]}}]},
    {<<".*">>,[]}],
   [{<<"4\\.4\\.[1-2]">>,
-    [{load_module, emqx_exhook_server, brutal_purge, soft_purge, []},
+    [{load_module,emqx_exhook_handler,brutal_purge,soft_purge,[]},
+     {load_module,emqx_exhook_server,brutal_purge,soft_purge,[]},
+     {load_module,emqx_exhook,brutal_purge,soft_purge,[]},
      {load_module,emqx_exhook_mngr,brutal_purge,soft_purge,[]}]},
    {"4.4.0",
     [{load_module,emqx_exhook_pb,brutal_purge,soft_purge,[]},
