@@ -240,22 +240,12 @@ name(#server{name = Name}) ->
    | {error, term()}.
 call(Hookpoint, Req, #server{name = ChannName, options = ReqOpts,
                              hookspec = Hooks, prefix = Prefix}) ->
-    GrpcFunc = hk2func(Hookpoint),
-    case maps:get(Hookpoint, Hooks, undefined) of
-        undefined -> ignore;
-        Opts ->
-            NeedCall  = case lists:member(Hookpoint, message_hooks()) of
-                            false -> true;
-                            _ ->
-                                #{message := #{topic := Topic}} = Req,
-                                match_topic_filter(Topic, maps:get(topics, Opts, []))
-                        end,
-            case NeedCall of
-                false -> ignore;
-                _ ->
-                    inc_metrics(Prefix, Hookpoint),
-                    do_call(ChannName, GrpcFunc, Req, ReqOpts)
-            end
+    case need_call(Hookpoint, Req, Hooks) of
+        true ->
+            inc_metrics(Prefix, Hookpoint),
+            do_call(ChannName, hk2func(Hookpoint), Req, ReqOpts);
+        false ->
+            ignore
     end.
 
 %% @private
@@ -265,6 +255,20 @@ inc_metrics(IncFun, Name) when is_function(IncFun) ->
     inc_metrics(Prefix, Name);
 inc_metrics(Prefix, Name) when is_list(Prefix) ->
     emqx_metrics:inc(list_to_atom(Prefix ++ atom_to_list(Name))).
+
+need_call(Hookpoint, Req, Hooks) ->
+    case maps:get(Hookpoint, Hooks, undefined) of
+        undefined ->
+            false; %% Hookpoint is not mounted on this server
+        Opts ->
+            case lists:member(Hookpoint, message_hooks()) of
+                false ->
+                    true;
+                _ ->
+                    #{message := #{topic := Topic}} = Req,
+                    match_topic_filter(Topic, maps:get(topics, Opts, []))
+            end
+    end.
 
 -compile({inline, [match_topic_filter/2]}).
 match_topic_filter(_, []) ->
