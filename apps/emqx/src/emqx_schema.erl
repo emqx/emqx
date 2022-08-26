@@ -102,7 +102,7 @@
 
 -export([namespace/0, roots/0, roots/1, fields/1, desc/1]).
 -export([conf_get/2, conf_get/3, keys/2, filter/1]).
--export([server_ssl_opts_schema/2, client_ssl_opts_schema/1, ciphers_schema/1, default_ciphers/1]).
+-export([server_ssl_opts_schema/2, client_ssl_opts_schema/1, ciphers_schema/1]).
 -export([sc/2, map/2]).
 
 -elvis([{elvis_style, god_modules, disable}]).
@@ -1843,6 +1843,8 @@ filter(Opts) ->
 common_ssl_opts_schema(Defaults) ->
     D = fun(Field) -> maps:get(to_atom(Field), Defaults, undefined) end,
     Df = fun(Field, Default) -> maps:get(to_atom(Field), Defaults, Default) end,
+    Collection = maps:get(versions, Defaults, tls_all_available),
+    AvailableVersions = default_tls_vsns(Collection),
     [
         {"cacertfile",
             sc(
@@ -1909,9 +1911,9 @@ common_ssl_opts_schema(Defaults) ->
             sc(
                 hoconsc:array(typerefl:atom()),
                 #{
-                    default => default_tls_vsns(maps:get(versions, Defaults, tls_all_available)),
+                    default => AvailableVersions,
                     desc => ?DESC(common_ssl_opts_schema_versions),
-                    validator => fun validate_tls_versions/1
+                    validator => fun(Inputs) -> validate_tls_versions(AvailableVersions, Inputs) end
                 }
             )},
         {"ciphers", ciphers_schema(D("ciphers"))},
@@ -2022,9 +2024,9 @@ client_ssl_opts_schema(Defaults) ->
         ].
 
 default_tls_vsns(dtls_all_available) ->
-    proplists:get_value(available_dtls, ssl:versions());
+    emqx_tls_lib:available_versions(dtls);
 default_tls_vsns(tls_all_available) ->
-    emqx_tls_lib:default_versions().
+    emqx_tls_lib:available_versions(tls).
 
 -spec ciphers_schema(quic | dtls_all_available | tls_all_available | undefined) ->
     hocon_schema:field_schema().
@@ -2039,6 +2041,10 @@ ciphers_schema(Default) ->
         #{
             default => default_ciphers(Default),
             converter => fun
+                (<<>>) ->
+                    [];
+                ("") ->
+                    [];
                 (Ciphers) when is_binary(Ciphers) ->
                     binary:split(Ciphers, <<",">>, [global]);
                 (Ciphers) when is_list(Ciphers) ->
@@ -2060,19 +2066,15 @@ default_ciphers(Which) ->
         do_default_ciphers(Which)
     ).
 
-do_default_ciphers(undefined) ->
-    do_default_ciphers(tls_all_available);
 do_default_ciphers(quic) ->
     [
         "TLS_AES_256_GCM_SHA384",
         "TLS_AES_128_GCM_SHA256",
         "TLS_CHACHA20_POLY1305_SHA256"
     ];
-do_default_ciphers(dtls_all_available) ->
-    %% as of now, dtls does not support tlsv1.3 ciphers
-    emqx_tls_lib:selected_ciphers(['dtlsv1.2', 'dtlsv1']);
-do_default_ciphers(tls_all_available) ->
-    emqx_tls_lib:default_ciphers().
+do_default_ciphers(_) ->
+    %% otherwise resolve default ciphers list at runtime
+    [].
 
 %% @private return a list of keys in a parent field
 -spec keys(string(), hocon:config()) -> [string()].
@@ -2250,19 +2252,16 @@ parse_user_lookup_fun(StrConf) ->
     {fun Mod:Fun/3, undefined}.
 
 validate_ciphers(Ciphers) ->
-    All = emqx_tls_lib:all_ciphers(),
-    case lists:filter(fun(Cipher) -> not lists:member(Cipher, All) end, Ciphers) of
+    Set = emqx_tls_lib:all_ciphers_set_cached(),
+    case lists:filter(fun(Cipher) -> not sets:is_element(Cipher, Set) end, Ciphers) of
         [] -> ok;
         Bad -> {error, {bad_ciphers, Bad}}
     end.
 
-validate_tls_versions(Versions) ->
-    AvailableVersions =
-        proplists:get_value(available, ssl:versions()) ++
-            proplists:get_value(available_dtls, ssl:versions()),
+validate_tls_versions(AvailableVersions, Versions) ->
     case lists:filter(fun(V) -> not lists:member(V, AvailableVersions) end, Versions) of
         [] -> ok;
-        Vs -> {error, {unsupported_ssl_versions, Vs}}
+        Vs -> {error, {unsupported_tls_versions, Vs}}
     end.
 
 validations() ->

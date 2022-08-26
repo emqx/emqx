@@ -365,8 +365,7 @@ fields(ssl_server_opts) ->
         #{
             depth => 10,
             reuse_sessions => true,
-            versions => tls_all_available,
-            ciphers => tls_all_available
+            versions => tls_all_available
         },
         true
     );
@@ -502,8 +501,7 @@ fields(dtls_opts) ->
         #{
             depth => 10,
             reuse_sessions => true,
-            versions => dtls_all_available,
-            ciphers => dtls_all_available
+            versions => dtls_all_available
         },
         false
     ).

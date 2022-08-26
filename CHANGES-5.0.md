@@ -6,11 +6,16 @@
 * Fix `$queue` topic name error in management API return. [#8728](https://github.com/emqx/emqx/pull/8728)
 * Fix sometimes `client.connected` and `client.disconnected` could be in wrong order. [#8625](https://github.com/emqx/emqx/pull/8625)
 
+
 # 5.0.6
 
 ## Bug fixes
 
 * Upgrade Dashboard version to fix an issue where the node status was not displayed correctly. [#8771](https://github.com/emqx/emqx/pull/8771)
+
+## Enhancements
+
+* Do not auto-populate default SSL cipher suites, so that the configs are less bloated. [#8769](https://github.com/emqx/emqx/pull/8769)
 
 # 5.0.5
 
