@@ -17,6 +17,8 @@ on:
 
 jobs:
   prepare:
+    # avoid building when syncing to ee repo
+    if: endsWith(github.repository, 'emqx')
     runs-on: ubuntu-20.04
     # prepare source with any OTP version, no need for a matrix
     container: ghcr.io/emqx/emqx-builder/4.4-19:24.1.5-3-ubuntu20.04
