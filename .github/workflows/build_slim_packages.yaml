@@ -41,8 +41,20 @@ jobs:
         fi
     - name: fix-git-unsafe-repository
       run: git config --global --add safe.directory /__w/emqx/emqx
+    - uses: actions/cache@v2
+      with:
+        # dialyzer PLTs
+        path: ~/.cache/rebar3/
+        key: dialyer-${{ matrix.erl_otp }}
     - name: make xref
       run: make xref
+    - name: make dialyzer
+      run: |
+        # TODO: once dialyzer warnings are fixed in 4.4+, we may
+        # enforce this.
+        if [[ "$(./pkg-vsn.sh)" =~ 4.3.* ]]; then
+          make dialyzer
+        fi
     - name: build zip packages
       run: make ${EMQX_NAME}-zip
     - name: build deb/rpm packages

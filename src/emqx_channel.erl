@@ -1702,8 +1702,7 @@ disconnect_reason(?RC_SUCCESS) -> normal;
 disconnect_reason(ReasonCode)  -> emqx_reason_codes:name(ReasonCode).
 
 reason_code(takeovered) -> ?RC_SESSION_TAKEN_OVER;
-reason_code(discarded) -> ?RC_SESSION_TAKEN_OVER;
-reason_code(_) -> ?RC_NORMAL_DISCONNECTION.
+reason_code(discarded) -> ?RC_SESSION_TAKEN_OVER.
 
 %%--------------------------------------------------------------------
 %% Helper functions

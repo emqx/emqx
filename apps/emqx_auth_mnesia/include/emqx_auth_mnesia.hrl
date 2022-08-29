@@ -13,6 +13,12 @@
 -type(created_at():: integer()).
 
 -record(emqx_user, {
+          login,
+          password,
+          created_at
+        }).
+
+-type(emqx_user() :: #emqx_user{
           login :: login(),
           password :: binary(),
           created_at :: created_at()

@@ -251,7 +251,7 @@ maybe_nack_dropped(Msg) ->
 
         %% For retry Ref we can't reject a message if inflight is full, so we mark it as
         %% acknowledged and put it into mqueue
-        {_Sender, {retry, _Group, _Ref}} -> maybe_ack(Msg), store;
+        {_Sender, {retry, _Group, _Ref}} -> _ = maybe_ack(Msg), store;
 
         %% This clause is for backward compatibility
         Ack ->
