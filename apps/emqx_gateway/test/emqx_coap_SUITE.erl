@@ -255,37 +255,37 @@ t_clients_api(_) ->
     Fun = fun(_Channel, _Token) ->
         ClientId = <<"client1">>,
         %% list
-        {200, #{data := [Client1]}} = request(get, "/gateway/coap/clients"),
+        {200, #{data := [Client1]}} = request(get, "/gateways/coap/clients"),
         #{clientid := ClientId} = Client1,
         %% searching
         {200, #{data := [Client2]}} =
             request(
                 get,
-                "/gateway/coap/clients",
+                "/gateways/coap/clients",
                 [{<<"clientid">>, ClientId}]
             ),
         {200, #{data := [Client3]}} =
             request(
                 get,
-                "/gateway/coap/clients",
+                "/gateways/coap/clients",
                 [{<<"like_clientid">>, <<"cli">>}]
             ),
         %% lookup
         {200, Client4} =
-            request(get, "/gateway/coap/clients/client1"),
+            request(get, "/gateways/coap/clients/client1"),
         %% assert
         Client1 = Client2 = Client3 = Client4,
         %% kickout
         {204, _} =
-            request(delete, "/gateway/coap/clients/client1"),
+            request(delete, "/gateways/coap/clients/client1"),
         timer:sleep(200),
-        {200, #{data := []}} = request(get, "/gateway/coap/clients")
+        {200, #{data := []}} = request(get, "/gateways/coap/clients")
     end,
     with_connection(Fun).
 
 t_clients_subscription_api(_) ->
     Fun = fun(_Channel, _Token) ->
-        Path = "/gateway/coap/clients/client1/subscriptions",
+        Path = "/gateways/coap/clients/client1/subscriptions",
         %% list
         {200, []} = request(get, Path),
         %% create
@@ -312,7 +312,7 @@ t_clients_subscription_api(_) ->
 
 t_clients_get_subscription_api(_) ->
     Fun = fun(Channel, Token) ->
-        Path = "/gateway/coap/clients/client1/subscriptions",
+        Path = "/gateways/coap/clients/client1/subscriptions",
         %% list
         {200, []} = request(get, Path),
 
@@ -333,14 +333,14 @@ t_on_offline_event(_) ->
         emqx_hooks:add('client.connected', {emqx_sys, on_client_connected, []}, 1000),
         emqx_hooks:add('client.disconnected', {emqx_sys, on_client_disconnected, []}, 1000),
 
-        ConnectedSub = <<"$SYS/brokers/+/gateway/coap/clients/+/connected">>,
+        ConnectedSub = <<"$SYS/brokers/+/gateways/coap/clients/+/connected">>,
         emqx_broker:subscribe(ConnectedSub),
         timer:sleep(100),
 
         Token = connection(Channel),
         ?assertMatch(#message{}, receive_deliver(500)),
 
-        DisconnectedSub = <<"$SYS/brokers/+/gateway/coap/clients/+/disconnected">>,
+        DisconnectedSub = <<"$SYS/brokers/+/gateways/coap/clients/+/disconnected">>,
         emqx_broker:subscribe(DisconnectedSub),
         timer:sleep(100),
 

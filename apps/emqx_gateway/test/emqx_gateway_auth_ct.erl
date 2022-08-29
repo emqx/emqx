@@ -141,7 +141,7 @@ on_start_auth(authn_http) ->
 
     %% set authn for gateway
     Setup = fun(Gateway) ->
-        Path = io_lib:format("/gateway/~ts/authentication", [Gateway]),
+        Path = io_lib:format("/gateways/~ts/authentication", [Gateway]),
         {204, _} = request(delete, Path),
         timer:sleep(200),
         {201, _} = request(post, Path, http_authn_config()),
@@ -198,7 +198,7 @@ on_start_auth(authz_http) ->
 
 on_stop_auth(authn_http) ->
     Delete = fun(Gateway) ->
-        Path = io_lib:format("/gateway/~ts/authentication", [Gateway]),
+        Path = io_lib:format("/gateways/~ts/authentication", [Gateway]),
         {204, _} = request(delete, Path)
     end,
     lists:foreach(Delete, ?GATEWAYS),

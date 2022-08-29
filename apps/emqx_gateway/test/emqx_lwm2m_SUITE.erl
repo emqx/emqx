@@ -2353,18 +2353,18 @@ case100_clients_api(Config) ->
     std_register(UdpSock, Epn, ObjectList, MsgId1, RespTopic),
 
     %% list
-    {200, #{data := [Client1]}} = request(get, "/gateway/lwm2m/clients"),
+    {200, #{data := [Client1]}} = request(get, "/gateways/lwm2m/clients"),
     %% searching
     {200, #{data := [Client2]}} =
         request(
             get,
-            "/gateway/lwm2m/clients",
+            "/gateways/lwm2m/clients",
             [{<<"endpoint_name">>, list_to_binary(Epn)}]
         ),
     {200, #{data := [Client3]}} =
         request(
             get,
-            "/gateway/lwm2m/clients",
+            "/gateways/lwm2m/clients",
             [
                 {<<"like_endpoint_name">>, list_to_binary(Epn)},
                 {<<"gte_lifetime">>, <<"1">>}
@@ -2373,14 +2373,14 @@ case100_clients_api(Config) ->
     %% lookup
     ClientId = maps:get(clientid, Client1),
     {200, Client4} =
-        request(get, "/gateway/lwm2m/clients/" ++ binary_to_list(ClientId)),
+        request(get, "/gateways/lwm2m/clients/" ++ binary_to_list(ClientId)),
     %% assert
     Client1 = Client2 = Client3 = Client4,
     %% kickout
     {204, _} =
-        request(delete, "/gateway/lwm2m/clients/" ++ binary_to_list(ClientId)),
+        request(delete, "/gateways/lwm2m/clients/" ++ binary_to_list(ClientId)),
     timer:sleep(100),
-    {200, #{data := []}} = request(get, "/gateway/lwm2m/clients").
+    {200, #{data := []}} = request(get, "/gateways/lwm2m/clients").
 
 case100_subscription_api(Config) ->
     Epn = "urn:oma:lwm2m:oma:3",
@@ -2390,10 +2390,10 @@ case100_subscription_api(Config) ->
     RespTopic = list_to_binary("lwm2m/" ++ Epn ++ "/up/resp"),
     std_register(UdpSock, Epn, ObjectList, MsgId1, RespTopic),
 
-    {200, #{data := [Client1]}} = request(get, "/gateway/lwm2m/clients"),
+    {200, #{data := [Client1]}} = request(get, "/gateways/lwm2m/clients"),
     ClientId = maps:get(clientid, Client1),
     Path =
-        "/gateway/lwm2m/clients/" ++
+        "/gateways/lwm2m/clients/" ++
             binary_to_list(ClientId) ++
             "/subscriptions",
 
