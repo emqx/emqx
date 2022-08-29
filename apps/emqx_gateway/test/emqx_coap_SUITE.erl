@@ -333,14 +333,14 @@ t_on_offline_event(_) ->
         emqx_hooks:add('client.connected', {emqx_sys, on_client_connected, []}, 1000),
         emqx_hooks:add('client.disconnected', {emqx_sys, on_client_disconnected, []}, 1000),
 
-        ConnectedSub = <<"$SYS/brokers/+/gateways/coap/clients/+/connected">>,
+        ConnectedSub = <<"$SYS/brokers/+/gateway/coap/clients/+/connected">>,
         emqx_broker:subscribe(ConnectedSub),
         timer:sleep(100),
 
         Token = connection(Channel),
         ?assertMatch(#message{}, receive_deliver(500)),
 
-        DisconnectedSub = <<"$SYS/brokers/+/gateways/coap/clients/+/disconnected">>,
+        DisconnectedSub = <<"$SYS/brokers/+/gateway/coap/clients/+/disconnected">>,
         emqx_broker:subscribe(DisconnectedSub),
         timer:sleep(100),
 
