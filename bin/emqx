@@ -37,49 +37,6 @@ ERTS_LIB_DIR="$ERTS_DIR/../lib"
 # the 'x' attributes may get lost if the files are extracted from a relup package
 find "$BINDIR" -exec chmod a+x {} \;
 
-# Echo to stderr on errors
-echoerr() { echo "$*" 1>&2; }
-
-die() {
-    set +x
-    echoerr "ERROR: $1"
-    errno=${2:-1}
-    exit "$errno"
-}
-
-assert_node_alive() {
-    if ! relx_nodetool "ping" > /dev/null; then
-        die "node_is_not_running!" 1
-    fi
-}
-
-check_erlang_start() {
-    # set ERL_CRASH_DUMP_BYTES to zero so it will not write a crash dump file
-    env ERL_CRASH_DUMP_BYTES=0 "$BINDIR/$PROGNAME" -boot "$REL_DIR/start_clean" -eval "crypto:start(),halt()"
-}
-
-if ! check_erlang_start >/dev/null 2>&1; then
-    BUILT_ON="$(head -1 "${REL_DIR}/BUILT_ON")"
-    ## failed to start, might be due to missing libs, try to be portable
-    export LD_LIBRARY_PATH="$DYNLIBS_DIR:$LD_LIBRARY_PATH"
-    if ! check_erlang_start; then
-        ## it's hopeless
-        echoerr "FATAL: Unable to start Erlang."
-        echoerr "Please make sure openssl-1.1.1 (libcrypto) and libncurses are installed."
-        echoerr "Also ensure it's running on the correct platform,"
-        echoerr "this EMQX release is built for $BUILT_ON"
-        exit 1
-    fi
-    echoerr "There seem to be missing dynamic libs from the OS."
-    echoerr "Using libs from ${DYNLIBS_DIR} instead."
-    echoerr "NOTE: EMQX's rpm or deb package installation is recommended!"
-fi
-
-## backward compatible
-if [ -d "$ERTS_DIR/lib" ]; then
-    export LD_LIBRARY_PATH="$ERTS_DIR/lib:$LD_LIBRARY_PATH"
-fi
-
 # cuttlefish try to read environment variables starting with "EMQX_"
 export CUTTLEFISH_ENV_OVERRIDE_PREFIX='EMQX_'
 
@@ -259,6 +216,49 @@ check_user "$@"
 ES=$?
 if [ "$ES" -ne 0 ]; then
     exit $ES
+fi
+
+# Echo to stderr on errors
+echoerr() { echo "$*" 1>&2; }
+
+die() {
+    set +x
+    echoerr "ERROR: $1"
+    errno=${2:-1}
+    exit "$errno"
+}
+
+assert_node_alive() {
+    if ! relx_nodetool "ping" > /dev/null; then
+        die "node_is_not_running!" 1
+    fi
+}
+
+check_erlang_start() {
+    # set ERL_CRASH_DUMP_BYTES to zero so it will not write a crash dump file
+    env ERL_CRASH_DUMP_BYTES=0 "$BINDIR/$PROGNAME" -boot "$REL_DIR/start_clean" -eval "crypto:start(),halt()"
+}
+
+if ! check_erlang_start >/dev/null 2>&1; then
+    BUILT_ON="$(head -1 "${REL_DIR}/BUILT_ON")"
+    ## failed to start, might be due to missing libs, try to be portable
+    export LD_LIBRARY_PATH="$DYNLIBS_DIR:$LD_LIBRARY_PATH"
+    if ! check_erlang_start; then
+        ## it's hopeless
+        echoerr "FATAL: Unable to start Erlang."
+        echoerr "Please make sure openssl-1.1.1 (libcrypto) and libncurses are installed."
+        echoerr "Also ensure it's running on the correct platform,"
+        echoerr "this EMQX release is built for $BUILT_ON"
+        exit 1
+    fi
+    echoerr "There seem to be missing dynamic libs from the OS."
+    echoerr "Using libs from ${DYNLIBS_DIR} instead."
+    echoerr "NOTE: EMQX's rpm or deb package installation is recommended!"
+fi
+
+## backward compatible (old EMQX versions does this)
+if [ -d "$ERTS_DIR/lib" ]; then
+    export LD_LIBRARY_PATH="$ERTS_DIR/lib:$LD_LIBRARY_PATH"
 fi
 
 if [ -z "$WITH_EPMD" ]; then
