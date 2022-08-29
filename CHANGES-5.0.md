@@ -2,20 +2,19 @@
 
 ## Bug fixes
 
-* Remove the needless `will_msg` field from the client API. [#8721](https://github.com/emqx/emqx/pull/8721)
+* Remove `will_msg` (not used) field from the client API. [#8721](https://github.com/emqx/emqx/pull/8721)
 * Fix `$queue` topic name error in management API return. [#8728](https://github.com/emqx/emqx/pull/8728)
-* Fix sometimes `client.connected` and `client.disconnected` could be in wrong order. [#8625](https://github.com/emqx/emqx/pull/8625)
+* Fix race condition which may cause `client.connected` and `client.disconnected` out of order. [#8625](https://github.com/emqx/emqx/pull/8625)
 
+## Enhancements
+
+* Do not auto-populate default SSL cipher suites, so that the configs are less bloated. [#8769](https://github.com/emqx/emqx/pull/8769)
 
 # 5.0.6
 
 ## Bug fixes
 
 * Upgrade Dashboard version to fix an issue where the node status was not displayed correctly. [#8771](https://github.com/emqx/emqx/pull/8771)
-
-## Enhancements
-
-* Do not auto-populate default SSL cipher suites, so that the configs are less bloated. [#8769](https://github.com/emqx/emqx/pull/8769)
 
 # 5.0.5
 
