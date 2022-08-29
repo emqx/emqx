@@ -116,6 +116,7 @@ $(PROFILES:%=deps-%): $(REBAR) get-dashboard
 .PHONY: xref
 xref: $(REBAR)
 	@$(REBAR) as check xref
+	@scripts/xref-check.escript
 
 .PHONY: dialyzer
 dialyzer: $(REBAR)
