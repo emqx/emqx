@@ -71,7 +71,7 @@ end_per_suite(Config) ->
 t_send_request_api(_) ->
     ClientId = start_client(),
     timer:sleep(200),
-    Path = emqx_mgmt_api_test_util:api_path(["gateway/coap/clients/client1/request"]),
+    Path = emqx_mgmt_api_test_util:api_path(["gateways/coap/clients/client1/request"]),
     Token = <<"atoken">>,
     Payload = <<"simple echo this">>,
     Req = #{

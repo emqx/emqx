@@ -68,10 +68,10 @@ api_spec() ->
 
 paths() ->
     [
-        "/gateway/:name/clients",
-        "/gateway/:name/clients/:clientid",
-        "/gateway/:name/clients/:clientid/subscriptions",
-        "/gateway/:name/clients/:clientid/subscriptions/:topic"
+        "/gateways/:name/clients",
+        "/gateways/:name/clients/:clientid",
+        "/gateways/:name/clients/:clientid/subscriptions",
+        "/gateways/:name/clients/:clientid/subscriptions/:topic"
     ].
 
 -define(CLIENT_QSCHEMA, [
@@ -462,7 +462,7 @@ conn_state_to_connected(_) -> false.
 %% Swagger defines
 %%--------------------------------------------------------------------
 
-schema("/gateway/:name/clients") ->
+schema("/gateways/:name/clients") ->
     #{
         'operationId' => clients,
         get =>
@@ -473,7 +473,7 @@ schema("/gateway/:name/clients") ->
                     ?STANDARD_RESP(#{200 => schema_client_list()})
             }
     };
-schema("/gateway/:name/clients/:clientid") ->
+schema("/gateways/:name/clients/:clientid") ->
     #{
         'operationId' => clients_insta,
         get =>
@@ -491,7 +491,7 @@ schema("/gateway/:name/clients/:clientid") ->
                     ?STANDARD_RESP(#{204 => <<"Kicked">>})
             }
     };
-schema("/gateway/:name/clients/:clientid/subscriptions") ->
+schema("/gateways/:name/clients/:clientid/subscriptions") ->
     #{
         'operationId' => subscriptions,
         get =>
@@ -527,7 +527,7 @@ schema("/gateway/:name/clients/:clientid/subscriptions") ->
                     )
             }
     };
-schema("/gateway/:name/clients/:clientid/subscriptions/:topic") ->
+schema("/gateways/:name/clients/:clientid/subscriptions/:topic") ->
     #{
         'operationId' => subscriptions,
         delete =>

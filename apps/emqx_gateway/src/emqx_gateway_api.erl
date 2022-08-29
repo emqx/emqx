@@ -62,8 +62,8 @@ api_spec() ->
 
 paths() ->
     [
-        "/gateway",
-        "/gateway/:name"
+        "/gateways",
+        "/gateways/:name"
     ].
 
 %%--------------------------------------------------------------------
@@ -159,7 +159,7 @@ gateway_insta(put, #{
 %% Swagger defines
 %%--------------------------------------------------------------------
 
-schema("/gateway") ->
+schema("/gateways") ->
     #{
         'operationId' => gateway,
         get =>
@@ -185,7 +185,7 @@ schema("/gateway") ->
                     ?STANDARD_RESP(#{201 => schema_gateways_conf()})
             }
     };
-schema("/gateway/:name") ->
+schema("/gateways/:name") ->
     #{
         'operationId' => gateway_insta,
         get =>

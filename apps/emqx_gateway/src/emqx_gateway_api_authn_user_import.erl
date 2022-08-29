@@ -54,8 +54,8 @@ api_spec() ->
 
 paths() ->
     [
-        "/gateway/:name/authentication/import_users",
-        "/gateway/:name/listeners/:id/authentication/import_users"
+        "/gateways/:name/authentication/import_users",
+        "/gateways/:name/listeners/:id/authentication/import_users"
     ].
 
 %%--------------------------------------------------------------------
@@ -117,7 +117,7 @@ import_listener_users(post, #{
 %% Swagger defines
 %%--------------------------------------------------------------------
 
-schema("/gateway/:name/authentication/import_users") ->
+schema("/gateways/:name/authentication/import_users") ->
     #{
         'operationId' => import_users,
         post =>
@@ -129,7 +129,7 @@ schema("/gateway/:name/authentication/import_users") ->
                     ?STANDARD_RESP(#{204 => <<"Imported">>})
             }
     };
-schema("/gateway/:name/listeners/:id/authentication/import_users") ->
+schema("/gateways/:name/listeners/:id/authentication/import_users") ->
     #{
         'operationId' => import_listener_users,
         post =>

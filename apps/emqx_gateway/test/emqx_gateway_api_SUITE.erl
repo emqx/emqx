@@ -60,23 +60,23 @@ end_per_suite(Conf) ->
 %%--------------------------------------------------------------------
 
 t_gateway(_) ->
-    {200, Gateways} = request(get, "/gateway"),
+    {200, Gateways} = request(get, "/gateways"),
     lists:foreach(fun assert_gw_unloaded/1, Gateways),
-    {400, BadReq} = request(get, "/gateway/uname_gateway"),
+    {400, BadReq} = request(get, "/gateways/uname_gateway"),
     assert_bad_request(BadReq),
-    {201, _} = request(post, "/gateway", #{name => <<"stomp">>}),
-    {200, StompGw1} = request(get, "/gateway/stomp"),
+    {201, _} = request(post, "/gateways", #{name => <<"stomp">>}),
+    {200, StompGw1} = request(get, "/gateways/stomp"),
     assert_feilds_apperence(
         [name, status, enable, created_at, started_at],
         StompGw1
     ),
-    {204, _} = request(delete, "/gateway/stomp"),
-    {200, StompGw2} = request(get, "/gateway/stomp"),
+    {204, _} = request(delete, "/gateways/stomp"),
+    {200, StompGw2} = request(get, "/gateways/stomp"),
     assert_gw_unloaded(StompGw2),
     ok.
 
 t_gateway_stomp(_) ->
-    {200, Gw} = request(get, "/gateway/stomp"),
+    {200, Gw} = request(get, "/gateways/stomp"),
     assert_gw_unloaded(Gw),
     %% post
     GwConf = #{
@@ -90,18 +90,18 @@ t_gateway_stomp(_) ->
             #{name => <<"def">>, type => <<"tcp">>, bind => <<"61613">>}
         ]
     },
-    {201, _} = request(post, "/gateway", GwConf),
-    {200, ConfResp} = request(get, "/gateway/stomp"),
+    {201, _} = request(post, "/gateways", GwConf),
+    {200, ConfResp} = request(get, "/gateways/stomp"),
     assert_confs(GwConf, ConfResp),
     %% put
     GwConf2 = emqx_map_lib:deep_merge(GwConf, #{frame => #{max_headers => 10}}),
-    {200, _} = request(put, "/gateway/stomp", maps:without([name, listeners], GwConf2)),
-    {200, ConfResp2} = request(get, "/gateway/stomp"),
+    {200, _} = request(put, "/gateways/stomp", maps:without([name, listeners], GwConf2)),
+    {200, ConfResp2} = request(get, "/gateways/stomp"),
     assert_confs(GwConf2, ConfResp2),
-    {204, _} = request(delete, "/gateway/stomp").
+    {204, _} = request(delete, "/gateways/stomp").
 
 t_gateway_mqttsn(_) ->
-    {200, Gw} = request(get, "/gateway/mqttsn"),
+    {200, Gw} = request(get, "/gateways/mqttsn"),
     assert_gw_unloaded(Gw),
     %% post
     GwConf = #{
@@ -114,18 +114,18 @@ t_gateway_mqttsn(_) ->
             #{name => <<"def">>, type => <<"udp">>, bind => <<"1884">>}
         ]
     },
-    {201, _} = request(post, "/gateway", GwConf),
-    {200, ConfResp} = request(get, "/gateway/mqttsn"),
+    {201, _} = request(post, "/gateways", GwConf),
+    {200, ConfResp} = request(get, "/gateways/mqttsn"),
     assert_confs(GwConf, ConfResp),
     %% put
     GwConf2 = emqx_map_lib:deep_merge(GwConf, #{predefined => []}),
-    {200, _} = request(put, "/gateway/mqttsn", maps:without([name, listeners], GwConf2)),
-    {200, ConfResp2} = request(get, "/gateway/mqttsn"),
+    {200, _} = request(put, "/gateways/mqttsn", maps:without([name, listeners], GwConf2)),
+    {200, ConfResp2} = request(get, "/gateways/mqttsn"),
     assert_confs(GwConf2, ConfResp2),
-    {204, _} = request(delete, "/gateway/mqttsn").
+    {204, _} = request(delete, "/gateways/mqttsn").
 
 t_gateway_coap(_) ->
-    {200, Gw} = request(get, "/gateway/coap"),
+    {200, Gw} = request(get, "/gateways/coap"),
     assert_gw_unloaded(Gw),
     %% post
     GwConf = #{
@@ -136,18 +136,18 @@ t_gateway_coap(_) ->
             #{name => <<"def">>, type => <<"udp">>, bind => <<"5683">>}
         ]
     },
-    {201, _} = request(post, "/gateway", GwConf),
-    {200, ConfResp} = request(get, "/gateway/coap"),
+    {201, _} = request(post, "/gateways", GwConf),
+    {200, ConfResp} = request(get, "/gateways/coap"),
     assert_confs(GwConf, ConfResp),
     %% put
     GwConf2 = emqx_map_lib:deep_merge(GwConf, #{heartbeat => <<"10s">>}),
-    {200, _} = request(put, "/gateway/coap", maps:without([name, listeners], GwConf2)),
-    {200, ConfResp2} = request(get, "/gateway/coap"),
+    {200, _} = request(put, "/gateways/coap", maps:without([name, listeners], GwConf2)),
+    {200, ConfResp2} = request(get, "/gateways/coap"),
     assert_confs(GwConf2, ConfResp2),
-    {204, _} = request(delete, "/gateway/coap").
+    {204, _} = request(delete, "/gateways/coap").
 
 t_gateway_lwm2m(_) ->
-    {200, Gw} = request(get, "/gateway/lwm2m"),
+    {200, Gw} = request(get, "/gateways/lwm2m"),
     assert_gw_unloaded(Gw),
     %% post
     GwConf = #{
@@ -168,18 +168,18 @@ t_gateway_lwm2m(_) ->
             #{name => <<"def">>, type => <<"udp">>, bind => <<"5783">>}
         ]
     },
-    {201, _} = request(post, "/gateway", GwConf),
-    {200, ConfResp} = request(get, "/gateway/lwm2m"),
+    {201, _} = request(post, "/gateways", GwConf),
+    {200, ConfResp} = request(get, "/gateways/lwm2m"),
     assert_confs(GwConf, ConfResp),
     %% put
     GwConf2 = emqx_map_lib:deep_merge(GwConf, #{qmode_time_window => <<"10s">>}),
-    {200, _} = request(put, "/gateway/lwm2m", maps:without([name, listeners], GwConf2)),
-    {200, ConfResp2} = request(get, "/gateway/lwm2m"),
+    {200, _} = request(put, "/gateways/lwm2m", maps:without([name, listeners], GwConf2)),
+    {200, ConfResp2} = request(get, "/gateways/lwm2m"),
     assert_confs(GwConf2, ConfResp2),
-    {204, _} = request(delete, "/gateway/lwm2m").
+    {204, _} = request(delete, "/gateways/lwm2m").
 
 t_gateway_exproto(_) ->
-    {200, Gw} = request(get, "/gateway/exproto"),
+    {200, Gw} = request(get, "/gateways/exproto"),
     assert_gw_unloaded(Gw),
     %% post
     GwConf = #{
@@ -190,18 +190,18 @@ t_gateway_exproto(_) ->
             #{name => <<"def">>, type => <<"tcp">>, bind => <<"7993">>}
         ]
     },
-    {201, _} = request(post, "/gateway", GwConf),
-    {200, ConfResp} = request(get, "/gateway/exproto"),
+    {201, _} = request(post, "/gateways", GwConf),
+    {200, ConfResp} = request(get, "/gateways/exproto"),
     assert_confs(GwConf, ConfResp),
     %% put
     GwConf2 = emqx_map_lib:deep_merge(GwConf, #{server => #{bind => <<"9200">>}}),
-    {200, _} = request(put, "/gateway/exproto", maps:without([name, listeners], GwConf2)),
-    {200, ConfResp2} = request(get, "/gateway/exproto"),
+    {200, _} = request(put, "/gateways/exproto", maps:without([name, listeners], GwConf2)),
+    {200, ConfResp2} = request(get, "/gateways/exproto"),
     assert_confs(GwConf2, ConfResp2),
-    {204, _} = request(delete, "/gateway/exproto").
+    {204, _} = request(delete, "/gateways/exproto").
 
 t_gateway_exproto_with_ssl(_) ->
-    {200, Gw} = request(get, "/gateway/exproto"),
+    {200, Gw} = request(get, "/gateways/exproto"),
     assert_gw_unloaded(Gw),
 
     SslSvrOpts = ssl_server_opts(),
@@ -221,8 +221,8 @@ t_gateway_exproto_with_ssl(_) ->
             #{name => <<"def">>, type => <<"tcp">>, bind => <<"7993">>}
         ]
     },
-    {201, _} = request(post, "/gateway", GwConf),
-    {200, ConfResp} = request(get, "/gateway/exproto"),
+    {201, _} = request(post, "/gateways", GwConf),
+    {200, ConfResp} = request(get, "/gateways/exproto"),
     assert_confs(GwConf, ConfResp),
     %% put
     GwConf2 = emqx_map_lib:deep_merge(GwConf, #{
@@ -231,50 +231,50 @@ t_gateway_exproto_with_ssl(_) ->
             ssl_options => SslCliOpts
         }
     }),
-    {200, _} = request(put, "/gateway/exproto", maps:without([name, listeners], GwConf2)),
-    {200, ConfResp2} = request(get, "/gateway/exproto"),
+    {200, _} = request(put, "/gateways/exproto", maps:without([name, listeners], GwConf2)),
+    {200, ConfResp2} = request(get, "/gateways/exproto"),
     assert_confs(GwConf2, ConfResp2),
-    {204, _} = request(delete, "/gateway/exproto").
+    {204, _} = request(delete, "/gateways/exproto").
 
 t_authn(_) ->
     GwConf = #{name => <<"stomp">>},
-    {201, _} = request(post, "/gateway", GwConf),
+    {201, _} = request(post, "/gateways", GwConf),
     ct:sleep(500),
-    {204, _} = request(get, "/gateway/stomp/authentication"),
+    {204, _} = request(get, "/gateways/stomp/authentication"),
 
     AuthConf = #{
         mechanism => <<"password_based">>,
         backend => <<"built_in_database">>,
         user_id_type => <<"clientid">>
     },
-    {201, _} = request(post, "/gateway/stomp/authentication", AuthConf),
-    {200, ConfResp} = request(get, "/gateway/stomp/authentication"),
+    {201, _} = request(post, "/gateways/stomp/authentication", AuthConf),
+    {200, ConfResp} = request(get, "/gateways/stomp/authentication"),
     assert_confs(AuthConf, ConfResp),
 
     AuthConf2 = maps:merge(AuthConf, #{user_id_type => <<"username">>}),
-    {200, _} = request(put, "/gateway/stomp/authentication", AuthConf2),
+    {200, _} = request(put, "/gateways/stomp/authentication", AuthConf2),
 
-    {200, ConfResp2} = request(get, "/gateway/stomp/authentication"),
+    {200, ConfResp2} = request(get, "/gateways/stomp/authentication"),
     assert_confs(AuthConf2, ConfResp2),
 
-    {204, _} = request(delete, "/gateway/stomp/authentication"),
-    {204, _} = request(get, "/gateway/stomp/authentication"),
-    {204, _} = request(delete, "/gateway/stomp").
+    {204, _} = request(delete, "/gateways/stomp/authentication"),
+    {204, _} = request(get, "/gateways/stomp/authentication"),
+    {204, _} = request(delete, "/gateways/stomp").
 
 t_authn_data_mgmt(_) ->
     GwConf = #{name => <<"stomp">>},
-    {201, _} = request(post, "/gateway", GwConf),
+    {201, _} = request(post, "/gateways", GwConf),
     ct:sleep(500),
-    {204, _} = request(get, "/gateway/stomp/authentication"),
+    {204, _} = request(get, "/gateways/stomp/authentication"),
 
     AuthConf = #{
         mechanism => <<"password_based">>,
         backend => <<"built_in_database">>,
         user_id_type => <<"clientid">>
     },
-    {201, _} = request(post, "/gateway/stomp/authentication", AuthConf),
+    {201, _} = request(post, "/gateways/stomp/authentication", AuthConf),
     ct:sleep(500),
-    {200, ConfResp} = request(get, "/gateway/stomp/authentication"),
+    {200, ConfResp} = request(get, "/gateways/stomp/authentication"),
     assert_confs(AuthConf, ConfResp),
 
     User1 = #{
@@ -282,19 +282,19 @@ t_authn_data_mgmt(_) ->
         password => <<"123456">>,
         is_superuser => false
     },
-    {201, _} = request(post, "/gateway/stomp/authentication/users", User1),
-    {200, #{data := [UserRespd1]}} = request(get, "/gateway/stomp/authentication/users"),
+    {201, _} = request(post, "/gateways/stomp/authentication/users", User1),
+    {200, #{data := [UserRespd1]}} = request(get, "/gateways/stomp/authentication/users"),
     assert_confs(UserRespd1, User1),
 
     {200, UserRespd2} = request(
         get,
-        "/gateway/stomp/authentication/users/test"
+        "/gateways/stomp/authentication/users/test"
     ),
     assert_confs(UserRespd2, User1),
 
     {200, UserRespd3} = request(
         put,
-        "/gateway/stomp/authentication/users/test",
+        "/gateways/stomp/authentication/users/test",
         #{
             password => <<"654321">>,
             is_superuser => true
@@ -304,19 +304,19 @@ t_authn_data_mgmt(_) ->
 
     {200, UserRespd4} = request(
         get,
-        "/gateway/stomp/authentication/users/test"
+        "/gateways/stomp/authentication/users/test"
     ),
     assert_confs(UserRespd4, User1#{is_superuser => true}),
 
-    {204, _} = request(delete, "/gateway/stomp/authentication/users/test"),
+    {204, _} = request(delete, "/gateways/stomp/authentication/users/test"),
 
     {200, #{data := []}} = request(
         get,
-        "/gateway/stomp/authentication/users"
+        "/gateways/stomp/authentication/users"
     ),
 
     ImportUri = emqx_dashboard_api_test_helpers:uri(
-        ["gateway", "stomp", "authentication", "import_users"]
+        ["gateways", "stomp", "authentication", "import_users"]
     ),
 
     Dir = code:lib_dir(emqx_authn, test),
@@ -332,38 +332,38 @@ t_authn_data_mgmt(_) ->
         {filename, "user-credentials.csv", CSVData}
     ]),
 
-    {204, _} = request(delete, "/gateway/stomp/authentication"),
-    {204, _} = request(get, "/gateway/stomp/authentication"),
-    {204, _} = request(delete, "/gateway/stomp").
+    {204, _} = request(delete, "/gateways/stomp/authentication"),
+    {204, _} = request(get, "/gateways/stomp/authentication"),
+    {204, _} = request(delete, "/gateways/stomp").
 
 t_listeners_tcp(_) ->
     GwConf = #{name => <<"stomp">>},
-    {201, _} = request(post, "/gateway", GwConf),
-    {404, _} = request(get, "/gateway/stomp/listeners"),
+    {201, _} = request(post, "/gateways", GwConf),
+    {404, _} = request(get, "/gateways/stomp/listeners"),
     LisConf = #{
         name => <<"def">>,
         type => <<"tcp">>,
         bind => <<"127.0.0.1:61613">>
     },
-    {201, _} = request(post, "/gateway/stomp/listeners", LisConf),
-    {200, ConfResp} = request(get, "/gateway/stomp/listeners"),
+    {201, _} = request(post, "/gateways/stomp/listeners", LisConf),
+    {200, ConfResp} = request(get, "/gateways/stomp/listeners"),
     assert_confs([LisConf], ConfResp),
-    {200, ConfResp1} = request(get, "/gateway/stomp/listeners/stomp:tcp:def"),
+    {200, ConfResp1} = request(get, "/gateways/stomp/listeners/stomp:tcp:def"),
     assert_confs(LisConf, ConfResp1),
 
     LisConf2 = maps:merge(LisConf, #{bind => <<"127.0.0.1:61614">>}),
     {200, _} = request(
         put,
-        "/gateway/stomp/listeners/stomp:tcp:def",
+        "/gateways/stomp/listeners/stomp:tcp:def",
         LisConf2
     ),
 
-    {200, ConfResp2} = request(get, "/gateway/stomp/listeners/stomp:tcp:def"),
+    {200, ConfResp2} = request(get, "/gateways/stomp/listeners/stomp:tcp:def"),
     assert_confs(LisConf2, ConfResp2),
 
-    {204, _} = request(delete, "/gateway/stomp/listeners/stomp:tcp:def"),
-    {404, _} = request(get, "/gateway/stomp/listeners/stomp:tcp:def"),
-    {204, _} = request(delete, "/gateway/stomp").
+    {204, _} = request(delete, "/gateways/stomp/listeners/stomp:tcp:def"),
+    {404, _} = request(get, "/gateways/stomp/listeners/stomp:tcp:def"),
+    {204, _} = request(delete, "/gateways/stomp").
 
 t_listeners_authn(_) ->
     GwConf = #{
@@ -376,9 +376,9 @@ t_listeners_authn(_) ->
             }
         ]
     },
-    {201, _} = request(post, "/gateway", GwConf),
+    {201, _} = request(post, "/gateways", GwConf),
     ct:sleep(500),
-    {200, ConfResp} = request(get, "/gateway/stomp"),
+    {200, ConfResp} = request(get, "/gateways/stomp"),
     assert_confs(GwConf, ConfResp),
 
     AuthConf = #{
@@ -386,7 +386,7 @@ t_listeners_authn(_) ->
         backend => <<"built_in_database">>,
         user_id_type => <<"clientid">>
     },
-    Path = "/gateway/stomp/listeners/stomp:tcp:def/authentication",
+    Path = "/gateways/stomp/listeners/stomp:tcp:def/authentication",
     {201, _} = request(post, Path, AuthConf),
     {200, ConfResp2} = request(get, Path),
     assert_confs(AuthConf, ConfResp2),
@@ -400,7 +400,7 @@ t_listeners_authn(_) ->
     {204, _} = request(delete, Path),
     %% FIXME: 204?
     {204, _} = request(get, Path),
-    {204, _} = request(delete, "/gateway/stomp").
+    {204, _} = request(delete, "/gateways/stomp").
 
 t_listeners_authn_data_mgmt(_) ->
     GwConf = #{
@@ -413,8 +413,8 @@ t_listeners_authn_data_mgmt(_) ->
             }
         ]
     },
-    {201, _} = request(post, "/gateway", GwConf),
-    {200, ConfResp} = request(get, "/gateway/stomp"),
+    {201, _} = request(post, "/gateways", GwConf),
+    {200, ConfResp} = request(get, "/gateways/stomp"),
     assert_confs(GwConf, ConfResp),
 
     AuthConf = #{
@@ -422,7 +422,7 @@ t_listeners_authn_data_mgmt(_) ->
         backend => <<"built_in_database">>,
         user_id_type => <<"clientid">>
     },
-    Path = "/gateway/stomp/listeners/stomp:tcp:def/authentication",
+    Path = "/gateways/stomp/listeners/stomp:tcp:def/authentication",
     {201, _} = request(post, Path, AuthConf),
     {200, ConfResp2} = request(get, Path),
     assert_confs(AuthConf, ConfResp2),
@@ -434,7 +434,7 @@ t_listeners_authn_data_mgmt(_) ->
     },
     {201, _} = request(
         post,
-        "/gateway/stomp/listeners/stomp:tcp:def/authentication/users",
+        "/gateways/stomp/listeners/stomp:tcp:def/authentication/users",
         User1
     ),
 
@@ -474,7 +474,7 @@ t_listeners_authn_data_mgmt(_) ->
     ),
 
     ImportUri = emqx_dashboard_api_test_helpers:uri(
-        ["gateway", "stomp", "listeners", "stomp:tcp:def", "authentication", "import_users"]
+        ["gateways", "stomp", "listeners", "stomp:tcp:def", "authentication", "import_users"]
     ),
 
     Dir = code:lib_dir(emqx_authn, test),
@@ -490,31 +490,31 @@ t_listeners_authn_data_mgmt(_) ->
         {filename, "user-credentials.csv", CSVData}
     ]),
 
-    {204, _} = request(delete, "/gateway/stomp").
+    {204, _} = request(delete, "/gateways/stomp").
 
 t_authn_fuzzy_search(_) ->
     GwConf = #{name => <<"stomp">>},
-    {201, _} = request(post, "/gateway", GwConf),
-    {204, _} = request(get, "/gateway/stomp/authentication"),
+    {201, _} = request(post, "/gateways", GwConf),
+    {204, _} = request(get, "/gateways/stomp/authentication"),
 
     AuthConf = #{
         mechanism => <<"password_based">>,
         backend => <<"built_in_database">>,
         user_id_type => <<"clientid">>
     },
-    {201, _} = request(post, "/gateway/stomp/authentication", AuthConf),
-    {200, ConfResp} = request(get, "/gateway/stomp/authentication"),
+    {201, _} = request(post, "/gateways/stomp/authentication", AuthConf),
+    {200, ConfResp} = request(get, "/gateways/stomp/authentication"),
     assert_confs(AuthConf, ConfResp),
 
     Checker = fun({User, Fuzzy}) ->
         {200, #{data := [UserRespd]}} = request(
-            get, "/gateway/stomp/authentication/users", Fuzzy
+            get, "/gateways/stomp/authentication/users", Fuzzy
         ),
         assert_confs(UserRespd, User)
     end,
 
     Create = fun(User) ->
-        {201, _} = request(post, "/gateway/stomp/authentication/users", User)
+        {201, _} = request(post, "/gateways/stomp/authentication/users", User)
     end,
 
     UserDatas = [
@@ -535,9 +535,9 @@ t_authn_fuzzy_search(_) ->
     lists:foreach(Create, UserDatas),
     lists:foreach(Checker, lists:zip(UserDatas, FuzzyDatas)),
 
-    {204, _} = request(delete, "/gateway/stomp/authentication"),
-    {204, _} = request(get, "/gateway/stomp/authentication"),
-    {204, _} = request(delete, "/gateway/stomp").
+    {204, _} = request(delete, "/gateways/stomp/authentication"),
+    {204, _} = request(get, "/gateways/stomp/authentication"),
+    {204, _} = request(delete, "/gateways/stomp").
 
 %%--------------------------------------------------------------------
 %% Asserts

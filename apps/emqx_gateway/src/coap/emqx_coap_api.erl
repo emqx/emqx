@@ -28,7 +28,7 @@
 
 -export([request/2]).
 
--define(PREFIX, "/gateway/coap/clients/:clientid").
+-define(PREFIX, "/gateways/coap/clients/:clientid").
 
 -import(hoconsc, [mk/2, enum/1]).
 -import(emqx_dashboard_swagger, [error_codes/2]).

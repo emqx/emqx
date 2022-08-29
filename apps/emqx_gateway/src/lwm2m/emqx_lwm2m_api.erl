@@ -25,7 +25,7 @@
 
 -export([lookup/2, observe/2, read/2, write/2]).
 
--define(PATH(Suffix), "/gateway/lwm2m/clients/:clientid" Suffix).
+-define(PATH(Suffix), "/gateways/lwm2m/clients/:clientid" Suffix).
 -define(DATA_TYPE, ['Integer', 'Float', 'Time', 'String', 'Boolean', 'Opaque', 'Objlnk']).
 
 -import(hoconsc, [mk/2, ref/1, ref/2]).

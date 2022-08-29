@@ -61,9 +61,9 @@ api_spec() ->
 
 paths() ->
     [
-        "/gateway/:name/authentication",
-        "/gateway/:name/authentication/users",
-        "/gateway/:name/authentication/users/:uid"
+        "/gateways/:name/authentication",
+        "/gateways/:name/authentication/users",
+        "/gateways/:name/authentication/users/:uid"
     ].
 
 %%--------------------------------------------------------------------
@@ -176,7 +176,7 @@ parse_qstring(Qs) ->
 %% Swagger defines
 %%--------------------------------------------------------------------
 
-schema("/gateway/:name/authentication") ->
+schema("/gateways/:name/authentication") ->
     #{
         'operationId' => authn,
         get =>
@@ -215,7 +215,7 @@ schema("/gateway/:name/authentication") ->
                     ?STANDARD_RESP(#{204 => <<"Deleted">>})
             }
     };
-schema("/gateway/:name/authentication/users") ->
+schema("/gateways/:name/authentication/users") ->
     #{
         'operationId' => users,
         get =>
@@ -253,7 +253,7 @@ schema("/gateway/:name/authentication/users") ->
                     )
             }
     };
-schema("/gateway/:name/authentication/users/:uid") ->
+schema("/gateways/:name/authentication/users/:uid") ->
     #{
         'operationId' => users_insta,
         get =>
