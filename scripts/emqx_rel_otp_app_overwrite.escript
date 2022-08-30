@@ -1,4 +1,5 @@
 #!/usr/bin/env escript
+
 %% This script is part of 'relup' process to overwrite the OTP app versions (incl. ERTS) in rel files from upgrade base
 %% so that 'rebar relup' call will not generate instructions for restarting OTP apps or restarting the emulator.
 %%
@@ -7,6 +8,7 @@
 %%
 %% note, we use NEW to overwrite OLD is because the modified NEW rel file will be overwritten by next 'rebar relup'
 %%
+
 -mode(compile).
 
 main([Dir, RelVsn, BASE_VERSIONS]) ->

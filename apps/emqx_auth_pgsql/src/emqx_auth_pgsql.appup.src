@@ -1,11 +1,15 @@
 %% -*- mode: erlang -*-
 %% Unless you know what you are doing, DO NOT edit manually!!
 {VSN,
-  [{<<"4\\.3\\.[0-2]">>,
+  [{<<"4\\.4\\.[0-2]">>,
     %% restart it due to epgsql upgraded from 4.4.0 to 4.6.0
     %% in emqx_auth_pgsql:v4.3.3
-    [{restart_application,emqx_auth_pgsql}]},
+    [{load_module,emqx_auth_pgsql,brutal_purge,soft_purge,[]},
+     {load_module,emqx_auth_pgsql_app,brutal_purge,soft_purge,[]}
+    ]},
    {<<".*">>,[]}],
-  [{<<"4\\.3\\.[0-2]">>,
-    [{restart_application,emqx_auth_pgsql}]},
+  [{<<"4\\.4\\.[0-2]">>,
+    [{load_module,emqx_auth_pgsql,brutal_purge,soft_purge,[]},
+     {load_module,emqx_auth_pgsql_app,brutal_purge,soft_purge,[]}
+    ]},
    {<<".*">>,[]}]}.

@@ -72,7 +72,13 @@ check_acl(ClientInfo = #{jwt_claims := Claims},
         _ ->
             ?DEBUG("no_acl_jwt_claim", []),
             ignore
-    end.
+    end;
+check_acl(_ClientInfo,
+          _PubSub,
+          _Topic,
+          _NoMatchAction,
+          _AclEnv) ->
+    ignore.
 
 is_expired(Exp) when is_binary(Exp)  ->
     ExpInt  = binary_to_integer(Exp),
