@@ -123,13 +123,15 @@ init({Id, Index, Opts}) ->
             true ->
                 replayq:open(#{
                     dir => disk_queue_dir(Id, Index),
-                    seg_bytes => maps:get(queue_max_bytes, Opts, ?DEFAULT_QUEUE_SIZE),
+                    seg_bytes => maps:get(queue_seg_bytes, Opts, ?DEFAULT_QUEUE_SEG_SIZE),
+                    max_total_bytes => maps:get(max_queue_bytes, Opts, ?DEFAULT_QUEUE_SIZE),
                     sizer => fun ?MODULE:estimate_size/1,
                     marshaller => fun ?MODULE:queue_item_marshaller/1
                 });
             false ->
                 undefined
         end,
+    emqx_metrics_worker:inc(?RES_METRICS, Id, 'queued', replayq:count(Queue)),
     ok = inflight_new(Name),
     St = #{
         id => Id,
@@ -323,23 +325,27 @@ flush(
     end.
 
 maybe_append_queue(Id, undefined, _Items) ->
+    emqx_metrics_worker:inc(?RES_METRICS, Id, 'dropped'),
     emqx_metrics_worker:inc(?RES_METRICS, Id, 'dropped.queue_not_enabled'),
     undefined;
 maybe_append_queue(Id, Q, Items) ->
-    case replayq:overflow(Q) of
-        Overflow when Overflow =< 0 ->
-            emqx_metrics_worker:inc(?RES_METRICS, Id, 'queued'),
-            replayq:append(Q, Items);
-        Overflow ->
-            PopOpts = #{bytes_limit => Overflow, count_limit => 999999999},
-            {Q1, QAckRef, Items} = replayq:pop(Q, PopOpts),
-            ok = replayq:ack(Q1, QAckRef),
-            Dropped = length(Items),
-            emqx_metrics_worker:inc(?RES_METRICS, Id, 'queued', -Dropped),
-            emqx_metrics_worker:inc(?RES_METRICS, Id, 'dropped.queue_full'),
-            ?SLOG(error, #{msg => drop_query, reason => queue_full, dropped => Dropped}),
-            Q1
-    end.
+    Q2 =
+        case replayq:overflow(Q) of
+            Overflow when Overflow =< 0 ->
+                Q;
+            Overflow ->
+                PopOpts = #{bytes_limit => Overflow, count_limit => 999999999},
+                {Q1, QAckRef, Items2} = replayq:pop(Q, PopOpts),
+                ok = replayq:ack(Q1, QAckRef),
+                Dropped = length(Items2),
+                emqx_metrics_worker:inc(?RES_METRICS, Id, 'queued', -Dropped),
+                emqx_metrics_worker:inc(?RES_METRICS, Id, 'dropped'),
+                emqx_metrics_worker:inc(?RES_METRICS, Id, 'dropped.queue_full'),
+                ?SLOG(error, #{msg => drop_query, reason => queue_full, dropped => Dropped}),
+                Q1
+        end,
+    emqx_metrics_worker:inc(?RES_METRICS, Id, 'queued'),
+    replayq:append(Q2, Items).
 
 batch_reply_caller(Id, BatchResult, Batch) ->
     lists:foldl(

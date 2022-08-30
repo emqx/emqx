@@ -522,6 +522,6 @@ inc_action_metrics(R, RuleId) ->
 is_ok_result(ok) ->
     true;
 is_ok_result(R) when is_tuple(R) ->
-    ok = erlang:element(1, R);
+    ok == erlang:element(1, R);
 is_ok_result(ok) ->
     false.

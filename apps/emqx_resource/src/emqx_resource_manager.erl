@@ -577,8 +577,12 @@ maybe_alarm(_Status, ResId) ->
     ).
 
 maybe_resume_resource_workers(connected) ->
-    {_, Pid, _, _} = supervisor:which_children(emqx_resource_worker_sup),
-    emqx_resource_worker:resume(Pid);
+    lists:foreach(
+        fun({_, Pid, _, _}) ->
+            emqx_resource_worker:resume(Pid)
+        end,
+        supervisor:which_children(emqx_resource_worker_sup)
+    );
 maybe_resume_resource_workers(_) ->
     ok.
 
