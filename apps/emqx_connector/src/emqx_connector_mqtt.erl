@@ -135,8 +135,7 @@ drop_bridge(Name) ->
 %% When use this bridge as a data source, ?MODULE:on_message_received will be called
 %% if the bridge received msgs from the remote broker.
 on_message_received(Msg, HookPoint, ResId) ->
-    emqx_resource:inc_matched(ResId),
-    emqx_resource:inc_success(ResId),
+    emqx_resource:inc_received(ResId),
     emqx:run_hook(HookPoint, [Msg]).
 
 %% ===================================================================

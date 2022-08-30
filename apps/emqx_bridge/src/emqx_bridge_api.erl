@@ -20,6 +20,7 @@
 -include_lib("typerefl/include/types.hrl").
 -include_lib("hocon/include/hoconsc.hrl").
 -include_lib("emqx/include/logger.hrl").
+-include_lib("emqx_bridge/include/emqx_bridge.hrl").
 
 -import(hoconsc, [mk/2, array/1, enum/1]).
 
@@ -55,96 +56,6 @@
                         ". Bridge Ids must be of format {type}:{name}">>
                 )}
     end
-).
-
--define(EMPTY_METRICS,
-    ?METRICS(
-        0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0
-    )
-).
-
--define(METRICS(
-    Batched,
-    Dropped,
-    DroppedOther,
-    DroppedQueueFull,
-    DroppedQueueNotEnabled,
-    DroppedResourceNotFound,
-    DroppedResourceStopped,
-    Matched,
-    Queued,
-    Retried,
-    Sent,
-    SentExcpt,
-    SentFailed,
-    SentInflight,
-    SentSucc,
-    RATE,
-    RATE_5,
-    RATE_MAX
-),
-    #{
-        'batched' => Batched,
-        'dropped' => Dropped,
-        'dropped.other' => DroppedOther,
-        'dropped.queue_full' => DroppedQueueFull,
-        'dropped.queue_not_enabled' => DroppedQueueNotEnabled,
-        'dropped.resource_not_found' => DroppedResourceNotFound,
-        'dropped.resource_stopped' => DroppedResourceStopped,
-        'matched' => Matched,
-        'queued' => Queued,
-        'retried' => Retried,
-        'sent' => Sent,
-        'sent.exception' => SentExcpt,
-        'sent.failed' => SentFailed,
-        'sent.inflight' => SentInflight,
-        'sent.success' => SentSucc,
-        rate => RATE,
-        rate_last5m => RATE_5,
-        rate_max => RATE_MAX
-    }
-).
-
--define(metrics(
-    Batched,
-    Dropped,
-    DroppedOther,
-    DroppedQueueFull,
-    DroppedQueueNotEnabled,
-    DroppedResourceNotFound,
-    DroppedResourceStopped,
-    Matched,
-    Queued,
-    Retried,
-    Sent,
-    SentExcpt,
-    SentFailed,
-    SentInflight,
-    SentSucc,
-    RATE,
-    RATE_5,
-    RATE_MAX
-),
-    #{
-        'batched' := Batched,
-        'dropped' := Dropped,
-        'dropped.other' := DroppedOther,
-        'dropped.queue_full' := DroppedQueueFull,
-        'dropped.queue_not_enabled' := DroppedQueueNotEnabled,
-        'dropped.resource_not_found' := DroppedResourceNotFound,
-        'dropped.resource_stopped' := DroppedResourceStopped,
-        'matched' := Matched,
-        'queued' := Queued,
-        'retried' := Retried,
-        'sent' := Sent,
-        'sent.exception' := SentExcpt,
-        'sent.failed' := SentFailed,
-        'sent.inflight' := SentInflight,
-        'sent.success' := SentSucc,
-        rate := RATE,
-        rate_last5m := RATE_5,
-        rate_max := RATE_MAX
-    }
 ).
 
 namespace() -> "bridge".
@@ -770,12 +681,12 @@ format_metrics(#{
         'dropped.resource_stopped' := DroppedResourceStopped,
         'matched' := Matched,
         'queued' := Queued,
-        'retried' := Retried,
         'sent' := Sent,
         'sent.exception' := SentExcpt,
         'sent.failed' := SentFailed,
         'sent.inflight' := SentInflight,
-        'sent.success' := SentSucc
+        'sent.success' := SentSucc,
+        'received' := Rcvd
     },
     rate := #{
         matched := #{current := Rate, last5m := Rate5m, max := RateMax}
@@ -791,7 +702,6 @@ format_metrics(#{
         DroppedResourceStopped,
         Matched,
         Queued,
-        Retried,
         Sent,
         SentExcpt,
         SentFailed,
@@ -799,7 +709,8 @@ format_metrics(#{
         SentSucc,
         Rate,
         Rate5m,
-        RateMax
+        RateMax,
+        Rcvd
     ).
 
 fill_defaults(Type, RawConf) ->

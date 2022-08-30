@@ -131,7 +131,7 @@ init({Id, Index, Opts}) ->
             false ->
                 undefined
         end,
-    emqx_metrics_worker:inc(?RES_METRICS, Id, 'queued', replayq:count(Queue)),
+    emqx_metrics_worker:inc(?RES_METRICS, Id, 'queued', queue_count(Queue)),
     ok = inflight_new(Name),
     St = #{
         id => Id,
@@ -254,7 +254,6 @@ retry_first_sync(Id, FirstQuery, Name, Ref, Q, #{resume_interval := ResumeT} = S
     case handle_query_result(Id, Result, false) of
         %% Send failed because resource down
         true ->
-            emqx_metrics_worker:inc(?RES_METRICS, Id, 'retried'),
             {keep_state, St0, {state_timeout, ResumeT, resume}};
         %% Send ok or failed but the resource is working
         false ->
@@ -568,6 +567,11 @@ assert_ok_result(R) when is_tuple(R) ->
     ok = erlang:element(1, R);
 assert_ok_result(R) ->
     error({not_ok_result, R}).
+
+queue_count(undefined) ->
+    0;
+queue_count(Q) ->
+    replayq:count(Q).
 
 -spec name(id(), integer()) -> atom().
 name(Id, Index) ->

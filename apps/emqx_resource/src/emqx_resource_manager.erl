@@ -134,7 +134,6 @@ create(MgrId, ResId, Group, ResourceType, Config, Opts) ->
             'dropped',
             'queued',
             'batched',
-            'retried',
             'sent.success',
             'sent.failed',
             'sent.exception',
@@ -143,7 +142,8 @@ create(MgrId, ResId, Group, ResourceType, Config, Opts) ->
             'dropped.queue_full',
             'dropped.resource_not_found',
             'dropped.resource_stopped',
-            'dropped.other'
+            'dropped.other',
+            'received'
         ],
         [matched]
     ),

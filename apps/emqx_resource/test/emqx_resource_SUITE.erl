@@ -268,7 +268,7 @@ t_query_counter_async_query(_) ->
         end
     ),
     {ok, _, #{metrics := #{counters := C}}} = emqx_resource:get_instance(?ID),
-    ?assertMatch(#{matched := 1002, success := 1002, failed := 0}, C),
+    ?assertMatch(#{matched := 1002, 'sent.success' := 1002, 'sent.failed' := 0}, C),
     ok = emqx_resource:remove_local(?ID).
 
 t_query_counter_async_callback(_) ->
@@ -309,7 +309,7 @@ t_query_counter_async_callback(_) ->
         end
     ),
     {ok, _, #{metrics := #{counters := C}}} = emqx_resource:get_instance(?ID),
-    ?assertMatch(#{matched := 1002, success := 1002, failed := 0}, C),
+    ?assertMatch(#{matched := 1002, sent := 1002, 'sent.success' := 1002, 'sent.failed' := 0}, C),
     ?assertMatch(1000, ets:info(Tab0, size)),
     ?assert(
         lists:all(
@@ -419,8 +419,8 @@ t_query_counter_async_inflight(_) ->
     {ok, _, #{metrics := #{counters := C}}} = emqx_resource:get_instance(?ID),
     ct:pal("metrics: ~p", [C]),
     ?assertMatch(
-        #{matched := M, success := S, exception := E, failed := F, recoverable_error := RD} when
-            M >= Sent andalso M == S + E + F + RD,
+        #{matched := M, sent := St, 'sent.success' := Ss, dropped := D} when
+            St == Ss andalso M == St + D,
         C
     ),
     ?assert(
