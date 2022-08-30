@@ -4,6 +4,11 @@
 
 set -e
 
+DEBUG="${DEBUG:-0}"
+if [ "$DEBUG" -eq 1 ]; then
+    set -x
+fi
+
 RUNNER_ROOT_DIR="$(cd "$(dirname "$(readlink "$0" || echo "$0")")"/..; pwd -P)"
 # shellcheck disable=SC1090
 . "$RUNNER_ROOT_DIR"/releases/emqx_vars
@@ -425,6 +430,43 @@ generate_config() {
     fi
 }
 
+# check if a PID is down
+is_down() {
+    PID="$1"
+    if ps -p "$PID" >/dev/null; then
+        # still around
+        # shellcheck disable=SC2009 # this grep pattern is not a part of the progra names
+        if ps -p "$PID" | grep -q 'defunct'; then
+            # zombie state, print parent pid
+            parent="$(ps -o ppid= -p "$PID" | tr -d ' ')"
+            echo "WARN: $PID is marked <defunct>, parent:"
+            ps -p "$parent"
+            return 0
+        fi
+        return 1
+    fi
+    # it's gone
+    return 0
+}
+
+wait_for() {
+    local WAIT_TIME
+    local CMD
+    WAIT_TIME="$1"
+    shift
+    CMD="$*"
+    while true; do
+        if $CMD >/dev/null 2>&1; then
+            return 0
+        fi
+        if [ "$WAIT_TIME" -le 0 ]; then
+            return 1
+        fi
+        WAIT_TIME=$((WAIT_TIME - 1))
+        sleep 1
+    done
+}
+
 # Call bootstrapd for daemon commands like start/stop/console
 bootstrapd() {
     if [ -e "$RUNNER_DATA_DIR/.erlang.cookie" ]; then
@@ -612,7 +654,7 @@ case "$1" in
         "$BINDIR/run_erl" -daemon "$PIPE_DIR" "$RUNNER_LOG_DIR" \
                           "$(relx_start_command)"
 
-        WAIT_TIME=${WAIT_FOR_ERLANG:-15}
+        WAIT_TIME=${WAIT_FOR_ERLANG:-150}
         while [ "$WAIT_TIME" -gt 0 ]; do
             if ! relx_nodetool "ping" >/dev/null 2>&1; then
                 WAIT_TIME=$((WAIT_TIME - 1))
@@ -624,7 +666,7 @@ case "$1" in
                 echo "$EMQX_DESCRIPTION $REL_VSN is started successfully!"
                 exit 0
             fi
-        done && echo "$EMQX_DESCRIPTION $REL_VSN failed to start within ${WAIT_FOR_ERLANG:-15} seconds,"
+        done && echo "$EMQX_DESCRIPTION $REL_VSN failed to start within ${WAIT_FOR_ERLANG:-150} seconds,"
         echo "see the output of '$0 console' for more information."
         echo "If you want to wait longer, set the environment variable"
         echo "WAIT_FOR_ERLANG to the number of seconds to wait."
@@ -635,6 +677,7 @@ case "$1" in
         # Wait for the node to completely stop...
         PID="$(relx_get_pid)"
         if ! relx_nodetool "stop"; then
+            echoerr "Graceful shutdown failed PID=[$PID]"
             exit 1
         fi
         WAIT_TIME="${EMQX_WAIT_FOR_STOP:-120}"

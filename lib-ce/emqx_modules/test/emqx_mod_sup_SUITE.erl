@@ -41,9 +41,8 @@ t_start_child(_) ->
              modules => [Mod]},
 
     ok  = emqx_mod_sup:start_child(Mod, worker),
-    ?assertError({already_started, _}, emqx_mod_sup:start_child(Spec)),
+    ?assertEqual(ok, emqx_mod_sup:start_child(Spec)),
 
     ok = emqx_mod_sup:stop_child(Mod),
     {error, not_found} = emqx_mod_sup:stop_child(Mod),
     ok.
-
