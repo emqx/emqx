@@ -103,10 +103,13 @@ jobs:
             sudo chmod 700 get_helm.sh
             sudo ./get_helm.sh
             helm version
-        - name: setup emqx chart
+        - name: run emqx on chart
+          timeout-minutes: 5
           run: |
-            minikube image load ${TARGET}:${EMQX_TAG}
-            sed -i -r "s/^appVersion: .*$/appVersion: \"${EMQX_TAG}\"/g" deploy/charts/emqx/Chart.yaml
+            version=$(./pkg-vsn.sh)
+            minikube image load ${TARGET}:$version
+
+            sed -i -r "s/^appVersion: .*$/appVersion: \"${version}\"/g" deploy/charts/emqx/Chart.yaml
             sed -i '/emqx_telemetry/d' deploy/charts/emqx/values.yaml
         - name: run emqx on chart
           if: matrix.discovery == 'k8s'
