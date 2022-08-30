@@ -140,7 +140,7 @@ jobs:
             echo "$HOME/.local/bin" >> $GITHUB_PATH
         - name: run paho test
           run: |
-            nohup kubectl port-forward svc emqx 1883:1883 &
+            nohup kubectl port-forward svc/emqx 1883:1883 &
 
             pytest -v paho.mqtt.testing/interoperability/test_client/V5/test_connect.py -k test_basic
             RESULT=$?
