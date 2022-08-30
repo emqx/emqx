@@ -159,6 +159,7 @@ usage() {
         echo "  console:    Start EMQX in an interactive Erlang shell"
         echo "  foreground: Start EMQX in foreground mode without an interactive shell"
         echo "  stop:       Stop the running EMQX node"
+        echo "  restart:    Restart the running EMQX node"
         echo "  ctl:        Administration commands, execute '$REL_NAME ctl help' for more details"
         echo ''
         echo "More:"

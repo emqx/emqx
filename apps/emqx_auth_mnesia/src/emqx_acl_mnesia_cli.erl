@@ -119,6 +119,7 @@ cli(_) ->
     emqx_ctl:usage([ {"acl list clientid", "List clientid acls"}
                    , {"acl list username", "List username acls"}
                    , {"acl list _all", "List $all acls"}
+                   , {"acl list ", "List all acls"}
                    , {"acl show clientid <Clientid>", "Lookup clientid acl detail"}
                    , {"acl show username <Username>", "Lookup username acl detail"}
                    , {"acl aad clientid <Clientid> <Topic> <Action> <Access>", "Add clientid acl"}
