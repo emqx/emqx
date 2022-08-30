@@ -236,7 +236,7 @@ shutdown(Reason) ->
 reboot() ->
     case is_application_running(emqx_dashboard) of
         true ->
-            application:stop(emqx_dashboard), %% dashboard must be started after mnesia
+            _ = application:stop(emqx_dashboard), %% dashboard must be started after mnesia
             lists:foreach(fun application:start/1 , default_started_applications()),
             application:start(emqx_dashboard);
 

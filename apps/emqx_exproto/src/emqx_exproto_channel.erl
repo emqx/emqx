@@ -159,7 +159,7 @@ init(ConnInfo = #{socktype := Socktype,
     Channel = #channel{gcli = #{channel => GRpcChann},
                        conninfo = NConnInfo1,
                        clientinfo = ClientInfo,
-                       conn_state = accepted,
+                       conn_state = idle,
                        timers = #{}
                       },
     case emqx_hooks:run_fold('client.connect', [NConnInfo], #{}) of

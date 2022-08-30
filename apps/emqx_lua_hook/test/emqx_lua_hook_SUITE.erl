@@ -75,7 +75,7 @@ case01(_Config) ->
             "\nend",
     ok = file:write_file(ScriptName, Code), ok = emqx_lua_hook:load_scripts(),
 
-    Msg = #message{from = <<"myclient">>, qos = 2, flags = #{retain => true}, topic = <<"a/b/c">>, payload = <<"123">>, headers = #{username => <<"tester">>}},
+    Msg = #message{id = emqx_guid:gen(), from = <<"myclient">>, qos = 2, flags = #{retain => true}, topic = <<"a/b/c">>, payload = <<"123">>, headers = #{username => <<"tester">>}},
     Ret = emqx_hooks:run_fold('message.publish',[], Msg),
     ?assertEqual(Msg#message{payload = <<"hello">>}, Ret).
 
@@ -90,7 +90,7 @@ case02(_Config) ->
             "\nend",
     ok = file:write_file(ScriptName, Code), ok = emqx_lua_hook:load_scripts(),
 
-    Msg = #message{from = <<"myclient">>, qos = 2, flags = #{retain => true}, topic = <<"a/b/c">>, payload = <<"123">>, headers = #{username => <<"tester">>}},
+    Msg = #message{id = emqx_guid:gen(), from = <<"myclient">>, qos = 2, flags = #{retain => true}, topic = <<"a/b/c">>, payload = <<"123">>, headers = #{username => <<"tester">>}},
     Ret = emqx_hooks:run_fold('message.publish',[], Msg),
     ?assertEqual(Msg#message{headers = #{username => <<"tester">>, allow_publish => false}}, Ret).
 
@@ -124,7 +124,7 @@ case04(_Config) ->
             "\nend",
     ok = file:write_file(ScriptName, Code), ok = emqx_lua_hook:load_scripts(),
 
-    Msg = #message{from = <<"broker">>, qos = 2, flags = #{retain => true}, topic = <<"a/b/c">>, payload = <<"123">>, headers = #{username => <<"tester">>}},
+    Msg = #message{id = emqx_guid:gen(), from = <<"broker">>, qos = 2, flags = #{retain => true}, topic = <<"a/b/c">>, payload = <<"123">>, headers = #{username => <<"tester">>}},
     Ret = emqx_hooks:run_fold('message.publish',[], Msg),
     ?assertEqual(Msg#message{payload = <<"hello broker">>}, Ret).
 
@@ -155,7 +155,7 @@ case12(_Config) ->
             "\nend",
     ok = file:write_file(ScriptName, Code), ok = emqx_lua_hook:load_scripts(),
 
-    Msg = #message{qos = 2, flags = #{retain => true}, topic = <<"a/b/c">>, payload = <<"123">>, headers = #{}},
+    Msg = #message{id = emqx_guid:gen(), qos = 2, flags = #{retain => true}, topic = <<"a/b/c">>, payload = <<"123">>, headers = #{}},
     Ret = emqx_hooks:run_fold('message.delivered', [#{clientid => <<"myclient">>, username => <<"myuser">>}], Msg),
     ?assertEqual(Msg#message{payload = <<"hello broker">>}, Ret).
 
@@ -470,8 +470,9 @@ case101(_Config) ->
             "\nend",
     ok = file:write_file(ScriptName2, Code2), ok = emqx_lua_hook:load_scripts(),
 
-    Ret = emqx_hooks:run_fold('message.publish',[], #message{qos = 2, flags = #{retain => true}, topic = <<"a/b/c">>, payload = <<"123">>, headers = #{}}),
-    ?assertEqual(#message{qos = 2, flags = #{retain => true}, topic = <<"a/b/c">>, payload = <<"hello">>, headers = #{}}, Ret),
+    ID = emqx_guid:gen(),
+    Ret = emqx_hooks:run_fold('message.publish',[], #message{id = ID, qos = 2, flags = #{retain => true}, topic = <<"a/b/c">>, payload = <<"123">>, headers = #{}}),
+    ?assertEqual(#message{id = ID, qos = 2, flags = #{retain => true}, topic = <<"a/b/c">>, payload = <<"hello">>, headers = #{}}, Ret),
 
     TopicTable = [{<<"a/b/c">>, [qos, 1]}, {<<"d/+/e">>, [{qos, 2}]}],
     Ret2 = emqx_hooks:run_fold('client.subscribe',[#{clientid => <<"myclient">>, username => <<"myuser">>}, #{}], TopicTable),
@@ -488,7 +489,7 @@ case110(_Config) ->
             "\nend",
     ok = file:write_file(ScriptName, Code), ok = emqx_lua_hook:load_scripts(),
 
-    Msg = #message{qos = 2, flags = #{retain => true}, topic = <<"a/b/c">>, payload = <<"123">>, headers = #{}},
+    Msg = #message{id = emqx_guid:gen(), qos = 2, flags = #{retain => true}, topic = <<"a/b/c">>, payload = <<"123">>, headers = #{}},
     Ret = emqx_hooks:run_fold('message.publish',[], Msg),
     ?assertEqual(Msg#message{topic = <<"changed/topic">>, payload = <<"hello">>}, Ret).
 
@@ -504,7 +505,7 @@ case111(_Config) ->
     ok = file:write_file(ScriptName, Code), ok = emqx_lua_hook:load_scripts(),
     emqx_ctl:run_command(["luahook", "unload", ScriptName]),
 
-    Msg = #message{qos = 2, flags = #{retain => true}, topic = <<"a/b/c">>, payload = <<"123">>, headers = #{}},
+    Msg = #message{id = emqx_guid:gen(), qos = 2, flags = #{retain => true}, topic = <<"a/b/c">>, payload = <<"123">>, headers = #{}},
     Ret = emqx_hooks:run_fold('message.publish',[], Msg),
     ?assertEqual(Msg, Ret).
 
@@ -523,7 +524,7 @@ case112(_Config) ->
     timer:sleep(100),
     emqx_ctl:run_command(["luahook", "load", "abc.lua"]),
 
-    Msg = #message{qos = 2, flags = #{retain => true}, topic = <<"a/b/c">>, payload = <<"123">>, headers = #{}},
+    Msg = #message{id = emqx_guid:gen(), qos = 2, flags = #{retain => true}, topic = <<"a/b/c">>, payload = <<"123">>, headers = #{}},
     Ret = emqx_hooks:run_fold('message.publish',[], Msg),
     ?assertEqual(Msg#message{topic = <<"changed/topic">>, payload = <<"hello">>}, Ret).
 
@@ -541,7 +542,7 @@ case113(_Config) ->
     file:delete(ScriptDisabled),
     emqx_ctl:run_command(["luahook", "disable", "abc.lua"]),   % this command will rename "abc.lua" to "abc.lua.x"
 
-    Msg = #message{qos = 2, flags = #{retain => true}, topic = <<"a/b/c">>, payload = <<"123">>, headers = #{}},
+    Msg = #message{id = emqx_guid:gen(), qos = 2, flags = #{retain => true}, topic = <<"a/b/c">>, payload = <<"123">>, headers = #{}},
     Ret = emqx_hooks:run_fold('message.publish',[], Msg),
     ?assertEqual(Msg, Ret),
     true = filelib:is_file(ScriptDisabled).
@@ -558,7 +559,7 @@ case114(_Config) ->
     ok = file:write_file(ScriptName, Code), ok = emqx_lua_hook:load_scripts(),
     emqx_ctl:run_command(["luahook", "enable", "abc.lua"]),
 
-    Msg = #message{qos = 2, flags = #{retain => true}, topic = <<"a/b/c">>, payload = <<"123">>, headers = #{}},
+    Msg = #message{id = emqx_guid:gen(), qos = 2, flags = #{retain => true}, topic = <<"a/b/c">>, payload = <<"123">>, headers = #{}},
     Ret = emqx_hooks:run_fold('message.publish',[], Msg),
     ?assertEqual(Msg#message{topic = <<"changed/topic">>, payload = <<"hello">>}, Ret).
 
@@ -578,7 +579,7 @@ case115(_Config) ->
     ok = file:write_file(ScriptName, Code), ok = emqx_lua_hook:load_scripts(),
     emqx_ctl:run_command(["luahook", "reload", "abc.lua"]),
 
-    Msg = #message{qos = 2, flags = #{retain => true}, topic = <<"a/b/c">>, payload = <<"123">>, headers = #{}},
+    Msg = #message{id = emqx_guid:gen(), qos = 2, flags = #{retain => true}, topic = <<"a/b/c">>, payload = <<"123">>, headers = #{}},
     Ret = emqx_hooks:run_fold('message.publish',[], Msg),
     ?assertEqual(Msg#message{topic = <<"changed/topic">>, payload = <<"hello">>}, Ret),
 
@@ -636,7 +637,7 @@ case204(_Config) ->
             "\nend",
     ok = file:write_file(ScriptName, Code), ok = emqx_lua_hook:load_scripts(),
 
-    Msg = #message{qos = 2, flags = #{retain => true}, topic = <<"a/b/c">>, payload = <<"123">>, headers = #{}},
+    Msg = #message{id = emqx_guid:gen(), qos = 2, flags = #{retain => true}, topic = <<"a/b/c">>, payload = <<"123">>, headers = #{}},
     Ret = emqx_hooks:run_fold('message.publish',[], Msg),
     ?assertEqual(Msg#message{payload = <<"123_Z">>}, Ret).
 
@@ -651,7 +652,7 @@ case205(_Config) ->
             "\nend",
     ok = file:write_file(ScriptName, Code), ok = emqx_lua_hook:load_scripts(),
 
-    Msg = #message{qos = 2, flags = #{retain => true}, topic = <<"a/b/c">>, payload = <<"123">>, headers = #{}},
+    Msg = #message{id = emqx_guid:gen(), qos = 2, flags = #{retain => true}, topic = <<"a/b/c">>, payload = <<"123">>, headers = #{}},
     Ret = emqx_hooks:run_fold('message.publish',[], Msg),
     ?assertEqual(Msg, Ret).
 
