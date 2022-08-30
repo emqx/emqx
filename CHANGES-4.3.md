@@ -34,6 +34,7 @@ File format:
 - Fix ExHook can't be un-hooked if the grpc service stop first. [#8725](https://github.com/emqx/emqx/pull/8725)
 - Fix the problem that ExHook cannot continue hook chains execution for mismatched topics. [#8807](https://github.com/emqx/emqx/pull/8807)
 - Fix GET `/listeners/` crashes when listener is not ready. [#8752](https://github.com/emqx/emqx/pull/8752)
+- Fix repeated warning messages in bin/emqx [#8824](https://github.com/emqx/emqx/pull/8824)
 
 
 ## v4.3.18

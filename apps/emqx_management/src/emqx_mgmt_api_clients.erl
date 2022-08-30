@@ -406,7 +406,7 @@ run_fuzzy_match(E = {_, _, Stats}, [{Key, '=<', Int}|Fuzzy]) ->
 %%--------------------------------------------------------------------
 %% QueryString to Match Spec
 
--spec qs2ms(list()) -> ets:match_spec().
+-spec qs2ms(list()) -> {ets:match_spec(), [{_Key, _Symbol, _Val}]}.
 qs2ms(Qs) ->
     {MatchHead, Conds, FuzzyStats} = qs2ms(Qs, 2, #{}, [], []),
     {[{{'$1', MatchHead, '_'}, Conds, ['$_']}], FuzzyStats}.

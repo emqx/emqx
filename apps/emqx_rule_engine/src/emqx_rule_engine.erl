@@ -64,7 +64,6 @@
 -export([alarm_name_of_resource_down/2]).
 -endif.
 
--type(rule() :: #rule{}).
 -type(action() :: #action{}).
 -type(resource() :: #resource{}).
 -type(resource_type() :: #resource_type{}).
@@ -172,7 +171,6 @@ module_attributes(Module) ->
 %% APIs for rules and resources
 %%------------------------------------------------------------------------------
 
--dialyzer([{nowarn_function, [create_rule/1, rule_id/0]}]).
 -spec create_rule(map()) -> {ok, rule()} | {error, term()}.
 create_rule(Params = #{rawsql := Sql, actions := ActArgs}) ->
     case emqx_rule_sqlparser:parse_select(Sql) of
@@ -307,7 +305,7 @@ do_check_and_update_resource(#{id := Id, type := Type, description := NewDescrip
             Config = emqx_rule_validator:validate_params(NewConfig, ParamSpec),
             case test_resource(#{type => Type, config => NewConfig}) of
                 ok ->
-                    delete_resource(Id),
+                    _ = delete_resource(Id),
                     _ = ?CLUSTER_CALL(init_resource, [Module, Create, Id, Config]),
                     emqx_rule_registry:add_resource(#resource{
                         id = Id,

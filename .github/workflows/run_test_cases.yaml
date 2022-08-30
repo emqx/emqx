@@ -24,8 +24,19 @@ jobs:
           run: make proper
 
     run_common_test:
-        runs-on: ubuntu-20.04
-
+        runs-on: ${{ matrix.runs-on }}
+        strategy:
+          matrix:
+            runs-on:
+              - aws-amd64
+              - ubuntu-20.04
+            use-self-hosted:
+              - ${{ github.repository_owner == 'emqx' }}
+            exclude:
+              - runs-on: ubuntu-20.04
+                use-self-hosted: true
+              - runs-on: aws-amd64
+                use-self-hosted: false
         steps:
         - uses: actions/checkout@v2
         - name: set edition
