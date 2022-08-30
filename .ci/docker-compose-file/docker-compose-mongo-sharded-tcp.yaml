@@ -1,0 +1,90 @@
+version: "3"
+
+services:
+  mongosharded1:
+    hostname: mongosharded1
+    container_name: mongosharded1
+    image: mongo:${MONGO_TAG}
+    environment:
+      MONGO_INITDB_DATABASE: mqtt
+    networks:
+      - emqx_bridge
+    expose:
+      - 27017
+    ports:
+      - 27014:27017
+    restart: always
+    command:
+      --configsvr
+      --replSet cfg0
+      --port 27017
+      --ipv6
+      --bind_ip_all
+
+  mongosharded2:
+    hostname: mongosharded2
+    container_name: mongosharded2
+    image: mongo:${MONGO_TAG}
+    environment:
+      MONGO_INITDB_DATABASE: mqtt
+    networks:
+      - emqx_bridge
+    expose:
+      - 27017
+    ports:
+      - 27015:27017
+    restart: always
+    command:
+      --shardsvr
+      --replSet rs0
+      --port 27017
+      --ipv6
+      --bind_ip_all
+
+  mongosharded3:
+    hostname: mongosharded3
+    container_name: mongosharded3
+    image: mongo:${MONGO_TAG}
+    environment:
+      MONGO_INITDB_DATABASE: mqtt
+    networks:
+      - emqx_bridge
+    expose:
+      - 27017
+    ports:
+      - 27016:27017
+    restart: always
+    entrypoint: mongos
+    command:
+      --configdb cfg0/mongosharded1:27017
+      --port 27017
+      --ipv6
+      --bind_ip_all
+
+  mongosharded_client:
+    image: mongo:${MONGO_TAG}
+    container_name: mongosharded_client
+    networks:
+      - emqx_bridge
+    depends_on:
+      - mongosharded1
+      - mongosharded2
+      - mongosharded3
+    command:
+      - /bin/bash
+      - -c
+      - |
+        while ! mongo --host mongosharded1 --eval 'db.runCommand("ping").ok' --quiet >/dev/null 2>&1 ; do
+            sleep 1
+        done
+        mongo --host mongosharded1 --eval "rs.initiate( { _id : 'cfg0', configsvr: true, members: [ { _id : 0, host : 'mongosharded1:27017' } ] })"
+        while ! mongo --host mongosharded2 --eval 'db.runCommand("ping").ok' --quiet >/dev/null 2>&1  ; do
+            sleep 1
+        done
+        mongo --host mongosharded2 --eval "rs.initiate( { _id : 'rs0', members: [ { _id : 0, host : 'mongosharded2:27017' } ] })"
+        mongo --host mongosharded2 --eval "rs.status()"
+        while ! mongo --host mongosharded3 --eval 'db.runCommand("ping").ok' --quiet >/dev/null 2>&1  ; do
+            sleep 1
+        done
+        mongo --host mongosharded3 --eval "sh.addShard('rs0/mongosharded2:27017')"
+        mongo --host mongosharded3 --eval "sh.enableSharding('mqtt')"
