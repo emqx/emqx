@@ -286,6 +286,13 @@ on_query(
             Retry
         )
     of
+        {error, econnrefused} ->
+            ?SLOG(warning, #{
+                msg => "http_connector_do_request_failed",
+                reason => econnrefused,
+                connector => InstId
+            }),
+            {recoverable_error, econnrefused};
         {error, Reason} = Result ->
             ?SLOG(error, #{
                 msg => "http_connector_do_request_failed",
