@@ -313,7 +313,11 @@ parse_packet(
     Publish = #mqtt_packet_publish{
         topic_name = TopicName,
         packet_id = PacketId,
-        properties = Properties
+        properties = append_to_user_property(
+            Properties,
+            "$message_in",
+            get_text_timestamp(nanosecond)
+        )
     },
     {Publish, Payload};
 parse_packet(#mqtt_packet_header{type = PubAck}, <<PacketId:16/big>>, #{strict_mode := StrictMode}) when
@@ -761,7 +765,14 @@ serialize_variable(
             undefined -> <<>>;
             _ -> <<PacketId:16/big-unsigned-integer>>
         end,
-        serialize_properties(Properties, Ver)
+        serialize_properties(
+            append_to_user_property(
+                Properties,
+                "$message_out",
+                get_text_timestamp(nanosecond)
+            ),
+            Ver
+        )
     ];
 serialize_variable(#mqtt_packet_puback{packet_id = PacketId}, Ver) when
     Ver == ?MQTT_PROTO_V3; Ver == ?MQTT_PROTO_V4
@@ -1097,3 +1108,18 @@ validate_mqtt_utf8_char(<<B1, _B2, _B3, _B4, Bs/binary>>) when
     B1 =:= 16#0F
 ->
     validate_mqtt_utf8_char(Bs).
+
+append_to_user_property(Props, Key, Val) ->
+    UserProps =
+        case maps:get('User-Property', Props, []) of
+            {_, _} = KV ->
+                [KV];
+            Any ->
+                Any
+        end,
+    UserProps1 = [{Key, Val} | UserProps],
+    maps:put('User-Property', UserProps1, Props).
+
+get_text_timestamp(Unit) ->
+    Now = erlang:system_time(Unit),
+    erlang:integer_to_binary(Now).
