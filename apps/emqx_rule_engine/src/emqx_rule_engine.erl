@@ -547,11 +547,21 @@ with_resource_params(Args = #{<<"$resource">> := ResId}) ->
     end;
 with_resource_params(Args) -> Args.
 
--dialyzer([{nowarn_function, may_update_rule_params/2}]).
-may_update_rule_params(Rule, Params = #{rawsql := SQL}) ->
+may_update_rule_params(Rule, Params) ->
+    %% NOTE: order matters, e.g. update_actions must be after update_enabled
+    FL = [fun update_raw_sql/2,
+          fun update_enabled/2,
+          fun update_description/2,
+          fun update_on_action_failed/2,
+          fun update_actions/2
+          ],
+    lists:foldl(fun(F, RuleIn) ->
+                        F(RuleIn, Params)
+                end, Rule, FL).
+
+update_raw_sql(Rule, #{rawsql := SQL}) ->
     case emqx_rule_sqlparser:parse_select(SQL) of
         {ok, Select} ->
-            may_update_rule_params(
                 Rule#rule{
                     rawsql = SQL,
                     for = emqx_rule_sqlparser:select_from(Select),
@@ -560,12 +570,14 @@ may_update_rule_params(Rule, Params = #{rawsql := SQL}) ->
                     doeach = emqx_rule_sqlparser:select_doeach(Select),
                     incase = emqx_rule_sqlparser:select_incase(Select),
                     conditions = emqx_rule_sqlparser:select_where(Select)
-                },
-                maps:remove(rawsql, Params));
-        Reason -> throw(Reason)
+                };
+        Reason ->
+            throw(Reason)
     end;
-may_update_rule_params(Rule = #rule{enabled = OldEnb, actions = Actions, state = OldState},
-         Params = #{enabled := NewEnb}) ->
+update_raw_sql(Rule, _) ->
+    Rule.
+
+update_enabled(Rule = #rule{enabled = OldEnb, actions = Actions, state = OldState}, #{enabled := NewEnb}) ->
     State = case {OldEnb, NewEnb} of
         {false, true} ->
             _ = ?CLUSTER_CALL(refresh_rule, [Rule]),
@@ -575,19 +587,27 @@ may_update_rule_params(Rule = #rule{enabled = OldEnb, actions = Actions, state =
             force_changed;
         _NoChange -> OldState
     end,
-    may_update_rule_params(Rule#rule{enabled = NewEnb, state = State}, maps:remove(enabled, Params));
-may_update_rule_params(Rule, Params = #{description := Descr}) ->
-    may_update_rule_params(Rule#rule{description = Descr}, maps:remove(description, Params));
-may_update_rule_params(Rule, Params = #{on_action_failed := OnFailed}) ->
-    may_update_rule_params(Rule#rule{on_action_failed = OnFailed},
-        maps:remove(on_action_failed, Params));
-may_update_rule_params(Rule = #rule{actions = OldActions}, Params = #{actions := Actions}) ->
+    Rule#rule{enabled = NewEnb, state = State};
+update_enabled(Rule, _) ->
+    Rule.
+
+update_description(Rule, #{description := Descr}) ->
+    Rule#rule{description = Descr};
+update_description(Rule, _) ->
+    Rule.
+
+update_on_action_failed(Rule, #{on_action_failed := OnFailed}) ->
+    Rule#rule{on_action_failed = OnFailed};
+update_on_action_failed(Rule, _) ->
+    Rule.
+
+update_actions(Rule = #rule{actions = OldActions, enabled = Enabled}, #{actions := Actions}) ->
     %% prepare new actions before removing old ones
-    NewActions = prepare_actions(Actions, maps:get(enabled, Params, true)),
+    NewActions = prepare_actions(Actions, Enabled),
     _ = ?CLUSTER_CALL(restore_action_metrics, [OldActions, NewActions]),
     _ = ?CLUSTER_CALL(clear_actions, [OldActions]),
-    may_update_rule_params(Rule#rule{actions = NewActions}, maps:remove(actions, Params));
-may_update_rule_params(Rule, _Params) -> %% ignore all the unsupported params
+    Rule#rule{actions = NewActions};
+update_actions(Rule, _) ->
     Rule.
 
 %% NOTE: if the user removed an action, but the action is not the last one in the list,
