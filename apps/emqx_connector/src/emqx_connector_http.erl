@@ -275,7 +275,7 @@ on_query(
     ),
     NRequest = formalize_request(Method, BasePath, Request),
     case
-        Result = ehttpc:request(
+        ehttpc:request(
             case KeyOrNum of
                 undefined -> PoolName;
                 _ -> {PoolName, KeyOrNum}
@@ -286,33 +286,35 @@ on_query(
             Retry
         )
     of
-        {error, Reason} ->
+        {error, Reason} = Result ->
             ?SLOG(error, #{
                 msg => "http_connector_do_request_failed",
                 request => NRequest,
                 reason => Reason,
                 connector => InstId
-            });
-        {ok, StatusCode, _} when StatusCode >= 200 andalso StatusCode < 300 ->
-            ok;
-        {ok, StatusCode, _, _} when StatusCode >= 200 andalso StatusCode < 300 ->
-            ok;
-        {ok, StatusCode, _} ->
+            }),
+            Result;
+        {ok, StatusCode, _} = Result when StatusCode >= 200 andalso StatusCode < 300 ->
+            Result;
+        {ok, StatusCode, _, _} = Result when StatusCode >= 200 andalso StatusCode < 300 ->
+            Result;
+        {ok, StatusCode, Headers} ->
             ?SLOG(error, #{
                 msg => "http connector do request, received error response",
                 request => NRequest,
                 connector => InstId,
                 status_code => StatusCode
-            });
-        {ok, StatusCode, _, _} ->
+            }),
+            {error, #{status_code => StatusCode, headers => Headers}};
+        {ok, StatusCode, Headers, Body} ->
             ?SLOG(error, #{
                 msg => "http connector do request, received error response",
                 request => NRequest,
                 connector => InstId,
                 status_code => StatusCode
-            })
-    end,
-    Result.
+            }),
+            {error, #{status_code => StatusCode, headers => Headers, body => Body}}
+    end.
 
 on_query_async(InstId, {send_message, Msg}, ReplyFunAndArgs, State) ->
     case maps:get(request, State, undefined) of
