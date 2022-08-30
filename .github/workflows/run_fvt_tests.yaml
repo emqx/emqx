@@ -94,28 +94,18 @@ jobs:
               echo "PROFILE=emqx" >> $GITHUB_ENV
               echo "EMQX_TAG=$(./pkg-vsn.sh)" >> $GITHUB_ENV
             fi
-        - name: make emqx image
-          run: make ${PROFILE}-docker
-        - name: install k3s
-          env:
-            KUBECONFIG: "/etc/rancher/k3s/k3s.yaml"
-          run: |
-            sudo sh -c "echo \"127.0.0.1 $(hostname)\" >> /etc/hosts"
-            curl -sfL https://get.k3s.io | sh -
-            sudo chmod 644 /etc/rancher/k3s/k3s.yaml
-            kubectl cluster-info
+        - run: minikube start
         - name: install helm
-          env:
-            KUBECONFIG: "/etc/rancher/k3s/k3s.yaml"
           run: |
             curl -fsSL -o get_helm.sh https://raw.githubusercontent.com/helm/helm/master/scripts/get-helm-3
             sudo chmod 700 get_helm.sh
             sudo ./get_helm.sh
             helm version
-        - name: setup emqx chart
+        - name: run emqx on chart
+          timeout-minutes: 5
           run: |
-            sudo docker save ${TARGET}:${EMQX_TAG} -o emqx.tar.gz
-            sudo k3s ctr image import emqx.tar.gz
+            version=$(./pkg-vsn.sh)
+            minikube image load ${TARGET}:$version
 
             sed -i -r "s/^appVersion: .*$/appVersion: \"${EMQX_TAG}\"/g" deploy/charts/emqx/Chart.yaml
             sed -i '/emqx_telemetry/d' deploy/charts/emqx/values.yaml
@@ -178,22 +168,16 @@ jobs:
             done
         - name: get emqx-0 pods log
           if: failure()
-          env:
-            KUBECONFIG: "/etc/rancher/k3s/k3s.yaml"
           run: |
             kubectl describe pods emqx-0
             kubectl logs emqx-0
         - name: get emqx-1 pods log
           if: failure()
-          env:
-            KUBECONFIG: "/etc/rancher/k3s/k3s.yaml"
           run: |
             kubectl describe pods emqx-1
             kubectl logs emqx-1
         - name: get emqx-2 pods log
           if: failure()
-          env:
-            KUBECONFIG: "/etc/rancher/k3s/k3s.yaml"
           run: |
             kubectl describe pods emqx-2
             kubectl logs emqx-2
@@ -207,16 +191,12 @@ jobs:
             pip install pytest
             echo "$HOME/.local/bin" >> $GITHUB_PATH
         - name: run paho test
-          env:
-            KUBECONFIG: "/etc/rancher/k3s/k3s.yaml"
           run: |
-            emqx_svc=$(kubectl get svc --namespace default emqx -o jsonpath="{.spec.clusterIP}")
-            emqx1=$(kubectl get pods emqx-1 -o jsonpath='{.status.podIP}')
-            emqx2=$(kubectl get pods emqx-2 -o jsonpath='{.status.podIP}')
+            nohup kubectl port-forward svc/emqx 1883:1883 &
 
-            pytest -v paho.mqtt.testing/interoperability/test_client/V5/test_connect.py -k test_basic --host $emqx_svc
+            pytest -v paho.mqtt.testing/interoperability/test_client/V5/test_connect.py -k test_basic
             RESULT=$?
-            pytest -v paho.mqtt.testing/interoperability/test_cluster --host1 $emqx1 --host2 $emqx2
+            pytest -v paho.mqtt.testing/interoperability/test_cluster
             RESULT=$((RESULT + $?))
             if [ 0 -ne $RESULT ]; then
                 kubectl logs emqx-1
