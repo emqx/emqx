@@ -555,6 +555,7 @@ with_health_check(Data, Func) ->
     HCRes = emqx_resource:call_health_check(Data#data.manager_id, Data#data.mod, Data#data.state),
     {Status, NewState, Err} = parse_health_check_result(HCRes, Data),
     _ = maybe_alarm(Status, ResId),
+    ok = maybe_resume_resource_workers(Status),
     UpdatedData = Data#data{
         state = NewState, status = Status, error = Err
     },
@@ -574,6 +575,12 @@ maybe_alarm(_Status, ResId) ->
         #{resource_id => ResId, reason => resource_down},
         <<"resource down: ", ResId/binary>>
     ).
+
+maybe_resume_resource_workers(connected) ->
+    {_, Pid, _, _} = supervisor:which_children(emqx_resource_worker_sup),
+    emqx_resource_worker:resume(Pid);
+maybe_resume_resource_workers(_) ->
+    ok.
 
 maybe_clear_alarm(<<?TEST_ID_PREFIX, _/binary>>) ->
     ok;
