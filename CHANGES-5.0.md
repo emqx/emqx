@@ -5,6 +5,7 @@
 * Remove the needless `will_msg` field from the client API. [#8721](https://github.com/emqx/emqx/pull/8721)
 * Fix `$queue` topic name error in management API return. [#8728](https://github.com/emqx/emqx/pull/8728)
 * Fix sometimes `client.connected` and `client.disconnected` could be in wrong order. [#8625](https://github.com/emqx/emqx/pull/8625)
+* Fix quic listener default idle timeout's type. [#8826](https://github.com/emqx/emqx/pull/8826)
 
 ## Enhancements
 
