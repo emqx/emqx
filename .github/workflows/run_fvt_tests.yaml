@@ -106,7 +106,6 @@ jobs:
         - name: setup emqx chart
           run: |
             minikube image load ${TARGET}:${EMQX_TAG}
-
             sed -i -r "s/^appVersion: .*$/appVersion: \"${EMQX_TAG}\"/g" deploy/charts/emqx/Chart.yaml
             sed -i '/emqx_telemetry/d' deploy/charts/emqx/values.yaml
         - name: run emqx on chart
