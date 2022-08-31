@@ -76,8 +76,8 @@
 -type query_result() ::
     ok
     | {ok, term()}
-    | {error, term()}
-    | {recoverable_error, term()}.
+    | {error, {recoverable_error, term()}}
+    | {error, term()}.
 
 -define(WORKER_POOL_SIZE, 16).
 

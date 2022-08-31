@@ -396,7 +396,7 @@ handle_query_result(Id, ?RESOURCE_ERROR_M(Reason, _), BlockWorker) ->
 handle_query_result(Id, {error, _}, BlockWorker) ->
     emqx_metrics_worker:inc(?RES_METRICS, Id, 'sent.failed'),
     BlockWorker;
-handle_query_result(Id, {recoverable_error, _}, _BlockWorker) ->
+handle_query_result(Id, {error, {recoverable_error, _}}, _BlockWorker) ->
     emqx_metrics_worker:inc(?RES_METRICS, Id, 'sent', -1),
     true;
 handle_query_result(_Id, {async_return, inflight_full}, _BlockWorker) ->
@@ -433,7 +433,7 @@ call_query(QM0, Id, Query, QueryOpts) ->
     try
         %% if the callback module (connector) wants to return an error that
         %% makes the current resource goes into the `blocked` state, it should
-        %% return `{recoverable_error, Reason}`
+        %% return `{error, {recoverable_error, Reason}}`
         EXPR
     catch
         ERR:REASON:STACKTRACE ->
@@ -457,7 +457,7 @@ apply_query_fun(async, Mod, Id, ?QUERY(_, Request) = Query, ResSt, QueryOpts) ->
     ?APPLY_RESOURCE(
         case inflight_is_full(Name, WinSize) of
             true ->
-                ?tp(inflight_full, #{id => Id, wind_size => WinSize}),
+                ?tp(warning, inflight_full, #{id => Id, wind_size => WinSize}),
                 {async_return, inflight_full};
             false ->
                 ok = emqx_metrics_worker:inc(?RES_METRICS, Id, 'sent'),
@@ -483,7 +483,7 @@ apply_query_fun(async, Mod, Id, [?QUERY(_, _) | _] = Batch, ResSt, QueryOpts) ->
     ?APPLY_RESOURCE(
         case inflight_is_full(Name, WinSize) of
             true ->
-                ?tp(inflight_full, #{id => Id, wind_size => WinSize}),
+                ?tp(warning, inflight_full, #{id => Id, wind_size => WinSize}),
                 {async_return, inflight_full};
             false ->
                 ok = emqx_metrics_worker:inc(?RES_METRICS, Id, 'sent', length(Batch)),
