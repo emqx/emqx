@@ -317,7 +317,6 @@ trans_x_second(FromUnit, ToUnit, Time) ->
         end,
     padding(XSecond, Len).
 
-do_trans_x_second(second, second, Time) -> Time div 60;
 do_trans_x_second(second, _, _Time) -> 0;
 
 do_trans_x_second(millisecond, millisecond, Time) -> Time rem 1000;
@@ -433,4 +432,3 @@ dm(9) -> 243;
 dm(10) -> 273;
 dm(11) -> 304;
 dm(12) -> 334.
-

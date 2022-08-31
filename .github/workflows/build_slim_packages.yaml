@@ -11,7 +11,7 @@ on:
 
 jobs:
   build:
-    runs-on: ubuntu-20.04
+    runs-on: ${{ matrix.runs-on }}
 
     strategy:
       fail-fast: false
@@ -21,6 +21,16 @@ jobs:
         os:
         - ubuntu20.04
         - el8
+        runs-on:
+          - aws-amd64
+          - ubuntu-20.04
+        use-self-hosted:
+          - ${{ github.repository_owner == 'emqx' }}
+        exclude:
+          - runs-on: ubuntu-20.04
+            use-self-hosted: true
+          - runs-on: aws-amd64
+            use-self-hosted: false
 
     container: ghcr.io/emqx/emqx-builder/4.4-19:${{ matrix.erl_otp }}-${{ matrix.os }}
 
@@ -38,8 +48,20 @@ jobs:
         fi
     - name: fix-git-unsafe-repository
       run: git config --global --add safe.directory /__w/emqx/emqx
+    - uses: actions/cache@v2
+      with:
+        # dialyzer PLTs
+        path: ~/.cache/rebar3/
+        key: dialyer-${{ matrix.erl_otp }}
     - name: make xref
       run: make xref
+    - name: make dialyzer
+      run: |
+        # TODO: once dialyzer warnings are fixed in 4.4+, we may
+        # enforce this.
+        if [[ "$(./pkg-vsn.sh)" =~ 4.3.* ]]; then
+          make dialyzer
+        fi
     - name: build zip packages
       run: make ${EMQX_NAME}-zip
     - name: build deb/rpm packages
