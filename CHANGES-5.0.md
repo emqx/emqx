@@ -2,7 +2,8 @@
 
 ## Enhancements
 
-* change the `/gateway` API path to plural form. [#8823](https://github.com/emqx/emqx/pull/8823)
+* Change the `/gateway` API path to plural form. [#8823](https://github.com/emqx/emqx/pull/8823)
+* Don't allow updating config items when they already exist in `local-override.conf`. [#8851](https://github.com/emqx/emqx/pull/8851)
 
 # 5.0.7
 
