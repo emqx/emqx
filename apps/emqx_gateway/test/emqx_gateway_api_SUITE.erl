@@ -75,6 +75,22 @@ t_gateway(_) ->
     assert_gw_unloaded(StompGw2),
     ok.
 
+t_deprecated_gateway(_) ->
+    {200, Gateways} = request(get, "/gateway"),
+    lists:foreach(fun assert_gw_unloaded/1, Gateways),
+    {400, BadReq} = request(get, "/gateway/uname_gateway"),
+    assert_bad_request(BadReq),
+    {201, _} = request(post, "/gateway", #{name => <<"stomp">>}),
+    {200, StompGw1} = request(get, "/gateway/stomp"),
+    assert_feilds_apperence(
+        [name, status, enable, created_at, started_at],
+        StompGw1
+    ),
+    {204, _} = request(delete, "/gateway/stomp"),
+    {200, StompGw2} = request(get, "/gateway/stomp"),
+    assert_gw_unloaded(StompGw2),
+    ok.
+
 t_gateway_stomp(_) ->
     {200, Gw} = request(get, "/gateways/stomp"),
     assert_gw_unloaded(Gw),

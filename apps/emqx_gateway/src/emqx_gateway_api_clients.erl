@@ -67,12 +67,12 @@ api_spec() ->
     emqx_dashboard_swagger:spec(?MODULE, #{check_schema => true, translate_body => true}).
 
 paths() ->
-    [
+    emqx_gateway_utils:make_deprecated_paths([
         "/gateways/:name/clients",
         "/gateways/:name/clients/:clientid",
         "/gateways/:name/clients/:clientid/subscriptions",
         "/gateways/:name/clients/:clientid/subscriptions/:topic"
-    ].
+    ]).
 
 -define(CLIENT_QSCHEMA, [
     {<<"node">>, atom},
@@ -537,7 +537,9 @@ schema("/gateways/:name/clients/:clientid/subscriptions/:topic") ->
                 responses =>
                     ?STANDARD_RESP(#{204 => <<"Unsubscribed">>})
             }
-    }.
+    };
+schema(Path) ->
+    emqx_gateway_utils:make_compatible_schema(Path, fun schema/1).
 
 params_client_query() ->
     params_gateway_name_in_path() ++

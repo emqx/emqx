@@ -326,7 +326,7 @@ t_observe(Config) ->
     test_recv_mqtt_response(RespTopic),
 
     %% step2, call observe API
-    call_send_api(Epn, "observe", "path=/3/0/1&enable=false"),
+    call_deprecated_send_api(Epn, "observe", "path=/3/0/1&enable=false"),
     timer:sleep(100),
     #coap_message{type = Type, method = Method, options = Opts} = test_recv_coap_request(UdpSock),
     ?assertEqual(con, Type),
@@ -346,7 +346,13 @@ call_lookup_api(ClientId, Path, Action) ->
     Response.
 
 call_send_api(ClientId, Cmd, Query) ->
-    ApiPath = emqx_mgmt_api_test_util:api_path(["gateways/lwm2m/clients", ClientId, Cmd]),
+    call_send_api(ClientId, Cmd, Query, "gateways/lwm2m/clients").
+
+call_deprecated_send_api(ClientId, Cmd, Query) ->
+    call_send_api(ClientId, Cmd, Query, "gateway/lwm2m/clients").
+
+call_send_api(ClientId, Cmd, Query, API) ->
+    ApiPath = emqx_mgmt_api_test_util:api_path([API, ClientId, Cmd]),
     Auth = emqx_mgmt_api_test_util:auth_header_(),
     {ok, Response} = emqx_mgmt_api_test_util:request_api(post, ApiPath, Query, Auth),
     ?LOGT("rest api response:~ts~n", [Response]),

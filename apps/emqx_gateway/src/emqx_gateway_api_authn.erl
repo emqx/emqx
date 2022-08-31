@@ -60,11 +60,11 @@ api_spec() ->
     emqx_dashboard_swagger:spec(?MODULE, #{check_schema => true}).
 
 paths() ->
-    [
+    emqx_gateway_utils:make_deprecated_paths([
         "/gateways/:name/authentication",
         "/gateways/:name/authentication/users",
         "/gateways/:name/authentication/users/:uid"
-    ].
+    ]).
 
 %%--------------------------------------------------------------------
 %% http handlers
@@ -298,8 +298,9 @@ schema("/gateways/:name/authentication/users/:uid") ->
                 responses =>
                     ?STANDARD_RESP(#{204 => <<"User Deleted">>})
             }
-    }.
-
+    };
+schema(Path) ->
+    emqx_gateway_utils:make_compatible_schema(Path, fun schema/1).
 %%--------------------------------------------------------------------
 %% params defines
 
