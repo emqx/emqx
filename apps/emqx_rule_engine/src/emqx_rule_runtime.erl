@@ -130,13 +130,13 @@ do_apply_rule(
 ) ->
     {Selected, Collection} = ?RAISE(
         select_and_collect(Fields, Columns),
-        {select_and_collect_error, {_EXCLASS_, _EXCPTION_, _ST_}}
+        {select_and_collect_error, {EXCLASS, EXCPTION, ST}}
     ),
     ColumnsAndSelected = maps:merge(Columns, Selected),
     case
         ?RAISE(
             match_conditions(Conditions, ColumnsAndSelected),
-            {match_conditions_error, {_EXCLASS_, _EXCPTION_, _ST_}}
+            {match_conditions_error, {EXCLASS, EXCPTION, ST}}
         )
     of
         true ->
@@ -166,12 +166,12 @@ do_apply_rule(
 ) ->
     Selected = ?RAISE(
         select_and_transform(Fields, Columns),
-        {select_and_transform_error, {_EXCLASS_, _EXCPTION_, _ST_}}
+        {select_and_transform_error, {EXCLASS, EXCPTION, ST}}
     ),
     case
         ?RAISE(
             match_conditions(Conditions, maps:merge(Columns, Selected)),
-            {match_conditions_error, {_EXCLASS_, _EXCPTION_, _ST_}}
+            {match_conditions_error, {EXCLASS, EXCPTION, ST}}
         )
     of
         true ->
@@ -245,7 +245,7 @@ filter_collection(Columns, InCase, DoEach, {CollKey, CollVal}) ->
             case
                 ?RAISE(
                     match_conditions(InCase, ColumnsAndItem),
-                    {match_incase_error, {_EXCLASS_, _EXCPTION_, _ST_}}
+                    {match_incase_error, {EXCLASS, EXCPTION, ST}}
                 )
             of
                 true when DoEach == [] -> {true, ColumnsAndItem};
@@ -253,7 +253,7 @@ filter_collection(Columns, InCase, DoEach, {CollKey, CollVal}) ->
                     {true,
                         ?RAISE(
                             select_and_transform(DoEach, ColumnsAndItem),
-                            {doeach_error, {_EXCLASS_, _EXCPTION_, _ST_}}
+                            {doeach_error, {EXCLASS, EXCPTION, ST}}
                         )};
                 false ->
                     false

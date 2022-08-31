@@ -224,20 +224,20 @@ make_forward_confs(undefined) ->
 make_forward_confs(FrowardConf) ->
     FrowardConf.
 
-basic_config(#{
-    server := Server,
-    reconnect_interval := ReconnIntv,
-    proto_ver := ProtoVer,
-    bridge_mode := BridgeMode,
-    username := User,
-    password := Password,
-    clean_start := CleanStart,
-    keepalive := KeepAlive,
-    retry_interval := RetryIntv,
-    max_inflight := MaxInflight,
-    ssl := #{enable := EnableSsl} = Ssl
-}) ->
+basic_config(
     #{
+        server := Server,
+        reconnect_interval := ReconnIntv,
+        proto_ver := ProtoVer,
+        bridge_mode := BridgeMode,
+        clean_start := CleanStart,
+        keepalive := KeepAlive,
+        retry_interval := RetryIntv,
+        max_inflight := MaxInflight,
+        ssl := #{enable := EnableSsl} = Ssl
+    } = Conf
+) ->
+    BaiscConf = #{
         %% connection opts
         server => Server,
         %% 30s
@@ -251,8 +251,6 @@ basic_config(#{
         %% non-standard mqtt connection packets will be filtered out by LB.
         %% So let's disable bridge_mode.
         bridge_mode => BridgeMode,
-        username => User,
-        password => Password,
         clean_start => CleanStart,
         keepalive => ms_to_s(KeepAlive),
         retry_interval => RetryIntv,
@@ -260,7 +258,20 @@ basic_config(#{
         ssl => EnableSsl,
         ssl_opts => maps:to_list(maps:remove(enable, Ssl)),
         if_record_metrics => true
-    }.
+    },
+    maybe_put_fields([username, password], Conf, BaiscConf).
+
+maybe_put_fields(Fields, Conf, Acc0) ->
+    lists:foldl(
+        fun(Key, Acc) ->
+            case maps:find(Key, Conf) of
+                error -> Acc;
+                {ok, Val} -> Acc#{Key => Val}
+            end
+        end,
+        Acc0,
+        Fields
+    ).
 
 ms_to_s(Ms) ->
     erlang:ceil(Ms / 1000).
