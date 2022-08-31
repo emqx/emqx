@@ -54,6 +54,16 @@
     group_match_spec/1
 ]).
 
+%% Internal exports (RPC)
+-export([
+    do_destroy/1,
+    do_add_user/2,
+    do_delete_user/2,
+    do_update_user/3,
+    import/2,
+    import_csv/3
+]).
+
 -type user_group() :: binary().
 -type user_id() :: binary().
 
@@ -175,15 +185,14 @@ authenticate(
     end.
 
 destroy(#{user_group := UserGroup}) ->
-    trans(
-        fun() ->
-            ok = lists:foreach(
-                fun(User) ->
-                    mnesia:delete_object(?TAB, User, write)
-                end,
-                mnesia:select(?TAB, group_match_spec(UserGroup), write)
-            )
-        end
+    trans(fun ?MODULE:do_destroy/1, [UserGroup]).
+
+do_destroy(UserGroup) ->
+    ok = lists:foreach(
+        fun(User) ->
+            mnesia:delete_object(?TAB, User, write)
+        end,
+        mnesia:select(?TAB, group_match_spec(UserGroup), write)
     ).
 
 import_users({Filename0, FileData}, State) ->
@@ -200,7 +209,10 @@ import_users({Filename0, FileData}, State) ->
             {error, {unsupported_file_format, Extension}}
     end.
 
-add_user(
+add_user(UserInfo, State) ->
+    trans(fun ?MODULE:do_add_user/2, [UserInfo, State]).
+
+do_add_user(
     #{
         user_id := UserID,
         password := Password
@@ -210,33 +222,31 @@ add_user(
         password_hash_algorithm := Algorithm
     }
 ) ->
-    trans(
-        fun() ->
-            case mnesia:read(?TAB, {UserGroup, UserID}, write) of
-                [] ->
-                    {PasswordHash, Salt} = emqx_authn_password_hashing:hash(Algorithm, Password),
-                    IsSuperuser = maps:get(is_superuser, UserInfo, false),
-                    insert_user(UserGroup, UserID, PasswordHash, Salt, IsSuperuser),
-                    {ok, #{user_id => UserID, is_superuser => IsSuperuser}};
-                [_] ->
-                    {error, already_exist}
-            end
-        end
-    ).
+    case mnesia:read(?TAB, {UserGroup, UserID}, write) of
+        [] ->
+            {PasswordHash, Salt} = emqx_authn_password_hashing:hash(Algorithm, Password),
+            IsSuperuser = maps:get(is_superuser, UserInfo, false),
+            insert_user(UserGroup, UserID, PasswordHash, Salt, IsSuperuser),
+            {ok, #{user_id => UserID, is_superuser => IsSuperuser}};
+        [_] ->
+            {error, already_exist}
+    end.
 
-delete_user(UserID, #{user_group := UserGroup}) ->
-    trans(
-        fun() ->
-            case mnesia:read(?TAB, {UserGroup, UserID}, write) of
-                [] ->
-                    {error, not_found};
-                [_] ->
-                    mnesia:delete(?TAB, {UserGroup, UserID}, write)
-            end
-        end
-    ).
+delete_user(UserID, State) ->
+    trans(fun ?MODULE:do_delete_user/2, [UserID, State]).
 
-update_user(
+do_delete_user(UserID, #{user_group := UserGroup}) ->
+    case mnesia:read(?TAB, {UserGroup, UserID}, write) of
+        [] ->
+            {error, not_found};
+        [_] ->
+            mnesia:delete(?TAB, {UserGroup, UserID}, write)
+    end.
+
+update_user(UserID, UserInfo, State) ->
+    trans(fun ?MODULE:do_update_user/3, [UserID, UserInfo, State]).
+
+do_update_user(
     UserID,
     UserInfo,
     #{
@@ -244,33 +254,29 @@ update_user(
         password_hash_algorithm := Algorithm
     }
 ) ->
-    trans(
-        fun() ->
-            case mnesia:read(?TAB, {UserGroup, UserID}, write) of
-                [] ->
-                    {error, not_found};
-                [
-                    #user_info{
-                        password_hash = PasswordHash,
-                        salt = Salt,
-                        is_superuser = IsSuperuser
-                    }
-                ] ->
-                    NSuperuser = maps:get(is_superuser, UserInfo, IsSuperuser),
-                    {NPasswordHash, NSalt} =
-                        case UserInfo of
-                            #{password := Password} ->
-                                emqx_authn_password_hashing:hash(
-                                    Algorithm, Password
-                                );
-                            #{} ->
-                                {PasswordHash, Salt}
-                        end,
-                    insert_user(UserGroup, UserID, NPasswordHash, NSalt, NSuperuser),
-                    {ok, #{user_id => UserID, is_superuser => NSuperuser}}
-            end
-        end
-    ).
+    case mnesia:read(?TAB, {UserGroup, UserID}, write) of
+        [] ->
+            {error, not_found};
+        [
+            #user_info{
+                password_hash = PasswordHash,
+                salt = Salt,
+                is_superuser = IsSuperuser
+            }
+        ] ->
+            NSuperuser = maps:get(is_superuser, UserInfo, IsSuperuser),
+            {NPasswordHash, NSalt} =
+                case UserInfo of
+                    #{password := Password} ->
+                        emqx_authn_password_hashing:hash(
+                            Algorithm, Password
+                        );
+                    #{} ->
+                        {PasswordHash, Salt}
+                end,
+            insert_user(UserGroup, UserID, NPasswordHash, NSalt, NSuperuser),
+            {ok, #{user_id => UserID, is_superuser => NSuperuser}}
+    end.
 
 lookup_user(UserID, #{user_group := UserGroup}) ->
     case mnesia:dirty_read(?TAB, {UserGroup, UserID}) of
@@ -335,7 +341,7 @@ run_fuzzy_filter(
 import_users_from_json(Bin, #{user_group := UserGroup}) ->
     case emqx_json:safe_decode(Bin, [return_maps]) of
         {ok, List} ->
-            trans(fun import/2, [UserGroup, List]);
+            trans(fun ?MODULE:import/2, [UserGroup, List]);
         {error, Reason} ->
             {error, Reason}
     end.
@@ -344,7 +350,7 @@ import_users_from_json(Bin, #{user_group := UserGroup}) ->
 import_users_from_csv(CSV, #{user_group := UserGroup}) ->
     case get_csv_header(CSV) of
         {ok, Seq, NewCSV} ->
-            trans(fun import_csv/3, [UserGroup, NewCSV, Seq]);
+            trans(fun ?MODULE:import_csv/3, [UserGroup, NewCSV, Seq]);
         {error, Reason} ->
             {error, Reason}
     end.
@@ -434,9 +440,6 @@ get_user_identity(#{clientid := ClientID}, clientid) ->
     ClientID;
 get_user_identity(_, Type) ->
     {error, {bad_user_identity_type, Type}}.
-
-trans(Fun) ->
-    trans(Fun, []).
 
 trans(Fun, Args) ->
     case mria:transaction(?AUTH_SHARD, Fun, Args) of

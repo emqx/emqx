@@ -5,6 +5,7 @@
 -module(emqx_license_schema).
 
 -include_lib("typerefl/include/types.hrl").
+-include_lib("hocon/include/hoconsc.hrl").
 
 %%------------------------------------------------------------------------------
 %% hocon_schema callbacks
@@ -26,13 +27,7 @@ roots() ->
             hoconsc:mk(
                 license_type(),
                 #{
-                    desc =>
-                        "EMQX Enterprise license.\n"
-                        "A license is either a `key` or a `file`.\n"
-                        "When `key` and `file` are both configured, `key` is used.\n"
-                        "\n"
-                        "EMQX by default starts with a trial license.  For a different license,\n"
-                        "visit https://www.emqx.com/apply-licenses/emqx to apply.\n"
+                    desc => ?DESC(license_root)
                 }
             )}
     ].
@@ -41,18 +36,20 @@ fields(key_license) ->
     [
         {type, #{
             type => key,
-            required => true
+            required => true,
+            desc => ?DESC(license_type_field)
         }},
         {key, #{
             type => string(),
             %% so it's not logged
             sensitive => true,
             required => true,
-            desc => "License string"
+            desc => ?DESC(key_field)
         }},
         {file, #{
             type => string(),
-            required => false
+            required => false,
+            desc => ?DESC(file_field)
         }}
         | common_fields()
     ];
@@ -60,17 +57,19 @@ fields(file_license) ->
     [
         {type, #{
             type => file,
-            required => true
+            required => true,
+            desc => ?DESC(license_type_field)
         }},
         {key, #{
             type => string(),
             %% so it's not logged
             sensitive => true,
-            required => false
+            required => false,
+            desc => ?DESC(key_field)
         }},
         {file, #{
             type => string(),
-            desc => "Path to the license file"
+            desc => ?DESC(file_field)
         }}
         | common_fields()
     ].
@@ -87,12 +86,12 @@ common_fields() ->
         {connection_low_watermark, #{
             type => emqx_schema:percent(),
             default => "75%",
-            desc => ""
+            desc => ?DESC(connection_low_watermark_field)
         }},
         {connection_high_watermark, #{
             type => emqx_schema:percent(),
             default => "80%",
-            desc => ""
+            desc => ?DESC(connection_high_watermark_field)
         }}
     ].
 

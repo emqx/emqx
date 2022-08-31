@@ -51,10 +51,7 @@
 
 -export([init/1, handle_call/3, handle_cast/2, handle_info/2, terminate/2, code_change/3]).
 
--define(TRACE, ?MODULE).
--define(SHARD, ?COMMON_SHARD).
--define(MAX_SIZE, 30).
--define(OWN_KEYS, [level, filters, filter_default, handlers]).
+-include("emqx_trace.hrl").
 
 -ifdef(TEST).
 -export([
@@ -65,15 +62,6 @@
 
 -export_type([ip_address/0]).
 -type ip_address() :: string().
-
--record(?TRACE, {
-    name :: binary() | undefined | '_',
-    type :: clientid | topic | ip_address | undefined | '_',
-    filter :: emqx_types:topic() | emqx_types:clientid() | ip_address() | undefined | '_',
-    enable = true :: boolean() | '_',
-    start_at :: integer() | undefined | '_',
-    end_at :: integer() | undefined | '_'
-}).
 
 publish(#message{topic = <<"$SYS/", _/binary>>}) ->
     ignore;
@@ -172,13 +160,7 @@ create(Trace) ->
 
 -spec delete(Name :: binary()) -> ok | {error, not_found}.
 delete(Name) ->
-    Tran = fun() ->
-        case mnesia:read(?TRACE, Name) of
-            [_] -> mnesia:delete(?TRACE, Name, write);
-            [] -> mnesia:abort(not_found)
-        end
-    end,
-    transaction(Tran).
+    transaction(fun emqx_trace_dl:delete/1, [Name]).
 
 -spec clear() -> ok | {error, Reason :: term()}.
 clear() ->
@@ -190,20 +172,7 @@ clear() ->
 -spec update(Name :: binary(), Enable :: boolean()) ->
     ok | {error, not_found | finished}.
 update(Name, Enable) ->
-    Tran = fun() ->
-        case mnesia:read(?TRACE, Name) of
-            [] ->
-                mnesia:abort(not_found);
-            [#?TRACE{enable = Enable}] ->
-                ok;
-            [Rec] ->
-                case erlang:system_time(second) >= Rec#?TRACE.end_at of
-                    false -> mnesia:write(?TRACE, Rec#?TRACE{enable = Enable}, write);
-                    true -> mnesia:abort(finished)
-                end
-        end
-    end,
-    transaction(Tran).
+    transaction(fun emqx_trace_dl:update/2, [Name, Enable]).
 
 check() ->
     gen_server:call(?MODULE, check).
@@ -211,13 +180,7 @@ check() ->
 -spec get_trace_filename(Name :: binary()) ->
     {ok, FileName :: string()} | {error, not_found}.
 get_trace_filename(Name) ->
-    Tran = fun() ->
-        case mnesia:read(?TRACE, Name, read) of
-            [] -> mnesia:abort(not_found);
-            [#?TRACE{start_at = Start}] -> {ok, filename(Name, Start)}
-        end
-    end,
-    transaction(Tran).
+    transaction(fun emqx_trace_dl:get_trace_filename/1, [Name]).
 
 -spec trace_file(File :: file:filename_all()) ->
     {ok, Node :: list(), Binary :: binary()}
@@ -309,23 +272,7 @@ code_change(_, State, _Extra) ->
     {ok, State}.
 
 insert_new_trace(Trace) ->
-    Tran = fun() ->
-        case mnesia:read(?TRACE, Trace#?TRACE.name) of
-            [] ->
-                #?TRACE{start_at = StartAt, type = Type, filter = Filter} = Trace,
-                Match = #?TRACE{_ = '_', start_at = StartAt, type = Type, filter = Filter},
-                case mnesia:match_object(?TRACE, Match, read) of
-                    [] ->
-                        ok = mnesia:write(?TRACE, Trace, write),
-                        {ok, Trace};
-                    [#?TRACE{name = Name}] ->
-                        mnesia:abort({duplicate_condition, Name})
-                end;
-            [#?TRACE{name = Name}] ->
-                mnesia:abort({already_existed, Name})
-        end
-    end,
-    transaction(Tran).
+    transaction(fun emqx_trace_dl:insert_new_trace/1, [Trace]).
 
 update_trace(Traces) ->
     Now = erlang:system_time(second),
@@ -347,9 +294,7 @@ stop_all_trace_handler() ->
 
 get_enabled_trace() ->
     {atomic, Traces} =
-        mria:ro_transaction(?SHARD, fun() ->
-            mnesia:match_object(?TRACE, #?TRACE{enable = true, _ = '_'}, read)
-        end),
+        mria:ro_transaction(?SHARD, fun emqx_trace_dl:get_enabled_trace/0),
     Traces.
 
 find_closest_time(Traces, Now) ->
@@ -372,17 +317,7 @@ closest(Time, Now, Closest) -> min(Time - Now, Closest).
 disable_finished([]) ->
     ok;
 disable_finished(Traces) ->
-    transaction(fun() ->
-        lists:map(
-            fun(#?TRACE{name = Name}) ->
-                case mnesia:read(?TRACE, Name, write) of
-                    [] -> ok;
-                    [Trace] -> mnesia:write(?TRACE, Trace#?TRACE{enable = false}, write)
-                end
-            end,
-            Traces
-        )
-    end).
+    transaction(fun emqx_trace_dl:delete_finished/1, [Traces]).
 
 start_trace(Traces, Started0) ->
     Started = lists:map(fun(#{name := Name}) -> Name end, Started0),
@@ -586,8 +521,8 @@ filename(Name, Start) ->
     [Time, _] = string:split(calendar:system_time_to_rfc3339(Start), "T", leading),
     lists:flatten(["trace_", binary_to_list(Name), "_", Time, ".log"]).
 
-transaction(Tran) ->
-    case mria:transaction(?COMMON_SHARD, Tran) of
+transaction(Fun, Args) ->
+    case mria:transaction(?COMMON_SHARD, Fun, Args) of
         {atomic, Res} -> Res;
         {aborted, Reason} -> {error, Reason}
     end.

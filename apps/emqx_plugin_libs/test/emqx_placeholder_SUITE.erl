@@ -150,6 +150,21 @@ t_preproc_sql6(_) ->
         emqx_placeholder:proc_sql(ParamsTokens, Selected)
     ).
 
+t_preproc_sql7(_) ->
+    Selected = #{a => <<"a">>, b => <<"b">>},
+    {PrepareStatement, ParamsTokens} = emqx_placeholder:preproc_sql(
+        <<"a:\"${a}\",b:\"${b}\"">>,
+        #{
+            replace_with => '$n',
+            placeholders => [<<"${a}">>]
+        }
+    ),
+    ?assertEqual(<<"a:$1,b:\"${b}\"">>, PrepareStatement),
+    ?assertEqual(
+        [<<"a">>],
+        emqx_placeholder:proc_sql(ParamsTokens, Selected)
+    ).
+
 t_preproc_tmpl_deep(_) ->
     Selected = #{a => <<"1">>, b => 1, c => 1.0, d => #{d1 => <<"hi">>}},
 

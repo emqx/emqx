@@ -25,7 +25,7 @@
 
 -export([lookup/2, observe/2, read/2, write/2]).
 
--define(PATH(Suffix), "/gateway/lwm2m/clients/:clientid" Suffix).
+-define(PATH(Suffix), "/gateways/lwm2m/clients/:clientid" Suffix).
 -define(DATA_TYPE, ['Integer', 'Float', 'Time', 'String', 'Boolean', 'Opaque', 'Objlnk']).
 
 -import(hoconsc, [mk/2, ref/1, ref/2]).
@@ -37,13 +37,15 @@ api_spec() ->
     emqx_dashboard_swagger:spec(?MODULE).
 
 paths() ->
-    [?PATH("/lookup"), ?PATH("/observe"), ?PATH("/read"), ?PATH("/write")].
+    emqx_gateway_utils:make_deprecated_paths([
+        ?PATH("/lookup"), ?PATH("/observe"), ?PATH("/read"), ?PATH("/write")
+    ]).
 
 schema(?PATH("/lookup")) ->
     #{
         'operationId' => lookup,
         get => #{
-            tags => [<<"lwm2m">>],
+            tags => [<<"LwM2M">>],
             desc => ?DESC(lookup_resource),
             parameters => [
                 {clientid, mk(binary(), #{in => path, example => "urn:oma:lwm2m:oma:2"})},
@@ -67,7 +69,7 @@ schema(?PATH("/observe")) ->
     #{
         'operationId' => observe,
         post => #{
-            tags => [<<"lwm2m">>],
+            tags => [<<"LwM2M">>],
             desc => ?DESC(observe_resource),
             parameters => [
                 {clientid, mk(binary(), #{in => path, example => "urn:oma:lwm2m:oma:2"})},
@@ -85,7 +87,7 @@ schema(?PATH("/read")) ->
     #{
         'operationId' => read,
         post => #{
-            tags => [<<"lwm2m">>],
+            tags => [<<"LwM2M">>],
             desc => ?DESC(read_resource),
             parameters => [
                 {clientid, mk(binary(), #{in => path, example => "urn:oma:lwm2m:oma:2"})},
@@ -102,7 +104,7 @@ schema(?PATH("/write")) ->
         'operationId' => write,
         post => #{
             desc => ?DESC(write_resource),
-            tags => [<<"lwm2m">>],
+            tags => [<<"LwM2M">>],
             parameters => [
                 {clientid, mk(binary(), #{in => path, example => "urn:oma:lwm2m:oma:2"})},
                 {path, mk(binary(), #{in => query, required => true, example => "/3/0/7"})},
@@ -118,7 +120,9 @@ schema(?PATH("/write")) ->
                 404 => error_codes(['CLIENT_NOT_FOUND'], <<"Clientid not found">>)
             }
         }
-    }.
+    };
+schema(Path) ->
+    emqx_gateway_utils:make_compatible_schema(Path, fun schema/1).
 
 fields(resource) ->
     [

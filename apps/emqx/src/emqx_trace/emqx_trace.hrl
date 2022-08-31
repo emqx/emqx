@@ -1,5 +1,5 @@
 %%--------------------------------------------------------------------
-%% Copyright (c) 2021-2022 EMQ Technologies Co., Ltd. All Rights Reserved.
+%% Copyright (c) 2022 EMQ Technologies Co., Ltd. All Rights Reserved.
 %%
 %% Licensed under the Apache License, Version 2.0 (the "License");
 %% you may not use this file except in compliance with the License.
@@ -13,12 +13,23 @@
 %% See the License for the specific language governing permissions and
 %% limitations under the License.
 %%--------------------------------------------------------------------
+-ifndef(EMQX_TRACE_HRL).
+-define(EMQX_TRACE_HRL, true).
 
-%% The destination URL for the telemetry data report
--define(TELEMETRY_URL, "https://telemetry.emqx.io/api/telemetry").
+-define(TRACE, emqx_trace).
 
-%% Interval for reporting telemetry data, Default: 7d
--define(REPORT_INTERVAL, 604800).
+-record(?TRACE, {
+    name :: binary() | undefined | '_',
+    type :: clientid | topic | ip_address | undefined | '_',
+    filter ::
+        emqx_types:topic() | emqx_types:clientid() | emqx_trace:ip_address() | undefined | '_',
+    enable = true :: boolean() | '_',
+    start_at :: integer() | undefined | '_',
+    end_at :: integer() | undefined | '_'
+}).
 
--define(API_TAG_MQTT, [<<"MQTT">>]).
--define(API_SCHEMA_MODULE, emqx_modules_schema).
+-define(SHARD, ?COMMON_SHARD).
+-define(MAX_SIZE, 30).
+-define(OWN_KEYS, [level, filters, filter_default, handlers]).
+
+-endif.

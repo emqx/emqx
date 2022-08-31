@@ -342,11 +342,18 @@ list_listeners(get, #{query_string := Query}) ->
     {200, listener_status_by_id(NodeL)}.
 
 crud_listeners_by_id(get, #{bindings := #{id := Id0}}) ->
-    Listeners = [
-        Conf#{<<"id">> => Id, <<"type">> => Type}
-     || {Id, Type, Conf} <- emqx_listeners:list_raw(),
-        Id =:= Id0
-    ],
+    Listeners =
+        [
+            Conf#{
+                <<"id">> => Id,
+                <<"type">> => Type,
+                <<"bind">> := iolist_to_binary(
+                    emqx_listeners:format_bind(maps:get(<<"bind">>, Conf))
+                )
+            }
+         || {Id, Type, Conf} <- emqx_listeners:list_raw(),
+            Id =:= Id0
+        ],
     case Listeners of
         [] -> {404, #{code => 'BAD_LISTENER_ID', message => ?LISTENER_NOT_FOUND}};
         [L] -> {200, L}

@@ -54,6 +54,12 @@
     code_change/3
 ]).
 
+%% Internal exports (RPC)
+-export([
+    create_activate_alarm/3,
+    do_get_alarms/0
+]).
+
 -record(activated_alarm, {
     name :: binary() | atom(),
     details :: map() | list(),
@@ -210,7 +216,7 @@ init([]) ->
 handle_call({activate_alarm, Name, Details, Message}, _From, State) ->
     Res = mria:transaction(
         mria:local_content_shard(),
-        fun create_activate_alarm/3,
+        fun ?MODULE:create_activate_alarm/3,
         [Name, Details, Message]
     ),
     case Res of
@@ -234,15 +240,7 @@ handle_call(delete_all_deactivated_alarms, _From, State) ->
 handle_call({get_alarms, all}, _From, State) ->
     {atomic, Alarms} =
         mria:ro_transaction(
-            mria:local_content_shard(),
-            fun() ->
-                [
-                    normalize(Alarm)
-                 || Alarm <-
-                        ets:tab2list(?ACTIVATED_ALARM) ++
-                            ets:tab2list(?DEACTIVATED_ALARM)
-                ]
-            end
+            mria:local_content_shard(), fun ?MODULE:do_get_alarms/0
         ),
     {reply, Alarms, State, get_validity_period()};
 handle_call({get_alarms, activated}, _From, State) ->
@@ -294,6 +292,14 @@ create_activate_alarm(Name, Details, Message) ->
             ok = mnesia:write(?ACTIVATED_ALARM, Alarm, write),
             Alarm
     end.
+
+do_get_alarms() ->
+    [
+        normalize(Alarm)
+     || Alarm <-
+            ets:tab2list(?ACTIVATED_ALARM) ++
+                ets:tab2list(?DEACTIVATED_ALARM)
+    ].
 
 deactivate_alarm(
     #activated_alarm{

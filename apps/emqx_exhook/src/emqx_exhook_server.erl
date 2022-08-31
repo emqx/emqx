@@ -231,7 +231,7 @@ resolve_hookspec(HookSpecs) when is_list(HookSpecs) ->
                         end,
                     case {lists:member(Name, AvailableHooks), lists:member(Name, MessageHooks)} of
                         {false, _} ->
-                            error({unknown_hookpoint, Name});
+                            error({unknown_hookpoint, Name0});
                         {true, false} ->
                             Acc#{Name => #{}};
                         {true, true} ->

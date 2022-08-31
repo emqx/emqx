@@ -55,7 +55,8 @@ fields("dashboard") ->
             )},
         {cors, fun cors/1},
         {i18n_lang, fun i18n_lang/1},
-        {bootstrap_user, ?HOCON(binary(), #{desc => ?DESC(bootstrap_user), required => false})}
+        {bootstrap_users_file,
+            ?HOCON(binary(), #{desc => ?DESC(bootstrap_users_file), required => false})}
     ];
 fields("listeners") ->
     [

@@ -43,6 +43,11 @@
     code_change/3
 ]).
 
+%% Internal exports (RPC)
+-export([
+    insert_psks/1
+]).
+
 -record(psk_entry, {
     psk_id :: binary(),
     shared_secret :: binary(),
@@ -199,10 +204,10 @@ import_psks(SrcFile) ->
 import_psks(Io, Delimiter, ChunkSize, NChunk) ->
     case get_psks(Io, Delimiter, ChunkSize) of
         {ok, Entries} ->
-            _ = trans(fun insert_psks/1, [Entries]),
+            _ = trans(fun ?MODULE:insert_psks/1, [Entries]),
             import_psks(Io, Delimiter, ChunkSize, NChunk + 1);
         {eof, Entries} ->
-            _ = trans(fun insert_psks/1, [Entries]),
+            _ = trans(fun ?MODULE:insert_psks/1, [Entries]),
             ok;
         {error, {bad_format, {line, N}}} ->
             {error, {bad_format, {line, NChunk * ChunkSize + N}}};

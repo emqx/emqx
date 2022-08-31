@@ -51,24 +51,34 @@ test_cipher_format(Input) ->
     ?assertEqual([?TLS_13_CIPHER, ?TLS_12_CIPHER], Ciphers).
 
 tls_versions_test() ->
-    ?assert(lists:member('tlsv1.3', emqx_tls_lib:default_versions())).
+    ?assert(lists:member('tlsv1.3', emqx_tls_lib:available_versions(tls))).
 
-tls_version_unknown_test() ->
-    ?assertEqual(
-        emqx_tls_lib:default_versions(),
-        emqx_tls_lib:integral_versions([])
-    ),
-    ?assertEqual(
-        emqx_tls_lib:default_versions(),
-        emqx_tls_lib:integral_versions(<<>>)
-    ),
-    ?assertEqual(
-        emqx_tls_lib:default_versions(),
-        emqx_tls_lib:integral_versions("foo")
-    ),
-    ?assertError(
-        #{reason := no_available_tls_version},
-        emqx_tls_lib:integral_versions([foo])
+tls_version_unknown_test_() ->
+    lists:flatmap(
+        fun(Type) ->
+            [
+                ?_assertEqual(
+                    emqx_tls_lib:available_versions(Type),
+                    emqx_tls_lib:integral_versions(Type, [])
+                ),
+                ?_assertEqual(
+                    emqx_tls_lib:available_versions(Type),
+                    emqx_tls_lib:integral_versions(Type, <<>>)
+                ),
+                ?_assertEqual(
+                    emqx_tls_lib:available_versions(Type),
+                    %% unknown version dropped
+                    emqx_tls_lib:integral_versions(Type, "foo")
+                ),
+                fun() ->
+                    ?assertError(
+                        #{reason := no_available_tls_version},
+                        emqx_tls_lib:integral_versions(Type, [foo])
+                    )
+                end
+            ]
+        end,
+        [tls, dtls]
     ).
 
 cipher_suites_no_duplication_test() ->
