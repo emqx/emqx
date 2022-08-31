@@ -129,26 +129,34 @@ start_link(Node, Name, RetryMs) ->
 %% returning the result.
 %%
 %% In case of partial success, an `error' level log is emitted
-%% but the initial localy apply result is returned.
+%% but the initial locally apply result is returned.
 -spec multicall(module(), atom(), list()) -> term().
 multicall(M, F, A) ->
     multicall(M, F, A, all, timer:minutes(2)).
 
 -spec multicall(module(), atom(), list(), succeed_num(), timeout()) -> term().
 multicall(M, F, A, RequiredSyncs, Timeout) when RequiredSyncs =:= all orelse RequiredSyncs >= 1 ->
-    case do_multicall(M, F, A, RequiredSyncs, Timeout) of
-        {ok, _TxnId, Result} ->
-            Result;
-        {init_failure, Error} ->
-            Error;
-        {peers_lagging, TnxId, Res, Nodes} ->
-            %% The init MFA return ok, but some other nodes failed.
-            ?SLOG(error, #{
-                msg => "cluster_rpc_peers_lagging",
-                lagging_nodes => Nodes,
-                tnx_id => TnxId
-            }),
-            Res
+    case ekka_cluster:info(stopped_nodes) of
+        [] ->
+            case do_multicall(M, F, A, RequiredSyncs, Timeout) of
+                {ok, _TxnId, Result} ->
+                    Result;
+                {init_failure, Error} ->
+                    Error;
+                {peers_lagging, TnxId, Res, Nodes} ->
+                    %% The init MFA return ok, but some other nodes failed.
+                    ?SLOG(error, #{
+                        msg => "cluster_rpc_peers_lagging",
+                        lagging_nodes => Nodes,
+                        tnx_id => TnxId
+                    }),
+                    Res
+            end;
+        StoppedNodes ->
+            {error, #{
+                msg => "cluster_rpc_node_stopped",
+                stopped_nodes => StoppedNodes
+            }}
     end.
 
 %% Return {ok, TnxId, MFARes} the first MFA result when all MFA run ok.
