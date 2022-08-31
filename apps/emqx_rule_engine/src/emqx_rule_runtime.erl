@@ -42,6 +42,10 @@
 -type alias() :: atom().
 -type collection() :: {alias(), [term()]}.
 
+-elvis([
+    {elvis_style, invalid_dynamic_call, #{ignore => [emqx_rule_runtime]}}
+]).
+
 -define(ephemeral_alias(TYPE, NAME),
     iolist_to_binary(io_lib:format("_v_~ts_~p_~p", [TYPE, NAME, erlang:system_time()]))
 ).
@@ -271,7 +275,7 @@ match_conditions({'not', Var}, Data) ->
     case eval(Var, Data) of
         Bool when is_boolean(Bool) ->
             not Bool;
-        _other ->
+        _Other ->
             false
     end;
 match_conditions({in, Var, {list, Vals}}, Data) ->
