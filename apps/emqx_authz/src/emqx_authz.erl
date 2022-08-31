@@ -49,7 +49,8 @@
 
 -type default_result() :: allow | deny.
 
--type authz_result() :: {stop, allow} | {ok, deny}.
+-type authz_result_value() :: #{result := allow | deny, from => _}.
+-type authz_result() :: {stop, authz_result_value()} | {ok, authz_result_value()} | ignore.
 
 -type sources() :: [source()].
 

@@ -120,8 +120,10 @@ t_access_failed_if_no_server_running(Config) ->
     ),
 
     ?assertMatch(
-        {stop, deny},
-        emqx_exhook_handler:on_client_authorize(ClientInfo, publish, <<"t/1">>, allow)
+        {stop, #{result := deny, from := exhook}},
+        emqx_exhook_handler:on_client_authorize(ClientInfo, publish, <<"t/1">>, #{
+            result => allow, from => exhookk
+        })
     ),
 
     Message = emqx_message:make(<<"t/1">>, <<"abc">>),
