@@ -1,3 +1,9 @@
+# 5.0.8
+
+## Enhancements
+
+* change the `/gateway` API path to plural form. [#8823](https://github.com/emqx/emqx/pull/8823)
+
 # 5.0.7
 
 ## Bug fixes
