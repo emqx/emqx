@@ -87,3 +87,13 @@
         received := Rcvd
     }
 ).
+
+-define(METRICS_EXAMPLE, #{
+    metrics => ?EMPTY_METRICS,
+    node_metrics => [
+        #{
+            node => node(),
+            metrics => ?EMPTY_METRICS
+        }
+    ]
+}).
