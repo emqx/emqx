@@ -721,12 +721,12 @@ t_rest_clienit_info(_) ->
             _, _} = parse(Data),
 
         %% client lists
-        {200, Clients} = request(get, "/gateway/stomp/clients"),
+        {200, Clients} = request(get, "/gateways/stomp/clients"),
         ?assertEqual(1, length(maps:get(data, Clients))),
         StompClient = lists:nth(1, maps:get(data, Clients)),
         ClientId = maps:get(clientid, StompClient),
         ClientPath =
-            "/gateway/stomp/clients/" ++
+            "/gateways/stomp/clients/" ++
                 binary_to_list(ClientId),
         {200, StompClient1} = request(get, ClientPath),
         ?assertEqual(StompClient, StompClient1),
@@ -811,7 +811,7 @@ t_rest_clienit_info(_) ->
         % sync
         ignored = gen_server:call(emqx_cm, ignore, infinity),
         ok = emqx_pool:flush_async_tasks(),
-        {200, Clients2} = request(get, "/gateway/stomp/clients"),
+        {200, Clients2} = request(get, "/gateways/stomp/clients"),
         ?assertEqual(0, length(maps:get(data, Clients2)))
     end).
 

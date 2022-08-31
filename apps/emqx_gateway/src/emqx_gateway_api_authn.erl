@@ -60,11 +60,11 @@ api_spec() ->
     emqx_dashboard_swagger:spec(?MODULE, #{check_schema => true}).
 
 paths() ->
-    [
-        "/gateway/:name/authentication",
-        "/gateway/:name/authentication/users",
-        "/gateway/:name/authentication/users/:uid"
-    ].
+    emqx_gateway_utils:make_deprecated_paths([
+        "/gateways/:name/authentication",
+        "/gateways/:name/authentication/users",
+        "/gateways/:name/authentication/users/:uid"
+    ]).
 
 %%--------------------------------------------------------------------
 %% http handlers
@@ -176,7 +176,7 @@ parse_qstring(Qs) ->
 %% Swagger defines
 %%--------------------------------------------------------------------
 
-schema("/gateway/:name/authentication") ->
+schema("/gateways/:name/authentication") ->
     #{
         'operationId' => authn,
         get =>
@@ -215,7 +215,7 @@ schema("/gateway/:name/authentication") ->
                     ?STANDARD_RESP(#{204 => <<"Deleted">>})
             }
     };
-schema("/gateway/:name/authentication/users") ->
+schema("/gateways/:name/authentication/users") ->
     #{
         'operationId' => users,
         get =>
@@ -253,7 +253,7 @@ schema("/gateway/:name/authentication/users") ->
                     )
             }
     };
-schema("/gateway/:name/authentication/users/:uid") ->
+schema("/gateways/:name/authentication/users/:uid") ->
     #{
         'operationId' => users_insta,
         get =>
@@ -298,8 +298,9 @@ schema("/gateway/:name/authentication/users/:uid") ->
                 responses =>
                     ?STANDARD_RESP(#{204 => <<"User Deleted">>})
             }
-    }.
-
+    };
+schema(Path) ->
+    emqx_gateway_utils:make_compatible_schema(Path, fun schema/1).
 %%--------------------------------------------------------------------
 %% params defines
 

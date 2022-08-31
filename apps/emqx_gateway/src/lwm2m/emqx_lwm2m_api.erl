@@ -25,7 +25,7 @@
 
 -export([lookup/2, observe/2, read/2, write/2]).
 
--define(PATH(Suffix), "/gateway/lwm2m/clients/:clientid" Suffix).
+-define(PATH(Suffix), "/gateways/lwm2m/clients/:clientid" Suffix).
 -define(DATA_TYPE, ['Integer', 'Float', 'Time', 'String', 'Boolean', 'Opaque', 'Objlnk']).
 
 -import(hoconsc, [mk/2, ref/1, ref/2]).
@@ -37,7 +37,9 @@ api_spec() ->
     emqx_dashboard_swagger:spec(?MODULE).
 
 paths() ->
-    [?PATH("/lookup"), ?PATH("/observe"), ?PATH("/read"), ?PATH("/write")].
+    emqx_gateway_utils:make_deprecated_paths([
+        ?PATH("/lookup"), ?PATH("/observe"), ?PATH("/read"), ?PATH("/write")
+    ]).
 
 schema(?PATH("/lookup")) ->
     #{
@@ -118,7 +120,9 @@ schema(?PATH("/write")) ->
                 404 => error_codes(['CLIENT_NOT_FOUND'], <<"Clientid not found">>)
             }
         }
-    }.
+    };
+schema(Path) ->
+    emqx_gateway_utils:make_compatible_schema(Path, fun schema/1).
 
 fields(resource) ->
     [

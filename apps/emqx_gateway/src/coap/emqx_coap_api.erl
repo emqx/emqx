@@ -28,7 +28,7 @@
 
 -export([request/2]).
 
--define(PREFIX, "/gateway/coap/clients/:clientid").
+-define(PREFIX, "/gateways/coap/clients/:clientid").
 
 -import(hoconsc, [mk/2, enum/1]).
 -import(emqx_dashboard_swagger, [error_codes/2]).
@@ -42,7 +42,7 @@ api_spec() ->
     emqx_dashboard_swagger:spec(?MODULE, #{check_schema => true, translate_body => true}).
 
 paths() ->
-    [?PREFIX ++ "/request"].
+    emqx_gateway_utils:make_deprecated_paths([?PREFIX ++ "/request"]).
 
 schema(?PREFIX ++ "/request") ->
     #{
@@ -60,7 +60,9 @@ schema(?PREFIX ++ "/request") ->
                 )
             }
         }
-    }.
+    };
+schema(Path) ->
+    emqx_gateway_utils:make_compatible_schema(Path, fun schema/1).
 
 request(post, #{body := Body, bindings := Bindings}) ->
     ClientId = maps:get(clientid, Bindings, undefined),
