@@ -135,13 +135,15 @@ start_client(InstId, Config) ->
         do_start_client(InstId, Config)
     catch
         E:R:S ->
-            ?SLOG(error, #{
+            Error = #{
                 msg => "start hstreamdb connector error",
                 connector => InstId,
                 error => E,
                 reason => R,
                 stack => S
-            })
+            },
+            ?SLOG(error, Error),
+            {error, Error}
     end.
 
 do_start_client(InstId, Config = #{url := Server, pool_size := PoolSize}) ->

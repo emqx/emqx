@@ -62,14 +62,16 @@ test_rule(Sql, Select, Context, EventTopics) ->
     },
     FullContext = fill_default_values(hd(EventTopics), emqx_rule_maps:atom_key_map(Context)),
     try emqx_rule_runtime:apply_rule(Rule, FullContext, #{}) of
-        {ok, Data} -> {ok, flatten(Data)};
-        {error, Reason} -> {error, Reason}
+        {ok, Data} ->
+            {ok, flatten(Data)};
+        {error, Reason} ->
+            {error, Reason}
     after
         ok = emqx_rule_engine:clear_metrics_for_rule(RuleId)
     end.
 
 get_selected_data(Selected, _Envs, _Args) ->
-    Selected.
+    {ok, Selected}.
 
 is_publish_topic(<<"$events/", _/binary>>) -> false;
 is_publish_topic(<<"$bridges/", _/binary>>) -> false;
@@ -77,14 +79,14 @@ is_publish_topic(_Topic) -> true.
 
 flatten([]) ->
     [];
-flatten([D1]) ->
-    D1;
-flatten([D1 | L]) when is_list(D1) ->
-    D1 ++ flatten(L).
+flatten([{ok, D}]) ->
+    D;
+flatten([D | L]) when is_list(D) ->
+    [D0 || {ok, D0} <- D] ++ flatten(L).
 
 echo_action(Data, Envs) ->
     ?TRACE("RULE", "testing_rule_sql_ok", #{data => Data, envs => Envs}),
-    Data.
+    {ok, Data}.
 
 fill_default_values(Event, Context) ->
     maps:merge(envs_examp(Event), Context).

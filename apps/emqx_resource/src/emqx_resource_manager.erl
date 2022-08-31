@@ -128,7 +128,23 @@ create(MgrId, ResId, Group, ResourceType, Config, Opts) ->
     ok = emqx_metrics_worker:create_metrics(
         ?RES_METRICS,
         ResId,
-        [matched, success, failed, exception, resource_down],
+        [
+            'matched',
+            'sent',
+            'dropped',
+            'queued',
+            'batched',
+            'sent.success',
+            'sent.failed',
+            'sent.exception',
+            'sent.inflight',
+            'dropped.queue_not_enabled',
+            'dropped.queue_full',
+            'dropped.resource_not_found',
+            'dropped.resource_stopped',
+            'dropped.other',
+            'received'
+        ],
         [matched]
     ),
     ok = emqx_resource_worker_sup:start_workers(ResId, Opts),
@@ -539,6 +555,7 @@ with_health_check(Data, Func) ->
     HCRes = emqx_resource:call_health_check(Data#data.manager_id, Data#data.mod, Data#data.state),
     {Status, NewState, Err} = parse_health_check_result(HCRes, Data),
     _ = maybe_alarm(Status, ResId),
+    ok = maybe_resume_resource_workers(Status),
     UpdatedData = Data#data{
         state = NewState, status = Status, error = Err
     },
@@ -558,6 +575,16 @@ maybe_alarm(_Status, ResId) ->
         #{resource_id => ResId, reason => resource_down},
         <<"resource down: ", ResId/binary>>
     ).
+
+maybe_resume_resource_workers(connected) ->
+    lists:foreach(
+        fun({_, Pid, _, _}) ->
+            emqx_resource_worker:resume(Pid)
+        end,
+        supervisor:which_children(emqx_resource_worker_sup)
+    );
+maybe_resume_resource_workers(_) ->
+    ok.
 
 maybe_clear_alarm(<<?TEST_ID_PREFIX, _/binary>>) ->
     ok;

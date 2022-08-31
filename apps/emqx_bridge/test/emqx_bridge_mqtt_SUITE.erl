@@ -66,15 +66,6 @@
     }
 }).
 
--define(metrics(MATCH, SUCC, FAILED, SPEED, SPEED5M, SPEEDMAX), #{
-    <<"matched">> := MATCH,
-    <<"success">> := SUCC,
-    <<"failed">> := FAILED,
-    <<"rate">> := SPEED,
-    <<"rate_last5m">> := SPEED5M,
-    <<"rate_max">> := SPEEDMAX
-}).
-
 inspect(Selected, _Envs, _Args) ->
     persistent_term:put(?MODULE, #{inspect => Selected}).
 
@@ -185,6 +176,23 @@ t_mqtt_conn_bridge_ingress(_) ->
         end
     ),
 
+    %% verify the metrics of the bridge
+    {ok, 200, BridgeStr} = request(get, uri(["bridges", BridgeIDIngress]), []),
+    ?assertMatch(
+        #{
+            <<"metrics">> := #{<<"matched">> := 0, <<"received">> := 1},
+            <<"node_metrics">> :=
+                [
+                    #{
+                        <<"node">> := _,
+                        <<"metrics">> :=
+                            #{<<"matched">> := 0, <<"received">> := 1}
+                    }
+                ]
+        },
+        jsx:decode(BridgeStr)
+    ),
+
     %% delete the bridge
     {ok, 204, <<>>} = request(delete, uri(["bridges", BridgeIDIngress]), []),
     {ok, 200, <<"[]">>} = request(get, uri(["bridges"]), []),
@@ -237,9 +245,15 @@ t_mqtt_conn_bridge_egress(_) ->
     {ok, 200, BridgeStr} = request(get, uri(["bridges", BridgeIDEgress]), []),
     ?assertMatch(
         #{
-            <<"metrics">> := ?metrics(1, 1, 0, _, _, _),
+            <<"metrics">> := #{<<"matched">> := 1, <<"sent.success">> := 1, <<"sent.failed">> := 0},
             <<"node_metrics">> :=
-                [#{<<"node">> := _, <<"metrics">> := ?metrics(1, 1, 0, _, _, _)}]
+                [
+                    #{
+                        <<"node">> := _,
+                        <<"metrics">> :=
+                            #{<<"matched">> := 1, <<"sent.success">> := 1, <<"sent.failed">> := 0}
+                    }
+                ]
         },
         jsx:decode(BridgeStr)
     ),
@@ -335,6 +349,23 @@ t_ingress_mqtt_bridge_with_rules(_) ->
             }
         } when is_binary(MsgId),
         persistent_term:get(?MODULE)
+    ),
+
+    %% verify the metrics of the bridge
+    {ok, 200, BridgeStr} = request(get, uri(["bridges", BridgeIDIngress]), []),
+    ?assertMatch(
+        #{
+            <<"metrics">> := #{<<"matched">> := 0, <<"received">> := 1},
+            <<"node_metrics">> :=
+                [
+                    #{
+                        <<"node">> := _,
+                        <<"metrics">> :=
+                            #{<<"matched">> := 0, <<"received">> := 1}
+                    }
+                ]
+        },
+        jsx:decode(BridgeStr)
     ),
 
     {ok, 204, <<>>} = request(delete, uri(["rules", RuleId]), []),
@@ -433,9 +464,16 @@ t_egress_mqtt_bridge_with_rules(_) ->
     {ok, 200, BridgeStr} = request(get, uri(["bridges", BridgeIDEgress]), []),
     ?assertMatch(
         #{
-            <<"metrics">> := ?metrics(2, 2, 0, _, _, _),
+            <<"metrics">> := #{<<"matched">> := 2, <<"sent.success">> := 2, <<"sent.failed">> := 0},
             <<"node_metrics">> :=
-                [#{<<"node">> := _, <<"metrics">> := ?metrics(2, 2, 0, _, _, _)}]
+                [
+                    #{
+                        <<"node">> := _,
+                        <<"metrics">> := #{
+                            <<"matched">> := 2, <<"sent.success">> := 2, <<"sent.failed">> := 0
+                        }
+                    }
+                ]
         },
         jsx:decode(BridgeStr)
     ),

@@ -42,6 +42,10 @@
 -type alias() :: atom().
 -type collection() :: {alias(), [term()]}.
 
+-elvis([
+    {elvis_style, invalid_dynamic_call, #{ignore => [emqx_rule_runtime]}}
+]).
+
 -define(ephemeral_alias(TYPE, NAME),
     iolist_to_binary(io_lib:format("_v_~ts_~p_~p", [TYPE, NAME, erlang:system_time()]))
 ).
@@ -130,13 +134,13 @@ do_apply_rule(
 ) ->
     {Selected, Collection} = ?RAISE(
         select_and_collect(Fields, Columns),
-        {select_and_collect_error, {_EXCLASS_, _EXCPTION_, _ST_}}
+        {select_and_collect_error, {EXCLASS, EXCPTION, ST}}
     ),
     ColumnsAndSelected = maps:merge(Columns, Selected),
     case
         ?RAISE(
             match_conditions(Conditions, ColumnsAndSelected),
-            {match_conditions_error, {_EXCLASS_, _EXCPTION_, _ST_}}
+            {match_conditions_error, {EXCLASS, EXCPTION, ST}}
         )
     of
         true ->
@@ -166,12 +170,12 @@ do_apply_rule(
 ) ->
     Selected = ?RAISE(
         select_and_transform(Fields, Columns),
-        {select_and_transform_error, {_EXCLASS_, _EXCPTION_, _ST_}}
+        {select_and_transform_error, {EXCLASS, EXCPTION, ST}}
     ),
     case
         ?RAISE(
             match_conditions(Conditions, maps:merge(Columns, Selected)),
-            {match_conditions_error, {_EXCLASS_, _EXCPTION_, _ST_}}
+            {match_conditions_error, {EXCLASS, EXCPTION, ST}}
         )
     of
         true ->
@@ -245,7 +249,7 @@ filter_collection(Columns, InCase, DoEach, {CollKey, CollVal}) ->
             case
                 ?RAISE(
                     match_conditions(InCase, ColumnsAndItem),
-                    {match_incase_error, {_EXCLASS_, _EXCPTION_, _ST_}}
+                    {match_incase_error, {EXCLASS, EXCPTION, ST}}
                 )
             of
                 true when DoEach == [] -> {true, ColumnsAndItem};
@@ -253,7 +257,7 @@ filter_collection(Columns, InCase, DoEach, {CollKey, CollVal}) ->
                     {true,
                         ?RAISE(
                             select_and_transform(DoEach, ColumnsAndItem),
-                            {doeach_error, {_EXCLASS_, _EXCPTION_, _ST_}}
+                            {doeach_error, {EXCLASS, EXCPTION, ST}}
                         )};
                 false ->
                     false
@@ -271,7 +275,7 @@ match_conditions({'not', Var}, Data) ->
     case eval(Var, Data) of
         Bool when is_boolean(Bool) ->
             not Bool;
-        _other ->
+        _Other ->
             false
     end;
 match_conditions({in, Var, {list, Vals}}, Data) ->
@@ -506,12 +510,22 @@ nested_put(Alias, Val, Columns0) ->
 -define(IS_RES_DOWN(R), R == stopped; R == not_connected; R == not_found).
 inc_action_metrics(ok, RuleId) ->
     emqx_metrics_worker:inc(rule_metrics, RuleId, 'actions.success');
-inc_action_metrics({ok, _}, RuleId) ->
-    emqx_metrics_worker:inc(rule_metrics, RuleId, 'actions.success');
-inc_action_metrics({resource_down, _}, RuleId) ->
+inc_action_metrics({recoverable_error, _}, RuleId) ->
     emqx_metrics_worker:inc(rule_metrics, RuleId, 'actions.failed.out_of_service');
 inc_action_metrics(?RESOURCE_ERROR_M(R, _), RuleId) when ?IS_RES_DOWN(R) ->
     emqx_metrics_worker:inc(rule_metrics, RuleId, 'actions.failed.out_of_service');
-inc_action_metrics(_, RuleId) ->
-    emqx_metrics_worker:inc(rule_metrics, RuleId, 'actions.failed'),
-    emqx_metrics_worker:inc(rule_metrics, RuleId, 'actions.failed.unknown').
+inc_action_metrics(R, RuleId) ->
+    case is_ok_result(R) of
+        false ->
+            emqx_metrics_worker:inc(rule_metrics, RuleId, 'actions.failed'),
+            emqx_metrics_worker:inc(rule_metrics, RuleId, 'actions.failed.unknown');
+        true ->
+            emqx_metrics_worker:inc(rule_metrics, RuleId, 'actions.success')
+    end.
+
+is_ok_result(ok) ->
+    true;
+is_ok_result(R) when is_tuple(R) ->
+    ok == erlang:element(1, R);
+is_ok_result(ok) ->
+    false.

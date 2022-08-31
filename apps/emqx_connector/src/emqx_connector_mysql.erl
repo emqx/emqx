@@ -414,6 +414,13 @@ on_sql_query(
                 LogMeta#{msg => "mysql_connector_prepare_query_failed", reason => not_prepared}
             ),
             Error;
+        {error, {1053, <<"08S01">>, Reason}} ->
+            %% mysql sql server shutdown in progress
+            ?SLOG(
+                error,
+                LogMeta#{msg => "mysql_connector_do_sql_query_failed", reason => Reason}
+            ),
+            {recoverable_error, Reason};
         {error, Reason} ->
             ?SLOG(
                 error,

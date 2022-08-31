@@ -110,7 +110,7 @@
     list_group_instances/1
 ]).
 
--export([inc_metrics_funcs/1, inc_matched/1, inc_success/1, inc_failed/1]).
+-export([inc_received/1]).
 
 -optional_callbacks([
     on_query/3,
@@ -443,19 +443,8 @@ check_and_do(ResourceType, RawConfig, Do) when is_function(Do) ->
 
 %% =================================================================================
 
-inc_matched(ResId) ->
-    emqx_metrics_worker:inc(?RES_METRICS, ResId, matched).
-
-inc_success(ResId) ->
-    emqx_metrics_worker:inc(?RES_METRICS, ResId, success).
-
-inc_failed(ResId) ->
-    emqx_metrics_worker:inc(?RES_METRICS, ResId, failed).
+inc_received(ResId) ->
+    emqx_metrics_worker:inc(?RES_METRICS, ResId, 'received').
 
 filter_instances(Filter) ->
     [Id || #{id := Id, mod := Mod} <- list_instances_verbose(), Filter(Id, Mod)].
-
-inc_metrics_funcs(ResId) ->
-    OnSucc = [{fun ?MODULE:inc_success/1, ResId}],
-    OnFailed = [{fun ?MODULE:inc_failed/1, ResId}],
-    {OnSucc, OnFailed}.

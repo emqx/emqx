@@ -101,7 +101,7 @@ fields("server_configs") ->
             mk(
                 binary(),
                 #{
-                    default => "emqx",
+                    default => undefined,
                     desc => ?DESC("username")
                 }
             )},
@@ -109,7 +109,7 @@ fields("server_configs") ->
             mk(
                 binary(),
                 #{
-                    default => "emqx",
+                    default => undefined,
                     format => <<"password">>,
                     desc => ?DESC("password")
                 }
