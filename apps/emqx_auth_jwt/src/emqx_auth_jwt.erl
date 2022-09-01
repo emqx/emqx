@@ -26,7 +26,7 @@
         , description/0
         ]).
 
--export([binary_to_number/1]).
+-export([string_to_number/1]).
 
 %%--------------------------------------------------------------------
 %% Authentication callbacks
@@ -73,7 +73,7 @@ check_acl(ClientInfo = #{jwt_claims := Claims},
     end.
 
 is_expired(Exp) when is_binary(Exp)  ->
-    case binary_to_number(Exp) of
+    case string_to_number(Exp) of
         {ok, Val} ->
             is_expired(Val);
         _ ->
@@ -89,17 +89,12 @@ is_expired(Exp) ->
 
 description() -> "Authentication with JWT".
 
-binary_to_number(Bin) ->
-    try
-        {ok, erlang:binary_to_integer(Bin)}
-    catch _:_ ->
-        try
-            Val = erlang:binary_to_float(Bin),
-            {ok, erlang:round(Val)}
-        catch _:_ ->
-            false
-        end
-    end.
+string_to_number(Bin) when is_binary(Bin) ->
+    string_to_number(Bin, fun erlang:binary_to_integer/1, fun erlang:binary_to_float/1);
+string_to_number(Str) when is_list(Str) ->
+    string_to_number(Str, fun erlang:list_to_integer/1, fun erlang:list_to_float/1);
+string_to_number(_) ->
+    false.
 
 %%------------------------------------------------------------------------------
 %% Verify Claims
@@ -145,3 +140,14 @@ match_topic(ClientInfo, AclTopic, Topic) ->
     TopicWords = emqx_topic:words(Topic),
     AclTopicRendered = emqx_access_rule:feed_var(ClientInfo, AclTopicWords),
     emqx_topic:match(TopicWords, AclTopicRendered).
+
+string_to_number(Str, IntFun, FloatFun) ->
+    try
+        {ok, IntFun(Str)}
+    catch _:_ ->
+        try
+            {ok, FloatFun(Str)}
+        catch _:_ ->
+            false
+        end
+    end.
