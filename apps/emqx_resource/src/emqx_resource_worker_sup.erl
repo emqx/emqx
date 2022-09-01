@@ -107,7 +107,7 @@ ensure_worker_started(ResId, Idx, Opts) ->
         type => worker,
         modules => [Mod]
     },
-    case supervisor:start_child(emqx_resource_sup, Spec) of
+    case supervisor:start_child(?SERVER, Spec) of
         {ok, _Pid} -> ok;
         {error, {already_started, _}} -> ok;
         {error, already_present} -> ok;
@@ -116,9 +116,9 @@ ensure_worker_started(ResId, Idx, Opts) ->
 
 ensure_worker_removed(ResId, Idx) ->
     ChildId = ?CHILD_ID(emqx_resource_worker, ResId, Idx),
-    case supervisor:terminate_child(emqx_resource_sup, ChildId) of
+    case supervisor:terminate_child(?SERVER, ChildId) of
         ok ->
-            Res = supervisor:delete_child(emqx_resource_sup, ChildId),
+            Res = supervisor:delete_child(?SERVER, ChildId),
             _ = gproc_pool:remove_worker(ResId, {ResId, Idx}),
             Res;
         {error, not_found} ->

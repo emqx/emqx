@@ -68,7 +68,7 @@
     batch_size => pos_integer(),
     batch_time => pos_integer(),
     enable_queue => boolean(),
-    queue_max_bytes => pos_integer(),
+    max_queue_bytes => pos_integer(),
     query_mode => query_mode(),
     resume_interval => pos_integer(),
     async_inflight_window => pos_integer()
@@ -77,12 +77,15 @@
     ok
     | {ok, term()}
     | {error, term()}
-    | {resource_down, term()}.
+    | {recoverable_error, term()}.
 
 -define(WORKER_POOL_SIZE, 16).
 
--define(DEFAULT_QUEUE_SIZE, 1024 * 1024 * 1024).
--define(DEFAULT_QUEUE_SIZE_RAW, <<"1GB">>).
+-define(DEFAULT_QUEUE_SEG_SIZE, 10 * 1024 * 1024).
+-define(DEFAULT_QUEUE_SEG_SIZE_RAW, <<"10MB">>).
+
+-define(DEFAULT_QUEUE_SIZE, 100 * 1024 * 1024 * 1024).
+-define(DEFAULT_QUEUE_SIZE_RAW, <<"100GB">>).
 
 %% count
 -define(DEFAULT_BATCH_SIZE, 100).

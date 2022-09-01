@@ -53,7 +53,7 @@ fields("creation_opts") ->
         {batch_size, fun batch_size/1},
         {batch_time, fun batch_time/1},
         {enable_queue, fun enable_queue/1},
-        {max_queue_bytes, fun queue_max_bytes/1}
+        {max_queue_bytes, fun max_queue_bytes/1}
     ].
 
 worker_pool_size(type) -> pos_integer();
@@ -110,11 +110,11 @@ batch_time(default) -> ?DEFAULT_BATCH_TIME_RAW;
 batch_time(required) -> false;
 batch_time(_) -> undefined.
 
-queue_max_bytes(type) -> emqx_schema:bytesize();
-queue_max_bytes(desc) -> ?DESC("queue_max_bytes");
-queue_max_bytes(default) -> ?DEFAULT_QUEUE_SIZE_RAW;
-queue_max_bytes(required) -> false;
-queue_max_bytes(_) -> undefined.
+max_queue_bytes(type) -> emqx_schema:bytesize();
+max_queue_bytes(desc) -> ?DESC("max_queue_bytes");
+max_queue_bytes(default) -> ?DEFAULT_QUEUE_SIZE_RAW;
+max_queue_bytes(required) -> false;
+max_queue_bytes(_) -> undefined.
 
 desc("creation_opts") ->
     ?DESC("creation_opts").
