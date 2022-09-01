@@ -215,13 +215,13 @@ with_int_value(Fun) ->
             case Value of
                 Int when is_integer(Int) -> Fun(Int);
                 Bin when is_binary(Bin) ->
-                    case string:to_integer(Bin) of
-                        {Int, <<>>} -> Fun(Int);
+                    case emqx_auth_jwt:binary_to_number(Bin) of
+                        {ok, Int} -> Fun(Int);
                         _ -> false
                     end;
                 Str when is_list(Str) ->
-                    case string:to_integer(Str) of
-                        {Int, ""} -> Fun(Int);
+                    case emqx_auth_jwt:binary_to_number(Str) of
+                        {ok, Int} -> Fun(Int);
                         _ -> false
                     end
             end

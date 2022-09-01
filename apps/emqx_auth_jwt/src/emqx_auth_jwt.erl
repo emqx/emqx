@@ -26,6 +26,8 @@
         , description/0
         ]).
 
+-export([binary_to_number/1]).
+
 %%--------------------------------------------------------------------
 %% Authentication callbacks
 %%--------------------------------------------------------------------
@@ -56,16 +58,12 @@ check_acl(ClientInfo = #{jwt_claims := Claims},
           #{acl_claim_name := AclClaimName}) ->
     case Claims of
         #{AclClaimName := Acl, <<"exp">> := Exp} ->
-            try is_expired(Exp) of
+            case is_expired(Exp) of
                 true ->
                     ?DEBUG("acl_deny_due_to_jwt_expired", []),
                     deny;
                 false ->
                     verify_acl(ClientInfo, Acl, PubSub, Topic)
-            catch
-                _:_ ->
-                    ?DEBUG("acl_deny_due_to_invalid_jwt_exp", []),
-                    deny
             end;
         #{AclClaimName := Acl} ->
             verify_acl(ClientInfo, Acl, PubSub, Topic);
@@ -75,13 +73,39 @@ check_acl(ClientInfo = #{jwt_claims := Claims},
     end.
 
 is_expired(Exp) when is_binary(Exp)  ->
-    ExpInt  = binary_to_integer(Exp),
-    is_expired(ExpInt);
-is_expired(Exp) ->
+    case binary_to_number(Exp) of
+        {ok, Val} ->
+            is_expired(Val);
+        _ ->
+            ?DEBUG("acl_deny_due_to_invalid_jwt_exp:~p", [Exp]),
+            true
+    end;
+is_expired(Exp) when is_integer(Exp) ->
     Now = erlang:system_time(second),
-    Now > Exp.
+    Now > Exp;
+is_expired(Exp) ->
+    ?DEBUG("acl_deny_due_to_invalid_jwt_exp:~p", [Exp]),
+    true.
 
 description() -> "Authentication with JWT".
+
+binary_to_number(Bin) ->
+    Checker = fun([], _) ->
+                      false;
+                 ([H | T], Self) ->
+                      try
+                           {ok, H(Bin)}
+                      catch _:_ ->
+                              Self(T, Self)
+                      end
+              end,
+
+    Checker([fun erlang:binary_to_integer/1,
+            fun(In) ->
+                    Val = erlang:binary_to_float(In),
+                    erlang:round(Val)
+            end],
+           Checker).
 
 %%------------------------------------------------------------------------------
 %% Verify Claims
