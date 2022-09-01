@@ -1,5 +1,10 @@
 #!/usr/bin/env escript
 
+%%% @doc
+%%% Unlike rebar3 xref check, this script runs the full xref checks in the EMQX release dir,
+%%% meaning all the modules for release are analysed.
+%%% For behavior configuration, all rebar3 related modules attributes, filters are not used in this script,
+%%% instead all the filters, checks are defined in `xref_check.eterm`
 main(_) ->
     {ok, [Jobs]} = file:consult("scripts/xref_check.eterm"),
     lists:foreach(fun(#{ name := Name
@@ -20,7 +25,6 @@ main(_) ->
                           [ok = xref:remove_module(Name, M) ||
                               M <- ExclMods
                           ],
-
                           ModuleInfos = xref:info(Name, modules),
                           LibInfos = xref:info(Name, modules),
                           true = ets:insert(Tid, ModuleInfos ++ LibInfos),

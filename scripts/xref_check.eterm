@@ -8,7 +8,11 @@
    , excl_mods =>
          [ hipe_unified_loader
          , systools_make
+         , systools
+         , systools_relup
          , basho_bench_driver_erldis
+         , release_handler
+         , cuttlefish_rebar_plugin
          ]
    , filters =>
          [{{coap_client,channel_apply,3},{coap_dtls_socket,close,1}},
@@ -39,11 +43,6 @@
 
 
           {{core_link,test,0},{eunit,test,1}},
-          {{cuttlefish_rebar_plugin,generate,2},{rebar_rel_utils,get_target_dir,2}},
-          {{cuttlefish_rebar_plugin,make_default_file,3},{rebar_config,get_local,3}},
-          {{cuttlefish_rebar_plugin,should_i_run,2},{rebar_rel_utils,is_rel_dir,0}},
-          {{cuttlefish_rebar_plugin,should_i_run,2},{rebar_rel_utils,load_config,2}},
-
           {{emqx_misc,ipv6_probe,1},{gen_tcp,ipv6_probe,0}},
           {{eredis_parser,test,0},{eunit,test,1}},
           {{gen_rpc_driver_ssl,authenticate_client,3},
@@ -230,18 +229,8 @@
           {{ranch_app,consider_profiling,0},{eprof,start_profiling,1}},
           {{ranch_app,profile_output,0},{eprof,analyze,1}},
           {{ranch_app,profile_output,0},{eprof,log,1}},
-          {{ranch_app,profile_output,0},{eprof,stop_profiling,0}},
-          {{release_handler,new_emulator_make_hybrid_boot,6},
-           {systools_make,make_hybrid_boot,4}},
-          {{release_handler,read_app,3},{systools_make,read_application,4}},
-          {{systools,compile_rel,3},{systools_make,make_script,3}},
-          {{systools,make_script,2},{systools_make,make_script,2}},
-          {{systools,make_tar,2},{systools_make,make_tar,2}},
-          {{systools,script2boot,1},{systools_make,format_error,1}},
-          {{systools,script2boot,3},{systools_make,format_error,1}},
-          {{systools_relup,do_mk_relup,5},{systools_make,get_release,2}},
-          {{systools_relup,foreach_baserel_dn,7},{systools_make,get_release,2}},
-          {{systools_relup,foreach_baserel_up,7},{systools_make,get_release,2}}]
+          {{ranch_app,profile_output,0},{eprof,stop_profiling,0}}
+         ]
    }
 
   %% Check undefined_functions
@@ -251,7 +240,11 @@
          [ observer
          ]
    , excl_mods =>
-         [
+         [ systools
+         , systools_make
+         , release_handler
+         , systools_relup
+         , cuttlefish_rebar_plugin
          ]
    , filters =>
          [{'Elixir.Atom',to_string,1},
@@ -302,6 +295,8 @@
           {gen_leader,leader_node,1},
           {gen_leader,start_link,6},
           {gen_tcp,ipv6_probe,0},
+
+          %% We dont use hipes
           {hipe,compile,4},
           {hipe_bifs,add_ref,2},
           {hipe_bifs,alloc_data,3},
@@ -326,6 +321,8 @@
           {hipe_bifs,write_u32,2},
           {hipe_bifs,write_u64,2},
           {hipe_bifs,write_u8,2},
+
+
           {jsone,decode,1},
           {jsone,encode,2},
           {jsx,decode,2},
@@ -386,10 +383,6 @@
           {lwm2m_coap_udp_socket,start_link,0},
           {ojson,'decode!',1},
           {ojson,'encode!',1},
-          {rebar_config,get_local,3},
-          {rebar_rel_utils,get_target_dir,2},
-          {rebar_rel_utils,is_rel_dir,0},
-          {rebar_rel_utils,load_config,2},
           {ssl_verify_hostname,verify_cert_hostname,2},
           {ssl_verify_hostname,verify_fun,3},
           {tftp,start_service,1},
@@ -410,7 +403,6 @@
    , analysis => locals_not_used
    , excl_apps =>
          [
-
          ]
    , excl_mods =>
          [
@@ -471,6 +463,11 @@
           {grpc_reflection_pb,m_overwrite,3},
           {grpc_reflection_pb,v_ok,3},
           {prometheus_text_format,escape_metric_help,1},
+
+          %%
+          %% To be used in grammar files to throw an error message to the parser
+          %% toplevel. Doesn't have to be exported!
+          %%
           {redbug_parser,return_error,2},
           {rulesql,return_error,2},
           {xmerl_b64Bin,return_error,2},
@@ -481,7 +478,6 @@
    , analysis => deprecated_function_calls
    , excl_apps =>
          [
-
          ]
    , excl_mods =>
          [
@@ -517,7 +513,6 @@
    , analysis => deprecated_functions
    , excl_apps =>
          [
-
          ]
    , excl_mods =>
          [
