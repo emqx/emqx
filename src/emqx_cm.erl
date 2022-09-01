@@ -237,7 +237,7 @@ open_session(true, ClientInfo = #{clientid := ClientId}, ConnInfo) ->
                      register_channel(ClientId, Self, ConnInfo),
                      {ok, #{session => Session, present => false}}
                  end,
-    emqx_cm_locker:trans(ClientId, CleanStart);
+    trans_with_dup_strategy(ClientId, CleanStart);
 
 open_session(false, ClientInfo = #{clientid := ClientId}, ConnInfo) ->
     Self = self(),
@@ -264,7 +264,26 @@ open_session(false, ClientInfo = #{clientid := ClientId}, ConnInfo) ->
                           {error, _Reason} -> CreateSess()
                       end
                   end,
-    emqx_cm_locker:trans(ClientId, ResumeStart).
+    trans_with_dup_strategy(ClientId, ResumeStart).
+
+trans_with_dup_strategy(ClientId, StartSession) ->
+    case emqx:get_env(clientid_duplicated_strategy, takeover_older_session) of
+        takeover_older_session ->
+            emqx_cm_locker:trans(ClientId, StartSession);
+        reject_newer_connection ->
+            RejectNewer =
+                fun(_) ->
+                    case get_chan_info(ClientId) of
+                        #{conn_state := connected} ->
+                            %% There is already a client successfully connected,
+                            %% return error to deny the newer connection.
+                            {error, client_id_unavailable};
+                        _ ->
+                            StartSession(ClientId)
+                    end
+                end,
+            emqx_cm_locker:trans(ClientId, RejectNewer)
+    end.
 
 create_session(ClientInfo, ConnInfo) ->
     Session = emqx_session:init(ClientInfo, ConnInfo),

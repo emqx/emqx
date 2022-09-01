@@ -2499,6 +2499,11 @@ end}.
   {datatype, {enum, [local,leader,quorum,all]}}
 ]}.
 
+{mapping, "broker.clientid_duplicated_strategy", "emqx.clientid_duplicated_strategy", [
+  {default, takeover_older_session},
+  {datatype, {enum, [takeover_older_session,reject_newer_connection]}}
+]}.
+
 %% @doc Default shared Subscription Dispatch Strategy.
 {mapping, "broker.shared_subscription_strategy", "emqx.shared_subscription_strategy", [
   {default, round_robin},
