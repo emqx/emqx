@@ -298,6 +298,7 @@ handle_info(_Info, State) ->
     {noreply, State}.
 
 terminate(_Reason, State = #{servers := Servers}) ->
+    _ = unload_exhooks(),
     _ = maps:fold(
         fun(Name, _, AccIn) ->
             do_unload_server(Name, AccIn)
@@ -305,7 +306,6 @@ terminate(_Reason, State = #{servers := Servers}) ->
         State,
         Servers
     ),
-    _ = unload_exhooks(),
     ok.
 
 code_change(_OldVsn, State, _Extra) ->

@@ -179,13 +179,15 @@ filter(Ls) ->
 
 -spec unload(server()) -> ok.
 unload(#{name := Name, options := ReqOpts, hookspec := HookSpecs}) ->
-    _ = do_deinit(Name, ReqOpts),
     _ = may_unload_hooks(HookSpecs),
+    _ = do_deinit(Name, ReqOpts),
     _ = emqx_exhook_sup:stop_grpc_client_channel(Name),
     ok.
 
 do_deinit(Name, ReqOpts) ->
-    _ = do_call(Name, undefined, 'on_provider_unloaded', #{}, ReqOpts),
+    %% Using shorter timeout to deinit grpc server to avoid emqx_exhook_mgr
+    %% force killed by upper supervisor
+    _ = do_call(Name, undefined, 'on_provider_unloaded', #{}, ReqOpts#{timeout => 3000}),
     ok.
 
 do_init(ChannName, ReqOpts) ->
