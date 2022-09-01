@@ -106,6 +106,27 @@ make
 _build/emqx/rel/emqx/bin/emqx console
 ```
 
+### Building on Apple silicon (M1, M2)
+
+Homebrew on Apple silicon [changed default location of it's home directory](https://github.com/Homebrew/brew/issues/9177) from `/usr/local` to `/opt/homebrew` and as a result a few things broke in the process.
+
+Concerning EMQX, when you install `unixodbc` package (one of the dependencies) via Homebrew, and build Erlang/OTP  with [kerl](https://github.com/kerl/kerl), kerl will not be able to find `unixodbc`.
+
+Here is how to solve it:
+
+```bash
+brew install unixodbc kerl
+sudo ln -s $(realpath $(brew --prefix unixodbc)) /usr/local/odbc
+export CC="/usr/bin/gcc -I$(brew --prefix unixodbc)/include"
+export LDFLAGS="-L$(brew --prefix unixodbc)/lib"
+kerl build 24.3
+mkdir ~/.kerl/installations
+kerl install 24.3 ~/.kerl/installations/24.3
+. ~/.kerl/installations/24.3/activate
+```
+
+Then you can proceed with `make`.
+
 ## License
 
 See [LICENSE](./LICENSE).
