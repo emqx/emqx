@@ -90,22 +90,16 @@ is_expired(Exp) ->
 description() -> "Authentication with JWT".
 
 binary_to_number(Bin) ->
-    Checker = fun([], _) ->
-                      false;
-                 ([H | T], Self) ->
-                      try
-                           {ok, H(Bin)}
-                      catch _:_ ->
-                              Self(T, Self)
-                      end
-              end,
-
-    Checker([fun erlang:binary_to_integer/1,
-            fun(In) ->
-                    Val = erlang:binary_to_float(In),
-                    erlang:round(Val)
-            end],
-           Checker).
+    try
+        {ok, erlang:binary_to_integer(Bin)}
+    catch _:_ ->
+        try
+            Val = erlang:binary_to_float(Bin),
+            {ok, erlang:round(Val)}
+        catch _:_ ->
+            false
+        end
+    end.
 
 %%------------------------------------------------------------------------------
 %% Verify Claims
