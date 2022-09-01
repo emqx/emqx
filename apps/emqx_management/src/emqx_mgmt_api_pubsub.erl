@@ -121,8 +121,8 @@ loop_publish([Params | ParamsN], Acc) ->
         try parse_publish_params(Params) of
             Res ->
                 Code = case do_publish(Params, Res) of
-                           {ok, _} -> 0;
-                           {_, Code0, _} -> Code0
+                           {ok, #{code := ?SUCCESS}} -> 0;
+                           {ok, #{code := Code0}} -> Code0
                        end,
                 #{topic => resp_topic(proplists:get_value(<<"topic">>, Params),
                                       proplists:get_value(<<"topics">>, Params, <<"">>)),
