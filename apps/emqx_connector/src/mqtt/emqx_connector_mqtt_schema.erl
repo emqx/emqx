@@ -87,7 +87,6 @@ fields("connector") ->
             sc(
                 binary(),
                 #{
-                    default => "emqx",
                     desc => ?DESC("username")
                 }
             )},
@@ -95,7 +94,6 @@ fields("connector") ->
             sc(
                 binary(),
                 #{
-                    default => "emqx",
                     desc => ?DESC("password")
                 }
             )},
