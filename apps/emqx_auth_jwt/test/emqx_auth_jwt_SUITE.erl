@@ -164,7 +164,18 @@ t_check_auth_str_exp(_Config) ->
 
     Result1 = emqx_access_control:authenticate(Plain#{password => Jwt1}),
     ct:pal("Auth result: ~p~n", [Result1]),
-    ?assertMatch({error, _}, Result1).
+    ?assertMatch({error, _}, Result1),
+
+    Exp2 = float_to_binary(os:system_time(seconds) + 3.5),
+
+    Jwt2 = sign([{clientid, <<"client1">>},
+                 {username, <<"plain">>},
+                 {exp, Exp2}], <<"HS256">>, <<"emqxsecret">>),
+    ct:pal("Jwt: ~p~n", [Jwt2]),
+
+    Result2 = emqx_access_control:authenticate(Plain#{password => Jwt2}),
+    ct:pal("Auth result: ~p~n", [Result2]),
+    ?assertMatch({ok, #{auth_result := success, jwt_claims := _}}, Result2).
 
 t_check_claims(init, _Config) ->
     application:set_env(emqx_auth_jwt, verify_claims, [{sub, <<"value">>}]).

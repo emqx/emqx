@@ -10,6 +10,12 @@ File format:
 - One list item per change topic
   Change log ends with a list of GitHub PRs
 
+## v4.3.20
+
+### Bug fixes
+
+- Fix rule-engine update behaviour which may initialize actions for disabled rules. [#8849](https://github.com/emqx/emqx/pull/8849)
+
 ## v4.3.19
 
 ### Enhancements
