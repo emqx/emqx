@@ -47,6 +47,10 @@
     default_port => ?MONGO_DEFAULT_PORT
 }).
 
+-ifdef(TEST).
+-export([to_servers_raw/1]).
+-endif.
+
 %%=====================================================================
 roots() ->
     [
@@ -447,7 +451,7 @@ may_parse_srv_and_txt_records_(
         true ->
             error({missing_parameter, replica_set_name});
         false ->
-            Config#{hosts => servers_to_bin(Servers)}
+            Config#{hosts => servers_to_bin(lists:flatten(Servers))}
     end;
 may_parse_srv_and_txt_records_(
     #{
@@ -557,8 +561,32 @@ to_servers_raw(Servers) ->
         fun(Server) ->
             emqx_connector_schema_lib:parse_server(Server, ?MONGO_HOST_OPTIONS)
         end,
-        string:tokens(str(Servers), ", ")
+        split_servers(Servers)
     ).
+
+split_servers(L) when is_list(L) ->
+    PossibleTypes = [
+        list(binary()),
+        list(string()),
+        string()
+    ],
+    TypeChecks = lists:map(fun(T) -> typerefl:typecheck(T, L) end, PossibleTypes),
+    case TypeChecks of
+        [ok, _, _] ->
+            %% list(binary())
+            lists:map(fun binary_to_list/1, L);
+        [_, ok, _] ->
+            %% list(string())
+            L;
+        [_, _, ok] ->
+            %% string()
+            string:tokens(L, ", ");
+        [_, _, _] ->
+            %% invalid input
+            throw("List of servers must contain only strings")
+    end;
+split_servers(B) when is_binary(B) ->
+    string:tokens(str(B), ", ").
 
 str(A) when is_atom(A) ->
     atom_to_list(A);
