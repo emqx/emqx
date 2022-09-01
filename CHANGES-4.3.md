@@ -15,6 +15,8 @@ File format:
 ### Bug fixes
 
 - Fix rule-engine update behaviour which may initialize actions for disabled rules. [#8849](https://github.com/emqx/emqx/pull/8849)
+- Fix JWT plugin don't support non-integer timestamp claims. [#8862](https://github.com/emqx/emqx/pull/8862)
+
 
 ## v4.3.19
 
