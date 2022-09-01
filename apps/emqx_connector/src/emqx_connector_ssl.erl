@@ -18,27 +18,89 @@
 
 -export([
     convert_certs/2,
+    drop_invalid_certs/1,
     clear_certs/2
 ]).
 
-convert_certs(RltvDir, NewConfig) ->
-    NewSSL = map_get_oneof([<<"ssl">>, ssl], NewConfig, undefined),
-    case emqx_tls_lib:ensure_ssl_files(RltvDir, NewSSL) of
-        {ok, NewSSL1} ->
-            {ok, new_ssl_config(NewConfig, NewSSL1)};
+%% TODO: rm `connector` case after `dev/ee5.0` merged into `master`.
+%% The `connector` config layer will be removed.
+%% for bridges with `connector` field. i.e. `mqtt_source` and `mqtt_sink`
+convert_certs(RltvDir, #{<<"connector">> := Connector} = Config) when
+    is_map(Connector)
+->
+    SSL = map_get_oneof([<<"ssl">>, ssl], Connector, undefined),
+    new_ssl_config(RltvDir, Config, SSL);
+convert_certs(RltvDir, #{connector := Connector} = Config) when
+    is_map(Connector)
+->
+    SSL = map_get_oneof([<<"ssl">>, ssl], Connector, undefined),
+    new_ssl_config(RltvDir, Config, SSL);
+%% for bridges without `connector` field. i.e. webhook
+convert_certs(RltvDir, #{<<"ssl">> := SSL} = Config) ->
+    new_ssl_config(RltvDir, Config, SSL);
+convert_certs(RltvDir, #{ssl := SSL} = Config) ->
+    new_ssl_config(RltvDir, Config, SSL);
+%% for bridges use connector name
+convert_certs(_RltvDir, Config) ->
+    {ok, Config}.
+
+clear_certs(RltvDir, #{<<"connector">> := Connector} = _Config) when
+    is_map(Connector)
+->
+    OldSSL = map_get_oneof([<<"ssl">>, ssl], Connector, undefined),
+    ok = emqx_tls_lib:delete_ssl_files(RltvDir, undefined, OldSSL);
+clear_certs(RltvDir, #{connector := Connector} = _Config) when
+    is_map(Connector)
+->
+    OldSSL = map_get_oneof([<<"ssl">>, ssl], Connector, undefined),
+    ok = emqx_tls_lib:delete_ssl_files(RltvDir, undefined, OldSSL);
+clear_certs(RltvDir, #{<<"ssl">> := OldSSL} = _Config) ->
+    ok = emqx_tls_lib:delete_ssl_files(RltvDir, undefined, OldSSL);
+clear_certs(RltvDir, #{ssl := OldSSL} = _Config) ->
+    ok = emqx_tls_lib:delete_ssl_files(RltvDir, undefined, OldSSL);
+clear_certs(_RltvDir, _) ->
+    ok.
+
+drop_invalid_certs(#{<<"connector">> := Connector} = Config) when
+    is_map(Connector)
+->
+    SSL = map_get_oneof([<<"ssl">>, ssl], Connector, undefined),
+    NewSSL = emqx_tls_lib:drop_invalid_certs(SSL),
+    new_ssl_config(Config, NewSSL);
+drop_invalid_certs(#{connector := Connector} = Config) when
+    is_map(Connector)
+->
+    SSL = map_get_oneof([<<"ssl">>, ssl], Connector, undefined),
+    NewSSL = emqx_tls_lib:drop_invalid_certs(SSL),
+    new_ssl_config(Config, NewSSL);
+drop_invalid_certs(#{<<"ssl">> := SSL} = Config) ->
+    NewSSL = emqx_tls_lib:drop_invalid_certs(SSL),
+    new_ssl_config(Config, NewSSL);
+drop_invalid_certs(#{ssl := SSL} = Config) ->
+    NewSSL = emqx_tls_lib:drop_invalid_certs(SSL),
+    new_ssl_config(Config, NewSSL);
+%% for bridges use connector name
+drop_invalid_certs(Config) ->
+    Config.
+
+new_ssl_config(RltvDir, Config, SSL) ->
+    case emqx_tls_lib:ensure_ssl_files(RltvDir, SSL) of
+        {ok, NewSSL} ->
+            {ok, new_ssl_config(Config, NewSSL)};
         {error, Reason} ->
             {error, {bad_ssl_config, Reason}}
     end.
 
-clear_certs(_RltvDir, undefined) ->
-    ok;
-clear_certs(RltvDir, Config) ->
-    OldSSL = map_get_oneof([<<"ssl">>, ssl], Config, undefined),
-    ok = emqx_tls_lib:delete_ssl_files(RltvDir, undefined, OldSSL).
-
-new_ssl_config(Config, undefined) -> Config;
-new_ssl_config(Config, #{<<"enable">> := _} = SSL) -> Config#{<<"ssl">> => SSL};
-new_ssl_config(Config, #{enable := _} = SSL) -> Config#{ssl => SSL}.
+new_ssl_config(#{connector := Connector} = Config, NewSSL) ->
+    Config#{connector => Connector#{ssl => NewSSL}};
+new_ssl_config(#{<<"connector">> := Connector} = Config, NewSSL) ->
+    Config#{<<"connector">> => Connector#{<<"ssl">> => NewSSL}};
+new_ssl_config(#{ssl := _} = Config, NewSSL) ->
+    Config#{ssl => NewSSL};
+new_ssl_config(#{<<"ssl">> := _} = Config, NewSSL) ->
+    Config#{<<"ssl">> => NewSSL};
+new_ssl_config(Config, _NewSSL) ->
+    Config.
 
 map_get_oneof([], _Map, Default) ->
     Default;
