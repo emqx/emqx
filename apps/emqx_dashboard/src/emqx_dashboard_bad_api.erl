@@ -19,13 +19,26 @@
 -include_lib("emqx/include/logger.hrl").
 
 -export([init/2]).
+-define(HEADERS, #{<<"content-type">> => <<"application/json">>}).
 
 init(Req0, State) ->
     ?SLOG(warning, #{msg => "unexpected_api_access", request => Req0}),
-    Req = cowboy_req:reply(
-        404,
-        #{<<"content-type">> => <<"application/json">>},
-        <<"{\"code\": \"API_NOT_EXIST\", \"message\": \"Request Path Not Found\"}">>,
-        Req0
-    ),
+    Req = cowboy_req:reply(404, ?HEADERS, body(), Req0),
     {ok, Req, State}.
+
+body() ->
+    Body =
+        case mria_rlog:role() of
+            replicant ->
+                #{
+                    <<"code">> => <<"API_NOT_FOUND">>,
+                    <<"message">> => <<"Request Path Not Found">>
+                };
+            core ->
+                #{
+                    <<"code">> => <<"API_DISABLE">>,
+                    <<"message">> =>
+                        <<"Request is disabled on replicant nodes, visit it from core nodes">>
+                }
+        end,
+    emqx_json:encode(Body).

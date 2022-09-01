@@ -51,7 +51,12 @@ start_link() ->
 init([]) ->
     erlang:process_flag(trap_exit, true),
     ok = add_handler(),
-    {ok, undefined, {continue, regenerate_dispatch}}.
+    case mria_rlog:role() of
+        core ->
+            {ok, undefined, {continue, regenerate_dispatch}};
+        replicant ->
+            {ok, ready}
+    end.
 
 handle_continue(regenerate_dispatch, _State) ->
     NewState = regenerate_minirest_dispatch(),
