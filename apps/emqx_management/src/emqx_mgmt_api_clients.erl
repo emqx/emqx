@@ -32,6 +32,7 @@
          {<<"proto_ver">>, integer},
          {<<"_like_clientid">>, binary},
          {<<"_like_username">>, binary},
+         {<<"_like_subscription">>, binary},
          {<<"_gte_created_at">>, timestamp},
          {<<"_lte_created_at">>, timestamp},
          {<<"_gte_connected_at">>, timestamp},
@@ -85,6 +86,12 @@
             func   => kickout,
             descr  => "Kick out the client in the cluster"}).
 
+-rest_api(#{name   => kickout_clients,
+            method => 'DELETE',
+            path   => "/clients",
+            func   => kickout_clients,
+            descr  => "Kick out all matched clients in the cluster"}).
+
 -rest_api(#{name   => clean_acl_cache,
             method => 'DELETE',
             path   => "/clients/:bin:clientid/acl_cache",
@@ -134,6 +141,7 @@
 -export([ list/2
         , lookup/2
         , kickout/2
+        , kickout_clients/2
         , clean_acl_cache/2
         , list_acl_cache/2
         , set_ratelimit_policy/2
@@ -144,7 +152,11 @@
         ]).
 
 -export([ query/3
+        , query/4 % export for emqx_mgmt_cli
+        , query_for_kick/3
         , format_channel_info/1
+        , client_lists_schema/0
+        , no_client_list_query_given/1
         ]).
 
 -define(QUERY_FUN, {?MODULE, query}).
@@ -200,6 +212,24 @@ kickout(#{clientid := ClientId}, _Params) ->
         ok -> minirest:return();
         {error, not_found} -> minirest:return({error, ?ERROR12, not_found});
         {error, Reason} -> minirest:return({error, ?ERROR1, Reason})
+    end.
+
+kickout_clients(_Bindgs, Params) ->
+    case no_client_list_query_given(Params) of
+        true -> %% Do not allow kicking out all clients
+            {400, <<"Must carry at least one valid parameter for filtering.">>};
+        false ->
+            QueryFunc = {?MODULE, query_for_kick},
+            fence(fun() ->
+                Return = emqx_mgmt_api:cluster_query(
+                           Params, ?CLIENT_QS_SCHEMA, QueryFunc),
+                ClientIds = maps:get(data, Return),
+                lists:foreach(
+                  fun(ClientId) ->
+                          _ = emqx_cm:kick_session(ClientId)
+                  end, ClientIds),
+                #{count => length(ClientIds)}
+            end)
     end.
 
 clean_acl_cache(#{clientid := ClientId}, _Params) ->
@@ -356,17 +386,26 @@ format_acl_cache({{PubSub, Topic}, {AclResult, Timestamp}}) ->
       result => AclResult,
       updated_time => Timestamp}.
 
+format_channel_info_for_kick({{ClientId, _Pid}, _Info, _Stats}) ->
+    ClientId.
+
 %%--------------------------------------------------------------------
 %% Query Functions
 %%--------------------------------------------------------------------
 
-query({Qs, Fuzzy}, Start, Limit) ->
+query(Conds, Start, Limit) ->
+    query(Conds, Start, Limit, fun format_channel_info/1).
+
+query_for_kick(Conds, Start, Limit) ->
+    query(Conds, Start, Limit, fun format_channel_info_for_kick/1).
+
+query({Qs, Fuzzy}, Start, Limit, FmtFun) ->
     case qs2ms(Qs) of
         {Ms, []} when Fuzzy =:= [] ->
-            emqx_mgmt_api:select_table(emqx_channel_info, Ms, Start, Limit, fun format_channel_info/1);
+            emqx_mgmt_api:select_table(emqx_channel_info, Ms, Start, Limit, FmtFun);
         {Ms, FuzzyStats} ->
             MatchFun = match_fun(Ms, Fuzzy ++ FuzzyStats),
-            emqx_mgmt_api:traverse_table(emqx_channel_info, MatchFun, Start, Limit, fun format_channel_info/1)
+            emqx_mgmt_api:traverse_table(emqx_channel_info, MatchFun, Start, Limit, FmtFun)
     end.
 
 %%--------------------------------------------------------------------
@@ -392,6 +431,12 @@ run_fuzzy_match(E = {_, #{clientinfo := ClientInfo}, _}, [{Key, like, SubStr} | 
               V -> V
           end,
     binary:match(Val, SubStr) /= nomatch andalso run_fuzzy_match(E, Fuzzy);
+run_fuzzy_match(E = {{_ClientId, Pid}, _, _}, [{subscription, _, SubStr}|Fuzzy]) ->
+    Matched = lists:any(
+                fun({_, TopicStr}) ->
+                        binary:match(TopicStr, SubStr) == match
+                end, ets:lookup(emqx_subscription, Pid)),
+    Matched andalso run_fuzzy_match(E, Fuzzy);
 run_fuzzy_match(E = {_, _, Stats}, [{Key, '>=', Int}|Fuzzy]) ->
     case lists:keyfind(Key, 1, Stats) of
         {_, Val} when Val >= Int -> run_fuzzy_match(E, Fuzzy);
@@ -467,6 +512,26 @@ ms(mqueue_dropped, _X) ->
 
 filter_ratelimit_params(P) ->
     [{K, parse_ratelimit_str(V)} || {K, V} <- P, V =/= undefined].
+
+%%--------------------------------------------------------------------
+%% Utils
+
+client_lists_schema() ->
+    ?CLIENT_QS_SCHEMA.
+
+no_client_list_query_given(Params) ->
+    no_client_list_query_given(
+      proplists:get_keys(Params),
+      proplists:get_keys(element(2, ?CLIENT_QS_SCHEMA))
+     ).
+
+no_client_list_query_given([], _) ->
+    true;
+no_client_list_query_given([K | More], Expected) ->
+    case lists:member(K, Expected) of
+        true -> false;
+        false -> no_client_list_query_given(More, Expected)
+    end.
 
 %%--------------------------------------------------------------------
 %% EUnits

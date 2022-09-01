@@ -25,6 +25,11 @@
 
 -define(PRINT_CMD(Cmd, Desc), io:format("~-48s# ~s~n", [Cmd, Desc])).
 
+-import(emqx_mgmt_api_clients,
+        [ no_client_list_query_given/1
+        , client_lists_schema/0
+        ]).
+
 -export([load/0]).
 
 -export([ status/1
@@ -46,6 +51,8 @@
         , pem_cache/1
         ]).
 
+-export([query_for_list/3, query_for_kick/3]).
+
 -define(PROC_INFOKEYS, [status,
                         memory,
                         message_queue_len,
@@ -53,6 +60,24 @@
                         heap_size,
                         stack_size,
                         reductions]).
+
+-define(OPTSPEC_CLIENT_BASE,
+       [ {clientid, undefined, "clientid", binary, "Client ID full string match"}
+       , {username, undefined, "username", binary, "Username full string match"}
+       , {proto_name, undefined, "proto_name", binary, "Protocol Name"}
+       , {'_like_clientid', undefined, "like_clientid", binary, "Client ID substr search"}
+       , {'_like_username', undefined, "like_username", binary, "Username substr search"}
+       , {'_like_subscription', undefined, "like_subscription", binary, "Subscription substr search"}
+       , {cluster, undefined, "cluster", {atom, false}, "Search in cluster wide"}
+       ]).
+
+-define(OPTSPEC_CLIENT_LIST, ?OPTSPEC_CLIENT_BASE ++
+        [ {'_page', undefined, "page", {binary, <<"1">>}, "Page number, default 1"}
+        , {'_limit', undefined, "limit", {binary, <<"100">>}, "Return limit, default 100"}
+        ]).
+-define(OPTSPEC_CLIENT_KICK, ?OPTSPEC_CLIENT_BASE ++
+        [ {'_limit', undefined, "limit", {binary, <<"9999999">>}, "Kickout limit, default 9999999"}
+        ]).
 
 -define(MAX_LIMIT, 10000).
 
@@ -187,13 +212,55 @@ cluster(_) ->
 clients(["list"]) ->
     dump(emqx_channel, client);
 
+clients(["list" | Params]) ->
+    with_opts(
+      fun({Opts, _}) ->
+        NOpts = key_to_binary(Opts),
+        QueryFun = {?MODULE, query_for_list},
+        Return =
+            case proplists:get_bool(<<"cluster">>, NOpts) of
+                true ->
+                    emqx_mgmt_api:cluster_query(
+                      NOpts, client_lists_schema(), QueryFun);
+                false ->
+                    emqx_mgmt_api:node_query(
+                      node(), NOpts, client_lists_schema(), QueryFun)
+            end,
+        lists:foreach(fun print_client_info/1, maps:get(data, Return))
+      end, Params, ?OPTSPEC_CLIENT_LIST, {?FUNCTION_NAME, list});
+
 clients(["show", ClientId]) ->
     if_client(ClientId, fun print/1);
 
 clients(["kick", ClientId]) ->
     ok = emqx_cm:kick_session(bin(ClientId)),
     emqx_ctl:print("ok~n");
-
+clients(["kick" | Params]) when Params =/= [] ->
+    with_opts(
+      fun({Opts, _}) ->
+        NOpts = key_to_binary(Opts),
+        case no_client_list_query_given(NOpts) of
+            true ->
+                error("Must carry at least one valid parameter for filtering.");
+            false ->
+                QueryFun = {?MODULE, query_for_kick},
+                Return =
+                    case proplists:get_bool(<<"cluster">>, NOpts) of
+                        true ->
+                            emqx_mgmt_api:cluster_query(
+                              NOpts, client_lists_schema(), QueryFun);
+                        false ->
+                            emqx_mgmt_api:node_query(
+                              node(), NOpts, client_lists_schema(), QueryFun)
+                    end,
+                ClientIds = maps:get(data, Return),
+                lists:foreach(
+                  fun(ClientId) ->
+                          _ = emqx_cm:kick_session(ClientId)
+                  end, ClientIds),
+                emqx_ctl:print("Kicked ~w clients.", [length(ClientIds)])
+        end
+      end, Params, ?OPTSPEC_CLIENT_KICK, {?FUNCTION_NAME, kick});
 clients(_) ->
     emqx_ctl:usage([{"clients list",            "List all clients"},
                     {"clients show <ClientId>", "Show a client"},
@@ -755,25 +822,7 @@ print({client, {ClientId, ChanPid}}) ->
                         maps:with([peername, clean_start, keepalive, expiry_interval,
                                    connected_at, disconnected_at], ConnInfo),
                         maps:with([created_at], Session)]),
-    InfoKeys = [clientid, username, peername,
-                clean_start, keepalive, expiry_interval,
-                subscriptions_cnt, inflight_cnt, awaiting_rel_cnt,
-                send_msg, mqueue_len, mqueue_dropped,
-                connected, created_at, connected_at] ++
-                case maps:is_key(disconnected_at, Info) of
-                    true  -> [disconnected_at];
-                    false -> []
-                end,
-    emqx_ctl:print("Client(~s, username=~s, peername=~s, "
-                   "clean_start=~s, keepalive=~w, session_expiry_interval=~w, "
-                   "subscriptions=~w, inflight=~w, awaiting_rel=~w, "
-                   "delivered_msgs=~w, enqueued_msgs=~w, dropped_msgs=~w, "
-                   "connected=~s, created_at=~w, connected_at=~w" ++
-                   case maps:is_key(disconnected_at, Info) of
-                       true  -> ", disconnected_at=~w)~n";
-                       false -> ")~n"
-                   end,
-        [format(K, maps:get(K, Info)) || K <- InfoKeys]);
+    print_client_info(Info);
 
 print({emqx_route, #route{topic = Topic, dest = {_, Node}}}) ->
     emqx_ctl:print("~s -> ~s~n", [Topic, Node]);
@@ -846,3 +895,80 @@ with_log(Fun, Msg) ->
         {error, Reason} ->
             emqx_ctl:print("~s FAILED~n~p~n", [Msg, Reason])
     end.
+
+%%--------------------------------------------------------------------
+%% clients
+
+key_to_binary(Opts) when is_list(Opts) ->
+    key_to_binary(Opts, []).
+
+key_to_binary([{Key, Value} | More], Acc) ->
+    key_to_binary(More, [{atom_to_binary(Key, utf8), Value} | Acc]);
+key_to_binary([], Acc) ->
+    lists:reverse(Acc).
+
+query_for_list(Conds, Start, Limit) ->
+    emqx_mgmt_api_clients:query(Conds, Start, Limit, fun format_channel_info/1).
+
+query_for_kick(Conds, Start, Limit) ->
+    emqx_mgmt_api_clients:query(Conds, Start, Limit, fun format_channel_info_for_kick/1).
+
+format_channel_info({_Key, Info, Stats0}) ->
+    ClientInfo = maps:get(clientinfo, Info, #{}),
+    ConnInfo = maps:get(conninfo, Info, #{}),
+    Session = maps:get(session, Info, #{}),
+    Connected = case maps:get(conn_state, Info, undefined) of
+                    connected -> true;
+                    _ -> false
+                end,
+    Stats = maps:from_list(Stats0),
+    lists:foldl(
+      fun(Items, Acc) ->
+              maps:merge(Items, Acc)
+      end, #{connected => Connected},
+      [maps:with([subscriptions_cnt, inflight_cnt, awaiting_rel_cnt,
+                  mqueue_len, mqueue_dropped, send_msg], Stats),
+       maps:with([clientid, username], ClientInfo),
+       maps:with([peername, clean_start, keepalive, expiry_interval,
+                  connected_at, disconnected_at], ConnInfo),
+       maps:with([created_at], Session)]).
+
+format_channel_info_for_kick({{ClientId, _Pid}, _Info, _Stats}) ->
+    ClientId.
+
+with_opts(Action, RawParams, OptSpecList, {CmdObject, CmdName}) ->
+    try
+        case getopt:parse(OptSpecList, RawParams) of
+        {ok, Params} ->
+            Action(Params);
+        {error, Reason} ->
+            error(Reason)
+        end
+    catch error : Reason1 ->
+              UsageTitle = io_lib:format("emqx_ctl ~s ~s", [CmdObject, CmdName]),
+              %% print usage
+              getopt:usage(OptSpecList, UsageTitle, standard_io),
+              %% print error
+              emqx_ctl:print("~0p~n", [Reason1])
+    end.
+
+print_client_info(Info) ->
+    InfoKeys = [clientid, username, peername,
+                clean_start, keepalive, expiry_interval,
+                subscriptions_cnt, inflight_cnt, awaiting_rel_cnt,
+                send_msg, mqueue_len, mqueue_dropped,
+                connected, created_at, connected_at] ++
+                case maps:is_key(disconnected_at, Info) of
+                    true  -> [disconnected_at];
+                    false -> []
+                end,
+    emqx_ctl:print("Client(~s, username=~s, peername=~s, "
+                   "clean_start=~s, keepalive=~w, session_expiry_interval=~w, "
+                   "subscriptions=~w, inflight=~w, awaiting_rel=~w, "
+                   "delivered_msgs=~w, enqueued_msgs=~w, dropped_msgs=~w, "
+                   "connected=~s, created_at=~w, connected_at=~w" ++
+                   case maps:is_key(disconnected_at, Info) of
+                       true  -> ", disconnected_at=~w)~n";
+                       false -> ")~n"
+                   end,
+                   [format(K, maps:get(K, Info)) || K <- InfoKeys]).
