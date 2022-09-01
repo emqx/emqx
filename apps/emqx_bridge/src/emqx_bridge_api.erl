@@ -230,6 +230,13 @@ mqtt_main_example() ->
         keepalive => <<"300s">>,
         retry_interval => <<"15s">>,
         max_inflight => 100,
+        resource_opts => #{
+            health_check_interval => <<"15s">>,
+            auto_restart_interval => <<"60s">>,
+            query_mode => sync,
+            enable_queue => false,
+            max_queue_bytes => 100 * 1024 * 1024
+        },
         ssl => #{
             enable => false
         }
