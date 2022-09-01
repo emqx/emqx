@@ -24,6 +24,8 @@
           {{coap_observer,init,1},{coap_udp_socket,start_link,0}},
           {{coap_observer,terminate,2},{coap_dtls_socket,close,1}},
           {{coap_observer,terminate,2},{coap_udp_socket,close,1}},
+
+          %% Exclude hipe which is disabled
           {{code,beam_file_native_md5,2},{hipe_unified_loader,chunk_name,1}},
           {{code,get_native_fun,0},{hipe_unified_loader,chunk_name,1}},
           {{code,load_native_code_for_all_loaded,1},
@@ -34,17 +36,14 @@
            {hipe_unified_loader,load_native_code,3}},
           {{compile,embed_native_code,2},{hipe_unified_loader,chunk_name,1}},
           {{compile,native_compile_1,2},{hipe,compile,4}},
+
+
           {{core_link,test,0},{eunit,test,1}},
           {{cuttlefish_rebar_plugin,generate,2},{rebar_rel_utils,get_target_dir,2}},
           {{cuttlefish_rebar_plugin,make_default_file,3},{rebar_config,get_local,3}},
           {{cuttlefish_rebar_plugin,should_i_run,2},{rebar_rel_utils,is_rel_dir,0}},
           {{cuttlefish_rebar_plugin,should_i_run,2},{rebar_rel_utils,load_config,2}},
-          {{emqx_bridge_worker,common,4},{replayq,append,2}},
-          {{emqx_bridge_worker,drop_acked_batches,2},{replayq,ack,2}},
-          {{emqx_bridge_worker,open_replayq,1},{replayq,open,1}},
-          {{emqx_bridge_worker,pop_and_send_loop,2},{replayq,is_empty,1}},
-          {{emqx_bridge_worker,pop_and_send_loop,2},{replayq,pop,2}},
-          {{emqx_bridge_worker,terminate,3},{replayq,close,1}},
+
           {{emqx_misc,ipv6_probe,1},{gen_tcp,ipv6_probe,0}},
           {{eredis_parser,test,0},{eunit,test,1}},
           {{gen_rpc_driver_ssl,authenticate_client,3},
@@ -391,23 +390,20 @@
           {rebar_rel_utils,get_target_dir,2},
           {rebar_rel_utils,is_rel_dir,0},
           {rebar_rel_utils,load_config,2},
-          {replayq,ack,2},
-          {replayq,append,2},
-          {replayq,close,1},
-          {replayq,is_empty,1},
-          {replayq,open,1},
-          {replayq,pop,2},
           {ssl_verify_hostname,verify_cert_hostname,2},
           {ssl_verify_hostname,verify_fun,3},
           {tftp,start_service,1},
           {tftp,start_standalone,1},
           {tftp,stop_service,1},
+
+          %% Xref could not check itself
           {xref,add_application,3},
           {xref,analyze,2},
           {xref,set_default,3},
           {xref,set_library_path,2},
           {xref,start,2},
-          {xref,stop,1}]
+          {xref,stop,1}
+         ]
    }
 
 , #{ name => locals_not_used
