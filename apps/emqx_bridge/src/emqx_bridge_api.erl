@@ -20,7 +20,6 @@
 -include_lib("typerefl/include/types.hrl").
 -include_lib("hocon/include/hoconsc.hrl").
 -include_lib("emqx/include/logger.hrl").
--include_lib("emqx_resource/include/emqx_resource.hrl").
 -include_lib("emqx_bridge/include/emqx_bridge.hrl").
 
 -import(hoconsc, [mk/2, array/1, enum/1]).
@@ -232,11 +231,11 @@ mqtt_main_example() ->
         retry_interval => <<"15s">>,
         max_inflight => 100,
         resource_opts => #{
-            health_check_interval => ?HEALTHCHECK_INTERVAL_RAW,
-            auto_restart_interval => ?AUTO_RESTART_INTERVAL_RAW,
+            health_check_interval => <<"15s">>,
+            auto_restart_interval => <<"60s">>,
             query_mode => sync,
             enable_queue => false,
-            max_queue_bytes => ?DEFAULT_QUEUE_SIZE
+            max_queue_bytes => 100 * 1024 * 1024
         },
         ssl => #{
             enable => false
