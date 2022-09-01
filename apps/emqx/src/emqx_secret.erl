@@ -1,5 +1,5 @@
 %%--------------------------------------------------------------------
-%% Copyright (c) 2021-2022 EMQ Technologies Co., Ltd. All Rights Reserved.
+%% Copyright (c) 2022 EMQ Technologies Co., Ltd. All Rights Reserved.
 %%
 %% Licensed under the Apache License, Version 2.0 (the "License");
 %% you may not use this file except in compliance with the License.
@@ -14,11 +14,24 @@
 %% limitations under the License.
 %%--------------------------------------------------------------------
 
-%% The destination URL for the telemetry data report
--define(TELEMETRY_URL, "https://telemetry.emqx.io/api/telemetry").
+%% Note: this module CAN'T be hot-patched to avoid invalidating the
+%% closures, so it must not be changed.
+-module(emqx_secret).
 
-%% Interval for reporting telemetry data, Default: 7d
--define(REPORT_INTERVAL, 604800).
+%% API:
+-export([wrap/1, unwrap/1]).
 
--define(API_TAG_MQTT, [<<"MQTT">>]).
--define(API_SCHEMA_MODULE, emqx_modules_schema).
+%%================================================================================
+%% API funcions
+%%================================================================================
+
+wrap(Term) ->
+    fun() ->
+        Term
+    end.
+
+unwrap(Term) when is_function(Term, 0) ->
+    %% Handle potentially nested funs
+    unwrap(Term());
+unwrap(Term) ->
+    Term.

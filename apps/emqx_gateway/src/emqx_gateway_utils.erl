@@ -44,7 +44,9 @@
     parse_listener_id/1,
     is_running/2,
     global_chain/1,
-    listener_chain/3
+    listener_chain/3,
+    make_deprecated_paths/1,
+    make_compatible_schema/2
 ]).
 
 -export([stringfy/1]).
@@ -455,14 +457,12 @@ esockd_access_rules(StrRules) ->
     [Access(R) || R <- StrRules].
 
 ssl_opts(Name, Opts) ->
-    maps:to_list(
-        emqx_tls_lib:drop_tls13_for_old_otp(
-            maps:without(
-                [enable],
-                maps:get(Name, Opts, #{})
-            )
-        )
-    ).
+    Type =
+        case Name of
+            ssl -> tls;
+            dtls -> dtls
+        end,
+    emqx_tls_lib:to_server_opts(Type, maps:get(Name, Opts, #{})).
 
 sock_opts(Name, Opts) ->
     maps:to_list(
@@ -540,3 +540,36 @@ default_subopts() ->
         qos => 0,
         is_new => true
     }.
+
+%% Since 5.0.8, the API path of the gateway has been changed from "gateway" to "gateways"
+%% and we need to be compatible with the old path
+get_compatible_path("/gateway") ->
+    "/gateways";
+get_compatible_path("/gateway/" ++ Rest) ->
+    "/gateways/" ++ Rest.
+
+get_deprecated_path("/gateways") ->
+    "/gateway";
+get_deprecated_path("/gateways/" ++ Rest) ->
+    "/gateway/" ++ Rest.
+
+make_deprecated_paths(Paths) ->
+    Paths ++ [get_deprecated_path(Path) || Path <- Paths].
+
+make_compatible_schema(Path, SchemaFun) ->
+    OldPath = get_compatible_path(Path),
+    make_compatible_schema2(OldPath, SchemaFun).
+
+make_compatible_schema2(Path, SchemaFun) ->
+    Schema = SchemaFun(Path),
+    maps:map(
+        fun(Key, Value) ->
+            case lists:member(Key, [get, delete, put, post]) of
+                true ->
+                    Value#{deprecated => true};
+                _ ->
+                    Value
+            end
+        end,
+        Schema
+    ).

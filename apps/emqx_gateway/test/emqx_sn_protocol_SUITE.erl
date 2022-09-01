@@ -2198,15 +2198,15 @@ t_clients_api(_) ->
     send_connect_msg(Socket, ClientId),
     ?assertEqual(<<3, ?SN_CONNACK, 0>>, receive_response(Socket)),
     %% list
-    {200, #{data := [Client1]}} = request(get, "/gateway/mqttsn/clients"),
+    {200, #{data := [Client1]}} = request(get, "/gateways/mqttsn/clients"),
     #{clientid := ClientId} = Client1,
     %% searching
     {200, #{data := [Client2]}} =
-        request(get, "/gateway/mqttsn/clients", [{<<"clientid">>, ClientId}]),
+        request(get, "/gateways/mqttsn/clients", [{<<"clientid">>, ClientId}]),
     {200, #{data := [Client3]}} =
         request(
             get,
-            "/gateway/mqttsn/clients",
+            "/gateways/mqttsn/clients",
             [
                 {<<"like_clientid">>, <<"test1">>},
                 {<<"proto_ver">>, <<"1.2">>},
@@ -2218,21 +2218,21 @@ t_clients_api(_) ->
         ),
     %% lookup
     {200, Client4} =
-        request(get, "/gateway/mqttsn/clients/client_id_test1"),
+        request(get, "/gateways/mqttsn/clients/client_id_test1"),
     %% assert
     Client1 = Client2 = Client3 = Client4,
     %% kickout
     {204, _} =
-        request(delete, "/gateway/mqttsn/clients/client_id_test1"),
+        request(delete, "/gateways/mqttsn/clients/client_id_test1"),
     timer:sleep(100),
-    {200, #{data := []}} = request(get, "/gateway/mqttsn/clients"),
+    {200, #{data := []}} = request(get, "/gateways/mqttsn/clients"),
 
     send_disconnect_msg(Socket, undefined),
     gen_udp:close(Socket).
 
 t_clients_subscription_api(_) ->
     ClientId = <<"client_id_test1">>,
-    Path = "/gateway/mqttsn/clients/client_id_test1/subscriptions",
+    Path = "/gateways/mqttsn/clients/client_id_test1/subscriptions",
     {ok, Socket} = gen_udp:open(0, [binary]),
     send_connect_msg(Socket, ClientId),
     ?assertEqual(<<3, ?SN_CONNACK, 0>>, receive_response(Socket)),

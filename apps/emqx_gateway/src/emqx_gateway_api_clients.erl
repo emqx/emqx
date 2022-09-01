@@ -67,12 +67,12 @@ api_spec() ->
     emqx_dashboard_swagger:spec(?MODULE, #{check_schema => true, translate_body => true}).
 
 paths() ->
-    [
-        "/gateway/:name/clients",
-        "/gateway/:name/clients/:clientid",
-        "/gateway/:name/clients/:clientid/subscriptions",
-        "/gateway/:name/clients/:clientid/subscriptions/:topic"
-    ].
+    emqx_gateway_utils:make_deprecated_paths([
+        "/gateways/:name/clients",
+        "/gateways/:name/clients/:clientid",
+        "/gateways/:name/clients/:clientid/subscriptions",
+        "/gateways/:name/clients/:clientid/subscriptions/:topic"
+    ]).
 
 -define(CLIENT_QSCHEMA, [
     {<<"node">>, atom},
@@ -462,7 +462,7 @@ conn_state_to_connected(_) -> false.
 %% Swagger defines
 %%--------------------------------------------------------------------
 
-schema("/gateway/:name/clients") ->
+schema("/gateways/:name/clients") ->
     #{
         'operationId' => clients,
         get =>
@@ -473,7 +473,7 @@ schema("/gateway/:name/clients") ->
                     ?STANDARD_RESP(#{200 => schema_client_list()})
             }
     };
-schema("/gateway/:name/clients/:clientid") ->
+schema("/gateways/:name/clients/:clientid") ->
     #{
         'operationId' => clients_insta,
         get =>
@@ -491,7 +491,7 @@ schema("/gateway/:name/clients/:clientid") ->
                     ?STANDARD_RESP(#{204 => <<"Kicked">>})
             }
     };
-schema("/gateway/:name/clients/:clientid/subscriptions") ->
+schema("/gateways/:name/clients/:clientid/subscriptions") ->
     #{
         'operationId' => subscriptions,
         get =>
@@ -527,7 +527,7 @@ schema("/gateway/:name/clients/:clientid/subscriptions") ->
                     )
             }
     };
-schema("/gateway/:name/clients/:clientid/subscriptions/:topic") ->
+schema("/gateways/:name/clients/:clientid/subscriptions/:topic") ->
     #{
         'operationId' => subscriptions,
         delete =>
@@ -537,7 +537,9 @@ schema("/gateway/:name/clients/:clientid/subscriptions/:topic") ->
                 responses =>
                     ?STANDARD_RESP(#{204 => <<"Unsubscribed">>})
             }
-    }.
+    };
+schema(Path) ->
+    emqx_gateway_utils:make_compatible_schema(Path, fun schema/1).
 
 params_client_query() ->
     params_gateway_name_in_path() ++

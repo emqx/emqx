@@ -61,10 +61,10 @@ api_spec() ->
     emqx_dashboard_swagger:spec(?MODULE, #{check_schema => true}).
 
 paths() ->
-    [
-        "/gateway",
-        "/gateway/:name"
-    ].
+    emqx_gateway_utils:make_deprecated_paths([
+        "/gateways",
+        "/gateways/:name"
+    ]).
 
 %%--------------------------------------------------------------------
 %% http handlers
@@ -159,7 +159,7 @@ gateway_insta(put, #{
 %% Swagger defines
 %%--------------------------------------------------------------------
 
-schema("/gateway") ->
+schema("/gateways") ->
     #{
         'operationId' => gateway,
         get =>
@@ -185,7 +185,7 @@ schema("/gateway") ->
                     ?STANDARD_RESP(#{201 => schema_gateways_conf()})
             }
     };
-schema("/gateway/:name") ->
+schema("/gateways/:name") ->
     #{
         'operationId' => gateway_insta,
         get =>
@@ -210,7 +210,9 @@ schema("/gateway/:name") ->
                 responses =>
                     ?STANDARD_RESP(#{200 => schema_gateways_conf()})
             }
-    }.
+    };
+schema(Path) ->
+    emqx_gateway_utils:make_compatible_schema(Path, fun schema/1).
 
 %%--------------------------------------------------------------------
 %% params defines

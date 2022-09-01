@@ -68,13 +68,13 @@ api_spec() ->
     emqx_dashboard_swagger:spec(?MODULE, #{check_schema => true}).
 
 paths() ->
-    [
-        "/gateway/:name/listeners",
-        "/gateway/:name/listeners/:id",
-        "/gateway/:name/listeners/:id/authentication",
-        "/gateway/:name/listeners/:id/authentication/users",
-        "/gateway/:name/listeners/:id/authentication/users/:uid"
-    ].
+    emqx_gateway_utils:make_deprecated_paths([
+        "/gateways/:name/listeners",
+        "/gateways/:name/listeners/:id",
+        "/gateways/:name/listeners/:id/authentication",
+        "/gateways/:name/listeners/:id/authentication/users",
+        "/gateways/:name/listeners/:id/authentication/users/:uid"
+    ]).
 
 %%--------------------------------------------------------------------
 %% http handlers
@@ -353,7 +353,7 @@ bind2str(Listener = #{<<"bind">> := Bind}) ->
 %% Swagger defines
 %%--------------------------------------------------------------------
 
-schema("/gateway/:name/listeners") ->
+schema("/gateways/:name/listeners") ->
     #{
         'operationId' => listeners,
         get =>
@@ -391,7 +391,7 @@ schema("/gateway/:name/listeners") ->
                     )
             }
     };
-schema("/gateway/:name/listeners/:id") ->
+schema("/gateways/:name/listeners/:id") ->
     #{
         'operationId' => listeners_insta,
         get =>
@@ -437,7 +437,7 @@ schema("/gateway/:name/listeners/:id") ->
                     )
             }
     };
-schema("/gateway/:name/listeners/:id/authentication") ->
+schema("/gateways/:name/listeners/:id/authentication") ->
     #{
         'operationId' => listeners_insta_authn,
         get =>
@@ -480,7 +480,7 @@ schema("/gateway/:name/listeners/:id/authentication") ->
                     ?STANDARD_RESP(#{200 => <<"Deleted">>})
             }
     };
-schema("/gateway/:name/listeners/:id/authentication/users") ->
+schema("/gateways/:name/listeners/:id/authentication/users") ->
     #{
         'operationId' => users,
         get =>
@@ -519,7 +519,7 @@ schema("/gateway/:name/listeners/:id/authentication/users") ->
                     )
             }
     };
-schema("/gateway/:name/listeners/:id/authentication/users/:uid") ->
+schema("/gateways/:name/listeners/:id/authentication/users/:uid") ->
     #{
         'operationId' => users_insta,
         get =>
@@ -567,8 +567,9 @@ schema("/gateway/:name/listeners/:id/authentication/users/:uid") ->
                 responses =>
                     ?STANDARD_RESP(#{204 => <<"Deleted">>})
             }
-    }.
-
+    };
+schema(Path) ->
+    emqx_gateway_utils:make_compatible_schema(Path, fun schema/1).
 %%--------------------------------------------------------------------
 %% params defines
 

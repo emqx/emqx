@@ -72,7 +72,7 @@ end_per_testcase(TestCase, Config) when
 ->
     Slave = ?config(slave, Config),
     emqx_common_test_helpers:stop_slave(Slave),
-    mria:transaction(?ROUTE_SHARD, fun() -> mnesia:clear_table(?ROUTE_TAB) end),
+    mria:clear_table(?ROUTE_TAB),
     snabbkaffe:stop(),
     ok;
 end_per_testcase(_TestCase, _Config) ->

@@ -1,8 +1,26 @@
+# 5.0.8
+
+## Enhancements
+
+* change the `/gateway` API path to plural form. [#8823](https://github.com/emqx/emqx/pull/8823)
+
+# 5.0.7
+
+## Bug fixes
+
+* Remove `will_msg` (not used) field from the client API. [#8721](https://github.com/emqx/emqx/pull/8721)
+* Fix `$queue` topic name error in management API return. [#8728](https://github.com/emqx/emqx/pull/8728)
+* Fix race condition which may cause `client.connected` and `client.disconnected` out of order. [#8625](https://github.com/emqx/emqx/pull/8625)
+
+## Enhancements
+
+* Do not auto-populate default SSL cipher suites, so that the configs are less bloated. [#8769](https://github.com/emqx/emqx/pull/8769)
+
 # 5.0.6
 
 ## Bug fixes
 
-* Remove the needless `will_msg` field from the client API. [#8721](https://github.com/emqx/emqx/pull/8721)
+* Upgrade Dashboard version to fix an issue where the node status was not displayed correctly. [#8771](https://github.com/emqx/emqx/pull/8771)
 
 # 5.0.5
 
@@ -19,6 +37,7 @@
 * Updated `/nodes` API node_status from `Running/Stopped` to `running/stopped`. [#8642](https://github.com/emqx/emqx/pull/8642)
 * Improve handling of placeholder interpolation errors [#8635](https://github.com/emqx/emqx/pull/8635)
 * Better logging on unknown object IDs. [#8670](https://github.com/emqx/emqx/pull/8670)
+* The bind option support `:1883` style. [#8758](https://github.com/emqx/emqx/pull/8758)
 
 # 5.0.4
 

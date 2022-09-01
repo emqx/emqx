@@ -52,6 +52,14 @@
     group_match_spec/1
 ]).
 
+%% Internal exports (RPC)
+-export([
+    do_destroy/1,
+    do_add_user/2,
+    do_delete_user/2,
+    do_update_user/3
+]).
+
 -define(TAB, ?MODULE).
 -define(AUTHN_QSCHEMA, [
     {<<"like_user_id">>, binary},
@@ -170,83 +178,79 @@ authenticate(_Credential, _State) ->
     ignore.
 
 destroy(#{user_group := UserGroup}) ->
+    trans(fun ?MODULE:do_destroy/1, [UserGroup]).
+
+do_destroy(UserGroup) ->
     MatchSpec = group_match_spec(UserGroup),
-    trans(
-        fun() ->
-            ok = lists:foreach(
-                fun(UserInfo) ->
-                    mnesia:delete_object(?TAB, UserInfo, write)
-                end,
-                mnesia:select(?TAB, MatchSpec, write)
-            )
-        end
+    ok = lists:foreach(
+        fun(UserInfo) ->
+            mnesia:delete_object(?TAB, UserInfo, write)
+        end,
+        mnesia:select(?TAB, MatchSpec, write)
     ).
 
-add_user(
+add_user(UserInfo, State) ->
+    trans(fun ?MODULE:do_add_user/2, [UserInfo, State]).
+
+do_add_user(
     #{
         user_id := UserID,
         password := Password
     } = UserInfo,
     #{user_group := UserGroup} = State
 ) ->
-    trans(
-        fun() ->
-            case mnesia:read(?TAB, {UserGroup, UserID}, write) of
-                [] ->
-                    IsSuperuser = maps:get(is_superuser, UserInfo, false),
-                    add_user(UserGroup, UserID, Password, IsSuperuser, State),
-                    {ok, #{user_id => UserID, is_superuser => IsSuperuser}};
-                [_] ->
-                    {error, already_exist}
-            end
-        end
-    ).
+    case mnesia:read(?TAB, {UserGroup, UserID}, write) of
+        [] ->
+            IsSuperuser = maps:get(is_superuser, UserInfo, false),
+            add_user(UserGroup, UserID, Password, IsSuperuser, State),
+            {ok, #{user_id => UserID, is_superuser => IsSuperuser}};
+        [_] ->
+            {error, already_exist}
+    end.
 
-delete_user(UserID, #{user_group := UserGroup}) ->
-    trans(
-        fun() ->
-            case mnesia:read(?TAB, {UserGroup, UserID}, write) of
-                [] ->
-                    {error, not_found};
-                [_] ->
-                    mnesia:delete(?TAB, {UserGroup, UserID}, write)
-            end
-        end
-    ).
+delete_user(UserID, State) ->
+    trans(fun ?MODULE:do_delete_user/2, [UserID, State]).
 
-update_user(
+do_delete_user(UserID, #{user_group := UserGroup}) ->
+    case mnesia:read(?TAB, {UserGroup, UserID}, write) of
+        [] ->
+            {error, not_found};
+        [_] ->
+            mnesia:delete(?TAB, {UserGroup, UserID}, write)
+    end.
+
+update_user(UserID, User, State) ->
+    trans(fun ?MODULE:do_update_user/3, [UserID, User, State]).
+
+do_update_user(
     UserID,
     User,
     #{user_group := UserGroup} = State
 ) ->
-    trans(
-        fun() ->
-            case mnesia:read(?TAB, {UserGroup, UserID}, write) of
-                [] ->
-                    {error, not_found};
-                [#user_info{is_superuser = IsSuperuser} = UserInfo] ->
-                    UserInfo1 = UserInfo#user_info{
-                        is_superuser = maps:get(is_superuser, User, IsSuperuser)
-                    },
-                    UserInfo2 =
-                        case maps:get(password, User, undefined) of
-                            undefined ->
-                                UserInfo1;
-                            Password ->
-                                {StoredKey, ServerKey, Salt} = esasl_scram:generate_authentication_info(
-                                    Password, State
-                                ),
-                                UserInfo1#user_info{
-                                    stored_key = StoredKey,
-                                    server_key = ServerKey,
-                                    salt = Salt
-                                }
-                        end,
-                    mnesia:write(?TAB, UserInfo2, write),
-                    {ok, format_user_info(UserInfo2)}
-            end
-        end
-    ).
+    case mnesia:read(?TAB, {UserGroup, UserID}, write) of
+        [] ->
+            {error, not_found};
+        [#user_info{is_superuser = IsSuperuser} = UserInfo] ->
+            UserInfo1 = UserInfo#user_info{
+                is_superuser = maps:get(is_superuser, User, IsSuperuser)
+            },
+            UserInfo2 =
+                case maps:get(password, User, undefined) of
+                    undefined ->
+                        UserInfo1;
+                    Password ->
+                        {StoredKey, ServerKey, Salt} = esasl_scram:generate_authentication_info(
+                            Password, State
+                        ),
+                        UserInfo1#user_info{
+                            stored_key = StoredKey,
+                            server_key = ServerKey,
+                            salt = Salt
+                        }
+                end,
+            mnesia:write(?TAB, UserInfo2, write),
+            {ok, format_user_info(UserInfo2)}
+    end.
 
 lookup_user(UserID, #{user_group := UserGroup}) ->
     case mnesia:dirty_read(?TAB, {UserGroup, UserID}) of
@@ -386,12 +390,10 @@ retrieve(UserID, #{user_group := UserGroup}) ->
     end.
 
 %% TODO: Move to emqx_authn_utils.erl
-trans(Fun) ->
-    trans(Fun, []).
-
 trans(Fun, Args) ->
     case mria:transaction(?AUTH_SHARD, Fun, Args) of
         {atomic, Res} -> Res;
+        {aborted, {function_clause, Stack}} -> erlang:raise(error, function_clause, Stack);
         {aborted, Reason} -> {error, Reason}
     end.
 

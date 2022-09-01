@@ -49,6 +49,11 @@
     code_change/3
 ]).
 
+%% Internal exports (RPC)
+-export([
+    expire_banned_items/1
+]).
+
 -elvis([{elvis_style, state_record_and_type, disable}]).
 
 -define(BANNED_TAB, ?MODULE).
@@ -224,7 +229,9 @@ handle_cast(Msg, State) ->
     {noreply, State}.
 
 handle_info({timeout, TRef, expire}, State = #{expiry_timer := TRef}) ->
-    _ = mria:transaction(?COMMON_SHARD, fun expire_banned_items/1, [erlang:system_time(second)]),
+    _ = mria:transaction(?COMMON_SHARD, fun ?MODULE:expire_banned_items/1, [
+        erlang:system_time(second)
+    ]),
     {noreply, ensure_expiry_timer(State), hibernate};
 handle_info(Info, State) ->
     ?SLOG(error, #{msg => "unexpected_info", info => Info}),

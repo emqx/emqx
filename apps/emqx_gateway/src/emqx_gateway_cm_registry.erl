@@ -42,6 +42,11 @@
     code_change/3
 ]).
 
+%% Internal exports (RPC)
+-export([
+    do_cleanup_channels/2
+]).
+
 -define(CM_SHARD, emqx_gateway_cm_shard).
 -define(LOCK, {?MODULE, cleanup_down}).
 
@@ -148,7 +153,7 @@ cleanup_channels(Node, Name) ->
     global:trans(
         {?LOCK, self()},
         fun() ->
-            mria:transaction(?CM_SHARD, fun do_cleanup_channels/2, [Node, Tab])
+            mria:transaction(?CM_SHARD, fun ?MODULE:do_cleanup_channels/2, [Node, Tab])
         end
     ).
 

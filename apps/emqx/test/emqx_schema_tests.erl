@@ -21,8 +21,7 @@
 ssl_opts_dtls_test() ->
     Sc = emqx_schema:server_ssl_opts_schema(
         #{
-            versions => dtls_all_available,
-            ciphers => dtls_all_available
+            versions => dtls_all_available
         },
         false
     ),
@@ -30,7 +29,7 @@ ssl_opts_dtls_test() ->
     ?assertMatch(
         #{
             versions := ['dtlsv1.2', 'dtlsv1'],
-            ciphers := ["ECDHE-ECDSA-AES256-GCM-SHA384" | _]
+            ciphers := []
         },
         Checked
     ).
@@ -42,7 +41,7 @@ ssl_opts_tls_1_3_test() ->
     ?assertMatch(
         #{
             versions := ['tlsv1.3'],
-            ciphers := [_ | _]
+            ciphers := []
         },
         Checked
     ).
@@ -53,7 +52,7 @@ ssl_opts_tls_for_ranch_test() ->
     ?assertMatch(
         #{
             versions := ['tlsv1.3'],
-            ciphers := [_ | _],
+            ciphers := [],
             handshake_timeout := _
         },
         Checked
@@ -125,7 +124,7 @@ validate(Schema, Data0) ->
         ),
     Checked.
 
-ciperhs_schema_test() ->
+ciphers_schema_test() ->
     Sc = emqx_schema:ciphers_schema(undefined),
     WSc = #{roots => [{ciphers, Sc}]},
     ?assertThrow(
@@ -135,7 +134,7 @@ ciperhs_schema_test() ->
 
 bad_tls_version_test() ->
     Sc = emqx_schema:server_ssl_opts_schema(#{}, false),
-    Reason = {unsupported_ssl_versions, [foo]},
+    Reason = {unsupported_tls_versions, [foo]},
     ?assertThrow(
         {_Sc, [#{kind := validation_error, reason := Reason}]},
         validate(Sc, #{<<"versions">> => [<<"foo">>]})

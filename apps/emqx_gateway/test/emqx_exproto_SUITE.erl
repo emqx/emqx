@@ -483,8 +483,8 @@ ssl_opts() ->
     maps:merge(
         Certs,
         #{
-            versions => emqx_tls_lib:default_versions(),
-            ciphers => emqx_tls_lib:default_ciphers(),
+            versions => emqx_tls_lib:available_versions(tls),
+            ciphers => [],
             verify => verify_peer,
             fail_if_no_peer_cert => true,
             secure_renegotiate => false,

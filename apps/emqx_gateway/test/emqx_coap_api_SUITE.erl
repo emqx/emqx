@@ -71,28 +71,33 @@ end_per_suite(Config) ->
 t_send_request_api(_) ->
     ClientId = start_client(),
     timer:sleep(200),
-    Path = emqx_mgmt_api_test_util:api_path(["gateway/coap/clients/client1/request"]),
-    Token = <<"atoken">>,
-    Payload = <<"simple echo this">>,
-    Req = #{
-        token => Token,
-        payload => Payload,
-        timeout => <<"10s">>,
-        content_type => <<"text/plain">>,
-        method => <<"get">>
-    },
-    Auth = emqx_mgmt_api_test_util:auth_header_(),
-    {ok, Response} = emqx_mgmt_api_test_util:request_api(
-        post,
-        Path,
-        "method=get",
-        Auth,
-        Req
-    ),
-    #{<<"token">> := RToken, <<"payload">> := RPayload} =
-        emqx_json:decode(Response, [return_maps]),
-    ?assertEqual(Token, RToken),
-    ?assertEqual(Payload, RPayload),
+    Test = fun(API) ->
+        Path = emqx_mgmt_api_test_util:api_path([API]),
+        Token = <<"atoken">>,
+        Payload = <<"simple echo this">>,
+        Req = #{
+            token => Token,
+            payload => Payload,
+            timeout => <<"10s">>,
+            content_type => <<"text/plain">>,
+            method => <<"get">>
+        },
+        Auth = emqx_mgmt_api_test_util:auth_header_(),
+        {ok, Response} = emqx_mgmt_api_test_util:request_api(
+            post,
+            Path,
+            "method=get",
+            Auth,
+            Req
+        ),
+        #{<<"token">> := RToken, <<"payload">> := RPayload} =
+            emqx_json:decode(Response, [return_maps]),
+        ?assertEqual(Token, RToken),
+        ?assertEqual(Payload, RPayload)
+    end,
+    Test("gateways/coap/clients/client1/request"),
+    timer:sleep(100),
+    Test("gateway/coap/clients/client1/request"),
     erlang:exit(ClientId, kill),
     ok.
 
