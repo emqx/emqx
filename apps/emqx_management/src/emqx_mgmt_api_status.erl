@@ -33,18 +33,26 @@ init(Req0, State) ->
 %%--------------------------------------------------------------------
 
 running_status() ->
-    BrokerStatus =
-        case emqx:is_running() of
-            true ->
-                started;
-            false ->
-                stopped
-        end,
-    AppStatus =
-        case lists:keysearch(emqx, 1, application:which_applications()) of
-            false -> not_running;
-            {value, _Val} -> running
-        end,
-    Status = io_lib:format("Node ~ts is ~ts~nemqx is ~ts", [node(), BrokerStatus, AppStatus]),
-    Body = list_to_binary(Status),
-    {200, #{<<"content-type">> => <<"text/plain">>}, Body}.
+    case emqx_dashboard_listener:is_ready(timer:seconds(20)) of
+        true ->
+            BrokerStatus = broker_status(),
+            AppStatus = application_status(),
+            Body = io_lib:format("Node ~ts is ~ts~nemqx is ~ts", [node(), BrokerStatus, AppStatus]),
+            {200, #{<<"content-type">> => <<"text/plain">>}, list_to_binary(Body)};
+        false ->
+            {503, #{<<"retry-after">> => <<"15">>}, <<>>}
+    end.
+
+broker_status() ->
+    case emqx:is_running() of
+        true ->
+            started;
+        false ->
+            stopped
+    end.
+
+application_status() ->
+    case lists:keysearch(emqx, 1, application:which_applications()) of
+        false -> not_running;
+        {value, _Val} -> running
+    end.
