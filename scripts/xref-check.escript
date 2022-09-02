@@ -18,12 +18,16 @@ main(_) ->
                           xref:set_default(Name, [{verbose,false}, {warnings,false}]),
                           xref:add_release(Name, "_build/emqx/rel/emqx/lib/"),
                           xref:add_application(Name, code:lib_dir(erts)),
-                          [ok = xref:remove_application(Name, App) ||
-                              App <- ExclApps
+                          [ case xref:remove_application(Name, App) of
+                                ok -> ok;
+                                {error, xref_base, {no_such_application, _}} -> ok
+                            end || App <- ExclApps
                           ],
 
-                          [ok = xref:remove_module(Name, M) ||
-                              M <- ExclMods
+                          [case xref:remove_module(Name, M) of
+                                ok -> ok;
+                                {error, M, _R} -> ok
+                           end || M <- ExclMods
                           ],
                           ModuleInfos = xref:info(Name, modules),
                           LibInfos = xref:info(Name, modules),
