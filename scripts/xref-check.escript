@@ -25,8 +25,9 @@ main(_) ->
                           ],
 
                           [case xref:remove_module(Name, M) of
-                                ok -> ok;
-                                {error, M, _R} -> ok
+                               ok -> ok;
+                               %% but in doc it should return '{error, module(), Reason}`
+                               {error, xref_base, {no_such_module, M}} -> ok
                            end || M <- ExclMods
                           ],
                           ModuleInfos = xref:info(Name, modules),
