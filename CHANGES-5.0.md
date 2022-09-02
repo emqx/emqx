@@ -4,6 +4,7 @@
 
 * Fix exhook `client.authorize` never being execauted. [#8780](https://github.com/emqx/emqx/pull/8780)
 * Fix JWT plugin don't support non-integer timestamp claims. [#8867](https://github.com/emqx/emqx/pull/8867)
+* Avoid publishing will message when client fails to auhtenticate. [#8887](https://github.com/emqx/emqx/pull/8887)
 
 ## Enhancements
 
