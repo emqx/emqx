@@ -69,6 +69,7 @@ conninfo() ->
         {conn_props, properties()},
         {connected, boolean()},
         {connected_at, timestamp()},
+        {disconnected_at, timestamp()},
         {keepalive, range(0, 16#ffff)},
         {receive_maximum, non_neg_integer()},
         {expiry_interval, non_neg_integer()}

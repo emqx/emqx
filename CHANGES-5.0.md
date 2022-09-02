@@ -1,5 +1,9 @@
 # 5.0.8
 
+## Bug fixes
+
+* Fix exhook `client.authorize` never being execauted. [#8780](https://github.com/emqx/emqx/pull/8780)
+
 ## Enhancements
 
 * change the `/gateway` API path to plural form. [#8823](https://github.com/emqx/emqx/pull/8823)
