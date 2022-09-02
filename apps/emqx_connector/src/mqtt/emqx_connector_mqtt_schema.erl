@@ -224,7 +224,7 @@ fields("egress") ->
             sc(
                 binary(),
                 #{
-                    required => true,
+                    default => <<"${payload}">>,
                     desc => ?DESC("payload")
                 }
             )}
