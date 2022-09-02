@@ -20,6 +20,7 @@
 -compile(nowarn_export_all).
 
 -include_lib("emqx/include/emqx_hooks.hrl").
+-include_lib("eunit/include/eunit.hrl").
 
 -import(
     emqx_exproto_echo_svr,
@@ -38,6 +39,7 @@
 
 -include_lib("emqx/include/emqx.hrl").
 -include_lib("emqx/include/emqx_mqtt.hrl").
+-include_lib("snabbkaffe/include/snabbkaffe.hrl").
 
 -define(TCPOPTS, [binary, {active, false}]).
 -define(DTLSOPTS, [binary, {active, false}, {protocol, dtls}]).
@@ -223,14 +225,16 @@ t_acl_deny(Cfg) ->
     close(Sock).
 
 t_keepalive_timeout(Cfg) ->
+    ok = snabbkaffe:start_trace(),
     SockType = proplists:get_value(listener_type, Cfg),
     Sock = open(SockType),
 
+    ClientId1 = <<"keepalive_test_client1">>,
     Client = #{
         proto_name => <<"demo">>,
         proto_ver => <<"v0.1">>,
-        clientid => <<"test_client_1">>,
-        keepalive => 2
+        clientid => ClientId1,
+        keepalive => 5
     },
     Password = <<"123456">>,
 
@@ -238,18 +242,41 @@ t_keepalive_timeout(Cfg) ->
     ConnAckBin = frame_connack(0),
 
     send(Sock, ConnBin),
-    {ok, ConnAckBin} = recv(Sock, 5000),
+    {ok, ConnAckBin} = recv(Sock),
 
-    %% Timed out connections are closed immediately,
-    %% so there may not be a disconnect message here
-    %%DisconnectBin = frame_disconnect(),
-    %%{ok, DisconnectBin} = recv(Sock, 10000),
-
-    SockType =/= udp andalso
-        begin
-            {error, closed} = recv(Sock, 5000)
-        end,
-    ok.
+    case SockType of
+        udp ->
+            %% another udp client should not affect the first
+            %% udp client keepalive check
+            timer:sleep(4000),
+            Sock2 = open(SockType),
+            ConnBin2 = frame_connect(
+                Client#{clientid => <<"keepalive_test_client2">>},
+                Password
+            ),
+            send(Sock2, ConnBin2),
+            %% first client will be keepalive timeouted in 6s
+            ?assertMatch(
+                {ok, #{
+                    clientid := ClientId1,
+                    reason := {shutdown, {sock_closed, keepalive_timeout}}
+                }},
+                ?block_until(#{?snk_kind := conn_process_terminated}, 8000)
+            );
+        _ ->
+            ?assertMatch(
+                {ok, #{
+                    clientid := ClientId1,
+                    reason := {shutdown, {sock_closed, keepalive_timeout}}
+                }},
+                ?block_until(#{?snk_kind := conn_process_terminated}, 12000)
+            ),
+            Trace = snabbkaffe:collect_trace(),
+            %% conn process should be terminated
+            ?assertEqual(1, length(?of_kind(conn_process_terminated, Trace))),
+            %% socket port should be closed
+            ?assertEqual({error, closed}, recv(Sock, 5000))
+    end.
 
 t_hook_connected_disconnected(Cfg) ->
     SockType = proplists:get_value(listener_type, Cfg),
@@ -423,6 +450,9 @@ send({ssl, Sock}, Bin) ->
     ssl:send(Sock, Bin);
 send({dtls, Sock}, Bin) ->
     ssl:send(Sock, Bin).
+
+recv(Sock) ->
+    recv(Sock, infinity).
 
 recv({tcp, Sock}, Ts) ->
     gen_tcp:recv(Sock, 0, Ts);

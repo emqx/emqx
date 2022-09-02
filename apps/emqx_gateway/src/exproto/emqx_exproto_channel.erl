@@ -84,8 +84,6 @@
 
 -define(INFO_KEYS, [conninfo, conn_state, clientinfo, session, will_msg]).
 
--define(DEFAULT_IDLE_TIMEOUT, 30000).
-
 %%--------------------------------------------------------------------
 %% Info, Attrs and Caps
 %%--------------------------------------------------------------------
@@ -154,7 +152,7 @@ init(
     Ctx = maps:get(ctx, Options),
     GRpcChann = maps:get(handler, Options),
     PoolName = maps:get(pool_name, Options),
-    IdleTimeout = proplists:get_value(idle_timeout, Options, ?DEFAULT_IDLE_TIMEOUT),
+    IdleTimeout = emqx_gateway_utils:idle_timeout(Options),
 
     NConnInfo = default_conninfo(ConnInfo#{idle_timeout => IdleTimeout}),
     ListenerId =
@@ -301,7 +299,7 @@ handle_timeout(
             Req = #{type => 'KEEPALIVE'},
             NChannel = clean_timer(alive_timer, Channel),
             %% close connection if keepalive timeout
-            Replies = [{event, disconnected}, {close, normal}],
+            Replies = [{event, disconnected}, {close, keepalive_timeout}],
             {ok, Replies, try_dispatch(on_timer_timeout, wrap(Req), NChannel)}
     end;
 handle_timeout(_TRef, force_close, Channel = #channel{closed_reason = Reason}) ->
@@ -667,7 +665,8 @@ ensure_keepalive(Channel = #channel{clientinfo = ClientInfo}) ->
 ensure_keepalive_timer(Interval, Channel) when Interval =< 0 ->
     Channel;
 ensure_keepalive_timer(Interval, Channel) ->
-    Keepalive = emqx_keepalive:init(timer:seconds(Interval)),
+    StatVal = emqx_gateway_conn:keepalive_stats(recv_oct),
+    Keepalive = emqx_keepalive:init(StatVal, timer:seconds(Interval)),
     ensure_timer(alive_timer, Channel#channel{keepalive = Keepalive}).
 
 ensure_timer(Name, Channel = #channel{timers = Timers}) ->

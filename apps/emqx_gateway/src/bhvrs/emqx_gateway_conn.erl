@@ -19,6 +19,7 @@
 
 -include_lib("emqx/include/types.hrl").
 -include_lib("emqx/include/logger.hrl").
+-include_lib("snabbkaffe/include/snabbkaffe.hrl").
 
 %% API
 -export([
@@ -50,6 +51,9 @@
 
 %% Internal callback
 -export([wakeup_from_hib/2, recvloop/2]).
+
+%% for channel module
+-export([keepalive_stats/1]).
 
 -record(state, {
     %% TCP/SSL/UDP/DTLS Wrapped Socket
@@ -573,9 +577,15 @@ terminate(
         channel = Channel
     }
 ) ->
-    ?SLOG(debug, #{msg => "conn_process_terminated", reason => Reason}),
     _ = ChannMod:terminate(Reason, Channel),
     _ = close_socket(State),
+    ClientId =
+        try ChannMod:info(clientid, Channel) of
+            Id -> Id
+        catch
+            _:_ -> undefined
+        end,
+    ?tp(debug, conn_process_terminated, #{reason => Reason, clientid => ClientId}),
     exit(Reason).
 
 %%--------------------------------------------------------------------
@@ -655,12 +665,7 @@ handle_timeout(
         disconnected ->
             {ok, State};
         _ ->
-            case keepalive_stats(Stat) of
-                {ok, Oct} ->
-                    handle_timeout(TRef, {Keepalive, Oct}, State);
-                {error, Reason} ->
-                    handle_info({sock_error, Reason}, State)
-            end
+            handle_timeout(TRef, {Keepalive, keepalive_stats(Stat)}, State)
     end;
 handle_timeout(
     _TRef,
