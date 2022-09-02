@@ -185,9 +185,9 @@ unload(#{name := Name, options := ReqOpts, hookspec := HookSpecs}) ->
     ok.
 
 do_deinit(Name, ReqOpts) ->
-    %% Using shorter timeout to deinit grpc server to avoid emqx_exhook_mgr
-    %% force killed by upper supervisor
-    _ = do_call(Name, undefined, 'on_provider_unloaded', #{}, ReqOpts#{timeout => 3000}),
+    %% Override the request timeout to deinit grpc server to
+    %% avoid emqx_exhook_mgr force killed by upper supervisor
+    _ = do_call(Name, undefined, 'on_provider_unloaded', #{}, ReqOpts#{timeout => 5000}),
     ok.
 
 do_init(ChannName, ReqOpts) ->

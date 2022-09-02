@@ -21,6 +21,7 @@
 
 -include("emqx_exhook.hrl").
 -include_lib("emqx/include/logger.hrl").
+-include_lib("snabbkaffe/include/snabbkaffe.hrl").
 
 %% APIs
 -export([start_link/0]).
@@ -297,7 +298,7 @@ handle_info(refresh_tick, State) ->
 handle_info(_Info, State) ->
     {noreply, State}.
 
-terminate(_Reason, State = #{servers := Servers}) ->
+terminate(Reason, State = #{servers := Servers}) ->
     _ = unload_exhooks(),
     _ = maps:fold(
         fun(Name, _, AccIn) ->
@@ -306,6 +307,7 @@ terminate(_Reason, State = #{servers := Servers}) ->
         State,
         Servers
     ),
+    ?tp(info, exhook_mgr_terminated, #{reason => Reason, servers => Servers}),
     ok.
 
 code_change(_OldVsn, State, _Extra) ->

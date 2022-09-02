@@ -32,6 +32,7 @@
     id => Mod,
     start => {Mod, start_link, Args},
     type => Type,
+    %% long timeout for emqx_exhook_mgr
     shutdown => 15000
 }).
 

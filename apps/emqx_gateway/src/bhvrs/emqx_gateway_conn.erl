@@ -640,7 +640,6 @@ handle_timeout(
     Keepalive,
     State = #state{
         chann_mod = ChannMod,
-        socket = Socket,
         channel = Channel
     }
 ) when

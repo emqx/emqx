@@ -80,7 +80,10 @@ stop() ->
 
 stop(Name) ->
     grpc:stop_server(Name),
-    to_atom_name(Name) ! stop.
+    case whereis(to_atom_name(Name)) of
+        undefined -> ok;
+        Pid -> Pid ! stop
+    end.
 
 take() ->
     to_atom_name(?NAME) ! {take, self()},
