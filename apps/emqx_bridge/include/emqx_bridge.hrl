@@ -1,6 +1,6 @@
 -define(EMPTY_METRICS,
     ?METRICS(
-        0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0
+        0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0
     )
 ).
 
@@ -15,7 +15,6 @@
     Matched,
     Queued,
     Sent,
-    SentExcpt,
     SentFailed,
     SentInflight,
     SentSucc,
@@ -35,7 +34,6 @@
         'matched' => Matched,
         'queuing' => Queued,
         'sent' => Sent,
-        'sent.exception' => SentExcpt,
         'sent.failed' => SentFailed,
         'sent.inflight' => SentInflight,
         'sent.success' => SentSucc,
@@ -57,7 +55,6 @@
     Matched,
     Queued,
     Sent,
-    SentExcpt,
     SentFailed,
     SentInflight,
     SentSucc,
@@ -77,7 +74,6 @@
         'matched' := Matched,
         'queuing' := Queued,
         'sent' := Sent,
-        'sent.exception' := SentExcpt,
         'sent.failed' := SentFailed,
         'sent.inflight' := SentInflight,
         'sent.success' := SentSucc,

@@ -617,11 +617,11 @@ aggregate_metrics(AllMetrics) ->
         fun(
             #{
                 metrics := ?metrics(
-                    M1, M2, M3, M4, M5, M6, M7, M8, M9, M10, M11, M12, M13, M14, M15, M16, M17, M18
+                    M1, M2, M3, M4, M5, M6, M7, M8, M9, M10, M11, M12, M13, M14, M15, M16, M17
                 )
             },
             ?metrics(
-                N1, N2, N3, N4, N5, N6, N7, N8, N9, N10, N11, N12, N13, N14, N15, N16, N17, N18
+                N1, N2, N3, N4, N5, N6, N7, N8, N9, N10, N11, N12, N13, N14, N15, N16, N17
             )
         ) ->
             ?METRICS(
@@ -641,8 +641,7 @@ aggregate_metrics(AllMetrics) ->
                 M14 + N14,
                 M15 + N15,
                 M16 + N16,
-                M17 + N17,
-                M18 + N18
+                M17 + N17
             )
         end,
         InitMetrics,
@@ -682,7 +681,6 @@ format_metrics(#{
         'matched' := Matched,
         'queuing' := Queued,
         'sent' := Sent,
-        'sent.exception' := SentExcpt,
         'sent.failed' := SentFailed,
         'sent.inflight' := SentInflight,
         'sent.success' := SentSucc,
@@ -703,7 +701,6 @@ format_metrics(#{
         Matched,
         Queued,
         Sent,
-        SentExcpt,
         SentFailed,
         SentInflight,
         SentSucc,

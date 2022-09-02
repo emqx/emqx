@@ -136,7 +136,6 @@ create(MgrId, ResId, Group, ResourceType, Config, Opts) ->
             'batching',
             'sent.success',
             'sent.failed',
-            'sent.exception',
             'sent.inflight',
             'dropped.queue_not_enabled',
             'dropped.queue_full',

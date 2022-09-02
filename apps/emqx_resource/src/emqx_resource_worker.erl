@@ -375,7 +375,7 @@ reply_caller(Id, ?REPLY(From, _, Result), BlockWorker) ->
     handle_query_result(Id, Result, BlockWorker).
 
 handle_query_result(Id, ?RESOURCE_ERROR_M(exception, _), BlockWorker) ->
-    emqx_metrics_worker:inc(?RES_METRICS, Id, 'sent.exception'),
+    emqx_metrics_worker:inc(?RES_METRICS, Id, 'sent.failed'),
     BlockWorker;
 handle_query_result(_Id, ?RESOURCE_ERROR_M(NotWorking, _), _) when
     NotWorking == not_connected; NotWorking == blocked

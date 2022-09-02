@@ -115,7 +115,6 @@ fields("metrics") ->
         {"matched", mk(integer(), #{desc => ?DESC("metric_matched")})},
         {"queuing", mk(integer(), #{desc => ?DESC("metric_queuing")})},
         {"sent", mk(integer(), #{desc => ?DESC("metric_sent")})},
-        {"sent.exception", mk(integer(), #{desc => ?DESC("metric_sent_exception")})},
         {"sent.failed", mk(integer(), #{desc => ?DESC("metric_sent_failed")})},
         {"sent.inflight", mk(integer(), #{desc => ?DESC("metric_sent_inflight")})},
         {"sent.success", mk(integer(), #{desc => ?DESC("metric_sent_success")})},
