@@ -96,6 +96,16 @@ schema("/listeners") ->
                         listener_id_status_example()
                     )
             }
+        },
+        post => #{
+            tags => [<<"listeners">>],
+            desc => <<"Create the specified listener on all nodes.">>,
+            parameters => [],
+            'requestBody' => create_listener_schema(#{bind => true}),
+            responses => #{
+                200 => listener_schema(#{bind => true}),
+                400 => error_codes(['BAD_LISTENER_ID', 'BAD_REQUEST'])
+            }
         }
     };
 schema("/listeners/:id") ->
@@ -129,7 +139,8 @@ schema("/listeners/:id") ->
             responses => #{
                 200 => listener_schema(#{bind => true}),
                 400 => error_codes(['BAD_LISTENER_ID', 'BAD_REQUEST'])
-            }
+            },
+            deprecated => true
         },
         delete => #{
             tags => [<<"listeners">>],
@@ -251,15 +262,26 @@ fields(node_status) ->
             })},
         {status, ?HOCON(?R_REF(status))}
     ];
+fields({Type, with_name}) ->
+    listener_struct_with_name(Type);
 fields(Type) ->
-    Listeners = listeners_info(#{bind => true}) ++ listeners_info(#{bind => false}),
-    [Schema] = [S || #{ref := ?R_REF(_, T), schema := S} <- Listeners, T =:= Type],
-    Schema.
+    listener_struct(Type).
 
 listener_schema(Opts) ->
     emqx_dashboard_swagger:schema_with_example(
         ?UNION(lists:map(fun(#{ref := Ref}) -> Ref end, listeners_info(Opts))),
         tcp_schema_example()
+    ).
+
+create_listener_schema(Opts) ->
+    Schemas = [
+        ?R_REF(Mod, {Type, with_name})
+     || #{ref := ?R_REF(Mod, Type)} <- listeners_info(Opts)
+    ],
+    Example = maps:remove(id, tcp_schema_example()),
+    emqx_dashboard_swagger:schema_with_example(
+        ?UNION(Schemas),
+        Example#{name => <<"demo">>}
     ).
 
 listeners_type() ->
@@ -339,7 +361,9 @@ list_listeners(get, #{query_string := Query}) ->
             {ok, Type} -> listener_type_filter(atom_to_binary(Type), Listeners);
             error -> Listeners
         end,
-    {200, listener_status_by_id(NodeL)}.
+    {200, listener_status_by_id(NodeL)};
+list_listeners(post, #{body := Body}) ->
+    create_listener(Body).
 
 crud_listeners_by_id(get, #{bindings := #{id := Id0}}) ->
     Listeners =
@@ -382,23 +406,8 @@ crud_listeners_by_id(put, #{bindings := #{id := Id}, body := Body0}) ->
         _ ->
             {400, #{code => 'BAD_LISTENER_ID', message => ?LISTENER_ID_INCONSISTENT}}
     end;
-crud_listeners_by_id(post, #{bindings := #{id := Id}, body := Body0}) ->
-    case parse_listener_conf(Body0) of
-        {Id, Type, Name, Conf} ->
-            Path = [listeners, Type, Name],
-            case create(Path, Conf) of
-                {ok, #{raw_config := _RawConf}} ->
-                    crud_listeners_by_id(get, #{bindings => #{id => Id}});
-                {error, already_exist} ->
-                    {400, #{code => 'BAD_LISTENER_ID', message => <<"Already Exist">>}};
-                {error, Reason} ->
-                    {400, #{code => 'BAD_REQUEST', message => err_msg(Reason)}}
-            end;
-        {error, Reason} ->
-            {400, #{code => 'BAD_REQUEST', message => err_msg(Reason)}};
-        _ ->
-            {400, #{code => 'BAD_LISTENER_ID', message => ?LISTENER_ID_INCONSISTENT}}
-    end;
+crud_listeners_by_id(post, #{body := Body}) ->
+    create_listener(Body);
 crud_listeners_by_id(delete, #{bindings := #{id := Id}}) ->
     {ok, #{type := Type, name := Name}} = emqx_listeners:parse_listener_id(Id),
     case ensure_remove([listeners, Type, Name]) of
@@ -408,13 +417,24 @@ crud_listeners_by_id(delete, #{bindings := #{id := Id}}) ->
 
 parse_listener_conf(Conf0) ->
     Conf1 = maps:without([<<"running">>, <<"current_connections">>], Conf0),
-    {IdBin, Conf2} = maps:take(<<"id">>, Conf1),
-    {TypeBin, Conf3} = maps:take(<<"type">>, Conf2),
-    {ok, #{type := Type, name := Name}} = emqx_listeners:parse_listener_id(IdBin),
+    {TypeBin, Conf2} = maps:take(<<"type">>, Conf1),
     TypeAtom = binary_to_existing_atom(TypeBin),
-    case Type =:= TypeAtom of
-        true -> {binary_to_existing_atom(IdBin), TypeAtom, Name, Conf3};
-        false -> {error, listener_type_inconsistent}
+
+    case maps:take(<<"id">>, Conf2) of
+        {IdBin, Conf3} ->
+            {ok, #{type := Type, name := Name}} = emqx_listeners:parse_listener_id(IdBin),
+            case Type =:= TypeAtom of
+                true -> {binary_to_existing_atom(IdBin), TypeAtom, Name, Conf3};
+                false -> {error, listener_type_inconsistent}
+            end;
+        _ ->
+            case maps:take(<<"name">>, Conf2) of
+                {Name, Conf3} ->
+                    IdBin = <<TypeBin/binary, $:, Name/binary>>,
+                    {binary_to_atom(IdBin), TypeAtom, Name, Conf3};
+                _ ->
+                    {error, listener_config_invalid}
+            end
     end.
 
 stop_listeners_by_id(Method, Body = #{bindings := Bindings}) ->
@@ -787,3 +807,37 @@ tcp_schema_example() ->
         type => tcp,
         zone => default
     }.
+
+create_listener(Body) ->
+    case parse_listener_conf(Body) of
+        {Id, Type, Name, Conf} ->
+            Path = [listeners, Type, Name],
+            case create(Path, Conf) of
+                {ok, #{raw_config := _RawConf}} ->
+                    crud_listeners_by_id(get, #{bindings => #{id => Id}});
+                {error, already_exist} ->
+                    {400, #{code => 'BAD_LISTENER_ID', message => <<"Already Exist">>}};
+                {error, Reason} ->
+                    {400, #{code => 'BAD_REQUEST', message => err_msg(Reason)}}
+            end;
+        {error, Reason} ->
+            {400, #{code => 'BAD_REQUEST', message => err_msg(Reason)}}
+    end.
+
+listener_struct(Type) ->
+    Listeners = listeners_info(#{bind => true}) ++ listeners_info(#{bind => false}),
+    [Schema] = [S || #{ref := ?R_REF(_, T), schema := S} <- Listeners, T =:= Type],
+    Schema.
+
+listener_struct_with_name(Type) ->
+    BaseSchema = listener_struct(Type),
+    lists:keyreplace(
+        id,
+        1,
+        BaseSchema,
+        {name,
+            ?HOCON(binary(), #{
+                desc => "Listener name",
+                required => true
+            })}
+    ).
