@@ -382,15 +382,6 @@ on_query_async(
         {fun ?MODULE:reply_delegator/2, [ReplyFunAndArgs]}
     ).
 
-reply_delegator(ReplyFunAndArgs, Result) ->
-    case Result of
-        {error, Reason} when Reason =:= econnrefused; Reason =:= timeout ->
-            Result1 = {error, {recoverable_error, Reason}},
-            emqx_resource:apply_reply_fun(ReplyFunAndArgs, Result1);
-        _ ->
-            emqx_resource:apply_reply_fun(ReplyFunAndArgs, Result)
-    end.
-
 on_get_status(_InstId, #{pool_name := PoolName, connect_timeout := Timeout} = State) ->
     case do_get_status(PoolName, Timeout) of
         true ->
@@ -544,3 +535,12 @@ bin(Str) when is_list(Str) ->
     list_to_binary(Str);
 bin(Atom) when is_atom(Atom) ->
     atom_to_binary(Atom, utf8).
+
+reply_delegator(ReplyFunAndArgs, Result) ->
+    case Result of
+        {error, Reason} when Reason =:= econnrefused; Reason =:= timeout ->
+            Result1 = {error, {recoverable_error, Reason}},
+            emqx_resource:apply_reply_fun(ReplyFunAndArgs, Result1);
+        _ ->
+            emqx_resource:apply_reply_fun(ReplyFunAndArgs, Result)
+    end.
