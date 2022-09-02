@@ -31,7 +31,8 @@
     on_stop/2,
     on_query/3,
     on_query_async/4,
-    on_get_status/2
+    on_get_status/2,
+    reply_delegator/2
 ]).
 
 -type url() :: emqx_http_lib:uri_map().
@@ -378,8 +379,17 @@ on_query_async(
         Method,
         NRequest,
         Timeout,
-        ReplyFunAndArgs
+        {fun ?MODULE:reply_delegator/2, [ReplyFunAndArgs]}
     ).
+
+reply_delegator(ReplyFunAndArgs, Result) ->
+    case Result of
+        {error, Reason} when Reason =:= econnrefused; Reason =:= timeout ->
+            Result1 = {error, {recoverable_error, Reason}},
+            emqx_resource:apply_reply_fun(ReplyFunAndArgs, Result1);
+        _ ->
+            emqx_resource:apply_reply_fun(ReplyFunAndArgs, Result)
+    end.
 
 on_get_status(_InstId, #{pool_name := PoolName, connect_timeout := Timeout} = State) ->
     case do_get_status(PoolName, Timeout) of

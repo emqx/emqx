@@ -25,7 +25,7 @@
     Rcvd
 ),
     #{
-        'batched' => Batched,
+        'batching' => Batched,
         'dropped' => Dropped,
         'dropped.other' => DroppedOther,
         'dropped.queue_full' => DroppedQueueFull,
@@ -33,7 +33,7 @@
         'dropped.resource_not_found' => DroppedResourceNotFound,
         'dropped.resource_stopped' => DroppedResourceStopped,
         'matched' => Matched,
-        'queued' => Queued,
+        'queuing' => Queued,
         'sent' => Sent,
         'sent.exception' => SentExcpt,
         'sent.failed' => SentFailed,
@@ -67,7 +67,7 @@
     Rcvd
 ),
     #{
-        'batched' := Batched,
+        'batching' := Batched,
         'dropped' := Dropped,
         'dropped.other' := DroppedOther,
         'dropped.queue_full' := DroppedQueueFull,
@@ -75,7 +75,7 @@
         'dropped.resource_not_found' := DroppedResourceNotFound,
         'dropped.resource_stopped' := DroppedResourceStopped,
         'matched' := Matched,
-        'queued' := Queued,
+        'queuing' := Queued,
         'sent' := Sent,
         'sent.exception' := SentExcpt,
         'sent.failed' := SentFailed,

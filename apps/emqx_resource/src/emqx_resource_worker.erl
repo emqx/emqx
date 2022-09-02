@@ -131,7 +131,7 @@ init({Id, Index, Opts}) ->
             false ->
                 undefined
         end,
-    emqx_metrics_worker:inc(?RES_METRICS, Id, 'queued', queue_count(Queue)),
+    emqx_metrics_worker:inc(?RES_METRICS, Id, 'queuing', queue_count(Queue)),
     ok = inflight_new(Name),
     St = #{
         id => Id,
@@ -273,12 +273,12 @@ retry_first_sync(Id, FirstQuery, Name, Ref, Q, #{resume_interval := ResumeT} = S
 drop_head(Id, Q) ->
     {Q1, AckRef, _} = replayq:pop(Q, #{count_limit => 1}),
     ok = replayq:ack(Q1, AckRef),
-    emqx_metrics_worker:inc(?RES_METRICS, Id, 'queued', -1),
+    emqx_metrics_worker:inc(?RES_METRICS, Id, 'queuing', -1),
     Q1.
 
 query_or_acc(From, Request, #{enable_batch := true, acc := Acc, acc_left := Left, id := Id} = St0) ->
     Acc1 = [?QUERY(From, Request) | Acc],
-    emqx_metrics_worker:inc(?RES_METRICS, Id, 'batched'),
+    emqx_metrics_worker:inc(?RES_METRICS, Id, 'batching'),
     St = St0#{acc := Acc1, acc_left := Left - 1},
     case Left =< 1 of
         true -> flush(St);
@@ -313,7 +313,7 @@ flush(
         inflight_name => maps:get(name, St),
         inflight_window => maps:get(async_inflight_window, St)
     },
-    emqx_metrics_worker:inc(?RES_METRICS, Id, 'batched', -length(Batch)),
+    emqx_metrics_worker:inc(?RES_METRICS, Id, 'batching', -length(Batch)),
     Result = call_query(configured, Id, Batch, QueryOpts),
     St1 = cancel_flush_timer(St#{acc_left := Size, acc := []}),
     case batch_reply_caller(Id, Result, Batch) of
@@ -338,13 +338,13 @@ maybe_append_queue(Id, Q, Items) ->
                 {Q1, QAckRef, Items2} = replayq:pop(Q, PopOpts),
                 ok = replayq:ack(Q1, QAckRef),
                 Dropped = length(Items2),
-                emqx_metrics_worker:inc(?RES_METRICS, Id, 'queued', -Dropped),
+                emqx_metrics_worker:inc(?RES_METRICS, Id, 'queuing', -Dropped),
                 emqx_metrics_worker:inc(?RES_METRICS, Id, 'dropped'),
                 emqx_metrics_worker:inc(?RES_METRICS, Id, 'dropped.queue_full'),
                 ?SLOG(error, #{msg => drop_query, reason => queue_full, dropped => Dropped}),
                 Q1
         end,
-    emqx_metrics_worker:inc(?RES_METRICS, Id, 'queued'),
+    emqx_metrics_worker:inc(?RES_METRICS, Id, 'queuing'),
     replayq:append(Q2, Items).
 
 batch_reply_caller(Id, BatchResult, Batch) ->

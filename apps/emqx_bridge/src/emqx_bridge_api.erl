@@ -206,7 +206,7 @@ info_example_basic(webhook) ->
             worker_pool_size => 1,
             health_check_interval => 15000,
             auto_restart_interval => 15000,
-            query_mode => sync,
+            query_mode => async,
             async_inflight_window => 100,
             enable_queue => true,
             max_queue_bytes => 1024 * 1024 * 1024
@@ -672,7 +672,7 @@ format_resp(
 
 format_metrics(#{
     counters := #{
-        'batched' := Batched,
+        'batching' := Batched,
         'dropped' := Dropped,
         'dropped.other' := DroppedOther,
         'dropped.queue_full' := DroppedQueueFull,
@@ -680,7 +680,7 @@ format_metrics(#{
         'dropped.resource_not_found' := DroppedResourceNotFound,
         'dropped.resource_stopped' := DroppedResourceStopped,
         'matched' := Matched,
-        'queued' := Queued,
+        'queuing' := Queued,
         'sent' := Sent,
         'sent.exception' := SentExcpt,
         'sent.failed' := SentFailed,

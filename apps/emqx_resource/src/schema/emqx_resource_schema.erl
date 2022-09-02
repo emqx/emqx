@@ -76,7 +76,7 @@ auto_restart_interval(_) -> undefined.
 
 query_mode(type) -> enum([sync, async]);
 query_mode(desc) -> ?DESC("query_mode");
-query_mode(default) -> sync;
+query_mode(default) -> async;
 query_mode(required) -> false;
 query_mode(_) -> undefined.
 
