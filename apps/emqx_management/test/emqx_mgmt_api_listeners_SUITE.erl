@@ -37,6 +37,35 @@ t_list_listeners(_) ->
     Res = request(get, Path, [], []),
     #{<<"listeners">> := Expect} = emqx_mgmt_api_listeners:do_list_listeners(),
     ?assertEqual(length(Expect), length(Res)),
+
+    %% POST /listeners
+    ListenerId = <<"tcp:default">>,
+    NewListenerId = <<"tcp:new">>,
+
+    OriginPath = emqx_mgmt_api_test_util:api_path(["listeners", ListenerId]),
+    NewPath = emqx_mgmt_api_test_util:api_path(["listeners", NewListenerId]),
+
+    OriginListener = request(get, OriginPath, [], []),
+
+    %% create with full options
+    ?assertEqual({error, not_found}, is_running(NewListenerId)),
+    ?assertMatch({error, {"HTTP/1.1", 404, _}}, request(get, NewPath, [], [])),
+
+    OriginListener2 = maps:remove(<<"id">>, OriginListener),
+    NewConf = OriginListener2#{
+        <<"name">> => <<"new">>,
+        <<"bind">> => <<"0.0.0.0:2883">>
+    },
+    Create = request(post, Path, [], NewConf),
+    ?assertEqual(lists:sort(maps:keys(OriginListener)), lists:sort(maps:keys(Create))),
+    Get1 = request(get, NewPath, [], []),
+    ?assertMatch(Create, Get1),
+    ?assert(is_running(NewListenerId)),
+
+    %% delete
+    ?assertEqual([], delete(NewPath)),
+    ?assertEqual({error, not_found}, is_running(NewListenerId)),
+    ?assertMatch({error, {"HTTP/1.1", 404, _}}, request(get, NewPath, [], [])),
     ok.
 
 t_tcp_crud_listeners_by_id(_) ->
