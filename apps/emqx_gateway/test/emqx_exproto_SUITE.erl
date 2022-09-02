@@ -89,6 +89,7 @@ set_special_cfg(emqx_gateway) ->
         [gateway, exproto],
         #{
             server => #{bind => 9100},
+            idle_timeout => 5000,
             handler => #{address => "http://127.0.0.1:9001"},
             listeners => listener_confs(LisType)
         }
@@ -401,6 +402,44 @@ t_hook_message_delivered(Cfg) ->
 
     close(Sock),
     emqx_hooks:del('message.delivered', {?MODULE, hook_fun5}).
+
+t_idle_timeout(Cfg) ->
+    ok = snabbkaffe:start_trace(),
+    SockType = proplists:get_value(listener_type, Cfg),
+    Sock = open(SockType),
+
+    %% need to create udp client by sending something
+    case SockType of
+        udp ->
+            %% nothing to do
+            meck:new(emqx_exproto_echo_svr, [passthrough, no_history]),
+            meck:expect(
+                emqx_exproto_echo_svr,
+                on_received_bytes,
+                fun(Stream, _Md) -> {ok, Stream} end
+            ),
+            %% send request, but nobody can respond to it
+            ClientId = <<"idle_test_client1">>,
+            Client = #{
+                proto_name => <<"demo">>,
+                proto_ver => <<"v0.1">>,
+                clientid => ClientId,
+                keepalive => 5
+            },
+            Password = <<"123456">>,
+            ConnBin = frame_connect(Client, Password),
+            send(Sock, ConnBin),
+            ?assertMatch(
+                {ok, #{reason := {shutdown, idle_timeout}}},
+                ?block_until(#{?snk_kind := conn_process_terminated}, 10000)
+            ),
+            meck:unload(emqx_exproto_echo_svr);
+        _ ->
+            ?assertMatch(
+                {ok, #{reason := {shutdown, idle_timeout}}},
+                ?block_until(#{?snk_kind := conn_process_terminated}, 10000)
+            )
+    end.
 
 %%--------------------------------------------------------------------
 %% Utils
