@@ -64,7 +64,7 @@ jobs:
                 -f .ci/docker-compose-file/docker-compose-mysql-tcp.yaml \
                 -f .ci/docker-compose-file/docker-compose-pgsql-tcp.yaml \
                 -f .ci/docker-compose-file/docker-compose-redis-single-tcp.yaml \
-                up -d --build
+                up -d --build --remove-orphans
         - name: docker compose up
           if: env.EDITION == 'enterprise'
           env:
@@ -102,7 +102,7 @@ jobs:
                 -f .ci/docker-compose-file/docker-compose-enterprise-timescale-tcp.yaml \
                 -f .ci/docker-compose-file/docker-compose-enterprise-mysql-client.yaml \
                 -f .ci/docker-compose-file/docker-compose-enterprise-pgsql-and-timescale-client.yaml \
-                up -d --build
+                up -d --build --remove-orphans
             docker exec -i erlang bash -c "echo \"https://ci%40emqx.io:${{ secrets.CI_GIT_TOKEN }}@github.com\" > /root/.git-credentials && git config --global credential.helper store"
             docker exec -i erlang bash -c "git config --global --add safe.directory /emqx"
             while [ $(docker ps -a --filter name=client --filter exited=0 | wc -l) \
