@@ -132,7 +132,7 @@ $(REL_PROFILES:%=%): $(COMMON_DEPS)
 clean: $(PROFILES:%=clean-%)
 $(PROFILES:%=clean-%):
 	@if [ -d _build/$(@:clean-%=%) ]; then \
-		rm rebar.lock \
+		rm -f rebar.lock; \
 		rm -rf _build/$(@:clean-%=%)/rel; \
 		$(FIND) _build/$(@:clean-%=%) -name '*.beam' -o -name '*.so' -o -name '*.app' -o -name '*.appup' -o -name '*.o' -o -name '*.d' -type f | xargs rm -f; \
 		$(FIND) _build/$(@:clean-%=%) -type l -delete; \
