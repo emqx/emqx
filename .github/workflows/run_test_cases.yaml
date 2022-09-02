@@ -39,16 +39,8 @@ jobs:
                 use-self-hosted: false
         steps:
         - uses: actions/checkout@v2
-        - name: set edition
-          id: set_edition
-          run: |
-            if make emqx-ee --dry-run > /dev/null 2>&1; then
-                echo "EDITION=enterprise" >> $GITHUB_ENV
-            else
-                echo "EDITION=opensource" >> $GITHUB_ENV
-            fi
         - name: docker compose up
-          if: env.EDITION == 'opensource'
+          if: endsWith(github.repository, 'emqx')
           env:
             MYSQL_TAG: 8
             REDIS_TAG: 6
@@ -66,7 +58,7 @@ jobs:
                 -f .ci/docker-compose-file/docker-compose-redis-single-tcp.yaml \
                 up -d --build
         - name: docker compose up
-          if: env.EDITION == 'enterprise'
+          if: endsWith(github.repository, 'emqx-enterprise')
           env:
             MYSQL_TAG: 8
             REDIS_TAG: 6

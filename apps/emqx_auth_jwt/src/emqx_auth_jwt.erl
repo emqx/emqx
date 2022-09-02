@@ -26,6 +26,8 @@
         , description/0
         ]).
 
+-export([string_to_number/1]).
+
 %%--------------------------------------------------------------------
 %% Authentication callbacks
 %%--------------------------------------------------------------------
@@ -56,16 +58,12 @@ check_acl(ClientInfo = #{jwt_claims := Claims},
           #{acl_claim_name := AclClaimName}) ->
     case Claims of
         #{AclClaimName := Acl, <<"exp">> := Exp} ->
-            try is_expired(Exp) of
+            case is_expired(Exp) of
                 true ->
                     ?DEBUG("acl_deny_due_to_jwt_expired", []),
                     deny;
                 false ->
                     verify_acl(ClientInfo, Acl, PubSub, Topic)
-            catch
-                _:_ ->
-                    ?DEBUG("acl_deny_due_to_invalid_jwt_exp", []),
-                    deny
             end;
         #{AclClaimName := Acl} ->
             verify_acl(ClientInfo, Acl, PubSub, Topic);
@@ -81,13 +79,28 @@ check_acl(_ClientInfo,
     ignore.
 
 is_expired(Exp) when is_binary(Exp)  ->
-    ExpInt  = binary_to_integer(Exp),
-    is_expired(ExpInt);
-is_expired(Exp) ->
+    case string_to_number(Exp) of
+        {ok, Val} ->
+            is_expired(Val);
+        _ ->
+            ?DEBUG("acl_deny_due_to_invalid_jwt_exp:~p", [Exp]),
+            true
+    end;
+is_expired(Exp) when is_integer(Exp) ->
     Now = erlang:system_time(second),
-    Now > Exp.
+    Now > Exp;
+is_expired(Exp) ->
+    ?DEBUG("acl_deny_due_to_invalid_jwt_exp:~p", [Exp]),
+    true.
 
 description() -> "Authentication with JWT".
+
+string_to_number(Bin) when is_binary(Bin) ->
+    string_to_number(Bin, fun erlang:binary_to_integer/1, fun erlang:binary_to_float/1);
+string_to_number(Str) when is_list(Str) ->
+    string_to_number(Str, fun erlang:list_to_integer/1, fun erlang:list_to_float/1);
+string_to_number(_) ->
+    false.
 
 %%------------------------------------------------------------------------------
 %% Verify Claims
@@ -133,3 +146,14 @@ match_topic(ClientInfo, AclTopic, Topic) ->
     TopicWords = emqx_topic:words(Topic),
     AclTopicRendered = emqx_access_rule:feed_var(ClientInfo, AclTopicWords),
     emqx_topic:match(TopicWords, AclTopicRendered).
+
+string_to_number(Str, IntFun, FloatFun) ->
+    try
+        {ok, IntFun(Str)}
+    catch _:_ ->
+        try
+            {ok, FloatFun(Str)}
+        catch _:_ ->
+            false
+        end
+    end.
