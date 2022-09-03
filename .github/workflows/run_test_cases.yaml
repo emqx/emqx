@@ -124,6 +124,8 @@ jobs:
             docker-compose \
                 -f .ci/docker-compose-file/docker-compose-mongo-single-tcp.yaml \
                 -f .ci/docker-compose-file/docker-compose-mongo-single-tls.yaml \
+                -f .ci/docker-compose-file/docker-compose-mongo-replicaset-tcp.yaml \
+                -f .ci/docker-compose-file/docker-compose-mongo-sharded-tcp.yaml \
                 -f .ci/docker-compose-file/docker-compose-mysql-tcp.yaml \
                 -f .ci/docker-compose-file/docker-compose-mysql-tls.yaml \
                 -f .ci/docker-compose-file/docker-compose-pgsql-tcp.yaml \
@@ -134,6 +136,11 @@ jobs:
                 -f .ci/docker-compose-file/docker-compose-redis-sentinel-tls.yaml \
                 -f .ci/docker-compose-file/docker-compose.yaml \
                 up -d --build
+
+        - name: wait some services to be fully up
+          run: |
+            docker wait mongosharded_client
+            docker wait mongo_rs_client
 
           # produces <app-name>.coverdata
         - name: run common test

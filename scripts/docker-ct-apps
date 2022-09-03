@@ -2,3 +2,4 @@
 apps/emqx_authn
 apps/emqx_authz
 apps/emqx_connector
+lib-ee/emqx_ee_bridge

@@ -41,12 +41,16 @@ api_schema(Method) ->
     hoconsc:union(Broker ++ EE).
 
 ee_api_schemas(Method) ->
+    %% must ensure the app is loaded before checking if fn is defined.
+    ensure_loaded(emqx_ee_bridge, emqx_ee_bridge),
     case erlang:function_exported(emqx_ee_bridge, api_schemas, 1) of
         true -> emqx_ee_bridge:api_schemas(Method);
         false -> []
     end.
 
 ee_fields_bridges() ->
+    %% must ensure the app is loaded before checking if fn is defined.
+    ensure_loaded(emqx_ee_bridge, emqx_ee_bridge),
     case erlang:function_exported(emqx_ee_bridge, fields, 1) of
         true -> emqx_ee_bridge:fields(bridges);
         false -> []
@@ -154,3 +158,17 @@ status() ->
 
 node_name() ->
     {"node", mk(binary(), #{desc => ?DESC("desc_node_name"), example => "emqx@127.0.0.1"})}.
+
+%%=================================================================================================
+%% Internal fns
+%%=================================================================================================
+
+ensure_loaded(App, Mod) ->
+    try
+        _ = application:load(App),
+        _ = Mod:module_info(),
+        ok
+    catch
+        _:_ ->
+            ok
+    end.
