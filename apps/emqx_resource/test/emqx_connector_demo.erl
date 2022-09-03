@@ -96,7 +96,7 @@ on_query(_InstId, {inc_counter, N}, #{pid := Pid}) ->
     Pid ! {From, {inc, N}},
     receive
         {ReqRef, ok} -> ok;
-        {ReqRef, incorrect_status} -> {recoverable_error, incorrect_status}
+        {ReqRef, incorrect_status} -> {error, {recoverable_error, incorrect_status}}
     after 1000 ->
         {error, timeout}
     end;

@@ -1,6 +1,6 @@
 -define(EMPTY_METRICS,
     ?METRICS(
-        0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0
+        0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0
     )
 ).
 
@@ -15,7 +15,6 @@
     Matched,
     Queued,
     Sent,
-    SentExcpt,
     SentFailed,
     SentInflight,
     SentSucc,
@@ -25,7 +24,7 @@
     Rcvd
 ),
     #{
-        'batched' => Batched,
+        'batching' => Batched,
         'dropped' => Dropped,
         'dropped.other' => DroppedOther,
         'dropped.queue_full' => DroppedQueueFull,
@@ -33,9 +32,8 @@
         'dropped.resource_not_found' => DroppedResourceNotFound,
         'dropped.resource_stopped' => DroppedResourceStopped,
         'matched' => Matched,
-        'queued' => Queued,
+        'queuing' => Queued,
         'sent' => Sent,
-        'sent.exception' => SentExcpt,
         'sent.failed' => SentFailed,
         'sent.inflight' => SentInflight,
         'sent.success' => SentSucc,
@@ -57,7 +55,6 @@
     Matched,
     Queued,
     Sent,
-    SentExcpt,
     SentFailed,
     SentInflight,
     SentSucc,
@@ -67,7 +64,7 @@
     Rcvd
 ),
     #{
-        'batched' := Batched,
+        'batching' := Batched,
         'dropped' := Dropped,
         'dropped.other' := DroppedOther,
         'dropped.queue_full' := DroppedQueueFull,
@@ -75,9 +72,8 @@
         'dropped.resource_not_found' := DroppedResourceNotFound,
         'dropped.resource_stopped' := DroppedResourceStopped,
         'matched' := Matched,
-        'queued' := Queued,
+        'queuing' := Queued,
         'sent' := Sent,
-        'sent.exception' := SentExcpt,
         'sent.failed' := SentFailed,
         'sent.inflight' := SentInflight,
         'sent.success' := SentSucc,

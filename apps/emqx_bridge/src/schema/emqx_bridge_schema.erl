@@ -102,7 +102,7 @@ fields(bridges) ->
     ] ++ ee_fields_bridges();
 fields("metrics") ->
     [
-        {"batched", mk(integer(), #{desc => ?DESC("metric_batched")})},
+        {"batching", mk(integer(), #{desc => ?DESC("metric_batching")})},
         {"dropped", mk(integer(), #{desc => ?DESC("metric_dropped")})},
         {"dropped.other", mk(integer(), #{desc => ?DESC("metric_dropped_other")})},
         {"dropped.queue_full", mk(integer(), #{desc => ?DESC("metric_dropped_queue_full")})},
@@ -113,9 +113,8 @@ fields("metrics") ->
         {"dropped.resource_stopped",
             mk(integer(), #{desc => ?DESC("metric_dropped_resource_stopped")})},
         {"matched", mk(integer(), #{desc => ?DESC("metric_matched")})},
-        {"queued", mk(integer(), #{desc => ?DESC("metric_queued")})},
+        {"queuing", mk(integer(), #{desc => ?DESC("metric_queuing")})},
         {"sent", mk(integer(), #{desc => ?DESC("metric_sent")})},
-        {"sent.exception", mk(integer(), #{desc => ?DESC("metric_sent_exception")})},
         {"sent.failed", mk(integer(), #{desc => ?DESC("metric_sent_failed")})},
         {"sent.inflight", mk(integer(), #{desc => ?DESC("metric_sent_inflight")})},
         {"sent.success", mk(integer(), #{desc => ?DESC("metric_sent_success")})},

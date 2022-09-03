@@ -61,7 +61,7 @@ values(post) ->
             enable_batch => false,
             batch_size => ?DEFAULT_BATCH_SIZE,
             batch_time => ?DEFAULT_BATCH_TIME,
-            query_mode => sync,
+            query_mode => async,
             enable_queue => false,
             max_queue_bytes => ?DEFAULT_QUEUE_SIZE
         }

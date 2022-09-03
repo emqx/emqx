@@ -31,7 +31,8 @@
     on_stop/2,
     on_query/3,
     on_query_async/4,
-    on_get_status/2
+    on_get_status/2,
+    reply_delegator/2
 ]).
 
 -type url() :: emqx_http_lib:uri_map().
@@ -46,7 +47,7 @@
     namespace/0
 ]).
 
--export([check_ssl_opts/2]).
+-export([check_ssl_opts/2, validate_method/1]).
 
 -type connect_timeout() :: emqx_schema:duration() | infinity.
 -type pool_type() :: random | hash.
@@ -137,8 +138,10 @@ fields(config) ->
 fields("request") ->
     [
         {method,
-            hoconsc:mk(hoconsc:enum([post, put, get, delete]), #{
-                required => false, desc => ?DESC("method")
+            hoconsc:mk(binary(), #{
+                required => false,
+                desc => ?DESC("method"),
+                validator => fun ?MODULE:validate_method/1
             })},
         {path, hoconsc:mk(binary(), #{required => false, desc => ?DESC("path")})},
         {body, hoconsc:mk(binary(), #{required => false, desc => ?DESC("body")})},
@@ -170,6 +173,17 @@ desc(_) ->
 
 validations() ->
     [{check_ssl_opts, fun check_ssl_opts/1}].
+
+validate_method(M) when M =:= <<"post">>; M =:= <<"put">>; M =:= <<"get">>; M =:= <<"delete">> ->
+    ok;
+validate_method(M) ->
+    case string:find(M, "${") of
+        nomatch ->
+            {error,
+                <<"Invalid method, should be one of 'post', 'put', 'get', 'delete' or variables in ${field} format.">>};
+        _ ->
+            ok
+    end.
 
 sc(Type, Meta) -> hoconsc:mk(Type, Meta).
 ref(Field) -> hoconsc:ref(?MODULE, Field).
@@ -286,13 +300,13 @@ on_query(
             Retry
         )
     of
-        {error, econnrefused} ->
+        {error, Reason} when Reason =:= econnrefused; Reason =:= timeout ->
             ?SLOG(warning, #{
                 msg => "http_connector_do_request_failed",
-                reason => econnrefused,
+                reason => Reason,
                 connector => InstId
             }),
-            {recoverable_error, econnrefused};
+            {error, {recoverable_error, Reason}};
         {error, Reason} = Result ->
             ?SLOG(error, #{
                 msg => "http_connector_do_request_failed",
@@ -365,7 +379,7 @@ on_query_async(
         Method,
         NRequest,
         Timeout,
-        ReplyFunAndArgs
+        {fun ?MODULE:reply_delegator/2, [ReplyFunAndArgs]}
     ).
 
 on_get_status(_InstId, #{pool_name := PoolName, connect_timeout := Timeout} = State) ->
@@ -521,3 +535,12 @@ bin(Str) when is_list(Str) ->
     list_to_binary(Str);
 bin(Atom) when is_atom(Atom) ->
     atom_to_binary(Atom, utf8).
+
+reply_delegator(ReplyFunAndArgs, Result) ->
+    case Result of
+        {error, Reason} when Reason =:= econnrefused; Reason =:= timeout ->
+            Result1 = {error, {recoverable_error, Reason}},
+            emqx_resource:apply_reply_fun(ReplyFunAndArgs, Result1);
+        _ ->
+            emqx_resource:apply_reply_fun(ReplyFunAndArgs, Result)
+    end.

@@ -510,7 +510,7 @@ nested_put(Alias, Val, Columns0) ->
 -define(IS_RES_DOWN(R), R == stopped; R == not_connected; R == not_found).
 inc_action_metrics(ok, RuleId) ->
     emqx_metrics_worker:inc(rule_metrics, RuleId, 'actions.success');
-inc_action_metrics({recoverable_error, _}, RuleId) ->
+inc_action_metrics({error, {recoverable_error, _}}, RuleId) ->
     emqx_metrics_worker:inc(rule_metrics, RuleId, 'actions.failed.out_of_service');
 inc_action_metrics(?RESOURCE_ERROR_M(R, _), RuleId) when ?IS_RES_DOWN(R) ->
     emqx_metrics_worker:inc(rule_metrics, RuleId, 'actions.failed.out_of_service');

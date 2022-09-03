@@ -110,7 +110,7 @@
     list_group_instances/1
 ]).
 
--export([inc_received/1]).
+-export([inc_received/1, apply_reply_fun/2]).
 
 -optional_callbacks([
     on_query/3,
@@ -440,6 +440,12 @@ check_and_do(ResourceType, RawConfig, Do) when is_function(Do) ->
         {ok, ResConf} -> Do(ResConf);
         Error -> Error
     end.
+
+apply_reply_fun({F, A}, Result) when is_function(F) ->
+    _ = erlang:apply(F, A ++ [Result]),
+    ok;
+apply_reply_fun(From, Result) ->
+    gen_server:reply(From, Result).
 
 %% =================================================================================
 

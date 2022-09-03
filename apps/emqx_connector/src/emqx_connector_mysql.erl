@@ -420,7 +420,7 @@ on_sql_query(
                 error,
                 LogMeta#{msg => "mysql_connector_do_sql_query_failed", reason => Reason}
             ),
-            {recoverable_error, Reason};
+            {error, {recoverable_error, Reason}};
         {error, Reason} ->
             ?SLOG(
                 error,
