@@ -80,7 +80,6 @@ static_checks:
 
 APPS=$(shell $(SCRIPTS)/find-apps.sh)
 
-## app/name-ct targets are intended for local tests hence cover is not enabled
 .PHONY: $(APPS:%=%-ct)
 define gen-app-ct-target
 $1-ct: $(REBAR)

@@ -12,7 +12,8 @@ parse_semver() {
     echo "$1" | tr '.|-' ' '
 }
 
-while read -r app; do
+APPS="$(./scripts/find-apps.sh)"
+for app in ${APPS}; do
     if [ "$app" != "emqx" ]; then
         app_path="$app"
     else
@@ -46,7 +47,7 @@ while read -r app; do
             bad_app_count=$(( bad_app_count + 1))
         fi
     fi
-done < <(./scripts/find-apps.sh)
+done
 
 if [ $bad_app_count -gt 0 ]; then
     exit 1
