@@ -440,6 +440,11 @@ call_hocon() {
         || die "call_hocon_failed: $*" $?
 }
 
+get_boot_config() {
+    path_to_value="$1"
+    echo -e "$EMQX_BOOT_CONFIGS" | grep "$path_to_value=" | sed -e "s/$path_to_value=//g" | tr -d \"
+}
+
 ## Resolve boot configs in a batch
 ## This is because starting the Erlang beam with all modules loaded
 ## and parsing HOCON config + environment variables is a non-trivial task
@@ -448,11 +453,20 @@ if [ "$IS_ENTERPRISE" = 'yes' ]; then
     CONF_KEYS+=( 'license.key' )
 fi
 
+get_configs() {
+    CONFIGS="$(call_hocon -s "$SCHEMA_MOD" -c "$EMQX_ETC_DIR"/emqx.conf multi_get "${CONF_KEYS[@]}")"
+    NODE_DATA_DIR=$(echo -e "$CONFIGS" | grep 'node.data_dir=' | sed -e "s/node.data_dir=//g" | tr -d \")
+    CLUSTER_OVERRIDE_CONF_FILE="$NODE_DATA_DIR/configs/cluster-override.conf"
+    LOCAL_OVERRIDE_CONF_FILE="$NODE_DATA_DIR/configs/local-override.conf"
+    if [ -s "$CLUSTER_OVERRIDE_CONF_FILE" ] || [ -s "$LOCAL_OVERRIDE_CONF_FILE" ]; then
+       CONFIGS="$(call_hocon -s "$SCHEMA_MOD" -c "$EMQX_ETC_DIR"/emqx.conf multi_get -c "$CLUSTER_OVERRIDE_CONF_FILE" -c "$LOCAL_OVERRIDE_CONF_FILE" "${CONF_KEYS[@]}")"
+    fi
+    echo "$CONFIGS"
+}
+
 if [ "$IS_BOOT_COMMAND" = 'yes' ]; then
     if [ "${EMQX_BOOT_CONFIGS:-}" = '' ]; then
-        EMQX_BOOT_CONFIGS="$(call_hocon -s "$SCHEMA_MOD" -c "$EMQX_ETC_DIR"/emqx.conf multi_get "${CONF_KEYS[@]}")"
-        ## export here so the 'console' command recursively called from
-        ## 'start' command does not have to parse the configs again
+        EMQX_BOOT_CONFIGS="$(get_configs)"
         export EMQX_BOOT_CONFIGS
     fi
 else
@@ -476,14 +490,9 @@ else
         fi
     else
         ## None or more than one node is running, resolve from boot config
-        EMQX_BOOT_CONFIGS="$(call_hocon -s "$SCHEMA_MOD" -c "$EMQX_ETC_DIR"/emqx.conf multi_get "${CONF_KEYS[@]}")"
+        EMQX_BOOT_CONFIGS="$(get_configs)"
     fi
 fi
-
-get_boot_config() {
-    path_to_value="$1"
-    echo -e "$EMQX_BOOT_CONFIGS" | grep "$path_to_value=" | sed -e "s/$path_to_value=//g" | tr -d \"
-}
 
 EPMD_ARGS="-start_epmd false -epmd_module ekka_epmd -proto_dist ekka"
 PROTO_DIST="$(get_boot_config 'cluster.proto_dist' || true)"
@@ -573,9 +582,7 @@ generate_config() {
 
     ## this command populates two files: app.<time>.config and vm.<time>.args
     ## NOTE: the generate command merges environment variables to the base config (emqx.conf),
-    ## but does not include the cluster-override.conf and local-override.conf
-    ## meaning, certain overrides will not be mapped to app.<time>.config file
-    call_hocon -v -t "$NOW_TIME" -s "$SCHEMA_MOD" -c "$EMQX_ETC_DIR"/emqx.conf -d "$DATA_DIR"/configs generate
+    call_hocon -v -t "$NOW_TIME" -s "$SCHEMA_MOD" -c "$EMQX_ETC_DIR"/emqx.conf -c "$DATA_DIR"/configs/cluster-override.conf -c "$DATA_DIR"/configs/local-override.conf -d "$DATA_DIR"/configs generate
 
     ## filenames are per-hocon convention
     CONF_FILE="$CONFIGS_DIR/app.$NOW_TIME.config"
