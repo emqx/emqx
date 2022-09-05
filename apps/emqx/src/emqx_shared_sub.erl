@@ -38,7 +38,8 @@
 
 -export([
     dispatch/3,
-    dispatch/4
+    dispatch/4,
+    do_dispatch_with_ack/4
 ]).
 
 -export([
@@ -170,30 +171,31 @@ do_dispatch(SubPid, _Group, Topic, Msg, _Type) when SubPid =:= self() ->
 %% return either 'ok' (when everything is fine) or 'error'
 do_dispatch(SubPid, _Group, Topic, #message{qos = ?QOS_0} = Msg, _Type) ->
     %% For QoS 0 message, send it as regular dispatch
-    SubPid ! {deliver, Topic, Msg},
-    ok;
+    send(SubPid, Topic, {deliver, Topic, Msg});
 do_dispatch(SubPid, _Group, Topic, Msg, retry) ->
     %% Retry implies all subscribers nack:ed, send again without ack
-    SubPid ! {deliver, Topic, Msg},
-    ok;
+    send(SubPid, Topic, {deliver, Topic, Msg});
 do_dispatch(SubPid, Group, Topic, Msg, fresh) ->
     case ack_enabled() of
         true ->
-            dispatch_with_ack(SubPid, Group, Topic, Msg);
+            %% FIXME: replace with `emqx_shared_sub_proto:dispatch_with_ack' in 5.2
+            do_dispatch_with_ack(SubPid, Group, Topic, Msg);
         false ->
-            SubPid ! {deliver, Topic, Msg},
-            ok
+            send(SubPid, Topic, {deliver, Topic, Msg})
     end.
 
-dispatch_with_ack(SubPid, Group, Topic, Msg) ->
+-spec do_dispatch_with_ack(pid(), emqx_types:group(), emqx_types:topic(), emqx_types:message()) ->
+    ok | {error, _}.
+do_dispatch_with_ack(SubPid, Group, Topic, Msg) ->
     %% For QoS 1/2 message, expect an ack
     Ref = erlang:monitor(process, SubPid),
     Sender = self(),
-    SubPid ! {deliver, Topic, with_group_ack(Msg, Group, Sender, Ref)},
+    %% FIXME: replace with regular send in 5.2
+    send(SubPid, Topic, {deliver, Topic, with_group_ack(Msg, Group, Sender, Ref)}),
     Timeout =
         case Msg#message.qos of
-            ?QOS_1 -> timer:seconds(?SHARED_SUB_QOS1_DISPATCH_TIMEOUT_SECONDS);
-            ?QOS_2 -> infinity
+            ?QOS_2 -> infinity;
+            _ -> timer:seconds(?SHARED_SUB_QOS1_DISPATCH_TIMEOUT_SECONDS)
         end,
     try
         receive
@@ -411,6 +413,17 @@ code_change(_OldVsn, State, _Extra) ->
 %%--------------------------------------------------------------------
 %% Internal functions
 %%--------------------------------------------------------------------
+
+send(Pid, Topic, Msg) ->
+    Node = node(Pid),
+    _ =
+        case Node =:= node() of
+            true ->
+                Pid ! Msg;
+            false ->
+                emqx_shared_sub_proto_v1:send(Node, Pid, Topic, Msg)
+        end,
+    ok.
 
 maybe_insert_round_robin_count({Group, _Topic} = GroupTopic) ->
     strategy(Group) =:= round_robin_per_group andalso
