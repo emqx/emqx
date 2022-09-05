@@ -19,6 +19,7 @@
 -include("emqx_mgmt.hrl").
 -elvis([{elvis_style, invalid_dynamic_call, disable}]).
 -elvis([{elvis_style, god_modules, disable}]).
+-dialyzer({nowarn_function, edition/0}).
 
 -include_lib("stdlib/include/qlc.hrl").
 -include_lib("emqx/include/emqx.hrl").
