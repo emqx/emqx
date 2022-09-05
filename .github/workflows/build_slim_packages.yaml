@@ -141,7 +141,7 @@ jobs:
     - name: prepare
       run: |
         brew update
-        brew install curl zip unzip kerl coreutils
+        brew install curl zip unzip kerl coreutils openssl@1.1
         echo "/usr/local/opt/bison/bin" >> $GITHUB_PATH
         echo "/usr/local/bin" >> $GITHUB_PATH
         echo "EMQX_NAME=${{ matrix.profile }}" >> $GITHUB_ENV
@@ -150,13 +150,14 @@ jobs:
       id: cache
       with:
         path: ~/.kerl/${{ matrix.otp }}
-        key: otp-install-${{ matrix.otp }}-${{ matrix.macos }}
+        key: otp-install-${{ matrix.otp }}-${{ matrix.macos }}-static-ssl-disable-hipe-disable-jit
     - name: build erlang
       if: steps.cache.outputs.cache-hit != 'true'
       timeout-minutes: 60
       env:
         KERL_BUILD_BACKEND: git
         OTP_GITHUB_URL: https://github.com/emqx/otp
+        KERL_CONFIGURE_OPTIONS: --disable-dynamic-ssl-lib --with-ssl=/usr/local/opt/openssl@1.1 --disable-hipe --disable-jit
       run: |
         kerl update releases
         kerl build ${{ matrix.otp }}
@@ -164,6 +165,13 @@ jobs:
     - name: build ${{ matrix.profile }}
       env:
         AUTO_INSTALL_BUILD_DEPS: 1
+        APPLE_SIGN_BINARIES: 1
+        APPLE_ID: developers@emqx.io
+        APPLE_TEAM_ID: 26N6HYJLZA
+        APPLE_ID_PASSWORD: ${{ secrets.APPLE_ID_PASSWORD }}
+        APPLE_DEVELOPER_IDENTITY: ${{ secrets.APPLE_DEVELOPER_IDENTITY }}
+        APPLE_DEVELOPER_ID_BUNDLE: ${{ secrets.APPLE_DEVELOPER_ID_BUNDLE }}
+        APPLE_DEVELOPER_ID_BUNDLE_PASSWORD: ${{ secrets.APPLE_DEVELOPER_ID_BUNDLE_PASSWORD }}
       run: |
         . $HOME/.kerl/${{ matrix.otp }}/activate
         make ensure-rebar3
@@ -171,9 +179,9 @@ jobs:
         make ${{ matrix.profile }}-tgz
     - name: test
       run: |
-        pkg_name=$(find _packages/${{ matrix.profile }} -mindepth 1 -maxdepth 1 -iname \*.tar.gz)
-        mkdir -p emqx
-        tar -C emqx -zxf $pkg_name
+        pkg_name=$(find _packages/${{ matrix.profile }} -mindepth 1 -maxdepth 1 -iname \*.zip)
+        mkdir emqx
+        unzip -d emqx $pkg_name > /dev/null
         # gsed -i '/emqx_telemetry/d' ./emqx/data/loaded_plugins
         ./emqx/bin/emqx start || cat emqx/log/erlang.log.1
         ready='no'

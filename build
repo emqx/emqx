@@ -225,7 +225,16 @@ make_tgz() {
       local relpath="_build/${PROFILE}/rel/emqx"
       full_vsn="$(./pkg-vsn.sh "$PROFILE" --long)"
     fi
-    target_name="${PROFILE}-${full_vsn}.tar.gz"
+
+    case "$SYSTEM" in
+        macos*)
+            target_name="${PROFILE}-${full_vsn}.zip"
+            ;;
+        *)
+            target_name="${PROFILE}-${full_vsn}.tar.gz"
+            ;;
+    esac
+
     target="${pkgpath}/${target_name}"
 
     src_tarball="${relpath}/emqx-${PKG_VSN}.tar.gz"
@@ -242,23 +251,44 @@ make_tgz() {
     ## try to be portable for tar.gz packages.
     ## for DEB and RPM packages the dependencies are resoved by yum and apt
     cp_dyn_libs "${tard}/emqx"
-    ## create tar after change dir
-    ## to avoid creating an extra level of 'emqx' dir in the .tar.gz file
-    pushd "${tard}/emqx" >/dev/null
-    $TAR -zcf "../${target_name}" -- *
-    popd >/dev/null
-    mv "${tard}/${target_name}" "${target}"
     case "$SYSTEM" in
         macos*)
+            if [ "${APPLE_SIGN_BINARIES:-0}" = 1 ]; then
+                ./scripts/macos-sign-binaries.sh "${tard}/emqx"
+            fi
+            ## create zip after change dir
+            ## to avoid creating an extra level of 'emqx' dir in the .zip file
+            pushd "${tard}/emqx" >/dev/null
+            zip -r "../${target_name}" -- *
+            popd >/dev/null
+            mv "${tard}/${target_name}" "${target}"
+            if [ "${APPLE_SIGN_BINARIES:-0}" = 1 ]; then
+                # notarize the package
+                # if fails, check what went wrong with this command:
+                    # xcrun notarytool log --apple-id <apple id> \
+                    #   --apple-id <apple id> \
+                    #   --password <apple id password>
+                    #   --team-id <apple team id> <submission-id>
+                xcrun notarytool submit \
+                      --apple-id "${APPLE_ID}" \
+                      --password "${APPLE_ID_PASSWORD}" \
+                      --team-id "${APPLE_TEAM_ID}" "${target}" --wait
+            fi
             # sha256sum may not be available on macos
             openssl dgst -sha256 "${target}" | cut -d ' ' -f 2  > "${target}.sha256"
             ;;
         *)
+            ## create tar after change dir
+            ## to avoid creating an extra level of 'emqx' dir in the .tar.gz file
+            pushd "${tard}/emqx" >/dev/null
+            $TAR -zcf "../${target_name}" -- *
+            popd >/dev/null
+            mv "${tard}/${target_name}" "${target}"
             sha256sum "${target}" | head -c 64 > "${target}.sha256"
             ;;
     esac
-    log "Tarball successfully repacked: ${target}"
-    log "Tarball sha256sum: $(cat "${target}.sha256")"
+    log "Archive successfully repacked: ${target}"
+    log "Archive sha256sum: $(cat "${target}.sha256")"
 }
 
 ## This function builds the default docker image based on debian 11
