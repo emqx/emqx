@@ -1156,19 +1156,33 @@ interval(will_timer, #channel{will_msg = WillMsg}) ->
 %%--------------------------------------------------------------------
 
 -spec(terminate(any(), channel()) -> ok).
-terminate(_, #channel{conn_state = idle}) -> ok;
+terminate(_Reason, #channel{conn_state = idle} = _Channel) ->
+    ?tp(channel_terminated, #{channel => _Channel, reason => _Reason}),
+    ok;
 terminate(normal, Channel) ->
     run_terminate_hook(normal, Channel);
-terminate({shutdown, Reason}, Channel)
-  when Reason =:= kicked; Reason =:= discarded; Reason =:= takeovered ->
-    run_terminate_hook(Reason, Channel);
 terminate(Reason, Channel = #channel{will_msg = WillMsg}) ->
-    (WillMsg =/= undefined) andalso publish_will_msg(WillMsg),
+    should_publish_will_message(Reason, Channel)
+        andalso publish_will_msg(WillMsg),
     run_terminate_hook(Reason, Channel).
 
-run_terminate_hook(_Reason, #channel{session = undefined}) -> ok;
-run_terminate_hook(Reason, #channel{clientinfo = ClientInfo, session = Session}) ->
+run_terminate_hook(_Reason, #channel{session = undefined} = _Channel) ->
+    ?tp(channel_terminated, #{channel => _Channel, reason => _Reason}),
+    ok;
+run_terminate_hook(Reason, #channel{clientinfo = ClientInfo, session = Session} = _Channel) ->
+    ?tp(channel_terminated, #{channel => _Channel, reason => Reason}),
     emqx_session:terminate(ClientInfo, Reason, Session).
+
+should_publish_will_message(TerminateReason, Channel) ->
+    not lists:member(TerminateReason, [ {shutdown, kicked}
+                                      , {shutdown, discarded}
+                                      , {shutdown, takeovered}
+                                      , {shutdown, not_authorized}
+                                      ])
+        andalso not lists:member(info(conn_state, Channel), [ idle
+                                                            , connecting
+                                                            ])
+        andalso info(will_msg, Channel) =/= undefined.
 
 %%--------------------------------------------------------------------
 %% Internal functions
