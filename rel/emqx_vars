@@ -10,6 +10,8 @@ RUNNER_BIN_DIR="{{ runner_bin_dir }}"
 RUNNER_LIB_DIR="{{ runner_lib_dir }}"
 IS_ELIXIR="${IS_ELIXIR:-{{ is_elixir }}}"
 
+## Allow users to pre-set `RUNNER_LOG_DIR` because it only affects boot commands like `start` and `console`,
+## but not other commands such as `ping` and `ctl`.
 if [ -z "${RUNNER_LOG_DIR:-}" ]; then
     RUNNER_LOG_DIR="{{ runner_log_dir }}"
 fi
