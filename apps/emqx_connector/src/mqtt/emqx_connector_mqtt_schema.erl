@@ -87,7 +87,6 @@ fields("connector") ->
             sc(
                 binary(),
                 #{
-                    default => "emqx",
                     desc => ?DESC("username")
                 }
             )},
@@ -95,7 +94,6 @@ fields("connector") ->
             sc(
                 binary(),
                 #{
-                    default => "emqx",
                     desc => ?DESC("password")
                 }
             )},
@@ -226,7 +224,7 @@ fields("egress") ->
             sc(
                 binary(),
                 #{
-                    required => true,
+                    default => <<"${payload}">>,
                     desc => ?DESC("payload")
                 }
             )}

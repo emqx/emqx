@@ -16,6 +16,7 @@
 * Remove `will_msg` (not used) field from the client API. [#8721](https://github.com/emqx/emqx/pull/8721)
 * Fix `$queue` topic name error in management API return. [#8728](https://github.com/emqx/emqx/pull/8728)
 * Fix race condition which may cause `client.connected` and `client.disconnected` out of order. [#8625](https://github.com/emqx/emqx/pull/8625)
+* Fix quic listener default idle timeout's type. [#8826](https://github.com/emqx/emqx/pull/8826)
 
 ## Enhancements
 
@@ -37,6 +38,7 @@
 
 ## Enhancements
 
+* Add `bootstrap_users_file` configuration to add default Dashboard username list, which is only added when EMQX is first started.
 * The license is now copied to all nodes in the cluster when it's reloaded. [#8598](https://github.com/emqx/emqx/pull/8598)
 * Added a HTTP API to manage licenses. [#8610](https://github.com/emqx/emqx/pull/8610)
 * Updated `/nodes` API node_status from `Running/Stopped` to `running/stopped`. [#8642](https://github.com/emqx/emqx/pull/8642)
