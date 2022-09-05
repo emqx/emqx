@@ -7,7 +7,8 @@
 
 ## Enhancements
 
-* change the `/gateway` API path to plural form. [#8823](https://github.com/emqx/emqx/pull/8823)
+* Change the `/gateway` API path to plural form. [#8823](https://github.com/emqx/emqx/pull/8823)
+* Remove `node.etc_dir` from emqx.conf. [#8892](https://github.com/emqx/emqx/pull/8892)
 
 # 5.0.7
 
