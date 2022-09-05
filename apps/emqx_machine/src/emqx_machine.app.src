@@ -3,7 +3,7 @@
     {id, "emqx_machine"},
     {description, "The EMQX Machine"},
     % strict semver, bump manually!
-    {vsn, "0.1.0"},
+    {vsn, "0.1.1"},
     {modules, []},
     {registered, []},
     {applications, [kernel, stdlib]},

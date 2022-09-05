@@ -558,5 +558,5 @@ table_size(Tab) -> ets:info(Tab, size).
 edition() ->
     case emqx_release:edition() of
         ee -> <<"enterprise">>;
-        ce -> <<"community">>
+        ce -> <<"opensource">>
     end.

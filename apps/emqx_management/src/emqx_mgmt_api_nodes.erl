@@ -219,8 +219,8 @@ fields(node_info) ->
             )},
         {edition,
             mk(
-                enum([community, enterprise]),
-                #{desc => <<"Release edition">>, example => "community"}
+                enum([opensource, enterprise]),
+                #{desc => <<"Release edition">>, example => "opensource"}
             )},
         {sys_path,
             mk(

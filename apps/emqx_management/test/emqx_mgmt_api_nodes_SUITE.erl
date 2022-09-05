@@ -60,7 +60,7 @@ t_nodes_api(_) ->
     Edition = maps:get(<<"edition">>, LocalNodeInfo),
     case emqx_release:edition() of
         ee -> ?assertEqual(<<"enterprise">>, Edition);
-        ce -> ?assertEqual(<<"community">>, Edition)
+        ce -> ?assertEqual(<<"opensource">>, Edition)
     end,
 
     NodePath = emqx_mgmt_api_test_util:api_path(["nodes", atom_to_list(node())]),
