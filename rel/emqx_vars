@@ -13,8 +13,6 @@ IS_ELIXIR="${IS_ELIXIR:-{{ is_elixir }}}"
 ## Allow users to pre-set `RUNNER_LOG_DIR` because it only affects boot commands like `start` and `console`,
 ## but not other commands such as `ping` and `ctl`.
 RUNNER_LOG_DIR="${RUNNER_LOG_DIR:-{{ runner_log_dir }}}"
-    RUNNER_LOG_DIR="{{ runner_log_dir }}"
-fi
 
 EMQX_ETC_DIR="{{ emqx_etc_dir }}"
 RUNNER_USER="{{ runner_user }}"
