@@ -567,6 +567,59 @@ t_local(_) ->
     ?assertNotEqual(UsedSubPid1, UsedSubPid2),
     ok.
 
+t_remote(_) ->
+    %% This testcase verifies dispatching of shared messages to the remote nodes via backplane API.
+    %%
+    %% In this testcase we start two EMQX nodes: local and remote.
+    %% A subscriber connects to the remote node.
+    %% A publisher connects to the local node and sends three messages with different QoS.
+    %% The test verifies that the remote side received all three messages.
+    ok = ensure_config(sticky, true),
+    GroupConfig = #{
+        <<"local_group">> => local,
+        <<"round_robin_group">> => round_robin,
+        <<"sticky_group">> => sticky
+    },
+
+    Node = start_slave('remote_shared_sub_testtesttest', 21999),
+    ok = ensure_group_config(GroupConfig),
+    ok = ensure_group_config(Node, GroupConfig),
+
+    Topic = <<"foo/bar">>,
+    ClientIdLocal = <<"ClientId1">>,
+    ClientIdRemote = <<"ClientId2">>,
+
+    {ok, ConnPidLocal} = emqtt:start_link([{clientid, ClientIdLocal}]),
+    {ok, ConnPidRemote} = emqtt:start_link([{clientid, ClientIdRemote}, {port, 21999}]),
+
+    try
+        {ok, ClientPidLocal} = emqtt:connect(ConnPidLocal),
+        {ok, ClientPidRemote} = emqtt:connect(ConnPidRemote),
+
+        emqtt:subscribe(ConnPidRemote, {<<"$share/remote_group/", Topic/binary>>, 0}),
+
+        ct:sleep(100),
+
+        Message1 = emqx_message:make(ClientPidLocal, 0, Topic, <<"hello1">>),
+        Message2 = emqx_message:make(ClientPidLocal, 1, Topic, <<"hello2">>),
+        Message3 = emqx_message:make(ClientPidLocal, 2, Topic, <<"hello3">>),
+
+        emqx:publish(Message1),
+        {true, UsedSubPid1} = last_message(<<"hello1">>, [ConnPidRemote]),
+
+        emqx:publish(Message2),
+        {true, UsedSubPid1} = last_message(<<"hello2">>, [ConnPidRemote]),
+
+        emqx:publish(Message3),
+        {true, UsedSubPid1} = last_message(<<"hello3">>, [ConnPidRemote]),
+
+        ok
+    after
+        emqtt:stop(ConnPidLocal),
+        emqtt:stop(ConnPidRemote),
+        stop_slave(Node)
+    end.
+
 t_local_fallback(_) ->
     ok = ensure_group_config(#{
         <<"local_group">> => local,
