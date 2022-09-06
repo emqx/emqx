@@ -72,7 +72,7 @@
 -define(TIMEOUT, timer:minutes(1)).
 -define(APPLY_KIND_REPLICATE, replicate).
 -define(APPLY_KIND_INITIATE, initiate).
--define(IS_ACTION(_A_), (_A_ =:= peers_lagging orelse _A_ =:= stopped_nodes)).
+-define(IS_STATUS(_A_), (_A_ =:= peers_lagging orelse _A_ =:= stopped_nodes)).
 
 -type tnx_id() :: pos_integer().
 
@@ -130,7 +130,7 @@ start_link(Node, Name, RetryMs) ->
 %% returning the result.
 %%
 %% In case of partial success, an `error' level log is emitted
-%% but the initial locally apply result is returned.
+%% but the initial local apply result is returned.
 -spec multicall(module(), atom(), list()) -> term().
 multicall(M, F, A) ->
     multicall(M, F, A, all, timer:minutes(2)).
@@ -142,11 +142,11 @@ multicall(M, F, A, RequiredSyncs, Timeout) when RequiredSyncs =:= all orelse Req
             Result;
         {init_failure, Error} ->
             Error;
-        {Action, TnxId, Res, Nodes} when ?IS_ACTION(Action) ->
+        {Status, TnxId, Res, Nodes} when ?IS_STATUS(Status) ->
             %% The init MFA return ok, but some other nodes failed.
             ?SLOG(error, #{
                 msg => "cluster_rpc_peers_lagging",
-                action => Action,
+                status=> Status,
                 nodes => Nodes,
                 tnx_id => TnxId
             }),
@@ -195,9 +195,9 @@ do_multicall(M, F, A, RequiredSyncs, Timeout) ->
             InitRes;
         {init_failure, Error0} ->
             {init_failure, Error0};
-        {Action, Nodes} when ?IS_ACTION(Action) ->
+        {Status, Nodes} when ?IS_STATUS(Status) ->
             {ok, TnxId0, MFARes} = InitRes,
-            {Action, TnxId0, MFARes, Nodes}
+            {Status, TnxId0, MFARes, Nodes}
     end.
 
 -spec query(pos_integer()) -> {'atomic', map()} | {'aborted', Reason :: term()}.
