@@ -1,3 +1,4 @@
+%% -*- mode: erlang; -*-
 [ %% Check undefined_function_calls
   #{ name => undefined_function_calls
    , analysis => undefined_function_calls
