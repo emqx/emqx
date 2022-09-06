@@ -18,6 +18,7 @@
 
 -export([
     edition/0,
+    edition_longstr/0,
     description/0,
     version/0
 ]).
@@ -44,8 +45,12 @@ description() ->
 -spec edition() -> ce | ee.
 -ifdef(EMQX_RELEASE_EDITION).
 edition() -> ?EMQX_RELEASE_EDITION.
+
+edition_longstr() -> <<"Enterprise">>.
 -else.
 edition() -> ce.
+
+edition_longstr() -> <<"Opensource">>.
 -endif.
 
 %% @doc Return the release version.

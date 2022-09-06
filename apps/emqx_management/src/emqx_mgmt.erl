@@ -19,7 +19,6 @@
 -include("emqx_mgmt.hrl").
 -elvis([{elvis_style, invalid_dynamic_call, disable}]).
 -elvis([{elvis_style, god_modules, disable}]).
--dialyzer({nowarn_function, edition/0}).
 
 -include_lib("stdlib/include/qlc.hrl").
 -include_lib("emqx/include/emqx.hrl").
@@ -142,7 +141,7 @@ node_info() ->
         node_status => 'running',
         uptime => proplists:get_value(uptime, BrokerInfo),
         version => iolist_to_binary(proplists:get_value(version, BrokerInfo)),
-        edition => edition(),
+        edition => emqx_release:edition_longstr(),
         role => mria_rlog:role()
     }.
 
@@ -555,9 +554,3 @@ max_row_limit() ->
     ?MAX_ROW_LIMIT.
 
 table_size(Tab) -> ets:info(Tab, size).
-
-edition() ->
-    case emqx_release:edition() of
-        ee -> <<"enterprise">>;
-        ce -> <<"opensource">>
-    end.

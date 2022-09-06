@@ -58,10 +58,7 @@ t_nodes_api(_) ->
     Node = binary_to_atom(maps:get(<<"node">>, LocalNodeInfo), utf8),
     ?assertEqual(Node, node()),
     Edition = maps:get(<<"edition">>, LocalNodeInfo),
-    case emqx_release:edition() of
-        ee -> ?assertEqual(<<"enterprise">>, Edition);
-        ce -> ?assertEqual(<<"opensource">>, Edition)
-    end,
+    ?assertEqual(emqx_release:edition_longstr(), Edition),
 
     NodePath = emqx_mgmt_api_test_util:api_path(["nodes", atom_to_list(node())]),
     {ok, NodeInfo} = emqx_mgmt_api_test_util:request_api(get, NodePath),
