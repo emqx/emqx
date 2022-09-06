@@ -263,3 +263,5 @@ hstreamdb
 SASL
 GSSAPI
 keytab
+jq
+nif
