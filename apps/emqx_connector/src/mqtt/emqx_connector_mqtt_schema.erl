@@ -55,7 +55,7 @@ fields("connector") ->
             )},
         {server,
             sc(
-                emqx_schema:ip_port(),
+                emqx_schema:host_port(),
                 #{
                     required => true,
                     desc => ?DESC("server")

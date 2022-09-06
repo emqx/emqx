@@ -594,7 +594,7 @@ t_remote(_) ->
 
     try
         {ok, ClientPidLocal} = emqtt:connect(ConnPidLocal),
-        {ok, ClientPidRemote} = emqtt:connect(ConnPidRemote),
+        {ok, _ClientPidRemote} = emqtt:connect(ConnPidRemote),
 
         emqtt:subscribe(ConnPidRemote, {<<"$share/remote_group/", Topic/binary>>, 0}),
 
