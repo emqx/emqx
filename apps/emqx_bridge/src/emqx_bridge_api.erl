@@ -331,6 +331,7 @@ schema("/bridges/:id") ->
             responses => #{
                 204 => <<"Bridge deleted">>,
                 400 => error_schema(['INVALID_ID'], "Update bridge failed"),
+                403 => error_schema('FORBIDDEN_REQUEST', "forbidden operation"),
                 503 => error_schema('SERVICE_UNAVAILABLE', "Service unavailable")
             }
         }
@@ -424,13 +425,28 @@ schema("/nodes/:node/bridges/:id/operation/:operation") ->
                 {404, error_msg('NOT_FOUND', <<"bridge not found">>)}
         end
     );
-'/bridges/:id'(delete, #{bindings := #{id := Id}}) ->
+'/bridges/:id'(delete, #{bindings := #{id := Id}, query_string := Qs}) ->
+    AlsoDeleteActs =
+        case maps:get(<<"also_delete_dep_actions">>, Qs, <<"false">>) of
+            <<"true">> -> true;
+            true -> true;
+            _ -> false
+        end,
     ?TRY_PARSE_ID(
         Id,
-        case emqx_bridge:remove(BridgeType, BridgeName) of
-            {ok, _} -> {204};
-            {error, timeout} -> {503, error_msg('SERVICE_UNAVAILABLE', <<"request timeout">>)};
-            {error, Reason} -> {500, error_msg('INTERNAL_ERROR', Reason)}
+        case emqx_bridge:check_deps_and_remove(BridgeType, BridgeName, AlsoDeleteActs) of
+            {ok, _} ->
+                204;
+            {error, {rules_deps_on_this_bridge, RuleIds}} ->
+                {403,
+                    error_msg(
+                        'FORBIDDEN_REQUEST',
+                        {<<"There're some rules dependent on this bridge">>, RuleIds}
+                    )};
+            {error, timeout} ->
+                {503, error_msg('SERVICE_UNAVAILABLE', <<"request timeout">>)};
+            {error, Reason} ->
+                {500, error_msg('INTERNAL_ERROR', Reason)}
         end
     ).
 

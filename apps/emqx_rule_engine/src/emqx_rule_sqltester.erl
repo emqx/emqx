@@ -19,7 +19,6 @@
 
 -export([
     test/1,
-    echo_action/2,
     get_selected_data/3
 ]).
 
@@ -70,7 +69,8 @@ test_rule(Sql, Select, Context, EventTopics) ->
         ok = emqx_rule_engine:clear_metrics_for_rule(RuleId)
     end.
 
-get_selected_data(Selected, _Envs, _Args) ->
+get_selected_data(Selected, Envs, Args) ->
+    ?TRACE("RULE", "testing_rule_sql_ok", #{selected => Selected, envs => Envs, args => Args}),
     {ok, Selected}.
 
 is_publish_topic(<<"$events/", _/binary>>) -> false;
@@ -83,10 +83,6 @@ flatten([{ok, D}]) ->
     D;
 flatten([D | L]) when is_list(D) ->
     [D0 || {ok, D0} <- D] ++ flatten(L).
-
-echo_action(Data, Envs) ->
-    ?TRACE("RULE", "testing_rule_sql_ok", #{data => Data, envs => Envs}),
-    {ok, Data}.
 
 fill_default_values(Event, Context) ->
     maps:merge(envs_examp(Event), Context).

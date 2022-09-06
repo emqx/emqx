@@ -52,7 +52,9 @@ groups() ->
             t_create_existing_rule,
             t_get_rules_for_topic,
             t_get_rules_for_topic_2,
-            t_get_rules_with_same_event
+            t_get_rules_with_same_event,
+            t_get_rule_ids_by_action,
+            t_ensure_action_removed
         ]},
         {runtime, [], [
             t_match_atom_and_binary,
@@ -430,6 +432,105 @@ t_get_rules_with_same_event(_Config) ->
         <<"r10">>
     ]),
     ok.
+
+t_get_rule_ids_by_action(_) ->
+    ID = <<"t_get_rule_ids_by_action">>,
+    Rule1 = #{
+        enable => false,
+        id => ID,
+        sql => <<"SELECT * FROM \"t\"">>,
+        from => [<<"t">>],
+        fields => [<<"*">>],
+        is_foreach => false,
+        conditions => {},
+        actions => [
+            #{mod => emqx_rule_actions, func => console, args => #{}},
+            #{mod => emqx_rule_actions, func => republish, args => #{}},
+            <<"mqtt:my_mqtt_bridge">>,
+            <<"mysql:foo">>
+        ],
+        description => ID,
+        created_at => erlang:system_time(millisecond)
+    },
+    ok = insert_rules([Rule1]),
+    ?assertMatch(
+        [ID],
+        emqx_rule_engine:get_rule_ids_by_action(#{function => <<"emqx_rule_actions:console">>})
+    ),
+    ?assertMatch(
+        [ID],
+        emqx_rule_engine:get_rule_ids_by_action(#{function => <<"emqx_rule_actions:republish">>})
+    ),
+    ?assertEqual([], emqx_rule_engine:get_rule_ids_by_action(#{function => <<"some_mod:fun">>})),
+    ?assertMatch([ID], emqx_rule_engine:get_rule_ids_by_action(<<"mysql:foo">>)),
+    ?assertEqual([], emqx_rule_engine:get_rule_ids_by_action(<<"mysql:not_exists">>)),
+    ok = delete_rules_by_ids([<<"t_get_rule_ids_by_action">>]).
+
+t_ensure_action_removed(_) ->
+    Id = <<"t_ensure_action_removed">>,
+    GetSelectedData = <<"emqx_rule_sqltester:get_selected_data">>,
+    emqx:update_config(
+        [rule_engine, rules],
+        #{
+            Id => #{
+                <<"actions">> => [
+                    #{<<"function">> => GetSelectedData},
+                    #{<<"function">> => <<"console">>},
+                    #{<<"function">> => <<"republish">>},
+                    <<"mysql:foo">>,
+                    <<"mqtt:bar">>
+                ],
+                <<"description">> => <<"">>,
+                <<"sql">> => <<"SELECT * FROM \"t/#\"">>
+            }
+        }
+    ),
+    ?assertMatch(
+        #{
+            <<"actions">> := [
+                #{<<"function">> := GetSelectedData},
+                #{<<"function">> := <<"console">>},
+                #{<<"function">> := <<"republish">>},
+                <<"mysql:foo">>,
+                <<"mqtt:bar">>
+            ]
+        },
+        emqx:get_raw_config([rule_engine, rules, Id])
+    ),
+    ok = emqx_rule_engine:ensure_action_removed(Id, #{function => <<"console">>}),
+    ?assertMatch(
+        #{
+            <<"actions">> := [
+                #{<<"function">> := GetSelectedData},
+                #{<<"function">> := <<"republish">>},
+                <<"mysql:foo">>,
+                <<"mqtt:bar">>
+            ]
+        },
+        emqx:get_raw_config([rule_engine, rules, Id])
+    ),
+    ok = emqx_rule_engine:ensure_action_removed(Id, <<"mysql:foo">>),
+    ?assertMatch(
+        #{
+            <<"actions">> := [
+                #{<<"function">> := GetSelectedData},
+                #{<<"function">> := <<"republish">>},
+                <<"mqtt:bar">>
+            ]
+        },
+        emqx:get_raw_config([rule_engine, rules, Id])
+    ),
+    ok = emqx_rule_engine:ensure_action_removed(Id, #{function => GetSelectedData}),
+    ?assertMatch(
+        #{
+            <<"actions">> := [
+                #{<<"function">> := <<"republish">>},
+                <<"mqtt:bar">>
+            ]
+        },
+        emqx:get_raw_config([rule_engine, rules, Id])
+    ),
+    emqx:remove_config([rule_engine, rules, Id]).
 
 %%------------------------------------------------------------------------------
 %% Test cases for rule runtime
