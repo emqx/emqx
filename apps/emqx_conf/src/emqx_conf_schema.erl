@@ -400,7 +400,7 @@ fields("node") ->
                 string(),
                 #{
                     mapping => "vm_args.-setcookie",
-                    default => "emqxsecretcookie",
+                    required => true,
                     'readOnly' => true,
                     sensitive => true,
                     desc => ?DESC(node_cookie)
