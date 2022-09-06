@@ -23,7 +23,7 @@
 execute(Req, Env) ->
     case check_dispatch_ready(Env) of
         true -> add_cors_flag(Req, Env);
-        false -> {stop, cowboy_req:reply(503, Req)}
+        false -> {stop, cowboy_req:reply(503, #{<<"retry-after">> => <<"15">>}, Req)}
     end.
 
 add_cors_flag(Req, Env) ->

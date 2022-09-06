@@ -153,6 +153,8 @@ extract_mfa(?BACKEND(emqx_rpc, CallOrCast), [_Node, M, F, A]) ->
     {call_or_cast(CallOrCast), M, F, A};
 extract_mfa(?BACKEND(emqx_rpc, CallOrCast), [_Tag, _Node, M, F, A]) ->
     {call_or_cast(CallOrCast), M, F, A};
+extract_mfa(?BACKEND(emqx_rpc, call), [_Tag, _Node, M, F, A, _Timeout]) ->
+    {call_or_cast(call), M, F, A};
 %% (e)rpc:
 extract_mfa(?BACKEND(rpc, multicall), [M, F, A]) ->
     {call_or_cast(multicall), M, F, A};

@@ -69,9 +69,12 @@ start() ->
     announce(emqx).
 
 %% @doc Get maximum version of the backplane API supported by the node
--spec supported_version(node(), api()) -> api_version().
+-spec supported_version(node(), api()) -> api_version() | undefined.
 supported_version(Node, API) ->
-    ets:lookup_element(?TAB, {Node, API}, #?TAB.version).
+    case ets:lookup(?TAB, {Node, API}) of
+        [#?TAB{version = V}] -> V;
+        [] -> undefined
+    end.
 
 %% @doc Get maximum version of the backplane API supported by the
 %% entire cluster

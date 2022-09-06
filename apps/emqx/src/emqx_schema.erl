@@ -869,7 +869,7 @@ fields("mqtt_quic_listener") ->
             sc(
                 duration_ms(),
                 #{
-                    default => "0",
+                    default => 0,
                     desc => ?DESC(fields_mqtt_quic_listener_idle_timeout)
                 }
             )},

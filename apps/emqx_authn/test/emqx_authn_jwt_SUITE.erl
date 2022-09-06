@@ -408,7 +408,19 @@ t_verify_claims(_) ->
     },
     ?assertMatch(
         {ok, #{is_superuser := false}}, emqx_authn_jwt:authenticate(Credential4, State1)
-    ).
+    ),
+
+    Payload5 = #{
+        <<"username">> => <<"myuser">>,
+        <<"foo">> => <<"myuser">>,
+        <<"exp">> => erlang:system_time(second) + 10.5
+    },
+    JWS5 = generate_jws('hmac-based', Payload5, Secret),
+    Credential5 = #{
+        username => <<"myuser">>,
+        password => JWS5
+    },
+    ?assertMatch({ok, #{is_superuser := false}}, emqx_authn_jwt:authenticate(Credential5, State1)).
 
 t_jwt_not_allow_empty_claim_name(_) ->
     Request = #{

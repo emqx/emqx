@@ -22,6 +22,8 @@
 -include("logger.hrl").
 -include("types.hrl").
 
+-include_lib("snabbkaffe/include/snabbkaffe.hrl").
+
 -ifdef(TEST).
 -compile(export_all).
 -compile(nowarn_export_all).
@@ -1423,7 +1425,8 @@ interval(will_timer, #channel{will_msg = WillMsg}) ->
 %%--------------------------------------------------------------------
 
 -spec terminate(any(), channel()) -> ok.
-terminate(_, #channel{conn_state = idle}) ->
+terminate(_, #channel{conn_state = idle} = _Channel) ->
+    ?tp(channel_terminated, #{channel => _Channel}),
     ok;
 terminate(normal, Channel) ->
     run_terminate_hook(normal, Channel);
@@ -1431,7 +1434,8 @@ terminate({shutdown, kicked}, Channel) ->
     run_terminate_hook(kicked, Channel);
 terminate({shutdown, Reason}, Channel) when
     Reason =:= discarded;
-    Reason =:= takenover
+    Reason =:= takenover;
+    Reason =:= not_authorized
 ->
     run_terminate_hook(Reason, Channel);
 terminate(Reason, Channel = #channel{will_msg = WillMsg}) ->
@@ -1452,9 +1456,11 @@ persist_if_session(#channel{session = Session} = Channel) ->
             ok
     end.
 
-run_terminate_hook(_Reason, #channel{session = undefined}) ->
+run_terminate_hook(_Reason, #channel{session = undefined} = _Channel) ->
+    ?tp(channel_terminated, #{channel => _Channel}),
     ok;
-run_terminate_hook(Reason, #channel{clientinfo = ClientInfo, session = Session}) ->
+run_terminate_hook(Reason, #channel{clientinfo = ClientInfo, session = Session} = _Channel) ->
+    ?tp(channel_terminated, #{channel => _Channel}),
     emqx_session:terminate(ClientInfo, Reason, Session).
 
 %%--------------------------------------------------------------------
