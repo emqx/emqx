@@ -40,6 +40,7 @@
 
 -export([namespace/0, roots/0, fields/1, translations/0, translation/1, validations/0, desc/1]).
 -export([conf_get/2, conf_get/3, keys/2, filter/1]).
+-export([parse_data_dir/1]).
 
 %% Static apps which merge their configs into the merged emqx.conf
 %% The list can not be made a dynamic read at run-time as it is used
@@ -452,6 +453,7 @@ fields("node") ->
                     required => true,
                     'readOnly' => true,
                     mapping => "emqx.data_dir",
+                    converter => fun ?MODULE:parse_data_dir/1,
                     desc => ?DESC(node_data_dir)
                 }
             )},
@@ -1407,3 +1409,9 @@ validator_string_re(Val, RE, Error) ->
     catch
         _:_ -> {error, Error}
     end.
+
+parse_data_dir(Dir) ->
+    Dir1 = string:trim(Dir, both, " "),
+    Dir2 = string:trim(Dir1, trailing, "/"),
+    ok = filelib:ensure_dir(Dir2),
+    Dir2.

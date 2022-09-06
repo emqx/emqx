@@ -448,25 +448,26 @@ get_boot_config() {
 ## Resolve boot configs in a batch
 ## This is because starting the Erlang beam with all modules loaded
 ## and parsing HOCON config + environment variables is a non-trivial task
-CONF_KEYS=( 'node.data_dir' 'node.name' 'node.cookie' 'node.db_backend' 'cluster.proto_dist' )
+CONF_KEYS=('node.name' 'node.cookie' 'node.db_backend' 'cluster.proto_dist' )
 if [ "$IS_ENTERPRISE" = 'yes' ]; then
     CONF_KEYS+=( 'license.key' )
 fi
 
-get_configs() {
-    CONFIGS="$(call_hocon -s "$SCHEMA_MOD" -c "$EMQX_ETC_DIR"/emqx.conf multi_get "${CONF_KEYS[@]}")"
-    NODE_DATA_DIR=$(echo -e "$CONFIGS" | grep 'node.data_dir=' | sed -e "s/node.data_dir=//g" | tr -d \")
-    CLUSTER_OVERRIDE_CONF_FILE="$NODE_DATA_DIR/configs/cluster-override.conf"
-    LOCAL_OVERRIDE_CONF_FILE="$NODE_DATA_DIR/configs/local-override.conf"
-    if [ -s "$CLUSTER_OVERRIDE_CONF_FILE" ] || [ -s "$LOCAL_OVERRIDE_CONF_FILE" ]; then
-       CONFIGS="$(call_hocon -s "$SCHEMA_MOD" -c "$EMQX_ETC_DIR"/emqx.conf multi_get -c "$CLUSTER_OVERRIDE_CONF_FILE" -c "$LOCAL_OVERRIDE_CONF_FILE" "${CONF_KEYS[@]}")"
-    fi
-    echo "$CONFIGS"
+resolve_data_dir() {
+    DIR=$(call_hocon -s "$SCHEMA_MOD" -c "$EMQX_ETC_DIR"/emqx.conf get "node.data_dir")
+    echo -e "$DIR" | sed 's/\"//g'
+}
+get_boot_configs() {
+    NODE_DATA_DIR=$(resolve_data_dir)
+    CLUSTER_OVERRIDE_CONF_FILE="$NODE_DATA_DIR"/configs/cluster-override.conf
+    LOCAL_OVERRIDE_CONF_FILE="$NODE_DATA_DIR"/configs/local-override.conf
+    CONFIGS=$(call_hocon -s "$SCHEMA_MOD" -c "$EMQX_ETC_DIR"/emqx.conf -c "${CLUSTER_OVERRIDE_CONF_FILE}" -c "${LOCAL_OVERRIDE_CONF_FILE}" multi_get "${CONF_KEYS[@]}")
+    echo -e "node.data_dir=$NODE_DATA_DIR\n$CONFIGS"
 }
 
 if [ "$IS_BOOT_COMMAND" = 'yes' ]; then
     if [ "${EMQX_BOOT_CONFIGS:-}" = '' ]; then
-        EMQX_BOOT_CONFIGS="$(get_configs)"
+        EMQX_BOOT_CONFIGS="$(get_boot_configs)"
         export EMQX_BOOT_CONFIGS
     fi
 else
@@ -490,7 +491,7 @@ else
         fi
     else
         ## None or more than one node is running, resolve from boot config
-        EMQX_BOOT_CONFIGS="$(get_configs)"
+        EMQX_BOOT_CONFIGS="$(get_boot_configs)"
     fi
 fi
 
@@ -564,7 +565,15 @@ relx_start_command() {
 # Function to check configs without generating them
 check_config() {
     ## this command checks the configs without generating any files
-    call_hocon -v -s "$SCHEMA_MOD" -c "$EMQX_ETC_DIR"/emqx.conf check_schema
+    EMQX_CONF="$EMQX_ETC_DIR/emqx.conf"
+    CLUSTER_OVERRIDE_CONF="$DATA_DIR/configs/cluster-override.conf"
+    LOCAL_OVERRIDE_CONF="$DATA_DIR/configs/local-override.conf"
+    echo "Checking configs..."
+    echo "$EMQX_CONF"
+    echo "$CLUSTER_OVERRIDE_CONF"
+    echo "$LOCAL_OVERRIDE_CONF"
+    call_hocon -v -s "$SCHEMA_MOD" -c "$EMQX_CONF" -c "$CLUSTER_OVERRIDE_CONF" -c "$LOCAL_OVERRIDE_CONF" check_schema
+    echo "All configuration format are ok."
 }
 
 # Function to generate app.config and vm.args
