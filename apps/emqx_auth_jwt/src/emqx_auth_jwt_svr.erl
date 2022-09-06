@@ -201,19 +201,19 @@ do_verify(JwsCompacted, [Jwk|More]) ->
 
 check_claims(Claims) ->
     Now = os:system_time(seconds),
-    Checker = [{<<"exp">>, with_int_value(
+    Checker = [{<<"exp">>, with_num_value(
                              fun(ExpireTime) -> Now < ExpireTime end)},
-               {<<"iat">>, with_int_value(
+               {<<"iat">>, with_num_value(
                              fun(IssueAt) -> IssueAt =< Now end)},
-               {<<"nbf">>, with_int_value(
+               {<<"nbf">>, with_num_value(
                              fun(NotBefore) -> NotBefore =< Now end)}
               ],
     do_check_claim(Checker, Claims).
 
-with_int_value(Fun) ->
+with_num_value(Fun) ->
     fun(Value) ->
             case Value of
-                Int when is_integer(Int) -> Fun(Int);
+                Num when is_number(Num) -> Fun(Num);
                 Bin when is_binary(Bin) ->
                     case emqx_auth_jwt:string_to_number(Bin) of
                         {ok, Num} -> Fun(Num);
