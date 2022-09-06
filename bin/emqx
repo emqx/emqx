@@ -459,6 +459,11 @@ resolve_data_dir() {
 }
 get_boot_configs() {
     NODE_DATA_DIR=$(resolve_data_dir)
+    NODE_DATA_DIR="${NODE_DATA_DIR%/}"
+    if [[ $NODE_DATA_DIR != /* ]]; then
+        # relative path
+        NODE_DATA_DIR="${RUNNER_ROOT_DIR}/${NODE_DATA_DIR}"
+    fi
     CLUSTER_OVERRIDE_CONF_FILE="$NODE_DATA_DIR"/configs/cluster-override.conf
     LOCAL_OVERRIDE_CONF_FILE="$NODE_DATA_DIR"/configs/local-override.conf
     CONFIGS=$(call_hocon -s "$SCHEMA_MOD" -c "$EMQX_ETC_DIR"/emqx.conf -c "${CLUSTER_OVERRIDE_CONF_FILE}" -c "${LOCAL_OVERRIDE_CONF_FILE}" multi_get "${CONF_KEYS[@]}")
