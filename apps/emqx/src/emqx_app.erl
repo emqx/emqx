@@ -49,6 +49,7 @@ start(_Type, _Args) ->
     {ok, Sup} = emqx_sup:start_link(),
     ok = maybe_start_listeners(),
     emqx_config:add_handlers(),
+    warning_default_cookie(),
     register(emqx, self()),
     {ok, Sup}.
 
@@ -119,3 +120,19 @@ get_description() -> emqx_release:description().
 
 get_release() ->
     emqx_release:version().
+
+-define(DEFAULT_COOKIE, emqxsecretcookie).
+warning_default_cookie() ->
+    case erlang:get_cookie() =:= ?DEFAULT_COOKIE of
+        true ->
+            ?SLOG(
+                warning,
+                #{
+                    msg => "default_cookie_used",
+                    advices =>
+                        "Change default cookie via node.cookie in emqx.conf or EMQX_NODE__COOKIE env"
+                }
+            );
+        false ->
+            ok
+    end.
