@@ -130,7 +130,7 @@ warning_default_cookie() ->
                 #{
                     msg => "default_cookie_used",
                     advices =>
-                        "Change default cookie via node.cookie in emqx.conf or EMQX_NODE__COOKIE env"
+                        "Change default Erlang cookie via node.cookie in emqx.conf or override with EMQX_NODE__COOKIE environment variable. NOTE: All nodes in the cluster should share the same config value."
                 }
             );
         false ->
