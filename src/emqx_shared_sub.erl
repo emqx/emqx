@@ -46,6 +46,7 @@
         , maybe_nack_dropped/1
         , nack_no_connection/1
         , is_ack_required/1
+        , is_retry_dispatch/1
         , get_group/1
         ]).
 
@@ -239,6 +240,13 @@ get_group(Msg) ->
 -spec(is_ack_required(emqx_types:message()) -> boolean()).
 is_ack_required(Msg) -> ?NO_ACK =/= get_group_ack(Msg).
 
+-spec(is_retry_dispatch(emqx_types:message()) -> boolean()).
+is_retry_dispatch(Msg) ->
+    case get_group_ack(Msg) of
+        {_Sender, {retry, _Group, _Ref}} -> true;
+        _ -> false
+    end.
+
 %% @doc Negative ack dropped message due to inflight window or message queue being full.
 -spec(maybe_nack_dropped(emqx_types:message()) -> store | drop).
 maybe_nack_dropped(Msg) ->
@@ -280,9 +288,14 @@ maybe_ack(Msg) ->
             Msg;
         Ack ->
             {Sender, Ref} = fetch_sender_ref(Ack),
-            Sender ! {Ref, ?ACK},
+            ack(Sender, Ref),
             without_group_ack(Msg)
     end.
+
+-spec(ack(pid(), reference()) -> ok).
+ack(Sender, Ref) ->
+    Sender ! {Ref, ?ACK},
+    ok.
 
 fetch_sender_ref({Sender, {_Type, _Group, Ref}}) -> {Sender, Ref};
 %% These clauses are for backward compatibility
