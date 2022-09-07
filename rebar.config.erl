@@ -298,13 +298,12 @@ relform() ->
 emqx_description(cloud, ee) -> "EMQX Enterprise";
 emqx_description(cloud, ce) -> "EMQX".
 
-overlay_vars(RelType, PkgType, Edition) ->
-    overlay_vars_rel(RelType) ++
+overlay_vars(cloud, PkgType, Edition) ->
+    [
+        {emqx_default_erlang_cookie, "emqxsecretcookie"}
+    ] ++
         overlay_vars_pkg(PkgType) ++
         overlay_vars_edition(Edition).
-
-overlay_vars_rel(cloud) ->
-    [{vm_args_file, "vm.args"}].
 
 overlay_vars_edition(ce) ->
     [
