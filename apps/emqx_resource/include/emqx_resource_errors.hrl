@@ -15,6 +15,6 @@
 %%--------------------------------------------------------------------
 
 -define(RESOURCE_ERROR(Reason, Msg),
-    {error, {resource_error, #{reason => Reason, msg => iolist_to_binary(Msg)}}}
+    {error, {resource_error, #{reason => Reason, msg => Msg}}}
 ).
 -define(RESOURCE_ERROR_M(Reason, Msg), {error, {resource_error, #{reason := Reason, msg := Msg}}}).

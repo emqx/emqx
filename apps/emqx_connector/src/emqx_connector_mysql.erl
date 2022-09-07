@@ -398,9 +398,8 @@ on_sql_query(
     ?TRACE("QUERY", "mysql_connector_received", LogMeta),
     Worker = ecpool:get_client(PoolName),
     {ok, Conn} = ecpool_worker:client(Worker),
-    Result = erlang:apply(mysql, SQLFunc, [Conn, SQLOrKey, Data, Timeout]),
-    case Result of
-        {error, disconnected} ->
+    try mysql:SQLFunc(Conn, SQLOrKey, Data, Timeout) of
+        {error, disconnected} = Result ->
             ?SLOG(
                 error,
                 LogMeta#{msg => "mysql_connector_do_sql_query_failed", reason => disconnected}
@@ -421,12 +420,19 @@ on_sql_query(
                 LogMeta#{msg => "mysql_connector_do_sql_query_failed", reason => Reason}
             ),
             {error, {recoverable_error, Reason}};
-        {error, Reason} ->
+        {error, Reason} = Result ->
             ?SLOG(
                 error,
                 LogMeta#{msg => "mysql_connector_do_sql_query_failed", reason => Reason}
             ),
             Result;
-        _ ->
+        Result ->
             Result
+    catch
+        error:badarg ->
+            ?SLOG(
+                error,
+                LogMeta#{msg => "mysql_connector_invalid_params", params => Data}
+            ),
+            {error, {invalid_params, Data}}
     end.
