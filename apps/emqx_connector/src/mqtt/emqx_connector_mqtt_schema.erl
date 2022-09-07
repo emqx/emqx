@@ -101,7 +101,6 @@ fields("server_configs") ->
             mk(
                 binary(),
                 #{
-                    default => undefined,
                     desc => ?DESC("username")
                 }
             )},
@@ -109,7 +108,6 @@ fields("server_configs") ->
             mk(
                 binary(),
                 #{
-                    default => undefined,
                     format => <<"password">>,
                     desc => ?DESC("password")
                 }
@@ -261,7 +259,7 @@ fields("egress_remote") ->
             mk(
                 binary(),
                 #{
-                    required => true,
+                    default => <<"${payload}">>,
                     desc => ?DESC("payload")
                 }
             )}

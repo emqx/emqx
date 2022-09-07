@@ -22,6 +22,7 @@
 -export([
     call/4,
     call/5,
+    call/6,
     cast/4,
     cast/5,
     multicall/4,
@@ -77,6 +78,10 @@ call(Node, Mod, Fun, Args) ->
 -spec call(term(), node(), module(), atom(), list()) -> call_result().
 call(Key, Node, Mod, Fun, Args) ->
     filter_result(gen_rpc:call(rpc_node({Key, Node}), Mod, Fun, Args)).
+
+-spec call(term(), node(), module(), atom(), list(), timeout()) -> call_result().
+call(Key, Node, Mod, Fun, Args, Timeout) ->
+    filter_result(gen_rpc:call(rpc_node({Key, Node}), Mod, Fun, Args, Timeout)).
 
 -spec multicall([node()], module(), atom(), list()) -> multicall_result().
 multicall(Nodes, Mod, Fun, Args) ->

@@ -1,8 +1,17 @@
 # 5.0.8
 
+## Bug fixes
+
+* Fix exhook `client.authorize` never being execauted. [#8780](https://github.com/emqx/emqx/pull/8780)
+* Fix JWT plugin don't support non-integer timestamp claims. [#8867](https://github.com/emqx/emqx/pull/8867)
+* Avoid publishing will message when client fails to auhtenticate. [#8887](https://github.com/emqx/emqx/pull/8887)
+* Speed up dispatching of shared subscription messages in a cluster [#8893](https://github.com/emqx/emqx/pull/8893)
+
 ## Enhancements
 
-* change the `/gateway` API path to plural form. [#8823](https://github.com/emqx/emqx/pull/8823)
+* Change the `/gateway` API path to plural form. [#8823](https://github.com/emqx/emqx/pull/8823)
+* Remove `node.etc_dir` from emqx.conf, because it is never used.
+  Also allow user to customize the logging directory [#8892](https://github.com/emqx/emqx/pull/8892)
 
 # 5.0.7
 
@@ -11,6 +20,7 @@
 * Remove `will_msg` (not used) field from the client API. [#8721](https://github.com/emqx/emqx/pull/8721)
 * Fix `$queue` topic name error in management API return. [#8728](https://github.com/emqx/emqx/pull/8728)
 * Fix race condition which may cause `client.connected` and `client.disconnected` out of order. [#8625](https://github.com/emqx/emqx/pull/8625)
+* Fix quic listener default idle timeout's type. [#8826](https://github.com/emqx/emqx/pull/8826)
 
 ## Enhancements
 
@@ -32,6 +42,7 @@
 
 ## Enhancements
 
+* Add `bootstrap_users_file` configuration to add default Dashboard username list, which is only added when EMQX is first started.
 * The license is now copied to all nodes in the cluster when it's reloaded. [#8598](https://github.com/emqx/emqx/pull/8598)
 * Added a HTTP API to manage licenses. [#8610](https://github.com/emqx/emqx/pull/8610)
 * Updated `/nodes` API node_status from `Running/Stopped` to `running/stopped`. [#8642](https://github.com/emqx/emqx/pull/8642)

@@ -383,7 +383,7 @@ do_verify(JWT, [JWK | More], VerifyClaims) ->
     try jose_jws:verify(JWK, JWT) of
         {true, Payload, _JWT} ->
             Claims0 = emqx_json:decode(Payload, [return_maps]),
-            Claims = try_convert_to_int(Claims0, [<<"exp">>, <<"iat">>, <<"nbf">>]),
+            Claims = try_convert_to_num(Claims0, [<<"exp">>, <<"iat">>, <<"nbf">>]),
             case verify_claims(Claims, VerifyClaims) of
                 ok ->
                     {ok, Claims};
@@ -403,37 +403,37 @@ verify_claims(Claims, VerifyClaims0) ->
     VerifyClaims =
         [
             {<<"exp">>, fun(ExpireTime) ->
-                is_integer(ExpireTime) andalso Now < ExpireTime
+                is_number(ExpireTime) andalso Now < ExpireTime
             end},
             {<<"iat">>, fun(IssueAt) ->
-                is_integer(IssueAt) andalso IssueAt =< Now
+                is_number(IssueAt) andalso IssueAt =< Now
             end},
             {<<"nbf">>, fun(NotBefore) ->
-                is_integer(NotBefore) andalso NotBefore =< Now
+                is_number(NotBefore) andalso NotBefore =< Now
             end}
         ] ++ VerifyClaims0,
     do_verify_claims(Claims, VerifyClaims).
 
-try_convert_to_int(Claims, [Name | Names]) ->
+try_convert_to_num(Claims, [Name | Names]) ->
     case Claims of
         #{Name := Value} ->
             case Value of
-                Int when is_integer(Int) ->
-                    try_convert_to_int(Claims#{Name => Int}, Names);
+                Int when is_number(Int) ->
+                    try_convert_to_num(Claims#{Name => Int}, Names);
                 Bin when is_binary(Bin) ->
-                    case string:to_integer(Bin) of
-                        {Int, <<>>} ->
-                            try_convert_to_int(Claims#{Name => Int}, Names);
+                    case binary_to_number(Bin) of
+                        {ok, Num} ->
+                            try_convert_to_num(Claims#{Name => Num}, Names);
                         _ ->
-                            try_convert_to_int(Claims, Names)
+                            try_convert_to_num(Claims, Names)
                     end;
                 _ ->
-                    try_convert_to_int(Claims, Names)
+                    try_convert_to_num(Claims, Names)
             end;
         _ ->
-            try_convert_to_int(Claims, Names)
+            try_convert_to_num(Claims, Names)
     end;
-try_convert_to_int(Claims, []) ->
+try_convert_to_num(Claims, []) ->
     Claims.
 
 do_verify_claims(_Claims, []) ->
@@ -519,3 +519,16 @@ to_binary(B) when is_binary(B) ->
     B.
 
 sc(Type, Meta) -> hoconsc:mk(Type, Meta).
+
+binary_to_number(Bin) ->
+    try
+        {ok, erlang:binary_to_integer(Bin)}
+    catch
+        _:_ ->
+            try
+                {ok, erlang:binary_to_float(Bin)}
+            catch
+                _:_ ->
+                    false
+            end
+    end.

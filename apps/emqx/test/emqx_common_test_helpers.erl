@@ -181,11 +181,15 @@ start_app(App, Handler) ->
 app_conf_file(emqx_conf) -> "emqx.conf.all";
 app_conf_file(App) -> atom_to_list(App) ++ ".conf".
 
-%% TODO: get rid of cuttlefish
 app_schema(App) ->
     Mod = list_to_atom(atom_to_list(App) ++ "_schema"),
-    true = is_list(Mod:roots()),
-    Mod.
+    try
+        true = is_list(Mod:roots()),
+        Mod
+    catch
+        error:undef ->
+            no_schema
+    end.
 
 mustache_vars(App) ->
     [
@@ -221,6 +225,8 @@ render_config_file(ConfigFile, Vars0) ->
     ok = file:write_file(NewName, Targ),
     NewName.
 
+read_schema_configs(no_schema, _ConfigFile) ->
+    ok;
 read_schema_configs(Schema, ConfigFile) ->
     NewConfig = generate_config(Schema, ConfigFile),
     lists:foreach(

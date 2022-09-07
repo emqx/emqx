@@ -41,6 +41,10 @@ docker run -d --name emqx-ee -p 1883:1883 -p 8081:8081 -p 8083:8083 -p 8084:8084
 
 Next, please follow the [getting started guide](https://www.emqx.io/docs/en/v5.0/getting-started/getting-started.html#start-emqx) to tour the EMQX features.
 
+#### Run EMQX cluster on kubernetes
+
+For details: [EMQX Operator](https://github.com/emqx/emqx-operator/blob/main/docs/en_US/getting-started/getting-started.md).
+
 #### More installation options
 
 If you prefer to install and manage EMQX yourself, you can download the latest version from [www.emqx.io/downloads](https://www.emqx.io/downloads).
@@ -105,6 +109,27 @@ cd emqx-rel
 make
 _build/emqx/rel/emqx/bin/emqx console
 ```
+
+### Building on Apple silicon (M1, M2)
+
+Homebrew on Apple silicon [changed default location of it's home directory](https://github.com/Homebrew/brew/issues/9177) from `/usr/local` to `/opt/homebrew` and as a result a few things broke in the process.
+
+Concerning EMQX, when you install `unixodbc` package (one of the dependencies) via Homebrew, and build Erlang/OTP  with [kerl](https://github.com/kerl/kerl), kerl will not be able to find `unixodbc`.
+
+Here is how to solve it:
+
+```bash
+brew install unixodbc kerl
+sudo ln -s $(realpath $(brew --prefix unixodbc)) /usr/local/odbc
+export CC="/usr/bin/gcc -I$(brew --prefix unixodbc)/include"
+export LDFLAGS="-L$(brew --prefix unixodbc)/lib"
+kerl build 24.3
+mkdir ~/.kerl/installations
+kerl install 24.3 ~/.kerl/installations/24.3
+. ~/.kerl/installations/24.3/activate
+```
+
+Then you can proceed with `make`.
 
 ## License
 
