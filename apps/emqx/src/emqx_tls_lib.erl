@@ -145,7 +145,8 @@ all_ciphers_set_cached() ->
     case persistent_term:get(?FUNCTION_NAME, false) of
         false ->
             S = sets:from_list(all_ciphers()),
-            persistent_term:put(?FUNCTION_NAME, S);
+            persistent_term:put(?FUNCTION_NAME, S),
+            S;
         Set ->
             Set
     end.

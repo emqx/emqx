@@ -88,9 +88,9 @@ docker run -d --name emqx-ee -p 1883:1883 -p 8081:8081 -p 8083:8083 -p 8084:8084
 
 ## Сборка из исходного кода
 
-Начиная с релиза 3.0, для сборки требуется Erlang/OTP R21 или выше.
+Ветка `master` предназначена для последней версии 5, переключитесь на ветку `main-v4.3` для версии 4.3 и `main-v4.4` для версии 4.4.
 
-Инструкция для сборки версии 4.3 и выше:
+EMQX требует OTP 22 или 23 для версии 4.3 и OTP 24 для версий 4.4 и 5.0.
 
 ```bash
 git clone https://github.com/emqx/emqx.git
@@ -99,7 +99,7 @@ make
 _build/emqx/rel/emqx/bin/emqx console
 ```
 
-Более ранние релизы могут быть собраны с помощью другого репозитория:
+Версии до 4.2 (включительно) нужно собирать из другого репозитория:
 
 ```bash
 git clone https://github.com/emqx/emqx-rel.git
@@ -108,79 +108,24 @@ make
 _build/emqx/rel/emqx/bin/emqx console
 ```
 
-## Первый запуск
+### Сборка на Apple silicon (M1, M2)
 
-Если emqx был собран из исходников: `cd _build/emqx/rel/emqx`.
-Или перейдите в директорию, куда emqx был установлен из бинарного пакета.
+Пакетный менеджер Homebrew, когда установлен на Apple silicon, [стал использовать другую домашнюю папку по умолчанию](https://github.com/Homebrew/brew/issues/9177), `/opt/homebrew` вместо `/usr/local`. В результате некоторые библиотеки перестали собираться автоматически.
 
-```bash
-# Запуск:
-./bin/emqx start
-
-# Проверка статуса:
-./bin/emqx_ctl status
-
-# Остановка:
-./bin/emqx stop
-```
-
-Веб-интерфейс брокера будет доступен по ссылке: http://localhost:18083
-
-## Тесты
-
-### Полное тестирование
-
-```
-make eunit ct
-```
-
-### Запуск части тестов
-
-Пример:
+Касательно EMQX, сборка Erlang из исходного кода не найдёт библиотеку `unixodbc`, установленную с homebrew, без дополнительных действий:
 
 ```bash
-make apps/emqx_retainer-ct
+brew install unixodbc kerl
+sudo ln -s $(realpath $(brew --prefix unixodbc)) /usr/local/odbc
+export CC="/usr/bin/gcc -I$(brew --prefix unixodbc)/include"
+export LDFLAGS="-L$(brew --prefix unixodbc)/lib"
+kerl build 24.3
+mkdir ~/.kerl/installations
+kerl install 24.3 ~/.kerl/installations/24.3
+. ~/.kerl/installations/24.3/activate
 ```
 
-### Dialyzer
-##### Статический анализ всех приложений
-```
-make dialyzer
-```
-
-##### Статический анализ части приложений (список через запятую)
-```
-DIALYZER_ANALYSE_APP=emqx_lwm2m,emqx_authz make dialyzer
-```
-
-## Сообщество
-
-### FAQ
-
-Наиболее частые проблемы разобраны в [EMQX FAQ](https://www.emqx.io/docs/en/latest/faq/faq.html).
-
-
-### Вопросы
-
-Задать вопрос или поделиться идеей можно в [GitHub Discussions](https://github.com/emqx/emqx/discussions).
-
-### Предложения
-
-Более масштабные предложения можно присылать в виде pull request в репозиторий [EIP](https://github.com/emqx/eip).
-
-### Разработка плагинов
-
-Инструкция по разработке собственных плагинов доступна по ссылке: [PLUGIN.md](./PLUGIN.md)
-
-## Спецификации стандарта MQTT
-
-Следующие ссылки содержат спецификации стандартов:
-
-[MQTT Version 3.1.1](https://docs.oasis-open.org/mqtt/mqtt/v3.1.1/os/mqtt-v3.1.1-os.html)
-
-[MQTT Version 5.0](https://docs.oasis-open.org/mqtt/mqtt/v5.0/cs02/mqtt-v5.0-cs02.html)
-
-[MQTT SN](https://www.oasis-open.org/committees/download.php/66091/MQTT-SN_spec_v1.2.pdf)
+Дальше можно собирать emqx как обычно, с помощью `make`.
 
 ## Лицензия
 

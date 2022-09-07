@@ -50,24 +50,25 @@ find_app() {
 
 CE="$(find_app 'apps')"
 EE="$(find_app 'lib-ee')"
+APPS_ALL="$(echo -e "${CE}\n${EE}")"
 
 if [ "$CT" = 'novalue' ]; then
-    echo -e "${CE}\n${EE}"
-    exit 0
-fi
-
-APPS_ALL="$(echo -e "${CE}\n${EE}")"
-APPS_DOCKER_CT="$(grep -v -E '^#.*' scripts/docker-ct-apps)"
-
-# shellcheck disable=SC2068
-for app in ${APPS_DOCKER_CT[@]}; do
-    APPS_ALL=("${APPS_ALL[@]/$app}")
-done
-
-if [ "$CT" = 'docker' ]; then
-    RESULT="${APPS_DOCKER_CT}"
+    RESULT="${APPS_ALL}"
 else
-    RESULT="${APPS_ALL[*]}"
+    APPS_NORMAL_CT=( )
+    APPS_DOCKER_CT=( )
+    for app in ${APPS_ALL}; do
+        if [ -f "${app}/docker-ct" ]; then
+            APPS_DOCKER_CT+=("$app")
+        else
+            APPS_NORMAL_CT+=("$app")
+        fi
+    done
+    if [ "$CT" = 'docker' ]; then
+        RESULT="${APPS_DOCKER_CT[*]}"
+    else
+        RESULT="${APPS_NORMAL_CT[*]}"
+    fi
 fi
 
 if [ "$WANT_JSON" = 'yes' ]; then

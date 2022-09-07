@@ -121,27 +121,8 @@ jobs:
             PGSQL_TAG: 13
             REDIS_TAG: 6
           run: |
-            docker-compose \
-                -f .ci/docker-compose-file/docker-compose-mongo-single-tcp.yaml \
-                -f .ci/docker-compose-file/docker-compose-mongo-single-tls.yaml \
-                -f .ci/docker-compose-file/docker-compose-mysql-tcp.yaml \
-                -f .ci/docker-compose-file/docker-compose-mysql-tls.yaml \
-                -f .ci/docker-compose-file/docker-compose-pgsql-tcp.yaml \
-                -f .ci/docker-compose-file/docker-compose-pgsql-tls.yaml \
-                -f .ci/docker-compose-file/docker-compose-redis-single-tcp.yaml \
-                -f .ci/docker-compose-file/docker-compose-redis-single-tls.yaml \
-                -f .ci/docker-compose-file/docker-compose-redis-sentinel-tcp.yaml \
-                -f .ci/docker-compose-file/docker-compose-redis-sentinel-tls.yaml \
-                -f .ci/docker-compose-file/docker-compose.yaml \
-                up -d --build
-
-          # produces <app-name>.coverdata
-        - name: run common test
-          working-directory: source
-          run: |
-            docker exec -i ${{ matrix.otp_release }} bash -c "git config --global --add safe.directory \"$GITHUB_WORKSPACE\" && make ${{ matrix.app_name }}-ct"
+            ./scripts/ct/run.sh --app ${{ matrix.app_name }}
         - uses: actions/upload-artifact@v1
-          if: matrix.otp_release == 'erlang24'
           with:
             name: coverdata
             path: source/_build/test/cover
