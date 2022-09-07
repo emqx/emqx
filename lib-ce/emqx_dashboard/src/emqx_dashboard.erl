@@ -54,7 +54,8 @@ start_listener({Proto, Port, Options}) when Proto == https ->
                 {"/api/v4/[...]", minirest, http_handlers()}],
     minirest:start_https(listener_name(Proto), ranch_opts(Port, Options), Dispatch).
 
-ranch_opts(Port, Options0) ->
+ranch_opts(Bind, Options0) ->
+    IpPort = ip_port(Bind),
     NumAcceptors = get_value(num_acceptors, Options0, 4),
     MaxConnections = get_value(max_connections, Options0, 512),
     Options = lists:foldl(fun({K, _V}, Acc) when K =:= max_connections orelse K =:= num_acceptors ->
@@ -68,7 +69,13 @@ ranch_opts(Port, Options0) ->
                           end, [], Options0),
     #{num_acceptors => NumAcceptors,
       max_connections => MaxConnections,
-      socket_opts => [{port, Port} | Options]}.
+      socket_opts => IpPort ++  Options}.
+
+ip_port({IpStr, Port}) ->
+    {ok, Ip} = inet:parse_address(IpStr),
+    [{ip, Ip}, {port, Port}];
+ip_port(Port) when is_integer(Port) ->
+    [{port, Port}].
 
 stop_listeners() ->
     lists:foreach(fun(Listener) -> stop_listener(Listener) end, listeners()).
