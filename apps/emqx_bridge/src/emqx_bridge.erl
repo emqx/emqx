@@ -37,6 +37,7 @@
     create/3,
     disable_enable/3,
     remove/2,
+    check_deps_and_remove/3,
     list/0
 ]).
 
@@ -246,6 +247,24 @@ remove(BridgeType, BridgeName) ->
         emqx_bridge:config_key_path() ++ [BridgeType, BridgeName],
         #{override_to => cluster}
     ).
+
+check_deps_and_remove(BridgeType, BridgeName, RemoveDeps) ->
+    Id = emqx_bridge_resource:bridge_id(BridgeType, BridgeName),
+    %% NOTE: This violates the design: Rule depends on data-bridge but not vice versa.
+    case emqx_rule_engine:get_rule_ids_by_action(Id) of
+        [] ->
+            remove(BridgeType, BridgeName);
+        Rules when RemoveDeps =:= false ->
+            {error, {rules_deps_on_this_bridge, Rules}};
+        Rules when RemoveDeps =:= true ->
+            lists:foreach(
+                fun(R) ->
+                    emqx_rule_engine:ensure_action_removed(R, Id)
+                end,
+                Rules
+            ),
+            remove(BridgeType, BridgeName)
+    end.
 
 %%========================================================================================
 %% Helper functions

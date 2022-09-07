@@ -61,14 +61,18 @@ init_per_suite(Config) ->
     _ = application:stop(emqx_resource),
     _ = application:stop(emqx_connector),
     ok = emqx_common_test_helpers:start_apps(
-        [emqx_bridge, emqx_dashboard],
+        [emqx_rule_engine, emqx_bridge, emqx_dashboard],
         fun set_special_configs/1
+    ),
+    ok = emqx_common_test_helpers:load_config(
+        emqx_rule_engine_schema,
+        <<"rule_engine {rules {}}">>
     ),
     ok = emqx_common_test_helpers:load_config(emqx_bridge_schema, ?CONF_DEFAULT),
     Config.
 
 end_per_suite(_Config) ->
-    emqx_common_test_helpers:stop_apps([emqx_bridge, emqx_dashboard]),
+    emqx_common_test_helpers:stop_apps([emqx_rule_engine, emqx_bridge, emqx_dashboard]),
     ok.
 
 set_special_configs(emqx_dashboard) ->
@@ -299,6 +303,80 @@ t_http_crud_apis(Config) ->
         },
         jsx:decode(ErrMsg2)
     ),
+    ok.
+
+t_check_dependent_actions_on_delete(Config) ->
+    Port = ?config(port, Config),
+    %% assert we there's no bridges at first
+    {ok, 200, <<"[]">>} = request(get, uri(["bridges"]), []),
+
+    %% then we add a webhook bridge, using POST
+    %% POST /bridges/ will create a bridge
+    URL1 = ?URL(Port, "path1"),
+    Name = <<"t_http_crud_apis">>,
+    BridgeID = emqx_bridge_resource:bridge_id(?BRIDGE_TYPE, Name),
+    {ok, 201, _} = request(
+        post,
+        uri(["bridges"]),
+        ?HTTP_BRIDGE(URL1, ?BRIDGE_TYPE, Name)
+    ),
+    {ok, 201, Rule} = request(
+        post,
+        uri(["rules"]),
+        #{
+            <<"name">> => <<"t_http_crud_apis">>,
+            <<"enable">> => true,
+            <<"actions">> => [BridgeID],
+            <<"sql">> => <<"SELECT * from \"t\"">>
+        }
+    ),
+    #{<<"id">> := RuleId} = jsx:decode(Rule),
+    %% delete the bridge should fail because there is a rule depenents on it
+    {ok, 403, _} = request(delete, uri(["bridges", BridgeID]), []),
+    %% delete the rule first
+    {ok, 204, <<>>} = request(delete, uri(["rules", RuleId]), []),
+    %% then delete the bridge is OK
+    {ok, 204, <<>>} = request(delete, uri(["bridges", BridgeID]), []),
+    {ok, 200, <<"[]">>} = request(get, uri(["bridges"]), []),
+    ok.
+
+t_cascade_delete_actions(Config) ->
+    Port = ?config(port, Config),
+    %% assert we there's no bridges at first
+    {ok, 200, <<"[]">>} = request(get, uri(["bridges"]), []),
+
+    %% then we add a webhook bridge, using POST
+    %% POST /bridges/ will create a bridge
+    URL1 = ?URL(Port, "path1"),
+    Name = <<"t_http_crud_apis">>,
+    BridgeID = emqx_bridge_resource:bridge_id(?BRIDGE_TYPE, Name),
+    {ok, 201, _} = request(
+        post,
+        uri(["bridges"]),
+        ?HTTP_BRIDGE(URL1, ?BRIDGE_TYPE, Name)
+    ),
+    {ok, 201, Rule} = request(
+        post,
+        uri(["rules"]),
+        #{
+            <<"name">> => <<"t_http_crud_apis">>,
+            <<"enable">> => true,
+            <<"actions">> => [BridgeID],
+            <<"sql">> => <<"SELECT * from \"t\"">>
+        }
+    ),
+    #{<<"id">> := RuleId} = jsx:decode(Rule),
+    %% delete the bridge will also delete the actions from the rules
+    {ok, 204, _} = request(delete, uri(["bridges", BridgeID]) ++ "?also_delete_dep_actions", []),
+    {ok, 200, <<"[]">>} = request(get, uri(["bridges"]), []),
+    {ok, 200, Rule1} = request(get, uri(["rules", RuleId]), []),
+    ?assertMatch(
+        #{
+            <<"actions">> := []
+        },
+        jsx:decode(Rule1)
+    ),
+    {ok, 204, <<>>} = request(delete, uri(["rules", RuleId]), []),
     ok.
 
 t_start_stop_bridges_node(Config) ->
