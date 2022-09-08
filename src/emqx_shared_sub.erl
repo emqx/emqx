@@ -52,10 +52,8 @@
 
 %% for testing
 -ifdef(TEST).
--export([ subscribers/2
-        , ack_enabled/0
-        , strategy/1
-        ]).
+-compile(export_all).
+-compile(nowarn_export_all).
 -endif.
 
 %% gen_server callbacks
