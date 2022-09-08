@@ -15,6 +15,7 @@
 * Change the `/gateway` API path to plural form. [#8823](https://github.com/emqx/emqx/pull/8823)
 * Remove `node.etc_dir` from emqx.conf, because it is never used.
   Also allow user to customize the logging directory [#8892](https://github.com/emqx/emqx/pull/8892)
+* Added a new API `POST /listeners` for creating listener. [#8876](https://github.com/emqx/emqx/pull/8876)
 
 # 5.0.7
 
