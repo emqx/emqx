@@ -64,6 +64,9 @@
 all() ->
     [{group, Name} || Name <- metrics()].
 
+suite() ->
+    [{timetrap, {seconds, 30}}].
+
 groups() ->
     Cases = emqx_common_test_helpers:all(?MODULE),
     [{Name, Cases} || Name <- metrics()].
@@ -277,7 +280,8 @@ t_keepalive_timeout(Cfg) ->
             ?assertEqual(1, length(?of_kind(conn_process_terminated, Trace))),
             %% socket port should be closed
             ?assertEqual({error, closed}, recv(Sock, 5000))
-    end.
+    end,
+    snabbkaffe:stop().
 
 t_hook_connected_disconnected(Cfg) ->
     SockType = proplists:get_value(listener_type, Cfg),
@@ -367,6 +371,8 @@ t_hook_session_subscribed_unsubscribed(Cfg) ->
         error(hook_is_not_running)
     end,
 
+    send(Sock, frame_disconnect()),
+
     close(Sock),
     emqx_hooks:del('session.subscribed', {?MODULE, hook_fun3}),
     emqx_hooks:del('session.unsubscribed', {?MODULE, hook_fun4}).
@@ -412,11 +418,14 @@ t_idle_timeout(Cfg) ->
     case SockType of
         udp ->
             %% nothing to do
-            meck:new(emqx_exproto_echo_svr, [passthrough, no_history]),
-            meck:expect(
-                emqx_exproto_echo_svr,
-                on_received_bytes,
-                fun(Stream, _Md) -> {ok, Stream} end
+            ok = meck:new(emqx_exproto_gcli, [passthrough, no_history]),
+            ok = meck:expect(
+                emqx_exproto_gcli,
+                async_call,
+                fun(FunName, _Req, _GClient) ->
+                    self() ! {hreply, FunName, ok},
+                    ok
+                end
             ),
             %% send request, but nobody can respond to it
             ClientId = <<"idle_test_client1">>,
@@ -433,13 +442,14 @@ t_idle_timeout(Cfg) ->
                 {ok, #{reason := {shutdown, idle_timeout}}},
                 ?block_until(#{?snk_kind := conn_process_terminated}, 10000)
             ),
-            meck:unload(emqx_exproto_echo_svr);
+            ok = meck:unload(emqx_exproto_gcli);
         _ ->
             ?assertMatch(
                 {ok, #{reason := {shutdown, idle_timeout}}},
                 ?block_until(#{?snk_kind := conn_process_terminated}, 10000)
             )
-    end.
+    end,
+    snabbkaffe:stop().
 
 %%--------------------------------------------------------------------
 %% Utils
