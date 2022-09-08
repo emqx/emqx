@@ -1434,14 +1434,23 @@ terminate({shutdown, kicked}, Channel) ->
     run_terminate_hook(kicked, Channel);
 terminate({shutdown, Reason}, Channel) when
     Reason =:= discarded;
-    Reason =:= takenover;
-    Reason =:= not_authorized
+    Reason =:= takenover
 ->
     run_terminate_hook(Reason, Channel);
 terminate(Reason, Channel = #channel{will_msg = WillMsg}) ->
-    (WillMsg =/= undefined) andalso publish_will_msg(WillMsg),
+    should_publish_will_message(Reason, Channel) andalso publish_will_msg(WillMsg),
     (Reason =:= expired) andalso persist_if_session(Channel),
     run_terminate_hook(Reason, Channel).
+
+should_publish_will_message(TerminateReason, Channel) ->
+    not lists:member(TerminateReason, [
+        {shutdown, kicked},
+        {shutdown, discarded},
+        {shutdown, takenover},
+        {shutdown, not_authorized}
+    ]) andalso
+        not lists:member(info(conn_state, Channel), [idle, connecting]) andalso
+        info(will_msg, Channel) =/= undefined.
 
 persist_if_session(#channel{session = Session} = Channel) ->
     case emqx_session:is_session(Session) of
