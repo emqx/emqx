@@ -98,7 +98,7 @@ t_case_coap_publish(_) ->
     Prefix = Mod:ps_prefix(),
     Fun = fun(Channel, Token, Topic, Checker) ->
         TopicStr = binary_to_list(Topic),
-        URI = Prefix ++ TopicStr ++ "?clientid=client1&token=" ++ Token,
+        URI = Prefix ++ "/" ++ TopicStr ++ "?clientid=client1&token=" ++ Token,
 
         Req = Mod:make_req(post, <<>>),
         Checker(Mod:do_request(Channel, URI, Req))
@@ -114,7 +114,7 @@ t_case_coap_subscribe(_) ->
     Prefix = Mod:ps_prefix(),
     Fun = fun(Channel, Token, Topic, Checker) ->
         TopicStr = binary_to_list(Topic),
-        URI = Prefix ++ TopicStr ++ "?clientid=client1&token=" ++ Token,
+        URI = Prefix ++ "/" ++ TopicStr ++ "?clientid=client1&token=" ++ Token,
 
         Req = Mod:make_req(get, <<>>, [{observe, 0}]),
         Checker(Mod:do_request(Channel, URI, Req))

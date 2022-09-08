@@ -6,7 +6,7 @@ export EMQX_DEFAULT_BUILDER = ghcr.io/emqx/emqx-builder/5.0-17:1.13.4-24.2.1-1-d
 export EMQX_DEFAULT_RUNNER = debian:11-slim
 export OTP_VSN ?= $(shell $(CURDIR)/scripts/get-otp-vsn.sh)
 export ELIXIR_VSN ?= $(shell $(CURDIR)/scripts/get-elixir-vsn.sh)
-export EMQX_DASHBOARD_VERSION ?= v1.0.7
+export EMQX_DASHBOARD_VERSION ?= v1.0.8
 export EMQX_EE_DASHBOARD_VERSION ?= e1.0.0
 export EMQX_REL_FORM ?= tgz
 export QUICER_DOWNLOAD_FROM_RELEASE = 1
@@ -80,7 +80,6 @@ static_checks:
 
 APPS=$(shell $(SCRIPTS)/find-apps.sh)
 
-## app/name-ct targets are intended for local tests hence cover is not enabled
 .PHONY: $(APPS:%=%-ct)
 define gen-app-ct-target
 $1-ct: $(REBAR)
@@ -132,7 +131,7 @@ $(REL_PROFILES:%=%): $(COMMON_DEPS)
 clean: $(PROFILES:%=clean-%)
 $(PROFILES:%=clean-%):
 	@if [ -d _build/$(@:clean-%=%) ]; then \
-		rm rebar.lock \
+		rm -f rebar.lock; \
 		rm -rf _build/$(@:clean-%=%)/rel; \
 		$(FIND) _build/$(@:clean-%=%) -name '*.beam' -o -name '*.so' -o -name '*.app' -o -name '*.appup' -o -name '*.o' -o -name '*.d' -type f | xargs rm -f; \
 		$(FIND) _build/$(@:clean-%=%) -type l -delete; \

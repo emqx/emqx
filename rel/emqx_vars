@@ -7,17 +7,19 @@ REL_VSN="{{ release_version }}"
 ERTS_VSN="{{ erts_vsn }}"
 ERL_OPTS="{{ erl_opts }}"
 RUNNER_BIN_DIR="{{ runner_bin_dir }}"
-RUNNER_LOG_DIR="{{ runner_log_dir }}"
 RUNNER_LIB_DIR="{{ runner_lib_dir }}"
+IS_ELIXIR="${IS_ELIXIR:-{{ is_elixir }}}"
+## Allow users to pre-set `RUNNER_LOG_DIR` because it only affects boot commands like `start` and `console`,
+## but not other commands such as `ping` and `ctl`.
+RUNNER_LOG_DIR="${RUNNER_LOG_DIR:-{{ runner_log_dir }}}"
 EMQX_ETC_DIR="{{ emqx_etc_dir }}"
 RUNNER_USER="{{ runner_user }}"
-IS_ELIXIR="${IS_ELIXIR:-{{ is_elixir }}}"
 SCHEMA_MOD="{{ emqx_schema_mod }}"
 IS_ENTERPRISE="{{ is_enterprise }}"
-
-export EMQX_DESCRIPTION='{{ emqx_description }}'
-
-## computed vars
+## Do not change EMQX_DEFAULT_ERLANG_COOKIE.
+## Configure EMQX_NODE_COOKIE instead
+EMQX_DEFAULT_ERLANG_COOKIE='{{ emqx_default_erlang_cookie }}'
 REL_NAME="emqx"
+export EMQX_DESCRIPTION='{{ emqx_description }}'
 
 ## updated vars here

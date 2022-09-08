@@ -40,6 +40,10 @@ docker run -d --name emqx-ee -p 1883:1883 -p 8081:8081 -p 8083:8083 -p 8084:8084
 
 接下来请参考 [入门指南](https://www.emqx.io/docs/zh/v5.0/getting-started/getting-started.html#启动-emqx) 开启您的 EMQX 之旅。
 
+#### 在 Kubernetes 上运行 EMQX 集群
+
+请参考 [EMQX Operator 文档](https://github.com/emqx/emqx-operator/blob/main/docs/zh_CN/getting-started/getting-started.md)。
+
 #### 更多安装方式
 
 您可以从 [www.emqx.io/zh/downloads](https://www.emqx.io/zh/downloads) 下载不同格式的 EMQX 安装包进行手动安装。

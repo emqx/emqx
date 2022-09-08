@@ -23,6 +23,7 @@
 
 -include_lib("eunit/include/eunit.hrl").
 -include_lib("common_test/include/ct.hrl").
+-include_lib("emqx/include/emqx_hooks.hrl").
 
 -define(DEFAULT_CLUSTER_NAME_ATOM, emqxcl).
 
@@ -105,7 +106,10 @@ load_cfg(Cfg) ->
 %%--------------------------------------------------------------------
 
 t_access_failed_if_no_server_running(Config) ->
-    emqx_exhook_mgr:disable(<<"default">>),
+    meck:expect(emqx_metrics_worker, inc, fun(_, _, _) -> ok end),
+    meck:expect(emqx_metrics, inc, fun(_) -> ok end),
+    emqx_hooks:add('client.authorize', {emqx_authz, authorize, [[]]}, ?HP_AUTHZ),
+
     ClientInfo = #{
         clientid => <<"user-id-1">>,
         username => <<"usera">>,
@@ -115,13 +119,34 @@ t_access_failed_if_no_server_running(Config) ->
         mountpoint => undefined
     },
     ?assertMatch(
+        allow,
+        emqx_access_control:authorize(
+            ClientInfo#{username => <<"gooduser">>},
+            publish,
+            <<"acl/1">>
+        )
+    ),
+
+    ?assertMatch(
+        deny,
+        emqx_access_control:authorize(
+            ClientInfo#{username => <<"baduser">>},
+            publish,
+            <<"acl/2">>
+        )
+    ),
+
+    emqx_exhook_mgr:disable(<<"default">>),
+    ?assertMatch(
         {stop, {error, not_authorized}},
         emqx_exhook_handler:on_client_authenticate(ClientInfo, #{auth_result => success})
     ),
 
     ?assertMatch(
-        {stop, deny},
-        emqx_exhook_handler:on_client_authorize(ClientInfo, publish, <<"t/1">>, allow)
+        {stop, #{result := deny, from := exhook}},
+        emqx_exhook_handler:on_client_authorize(ClientInfo, publish, <<"t/1">>, #{
+            result => allow, from => exhook
+        })
     ),
 
     Message = emqx_message:make(<<"t/1">>, <<"abc">>),
@@ -130,6 +155,7 @@ t_access_failed_if_no_server_running(Config) ->
         emqx_exhook_handler:on_message_publish(Message)
     ),
     emqx_exhook_mgr:enable(<<"default">>),
+    emqx_hooks:del('client.authorize', {emqx_authz, authorize}),
     assert_get_basic_usage_info(Config).
 
 t_lookup(_) ->

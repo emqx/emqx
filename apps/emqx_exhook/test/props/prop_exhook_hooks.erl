@@ -133,9 +133,16 @@ prop_client_authenticate() ->
     ).
 
 prop_client_authorize() ->
+    MkResult = fun(Result) -> #{result => Result, from => exhook} end,
     ?ALL(
         {ClientInfo0, PubSub, Topic, Result, Meta},
-        {clientinfo(), oneof([publish, subscribe]), topic(), oneof([allow, deny]), request_meta()},
+        {
+            clientinfo(),
+            oneof([publish, subscribe]),
+            topic(),
+            oneof([MkResult(allow), MkResult(deny)]),
+            request_meta()
+        },
         begin
             ClientInfo = inject_magic_into(username, ClientInfo0),
             OutResult = emqx_hooks:run_fold(
@@ -145,9 +152,9 @@ prop_client_authorize() ->
             ),
             ExpectedOutResult =
                 case maps:get(username, ClientInfo) of
-                    <<"baduser">> -> deny;
-                    <<"gooduser">> -> allow;
-                    <<"normaluser">> -> allow;
+                    <<"baduser">> -> MkResult(deny);
+                    <<"gooduser">> -> MkResult(allow);
+                    <<"normaluser">> -> MkResult(allow);
                     _ -> Result
                 end,
             ?assertEqual(ExpectedOutResult, OutResult),
@@ -544,7 +551,7 @@ subopts(SubOpts) ->
 authresult_to_bool(AuthResult) ->
     AuthResult == ok.
 
-aclresult_to_bool(Result) ->
+aclresult_to_bool(#{result := Result}) ->
     Result == allow.
 
 pubsub_to_enum(publish) -> 'PUBLISH';

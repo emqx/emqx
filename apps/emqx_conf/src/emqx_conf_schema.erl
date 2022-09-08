@@ -400,7 +400,7 @@ fields("node") ->
                 string(),
                 #{
                     mapping => "vm_args.-setcookie",
-                    default => "emqxsecretcookie",
+                    required => true,
                     'readOnly' => true,
                     sensitive => true,
                     desc => ?DESC(node_cookie)
@@ -534,14 +534,6 @@ fields("node") ->
                     default => [],
                     'readOnly' => true,
                     desc => ?DESC(node_applications)
-                }
-            )},
-        {"etc_dir",
-            sc(
-                string(),
-                #{
-                    desc => ?DESC(node_etc_dir),
-                    'readOnly' => true
                 }
             )},
         {"cluster_call",

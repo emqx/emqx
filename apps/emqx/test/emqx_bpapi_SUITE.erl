@@ -40,7 +40,7 @@ end_per_suite(_Config) ->
 t_max_supported_version(_Config) ->
     ?assertMatch(3, emqx_bpapi:supported_version('fake-node2@localhost', api2)),
     ?assertMatch(2, emqx_bpapi:supported_version(api2)),
-    ?assertError(_, emqx_bpapi:supported_version('fake-node2@localhost', nonexistent_api)),
+    ?assertMatch(undefined, emqx_bpapi:supported_version('fake-node2@localhost', nonexistent_api)),
     ?assertError(_, emqx_bpapi:supported_version(nonexistent_api)).
 
 t_announce(Config) ->

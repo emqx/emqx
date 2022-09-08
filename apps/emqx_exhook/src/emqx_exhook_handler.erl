@@ -133,7 +133,7 @@ on_client_authenticate(ClientInfo, AuthResult) ->
     end.
 
 on_client_authorize(ClientInfo, PubSub, Topic, Result) ->
-    Bool = Result == allow,
+    Bool = maps:get(result, Result, deny) == allow,
     Type =
         case PubSub of
             publish -> 'PUBLISH';
@@ -158,7 +158,7 @@ on_client_authorize(ClientInfo, PubSub, Topic, Result) ->
                     true -> allow;
                     _ -> deny
                 end,
-            {StopOrOk, NResult};
+            {StopOrOk, #{result => NResult, from => exhook}};
         _ ->
             {ok, Result}
     end.
