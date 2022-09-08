@@ -2245,6 +2245,7 @@ validate_alarm_actions(Actions) ->
         Error -> {error, Error}
     end.
 
+parse_user_lookup_fun({Fun, _} = Lookup) when is_function(Fun, 3) -> Lookup;
 parse_user_lookup_fun(StrConf) ->
     [ModStr, FunStr] = string:tokens(str(StrConf), ": "),
     Mod = list_to_atom(ModStr),

@@ -414,9 +414,8 @@ check_config(SchemaMod, RawConf) ->
 check_config(SchemaMod, RawConf, Opts0) ->
     Opts1 = #{
         return_plain => true,
-        %% TODO: evil, remove, required should be declared in schema
-        required => false,
-        format => map
+        format => map,
+        check_lazy => true
     },
     Opts = maps:merge(Opts0, Opts1),
     {AppEnvs, CheckedConf} =
