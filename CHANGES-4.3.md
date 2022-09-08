@@ -17,6 +17,7 @@ File format:
 - Fix rule-engine update behaviour which may initialize actions for disabled rules. [#8849](https://github.com/emqx/emqx/pull/8849)
 - Fix JWT plugin don't support non-integer timestamp claims. [#8862](https://github.com/emqx/emqx/pull/8862)
 - Fix delayed publish inaccurate caused by os time change. [#8908](https://github.com/emqx/emqx/pull/8908)
+- Fix dashboard binding IP address not working. [#8916](https://github.com/emqx/emqx/pull/8916)
 
 
 ## v4.3.19

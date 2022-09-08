@@ -11,7 +11,7 @@
 ]}.
 
 {mapping, "dashboard.listener.http", "emqx_dashboard.listeners", [
-  {datatype, integer}
+  {datatype, [integer, ip]}
 ]}.
 
 {mapping, "dashboard.listener.http.acceptors", "emqx_dashboard.listeners", [
@@ -39,7 +39,7 @@
 ]}.
 
 {mapping, "dashboard.listener.https", "emqx_dashboard.listeners", [
-  {datatype, integer}
+  {datatype, [integer, ip]}
 ]}.
 
 {mapping, "dashboard.listener.https.acceptors", "emqx_dashboard.listeners", [
