@@ -17,11 +17,11 @@ File format:
 - Fix rule-engine update behaviour which may initialize actions for disabled rules. [#8849](https://github.com/emqx/emqx/pull/8849)
 - Fix JWT plugin don't support non-integer timestamp claims. [#8862](https://github.com/emqx/emqx/pull/8862)
 - Fix dashboard binding IP address not working. [#8916](https://github.com/emqx/emqx/pull/8916)
-- Fix rule SQL topic matching to null values failed. [#?](https://github.com/emqx/emqx/pull/?)
+- Fix rule SQL topic matching to null values failed. [#8927](https://github.com/emqx/emqx/pull/8927)
   The following SQL should not fail (crash) but return `{"r": false}`:
   `SELECT topic =~ 't' as r FROM "$events/client_connected"`.
   The topic is a null value as there's no such field in event `$events/client_connected`, so it
-  should return false if mathch it to a topic.
+  should return false if match it to a topic.
 
 ## v4.3.19
 
