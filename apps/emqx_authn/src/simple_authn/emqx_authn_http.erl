@@ -361,7 +361,12 @@ handle_response(Headers, Body) ->
                 _ ->
                     ignore
             end;
-        {error, _Reason} ->
+        {error, Reason} ->
+            ?TRACE_AUTHN_PROVIDER(
+                error,
+                "parse_http_response_failed",
+                #{content_type => ContentType, body => Body, reason => Reason}
+            ),
             ignore
     end.
 
