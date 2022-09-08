@@ -116,6 +116,7 @@ jobs:
         - dns
         profile:
         - emqx
+        - emqx-enterprise
         os:
         - ["debian11", "debian:11-slim"]
         otp:
@@ -156,6 +157,12 @@ jobs:
       working-directory: source
       if: matrix.discovery == 'k8s'
       run: |
+        if [ ${{ matrix.profile }} = "emqx-enterprise" ]; then
+          chart_name="emqx-ee"
+        else
+          chart_name="emqx"
+        fi
+
         helm install emqx \
             --set emqxConfig.EMQX_CLUSTER__DISCOVERY_STRATEGY="k8s" \
             --set emqxConfig.EMQX_CLUSTER__K8S__APISERVER="https://kubernetes.default.svc:443" \
@@ -169,12 +176,18 @@ jobs:
             --set emqxConfig.EMQX_ZONES__DEFAULT__MQTT__MAX_TOPIC_ALIAS=10 \
             --set emqxConfig.EMQX_AUTHORIZATION__SOURCES=[] \
             --set emqxConfig.EMQX_AUTHORIZATION__NO_MATCH=allow \
-            deploy/charts/emqx \
+            deploy/charts/${chart_name} \
             --debug
     - name: run emqx on chart
       working-directory: source
       if: matrix.discovery == 'dns'
       run: |
+        if [ ${{ matrix.profile }} = "emqx-enterprise" ]; then
+          chart_name="emqx-ee"
+        else
+          chart_name="emqx"
+        fi
+
         helm install emqx \
             --set emqxConfig.EMQX_CLUSTER__DISCOVERY_STRATEGY="dns" \
             --set emqxConfig.EMQX_CLUSTER__DNS__RECORD_TYPE="srv" \
@@ -182,18 +195,17 @@ jobs:
             --set image.repository=$TARGET \
             --set image.pullPolicy=Never \
             --set emqxAclConfig="" \
-            --set image.pullPolicy=Never \
             --set emqxConfig.EMQX_ZONES__DEFAULT__MQTT__RETRY_INTERVAL=2s \
             --set emqxConfig.EMQX_ZONES__DEFAULT__MQTT__MAX_TOPIC_ALIAS=10 \
             --set emqxConfig.EMQX_AUTHORIZATION__SOURCES=[] \
             --set emqxConfig.EMQX_AUTHORIZATION__NO_MATCH=allow \
-            deploy/charts/emqx \
+            deploy/charts/${chart_name} \
             --debug
     - name: waiting emqx started
       timeout-minutes: 10
       run: |
-        while [ "$(kubectl get StatefulSet -l app.kubernetes.io/name=emqx -o jsonpath='{.items[0].status.replicas}')" \
-          != "$(kubectl get StatefulSet -l app.kubernetes.io/name=emqx -o jsonpath='{.items[0].status.readyReplicas}')" ]; do
+        while [ "$(kubectl get StatefulSet -l app.kubernetes.io/instance=emqx -o jsonpath='{.items[0].status.replicas}')" \
+          != "$(kubectl get StatefulSet -l app.kubernetes.io/instance=emqx -o jsonpath='{.items[0].status.readyReplicas}')" ]; do
           echo "==============================";
           kubectl get pods;
           echo "==============================";

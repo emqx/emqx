@@ -1,0 +1,44 @@
+{{- if eq .Values.emqxConfig.EMQX_CLUSTER__DISCOVERY_STRATEGY "k8s"}}
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  namespace: {{ .Release.Namespace }}
+  name: {{ include "emqx.fullname" . }}
+---
+kind: Role
+{{- if semverCompare ">=1.17-0" .Capabilities.KubeVersion.GitVersion }}
+apiVersion: rbac.authorization.k8s.io/v1
+{{- else }}
+apiVersion: rbac.authorization.k8s.io/v1beta1
+{{- end }}
+metadata:
+  namespace: {{ .Release.Namespace }}
+  name: {{ include "emqx.fullname" . }}
+rules:
+- apiGroups:
+  - ""
+  resources:
+  - endpoints
+  verbs:
+  - get
+  - watch
+  - list
+---
+kind: RoleBinding
+{{- if semverCompare ">=1.17-0" .Capabilities.KubeVersion.GitVersion }}
+apiVersion: rbac.authorization.k8s.io/v1
+{{- else }}
+apiVersion: rbac.authorization.k8s.io/v1beta1
+{{- end }}
+metadata:
+  namespace: {{ .Release.Namespace }}
+  name: {{ include "emqx.fullname" . }}
+subjects:
+  - kind: ServiceAccount
+    name: {{ include "emqx.fullname" . }}
+    namespace: {{ .Release.Namespace }}
+roleRef:
+  kind: Role
+  name: {{ include "emqx.fullname" . }}
+  apiGroup: rbac.authorization.k8s.io
+{{- end }}
