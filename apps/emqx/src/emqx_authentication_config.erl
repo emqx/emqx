@@ -64,7 +64,7 @@
 pre_config_update(_, UpdateReq, OldConfig) ->
     try do_pre_config_update(UpdateReq, to_list(OldConfig)) of
         {error, Reason} -> {error, Reason};
-        {ok, NewConfig} -> {ok, return_map(NewConfig)}
+        {ok, NewConfig} -> {ok, NewConfig}
     catch
         throw:Reason ->
             {error, Reason}
@@ -224,9 +224,6 @@ do_check_config(Type, Config, Module) ->
             }),
             throw({bad_authenticator_config, #{type => Type, reason => E}})
     end.
-
-return_map([L]) -> L;
-return_map(L) -> L.
 
 to_list(undefined) -> [];
 to_list(M) when M =:= #{} -> [];
