@@ -735,8 +735,8 @@ handle_deliver(Delivers, Channel = #channel{
     %% NOTE: Order is important here. While the takeover is in
     %% progress, the session cannot enqueue messages, since it already
     %% passed on the queue to the new connection in the session state.
-    NPendings = lists:append(Pendings,
-        ignore_local(ClientInfo, maybe_nack(Delivers), ClientId, Session)),
+    NDelivers = ignore_local(ClientInfo, maybe_discard_shared_delivers(Delivers), ClientId, Session),
+    NPendings = lists:append(Pendings, NDelivers),
     {ok, Channel#channel{pendings = NPendings}};
 
 handle_deliver(Delivers, Channel = #channel{
@@ -744,8 +744,8 @@ handle_deliver(Delivers, Channel = #channel{
         takeover   = false,
         session    = Session,
         clientinfo = #{clientid := ClientId} = ClientInfo}) ->
-    NSession = emqx_session:enqueue(ClientInfo,
-        ignore_local(ClientInfo, maybe_nack(Delivers), ClientId, Session), Session),
+    NDelivers = ignore_local(ClientInfo, maybe_discard_shared_delivers(Delivers), ClientId, Session),
+    NSession = emqx_session:enqueue(ClientInfo, NDelivers, Session),
     {ok, Channel#channel{session = NSession}};
 
 handle_deliver(Delivers, Channel = #channel{
@@ -776,12 +776,23 @@ ignore_local(ClientInfo, Delivers, Subscriber, Session) ->
                     end, Delivers).
 
 %% Nack delivers from shared subscription
-maybe_nack(Delivers) ->
-    lists:filter(fun not_nacked/1, Delivers).
-
-not_nacked({deliver, _Topic, Msg}) ->
-    not (emqx_shared_sub:is_ack_required(Msg)
-         andalso (ok == emqx_shared_sub:nack_no_connection(Msg))).
+maybe_discard_shared_delivers(Delivers) ->
+    lists:filtermap(
+      fun({deliver, Topic, Msg}) ->
+              case emqx_shared_sub:is_ack_required(Msg) of
+                  false ->
+                      true;
+                  true ->
+                      case emqx_shared_sub:is_retry_dispatch(Msg) of
+                          true ->
+                              %% force enqueue the retried shared deliver
+                              {true, {deliver, Topic, emqx_shared_sub:maybe_ack(Msg)}};
+                          false ->
+                              ok = emqx_shared_sub:nack_no_connection(Msg),
+                              false
+                      end
+              end
+      end, Delivers).
 
 %%--------------------------------------------------------------------
 %% Handle outgoing packet
