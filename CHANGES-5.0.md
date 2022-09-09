@@ -9,6 +9,7 @@
 * Fix the extra / prefix when CoAP gateway parsing client topics. [#8658](https://github.com/emqx/emqx/pull/8658)
 * Speed up updating the configuration, When some nodes in the cluster are down. [#8857](https://github.com/emqx/emqx/pull/8857)
 * Fix that EMQX can't start when the retainer is disabled [#8911](https://github.com/emqx/emqx/pull/8911)
+* Fix that redis authn will deny the unknown users [#8934](https://github.com/emqx/emqx/pull/8934)
 
 ## Enhancements
 
