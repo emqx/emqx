@@ -28,7 +28,7 @@ jobs:
         if: endsWith(github.repository, 'enterprise')
         run: ./scripts/update-appup.sh emqx-ee --check
       - name: Check apps version
-        run: ./scripts/apps-version-check.sh
+        run: ./scripts/check-apps-vsn.sh
       - name: Check chart versions
         run: ./scripts/check-chart-vsn.sh
       - uses: actions/upload-artifact@v3.1.0
