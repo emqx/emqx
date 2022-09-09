@@ -88,11 +88,11 @@ defmodule EMQXUmbrella.MixProject do
       {:ranch,
        github: "ninenines/ranch", ref: "a692f44567034dacf5efcaa24a24183788594eb7", override: true},
       # in conflict by grpc and eetcd
-      {:gpb, "4.11.2", override: true, runtime: false},
-      {:hstreamdb_erl, github: "hstreamdb/hstreamdb_erl", tag: "0.2.5"},
-      {:influxdb, github: "emqx/influxdb-client-erl", tag: "1.1.3", override: true}
+      {:gpb, "4.11.2", override: true, runtime: false}
     ] ++
-      umbrella_apps() ++ enterprise_apps(profile_info) ++ bcrypt_dep() ++ jq_dep() ++ quicer_dep()
+      umbrella_apps() ++
+      enterprise_apps(profile_info) ++
+      enterprise_deps(profile_info) ++ bcrypt_dep() ++ jq_dep() ++ quicer_dep()
   end
 
   defp umbrella_apps() do
@@ -123,6 +123,17 @@ defmodule EMQXUmbrella.MixProject do
   end
 
   defp enterprise_apps(_profile_info) do
+    []
+  end
+
+  defp enterprise_deps(_profile_info = %{edition_type: :enterprise}) do
+    [
+      {:hstreamdb_erl, github: "hstreamdb/hstreamdb_erl", tag: "0.2.5"},
+      {:influxdb, github: "emqx/influxdb-client-erl", tag: "1.1.3", override: true}
+    ]
+  end
+
+  defp enterprise_deps(_profile_info) do
     []
   end
 
