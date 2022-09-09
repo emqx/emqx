@@ -149,8 +149,8 @@ authenticate(
                     of
                         ok ->
                             {ok, emqx_authn_utils:is_superuser(Selected)};
-                        {error, Reason} ->
-                            {error, Reason}
+                        {error, _Reason} ->
+                            ignore
                     end;
                 {error, Reason} ->
                     ?TRACE_AUTHN_PROVIDER(error, "redis_query_failed", #{
