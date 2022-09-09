@@ -173,12 +173,24 @@ test_user_auth(#{
         {create_authenticator, ?GLOBAL, AuthConfig}
     ),
 
+    {ok, [#{provider := emqx_authn_redis, state := State}]} =
+        emqx_authentication:list_authenticators(?GLOBAL),
+
     Credentials = Credentials0#{
         listener => 'tcp:default',
         protocol => mqtt
     },
 
     ?assertEqual(Result, emqx_access_control:authenticate(Credentials)),
+
+    AuthnResult =
+        case Result of
+            {error, _} ->
+                ignore;
+            Any ->
+                Any
+        end,
+    ?assertEqual(AuthnResult, emqx_authn_redis:authenticate(Credentials, State)),
 
     emqx_authn_test_lib:delete_authenticators(
         [authentication],
@@ -466,7 +478,7 @@ user_seeds() ->
                 <<"cmd">> => <<"HMGET mqtt_user:${username} password_hash salt is_superuser">>,
                 <<"password_hash_algorithm">> => #{<<"name">> => <<"bcrypt">>}
             },
-            result => {error, bad_username_or_password}
+            result => {error, not_authorized}
         },
 
         #{
