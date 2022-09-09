@@ -31,14 +31,16 @@ all() ->
     [
         {group, mnesia_without_indices},
         {group, mnesia_with_indices},
-        {group, mnesia_reindex}
+        {group, mnesia_reindex},
+        {group, test_disable_then_start}
     ].
 
 groups() ->
     [
         {mnesia_without_indices, [sequence], common_tests()},
         {mnesia_with_indices, [sequence], common_tests()},
-        {mnesia_reindex, [sequence], [t_reindex]}
+        {mnesia_reindex, [sequence], [t_reindex]},
+        {test_disable_then_start, [sequence], [test_disable_then_start]}
     ].
 
 common_tests() ->
@@ -622,6 +624,19 @@ t_get_basic_usage_info(_Config) ->
         lists:seq(1, 5)
     ),
     ?assertEqual(#{retained_messages => 5}, emqx_retainer:get_basic_usage_info()),
+    ok.
+
+%% test whether the app can start normally after disabling emqx_retainer
+%% fix: https://github.com/emqx/emqx/pull/8911
+test_disable_then_start(_Config) ->
+    emqx_retainer:update_config(#{<<"enable">> => false}),
+    ?assertNotEqual([], gproc_pool:active_workers(emqx_retainer_dispatcher)),
+    ok = application:stop(emqx_retainer),
+    timer:sleep(100),
+    ?assertEqual([], gproc_pool:active_workers(emqx_retainer_dispatcher)),
+    ok = application:ensure_started(emqx_retainer),
+    timer:sleep(100),
+    ?assertNotEqual([], gproc_pool:active_workers(emqx_retainer_dispatcher)),
     ok.
 
 %%--------------------------------------------------------------------
