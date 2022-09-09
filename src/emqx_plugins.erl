@@ -41,10 +41,6 @@
 -compile(nowarn_export_all).
 -endif.
 
--dialyzer({no_match, [ plugin_loaded/2
-                     , plugin_unloaded/2
-                     ]}).
-
 %%--------------------------------------------------------------------
 %% APIs
 %%--------------------------------------------------------------------
@@ -105,7 +101,7 @@ unload(PluginName) when is_atom(PluginName) ->
             ?LOG(error, "Plugin ~s is not started", [PluginName]),
             {error, not_started};
         {_, _} ->
-            unload_plugin(PluginName, true)
+            unload_plugin(PluginName)
     end.
 
 reload(PluginName) when is_atom(PluginName)->
@@ -384,10 +380,11 @@ start_app(App, SuccFun) ->
             {error, {ErrApp, Reason}}
     end.
 
-unload_plugin(App, Persistent) ->
+unload_plugin(App) ->
     case stop_app(App) of
         ok ->
-            _ = plugin_unloaded(App, Persistent), ok;
+            _ = plugin_unloaded(App),
+            ok;
         {error, Reason} ->
             {error, Reason}
     end.
@@ -428,9 +425,7 @@ plugin_loaded(Name, true) ->
             ?LOG(error, "Cannot read loaded plugins: ~p", [Error])
     end.
 
-plugin_unloaded(_Name, false) ->
-    ok;
-plugin_unloaded(Name, true) ->
+plugin_unloaded(Name) ->
     case read_loaded() of
         {ok, Names0} ->
             Names = filter_plugins(Names0),

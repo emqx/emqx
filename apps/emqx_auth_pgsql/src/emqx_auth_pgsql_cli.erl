@@ -147,4 +147,3 @@ safe_get(K, ClientInfo) ->
 bin(A) when is_atom(A) -> atom_to_binary(A, utf8);
 bin(B) when is_binary(B) -> B;
 bin(X) -> X.
-

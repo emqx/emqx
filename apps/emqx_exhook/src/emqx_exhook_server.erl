@@ -46,7 +46,7 @@
           channel :: pid(),
           %% Registered hook names and options
           hookspec :: #{hookpoint() => map()},
-          %% Metrcis name prefix
+          %% Metrics name prefix
           prefix :: list()
        }).
 
@@ -74,8 +74,6 @@
                    | 'message.dropped'.
 
 -export_type([server/0]).
-
--dialyzer({nowarn_function, [inc_metrics/2]}).
 
 %%--------------------------------------------------------------------
 %% Load/Unload APIs
@@ -249,10 +247,6 @@ call(Hookpoint, Req, #server{name = ChannName, options = ReqOpts,
     end.
 
 %% @private
-inc_metrics(IncFun, Name) when is_function(IncFun) ->
-    %% BACKW: e4.2.0-e4.2.2
-    {env, [Prefix|_]} = erlang:fun_info(IncFun, env),
-    inc_metrics(Prefix, Name);
 inc_metrics(Prefix, Name) when is_list(Prefix) ->
     emqx_metrics:inc(list_to_atom(Prefix ++ atom_to_list(Name))).
 
