@@ -86,7 +86,7 @@ is_expired(Exp) when is_binary(Exp)  ->
             ?DEBUG("acl_deny_due_to_invalid_jwt_exp:~p", [Exp]),
             true
     end;
-is_expired(Exp) when is_integer(Exp) ->
+is_expired(Exp) when is_number(Exp) ->
     Now = erlang:system_time(second),
     Now > Exp;
 is_expired(Exp) ->

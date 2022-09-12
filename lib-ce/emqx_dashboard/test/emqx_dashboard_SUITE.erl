@@ -327,7 +327,12 @@ setup_node(Node, Apps) ->
                 application:set_env(emqx_management, listeners, []),
                 ok;
            (emqx_dashboard) ->
-                application:set_env(emqx_dashboard, listeners, []),
+                Options = [{http,{"127.0.0.1",18184},
+                            [{num_acceptors,4},
+                            {max_connections,512},
+                            {inet6,false},
+                            {ipv6_v6only,false}]}],
+                application:set_env(emqx_dashboard, listeners, Options),
                 ok;
            (_) ->
                 ok
