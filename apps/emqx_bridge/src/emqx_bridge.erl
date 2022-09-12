@@ -334,6 +334,8 @@ get_matched_bridges(Topic) ->
         Bridges
     ).
 
+%% TODO: refactor to return bridge type, and bridge name directly
+%% so there is no need to parse the id back to type and name at where it is used
 get_matched_bridge_id(_BType, #{enable := false}, _Topic, _BName, Acc) ->
     Acc;
 get_matched_bridge_id(BType, #{local_topic := Filter}, Topic, BName, Acc) when

@@ -32,6 +32,7 @@
     stop_apps/1,
     reload/2,
     app_path/2,
+    proj_root/0,
     deps_path/2,
     flush/0,
     flush/1
@@ -244,6 +245,14 @@ generate_config(SchemaModule, ConfigFile) when is_atom(SchemaModule) ->
 stop_apps(Apps) ->
     [application:stop(App) || App <- Apps ++ [emqx, ekka, mria, mnesia]],
     ok.
+
+proj_root() ->
+    filename:join(
+        lists:takewhile(
+            fun(X) -> iolist_to_binary(X) =/= <<"_build">> end,
+            filename:split(app_path(emqx, "."))
+        )
+    ).
 
 %% backward compatible
 deps_path(App, RelativePath) -> app_path(App, RelativePath).
