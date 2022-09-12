@@ -13,15 +13,24 @@ services:
     image: wurstmeister/kafka:2.13-2.7.0
     ports:
       - "9092:9092"
+      - "9093:9093"
     container_name: kafka-1.emqx.net
     hostname: kafka-1.emqx.net
     environment:
       KAFKA_BROKER_ID: 1
       KAFKA_ZOOKEEPER_CONNECT: zookeeper:2181
-      KAFKA_LISTENERS: PLAINTEXT://:9092
-      KAFKA_ADVERTISED_LISTENERS: PLAINTEXT://kafka-1.emqx.net:9092
-      KAFKA_LISTENER_SECURITY_PROTOCOL_MAP: PLAINTEXT:PLAINTEXT
+      KAFKA_LISTENERS: PLAINTEXT://:9092,SASL_PLAINTEXT://:9093
+      KAFKA_ADVERTISED_LISTENERS: PLAINTEXT://kafka-1.emqx.net:9092,SASL_PLAINTEXT://kafka-1.emqx.net:9093
+      KAFKA_LISTENER_SECURITY_PROTOCOL_MAP: PLAINTEXT:PLAINTEXT,SASL_PLAINTEXT:SASL_PLAINTEXT
       KAFKA_INTER_BROKER_LISTENER_NAME: PLAINTEXT
+      KAFKA_SASL_ENABLED_MECHANISMS: PLAIN,SCRAM-SHA-256,SCRAM-SHA-512
+      KAFKA_JMX_OPTS: "-Djava.security.auth.login.config=/etc/kafka/jaas.conf"
+      KAFKA_ALLOW_EVERYONE_IF_NO_ACL_FOUND: true
+
       KAFKA_CREATE_TOPICS: test-topic-one-partition:1:1,test-topic-two-partitions:2:1,test-topic-three-partitions:3:1,
     networks:
       emqx_bridge:
+    volumes:
+      - ./kafka/jaas.conf:/etc/kafka/jaas.conf
+      - ./kafka/run_add_scram_users.sh:/bin/run_add_scram_users.sh
+    command: run_add_scram_users.sh

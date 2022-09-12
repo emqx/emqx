@@ -14,8 +14,8 @@ help() {
     echo "--suites SUITE1,SUITE2: Comma separated SUITE names to run. e.g. apps/emqx/test/emqx_SUITE.erl"
     echo "--console:              Start EMQX in console mode"
     echo "--attach:               Attach to the Erlang docker container without running any test case"
-    echo "--only-up:              Keep the testbed running after CT"
-    echo "--keep-up:              Only start the testbed but do not run CT"
+    echo "--only-up:              Only start the testbed but do not run CT"
+    echo "--keep-up:              Keep the testbed running after CT"
 }
 
 WHICH_APP='novalue'
@@ -151,7 +151,7 @@ elif [ "$CONSOLE" = 'yes' ]; then
     docker exec -i $TTY "$ERLANG_CONTAINER" bash -c "make run"
 else
     set +e
-    docker exec -i $TTY -e EMQX_CT_SUITES="$SUITES" "$ERLANG_CONTAINER" bash -c "make ${WHICH_APP}-ct"
+    docker exec -i $TTY -e EMQX_CT_SUITES="$SUITES" "$ERLANG_CONTAINER" bash -c "BUILD_WITHOUT_QUIC=1 make ${WHICH_APP}-ct"
     RESULT=$?
     if [ "$KEEP_UP" = 'yes' ]; then
         exit $RESULT

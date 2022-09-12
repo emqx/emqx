@@ -28,12 +28,7 @@ init_per_suite(Config) ->
 end_per_suite(_) ->
     ok.
 
-t_publish(_CtConfig) ->
-    KafkaTopic = "test-topic-one-partition",
-    Conf = config(#{
-        "kafka_hosts_string" => kafka_hosts_string(),
-        "kafka_topic" => KafkaTopic
-    }),
+do_publish(Conf, KafkaTopic) ->
     InstId = <<"InstanceID">>,
     Time = erlang:system_time(millisecond),
     BinTime = integer_to_binary(Time),
@@ -51,6 +46,54 @@ t_publish(_CtConfig) ->
     ok = ?PRODUCER:on_stop(InstId, State),
     ok.
 
+t_publish(_CtConfig) ->
+    KafkaTopic = "test-topic-one-partition",
+    Conf = config(#{
+        "authentication" => "none",
+        "kafka_hosts_string" => kafka_hosts_string(),
+        "kafka_topic" => KafkaTopic
+    }),
+    do_publish(Conf, KafkaTopic).
+
+t_publish_sasl_plain(_CtConfig) ->
+    KafkaTopic = "test-topic-one-partition",
+    Conf = config(#{
+        "authentication" => #{
+            "mechanism" => "plain",
+            "username" => "emqxuser",
+            "password" => "password"
+        },
+        "kafka_hosts_string" => kafka_hosts_string_sasl(),
+        "kafka_topic" => KafkaTopic
+    }),
+    do_publish(Conf, KafkaTopic).
+
+t_publish_sasl_scram256(_CtConfig) ->
+    KafkaTopic = "test-topic-one-partition",
+    Conf = config(#{
+        "authentication" => #{
+            "mechanism" => "scram_sha_256",
+            "username" => "emqxuser",
+            "password" => "password"
+        },
+        "kafka_hosts_string" => kafka_hosts_string_sasl(),
+        "kafka_topic" => KafkaTopic
+    }),
+    do_publish(Conf, KafkaTopic).
+
+t_publish_sasl_scram512(_CtConfig) ->
+    KafkaTopic = "test-topic-one-partition",
+    Conf = config(#{
+        "authentication" => #{
+            "mechanism" => "scram_sha_512",
+            "username" => "emqxuser",
+            "password" => "password"
+        },
+        "kafka_hosts_string" => kafka_hosts_string_sasl(),
+        "kafka_topic" => KafkaTopic
+    }),
+    do_publish(Conf, KafkaTopic).
+
 config(Args) ->
     {ok, Conf} = hocon:binary(hocon_config(Args)),
     #{config := Parsed} = hocon_tconf:check_plain(
@@ -61,7 +104,13 @@ config(Args) ->
     Parsed#{bridge_name => "testbridge"}.
 
 hocon_config(Args) ->
-    Hocon = bbmustache:render(iolist_to_binary(hocon_config_template()), Args),
+    AuthConf = maps:get("authentication", Args),
+    AuthTemplate = iolist_to_binary(hocon_config_template_authentication(AuthConf)),
+    AuthConfRendered = bbmustache:render(AuthTemplate, AuthConf),
+    Hocon = bbmustache:render(
+        iolist_to_binary(hocon_config_template()),
+        Args#{"authentication" => AuthConfRendered}
+    ),
     Hocon.
 
 %% erlfmt-ignore
@@ -69,7 +118,7 @@ hocon_config_template() ->
 """
 bootstrap_hosts = \"{{ kafka_hosts_string }}\"
 enable = true
-authentication = none
+authentication = {{{ authentication }}} 
 producer = {
     mqtt {
        topic = \"t/#\"
@@ -80,8 +129,23 @@ producer = {
 }
 """.
 
+%% erlfmt-ignore
+hocon_config_template_authentication("none") ->
+    "none";
+hocon_config_template_authentication(#{"mechanism" := _}) ->
+"""
+{
+    mechanism = {{ mechanism }}
+    password = {{ password }}
+    username = {{ username }}
+}
+""".
+
 kafka_hosts_string() ->
     "kafka-1.emqx.net:9092,".
+
+kafka_hosts_string_sasl() ->
+    "kafka-1.emqx.net:9093,".
 
 kafka_hosts() ->
     kpro:parse_endpoints(kafka_hosts_string()).
