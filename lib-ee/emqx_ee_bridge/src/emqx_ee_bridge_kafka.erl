@@ -245,8 +245,21 @@ desc("config") ->
     ?DESC("desc_config");
 desc(Method) when Method =:= "get"; Method =:= "put"; Method =:= "post" ->
     ["Configuration for Kafka using `", string:to_upper(Method), "` method."];
-desc(_) ->
-    undefined.
+desc(Name) ->
+    lists:member(Name, struct_names()) orelse throw({missing_desc, Name}),
+    ?DESC(Name).
+
+struct_names() ->
+    [
+        auth_gssapi_kerberos,
+        auth_username_password,
+        kafka_message,
+        producer_buffer,
+        producer_kafka_opts,
+        producer_mqtt_opts,
+        socket_opts,
+        producer_opts
+    ].
 
 %% -------------------------------------------------------------------------------------------------
 %% internal
