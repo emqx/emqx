@@ -66,7 +66,7 @@
 
 -opaque(channel() :: #channel{}).
 
--type(conn_state() :: idle | connecting | connected | disconnected).
+-type(conn_state() :: idle | connecting | connected | disconnected | accepted).
 
 -type(reply() :: {outgoing, binary()}
                | {outgoing, [binary()]}
@@ -159,7 +159,7 @@ init(ConnInfo = #{socktype := Socktype,
     Channel = #channel{gcli = #{channel => GRpcChann},
                        conninfo = NConnInfo1,
                        clientinfo = ClientInfo,
-                       conn_state = idle,
+                       conn_state = accepted,
                        timers = #{}
                       },
     case emqx_hooks:run_fold('client.connect', [NConnInfo], #{}) of
