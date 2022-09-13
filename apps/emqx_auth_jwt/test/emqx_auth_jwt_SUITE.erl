@@ -74,7 +74,7 @@ t_check_auth(_Config) ->
     Plain = #{clientid => <<"client1">>, username => <<"plain">>, zone => external},
     Jwt = sign([{clientid, <<"client1">>},
                 {username, <<"plain">>},
-                {exp, os:system_time(seconds) + 2}], <<"HS256">>, <<"emqxsecret">>),
+                {exp, erlang:system_time(seconds) + 2}], <<"HS256">>, <<"emqxsecret">>),
     ct:pal("Jwt: ~p~n", [Jwt]),
 
     Result0 = emqx_access_control:authenticate(Plain#{password => Jwt}),
@@ -100,7 +100,7 @@ t_check_nbf(_Config) ->
     Plain = #{clientid => <<"client1">>, username => <<"plain">>, zone => external},
     Jwt = sign([{clientid, <<"client1">>},
                 {username, <<"plain">>},
-                {nbf, os:system_time(seconds) + 3}], <<"HS256">>, <<"emqxsecret">>),
+                {nbf, erlang:system_time(seconds) + 3}], <<"HS256">>, <<"emqxsecret">>),
     ct:pal("Jwt: ~p~n", [Jwt]),
 
     Result0 = emqx_access_control:authenticate(Plain#{password => Jwt}),
@@ -113,7 +113,7 @@ t_check_iat(_Config) ->
     Plain = #{clientid => <<"client1">>, username => <<"plain">>, zone => external},
     Jwt = sign([{clientid, <<"client1">>},
                 {username, <<"plain">>},
-                {iat, os:system_time(seconds) + 3}], <<"HS256">>, <<"emqxsecret">>),
+                {iat, erlang:system_time(seconds) + 3}], <<"HS256">>, <<"emqxsecret">>),
     ct:pal("Jwt: ~p~n", [Jwt]),
 
     Result0 = emqx_access_control:authenticate(Plain#{password => Jwt}),
@@ -146,7 +146,7 @@ t_check_auth_str_exp(init, _Config) ->
     application:unset_env(emqx_auth_jwt, verify_claims).
 t_check_auth_str_exp(_Config) ->
     Plain = #{clientid => <<"client1">>, username => <<"plain">>, zone => external},
-    Exp = integer_to_binary(os:system_time(seconds) + 3),
+    Exp = integer_to_binary(erlang:system_time(seconds) + 3),
 
     Jwt0 = sign([{clientid, <<"client1">>},
                  {username, <<"plain">>},
@@ -166,7 +166,7 @@ t_check_auth_str_exp(_Config) ->
     ct:pal("Auth result: ~p~n", [Result1]),
     ?assertMatch({error, _}, Result1),
 
-    Exp2 = float_to_binary(os:system_time(seconds) + 3.5),
+    Exp2 = float_to_binary(erlang:system_time(seconds) + 3.5),
 
     Jwt2 = sign([{clientid, <<"client1">>},
                  {username, <<"plain">>},
@@ -181,7 +181,7 @@ t_check_auth_float_exp(init, _Config) ->
     application:unset_env(emqx_auth_jwt, verify_claims).
 t_check_auth_float_exp(_Config) ->
     Plain = #{clientid => <<"client1">>, username => <<"plain">>, zone => external},
-    Exp = os:system_time(seconds) + 3.5,
+    Exp = erlang:system_time(seconds) + 3.5,
 
     Jwt0 = sign([{clientid, <<"client1">>},
                  {username, <<"plain">>},
@@ -208,7 +208,7 @@ t_check_claims(_Config) ->
     Jwt = sign([{client_id, <<"client1">>},
                 {username, <<"plain">>},
                 {sub, value},
-                {exp, os:system_time(seconds) + 3}], <<"HS256">>, <<"emqxsecret">>),
+                {exp, erlang:system_time(seconds) + 3}], <<"HS256">>, <<"emqxsecret">>),
     Result0 = emqx_access_control:authenticate(Plain#{password => Jwt}),
     ct:pal("Auth result: ~p~n", [Result0]),
     ?assertMatch({ok, #{auth_result := success, jwt_claims := _}}, Result0),
@@ -224,7 +224,7 @@ t_check_claims_clientid(_Config) ->
     Plain = #{clientid => <<"client23">>, username => <<"plain">>, zone => external},
     Jwt = sign([{clientid, <<"client23">>},
                 {username, <<"plain">>},
-                {exp, os:system_time(seconds) + 3}], <<"HS256">>, <<"emqxsecret">>),
+                {exp, erlang:system_time(seconds) + 3}], <<"HS256">>, <<"emqxsecret">>),
     Result0 = emqx_access_control:authenticate(Plain#{password => Jwt}),
     ct:pal("Auth result: ~p~n", [Result0]),
     ?assertMatch({ok, #{auth_result := success, jwt_claims := _}}, Result0),
@@ -240,7 +240,7 @@ t_check_claims_username(_Config) ->
     Plain = #{clientid => <<"client23">>, username => <<"plain">>, zone => external},
     Jwt = sign([{client_id, <<"client23">>},
                 {username, <<"plain">>},
-                {exp, os:system_time(seconds) + 3}], <<"HS256">>, <<"emqxsecret">>),
+                {exp, erlang:system_time(seconds) + 3}], <<"HS256">>, <<"emqxsecret">>),
     Result0 = emqx_access_control:authenticate(Plain#{password => Jwt}),
     ct:pal("Auth result: ~p~n", [Result0]),
     ?assertMatch({ok, #{auth_result := success, jwt_claims := _}}, Result0),
@@ -256,7 +256,7 @@ t_check_claims_kid_in_header(_Config) ->
     Plain = #{clientid => <<"client23">>, username => <<"plain">>, zone => external},
     Jwt = sign([{clientid, <<"client23">>},
                 {username, <<"plain">>},
-                {exp, os:system_time(seconds) + 3}],
+                {exp, erlang:system_time(seconds) + 3}],
                #{<<"alg">> => <<"HS256">>,
                  <<"kid">> => <<"a_kid_str">>}, <<"emqxsecret">>),
     Result0 = emqx_access_control:authenticate(Plain#{password => Jwt}),
@@ -297,7 +297,7 @@ t_check_jwt_acl(_Config) ->
                 {sub, value},
                 {acl, [{sub, [<<"a/b">>]},
                        {pub, [<<"c/d">>]}]},
-                {exp, os:system_time(seconds) + 10}],
+                {exp, erlang:system_time(seconds) + 10}],
                <<"HS256">>,
                <<"emqxsecret">>),
 
@@ -337,7 +337,7 @@ t_check_jwt_acl_no_recs(_Config) ->
                 {username, <<"plain">>},
                 {sub, value},
                 {acl, []},
-                {exp, os:system_time(seconds) + 10}],
+                {exp, erlang:system_time(seconds) + 10}],
                <<"HS256">>,
                <<"emqxsecret">>),
 
@@ -360,7 +360,7 @@ t_check_jwt_acl_no_acl_claim(_Config) ->
     Jwt = sign([{client_id, <<"client1">>},
                 {username, <<"plain">>},
                 {sub, value},
-                {exp, os:system_time(seconds) + 10}],
+                {exp, erlang:system_time(seconds) + 10}],
                <<"HS256">>,
                <<"emqxsecret">>),
 
@@ -384,7 +384,7 @@ t_check_jwt_acl_expire(_Config) ->
                 {username, <<"plain">>},
                 {sub, value},
                 {acl, [{sub, [<<"a/b">>]}]},
-                {exp, os:system_time(seconds) + 1}],
+                {exp, erlang:system_time(seconds) + 1}],
                <<"HS256">>,
                <<"emqxsecret">>),
 
