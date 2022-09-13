@@ -19,21 +19,6 @@
 load() ->
     ok = emqx_ctl:register_command(license, {?MODULE, license}, []).
 
-license(["reload"]) ->
-    case emqx:get_config([license]) of
-        #{file := Filename} ->
-            license(["reload", Filename]);
-        #{key := _Key} ->
-            ?PRINT_MSG("License is not configured as a file, please specify file explicitly~n")
-    end;
-license(["reload", Filename]) ->
-    case emqx_license:update_file(Filename) of
-        {ok, Warnings} ->
-            ok = print_warnings(Warnings),
-            ok = ?PRINT_MSG("ok~n");
-        {error, Reason} ->
-            ?PRINT("Error: ~p~n", [Reason])
-    end;
 license(["update", EncodedLicense]) ->
     case emqx_license:update_key(EncodedLicense) of
         {ok, Warnings} ->
@@ -56,8 +41,6 @@ license(_) ->
     emqx_ctl:usage(
         [
             {"license info", "Show license info"},
-            {"license reload [<File>]",
-                "Reload license from a file specified with an absolute path"},
             {"license update License", "Update license given as a string"}
         ]
     ).

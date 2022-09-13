@@ -16,16 +16,14 @@
 -export([roots/0, fields/1, validations/0, desc/1]).
 
 -export([
-    license_type/0,
-    key_license/0,
-    file_license/0
+    key_license/0
 ]).
 
 roots() ->
     [
         {license,
             hoconsc:mk(
-                license_type(),
+                key_license(),
                 #{
                     desc => ?DESC(license_root)
                 }
@@ -34,11 +32,6 @@ roots() ->
 
 fields(key_license) ->
     [
-        {type, #{
-            type => key,
-            required => true,
-            desc => ?DESC(license_type_field)
-        }},
         {key, #{
             type => string(),
             %% so it's not logged
@@ -46,43 +39,6 @@ fields(key_license) ->
             required => true,
             desc => ?DESC(key_field)
         }},
-        {file, #{
-            type => string(),
-            required => false,
-            desc => ?DESC(file_field)
-        }}
-        | common_fields()
-    ];
-fields(file_license) ->
-    [
-        {type, #{
-            type => file,
-            required => true,
-            desc => ?DESC(license_type_field)
-        }},
-        {key, #{
-            type => string(),
-            %% so it's not logged
-            sensitive => true,
-            required => false,
-            desc => ?DESC(key_field)
-        }},
-        {file, #{
-            type => string(),
-            desc => ?DESC(file_field)
-        }}
-        | common_fields()
-    ].
-
-desc(key_license) ->
-    "License provisioned as a string.";
-desc(file_license) ->
-    "License provisioned as a file.";
-desc(_) ->
-    undefined.
-
-common_fields() ->
-    [
         {connection_low_watermark, #{
             type => emqx_schema:percent(),
             default => "75%",
@@ -95,20 +51,16 @@ common_fields() ->
         }}
     ].
 
+desc(key_license) ->
+    "License provisioned as a string.";
+desc(_) ->
+    undefined.
+
 validations() ->
     [{check_license_watermark, fun check_license_watermark/1}].
 
-license_type() ->
-    hoconsc:union([
-        key_license(),
-        file_license()
-    ]).
-
 key_license() ->
     hoconsc:ref(?MODULE, key_license).
-
-file_license() ->
-    hoconsc:ref(?MODULE, file_license).
 
 check_license_watermark(Conf) ->
     case hocon_maps:get("license.connection_low_watermark", Conf) of
