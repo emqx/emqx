@@ -373,9 +373,9 @@ defmodule EMQXUmbrella.MixProject do
 
     if edition_type == :enterprise do
       render_template(
-        "apps/emqx_conf/etc/emqx_enterprise.conf.all",
+        "apps/emqx_conf/etc/emqx-enterprise.conf.all",
         assigns,
-        Path.join(etc, "emqx_enterprise.conf")
+        Path.join(etc, "emqx-enterprise.conf")
       )
     end
 

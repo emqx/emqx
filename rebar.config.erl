@@ -477,7 +477,7 @@ emqx_etc_overlay_per_edition(ce) ->
     ];
 emqx_etc_overlay_per_edition(ee) ->
     [
-        {"{{base_dir}}/lib/emqx_conf/etc/emqx_enterprise.conf.all", "etc/emqx_enterprise.conf"},
+        {"{{base_dir}}/lib/emqx_conf/etc/emqx-enterprise.conf.all", "etc/emqx-enterprise.conf"},
         {"{{base_dir}}/lib/emqx_conf/etc/emqx.conf.all", "etc/emqx.conf"}
     ].
 

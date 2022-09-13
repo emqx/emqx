@@ -12,22 +12,25 @@
 -define(APPS, ["emqx", "emqx_dashboard", "emqx_authz"]).
 
 main(_) ->
+    Profile = os:getenv("PROFILE", "emqx"),
     {ok, BaseConf} = file:read_file("apps/emqx_conf/etc/emqx_conf.conf"),
-
     Cfgs = get_all_cfgs("apps/"),
+    Enterprise =
+        case Profile of
+            "emqx" -> [];
+            "emqx-enterprise" -> [io_lib:nl(), "include emqx-enterprise.conf", io_lib:nl()]
+        end,
     Conf = [
         merge(BaseConf, Cfgs),
         io_lib:nl(),
-        io_lib:nl(),
-        "include emqx_enterprise.conf",
-        io_lib:nl()
+        Enterprise
     ],
     ok = file:write_file("apps/emqx_conf/etc/emqx.conf.all", Conf),
 
     EnterpriseCfgs = get_all_cfgs("lib-ee/"),
     EnterpriseConf = merge("", EnterpriseCfgs),
 
-    ok = file:write_file("apps/emqx_conf/etc/emqx_enterprise.conf.all", EnterpriseConf).
+    ok = file:write_file("apps/emqx_conf/etc/emqx-enterprise.conf.all", EnterpriseConf).
 
 merge(BaseConf, Cfgs) ->
     lists:foldl(
