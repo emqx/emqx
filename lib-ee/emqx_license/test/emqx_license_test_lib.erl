@@ -18,8 +18,6 @@
     "10"
 ]).
 
--define(DEFAULT_LICENSE_FILE, "emqx.lic").
-
 private_key() ->
     test_key("pvt.key").
 
@@ -31,9 +29,6 @@ public_key_pem() ->
 
 test_key(Filename) ->
     test_key(Filename, decoded).
-
-legacy_license() ->
-    test_key("emqx.lic", pem).
 
 test_key(Filename, Format) ->
     Dir = code:lib_dir(emqx_license, test),
@@ -83,8 +78,5 @@ make_license(Values) ->
 
 default_license() ->
     %% keep it the same as in etc/emqx_license.conf
-    License =
-        "MjIwMTExCjAKMTAKRXZhbHVhdGlvbgpjb250YWN0QGVtcXguaW8KZGVmYXVsdAoyMDIyMDQxOQoxODI1CjEwMDAK."
-        "MEQCICbgRVijCQov2hrvZXR1mk9Oa+tyV1F5oJ6iOZeSHjnQAiB9dUiVeaZekDOjztk+NCWjhk4PG8tWfw2uFZWruSzD6g==",
-    ok = file:write_file(?DEFAULT_LICENSE_FILE, License),
-    ?DEFAULT_LICENSE_FILE.
+    "MjIwMTExCjAKMTAKRXZhbHVhdGlvbgpjb250YWN0QGVtcXguaW8KZGVmYXVsdAoyMDIyMDQxOQoxODI1CjEwMDAK."
+    "MEQCICbgRVijCQov2hrvZXR1mk9Oa+tyV1F5oJ6iOZeSHjnQAiB9dUiVeaZekDOjztk+NCWjhk4PG8tWfw2uFZWruSzD6g==".
