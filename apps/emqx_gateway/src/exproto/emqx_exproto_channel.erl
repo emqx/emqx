@@ -297,7 +297,7 @@ handle_timeout(
             {ok, reset_timer(alive_timer, NChannel)};
         {error, timeout} ->
             Req = #{type => 'KEEPALIVE'},
-            NChannel = clean_timer(alive_timer, Channel),
+            NChannel = remove_timer_ref(alive_timer, Channel),
             %% close connection if keepalive timeout
             Replies = [{event, disconnected}, {close, keepalive_timeout}],
             {ok, Replies, try_dispatch(on_timer_timeout, wrap(Req), NChannel)}
@@ -665,7 +665,7 @@ ensure_keepalive(Channel = #channel{clientinfo = ClientInfo}) ->
 ensure_keepalive_timer(Interval, Channel) when Interval =< 0 ->
     Channel;
 ensure_keepalive_timer(Interval, Channel) ->
-    StatVal = emqx_gateway_conn:keepalive_stats(recv_oct),
+    StatVal = emqx_gateway_conn:keepalive_stats(recv),
     Keepalive = emqx_keepalive:init(StatVal, timer:seconds(Interval)),
     ensure_timer(alive_timer, Channel#channel{keepalive = Keepalive}).
 
@@ -684,14 +684,14 @@ ensure_timer(Name, Time, Channel = #channel{timers = Timers}) ->
     Channel#channel{timers = Timers#{Name => TRef}}.
 
 reset_timer(Name, Channel) ->
-    ensure_timer(Name, clean_timer(Name, Channel)).
-
-clean_timer(Name, Channel = #channel{timers = Timers}) ->
-    Channel#channel{timers = maps:remove(Name, Timers)}.
+    ensure_timer(Name, remove_timer_ref(Name, Channel)).
 
 cancel_timer(Name, Channel = #channel{timers = Timers}) ->
     emqx_misc:cancel_timer(maps:get(Name, Timers, undefined)),
-    clean_timer(Name, Channel).
+    remove_timer_ref(Name, Channel).
+
+remove_timer_ref(Name, Channel = #channel{timers = Timers}) ->
+    Channel#channel{timers = maps:remove(Name, Timers)}.
 
 interval(idle_timer, #channel{conninfo = #{idle_timeout := IdleTimeout}}) ->
     IdleTimeout;
@@ -746,10 +746,10 @@ enrich_clientinfo(InClientInfo = #{proto_name := ProtoName}, ClientInfo) ->
     NClientInfo = maps:merge(ClientInfo, maps:with(Ks, InClientInfo)),
     NClientInfo#{protocol => proto_name_to_protocol(ProtoName)}.
 
-default_conninfo(ConnInfo = #{peername := {PeerHost, PeerPort}}) ->
+default_conninfo(ConnInfo) ->
     ConnInfo#{
         clean_start => true,
-        clientid => anonymous_clientid(PeerHost, PeerPort),
+        clientid => anonymous_clientid(),
         username => undefined,
         conn_props => #{},
         connected => true,
@@ -790,14 +790,5 @@ proto_name_to_protocol(<<>>) ->
 proto_name_to_protocol(ProtoName) when is_binary(ProtoName) ->
     binary_to_atom(ProtoName).
 
-anonymous_clientid(PeerHost, PeerPort) ->
-    iolist_to_binary(
-        [
-            "exproto-anonymous-",
-            inet:ntoa(PeerHost),
-            "-",
-            integer_to_list(PeerPort),
-            "-",
-            emqx_misc:gen_id()
-        ]
-    ).
+anonymous_clientid() ->
+    iolist_to_binary(["exproto-", emqx_misc:gen_id()]).

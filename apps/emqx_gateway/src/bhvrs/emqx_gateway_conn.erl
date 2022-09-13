@@ -244,10 +244,10 @@ esockd_send(Data, #state{
 esockd_send(Data, #state{socket = {esockd_transport, Sock}}) ->
     esockd_transport:async_send(Sock, Data).
 
-keepalive_stats(recv_oct) ->
-    emqx_pd:get_counter(incoming_bytes);
-keepalive_stats(send_oct) ->
-    emqx_pd:get_counter(outgoing_bytes).
+keepalive_stats(recv) ->
+    emqx_pd:get_counter(recv_pkt);
+keepalive_stats(send) ->
+    emqx_pd:get_counter(send_pkt).
 
 is_datadram_socket({esockd_transport, _}) -> false;
 is_datadram_socket({udp, _, _}) -> true.
@@ -656,16 +656,16 @@ handle_timeout(
     Keepalive == keepalive;
     Keepalive == keepalive_send
 ->
-    Stat =
+    StatVal =
         case Keepalive of
-            keepalive -> recv_oct;
-            keepalive_send -> send_oct
+            keepalive -> keepalive_stats(recv);
+            keepalive_send -> keepalive_stats(send)
         end,
     case ChannMod:info(conn_state, Channel) of
         disconnected ->
             {ok, State};
         _ ->
-            handle_timeout(TRef, {Keepalive, keepalive_stats(Stat)}, State)
+            handle_timeout(TRef, {Keepalive, StatVal}, State)
     end;
 handle_timeout(
     _TRef,

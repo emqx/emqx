@@ -16,6 +16,8 @@
 
 -module(emqx_exhook_sup).
 
+-include("emqx_exhook.hrl").
+
 -behaviour(supervisor).
 
 -export([
@@ -28,12 +30,13 @@
     stop_grpc_client_channel/1
 ]).
 
--define(CHILD(Mod, Type, Args), #{
+-define(DEFAULT_TIMEOUT, 5000).
+
+-define(CHILD(Mod, Type, Args, Timeout), #{
     id => Mod,
     start => {Mod, start_link, Args},
     type => Type,
-    %% long timeout for emqx_exhook_mgr
-    shutdown => 15000
+    shutdown => Timeout
 }).
 
 %%--------------------------------------------------------------------
@@ -46,7 +49,7 @@ start_link() ->
 init([]) ->
     _ = emqx_exhook_metrics:init(),
     _ = emqx_exhook_mgr:init_ref_counter_table(),
-    Mngr = ?CHILD(emqx_exhook_mgr, worker, []),
+    Mngr = ?CHILD(emqx_exhook_mgr, worker, [], force_shutdown_timeout()),
     {ok, {{one_for_one, 10, 100}, [Mngr]}}.
 
 %%--------------------------------------------------------------------
@@ -71,3 +74,9 @@ stop_grpc_client_channel(Name) ->
         _:_:_ ->
             ok
     end.
+
+%% Calculate the maximum timeout, which will help to shutdown the
+%% emqx_exhook_mgr process correctly.
+force_shutdown_timeout() ->
+    Factor = max(3, length(emqx:get_config([exhook, servers])) + 1),
+    Factor * ?SERVER_FORCE_SHUTDOWN_TIMEOUT.

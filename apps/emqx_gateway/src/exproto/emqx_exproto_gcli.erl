@@ -56,6 +56,7 @@ start_link(Pool, Id) ->
         []
     ).
 
+-spec async_call(atom(), map(), map()) -> ok.
 async_call(
     FunName,
     Req = #{conn := Conn},
@@ -63,17 +64,11 @@ async_call(
 ) ->
     case pick(PoolName, Conn) of
         false ->
-            ?SLOG(
-                error,
-                #{
-                    msg => "no_available_grpc_client",
-                    function => FunName,
-                    request => Req
-                }
-            );
+            reply(self(), FunName, {error, no_available_grpc_client});
         Pid when is_pid(Pid) ->
             cast(Pid, {rpc, FunName, Req, Options, self()})
-    end.
+    end,
+    ok.
 
 %%--------------------------------------------------------------------
 %% cast, pick

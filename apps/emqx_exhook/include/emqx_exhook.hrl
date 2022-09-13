@@ -43,6 +43,8 @@
     {'message.dropped', {emqx_exhook_handler, on_message_dropped, []}}
 ]).
 
+-define(SERVER_FORCE_SHUTDOWN_TIMEOUT, 5000).
+
 -endif.
 
 -define(CMD_MOVE_FRONT, front).
