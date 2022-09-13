@@ -148,11 +148,7 @@ jobs:
         echo "TARGET=emqx/${{ matrix.profile }}" >> $GITHUB_ENV
         echo "EMQX_TAG=$(./pkg-vsn.sh ${{ matrix.profile }})" >> $GITHUB_ENV
     - run: minikube start
-    - name: setup helm chart
-      working-directory: source
-      run: |
-        minikube image load $TARGET:$EMQX_TAG
-        sed -i -r "s/^appVersion: .*$/appVersion: \"$EMQX_TAG\"/g" deploy/charts/emqx/Chart.yaml
+    - run: minikube image load $TARGET:$EMQX_TAG
     - name: run emqx on chart
       working-directory: source
       if: matrix.discovery == 'k8s'
@@ -170,8 +166,8 @@ jobs:
             --set emqxConfig.EMQX_CLUSTER__K8S__NAMESPACE="default" \
             --set image.repository=$TARGET \
             --set image.pullPolicy=Never \
+            --set image.tag=$EMQX_TAG \
             --set emqxAclConfig="" \
-            --set image.pullPolicy=Never \
             --set emqxConfig.EMQX_ZONES__DEFAULT__MQTT__RETRY_INTERVAL=2s \
             --set emqxConfig.EMQX_ZONES__DEFAULT__MQTT__MAX_TOPIC_ALIAS=10 \
             --set emqxConfig.EMQX_AUTHORIZATION__SOURCES=[] \
@@ -194,6 +190,7 @@ jobs:
             --set emqxConfig.EMQX_CLUSTER__DNS__NAME="emqx-headless.default.svc.cluster.local" \
             --set image.repository=$TARGET \
             --set image.pullPolicy=Never \
+            --set image.tag=$EMQX_TAG \
             --set emqxAclConfig="" \
             --set emqxConfig.EMQX_ZONES__DEFAULT__MQTT__RETRY_INTERVAL=2s \
             --set emqxConfig.EMQX_ZONES__DEFAULT__MQTT__MAX_TOPIC_ALIAS=10 \
