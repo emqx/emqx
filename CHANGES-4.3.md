@@ -26,6 +26,7 @@ File format:
   should return false if match it to a topic.
 - Added a test to prevent a last will testament message to be
   published when a client is denied connection. [#8894](https://github.com/emqx/emqx/pull/8894)
+- Disable authorization for `api/v4/emqx_prometheus` endpoint. [8955](https://github.com/emqx/emqx/pull/8955)
 
 ## v4.3.19
 
