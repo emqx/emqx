@@ -18,6 +18,7 @@
 
 * Print a warning message when boot with the default (insecure) Erlang cookie. [#8905](https://github.com/emqx/emqx/pull/8905)
 * Change the `/gateway` API path to plural form. [#8823](https://github.com/emqx/emqx/pull/8823)
+* Don't allow updating config items when they already exist in `local-override.conf`. [#8851](https://github.com/emqx/emqx/pull/8851)
 * Remove `node.etc_dir` from emqx.conf, because it is never used.
   Also allow user to customize the logging directory [#8892](https://github.com/emqx/emqx/pull/8892)
 * Added a new API `POST /listeners` for creating listener. [#8876](https://github.com/emqx/emqx/pull/8876)
