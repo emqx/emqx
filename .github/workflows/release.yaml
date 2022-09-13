@@ -69,7 +69,7 @@ jobs:
       - uses: emqx/push-helm-action@v1
         if: github.event_name == 'release' && startsWith(github.ref_name, 'e')
         with:
-          charts_dir: "${{ github.workspace }}/deploy/charts/emqx-ee"
+          charts_dir: "${{ github.workspace }}/deploy/charts/emqx-enterprise"
           version: ${{ github.ref_name }}
           aws_access_key_id: ${{ secrets.AWS_ACCESS_KEY_ID }}
           aws_secret_access_key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
