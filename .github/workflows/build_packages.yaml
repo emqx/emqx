@@ -178,6 +178,10 @@ jobs:
       working-directory: source
       env:
         AUTO_INSTALL_BUILD_DEPS: 1
+        APPLE_SIGN_BINARIES: 1
+        APPLE_DEVELOPER_IDENTITY: ${{ secrets.APPLE_DEVELOPER_IDENTITY }}
+        APPLE_DEVELOPER_ID_BUNDLE: ${{ secrets.APPLE_DEVELOPER_ID_BUNDLE }}
+        APPLE_DEVELOPER_ID_BUNDLE_PASSWORD: ${{ secrets.APPLE_DEVELOPER_ID_BUNDLE_PASSWORD }}
       run: |
         . $HOME/.kerl/${{ matrix.otp }}/activate
         make ensure-rebar3
