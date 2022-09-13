@@ -80,7 +80,9 @@ jobs:
     - uses: actions/upload-artifact@v2
       with:
         name: "${{ matrix.profile }}_schema_dump"
-        path: _build/*/lib/emqx_dashboard/priv/www/static/schema.json
+        path: |
+          scripts/spellcheck
+          _build/${{ matrix.profile }}/lib/emqx_dashboard/priv/www/static/schema.json
 
   windows:
     runs-on: windows-2019
@@ -205,7 +207,6 @@ jobs:
         - emqx
         - emqx-enterprise
     runs-on: aws-amd64
-    container: "ghcr.io/emqx/emqx-schema-validate:0.3.3"
     steps:
     - uses: actions/download-artifact@v2
       name: Download schema dump
@@ -214,9 +215,7 @@ jobs:
         path: /tmp/
     - name: Run spellcheck
       run: |
-        cd /LanguageTool
-        bash start.sh > /dev/null &
-        ./emqx_schema_validate /tmp/${{ matrix.profile }}/lib/emqx_dashboard/priv/www/static/schema.json
+        bash /tmp/scripts/spellcheck/spellcheck.sh /tmp/_build/${{ matrix.profile }}/lib/emqx_dashboard/priv/www/static/schema.json
 
   allgood_packaging:
     runs-on: ubuntu-latest
