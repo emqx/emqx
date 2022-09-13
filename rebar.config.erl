@@ -482,11 +482,16 @@ emqx_etc_overlay_per_edition(ee) ->
     ].
 
 get_vsn(Profile) ->
-    %% to make it compatible to Linux and Windows,
-    %% we must use bash to execute the bash file
-    %% because "./" will not be recognized as an internal or external command
-    os_cmd("pkg-vsn.sh " ++ atom_to_list(Profile)).
+    case os:getenv("PKG_VSN") of
+        false ->
+            os_cmd("pkg-vsn.sh " ++ atom_to_list(Profile));
+        Vsn ->
+            Vsn
+    end.
 
+%% to make it compatible to Linux and Windows,
+%% we must use bash to execute the bash file
+%% because "./" will not be recognized as an internal or external command
 os_cmd(Cmd) ->
     Output = os:cmd("bash " ++ Cmd),
     re:replace(Output, "\n", "", [{return, list}]).

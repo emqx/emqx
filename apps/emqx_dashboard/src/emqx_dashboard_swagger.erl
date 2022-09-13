@@ -778,7 +778,7 @@ to_bin(List) when is_list(List) ->
 to_bin(Boolean) when is_boolean(Boolean) -> Boolean;
 to_bin(Atom) when is_atom(Atom) -> atom_to_binary(Atom, utf8);
 to_bin({Type, Args}) ->
-    unicode:characters_to_binary(io_lib:format("~p(~p)", [Type, Args]));
+    unicode:characters_to_binary(io_lib:format("~ts(~p)", [Type, Args]));
 to_bin(X) ->
     X.
 
