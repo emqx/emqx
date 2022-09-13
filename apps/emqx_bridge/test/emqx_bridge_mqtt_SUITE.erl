@@ -245,13 +245,13 @@ t_mqtt_conn_bridge_egress(_) ->
     {ok, 200, BridgeStr} = request(get, uri(["bridges", BridgeIDEgress]), []),
     ?assertMatch(
         #{
-            <<"metrics">> := #{<<"matched">> := 1, <<"sent.success">> := 1, <<"sent.failed">> := 0},
+            <<"metrics">> := #{<<"matched">> := 1, <<"success">> := 1, <<"failed">> := 0},
             <<"node_metrics">> :=
                 [
                     #{
                         <<"node">> := _,
                         <<"metrics">> :=
-                            #{<<"matched">> := 1, <<"sent.success">> := 1, <<"sent.failed">> := 0}
+                            #{<<"matched">> := 1, <<"success">> := 1, <<"failed">> := 0}
                     }
                 ]
         },
@@ -464,13 +464,13 @@ t_egress_mqtt_bridge_with_rules(_) ->
     {ok, 200, BridgeStr} = request(get, uri(["bridges", BridgeIDEgress]), []),
     ?assertMatch(
         #{
-            <<"metrics">> := #{<<"matched">> := 2, <<"sent.success">> := 2, <<"sent.failed">> := 0},
+            <<"metrics">> := #{<<"matched">> := 2, <<"success">> := 2, <<"failed">> := 0},
             <<"node_metrics">> :=
                 [
                     #{
                         <<"node">> := _,
                         <<"metrics">> := #{
-                            <<"matched">> := 2, <<"sent.success">> := 2, <<"sent.failed">> := 0
+                            <<"matched">> := 2, <<"success">> := 2, <<"failed">> := 0
                         }
                     }
                 ]
