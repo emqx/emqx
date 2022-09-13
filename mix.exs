@@ -562,6 +562,7 @@ defmodule EMQXUmbrella.MixProject do
 
   defp template_vars(release, release_type, :bin = _package_type, edition_type) do
     [
+      emqx_default_erlang_cookie: default_cookie(),
       platform_data_dir: "data",
       platform_etc_dir: "etc",
       platform_log_dir: "log",
@@ -584,6 +585,7 @@ defmodule EMQXUmbrella.MixProject do
 
   defp template_vars(release, release_type, :pkg = _package_type, edition_type) do
     [
+      emqx_default_erlang_cookie: default_cookie(),
       platform_data_dir: "/var/lib/emqx",
       platform_etc_dir: "/etc/emqx",
       platform_log_dir: "/var/log/emqx",
@@ -602,6 +604,10 @@ defmodule EMQXUmbrella.MixProject do
       is_elixir: "yes",
       is_enterprise: if(edition_type == :enterprise, do: "yes", else: "no")
     ] ++ build_info()
+  end
+
+  defp default_cookie() do
+    "emqx50elixir"
   end
 
   defp emqx_description(release_type, edition_type) do

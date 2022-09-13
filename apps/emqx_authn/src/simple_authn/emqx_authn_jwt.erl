@@ -399,7 +399,7 @@ do_verify(JWT, [JWK | More], VerifyClaims) ->
     end.
 
 verify_claims(Claims, VerifyClaims0) ->
-    Now = os:system_time(seconds),
+    Now = erlang:system_time(seconds),
     VerifyClaims =
         [
             {<<"exp">>, fun(ExpireTime) ->
