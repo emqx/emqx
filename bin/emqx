@@ -7,7 +7,7 @@ set -euo pipefail
 DEBUG="${DEBUG:-0}"
 [ "$DEBUG" -eq 1 ] && set -x
 
-RUNNER_ROOT_DIR="$(cd "$(dirname "$(readlink "$0" || echo "$0")")"/..; pwd -P)"
+RUNNER_ROOT_DIR="$(cd "$(dirname "$(realpath "$0" || echo "$0")")"/..; pwd -P)"
 
 # shellcheck disable=SC1090,SC1091
 . "$RUNNER_ROOT_DIR"/releases/emqx_vars
@@ -600,7 +600,7 @@ is_down() {
         if ps -p "$PID" | grep -q 'defunct'; then
             # zombie state, print parent pid
             parent="$(ps -o ppid= -p "$PID" | tr -d ' ')"
-            echo "WARN: $PID is marked <defunct>, parent:"
+            echo "WARNING: $PID is marked <defunct>, parent:"
             ps -p "$parent"
             return 0
         fi
@@ -748,8 +748,9 @@ export ESCRIPT_NAME="$SHORT_NAME"
 
 PIPE_DIR="${PIPE_DIR:-/$DATA_DIR/${WHOAMI}_erl_pipes/$NAME/}"
 
-## make EMQX_NODE_COOKIE right
+## Resolve Erlang cookie.
 if [ -n "${EMQX_NODE_COOKIE:-}" ]; then
+    ## To be backward compatible, read EMQX_NODE_COOKIE
     export EMQX_NODE__COOKIE="${EMQX_NODE_COOKIE}"
     unset EMQX_NODE_COOKIE
 fi
@@ -762,9 +763,13 @@ if [ -z "$COOKIE" ]; then
         COOKIE="$(grep -E '^-setcookie' "${vm_args_file}" | awk '{print $2}')"
     fi
 fi
-
-if [ -z "$COOKIE" ]; then
-    die "Please set node.cookie in $EMQX_ETC_DIR/emqx.conf or override from environment variable EMQX_NODE__COOKIE"
+[ -z "$COOKIE" ] && COOKIE="$EMQX_DEFAULT_ERLANG_COOKIE"
+if [ $IS_BOOT_COMMAND = 'yes' ] && [ "$COOKIE" = "$EMQX_DEFAULT_ERLANG_COOKIE" ]; then
+    echoerr "!!!!!!"
+    echoerr "WARNING: Default (insecure) Erlang cookie is in use."
+    echoerr "WARNING: Configure node.cookie in $EMQX_ETC_DIR/emqx.conf or override from environment variable EMQX_NODE__COOKIE"
+    echoerr "NOTE: Use the same config value for all nodes in the cluster."
+    echoerr "!!!!!!"
 fi
 
 ## check if OTP version has mnesia_hook feature; if not, fallback to

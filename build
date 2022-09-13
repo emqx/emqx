@@ -163,6 +163,7 @@ make_relup() {
     local name_pattern
     name_pattern="${PROFILE}-$(./pkg-vsn.sh "$PROFILE" --vsn_matcher --long)"
     local releases=()
+    mkdir -p _upgrade_base
     while read -r tgzfile ; do
         local base_vsn
         base_vsn="$(echo "$tgzfile" | grep -oE "[0-9]+\.[0-9]+\.[0-9]+(-(alpha|beta|rc)\.[0-9])?(-[0-9a-f]{8})?" | head -1)"

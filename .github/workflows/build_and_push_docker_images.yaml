@@ -185,9 +185,19 @@ jobs:
           img_suffix="elixir-${{ matrix.arch }}"
           img_labels="org.opencontainers.image.elixir.version=${{ matrix.elixir }}\n${img_labels}"
         fi
+
+        if [ ${{ matrix.profile }} = "emqx" ]; then
+          img_labels="org.opencontainers.image.edition=Opensource\n${img_labels}"
+        fi
+
+        if [ ${{ matrix.profile }} = "emqx-enterprise" ]; then
+          img_labels="org.opencontainers.image.edition=Enterprise\n${img_labels}"
+        fi
+
         if [[ ${{ matrix.os[0] }} =~ "alpine" ]]; then
           img_suffix="${img_suffix}-alpine"
         fi
+
         echo "::set-output name=emqx_name::${emqx_name}"
         echo "::set-output name=img_suffix::${img_suffix}"
         echo "::set-output name=img_labels::${img_labels}"
@@ -303,10 +313,19 @@ jobs:
             img_suffix="elixir-${{ matrix.arch }}"
             img_labels="org.opencontainers.image.elixir.version=${{ matrix.elixir }}\n$img_labels"
           fi
+
+          if [ ${{ matrix.profile }} = "emqx" ]; then
+            img_labels="org.opencontainers.image.edition=Opensource\n${img_labels}"
+          fi
+
+          if [ ${{ matrix.profile }} = "emqx-enterprise" ]; then
+            img_labels="org.opencontainers.image.edition=Enterprise\n${img_labels}"
+          fi
+
           if [[ ${{ matrix.os[0] }} =~ "alpine" ]]; then
             img_suffix="${img_suffix}-alpine"
           fi
-          echo "::set-output name=img::${img}"
+
           echo "::set-output name=emqx_name::${emqx_name}"
           echo "::set-output name=img_suffix::${img_suffix}"
           echo "::set-output name=img_labels::${img_labels}"
