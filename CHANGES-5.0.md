@@ -13,6 +13,7 @@
 * Fix that redis authn will deny the unknown users [#8934](https://github.com/emqx/emqx/pull/8934)
 * Fix ExProto UDP client keepalive checking error.
   This causes the clients to not expire as long as a new UDP packet arrives [#8866](https://github.com/emqx/emqx/pull/8866)
+* Fix that MQTT Bridge message payload could be empty string. [#8949](https://github.com/emqx/emqx/pull/8949)
 
 ## Enhancements
 
