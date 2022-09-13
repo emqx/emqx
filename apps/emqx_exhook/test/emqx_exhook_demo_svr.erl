@@ -80,7 +80,16 @@ stop() ->
 
 stop(Name) ->
     grpc:stop_server(Name),
-    to_atom_name(Name) ! stop.
+    case whereis(to_atom_name(Name)) of
+        undefined ->
+            ok;
+        Pid ->
+            Ref = erlang:monitor(process, Pid),
+            Pid ! stop,
+            receive
+                {'DOWN', Ref, process, Pid, _Reason} -> ok
+            end
+    end.
 
 take() ->
     to_atom_name(?NAME) ! {take, self()},
