@@ -24,6 +24,8 @@ File format:
   `SELECT topic =~ 't' as r FROM "$events/client_connected"`.
   The topic is a null value as there's no such field in event `$events/client_connected`, so it
   should return false if match it to a topic.
+- Added a test to prevent a last will testament message to be
+  published when a client is denied connection. [#8894](https://github.com/emqx/emqx/pull/8894)
 
 ## v4.3.19
 
