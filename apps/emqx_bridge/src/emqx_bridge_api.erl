@@ -704,10 +704,10 @@ format_metrics(#{
         'dropped.resource_stopped' := DroppedResourceStopped,
         'matched' := Matched,
         'queuing' := Queued,
-        'sent' := Sent,
-        'sent.failed' := SentFailed,
-        'sent.inflight' := SentInflight,
-        'sent.success' := SentSucc,
+        'retried' := Retried,
+        'failed' := SentFailed,
+        'inflight' := SentInflight,
+        'success' := SentSucc,
         'received' := Rcvd
     },
     rate := #{
@@ -724,7 +724,7 @@ format_metrics(#{
         DroppedResourceStopped,
         Matched,
         Queued,
-        Sent,
+        Retried,
         SentFailed,
         SentInflight,
         SentSucc,
