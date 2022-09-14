@@ -34,6 +34,11 @@ fields(key_license) ->
     [
         {key, #{
             type => string(),
+            default =>
+                "MjIwMTExCjAKMTAKRXZhbHVhdGlvbgpjb250YWN0QGVtcXguaW8KZ"
+                "GVmYXVsdAoyMDIyMDQxOQoxODI1CjEwMDAK.MEQCICbgRVijCQov2"
+                "hrvZXR1mk9Oa+tyV1F5oJ6iOZeSHjnQAiB9dUiVeaZekDOjztk+NC"
+                "Wjhk4PG8tWfw2uFZWruSzD6g==",
             %% so it's not logged
             sensitive => true,
             required => true,
