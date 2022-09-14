@@ -44,9 +44,11 @@ fi
 case "${EDITION}" in
     *enterprise*)
         GIT_TAG_PREFIX="e"
+        RELUP_PATH_FILE="./data/relup-paths-ee.eterm"
         ;;
     *)
         GIT_TAG_PREFIX="v"
+        RELUP_PATH_FILE="./data/relup-paths.eterm"
         ;;
 esac
 
@@ -54,7 +56,7 @@ esac
 TAGS=( 'dummy' )
 TAGS_EXCLUDE=( 'dummy' )
 
-base_versions="$(./scripts/relup-base-vsns.escript base-vsns "$CUR" ./data/relup-paths.eterm | xargs echo -n)"
+base_versions="$(./scripts/relup-base-vsns.escript base-vsns "$CUR" "$RELUP_PATH_FILE" | xargs echo -n)"
 
 for vsn in ${base_versions}; do
     # shellcheck disable=SC2207
