@@ -58,7 +58,7 @@ jobs:
                -d "{\"repo\":\"emqx/emqx\", \"tag\": \"${{ github.ref_name }}\" }" \
                ${{ secrets.EMQX_IO_RELEASE_API }}
       - uses: emqx/push-helm-action@v1
-        if: github.event_name == 'release' && endsWith(github.repository, 'emqx') && matrix.profile == 'emqx'
+        if: github.event_name == 'release' && startsWith(github.ref_name, 'v')
         with:
           charts_dir: "${{ github.workspace }}/deploy/charts/emqx"
           version: ${{ github.ref_name }}
@@ -67,9 +67,9 @@ jobs:
           aws_region: "us-west-2"
           aws_bucket_name: "repos-emqx-io"
       - uses: emqx/push-helm-action@v1
-        if: github.event_name == 'release' && endsWith(github.repository, 'enterprise') && matrix.profile == 'emqx-ee'
+        if: github.event_name == 'release' && startsWith(github.ref_name, 'e')
         with:
-          charts_dir: "${{ github.workspace }}/deploy/charts/emqx-ee"
+          charts_dir: "${{ github.workspace }}/deploy/charts/emqx-enterprise"
           version: ${{ github.ref_name }}
           aws_access_key_id: ${{ secrets.AWS_ACCESS_KEY_ID }}
           aws_secret_access_key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
