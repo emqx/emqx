@@ -180,7 +180,6 @@ select_and_collect([Field|More], Input, {Output, LastKV}) ->
         {nested_put(Key, Val, Output), LastKV}).
 
 %% Filter each item got from FOREACH
--dialyzer({nowarn_function, filter_collection/4}).
 filter_collection(Input, InCase, DoEach, {CollKey, CollVal}) ->
     lists:filtermap(
         fun(Item) ->
@@ -242,7 +241,10 @@ do_compare('>=', L, R) ->
     do_compare('=', L, R) orelse do_compare('>', L, R);
 do_compare('<>', L, R) -> L /= R;
 do_compare('!=', L, R) -> L /= R;
-do_compare('=~', T, F) -> emqx_topic:match(T, F).
+do_compare('=~', undefined, undefined) -> true;
+do_compare('=~', T, F) when T == undefined; F == undefined -> false;
+do_compare('=~', T, F) ->
+    emqx_topic:match(T, F).
 
 number(Bin) ->
     try binary_to_integer(Bin)

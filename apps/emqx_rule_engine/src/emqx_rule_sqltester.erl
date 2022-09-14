@@ -20,16 +20,6 @@
 -export([ test/1
         ]).
 
-%% Dialyzer gives up on the generated code.
-%% probably due to stack depth, or inlines.
--dialyzer({nowarn_function, [test/1,
-                             test_rule/4,
-                             flatten/1,
-                             sql_test_action/0,
-                             fill_default_values/2,
-                             envs_examp/1
-                             ]}).
-
 -spec(test(#{}) -> {ok, map() | list()} | {error, term()}).
 test(#{<<"rawsql">> := Sql, <<"ctx">> := Context}) ->
     {ok, Select} = emqx_rule_sqlparser:parse_select(Sql),
