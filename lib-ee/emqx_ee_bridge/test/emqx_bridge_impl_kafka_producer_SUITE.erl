@@ -94,6 +94,18 @@ t_publish_sasl_scram512(_CtConfig) ->
     }),
     do_publish(Conf, KafkaTopic).
 
+t_publish_sasl_kerberos(_CtConfig) ->
+    KafkaTopic = "test-topic-one-partition",
+    Conf = config(#{
+        "authentication" => #{
+            "kerberos_principal" => "rig@KDC.EMQX.NET",
+            "kerberos_keytab_file" => "/var/lib/secret/rig.key"
+        },
+        "kafka_hosts_string" => kafka_hosts_string_sasl(),
+        "kafka_topic" => KafkaTopic
+    }),
+    do_publish(Conf, KafkaTopic).
+
 config(Args) ->
     {ok, Conf} = hocon:binary(hocon_config(Args)),
     #{config := Parsed} = hocon_tconf:check_plain(
@@ -138,6 +150,13 @@ hocon_config_template_authentication(#{"mechanism" := _}) ->
     mechanism = {{ mechanism }}
     password = {{ password }}
     username = {{ username }}
+}
+""";
+hocon_config_template_authentication(#{"kerberos_principal" := _}) ->
+"""
+{
+    kerberos_principal = \"{{ kerberos_principal }}\"
+    kerberos_keytab_file = \"{{ kerberos_keytab_file }}\"
 }
 """.
 

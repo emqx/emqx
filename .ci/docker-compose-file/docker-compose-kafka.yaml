@@ -16,6 +16,8 @@ services:
       - "9093:9093"
     container_name: kafka-1.emqx.net
     hostname: kafka-1.emqx.net
+    depends_on:
+      - "kdc" 
     environment:
       KAFKA_BROKER_ID: 1
       KAFKA_ZOOKEEPER_CONNECT: zookeeper:2181
@@ -23,14 +25,32 @@ services:
       KAFKA_ADVERTISED_LISTENERS: PLAINTEXT://kafka-1.emqx.net:9092,SASL_PLAINTEXT://kafka-1.emqx.net:9093
       KAFKA_LISTENER_SECURITY_PROTOCOL_MAP: PLAINTEXT:PLAINTEXT,SASL_PLAINTEXT:SASL_PLAINTEXT
       KAFKA_INTER_BROKER_LISTENER_NAME: PLAINTEXT
-      KAFKA_SASL_ENABLED_MECHANISMS: PLAIN,SCRAM-SHA-256,SCRAM-SHA-512
+      KAFKA_SASL_ENABLED_MECHANISMS: PLAIN,SCRAM-SHA-256,SCRAM-SHA-512,GSSAPI
+      KAFKA_SASL_KERBEROS_SERVICE_NAME: kafka
+      KAFKA_SASL_MECHANISM_INTER_BROKER_PROTOCOL: PLAIN
       KAFKA_JMX_OPTS: "-Djava.security.auth.login.config=/etc/kafka/jaas.conf"
       KAFKA_ALLOW_EVERYONE_IF_NO_ACL_FOUND: true
-
       KAFKA_CREATE_TOPICS: test-topic-one-partition:1:1,test-topic-two-partitions:2:1,test-topic-three-partitions:3:1,
+      KAFKA_AUTHORIZER_CLASS_NAME: kafka.security.auth.SimpleAclAuthorizer
     networks:
       emqx_bridge:
     volumes:
+      - emqx-shared-secret:/var/lib/secret
       - ./kafka/jaas.conf:/etc/kafka/jaas.conf
       - ./kafka/run_add_scram_users.sh:/bin/run_add_scram_users.sh
+      - ./kerberos/krb5.conf:/etc/kdc/krb5.conf
+      - ./kerberos/krb5.conf:/etc/krb5.conf
     command: run_add_scram_users.sh
+  kdc:
+    hostname: kdc.emqx.net
+    image:  ghcr.io/emqx/emqx-builder/5.0-17:1.13.4-24.2.1-1-ubuntu20.04
+    container_name: kdc.emqx.net
+    networks:
+      emqx_bridge:
+    volumes:
+      - emqx-shared-secret:/var/lib/secret
+      - ./kerberos/krb5.conf:/etc/kdc/krb5.conf
+      - ./kerberos/krb5.conf:/etc/krb5.conf
+      - ./kerberos/run.sh:/usr/bin/run.sh
+    command: run.sh
+

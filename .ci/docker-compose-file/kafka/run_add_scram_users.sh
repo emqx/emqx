@@ -2,6 +2,15 @@
 
 set -euo pipefail
 
+
+TIMEOUT=60
+
+echo "+++++++ Wait until Kerberos Keytab is created ++++++++"
+
+timeout $TIMEOUT bash -c 'until [ -f /var/lib/secret/kafka.key ]; do sleep 1; done'
+
+sleep 3
+
 echo "+++++++ Starting Kafka ++++++++"
 
 start-kafka.sh &
