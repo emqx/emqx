@@ -141,12 +141,8 @@ authenticate(
                 {ok, []} ->
                     ignore;
                 {ok, Values} ->
-                    case check_query_matched(Values) of
-                        false ->
-                            %% key not exists
-                            ignore;
-                        _ ->
-                            Selected = merge(Fields, Values),
+                    case merge(Fields, Values) of
+                        Selected when Selected =/= #{} ->
                             case
                                 emqx_authn_utils:check_password_from_selected_map(
                                     Algorithm, Selected, Password
@@ -156,7 +152,15 @@ authenticate(
                                     {ok, emqx_authn_utils:is_superuser(Selected)};
                                 {error, _Reason} = Error ->
                                     Error
-                            end
+                            end;
+                        _ ->
+                            ?TRACE_AUTHN_PROVIDER(info, "redis_query_not_matched", #{
+                                resource => ResourceId,
+                                cmd => Command,
+                                keys => NKey,
+                                fields => Fields
+                            }),
+                            ignore
                     end;
                 {error, Reason} ->
                     ?TRACE_AUTHN_PROVIDER(error, "redis_query_failed", #{
@@ -228,10 +232,3 @@ merge(Fields, Values) ->
          || {K, V} <- lists:zip(Fields, Values), V =/= undefined
         ]
     ).
-
-check_query_matched(undefined) ->
-    false;
-check_query_matched(List) when is_list(List) ->
-    lists:any(fun(E) -> E =/= undefined end, List);
-check_query_matched(_) ->
-    true.
