@@ -141,16 +141,22 @@ authenticate(
                 {ok, []} ->
                     ignore;
                 {ok, Values} ->
-                    Selected = merge(Fields, Values),
-                    case
-                        emqx_authn_utils:check_password_from_selected_map(
-                            Algorithm, Selected, Password
-                        )
-                    of
-                        ok ->
-                            {ok, emqx_authn_utils:is_superuser(Selected)};
-                        {error, _Reason} ->
-                            ignore
+                    case lists:all(fun(E) -> E =:= undefined end, Values) of
+                        true ->
+                            %% key not exists
+                            ignore;
+                        _ ->
+                            Selected = merge(Fields, Values),
+                            case
+                                emqx_authn_utils:check_password_from_selected_map(
+                                    Algorithm, Selected, Password
+                                )
+                            of
+                                ok ->
+                                    {ok, emqx_authn_utils:is_superuser(Selected)};
+                                {error, _Reason} = Error ->
+                                    Error
+                            end
                     end;
                 {error, Reason} ->
                     ?TRACE_AUTHN_PROVIDER(error, "redis_query_failed", #{

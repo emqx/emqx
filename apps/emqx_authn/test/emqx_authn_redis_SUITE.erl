@@ -161,11 +161,13 @@ t_authenticate(_Config) ->
         user_seeds()
     ).
 
-test_user_auth(#{
-    credentials := Credentials0,
-    config_params := SpecificConfigParams,
-    result := Result
-}) ->
+test_user_auth(
+    #{
+        credentials := Credentials0,
+        config_params := SpecificConfigParams,
+        result := Result
+    } = Config
+) ->
     AuthConfig = maps:merge(raw_redis_auth_config(), SpecificConfigParams),
 
     {ok, _} = emqx:update_config(
@@ -183,14 +185,12 @@ test_user_auth(#{
 
     ?assertEqual(Result, emqx_access_control:authenticate(Credentials)),
 
-    AuthnResult =
-        case Result of
-            {error, _} ->
-                ignore;
-            Any ->
-                Any
-        end,
-    ?assertEqual(AuthnResult, emqx_authn_redis:authenticate(Credentials, State)),
+    case maps:get(redis_result, Config, undefined) of
+        undefined ->
+            ok;
+        RedisResult ->
+            ?assertEqual(RedisResult, emqx_authn_redis:authenticate(Credentials, State))
+    end,
 
     emqx_authn_test_lib:delete_authenticators(
         [authentication],
@@ -478,7 +478,7 @@ user_seeds() ->
                 <<"cmd">> => <<"HMGET mqtt_user:${username} password_hash salt is_superuser">>,
                 <<"password_hash_algorithm">> => #{<<"name">> => <<"bcrypt">>}
             },
-            result => {error, not_authorized}
+            result => {error, bad_username_or_password}
         },
 
         #{
@@ -547,6 +547,23 @@ user_seeds() ->
                 }
             },
             result => {ok, #{is_superuser => true}}
+        },
+
+        %% user not exists
+        #{
+            data => #{
+                password_hash => <<"plainsalt">>,
+                salt => <<"salt">>,
+                is_superuser => <<"1">>
+            },
+            credentials => #{
+                username => <<"not_exists">>,
+                password => <<"plain">>
+            },
+            key => <<"mqtt_user:plain">>,
+            config_params => #{},
+            result => {error, not_authorized},
+            redis_result => ignore
         }
     ].
 
