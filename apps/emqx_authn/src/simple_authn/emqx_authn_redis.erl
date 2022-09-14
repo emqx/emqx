@@ -141,8 +141,8 @@ authenticate(
                 {ok, []} ->
                     ignore;
                 {ok, Values} ->
-                    case lists:all(fun(E) -> E =:= undefined end, Values) of
-                        true ->
+                    case check_query_matched(Values) of
+                        false ->
                             %% key not exists
                             ignore;
                         _ ->
@@ -228,3 +228,10 @@ merge(Fields, Values) ->
          || {K, V} <- lists:zip(Fields, Values), V =/= undefined
         ]
     ).
+
+check_query_matched(undefined) ->
+    false;
+check_query_matched(List) when is_list(List) ->
+    lists:any(fun(E) -> E =/= undefined end, List);
+check_query_matched(_) ->
+    true.
