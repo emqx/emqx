@@ -112,7 +112,8 @@ parse_sql(Template, ReplaceWith) ->
         Template,
         #{
             replace_with => ReplaceWith,
-            placeholders => ?AUTHN_PLACEHOLDERS
+            placeholders => ?AUTHN_PLACEHOLDERS,
+            strip_double_quote => true
         }
     ).
 
