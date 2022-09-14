@@ -82,7 +82,7 @@ query_mode(_) -> undefined.
 
 enable_batch(type) -> boolean();
 enable_batch(required) -> false;
-enable_batch(default) -> false;
+enable_batch(default) -> true;
 enable_batch(desc) -> ?DESC("enable_batch");
 enable_batch(_) -> undefined.
 
