@@ -467,11 +467,11 @@ retry_actions(Data) ->
 
 handle_remove_event(From, ClearMetrics, Data) ->
     stop_resource(Data),
+    ok = emqx_resource_worker_sup:stop_workers(Data#data.id, Data#data.opts),
     case ClearMetrics of
         true -> ok = emqx_metrics_worker:clear_metrics(?RES_METRICS, Data#data.id);
         false -> ok
     end,
-    ok = emqx_resource_worker_sup:stop_workers(Data#data.id, Data#data.opts),
     {stop_and_reply, normal, [{reply, From, ok}]}.
 
 start_resource(Data, From) ->

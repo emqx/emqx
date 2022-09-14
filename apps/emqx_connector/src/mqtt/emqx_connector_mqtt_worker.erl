@@ -276,6 +276,8 @@ idle({call, From}, ensure_started, State) ->
         {error, Reason, _State} ->
             {keep_state_and_data, [{reply, From, {error, Reason}}]}
     end;
+idle({call, From}, send_to_remote, _State) ->
+    {keep_state_and_data, [{reply, From, {error, {recoverable_error, not_connected}}}]};
 %% @doc Standing by for manual start.
 idle(info, idle, #{start_type := manual}) ->
     keep_state_and_data;
@@ -339,10 +341,12 @@ common(_StateName, {call, From}, get_forwards, #{connect_opts := #{forwards := F
     {keep_state_and_data, [{reply, From, Forwards}]};
 common(_StateName, {call, From}, get_subscriptions, #{connection := Connection}) ->
     {keep_state_and_data, [{reply, From, maps:get(subscriptions, Connection, #{})}]};
+common(_StateName, {call, From}, Req, _State) ->
+    {keep_state_and_data, [{reply, From, {unsuppored_request, Req}}]};
 common(_StateName, info, {'EXIT', _, _}, State) ->
     {keep_state, State};
 common(StateName, Type, Content, #{name := Name} = State) ->
-    ?SLOG(notice, #{
+    ?SLOG(error, #{
         msg => "bridge_discarded_event",
         name => Name,
         type => Type,
