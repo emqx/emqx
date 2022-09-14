@@ -285,4 +285,4 @@ print_warning(Msg) ->
     print_warning(Msg, []).
 
 print_warning(Msg, Args) ->
-    io:format(user, ?RED ++ Msg ++ ?RESET, Args).
+    io:format(standard_error, ?RED ++ Msg ++ ?RESET, Args).
