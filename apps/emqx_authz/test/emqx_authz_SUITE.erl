@@ -19,6 +19,8 @@
 -compile(export_all).
 
 -include("emqx_authz.hrl").
+-include_lib("emqx/include/emqx.hrl").
+-include_lib("emqx/include/emqx_mqtt.hrl").
 -include_lib("eunit/include/eunit.hrl").
 -include_lib("common_test/include/ct.hrl").
 -include_lib("emqx/include/emqx_placeholder.hrl").
@@ -61,9 +63,25 @@ end_per_suite(_Config) ->
     meck:unload(emqx_resource),
     ok.
 
+init_per_testcase(TestCase, Config) when
+    TestCase =:= t_subscribe_deny_disconnect_publishes_last_will_testament;
+    TestCase =:= t_publish_deny_disconnect_publishes_last_will_testament
+->
+    {ok, _} = emqx_authz:update(?CMD_REPLACE, []),
+    {ok, _} = emqx:update_config([authorization, deny_action], disconnect),
+    Config;
 init_per_testcase(_, Config) ->
     {ok, _} = emqx_authz:update(?CMD_REPLACE, []),
     Config.
+
+end_per_testcase(TestCase, _Config) when
+    TestCase =:= t_subscribe_deny_disconnect_publishes_last_will_testament;
+    TestCase =:= t_publish_deny_disconnect_publishes_last_will_testament
+->
+    {ok, _} = emqx:update_config([authorization, deny_action], ignore),
+    ok;
+end_per_testcase(_TestCase, _Config) ->
+    ok.
 
 set_special_configs(emqx_authz) ->
     {ok, _} = emqx:update_config([authorization, cache, enable], false),
@@ -286,6 +304,59 @@ t_get_enabled_authzs_none_enabled(_Config) ->
 t_get_enabled_authzs_some_enabled(_Config) ->
     {ok, _} = emqx_authz:update(?CMD_REPLACE, [?SOURCE4]),
     ?assertEqual([postgresql], emqx_authz:get_enabled_authzs()).
+
+t_subscribe_deny_disconnect_publishes_last_will_testament(_Config) ->
+    {ok, C} = emqtt:start_link([
+        {will_topic, <<"lwt">>},
+        {will_payload, <<"should be published">>}
+    ]),
+    {ok, _} = emqtt:connect(C),
+    ok = emqx:subscribe(<<"lwt">>),
+    process_flag(trap_exit, true),
+
+    try
+        emqtt:subscribe(C, <<"unauthorized">>),
+        error(should_have_disconnected)
+    catch
+        exit:{{shutdown, tcp_closed}, _} ->
+            ok
+    end,
+
+    receive
+        {deliver, <<"lwt">>, #message{payload = <<"should be published">>}} ->
+            ok
+    after 2_000 ->
+        error(lwt_not_published)
+    end,
+
+    ok.
+
+t_publish_deny_disconnect_publishes_last_will_testament(_Config) ->
+    {ok, C} = emqtt:start_link([
+        {will_topic, <<"lwt">>},
+        {will_payload, <<"should be published">>}
+    ]),
+    {ok, _} = emqtt:connect(C),
+    ok = emqx:subscribe(<<"lwt">>),
+    process_flag(trap_exit, true),
+
+    %% disconnect is async
+    Ref = monitor(process, C),
+    emqtt:publish(C, <<"some/topic">>, <<"unauthorized">>),
+    receive
+        {'DOWN', Ref, process, C, _} ->
+            ok
+    after 1_000 ->
+        error(client_should_have_been_disconnected)
+    end,
+    receive
+        {deliver, <<"lwt">>, #message{payload = <<"should be published">>}} ->
+            ok
+    after 2_000 ->
+        error(lwt_not_published)
+    end,
+
+    ok.
 
 stop_apps(Apps) ->
     lists:foreach(fun application:stop/1, Apps).

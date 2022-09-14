@@ -354,12 +354,14 @@ handle_in(?CONNECT_PACKET(ConnPkt) = Packet, Channel) ->
         {ok, NConnPkt, NChannel = #channel{clientinfo = ClientInfo}} ->
             ?TRACE("MQTT", "mqtt_packet_received", #{packet => Packet}),
             NChannel1 = NChannel#channel{
-                will_msg = emqx_packet:will_msg(NConnPkt),
                 alias_maximum = init_alias_maximum(NConnPkt, ClientInfo)
             },
             case authenticate(?CONNECT_PACKET(NConnPkt), NChannel1) of
                 {ok, Properties, NChannel2} ->
-                    process_connect(Properties, NChannel2);
+                    %% only store will_msg after successful authn
+                    %% fix for: https://github.com/emqx/emqx/issues/8886
+                    NChannel3 = NChannel2#channel{will_msg = emqx_packet:will_msg(NConnPkt)},
+                    process_connect(Properties, NChannel3);
                 {continue, Properties, NChannel2} ->
                     handle_out(auth, {?RC_CONTINUE_AUTHENTICATION, Properties}, NChannel2);
                 {error, ReasonCode} ->
@@ -1438,19 +1440,12 @@ terminate({shutdown, Reason}, Channel) when
 ->
     run_terminate_hook(Reason, Channel);
 terminate(Reason, Channel = #channel{will_msg = WillMsg}) ->
-    should_publish_will_message(Reason, Channel) andalso publish_will_msg(WillMsg),
+    %% since will_msg is set to undefined as soon as it is published,
+    %% if will_msg still exists when the session is terminated, it
+    %% must be published immediately.
+    WillMsg =/= undefined andalso publish_will_msg(WillMsg),
     (Reason =:= expired) andalso persist_if_session(Channel),
     run_terminate_hook(Reason, Channel).
-
-should_publish_will_message(TerminateReason, Channel) ->
-    not lists:member(TerminateReason, [
-        {shutdown, kicked},
-        {shutdown, discarded},
-        {shutdown, takenover},
-        {shutdown, not_authorized}
-    ]) andalso
-        not lists:member(info(conn_state, Channel), [idle, connecting]) andalso
-        info(will_msg, Channel) =/= undefined.
 
 persist_if_session(#channel{session = Session} = Channel) ->
     case emqx_session:is_session(Session) of
