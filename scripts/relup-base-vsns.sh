@@ -54,10 +54,12 @@ esac
 TAGS=( 'dummy' )
 TAGS_EXCLUDE=( 'dummy' )
 
-while read -r vsn; do
+base_versions="$(./scripts/relup-base-vsns.escript base-vsns "$CUR" ./data/relup-paths.eterm | xargs echo -n)"
+
+for vsn in ${base_versions}; do
     # shellcheck disable=SC2207
     TAGS+=($(git tag -l "${GIT_TAG_PREFIX}${vsn}"))
-done < <(./scripts/relup-base-vsns.escript base-vsns "$CUR" ./data/relup-paths.eterm)
+done
 
 for tag_to_del in "${TAGS_EXCLUDE[@]}"; do
     TAGS=( "${TAGS[@]/$tag_to_del}" )
