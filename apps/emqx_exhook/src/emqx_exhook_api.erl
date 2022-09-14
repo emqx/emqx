@@ -483,15 +483,10 @@ err_msg(Msg) -> emqx_misc:readable_error_msg(Msg).
 get_raw_config() ->
     RawConfig = emqx:get_raw_config([exhook, servers], []),
     Schema = #{roots => emqx_exhook_schema:fields(exhook), fields => #{}},
-    Conf = #{<<"servers">> => lists:map(fun drop_invalid_certs/1, RawConfig)},
+    Conf = #{<<"servers">> => RawConfig},
     Options = #{only_fill_defaults => true},
     #{<<"servers">> := Servers} = hocon_tconf:check_plain(Schema, Conf, Options),
     Servers.
-
-drop_invalid_certs(#{<<"ssl">> := SSL} = Conf) when SSL =/= undefined ->
-    Conf#{<<"ssl">> => emqx_tls_lib:drop_invalid_certs(SSL)};
-drop_invalid_certs(Conf) ->
-    Conf.
 
 position_example() ->
     #{
