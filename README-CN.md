@@ -112,6 +112,27 @@ make
 _build/emqx/rel/emqx/bin/emqx console
 ```
 
+### 在 Apple 芯片（M1,M2）上编译
+
+基于 Apple 芯片的 Homebrew 将[默认的 home 目录](https://github.com/Homebrew/brew/issues/9177)从 `/usr/local` 改成了 `/opt/homebrew`，这个改变导致了一些兼容性问题。
+
+具体到 EMQX 来说，主要影响的是 `unixodbc`，如果使用 Homebrew 安装的 `unixodbc` 包，那么在使用 [kerl](https://github.com/kerl/kerl) 编译 Erlang/OTP 的时候，kerl 会找不到 `unixodbc`。
+
+解决此问题的方法如下:
+
+```bash
+brew install unixodbc kerl
+sudo ln -s $(realpath $(brew --prefix unixodbc)) /usr/local/odbc
+export CC="/usr/bin/gcc -I$(brew --prefix unixodbc)/include"
+export LDFLAGS="-L$(brew --prefix unixodbc)/lib"
+kerl build 24.3
+mkdir ~/.kerl/installations
+kerl install 24.3 ~/.kerl/installations/24.3
+. ~/.kerl/installations/24.3/activate
+```
+
+然后再使用 `make` 继续编译就可以了。
+
 ## 开源许可
 
 详见 [LICENSE](./LICENSE)。
