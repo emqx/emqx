@@ -28,13 +28,8 @@
      {load_module,emqx_channel,brutal_purge,soft_purge,[]},
      {load_module,emqx_app,brutal_purge,soft_purge,[]},
      {load_module,emqx_message,brutal_purge,soft_purge,[]},
-<<<<<<< HEAD
      {load_module,emqx_cm,brutal_purge,soft_purge,[]},
      {load_module,emqx,brutal_purge,soft_purge,[]}]},
-=======
-     {load_module,emqx,brutal_purge,soft_purge,[]},
-     {load_module,emqx_cm,brutal_purge,soft_purge,[]}]},
->>>>>>> 8e5674f14 (chore: update appup.src)
    {"4.3.19",
     [{load_module,emqx_listeners,brutal_purge,soft_purge,[]},
      {load_module,emqx_router_helper,brutal_purge,soft_purge,[]},
