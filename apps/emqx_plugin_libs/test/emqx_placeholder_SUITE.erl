@@ -150,20 +150,25 @@ t_preproc_sql6(_) ->
         emqx_placeholder:proc_sql(ParamsTokens, Selected)
     ).
 
-t_preproc_sql7(_) ->
+t_preproc_sql_strip_double_quote(_) ->
     Selected = #{a => <<"a">>, b => <<"b">>},
+    Opts = #{replace_with => '$n', placeholders => [<<"${a}">>]},
+
+    %% no strip_double_quote option: "${key}" -> "value"
     {PrepareStatement, ParamsTokens} = emqx_placeholder:preproc_sql(
         <<"a:\"${a}\",b:\"${b}\"">>,
-        #{
-            replace_with => '$n',
-            placeholders => [<<"${a}">>]
-        }
+        Opts
     ),
-    ?assertEqual(<<"a:$1,b:\"${b}\"">>, PrepareStatement),
-    ?assertEqual(
-        [<<"a">>],
-        emqx_placeholder:proc_sql(ParamsTokens, Selected)
-    ).
+    ?assertEqual(<<"a:\"$1\",b:\"${b}\"">>, PrepareStatement),
+    ?assertEqual([<<"a">>], emqx_placeholder:proc_sql(ParamsTokens, Selected)),
+
+    %% strip_double_quote = true:  "${key}" -> value
+    {PrepareStatement1, ParamsTokens1} = emqx_placeholder:preproc_sql(
+        <<"a:\"${a}\",b:\"${b}\"">>,
+        Opts#{strip_double_quote => true}
+    ),
+    ?assertEqual(<<"a:$1,b:\"${b}\"">>, PrepareStatement1),
+    ?assertEqual([<<"a">>], emqx_placeholder:proc_sql(ParamsTokens1, Selected)).
 
 t_preproc_tmpl_deep(_) ->
     Selected = #{a => <<"1">>, b => 1, c => 1.0, d => #{d1 => <<"hi">>}},
