@@ -37,8 +37,10 @@
 start(_StartType, _StartArgs) ->
     ok = mria_rlog:wait_for_shards([?AUTH_SHARD], infinity),
     {ok, Sup} = emqx_authn_sup:start_link(),
-    ok = initialize(),
-    {ok, Sup}.
+    case initialize() of
+        ok -> {ok, Sup};
+        {error, Reason} -> {error, Reason}
+    end.
 
 stop(_State) ->
     ok = deinitialize(),
@@ -49,18 +51,26 @@ stop(_State) ->
 %%------------------------------------------------------------------------------
 
 initialize() ->
-    ok = ?AUTHN:register_providers(emqx_authn:providers()),
+    try
+        ok = ?AUTHN:register_providers(emqx_authn:providers()),
 
-    lists:foreach(
-        fun({ChainName, RawAuthConfigs}) ->
-            AuthConfig = emqx_authn:check_configs(RawAuthConfigs),
-            ?AUTHN:initialize_authentication(
-                ChainName,
-                AuthConfig
-            )
-        end,
-        chain_configs()
-    ).
+        lists:foreach(
+            fun({ChainName, RawAuthConfigs}) ->
+                AuthConfig = emqx_authn:check_configs(RawAuthConfigs),
+                ?AUTHN:initialize_authentication(
+                    ChainName,
+                    AuthConfig
+                )
+            end,
+            chain_configs()
+        )
+    of
+        ok -> ok
+    catch
+        throw:Reason ->
+            ?SLOG(error, #{msg => "Failed to initialize authentication", reason => Reason}),
+            {error, {failed_to_initialize_authentication, Reason}}
+    end.
 
 deinitialize() ->
     ok = ?AUTHN:deregister_providers(provider_types()),

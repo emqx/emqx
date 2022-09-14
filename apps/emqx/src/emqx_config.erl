@@ -415,7 +415,8 @@ check_config(SchemaMod, RawConf, Opts0) ->
     Opts1 = #{
         return_plain => true,
         format => map,
-        check_lazy => true
+        %% Don't check lazy types, such as authenticate
+        check_lazy => false
     },
     Opts = maps:merge(Opts0, Opts1),
     {AppEnvs, CheckedConf} =
