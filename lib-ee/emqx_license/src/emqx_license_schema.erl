@@ -16,6 +16,7 @@
 -export([roots/0, fields/1, validations/0, desc/1]).
 
 -export([
+    default_license/0,
     key_license/0
 ]).
 
@@ -34,11 +35,7 @@ fields(key_license) ->
     [
         {key, #{
             type => string(),
-            default =>
-                "MjIwMTExCjAKMTAKRXZhbHVhdGlvbgpjb250YWN0QGVtcXguaW8KZ"
-                "GVmYXVsdAoyMDIyMDQxOQoxODI1CjEwMDAK.MEQCICbgRVijCQov2"
-                "hrvZXR1mk9Oa+tyV1F5oJ6iOZeSHjnQAiB9dUiVeaZekDOjztk+NC"
-                "Wjhk4PG8tWfw2uFZWruSzD6g==",
+            default => default_license(),
             %% so it's not logged
             sensitive => true,
             required => true,
@@ -78,3 +75,14 @@ check_license_watermark(Conf) ->
                 false -> {bad_license_watermark, #{high => High, low => Low}}
             end
     end.
+
+%% @doc The default license key.
+%% This default license has 1000 connections limit.
+%% It is issued on 2022-04-19 and valid for 5 years (1825 days)
+%% NOTE: when updating a new key, the schema doc in emqx_license_schema_i18n.conf
+%% should be updated accordingly
+default_license() ->
+    "MjIwMTExCjAKMTAKRXZhbHVhdGlvbgpjb250YWN0QGVtcXguaW8KZ"
+    "GVmYXVsdAoyMDIyMDQxOQoxODI1CjEwMDAK.MEQCICbgRVijCQov2"
+    "hrvZXR1mk9Oa+tyV1F5oJ6iOZeSHjnQAiB9dUiVeaZekDOjztk+NC"
+    "Wjhk4PG8tWfw2uFZWruSzD6g==".
