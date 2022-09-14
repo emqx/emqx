@@ -342,7 +342,7 @@ common(_StateName, {call, From}, get_forwards, #{connect_opts := #{forwards := F
 common(_StateName, {call, From}, get_subscriptions, #{connection := Connection}) ->
     {keep_state_and_data, [{reply, From, maps:get(subscriptions, Connection, #{})}]};
 common(_StateName, {call, From}, Req, _State) ->
-    {keep_state_and_data, [{reply, From, {unsuppored_request, Req}}]};
+    {keep_state_and_data, [{reply, From, {error, {unsuppored_request, Req}}}]};
 common(_StateName, info, {'EXIT', _, _}, State) ->
     {keep_state, State};
 common(StateName, Type, Content, #{name := Name} = State) ->

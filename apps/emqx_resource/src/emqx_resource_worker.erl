@@ -585,7 +585,12 @@ assert_ok_result(ok) ->
 assert_ok_result({async_return, R}) ->
     assert_ok_result(R);
 assert_ok_result(R) when is_tuple(R) ->
-    ok = erlang:element(1, R);
+    try
+        ok = erlang:element(1, R)
+    catch
+        error:{badmatch, _} ->
+            error({not_ok_result, R})
+    end;
 assert_ok_result(R) ->
     error({not_ok_result, R}).
 
