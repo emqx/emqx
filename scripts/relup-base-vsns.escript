@@ -160,7 +160,7 @@ fetch_version(Vsn, VsnMap) ->
 
 filter_froms(Froms0, AvailableVersionsIndex) ->
     Froms1 =
-        case os:getenv("SYSTEM") of
+        case get_system() of
             %% we do not support relup for windows
             "windows" ->
                 [];
@@ -177,6 +177,14 @@ filter_froms(Froms0, AvailableVersionsIndex) ->
     lists:filter(
       fun(V) -> maps:get(V, AvailableVersionsIndex, false) end,
       Froms1).
+
+get_system() ->
+    case os:getenv("SYSTEM") of
+        false ->
+            string:trim(os:cmd("./scripts/get-distro.sh"));
+        System ->
+            System
+    end.
 
 %% assumes that's X.Y.Z, without pre-releases
 parse_vsn(VsnBin) ->

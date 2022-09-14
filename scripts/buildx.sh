@@ -21,7 +21,6 @@ help() {
     echo "--src_dir <SRC_DIR>: EMQ X source ode in this dir, default to PWD"
     echo "--builder <BUILDER>: Builder image to pull"
     echo "                     E.g. ghcr.io/emqx/emqx-builder/4.4-19:24.1.5-3-debian11"
-    echo "--system <SYSTEM>:   The target OS system the package is being built for, ex: debian11"
     echo "--ssh:               Pass ssh agent to the builder."
     echo "                     Also configures git in container to use ssh instead of https to clone deps"
 }
@@ -51,10 +50,6 @@ while [ "$#" -gt 0 ]; do
         ;;
     --arch)
         ARCH="$2"
-        shift 2
-        ;;
-    --system)
-        SYSTEM="$2"
         shift 2
         ;;
     --ssh)
@@ -108,8 +103,6 @@ fi
 docker info
 docker run --rm --privileged tonistiigi/binfmt:latest --install "${ARCH}"
 
-# $SYSTEM below is used by the `relup-base-vsns.escript` to correctly
-# output the list of relup base versions.
 # shellcheck disable=SC2086
 docker run -i --rm \
     -v "$(pwd)":$DOCKER_WORKDIR \
@@ -117,7 +110,6 @@ docker run -i --rm \
     --workdir $DOCKER_WORKDIR \
     --platform="linux/$ARCH" \
     --user root \
-    -e SYSTEM="$SYSTEM" \
     $SSH_AGENT_OPTION \
     "$BUILDER" \
     bash -euc "mkdir -p _build && chown -R root:root _build && make ${PROFILE}-${PKGTYPE} && .ci/build_packages/tests.sh $PROFILE $PKGTYPE"
