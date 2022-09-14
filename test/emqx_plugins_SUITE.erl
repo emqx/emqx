@@ -160,8 +160,8 @@ t_plugin_loaded(_) ->
     ?assertEqual(ok, emqx_plugins:plugin_loaded(emqx_mini_plugin, true)).
 
 t_plugin_unloaded(_) ->
-    ?assertEqual(ok, emqx_plugins:plugin_unloaded(emqx_mini_plugin, false)),
-    ?assertEqual(ok, emqx_plugins:plugin_unloaded(emqx_mini_plugin, true)).
+    ?assertEqual(ok, emqx_plugins:plugin_unloaded(emqx_mini_plugin)),
+    ?assertEqual(ok, emqx_plugins:plugin_unloaded(emqx_mini_plugin)).
 
 t_plugin(_) ->
     try
@@ -199,8 +199,8 @@ t_unload_plugin(_) ->
                                            (error_app) -> {error, error};
                                            (_) -> ok end),
 
-    ?assertEqual(ok, emqx_plugins:unload_plugin(not_started_app, true)),
-    ?assertEqual(ok, emqx_plugins:unload_plugin(normal, true)),
-    ?assertEqual({error,error}, emqx_plugins:unload_plugin(error_app, true)),
+    ?assertEqual(ok, emqx_plugins:unload_plugin(not_started_app)),
+    ?assertEqual(ok, emqx_plugins:unload_plugin(normal)),
+    ?assertEqual({error,error}, emqx_plugins:unload_plugin(error_app)),
 
     ok = meck:unload(application).
