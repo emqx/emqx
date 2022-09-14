@@ -60,3 +60,4 @@ erlang_ls.config
 # For direnv
 .envrc
 mix.lock
+.gitconfig.tmp
