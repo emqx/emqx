@@ -257,6 +257,7 @@ make_tgz() {
             # or certificate password is not configured, reset the flag
             # could happen, for example, when people submit PR from a fork, in this
             # case they cannot access secrets
+            # dummy line to test the fork
             if [[ "${APPLE_SIGN_BINARIES:-0}" == 1 && \
                       ( "${APPLE_DEVELOPER_ID_BUNDLE:-0}" == 0 || \
                            "${APPLE_DEVELOPER_ID_BUNDLE_PASSWORD:-0}" == 0 ) ]]; then
