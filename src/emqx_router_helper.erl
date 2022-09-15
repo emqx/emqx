@@ -53,8 +53,6 @@
 -define(ROUTING_NODE, emqx_routing_node).
 -define(LOCK, {?MODULE, cleanup_routes}).
 
--dialyzer({nowarn_function, [cleanup_routes/1]}).
-
 %%--------------------------------------------------------------------
 %% Mnesia bootstrap
 %%--------------------------------------------------------------------
@@ -176,4 +174,3 @@ cleanup_routes(Node) ->
                 #route{_ = '_', dest = {'_', Node}}],
     [mnesia:delete_object(?ROUTE, Route, write)
      || Pat <- Patterns, Route <- mnesia:match_object(?ROUTE, Pat, write)].
-

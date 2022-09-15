@@ -202,7 +202,6 @@
 -type(deliver_result() :: ok | {ok, non_neg_integer()} | {error, term()}).
 -type(publish_result() :: [{node(), topic(), deliver_result()} |
                            {share, topic(), deliver_result()}]).
--type(route() :: #route{}).
 -type(sub_group() :: tuple() | binary()).
 -type(route_entry() :: {topic(), node()} | {topic, sub_group()}).
 -type(plugin() :: #plugin{}).
@@ -216,4 +215,3 @@
 -type(oom_policy() :: #{message_queue_len => non_neg_integer(),
                         max_heap_size => non_neg_integer()
                        }).
-
