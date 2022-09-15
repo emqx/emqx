@@ -525,7 +525,7 @@ handle_connecting_health_check(Data) ->
             (connected, UpdatedData) ->
                 {next_state, connected, UpdatedData};
             (connecting, UpdatedData) ->
-                Actions = [{state_timeout, ?HEALTHCHECK_INTERVAL, health_check}],
+                Actions = [{state_timeout, health_check_interval(Data#data.opts), health_check}],
                 {keep_state, UpdatedData, Actions};
             (disconnected, UpdatedData) ->
                 {next_state, disconnected, UpdatedData}

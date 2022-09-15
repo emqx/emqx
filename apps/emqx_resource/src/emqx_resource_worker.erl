@@ -133,6 +133,7 @@ init({Id, Index, Opts}) ->
         end,
     emqx_metrics_worker:inc(?RES_METRICS, Id, 'queuing', queue_count(Queue)),
     ok = inflight_new(Name),
+    HCItvl = maps:get(health_check_interval, Opts, ?HEALTHCHECK_INTERVAL),
     St = #{
         id => Id,
         index => Index,
@@ -142,7 +143,7 @@ init({Id, Index, Opts}) ->
         batch_size => BatchSize,
         batch_time => maps:get(batch_time, Opts, ?DEFAULT_BATCH_TIME),
         queue => Queue,
-        resume_interval => maps:get(resume_interval, Opts, ?HEALTHCHECK_INTERVAL),
+        resume_interval => maps:get(resume_interval, Opts, HCItvl),
         acc => [],
         acc_left => BatchSize,
         tref => undefined
