@@ -68,7 +68,7 @@ initialize() ->
         ok -> ok
     catch
         throw:Reason ->
-            ?SLOG(error, #{msg => "Failed to initialize authentication", reason => Reason}),
+            ?SLOG(error, #{msg => "failed_to_initialize_authentication", reason => Reason}),
             {error, {failed_to_initialize_authentication, Reason}}
     end.
 
