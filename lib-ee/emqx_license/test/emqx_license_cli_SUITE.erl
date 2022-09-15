@@ -31,9 +31,9 @@ end_per_testcase(_Case, _Config) ->
     ok.
 
 set_special_configs(emqx_license) ->
-    Config = #{type => file, file => emqx_license_test_lib:default_license()},
+    Config = #{key => emqx_license_test_lib:default_license()},
     emqx_config:put([license], Config),
-    RawConfig = #{<<"type">> => file, <<"file">> => emqx_license_test_lib:default_license()},
+    RawConfig = #{<<"key">> => emqx_license_test_lib:default_license()},
     emqx_config:put_raw([<<"license">>], RawConfig);
 set_special_configs(_) ->
     ok.
@@ -48,13 +48,8 @@ t_help(_Config) ->
 t_info(_Config) ->
     _ = emqx_license_cli:license(["info"]).
 
-t_reload(_Config) ->
-    _ = emqx_license_cli:license(["reload", "/invalid/path"]),
-    _ = emqx_license_cli:license(["reload", emqx_license_test_lib:default_license()]),
-    _ = emqx_license_cli:license(["reload"]).
-
 t_update(_Config) ->
-    {ok, LicenseValue} = file:read_file(emqx_license_test_lib:default_license()),
+    LicenseValue = emqx_license_test_lib:default_license(),
     _ = emqx_license_cli:license(["update", LicenseValue]),
     _ = emqx_license_cli:license(["reload"]),
     _ = emqx_license_cli:license(["update", "Invalid License Value"]).

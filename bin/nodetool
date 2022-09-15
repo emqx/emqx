@@ -25,9 +25,7 @@ main(Args) ->
             %% forward the call to hocon_cli
             hocon_cli:main(Rest);
         ["check_license_key", Key] ->
-            check_license(#{type => key, key => list_to_binary(Key)});
-        ["check_license_file", File] ->
-            check_license(#{type => file, file => list_to_binary(File)});
+            check_license(#{key => list_to_binary(Key)});
         _ ->
             do(Args)
     end.

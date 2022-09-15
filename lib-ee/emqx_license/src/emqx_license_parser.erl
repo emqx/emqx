@@ -20,8 +20,7 @@
 >>).
 
 -define(LICENSE_PARSE_MODULES, [
-    emqx_license_parser_v20220101,
-    emqx_license_parser_legacy
+    emqx_license_parser_v20220101
 ]).
 
 -type license_data() :: term().
