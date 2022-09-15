@@ -22,6 +22,7 @@
 -include("emqx_authz.hrl").
 -include_lib("eunit/include/eunit.hrl").
 -include_lib("common_test/include/ct.hrl").
+-include_lib("emqx/include/emqx_placeholder.hrl").
 
 -define(HTTP_PORT, 33333).
 -define(HTTP_PATH, "/authz/[...]").
@@ -303,7 +304,7 @@ t_json_body(_Config) ->
         emqx_access_control:authorize(ClientInfo, publish, <<"t">>)
     ).
 
-t_form_body(_Config) ->
+t_placeholder_and_body(_Config) ->
     ok = setup_handler_and_config(
         fun(Req0, State) ->
             ?assertEqual(
@@ -321,7 +322,9 @@ t_form_body(_Config) ->
                     <<"proto_name">> := <<"MQTT">>,
                     <<"mountpoint">> := <<"MOUNTPOINT">>,
                     <<"topic">> := <<"t">>,
-                    <<"action">> := <<"publish">>
+                    <<"action">> := <<"publish">>,
+                    <<"CN">> := ?PH_CERT_CN_NAME,
+                    <<"CS">> := ?PH_CERT_SUBJECT
                 },
                 jiffy:decode(PostVars, [return_maps])
             ),
@@ -336,7 +339,9 @@ t_form_body(_Config) ->
                 <<"proto_name">> => <<"${proto_name}">>,
                 <<"mountpoint">> => <<"${mountpoint}">>,
                 <<"topic">> => <<"${topic}">>,
-                <<"action">> => <<"${action}">>
+                <<"action">> => <<"${action}">>,
+                <<"CN">> => ?PH_CERT_CN_NAME,
+                <<"CS">> => ?PH_CERT_SUBJECT
             },
             <<"headers">> => #{<<"content-type">> => <<"application/x-www-form-urlencoded">>}
         }
@@ -349,7 +354,9 @@ t_form_body(_Config) ->
         protocol => <<"MQTT">>,
         mountpoint => <<"MOUNTPOINT">>,
         zone => default,
-        listener => {tcp, default}
+        listener => {tcp, default},
+        cn => ?PH_CERT_CN_NAME,
+        dn => ?PH_CERT_SUBJECT
     },
 
     ?assertEqual(
