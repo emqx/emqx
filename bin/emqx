@@ -24,9 +24,6 @@ REL_DIR="$RUNNER_ROOT_DIR/releases/$REL_VSN"
 
 WHOAMI=$(whoami)
 
-# Make sure log directory exists
-mkdir -p "$RUNNER_LOG_DIR"
-
 # hocon try to read environment variables starting with "EMQX_"
 export HOCON_ENV_OVERRIDE_PREFIX='EMQX_'
 
@@ -261,6 +258,9 @@ ES=$?
 if [ "$ES" -ne 0 ]; then
     exit $ES
 fi
+
+# Make sure log directory exists
+mkdir -p "$RUNNER_LOG_DIR"
 
 COMPATIBILITY_CHECK='
     io:format("BEAM_OK~n", []),
