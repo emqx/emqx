@@ -288,7 +288,8 @@ handle_in(?CONNECT_PACKET(ConnPkt), Channel) ->
                    fun enrich_client/2,
                    fun set_log_meta/2,
                    fun check_banned/2,
-                   fun auth_connect/2
+                   fun auth_connect/2,
+                   fun flapping_detect/2
                   ], ConnPkt, Channel#channel{conn_state = connecting}) of
         {ok, NConnPkt, NChannel = #channel{clientinfo = ClientInfo}} ->
             NChannel1 = NChannel#channel{
@@ -1021,11 +1022,7 @@ handle_info({sock_closed, Reason}, Channel = #channel{conn_state = idle}) ->
 handle_info({sock_closed, Reason}, Channel = #channel{conn_state = connecting}) ->
     shutdown(Reason, Channel);
 
-handle_info({sock_closed, Reason}, Channel =
-            #channel{conn_state = connected,
-                     clientinfo = ClientInfo = #{zone := Zone}}) ->
-    emqx_zone:enable_flapping_detect(Zone)
-        andalso emqx_flapping:detect(ClientInfo),
+handle_info({sock_closed, Reason}, Channel = #channel{conn_state = connected}) ->
     Channel1 = ensure_disconnected(Reason, maybe_publish_will_msg(Channel)),
     case maybe_shutdown(Reason, Channel1) of
         {ok, Channel2} -> {ok, {event, disconnected}, Channel2};
@@ -1331,6 +1328,13 @@ auth_connect(#mqtt_packet_connect{password  = Password},
                  [ClientId, Username, Reason]),
             {error, emqx_reason_codes:connack_error(Reason)}
     end.
+
+%%--------------------------------------------------------------------
+%% Flapping
+
+flapping_detect(_ConnPkt, Channel = #channel{clientinfo = ClientInfo = #{zone := Zone}}) ->
+    _ = emqx_zone:enable_flapping_detect(Zone) andalso emqx_flapping:detect(ClientInfo),
+    {ok, Channel}.
 
 %%--------------------------------------------------------------------
 %% Enhanced Authentication
