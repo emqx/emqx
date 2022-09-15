@@ -84,15 +84,15 @@
 -define(DEFAULT_QUEUE_SEG_SIZE, 10 * 1024 * 1024).
 -define(DEFAULT_QUEUE_SEG_SIZE_RAW, <<"10MB">>).
 
--define(DEFAULT_QUEUE_SIZE, 100 * 1024 * 1024 * 1024).
--define(DEFAULT_QUEUE_SIZE_RAW, <<"100GB">>).
+-define(DEFAULT_QUEUE_SIZE, 100 * 1024 * 1024).
+-define(DEFAULT_QUEUE_SIZE_RAW, <<"100MB">>).
 
 %% count
 -define(DEFAULT_BATCH_SIZE, 100).
 
 %% milliseconds
--define(DEFAULT_BATCH_TIME, 10).
--define(DEFAULT_BATCH_TIME_RAW, <<"10ms">>).
+-define(DEFAULT_BATCH_TIME, 20).
+-define(DEFAULT_BATCH_TIME_RAW, <<"20ms">>).
 
 %% count
 -define(DEFAULT_INFLIGHT, 100).

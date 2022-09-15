@@ -187,8 +187,7 @@ on_stop(_InstId, #{name := InstanceId}) ->
 
 on_query(_InstId, {send_message, Msg}, #{name := InstanceId}) ->
     ?TRACE("QUERY", "send_msg_to_remote_node", #{message => Msg, connector => InstanceId}),
-    emqx_connector_mqtt_worker:send_to_remote(InstanceId, Msg),
-    ok.
+    emqx_connector_mqtt_worker:send_to_remote(InstanceId, Msg).
 
 on_query_async(
     _InstId,
@@ -197,8 +196,7 @@ on_query_async(
     #{name := InstanceId}
 ) ->
     ?TRACE("QUERY", "async_send_msg_to_remote_node", #{message => Msg, connector => InstanceId}),
-    emqx_connector_mqtt_worker:send_to_remote_async(InstanceId, Msg, {ReplayFun, Args}),
-    ok.
+    emqx_connector_mqtt_worker:send_to_remote_async(InstanceId, Msg, {ReplayFun, Args}).
 
 on_get_status(_InstId, #{name := InstanceId, bridge_conf := Conf}) ->
     AutoReconn = maps:get(auto_reconnect, Conf, true),

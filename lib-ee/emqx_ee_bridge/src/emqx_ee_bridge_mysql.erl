@@ -58,7 +58,7 @@ values(post) ->
             worker_pool_size => 1,
             health_check_interval => ?HEALTHCHECK_INTERVAL_RAW,
             auto_restart_interval => ?AUTO_RESTART_INTERVAL_RAW,
-            enable_batch => false,
+            enable_batch => true,
             batch_size => ?DEFAULT_BATCH_SIZE,
             batch_time => ?DEFAULT_BATCH_TIME,
             query_mode => async,

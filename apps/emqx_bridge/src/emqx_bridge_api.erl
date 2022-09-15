@@ -208,8 +208,8 @@ info_example_basic(webhook) ->
             auto_restart_interval => 15000,
             query_mode => async,
             async_inflight_window => 100,
-            enable_queue => true,
-            max_queue_bytes => 1024 * 1024 * 1024
+            enable_queue => false,
+            max_queue_bytes => 100 * 1024 * 1024
         }
     };
 info_example_basic(mqtt) ->

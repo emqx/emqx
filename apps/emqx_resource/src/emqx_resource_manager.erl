@@ -467,11 +467,11 @@ retry_actions(Data) ->
 
 handle_remove_event(From, ClearMetrics, Data) ->
     stop_resource(Data),
+    ok = emqx_resource_worker_sup:stop_workers(Data#data.id, Data#data.opts),
     case ClearMetrics of
         true -> ok = emqx_metrics_worker:clear_metrics(?RES_METRICS, Data#data.id);
         false -> ok
     end,
-    ok = emqx_resource_worker_sup:stop_workers(Data#data.id, Data#data.opts),
     {stop_and_reply, normal, [{reply, From, ok}]}.
 
 start_resource(Data, From) ->
@@ -525,7 +525,7 @@ handle_connecting_health_check(Data) ->
             (connected, UpdatedData) ->
                 {next_state, connected, UpdatedData};
             (connecting, UpdatedData) ->
-                Actions = [{state_timeout, ?HEALTHCHECK_INTERVAL, health_check}],
+                Actions = [{state_timeout, health_check_interval(Data#data.opts), health_check}],
                 {keep_state, UpdatedData, Actions};
             (disconnected, UpdatedData) ->
                 {next_state, disconnected, UpdatedData}

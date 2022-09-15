@@ -93,8 +93,8 @@ values(common, Protocol, SupportUint, TypeOpts) ->
         precision => ms,
         resource_opts => #{
             enable_batch => false,
-            batch_size => 5,
-            batch_time => <<"1m">>
+            batch_size => 100,
+            batch_time => <<"20ms">>
         },
         server => <<"127.0.0.1:8086">>,
         ssl => #{enable => false}
