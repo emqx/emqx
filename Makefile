@@ -114,8 +114,9 @@ $(PROFILES:%=deps-%): $(REBAR) get-dashboard
 	@rm -f rebar.lock
 
 .PHONY: xref
-xref: $(REBAR)
+xref: $(REBAR) $(REL_PROFILES:%=%-rel)
 	@$(REBAR) as check xref
+	@scripts/xref-check.escript
 
 .PHONY: dialyzer
 dialyzer: $(REBAR)
