@@ -12,6 +12,11 @@
 
 set -euo pipefail
 
+if [[ "${APPLE_DEVELOPER_ID_BUNDLE:-0}" == 0 || "${APPLE_DEVELOPER_ID_BUNDLE_PASSWORD:-0}" == 0 ]]; then
+    echo "Apple developer certificate is not configured, skip signing"
+    exit 0
+fi
+
 REL_DIR="${1}"
 PKSC12_FILE="$HOME/developer-id-application.p12"
 base64 --decode > "${PKSC12_FILE}" <<<"${APPLE_DEVELOPER_ID_BUNDLE}"

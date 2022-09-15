@@ -253,13 +253,23 @@ make_tgz() {
     cp_dyn_libs "${tard}/emqx"
     case "$SYSTEM" in
         macos*)
+            # if the flag to sign macos binaries is set, but developer certificate
+            # or certificate password is not configured, reset the flag
+            # could happen, for example, when people submit PR from a fork, in this
+            # case they cannot access secrets
+            if [[ "${APPLE_SIGN_BINARIES:-0}" == 1 && \
+                      ( "${APPLE_DEVELOPER_ID_BUNDLE:-0}" == 0 || \
+                           "${APPLE_DEVELOPER_ID_BUNDLE_PASSWORD:-0}" == 0 ) ]]; then
+                echo "Apple developer certificate is not configured, skip signing"
+                APPLE_SIGN_BINARIES=0
+            fi
             if [ "${APPLE_SIGN_BINARIES:-0}" = 1 ]; then
                 ./scripts/macos-sign-binaries.sh "${tard}/emqx"
             fi
             ## create zip after change dir
             ## to avoid creating an extra level of 'emqx' dir in the .zip file
             pushd "${tard}/emqx" >/dev/null
-            zip -r "../${target_name}" -- *
+            zip -r "../${target_name}" -- * >/dev/null
             popd >/dev/null
             mv "${tard}/${target_name}" "${target}"
             if [ "${APPLE_SIGN_BINARIES:-0}" = 1 ]; then
