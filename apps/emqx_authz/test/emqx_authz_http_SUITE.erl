@@ -364,6 +364,46 @@ t_placeholder_and_body(_Config) ->
         emqx_access_control:authorize(ClientInfo, publish, <<"t">>)
     ).
 
+t_no_value_for_placeholder(_Config) ->
+    ok = setup_handler_and_config(
+        fun(Req0, State) ->
+            ?assertEqual(
+                <<"/authz/users/">>,
+                cowboy_req:path(Req0)
+            ),
+
+            {ok, RawBody, Req1} = cowboy_req:read_body(Req0),
+
+            ?assertMatch(
+                #{
+                    <<"mountpoint">> := <<"[]">>
+                },
+                jiffy:decode(RawBody, [return_maps])
+            ),
+            {ok, ?AUTHZ_HTTP_RESP(allow, Req1), State}
+        end,
+        #{
+            <<"method">> => <<"post">>,
+            <<"body">> => #{
+                <<"mountpoint">> => <<"[${mountpoint}]">>
+            }
+        }
+    ),
+
+    ClientInfo = #{
+        clientid => <<"client id">>,
+        username => <<"user name">>,
+        peerhost => {127, 0, 0, 1},
+        protocol => <<"MQTT">>,
+        zone => default,
+        listener => {tcp, default}
+    },
+
+    ?assertEqual(
+        allow,
+        emqx_access_control:authorize(ClientInfo, publish, <<"t">>)
+    ).
+
 t_create_replace(_Config) ->
     ClientInfo = #{
         clientid => <<"clientid">>,
