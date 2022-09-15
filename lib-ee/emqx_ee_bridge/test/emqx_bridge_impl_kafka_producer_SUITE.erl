@@ -28,8 +28,7 @@ init_per_suite(Config) ->
 end_per_suite(_) ->
     ok.
 
-do_publish(Conf, KafkaTopic) ->
-    InstId = <<"InstanceID">>,
+do_publish(Conf, KafkaTopic, InstId) ->
     Time = erlang:system_time(millisecond),
     BinTime = integer_to_binary(Time),
     Msg = #{
@@ -53,7 +52,7 @@ t_publish(_CtConfig) ->
         "kafka_hosts_string" => kafka_hosts_string(),
         "kafka_topic" => KafkaTopic
     }),
-    do_publish(Conf, KafkaTopic).
+    do_publish(Conf, KafkaTopic, <<"NoAuthInst">>).
 
 t_publish_sasl_plain(_CtConfig) ->
     KafkaTopic = "test-topic-one-partition",
@@ -66,7 +65,7 @@ t_publish_sasl_plain(_CtConfig) ->
         "kafka_hosts_string" => kafka_hosts_string_sasl(),
         "kafka_topic" => KafkaTopic
     }),
-    do_publish(Conf, KafkaTopic).
+    do_publish(Conf, KafkaTopic, <<"SASLPlainInst">>).
 
 t_publish_sasl_scram256(_CtConfig) ->
     KafkaTopic = "test-topic-one-partition",
@@ -79,7 +78,7 @@ t_publish_sasl_scram256(_CtConfig) ->
         "kafka_hosts_string" => kafka_hosts_string_sasl(),
         "kafka_topic" => KafkaTopic
     }),
-    do_publish(Conf, KafkaTopic).
+    do_publish(Conf, KafkaTopic, <<"SASLScram256Inst">>).
 
 t_publish_sasl_scram512(_CtConfig) ->
     KafkaTopic = "test-topic-one-partition",
@@ -92,7 +91,7 @@ t_publish_sasl_scram512(_CtConfig) ->
         "kafka_hosts_string" => kafka_hosts_string_sasl(),
         "kafka_topic" => KafkaTopic
     }),
-    do_publish(Conf, KafkaTopic).
+    do_publish(Conf, KafkaTopic, <<"SASLScram512Inst">>).
 
 t_publish_sasl_kerberos(_CtConfig) ->
     KafkaTopic = "test-topic-one-partition",
@@ -104,7 +103,7 @@ t_publish_sasl_kerberos(_CtConfig) ->
         "kafka_hosts_string" => kafka_hosts_string_sasl(),
         "kafka_topic" => KafkaTopic
     }),
-    do_publish(Conf, KafkaTopic).
+    do_publish(Conf, KafkaTopic, <<"SASLKerberosInst">>).
 
 config(Args) ->
     {ok, Conf} = hocon:binary(hocon_config(Args)),
