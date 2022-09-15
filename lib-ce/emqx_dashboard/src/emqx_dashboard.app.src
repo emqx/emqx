@@ -1,6 +1,6 @@
 {application, emqx_dashboard,
  [{description, "EMQX Web Dashboard"},
-  {vsn, "4.4.7"}, % strict semver, bump manually!
+  {vsn, "4.4.8"}, % strict semver, bump manually!
   {modules, []},
   {registered, [emqx_dashboard_sup]},
   {applications, [kernel,stdlib,mnesia,minirest]},

@@ -374,12 +374,12 @@ ensure_version(Version, OldInstructions) ->
 
 contains_version(Needle, Haystack) when is_list(Needle) ->
     lists:any(
-      fun(<<"*">>) -> true; %% TODO: delete after we pass esockd 5.8.4
-         (Regex) when is_binary(Regex) ->
+      fun(Regex) when is_binary(Regex) ->
+              Length = length(Needle),
               case re:run(Needle, Regex) of
-                  {match, _} ->
+                  {match, [{0, Length}]} ->
                       true;
-                  nomatch ->
+                  _ ->
                       false
               end;
          (Vsn) ->

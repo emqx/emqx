@@ -15,6 +15,14 @@ File format:
 ### Bug fixes
 
 - Fix rule-engine update behaviour which may initialize actions for disabled rules. [#8849](https://github.com/emqx/emqx/pull/8849)
+- Fix JWT plugin don't support non-integer timestamp claims. [#8862](https://github.com/emqx/emqx/pull/8862)
+- Fix a possible dead loop caused by shared subscriptions with `shared_dispatch_ack_enabled=true`. [#8918](https://github.com/emqx/emqx/pull/8918)
+- Fix dashboard binding IP address not working. [#8916](https://github.com/emqx/emqx/pull/8916)
+- Fix rule SQL topic matching to null values failed. [#8927](https://github.com/emqx/emqx/pull/8927)
+  The following SQL should not fail (crash) but return `{"r": false}`:
+  `SELECT topic =~ 't' as r FROM "$events/client_connected"`.
+  The topic is a null value as there's no such field in event `$events/client_connected`, so it
+  should return false if match it to a topic.
 
 ## v4.3.19
 
@@ -22,7 +30,6 @@ File format:
 
 - Improve error message for LwM2M plugin when object ID is not valid. [#8654](https://github.com/emqx/emqx/pull/8654).
 - Add tzdata apk package to alpine docker image. [#8671](https://github.com/emqx/emqx/pull/8671)
-- Add node evacuation and cluster rebalancing features. [#8597](https://github.com/emqx/emqx/pull/8597)
 - Refine Rule Engine error log. RuleId will be logged when take action failed. [#8737](https://github.com/emqx/emqx/pull/8737)
 - Increases the latency interval for MQTT Bridge test connections to improve compatibility in high-latency environments. [#8745](https://github.com/emqx/emqx/pull/8745)
 - Close ExProto client process immediately if it's keepalive timeouted. [#8725](https://github.com/emqx/emqx/pull/8725)

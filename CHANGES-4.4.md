@@ -1,20 +1,82 @@
 # EMQX 4.4 Changes
 
+## v4.4.9
+
+### Bug fixes  (synced from v4.3.20)
+
+- Fix rule-engine update behaviour which may initialize actions for disabled rules. [#8849](https://github.com/emqx/emqx/pull/8849)
+- Fix JWT plugin don't support non-integer timestamp claims. [#8862](https://github.com/emqx/emqx/pull/8862)
+- Fix a possible dead loop caused by shared subscriptions with `shared_dispatch_ack_enabled=true`. [#8918](https://github.com/emqx/emqx/pull/8918)
+- Fix dashboard binding IP address not working. [#8916](https://github.com/emqx/emqx/pull/8916)
+- Fix rule SQL topic matching to null values failed. [#8927](https://github.com/emqx/emqx/pull/8927)
+  The following SQL should not fail (crash) but return `{"r": false}`:
+  `SELECT topic =~ 't' as r FROM "$events/client_connected"`.
+  The topic is a null value as there's no such field in event `$events/client_connected`, so it
+  should return false if match it to a topic.
 
 ## v4.4.8
 
 ### Enhancements (synced from v4.3.19)
 * Support HTTP API `/trace/:name/detail`.
 
-
 ### Bug fixes
 - Fix: Check if emqx_mod_trace is enabled when the trace file is not found.
 
+### Enhancements (synced from v4.3.19)
 
-## v4.4.5
+- Improve error message for LwM2M plugin when object ID is not valid. [#8654](https://github.com/emqx/emqx/pull/8654).
+- Add tzdata apk package to alpine docker image. [#8671](https://github.com/emqx/emqx/pull/8671)
+- Refine Rule Engine error log. RuleId will be logged when take action failed. [#8737](https://github.com/emqx/emqx/pull/8737)
+- Increases the latency interval for MQTT Bridge test connections to improve compatibility in high-latency environments. [#8745](https://github.com/emqx/emqx/pull/8745)
+- Close ExProto client process immediately if it's keepalive timeouted. [#8725](https://github.com/emqx/emqx/pull/8725)
+- Upgrade grpc-erl driver to 0.6.7 to support batch operation in sending stream. [#8725](https://github.com/emqx/emqx/pull/8725)
+- Improved jwt authentication module initialization process. [#8736](https://github.com/emqx/emqx/pull/8736)
 
-### Enhancements (synced from v4.3.16)
-* HTTP API `mqtt/publish` support to publish with properties and user_properties.
+### Bug fixes (synced from v4.3.19)
+
+- Fix rule SQL compare to null values always returns false. [#8743](https://github.com/emqx/emqx/pull/8743)
+  Before this change, the following SQL failed to match on the WHERE clause (`clientid != foo` returns false):
+  `SELECT 'some_var' as clientid FROM "t" WHERE clientid != foo`.
+  The `foo` variable is a null value, so `clientid != foo` should be evaluated as true.
+- Fix GET `/auth_clientid` and `/auth_username` counts. [#8655](https://github.com/emqx/emqx/pull/8655)
+- Add an idle timer for ExProto UDP client to avoid client leaking [#8628](https://github.com/emqx/emqx/pull/8628)
+- Fix ExHook can't be un-hooked if the grpc service stop first. [#8725](https://github.com/emqx/emqx/pull/8725)
+- Fix the problem that ExHook cannot continue hook chains execution for mismatched topics. [#8807](https://github.com/emqx/emqx/pull/8807)
+- Fix GET `/listeners/` crashes when listener is not ready. [#8752](https://github.com/emqx/emqx/pull/8752)
+- Fix repeated warning messages in bin/emqx [#8824](https://github.com/emqx/emqx/pull/8824)
+
+
+## v4.4.7
+
+### Enhancements (synced from v4.3.18)
+
+- Make possible to debug-print SSL handshake procedure by setting listener config `log_level=debug` [#8553](https://github.com/emqx/emqx/pull/8553)
+- Add option to perform GC on connection process after TLS/SSL handshake is performed. [#8649](https://github.com/emqx/emqx/pull/8649)
+  Expected to reduce around 35% memory consumption for each SSL connection. See [#8637](https://github.com/emqx/emqx/pull/8637) for more details.
+
+## v4.4.6
+
+### Bug fixes (synced from v4.3.17)
+
+- Fixed issue where the dashboard APIs were being exposed under the
+  management listener. [#8411]
+
+- Fixed crash when shared persistent subscription [#8441]
+- Fixed issue in Lua hook that prevented messages from being
+  rejected [#8535]
+- Fix ExProto UDP client keepalive checking error.
+  This causes the clients to not expire as long as a new UDP packet arrives [#8575]
+
+### Enhancements (synced from v4.3.17)
+
+- HTTP API(GET /rules/) support for pagination and fuzzy filtering. [#8450]
+- Add check_conf cli to check config format. [#8486]
+- Optimize performance of shared subscription
+
+## v4.4.5 (v4.3.16)
+
+### Enhancements
+- HTTP API `mqtt/publish` support to publish with properties and user_properties.
 
 ### Bug fixes
 - Clean trace zip files when file has been downloaded.

@@ -22,9 +22,15 @@ jobs:
       - name: fix-git-unsafe-repository
         run: git config --global --add safe.directory /__w/emqx/emqx
       - name: Check relup version DB
+        if: endsWith(github.repository, 'emqx')
         run: |
           PKG_VSN=$(./pkg-vsn.sh)
           ./scripts/relup-base-vsns.escript check-vsn-db $PKG_VSN ./data/relup-paths.eterm
+      - name: Check relup version DB (ee)
+        if: endsWith(github.repository, 'enterprise')
+        run: |
+          PKG_VSN=$(./pkg-vsn.sh)
+          ./scripts/relup-base-vsns.escript check-vsn-db $PKG_VSN ./data/relup-paths-ee.eterm
       - name: Check relup (ce)
         if: endsWith(github.repository, 'emqx')
         run: ./scripts/update-appup.sh emqx --check

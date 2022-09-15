@@ -177,6 +177,30 @@ t_check_auth_str_exp(_Config) ->
     ct:pal("Auth result: ~p~n", [Result2]),
     ?assertMatch({ok, #{auth_result := success, jwt_claims := _}}, Result2).
 
+t_check_auth_float_exp(init, _Config) ->
+    application:unset_env(emqx_auth_jwt, verify_claims).
+t_check_auth_float_exp(_Config) ->
+    Plain = #{clientid => <<"client1">>, username => <<"plain">>, zone => external},
+    Exp = os:system_time(seconds) + 3.5,
+
+    Jwt0 = sign([{clientid, <<"client1">>},
+                 {username, <<"plain">>},
+                 {exp, Exp}], <<"HS256">>, <<"emqxsecret">>),
+    ct:pal("Jwt: ~p~n", [Jwt0]),
+
+    Result0 = emqx_access_control:authenticate(Plain#{password => Jwt0}),
+    ct:pal("Auth result: ~p~n", [Result0]),
+    ?assertMatch({ok, #{auth_result := success, jwt_claims := _}}, Result0),
+
+    Jwt1 = sign([{clientid, <<"client1">>},
+                 {username, <<"plain">>},
+                 {exp, 1.5}], <<"HS256">>, <<"emqxsecret">>),
+    ct:pal("Jwt: ~p~n", [Jwt1]),
+
+    Result1 = emqx_access_control:authenticate(Plain#{password => Jwt1}),
+    ct:pal("Auth result: ~p~n", [Result1]),
+    ?assertMatch({error, _}, Result1).
+
 t_check_claims(init, _Config) ->
     application:set_env(emqx_auth_jwt, verify_claims, [{sub, <<"value">>}]).
 t_check_claims(_Config) ->

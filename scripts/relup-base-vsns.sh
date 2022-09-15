@@ -44,9 +44,11 @@ fi
 case "${EDITION}" in
     *enterprise*)
         GIT_TAG_PREFIX="e"
+        RELUP_PATH_FILE="./data/relup-paths-ee.eterm"
         ;;
     *)
         GIT_TAG_PREFIX="v"
+        RELUP_PATH_FILE="./data/relup-paths.eterm"
         ;;
 esac
 
@@ -54,10 +56,12 @@ esac
 TAGS=( 'dummy' )
 TAGS_EXCLUDE=( 'dummy' )
 
-while read -r vsn; do
+base_versions="$(./scripts/relup-base-vsns.escript base-vsns "$CUR" "$RELUP_PATH_FILE" | xargs echo -n)"
+
+for vsn in ${base_versions}; do
     # shellcheck disable=SC2207
     TAGS+=($(git tag -l "${GIT_TAG_PREFIX}${vsn}"))
-done < <(./scripts/relup-base-vsns.escript base-vsns "$CUR" ./data/relup-paths.eterm)
+done
 
 for tag_to_del in "${TAGS_EXCLUDE[@]}"; do
     TAGS=( "${TAGS[@]/$tag_to_del}" )

@@ -242,7 +242,10 @@ do_compare('>=', L, R) ->
     do_compare('=', L, R) orelse do_compare('>', L, R);
 do_compare('<>', L, R) -> L /= R;
 do_compare('!=', L, R) -> L /= R;
-do_compare('=~', T, F) -> emqx_topic:match(T, F).
+do_compare('=~', undefined, undefined) -> true;
+do_compare('=~', T, F) when T == undefined; F == undefined -> false;
+do_compare('=~', T, F) ->
+    emqx_topic:match(T, F).
 
 number(Bin) ->
     try binary_to_integer(Bin)
