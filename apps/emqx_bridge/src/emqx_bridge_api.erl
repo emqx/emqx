@@ -532,6 +532,17 @@ lookup_from_local_node(BridgeType, BridgeName) ->
                                 {200};
                             {error, timeout} ->
                                 {503, error_msg('SERVICE_UNAVAILABLE', <<"request timeout">>)};
+                            {error, {start_pool_failed, Name, Reason}} ->
+                                {503,
+                                    error_msg(
+                                        'SERVICE_UNAVAILABLE',
+                                        bin(
+                                            io_lib:format(
+                                                "failed to start ~p pool for reason ~p",
+                                                [Name, Reason]
+                                            )
+                                        )
+                                    )};
                             {error, Reason} ->
                                 {500, error_msg('INTERNAL_ERROR', Reason)}
                         end

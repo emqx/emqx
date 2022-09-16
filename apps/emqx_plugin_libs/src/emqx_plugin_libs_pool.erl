@@ -40,12 +40,13 @@ start_pool(Name, Mod, Options) ->
             stop_pool(Name),
             start_pool(Name, Mod, Options);
         {error, Reason} ->
+            NReason = parse_reason(Reason),
             ?SLOG(error, #{
                 msg => "start_ecpool_error",
                 pool_name => Name,
-                reason => Reason
+                reason => NReason
             }),
-            {error, {start_pool_failed, Name, Reason}}
+            {error, {start_pool_failed, Name, NReason}}
     end.
 
 stop_pool(Name) ->
@@ -86,3 +87,11 @@ health_check_ecpool_workers(PoolName, CheckFunc, Timeout) when is_function(Check
         exit:timeout ->
             false
     end.
+
+parse_reason({
+    {shutdown, {failed_to_start_child, _, {shutdown, {failed_to_start_child, _, Reason}}}},
+    _
+}) ->
+    Reason;
+parse_reason(Reason) ->
+    Reason.
