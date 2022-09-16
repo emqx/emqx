@@ -1,6 +1,6 @@
 {application, emqx_rule_engine,
  [{description, "EMQ X Rule Engine"},
-  {vsn, "4.3.15"}, % strict semver, bump manually!
+  {vsn, "4.3.16"}, % strict semver, bump manually!
   {modules, []},
   {registered, [emqx_rule_engine_sup, emqx_rule_registry]},
   {applications, [kernel,stdlib,rulesql,getopt]},
