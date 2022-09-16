@@ -132,13 +132,13 @@ init({Id, Index, Opts}) ->
                 undefined
         end,
     emqx_metrics_worker:inc(?RES_METRICS, Id, 'queuing', queue_count(Queue)),
-    ok = inflight_new(Name),
+    InfltWinSZ = maps:get(async_inflight_window, Opts, ?DEFAULT_INFLIGHT),
+    ok = inflight_new(Name, InfltWinSZ),
     HCItvl = maps:get(health_check_interval, Opts, ?HEALTHCHECK_INTERVAL),
     St = #{
         id => Id,
         index => Index,
         name => Name,
-        async_inflight_window => maps:get(async_inflight_window, Opts, ?DEFAULT_INFLIGHT),
         enable_batch => maps:get(enable_batch, Opts, false),
         batch_size => BatchSize,
         batch_time => maps:get(batch_time, Opts, ?DEFAULT_BATCH_TIME),
@@ -288,8 +288,7 @@ query_or_acc(From, Request, #{enable_batch := true, acc := Acc, acc_left := Left
     end;
 query_or_acc(From, Request, #{enable_batch := false, queue := Q, id := Id} = St) ->
     QueryOpts = #{
-        inflight_name => maps:get(name, St),
-        inflight_window => maps:get(async_inflight_window, St)
+        inflight_name => maps:get(name, St)
     },
     Result = call_query(configured, Id, ?QUERY(From, Request), QueryOpts),
     case reply_caller(Id, ?REPLY(From, Request, Result)) of
@@ -312,8 +311,7 @@ flush(
 ) ->
     Batch = lists:reverse(Batch0),
     QueryOpts = #{
-        inflight_name => maps:get(name, St),
-        inflight_window => maps:get(async_inflight_window, St)
+        inflight_name => maps:get(name, St)
     },
     emqx_metrics_worker:inc(?RES_METRICS, Id, 'batching', -length(Batch)),
     Result = call_query(configured, Id, Batch, QueryOpts),
@@ -464,12 +462,10 @@ apply_query_fun(sync, Mod, Id, ?QUERY(_, Request) = _Query, ResSt, _QueryOpts) -
 apply_query_fun(async, Mod, Id, ?QUERY(_, Request) = Query, ResSt, QueryOpts) ->
     ?tp(call_query_async, #{id => Id, mod => Mod, query => Query, res_st => ResSt}),
     Name = maps:get(inflight_name, QueryOpts, undefined),
-    WinSize = maps:get(inflight_window, QueryOpts, undefined),
     ?APPLY_RESOURCE(
         call_query_async,
-        case inflight_is_full(Name, WinSize) of
+        case inflight_is_full(Name) of
             true ->
-                ?tp(warning, inflight_full, #{id => Id, wind_size => WinSize}),
                 {async_return, inflight_full};
             false ->
                 ok = emqx_metrics_worker:inc(?RES_METRICS, Id, 'inflight'),
@@ -489,12 +485,10 @@ apply_query_fun(sync, Mod, Id, [?QUERY(_, _) | _] = Batch, ResSt, _QueryOpts) ->
 apply_query_fun(async, Mod, Id, [?QUERY(_, _) | _] = Batch, ResSt, QueryOpts) ->
     ?tp(call_batch_query_async, #{id => Id, mod => Mod, batch => Batch, res_st => ResSt}),
     Name = maps:get(inflight_name, QueryOpts, undefined),
-    WinSize = maps:get(inflight_window, QueryOpts, undefined),
     ?APPLY_RESOURCE(
         call_batch_query_async,
-        case inflight_is_full(Name, WinSize) of
+        case inflight_is_full(Name) of
             true ->
-                ?tp(warning, inflight_full, #{id => Id, wind_size => WinSize}),
                 {async_return, inflight_full};
             false ->
                 BatchLen = length(Batch),
@@ -540,27 +534,32 @@ batch_reply_after_query(Pid, Id, Name, Ref, Batch, Result) ->
     end.
 %%==============================================================================
 %% the inflight queue for async query
-
-inflight_new(Name) ->
+-define(SIZE_REF, -1).
+inflight_new(Name, InfltWinSZ) ->
     _ = ets:new(Name, [named_table, ordered_set, public, {write_concurrency, true}]),
+    inflight_append(Name, ?SIZE_REF, {size, InfltWinSZ}),
     ok.
 
 inflight_get_first(Name) ->
-    case ets:first(Name) of
+    case ets:next(Name, ?SIZE_REF) of
         '$end_of_table' ->
             empty;
         Ref ->
             case ets:lookup(Name, Ref) of
-                [Object] -> Object;
-                [] -> inflight_get_first(Name)
+                [Object] ->
+                    Object;
+                [] ->
+                    %% it might have been dropped
+                    inflight_get_first(Name)
             end
     end.
 
-inflight_is_full(undefined, _) ->
+inflight_is_full(undefined) ->
     false;
-inflight_is_full(Name, MaxSize) ->
+inflight_is_full(Name) ->
+    [{_, {size, MaxSize}}] = ets:lookup(Name, ?SIZE_REF),
     case ets:info(Name, size) of
-        Size when Size >= MaxSize -> true;
+        Size when Size > MaxSize -> true;
         _ -> false
     end.
 

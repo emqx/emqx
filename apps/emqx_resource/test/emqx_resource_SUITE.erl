@@ -242,7 +242,7 @@ t_query_counter_async_query(_) ->
         ?DEFAULT_RESOURCE_GROUP,
         ?TEST_RESOURCE,
         #{name => test_resource, register => true},
-        #{query_mode => async}
+        #{query_mode => async, enable_batch => false}
     ),
     ?assertMatch({ok, 0}, emqx_resource:simple_sync_query(?ID, get_counter)),
     ?check_trace(
@@ -284,7 +284,7 @@ t_query_counter_async_callback(_) ->
         ?DEFAULT_RESOURCE_GROUP,
         ?TEST_RESOURCE,
         #{name => test_resource, register => true},
-        #{query_mode => async, async_inflight_window => 1000000}
+        #{query_mode => async, enable_batch => false, async_inflight_window => 1000000}
     ),
     ?assertMatch({ok, 0}, emqx_resource:simple_sync_query(?ID, get_counter)),
     ?check_trace(
@@ -338,6 +338,7 @@ t_query_counter_async_inflight(_) ->
         #{name => test_resource, register => true},
         #{
             query_mode => async,
+            enable_batch => false,
             async_inflight_window => WindowSize,
             worker_pool_size => 1,
             resume_interval => 300
@@ -358,7 +359,7 @@ t_query_counter_async_inflight(_) ->
         end
     ),
 
-    %% this will block the resource_worker
+    %% this will block the resource_worker as the inflight windown is full now
     ok = emqx_resource:query(?ID, {inc_counter, 1}),
     ?assertMatch(0, ets:info(Tab0, size)),
     %% sleep to make the resource_worker resume some times
@@ -682,17 +683,6 @@ inc_counter_in_parallel(N, Opts) ->
         end
      || Pid <- Pids
     ].
-
-% verify_inflight_full(WindowSize) ->
-%     ?check_trace(
-%         ?TRACE_OPTS,
-%         emqx_resource:query(?ID, {inc_counter, 1}),
-%         fun(Return, Trace) ->
-%             QueryTrace = ?of_kind(inflight_full, Trace),
-%             ?assertMatch([#{wind_size := WindowSize} | _], QueryTrace),
-%             ?assertMatch(ok, Return)
-%         end
-%     ).
 
 bin_config() ->
     <<"\"name\": \"test_resource\"">>.
