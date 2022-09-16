@@ -58,7 +58,13 @@ case "${EDITION}" in
         ;;
 esac
 
+SYSTEM="${SYSTEM:-$(./scripts/get-distro.sh)}"
+
 while read -r git_tag; do
+    if [ "$SYSTEM" = 'centos8' ] && [ "$git_tag" = 'v4.3.13' ]; then
+        # This version for centos8 was broken and deleted from archive
+        continue
+    fi
     # shellcheck disable=SC2207
     semver=($(parse_semver "$git_tag"))
     if [ "${#semver[@]}" -eq 3 ] && [ "${semver[2]}" -le "${CUR_SEMVER[2]}" ]; then

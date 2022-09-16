@@ -31,7 +31,8 @@ init_per_testcase(TestCase, Config) ->
     emqx_ct_helpers:start_apps([emqx_auth_jwt], fun set_special_configs/1),
     Config.
 
-end_per_testcase(_Case, _Config) ->
+end_per_testcase(TestCase, Config) ->
+    try ?MODULE:TestCase('end', Config) catch _:_ -> ok end,
     emqx_ct_helpers:stop_apps([emqx_auth_jwt]).
 
 set_special_configs(emqx) ->
@@ -375,6 +376,44 @@ t_check_jwt_acl_no_acl_claim(_Config) ->
        {ok, #{}, [?RC_NOT_AUTHORIZED]},
        emqtt:subscribe(C, <<"a/b">>, 0)),
 
+    ok = emqtt:disconnect(C).
+
+t_check_jwt_acl_no_jwt_claims_helper(_ClientInfo, _LastAuthResult) ->
+    {stop, #{auth_result => success, anonymous => false}}.
+t_check_jwt_acl_no_jwt_claims(init, _Config) ->
+    ok;
+t_check_jwt_acl_no_jwt_claims('end', _Config) ->
+    ok = emqx_hooks:del(
+            'client.authenticate',
+            {?MODULE, t_check_jwt_acl_no_jwt_claims_helper, []}
+          ).
+t_check_jwt_acl_no_jwt_claims(_Config) ->
+    %% bypass the jwt authentication checking
+    ok = emqx_hooks:add(
+            'client.authenticate',
+            {?MODULE, t_check_jwt_acl_no_jwt_claims_helper, []},
+            _Priority = 99999
+          ),
+
+    {ok, C} = emqtt:start_link(
+                [{clean_start, true},
+                 {proto_ver, v5},
+                 {client_id, <<"client1">>},
+                 {username, <<"client1">>},
+                 {password, <<"password">>}]),
+    {ok, _} = emqtt:connect(C),
+
+    ok = snabbkaffe:start_trace(),
+
+    ?assertMatch(
+       {ok, #{}, [?RC_NOT_AUTHORIZED]},
+       emqtt:subscribe(C, <<"a/b">>, 0)),
+
+    {ok, _} = ?block_until(#{?snk_kind := no_jwt_claim}, 1000),
+    Trace = snabbkaffe:collect_trace(),
+    ?assertEqual(1, length(?of_kind(no_jwt_claim, Trace))),
+
+    snabbkaffe:stop(),
     ok = emqtt:disconnect(C).
 
 t_check_jwt_acl_expire(init, _Config) ->
