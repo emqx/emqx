@@ -22,6 +22,7 @@
 -include_lib("emqx/include/emqx.hrl").
 -include_lib("emqx/include/logger.hrl").
 -include_lib("emqx/include/types.hrl").
+-include_lib("snabbkaffe/include/snabbkaffe.hrl").
 
 -export([ check/3
         , description/0
@@ -38,14 +39,22 @@
         , available/3
         ]).
 
+-ifdef(TEST).
+-export([ is_superuser/3
+        , available/4
+        ]).
+-endif.
+
 check(ClientInfo = #{password := Password}, AuthResult,
       Env = #{authquery := AuthQuery, superquery := SuperQuery}) ->
+    ?tp(emqx_auth_mongo_superuser_check_authn_enter, #{}),
     #authquery{collection = Collection, field = Fields,
                hash = HashType, selector = Selector} = AuthQuery,
     Pool = maps:get(pool, Env, ?APP),
     case query(Pool, Collection, maps:from_list(replvars(Selector, ClientInfo))) of
         undefined -> ok;
         {error, Reason} ->
+            ?tp(emqx_auth_mongo_superuser_check_authn_error, #{error => Reason}),
             ?LOG(error, "[MongoDB] Can't connect to MongoDB server: ~0p", [Reason]),
             {stop, AuthResult#{auth_result => not_authorized, anonymous => false}};
         UserMap ->
@@ -58,6 +67,7 @@ check(ClientInfo = #{password := Password}, AuthResult,
                      end,
             case Result of
                 ok ->
+                    ?tp(emqx_auth_mongo_superuser_check_authn_ok, #{}),
                     {stop, AuthResult#{is_superuser => is_superuser(Pool, SuperQuery, ClientInfo),
                                        anonymous => false,
                                        auth_result => success}};
@@ -81,17 +91,24 @@ description() -> "Authentication with MongoDB".
 is_superuser(_Pool, undefined, _ClientInfo) ->
     false;
 is_superuser(Pool, #superquery{collection = Coll, field = Field, selector = Selector}, ClientInfo) ->
-    case query(Pool, Coll, maps:from_list(replvars(Selector, ClientInfo))) of
-        undefined -> false;
-        {error, Reason} ->
-            ?LOG(error, "[MongoDB] Can't connect to MongoDB server: ~0p", [Reason]),
-            false;
-        Row ->
-            case maps:get(Field, Row, false) of
-                true   -> true;
-                _False -> false
-            end
-    end.
+    ?tp(emqx_auth_mongo_superuser_query_enter, #{}),
+    Res =
+      case query(Pool, Coll, maps:from_list(replvars(Selector, ClientInfo))) of
+          undefined ->
+              %% returned when there are no returned documents
+              false;
+          {error, Reason} ->
+              ?tp(emqx_auth_mongo_superuser_query_error, #{error => Reason}),
+              ?LOG(error, "[MongoDB] Can't connect to MongoDB server: ~0p", [Reason]),
+              false;
+          Row ->
+              case maps:get(Field, Row, false) of
+                  true   -> true;
+                  _False -> false
+              end
+      end,
+    ?tp(emqx_auth_mongo_superuser_query_result, #{is_superuser => Res}),
+    Res.
 
 %%--------------------------------------------------------------------
 %% Availability Test
@@ -169,7 +186,12 @@ connect(Opts) ->
     mongo_api:connect(Type, Hosts, Options, WorkerOptions).
 
 query(Pool, Collection, Selector) ->
-    ecpool:with_client(Pool, fun(Conn) -> mongo_api:find_one(Conn, Collection, Selector, #{}) end).
+    try
+        ecpool:with_client(Pool, fun(Conn) -> mongo_api:find_one(Conn, Collection, Selector, #{}) end)
+    catch
+        Err:Reason ->
+            {error, {Err, Reason}}
+    end.
 
 query_multi(Pool, Collection, SelectorList) ->
     lists:reverse(lists:flatten(lists:foldl(fun(Selector, Acc1) ->
