@@ -5,9 +5,18 @@ set -euo pipefail
 
 TIMEOUT=60
 
+echo "+++++++ Sleep for a while to make sure that old keytab and truststore is deleted ++++++++"
+
+sleep 5
+
 echo "+++++++ Wait until Kerberos Keytab is created ++++++++"
 
-timeout $TIMEOUT bash -c 'until [ -f /var/lib/secret/kafka.key ]; do sleep 1; done'
+timeout $TIMEOUT bash -c 'until [ -f /var/lib/secret/kafka.keytab ]; do sleep 1; done'
+
+
+echo "+++++++ Wait until SSL certs are generated ++++++++"
+
+timeout $TIMEOUT bash -c 'until [ -f /var/lib/secret/kafka.truststore.jks ]; do sleep 1; done'
 
 sleep 3
 
