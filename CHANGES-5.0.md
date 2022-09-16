@@ -1,3 +1,9 @@
+# 5.0.9
+
+## Enhancements
+
+* Add `cert_common_name` and `cert_subject` placeholder support for authz_http and authz_mongo.[#8973](https://github.com/emqx/emqx/pull/8973)
+
 # 5.0.8
 
 ## Bug fixes
