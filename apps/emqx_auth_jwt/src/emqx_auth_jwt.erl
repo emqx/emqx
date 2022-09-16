@@ -18,6 +18,7 @@
 
 -include_lib("emqx/include/emqx.hrl").
 -include_lib("emqx/include/logger.hrl").
+-include_lib("snabbkaffe/include/snabbkaffe.hrl").
 
 -logger_header("[JWT]").
 
@@ -70,7 +71,10 @@ check_acl(ClientInfo = #{jwt_claims := Claims},
         _ ->
             ?DEBUG("no_acl_jwt_claim", []),
             ignore
-    end.
+    end;
+check_acl(_ClientInfo, _PubSub, _Topic, _NoMatchAction, _Env) ->
+    ?tp(debug, no_jwt_claim, #{}),
+    ignore.
 
 is_expired(Exp) when is_binary(Exp)  ->
     case string_to_number(Exp) of
