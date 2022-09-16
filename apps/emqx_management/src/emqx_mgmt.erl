@@ -458,7 +458,7 @@ list_listeners(Node) when Node =:= node() ->
     end, esockd:listeners()),
     Http = lists:map(fun({Protocol, Opts}) ->
         #{protocol        => Protocol,
-          listen_on       => proplists:get_value(port, Opts),
+          listen_on       => format_http_bind(Opts),
           acceptors       => maps:get( num_acceptors
                                      , proplists:get_value(transport_options, Opts, #{}), 0),
           max_conns       => proplists:get_value(max_connections, Opts),
@@ -528,7 +528,7 @@ delete_banned(Who) ->
 
 
 %%--------------------------------------------------------------------
-%% Telemtry API
+%% Telemetry API
 %%--------------------------------------------------------------------
 
 -ifndef(EMQX_ENTERPRISE).
@@ -570,7 +570,7 @@ item(route, {Topic, Node}) ->
     #{topic => Topic, node => Node}.
 
 %%--------------------------------------------------------------------
-%% Internel Functions.
+%% Internal Functions.
 %%--------------------------------------------------------------------
 
 rpc_call(Node, Fun, Args) ->
@@ -603,3 +603,10 @@ max_row_limit() ->
     application:get_env(?APP, max_row_limit, ?MAX_ROW_LIMIT).
 
 table_size(Tab) -> ets:info(Tab, size).
+
+format_http_bind(Opts) ->
+    Port = proplists:get_value(port, Opts),
+    case proplists:get_value(ip, Opts) of
+        undefined -> Port;
+        IP -> {IP, Port}
+    end.
