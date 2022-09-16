@@ -24,6 +24,7 @@
 -include_lib("eunit/include/eunit.hrl").
 -include_lib("common_test/include/ct.hrl").
 -include_lib("emqx/include/emqx_placeholder.hrl").
+-include_lib("snabbkaffe/include/snabbkaffe.hrl").
 
 all() ->
     emqx_common_test_helpers:all(?MODULE).
@@ -155,6 +156,15 @@ set_special_configs(_App) ->
         <<
             "{allow,{username,\"^dashboard?\"},subscribe,[\"$SYS/#\"]}."
             "\n{allow,{ipaddr,\"127.0.0.1\"},all,[\"$SYS/#\",\"#\"]}."
+        >>
+}).
+-define(SOURCE7, #{
+    <<"type">> => <<"file">>,
+    <<"enable">> => true,
+    <<"rules">> =>
+        <<
+            "{allow,{username,\"some_client\"},publish,[\"some_client/lwt\"]}.\n"
+            "{deny, all}."
         >>
 }).
 
@@ -306,12 +316,14 @@ t_get_enabled_authzs_some_enabled(_Config) ->
     ?assertEqual([postgresql], emqx_authz:get_enabled_authzs()).
 
 t_subscribe_deny_disconnect_publishes_last_will_testament(_Config) ->
+    {ok, _} = emqx_authz:update(?CMD_REPLACE, [?SOURCE7]),
     {ok, C} = emqtt:start_link([
-        {will_topic, <<"lwt">>},
+        {username, <<"some_client">>},
+        {will_topic, <<"some_client/lwt">>},
         {will_payload, <<"should be published">>}
     ]),
     {ok, _} = emqtt:connect(C),
-    ok = emqx:subscribe(<<"lwt">>),
+    ok = emqx:subscribe(<<"some_client/lwt">>),
     process_flag(trap_exit, true),
 
     try
@@ -323,7 +335,7 @@ t_subscribe_deny_disconnect_publishes_last_will_testament(_Config) ->
     end,
 
     receive
-        {deliver, <<"lwt">>, #message{payload = <<"should be published">>}} ->
+        {deliver, <<"some_client/lwt">>, #message{payload = <<"should be published">>}} ->
             ok
     after 2_000 ->
         error(lwt_not_published)
@@ -332,12 +344,14 @@ t_subscribe_deny_disconnect_publishes_last_will_testament(_Config) ->
     ok.
 
 t_publish_deny_disconnect_publishes_last_will_testament(_Config) ->
+    {ok, _} = emqx_authz:update(?CMD_REPLACE, [?SOURCE7]),
     {ok, C} = emqtt:start_link([
-        {will_topic, <<"lwt">>},
+        {username, <<"some_client">>},
+        {will_topic, <<"some_client/lwt">>},
         {will_payload, <<"should be published">>}
     ]),
     {ok, _} = emqtt:connect(C),
-    ok = emqx:subscribe(<<"lwt">>),
+    ok = emqx:subscribe(<<"some_client/lwt">>),
     process_flag(trap_exit, true),
 
     %% disconnect is async
@@ -350,10 +364,35 @@ t_publish_deny_disconnect_publishes_last_will_testament(_Config) ->
         error(client_should_have_been_disconnected)
     end,
     receive
-        {deliver, <<"lwt">>, #message{payload = <<"should be published">>}} ->
+        {deliver, <<"some_client/lwt">>, #message{payload = <<"should be published">>}} ->
             ok
     after 2_000 ->
         error(lwt_not_published)
+    end,
+
+    ok.
+
+t_publish_last_will_testament_denied_topic(_Config) ->
+    {ok, C} = emqtt:start_link([
+        {will_topic, <<"$SYS/lwt">>},
+        {will_payload, <<"should not be published">>}
+    ]),
+    {ok, _} = emqtt:connect(C),
+    ok = emqx:subscribe(<<"$SYS/lwt">>),
+    unlink(C),
+    ok = snabbkaffe:start_trace(),
+    {true, {ok, _}} = ?wait_async_action(
+        exit(C, kill),
+        #{?snk_kind := last_will_testament_publish_denied},
+        1_000
+    ),
+    ok = snabbkaffe:stop(),
+
+    receive
+        {deliver, <<"$SYS/lwt">>, #message{payload = <<"should not be published">>}} ->
+            error(lwt_should_not_be_published_to_forbidden_topic)
+    after 1_000 ->
+        ok
     end,
 
     ok.
