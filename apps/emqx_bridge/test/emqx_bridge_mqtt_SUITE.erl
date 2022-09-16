@@ -570,9 +570,9 @@ t_mqtt_conn_bridge_egress_reconnect(_) ->
                 <<"success">> := 3,
                 <<"failed">> := 0,
                 <<"queuing">> := 0,
-                <<"retried">> := R
+                <<"retried">> := _
             }
-        } when R > 0,
+        },
         jsx:decode(BridgeStr2)
     ),
     %% also verify the 2 messages have been sent to the remote broker

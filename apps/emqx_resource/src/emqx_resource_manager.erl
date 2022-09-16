@@ -131,6 +131,8 @@ create(MgrId, ResId, Group, ResourceType, Config, Opts) ->
         [
             'matched',
             'retried',
+            'retried.success',
+            'retried.failed',
             'success',
             'failed',
             'dropped',
