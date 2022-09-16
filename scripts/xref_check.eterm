@@ -507,6 +507,8 @@
           {{lwm2m_coap_responder,handle_observe,4},{pg2,create,1}},
           {{lwm2m_coap_responder,handle_observe,4},{pg2,join,2}},
           {{lwm2m_coap_responder,notify,2},{pg2,get_members,1}},
+          {{public_key,ssh_hostkey_fingerprint,1},{public_key,ssh_encode,2}},
+          {{public_key,ssh_hostkey_fingerprint,2},{public_key,ssh_encode,2}},
           {{ranch_ssl,handshake,3},{ssl,ssl_accept,3}}]
    }
 
@@ -532,6 +534,7 @@
           {pg2,join,2},
           {pg2,leave,2},
           {pg2,which_groups,0},
+          {public_key,ssh_encode,2},
           {ssl,ssl_accept,3}]
    }
 ].
