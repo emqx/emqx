@@ -151,18 +151,27 @@ jobs:
       id: cache
       with:
         path: ~/.kerl/${{ matrix.erl_otp }}
-        key: otp-install-${{ matrix.erl_otp }}-${{ matrix.macos }}
+        key: otp-install-${{ matrix.erl_otp }}-${{ matrix.macos }}-static-ssl-disable-hipe-disable-jit
     - name: build erlang
       if: steps.cache.outputs.cache-hit != 'true'
       timeout-minutes: 60
       env:
         KERL_BUILD_BACKEND: git
         OTP_GITHUB_URL: https://github.com/emqx/otp
+        KERL_CONFIGURE_OPTIONS: --disable-dynamic-ssl-lib --with-ssl=/usr/local/opt/openssl@1.1 --disable-hipe --disable-jit
       run: |
         kerl update releases
         kerl build ${{ matrix.erl_otp }}
         kerl install ${{ matrix.erl_otp }} $HOME/.kerl/${{ matrix.erl_otp }}
     - name: build
+      env:
+        APPLE_SIGN_BINARIES: 1
+        APPLE_ID: developers@emqx.io
+        APPLE_TEAM_ID: 26N6HYJLZA
+        APPLE_ID_PASSWORD: ${{ secrets.APPLE_ID_PASSWORD }}
+        APPLE_DEVELOPER_IDENTITY: ${{ secrets.APPLE_DEVELOPER_IDENTITY }}
+        APPLE_DEVELOPER_ID_BUNDLE: ${{ secrets.APPLE_DEVELOPER_ID_BUNDLE }}
+        APPLE_DEVELOPER_ID_BUNDLE_PASSWORD: ${{ secrets.APPLE_DEVELOPER_ID_BUNDLE_PASSWORD }}
       run: |
         . $HOME/.kerl/${{ matrix.erl_otp }}/activate
         cd source
