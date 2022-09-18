@@ -170,9 +170,11 @@ counter_loop(#{counter := Num, status := Status} = State) ->
                 ct:pal("counter recv: ~p, buffered msgs: ~p", [resume, length(Msgs)]),
                 State#{status => running};
             {inc, N, ReplyFun} when Status == running ->
+                %ct:pal("async counter recv: ~p", [{inc, N}]),
                 apply_reply(ReplyFun, ok),
                 State#{counter => Num + N};
             {{FromPid, ReqRef}, {inc, N}} when Status == running ->
+                %ct:pal("sync counter recv: ~p", [{inc, N}]),
                 FromPid ! {ReqRef, ok},
                 State#{counter => Num + N};
             {{FromPid, ReqRef}, {inc, _N}} when Status == blocked ->

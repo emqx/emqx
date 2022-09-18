@@ -211,7 +211,7 @@ t_batch_query_counter(_) ->
         ?DEFAULT_RESOURCE_GROUP,
         ?TEST_RESOURCE,
         #{name => test_resource, register => true},
-        #{enable_batch => true}
+        #{enable_batch => true, query_mode => sync}
     ),
 
     ?check_trace(
@@ -220,7 +220,7 @@ t_batch_query_counter(_) ->
         fun(Result, Trace) ->
             ?assertMatch({ok, 0}, Result),
             QueryTrace = ?of_kind(call_batch_query, Trace),
-            ?assertMatch([#{batch := [{query, _, get_counter}]}], QueryTrace)
+            ?assertMatch([#{batch := [{query, _, get_counter, _}]}], QueryTrace)
         end
     ),
 
@@ -242,7 +242,7 @@ t_query_counter_async_query(_) ->
         ?DEFAULT_RESOURCE_GROUP,
         ?TEST_RESOURCE,
         #{name => test_resource, register => true},
-        #{query_mode => async}
+        #{query_mode => async, enable_batch => false}
     ),
     ?assertMatch({ok, 0}, emqx_resource:simple_sync_query(?ID, get_counter)),
     ?check_trace(
@@ -251,7 +251,7 @@ t_query_counter_async_query(_) ->
         fun(Trace) ->
             %% the callback_mode if 'emqx_connector_demo' is 'always_sync'.
             QueryTrace = ?of_kind(call_query, Trace),
-            ?assertMatch([#{query := {query, _, {inc_counter, 1}}} | _], QueryTrace)
+            ?assertMatch([#{query := {query, _, {inc_counter, 1}, _}} | _], QueryTrace)
         end
     ),
     %% wait for 1s to make sure all the aysnc query is sent to the resource.
@@ -264,7 +264,7 @@ t_query_counter_async_query(_) ->
             ?assertMatch({ok, 1000}, Result),
             %% the callback_mode if 'emqx_connector_demo' is 'always_sync'.
             QueryTrace = ?of_kind(call_query, Trace),
-            ?assertMatch([#{query := {query, _, get_counter}}], QueryTrace)
+            ?assertMatch([#{query := {query, _, get_counter, _}}], QueryTrace)
         end
     ),
     {ok, _, #{metrics := #{counters := C}}} = emqx_resource:get_instance(?ID),
@@ -284,7 +284,7 @@ t_query_counter_async_callback(_) ->
         ?DEFAULT_RESOURCE_GROUP,
         ?TEST_RESOURCE,
         #{name => test_resource, register => true},
-        #{query_mode => async, async_inflight_window => 1000000}
+        #{query_mode => async, enable_batch => false, async_inflight_window => 1000000}
     ),
     ?assertMatch({ok, 0}, emqx_resource:simple_sync_query(?ID, get_counter)),
     ?check_trace(
@@ -292,7 +292,7 @@ t_query_counter_async_callback(_) ->
         inc_counter_in_parallel(1000, ReqOpts),
         fun(Trace) ->
             QueryTrace = ?of_kind(call_query_async, Trace),
-            ?assertMatch([#{query := {query, _, {inc_counter, 1}}} | _], QueryTrace)
+            ?assertMatch([#{query := {query, _, {inc_counter, 1}, _}} | _], QueryTrace)
         end
     ),
 
@@ -305,7 +305,7 @@ t_query_counter_async_callback(_) ->
         fun(Result, Trace) ->
             ?assertMatch({ok, 1000}, Result),
             QueryTrace = ?of_kind(call_query, Trace),
-            ?assertMatch([#{query := {query, _, get_counter}}], QueryTrace)
+            ?assertMatch([#{query := {query, _, get_counter, _}}], QueryTrace)
         end
     ),
     {ok, _, #{metrics := #{counters := C}}} = emqx_resource:get_instance(?ID),
@@ -338,9 +338,11 @@ t_query_counter_async_inflight(_) ->
         #{name => test_resource, register => true},
         #{
             query_mode => async,
+            enable_batch => false,
             async_inflight_window => WindowSize,
             worker_pool_size => 1,
-            resume_interval => 300
+            resume_interval => 300,
+            enable_queue => false
         }
     ),
     ?assertMatch({ok, 0}, emqx_resource:simple_sync_query(?ID, get_counter)),
@@ -354,11 +356,11 @@ t_query_counter_async_inflight(_) ->
         inc_counter_in_parallel(WindowSize, ReqOpts),
         fun(Trace) ->
             QueryTrace = ?of_kind(call_query_async, Trace),
-            ?assertMatch([#{query := {query, _, {inc_counter, 1}}} | _], QueryTrace)
+            ?assertMatch([#{query := {query, _, {inc_counter, 1}, _}} | _], QueryTrace)
         end
     ),
 
-    %% this will block the resource_worker
+    %% this will block the resource_worker as the inflight window is full now
     ok = emqx_resource:query(?ID, {inc_counter, 1}),
     ?assertMatch(0, ets:info(Tab0, size)),
     %% sleep to make the resource_worker resume some times
@@ -386,7 +388,7 @@ t_query_counter_async_inflight(_) ->
         inc_counter_in_parallel(Num, ReqOpts),
         fun(Trace) ->
             QueryTrace = ?of_kind(call_query_async, Trace),
-            ?assertMatch([#{query := {query, _, {inc_counter, 1}}} | _], QueryTrace)
+            ?assertMatch([#{query := {query, _, {inc_counter, 1}, _}} | _], QueryTrace)
         end
     ),
     timer:sleep(1000),
@@ -400,7 +402,7 @@ t_query_counter_async_inflight(_) ->
         inc_counter_in_parallel(WindowSize, ReqOpts),
         fun(Trace) ->
             QueryTrace = ?of_kind(call_query_async, Trace),
-            ?assertMatch([#{query := {query, _, {inc_counter, 1}}} | _], QueryTrace)
+            ?assertMatch([#{query := {query, _, {inc_counter, 1}, _}} | _], QueryTrace)
         end
     ),
 
@@ -414,13 +416,13 @@ t_query_counter_async_inflight(_) ->
 
     {ok, Counter} = emqx_resource:simple_sync_query(?ID, get_counter),
     ct:pal("get_counter: ~p, sent: ~p", [Counter, Sent]),
-    ?assert(Sent == Counter),
+    ?assert(Sent =< Counter),
 
     {ok, _, #{metrics := #{counters := C}}} = emqx_resource:get_instance(?ID),
     ct:pal("metrics: ~p", [C]),
     ?assertMatch(
-        #{matched := M, success := Ss, dropped := D} when
-            M == Ss + D,
+        #{matched := M, success := Ss, dropped := Dp, 'retried.success' := Rs} when
+            M == Ss + Dp - Rs,
         C
     ),
     ?assert(
@@ -682,17 +684,6 @@ inc_counter_in_parallel(N, Opts) ->
         end
      || Pid <- Pids
     ].
-
-% verify_inflight_full(WindowSize) ->
-%     ?check_trace(
-%         ?TRACE_OPTS,
-%         emqx_resource:query(?ID, {inc_counter, 1}),
-%         fun(Return, Trace) ->
-%             QueryTrace = ?of_kind(inflight_full, Trace),
-%             ?assertMatch([#{wind_size := WindowSize} | _], QueryTrace),
-%             ?assertMatch(ok, Return)
-%         end
-%     ).
 
 bin_config() ->
     <<"\"name\": \"test_resource\"">>.
