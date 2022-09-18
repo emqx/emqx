@@ -1,7 +1,8 @@
 %% -*- mode: erlang -*-
 %% Unless you know what you are doing, DO NOT edit manually!!
 {VSN,
-  [{"4.3.5",
+  [{"4.3.6",[{load_module,emqx_auth_jwt_svr,brutal_purge,soft_purge,[]}]},
+   {"4.3.5",
     [{load_module,emqx_auth_jwt,brutal_purge,soft_purge,[]},
      {load_module,emqx_auth_jwt_svr,brutal_purge,soft_purge,[]}]},
    {"4.3.4",
@@ -12,7 +13,8 @@
      {load_module,emqx_auth_jwt_svr,brutal_purge,soft_purge,[]}]},
    {<<"4\\.3\\.[0-2]">>,[{restart_application,emqx_auth_jwt}]},
    {<<".*">>,[]}],
-  [{"4.3.5",
+  [{"4.3.6",[{load_module,emqx_auth_jwt_svr,brutal_purge,soft_purge,[]}]},
+   {"4.3.5",
     [{load_module,emqx_auth_jwt,brutal_purge,soft_purge,[]},
      {load_module,emqx_auth_jwt_svr,brutal_purge,soft_purge,[]}]},
    {"4.3.4",
