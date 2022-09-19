@@ -9,6 +9,12 @@ File format:
 - Use weight-2 heading for releases
 - One list item per change topic
   Change log ends with a list of GitHub PRs
+## v4.3.21
+
+### Enhancements
+
+- TLS listener memory usage optimization
+  new option 'hibernate_after' to hibernate TLS process after idling
 
 ## v4.3.20
 
@@ -16,6 +22,7 @@ File format:
 
 - Fix rule-engine update behaviour which may initialize actions for disabled rules. [#8849](https://github.com/emqx/emqx/pull/8849)
 - Fix JWT plugin don't support non-integer timestamp claims. [#8862](https://github.com/emqx/emqx/pull/8862)
+- Fix delayed publish inaccurate caused by os time change. [#8908](https://github.com/emqx/emqx/pull/8908)
 - Fix a possible dead loop caused by shared subscriptions with `shared_dispatch_ack_enabled=true`. [#8918](https://github.com/emqx/emqx/pull/8918)
 - Fix dashboard binding IP address not working. [#8916](https://github.com/emqx/emqx/pull/8916)
 - Fix rule SQL topic matching to null values failed. [#8927](https://github.com/emqx/emqx/pull/8927)
@@ -23,6 +30,9 @@ File format:
   `SELECT topic =~ 't' as r FROM "$events/client_connected"`.
   The topic is a null value as there's no such field in event `$events/client_connected`, so it
   should return false if match it to a topic.
+- Added a test to prevent a last will testament message to be
+  published when a client is denied connection. [#8894](https://github.com/emqx/emqx/pull/8894)
+- Disable authorization for `api/v4/emqx_prometheus` endpoint. [8955](https://github.com/emqx/emqx/pull/8955)
 
 ## v4.3.19
 

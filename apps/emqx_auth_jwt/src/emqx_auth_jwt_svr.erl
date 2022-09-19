@@ -200,7 +200,7 @@ do_verify(JwsCompacted, [Jwk|More]) ->
     end.
 
 check_claims(Claims) ->
-    Now = os:system_time(seconds),
+    Now = erlang:system_time(seconds),
     Checker = [{<<"exp">>, with_num_value(
                              fun(ExpireTime) -> Now < ExpireTime end)},
                {<<"iat">>, with_num_value(

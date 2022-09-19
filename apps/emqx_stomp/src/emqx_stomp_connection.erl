@@ -91,13 +91,6 @@
 
 -define(ENABLED(X), (X =/= undefined)).
 
--dialyzer({nowarn_function, [ ensure_stats_timer/2
-                            ]}).
-
--dialyzer({no_return, [ init/1
-                      , init_state/3
-                      ]}).
-
 start_link(Transport, Sock, ProtoEnv) ->
     {ok, proc_lib:spawn_link(?MODULE, init, [[Transport, Sock, ProtoEnv]])}.
 
@@ -143,6 +136,7 @@ call(Pid, Req) ->
 call(Pid, Req, Timeout) ->
     gen_server:call(Pid, Req, Timeout).
 
+-spec init([term()]) -> no_return().
 init([Transport, RawSocket, ProtoEnv]) ->
     case Transport:wait(RawSocket) of
         {ok, Socket} ->
@@ -152,6 +146,7 @@ init([Transport, RawSocket, ProtoEnv]) ->
             exit_on_sock_error(Reason)
     end.
 
+-spec init_state(module(), port(), [proplists:property()]) -> no_return().
 init_state(Transport, Socket, ProtoEnv) ->
     {ok, Peername} = Transport:ensure_ok_or_exit(peername, [Socket]),
     {ok, Sockname} = Transport:ensure_ok_or_exit(sockname, [Socket]),

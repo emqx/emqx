@@ -207,7 +207,7 @@ create_rule(Params = #{rawsql := Sql, actions := ActArgs}) ->
         Reason -> {error, Reason}
     end.
 
--spec(update_rule(#{id := binary(), _=>_}) -> {ok, rule()} | {error, {not_found, rule_id()}}).
+-spec(update_rule(#{id := binary(), _=>_}) -> {ok, rule()} | {error, {not_found, rule_id()} | term()}).
 update_rule(Params = #{id := RuleId}) ->
     case emqx_rule_registry:get_rule(RuleId) of
         {ok, Rule0} ->
@@ -336,7 +336,6 @@ start_resource(ResId) ->
             {error, {resource_not_found, ResId}}
     end.
 
--dialyzer([{nowarn_function, test_resource/1}]).
 -spec(test_resource(#{type := _, config := _, _ => _}) -> ok | {error, Reason :: term()}).
 test_resource(#{type := Type} = Params) ->
     case emqx_rule_registry:find_resource_type(Type) of

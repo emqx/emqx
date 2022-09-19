@@ -85,9 +85,13 @@
 %%--------------------------------------------------------------------
 
 -record(route, {
-          topic :: binary(),
-          dest  :: node() | {binary(), node()}
+          topic,
+          dest
          }).
+-type route() :: #route{
+                    topic :: binary(),
+                    dest  :: node() | {binary(), node()}
+                   }.
 
 %%--------------------------------------------------------------------
 %% Plugin
@@ -132,4 +136,3 @@
         }).
 
 -endif.
-
