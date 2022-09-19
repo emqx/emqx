@@ -59,7 +59,7 @@ jobs:
       with:
         name: rebar3.crashdump
         path: ./rebar3.crashdump
-    - name: pakcages test
+    - name: packages test
       run: |
         export CODE_PATH=$GITHUB_WORKSPACE
         .ci/build_packages/tests.sh
