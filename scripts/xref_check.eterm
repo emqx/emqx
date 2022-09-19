@@ -498,7 +498,6 @@
           {{httpd_util,decode_hex,1},{http_uri,decode,1}},
           {{httpd_util,encode_hex,1},{http_uri,encode,1}},
           {{igor,tidy,2},{erl_tidy,module,2}},
-          {{jose_public_key,pseudo_random_function,1},{crypto,hmac,4}},
           {{lwm2m_coap_client,make_segment,1},{http_uri,decode,1}},
           {{lwm2m_coap_client,resolve_uri,1},{http_uri,parse,2}},
           {{lwm2m_coap_responder,cancel_observer,2},{pg2,delete,1}},
@@ -521,8 +520,7 @@
          [
          ]
    , filters =>
-         [{crypto,hmac,4},
-          {erl_tidy,module,2},
+         [{erl_tidy,module,2},
           {gen_fsm,format_log,1},
           {gen_fsm,format_log,2},
           {http_uri,decode,1},
