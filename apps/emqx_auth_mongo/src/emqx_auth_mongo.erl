@@ -161,7 +161,16 @@ test_client_info() ->
 %%--------------------------------------------------------------------
 
 replvars(VarList, ClientInfo) ->
-    lists:map(fun(Var) -> replvar(Var, ClientInfo) end, VarList).
+    lists:foldl(
+     fun(Var, Selector) ->
+       case replvar(Var, ClientInfo) of
+           %% assumes that all fields are binaries...
+           {unmatchable, Field} -> [{Field, []} | Selector];
+           Interpolated -> [Interpolated | Selector]
+       end
+     end,
+     [],
+     VarList).
 
 replvar({Field, <<"%u">>}, #{username := Username}) ->
     {Field, Username};
@@ -171,8 +180,8 @@ replvar({Field, <<"%C">>}, #{cn := CN}) ->
     {Field, CN};
 replvar({Field, <<"%d">>}, #{dn := DN}) ->
     {Field, DN};
-replvar(Selector, _ClientInfo) ->
-    Selector.
+replvar({Field, _PlaceHolder}, _ClientInfo) ->
+    {unmatchable, Field}.
 
 %%--------------------------------------------------------------------
 %% MongoDB Connect/Query

@@ -265,6 +265,26 @@ t_authn_full_selector_variables(Config) ->
      EnvFields),
     ok.
 
+t_authn_interpolation_no_info(_Config) ->
+    Valid = #{zone => external, clientid => <<"client1">>,
+              username => <<"plain">>, password => <<"plain">>},
+    ?assertMatch({ok, _}, emqx_access_control:authenticate(Valid)),
+    try
+        %% has values that are equal to placeholders
+        InterpolationUser = #{ <<"username">> => <<"%u">>
+                             , <<"password">> => <<"plain">>
+                             , <<"salt">> => <<"salt">>
+                             , <<"is_superuser">> => true
+                             },
+        {ok, Conn} = ?POOL(?APP),
+        {{true, _}, _} = mongo_api:insert(Conn, ?MONGO_CL_USER, InterpolationUser),
+        Invalid = maps:without([username], Valid),
+        ?assertMatch({error, not_authorized}, emqx_access_control:authenticate(Invalid))
+    after
+        deinit_mongo_data(),
+        init_mongo_data()
+    end.
+
 %% authenticates, but superquery returns no documents
 t_authn_empty_is_superuser_collection(_Config) ->
     {ok, SuperQuery} = application:get_env(emqx_auth_mongo, super_query),
