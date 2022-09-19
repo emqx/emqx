@@ -76,8 +76,4 @@ prefix(Name) when is_list(Name) ->
 %%--------------------------------------------------------------------
 
 init([]) ->
-    %% gRPC Client Pool
-    PoolSize = emqx_vm:schedulers() * 2,
-    Pool = emqx_pool_sup:spec([exproto_gcli_pool, hash, PoolSize,
-                               {emqx_exproto_gcli, start_link, []}]),
-    {ok, {{one_for_one, 10, 5}, [Pool]}}.
+    {ok, {{one_for_one, 10, 5}, []}}.
