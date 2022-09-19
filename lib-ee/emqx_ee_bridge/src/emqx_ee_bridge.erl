@@ -19,7 +19,7 @@ api_schemas(Method) ->
         ref(emqx_ee_bridge_mongodb, Method ++ "_sharded"),
         ref(emqx_ee_bridge_mongodb, Method ++ "_single"),
         ref(emqx_ee_bridge_hstreamdb, Method),
-        ref(emqx_ee_bridge_influxdb, Method ++ "_udp"),
+        %% ref(emqx_ee_bridge_influxdb, Method ++ "_udp"),
         ref(emqx_ee_bridge_influxdb, Method ++ "_api_v1"),
         ref(emqx_ee_bridge_influxdb, Method ++ "_api_v2")
     ].
@@ -83,5 +83,9 @@ fields(influxdb) ->
                 hoconsc:map(name, ref(emqx_ee_bridge_influxdb, Protocol)),
                 #{desc => <<"EMQX Enterprise Config">>}
             )}
-     || Protocol <- [influxdb_udp, influxdb_api_v1, influxdb_api_v2]
+     || Protocol <- [
+            %% influxdb_udp,
+            influxdb_api_v1,
+            influxdb_api_v2
+        ]
     ].
