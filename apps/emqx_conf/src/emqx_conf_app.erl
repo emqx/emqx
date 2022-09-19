@@ -152,11 +152,11 @@ copy_override_conf_from_core_node() ->
                 _ ->
                     [{ok, Info} | _] = lists:sort(fun conf_sort/2, Ready),
                     #{node := Node, conf := RawOverrideConf, tnx_id := TnxId} = Info,
-                    Msg = #{
+                    ?SLOG(debug, #{
                         msg => "copy_overide_conf_from_core_node_success",
-                        node => Node
-                    },
-                    ?SLOG(debug, Msg),
+                        node => Node,
+                        envs => application:get_all_env(emqx)
+                    }),
                     ok = emqx_config:save_to_override_conf(
                         RawOverrideConf,
                         #{override_to => cluster}
