@@ -247,7 +247,8 @@ init(Parent, WrappedSock, Peername0, Options) ->
             try
                 run_loop(Parent, init_state(NWrappedSock, Peername, Options))
             catch
-                throw : nopermission -> erlang:exit(normal)
+                throw : nopermission -> erlang:exit(normal);
+                throw : Error -> erang:exit(Error)
             end;
         {error, Reason} ->
             ok = esockd_close(WrappedSock),
@@ -580,7 +581,7 @@ process_incoming(Data, State = #state{idle_timer = IdleTimer}) ->
 %% With Channel
 
 with_channel(Fun, Args, State = #state{channel = Channel}) ->
-    case erlang:apply(emqx_exproto_channel, Fun, Args ++ [Channel]) of
+    try erlang:apply(emqx_exproto_channel, Fun, Args ++ [Channel]) of
         ok -> {ok, State};
         {ok, NChannel} ->
             {ok, State#state{channel = NChannel}};
@@ -588,6 +589,9 @@ with_channel(Fun, Args, State = #state{channel = Channel}) ->
             {ok, next_msgs(Replies), State#state{channel = NChannel}};
         {shutdown, Reason, NChannel} ->
             shutdown(Reason, State#state{channel = NChannel})
+    catch
+        throw : Error ->
+            shutdown(Error, State)
     end.
 
 %%--------------------------------------------------------------------
