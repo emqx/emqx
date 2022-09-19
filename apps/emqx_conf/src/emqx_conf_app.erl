@@ -155,7 +155,13 @@ copy_override_conf_from_core_node() ->
                     ?SLOG(debug, #{
                         msg => "copy_overide_conf_from_core_node_success",
                         node => Node,
-                        envs => application:get_all_env(emqx)
+                        cluster_override_conf_file => application:get_env(
+                            emqx, cluster_override_conf_file
+                        ),
+                        local_override_conf_file => application:get_env(
+                            emqx, local_override_conf_file
+                        ),
+                        data_dir => emqx:data_dir()
                     }),
                     ok = emqx_config:save_to_override_conf(
                         RawOverrideConf,
