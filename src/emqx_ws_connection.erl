@@ -112,7 +112,6 @@
 -define(ENABLED(X), (X =/= undefined)).
 
 -dialyzer({no_match, [info/2]}).
--dialyzer({nowarn_function, [websocket_init/1]}).
 
 %%--------------------------------------------------------------------
 %% Info, Stats
@@ -315,7 +314,7 @@ websocket_init([Req, Opts]) ->
     %% MQTT Idle Timeout
     IdleTimeout = emqx_zone:idle_timeout(Zone),
     IdleTimer = start_timer(IdleTimeout, idle_timeout),
-    emqx_misc:tune_heap_size(emqx_zone:oom_policy(Zone)),
+    _ = emqx_misc:tune_heap_size(emqx_zone:oom_policy(Zone)),
     emqx_logger:set_metadata_peername(esockd:format(Peername)),
     {ok, #state{peername       = Peername,
                 sockname       = Sockname,
@@ -812,4 +811,3 @@ get_peer(Req, Opts) ->
 set_field(Name, Value, State) ->
     Pos = emqx_misc:index_of(Name, record_info(fields, state)),
     setelement(Pos+1, State, Value).
-

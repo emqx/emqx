@@ -78,8 +78,6 @@
 %% 16#0D,16#0A, 16#0D,16#0A,16#00,16#0D,16#0A,16#51,16#55,16#49,16#54,16#0A
 -define(PPV2_HEADER_SIG, "\r\n\r\n\0\r\nQUIT\n").
 
--dialyzer({no_match, [serialize_utf8_string/2]}).
-
 -ifdef(TEST).
 -export([parse_variable_byte_integer/1]).
 -endif.
@@ -788,8 +786,6 @@ serialize_utf8_pair({Name, Value}) ->
 serialize_binary_data(Bin) ->
     [<<(byte_size(Bin)):16/big-unsigned-integer>>, Bin].
 
-serialize_utf8_string(undefined, false) ->
-    error(utf8_string_undefined);
 serialize_utf8_string(undefined, true) ->
     <<>>;
 serialize_utf8_string(String, _AllowNull) ->

@@ -158,12 +158,6 @@
     ]).
 
 -dialyzer({no_match, [info/2]}).
--dialyzer({nowarn_function, [ init/4
-                            , init_state/3
-                            , run_loop/2
-                            , system_terminate/4
-                            , system_code_change/4
-                            ]}).
 
 -spec(start_link(esockd:transport(), esockd:socket(), proplists:proplist())
       -> {ok, pid()}).
@@ -318,8 +312,8 @@ run_loop(Parent, State = #state{transport = Transport,
                                 peername  = Peername,
                                 channel   = Channel}) ->
     emqx_logger:set_metadata_peername(esockd:format(Peername)),
-    emqx_misc:tune_heap_size(emqx_zone:oom_policy(
-                               emqx_channel:info(zone, Channel))),
+    _ = emqx_misc:tune_heap_size(emqx_zone:oom_policy(
+                                   emqx_channel:info(zone, Channel))),
     case activate_socket(State) of
         {ok, NState} -> hibernate(Parent, NState);
         {error, Reason} ->

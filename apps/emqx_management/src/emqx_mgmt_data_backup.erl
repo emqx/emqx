@@ -197,7 +197,6 @@ confs_to_binary(Confs) ->
 
 -endif.
 
--dialyzer([{nowarn_function, [import_rules/1, import_rule/1]}]).
 import_rule(#{<<"id">> := RuleId,
               <<"rawsql">> := RawSQL,
               <<"actions">> := Actions,
@@ -562,7 +561,6 @@ do_import_acl_mnesia(Acls) ->
                   end, Acls).
 
 -ifdef(EMQX_ENTERPRISE).
--dialyzer({nowarn_function, [import_modules/1]}).
 import_modules(Modules) ->
     case ets:info(emqx_modules) of
         undefined ->

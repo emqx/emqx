@@ -1,6 +1,10 @@
 %% -*- mode: erlang -*-
+%% Unless you know what you are doing, DO NOT edit manually!!
 {VSN,
-  [{"4.3.4",
+  [{"4.3.5",
+    [{load_module,emqx_stomp_protocol,brutal_purge,soft_purge,[]},
+     {load_module,emqx_stomp_connection,brutal_purge,soft_purge,[]}]},
+   {"4.3.4",
     [{load_module,emqx_stomp_protocol,brutal_purge,soft_purge,[]},
      {load_module,emqx_stomp_connection,brutal_purge,soft_purge,[]}]},
    {"4.3.3",
@@ -19,7 +23,10 @@
     [{restart_application,emqx_stomp},
      {apply,{emqx_stomp,force_clear_after_app_stoped,[]}}]},
    {<<".*">>,[]}],
-  [{"4.3.4",
+  [{"4.3.5",
+    [{load_module,emqx_stomp_protocol,brutal_purge,soft_purge,[]},
+     {load_module,emqx_stomp_connection,brutal_purge,soft_purge,[]}]},
+   {"4.3.4",
     [{load_module,emqx_stomp_protocol,brutal_purge,soft_purge,[]},
      {load_module,emqx_stomp_connection,brutal_purge,soft_purge,[]}]},
    {"4.3.3",
