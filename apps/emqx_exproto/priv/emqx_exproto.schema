@@ -48,6 +48,11 @@ end}.
   {datatype, string}
 ]}.
 
+{mapping, "exproto.listener.$proto.connection_handler_service_name", "emqx_exproto.listeners", [
+  {default, 'ConnectionHandler'},
+  {datatype, {enum, ['ConnectionHandler', 'ConnectionUnaryHandler']}}
+]}.
+
 {mapping, "exproto.listener.$proto.connection_handler_url", "emqx_exproto.listeners", [
   {datatype, string}
 ]}.
