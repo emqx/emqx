@@ -9,6 +9,12 @@ File format:
 - Use weight-2 heading for releases
 - One list item per change topic
   Change log ends with a list of GitHub PRs
+## v4.3.21
+
+### Enhancements
+
+- TLS listener memory usage optimization
+  new option 'hibernate_after' to hibernate TLS process after idling
 
 ## v4.3.20
 
