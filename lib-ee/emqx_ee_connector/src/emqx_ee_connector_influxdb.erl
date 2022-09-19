@@ -485,8 +485,12 @@ log_error_points(InstId, Errs) ->
 %% ===================================================================
 %% typereflt funcs
 
--spec to_server_raw(string()) ->
+-spec to_server_raw(string() | binary()) ->
     {string(), pos_integer()}.
+to_server_raw(<<"http://", Server/binary>>) ->
+    emqx_connector_schema_lib:parse_server(Server, ?INFLUXDB_HOST_OPTIONS);
+to_server_raw(<<"https://", Server/binary>>) ->
+    emqx_connector_schema_lib:parse_server(Server, ?INFLUXDB_HOST_OPTIONS);
 to_server_raw(Server) ->
     emqx_connector_schema_lib:parse_server(Server, ?INFLUXDB_HOST_OPTIONS).
 
