@@ -43,21 +43,54 @@ service ConnectionAdapter {
   rpc Unsubscribe(UnsubscribeRequest) returns (CodeResponse) {};
 }
 
+// Deprecated service.
+// Please using `ConnectionUnaryHandler` to replace it
 service ConnectionHandler {
 
   // -- socket layer
 
-  rpc OnSocketCreated(stream SocketCreatedRequest) returns (EmptySuccess) {};
+  rpc OnSocketCreated(stream SocketCreatedRequest) returns (EmptySuccess) {
+  };
 
-  rpc OnSocketClosed(stream SocketClosedRequest) returns (EmptySuccess) {};
+  rpc OnSocketClosed(stream SocketClosedRequest) returns (EmptySuccess) {
+  };
 
-  rpc OnReceivedBytes(stream ReceivedBytesRequest) returns (EmptySuccess) {};
+  rpc OnReceivedBytes(stream ReceivedBytesRequest) returns (EmptySuccess) {
+  };
 
   // -- pub/sub layer
 
-  rpc OnTimerTimeout(stream TimerTimeoutRequest) returns (EmptySuccess) {};
+  rpc OnTimerTimeout(stream TimerTimeoutRequest) returns (EmptySuccess) {
+  };
 
-  rpc OnReceivedMessages(stream ReceivedMessagesRequest) returns (EmptySuccess) {};
+  rpc OnReceivedMessages(stream ReceivedMessagesRequest) returns (EmptySuccess) {
+  };
+}
+
+// This service is an optimization of `ConnectionHandler`.
+// In the initial version, we expected to use streams to improve the efficiency
+// of requests. But unfortunately, events between different streams are out of
+// order. it causes the `OnSocketCreated` event to may arrive later than `OnReceivedBytes`.
+//
+// So we added the `ConnectionUnaryHandler` service since v4.3.21/v4.4.10 and forced
+// the use of Unary in it to avoid ordering problems.
+//
+// Recommend using `ConnectionUnaryHandler` to replace `ConnectionHandler`
+service ConnectionUnaryHandler {
+
+  // -- socket layer
+
+  rpc OnSocketCreated(SocketCreatedRequest) returns (EmptySuccess) {};
+
+  rpc OnSocketClosed(SocketClosedRequest) returns (EmptySuccess) {};
+
+  rpc OnReceivedBytes(ReceivedBytesRequest) returns (EmptySuccess) {};
+
+  // -- pub/sub layer
+
+  rpc OnTimerTimeout(TimerTimeoutRequest) returns (EmptySuccess) {};
+
+  rpc OnReceivedMessages(ReceivedMessagesRequest) returns (EmptySuccess) {};
 }
 
 message EmptySuccess { }

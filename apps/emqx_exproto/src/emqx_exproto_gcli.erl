@@ -44,6 +44,7 @@
          }).
 
 -define(CONN_ADAPTER_MOD, emqx_exproto_v_1_connection_handler_client).
+-define(CONN_ADAPTER_MOD_UNARY, emqx_exproto_v_1_connection_unary_handler_client).
 
 %%--------------------------------------------------------------------
 %% APIs
