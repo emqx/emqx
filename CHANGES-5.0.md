@@ -7,6 +7,7 @@
 ## Bug fixes
 
 * Check ACLs for last will testament topic before publishing the message. [#8930](https://github.com/emqx/emqx/pull/8930)
+* Fix GET /listeners API crash When some nodes still in initial configuration. [#9002](https://github.com/emqx/emqx/pull/9002)
 
 # 5.0.8
 
