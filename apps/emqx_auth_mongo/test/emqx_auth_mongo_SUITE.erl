@@ -210,8 +210,12 @@ deinit_mongo_data() ->
 %%--------------------------------------------------------------------
 
 %% for full coverage ;-)
-t_description(_Config) ->
+t_authn_description(_Config) ->
     ?assert(is_list(emqx_auth_mongo:description())).
+
+%% for full coverage ;-)
+t_acl_description(_Config) ->
+    ?assert(is_list(emqx_acl_mongo:description())).
 
 t_check_auth(_) ->
     Plain = #{zone => external, clientid => <<"client1">>, username => <<"plain">>},
@@ -375,7 +379,30 @@ t_check_acl(_) ->
     allow = emqx_access_control:check_acl(User2, subscribe, <<"$SYS/testuser/1">>),
     allow = emqx_access_control:check_acl(User3, publish, <<"a/b/c">>),
     deny = emqx_access_control:check_acl(User3, publish, <<"c">>),
-    deny = emqx_access_control:check_acl(User4, publish, <<"a/b/c">>).
+    deny = emqx_access_control:check_acl(User4, publish, <<"a/b/c">>),
+    %% undefined value to interpolate
+    User1Undef = User1#{clientid => undefined},
+    allow = emqx_access_control:check_acl(User1Undef, subscribe, <<"users/testuser/1">>),
+    ok.
+
+t_acl_empty_results(_Config) ->
+    #aclquery{selector = Selector} = aclquery(),
+    User1 = #{zone => external, clientid => <<"client1">>, username => <<"testuser">>},
+    try
+        reload({acl_query, [{selector, []}]}),
+        ?assertEqual(deny, emqx_access_control:check_acl(User1, subscribe, <<"users/testuser/1">>)),
+        ok
+    after
+        reload({acl_query, [{selector, Selector}]})
+    end,
+    ok.
+
+t_acl_exception(_Config) ->
+    %% FIXME: is there a more authentic way to produce an exception in
+    %% `match'???
+    User1 = #{zone => external, clientid => not_a_binary, username => <<"testuser">>},
+    ?assertEqual(deny, emqx_access_control:check_acl(User1, subscribe, <<"users/testuser/1">>)),
+    ok.
 
 t_acl_super(_) ->
     reload({auth_query, [{password_hash, plain}, {password_field, [<<"password">>]}]}),
