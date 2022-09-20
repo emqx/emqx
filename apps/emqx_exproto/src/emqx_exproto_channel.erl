@@ -72,6 +72,7 @@
 
 -define(TIMER_TABLE, #{
           alive_timer => keepalive,
+          force_timer => force_close,
           idle_timer => force_close_idle
          }).
 
@@ -144,7 +145,10 @@ init(ConnInfo = #{socktype := Socktype,
                   peername := Peername,
                   sockname := Sockname,
                   peercert := Peercert}, Options) ->
-    GRpcClient = proplists:get_value(grpc_client_pool, Options),
+
+    GRpcChann = proplists:get_value(grpc_client_channel, Options),
+    ServiceName = proplists:get_value(grpc_client_service_name, Options),
+    GRpcClient = emqx_exproto_gcli:init(ServiceName, #{channel => GRpcChann}),
     NConnInfo = default_conninfo(ConnInfo),
     ClientInfo = default_clientinfo(NConnInfo),
 
@@ -271,12 +275,8 @@ handle_timeout(_TRef, {keepalive, StatVal},
             NChannel = clean_timer(alive_timer, Channel),
             %% close connection if keepalive timeout
             Replies = [{event, disconnected}, {close, normal}],
-            case emqx_exproto_gcli:async_call(on_timer_timeout, Req, GClient) of
-                {ok, NGClient} ->
-                    {ok, Replies, NChannel#channel{gcli = NGClient}};
-                {error, Reason} ->
-                    {shutdown, Reason, Channel}
-            end
+            NGClient = emqx_exproto_gcli:maybe_shoot(on_timer_timeout, Req, GClient),
+            {ok, Replies, NChannel#channel{gcli = NGClient}}
     end;
 
 handle_timeout(_TRef, force_close, Channel = #channel{closed_reason = Reason}) ->
@@ -408,9 +408,34 @@ handle_info({subscribe, TopicFilters}, Channel) ->
 handle_info({unsubscribe, TopicFilters}, Channel) ->
     do_unsubscribe(TopicFilters, Channel);
 
-handle_info({sock_closed, Reason}, Channel) ->
-    Channel1 = ensure_disconnected(Reason, Channel),
-    {shutdown, Reason, Channel1};
+handle_info({sock_closed, Reason},
+            Channel = #channel{gcli = GClient}) ->
+    case emqx_exproto_gcli:is_empty(GClient) of
+        true ->
+            Channel1 = ensure_disconnected(Reason, Channel),
+            {shutdown, Reason, Channel1};
+        _ ->
+            %% delayed close process for flushing all callback funcs to gRPC server
+            Channel1 = Channel#channel{closed_reason = Reason},
+            Channel2 = ensure_timer(force_timer, Channel1),
+            {ok, ensure_disconnected(Reason, Channel2)}
+    end;
+
+handle_info({hreply, FunName, Result},
+            Channel = #channel{gcli = GClient})
+  when FunName =:= on_socket_created;
+       FunName =:= on_socket_closed;
+       FunName =:= on_received_bytes;
+       FunName =:= on_received_messages;
+       FunName =:= on_timer_timeout ->
+    case Result of
+        ok ->
+            GClient1 = emqx_exproto_gcli:maybe_shoot(
+                         emqx_exproto_gcli:ack(FunName, GClient)),
+            {ok, Channel#channel{gcli = GClient1}};
+        {error, Reason} ->
+            {shutdown, {error, {FunName, Reason}}, Channel}
+    end;
 
 handle_info(Info, Channel) ->
     ?LOG(warning, "Unexpected info: ~p", [Info]),
@@ -566,6 +591,8 @@ cancel_timer(Name, Channel = #channel{timers = Timers}) ->
 
 interval(idle_timer, #channel{conninfo = #{idle_timeout := IdleTimeout}}) ->
     IdleTimeout;
+interval(force_timer, _) ->
+    15000;
 interval(alive_timer, #channel{keepalive = Keepalive}) ->
     emqx_keepalive:info(interval, Keepalive).
 
@@ -575,12 +602,8 @@ interval(alive_timer, #channel{keepalive = Keepalive}) ->
 
 dispatch(FunName, Req, Channel = #channel{gcli = GClient}) ->
     Req1 = Req#{conn => base64:encode(term_to_binary(self()))},
-    case emqx_exproto_gcli:async_call(FunName, Req1, GClient) of
-        {ok, NGClient} ->
-            Channel#channel{gcli = NGClient};
-        {error, Reason} ->
-            throw({request_grpc_server_falied, Reason})
-    end.
+    NGClient = emqx_exproto_gcli:maybe_shoot(FunName, Req1, GClient),
+    Channel#channel{gcli = NGClient}.
 
 %%--------------------------------------------------------------------
 %% Format
