@@ -638,7 +638,7 @@ setup_node(Node, Opts) when is_map(Opts) ->
             LoadSchema andalso
                 begin
                     emqx_config:init_load(SchemaMod),
-                    application:set_env(emqx, init_config_load_done, false)
+                    application:set_env(emqx, init_config_load_done, true)
                 end,
 
             %% Need to set this otherwise listeners will conflict between each other
