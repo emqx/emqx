@@ -340,7 +340,7 @@ t_available(Config) ->
     ?assertEqual(
        {error, {mongo_error, 2}},
        emqx_auth_mongo:available(Pool, SuperCollection, EmptySelector, fun error_code_query/3)),
-    %% exception.
+    %% exception (in query)
     ?assertMatch(
        {error, _},
        with_failure(down, ProxyHost, ProxyPort,
@@ -348,6 +348,16 @@ t_available(Config) ->
            Collection = <<"mqtt_user">>,
            Selector = #{},
            emqx_auth_mongo:available(Pool, Collection, Selector)
+         end)),
+    %% exception (arbitrary function)
+    ?assertMatch(
+       {error, _},
+       with_failure(down, ProxyHost, ProxyPort,
+         fun() ->
+           Collection = <<"mqtt_user">>,
+           Selector = #{},
+           RaisingFun = fun(_, _, _) -> error(some_error) end,
+           emqx_auth_mongo:available(Pool, Collection, Selector, RaisingFun)
          end)),
     ok.
 
@@ -429,6 +439,19 @@ t_available_acl_query_no_connection(Config) ->
 t_available_acl_query_timeout(Config) ->
     ct:timetrap(90000),
     test_acl_query_failure(timeout, Config).
+
+%% checks that `with_timeout' lets unknown errors pass through
+t_query_multi_unknown_exception(_Config) ->
+    ok = meck:new(ecpool, [no_link, no_history, non_strict, passthrough]),
+    ok = meck:expect(ecpool, with_client, fun(_, _) -> throw(some_error) end),
+    Pool = ?APP,
+    Collection = ?MONGO_CL_ACL,
+    SelectorList = [#{<<"username">> => <<"user">>}],
+    try
+        ?assertThrow(some_error, emqx_auth_mongo:query_multi(Pool, Collection, SelectorList))
+    after
+        meck:unload(ecpool)
+    end.
 
 t_acl_superuser_no_connection(Config) ->
     ProxyHost = ?config(proxy_host, Config),
