@@ -15,7 +15,9 @@ File format:
 
 - TLS listener memory usage optimization
   new option 'hibernate_after' to hibernate TLS process after idling
-
+- TLS listener default buffer size to 4KB
+  Eliminate uncertainty that the buffer size is set by OS default
+  
 ## v4.3.20
 
 ### Bug fixes
