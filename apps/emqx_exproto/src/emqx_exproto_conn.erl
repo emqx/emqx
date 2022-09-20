@@ -248,7 +248,7 @@ init(Parent, WrappedSock, Peername0, Options) ->
                 run_loop(Parent, init_state(NWrappedSock, Peername, Options))
             catch
                 throw : nopermission -> erlang:exit(normal);
-                throw : Error -> erang:exit(Error)
+                throw : Error -> erlang:exit(Error)
             end;
         {error, Reason} ->
             ok = esockd_close(WrappedSock),

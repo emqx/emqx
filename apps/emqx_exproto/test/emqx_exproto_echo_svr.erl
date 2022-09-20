@@ -31,6 +31,9 @@
         , frame_unsubscribe/1
         , frame_unsuback/1
         , frame_disconnect/0
+        , handle_in/3
+        , handle_out/2
+        , handle_out/3
         ]).
 
 -export([ on_socket_created/2
@@ -41,13 +44,6 @@
         ]).
 
 -define(LOG(Fmt, Args), ct:pal(Fmt, Args)).
-
--define(HTTP, #{grpc_opts => #{service_protos => [emqx_exproto_pb],
-                               services => #{'emqx.exproto.v1.ConnectionHandler' => ?MODULE}},
-                listen_opts => #{port => 9001,
-                                 socket_options => []},
-                pool_opts => #{size => 8},
-                transport_opts => #{ssl => false}}).
 
 -define(CLIENT, emqx_exproto_v_1_connection_adapter_client).
 
@@ -102,7 +98,10 @@ start_channel() ->
 
 start_server() ->
     Services = #{protos => [emqx_exproto_pb],
-                 services => #{'emqx.exproto.v1.ConnectionHandler' => ?MODULE}
+                 services => #{
+                    'emqx.exproto.v1.ConnectionHandler' => ?MODULE,
+                    'emqx.exproto.v1.ConnectionUnaryHandler' => emqx_exproto_unary_echo_svr
+                 }
                 },
     Options = [],
     grpc:start_server(?MODULE, 9001, Services, Options).

@@ -49,22 +49,17 @@ service ConnectionHandler {
 
   // -- socket layer
 
-  rpc OnSocketCreated(stream SocketCreatedRequest) returns (EmptySuccess) {
-  };
+  rpc OnSocketCreated(stream SocketCreatedRequest) returns (EmptySuccess) {};
 
-  rpc OnSocketClosed(stream SocketClosedRequest) returns (EmptySuccess) {
-  };
+  rpc OnSocketClosed(stream SocketClosedRequest) returns (EmptySuccess) {};
 
-  rpc OnReceivedBytes(stream ReceivedBytesRequest) returns (EmptySuccess) {
-  };
+  rpc OnReceivedBytes(stream ReceivedBytesRequest) returns (EmptySuccess) {};
 
   // -- pub/sub layer
 
-  rpc OnTimerTimeout(stream TimerTimeoutRequest) returns (EmptySuccess) {
-  };
+  rpc OnTimerTimeout(stream TimerTimeoutRequest) returns (EmptySuccess) {};
 
-  rpc OnReceivedMessages(stream ReceivedMessagesRequest) returns (EmptySuccess) {
-  };
+  rpc OnReceivedMessages(stream ReceivedMessagesRequest) returns (EmptySuccess) {};
 }
 
 // This service is an optimization of `ConnectionHandler`.

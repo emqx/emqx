@@ -144,14 +144,13 @@ init(ConnInfo = #{socktype := Socktype,
                   peername := Peername,
                   sockname := Sockname,
                   peercert := Peercert}, Options) ->
-    GRpcChann = proplists:get_value(handler, Options),
+    GRpcClient = proplists:get_value(grpc_client_pool, Options),
     NConnInfo = default_conninfo(ConnInfo),
     ClientInfo = default_clientinfo(NConnInfo),
 
     IdleTimeout = proplists:get_value(idle_timeout, Options, ?DEFAULT_IDLE_TIMEOUT),
 
     NConnInfo1 = NConnInfo#{idle_timeout => IdleTimeout},
-    GRpcClient = emqx_exproto_gcli:new(#{channel => GRpcChann}),
     Channel = #channel{gcli = GRpcClient,
                        conninfo = NConnInfo1,
                        clientinfo = ClientInfo,
