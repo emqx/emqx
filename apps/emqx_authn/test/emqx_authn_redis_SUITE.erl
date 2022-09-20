@@ -299,20 +299,6 @@ user_seeds() ->
                 is_superuser => <<"1">>
             },
             credentials => #{
-                password => <<"plain">>
-            },
-            key => <<"mqtt_user:plain">>,
-            config_params => #{},
-            result => {error, not_authorized}
-        },
-
-        #{
-            data => #{
-                password_hash => <<"plainsalt">>,
-                salt => <<"salt">>,
-                is_superuser => <<"1">>
-            },
-            credentials => #{
                 username => <<"plain">>,
                 password => <<"plain">>
             },

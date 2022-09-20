@@ -187,29 +187,25 @@ authenticate(
         request_timeout := RequestTimeout
     } = State
 ) ->
-    ?WITH_SUCCESSFUL_RENDER(
-        begin
-            Request = generate_request(Credential, State),
-            Response = emqx_resource:query(ResourceId, {Method, Request, RequestTimeout}),
-            ?TRACE_AUTHN_PROVIDER("http_response", #{
-                request => request_for_log(Credential, State),
-                response => response_for_log(Response),
-                resource => ResourceId
-            }),
-            case Response of
-                {ok, 204, _Headers} ->
-                    {ok, #{is_superuser => false}};
-                {ok, 200, Headers, Body} ->
-                    handle_response(Headers, Body);
-                {ok, _StatusCode, _Headers} = Response ->
-                    ignore;
-                {ok, _StatusCode, _Headers, _Body} = Response ->
-                    ignore;
-                {error, _Reason} ->
-                    ignore
-            end
-        end
-    ).
+    Request = generate_request(Credential, State),
+    Response = emqx_resource:query(ResourceId, {Method, Request, RequestTimeout}),
+    ?TRACE_AUTHN_PROVIDER("http_response", #{
+        request => request_for_log(Credential, State),
+        response => response_for_log(Response),
+        resource => ResourceId
+    }),
+    case Response of
+        {ok, 204, _Headers} ->
+            {ok, #{is_superuser => false}};
+        {ok, 200, Headers, Body} ->
+            handle_response(Headers, Body);
+        {ok, _StatusCode, _Headers} = Response ->
+            ignore;
+        {ok, _StatusCode, _Headers, _Body} = Response ->
+            ignore;
+        {error, _Reason} ->
+            ignore
+    end.
 
 destroy(#{resource_id := ResourceId}) ->
     _ = emqx_resource:remove_local(ResourceId),

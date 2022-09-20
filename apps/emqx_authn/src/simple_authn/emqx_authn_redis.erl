@@ -133,37 +133,33 @@ authenticate(
         password_hash_algorithm := Algorithm
     }
 ) ->
-    ?WITH_SUCCESSFUL_RENDER(
-        begin
-            NKey = emqx_authn_utils:render_str(KeyTemplate, Credential),
-            Command = [CommandName, NKey | Fields],
-            case emqx_resource:query(ResourceId, {cmd, Command}) of
-                {ok, []} ->
-                    ignore;
-                {ok, Values} ->
-                    Selected = merge(Fields, Values),
-                    case
-                        emqx_authn_utils:check_password_from_selected_map(
-                            Algorithm, Selected, Password
-                        )
-                    of
-                        ok ->
-                            {ok, emqx_authn_utils:is_superuser(Selected)};
-                        {error, _Reason} ->
-                            ignore
-                    end;
-                {error, Reason} ->
-                    ?TRACE_AUTHN_PROVIDER(error, "redis_query_failed", #{
-                        resource => ResourceId,
-                        cmd => Command,
-                        keys => NKey,
-                        fields => Fields,
-                        reason => Reason
-                    }),
+    NKey = emqx_authn_utils:render_str(KeyTemplate, Credential),
+    Command = [CommandName, NKey | Fields],
+    case emqx_resource:query(ResourceId, {cmd, Command}) of
+        {ok, []} ->
+            ignore;
+        {ok, Values} ->
+            Selected = merge(Fields, Values),
+            case
+                emqx_authn_utils:check_password_from_selected_map(
+                    Algorithm, Selected, Password
+                )
+            of
+                ok ->
+                    {ok, emqx_authn_utils:is_superuser(Selected)};
+                {error, _Reason} ->
                     ignore
-            end
-        end
-    ).
+            end;
+        {error, Reason} ->
+            ?TRACE_AUTHN_PROVIDER(error, "redis_query_failed", #{
+                resource => ResourceId,
+                cmd => Command,
+                keys => NKey,
+                fields => Fields,
+                reason => Reason
+            }),
+            ignore
+    end.
 
 %%------------------------------------------------------------------------------
 %% Internal functions
