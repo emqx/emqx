@@ -146,3 +146,36 @@ t_now_to_secs(_) ->
 t_now_to_ms(_) ->
     ?assert(is_integer(emqx_misc:now_to_ms(os:timestamp()))).
 
+t_pmap_normal(_) ->
+    ?assertEqual(
+        [5, 7, 9],
+        emqx_misc:pmap(
+            fun({A, B}) -> A + B end,
+            [{2, 3}, {3, 4}, {4, 5}]
+        )
+    ).
+
+t_pmap_timeout(_) ->
+    ?assertExit(
+        timeout,
+        emqx_misc:pmap(
+            fun
+                (timeout) -> ct:sleep(1000);
+                ({A, B}) -> A + B
+            end,
+            [{2, 3}, {3, 4}, timeout],
+            100
+        )
+    ).
+
+t_pmap_exception(_) ->
+    ?assertError(
+        foobar,
+        emqx_misc:pmap(
+            fun
+                (error) -> error(foobar);
+                ({A, B}) -> A + B
+            end,
+            [{2, 3}, {3, 4}, error]
+        )
+    ).
