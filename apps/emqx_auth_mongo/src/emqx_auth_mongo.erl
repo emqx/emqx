@@ -203,16 +203,51 @@ query(Pool, Collection, Selector) ->
     end.
 
 query_multi(Pool, Collection, SelectorList) ->
+    ?tp(emqx_auth_mongo_query_multi_enter, #{}),
+    Timeout = timer:seconds(45),
     lists:reverse(lists:flatten(lists:foldl(fun(Selector, Acc1) ->
-        Batch = ecpool:with_client(Pool, fun(Conn) ->
-                  case mongo_api:find(Conn, Collection, Selector, #{}) of
-                      {error, Reason} ->
-                          ?LOG(error, "[MongoDB] query_multi failed, got error: ~p", [Reason]),
-                          [];
-                      [] -> [];
-                      {ok, Cursor} ->
-                          mc_cursor:foldl(fun(O, Acc2) -> [O|Acc2] end, [], Cursor, 1000)
-                  end
-                end),
-        [Batch|Acc1]
+        Res =
+          with_timeout(Timeout, fun() ->
+            ecpool:with_client(Pool, fun(Conn) ->
+              ?tp(emqx_auth_mongo_query_multi_find_selector, #{}),
+              case find(Conn, Collection, Selector) of
+                  {error, Reason} ->
+                      ?tp(emqx_auth_mongo_query_multi_error,
+                          #{error => Reason}),
+                      ?LOG(error, "[MongoDB] query_multi failed, got error: ~p", [Reason]),
+                      [];
+                  [] ->
+                      ?tp(emqx_auth_mongo_query_multi_no_results, #{}),
+                      [];
+                  {ok, Cursor} ->
+                      mc_cursor:foldl(fun(O, Acc2) -> [O | Acc2] end, [], Cursor, 1000)
+              end
+            end)
+          end),
+        case Res of
+            {error, timeout} ->
+                ?tp(emqx_auth_mongo_query_multi_error, #{error => timeout}),
+                ?LOG(error, "[MongoDB] query_multi timeout", []),
+                Acc1;
+            Batch ->
+                [Batch | Acc1]
+        end
     end, [], SelectorList))).
+
+find(Conn, Collection, Selector) ->
+    try
+        mongo_api:find(Conn, Collection, Selector, #{})
+    catch
+        K:E:S ->
+            {error, {K, E, S}}
+    end.
+
+with_timeout(Timeout, Fun) ->
+    try
+        emqx_misc:nolink_apply(Fun, Timeout)
+    catch
+        exit:timeout ->
+            {error, timeout};
+        K:E:S ->
+            erlang:raise(K, E, S)
+    end.
