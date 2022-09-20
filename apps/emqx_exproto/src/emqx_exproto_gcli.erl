@@ -14,81 +14,134 @@
 %% limitations under the License.
 %%--------------------------------------------------------------------
 
-%% the gRPC client worker for ConnectionHandler service
+%% the gRPC client agent for ConnectionHandler service
 -module(emqx_exproto_gcli).
 
 -include_lib("emqx/include/logger.hrl").
 
--logger_header("[ExProtoReq]").
+-logger_header("[ExProtoGCli]").
 
-%% APIs
--export([ new/2
-        , async_call/3
+-export([ init/2
+        , maybe_shoot/1
+        , maybe_shoot/3
+        , ack/2
+        , is_empty/1
         ]).
 
 -define(CONN_HANDLER_MOD, emqx_exproto_v_1_connection_handler_client).
 -define(CONN_UNARY_HANDLER_MOD, emqx_exproto_v_1_connection_unary_handler_client).
 
 -type service_name() :: 'ConnectionUnaryHandler' | 'ConnectionHandler'.
--type client_mod() :: ?CONN_UNARY_HANDLER_MOD | ?CONN_HANDLER_MOD.
 
--type state() :: #{service_name := service_name(),
-                   client_opts := map(),
-                   streams => map(),
-                   middleman => pid()
-                  }.
+-type grpc_client_state() ::
+    #{ owner := pid(),
+       service_name := service_name(),
+       client_opts := map(),
+       queue := queue:queue(),
+       inflight := atom(),
+       streams => map(),
+       middleman => pid()
+     }.
 
 %%--------------------------------------------------------------------
 %% APIs
 %%--------------------------------------------------------------------
 
--spec new(service_name(), map()) -> state().
-new(ServiceName, Options) ->
-    #{service_name => ServiceName, client_opts => Options}.
+-spec init(service_name(), map()) -> grpc_client_state().
+init(ServiceName, Options) ->
+    #{owner => self(),
+      service_name => ServiceName, client_opts => Options,
+      queue => queue:new(), inflight => undefined
+     }.
 
--spec async_call(atom(), map(), state()) -> {ok, state()} | {error, term()}.
-async_call(FunName, Req,
-           State = #{service_name := 'ConnectionHandler'}) ->
-    streaming(FunName, Req, State);
-async_call(FunName, Req,
-           State = #{service_name := 'ConnectionUnaryHandler',
-                     client_opts := Options}) ->
-    case request(FunName, Req, Options) of
-        ok -> {ok, State};
-        {error, Reason} -> {error, Reason}
+-spec maybe_shoot(atom(), map(), grpc_client_state()) -> grpc_client_state().
+maybe_shoot(FunName, Req, GState = #{inflight := undefined}) ->
+    shoot(FunName, Req, GState);
+maybe_shoot(FunName, Req, GState) ->
+    enqueue(FunName, Req, GState).
+
+-spec maybe_shoot(grpc_client_state()) -> grpc_client_state().
+maybe_shoot(GState = #{inflight := undefined, queue := Q}) ->
+    case queue:is_empty(Q) of
+        true ->
+            GState;
+        false ->
+            {{value, {FunName, Req}}, Q1} = queue:out(Q),
+            shoot(FunName, Req, GState#{queue => Q1})
     end.
+
+ack(FunName, GState = #{inflight := FunName}) ->
+    GState#{inflight => undefined, middleman => undefined};
+ack(_, _) ->
+    error(badarg).
+
+is_empty(#{queue := Q, inflight := Inflight}) ->
+    Inflight == undefined andalso queue:is_empty(Q).
 
 %%--------------------------------------------------------------------
 %% Internal funcs
 %%--------------------------------------------------------------------
 
+enqueue(FunName, Req, GState = #{queue := Q}) ->
+    GState#{queue => queue:in({FunName, Req}, Q)}.
+
+shoot(FunName, Req, GState) ->
+    ServiceName = maps:get(service_name, GState),
+    shoot(ServiceName, FunName, Req, GState).
+
+shoot('ConnectionUnaryHandler',
+      FunName, Req,
+      GState = #{owner := Owner, client_opts := Options}) ->
+    Owner = maps:get(owner, GState),
+    Pid =
+        spawn(
+          fun() ->
+                  try
+                      Result = request(FunName, Req, Options),
+                      hreply(Owner, Result, FunName)
+                  catch T : R : Stk ->
+                      hreply(Owner, {error, {{T, R}, Stk}}, FunName)
+                  end
+          end),
+    GState#{inflight => FunName, middleman => Pid};
+shoot('ConnectionHandler',
+      FunName, Req,
+      GState) ->
+    GState1 = streaming(FunName, Req, GState),
+    GState1#{inflight => FunName}.
+
 %%--------------------------------------------------------------------
 %% streaming
 
-streaming(FunName, Req, State = #{client_opts := Options}) ->
-    Streams = maps:get(streams, State, #{}),
+streaming(FunName, Req,
+          GState = #{owner := Owner, client_opts := Options}) ->
+    Streams = maps:get(streams, GState, #{}),
     case ensure_stream_opened(FunName, Options, Streams) of
         {error, Reason} ->
             ?LOG(error, "CALL ~0p(~0p) failed, reason: ~0p",
                     [FunName, Options, Reason]),
-            {error, Reason};
+            hreply(Owner, {error, Reason}, FunName),
+            {ok, GState};
         {ok, Stream} ->
             case catch grpc_client:send(Stream, Req) of
                 ok ->
                     ?LOG(debug, "Send to ~s method successfully, request: ~0p", [FunName, Req]),
-                    {ok, State#{streams => Streams#{FunName => Stream}}};
+                    hreply(Owner, ok, FunName),
+                    GState#{streams => Streams#{FunName => Stream}};
                 {'EXIT', {not_found, _Stk}} ->
                     %% Not found the stream, reopen it
                     ?LOG(info, "Can not find the old stream ref for ~s; "
                                "re-try with a new stream!", [FunName]),
-                    streaming(FunName, Req, State#{streams => maps:remove(FunName, Streams)});
+                    streaming(FunName, Req, GState#{streams => maps:remove(FunName, Streams)});
                 {'EXIT', {timeout, _Stk}} ->
                     ?LOG(error, "Send to ~s method timeout, request: ~0p", [FunName, Req]),
-                    {error, timeout};
+                    hreply(Owner, {error, timeout}, FunName),
+                    GState;
                 {'EXIT', {Reason1, _Stk}} ->
                     ?LOG(error, "Send to ~s method failure, request: ~0p, reason: ~p, "
                                 "stacktrace: ~0p", [FunName, Req, Reason1, _Stk]),
-                    {error, Reason1}
+                    hreply(Owner, {error, Reason1}, FunName),
+                    GState
             end
     end.
 
@@ -112,3 +165,6 @@ request(FunName, Req, Options) ->
         {error, Reason} ->
             {error, Reason}
     end.
+
+hreply(Owner, Result, FunName) ->
+    Owner ! {hreply, FunName, Result}.

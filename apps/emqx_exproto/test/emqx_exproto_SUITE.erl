@@ -50,18 +50,28 @@ groups() ->
 
 %% @private
 metrics() ->
-    [tcp,
-     ssl,
-     udp,
-     dtls
+    [tcp, tcp_unary,
+     ssl, ssl_unary,
+     udp, udp_unary,
+     dtls, dtls_unary
     ].
 
-init_per_group(GrpName, Cfg) ->
+init_per_group(GrpName0, Cfg) ->
+    {GrpName, ServiceName} = groupname(GrpName0),
     put(grpname, GrpName),
+    put(svrname, ServiceName),
     Svrs = emqx_exproto_echo_svr:start(),
     emqx_ct_helpers:start_apps([emqx_exproto], fun set_special_cfg/1),
     emqx_logger:set_log_level(debug),
     [{servers, Svrs}, {listener_type, GrpName} | Cfg].
+
+groupname(Name) ->
+    case string:tokens(atom_to_list(Name), "_") of
+        [GrpName] ->
+            {list_to_atom(GrpName), 'ConnectionHandler'};
+        [GrpName, "unary"] ->
+            {list_to_atom(GrpName), 'ConnectionUnaryHandler'}
+    end.
 
 end_per_group(_, Cfg) ->
     emqx_ct_helpers:stop_apps([emqx_exproto]),
@@ -69,6 +79,7 @@ end_per_group(_, Cfg) ->
 
 set_special_cfg(emqx_exproto) ->
     LisType = get(grpname),
+    ServiceName = get(svrname),
     Listeners = application:get_env(emqx_exproto, listeners, []),
     SockOpts = socketopts(LisType),
     UpgradeOpts = fun(Opts) ->
@@ -80,7 +91,7 @@ set_special_cfg(emqx_exproto) ->
                   end,
     SetService = fun(Opts) ->
                     {value, {_, HandlerOpts}, Opts1} = lists:keytake(handler, 1, Opts),
-                    NHanderOpts = lists:keyreplace(service_name, 1, HandlerOpts, {service_name, 'ConnectionUnaryHandler'}),
+                    NHanderOpts = lists:keyreplace(service_name, 1, HandlerOpts, {service_name, ServiceName}),
                     [{handler, NHanderOpts} | Opts1]
                  end,
     NListeners = [{Proto, LisType, LisOn, SetService(UpgradeOpts(Opts))}

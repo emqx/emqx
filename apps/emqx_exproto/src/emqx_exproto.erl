@@ -67,8 +67,10 @@ start_connection_handler_instance({_Proto, _LisType, _ListenOn, Opts}) ->
     {ServiceName, SvrAddr, ChannelOptions} = handler_opts(HandlerOpts),
     case emqx_exproto_sup:start_grpc_client_channel(Name, SvrAddr, ChannelOptions) of
         {ok, _ClientChannelPid} ->
-            GRpcClient = emqx_exproto_gcli:new(ServiceName, #{channel => Name}),
-            {_Proto, _LisType, _ListenOn, [{grpc_client_pool, GRpcClient} | LisOpts]};
+            NLisOpts = [{grpc_client_channel, Name},
+                        {grpc_client_service_name, ServiceName}
+                        | LisOpts],
+            {_Proto, _LisType, _ListenOn, NLisOpts};
         {error, Reason} ->
             io:format(standard_error, "Failed to start ~s's connection handler: ~0p~n",
                       [Name, Reason]),
