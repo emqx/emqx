@@ -251,7 +251,12 @@ end}.
                           _ ->
                               error(invaild_connection_handler_url)
                       end,
-                      [{handler, Opts}]
+                      ServiceName = cuttlefish:conf_get(
+                                      Prefix ++ ".connection_handler_service_name",
+                                      Conf
+                                     ),
+                      NOpts = [{service_name, ServiceName} | Opts],
+                      [{handler, NOpts}]
                   end,
 
     ConnOpts = fun(Prefix) ->

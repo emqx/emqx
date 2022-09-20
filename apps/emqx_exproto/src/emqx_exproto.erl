@@ -64,10 +64,11 @@ stop_servers() ->
 start_connection_handler_instance({_Proto, _LisType, _ListenOn, Opts}) ->
     Name = name(_Proto, _LisType),
     {value, {_, HandlerOpts}, LisOpts} = lists:keytake(handler, 1, Opts),
-    {SvrAddr, ChannelOptions} = handler_opts(HandlerOpts),
+    {ServiceName, SvrAddr, ChannelOptions} = handler_opts(HandlerOpts),
     case emqx_exproto_sup:start_grpc_client_channel(Name, SvrAddr, ChannelOptions) of
         {ok, _ClientChannelPid} ->
-            {_Proto, _LisType, _ListenOn, [{handler, Name} | LisOpts]};
+            GRpcClient = emqx_exproto_gcli:new(ServiceName, #{channel => Name}),
+            {_Proto, _LisType, _ListenOn, [{grpc_client_pool, GRpcClient} | LisOpts]};
         {error, Reason} ->
             io:format(standard_error, "Failed to start ~s's connection handler: ~0p~n",
                       [Name, Reason]),
@@ -184,4 +185,5 @@ handler_opts(Opts) ->
                              transport_opts => SslOpts}};
                      _ -> #{}
                  end,
-    {SvrAddr, ClientOpts}.
+    ServiceName = proplists:get_value(service_name, Opts, 'ConnectionUnaryHandler'),
+    {ServiceName, SvrAddr, ClientOpts}.

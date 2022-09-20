@@ -50,7 +50,11 @@ groups() ->
 
 %% @private
 metrics() ->
-    [tcp, ssl, udp, dtls].
+    [tcp,
+     ssl,
+     udp,
+     dtls
+    ].
 
 init_per_group(GrpName, Cfg) ->
     put(grpname, GrpName),
@@ -74,7 +78,12 @@ set_special_cfg(emqx_exproto) ->
                       Opts5 = lists:keydelete(dtls_options, 1, Opts4),
                       SockOpts ++ Opts5
                   end,
-    NListeners = [{Proto, LisType, LisOn, UpgradeOpts(Opts)}
+    SetService = fun(Opts) ->
+                    {value, {_, HandlerOpts}, Opts1} = lists:keytake(handler, 1, Opts),
+                    NHanderOpts = lists:keyreplace(service_name, 1, HandlerOpts, {service_name, 'ConnectionUnaryHandler'}),
+                    [{handler, NHanderOpts} | Opts1]
+                 end,
+    NListeners = [{Proto, LisType, LisOn, SetService(UpgradeOpts(Opts))}
                   || {Proto, _Type, LisOn, Opts} <- Listeners],
     application:set_env(emqx_exproto, listeners, NListeners);
 set_special_cfg(emqx) ->
