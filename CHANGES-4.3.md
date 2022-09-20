@@ -9,15 +9,20 @@ File format:
 - Use weight-2 heading for releases
 - One list item per change topic
   Change log ends with a list of GitHub PRs
+
 ## v4.3.21
 
 ### Enhancements
 
-- TLS listener memory usage optimization
-  new option 'hibernate_after' to hibernate TLS process after idling
-- TLS listener default buffer size to 4KB
-  Eliminate uncertainty that the buffer size is set by OS default
-  
+- TLS listener memory usage optimization [#9005](https://github.com/emqx/emqx/pull/9005).
+  New config `listener.ssl.$NAME.hibernate_after` to hibernate TLS connection process after idling.
+  Hibernation can reduce RAM usage significantly, but may cost more CPU.
+  This configuration is by default disabled.
+  Our preliminary test shows a 50% of RAM usage decline when configured to '5s'.
+
+- TLS listener default buffer size to 4KB [#9007](https://github.com/emqx/emqx/pull/9007)
+  Eliminate uncertainty that the buffer size is set by OS default.
+
 ## v4.3.20
 
 ### Bug fixes
