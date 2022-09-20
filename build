@@ -193,23 +193,46 @@ make_zip() {
         ./scripts/inject-relup.escript "${tard}/emqx/releases/${PKG_VSN}/relup"
     fi
     cp_dyn_libs "${tard}/emqx"
-    pushd "${tard}" >/dev/null
-    case "$SYSTEM" in
-        windows*)
-            7z a "${pkgname}" emqx
-            ;;
-        *)
-            zip -qr "${pkgname}" emqx
-            ;;
-    esac
-    popd >/dev/null
-    mv "${tard}/${pkgname}" "${target_zip}"
     case "$SYSTEM" in
         macos*)
+            # if the flag to sign macos binaries is set, but developer certificate
+            # or certificate password is not configured, reset the flag
+            # could happen, for example, when people submit PR from a fork, in this
+            # case they cannot access secrets
+            if [[ "${APPLE_SIGN_BINARIES:-0}" == 1 && \
+                      ( "${APPLE_DEVELOPER_ID_BUNDLE:-0}" == 0 || \
+                            "${APPLE_DEVELOPER_ID_BUNDLE_PASSWORD:-0}" == 0 ) ]]; then
+                echo "Apple developer certificate is not configured, skip signing"
+                APPLE_SIGN_BINARIES=0
+            fi
+            if [ "${APPLE_SIGN_BINARIES:-0}" = 1 ]; then
+                ./scripts/macos-sign-binaries.sh "${tard}/emqx"
+            fi
+            (cd "${tard}" && zip -qr - emqx) > "${target_zip}"
+            if [ "${APPLE_SIGN_BINARIES:-0}" = 1 ]; then
+                # notarize the package
+                # if fails, you can check what went wrong with this command:
+                # xcrun notarytool log --apple-id <apple id> \
+                    #   --apple-id <apple id> \
+                    #   --password <apple id password>
+                    #   --team-id <apple team id> <submission-id>
+                xcrun notarytool submit \
+                      --apple-id "${APPLE_ID}" \
+                      --password "${APPLE_ID_PASSWORD}" \
+                      --team-id "${APPLE_TEAM_ID}" "${target_zip}" --wait
+            fi
             # sha256sum may not be available on macos
             openssl dgst -sha256 "${target_zip}" | cut -d ' ' -f 2  > "${target_zip}.sha256"
             ;;
+        windows*)
+            pushd "${tard}" >/dev/null
+            7z a "${pkgname}" emqx
+            popd >/dev/null
+            mv "${tard}/${pkgname}" "${target_zip}"
+            sha256sum "${target_zip}" | head -c 64 > "${target_zip}.sha256"
+            ;;
         *)
+            (cd "${tard}" && zip -qr - emqx) > "${target_zip}"
             sha256sum "${target_zip}" | head -c 64 > "${target_zip}.sha256"
             ;;
     esac
