@@ -181,10 +181,18 @@ end_per_testcase(t_authn_full_selector_variables, Config) ->
     reload({auth_query, [{selector, OriginalSelector}]}),
     deinit_mongo_data(),
     ok;
-end_per_testcase(t_available_acl_query_timeout, Config) ->
+end_per_testcase(TestCase, Config)
+ when TestCase =:= t_available_acl_query_timeout;
+      TestCase =:= t_acl_superuser_no_connection;
+      TestCase =:= t_authn_no_connection;
+      TestCase =:= t_available_acl_query_no_connection ->
     ProxyHost = ?config(proxy_host, Config),
     ProxyPort = ?config(proxy_port, Config),
     reset_proxy(ProxyHost, ProxyPort),
+    %% force restart of clients because CI tends to get stuck...
+    application:stop(emqx_auth_mongo),
+    application:start(emqx_auth_mongo),
+    wait_for_stabilization(#{attempts => 10, interval_ms => 500}),
     deinit_mongo_data(),
     ok;
 end_per_testcase(_TestCase, _Config) ->
@@ -538,6 +546,7 @@ test_acl_query_failure(FailureType, Config) ->
     ACLQuery = aclquery(),
 
     ?check_trace(
+       #{timetrap => timer:seconds(60)},
        try
            ?force_ordering(
               #{?snk_kind := emqx_auth_mongo_query_multi_enter},
@@ -602,6 +611,21 @@ error_code_query(Pool, Collection, Selector) ->
             Res
           end)
       end).
+
+wait_for_stabilization(#{attempts := Attempts, interval_ms := IntervalMS})
+  when Attempts > 0 ->
+    try
+        {ok, Conn} = ?POOL(?APP),
+        #{} = mongo_api:find_one(Conn, ?MONGO_CL_USER, #{}, #{}),
+        ok
+    catch
+        _:_ ->
+            ct:pal("mongodb connection still stabilizing... sleeping for ~b ms", [IntervalMS]),
+            ct:sleep(IntervalMS),
+            wait_for_stabilization(#{attempts => Attempts - 1, interval_ms => IntervalMS})
+    end;
+wait_for_stabilization(_) ->
+    error(mongo_connection_did_not_stabilize).
 
 %% TODO: move to ct helpers???
 reset_proxy(ProxyHost, ProxyPort) ->
