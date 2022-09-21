@@ -18,7 +18,7 @@
 
 -behavior(emqx_exproto_v_1_connection_handler_bhvr).
 
--export([ start/0
+-export([ start/1
         , stop/1
         ]).
 
@@ -89,21 +89,33 @@
 %% APIs
 %%--------------------------------------------------------------------
 
-start() ->
+start(Scheme) ->
     application:ensure_all_started(grpc),
-    [start_channel(), start_server()].
+    [start_channel(), start_server(Scheme)].
 
 start_channel() ->
     grpc_client_sup:create_channel_pool(ct_test_channel, "http://127.0.0.1:9100", #{}).
 
-start_server() ->
+start_server(Scheme) when Scheme == http; Scheme == https ->
     Services = #{protos => [emqx_exproto_pb],
                  services => #{
                     'emqx.exproto.v1.ConnectionHandler' => ?MODULE,
                     'emqx.exproto.v1.ConnectionUnaryHandler' => emqx_exproto_unary_echo_svr
                  }
                 },
-    Options = [],
+    Options = case Scheme of
+                  https ->
+                      CAfile = emqx_ct_helpers:app_path(
+                                 emqx, filename:join(["etc", "certs", "cacert.pem"])),
+                      Keyfile = emqx_ct_helpers:app_path(
+                                  emqx, filename:join(["etc", "certs", "key.pem"])),
+                      Certfile = emqx_ct_helpers:app_path(
+                                   emqx, filename:join(["etc", "certs", "cert.pem"])),
+                      [{ssl_options, [{cacertfile, CAfile},
+                                      {certfile, Certfile},
+                                      {keyfile, Keyfile}]}];
+                  _ -> []
+              end,
     grpc:start_server(?MODULE, 9001, Services, Options).
 
 stop([_ChannPid, _SvrPid]) ->

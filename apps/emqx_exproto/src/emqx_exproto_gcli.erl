@@ -36,18 +36,22 @@
 -type grpc_client_state() ::
     #{ owner := pid(),
        service_name := service_name(),
-       client_opts := map(),
+       client_opts := options(),
        queue := queue:queue(),
        inflight := atom(),
        streams => map(),
        middleman => pid()
      }.
 
+-type options() ::
+    #{ channel := term()
+     }.
+
 %%--------------------------------------------------------------------
 %% APIs
 %%--------------------------------------------------------------------
 
--spec init(service_name(), map()) -> grpc_client_state().
+-spec init(service_name(), options()) -> grpc_client_state().
 init(ServiceName, Options) ->
     #{owner => self(),
       service_name => ServiceName, client_opts => Options,
@@ -70,11 +74,13 @@ maybe_shoot(GState = #{inflight := undefined, queue := Q}) ->
             shoot(FunName, Req, GState#{queue => Q1})
     end.
 
+-spec ack(atom(), grpc_client_state()) -> grpc_client_state().
 ack(FunName, GState = #{inflight := FunName}) ->
     GState#{inflight => undefined, middleman => undefined};
 ack(_, _) ->
     error(badarg).
 
+-spec is_empty(grpc_client_state()) -> boolean().
 is_empty(#{queue := Q, inflight := Inflight}) ->
     Inflight == undefined andalso queue:is_empty(Q).
 
