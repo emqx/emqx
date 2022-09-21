@@ -3,6 +3,9 @@
 
 -mode(compile).
 
+-define(RED, "\e[31m").
+-define(RESET, "\e[39m").
+
 usage() ->
 "A script that fills in boilerplate for appup files.
 
@@ -109,7 +112,7 @@ changes, supervisor changes, process restarts and so on. Also the load order of
 the beam files might need updating.~n"),
     halt(0);
 warn_and_exit(false) ->
-    log("~nERROR: Incomplete appups found. Please inspect the output for more details.~n"),
+    logerr("Incomplete appups found. Please inspect the output for more details.~n", []),
     halt(1).
 
 prepare(Baseline, Options = #{make_command := MakeCommand, beams_dir := BeamDir}) ->
@@ -474,8 +477,8 @@ check_appup(App, Upgrade, Downgrade, OldUpgrade, OldDowngrade) ->
             ok;
         {diffs, Diffs} ->
             set_invalid(),
-            log("ERROR: Appup file for '~p' is not complete.~n"
-                "Missing:~100p~n", [App, Diffs]),
+            logerr("Appup file for '~p' is not complete.~n"
+                   "Missing:~100p~n", [App, Diffs]),
             notok
     end.
 
@@ -494,7 +497,7 @@ render_appup(App, File, Up, Down) ->
             do_render_appup(File, Up, Down);
         {error, enoent} when IsCheck ->
             %% failed to read old file, exit
-            log("ERROR: ~s is missing", [File]),
+            logerr("~s is missing", [File]),
             set_invalid()
     end.
 
@@ -580,8 +583,8 @@ diff_app(UpOrDown, App,
             case UpOrDown =:= up of
                 true ->
                     %% only log for the upgrade case because it would be the same result
-                    log("ERROR: Application '~p' contains changes, but its version is not updated. ~s",
-                        [App, format_changes(Changes)]);
+                    logerr("Application '~p' contains changes, but its version is not updated. ~s",
+                           [App, format_changes(Changes)]);
                 false ->
                     ok
             end;
@@ -722,6 +725,9 @@ log(Msg) ->
 
 log(Msg, Args) ->
     io:format(standard_error, Msg, Args).
+
+logerr(Msg, Args) ->
+    io:format(standard_error,  ?RED ++ "ERROR: "++ Msg ++ ?RESET, Args).
 
 otp_standard_apps() ->
     [ssl, mnesia, kernel, asn1, stdlib].
