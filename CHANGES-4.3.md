@@ -25,6 +25,11 @@ File format:
 
 - Fix delayed publish inaccurate caused by os time change. [#8908](https://github.com/emqx/emqx/pull/8908)
 
+- Disable authorization for `api/v4/emqx_prometheus` endpoint. [8955](https://github.com/emqx/emqx/pull/8955)
+
+- Added a test to prevent a last will testament message to be
+  published when a client is denied connection. [#8894](https://github.com/emqx/emqx/pull/8894)
+
 ## v4.3.20
 
 ### Bug fixes
@@ -38,9 +43,6 @@ File format:
   `SELECT topic =~ 't' as r FROM "$events/client_connected"`.
   The topic is a null value as there's no such field in event `$events/client_connected`, so it
   should return false if match it to a topic.
-- Added a test to prevent a last will testament message to be
-  published when a client is denied connection. [#8894](https://github.com/emqx/emqx/pull/8894)
-- Disable authorization for `api/v4/emqx_prometheus` endpoint. [8955](https://github.com/emqx/emqx/pull/8955)
 
 ## v4.3.19
 
