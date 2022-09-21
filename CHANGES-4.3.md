@@ -10,6 +10,8 @@ File format:
 - One list item per change topic
   Change log ends with a list of GitHub PRs
 
+## v4.3.22
+
 ## v4.3.21
 
 ### Enhancements
