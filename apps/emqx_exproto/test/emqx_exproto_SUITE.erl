@@ -31,55 +31,83 @@
         , frame_disconnect/0
         ]).
 
+-include_lib("eunit/include/eunit.hrl").
 -include_lib("emqx/include/emqx.hrl").
 -include_lib("emqx/include/emqx_mqtt.hrl").
+-include_lib("emqx_exproto/include/emqx_exproto.hrl").
 
 -define(TCPOPTS, [binary, {active, false}]).
 -define(DTLSOPTS, [binary, {active, false}, {protocol, dtls}]).
+
+-define(PORT, 7993).
 
 %%--------------------------------------------------------------------
 %% Setups
 %%--------------------------------------------------------------------
 
 all() ->
-    [{group, Name} || Name  <- metrics()].
-
-groups() ->
-    Cases = emqx_ct:all(?MODULE),
-    [{Name, Cases} || Name <- metrics()].
-
-%% @private
-metrics() ->
-    [tcp, tcp_unary,
-     ssl, ssl_unary,
-     udp, udp_unary,
-     dtls, dtls_unary
+    [{group, tcp_listener},
+     {group, ssl_listener},
+     {group, udp_listener},
+     {group, dtls_listener},
+     {group, https_grpc_server},
+     {group, streaming_connection_handler},
+     {group, misc}
     ].
 
-init_per_group(GrpName0, Cfg) ->
-    {GrpName, ServiceName} = groupname(GrpName0),
-    put(grpname, GrpName),
-    put(svrname, ServiceName),
-    Svrs = emqx_exproto_echo_svr:start(),
-    emqx_ct_helpers:start_apps([emqx_exproto], fun set_special_cfg/1),
-    emqx_logger:set_log_level(debug),
-    [{servers, Svrs}, {listener_type, GrpName} | Cfg].
+groups() ->
+    MainCases = [t_application_start_failed,
+                 t_mountpoint_echo,
+                 t_auth_deny,
+                 t_acl_deny,
+                 t_keepalive_timeout,
+                 t_hook_connected_disconnected,
+                 t_hook_session_subscribed_unsubscribed,
+                 t_hook_message_delivered
+                ],
+    [{tcp_listener, [sequence], MainCases},
+     {ssl_listener, [sequence], MainCases},
+     {udp_listener, [sequence], MainCases},
+     {dtls_listener, [sequence], MainCases},
+     {streaming_connection_handler, [sequence], MainCases},
+     {https_grpc_server, [sequence], MainCases},
+     {misc, [t_merge_options]}
+    ].
 
-groupname(Name) ->
-    case string:tokens(atom_to_list(Name), "_") of
-        [GrpName] ->
-            {list_to_atom(GrpName), 'ConnectionHandler'};
-        [GrpName, "unary"] ->
-            {list_to_atom(GrpName), 'ConnectionUnaryHandler'}
-    end.
+init_per_group(GrpName, Cfg)
+  when GrpName == tcp_listener; GrpName == ssl_listener;
+       GrpName == udp_listener; GrpName == dtls_listener ->
+    LisType = case GrpName of
+                   tcp_listener -> tcp;
+                   ssl_listener -> ssl;
+                   udp_listener -> udp;
+                   dtls_listener -> dtls
+               end,
+    init_per_group(LisType, 'ConnectionUnaryHandler', http, Cfg);
+init_per_group(https_grpc_server, Cfg) ->
+    init_per_group(tcp, 'ConnectionUnaryHandler', https, Cfg);
+init_per_group(streaming_connection_handler, Cfg) ->
+    init_per_group(tcp, 'ConnectionHandler', http, Cfg);
+init_per_group(_, Cfg) ->
+    init_per_group(tcp, 'ConnectionUnaryHandler', http, Cfg).
+
+init_per_group(LisType, ServiceName, Scheme, Cfg) ->
+    Svrs = emqx_exproto_echo_svr:start(Scheme),
+    emqx_ct_helpers:start_apps(
+      [emqx_exproto],
+      fun (App) ->
+              set_special_cfg(App, LisType, ServiceName, Scheme)
+      end),
+    [{servers, Svrs},
+     {listener_type, LisType},
+     {service_name, ServiceName},
+     {grpc_client_scheme, Scheme} | Cfg].
 
 end_per_group(_, Cfg) ->
     emqx_ct_helpers:stop_apps([emqx_exproto]),
     emqx_exproto_echo_svr:stop(proplists:get_value(servers, Cfg)).
 
-set_special_cfg(emqx_exproto) ->
-    LisType = get(grpname),
-    ServiceName = get(svrname),
+set_special_cfg(emqx_exproto, LisType, ServiceName, Scheme) ->
     Listeners = application:get_env(emqx_exproto, listeners, []),
     SockOpts = socketopts(LisType),
     UpgradeOpts = fun(Opts) ->
@@ -91,23 +119,68 @@ set_special_cfg(emqx_exproto) ->
                   end,
     SetService = fun(Opts) ->
                     {value, {_, HandlerOpts}, Opts1} = lists:keytake(handler, 1, Opts),
-                    NHanderOpts = lists:keyreplace(service_name, 1, HandlerOpts, {service_name, ServiceName}),
+                    NHanderOpts = setup_handler_opts(Scheme, ServiceName, HandlerOpts),
                     [{handler, NHanderOpts} | Opts1]
                  end,
     NListeners = [{Proto, LisType, LisOn, SetService(UpgradeOpts(Opts))}
                   || {Proto, _Type, LisOn, Opts} <- Listeners],
     application:set_env(emqx_exproto, listeners, NListeners);
-set_special_cfg(emqx) ->
+set_special_cfg(emqx, _, _, _) ->
     application:set_env(emqx, allow_anonymous, true),
     application:set_env(emqx, enable_acl_cache, false),
     ok.
+
+setup_handler_opts(Scheme, ServiceName, Opts) ->
+    MOpts = maps:from_list(Opts),
+    maps:to_list(
+      MOpts#{service_name := ServiceName,
+             scheme := Scheme
+            }
+     ).
 
 %%--------------------------------------------------------------------
 %% Tests cases
 %%--------------------------------------------------------------------
 
-t_start_stop(_) ->
+t_application_start_failed(Cfg) ->
+    SockType = proplists:get_value(listener_type, Cfg),
+
+    %% 1. test listener port occupied
+    case SockType == tcp orelse SockType == ssl of
+        true -> %% tcp listener only
+            application:stop(emqx_exproto),
+            ok = occupy_port(SockType, ?PORT),
+            ?assertMatch({error, {{failed_start_listener, _}, _}}, application:start(emqx_exproto)),
+            ok = release_port_occupy(SockType, ?PORT),
+            ?assertMatch(ok, application:start(emqx_exproto));
+        false -> ok
+    end,
+    %% 2. test grpc server port occupied
+    application:stop(emqx_exproto),
+    ok = occupy_port(tcp, 9100), %% 9100 defined in default conf
+    ?assertMatch({error, {{failed_start_grpc_server, _}, _}}, application:start(emqx_exproto)),
+    ok = release_port_occupy(tcp, 9100),
+    ?assertMatch(ok, application:start(emqx_exproto)),
+
+    %% 3. grpc client pool start failed
+    application:stop(emqx_exproto),
+    ChannName = emqx_exproto:name('protoname', SockType),
+    {ok, _} = emqx_exproto_sup:start_grpc_client_channel(ChannName, "http://127.0.0.1:9100", #{}),
+    ?assertMatch({error, {{failed_start_grpc_client, _}, _}}, application:start(emqx_exproto)),
+    ?assertMatch(ok, application:start(emqx_exproto)).
+
+occupy_port(Type, Port) ->
+    Open = case Type of
+               tcp  -> open;
+               ssl  -> open;
+               udp  -> open_udp;
+               dtls -> open_udp
+           end,
+    {ok, _} = esockd:Open(fake_use, Port, [], {fake_mod, fake_func, []}),
     ok.
+
+release_port_occupy(_Type, Port) ->
+    ok = esockd:close(fake_use,  Port).
 
 t_mountpoint_echo(Cfg) ->
     SockType = proplists:get_value(listener_type, Cfg),
@@ -367,6 +440,10 @@ t_hook_message_delivered(Cfg) ->
     close(Sock),
     emqx:unhook('message.delivered', HookFun1).
 
+t_merge_options(_) ->
+    ?assertEqual([{tcp_options, ?TCP_SOCKOPTS}], emqx_exproto:merge_tcp_default([])),
+    ?assertEqual([{udp_options, ?UDP_SOCKOPTS}], emqx_exproto:merge_udp_default([])).
+
 %%--------------------------------------------------------------------
 %% Utils
 
@@ -377,24 +454,24 @@ rand_bytes() ->
 %% Sock funcs
 
 open(tcp) ->
-    {ok, Sock} = gen_tcp:connect("127.0.0.1", 7993, ?TCPOPTS),
+    {ok, Sock} = gen_tcp:connect("127.0.0.1", ?PORT, ?TCPOPTS),
     {tcp, Sock};
 open(udp) ->
     {ok, Sock} = gen_udp:open(0, ?TCPOPTS),
     {udp, Sock};
 open(ssl) ->
     SslOpts = client_ssl_opts(),
-    {ok, SslSock} = ssl:connect("127.0.0.1", 7993, ?TCPOPTS ++ SslOpts),
+    {ok, SslSock} = ssl:connect("127.0.0.1", ?PORT, ?TCPOPTS ++ SslOpts),
     {ssl, SslSock};
 open(dtls) ->
     SslOpts = client_ssl_opts(),
-    {ok, SslSock} = ssl:connect("127.0.0.1", 7993, ?DTLSOPTS ++ SslOpts),
+    {ok, SslSock} = ssl:connect("127.0.0.1", ?PORT, ?DTLSOPTS ++ SslOpts),
     {dtls, SslSock}.
 
 send({tcp, Sock}, Bin) ->
     gen_tcp:send(Sock, Bin);
 send({udp, Sock}, Bin) ->
-    gen_udp:send(Sock, "127.0.0.1", 7993, Bin);
+    gen_udp:send(Sock, "127.0.0.1", ?PORT, Bin);
 send({ssl, Sock}, Bin) ->
     ssl:send(Sock, Bin);
 send({dtls, Sock}, Bin) ->

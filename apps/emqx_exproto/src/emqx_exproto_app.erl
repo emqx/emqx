@@ -24,9 +24,17 @@
 
 start(_StartType, _StartArgs) ->
     {ok, Sup} = emqx_exproto_sup:start_link(),
-    emqx_exproto:start_servers(),
-    emqx_exproto:start_listeners(),
-    {ok, Sup}.
+    try
+        emqx_exproto:start_servers(),
+        emqx_exproto:start_listeners(),
+        {ok, Sup}
+    catch
+        _ : Reason ->
+            %% rollback the side-effiect if someone listener, server started
+            emqx_exproto:stop_listeners(),
+            emqx_exproto:stop_servers(),
+            {error, Reason}
+    end.
 
 prep_stop(State) ->
     emqx_exproto:stop_servers(),

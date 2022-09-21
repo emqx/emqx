@@ -48,7 +48,7 @@ start_grpc_server(Name, Port, SSLOptions) ->
               end,
     grpc:start_server(prefix(Name), Port, Services, Options).
 
--spec stop_grpc_server(atom()) -> ok.
+-spec stop_grpc_server(atom()) -> ok | {error, not_found}.
 stop_grpc_server(Name) ->
     grpc:stop_server(prefix(Name)).
 
