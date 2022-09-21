@@ -841,7 +841,7 @@ fields("log") ->
             )}
     ];
 fields("console_handler") ->
-    log_handler_common_confs(false);
+    log_handler_common_confs(true);
 fields("log_file_handler") ->
     [
         {"file",
@@ -865,7 +865,7 @@ fields("log_file_handler") ->
                     desc => ?DESC("log_file_handler_max_size")
                 }
             )}
-    ] ++ log_handler_common_confs(true);
+    ] ++ log_handler_common_confs(false);
 fields("log_rotation") ->
     [
         {"enable",

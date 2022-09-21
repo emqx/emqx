@@ -496,7 +496,7 @@ get_boot_config() {
 EPMD_ARGS="-start_epmd false -epmd_module ekka_epmd -proto_dist ekka"
 PROTO_DIST="$(get_boot_config 'cluster.proto_dist' || true)"
 # this environment variable is required by ekka_dist module
-# because proto_dist is overriden to ekka, and there is a lack of ekka_tls module
+# because proto_dist is overridden to ekka, and there is a lack of ekka_tls module
 export EKKA_PROTO_DIST_MOD="${PROTO_DIST:-inet_tcp}"
 if [ "$EKKA_PROTO_DIST_MOD" = 'inet_tls' ]; then
     if [ "$IS_BOOT_COMMAND" = 'yes' ]; then
@@ -845,9 +845,9 @@ maybe_log_to_console() {
         unset EMQX_LOG__TO
     else
         tr_log_to_env
-        # ensure defaults
-        export EMQX_LOG__CONSOLE_HANDLER__ENABLE="${EMQX_LOG__CONSOLE_HANDLER__ENABLE:-true}"
-        export EMQX_LOG__FILE_HANDLERS__DEFAULT__ENABLE="${EMQX_LOG__FILE_HANDLERS__DEFAULT__ENABLE:-false}"
+        # Don't ensure console/file handler's default here, we define them in emqx_conf_schema.erl
+        # Otherwise, it will override the default value in emqx.conf
+        # Ultimately, we can't change them via emqx.conf
     fi
 }
 
@@ -1101,6 +1101,10 @@ case "${COMMAND}" in
         # set before generate_config
         if [ "${_EMQX_START_DAEMON_MODE:-}" = 1 ]; then
             tr_log_to_env
+            # Ensure console log default is enabled, file log default is disabled.
+            # This default is opposite to the default in emqx_conf_schema
+            export EMQX_LOG__CONSOLE_HANDLER__ENABLE="${EMQX_LOG__CONSOLE_HANDLER__ENABLE:-false}"
+            export EMQX_LOG__FILE_HANDLERS__DEFAULT__ENABLE="${EMQX_LOG__FILE_HANDLERS__DEFAULT__ENABLE:-true}"
         else
             maybe_log_to_console
         fi
