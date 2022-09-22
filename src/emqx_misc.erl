@@ -45,6 +45,7 @@
         , index_of/2
         , maybe_parse_ip/1
         , ipv6_probe/1
+        , ipv6_probe/2
         ]).
 
 -export([ bin2hexstr_A_F/1
@@ -84,12 +85,15 @@ maybe_parse_ip(Host) ->
 
 %% @doc Add `ipv6_probe' socket option if it's supported.
 ipv6_probe(Opts) ->
+    ipv6_probe(Opts, true).
+
+ipv6_probe(Opts, Ipv6Probe) when is_boolean(Ipv6Probe) orelse is_integer(Ipv6Probe) ->
     Bool = try gen_tcp:ipv6_probe()
            catch _ : _ -> false end,
-    ipv6_probe(Bool, Opts).
+    ipv6_probe(Bool, Opts, Ipv6Probe).
 
-ipv6_probe(false, Opts) -> Opts;
-ipv6_probe(true, Opts) -> [{ipv6_probe, true} | Opts].
+ipv6_probe(false, Opts, _) -> Opts;
+ipv6_probe(true, Opts, Ipv6Probe) -> [{ipv6_probe, Ipv6Probe} | Opts].
 
 %% @doc Merge options
 -spec(merge_opts(Opts, Opts) -> Opts when Opts :: proplists:proplist()).
