@@ -54,7 +54,7 @@ check(ClientInfo = #{password := Password}, AuthResult,
     case query(Pool, Collection, maps:from_list(replvars(Selector, ClientInfo))) of
         undefined -> ok;
         {error, Reason} ->
-            ?tp(emqx_auth_mongo_superuser_check_authn_error, #{error => Reason}),
+            ?tp(emqx_auth_mongo_check_authn_error, #{error => Reason}),
             ?LOG(error, "[MongoDB] Can't connect to MongoDB server: ~0p", [Reason]),
             {stop, AuthResult#{auth_result => not_authorized, anonymous => false}};
         UserMap ->
@@ -131,6 +131,7 @@ available(Pool, Collection, Query) ->
 available(Pool, Collection, Query, Fun) ->
     try Fun(Pool, Collection, Query) of
         {error, Reason} ->
+            ?tp(emqx_auth_mongo_available_error, #{error => Reason}),
             ?LOG(error, "[MongoDB] ~p availability test error: ~0p", [Collection, Reason]),
             {error, Reason};
         Error = #{<<"code">> := Code} ->
@@ -195,12 +196,10 @@ connect(Opts) ->
     mongo_api:connect(Type, Hosts, Options, WorkerOptions).
 
 query(Pool, Collection, Selector) ->
-    try
-        ecpool:with_client(Pool, fun(Conn) -> mongo_api:find_one(Conn, Collection, Selector, #{}) end)
-    catch
-        Err:Reason ->
-            {error, {Err, Reason}}
-    end.
+    Timeout = timer:seconds(15),
+    with_timeout(Timeout, fun() ->
+      ecpool:with_client(Pool, fun(Conn) -> mongo_api:find_one(Conn, Collection, Selector, #{}) end)
+    end).
 
 query_multi(Pool, Collection, SelectorList) ->
     ?tp(emqx_auth_mongo_query_multi_enter, #{}),

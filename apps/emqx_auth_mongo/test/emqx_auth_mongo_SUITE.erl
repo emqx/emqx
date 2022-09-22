@@ -94,10 +94,11 @@ all() ->
     | OtherTCs].
 
 resilience_tests() ->
-    [ t_acl_superuser_no_connection
+    [ t_acl_superuser_timeout
     , t_available_acl_query_no_connection
     , t_available_acl_query_timeout
-    , t_authn_no_connection
+    , t_available_authn_query_timeout
+    , t_authn_timeout
     , t_available
     ].
 
@@ -183,7 +184,7 @@ end_per_testcase(t_authn_full_selector_variables, Config) ->
     ok;
 end_per_testcase(TestCase, Config)
  when TestCase =:= t_available_acl_query_timeout;
-      TestCase =:= t_acl_superuser_no_connection;
+      TestCase =:= t_acl_superuser_timeout;
       TestCase =:= t_authn_no_connection;
       TestCase =:= t_available_acl_query_no_connection ->
     ProxyHost = ?config(proxy_host, Config),
@@ -441,10 +442,10 @@ t_is_superuser_undefined(_Config) ->
     ?assertNot(emqx_auth_mongo:is_superuser(Pool, SuperQuery, ClientInfo)),
     ok.
 
-t_authn_no_connection(Config) ->
+t_authn_timeout(Config) ->
     ProxyHost = ?config(proxy_host, Config),
     ProxyPort = ?config(proxy_port, Config),
-    FailureType = down,
+    FailureType = timeout,
     {ok, C} = emqtt:start_link([{clientid, <<"simpleClient">>},
                                 {username, <<"plain">>},
                                 {password, <<"plain">>}]),
@@ -460,8 +461,34 @@ t_authn_no_connection(Config) ->
        end,
        fun(Trace) ->
            %% fails with `{exit,{{{badmatch,{{error,closed},...'
-           ?assertMatch([_], ?of_kind(emqx_auth_mongo_superuser_check_authn_error, Trace)),
+           ?assertMatch([_], ?of_kind(emqx_auth_mongo_check_authn_error, Trace)),
            ok
+       end),
+
+    ok.
+
+%% tests query timeout failure
+t_available_authn_query_timeout(Config) ->
+    ProxyHost = ?config(proxy_host, Config),
+    ProxyPort = ?config(proxy_port, Config),
+    FailureType = timeout,
+    SuperQuery = superquery(),
+
+    ?check_trace(
+       #{timetrap => timer:seconds(60)},
+       try
+           enable_failure(FailureType, ProxyHost, ProxyPort),
+           Pool = ?APP,
+           %% query_multi returns an empty list even on failures.
+           ?assertEqual({error, timeout}, emqx_auth_mongo:available(Pool, SuperQuery)),
+           ok
+       after
+           heal_failure(FailureType, ProxyHost, ProxyPort)
+       end,
+       fun(Trace) ->
+         ?assertMatch(
+            [#{?snk_kind := emqx_auth_mongo_available_error , error := _}],
+            ?of_kind(emqx_auth_mongo_available_error, Trace))
        end),
 
     ok.
@@ -488,10 +515,10 @@ t_query_multi_unknown_exception(_Config) ->
         meck:unload(ecpool)
     end.
 
-t_acl_superuser_no_connection(Config) ->
+t_acl_superuser_timeout(Config) ->
     ProxyHost = ?config(proxy_host, Config),
     ProxyPort = ?config(proxy_port, Config),
-    FailureType = down,
+    FailureType = timeout,
     reload({auth_query, [{password_hash, plain}, {password_field, [<<"password">>]}]}),
     {ok, C} = emqtt:start_link([{clientid, <<"simpleClient">>},
                                 {username, <<"plain">>},
