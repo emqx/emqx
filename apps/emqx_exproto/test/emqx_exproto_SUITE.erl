@@ -35,11 +35,18 @@
 -include_lib("emqx/include/emqx.hrl").
 -include_lib("emqx/include/emqx_mqtt.hrl").
 -include_lib("emqx_exproto/include/emqx_exproto.hrl").
+-include_lib("snabbkaffe/include/snabbkaffe.hrl").
 
 -define(TCPOPTS, [binary, {active, false}]).
 -define(DTLSOPTS, [binary, {active, false}, {protocol, dtls}]).
 
 -define(PORT, 7993).
+
+-define(DEFAULT_CLIENT,
+        #{proto_name => <<"demo">>,
+          proto_ver => <<"v0.1">>,
+          clientid => <<"test_client_1">>
+         }).
 
 %%--------------------------------------------------------------------
 %% Setups
@@ -63,7 +70,9 @@ groups() ->
                  t_keepalive_timeout,
                  t_hook_connected_disconnected,
                  t_hook_session_subscribed_unsubscribed,
-                 t_hook_message_delivered
+                 t_hook_message_delivered,
+                 t_enter_passive_mode,
+                 t_no_permission
                 ],
     [{tcp_listener, [sequence], MainCases},
      {ssl_listener, [sequence], MainCases},
@@ -71,7 +80,7 @@ groups() ->
      {dtls_listener, [sequence], MainCases},
      {streaming_connection_handler, [sequence], MainCases},
      {https_grpc_server, [sequence], MainCases},
-     {misc, [t_merge_options]}
+     {misc, [t_merge_options, t_call_info_and_stats]}
     ].
 
 init_per_group(GrpName, Cfg)
@@ -106,6 +115,17 @@ init_per_group(LisType, ServiceName, Scheme, Cfg) ->
 end_per_group(_, Cfg) ->
     emqx_ct_helpers:stop_apps([emqx_exproto]),
     emqx_exproto_echo_svr:stop(proplists:get_value(servers, Cfg)).
+
+init_per_testcase(t_enter_passive_mode, Cfg) ->
+    case proplists:get_value(listener_type, Cfg) of
+        udp -> {skip, ignore};
+        _ -> Cfg
+    end;
+init_per_testcase(_TestCase, Cfg) ->
+    Cfg.
+
+end_per_testcase(_TestCase, _Cfg) ->
+    ok.
 
 set_special_cfg(emqx_exproto, LisType, ServiceName, Scheme) ->
     Listeners = application:get_env(emqx_exproto, listeners, []),
@@ -183,21 +203,7 @@ release_port_occupy(_Type, Port) ->
     ok = esockd:close(fake_use,  Port).
 
 t_mountpoint_echo(Cfg) ->
-    SockType = proplists:get_value(listener_type, Cfg),
-    Sock = open(SockType),
-
-    Client = #{proto_name => <<"demo">>,
-               proto_ver => <<"v0.1">>,
-               clientid => <<"test_client_1">>,
-               mountpoint => <<"ct/">>
-              },
-    Password = <<"123456">>,
-
-    ConnBin = frame_connect(Client, Password),
-    ConnAckBin = frame_connack(0),
-
-    send(Sock, ConnBin),
-    {ok, ConnAckBin} = recv(Sock, 5000),
+    Sock = connect_default_client(?DEFAULT_CLIENT#{mountpoint => <<"ct/">>}, Cfg),
 
     SubBin = frame_subscribe(<<"t/dn">>, 1),
     SubAckBin = frame_suback(0),
@@ -250,23 +256,10 @@ t_auth_deny(Cfg) ->
     meck:unload([emqx_access_control]).
 
 t_acl_deny(Cfg) ->
-    SockType = proplists:get_value(listener_type, Cfg),
-    Sock = open(SockType),
-
-    Client = #{proto_name => <<"demo">>,
-               proto_ver => <<"v0.1">>,
-               clientid => <<"test_client_1">>
-              },
-    Password = <<"123456">>,
+    Sock = connect_default_client(Cfg),
 
     ok = meck:new(emqx_access_control, [passthrough, no_history, no_link]),
     ok = meck:expect(emqx_access_control, check_acl, fun(_, _, _) -> deny end),
-
-    ConnBin = frame_connect(Client, Password),
-    ConnAckBin = frame_connack(0),
-
-    send(Sock, ConnBin),
-    {ok, ConnAckBin} = recv(Sock, 5000),
 
     SubBin = frame_subscribe(<<"t/#">>, 1),
     SubAckBin = frame_suback(1),
@@ -291,20 +284,7 @@ t_acl_deny(Cfg) ->
 
 t_keepalive_timeout(Cfg) ->
     SockType = proplists:get_value(listener_type, Cfg),
-    Sock = open(SockType),
-
-    Client = #{proto_name => <<"demo">>,
-               proto_ver => <<"v0.1">>,
-               clientid => <<"test_client_1">>,
-               keepalive => 2
-              },
-    Password = <<"123456">>,
-
-    ConnBin = frame_connect(Client, Password),
-    ConnAckBin = frame_connack(0),
-
-    send(Sock, ConnBin),
-    {ok, ConnAckBin} = recv(Sock, 5000),
+    Sock = connect_default_client(?DEFAULT_CLIENT#{keepalive => 2}, Cfg),
 
     %% Timed out connections are closed immediately,
     %% so there may not be a disconnect message here
@@ -316,26 +296,14 @@ t_keepalive_timeout(Cfg) ->
     end, ok.
 
 t_hook_connected_disconnected(Cfg) ->
-    SockType = proplists:get_value(listener_type, Cfg),
-    Sock = open(SockType),
-
-    Client = #{proto_name => <<"demo">>,
-               proto_ver => <<"v0.1">>,
-               clientid => <<"test_client_1">>
-              },
-    Password = <<"123456">>,
-
-    ConnBin = frame_connect(Client, Password),
-    ConnAckBin = frame_connack(0),
-
     Parent = self(),
     HookFun1 = fun(_, _) -> Parent ! connected, ok end,
     HookFun2 = fun(_, _, _) -> Parent ! disconnected, ok end,
     emqx:hook('client.connected', HookFun1),
     emqx:hook('client.disconnected', HookFun2),
 
-    send(Sock, ConnBin),
-    {ok, ConnAckBin} = recv(Sock, 5000),
+    SockType = proplists:get_value(listener_type, Cfg),
+    Sock = connect_default_client(Cfg),
 
     receive
         connected -> ok
@@ -359,20 +327,7 @@ t_hook_connected_disconnected(Cfg) ->
     emqx:unhook('client.disconnected', HookFun2).
 
 t_hook_session_subscribed_unsubscribed(Cfg) ->
-    SockType = proplists:get_value(listener_type, Cfg),
-    Sock = open(SockType),
-
-    Client = #{proto_name => <<"demo">>,
-               proto_ver => <<"v0.1">>,
-               clientid => <<"test_client_1">>
-              },
-    Password = <<"123456">>,
-
-    ConnBin = frame_connect(Client, Password),
-    ConnAckBin = frame_connack(0),
-
-    send(Sock, ConnBin),
-    {ok, ConnAckBin} = recv(Sock, 5000),
+    Sock = connect_default_client(Cfg),
 
     Parent = self(),
     HookFun1 = fun(_, _, _) -> Parent ! subscribed, ok end,
@@ -409,20 +364,7 @@ t_hook_session_subscribed_unsubscribed(Cfg) ->
     emqx:unhook('session.unsubscribed', HookFun2).
 
 t_hook_message_delivered(Cfg) ->
-    SockType = proplists:get_value(listener_type, Cfg),
-    Sock = open(SockType),
-
-    Client = #{proto_name => <<"demo">>,
-               proto_ver => <<"v0.1">>,
-               clientid => <<"test_client_1">>
-              },
-    Password = <<"123456">>,
-
-    ConnBin = frame_connect(Client, Password),
-    ConnAckBin = frame_connack(0),
-
-    send(Sock, ConnBin),
-    {ok, ConnAckBin} = recv(Sock, 5000),
+    Sock = connect_default_client(Cfg),
 
     SubBin = frame_subscribe(<<"t/#">>, 1),
     SubAckBin = frame_suback(0),
@@ -440,15 +382,100 @@ t_hook_message_delivered(Cfg) ->
     close(Sock),
     emqx:unhook('message.delivered', HookFun1).
 
+t_enter_passive_mode(Cfg) ->
+    Sock = connect_default_client(Cfg),
+
+    snabbkaffe:start_trace(),
+    %% send msgs x99
+    lists:foreach(
+      fun(I) ->
+              PubBin = frame_publish(<<"t/a">>, 1, integer_to_binary(I)),
+              PubAckBin = frame_puback(0),
+              send(Sock, PubBin),
+              {ok, PubAckBin} = recv(Sock, 5000)
+      end, lists:seq(1, 100)),
+    timer:sleep(1000),
+    {ok, _} = ?block_until(#{?snk_kind := passive}, 1000),
+    {ok, _} = ?block_until(#{?snk_kind := activate_socket}, 1000),
+    Trace = snabbkaffe:collect_trace(),
+    ?assertEqual(1, length(?of_kind(passive, Trace))),
+    ?assertEqual(1, length(?of_kind(activate_socket, Trace))),
+
+    close(Sock),
+    snabbkaffe:stop().
+
+t_no_permission(Cfg) ->
+    meck:new(emqx_hooks, [passthrough, no_history]),
+    meck:expect(emqx_hooks, run_fold,
+        fun('client.connect', _, _) -> {error, bad_client_id};
+           (_, _, _) -> meck:passthrough()
+        end),
+
+    snabbkaffe:start_trace(),
+
+    SockType = proplists:get_value(listener_type, Cfg),
+    Sock = open(SockType),
+
+    Password = <<"123456">>,
+
+    ConnBin = frame_connect(?DEFAULT_CLIENT, Password),
+    send(Sock, ConnBin),
+
+    SockType =/= udp andalso begin
+        {error, closed} = recv(Sock, 5000)
+    end,
+
+    meck:unload([emqx_hooks]),
+    snabbkaffe:stop(),
+    ok.
+
 t_merge_options(_) ->
     ?assertEqual([{tcp_options, ?TCP_SOCKOPTS}], emqx_exproto:merge_tcp_default([])),
     ?assertEqual([{udp_options, ?UDP_SOCKOPTS}], emqx_exproto:merge_udp_default([])).
+
+t_call_info_and_stats(Cfg) ->
+    Sock = connect_default_client(Cfg),
+    [ClientPid] = emqx_cm:lookup_channels(<<"test_client_1">>),
+    ?assertMatch(
+       #{sockinfo := #{socktype := _,
+                       peername := _,
+                       sockname := _,
+                       sockstate := _,
+                       active_n := _
+                      },
+         conninfo := _,
+         conn_state := _,
+         clientinfo := _,
+         session := _,
+         will_msg := _
+        }, emqx_exproto_conn:info(ClientPid)),
+    ?assertMatch(
+       [_|_],
+       emqx_exproto_conn:stats(ClientPid)
+      ),
+    close(Sock).
 
 %%--------------------------------------------------------------------
 %% Utils
 
 rand_bytes() ->
     crypto:strong_rand_bytes(rand:uniform(256)).
+
+connect_default_client(Cfg) ->
+    connect_default_client(?DEFAULT_CLIENT, Cfg).
+
+connect_default_client(ClientInfo, Cfg) ->
+    SockType = proplists:get_value(listener_type, Cfg),
+    Sock = open(SockType),
+
+    Password = <<"123456">>,
+
+    ConnBin = frame_connect(ClientInfo, Password),
+    ConnAckBin = frame_connack(0),
+
+    send(Sock, ConnBin),
+    {ok, ConnAckBin} = recv(Sock, 5000),
+    Sock.
 
 %%--------------------------------------------------------------------
 %% Sock funcs

@@ -20,6 +20,7 @@
 -include_lib("esockd/include/esockd.hrl").
 -include_lib("emqx/include/types.hrl").
 -include_lib("emqx/include/logger.hrl").
+-include_lib("snabbkaffe/include/snabbkaffe.hrl").
 
 -logger_header("[ExProto Conn]").
 
@@ -200,7 +201,6 @@ esockd_type({esockd_transport, Socket}) ->
 esockd_setopts({udp, _, _}, _) ->
     ok;
 esockd_setopts({esockd_transport, Socket}, Opts) ->
-    %% FIXME: DTLS works??
     esockd_transport:setopts(Socket, Opts).
 
 esockd_getstat({esockd_transport, Sock}, Stats) ->
@@ -267,7 +267,7 @@ init_state(WrappedSock, Peername, Options) ->
 
     ActiveN = proplists:get_value(active_n, Options, ?ACTIVE_N),
 
-    %% FIXME:
+    %% TODO:
     %%Limiter = emqx_limiter:init(Options),
 
     Channel = emqx_exproto_channel:init(ConnInfo, Options),
@@ -415,9 +415,10 @@ handle_msg({Closed, _Sock}, State)
   when Closed == tcp_closed; Closed == ssl_closed ->
     handle_info({sock_closed, Closed}, close_socket(State));
 
-%% TODO: udp_passive???
+%% XXX: only tcp/ssl/dtls socket will go to passive mode
 handle_msg({Passive, _Sock}, State)
   when Passive == tcp_passive; Passive == ssl_passive ->
+    ?tp(debug, passive, #{}),
     %% In Stats
     Bytes = emqx_pd:reset_counter(incoming_bytes),
     Pubs = emqx_pd:reset_counter(incoming_pkt),
@@ -433,8 +434,6 @@ handle_msg(Deliver = {deliver, _Topic, _Msg},
     Delivers = [Deliver | emqx_misc:drain_deliver(ActiveN)],
     with_channel(handle_deliver, [Delivers], State);
 
-%% Something sent
-%% TODO: Who will deliver this message?
 handle_msg({inet_reply, _Sock, ok}, State = #state{active_n = ActiveN}) ->
     case emqx_pd:get_counter(outgoing_pkt) > ActiveN of
         true ->
@@ -483,7 +482,7 @@ handle_msg(Msg, State) ->
 
 -spec terminate(atom(), state()) -> no_return().
 terminate(Reason, State = #state{channel = Channel}) ->
-    ?LOG(debug, "Terminated due to ~p", [Reason]),
+    ?tp(debug, terminate, #{reason => Reason}),
     _ = emqx_exproto_channel:terminate(Reason, Channel),
     _ = close_socket(State),
     exit(Reason).
@@ -528,11 +527,6 @@ handle_call(_From, Req, State = #state{channel = Channel}) ->
 handle_timeout(_TRef, idle_timeout, State) ->
     shutdown(idle_timeout, State);
 
-handle_timeout(_TRef, limit_timeout, State) ->
-    NState = State#state{sockstate   = idle,
-                         limit_timer = undefined
-                        },
-    handle_info(activate_socket, NState);
 handle_timeout(TRef, keepalive, State = #state{socket = Socket,
                                                channel = Channel})->
     case emqx_exproto_channel:info(conn_state, Channel) of
@@ -569,7 +563,8 @@ process_incoming(Data, State = #state{idle_timer = IdleTimer}) ->
     inc_counter(incoming_pkt, 1),
     inc_counter(recv_pkt, 1),
     inc_counter(recv_msg, 1),
-    % TODO:
+
+    %% XXX:
     %ok = emqx_metrics:inc('bytes.received', Oct),
 
     ok = emqx_misc:cancel_timer(IdleTimer),
@@ -607,7 +602,7 @@ handle_outgoing(IoData, State = #state{socket = Socket}) ->
     inc_counter(outgoing_pkt, 1),
     inc_counter(outgoing_bytes, Oct),
 
-    %% FIXME:
+    %% XXX:
     %%ok = emqx_metrics:inc('bytes.sent', Oct),
     case send(IoData, State) of
         ok -> ok;
@@ -641,19 +636,9 @@ handle_info(Info, State) ->
 %%--------------------------------------------------------------------
 %% Ensure rate limit
 
-ensure_rate_limit(Stats, State = #state{limiter = Limiter}) ->
-    case ?ENABLED(Limiter) andalso emqx_limiter:check(Stats, Limiter) of
-        false -> State;
-        {ok, Limiter1} ->
-            State#state{limiter = Limiter1};
-        {pause, Time, Limiter1} ->
-            ?LOG(warning, "Pause ~pms due to rate limit", [Time]),
-            TRef = start_timer(Time, limit_timeout),
-            State#state{sockstate   = blocked,
-                        limiter     = Limiter1,
-                        limit_timer = TRef
-                       }
-    end.
+%% TODO:
+ensure_rate_limit(_Stats, State = #state{limiter = undefined}) ->
+    State.
 
 %%--------------------------------------------------------------------
 %% Run GC and Check OOM
@@ -680,12 +665,9 @@ check_oom(State) ->
 -compile({inline, [activate_socket/1]}).
 activate_socket(State = #state{sockstate = closed}) ->
     {ok, State};
-activate_socket(State = #state{sockstate = blocked}) ->
-    {ok, State};
 activate_socket(State = #state{socket   = Socket,
                                active_n = N}) ->
-    %% FIXME: Works on dtls/udp ???
-    %%        How to hanlde buffer?
+    ?tp(debug, activate_socket, #{active_n => N}),
     case esockd_setopts(Socket, [{active, N}]) of
         ok -> {ok, State#state{sockstate = running}};
         Error -> Error
