@@ -12,6 +12,10 @@ File format:
 
 ## v4.3.22
 
+### Minor changes
+- Fix delayed publish inaccurate caused by os time change. [#8908](https://github.com/emqx/emqx/pull/8908)
+
+
 ## v4.3.21
 
 ### Enhancements
@@ -24,8 +28,6 @@ File format:
 
 - TLS listener default buffer size to 4KB [#9007](https://github.com/emqx/emqx/pull/9007)
   Eliminate uncertainty that the buffer size is set by OS default.
-
-- Fix delayed publish inaccurate caused by os time change. [#8908](https://github.com/emqx/emqx/pull/8908)
 
 - Disable authorization for `api/v4/emqx_prometheus` endpoint. [8955](https://github.com/emqx/emqx/pull/8955)
 
