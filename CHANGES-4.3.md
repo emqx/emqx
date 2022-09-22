@@ -13,8 +13,6 @@ File format:
 ## v4.3.22
 
 ### Minor changes
-- Fix delayed publish inaccurate caused by os time change. [#8908](https://github.com/emqx/emqx/pull/8908)
-
 
 ## v4.3.21
 
@@ -33,6 +31,10 @@ File format:
 
 - Added a test to prevent a last will testament message to be
   published when a client is denied connection. [#8894](https://github.com/emqx/emqx/pull/8894)
+
+### Bug fixes
+
+- Fix delayed publish inaccurate caused by os time change. [#8908](https://github.com/emqx/emqx/pull/8908)
 
 ## v4.3.20
 
