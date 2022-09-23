@@ -166,11 +166,11 @@ init([]) ->
         expire_timer => undefined
     },
 
-    Enable = emqx:get_config([slow_subs, enable]),
-    {ok, check_enable(Enable, InitState)}.
+    Cfg = emqx:get_config([slow_subs]),
+    {ok, check_enable(Cfg, InitState)}.
 
-handle_call({update_settings, #{enable := Enable}}, _From, State) ->
-    State2 = check_enable(Enable, State),
+handle_call({update_settings, Cfg}, _From, State) ->
+    State2 = check_enable(Cfg, State),
     {reply, ok, State2};
 handle_call(clear_history, _, State) ->
     do_clear_history(),
@@ -206,12 +206,14 @@ code_change(_OldVsn, State, _Extra) ->
 expire_tick() ->
     erlang:send_after(?EXPIRE_CHECK_INTERVAL, self(), ?FUNCTION_NAME).
 
-load(State) ->
+load(
     #{
         top_k_num := MaxSizeT,
         stats_type := StatsType,
         threshold := Threshold
-    } = emqx:get_config([slow_subs]),
+    },
+    State
+) ->
     MaxSize = erlang:min(MaxSizeT, ?MAX_SIZE),
     ok = emqx_hooks:put(
         'delivery.completed',
@@ -334,15 +336,15 @@ do_clear_history() ->
     ets:delete_all_objects(?INDEX_TAB),
     ets:delete_all_objects(?TOPK_TAB).
 
-check_enable(Enable, #{enable := IsEnable} = State) ->
+check_enable(#{enable := Enable} = Cfg, #{enable := IsEnable} = State) ->
     case {IsEnable, Enable} of
         {false, true} ->
-            load(State);
+            load(Cfg, State);
         {true, false} ->
             unload(State);
         {true, true} ->
             S1 = unload(State),
-            load(S1);
+            load(Cfg, S1);
         _ ->
             State
     end.
