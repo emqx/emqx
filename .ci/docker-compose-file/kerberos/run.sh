@@ -3,8 +3,8 @@
 
 echo "Remove old keytabs"
 
-rm -f /var/lib/secret/kafka.keytab 2>&1 > /dev/null
-rm -f /var/lib/secret/rig.keytab 2>&1 > /dev/null
+rm -f /var/lib/secret/kafka.keytab > /dev/null 2>&1
+rm -f /var/lib/secret/rig.keytab > /dev/null 2>&1
 
 echo "Create realm"
 
