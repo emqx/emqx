@@ -51,7 +51,7 @@ all() ->
 wait_until_kafka_is_up() ->
     wait_until_kafka_is_up(0).
 
-wait_until_kafka_is_up(90) ->
+wait_until_kafka_is_up(300) ->
     ct:fail("Kafka is not up even though we have waited for a while");
 wait_until_kafka_is_up(Attempts) ->
     KafkaTopic = "test-topic-one-partition",

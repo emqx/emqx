@@ -33,10 +33,14 @@ services:
     ports:
       - "9092:9092"
       - "9093:9093"
+      - "9094:9094"
+      - "9095:9095"
     container_name: kafka-1.emqx.net
     hostname: kafka-1.emqx.net
     depends_on:
       - "kdc"
+      - "zookeeper"
+      - "ssl_cert_gen"
     environment:
       KAFKA_BROKER_ID: 1
       KAFKA_ZOOKEEPER_CONNECT: zookeeper:2181
