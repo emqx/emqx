@@ -24,6 +24,7 @@
 -include_lib("eunit/include/eunit.hrl").
 -include_lib("common_test/include/ct.hrl").
 -include_lib("emqx/include/emqx_hooks.hrl").
+-include_lib("snabbkaffe/include/snabbkaffe.hrl").
 
 -define(DEFAULT_CLUSTER_NAME_ATOM, emqxcl).
 
@@ -312,6 +313,40 @@ t_cluster_name(_) ->
         erlang:length(emqx_hooks:lookup('client.connected')) > 1
     ),
     emqx_exhook_mgr:disable(<<"default">>).
+
+t_stop_timeout(_) ->
+    snabbkaffe:start_trace(),
+    meck:new(emqx_exhook_demo_svr, [passthrough, no_history]),
+    meck:expect(
+        emqx_exhook_demo_svr,
+        on_provider_unloaded,
+        fun(Req, Md) ->
+            %% ensure sleep time greater than emqx_exhook_mgr shutdown timeout
+            timer:sleep(20000),
+            meck:passthrough([Req, Md])
+        end
+    ),
+
+    %% stop application
+    application:stop(emqx_exhook),
+    ?block_until(#{?snk_kind := exhook_mgr_terminated}, 20000),
+
+    %% all exhook hooked point should be unloaded
+    Mods = lists:flatten(
+        lists:map(
+            fun({hook, _, Cbs}) ->
+                lists:map(fun({callback, {M, _, _}, _, _}) -> M end, Cbs)
+            end,
+            ets:tab2list(emqx_hooks)
+        )
+    ),
+    ?assertEqual(false, lists:any(fun(M) -> M == emqx_exhook_handler end, Mods)),
+
+    %% ensure started for other tests
+    emqx_common_test_helpers:start_apps([emqx_exhook]),
+
+    snabbkaffe:stop(),
+    meck:unload(emqx_exhook_demo_svr).
 
 %%--------------------------------------------------------------------
 %% Cases Helpers
