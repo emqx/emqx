@@ -464,7 +464,7 @@ user_seeds() ->
                 <<"cmd">> => <<"HMGET mqtt_user:${username} password_hash salt is_superuser">>,
                 <<"password_hash_algorithm">> => #{<<"name">> => <<"bcrypt">>}
             },
-            result => {error, not_authorized}
+            result => {error, bad_username_or_password}
         },
 
         #{
