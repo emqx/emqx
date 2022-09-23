@@ -82,6 +82,7 @@ jobs:
       - name: docker-compose up
         run: |
           docker-compose \
+            -f .ci/docker-compose-file/docker-compose-toxiproxy.yaml \
             -f .ci/docker-compose-file/docker-compose-mongo-${{ matrix.connect_type }}.yaml \
             -f .ci/docker-compose-file/docker-compose.yaml \
             up -d --build

@@ -54,6 +54,7 @@ jobs:
           run: |
             docker-compose \
                 -f .ci/docker-compose-file/docker-compose.yaml \
+                -f .ci/docker-compose-file/docker-compose-toxiproxy.yaml \
                 -f .ci/docker-compose-file/docker-compose-ldap-tcp.yaml \
                 -f .ci/docker-compose-file/docker-compose-mongo-tcp.yaml \
                 -f .ci/docker-compose-file/docker-compose-mysql-tcp.yaml \
@@ -81,6 +82,7 @@ jobs:
           run: |
             docker-compose \
                 -f .ci/docker-compose-file/docker-compose.yaml \
+                -f .ci/docker-compose-file/docker-compose-toxiproxy.yaml \
                 -f .ci/docker-compose-file/docker-compose-ldap-tcp.yaml \
                 -f .ci/docker-compose-file/docker-compose-mongo-tcp.yaml \
                 -f .ci/docker-compose-file/docker-compose-mysql-tcp.yaml \
