@@ -15,6 +15,7 @@ services:
     volumes:
       - emqx-shared-secret:/var/lib/secret
       - ./kafka/generate-certs.sh:/bin/generate-certs.sh
+    entrypoint: /bin/sh
     command: /bin/generate-certs.sh
   kdc:
     hostname: kdc.emqx.net
