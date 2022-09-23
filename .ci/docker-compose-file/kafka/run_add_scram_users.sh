@@ -31,8 +31,10 @@ TIMEOUT=60
 
 echo "+++++++ Wait until Kafka ports are up ++++++++"
 
+# shellcheck disable=SC2016
 timeout $TIMEOUT bash -c 'until printf "" 2>>/dev/null >>/dev/tcp/$0/$1; do sleep 1; done' $SERVER $PORT1
 
+# shellcheck disable=SC2016
 timeout $TIMEOUT bash -c 'until printf "" 2>>/dev/null >>/dev/tcp/$0/$1; do sleep 1; done' $SERVER $PORT2
 
 echo "+++++++ Run config commands ++++++++"
