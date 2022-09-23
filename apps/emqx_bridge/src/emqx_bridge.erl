@@ -249,19 +249,19 @@ remove(BridgeType, BridgeName) ->
     ).
 
 check_deps_and_remove(BridgeType, BridgeName, RemoveDeps) ->
-    Id = emqx_bridge_resource:bridge_id(BridgeType, BridgeName),
+    BridgeId = emqx_bridge_resource:bridge_id(BridgeType, BridgeName),
     %% NOTE: This violates the design: Rule depends on data-bridge but not vice versa.
-    case emqx_rule_engine:get_rule_ids_by_action(Id) of
+    case emqx_rule_engine:get_rule_ids_by_action(BridgeId) of
         [] ->
             remove(BridgeType, BridgeName);
-        Rules when RemoveDeps =:= false ->
-            {error, {rules_deps_on_this_bridge, Rules}};
-        Rules when RemoveDeps =:= true ->
+        RuleIds when RemoveDeps =:= false ->
+            {error, {rules_deps_on_this_bridge, RuleIds}};
+        RuleIds when RemoveDeps =:= true ->
             lists:foreach(
                 fun(R) ->
-                    emqx_rule_engine:ensure_action_removed(R, Id)
+                    emqx_rule_engine:ensure_action_removed(R, BridgeId)
                 end,
-                Rules
+                RuleIds
             ),
             remove(BridgeType, BridgeName)
     end.

@@ -331,7 +331,7 @@ schema("/bridges/:id") ->
             responses => #{
                 204 => <<"Bridge deleted">>,
                 400 => error_schema(['INVALID_ID'], "Update bridge failed"),
-                403 => error_schema('FORBIDDEN_REQUEST', "forbidden operation"),
+                403 => error_schema('FORBIDDEN_REQUEST', "Forbidden operation"),
                 503 => error_schema('SERVICE_UNAVAILABLE', "Service unavailable")
             }
         }
