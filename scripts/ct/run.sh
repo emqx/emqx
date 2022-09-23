@@ -145,6 +145,12 @@ if [ "$ONLY_UP" = 'yes' ]; then
     exit 0
 fi
 
+sleep 10
+
+echo "DOCKER COMPOSE LOGS kafka_1"
+
+docker-compose $F_OPTIONS logs kafka_1
+
 if [ "$ATTACH" = 'yes' ]; then
     docker exec -it "$ERLANG_CONTAINER" bash
 elif [ "$CONSOLE" = 'yes' ]; then
