@@ -139,15 +139,25 @@ authenticate(
         {ok, []} ->
             ignore;
         {ok, Values} ->
-            Selected = merge(Fields, Values),
-            case
-                emqx_authn_utils:check_password_from_selected_map(
-                    Algorithm, Selected, Password
-                )
-            of
-                ok ->
-                    {ok, emqx_authn_utils:is_superuser(Selected)};
-                {error, _Reason} ->
+            case merge(Fields, Values) of
+                Selected when Selected =/= #{} ->
+                    case
+                        emqx_authn_utils:check_password_from_selected_map(
+                            Algorithm, Selected, Password
+                        )
+                    of
+                        ok ->
+                            {ok, emqx_authn_utils:is_superuser(Selected)};
+                        {error, _Reason} = Error ->
+                            Error
+                    end;
+                _ ->
+                    ?TRACE_AUTHN_PROVIDER(info, "redis_query_not_matched", #{
+                        resource => ResourceId,
+                        cmd => Command,
+                        keys => NKey,
+                        fields => Fields
+                    }),
                     ignore
             end;
         {error, Reason} ->

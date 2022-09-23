@@ -177,7 +177,7 @@ fields("ingress") ->
             sc(
                 binary(),
                 #{
-                    default => <<"${payload}">>,
+                    default => undefined,
                     desc => ?DESC("payload")
                 }
             )}
@@ -224,7 +224,7 @@ fields("egress") ->
             sc(
                 binary(),
                 #{
-                    default => <<"${payload}">>,
+                    default => undefined,
                     desc => ?DESC("payload")
                 }
             )}

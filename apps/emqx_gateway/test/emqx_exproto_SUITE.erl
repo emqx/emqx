@@ -20,6 +20,7 @@
 -compile(nowarn_export_all).
 
 -include_lib("emqx/include/emqx_hooks.hrl").
+-include_lib("eunit/include/eunit.hrl").
 
 -import(
     emqx_exproto_echo_svr,
@@ -38,6 +39,7 @@
 
 -include_lib("emqx/include/emqx.hrl").
 -include_lib("emqx/include/emqx_mqtt.hrl").
+-include_lib("snabbkaffe/include/snabbkaffe.hrl").
 
 -define(TCPOPTS, [binary, {active, false}]).
 -define(DTLSOPTS, [binary, {active, false}, {protocol, dtls}]).
@@ -61,6 +63,9 @@
 
 all() ->
     [{group, Name} || Name <- metrics()].
+
+suite() ->
+    [{timetrap, {seconds, 30}}].
 
 groups() ->
     Cases = emqx_common_test_helpers:all(?MODULE),
@@ -87,6 +92,7 @@ set_special_cfg(emqx_gateway) ->
         [gateway, exproto],
         #{
             server => #{bind => 9100},
+            idle_timeout => 5000,
             handler => #{address => "http://127.0.0.1:9001"},
             listeners => listener_confs(LisType)
         }
@@ -223,14 +229,16 @@ t_acl_deny(Cfg) ->
     close(Sock).
 
 t_keepalive_timeout(Cfg) ->
+    ok = snabbkaffe:start_trace(),
     SockType = proplists:get_value(listener_type, Cfg),
     Sock = open(SockType),
 
+    ClientId1 = <<"keepalive_test_client1">>,
     Client = #{
         proto_name => <<"demo">>,
         proto_ver => <<"v0.1">>,
-        clientid => <<"test_client_1">>,
-        keepalive => 2
+        clientid => ClientId1,
+        keepalive => 5
     },
     Password = <<"123456">>,
 
@@ -238,16 +246,42 @@ t_keepalive_timeout(Cfg) ->
     ConnAckBin = frame_connack(0),
 
     send(Sock, ConnBin),
-    {ok, ConnAckBin} = recv(Sock, 5000),
+    {ok, ConnAckBin} = recv(Sock),
 
-    DisconnectBin = frame_disconnect(),
-    {ok, DisconnectBin} = recv(Sock, 10000),
-
-    SockType =/= udp andalso
-        begin
-            {error, closed} = recv(Sock, 5000)
-        end,
-    ok.
+    case SockType of
+        udp ->
+            %% another udp client should not affect the first
+            %% udp client keepalive check
+            timer:sleep(4000),
+            Sock2 = open(SockType),
+            ConnBin2 = frame_connect(
+                Client#{clientid => <<"keepalive_test_client2">>},
+                Password
+            ),
+            send(Sock2, ConnBin2),
+            %% first client will be keepalive timeouted in 6s
+            ?assertMatch(
+                {ok, #{
+                    clientid := ClientId1,
+                    reason := {shutdown, {sock_closed, keepalive_timeout}}
+                }},
+                ?block_until(#{?snk_kind := conn_process_terminated}, 8000)
+            );
+        _ ->
+            ?assertMatch(
+                {ok, #{
+                    clientid := ClientId1,
+                    reason := {shutdown, {sock_closed, keepalive_timeout}}
+                }},
+                ?block_until(#{?snk_kind := conn_process_terminated}, 12000)
+            ),
+            Trace = snabbkaffe:collect_trace(),
+            %% conn process should be terminated
+            ?assertEqual(1, length(?of_kind(conn_process_terminated, Trace))),
+            %% socket port should be closed
+            ?assertEqual({error, closed}, recv(Sock, 5000))
+    end,
+    snabbkaffe:stop().
 
 t_hook_connected_disconnected(Cfg) ->
     SockType = proplists:get_value(listener_type, Cfg),
@@ -337,6 +371,8 @@ t_hook_session_subscribed_unsubscribed(Cfg) ->
         error(hook_is_not_running)
     end,
 
+    send(Sock, frame_disconnect()),
+
     close(Sock),
     emqx_hooks:del('session.subscribed', {?MODULE, hook_fun3}),
     emqx_hooks:del('session.unsubscribed', {?MODULE, hook_fun4}).
@@ -372,6 +408,48 @@ t_hook_message_delivered(Cfg) ->
 
     close(Sock),
     emqx_hooks:del('message.delivered', {?MODULE, hook_fun5}).
+
+t_idle_timeout(Cfg) ->
+    ok = snabbkaffe:start_trace(),
+    SockType = proplists:get_value(listener_type, Cfg),
+    Sock = open(SockType),
+
+    %% need to create udp client by sending something
+    case SockType of
+        udp ->
+            %% nothing to do
+            ok = meck:new(emqx_exproto_gcli, [passthrough, no_history]),
+            ok = meck:expect(
+                emqx_exproto_gcli,
+                async_call,
+                fun(FunName, _Req, _GClient) ->
+                    self() ! {hreply, FunName, ok},
+                    ok
+                end
+            ),
+            %% send request, but nobody can respond to it
+            ClientId = <<"idle_test_client1">>,
+            Client = #{
+                proto_name => <<"demo">>,
+                proto_ver => <<"v0.1">>,
+                clientid => ClientId,
+                keepalive => 5
+            },
+            Password = <<"123456">>,
+            ConnBin = frame_connect(Client, Password),
+            send(Sock, ConnBin),
+            ?assertMatch(
+                {ok, #{reason := {shutdown, idle_timeout}}},
+                ?block_until(#{?snk_kind := conn_process_terminated}, 10000)
+            ),
+            ok = meck:unload(emqx_exproto_gcli);
+        _ ->
+            ?assertMatch(
+                {ok, #{reason := {shutdown, idle_timeout}}},
+                ?block_until(#{?snk_kind := conn_process_terminated}, 10000)
+            )
+    end,
+    snabbkaffe:stop().
 
 %%--------------------------------------------------------------------
 %% Utils
@@ -421,6 +499,9 @@ send({ssl, Sock}, Bin) ->
     ssl:send(Sock, Bin);
 send({dtls, Sock}, Bin) ->
     ssl:send(Sock, Bin).
+
+recv(Sock) ->
+    recv(Sock, infinity).
 
 recv({tcp, Sock}, Ts) ->
     gen_tcp:recv(Sock, 0, Ts);

@@ -110,7 +110,8 @@ parse_sql(Template, ReplaceWith, PlaceHolders) ->
         Template,
         #{
             replace_with => ReplaceWith,
-            placeholders => PlaceHolders
+            placeholders => PlaceHolders,
+            strip_double_quote => true
         }
     ).
 
