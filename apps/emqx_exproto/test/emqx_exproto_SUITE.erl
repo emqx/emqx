@@ -80,7 +80,7 @@ groups() ->
      {dtls_listener, [sequence], MainCases},
      {streaming_connection_handler, [sequence], MainCases},
      {https_grpc_server, [sequence], MainCases},
-     {misc, [t_merge_options, t_call_info_and_stats]}
+     {misc, [t_merge_options, t_call_info_and_stats, t_sock_error_exit]}
     ].
 
 init_per_group(GrpName, Cfg)
@@ -116,7 +116,8 @@ end_per_group(_, Cfg) ->
     emqx_ct_helpers:stop_apps([emqx_exproto]),
     emqx_exproto_echo_svr:stop(proplists:get_value(servers, Cfg)).
 
-init_per_testcase(t_enter_passive_mode, Cfg) ->
+init_per_testcase(TestCase, Cfg)
+  when TestCase == t_enter_passive_mode ->
     case proplists:get_value(listener_type, Cfg) of
         udp -> {skip, ignore};
         _ -> Cfg
@@ -382,6 +383,7 @@ t_hook_message_delivered(Cfg) ->
     close(Sock),
     emqx:unhook('message.delivered', HookFun1).
 
+%% only tcp/ssl/dtls
 t_enter_passive_mode(Cfg) ->
     Sock = connect_default_client(Cfg),
 
@@ -411,8 +413,6 @@ t_no_permission(Cfg) ->
            (_, _, _) -> meck:passthrough()
         end),
 
-    snabbkaffe:start_trace(),
-
     SockType = proplists:get_value(listener_type, Cfg),
     Sock = open(SockType),
 
@@ -426,7 +426,6 @@ t_no_permission(Cfg) ->
     end,
 
     meck:unload([emqx_hooks]),
-    snabbkaffe:stop(),
     ok.
 
 t_merge_options(_) ->
@@ -454,6 +453,40 @@ t_call_info_and_stats(Cfg) ->
        emqx_exproto_conn:stats(ClientPid)
       ),
     close(Sock).
+
+t_sock_error_exit(Cfg) ->
+    %% 1. wait/upgrade socket failed
+    meck:new(esockd_transport, [passthrough, no_history]),
+    meck:expect(esockd_transport, wait,
+                fun(_Socket) -> {error, einval}
+                end),
+
+    SockType = proplists:get_value(listener_type, Cfg),
+    Sock = open(SockType),
+
+    Password = <<"123456">>,
+
+    ConnBin = frame_connect(?DEFAULT_CLIENT, Password),
+    send(Sock, ConnBin),
+
+    SockType =/= udp andalso begin
+        {error, closed} = recv(Sock, 5000)
+    end,
+
+    %% 2. setting active_n failed
+    meck:delete(esockd_transport, wait, 1),
+    meck:expect(esockd_transport, setopts,
+                fun(_Socket, _Opts) -> {error, einval}
+                end),
+
+    Sock1 = open(SockType),
+    send(Sock1, ConnBin),
+    SockType =/= udp andalso begin
+        {error, closed} = recv(Sock1, 5000)
+    end,
+
+    meck:unload([esockd_transport]),
+    ok.
 
 %%--------------------------------------------------------------------
 %% Utils
