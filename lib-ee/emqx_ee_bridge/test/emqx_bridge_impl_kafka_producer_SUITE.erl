@@ -383,7 +383,8 @@ config(Args) ->
         #{atom_key => true}
     ),
     InstId = maps:get("instance_id", Args),
-    Parsed#{bridge_name => erlang:element(2, emqx_bridge_resource:parse_bridge_id(InstId))}.
+    <<"bridge:", BridgeId>> = InstId,
+    Parsed#{bridge_name => erlang:element(2, emqx_bridge_resource:parse_bridge_id(BridgeId))}.
 
 hocon_config(Args) ->
     AuthConf = maps:get("authentication", Args),

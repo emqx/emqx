@@ -71,8 +71,6 @@ bridge_id(BridgeType, BridgeName) ->
     Type = bin(BridgeType),
     <<Type/binary, ":", Name/binary>>.
 
-parse_bridge_id(<<"bridge:", BridgeId/binary>>) ->
-    parse_bridge_id(BridgeId);
 parse_bridge_id(BridgeId) ->
     case string:split(bin(BridgeId), ":", all) of
         [Type, Name] -> {binary_to_atom(Type, utf8), binary_to_atom(Name, utf8)};
