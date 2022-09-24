@@ -18,6 +18,9 @@ services:
       - emqx_bridge
     volumes:
       - ../..:/emqx
+      - emqx-shared-secret:/var/lib/secret
+      - ./kerberos/krb5.conf:/etc/kdc/krb5.conf
+      - ./kerberos/krb5.conf:/etc/krb5.conf
     working_dir: /emqx
     tty: true
 
@@ -33,3 +36,6 @@ networks:
           gateway: 172.100.239.1
         - subnet: 2001:3200:3200::/64
           gateway: 2001:3200:3200::1
+
+volumes:   # add this section
+  emqx-shared-secret:    # does not need anything underneath this

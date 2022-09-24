@@ -148,14 +148,20 @@ create(MgrId, ResId, Group, ResourceType, Config, Opts) ->
         ],
         [matched]
     ),
-    ok = emqx_resource_worker_sup:start_workers(ResId, Opts),
-    case maps:get(start_after_created, Opts, ?START_AFTER_CREATED) of
+    case emqx_resource:is_buffer_supported(ResourceType) of
         true ->
-            wait_for_ready(ResId, maps:get(start_timeout, Opts, ?START_TIMEOUT));
+            %% the resource it self supports
+            %% buffer, so there is no need for resource workers
+            ok;
         false ->
-            ok
-    end,
-    ok.
+            ok = emqx_resource_worker_sup:start_workers(ResId, Opts),
+            case maps:get(start_after_created, Opts, ?START_AFTER_CREATED) of
+                true ->
+                    wait_for_ready(ResId, maps:get(start_timeout, Opts, ?START_TIMEOUT));
+                false ->
+                    ok
+            end
+    end.
 
 %% @doc Called from `emqx_resource` when doing a dry run for creating a resource instance.
 %%

@@ -5,7 +5,9 @@
         kernel,
         stdlib,
         hstreamdb_erl,
-        influxdb
+        influxdb,
+        wolff,
+        brod
     ]},
     {env, []},
     {modules, []},

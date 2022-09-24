@@ -3,7 +3,8 @@
     {registered, []},
     {applications, [
         kernel,
-        stdlib
+        stdlib,
+        emqx_ee_connector
     ]},
     {env, []},
     {modules, []},

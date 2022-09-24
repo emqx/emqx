@@ -93,7 +93,8 @@
     %% verify if the resource is working normally
     call_health_check/3,
     %% stop the instance
-    call_stop/3
+    call_stop/3,
+    is_buffer_supported/1
 ]).
 
 %% list all the instances, id only.
@@ -117,7 +118,8 @@
     on_batch_query/3,
     on_query_async/4,
     on_batch_query_async/4,
-    on_get_status/2
+    on_get_status/2,
+    is_buffer_supported/0
 ]).
 
 %% when calling emqx_resource:start/1
@@ -154,6 +156,8 @@
     resource_status()
     | {resource_status(), resource_state()}
     | {resource_status(), resource_state(), term()}.
+
+-callback is_buffer_supported() -> boolean().
 
 -spec list_types() -> [module()].
 list_types() ->
@@ -256,10 +260,15 @@ query(ResId, Request) ->
     Result :: term().
 query(ResId, Request, Opts) ->
     case emqx_resource_manager:ets_lookup(ResId) of
-        {ok, _Group, #{query_mode := QM}} ->
-            case QM of
-                sync -> emqx_resource_worker:sync_query(ResId, Request, Opts);
-                async -> emqx_resource_worker:async_query(ResId, Request, Opts)
+        {ok, _Group, #{query_mode := QM, mod := Module}} ->
+            IsBufferSupported = is_buffer_supported(Module),
+            case {IsBufferSupported, QM} of
+                {true, _} ->
+                    emqx_resource_worker:simple_sync_query(ResId, Request);
+                {false, sync} ->
+                    emqx_resource_worker:sync_query(ResId, Request, Opts);
+                {false, async} ->
+                    emqx_resource_worker:async_query(ResId, Request, Opts)
             end;
         {error, not_found} ->
             ?RESOURCE_ERROR(not_found, "resource not found")
@@ -335,6 +344,15 @@ list_group_instances(Group) -> emqx_resource_manager:list_group(Group).
 -spec get_callback_mode(module()) -> callback_mode().
 get_callback_mode(Mod) ->
     Mod:callback_mode().
+
+-spec is_buffer_supported(module()) -> boolean().
+is_buffer_supported(Module) ->
+    try
+        Module:is_buffer_supported()
+    catch
+        _:_ ->
+            false
+    end.
 
 -spec call_start(manager_id(), module(), resource_config()) ->
     {ok, resource_state()} | {error, Reason :: term()}.

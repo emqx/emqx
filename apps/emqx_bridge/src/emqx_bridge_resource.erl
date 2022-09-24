@@ -44,7 +44,7 @@
 ]).
 
 %% bi-directional bridge with producer/consumer or ingress/egress configs
--define(IS_BI_DIR_BRIDGE(TYPE), TYPE == <<"mqtt">>; TYPE == <<"kafka">>).
+-define(IS_BI_DIR_BRIDGE(TYPE), TYPE =:= <<"mqtt">>; TYPE =:= <<"kafka">>).
 
 -if(?EMQX_RELEASE_EDITION == ee).
 bridge_to_resource_type(<<"mqtt">>) -> emqx_connector_mqtt;
@@ -261,7 +261,7 @@ parse_confs(Type, Name, Conf) when ?IS_BI_DIR_BRIDGE(Type) ->
     %% hookpoint. The underlying driver will run `emqx_hooks:run/3` when it
     %% receives a message from the external database.
     BName = bridge_id(Type, Name),
-    Conf#{hookpoint => <<"$bridges/", BName/binary>>};
+    Conf#{hookpoint => <<"$bridges/", BName/binary>>, bridge_name => Name};
 parse_confs(_Type, _Name, Conf) ->
     Conf.
 

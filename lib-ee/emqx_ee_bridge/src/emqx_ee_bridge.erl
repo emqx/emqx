@@ -14,6 +14,7 @@
 
 api_schemas(Method) ->
     [
+        ref(emqx_ee_bridge_kafka, Method),
         ref(emqx_ee_bridge_mysql, Method),
         ref(emqx_ee_bridge_mongodb, Method ++ "_rs"),
         ref(emqx_ee_bridge_mongodb, Method ++ "_sharded"),
@@ -26,6 +27,7 @@ api_schemas(Method) ->
 
 schema_modules() ->
     [
+        emqx_ee_bridge_kafka,
         emqx_ee_bridge_hstreamdb,
         emqx_ee_bridge_influxdb,
         emqx_ee_bridge_mongodb,
@@ -45,6 +47,7 @@ examples(Method) ->
     lists:foldl(Fun, #{}, schema_modules()).
 
 resource_type(Type) when is_binary(Type) -> resource_type(binary_to_atom(Type, utf8));
+resource_type(kafka) -> emqx_bridge_impl_kafka;
 resource_type(hstreamdb) -> emqx_ee_connector_hstreamdb;
 resource_type(mongodb_rs) -> emqx_connector_mongo;
 resource_type(mongodb_sharded) -> emqx_connector_mongo;
@@ -56,6 +59,11 @@ resource_type(influxdb_api_v2) -> emqx_ee_connector_influxdb.
 
 fields(bridges) ->
     [
+        {kafka,
+            mk(
+                hoconsc:map(name, ref(emqx_ee_bridge_kafka, "config")),
+                #{desc => <<"EMQX Enterprise Config">>}
+            )},
         {hstreamdb,
             mk(
                 hoconsc:map(name, ref(emqx_ee_bridge_hstreamdb, "config")),
@@ -66,8 +74,9 @@ fields(bridges) ->
                 hoconsc:map(name, ref(emqx_ee_bridge_mysql, "config")),
                 #{desc => <<"EMQX Enterprise Config">>}
             )}
-    ] ++ fields(mongodb) ++ fields(influxdb);
-fields(mongodb) ->
+    ] ++ mongodb_structs() ++ influxdb_structs().
+
+mongodb_structs() ->
     [
         {Type,
             mk(
@@ -75,8 +84,9 @@ fields(mongodb) ->
                 #{desc => <<"EMQX Enterprise Config">>}
             )}
      || Type <- [mongodb_rs, mongodb_sharded, mongodb_single]
-    ];
-fields(influxdb) ->
+    ].
+
+influxdb_structs() ->
     [
         {Protocol,
             mk(

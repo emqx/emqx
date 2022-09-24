@@ -92,7 +92,7 @@ param_path_operation_cluster() ->
             #{
                 in => path,
                 required => true,
-                example => <<"start">>,
+                example => <<"restart">>,
                 desc => ?DESC("desc_param_path_operation_cluster")
             }
         )}.
