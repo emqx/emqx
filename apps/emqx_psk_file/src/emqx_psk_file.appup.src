@@ -1,0 +1,10 @@
+%% -*- mode: erlang -*-
+{VSN,
+  [{"4.3.0",
+    [{load_module,emqx_psk_file,brutal_purge,soft_purge,[]},
+     {load_module,emqx_psk_file_sup,brutal_purge,soft_purge,[]}]}
+  ],
+  [{"4.3.0",
+    [{load_module,emqx_psk_file,brutal_purge,soft_purge,[]},
+     {load_module,emqx_psk_file_sup,brutal_purge,soft_purge,[]}]}
+  ]}.
