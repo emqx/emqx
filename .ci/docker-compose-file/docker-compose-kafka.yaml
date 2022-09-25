@@ -1,0 +1,73 @@
+version: '3.9'
+
+services:
+  zookeeper:
+    image: wurstmeister/zookeeper
+    ports:
+      - "2181:2181"
+    container_name: zookeeper
+    hostname: zookeeper
+    networks:
+      emqx_bridge:
+  ssl_cert_gen:
+    image: fredrikhgrelland/alpine-jdk11-openssl
+    container_name: ssl_cert_gen
+    volumes:
+      - emqx-shared-secret:/var/lib/secret
+      - ./kafka/generate-certs.sh:/bin/generate-certs.sh
+    entrypoint: /bin/sh
+    command: /bin/generate-certs.sh
+  kdc:
+    hostname: kdc.emqx.net
+    image:  ghcr.io/emqx/emqx-builder/5.0-17:1.13.4-24.2.1-1-ubuntu20.04
+    container_name: kdc.emqx.net
+    networks:
+      emqx_bridge:
+    volumes:
+      - emqx-shared-secret:/var/lib/secret
+      - ./kerberos/krb5.conf:/etc/kdc/krb5.conf
+      - ./kerberos/krb5.conf:/etc/krb5.conf
+      - ./kerberos/run.sh:/usr/bin/run.sh
+    command: run.sh
+  kafka_1:
+    image: wurstmeister/kafka:2.13-2.7.0
+    ports:
+      - "9092:9092"
+      - "9093:9093"
+      - "9094:9094"
+      - "9095:9095"
+    container_name: kafka-1.emqx.net
+    hostname: kafka-1.emqx.net
+    depends_on:
+      - "kdc"
+      - "zookeeper"
+      - "ssl_cert_gen"
+    environment:
+      KAFKA_BROKER_ID: 1
+      KAFKA_ZOOKEEPER_CONNECT: zookeeper:2181
+      KAFKA_LISTENERS: PLAINTEXT://:9092,SASL_PLAINTEXT://:9093,SSL://:9094,SASL_SSL://:9095
+      KAFKA_ADVERTISED_LISTENERS: PLAINTEXT://kafka-1.emqx.net:9092,SASL_PLAINTEXT://kafka-1.emqx.net:9093,SSL://kafka-1.emqx.net:9094,SASL_SSL://kafka-1.emqx.net:9095
+      KAFKA_LISTENER_SECURITY_PROTOCOL_MAP: PLAINTEXT:PLAINTEXT,SASL_PLAINTEXT:SASL_PLAINTEXT,SSL:SSL,SASL_SSL:SASL_SSL
+      KAFKA_INTER_BROKER_LISTENER_NAME: PLAINTEXT
+      KAFKA_SASL_ENABLED_MECHANISMS: PLAIN,SCRAM-SHA-256,SCRAM-SHA-512,GSSAPI
+      KAFKA_SASL_KERBEROS_SERVICE_NAME: kafka
+      KAFKA_SASL_MECHANISM_INTER_BROKER_PROTOCOL: PLAIN
+      KAFKA_JMX_OPTS: "-Djava.security.auth.login.config=/etc/kafka/jaas.conf"
+      KAFKA_ALLOW_EVERYONE_IF_NO_ACL_FOUND: "true"
+      KAFKA_CREATE_TOPICS: test-topic-one-partition:1:1,test-topic-two-partitions:2:1,test-topic-three-partitions:3:1,
+      KAFKA_AUTHORIZER_CLASS_NAME: kafka.security.auth.SimpleAclAuthorizer
+      KAFKA_SSL_TRUSTSTORE_LOCATION: /var/lib/secret/kafka.truststore.jks
+      KAFKA_SSL_TRUSTSTORE_PASSWORD: password
+      KAFKA_SSL_KEYSTORE_LOCATION: /var/lib/secret/kafka.keystore.jks
+      KAFKA_SSL_KEYSTORE_PASSWORD: password
+      KAFKA_SSL_KEY_PASSWORD: password
+    networks:
+      emqx_bridge:
+    volumes:
+      - emqx-shared-secret:/var/lib/secret
+      - ./kafka/jaas.conf:/etc/kafka/jaas.conf
+      - ./kafka/run_add_scram_users.sh:/bin/run_add_scram_users.sh
+      - ./kerberos/krb5.conf:/etc/kdc/krb5.conf
+      - ./kerberos/krb5.conf:/etc/krb5.conf
+    command: run_add_scram_users.sh
+

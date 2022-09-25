@@ -45,7 +45,7 @@ init_per_suite(Config) ->
     ),
 
     ok = emqx_common_test_helpers:start_apps(
-        [emqx_connector, emqx_conf, emqx_authz],
+        [emqx_conf, emqx_authz],
         fun set_special_configs/1
     ),
     Config.
@@ -59,8 +59,7 @@ end_per_suite(_Config) ->
             <<"sources">> => []
         }
     ),
-    ok = stop_apps([emqx_resource]),
-    emqx_common_test_helpers:stop_apps([emqx_connector, emqx_authz, emqx_conf]),
+    emqx_common_test_helpers:stop_apps([emqx_authz, emqx_conf]),
     meck:unload(emqx_resource),
     ok.
 

@@ -44,10 +44,10 @@ defmodule EMQXUmbrella.MixProject do
     # we need several overrides here because dependencies specify
     # other exact versions, and not ranges.
     [
-      {:lc, github: "emqx/lc", tag: "0.3.1"},
+      {:lc, github: "emqx/lc", tag: "0.3.2", override: true},
       {:redbug, "2.0.7"},
       {:typerefl, github: "ieQu1/typerefl", tag: "0.9.1", override: true},
-      {:ehttpc, github: "emqx/ehttpc", tag: "0.3.0"},
+      {:ehttpc, github: "emqx/ehttpc", tag: "0.4.0", override: true},
       {:gproc, github: "uwiger/gproc", tag: "0.8.0", override: true},
       {:jiffy, github: "emqx/jiffy", tag: "1.0.5", override: true},
       {:cowboy, github: "emqx/cowboy", tag: "2.9.0", override: true},
@@ -56,10 +56,10 @@ defmodule EMQXUmbrella.MixProject do
       {:gen_rpc, github: "emqx/gen_rpc", tag: "2.8.1", override: true},
       {:grpc, github: "emqx/grpc-erl", tag: "0.6.7", override: true},
       {:minirest, github: "emqx/minirest", tag: "1.3.7", override: true},
-      {:ecpool, github: "emqx/ecpool", tag: "0.5.2"},
-      {:replayq, "0.3.4", override: true},
+      {:ecpool, github: "emqx/ecpool", tag: "0.5.2", override: true},
+      {:replayq, github: "emqx/replayq", tag: "0.3.4", override: true},
       {:pbkdf2, github: "emqx/erlang-pbkdf2", tag: "2.0.4", override: true},
-      {:emqtt, github: "emqx/emqtt", tag: "1.6.0", override: true},
+      {:emqtt, github: "emqx/emqtt", tag: "1.7.0-rc.2", override: true},
       {:rulesql, github: "emqx/rulesql", tag: "0.1.4"},
       {:observer_cli, "1.7.1"},
       {:system_monitor, github: "ieQu1/system_monitor", tag: "3.0.3"},
@@ -90,7 +90,9 @@ defmodule EMQXUmbrella.MixProject do
       # in conflict by grpc and eetcd
       {:gpb, "4.19.5", override: true, runtime: false}
     ] ++
-      umbrella_apps() ++ enterprise_apps(profile_info) ++ bcrypt_dep() ++ jq_dep() ++ quicer_dep()
+      umbrella_apps() ++
+      enterprise_apps(profile_info) ++
+      enterprise_deps(profile_info) ++ bcrypt_dep() ++ jq_dep() ++ quicer_dep()
   end
 
   defp umbrella_apps() do
@@ -121,6 +123,23 @@ defmodule EMQXUmbrella.MixProject do
   end
 
   defp enterprise_apps(_profile_info) do
+    []
+  end
+
+  defp enterprise_deps(_profile_info = %{edition_type: :enterprise}) do
+    [
+      {:hstreamdb_erl, github: "hstreamdb/hstreamdb_erl", tag: "0.2.5"},
+      {:influxdb, github: "emqx/influxdb-client-erl", tag: "1.1.3", override: true},
+      {:wolff, github: "kafka4beam/wolff", tag: "1.6.4"},
+      {:kafka_protocol, github: "kafka4beam/kafka_protocol", tag: "4.1.0", override: true},
+      {:brod_gssapi, github: "kafka4beam/brod_gssapi", tag: "v0.1.0-rc1"},
+      {:brod, github: "kafka4beam/brod", tag: "3.16.4"},
+      {:snappyer, "1.2.8", override: true},
+      {:supervisor3, "1.1.11", override: true}
+    ]
+  end
+
+  defp enterprise_deps(_profile_info) do
     []
   end
 
@@ -234,7 +253,9 @@ defmodule EMQXUmbrella.MixProject do
       if(edition_type == :enterprise,
         do: [
           emqx_license: :permanent,
-          emqx_enterprise_conf: :load
+          emqx_ee_conf: :load,
+          emqx_ee_connector: :permanent,
+          emqx_ee_bridge: :permanent
         ],
         else: []
       )
@@ -373,9 +394,9 @@ defmodule EMQXUmbrella.MixProject do
 
     if edition_type == :enterprise do
       render_template(
-        "apps/emqx_conf/etc/emqx_enterprise.conf.all",
+        "apps/emqx_conf/etc/emqx-enterprise.conf.all",
         assigns,
-        Path.join(etc, "emqx_enterprise.conf")
+        Path.join(etc, "emqx-enterprise.conf")
       )
     end
 
@@ -605,7 +626,7 @@ defmodule EMQXUmbrella.MixProject do
     end
   end
 
-  defp emqx_schema_mod(:enterprise), do: :emqx_enterprise_conf_schema
+  defp emqx_schema_mod(:enterprise), do: :emqx_ee_conf_schema
   defp emqx_schema_mod(:community), do: :emqx_conf_schema
 
   defp bcrypt_dep() do

@@ -47,7 +47,6 @@ init_per_suite(Config) ->
         emqx_prometheus,
         emqx_modules,
         emqx_dashboard,
-        emqx_connector,
         emqx_gateway,
         emqx_statsd,
         emqx_resource,

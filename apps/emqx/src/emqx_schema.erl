@@ -1904,6 +1904,7 @@ common_ssl_opts_schema(Defaults) ->
                     sensitive => true,
                     required => false,
                     example => <<"">>,
+                    format => <<"password">>,
                     desc => ?DESC(common_ssl_opts_schema_password)
                 }
             )},

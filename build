@@ -112,7 +112,7 @@ make_docs() {
     fi
     case "$(is_enterprise "$PROFILE")" in
         'yes')
-            SCHEMA_MODULE='emqx_enterprise_conf_schema'
+            SCHEMA_MODULE='emqx_ee_conf_schema'
             ;;
         'no')
             SCHEMA_MODULE='emqx_conf_schema'
@@ -147,6 +147,12 @@ make_rel() {
 make_elixir_rel() {
   ./scripts/pre-compile.sh "$PROFILE"
   export_release_vars "$PROFILE"
+  # for some reason, this has to be run outside "do"...
+  mix local.rebar --if-missing --force
+  # shellcheck disable=SC1010
+  mix do local.hex --if-missing --force, \
+      local.rebar rebar3 "${PWD}/rebar3" --if-missing --force, \
+      deps.get
   mix release --overwrite
   assert_no_compile_time_only_deps
 }

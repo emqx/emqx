@@ -34,18 +34,30 @@
     create_dry_run/2,
     remove/1,
     remove/2,
-    remove/3,
+    remove/4,
     update/2,
     update/3,
+    update/4,
     stop/2,
     restart/2,
     reset_metrics/1
 ]).
 
+%% bi-directional bridge with producer/consumer or ingress/egress configs
+-define(IS_BI_DIR_BRIDGE(TYPE), TYPE =:= <<"mqtt">>; TYPE =:= <<"kafka">>).
+
+-if(?EMQX_RELEASE_EDITION == ee).
+bridge_to_resource_type(<<"mqtt">>) -> emqx_connector_mqtt;
+bridge_to_resource_type(mqtt) -> emqx_connector_mqtt;
+bridge_to_resource_type(<<"webhook">>) -> emqx_connector_http;
+bridge_to_resource_type(webhook) -> emqx_connector_http;
+bridge_to_resource_type(BridgeType) -> emqx_ee_bridge:resource_type(BridgeType).
+-else.
 bridge_to_resource_type(<<"mqtt">>) -> emqx_connector_mqtt;
 bridge_to_resource_type(mqtt) -> emqx_connector_mqtt;
 bridge_to_resource_type(<<"webhook">>) -> emqx_connector_http;
 bridge_to_resource_type(webhook) -> emqx_connector_http.
+-endif.
 
 resource_id(BridgeId) when is_binary(BridgeId) ->
     <<"bridge:", BridgeId/binary>>.
@@ -80,7 +92,7 @@ create(BridgeId, Conf) ->
     create(BridgeType, BridgeName, Conf).
 
 create(Type, Name, Conf) ->
-    create(Type, Name, Conf, #{auto_retry_interval => 60000}).
+    create(Type, Name, Conf, #{}).
 
 create(Type, Name, Conf, Opts) ->
     ?SLOG(info, #{
@@ -93,7 +105,7 @@ create(Type, Name, Conf, Opts) ->
         resource_id(Type, Name),
         <<"emqx_bridge">>,
         bridge_to_resource_type(Type),
-        parse_confs(Type, Name, Conf),
+        parse_confs(bin(Type), Name, Conf),
         Opts
     ),
     maybe_disable_bridge(Type, Name, Conf).
@@ -103,6 +115,9 @@ update(BridgeId, {OldConf, Conf}) ->
     update(BridgeType, BridgeName, {OldConf, Conf}).
 
 update(Type, Name, {OldConf, Conf}) ->
+    update(Type, Name, {OldConf, Conf}, #{}).
+
+update(Type, Name, {OldConf, Conf}, Opts) ->
     %% TODO: sometimes its not necessary to restart the bridge connection.
     %%
     %% - if the connection related configs like `servers` is updated, we should restart/start
@@ -119,7 +134,7 @@ update(Type, Name, {OldConf, Conf}) ->
                 name => Name,
                 config => Conf
             }),
-            case recreate(Type, Name, Conf) of
+            case recreate(Type, Name, Conf, Opts) of
                 {ok, _} ->
                     maybe_disable_bridge(Type, Name, Conf);
                 {error, not_found} ->
@@ -129,7 +144,7 @@ update(Type, Name, {OldConf, Conf}) ->
                         name => Name,
                         config => Conf
                     }),
-                    create(Type, Name, Conf);
+                    create(Type, Name, Conf, Opts);
                 {error, Reason} ->
                     {error, {update_bridge_failed, Reason}}
             end;
@@ -150,41 +165,38 @@ recreate(Type, Name) ->
     recreate(Type, Name, emqx:get_config([bridges, Type, Name])).
 
 recreate(Type, Name, Conf) ->
+    recreate(Type, Name, Conf, #{}).
+
+recreate(Type, Name, Conf, Opts) ->
     emqx_resource:recreate_local(
         resource_id(Type, Name),
         bridge_to_resource_type(Type),
-        parse_confs(Type, Name, Conf),
-        #{auto_retry_interval => 60000}
+        parse_confs(bin(Type), Name, Conf),
+        Opts
     ).
 
 create_dry_run(Type, Conf) ->
-    Conf0 = fill_dry_run_conf(Conf),
-    case emqx_resource:check_config(bridge_to_resource_type(Type), Conf0) of
-        {ok, Conf1} ->
-            TmpPath = iolist_to_binary(["bridges-create-dry-run:", emqx_misc:gen_id(8)]),
-            case emqx_connector_ssl:convert_certs(TmpPath, Conf1) of
-                {error, Reason} ->
-                    {error, Reason};
-                {ok, ConfNew} ->
-                    Res = emqx_resource:create_dry_run_local(
-                        bridge_to_resource_type(Type), ConfNew
-                    ),
-                    _ = maybe_clear_certs(TmpPath, ConfNew),
-                    Res
-            end;
-        {error, _} = Error ->
-            Error
+    TmpPath = iolist_to_binary(["bridges-create-dry-run:", emqx_misc:gen_id(8)]),
+    case emqx_connector_ssl:convert_certs(TmpPath, Conf) of
+        {error, Reason} ->
+            {error, Reason};
+        {ok, ConfNew} ->
+            Res = emqx_resource:create_dry_run_local(
+                bridge_to_resource_type(Type), ConfNew
+            ),
+            _ = maybe_clear_certs(TmpPath, ConfNew),
+            Res
     end.
 
 remove(BridgeId) ->
     {BridgeType, BridgeName} = parse_bridge_id(BridgeId),
-    remove(BridgeType, BridgeName, #{}).
+    remove(BridgeType, BridgeName, #{}, #{}).
 
 remove(Type, Name) ->
-    remove(Type, Name, undefined).
+    remove(Type, Name, #{}, #{}).
 
 %% just for perform_bridge_changes/1
-remove(Type, Name, _Conf) ->
+remove(Type, Name, _Conf, _Opts) ->
     ?SLOG(info, #{msg => "remove_bridge", type => Type, name => Name}),
     case emqx_resource:remove_local(resource_id(Type, Name)) of
         ok -> ok;
@@ -197,19 +209,6 @@ maybe_disable_bridge(Type, Name, Conf) ->
         false -> stop(Type, Name);
         true -> ok
     end.
-
-fill_dry_run_conf(Conf) ->
-    Conf#{
-        <<"egress">> =>
-            #{
-                <<"remote_topic">> => <<"t">>,
-                <<"remote_qos">> => 0,
-                <<"retain">> => true,
-                <<"payload">> => <<"val">>
-            },
-        <<"ingress">> =>
-            #{<<"remote_topic">> => <<"t">>}
-    }.
 
 maybe_clear_certs(TmpPath, #{ssl := SslConf} = Conf) ->
     %% don't remove the cert files if they are in use
@@ -230,8 +229,9 @@ is_tmp_path_conf(_TmpPath, _Conf) ->
 is_tmp_path(TmpPath, File) ->
     string:str(str(File), str(TmpPath)) > 0.
 
+%% convert bridge configs to what the connector modules want
 parse_confs(
-    webhook,
+    <<"webhook">>,
     _Name,
     #{
         url := Url,
@@ -256,42 +256,14 @@ parse_confs(
                 max_retries => Retry
             }
     };
-parse_confs(Type, Name, #{connector := ConnId, direction := Direction} = Conf) when
-    is_binary(ConnId)
-->
-    case emqx_connector:parse_connector_id(ConnId) of
-        {Type, ConnName} ->
-            ConnectorConfs = emqx:get_config([connectors, Type, ConnName]),
-            make_resource_confs(
-                Direction,
-                ConnectorConfs,
-                maps:without([connector, direction], Conf),
-                Type,
-                Name
-            );
-        {_ConnType, _ConnName} ->
-            error({cannot_use_connector_with_different_type, ConnId})
-    end;
-parse_confs(Type, Name, #{connector := ConnectorConfs, direction := Direction} = Conf) when
-    is_map(ConnectorConfs)
-->
-    make_resource_confs(
-        Direction,
-        ConnectorConfs,
-        maps:without([connector, direction], Conf),
-        Type,
-        Name
-    ).
-
-make_resource_confs(ingress, ConnectorConfs, BridgeConf, Type, Name) ->
+parse_confs(Type, Name, Conf) when ?IS_BI_DIR_BRIDGE(Type) ->
+    %% For some drivers that can be used as data-sources, we need to provide a
+    %% hookpoint. The underlying driver will run `emqx_hooks:run/3` when it
+    %% receives a message from the external database.
     BName = bridge_id(Type, Name),
-    ConnectorConfs#{
-        ingress => BridgeConf#{hookpoint => <<"$bridges/", BName/binary>>}
-    };
-make_resource_confs(egress, ConnectorConfs, BridgeConf, _Type, _Name) ->
-    ConnectorConfs#{
-        egress => BridgeConf
-    }.
+    Conf#{hookpoint => <<"$bridges/", BName/binary>>, bridge_name => Name};
+parse_confs(_Type, _Name, Conf) ->
+    Conf.
 
 parse_url(Url) ->
     case string:split(Url, "//", leading) of

@@ -121,6 +121,8 @@ jobs:
           - aws-arm64
           - ubuntu-20.04
         exclude:
+          - registry: 'public.ecr.aws'
+            profile: emqx-enterprise
           - arch: arm64
             build_machine: ubuntu-20.04
           - arch: amd64
@@ -229,7 +231,7 @@ jobs:
 
   docker-push-multi-arch-manifest:
     # note, we only run on amd64
-    if: ${{ needs.prepare.outputs.IS_EXACT_TAG }}
+    if: needs.prepare.outputs.IS_EXACT_TAG == 'true'
     needs:
       - prepare
       - docker
@@ -260,6 +262,8 @@ jobs:
           - 'docker.io'
           - 'public.ecr.aws'
         exclude:
+          - registry: 'public.ecr.aws'
+            profile: emqx-enterprise
           - arch: arm64
             build_machine: ubuntu-20.04
           - arch: amd64
@@ -339,7 +343,7 @@ jobs:
             ${{ steps.pre-meta.outputs.img_labels }}
 
       - name: update manifest for multiarch image
-        if: ${{ needs.prepare.outputs.IS_EXACT_TAG }}
+        if: needs.prepare.outputs.IS_EXACT_TAG == 'true'
         working-directory: source
         run: |
           if [ ${{ matrix.build_elixir }} = 'with_elixir' ]; then

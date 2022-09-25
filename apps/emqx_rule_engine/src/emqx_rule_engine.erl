@@ -46,6 +46,8 @@
     get_rules/0,
     get_rules_for_topic/1,
     get_rules_with_same_event/1,
+    get_rule_ids_by_action/1,
+    ensure_action_removed/2,
     get_rules_ordered_by_ts/0
 ]).
 
@@ -98,6 +100,8 @@
 ]).
 
 -define(RATE_METRICS, ['matched']).
+
+-type action_name() :: binary() | #{function := binary()}.
 
 config_key_path() ->
     [rule_engine, rules].
@@ -207,6 +211,46 @@ get_rules_with_same_event(Topic) ->
      || Rule = #{from := From} <- get_rules(),
         lists:any(fun(T) -> is_of_event_name(EventName, T) end, From)
     ].
+
+-spec get_rule_ids_by_action(action_name()) -> [rule_id()].
+get_rule_ids_by_action(ActionName) when is_binary(ActionName) ->
+    [
+        Id
+     || #{actions := Acts, id := Id} <- get_rules(),
+        lists:any(fun(A) -> A =:= ActionName end, Acts)
+    ];
+get_rule_ids_by_action(#{function := FuncName}) when is_binary(FuncName) ->
+    {Mod, Fun} =
+        case string:split(FuncName, ":", leading) of
+            [M, F] -> {binary_to_module(M), F};
+            [F] -> {emqx_rule_actions, F}
+        end,
+    [
+        Id
+     || #{actions := Acts, id := Id} <- get_rules(),
+        contains_actions(Acts, Mod, Fun)
+    ].
+
+-spec ensure_action_removed(rule_id(), action_name()) -> ok.
+ensure_action_removed(RuleId, ActionName) ->
+    FilterFunc =
+        fun
+            (Func, Func) -> false;
+            (#{<<"function">> := Func}, #{function := Func}) -> false;
+            (_, _) -> true
+        end,
+    case emqx:get_raw_config([rule_engine, rules, RuleId], not_found) of
+        not_found ->
+            ok;
+        #{<<"actions">> := Acts} ->
+            NewActs = [AName || AName <- Acts, FilterFunc(AName, ActionName)],
+            {ok, _} = emqx_conf:update(
+                emqx_rule_engine:config_key_path() ++ [RuleId, actions],
+                NewActs,
+                #{override_to => cluster}
+            ),
+            ok
+    end.
 
 is_of_event_name(EventName, Topic) ->
     EventName =:= emqx_rule_events:event_name(Topic).
@@ -417,3 +461,20 @@ now_ms() ->
 
 bin(A) when is_atom(A) -> atom_to_binary(A, utf8);
 bin(B) when is_binary(B) -> B.
+
+binary_to_module(ModName) ->
+    try
+        binary_to_existing_atom(ModName, utf8)
+    catch
+        error:badarg ->
+            not_exist_mod
+    end.
+
+contains_actions(Actions, Mod0, Func0) ->
+    lists:any(
+        fun
+            (#{mod := Mod, func := Func}) when Mod =:= Mod0; Func =:= Func0 -> true;
+            (_) -> false
+        end,
+        Actions
+    ).

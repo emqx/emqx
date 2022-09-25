@@ -26,10 +26,13 @@
 
 %% callbacks of behaviour emqx_resource
 -export([
+    callback_mode/0,
     on_start/2,
     on_stop/2,
-    on_query/4,
-    on_get_status/2
+    on_query/3,
+    on_query_async/4,
+    on_get_status/2,
+    reply_delegator/2
 ]).
 
 -type url() :: emqx_http_lib:uri_map().
@@ -44,7 +47,7 @@
     namespace/0
 ]).
 
--export([check_ssl_opts/2]).
+-export([check_ssl_opts/2, validate_method/1]).
 
 -type connect_timeout() :: emqx_schema:duration() | infinity.
 -type pool_type() :: random | hash.
@@ -135,8 +138,10 @@ fields(config) ->
 fields("request") ->
     [
         {method,
-            hoconsc:mk(hoconsc:enum([post, put, get, delete]), #{
-                required => false, desc => ?DESC("method")
+            hoconsc:mk(binary(), #{
+                required => false,
+                desc => ?DESC("method"),
+                validator => fun ?MODULE:validate_method/1
             })},
         {path, hoconsc:mk(binary(), #{required => false, desc => ?DESC("path")})},
         {body, hoconsc:mk(binary(), #{required => false, desc => ?DESC("body")})},
@@ -169,10 +174,23 @@ desc(_) ->
 validations() ->
     [{check_ssl_opts, fun check_ssl_opts/1}].
 
+validate_method(M) when M =:= <<"post">>; M =:= <<"put">>; M =:= <<"get">>; M =:= <<"delete">> ->
+    ok;
+validate_method(M) ->
+    case string:find(M, "${") of
+        nomatch ->
+            {error,
+                <<"Invalid method, should be one of 'post', 'put', 'get', 'delete' or variables in ${field} format.">>};
+        _ ->
+            ok
+    end.
+
 sc(Type, Meta) -> hoconsc:mk(Type, Meta).
 ref(Field) -> hoconsc:ref(?MODULE, Field).
 
 %% ===================================================================
+
+callback_mode() -> async_if_possible.
 
 on_start(
     InstId,
@@ -235,10 +253,11 @@ on_stop(InstId, #{pool_name := PoolName}) ->
     }),
     ehttpc_sup:stop_pool(PoolName).
 
-on_query(InstId, {send_message, Msg}, AfterQuery, State) ->
+on_query(InstId, {send_message, Msg}, State) ->
     case maps:get(request, State, undefined) of
         undefined ->
-            ?SLOG(error, #{msg => "request_not_found", connector => InstId});
+            ?SLOG(error, #{msg => "arg_request_not_found", connector => InstId}),
+            {error, arg_request_not_found};
         Request ->
             #{
                 method := Method,
@@ -251,18 +270,16 @@ on_query(InstId, {send_message, Msg}, AfterQuery, State) ->
             on_query(
                 InstId,
                 {undefined, Method, {Path, Headers, Body}, Timeout, Retry},
-                AfterQuery,
                 State
             )
     end;
-on_query(InstId, {Method, Request}, AfterQuery, State) ->
-    on_query(InstId, {undefined, Method, Request, 5000, 2}, AfterQuery, State);
-on_query(InstId, {Method, Request, Timeout}, AfterQuery, State) ->
-    on_query(InstId, {undefined, Method, Request, Timeout, 2}, AfterQuery, State);
+on_query(InstId, {Method, Request}, State) ->
+    on_query(InstId, {undefined, Method, Request, 5000, 2}, State);
+on_query(InstId, {Method, Request, Timeout}, State) ->
+    on_query(InstId, {undefined, Method, Request, Timeout, 2}, State);
 on_query(
     InstId,
     {KeyOrNum, Method, Request, Timeout, Retry},
-    AfterQuery,
     #{pool_name := PoolName, base_path := BasePath} = State
 ) ->
     ?TRACE(
@@ -272,7 +289,7 @@ on_query(
     ),
     NRequest = formalize_request(Method, BasePath, Request),
     case
-        Result = ehttpc:request(
+        ehttpc:request(
             case KeyOrNum of
                 undefined -> PoolName;
                 _ -> {PoolName, KeyOrNum}
@@ -283,36 +300,87 @@ on_query(
             Retry
         )
     of
-        {error, Reason} ->
+        {error, Reason} when Reason =:= econnrefused; Reason =:= timeout ->
+            ?SLOG(warning, #{
+                msg => "http_connector_do_request_failed",
+                reason => Reason,
+                connector => InstId
+            }),
+            {error, {recoverable_error, Reason}};
+        {error, Reason} = Result ->
             ?SLOG(error, #{
-                msg => "http_connector_do_reqeust_failed",
+                msg => "http_connector_do_request_failed",
                 request => NRequest,
                 reason => Reason,
                 connector => InstId
             }),
-            emqx_resource:query_failed(AfterQuery);
-        {ok, StatusCode, _} when StatusCode >= 200 andalso StatusCode < 300 ->
-            emqx_resource:query_success(AfterQuery);
-        {ok, StatusCode, _, _} when StatusCode >= 200 andalso StatusCode < 300 ->
-            emqx_resource:query_success(AfterQuery);
-        {ok, StatusCode, _} ->
+            Result;
+        {ok, StatusCode, _} = Result when StatusCode >= 200 andalso StatusCode < 300 ->
+            Result;
+        {ok, StatusCode, _, _} = Result when StatusCode >= 200 andalso StatusCode < 300 ->
+            Result;
+        {ok, StatusCode, Headers} ->
             ?SLOG(error, #{
                 msg => "http connector do request, received error response",
                 request => NRequest,
                 connector => InstId,
                 status_code => StatusCode
             }),
-            emqx_resource:query_failed(AfterQuery);
-        {ok, StatusCode, _, _} ->
+            {error, #{status_code => StatusCode, headers => Headers}};
+        {ok, StatusCode, Headers, Body} ->
             ?SLOG(error, #{
                 msg => "http connector do request, received error response",
                 request => NRequest,
                 connector => InstId,
                 status_code => StatusCode
             }),
-            emqx_resource:query_failed(AfterQuery)
-    end,
-    Result.
+            {error, #{status_code => StatusCode, headers => Headers, body => Body}}
+    end.
+
+on_query_async(InstId, {send_message, Msg}, ReplyFunAndArgs, State) ->
+    case maps:get(request, State, undefined) of
+        undefined ->
+            ?SLOG(error, #{msg => "arg_request_not_found", connector => InstId}),
+            {error, arg_request_not_found};
+        Request ->
+            #{
+                method := Method,
+                path := Path,
+                body := Body,
+                headers := Headers,
+                request_timeout := Timeout
+            } = process_request(Request, Msg),
+            on_query_async(
+                InstId,
+                {undefined, Method, {Path, Headers, Body}, Timeout},
+                ReplyFunAndArgs,
+                State
+            )
+    end;
+on_query_async(
+    InstId,
+    {KeyOrNum, Method, Request, Timeout},
+    ReplyFunAndArgs,
+    #{pool_name := PoolName, base_path := BasePath} = State
+) ->
+    ?TRACE(
+        "QUERY_ASYNC",
+        "http_connector_received",
+        #{request => Request, connector => InstId, state => State}
+    ),
+    NRequest = formalize_request(Method, BasePath, Request),
+    Worker =
+        case KeyOrNum of
+            undefined -> ehttpc_pool:pick_worker(PoolName);
+            _ -> ehttpc_pool:pick_worker(PoolName, KeyOrNum)
+        end,
+    ok = ehttpc:request_async(
+        Worker,
+        Method,
+        NRequest,
+        Timeout,
+        {fun ?MODULE:reply_delegator/2, [ReplyFunAndArgs]}
+    ).
 
 on_get_status(_InstId, #{pool_name := PoolName, connect_timeout := Timeout} = State) ->
     case do_get_status(PoolName, Timeout) of
@@ -355,7 +423,6 @@ do_get_status(PoolName, Timeout) ->
 %%--------------------------------------------------------------------
 %% Internal functions
 %%--------------------------------------------------------------------
-
 preprocess_request(undefined) ->
     undefined;
 preprocess_request(Req) when map_size(Req) == 0 ->
@@ -468,3 +535,12 @@ bin(Str) when is_list(Str) ->
     list_to_binary(Str);
 bin(Atom) when is_atom(Atom) ->
     atom_to_binary(Atom, utf8).
+
+reply_delegator(ReplyFunAndArgs, Result) ->
+    case Result of
+        {error, Reason} when Reason =:= econnrefused; Reason =:= timeout ->
+            Result1 = {error, {recoverable_error, Reason}},
+            emqx_resource:apply_reply_fun(ReplyFunAndArgs, Result1);
+        _ ->
+            emqx_resource:apply_reply_fun(ReplyFunAndArgs, Result)
+    end.

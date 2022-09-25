@@ -7,7 +7,7 @@ export EMQX_DEFAULT_RUNNER = debian:11-slim
 export OTP_VSN ?= $(shell $(CURDIR)/scripts/get-otp-vsn.sh)
 export ELIXIR_VSN ?= $(shell $(CURDIR)/scripts/get-elixir-vsn.sh)
 export EMQX_DASHBOARD_VERSION ?= v1.0.9
-export EMQX_EE_DASHBOARD_VERSION ?= e1.0.0
+export EMQX_EE_DASHBOARD_VERSION ?= e1.0.1-beta.4
 export EMQX_REL_FORM ?= tgz
 export QUICER_DOWNLOAD_FROM_RELEASE = 1
 ifeq ($(OS),Windows_NT)
@@ -43,22 +43,6 @@ all: $(REBAR) $(PROFILES)
 .PHONY: ensure-rebar3
 ensure-rebar3:
 	@$(SCRIPTS)/ensure-rebar3.sh
-
-.PHONY: ensure-hex
-ensure-hex:
-	@mix local.hex --if-missing --force
-
-.PHONY: ensure-mix-rebar3
-ensure-mix-rebar3: $(REBAR)
-	@mix local.rebar rebar3 $(CURDIR)/rebar3 --if-missing --force
-
-.PHONY: ensure-mix-rebar
-ensure-mix-rebar: $(REBAR)
-	@mix local.rebar --if-missing --force
-
-.PHONY: mix-deps-get
-mix-deps-get: $(ELIXIR_COMMON_DEPS)
-	@mix deps.get
 
 $(REBAR): prepare ensure-rebar3
 
@@ -115,8 +99,6 @@ coveralls: $(REBAR)
 	@ENABLE_COVER_COMPILE=1 $(REBAR) as test coveralls send
 
 COMMON_DEPS := $(REBAR)
-
-ELIXIR_COMMON_DEPS := ensure-hex ensure-mix-rebar3 ensure-mix-rebar
 
 .PHONY: $(REL_PROFILES)
 $(REL_PROFILES:%=%): $(COMMON_DEPS)
@@ -226,13 +208,13 @@ conf-segs:
 
 ## elixir target is to create release packages using Elixir's Mix
 .PHONY: $(REL_PROFILES:%=%-elixir) $(PKG_PROFILES:%=%-elixir)
-$(REL_PROFILES:%=%-elixir) $(PKG_PROFILES:%=%-elixir): $(COMMON_DEPS) $(ELIXIR_COMMON_DEPS) mix-deps-get
+$(REL_PROFILES:%=%-elixir) $(PKG_PROFILES:%=%-elixir): $(COMMON_DEPS)
 	@env IS_ELIXIR=yes $(BUILD) $(subst -elixir,,$(@)) elixir
 
 .PHONY: $(REL_PROFILES:%=%-elixir-pkg)
 define gen-elixir-pkg-target
 # the Elixir places the tar in a different path than Rebar3
-$1-elixir-pkg: $(COMMON_DEPS) $(ELIXIR_COMMON_DEPS) mix-deps-get
+$1-elixir-pkg: $(COMMON_DEPS)
 	@env TAR_PKG_DIR=_build/$1-pkg \
 	     IS_ELIXIR=yes \
 	     $(BUILD) $1-pkg pkg
@@ -241,7 +223,7 @@ $(foreach pt,$(REL_PROFILES),$(eval $(call gen-elixir-pkg-target,$(pt))))
 
 .PHONY: $(REL_PROFILES:%=%-elixir-tgz)
 define gen-elixir-tgz-target
-$1-elixir-tgz: $(COMMON_DEPS) $(ELIXIR_COMMON_DEPS) mix-deps-get
+$1-elixir-tgz: $(COMMON_DEPS)
 	@env IS_ELIXIR=yes $(BUILD) $1 tgz
 endef
 ALL_ELIXIR_TGZS = $(REL_PROFILES)

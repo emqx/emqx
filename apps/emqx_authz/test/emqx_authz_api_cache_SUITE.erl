@@ -23,6 +23,8 @@
 -include_lib("eunit/include/eunit.hrl").
 -include_lib("common_test/include/ct.hrl").
 
+suite() -> [{timetrap, {seconds, 60}}].
+
 all() ->
     emqx_common_test_helpers:all(?MODULE).
 
@@ -45,7 +47,6 @@ end_per_suite(_Config) ->
             <<"sources">> => []
         }
     ),
-    ok = stop_apps([emqx_resource, emqx_connector]),
     emqx_common_test_helpers:stop_apps([emqx_dashboard, emqx_authz, emqx_conf, emqx_management]),
     ok.
 

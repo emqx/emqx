@@ -49,7 +49,7 @@ init_per_suite(Config) ->
     case emqx_common_test_helpers:is_tcp_server_available(?REDIS_HOST, ?REDIS_TLS_PORT) of
         true ->
             ok = emqx_common_test_helpers:start_apps([emqx_authn]),
-            ok = start_apps([emqx_resource, emqx_connector]),
+            ok = start_apps([emqx_resource]),
             Config;
         false ->
             {skip, no_redis}
@@ -60,7 +60,7 @@ end_per_suite(_Config) ->
         [authentication],
         ?GLOBAL
     ),
-    ok = stop_apps([emqx_resource, emqx_connector]),
+    ok = stop_apps([emqx_resource]),
     ok = emqx_common_test_helpers:stop_apps([emqx_authn]).
 
 %%------------------------------------------------------------------------------

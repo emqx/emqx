@@ -1,0 +1,13 @@
+{application, emqx_ee_conf, [
+    {description, "EMQX Enterprise Edition configuration schema"},
+    {vsn, "0.1.0"},
+    {registered, []},
+    {applications, [
+        kernel,
+        stdlib
+    ]},
+    {env, []},
+    {modules, []},
+
+    {links, []}
+]}.

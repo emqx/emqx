@@ -29,6 +29,7 @@
 
 start(_StartType, _StartArgs) ->
     {ok, Sup} = emqx_bridge_sup:start_link(),
+    ok = start_ee_apps(),
     ok = emqx_bridge:load(),
     ok = emqx_bridge:load_hook(),
     ok = emqx_config_handler:add_handler(?LEAF_NODE_HDLR_PATH, ?MODULE),
@@ -40,6 +41,15 @@ stop(_State) ->
     emqx_conf:remove_handler(?TOP_LELVE_HDLR_PATH),
     ok = emqx_bridge:unload_hook(),
     ok.
+
+-if(?EMQX_RELEASE_EDITION == ee).
+start_ee_apps() ->
+    {ok, _} = application:ensure_all_started(emqx_ee_bridge),
+    ok.
+-else.
+start_ee_apps() ->
+    ok.
+-endif.
 
 %% NOTE: We depends on the `emqx_bridge:pre_config_update/3` to restart/stop the
 %%       underlying resources.

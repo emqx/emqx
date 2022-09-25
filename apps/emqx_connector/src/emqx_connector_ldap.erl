@@ -25,9 +25,10 @@
 
 %% callbacks of behaviour emqx_resource
 -export([
+    callback_mode/0,
     on_start/2,
     on_stop/2,
-    on_query/4,
+    on_query/3,
     on_get_status/2
 ]).
 
@@ -42,6 +43,8 @@ roots() ->
 fields(_) -> [].
 
 %% ===================================================================
+callback_mode() -> always_sync.
+
 on_start(
     InstId,
     #{
@@ -99,7 +102,7 @@ on_stop(InstId, #{poolname := PoolName}) ->
     }),
     emqx_plugin_libs_pool:stop_pool(PoolName).
 
-on_query(InstId, {search, Base, Filter, Attributes}, AfterQuery, #{poolname := PoolName} = State) ->
+on_query(InstId, {search, Base, Filter, Attributes}, #{poolname := PoolName} = State) ->
     Request = {Base, Filter, Attributes},
     ?TRACE(
         "QUERY",
@@ -119,10 +122,9 @@ on_query(InstId, {search, Base, Filter, Attributes}, AfterQuery, #{poolname := P
                 request => Request,
                 connector => InstId,
                 reason => Reason
-            }),
-            emqx_resource:query_failed(AfterQuery);
+            });
         _ ->
-            emqx_resource:query_success(AfterQuery)
+            ok
     end,
     Result.
 

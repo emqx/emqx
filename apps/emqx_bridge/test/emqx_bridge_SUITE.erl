@@ -89,36 +89,29 @@ t_get_basic_usage_info_1(_Config) ->
     ).
 
 setup_fake_telemetry_data() ->
-    ConnectorConf =
-        #{
-            <<"connectors">> =>
-                #{
-                    <<"mqtt">> => #{
-                        <<"my_mqtt_connector">> =>
-                            #{server => "127.0.0.1:1883"},
-                        <<"my_mqtt_connector2">> =>
-                            #{server => "127.0.0.1:1884"}
-                    }
-                }
-        },
     MQTTConfig1 = #{
-        connector => <<"mqtt:my_mqtt_connector">>,
+        server => "127.0.0.1:1883",
         enable => true,
-        direction => ingress,
-        remote_topic => <<"aws/#">>,
-        remote_qos => 1
+        ingress => #{
+            remote => #{
+                topic => <<"aws/#">>,
+                qos => 1
+            }
+        }
     },
     MQTTConfig2 = #{
-        connector => <<"mqtt:my_mqtt_connector2">>,
+        server => "127.0.0.1:1884",
         enable => true,
-        direction => ingress,
-        remote_topic => <<"$bridges/mqtt:some_bridge_in">>,
-        remote_qos => 1
+        ingress => #{
+            remote => #{
+                topic => <<"$bridges/mqtt:some_bridge_in">>,
+                qos => 1
+            }
+        }
     },
     HTTPConfig = #{
         url => <<"http://localhost:9901/messages/${topic}">>,
         enable => true,
-        direction => egress,
         local_topic => "emqx_webhook/#",
         method => post,
         body => <<"${payload}">>,
@@ -143,7 +136,6 @@ setup_fake_telemetry_data() ->
                 }
         },
     Opts = #{raw_with_default => true},
-    ok = emqx_common_test_helpers:load_config(emqx_connector_schema, ConnectorConf, Opts),
     ok = emqx_common_test_helpers:load_config(emqx_bridge_schema, Conf, Opts),
 
     ok = snabbkaffe:start_trace(),

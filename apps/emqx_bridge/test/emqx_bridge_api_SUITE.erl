@@ -24,7 +24,7 @@
 -include_lib("common_test/include/ct.hrl").
 -define(CONF_DEFAULT, <<"bridges: {}">>).
 -define(BRIDGE_TYPE, <<"webhook">>).
--define(BRIDGE_NAME, <<"test_bridge">>).
+-define(BRIDGE_NAME, (atom_to_binary(?FUNCTION_NAME))).
 -define(URL(PORT, PATH),
     list_to_binary(
         io_lib:format(
@@ -61,14 +61,18 @@ init_per_suite(Config) ->
     _ = application:stop(emqx_resource),
     _ = application:stop(emqx_connector),
     ok = emqx_common_test_helpers:start_apps(
-        [emqx_bridge, emqx_dashboard],
+        [emqx_rule_engine, emqx_bridge, emqx_dashboard],
         fun set_special_configs/1
+    ),
+    ok = emqx_common_test_helpers:load_config(
+        emqx_rule_engine_schema,
+        <<"rule_engine {rules {}}">>
     ),
     ok = emqx_common_test_helpers:load_config(emqx_bridge_schema, ?CONF_DEFAULT),
     Config.
 
 end_per_suite(_Config) ->
-    emqx_common_test_helpers:stop_apps([emqx_bridge, emqx_dashboard]),
+    emqx_common_test_helpers:stop_apps([emqx_rule_engine, emqx_bridge, emqx_dashboard]),
     ok.
 
 set_special_configs(emqx_dashboard) ->
@@ -78,8 +82,12 @@ set_special_configs(_) ->
 
 init_per_testcase(_, Config) ->
     {ok, _} = emqx_cluster_rpc:start_link(node(), emqx_cluster_rpc, 1000),
-    Config.
-end_per_testcase(_, _Config) ->
+    {Port, Sock, Acceptor} = start_http_server(fun handle_fun_200_ok/2),
+    [{port, Port}, {sock, Sock}, {acceptor, Acceptor} | Config].
+end_per_testcase(_, Config) ->
+    Sock = ?config(sock, Config),
+    Acceptor = ?config(acceptor, Config),
+    stop_http_server(Sock, Acceptor),
     clear_resources(),
     ok.
 
@@ -95,31 +103,39 @@ clear_resources() ->
 %% HTTP server for testing
 %%------------------------------------------------------------------------------
 start_http_server(HandleFun) ->
+    process_flag(trap_exit, true),
     Parent = self(),
-    spawn_link(fun() ->
-        {Port, Sock} = listen_on_random_port(),
-        Parent ! {port, Port},
-        loop(Sock, HandleFun, Parent)
+    {Port, Sock} = listen_on_random_port(),
+    Acceptor = spawn_link(fun() ->
+        accept_loop(Sock, HandleFun, Parent)
     end),
-    receive
-        {port, Port} -> Port
-    after 2000 -> error({timeout, start_http_server})
-    end.
+    timer:sleep(100),
+    {Port, Sock, Acceptor}.
+
+stop_http_server(Sock, Acceptor) ->
+    exit(Acceptor, kill),
+    gen_tcp:close(Sock).
 
 listen_on_random_port() ->
     Min = 1024,
     Max = 65000,
+    rand:seed(exsplus, erlang:timestamp()),
     Port = rand:uniform(Max - Min) + Min,
-    case gen_tcp:listen(Port, [{active, false}, {reuseaddr, true}, binary]) of
+    case
+        gen_tcp:listen(Port, [
+            binary, {active, false}, {packet, raw}, {reuseaddr, true}, {backlog, 1000}
+        ])
+    of
         {ok, Sock} -> {Port, Sock};
         {error, eaddrinuse} -> listen_on_random_port()
     end.
 
-loop(Sock, HandleFun, Parent) ->
+accept_loop(Sock, HandleFun, Parent) ->
+    process_flag(trap_exit, true),
     {ok, Conn} = gen_tcp:accept(Sock),
-    Handler = spawn(fun() -> HandleFun(Conn, Parent) end),
+    Handler = spawn_link(fun() -> HandleFun(Conn, Parent) end),
     gen_tcp:controlling_process(Conn, Handler),
-    loop(Sock, HandleFun, Parent).
+    accept_loop(Sock, HandleFun, Parent).
 
 make_response(CodeStr, Str) ->
     B = iolist_to_binary(Str),
@@ -138,7 +154,9 @@ handle_fun_200_ok(Conn, Parent) ->
             Parent ! {http_server, received, Req},
             gen_tcp:send(Conn, make_response("200 OK", "Request OK")),
             handle_fun_200_ok(Conn, Parent);
-        {error, closed} ->
+        {error, Reason} ->
+            ct:pal("the http handler recv error: ~p", [Reason]),
+            timer:sleep(100),
             gen_tcp:close(Conn)
     end.
 
@@ -153,24 +171,25 @@ parse_http_request(ReqStr0) ->
 %% Testcases
 %%------------------------------------------------------------------------------
 
-t_http_crud_apis(_) ->
-    Port = start_http_server(fun handle_fun_200_ok/2),
+t_http_crud_apis(Config) ->
+    Port = ?config(port, Config),
     %% assert we there's no bridges at first
     {ok, 200, <<"[]">>} = request(get, uri(["bridges"]), []),
 
     %% then we add a webhook bridge, using POST
     %% POST /bridges/ will create a bridge
     URL1 = ?URL(Port, "path1"),
+    Name = ?BRIDGE_NAME,
     {ok, 201, Bridge} = request(
         post,
         uri(["bridges"]),
-        ?HTTP_BRIDGE(URL1, ?BRIDGE_TYPE, ?BRIDGE_NAME)
+        ?HTTP_BRIDGE(URL1, ?BRIDGE_TYPE, Name)
     ),
 
     %ct:pal("---bridge: ~p", [Bridge]),
     #{
         <<"type">> := ?BRIDGE_TYPE,
-        <<"name">> := ?BRIDGE_NAME,
+        <<"name">> := Name,
         <<"enable">> := true,
         <<"status">> := _,
         <<"node_status">> := [_ | _],
@@ -179,7 +198,7 @@ t_http_crud_apis(_) ->
         <<"url">> := URL1
     } = jsx:decode(Bridge),
 
-    BridgeID = emqx_bridge_resource:bridge_id(?BRIDGE_TYPE, ?BRIDGE_NAME),
+    BridgeID = emqx_bridge_resource:bridge_id(?BRIDGE_TYPE, Name),
     %% send an message to emqx and the message should be forwarded to the HTTP server
     Body = <<"my msg">>,
     emqx:publish(emqx_message:make(<<"emqx_webhook/1">>, Body)),
@@ -203,12 +222,12 @@ t_http_crud_apis(_) ->
     {ok, 200, Bridge2} = request(
         put,
         uri(["bridges", BridgeID]),
-        ?HTTP_BRIDGE(URL2, ?BRIDGE_TYPE, ?BRIDGE_NAME)
+        ?HTTP_BRIDGE(URL2, ?BRIDGE_TYPE, Name)
     ),
     ?assertMatch(
         #{
             <<"type">> := ?BRIDGE_TYPE,
-            <<"name">> := ?BRIDGE_NAME,
+            <<"name">> := Name,
             <<"enable">> := true,
             <<"status">> := _,
             <<"node_status">> := [_ | _],
@@ -225,7 +244,7 @@ t_http_crud_apis(_) ->
         [
             #{
                 <<"type">> := ?BRIDGE_TYPE,
-                <<"name">> := ?BRIDGE_NAME,
+                <<"name">> := Name,
                 <<"enable">> := true,
                 <<"status">> := _,
                 <<"node_status">> := [_ | _],
@@ -242,7 +261,7 @@ t_http_crud_apis(_) ->
     ?assertMatch(
         #{
             <<"type">> := ?BRIDGE_TYPE,
-            <<"name">> := ?BRIDGE_NAME,
+            <<"name">> := Name,
             <<"enable">> := true,
             <<"status">> := _,
             <<"node_status">> := [_ | _],
@@ -275,7 +294,7 @@ t_http_crud_apis(_) ->
     {ok, 404, ErrMsg2} = request(
         put,
         uri(["bridges", BridgeID]),
-        ?HTTP_BRIDGE(URL2, ?BRIDGE_TYPE, ?BRIDGE_NAME)
+        ?HTTP_BRIDGE(URL2, ?BRIDGE_TYPE, Name)
     ),
     ?assertMatch(
         #{
@@ -286,29 +305,102 @@ t_http_crud_apis(_) ->
     ),
     ok.
 
-t_start_stop_bridges(_) ->
-    lists:foreach(
-        fun(Type) ->
-            do_start_stop_bridges(Type)
-        end,
-        [node, cluster]
-    ).
-
-do_start_stop_bridges(Type) ->
+t_check_dependent_actions_on_delete(Config) ->
+    Port = ?config(port, Config),
     %% assert we there's no bridges at first
     {ok, 200, <<"[]">>} = request(get, uri(["bridges"]), []),
 
-    Port = start_http_server(fun handle_fun_200_ok/2),
+    %% then we add a webhook bridge, using POST
+    %% POST /bridges/ will create a bridge
+    URL1 = ?URL(Port, "path1"),
+    Name = <<"t_http_crud_apis">>,
+    BridgeID = emqx_bridge_resource:bridge_id(?BRIDGE_TYPE, Name),
+    {ok, 201, _} = request(
+        post,
+        uri(["bridges"]),
+        ?HTTP_BRIDGE(URL1, ?BRIDGE_TYPE, Name)
+    ),
+    {ok, 201, Rule} = request(
+        post,
+        uri(["rules"]),
+        #{
+            <<"name">> => <<"t_http_crud_apis">>,
+            <<"enable">> => true,
+            <<"actions">> => [BridgeID],
+            <<"sql">> => <<"SELECT * from \"t\"">>
+        }
+    ),
+    #{<<"id">> := RuleId} = jsx:decode(Rule),
+    %% delete the bridge should fail because there is a rule depenents on it
+    {ok, 403, _} = request(delete, uri(["bridges", BridgeID]), []),
+    %% delete the rule first
+    {ok, 204, <<>>} = request(delete, uri(["rules", RuleId]), []),
+    %% then delete the bridge is OK
+    {ok, 204, <<>>} = request(delete, uri(["bridges", BridgeID]), []),
+    {ok, 200, <<"[]">>} = request(get, uri(["bridges"]), []),
+    ok.
+
+t_cascade_delete_actions(Config) ->
+    Port = ?config(port, Config),
+    %% assert we there's no bridges at first
+    {ok, 200, <<"[]">>} = request(get, uri(["bridges"]), []),
+
+    %% then we add a webhook bridge, using POST
+    %% POST /bridges/ will create a bridge
+    URL1 = ?URL(Port, "path1"),
+    Name = <<"t_http_crud_apis">>,
+    BridgeID = emqx_bridge_resource:bridge_id(?BRIDGE_TYPE, Name),
+    {ok, 201, _} = request(
+        post,
+        uri(["bridges"]),
+        ?HTTP_BRIDGE(URL1, ?BRIDGE_TYPE, Name)
+    ),
+    {ok, 201, Rule} = request(
+        post,
+        uri(["rules"]),
+        #{
+            <<"name">> => <<"t_http_crud_apis">>,
+            <<"enable">> => true,
+            <<"actions">> => [BridgeID],
+            <<"sql">> => <<"SELECT * from \"t\"">>
+        }
+    ),
+    #{<<"id">> := RuleId} = jsx:decode(Rule),
+    %% delete the bridge will also delete the actions from the rules
+    {ok, 204, _} = request(delete, uri(["bridges", BridgeID]) ++ "?also_delete_dep_actions", []),
+    {ok, 200, <<"[]">>} = request(get, uri(["bridges"]), []),
+    {ok, 200, Rule1} = request(get, uri(["rules", RuleId]), []),
+    ?assertMatch(
+        #{
+            <<"actions">> := []
+        },
+        jsx:decode(Rule1)
+    ),
+    {ok, 204, <<>>} = request(delete, uri(["rules", RuleId]), []),
+    ok.
+
+t_start_stop_bridges_node(Config) ->
+    do_start_stop_bridges(node, Config).
+
+t_start_stop_bridges_cluster(Config) ->
+    do_start_stop_bridges(cluster, Config).
+
+do_start_stop_bridges(Type, Config) ->
+    %% assert we there's no bridges at first
+    {ok, 200, <<"[]">>} = request(get, uri(["bridges"]), []),
+
+    Port = ?config(port, Config),
     URL1 = ?URL(Port, "abc"),
+    Name = atom_to_binary(Type),
     {ok, 201, Bridge} = request(
         post,
         uri(["bridges"]),
-        ?HTTP_BRIDGE(URL1, ?BRIDGE_TYPE, ?BRIDGE_NAME)
+        ?HTTP_BRIDGE(URL1, ?BRIDGE_TYPE, Name)
     ),
     %ct:pal("the bridge ==== ~p", [Bridge]),
     #{
         <<"type">> := ?BRIDGE_TYPE,
-        <<"name">> := ?BRIDGE_NAME,
+        <<"name">> := Name,
         <<"enable">> := true,
         <<"status">> := <<"connected">>,
         <<"node_status">> := [_ | _],
@@ -316,11 +408,11 @@ do_start_stop_bridges(Type) ->
         <<"node_metrics">> := [_ | _],
         <<"url">> := URL1
     } = jsx:decode(Bridge),
-    BridgeID = emqx_bridge_resource:bridge_id(?BRIDGE_TYPE, ?BRIDGE_NAME),
+    BridgeID = emqx_bridge_resource:bridge_id(?BRIDGE_TYPE, Name),
     %% stop it
     {ok, 200, <<>>} = request(post, operation_path(Type, stop, BridgeID), <<"">>),
     {ok, 200, Bridge2} = request(get, uri(["bridges", BridgeID]), []),
-    ?assertMatch(#{<<"status">> := <<"disconnected">>}, jsx:decode(Bridge2)),
+    ?assertMatch(#{<<"status">> := <<"stopped">>}, jsx:decode(Bridge2)),
     %% start again
     {ok, 200, <<>>} = request(post, operation_path(Type, restart, BridgeID), <<"">>),
     {ok, 200, Bridge3} = request(get, uri(["bridges", BridgeID]), []),
@@ -339,21 +431,22 @@ do_start_stop_bridges(Type) ->
     {ok, 204, <<>>} = request(delete, uri(["bridges", BridgeID]), []),
     {ok, 200, <<"[]">>} = request(get, uri(["bridges"]), []).
 
-t_enable_disable_bridges(_) ->
+t_enable_disable_bridges(Config) ->
     %% assert we there's no bridges at first
     {ok, 200, <<"[]">>} = request(get, uri(["bridges"]), []),
 
-    Port = start_http_server(fun handle_fun_200_ok/2),
+    Name = ?BRIDGE_NAME,
+    Port = ?config(port, Config),
     URL1 = ?URL(Port, "abc"),
     {ok, 201, Bridge} = request(
         post,
         uri(["bridges"]),
-        ?HTTP_BRIDGE(URL1, ?BRIDGE_TYPE, ?BRIDGE_NAME)
+        ?HTTP_BRIDGE(URL1, ?BRIDGE_TYPE, Name)
     ),
     %ct:pal("the bridge ==== ~p", [Bridge]),
     #{
         <<"type">> := ?BRIDGE_TYPE,
-        <<"name">> := ?BRIDGE_NAME,
+        <<"name">> := Name,
         <<"enable">> := true,
         <<"status">> := <<"connected">>,
         <<"node_status">> := [_ | _],
@@ -361,11 +454,11 @@ t_enable_disable_bridges(_) ->
         <<"node_metrics">> := [_ | _],
         <<"url">> := URL1
     } = jsx:decode(Bridge),
-    BridgeID = emqx_bridge_resource:bridge_id(?BRIDGE_TYPE, ?BRIDGE_NAME),
+    BridgeID = emqx_bridge_resource:bridge_id(?BRIDGE_TYPE, Name),
     %% disable it
     {ok, 200, <<>>} = request(post, operation_path(cluster, disable, BridgeID), <<"">>),
     {ok, 200, Bridge2} = request(get, uri(["bridges", BridgeID]), []),
-    ?assertMatch(#{<<"status">> := <<"disconnected">>}, jsx:decode(Bridge2)),
+    ?assertMatch(#{<<"status">> := <<"stopped">>}, jsx:decode(Bridge2)),
     %% enable again
     {ok, 200, <<>>} = request(post, operation_path(cluster, enable, BridgeID), <<"">>),
     {ok, 200, Bridge3} = request(get, uri(["bridges", BridgeID]), []),
@@ -391,21 +484,22 @@ t_enable_disable_bridges(_) ->
     {ok, 204, <<>>} = request(delete, uri(["bridges", BridgeID]), []),
     {ok, 200, <<"[]">>} = request(get, uri(["bridges"]), []).
 
-t_reset_bridges(_) ->
+t_reset_bridges(Config) ->
     %% assert we there's no bridges at first
     {ok, 200, <<"[]">>} = request(get, uri(["bridges"]), []),
 
-    Port = start_http_server(fun handle_fun_200_ok/2),
+    Name = ?BRIDGE_NAME,
+    Port = ?config(port, Config),
     URL1 = ?URL(Port, "abc"),
     {ok, 201, Bridge} = request(
         post,
         uri(["bridges"]),
-        ?HTTP_BRIDGE(URL1, ?BRIDGE_TYPE, ?BRIDGE_NAME)
+        ?HTTP_BRIDGE(URL1, ?BRIDGE_TYPE, Name)
     ),
     %ct:pal("the bridge ==== ~p", [Bridge]),
     #{
         <<"type">> := ?BRIDGE_TYPE,
-        <<"name">> := ?BRIDGE_NAME,
+        <<"name">> := Name,
         <<"enable">> := true,
         <<"status">> := <<"connected">>,
         <<"node_status">> := [_ | _],
@@ -413,7 +507,7 @@ t_reset_bridges(_) ->
         <<"node_metrics">> := [_ | _],
         <<"url">> := URL1
     } = jsx:decode(Bridge),
-    BridgeID = emqx_bridge_resource:bridge_id(?BRIDGE_TYPE, ?BRIDGE_NAME),
+    BridgeID = emqx_bridge_resource:bridge_id(?BRIDGE_TYPE, Name),
     {ok, 200, <<"Reset success">>} = request(put, uri(["bridges", BridgeID, "reset_metrics"]), []),
 
     %% delete the bridge

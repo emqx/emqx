@@ -59,7 +59,7 @@ init_per_suite(Config) ->
     case emqx_common_test_helpers:is_tcp_server_available(?PGSQL_HOST, ?PGSQL_DEFAULT_PORT) of
         true ->
             ok = emqx_common_test_helpers:start_apps([emqx_authn]),
-            ok = start_apps([emqx_resource, emqx_connector]),
+            ok = start_apps([emqx_resource]),
             {ok, _} = emqx_resource:create_local(
                 ?PGSQL_RESOURCE,
                 ?RESOURCE_GROUP,
@@ -78,7 +78,7 @@ end_per_suite(_Config) ->
         ?GLOBAL
     ),
     ok = emqx_resource:remove_local(?PGSQL_RESOURCE),
-    ok = stop_apps([emqx_resource, emqx_connector]),
+    ok = stop_apps([emqx_resource]),
     ok = emqx_common_test_helpers:stop_apps([emqx_authn]).
 
 %%------------------------------------------------------------------------------
