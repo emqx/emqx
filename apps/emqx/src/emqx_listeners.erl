@@ -87,12 +87,18 @@ format_list(Listener) ->
     ].
 
 do_list_raw() ->
-    Key = <<"listeners">>,
-    Raw = emqx_config:get_raw([Key], #{}),
-    SchemaMod = emqx_config:get_schema_mod(Key),
-    #{Key := RawWithDefault} = emqx_config:fill_defaults(SchemaMod, #{Key => Raw}, #{}),
-    Listeners = maps:to_list(RawWithDefault),
-    lists:flatmap(fun format_raw_listeners/1, Listeners).
+    %% GET /listeners from other nodes returns [] when init config is not loaded.
+    case emqx_app:get_init_config_load_done() of
+        true ->
+            Key = <<"listeners">>,
+            Raw = emqx_config:get_raw([Key], #{}),
+            SchemaMod = emqx_config:get_schema_mod(Key),
+            #{Key := RawWithDefault} = emqx_config:fill_defaults(SchemaMod, #{Key => Raw}, #{}),
+            Listeners = maps:to_list(RawWithDefault),
+            lists:flatmap(fun format_raw_listeners/1, Listeners);
+        false ->
+            []
+    end.
 
 format_raw_listeners({Type0, Conf}) ->
     Type = binary_to_atom(Type0),

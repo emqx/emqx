@@ -621,10 +621,9 @@ pick_bridges_by_id(Type, Name, BridgesAllNodes) ->
 
 format_bridge_info([FirstBridge | _] = Bridges) ->
     Res = maps:remove(node, FirstBridge),
-    NRes = emqx_connector_ssl:drop_invalid_certs(Res),
     NodeStatus = collect_status(Bridges),
     NodeMetrics = collect_metrics(Bridges),
-    NRes#{
+    Res#{
         status => aggregate_status(NodeStatus),
         node_status => NodeStatus,
         metrics => aggregate_metrics(NodeMetrics),

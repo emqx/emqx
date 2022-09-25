@@ -328,20 +328,6 @@ user_seeds() ->
                 is_superuser_str => "1"
             },
             credentials => #{
-                password => <<"plain">>
-            },
-            config_params => #{},
-            result => {error, not_authorized}
-        },
-
-        #{
-            data => #{
-                username => "plain",
-                password_hash => "plainsalt",
-                salt => "salt",
-                is_superuser_str => "1"
-            },
-            credentials => #{
                 username => <<"plain">>,
                 password => <<"plain">>
             },
@@ -385,6 +371,32 @@ user_seeds() ->
                     <<
                         "SELECT password_hash, salt, is_superuser_int as is_superuser\n"
                         "                            FROM users where username = ${clientid} LIMIT 1"
+                    >>,
+                <<"password_hash_algorithm">> => #{
+                    <<"name">> => <<"sha256">>,
+                    <<"salt_position">> => <<"prefix">>
+                }
+            },
+            result => {ok, #{is_superuser => true}}
+        },
+
+        %% strip double quote support
+        #{
+            data => #{
+                username => "sha256",
+                password_hash => "ac63a624e7074776d677dd61a003b8c803eb11db004d0ec6ae032a5d7c9c5caf",
+                salt => "salt",
+                is_superuser_int => 1
+            },
+            credentials => #{
+                username => <<"sha256">>,
+                password => <<"sha256">>
+            },
+            config_params => #{
+                <<"query">> =>
+                    <<
+                        "SELECT password_hash, salt, is_superuser_int as is_superuser\n"
+                        "                            FROM users where username = \"${username}\" LIMIT 1"
                     >>,
                 <<"password_hash_algorithm">> => #{
                     <<"name">> => <<"sha256">>,

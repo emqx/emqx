@@ -100,6 +100,68 @@ t_wss_crud_listeners_by_id(_) ->
     Type = <<"wss">>,
     crud_listeners_by_id(ListenerId, NewListenerId, MinListenerId, BadId, Type).
 
+t_api_listeners_list_not_ready(_Config) ->
+    net_kernel:start(['listeners@127.0.0.1', longnames]),
+    ct:timetrap({seconds, 120}),
+    snabbkaffe:fix_ct_logging(),
+    Cluster = [{Name, Opts}, {Name1, Opts1}] = cluster([core, core]),
+    ct:pal("Starting ~p", [Cluster]),
+    Node1 = emqx_common_test_helpers:start_slave(Name, Opts),
+    Node2 = emqx_common_test_helpers:start_slave(Name1, Opts1),
+    try
+        L1 = get_tcp_listeners(Node1),
+
+        %% test init_config not ready.
+        _ = rpc:call(Node1, application, set_env, [emqx, init_config_load_done, false]),
+        assert_config_load_not_done(Node1),
+
+        L2 = get_tcp_listeners(Node1),
+        L3 = get_tcp_listeners(Node2),
+
+        Comment = #{
+            node1 => rpc:call(Node1, mria_mnesia, running_nodes, []),
+            node2 => rpc:call(Node2, mria_mnesia, running_nodes, [])
+        },
+
+        ?assert(length(L1) > length(L2), Comment),
+        ?assertEqual(length(L2), length(L3), Comment)
+    after
+        emqx_common_test_helpers:stop_slave(Node1),
+        emqx_common_test_helpers:stop_slave(Node2)
+    end.
+
+get_tcp_listeners(Node) ->
+    Query = #{query_string => #{<<"type">> => tcp}},
+    {200, L} = rpc:call(Node, emqx_mgmt_api_listeners, list_listeners, [get, Query]),
+    [#{node_status := NodeStatus}] = L,
+    ct:pal("Node:~p:~p", [Node, L]),
+    NodeStatus.
+
+assert_config_load_not_done(Node) ->
+    Done = rpc:call(Node, emqx_app, get_init_config_load_done, []),
+    ?assertNot(Done, #{node => Node}).
+
+cluster(Specs) ->
+    Env = [
+        {emqx, init_config_load_done, false},
+        {emqx, boot_modules, []}
+    ],
+    emqx_common_test_helpers:emqx_cluster(Specs, [
+        {env, Env},
+        {apps, [emqx_conf]},
+        {load_schema, false},
+        {join_to, true},
+        {env_handler, fun
+            (emqx) ->
+                application:set_env(emqx, boot_modules, []),
+                %% test init_config not ready.
+                application:set_env(emqx, init_config_load_done, false),
+                ok;
+            (_) ->
+                ok
+        end}
+    ]).
+
 crud_listeners_by_id(ListenerId, NewListenerId, MinListenerId, BadId, Type) ->
     OriginPath = emqx_mgmt_api_test_util:api_path(["listeners", ListenerId]),
     NewPath = emqx_mgmt_api_test_util:api_path(["listeners", NewListenerId]),

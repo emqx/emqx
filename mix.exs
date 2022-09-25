@@ -52,9 +52,9 @@ defmodule EMQXUmbrella.MixProject do
       {:jiffy, github: "emqx/jiffy", tag: "1.0.5", override: true},
       {:cowboy, github: "emqx/cowboy", tag: "2.9.0", override: true},
       {:esockd, github: "emqx/esockd", tag: "5.9.4", override: true},
-      {:ekka, github: "emqx/ekka", tag: "0.13.4", override: true},
+      {:ekka, github: "emqx/ekka", tag: "0.13.5", override: true},
       {:gen_rpc, github: "emqx/gen_rpc", tag: "2.8.1", override: true},
-      {:grpc, github: "emqx/grpc-erl", tag: "0.6.6", override: true},
+      {:grpc, github: "emqx/grpc-erl", tag: "0.6.7", override: true},
       {:minirest, github: "emqx/minirest", tag: "1.3.7", override: true},
       {:ecpool, github: "emqx/ecpool", tag: "0.5.2", override: true},
       {:replayq, github: "emqx/replayq", tag: "0.3.4", override: true},
@@ -88,7 +88,7 @@ defmodule EMQXUmbrella.MixProject do
       {:ranch,
        github: "ninenines/ranch", ref: "a692f44567034dacf5efcaa24a24183788594eb7", override: true},
       # in conflict by grpc and eetcd
-      {:gpb, "4.11.2", override: true, runtime: false}
+      {:gpb, "4.19.5", override: true, runtime: false}
     ] ++
       umbrella_apps() ++
       enterprise_apps(profile_info) ++
@@ -637,7 +637,7 @@ defmodule EMQXUmbrella.MixProject do
 
   defp jq_dep() do
     if enable_jq?(),
-      do: [{:jq, github: "emqx/jq", tag: "v0.3.5", override: true}],
+      do: [{:jq, github: "emqx/jq", tag: "v0.3.6", override: true}],
       else: []
   end
 

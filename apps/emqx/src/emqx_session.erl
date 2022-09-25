@@ -892,7 +892,7 @@ on_delivery_completed(
     ).
 
 mark_begin_deliver(Msg) ->
-    emqx_message:set_header(deliver_begin_at, erlang:system_time(second), Msg).
+    emqx_message:set_header(deliver_begin_at, erlang:system_time(millisecond), Msg).
 
 %%--------------------------------------------------------------------
 %% Helper functions

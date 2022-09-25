@@ -34,8 +34,7 @@
     ensure_apps_started/1,
     cleanup_resources/0,
     make_resource_id/1,
-    without_password/1,
-    with_successful_render/2
+    without_password/1
 ]).
 
 -define(AUTHN_PLACEHOLDERS, [
@@ -111,7 +110,8 @@ parse_sql(Template, ReplaceWith) ->
         Template,
         #{
             replace_with => ReplaceWith,
-            placeholders => ?AUTHN_PLACEHOLDERS
+            placeholders => ?AUTHN_PLACEHOLDERS,
+            strip_double_quote => true
         }
     ).
 
@@ -135,18 +135,6 @@ render_sql_params(ParamList, Credential) ->
         mapping_credential(Credential),
         #{return => rawlist, var_trans => fun handle_sql_var/2}
     ).
-
-with_successful_render(Provider, Fun) when is_function(Fun, 0) ->
-    try
-        Fun()
-    catch
-        error:{cannot_get_variable, Name} ->
-            ?TRACE_AUTHN(error, "placeholder_interpolation_failed", #{
-                provider => Provider,
-                placeholder => Name
-            }),
-            ignore
-    end.
 
 %% true
 is_superuser(#{<<"is_superuser">> := <<"true">>}) ->
@@ -229,15 +217,15 @@ without_password(Credential, [Name | Rest]) ->
             without_password(Credential, Rest)
     end.
 
-handle_var({var, Name}, undefined) ->
-    error({cannot_get_variable, Name});
+handle_var({var, _Name}, undefined) ->
+    <<>>;
 handle_var({var, <<"peerhost">>}, PeerHost) ->
     emqx_placeholder:bin(inet:ntoa(PeerHost));
 handle_var(_, Value) ->
     emqx_placeholder:bin(Value).
 
-handle_sql_var({var, Name}, undefined) ->
-    error({cannot_get_variable, Name});
+handle_sql_var({var, _Name}, undefined) ->
+    <<>>;
 handle_sql_var({var, <<"peerhost">>}, PeerHost) ->
     emqx_placeholder:bin(inet:ntoa(PeerHost));
 handle_sql_var(_, Value) ->

@@ -391,14 +391,6 @@ do_authorize(
         Matched ->
             {Matched, Type}
     catch
-        error:{cannot_get_variable, Name} ->
-            emqx_metrics_worker:inc(authz_metrics, Type, nomatch),
-            ?SLOG(warning, #{
-                msg => "placeholder_interpolation_failed",
-                placeholder => Name,
-                authorize_type => Type
-            }),
-            do_authorize(Client, PubSub, Topic, Tail);
         Class:Reason:Stacktrace ->
             emqx_metrics_worker:inc(authz_metrics, Type, nomatch),
             ?SLOG(warning, #{

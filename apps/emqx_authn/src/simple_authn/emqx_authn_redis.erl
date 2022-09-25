@@ -133,15 +133,14 @@ authenticate(
         password_hash_algorithm := Algorithm
     }
 ) ->
-    ?WITH_SUCCESSFUL_RENDER(
-        begin
-            NKey = emqx_authn_utils:render_str(KeyTemplate, Credential),
-            Command = [CommandName, NKey | Fields],
-            case emqx_resource:query(ResourceId, {cmd, Command}) of
-                {ok, []} ->
-                    ignore;
-                {ok, Values} ->
-                    Selected = merge(Fields, Values),
+    NKey = emqx_authn_utils:render_str(KeyTemplate, Credential),
+    Command = [CommandName, NKey | Fields],
+    case emqx_resource:query(ResourceId, {cmd, Command}) of
+        {ok, []} ->
+            ignore;
+        {ok, Values} ->
+            case merge(Fields, Values) of
+                Selected when Selected =/= #{} ->
                     case
                         emqx_authn_utils:check_password_from_selected_map(
                             Algorithm, Selected, Password
@@ -149,21 +148,28 @@ authenticate(
                     of
                         ok ->
                             {ok, emqx_authn_utils:is_superuser(Selected)};
-                        {error, _Reason} ->
-                            ignore
+                        {error, _Reason} = Error ->
+                            Error
                     end;
-                {error, Reason} ->
-                    ?TRACE_AUTHN_PROVIDER(error, "redis_query_failed", #{
+                _ ->
+                    ?TRACE_AUTHN_PROVIDER(info, "redis_query_not_matched", #{
                         resource => ResourceId,
                         cmd => Command,
                         keys => NKey,
-                        fields => Fields,
-                        reason => Reason
+                        fields => Fields
                     }),
                     ignore
-            end
-        end
-    ).
+            end;
+        {error, Reason} ->
+            ?TRACE_AUTHN_PROVIDER(error, "redis_query_failed", #{
+                resource => ResourceId,
+                cmd => Command,
+                keys => NKey,
+                fields => Fields,
+                reason => Reason
+            }),
+            ignore
+    end.
 
 %%------------------------------------------------------------------------------
 %% Internal functions

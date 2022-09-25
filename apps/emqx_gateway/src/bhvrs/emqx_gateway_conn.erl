@@ -19,6 +19,7 @@
 
 -include_lib("emqx/include/types.hrl").
 -include_lib("emqx/include/logger.hrl").
+-include_lib("snabbkaffe/include/snabbkaffe.hrl").
 
 %% API
 -export([
@@ -50,6 +51,9 @@
 
 %% Internal callback
 -export([wakeup_from_hib/2, recvloop/2]).
+
+%% for channel module
+-export([keepalive_stats/1]).
 
 -record(state, {
     %% TCP/SSL/UDP/DTLS Wrapped Socket
@@ -239,6 +243,11 @@ esockd_send(Data, #state{
     gen_udp:send(Sock, Ip, Port, Data);
 esockd_send(Data, #state{socket = {esockd_transport, Sock}}) ->
     esockd_transport:async_send(Sock, Data).
+
+keepalive_stats(recv) ->
+    emqx_pd:get_counter(recv_pkt);
+keepalive_stats(send) ->
+    emqx_pd:get_counter(send_pkt).
 
 is_datadram_socket({esockd_transport, _}) -> false;
 is_datadram_socket({udp, _, _}) -> true.
@@ -568,9 +577,15 @@ terminate(
         channel = Channel
     }
 ) ->
-    ?SLOG(debug, #{msg => "conn_process_terminated", reason => Reason}),
     _ = ChannMod:terminate(Reason, Channel),
     _ = close_socket(State),
+    ClientId =
+        try ChannMod:info(clientid, Channel) of
+            Id -> Id
+        catch
+            _:_ -> undefined
+        end,
+    ?tp(debug, conn_process_terminated, #{reason => Reason, clientid => ClientId}),
     exit(Reason).
 
 %%--------------------------------------------------------------------
@@ -635,28 +650,22 @@ handle_timeout(
     Keepalive,
     State = #state{
         chann_mod = ChannMod,
-        socket = Socket,
         channel = Channel
     }
 ) when
     Keepalive == keepalive;
     Keepalive == keepalive_send
 ->
-    Stat =
+    StatVal =
         case Keepalive of
-            keepalive -> recv_oct;
-            keepalive_send -> send_oct
+            keepalive -> keepalive_stats(recv);
+            keepalive_send -> keepalive_stats(send)
         end,
     case ChannMod:info(conn_state, Channel) of
         disconnected ->
             {ok, State};
         _ ->
-            case esockd_getstat(Socket, [Stat]) of
-                {ok, [{Stat, RecvOct}]} ->
-                    handle_timeout(TRef, {Keepalive, RecvOct}, State);
-                {error, Reason} ->
-                    handle_info({sock_error, Reason}, State)
-            end
+            handle_timeout(TRef, {Keepalive, StatVal}, State)
     end;
 handle_timeout(
     _TRef,

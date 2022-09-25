@@ -364,6 +364,10 @@ init([]) ->
         {write_concurrency, true},
         {read_concurrency, true}
     ]),
+    ok = emqx_config_handler:add_handler(
+        [rule_engine, jq_implementation_module],
+        emqx_rule_engine_schema
+    ),
     {ok, #{}}.
 
 handle_call({insert_rule, Rule}, _From, State) ->

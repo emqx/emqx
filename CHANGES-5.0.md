@@ -1,3 +1,16 @@
+# 5.0.9
+
+## Enhancements
+
+* Add `cert_common_name` and `cert_subject` placeholder support for authz_http and authz_mongo.[#8973](https://github.com/emqx/emqx/pull/8973)
+
+## Bug fixes
+
+* Check ACLs for last will testament topic before publishing the message. [#8930](https://github.com/emqx/emqx/pull/8930)
+* Fix GET /listeners API crash When some nodes still in initial configuration. [#9002](https://github.com/emqx/emqx/pull/9002)
+* Fix empty variable interpolation in authentication and authorization. Placeholders for undefined variables are rendered now as empty strings and do not cause errors anymore. [#8963](https://github.com/emqx/emqx/pull/8963)
+* Fix the latency statistics error of the slow subscription module when `stats_type` is `internal` or `response`. [#8986](https://github.com/emqx/emqx/pull/8986)
+
 # 5.0.8
 
 ## Bug fixes
@@ -10,14 +23,21 @@
 * Speed up updating the configuration, When some nodes in the cluster are down. [#8857](https://github.com/emqx/emqx/pull/8857)
 * Fix delayed publish inaccurate caused by os time change. [#8926](https://github.com/emqx/emqx/pull/8926)
 * Fix that EMQX can't start when the retainer is disabled [#8911](https://github.com/emqx/emqx/pull/8911)
+* Fix that redis authn will deny the unknown users [#8934](https://github.com/emqx/emqx/pull/8934)
+* Fix ExProto UDP client keepalive checking error.
+  This causes the clients to not expire as long as a new UDP packet arrives [#8866](https://github.com/emqx/emqx/pull/8866)
+* Fix that MQTT Bridge message payload could be empty string. [#8949](https://github.com/emqx/emqx/pull/8949)
 
 ## Enhancements
 
 * Print a warning message when boot with the default (insecure) Erlang cookie. [#8905](https://github.com/emqx/emqx/pull/8905)
 * Change the `/gateway` API path to plural form. [#8823](https://github.com/emqx/emqx/pull/8823)
+* Don't allow updating config items when they already exist in `local-override.conf`. [#8851](https://github.com/emqx/emqx/pull/8851)
 * Remove `node.etc_dir` from emqx.conf, because it is never used.
   Also allow user to customize the logging directory [#8892](https://github.com/emqx/emqx/pull/8892)
 * Added a new API `POST /listeners` for creating listener. [#8876](https://github.com/emqx/emqx/pull/8876)
+* Close ExProto client process immediately if it's keepalive timeouted. [#8866](https://github.com/emqx/emqx/pull/8866)
+* Upgrade grpc-erl driver to 0.6.7 to support batch operation in sending stream. [#8866](https://github.com/emqx/emqx/pull/8866)
 
 # 5.0.7
 
