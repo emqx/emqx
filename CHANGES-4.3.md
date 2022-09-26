@@ -12,6 +12,10 @@ File format:
 
 ## v4.3.22
 
+### Bug fixes
+
+- Fix that after receiving publish in `idle mode` the emqx-sn gateway may panic. [#9024](https://github.com/emqx/emqx/pull/9024)
+
 ## v4.3.21
 
 ### Enhancements
