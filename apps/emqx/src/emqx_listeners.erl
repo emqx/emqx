@@ -521,7 +521,7 @@ merge_default(Options) ->
     integer() | {tuple(), integer()} | string() | binary()
 ) -> io_lib:chars().
 format_bind(Port) when is_integer(Port) ->
-    io_lib:format(":~w", [Port]);
+    io_lib:format("~w", [Port]);
 %% Print only the port number when bound on all interfaces
 format_bind({{0, 0, 0, 0}, Port}) ->
     format_bind(Port);
