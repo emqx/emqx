@@ -32,6 +32,8 @@ File format:
 - Added a test to prevent a last will testament message to be
   published when a client is denied connection. [#8894](https://github.com/emqx/emqx/pull/8894)
 
+- More rigorous checking of flapping to improve stability of the system. [#9045](https://github.com/emqx/emqx/pull/9045)
+
 ### Bug fixes
 
 - Fix delayed publish inaccurate caused by os time change. [#8908](https://github.com/emqx/emqx/pull/8908)
