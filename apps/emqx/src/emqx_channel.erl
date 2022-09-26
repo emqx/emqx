@@ -2130,11 +2130,7 @@ publish_will_msg(ClientInfo, Msg = #message{topic = Topic}) ->
             ?tp(
                 warning,
                 last_will_testament_publish_denied,
-                #{
-                    client_info => ClientInfo,
-                    topic => Topic,
-                    message => Msg
-                }
+                #{topic => Topic}
             ),
             ok
     end.
