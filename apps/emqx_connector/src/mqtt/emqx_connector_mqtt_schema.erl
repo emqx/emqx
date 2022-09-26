@@ -199,7 +199,7 @@ fields("ingress_local") ->
             mk(
                 binary(),
                 #{
-                    default => <<"${payload}">>,
+                    default => undefined,
                     desc => ?DESC("payload")
                 }
             )}
@@ -259,7 +259,7 @@ fields("egress_remote") ->
             mk(
                 binary(),
                 #{
-                    default => <<"${payload}">>,
+                    default => undefined,
                     desc => ?DESC("payload")
                 }
             )}

@@ -16,16 +16,15 @@
 -export([roots/0, fields/1, validations/0, desc/1]).
 
 -export([
-    license_type/0,
-    key_license/0,
-    file_license/0
+    default_license/0,
+    key_license/0
 ]).
 
 roots() ->
     [
         {license,
             hoconsc:mk(
-                license_type(),
+                key_license(),
                 #{
                     desc => ?DESC(license_root)
                 }
@@ -34,55 +33,14 @@ roots() ->
 
 fields(key_license) ->
     [
-        {type, #{
-            type => key,
-            required => true,
-            desc => ?DESC(license_type_field)
-        }},
         {key, #{
             type => string(),
+            default => default_license(),
             %% so it's not logged
             sensitive => true,
             required => true,
             desc => ?DESC(key_field)
         }},
-        {file, #{
-            type => string(),
-            required => false,
-            desc => ?DESC(file_field)
-        }}
-        | common_fields()
-    ];
-fields(file_license) ->
-    [
-        {type, #{
-            type => file,
-            required => true,
-            desc => ?DESC(license_type_field)
-        }},
-        {key, #{
-            type => string(),
-            %% so it's not logged
-            sensitive => true,
-            required => false,
-            desc => ?DESC(key_field)
-        }},
-        {file, #{
-            type => string(),
-            desc => ?DESC(file_field)
-        }}
-        | common_fields()
-    ].
-
-desc(key_license) ->
-    "License provisioned as a string.";
-desc(file_license) ->
-    "License provisioned as a file.";
-desc(_) ->
-    undefined.
-
-common_fields() ->
-    [
         {connection_low_watermark, #{
             type => emqx_schema:percent(),
             default => "75%",
@@ -95,20 +53,16 @@ common_fields() ->
         }}
     ].
 
+desc(key_license) ->
+    "License provisioned as a string.";
+desc(_) ->
+    undefined.
+
 validations() ->
     [{check_license_watermark, fun check_license_watermark/1}].
 
-license_type() ->
-    hoconsc:union([
-        key_license(),
-        file_license()
-    ]).
-
 key_license() ->
     hoconsc:ref(?MODULE, key_license).
-
-file_license() ->
-    hoconsc:ref(?MODULE, file_license).
 
 check_license_watermark(Conf) ->
     case hocon_maps:get("license.connection_low_watermark", Conf) of
@@ -121,3 +75,14 @@ check_license_watermark(Conf) ->
                 false -> {bad_license_watermark, #{high => High, low => Low}}
             end
     end.
+
+%% @doc The default license key.
+%% This default license has 1000 connections limit.
+%% It is issued on 2022-04-19 and valid for 5 years (1825 days)
+%% NOTE: when updating a new key, the schema doc in emqx_license_schema_i18n.conf
+%% should be updated accordingly
+default_license() ->
+    "MjIwMTExCjAKMTAKRXZhbHVhdGlvbgpjb250YWN0QGVtcXguaW8KZ"
+    "GVmYXVsdAoyMDIyMDQxOQoxODI1CjEwMDAK.MEQCICbgRVijCQov2"
+    "hrvZXR1mk9Oa+tyV1F5oJ6iOZeSHjnQAiB9dUiVeaZekDOjztk+NC"
+    "Wjhk4PG8tWfw2uFZWruSzD6g==".

@@ -25,7 +25,8 @@
     namespace/0,
     roots/0,
     fields/1,
-    desc/1
+    desc/1,
+    post_config_update/5
 ]).
 
 -export([validate_sql/1]).
@@ -48,6 +49,15 @@ fields("rule_engine") ->
                 #{
                     default => "10s",
                     desc => ?DESC("rule_engine_jq_function_default_timeout")
+                }
+            )},
+        {jq_implementation_module,
+            ?HOCON(
+                hoconsc:enum([jq_nif, jq_port]),
+                #{
+                    default => jq_nif,
+                    mapping => "jq.jq_implementation_module",
+                    desc => ?DESC("rule_engine_jq_implementation_module")
                 }
             )}
     ];
@@ -209,3 +219,13 @@ validate_sql(Sql) ->
         {ok, _Result} -> ok;
         {error, Reason} -> {error, Reason}
     end.
+
+post_config_update(
+    [rule_engine, jq_implementation_module],
+    _Req,
+    NewSysConf,
+    _OldSysConf,
+    _AppEnvs
+) ->
+    jq:set_implementation_module(NewSysConf),
+    ok.

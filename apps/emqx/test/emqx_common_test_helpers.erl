@@ -641,9 +641,9 @@ setup_node(Node, Opts) when is_map(Opts) ->
     %% Here we start the apps
     EnvHandlerForRpc =
         fun(App) ->
-            %% We load configuration, and than set the special enviroment variable
+            %% We load configuration, and than set the special environment variable
             %% which says that emqx shouldn't load configuration at startup
-            %% Otherwise, configuration get's loaded and all preset env in envhandler is lost
+            %% Otherwise, configuration gets loaded and all preset env in EnvHandler is lost
             LoadSchema andalso
                 begin
                     emqx_config:init_load(SchemaMod),

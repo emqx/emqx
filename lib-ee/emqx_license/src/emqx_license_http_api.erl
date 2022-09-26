@@ -17,9 +17,7 @@
 ]).
 
 -export([
-    '/license'/2,
-    '/license/key'/2,
-    '/license/file'/2
+    '/license'/2
 ]).
 
 -define(BAD_REQUEST, 'BAD_REQUEST').
@@ -31,9 +29,7 @@ api_spec() ->
 
 paths() ->
     [
-        "/license",
-        "/license/key",
-        "/license/file"
+        "/license"
     ].
 
 schema("/license") ->
@@ -53,32 +49,7 @@ schema("/license") ->
                     }
                 )
             }
-        }
-    };
-schema("/license/file") ->
-    #{
-        'operationId' => '/license/file',
-        post => #{
-            tags => [<<"license">>],
-            summary => <<"Upload license file">>,
-            description => ?DESC("desc_license_file_api"),
-            'requestBody' => emqx_dashboard_swagger:file_schema(filename),
-            responses => #{
-                200 => emqx_dashboard_swagger:schema_with_examples(
-                    map(),
-                    #{
-                        sample_license_info => #{
-                            value => sample_license_info_response()
-                        }
-                    }
-                ),
-                400 => emqx_dashboard_swagger:error_codes([?BAD_REQUEST], <<"Bad license file">>)
-            }
-        }
-    };
-schema("/license/key") ->
-    #{
-        'operationId' => '/license/key',
+        },
         post => #{
             tags => [<<"license">>],
             summary => <<"Update license key">>,
@@ -105,7 +76,7 @@ schema("/license/key") ->
                         }
                     }
                 ),
-                400 => emqx_dashboard_swagger:error_codes([?BAD_REQUEST], <<"Bad license file">>)
+                400 => emqx_dashboard_swagger:error_codes([?BAD_REQUEST], <<"Bad license key">>)
             }
         }
     }.
@@ -126,30 +97,12 @@ sample_license_info_response() ->
 error_msg(Code, Msg) ->
     #{code => Code, message => emqx_misc:readable_error_msg(Msg)}.
 
+%% read license info
 '/license'(get, _Params) ->
     License = maps:from_list(emqx_license_checker:dump()),
-    {200, License}.
-
-'/license/file'(post, #{body := #{<<"filename">> := #{type := _} = File}}) ->
-    [{_Filename, Contents}] = maps:to_list(maps:without([type], File)),
-    case emqx_license:update_file_contents(Contents) of
-        {error, Error} ->
-            ?SLOG(error, #{
-                msg => "bad_license_file",
-                reason => Error
-            }),
-            {400, error_msg(?BAD_REQUEST, <<"Bad license file">>)};
-        {ok, _} ->
-            ?SLOG(info, #{
-                msg => "updated_license_file"
-            }),
-            License = maps:from_list(emqx_license_checker:dump()),
-            {200, License}
-    end;
-'/license/file'(post, _Params) ->
-    {400, error_msg(?BAD_REQUEST, <<"Invalid request params">>)}.
-
-'/license/key'(post, #{body := #{<<"key">> := Key}}) ->
+    {200, License};
+%% set/update license
+'/license'(post, #{body := #{<<"key">> := Key}}) ->
     case emqx_license:update_key(Key) of
         {error, Error} ->
             ?SLOG(error, #{
@@ -162,5 +115,5 @@ error_msg(Code, Msg) ->
             License = maps:from_list(emqx_license_checker:dump()),
             {200, License}
     end;
-'/license/key'(post, _Params) ->
+'/license'(post, _Params) ->
     {400, error_msg(?BAD_REQUEST, <<"Invalid request params">>)}.

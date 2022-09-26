@@ -7,7 +7,7 @@ set -euo pipefail
 DEBUG="${DEBUG:-0}"
 [ "$DEBUG" -eq 1 ] && set -x
 
-RUNNER_ROOT_DIR="$(cd "$(dirname "$(realpath "$0" || echo "$0")")"/..; pwd -P)"
+RUNNER_ROOT_DIR="$(cd "$(dirname "$(readlink "$0" || echo "$0")")"/..; pwd -P)"
 
 # shellcheck disable=SC1090,SC1091
 . "$RUNNER_ROOT_DIR"/releases/emqx_vars
@@ -23,9 +23,6 @@ CODE_LOADING_MODE="${CODE_LOADING_MODE:-embedded}"
 REL_DIR="$RUNNER_ROOT_DIR/releases/$REL_VSN"
 
 WHOAMI=$(whoami)
-
-# Make sure log directory exists
-mkdir -p "$RUNNER_LOG_DIR"
 
 # hocon try to read environment variables starting with "EMQX_"
 export HOCON_ENV_OVERRIDE_PREFIX='EMQX_'
@@ -262,6 +259,9 @@ if [ "$ES" -ne 0 ]; then
     exit $ES
 fi
 
+# Make sure log directory exists
+mkdir -p "$RUNNER_LOG_DIR"
+
 COMPATIBILITY_CHECK='
     io:format("BEAM_OK~n", []),
     try
@@ -417,7 +417,7 @@ call_hocon() {
 ## and parsing HOCON config + environment variables is a non-trivial task
 CONF_KEYS=( 'node.data_dir' 'node.name' 'node.cookie' 'node.db_backend' 'cluster.proto_dist' )
 if [ "$IS_ENTERPRISE" = 'yes' ]; then
-    CONF_KEYS+=( 'license.type' 'license.file' 'license.key' )
+    CONF_KEYS+=( 'license.key' )
 fi
 
 if [ "$IS_BOOT_COMMAND" = 'yes' ]; then
@@ -499,22 +499,16 @@ check_license() {
         return 0
     fi
 
-    file_license="${EMQX_LICENSE__FILE:-$(get_boot_config 'license.file')}"
+    key_license="${EMQX_LICENSE__KEY:-$(get_boot_config 'license.key')}"
 
-    if [[ -n "$file_license" && ("$file_license" != "undefined") ]]; then
-        call_nodetool check_license_file "$file_license"
+    if [[ -n "$key_license" && ("$key_license" != "undefined") ]]; then
+      call_nodetool check_license_key "$key_license"
     else
-        key_license="${EMQX_LICENSE__KEY:-$(get_boot_config 'license.key')}"
-
-        if [[ -n "$key_license" && ("$key_license" != "undefined") ]]; then
-            call_nodetool check_license_key "$key_license"
-        else
-            set +x
-            echoerr "License not found."
-            echoerr "Please specify one via EMQX_LICENSE__KEY or EMQX_LICENSE__FILE variables"
-            echoerr "or via license.key|file in emqx_enterprise.conf."
-            return 1
-        fi
+      set +x
+      echoerr "License not found."
+      echoerr "Please specify one via the EMQX_LICENSE__KEY variable"
+      echoerr "or via license.key in emqx-enterprise.conf."
+      return 1
     fi
 }
 
