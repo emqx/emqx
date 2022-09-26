@@ -20,6 +20,7 @@
 -compile(export_all).
 
 -include("emqx_auth_mnesia.hrl").
+-include_lib("emqx/include/emqx.hrl").
 -include_lib("eunit/include/eunit.hrl").
 -include_lib("common_test/include/ct.hrl").
 -include_lib("snabbkaffe/include/snabbkaffe.hrl").
@@ -77,15 +78,37 @@ init_per_testcase_migration(_, Config) ->
     emqx_acl_mnesia_migrator:migrate_records(),
     Config.
 
+init_per_testcase_other(t_last_will_testament_message_check_acl, Config) ->
+    OriginalACLNoMatch = application:get_env(emqx, acl_nomatch),
+    application:set_env(emqx, acl_nomatch, deny),
+    emqx_mod_acl_internal:unload([]),
+    %% deny all for this client
+    ClientID = <<"lwt_client">>,
+    ok = emqx_acl_mnesia_db:add_acl({clientid, ClientID}, <<"#">>, pubsub, deny),
+    [ {original_acl_nomatch, OriginalACLNoMatch}
+    , {clientid, ClientID}
+    | Config];
+init_per_testcase_other(_TestCase, Config) ->
+    Config.
+
 init_per_testcase(Case, Config) ->
     PerTestInitializers = [
         fun init_per_testcase_clean/2,
         fun init_per_testcase_migration/2,
-        fun init_per_testcase_emqx_hook/2
+        fun init_per_testcase_emqx_hook/2,
+        fun init_per_testcase_other/2
     ],
     lists:foldl(fun(Init, Conf) -> Init(Case, Conf) end, Config, PerTestInitializers).
 
-end_per_testcase(_, Config) ->
+end_per_testcase(t_last_will_testament_message_check_acl, Config) ->
+    emqx:unhook('client.check_acl', fun emqx_acl_mnesia:check_acl/5),
+    case ?config(original_acl_nomatch, Config) of
+        {ok, Original} -> application:set_env(emqx, acl_nomatch, Original);
+        _ -> ok
+    end,
+    emqx_mod_acl_internal:load([]),
+    ok;
+end_per_testcase(_TestCase, Config) ->
     emqx:unhook('client.check_acl', fun emqx_acl_mnesia:check_acl/5),
     Config.
 
@@ -464,6 +487,35 @@ t_rest_api(_Config) ->
     {ok, Res3} = request_http_rest_list(["$all"]),
     ?assertMatch([], get_http_data(Res3)).
 
+%% asserts that we check ACL for the LWT topic before publishing the
+%% LWT.
+t_last_will_testament_message_check_acl(Config) ->
+    ClientID = ?config(clientid, Config),
+    {ok, C} = emqtt:start_link([
+        {clientid, ClientID},
+        {will_topic, <<"$SYS/lwt">>},
+        {will_payload, <<"should not be published">>}
+    ]),
+    {ok, _} = emqtt:connect(C),
+    ok = emqx:subscribe(<<"$SYS/lwt">>),
+    unlink(C),
+    ok = snabbkaffe:start_trace(),
+    {true, {ok, _}} =
+        ?wait_async_action(
+        exit(C, kill),
+        #{?snk_kind := last_will_testament_publish_denied},
+        1_000
+    ),
+    ok = snabbkaffe:stop(),
+
+    receive
+        {deliver, <<"$SYS/lwt">>, #message{payload = <<"should not be published">>}} ->
+            error(lwt_should_not_be_published_to_forbidden_topic)
+    after 1_000 ->
+        ok
+    end,
+
+    ok.
 
 create_conflicting_records() ->
     Records = [
