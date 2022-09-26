@@ -288,8 +288,8 @@ handle_in(?CONNECT_PACKET(ConnPkt), Channel) ->
                    fun enrich_client/2,
                    fun set_log_meta/2,
                    fun check_banned/2,
-                   fun auth_connect/2,
-                   fun flapping_detect/2
+                   fun count_flapping_event/2,
+                   fun auth_connect/2
                   ], ConnPkt, Channel#channel{conn_state = connecting}) of
         {ok, NConnPkt, NChannel = #channel{clientinfo = ClientInfo}} ->
             NChannel1 = NChannel#channel{
@@ -1335,7 +1335,7 @@ auth_connect(#mqtt_packet_connect{password  = Password},
 %%--------------------------------------------------------------------
 %% Flapping
 
-flapping_detect(_ConnPkt, Channel = #channel{clientinfo = ClientInfo = #{zone := Zone}}) ->
+count_flapping_event(_ConnPkt, Channel = #channel{clientinfo = ClientInfo = #{zone := Zone}}) ->
     _ = emqx_zone:enable_flapping_detect(Zone) andalso emqx_flapping:detect(ClientInfo),
     {ok, Channel}.
 
