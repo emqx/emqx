@@ -186,6 +186,8 @@ end_per_testcase(TestCase, Config)
  when TestCase =:= t_available_acl_query_timeout;
       TestCase =:= t_acl_superuser_timeout;
       TestCase =:= t_authn_no_connection;
+      TestCase =:= t_available_authn_query_timeout;
+      TestCase =:= t_authn_timeout;
       TestCase =:= t_available_acl_query_no_connection ->
     ProxyHost = ?config(proxy_host, Config),
     ProxyPort = ?config(proxy_port, Config),
