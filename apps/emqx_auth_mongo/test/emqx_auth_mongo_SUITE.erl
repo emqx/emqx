@@ -115,7 +115,7 @@ init_per_suite(Config) ->
 end_per_suite(_Cfg) ->
     deinit_mongo_data(),
     %% avoid inter-suite flakiness
-    ok = emqx_mod_acl_internal:load([]),
+    emqx_mod_acl_internal:load([]),
     emqx_ct_helpers:stop_apps([emqx_auth_mongo]).
 
 set_special_confs(emqx) ->
