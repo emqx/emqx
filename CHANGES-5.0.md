@@ -10,6 +10,9 @@
 * Fix GET /listeners API crash When some nodes still in initial configuration. [#9002](https://github.com/emqx/emqx/pull/9002)
 * Fix empty variable interpolation in authentication and authorization. Placeholders for undefined variables are rendered now as empty strings and do not cause errors anymore. [#8963](https://github.com/emqx/emqx/pull/8963)
 * Fix the latency statistics error of the slow subscription module when `stats_type` is `internal` or `response`. [#8986](https://github.com/emqx/emqx/pull/8986)
+* Change the format of the listener when displaying bind field.
+  i.e: from `:1883` to `1883`, this fix will affect the output of the HTTP API
+  and CLI. [#9047](https://github.com/emqx/emqx/pull/9047)
 
 # 5.0.8
 
