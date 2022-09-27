@@ -1,3 +1,9 @@
+# 5.0.10
+
+## Enhancements
+
+* Use milliseconds internally in emqx_delayed to store the publish time, improving precision.[#9060](https://github.com/emqx/emqx/pull/9060)
+
 # 5.0.9
 
 ## Enhancements
