@@ -79,4 +79,3 @@ feedvar(Str, Var, Val) ->
     re:replace(Str, Var, Val, [global, {return, binary}]).
 
 description() -> "ACL with MongoDB".
-

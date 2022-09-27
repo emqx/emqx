@@ -22,6 +22,7 @@
 -include_lib("emqx/include/emqx.hrl").
 -include_lib("emqx/include/logger.hrl").
 -include_lib("emqx/include/types.hrl").
+-include_lib("snabbkaffe/include/snabbkaffe.hrl").
 
 -export([ check/3
         , description/0
@@ -38,14 +39,22 @@
         , available/3
         ]).
 
+-ifdef(TEST).
+-export([ is_superuser/3
+        , available/4
+        ]).
+-endif.
+
 check(ClientInfo = #{password := Password}, AuthResult,
       Env = #{authquery := AuthQuery, superquery := SuperQuery}) ->
+    ?tp(emqx_auth_mongo_superuser_check_authn_enter, #{}),
     #authquery{collection = Collection, field = Fields,
                hash = HashType, selector = Selector} = AuthQuery,
     Pool = maps:get(pool, Env, ?APP),
     case query(Pool, Collection, maps:from_list(replvars(Selector, ClientInfo))) of
         undefined -> ok;
         {error, Reason} ->
+            ?tp(emqx_auth_mongo_check_authn_error, #{error => Reason}),
             ?LOG(error, "[MongoDB] Can't connect to MongoDB server: ~0p", [Reason]),
             {stop, AuthResult#{auth_result => not_authorized, anonymous => false}};
         UserMap ->
@@ -58,6 +67,7 @@ check(ClientInfo = #{password := Password}, AuthResult,
                      end,
             case Result of
                 ok ->
+                    ?tp(emqx_auth_mongo_superuser_check_authn_ok, #{}),
                     {stop, AuthResult#{is_superuser => is_superuser(Pool, SuperQuery, ClientInfo),
                                        anonymous => false,
                                        auth_result => success}};
@@ -81,17 +91,24 @@ description() -> "Authentication with MongoDB".
 is_superuser(_Pool, undefined, _ClientInfo) ->
     false;
 is_superuser(Pool, #superquery{collection = Coll, field = Field, selector = Selector}, ClientInfo) ->
-    case query(Pool, Coll, maps:from_list(replvars(Selector, ClientInfo))) of
-        undefined -> false;
-        {error, Reason} ->
-            ?LOG(error, "[MongoDB] Can't connect to MongoDB server: ~0p", [Reason]),
-            false;
-        Row ->
-            case maps:get(Field, Row, false) of
-                true   -> true;
-                _False -> false
-            end
-    end.
+    ?tp(emqx_auth_mongo_superuser_query_enter, #{}),
+    Res =
+      case query(Pool, Coll, maps:from_list(replvars(Selector, ClientInfo))) of
+          undefined ->
+              %% returned when there are no returned documents
+              false;
+          {error, Reason} ->
+              ?tp(emqx_auth_mongo_superuser_query_error, #{error => Reason}),
+              ?LOG(error, "[MongoDB] Can't connect to MongoDB server: ~0p", [Reason]),
+              false;
+          Row ->
+              case maps:get(Field, Row, false) of
+                  true   -> true;
+                  _False -> false
+              end
+      end,
+    ?tp(emqx_auth_mongo_superuser_query_result, #{is_superuser => Res}),
+    Res.
 
 %%--------------------------------------------------------------------
 %% Availability Test
@@ -114,6 +131,7 @@ available(Pool, Collection, Query) ->
 available(Pool, Collection, Query, Fun) ->
     try Fun(Pool, Collection, Query) of
         {error, Reason} ->
+            ?tp(emqx_auth_mongo_available_error, #{error => Reason}),
             ?LOG(error, "[MongoDB] ~p availability test error: ~0p", [Collection, Reason]),
             {error, Reason};
         Error = #{<<"code">> := Code} ->
@@ -144,7 +162,16 @@ test_client_info() ->
 %%--------------------------------------------------------------------
 
 replvars(VarList, ClientInfo) ->
-    lists:map(fun(Var) -> replvar(Var, ClientInfo) end, VarList).
+    lists:foldl(
+     fun(Var, Selector) ->
+       case replvar(Var, ClientInfo) of
+           %% assumes that all fields are binaries...
+           {unmatchable, Field} -> [{Field, []} | Selector];
+           Interpolated -> [Interpolated | Selector]
+       end
+     end,
+     [],
+     VarList).
 
 replvar({Field, <<"%u">>}, #{username := Username}) ->
     {Field, Username};
@@ -154,8 +181,8 @@ replvar({Field, <<"%C">>}, #{cn := CN}) ->
     {Field, CN};
 replvar({Field, <<"%d">>}, #{dn := DN}) ->
     {Field, DN};
-replvar(Selector, _ClientInfo) ->
-    Selector.
+replvar({Field, _PlaceHolder}, _ClientInfo) ->
+    {unmatchable, Field}.
 
 %%--------------------------------------------------------------------
 %% MongoDB Connect/Query
@@ -169,19 +196,57 @@ connect(Opts) ->
     mongo_api:connect(Type, Hosts, Options, WorkerOptions).
 
 query(Pool, Collection, Selector) ->
-    ecpool:with_client(Pool, fun(Conn) -> mongo_api:find_one(Conn, Collection, Selector, #{}) end).
+    Timeout = timer:seconds(15),
+    with_timeout(Timeout, fun() ->
+      ecpool:with_client(Pool, fun(Conn) -> mongo_api:find_one(Conn, Collection, Selector, #{}) end)
+    end).
 
 query_multi(Pool, Collection, SelectorList) ->
+    ?tp(emqx_auth_mongo_query_multi_enter, #{}),
+    Timeout = timer:seconds(45),
     lists:reverse(lists:flatten(lists:foldl(fun(Selector, Acc1) ->
-        Batch = ecpool:with_client(Pool, fun(Conn) ->
-                  case mongo_api:find(Conn, Collection, Selector, #{}) of
-                      {error, Reason} ->
-                          ?LOG(error, "[MongoDB] query_multi failed, got error: ~p", [Reason]),
-                          [];
-                      [] -> [];
-                      {ok, Cursor} ->
-                          mc_cursor:foldl(fun(O, Acc2) -> [O|Acc2] end, [], Cursor, 1000)
-                  end
-                end),
-        [Batch|Acc1]
+        Res =
+          with_timeout(Timeout, fun() ->
+            ecpool:with_client(Pool, fun(Conn) ->
+              ?tp(emqx_auth_mongo_query_multi_find_selector, #{}),
+              case find(Conn, Collection, Selector) of
+                  {error, Reason} ->
+                      ?tp(emqx_auth_mongo_query_multi_error,
+                          #{error => Reason}),
+                      ?LOG(error, "[MongoDB] query_multi failed, got error: ~p", [Reason]),
+                      [];
+                  [] ->
+                      ?tp(emqx_auth_mongo_query_multi_no_results, #{}),
+                      [];
+                  {ok, Cursor} ->
+                      mc_cursor:foldl(fun(O, Acc2) -> [O | Acc2] end, [], Cursor, 1000)
+              end
+            end)
+          end),
+        case Res of
+            {error, timeout} ->
+                ?tp(emqx_auth_mongo_query_multi_error, #{error => timeout}),
+                ?LOG(error, "[MongoDB] query_multi timeout", []),
+                Acc1;
+            Batch ->
+                [Batch | Acc1]
+        end
     end, [], SelectorList))).
+
+find(Conn, Collection, Selector) ->
+    try
+        mongo_api:find(Conn, Collection, Selector, #{})
+    catch
+        K:E:S ->
+            {error, {K, E, S}}
+    end.
+
+with_timeout(Timeout, Fun) ->
+    try
+        emqx_misc:nolink_apply(Fun, Timeout)
+    catch
+        exit:timeout ->
+            {error, timeout};
+        K:E:S ->
+            erlang:raise(K, E, S)
+    end.
