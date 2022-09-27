@@ -1012,8 +1012,9 @@ handle_timeout(_TRef, expire_awaiting_rel,
 handle_timeout(_TRef, expire_session, Channel) ->
     shutdown(expired, Channel);
 
-handle_timeout(_TRef, will_message, Channel = #channel{will_msg = WillMsg}) ->
-    (WillMsg =/= undefined) andalso publish_will_msg(WillMsg),
+handle_timeout(_TRef, will_message, Channel = #channel{will_msg = WillMsg,
+                                                       clientinfo = ClientInfo}) ->
+    (WillMsg =/= undefined) andalso publish_will_msg(ClientInfo, WillMsg),
     {ok, clean_timer(will_timer, Channel#channel{will_msg = undefined})};
 
 handle_timeout(_TRef, expire_quota_limit, Channel) ->
@@ -1076,8 +1077,9 @@ terminate(normal, Channel) ->
 terminate({shutdown, Reason}, Channel)
   when Reason =:= kicked; Reason =:= discarded; Reason =:= takeovered ->
     run_terminate_hook(Reason, Channel);
-terminate(Reason, Channel = #channel{will_msg = WillMsg}) ->
-    (WillMsg =/= undefined) andalso publish_will_msg(WillMsg),
+terminate(Reason, Channel = #channel{will_msg = WillMsg,
+                                     clientinfo = ClientInfo}) ->
+    (WillMsg =/= undefined) andalso publish_will_msg(ClientInfo, WillMsg),
     run_terminate_hook(Reason, Channel).
 
 run_terminate_hook(_Reason, #channel{session = undefined}) -> ok;
@@ -1587,9 +1589,10 @@ ensure_disconnected(Reason, Channel = #channel{conninfo = ConnInfo,
 
 mabye_publish_will_msg(Channel = #channel{will_msg = undefined}) ->
     Channel;
-mabye_publish_will_msg(Channel = #channel{will_msg = WillMsg}) ->
+mabye_publish_will_msg(Channel = #channel{will_msg = WillMsg,
+                                          clientinfo = ClientInfo}) ->
     case will_delay_interval(WillMsg) of
-        0 -> publish_will_msg(WillMsg),
+        0 -> publish_will_msg(ClientInfo, WillMsg),
              Channel#channel{will_msg = undefined};
         I -> ensure_timer(will_timer, timer:seconds(I), Channel)
     end.
@@ -1597,7 +1600,15 @@ mabye_publish_will_msg(Channel = #channel{will_msg = WillMsg}) ->
 will_delay_interval(WillMsg) ->
     maps:get('Will-Delay-Interval', emqx_message:get_header(properties, WillMsg), 0).
 
-publish_will_msg(Msg) -> emqx_broker:publish(Msg).
+publish_will_msg(ClientInfo, Msg = #message{topic = Topic}) ->
+    case emqx_access_control:check_acl(ClientInfo, publish, Topic) of
+        allow ->
+            _ = emqx_broker:publish(Msg),
+            ok;
+        deny ->
+            ?LOG(warning, "Last will testament publish denied: topic ~p~n", [Topic]),
+            ok
+    end.
 
 %%--------------------------------------------------------------------
 %% Disconnect Reason
