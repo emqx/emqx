@@ -202,3 +202,37 @@ t_get_basic_usage_info(_Config) ->
     ),
     ?assertEqual(#{delayed_message_count => 4}, emqx_delayed:get_basic_usage_info()),
     ok.
+
+t_delayed_precision(_) ->
+    MaxSpan = 1250,
+    FutureDiff = subscribe_proc(),
+    DelayedMsg0 = emqx_message:make(
+        ?MODULE, 1, <<"$delayed/1/delayed/test">>, <<"delayed/test">>
+    ),
+    _ = on_message_publish(DelayedMsg0),
+    ?assert(FutureDiff() =< MaxSpan).
+
+subscribe_proc() ->
+    Self = self(),
+    Ref = erlang:make_ref(),
+    erlang:spawn(fun() ->
+        Topic = <<"delayed/+">>,
+        emqx_broker:subscribe(Topic),
+        Self !
+            {Ref,
+                receive
+                    {deliver, Topic, Msg} ->
+                        erlang:system_time(milli_seconds) - Msg#message.timestamp
+                after 2000 ->
+                    2000
+                end},
+        emqx_broker:unsubscribe(Topic)
+    end),
+    fun() ->
+        receive
+            {Ref, Diff} ->
+                Diff
+        after 2000 ->
+            2000
+        end
+    end.
