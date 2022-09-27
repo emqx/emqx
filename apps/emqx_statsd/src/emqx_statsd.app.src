@@ -1,7 +1,7 @@
 %% -*- mode: erlang -*-
 {application, emqx_statsd, [
     {description, "An OTP application"},
-    {vsn, "5.0.1"},
+    {vsn, "5.0.2"},
     {registered, []},
     {mod, {emqx_statsd_app, []}},
     {applications, [
