@@ -345,7 +345,7 @@ init_worker_options([], Acc) ->
 %% ===================================================================
 %% Schema funcs
 
-server(type) -> emqx_schema:ip_port();
+server(type) -> emqx_schema:host_port();
 server(required) -> true;
 server(validator) -> [?NOT_EMPTY("the value of the field 'server' cannot be empty")];
 server(converter) -> fun to_server_raw/1;

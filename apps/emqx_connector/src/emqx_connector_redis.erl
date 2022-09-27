@@ -97,7 +97,7 @@ fields(sentinel) ->
         redis_fields() ++
         emqx_connector_schema_lib:ssl_fields().
 
-server(type) -> emqx_schema:ip_port();
+server(type) -> emqx_schema:host_port();
 server(required) -> true;
 server(validator) -> [?NOT_EMPTY("the value of the field 'server' cannot be empty")];
 server(converter) -> fun to_server_raw/1;
