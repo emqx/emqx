@@ -364,6 +364,7 @@ export_release_vars() {
   # compiling the project, so that `emqx_release.erl' picks up
   # `emqx_vsn' as if it was compiled by rebar3.
   erl_opts+=( "{compile_info,[{emqx_vsn,\"${PKG_VSN}\"}]}" )
+  erl_opts+=( "{d,snk_kind,msg}" )
 
   ERL_COMPILER_OPTIONS="[$(join , "${erl_opts[@]}")]"
   export ERL_COMPILER_OPTIONS
