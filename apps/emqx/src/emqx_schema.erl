@@ -40,6 +40,7 @@
 -type comma_separated_atoms() :: [atom()].
 -type bar_separated_list() :: list().
 -type ip_port() :: tuple() | integer().
+-type host_port() :: tuple().
 -type cipher() :: map().
 
 -typerefl_from_string({duration/0, emqx_schema, to_duration}).
@@ -52,6 +53,7 @@
 -typerefl_from_string({comma_separated_binary/0, emqx_schema, to_comma_separated_binary}).
 -typerefl_from_string({bar_separated_list/0, emqx_schema, to_bar_separated_list}).
 -typerefl_from_string({ip_port/0, emqx_schema, to_ip_port}).
+-typerefl_from_string({host_port/0, emqx_schema, to_host_port}).
 -typerefl_from_string({cipher/0, emqx_schema, to_erl_cipher_suite}).
 -typerefl_from_string({comma_separated_atoms/0, emqx_schema, to_comma_separated_atoms}).
 
@@ -78,6 +80,7 @@
     to_comma_separated_binary/1,
     to_bar_separated_list/1,
     to_ip_port/1,
+    to_host_port/1,
     to_erl_cipher_suite/1,
     to_comma_separated_atoms/1
 ]).
@@ -96,6 +99,7 @@
     comma_separated_binary/0,
     bar_separated_list/0,
     ip_port/0,
+    host_port/0,
     cipher/0,
     comma_separated_atoms/0
 ]).
@@ -2167,33 +2171,60 @@ to_bar_separated_list(Str) ->
 %%  - :1883
 %%  - :::1883
 to_ip_port(Str) ->
-    case split_ip_port(Str) of
-        {"", Port} ->
+    to_host_port(Str, ip_addr).
+
+%% @doc support the following format:
+%%  - 127.0.0.1:1883
+%%  - ::1:1883
+%%  - [::1]:1883
+%%  - :1883
+%%  - :::1883
+%%  - example.com:80
+to_host_port(Str) ->
+    to_host_port(Str, hostname).
+
+%%  - example.com:80
+to_host_port(Str, IpOrHost) ->
+    case split_host_port(Str) of
+        {"", Port} when IpOrHost =:= ip_addr ->
+            %% this is a local address
             {ok, list_to_integer(Port)};
-        {Ip, Port} ->
+        {"", _Port} ->
+            %% must specify host part when it's a remote endpoint
+            {error, bad_host_port};
+        {MaybeIp, Port} ->
             PortVal = list_to_integer(Port),
-            case inet:parse_address(Ip) of
-                {ok, R} ->
-                    {ok, {R, PortVal}};
-                _ ->
+            case inet:parse_address(MaybeIp) of
+                {ok, IpTuple} ->
+                    {ok, {IpTuple, PortVal}};
+                _ when IpOrHost =:= hostname ->
                     %% check is a rfc1035's hostname
-                    case inet_parse:domain(Ip) of
+                    case inet_parse:domain(MaybeIp) of
                         true ->
-                            {ok, {Ip, PortVal}};
+                            {ok, {MaybeIp, PortVal}};
                         _ ->
-                            {error, Str}
-                    end
+                            {error, bad_hostname}
+                    end;
+                _ ->
+                    {error, bad_ip_port}
             end;
         _ ->
-            {error, Str}
+            {error, bad_ip_port}
     end.
 
-split_ip_port(Str0) ->
+split_host_port(Str0) ->
     Str = re:replace(Str0, " ", "", [{return, list}, global]),
     case lists:split(string:rchr(Str, $:), Str) of
-        %% no port
+        %% no colon
         {[], Str} ->
-            error;
+            try
+                %% if it's just a port number, then return as-is
+                _ = list_to_integer(Str),
+                {"", Str}
+            catch
+                _:_ ->
+                    error
+            end;
         {IpPlusColon, PortString} ->
             IpStr0 = lists:droplast(IpPlusColon),
             case IpStr0 of
