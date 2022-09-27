@@ -39,7 +39,7 @@
 -type comma_separated_binary() :: [binary()].
 -type comma_separated_atoms() :: [atom()].
 -type bar_separated_list() :: list().
--type ip_port() :: tuple().
+-type ip_port() :: tuple() | integer().
 -type cipher() :: map().
 
 -typerefl_from_string({duration/0, emqx_schema, to_duration}).
@@ -2169,7 +2169,7 @@ to_bar_separated_list(Str) ->
 to_ip_port(Str) ->
     case split_ip_port(Str) of
         {"", Port} ->
-            {ok, {{0, 0, 0, 0}, list_to_integer(Port)}};
+            {ok, list_to_integer(Port)};
         {Ip, Port} ->
             PortVal = list_to_integer(Port),
             case inet:parse_address(Ip) of

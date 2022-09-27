@@ -542,6 +542,8 @@ format_bind(Str) when is_list(Str) ->
     case emqx_schema:to_ip_port(Str) of
         {ok, {Ip, Port}} ->
             format_bind({Ip, Port});
+        {ok, Port} ->
+            format_bind(Port);
         {error, _} ->
             format_bind(list_to_integer(Str))
     end;

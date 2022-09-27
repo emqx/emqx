@@ -169,9 +169,8 @@ t_format_bind(_) ->
         ":1883",
         lists:flatten(emqx_listeners:format_bind("1883"))
     ),
-    %% due to the emqx_schema:to_ip_port/1, automaticlly add the IPv4 address
     ?assertEqual(
-        "0.0.0.0:1883",
+        ":1883",
         lists:flatten(emqx_listeners:format_bind(":1883"))
     ).
 
