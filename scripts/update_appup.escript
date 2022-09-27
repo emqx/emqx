@@ -313,7 +313,7 @@ do_merge_update_actions(App, {New0, Changed0, Deleted0}, OldActions) ->
             true ->
                 [];
             false ->
-                [{load_module, M, brutal_purge, soft_purge, []} || M <- Changed] ++
+                [{load_module, M, brutal_purge, soft_purge, []} || M <- Changed, not is_secret_module(M)] ++
                 [{add_module, M} || M <- New]
         end,
     {OldActionsWithStop, OldActionsAfterStop} =
@@ -325,9 +325,17 @@ do_merge_update_actions(App, {New0, Changed0, Deleted0}, OldActions) ->
             true ->
                 [];
             false ->
-                [{delete_module, M} || M <- Deleted]
+                [{delete_module, M} || M <- Deleted, not is_secret_module(M)]
         end ++
         AppSpecific.
+
+%% Do not reload or delet _secret modules
+is_secret_module(Module) ->
+    Suffix = "_secret",
+    case string:right(atom_to_list(Module), length(Suffix)) of
+        Suffix -> true;
+        _ -> false
+    end.
 
 %% If an entry restarts an application, there's no need to use
 %% `load_module' instructions.
