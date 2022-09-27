@@ -115,7 +115,7 @@ init_per_suite(Config) ->
 end_per_suite(_Cfg) ->
     deinit_mongo_data(),
     %% avoid inter-suite flakiness
-    ok = emqx_mod_acl_internal:load([]),
+    emqx_mod_acl_internal:load([]),
     emqx_ct_helpers:stop_apps([emqx_auth_mongo]).
 
 set_special_confs(emqx) ->
@@ -186,6 +186,8 @@ end_per_testcase(TestCase, Config)
  when TestCase =:= t_available_acl_query_timeout;
       TestCase =:= t_acl_superuser_timeout;
       TestCase =:= t_authn_no_connection;
+      TestCase =:= t_available_authn_query_timeout;
+      TestCase =:= t_authn_timeout;
       TestCase =:= t_available_acl_query_no_connection ->
     ProxyHost = ?config(proxy_host, Config),
     ProxyPort = ?config(proxy_port, Config),
