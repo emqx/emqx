@@ -62,7 +62,8 @@ app_specific_actions(_) ->
 ignored_apps() ->
     [gpb, %% only a build tool
      emqx_dashboard, %% generic appup file for all versions
-     emqx_management %% generic appup file for all versions
+     emqx_management, %% generic appup file for all versions
+     emqx_modules_spec %% generic appup file for all versions
     ] ++ otp_standard_apps().
 
 main(Args) ->
@@ -284,9 +285,9 @@ merge_update_actions(App, Changes, Vsns, PrevVersion) ->
 %% but there is a 1.1.2 in appup we may skip merging instructions for
 %% 1.1.2 because it's not used and no way to know what has been changed
 is_skipped_version(App, Vsn, PrevVersion) when is_list(Vsn) andalso is_list(PrevVersion) ->
-    case is_app_external(App) andalso parse_version_number(Vsn) of
+    case is_app_external(App) andalso parse_version(Vsn, non_strict_semver) of
         {ok, VsnTuple} ->
-            case parse_version_number(PrevVersion) of
+            case parse_version(PrevVersion, non_strict_semver) of
                 {ok, PrevVsnTuple} ->
                     VsnTuple > PrevVsnTuple;
                 _ ->
@@ -397,7 +398,7 @@ contains_version(Needle, Haystack) when is_list(Needle) ->
 %% past versions that should be covered by regexes in .appup file
 %% instructions.
 enumerate_past_versions(Vsn) when is_list(Vsn) ->
-    case parse_version_number(Vsn) of
+    case parse_version(Vsn) of
         {ok, ParsedVsn} ->
             {ok, enumerate_past_versions(ParsedVsn)};
         Error ->
@@ -406,14 +407,39 @@ enumerate_past_versions(Vsn) when is_list(Vsn) ->
 enumerate_past_versions({Major, Minor, Patch}) ->
     [{Major, Minor, P} || P <- lists:seq(Patch - 1, 0, -1)].
 
-parse_version_number(Vsn) when is_list(Vsn) ->
-    Nums = string:split(Vsn, ".", all),
-    Results = lists:map(fun string:to_integer/1, Nums),
-    case Results of
-        [{Major, []}, {Minor, []}, {Patch, []}] ->
-            {ok, {Major, Minor, Patch}};
-        _ ->
-            {error, bad_version}
+parse_version(Vsn) ->
+    parse_version(Vsn, strict_semver).
+
+parse_version(Vsn, MaybeSemver) when is_list(Vsn) ->
+    case parse_dot_separated_numbers(Vsn) of
+        {ok, {_Major, _Minor, _Patch}} = Res ->
+            Res;
+        {ok, Nums} ->
+            case MaybeSemver of
+                strict_semver ->
+                    {error, {bad_semver, Vsn}};
+                non_strict_semver ->
+                    {ok, Nums}
+            end;
+        {error, Reason} ->
+            {error, {Reason, Vsn}}
+    end.
+
+parse_dot_separated_numbers(Str) when is_list(Str) ->
+    try
+        Split = string:split(Str, ".", all),
+        IntL = lists:map(fun(SubStr) ->
+                                 case string:to_integer(SubStr) of
+                                     {Int, []} when is_integer(Int) ->
+                                         Int;
+                                     _ ->
+                                         throw(no_integer)
+                                 end
+                         end, Split),
+        {ok, list_to_tuple(IntL)}
+    catch
+        _ : _ ->
+            {error, bad_version_string}
     end.
 
 vsn_number_to_string({Major, Minor, Patch}) ->
