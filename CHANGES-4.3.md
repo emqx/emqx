@@ -44,7 +44,7 @@ File format:
     This change also added `format_status` callback for `gen_server` states which hold plaintext
     password so the process termination log and `sys:get_status` will print '******' instead of
     the password to console.
-  - Avoid pool name clasing [eredis_cluster#22](https://github.com/emqx/eredis_cluster/pull/22)
+  - Avoid pool name clashing [eredis_cluster#22](https://github.com/emqx/eredis_cluster/pull/22)
     Same `format_status` callback is added here too for `gen_server`s which hold password in
     their state.
 
