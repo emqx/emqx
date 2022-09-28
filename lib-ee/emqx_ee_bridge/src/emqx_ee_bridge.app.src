@@ -4,7 +4,8 @@
     {applications, [
         kernel,
         stdlib,
-        emqx_ee_connector
+        emqx_ee_connector,
+        telemetry
     ]},
     {env, []},
     {modules, []},

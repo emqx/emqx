@@ -130,7 +130,7 @@ defmodule EMQXUmbrella.MixProject do
     [
       {:hstreamdb_erl, github: "hstreamdb/hstreamdb_erl", tag: "0.2.5"},
       {:influxdb, github: "emqx/influxdb-client-erl", tag: "1.1.4", override: true},
-      {:wolff, github: "kafka4beam/wolff", tag: "1.6.4"},
+      {:wolff, github: "kjellwinblad/wolff", branch: "kjell/add_counters_support_ok"},
       {:kafka_protocol, github: "kafka4beam/kafka_protocol", tag: "4.1.0", override: true},
       {:brod_gssapi, github: "kafka4beam/brod_gssapi", tag: "v0.1.0-rc1"},
       {:brod, github: "kafka4beam/brod", tag: "3.16.4"},
@@ -516,7 +516,7 @@ defmodule EMQXUmbrella.MixProject do
     |> Path.join("RELEASES")
     |> File.open!([:write, :utf8], fn handle ->
       IO.puts(handle, "%% coding: utf-8")
-      :io.format(handle, '~tp.~n', [release_entry])
+      :io.format(handle, ~c"~tp.~n", [release_entry])
     end)
 
     release
