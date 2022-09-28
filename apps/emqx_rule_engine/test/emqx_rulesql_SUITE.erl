@@ -474,7 +474,7 @@ t_sqlselect_3(_Config) ->
         ok
     end,
 
-    emqtt:stop(Client),
+    emqtt:stop(Client), emqtt:stop(Client1),
     emqx_rule_registry:remove_rule(TopicRule).
 
 %%------------------------------------------------------------------------------

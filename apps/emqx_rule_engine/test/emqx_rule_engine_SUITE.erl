@@ -238,8 +238,12 @@ end_per_testcase(t_events, Config) ->
     ok = emqx_rule_registry:remove_rule(?config(hook_points_rules, Config)),
     ok = emqx_rule_registry:remove_action('hook-metrics-action');
 end_per_testcase(Test, Config)
-        when Test =:= t_sqlselect_multi_actoins_1,
-             Test =:= t_sqlselect_multi_actoins_2
+        when Test =:= t_sqlselect_multi_actoins_1
+            ;Test =:= t_sqlselect_multi_actoins_1_1
+            ;Test =:= t_sqlselect_multi_actoins_2
+            ;Test =:= t_sqlselect_multi_actoins_3
+            ;Test =:= t_sqlselect_multi_actoins_3_1
+            ;Test =:= t_sqlselect_multi_actoins_4
             ->
     emqtt:stop(?config(subclient, Config)),
     emqtt:stop(?config(connclient, Config)),
@@ -1218,8 +1222,8 @@ t_match_atom_and_binary(_Config) ->
     {ok, _} = emqtt:connect(Client),
     {ok, _, _} = emqtt:subscribe(Client, <<"t2">>, 0),
     ct:sleep(100),
-    {ok, Client2} = emqtt:start_link([{username, <<"emqx2">>}]),
-    {ok, _} = emqtt:connect(Client2),
+    {ok, Client1} = emqtt:start_link([{username, <<"emqx2">>}]),
+    {ok, _} = emqtt:connect(Client1),
     receive {publish, #{topic := T, payload := Payload}} ->
         ?assertEqual(<<"t2">>, T),
         <<"user:", ConnAt/binary>> = Payload,
@@ -1228,7 +1232,7 @@ t_match_atom_and_binary(_Config) ->
         ct:fail(wait_for_t2)
     end,
 
-    emqtt:stop(Client),
+    emqtt:stop(Client), emqtt:stop(Client1),
     emqx_rule_registry:remove_rule(TopicRule).
 
 t_metrics(_Config) ->
