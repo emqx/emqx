@@ -36,6 +36,18 @@ File format:
 
 - Fix delayed publish inaccurate caused by os time change. [#8908](https://github.com/emqx/emqx/pull/8908)
 
+- Hide redis password in error logs [#9071](https://github.com/emqx/emqx/pull/9071)
+  In this change, it also included more changes in redis client:
+  - Improve redis connection error logging [eredis:19](https://github.com/emqx/eredis/pull/19).
+    Also added support for eredis to accept an anonymous function as password instead of
+    passing around plaintext args which may get dumpped to crash logs (hard to predict where).
+    This change also added `format_status` callback for `gen_server` states which hold plaintext
+    password so the process termination log and `sys:get_status` will print '******' instead of
+    the password to console.
+  - Avoid pool name clashing [eredis_cluster#22](https://github.com/emqx/eredis_cluster/pull/22)
+    Same `format_status` callback is added here too for `gen_server`s which hold password in
+    their state.
+
 ## v4.3.20
 
 ### Bug fixes
