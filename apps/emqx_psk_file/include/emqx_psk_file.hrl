@@ -1,5 +1,5 @@
 %%--------------------------------------------------------------------
-%% Copyright (c) 2020-2022 EMQ Technologies Co., Ltd. All Rights Reserved.
+%% Copyright (c) 2022 EMQ Technologies Co., Ltd. All Rights Reserved.
 %%
 %% Licensed under the Apache License, Version 2.0 (the "License");
 %% you may not use this file except in compliance with the License.
@@ -14,24 +14,12 @@
 %% limitations under the License.
 %%--------------------------------------------------------------------
 
--module(emqx_psk_file_sup).
+-ifndef(EMQX_PSK_FILE).
+-define(EMQX_PSK_FILE, true).
 
--include("emqx_psk_file.hrl").
+-define(PSK_FILE_TAB, emqx_psk_file).
 
--behaviour(supervisor).
+-record(psk_entry, {psk_id :: binary(),
+                    psk_str :: binary()}).
 
-%% API
--export([start_link/0]).
-
-%% Supervisor callbacks
--export([init/1]).
-
-start_link() ->
-    _ = ets:new(
-          ?PSK_FILE_TAB,
-          [set, named_table, public, {keypos, #psk_entry.psk_id}]
-         ),
-    supervisor:start_link({local, ?MODULE}, ?MODULE, []).
-
-init([]) ->
-    {ok, { {one_for_one, 0, 1}, []} }.
+-endif.
