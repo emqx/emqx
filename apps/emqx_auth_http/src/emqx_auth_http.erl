@@ -36,7 +36,6 @@
 
 check(ClientInfo, AuthResult, #{auth  := AuthParms = #{path := Path},
                                 super := SuperParams}) ->
-    ClientId = maps:get(clientid, ClientInfo, undefined),
     Username = maps:get(username, ClientInfo, undefined),
     case authenticate(AuthParms, ClientInfo) of
         {ok, 200, <<"ignore">>} ->
@@ -48,15 +47,15 @@ check(ClientInfo, AuthResult, #{auth  := AuthParms = #{path := Path},
                                 anonymous   => false,
                                 mountpoint  => mountpoint(Body, ClientInfo)}};
         {ok, Code, _Body} ->
-            ?LOG(error, "Deny connection(~s) from path: ~s, username: ~s, http "
+            ?LOG(error, "Deny connection from path: ~s, username: ~s, http "
                         "response code: ~p",
-                        [ClientId, Path, Username, Code]),
+                        [Path, Username, Code]),
             {stop, AuthResult#{auth_result => http_to_connack_error(Code),
                                anonymous   => false}};
         {error, Error} ->
-            ?LOG(error, "Deny connection(~s) from path: ~s, username: ~s, due to "
+            ?LOG(error, "Deny connection from path: ~s, username: ~s, due to "
                         "request http-server failed: ~0p",
-                 [ClientId, Path, Username, Error]),
+                 [Path, Username, Error]),
             %%FIXME later: server_unavailable is not right.
             {stop, AuthResult#{auth_result => server_unavailable,
                                anonymous   => false}}
