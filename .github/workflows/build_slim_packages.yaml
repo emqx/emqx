@@ -11,10 +11,10 @@ jobs:
     strategy:
       matrix:
         otp:
-        - erl23.3.4.9-3
+          - erl23.3.4.9-3
         os:
-        - ubuntu20.04
-        - centos7
+          - ubuntu20.04
+          - centos7
         runs-on:
           - aws-amd64
           - ubuntu-20.04
@@ -65,8 +65,6 @@ jobs:
   mac:
     strategy:
       matrix:
-        profile:
-          - emqx
         otp:
           - 23.3.4.9-3
         os:
@@ -79,7 +77,6 @@ jobs:
         ci_git_token: ${{ secrets.CI_GIT_TOKEN }}
     - uses: ./.github/actions/package-macos
       with:
-        profile: ${{ matrix.profile }}
         otp: ${{ matrix.otp }}
         os: ${{ matrix.os }}
         apple_id_password: ${{ secrets.APPLE_ID_PASSWORD }}

@@ -1,8 +1,5 @@
 name: 'Create MacOS package'
 inputs:
-  profile: # emqx, emqx-enterprise
-    required: true
-    type: string
   otp: # 24.2.1-1, 23.3.4.9-3
     required: true
     type: string
@@ -49,7 +46,7 @@ runs:
         kerl update releases
         kerl build ${{ inputs.otp }}
         kerl install ${{ inputs.otp }} $HOME/.kerl/${{ inputs.otp }}
-    - name: build ${{ inputs.profile }}
+    - name: build
       env:
         AUTO_INSTALL_BUILD_DEPS: 1
         APPLE_SIGN_BINARIES: 1
@@ -64,12 +61,12 @@ runs:
         . $HOME/.kerl/${{ inputs.otp }}/activate
         make ensure-rebar3
         sudo cp rebar3 /usr/local/bin/rebar3
-        make ${{ inputs.profile }}-zip
-    - name: test ${{ inputs.profile }}
+        make ${EMQX_NAME}-zip
+    - name: test
       shell: bash
       run: |
-        pkg_name=$(basename _packages/${{ inputs.profile }}/${{ inputs.profile }}-*.zip)
-        unzip -q _packages/${{ inputs.profile }}/$pkg_name
+        pkg_name=$(basename _packages/${EMQX_NAME}/${EMQX_NAME}-*.zip)
+        unzip -q _packages/${EMQX_NAME}/$pkg_name
         gsed -i '/emqx_telemetry/d' ./emqx/data/loaded_plugins
         ./emqx/bin/emqx start || cat emqx/log/erlang.log.1
         ready='no'
