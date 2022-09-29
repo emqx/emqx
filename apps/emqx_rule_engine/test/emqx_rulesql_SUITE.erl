@@ -236,8 +236,27 @@ t_sqlselect_00(_Config) ->
                     #{<<"rawsql">> => Sql3,
                       <<"ctx">> =>
                         #{<<"payload">> => <<"">>,
-                          <<"topic">> => <<"t/a">>}})).
+                          <<"topic">> => <<"t/a">>}})),
 
+    Sql4 = "select payload.msg1 + payload.msg2 as msg "
+           "from \"t/#\" ",
+    ?assertMatch({ok,#{<<"msg">> := <<"hello world">>}},
+                 emqx_rule_sqltester:test(
+                    #{<<"rawsql">> => Sql4,
+                      <<"ctx">> =>
+                        #{<<"payload">> => <<"{\"msg1\": \"hello\", \"msg2\": \" world\"}">>,
+                          <<"topic">> => <<"t/1">>}})),
+
+    Sql5 = "select payload.msg1 + payload.msg2 as msg "
+           "from \"t/#\" ",
+    ?assertMatch({error, {select_and_transform_error, {error, unsupported_type_implicit_conversion, _ST}}},
+                 emqx_rule_sqltester:test(
+                    #{<<"rawsql">> => Sql5,
+                      <<"ctx">> =>
+                        #{<<"payload">> => <<"{\"msg1\": \"hello\", \"msg2\": 1}">>,
+                          <<"topic">> => <<"t/1">>}})).
+
+%% Verify SELECT with and with 'WHERE'
 t_sqlselect_01(_Config) ->
     ok = emqx_rule_engine:load_providers(),
     TopicRule1 = create_simple_repub_rule(
@@ -312,7 +331,50 @@ t_sqlselect_02(_Config) ->
     emqtt:stop(Client),
     emqx_rule_registry:remove_rule(TopicRule1).
 
+t_sqlselect_03(_Config) ->
+    %% Verify SELECT with and with 'WHERE' and `+` `=` and `or` condition in 'WHERE' clause
+    ok = emqx_rule_engine:load_providers(),
+    TopicRule1 = create_simple_repub_rule(
+                    <<"t2">>,
+                    "SELECT * "
+                    "FROM \"t3/#\", \"t1\" "
+                    "WHERE payload.x + payload.y = 2 or payload.x + payload.y = \"11\""),
+    {ok, Client} = emqtt:start_link([{username, <<"emqx">>}]),
+    {ok, _} = emqtt:connect(Client),
+    {ok, _, _} = emqtt:subscribe(Client, <<"t2">>, 0),
+    emqtt:publish(Client, <<"t1">>, <<"{\"x\":1, \"y\":1}">>, 0),
+    ct:sleep(100),
+    receive {publish, #{topic := T1, payload := Payload0}} ->
+        ?assertEqual(<<"t2">>, T1),
+        ?assertEqual(<<"{\"x\":1, \"y\":1}">>, Payload0)
+    after 1000 ->
+        ct:fail(wait_for_t2)
+    end,
 
+    receive {publish, #{topic := T2, payload := Payload1}} ->
+        ?assertEqual(<<"t2">>, T2),
+        ?assertEqual(<<"{\"x\":\"1\", \"y\":\"1\"}">>, Payload1)
+    after 1000 ->
+        ct:fail(wait_for_t2)
+    end,
+
+    emqtt:publish(Client, <<"t1">>, <<"{\"x\":1, \"y\":2}">>, 0),
+    receive {publish, #{topic := <<"t2">>, payload := Payload2}} ->
+        ct:fail({unexpected_t2, Payload2})
+    after 1000 ->
+        ok
+    end,
+
+    emqtt:publish(Client, <<"t3/a">>, <<"{\"x\":1, \"y\":1}">>, 0),
+    receive {publish, #{topic := T3, payload := Payload3}} ->
+        ?assertEqual(<<"t2">>, T3),
+        ?assertEqual(<<"{\"x\":1, \"y\":1}">>, Payload3)
+    after 1000 ->
+        ct:fail(wait_for_t2)
+    end,
+
+    emqtt:stop(Client),
+    emqx_rule_registry:remove_rule(TopicRule1).
 
 t_sqlselect_1(_Config) ->
     ok = emqx_rule_engine:load_providers(),
