@@ -338,7 +338,13 @@ null() ->
 
 %% concat 2 strings
 '+'(X, Y) when is_binary(X), is_binary(Y) ->
-    concat(X, Y).
+    concat(X, Y);
+
+%% unsupported type implicit conversion
+'+'(X, Y)
+  when (is_number(X) andalso is_binary(Y)) orelse
+       (is_binary(X) andalso is_number(Y)) ->
+    error(unsupported_type_implicit_conversion).
 
 '-'(X, Y) when is_number(X), is_number(Y) ->
     X - Y.
