@@ -96,8 +96,8 @@ do_parse(URI) ->
 %% underscores replaced with hyphens
 %% NOTE: assuming the input Headers list is a proplists,
 %% that is, when a key is duplicated, list header overrides tail
-%% e.g. [{"Content_Type", "applicaiton/binary"}, {<<"content-type">>, "applicaiton/json"}]
-%% results in: [{"content-type", "applicaiton/binary"}]
+%% e.g. [{"Content_Type", "applicaiton/binary"}, {"content-type", "applicaiton/json"}]
+%% results in: [{<<"content-type">>, "applicaiton/binary"}]
 normalise_headers(Headers0) ->
     F = fun({K0, V}) ->
                 K = re:replace(K0, "_", "-", [{return,binary}]),

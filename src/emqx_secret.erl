@@ -1,5 +1,5 @@
 %%--------------------------------------------------------------------
-%% Copyright (c) 2020-2022 EMQ Technologies Co., Ltd. All Rights Reserved.
+%% Copyright (c) 2022 EMQ Technologies Co., Ltd. All Rights Reserved.
 %%
 %% Licensed under the Apache License, Version 2.0 (the "License");
 %% you may not use this file except in compliance with the License.
@@ -14,24 +14,28 @@
 %% limitations under the License.
 %%--------------------------------------------------------------------
 
--module(emqx_psk_file_sup).
+%% Note: this module CAN'T be hot-patched to avoid invalidating the
+%% closures, so it must not be changed.
+-module(emqx_secret).
 
--include("emqx_psk_file.hrl").
+%% API:
+-export([wrap/1, unwrap/1]).
 
--behaviour(supervisor).
+%%================================================================================
+%% API funcions
+%%================================================================================
 
-%% API
--export([start_link/0]).
+wrap(undefined) ->
+    undefined;
+wrap(Func) when is_function(Func) ->
+    Func;
+wrap(Term) ->
+    fun() ->
+        Term
+    end.
 
-%% Supervisor callbacks
--export([init/1]).
-
-start_link() ->
-    _ = ets:new(
-          ?PSK_FILE_TAB,
-          [set, named_table, public, {keypos, #psk_entry.psk_id}]
-         ),
-    supervisor:start_link({local, ?MODULE}, ?MODULE, []).
-
-init([]) ->
-    {ok, { {one_for_one, 0, 1}, []} }.
+unwrap(Term) when is_function(Term, 0) ->
+    %% Handle potentially nested funs
+    unwrap(Term());
+unwrap(Term) ->
+    Term.
