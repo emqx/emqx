@@ -315,6 +315,16 @@ create_resource(#{}, Params) ->
     end.
 
 do_create_resource(Create, ParsedParams) ->
+    case maps:find(id, ParsedParams) of
+        {ok, ResId} ->
+            case emqx_rule_registry:find_resource(ResId) of
+                {ok, _} -> return({error, 400, <<"Already Exists">>});
+                not_found -> do_create_resource2(Create, ParsedParams)
+            end;
+        error -> do_create_resource2(Create, ParsedParams)
+    end.
+
+do_create_resource2(Create, ParsedParams) ->
     case emqx_rule_engine:Create(ParsedParams) of
         ok ->
             return(ok);
