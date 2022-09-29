@@ -148,6 +148,32 @@ t_wss_conn(_) ->
     {ok, Socket} = ssl:connect({127, 0, 0, 1}, 9998, [{verify, verify_none}], 1000),
     ok = ssl:close(Socket).
 
+t_format_bind(_) ->
+    ?assertEqual(
+        ":1883",
+        lists:flatten(emqx_listeners:format_bind(1883))
+    ),
+    ?assertEqual(
+        "0.0.0.0:1883",
+        lists:flatten(emqx_listeners:format_bind({{0, 0, 0, 0}, 1883}))
+    ),
+    ?assertEqual(
+        "[::]:1883",
+        lists:flatten(emqx_listeners:format_bind({{0, 0, 0, 0, 0, 0, 0, 0}, 1883}))
+    ),
+    ?assertEqual(
+        "127.0.0.1:1883",
+        lists:flatten(emqx_listeners:format_bind({{127, 0, 0, 1}, 1883}))
+    ),
+    ?assertEqual(
+        ":1883",
+        lists:flatten(emqx_listeners:format_bind("1883"))
+    ),
+    ?assertEqual(
+        ":1883",
+        lists:flatten(emqx_listeners:format_bind(":1883"))
+    ).
+
 render_config_file() ->
     Path = local_path(["etc", "emqx.conf"]),
     {ok, Temp} = file:read_file(Path),

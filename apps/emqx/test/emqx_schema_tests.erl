@@ -175,3 +175,30 @@ ssl_opts_gc_after_handshake_test_not_rancher_listener_test() ->
         Checked
     ),
     ok.
+
+to_ip_port_test_() ->
+    Ip = fun emqx_schema:to_ip_port/1,
+    Host = fun(Str) ->
+        case Ip(Str) of
+            {ok, {_, _} = Res} ->
+                %% assert
+                {ok, Res} = emqx_schema:to_host_port(Str);
+            _ ->
+                emqx_schema:to_host_port(Str)
+        end
+    end,
+    [
+        ?_assertEqual({ok, 80}, Ip("80")),
+        ?_assertEqual({error, bad_host_port}, Host("80")),
+        ?_assertEqual({ok, 80}, Ip(":80")),
+        ?_assertEqual({error, bad_host_port}, Host(":80")),
+        ?_assertEqual({error, bad_ip_port}, Ip("localhost:80")),
+        ?_assertEqual({ok, {"localhost", 80}}, Host("localhost:80")),
+        ?_assertEqual({ok, {"example.com", 80}}, Host("example.com:80")),
+        ?_assertEqual({ok, {{127, 0, 0, 1}, 80}}, Ip("127.0.0.1:80")),
+        ?_assertEqual({error, bad_ip_port}, Ip("$:1900")),
+        ?_assertEqual({error, bad_hostname}, Host("$:1900")),
+        ?_assertMatch({ok, {_, 1883}}, Ip("[::1]:1883")),
+        ?_assertMatch({ok, {_, 1883}}, Ip("::1:1883")),
+        ?_assertMatch({ok, {_, 1883}}, Ip(":::1883"))
+    ].
