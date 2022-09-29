@@ -16,6 +16,7 @@ RUN export PROFILE=${EMQX_NAME%%-elixir} \
     && cd /emqx \
     && rm -rf $EMQX_LIB_PATH \
     && make $EMQX_NAME1 \
+    && rm -f $EMQX_REL_PATH/*.tar.gz \
     && mkdir -p /emqx-rel \
     && mv $EMQX_REL_PATH /emqx-rel
 
