@@ -360,7 +360,7 @@ schema("/gateways/:name/listeners") ->
             #{
                 tags => [<<"Gateways">>],
                 desc => ?DESC(list_listeners),
-                summary => <<"List All Listener">>,
+                summary => <<"List All Listeners">>,
                 parameters => params_gateway_name_in_path(),
                 responses =>
                     ?STANDARD_RESP(
