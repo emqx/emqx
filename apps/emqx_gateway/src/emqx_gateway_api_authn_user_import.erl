@@ -122,7 +122,9 @@ schema("/gateways/:name/authentication/import_users") ->
         'operationId' => import_users,
         post =>
             #{
+                tags => [<<"Gateways">>],
                 desc => ?DESC(emqx_gateway_api_authn, import_users),
+                summary => <<"Import Users">>,
                 parameters => params_gateway_name_in_path(),
                 'requestBody' => emqx_dashboard_swagger:file_schema(filename),
                 responses =>
@@ -134,7 +136,9 @@ schema("/gateways/:name/listeners/:id/authentication/import_users") ->
         'operationId' => import_listener_users,
         post =>
             #{
+                tags => [<<"Gateways">>],
                 desc => ?DESC(emqx_gateway_api_listeners, import_users),
+                summary => <<"Import Users">>,
                 parameters => params_gateway_name_in_path() ++
                     params_listener_id_in_path(),
                 'requestBody' => emqx_dashboard_swagger:file_schema(filename),
@@ -144,6 +148,7 @@ schema("/gateways/:name/listeners/:id/authentication/import_users") ->
     };
 schema(Path) ->
     emqx_gateway_utils:make_compatible_schema(Path, fun schema/1).
+
 %%--------------------------------------------------------------------
 %% params defines
 %%--------------------------------------------------------------------
@@ -155,7 +160,7 @@ params_gateway_name_in_path() ->
                 binary(),
                 #{
                     in => path,
-                    desc => ?DESC(emqx_gateway_api, gateway_name),
+                    desc => ?DESC(emqx_gateway_api, gateway_name_in_qs),
                     example => <<"stomp">>
                 }
             )}
