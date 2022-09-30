@@ -164,7 +164,9 @@ schema("/gateways") ->
         'operationId' => gateway,
         get =>
             #{
+                tags => [<<"Gateways">>],
                 desc => ?DESC(list_gateway),
+                summary => <<"List All Gateways">>,
                 parameters => params_gateway_status_in_qs(),
                 responses =>
                     ?STANDARD_RESP(
@@ -178,7 +180,9 @@ schema("/gateways") ->
             },
         post =>
             #{
+                tags => [<<"Gateways">>],
                 desc => ?DESC(enable_gateway),
+                summary => <<"Enable a Gateway">>,
                 %% TODO: distinguish create & response swagger schema
                 'requestBody' => schema_gateways_conf(),
                 responses =>
@@ -190,21 +194,27 @@ schema("/gateways/:name") ->
         'operationId' => gateway_insta,
         get =>
             #{
+                tags => [<<"Gateways">>],
                 desc => ?DESC(get_gateway),
+                summary => <<"Get the Gateway">>,
                 parameters => params_gateway_name_in_path(),
                 responses =>
                     ?STANDARD_RESP(#{200 => schema_gateways_conf()})
             },
         delete =>
             #{
+                tags => [<<"Gateways">>],
                 desc => ?DESC(delete_gateway),
+                summary => <<"Unload the gateway">>,
                 parameters => params_gateway_name_in_path(),
                 responses =>
                     ?STANDARD_RESP(#{204 => <<"Deleted">>})
             },
         put =>
             #{
+                tags => [<<"Gateways">>],
                 desc => ?DESC(update_gateway),
+                summary => <<"Update the gateway confs">>,
                 parameters => params_gateway_name_in_path(),
                 'requestBody' => schema_update_gateways_conf(),
                 responses =>
@@ -224,8 +234,8 @@ params_gateway_name_in_path() ->
                 binary(),
                 #{
                     in => path,
-                    desc => ?DESC(gateway_name),
-                    example => <<"">>
+                    desc => ?DESC(gateway_name_in_qs),
+                    example => <<"stomp">>
                 }
             )}
     ].
@@ -239,7 +249,7 @@ params_gateway_status_in_qs() ->
                 #{
                     in => query,
                     required => false,
-                    desc => ?DESC(gateway_status),
+                    desc => ?DESC(gateway_status_in_qs),
                     example => <<"">>
                 }
             )}
