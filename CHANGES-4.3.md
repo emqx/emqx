@@ -14,6 +14,11 @@ File format:
 
 ## v4.3.21
 
+### Bug fixes
+
+- Deny POST an existing resource id using HTTP API with error 400 "Already Exists". [#9079](https://github.com/emqx/emqx/pull/9079)
+- Fix the issue that reseting rule metrics crashed under certain conditions. [#9079](https://github.com/emqx/emqx/pull/9079)
+
 ### Enhancements
 
 - TLS listener memory usage optimization [#9005](https://github.com/emqx/emqx/pull/9005).
