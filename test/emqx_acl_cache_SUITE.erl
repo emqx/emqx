@@ -20,6 +20,8 @@
 -compile(nowarn_export_all).
 
 -include_lib("eunit/include/eunit.hrl").
+-include_lib("common_test/include/ct.hrl").
+-include("emqx.hrl").
 
 all() -> emqx_ct:all(?MODULE).
 
@@ -30,6 +32,21 @@ init_per_suite(Config) ->
 
 end_per_suite(_Config) ->
     emqx_ct_helpers:stop_apps([]).
+
+init_per_testcase(t_last_will_testament_message_check_acl, Config) ->
+    OriginalACLNomatch = emqx_zone:get_env(external, acl_nomatch),
+    emqx_zone:set_env(external, acl_nomatch, deny),
+    [ {original_acl_nomatch, OriginalACLNomatch}
+    | Config];
+init_per_testcase(_TestCase, Config) ->
+    Config.
+
+end_per_testcase(t_last_will_testament_message_check_acl, Config) ->
+    OriginalACLNomatch = ?config(original_acl_nomatch, Config),
+    emqx_zone:set_env(external, acl_nomatch, OriginalACLNomatch),
+    Config;
+end_per_testcase(_TestCase, _Config) ->
+    ok.
 
 %%--------------------------------------------------------------------
 %% Test cases
@@ -80,6 +97,28 @@ t_reload_aclfile_and_cleanall(_Config) ->
     ?assert(length(gen_server:call(ClientPid, list_acl_cache)) > 0),
     emqtt:stop(Client).
 
+
+%% asserts that we check ACL for the LWT topic before publishing the
+%% LWT.
+t_last_will_testament_message_check_acl(_Config) ->
+    ClientID = <<"lwt_acl">>,
+    {ok, C} = emqtt:start_link([
+        {clientid, ClientID},
+        {will_topic, <<"$SYS/lwt">>},
+        {will_payload, <<"should not be published">>}
+    ]),
+    {ok, _} = emqtt:connect(C),
+    ok = emqx:subscribe(<<"$SYS/lwt">>),
+    unlink(C),
+    exit(C, kill),
+    receive
+        {deliver, <<"$SYS/lwt">>, #message{payload = <<"should not be published">>}} ->
+            error(lwt_should_not_be_published_to_forbidden_topic)
+    after 1000 ->
+        ok
+    end,
+    ok.
+
 %% @private
 testdir(DataPath) ->
     Ls = filename:split(DataPath),
@@ -120,4 +159,3 @@ testdir(DataPath) ->
 
 % t_is_enabled(_) ->
 %     error('TODO').
-
