@@ -407,6 +407,7 @@ t_local_fallback(_) ->
     Message2 = emqx_message:make(ClientId2, 0, Topic, <<"hello2">>),
 
     emqtt:subscribe(ConnPid1, {<<"$share/local_group_fallback/", Topic/binary>>, 0}),
+    ok = emqx_node_helpers:wait_for_synced_routes([node(), Node], Topic, timer:seconds(10)),
 
     [{share, Topic, {ok, 1}}] = emqx:publish(Message1),
     {true, UsedSubPid1} = last_message(<<"hello1">>, [ConnPid1]),
