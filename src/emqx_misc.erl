@@ -48,6 +48,8 @@
         , pmap/2
         , pmap/3
         , ipv6_probe/2
+        , pmap/2
+        , pmap/3
         ]).
 
 -export([ bin2hexstr_A_F/1
