@@ -100,10 +100,10 @@ do_wait_for_synced_routes(Nodes, Topic) ->
     PerNodeView = lists:keysort(1, PerNodeView0),
     case check_consistent_view(PerNodeView) of
         {ok, OneView} ->
-            ct:pal(user, "consistent_routes_view~n~p", [OneView]),
+            ct:pal("consistent_routes_view~n~p", [OneView]),
             ok;
         {error, Reason}->
-            ct:pal(user, "inconsistent_routes_view~n~p", [Reason]),
+            ct:pal("inconsistent_routes_view~n~p", [Reason]),
             timer:sleep(10),
             do_wait_for_synced_routes(Nodes, Topic)
     end.
