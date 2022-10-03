@@ -18,7 +18,7 @@
 
 -include_lib("eunit/include/eunit.hrl").
 
--define(SLAVE_START_APPS, [emqx]).
+-define(SLAVE_START_APPS, [emqx, emqx_modules]).
 
 -export([start_slave/1,
          start_slave/2,
@@ -91,7 +91,7 @@ setup_node(Node, #{} = Opts) ->
         end,
     EnvHandler = maps:get(env_handler, Opts, DefaultEnvHandler),
 
-    [ok = rpc:call(Node, application, load, [App]) || App <- [gen_rpc, emqx_modules, emqx]],
+    [ok = rpc:call(Node, application, load, [App]) || App <- [gen_rpc, emqx]],
     ok = rpc:call(Node, emqx_ct_helpers, start_apps, [StartApps, EnvHandler]),
 
     ok = rpc:call(Node, ekka, join, [node()]),
