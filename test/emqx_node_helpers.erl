@@ -30,23 +30,44 @@ start_slave(Name) ->
     start_slave(Name, #{}).
 
 start_slave(Name, Opts) ->
-    {ok, Node} = ct_slave:start(list_to_atom(atom_to_list(Name) ++ "@" ++ host()),
-                                [{kill_if_fail, true},
-                                 {monitor_master, true},
-                                 {init_timeout, 10000},
-                                 {startup_timeout, 10000},
-                                 {erl_flags, ebin_path()}]),
-
+    Node = make_node_name(Name),
+    case ct_slave:start(Node, [{kill_if_fail, true},
+                               {monitor_master, true},
+                               {init_timeout, 10000},
+                               {startup_timeout, 10000},
+                               {erl_flags, ebin_path()}]) of
+        {ok, _} ->
+            ok;
+        {error, started_not_connected, _} ->
+            ok
+    end,
     pong = net_adm:ping(Node),
     setup_node(Node, Opts),
     Node.
 
-stop_slave(Node) ->
-    rpc:call(Node, ekka, leave, []),
-    ct_slave:stop(Node).
+make_node_name(Name) ->
+    case string:tokens(atom_to_list(Name), "@") of
+        [_Name, _Host] ->
+            %% the name already has a @
+            Name;
+        _ ->
+            list_to_atom(atom_to_list(Name) ++ "@" ++ host())
+    end.
+
+stop_slave(Node0) ->
+    Node = make_node_name(Node0),
+    case rpc:call(Node, ekka, leave, []) of
+        ok -> ok;
+        {badrpc, nodedown} -> ok
+    end,
+    case ct_slave:stop(Node) of
+        {ok, _} -> ok;
+        {error, not_started, _} -> ok
+    end.
 
 host() ->
-    [_, Host] = string:tokens(atom_to_list(node()), "@"), Host.
+    [_, Host] = string:tokens(atom_to_list(node()), "@"),
+    Host.
 
 ebin_path() ->
     string:join(["-pa" | lists:filter(fun is_lib/1, code:get_path())], " ").
@@ -70,10 +91,10 @@ setup_node(Node, #{} = Opts) ->
         end,
     EnvHandler = maps:get(env_handler, Opts, DefaultEnvHandler),
 
-    [ok = rpc:call(Node, application, load, [App]) || App <- [gen_rpc, emqx]],
+    [ok = rpc:call(Node, application, load, [App]) || App <- [gen_rpc, emqx_modules, emqx]],
     ok = rpc:call(Node, emqx_ct_helpers, start_apps, [StartApps, EnvHandler]),
 
-    rpc:call(Node, ekka, join, [node()]),
+    ok = rpc:call(Node, ekka, join, [node()]),
 
     %% Sanity check. Assert that `gen_rpc' is set up correctly:
     ?assertEqual( Node
