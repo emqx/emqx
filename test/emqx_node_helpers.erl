@@ -18,6 +18,7 @@
 
 -include_lib("eunit/include/eunit.hrl").
 
+%% modules is included because code is called before cluster join
 -define(SLAVE_START_APPS, [emqx, emqx_modules]).
 
 -export([start_slave/1,
@@ -94,7 +95,12 @@ setup_node(Node, #{} = Opts) ->
     [ok = rpc:call(Node, application, load, [App]) || App <- [gen_rpc, emqx]],
     ok = rpc:call(Node, emqx_ct_helpers, start_apps, [StartApps, EnvHandler]),
 
-    ok = rpc:call(Node, ekka, join, [node()]),
+    case maps:get(no_join, Opts, false) of
+        true ->
+            ok;
+        false ->
+            ok = rpc:call(Node, ekka, join, [node()])
+    end,
 
     %% Sanity check. Assert that `gen_rpc' is set up correctly:
     ?assertEqual( Node
