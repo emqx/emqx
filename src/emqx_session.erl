@@ -638,26 +638,21 @@ run_terminate_hooks(ClientInfo, takeovered, Session) ->
 run_terminate_hooks(ClientInfo, Reason, Session) ->
     run_hook('session.terminated', [ClientInfo, Reason, info(Session)]).
 
-redispatch_shared_messages(#session{inflight = Inflight}) ->
-    InflightList = emqx_inflight:to_list(Inflight),
-    lists:foreach(fun
-        %% Only QoS1 messages get redispatched, because QoS2 messages
-        %% must be sent to the same client, once they're in flight
-        ({_, {#message{qos = ?QOS_2} = Msg, _}}) ->
-          ?LOG(warning, "Not redispatching qos2 msg: ~s", [emqx_message:format(Msg)]);
-        ({_, {#message{topic = Topic, qos = ?QOS_1} = Msg, _}}) ->
-          case emqx_shared_sub:get_group(Msg) of
-              {ok, Group} ->
-                  %% Note that dispatch is called with self() in failed subs
-                  %% This is done to avoid dispatching back to caller
-                  Delivery = #delivery{sender = self(), message = Msg},
-                  emqx_shared_sub:dispatch_to_non_self(Group, Topic, Delivery);
-              _ ->
-                  false
-          end;
-        (_) ->
-          ok
-    end, InflightList).
+redispatch_shared_messages(#session{inflight = Inflight, mqueue = Q}) ->
+    InflightList = lists:map(fun({_, {Msg, _Ts}}) -> Msg end,
+                             emqx_inflight:to_list(sort_fun(), Inflight)),
+    MqList = mqueue_to_list(Q, []),
+    emqx_shared_sub:redispatch(InflightList ++ MqList).
+
+%% convert mqueue to a list
+%% the messages at the head of the list is to be dispatched before the tail
+mqueue_to_list(Q, Acc) ->
+    case emqx_mqueue:out(Q) of
+        {empty, _Q} ->
+            lists:reverse(Acc);
+        {{value, Msg}, Q1} ->
+            mqueue_to_list(Q1, [Msg | Acc])
+    end.
 
 -compile({inline, [run_hook/2]}).
 run_hook(Name, Args) ->

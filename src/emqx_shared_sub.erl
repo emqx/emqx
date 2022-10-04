@@ -39,7 +39,7 @@
         ]).
 
 -export([ dispatch/3
-        , dispatch_to_non_self/3
+        , redispatch/1
         ]).
 
 -export([ maybe_ack/1
@@ -47,7 +47,6 @@
         , nack_no_connection/1
         , is_ack_required/1
         , is_retry_dispatch/1
-        , get_group/1
         ]).
 
 %% for testing
@@ -84,6 +83,7 @@
 -define(ACK, shared_sub_ack).
 -define(NACK(Reason), {shared_sub_nack, Reason}).
 -define(NO_ACK, no_ack).
+-define(REDISPATCH_TO(GROUP, TOPIC), {GROUP, TOPIC}).
 
 -record(state, {pmon}).
 
@@ -134,11 +134,12 @@ dispatch(Group, Topic, Delivery) ->
     Strategy = strategy(Group),
     dispatch(Strategy, Group, Topic, Delivery, _FailedSubs = #{}).
 
-dispatch(Strategy, Group, Topic, Delivery = #delivery{message = Msg}, FailedSubs) ->
-    #message{from = ClientId, topic = SourceTopic} = Msg,
+dispatch(Strategy, Group, Topic, Delivery = #delivery{message = Msg0}, FailedSubs) ->
+    #message{from = ClientId, topic = SourceTopic} = Msg0,
     case pick(Strategy, ClientId, SourceTopic, Group, Topic, FailedSubs) of
         false -> {error, no_subscribers};
         {Type, SubPid} ->
+            Msg = with_redispatch_to(Msg0, Group, Topic),
             case do_dispatch(SubPid, Group, Topic, Msg, Type) of
                 ok -> {ok, 1};
                 {error, Reason} ->
@@ -162,7 +163,7 @@ ack_enabled() ->
     emqx:get_env(shared_dispatch_ack_enabled, false).
 
 do_dispatch(SubPid, _Group, Topic, Msg, _Type) when SubPid =:= self() ->
-    %% Deadlock otherwise
+    %% dispatch without ack, deadlock otherwise
     send(SubPid, Topic, {deliver, Topic, Msg});
 %% return either 'ok' (when everything is fine) or 'error'
 do_dispatch(SubPid, _Group, Topic, #message{qos = ?QOS_0} = Msg, _Type) ->
@@ -175,6 +176,10 @@ do_dispatch(SubPid, Group, Topic, Msg, Type) ->
         false ->
             send(SubPid, Topic, {deliver, Topic, Msg})
     end.
+
+with_redispatch_to(#message{qos = ?QOS_0} = Msg, _Group, _Topic) -> Msg;
+with_redispatch_to(Msg, Group, Topic) ->
+    emqx_message:set_headers(#{redispatch_to => ?REDISPATCH_TO(Group, Topic)}, Msg).
 
 dispatch_with_ack(SubPid, Group, Topic, Msg, Type) ->
     %% For QoS 1/2 message, expect an ack
@@ -228,12 +233,21 @@ without_group_ack(Msg) ->
 get_group_ack(Msg) ->
     emqx_message:get_header(shared_dispatch_ack, Msg, ?NO_ACK).
 
--spec(get_group(emqx_types:message()) -> {ok, any()} | error).
-get_group(Msg) ->
-    case get_group_ack(Msg) of
-        {_Sender, {_Type, Group, _Ref}} -> {ok, Group};
-        _ -> error
+%% @hidden Redispatch is neede only for the messages with redispatch_to header added.
+is_redispatch_needed(Msg) ->
+    case get_redispatch_to(Msg) of
+        ?REDISPATCH_TO(_, _) ->
+            true;
+        _ ->
+            false
     end.
+
+%% @hidden Return the `redispatch_to` group-topic in the message header.
+%% `false` is returned if the message is not a shared dispatch.
+%% or when it's a QoS 0 message.
+-spec(get_redispatch_to(emqx_types:message()) -> emqx_types:topic() | false).
+get_redispatch_to(Msg) ->
+    emqx_message:get_header(redispatch_to, Msg, false).
 
 -spec(is_ack_required(emqx_types:message()) -> boolean()).
 is_ack_required(Msg) -> ?NO_ACK =/= get_group_ack(Msg).
@@ -244,6 +258,26 @@ is_retry_dispatch(Msg) ->
         {_Sender, {retry, _Group, _Ref}} -> true;
         _ -> false
     end.
+
+%% @doc Redispatch shared deliveries to other members in the group.
+redispatch(Messages0) ->
+    Messages = lists:filter(fun is_redispatch_needed/1, Messages0),
+    case length(Messages) of
+        L when L > 0 ->
+            ?LOG(info, "Redispatching ~p shared subscription messages", [L]),
+            lists:foreach(fun redispatch_shared_message/1, Messages);
+        _ ->
+            ok
+    end.
+
+redispatch_shared_message(Msg) ->
+    %% As long as it's still a #message{} record in inflight,
+    %% we should try to re-dispatch
+    ?REDISPATCH_TO(Group, Topic) = get_redispatch_to(Msg),
+    %% Note that dispatch is called with self() in failed subs
+    %% This is done to avoid dispatching back to caller
+    Delivery = #delivery{sender = self(), message = Msg},
+    dispatch_to_non_self(Group, Topic, Delivery).
 
 %% @doc Negative ack dropped message due to inflight window or message queue being full.
 -spec(maybe_nack_dropped(emqx_types:message()) -> store | drop).
