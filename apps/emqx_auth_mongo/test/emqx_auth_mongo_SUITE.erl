@@ -686,7 +686,7 @@ heal_failure(FailureType, ProxyHost, ProxyPort) ->
     end.
 
 switch_proxy(Switch, ProxyHost, ProxyPort) ->
-    Url = "http://" ++ ProxyHost ++ ":" ++ integer_to_list(ProxyPort) ++ "/proxies/mongo",
+    Url = "http://" ++ ProxyHost ++ ":" ++ integer_to_list(ProxyPort) ++ "/proxies/mongo_single",
     Body = case Switch of
                off -> <<"{\"enabled\":false}">>;
                on  -> <<"{\"enabled\":true}">>
@@ -695,27 +695,27 @@ switch_proxy(Switch, ProxyHost, ProxyPort) ->
                                               [{body_format, binary}]).
 
 timeout_proxy(on, ProxyHost, ProxyPort) ->
-    Url = "http://" ++ ProxyHost ++ ":" ++ integer_to_list(ProxyPort) ++ "/proxies/mongo/toxics",
+    Url = "http://" ++ ProxyHost ++ ":" ++ integer_to_list(ProxyPort) ++ "/proxies/mongo_single/toxics",
     Body = <<"{\"name\":\"timeout\",\"type\":\"timeout\","
              "\"stream\":\"upstream\",\"toxicity\":1.0,"
              "\"attributes\":{\"timeout\":0}}">>,
     {ok, {{_, 200, _}, _, _}} = httpc:request(post, {Url, [], "application/json", Body}, [],
                                               [{body_format, binary}]);
 timeout_proxy(off, ProxyHost, ProxyPort) ->
-    Url = "http://" ++ ProxyHost ++ ":" ++ integer_to_list(ProxyPort) ++ "/proxies/mongo/toxics/timeout",
+    Url = "http://" ++ ProxyHost ++ ":" ++ integer_to_list(ProxyPort) ++ "/proxies/mongo_single/toxics/timeout",
     Body = <<>>,
     {ok, {{_, 204, _}, _, _}} = httpc:request(delete, {Url, [], "application/json", Body}, [],
                                               [{body_format, binary}]).
 
 latency_up_proxy(on, ProxyHost, ProxyPort) ->
-    Url = "http://" ++ ProxyHost ++ ":" ++ integer_to_list(ProxyPort) ++ "/proxies/mongo/toxics",
+    Url = "http://" ++ ProxyHost ++ ":" ++ integer_to_list(ProxyPort) ++ "/proxies/mongo_single/toxics",
     Body = <<"{\"name\":\"latency_up\",\"type\":\"latency\","
              "\"stream\":\"upstream\",\"toxicity\":1.0,"
              "\"attributes\":{\"latency\":20000,\"jitter\":3000}}">>,
     {ok, {{_, 200, _}, _, _}} = httpc:request(post, {Url, [], "application/json", Body}, [],
                                               [{body_format, binary}]);
 latency_up_proxy(off, ProxyHost, ProxyPort) ->
-    Url = "http://" ++ ProxyHost ++ ":" ++ integer_to_list(ProxyPort) ++ "/proxies/mongo/toxics/latency_up",
+    Url = "http://" ++ ProxyHost ++ ":" ++ integer_to_list(ProxyPort) ++ "/proxies/mongo_single/toxics/latency_up",
     Body = <<>>,
     {ok, {{_, 204, _}, _, _}} = httpc:request(delete, {Url, [], "application/json", Body}, [],
                                               [{body_format, binary}]).
