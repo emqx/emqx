@@ -47,8 +47,7 @@
     maybe_ack/1,
     maybe_nack_dropped/1,
     nack_no_connection/1,
-    is_ack_required/1,
-    get_group/1
+    is_ack_required/1
 ]).
 
 %% for testing
@@ -274,13 +273,6 @@ get_redispatch_to(Msg) ->
 
 -spec is_ack_required(emqx_types:message()) -> boolean().
 is_ack_required(Msg) -> ?NO_ACK =/= get_group_ack(Msg).
-
--spec get_group(emqx_types:message()) -> {ok, any()} | error.
-get_group(Msg) ->
-    case get_group_ack(Msg) of
-        ?NO_ACK -> error;
-        {Group, _Sender, _Ref} -> {ok, Group}
-    end.
 
 %% @doc Negative ack dropped message due to inflight window or message queue being full.
 -spec maybe_nack_dropped(emqx_types:message()) -> boolean().

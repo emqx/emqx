@@ -678,6 +678,40 @@ test_redispatch_qos1(_Config, AckEnabled) ->
     emqtt:stop(UsedSubPid2),
     ok.
 
+t_qos1_random_dispatch_if_all_members_are_down(Config) when is_list(Config) ->
+    ok = ensure_config(sticky, true),
+    Group = <<"group1">>,
+    Topic = <<"foo/bar">>,
+    ClientId1 = <<"ClientId1">>,
+    ClientId2 = <<"ClientId2">>,
+    SubOpts = [{clean_start, false}],
+    {ok, ConnPub} = emqtt:start_link([{clientid, <<"pub">>}]),
+    {ok, _} = emqtt:connect(ConnPub),
+
+    {ok, ConnPid1} = emqtt:start_link([{clientid, ClientId1} | SubOpts]),
+    {ok, ConnPid2} = emqtt:start_link([{clientid, ClientId2} | SubOpts]),
+    {ok, _} = emqtt:connect(ConnPid1),
+    {ok, _} = emqtt:connect(ConnPid2),
+
+    emqtt:subscribe(ConnPid1, {<<"$share/", Group/binary, "/foo/bar">>, 1}),
+    emqtt:subscribe(ConnPid2, {<<"$share/", Group/binary, "/foo/bar">>, 1}),
+
+    ok = emqtt:stop(ConnPid1),
+    ok = emqtt:stop(ConnPid2),
+
+    [Pid1, Pid2] = emqx_shared_sub:subscribers(Group, Topic),
+    ?assert(is_process_alive(Pid1)),
+    ?assert(is_process_alive(Pid2)),
+
+    {ok, _} = emqtt:publish(ConnPub, Topic, <<"hello11">>, 1),
+    ct:sleep(100),
+    {ok, Msgs1} = gen_server:call(Pid1, get_mqueue),
+    {ok, Msgs2} = gen_server:call(Pid2, get_mqueue),
+    %% assert the message is in mqueue (because socket is closed)
+    ?assertMatch([#message{payload = <<"hello11">>}], Msgs1 ++ Msgs2),
+    emqtt:stop(ConnPub),
+    ok.
+
 %% No ack, QoS 2 subscriptions,
 %% client1 receives one message, send pubrec, then suspend
 %% client2 acts normal (auto_ack=true)
