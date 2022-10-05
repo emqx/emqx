@@ -28,13 +28,7 @@
 #### Установка EMQX с помощью Docker
 
 ```
-docker run -d --name emqx -p 1883:1883 -p 8081:8081 -p 8083:8083 -p 8883:8883 -p 8084:8084 -p 18083:18083 emqx/emqx
-```
-
-Или запустите EMQX Enterprise со встроенной бессрочной лицензией на 10 соединений.
-
-```
-docker run -d --name emqx-ee -p 1883:1883 -p 8081:8081 -p 8083:8083 -p 8084:8084 -p 8883:8883 -p 18083:18083 emqx/emqx-ee:latest
+docker run -d --name emqx -p 1883:1883 -p 8083:8083 -p 8883:8883 -p 8084:8084 -p 18083:18083 emqx/emqx
 ```
 
 Чтобы ознакомиться с функциональностью EMQX, пожалуйста, следуйте [руководству по началу работы](https://www.emqx.io/docs/en/v5.0/getting-started/getting-started.html#start-emqx).
