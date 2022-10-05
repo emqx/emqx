@@ -52,10 +52,14 @@ all() ->
 init_per_suite(Cfg) ->
     emqx_ct_helpers:start_apps([emqx_auth_mongo], fun set_special_confs/1),
     init_mongo_data(),
+    %% avoid inter-suite flakiness
+    ok = emqx_mod_acl_internal:unload([]),
     Cfg.
 
 end_per_suite(_Cfg) ->
     deinit_mongo_data(),
+    %% avoid inter-suite flakiness
+    ok = emqx_mod_acl_internal:load([]),
     emqx_ct_helpers:stop_apps([emqx_auth_mongo]).
 
 set_special_confs(emqx) ->

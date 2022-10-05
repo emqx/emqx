@@ -266,9 +266,6 @@ maybe_trans(Fun, Args) ->
                   end, [])
     end.
 
-%% The created fun only terminates with explicit exception
--dialyzer({nowarn_function, [trans/2]}).
-
 -spec(trans(function(), list(any())) -> ok | {error, term()}).
 trans(Fun, Args) ->
     {WPid, RefMon} =
@@ -277,13 +274,7 @@ trans(Fun, Args) ->
             %% are caught by mnesia:transaction/2.
             %% Future changes should keep in mind that this process
             %% always exit with database write result.
-            fun() ->
-                    Res = case mnesia:transaction(Fun, Args) of
-                              {atomic, Ok} -> Ok;
-                              {aborted, Reason} -> {error, Reason}
-                          end,
-                    exit({shutdown, Res})
-            end),
+            make_trans(Fun, Args)),
     %% Receive a 'shutdown' exit to pass result from the short-lived process.
     %% so the receive below can be receive-mark optimized by the compiler.
     %%
@@ -298,6 +289,16 @@ trans(Fun, Args) ->
                 {shutdown, Result} -> Result;
                 _ -> {error, {trans_crash, Info}}
             end
+    end.
+
+-spec make_trans(fun((...) -> term()), [term()]) -> fun(() -> no_return()).
+make_trans(Fun, Args) ->
+    fun() ->
+            Res = case mnesia:transaction(Fun, Args) of
+                      {atomic, Ok} -> Ok;
+                      {aborted, Reason} -> {error, Reason}
+                  end,
+            exit({shutdown, Res})
     end.
 
 lock_router() ->

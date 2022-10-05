@@ -87,7 +87,7 @@
           %% Quota checkers
           quota :: maybe(emqx_limiter:limiter()),
           %% Timers
-          timers :: #{atom() => disabled | maybe(reference())},
+          timers :: #{channel_timer() => disabled | maybe(reference())},
           %% Conn State
           conn_state :: conn_state(),
           %% Takeover
@@ -109,6 +109,13 @@
 
 -type(replies() :: emqx_types:packet() | reply() | [reply()]).
 
+-type(channel_timer() :: alive_timer
+                       | retry_timer
+                       | await_timer
+                       | expire_timer
+                       | will_timer
+                       | quota_timer).
+
 -define(IS_MQTT_V5, #channel{conninfo = #{proto_ver := ?MQTT_PROTO_V5}}).
 
 -define(TIMER_TABLE, #{
@@ -121,8 +128,6 @@
          }).
 
 -define(INFO_KEYS, [conninfo, conn_state, clientinfo, session, will_msg]).
-
--dialyzer({no_match, [shutdown/4, ensure_timer/2, interval/2]}).
 
 %%--------------------------------------------------------------------
 %% Info, Attrs and Caps
@@ -244,7 +249,6 @@ setting_peercert_infos(Peercert, ClientInfo, Options) ->
     ClientId = peer_cert_as(peer_cert_as_clientid, Options, Peercert, DN, CN),
     ClientInfo#{username => Username, clientid => ClientId, dn => DN, cn => CN}.
 
--dialyzer([{nowarn_function, [peer_cert_as/5]}]).
 % esockd_peercert:peercert is opaque
 % https://github.com/emqx/esockd/blob/master/src/esockd_peercert.erl
 peer_cert_as(Key, Options, Peercert, DN, CN) ->
@@ -947,9 +951,10 @@ return_sub_unsub_ack(Packet, Channel) ->
 handle_call(kick, Channel = #channel{
                                conn_state = ConnState,
                                will_msg = WillMsg,
+                               clientinfo = ClientInfo,
                                conninfo = #{proto_ver := ProtoVer}
                               }) ->
-    (WillMsg =/= undefined) andalso publish_will_msg(WillMsg),
+    (WillMsg =/= undefined) andalso publish_will_msg(ClientInfo, WillMsg),
     Channel1 = case ConnState of
                    connected -> ensure_disconnected(kicked, Channel);
                    _ -> Channel
@@ -1098,8 +1103,9 @@ handle_timeout(_TRef, expire_awaiting_rel,
 handle_timeout(_TRef, expire_session, Channel) ->
     shutdown(expired, Channel);
 
-handle_timeout(_TRef, will_message, Channel = #channel{will_msg = WillMsg}) ->
-    (WillMsg =/= undefined) andalso publish_will_msg(WillMsg),
+handle_timeout(_TRef, will_message, Channel = #channel{will_msg = WillMsg,
+                                                       clientinfo = ClientInfo}) ->
+    (WillMsg =/= undefined) andalso publish_will_msg(ClientInfo, WillMsg),
     {ok, clean_timer(will_timer, Channel#channel{will_msg = undefined})};
 
 handle_timeout(_TRef, expire_quota_limit, Channel) ->
@@ -1113,12 +1119,8 @@ handle_timeout(_TRef, Msg, Channel) ->
 %% Ensure timers
 %%--------------------------------------------------------------------
 
-ensure_timer([Name], Channel) ->
-    ensure_timer(Name, Channel);
-ensure_timer([Name | Rest], Channel) ->
-    ensure_timer(Rest, ensure_timer(Name, Channel));
-
-ensure_timer(Name, Channel = #channel{timers = Timers}) ->
+-spec ensure_timer(channel_timer(), channel()) -> channel().
+ensure_timer(Name, Channel = #channel{timers = Timers}) when is_atom(Name) ->
     TRef = maps:get(Name, Timers, undefined),
     Time = interval(Name, Channel),
     case TRef == undefined andalso Time > 0 of
@@ -1126,6 +1128,7 @@ ensure_timer(Name, Channel = #channel{timers = Timers}) ->
         false -> Channel %% Timer disabled or exists
     end.
 
+-spec ensure_timer(channel_timer(), timeout(), channel()) -> channel().
 ensure_timer(Name, Time, Channel = #channel{timers = Timers}) ->
     Msg = maps:get(Name, ?TIMER_TABLE),
     TRef = emqx_misc:start_timer(Time, Msg),
@@ -1140,35 +1143,47 @@ reset_timer(Name, Time, Channel) ->
 clean_timer(Name, Channel = #channel{timers = Timers}) ->
     Channel#channel{timers = maps:remove(Name, Timers)}.
 
+-spec interval(channel_timer(), channel()) -> timeout().
 interval(alive_timer, #channel{keepalive = KeepAlive}) ->
     emqx_keepalive:info(interval, KeepAlive);
 interval(retry_timer, #channel{session = Session}) ->
     timer:seconds(emqx_session:info(retry_interval, Session));
 interval(await_timer, #channel{session = Session}) ->
-    timer:seconds(emqx_session:info(await_rel_timeout, Session));
-interval(expire_timer, #channel{conninfo = ConnInfo}) ->
-    timer:seconds(maps:get(expiry_interval, ConnInfo));
-interval(will_timer, #channel{will_msg = WillMsg}) ->
-    timer:seconds(will_delay_interval(WillMsg)).
+    timer:seconds(emqx_session:info(await_rel_timeout, Session)).
 
 %%--------------------------------------------------------------------
 %% Terminate
 %%--------------------------------------------------------------------
 
 -spec(terminate(any(), channel()) -> ok).
-terminate(_, #channel{conn_state = idle}) -> ok;
+terminate(_Reason, #channel{conn_state = idle} = _Channel) ->
+    ?tp(channel_terminated, #{channel => _Channel, reason => _Reason}),
+    ok;
 terminate(normal, Channel) ->
     run_terminate_hook(normal, Channel);
-terminate({shutdown, Reason}, Channel)
-  when Reason =:= kicked; Reason =:= discarded; Reason =:= takeovered ->
-    run_terminate_hook(Reason, Channel);
-terminate(Reason, Channel = #channel{will_msg = WillMsg}) ->
-    (WillMsg =/= undefined) andalso publish_will_msg(WillMsg),
+terminate(Reason, Channel = #channel{will_msg = WillMsg,
+                                     clientinfo = ClientInfo}) ->
+    should_publish_will_message(Reason, Channel)
+        andalso publish_will_msg(ClientInfo, WillMsg),
     run_terminate_hook(Reason, Channel).
 
-run_terminate_hook(_Reason, #channel{session = undefined}) -> ok;
-run_terminate_hook(Reason, #channel{clientinfo = ClientInfo, session = Session}) ->
+run_terminate_hook(_Reason, #channel{session = undefined} = _Channel) ->
+    ?tp(channel_terminated, #{channel => _Channel, reason => _Reason}),
+    ok;
+run_terminate_hook(Reason, #channel{clientinfo = ClientInfo, session = Session} = _Channel) ->
+    ?tp(channel_terminated, #{channel => _Channel, reason => Reason}),
     emqx_session:terminate(ClientInfo, Reason, Session).
+
+should_publish_will_message(TerminateReason, Channel) ->
+    not lists:member(TerminateReason, [ {shutdown, kicked}
+                                      , {shutdown, discarded}
+                                      , {shutdown, takeovered}
+                                      , {shutdown, not_authorized}
+                                      ])
+        andalso not lists:member(info(conn_state, Channel), [ idle
+                                                            , connecting
+                                                            ])
+        andalso info(will_msg, Channel) =/= undefined.
 
 %%--------------------------------------------------------------------
 %% Internal functions
@@ -1689,10 +1704,11 @@ ensure_disconnected(Reason, Channel = #channel{conninfo = ConnInfo,
 
 maybe_publish_will_msg(Channel = #channel{will_msg = undefined}) ->
     Channel;
-maybe_publish_will_msg(Channel = #channel{will_msg = WillMsg}) ->
+maybe_publish_will_msg(Channel = #channel{will_msg = WillMsg,
+                                          clientinfo = ClientInfo}) ->
     case will_delay_interval(WillMsg) of
         0 ->
-            ok = publish_will_msg(WillMsg),
+            ok = publish_will_msg(ClientInfo, WillMsg),
             Channel#channel{will_msg = undefined};
         I ->
             ensure_timer(will_timer, timer:seconds(I), Channel)
@@ -1702,9 +1718,19 @@ will_delay_interval(WillMsg) ->
     maps:get('Will-Delay-Interval',
              emqx_message:get_header(properties, WillMsg, #{}), 0).
 
-publish_will_msg(Msg) ->
-    _ = emqx_broker:publish(Msg),
-    ok.
+publish_will_msg(ClientInfo, Msg = #message{topic = Topic}) ->
+    case emqx_access_control:check_acl(ClientInfo, publish, Topic) of
+        allow ->
+            _ = emqx_broker:publish(Msg),
+            ok;
+        deny ->
+            ?tp(
+                warning,
+                last_will_testament_publish_denied,
+                #{topic => Topic}
+            ),
+            ok
+    end.
 
 %%--------------------------------------------------------------------
 %% Disconnect Reason
@@ -1757,8 +1783,6 @@ shutdown(success, Reply, Channel) ->
 shutdown(Reason, Reply, Channel) ->
     {shutdown, Reason, Reply, Channel}.
 
-shutdown(success, Reply, Packet, Channel) ->
-    shutdown(normal, Reply, Packet, Channel);
 shutdown(Reason, Reply, Packet, Channel) ->
     {shutdown, Reason, Reply, Packet, Channel}.
 

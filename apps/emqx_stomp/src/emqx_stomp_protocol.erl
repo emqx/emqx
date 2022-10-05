@@ -50,9 +50,29 @@
         , handle_recv_nack_frame/2
         ]).
 
+-type stomp_conninfo() :: #{socktype := emqx_types:socktype(),
+                            sockname := emqx_types:peername(),
+                            peername := emqx_types:peername(),
+                            peercert := nossl | undefined | esockd_peercert:peercert(),
+                            conn_mod := module(),
+                            proto_name => binary(),
+                            proto_ver => emqx_types:ver(),
+                            clean_start => boolean(),
+                            clientid => emqx_types:clientid(),
+                            username => emqx_types:username(),
+                            conn_props => emqx_types:properties(),
+                            connected => boolean(),
+                            connected_at => undefined | non_neg_integer(),
+                            disconnected_at => non_neg_integer(),
+                            keepalive => undefined | 0..16#FFFF,
+                            receive_maximum => non_neg_integer(),
+                            expiry_interval => non_neg_integer(),
+                            atom() => term()
+                           }.
+
 -record(pstate, {
           %% Stomp ConnInfo
-          conninfo :: emqx_types:conninfo(),
+          conninfo :: stomp_conninfo(),
           %% Stomp ClientInfo
           clientinfo :: emqx_types:clientinfo(),
           %% Stomp Heartbeats
@@ -103,10 +123,6 @@
                      awaiting_rel_cnt,
                      awaiting_rel_max
                     ]).
-
--dialyzer({nowarn_function, [ check_acl/3
-                            , init/2
-                            ]}).
 
 -type(pstate() :: #pstate{}).
 
@@ -687,12 +703,8 @@ backoff({Cx, Cy}) ->
 parse_topic_filters(TopicFilters) ->
     lists:map(fun emqx_topic:parse/1, TopicFilters).
 
-check_acl(PubSub, Topic, State = #pstate{clientinfo = ClientInfo}) ->
-    case is_acl_enabled(State) andalso
-         emqx_access_control:check_acl(ClientInfo, PubSub, Topic) of
-        false -> allow;
-        Res   -> Res
-    end.
+check_acl(PubSub, Topic, #pstate{clientinfo = ClientInfo}) ->
+    emqx_access_control:check_acl(ClientInfo, PubSub, Topic).
 
 do_subscribe(TopicFilter, SubOpts,
              State = #pstate{clientinfo = ClientInfo, subscriptions = Subs}) ->
@@ -727,10 +739,6 @@ find_sub_by_id(Id, Subs) ->
         [] -> undefined;
         [Sub | _] -> Sub
     end.
-
-is_acl_enabled(_) ->
-    %% TODO: configs from somewhere
-    true.
 
 %% automaticly fill the next sub-id and ack if sub-id is absent
 enrich_sub_opts(SubOpts0, Subs) ->

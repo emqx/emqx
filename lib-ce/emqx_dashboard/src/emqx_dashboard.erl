@@ -109,6 +109,8 @@ http_handlers() ->
 is_authorized(Req) ->
     is_authorized(binary_to_list(cowboy_req:path(Req)), Req).
 
+is_authorized("/api/v4/emqx_prometheus", _Req) ->
+    true;
 is_authorized("/api/v4/auth", _Req) ->
     true;
 is_authorized(_Path, Req) ->

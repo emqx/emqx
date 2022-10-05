@@ -191,10 +191,8 @@ init([Opts]) ->
                                     size_limit = SizeLimit,
                                     validity_period = ValidityPeriod})}.
 
-%% suppress dialyzer warning due to dirty read/write race condition.
 %% TODO: change from dirty_read/write to transactional.
 %% TODO: handle mnesia write errors.
--dialyzer([{nowarn_function, [handle_call/3]}]).
 handle_call({activate_alarm, Name, Details}, _From, State = #state{actions = Actions}) ->
     case mnesia:dirty_read(?ACTIVATED_ALARM, Name) of
         [#activated_alarm{name = Name}] ->

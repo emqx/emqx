@@ -91,14 +91,6 @@
 
 -define(ENABLED(X), (X =/= undefined)).
 
--dialyzer({nowarn_function,
-           [ system_terminate/4
-           , handle_call/3
-           , handle_msg/2
-           , shutdown/3
-           , stop/3
-           ]}).
-
 %% udp
 start_link(Socket = {udp, _SockPid, _Sock}, Peername, Options) ->
     Args = [self(), Socket, Peername, Options],
@@ -501,6 +493,7 @@ terminate(Reason, State = #state{channel = Channel}) ->
 system_continue(Parent, _Debug, State) ->
     recvloop(Parent, State).
 
+-spec system_terminate(atom(), term(), term(), state()) -> no_return().
 system_terminate(Reason, _Parent, _Debug, State) ->
     terminate(Reason, State).
 

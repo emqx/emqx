@@ -24,6 +24,7 @@
 -export([init/0]).
 
 -export([ load/0
+        , force_load/0
         , load/1
         , unload/0
         , unload/1
@@ -40,10 +41,6 @@
 -compile(export_all).
 -compile(nowarn_export_all).
 -endif.
-
--dialyzer({no_match, [ plugin_loaded/2
-                     , plugin_unloaded/2
-                     ]}).
 
 %%--------------------------------------------------------------------
 %% APIs
@@ -63,12 +60,17 @@ init() ->
 %% @doc Load all plugins when the broker started.
 -spec(load() -> ok | ignore | {error, term()}).
 load() ->
+    do_load(#{force_load => false}).
+force_load() ->
+    do_load(#{force_load => true}).
+
+do_load(Options) ->
     ok = load_ext_plugins(emqx:get_env(expand_plugins_dir)),
     case emqx:get_env(plugins_loaded_file) of
         undefined -> ignore; %% No plugins available
         File ->
             _ = ensure_file(File),
-            with_loaded_file(File, fun(Names) -> load_plugins(Names, false) end)
+            with_loaded_file(File, fun(Names) -> load_plugins(Names, Options, false) end)
     end.
 
 %% @doc Load a Plugin
@@ -105,7 +107,7 @@ unload(PluginName) when is_atom(PluginName) ->
             ?LOG(error, "Plugin ~s is not started", [PluginName]),
             {error, not_started};
         {_, _} ->
-            unload_plugin(PluginName, true)
+            unload_plugin(PluginName)
     end.
 
 reload(PluginName) when is_atom(PluginName)->
@@ -286,18 +288,23 @@ filter_plugins([{Name, Load} | Names], Plugins) ->
 filter_plugins([Name | Names], Plugins) when is_atom(Name) ->
     filter_plugins([{Name, true} | Names], Plugins).
 
-load_plugins(Names, Persistent) ->
+load_plugins(Names, Options, Persistent) ->
     Plugins = list(),
     NotFound = Names -- names(Plugins),
     case NotFound of
         []       -> ok;
         NotFound -> ?LOG(alert, "cannot_find_plugins: ~p", [NotFound])
     end,
-    NeedToLoad = (Names -- NotFound) -- names(started_app),
+    NeedToLoad0 = Names -- NotFound,
+    NeedToLoad1 =
+        case Options of
+            #{force_load := true} -> NeedToLoad0;
+            _ -> NeedToLoad0 -- names(started_app)
+        end,
     lists:foreach(fun(Name) ->
                       Plugin = find_plugin(Name, Plugins),
                       load_plugin(Plugin#plugin.name, Persistent)
-                  end, NeedToLoad).
+                  end, NeedToLoad1).
 
 generate_configs(App) ->
     ConfigFile = filename:join([emqx:get_env(plugins_etc_dir), App]) ++ ".config",
@@ -384,10 +391,11 @@ start_app(App, SuccFun) ->
             {error, {ErrApp, Reason}}
     end.
 
-unload_plugin(App, Persistent) ->
+unload_plugin(App) ->
     case stop_app(App) of
         ok ->
-            _ = plugin_unloaded(App, Persistent), ok;
+            _ = plugin_unloaded(App),
+            ok;
         {error, Reason} ->
             {error, Reason}
     end.
@@ -428,9 +436,7 @@ plugin_loaded(Name, true) ->
             ?LOG(error, "Cannot read loaded plugins: ~p", [Error])
     end.
 
-plugin_unloaded(_Name, false) ->
-    ok;
-plugin_unloaded(Name, true) ->
+plugin_unloaded(Name) ->
     case read_loaded() of
         {ok, Names0} ->
             Names = filter_plugins(Names0),

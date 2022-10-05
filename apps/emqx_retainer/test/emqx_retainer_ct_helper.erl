@@ -20,7 +20,9 @@
 -export([ensure_start/0, ensure_stop/0]).
 -ifdef(EMQX_ENTERPRISE).
 ensure_start() ->
+    %% for enterprise edition, retainer is started by modules
     application:stop(emqx_modules),
+    ensure_stop(),
     init_conf(),
     emqx_ct_helpers:start_apps([emqx_retainer]),
     ok.
@@ -29,6 +31,7 @@ ensure_start() ->
 
 ensure_start() ->
     init_conf(),
+    ensure_stop(),
     emqx_ct_helpers:start_apps([emqx_retainer]),
     ok.
 

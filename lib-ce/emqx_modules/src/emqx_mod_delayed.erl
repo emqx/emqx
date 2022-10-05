@@ -160,7 +160,7 @@ handle_cast(Msg, State) ->
 
 %% Do Publish...
 handle_info({timeout, TRef, do_publish}, State = #{timer := TRef}) ->
-    DeletedKeys = do_publish(mnesia:dirty_first(?TAB), os:system_time(seconds)),
+    DeletedKeys = do_publish(mnesia:dirty_first(?TAB), erlang:system_time(seconds)),
     lists:foreach(fun(Key) -> mnesia:dirty_delete(?TAB, Key) end, DeletedKeys),
     {noreply, ensure_publish_timer(State#{timer := undefined, publish_at := 0})};
 
@@ -203,11 +203,11 @@ ensure_publish_timer(State) ->
 ensure_publish_timer('$end_of_table', State) ->
     State#{timer := undefined, publish_at := 0};
 ensure_publish_timer({Ts, _Id}, State = #{timer := undefined}) ->
-    ensure_publish_timer(Ts, os:system_time(seconds), State);
+    ensure_publish_timer(Ts, erlang:system_time(seconds), State);
 ensure_publish_timer({Ts, _Id}, State = #{timer := TRef, publish_at := PubAt})
     when Ts < PubAt ->
     ok = emqx_misc:cancel_timer(TRef),
-    ensure_publish_timer(Ts, os:system_time(seconds), State);
+    ensure_publish_timer(Ts, erlang:system_time(seconds), State);
 ensure_publish_timer(_Key, State) ->
     State.
 

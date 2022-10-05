@@ -103,7 +103,7 @@ plugins(HasElixir) ->
 
 test_plugins() ->
     [ rebar3_proper,
-      {coveralls, {git, "https://github.com/emqx/coveralls-erl", {branch, "fix-git-info"}}}
+      {coveralls, {git, "https://github.com/emqx/coveralls-erl", {tag, "v2.2.0-emqx-1"}}}
     ].
 
 test_deps() ->

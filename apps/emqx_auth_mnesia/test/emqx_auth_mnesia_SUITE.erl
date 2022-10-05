@@ -21,6 +21,9 @@
 -include("emqx_auth_mnesia.hrl").
 -include_lib("eunit/include/eunit.hrl").
 -include_lib("common_test/include/ct.hrl").
+-include_lib("snabbkaffe/include/snabbkaffe.hrl").
+
+-include_lib("emqx/include/emqx_mqtt.hrl").
 
 -import(emqx_ct_http, [ request_api/3
                       , request_api/5
@@ -74,6 +77,20 @@ set_default(ClientId, UserName, Pwd, HashType) ->
     application:set_env(emqx_auth_mnesia, username_list, [{UserName, Pwd}]),
     application:set_env(emqx_auth_mnesia, password_hash, HashType),
     ok.
+
+init_per_testcase(t_will_message_connection_denied, Config) ->
+    emqx_zone:set_env(external, allow_anonymous, false),
+    Config;
+init_per_testcase(_TestCase, Config) ->
+    Config.
+
+end_per_testcase(t_will_message_connection_denied, _Config) ->
+    emqx_zone:unset_env(external, allow_anonymous),
+    application:stop(emqx_auth_mnesia),
+    ok;
+end_per_testcase(_TestCase, _Config) ->
+    ok.
+
 %%------------------------------------------------------------------------------
 %% Testcases
 %%------------------------------------------------------------------------------
@@ -389,6 +406,48 @@ t_password_hash(_) ->
     application:set_env(emqx_auth_mnesia, password_hash, Default),
     application:stop(emqx_auth_mnesia),
     ok = application:start(emqx_auth_mnesia).
+
+t_will_message_connection_denied(Config) when is_list(Config) ->
+    ClientId = Username = <<"subscriber">>,
+    Password = <<"p">>,
+    application:stop(emqx_auth_mnesia),
+    ok = emqx_ct_helpers:start_apps([emqx_auth_mnesia]),
+    ok = emqx_auth_mnesia_cli:add_user({clientid, ClientId}, Password),
+
+    {ok, Subscriber} = emqtt:start_link([
+        {clientid, ClientId},
+        {password, Password}
+    ]),
+    {ok, _} = emqtt:connect(Subscriber),
+    {ok, _, [?RC_SUCCESS]} = emqtt:subscribe(Subscriber, <<"lwt">>),
+
+    process_flag(trap_exit, true),
+
+    {ok, Publisher} = emqtt:start_link([
+        {clientid, <<"publisher">>},
+        {will_topic, <<"lwt">>},
+        {will_payload, <<"should not be published">>}
+    ]),
+    snabbkaffe:start_trace(),
+    ?wait_async_action(
+        {error, _} = emqtt:connect(Publisher),
+        #{?snk_kind := channel_terminated}
+    ),
+    snabbkaffe:stop(),
+
+    timer:sleep(1000),
+
+    receive
+        {publish, #{
+            topic := <<"lwt">>,
+            payload := <<"should not be published">>
+        }} ->
+            ct:fail("should not publish will message")
+    after 0 ->
+        ok
+    end,
+
+    ok.
 
 %%------------------------------------------------------------------------------
 %% Helpers

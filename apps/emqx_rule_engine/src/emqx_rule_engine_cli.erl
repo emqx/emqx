@@ -96,7 +96,6 @@ unload() ->
 %%-----------------------------------------------------------------------------
 %% 'rules' command
 %%-----------------------------------------------------------------------------
--dialyzer([{nowarn_function, [rules/1]}]).
 rules(["list"]) ->
     print_all(emqx_rule_registry:get_rules_ordered_by_ts());
 
