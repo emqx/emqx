@@ -170,27 +170,29 @@ remote_refs() {
 upstream_branches() {
     local base="$1"
     case "$base" in
-        release-v43|main-v4.3)
-            ## no upstream for 4.3 opensource
+        release-v43)
             remote_ref "$base"
             ;;
         release-v44)
             remote_refs "$base" 'release-v43'
             ;;
-        main-v4.4)
-            remote_refs "$base" 'main-v4.3'
-            ;;
         release-e43)
             remote_refs "$base" 'release-v43'
-            ;;
-        main-v4.3-enterprise)
-            remote_refs "$base" 'main-v4.3'
             ;;
         release-e44)
             remote_refs "$base" 'release-v44' 'release-e43' 'release-v43'
             ;;
+        main-v4.3)
+            remote_refs "$base" 'release-v43'
+            ;;
+        main-v4.4)
+            remote_refs "$base" 'release-v44' 'main-v4.3'
+            ;;
+        main-v4.3-enterprise)
+            remote_refs "$base" 'release-e43' 'main-v4.3'
+            ;;
         main-v4.4-enterprise)
-            remote_refs "$base" 'main-v4.4' 'main-v4.3-enterprise' 'main-v4.3'
+            remote_refs "$base" 'release-e44' 'main-v4.4' 'main-v4.3-enterprise' 'main-v4.3'
             ;;
     esac
 }

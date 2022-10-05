@@ -1,5 +1,11 @@
 # EMQX 4.4 Changes
 
+## v4.4.10
+
+### Bug fixes
+
+- Fix the latency statistics error of the slow subscription module when `stats_type` is `internal` or `response`. [#8981](https://github.com/emqx/emqx/pull/8981)
+
 ## v4.4.9
 
 ### Bug fixes  (synced from v4.3.20)

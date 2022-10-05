@@ -523,6 +523,16 @@ case "$1" in
         ;;
 esac
 
+if [ "$IS_BOOT_COMMAND" = 'no' ]; then
+    # for non-boot commands, inspect vm.<time>.args for node name
+    # shellcheck disable=SC2012,SC2086
+    LATEST_VM_ARGS_FILE="$(ls -t "$RUNNER_DATA_DIR"/configs/vm.*.args 2>/dev/null | head -1)"
+    if [ -z "$LATEST_VM_ARGS_FILE" ]; then
+        echoerr "There is no vm.*.args config file found in '$RUNNER_DATA_DIR/configs/'"
+        echoerr "Please make sure the node is initialized (started for at least once)"
+        exit 1
+    fi
+fi
 
 if [ -z "$NAME_ARG" ]; then
     NODENAME="${EMQX_NODE_NAME:-}"
@@ -530,15 +540,7 @@ if [ -z "$NAME_ARG" ]; then
     [ -z "$NODENAME" ] && [ -n "$EMQX_NAME" ] && [ -n "$EMQX_HOST" ] && NODENAME="${EMQX_NAME}@${EMQX_HOST}"
     if [ -z "$NODENAME" ]; then
         if [ "$IS_BOOT_COMMAND" = 'no' ]; then
-            # for non-boot commands, inspect vm.<time>.args for node name
-            # shellcheck disable=SC2012,SC2086
-            LATEST_VM_ARGS="$(ls -t $RUNNER_DATA_DIR/configs/vm.*.args 2>/dev/null | head -1)"
-            if [ -z "$LATEST_VM_ARGS" ]; then
-                echoerr "For command $1, there is no vm.*.args config file found in $RUNNER_DATA_DIR/configs/"
-                echoerr "Please make sure the node is initialized (started for at least once)"
-                exit 1
-            fi
-            NODENAME="$(grep -E '^-name' "$LATEST_VM_ARGS" | awk '{print $2}')"
+            NODENAME="$(grep -E '^-name' "$LATEST_VM_ARGS_FILE" | awk '{print $2}')"
         else
             # for boot commands, inspect emqx.conf for node name
             NODENAME=$("$ERTS_PATH"/escript "$RUNNER_ROOT_DIR"/bin/cuttlefish -i "$REL_DIR"/emqx.schema -c "$RUNNER_ETC_DIR"/emqx.conf get node.name)
@@ -573,13 +575,7 @@ if [ -z "$COOKIE" ]; then
     if [ "$IS_BOOT_COMMAND" = 'yes' ]; then
         COOKIE=$("$ERTS_PATH"/escript "$RUNNER_ROOT_DIR"/bin/cuttlefish -i "$REL_DIR"/emqx.schema -c "$RUNNER_ETC_DIR"/emqx.conf get node.cookie)
     else
-        # shellcheck disable=SC2012,SC2086
-        LATEST_VM_ARGS="$(ls -t $RUNNER_DATA_DIR/configs/vm.*.args | head -1)"
-        if [ -z "$LATEST_VM_ARGS" ]; then
-            echo "For command $1, there is no vm.*.args config file found in $RUNNER_DATA_DIR/configs/"
-            exit 1
-        fi
-        COOKIE="$(grep -E '^-setcookie' "$LATEST_VM_ARGS" | awk '{print $2}')"
+        COOKIE="$(grep -E '^-setcookie' "$LATEST_VM_ARGS_FILE" | awk '{print $2}')"
     fi
 fi
 
