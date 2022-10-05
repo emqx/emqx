@@ -85,6 +85,8 @@
 -define(NO_ACK, no_ack).
 -define(REDISPATCH_TO(GROUP, TOPIC), {GROUP, TOPIC}).
 
+-type redispatch_to() :: ?REDISPATCH_TO(emqx_topic:group(), emqx_topic:topic()).
+
 -record(state, {pmon}).
 
 -record(emqx_shared_subscription, {group, topic, subpid}).
@@ -245,7 +247,7 @@ is_redispatch_needed(Msg) ->
 %% @hidden Return the `redispatch_to` group-topic in the message header.
 %% `false` is returned if the message is not a shared dispatch.
 %% or when it's a QoS 0 message.
--spec(get_redispatch_to(emqx_types:message()) -> emqx_types:topic() | false).
+-spec(get_redispatch_to(emqx_types:message()) -> redispatch_to() | false).
 get_redispatch_to(Msg) ->
     emqx_message:get_header(redispatch_to, Msg, false).
 
