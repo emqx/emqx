@@ -73,6 +73,12 @@ while [ "$#" -gt 0 ]; do
   esac
 done
 
+# return immediately if version is already set
+if [[ "${PKG_VSN:-novalue}" != novalue && "${LONG_VERSION:-novalue}" != 'yes' ]]; then
+    echo "$PKG_VSN"
+    exit 0
+fi
+
 case "${PROFILE}" in
     *enterprise*)
         RELEASE_EDITION="EMQX_RELEASE_EE"
