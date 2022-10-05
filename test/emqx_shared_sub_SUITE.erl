@@ -550,7 +550,7 @@ t_dispatch_when_inflights_are_full(Config) when is_list(Config) ->
 
 %% No ack, QoS 2 subscriptions,
 %% client1 receives one message, send pubrec, then suspend
-%% client2 acts normal (aot_ack=true)
+%% client2 acts normal (auto_ack=true)
 %% Expected behaviour:
 %% the messages sent to client1's inflight and mq are re-dispatched after client1 is down
 t_dispatch_qos2({init, Config}) when is_list(Config) ->
@@ -593,7 +593,7 @@ t_dispatch_qos2(Config) when is_list(Config) ->
     ?assert(MsgRec2 > MsgRec1),
 
     sys:resume(ConnPid1),
-    %% emqtt automatically send PUBREC, but since auto_ack is set to false
+    %% emqtt subscriber automatically sends PUBREC, but since auto_ack is set to false
     %% so it will never send PUBCOMP, hence EMQX should not attempt to send
     %% the 4th message yet since max_inflight is 1.
     MsgRec3 = ?WAIT(2000, {publish, #{client_pid := ConnPid1, payload := P3}}, P3),

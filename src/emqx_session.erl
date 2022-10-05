@@ -641,14 +641,18 @@ run_terminate_hooks(ClientInfo, Reason, Session) ->
 redispatch_shared_messages(#session{inflight = Inflight, mqueue = Q}) ->
     AllInflights = emqx_inflight:to_list(sort_fun(), Inflight),
     F = fun({_, {Msg, _Ts}}) ->
-                case Msg of
-                    #message{} ->
-                        {true, Msg};
-                    _ ->
-                        %% QoS 2, after pubrec is received
-                        %% the inflight record is updated to an atom
-                        false
-                end
+            case Msg of
+                #message{qos = ?QOS_1} ->
+                    %% For QoS 2, here is what the spec says:
+                    %% If the Client's Session terminates before the Client reconnects,
+                    %% the Server MUST NOT send the Application Message to any other
+                    %% subscribed Client [MQTT-4.8.2-5].
+                    {true, Msg};
+                _ ->
+                    %% QoS 2, after pubrec is received
+                    %% the inflight record is updated to an atom
+                    false
+            end
         end,
     InflightList = lists:filtermap(F, AllInflights),
     MqList = mqueue_to_list(Q, []),
