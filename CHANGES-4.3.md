@@ -56,7 +56,7 @@ File format:
 - Fix shared subscription message re-dispatches [#9094](https://github.com/emqx/emqx/pull/9094).
   - When discarding QoS 2 inflight messages, there were excessive logs
   - For wildcard deliveries, the re-dispatch used the wrong topic (the publishing topic,
-    but not the subscrbing topic), caused messages to be lost when dispatching.
+    but not the subscribing topic), caused messages to be lost when dispatching.
 
 ## v4.3.20
 

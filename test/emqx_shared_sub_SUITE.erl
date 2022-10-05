@@ -599,13 +599,58 @@ t_dispatch_qos2(Config) when is_list(Config) ->
     MsgRec3 = ?WAIT(2000, {publish, #{client_pid := ConnPid1, payload := P3}}, P3),
     ct:sleep(100),
     %% no message expected
-    ?assertEqual([], collect_msgs([])),
+    ?assertEqual([], collect_msgs(0)),
     %% now kill client 1
     kill_process(ConnPid1),
     %% client 2 should receive the message
     MsgRec4 = ?WAIT(2000, {publish, #{client_pid := ConnPid2, payload := P4}}, P4),
     %% assert hello2 > hello1 or hello4 > hello3
     ?assert(MsgRec4 > MsgRec3),
+    emqtt:stop(ConnPid2),
+    ok.
+
+t_dispatch_qos0({init, Config}) when is_list(Config) ->
+    Config;
+t_dispatch_qos0({'end', Config}) when is_list(Config) ->
+    ok;
+t_dispatch_qos0(Config) when is_list(Config) ->
+    ok = ensure_config(round_robin, _AckEnabled = false),
+    Topic = <<"foo/bar/1">>,
+    ClientId1 = <<"ClientId1">>,
+    ClientId2 = <<"ClientId2">>,
+
+    {ok, ConnPid1} = emqtt:start_link([{clientid, ClientId1}, {auto_ack, false}]),
+    {ok, ConnPid2} = emqtt:start_link([{clientid, ClientId2}, {auto_ack, true}]),
+    {ok, _} = emqtt:connect(ConnPid1),
+    {ok, _} = emqtt:connect(ConnPid2),
+
+    %% subscribe with QoS 0
+    emqtt:subscribe(ConnPid1, {<<"$share/group/foo/bar/#">>, 0}),
+    emqtt:subscribe(ConnPid2, {<<"$share/group/foo/bar/#">>, 0}),
+
+    %% publish with QoS 2, but should be downgraded to 0 as the subscribers
+    %% subscribe with QoS 0
+    Message1 = emqx_message:make(ClientId1, 2, Topic, <<"hello1">>),
+    Message2 = emqx_message:make(ClientId1, 2, Topic, <<"hello2">>),
+    Message3 = emqx_message:make(ClientId1, 2, Topic, <<"hello3">>),
+    Message4 = emqx_message:make(ClientId1, 2, Topic, <<"hello4">>),
+    ct:sleep(100),
+
+    ok = sys:suspend(ConnPid1),
+
+    ?assertMatch([_], emqx:publish(Message1)),
+    ?assertMatch([_], emqx:publish(Message2)),
+    ?assertMatch([_], emqx:publish(Message3)),
+    ?assertMatch([_], emqx:publish(Message4)),
+
+    MsgRec1 = ?WAIT(2000, {publish, #{client_pid := ConnPid2, payload := P1}}, P1),
+    MsgRec2 = ?WAIT(2000, {publish, #{client_pid := ConnPid2, payload := P2}}, P2),
+    %% assert hello2 > hello1 or hello4 > hello3
+    ?assert(MsgRec2 > MsgRec1),
+
+    kill_process(ConnPid1),
+    %% expect no redispatch
+    ?assertEqual([], collect_msgs(timer:seconds(2))),
     emqtt:stop(ConnPid2),
     ok.
 
@@ -622,12 +667,15 @@ kill_process(Pid) ->
             ok
     end.
 
-collect_msgs(Acc) ->
+collect_msgs(Timeout) ->
+    collect_msgs([], Timeout).
+
+collect_msgs(Acc, Timeout) ->
     receive
         Msg ->
-            collect_msgs([Msg | Acc])
+            collect_msgs([Msg | Acc], Timeout)
     after
-        0 ->
+        Timeout ->
             lists:reverse(Acc)
     end.
 
