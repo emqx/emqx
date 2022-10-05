@@ -18,7 +18,8 @@
 
 -include_lib("eunit/include/eunit.hrl").
 
--define(SLAVE_START_APPS, [emqx]).
+%% modules is included because code is called before cluster join
+-define(SLAVE_START_APPS, [emqx, emqx_modules]).
 
 -export([start_slave/1,
          start_slave/2,
@@ -30,23 +31,44 @@ start_slave(Name) ->
     start_slave(Name, #{}).
 
 start_slave(Name, Opts) ->
-    {ok, Node} = ct_slave:start(list_to_atom(atom_to_list(Name) ++ "@" ++ host()),
-                                [{kill_if_fail, true},
-                                 {monitor_master, true},
-                                 {init_timeout, 10000},
-                                 {startup_timeout, 10000},
-                                 {erl_flags, ebin_path()}]),
-
+    Node = make_node_name(Name),
+    case ct_slave:start(Node, [{kill_if_fail, true},
+                               {monitor_master, true},
+                               {init_timeout, 10000},
+                               {startup_timeout, 10000},
+                               {erl_flags, ebin_path()}]) of
+        {ok, _} ->
+            ok;
+        {error, started_not_connected, _} ->
+            ok
+    end,
     pong = net_adm:ping(Node),
     setup_node(Node, Opts),
     Node.
 
-stop_slave(Node) ->
-    rpc:call(Node, ekka, leave, []),
-    ct_slave:stop(Node).
+make_node_name(Name) ->
+    case string:tokens(atom_to_list(Name), "@") of
+        [_Name, _Host] ->
+            %% the name already has a @
+            Name;
+        _ ->
+            list_to_atom(atom_to_list(Name) ++ "@" ++ host())
+    end.
+
+stop_slave(Node0) ->
+    Node = make_node_name(Node0),
+    case rpc:call(Node, ekka, leave, []) of
+        ok -> ok;
+        {badrpc, nodedown} -> ok
+    end,
+    case ct_slave:stop(Node) of
+        {ok, _} -> ok;
+        {error, not_started, _} -> ok
+    end.
 
 host() ->
-    [_, Host] = string:tokens(atom_to_list(node()), "@"), Host.
+    [_, Host] = string:tokens(atom_to_list(node()), "@"),
+    Host.
 
 ebin_path() ->
     string:join(["-pa" | lists:filter(fun is_lib/1, code:get_path())], " ").
@@ -73,7 +95,12 @@ setup_node(Node, #{} = Opts) ->
     [ok = rpc:call(Node, application, load, [App]) || App <- [gen_rpc, emqx]],
     ok = rpc:call(Node, emqx_ct_helpers, start_apps, [StartApps, EnvHandler]),
 
-    rpc:call(Node, ekka, join, [node()]),
+    case maps:get(no_join, Opts, false) of
+        true ->
+            ok;
+        false ->
+            ok = rpc:call(Node, ekka, join, [node()])
+    end,
 
     %% Sanity check. Assert that `gen_rpc' is set up correctly:
     ?assertEqual( Node
@@ -100,10 +127,10 @@ do_wait_for_synced_routes(Nodes, Topic) ->
     PerNodeView = lists:keysort(1, PerNodeView0),
     case check_consistent_view(PerNodeView) of
         {ok, OneView} ->
-            io:format(user, "~p~n", [OneView]),
+            ct:pal("consistent_routes_view~n~p", [OneView]),
             ok;
         {error, Reason}->
-            ct:pal("inconsistent_routes_view ~p", [Reason]),
+            ct:pal("inconsistent_routes_view~n~p", [Reason]),
             timer:sleep(10),
             do_wait_for_synced_routes(Nodes, Topic)
     end.
@@ -111,7 +138,8 @@ do_wait_for_synced_routes(Nodes, Topic) ->
 check_consistent_view(PerNodeView) ->
     check_consistent_view(PerNodeView, []).
 
-check_consistent_view([], Acc) -> {ok, Acc};
+check_consistent_view([], [OneView]) -> {ok, OneView};
+check_consistent_view([], MoreThanOneView) -> {error, MoreThanOneView};
 check_consistent_view([{View, Node} | Rest], [{View, Nodes} | Acc]) ->
     check_consistent_view(Rest, [{View, add_to_list(Node, Nodes)} | Acc]);
 check_consistent_view([{View, Node} | Rest], Acc) ->
