@@ -228,6 +228,7 @@ shutdown() ->
 
 shutdown(Reason) ->
     ?LOG(critical, "emqx shutdown for ~s", [Reason]),
+    on_shutdown(Reason),
     _ = emqx_plugins:unload(),
     lists:foreach(fun application:stop/1
                  , lists:reverse(default_started_applications())
@@ -238,10 +239,12 @@ reboot() ->
         true ->
             _ = application:stop(emqx_dashboard), %% dashboard must be started after mnesia
             lists:foreach(fun application:start/1 , default_started_applications()),
-            application:start(emqx_dashboard);
+            _ = application:start(emqx_dashboard),
+            on_reboot();
 
         false ->
-            lists:foreach(fun application:start/1 , default_started_applications())
+            lists:foreach(fun application:start/1 , default_started_applications()),
+            on_reboot()
     end.
 
 is_application_running(App) ->
@@ -254,6 +257,32 @@ default_started_applications() ->
 -else.
 default_started_applications() ->
     [gproc, esockd, ranch, cowboy, ekka, emqx, emqx_modules].
+-endif.
+
+-ifdef(EMQX_ENTERPRISE).
+on_reboot() ->
+    try
+        _ = emqx_license_api:bootstrap_license(),
+        ok
+    catch
+        Kind:Reason:Stack ->
+            ?LOG(critical, "~p while rebooting: ~p, ~p", [Kind, Reason, Stack]),
+            ok
+    end,
+    ok.
+
+on_shutdown(join) ->
+    emqx_modules:sync_load_modules_file(),
+    ok;
+on_shutdown(_) ->
+    ok.
+
+-else.
+on_reboot() ->
+    ok.
+
+on_shutdown(_) ->
+    ok.
 -endif.
 
 %%--------------------------------------------------------------------

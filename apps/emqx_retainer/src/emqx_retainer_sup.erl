@@ -34,6 +34,23 @@ init([Env]) ->
              type     => worker,
              modules  => [emqx_retainer]} || not is_managed_by_modules()]}}.
 
+-ifdef(EMQX_ENTERPRISE).
+
+is_managed_by_modules() ->
+    try
+        case supervisor:get_childspec(emqx_modules_sup, emqx_retainer) of
+            {ok, _} -> true;
+            _ -> false
+        end
+    catch
+        exit : {noproc, _} ->
+            false
+    end.
+
+-else.
+
 is_managed_by_modules() ->
     %% always false for opensource edition
     false.
+
+-endif.

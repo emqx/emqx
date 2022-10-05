@@ -16,6 +16,7 @@
 
 -module(emqx_psk_file).
 
+-include("emqx_psk_file.hrl").
 -include_lib("emqx/include/emqx.hrl").
 -include_lib("emqx/include/logger.hrl").
 
@@ -26,15 +27,10 @@
 %% Hooks functions
 -export([on_psk_lookup/2]).
 
--define(TAB, ?MODULE).
 -define(LF, 10).
-
--record(psk_entry, {psk_id :: binary(),
-                    psk_str :: binary()}).
 
 %% Called when the plugin application start
 load(Env) ->
-    _ = ets:new(?TAB, [set, named_table, {keypos, #psk_entry.psk_id}]),
     {ok, PskFile} = file:open(get_value(path, Env), [read, raw, binary, read_ahead]),
     preload_psks(PskFile, bin(get_value(delimiter, Env))),
     _ = file:close(PskFile),
@@ -45,7 +41,7 @@ unload() ->
     emqx:unhook('tls_handshake.psk_lookup', fun ?MODULE:on_psk_lookup/2).
 
 on_psk_lookup(ClientPSKID, UserState) ->
-    case ets:lookup(?TAB, ClientPSKID) of
+    case ets:lookup(?PSK_FILE_TAB, ClientPSKID) of
         [#psk_entry{psk_str = PskStr}] ->
             {stop, PskStr};
         [] ->
@@ -57,7 +53,9 @@ preload_psks(FileHandler, Delimiter) ->
         {ok, Line} ->
             case binary:split(Line, Delimiter) of
                 [Key, Rem] ->
-                    ets:insert(?TAB, #psk_entry{psk_id = Key, psk_str = trim_lf(Rem)}),
+                    ets:insert(
+                      ?PSK_FILE_TAB,
+                      #psk_entry{psk_id = Key, psk_str = trim_lf(Rem)}),
                     preload_psks(FileHandler, Delimiter);
                 [Line] ->
                     ?LOG(warning, "[~p] - Invalid line: ~p, delimiter: ~p", [?MODULE, Line, Delimiter])
