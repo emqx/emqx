@@ -266,7 +266,7 @@ redispatch(Messages0) ->
     Messages = lists:filter(fun is_redispatch_needed/1, Messages0),
     case length(Messages) of
         L when L > 0 ->
-            ?LOG(info, "Redispatching ~p shared subscription messages", [L]),
+            ?LOG(info, "Redispatching ~p shared subscription message(s)", [L]),
             lists:foreach(fun redispatch_shared_message/1, Messages);
         _ ->
             ok

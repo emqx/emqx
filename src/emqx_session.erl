@@ -639,6 +639,7 @@ run_terminate_hooks(ClientInfo, Reason, Session) ->
     run_hook('session.terminated', [ClientInfo, Reason, info(Session)]).
 
 redispatch_shared_messages(#session{inflight = Inflight, mqueue = Q}) ->
+    AllInflights = emqx_inflight:to_list(sort_fun(), Inflight),
     F = fun({_, {Msg, _Ts}}) ->
                 case Msg of
                     #message{} ->
@@ -649,7 +650,7 @@ redispatch_shared_messages(#session{inflight = Inflight, mqueue = Q}) ->
                         false
                 end
         end,
-    InflightList = lists:filtermap(F, emqx_inflight:to_list(sort_fun(), Inflight)),
+    InflightList = lists:filtermap(F, AllInflights),
     MqList = mqueue_to_list(Q, []),
     emqx_shared_sub:redispatch(InflightList ++ MqList).
 
