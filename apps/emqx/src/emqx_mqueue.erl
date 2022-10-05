@@ -66,7 +66,8 @@
     in/2,
     out/1,
     stats/1,
-    dropped/1
+    dropped/1,
+    to_list/1
 ]).
 
 -define(NO_PRIORITY_TABLE, disabled).
@@ -109,7 +110,7 @@
     dropped = 0 :: count(),
     p_table = ?NO_PRIORITY_TABLE :: p_table(),
     default_p = ?LOWEST_PRIORITY :: priority(),
-    q = ?PQUEUE:new() :: pq(),
+    q = emqx_pqueue:new() :: pq(),
     shift_opts :: #shift_opts{},
     last_prio :: non_neg_integer() | undefined,
     p_credit :: non_neg_integer() | undefined
@@ -118,7 +119,7 @@
 -type mqueue() :: #mqueue{}.
 
 -spec init(options()) -> mqueue().
-init(Opts = #{max_len := MaxLen0, store_qos0 := QoS_0}) ->
+init(Opts = #{max_len := MaxLen0, store_qos0 := Qos0}) ->
     MaxLen =
         case (is_integer(MaxLen0) andalso MaxLen0 > ?MAX_LEN_INFINITY) of
             true -> MaxLen0;
@@ -126,7 +127,7 @@ init(Opts = #{max_len := MaxLen0, store_qos0 := QoS_0}) ->
         end,
     #mqueue{
         max_len = MaxLen,
-        store_qos0 = QoS_0,
+        store_qos0 = Qos0,
         p_table = get_opt(priorities, Opts, ?NO_PRIORITY_TABLE),
         default_p = get_priority_opt(Opts),
         shift_opts = get_shift_opt(Opts)
@@ -151,6 +152,19 @@ is_empty(#mqueue{len = Len}) -> Len =:= 0.
 len(#mqueue{len = Len}) -> Len.
 
 max_len(#mqueue{max_len = MaxLen}) -> MaxLen.
+
+%% @doc Return all queued items in a list.
+-spec to_list(mqueue()) -> list().
+to_list(MQ) ->
+    to_list(MQ, []).
+
+to_list(MQ, Acc) ->
+    case out(MQ) of
+        {empty, _MQ} ->
+            lists:reverse(Acc);
+        {{value, Msg}, Q1} ->
+            to_list(Q1, [Msg | Acc])
+    end.
 
 %% @doc Return number of dropped messages.
 -spec dropped(mqueue()) -> count().
