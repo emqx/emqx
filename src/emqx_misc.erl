@@ -45,8 +45,6 @@
         , index_of/2
         , maybe_parse_ip/1
         , ipv6_probe/1
-        , pmap/2
-        , pmap/3
         , ipv6_probe/2
         , pmap/2
         , pmap/3
