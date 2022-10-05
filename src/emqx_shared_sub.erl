@@ -236,7 +236,7 @@ get_group_ack(Msg) ->
     emqx_message:get_header(shared_dispatch_ack, Msg, ?NO_ACK).
 
 %% @hidden Redispatch is neede only for the messages with redispatch_to header added.
-is_redispatch_needed(Msg) ->
+is_redispatch_needed(#message{} = Msg) ->
     case get_redispatch_to(Msg) of
         ?REDISPATCH_TO(_, _) ->
             true;
@@ -272,7 +272,7 @@ redispatch(Messages0) ->
             ok
     end.
 
-redispatch_shared_message(Msg) ->
+redispatch_shared_message(#message{} = Msg) ->
     %% As long as it's still a #message{} record in inflight,
     %% we should try to re-dispatch
     ?REDISPATCH_TO(Group, Topic) = get_redispatch_to(Msg),

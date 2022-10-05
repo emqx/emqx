@@ -639,8 +639,17 @@ run_terminate_hooks(ClientInfo, Reason, Session) ->
     run_hook('session.terminated', [ClientInfo, Reason, info(Session)]).
 
 redispatch_shared_messages(#session{inflight = Inflight, mqueue = Q}) ->
-    InflightList = lists:map(fun({_, {Msg, _Ts}}) -> Msg end,
-                             emqx_inflight:to_list(sort_fun(), Inflight)),
+    F = fun({_, {Msg, _Ts}}) ->
+                case Msg of
+                    #message{} ->
+                        {true, Msg};
+                    _ ->
+                        %% QoS 2, after pubrec is received
+                        %% the inflight record is updated to an atom
+                        false
+                end
+        end,
+    InflightList = lists:filtermap(F, emqx_inflight:to_list(sort_fun(), Inflight)),
     MqList = mqueue_to_list(Q, []),
     emqx_shared_sub:redispatch(InflightList ++ MqList).
 
