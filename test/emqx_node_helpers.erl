@@ -40,7 +40,9 @@ start_slave(Name, Opts) ->
         {ok, _} ->
             ok;
         {error, started_not_connected, _} ->
-            ok
+            ok;
+        Other ->
+            throw(Other)
     end,
     pong = net_adm:ping(Node),
     setup_node(Node, Opts),
@@ -92,7 +94,11 @@ setup_node(Node, #{} = Opts) ->
         end,
     EnvHandler = maps:get(env_handler, Opts, DefaultEnvHandler),
 
-    [ok = rpc:call(Node, application, load, [App]) || App <- [gen_rpc, emqx]],
+    %% apps need to be loaded before starting for ekka to find and create mnesia tables
+    LoadApps = lists:usort([gen_rcp, emqx] ++ ?SLAVE_START_APPS),
+    lists:foreach(fun(App) ->
+                          rpc:call(Node, application, load, [App])
+                  end, LoadApps),
     ok = rpc:call(Node, emqx_ct_helpers, start_apps, [StartApps, EnvHandler]),
 
     case maps:get(no_join, Opts, false) of
