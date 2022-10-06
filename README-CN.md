@@ -32,12 +32,6 @@ EMQX 自 2013 年在 GitHub 发布开源版本以来，获得了来自 50 多个
 docker run -d --name emqx -p 1883:1883 -p 8083:8083 -p 8084:8084 -p 8883:8883 -p 18083:18083 emqx/emqx:latest
 ```
 
-或直接试用 EMQX 企业版（已内置 10 个并发连接的永不过期 License）
-
-```
-docker run -d --name emqx-ee -p 1883:1883 -p 8081:8081 -p 8083:8083 -p 8084:8084 -p 8883:8883 -p 18083:18083 emqx/emqx-ee:latest
-```
-
 接下来请参考 [入门指南](https://www.emqx.io/docs/zh/v5.0/getting-started/getting-started.html#启动-emqx) 开启您的 EMQX 之旅。
 
 #### 在 Kubernetes 上运行 EMQX 集群
