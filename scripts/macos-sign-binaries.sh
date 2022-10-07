@@ -52,4 +52,4 @@ codesign -s "${APPLE_DEVELOPER_IDENTITY}" -f --verbose=4 --timestamp --options=r
 codesign -s "${APPLE_DEVELOPER_IDENTITY}" -f --verbose=4 --timestamp --options=runtime "${REL_DIR}"/lib/os_mon-*/priv/bin/{cpu_sup,memsup}
 codesign -s "${APPLE_DEVELOPER_IDENTITY}" -f --verbose=4 --timestamp --options=runtime "${REL_DIR}"/lib/rocksdb-*/priv/liberocksdb.so
 codesign -s "${APPLE_DEVELOPER_IDENTITY}" -f --verbose=4 --timestamp --options=runtime "${REL_DIR}"/lib/runtime_tools-*/priv/lib/{dyntrace.so,trace_ip_drv.so,trace_file_drv.so}
-codesign -s "${APPLE_DEVELOPER_IDENTITY}" -f --verbose=4 --timestamp --options=runtime "${REL_DIR}"/lib/quicer-*/priv/libquicer_nif.so
+find "${REL_DIR}/lib/" -name libquicer_nif.so -exec codesign -s "${APPLE_DEVELOPER_IDENTITY}" -f --verbose=4 --timestamp --options=runtime {} \;
