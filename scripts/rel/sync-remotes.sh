@@ -45,11 +45,10 @@ EOF
 }
 
 logerr() {
-    echo -e "\e[31mERROR: $1\e[39m"
+    echo "$(tput setaf 1)ERROR: $1$(tput sgr0)"
 }
-
 logwarn() {
-    echo -e "\e[33mINFO: $1\e[39m"
+    echo "$(tput setaf 3)WARNING: $1$(tput sgr0)"
 }
 
 logmsg() {
