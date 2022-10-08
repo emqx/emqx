@@ -306,7 +306,7 @@ show_action(#{name := Name}, _Params) ->
 create_resource(#{}, Params) ->
     case parse_resource_params(Params) of
         {ok, ParsedParams} ->
-            if_test(fun() -> do_create_resource(test_resource, ParsedParams) end,
+            if_test(fun() -> do_create_resource(test_resource, maps:without([id], ParsedParams)) end,
                     fun() -> do_create_resource(create_resource, ParsedParams) end,
                     Params);
         {error, Reason} ->
