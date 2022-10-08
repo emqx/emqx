@@ -44,7 +44,7 @@
 
 详情参见：`priv/protos/exproto.proto`，例如接口的定义有：
 
-```protobuff
+```protobuf
 syntax = "proto3";
 
 package emqx.exproto.v1;

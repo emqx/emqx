@@ -7,11 +7,19 @@
 
 set -euo pipefail
 
-usage() {
-    echo "$0 PROFILE"
-}
 # ensure dir
 cd -P -- "$(dirname -- "${BASH_SOURCE[0]}")/.."
+
+usage() {
+    echo "$0 PROFILE [options]"
+    echo "options:"
+    echo "--skip-build:      Skip building the profile only to re-generate the appup files."
+    echo "--skip-build-base: This script by default forces a git clean before rebuilding on the base version "
+    echo "                   this option is useful when you are sure the past builds can be trusted,"
+    echo "                   that is, there were no re-tags or anything."
+    echo "--check:           Exit with non-zero code if there is git diff after the execution."
+    echo "                   Mostly used in CI."
+}
 
 PROFILE="${1:-}"
 case "$PROFILE" in
@@ -48,7 +56,7 @@ ESCRIPT_ARGS=( '' )
 while [ "$#" -gt 0 ]; do
     case $1 in
     -h|--help)
-        help
+        usage
         exit 0
         ;;
     --skip-build)
@@ -100,7 +108,7 @@ else
     pushd "${PREV_DIR_BASE}/${PREV_TAG}"
     if [ "$NEW_COPY" = 'no' ]; then
         REMOTE="$(git remote -v | grep "${GIT_REPO}" | head -1 | awk '{print $1}')"
-        git fetch "$REMOTE"
+        git fetch "$REMOTE" --tags -f
     fi
     git reset --hard
     git clean -ffdx

@@ -1,0 +1,16 @@
+version: '3.9'
+
+services:
+  toxiproxy:
+    container_name: toxiproxy
+    image: ghcr.io/shopify/toxiproxy:2.5.0
+    restart: always
+    networks:
+      - emqx_bridge
+    volumes:
+      - "./toxiproxy.json:/config/toxiproxy.json"
+    ports:
+      - 8474:8474
+    command:
+      - "-host=0.0.0.0"
+      - "-config=/config/toxiproxy.json"
