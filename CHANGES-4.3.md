@@ -64,6 +64,13 @@ File format:
   This issue only occurs when unsubscribe with the session kept.
   Fixed in [#9119](https://github.com/emqx/emqx/pull/9119)
 
+- Fix shared subscription 'sticky' strategy when there is no local subscriptions at all.
+  Prior to this change, it may take a few rounds to randomly pick group members until a local subscriber
+  is hit (and then start sticking to it).
+  After this fix, it will start sticking to whichever randomly picked member even when it is a
+  subscriber from another node in the cluster.
+  Fixed in [#9122](https://github.com/emqx/emqx/pull/9122)
+
 ## v4.3.20
 
 ### Bug fixes
