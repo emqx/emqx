@@ -60,7 +60,8 @@
     info/2,
     is_session/1,
     stats/1,
-    obtain_next_pkt_id/1
+    obtain_next_pkt_id/1,
+    get_mqueue/1
 ]).
 
 -export([
@@ -801,7 +802,8 @@ replay(ClientInfo, Session = #session{inflight = Inflight}) ->
 -spec terminate(emqx_types:clientinfo(), Reason :: term(), session()) -> ok.
 terminate(ClientInfo, Reason, Session) ->
     run_terminate_hooks(ClientInfo, Reason, Session),
-    redispatch_shared_messages(Session),
+    Reason =/= takenover andalso
+        redispatch_shared_messages(Session),
     ok.
 
 run_terminate_hooks(ClientInfo, discarded, Session) ->
@@ -811,29 +813,20 @@ run_terminate_hooks(ClientInfo, takenover, Session) ->
 run_terminate_hooks(ClientInfo, Reason, Session) ->
     run_hook('session.terminated', [ClientInfo, Reason, info(Session)]).
 
-redispatch_shared_messages(#session{inflight = Inflight}) ->
-    InflightList = emqx_inflight:to_list(Inflight),
-    lists:foreach(
-        fun
-            %% Only QoS1 messages get redispatched, because QoS2 messages
-            %% must be sent to the same client, once they're in flight
-            ({_, #inflight_data{message = #message{qos = ?QOS_2} = Msg}}) ->
-                ?SLOG(warning, #{msg => qos2_lost_no_redispatch}, #{message => Msg});
-            ({_, #inflight_data{message = #message{topic = Topic, qos = ?QOS_1} = Msg}}) ->
-                case emqx_shared_sub:get_group(Msg) of
-                    {ok, Group} ->
-                        %% Note that dispatch is called with self() in failed subs
-                        %% This is done to avoid dispatching back to caller
-                        Delivery = #delivery{sender = self(), message = Msg},
-                        emqx_shared_sub:dispatch(Group, Topic, Delivery, [self()]);
-                    _ ->
-                        false
-                end;
-            (_) ->
-                ok
-        end,
-        InflightList
-    ).
+redispatch_shared_messages(#session{inflight = Inflight, mqueue = Q}) ->
+    AllInflights = emqx_inflight:to_list(fun sort_fun/2, Inflight),
+    F = fun
+        ({_PacketId, #inflight_data{message = #message{qos = ?QOS_1} = Msg}}) ->
+            %% For QoS 2, here is what the spec says:
+            %% If the Client's Session terminates before the Client reconnects,
+            %% the Server MUST NOT send the Application Message to any other
+            %% subscribed Client [MQTT-4.8.2-5].
+            {true, Msg};
+        ({_PacketId, #inflight_data{}}) ->
+            false
+    end,
+    InflightList = lists:filtermap(F, AllInflights),
+    emqx_shared_sub:redispatch(InflightList ++ emqx_mqueue:to_list(Q)).
 
 -compile({inline, [run_hook/2]}).
 run_hook(Name, Args) ->
@@ -925,3 +918,6 @@ age(Now, Ts) -> Now - Ts.
 set_field(Name, Value, Session) ->
     Pos = emqx_misc:index_of(Name, record_info(fields, session)),
     setelement(Pos + 1, Session, Value).
+
+get_mqueue(#session{mqueue = Q}) ->
+    emqx_mqueue:to_list(Q).

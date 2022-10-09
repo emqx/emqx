@@ -997,8 +997,13 @@ maybe_nack(Delivers) ->
     lists:filter(fun not_nacked/1, Delivers).
 
 not_nacked({deliver, _Topic, Msg}) ->
-    not (emqx_shared_sub:is_ack_required(Msg) andalso
-        (ok == emqx_shared_sub:nack_no_connection(Msg))).
+    case emqx_shared_sub:is_ack_required(Msg) of
+        true ->
+            ok = emqx_shared_sub:nack_no_connection(Msg),
+            false;
+        false ->
+            true
+    end.
 
 maybe_mark_as_delivered(Session, Delivers) ->
     case emqx_session:info(is_persistent, Session) of
@@ -1222,6 +1227,8 @@ handle_call(
     ChanInfo1 = info(NChannel),
     emqx_cm:set_chan_info(ClientId, ChanInfo1#{sockinfo => SockInfo}),
     reply(ok, reset_timer(alive_timer, NChannel));
+handle_call(get_mqueue, Channel) ->
+    reply({ok, get_mqueue(Channel)}, Channel);
 handle_call(Req, Channel) ->
     ?SLOG(error, #{msg => "unexpected_call", call => Req}),
     reply(ignored, Channel).
@@ -2224,3 +2231,6 @@ get_mqtt_conf(Zone, Key, Default) ->
 set_field(Name, Value, Channel) ->
     Pos = emqx_misc:index_of(Name, record_info(fields, channel)),
     setelement(Pos + 1, Channel, Value).
+
+get_mqueue(#channel{session = Session}) ->
+    emqx_session:get_mqueue(Session).
