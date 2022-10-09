@@ -600,13 +600,18 @@ t_show_action_api(_Config) ->
     ok.
 
 t_crud_resources_api(_Config) ->
+    ResParams = [
+        {<<"name">>, <<"Simple Resource">>},
+        {<<"type">>, <<"built_in">>},
+        {<<"config">>, [{<<"a">>, 1}]},
+        {<<"description">>, <<"Simple Resource">>}
+    ],
     {ok, #{code := 0, data := Resources1}} =
-        emqx_rule_engine_api:create_resource(#{},
-            [{<<"name">>, <<"Simple Resource">>},
-             {<<"type">>, <<"built_in">>},
-             {<<"config">>, [{<<"a">>, 1}]},
-             {<<"description">>, <<"Simple Resource">>}]),
+        emqx_rule_engine_api:create_resource(#{}, ResParams),
     ResId = maps:get(id, Resources1),
+    %% create again using given resource id returns error
+    {ok, #{code := 400, message := <<"Already Exists">>}} =
+        emqx_rule_engine_api:create_resource(#{}, [{<<"id">>, ResId} | ResParams]),
     {ok, #{code := 0, data := Resources}} = emqx_rule_engine_api:list_resources(#{}, []),
     ?assert(length(Resources) > 0),
     {ok, #{code := 0, data := Resources2}} = emqx_rule_engine_api:show_resource(#{id => ResId}, []),
