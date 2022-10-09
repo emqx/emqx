@@ -1,14 +1,9 @@
-# 5.0.10
-
-## Enhancements
-
-* Use milliseconds internally in emqx_delayed to store the publish time, improving precision.[#9060](https://github.com/emqx/emqx/pull/9060)
-
 # 5.0.9
 
 ## Enhancements
 
 * Add `cert_common_name` and `cert_subject` placeholder support for authz_http and authz_mongo.[#8973](https://github.com/emqx/emqx/pull/8973)
+* Use milliseconds internally in emqx_delayed to store the publish time, improving precision.[#9060](https://github.com/emqx/emqx/pull/9060)
 
 ## Bug fixes
 
