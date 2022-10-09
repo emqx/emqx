@@ -19,6 +19,7 @@
 -include("emqx_auth_http.hrl").
 
 -export([ request/6
+        , request/7
         , feedvar/2
         , feedvar/3
         ]).
@@ -27,18 +28,21 @@
 %% HTTP Request
 %%--------------------------------------------------------------------
 
-request(PoolName, get, Path, Headers, Params, Timeout) ->
-    NewPath = Path ++ "?" ++ binary_to_list(cow_qs:qs(bin_kw(Params))),
-    reply(ehttpc:request(PoolName, get, {NewPath, Headers}, Timeout));
+request(PoolName, Method, Path, Headers, Params, Timeout) ->
+    request(PoolName, Method, Path, Headers, Params, ?DEFAULT_RETRY_TIMES).
 
-request(PoolName, post, Path, Headers, Params, Timeout) ->
+request(PoolName, get, Path, Headers, Params, Timeout, Retry) ->
+    NewPath = Path ++ "?" ++ binary_to_list(cow_qs:qs(bin_kw(Params))),
+    reply(ehttpc:request(PoolName, get, {NewPath, Headers}, Timeout, Retry));
+
+request(PoolName, post, Path, Headers, Params, Timeout, Retry) ->
     Body = case proplists:get_value(<<"content-type">>, Headers) of
                "application/x-www-form-urlencoded" ->
                    cow_qs:qs(bin_kw(Params));
                "application/json" -> 
                    emqx_json:encode(bin_kw(Params))
            end,
-    reply(ehttpc:request(PoolName, post, {Path, Headers, Body}, Timeout)).
+    reply(ehttpc:request(PoolName, post, {Path, Headers, Body}, Timeout, Retry)).
 
 reply({ok, StatusCode, _Headers}) ->
     {ok, StatusCode, <<>>};
