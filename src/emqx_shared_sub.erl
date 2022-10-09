@@ -301,7 +301,8 @@ fetch_sender_ref({Sender, Ref}) -> {Sender, Ref}.
 
 pick(sticky, ClientId, SourceTopic, Group, Topic, FailedSubs) ->
     Sub0 = erlang:get({shared_sub_sticky, Group, Topic}),
-    case is_active_sub(Sub0, FailedSubs) of
+    All = subscribers(Group, Topic),
+    case is_active_sub(Sub0, FailedSubs, All) of
         true ->
             %% the old subscriber is still alive
             %% keep using it for sticky strategy
@@ -471,8 +472,10 @@ update_stats(State) ->
     State.
 
 %% Return 'true' if the subscriber process is alive AND not in the failed list
-is_active_sub(Pid, FailedSubs) ->
-    not maps:is_key(Pid, FailedSubs) andalso is_alive_sub(Pid).
+is_active_sub(Pid, FailedSubs, All) ->
+    lists:member(Pid, All) andalso
+        (not maps:is_key(Pid, FailedSubs)) andalso
+        is_alive_sub(Pid).
 
 %% erlang:is_process_alive/1 does not work with remote pid.
 is_alive_sub(Pid) when ?IS_LOCAL_PID(Pid) ->
