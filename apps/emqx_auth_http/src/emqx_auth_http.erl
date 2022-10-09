@@ -63,27 +63,27 @@ description() -> "Authentication by HTTP API".
 %% Requests
 %%--------------------------------------------------------------------
 
-authenticate(Params =
+authenticate(AuthParams =
              #{pool_name := PoolName,
                path := Path,
                method := Method,
                headers := Headers,
                params := Params,
                timeout := Timeout}, ClientInfo) ->
-    Retry = maps:get(retry_times, Params, ?DEFAULT_RETRY_TIMES),
+    Retry = maps:get(retry_times, AuthParams, ?DEFAULT_RETRY_TIMES),
     request(PoolName, Method, Path, Headers, feedvar(Params, ClientInfo), Timeout, Retry).
 
 -spec(is_superuser(maybe(map()), emqx_types:client()) -> boolean()).
 is_superuser(undefined, _ClientInfo) ->
     false;
-is_superuser(Params =
+is_superuser(SuperParams =
              #{pool_name := PoolName,
                path := Path,
                method := Method,
                headers := Headers,
                params := Params,
                timeout := Timeout}, ClientInfo) ->
-    Retry = maps:get(retry_times, Params, ?DEFAULT_RETRY_TIMES),
+    Retry = maps:get(retry_times, SuperParams, ?DEFAULT_RETRY_TIMES),
     case request(PoolName, Method, Path, Headers, feedvar(Params, ClientInfo), Timeout, Retry) of
         {ok, 200, _Body}   -> true;
         {ok, _Code, _Body} -> false;

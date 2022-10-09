@@ -408,7 +408,7 @@ t_password_hash(_) ->
     ok = application:start(emqx_auth_mnesia).
 
 t_will_message_connection_denied(Config) when is_list(Config) ->
-    ClientId = Username = <<"subscriber">>,
+    ClientId = <<"subscriber">>,
     Password = <<"p">>,
     application:stop(emqx_auth_mnesia),
     ok = emqx_ct_helpers:start_apps([emqx_auth_mnesia]),

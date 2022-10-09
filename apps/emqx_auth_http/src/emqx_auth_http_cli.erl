@@ -29,7 +29,7 @@
 %%--------------------------------------------------------------------
 
 request(PoolName, Method, Path, Headers, Params, Timeout) ->
-    request(PoolName, Method, Path, Headers, Params, ?DEFAULT_RETRY_TIMES).
+    request(PoolName, Method, Path, Headers, Params, Timeout, ?DEFAULT_RETRY_TIMES).
 
 request(PoolName, get, Path, Headers, Params, Timeout, Retry) ->
     NewPath = Path ++ "?" ++ binary_to_list(cow_qs:qs(bin_kw(Params))),

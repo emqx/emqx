@@ -56,14 +56,14 @@ description() -> "ACL with HTTP API".
 %% Internal functions
 %%--------------------------------------------------------------------
 
-check_acl_request(Params =
+check_acl_request(ACLParams =
                   #{pool_name := PoolName,
                     path := Path,
                     method := Method,
                     headers := Headers,
                     params := Params,
                     timeout := Timeout}, ClientInfo) ->
-    Retry = maps:get(retry_times, Params, ?DEFAULT_RETRY_TIMES),
+    Retry = maps:get(retry_times, ACLParams, ?DEFAULT_RETRY_TIMES),
     request(PoolName, Method, Path, Headers, feedvar(Params, ClientInfo), Timeout, Retry).
 
 access(subscribe) -> 1;
