@@ -1,6 +1,9 @@
 %% -*- mode: erlang -*-
 {VSN,
   [
+   {"4.3.7",[
+       {load_module,emqx_sn_gateway,brutal_purge,soft_purge,[]}
+   ]},
    {"4.3.6",[
        {load_module,emqx_sn_gateway,brutal_purge,soft_purge,[]}
    ]},
@@ -29,6 +32,9 @@
    {<<"4\\.3\\.[0-1]">>, [{restart_application,emqx_sn}]}
   ],
   [
+   {"4.3.7",[
+       {load_module,emqx_sn_gateway,brutal_purge,soft_purge,[]}
+   ]},
    {"4.3.6",[
        {load_module,emqx_sn_gateway,brutal_purge,soft_purge,[]}
    ]},
