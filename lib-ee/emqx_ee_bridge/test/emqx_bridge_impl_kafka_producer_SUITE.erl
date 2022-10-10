@@ -323,6 +323,22 @@ kafka_bridge_rest_api_helper(Config) ->
             <<"sql">> => <<"SELECT * from \"kafka_bridge_topic/#\"">>
         }
     ),
+    %% counters should be empty before
+    ?assertEqual(0, emqx_resource_metrics:matched_get(ResourceId)),
+    ?assertEqual(0, emqx_resource_metrics:success_get(ResourceId)),
+    ?assertEqual(0, emqx_resource_metrics:dropped_get(ResourceId)),
+    ?assertEqual(0, emqx_resource_metrics:failed_get(ResourceId)),
+    ?assertEqual(0, emqx_resource_metrics:inflight_get(ResourceId)),
+    ?assertEqual(0, emqx_resource_metrics:batching_get(ResourceId)),
+    ?assertEqual(0, emqx_resource_metrics:queuing_get(ResourceId)),
+    ?assertEqual(0, emqx_resource_metrics:dropped_other_get(ResourceId)),
+    ?assertEqual(0, emqx_resource_metrics:dropped_queue_full_get(ResourceId)),
+    ?assertEqual(0, emqx_resource_metrics:dropped_queue_not_enabled_get(ResourceId)),
+    ?assertEqual(0, emqx_resource_metrics:dropped_resource_not_found_get(ResourceId)),
+    ?assertEqual(0, emqx_resource_metrics:dropped_resource_stopped_get(ResourceId)),
+    ?assertEqual(0, emqx_resource_metrics:retried_get(ResourceId)),
+    ?assertEqual(0, emqx_resource_metrics:retried_failed_get(ResourceId)),
+    ?assertEqual(0, emqx_resource_metrics:retried_success_get(ResourceId)),
     %% Get offset before sending message
     {ok, Offset} = resolve_kafka_offset(kafka_hosts(), KafkaTopic, 0),
     %% Send message to topic and check that it got forwarded to Kafka
@@ -335,12 +351,21 @@ kafka_bridge_rest_api_helper(Config) ->
     {ok, {_, [KafkaMsg]}} = show(BrodOut),
     Body = KafkaMsg#kafka_message.value,
     %% Check crucial counters and gauges
-    1 = emqx_resource_metrics:matched_get(ResourceId),
-    1 = emqx_resource_metrics:success_get(ResourceId),
-    0 = emqx_resource_metrics:dropped_get(ResourceId),
-    0 = emqx_resource_metrics:failed_get(ResourceId),
-    0 = emqx_resource_metrics:inflight_get(ResourceId),
-    0 = emqx_resource_metrics:queuing_get(ResourceId),
+    ?assertEqual(1, emqx_resource_metrics:matched_get(ResourceId)),
+    ?assertEqual(1, emqx_resource_metrics:success_get(ResourceId)),
+    ?assertEqual(0, emqx_resource_metrics:dropped_get(ResourceId)),
+    ?assertEqual(0, emqx_resource_metrics:failed_get(ResourceId)),
+    ?assertEqual(0, emqx_resource_metrics:inflight_get(ResourceId)),
+    ?assertEqual(0, emqx_resource_metrics:batching_get(ResourceId)),
+    ?assertEqual(0, emqx_resource_metrics:queuing_get(ResourceId)),
+    ?assertEqual(0, emqx_resource_metrics:dropped_other_get(ResourceId)),
+    ?assertEqual(0, emqx_resource_metrics:dropped_queue_full_get(ResourceId)),
+    ?assertEqual(0, emqx_resource_metrics:dropped_queue_not_enabled_get(ResourceId)),
+    ?assertEqual(0, emqx_resource_metrics:dropped_resource_not_found_get(ResourceId)),
+    ?assertEqual(0, emqx_resource_metrics:dropped_resource_stopped_get(ResourceId)),
+    ?assertEqual(0, emqx_resource_metrics:retried_get(ResourceId)),
+    ?assertEqual(0, emqx_resource_metrics:retried_failed_get(ResourceId)),
+    ?assertEqual(0, emqx_resource_metrics:retried_success_get(ResourceId)),
     %% Perform operations
     {ok, 200, _} = show(http_post(show(BridgesPartsOpDisable), #{})),
     {ok, 200, _} = show(http_post(show(BridgesPartsOpDisable), #{})),
@@ -452,7 +477,7 @@ hocon_config_template() ->
 """
 bootstrap_hosts = \"{{ kafka_hosts_string }}\"
 enable = true
-authentication = {{{ authentication }}} 
+authentication = {{{ authentication }}}
 ssl = {{{ ssl }}}
 producer = {
     mqtt {
