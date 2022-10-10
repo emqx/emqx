@@ -39,6 +39,8 @@ File format:
 - Added a test to prevent a last will testament message to be
   published when a client is denied connection. [#8894](https://github.com/emqx/emqx/pull/8894)
 
+- Add warning log if the acl check of a subscribed topic failed. [#9124](https://github.com/emqx/emqx/pull/9124)
+
 ### Bug fixes
 
 - Fix delayed publish inaccurate caused by os time change. [#8908](https://github.com/emqx/emqx/pull/8908)
