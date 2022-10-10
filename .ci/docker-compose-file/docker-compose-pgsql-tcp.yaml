@@ -11,5 +11,6 @@ services:
       POSTGRES_DB: mqtt
     ports:
       - "5432:5432"
+    command: ["postgres", "-c", "log_statement=all", "-c", "log_min_messages=DEBUG5", "-c", "log_min_duration_statement=0", "-c", "log_line_prefix=%v"]
     networks:
       - emqx_bridge

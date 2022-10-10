@@ -118,6 +118,125 @@ jobs:
             docker exec -i erlang bash -c "git config --global --add safe.directory /emqx"
             docker exec -i erlang bash -c "make cover"
             docker exec --env-file .env -i erlang bash -c "make coveralls"
+        - name: export docker-compose logs
+          if: ${{ failure() && endsWith(github.repository, 'emqx') }}
+          env:
+            MYSQL_TAG: 8
+            REDIS_TAG: 6
+            MONGO_TAG: 4
+            PGSQL_TAG: 13
+            LDAP_TAG: 2.4.50
+            GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          run: |
+            docker-compose \
+                -f .ci/docker-compose-file/docker-compose.yaml \
+                -f .ci/docker-compose-file/docker-compose-toxiproxy.yaml \
+                -f .ci/docker-compose-file/docker-compose-ldap-tcp.yaml \
+                -f .ci/docker-compose-file/docker-compose-mongo-tcp.yaml \
+                -f .ci/docker-compose-file/docker-compose-mysql-tcp.yaml \
+                -f .ci/docker-compose-file/docker-compose-pgsql-tcp.yaml \
+                -f .ci/docker-compose-file/docker-compose-redis-single-tcp.yaml \
+                logs --timestamps --no-color > dc.log
+        - name: export docker-compose logs
+          if: ${{ failure() && endsWith(github.repository, 'emqx-enterprise') }}
+          env:
+            MYSQL_TAG: 8
+            REDIS_TAG: 6
+            MONGO_TAG: 4
+            PGSQL_TAG: 13
+            LDAP_TAG: 2.4.50
+            OPENTSDB_TAG: latest
+            INFLUXDB_TAG: 1.7.6
+            DYNAMODB_TAG: 1.11.477
+            TIMESCALE_TAG: latest-pg11
+            CASSANDRA_TAG: 3.11.6
+            RABBITMQ_TAG: 3.7
+            KAFKA_TAG: 2.5.0
+            PULSAR_TAG: 2.3.2
+            GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          run: |
+            docker-compose \
+                -f .ci/docker-compose-file/docker-compose.yaml \
+                -f .ci/docker-compose-file/docker-compose-toxiproxy.yaml \
+                -f .ci/docker-compose-file/docker-compose-ldap-tcp.yaml \
+                -f .ci/docker-compose-file/docker-compose-mongo-tcp.yaml \
+                -f .ci/docker-compose-file/docker-compose-mysql-tcp.yaml \
+                -f .ci/docker-compose-file/docker-compose-pgsql-tcp.yaml \
+                -f .ci/docker-compose-file/docker-compose-redis-single-tcp.yaml \
+                -f .ci/docker-compose-file/docker-compose-enterprise.yaml \
+                -f .ci/docker-compose-file/docker-compose-enterprise-cassandra-tcp.yaml \
+                -f .ci/docker-compose-file/docker-compose-enterprise-dynamodb-tcp.yaml \
+                -f .ci/docker-compose-file/docker-compose-enterprise-influxdb-tcp.yaml \
+                -f .ci/docker-compose-file/docker-compose-enterprise-kafka-tcp.yaml \
+                -f .ci/docker-compose-file/docker-compose-enterprise-opentsdb-tcp.yaml \
+                -f .ci/docker-compose-file/docker-compose-enterprise-pulsar-tcp.yaml \
+                -f .ci/docker-compose-file/docker-compose-enterprise-rabbit-tcp.yaml \
+                -f .ci/docker-compose-file/docker-compose-enterprise-timescale-tcp.yaml \
+                -f .ci/docker-compose-file/docker-compose-enterprise-mysql-client.yaml \
+                -f .ci/docker-compose-file/docker-compose-enterprise-pgsql-and-timescale-client.yaml \
+                logs --timestamps --no-color > dc.log
+        - name: teardown docker-compose
+          if: ${{ failure() && endsWith(github.repository, 'emqx') }}
+          env:
+            MYSQL_TAG: 8
+            REDIS_TAG: 6
+            MONGO_TAG: 4
+            PGSQL_TAG: 13
+            LDAP_TAG: 2.4.50
+            GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          run: |
+            docker-compose \
+                -f .ci/docker-compose-file/docker-compose.yaml \
+                -f .ci/docker-compose-file/docker-compose-toxiproxy.yaml \
+                -f .ci/docker-compose-file/docker-compose-ldap-tcp.yaml \
+                -f .ci/docker-compose-file/docker-compose-mongo-tcp.yaml \
+                -f .ci/docker-compose-file/docker-compose-mysql-tcp.yaml \
+                -f .ci/docker-compose-file/docker-compose-pgsql-tcp.yaml \
+                -f .ci/docker-compose-file/docker-compose-redis-single-tcp.yaml \
+                down --remove-orphans
+        - name: teardown docker-compose
+          if: ${{ failure() && endsWith(github.repository, 'emqx-enterprise') }}
+          env:
+            MYSQL_TAG: 8
+            REDIS_TAG: 6
+            MONGO_TAG: 4
+            PGSQL_TAG: 13
+            LDAP_TAG: 2.4.50
+            OPENTSDB_TAG: latest
+            INFLUXDB_TAG: 1.7.6
+            DYNAMODB_TAG: 1.11.477
+            TIMESCALE_TAG: latest-pg11
+            CASSANDRA_TAG: 3.11.6
+            RABBITMQ_TAG: 3.7
+            KAFKA_TAG: 2.5.0
+            PULSAR_TAG: 2.3.2
+            GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          run: |
+            docker-compose \
+                -f .ci/docker-compose-file/docker-compose.yaml \
+                -f .ci/docker-compose-file/docker-compose-toxiproxy.yaml \
+                -f .ci/docker-compose-file/docker-compose-ldap-tcp.yaml \
+                -f .ci/docker-compose-file/docker-compose-mongo-tcp.yaml \
+                -f .ci/docker-compose-file/docker-compose-mysql-tcp.yaml \
+                -f .ci/docker-compose-file/docker-compose-pgsql-tcp.yaml \
+                -f .ci/docker-compose-file/docker-compose-redis-single-tcp.yaml \
+                -f .ci/docker-compose-file/docker-compose-enterprise.yaml \
+                -f .ci/docker-compose-file/docker-compose-enterprise-cassandra-tcp.yaml \
+                -f .ci/docker-compose-file/docker-compose-enterprise-dynamodb-tcp.yaml \
+                -f .ci/docker-compose-file/docker-compose-enterprise-influxdb-tcp.yaml \
+                -f .ci/docker-compose-file/docker-compose-enterprise-kafka-tcp.yaml \
+                -f .ci/docker-compose-file/docker-compose-enterprise-opentsdb-tcp.yaml \
+                -f .ci/docker-compose-file/docker-compose-enterprise-pulsar-tcp.yaml \
+                -f .ci/docker-compose-file/docker-compose-enterprise-rabbit-tcp.yaml \
+                -f .ci/docker-compose-file/docker-compose-enterprise-timescale-tcp.yaml \
+                -f .ci/docker-compose-file/docker-compose-enterprise-mysql-client.yaml \
+                -f .ci/docker-compose-file/docker-compose-enterprise-pgsql-and-timescale-client.yaml \
+                down --remove-orphans
+        - uses: actions/upload-artifact@v1
+          if: failure()
+          with:
+            name: dc-log
+            path: dc.log
         - name: cat rebar.crashdump
           if: failure()
           run: if [ -f 'rebar3.crashdump' ];then cat 'rebar3.crashdump'; fi
