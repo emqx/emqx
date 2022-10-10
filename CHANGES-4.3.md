@@ -58,6 +58,12 @@ File format:
   - For wildcard deliveries, the re-dispatch used the wrong topic (the publishing topic,
     but not the subscribing topic), caused messages to be lost when dispatching.
 
+- Fix shared subscription group member unsubscribe issue when 'sticky' strategy is used.
+  Prior to this fix, if a previously picked member unsubscribes from the group (without reconnect)
+  the message is still dispatched to it.
+  This issue only occurs when unsubscribe with the session kept.
+  Fixed in [#9119](https://github.com/emqx/emqx/pull/9119)
+
 ## v4.3.20
 
 ### Bug fixes
