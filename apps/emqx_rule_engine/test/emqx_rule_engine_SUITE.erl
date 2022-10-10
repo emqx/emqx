@@ -50,6 +50,7 @@ groups() ->
        t_unregister_provider,
        t_create_rule,
        t_reset_metrics,
+       t_reset_metrics_fallbacks,
        t_create_resource
       ]},
      {actions, [],
@@ -379,18 +380,14 @@ t_inspect_action(_Config) ->
 
 t_reset_metrics(_Config) ->
     ok = emqx_rule_engine:load_providers(),
-    {ok, #resource{id = ResId}} = emqx_rule_engine:create_resource(
-                                    #{type => built_in,
-                                      config => #{},
-                                      description => <<"debug resource">>}),
-    {ok, #rule{id = Id}} = emqx_rule_engine:create_rule(
-                             #{rawsql => "select clientid as c, username as u "
-                               "from \"t1\" ",
-                               actions => [#{name => 'inspect',
-                                             args => #{'$resource' => ResId, a=>1, b=>2}}],
-                               type => built_in,
-                               description => <<"Inspect rule">>
-                              }),
+    {ok, #rule{id = Id, actions = [#action_instance{id = ActId0}]}} =
+        emqx_rule_engine:create_rule(
+            #{rawsql => "select clientid as c, username as u "
+            "from \"t1\" ",
+            actions => [#{name => 'inspect', args => #{a=>1, b=>2}}],
+            type => built_in,
+            description => <<"Inspect rule">>
+            }),
     {ok, Client} = emqtt:start_link([{username, <<"emqx">>}]),
     {ok, _} = emqtt:connect(Client),
     [ begin
@@ -398,16 +395,68 @@ t_reset_metrics(_Config) ->
           timer:sleep(100)
       end
       || _ <- lists:seq(1,10)],
+    ?assertMatch(#{exception := 0, failed := 0,
+                   matched := 10, no_result := 0, passed := 10},
+                 emqx_rule_metrics:get_rule_metrics(Id)),
+    ?assertMatch(#{failed := 0, success := 10, taken := 10},
+                   emqx_rule_metrics:get_action_metrics(ActId0)),
     emqx_rule_metrics:reset_metrics(Id),
     ?assertEqual(#{exception => 0,failed => 0,
                    matched => 0,no_result => 0,passed => 0,
                    speed => 0.0,speed_last5m => 0.0,speed_max => 0.0},
                  emqx_rule_metrics:get_rule_metrics(Id)),
-    ?assertEqual(#{failed => 0,success => 0,taken => 0},
-                   emqx_rule_metrics:get_action_metrics(ResId)),
+    ?assertEqual(#{failed => 0, success => 0, taken => 0},
+                   emqx_rule_metrics:get_action_metrics(ActId0)),
     emqtt:stop(Client),
     emqx_rule_registry:remove_rule(Id),
-    emqx_rule_registry:remove_resource(ResId),
+    ok.
+
+t_reset_metrics_fallbacks(_Config) ->
+    ok = emqx_rule_engine:load_providers(),
+    ok = emqx_rule_registry:add_action(
+            #action{name = 'crash_action', app = ?APP,
+                    module = ?MODULE, on_create = crash_action,
+                    types=[], params_spec = #{},
+                    title = #{en => <<"Crash Action">>},
+                    description = #{en => <<"This action will always fail!">>}}),
+    {ok, #rule{id = Id, actions = [#action_instance{id = ActId0, fallbacks = [
+            #action_instance{id = ActId1},
+            #action_instance{id = ActId2}
+        ]}]}} =
+        emqx_rule_engine:create_rule(
+            #{rawsql => "select clientid as c, username as u "
+            "from \"t1\" ",
+            actions => [#{name => 'crash_action', args => #{a=>1, b=>2}, fallbacks => [
+                              #{name => 'inspect', args => #{}, fallbacks => []},
+                              #{name => 'inspect', args => #{}, fallbacks => []}
+                          ]}],
+            type => built_in,
+            description => <<"Inspect rule">>
+            }),
+    {ok, Client} = emqtt:start_link([{username, <<"emqx">>}]),
+    {ok, _} = emqtt:connect(Client),
+    [ begin
+          emqtt:publish(Client, <<"t1">>, <<"{\"id\": 1, \"name\": \"ha\"}">>, 0),
+          timer:sleep(100)
+      end
+      || _ <- lists:seq(1,10)],
+    ?assertMatch(#{exception := 0, failed := 0,
+                   matched := 10, no_result := 0, passed := 10},
+                 emqx_rule_metrics:get_rule_metrics(Id)),
+    [?assertMatch(#{failed := 10, success := 0, taken := 10},
+                   emqx_rule_metrics:get_action_metrics(AId)) || AId <- [ActId0]],
+    [?assertMatch(#{failed := 0, success := 10, taken := 10},
+                   emqx_rule_metrics:get_action_metrics(AId)) || AId <- [ ActId1, ActId2]],
+    emqx_rule_metrics:reset_metrics(Id),
+    ?assertEqual(#{exception => 0,failed => 0,
+                   matched => 0,no_result => 0,passed => 0,
+                   speed => 0.0,speed_last5m => 0.0,speed_max => 0.0},
+                 emqx_rule_metrics:get_rule_metrics(Id)),
+    [?assertEqual(#{failed => 0, success => 0, taken => 0},
+                   emqx_rule_metrics:get_action_metrics(AId)) || AId <- [ActId0, ActId1, ActId2]],
+    emqtt:stop(Client),
+    emqx_rule_registry:remove_rule(Id),
+    ok = emqx_rule_registry:remove_action('crash_action'),
     ok.
 
 t_republish_action(_Config) ->
