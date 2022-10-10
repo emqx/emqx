@@ -22,6 +22,7 @@
 -include_lib("emqx/include/emqx.hrl").
 -include_lib("eunit/include/eunit.hrl").
 -include_lib("common_test/include/ct.hrl").
+-include_lib("snabbkaffe/include/snabbkaffe.hrl").
 
 -define(SUITE, ?MODULE).
 
@@ -869,23 +870,23 @@ t_redispatch_when_kicked(_) ->
     Subs = [erlang:spawn(fun() -> MkSub(ClientId) end) || ClientId <- [ClientId1, ClientId2]],
     timer:sleep(500),
 
+    ok = snabbkaffe:start_trace(),
+
     Message = emqx_message:make(ClientId1, 1, Topic, <<"hello1">>),
     emqx:publish(Message),
 
     [Sub ! wait || Sub <- Subs],
-    timer:sleep(200),
     Res = Receive(),
     ?assertMatch({got, _}, Res),
 
     {got, ClientId} = Res,
     emqx_cm:kick_session(ClientId),
 
-    [Sub ! wait || Sub <- Subs],
-    timer:sleep(200),
-    Res1 = Receive(),
-    ?assertMatch(nothing, Res1),
+    Trace = snabbkaffe:collect_trace(500),
+    ?assertMatch([#{reason := kicked}], ?of_kind(ignore_redispatch_shared_messages, Trace)),
 
     [Sub ! stop || Sub <- Subs],
+    snabbkaffe:stop(),
     ok.
 
 %%--------------------------------------------------------------------
