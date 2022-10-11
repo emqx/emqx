@@ -73,7 +73,7 @@
 export(_Bindings, _Params) ->
     case emqx_mgmt_data_backup:export() of
         {ok, File = #{filename := Filename}} ->
-            minirest:return({ok, File#{filename => list_to_binary(filename:basename(Filename))}});
+            minirest:return({ok, File#{filename => to_bin(filename:basename(Filename))}});
         Return -> minirest:return(Return)
     end.
 
@@ -166,3 +166,6 @@ tmp_filename() ->
 
 filename_decode(Filename) ->
     uri_string:percent_decode(Filename).
+
+to_bin(Data) when is_list(Data) -> erlang:list_to_binary(Data);
+to_bin(Data) when is_binary(Data) -> Data.

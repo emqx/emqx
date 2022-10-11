@@ -64,6 +64,7 @@
 -ifdef(TEST).
 -export([ backup_dir/0
         , delete_all_backup_file/0
+        , legal_filename/1
         ]).
 -endif.
 
@@ -741,7 +742,8 @@ export() ->
     Seconds = erlang:system_time(second),
     Data = do_export_data() ++ [{date, erlang:list_to_binary(emqx_mgmt_util:strftime(Seconds))}],
     {{Y, M, D}, {H, MM, S}} = emqx_mgmt_util:datetime(Seconds),
-    BaseFilename = io_lib:format("emqx-export-~p-~p-~p-~p-~p-~p.json", [Y, M, D, H, MM, S]),
+    BaseFilename0 = io_lib:format("emqx-export-~p-~p-~p-~p-~p-~p.json", [Y, M, D, H, MM, S]),
+    BaseFilename = list_to_binary(BaseFilename0),
     {ok, Filename} = ensure_file_name(BaseFilename),
     case file:write_file(Filename, emqx_json:encode(Data)) of
         ok ->
@@ -871,8 +873,36 @@ backup_dir_old_version() ->
     emqx:get_env(data_dir).
 
 legal_filename(Filename) ->
+    %% Only support ASCII characters: a-z A-Z 0-9 _ - .
+    %% Ensure the filename cloud be used in HTTP API json format.
+    %%
+    %% And must be a json file. Which means the filename must end with ".json".
+    LegalChar =
+        fun(Char) ->
+            Char >= $a andalso Char =< $z orelse
+            Char >= $A andalso Char =< $Z orelse
+            Char >= $0 andalso Char =< $9 orelse
+            Char =:= $- orelse
+            Char =:= $_ orelse
+            Char =:= $. orelse
+            Char =:= $/ orelse
+            Char =:= $\\
+        end,
+    Fun =
+        fun
+            F(<<>>) ->
+                true;
+            F([]) ->
+                true;
+            F(<<Char:8, Tail/binary>>) ->
+                LegalChar(Char) andalso F(Tail);
+            F([Char | Tail]) ->
+                LegalChar(Char) andalso F(Tail);
+            F(_) ->
+                false
+        end,
     MaybeJson = filename:extension(Filename),
-    MaybeJson == ".json" orelse MaybeJson == <<".json">>.
+    (MaybeJson == ".json" orelse MaybeJson == <<".json">>) andalso Fun(Filename).
 
 check_json(MaybeJson) ->
     case emqx_json:safe_decode(MaybeJson, [return_maps]) of

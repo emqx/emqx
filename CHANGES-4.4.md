@@ -5,6 +5,7 @@
 ### Bug fixes
 
 - Fix the latency statistics error of the slow subscription module when `stats_type` is `internal` or `response`. [#8981](https://github.com/emqx/emqx/pull/8981)
+- Fix that incorrect file names may cause problems with the backup API not working. Uploads with illegitimate file names are now disabled. Only support [a-zA-z0-9].json now.
 
 ## v4.4.9
 

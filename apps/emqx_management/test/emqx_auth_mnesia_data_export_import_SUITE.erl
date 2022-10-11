@@ -56,6 +56,28 @@ import(FilePath, _Version) ->
 %% Cases
 %%--------------------------------------------------------------------
 
+t_filename(_) ->
+    true = emqx_mgmt_data_backup:legal_filename("abc.json"),
+    true = emqx_mgmt_data_backup:legal_filename(<<"abc.json">>),
+    true = emqx_mgmt_data_backup:legal_filename(<<"abc_12.json">>),
+
+    true = emqx_mgmt_data_backup:legal_filename(<<"some/path/abc_12.json">>),
+    true = emqx_mgmt_data_backup:legal_filename(<<"some\\win\\path\\abc_12.json">>),
+
+    Seconds = erlang:system_time(second),
+    {{Y, M, D}, {H, MM, S}} = emqx_mgmt_util:datetime(Seconds),
+    BaseFilename0 = io_lib:format("emqx-export-~p-~p-~p-~p-~p-~p.json", [Y, M, D, H, MM, S]),
+    BaseFilename = list_to_binary(BaseFilename0),
+    true = emqx_mgmt_data_backup:legal_filename(BaseFilename),
+
+    false = emqx_mgmt_data_backup:legal_filename("abc.jsonX"),
+    false = emqx_mgmt_data_backup:legal_filename(<<"abc.jsonX">>),
+
+    false = emqx_mgmt_data_backup:legal_filename("&& BadFileName &&abc.json"),
+    false = emqx_mgmt_data_backup:legal_filename(<<"&& BadFileName &&abc.json">>),
+
+    ok.
+
 t_importee427(_) ->
     import("ee427.json", ee427),
     {ok, _} = emqx_mgmt_data_backup:export(),
