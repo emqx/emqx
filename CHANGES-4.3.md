@@ -15,6 +15,7 @@ File format:
 ### Bug fixes
 
 - Fix that after receiving publish in `idle mode` the emqx-sn gateway may panic. [#9024](https://github.com/emqx/emqx/pull/9024)
+- Fix that incorrect file names may cause problems with the backup API not working. Uploads with illegitimate file names are now disabled. Only support [a-zA-z0-9].json now.
 
 ## v4.3.21
 

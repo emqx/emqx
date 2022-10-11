@@ -626,6 +626,7 @@ do_export_extra_data() -> [].
 
 -ifdef(EMQX_ENTERPRISE).
 import(Filename, OverridesJson) ->
+    _ = legal_filename(Filename) orelse error(bad_filename),
     case file:read_file(Filename) of
         {ok, Json} ->
             Imported = emqx_json:decode(Json, [return_maps]),
@@ -645,6 +646,7 @@ import(Filename, OverridesJson) ->
     end.
 -else.
 import(Filename, OverridesJson) ->
+    _ = legal_filename(Filename) orelse error(bad_filename),
     case file:read_file(Filename) of
         {ok, Json} ->
             Imported = emqx_json:decode(Json, [return_maps]),
@@ -669,6 +671,38 @@ import(Filename, OverridesJson) ->
         Error -> Error
     end.
 -endif.
+
+legal_filename(Filename) ->
+    %% Only support ASCII characters: a-z A-Z 0-9 _ - .
+    %% Ensure the filename cloud be used in HTTP API json format.
+    %%
+    %% And must be a json file. Which means the filename must end with ".json".
+    LegalChar =
+        fun(Char) ->
+            Char >= $a andalso Char =< $z orelse
+            Char >= $A andalso Char =< $Z orelse
+            Char >= $0 andalso Char =< $9 orelse
+            Char =:= $- orelse
+            Char =:= $_ orelse
+            Char =:= $. orelse
+            Char =:= $/ orelse
+            Char =:= $\\
+        end,
+    Fun =
+        fun
+            F(<<>>) ->
+                true;
+            F([]) ->
+                true;
+            F(<<Char:8, Tail/binary>>) ->
+                LegalChar(Char) andalso F(Tail);
+            F([Char | Tail]) ->
+                LegalChar(Char) andalso F(Tail);
+            F(_) ->
+                false
+        end,
+    MaybeJson = filename:extension(Filename),
+    (MaybeJson == ".json" orelse MaybeJson == <<".json">>) andalso Fun(Filename).
 
 do_import_data(Data, Version) ->
     import_resources_and_rules(maps:get(<<"resources">>, Data, []), maps:get(<<"rules">>, Data, []), Version),
