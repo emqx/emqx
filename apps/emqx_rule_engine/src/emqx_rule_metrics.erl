@@ -133,22 +133,27 @@ clear_metrics(Id) ->
 -spec(reset_metrics(rule_id()) -> ok).
 reset_metrics(Id) ->
     reset_speeds(Id),
-    reset_metrics(Id, rule_metrics()),
+    do_reset_metrics(Id, rule_metrics()),
     case emqx_rule_registry:get_rule(Id) of
         not_found -> ok;
         {ok, #rule{actions = Actions}} ->
-            [ reset_metrics(ActionId, action_metrics())
-              || #action_instance{ id = ActionId} <- Actions],
+            reset_action_metrics(Actions),
             ok
     end.
 
-reset_metrics(Id, Metrics) ->
+do_reset_metrics(Id, Metrics) ->
     case couters_ref(Id) of
         not_found -> ok;
         Ref -> [counters:put(Ref, metrics_idx(Idx), 0)
                 || Idx <- Metrics],
                ok
     end.
+
+reset_action_metrics(Actions) ->
+    lists:foreach(fun(#action_instance{id = ActionId, fallbacks = FallbackActions}) ->
+            do_reset_metrics(ActionId, action_metrics()),
+            reset_action_metrics(FallbackActions)
+        end, Actions).
 
 reset_speeds(Id) ->
     gen_server:call(?MODULE, {reset_speeds, Id}).

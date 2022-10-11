@@ -24,6 +24,11 @@ jobs:
 
     steps:
       - uses: actions/checkout@v1
+        # to avoid dirty self-hosted runners
+      - name: stop containers
+        run: |
+          docker rm -f $(docker ps -qa) || true
+          docker network rm $(docker network ls -q) || true
       - name: docker compose up
         env:
           LDAP_TAG: ${{ matrix.ldap_tag }}
@@ -79,6 +84,10 @@ jobs:
 
     steps:
       - uses: actions/checkout@v1
+      - name: stop containers
+        run: |
+          docker rm -f $(docker ps -qa) || true
+          docker network rm $(docker network ls -q) || true
       - name: docker-compose up
         run: |
           docker-compose \
@@ -150,6 +159,10 @@ jobs:
 
     steps:
       - uses: actions/checkout@v1
+      - name: stop containers
+        run: |
+          docker rm -f $(docker ps -qa) || true
+          docker network rm $(docker network ls -q) || true
       - name: docker-compose up
         timeout-minutes: 5
         run: |
@@ -236,6 +249,10 @@ jobs:
         - tcp
     steps:
       - uses: actions/checkout@v1
+      - name: stop containers
+        run: |
+          docker rm -f $(docker ps -qa) || true
+          docker network rm $(docker network ls -q) || true
       - name: docker-compose up
         run: |
           docker-compose \
@@ -317,6 +334,10 @@ jobs:
 
     steps:
       - uses: actions/checkout@v1
+      - name: stop containers
+        run: |
+          docker rm -f $(docker ps -qa) || true
+          docker network rm $(docker network ls -q) || true
       - name: docker-compose up
         run: |
           docker-compose \

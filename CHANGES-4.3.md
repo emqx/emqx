@@ -32,6 +32,14 @@ File format:
 - Added a test to prevent a last will testament message to be
   published when a client is denied connection. [#8894](https://github.com/emqx/emqx/pull/8894)
 
+- More rigorous checking of flapping to improve stability of the system. [#9045](https://github.com/emqx/emqx/pull/9045)
+
+- QoS1 and QoS2 messages in session's buffer are re-dispatched to other members in the group
+  when the session terminates [#9094](https://github.com/emqx/emqx/pull/9094).
+  Prior to this enhancement, one would have to set `broker.shared_dispatch_ack_enabled` to true
+  to prevent sessions from buffering messages, however this acknowledgement comes with a cost.
+
+
 ### Bug fixes
 
 - Fix delayed publish inaccurate caused by os time change. [#8908](https://github.com/emqx/emqx/pull/8908)
@@ -47,6 +55,26 @@ File format:
   - Avoid pool name clashing [eredis_cluster#22](https://github.com/emqx/eredis_cluster/pull/22)
     Same `format_status` callback is added here too for `gen_server`s which hold password in
     their state.
+
+- Fix shared subscription message re-dispatches [#9094](https://github.com/emqx/emqx/pull/9094).
+  - When discarding QoS 2 inflight messages, there were excessive logs
+  - For wildcard deliveries, the re-dispatch used the wrong topic (the publishing topic,
+    but not the subscribing topic), caused messages to be lost when dispatching.
+
+- Fix shared subscription group member unsubscribe issue when 'sticky' strategy is used.
+  Prior to this fix, if a previously picked member unsubscribes from the group (without reconnect)
+  the message is still dispatched to it.
+  This issue only occurs when unsubscribe with the session kept.
+  Fixed in [#9119](https://github.com/emqx/emqx/pull/9119)
+
+- Fix shared subscription 'sticky' strategy when there is no local subscriptions at all.
+  Prior to this change, it may take a few rounds to randomly pick group members until a local subscriber
+  is hit (and then start sticking to it).
+  After this fix, it will start sticking to whichever randomly picked member even when it is a
+  subscriber from another node in the cluster.
+  Fixed in [#9122](https://github.com/emqx/emqx/pull/9122)
+
+- Fix cannot reset metrics for fallback actions. [#9125](https://github.com/emqx/emqx/pull/9125)
 
 ## v4.3.20
 

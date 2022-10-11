@@ -24,7 +24,7 @@
 -logger_header("[ACL http]").
 
 -import(emqx_auth_http_cli,
-        [ request/6
+        [ request/7
         , feedvar/2
         ]).
 
@@ -56,13 +56,15 @@ description() -> "ACL with HTTP API".
 %% Internal functions
 %%--------------------------------------------------------------------
 
-check_acl_request(#{pool_name := PoolName,
+check_acl_request(ACLParams =
+                  #{pool_name := PoolName,
                     path := Path,
                     method := Method,
                     headers := Headers,
                     params := Params,
                     timeout := Timeout}, ClientInfo) ->
-    request(PoolName, Method, Path, Headers, feedvar(Params, ClientInfo), Timeout).
+    Retry = maps:get(retry_times, ACLParams, ?DEFAULT_RETRY_TIMES),
+    request(PoolName, Method, Path, Headers, feedvar(Params, ClientInfo), Timeout, Retry).
 
 access(subscribe) -> 1;
 access(publish)   -> 2.
