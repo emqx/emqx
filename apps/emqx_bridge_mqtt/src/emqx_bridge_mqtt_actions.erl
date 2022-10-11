@@ -462,13 +462,15 @@ get_worker_status(Worker, Times) ->
                     timer:sleep(100),
                     get_worker_status(Worker, Times - 1);
                 ErrorStatus ->
-                    ?LOG(error, "MQTT Bridge get status ~p", [ErrorStatus]),
+                    ?LOG(error, "MQTT Bridge get status ~0p", [ErrorStatus]),
                     false
             catch Error:Reason:ST ->
-                    ?LOG(error, "MQTT Bridge get status error: ~p reason: ~p stacktrace: ~p", [Error, Reason, ST]),
+                    ?LOG(error, "MQTT Bridge get status error: ~p reason: ~0p stacktrace: ~0p",
+                        [Error, Reason, ST]),
                     false
             end;
-        {error, _} ->
+        {error, R} ->
+            ?LOG(error, "MQTT Bridge get status error, ~0p ", [R]),
             false
     end.
 
