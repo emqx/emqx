@@ -32,10 +32,13 @@ File format:
 - Added a test to prevent a last will testament message to be
   published when a client is denied connection. [#8894](https://github.com/emqx/emqx/pull/8894)
 
+- More rigorous checking of flapping to improve stability of the system. [#9045](https://github.com/emqx/emqx/pull/9045)
+
 - QoS1 and QoS2 messages in session's buffer are re-dispatched to other members in the group
   when the session terminates [#9094](https://github.com/emqx/emqx/pull/9094).
   Prior to this enhancement, one would have to set `broker.shared_dispatch_ack_enabled` to true
   to prevent sessions from buffering messages, however this acknowledgement comes with a cost.
+
 
 ### Bug fixes
 
