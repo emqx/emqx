@@ -420,10 +420,18 @@ t_query_counter_async_inflight(_) ->
 
     {ok, _, #{metrics := #{counters := C}}} = emqx_resource:get_instance(?ID),
     ct:pal("metrics: ~p", [C]),
+    {ok, IncorrectStatusCount} = emqx_resource:simple_sync_query(?ID, get_incorrect_status_count),
+    %% The `simple_sync_query' we just did also increases the matched
+    %% count, hence the + 1.
+    ExtraSimpleCallCount = IncorrectStatusCount + 1,
     ?assertMatch(
         #{matched := M, success := Ss, dropped := Dp, 'retried.success' := Rs} when
-            M == Ss + Dp - Rs,
-        C
+            M == Ss + Dp - Rs + ExtraSimpleCallCount,
+        C,
+        #{
+            metrics => C,
+            extra_simple_call_count => ExtraSimpleCallCount
+        }
     ),
     ?assert(
         lists:all(

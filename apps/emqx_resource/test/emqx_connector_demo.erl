@@ -100,6 +100,15 @@ on_query(_InstId, {inc_counter, N}, #{pid := Pid}) ->
     after 1000 ->
         {error, timeout}
     end;
+on_query(_InstId, get_incorrect_status_count, #{pid := Pid}) ->
+    ReqRef = make_ref(),
+    From = {self(), ReqRef},
+    Pid ! {From, get_incorrect_status_count},
+    receive
+        {ReqRef, Count} -> {ok, Count}
+    after 1000 ->
+        {error, timeout}
+    end;
 on_query(_InstId, get_counter, #{pid := Pid}) ->
     ReqRef = make_ref(),
     From = {self(), ReqRef},
@@ -157,9 +166,15 @@ spawn_counter_process(Name, Register) ->
     Pid.
 
 counter_loop() ->
-    counter_loop(#{counter => 0, status => running}).
+    counter_loop(#{counter => 0, status => running, incorrect_status_count => 0}).
 
-counter_loop(#{counter := Num, status := Status} = State) ->
+counter_loop(
+    #{
+        counter := Num,
+        status := Status,
+        incorrect_status_count := IncorrectCount
+    } = State
+) ->
     NewState =
         receive
             block ->
@@ -179,9 +194,12 @@ counter_loop(#{counter := Num, status := Status} = State) ->
                 State#{counter => Num + N};
             {{FromPid, ReqRef}, {inc, _N}} when Status == blocked ->
                 FromPid ! {ReqRef, incorrect_status},
-                State;
+                State#{incorrect_status_count := IncorrectCount + 1};
             {get, ReplyFun} ->
                 apply_reply(ReplyFun, Num),
+                State;
+            {{FromPid, ReqRef}, get_incorrect_status_count} ->
+                FromPid ! {ReqRef, IncorrectCount},
                 State;
             {{FromPid, ReqRef}, get} ->
                 FromPid ! {ReqRef, Num},

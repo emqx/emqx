@@ -540,6 +540,7 @@ t_mqtt_conn_bridge_egress_reconnect(_) ->
 
     %% stop the listener 1883 to make the bridge disconnected
     ok = emqx_listeners:stop_listener('tcp:default'),
+    ct:sleep(1500),
 
     %% PUBLISH 2 messages to the 'local' broker, the message should
     emqx:publish(emqx_message:make(LocalTopic, Payload)),
@@ -551,7 +552,7 @@ t_mqtt_conn_bridge_egress_reconnect(_) ->
         #{
             <<"status">> := Status,
             <<"metrics">> := #{
-                <<"matched">> := 3, <<"success">> := 1, <<"failed">> := 0, <<"queuing">> := 2
+                <<"matched">> := 1, <<"success">> := 1, <<"failed">> := 0, <<"queuing">> := 2
             }
         } when Status == <<"connected">> orelse Status == <<"connecting">>,
         jsx:decode(BridgeStr1)
