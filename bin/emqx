@@ -483,7 +483,7 @@ esac
 
 if [ "$IS_BOOT_COMMAND" = 'no' ]; then
     # for non-boot commands, inspect vm.<time>.args for node name
-    # shellcheck disable=SC2012,SC2086
+    # shellcheck disable=SC2012
     LATEST_VM_ARGS_FILE="$(ls -t "$RUNNER_DATA_DIR"/configs/vm.*.args 2>/dev/null | head -1)"
     if [ -z "$LATEST_VM_ARGS_FILE" ]; then
         echoerr "There is no vm.*.args config file found in '$RUNNER_DATA_DIR/configs/'"
