@@ -16,6 +16,7 @@ File format:
 
 - Fix that after receiving publish in `idle mode` the emqx-sn gateway may panic. [#9024](https://github.com/emqx/emqx/pull/9024)
 - "Pause due to rate limit" log level demoted from warning to notice [#9134](https://github.com/emqx/emqx/pull/9134)
+- Restore legacy `emqx_auth_jwt` interface to keep hooks working after relup. [##9144](https://github.com/emqx/emqx/pull/9144)
 
 ## v4.3.21
 
