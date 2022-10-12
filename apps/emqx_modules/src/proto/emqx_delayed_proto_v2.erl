@@ -28,7 +28,7 @@
 -include_lib("emqx/include/bpapi.hrl").
 
 introduced_in() ->
-    "5.0.0".
+    "5.0.9".
 
 -spec get_delayed_message(node(), binary()) ->
     emqx_delayed:with_id_return(map()) | emqx_rpc:badrpc().
