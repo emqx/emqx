@@ -456,7 +456,7 @@ maybe_mute_rpc_log(Node) when Node =:= node() ->
     ok;
 maybe_mute_rpc_log(Node) ->
     case atom_to_list(Node) of
-        "remsh_" ++ _ ->
+        "remsh" ++ _ ->
             %% this is either an upgrade script or nodetool
             %% do nothing, the log may go to the 'emqx' command line console
             ok;
