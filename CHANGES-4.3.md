@@ -22,6 +22,7 @@ File format:
 
 - Deny POST an existing resource id using HTTP API with error 400 "Already Exists". [#9079](https://github.com/emqx/emqx/pull/9079)
 - Fix the issue that reseting rule metrics crashed under certain conditions. [#9079](https://github.com/emqx/emqx/pull/9079)
+- Deny POST an rule with invalid id. The rule id should follow re `^([0-9a-zA-Z:_])*$`. [#9140](https://github.com/emqx/emqx/pull/9140)
 
 ### Enhancements
 
