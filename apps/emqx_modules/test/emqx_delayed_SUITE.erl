@@ -212,6 +212,65 @@ t_delayed_precision(_) ->
     _ = on_message_publish(DelayedMsg0),
     ?assert(FutureDiff() =< MaxSpan).
 
+t_banned_clean(_) ->
+    emqx:update_config([delayed, max_delayed_messages], 10000),
+    ClientId1 = <<"bc1">>,
+    ClientId2 = <<"bc2">>,
+    {ok, C1} = emqtt:start_link([{clientid, ClientId1}, {clean_start, true}, {proto_ver, v5}]),
+    {ok, _} = emqtt:connect(C1),
+
+    {ok, C2} = emqtt:start_link([{clientid, ClientId2}, {clean_start, true}, {proto_ver, v5}]),
+    {ok, _} = emqtt:connect(C2),
+
+    [
+        begin
+            emqtt:publish(
+                Conn,
+                <<"$delayed/60/0/", ClientId/binary>>,
+                <<"">>,
+                [{qos, 0}, {retain, false}]
+            ),
+            emqtt:publish(
+                Conn,
+                <<"$delayed/60/1/", ClientId/binary>>,
+                <<"">>,
+                [{qos, 0}, {retain, false}]
+            )
+        end
+     || {ClientId, Conn} <- lists:zip([ClientId1, ClientId2], [C1, C2])
+    ],
+
+    emqtt:publish(
+        C2,
+        <<"$delayed/60/2/", ClientId2/binary>>,
+        <<"">>,
+        [{qos, 0}, {retain, false}]
+    ),
+
+    timer:sleep(500),
+    ?assertMatch(#{meta := #{count := 5}}, emqx_delayed:list(#{page => 1, limit => 10})),
+
+    Now = erlang:system_time(second),
+    Who = {clientid, ClientId2},
+    emqx_banned:create(#{
+        who => Who,
+        by => <<"test">>,
+        reason => <<"test">>,
+        at => Now,
+        until => Now + 120,
+        clean => true
+    }),
+
+    timer:sleep(500),
+
+    ?assertMatch(#{meta := #{count := 2}}, emqx_delayed:list(#{page => 1, limit => 10})),
+
+    emqx_banned:delete(Who),
+    emqx_delayed:clean_by_clientid(ClientId1),
+    timer:sleep(500),
+    ok = emqtt:disconnect(C1),
+    ok = emqtt:disconnect(C2).
+
 subscribe_proc() ->
     Self = self(),
     Ref = erlang:make_ref(),

@@ -150,6 +150,12 @@ fields(ban) ->
                 desc => ?DESC(until),
                 required => false,
                 example => <<"2021-10-25T21:53:47+08:00">>
+            })},
+        {clean,
+            hoconsc:mk(boolean(), #{
+                desc => ?DESC(clean),
+                required => false,
+                example => false
             })}
     ].
 
@@ -161,7 +167,8 @@ banned(post, #{body := Body}) ->
         {error, Reason} ->
             {400, 'BAD_REQUEST', list_to_binary(Reason)};
         Ban ->
-            case emqx_banned:create(Ban) of
+            Opts = emqx_banned:parse_opts(Body),
+            case emqx_banned:create(Ban, Opts) of
                 {ok, Banned} ->
                     {200, format(Banned)};
                 {error, {already_exist, Old}} ->

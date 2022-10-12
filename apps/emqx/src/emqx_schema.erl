@@ -640,6 +640,14 @@ fields("flapping_detect") ->
                     default => "5m",
                     desc => ?DESC(flapping_detect_ban_time)
                 }
+            )},
+        {"clean_when_banned",
+            sc(
+                boolean(),
+                #{
+                    default => false,
+                    desc => ?DESC(flapping_detect_clean_when_banned)
+                }
             )}
     ];
 fields("force_shutdown") ->

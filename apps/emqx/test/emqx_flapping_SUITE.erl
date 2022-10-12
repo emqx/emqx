@@ -34,7 +34,8 @@ init_per_suite(Config) ->
             % 0.1s
             window_time => 100,
             %% 2s
-            ban_time => 2000
+            ban_time => 2000,
+            clean_when_banned => false
         }
     ),
     Config.
