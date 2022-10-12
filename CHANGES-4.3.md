@@ -42,6 +42,8 @@ File format:
 
 ### Bug fixes
 
+- Fix HTTP client library to handle SSL socket passive signal. [#9145](https://github.com/emqx/emqx/pull/9145)
+
 - Fix delayed publish inaccurate caused by os time change. [#8908](https://github.com/emqx/emqx/pull/8908)
 
 - Hide redis password in error logs [#9071](https://github.com/emqx/emqx/pull/9071)
