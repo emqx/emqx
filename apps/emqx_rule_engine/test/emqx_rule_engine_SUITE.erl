@@ -61,6 +61,7 @@ groups() ->
       ]},
      {api, [],
       [t_crud_rule_api,
+       t_rule_api_invalid_id,
        t_list_actions_api,
        t_show_action_api,
        t_crud_resources_api,
@@ -473,6 +474,27 @@ t_crud_rule_api(_Config) ->
     %ct:pal("Show After Deleted: ~p", [NotFound]),
     ?assertMatch({ok, #{code := 404, message := _Message}}, NotFound),
     ok.
+
+t_rule_api_invalid_id(_Config) ->
+    Msg = {ok, #{code => 400, message => <<"Bad Arguments: {invalid_id,\"Only '0-9', 'a-z', 'A-Z', ':', '_' are allowed\"}">>}},
+    Fun = fun(Id) ->
+            emqx_rule_engine_api:create_rule(#{},
+                [{<<"name">>, <<"debug-rule">>},
+                 {<<"id">>, Id},
+                 {<<"rawsql">>, <<"select * from \"t/a\"">>},
+                 {<<"actions">>, [[{<<"name">>,<<"do_nothing">>},
+                                   {<<"params">>,[]}]]},
+                 {<<"description">>, <<"debug rule">>}])
+    end,
+
+    %% exclude '0-9', 'a-z', 'A-Z', ':', '_'
+    InvalidChars = [list_to_binary("rule:" ++ [Char, Char] ++ "_0123456789")
+                    || Char <- lists:seq(0, 127) -- (lists:seq(48, 58) ++ lists:seq(65, 90) ++ [95] ++ lists:seq(97, 122))],
+    StringList = [<<"rule: id_with_space">>, <<"rule:测试"/utf8>>, <<"test:Брокер"/utf8>>, <<"abc:そのため"/utf8>>],
+
+    Res = [?assertEqual(Msg, Fun(Id)) || Id <- InvalidChars ++ StringList],
+
+    lists:all(fun(ok) -> true; (_) -> false end, Res).
 
 t_list_rule_api(_Config) ->
     AddIds =
