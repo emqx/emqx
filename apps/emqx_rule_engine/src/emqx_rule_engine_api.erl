@@ -251,7 +251,9 @@ do_create_rule2(ParsedParams) ->
     end.
 
 update_rule(#{id := Id}, Params) ->
-    case parse_rule_params(Params, #{id => Id}) of
+    %% If a rule with illegal characters in id was created using the api in older versions
+    %% Ignore rule_id check when updating rule with specific rule_id,
+    case parse_rule_params(proplists:delete(<<"id">>, Params), #{id => Id}) of
         {ok, ParsedParams} ->
             case emqx_rule_engine:update_rule(ParsedParams) of
                 {ok, Rule} -> return({ok, record_to_map(Rule)});
@@ -543,7 +545,12 @@ parse_rule_params([], Rule) ->
 parse_rule_params([{<<"id">>, <<>>} | _], _) ->
     {error, {empty_string_not_allowed, id}};
 parse_rule_params([{<<"id">>, Id} | Params], Rule) ->
-    parse_rule_params(Params, Rule#{id => Id});
+    case check_rule_id(Id) of
+        ok ->
+            parse_rule_params(Params, Rule#{id => Id});
+        {error, Reason} ->
+            {error, Reason}
+    end;
 parse_rule_params([{<<"rawsql">>, RawSQL} | Params], Rule) ->
     parse_rule_params(Params, Rule#{rawsql => RawSQL});
 parse_rule_params([{<<"enabled">>, Enabled} | Params], Rule) ->
@@ -563,6 +570,19 @@ on_failed(OnFailed) -> error({invalid_on_failed, OnFailed}).
 
 enabled(Enabled) when is_boolean(Enabled) -> Enabled;
 enabled(Enabled) -> error({invalid_enabled, Enabled}).
+
+check_rule_id(Id) ->
+    RE = "^([0-9a-zA-Z:_])*$",
+    Reason = {invalid_id, "Only '0-9', 'a-z', 'A-Z', ':', '_' are allowed"},
+    case length(re:split(Id, "\s")) of
+        1 ->
+            case re:run(Id, RE) of
+                nomatch -> {error, Reason};
+                {match, _} -> ok
+            end;
+        _ ->
+            {error, Reason}
+    end.
 
 parse_actions(Actions) ->
     [parse_action(json_term_to_map(A)) || A <- Actions].
