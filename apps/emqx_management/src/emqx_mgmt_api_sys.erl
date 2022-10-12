@@ -31,7 +31,7 @@
 
 -export([sys/2]).
 
--define(TAGS, [<<"System topics">>]).
+-define(TAGS, [<<"System Topics">>]).
 
 namespace() -> "sys".
 
