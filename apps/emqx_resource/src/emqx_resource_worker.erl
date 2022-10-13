@@ -376,17 +376,14 @@ handle_query_result(_Id, ?RESOURCE_ERROR_M(NotWorking, _), _HasSent, _) when
     true;
 handle_query_result(Id, ?RESOURCE_ERROR_M(not_found, Msg), _HasSent, BlockWorker) ->
     ?SLOG(error, #{id => Id, msg => resource_not_found, info => Msg}),
-    emqx_resource_metrics:dropped_inc(Id),
     emqx_resource_metrics:dropped_resource_not_found_inc(Id),
     BlockWorker;
 handle_query_result(Id, ?RESOURCE_ERROR_M(stopped, Msg), _HasSent, BlockWorker) ->
     ?SLOG(error, #{id => Id, msg => resource_stopped, info => Msg}),
-    emqx_resource_metrics:dropped_inc(Id),
     emqx_resource_metrics:dropped_resource_stopped_inc(Id),
     BlockWorker;
 handle_query_result(Id, ?RESOURCE_ERROR_M(Reason, _), _HasSent, BlockWorker) ->
     ?SLOG(error, #{id => Id, msg => other_resource_error, reason => Reason}),
-    emqx_resource_metrics:dropped_inc(Id),
     emqx_resource_metrics:dropped_other_inc(Id),
     BlockWorker;
 handle_query_result(Id, {error, {recoverable_error, Reason}}, _HasSent, _BlockWorker) ->
@@ -546,7 +543,6 @@ estimate_size(QItem) ->
     size(queue_item_marshaller(QItem)).
 
 maybe_append_queue(Id, undefined, _Items) ->
-    emqx_resource_metrics:dropped_inc(Id),
     emqx_resource_metrics:dropped_queue_not_enabled_inc(Id),
     undefined;
 maybe_append_queue(Id, Q, Items) ->
@@ -560,7 +556,6 @@ maybe_append_queue(Id, Q, Items) ->
                 ok = replayq:ack(Q1, QAckRef),
                 Dropped = length(Items2),
                 emqx_resource_metrics:queuing_change(Id, -Dropped),
-                emqx_resource_metrics:dropped_inc(Id),
                 emqx_resource_metrics:dropped_queue_full_inc(Id),
                 ?SLOG(error, #{msg => drop_query, reason => queue_full, dropped => Dropped}),
                 Q1
@@ -641,16 +636,12 @@ inflight_drop(Name, Ref) ->
 
 %%==============================================================================
 
-inc_sent_failed(Id, true) ->
-    emqx_resource_metrics:failed_inc(Id),
-    emqx_resource_metrics:retried_inc(Id),
+inc_sent_failed(Id, _HasSent = true) ->
     emqx_resource_metrics:retried_failed_inc(Id);
 inc_sent_failed(Id, _HasSent) ->
     emqx_resource_metrics:failed_inc(Id).
 
-inc_sent_success(Id, true) ->
-    emqx_resource_metrics:success_inc(Id),
-    emqx_resource_metrics:retried_inc(Id),
+inc_sent_success(Id, _HasSent = true) ->
     emqx_resource_metrics:retried_success_inc(Id);
 inc_sent_success(Id, _HasSent) ->
     emqx_resource_metrics:success_inc(Id).

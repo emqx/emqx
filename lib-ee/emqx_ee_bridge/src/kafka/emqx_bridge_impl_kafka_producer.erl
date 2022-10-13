@@ -90,14 +90,14 @@ on_start(InstId, Config) ->
     end.
 
 on_stop(InstanceID, #{client_id := ClientID, producers := Producers}) ->
-    with_log_at_error(
+    _ = with_log_at_error(
         fun() -> wolff:stop_and_delete_supervised_producers(Producers) end,
         #{
             msg => "failed_to_delete_kafka_producer",
             client_id => ClientID
         }
     ),
-    with_log_at_error(
+    _ = with_log_at_error(
         fun() -> wolff:stop_and_delete_supervised_client(ClientID) end,
         #{
             msg => "failed_to_delete_kafka_client",
