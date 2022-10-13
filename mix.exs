@@ -63,6 +63,7 @@ defmodule EMQXUmbrella.MixProject do
       {:rulesql, github: "emqx/rulesql", tag: "0.1.4"},
       {:observer_cli, "1.7.1"},
       {:system_monitor, github: "ieQu1/system_monitor", tag: "3.0.3"},
+      {:telemetry, "1.1.0"},
       # in conflict by emqtt and hocon
       {:getopt, "1.0.2", override: true},
       {:snabbkaffe, github: "kafka4beam/snabbkaffe", tag: "1.0.0", override: true},
@@ -516,7 +517,7 @@ defmodule EMQXUmbrella.MixProject do
     |> Path.join("RELEASES")
     |> File.open!([:write, :utf8], fn handle ->
       IO.puts(handle, "%% coding: utf-8")
-      :io.format(handle, ~c"~tp.~n", [release_entry])
+      :io.format(handle, '~tp.~n', [release_entry])
     end)
 
     release
