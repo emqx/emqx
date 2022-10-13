@@ -12,6 +12,11 @@ File format:
 
 ## v4.3.22
 
+### Enhancements
+
+- Add a warning log if the ACL check failed for subscription. [#9124](https://github.com/emqx/emqx/pull/9124)
+  This is to make the ACL deny logging for subscription behave the same as for publish.
+
 ### Bug fixes
 
 - Fix that after receiving publish in `idle mode` the emqx-sn gateway may panic. [#9024](https://github.com/emqx/emqx/pull/9024)
@@ -41,7 +46,10 @@ File format:
 - Added a test to prevent a last will testament message to be
   published when a client is denied connection. [#8894](https://github.com/emqx/emqx/pull/8894)
 
-- Add warning log if the acl check of a subscribed topic failed. [#9124](https://github.com/emqx/emqx/pull/9124)
+- QoS1 and QoS2 messages in session's buffer are re-dispatched to other members in the group
+  when the session terminates [#9094](https://github.com/emqx/emqx/pull/9094).
+  Prior to this enhancement, one would have to set `broker.shared_dispatch_ack_enabled` to true
+  to prevent sessions from buffering messages, however this acknowledgement comes with a cost.
 
 ### Bug fixes
 
@@ -58,6 +66,11 @@ File format:
   - Avoid pool name clashing [eredis_cluster#22](https://github.com/emqx/eredis_cluster/pull/22)
     Same `format_status` callback is added here too for `gen_server`s which hold password in
     their state.
+
+- Fix shared subscription message re-dispatches [#9094](https://github.com/emqx/emqx/pull/9094).
+  - When discarding QoS 2 inflight messages, there were excessive logs
+  - For wildcard deliveries, the re-dispatch used the wrong topic (the publishing topic,
+    but not the subscribing topic), caused messages to be lost when dispatching.
 
 ## v4.3.20
 
