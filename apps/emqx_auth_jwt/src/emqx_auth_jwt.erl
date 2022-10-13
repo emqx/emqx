@@ -23,6 +23,7 @@
 -logger_header("[JWT]").
 
 -export([ check_auth/3
+        , check/3
         , check_acl/5
         , description/0
         ]).
@@ -32,6 +33,10 @@
 %%--------------------------------------------------------------------
 %% Authentication callbacks
 %%--------------------------------------------------------------------
+
+%% for compatibility with old versions
+check(ClientInfo, AuthResult, State) ->
+    ?MODULE:check_auth(ClientInfo, AuthResult, State).
 
 check_auth(ClientInfo, AuthResult, #{from := From, checklists := Checklists}) ->
     case maps:find(From, ClientInfo) of
