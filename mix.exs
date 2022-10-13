@@ -208,6 +208,7 @@ defmodule EMQXUmbrella.MixProject do
       redbug: :permanent,
       xmerl: :permanent,
       hocon: :load,
+      telemetry: :permanent,
       emqx: :load,
       emqx_conf: :load,
       emqx_machine: :permanent
