@@ -345,7 +345,8 @@ handle_in(?CONNECT_PACKET(ConnPkt) = Packet, Channel) ->
                 fun check_connect/2,
                 fun enrich_client/2,
                 fun set_log_meta/2,
-                fun check_banned/2
+                fun check_banned/2,
+                fun count_flapping_event/2
             ],
             ConnPkt,
             Channel#channel{conn_state = connecting}
@@ -1260,14 +1261,11 @@ handle_info(
     {sock_closed, Reason},
     Channel =
         #channel{
-            conn_state = ConnState,
-            clientinfo = ClientInfo = #{zone := Zone}
+            conn_state = ConnState
         }
 ) when
     ConnState =:= connected orelse ConnState =:= reauthenticating
 ->
-    emqx_config:get_zone_conf(Zone, [flapping_detect, enable]) andalso
-        emqx_flapping:detect(ClientInfo),
     Channel1 = ensure_disconnected(Reason, maybe_publish_will_msg(Channel)),
     case maybe_shutdown(Reason, Channel1) of
         {ok, Channel2} -> {ok, {event, disconnected}, Channel2};
@@ -1635,6 +1633,14 @@ check_banned(_ConnPkt, #channel{clientinfo = ClientInfo}) ->
         true -> {error, ?RC_BANNED};
         false -> ok
     end.
+
+%%--------------------------------------------------------------------
+%% Flapping
+
+count_flapping_event(_ConnPkt, Channel = #channel{clientinfo = ClientInfo = #{zone := Zone}}) ->
+    emqx_config:get_zone_conf(Zone, [flapping_detect, enable]) andalso
+        emqx_flapping:detect(ClientInfo),
+    {ok, Channel}.
 
 %%--------------------------------------------------------------------
 %% Authenticate
