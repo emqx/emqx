@@ -12,9 +12,15 @@ File format:
 
 ## v4.3.22
 
+### Enhancements
+
+- Add a warning log if the ACL check failed for subscription. [#9124](https://github.com/emqx/emqx/pull/9124)
+  This is to make the ACL deny logging for subscription behave the same as for publish.
+
 ### Bug fixes
 
 - Fix that after receiving publish in `idle mode` the emqx-sn gateway may panic. [#9024](https://github.com/emqx/emqx/pull/9024)
+- "Pause due to rate limit" log level demoted from warning to notice [#9134](https://github.com/emqx/emqx/pull/9134)
 
 ## v4.3.21
 
