@@ -328,6 +328,8 @@ handle_call({create_rule_metrics, Id}, _From,
                                     _ -> RuleSpeeds#{Id => #rule_speed{}}
                                 end}};
 
+handle_call({reset_speeds, _Id}, _From, State = #state{rule_speeds = undefined}) ->
+    {reply, ok, State};
 handle_call({reset_speeds, Id}, _From, State = #state{rule_speeds = RuleSpeedMap}) ->
     {reply, ok, State#state{rule_speeds = maps:put(Id, #rule_speed{}, RuleSpeedMap)}};
 
