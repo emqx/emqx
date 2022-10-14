@@ -175,7 +175,7 @@ t_create_failed(_Config) ->
     emqx_trace:clear(),
     ok.
 
-t_download_log(_Config) ->
+t_log_file(_Config) ->
     ClientId = <<"client-test-download">>,
     Now = erlang:system_time(second),
     Name = <<"test_client_id">>,
@@ -191,6 +191,12 @@ t_download_log(_Config) ->
     ],
     ok = emqx_trace_handler_SUITE:filesync(Name, clientid),
     Header = auth_header_(),
+    ?assertMatch(
+        {error, {"HTTP/1.1", 404, "Not Found"}, _},
+        request_api(get, api_path("trace/test_client_not_found/log_detail"), Header)
+    ),
+    {ok, Detail} = request_api(get, api_path("trace/test_client_id/log_detail"), Header),
+    ?assertMatch([#{<<"mtime">> := _, <<"size">> := _, <<"node">> := _}], json(Detail)),
     {ok, Binary} = request_api(get, api_path("trace/test_client_id/download"), Header),
     {ok, [
         _Comment,
