@@ -109,15 +109,15 @@ fields(publish_message_info) ->
     [
         {id,
             hoconsc:mk(binary(), #{
-                desc => <<"Internal Message ID">>
+                desc => <<"A globally unique message ID">>
             })}
-    ] ++ fields(message).
+    ].
 
 publish(post, #{body := Body}) ->
     case message(Body) of
         {ok, Message} ->
             _ = emqx_mgmt:publish(Message),
-            {200, format_message(Message)};
+            {200, format_message_response(Message)};
         {error, R} ->
             {400, 'BAD_REQUEST', to_binary(R)}
     end.
@@ -126,7 +126,7 @@ publish_batch(post, #{body := Body}) ->
     case messages(Body) of
         {ok, Messages} ->
             _ = [emqx_mgmt:publish(Message) || Message <- Messages],
-            {200, format_message(Messages)};
+            {200, format_message_response(Messages)};
         {error, R} ->
             {400, 'BAD_REQUEST', to_binary(R)}
     end.
@@ -167,21 +167,10 @@ messages([MessageMap | List], Res) ->
             {error, R}
     end.
 
-format_message(Messages) when is_list(Messages) ->
-    [format_message(Message) || Message <- Messages];
-format_message(#message{
-    id = ID, qos = Qos, from = From, topic = Topic, payload = Payload, flags = Flags
-}) ->
-    #{
-        id => emqx_guid:to_hexstr(ID),
-        qos => Qos,
-        topic => Topic,
-        payload => Payload,
-        retain => maps:get(retain, Flags, false),
-        clientid => to_binary(From)
-    }.
+format_message_response(Messages) when is_list(Messages) ->
+    [format_message_response(Message) || Message <- Messages];
+format_message_response(#message{id = ID}) ->
+    #{id => emqx_guid:to_hexstr(ID)}.
 
-to_binary(Data) when is_binary(Data) ->
-    Data;
-to_binary(Data) ->
-    list_to_binary(io_lib:format("~p", [Data])).
+to_binary(Term) ->
+    list_to_binary(io_lib:format("~p", [Term])).

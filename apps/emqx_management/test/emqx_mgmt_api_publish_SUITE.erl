@@ -47,8 +47,10 @@ t_publish_api(_) ->
     Path = emqx_mgmt_api_test_util:api_path(["publish"]),
     Auth = emqx_mgmt_api_test_util:auth_header_(),
     Body = #{topic => ?TOPIC1, payload => Payload},
-    {ok, _} = emqx_mgmt_api_test_util:request_api(post, Path, "", Auth, Body),
-    ?assertEqual(receive_assert(?TOPIC1, 0, Payload), ok),
+    {ok, Response} = emqx_mgmt_api_test_util:request_api(post, Path, "", Auth, Body),
+    ResponseMap = emqx_json:decode(Response, [return_maps]),
+    ?assertEqual([<<"id">>], maps:keys(ResponseMap)),
+    ?assertEqual(ok, receive_assert(?TOPIC1, 0, Payload)),
     emqtt:disconnect(Client).
 
 t_publish_bulk_api(_) ->
@@ -63,10 +65,16 @@ t_publish_bulk_api(_) ->
     Auth = emqx_mgmt_api_test_util:auth_header_(),
     Body = [#{topic => ?TOPIC1, payload => Payload}, #{topic => ?TOPIC2, payload => Payload}],
     {ok, Response} = emqx_mgmt_api_test_util:request_api(post, Path, "", Auth, Body),
-    ResponseMap = emqx_json:decode(Response, [return_maps]),
-    ?assertEqual(2, erlang:length(ResponseMap)),
-    ?assertEqual(receive_assert(?TOPIC1, 0, Payload), ok),
-    ?assertEqual(receive_assert(?TOPIC2, 0, Payload), ok),
+    ResponseList = emqx_json:decode(Response, [return_maps]),
+    ?assertEqual(2, erlang:length(ResponseList)),
+    lists:foreach(
+        fun(ResponseMap) ->
+            ?assertEqual([<<"id">>], maps:keys(ResponseMap))
+        end,
+        ResponseList
+    ),
+    ?assertEqual(ok, receive_assert(?TOPIC1, 0, Payload)),
+    ?assertEqual(ok, receive_assert(?TOPIC2, 0, Payload)),
     emqtt:disconnect(Client).
 
 receive_assert(Topic, Qos, Payload) ->
