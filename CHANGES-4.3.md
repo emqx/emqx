@@ -76,7 +76,7 @@ File format:
   subscriber from another node in the cluster.
   Fixed in [#9122](https://github.com/emqx/emqx/pull/9122)
 
-- Fix cannot reset metrics for fallback actions. [#9125](https://github.com/emqx/emqx/pull/9125)
+- Fix rule engine fallback actions metrics reset. [#9125](https://github.com/emqx/emqx/pull/9125)
 
 ## v4.3.20
 
