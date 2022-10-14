@@ -52,7 +52,7 @@
         , app :: atom()
         , types = [] :: list(resource_type_name())
         , module :: module()
-        , on_create :: mf()
+        , on_create :: atom()
         , on_destroy :: maybe(mf())
         , hidden = false :: boolean()
         , params_spec :: #{atom() => term()} %% params specs
@@ -176,20 +176,18 @@
             end
         end()).
 
--define(CLUSTER_CALL(Func, Args), ?CLUSTER_CALL(Func, Args, ok)).
-
--define(CLUSTER_CALL(Func, Args, ResParttern),
+-define(CLUSTER_CALL(Func, Args),
     fun() -> case rpc:multicall(ekka_mnesia:running_nodes(), ?MODULE, Func, Args, 30000) of
         {ResL, []} ->
-            case lists:filter(fun(ResParttern) -> false; (_) -> true end, ResL) of
-                [] -> ResL;
+            case lists:filter(fun(ok) -> false; ({ok, _}) -> false; (_) -> true end, ResL) of
+                [] -> ok;
                 ErrL ->
                     ?LOG(error, "cluster_call error found, ResL: ~p", [ResL]),
-                    throw({Func, ErrL})
+                    {error, {cluster_call_error, Func, ErrL}}
             end;
         {ResL, BadNodes} ->
             ?LOG(error, "cluster_call bad nodes found: ~p, ResL: ~p", [BadNodes, ResL]),
-            throw({Func, {failed_on_nodes, BadNodes}})
+            {error, {cluster_call_failed_on_nodes, Func}}
    end end()).
 
 %% Tables
@@ -200,3 +198,61 @@
 -define(RES_PARAMS_TAB, emqx_resource_params).
 -define(RULE_HOOKS, emqx_rule_hooks).
 -define(RES_TYPE_TAB, emqx_resource_type).
+
+%% execute Continuation if Operator succeeds
+-define(EITHER(Operator, Continuation),
+        case Operator of
+            ok ->
+                Continuation;
+            {error, _} = _ERError_ ->
+                _ERError_
+        end).
+
+%% if Operator succeeds, bind its result to Bind, and execute Continuation
+-define(E_BIND(Bind, Operator, Continuation),
+        case Operator of
+            {ok, Bind} ->
+                Continuation;
+            {error, _} = _EBError_ ->
+                _EBError_
+        end).
+
+-define(E_LET(Bind, Operator, Continuation),
+        case Operator of
+            {ok, Bind} ->
+                Continuation;
+            _ELError_ ->
+                {error, _ELError_}
+        end).
+
+%% safely try for sensitive data
+-define(SAFELY_TRY(Try, Catch),
+        try
+            Try
+        catch _Error_:_Reason_:_UnSafeTrace_ ->
+                _Trace_ = emqx_secret:prune_stacktrace(_UnSafeTrace_),
+                Catch
+        end).
+
+-define(SAFELY_TRY(Try, Catch, Finally),
+        try
+            Try
+        catch _Error_:_Reason_:_UnSafeTrace_ ->
+                _Trace_ = emqx_secret:prune_stacktrace(_UnSafeTrace_),
+                Catch
+        after
+            Finally
+        end).
+
+%% No stack trace
+-define(CATCH(Try, Catch),
+        try
+            Try
+        catch _Error_:_Reason_ ->
+                Catch
+        end).
+
+%% pipeline
+-define(CAT(X, Y), X, Y).
+-define(CAT(X, Y, Z), X, Y, Z).
+-define(CAT(A, B, C, D), A, B, C, D).

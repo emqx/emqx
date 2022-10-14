@@ -19,7 +19,7 @@
 -module(emqx_secret).
 
 %% API:
--export([wrap/1, unwrap/1]).
+-export([wrap/1, unwrap/1, prune_stacktrace/1]).
 
 %%================================================================================
 %% API funcions
@@ -39,3 +39,9 @@ unwrap(Term) when is_function(Term, 0) ->
     unwrap(Term());
 unwrap(Term) ->
     Term.
+
+prune_stacktrace([{M, F, [_ | _] = A, Info} | Rest]) ->
+    [{M, F, length(A), Info} | Rest];
+
+prune_stacktrace(Stacktrace) ->
+    Stacktrace.

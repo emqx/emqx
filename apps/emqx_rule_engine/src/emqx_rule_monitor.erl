@@ -101,15 +101,14 @@ create_restart_handler(Tag, Obj, Interval) ->
 retry_loop(resource, ResId, Interval) ->
     case emqx_rule_registry:find_resource(ResId) of
         {ok, #resource{type = Type, config = Config}} ->
-            try
-                {ok, #resource_type{on_create = {M, F}}} =
-                    emqx_rule_registry:find_resource_type(Type),
-                ok = emqx_rule_engine:init_resource(M, F, ResId, Config),
-                refresh_and_enable_rules_of_resource(ResId)
-            catch
-                Err:Reason:ST ->
-                    ?LOG(warning, "init_resource failed: ~p, ~0p",
-                        [{Err, Reason}, ST]),
+            Result = ?E_LET(#resource_type{on_create = {M, F}},
+                            emqx_rule_registry:find_resource_type(Type),
+                            ?EITHER(emqx_rule_engine:init_resource(M, F, ResId, Config),
+                                    refresh_and_enable_rules_of_resource(ResId))),
+            case Result of
+                ok -> ok;
+                {error, Error} ->
+                    ?LOG(warning, "init_resource failed: ~p", [Error]),
                     timer:sleep(Interval),
                     ?MODULE:retry_loop(resource, ResId, Interval)
             end;
@@ -120,7 +119,7 @@ retry_loop(resource, ResId, Interval) ->
 refresh_and_enable_rules_of_resource(ResId) ->
     lists:foreach(
         fun (#rule{id = Id, enabled = false, state = refresh_failed_at_bootup} = Rule) ->
-                emqx_rule_engine:refresh_rule(Rule),
+                _ = emqx_rule_engine:refresh_rule(Rule),
                 emqx_rule_registry:add_rule(Rule#rule{enabled = true, state = normal}),
                 ?LOG(info, "rule ~s is refreshed and re-enabled", [Id]);
             (_) -> ok

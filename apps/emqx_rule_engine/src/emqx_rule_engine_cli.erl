@@ -155,7 +155,10 @@ actions(_Usage) ->
 
 resources(["create" | Params]) ->
     with_opts(fun({Opts, _}) ->
-                case emqx_rule_engine:create_resource(make_resource(Opts)) of
+                Result = ?E_BIND(Cfg,
+                                 make_resource(Opts),
+                                 emqx_rule_engine:create_resource(Cfg)),
+                case Result of
                     {ok, #resource{id = ResId}} ->
                         emqx_ctl:print("Resource ~s created~n", [ResId]);
                     {error, Reason} ->
@@ -163,22 +166,26 @@ resources(["create" | Params]) ->
                 end
               end, Params, ?OPTSPEC_RESOURCES_CREATE, {?FUNCTION_NAME, create});
 
-
 resources(["update" | Params]) ->
     with_opts(fun({Opts, _}) ->
         Id = proplists:get_value(id, Opts),
-        Maps = make_updated_resource(Opts),
-        case emqx_rule_engine:update_resource(Id, Maps) of
+        Result = ?E_BIND(Maps,
+                         make_updated_resource(Opts),
+                         emqx_rule_engine:update_resource(Id, Maps)),
+        case Result of
             ok ->
                 emqx_ctl:print("Resource update successfully~n");
             {error, Reason} ->
                 emqx_ctl:print("Resource update failed: ~0p~n", [Reason])
-            end
+        end
         end, Params, ?OPTSPEC_RESOURCES_UPDATE, {?FUNCTION_NAME, update});
 
 resources(["test" | Params]) ->
     with_opts(fun({Opts, _}) ->
-                case emqx_rule_engine:test_resource(make_resource(Opts)) of
+                Result = ?E_BIND(Cfg,
+                                 make_resource(Opts),
+                                 emqx_rule_engine:test_resource(Cfg)),
+                case Result of
                     ok ->
                         emqx_ctl:print("Test creating resource successfully (dry-run)~n");
                     {error, Reason} ->
@@ -319,10 +326,13 @@ make_updated_rule(Opts) ->
 
 make_resource(Opts) ->
     Config = get_value(config, Opts),
-    may_with_opt(
-        #{type => get_value(type, Opts),
-          config => ?RAISE(emqx_json:decode(Config, [return_maps]), {invalid_config, Config}),
-          description => get_value(descr, Opts)}, id, <<"">>, Opts).
+    ?E_BIND(CfgMap,
+            emqx_json:safe_decode(Config, [return_maps]),
+            {ok, may_with_opt(
+                   #{type => get_value(type, Opts),
+                     config => CfgMap,
+                     description => get_value(descr, Opts)},
+                   id, <<"">>, Opts)}).
 
 make_updated_resource(Opts) ->
     P1 = case proplists:get_value(description, Opts) of
@@ -330,10 +340,16 @@ make_updated_resource(Opts) ->
         Value -> #{<<"description">> => Value}
     end,
     P2 = case proplists:get_value(config, Opts) of
-        undefined -> #{};
-        Map -> #{<<"config">> => ?RAISE((emqx_json:decode(Map, [return_maps])), {invalid_config, Map})}
+        undefined -> {ok, #{}};
+        Map ->
+          case emqx_json:safe_decode(Map, [return_maps]) of
+              {ok, Cfg} ->
+                  {ok, #{<<"config">> => Cfg}};
+              Error ->
+                  Error
+          end
     end,
-    maps:merge(P1, P2).
+    ?E_BIND(P2Cfg, P2, {ok, maps:merge(P1, P2Cfg)}).
 
 printable_actions(Actions) when is_list(Actions) ->
     emqx_json:encode([#{id => Id, name => Name, params => Args,

@@ -378,8 +378,8 @@ start_resource(#{id := Id}, _Params) ->
     case emqx_rule_engine:start_resource(Id) of
         ok ->
             return(ok);
-        {error, {resource_not_found, ResId}} ->
-            return({error, 400, ?ERR_NO_RESOURCE(ResId)});
+        {error, not_found} ->
+            return({error, 400, ?ERR_NO_RESOURCE(Id)});
         {error, Reason} ->
             ?LOG(error, "~p failed: ~0p", [?FUNCTION_NAME, Reason]),
             return({error, 400, ?ERR_BADARGS(Reason)})
