@@ -127,13 +127,23 @@ authentication.1.enable = true
 
 例如 `node.name` 的重载变量名是 `EMQX_NODE__NAME`。
 
-环境变量的值，是解析成HOCON值的。所以这也使得环境变量可以用来传递复杂数据类型的值。
+环境变量的值，是按 HOCON 值解析的，这也使得环境变量可以用来传递复杂数据类型的值。
 
 例如，下面这个环境变量传入一个数组类型的值。
 
 ```
-export EMQX_LISTENERS__SSL__L1__AUTHENTICATION__SSL__CIPHERS="[\"TLS_AES_256_GCM_SHA384\"]"
+export EMQX_LISTENERS__SSL__L1__AUTHENTICATION__SSL__CIPHERS='["TLS_AES_256_GCM_SHA384"]'
 ```
+
+这也意味着有些带特殊字符（例如`:` 和 `=`），则需要用双引号对这个值包起来。
+
+例如`localhost:1883` 会被解析成一个结构体 `{"localhost": 1883}`。
+想要把它当字符串使用时，就必需使用引号，如下：
+
+```
+EMQX_BRIDGES__MQTT__MYBRIDGE__CONNECTOR_SERVER='"localhost:1883"'
+```
+
 
 ::: tip Tip
 未定义的根路径会被EMQX忽略，例如 `EMQX_UNKNOWN_ROOT__FOOBAR` 这个环境变量会被EMQX忽略，

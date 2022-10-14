@@ -99,7 +99,7 @@ else
     pushd "${PREV_DIR_BASE}/${PREV_TAG}"
     if [ "$NEW_COPY" = 'no' ]; then
         REMOTE="$(git remote -v | grep "${GIT_REPO}" | head -1 | awk '{print $1}')"
-        git fetch "$REMOTE"
+        git fetch "$REMOTE" --tags --force
     fi
     git reset --hard
     git clean -ffdx

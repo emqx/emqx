@@ -223,7 +223,7 @@ sources(get, _) ->
                         ])
                 end;
             (Source, AccIn) ->
-                lists:append(AccIn, [drop_invalid_certs(Source)])
+                lists:append(AccIn, [Source])
         end,
         [],
         get_raw_sources()
@@ -257,7 +257,7 @@ source(get, #{bindings := #{type := Type}}) ->
                     }}
             end;
         [Source] ->
-            {200, drop_invalid_certs(Source)}
+            {200, Source}
     end;
 source(put, #{bindings := #{type := <<"file">>}, body := #{<<"type">> := <<"file">>} = Body}) ->
     update_authz_file(Body);
@@ -510,11 +510,6 @@ update_config(Cmd, Sources) ->
                 message => bin(Reason)
             }}
     end.
-
-drop_invalid_certs(#{<<"ssl">> := SSL} = Source) when SSL =/= undefined ->
-    Source#{<<"ssl">> => emqx_tls_lib:drop_invalid_certs(SSL)};
-drop_invalid_certs(Source) ->
-    Source.
 
 parameters_field() ->
     [

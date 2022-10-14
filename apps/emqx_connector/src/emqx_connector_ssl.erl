@@ -18,7 +18,6 @@
 
 -export([
     convert_certs/2,
-    drop_invalid_certs/1,
     clear_certs/2
 ]).
 
@@ -60,28 +59,6 @@ clear_certs(RltvDir, #{ssl := OldSSL} = _Config) ->
     ok = emqx_tls_lib:delete_ssl_files(RltvDir, undefined, OldSSL);
 clear_certs(_RltvDir, _) ->
     ok.
-
-drop_invalid_certs(#{<<"connector">> := Connector} = Config) when
-    is_map(Connector)
-->
-    SSL = map_get_oneof([<<"ssl">>, ssl], Connector, undefined),
-    NewSSL = emqx_tls_lib:drop_invalid_certs(SSL),
-    new_ssl_config(Config, NewSSL);
-drop_invalid_certs(#{connector := Connector} = Config) when
-    is_map(Connector)
-->
-    SSL = map_get_oneof([<<"ssl">>, ssl], Connector, undefined),
-    NewSSL = emqx_tls_lib:drop_invalid_certs(SSL),
-    new_ssl_config(Config, NewSSL);
-drop_invalid_certs(#{<<"ssl">> := SSL} = Config) ->
-    NewSSL = emqx_tls_lib:drop_invalid_certs(SSL),
-    new_ssl_config(Config, NewSSL);
-drop_invalid_certs(#{ssl := SSL} = Config) ->
-    NewSSL = emqx_tls_lib:drop_invalid_certs(SSL),
-    new_ssl_config(Config, NewSSL);
-%% for bridges use connector name
-drop_invalid_certs(Config) ->
-    Config.
 
 new_ssl_config(RltvDir, Config, SSL) ->
     case emqx_tls_lib:ensure_ssl_files(RltvDir, SSL) of

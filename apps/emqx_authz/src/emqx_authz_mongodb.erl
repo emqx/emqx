@@ -40,7 +40,9 @@
 -define(PLACEHOLDERS, [
     ?PH_USERNAME,
     ?PH_CLIENTID,
-    ?PH_PEERHOST
+    ?PH_PEERHOST,
+    ?PH_CERT_CN_NAME,
+    ?PH_CERT_SUBJECT
 ]).
 
 description() ->

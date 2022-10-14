@@ -28,7 +28,7 @@
 -include_lib("hocon/include/hoconsc.hrl").
 -include_lib("typerefl/include/types.hrl").
 
--type ip_port() :: tuple().
+-type ip_port() :: tuple() | integer().
 -type duration() :: non_neg_integer().
 -type duration_s() :: non_neg_integer().
 -type bytesize() :: pos_integer().

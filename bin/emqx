@@ -7,7 +7,11 @@ set -euo pipefail
 DEBUG="${DEBUG:-0}"
 [ "$DEBUG" -eq 1 ] && set -x
 
-RUNNER_ROOT_DIR="$(cd "$(dirname "$(readlink "$0" || echo "$0")")"/..; pwd -P)"
+if [ "$(uname -s)" == 'Darwin' ]; then
+    RUNNER_ROOT_DIR="$(cd "$(dirname "$(stat -f%R "$0" || echo "$0")")"/..; pwd -P)"
+else
+    RUNNER_ROOT_DIR="$(cd "$(dirname "$(realpath "$0" || echo "$0")")"/..; pwd -P)"
+fi
 
 # shellcheck disable=SC1090,SC1091
 . "$RUNNER_ROOT_DIR"/releases/emqx_vars
@@ -23,9 +27,6 @@ CODE_LOADING_MODE="${CODE_LOADING_MODE:-embedded}"
 REL_DIR="$RUNNER_ROOT_DIR/releases/$REL_VSN"
 
 WHOAMI=$(whoami)
-
-# Make sure log directory exists
-mkdir -p "$RUNNER_LOG_DIR"
 
 # hocon try to read environment variables starting with "EMQX_"
 export HOCON_ENV_OVERRIDE_PREFIX='EMQX_'
@@ -261,6 +262,9 @@ ES=$?
 if [ "$ES" -ne 0 ]; then
     exit $ES
 fi
+
+# Make sure log directory exists
+mkdir -p "$RUNNER_LOG_DIR"
 
 COMPATIBILITY_CHECK='
     io:format("BEAM_OK~n", []),

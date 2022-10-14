@@ -15,3 +15,7 @@ fi
 if [ ! -L '.git/hooks/pre-commit' ]; then
     ln -sf '../../scripts/git-hook-pre-commit.sh' '.git/hooks/pre-commit'
 fi
+
+if [ ! -L '.git/hooks/post-commit' ]; then
+    ln -sf '../../scripts/git-hook-post-commit.sh' '.git/hooks/post-commit'
+fi

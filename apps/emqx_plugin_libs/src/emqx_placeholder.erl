@@ -39,7 +39,10 @@
     sql_data/1
 ]).
 
--define(EX_PLACE_HOLDER, "(\\$\\{[a-zA-Z0-9\\._]+\\}|\"\\$\\{[a-zA-Z0-9\\._]+\\}\")").
+-define(EX_PLACE_HOLDER, "(\\$\\{[a-zA-Z0-9\\._]+\\})").
+
+-define(EX_PLACE_HOLDER_DOUBLE_QUOTE, "(\\$\\{[a-zA-Z0-9\\._]+\\}|\"\\$\\{[a-zA-Z0-9\\._]+\\}\")").
+
 %% Space and CRLF
 -define(EX_WITHE_CHARS, "\\s").
 
@@ -57,7 +60,8 @@
 
 -type preproc_sql_opts() :: #{
     placeholders => list(binary()),
-    replace_with => '?' | '$n'
+    replace_with => '?' | '$n',
+    strip_double_quote => boolean()
 }.
 
 -type preproc_deep_opts() :: #{
@@ -89,7 +93,7 @@ preproc_tmpl(Str) ->
 preproc_tmpl(Str, Opts) ->
     RE = preproc_var_re(Opts),
     Tokens = re:split(Str, RE, [{return, binary}, group, trim]),
-    do_preproc_tmpl(Tokens, []).
+    do_preproc_tmpl(Opts, Tokens, []).
 
 -spec proc_tmpl(tmpl_token(), map()) -> binary().
 proc_tmpl(Tokens, Data) ->
@@ -140,10 +144,11 @@ preproc_sql(Sql, ReplaceWith) when is_atom(ReplaceWith) ->
     preproc_sql(Sql, #{replace_with => ReplaceWith});
 preproc_sql(Sql, Opts) ->
     RE = preproc_var_re(Opts),
+    Strip = maps:get(strip_double_quote, Opts, false),
     ReplaceWith = maps:get(replace_with, Opts, '?'),
     case re:run(Sql, RE, [{capture, all_but_first, binary}, global]) of
         {match, PlaceHolders} ->
-            PhKs = [parse_nested(unwrap(Phld)) || [Phld | _] <- PlaceHolders],
+            PhKs = [parse_nested(unwrap(Phld, Strip)) || [Phld | _] <- PlaceHolders],
             {replace_with(Sql, RE, ReplaceWith), [{var, Phld} || Phld <- PhKs]};
         nomatch ->
             {Sql, []}
@@ -234,29 +239,36 @@ get_phld_var(Fun, Data) when is_function(Fun) ->
 get_phld_var(Phld, Data) ->
     emqx_rule_maps:nested_get(Phld, Data).
 
-preproc_var_re(#{placeholders := PHs}) ->
+preproc_var_re(#{placeholders := PHs, strip_double_quote := true}) ->
     Res = [ph_to_re(PH) || PH <- PHs],
     QuoteRes = ["\"" ++ Re ++ "\"" || Re <- Res],
     "(" ++ string:join(Res ++ QuoteRes, "|") ++ ")";
+preproc_var_re(#{placeholders := PHs}) ->
+    "(" ++ string:join([ph_to_re(PH) || PH <- PHs], "|") ++ ")";
+preproc_var_re(#{strip_double_quote := true}) ->
+    ?EX_PLACE_HOLDER_DOUBLE_QUOTE;
 preproc_var_re(#{}) ->
     ?EX_PLACE_HOLDER.
 
 ph_to_re(VarPH) ->
     re:replace(VarPH, "[\\$\\{\\}]", "\\\\&", [global, {return, list}]).
 
-do_preproc_tmpl([], Acc) ->
+do_preproc_tmpl(_Opts, [], Acc) ->
     lists:reverse(Acc);
-do_preproc_tmpl([[Str, Phld] | Tokens], Acc) ->
+do_preproc_tmpl(Opts, [[Str, Phld] | Tokens], Acc) ->
+    Strip = maps:get(strip_double_quote, Opts, false),
     do_preproc_tmpl(
+        Opts,
         Tokens,
         put_head(
             var,
-            parse_nested(unwrap(Phld)),
+            parse_nested(unwrap(Phld, Strip)),
             put_head(str, Str, Acc)
         )
     );
-do_preproc_tmpl([[Str] | Tokens], Acc) ->
+do_preproc_tmpl(Opts, [[Str] | Tokens], Acc) ->
     do_preproc_tmpl(
+        Opts,
         Tokens,
         put_head(str, Str, Acc)
     ).
@@ -293,10 +305,10 @@ parse_nested(Attr) ->
         Nested -> {path, [{key, P} || P <- Nested]}
     end.
 
-unwrap(<<"${", Val/binary>>) ->
-    binary:part(Val, {0, byte_size(Val) - 1});
-unwrap(<<"\"${", Val/binary>>) ->
-    binary:part(Val, {0, byte_size(Val) - 2}).
+unwrap(<<"\"${", Val/binary>>, _StripDoubleQuote = true) ->
+    binary:part(Val, {0, byte_size(Val) - 2});
+unwrap(<<"${", Val/binary>>, _StripDoubleQuote) ->
+    binary:part(Val, {0, byte_size(Val) - 1}).
 
 quote_sql(Str) ->
     quote(Str, <<"\\\\'">>).

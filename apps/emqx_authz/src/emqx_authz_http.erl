@@ -45,7 +45,9 @@
     ?PH_PROTONAME,
     ?PH_MOUNTPOINT,
     ?PH_TOPIC,
-    ?PH_ACTION
+    ?PH_ACTION,
+    ?PH_CERT_SUBJECT,
+    ?PH_CERT_CN_NAME
 ]).
 
 description() ->

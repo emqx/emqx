@@ -345,7 +345,8 @@ handle_in(?CONNECT_PACKET(ConnPkt) = Packet, Channel) ->
                 fun check_connect/2,
                 fun enrich_client/2,
                 fun set_log_meta/2,
-                fun check_banned/2
+                fun check_banned/2,
+                fun count_flapping_event/2
             ],
             ConnPkt,
             Channel#channel{conn_state = connecting}
@@ -354,12 +355,14 @@ handle_in(?CONNECT_PACKET(ConnPkt) = Packet, Channel) ->
         {ok, NConnPkt, NChannel = #channel{clientinfo = ClientInfo}} ->
             ?TRACE("MQTT", "mqtt_packet_received", #{packet => Packet}),
             NChannel1 = NChannel#channel{
-                will_msg = emqx_packet:will_msg(NConnPkt),
                 alias_maximum = init_alias_maximum(NConnPkt, ClientInfo)
             },
             case authenticate(?CONNECT_PACKET(NConnPkt), NChannel1) of
                 {ok, Properties, NChannel2} ->
-                    process_connect(Properties, NChannel2);
+                    %% only store will_msg after successful authn
+                    %% fix for: https://github.com/emqx/emqx/issues/8886
+                    NChannel3 = NChannel2#channel{will_msg = emqx_packet:will_msg(NConnPkt)},
+                    process_connect(Properties, NChannel3);
                 {continue, Properties, NChannel2} ->
                     handle_out(auth, {?RC_CONTINUE_AUTHENTICATION, Properties}, NChannel2);
                 {error, ReasonCode} ->
@@ -995,8 +998,13 @@ maybe_nack(Delivers) ->
     lists:filter(fun not_nacked/1, Delivers).
 
 not_nacked({deliver, _Topic, Msg}) ->
-    not (emqx_shared_sub:is_ack_required(Msg) andalso
-        (ok == emqx_shared_sub:nack_no_connection(Msg))).
+    case emqx_shared_sub:is_ack_required(Msg) of
+        true ->
+            ok = emqx_shared_sub:nack_no_connection(Msg),
+            false;
+        false ->
+            true
+    end.
 
 maybe_mark_as_delivered(Session, Delivers) ->
     case emqx_session:info(is_persistent, Session) of
@@ -1165,10 +1173,11 @@ handle_call(
     Channel = #channel{
         conn_state = ConnState,
         will_msg = WillMsg,
+        clientinfo = ClientInfo,
         conninfo = #{proto_ver := ProtoVer}
     }
 ) ->
-    (WillMsg =/= undefined) andalso publish_will_msg(WillMsg),
+    (WillMsg =/= undefined) andalso publish_will_msg(ClientInfo, WillMsg),
     Channel1 =
         case ConnState of
             connected -> ensure_disconnected(kicked, Channel);
@@ -1219,6 +1228,8 @@ handle_call(
     ChanInfo1 = info(NChannel),
     emqx_cm:set_chan_info(ClientId, ChanInfo1#{sockinfo => SockInfo}),
     reply(ok, reset_timer(alive_timer, NChannel));
+handle_call(get_mqueue, Channel) ->
+    reply({ok, get_mqueue(Channel)}, Channel);
 handle_call(Req, Channel) ->
     ?SLOG(error, #{msg => "unexpected_call", call => Req}),
     reply(ignored, Channel).
@@ -1250,14 +1261,11 @@ handle_info(
     {sock_closed, Reason},
     Channel =
         #channel{
-            conn_state = ConnState,
-            clientinfo = ClientInfo = #{zone := Zone}
+            conn_state = ConnState
         }
 ) when
     ConnState =:= connected orelse ConnState =:= reauthenticating
 ->
-    emqx_config:get_zone_conf(Zone, [flapping_detect, enable]) andalso
-        emqx_flapping:detect(ClientInfo),
     Channel1 = ensure_disconnected(Reason, maybe_publish_will_msg(Channel)),
     case maybe_shutdown(Reason, Channel1) of
         {ok, Channel2} -> {ok, {event, disconnected}, Channel2};
@@ -1359,8 +1367,10 @@ handle_timeout(
     end;
 handle_timeout(_TRef, expire_session, Channel) ->
     shutdown(expired, Channel);
-handle_timeout(_TRef, will_message, Channel = #channel{will_msg = WillMsg}) ->
-    (WillMsg =/= undefined) andalso publish_will_msg(WillMsg),
+handle_timeout(
+    _TRef, will_message, Channel = #channel{clientinfo = ClientInfo, will_msg = WillMsg}
+) ->
+    (WillMsg =/= undefined) andalso publish_will_msg(ClientInfo, WillMsg),
     {ok, clean_timer(will_timer, Channel#channel{will_msg = undefined})};
 handle_timeout(
     _TRef,
@@ -1434,12 +1444,14 @@ terminate({shutdown, kicked}, Channel) ->
     run_terminate_hook(kicked, Channel);
 terminate({shutdown, Reason}, Channel) when
     Reason =:= discarded;
-    Reason =:= takenover;
-    Reason =:= not_authorized
+    Reason =:= takenover
 ->
     run_terminate_hook(Reason, Channel);
-terminate(Reason, Channel = #channel{will_msg = WillMsg}) ->
-    (WillMsg =/= undefined) andalso publish_will_msg(WillMsg),
+terminate(Reason, Channel = #channel{clientinfo = ClientInfo, will_msg = WillMsg}) ->
+    %% since will_msg is set to undefined as soon as it is published,
+    %% if will_msg still exists when the session is terminated, it
+    %% must be published immediately.
+    WillMsg =/= undefined andalso publish_will_msg(ClientInfo, WillMsg),
     (Reason =:= expired) andalso persist_if_session(Channel),
     run_terminate_hook(Reason, Channel).
 
@@ -1621,6 +1633,14 @@ check_banned(_ConnPkt, #channel{clientinfo = ClientInfo}) ->
         true -> {error, ?RC_BANNED};
         false -> ok
     end.
+
+%%--------------------------------------------------------------------
+%% Flapping
+
+count_flapping_event(_ConnPkt, Channel = #channel{clientinfo = ClientInfo = #{zone := Zone}}) ->
+    emqx_config:get_zone_conf(Zone, [flapping_detect, enable]) andalso
+        emqx_flapping:detect(ClientInfo),
+    {ok, Channel}.
 
 %%--------------------------------------------------------------------
 %% Authenticate
@@ -2098,10 +2118,10 @@ ensure_disconnected(
 
 maybe_publish_will_msg(Channel = #channel{will_msg = undefined}) ->
     Channel;
-maybe_publish_will_msg(Channel = #channel{will_msg = WillMsg}) ->
+maybe_publish_will_msg(Channel = #channel{clientinfo = ClientInfo, will_msg = WillMsg}) ->
     case will_delay_interval(WillMsg) of
         0 ->
-            ok = publish_will_msg(WillMsg),
+            ok = publish_will_msg(ClientInfo, WillMsg),
             Channel#channel{will_msg = undefined};
         I ->
             ensure_timer(will_timer, timer:seconds(I), Channel)
@@ -2114,9 +2134,19 @@ will_delay_interval(WillMsg) ->
         0
     ).
 
-publish_will_msg(Msg) ->
-    _ = emqx_broker:publish(Msg),
-    ok.
+publish_will_msg(ClientInfo, Msg = #message{topic = Topic}) ->
+    case emqx_access_control:authorize(ClientInfo, publish, Topic) of
+        allow ->
+            _ = emqx_broker:publish(Msg),
+            ok;
+        deny ->
+            ?tp(
+                warning,
+                last_will_testament_publish_denied,
+                #{topic => Topic}
+            ),
+            ok
+    end.
 
 %%--------------------------------------------------------------------
 %% Disconnect Reason
@@ -2207,3 +2237,6 @@ get_mqtt_conf(Zone, Key, Default) ->
 set_field(Name, Value, Channel) ->
     Pos = emqx_misc:index_of(Name, record_info(fields, channel)),
     setelement(Pos + 1, Channel, Value).
+
+get_mqueue(#channel{session = Session}) ->
+    emqx_session:get_mqueue(Session).

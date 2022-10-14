@@ -42,7 +42,7 @@ quicer() ->
     {quicer, {git, "https://github.com/emqx/quic.git", {tag, "0.0.16"}}}.
 
 jq() ->
-    {jq, {git, "https://github.com/emqx/jq", {tag, "v0.3.5"}}}.
+    {jq, {git, "https://github.com/emqx/jq", {tag, "v0.3.6"}}}.
 
 deps(Config) ->
     {deps, OldDeps} = lists:keyfind(deps, 1, Config),

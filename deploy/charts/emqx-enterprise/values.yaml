@@ -123,19 +123,16 @@ service:
   ## Port for MQTT(SSL)
   ##
   mqttssl: 8883
-  ## Port for mgmt API
-  ##
-  mgmt: 8081
   ## Port for WebSocket/HTTP
   ##
   ws: 8083
   ## Port for WSS/HTTPS
   ##
   wss: 8084
-  ## Port for dashboard
+  ## Port for dashboard and API
   ##
   dashboard: 18083
-  ## Port for dashboard HTTPS
+  ## Port for dashboard and API over HTTPS
   ##
   # dashboardtls: 18084
   ## Specify the nodePort(s) value for the LoadBalancer and NodePort service types.

@@ -30,7 +30,7 @@
 
 % Swagger
 -define(API_TAGS_GLOBAL, [<<"Authentication">>]).
--define(API_TAGS_SINGLE, [<<"Listener authentication">>]).
+-define(API_TAGS_SINGLE, [<<"Listener Authentication">>]).
 
 -export([
     api_spec/0,

@@ -87,12 +87,18 @@ format_list(Listener) ->
     ].
 
 do_list_raw() ->
-    Key = <<"listeners">>,
-    Raw = emqx_config:get_raw([Key], #{}),
-    SchemaMod = emqx_config:get_schema_mod(Key),
-    #{Key := RawWithDefault} = emqx_config:fill_defaults(SchemaMod, #{Key => Raw}, #{}),
-    Listeners = maps:to_list(RawWithDefault),
-    lists:flatmap(fun format_raw_listeners/1, Listeners).
+    %% GET /listeners from other nodes returns [] when init config is not loaded.
+    case emqx_app:get_init_config_load_done() of
+        true ->
+            Key = <<"listeners">>,
+            Raw = emqx_config:get_raw([Key], #{}),
+            SchemaMod = emqx_config:get_schema_mod(Key),
+            #{Key := RawWithDefault} = emqx_config:fill_defaults(SchemaMod, #{Key => Raw}, #{}),
+            Listeners = maps:to_list(RawWithDefault),
+            lists:flatmap(fun format_raw_listeners/1, Listeners);
+        false ->
+            []
+    end.
 
 format_raw_listeners({Type0, Conf}) ->
     Type = binary_to_atom(Type0),
@@ -515,12 +521,16 @@ merge_default(Options) ->
     integer() | {tuple(), integer()} | string() | binary()
 ) -> io_lib:chars().
 format_bind(Port) when is_integer(Port) ->
+    %% **Note**:
+    %% 'For TCP, UDP and IP networks, if the host is empty or a literal
+    %% unspecified IP address, as in ":80", "0.0.0.0:80" or "[::]:80" for
+    %% TCP and UDP, "", "0.0.0.0" or "::" for IP, the local system is
+    %% assumed.'
+    %%
+    %% Quoted from: https://pkg.go.dev/net
+    %% Decided to use this format to display the bind for all interfaces and
+    %% IPv4/IPv6 support
     io_lib:format(":~w", [Port]);
-%% Print only the port number when bound on all interfaces
-format_bind({{0, 0, 0, 0}, Port}) ->
-    format_bind(Port);
-format_bind({{0, 0, 0, 0, 0, 0, 0, 0}, Port}) ->
-    format_bind(Port);
 format_bind({Addr, Port}) when is_list(Addr) ->
     io_lib:format("~ts:~w", [Addr, Port]);
 format_bind({Addr, Port}) when is_tuple(Addr), tuple_size(Addr) == 4 ->
@@ -532,6 +542,8 @@ format_bind(Str) when is_list(Str) ->
     case emqx_schema:to_ip_port(Str) of
         {ok, {Ip, Port}} ->
             format_bind({Ip, Port});
+        {ok, Port} ->
+            format_bind(Port);
         {error, _} ->
             format_bind(list_to_integer(Str))
     end;

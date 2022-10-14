@@ -222,20 +222,20 @@ make_forward_confs(undefined) ->
 make_forward_confs(FrowardConf) ->
     FrowardConf.
 
-basic_config(#{
-    server := Server,
-    reconnect_interval := ReconnIntv,
-    proto_ver := ProtoVer,
-    bridge_mode := BridgeMode,
-    username := User,
-    password := Password,
-    clean_start := CleanStart,
-    keepalive := KeepAlive,
-    retry_interval := RetryIntv,
-    max_inflight := MaxInflight,
-    replayq := ReplayQ,
-    ssl := #{enable := EnableSsl} = Ssl
-}) ->
+basic_config(
+    #{
+        server := Server,
+        reconnect_interval := ReconnIntv,
+        proto_ver := ProtoVer,
+        bridge_mode := BridgeMode,
+        clean_start := CleanStart,
+        keepalive := KeepAlive,
+        retry_interval := RetryIntv,
+        max_inflight := MaxInflight,
+        replayq := ReplayQ,
+        ssl := #{enable := EnableSsl} = Ssl
+    } = Conf
+) ->
     #{
         replayq => ReplayQ,
         %% connection opts
@@ -251,8 +251,9 @@ basic_config(#{
         %% non-standard mqtt connection packets will be filtered out by LB.
         %% So let's disable bridge_mode.
         bridge_mode => BridgeMode,
-        username => User,
-        password => Password,
+        %% should be iolist for emqtt
+        username => maps:get(username, Conf, <<>>),
+        password => maps:get(password, Conf, <<>>),
         clean_start => CleanStart,
         keepalive => ms_to_s(KeepAlive),
         retry_interval => RetryIntv,

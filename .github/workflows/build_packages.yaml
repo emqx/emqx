@@ -150,72 +150,26 @@ jobs:
         name: source
         path: .
     - name: unzip source code
-      run: unzip -q source.zip
+      run: |
+        ln -s . source
+        unzip -q source.zip
+        rm source source.zip
     - name: prepare
       run: |
-        brew update
-        brew install curl zip unzip kerl coreutils
-        echo "/usr/local/opt/bison/bin" >> $GITHUB_PATH
-        echo "/usr/local/bin" >> $GITHUB_PATH
         git config --global credential.helper store
-    - uses: actions/cache@v2
-      id: cache
+    - uses: ./.github/actions/package-macos
       with:
-        path: ~/.kerl/${{ matrix.otp }}
-        key: otp-install-${{ matrix.otp }}-${{ matrix.os }}
-    - name: build erlang
-      if: steps.cache.outputs.cache-hit != 'true'
-      timeout-minutes: 60
-      env:
-        KERL_BUILD_BACKEND: git
-        OTP_GITHUB_URL: https://github.com/emqx/otp
-      run: |
-        kerl update releases
-        kerl build ${{ matrix.otp }}
-        kerl install ${{ matrix.otp }} $HOME/.kerl/${{ matrix.otp }}
-
-    - name: build
-      working-directory: source
-      env:
-        AUTO_INSTALL_BUILD_DEPS: 1
-        APPLE_SIGN_BINARIES: 1
-        APPLE_DEVELOPER_IDENTITY: ${{ secrets.APPLE_DEVELOPER_IDENTITY }}
-        APPLE_DEVELOPER_ID_BUNDLE: ${{ secrets.APPLE_DEVELOPER_ID_BUNDLE }}
-        APPLE_DEVELOPER_ID_BUNDLE_PASSWORD: ${{ secrets.APPLE_DEVELOPER_ID_BUNDLE_PASSWORD }}
-      run: |
-        . $HOME/.kerl/${{ matrix.otp }}/activate
-        make ensure-rebar3
-        sudo cp rebar3 /usr/local/bin/rebar3
-        rm -rf _build/${{ matrix.profile }}/lib
-        make ${{ matrix.profile }}-tgz
-    - name: test
-      working-directory: source
-      run: |
-        pkg_name=$(find _packages/${{ matrix.profile }} -mindepth 1 -maxdepth 1 -iname \*.tar.gz)
-        mkdir -p emqx
-        tar -C emqx -zxf $pkg_name
-        # gsed -i '/emqx_telemetry/d' ./emqx/data/loaded_plugins
-        ./emqx/bin/emqx start || cat emqx/log/erlang.log.1
-        ready='no'
-        for i in {1..18}; do
-          if curl -fs 127.0.0.1:18083/status > /dev/null; then
-            ready='yes'
-            break
-          fi
-          sleep 1
-        done
-        if [ "$ready" != "yes" ]; then
-          echo "Timed out waiting for emqx to be ready"
-          cat emqx/log/erlang.log.1
-          exit 1
-        fi
-        ./emqx/bin/emqx_ctl status
-        ./emqx/bin/emqx stop
-        rm -rf emqx
+        profile: ${{ matrix.profile }}
+        otp: ${{ matrix.otp }}
+        os: ${{ matrix.os }}
+        apple_id_password: ${{ secrets.APPLE_ID_PASSWORD }}
+        apple_developer_identity: ${{ secrets.APPLE_DEVELOPER_IDENTITY }}
+        apple_developer_id_bundle: ${{ secrets.APPLE_DEVELOPER_ID_BUNDLE }}
+        apple_developer_id_bundle_password: ${{ secrets.APPLE_DEVELOPER_ID_BUNDLE_PASSWORD }}
     - uses: actions/upload-artifact@v1
       with:
         name: ${{ matrix.profile }}-${{ matrix.otp }}
-        path: source/_packages/${{ matrix.profile }}/.
+        path: _packages/${{ matrix.profile }}/.
 
   linux:
     needs: prepare

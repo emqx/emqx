@@ -166,6 +166,49 @@ test_user_auth(#{
         ?GLOBAL
     ).
 
+t_no_value_for_placeholder(_Config) ->
+    Handler = fun(Req0, State) ->
+        {ok, RawBody, Req1} = cowboy_req:read_body(Req0),
+        #{
+            <<"cert_subject">> := <<"">>,
+            <<"cert_common_name">> := <<"">>
+        } = jiffy:decode(RawBody, [return_maps]),
+        Req = cowboy_req:reply(
+            200,
+            #{<<"content-type">> => <<"application/json">>},
+            jiffy:encode(#{result => allow, is_superuser => false}),
+            Req1
+        ),
+        {ok, Req, State}
+    end,
+
+    SpecificConfgParams = #{
+        <<"method">> => <<"post">>,
+        <<"headers">> => #{<<"content-type">> => <<"application/json">>},
+        <<"body">> => #{
+            <<"cert_subject">> => ?PH_CERT_SUBJECT,
+            <<"cert_common_name">> => ?PH_CERT_CN_NAME
+        }
+    },
+
+    AuthConfig = maps:merge(raw_http_auth_config(), SpecificConfgParams),
+
+    {ok, _} = emqx:update_config(
+        ?PATH,
+        {create_authenticator, ?GLOBAL, AuthConfig}
+    ),
+
+    ok = emqx_authn_http_test_server:set_handler(Handler),
+
+    Credentials = maps:without([cert_subject, cert_common_name], ?CREDENTIALS),
+
+    ?assertMatch({ok, _}, emqx_access_control:authenticate(Credentials)),
+
+    emqx_authn_test_lib:delete_authenticators(
+        [authentication],
+        ?GLOBAL
+    ).
+
 t_destroy(_Config) ->
     AuthConfig = raw_http_auth_config(),
 
@@ -245,27 +288,6 @@ t_update(_Config) ->
     ?assertMatch(
         ?EXCEPTION_ALLOW,
         emqx_access_control:authenticate(?CREDENTIALS)
-    ).
-
-t_interpolation_error(_Config) ->
-    {ok, _} = emqx:update_config(
-        ?PATH,
-        {create_authenticator, ?GLOBAL, raw_http_auth_config()}
-    ),
-
-    Headers = #{<<"content-type">> => <<"application/json">>},
-    Response = ?SERVER_RESPONSE_JSON(allow),
-
-    ok = emqx_authn_http_test_server:set_handler(
-        fun(Req0, State) ->
-            Req = cowboy_req:reply(200, Headers, Response, Req0),
-            {ok, Req, State}
-        end
-    ),
-
-    ?assertMatch(
-        ?EXCEPTION_DENY,
-        emqx_access_control:authenticate(maps:without([username], ?CREDENTIALS))
     ).
 
 t_is_superuser(_Config) ->
@@ -412,26 +434,6 @@ raw_http_auth_config() ->
 samples() ->
     [
         %% simple get request
-        #{
-            handler => fun(Req0, State) ->
-                #{
-                    username := <<"plain">>,
-                    password := <<"plain">>
-                } = cowboy_req:match_qs([username, password], Req0),
-
-                Req = cowboy_req:reply(
-                    200,
-                    #{<<"content-type">> => <<"application/json">>},
-                    jiffy:encode(#{result => allow, is_superuser => false}),
-                    Req0
-                ),
-                {ok, Req, State}
-            end,
-            config_params => #{},
-            result => {ok, #{is_superuser => false, user_property => #{}}}
-        },
-
-        %% simple get request, no username
         #{
             handler => fun(Req0, State) ->
                 #{

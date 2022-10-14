@@ -32,12 +32,6 @@ EMQX 自 2013 年在 GitHub 发布开源版本以来，获得了来自 50 多个
 docker run -d --name emqx -p 1883:1883 -p 8083:8083 -p 8084:8084 -p 8883:8883 -p 18083:18083 emqx/emqx:latest
 ```
 
-或直接试用 EMQX 企业版（已内置 10 个并发连接的永不过期 License）
-
-```
-docker run -d --name emqx-ee -p 1883:1883 -p 8081:8081 -p 8083:8083 -p 8084:8084 -p 8883:8883 -p 18083:18083 emqx/emqx-ee:latest
-```
-
 接下来请参考 [入门指南](https://www.emqx.io/docs/zh/v5.0/getting-started/getting-started.html#启动-emqx) 开启您的 EMQX 之旅。
 
 #### 在 Kubernetes 上运行 EMQX 集群
@@ -111,6 +105,27 @@ cd emqx-rel
 make
 _build/emqx/rel/emqx/bin/emqx console
 ```
+
+### 在 Apple 芯片（M1,M2）上编译
+
+基于 Apple 芯片的 Homebrew 将[默认的 home 目录](https://github.com/Homebrew/brew/issues/9177)从 `/usr/local` 改成了 `/opt/homebrew`，这个改变导致了一些兼容性问题。
+
+具体到 EMQX 来说，主要影响的是 `unixodbc`，如果使用 Homebrew 安装的 `unixodbc` 包，那么在使用 [kerl](https://github.com/kerl/kerl) 编译 Erlang/OTP 的时候，kerl 会找不到 `unixodbc`。
+
+解决此问题的方法如下:
+
+```bash
+brew install unixodbc kerl
+sudo ln -s $(realpath $(brew --prefix unixodbc)) /usr/local/odbc
+export CC="/usr/bin/gcc -I$(brew --prefix unixodbc)/include"
+export LDFLAGS="-L$(brew --prefix unixodbc)/lib"
+kerl build 24.3
+mkdir ~/.kerl/installations
+kerl install 24.3 ~/.kerl/installations/24.3
+. ~/.kerl/installations/24.3/activate
+```
+
+然后再使用 `make` 继续编译就可以了。
 
 ## 开源许可
 

@@ -41,7 +41,7 @@
 -import(hoconsc, [mk/1, mk/2, ref/1, enum/1, array/1, map/2]).
 -import(emqx_dashboard_swagger, [schema_with_example/2, error_codes/2]).
 
--define(TAGS, [<<"exhooks">>]).
+-define(TAGS, [<<"ExHook">>]).
 -define(NOT_FOURD, 'NOT_FOUND').
 -define(BAD_REQUEST, 'BAD_REQUEST').
 -define(BAD_RPC, 'BAD_RPC').
@@ -483,15 +483,10 @@ err_msg(Msg) -> emqx_misc:readable_error_msg(Msg).
 get_raw_config() ->
     RawConfig = emqx:get_raw_config([exhook, servers], []),
     Schema = #{roots => emqx_exhook_schema:fields(exhook), fields => #{}},
-    Conf = #{<<"servers">> => lists:map(fun drop_invalid_certs/1, RawConfig)},
+    Conf = #{<<"servers">> => RawConfig},
     Options = #{only_fill_defaults => true},
     #{<<"servers">> := Servers} = hocon_tconf:check_plain(Schema, Conf, Options),
     Servers.
-
-drop_invalid_certs(#{<<"ssl">> := SSL} = Conf) when SSL =/= undefined ->
-    Conf#{<<"ssl">> => emqx_tls_lib:drop_invalid_certs(SSL)};
-drop_invalid_certs(Conf) ->
-    Conf.
 
 position_example() ->
     #{

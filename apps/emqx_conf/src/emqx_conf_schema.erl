@@ -536,6 +536,15 @@ fields("node") ->
                     desc => ?DESC(node_applications)
                 }
             )},
+        {"etc_dir",
+            sc(
+                string(),
+                #{
+                    desc => ?DESC(node_etc_dir),
+                    'readOnly' => true,
+                    deprecated => {since, "5.0.8"}
+                }
+            )},
         {"cluster_call",
             sc(
                 ?R_REF("cluster_call"),

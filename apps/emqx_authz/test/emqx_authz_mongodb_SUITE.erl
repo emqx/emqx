@@ -18,8 +18,8 @@
 -compile(nowarn_export_all).
 -compile(export_all).
 
--include("emqx_connector.hrl").
 -include("emqx_authz.hrl").
+-include_lib("emqx_connector/include/emqx_connector.hrl").
 -include_lib("eunit/include/eunit.hrl").
 -include_lib("common_test/include/ct.hrl").
 -include_lib("emqx/include/emqx_placeholder.hrl").
@@ -186,6 +186,46 @@ t_lookups(_Config) ->
     ok = setup_samples([ByPeerhost]),
     ok = setup_config(
         #{<<"filter">> => #{<<"peerhost">> => <<"${peerhost}">>}}
+    ),
+
+    ok = emqx_authz_test_lib:test_samples(
+        ClientInfo,
+        [
+            {allow, subscribe, <<"a">>},
+            {deny, subscribe, <<"b">>}
+        ]
+    ),
+
+    ByCN = #{
+        <<"CN">> => <<"cn">>,
+        <<"topics">> => [<<"a">>],
+        <<"action">> => <<"all">>,
+        <<"permission">> => <<"allow">>
+    },
+
+    ok = setup_samples([ByCN]),
+    ok = setup_config(
+        #{<<"filter">> => #{<<"CN">> => ?PH_CERT_CN_NAME}}
+    ),
+
+    ok = emqx_authz_test_lib:test_samples(
+        ClientInfo,
+        [
+            {allow, subscribe, <<"a">>},
+            {deny, subscribe, <<"b">>}
+        ]
+    ),
+
+    ByDN = #{
+        <<"DN">> => <<"dn">>,
+        <<"topics">> => [<<"a">>],
+        <<"action">> => <<"all">>,
+        <<"permission">> => <<"allow">>
+    },
+
+    ok = setup_samples([ByDN]),
+    ok = setup_config(
+        #{<<"filter">> => #{<<"DN">> => ?PH_CERT_SUBJECT}}
     ),
 
     ok = emqx_authz_test_lib:test_samples(

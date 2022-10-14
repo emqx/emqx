@@ -162,39 +162,35 @@ authenticate(
         resource_id := ResourceId
     } = State
 ) ->
-    ?WITH_SUCCESSFUL_RENDER(
-        begin
-            Filter = emqx_authn_utils:render_deep(FilterTemplate, Credential),
-            case emqx_resource:query(ResourceId, {find_one, Collection, Filter, #{}}) of
-                undefined ->
-                    ignore;
-                {error, Reason} ->
-                    ?TRACE_AUTHN_PROVIDER(error, "mongodb_query_failed", #{
+    Filter = emqx_authn_utils:render_deep(FilterTemplate, Credential),
+    case emqx_resource:query(ResourceId, {find_one, Collection, Filter, #{}}) of
+        undefined ->
+            ignore;
+        {error, Reason} ->
+            ?TRACE_AUTHN_PROVIDER(error, "mongodb_query_failed", #{
+                resource => ResourceId,
+                collection => Collection,
+                filter => Filter,
+                reason => Reason
+            }),
+            ignore;
+        Doc ->
+            case check_password(Password, Doc, State) of
+                ok ->
+                    {ok, is_superuser(Doc, State)};
+                {error, {cannot_find_password_hash_field, PasswordHashField}} ->
+                    ?TRACE_AUTHN_PROVIDER(error, "cannot_find_password_hash_field", #{
                         resource => ResourceId,
                         collection => Collection,
                         filter => Filter,
-                        reason => Reason
+                        document => Doc,
+                        password_hash_field => PasswordHashField
                     }),
                     ignore;
-                Doc ->
-                    case check_password(Password, Doc, State) of
-                        ok ->
-                            {ok, is_superuser(Doc, State)};
-                        {error, {cannot_find_password_hash_field, PasswordHashField}} ->
-                            ?TRACE_AUTHN_PROVIDER(error, "cannot_find_password_hash_field", #{
-                                resource => ResourceId,
-                                collection => Collection,
-                                filter => Filter,
-                                document => Doc,
-                                password_hash_field => PasswordHashField
-                            }),
-                            ignore;
-                        {error, Reason} ->
-                            {error, Reason}
-                    end
+                {error, Reason} ->
+                    {error, Reason}
             end
-        end
-    ).
+    end.
 
 %%------------------------------------------------------------------------------
 %% Internal functions

@@ -141,7 +141,8 @@ schema("/configs_reset/:rootname") ->
             ],
             responses => #{
                 200 => <<"Rest config successfully">>,
-                400 => emqx_dashboard_swagger:error_codes(['NO_DEFAULT_VALUE', 'REST_FAILED'])
+                400 => emqx_dashboard_swagger:error_codes(['NO_DEFAULT_VALUE', 'REST_FAILED']),
+                403 => emqx_dashboard_swagger:error_codes(['REST_FAILED'])
             }
         }
     };
@@ -160,7 +161,8 @@ schema("/configs/global_zone") ->
             'requestBody' => Schema,
             responses => #{
                 200 => Schema,
-                400 => emqx_dashboard_swagger:error_codes(['UPDATE_FAILED'])
+                400 => emqx_dashboard_swagger:error_codes(['UPDATE_FAILED']),
+                403 => emqx_dashboard_swagger:error_codes(['UPDATE_FAILED'])
             }
         }
     };
@@ -226,7 +228,8 @@ schema(Path) ->
             'requestBody' => Schema,
             responses => #{
                 200 => Schema,
-                400 => emqx_dashboard_swagger:error_codes(['UPDATE_FAILED'])
+                400 => emqx_dashboard_swagger:error_codes(['UPDATE_FAILED']),
+                403 => emqx_dashboard_swagger:error_codes(['UPDATE_FAILED'])
             }
         }
     }.
@@ -254,6 +257,8 @@ config(put, #{body := Body}, Req) ->
     case emqx_conf:update(Path, Body, ?OPTS) of
         {ok, #{raw_config := RawConf}} ->
             {200, RawConf};
+        {error, {permission_denied, Reason}} ->
+            {403, #{code => 'UPDATE_FAILED', message => Reason}};
         {error, Reason} ->
             {400, #{code => 'UPDATE_FAILED', message => ?ERR_MSG(Reason)}}
     end.
@@ -297,6 +302,8 @@ config_reset(post, _Params, Req) ->
     case emqx_conf:reset(Path, ?OPTS) of
         {ok, _} ->
             {200};
+        {error, {permission_denied, Reason}} ->
+            {403, #{code => 'REST_FAILED', message => Reason}};
         {error, no_default_value} ->
             {400, #{code => 'NO_DEFAULT_VALUE', message => <<"No Default Value.">>}};
         {error, Reason} ->

@@ -56,12 +56,19 @@ start_link(Pool, Id) ->
         []
     ).
 
+-spec async_call(atom(), map(), map()) -> ok.
 async_call(
     FunName,
     Req = #{conn := Conn},
     Options = #{pool_name := PoolName}
 ) ->
-    cast(pick(PoolName, Conn), {rpc, FunName, Req, Options, self()}).
+    case pick(PoolName, Conn) of
+        false ->
+            reply(self(), FunName, {error, no_available_grpc_client});
+        Pid when is_pid(Pid) ->
+            cast(Pid, {rpc, FunName, Req, Options, self()})
+    end,
+    ok.
 
 %%--------------------------------------------------------------------
 %% cast, pick
@@ -72,6 +79,7 @@ async_call(
 cast(Deliver, Msg) ->
     gen_server:cast(Deliver, Msg).
 
+-spec pick(term(), term()) -> pid() | false.
 pick(PoolName, Conn) ->
     gproc_pool:pick_worker(PoolName, Conn).
 

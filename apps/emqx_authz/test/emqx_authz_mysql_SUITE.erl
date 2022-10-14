@@ -208,6 +208,34 @@ t_lookups(_Config) ->
             {allow, subscribe, <<"a">>},
             {deny, subscribe, <<"b">>}
         ]
+    ),
+
+    %% strip double quote support
+
+    ok = init_table(),
+    ok = q(
+        <<
+            "INSERT INTO acl(clientid, topic, permission, action)"
+            "VALUES(?, ?, ?, ?)"
+        >>,
+        [<<"clientid">>, <<"a">>, <<"allow">>, <<"subscribe">>]
+    ),
+
+    ok = setup_config(
+        #{
+            <<"query">> => <<
+                "SELECT permission, action, topic "
+                "FROM acl WHERE clientid = \"${clientid}\""
+            >>
+        }
+    ),
+
+    ok = emqx_authz_test_lib:test_samples(
+        ClientInfo,
+        [
+            {allow, subscribe, <<"a">>},
+            {deny, subscribe, <<"b">>}
+        ]
     ).
 
 t_mysql_error(_Config) ->

@@ -143,7 +143,19 @@ to even set complex values from environment variables.
 For example, this environment variable sets an array value.
 
 ```
-export EMQX_LISTENERS__SSL__L1__AUTHENTICATION__SSL__CIPHERS="[\"TLS_AES_256_GCM_SHA384\"]"
+export EMQX_LISTENERS__SSL__L1__AUTHENTICATION__SSL__CIPHERS='["TLS_AES_256_GCM_SHA384"]'
+```
+
+However this also means a string value should be quoted if it happen to contain special
+characters such as `=` and `:`.
+
+For example, a string value `"localhost:1883"` would be 
+parsed into object (struct): `{"localhost": 1883}`.
+
+To keep it as a string, one should quote the value like below:
+
+```
+EMQX_BRIDGES__MQTT__MYBRIDGE__CONNECTOR_SERVER='"localhost:1883"'
 ```
 
 ::: tip Tip

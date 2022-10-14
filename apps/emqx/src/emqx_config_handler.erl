@@ -43,6 +43,7 @@
     terminate/2,
     code_change/3
 ]).
+-export([is_mutable/3]).
 
 -define(MOD, {mod}).
 -define(WKEY, '?').
@@ -229,15 +230,26 @@ process_update_request([_], _Handlers, {remove, _Opts}) ->
 process_update_request(ConfKeyPath, _Handlers, {remove, Opts}) ->
     OldRawConf = emqx_config:get_root_raw(ConfKeyPath),
     BinKeyPath = bin_path(ConfKeyPath),
-    NewRawConf = emqx_map_lib:deep_remove(BinKeyPath, OldRawConf),
-    OverrideConf = remove_from_override_config(BinKeyPath, Opts),
-    {ok, NewRawConf, OverrideConf, Opts};
+    case check_permissions(remove, BinKeyPath, OldRawConf, Opts) of
+        allow ->
+            NewRawConf = emqx_map_lib:deep_remove(BinKeyPath, OldRawConf),
+            OverrideConf = remove_from_override_config(BinKeyPath, Opts),
+            {ok, NewRawConf, OverrideConf, Opts};
+        {deny, Reason} ->
+            {error, {permission_denied, Reason}}
+    end;
 process_update_request(ConfKeyPath, Handlers, {{update, UpdateReq}, Opts}) ->
     OldRawConf = emqx_config:get_root_raw(ConfKeyPath),
     case do_update_config(ConfKeyPath, Handlers, OldRawConf, UpdateReq) of
         {ok, NewRawConf} ->
-            OverrideConf = update_override_config(NewRawConf, Opts),
-            {ok, NewRawConf, OverrideConf, Opts};
+            BinKeyPath = bin_path(ConfKeyPath),
+            case check_permissions(update, BinKeyPath, NewRawConf, Opts) of
+                allow ->
+                    OverrideConf = update_override_config(NewRawConf, Opts),
+                    {ok, NewRawConf, OverrideConf, Opts};
+                {deny, Reason} ->
+                    {error, {permission_denied, Reason}}
+            end;
         Error ->
             Error
     end.
@@ -272,12 +284,11 @@ check_and_save_configs(
     UpdateArgs,
     Opts
 ) ->
-    OldConf = emqx_config:get_root(ConfKeyPath),
     Schema = schema(SchemaModule, ConfKeyPath),
     {AppEnvs, NewConf} = emqx_config:check_config(Schema, NewRawConf),
+    OldConf = emqx_config:get_root(ConfKeyPath),
     case do_post_config_update(ConfKeyPath, Handlers, OldConf, NewConf, AppEnvs, UpdateArgs, #{}) of
         {ok, Result0} ->
-            remove_from_local_if_cluster_change(ConfKeyPath, Opts),
             ok = emqx_config:save_configs(AppEnvs, NewConf, NewRawConf, OverrideConf, Opts),
             Result1 = return_change_result(ConfKeyPath, UpdateArgs),
             {ok, Result1#{post_config_update => Result0}};
@@ -430,16 +441,6 @@ merge_to_old_config(UpdateReq, RawConf) when is_map(UpdateReq), is_map(RawConf) 
 merge_to_old_config(UpdateReq, _RawConf) ->
     {ok, UpdateReq}.
 
-%% local-override.conf priority is higher than cluster-override.conf
-%% If we want cluster to take effect, we must remove the local.
-remove_from_local_if_cluster_change(BinKeyPath, #{override_to := cluster} = Opts) ->
-    Opts1 = Opts#{override_to => local},
-    Local = remove_from_override_config(BinKeyPath, Opts1),
-    _ = emqx_config:save_to_override_conf(Local, Opts1),
-    ok;
-remove_from_local_if_cluster_change(_BinKeyPath, _Opts) ->
-    ok.
-
 remove_from_override_config(_BinKeyPath, #{persistent := false}) ->
     undefined;
 remove_from_override_config(BinKeyPath, Opts) ->
@@ -544,3 +545,98 @@ load_prev_handlers() ->
 
 save_handlers(Handlers) ->
     application:set_env(emqx, ?MODULE, Handlers).
+
+check_permissions(_Action, _ConfKeyPath, _NewRawConf, #{override_to := local}) ->
+    allow;
+check_permissions(Action, ConfKeyPath, NewRawConf, _Opts) ->
+    case emqx_map_lib:deep_find(ConfKeyPath, NewRawConf) of
+        {ok, NewRaw} ->
+            LocalOverride = emqx_config:read_override_conf(#{override_to => local}),
+            case emqx_map_lib:deep_find(ConfKeyPath, LocalOverride) of
+                {ok, LocalRaw} ->
+                    case is_mutable(Action, NewRaw, LocalRaw) of
+                        ok ->
+                            allow;
+                        {error, Error} ->
+                            ?SLOG(error, #{
+                                msg => "prevent_remove_local_override_conf",
+                                config_key_path => ConfKeyPath,
+                                error => Error
+                            }),
+                            {deny, "Disable changed from local-override.conf"}
+                    end;
+                {not_found, _, _} ->
+                    allow
+            end;
+        {not_found, _, _} ->
+            allow
+    end.
+
+is_mutable(Action, NewRaw, LocalRaw) ->
+    try
+        KeyPath = [],
+        is_mutable(KeyPath, Action, NewRaw, LocalRaw)
+    catch
+        throw:Error -> Error
+    end.
+
+-define(REMOVE_FAILED, "remove_failed").
+-define(UPDATE_FAILED, "update_failed").
+
+is_mutable(KeyPath, Action, New = #{}, Local = #{}) ->
+    maps:foreach(
+        fun(Key, SubLocal) ->
+            case maps:find(Key, New) of
+                error -> ok;
+                {ok, SubNew} -> is_mutable(KeyPath ++ [Key], Action, SubNew, SubLocal)
+            end
+        end,
+        Local
+    );
+is_mutable(KeyPath, remove, Update, Origin) ->
+    throw({error, {?REMOVE_FAILED, KeyPath, Update, Origin}});
+is_mutable(_KeyPath, update, Val, Val) ->
+    ok;
+is_mutable(KeyPath, update, Update, Origin) ->
+    throw({error, {?UPDATE_FAILED, KeyPath, Update, Origin}}).
+
+-ifdef(TEST).
+-include_lib("eunit/include/eunit.hrl").
+
+is_mutable_update_test() ->
+    Action = update,
+    ?assertEqual(ok, is_mutable(Action, #{}, #{})),
+    ?assertEqual(ok, is_mutable(Action, #{a => #{b => #{c => #{}}}}, #{a => #{b => #{c => #{}}}})),
+    ?assertEqual(ok, is_mutable(Action, #{a => #{b => #{c => 1}}}, #{a => #{b => #{c => 1}}})),
+    ?assertEqual(
+        {error, {?UPDATE_FAILED, [a, b, c], 1, 2}},
+        is_mutable(Action, #{a => #{b => #{c => 1}}}, #{a => #{b => #{c => 2}}})
+    ),
+    ?assertEqual(
+        {error, {?UPDATE_FAILED, [a, b, d], 2, 3}},
+        is_mutable(Action, #{a => #{b => #{c => 1, d => 2}}}, #{a => #{b => #{c => 1, d => 3}}})
+    ),
+    ok.
+
+is_mutable_remove_test() ->
+    Action = remove,
+    ?assertEqual(ok, is_mutable(Action, #{}, #{})),
+    ?assertEqual(ok, is_mutable(Action, #{a => #{b => #{c => #{}}}}, #{a1 => #{b => #{c => #{}}}})),
+    ?assertEqual(ok, is_mutable(Action, #{a => #{b => #{c => 1}}}, #{a => #{b1 => #{c => 1}}})),
+    ?assertEqual(ok, is_mutable(Action, #{a => #{b => #{c => 1}}}, #{a => #{b => #{c1 => 1}}})),
+
+    ?assertEqual(
+        {error, {?REMOVE_FAILED, [a, b, c], 1, 1}},
+        is_mutable(Action, #{a => #{b => #{c => 1}}}, #{a => #{b => #{c => 1}}})
+    ),
+    ?assertEqual(
+        {error, {?REMOVE_FAILED, [a, b, c], 1, 2}},
+        is_mutable(Action, #{a => #{b => #{c => 1}}}, #{a => #{b => #{c => 2}}})
+    ),
+    ?assertEqual(
+        {error, {?REMOVE_FAILED, [a, b, c], 1, 1}},
+        is_mutable(Action, #{a => #{b => #{c => 1, d => 2}}}, #{a => #{b => #{c => 1, d => 3}}})
+    ),
+    ok.
+
+-endif.

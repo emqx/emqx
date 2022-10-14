@@ -476,7 +476,7 @@ read_override_conf(#{} = Opts) ->
 
 override_conf_file(Opts) when is_map(Opts) ->
     Key =
-        case maps:get(override_to, Opts, local) of
+        case maps:get(override_to, Opts, cluster) of
             local -> local_override_conf_file;
             cluster -> cluster_override_conf_file
         end,
