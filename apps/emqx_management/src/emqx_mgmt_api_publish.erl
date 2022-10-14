@@ -172,7 +172,5 @@ format_message_response(Messages) when is_list(Messages) ->
 format_message_response(#message{id = ID}) ->
     #{id => emqx_guid:to_hexstr(ID)}.
 
-to_binary(Data) when is_binary(Data) ->
-    Data;
-to_binary(Data) ->
-    list_to_binary(io_lib:format("~p", [Data])).
+to_binary(Term) ->
+    list_to_binary(io_lib:format("~p", [Term])).
