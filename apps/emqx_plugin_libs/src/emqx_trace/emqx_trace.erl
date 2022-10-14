@@ -104,7 +104,10 @@ start_link() ->
 
 -spec list() -> [tuple()].
 list() ->
-    ets:match_object(?TRACE, #?TRACE{_ = '_'}).
+    case ets:info(?TRACE) of
+        undefined -> [];
+        _ -> ets:match_object(?TRACE, #?TRACE{_ = '_'})
+    end.
 
 -spec is_enable() -> boolean().
 is_enable() ->
