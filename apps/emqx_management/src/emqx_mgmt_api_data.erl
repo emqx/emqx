@@ -68,6 +68,7 @@
 
 -export([ get_list_exported/0
         , do_import/1
+        , do_download/2
         ]).
 
 export(_Bindings, _Params) ->
@@ -131,14 +132,38 @@ do_import(Filename) ->
     FullFilename = fullname(Filename),
     emqx_mgmt_data_backup:import(FullFilename, "{}").
 
-download(#{filename := Filename}, _Params) ->
+download(#{filename := Filename0}, _Params) ->
+    %% Before v4.3.21/v4.4.10, the download HTTP API does not support the node
+    %% parameter, but the files are stored on separate nodes.
+    %%
+    %% so, we need to search all nodes to download the first matched file.
+    Filename = list_to_binary(Filename0),
+    HasStoredNodes = lists:filtermap(
+                       fun({_, FileInfo}) ->
+                               case proplists:get_value(filename, FileInfo) == Filename of
+                                   false -> false;
+                                   true -> {true, proplists:get_value(node, FileInfo)}
+                               end
+                       end, get_list_exported()),
+    case HasStoredNodes of
+        [] -> minirest:return({error, not_found});
+        [Node | _] ->
+            do_download(Node, Filename0)
+    end.
+
+do_download(Node, Filename) when Node == node(), is_list(Filename) ->
     FullFilename = fullname(Filename),
     case file:read_file(FullFilename) of
         {ok, Bin} ->
-            {ok, #{filename => list_to_binary(Filename),
-                   file => Bin}};
+            {ok, #{filename => list_to_binary(Filename), file => Bin}};
         {error, Reason} ->
             minirest:return({error, Reason})
+    end;
+do_download(Node, Filename) when is_list(Filename) ->
+    case rpc:call(Node, ?MODULE, do_download, [Node, Filename]) of
+        {badrpc, Reason} ->
+            minirest:return({error, Reason});
+        Res -> Res
     end.
 
 upload(Bindings, Params) ->
