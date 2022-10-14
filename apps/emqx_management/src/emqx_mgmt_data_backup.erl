@@ -626,7 +626,7 @@ do_export_extra_data() -> [].
 
 -ifdef(EMQX_ENTERPRISE).
 import(Filename, OverridesJson) ->
-    _ = legal_filename(Filename) orelse error(bad_filename),
+    _ = legal_filename(Filename) orelse error({bad_filename, Filename}),
     case file:read_file(Filename) of
         {ok, Json} ->
             Imported = emqx_json:decode(Json, [return_maps]),
@@ -646,7 +646,7 @@ import(Filename, OverridesJson) ->
     end.
 -else.
 import(Filename, OverridesJson) ->
-    _ = legal_filename(Filename) orelse error(bad_filename),
+    _ = legal_filename(Filename) orelse error({bad_filename, Filename}),
     case file:read_file(Filename) of
         {ok, Json} ->
             Imported = emqx_json:decode(Json, [return_maps]),
