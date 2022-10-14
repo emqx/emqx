@@ -2,7 +2,11 @@
 
 ## v4.4.11
 
+
 ### Bug fixes  (synced from v4.3.22)
+
+- Fix get trace list crash when trace not initialize.
+- Fix create trace sometime failed by end_at time has already passed.
 
 ### Enhancements (synced from v4.3.22)
 
