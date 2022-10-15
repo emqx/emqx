@@ -25,7 +25,7 @@
 -logger_header("[Auth http]").
 
 -import(emqx_auth_http_cli,
-        [ request/6
+        [ request/7
         , feedvar/2
         ]).
 
@@ -63,24 +63,28 @@ description() -> "Authentication by HTTP API".
 %% Requests
 %%--------------------------------------------------------------------
 
-authenticate(#{pool_name := PoolName,
+authenticate(AuthParams =
+             #{pool_name := PoolName,
                path := Path,
                method := Method,
                headers := Headers,
                params := Params,
                timeout := Timeout}, ClientInfo) ->
-   request(PoolName, Method, Path, Headers, feedvar(Params, ClientInfo), Timeout).
+    Retry = maps:get(retry_times, AuthParams, ?DEFAULT_RETRY_TIMES),
+    request(PoolName, Method, Path, Headers, feedvar(Params, ClientInfo), Timeout, Retry).
 
 -spec(is_superuser(maybe(map()), emqx_types:client()) -> boolean()).
 is_superuser(undefined, _ClientInfo) ->
     false;
-is_superuser(#{pool_name := PoolName,
+is_superuser(SuperParams =
+             #{pool_name := PoolName,
                path := Path,
                method := Method,
                headers := Headers,
                params := Params,
                timeout := Timeout}, ClientInfo) ->
-    case request(PoolName, Method, Path, Headers, feedvar(Params, ClientInfo), Timeout) of
+    Retry = maps:get(retry_times, SuperParams, ?DEFAULT_RETRY_TIMES),
+    case request(PoolName, Method, Path, Headers, feedvar(Params, ClientInfo), Timeout, Retry) of
         {ok, 200, _Body}   -> true;
         {ok, _Code, _Body} -> false;
         {error, Error}     -> ?LOG(error, "Request superuser path ~s, error: ~p", [Path, Error]),

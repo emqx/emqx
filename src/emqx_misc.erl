@@ -23,6 +23,7 @@
 
 -export([ merge_opts/2
         , maybe_apply/2
+        , maybe_mute_rpc_log/0
         , compose/1
         , compose/2
         , run_fold/3
@@ -443,6 +444,27 @@ do_parallel_map(Fun, List) ->
         [],
         PidList
     ).
+
+%% @doc Call this function to avoid logs printed to RPC caller node.
+-spec maybe_mute_rpc_log() -> ok.
+maybe_mute_rpc_log() ->
+    GlNode = node(group_leader()),
+    maybe_mute_rpc_log(GlNode).
+
+maybe_mute_rpc_log(Node) when Node =:= node() ->
+    %% do nothing, this is a local call
+    ok;
+maybe_mute_rpc_log(Node) ->
+    case atom_to_list(Node) of
+        "remsh" ++ _ ->
+            %% this is either an upgrade script or nodetool
+            %% do nothing, the log may go to the 'emqx' command line console
+            ok;
+        _ ->
+            %% otherwise set group leader to local node
+            _ = group_leader(whereis(init), self()),
+            ok
+    end.
 
 -ifdef(TEST).
 -include_lib("eunit/include/eunit.hrl").

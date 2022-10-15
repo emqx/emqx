@@ -33,11 +33,6 @@ all() -> emqx_ct:all(?MODULE).
 init_per_suite(Config) ->
     %% CM Meck
     ok = meck:new(emqx_cm, [passthrough, no_history, no_link]),
-    %% Access Control Meck
-    ok = meck:new(emqx_access_control, [passthrough, no_history, no_link]),
-    ok = meck:expect(emqx_access_control, authenticate,
-                     fun(_) -> {ok, #{auth_result => success}} end),
-    ok = meck:expect(emqx_access_control, check_acl, fun(_, _, _) -> allow end),
     %% Broker Meck
     ok = meck:new(emqx_broker, [passthrough, no_history, no_link]),
     %% Hooks Meck
@@ -53,8 +48,7 @@ init_per_suite(Config) ->
     Config.
 
 end_per_suite(_Config) ->
-    meck:unload([emqx_access_control,
-                 emqx_metrics,
+    meck:unload([emqx_metrics,
                  emqx_session,
                  emqx_broker,
                  emqx_hooks,
@@ -63,10 +57,16 @@ end_per_suite(_Config) ->
 
 init_per_testcase(_TestCase, Config) ->
     meck:new(emqx_zone, [passthrough, no_history, no_link]),
+    %% Access Control Meck
+    ok = meck:new(emqx_access_control, [passthrough, no_history, no_link]),
+    ok = meck:expect(emqx_access_control, authenticate,
+                     fun(_) -> {ok, #{auth_result => success}} end),
+    ok = meck:expect(emqx_access_control, check_acl, fun(_, _, _) -> allow end),
     Config.
 
 end_per_testcase(_TestCase, Config) ->
     meck:unload([emqx_zone]),
+    meck:unload([emqx_access_control]),
     Config.
 
 %%--------------------------------------------------------------------
@@ -852,6 +852,30 @@ t_ws_cookie_init(_) ->
                 },
     Channel = emqx_channel:init(ConnInfo, [{zone, zone}]),
     ?assertMatch(#{ws_cookie := WsCookie}, emqx_channel:info(clientinfo, Channel)).
+
+%%--------------------------------------------------------------------
+%% Test cases for other mechnisms
+%%--------------------------------------------------------------------
+
+t_flapping_detect(_) ->
+    Parent = self(),
+    ok = meck:expect(emqx_cm, open_session,
+                     fun(true, _ClientInfo, _ConnInfo) ->
+                             {ok, #{session => session(), present => false}}
+                     end),
+    ok = meck:expect(emqx_access_control, authenticate, fun(_) -> {error, not_authorized} end),
+    ok = meck:new(emqx_flapping, [passthrough, no_history, no_link]),
+    ok = meck:expect(emqx_flapping, detect, fun(_) -> Parent ! flapping_detect end),
+    ok = meck:expect(emqx_zone, enable_flapping_detect, fun(_) -> true end),
+    IdleChannel = channel(#{conn_state => idle}),
+    {shutdown, not_authorized, _ConnAck, _Channel} =
+        emqx_channel:handle_in(?CONNECT_PACKET(connpkt()), IdleChannel),
+    receive
+        flapping_detect -> ok
+    after 2000 ->
+              ?assert(false, "Flapping detect should be exected in connecting progress")
+    end,
+    meck:unload([emqx_flapping]).
 
 %%--------------------------------------------------------------------
 %% Helper functions
