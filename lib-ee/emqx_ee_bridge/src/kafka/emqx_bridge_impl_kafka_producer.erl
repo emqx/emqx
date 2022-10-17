@@ -346,7 +346,7 @@ handle_telemetry_event(_EventId, _Metrics, _MetaData, _HandlerConfig) ->
 
 -spec telemetry_handler_id(emqx_resource:resource_id()) -> binary().
 telemetry_handler_id(InstanceID) ->
-    <<"emqx-bridge-kafka-producer-", InstanceID/binary, "-telemetry-handler">>.
+    <<"emqx-bridge-kafka-producer-", InstanceID/binary>>.
 
 uninstall_telemetry_handlers(InstanceID) ->
     HandlerID = telemetry_handler_id(InstanceID),
