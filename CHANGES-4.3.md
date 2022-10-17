@@ -10,18 +10,7 @@ File format:
 - One list item per change topic
   Change log ends with a list of GitHub PRs
 
-## v4.3.22
-
-### Enhancements
-
-- Add a warning log if the ACL check failed for subscription. [#9124](https://github.com/emqx/emqx/pull/9124)
-  This is to make the ACL deny logging for subscription behave the same as for publish.
-
-### Bug fixes
-
-- Fix that after receiving publish in `idle mode` the emqx-sn gateway may panic. [#9024](https://github.com/emqx/emqx/pull/9024)
-- "Pause due to rate limit" log level demoted from warning to notice [#9134](https://github.com/emqx/emqx/pull/9134)
-- Restore legacy `emqx_auth_jwt` interface to keep hooks working after relup. [##9144](https://github.com/emqx/emqx/pull/9144)
+## For 4.3.22 and later versions, please find details in `changes` dir
 
 ## v4.3.21
 
@@ -63,7 +52,7 @@ File format:
 - Fix HTTP client library to handle SSL socket passive signal. [#9145](https://github.com/emqx/emqx/pull/9145)
 
 - Hide redis password in error logs [#9071](https://github.com/emqx/emqx/pull/9071)
-  In this change, it also included more changes in redis client:
+  More changes in redis client included in this release:
   - Improve redis connection error logging [eredis #19](https://github.com/emqx/eredis/pull/19).
     Also added support for eredis to accept an anonymous function as password instead of
     passing around plaintext args which may get dumpped to crash logs (hard to predict where).
