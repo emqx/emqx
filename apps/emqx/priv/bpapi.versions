@@ -20,6 +20,7 @@
 {emqx_mgmt_api_plugins,1}.
 {emqx_mgmt_cluster,1}.
 {emqx_mgmt_trace,1}.
+{emqx_mgmt_trace,2}.
 {emqx_persistent_session,1}.
 {emqx_plugin_libs,1}.
 {emqx_prometheus,1}.
