@@ -16,6 +16,7 @@
 * Fix empty variable interpolation in authentication and authorization. Placeholders for undefined variables are rendered now as empty strings and do not cause errors anymore. [#8963](https://github.com/emqx/emqx/pull/8963)
 * Fix the latency statistics error of the slow subscription module when `stats_type` is `internal` or `response`. [#8986](https://github.com/emqx/emqx/pull/8986)
 * Redispatch shared subscription messages. [#9104](https://github.com/emqx/emqx/pull/9104)
+* Ensure authentication type is an array, not struct. [#8923](https://github.com/emqx/emqx/pull/8923)
 
 # 5.0.8
 
@@ -27,6 +28,7 @@
 * Speed up dispatching of shared subscription messages in a cluster [#8893](https://github.com/emqx/emqx/pull/8893)
 * Fix the extra / prefix when CoAP gateway parsing client topics. [#8658](https://github.com/emqx/emqx/pull/8658)
 * Speed up updating the configuration, When some nodes in the cluster are down. [#8857](https://github.com/emqx/emqx/pull/8857)
+
 * Fix delayed publish inaccurate caused by os time change. [#8926](https://github.com/emqx/emqx/pull/8926)
 * Fix that EMQX can't start when the retainer is disabled [#8911](https://github.com/emqx/emqx/pull/8911)
 * Fix that redis authn will deny the unknown users [#8934](https://github.com/emqx/emqx/pull/8934)
