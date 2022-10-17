@@ -148,7 +148,7 @@ schema("/trace/:name/log_detail") ->
     #{
         'operationId' => log_file_detail,
         get => #{
-            description => "get trace log file's detail message, such as size, last update time",
+            description => "get trace log file's metadata, such as size, last update time",
             tags => ?TAGS,
             parameters => [hoconsc:ref(name)],
             responses => #{

@@ -63,4 +63,4 @@ trace_file_detail(Nodes, File) ->
     | {eof, non_neg_integer()}
     | {badrpc, _}.
 read_trace_file(Node, Name, Position, Limit) ->
-    rpc:call(Node, emqx_mgmt_api_trace, read_trace_file, [Name, Position, Limit]).
+    rpc:call(Node, emqx_mgmt_api_trace, read_trace_file, [Name, Position, Limit], 15000).
