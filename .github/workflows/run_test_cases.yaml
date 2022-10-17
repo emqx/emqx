@@ -42,6 +42,11 @@ jobs:
                 use-self-hosted: false
         steps:
         - uses: actions/checkout@v2
+          # to avoid dirty self-hosted runners
+        - name: stop containers
+          run: |
+            docker rm -f $(docker ps -qa) || true
+            docker network rm $(docker network ls -q) || true
         - name: docker compose up
           if: endsWith(github.repository, 'emqx')
           env:
