@@ -821,6 +821,7 @@ t_dispatch_qos0(Config) when is_list(Config) ->
 t_redispatch_when_kicked({init, Config}) when is_list(Config) ->
     Config;
 t_redispatch_when_kicked({'end', Config}) when is_list(Config) ->
+    snabbkaffe:stop(),
     ok;
 t_redispatch_when_kicked(_) ->
     ok = ensure_config(sticky, true),
