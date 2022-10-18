@@ -230,6 +230,16 @@ if [ "$HAS_RELUP_DB" = 'yes' ]; then
     ./scripts/relup-base-vsns.escript check-vsn-db "$PKG_VSN" "$RELUP_PATHS"
 fi
 
+## Run some additional checks (e.g. some for enterprise edition only)
+CHECKS_DIR="./scripts/rel/checks"
+if [ -d "${CHECKS_DIR}" ]; then
+    CHECKS="$(find "${CHECKS_DIR}" -name "*.sh" -print0 2>/dev/null | xargs -0)"
+    for c in $CHECKS; do
+        logmsg "Executing $c"
+        $c
+    done
+fi
+
 if [ "$DRYRUN" = 'yes' ]; then
     logmsg "Release tag is ready to be created with command: git tag $TAG"
 else

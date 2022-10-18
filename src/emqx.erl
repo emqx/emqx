@@ -227,6 +227,7 @@ shutdown() ->
     shutdown(normal).
 
 shutdown(Reason) ->
+    ok = emqx_misc:maybe_mute_rpc_log(),
     ?LOG(critical, "emqx shutdown for ~s", [Reason]),
     on_shutdown(Reason),
     _ = emqx_plugins:unload(),
