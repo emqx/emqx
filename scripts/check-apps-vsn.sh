@@ -21,6 +21,24 @@ parse_semver() {
     echo "$1" | tr '.|-' ' '
 }
 
+exempt_bump() {
+  local app="$1"
+  local from="$2"
+  local to="$3"
+
+  case "$app,$from,$to" in
+    "lib-ee/emqx_conf,4.3.9,4.4.0")
+      true
+      ;;
+    "lib-ee/emqx_license,4.3.7,4.4.0")
+      true
+      ;;
+    *)
+      false
+      ;;
+  esac
+}
+
 check_apps() {
   while read -r app; do
     if [ "$app" != "emqx" ]; then
@@ -42,6 +60,7 @@ check_apps() {
     if [ "$old_app_version" = "$now_app_version" ]; then
         changed_lines="$(git diff "$latest_release"...HEAD --ignore-blank-lines -G "$no_comment_re" \
                              -- "$app_path/src" \
+                             -- "$app_path/include" \
                              -- ":(exclude)$app_path/src/*.appup.src" \
                              -- "$app_path/priv" \
                              -- "$app_path/c_src" | wc -l ) "
@@ -49,12 +68,12 @@ check_apps() {
             echo "$src_file needs a vsn bump (old=$old_app_version)"
             echo "changed: $changed_lines"
             bad_app_count=$(( bad_app_count + 1))
-        elif [ "$app" = 'emqx_dashboard' ]; then
+        elif [[ ${app_path} = *emqx_dashboard* ]]; then
             ## emqx_dashboard is ensured to be upgraded after all other plugins
             ## at the end of its appup instructions, there is the final instruction
             ## {apply, {emqx_plugins, load, []}
             ## since we don't know which plugins are stopped during the upgrade
-            ## for safety, we just force a dashboard version bump for each and every release
+            ## for safty, we just force a dashboard version bump for each and every release
             ## even if there is nothing changed in the app
             echo "$src_file needs a vsn bump to ensure plugins loaded after upgrade"
             bad_app_count=$(( bad_app_count + 1))
@@ -69,8 +88,12 @@ check_apps() {
             [ "$(( old_app_version_semver[2] + 1 ))" = "${now_app_version_semver[2]}" ]; then
             true
         else
+          if exempt_bump "$app" "$old_app_version" "$now_app_version"; then
+            true
+          else
             echo "$src_file: non-strict semver version bump from $old_app_version to $now_app_version"
             bad_app_count=$(( bad_app_count + 1))
+          fi
         fi
     fi
   done < <(./scripts/find-apps.sh)
