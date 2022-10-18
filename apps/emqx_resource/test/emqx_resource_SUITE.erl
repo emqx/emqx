@@ -502,6 +502,10 @@ t_stop_start(_) ->
         #{<<"name">> => <<"test_resource">>}
     ),
 
+    %% add some metrics to test their persistence
+    emqx_resource_metrics:batching_change(?ID, 5),
+    ?assertEqual(5, emqx_resource_metrics:batching_get(?ID)),
+
     {ok, _} = emqx_resource:check_and_recreate(
         ?ID,
         ?TEST_RESOURCE,
@@ -512,6 +516,9 @@ t_stop_start(_) ->
     {ok, #{pid := Pid0}} = emqx_resource:query(?ID, get_state),
 
     ?assert(is_process_alive(Pid0)),
+
+    %% metrics are reset when recreating
+    ?assertEqual(0, emqx_resource_metrics:batching_get(?ID)),
 
     ok = emqx_resource:stop(?ID),
 
@@ -527,7 +534,15 @@ t_stop_start(_) ->
 
     {ok, #{pid := Pid1}} = emqx_resource:query(?ID, get_state),
 
-    ?assert(is_process_alive(Pid1)).
+    ?assert(is_process_alive(Pid1)),
+
+    %% now stop while resetting the metrics
+    emqx_resource_metrics:batching_change(?ID, 5),
+    ?assertEqual(5, emqx_resource_metrics:batching_get(?ID)),
+    ok = emqx_resource:stop(?ID),
+    ?assertEqual(0, emqx_resource_metrics:batching_get(?ID)),
+
+    ok.
 
 t_stop_start_local(_) ->
     {error, _} = emqx_resource:check_and_create_local(

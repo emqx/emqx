@@ -507,13 +507,16 @@ start_resource(Data, From) ->
 
 stop_resource(#data{state = undefined, id = ResId} = _Data) ->
     _ = maybe_clear_alarm(ResId),
+    ok = emqx_metrics_worker:reset_metrics(?RES_METRICS, ResId),
     ok;
 stop_resource(Data) ->
     %% We don't care the return value of the Mod:on_stop/2.
     %% The callback mod should make sure the resource is stopped after on_stop/2
     %% is returned.
+    ResId = Data#data.id,
     _ = emqx_resource:call_stop(Data#data.manager_id, Data#data.mod, Data#data.state),
-    _ = maybe_clear_alarm(Data#data.id),
+    _ = maybe_clear_alarm(ResId),
+    ok = emqx_metrics_worker:reset_metrics(?RES_METRICS, ResId),
     ok.
 
 make_test_id() ->
