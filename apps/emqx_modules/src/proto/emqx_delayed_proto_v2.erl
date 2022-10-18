@@ -27,6 +27,8 @@
 
 -include_lib("emqx/include/bpapi.hrl").
 
+-define(TIMEOUT, 15000).
+
 introduced_in() ->
     "5.0.9".
 
@@ -39,7 +41,7 @@ get_delayed_message(Node, Id) ->
 delete_delayed_message(Node, Id) ->
     rpc:call(Node, emqx_delayed, delete_delayed_message, [Id]).
 
--spec clean_by_clientid(node(), emqx_types:clientid()) ->
-    emqx_delayed:with_id_return() | emqx_rpc:badrpc().
-clean_by_clientid(Node, ClientID) ->
-    rpc:call(Node, emqx_delayed, do_clean_by_clientid, [ClientID]).
+-spec clean_by_clientid(list(node()), emqx_types:clientid()) ->
+    emqx_rpc:erpc_multicall().
+clean_by_clientid(Nodes, ClientID) ->
+    erpc:multicall(Nodes, emqx_delayed, do_clean_by_clientid, [ClientID], ?TIMEOUT).

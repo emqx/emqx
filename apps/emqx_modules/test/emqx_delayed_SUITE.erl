@@ -252,21 +252,23 @@ t_banned_clean(_) ->
 
     Now = erlang:system_time(second),
     Who = {clientid, ClientId2},
-    emqx_banned:create(#{
-        who => Who,
-        by => <<"test">>,
-        reason => <<"test">>,
-        at => Now,
-        until => Now + 120,
-        clean => true
-    }),
+    try
+        emqx_banned:create(#{
+            who => Who,
+            by => <<"test">>,
+            reason => <<"test">>,
+            at => Now,
+            until => Now + 120,
+            clean => true
+        }),
 
-    timer:sleep(500),
+        timer:sleep(500),
 
-    ?assertMatch(#{meta := #{count := 2}}, emqx_delayed:list(#{page => 1, limit => 10})),
-
-    emqx_banned:delete(Who),
-    emqx_delayed:clean_by_clientid(ClientId1),
+        ?assertMatch(#{meta := #{count := 2}}, emqx_delayed:list(#{page => 1, limit => 10}))
+    after
+        emqx_banned:delete(Who),
+        emqx_delayed:clean_by_clientid(ClientId1)
+    end,
     timer:sleep(500),
     ok = emqtt:disconnect(C1),
     ok = emqtt:disconnect(C2).

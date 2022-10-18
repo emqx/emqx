@@ -155,6 +155,7 @@ fields(ban) ->
             hoconsc:mk(boolean(), #{
                 desc => ?DESC(clean),
                 required => false,
+                default => false,
                 example => false
             })}
     ].

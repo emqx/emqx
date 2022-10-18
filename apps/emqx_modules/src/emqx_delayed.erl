@@ -263,8 +263,7 @@ post_config_update(_KeyPath, _ConfigReq, NewConf, _OldConf, _AppEnvs) ->
 
 clean_by_clientid(ClientId) ->
     Nodes = mria_mnesia:running_nodes(),
-    _ = [emqx_delayed_proto_v2:clean_by_clientid(Node, ClientId) || Node <- Nodes],
-    ok.
+    emqx_delayed_proto_v2:clean_by_clientid(Nodes, ClientId).
 
 do_clean_by_clientid(ClientId) ->
     ets:select_delete(
