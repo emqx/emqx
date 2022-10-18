@@ -9,6 +9,7 @@
   Prior to this fix, the message publish APIs (`api/v5/publish` and `api/v5/publish/bulk`) echos the message back to the client in HTTP body.
   This change fixed it to only send back the message ID.
 * Add /trace/:name/log_detail HTTP API to return trace file's size and mtime [#9152](https://github.com/emqx/emqx/pull/9152)
+* Allow clear retained/delayed data when client is banned.[#9139](https://github.com/emqx/emqx/pull/9139)
 
 ## Bug fixes
 
