@@ -38,6 +38,7 @@
 
 -export([ start_link/0
         , on_message_publish/1
+        , check_acl/4
         ]).
 
 %% gen_server callbacks
@@ -58,6 +59,7 @@
 -define(TAB, ?MODULE).
 -define(SERVER, ?MODULE).
 -define(MAX_INTERVAL, 4294967).
+-define(ACL_PRIORITY, 10000).
 
 -type state() :: #{ publish_at := non_neg_integer()
                   , timer := timer:tref() | undefined
@@ -86,11 +88,14 @@ mnesia(copy) ->
 -spec(load(list()) -> ok).
 load(_Env) ->
     emqx_mod_sup:start_child(?MODULE, worker),
-    emqx:hook('message.publish', {?MODULE, on_message_publish, []}).
+    emqx_hooks:put('message.publish', {?MODULE, on_message_publish, []}),
+    %% make sure delayed topics can be converted to real topics
+    emqx_hooks:put('client.check_acl', {?MODULE, check_acl, []}, ?ACL_PRIORITY).
 
 -spec(unload(list()) -> ok).
 unload(_Env) ->
     emqx:unhook('message.publish', {?MODULE, on_message_publish}),
+    emqx:unhook('client.check_acl', {?MODULE, check_acl}),
     emqx_mod_sup:stop_child(?MODULE).
 
 description() ->
@@ -122,6 +127,12 @@ on_message_publish(Msg = #message{
 
 on_message_publish(Msg) ->
     {ok, Msg}.
+
+check_acl(ClientInfo, PubSub, <<"$delayed/", Topic/binary>>, AclResult) ->
+    [_Delay, Topic1] = binary:split(Topic, <<"/">>),
+    {ok, [ClientInfo, PubSub, Topic1], AclResult};
+check_acl(_ClientInfo, _PubSub, _Topic, _AclResult) ->
+    ignore.
 
 %%--------------------------------------------------------------------
 %% Start delayed publish server

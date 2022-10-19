@@ -43,7 +43,7 @@ end_per_suite(_) ->
 
 set_special_configs(emqx) ->
     application:set_env(emqx, modules, [{emqx_mod_delayed, []}]),
-    application:set_env(emqx, allow_anonymous, false),
+    application:set_env(emqx, allow_anonymous, true),
     application:set_env(emqx, enable_acl_cache, false);
 set_special_configs(_App) ->
     ok.
@@ -76,3 +76,42 @@ t_delayed_message(_) ->
     EmptyKey = mnesia:dirty_all_keys(emqx_mod_delayed),
     ?assertEqual([], EmptyKey),
     ok = emqx_mod_delayed:unload([]).
+
+t_delayed_with_acl(_) ->
+    ok = emqx_mod_delayed:load([]),
+    Case = fun() ->
+        {ok, C1} = emqtt:start_link([{clean_start, true}, {proto_ver, v5}]),
+        {ok, _} = emqtt:connect(C1),
+        emqtt:publish(C1, <<"$delayed/2/allow/1">>, <<"allow">>, []),
+        emqtt:publish(C1, <<"$delayed/2/deny/1">>, <<"deny">>, []),
+
+        timer:sleep(500),
+
+        [Key] = mnesia:dirty_all_keys(emqx_mod_delayed),
+        [#delayed_message{msg = #message{payload = Payload}}] = mnesia:dirty_read(
+            {emqx_mod_delayed, Key}
+        ),
+        ?assertEqual(<<"allow">>, Payload),
+
+        ok = emqtt:disconnect(C1)
+    end,
+
+    with_hook('client.check_acl', acl_hook, Case),
+    ok = emqx_mod_delayed:unload([]).
+
+%%--------------------------------------------------------------------
+%% Helper functions
+%%--------------------------------------------------------------------
+with_hook(Name, Hook, Fun) ->
+    emqx:hook(Name, {?MODULE, Hook, []}),
+    timer:sleep(200),
+    try
+        Fun()
+    after
+        emqx:unhook(Name, {?MODULE, Hook})
+    end.
+
+acl_hook(_ClientInfo, _PubSub, <<"allow/", _/binary>>, _Res) ->
+    {stop, allow};
+acl_hook(_ClientInfo, _PubSub, _, _Res) ->
+    {stop, deny}.

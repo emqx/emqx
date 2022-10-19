@@ -190,6 +190,8 @@ do_run_fold([#callback{action = Action, filter = Filter} | Callbacks], Args, Acc
         {stop, NewAcc}   -> NewAcc;
         %% continue the hook chain with NewAcc
         {ok, NewAcc}   -> do_run_fold(Callbacks, Args, NewAcc);
+        %% continue the hook chain with NewArgs and NewAcc
+        {ok, NewArgs, NewAcc}   -> do_run_fold(Callbacks, NewArgs, NewAcc);
         %% continue the hook chain, in following cases:
         %%   - the filter validation failed with 'false'
         %%   - the callback returns any term other than 'stop' or {'stop', NewAcc}
