@@ -16,6 +16,7 @@ File format:
 
 - Add a warning log if the ACL check failed for subscription. [#9124](https://github.com/emqx/emqx/pull/9124)
   This is to make the ACL deny logging for subscription behave the same as for publish.
+- kick session will not cause session message redispatch. [#9175](https://github.com/emqx/emqx/pull/9175)
 
 ### Bug fixes
 
