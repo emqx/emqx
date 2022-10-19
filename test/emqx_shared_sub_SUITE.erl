@@ -290,7 +290,7 @@ last_message(ExpectedPayload, Pids) ->
 last_message(ExpectedPayload, Pids, Timeout) ->
     receive
         {publish, #{client_pid := Pid, payload := ExpectedPayload}} ->
-            ct:pal("last_message: ~p ====== ~p, payload=~p", [Pids, Pid, ExpectedPayload]),
+            ?assert(lists:member(Pid, Pids)),
             {true, Pid}
     after Timeout ->
         ct:pal("not yet"),
@@ -698,9 +698,9 @@ t_session_takeover(Config) when is_list(Config) ->
     {ok, _} = emqtt:connect(ConnPid2), %% should trigger session take over
     ?assertMatch([_], emqx:publish(Message3)),
     ?assertMatch([_], emqx:publish(Message4)),
-    {true, _} = last_message(<<"hello2">>, [ConnPid1]),
-    {true, _} = last_message(<<"hello3">>, [ConnPid1]),
-    {true, _} = last_message(<<"hello4">>, [ConnPid1]),
+    {true, _} = last_message(<<"hello2">>, [ConnPid2]),
+    {true, _} = last_message(<<"hello3">>, [ConnPid2]),
+    {true, _} = last_message(<<"hello4">>, [ConnPid2]),
     ?assertEqual([], collect_msgs(timer:seconds(2))),
     emqtt:stop(ConnPid2),
     ok.
