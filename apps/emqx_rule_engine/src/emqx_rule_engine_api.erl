@@ -250,7 +250,8 @@ do_create_rule2(ParsedParams) ->
             return({error, 400, ?ERR_BADARGS(Reason)})
     end.
 
-update_rule(#{id := Id}, Params) ->
+update_rule(#{id := Id0}, Params) ->
+    Id = urldecode(Id0),
     case parse_rule_params(Params, #{id => Id}) of
         {ok, ParsedParams} ->
             case emqx_rule_engine:update_rule(ParsedParams) of
@@ -275,16 +276,21 @@ list_rules(_Bindings, Params) ->
             return_all(emqx_rule_registry:get_rules_ordered_by_ts())
     end.
 
-show_rule(#{id := Id}, _Params) ->
+show_rule(#{id := Id0}, _Params) ->
+    Id = urldecode(Id0),
     reply_with(fun emqx_rule_registry:get_rule/1, Id).
 
-delete_rule(#{id := Id}, _Params) ->
+delete_rule(#{id := Id0}, _Params) ->
+    Id = urldecode(Id0),
     ok = emqx_rule_engine:delete_rule(Id),
     return(ok).
 
-reset_metrics_local(Id) -> emqx_rule_metrics:reset_metrics(Id).
+reset_metrics_local(Id0) ->
+    Id = urldecode(Id0),
+    emqx_rule_metrics:reset_metrics(Id).
 
-reset_metrics(#{id := Id}, _Params) ->
+reset_metrics(#{id := Id0}, _Params) ->
+    Id = urldecode(Id0),
     _ = ?CLUSTER_CALL(reset_metrics_local, [Id]),
     return(ok).
 
@@ -350,7 +356,8 @@ list_resources(#{}, _Params) ->
 list_resources_by_type(#{type := Type}, _Params) ->
     return_all(emqx_rule_registry:get_resources_by_type(Type)).
 
-show_resource(#{id := Id}, _Params) ->
+show_resource(#{id := Id0}, _Params) ->
+    Id = urldecode(Id0),
     case emqx_rule_registry:find_resource(Id) of
         {ok, R} ->
             StatusFun =
@@ -366,7 +373,8 @@ show_resource(#{id := Id}, _Params) ->
             return({error, 404, <<"Not Found">>})
     end.
 
-get_resource_status(#{id := Id}, _Params) ->
+get_resource_status(#{id := Id0}, _Params) ->
+    Id = urldecode(Id0),
     case emqx_rule_engine:get_resource_status(Id) of
         {ok, Status} ->
             return({ok, Status});
@@ -374,7 +382,8 @@ get_resource_status(#{id := Id}, _Params) ->
             return({error, 400, ?ERR_NO_RESOURCE(Id)})
     end.
 
-start_resource(#{id := Id}, _Params) ->
+start_resource(#{id := Id0}, _Params) ->
+    Id = urldecode(Id0),
     case emqx_rule_engine:start_resource(Id) of
         ok ->
             return(ok);
@@ -385,7 +394,8 @@ start_resource(#{id := Id}, _Params) ->
             return({error, 400, ?ERR_BADARGS(Reason)})
     end.
 
-update_resource(#{id := Id}, NewParams) ->
+update_resource(#{id := Id0}, NewParams) ->
+    Id = urldecode(Id0),
     P1 = case proplists:get_value(<<"description">>, NewParams) of
         undefined -> #{};
         Value -> #{<<"description">> => Value}
@@ -409,7 +419,8 @@ update_resource(#{id := Id}, NewParams) ->
             return({error, 400, ?ERR_BADARGS(Reason)})
     end.
 
-delete_resource(#{id := Id}, _Params) ->
+delete_resource(#{id := Id0}, _Params) ->
+    Id = urldecode(Id0),
     case emqx_rule_engine:delete_resource(Id) of
         ok -> return(ok);
         {error, not_found} -> return(ok);
@@ -660,3 +671,6 @@ run_fuzzy_match(E = #rule{for = Topics}, [{for, like, Pattern}|Fuzzy]) ->
     lists:any(fun(For) -> binary:match(For, Pattern) /= nomatch end, Topics)
         andalso run_fuzzy_match(E, Fuzzy);
 run_fuzzy_match(_E, [{_Key, like, _SubStr}| _Fuzzy]) -> false.
+
+urldecode(S) ->
+    emqx_http_lib:uri_decode(S).
