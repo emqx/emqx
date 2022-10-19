@@ -184,10 +184,6 @@ kafka_bridge_rest_api_all_auth_methods(UseSSL) ->
             true -> kafka_hosts_string_ssl();
             false -> kafka_hosts_string()
         end,
-    kafka_bridge_rest_api_helper(#{
-        <<"bootstrap_hosts">> => NormalHostsString,
-        <<"authentication">> => <<"none">>
-    }),
     SASLHostsString =
         case UseSSL of
             true -> kafka_hosts_string_ssl_sasl();
@@ -204,6 +200,15 @@ kafka_bridge_rest_api_all_auth_methods(UseSSL) ->
             true -> #{<<"ssl">> => BinifyMap(valid_ssl_settings())};
             false -> #{}
         end,
+    kafka_bridge_rest_api_helper(
+        maps:merge(
+            #{
+                <<"bootstrap_hosts">> => NormalHostsString,
+                <<"authentication">> => <<"none">>
+            },
+            SSLSettings
+        )
+    ),
     kafka_bridge_rest_api_helper(
         maps:merge(
             #{
@@ -243,10 +248,20 @@ kafka_bridge_rest_api_all_auth_methods(UseSSL) ->
     ok.
 
 kafka_bridge_rest_api_helper(Config) ->
+    BridgeType = "kafka",
+    BridgeName = "my_kafka_bridge",
+    BridgeID = emqx_bridge_resource:bridge_id(
+        erlang:list_to_binary(BridgeType),
+        erlang:list_to_binary(BridgeName)
+    ),
+    ResourceId = emqx_bridge_resource:resource_id(
+        erlang:list_to_binary(BridgeType),
+        erlang:list_to_binary(BridgeName)
+    ),
     UrlEscColon = "%3A",
-    BridgeIdUrlEnc = "kafka" ++ UrlEscColon ++ "my_kafka_bridge",
+    BridgeIdUrlEnc = BridgeType ++ UrlEscColon ++ BridgeName,
     BridgesParts = ["bridges"],
-    BridgesPartsId = ["bridges", BridgeIdUrlEnc],
+    BridgesPartsIdDeleteAlsoActions = ["bridges", BridgeIdUrlEnc ++ "?also_delete_dep_actions"],
     OpUrlFun = fun(OpName) -> ["bridges", BridgeIdUrlEnc, "operation", OpName] end,
     BridgesPartsOpDisable = OpUrlFun("disable"),
     BridgesPartsOpEnable = OpUrlFun("enable"),
@@ -268,15 +283,13 @@ kafka_bridge_rest_api_helper(Config) ->
     case MyKafkaBridgeExists() of
         true ->
             %% Delete the bridge my_kafka_bridge
-            show(
-                '========================================== DELETE ========================================'
-            ),
-            {ok, 204, <<>>} = show(http_delete(BridgesPartsId));
+            {ok, 204, <<>>} = show(http_delete(BridgesPartsIdDeleteAlsoActions));
         false ->
             ok
     end,
     false = MyKafkaBridgeExists(),
     %% Create new Kafka bridge
+    KafkaTopic = "test-topic-one-partition",
     CreateBodyTmp = #{
         <<"type">> => <<"kafka">>,
         <<"name">> => <<"my_kafka_bridge">>,
@@ -288,7 +301,7 @@ kafka_bridge_rest_api_helper(Config) ->
                 topic => <<"t/#">>
             },
             <<"kafka">> => #{
-                <<"topic">> => <<"test-topic-one-partition">>
+                <<"topic">> => erlang:list_to_binary(KafkaTopic)
             }
         }
     },
@@ -300,6 +313,59 @@ kafka_bridge_rest_api_helper(Config) ->
     {ok, 201, _Data} = show(http_post(BridgesParts, show(CreateBody))),
     %% Check that the new bridge is in the list of bridges
     true = MyKafkaBridgeExists(),
+    %% Create a rule that uses the bridge
+    {ok, 201, _Rule} = http_post(
+        ["rules"],
+        #{
+            <<"name">> => <<"kafka_bridge_rest_api_helper_rule">>,
+            <<"enable">> => true,
+            <<"actions">> => [BridgeID],
+            <<"sql">> => <<"SELECT * from \"kafka_bridge_topic/#\"">>
+        }
+    ),
+    %% counters should be empty before
+    ?assertEqual(0, emqx_resource_metrics:matched_get(ResourceId)),
+    ?assertEqual(0, emqx_resource_metrics:success_get(ResourceId)),
+    ?assertEqual(0, emqx_resource_metrics:dropped_get(ResourceId)),
+    ?assertEqual(0, emqx_resource_metrics:failed_get(ResourceId)),
+    ?assertEqual(0, emqx_resource_metrics:inflight_get(ResourceId)),
+    ?assertEqual(0, emqx_resource_metrics:batching_get(ResourceId)),
+    ?assertEqual(0, emqx_resource_metrics:queuing_get(ResourceId)),
+    ?assertEqual(0, emqx_resource_metrics:dropped_other_get(ResourceId)),
+    ?assertEqual(0, emqx_resource_metrics:dropped_queue_full_get(ResourceId)),
+    ?assertEqual(0, emqx_resource_metrics:dropped_queue_not_enabled_get(ResourceId)),
+    ?assertEqual(0, emqx_resource_metrics:dropped_resource_not_found_get(ResourceId)),
+    ?assertEqual(0, emqx_resource_metrics:dropped_resource_stopped_get(ResourceId)),
+    ?assertEqual(0, emqx_resource_metrics:retried_get(ResourceId)),
+    ?assertEqual(0, emqx_resource_metrics:retried_failed_get(ResourceId)),
+    ?assertEqual(0, emqx_resource_metrics:retried_success_get(ResourceId)),
+    %% Get offset before sending message
+    {ok, Offset} = resolve_kafka_offset(kafka_hosts(), KafkaTopic, 0),
+    %% Send message to topic and check that it got forwarded to Kafka
+    Body = <<"message from EMQX">>,
+    emqx:publish(emqx_message:make(<<"kafka_bridge_topic/1">>, Body)),
+    %% Give Kafka some time to get message
+    timer:sleep(100),
+    %% Check that Kafka got message
+    BrodOut = brod:fetch(kafka_hosts(), KafkaTopic, 0, Offset),
+    {ok, {_, [KafkaMsg]}} = show(BrodOut),
+    Body = KafkaMsg#kafka_message.value,
+    %% Check crucial counters and gauges
+    ?assertEqual(1, emqx_resource_metrics:matched_get(ResourceId)),
+    ?assertEqual(1, emqx_resource_metrics:success_get(ResourceId)),
+    ?assertEqual(0, emqx_resource_metrics:dropped_get(ResourceId)),
+    ?assertEqual(0, emqx_resource_metrics:failed_get(ResourceId)),
+    ?assertEqual(0, emqx_resource_metrics:inflight_get(ResourceId)),
+    ?assertEqual(0, emqx_resource_metrics:batching_get(ResourceId)),
+    ?assertEqual(0, emqx_resource_metrics:queuing_get(ResourceId)),
+    ?assertEqual(0, emqx_resource_metrics:dropped_other_get(ResourceId)),
+    ?assertEqual(0, emqx_resource_metrics:dropped_queue_full_get(ResourceId)),
+    ?assertEqual(0, emqx_resource_metrics:dropped_queue_not_enabled_get(ResourceId)),
+    ?assertEqual(0, emqx_resource_metrics:dropped_resource_not_found_get(ResourceId)),
+    ?assertEqual(0, emqx_resource_metrics:dropped_resource_stopped_get(ResourceId)),
+    ?assertEqual(0, emqx_resource_metrics:retried_get(ResourceId)),
+    ?assertEqual(0, emqx_resource_metrics:retried_failed_get(ResourceId)),
+    ?assertEqual(0, emqx_resource_metrics:retried_success_get(ResourceId)),
     %% Perform operations
     {ok, 200, _} = show(http_post(show(BridgesPartsOpDisable), #{})),
     {ok, 200, _} = show(http_post(show(BridgesPartsOpDisable), #{})),
@@ -309,7 +375,7 @@ kafka_bridge_rest_api_helper(Config) ->
     {ok, 200, _} = show(http_post(show(BridgesPartsOpStop), #{})),
     {ok, 200, _} = show(http_post(show(BridgesPartsOpRestart), #{})),
     %% Cleanup
-    {ok, 204, _} = show(http_delete(BridgesPartsId)),
+    {ok, 204, _} = show(http_delete(BridgesPartsIdDeleteAlsoActions)),
     false = MyKafkaBridgeExists(),
     ok.
 
@@ -325,7 +391,8 @@ publish_with_and_without_ssl(AuthSettings) ->
     publish_helper(#{
         auth_settings => AuthSettings,
         ssl_settings => valid_ssl_settings()
-    }).
+    }),
+    ok.
 
 publish_helper(#{
     auth_settings := AuthSettings,
@@ -345,6 +412,7 @@ publish_helper(#{
     Hash = erlang:phash2([HostsString, AuthSettings, SSLSettings]),
     Name = "kafka_bridge_name_" ++ erlang:integer_to_list(Hash),
     InstId = emqx_bridge_resource:resource_id("kafka", Name),
+    BridgeId = emqx_bridge_resource:bridge_id("kafka", Name),
     KafkaTopic = "test-topic-one-partition",
     Conf = config(#{
         "authentication" => AuthSettings,
@@ -353,6 +421,7 @@ publish_helper(#{
         "instance_id" => InstId,
         "ssl" => SSLSettings
     }),
+    emqx_bridge_resource:create(kafka, erlang:list_to_atom(Name), Conf, #{}),
     %% To make sure we get unique value
     timer:sleep(1),
     Time = erlang:monotonic_time(),
@@ -371,6 +440,7 @@ publish_helper(#{
     {ok, {_, [KafkaMsg]}} = brod:fetch(kafka_hosts(), KafkaTopic, 0, Offset),
     ?assertMatch(#kafka_message{key = BinTime}, KafkaMsg),
     ok = ?PRODUCER:on_stop(InstId, State),
+    ok = emqx_bridge_resource:remove(BridgeId),
     ok.
 
 config(Args) ->
@@ -407,7 +477,7 @@ hocon_config_template() ->
 """
 bootstrap_hosts = \"{{ kafka_hosts_string }}\"
 enable = true
-authentication = {{{ authentication }}} 
+authentication = {{{ authentication }}}
 ssl = {{{ ssl }}}
 producer = {
     mqtt {

@@ -9,7 +9,8 @@
         stdlib,
         gproc,
         jsx,
-        emqx
+        emqx,
+        telemetry
     ]},
     {env, []},
     {modules, []},

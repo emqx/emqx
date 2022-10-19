@@ -360,6 +360,7 @@ relx_apps(ReleaseType, Edition) ->
         redbug,
         xmerl,
         {hocon, load},
+        telemetry,
         % started by emqx_machine
         {emqx, load},
         {emqx_conf, load},

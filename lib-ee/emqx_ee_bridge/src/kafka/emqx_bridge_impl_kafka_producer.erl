@@ -12,7 +12,10 @@
     on_get_status/2
 ]).
 
--export([on_kafka_ack/3]).
+-export([
+    on_kafka_ack/3,
+    handle_telemetry_event/4
+]).
 
 -include_lib("emqx/include/logger.hrl").
 
@@ -30,6 +33,7 @@ on_start(InstId, Config) ->
         authentication := Auth,
         ssl := SSL
     } = Config,
+    _ = maybe_install_wolff_telemetry_handlers(InstId),
     %% it's a bug if producer config is not found
     %% the caller should not try to start a producer if
     %% there is no producer config
@@ -85,18 +89,25 @@ on_start(InstId, Config) ->
             throw(failed_to_start_kafka_producer)
     end.
 
-on_stop(_InstId, #{client_id := ClientID, producers := Producers}) ->
-    with_log_at_error(
+on_stop(InstanceID, #{client_id := ClientID, producers := Producers}) ->
+    _ = with_log_at_error(
         fun() -> wolff:stop_and_delete_supervised_producers(Producers) end,
         #{
             msg => "failed_to_delete_kafka_producer",
             client_id => ClientID
         }
     ),
-    with_log_at_error(
+    _ = with_log_at_error(
         fun() -> wolff:stop_and_delete_supervised_client(ClientID) end,
         #{
             msg => "failed_to_delete_kafka_client",
+            client_id => ClientID
+        }
+    ),
+    with_log_at_error(
+        fun() -> uninstall_telemetry_handlers(InstanceID) end,
+        #{
+            msg => "failed_to_uninstall_telemetry_handlers",
             client_id => ClientID
         }
     ).
@@ -222,6 +233,9 @@ producers_config(BridgeName, ClientId, Input) ->
             disk -> {false, replayq_dir(ClientId)};
             hybrid -> {true, replayq_dir(ClientId)}
         end,
+    %% TODO: change this once we add kafka source
+    BridgeType = kafka,
+    ResourceID = emqx_bridge_resource:resource_id(BridgeType, BridgeName),
     #{
         name => make_producer_name(BridgeName),
         partitioner => PartitionStrategy,
@@ -234,7 +248,8 @@ producers_config(BridgeName, ClientId, Input) ->
         required_acks => RequiredAcks,
         max_batch_bytes => MaxBatchBytes,
         max_send_ahead => MaxInflight - 1,
-        compression => Compression
+        compression => Compression,
+        telemetry_meta_data => #{bridge_id => ResourceID}
     }.
 
 replayq_dir(ClientId) ->
@@ -268,3 +283,96 @@ get_required(Field, Config, Throw) ->
     Value = maps:get(Field, Config, none),
     Value =:= none andalso throw(Throw),
     Value.
+
+handle_telemetry_event(
+    [wolff, dropped],
+    #{counter_inc := Val},
+    #{bridge_id := ID},
+    _HandlerConfig
+) when is_integer(Val) ->
+    emqx_resource_metrics:dropped_inc(ID, Val);
+handle_telemetry_event(
+    [wolff, dropped_queue_full],
+    #{counter_inc := Val},
+    #{bridge_id := ID},
+    _HandlerConfig
+) when is_integer(Val) ->
+    emqx_resource_metrics:dropped_queue_full_inc(ID, Val);
+handle_telemetry_event(
+    [wolff, queuing],
+    #{counter_inc := Val},
+    #{bridge_id := ID},
+    _HandlerConfig
+) when is_integer(Val) ->
+    emqx_resource_metrics:queuing_change(ID, Val);
+handle_telemetry_event(
+    [wolff, retried],
+    #{counter_inc := Val},
+    #{bridge_id := ID},
+    _HandlerConfig
+) when is_integer(Val) ->
+    emqx_resource_metrics:retried_inc(ID, Val);
+handle_telemetry_event(
+    [wolff, failed],
+    #{counter_inc := Val},
+    #{bridge_id := ID},
+    _HandlerConfig
+) when is_integer(Val) ->
+    emqx_resource_metrics:failed_inc(ID, Val);
+handle_telemetry_event(
+    [wolff, inflight],
+    #{counter_inc := Val},
+    #{bridge_id := ID},
+    _HandlerConfig
+) when is_integer(Val) ->
+    emqx_resource_metrics:inflight_change(ID, Val);
+handle_telemetry_event(
+    [wolff, retried_failed],
+    #{counter_inc := Val},
+    #{bridge_id := ID},
+    _HandlerConfig
+) when is_integer(Val) ->
+    emqx_resource_metrics:retried_failed_inc(ID, Val);
+handle_telemetry_event(
+    [wolff, retried_success],
+    #{counter_inc := Val},
+    #{bridge_id := ID},
+    _HandlerConfig
+) when is_integer(Val) ->
+    emqx_resource_metrics:retried_success_inc(ID, Val);
+handle_telemetry_event(_EventId, _Metrics, _MetaData, _HandlerConfig) ->
+    %% Event that we do not handle
+    ok.
+
+-spec telemetry_handler_id(emqx_resource:resource_id()) -> binary().
+telemetry_handler_id(InstanceID) ->
+    <<"emqx-bridge-kafka-producer-", InstanceID/binary>>.
+
+uninstall_telemetry_handlers(InstanceID) ->
+    HandlerID = telemetry_handler_id(InstanceID),
+    telemetry:detach(HandlerID).
+
+maybe_install_wolff_telemetry_handlers(InstanceID) ->
+    %% Attach event handlers for Kafka telemetry events. If a handler with the
+    %% handler id already exists, the attach_many function does nothing
+    telemetry:attach_many(
+        %% unique handler id
+        telemetry_handler_id(InstanceID),
+        %% Note: we don't handle `[wolff, success]' because,
+        %% currently, we already increment the success counter for
+        %% this resource at `emqx_rule_runtime:handle_action' when
+        %% the response is `ok' and we would double increment it
+        %% here.
+        [
+            [wolff, dropped],
+            [wolff, dropped_queue_full],
+            [wolff, queuing],
+            [wolff, retried],
+            [wolff, failed],
+            [wolff, inflight],
+            [wolff, retried_failed],
+            [wolff, retried_success]
+        ],
+        fun ?MODULE:handle_telemetry_event/4,
+        []
+    ).

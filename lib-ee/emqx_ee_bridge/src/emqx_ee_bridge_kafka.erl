@@ -145,7 +145,7 @@ fields(producer_opts) ->
             })}
     ];
 fields(producer_mqtt_opts) ->
-    [{topic, mk(string(), #{desc => ?DESC(mqtt_topic)})}];
+    [{topic, mk(binary(), #{desc => ?DESC(mqtt_topic)})}];
 fields(producer_kafka_opts) ->
     [
         {topic, mk(string(), #{required => true, desc => ?DESC(kafka_topic)})},

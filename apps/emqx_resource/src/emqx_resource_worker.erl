@@ -80,27 +80,23 @@ start_link(Id, Index, Opts) ->
 sync_query(Id, Request, Opts) ->
     PickKey = maps:get(pick_key, Opts, self()),
     Timeout = maps:get(timeout, Opts, infinity),
-    ok = emqx_metrics_worker:inc(?RES_METRICS, Id, 'matched'),
     pick_call(Id, PickKey, {query, Request, Opts}, Timeout).
 
 -spec async_query(id(), request(), query_opts()) -> Result :: term().
 async_query(Id, Request, Opts) ->
     PickKey = maps:get(pick_key, Opts, self()),
-    ok = emqx_metrics_worker:inc(?RES_METRICS, Id, 'matched'),
     pick_cast(Id, PickKey, {query, Request, Opts}).
 
 %% simple query the resource without batching and queuing messages.
 -spec simple_sync_query(id(), request()) -> Result :: term().
 simple_sync_query(Id, Request) ->
     Result = call_query(sync, Id, ?QUERY(self(), Request, false), #{}),
-    ok = emqx_metrics_worker:inc(?RES_METRICS, Id, 'matched'),
     _ = handle_query_result(Id, Result, false, false),
     Result.
 
 -spec simple_async_query(id(), request(), reply_fun()) -> Result :: term().
 simple_async_query(Id, Request, ReplyFun) ->
     Result = call_query(async, Id, ?QUERY(ReplyFun, Request, false), #{}),
-    ok = emqx_metrics_worker:inc(?RES_METRICS, Id, 'matched'),
     _ = handle_query_result(Id, Result, false, false),
     Result.
 
@@ -134,7 +130,7 @@ init({Id, Index, Opts}) ->
             false ->
                 undefined
         end,
-    emqx_metrics_worker:inc(?RES_METRICS, Id, 'queuing', queue_count(Queue)),
+    emqx_resource_metrics:queuing_change(Id, queue_count(Queue)),
     InfltWinSZ = maps:get(async_inflight_window, Opts, ?DEFAULT_INFLIGHT),
     ok = inflight_new(Name, InfltWinSZ),
     HCItvl = maps:get(health_check_interval, Opts, ?HEALTHCHECK_INTERVAL),
@@ -297,7 +293,7 @@ retry_inflight_sync(
 
 query_or_acc(From, Request, #{enable_batch := true, acc := Acc, acc_left := Left, id := Id} = St0) ->
     Acc1 = [?QUERY(From, Request, false) | Acc],
-    emqx_metrics_worker:inc(?RES_METRICS, Id, 'batching'),
+    emqx_resource_metrics:batching_change(Id, 1),
     St = St0#{acc := Acc1, acc_left := Left - 1},
     case Left =< 1 of
         true -> flush(St);
@@ -330,7 +326,7 @@ flush(
     QueryOpts = #{
         inflight_name => maps:get(name, St)
     },
-    emqx_metrics_worker:inc(?RES_METRICS, Id, 'batching', -length(Batch)),
+    emqx_resource_metrics:batching_change(Id, -length(Batch)),
     Result = call_query(configured, Id, Batch, QueryOpts),
     St1 = cancel_flush_timer(St#{acc_left := Size, acc := []}),
     case batch_reply_caller(Id, Result, Batch) of
@@ -380,18 +376,15 @@ handle_query_result(_Id, ?RESOURCE_ERROR_M(NotWorking, _), _HasSent, _) when
     true;
 handle_query_result(Id, ?RESOURCE_ERROR_M(not_found, Msg), _HasSent, BlockWorker) ->
     ?SLOG(error, #{id => Id, msg => resource_not_found, info => Msg}),
-    emqx_metrics_worker:inc(?RES_METRICS, Id, 'dropped'),
-    emqx_metrics_worker:inc(?RES_METRICS, Id, 'dropped.resource_not_found'),
+    emqx_resource_metrics:dropped_resource_not_found_inc(Id),
     BlockWorker;
 handle_query_result(Id, ?RESOURCE_ERROR_M(stopped, Msg), _HasSent, BlockWorker) ->
     ?SLOG(error, #{id => Id, msg => resource_stopped, info => Msg}),
-    emqx_metrics_worker:inc(?RES_METRICS, Id, 'dropped'),
-    emqx_metrics_worker:inc(?RES_METRICS, Id, 'dropped.resource_stopped'),
+    emqx_resource_metrics:dropped_resource_stopped_inc(Id),
     BlockWorker;
 handle_query_result(Id, ?RESOURCE_ERROR_M(Reason, _), _HasSent, BlockWorker) ->
     ?SLOG(error, #{id => Id, msg => other_resource_error, reason => Reason}),
-    emqx_metrics_worker:inc(?RES_METRICS, Id, 'dropped'),
-    emqx_metrics_worker:inc(?RES_METRICS, Id, 'dropped.other'),
+    emqx_resource_metrics:dropped_other_inc(Id),
     BlockWorker;
 handle_query_result(Id, {error, {recoverable_error, Reason}}, _HasSent, _BlockWorker) ->
     %% the message will be queued in replayq or inflight window,
@@ -417,6 +410,7 @@ handle_query_result(Id, Result, HasSent, BlockWorker) ->
     BlockWorker.
 
 call_query(QM0, Id, Query, QueryOpts) ->
+    ?tp(call_query_enter, #{id => Id, query => Query}),
     case emqx_resource_manager:ets_lookup(Id) of
         {ok, _Group, #{mod := Mod, state := ResSt, status := connected} = Data} ->
             QM =
@@ -425,10 +419,13 @@ call_query(QM0, Id, Query, QueryOpts) ->
                     _ -> QM0
                 end,
             CM = maps:get(callback_mode, Data),
+            emqx_resource_metrics:matched_inc(Id),
             apply_query_fun(call_mode(QM, CM), Mod, Id, Query, ResSt, QueryOpts);
         {ok, _Group, #{status := stopped}} ->
+            emqx_resource_metrics:matched_inc(Id),
             ?RESOURCE_ERROR(stopped, "resource stopped or disabled");
         {ok, _Group, #{status := S}} when S == connecting; S == disconnected ->
+            emqx_resource_metrics:matched_inc(Id),
             ?RESOURCE_ERROR(not_connected, "resource not connected");
         {error, not_found} ->
             ?RESOURCE_ERROR(not_found, "resource not found")
@@ -464,7 +461,7 @@ apply_query_fun(async, Mod, Id, ?QUERY(_, Request, _) = Query, ResSt, QueryOpts)
             true ->
                 {async_return, inflight_full};
             false ->
-                ok = emqx_metrics_worker:inc(?RES_METRICS, Id, 'inflight'),
+                ok = emqx_resource_metrics:inflight_change(Id, 1),
                 ReplyFun = fun ?MODULE:reply_after_query/6,
                 Ref = make_message_ref(),
                 Args = [self(), Id, Name, Ref, Query],
@@ -488,7 +485,7 @@ apply_query_fun(async, Mod, Id, [?QUERY(_, _, _) | _] = Batch, ResSt, QueryOpts)
                 {async_return, inflight_full};
             false ->
                 BatchLen = length(Batch),
-                ok = emqx_metrics_worker:inc(?RES_METRICS, Id, 'inflight', BatchLen),
+                ok = emqx_resource_metrics:inflight_change(Id, BatchLen),
                 ReplyFun = fun ?MODULE:batch_reply_after_query/6,
                 Ref = make_message_ref(),
                 Args = {ReplyFun, [self(), Id, Name, Ref, Batch]},
@@ -503,12 +500,12 @@ apply_query_fun(async, Mod, Id, [?QUERY(_, _, _) | _] = Batch, ResSt, QueryOpts)
 reply_after_query(Pid, Id, Name, Ref, ?QUERY(From, Request, HasSent), Result) ->
     %% NOTE: 'inflight' is message count that sent async but no ACK received,
     %%        NOT the message number ququed in the inflight window.
-    emqx_metrics_worker:inc(?RES_METRICS, Id, 'inflight', -1),
+    emqx_resource_metrics:inflight_change(Id, -1),
     case reply_caller(Id, ?REPLY(From, Request, HasSent, Result)) of
         true ->
             %% we marked these messages are 'queuing' although they are actually
             %% keeped in inflight window, not replayq
-            emqx_metrics_worker:inc(?RES_METRICS, Id, 'queuing'),
+            emqx_resource_metrics:queuing_change(Id, 1),
             ?MODULE:block(Pid);
         false ->
             drop_inflight_and_resume(Pid, Name, Ref)
@@ -518,12 +515,12 @@ batch_reply_after_query(Pid, Id, Name, Ref, Batch, Result) ->
     %% NOTE: 'inflight' is message count that sent async but no ACK received,
     %%        NOT the message number ququed in the inflight window.
     BatchLen = length(Batch),
-    emqx_metrics_worker:inc(?RES_METRICS, Id, 'inflight', -BatchLen),
+    emqx_resource_metrics:inflight_change(Id, -BatchLen),
     case batch_reply_caller(Id, Result, Batch) of
         true ->
             %% we marked these messages are 'queuing' although they are actually
-            %% keeped in inflight window, not replayq
-            emqx_metrics_worker:inc(?RES_METRICS, Id, 'queuing', BatchLen),
+            %% kept in inflight window, not replayq
+            emqx_resource_metrics:queuing_change(Id, BatchLen),
             ?MODULE:block(Pid);
         false ->
             drop_inflight_and_resume(Pid, Name, Ref)
@@ -549,8 +546,7 @@ estimate_size(QItem) ->
     size(queue_item_marshaller(QItem)).
 
 maybe_append_queue(Id, undefined, _Items) ->
-    emqx_metrics_worker:inc(?RES_METRICS, Id, 'dropped'),
-    emqx_metrics_worker:inc(?RES_METRICS, Id, 'dropped.queue_not_enabled'),
+    emqx_resource_metrics:dropped_queue_not_enabled_inc(Id),
     undefined;
 maybe_append_queue(Id, Q, Items) ->
     Q2 =
@@ -562,13 +558,12 @@ maybe_append_queue(Id, Q, Items) ->
                 {Q1, QAckRef, Items2} = replayq:pop(Q, PopOpts),
                 ok = replayq:ack(Q1, QAckRef),
                 Dropped = length(Items2),
-                emqx_metrics_worker:inc(?RES_METRICS, Id, 'queuing', -Dropped),
-                emqx_metrics_worker:inc(?RES_METRICS, Id, 'dropped'),
-                emqx_metrics_worker:inc(?RES_METRICS, Id, 'dropped.queue_full'),
+                emqx_resource_metrics:queuing_change(Id, -Dropped),
+                emqx_resource_metrics:dropped_queue_full_inc(Id),
                 ?SLOG(error, #{msg => drop_query, reason => queue_full, dropped => Dropped}),
                 Q1
         end,
-    emqx_metrics_worker:inc(?RES_METRICS, Id, 'queuing'),
+    emqx_resource_metrics:queuing_change(Id, 1),
     replayq:append(Q2, Items).
 
 get_first_n_from_queue(Q, N) ->
@@ -590,7 +585,7 @@ drop_first_n_from_queue(Q, N, Id) when N > 0 ->
 drop_head(Q, Id) ->
     {Q1, AckRef, _} = replayq:pop(Q, #{count_limit => 1}),
     ok = replayq:ack(Q1, AckRef),
-    emqx_metrics_worker:inc(?RES_METRICS, Id, 'queuing', -1),
+    emqx_resource_metrics:queuing_change(Id, -1),
     Q1.
 
 %%==============================================================================
@@ -644,19 +639,15 @@ inflight_drop(Name, Ref) ->
 
 %%==============================================================================
 
-inc_sent_failed(Id, true) ->
-    emqx_metrics_worker:inc(?RES_METRICS, Id, 'failed'),
-    emqx_metrics_worker:inc(?RES_METRICS, Id, 'retried'),
-    emqx_metrics_worker:inc(?RES_METRICS, Id, 'retried.failed');
+inc_sent_failed(Id, _HasSent = true) ->
+    emqx_resource_metrics:retried_failed_inc(Id);
 inc_sent_failed(Id, _HasSent) ->
-    emqx_metrics_worker:inc(?RES_METRICS, Id, 'failed').
+    emqx_resource_metrics:failed_inc(Id).
 
-inc_sent_success(Id, true) ->
-    emqx_metrics_worker:inc(?RES_METRICS, Id, 'success'),
-    emqx_metrics_worker:inc(?RES_METRICS, Id, 'retried'),
-    emqx_metrics_worker:inc(?RES_METRICS, Id, 'retried.success');
+inc_sent_success(Id, _HasSent = true) ->
+    emqx_resource_metrics:retried_success_inc(Id);
 inc_sent_success(Id, _HasSent) ->
-    emqx_metrics_worker:inc(?RES_METRICS, Id, 'success').
+    emqx_resource_metrics:success_inc(Id).
 
 call_mode(sync, _) -> sync;
 call_mode(async, always_sync) -> sync;

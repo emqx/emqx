@@ -63,6 +63,7 @@ defmodule EMQXUmbrella.MixProject do
       {:rulesql, github: "emqx/rulesql", tag: "0.1.4"},
       {:observer_cli, "1.7.1"},
       {:system_monitor, github: "ieQu1/system_monitor", tag: "3.0.3"},
+      {:telemetry, "1.1.0"},
       # in conflict by emqtt and hocon
       {:getopt, "1.0.2", override: true},
       {:snabbkaffe, github: "kafka4beam/snabbkaffe", tag: "1.0.0", override: true},
@@ -130,7 +131,7 @@ defmodule EMQXUmbrella.MixProject do
     [
       {:hstreamdb_erl, github: "hstreamdb/hstreamdb_erl", tag: "0.2.5"},
       {:influxdb, github: "emqx/influxdb-client-erl", tag: "1.1.4", override: true},
-      {:wolff, github: "kafka4beam/wolff", tag: "1.6.4"},
+      {:wolff, github: "kafka4beam/wolff", tag: "1.7.0"},
       {:kafka_protocol, github: "kafka4beam/kafka_protocol", tag: "4.1.0", override: true},
       {:brod_gssapi, github: "kafka4beam/brod_gssapi", tag: "v0.1.0-rc1"},
       {:brod, github: "kafka4beam/brod", tag: "3.16.4"},
@@ -207,6 +208,7 @@ defmodule EMQXUmbrella.MixProject do
       redbug: :permanent,
       xmerl: :permanent,
       hocon: :load,
+      telemetry: :permanent,
       emqx: :load,
       emqx_conf: :load,
       emqx_machine: :permanent
