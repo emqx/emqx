@@ -47,6 +47,7 @@
 -include("emqx_mqtt.hrl").
 -include("logger.hrl").
 -include("types.hrl").
+-include_lib("snabbkaffe/include/snabbkaffe.hrl").
 
 -logger_header("[Session]").
 
@@ -627,8 +628,7 @@ replay(ClientInfo, Session = #session{inflight = Inflight}) ->
 -spec(terminate(emqx_types:clientinfo(), Reason :: term(), session()) -> ok).
 terminate(ClientInfo, Reason, Session) ->
     run_terminate_hooks(ClientInfo, Reason, Session),
-    Reason =/= takeovered andalso
-        redispatch_shared_messages(Session),
+    maybe_redispatch_shared_messages(Reason, Session),
     ok.
 
 run_terminate_hooks(ClientInfo, discarded, Session) ->
@@ -638,7 +638,13 @@ run_terminate_hooks(ClientInfo, takeovered, Session) ->
 run_terminate_hooks(ClientInfo, Reason, Session) ->
     run_hook('session.terminated', [ClientInfo, Reason, info(Session)]).
 
-redispatch_shared_messages(#session{inflight = Inflight, mqueue = Q}) ->
+maybe_redispatch_shared_messages({shutdown, takenover}, _Session) ->
+    ?tp(debug, ignore_redispatch_shared_messages, #{reason => takenover}),
+    ok;
+maybe_redispatch_shared_messages({shutdown, kicked}, _Session) ->
+    ?tp(debug, ignore_redispatch_shared_messages, #{reason => kicked}),
+    ok;
+maybe_redispatch_shared_messages(_Reason, #session{inflight = Inflight, mqueue = Q}) ->
     AllInflights = emqx_inflight:to_list(sort_fun(), Inflight),
     F = fun({_, {Msg, _Ts}}) ->
             case Msg of
