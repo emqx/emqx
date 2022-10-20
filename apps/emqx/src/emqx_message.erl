@@ -74,7 +74,8 @@
     to_map/1,
     to_log_map/1,
     to_list/1,
-    from_map/1
+    from_map/1,
+    estimate_size/1
 ]).
 
 -export_type([message_map/0]).
@@ -174,6 +175,18 @@ make(MsgId, From, QoS, Topic, Payload, Flags, Headers) when
         payload = Payload,
         timestamp = Now
     }.
+
+%% optimistic esitmation of a message size after serialization
+%% not including MQTT v5 message headers/user properties etc.
+-spec estimate_size(emqx_types:message()) -> non_neg_integer().
+estimate_size(#message{topic = Topic, payload = Payload}) ->
+    FixedHeaderSize = 1,
+    VarLenSize = 4,
+    TopicSize = iolist_size(Topic),
+    PayloadSize = iolist_size(Payload),
+    PacketIdSize = 2,
+    TopicLengthSize = 2,
+    FixedHeaderSize + VarLenSize + TopicLengthSize + TopicSize + PacketIdSize + PayloadSize.
 
 -spec id(emqx_types:message()) -> maybe(binary()).
 id(#message{id = Id}) -> Id.
