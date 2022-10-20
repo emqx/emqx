@@ -2494,6 +2494,52 @@ end}.
   {datatype, {enum, [true, false]}}
 ]}.
 
+
+{mapping, "broker.hook_order.$name.$hp_or_order", "emqx.hook_order", [
+  {datatype, string}
+]}.
+
+%% @doc Set explicit callback order for particular callbacks of particular hook points
+%%
+%% For example, to make JWT acl checks always preceed HTTP ACL checks, one may add:
+%%
+%% broker.hook_order.acl.hook_point = client.check_acl
+%% broker.hook_order.acl.1 = emqx_auth_jwt
+%% broker.hook_order.acl.2 = emqx_auth_http
+%%
+%% Callbacks with explicit ordering always have higher priority than the others.
+{translation, "emqx.hook_order", fun(Conf) ->
+ Conf0 = cuttlefish_variable:filter_by_prefix("broker.hook_order", Conf),
+ HookOrders = lists:foldl(
+                fun({["broker", "hook_order", Name, "hook_point"], HookPoint}, AccHookOrders) ->
+                        HookOrder = maps:get(Name, AccHookOrders, #{}),
+                        NHookOrder = HookOrder#{hook_point => list_to_atom(HookPoint)},
+                        AccHookOrders#{Name => NHookOrder};
+                   ({["broker", "hook_order", Name, NStr], HookModule}, AccHookOrders) ->
+                        case string:to_integer(NStr) of
+                            {N, ""} ->
+                                HookOrder = maps:get(Name, AccHookOrders, #{}),
+                                HookOrderMods = maps:get(mods, HookOrder, []),
+                                NHookOrder = HookOrder#{mods => [{list_to_atom(HookModule), N} | HookOrderMods]},
+                                AccHookOrders#{Name => NHookOrder};
+                            _ ->
+                                AccHookOrders
+                        end;
+                   (_, AccHookOrders) ->
+                        AccHookOrders
+                end,
+                #{},
+                Conf0),
+ SimplifiedHookOrders = lists:map(
+                          fun({Name, HookOrder}) ->
+                                  HookPoint = maps:get(hook_point, HookOrder, list_to_atom(Name)),
+                                  Mods = maps:get(mods, HookOrder, []),
+                                  {HookPoint, maps:from_list(Mods)}
+                          end,
+                          maps:to_list(HookOrders)),
+ maps:from_list(SimplifiedHookOrders)
+end}.
+
 %%--------------------------------------------------------------------
 %% System Monitor
 %%--------------------------------------------------------------------

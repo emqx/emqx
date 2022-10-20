@@ -23,6 +23,12 @@
 
 all() -> emqx_ct:all(?MODULE).
 
+init_per_testcase(_Test, Config) ->
+    Config.
+
+end_per_testcase(_Test, _Config) ->
+    _ = clear_orders().
+
 % t_lookup(_) ->
 %     error('TODO').
 
@@ -37,7 +43,7 @@ all() -> emqx_ct:all(?MODULE).
 
 % t_add(_) ->
 %     error('TODO').
-    
+
 t_add_del_hook(_) ->
     {ok, _} = emqx_hooks:start_link(),
     ok = emqx:hook(test_hook, fun ?MODULE:hook_fun1/1, []),
@@ -107,6 +113,42 @@ t_uncovered_func(_) ->
     Pid ! test,
     ok = emqx_hooks:stop().
 
+t_explicit_order(_) ->
+    {ok, _} = emqx_hooks:start_link(),
+
+    ok = set_orders(hookpoint, [mod_a, mod_b]),
+
+    ok = emqx:hook(hookpoint, {mod_c, cb, []}, 5),
+    ok = emqx:hook(hookpoint, {mod_d, cb, []}, 0),
+    ok = emqx:hook(hookpoint, {mod_b, cb, []}, 0),
+    ok = emqx:hook(hookpoint, {mod_a, cb, []}, -1),
+    ok = emqx:hook(hookpoint, {mod_e, cb, []}, -1),
+
+    ?assertEqual(
+       [
+        {mod_a, cb, []},
+        {mod_b, cb, []},
+        {mod_c, cb, []},
+        {mod_d, cb, []},
+        {mod_e, cb, []}
+       ],
+       get_hookpoint_callbacks(hookpoint)).
+
+%%--------------------------------------------------------------------
+%% Helpers
+%%--------------------------------------------------------------------
+
+set_orders(HookPoint, Mods) ->
+    Orders = maps:from_list(lists:zip(Mods, lists:seq(0, length(Mods) - 1))),
+    application:set_env(emqx, hook_order, #{HookPoint => Orders}).
+
+clear_orders() ->
+    application:set_env(emqx, hook_order, #{}).
+
+get_hookpoint_callbacks(HookPoint) ->
+    [emqx_hooks:callback_action(C) || C <- emqx_hooks:lookup(HookPoint)].
+
+
 %%--------------------------------------------------------------------
 %% Hook fun
 %%--------------------------------------------------------------------
@@ -140,4 +182,3 @@ hook_filter2(_, _Acc, _IntArg) -> false.
 hook_filter2_1(arg, _Acc, init_arg)  -> true;
 hook_filter2_1(arg1, _Acc, init_arg) -> true;
 hook_filter2_1(_, _Acc, _IntArg)     -> false.
-
