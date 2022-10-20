@@ -127,7 +127,7 @@ jobs:
             build_machine: aws-arm64
         include:
           - arch: amd64
-            profile: emqx
+            profile: ${{ matrix.profile }}
             build_elixir: with_elixir
             registry: 'docker.io'
             os: [debian11, "debian:11-slim", "deploy/docker/Dockerfile"]
@@ -135,7 +135,7 @@ jobs:
             elixir: 1.13.4
             build_machine: ubuntu-20.04
           - arch: arm64
-            profile: emqx
+            profile: ${{ matrix.profile }}
             build_elixir: with_elixir
             registry: 'docker.io'
             os: [debian11, "debian:11-slim", "deploy/docker/Dockerfile"]
@@ -266,7 +266,7 @@ jobs:
             build_machine: aws-arm64
         include:
           - arch: amd64
-            profile: emqx
+            profile: ${{ matrix.profile }}
             build_elixir: with_elixir
             os: [debian11, "debian:11-slim", "deploy/docker/Dockerfile"]
             otp: 24.2.1-1
