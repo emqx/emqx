@@ -10,6 +10,7 @@
   This change fixed it to only send back the message ID.
 * Add /trace/:name/log_detail HTTP API to return trace file's size and mtime [#9152](https://github.com/emqx/emqx/pull/9152)
 * Allow clear retained/delayed data when client is banned.[#9139](https://github.com/emqx/emqx/pull/9139)
+* Update `gen_rpc` library to version 3.0 [#9187](https://github.com/emqx/emqx/pull/9187)
 
 ## Bug fixes
 
