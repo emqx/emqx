@@ -235,14 +235,15 @@ lookup(HookPoint) ->
 
 init([]) ->
     ok = emqx_tables:new(?TAB, [{keypos, #hook.name}, {read_concurrency, true}]),
-    {ok, #{}}.
+    HookOrders = emqx:get_env(hook_order, #{}),
+    {ok, #{hook_orders => HookOrders}}.
 
 handle_call({add, HookPoint, Callback = #callback{action = Action}}, _From, State) ->
     Reply = case lists:keymember(Action, #callback.action, Callbacks = lookup(HookPoint)) of
                 true ->
                     {error, already_exists};
                 false ->
-                    insert_hook(HookPoint, add_callback(Callback, Callbacks))
+                    insert_hook(HookPoint, add_callback(callback_orders(HookPoint), Callback, Callbacks))
             end,
     {reply, Reply, State};
 
@@ -280,16 +281,18 @@ code_change(_OldVsn, State, _Extra) ->
 insert_hook(HookPoint, Callbacks) ->
     ets:insert(?TAB, #hook{name = HookPoint, callbacks = Callbacks}), ok.
 
-add_callback(C, Callbacks) ->
-    add_callback(C, Callbacks, []).
+add_callback(Orders, C, Callbacks) ->
+    add_callback(Orders, C, Callbacks, []).
 
-add_callback(C, [], Acc) ->
+add_callback(_Orders, C, [], Acc) ->
     lists:reverse([C|Acc]);
-add_callback(C1 = #callback{priority = P1}, [C2 = #callback{priority = P2}|More], Acc)
-    when P1 =< P2 ->
-    add_callback(C1, More, [C2|Acc]);
-add_callback(C1, More, Acc) ->
-    lists:append(lists:reverse(Acc), [C1 | More]).
+add_callback(Orders, C1, [C2|More], Acc) ->
+    case is_lower_priority(Orders, C1, C2) of
+        true ->
+            add_callback(Orders, C1, More, [C2|Acc]);
+        false ->
+            lists:append(lists:reverse(Acc), [C1, C2 | More])
+    end.
 
 del_callback(Action, Callbacks) ->
     del_callback(Action, Callbacks, []).
@@ -304,3 +307,44 @@ del_callback(Func, [#callback{action = {Func, _A}} | Callbacks], Acc) ->
     del_callback(Func, Callbacks, Acc);
 del_callback(Action, [Callback | Callbacks], Acc) ->
     del_callback(Action, Callbacks, [Callback | Acc]).
+
+
+%% does A have lower priority than B?
+is_lower_priority(Orders,
+                  #callback{priority = PrA, action = ActA},
+                  #callback{priority = PrB, action = ActB}) ->
+    OrdA = callback_order(Orders, ActA),
+    OrdB = callback_order(Orders, ActB),
+    case {OrdA, OrdB} of
+        %% if both action positions are not specified, use priority
+        {undefined, undefined} ->
+            PrA =< PrB;
+        %% actions with specified positions have higher priority
+        {_OrdA, undefined} ->
+            false;
+        %% actions with specified positions have higher priority
+        {undefined, _OrdB} ->
+            true;
+        %% if both action positions are specified, the last one has the lower priority
+        _ ->
+            OrdA >= OrdB
+    end.
+
+callback_orders(HookPoint) ->
+    case hook_orders() of
+        #{HookPoint := CallbackOrders} -> CallbackOrders;
+        _ -> #{}
+    end.
+
+hook_orders() ->
+    case emqx:get_env(hook_order, #{}) of
+        Map when is_map(Map) -> Map;
+        _ -> #{}
+    end.
+
+callback_order(Orders, {M, _F, _A}) ->
+    case Orders of
+        #{M := N} -> N;
+        _ -> undefined
+    end;
+callback_order(_Orders, _Action) -> undefined.
