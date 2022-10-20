@@ -32,11 +32,13 @@
 -export([
     check/1,
     create/1,
+    create/2,
     look_up/1,
     delete/1,
     info/1,
     format/1,
-    parse/1
+    parse/1,
+    parse_opts/1
 ]).
 
 %% gen_server callbacks
@@ -62,6 +64,13 @@
 -compile(export_all).
 -compile(nowarn_export_all).
 -endif.
+
+-type banned_opts() :: #{
+    clean => boolean(),
+    atom() => term()
+}.
+
+-export_type([banned_opts/0]).
 
 %%--------------------------------------------------------------------
 %% Mnesia bootstrap
@@ -141,6 +150,11 @@ parse(Params) ->
                     {error, ErrorReason}
             end
     end.
+
+parse_opts(Params) ->
+    Clean = maps:get(<<"clean">>, Params, false),
+    #{clean => Clean}.
+
 pares_who(#{as := As, who := Who}) ->
     pares_who(#{<<"as">> => As, <<"who">> => Who});
 pares_who(#{<<"as">> := peerhost, <<"who">> := Peerhost0}) ->
@@ -162,13 +176,15 @@ to_rfc3339(Timestamp) ->
 
 -spec create(emqx_types:banned() | map()) ->
     {ok, emqx_types:banned()} | {error, {already_exist, emqx_types:banned()}}.
-create(#{
-    who := Who,
-    by := By,
-    reason := Reason,
-    at := At,
-    until := Until
-}) ->
+create(
+    #{
+        who := Who,
+        by := By,
+        reason := Reason,
+        at := At,
+        until := Until
+    } = Data
+) ->
     Banned = #banned{
         who = Who,
         by = By,
@@ -176,11 +192,16 @@ create(#{
         at = At,
         until = Until
     },
-    create(Banned);
-create(Banned = #banned{who = Who}) ->
+    create(Banned, Data);
+create(Banned = #banned{}) ->
+    create(Banned, #{clean => false}).
+
+-spec create(emqx_types:banned(), banned_opts()) ->
+    {ok, emqx_types:banned()} | {error, {already_exist, emqx_types:banned()}}.
+create(Banned = #banned{who = Who}, Opts) ->
     case look_up(Who) of
         [] ->
-            mria:dirty_write(?BANNED_TAB, Banned),
+            insert_banned(Banned, Opts),
             {ok, Banned};
         [OldBanned = #banned{until = Until}] ->
             %% Don't support shorten or extend the until time by overwrite.
@@ -190,7 +211,7 @@ create(Banned = #banned{who = Who}) ->
                     {error, {already_exist, OldBanned}};
                 %% overwrite expired one is ok.
                 false ->
-                    mria:dirty_write(?BANNED_TAB, Banned),
+                    insert_banned(Banned, Opts),
                     {ok, Banned}
             end
     end.
@@ -266,3 +287,12 @@ expire_banned_items(Now) ->
         ok,
         ?BANNED_TAB
     ).
+
+insert_banned(Banned, Opts) ->
+    mria:dirty_write(?BANNED_TAB, Banned),
+    run_hooks(Banned, Opts).
+
+run_hooks(Banned, #{clean := true}) ->
+    emqx_hooks:run('client.banned', [Banned]);
+run_hooks(_Banned, _Opts) ->
+    ok.

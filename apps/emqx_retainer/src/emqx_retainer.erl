@@ -19,6 +19,7 @@
 -behaviour(gen_server).
 
 -include("emqx_retainer.hrl").
+-include_lib("emqx/include/emqx.hrl").
 -include_lib("emqx/include/logger.hrl").
 -include_lib("emqx/include/emqx_hooks.hrl").
 
@@ -26,7 +27,8 @@
 
 -export([
     on_session_subscribed/4,
-    on_message_publish/2
+    on_message_publish/2,
+    on_client_banned/1
 ]).
 
 -export([
@@ -39,6 +41,7 @@
     get_expiry_time/1,
     update_config/1,
     clean/0,
+    clean_by_clientid/1,
     delete/1,
     page_read/3,
     post_config_update/5,
@@ -80,6 +83,7 @@
 -callback match_messages(context(), topic(), cursor()) -> {ok, list(), cursor()}.
 -callback clear_expired(context()) -> ok.
 -callback clean(context()) -> ok.
+-callback clean_by_clientid(context(), emqx_types:clientid()) -> ok.
 -callback size(context()) -> non_neg_integer().
 
 %%--------------------------------------------------------------------
@@ -118,6 +122,11 @@ on_message_publish(Msg = #message{flags = #{retain := true}}, Context) ->
 on_message_publish(Msg, _) ->
     {ok, Msg}.
 
+on_client_banned(#banned{who = {clientid, ClientId}}) ->
+    clean_by_clientid(ClientId);
+on_client_banned(_) ->
+    ok.
+
 %%--------------------------------------------------------------------
 %% APIs
 %%--------------------------------------------------------------------
@@ -150,6 +159,9 @@ update_config(Conf) ->
 
 clean() ->
     call(?FUNCTION_NAME).
+
+clean_by_clientid(ClientId) ->
+    call({?FUNCTION_NAME, ClientId}).
 
 delete(Topic) ->
     call({?FUNCTION_NAME, Topic}).
@@ -206,6 +218,9 @@ handle_call({update_config, NewConf, OldConf}, _, State) ->
     {reply, ok, State2};
 handle_call(clean, _, #{context := Context} = State) ->
     clean(Context),
+    {reply, ok, State};
+handle_call({clean_by_clientid, ClientId}, _, #{context := Context} = State) ->
+    clean_by_clientid(Context, ClientId),
     {reply, ok, State};
 handle_call({delete, Topic}, _, #{context := Context} = State) ->
     delete_message(Context, Topic),
@@ -297,6 +312,11 @@ store_retained(Context, #message{topic = Topic, payload = Payload} = Msg) ->
 clean(Context) ->
     Mod = get_backend_module(),
     Mod:clean(Context).
+
+-spec clean_by_clientid(context(), emqx_types:clientid()) -> ok.
+clean_by_clientid(Context, ClientId) ->
+    Mod = get_backend_module(),
+    Mod:clean_by_clientid(Context, ClientId).
 
 -spec update_config(state(), hocons:config(), hocons:config()) -> state().
 update_config(State, Conf, OldConf) ->
@@ -433,11 +453,13 @@ load(Context) ->
         'session.subscribed', {?MODULE, on_session_subscribed, [Context]}, ?HP_RETAINER
     ),
     ok = emqx_hooks:put('message.publish', {?MODULE, on_message_publish, [Context]}, ?HP_RETAINER),
+    ok = emqx_hooks:put('client.banned', {?MODULE, on_client_banned, []}, ?HP_LOWEST),
     emqx_stats:update_interval(emqx_retainer_stats, fun ?MODULE:stats_fun/0),
     ok.
 
 unload() ->
     ok = emqx_hooks:del('message.publish', {?MODULE, on_message_publish}),
     ok = emqx_hooks:del('session.subscribed', {?MODULE, on_session_subscribed}),
+    ok = emqx_hooks:del('client.banned', {?MODULE, on_client_banned}),
     emqx_stats:cancel_update(emqx_retainer_stats),
     ok.

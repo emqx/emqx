@@ -121,7 +121,7 @@ handle_cast(
             started_at = StartedAt,
             detect_cnt = DetectCnt
         },
-        #{window_time := WindTime, ban_time := Interval}},
+        #{window_time := WindTime, ban_time := Interval, clean_when_banned := Clean}},
     State
 ) ->
     case now_diff(StartedAt) < WindTime of
@@ -145,7 +145,7 @@ handle_cast(
                 at = Now,
                 until = Now + (Interval div 1000)
             },
-            {ok, _} = emqx_banned:create(Banned),
+            {ok, _} = emqx_banned:create(Banned, #{clean => Clean}),
             ok;
         false ->
             ?SLOG(
