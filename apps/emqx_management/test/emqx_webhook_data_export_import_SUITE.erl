@@ -30,13 +30,13 @@ all() ->
 init_per_suite(Cfg) ->
     application:load(emqx_modules),
     application:load(emqx_web_hook),
-    emqx_ct_helpers:start_apps([emqx_rule_engine, emqx_management]),
+    emqx_ct_helpers:start_apps([emqx_rule_engine, emqx_management, emqx_dashboard]),
     ok = emqx_rule_registry:mnesia(boot),
     ok = emqx_rule_engine:load_providers(),
     Cfg.
 
 end_per_suite(Cfg) ->
-    emqx_ct_helpers:stop_apps([emqx_management, emqx_rule_engine]),
+    emqx_ct_helpers:stop_apps([emqx_dashboard, emqx_management, emqx_rule_engine]),
     Cfg.
 
 get_data_path() ->

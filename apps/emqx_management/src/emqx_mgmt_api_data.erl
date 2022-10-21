@@ -79,9 +79,8 @@ export(_Bindings, _Params) ->
     end.
 
 list_exported(_Bindings, _Params) ->
-    List = [ rpc:call(Node, ?MODULE, get_list_exported, []) || Node <- ekka_mnesia:running_nodes() ],
-    NList = lists:map(fun({_, FileInfo}) -> FileInfo end, lists:keysort(1, lists:append(List))),
-    minirest:return({ok, NList}).
+    List = lists_all_nodes_backup_files(),
+    minirest:return({ok, List}).
 
 get_list_exported() ->
     Dir = emqx:get_env(data_dir),
@@ -139,17 +138,21 @@ download(#{filename := Filename0}, _Params) ->
     %% so, we need to search all nodes to download the first matched file.
     Filename = list_to_binary(Filename0),
     HasStoredNodes = lists:filtermap(
-                       fun({_, FileInfo}) ->
+                       fun(FileInfo) ->
                                case proplists:get_value(filename, FileInfo) == Filename of
                                    false -> false;
                                    true -> {true, proplists:get_value(node, FileInfo)}
                                end
-                       end, get_list_exported()),
+                       end, lists_all_nodes_backup_files()),
     case HasStoredNodes of
         [] -> minirest:return({error, not_found});
         [Node | _] ->
             do_download(Node, Filename0)
     end.
+
+lists_all_nodes_backup_files() ->
+    List = [ rpc:call(Node, ?MODULE, get_list_exported, []) || Node <- ekka_mnesia:running_nodes() ],
+    lists:map(fun({_, FileInfo}) -> FileInfo end, lists:keysort(1, lists:append(List))).
 
 do_download(Node, Filename) when Node == node(), is_list(Filename) ->
     FullFilename = fullname(Filename),

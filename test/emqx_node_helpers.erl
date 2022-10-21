@@ -100,12 +100,14 @@ setup_node(Node, #{} = Opts) ->
                           rpc:call(Node, application, load, [App])
                   end, LoadApps),
     ok = rpc:call(Node, emqx_ct_helpers, start_apps, [StartApps, EnvHandler]),
-
     case maps:get(no_join, Opts, false) of
         true ->
             ok;
         false ->
-            ok = rpc:call(Node, ekka, join, [node()])
+            ok = rpc:call(Node, ekka, join, [node()]),
+            %% restart all apps, plugins
+            _ = rpc:call(Node, emqx_ct_helpers, stop_apps, [StartApps]),
+            ok = rpc:call(Node, emqx_ct_helpers, start_apps, [StartApps, EnvHandler])
     end,
 
     %% Sanity check. Assert that `gen_rpc' is set up correctly:
