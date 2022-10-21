@@ -114,12 +114,15 @@ verify_acl(ClientInfo, Acl, PubSub, Topic) ->
               subscribe -> <<"sub">>;
               publish -> <<"pub">>
           end,
-    case {maps:get(<<"all">>, Acl, []), maps:get(Key, Acl, [])} of
-        {Rules1, Rules2} when is_list(Rules1) andalso is_list(Rules2) ->
-            verify_acl(ClientInfo, Rules1 ++ Rules2, Topic);
-        {_, _} ->
-            {stop, deny}
-    end.
+    Rules0 = lists:foldl(
+               fun(K, Acc) ->
+                       [case maps:get(K, Acl, undefined) of
+                            R when is_list(R) -> R;
+                            _ -> []
+                        end | Acc]
+               end, [], [<<"all">>, Key]),
+    Rules = lists:concat(Rules0),
+    verify_acl(ClientInfo, Rules, Topic).
 
 verify_acl(_ClientInfo, [], _Topic) -> {stop, deny};
 verify_acl(ClientInfo, [AclTopic | AclTopics], Topic) ->
