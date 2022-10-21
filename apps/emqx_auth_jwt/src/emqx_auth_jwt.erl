@@ -115,7 +115,7 @@ verify_acl(ClientInfo, Acl, PubSub, Topic) ->
               publish -> <<"pub">>
           end,
     case {maps:get(<<"all">>, Acl, []), maps:get(Key, Acl, [])} of
-        {Rules1, Rules2} when is_list(Rules1), is_list(Rules2) ->
+        {Rules1, Rules2} when is_list(Rules1) andalso is_list(Rules2) ->
             verify_acl(ClientInfo, Rules1 ++ Rules2, Topic);
         {_, _} ->
             {stop, deny}
