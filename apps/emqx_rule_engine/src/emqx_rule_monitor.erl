@@ -31,8 +31,9 @@
 
 -export([ start_link/0
         , stop/0
+        , async_refresh_resources_rules/0
         , ensure_resource_retrier/2
-        , retry_loop/3
+        , handler/3
         ]).
 
 start_link() ->
@@ -45,18 +46,21 @@ init([]) ->
     _ = erlang:process_flag(trap_exit, true),
     {ok, #{retryers => #{}}}.
 
+async_refresh_resources_rules() ->
+    gen_server:cast(?MODULE, {create_handler, refresh, resources_and_rules, #{}}).
+
 ensure_resource_retrier(ResId, Interval) ->
-    gen_server:cast(?MODULE, {create_restart_handler, resource, ResId, Interval}).
+    gen_server:cast(?MODULE, {create_handler, resource, ResId, Interval}).
 
 handle_call(_Msg, _From, State) ->
     {reply, ok, State}.
 
-handle_cast({create_restart_handler, Tag, Obj, Interval}, State) ->
+handle_cast({create_handler, Tag, Obj, Args}, State) ->
     Objects = maps:get(Tag, State, #{}),
     NewState = case maps:find(Obj, Objects) of
         error ->
             update_object(Tag, Obj,
-                create_restart_handler(Tag, Obj, Interval), State);
+                create_handler(Tag, Obj, Args), State);
         {ok, _Pid} ->
             State
     end,
@@ -93,12 +97,12 @@ update_object(Tag, Obj, Retryer, State) ->
         retryers => Retryers#{Retryer => {Tag, Obj}}
     }.
 
-create_restart_handler(Tag, Obj, Interval) ->
-    ?LOG(info, "keep restarting ~p ~p, interval: ~p", [Tag, Obj, Interval]),
-    %% spawn a dedicated process to handle the restarting asynchronously
-    spawn_link(?MODULE, retry_loop, [Tag, Obj, Interval]).
+create_handler(Tag, Obj, Args) ->
+    ?LOG(info, "create monitor handler for ~p ~p, args: ~p", [Tag, Obj, Args]),
+    %% spawn a dedicated process to handle the task asynchronously
+    spawn_link(?MODULE, handler, [Tag, Obj, Args]).
 
-retry_loop(resource, ResId, Interval) ->
+handler(resource, ResId, Interval) ->
     case emqx_rule_registry:find_resource(ResId) of
         {ok, #resource{type = Type, config = Config}} ->
             try
@@ -111,11 +115,17 @@ retry_loop(resource, ResId, Interval) ->
                     ?LOG(warning, "init_resource failed: ~p, ~0p",
                         [{Err, Reason}, ST]),
                     timer:sleep(Interval),
-                    ?MODULE:retry_loop(resource, ResId, Interval)
+                    ?MODULE:handler(resource, ResId, Interval)
             end;
         not_found ->
             ok
-    end.
+    end;
+
+handler(refresh, resources_and_rules, _) ->
+    %% NOTE: the order matters.
+    %% We should always refresh the resources first and then the rules.
+    ok = emqx_rule_engine:refresh_resources(),
+    ok = emqx_rule_engine:refresh_rules().
 
 refresh_and_enable_rules_of_resource(ResId) ->
     lists:foreach(
