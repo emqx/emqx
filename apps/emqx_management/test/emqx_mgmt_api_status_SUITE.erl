@@ -20,6 +20,12 @@
 
 -include_lib("eunit/include/eunit.hrl").
 
+-define(HOST, "http://127.0.0.1:18083/").
+
+%%---------------------------------------------------------------------------------------
+%% CT boilerplate
+%%---------------------------------------------------------------------------------------
+
 all() ->
     emqx_common_test_helpers:all(?MODULE).
 
@@ -30,8 +36,82 @@ init_per_suite(Config) ->
 end_per_suite(_) ->
     emqx_mgmt_api_test_util:end_suite().
 
-t_status(_Config) ->
-    Path = emqx_mgmt_api_test_util:api_path_without_base_path(["/status"]),
-    Status = io_lib:format("Node ~ts is ~ts~nemqx is ~ts", [node(), started, running]),
-    {ok, Status} = emqx_mgmt_api_test_util:request_api(get, Path),
+init_per_testcase(t_status_not_ok, Config) ->
+    ok = application:stop(emqx),
+    Config;
+init_per_testcase(_TestCase, Config) ->
+    Config.
+
+end_per_testcase(t_status_not_ok, _Config) ->
+    {ok, _} = application:ensure_all_started(emqx),
+    ok;
+end_per_testcase(_TestCase, _Config) ->
+    ok.
+
+%%---------------------------------------------------------------------------------------
+%% Helper fns
+%%---------------------------------------------------------------------------------------
+
+do_request(Opts) ->
+    #{
+        path := Path,
+        method := Method,
+        headers := Headers,
+        body := Body0
+    } = Opts,
+    URL = ?HOST ++ filename:join(Path),
+    Request =
+        case Body0 of
+            no_body -> {URL, Headers};
+            {Encoding, Body} -> {URL, Headers, Encoding, Body}
+        end,
+    ct:pal("Method: ~p, Request: ~p", [Method, Request]),
+    case httpc:request(Method, Request, [], []) of
+        {error, socket_closed_remotely} ->
+            {error, socket_closed_remotely};
+        {ok, {{_, StatusCode, _}, Headers1, Body1}} ->
+            Body2 =
+                case emqx_json:safe_decode(Body1, [return_maps]) of
+                    {ok, Json} -> Json;
+                    {error, _} -> Body1
+                end,
+            {ok, #{status_code => StatusCode, headers => Headers1, body => Body2}}
+    end.
+
+%%---------------------------------------------------------------------------------------
+%% Test cases
+%%---------------------------------------------------------------------------------------
+
+t_status_ok(_Config) ->
+    {ok, #{
+        body := Resp,
+        status_code := StatusCode
+    }} = do_request(#{
+        method => get,
+        path => ["status"],
+        headers => [],
+        body => no_body
+    }),
+    ?assertEqual(200, StatusCode),
+    ?assertMatch(
+        {match, _},
+        re:run(Resp, <<"emqx is running$">>)
+    ),
+    ok.
+
+t_status_not_ok(_Config) ->
+    {ok, #{
+        body := Resp,
+        status_code := StatusCode
+    }} = do_request(#{
+        method => get,
+        path => ["status"],
+        headers => [],
+        body => no_body
+    }),
+    ?assertEqual(503, StatusCode),
+    ?assertMatch(
+        {match, _},
+        re:run(Resp, <<"emqx is not_running$">>)
+    ),
     ok.
