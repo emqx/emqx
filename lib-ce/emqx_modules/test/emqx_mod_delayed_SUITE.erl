@@ -82,8 +82,9 @@ t_delayed_with_acl(_) ->
     Case = fun() ->
         {ok, C1} = emqtt:start_link([{clean_start, true}, {proto_ver, v5}]),
         {ok, _} = emqtt:connect(C1),
-        emqtt:publish(C1, <<"$delayed/2/allow/1">>, <<"allow">>, []),
+        %% publish deny before allow
         emqtt:publish(C1, <<"$delayed/2/deny/1">>, <<"deny">>, []),
+        emqtt:publish(C1, <<"$delayed/2/allow/1">>, <<"allow">>, []),
 
         timer:sleep(500),
 
@@ -92,10 +93,8 @@ t_delayed_with_acl(_) ->
             {emqx_mod_delayed, Key}
         ),
         ?assertEqual(<<"allow">>, Payload),
-
-        ok = emqtt:disconnect(C1)
+        emqtt:stop(C1)
     end,
-
     with_hook('client.check_acl', acl_hook, Case),
     ok = emqx_mod_delayed:unload([]).
 
