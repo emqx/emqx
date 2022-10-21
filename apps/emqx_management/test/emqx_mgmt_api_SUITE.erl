@@ -25,6 +25,8 @@
 -include_lib("emqx/include/emqx_mqtt.hrl").
 -include_lib("emqx_management/include/emqx_mgmt.hrl").
 
+-define(HOST, "http://127.0.0.1:8081/").
+
 -import(emqx_mgmt_api_test_helpers,
         [request_api/3,
          request_api/4,
@@ -44,9 +46,31 @@ end_per_suite(Config) ->
     emqx_ct_helpers:stop_apps([emqx_management]),
     Config.
 
+init_per_testcase(t_status_ok, Config) ->
+    ok = emqx_rule_registry:mnesia(boot),
+    ok = emqx_dashboard_admin:mnesia(boot),
+    application:ensure_all_started(emqx_rule_engine),
+    application:ensure_all_started(emqx_dashboard),
+    Config;
+init_per_testcase(t_status_not_ok, Config) ->
+    ok = emqx_rule_registry:mnesia(boot),
+    ok = emqx_dashboard_admin:mnesia(boot),
+    application:ensure_all_started(emqx_rule_engine),
+    application:ensure_all_started(emqx_dashboard),
+    application:stop(emqx),
+    Config;
 init_per_testcase(_, Config) ->
     Config.
 
+end_per_testcase(t_status_ok, _Config) ->
+    application:stop(emqx_rule_engine),
+    application:stop(emqx_dashboard),
+    ok;
+end_per_testcase(t_status_not_ok, _Config) ->
+    application:stop(emqx_rule_engine),
+    application:stop(emqx_dashboard),
+    application:ensure_all_started(emqx),
+    ok;
 end_per_testcase(_, Config) ->
     Config.
 
@@ -655,6 +679,51 @@ t_data_import_content(_) ->
     ?assertMatch({ok, "{\"code\":0}"}, request_api(post, api_path(["data","import"]), [], auth_header_(), Content)),
     application:stop(emqx_rule_engine),
     application:stop(emqx_dashboard).
+
+t_status_ok(_Config) ->
+    {ok, #{ body := Resp
+          , status_code := StatusCode
+          }} = do_request(#{method => get, path => ["status"], headers => [],
+                            body => no_body}),
+    ?assertMatch(
+      {match, _},
+      re:run(Resp, <<"emqx is running$">>)),
+    ?assertEqual(200, StatusCode),
+    ok.
+
+t_status_not_ok(_Config) ->
+    {ok, #{ body := Resp
+          , status_code := StatusCode
+          }} = do_request(#{method => get, path => ["status"], headers => [],
+                            body => no_body}),
+    ?assertMatch(
+      {match, _},
+      re:run(Resp, <<"emqx is not_running$">>)),
+    ?assertEqual(503, StatusCode),
+    ok.
+
+do_request(Opts) ->
+    #{ path := Path
+     , method := Method
+     , headers := Headers
+     , body := Body0
+     } = Opts,
+    URL = ?HOST ++ filename:join(Path),
+    Request = case Body0 of
+                  no_body -> {URL, Headers};
+                  {Encoding, Body} -> {URL, Headers, Encoding, Body}
+              end,
+    ct:pal("Method: ~p, Request: ~p", [Method, Request]),
+    case httpc:request(Method, Request, [], []) of
+        {error, socket_closed_remotely} ->
+            {error, socket_closed_remotely};
+        {ok, {{_, StatusCode, _}, Headers1, Body1}} ->
+            Body2 = case emqx_json:safe_decode(Body1, [return_maps]) of
+                        {ok, Json} -> Json;
+                        {error, _} -> Body1
+                    end,
+            {ok, #{status_code => StatusCode, headers => Headers1, body => Body2}}
+    end.
 
 filter(List, Key, Value) ->
     lists:filter(fun(Item) ->
