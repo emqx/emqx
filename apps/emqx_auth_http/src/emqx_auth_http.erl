@@ -47,13 +47,13 @@ check(ClientInfo, AuthResult, #{auth  := AuthParms = #{path := Path},
                                 anonymous   => false,
                                 mountpoint  => mountpoint(Body, ClientInfo)}};
         {ok, Code, _Body} ->
-            ?LOG(error, "Deny connection from path: ~s, username: ~s, http "
+            ?LOG(error, "Deny connection from path: ~s, username: ~ts, http "
                         "response code: ~p",
                         [Path, Username, Code]),
             {stop, AuthResult#{auth_result => http_to_connack_error(Code),
                                anonymous   => false}};
         {error, Error} ->
-            ?LOG(error, "Deny connection from path: ~s, username: ~s, due to "
+            ?LOG(error, "Deny connection from path: ~s, username: ~ts, due to "
                         "request http-server failed: ~0p",
                  [Path, Username, Error]),
             %%FIXME later: server_unavailable is not right.

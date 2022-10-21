@@ -46,11 +46,11 @@ check_acl(ClientInfo, PubSub, Topic, _AclResult, #{acl := ACLParams = #{path := 
         {ok, 200, <<"ignore">>} -> ok;
         {ok, 200, _Body} -> {stop, allow};
         {ok, Code, _Body} ->
-            ?LOG(error, "Deny ~s to topic ~s, username: ~p, http response code: ~p",
+            ?LOG(error, "Deny ~s to topic ~ts, username: ~ts, http response code: ~p",
                  [PubSub, Topic, Username, Code]),
             {stop, deny};
         {error, Error} ->
-            ?LOG(error, "Deny ~s to topic ~s, username: ~p, due to request "
+            ?LOG(error, "Deny ~s to topic ~ts, username: ~ts, due to request "
                         "http server failure, path: ~p, error: ~0p",
                         [PubSub, Topic, Username, Path, Error]),
             ok
