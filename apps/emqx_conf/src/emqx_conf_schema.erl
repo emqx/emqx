@@ -814,6 +814,15 @@ fields("rpc") ->
                     default => "1MB",
                     desc => ?DESC(rpc_socket_buffer)
                 }
+            )},
+        {"insecure_fallback",
+            sc(
+                boolean(),
+                #{
+                    mapping => "gen_rpc.insecure_auth_fallback_allowed",
+                    default => true,
+                    desc => ?DESC(rpc_insecure_fallback)
+                }
             )}
     ];
 fields("log") ->
