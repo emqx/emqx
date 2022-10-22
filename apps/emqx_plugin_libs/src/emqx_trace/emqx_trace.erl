@@ -156,7 +156,7 @@ update(Name, Enable) ->
             [] -> mnesia:abort(not_found);
             [#?TRACE{enable = Enable}] -> ok;
             [Rec] ->
-                case os:system_time(second) >= Rec#?TRACE.end_at of
+                case os_now() >= Rec#?TRACE.end_at of
                     false -> mnesia:write(?TRACE, Rec#?TRACE{enable = Enable}, write);
                     true -> mnesia:abort(finished)
                 end
@@ -291,7 +291,7 @@ insert_new_trace(Trace) ->
     transaction(Tran).
 
 update_trace(Traces) ->
-    Now = os:system_time(second),
+    Now = os_now(),
     {_Waiting, Running, Finished} = classify_by_time(Traces, Now),
     disable_finished(Finished),
     Started = emqx_trace_handler:running(),
@@ -418,7 +418,7 @@ ensure_map(Trace) when is_list(Trace) ->
         end, #{}, Trace).
 
 fill_default(Trace = #?TRACE{start_at = undefined}) ->
-    fill_default(Trace#?TRACE{start_at = os:system_time(second)});
+    fill_default(Trace#?TRACE{start_at = os_now()});
 fill_default(Trace = #?TRACE{end_at = undefined, start_at = StartAt}) ->
     fill_default(Trace#?TRACE{end_at = StartAt + 10 * 60});
 fill_default(Trace) -> Trace.
@@ -454,7 +454,7 @@ to_trace(#{start_at := StartAt} = Trace, Rec) ->
         {error, Reason} -> {error, Reason}
     end;
 to_trace(#{end_at := EndAt} = Trace, Rec) ->
-    Now = os:system_time(second),
+    Now = os_now(),
     case to_system_second(EndAt) of
         {ok, Sec} when Sec > Now ->
             to_trace(maps:remove(end_at, Trace), Rec#?TRACE{end_at = Sec});
@@ -481,7 +481,7 @@ validate_ip_address(IP) ->
 to_system_second(At) ->
     try
         Sec = calendar:rfc3339_to_system_time(binary_to_list(At), [{unit, second}]),
-        Now = os:system_time(second),
+        Now = os_now(),
         {ok, erlang:max(Now, Sec)}
     catch error: {badmatch, _} ->
         {error, ["The rfc3339 specification not satisfied: ", At]}
@@ -514,3 +514,7 @@ set_log_primary_level(NewLevel) ->
         true -> emqx_logger:set_primary_log_level(NewLevel);
         false -> ok
     end.
+
+%% the dashboard use os time to create trace, donot use erlang:system_time/1
+os_now() ->
+    os:system_time(second).
