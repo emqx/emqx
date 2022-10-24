@@ -1,43 +1,43 @@
 ## MQTT & Core
-src/ @qzhuyan
-include/ @qzhuyan
-etc/ @qzhuyan
-test/ @qzhuyan
+/src/ @qzhuyan
+/include/ @qzhuyan
+/etc/ @qzhuyan
+/test/ @qzhuyan
 
 ## CI
-.github/ @id
-.ci/ @id
-scripts/ @id
-build @id
-deploy/ @id
+/.github/ @id
+/.ci/ @id
+/scripts/ @id
+/build @id
+/deploy/ @id
 
 ## Authenticatio & ACL
-apps/emqx_auth_*/ @savonarola
-apps/emqx_psk_file/ @savonarola
-apps/emqx_retainer/ @savonarola
-apps/emqx_sasl/ @savonarola
+/apps/emqx_auth_*/ @savonarola
+/apps/emqx_psk_file/ @savonarola
+/apps/emqx_retainer/ @savonarola
+/apps/emqx_sasl/ @savonarola
 
 ## Gateway
-apps/emqx_coap/ @HJianBo
-apps/emqx_exhook/ @HJianBo
-apps/emqx_exproto/ @HJianBo
-apps/emqx_lua_hook/ @HJianBo
-apps/emqx_lwm2m/ @HJianBo
+/apps/emqx_coap/ @HJianBo
+/apps/emqx_exhook/ @HJianBo
+/apps/emqx_exproto/ @HJianBo
+/apps/emqx_lua_hook/ @HJianBo
+/apps/emqx_lwm2m/ @HJianBo
 
 ## OPs
-apps/emqx_management/ @zhongwencool
-apps/emqx_recon/ @zhongwencool
-apps/emqx_plugin_libs/ @zhongwencool
-apps/emqx_prometheus/ @zhongwencool
-apps/emqx_recon/ @zhongwencool
+/apps/emqx_management/ @zhongwencool
+/apps/emqx_recon/ @zhongwencool
+/apps/emqx_plugin_libs/ @zhongwencool
+/apps/emqx_prometheus/ @zhongwencool
+/apps/emqx_recon/ @zhongwencool
 
 
 ## Data integration
-apps/emqx_rule_engine/ @thalesmg
-apps/emqx_web_hook/ @thalesmg
+/apps/emqx_rule_engine/ @thalesmg
+/apps/emqx_web_hook/ @thalesmg
 
 ## External Plugins
-lib-extra/ @zmstone
+/lib-extra/ @zmstone
 
 ## Default
 * @zmstone
