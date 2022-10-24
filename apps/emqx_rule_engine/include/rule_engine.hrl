@@ -176,10 +176,12 @@
             end
         end()).
 
+-define(RPC_TIMEOUT, 30000).
+
 -define(CLUSTER_CALL(Func, Args), ?CLUSTER_CALL(Func, Args, ok)).
 
 -define(CLUSTER_CALL(Func, Args, ResParttern),
-    fun() -> case rpc:multicall(ekka_mnesia:running_nodes(), ?MODULE, Func, Args, 30000) of
+    fun() -> case rpc:multicall(ekka_mnesia:running_nodes(), ?MODULE, Func, Args, ?RPC_TIMEOUT) of
         {ResL, []} ->
             case lists:filter(fun(ResParttern) -> false; (_) -> true end, ResL) of
                 [] -> ResL;
@@ -191,6 +193,37 @@
             ?LOG(error, "cluster_call bad nodes found: ~p, ResL: ~p", [BadNodes, ResL]),
             throw({Func, {failed_on_nodes, BadNodes}})
    end end()).
+
+%% like CLUSTER_CALL/3, but recall the remote node using FallbackFunc if Func is undefined
+-define(CLUSTER_CALL(Func, Args, ResParttern, FallbackFunc, FallbackArgs),
+    fun() ->
+        RNodes = ekka_mnesia:running_nodes(),
+        ResL = erpc:multicall(RNodes, ?MODULE, Func, Args, ?RPC_TIMEOUT),
+        Res = lists:zip(RNodes, ResL),
+        BadRes = lists:filtermap(fun
+            ({_Node, {ok, ResParttern}}) ->
+                false;
+            ({Node, {error, {exception, undef, _}}}) ->
+                try erpc:call(Node, ?MODULE, FallbackFunc, FallbackArgs, ?RPC_TIMEOUT) of
+                    ResParttern ->
+                        false;
+                    OtherRes ->
+                        {true, #{rpc_type => call, func => FallbackFunc,
+                                 result => OtherRes, node => Node}}
+                catch
+                    Err:Reason ->
+                        {true, #{rpc_type => call, func => FallbackFunc,
+                                 exception => {Err, Reason}, node => Node}}
+                end;
+            ({Node, OtherRes}) ->
+                {true, #{rpc_type => multicall, func => FallbackFunc,
+                         result => OtherRes, node => Node}}
+        end, Res),
+        case BadRes of
+            [] -> Res;
+            _ -> throw(BadRes)
+        end
+    end()).
 
 %% Tables
 -define(RULE_TAB, emqx_rule).

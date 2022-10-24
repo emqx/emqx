@@ -33,7 +33,7 @@
         , stop/0
         , async_refresh_resources_rules/0
         , ensure_resource_retrier/2
-        , handler/3
+        , retry_loop/3
         ]).
 
 start_link() ->
@@ -47,20 +47,27 @@ init([]) ->
     {ok, #{retryers => #{}}}.
 
 async_refresh_resources_rules() ->
-    gen_server:cast(?MODULE, {create_handler, refresh, resources_and_rules, #{}}).
+    gen_server:cast(?MODULE, async_refresh).
 
 ensure_resource_retrier(ResId, Interval) ->
-    gen_server:cast(?MODULE, {create_handler, resource, ResId, Interval}).
+    gen_server:cast(?MODULE, {create_restart_handler, resource, ResId, Interval}).
 
 handle_call(_Msg, _From, State) ->
     {reply, ok, State}.
 
-handle_cast({create_handler, Tag, Obj, Args}, State) ->
+handle_cast(async_refresh, #{boot_refresh_pid := Pid} = State) when is_pid(Pid) ->
+    %% the refresh task is already in progress, we discard the duplication
+    {noreply, State};
+handle_cast(async_refresh, State) ->
+    Pid = spawn_link(fun do_async_refresh/0),
+    {noreply, State#{boot_refresh_pid => Pid}};
+
+handle_cast({create_restart_handler, Tag, Obj, Interval}, State) ->
     Objects = maps:get(Tag, State, #{}),
     NewState = case maps:find(Obj, Objects) of
         error ->
             update_object(Tag, Obj,
-                create_handler(Tag, Obj, Args), State);
+                create_restart_handler(Tag, Obj, Interval), State);
         {ok, _Pid} ->
             State
     end,
@@ -69,7 +76,13 @@ handle_cast({create_handler, Tag, Obj, Args}, State) ->
 handle_cast(_Msg, State) ->
     {noreply, State}.
 
+
+handle_info({'EXIT', Pid, _Reason}, State = #{boot_refresh_pid := Pid}) ->
+    {noreply, State#{boot_refresh_pid => undefined}};
 handle_info({'EXIT', Pid, Reason}, State = #{retryers := Retryers}) ->
+    %% We won't try to restart the 'retryers' event if the 'EXIT' Reason is not 'normal'.
+    %% Instead we rely on the user to trigger a manual retry for the resources, and then enable
+    %% the rules after resources are connected.
     case maps:take(Pid, Retryers) of
         {{Tag, Obj}, Retryers2} ->
             Objects = maps:get(Tag, State, #{}),
@@ -97,12 +110,12 @@ update_object(Tag, Obj, Retryer, State) ->
         retryers => Retryers#{Retryer => {Tag, Obj}}
     }.
 
-create_handler(Tag, Obj, Args) ->
-    ?LOG(info, "create monitor handler for ~p ~p, args: ~p", [Tag, Obj, Args]),
-    %% spawn a dedicated process to handle the task asynchronously
-    spawn_link(?MODULE, handler, [Tag, Obj, Args]).
+create_restart_handler(Tag, Obj, Interval) ->
+    ?LOG(info, "keep restarting ~p ~p, interval: ~p", [Tag, Obj, Interval]),
+    %% spawn a dedicated process to handle the restarting asynchronously
+    spawn_link(?MODULE, retry_loop, [Tag, Obj, Interval]).
 
-handler(resource, ResId, Interval) ->
+retry_loop(resource, ResId, Interval) ->
     case emqx_rule_registry:find_resource(ResId) of
         {ok, #resource{type = Type, config = Config}} ->
             try
@@ -115,17 +128,17 @@ handler(resource, ResId, Interval) ->
                     ?LOG(warning, "init_resource failed: ~p, ~0p",
                         [{Err, Reason}, ST]),
                     timer:sleep(Interval),
-                    ?MODULE:handler(resource, ResId, Interval)
+                    ?MODULE:retry_loop(resource, ResId, Interval)
             end;
         not_found ->
             ok
-    end;
+    end.
 
-handler(refresh, resources_and_rules, _) ->
+do_async_refresh() ->
     %% NOTE: the order matters.
     %% We should always refresh the resources first and then the rules.
     ok = emqx_rule_engine:refresh_resources(),
-    ok = emqx_rule_engine:refresh_rules().
+    ok = emqx_rule_engine:refresh_rules_when_boot().
 
 refresh_and_enable_rules_of_resource(ResId) ->
     lists:foreach(

@@ -65,7 +65,7 @@ init_per_testcase(t_refresh_resources_rules, Config) ->
         ets:update_counter(t_refresh_resources_rules, refresh_resources, 1, {refresh_resources, 0}),
         ok
     end),
-    meck:expect(emqx_rule_engine, refresh_rules, fun() ->
+    meck:expect(emqx_rule_engine, refresh_rules_when_boot, fun() ->
         timer:sleep(500),
         ets:update_counter(t_refresh_resources_rules, refresh_rules, 1, {refresh_rules, 0}),
         ok
@@ -128,7 +128,7 @@ t_refresh_resources_rules(_) ->
     ok = emqx_rule_monitor:async_refresh_resources_rules(),
     ok = emqx_rule_monitor:async_refresh_resources_rules(),
     %% there should be only one refresh handler at the same time
-    ?assertMatch(#{retryers := Pids} when map_size(Pids) =:= 1, sys:get_state(whereis(emqx_rule_monitor))),
+    ?assertMatch(#{boot_refresh_pid := Pid} when is_pid(Pid), sys:get_state(whereis(emqx_rule_monitor))),
     timer:sleep(1200),
     ?assertEqual([{refresh_resources, 1}], ets:lookup(t_refresh_resources_rules, refresh_resources)),
     ?assertEqual([{refresh_rules, 1}], ets:lookup(t_refresh_resources_rules, refresh_rules)),

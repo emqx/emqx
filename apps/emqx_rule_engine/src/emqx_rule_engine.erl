@@ -24,7 +24,7 @@
         , refresh_resources/0
         , refresh_resource/1
         , refresh_rule/1
-        , refresh_rules/0
+        , refresh_rules_when_boot/0
         , refresh_actions/1
         , refresh_actions/2
         , refresh_resource_status/0
@@ -256,15 +256,20 @@ create_resource(#{type := Type, config := Config0} = Params, Retry) ->
                                  created_at = erlang:system_time(millisecond)
                                 },
             ok = emqx_rule_registry:add_resource(Resource),
+            InitArgs = [M, F, ResId, Config],
             case Retry of
                 with_retry ->
                     %% Note that we will return OK in case of resource creation failure,
                     %% A timer is started to re-start the resource later.
-                    _ = (catch (?CLUSTER_CALL(init_resource_with_retrier, [M, F, ResId, Config]))),
+                    _ = try ?CLUSTER_CALL(init_resource_with_retrier, InitArgs, ok,
+                                          init_resource, InitArgs)
+                    catch throw : Reason ->
+                        ?LOG(error, "create_resource failed: ~0p", [Reason])
+                    end,
                     {ok, Resource};
                 no_retry ->
                     try
-                        _ = ?CLUSTER_CALL(init_resource, [M, F, ResId, Config]),
+                        _ = ?CLUSTER_CALL(init_resource, InitArgs),
                         {ok, Resource}
                     catch throw : Reason ->
                         {error, Reason}
@@ -481,8 +486,8 @@ refresh_resource(#resource{id = ResId, type = Type, config = Config}) ->
         emqx_rule_registry:find_resource_type(Type),
     ok = emqx_rule_engine:init_resource_with_retrier(M, F, ResId, Config).
 
--spec(refresh_rules() -> ok).
-refresh_rules() ->
+-spec(refresh_rules_when_boot() -> ok).
+refresh_rules_when_boot() ->
     lists:foreach(fun
         (#rule{enabled = true} = Rule) ->
             try refresh_rule(Rule)
