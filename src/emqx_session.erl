@@ -670,10 +670,11 @@ replay(ClientInfo, Session = #session{inflight = Inflight}) ->
     end.
 
 -spec(terminate(emqx_types:clientinfo(), Reason :: term(), session()) -> ok).
+terminate(ClientInfo, {shutdown, Reason}, Session) ->
+    terminate(ClientInfo, Reason, Session);
 terminate(ClientInfo, Reason, Session) ->
     run_terminate_hooks(ClientInfo, Reason, Session),
-    Reason =/= takeovered andalso
-        redispatch_shared_messages(Session),
+    maybe_redispatch_shared_messages(Reason, Session),
     ok.
 
 run_terminate_hooks(ClientInfo, discarded, Session) ->
@@ -682,6 +683,13 @@ run_terminate_hooks(ClientInfo, takeovered, Session) ->
     run_hook('session.takeovered', [ClientInfo, info(Session)]);
 run_terminate_hooks(ClientInfo, Reason, Session) ->
     run_hook('session.terminated', [ClientInfo, Reason, info(Session)]).
+
+maybe_redispatch_shared_messages(takeovered, _Session) ->
+    ok;
+maybe_redispatch_shared_messages(kicked, _Session) ->
+    ok;
+maybe_redispatch_shared_messages(_Reason, Session) ->
+    redispatch_shared_messages(Session).
 
 redispatch_shared_messages(#session{inflight = Inflight, mqueue = Q}) ->
     AllInflights = emqx_inflight:to_list(sort_fun(), Inflight),
