@@ -121,7 +121,7 @@ verify_acl(ClientInfo, Acl, PubSub, Topic) ->
                             _ -> []
                         end | Acc]
                end, [], [<<"all">>, Key]),
-    Rules = lists:concat(Rules0),
+    Rules = lists:append(Rules0),
     verify_acl(ClientInfo, Rules, Topic).
 
 verify_acl(_ClientInfo, [], _Topic) -> {stop, deny};
