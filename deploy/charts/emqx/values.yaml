@@ -211,3 +211,10 @@ ssl:
   issuer:
     name: letsencrypt-dns
     kind: ClusterIssuer
+
+## Setting PodDisruptionBudget.
+## ref: https://kubernetes.io/docs/tasks/run-application/configure-pdb
+##
+pdb:
+  enabled: false
+  maxUnavailable: 1
