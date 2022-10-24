@@ -113,3 +113,55 @@ t_node_metrics_api(_) ->
         {error, {_, 400, _}},
         emqx_mgmt_api_test_util:request_api(get, BadNodePath)
     ).
+
+t_multiple_nodes_api(_) ->
+    net_kernel:start(['node_api@127.0.0.1', longnames]),
+    ct:timetrap({seconds, 120}),
+    snabbkaffe:fix_ct_logging(),
+    Cluster = [{Name, Opts}, {Name1, Opts1}] = cluster([core, core]),
+    ct:pal("Starting ~p", [Cluster]),
+    Node1 = emqx_common_test_helpers:start_slave(Name, Opts),
+    Node2 = emqx_common_test_helpers:start_slave(Name1, Opts1),
+    try
+        NodesPath = emqx_mgmt_api_test_util:api_path(["nodes"]),
+        {ok, Nodes} = emqx_mgmt_api_test_util:request_api(get, NodesPath),
+        NodesResponse = emqx_json:decode(Nodes, [return_maps]),
+        All = [Node1, Node2, node()],
+        lists:map(
+            fun(N) ->
+                N1 = binary_to_atom(maps:get(<<"node">>, N), utf8),
+                ?assertEqual(true, lists:member(N1, All))
+            end,
+            NodesResponse
+        ),
+        ?assertEqual(3, length(NodesResponse)),
+
+        NodePath = emqx_mgmt_api_test_util:api_path(["nodes", atom_to_list(Node1)]),
+        {ok, NodeInfo} = emqx_mgmt_api_test_util:request_api(get, NodePath),
+        NodeNameResponse =
+            binary_to_atom(maps:get(<<"node">>, emqx_json:decode(NodeInfo, [return_maps])), utf8),
+        ?assertEqual(Node1, NodeNameResponse)
+    after
+        emqx_common_test_helpers:stop_slave(Node1),
+        emqx_common_test_helpers:stop_slave(Node2)
+    end,
+    ok.
+
+cluster(Specs) ->
+    Env = [
+        {emqx, init_config_load_done, false},
+        {emqx, boot_modules, []}
+    ],
+    emqx_common_test_helpers:emqx_cluster(Specs, [
+        {env, Env},
+        {apps, [emqx_conf]},
+        {load_schema, false},
+        {join_to, true},
+        {env_handler, fun
+            (emqx) ->
+                application:set_env(emqx, boot_modules, []),
+                ok;
+            (_) ->
+                ok
+        end}
+    ]).
