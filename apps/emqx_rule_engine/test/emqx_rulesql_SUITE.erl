@@ -173,12 +173,12 @@ t_sqlselect_0(_Config) ->
            timestamp := TimeStamp,
            qos := 1,
            publish_received_at := TimeStamp,
-           peerhost := <<"127.0.0.1">>,
+           peerhost := <<"192.168.0.10">>,
            payload := Payload,
            node := 'test@127.0.0.1',
            metadata := #{rule_id := TestRuleId},
            id := MsgId,
-           flags := #{sys := true, event := true},
+           flags := #{},
            clientid := <<"c_emqx">>
           }
     } = emqx_rule_sqltester:test(
