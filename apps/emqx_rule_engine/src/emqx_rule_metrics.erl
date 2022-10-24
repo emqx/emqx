@@ -377,7 +377,7 @@ handle_info(_Info, State) ->
     {noreply, State}.
 
 code_change({down, _Vsn}, State = #state{metric_ids = MIDs}, [Vsn]) ->
-    case string:tokens(Vsn, ".") of 
+    case string:tokens(Vsn, ".") of
         ["4", "4", SVal] ->
             {Val, []} = string:to_integer(SVal),
             case Val == 0 of
@@ -504,11 +504,10 @@ calculate_speed(CurrVal, #rule_speed{max = MaxSpeed0, last_v = LastVal,
                 last5m_smpl = Last5MinSamples, tick = Tick + 1}.
 
 format_rule_speed(#rule_speed{max = Max, current = Current, last5m = Last5Min}) ->
-    #{max => precision(Max, 2), current => precision(Current, 2), last5m => precision(Last5Min, 2)}.
+    #{max => round2(Max), current => round2(Current), last5m => round2(Last5Min)}.
 
-precision(Float, N) ->
-    Base = math:pow(10, N),
-    round(Float * Base) / Base.
+round2(Float) ->
+    round(Float * 100) / 100.
 
 %%------------------------------------------------------------------------------
 %% Metrics Definitions

@@ -472,3 +472,19 @@ t_check_jwt_acl_no_exp(_Config) ->
        emqtt:subscribe(C, <<"a/b">>, 0)),
 
     ok = emqtt:disconnect(C).
+
+t_check_compatibility(init, _Config) -> ok.
+t_check_compatibility(_Config) ->
+
+    %% We literary want emqx_auth_jwt:check call emqx_auth_jwt:check_auth, so check with meck
+
+    ok = meck:new(emqx_auth_jwt, [passthrough, no_history]),
+    ok = meck:expect(emqx_auth_jwt, check_auth, fun(a, b, c) -> ok end),
+
+    ?assertEqual(
+       ok,
+       emqx_auth_jwt:check(a, b, c)
+      ),
+
+    meck:validate(emqx_auth_jwt),
+    meck:unload(emqx_auth_jwt).

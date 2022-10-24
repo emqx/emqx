@@ -10,11 +10,14 @@ File format:
 - One list item per change topic
   Change log ends with a list of GitHub PRs
 
-## v4.3.22
-
-### Minor changes
+## For 4.3.22 and later versions, please find details in `changes` dir
 
 ## v4.3.21
+
+### Bug fixes
+
+- Deny POST an existing resource id using HTTP API with error 400 "Already Exists". [#9079](https://github.com/emqx/emqx/pull/9079)
+- Fix the issue that reseting rule metrics crashed under certain conditions. [#9079](https://github.com/emqx/emqx/pull/9079)
 
 ### Enhancements
 
@@ -49,7 +52,7 @@ File format:
 - Fix HTTP client library to handle SSL socket passive signal. [#9145](https://github.com/emqx/emqx/pull/9145)
 
 - Hide redis password in error logs [#9071](https://github.com/emqx/emqx/pull/9071)
-  In this change, it also included more changes in redis client:
+  More changes in redis client included in this release:
   - Improve redis connection error logging [eredis #19](https://github.com/emqx/eredis/pull/19).
     Also added support for eredis to accept an anonymous function as password instead of
     passing around plaintext args which may get dumpped to crash logs (hard to predict where).

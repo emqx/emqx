@@ -35,6 +35,8 @@ runs:
       with:
         path: ~/.kerl/${{ inputs.otp }}
         key: otp-install-${{ inputs.otp }}-${{ inputs.os }}-static-ssl-disable-hipe-disable-jit
+        restore-keys: |
+          otp-install-${{ inputs.otp }}-${{ inputs.os }}
     - name: build erlang
       if: steps.cache.outputs.cache-hit != 'true'
       shell: bash
@@ -93,4 +95,5 @@ runs:
           exit 1
         fi
         cd ..
+        # test with a spaces in path
         rm -rf "emqx  home"

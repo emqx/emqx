@@ -47,7 +47,7 @@
 
 用户需要实现的方法，和数据类型的定义在 `priv/protos/exhook.proto` 文件中：
 
-```protobuff
+```protobuf
 syntax = "proto3";
 
 package emqx.exhook.v1;

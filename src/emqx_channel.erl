@@ -1543,12 +1543,15 @@ check_pub_caps(#mqtt_packet{header = #mqtt_packet_header{qos    = QoS,
 check_sub_acls(TopicFilters, Channel) ->
     check_sub_acls(TopicFilters, Channel, []).
 
-check_sub_acls([ TopicFilter = {Topic, _} | More] , Channel, Acc) ->
+check_sub_acls([ TopicFilter = {Topic, SubOpts} | More] , Channel, Acc) ->
     case check_sub_acl(Topic, Channel) of
         allow ->
             check_sub_acls(More, Channel, [ {TopicFilter, 0} | Acc]);
         deny ->
-            check_sub_acls(More, Channel, [ {TopicFilter, ?RC_NOT_AUTHORIZED} | Acc])
+            ReasonCode = ?RC_NOT_AUTHORIZED,
+            ?LOG(warning, "Cannot subscribe ~s with options ~p due to ~s.",
+                 [Topic, SubOpts, emqx_reason_codes:text(ReasonCode)]),
+            check_sub_acls(More, Channel, [ {TopicFilter, ReasonCode} | Acc])
     end;
 check_sub_acls([], _Channel, Acc) ->
     lists:reverse(Acc).

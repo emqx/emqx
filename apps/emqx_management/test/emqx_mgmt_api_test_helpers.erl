@@ -36,13 +36,21 @@ request_api(Method, Url, QueryParams, Auth, []) ->
                  "" -> Url;
                  _ -> Url ++ "?" ++ QueryParams
              end,
-    do_request_api(Method, {NewUrl, [Auth]});
+    Headers = case Auth of
+                  no_auth -> [];
+                  Header  -> [Header]
+              end,
+    do_request_api(Method, {NewUrl, Headers});
 request_api(Method, Url, QueryParams, Auth, Body) ->
     NewUrl = case QueryParams of
                  "" -> Url;
                  _ -> Url ++ "?" ++ QueryParams
              end,
-    do_request_api(Method, {NewUrl, [Auth], "application/json", emqx_json:encode(Body)}).
+    Headers = case Auth of
+                  no_auth -> [];
+                  Header  -> [Header]
+              end,
+    do_request_api(Method, {NewUrl, Headers, "application/json", emqx_json:encode(Body)}).
 
 do_request_api(Method, Request)->
     ct:pal("Method: ~p, Request: ~p", [Method, Request]),

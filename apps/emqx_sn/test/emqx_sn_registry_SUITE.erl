@@ -108,6 +108,11 @@ t_deny_wildcard_topic(_Config) ->
     ?assertEqual({error, wildcard_topic}, ?REGISTRY:register_topic(<<"ClientId">>, <<"/TopicA/#">>)),
     ?assertEqual({error, wildcard_topic}, ?REGISTRY:register_topic(<<"ClientId">>, <<"/+/TopicB">>)).
 
+t_gen_server(_) ->
+    ?assertEqual(ignored, gen_server:call(emqx_sn_registry, ignored)),
+    ?assertEqual(ok, gen_server:cast(emqx_sn_registry, ignored)),
+    ?assertEqual(ignored, erlang:send(emqx_sn_registry, ignored)).
+
 %%--------------------------------------------------------------------
 %% Helper funcs
 %%--------------------------------------------------------------------

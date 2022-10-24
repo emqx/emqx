@@ -70,6 +70,9 @@
 all() ->
     emqx_ct:all(?MODULE).
 
+suite() ->
+    [{timetrap, {seconds, 120}}].
+
 init_per_suite(Config) ->
     emqx_ct_helpers:start_apps([emqx_auth_pgsql]),
     drop_acl(),

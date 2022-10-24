@@ -90,6 +90,15 @@ restart_emqx_sn(#{subs_resume := Bool}) ->
     _ = application:ensure_all_started(emqx_sn),
     ok.
 
+recoverable_restart_emqx_sn(Setup) ->
+    AppEnvs = application:get_all_env(emqx_sn),
+    Setup(),
+    _ = application:stop(emqx_sn),
+    _ = application:ensure_all_started(emqx_sn),
+    fun() ->
+            application:set_env([{emqx_sn, AppEnvs}])
+    end.
+
 %%--------------------------------------------------------------------
 %% Test cases
 %%--------------------------------------------------------------------
@@ -104,6 +113,17 @@ t_connect(_) ->
     {ok, Socket} = gen_udp:open(0, [binary]),
     send_connect_msg(Socket, <<"client_id_test1">>),
     ?assertEqual(<<3, ?SN_CONNACK, 0>>, receive_response(Socket)),
+
+    %% unexpected advertise
+    Adv = ?SN_ADVERTISE_MSG(1, 100),
+    AdvPacket = emqx_sn_frame:serialize(Adv),
+    send_packet(Socket, AdvPacket),
+    timer:sleep(200),
+
+    %% unexpected connect
+    ClientId = ?CLIENTID,
+    send_connect_msg(Socket, ClientId),
+    timer:sleep(200),
 
     send_disconnect_msg(Socket, undefined),
     ?assertEqual(<<2, ?SN_DISCONNECT>>, receive_response(Socket)),
@@ -426,6 +446,38 @@ t_subscribe_case08(_) ->
     ?assertEqual(<<2, ?SN_DISCONNECT>>, receive_response(Socket)),
     gen_udp:close(Socket).
 
+t_subscribe_case09(_) ->
+    Dup = 0,
+    QoS = 0,
+    Retain = 0,
+    CleanSession = 0,
+    ReturnCode = 0,
+    {ok, Socket} = gen_udp:open(0, [binary]),
+    ClientId = ?CLIENTID,
+    send_connect_msg(Socket, ClientId),
+    ?assertEqual(<<3, ?SN_CONNACK, 0>>, receive_response(Socket)),
+
+    TopicName1 = <<"t/+">>,
+    MsgId1 = 25,
+    TopicId0 = 0,
+    WillBit = 0,
+    send_subscribe_msg_normal_topic(Socket, QoS, TopicName1, MsgId1),
+    ?assertEqual(<<8, ?SN_SUBACK, Dup:1, QoS:2, Retain:1, WillBit:1, CleanSession:1, ?SN_NORMAL_TOPIC:2, TopicId0:16, MsgId1:16, ReturnCode>>,
+        receive_response(Socket)),
+
+    {ok, C} = emqtt:start_link(),
+    {ok, _} = emqtt:connect(C),
+    ok = emqtt:publish(C, <<"t/1">>, <<"Hello">>, 0),
+    timer:sleep(100),
+    ok = emqtt:disconnect(C),
+
+    timer:sleep(50),
+    ?assertError(_, receive_publish(Socket)),
+
+    send_disconnect_msg(Socket, undefined),
+    ?assertEqual(<<2, ?SN_DISCONNECT>>, receive_response(Socket)),
+    gen_udp:close(Socket).
+
 t_publish_negqos_case09(_) ->
     Dup = 0,
     QoS = 0,
@@ -441,7 +493,6 @@ t_publish_negqos_case09(_) ->
     ?assertEqual(<<3, ?SN_CONNACK, 0>>, receive_response(Socket)),
 
     Topic = <<"abc">>,
-
 
     send_subscribe_msg_normal_topic(Socket, QoS, Topic, MsgId),
     ?assertEqual(<<8, ?SN_SUBACK, Dup:1, QoS:2, Retain:1,
@@ -464,6 +515,16 @@ t_publish_negqos_case09(_) ->
 
     send_disconnect_msg(Socket, undefined),
     ?assertEqual(<<2, ?SN_DISCONNECT>>, receive_response(Socket)),
+    gen_udp:close(Socket).
+
+t_publish_negqos_case10(_) ->
+    QoS = ?QOS_NEG1,
+    MsgId = 1,
+    TopicId1 = ?PREDEF_TOPIC_ID1,
+    {ok, Socket} = gen_udp:open(0, [binary]),
+    Payload1 = <<20, 21, 22, 23>>,
+    send_publish_msg_predefined_topic(Socket, QoS, MsgId, TopicId1, Payload1),
+    timer:sleep(100),
     gen_udp:close(Socket).
 
 t_publish_qos0_case01(_) ->
@@ -1199,6 +1260,60 @@ t_will_case06(_) ->
 
     gen_udp:close(Socket).
 
+t_will_case07(_) ->
+    QoS = 1,
+    Duration = 1,
+    WillMsg = <<10, 11, 12, 13, 14>>,
+    WillTopic = <<"abc">>,
+    {ok, Socket} = gen_udp:open(0, [binary]),
+    ClientId = ?CLIENTID,
+
+    ok = emqx_broker:subscribe(WillTopic),
+
+    send_connect_msg_with_will(Socket, Duration, ClientId),
+    ?assertEqual(<<2, ?SN_WILLTOPICREQ>>, receive_response(Socket)),
+
+    %% unexpected advertise
+    Adv = ?SN_ADVERTISE_MSG(1, 100),
+    AdvPacket = emqx_sn_frame:serialize(Adv),
+    send_packet(Socket, AdvPacket),
+    timer:sleep(200),
+
+    %% unexpected connect
+    send_connect_msg(Socket, ClientId),
+    timer:sleep(200),
+
+    send_willtopic_msg(Socket, WillTopic, QoS),
+    ?assertEqual(<<2, ?SN_WILLMSGREQ>>, receive_response(Socket)),
+
+    %% unexpected advertise
+    send_packet(Socket, AdvPacket),
+    timer:sleep(200),
+
+    %% unexpected connect
+    send_connect_msg(Socket, ClientId),
+    timer:sleep(200),
+
+    send_willmsg_msg(Socket, WillMsg),
+    ?assertEqual(<<3, ?SN_CONNACK, 0>>, receive_response(Socket)),
+
+    send_pingreq_msg(Socket, undefined),
+    ?assertEqual(<<2, ?SN_PINGRESP>>, receive_response(Socket)),
+
+    % wait udp client keepalive timeout
+    timer:sleep(2000),
+
+    receive
+        {deliver, WillTopic, #message{payload = WillMsg}} -> ok;
+        Msg -> ct:print("recevived --- unex: ~p", [Msg])
+    after
+        1000 -> ct:fail(wait_willmsg_timeout)
+    end,
+    send_disconnect_msg(Socket, undefined),
+    ?assertEqual(udp_receive_timeout, receive_response(Socket)),
+
+    gen_udp:close(Socket).
+
 t_asleep_test01_timeout(_) ->
     QoS = 1,
     Duration = 1,
@@ -1392,6 +1507,7 @@ t_asleep_test04_to_awake_qos1_dl_msg(_) ->
     ?assertError(_, receive_publish(Socket)),
 
     send_regack_msg(Socket, TopicIdNew, MsgId3),
+    send_regack_msg(Socket, TopicIdNew, MsgId3, ?SN_RC_INVALID_TOPIC_ID),
 
     UdpData2 = receive_response(Socket),
     MsgId_udp2 = check_publish_msg_on_udp(
@@ -1751,6 +1867,33 @@ t_asleep_test09_to_awake_again_qos1_dl_msg(_) ->
     %% will not receive any buffered PUBLISH messages buffered before last
     %% awake, only receive PINGRESP here
     ?assertEqual(<<2, ?SN_PINGRESP>>, receive_response(Socket)),
+
+    gen_udp:close(Socket).
+
+t_asleep_unexpected(_) ->
+    SleepDuration = 3,
+    {ok, Socket} = gen_udp:open(0, [binary]),
+    ClientId = ?CLIENTID,
+    send_connect_msg(Socket, ClientId),
+    ?assertEqual(<<3, ?SN_CONNACK, 0>>, receive_response(Socket)),
+
+    timer:sleep(200),
+
+    % goto asleep state
+    send_disconnect_msg(Socket, SleepDuration),
+    ?assertEqual(<<2, ?SN_DISCONNECT>>, receive_response(Socket)),
+    timer:sleep(100),
+
+    send_pingreq_msg(Socket, undefined),
+    ?assertEqual(udp_receive_timeout, receive_response(Socket)),
+
+    send_puback_msg(Socket, 5, 5, ?SN_RC_INVALID_TOPIC_ID),
+    send_pubrec_msg(Socket, 5),
+
+    %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+    send_disconnect_msg(Socket, undefined),
+    ?assertEqual(<<2, ?SN_DISCONNECT>>, receive_response(Socket)),
+    timer:sleep(100),
 
     gen_udp:close(Socket).
 
@@ -2127,6 +2270,7 @@ t_register_enqueue_delivering_messages(_) ->
     _ = emqx:publish(emqx_message:make(test, ?QOS_1, <<"topic-a">>, <<"m2">>)),
 
     send_regack_msg(NSocket, TopicIdA, RegMsgIdA, ?SN_RC_ACCEPTED),
+    send_regack_msg(NSocket, TopicIdA, RegMsgIdA, ?SN_RC_INVALID_TOPIC_ID),
 
     %% receive the queued messages
 
@@ -2149,6 +2293,88 @@ t_register_enqueue_delivering_messages(_) ->
     ?assertMatch(<<2, ?SN_DISCONNECT>>, receive_response(NSocket1)),
     gen_udp:close(NSocket1),
     restart_emqx_sn(#{subs_resume => false}).
+
+t_code_change(_) ->
+    Old = [state, gwid, socket, socketpid, socketstate, socketname, peername,
+           channel, clientid, username, password, will_msg, keepalive_interval,
+           connpkt, asleep_timer, enable_stats, stats_timer, enable_qos3,
+           has_pending_pingresp, pending_topic_ids],
+    New = Old ++ [false, [], undefined],
+
+    OldTulpe = erlang:list_to_tuple(Old),
+    NewTulpe = erlang:list_to_tuple(New),
+
+    ?assertEqual({ok, name, NewTulpe},
+                 emqx_sn_gateway:code_change(1, name, OldTulpe, ["4.3.2"])),
+
+    ?assertEqual({ok, name, NewTulpe},
+                 emqx_sn_gateway:code_change(1, name, NewTulpe, ["4.3.6"])),
+
+    ?assertEqual({ok, name, NewTulpe},
+                 emqx_sn_gateway:code_change({down, 1}, name, NewTulpe, ["4.3.6"])),
+
+    ?assertEqual({ok, name, OldTulpe},
+                 emqx_sn_gateway:code_change({down, 1}, name, NewTulpe, ["4.3.2"])).
+
+t_topic_id_to_large(_) ->
+    Dup = 0,
+    QoS = 0,
+    Retain = 0,
+    Will = 0,
+    CleanSession = 0,
+    MsgId = 1,
+    {ok, Socket} = gen_udp:open(0, [binary]),
+    ClientId = ?CLIENTID,
+    send_connect_msg(Socket, ClientId),
+
+    ?assertEqual(<<3, ?SN_CONNACK, 0>>, receive_response(Socket)),
+
+    mnesia:dirty_write(emqx_sn_registry, {emqx_sn_registry, {ClientId, next_topic_id}, 16#FFFF}),
+
+    TopicName1 = <<"abcD">>,
+    send_register_msg(Socket, TopicName1, MsgId),
+    ?assertEqual(<<7, ?SN_REGACK, 0:16, MsgId:16, 3:8>>, receive_response(Socket)),
+
+    send_subscribe_msg_normal_topic(Socket, QoS, TopicName1, MsgId),
+    ?assertEqual(<<8, ?SN_SUBACK, Dup:1, QoS:2, Retain:1, Will:1,
+                   CleanSession:1, ?SN_NORMAL_TOPIC:2, 0:16,
+                   MsgId:16, 2>>, receive_response(Socket)),
+
+    send_disconnect_msg(Socket, undefined),
+    ?assertEqual(<<2, ?SN_DISCONNECT>>, receive_response(Socket)),
+    gen_udp:close(Socket).
+
+t_idle_timeout(_) ->
+    Backup = recoverable_restart_emqx_sn(fun() ->
+                                           application:set_env(emqx_sn, idle_timeout, 500),
+                                           application:set_env(emqx_sn, enable_qos3, false)
+                                         end),
+    timer:sleep(200),
+    QoS = ?QOS_NEG1,
+    MsgId = 1,
+    TopicId1 = ?PREDEF_TOPIC_ID1,
+    {ok, Socket} = gen_udp:open(0, [binary]),
+    Payload1 = <<20, 21, 22, 23>>,
+    send_publish_msg_predefined_topic(Socket, QoS, MsgId, TopicId1, Payload1),
+    timer:sleep(1500),
+
+    send_disconnect_msg(Socket, undefined),
+    ?assertEqual(udp_receive_timeout, receive_response(Socket)),
+    gen_udp:close(Socket),
+    _ = recoverable_restart_emqx_sn(Backup),
+    timer:sleep(200),
+    ok.
+
+t_invalid_packet(_) ->
+    {ok, Socket} = gen_udp:open(0, [binary]),
+    send_connect_msg(Socket, <<"client_id_test1">>),
+    ?assertEqual(<<3, ?SN_CONNACK, 0>>, receive_response(Socket)),
+
+    send_packet(Socket, emqx_sn_frame_SUITE:generate_random_binary()),
+
+    send_disconnect_msg(Socket, undefined),
+    ?assertEqual(udp_receive_timeout, receive_response(Socket)),
+    gen_udp:close(Socket).
 
 %%--------------------------------------------------------------------
 %% Helper funcs
@@ -2433,6 +2659,9 @@ send_disconnect_msg(Socket, Duration) ->
                        end,
     ?LOG("send_disconnect_msg Duration=~p", [Duration]),
     ok = gen_udp:send(Socket, ?HOST, ?PORT, DisConnectPacket).
+
+send_packet(Socket, Packet) ->
+    ok = gen_udp:send(Socket, ?HOST, ?PORT, Packet).
 
 mid(Id) -> Id.
 tid(Id) -> Id.
