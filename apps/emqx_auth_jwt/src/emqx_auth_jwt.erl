@@ -114,13 +114,13 @@ verify_acl(ClientInfo, Acl, PubSub, Topic) ->
               subscribe -> <<"sub">>;
               publish -> <<"pub">>
           end,
-    Rules0 = lists:foldl(
-               fun(K, Acc) ->
-                       [case maps:get(K, Acl, undefined) of
-                            R when is_list(R) -> R;
-                            _ -> []
-                        end | Acc]
-               end, [], [<<"all">>, Key]),
+    Rules0 = lists:map(
+               fun(K) ->
+                       case maps:get(K, Acl, undefined) of
+                           R when is_list(R) -> R;
+                           _ -> []
+                       end
+               end, [<<"all">>, Key]),
     Rules = lists:append(Rules0),
     verify_acl(ClientInfo, Rules, Topic).
 
