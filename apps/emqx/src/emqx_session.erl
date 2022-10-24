@@ -814,12 +814,13 @@ run_terminate_hooks(ClientInfo, Reason, Session) ->
     run_hook('session.terminated', [ClientInfo, Reason, info(Session)]).
 
 maybe_redispatch_shared_messages(takenover, _Session) ->
-    ?tp(debug, ignore_redispatch_shared_messages, #{reason => takenover}),
     ok;
 maybe_redispatch_shared_messages(kicked, _Session) ->
-    ?tp(debug, ignore_redispatch_shared_messages, #{reason => kicked}),
     ok;
-maybe_redispatch_shared_messages(_Reason, #session{inflight = Inflight, mqueue = Q}) ->
+maybe_redispatch_shared_messages(_Reason, Session) ->
+    redispatch_shared_messages(Session).
+
+redispatch_shared_messages(#session{inflight = Inflight, mqueue = Q}) ->
     AllInflights = emqx_inflight:to_list(fun sort_fun/2, Inflight),
     F = fun
         ({_PacketId, #inflight_data{message = #message{qos = ?QOS_1} = Msg}}) ->
