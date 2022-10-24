@@ -27,27 +27,23 @@ runs:
       shell: bash
       run: |
         brew update
-        brew install curl zip unzip gnu-sed kerl coreutils unixodbc freetds openssl@1.1
+        brew install curl zip unzip gnu-sed coreutils unixodbc freetds openssl@1.1
         echo "/usr/local/opt/bison/bin" >> $GITHUB_PATH
         echo "/usr/local/bin" >> $GITHUB_PATH
-    - uses: actions/cache@v2
+    - uses: actions/cache@v3
       id: cache
       with:
-        path: ~/.kerl/${{ inputs.otp }}
+        path: /opt/erlang/${{ inputs.otp }}
         key: otp-install-${{ inputs.otp }}-${{ inputs.os }}-static-ssl-disable-hipe-disable-jit
-        restore-keys: |
-          otp-install-${{ inputs.otp }}-${{ inputs.os }}
     - name: build erlang
       if: steps.cache.outputs.cache-hit != 'true'
       shell: bash
-      env:
-        KERL_BUILD_BACKEND: git
-        OTP_GITHUB_URL: https://github.com/emqx/otp
-        KERL_CONFIGURE_OPTIONS: --disable-dynamic-ssl-lib --with-ssl=/usr/local/opt/openssl@1.1 --disable-hipe --disable-jit
       run: |
-        kerl update releases
-        kerl build ${{ inputs.otp }}
-        kerl install ${{ inputs.otp }} $HOME/.kerl/${{ inputs.otp }}
+        git clone --depth 1 --branch OTP-${{ inputs.otp }} https://github.com/emqx/otp.git $HOME/otp-${{ inputs.otp }}
+        cd $HOME/otp-${{ inputs.otp }}
+        ./configure --disable-dynamic-ssl-lib --with-ssl=/usr/local/opt/openssl@1.1 --disable-hipe --disable-jit --prefix=/opt/erlang/${{ inputs.otp }}
+        make -j$(nproc)
+        sudo make install
     - name: build
       env:
         AUTO_INSTALL_BUILD_DEPS: 1
@@ -60,7 +56,7 @@ runs:
         APPLE_DEVELOPER_ID_BUNDLE_PASSWORD: ${{ inputs.apple_developer_id_bundle_password }}
       shell: bash
       run: |
-        . $HOME/.kerl/${{ inputs.otp }}/activate
+        export PATH="/opt/erlang/${{ inputs.otp }}/bin:$PATH"
         make ensure-rebar3
         sudo cp rebar3 /usr/local/bin/rebar3
         make ${EMQX_NAME}-zip
