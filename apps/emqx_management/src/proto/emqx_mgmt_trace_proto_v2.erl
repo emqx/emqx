@@ -30,7 +30,7 @@
 -include_lib("emqx/include/bpapi.hrl").
 
 introduced_in() ->
-    "5.0.9".
+    "5.0.10".
 
 -spec get_trace_size([node()]) ->
     emqx_rpc:multicall_result(#{{node(), file:name_all()} => non_neg_integer()}).

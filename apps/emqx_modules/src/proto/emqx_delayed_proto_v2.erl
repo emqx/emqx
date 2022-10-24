@@ -30,7 +30,7 @@
 -define(TIMEOUT, 15000).
 
 introduced_in() ->
-    "5.0.9".
+    "5.0.10".
 
 -spec get_delayed_message(node(), binary()) ->
     emqx_delayed:with_id_return(map()) | emqx_rpc:badrpc().
