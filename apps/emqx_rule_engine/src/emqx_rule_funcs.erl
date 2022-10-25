@@ -335,28 +335,46 @@ null() ->
 %% Arithmetic Funcs
 %%------------------------------------------------------------------------------
 
+-define(OPERATOR_TYPE_ERROR, unsupported_function_operator_type).
+
 %% plus 2 numbers
 '+'(X, Y) when is_number(X), is_number(Y) ->
     X + Y;
-
 %% concat 2 strings
 '+'(X, Y) when is_binary(X), is_binary(Y) ->
-    concat(X, Y).
+    concat(X, Y);
+%% unsupported type implicit conversion
+'+'(X, Y)
+  when (is_number(X) andalso is_binary(Y)) orelse
+       (is_binary(X) andalso is_number(Y)) ->
+    error(unsupported_type_implicit_conversion);
+'+'(_, _) ->
+    error(?OPERATOR_TYPE_ERROR).
 
 '-'(X, Y) when is_number(X), is_number(Y) ->
-    X - Y.
+    X - Y;
+'-'(_, _) ->
+    error(?OPERATOR_TYPE_ERROR).
 
 '*'(X, Y) when is_number(X), is_number(Y) ->
-    X * Y.
+    X * Y;
+'*'(_, _) ->
+    error(?OPERATOR_TYPE_ERROR).
 
 '/'(X, Y) when is_number(X), is_number(Y) ->
-    X / Y.
+    X / Y;
+'/'(_, _) ->
+    error(?OPERATOR_TYPE_ERROR).
 
 'div'(X, Y) when is_integer(X), is_integer(Y) ->
-    X div Y.
+    X div Y;
+'div'(_, _) ->
+    error(?OPERATOR_TYPE_ERROR).
 
 mod(X, Y) when is_integer(X), is_integer(Y) ->
-    X rem Y.
+    X rem Y;
+mod(_, _) ->
+    error(?OPERATOR_TYPE_ERROR).
 
 eq(X, Y) ->
     X == Y.

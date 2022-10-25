@@ -21,6 +21,7 @@
 
 -include_lib("emqx_sn/include/emqx_sn.hrl").
 -include_lib("eunit/include/eunit.hrl").
+-define(SHOW(X), ??X).
 
 -import(emqx_sn_frame, [ parse/1
                        , serialize/1
@@ -67,6 +68,14 @@ t_willtopic(_) ->
     Wt = #mqtt_sn_message{type = ?SN_WILLTOPIC, variable = {Flags, <<"WillTopic">>}},
     ?assertEqual({ok, Wt}, parse(serialize(Wt))).
 
+t_undefined_willtopic(_) ->
+    Wt = #mqtt_sn_message{type = ?SN_WILLTOPIC},
+    ?assertEqual({ok, Wt}, parse(serialize(Wt))).
+
+t_willtopic_resp(_) ->
+    Wt = #mqtt_sn_message{type = ?SN_WILLTOPICRESP, variable = 0},
+    ?assertEqual({ok, Wt}, parse(serialize(Wt))).
+
 t_willmsgreq(_) ->
     WmReq = #mqtt_sn_message{type = ?SN_WILLMSGREQ},
     ?assertEqual({ok, WmReq}, parse(serialize(WmReq))).
@@ -88,6 +97,12 @@ t_publish(_) ->
     PubMsg = #mqtt_sn_message{type = ?SN_PUBLISH, variable = {Flags, 1, 2, <<"Payload">>}},
     ?assertEqual({ok, PubMsg}, parse(serialize(PubMsg))).
 
+t_publish_long_msg(_) ->
+    Flags = #mqtt_sn_flags{dup = false, qos = 1, retain = false, topic_id_type = 2#01},
+    Payload = generate_random_binary(256 + rand:uniform(256)),
+    PubMsg = #mqtt_sn_message{type = ?SN_PUBLISH, variable = {Flags, 1, 2, Payload}},
+    ?assertEqual({ok, PubMsg}, parse(serialize(PubMsg))).
+
 t_puback(_) ->
     PubAck = #mqtt_sn_message{type = ?SN_PUBACK, variable = {1, 2, 0}},
     ?assertEqual({ok, PubAck}, parse(serialize(PubAck))).
@@ -105,9 +120,21 @@ t_pubcomp(_) ->
     ?assertEqual({ok, PubComp}, parse(serialize(PubComp))).
 
 t_subscribe(_) ->
-    Flags = #mqtt_sn_flags{dup = false, qos = 1, topic_id_type = 16#01},
+    Flags = #mqtt_sn_flags{dup = false, qos = 1, topic_id_type = ?SN_PREDEFINED_TOPIC},
     SubMsg = #mqtt_sn_message{type = ?SN_SUBSCRIBE, variable = {Flags, 16#4321, 16}},
-    ?assertEqual({ok, SubMsg}, parse(serialize(SubMsg))).
+    ?assertEqual({ok, SubMsg}, parse(serialize(SubMsg))),
+
+    Flags1 = #mqtt_sn_flags{dup = false, qos = 1, topic_id_type = ?SN_NORMAL_TOPIC},
+    SubMsg1 = #mqtt_sn_message{type = ?SN_SUBSCRIBE, variable = {Flags1, 16#4321, <<"t/+">>}},
+    ?assertEqual({ok, SubMsg1}, parse(serialize(SubMsg1))),
+
+    Flags2 = #mqtt_sn_flags{dup = false, qos = 1, topic_id_type = ?SN_SHORT_TOPIC},
+    SubMsg2 = #mqtt_sn_message{type = ?SN_SUBSCRIBE, variable = {Flags2, 16#4321, <<"t/+">>}},
+    ?assertEqual({ok, SubMsg2}, parse(serialize(SubMsg2))),
+
+    Flags3 = #mqtt_sn_flags{dup = false, qos = 1, topic_id_type = ?SN_RESERVED_TOPIC},
+    SubMsg3 = #mqtt_sn_message{type = ?SN_SUBSCRIBE, variable = {Flags3, 16#4321, <<"t/+">>}},
+    ?assertEqual({ok, SubMsg3}, parse(serialize(SubMsg3))).
 
 t_suback(_) ->
     Flags = #mqtt_sn_flags{qos = 1},
@@ -137,6 +164,10 @@ t_disconnect(_) ->
     Disconn = #mqtt_sn_message{type = ?SN_DISCONNECT},
     ?assertEqual({ok, Disconn}, parse(serialize(Disconn))).
 
+t_disconnect_duration(_) ->
+    Disconn = #mqtt_sn_message{type = ?SN_DISCONNECT, variable = 120},
+    ?assertEqual({ok, Disconn}, parse(serialize(Disconn))).
+
 t_willtopicupd(_) ->
     Flags = #mqtt_sn_flags{qos = 1, retain = true},
     WtUpd = #mqtt_sn_message{type = ?SN_WILLTOPICUPD, variable = {Flags, <<"Topic">>}},
@@ -149,6 +180,43 @@ t_willmsgupd(_) ->
 t_willmsgresp(_) ->
     UpdResp = #mqtt_sn_message{type = ?SN_WILLMSGRESP, variable = 0},
     ?assertEqual({ok, UpdResp}, parse(serialize(UpdResp))).
+
+t_invalid_inpacket(_) ->
+    Bin = <<2:8/big-integer, 16#F0:8/big-integer>>,
+    ?assertMatch({'EXIT', {unkown_message_type, _Stack}}, catch parse(Bin)).
+
+t_message_type(_) ->
+    TypeNames = [ {?SN_ADVERTISE, ?SHOW(SN_ADVERTISE)}
+                , {?SN_SEARCHGW, ?SHOW(SN_SEARCHGW)}
+                , {?SN_GWINFO, ?SHOW(SN_GWINFO)}
+                , {?SN_CONNECT, ?SHOW(SN_CONNECT)}
+                , {?SN_CONNACK, ?SHOW(SN_CONNACK)}
+                , {?SN_WILLTOPICREQ, ?SHOW(SN_WILLTOPICREQ)}
+                , {?SN_WILLTOPIC, ?SHOW(SN_WILLTOPIC)}
+                , {?SN_WILLMSGREQ, ?SHOW(SN_WILLMSGREQ)}
+                , {?SN_WILLMSG, ?SHOW(SN_WILLMSG)}
+                , {?SN_REGISTER, ?SHOW(SN_REGISTER)}
+                , {?SN_REGACK, ?SHOW(SN_REGACK)}
+                , {?SN_PUBLISH, ?SHOW(SN_PUBLISH)}
+                , {?SN_PUBACK, ?SHOW(SN_PUBACK)}
+                , {?SN_PUBCOMP, ?SHOW(SN_PUBCOMP)}
+                , {?SN_PUBREC, ?SHOW(SN_PUBREC)}
+                , {?SN_PUBREL, ?SHOW(SN_PUBREL)}
+                , {?SN_SUBSCRIBE, ?SHOW(SN_SUBSCRIBE)}
+                , {?SN_SUBACK, ?SHOW(SN_SUBACK)}
+                , {?SN_UNSUBSCRIBE, ?SHOW(SN_UNSUBSCRIBE)}
+                , {?SN_UNSUBACK, ?SHOW(SN_UNSUBACK)}
+                , {?SN_PINGREQ, ?SHOW(SN_PINGREQ)}
+                , {?SN_PINGRESP, ?SHOW(SN_PINGRESP)}
+                , {?SN_DISCONNECT, ?SHOW(SN_DISCONNECT)}
+                , {?SN_WILLTOPICUPD, ?SHOW(SN_WILLTOPICUPD)}
+                , {?SN_WILLTOPICRESP, ?SHOW(SN_WILLTOPICRESP)}
+                , {?SN_WILLMSGUPD, ?SHOW(SN_WILLMSGUPD)}
+                , {?SN_WILLMSGRESP, ?SHOW(SN_WILLMSGRESP)}
+                ],
+    {Types, Names} = lists:unzip(TypeNames),
+    ?assertEqual(Names, [emqx_sn_frame:message_type(Type) || Type <- Types]),
+    ok.
 
 t_random_test(_) ->
     random_test_body(),
@@ -171,6 +239,9 @@ random_test_body() ->
 generate_random_binary() ->
     % The min packet length is 2
     Len = rand:uniform(299) + 1,
+    generate_random_binary(Len).
+
+generate_random_binary(Len) ->
     gen_next(Len, <<>>).
 
 gen_next(0, Acc) ->
@@ -178,4 +249,3 @@ gen_next(0, Acc) ->
 gen_next(N, Acc) ->
     Byte = rand:uniform(256) - 1,
     gen_next(N-1, <<Acc/binary, Byte:8>>).
-

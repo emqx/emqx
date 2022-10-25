@@ -40,10 +40,10 @@ EOF
 }
 
 logerr() {
-    echo -e "\e[31mERROR: $1\e[39m"
+    echo "$(tput setaf 1)ERROR: $1$(tput sgr0)"
 }
 logmsg() {
-    echo -e "\e[33mINFO: $1\e[39m"
+    echo "INFO: $1"
 }
 
 REL_BRANCH_CE="${REL_BRANCH_CE:-release-v43}"
