@@ -1021,10 +1021,10 @@ tr_vm_system_info_collector(Conf) ->
     metrics_enabled(conf_get("prometheus.vm_system_info_collector", Conf, enabled)).
 
 tr_vm_memory_collector(Conf) ->
-    metrics_enabled(conf_get("prometheus.vm_system_info_collector", Conf, enabled)).
+    metrics_enabled(conf_get("prometheus.vm_memory_collector", Conf, enabled)).
 
 tr_vm_msacc_collector(Conf) ->
-    metrics_enabled(conf_get("prometheus.vm_system_info_collector", Conf, enabled)).
+    metrics_enabled(conf_get("prometheus.vm_msacc_collector", Conf, enabled)).
 
 metrics_enabled(enabled) -> all;
 metrics_enabled(disabled) -> [].
