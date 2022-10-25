@@ -367,11 +367,13 @@ parameters(Params, Module) ->
                         Required = hocon_schema:field_schema(Type, required),
                         Default = hocon_schema:field_schema(Type, default),
                         HoconType = hocon_schema:field_schema(Type, type),
+                        SchemaExtras = hocon_extract_map([enum, default], Type),
                         Meta = init_meta(Default),
                         {ParamType, Refs} = hocon_schema_to_spec(HoconType, Module),
+                        Schema = maps:merge(maps:merge(ParamType, Meta), SchemaExtras),
                         Spec0 = init_prop(
                             [required | ?DEFAULT_FIELDS],
-                            #{schema => maps:merge(ParamType, Meta), name => Name, in => In},
+                            #{schema => Schema, name => Name, in => In},
                             Type
                         ),
                         Spec1 = trans_required(Spec0, Required, In),
@@ -383,6 +385,18 @@ parameters(Params, Module) ->
             Params
         ),
     {lists:reverse(SpecList), AllRefs}.
+
+hocon_extract_map(Keys, Type) ->
+    lists:foldl(
+        fun(K, M) ->
+            case hocon_schema:field_schema(Type, K) of
+                undefined -> M;
+                V -> M#{K => V}
+            end
+        end,
+        #{},
+        Keys
+    ).
 
 init_meta(undefined) -> #{};
 init_meta(Default) -> #{default => Default}.
