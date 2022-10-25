@@ -50,7 +50,11 @@ running_status() ->
                     running -> 200;
                     not_running -> 503
                 end,
-            {StatusCode, #{<<"content-type">> => <<"text/plain">>}, list_to_binary(Body)};
+            Headers = #{
+                <<"content-type">> => <<"text/plain">>,
+                <<"retry-after">> => <<"15">>
+            },
+            {StatusCode, Headers, list_to_binary(Body)};
         false ->
             {503, #{<<"retry-after">> => <<"15">>}, <<>>}
     end.

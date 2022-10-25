@@ -54,28 +54,43 @@ end_per_testcase(_TestCase, _Config) ->
 
 do_request(Opts) ->
     #{
-        path := Path,
+        path := Path0,
         method := Method,
         headers := Headers,
         body := Body0
     } = Opts,
-    URL = ?HOST ++ filename:join(Path),
+    URL = ?HOST ++ filename:join(Path0),
+    {ok, #{host := Host, port := Port, path := Path}} = emqx_http_lib:uri_parse(URL),
+    %% we must not use `httpc' here, because it keeps retrying when it
+    %% receives a 503 with `retry-after' header, and there's no option
+    %% to stop that behavior...
+    {ok, Gun} = gun:open(Host, Port, #{retry => 0}),
+    {ok, http} = gun:await_up(Gun),
     Request =
-        case Body0 of
-            no_body -> {URL, Headers};
-            {Encoding, Body} -> {URL, Headers, Encoding, Body}
+        fun() ->
+            case Body0 of
+                no_body -> gun:Method(Gun, Path, Headers);
+                {_Encoding, Body} -> gun:Method(Gun, Path, Headers, Body)
+            end
         end,
-    ct:pal("Method: ~p, Request: ~p", [Method, Request]),
-    case httpc:request(Method, Request, [], []) of
-        {error, socket_closed_remotely} ->
-            {error, socket_closed_remotely};
-        {ok, {{_, StatusCode, _}, Headers1, Body1}} ->
-            Body2 =
-                case emqx_json:safe_decode(Body1, [return_maps]) of
-                    {ok, Json} -> Json;
-                    {error, _} -> Body1
-                end,
-            {ok, #{status_code => StatusCode, headers => Headers1, body => Body2}}
+    Ref = Request(),
+    receive
+        {gun_response, Gun, Ref, nofin, StatusCode, Headers1} ->
+            Data = data_loop(Gun, Ref, _Acc = <<>>),
+            #{status_code => StatusCode, headers => maps:from_list(Headers1), body => Data}
+    after 5_000 ->
+        error({timeout, Opts, process_info(self(), messages)})
+    end.
+
+data_loop(Gun, Ref, Acc) ->
+    receive
+        {gun_data, Gun, Ref, nofin, Data} ->
+            data_loop(Gun, Ref, <<Acc/binary, Data/binary>>);
+        {gun_data, Gun, Ref, fin, Data} ->
+            gun:shutdown(Gun),
+            <<Acc/binary, Data/binary>>
+    after 5000 ->
+        error(timeout)
     end.
 
 %%---------------------------------------------------------------------------------------
@@ -83,10 +98,10 @@ do_request(Opts) ->
 %%---------------------------------------------------------------------------------------
 
 t_status_ok(_Config) ->
-    {ok, #{
+    #{
         body := Resp,
         status_code := StatusCode
-    }} = do_request(#{
+    } = do_request(#{
         method => get,
         path => ["status"],
         headers => [],
@@ -100,10 +115,11 @@ t_status_ok(_Config) ->
     ok.
 
 t_status_not_ok(_Config) ->
-    {ok, #{
+    #{
         body := Resp,
+        headers := Headers,
         status_code := StatusCode
-    }} = do_request(#{
+    } = do_request(#{
         method => get,
         path => ["status"],
         headers => [],
@@ -113,5 +129,9 @@ t_status_not_ok(_Config) ->
     ?assertMatch(
         {match, _},
         re:run(Resp, <<"emqx is not_running$">>)
+    ),
+    ?assertMatch(
+        #{<<"retry-after">> := <<"15">>},
+        Headers
     ),
     ok.
