@@ -81,6 +81,19 @@
 
 -define(T_RETRY, 60000).
 
+%% redefine this macro to confine the appup scope
+-undef(RAISE).
+-define(RAISE(_EXP_, _ERROR_CONTEXT_),
+        fun() ->
+            try (_EXP_)
+            catch
+                throw : Reason ->
+                    throw({_ERROR_CONTEXT_, Reason});
+                _EXCLASS_:_EXCPTION_:_ST_ ->
+                    throw({_ERROR_CONTEXT_, {_EXCPTION_, _EXCPTION_, _ST_}})
+            end
+        end()).
+
 %%------------------------------------------------------------------------------
 %% Load resource/action providers from all available applications
 %%------------------------------------------------------------------------------
@@ -656,8 +669,7 @@ action_instance_id(ActionName) ->
     iolist_to_binary([atom_to_list(ActionName), "_", integer_to_list(erlang:system_time())]).
 
 init_resource(Module, OnCreate, ResId, Config) ->
-    Params = ?RAISE(Module:OnCreate(ResId, Config),
-        {{Module, OnCreate}, {_EXCLASS_, _EXCPTION_, _ST_}}),
+    Params = ?RAISE(Module:OnCreate(ResId, Config), {Module, OnCreate}),
     ResParams = #resource_params{id = ResId,
                                  params = Params,
                                  status = #{is_alive => true}},
@@ -679,8 +691,7 @@ init_resource_with_retrier(Module, OnCreate, ResId, Config) ->
 init_action(Module, OnCreate, ActionInstId, Params) ->
     ok = emqx_rule_metrics:create_metrics(ActionInstId),
     case ?RAISE(Module:OnCreate(ActionInstId, Params),
-                {{init_action_failure, node()},
-                 {{Module, OnCreate}, {_EXCLASS_, _EXCPTION_, _ST_}}}) of
+                {init_action_failure, node(), Module, OnCreate}) of
         {Apply, NewParams} when is_function(Apply) -> %% BACKW: =< e4.2.2
             ok = emqx_rule_registry:add_action_instance_params(
                 #action_instance_params{id = ActionInstId, params = NewParams, apply = Apply});
@@ -704,7 +715,7 @@ clear_resource(Module, Destroy, ResId, Type) ->
     case emqx_rule_registry:find_resource_params(ResId) of
         {ok, #resource_params{params = Params}} ->
             ?RAISE(Module:Destroy(ResId, Params),
-                   {{destroy_resource_failure, node()}, {{Module, Destroy}, {_EXCLASS_,_EXCPTION_,_ST_}}}),
+                   {destroy_resource_failure, node(), Module, Destroy}),
             ok = emqx_rule_registry:remove_resource_params(ResId);
         not_found ->
             ok
@@ -732,8 +743,8 @@ clear_action(Module, Destroy, ActionInstId) ->
             emqx_rule_metrics:clear_metrics(ActionInstId),
             case emqx_rule_registry:get_action_instance_params(ActionInstId) of
                 {ok, #action_instance_params{params = Params}} ->
-                    ?RAISE(Module:Destroy(ActionInstId, Params),{{destroy_action_failure, node()},
-                                                {{Module, Destroy}, {_EXCLASS_,_EXCPTION_,_ST_}}}),
+                    ?RAISE(Module:Destroy(ActionInstId, Params),
+                           {destroy_action_failure, node(), Module, Destroy}),
                     ok = emqx_rule_registry:remove_action_instance_params(ActionInstId);
                 not_found ->
                     ok
