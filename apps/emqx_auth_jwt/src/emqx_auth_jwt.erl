@@ -109,11 +109,20 @@ string_to_number(_) ->
 %% Verify Claims
 %%--------------------------------------------------------------------
 
-verify_acl(ClientInfo, #{<<"sub">> := SubTopics}, subscribe, Topic) when is_list(SubTopics) ->
-    verify_acl(ClientInfo, SubTopics, Topic);
-verify_acl(ClientInfo, #{<<"pub">> := PubTopics}, publish, Topic) when is_list(PubTopics) ->
-    verify_acl(ClientInfo, PubTopics, Topic);
-verify_acl(_ClientInfo, _Acl, _PubSub, _Topic) -> {stop, deny}.
+verify_acl(ClientInfo, Acl, PubSub, Topic) ->
+    Key = case PubSub of
+              subscribe -> <<"sub">>;
+              publish -> <<"pub">>
+          end,
+    Rules0 = lists:map(
+               fun(K) ->
+                       case maps:get(K, Acl, undefined) of
+                           R when is_list(R) -> R;
+                           _ -> []
+                       end
+               end, [<<"all">>, Key]),
+    Rules = lists:append(Rules0),
+    verify_acl(ClientInfo, Rules, Topic).
 
 verify_acl(_ClientInfo, [], _Topic) -> {stop, deny};
 verify_acl(ClientInfo, [AclTopic | AclTopics], Topic) ->
