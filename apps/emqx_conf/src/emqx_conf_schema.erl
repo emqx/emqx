@@ -980,7 +980,7 @@ desc("authorization") ->
 desc(_) ->
     undefined.
 
-translations() -> ["ekka", "kernel", "emqx", "gen_rpc"].
+translations() -> ["ekka", "kernel", "emqx", "gen_rpc", "prometheus"].
 
 translation("ekka") ->
     [{"cluster_discovery", fun tr_cluster_discovery/1}];
@@ -997,7 +997,37 @@ translation("emqx") ->
         {"local_override_conf_file", fun tr_local_override_conf_file/1}
     ];
 translation("gen_rpc") ->
-    [{"default_client_driver", fun tr_default_config_driver/1}].
+    [{"default_client_driver", fun tr_default_config_driver/1}];
+translation("prometheus") ->
+    [
+        {"vm_dist_collector_metrics", fun tr_vm_dist_collector/1},
+        {"mnesia_collector_metrics", fun tr_mnesia_collector/1},
+        {"vm_statistics_collector_metrics", fun tr_vm_statistics_collector/1},
+        {"vm_system_info_collector_metrics", fun tr_vm_system_info_collector/1},
+        {"vm_memory_collector_metrics", fun tr_vm_memory_collector/1},
+        {"vm_msacc_collector_metrics", fun tr_vm_msacc_collector/1}
+    ].
+
+tr_vm_dist_collector(Conf) ->
+    metrics_enabled(conf_get("prometheus.vm_dist_collector", Conf, enabled)).
+
+tr_mnesia_collector(Conf) ->
+    metrics_enabled(conf_get("prometheus.mnesia_collector", Conf, enabled)).
+
+tr_vm_statistics_collector(Conf) ->
+    metrics_enabled(conf_get("prometheus.vm_statistics_collector", Conf, enabled)).
+
+tr_vm_system_info_collector(Conf) ->
+    metrics_enabled(conf_get("prometheus.vm_system_info_collector", Conf, enabled)).
+
+tr_vm_memory_collector(Conf) ->
+    metrics_enabled(conf_get("prometheus.vm_memory_collector", Conf, enabled)).
+
+tr_vm_msacc_collector(Conf) ->
+    metrics_enabled(conf_get("prometheus.vm_msacc_collector", Conf, enabled)).
+
+metrics_enabled(enabled) -> all;
+metrics_enabled(disabled) -> [].
 
 tr_default_config_driver(Conf) ->
     conf_get("rpc.driver", Conf).
