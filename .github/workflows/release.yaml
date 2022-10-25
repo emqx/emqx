@@ -18,8 +18,7 @@ jobs:
           path: source
           fetch-depth: 0
       - id: detect-profiles
-        working-directory: source
-        uses: ./.github/actions/detect-profiles
+        uses: ./source/.github/actions/detect-profiles
         with:
           ci_git_token: ${{ secrets.CI_GIT_TOKEN }}
 

@@ -114,7 +114,11 @@ handle_request(<<"GET">>, <<"/status">>, Req) ->
     end,
     Status = io_lib:format("Node ~s is ~s~nemqx is ~s",
                             [node(), InternalStatus, AppStatus]),
-    cowboy_req:reply(200, #{<<"content-type">> => <<"text/plain">>}, Status, Req);
+    StatusCode = case AppStatus of
+                     running -> 200;
+                     not_running -> 503
+                 end,
+    cowboy_req:reply(StatusCode, #{<<"content-type">> => <<"text/plain">>}, Status, Req);
 
 handle_request(_Method, _Path, Req) ->
     cowboy_req:reply(400, #{<<"content-type">> => <<"text/plain">>}, <<"Not found.">>, Req).
