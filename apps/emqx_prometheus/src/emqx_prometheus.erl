@@ -147,7 +147,8 @@ handle_info({timeout, R, ?TIMER_MSG}, State = #state{timer = R, push_gateway = U
     Url = lists:concat([Uri, "/metrics/job/", Name, "/instance/", Name, "~", Ip]),
     Data = prometheus_text_format:format(),
     httpc:request(post, {Url, [], "text/plain", Data}, [{autoredirect, true}], []),
-    {noreply, ensure_timer(State)};
+    %% Data is too big, hibernate for saving memory and stop system monitor warning.
+    {noreply, ensure_timer(State), hibernate};
 handle_info(_Msg, State) ->
     {noreply, State}.
 
