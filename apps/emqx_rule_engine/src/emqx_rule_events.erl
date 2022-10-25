@@ -1054,8 +1054,11 @@ printable_maps(Headers) ->
                      || {Key, Value} <- V0
                     ]
                 };
-            (K, V0, AccIn) ->
-                AccIn#{K => V0}
+            (_K, V, AccIn) when is_tuple(V) ->
+                %% internal headers
+                AccIn;
+            (K, V, AccIn) ->
+                AccIn#{K => V}
         end,
         #{},
         Headers
