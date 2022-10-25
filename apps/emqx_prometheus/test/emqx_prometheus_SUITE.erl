@@ -28,6 +28,12 @@
     "  push_gateway_server = \"http://127.0.0.1:9091\"\n"
     "  interval = \"1s\"\n"
     "  enable = true\n"
+    "  vm_dist_collector = enabled\n"
+    "  mnesia_collector = enabled\n"
+    "  vm_statistics_collector = disabled\n"
+    "  vm_system_info_collector = disabled\n"
+    "  vm_memory_collector = enabled\n"
+    "  vm_msacc_collector = enabled\n"
     "}\n"
 >>).
 
@@ -71,7 +77,8 @@ t_start_stop(_) ->
     %% wait the interval timer tigger
     timer:sleep(2000).
 
-t_test(_) ->
+t_collector_no_crash_test(_) ->
+    prometheus_text_format:format(),
     ok.
 
 t_only_for_coverage(_) ->
