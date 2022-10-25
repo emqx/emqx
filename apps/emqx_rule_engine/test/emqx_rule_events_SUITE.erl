@@ -22,10 +22,16 @@ t_mod_hook_fun(_) ->
 t_printable_maps(_) ->
     Headers = #{peerhost => {127,0,0,1},
                 peername => {{127,0,0,1}, 9980},
-                sockname => {{127,0,0,1}, 1883}
+                sockname => {{127,0,0,1}, 1883},
+                redispatch_to => {<<"group">>, <<"sub/topic/+">>},
+                shared_dispatch_ack => {self(), ref}
                 },
+    Converted = emqx_rule_events:printable_maps(Headers),
     ?assertMatch(
         #{peerhost := <<"127.0.0.1">>,
           peername := <<"127.0.0.1:9980">>,
           sockname := <<"127.0.0.1:1883">>
-        }, emqx_rule_events:printable_maps(Headers)).
+        }, Converted),
+    ?assertNot(maps:is_key(redispatch_to, Converted)),
+    ?assertNot(maps:is_key(shared_dispatch_ack, Converted)),
+    ok.
