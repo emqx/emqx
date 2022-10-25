@@ -94,7 +94,7 @@ get_list_exported() ->
                         {ok, #file_info{size = Size, ctime = CTime = {{Y, M, D}, {H, MM, S}}}} ->
                             CreatedAt = io_lib:format("~p-~p-~p ~p:~p:~p", [Y, M, D, H, MM, S]),
                             Seconds = calendar:datetime_to_gregorian_seconds(CTime),
-                            [{Seconds, [{filename, list_to_binary(File)},
+                            [{Seconds, [{filename, unicode:characters_to_binary(File)},
                                         {size, Size},
                                         {created_at, list_to_binary(CreatedAt)},
                                         {node, node()}
@@ -135,7 +135,7 @@ download(#{filename := Filename}, _Params) ->
     FullFilename = fullname(Filename),
     case file:read_file(FullFilename) of
         {ok, Bin} ->
-            {ok, #{filename => list_to_binary(Filename),
+            {ok, #{filename => unicode:characters_to_binary(filename:basename(FullFilename)),
                    file => Bin}};
         {error, Reason} ->
             minirest:return({error, Reason})
@@ -147,6 +147,7 @@ upload(Bindings, Params) ->
 do_upload(_Bindings, #{<<"filename">> := Filename,
                        <<"file">> := Bin}) ->
     FullFilename = fullname(Filename),
+    ok = filelib:ensure_dir(FullFilename),
     case file:write_file(FullFilename, Bin) of
         ok ->
             minirest:return({ok, [{node, node()}]});
