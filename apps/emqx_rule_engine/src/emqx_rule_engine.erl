@@ -24,7 +24,7 @@
         , refresh_resources/0
         , refresh_resource/1
         , refresh_rule/1
-        , refresh_rules/0
+        , refresh_rules_when_boot/0
         , refresh_actions/1
         , refresh_actions/2
         , refresh_resource_status/0
@@ -47,6 +47,7 @@
         ]).
 
 -export([ init_resource/4
+        , init_resource_with_retrier/4
         , init_action/4
         , clear_resource/4
         , clear_rule/1
@@ -255,15 +256,20 @@ create_resource(#{type := Type, config := Config0} = Params, Retry) ->
                                  created_at = erlang:system_time(millisecond)
                                 },
             ok = emqx_rule_registry:add_resource(Resource),
+            InitArgs = [M, F, ResId, Config],
             case Retry of
                 with_retry ->
                     %% Note that we will return OK in case of resource creation failure,
                     %% A timer is started to re-start the resource later.
-                    _ = (catch (?CLUSTER_CALL(init_resource, [M, F, ResId, Config]))),
+                    _ = try ?CLUSTER_CALL(init_resource_with_retrier, InitArgs, ok,
+                                          init_resource, InitArgs)
+                    catch throw : Reason ->
+                        ?LOG(error, "create_resource failed: ~0p", [Reason])
+                    end,
                     {ok, Resource};
                 no_retry ->
                     try
-                        _ = ?CLUSTER_CALL(init_resource, [M, F, ResId, Config]),
+                        _ = ?CLUSTER_CALL(init_resource, InitArgs),
                         {ok, Resource}
                     catch throw : Reason ->
                         {error, Reason}
@@ -327,7 +333,7 @@ start_resource(ResId) ->
             {ok, #resource_type{on_create = {Mod, Create}}}
                 = emqx_rule_registry:find_resource_type(ResType),
             try
-                init_resource(Mod, Create, ResId, Config),
+                init_resource_with_retrier(Mod, Create, ResId, Config),
                 refresh_actions_of_a_resource(ResId)
             catch
                 throw:Reason -> {error, Reason}
@@ -476,20 +482,22 @@ refresh_resource(Type) when is_atom(Type) ->
                   emqx_rule_registry:get_resources_by_type(Type));
 
 refresh_resource(#resource{id = ResId, type = Type, config = Config}) ->
-    try
-        {ok, #resource_type{on_create = {M, F}}} =
-            emqx_rule_registry:find_resource_type(Type),
-        ok = emqx_rule_engine:init_resource(M, F, ResId, Config)
-    catch _:_ ->
-        emqx_rule_monitor:ensure_resource_retrier(ResId, ?T_RETRY)
-    end.
+    {ok, #resource_type{on_create = {M, F}}} =
+        emqx_rule_registry:find_resource_type(Type),
+    ok = emqx_rule_engine:init_resource_with_retrier(M, F, ResId, Config).
 
--spec(refresh_rules() -> ok).
-refresh_rules() ->
+-spec(refresh_rules_when_boot() -> ok).
+refresh_rules_when_boot() ->
     lists:foreach(fun
         (#rule{enabled = true} = Rule) ->
             try refresh_rule(Rule)
             catch _:_ ->
+                %% We set the enable = false when rule init failed to avoid bad rules running
+                %% without actions created properly.
+                %% The init failure might be caused by a disconnected resource, in this case the
+                %% actions can not be created, so the rules won't work.
+                %% After the user fixed the problem he can enable it manually,
+                %% doing so will also recreate the actions.
                 emqx_rule_registry:add_rule(Rule#rule{enabled = false, state = refresh_failed_at_bootup})
             end;
         (_) -> ok
@@ -654,6 +662,19 @@ init_resource(Module, OnCreate, ResId, Config) ->
                                  params = Params,
                                  status = #{is_alive => true}},
     emqx_rule_registry:add_resource_params(ResParams).
+
+init_resource_with_retrier(Module, OnCreate, ResId, Config) ->
+    try
+        Params = Module:OnCreate(ResId, Config),
+        ResParams = #resource_params{id = ResId,
+                                    params = Params,
+                                    status = #{is_alive => true}},
+        emqx_rule_registry:add_resource_params(ResParams)
+    catch Class:Reason:ST ->
+        Interval = persistent_term:get({emqx_rule_engine, resource_restart_interval}, ?T_RETRY),
+        emqx_rule_monitor:ensure_resource_retrier(ResId, Interval),
+        erlang:raise(Class, {init_resource, Reason}, ST)
+    end.
 
 init_action(Module, OnCreate, ActionInstId, Params) ->
     ok = emqx_rule_metrics:create_metrics(ActionInstId),

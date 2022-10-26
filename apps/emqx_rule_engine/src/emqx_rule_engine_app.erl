@@ -28,8 +28,7 @@ start(_Type, _Args) ->
     {ok, Sup} = emqx_rule_engine_sup:start_link(),
     _ = emqx_rule_engine_sup:start_locker(),
     ok = emqx_rule_engine:load_providers(),
-    ok = emqx_rule_engine:refresh_resources(),
-    ok = emqx_rule_engine:refresh_rules(),
+    ok = emqx_rule_monitor:async_refresh_resources_rules(),
     ok = emqx_rule_engine_cli:load(),
     {ok, Sup}.
 
