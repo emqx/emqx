@@ -94,14 +94,14 @@ Complex types define data 'boxes' which may contain other complex data
 or primitive values.
 There are quite some different primitive types, to name a few:
 
-* `atom()`
-* `boolean()`
-* `string()`
-* `integer()`
-* `float()`
-* `number()`
-* `binary()` # another format of string()
-* `emqx_schema:duration()` # time duration, another format of integer()
+* `atom()`.
+* `boolean()`.
+* `string()`.
+* `integer()`.
+* `float()`.
+* `number()`.
+* `binary()`, another format of string().
+* `emqx_schema:duration()`, time duration, another format of integer()
 * ...
 
 ::: tip Tip
