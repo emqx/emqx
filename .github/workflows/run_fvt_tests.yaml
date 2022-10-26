@@ -154,7 +154,7 @@ jobs:
 
     relup_test_plan:
         runs-on: ubuntu-20.04
-        container: emqx/build-env:erl23.3.4.9-3-ubuntu20.04
+        container: emqx/build-env:erl23.3.4.18-1-ubuntu20.04
         outputs:
           profile: ${{ steps.profile-and-versions.outputs.profile }}
           vsn: ${{ steps.profile-and-versions.outputs.vsn }}
@@ -200,7 +200,7 @@ jobs:
     relup_test_build:
         needs: relup_test_plan
         runs-on: ubuntu-20.04
-        container: emqx/build-env:erl23.3.4.9-3-ubuntu20.04
+        container: emqx/build-env:erl23.3.4.18-1-ubuntu20.04
         defaults:
           run:
             shell: bash
