@@ -73,7 +73,7 @@ jobs:
     strategy:
       matrix:
         otp:
-          - 23.3.4.9-3
+          - 23.3.4.18-1
         os:
           - macos-11
     runs-on: ${{ matrix.os }}

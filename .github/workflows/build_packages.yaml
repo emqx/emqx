@@ -20,7 +20,7 @@ jobs:
     # avoid building when syncing to ee repo
     if: endsWith(github.repository, 'emqx')
     runs-on: ubuntu-20.04
-    container: emqx/build-env:erl23.3.4.9-3-ubuntu20.04
+    container: emqx/build-env:erl23.3.4.18-1-ubuntu20.04
 
     outputs:
       profiles: ${{ steps.detect-profiles.outputs.profiles}}
@@ -58,7 +58,7 @@ jobs:
       matrix:
         profile: ${{fromJSON(needs.prepare.outputs.profiles)}}
         otp:
-          - 23.3.4.13
+          - 23.3.4.17
         exclude:
           - profile: emqx-edge
 
@@ -119,7 +119,7 @@ jobs:
     strategy:
       matrix:
         otp:
-          - 23.3.4.9-3
+          - 23.3.4.18-1
         os:
           - macos-11
     runs-on: ${{ matrix.os }}
@@ -174,7 +174,7 @@ jobs:
           # - raspbian9
         otp_version:
           #- 23.2.7.2-emqx-3
-          - 23.3.4.9-3
+          - 23.3.4.18-1
         exclude:
         - os: centos6
           arch: arm64
@@ -330,7 +330,7 @@ jobs:
         tags: ${{ steps.meta.outputs.tags }}
         labels: ${{ steps.meta.outputs.labels }}
         build-args: |
-          BUILD_FROM=emqx/build-env:erl23.3.4.9-3-alpine
+          BUILD_FROM=emqx/build-env:erl23.3.4.18-1-alpine
           RUN_FROM=alpine:3.12
           EMQX_NAME=${{ matrix.profile }}
         file: source/deploy/docker/Dockerfile
@@ -346,7 +346,7 @@ jobs:
         tags: ${{ steps.meta.outputs.tags }}
         labels: ${{ steps.meta.outputs.labels }}
         build-args: |
-          BUILD_FROM=emqx/build-env:erl23.3.4.9-3-alpine
+          BUILD_FROM=emqx/build-env:erl23.3.4.18-1-alpine
           RUN_FROM=alpine:3.12
           EMQX_NAME=${{ matrix.profile }}
         file: source/deploy/docker/Dockerfile.enterprise
