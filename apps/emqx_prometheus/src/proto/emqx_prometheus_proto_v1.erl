@@ -20,12 +20,14 @@
 
 -export([
     introduced_in/0,
-
+    deprecated_since/0,
     start/1,
     stop/1
 ]).
 
 -include_lib("emqx/include/bpapi.hrl").
+
+deprecated_since() -> "5.0.10".
 
 introduced_in() ->
     "5.0.0".
