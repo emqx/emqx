@@ -28,3 +28,5 @@
 -define(bound_v(Key, ENVS0),
     maps:get(Key,
         maps:get(?BINDING_KEYS, ENVS0, #{}))).
+
+-define(JWT_TABLE, emqx_rule_engine_jwt_table).
