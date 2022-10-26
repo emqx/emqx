@@ -44,7 +44,7 @@ list_trace(_, _Params) ->
             Nodes = ekka_mnesia:running_nodes(),
             TraceSize = cluster_call(?MODULE, get_trace_size, [], 30000),
             AllFileSize = lists:foldl(fun(F, Acc) -> maps:merge(Acc, F) end, #{}, TraceSize),
-            Now = erlang:system_time(second),
+            Now = emqx_trace:os_now(),
             Traces =
                 lists:map(fun(Trace = #{name := Name, start_at := Start,
                     end_at := End, enable := Enable, type := Type, filter := Filter}) ->
