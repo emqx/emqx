@@ -12,7 +12,7 @@ on:
 jobs:
   prepare:
     runs-on: ubuntu-20.04
-    container: emqx/build-env:erl23.3.4.9-3-ubuntu20.04
+    container: emqx/build-env:erl23.3.4.18-1-ubuntu20.04
     outputs:
       ct_apps: ${{ steps.run_find_apps.outputs.ct_apps }}
     steps:
@@ -50,7 +50,7 @@ jobs:
   eunit_and_proper:
     needs: prepare
     runs-on: ubuntu-20.04
-    container: emqx/build-env:erl23.3.4.9-3-ubuntu20.04
+    container: emqx/build-env:erl23.3.4.18-1-ubuntu20.04
     strategy:
       fail-fast: false
       matrix:
@@ -78,7 +78,7 @@ jobs:
   emqx_ct:
     needs: prepare
     runs-on: ubuntu-20.04
-    container: emqx/build-env:erl23.3.4.9-3-ubuntu20.04
+    container: emqx/build-env:erl23.3.4.18-1-ubuntu20.04
     strategy:
       fail-fast: false
     steps:
@@ -224,7 +224,7 @@ jobs:
       - emqx_ct
       - ct
     runs-on: ubuntu-20.04
-    container: emqx/build-env:erl23.3.4.9-3-ubuntu20.04
+    container: emqx/build-env:erl23.3.4.18-1-ubuntu20.04
     steps:
       - uses: AutoModality/action-clean@v1
       - uses: actions/download-artifact@v3
