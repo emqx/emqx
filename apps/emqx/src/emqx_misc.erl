@@ -54,7 +54,8 @@
     pmap/3,
     readable_error_msg/1,
     safe_to_existing_atom/1,
-    safe_to_existing_atom/2
+    safe_to_existing_atom/2,
+    pub_props_to_packet/1
 ]).
 
 -export([
@@ -568,3 +569,17 @@ ipv6_probe_test() ->
     end.
 
 -endif.
+
+pub_props_to_packet(Properties) ->
+    F = fun
+        ('User-Property', M) ->
+            case is_map(M) andalso map_size(M) > 0 of
+                true -> {true, maps:to_list(M)};
+                false -> false
+            end;
+        ('User-Property-Pairs', _) ->
+            false;
+        (_, _) ->
+            true
+    end,
+    maps:filtermap(F, Properties).

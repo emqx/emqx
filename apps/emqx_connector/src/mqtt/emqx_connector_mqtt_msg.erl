@@ -77,17 +77,20 @@ to_remote_msg(MapMsg, #{
     Payload = process_payload(PayloadToken, MapMsg),
     QoS = replace_simple_var(QoSToken, MapMsg),
     Retain = replace_simple_var(RetainToken, MapMsg),
+    PubProps = maps:get(pub_props, MapMsg, #{}),
     #mqtt_msg{
         qos = QoS,
         retain = Retain,
         topic = topic(Mountpoint, Topic),
-        props = #{},
+        props = emqx_misc:pub_props_to_packet(PubProps),
         payload = Payload
     };
 to_remote_msg(#message{topic = Topic} = Msg, #{mountpoint := Mountpoint}) ->
     Msg#message{topic = topic(Mountpoint, Topic)}.
 
 %% published from remote node over a MQTT connection
+to_broker_msg(Msg, Vars, undefined) ->
+    to_broker_msg(Msg, Vars, #{});
 to_broker_msg(
     #{dup := Dup} = MapMsg,
     #{
@@ -103,8 +106,9 @@ to_broker_msg(
     Payload = process_payload(PayloadToken, MapMsg),
     QoS = replace_simple_var(QoSToken, MapMsg),
     Retain = replace_simple_var(RetainToken, MapMsg),
+    PubProps = maps:get(pub_props, MapMsg, #{}),
     set_headers(
-        Props,
+        Props#{properties => emqx_misc:pub_props_to_packet(PubProps)},
         emqx_message:set_flags(
             #{dup => Dup, retain => Retain},
             emqx_message:make(bridge, QoS, topic(Mountpoint, Topic), Payload)
@@ -151,8 +155,6 @@ estimate_size(#{topic := Topic, payload := Payload}) ->
 estimate_size(Term) ->
     erlang:external_size(Term).
 
-set_headers(undefined, Msg) ->
-    Msg;
 set_headers(Val, Msg) ->
     emqx_message:set_headers(Val, Msg).
 topic(undefined, Topic) -> Topic;

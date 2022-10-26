@@ -110,8 +110,9 @@ republish(
     Payload = format_msg(PayloadTks, Selected),
     QoS = replace_simple_var(QoSTks, Selected, 0),
     Retain = replace_simple_var(RetainTks, Selected, false),
+    PubProps = format_pub_props(maps:get(<<"pub_props">>, Selected, #{})),
     ?TRACE("RULE", "republish_message", #{topic => Topic, payload => Payload}),
-    safe_publish(RuleId, Topic, QoS, Flags#{retain => Retain}, Payload);
+    safe_publish(RuleId, Topic, QoS, Flags#{retain => Retain}, Payload, PubProps);
 %% in case this is a "$events/" event
 republish(
     Selected,
@@ -129,8 +130,9 @@ republish(
     Payload = format_msg(PayloadTks, Selected),
     QoS = replace_simple_var(QoSTks, Selected, 0),
     Retain = replace_simple_var(RetainTks, Selected, false),
+    PubProps = maps:get(pub_props, Selected, #{}),
     ?TRACE("RULE", "republish_message_with_flags", #{topic => Topic, payload => Payload}),
-    safe_publish(RuleId, Topic, QoS, #{retain => Retain}, Payload).
+    safe_publish(RuleId, Topic, QoS, #{retain => Retain}, Payload, PubProps).
 
 %%--------------------------------------------------------------------
 %% internal functions
@@ -168,13 +170,16 @@ pre_process_args(Mod, Func, Args) ->
         false -> Args
     end.
 
-safe_publish(RuleId, Topic, QoS, Flags, Payload) ->
+safe_publish(RuleId, Topic, QoS, Flags, Payload, PubProps) ->
     Msg = #message{
         id = emqx_guid:gen(),
         qos = QoS,
         from = RuleId,
         flags = Flags,
-        headers = #{republish_by => RuleId},
+        headers = #{
+            republish_by => RuleId,
+            properties => emqx_misc:pub_props_to_packet(PubProps)
+        },
         topic = Topic,
         payload = Payload,
         timestamp = erlang:system_time(millisecond)
@@ -201,3 +206,17 @@ format_msg([], Selected) ->
     emqx_json:encode(Selected);
 format_msg(Tokens, Selected) ->
     emqx_plugin_libs_rule:proc_tmpl(Tokens, Selected).
+
+format_pub_props(Props) ->
+    maps:fold(fun format_pub_prop/3, #{}, Props).
+
+format_pub_prop(K, V, Acc) when is_atom(K) ->
+    Acc#{K => V};
+format_pub_prop(K, V, Acc) when is_binary(K) ->
+    try
+        K1 = erlang:binary_to_existing_atom(K),
+        format_pub_prop(K1, V, Acc)
+    catch
+        _:_ ->
+            Acc#{K => V}
+    end.
