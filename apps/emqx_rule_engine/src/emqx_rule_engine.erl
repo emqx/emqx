@@ -309,7 +309,7 @@ check_and_update_resource(Id, NewParams) ->
                 do_check_and_update_resource(#{id => Id, config => Conifg, type => Type,
                     description => Descr})
             catch Error:Reason:ST ->
-                ?LOG(error, "check_and_update_resource failed: ~0p", [{Error, Reason, ST}]),
+                ?LOG_SENSITIVE(error, "check_and_update_resource failed: ~0p", [{Error, Reason, ST}]),
                 {error, Reason}
             end;
         _Other ->
@@ -377,7 +377,7 @@ test_resource(#{type := Type} = Params) ->
                         {error, Reason}
                 end
             catch E:R:S ->
-                ?LOG(warning, "test resource failed, ~0p:~0p ~0p", [E, R, S]),
+                ?LOG_SENSITIVE(warning, "test resource failed, ~0p:~0p ~0p", [E, R, S]),
                 {error, R}
             after
                 _ = ?CLUSTER_CALL(ensure_resource_deleted, [ResId]),

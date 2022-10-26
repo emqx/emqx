@@ -217,6 +217,7 @@ json_key(Term) ->
             throw({badkey, Term})
     end.
 
+
 -ifdef(TEST).
 -include_lib("proper/include/proper.hrl").
 -include_lib("eunit/include/eunit.hrl").
