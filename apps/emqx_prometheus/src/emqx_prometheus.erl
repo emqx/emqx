@@ -83,8 +83,8 @@ init([]) ->
     #{interval := Interval} = opts(),
     {ok, #{timer => ensure_timer(Interval), ok => 0, failed => 0}}.
 
-handle_call(info, _From, State) ->
-    {reply, State#{opts => opts()}, State};
+handle_call(info, _From, State = #{timer := Timer}) ->
+    {reply, State#{opts => opts(), next_push_ms => erlang:read_timer(Timer)}, State};
 handle_call(_Msg, _From, State) ->
     {reply, ok, State}.
 
