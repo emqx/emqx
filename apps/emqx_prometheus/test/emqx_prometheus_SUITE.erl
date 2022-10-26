@@ -71,9 +71,13 @@ load_config() ->
 %%--------------------------------------------------------------------
 
 t_start_stop(_) ->
-    ?assertMatch(ok, emqx_prometheus:start()),
-    ?assertMatch(ok, emqx_prometheus:stop()),
-    ?assertMatch(ok, emqx_prometheus:restart()),
+    App = emqx_prometheus,
+    ?assertMatch(ok, emqx_prometheus_sup:start_child(App)),
+    %% start twice return ok.
+    ?assertMatch(ok, emqx_prometheus_sup:start_child(App)),
+    ?assertMatch(ok, emqx_prometheus_sup:stop_child(App)),
+    %% stop twice return ok.
+    ?assertMatch(ok, emqx_prometheus_sup:stop_child(App)),
     %% wait the interval timer trigger
     timer:sleep(2000).
 
