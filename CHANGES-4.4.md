@@ -1,16 +1,5 @@
 # EMQX 4.4 Changes
 
-## v4.4.11
-
-<<<<<<< HEAD
-
-### Bug fixes  (synced from v4.3.22)
-
-- Fix get trace list crash when trace not initialize. [#9156](https://github.com/emqx/emqx/pull/9156)
-- Fix create trace sometime failed by end_at time has already passed. [#9156](https://github.com/emqx/emqx/pull/9156)
-
-### Enhancements (synced from v4.3.22)
-
 ## v4.4.10
 
 ### Bug fixes  (synced from v4.3.21)
