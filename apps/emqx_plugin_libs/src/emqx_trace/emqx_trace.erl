@@ -36,6 +36,7 @@
         , delete/1
         , clear/0
         , update/2
+        , os_now/0
         ]).
 
 -export([ format/1
@@ -515,6 +516,6 @@ set_log_primary_level(NewLevel) ->
         false -> ok
     end.
 
-%% the dashboard use os time to create trace, donot use erlang:system_time/1
+%% the dashboard use os time to create trace, do not use erlang:system_time/1
 os_now() ->
     os:system_time(second).
