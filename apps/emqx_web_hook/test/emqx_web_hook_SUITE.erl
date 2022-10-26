@@ -35,6 +35,7 @@ all() ->
     , {group, ipv6http}
     , {group, ipv6https}
     , test_rule_webhook
+    , test_preproc_headers
     ].
 
 groups() ->
@@ -137,6 +138,58 @@ set_special_cfgs() ->
 %%--------------------------------------------------------------------
 %% Test cases
 %%--------------------------------------------------------------------
+
+test_preproc_headers(_) ->
+    TestTable = [
+     {#{<<"Content_TYPE">> => <<"application/JSON">>, <<"Key">> => <<"Val">>},
+      #{<<"content-type">> => <<"application/JSON">>, <<"key">> => <<"Val">>}
+     },
+     {#{<<"${ContentTypeKey}">> => <<"application/JSON">>},
+      #{<<"content-type">> => <<"application/JSON">>}
+     },
+     {#{<<"content-type">> => <<"${ContentTypeVal}">>},
+      #{<<"content-type">> => <<"application/JSON">>}
+     },
+     {#{<<"Content_type">> => <<"${ContentTypeVal}">>},
+      #{<<"content-type">> => <<"application/JSON">>}
+     },
+     {#{<<"${ContentTypeKey}">> => <<"${ContentTypeVal}">>, <<"Key">> => <<"Val">>},
+      #{<<"content-type">> => <<"application/JSON">>, <<"key">> => <<"Val">>}
+     },
+     {#{<<"${ContentTypeKey}">> => <<"${ContentTypeVal}">>, <<"Key">> => <<"Val">>},
+      #{<<"content-type">> => <<"application/JSON">>, <<"key">> => <<"Val">>}
+     },
+     {#{<<"Content_${TypeKey}">> => <<"application/${TypeVal}">>, <<"Key">> => <<"Val">>},
+      #{<<"content-type">> => <<"application/JSON">>, <<"key">> => <<"Val">>}
+     }
+    ],
+    SelectedData1 = #{
+        <<"ContentTypeKey">> => <<"content-type">>,
+        <<"ContentTypeVal">> => <<"application/JSON">>,
+        <<"TypeKey">> => <<"type">>,
+        <<"TypeVal">> => <<"JSON">>
+    },
+    SelectedData2 = #{
+        <<"ContentTypeKey">> => <<"ConTent_Type">>,
+        <<"ContentTypeVal">> => <<"application/JSON">>,
+        <<"TypeKey">> => <<"TYPe">>,
+        <<"TypeVal">> => <<"JSON">>
+    },
+    [begin
+        ct:pal("test_preproc_headers, input: ~p, method: ~p, selected: ~p", [Input, Method, Selected]),
+        Headers0 = emqx_web_hook_actions:preproc_and_normalise_headers(Input),
+        Headers1 = emqx_web_hook_actions:maybe_remove_content_type_header(Headers0, Method),
+        Result0 = emqx_web_hook_actions:maybe_proc_headers(Headers1, Method, Selected),
+        Expected1 = case Method =/= post andalso Method =/= put of
+            true -> maps:remove(<<"content-type">>, Expected);
+            false -> Expected
+        end,
+        ?assertEqual(Expected1, maps:from_list(Result0))
+     end ||
+     {Input, Expected} <- TestTable,
+     Selected <- [SelectedData1, SelectedData2],
+     Method <- [post, put, get, delete]
+    ].
 
 test_rule_webhook(_) ->
     {ok, ServerPid} = http_server:start_link(self(), 9999, []),
