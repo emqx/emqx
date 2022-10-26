@@ -6,8 +6,10 @@ Fixes <issue-number>
 ## PR Checklist
 Please convert it to a draft if any of the following conditions are not met. Reviewers may skip over until all the items are checked:
 
-- [ ] Tests for the changes have been added (for bug fixes / features)
-- [ ] Docs have been added / updated (for bug fixes / features)
+- [ ] Added tests for the changes
+- [ ] Change log has been added to `changes/` dir
+- [ ] Appup files updated (execute `scripts/update-appup.sh emqx`)
+- [ ] For internal contributor: there is a jira ticket to track this change, and another jira tickt to track doc updates (if any)
 - [ ] In case of non-backward compatible changes, reviewer should check this item as a write-off, and add details in **Backward Compatibility** section
 
 ## Backward Compatibility
