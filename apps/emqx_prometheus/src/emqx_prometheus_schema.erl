@@ -24,12 +24,13 @@
     namespace/0,
     roots/0,
     fields/1,
-    desc/1
+    desc/1,
+    translation/1
 ]).
 
 namespace() -> "prometheus".
 
-roots() -> ["prometheus"].
+roots() -> [{"prometheus", ?HOCON(?R_REF("prometheus"), #{translate_to => ["prometheus"]})}].
 
 fields("prometheus") ->
     [
@@ -124,3 +125,7 @@ fields("prometheus") ->
 
 desc("prometheus") -> ?DESC(prometheus);
 desc(_) -> undefined.
+
+%% for CI test, CI don't load the whole emqx_conf_schema.
+translation(Name) ->
+    emqx_conf_schema:translation(Name).

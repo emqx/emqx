@@ -74,7 +74,7 @@ t_start_stop(_) ->
     ?assertMatch(ok, emqx_prometheus:start()),
     ?assertMatch(ok, emqx_prometheus:stop()),
     ?assertMatch(ok, emqx_prometheus:restart()),
-    %% wait the interval timer tigger
+    %% wait the interval timer trigger
     timer:sleep(2000).
 
 t_collector_no_crash_test(_) ->
