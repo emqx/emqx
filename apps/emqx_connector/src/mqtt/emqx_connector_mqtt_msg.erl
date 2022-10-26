@@ -30,6 +30,8 @@
     replace_simple_var/2
 ]).
 
+-import(emqx_misc, [pub_props_to_packet/1]).
+
 -export_type([msg/0]).
 
 -include_lib("emqx/include/emqx.hrl").
@@ -77,11 +79,12 @@ to_remote_msg(MapMsg, #{
     Payload = process_payload(PayloadToken, MapMsg),
     QoS = replace_simple_var(QoSToken, MapMsg),
     Retain = replace_simple_var(RetainToken, MapMsg),
+    PubProps = maps:get(pub_props, MapMsg, #{}),
     #mqtt_msg{
         qos = QoS,
         retain = Retain,
         topic = topic(Mountpoint, Topic),
-        props = #{},
+        props = pub_props_to_packet(PubProps),
         payload = Payload
     };
 to_remote_msg(#message{topic = Topic} = Msg, #{mountpoint := Mountpoint}) ->
@@ -103,8 +106,9 @@ to_broker_msg(
     Payload = process_payload(PayloadToken, MapMsg),
     QoS = replace_simple_var(QoSToken, MapMsg),
     Retain = replace_simple_var(RetainToken, MapMsg),
+    PubProps = maps:get(pub_props, MapMsg, #{}),
     set_headers(
-        Props,
+        Props#{properties => pub_props_to_packet(PubProps)},
         emqx_message:set_flags(
             #{dup => Dup, retain => Retain},
             emqx_message:make(bridge, QoS, topic(Mountpoint, Topic), Payload)

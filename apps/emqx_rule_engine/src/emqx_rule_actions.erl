@@ -33,6 +33,8 @@
     republish/3
 ]).
 
+-import(emqx_misc, [pub_props_to_packet/1]).
+
 -optional_callbacks([pre_process_action_args/2]).
 
 -callback pre_process_action_args(FuncName :: atom(), action_fun_args()) -> action_fun_args().
@@ -110,8 +112,9 @@ republish(
     Payload = format_msg(PayloadTks, Selected),
     QoS = replace_simple_var(QoSTks, Selected, 0),
     Retain = replace_simple_var(RetainTks, Selected, false),
+    PubProps = maps:get(pub_props, Selected, #{}),
     ?TRACE("RULE", "republish_message", #{topic => Topic, payload => Payload}),
-    safe_publish(RuleId, Topic, QoS, Flags#{retain => Retain}, Payload);
+    safe_publish(RuleId, Topic, QoS, Flags#{retain => Retain}, Payload, PubProps);
 %% in case this is a "$events/" event
 republish(
     Selected,
@@ -129,8 +132,9 @@ republish(
     Payload = format_msg(PayloadTks, Selected),
     QoS = replace_simple_var(QoSTks, Selected, 0),
     Retain = replace_simple_var(RetainTks, Selected, false),
+    PubProps = maps:get(pub_props, Selected, #{}),
     ?TRACE("RULE", "republish_message_with_flags", #{topic => Topic, payload => Payload}),
-    safe_publish(RuleId, Topic, QoS, #{retain => Retain}, Payload).
+    safe_publish(RuleId, Topic, QoS, #{retain => Retain}, Payload, PubProps).
 
 %%--------------------------------------------------------------------
 %% internal functions
@@ -168,13 +172,16 @@ pre_process_args(Mod, Func, Args) ->
         false -> Args
     end.
 
-safe_publish(RuleId, Topic, QoS, Flags, Payload) ->
+safe_publish(RuleId, Topic, QoS, Flags, Payload, PubProps) ->
     Msg = #message{
         id = emqx_guid:gen(),
         qos = QoS,
         from = RuleId,
         flags = Flags,
-        headers = #{republish_by => RuleId},
+        headers = #{
+            republish_by => RuleId,
+            properties => pub_props_to_packet(PubProps)
+        },
         topic = Topic,
         payload = Payload,
         timestamp = erlang:system_time(millisecond)
