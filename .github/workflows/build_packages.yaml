@@ -26,7 +26,7 @@ jobs:
       profiles: ${{ steps.detect-profiles.outputs.profiles}}
 
     steps:
-      - uses: actions/checkout@v2
+      - uses: actions/checkout@v3
         with:
           path: source
           fetch-depth: 0
@@ -46,7 +46,7 @@ jobs:
           git config --global credential.helper store
           make -C source deps-all
           zip -ryq source.zip source/* source/.[^.]*
-      - uses: actions/upload-artifact@v2
+      - uses: actions/upload-artifact@v3
         with:
           name: source
           path: source.zip
@@ -64,13 +64,13 @@ jobs:
           - profile: emqx-edge
 
     steps:
-    - uses: actions/download-artifact@v2
+    - uses: actions/download-artifact@v3
       with:
         name: source
         path: .
     - name: unzip source code
       run: Expand-Archive -Path source.zip -DestinationPath ./
-    - uses: ilammy/msvc-dev-cmd@v1
+    - uses: ilammy/msvc-dev-cmd@v1.12.0
     - uses: erlef/setup-beam@v1
       with:
         otp-version: ${{ matrix.otp }}
@@ -109,7 +109,7 @@ jobs:
         ./_build/${{ matrix.profile }}/rel/emqx/bin/emqx stop
         ./_build/${{ matrix.profile }}/rel/emqx/bin/emqx install
         ./_build/${{ matrix.profile }}/rel/emqx/bin/emqx uninstall
-    - uses: actions/upload-artifact@v1
+    - uses: actions/upload-artifact@v3
       with:
         name: ${{ matrix.profile }}
         path: source/_packages/${{ matrix.profile }}/.
@@ -126,7 +126,7 @@ jobs:
     runs-on: ${{ matrix.os }}
 
     steps:
-    - uses: actions/download-artifact@v2
+    - uses: actions/download-artifact@v3
       with:
         name: source
         path: .
@@ -147,7 +147,7 @@ jobs:
         apple_developer_identity: ${{ secrets.APPLE_DEVELOPER_IDENTITY }}
         apple_developer_id_bundle: ${{ secrets.APPLE_DEVELOPER_ID_BUNDLE }}
         apple_developer_id_bundle_password: ${{ secrets.APPLE_DEVELOPER_ID_BUNDLE_PASSWORD }}
-    - uses: actions/upload-artifact@v1
+    - uses: actions/upload-artifact@v3
       with:
         name: ${EMQX_NAME}-${{ matrix.otp }}
         path: _packages/${EMQX_NAME}/.
@@ -209,7 +209,7 @@ jobs:
         docker info
         docker buildx create --use --name mybuild
         docker run --rm --privileged tonistiigi/binfmt --install all
-    - uses: actions/download-artifact@v2
+    - uses: actions/download-artifact@v3
       with:
         name: source
         path: .
@@ -260,7 +260,7 @@ jobs:
             done
           cd -
         fi
-    - uses: actions/upload-artifact@v1
+    - uses: actions/upload-artifact@v3
       with:
         name: ${{ matrix.profile }}
         path: /tmp/packages/${{ matrix.profile }}/.
@@ -285,18 +285,18 @@ jobs:
             registry: 'public.ecr.aws'
 
     steps:
-    - uses: actions/download-artifact@v2
+    - uses: actions/download-artifact@v3
       with:
         name: source
         path: .
     - name: unzip source code
       run: unzip -q source.zip
-    - uses: docker/setup-buildx-action@v1
-    - uses: docker/setup-qemu-action@v1
+    - uses: docker/setup-buildx-action@v2
+    - uses: docker/setup-qemu-action@v2
       with:
         image: tonistiigi/binfmt:latest
         platforms: all
-    - uses: aws-actions/configure-aws-credentials@v1
+    - uses: aws-actions/configure-aws-credentials@v1-node16
       if: matrix.registry == 'public.ecr.aws'
       with:
         aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
@@ -305,12 +305,12 @@ jobs:
     - name: Docker login to aws ecr
       if: matrix.registry == 'public.ecr.aws'
       run: aws ecr-public get-login-password --region us-east-1 | docker login --username AWS --password-stdin public.ecr.aws
-    - uses: docker/login-action@v1
+    - uses: docker/login-action@v2
       if: matrix.registry == 'docker.io'
       with:
         username: ${{ secrets.DOCKER_HUB_USER }}
         password: ${{ secrets.DOCKER_HUB_TOKEN }}
-    - uses: docker/metadata-action@v3
+    - uses: docker/metadata-action@v4
       id: meta
       with:
         images: ${{ matrix.registry }}/${{ github.repository_owner }}/${{ matrix.profile }}
@@ -323,7 +323,7 @@ jobs:
           type=match,pattern=[v|e](.*),group=1
         labels:
           org.opencontainers.image.otp.version=${{ matrix.otp }}
-    - uses: docker/build-push-action@v2
+    - uses: docker/build-push-action@v3
       if: matrix.profile != 'emqx-ee'
       with:
         ## only push when stable tag and rc tag
@@ -339,7 +339,7 @@ jobs:
           EMQX_NAME=${{ matrix.profile }}
         file: source/deploy/docker/Dockerfile
         context: source
-    - uses: docker/build-push-action@v2
+    - uses: docker/build-push-action@v3
       if: matrix.profile == 'emqx-ee'
       with:
         ## only push when stable tag and rc tag
@@ -368,7 +368,7 @@ jobs:
       matrix:
         profile: ${{fromJSON(needs.prepare.outputs.profiles)}}
     steps:
-    - uses: actions/download-artifact@v2
+    - uses: actions/download-artifact@v3
       with:
         name: ${{ matrix.profile }}
         path: packages/${{ matrix.profile }}
@@ -383,7 +383,7 @@ jobs:
           echo "$(cat $var.sha256) $var" | sha256sum -c || exit 1
         done
         cd -
-    - uses: aws-actions/configure-aws-credentials@v1
+    - uses: aws-actions/configure-aws-credentials@v1-node16
       with:
         aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
         aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}

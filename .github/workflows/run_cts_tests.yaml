@@ -23,7 +23,7 @@ jobs:
         - ipv6
 
     steps:
-      - uses: actions/checkout@v1
+      - uses: actions/checkout@v3
         # to avoid dirty self-hosted runners
       - name: stop containers
         run: |
@@ -60,7 +60,7 @@ jobs:
             -e "CUTTLEFISH_ENV_OVERRIDE_PREFIX=EMQX_" \
             --env-file .env \
             erlang sh -c "make apps/emqx_auth_ldap-ct"
-      - uses: actions/upload-artifact@v1
+      - uses: actions/upload-artifact@v3
         if: failure()
         with:
           name: logs_ldap${{ matrix.ldap_tag }}_${{ matrix.network_type }}
@@ -83,7 +83,7 @@ jobs:
         - tcp
 
     steps:
-      - uses: actions/checkout@v1
+      - uses: actions/checkout@v3
       - name: stop containers
         run: |
           docker rm -f $(docker ps -qa) || true
@@ -136,7 +136,7 @@ jobs:
             -e "CUTTLEFISH_ENV_OVERRIDE_PREFIX=EMQX_" \
             --env-file .env \
             erlang sh -c "make apps/emqx_auth_mongo-ct"
-      - uses: actions/upload-artifact@v1
+      - uses: actions/upload-artifact@v3
         if: failure()
         with:
           name: logs_mongo${{ matrix.mongo_tag }}_${{ matrix.network_type }}_${{ matrix.connect_type }}
@@ -159,7 +159,7 @@ jobs:
         - tcp
 
     steps:
-      - uses: actions/checkout@v1
+      - uses: actions/checkout@v3
       - name: stop containers
         run: |
           docker rm -f $(docker ps -qa) || true
@@ -224,7 +224,7 @@ jobs:
             -e "CUTTLEFISH_ENV_OVERRIDE_PREFIX=EMQX_" \
             --env-file .env \
             erlang sh -c "make apps/emqx_auth_mysql-ct"
-      - uses: actions/upload-artifact@v1
+      - uses: actions/upload-artifact@v3
         if: failure()
         with:
           name: logs_mysql${{ matrix.mysql_tag }}_${{ matrix.network_type }}_${{ matrix.connect_type }}
@@ -249,7 +249,7 @@ jobs:
         - tls
         - tcp
     steps:
-      - uses: actions/checkout@v1
+      - uses: actions/checkout@v3
       - name: stop containers
         run: |
           docker rm -f $(docker ps -qa) || true
@@ -304,7 +304,7 @@ jobs:
             -e "CUTTLEFISH_ENV_OVERRIDE_PREFIX=EMQX_" \
             --env-file .env \
             erlang sh -c "make apps/emqx_auth_pgsql-ct"
-      - uses: actions/upload-artifact@v1
+      - uses: actions/upload-artifact@v3
         if: failure()
         with:
           name: logs_pgsql${{ matrix.pgsql_tag }}_${{ matrix.network_type }}_${{ matrix.connect_type }}
@@ -334,7 +334,7 @@ jobs:
           connect_type: tls
 
     steps:
-      - uses: actions/checkout@v1
+      - uses: actions/checkout@v3
       - name: stop containers
         run: |
           docker rm -f $(docker ps -qa) || true
@@ -431,7 +431,7 @@ jobs:
             -e "CUTTLEFISH_ENV_OVERRIDE_PREFIX=EMQX_" \
             --env-file .env \
             erlang sh -c "make apps/emqx_auth_redis-ct"
-      - uses: actions/upload-artifact@v1
+      - uses: actions/upload-artifact@v3
         if: failure()
         with:
           name: logs_redis${{ matrix.redis_tag }}_${{ matrix.node_type }}_${{ matrix.network_type }}_${{ matrix.connect_type }}

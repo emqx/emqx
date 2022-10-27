@@ -8,284 +8,284 @@ on:
   pull_request:
 
 jobs:
-    docker_test:
-        runs-on: ubuntu-20.04
+  docker_test:
+    runs-on: ubuntu-20.04
 
-        steps:
-        - uses: actions/checkout@v1
-        - uses: erlef/setup-beam@v1
-          with:
-            otp-version: "23.3.4.9"
-        - name: make docker
-          run: |
-            if make emqx-ee --dry-run > /dev/null 2>&1; then
-              echo "https://ci%40emqx.io:${{ secrets.CI_GIT_TOKEN }}@github.com" > $HOME/.git-credentials
-              git config --global credential.helper store
-              make deps-emqx-ee
-              echo "TARGET=emqx/emqx-ee" >> $GITHUB_ENV
-              echo "EMQX_TAG=$(./pkg-vsn.sh)" >> $GITHUB_ENV
-              make emqx-ee-docker
-            else
-              echo "TARGET=emqx/emqx" >> $GITHUB_ENV
-              echo "EMQX_TAG=$(./pkg-vsn.sh)" >> $GITHUB_ENV
-              make emqx-docker
-            fi
-        - name: run emqx
-          timeout-minutes: 5
-          run: |
-            set -e -u -x
-            echo "CUTTLEFISH_ENV_OVERRIDE_PREFIX=EMQX_" >> .ci/docker-compose-file/conf.cluster.env
-            echo "EMQX_ZONE__EXTERNAL__RETRY_INTERVAL=2s" >> .ci/docker-compose-file/conf.cluster.env
-            echo "EMQX_MQTT__MAX_TOPIC_ALIAS=10" >> .ci/docker-compose-file/conf.cluster.env
-            docker-compose \
-                -f .ci/docker-compose-file/docker-compose-emqx-cluster.yaml \
-                -f .ci/docker-compose-file/docker-compose-python.yaml \
-                up -d
-            while ! docker exec -i node1.emqx.io bash -c "emqx eval \"['emqx@node1.emqx.io','emqx@node2.emqx.io'] = maps:get(running_nodes, ekka_cluster:info()).\"" > /dev/null 2>&1; do
-                echo "['$(date -u +"%Y-%m-%dT%H:%M:%SZ")']:waiting emqx";
-                sleep 5;
-            done
-        - name: verify EMQX_LOADED_PLUGINS override working
-          run: |
-            expected="{emqx_sn, true}."
-            output=$(docker exec -i node1.emqx.io bash -c "cat data/loaded_plugins" | tail -n1)
-            if [ "$expected" != "$output" ]; then
-                exit 1
-            fi
-        - name: make paho tests
-          run: |
-            if ! docker exec -i python /scripts/pytest.sh; then
-              docker logs node1.emqx.io
-              docker logs node2.emqx.io
-              exit 1
-            fi
+    steps:
+    - uses: actions/checkout@v3
+    - uses: erlef/setup-beam@v1
+      with:
+        otp-version: "23.3.4.9"
+    - name: make docker
+      run: |
+        if make emqx-ee --dry-run > /dev/null 2>&1; then
+          echo "https://ci%40emqx.io:${{ secrets.CI_GIT_TOKEN }}@github.com" > $HOME/.git-credentials
+          git config --global credential.helper store
+          make deps-emqx-ee
+          echo "TARGET=emqx/emqx-ee" >> $GITHUB_ENV
+          echo "EMQX_TAG=$(./pkg-vsn.sh)" >> $GITHUB_ENV
+          make emqx-ee-docker
+        else
+          echo "TARGET=emqx/emqx" >> $GITHUB_ENV
+          echo "EMQX_TAG=$(./pkg-vsn.sh)" >> $GITHUB_ENV
+          make emqx-docker
+        fi
+    - name: run emqx
+      timeout-minutes: 5
+      run: |
+        set -e -u -x
+        echo "CUTTLEFISH_ENV_OVERRIDE_PREFIX=EMQX_" >> .ci/docker-compose-file/conf.cluster.env
+        echo "EMQX_ZONE__EXTERNAL__RETRY_INTERVAL=2s" >> .ci/docker-compose-file/conf.cluster.env
+        echo "EMQX_MQTT__MAX_TOPIC_ALIAS=10" >> .ci/docker-compose-file/conf.cluster.env
+        docker-compose \
+            -f .ci/docker-compose-file/docker-compose-emqx-cluster.yaml \
+            -f .ci/docker-compose-file/docker-compose-python.yaml \
+            up -d
+        while ! docker exec -i node1.emqx.io bash -c "emqx eval \"['emqx@node1.emqx.io','emqx@node2.emqx.io'] = maps:get(running_nodes, ekka_cluster:info()).\"" > /dev/null 2>&1; do
+            echo "['$(date -u +"%Y-%m-%dT%H:%M:%SZ")']:waiting emqx";
+            sleep 5;
+        done
+    - name: verify EMQX_LOADED_PLUGINS override working
+      run: |
+        expected="{emqx_sn, true}."
+        output=$(docker exec -i node1.emqx.io bash -c "cat data/loaded_plugins" | tail -n1)
+        if [ "$expected" != "$output" ]; then
+            exit 1
+        fi
+    - name: make paho tests
+      run: |
+        if ! docker exec -i python /scripts/pytest.sh; then
+          docker logs node1.emqx.io
+          docker logs node2.emqx.io
+          exit 1
+        fi
 
-    helm_test:
-        runs-on: ubuntu-20.04
+  helm_test:
+    runs-on: ubuntu-20.04
 
-        steps:
-        - uses: actions/checkout@v1
-        - uses: erlef/setup-beam@v1
-          with:
-            otp-version: "23.3.4.9"
-        - name: prepare
-          run: |
-            if make emqx-ee --dry-run > /dev/null 2>&1; then
-              echo "https://ci%40emqx.io:${{ secrets.CI_GIT_TOKEN }}@github.com" > $HOME/.git-credentials
-              git config --global credential.helper store
-              make deps-emqx-ee
-              echo "TARGET=emqx/emqx-ee" >> $GITHUB_ENV
-              make emqx-ee-docker
-            else
-              echo "TARGET=emqx/emqx" >> $GITHUB_ENV
-              make emqx-docker
-            fi
-        - run: minikube start
-        - name: install helm
-          run: |
-            curl -fsSL -o get_helm.sh https://raw.githubusercontent.com/helm/helm/master/scripts/get-helm-3
-            sudo chmod 700 get_helm.sh
-            sudo ./get_helm.sh
-            helm version
-        - name: run emqx on chart
-          timeout-minutes: 5
-          run: |
-            version=$(./pkg-vsn.sh)
-            minikube image load ${TARGET}:$version
+    steps:
+    - uses: actions/checkout@v3
+    - uses: erlef/setup-beam@v1
+      with:
+        otp-version: "23.3.4.9"
+    - name: prepare
+      run: |
+        if make emqx-ee --dry-run > /dev/null 2>&1; then
+          echo "https://ci%40emqx.io:${{ secrets.CI_GIT_TOKEN }}@github.com" > $HOME/.git-credentials
+          git config --global credential.helper store
+          make deps-emqx-ee
+          echo "TARGET=emqx/emqx-ee" >> $GITHUB_ENV
+          make emqx-ee-docker
+        else
+          echo "TARGET=emqx/emqx" >> $GITHUB_ENV
+          make emqx-docker
+        fi
+    - run: minikube start
+    - name: install helm
+      run: |
+        curl -fsSL -o get_helm.sh https://raw.githubusercontent.com/helm/helm/master/scripts/get-helm-3
+        sudo chmod 700 get_helm.sh
+        sudo ./get_helm.sh
+        helm version
+    - name: run emqx on chart
+      timeout-minutes: 5
+      run: |
+        version=$(./pkg-vsn.sh)
+        minikube image load ${TARGET}:$version
 
-            sed -i -r "s/^appVersion: .*$/appVersion: \"${version}\"/g" deploy/charts/emqx/Chart.yaml
-            sed -i '/emqx_telemetry/d' deploy/charts/emqx/values.yaml
+        sed -i -r "s/^appVersion: .*$/appVersion: \"${version}\"/g" deploy/charts/emqx/Chart.yaml
+        sed -i '/emqx_telemetry/d' deploy/charts/emqx/values.yaml
 
-            helm install emqx \
-                --set image.repository=${TARGET} \
-                --set image.pullPolicy=Never \
-                --set emqxAclConfig="" \
-                --set image.pullPolicy=Never \
-                --set emqxConfig.EMQX_ZONE__EXTERNAL__RETRY_INTERVAL=2s \
-                --set emqxConfig.EMQX_MQTT__MAX_TOPIC_ALIAS=10 \
-                deploy/charts/emqx \
-                --debug
+        helm install emqx \
+            --set image.repository=${TARGET} \
+            --set image.pullPolicy=Never \
+            --set emqxAclConfig="" \
+            --set image.pullPolicy=Never \
+            --set emqxConfig.EMQX_ZONE__EXTERNAL__RETRY_INTERVAL=2s \
+            --set emqxConfig.EMQX_MQTT__MAX_TOPIC_ALIAS=10 \
+            deploy/charts/emqx \
+            --debug
 
-            while [ "$(kubectl get StatefulSet -l app.kubernetes.io/name=emqx -o jsonpath='{.items[0].status.replicas}')" \
-              != "$(kubectl get StatefulSet -l app.kubernetes.io/name=emqx -o jsonpath='{.items[0].status.readyReplicas}')" ]; do
-              echo "==============================";
-              kubectl get pods;
-              echo "==============================";
-              echo "waiting emqx started";
-              sleep 10;
-            done
-        - name: get emqx-0 pods log
-          if: failure()
-          run: |
-            kubectl describe pods emqx-0
-            kubectl logs emqx-0
-        - name: get emqx-1 pods log
-          if: failure()
-          run: |
-            kubectl describe pods emqx-1
+        while [ "$(kubectl get StatefulSet -l app.kubernetes.io/name=emqx -o jsonpath='{.items[0].status.replicas}')" \
+          != "$(kubectl get StatefulSet -l app.kubernetes.io/name=emqx -o jsonpath='{.items[0].status.readyReplicas}')" ]; do
+          echo "==============================";
+          kubectl get pods;
+          echo "==============================";
+          echo "waiting emqx started";
+          sleep 10;
+        done
+    - name: get emqx-0 pods log
+      if: failure()
+      run: |
+        kubectl describe pods emqx-0
+        kubectl logs emqx-0
+    - name: get emqx-1 pods log
+      if: failure()
+      run: |
+        kubectl describe pods emqx-1
+        kubectl logs emqx-1
+    - name: get emqx-2 pods log
+      if: failure()
+      run: |
+        kubectl describe pods emqx-2
+        kubectl logs emqx-2
+    - uses: actions/checkout@v3
+      with:
+        repository: emqx/paho.mqtt.testing
+        ref: develop-4.0
+        path: paho.mqtt.testing
+    - name: install pytest
+      run: |
+        pip install pytest
+        echo "$HOME/.local/bin" >> $GITHUB_PATH
+    - name: run paho test
+      run: |
+        nohup kubectl port-forward svc/emqx 1883:1883 &
+
+        pytest -v paho.mqtt.testing/interoperability/test_client/V5/test_connect.py -k test_basic
+        RESULT=$?
+        pytest -v paho.mqtt.testing/interoperability/test_cluster
+        RESULT=$((RESULT + $?))
+        if [ 0 -ne $RESULT ]; then
             kubectl logs emqx-1
-        - name: get emqx-2 pods log
-          if: failure()
-          run: |
-            kubectl describe pods emqx-2
             kubectl logs emqx-2
-        - uses: actions/checkout@v2
-          with:
-            repository: emqx/paho.mqtt.testing
-            ref: develop-4.0
-            path: paho.mqtt.testing
-        - name: install pytest
-          run: |
-            pip install pytest
-            echo "$HOME/.local/bin" >> $GITHUB_PATH
-        - name: run paho test
-          run: |
-            nohup kubectl port-forward svc/emqx 1883:1883 &
+        fi
+        exit $RESULT
 
-            pytest -v paho.mqtt.testing/interoperability/test_client/V5/test_connect.py -k test_basic
-            RESULT=$?
-            pytest -v paho.mqtt.testing/interoperability/test_cluster
-            RESULT=$((RESULT + $?))
-            if [ 0 -ne $RESULT ]; then
-                kubectl logs emqx-1
-                kubectl logs emqx-2
-            fi
-            exit $RESULT
+  relup_test_plan:
+    runs-on: ubuntu-20.04
+    container: emqx/build-env:erl23.3.4.9-3-ubuntu20.04
+    outputs:
+      profile: ${{ steps.profile-and-versions.outputs.profile }}
+      vsn: ${{ steps.profile-and-versions.outputs.vsn }}
+      old_vsns: ${{ steps.profile-and-versions.outputs.old_vsns }}
+      broker: ${{ steps.profile-and-versions.outputs.broker }}
+      matrix: ${{ steps.generate-matrix.outputs.matrix }}
+    defaults:
+      run:
+        shell: bash
+    steps:
+    - uses: actions/checkout@v3
+      name: Checkout
+      with:
+        path: emqx
+        fetch-depth: 0
+    - name: Get profile and version list
+      id: profile-and-versions
+      run: |
+        cd emqx
+        vsn="$(./pkg-vsn.sh)"
+        if make emqx-ee --dry-run > /dev/null 2>&1; then
+          profile="emqx-ee"
+          old_vsns="$(./scripts/relup-base-vsns.sh enterprise | xargs)"
+          broker="emqx-ee"
+        else
+          profile="emqx"
+          old_vsns="$(./scripts/relup-base-vsns.sh community | xargs)"
+          broker="emqx-ce"
+        fi
 
-    relup_test_plan:
-        runs-on: ubuntu-20.04
-        container: emqx/build-env:erl23.3.4.9-3-ubuntu20.04
-        outputs:
-          profile: ${{ steps.profile-and-versions.outputs.profile }}
-          vsn: ${{ steps.profile-and-versions.outputs.vsn }}
-          old_vsns: ${{ steps.profile-and-versions.outputs.old_vsns }}
-          broker: ${{ steps.profile-and-versions.outputs.broker }}
-          matrix: ${{ steps.generate-matrix.outputs.matrix }}
-        defaults:
-          run:
-            shell: bash
-        steps:
-        - uses: actions/checkout@v2
-          name: Checkout
-          with:
-            path: emqx
-            fetch-depth: 0
-        - name: Get profile and version list
-          id: profile-and-versions
-          run: |
-            cd emqx
-            vsn="$(./pkg-vsn.sh)"
-            if make emqx-ee --dry-run > /dev/null 2>&1; then
-              profile="emqx-ee"
-              old_vsns="$(./scripts/relup-base-vsns.sh enterprise | xargs)"
-              broker="emqx-ee"
-            else
-              profile="emqx"
-              old_vsns="$(./scripts/relup-base-vsns.sh community | xargs)"
-              broker="emqx-ce"
-            fi
+        echo "OLD_VSNS=$old_vsns" >> $GITHUB_ENV
 
-            echo "OLD_VSNS=$old_vsns" >> $GITHUB_ENV
+        echo "::set-output name=vsn::$vsn"
+        echo "::set-output name=profile::$profile"
+        echo "::set-output name=broker::$broker"
+        echo "::set-output name=old_vsns::$old_vsns"
+    - name: Generate matrix
+      id: generate-matrix
+      run: |
+        matrix=$(echo -n "$OLD_VSNS" | sed 's/ $//g' | jq -R -s -c 'split(" ")')
+        echo "::set-output name=matrix::$matrix"
 
-            echo "::set-output name=vsn::$vsn"
-            echo "::set-output name=profile::$profile"
-            echo "::set-output name=broker::$broker"
-            echo "::set-output name=old_vsns::$old_vsns"
-        - name: Generate matrix
-          id: generate-matrix
-          run: |
-            matrix=$(echo -n "$OLD_VSNS" | sed 's/ $//g' | jq -R -s -c 'split(" ")')
-            echo "::set-output name=matrix::$matrix"
+  relup_test_build:
+    needs: relup_test_plan
+    runs-on: ubuntu-20.04
+    container: emqx/build-env:erl23.3.4.9-3-ubuntu20.04
+    defaults:
+      run:
+        shell: bash
+    env:
+      OLD_VSNS: "${{ needs.relup_test_plan.outputs.old_vsns }}"
+      PROFILE: "${{ needs.relup_test_plan.outputs.profile }}"
+      BROKER: "${{ needs.relup_test_plan.outputs.broker }}"
+    steps:
+    - uses: actions/checkout@v3
+      name: Checkout
+      with:
+        path: emqx
+        fetch-depth: 0
+    - name: Prepare credentials
+      run: |
+        if [ "$PROFILE" = "emqx-ee" ]; then
+          echo "https://ci%40emqx.io:${{ secrets.CI_GIT_TOKEN }}@github.com" > $HOME/.git-credentials
+          git config --global credential.helper store
+        fi
+    - name: Build emqx
+      run: make -C emqx ${PROFILE}-zip
+    - uses: actions/upload-artifact@v3
+      name: Upload built emqx and test scenario
+      with:
+        name: emqx_built
+        path: |
+          emqx/_packages/*/*.zip
+          emqx/.ci/fvt_tests
 
-    relup_test_build:
-        needs: relup_test_plan
-        runs-on: ubuntu-20.04
-        container: emqx/build-env:erl23.3.4.9-3-ubuntu20.04
-        defaults:
-          run:
-            shell: bash
-        env:
-          OLD_VSNS: "${{ needs.relup_test_plan.outputs.old_vsns }}"
-          PROFILE: "${{ needs.relup_test_plan.outputs.profile }}"
-          BROKER: "${{ needs.relup_test_plan.outputs.broker }}"
-        steps:
-        - uses: actions/checkout@v2
-          name: Checkout
-          with:
-            path: emqx
-            fetch-depth: 0
-        - name: Prepare credentials
-          run: |
-            if [ "$PROFILE" = "emqx-ee" ]; then
-              echo "https://ci%40emqx.io:${{ secrets.CI_GIT_TOKEN }}@github.com" > $HOME/.git-credentials
-              git config --global credential.helper store
-            fi
-        - name: Build emqx
-          run: make -C emqx ${PROFILE}-zip
-        - uses: actions/upload-artifact@v2
-          name: Upload built emqx and test scenario
-          with:
-            name: emqx_built
-            path: |
-              emqx/_packages/*/*.zip
-              emqx/.ci/fvt_tests
-
-    relup_test_run:
-        needs:
-          - relup_test_plan
-          - relup_test_build
-        runs-on: ubuntu-20.04
-        container: emqx/relup-test-env:erl23.2.7.2-emqx-3-ubuntu20.04
-        strategy:
-          fail-fast: false
-          matrix:
-            old_vsn: ${{ fromJson(needs.relup_test_plan.outputs.matrix) }}
-        env:
-          OLD_VSN: "${{ matrix.old_vsn }}"
-          PROFILE: "${{ needs.relup_test_plan.outputs.profile }}"
-          VSN: "${{ needs.relup_test_plan.outputs.vsn }}"
-          BROKER: "${{ needs.relup_test_plan.outputs.broker }}"
-        defaults:
-          run:
-            shell: bash
-        steps:
-        - uses: actions/download-artifact@v2
-          name: Download built emqx and test scenario
-          with:
-            name: emqx_built
-            path: emqx_built
-        - uses: actions/checkout@v2
-          name: Checkout one_more_emqx
-          with:
-            repository: terry-xiaoyu/one_more_emqx
-            ref: master
-            path: one_more_emqx
-        - name: Prepare packages
-          run: |
-            set -e -x -u
-            mkdir -p packages
-            cp emqx_built/_packages/*/*.zip packages
-            cd packages
-            wget --no-verbose https://s3-us-west-2.amazonaws.com/packages.emqx/$BROKER/$OLD_VSN/$PROFILE-ubuntu20.04-${OLD_VSN#[e|v]}-amd64.zip
-        - name: Run relup test scenario
-          timeout-minutes: 5
-          run: |
-            lux \
-            --progress verbose \
-            --case_timeout infinity \
-            --var PROFILE=$PROFILE \
-            --var PACKAGE_PATH=$(pwd)/packages \
-            --var ONE_MORE_EMQX_PATH=$(pwd)/one_more_emqx \
-            --var VSN="$VSN" \
-            --var OLD_VSN="$OLD_VSN" \
-            emqx_built/.ci/fvt_tests/relup.lux
-        - uses: actions/upload-artifact@v2
-          name: Save debug data
-          if: failure()
-          with:
-            name: debug_data
-            path: |
-              packages/emqx/log/emqx.log.1
-              packages/emqx2/log/emqx.log.1
-              packages/*.zip
-              lux_logs
+  relup_test_run:
+    needs:
+      - relup_test_plan
+      - relup_test_build
+    runs-on: ubuntu-20.04
+    container: emqx/relup-test-env:erl23.2.7.2-emqx-3-ubuntu20.04
+    strategy:
+      fail-fast: false
+      matrix:
+        old_vsn: ${{ fromJson(needs.relup_test_plan.outputs.matrix) }}
+    env:
+      OLD_VSN: "${{ matrix.old_vsn }}"
+      PROFILE: "${{ needs.relup_test_plan.outputs.profile }}"
+      VSN: "${{ needs.relup_test_plan.outputs.vsn }}"
+      BROKER: "${{ needs.relup_test_plan.outputs.broker }}"
+    defaults:
+      run:
+        shell: bash
+    steps:
+    - uses: actions/download-artifact@v3
+      name: Download built emqx and test scenario
+      with:
+        name: emqx_built
+        path: emqx_built
+    - uses: actions/checkout@v3
+      name: Checkout one_more_emqx
+      with:
+        repository: terry-xiaoyu/one_more_emqx
+        ref: master
+        path: one_more_emqx
+    - name: Prepare packages
+      run: |
+        set -e -x -u
+        mkdir -p packages
+        cp emqx_built/_packages/*/*.zip packages
+        cd packages
+        wget --no-verbose https://s3-us-west-2.amazonaws.com/packages.emqx/$BROKER/$OLD_VSN/$PROFILE-ubuntu20.04-${OLD_VSN#[e|v]}-amd64.zip
+    - name: Run relup test scenario
+      timeout-minutes: 5
+      run: |
+        lux \
+        --progress verbose \
+        --case_timeout infinity \
+        --var PROFILE=$PROFILE \
+        --var PACKAGE_PATH=$(pwd)/packages \
+        --var ONE_MORE_EMQX_PATH=$(pwd)/one_more_emqx \
+        --var VSN="$VSN" \
+        --var OLD_VSN="$OLD_VSN" \
+        emqx_built/.ci/fvt_tests/relup.lux
+    - uses: actions/upload-artifact@v3
+      name: Save debug data
+      if: failure()
+      with:
+        name: debug_data
+        path: |
+          packages/emqx/log/emqx.log.1
+          packages/emqx2/log/emqx.log.1
+          packages/*.zip
+          lux_logs

@@ -30,7 +30,7 @@ runs:
         brew install curl zip unzip gnu-sed kerl coreutils unixodbc freetds openssl@1.1
         echo "/usr/local/opt/bison/bin" >> $GITHUB_PATH
         echo "/usr/local/bin" >> $GITHUB_PATH
-    - uses: actions/cache@v2
+    - uses: actions/cache@v3
       id: cache
       with:
         path: ~/.kerl/${{ inputs.otp }}

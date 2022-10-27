@@ -22,11 +22,11 @@ jobs:
         JMETER_VERSION: 5.4.3
       run: |
         wget --no-verbose --no-check-certificate -O /tmp/apache-jmeter.tgz https://downloads.apache.org/jmeter/binaries/apache-jmeter-$JMETER_VERSION.tgz
-    - uses: actions/upload-artifact@v2
+    - uses: actions/upload-artifact@v3
       with:
         name: apache-jmeter.tgz
         path: /tmp/apache-jmeter.tgz
-    - uses: actions/checkout@v2
+    - uses: actions/checkout@v3
     - uses: erlef/setup-beam@v1
       with:
         otp-version: "23.3.4.13"
@@ -48,7 +48,7 @@ jobs:
           echo "::set-output name=version::$(./pkg-vsn.sh)"
           docker save emqx/emqx:$(./pkg-vsn.sh) -o emqx.tar
         fi
-    - uses: actions/upload-artifact@v2
+    - uses: actions/upload-artifact@v3
       with:
         name: emqx-docker-image
         path: emqx.tar
@@ -64,8 +64,8 @@ jobs:
 
     needs: build
     steps:
-    - uses: actions/checkout@v2
-    - uses: actions/download-artifact@v2
+    - uses: actions/checkout@v3
+    - uses: actions/download-artifact@v3
       with:
         name: emqx-docker-image
         path: /tmp
@@ -80,12 +80,12 @@ jobs:
         docker-compose \
           -f .ci/docker-compose-file/docker-compose-emqx-cluster.yaml \
           up -d --build
-    - uses: actions/checkout@v2
+    - uses: actions/checkout@v3
       with:
         repository: emqx/emqx-svt-web-server
         ref: web-server-1.0
         path: emqx-svt-web-server
-    - uses: actions/download-artifact@v2
+    - uses: actions/download-artifact@v3
     - name: run webserver in docker
       run: |
         cd ./emqx-svt-web-server/svtserver
@@ -103,17 +103,19 @@ jobs:
         docker ps -a
         echo HAPROXY_IP=$(docker inspect -f '{{range .NetworkSettings.Networks}}{{.IPAddress}}{{end}}' haproxy) >> $GITHUB_ENV
         echo WEB_IP=$(docker inspect -f '{{range .NetworkSettings.Networks}}{{.IPAddress}}{{end}}' webserver) >> $GITHUB_ENV
-    - uses: actions/checkout@v2
+    - uses: actions/checkout@v3
       with:
         repository: emqx/emqx-fvt
         ref: v1.6.0
         path: scripts
-    - uses: actions/setup-java@v1
+    - uses: actions/setup-java@v3
       with:
         java-version: '8.0.282' # The JDK version to make available on the path.
         java-package: jdk # (jre, jdk, or jdk+fx) - defaults to jdk
         architecture: x64 # (x64 or x86) - defaults to x64
-    - uses: actions/download-artifact@v2
+        # https://github.com/actions/setup-java/blob/main/docs/switching-to-v2.md
+        distribution: 'zulu'
+    - uses: actions/download-artifact@v3
       with:
         name: apache-jmeter.tgz
         path: /tmp
@@ -142,7 +144,7 @@ jobs:
           echo "check logs filed"
           exit 1
         fi
-    - uses: actions/upload-artifact@v1
+    - uses: actions/upload-artifact@v3
       if: always()
       with:
         name: jmeter_logs
@@ -162,8 +164,8 @@ jobs:
 
     needs: build
     steps:
-    - uses: actions/checkout@v2
-    - uses: actions/download-artifact@v2
+    - uses: actions/checkout@v3
+    - uses: actions/download-artifact@v3
       with:
         name: emqx-docker-image
         path: /tmp
@@ -194,17 +196,19 @@ jobs:
         docker ps -a
         echo HAPROXY_IP=$(docker inspect -f '{{range .NetworkSettings.Networks}}{{.IPAddress}}{{end}}' haproxy) >> $GITHUB_ENV
         echo MYSQL_IP=$(docker inspect -f '{{range .NetworkSettings.Networks}}{{.IPAddress}}{{end}}' mysql) >> $GITHUB_ENV
-    - uses: actions/checkout@v2
+    - uses: actions/checkout@v3
       with:
         repository: emqx/emqx-fvt
         ref: v1.6.0
         path: scripts
-    - uses: actions/setup-java@v1
+    - uses: actions/setup-java@v3
       with:
         java-version: '8.0.282' # The JDK version to make available on the path.
         java-package: jdk # (jre, jdk, or jdk+fx) - defaults to jdk
         architecture: x64 # (x64 or x86) - defaults to x64
-    - uses: actions/download-artifact@v2
+        # https://github.com/actions/setup-java/blob/main/docs/switching-to-v2.md
+        distribution: 'zulu'
+    - uses: actions/download-artifact@v3
       with:
         name: apache-jmeter.tgz
         path: /tmp
@@ -243,7 +247,7 @@ jobs:
           echo "check logs filed"
           exit 1
         fi
-    - uses: actions/upload-artifact@v1
+    - uses: actions/upload-artifact@v3
       if: always()
       with:
         name: jmeter_logs
@@ -267,8 +271,8 @@ jobs:
 
     needs: build
     steps:
-    - uses: actions/checkout@v2
-    - uses: actions/download-artifact@v2
+    - uses: actions/checkout@v3
+    - uses: actions/download-artifact@v3
       with:
         name: emqx-docker-image
         path: /tmp
@@ -296,17 +300,19 @@ jobs:
         echo HAPROXY_IP=$(docker inspect -f '{{range .NetworkSettings.Networks}}{{.IPAddress}}{{end}}' haproxy) >> $GITHUB_ENV
         echo PGSQL_IP=$(docker inspect -f '{{range .NetworkSettings.Networks}}{{.IPAddress}}{{end}}' pgsql) >> $GITHUB_ENV
         echo CONFIG_PATH=$(docker inspect -f '{{ range .Mounts }}{{ if eq .Name "docker-compose-file_etc" }}{{ .Source }}{{ end }}{{ end }}' node1.emqx.io) >> $GITHUB_ENV
-    - uses: actions/checkout@v2
+    - uses: actions/checkout@v3
       with:
         repository: emqx/emqx-fvt
         ref: v1.6.0
         path: scripts
-    - uses: actions/setup-java@v1
+    - uses: actions/setup-java@v3
       with:
         java-version: '8.0.282' # The JDK version to make available on the path.
         java-package: jdk # (jre, jdk, or jdk+fx) - defaults to jdk
         architecture: x64 # (x64 or x86) - defaults to x64
-    - uses: actions/download-artifact@v2
+        # https://github.com/actions/setup-java/blob/main/docs/switching-to-v2.md
+        distribution: 'zulu'
+    - uses: actions/download-artifact@v3
       with:
         name: apache-jmeter.tgz
         path: /tmp
@@ -350,7 +356,7 @@ jobs:
           echo "check logs filed"
           exit 1
         fi
-    - uses: actions/upload-artifact@v1
+    - uses: actions/upload-artifact@v3
       if: always()
       with:
         name: jmeter_logs
@@ -361,8 +367,8 @@ jobs:
 
     needs: build
     steps:
-    - uses: actions/checkout@v2
-    - uses: actions/download-artifact@v2
+    - uses: actions/checkout@v3
+    - uses: actions/download-artifact@v3
       with:
         name: emqx-docker-image
         path: /tmp
@@ -392,17 +398,19 @@ jobs:
         echo HTTP_IP=$(docker inspect -f '{{range .NetworkSettings.Networks}}{{.IPAddress}}{{end}}' Tomcat) >> $GITHUB_ENV
         echo MYSQL_IP=$(docker inspect -f '{{range .NetworkSettings.Networks}}{{.IPAddress}}{{end}}' mysql) >> $GITHUB_ENV
         echo CONFIG_PATH=$(docker inspect -f '{{ range .Mounts }}{{ if eq .Name "docker-compose-file_etc" }}{{ .Source }}{{ end }}{{ end }}' node1.emqx.io) >> $GITHUB_ENV
-    - uses: actions/checkout@v2
+    - uses: actions/checkout@v3
       with:
         repository: emqx/emqx-fvt
         ref: v1.6.0
         path: scripts
-    - uses: actions/setup-java@v1
+    - uses: actions/setup-java@v3
       with:
         java-version: '8.0.282' # The JDK version to make available on the path.
         java-package: jdk # (jre, jdk, or jdk+fx) - defaults to jdk
         architecture: x64 # (x64 or x86) - defaults to x64
-    - uses: actions/download-artifact@v2
+        # https://github.com/actions/setup-java/blob/main/docs/switching-to-v2.md
+        distribution: 'zulu'
+    - uses: actions/download-artifact@v3
       with:
         name: apache-jmeter.tgz
         path: /tmp
@@ -438,7 +446,7 @@ jobs:
           sudo cat /var/lib/docker/volumes/docker-compose-file_etc/_data/emqx.conf
           exit 1
         fi
-    - uses: actions/upload-artifact@v1
+    - uses: actions/upload-artifact@v3
       if: always()
       with:
         name: jmeter_logs

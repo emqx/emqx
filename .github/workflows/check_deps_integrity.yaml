@@ -8,6 +8,6 @@ jobs:
     container: emqx/build-env:erl23.3.4.9-3-ubuntu20.04
 
     steps:
-      - uses: actions/checkout@v2
+      - uses: actions/checkout@v3
       - name: Run check-deps-integrity.escript
         run: ./scripts/check-deps-integrity.escript

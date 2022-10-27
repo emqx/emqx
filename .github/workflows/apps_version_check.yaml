@@ -16,7 +16,7 @@ jobs:
     container: emqx/build-env:${{ matrix.erl_otp }}-${{ matrix.os }}
 
     steps:
-      - uses: actions/checkout@v2
+      - uses: actions/checkout@v3
         with:
           fetch-depth: 0 # need full history
       - name: fix-git-unsafe-repository
@@ -31,7 +31,7 @@ jobs:
         run: ./scripts/check-apps-vsn.sh
       - name: Check chart versions
         run: ./scripts/check-chart-vsn.sh
-      - uses: actions/upload-artifact@v3.1.0
+      - uses: actions/upload-artifact@v3
         if: failure()
         with:
           name: expected_appup_files

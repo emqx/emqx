@@ -29,13 +29,13 @@ jobs:
     container: emqx/build-env:${{ matrix.otp }}-${{ matrix.os }}
 
     steps:
-    - uses: actions/checkout@v1
+    - uses: actions/checkout@v3
     - uses: ./.github/actions/detect-profiles
       with:
         ci_git_token: ${{ secrets.CI_GIT_TOKEN }}
     - name: fix-git-unsafe-repository
       run: git config --global --add safe.directory /__w/emqx/emqx
-    - uses: actions/cache@v2
+    - uses: actions/cache@v3
       with:
         # dialyzer PLTs
         path: ~/.cache/rebar3/
@@ -48,7 +48,7 @@ jobs:
       run: make ${EMQX_NAME}-zip
     - name: build deb/rpm packages
       run: make ${EMQX_NAME}-pkg
-    - uses: actions/upload-artifact@v1
+    - uses: actions/upload-artifact@v3
       if: failure()
       with:
         name: rebar3.crashdump
@@ -57,7 +57,7 @@ jobs:
       run: |
         export CODE_PATH=$GITHUB_WORKSPACE
         .ci/build_packages/tests.sh
-    - uses: actions/upload-artifact@v2
+    - uses: actions/upload-artifact@v3
       with:
         name: ${{ matrix.os }}
         path: _packages/**/*.zip
@@ -71,7 +71,7 @@ jobs:
           - macos-11
     runs-on: ${{ matrix.os }}
     steps:
-    - uses: actions/checkout@v1
+    - uses: actions/checkout@v3
     - uses: ./.github/actions/detect-profiles
       with:
         ci_git_token: ${{ secrets.CI_GIT_TOKEN }}
@@ -83,12 +83,12 @@ jobs:
         apple_developer_identity: ${{ secrets.APPLE_DEVELOPER_IDENTITY }}
         apple_developer_id_bundle: ${{ secrets.APPLE_DEVELOPER_ID_BUNDLE }}
         apple_developer_id_bundle_password: ${{ secrets.APPLE_DEVELOPER_ID_BUNDLE_PASSWORD }}
-    - uses: actions/upload-artifact@v1
+    - uses: actions/upload-artifact@v3
       if: failure()
       with:
         name: rebar3.crashdump
         path: ./rebar3.crashdump
-    - uses: actions/upload-artifact@v2
+    - uses: actions/upload-artifact@v3
       with:
         name: macos
         path: _packages/**/*.zip
