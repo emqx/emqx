@@ -25,6 +25,8 @@
 
 -export([init/1]).
 
+-type worker_id() :: term().
+
 start_link() ->
     supervisor:start_link({local, ?MODULE}, ?MODULE, []).
 
@@ -37,14 +39,30 @@ init([]) ->
     ChildSpecs = [],
     {ok, {SupFlags, ChildSpecs}}.
 
+%% @doc Starts a new JWT worker.  The worker will send the caller a
+%% message when it creates and stores its first JWT, or if it fails to
+%% do so, using a generated reference.
+-spec start_worker(worker_id(), map()) ->
+          {ok, {reference(), supervisor:child()}}
+              | {error, already_present}
+              | {error, {already_started, supervisor:child()}}.
 start_worker(Id, Config) ->
     Ref = erlang:alias([reply]),
     ChildSpec = jwt_worker_child_spec(Id, Config, Ref),
-    {ok, Pid} = supervisor:start_child(?MODULE, ChildSpec),
-    {Ref, Pid}.
+    case supervisor:start_child(?MODULE, ChildSpec) of
+        {ok, Pid} ->
+            {ok, {Ref, Pid}};
+        Error ->
+            Error
+    end.
 
+%% @doc Stops a given JWT worker by its id.
+-spec stop_worker(worker_id()) -> ok.
 stop_worker(Id) ->
-    supervisor:terminate_child(?MODULE, Id).
+    case supervisor:terminate_child(?MODULE, Id) of
+        ok -> ok;
+        {error, not_found} -> ok
+    end.
 
 jwt_worker_child_spec(Id, Config, Ref) ->
     #{ id => Id

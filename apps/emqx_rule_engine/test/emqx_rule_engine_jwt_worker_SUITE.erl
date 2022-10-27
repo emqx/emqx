@@ -225,12 +225,12 @@ t_lookup_badarg(_Config) ->
 t_start_supervised_worker(_Config) ->
     {ok, _} = emqx_rule_engine_jwt_sup:start_link(),
     Config = #{resource_id := ResourceId} = generate_config(),
-    {Ref, Pid} = emqx_rule_engine_jwt_sup:start_worker(ResourceId, Config),
+    {ok, {Ref, Pid}} = emqx_rule_engine_jwt_sup:start_worker(ResourceId, Config),
     receive
         {Ref, token_created} ->
             ok
     after
-        1_000 ->
+        5_000 ->
             ct:fail("timeout")
     end,
     MRef = monitor(process, Pid),
