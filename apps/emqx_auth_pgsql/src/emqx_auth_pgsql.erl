@@ -40,7 +40,7 @@ check(ClientInfo = #{password := Password}, AuthResult,
                     {ok, _, []} ->
                         {error, not_found};
                     {error, Reason} ->
-                        ?LOG(error, "[Postgres] query '~p' failed: ~p", [AuthSql, Reason]),
+                        ?LOG_SENSITIVE(error, "[Postgres] query '~p' failed: ~p", [AuthSql, Reason]),
                         {error, not_found}
                 end,
     case CheckPass of
@@ -51,7 +51,7 @@ check(ClientInfo = #{password := Password}, AuthResult,
         {error, not_found} ->
             ok;
         {error, ResultCode} ->
-            ?LOG(error, "[Postgres] Auth from pgsql failed: ~p", [ResultCode]),
+            ?LOG_SENSITIVE(error, "[Postgres] Auth from pgsql failed: ~p", [ResultCode]),
             {stop, AuthResult#{auth_result => ResultCode, anonymous => false}}
     end.
 

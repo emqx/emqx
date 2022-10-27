@@ -53,7 +53,7 @@ check(ClientInfo, AuthResult, #{auth  := AuthParms = #{path := Path},
             {stop, AuthResult#{auth_result => http_to_connack_error(Code),
                                anonymous   => false}};
         {error, Error} ->
-            ?LOG(error, "Deny connection from path: ~s, username: ~ts, due to "
+            ?LOG_SENSITIVE(error, "Deny connection from path: ~s, username: ~ts, due to "
                         "request http-server failed: ~0p",
                  [Path, Username, Error]),
             %%FIXME later: server_unavailable is not right.
@@ -91,7 +91,7 @@ is_superuser(SuperParams =
     case request(PoolName, Method, Path, Headers, feedvar(Params, ClientInfo), Timeout, Retry) of
         {ok, 200, _Body}   -> true;
         {ok, _Code, _Body} -> false;
-        {error, Error}     -> ?LOG(error, "Request superuser path ~s, error: ~p", [Path, Error]),
+        {error, Error}     -> ?LOG_SENSITIVE(error, "Request superuser path ~s, error: ~p", [Path, Error]),
                               false
     end.
 

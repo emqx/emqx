@@ -82,7 +82,7 @@ connect(Opts) ->
             ?LOG(error, "[Postgres] Can't connect to Postgres server: Invalid password."),
             {error, Reason};
         {error, Reason} ->
-            ?LOG(error, "[Postgres] Can't connect to Postgres server: ~p", [Reason]),
+            ?LOG_SENSITIVE(error, "[Postgres] Can't connect to Postgres server: ~p", [Reason]),
             {error, Reason}
     end.
 
