@@ -30,18 +30,19 @@ export REBAR_GIT_CLONE_OPTIONS += --depth=1
 .PHONY: default
 default: $(REBAR) $(PROFILE)
 
-.PHONY: prepare
-prepare: FORCE
+.prepare:
 	@$(SCRIPTS)/git-hooks-init.sh # this is no longer needed since 5.0 but we keep it anyway
 	@$(SCRIPTS)/prepare-build-deps.sh
-
-FORCE:
+	@touch .prepare
 
 .PHONY: all
 all: $(REBAR) $(PROFILES)
 
 .PHONY: ensure-rebar3
 ensure-rebar3:
+	@$(SCRIPTS)/ensure-rebar3.sh
+
+$(REBAR): .prepare
 	@$(SCRIPTS)/ensure-rebar3.sh
 
 .PHONY: ensure-hex
@@ -59,8 +60,6 @@ ensure-mix-rebar: $(REBAR)
 .PHONY: mix-deps-get
 mix-deps-get: $(ELIXIR_COMMON_DEPS)
 	@mix deps.get
-
-$(REBAR): prepare ensure-rebar3
 
 .PHONY: eunit
 eunit: $(REBAR) conf-segs
