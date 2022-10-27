@@ -146,7 +146,7 @@ For example, this environment variable sets an array value.
 export EMQX_LISTENERS__SSL__L1__AUTHENTICATION__SSL__CIPHERS='["TLS_AES_256_GCM_SHA384"]'
 ```
 
-However this also means a string value should be quoted if it happen to contain special
+However this also means a string value should be quoted if it happens to contain special
 characters such as `=` and `:`.
 
 For example, a string value `"localhost:1883"` would be 
@@ -248,9 +248,9 @@ authentication=[{enable=true}]
 
 #### TLS/SSL ciphers
 
-Starting from v5.0.6, EMQX no longer pre-populate the ciphers list with a default
+Starting from v5.0.6, EMQX no longer pre-populates the ciphers list with a default
 set of cipher suite names.
-Instead, the default ciphers are applyed at runtime when starting the listener
+Instead, the default ciphers are applied at runtime when starting the listener
 for servers, or when establishing a TLS connection as a client.
 
 Below are the default ciphers selected by EMQX.
