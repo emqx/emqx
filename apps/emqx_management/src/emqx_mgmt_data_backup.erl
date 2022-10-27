@@ -174,26 +174,26 @@ export_confs() ->
             {lists:map(fun({_, Key, Confs}) ->
                 case Key of
                     {_Zone, Name} ->
-                        [{zone, list_to_binary(Name)},
+                        [{zone, iolist_to_binary(Name)},
                          {confs, confs_to_binary(Confs)}];
                     {_Listener, Type, Name} ->
-                        [{type, list_to_binary(Type)},
-                         {name, list_to_binary(Name)},
+                        [{type, iolist_to_binary(Type)},
+                         {name, iolist_to_binary(Name)},
                          {confs, confs_to_binary(Confs)}];
                     Name ->
-                        [{name, list_to_binary(Name)},
+                        [{name, iolist_to_binary(Name)},
                          {confs, confs_to_binary(Confs)}]
                 end
             end, ets:tab2list(emqx_conf_b)),
             lists:map(fun({_, {_Listener, Type, Name}, Status}) ->
-                [{type, list_to_binary(Type)},
-                 {name, list_to_binary(Name)},
+                [{type, iolist_to_binary(Type)},
+                 {name, iolist_to_binary(Name)},
                  {status, Status}]
             end, ets:tab2list(emqx_listeners_state))}
     end.
 
 confs_to_binary(Confs) ->
-    [{list_to_binary(Key), list_to_binary(Val)} || {Key, Val} <-Confs].
+    [{iolist_to_binary(Key), iolist_to_binary(Val)} || {Key, Val} <-Confs].
 
 -endif.
 
@@ -290,7 +290,7 @@ compatible_version(#{<<"id">> := ID,
                                        <<"request_timeout">> := RequestTimeout,
                                        <<"url">> := URL}} = Resource, Acc) ->
     CovertFun = fun(Int) ->
-        list_to_binary(integer_to_list(Int) ++ "s")
+        iolist_to_binary(integer_to_list(Int) ++ "s")
     end,
     Cfg = make_new_config(#{<<"pool_size">> => PoolSize,
                             <<"connect_timeout">> => CovertFun(ConnectTimeout),
@@ -631,6 +631,7 @@ upload_backup_file(Filename0, Bin) ->
         {ok, Filename} ->
             case check_json(Bin) of
                 {ok, _} ->
+                    ok = filelib:ensure_dir(Filename),
                     logger:info("write backup file ~p", [Filename]),
                     file:write_file(Filename, Bin);
                 {error, Reason} ->
@@ -646,8 +647,8 @@ list_backup_file() ->
             case file:read_file_info(File) of
                 {ok, #file_info{size = Size, ctime = CTime = {{Y, M, D}, {H, MM, S}}}} ->
                     Seconds = calendar:datetime_to_gregorian_seconds(CTime),
-                    BaseFilename = to_binary(filename:basename(File)),
-                    CreatedAt = to_binary(io_lib:format("~p-~p-~p ~p:~p:~p", [Y, M, D, H, MM, S])),
+                    BaseFilename = to_unicode_bin(filename:basename(File)),
+                    CreatedAt = to_unicode_bin(io_lib:format("~p-~p-~p ~p:~p:~p", [Y, M, D, H, MM, S])),
                     Info = {
                         Seconds,
                         [{filename, BaseFilename},
@@ -696,7 +697,7 @@ read_backup_file(Filename0) ->
         {ok, Filename} ->
             case file:read_file(Filename) of
                 {ok, Bin} ->
-                    {ok, #{filename => to_binary(Filename0),
+                    {ok, #{filename => to_unicode_bin(Filename0),
                            file => Bin}};
                 {error, Reason} ->
                     logger:error("read file ~p failed ~p", [Filename, Reason]),
@@ -739,9 +740,9 @@ delete_all_backup_file() ->
 
 export() ->
     Seconds = erlang:system_time(second),
-    Data = do_export_data() ++ [{date, erlang:list_to_binary(emqx_mgmt_util:strftime(Seconds))}],
+    Data = do_export_data() ++ [{date, iolist_to_binary(emqx_mgmt_util:strftime(Seconds))}],
     {{Y, M, D}, {H, MM, S}} = emqx_mgmt_util:datetime(Seconds),
-    BaseFilename = io_lib:format("emqx-export-~p-~p-~p-~p-~p-~p.json", [Y, M, D, H, MM, S]),
+    BaseFilename = to_unicode_bin(io_lib:format("emqx-export-~p-~p-~p-~p-~p-~p.json", [Y, M, D, H, MM, S])),
     {ok, Filename} = ensure_file_name(BaseFilename),
     case file:write_file(Filename, emqx_json:encode(Data)) of
         ok ->
@@ -750,7 +751,7 @@ export() ->
                     CreatedAt = io_lib:format("~p-~p-~p ~p:~p:~p", [Y1, M1, D1, H1, MM1, S1]),
                     {ok, #{filename => Filename,
                            size => Size,
-                           created_at => list_to_binary(CreatedAt),
+                           created_at => iolist_to_binary(CreatedAt),
                            node => node()
                           }};
                 Error -> Error
@@ -760,7 +761,7 @@ export() ->
 
 do_export_data() ->
     Version = string:sub_string(emqx_sys:version(), 1, 3),
-    [{version, erlang:list_to_binary(Version)},
+    [{version, iolist_to_binary(Version)},
      {rules, export_rules()},
      {resources, export_resources()},
      {blacklist, export_blacklist()},
@@ -871,8 +872,14 @@ backup_dir_old_version() ->
     emqx:get_env(data_dir).
 
 legal_filename(Filename) ->
-    MaybeJson = filename:extension(Filename),
-    MaybeJson == ".json" orelse MaybeJson == <<".json">>.
+    case to_unicode_bin(Filename) of
+        <<"/", _/binary>> ->
+            %% never allow abs path
+            false;
+        _ ->
+            MaybeJson = filename:extension(Filename),
+            MaybeJson == ".json" orelse MaybeJson == <<".json">>
+    end.
 
 check_json(MaybeJson) ->
     case emqx_json:safe_decode(MaybeJson, [return_maps]) of
@@ -1005,5 +1012,5 @@ get_old_type() ->
 set_old_type(Type) ->
     application:set_env(emqx_auth_mnesia, as, Type).
 
-to_binary(Bin) when is_binary(Bin) -> Bin;
-to_binary(Str) when is_list(Str) -> list_to_binary(Str).
+to_unicode_bin(Bin) when is_binary(Bin) -> Bin;
+to_unicode_bin(Str) when is_list(Str) -> unicode:characters_to_binary(Str).
