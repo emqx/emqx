@@ -1,4 +1,4 @@
-EMQX configuration file is in [HOCON](https://github.com/emqx/hocon) format.
+EMQX configuration files are in [HOCON](https://github.com/emqx/hocon) format.
 HOCON, or Human-Optimized Config Object Notation is a format for human-readable data,
 and a superset of JSON.
 
@@ -7,7 +7,7 @@ and a superset of JSON.
 EMQX configuration consists of 3 layers.
 From bottom up:
 
-1. Immutable base: `emqx.conf` + `EMQX_` prefixed environment variables.</br>
+1. Immutable base: `emqx.conf` + `EMQX_` prefixed environment variables.<br/>
    Changes in this layer require a full node restart to take effect.
 1. Cluster overrides: `$EMQX_NODE__DATA_DIR/configs/cluster-override.conf`
 1. Local node overrides: `$EMQX_NODE__DATA_DIR/configs/local-override.conf`
