@@ -23,7 +23,7 @@ jobs:
       - name: fix_git_permission
         run: git config --global --add safe.directory '/__w/emqx/emqx'
       - name: Checkout
-        uses: actions/checkout@v2
+        uses: actions/checkout@v3
         with:
           fetch-depth: 0
       - name: ensure rebar

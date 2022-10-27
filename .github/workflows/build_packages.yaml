@@ -29,7 +29,7 @@ jobs:
       IS_EXACT_TAG: ${{ steps.get_profile.outputs.IS_EXACT_TAG }}
 
     steps:
-      - uses: actions/checkout@v2
+      - uses: actions/checkout@v3
         with:
           ref: ${{ github.event.inputs.branch_or_tag }} # when input is not given, the event tag is used
           path: source
@@ -79,7 +79,7 @@ jobs:
         run: |
           make -C source deps-all
           zip -ryq source.zip source/* source/.[^.]*
-      - uses: actions/upload-artifact@v2
+      - uses: actions/upload-artifact@v3
         with:
           name: source
           path: source.zip
@@ -95,13 +95,13 @@ jobs:
         otp:
           - 24.2.1
     steps:
-    - uses: actions/download-artifact@v2
+    - uses: actions/download-artifact@v3
       with:
         name: source
         path: .
     - name: unzip source code
       run: Expand-Archive -Path source.zip -DestinationPath ./
-    - uses: ilammy/msvc-dev-cmd@v1
+    - uses: ilammy/msvc-dev-cmd@v1.12.0
     - uses: erlef/setup-beam@v1
       with:
         otp-version: ${{ matrix.otp }}
@@ -127,7 +127,7 @@ jobs:
         echo "EMQX installed"
         ./_build/${{ matrix.profile }}/rel/emqx/bin/emqx uninstall
         echo "EMQX uninstalled"
-    - uses: actions/upload-artifact@v1
+    - uses: actions/upload-artifact@v3
       with:
         name: ${{ matrix.profile }}-windows
         path: source/_packages/${{ matrix.profile }}/.
@@ -145,7 +145,7 @@ jobs:
           - macos-11
     runs-on: ${{ matrix.os }}
     steps:
-    - uses: actions/download-artifact@v2
+    - uses: actions/download-artifact@v3
       with:
         name: source
         path: .
@@ -166,7 +166,7 @@ jobs:
         apple_developer_identity: ${{ secrets.APPLE_DEVELOPER_IDENTITY }}
         apple_developer_id_bundle: ${{ secrets.APPLE_DEVELOPER_ID_BUNDLE }}
         apple_developer_id_bundle_password: ${{ secrets.APPLE_DEVELOPER_ID_BUNDLE_PASSWORD }}
-    - uses: actions/upload-artifact@v1
+    - uses: actions/upload-artifact@v3
       with:
         name: ${{ matrix.profile }}-${{ matrix.otp }}
         path: _packages/${{ matrix.profile }}/.
@@ -253,7 +253,7 @@ jobs:
     steps:
     - uses: AutoModality/action-clean@v1
       if: matrix.build_machine == 'aws-arm64'
-    - uses: actions/download-artifact@v2
+    - uses: actions/download-artifact@v3
       with:
         name: source
         path: .
@@ -292,7 +292,7 @@ jobs:
             --elixir "${IsElixir}" \
             --builder "ghcr.io/emqx/emqx-builder/5.0-17:${ELIXIR}-${OTP}-${SYSTEM}"
         done
-    - uses: actions/upload-artifact@v1
+    - uses: actions/upload-artifact@v3
       with:
         name: ${{ matrix.profile }}-${{ matrix.otp }}
         path: source/_packages/${{ matrix.profile }}/.
@@ -312,7 +312,7 @@ jobs:
           - profile: emqx
             otp: windows # otp version on windows is rather fixed
     steps:
-    - uses: actions/download-artifact@v2
+    - uses: actions/download-artifact@v3
       with:
         name: ${{ matrix.profile }}-${{ matrix.otp }}
         path: packages/${{ matrix.profile }}
@@ -334,7 +334,7 @@ jobs:
           echo "$(cat $var.sha256) $var" | sha256sum -c || exit 1
         done
         cd -
-    - uses: aws-actions/configure-aws-credentials@v1
+    - uses: aws-actions/configure-aws-credentials@v1-node16
       with:
         aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
         aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}

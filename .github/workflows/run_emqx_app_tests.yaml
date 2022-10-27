@@ -31,7 +31,7 @@ jobs:
         shell: bash
 
     steps:
-    - uses: actions/checkout@v2
+    - uses: actions/checkout@v3
       with:
         fetch-depth: 0
     - name: run
@@ -61,7 +61,7 @@ jobs:
         ./rebar3 eunit -v
         ./rebar3 ct -v
         ./rebar3 proper -d test/props
-    - uses: actions/upload-artifact@v1
+    - uses: actions/upload-artifact@v3
       if: failure()
       with:
         name: logs

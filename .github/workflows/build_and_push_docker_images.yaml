@@ -29,7 +29,7 @@ jobs:
       DOCKER_TAG_VERSION: ${{ steps.get_profile.outputs.DOCKER_TAG_VERSION }}
 
     steps:
-      - uses: actions/checkout@v2
+      - uses: actions/checkout@v3
         with:
           ref: ${{ github.event.inputs.branch_or_tag }} # when input is not given, the event tag is used
           path: source
@@ -86,7 +86,7 @@ jobs:
         run: |
           make -C source deps-all
           zip -ryq source.zip source/* source/.[^.]*
-      - uses: actions/upload-artifact@v2
+      - uses: actions/upload-artifact@v3
         with:
           name: source
           path: source.zip
@@ -146,24 +146,24 @@ jobs:
     steps:
     - uses: AutoModality/action-clean@v1
       if: matrix.build_machine == 'aws-arm64'
-    - uses: actions/download-artifact@v2
+    - uses: actions/download-artifact@v3
       with:
         name: source
         path: .
     - name: unzip source code
       run: unzip -q source.zip
 
-    - uses: docker/setup-buildx-action@v1
+    - uses: docker/setup-buildx-action@v2
 
     - name: Login for docker.
-      uses: docker/login-action@v1
+      uses: docker/login-action@v2
       if: matrix.registry == 'docker.io'
       with:
         username: ${{ secrets.DOCKER_HUB_USER }}
         password: ${{ secrets.DOCKER_HUB_TOKEN }}
 
     - name: Login for AWS ECR
-      uses: docker/login-action@v1
+      uses: docker/login-action@v2
       if: matrix.registry == 'public.ecr.aws'
       with:
         registry: public.ecr.aws
@@ -201,7 +201,7 @@ jobs:
         echo "::set-output name=img_labels::${img_labels}"
 
     # NOTE, Pls make sure this is identical as the one in job 'docker-push-multi-arch-manifest'
-    - uses: docker/metadata-action@v3
+    - uses: docker/metadata-action@v4
       id: meta
       with:
         images: ${{ matrix.registry }}/${{ github.repository_owner }}/${{ matrix.profile }}
@@ -212,7 +212,7 @@ jobs:
         labels:
           ${{ steps.pre-meta.outputs.img_labels }}
 
-    - uses: docker/build-push-action@v2
+    - uses: docker/build-push-action@v3
       with:
         push: ${{ needs.prepare.outputs.IS_EXACT_TAG }}
         pull: true
@@ -275,7 +275,7 @@ jobs:
             registry: docker.io
 
     steps:
-      - uses: actions/download-artifact@v2
+      - uses: actions/download-artifact@v3
         with:
           name: source
           path: .
@@ -283,13 +283,13 @@ jobs:
       - name: unzip source code
         run: unzip -q source.zip
 
-      - uses: docker/login-action@v1
+      - uses: docker/login-action@v2
         if: matrix.registry == 'docker.io'
         with:
           username: ${{ secrets.DOCKER_HUB_USER }}
           password: ${{ secrets.DOCKER_HUB_TOKEN }}
 
-      - uses: docker/login-action@v1
+      - uses: docker/login-action@v2
         if: matrix.registry == 'public.ecr.aws'
         with:
           registry: public.ecr.aws
@@ -327,7 +327,7 @@ jobs:
           echo "::set-output name=img_labels::${img_labels}"
 
       # NOTE, Pls make sure this is identical as the one in job 'docker'
-      - uses: docker/metadata-action@v3
+      - uses: docker/metadata-action@v4
         id: meta
         with:
           images: ${{ matrix.registry }}/${{ github.repository_owner }}/${{ matrix.profile }}

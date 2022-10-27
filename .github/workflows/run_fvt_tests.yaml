@@ -19,7 +19,7 @@ jobs:
     container: ghcr.io/emqx/emqx-builder/5.0-17:1.13.4-24.2.1-1-alpine3.15.1
 
     steps:
-      - uses: actions/checkout@v2
+      - uses: actions/checkout@v3
         with:
           path: source
           fetch-depth: 0
@@ -27,7 +27,7 @@ jobs:
         run: |
           make -C source deps-all
           zip -ryq source.zip source/* source/.[^.]*
-      - uses: actions/upload-artifact@v2
+      - uses: actions/upload-artifact@v3
         with:
           name: source
           path: source.zip
@@ -58,7 +58,7 @@ jobs:
     - uses: erlef/setup-beam@v1
       with:
         otp-version: "24.2"
-    - uses: actions/download-artifact@v2
+    - uses: actions/download-artifact@v3
       with:
         name: source
         path: .
@@ -131,7 +131,7 @@ jobs:
     - uses: erlef/setup-beam@v1
       with:
         otp-version: "24.2"
-    - uses: actions/download-artifact@v2
+    - uses: actions/download-artifact@v3
       with:
         name: source
         path: .
@@ -207,7 +207,7 @@ jobs:
           echo "waiting ${{ matrix.profile }} cluster scale"
           sleep 1
         done
-    - uses: actions/checkout@v2
+    - uses: actions/checkout@v3
       with:
         repository: emqx/paho.mqtt.testing
         ref: develop-4.0
