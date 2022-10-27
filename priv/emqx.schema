@@ -532,6 +532,12 @@ end}.
   {datatype, bytesize}
 ]}.
 
+%% Enable insecure authentication fallback (enabled by default in 4.4)
+{mapping, "rpc.insecure_fallback", "gen_rpc.insecure_auth_fallback_allowed", [
+  {default, true},
+  {datatype, {enum, [true, false]}}
+]}.
+
 {validator, "range:gt_0_lt_256", "must greater than 0 and less than 256",
   fun(X) -> X >= 0 andalso X < 256 end
 }.
