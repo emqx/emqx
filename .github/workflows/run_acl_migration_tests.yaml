@@ -11,7 +11,7 @@ jobs:
         env:
             BASE_VERSION: "4.3.0"
         steps:
-        - uses: actions/checkout@v2
+        - uses: actions/checkout@v3
           with:
             path: emqx
         - name: Prepare scripts
