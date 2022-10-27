@@ -33,6 +33,7 @@
 
 -export([ on_session_subscribed/3
         , on_message_publish/2
+        , on_client_banned/1
         ]).
 
 -export([clean/1]).
@@ -58,11 +59,13 @@
 load(Env) ->
     _ = emqx:hook('session.subscribed', fun ?MODULE:on_session_subscribed/3, []),
     _ = emqx:hook('message.publish', fun ?MODULE:on_message_publish/2, [Env]),
+    _ = emqx:hook('clientid.banned', {?MODULE, on_client_banned, []}),
     ok.
 
 unload() ->
     emqx:unhook('message.publish', fun ?MODULE:on_message_publish/2),
-    emqx:unhook('session.subscribed', fun ?MODULE:on_session_subscribed/3).
+    emqx:unhook('session.subscribed', fun ?MODULE:on_session_subscribed/3),
+    emqx:unhook('clientid.banned', {?MODULE, on_client_banned}).
 
 on_session_subscribed(_, _, #{share := ShareName}) when ShareName =/= undefined ->
     ok;
@@ -98,6 +101,16 @@ on_message_publish(Msg = #message{flags = #{retain := true}}, Env) ->
     {ok, Msg};
 on_message_publish(Msg, _Env) ->
     {ok, Msg}.
+
+on_client_banned(#banned{who = {clientid, ClientId}}) ->
+    case emqx_banned:is_need_cleanup() of
+        true ->
+            clean_by_clientid(ClientId);
+        _ ->
+            ok
+    end;
+on_client_banned(_) ->
+    ok.
 
 %%--------------------------------------------------------------------
 %% APIs
@@ -311,3 +324,13 @@ condition(Ws) ->
         false -> Ws1;
         _ -> (Ws1 -- ['#']) ++ '_'
     end.
+
+clean_by_clientid(ClientId) ->
+    MsHd = #retained{topic = '$1', msg = '$2', expiry_time = '_'},
+    Ms = [{MsHd, [{'=:=', {element, 4, '$2'}, ClientId}], ['$1']}],
+    {atomic, _} = mnesia:transaction(
+        fun() ->
+            Keys = mnesia:select(?TAB, Ms, write),
+            lists:foreach(fun(Key) -> mnesia:delete({?TAB, Key}) end, Keys)
+        end),
+    ok.

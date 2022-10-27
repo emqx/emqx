@@ -38,6 +38,8 @@
 
 -export([ start_link/0
         , on_message_publish/1
+        , on_client_banned/1
+        , do_clean_by_clientid/1
         ]).
 
 %% gen_server callbacks
@@ -86,11 +88,14 @@ mnesia(copy) ->
 -spec(load(list()) -> ok).
 load(_Env) ->
     emqx_mod_sup:start_child(?MODULE, worker),
-    emqx:hook('message.publish', {?MODULE, on_message_publish, []}).
+    _ = emqx:hook('message.publish', {?MODULE, on_message_publish, []}),
+    _ = emqx:hook('client.banned', {?MODULE, on_client_banned, []}),
+    ok.
 
 -spec(unload(list()) -> ok).
 unload(_Env) ->
     emqx:unhook('message.publish', {?MODULE, on_message_publish}),
+    emqx:unhook('client.banned', {?MODULE, on_client_banned}),
     emqx_mod_sup:stop_child(?MODULE).
 
 description() ->
@@ -122,6 +127,26 @@ on_message_publish(Msg = #message{
 
 on_message_publish(Msg) ->
     {ok, Msg}.
+
+on_client_banned(#banned{who = {clientid, ClientId}}) ->
+    case emqx_banned:is_need_cleanup() of
+        true ->
+            clean_by_clientid(ClientId);
+        _ ->
+            ok
+    end;
+on_client_banned(_) ->
+    ok.
+
+do_clean_by_clientid(ClientId) ->
+    MsHd = #delayed_message{key = '$1', msg = '$2'},
+    Ms = [{MsHd, [{'=:=', {element, 4, '$2'}, ClientId}], ['$1']}],
+    {atomic, _} = mnesia:transaction(
+        fun() ->
+            Keys = mnesia:select(?TAB, Ms, write),
+            lists:foreach(fun(Key) -> mnesia:delete({?TAB, Key}) end, Keys)
+        end),
+    ok.
 
 %%--------------------------------------------------------------------
 %% Start delayed publish server
@@ -234,3 +259,13 @@ do_publish(Key = {Ts, _Id}, Now, Acc) when Ts =< Now ->
 
 -spec(delayed_count() -> non_neg_integer()).
 delayed_count() -> mnesia:table_info(?TAB, size).
+
+clean_by_clientid(ClientId) ->
+    CurrNode = node(),
+    Nodes = ekka_mnesia:running_nodes(),
+    lists:foreach(fun(Node) when Node =:= CurrNode ->
+                      do_clean_by_clientid(ClientId);
+                     (Node) ->
+                      rpc:call(Node, ?MODULE, do_clean_by_clientid, [ClientId], 5000)
+                  end,
+                  Nodes).

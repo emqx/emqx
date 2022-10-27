@@ -868,6 +868,11 @@ end}.
      }
 end}.
 
+{mapping, "clean_when_banned", "emqx.clean_when_banned", [
+  {default, false},
+  {datatype, {enum, [true, false]}}
+]}.
+
 {validator, "range:gt_0", "must greater than 0",
   fun(X) -> X > 0 end
 }.

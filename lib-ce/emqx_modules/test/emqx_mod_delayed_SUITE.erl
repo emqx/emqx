@@ -76,3 +76,67 @@ t_delayed_message(_) ->
     EmptyKey = mnesia:dirty_all_keys(emqx_mod_delayed),
     ?assertEqual([], EmptyKey),
     ok = emqx_mod_delayed:unload([]).
+
+t_banned_clean(_) ->
+    application:set_env(emqx, allow_anonymous, true),
+    application:set_env(emqx, clean_when_banned, true),
+    ok = emqx_mod_delayed:load([]),
+    ClientId1 = <<"bc1">>,
+    ClientId2 = <<"bc2">>,
+    {ok, C1} = emqtt:start_link([{clientid, ClientId1}, {clean_start, true}, {proto_ver, v5}]),
+    {ok, _} = emqtt:connect(C1),
+
+    {ok, C2} = emqtt:start_link([{clientid, ClientId2}, {clean_start, true}, {proto_ver, v5}]),
+    {ok, _} = emqtt:connect(C2),
+
+    [
+        begin
+            emqtt:publish(
+                Conn,
+                <<"$delayed/60/0/", ClientId/binary>>,
+                <<"">>,
+                [{qos, 0}, {retain, false}]
+            ),
+            emqtt:publish(
+                Conn,
+                <<"$delayed/60/1/", ClientId/binary>>,
+                <<"">>,
+                [{qos, 0}, {retain, false}]
+            )
+        end
+     || {ClientId, Conn} <- lists:zip([ClientId1, ClientId2], [C1, C2])
+    ],
+
+    emqtt:publish(
+        C2,
+        <<"$delayed/60/2/", ClientId2/binary>>,
+        <<"">>,
+        [{qos, 0}, {retain, false}]
+    ),
+
+    timer:sleep(500),
+    ?assertEqual(5, length(mnesia:dirty_all_keys(emqx_mod_delayed))),
+
+    Now = erlang:system_time(second),
+    Who = {clientid, ClientId2},
+    try
+        emqx_banned:create(#{
+            who => Who,
+            by => <<"test">>,
+            reason => <<"test">>,
+            at => Now,
+            until => Now + 120,
+            clean => true
+        }),
+
+        timer:sleep(500),
+
+        ?assertEqual(2, length(mnesia:dirty_all_keys(emqx_mod_delayed)))
+    after
+        emqx_banned:delete(Who)
+    end,
+    timer:sleep(500),
+    mnesia:clear_table(emqx_mod_delayed),
+    ok = emqtt:disconnect(C1),
+    ok = emqtt:disconnect(C2),
+    ok = emqx_mod_delayed:unload([]).

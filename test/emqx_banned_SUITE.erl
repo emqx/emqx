@@ -29,10 +29,13 @@ init_per_suite(Config) ->
     ok = ekka:start(),
     %% for coverage
     ok = emqx_banned:mnesia(copy),
+    ok = meck:new(emqx_hooks, [passthrough, no_history, no_link]),
+    ok = meck:expect(emqx_hooks, run, fun(_Hook, _Args) -> ok end),
     Config.
 
 end_per_suite(_Config) ->
     ekka:stop(),
+    meck:unload(emqx_hooks),
     ekka_mnesia:ensure_stopped(),
     ekka_mnesia:delete_schema().
 
@@ -92,4 +95,3 @@ t_unused(_) ->
     ?assertEqual(ok, Banned ! ok),
     timer:sleep(500), %% expiry timer
     ok = emqx_banned:stop().
-

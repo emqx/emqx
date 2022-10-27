@@ -36,6 +36,7 @@
         , create/1
         , delete/1
         , info/1
+        , is_need_cleanup/0
         ]).
 
 %% gen_server callbacks
@@ -94,13 +95,14 @@ create(#{who    := Who,
          reason := Reason,
          at     := At,
          until  := Until}) ->
-    mnesia:dirty_write(?BANNED_TAB, #banned{who = Who,
-                                            by = By,
-                                            reason = Reason,
-                                            at = At,
-                                            until = Until});
+    create(#banned{who = Who,
+                   by = By,
+                   reason = Reason,
+                   at = At,
+                   until = Until});
 create(Banned) when is_record(Banned, banned) ->
-    mnesia:dirty_write(?BANNED_TAB, Banned).
+    mnesia:dirty_write(?BANNED_TAB, Banned),
+    emqx_hooks:run('client.banned', [Banned]).
 
 -spec(delete({clientid, emqx_types:clientid()}
            | {username, emqx_types:username()}
@@ -110,6 +112,10 @@ delete(Who) ->
 
 info(InfoKey) ->
     mnesia:table_info(?BANNED_TAB, InfoKey).
+
+
+is_need_cleanup() ->
+    emqx:get_env(clean_when_banned).
 
 %%--------------------------------------------------------------------
 %% gen_server callbacks
@@ -158,4 +164,3 @@ expire_banned_items(Now) ->
               mnesia:delete_object(?BANNED_TAB, B, sticky_write);
          (_, _Acc) -> ok
       end, ok, ?BANNED_TAB).
-

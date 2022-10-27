@@ -189,6 +189,67 @@ t_stop_publish_clear_msg(_) ->
 
     ok = emqtt:disconnect(C1).
 
+t_banned_clean(_) ->
+    ClientId1 = <<"bc1">>,
+    ClientId2 = <<"bc2">>,
+    application:set_env(emqx, clean_when_banned, true),
+    {ok, C1} = emqtt:start_link([{clientid, ClientId1}, {clean_start, true}, {proto_ver, v5}]),
+    {ok, _} = emqtt:connect(C1),
+
+    {ok, C2} = emqtt:start_link([{clientid, ClientId2}, {clean_start, true}, {proto_ver, v5}]),
+    {ok, _} = emqtt:connect(C2),
+
+    [
+        begin
+            emqtt:publish(
+                Conn,
+                <<"bc/0/", ClientId/binary>>,
+                <<"this is a retained message 0">>,
+                [{qos, 0}, {retain, true}]
+            ),
+            emqtt:publish(
+                Conn,
+                <<"bc/1/", ClientId/binary>>,
+                <<"this is a retained message 1">>,
+                [{qos, 0}, {retain, true}]
+            )
+        end
+     || {ClientId, Conn} <- lists:zip([ClientId1, ClientId2], [C1, C2])
+    ],
+
+    emqtt:publish(
+        C2,
+        <<"bc/2/", ClientId2/binary>>,
+        <<"this is a retained message 2">>,
+        [{qos, 0}, {retain, true}]
+    ),
+
+    timer:sleep(500),
+    {ok, #{}, [0]} = emqtt:subscribe(C1, <<"bc/#">>, [{qos, 0}, {rh, 0}]),
+    ?assertEqual(5, length(receive_messages(5))),
+
+    Now = erlang:system_time(second),
+    Who = {clientid, ClientId2},
+    emqx_banned:create(#{
+        who => Who,
+        by => <<"test">>,
+        reason => <<"test">>,
+        at => Now,
+        until => Now + 120,
+        clean => true
+    }),
+
+    timer:sleep(500),
+
+    {ok, #{}, [0]} = emqtt:unsubscribe(C1, <<"bc/#">>),
+    {ok, #{}, [0]} = emqtt:subscribe(C1, <<"bc/#">>, [{qos, 0}, {rh, 0}]),
+    ?assertEqual(2, length(receive_messages(2))),
+
+    emqx_banned:delete(Who),
+    emqx_retainer:clean(<<"bc/#">>),
+    ok = emqtt:disconnect(C1),
+    ok = emqtt:disconnect(C2).
+
 %%--------------------------------------------------------------------
 %% Helper functions
 %%--------------------------------------------------------------------
