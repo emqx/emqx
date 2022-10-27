@@ -45,11 +45,11 @@ introduced_in() ->
 unsubscribe_batch(Node, ClientId, Topics) ->
     rpc:call(Node, emqx_mgmt, do_unsubscribe_batch, [ClientId, Topics]).
 
--spec node_info([node()]) -> emqx_rpc:multicall_result().
+-spec node_info([node()]) -> emqx_rpc:erpc_multicall(map()).
 node_info(Nodes) ->
     erpc:multicall(Nodes, emqx_mgmt, node_info, [], 30000).
 
--spec broker_info([node()]) -> emqx_rpc:multicall_result().
+-spec broker_info([node()]) -> emqx_rpc:erpc_multicall(map()).
 broker_info(Nodes) ->
     erpc:multicall(Nodes, emqx_mgmt, broker_info, [], 30000).
 
