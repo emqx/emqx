@@ -27,17 +27,10 @@
 ]).
 
 start(_StartType, _StartArgs) ->
-    {ok, Sup} = emqx_prometheus_sup:start_link(),
-    maybe_enable_prometheus(),
-    {ok, Sup}.
+    Res = emqx_prometheus_sup:start_link(),
+    emqx_prometheus_config:add_handler(),
+    Res.
 
 stop(_State) ->
+    emqx_prometheus_config:remove_handler(),
     ok.
-
-maybe_enable_prometheus() ->
-    case emqx_conf:get([prometheus, enable], false) of
-        true ->
-            emqx_prometheus_sup:start_child(?APP, emqx_conf:get([prometheus], #{}));
-        false ->
-            ok
-    end.

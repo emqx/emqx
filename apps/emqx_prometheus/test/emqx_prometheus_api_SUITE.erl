@@ -71,16 +71,27 @@ t_prometheus_api(_) ->
         #{
             <<"push_gateway_server">> := _,
             <<"interval">> := _,
-            <<"enable">> := _
+            <<"enable">> := _,
+            <<"vm_statistics_collector">> := _,
+            <<"vm_system_info_collector">> := _,
+            <<"vm_memory_collector">> := _,
+            <<"vm_msacc_collector">> := _
         },
         Conf
     ),
-
-    NewConf = Conf#{<<"interval">> := <<"2s">>},
+    #{<<"enable">> := Enable} = Conf,
+    ?assertEqual(Enable, undefined =/= erlang:whereis(emqx_prometheus)),
+    NewConf = Conf#{<<"interval">> => <<"2s">>, <<"vm_statistics_collector">> => <<"disabled">>},
     {ok, Response2} = emqx_mgmt_api_test_util:request_api(put, Path, "", Auth, NewConf),
 
     Conf2 = emqx_json:decode(Response2, [return_maps]),
     ?assertMatch(NewConf, Conf2),
+    ?assertEqual({ok, []}, application:get_env(prometheus, vm_statistics_collector_metrics)),
+    ?assertEqual({ok, all}, application:get_env(prometheus, vm_memory_collector_metrics)),
+
+    NewConf1 = Conf#{<<"enable">> => (not Enable)},
+    {ok, _Response3} = emqx_mgmt_api_test_util:request_api(put, Path, "", Auth, NewConf1),
+    ?assertEqual((not Enable), undefined =/= erlang:whereis(emqx_prometheus)),
     ok.
 
 t_stats_api(_) ->
