@@ -384,7 +384,7 @@ test_http_connect(Conf) ->
            false
     catch
         Err:Reason:ST ->
-           ?LOG(error, "check http_connectivity failed: ~p, ~0p", [Conf, {Err, Reason, ST}]),
+           ?LOG_SENSITIVE(error, "check http_connectivity failed: ~p, ~0p", [Conf, {Err, Reason, ST}]),
            false
     end.
 l2b(L) when is_list(L) -> iolist_to_binary(L);

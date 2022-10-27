@@ -28,13 +28,17 @@ all() ->
     emqx_ct:all(?MODULE).
 
 init_per_suite(Cfg) ->
+    ekka_mnesia:start(),
+    ok = emqx_dashboard_admin:mnesia(boot),
     application:load(emqx_modules),
     application:load(emqx_bridge_mqtt),
     emqx_ct_helpers:start_apps([emqx_rule_engine, emqx_management]),
+    application:ensure_all_started(emqx_dashboard),
     Cfg.
 
 end_per_suite(Cfg) ->
     emqx_mgmt_data_backup:delete_all_backup_file(),
+    application:stop(emqx_dashboard),
     emqx_ct_helpers:stop_apps([emqx_management, emqx_rule_engine]),
     Cfg.
 

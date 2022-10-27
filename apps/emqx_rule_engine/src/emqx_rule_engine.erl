@@ -24,7 +24,7 @@
         , refresh_resources/0
         , refresh_resource/1
         , refresh_rule/1
-        , refresh_rules/0
+        , refresh_rules_when_boot/0
         , refresh_actions/1
         , refresh_actions/2
         , refresh_resource_status/0
@@ -47,6 +47,7 @@
         ]).
 
 -export([ init_resource/4
+        , init_resource_with_retrier/4
         , init_action/4
         , clear_resource/4
         , clear_rule/1
@@ -79,6 +80,19 @@
              ]).
 
 -define(T_RETRY, 60000).
+
+%% redefine this macro to confine the appup scope
+-undef(RAISE).
+-define(RAISE(_EXP_, _ERROR_CONTEXT_),
+        fun() ->
+            try (_EXP_)
+            catch
+                throw : Reason ->
+                    throw({_ERROR_CONTEXT_, Reason});
+                _EXCLASS_:_EXCPTION_:_ST_ ->
+                    throw({_ERROR_CONTEXT_, {_EXCPTION_, _EXCPTION_, _ST_}})
+            end
+        end()).
 
 %%------------------------------------------------------------------------------
 %% Load resource/action providers from all available applications
@@ -255,15 +269,20 @@ create_resource(#{type := Type, config := Config0} = Params, Retry) ->
                                  created_at = erlang:system_time(millisecond)
                                 },
             ok = emqx_rule_registry:add_resource(Resource),
+            InitArgs = [M, F, ResId, Config],
             case Retry of
                 with_retry ->
                     %% Note that we will return OK in case of resource creation failure,
                     %% A timer is started to re-start the resource later.
-                    _ = (catch (?CLUSTER_CALL(init_resource, [M, F, ResId, Config]))),
+                    _ = try ?CLUSTER_CALL(init_resource_with_retrier, InitArgs, ok,
+                                          init_resource, InitArgs)
+                    catch throw : Reason ->
+                        ?LOG(error, "create_resource failed: ~0p", [Reason])
+                    end,
                     {ok, Resource};
                 no_retry ->
                     try
-                        _ = ?CLUSTER_CALL(init_resource, [M, F, ResId, Config]),
+                        _ = ?CLUSTER_CALL(init_resource, InitArgs),
                         {ok, Resource}
                     catch throw : Reason ->
                         {error, Reason}
@@ -290,7 +309,7 @@ check_and_update_resource(Id, NewParams) ->
                 do_check_and_update_resource(#{id => Id, config => Conifg, type => Type,
                     description => Descr})
             catch Error:Reason:ST ->
-                ?LOG(error, "check_and_update_resource failed: ~0p", [{Error, Reason, ST}]),
+                ?LOG_SENSITIVE(error, "check_and_update_resource failed: ~0p", [{Error, Reason, ST}]),
                 {error, Reason}
             end;
         _Other ->
@@ -327,7 +346,7 @@ start_resource(ResId) ->
             {ok, #resource_type{on_create = {Mod, Create}}}
                 = emqx_rule_registry:find_resource_type(ResType),
             try
-                init_resource(Mod, Create, ResId, Config),
+                init_resource_with_retrier(Mod, Create, ResId, Config),
                 refresh_actions_of_a_resource(ResId)
             catch
                 throw:Reason -> {error, Reason}
@@ -358,7 +377,7 @@ test_resource(#{type := Type} = Params) ->
                         {error, Reason}
                 end
             catch E:R:S ->
-                ?LOG(warning, "test resource failed, ~0p:~0p ~0p", [E, R, S]),
+                ?LOG_SENSITIVE(warning, "test resource failed, ~0p:~0p ~0p", [E, R, S]),
                 {error, R}
             after
                 _ = ?CLUSTER_CALL(ensure_resource_deleted, [ResId]),
@@ -476,20 +495,22 @@ refresh_resource(Type) when is_atom(Type) ->
                   emqx_rule_registry:get_resources_by_type(Type));
 
 refresh_resource(#resource{id = ResId, type = Type, config = Config}) ->
-    try
-        {ok, #resource_type{on_create = {M, F}}} =
-            emqx_rule_registry:find_resource_type(Type),
-        ok = emqx_rule_engine:init_resource(M, F, ResId, Config)
-    catch _:_ ->
-        emqx_rule_monitor:ensure_resource_retrier(ResId, ?T_RETRY)
-    end.
+    {ok, #resource_type{on_create = {M, F}}} =
+        emqx_rule_registry:find_resource_type(Type),
+    ok = emqx_rule_engine:init_resource_with_retrier(M, F, ResId, Config).
 
--spec(refresh_rules() -> ok).
-refresh_rules() ->
+-spec(refresh_rules_when_boot() -> ok).
+refresh_rules_when_boot() ->
     lists:foreach(fun
         (#rule{enabled = true} = Rule) ->
             try refresh_rule(Rule)
             catch _:_ ->
+                %% We set the enable = false when rule init failed to avoid bad rules running
+                %% without actions created properly.
+                %% The init failure might be caused by a disconnected resource, in this case the
+                %% actions can not be created, so the rules won't work.
+                %% After the user fixed the problem he can enable it manually,
+                %% doing so will also recreate the actions.
                 emqx_rule_registry:add_rule(Rule#rule{enabled = false, state = refresh_failed_at_bootup})
             end;
         (_) -> ok
@@ -648,18 +669,29 @@ action_instance_id(ActionName) ->
     iolist_to_binary([atom_to_list(ActionName), "_", integer_to_list(erlang:system_time())]).
 
 init_resource(Module, OnCreate, ResId, Config) ->
-    Params = ?RAISE(Module:OnCreate(ResId, Config),
-        {{Module, OnCreate}, {_EXCLASS_, _EXCPTION_, _ST_}}),
+    Params = ?RAISE(Module:OnCreate(ResId, Config), {Module, OnCreate}),
     ResParams = #resource_params{id = ResId,
                                  params = Params,
                                  status = #{is_alive => true}},
     emqx_rule_registry:add_resource_params(ResParams).
 
+init_resource_with_retrier(Module, OnCreate, ResId, Config) ->
+    try
+        Params = Module:OnCreate(ResId, Config),
+        ResParams = #resource_params{id = ResId,
+                                    params = Params,
+                                    status = #{is_alive => true}},
+        emqx_rule_registry:add_resource_params(ResParams)
+    catch Class:Reason:ST ->
+        Interval = persistent_term:get({emqx_rule_engine, resource_restart_interval}, ?T_RETRY),
+        emqx_rule_monitor:ensure_resource_retrier(ResId, Interval),
+        erlang:raise(Class, {init_resource, Reason}, ST)
+    end.
+
 init_action(Module, OnCreate, ActionInstId, Params) ->
     ok = emqx_rule_metrics:create_metrics(ActionInstId),
     case ?RAISE(Module:OnCreate(ActionInstId, Params),
-                {{init_action_failure, node()},
-                 {{Module, OnCreate}, {_EXCLASS_, _EXCPTION_, _ST_}}}) of
+                {init_action_failure, node(), Module, OnCreate}) of
         {Apply, NewParams} when is_function(Apply) -> %% BACKW: =< e4.2.2
             ok = emqx_rule_registry:add_action_instance_params(
                 #action_instance_params{id = ActionInstId, params = NewParams, apply = Apply});
@@ -683,7 +715,7 @@ clear_resource(Module, Destroy, ResId, Type) ->
     case emqx_rule_registry:find_resource_params(ResId) of
         {ok, #resource_params{params = Params}} ->
             ?RAISE(Module:Destroy(ResId, Params),
-                   {{destroy_resource_failure, node()}, {{Module, Destroy}, {_EXCLASS_,_EXCPTION_,_ST_}}}),
+                   {destroy_resource_failure, node(), Module, Destroy}),
             ok = emqx_rule_registry:remove_resource_params(ResId);
         not_found ->
             ok
@@ -711,8 +743,8 @@ clear_action(Module, Destroy, ActionInstId) ->
             emqx_rule_metrics:clear_metrics(ActionInstId),
             case emqx_rule_registry:get_action_instance_params(ActionInstId) of
                 {ok, #action_instance_params{params = Params}} ->
-                    ?RAISE(Module:Destroy(ActionInstId, Params),{{destroy_action_failure, node()},
-                                                {{Module, Destroy}, {_EXCLASS_,_EXCPTION_,_ST_}}}),
+                    ?RAISE(Module:Destroy(ActionInstId, Params),
+                           {destroy_action_failure, node(), Module, Destroy}),
                     ok = emqx_rule_registry:remove_action_instance_params(ActionInstId);
                 not_found ->
                     ok
