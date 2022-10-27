@@ -42,8 +42,7 @@ all: $(REBAR) $(PROFILES)
 ensure-rebar3:
 	@$(SCRIPTS)/ensure-rebar3.sh
 
-$(REBAR): .prepare
-	@$(SCRIPTS)/ensure-rebar3.sh
+$(REBAR): .prepare ensure-rebar3
 
 .PHONY: ensure-hex
 ensure-hex:
