@@ -626,8 +626,13 @@ to_version(Version) when is_binary(Version) ->
 to_version(Version) when is_list(Version) ->
     Version.
 
+%% TODO: do not allow abs file path here.
+%% i.e. Filename0 should be a relative path only
+%% or the path prefix is in an white-list
 upload_backup_file(Filename0, Bin) ->
-    case ensure_file_name(Filename0) of
+    %% ensure it's a binary, so filenmae:join will always return binary
+    Filename1 = to_unicode_bin(Filename0),
+    case ensure_file_name(Filename1) of
         {ok, Filename} ->
             case check_json(Bin) of
                 {ok, _} ->
@@ -665,25 +670,22 @@ list_backup_file() ->
     lists:filtermap(Filter, backup_files()).
 
 backup_files() ->
-    backup_files(backup_dir()) ++ backup_files(backup_dir_old_version()).
+    backup_files(backup_dir()) ++
+        backup_files(backup_dir_old_version()).
 
 backup_files(Dir) ->
     {ok, FilesAll} = file:list_dir_all(Dir),
     Files = lists:filtermap(fun legal_filename/1, FilesAll),
-    [filename:join([Dir, File]) || File <- Files].
+    [filename:join([Dir, to_unicode_bin(File)]) || File <- Files].
 
-look_up_file(Filename) when is_binary(Filename) ->
-    look_up_file(binary_to_list(Filename));
 look_up_file(Filename) ->
     DefOnNotFound = fun(_Filename) -> {error, not_found} end,
     do_look_up_file(Filename, DefOnNotFound).
 
-do_look_up_file(Filename, OnNotFound) when is_binary(Filename) ->
-    do_look_up_file(binary_to_list(Filename), OnNotFound);
 do_look_up_file(Filename, OnNotFound) ->
     Filter =
         fun(MaybeFile) ->
-            filename:basename(MaybeFile) == Filename
+            filename:basename(MaybeFile) =:= Filename
         end,
     case lists:filter(Filter, backup_files()) of
         [] ->
@@ -830,6 +832,8 @@ import(Filename, OverridesJson) ->
 -endif.
 
 -spec(check_import_json(binary() | string()) -> {ok, map()} | {error, term()}).
+check_import_json(Filename) when is_list(Filename) ->
+    check_import_json(to_unicode_bin(Filename));
 check_import_json(Filename) ->
     OnNotFound =
         fun(F) ->
@@ -872,14 +876,8 @@ backup_dir_old_version() ->
     emqx:get_env(data_dir).
 
 legal_filename(Filename) ->
-    case to_unicode_bin(Filename) of
-        <<"/", _/binary>> ->
-            %% never allow abs path
-            false;
-        _ ->
-            MaybeJson = filename:extension(Filename),
-            MaybeJson == ".json" orelse MaybeJson == <<".json">>
-    end.
+    MaybeJson = filename:extension(Filename),
+    MaybeJson == ".json" orelse MaybeJson == <<".json">>.
 
 check_json(MaybeJson) ->
     case emqx_json:safe_decode(MaybeJson, [return_maps]) of
