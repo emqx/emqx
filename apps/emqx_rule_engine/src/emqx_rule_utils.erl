@@ -34,6 +34,7 @@
         , proc_sql/2
         , proc_sql_param_str/2
         , proc_cql_param_str/2
+        , if_contains_placeholder/1
         ]).
 
 %% type converting
@@ -174,6 +175,14 @@ proc_cql_param_str(Tokens, Data) ->
 proc_param_str(Tokens, Data, Quote) ->
     iolist_to_binary(
       proc_tmpl(Tokens, Data, #{return => rawlist, var_trans => Quote})).
+
+%% return true if the Str contains any placeholder in "${var}" format.
+-spec(if_contains_placeholder(string() | binary()) -> boolean()).
+if_contains_placeholder(Str) ->
+    case re:split(Str, ?EX_PLACE_HOLDER, [{return, list}, group, trim]) of
+        [[_]] -> false;
+        _ -> true
+    end.
 
 %% backward compatibility for hot upgrading from =< e4.2.1
 get_phld_var(Fun, Data) when is_function(Fun) ->
