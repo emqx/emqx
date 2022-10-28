@@ -212,7 +212,7 @@ add_bootstrap_users(File, 0) ->
                 ok -> ok;
                 Error ->
                     %% if failed add bootstrap users, we should clear all bootstrap users
-                    mnesia:transaction(fun clear_bootstrap_users/0, []),
+                    {atomic, ok} = mnesia:transaction(fun clear_bootstrap_users/0, []),
                     Error
                     end;
         {error, Reason} = Error ->
