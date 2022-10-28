@@ -44,7 +44,7 @@
         , change_password/3
         , all_users/0
         , check/2
-        , add_bootstrap_users/0
+        , init_bootstrap_users/0
         ]).
 
 %% gen_server Function Exports
@@ -197,18 +197,18 @@ check(Username, Password) ->
             {error, <<"Username/Password error">>}
     end.
 
-add_bootstrap_users() ->
+init_bootstrap_users() ->
     Bootstrap = application:get_env(emqx_dashboard, bootstrap_users_file, undefined),
     Size = mnesia:table_info(mqtt_admin, size),
-    add_bootstrap_users(Bootstrap, Size).
+    init_bootstrap_users(Bootstrap, Size).
 
-add_bootstrap_users(undefined, _) -> ok;
-add_bootstrap_users(_File, Size)when Size > 0 -> ok;
-add_bootstrap_users(File, 0) ->
+init_bootstrap_users(undefined, _) -> ok;
+init_bootstrap_users(_File, Size)when Size > 0 -> ok;
+init_bootstrap_users(File, 0) ->
     case file:open(File, [read, binary]) of
         {ok, Dev} ->
             {ok, MP} = re:compile(<<"(\.+):(\.+$)">>, [ungreedy]),
-            case add_bootstrap_users(File, Dev, MP) of
+            case init_bootstrap_users(File, Dev, MP) of
                 ok -> ok;
                 Error ->
                     %% if failed add bootstrap users, we should clear all bootstrap users
@@ -223,7 +223,7 @@ add_bootstrap_users(File, 0) ->
             Error
     end.
 
-add_bootstrap_users(File, Dev, MP) ->
+init_bootstrap_users(File, Dev, MP) ->
     try
         add_bootstrap_user(File, Dev, MP, 1)
     catch
@@ -270,20 +270,22 @@ is_valid_pwd(<<Salt:4/binary, Hash/binary>>, Password) ->
 %%--------------------------------------------------------------------
 
 init([]) ->
-    case add_bootstrap_users() of
-        ok ->
-            case binenv(default_user_username) of
-                <<>> -> ok;
-                UserName ->
-                    %% Add default admin user
-                    {ok, _} = mnesia:subscribe({table, mqtt_admin, simple}),
-                    PasswordHash = ensure_default_user_in_db(UserName),
-                    ok = ensure_default_user_passwd_hashed_in_pt(PasswordHash),
-                    ok = maybe_warn_default_pwd()
-            end,
-            {ok, state};
-        Error -> {stop, Error}
+    case init_bootstrap_users() of
+        ok -> init_default_admin_user();
+        {error, Error} -> {stop, Error}
     end.
+
+init_default_admin_user() ->
+    case binenv(default_user_username) of
+        <<>> -> ok;
+        UserName ->
+            %% Add default admin user
+            {ok, _} = mnesia:subscribe({table, mqtt_admin, simple}),
+            PasswordHash = ensure_default_user_in_db(UserName),
+            ok = ensure_default_user_passwd_hashed_in_pt(PasswordHash),
+            ok = maybe_warn_default_pwd()
+    end,
+    {ok, state}.
 
 handle_call(_Req, _From, State) ->
     {reply, error, State}.
