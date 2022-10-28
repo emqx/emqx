@@ -23,6 +23,7 @@
 -include("emqx_dashboard.hrl").
 -include_lib("emqx/include/logger.hrl").
 -define(DEFAULT_PASSWORD, <<"public">>).
+-define(BOOTSTRAP_USER_TAG, <<"bootstrap user">>).
 
 -boot_mnesia({mnesia, [boot]}).
 -copy_mnesia({mnesia, [copy]}).
@@ -43,6 +44,7 @@
         , change_password/3
         , all_users/0
         , check/2
+        , add_bootstrap_users/0
         ]).
 
 %% gen_server Function Exports
@@ -195,6 +197,75 @@ check(Username, Password) ->
             {error, <<"Username/Password error">>}
     end.
 
+add_bootstrap_users() ->
+    Bootstrap = application:get_env(emqx_dashboard, bootstrap_users_file, undefined),
+    Size = mnesia:table_info(mqtt_admin, size),
+    add_bootstrap_users(Bootstrap, Size).
+
+add_bootstrap_users(undefined, _) -> ok;
+add_bootstrap_users(_File, Size)when Size > 0 -> ok;
+add_bootstrap_users(File, 0) ->
+    case file:open(File, [read, binary]) of
+        {ok, Dev} ->
+            {ok, MP} = re:compile(<<"(\.+):(\.+$)">>, [ungreedy]),
+            case add_bootstrap_users(File, Dev, MP) of
+                ok -> ok;
+                Error ->
+                    %% if failed add bootstrap users, we should clear all bootstrap users
+                    mnesia:transaction(fun clear_bootstrap_users/0, []),
+                    Error
+                    end;
+        {error, Reason} = Error ->
+            ?LOG(error,
+                "failed to open the dashboard bootstrap users file(~s) for ~p",
+                [File, Reason]
+            ),
+            Error
+    end.
+
+add_bootstrap_users(File, Dev, MP) ->
+    try
+        add_bootstrap_user(File, Dev, MP, 1)
+    catch
+        throw:Error -> {error, Error};
+        Type:Reason:Stacktrace ->
+            {error, {Type, Reason, Stacktrace}}
+    after
+        file:close(Dev)
+    end.
+
+add_bootstrap_user(File, Dev, MP, Line) ->
+    case file:read_line(Dev) of
+        {ok, Bin} ->
+            case re:run(Bin, MP, [global, {capture, all_but_first, binary}]) of
+                {match, [[Username, Password]]} ->
+                    case add_user(Username, Password, ?BOOTSTRAP_USER_TAG) of
+                        ok ->
+                            add_bootstrap_user(File, Dev, MP, Line + 1);
+                        Reason ->
+                            throw(#{file => File, line => Line, content => Bin, reason => Reason})
+                    end;
+                _ ->
+                    ?LOG(error,
+                        "failed to bootstrap users file(~s) for Line(~w): ~ts",
+                        [File, Line, Bin]
+                    ),
+                    throw(#{file => File, line => Line, content => Bin, reason => "invalid format"})
+            end;
+        eof ->
+            ok;
+        Error ->
+            throw(#{file => File, line => Line, reason => Error})
+    end.
+
+clear_bootstrap_users() ->
+    FoldFun =
+        fun(#mqtt_admin{tags = ?BOOTSTRAP_USER_TAG} = User, Acc) ->
+            mnesia:delete_object(User), Acc;
+            (_, Acc) -> Acc
+        end,
+    mnesia:foldl(FoldFun, ok, mqtt_admin).
+
 bad_login_penalty() ->
     timer:sleep(2000),
     ok.
@@ -207,16 +278,20 @@ is_valid_pwd(<<Salt:4/binary, Hash/binary>>, Password) ->
 %%--------------------------------------------------------------------
 
 init([]) ->
-    case binenv(default_user_username) of
-        <<>> -> ok;
-        UserName ->
-            %% Add default admin user
-            {ok, _} = mnesia:subscribe({table, mqtt_admin, simple}),
-            PasswordHash = ensure_default_user_in_db(UserName),
-            ok = ensure_default_user_passwd_hashed_in_pt(PasswordHash),
-            ok = maybe_warn_default_pwd()
-    end,
-    {ok, state}.
+    case add_bootstrap_users() of
+        ok ->
+            case binenv(default_user_username) of
+                <<>> -> ok;
+                UserName ->
+                    %% Add default admin user
+                    {ok, _} = mnesia:subscribe({table, mqtt_admin, simple}),
+                    PasswordHash = ensure_default_user_in_db(UserName),
+                    ok = ensure_default_user_passwd_hashed_in_pt(PasswordHash),
+                    ok = maybe_warn_default_pwd()
+            end,
+            {ok, state};
+        Error -> {stop, Error}
+    end.
 
 handle_call(_Req, _From, State) ->
     {reply, error, State}.

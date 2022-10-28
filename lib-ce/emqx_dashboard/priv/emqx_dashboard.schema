@@ -10,6 +10,11 @@
   {override_env, "ADMIN_PASSWORD"}
 ]}.
 
+{mapping, "dashboard.bootstrap_users_file", "emqx_dashboard.bootstrap_users_file", [
+  {datatype, string},
+  hidden
+]}.
+
 {mapping, "dashboard.listener.http", "emqx_dashboard.listeners", [
   {datatype, [integer, ip]}
 ]}.
