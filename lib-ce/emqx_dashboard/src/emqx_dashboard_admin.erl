@@ -212,9 +212,9 @@ add_bootstrap_users(File, 0) ->
                 ok -> ok;
                 Error ->
                     %% if failed add bootstrap users, we should clear all bootstrap users
-                    {atomic, ok} = mnesia:transaction(fun clear_bootstrap_users/0, []),
+                    {atomic, ok} = mnesia:clear_table(mqtt_admin),
                     Error
-                    end;
+            end;
         {error, Reason} = Error ->
             ?LOG(error,
                 "failed to open the dashboard bootstrap users file(~s) for ~p",
@@ -257,14 +257,6 @@ add_bootstrap_user(File, Dev, MP, Line) ->
         Error ->
             throw(#{file => File, line => Line, reason => Error})
     end.
-
-clear_bootstrap_users() ->
-    FoldFun =
-        fun(#mqtt_admin{tags = ?BOOTSTRAP_USER_TAG} = User, Acc) ->
-            mnesia:delete_object(User), Acc;
-            (_, Acc) -> Acc
-        end,
-    mnesia:foldl(FoldFun, ok, mqtt_admin).
 
 bad_login_penalty() ->
     timer:sleep(2000),
