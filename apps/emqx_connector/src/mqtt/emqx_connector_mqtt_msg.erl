@@ -155,8 +155,6 @@ estimate_size(#{topic := Topic, payload := Payload}) ->
 estimate_size(Term) ->
     erlang:external_size(Term).
 
-set_headers(undefined, Msg) ->
-    Msg;
 set_headers(Val, Msg) ->
     emqx_message:set_headers(Val, Msg).
 topic(undefined, Topic) -> Topic;
