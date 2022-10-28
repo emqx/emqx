@@ -150,7 +150,7 @@ gateway_insta(get, #{bindings := #{name := Name0}}) ->
             end
     catch
         error:badarg ->
-            return_http_error(400, "Bad gateway name")
+            return_http_error(404, "Bad gateway name")
     end;
 gateway_insta(put, #{
     body := GwConf0,
