@@ -62,7 +62,7 @@ check(ClientInfo = #{username := Username, password := Password}, AuthResult,
         {error, not_found} ->
             ok;
         {error, ResultCode} ->
-            ?LOG(error, "[LDAP] Auth from ldap failed: ~p", [ResultCode]),
+            ?LOG_SENSITIVE(error, "[LDAP] Auth from ldap failed: ~p", [ResultCode]),
             {stop, AuthResult#{auth_result => ResultCode, anonymous => false}}
     end.
 

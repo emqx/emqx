@@ -134,3 +134,18 @@ t_preproc_sql5(_) ->
     ParamsTokens = emqx_rule_utils:preproc_tmpl(<<"a:${a},b:${b},c:${c},d:${d}">>),
     ?assertEqual(<<"a:'1''''2',b:1,c:1.0,d:'{\"d1\":\"someone''s phone\"}'">>,
                  emqx_rule_utils:proc_cql_param_str(ParamsTokens, Selected)).
+
+t_if_contains_placeholder(_) ->
+    ?assert(emqx_rule_utils:if_contains_placeholder(<<"${a}">>)),
+    ?assert(emqx_rule_utils:if_contains_placeholder(<<"${a}${b}">>)),
+    ?assert(emqx_rule_utils:if_contains_placeholder(<<"${a},${b},${c}">>)),
+    ?assert(emqx_rule_utils:if_contains_placeholder(<<"a:${a}">>)),
+    ?assert(emqx_rule_utils:if_contains_placeholder(<<"a:${a},b:${b}">>)),
+    ?assert(emqx_rule_utils:if_contains_placeholder(<<"abc${ab}">>)),
+    ?assertNot(emqx_rule_utils:if_contains_placeholder(<<"a">>)),
+    ?assertNot(emqx_rule_utils:if_contains_placeholder(<<"abc$">>)),
+    ?assertNot(emqx_rule_utils:if_contains_placeholder(<<"abc${">>)),
+    ?assertNot(emqx_rule_utils:if_contains_placeholder(<<"abc${a">>)),
+    ?assertNot(emqx_rule_utils:if_contains_placeholder(<<"abc${ab">>)),
+    ?assertNot(emqx_rule_utils:if_contains_placeholder(<<"a${ab${c${e">>)),
+    ok.
