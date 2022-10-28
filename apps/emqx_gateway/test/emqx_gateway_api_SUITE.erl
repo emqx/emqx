@@ -66,8 +66,8 @@ t_gateway(_) ->
     lists:foreach(fun assert_gw_unloaded/1, UnloadedGateways),
     {200, NoRunningGateways} = request(get, "/gateways?status=running"),
     ?assertEqual([], NoRunningGateways),
-    {400, BadReqUnknownGw} = request(get, "/gateways/unknown_gateway"),
-    assert_bad_request(BadReqUnknownGw),
+    {404, GwNotFoundReq} = request(get, "/gateways/unknown_gateway"),
+    assert_not_found(GwNotFoundReq),
     {400, BadReqInvalidStatus} = request(get, "/gateways?status=invalid_status"),
     assert_bad_request(BadReqInvalidStatus),
     {400, BadReqUCStatus} = request(get, "/gateways?status=UNLOADED"),
@@ -86,8 +86,8 @@ t_gateway(_) ->
 t_deprecated_gateway(_) ->
     {200, Gateways} = request(get, "/gateway"),
     lists:foreach(fun assert_gw_unloaded/1, Gateways),
-    {400, BadReq} = request(get, "/gateway/uname_gateway"),
-    assert_bad_request(BadReq),
+    {404, NotFoundReq} = request(get, "/gateway/uname_gateway"),
+    assert_not_found(NotFoundReq),
     {201, _} = request(post, "/gateway", #{name => <<"stomp">>}),
     {200, StompGw1} = request(get, "/gateway/stomp"),
     assert_feilds_apperence(
@@ -571,3 +571,6 @@ assert_gw_unloaded(Gateway) ->
 
 assert_bad_request(BadReq) ->
     ?assertEqual(<<"BAD_REQUEST">>, maps:get(code, BadReq)).
+
+assert_not_found(NotFoundReq) ->
+    ?assertEqual(<<"RESOURCE_NOT_FOUND">>, maps:get(code, NotFoundReq)).
