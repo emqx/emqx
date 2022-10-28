@@ -28,6 +28,14 @@
 -include("emqx_rule_test.hrl").
 -import(emqx_rule_test_lib, [make_simple_resource_type/1]).
 
+%% API request funcs
+-import(emqx_rule_test_lib,
+        [ request_api/4
+        , request_api/5
+        , auth_header_/0
+        , api_path/1
+        ]).
+
 %%-define(PROPTEST(M,F), true = proper:quickcheck(M:F())).
 
 all() ->
@@ -62,6 +70,7 @@ groups() ->
       ]},
      {api, [],
       [t_crud_rule_api,
+       t_rule_api_unicode_ids,
        t_list_actions_api,
        t_show_action_api,
        t_crud_resources_api,
@@ -229,6 +238,10 @@ init_per_testcase(Test, Config)
      {conn_event, TriggerConnEvent},
      {connsql, SQL}
     | Config];
+init_per_testcase(t_rule_api_unicode_ids, Config) ->
+    ok = emqx_dashboard_admin:mnesia(boot),
+    emqx_ct_helpers:start_apps([emqx_management, emqx_dashboard]),
+    Config;
 init_per_testcase(_TestCase, Config) ->
     ok = emqx_rule_registry:register_resource_types(
             [make_simple_debug_resource_type()]),
@@ -251,6 +264,10 @@ end_per_testcase(Test, Config)
     emqtt:stop(?config(subclient, Config)),
     emqtt:stop(?config(connclient, Config)),
     Config;
+end_per_testcase(t_rule_api_unicode_ids, _Config) ->
+    application:stop(emqx_dashboard),
+    application:stop(emqx_management),
+    ok;
 end_per_testcase(_TestCase, _Config) ->
     ok.
 
@@ -524,6 +541,46 @@ t_crud_rule_api(_Config) ->
     %ct:pal("Show After Deleted: ~p", [NotFound]),
     ?assertMatch({ok, #{code := 404, message := _Message}}, NotFound),
     ok.
+
+-define(PRED(Elem), fun(Elem) -> true; (_) -> false end).
+
+t_rule_api_unicode_ids(_Config) ->
+    UData =
+        fun(Description) ->
+                #{<<"name">> => <<"debug-rule">>,
+                  <<"rawsql">> => <<"select * from \"t/a\"">>,
+                  <<"actions">> => [#{<<"name">> => <<"do_nothing">>,
+                                      <<"params">> => []}
+                                   ],
+                  <<"description">> => Description}
+        end,
+    CData = fun(Id, Description) ->  maps:put(<<"id">>, Id, UData(Description)) end,
+
+    CDes = <<"Creating rules description">>,
+    UDes = <<"Updating rules description">>,
+
+    %% create rule
+    CFun = fun(Id) -> {ok, Return} = request_api(post, api_path(["rules"]), [], auth_header_(), CData(Id, CDes)), Return end,
+    %% update rule
+    UFun = fun(Id) -> {ok, Return} = request_api(put, api_path(["rules", cow_uri:urlencode(Id)]), [], auth_header_(), UData(UDes)), Return end,
+    %% show rule
+    SFun = fun(Id) -> {ok, Return} = request_api(get, api_path(["rules", cow_uri:urlencode(Id)]), [], auth_header_()), Return end,
+    %% delete rule
+    DFun = fun(Id) -> {ok, Return} = request_api(delete, api_path(["rules", cow_uri:urlencode(Id)]), [], auth_header_()), Return end,
+
+    Ids = [unicode:characters_to_binary([Char]) || Char <- lists:seq(0, 1000) -- [46]] ++ [<<"%2e">>],
+
+    Ress = [begin
+                {?assertMatch(#{<<"code">> := 0, <<"data">> := #{<<"description">> := CDes}}, decode_to_map(CFun(Id))),
+                 ?assertMatch(#{<<"code">> := 0}, decode_to_map(UFun(Id))),
+                 ?assertMatch(#{<<"code">> := 0, <<"data">> := #{<<"description">> := UDes}}, decode_to_map(SFun(Id))),
+                 ?assertMatch(#{<<"code">> := 0}, decode_to_map(DFun(Id)))}
+           end || Id <- Ids],
+
+    ?assertEqual(true, lists:all(?PRED(true), [?PRED({ok, ok, ok, ok})(Res) || Res <- Ress ])).
+
+decode_to_map(ResponseBody) ->
+    jiffy:decode(list_to_binary(ResponseBody), [return_maps]).
 
 t_list_rule_api(_Config) ->
     AddIds =

@@ -54,22 +54,22 @@ connect(Opts) ->
                        false ->
                            [{port, Port}, {timeout, Timeout}]
                    end,
-    ?LOG(debug, "[LDAP] Connecting to OpenLDAP server: ~p, Opts:~p ...", [Servers, LdapOpts]),
+    ?LOG_SENSITIVE(debug, "[LDAP] Connecting to OpenLDAP server: ~p, Opts:~p ...", [Servers, LdapOpts]),
 
     case eldap2:open(Servers, LdapOpts) of
         {ok, LDAP} ->
             try eldap2:simple_bind(LDAP, BindDn, BindPassword) of
                 ok -> {ok, LDAP};
                 {error, Error} ->
-                    ?LOG(error, "[LDAP] Can't authenticated to OpenLDAP server: ~p", [Error]),
+                    ?LOG_SENSITIVE(error, "[LDAP] Can't authenticated to OpenLDAP server: ~p", [Error]),
                     {error, Error}
             catch
                 error:Reason ->
-                    ?LOG(error, "[LDAP] Can't authenticated to OpenLDAP server: ~p", [Reason]),
+                    ?LOG_SENSITIVE(error, "[LDAP] Can't authenticated to OpenLDAP server: ~p", [Reason]),
                     {error, Reason}
             end;
         {error, Reason} ->
-            ?LOG(error, "[LDAP] Can't connect to OpenLDAP server: ~p", [Reason]),
+            ?LOG_SENSITIVE(error, "[LDAP] Can't connect to OpenLDAP server: ~p", [Reason]),
             {error, Reason}
     end.
 
@@ -147,4 +147,3 @@ init_args(ENVS) ->
            match_objectclass => ObjectClass,
            username_attr => UidAttr,
            password_attr => PasswdAttr}}.
-

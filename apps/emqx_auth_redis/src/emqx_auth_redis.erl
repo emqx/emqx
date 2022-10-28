@@ -42,7 +42,7 @@ check(ClientInfo = #{password := Password}, AuthResult,
                     {ok, [PassHash, Salt|_]} ->
                         check_pass({PassHash, Salt, Password}, HashType);
                     {error, Reason} ->
-                        ?LOG(error, "[Redis] Command: ~p failed: ~p", [AuthCmd, Reason]),
+                        ?LOG_SENSITIVE(error, "[Redis] Command: ~p failed: ~p", [AuthCmd, Reason]),
                         {error, not_found}
                 end,
     case CheckPass of
@@ -54,7 +54,7 @@ check(ClientInfo = #{password := Password}, AuthResult,
         {error, not_found} ->
             ok;
         {error, ResultCode} ->
-            ?LOG(error, "[Redis] Auth from redis failed: ~p", [ResultCode]),
+            ?LOG_SENSITIVE(error, "[Redis] Auth from redis failed: ~p", [ResultCode]),
             {stop, AuthResult#{auth_result => ResultCode, anonymous => false}}
     end.
 

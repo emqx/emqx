@@ -27,7 +27,7 @@
 %% APIs
 -export([start_link/1]).
 
--export([verify/1]).
+-export([verify/1, trace/2]).
 
 %% gen_server callbacks
 -export([ init/1
@@ -143,7 +143,8 @@ request_jwks(Addr) ->
                 ?tp(debug, emqx_auth_jwt_svr_jwks_updated, #{jwks => Jwks, pid => self()}),
                 Jwks
             catch _:_ ->
-                ?LOG(error, "Invalid jwks server response: ~p~n", [Body]),
+                ?MODULE:trace(jwks_server_reesponse, Body),
+                ?LOG(error, "Invalid jwks server response, body is not logged for security reasons, trace it if inspection is required", []),
                 error(badarg)
             end
     end.
@@ -174,7 +175,7 @@ do_verify(JwsCompacted) ->
         end
     catch
         Class : Reason : Stk ->
-            ?LOG(error, "verify JWK crashed: ~p, ~p, stacktrace: ~p~n",
+            ?LOG_SENSITIVE(error, "verify JWK crashed: ~p, ~p, stacktrace: ~p~n",
                         [Class, Reason, Stk]),
             {error, invalid_signature}
     end.
@@ -249,13 +250,15 @@ key2jwt_value(Key, Func, Options) ->
         V ->
             try Func(V) of
                 {error, Reason} ->
-                    ?LOG(warning, "Build ~p JWK ~p failed: {error, ~p}~n",
+                    ?LOG_SENSITIVE(warning, "Build ~p JWK ~p failed: {error, ~p}~n",
                          [Key, V, Reason]),
                     undefined;
                 J -> J
             catch T:R ->
-                    ?LOG(warning, "Build ~p JWK ~p failed: {~p, ~p}~n",
+                    ?LOG_SENSITIVE(warning, "Build ~p JWK ~p failed: {~p, ~p}~n",
                          [Key, V, T, R]),
                     undefined
             end
     end.
+
+trace(_Tag, _Data) -> ok.
