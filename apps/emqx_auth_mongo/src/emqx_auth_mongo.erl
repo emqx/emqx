@@ -55,7 +55,7 @@ check(ClientInfo = #{password := Password}, AuthResult,
         undefined -> ok;
         {error, Reason} ->
             ?tp(emqx_auth_mongo_check_authn_error, #{error => Reason}),
-            ?LOG(error, "[MongoDB] Can't connect to MongoDB server: ~0p", [Reason]),
+            ?LOG_SENSITIVE(error, "[MongoDB] Can't connect to MongoDB server: ~0p", [Reason]),
             {stop, AuthResult#{auth_result => not_authorized, anonymous => false}};
         UserMap ->
             Result = case [maps:get(Field, UserMap, undefined) || Field <- Fields] of
@@ -72,7 +72,7 @@ check(ClientInfo = #{password := Password}, AuthResult,
                                        anonymous => false,
                                        auth_result => success}};
                 {error, Error} ->
-                    ?LOG(error, "[MongoDB] check auth fail: ~p", [Error]),
+                    ?LOG_SENSITIVE(error, "[MongoDB] check auth fail: ~p", [Error]),
                     {stop, AuthResult#{auth_result => Error, anonymous => false}}
             end
     end.
@@ -99,7 +99,7 @@ is_superuser(Pool, #superquery{collection = Coll, field = Field, selector = Sele
               false;
           {error, Reason} ->
               ?tp(emqx_auth_mongo_superuser_query_error, #{error => Reason}),
-              ?LOG(error, "[MongoDB] Can't connect to MongoDB server: ~0p", [Reason]),
+              ?LOG_SENSITIVE(error, "[MongoDB] Can't connect to MongoDB server: ~0p", [Reason]),
               false;
           Row ->
               case maps:get(Field, Row, false) of
