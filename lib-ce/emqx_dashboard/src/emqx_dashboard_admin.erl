@@ -23,7 +23,7 @@
 -include("emqx_dashboard.hrl").
 -include_lib("emqx/include/logger.hrl").
 -define(DEFAULT_PASSWORD, <<"public">>).
--define(BOOTSTRAP_USER_TAG, <<"bootstrap user">>).
+-define(BOOTSTRAP_USER_TAG, <<"bootstrapped">>).
 
 -boot_mnesia({mnesia, [boot]}).
 -copy_mnesia({mnesia, [copy]}).
@@ -242,7 +242,7 @@ add_bootstrap_user(File, Dev, MP, Line) ->
                     case add_user(Username, Password, ?BOOTSTRAP_USER_TAG) of
                         ok ->
                             add_bootstrap_user(File, Dev, MP, Line + 1);
-                        Reason ->
+                        {error, Reason} ->
                             throw(#{file => File, line => Line, content => Bin, reason => Reason})
                     end;
                 _ ->
@@ -254,7 +254,7 @@ add_bootstrap_user(File, Dev, MP, Line) ->
             end;
         eof ->
             ok;
-        Error ->
+        {error, Error} ->
             throw(#{file => File, line => Line, reason => Error})
     end.
 
