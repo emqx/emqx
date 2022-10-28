@@ -53,6 +53,8 @@
     gateway_insta/2
 ]).
 
+-define(KNOWN_GATEWAY_STATUSES, [<<"running">>, <<"stopped">>, <<"unloaded">>]).
+
 %%--------------------------------------------------------------------
 %% minirest behaviour callbacks
 %%--------------------------------------------------------------------
@@ -71,12 +73,22 @@ paths() ->
 
 gateway(get, Request) ->
     Params = maps:get(query_string, Request, #{}),
-    Status =
-        case maps:get(<<"status">>, Params, undefined) of
-            undefined -> all;
-            S0 -> binary_to_existing_atom(S0, utf8)
-        end,
-    {200, emqx_gateway_http:gateways(Status)};
+    Status = maps:get(<<"status">>, Params, <<"all">>),
+    case lists:member(Status, [<<"all">> | ?KNOWN_GATEWAY_STATUSES]) of
+        true ->
+            {200, emqx_gateway_http:gateways(binary_to_existing_atom(Status, utf8))};
+        false ->
+            return_http_error(
+                400,
+                [
+                    "Unknown gateway status in query: ",
+                    Status,
+                    "\n",
+                    "Values allowed: ",
+                    lists:join(", ", ?KNOWN_GATEWAY_STATUSES)
+                ]
+            )
+    end;
 gateway(post, Request) ->
     Body = maps:get(body, Request, #{}),
     try
@@ -241,16 +253,16 @@ params_gateway_name_in_path() ->
     ].
 
 params_gateway_status_in_qs() ->
-    %% FIXME: enum in swagger ??
     [
         {status,
             mk(
                 binary(),
                 #{
                     in => query,
+                    enum => ?KNOWN_GATEWAY_STATUSES,
                     required => false,
                     desc => ?DESC(gateway_status_in_qs),
-                    example => <<"">>
+                    example => <<"running">>
                 }
             )}
     ].
