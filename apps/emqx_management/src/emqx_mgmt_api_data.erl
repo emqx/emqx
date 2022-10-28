@@ -73,7 +73,7 @@
 export(_Bindings, _Params) ->
     case emqx_mgmt_data_backup:export() of
         {ok, File = #{filename := Filename}} ->
-            minirest:return({ok, File#{filename => list_to_binary(filename:basename(Filename))}});
+            minirest:return({ok, File#{filename => unicode:characters_to_binary(filename:basename(Filename))}});
         Return -> minirest:return(Return)
     end.
 
@@ -162,7 +162,7 @@ import_content(Content) ->
 tmp_filename() ->
     Seconds = erlang:system_time(second),
     {{Y, M, D}, {H, MM, S}} = emqx_mgmt_util:datetime(Seconds),
-    list_to_binary(io_lib:format("emqx-export-~p-~p-~p-~p-~p-~p.json", [Y, M, D, H, MM, S])).
+    iolist_to_binary(io_lib:format("emqx-export-~p-~p-~p-~p-~p-~p.json", [Y, M, D, H, MM, S])).
 
 filename_decode(Filename) ->
     uri_string:percent_decode(Filename).

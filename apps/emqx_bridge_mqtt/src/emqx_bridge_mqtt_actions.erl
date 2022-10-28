@@ -421,7 +421,7 @@ start_resource(ResId, PoolName, Options) ->
             on_resource_destroy(ResId, #{<<"pool">> => PoolName}),
             start_resource(ResId, PoolName, Options);
         {error, Reason} ->
-            ?LOG(error, "Initiate Resource ~p failed, ResId: ~p, ~p", [?RESOURCE_TYPE_MQTT, ResId, Reason]),
+            ?LOG_SENSITIVE(error, "Initiate Resource ~p failed, ResId: ~p, ~p", [?RESOURCE_TYPE_MQTT, ResId, Reason]),
             on_resource_destroy(ResId, #{<<"pool">> => PoolName}),
             error({{?RESOURCE_TYPE_MQTT, ResId}, create_failed})
     end.

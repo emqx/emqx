@@ -31,6 +31,7 @@
 
 -export([ start_link/0
         , stop/0
+        , async_refresh_resources_rules/0
         , ensure_resource_retrier/2
         , retry_loop/3
         ]).
@@ -45,11 +46,21 @@ init([]) ->
     _ = erlang:process_flag(trap_exit, true),
     {ok, #{retryers => #{}}}.
 
+async_refresh_resources_rules() ->
+    gen_server:cast(?MODULE, async_refresh).
+
 ensure_resource_retrier(ResId, Interval) ->
     gen_server:cast(?MODULE, {create_restart_handler, resource, ResId, Interval}).
 
 handle_call(_Msg, _From, State) ->
     {reply, ok, State}.
+
+handle_cast(async_refresh, #{boot_refresh_pid := Pid} = State) when is_pid(Pid) ->
+    %% the refresh task is already in progress, we discard the duplication
+    {noreply, State};
+handle_cast(async_refresh, State) ->
+    Pid = spawn_link(fun do_async_refresh/0),
+    {noreply, State#{boot_refresh_pid => Pid}};
 
 handle_cast({create_restart_handler, Tag, Obj, Interval}, State) ->
     Objects = maps:get(Tag, State, #{}),
@@ -65,7 +76,13 @@ handle_cast({create_restart_handler, Tag, Obj, Interval}, State) ->
 handle_cast(_Msg, State) ->
     {noreply, State}.
 
+
+handle_info({'EXIT', Pid, _Reason}, State = #{boot_refresh_pid := Pid}) ->
+    {noreply, State#{boot_refresh_pid => undefined}};
 handle_info({'EXIT', Pid, Reason}, State = #{retryers := Retryers}) ->
+    %% We won't try to restart the 'retryers' event if the 'EXIT' Reason is not 'normal'.
+    %% Instead we rely on the user to trigger a manual retry for the resources, and then enable
+    %% the rules after resources are connected.
     case maps:take(Pid, Retryers) of
         {{Tag, Obj}, Retryers2} ->
             Objects = maps:get(Tag, State, #{}),
@@ -116,6 +133,12 @@ retry_loop(resource, ResId, Interval) ->
         not_found ->
             ok
     end.
+
+do_async_refresh() ->
+    %% NOTE: the order matters.
+    %% We should always refresh the resources first and then the rules.
+    ok = emqx_rule_engine:refresh_resources(),
+    ok = emqx_rule_engine:refresh_rules_when_boot().
 
 refresh_and_enable_rules_of_resource(ResId) ->
     lists:foreach(

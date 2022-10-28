@@ -297,7 +297,8 @@ t_check_jwt_acl(_Config) ->
                 {username, <<"plain">>},
                 {sub, value},
                 {acl, [{sub, [<<"a/b">>]},
-                       {pub, [<<"c/d">>]}]},
+                       {pub, [<<"c/d">>]},
+                       {all, [<<"all">>]}]},
                 {exp, erlang:system_time(seconds) + 10}],
                <<"HS256">>,
                <<"emqxsecret">>),
@@ -329,6 +330,19 @@ t_check_jwt_acl(_Config) ->
     after 100 -> ok
     end,
 
+    %% can pub/sub to all rules
+    ?assertMatch(
+      {ok, #{}, [0]},
+      emqtt:subscribe(C, <<"all">>, 0)),
+
+    ?assertMatch(
+      ok,
+      emqtt:publish(C, <<"all">>, <<"hi">>, 0)),
+    receive
+        {publish, #{topic := <<"all">>}} -> ok
+    after 2000 ->
+              ?assert(false, "Publish to `all` should be allowed")
+    end,
     ok = emqtt:disconnect(C).
 
 t_check_jwt_acl_no_recs(init, _Config) ->
