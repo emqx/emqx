@@ -199,6 +199,7 @@ start_listener(Type, ListenerName, #{bind := Bind} = Conf) ->
             Reason =:= listener_disabled;
             Reason =:= quic_app_missing
         ->
+            ?tp(listener_not_started, #{type => Type, bind => Bind, status => {skipped, Reason}}),
             console_print(
                 "Listener ~ts is NOT started due to: ~p.~n",
                 [listener_id(Type, ListenerName), Reason]
@@ -212,8 +213,12 @@ start_listener(Type, ListenerName, #{bind := Bind} = Conf) ->
             ),
             ok;
         {error, {already_started, Pid}} ->
+            ?tp(listener_not_started, #{
+                type => Type, bind => Bind, status => {already_started, Pid}
+            }),
             {error, {already_started, Pid}};
         {error, Reason} ->
+            ?tp(listener_not_started, #{type => Type, bind => Bind, status => {error, Reason}}),
             ListenerId = listener_id(Type, ListenerName),
             BindStr = format_bind(Bind),
             ?ELOG(
