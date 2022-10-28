@@ -113,3 +113,51 @@ t_node_metrics_api(_) ->
         {error, {_, 400, _}},
         emqx_mgmt_api_test_util:request_api(get, BadNodePath)
     ).
+
+t_multiple_nodes_api(_) ->
+    net_kernel:start(['node_api@127.0.0.1', longnames]),
+    ct:timetrap({seconds, 120}),
+    snabbkaffe:fix_ct_logging(),
+    Seq1 = list_to_atom(atom_to_list(?MODULE) ++ "1"),
+    Seq2 = list_to_atom(atom_to_list(?MODULE) ++ "2"),
+    Cluster = [{Name, Opts}, {Name1, Opts1}] = cluster([{core, Seq1}, {core, Seq2}]),
+    ct:pal("Starting ~p", [Cluster]),
+    Node1 = emqx_common_test_helpers:start_slave(Name, Opts),
+    Node2 = emqx_common_test_helpers:start_slave(Name1, Opts1),
+    try
+        {200, NodesList} = rpc:call(Node1, emqx_mgmt_api_nodes, nodes, [get, #{}]),
+        All = [Node1, Node2],
+        lists:map(
+            fun(N) ->
+                N1 = maps:get(node, N),
+                ?assertEqual(true, lists:member(N1, All))
+            end,
+            NodesList
+        ),
+        ?assertEqual(2, length(NodesList)),
+
+        {200, Node11} = rpc:call(Node1, emqx_mgmt_api_nodes, node, [
+            get, #{bindings => #{node => Node1}}
+        ]),
+        ?assertMatch(#{node := Node1}, Node11)
+    after
+        emqx_common_test_helpers:stop_slave(Node1),
+        emqx_common_test_helpers:stop_slave(Node2)
+    end,
+    ok.
+
+cluster(Specs) ->
+    Env = [{emqx, boot_modules, []}],
+    emqx_common_test_helpers:emqx_cluster(Specs, [
+        {env, Env},
+        {apps, [emqx_conf]},
+        {load_schema, false},
+        {join_to, true},
+        {env_handler, fun
+            (emqx) ->
+                application:set_env(emqx, boot_modules, []),
+                ok;
+            (_) ->
+                ok
+        end}
+    ]).
