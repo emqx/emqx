@@ -77,8 +77,13 @@ make_relup() {
     local zip_file
     mkdir -p "$lib_dir" "$releases_dir" '_upgrade_base'
     local releases=()
+    local OTP_CHANGED='no'
     if [ -d "$releases_dir" ]; then
         for BASE_VSN in $(relup_db base-vsns "$PKG_VSN"); do
+            OTP_BASE=$(relup_db otp-vsn-for "$BASE_VSN")
+            if [[ "$OTP_BASE" != "$OTP_VSN" ]]; then
+              OTP_CHANGED='yes'
+            fi
             OTP_BASE=$(relup_db otp-vsn-for "$PKG_VSN")
             zip_file="_upgrade_base/${PROFILE}-$(env OTP_VSN="$OTP_BASE" PKG_VSN="$BASE_VSN" ./scripts/pkg-full-vsn.sh 'vsn_exact').zip"
             if [ ! -d "$releases_dir/$BASE_VSN" ]; then
@@ -99,8 +104,8 @@ make_relup() {
     fi
     RELX_BASE_VERSIONS="$(IFS=, ; echo "${releases[*]}")"
     export RELX_BASE_VERSIONS
-    if [[ ${PKG_VSN} == 4.3* ]]; then
-        echo "EMQX 4.3 specific, overwrite OTP app versions"
+    if [[ ${PKG_VSN} == 4.[3,4]* && ${OTP_CHANGED} == 'yes' ]]; then
+        echo "EMQX 4.[3,4] specific, overwrite OTP app versions"
         local emqx_rel_file="${releases_dir}/${PKG_VSN}/emqx.rel"
         if [ ! -f "${emqx_rel_file}" ]; then
             ./rebar3 as "${PROFILE}" release
@@ -118,7 +123,7 @@ make_relup() {
 
     # rollback rel file per releases
     #
-    if [[ ${PKG_VSN} == 4.3* ]]; then
+    if [[ ${PKG_VSN} == 4.[3,4]* && ${OTP_CHANGED} == 'yes' ]]; then
         echo "restore upgrade base rel files... "
         for rel in ${releases[*]};
         do
