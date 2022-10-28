@@ -129,6 +129,67 @@ init_events_counters() ->
     ets:new(events_record_tab, [named_table, bag, public]).
 
 %%------------------------------------------------------------------------------
+%% rule test helper funcs
+%%------------------------------------------------------------------------------
+
+-define(HOST, "http://127.0.0.1:18083/").
+
+-define(API_VERSION, "v4").
+
+-define(BASE_PATH, "api").
+
+request_api(Method, Url, Auth) ->
+    request_api(Method, Url, [], Auth, []).
+
+request_api(Method, Url, QueryParams, Auth) ->
+    request_api(Method, Url, QueryParams, Auth, []).
+
+request_api(Method, Url, QueryParams, Auth, []) ->
+    NewUrl = case QueryParams of
+                 "" -> Url;
+                 _ -> Url ++ "?" ++ QueryParams
+             end,
+    Headers = case Auth of
+                  no_auth -> [];
+                  Header  -> [Header]
+              end,
+    do_request_api(Method, {NewUrl, Headers});
+request_api(Method, Url, QueryParams, Auth, Body) ->
+    NewUrl = case QueryParams of
+                 "" -> Url;
+                 _ -> Url ++ "?" ++ QueryParams
+             end,
+    Headers = case Auth of
+                  no_auth -> [];
+                  Header  -> [Header]
+              end,
+    do_request_api(Method, {NewUrl, Headers, "application/json", emqx_json:encode(Body)}).
+
+do_request_api(Method, Request)->
+    %% ct:pal("Method: ~p, Request: ~p", [Method, Request]),
+    case httpc:request(Method, Request, [], []) of
+        {error, socket_closed_remotely} ->
+            {error, socket_closed_remotely};
+        {ok, {{"HTTP/1.1", Code, _}, _, Return} }
+            when Code =:= 200 orelse Code =:= 201 ->
+            {ok, Return};
+        {ok, {Reason, _, _}} ->
+            {error, Reason}
+    end.
+
+auth_header_() ->
+    AppId = <<"admin">>,
+    AppSecret = <<"public">>,
+    auth_header_(binary_to_list(AppId), binary_to_list(AppSecret)).
+
+auth_header_(User, Pass) ->
+    Encoded = base64:encode_to_string(lists:append([User,":",Pass])),
+    {"Authorization","Basic " ++ Encoded}.
+
+api_path(Parts)->
+    ?HOST ++ filename:join([?BASE_PATH, ?API_VERSION] ++ Parts).
+
+%%------------------------------------------------------------------------------
 %% Internal helper funcs
 %%------------------------------------------------------------------------------
 
