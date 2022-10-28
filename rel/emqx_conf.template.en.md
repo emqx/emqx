@@ -1,4 +1,4 @@
-EMQX configuration file is in [HOCON](https://github.com/emqx/hocon) format.
+EMQX configuration files are in [HOCON](https://github.com/emqx/hocon) format.
 HOCON, or Human-Optimized Config Object Notation is a format for human-readable data,
 and a superset of JSON.
 
@@ -7,7 +7,7 @@ and a superset of JSON.
 EMQX configuration consists of 3 layers.
 From bottom up:
 
-1. Immutable base: `emqx.conf` + `EMQX_` prefixed environment variables.</br>
+1. Immutable base: `emqx.conf` + `EMQX_` prefixed environment variables.<br/>
    Changes in this layer require a full node restart to take effect.
 1. Cluster overrides: `$EMQX_NODE__DATA_DIR/configs/cluster-override.conf`
 1. Local node overrides: `$EMQX_NODE__DATA_DIR/configs/local-override.conf`
@@ -94,14 +94,14 @@ Complex types define data 'boxes' which may contain other complex data
 or primitive values.
 There are quite some different primitive types, to name a few:
 
-* `atom()`
-* `boolean()`
-* `string()`
-* `integer()`
-* `float()`
-* `number()`
-* `binary()` # another format of string()
-* `emqx_schema:duration()` # time duration, another format of integer()
+* `atom()`.
+* `boolean()`.
+* `string()`.
+* `integer()`.
+* `float()`.
+* `number()`.
+* `binary()`, another format of string().
+* `emqx_schema:duration()`, time duration, another format of integer()
 * ...
 
 ::: tip Tip
@@ -146,7 +146,7 @@ For example, this environment variable sets an array value.
 export EMQX_LISTENERS__SSL__L1__AUTHENTICATION__SSL__CIPHERS='["TLS_AES_256_GCM_SHA384"]'
 ```
 
-However this also means a string value should be quoted if it happen to contain special
+However this also means a string value should be quoted if it happens to contain special
 characters such as `=` and `:`.
 
 For example, a string value `"localhost:1883"` would be 
@@ -248,9 +248,9 @@ authentication=[{enable=true}]
 
 #### TLS/SSL ciphers
 
-Starting from v5.0.6, EMQX no longer pre-populate the ciphers list with a default
+Starting from v5.0.6, EMQX no longer pre-populates the ciphers list with a default
 set of cipher suite names.
-Instead, the default ciphers are applyed at runtime when starting the listener
+Instead, the default ciphers are applied at runtime when starting the listener
 for servers, or when establishing a TLS connection as a client.
 
 Below are the default ciphers selected by EMQX.

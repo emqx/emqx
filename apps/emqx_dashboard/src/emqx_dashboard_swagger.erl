@@ -441,7 +441,7 @@ trans_description(Spec, Hocon) ->
         undefined ->
             Spec;
         Desc ->
-            Desc1 = binary:replace(Desc, [<<"</br>\n">>, <<"\n">>], <<"</br>">>, [global]),
+            Desc1 = binary:replace(Desc, [<<"\n">>], <<"<br/>">>, [global]),
             Spec#{description => Desc1}
     end.
 

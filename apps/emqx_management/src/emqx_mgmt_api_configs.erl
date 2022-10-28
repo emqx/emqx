@@ -115,7 +115,7 @@ schema("/configs_reset/:rootname") ->
             tags => ?TAGS,
             description =>
                 <<
-                    "Reset the config entry specified by the query string parameter `conf_path`.</br>\n"
+                    "Reset the config entry specified by the query string parameter `conf_path`.<br/>"
                     "- For a config entry that has default value, this resets it to the default value;\n"
                     "- For a config entry that has no default value, an error 400 will be returned"
                 >>,

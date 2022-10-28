@@ -84,7 +84,7 @@ schema("/prometheus/stats") ->
 prometheus(get, _Params) ->
     {200, emqx:get_raw_config([<<"prometheus">>], #{})};
 prometheus(put, #{body := Body}) ->
-    case emqx_prometheus:update(Body) of
+    case emqx_prometheus_config:update(Body) of
         {ok, NewConfig} ->
             {200, NewConfig};
         {error, Reason} ->
@@ -120,7 +120,13 @@ prometheus_config_example() ->
     #{
         enable => true,
         interval => "15s",
-        push_gateway_server => <<"http://127.0.0.1:9091">>
+        push_gateway_server => <<"http://127.0.0.1:9091">>,
+        vm_dist_collector => enabled,
+        mnesia_collector => enabled,
+        vm_statistics_collector => enabled,
+        vm_system_info_collector => enabled,
+        vm_memory_collector => enabled,
+        vm_msacc_collector => enabled
     }.
 
 prometheus_data_schema() ->

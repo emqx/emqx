@@ -21,7 +21,6 @@
 -export([
     start_link/0,
     start_child/1,
-    start_child/2,
     stop_child/1
 ]).
 
@@ -40,23 +39,27 @@
 start_link() ->
     supervisor:start_link({local, ?MODULE}, ?MODULE, []).
 
--spec start_child(supervisor:child_spec()) -> ok.
+-spec start_child(supervisor:child_spec() | atom()) -> ok.
 start_child(ChildSpec) when is_map(ChildSpec) ->
-    assert_started(supervisor:start_child(?MODULE, ChildSpec)).
-
--spec start_child(atom(), map()) -> ok.
-start_child(Mod, Opts) when is_atom(Mod) andalso is_map(Opts) ->
-    assert_started(supervisor:start_child(?MODULE, ?CHILD(Mod, Opts))).
+    assert_started(supervisor:start_child(?MODULE, ChildSpec));
+start_child(Mod) when is_atom(Mod) ->
+    assert_started(supervisor:start_child(?MODULE, ?CHILD(Mod, []))).
 
 -spec stop_child(any()) -> ok | {error, term()}.
 stop_child(ChildId) ->
     case supervisor:terminate_child(?MODULE, ChildId) of
         ok -> supervisor:delete_child(?MODULE, ChildId);
+        {error, not_found} -> ok;
         Error -> Error
     end.
 
 init([]) ->
-    {ok, {{one_for_one, 10, 3600}, []}}.
+    Children =
+        case emqx_conf:get([prometheus, enable], false) of
+            false -> [];
+            true -> [?CHILD(emqx_prometheus, [])]
+        end,
+    {ok, {{one_for_one, 10, 3600}, Children}}.
 
 %%--------------------------------------------------------------------
 %% Internal functions
@@ -64,5 +67,5 @@ init([]) ->
 
 assert_started({ok, _Pid}) -> ok;
 assert_started({ok, _Pid, _Info}) -> ok;
-assert_started({error, {already_tarted, _Pid}}) -> ok;
-assert_started({error, Reason}) -> erlang:error(Reason).
+assert_started({error, {already_started, _Pid}}) -> ok;
+assert_started({error, Reason}) -> {error, Reason}.

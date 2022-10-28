@@ -45,7 +45,16 @@ running_status() ->
             BrokerStatus = broker_status(),
             AppStatus = application_status(),
             Body = io_lib:format("Node ~ts is ~ts~nemqx is ~ts", [node(), BrokerStatus, AppStatus]),
-            {200, #{<<"content-type">> => <<"text/plain">>}, list_to_binary(Body)};
+            StatusCode =
+                case AppStatus of
+                    running -> 200;
+                    not_running -> 503
+                end,
+            Headers = #{
+                <<"content-type">> => <<"text/plain">>,
+                <<"retry-after">> => <<"15">>
+            },
+            {StatusCode, Headers, list_to_binary(Body)};
         false ->
             {503, #{<<"retry-after">> => <<"15">>}, <<>>}
     end.

@@ -94,7 +94,7 @@ direction_field(Dir, Desc) ->
             #{
                 required => true,
                 default => egress,
-                desc => "The direction of the bridge. Can be one of 'ingress' or 'egress'.</br>" ++
+                desc => "The direction of the bridge. Can be one of 'ingress' or 'egress'.<br/>" ++
                     Desc
             }
         )}.

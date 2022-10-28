@@ -1698,7 +1698,7 @@ desc("stats") ->
 desc("authorization") ->
     "Settings for client authorization.";
 desc("mqtt") ->
-    "Global MQTT configuration.</br>\n"
+    "Global MQTT configuration.<br/>"
     "The configs here work as default values which can be overridden\n"
     "in <code>zone</code> configs";
 desc("cache") ->
@@ -2115,11 +2115,11 @@ ref(Module, StructName) -> hoconsc:ref(Module, StructName).
 mk_duration(Desc, OverrideMeta) ->
     DefaultMeta = #{
         desc => Desc ++
-            " Time interval is a string that contains a number followed by time unit:</br>\n"
+            " Time interval is a string that contains a number followed by time unit:<br/>"
             "- `ms` for milliseconds,\n"
             "- `s` for seconds,\n"
             "- `m` for minutes,\n"
-            "- `h` for hours;\n</br>"
+            "- `h` for hours;\n<br/>"
             "or combination of whereof: `1h5m0s`"
     },
     hoconsc:mk(typerefl:alias("string", duration()), maps:merge(DefaultMeta, OverrideMeta)).
