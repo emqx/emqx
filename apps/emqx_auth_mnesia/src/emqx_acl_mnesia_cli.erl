@@ -122,8 +122,8 @@ cli(_) ->
                    , {"acl list ", "List all acls"}
                    , {"acl show clientid <Clientid>", "Lookup clientid acl detail"}
                    , {"acl show username <Username>", "Lookup username acl detail"}
-                   , {"acl aad clientid <Clientid> <Topic> <Action> <Access>", "Add clientid acl"}
-                   , {"acl add Username <Username> <Topic> <Action> <Access>", "Add username acl"}
+                   , {"acl add clientid <Clientid> <Topic> <Action> <Access>", "Add clientid acl"}
+                   , {"acl add username <Username> <Topic> <Action> <Access>", "Add username acl"}
                    , {"acl add _all <Topic> <Action> <Access>", "Add $all acl"}
                    , {"acl delete clientid <Clientid> <Topic>", "Delete clientid acl"}
                    , {"acl delete username <Username> <Topic>", "Delete username acl"}
