@@ -20,8 +20,6 @@
 
 %% API
 -export([ start_link/2
-        , lookup_jwt/1
-        , lookup_jwt/2
         ]).
 
 %% gen_server API
@@ -83,24 +81,6 @@ start_link(#{ private_key := _
             } = Config,
            Ref) ->
     gen_server:start_link(?MODULE, {Config, Ref}, []).
-
--spec lookup_jwt(resource_id()) -> {ok, jwt()} | {error, not_found}.
-lookup_jwt(ResourceId) ->
-    ?MODULE:lookup_jwt(?JWT_TABLE, ResourceId).
-
--spec lookup_jwt(ets:table(), resource_id()) -> {ok, jwt()} | {error, not_found}.
-lookup_jwt(TId, ResourceId) ->
-    try
-        case ets:lookup(TId, {ResourceId, jwt}) of
-            [{{ResourceId, jwt}, JWT}] ->
-                {ok, JWT};
-            [] ->
-                {error, not_found}
-        end
-    catch
-        error:badarg ->
-            {error, not_found}
-    end.
 
 %%-----------------------------------------------------------------------------------------
 %% gen_server API

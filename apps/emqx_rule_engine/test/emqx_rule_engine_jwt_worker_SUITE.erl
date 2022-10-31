@@ -133,9 +133,9 @@ t_refresh(_Config) ->
               emqx_rule_engine_jwt_worker:start_link(Config, Ref),
               #{?snk_kind := jwt_worker_token_stored},
               5_000),
-         {ok, FirstJWT} = emqx_rule_engine_jwt_worker:lookup_jwt(Table, ResourceId),
+         {ok, FirstJWT} = emqx_rule_engine_jwt:lookup_jwt(Table, ResourceId),
          ?block_until(#{?snk_kind := rule_engine_jwt_worker_refresh}, 15_000),
-         {ok, SecondJWT} = emqx_rule_engine_jwt_worker:lookup_jwt(Table, ResourceId),
+         {ok, SecondJWT} = emqx_rule_engine_jwt:lookup_jwt(Table, ResourceId),
          ?assertNot(is_expired(SecondJWT)),
          ?assert(is_expired(FirstJWT)),
          {FirstJWT, SecondJWT}
@@ -182,7 +182,7 @@ t_lookup_ok(_Config) ->
         500 ->
             error(timeout)
     end,
-    Res = emqx_rule_engine_jwt_worker:lookup_jwt(Table, ResourceId),
+    Res = emqx_rule_engine_jwt:lookup_jwt(Table, ResourceId),
     ?assertMatch({ok, _}, Res),
     {ok, JWT} = Res,
     ?assert(is_binary(JWT)),
@@ -212,14 +212,14 @@ t_lookup_not_found(_Config) ->
     Table = ets:new(test_jwt_table, [ordered_set, public]),
     InexistentResource = <<"xxx">>,
     ?assertEqual({error, not_found},
-                 emqx_rule_engine_jwt_worker:lookup_jwt(Table, InexistentResource)),
+                 emqx_rule_engine_jwt:lookup_jwt(Table, InexistentResource)),
     ok.
 
 t_lookup_badarg(_Config) ->
     InexistentTable = i_dont_exist,
     InexistentResource = <<"xxx">>,
     ?assertEqual({error, not_found},
-                 emqx_rule_engine_jwt_worker:lookup_jwt(InexistentTable, InexistentResource)),
+                 emqx_rule_engine_jwt:lookup_jwt(InexistentTable, InexistentResource)),
     ok.
 
 t_start_supervised_worker(_Config) ->
