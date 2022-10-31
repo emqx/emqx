@@ -110,7 +110,6 @@ lookup_jwt(TId, ResourceId) ->
                                | {stop, {error, term()}}
               when Ref :: reference().
 init({#{private_key := PrivateKeyPEM} = Config, Ref}) ->
-    {ok, _} = application:ensure_all_started(jose),
     State0 = maps:without([private_key], Config),
     State = State0#{ jwk => undefined
                    , jwt => undefined
