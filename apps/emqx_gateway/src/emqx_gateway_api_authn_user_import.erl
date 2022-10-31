@@ -45,6 +45,8 @@
     import_listener_users/2
 ]).
 
+-define(TAGS, [<<"Gateway Authentication">>]).
+
 %%--------------------------------------------------------------------
 %% minirest behaviour callbacks
 %%--------------------------------------------------------------------
@@ -122,7 +124,7 @@ schema("/gateways/:name/authentication/import_users") ->
         'operationId' => import_users,
         post =>
             #{
-                tags => [<<"Gateways">>],
+                tags => ?TAGS,
                 desc => ?DESC(emqx_gateway_api_authn, import_users),
                 summary => <<"Import Users">>,
                 parameters => params_gateway_name_in_path(),
@@ -136,7 +138,7 @@ schema("/gateways/:name/listeners/:id/authentication/import_users") ->
         'operationId' => import_listener_users,
         post =>
             #{
-                tags => [<<"Gateways">>],
+                tags => ?TAGS,
                 desc => ?DESC(emqx_gateway_api_listeners, import_users),
                 summary => <<"Import Users">>,
                 parameters => params_gateway_name_in_path() ++

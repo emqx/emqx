@@ -52,6 +52,8 @@
 %% internal export for emqx_gateway_api_listeners module
 -export([schema_authn/0]).
 
+-define(TAGS, [<<"Gateway Authentication">>]).
+
 %%--------------------------------------------------------------------
 %% minirest behaviour callbacks
 %%--------------------------------------------------------------------
@@ -182,7 +184,7 @@ schema("/gateways/:name/authentication") ->
         'operationId' => authn,
         get =>
             #{
-                tags => [<<"Gateways">>],
+                tags => ?TAGS,
                 desc => ?DESC(get_authn),
                 summary => <<"Get Authenticator Configuration">>,
                 parameters => params_gateway_name_in_path(),
@@ -196,7 +198,7 @@ schema("/gateways/:name/authentication") ->
             },
         put =>
             #{
-                tags => [<<"Gateways">>],
+                tags => ?TAGS,
                 desc => ?DESC(update_authn),
                 summary => <<"Update Authenticator Configuration">>,
                 parameters => params_gateway_name_in_path(),
@@ -206,7 +208,7 @@ schema("/gateways/:name/authentication") ->
             },
         post =>
             #{
-                tags => [<<"Gateways">>],
+                tags => ?TAGS,
                 desc => ?DESC(add_authn),
                 summary => <<"Create an Authenticator for a Gateway">>,
                 parameters => params_gateway_name_in_path(),
@@ -216,7 +218,7 @@ schema("/gateways/:name/authentication") ->
             },
         delete =>
             #{
-                tags => [<<"Gateways">>],
+                tags => ?TAGS,
                 desc => ?DESC(delete_authn),
                 summary => <<"Delete the Gateway Authenticator">>,
                 parameters => params_gateway_name_in_path(),
@@ -229,7 +231,7 @@ schema("/gateways/:name/authentication/users") ->
         'operationId' => users,
         get =>
             #{
-                tags => [<<"Gateways">>],
+                tags => ?TAGS,
                 desc => ?DESC(list_users),
                 summary => <<"List users for a Gateway Authenticator">>,
                 parameters => params_gateway_name_in_path() ++
@@ -247,7 +249,7 @@ schema("/gateways/:name/authentication/users") ->
             },
         post =>
             #{
-                tags => [<<"Gateways">>],
+                tags => ?TAGS,
                 desc => ?DESC(add_user),
                 summary => <<"Add User for a Gateway Authenticator">>,
                 parameters => params_gateway_name_in_path(),
@@ -271,7 +273,7 @@ schema("/gateways/:name/authentication/users/:uid") ->
         'operationId' => users_insta,
         get =>
             #{
-                tags => [<<"Gateways">>],
+                tags => ?TAGS,
                 desc => ?DESC(get_user),
                 summary => <<"Get User Info for a Gateway Authenticator">>,
                 parameters => params_gateway_name_in_path() ++
@@ -288,7 +290,7 @@ schema("/gateways/:name/authentication/users/:uid") ->
             },
         put =>
             #{
-                tags => [<<"Gateways">>],
+                tags => ?TAGS,
                 desc => ?DESC(update_user),
                 summary => <<"Update User Info for a Gateway Authenticator">>,
                 parameters => params_gateway_name_in_path() ++
@@ -309,7 +311,7 @@ schema("/gateways/:name/authentication/users/:uid") ->
             },
         delete =>
             #{
-                tags => [<<"Gateways">>],
+                tags => ?TAGS,
                 desc => ?DESC(delete_user),
                 summary => <<"Delete User for a Gateway Authenticator">>,
                 parameters => params_gateway_name_in_path() ++

@@ -54,6 +54,7 @@
 ]).
 
 -define(KNOWN_GATEWAY_STATUSES, [<<"running">>, <<"stopped">>, <<"unloaded">>]).
+-define(TAGS, [<<"Gateways">>]).
 
 %%--------------------------------------------------------------------
 %% minirest behaviour callbacks
@@ -176,7 +177,7 @@ schema("/gateways") ->
         'operationId' => gateway,
         get =>
             #{
-                tags => [<<"Gateways">>],
+                tags => ?TAGS,
                 desc => ?DESC(list_gateway),
                 summary => <<"List All Gateways">>,
                 parameters => params_gateway_status_in_qs(),
@@ -192,7 +193,7 @@ schema("/gateways") ->
             },
         post =>
             #{
-                tags => [<<"Gateways">>],
+                tags => ?TAGS,
                 desc => ?DESC(enable_gateway),
                 summary => <<"Enable a Gateway">>,
                 %% TODO: distinguish create & response swagger schema
@@ -206,7 +207,7 @@ schema("/gateways/:name") ->
         'operationId' => gateway_insta,
         get =>
             #{
-                tags => [<<"Gateways">>],
+                tags => ?TAGS,
                 desc => ?DESC(get_gateway),
                 summary => <<"Get the Gateway">>,
                 parameters => params_gateway_name_in_path(),
@@ -215,7 +216,7 @@ schema("/gateways/:name") ->
             },
         delete =>
             #{
-                tags => [<<"Gateways">>],
+                tags => ?TAGS,
                 desc => ?DESC(delete_gateway),
                 summary => <<"Unload the gateway">>,
                 parameters => params_gateway_name_in_path(),
@@ -224,7 +225,7 @@ schema("/gateways/:name") ->
             },
         put =>
             #{
-                tags => [<<"Gateways">>],
+                tags => ?TAGS,
                 desc => ?DESC(update_gateway),
                 summary => <<"Update the gateway confs">>,
                 parameters => params_gateway_name_in_path(),
