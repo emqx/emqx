@@ -19,6 +19,7 @@
 -compile(nowarn_export_all).
 
 -include_lib("eunit/include/eunit.hrl").
+-include_lib("common_test/include/ct.hrl").
 
 -define(HOST, "http://127.0.0.1:18083/").
 
@@ -27,7 +28,24 @@
 %%---------------------------------------------------------------------------------------
 
 all() ->
-    emqx_common_test_helpers:all(?MODULE).
+    OtherTCs = emqx_common_test_helpers:all(?MODULE) -- get_status_tests(),
+    [
+        {group, api_status_endpoint},
+        {group, non_api_status_endpoint}
+        | OtherTCs
+    ].
+
+get_status_tests() ->
+    [
+        t_status_ok,
+        t_status_not_ok
+    ].
+
+groups() ->
+    [
+        {api_status_endpoint, [], get_status_tests()},
+        {non_api_status_endpoint, [], get_status_tests()}
+    ].
 
 init_per_suite(Config) ->
     emqx_mgmt_api_test_util:init_suite(),
@@ -35,6 +53,16 @@ init_per_suite(Config) ->
 
 end_per_suite(_) ->
     emqx_mgmt_api_test_util:end_suite().
+
+init_per_group(api_status_endpoint, Config) ->
+    [{get_status_path, ["api", "v5", "status"]} | Config];
+init_per_group(non_api_status_endpoint, Config) ->
+    [{get_status_path, ["status"]} | Config];
+init_per_group(_Group, Config) ->
+    Config.
+
+end_per_group(_Group, _Config) ->
+    ok.
 
 init_per_testcase(t_status_not_ok, Config) ->
     ok = application:stop(emqx),
@@ -97,13 +125,14 @@ data_loop(Gun, Ref, Acc) ->
 %% Test cases
 %%---------------------------------------------------------------------------------------
 
-t_status_ok(_Config) ->
+t_status_ok(Config) ->
+    Path = ?config(get_status_path, Config),
     #{
         body := Resp,
         status_code := StatusCode
     } = do_request(#{
         method => get,
-        path => ["status"],
+        path => Path,
         headers => [],
         body => no_body
     }),
@@ -114,14 +143,15 @@ t_status_ok(_Config) ->
     ),
     ok.
 
-t_status_not_ok(_Config) ->
+t_status_not_ok(Config) ->
+    Path = ?config(get_status_path, Config),
     #{
         body := Resp,
         headers := Headers,
         status_code := StatusCode
     } = do_request(#{
         method => get,
-        path => ["status"],
+        path => Path,
         headers => [],
         body => no_body
     }),

@@ -15,10 +15,49 @@
 %%--------------------------------------------------------------------
 -module(emqx_mgmt_api_status).
 
+-behaviour(minirest_api).
+
+-include_lib("hocon/include/hoconsc.hrl").
+
+%% minirest API
+-export([api_spec/0, paths/0, schema/1]).
+
+-export([get_status/2]).
+
 -export([
     init/2,
     path/0
 ]).
+
+-define(TAGS, [<<"Status">>]).
+
+%%--------------------------------------------------------------------
+%% minirest API and schema
+%%--------------------------------------------------------------------
+
+api_spec() ->
+    emqx_dashboard_swagger:spec(?MODULE, #{check_schema => true}).
+
+paths() ->
+    ["/status"].
+
+schema("/status") ->
+    #{
+        'operationId' => get_status,
+        get => #{
+            description => ?DESC(get_status_api),
+            tags => ?TAGS,
+            security => [],
+            responses => #{
+                200 => ?DESC(get_status_response200),
+                503 => ?DESC(get_status_response503)
+            }
+        }
+    }.
+
+%%--------------------------------------------------------------------
+%% non-minirest (cowboy) API
+%%--------------------------------------------------------------------
 
 %% Note: Because swagger now requires an HTTP prefix (e.g. /api/v5),
 %% but the `/status` does not require this fixed prefix.
@@ -38,6 +77,9 @@ init(Req0, State) ->
 %%--------------------------------------------------------------------
 %% API Handler funcs
 %%--------------------------------------------------------------------
+
+get_status(get, _Params) ->
+    running_status().
 
 running_status() ->
     case emqx_dashboard_listener:is_ready(timer:seconds(20)) of
