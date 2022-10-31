@@ -23,6 +23,7 @@
 -include("emqx_dashboard.hrl").
 -include_lib("emqx/include/logger.hrl").
 -define(DEFAULT_PASSWORD, <<"public">>).
+-define(BOOTSTRAP_USER_TAG, <<"bootstrapped">>).
 
 -boot_mnesia({mnesia, [boot]}).
 -copy_mnesia({mnesia, [copy]}).
@@ -43,6 +44,7 @@
         , change_password/3
         , all_users/0
         , check/2
+        , init_bootstrap_users/0
         ]).
 
 %% gen_server Function Exports
@@ -195,6 +197,67 @@ check(Username, Password) ->
             {error, <<"Username/Password error">>}
     end.
 
+init_bootstrap_users() ->
+    Bootstrap = application:get_env(emqx_dashboard, bootstrap_users_file, undefined),
+    Size = mnesia:table_info(mqtt_admin, size),
+    init_bootstrap_users(Bootstrap, Size).
+
+init_bootstrap_users(undefined, _) -> ok;
+init_bootstrap_users(_File, Size)when Size > 0 -> ok;
+init_bootstrap_users(File, 0) ->
+    case file:open(File, [read, binary]) of
+        {ok, Dev} ->
+            {ok, MP} = re:compile(<<"(\.+):(\.+$)">>, [ungreedy]),
+            case init_bootstrap_users(File, Dev, MP) of
+                ok -> ok;
+                Error ->
+                    %% if failed add bootstrap users, we should clear all bootstrap users
+                    {atomic, ok} = mnesia:clear_table(mqtt_admin),
+                    Error
+            end;
+        {error, Reason} = Error ->
+            ?LOG(error,
+                "failed to open the dashboard bootstrap users file(~s) for ~p",
+                [File, Reason]
+            ),
+            Error
+    end.
+
+init_bootstrap_users(File, Dev, MP) ->
+    try
+        add_bootstrap_user(File, Dev, MP, 1)
+    catch
+        throw:Error -> {error, Error};
+        Type:Reason:Stacktrace ->
+            {error, {Type, Reason, Stacktrace}}
+    after
+        file:close(Dev)
+    end.
+
+add_bootstrap_user(File, Dev, MP, Line) ->
+    case file:read_line(Dev) of
+        {ok, Bin} ->
+            case re:run(Bin, MP, [global, {capture, all_but_first, binary}]) of
+                {match, [[Username, Password]]} ->
+                    case add_user(Username, Password, ?BOOTSTRAP_USER_TAG) of
+                        ok ->
+                            add_bootstrap_user(File, Dev, MP, Line + 1);
+                        {error, Reason} ->
+                            throw(#{file => File, line => Line, content => Bin, reason => Reason})
+                    end;
+                _ ->
+                    ?LOG(error,
+                        "failed to bootstrap users file(~s) for Line(~w): ~ts",
+                        [File, Line, Bin]
+                    ),
+                    throw(#{file => File, line => Line, content => Bin, reason => "invalid format"})
+            end;
+        eof ->
+            ok;
+        {error, Error} ->
+            throw(#{file => File, line => Line, reason => Error})
+    end.
+
 bad_login_penalty() ->
     timer:sleep(2000),
     ok.
@@ -207,6 +270,12 @@ is_valid_pwd(<<Salt:4/binary, Hash/binary>>, Password) ->
 %%--------------------------------------------------------------------
 
 init([]) ->
+    case init_bootstrap_users() of
+        ok -> init_default_admin_user();
+        {error, Error} -> {stop, Error}
+    end.
+
+init_default_admin_user() ->
     case binenv(default_user_username) of
         <<>> -> ok;
         UserName ->
