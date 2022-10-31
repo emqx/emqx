@@ -138,16 +138,32 @@ coap_unobserve({state, ChId, Prefix, TopicPath}) ->
     ok.
 
 handle_info({dispatch, Topic, Payload}, State) ->
+    %% This clause should never be matched any more. We keep it here to handle
+    %% the old format messages during the release upgrade.
+    %% In this case the second function clause of `coap_ack/2` will be called,
+    %% and the ACKs is discarded.
     ?LOG(debug, "dispatch Topic=~p, Payload=~p", [Topic, Payload]),
     {ok, Ret} = emqx_coap_pubsub_topics:reset_topic_info(Topic, Payload),
     ?LOG(debug, "Updated publish info of topic=~p, the Ret is ~p", [Topic, Ret]),
     {notify, [], #coap_content{format = <<"application/octet-stream">>, payload = Payload}, State};
+handle_info({dispatch, Msg}, State) ->
+    Payload = emqx_coap_mqtt_adapter:message_payload(Msg),
+    Topic = emqx_coap_mqtt_adapter:message_topic(Msg),
+    {ok, Ret} = emqx_coap_pubsub_topics:reset_topic_info(Topic, Payload),
+    ?LOG(debug, "Updated publish info of topic=~p, the Ret is ~p", [Topic, Ret]),
+    {notify, {pub, Msg}, #coap_content{format = <<"application/octet-stream">>, payload = Payload}, State};
 handle_info(Message, State) ->
     ?LOG(error, "Unknown Message ~p", [Message]),
     {noreply, State}.
 
-coap_ack(_Ref, State) -> {ok, State}.
-
+coap_ack({pub, Msg}, State) ->
+    ?LOG(debug, "received coap ack for publish msg: ~p", [Msg]),
+    Pid = get(mqtt_client_pid),
+    emqx_coap_mqtt_adapter:received_puback(Pid, Msg),
+    {ok, State};
+coap_ack(_Ref, State) ->
+    ?LOG(debug, "received coap ack: ~p", [_Ref]),
+    {ok, State}.
 
 %%--------------------------------------------------------------------
 %% Internal Functions

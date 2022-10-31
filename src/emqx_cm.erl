@@ -63,8 +63,8 @@
         ]).
 
 -export([all_channels/0,
-         channel_with_session_table/0,
-         live_connection_table/0]).
+         channel_with_session_table/1,
+         live_connection_table/1]).
 
 %% gen_server callbacks
 -export([ init/1
@@ -433,7 +433,7 @@ all_channels() ->
     ets:select(?CHAN_TAB, Pat).
 
 %% @doc Get clientinfo for all clients with sessions
-channel_with_session_table() ->
+channel_with_session_table(ConnModules) ->
     Ms = ets:fun2ms(
            fun({{ClientId, _ChanPid},
                 Info,
@@ -441,21 +441,24 @@ channel_with_session_table() ->
                    {ClientId, Info}
            end),
     Table = ets:table(?CHAN_INFO_TAB, [{traverse, {select, Ms}}]),
+    ConnModuleMap = maps:from_list([{Mod, true} || Mod <- ConnModules]),
     qlc:q([ {ClientId, ConnState, ConnInfo, ClientInfo}
             || {ClientId,
                 #{conn_state := ConnState,
                   clientinfo := ClientInfo,
-                  conninfo := #{clean_start := false} = ConnInfo}} <- Table
+                  conninfo := #{clean_start := false, conn_mod := ConnModule} = ConnInfo}}
+               <- Table,
+               maps:is_key(ConnModule, ConnModuleMap)
           ]).
 
 %% @doc Get all local connection query handle
-live_connection_table() ->
-    Ms = ets:fun2ms(
-           fun({{ClientId, ChanPid}, _}) ->
-                   {ClientId, ChanPid}
-           end),
+live_connection_table(ConnModules) ->
+    Ms = lists:map(fun live_connection_ms/1, ConnModules),
     Table = ets:table(?CHAN_CONN_TAB, [{traverse, {select, Ms}}]),
     qlc:q([{ClientId, ChanPid} || {ClientId, ChanPid} <- Table, is_channel_connected(ClientId, ChanPid)]).
+
+live_connection_ms(ConnModule) ->
+    {{{'$1','$2'},ConnModule},[],[{{'$1','$2'}}]}.
 
 is_channel_connected(ClientId, ChanPid) when node(ChanPid) =:= node() ->
     case get_chan_info(ClientId, ChanPid) of

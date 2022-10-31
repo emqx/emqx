@@ -56,7 +56,7 @@ connect(Opts) ->
                 ?LOG(error, "[Redis] Can't connect to Redis server: Authentication failed."),
                 {error, Reason};
             {error, Reason} ->
-                ?LOG(error, "[Redis] Can't connect to Redis server: ~p", [Reason]),
+                ?LOG_SENSITIVE(error, "[Redis] Can't connect to Redis server: ~p", [Reason]),
                 {error, Reason}
     end.
 
@@ -86,4 +86,3 @@ repl(S, _Var, undefined) ->
 repl(S, Var, Val) ->
     NVal = re:replace(Val, "&", "\\\\&", [global, {return, list}]),
     re:replace(S, Var, NVal, [{return, list}]).
-
