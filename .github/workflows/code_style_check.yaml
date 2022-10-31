@@ -7,7 +7,7 @@ jobs:
     runs-on: ubuntu-20.04
     container: "ghcr.io/emqx/emqx-builder/5.0-17:1.13.4-24.2.1-1-ubuntu20.04"
     steps:
-      - uses: actions/checkout@v2
+      - uses: actions/checkout@v3
         with:
           fetch-depth: 1000
       - name: Work around https://github.com/actions/checkout/issues/766
