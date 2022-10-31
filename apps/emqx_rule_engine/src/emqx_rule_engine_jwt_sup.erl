@@ -25,12 +25,15 @@
 
 -export([init/1]).
 
+-include_lib("emqx_rule_engine/include/rule_actions.hrl").
+
 -type worker_id() :: term().
 
 start_link() ->
     supervisor:start_link({local, ?MODULE}, ?MODULE, []).
 
 init([]) ->
+    ensure_jwt_table(),
     SupFlags = #{ strategy => one_for_one
                 , intensity => 10
                 , period => 5
@@ -73,3 +76,15 @@ jwt_worker_child_spec(Id, Config, Ref) ->
      , shutdown => brutal_kill
      , modules => [emqx_rule_engine_jwt_worker]
      }.
+
+-spec ensure_jwt_table() -> ok.
+ensure_jwt_table() ->
+    case ets:whereis(?JWT_TABLE) of
+        undefined ->
+            Opts = [named_table, public,
+                    {read_concurrency, true}, ordered_set],
+            _ = ets:new(?JWT_TABLE, Opts),
+            ok;
+        _ ->
+            ok
+    end.
