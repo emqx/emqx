@@ -248,7 +248,7 @@ t_start_listener_failed_log(_Config) ->
     ?assertError(_, emqx_dashboard:start_listener({http, {"1.1.1.1", 8080}, Options})),
     ct:capture_stop(),
     I0 = ct:capture_get(),
-    ?assertNotMatch(nomatch, re:run(iolist_to_binary(I0), "eaddrnotavail", [])),
+    ?assertMatch({match, _}, re:run(iolist_to_binary(I0), "eaddrnotavail", [])),
     ok.
 
 %%------------------------------------------------------------------------------
