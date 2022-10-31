@@ -60,6 +60,8 @@
 %% RPC
 -export([do_listeners_cluster_status/1]).
 
+-define(TAGS, [<<"Gateway Listeners">>]).
+
 %%--------------------------------------------------------------------
 %% minirest behaviour callbacks
 %%--------------------------------------------------------------------
@@ -358,7 +360,7 @@ schema("/gateways/:name/listeners") ->
         'operationId' => listeners,
         get =>
             #{
-                tags => [<<"Gateways">>],
+                tags => ?TAGS,
                 desc => ?DESC(list_listeners),
                 summary => <<"List All Listeners">>,
                 parameters => params_gateway_name_in_path(),
@@ -374,7 +376,7 @@ schema("/gateways/:name/listeners") ->
             },
         post =>
             #{
-                tags => [<<"Gateways">>],
+                tags => ?TAGS,
                 desc => ?DESC(add_listener),
                 summary => <<"Add a Listener">>,
                 parameters => params_gateway_name_in_path(),
@@ -400,7 +402,7 @@ schema("/gateways/:name/listeners/:id") ->
         'operationId' => listeners_insta,
         get =>
             #{
-                tags => [<<"Gateways">>],
+                tags => ?TAGS,
                 desc => ?DESC(get_listener),
                 summary => <<"Get the Listener Configs">>,
                 parameters => params_gateway_name_in_path() ++
@@ -417,7 +419,7 @@ schema("/gateways/:name/listeners/:id") ->
             },
         delete =>
             #{
-                tags => [<<"Gateways">>],
+                tags => ?TAGS,
                 desc => ?DESC(delete_listener),
                 summary => <<"Delete the Listener">>,
                 parameters => params_gateway_name_in_path() ++
@@ -427,7 +429,7 @@ schema("/gateways/:name/listeners/:id") ->
             },
         put =>
             #{
-                tags => [<<"Gateways">>],
+                tags => ?TAGS,
                 desc => ?DESC(update_listener),
                 summary => <<"Update the Listener Configs">>,
                 parameters => params_gateway_name_in_path() ++
@@ -452,7 +454,7 @@ schema("/gateways/:name/listeners/:id/authentication") ->
         'operationId' => listeners_insta_authn,
         get =>
             #{
-                tags => [<<"Gateways">>],
+                tags => ?TAGS,
                 desc => ?DESC(get_listener_authn),
                 summary => <<"Get the Listener's Authenticator">>,
                 parameters => params_gateway_name_in_path() ++
@@ -467,7 +469,7 @@ schema("/gateways/:name/listeners/:id/authentication") ->
             },
         post =>
             #{
-                tags => [<<"Gateways">>],
+                tags => ?TAGS,
                 desc => ?DESC(add_listener_authn),
                 summary => <<"Create an Authenticator for a Listener">>,
                 parameters => params_gateway_name_in_path() ++
@@ -478,7 +480,7 @@ schema("/gateways/:name/listeners/:id/authentication") ->
             },
         put =>
             #{
-                tags => [<<"Gateways">>],
+                tags => ?TAGS,
                 desc => ?DESC(update_listener_authn),
                 summary => <<"Update the Listener Authenticator configs">>,
                 parameters => params_gateway_name_in_path() ++
@@ -489,7 +491,7 @@ schema("/gateways/:name/listeners/:id/authentication") ->
             },
         delete =>
             #{
-                tags => [<<"Gateways">>],
+                tags => ?TAGS,
                 desc => ?DESC(delete_listener_authn),
                 summary => <<"Delete the Listener's Authenticator">>,
                 parameters => params_gateway_name_in_path() ++
@@ -503,7 +505,7 @@ schema("/gateways/:name/listeners/:id/authentication/users") ->
         'operationId' => users,
         get =>
             #{
-                tags => [<<"Gateways">>],
+                tags => ?TAGS,
                 desc => ?DESC(list_users),
                 summary => <<"List Authenticator's Users">>,
                 parameters => params_gateway_name_in_path() ++
@@ -521,7 +523,7 @@ schema("/gateways/:name/listeners/:id/authentication/users") ->
             },
         post =>
             #{
-                tags => [<<"Gateways">>],
+                tags => ?TAGS,
                 desc => ?DESC(add_user),
                 summary => <<"Add User for an Authenticator">>,
                 parameters => params_gateway_name_in_path() ++
@@ -546,7 +548,7 @@ schema("/gateways/:name/listeners/:id/authentication/users/:uid") ->
         'operationId' => users_insta,
         get =>
             #{
-                tags => [<<"Gateways">>],
+                tags => ?TAGS,
                 desc => ?DESC(get_user),
                 summary => <<"Get User Info">>,
                 parameters => params_gateway_name_in_path() ++
@@ -564,7 +566,7 @@ schema("/gateways/:name/listeners/:id/authentication/users/:uid") ->
             },
         put =>
             #{
-                tags => [<<"Gateways">>],
+                tags => ?TAGS,
                 desc => ?DESC(update_user),
                 summary => <<"Update User Info">>,
                 parameters => params_gateway_name_in_path() ++
@@ -586,7 +588,7 @@ schema("/gateways/:name/listeners/:id/authentication/users/:uid") ->
             },
         delete =>
             #{
-                tags => [<<"Gateways">>],
+                tags => ?TAGS,
                 desc => ?DESC(delete_user),
                 summary => <<"Delete User">>,
                 parameters => params_gateway_name_in_path() ++

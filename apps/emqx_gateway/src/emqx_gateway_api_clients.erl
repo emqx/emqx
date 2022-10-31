@@ -59,6 +59,8 @@
     format_channel_info/1
 ]).
 
+-define(TAGS, [<<"Gateway Clients">>]).
+
 %%--------------------------------------------------------------------
 %% APIs
 %%--------------------------------------------------------------------
@@ -467,7 +469,7 @@ schema("/gateways/:name/clients") ->
         'operationId' => clients,
         get =>
             #{
-                tags => [<<"Gateways">>],
+                tags => ?TAGS,
                 desc => ?DESC(list_clients),
                 summary => <<"List Gateway's Clients">>,
                 parameters => params_client_query(),
@@ -480,7 +482,7 @@ schema("/gateways/:name/clients/:clientid") ->
         'operationId' => clients_insta,
         get =>
             #{
-                tags => [<<"Gateways">>],
+                tags => ?TAGS,
                 desc => ?DESC(get_client),
                 summary => <<"Get Client Info">>,
                 parameters => params_client_insta(),
@@ -489,7 +491,7 @@ schema("/gateways/:name/clients/:clientid") ->
             },
         delete =>
             #{
-                tags => [<<"Gateways">>],
+                tags => ?TAGS,
                 desc => ?DESC(kick_client),
                 summary => <<"Kick out Client">>,
                 parameters => params_client_insta(),
@@ -502,7 +504,7 @@ schema("/gateways/:name/clients/:clientid/subscriptions") ->
         'operationId' => subscriptions,
         get =>
             #{
-                tags => [<<"Gateways">>],
+                tags => ?TAGS,
                 desc => ?DESC(list_subscriptions),
                 summary => <<"List Client's Subscription">>,
                 parameters => params_client_insta(),
@@ -518,7 +520,7 @@ schema("/gateways/:name/clients/:clientid/subscriptions") ->
             },
         post =>
             #{
-                tags => [<<"Gateways">>],
+                tags => ?TAGS,
                 desc => ?DESC(add_subscription),
                 summary => <<"Add Subscription for Client">>,
                 parameters => params_client_insta(),
@@ -542,7 +544,7 @@ schema("/gateways/:name/clients/:clientid/subscriptions/:topic") ->
         'operationId' => subscriptions,
         delete =>
             #{
-                tags => [<<"Gateways">>],
+                tags => ?TAGS,
                 desc => ?DESC(delete_subscription),
                 summary => <<"Delete Client's Subscription">>,
                 parameters => params_topic_name_in_path() ++ params_client_insta(),
