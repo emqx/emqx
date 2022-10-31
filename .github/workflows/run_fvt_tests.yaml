@@ -280,6 +280,8 @@ jobs:
             path: |
               emqx/_packages/*/*.zip
               emqx/.ci/fvt_tests
+              emqx/data/relup-paths.eterm
+              emqx/scripts/relup-base-vsns.escript
 
     relup_test_run:
         needs:
@@ -291,8 +293,6 @@ jobs:
           fail-fast: false
           matrix:
             old_vsn: ${{ fromJson(needs.relup_test_plan.outputs.matrix) }}
-            otp:
-            - 24.3.4.2-1
         env:
           OLD_VSN: "${{ matrix.old_vsn }}"
           PROFILE: "${{ needs.relup_test_plan.outputs.profile }}"
@@ -318,8 +318,10 @@ jobs:
             set -e -x -u
             mkdir -p packages
             cp emqx_built/_packages/*/*.zip packages
+            old_emqx_vsn=${OLD_VSN#[e|v]}
+            old_otp_vsn=$(escript emqx_built/scripts/relup-base-vsns.escript otp-vsn-for "${old_emqx_vsn}" emqx_built/data/relup-paths.eterm)
             cd packages
-            wget --no-verbose https://s3-us-west-2.amazonaws.com/packages.emqx/$BROKER/$OLD_VSN/$PROFILE-${OLD_VSN#[e|v]}-otp${{ matrix.otp }}-ubuntu20.04-amd64.zip
+            wget --no-verbose https://s3-us-west-2.amazonaws.com/packages.emqx/$BROKER/$OLD_VSN/$PROFILE-${old_emqx_vsn}-otp${old_otp_vsn}-ubuntu20.04-amd64.zip
         - name: Run relup test scenario
           timeout-minutes: 5
           run: |
