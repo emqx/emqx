@@ -164,6 +164,13 @@ t_aggregate_metrics(_) ->
         Res
     ).
 
+t_authenticator_status(_) ->
+    {ok, 400, _} = request(
+        get,
+        uri([?CONF_NS, "xxx", "status"]),
+        []
+    ).
+
 test_authenticators(PathPrefix) ->
     ValidConfig = emqx_authn_test_lib:http_example(),
     {ok, 200, _} = request(

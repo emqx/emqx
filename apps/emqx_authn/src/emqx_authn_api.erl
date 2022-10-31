@@ -877,7 +877,10 @@ lookup_from_local_node(ChainName, AuthenticatorID) ->
 
 lookup_from_all_nodes(ChainName, AuthenticatorID) ->
     Nodes = mria_mnesia:running_nodes(),
-    case is_ok(emqx_authn_proto_v1:lookup_from_all_nodes(Nodes, ChainName, AuthenticatorID)) of
+    LookupResult = emqx_rpc:unwrap_erpc(
+        emqx_authn_proto_v1:lookup_from_all_nodes(Nodes, ChainName, AuthenticatorID)
+    ),
+    case is_ok(LookupResult) of
         {ok, ResList} ->
             {StatusMap, MetricsMap, ResourceMetricsMap, ErrorMap} = make_result_map(ResList),
             AggregateStatus = aggregate_status(maps:values(StatusMap)),
