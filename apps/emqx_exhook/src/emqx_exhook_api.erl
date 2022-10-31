@@ -219,9 +219,9 @@ params_server_name_in_path() ->
 server_conf_schema() ->
     SSL = #{
         enable => false,
-        cacertfile => emqx:cert_file(<<"cacert.pem">>),
-        certfile => emqx:cert_file(<<"cert.pem">>),
-        keyfile => emqx:cert_file(<<"key.pem">>)
+        cacertfile => <<"/etc/emqx/certs/cacert.pem">>,
+        certfile => <<"/etc/emqx/certs/cert.pem">>,
+        keyfile => <<"/etc/emqx/certs/key.pem">>
     },
     schema_with_example(
         ref(server_config),
