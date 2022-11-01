@@ -65,6 +65,8 @@
     stop_slave/1
 ]).
 
+-export([clear_screen/0]).
+
 -define(CERTS_PATH(CertName), filename:join(["etc", "certs", CertName])).
 
 -define(MQTT_SSL_TWOWAY, [
@@ -769,3 +771,12 @@ expand_node_specs(Specs, CommonOpts) ->
         end,
         Specs
     ).
+
+%% is useful when iterating on the tests in a loop, to get rid of all
+%% the garbaged printed before the test itself beings.
+clear_screen() ->
+    io:format(standard_io, "\033[H\033[2J", []),
+    io:format(standard_error, "\033[H\033[2J", []),
+    io:format(standard_io, "\033[H\033[3J", []),
+    io:format(standard_error, "\033[H\033[3J", []),
+    ok.

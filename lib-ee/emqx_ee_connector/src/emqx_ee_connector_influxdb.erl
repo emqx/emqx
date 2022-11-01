@@ -9,6 +9,7 @@
 -include_lib("hocon/include/hoconsc.hrl").
 -include_lib("typerefl/include/types.hrl").
 -include_lib("emqx/include/logger.hrl").
+-include_lib("snabbkaffe/include/snabbkaffe.hrl").
 
 -import(hoconsc, [mk/2, enum/1, ref/2]).
 
@@ -51,8 +52,16 @@ on_stop(_InstId, #{client := Client}) ->
 on_query(InstId, {send_message, Data}, _State = #{write_syntax := SyntaxLines, client := Client}) ->
     case data_to_points(Data, SyntaxLines) of
         {ok, Points} ->
+            ?tp(
+                influxdb_connector_send_query,
+                #{points => Points, batch => false, mode => sync}
+            ),
             do_query(InstId, Client, Points);
         {error, ErrorPoints} = Err ->
+            ?tp(
+                influxdb_connector_send_query_error,
+                #{batch => false, mode => sync, error => ErrorPoints}
+            ),
             log_error_points(InstId, ErrorPoints),
             Err
     end.
@@ -62,8 +71,16 @@ on_query(InstId, {send_message, Data}, _State = #{write_syntax := SyntaxLines, c
 on_batch_query(InstId, BatchData, _State = #{write_syntax := SyntaxLines, client := Client}) ->
     case parse_batch_data(InstId, BatchData, SyntaxLines) of
         {ok, Points} ->
+            ?tp(
+                influxdb_connector_send_query,
+                #{points => Points, batch => true, mode => sync}
+            ),
             do_query(InstId, Client, Points);
         {error, Reason} ->
+            ?tp(
+                influxdb_connector_send_query_error,
+                #{batch => true, mode => sync, error => Reason}
+            ),
             {error, Reason}
     end.
 
@@ -75,8 +92,16 @@ on_query_async(
 ) ->
     case data_to_points(Data, SyntaxLines) of
         {ok, Points} ->
+            ?tp(
+                influxdb_connector_send_query,
+                #{points => Points, batch => false, mode => async}
+            ),
             do_async_query(InstId, Client, Points, {ReplayFun, Args});
         {error, ErrorPoints} = Err ->
+            ?tp(
+                influxdb_connector_send_query_error,
+                #{batch => false, mode => async, error => ErrorPoints}
+            ),
             log_error_points(InstId, ErrorPoints),
             Err
     end.
@@ -89,8 +114,16 @@ on_batch_query_async(
 ) ->
     case parse_batch_data(InstId, BatchData, SyntaxLines) of
         {ok, Points} ->
+            ?tp(
+                influxdb_connector_send_query,
+                #{points => Points, batch => true, mode => async}
+            ),
             do_async_query(InstId, Client, Points, {ReplayFun, Args});
         {error, Reason} ->
+            ?tp(
+                influxdb_connector_send_query_error,
+                #{batch => true, mode => async, error => Reason}
+            ),
             {error, Reason}
     end.
 
@@ -206,7 +239,7 @@ do_start_client(
             end;
         {error, {already_started, Client0}} ->
             ?SLOG(info, #{
-                msg => "starting influxdb connector,find already started client",
+                msg => "restarting influxdb connector, found already started client",
                 connector => InstId,
                 old_client => Client0
             }),
@@ -235,7 +268,7 @@ client_config(
         {precision, atom_to_binary(maps:get(precision, Config, ms), utf8)}
     ] ++ protocol_config(Config).
 
-%% api v2 config
+%% api v1 config
 protocol_config(#{
     username := Username,
     password := Password,
@@ -249,7 +282,7 @@ protocol_config(#{
         {password, str(Password)},
         {database, str(DB)}
     ] ++ ssl_config(SSL);
-%% api v1 config
+%% api v2 config
 protocol_config(#{
     bucket := Bucket,
     org := Org,
@@ -370,6 +403,14 @@ parse_batch_data(InstId, BatchData, SyntaxLines) ->
             {error, points_trans_failed}
     end.
 
+-spec data_to_points(map(), [
+    #{
+        fields := [{binary(), binary()}],
+        measurement := binary(),
+        tags := [{binary(), binary()}],
+        timestamp := binary()
+    }
+]) -> {ok, [map()]} | {error, term()}.
 data_to_points(Data, SyntaxLines) ->
     lines_to_points(Data, SyntaxLines, [], []).
 
@@ -416,17 +457,18 @@ lines_to_points(
     end.
 
 maps_config_to_data(K, V, {Data, Res}) ->
-    KTransOptions = #{return => full_binary},
+    KTransOptions = #{return => rawlist, var_trans => fun key_filter/1},
     VTransOptions = #{return => rawlist, var_trans => fun data_filter/1},
-    NK = emqx_plugin_libs_rule:proc_tmpl(K, Data, KTransOptions),
+    NK0 = emqx_plugin_libs_rule:proc_tmpl(K, Data, KTransOptions),
     NV = emqx_plugin_libs_rule:proc_tmpl(V, Data, VTransOptions),
-    case {NK, NV} of
+    case {NK0, NV} of
         {[undefined], _} ->
             {Data, Res};
         %% undefined value in normal format [undefined] or int/uint format [undefined, <<"i">>]
         {_, [undefined | _]} ->
             {Data, Res};
         _ ->
+            NK = list_to_binary(NK0),
             {Data, Res#{NK => value_type(NV)}}
     end.
 
@@ -438,6 +480,8 @@ value_type([UInt, <<"u">>]) when
     is_integer(UInt)
 ->
     {uint, UInt};
+value_type([Float]) when is_float(Float) ->
+    Float;
 value_type([<<"t">>]) ->
     't';
 value_type([<<"T">>]) ->
@@ -460,6 +504,9 @@ value_type([<<"False">>]) ->
     'False';
 value_type(Val) ->
     Val.
+
+key_filter(undefined) -> undefined;
+key_filter(Value) -> emqx_plugin_libs_rule:bin(Value).
 
 data_filter(undefined) -> undefined;
 data_filter(Int) when is_integer(Int) -> Int;
