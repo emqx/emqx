@@ -78,6 +78,14 @@ end_per_group(_Group, _Config) ->
 
 init_per_suite(Config) ->
     %% Start Apps
+    %% dbg:tracer(process, {fun dbg:dhandler/2,group_leader()}),
+    %% dbg:p(all,c),
+    %% dbg:tp(emqx_quic_connection,cx),
+    %% dbg:tp(emqx_quic_stream,cx),
+    %% dbg:tp(emqtt_quic,cx),
+    %% dbg:tp(emqtt,cx),
+    %% dbg:tp(emqtt_quic_stream,cx),
+    %% dbg:tp(emqtt_quic_connection,cx),
     emqx_common_test_helpers:boot_modules(all),
     emqx_common_test_helpers:start_apps([]),
     Config.
