@@ -37,7 +37,7 @@ wait({ConnOwner, Conn}) ->
     ConnOwner ! {self(), stream_acceptor_ready},
     receive
         %% from msquic
-        {quic, new_stream, Stream} ->
+        {quic, new_stream, Stream, _Props} ->
             {ok, {quic, Conn, Stream}};
         {'EXIT', ConnOwner, _Reason} ->
             {error, enotconn}
