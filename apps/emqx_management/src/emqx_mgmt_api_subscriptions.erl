@@ -145,13 +145,18 @@ subscriptions(get, #{query_string := QString}) ->
                     ?QUERY_FUN
                 );
             Node0 ->
-                emqx_mgmt_api:node_query(
-                    binary_to_atom(Node0, utf8),
-                    QString,
-                    ?SUBS_QTABLE,
-                    ?SUBS_QSCHEMA,
-                    ?QUERY_FUN
-                )
+                case emqx_misc:safe_to_existing_atom(Node0) of
+                    {ok, Node1} ->
+                        emqx_mgmt_api:node_query(
+                            Node1,
+                            QString,
+                            ?SUBS_QTABLE,
+                            ?SUBS_QSCHEMA,
+                            ?QUERY_FUN
+                        );
+                    {error, _} ->
+                        {error, Node0, {badrpc, <<"invalid node">>}}
+                end
         end,
     case Response of
         {error, page_limit_invalid} ->
