@@ -211,7 +211,7 @@ ssl:
   enabled: false
   useExisting: false
   existingName: emqx-tls
-  dnsnames: {}
+  dnsnames: []
   issuer:
     name: letsencrypt-dns
     kind: ClusterIssuer
