@@ -525,11 +525,10 @@ handle_msg({Inet, _Sock, Data}, State) when Inet == tcp; Inet == ssl ->
     inc_counter(incoming_bytes, Oct),
     ok = emqx_metrics:inc('bytes.received', Oct),
     when_bytes_in(Oct, Data, State);
-handle_msg({quic, Data, _Sock, _, _, _}, State) ->
-    Oct = iolist_size(Data),
-    inc_counter(incoming_bytes, Oct),
-    ok = emqx_metrics:inc('bytes.received', Oct),
-    when_bytes_in(Oct, Data, State);
+handle_msg({quic, Data, _Stream, #{len := Len}}, State) when is_binary(Data) ->
+    inc_counter(incoming_bytes, Len),
+    ok = emqx_metrics:inc('bytes.received', Len),
+    when_bytes_in(Len, Data, State);
 handle_msg(check_cache, #state{limiter_buffer = Cache} = State) ->
     case queue:peek(Cache) of
         empty ->
@@ -893,12 +892,12 @@ handle_info({sock_error, Reason}, State) ->
         false -> ok
     end,
     handle_info({sock_closed, Reason}, close_socket(State));
-handle_info({quic, peer_send_shutdown, _Stream}, State) ->
-    handle_info({sock_closed, force}, close_socket(State));
-handle_info({quic, closed, _Channel, ReasonFlag}, State) ->
-    handle_info({sock_closed, ReasonFlag}, State);
-handle_info({quic, closed, _Stream}, State) ->
-    handle_info({sock_closed, force}, State);
+%% handle_info({quic, peer_send_shutdown, _Stream}, State) ->
+%%     handle_info({sock_closed, force}, close_socket(State));
+%% handle_info({quic, closed, _Channel, ReasonFlag}, State) ->
+%%     handle_info({sock_closed, ReasonFlag}, State);
+%% handle_info({quic, closed, _Stream}, State) ->
+%%     handle_info({sock_closed, force}, State);
 handle_info(Info, State) ->
     with_channel(handle_info, [Info], State).
 
