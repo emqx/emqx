@@ -21,6 +21,10 @@
 -include("logger.hrl").
 -include("types.hrl").
 
+-ifdef(TEST).
+-include_lib("eunit/include/eunit.hrl").
+-endif.
+
 -logger_header("[Hooks]").
 
 -export([ start_link/0
@@ -38,6 +42,8 @@
         , run/2
         , run_fold/3
         , lookup/1
+        , reorder_acl_callbacks/0
+        , reorder_auth_callbacks/0
         ]).
 
 -export([ callback_action/1
@@ -86,6 +92,7 @@
 
 -define(TAB, ?MODULE).
 -define(SERVER, ?MODULE).
+-define(UNKNOWN_ORDER, 999999999).
 
 -spec(start_link() -> startlink_ret()).
 start_link() ->
@@ -229,21 +236,31 @@ lookup(HookPoint) ->
         [] -> []
     end.
 
+%% @doc Reorder ACL check callbacks
+-spec reorder_acl_callbacks() -> ok.
+reorder_acl_callbacks() ->
+    gen_server:cast(?SERVER, {reorder_callbacks, 'client.check_acl'}).
+
+%% @doc Reorder Authentication check callbacks
+-spec reorder_auth_callbacks() -> ok.
+reorder_auth_callbacks() ->
+    gen_server:cast(?SERVER, {reorder_callbacks, 'client.authenticate'}).
+
 %%--------------------------------------------------------------------
 %% gen_server callbacks
 %%--------------------------------------------------------------------
 
 init([]) ->
     ok = emqx_tables:new(?TAB, [{keypos, #hook.name}, {read_concurrency, true}]),
-    HookOrders = emqx:get_env(hook_order, #{}),
-    {ok, #{hook_orders => HookOrders}}.
+    {ok, #{}}.
 
 handle_call({add, HookPoint, Callback = #callback{action = Action}}, _From, State) ->
-    Reply = case lists:keymember(Action, #callback.action, Callbacks = lookup(HookPoint)) of
+    Callbacks = lookup(HookPoint),
+    Reply = case lists:keymember(Action, #callback.action, Callbacks) of
                 true ->
                     {error, already_exists};
                 false ->
-                    insert_hook(HookPoint, add_callback(callback_orders(HookPoint), Callback, Callbacks))
+                    ok = add_and_insert(HookPoint, [Callback],  Callbacks)
             end,
     {reply, Reply, State};
 
@@ -251,12 +268,22 @@ handle_call(Req, _From, State) ->
     ?LOG(error, "Unexpected call: ~p", [Req]),
     {reply, ignored, State}.
 
+handle_cast({reorder_callbacks, HookPoint}, State) ->
+    Callbacks = lookup(HookPoint),
+    case Callbacks =:= [] of
+        true ->
+            %% no callbaks, make sure not to insert []
+            ok;
+        false ->
+            ok = add_and_insert(HookPoint, Callbacks, [])
+    end,
+    {noreply, State};
 handle_cast({del, HookPoint, Action}, State) ->
     case del_callback(Action, lookup(HookPoint)) of
         [] ->
             ets:delete(?TAB, HookPoint);
         Callbacks ->
-            insert_hook(HookPoint, Callbacks)
+            ok = insert_hook(HookPoint, Callbacks)
     end,
     {noreply, State};
 
@@ -278,18 +305,89 @@ code_change(_OldVsn, State, _Extra) ->
 %% Internal functions
 %%------------------------------------------------------------------------------
 
+add_and_insert(HookPoint, NewCallbacks, Callbacks) ->
+    HookOrder = get_hook_order(HookPoint),
+    NewCallbaks = add_callbacks(HookOrder, NewCallbacks, Callbacks),
+    ok = insert_hook(HookPoint, NewCallbaks).
+
+get_hook_order('client.authenticate') ->
+    get_auth_acl_hook_order(auth_order);
+get_hook_order('client.check_acl') ->
+    get_auth_acl_hook_order(acl_order);
+get_hook_order(_) ->
+    [].
+
+get_auth_acl_hook_order(AppEnvName) ->
+    case emqx:get_env(AppEnvName) of
+        [_|_] = CSV ->
+            %% non-empty string
+            parse_auth_acl_hook_order(AppEnvName, CSV);
+        _ ->
+            []
+    end.
+
+parse_auth_acl_hook_order(auth_order, CSV) ->
+    parse_auth_acl_hook_order(fun parse_auth_name/1, CSV);
+parse_auth_acl_hook_order(acl_order, CSV) ->
+    parse_auth_acl_hook_order(fun parse_acl_name/1, CSV);
+parse_auth_acl_hook_order(NameParser, CSV) when is_function(NameParser) ->
+    do_parse_auth_acl_hook_order(NameParser, string:tokens(CSV, ", ")).
+
+do_parse_auth_acl_hook_order(_, []) -> [];
+do_parse_auth_acl_hook_order(Parser, ["none" | Names]) ->
+    %% "none" is the default config value
+    do_parse_auth_acl_hook_order(Parser, Names);
+do_parse_auth_acl_hook_order(Parser, [Name0 | Names]) ->
+    Name = Parser(Name0),
+    [Name | do_parse_auth_acl_hook_order(Parser, Names)].
+
+%% NOTE: It's ugly to enumerate plugin names here.
+%% But it's the most straightforward way.
+parse_auth_name("http") -> "emqx_auth_http";
+parse_auth_name("jwt") -> "emqx_auth_jwt";
+parse_auth_name("ldap") -> "emqx_auth_ldap";
+parse_auth_name("mnesia") -> "emqx_auth_mnesia";
+parse_auth_name("mongodb") -> "emqx_auth_mongo";
+parse_auth_name("mongo") -> "emqx_auth_mongo";
+parse_auth_name("mysql") -> "emqx_auth_mysql";
+parse_auth_name("pgsql") -> "emqx_auth_pgsql";
+parse_auth_name("postgres") -> "emqx_auth_pgsql";
+parse_auth_name("redis") -> "emqx_auth_redis";
+parse_auth_name(Other) -> Other. %% maybe a user defined plugin or the module name directly
+
+parse_acl_name("file") -> "emqx_mod_acl_internal";
+parse_acl_name("internal") -> "emqx_mod_acl_internal";
+parse_acl_name("http") -> "emqx_acl_http";
+parse_acl_name("jwt") -> "emqx_auth_jwt"; %% this is not a typo, there is no emqx_acl_jwt module
+parse_acl_name("ldap") -> "emqx_acl_ldap";
+parse_acl_name("mnesia") -> "emqx_acl_mnesia";
+parse_acl_name("mongo") -> "emqx_acl_mongo";
+parse_acl_name("mongodb") -> "emqx_acl_mongo";
+parse_acl_name("mysql") -> "emqx_acl_mysql";
+parse_acl_name("pgsql") -> "emqx_acl_pgsql";
+parse_acl_name("postgres") -> "emqx_acl_pgsql";
+parse_acl_name("redis") -> "emqx_acl_redis";
+parse_acl_name(Other) -> Other. %% maybe a user defined plugin or the module name directly
+
 insert_hook(HookPoint, Callbacks) ->
-    ets:insert(?TAB, #hook{name = HookPoint, callbacks = Callbacks}), ok.
+    ets:insert(?TAB, #hook{name = HookPoint, callbacks = Callbacks}),
+    ok.
 
-add_callback(Orders, C, Callbacks) ->
-    add_callback(Orders, C, Callbacks, []).
+add_callbacks(_Order, [], Callbacks) ->
+    Callbacks;
+add_callbacks(Order, [C | More], Callbacks) ->
+    NewCallbacks = add_callback(Order, C, Callbacks),
+    add_callbacks(Order, More, NewCallbacks).
 
-add_callback(_Orders, C, [], Acc) ->
+add_callback(Order, C, Callbacks) ->
+    add_callback(Order, C, Callbacks, []).
+
+add_callback(_Order, C, [], Acc) ->
     lists:reverse([C|Acc]);
-add_callback(Orders, C1, [C2|More], Acc) ->
-    case is_lower_priority(Orders, C1, C2) of
+add_callback(Order, C1, [C2|More], Acc) ->
+    case is_lower_priority(Order, C1, C2) of
         true ->
-            add_callback(Orders, C1, More, [C2|Acc]);
+            add_callback(Order, C1, More, [C2|Acc]);
         false ->
             lists:append(lists:reverse(Acc), [C1, C2 | More])
     end.
@@ -310,41 +408,141 @@ del_callback(Action, [Callback | Callbacks], Acc) ->
 
 
 %% does A have lower priority than B?
-is_lower_priority(Orders,
+is_lower_priority(Order,
                   #callback{priority = PrA, action = ActA},
                   #callback{priority = PrB, action = ActB}) ->
-    OrdA = callback_order(Orders, ActA),
-    OrdB = callback_order(Orders, ActB),
-    case {OrdA, OrdB} of
-        %% if both action positions are not specified, use priority
-        {undefined, undefined} ->
+    PosA = callback_position(Order, ActA),
+    PosB = callback_position(Order, ActB),
+    case PosA =:= PosB of
+        true ->
+            %% When priority is equal, the new callback (A) goes after the existing (B) hence '=<'
             PrA =< PrB;
-        %% actions with specified positions have higher priority
-        {_OrdA, undefined} ->
+        false ->
+            %% When OrdA > OrdB the new callback (A) positioned after the exiting (B)
+            PosA > PosB
+    end.
+
+callback_position(Order, Callback) ->
+    M = callback_module(Callback),
+    find_list_item_position(Order, atom_to_list(M)).
+
+callback_module({M, _F, _A}) -> M;
+callback_module({F, _A}) when is_function(F) ->
+    {module, M} = erlang:fun_info(F, module),
+    M;
+callback_module(F) when is_function(F) ->
+    {module, M} = erlang:fun_info(F, module),
+    M.
+
+find_list_item_position(Order, Name) ->
+    find_list_item_position(Order, Name, 1).
+
+find_list_item_position([], _ModuleName, _N) ->
+    %% Not found, make sure it's ordered behind the found ones
+    ?UNKNOWN_ORDER;
+find_list_item_position([Prefix | Rest], ModuleName, N) ->
+    case is_prefix(Prefix, ModuleName) of
+        true ->
+            N;
+        false ->
+            find_list_item_position(Rest, ModuleName, N + 1)
+    end.
+
+is_prefix(Prefix, ModuleName) ->
+    case string:prefix(ModuleName, Prefix) of
+        nomatch ->
             false;
-        %% actions with specified positions have higher priority
-        {undefined, _OrdB} ->
-            true;
-        %% if both action positions are specified, the last one has the lower priority
-        _ ->
-            OrdA >= OrdB
+        _Sufix ->
+            true
     end.
 
-callback_orders(HookPoint) ->
-    case hook_orders() of
-        #{HookPoint := CallbackOrders} -> CallbackOrders;
-        _ -> #{}
-    end.
+-ifdef(TEST).
+add_priority_rules_test_() ->
+    [{ "high prio",
+       fun() ->
+               OrderString = "foo, bar",
+               Existing = [make_hook(0, emqx_acl_pgsql), make_hook(0, emqx_acl_mysql)],
+               New = make_hook(1, emqx_acl_mnesia),
+               Expected = [New | Existing],
+               ?assertEqual(Expected, test_add_acl(OrderString, New, Existing))
+       end},
+     { "low prio",
+       fun() ->
+               OrderString = "foo, bar",
+               Existing = [make_hook(0, emqx_auth_jwt), make_hook(0, emqx_acl_mongo)],
+               New = make_hook(-1, emqx_acl_mnesia),
+               Expected = Existing++ [New],
+               ?assertEqual(Expected, test_add_acl(OrderString, New, Existing))
+       end},
+     { "mid prio",
+       fun() ->
+               OrderString = "",
+               Existing = [make_hook(3, emqx_acl_http), make_hook(1, emqx_acl_redis)],
+               New = make_hook(2, emqx_acl_ldap),
+               Expected = [hd(Existing), New | tl(Existing)],
+               ?assertEqual(Expected, test_add_acl(OrderString, New, Existing))
+       end}
+    ].
 
-hook_orders() ->
-    case emqx:get_env(hook_order, #{}) of
-        Map when is_map(Map) -> Map;
-        _ -> #{}
-    end.
+add_order_rules_test_() ->
+    [{"initial add",
+       fun() ->
+               OrderString = "ldap,pgsql,file",
+               Existing = [],
+               New = make_hook(2, foo),
+               ?assertEqual([New], test_add_auth(OrderString, New, Existing))
+       end},
+     { "before",
+       fun() ->
+               OrderString = "mongodb,postgres,internal",
+               Existing = [make_hook(1, emqx_auth_pgsql), make_hook(3, emqx_auth_mysql)],
+               New = make_hook(2, emqx_auth_mongo),
+               Expected = [New | Existing],
+               ?assertEqual(Expected, test_add_auth(OrderString, New, Existing))
+       end},
+     { "after",
+       fun() ->
+               OrderString = "mysql,postgres,ldap",
+               Existing = [make_hook(1, emqx_auth_pgsql), make_hook(3, emqx_auth_mysql)],
+               New = make_hook(2, emqx_auth_ldap),
+               Expected = Existing ++ [New],
+               ?assertEqual(Expected, test_add_auth(OrderString, New, Existing))
+       end},
+     { "unknown goes after knowns",
+       fun() ->
+               OrderString = "mongo,mysql,,mnesia", %% ,, is intended to test empty string
+               Existing = [make_hook(1, emqx_auth_mnesia), make_hook(3, emqx_auth_mysql)],
+               New1 = make_hook(2, fun() -> foo end), %% fake hook
+               New2 = make_hook(3, {fun lists:append/1, []}), %% fake hook
+               Expected1 = Existing ++ [New1],
+               Expected2 = Existing ++ [New2, New1], %% 2 is before 1 due to higher prio
+               ?assertEqual(Expected1, test_add_auth(OrderString, New1, Existing)),
+               ?assertEqual(Expected2, test_add_auth(OrderString, New2, Expected1))
+       end},
+     { "known goes first",
+       fun() ->
+               OrderString = "redis,jwt",
+               Existing = [make_hook(1, emqx_auth_mnesia), make_hook(3, emqx_auth_mysql)],
+               Redis = make_hook(2, emqx_auth_redis),
+               Jwt = make_hook(2, emqx_auth_jwt),
+               Expected1 = [Redis | Existing],
+               ?assertEqual(Expected1, test_add_auth(OrderString, Redis, Existing)),
+               Expected2 = [Redis, Jwt | Existing],
+               ?assertEqual(Expected2, test_add_auth(OrderString, Jwt, Expected1))
+       end}
+    ].
 
-callback_order(Orders, {M, _F, _A}) ->
-    case Orders of
-        #{M := N} -> N;
-        _ -> undefined
-    end;
-callback_order(_Orders, _Action) -> undefined.
+make_hook(Priority, CallbackModule) when is_atom(CallbackModule) ->
+    #callback{priority = Priority, action = {CallbackModule, dummy, []}};
+make_hook(Priority, F) ->
+    #callback{priority = Priority, action = F}.
+
+test_add_acl(OrderString, NewHook, ExistingHooks) ->
+    Order = parse_auth_acl_hook_order(acl_order, OrderString),
+    add_callback(Order, NewHook, ExistingHooks).
+
+test_add_auth(OrderString, NewHook, ExistingHooks) ->
+    Order = parse_auth_acl_hook_order(auth_order, OrderString),
+    add_callback(Order, NewHook, ExistingHooks).
+
+-endif.
