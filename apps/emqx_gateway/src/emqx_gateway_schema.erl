@@ -250,7 +250,12 @@ fields(lwm2m) ->
             sc(
                 binary(),
                 #{
-                    default => emqx:etc_file("lwm2m_xml"),
+                    %% since this is not packaged with emqx, nor
+                    %% present in the packages, we must let the user
+                    %% specify it rather than creating a dynamic
+                    %% default (especially difficult to handle when
+                    %% generating docs).
+                    example => <<"/etc/emqx/lwm2m_xml">>,
                     required => true,
                     desc => ?DESC(lwm2m_xml_dir)
                 }
