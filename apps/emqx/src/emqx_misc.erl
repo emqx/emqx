@@ -52,7 +52,9 @@
     explain_posix/1,
     pmap/2,
     pmap/3,
-    readable_error_msg/1
+    readable_error_msg/1,
+    safe_to_existing_atom/1,
+    safe_to_existing_atom/2
 ]).
 
 -export([
@@ -463,6 +465,18 @@ nolink_apply(Fun, Timeout) when is_function(Fun, 0) ->
         exit(timeout)
     end.
 
+safe_to_existing_atom(In) ->
+    safe_to_existing_atom(In, utf8).
+
+safe_to_existing_atom(Bin, Encoding) when is_binary(Bin) ->
+    try_to_existing_atom(fun erlang:binary_to_existing_atom/2, [Bin, Encoding]);
+safe_to_existing_atom(List, _Encoding) when is_list(List) ->
+    try_to_existing_atom(fun erlang:list_to_existing_atom/1, [List]);
+safe_to_existing_atom(Atom, _Encoding) when is_atom(Atom) ->
+    {ok, Atom};
+safe_to_existing_atom(_Any, _Encoding) ->
+    {error, invalid_type}.
+
 %%------------------------------------------------------------------------------
 %% Internal Functions
 %%------------------------------------------------------------------------------
@@ -531,6 +545,14 @@ readable_error_msg(Error) ->
                 false ->
                     iolist_to_binary(io_lib:format("~0p", [Error]))
             end
+    end.
+
+try_to_existing_atom(Fun, Args) ->
+    try erlang:apply(Fun, Args) of
+        Atom ->
+            {ok, Atom}
+    catch
+        _:Reason -> {error, Reason}
     end.
 
 -ifdef(TEST).

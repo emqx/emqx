@@ -492,23 +492,16 @@ lookup_from_local_node(BridgeType, BridgeName) ->
             invalid ->
                 {400, error_msg('BAD_REQUEST', <<"invalid operation">>)};
             OperFunc ->
-                TargetNode = binary_to_atom(Node, utf8),
                 ConfMap = emqx:get_config([bridges, BridgeType, BridgeName]),
                 case maps:get(enable, ConfMap, false) of
                     false ->
                         {403,
                             error_msg(
-                                'FORBIDDEN_REQUEST', <<"forbidden operation: bridge disabled">>
+                                'FORBIDDEN_REQUEST',
+                                <<"forbidden operation: bridge disabled">>
                             )};
                     true ->
-                        case emqx_bridge_proto_v1:OperFunc(TargetNode, BridgeType, BridgeName) of
-                            ok ->
-                                {200};
-                            {error, timeout} ->
-                                {503, error_msg('SERVICE_UNAVAILABLE', <<"request timeout">>)};
-                            {error, Reason} ->
-                                {500, error_msg('INTERNAL_ERROR', Reason)}
-                        end
+                        call_operation(Node, OperFunc, BridgeType, BridgeName)
                 end
         end
     ).
@@ -707,3 +700,22 @@ bin(S) when is_atom(S) ->
     atom_to_binary(S, utf8);
 bin(S) when is_binary(S) ->
     S.
+
+call_operation(Node, OperFunc, BridgeType, BridgeName) ->
+    case emqx_misc:safe_to_existing_atom(Node, utf8) of
+        {ok, TargetNode} ->
+            case
+                emqx_bridge_proto_v1:OperFunc(
+                    TargetNode, BridgeType, BridgeName
+                )
+            of
+                ok ->
+                    {200};
+                {error, timeout} ->
+                    {503, error_msg('SERVICE_UNAVAILABLE', <<"request timeout">>)};
+                {error, Reason} ->
+                    {500, error_msg('INTERNAL_ERROR', Reason)}
+            end;
+        {error, _} ->
+            {400, error_msg('INVALID_NODE', <<"invalid node">>)}
+    end.
