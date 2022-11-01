@@ -55,13 +55,13 @@ runs:
           img_suffix="elixir-${{ inputs.arch }}"
           img_labels="org.opencontainers.image.elixir.version=${{ inputs.elixir }}\n${img_labels}"
         fi
-        if [ ${{ inputs.profile }} = "emqx" ]; then
+        if [ "${{ inputs.profile }}" = "emqx" ]; then
           img_labels="org.opencontainers.image.edition=Opensource\n${img_labels}"
         fi
-        if [ ${{ inputs.profile }} = "emqx-enterprise" ]; then
+        if [ "${{ inputs.profile }}" = "emqx-enterprise" ]; then
           img_labels="org.opencontainers.image.edition=Enterprise\n${img_labels}"
         fi
-        if [[ ${{ inputs.builder_base }} =~ "alpine" ]]; then
+        if [[ "${{ inputs.builder_base }}" =~ "alpine" ]]; then
           img_suffix="${img_suffix}-alpine"
         fi
         echo "emqx_name=${emqx_name}" >> $GITHUB_OUTPUT
