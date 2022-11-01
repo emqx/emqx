@@ -17,7 +17,7 @@ jobs:
       fail-fast: false
       matrix:
         otp:
-          - 24.1.5-3
+          - 24.3.4.2-1
         os:
           - ubuntu20.04
           - el8
@@ -32,7 +32,7 @@ jobs:
           - runs-on: aws-amd64
             use-self-hosted: false
 
-    container: ghcr.io/emqx/emqx-builder/4.4-19:${{ matrix.otp }}-${{ matrix.os }}
+    container: ghcr.io/emqx/emqx-builder/4.4-20:${{ matrix.otp }}-${{ matrix.os }}
 
     steps:
     - uses: actions/checkout@v1
@@ -78,7 +78,7 @@ jobs:
         profile:
           - emqx
         otp:
-          - 24.2.1
+          - 24.3.4.2
     steps:
     - uses: actions/checkout@v2
     - uses: ilammy/msvc-dev-cmd@v1
@@ -111,7 +111,7 @@ jobs:
       fail-fast: false
       matrix:
         otp:
-          - 24.1.5-3
+          - 24.3.4.2-1
         os:
           - macos-11
     runs-on: ${{ matrix.os }}

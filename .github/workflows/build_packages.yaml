@@ -21,7 +21,7 @@ jobs:
     if: endsWith(github.repository, 'emqx')
     runs-on: ubuntu-20.04
     # prepare source with any OTP version, no need for a matrix
-    container: ghcr.io/emqx/emqx-builder/4.4-19:24.1.5-3-ubuntu20.04
+    container: ghcr.io/emqx/emqx-builder/4.4-20:24.3.4.2-1-ubuntu20.04
     outputs:
       profiles: ${{ steps.detect-profiles.outputs.profiles}}
 
@@ -60,7 +60,7 @@ jobs:
       matrix:
         profile: ${{fromJSON(needs.prepare.outputs.profiles)}}
         otp:
-          - 24.2.1
+          - 24.3.4.2
         exclude:
           - profile: emqx-edge
     steps:
@@ -108,7 +108,7 @@ jobs:
       fail-fast: false
       matrix:
         otp:
-          - 24.1.5-3
+          - 24.3.4.2-1
         os:
           - macos-11
     runs-on: ${{ matrix.os }}
@@ -153,7 +153,7 @@ jobs:
           - zip
           - pkg
         otp:
-          - 24.1.5-3
+          - 24.3.4.2-1
         arch:
           - amd64
           - arm64
@@ -210,7 +210,7 @@ jobs:
           --profile "${PROFILE}" \
           --pkgtype "${PACKAGE}" \
           --arch "${ARCH}" \
-          --builder "ghcr.io/emqx/emqx-builder/4.4-19:${OTP}-${SYSTEM}"
+          --builder "ghcr.io/emqx/emqx-builder/4.4-20:${OTP}-${SYSTEM}"
     - uses: actions/upload-artifact@v1
       with:
         name: ${{ matrix.profile }}-${{ matrix.otp }}
@@ -225,7 +225,7 @@ jobs:
       matrix:
         profile: ${{fromJSON(needs.prepare.outputs.profiles)}}
         otp:
-          - 24.1.5-3
+          - 24.3.4.2-1
         registry:
           - 'docker.io'
           - 'public.ecr.aws'
@@ -286,7 +286,7 @@ jobs:
         tags: ${{ steps.meta.outputs.tags }}
         labels: ${{ steps.meta.outputs.labels }}
         build-args: |
-          BUILD_FROM=ghcr.io/emqx/emqx-builder/4.4-19:${{ matrix.otp }}-alpine3.15.1
+          BUILD_FROM=ghcr.io/emqx/emqx-builder/4.4-20:${{ matrix.otp }}-alpine3.15.1
           RUN_FROM=alpine:3.15.1
           EMQX_NAME=${{ matrix.profile }}
         file: source/deploy/docker/Dockerfile
@@ -302,7 +302,7 @@ jobs:
         tags: ${{ steps.meta.outputs.tags }}
         labels: ${{ steps.meta.outputs.labels }}
         build-args: |
-          BUILD_FROM=ghcr.io/emqx/emqx-builder/4.4-19:${{ matrix.otp }}-alpine3.15.1
+          BUILD_FROM=ghcr.io/emqx/emqx-builder/4.4-20:${{ matrix.otp }}-alpine3.15.1
           RUN_FROM=alpine:3.15.1
           EMQX_NAME=${{ matrix.profile }}
         file: source/deploy/docker/Dockerfile.enterprise
@@ -320,7 +320,7 @@ jobs:
       matrix:
         profile: ${{fromJSON(needs.prepare.outputs.profiles)}}
         otp:
-          - 24.1.5-3
+          - 24.3.4.2-1
         include:
           - profile: emqx
             otp: windows # otp version on windows is rather fixed
