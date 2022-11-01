@@ -54,7 +54,7 @@ groups() ->
      {overview, [sequence], [t_overview]},
      {admins, [sequence], [t_admins_add_delete, t_admins_persist_default_password, t_default_password_persists_after_leaving_cluster]},
      {rest, [sequence], [t_rest_api]},
-     {cli, [sequence], [t_cli]}
+     {cli, [sequence], [t_cli, t_start_listener_failed_log]}
     ].
 
 init_per_suite(Config) ->
@@ -236,6 +236,21 @@ t_cli(_Config) ->
     emqx_dashboard_cli:admins(["add", "admin2", "passw2"]),
     AdminList = emqx_dashboard_admin:all_users(),
     ?assertEqual(2, length(AdminList)).
+
+t_start_listener_failed_log({init, Config}) ->
+    _ = application:stop(emqx_dashboard),
+    Config;
+t_start_listener_failed_log({'end', _Config}) ->
+    _ = application:start(emqx_dashboard),
+    ok;
+t_start_listener_failed_log(_Config) ->
+    ct:capture_start(),
+    Options = [{num_acceptors,4}, {max_connections,512}, {inet6,false}, {ipv6_v6only,false}],
+    ?assertError(_, emqx_dashboard:start_listener({http, {"1.1.1.1", 8080}, Options})),
+    ct:capture_stop(),
+    I0 = ct:capture_get(),
+    ?assertMatch({match, _}, re:run(iolist_to_binary(I0), "eaddrnotavail", [])),
+    ok.
 
 %%------------------------------------------------------------------------------
 %% Internal functions

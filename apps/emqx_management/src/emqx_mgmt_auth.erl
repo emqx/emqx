@@ -35,6 +35,7 @@
         , update_app/5
         , del_app/1
         , list_apps/0
+        , init_bootstrap_apps/0
         ]).
 
 %% APP Auth/ACL API
@@ -43,6 +44,8 @@
 -define(APP, emqx_management).
 
 -record(mqtt_app, {id, secret, name, desc, status, expired}).
+
+-define(BOOTSTRAP_TAG, <<"Bootstrapped From File">>).
 
 -type(appid() :: binary()).
 
@@ -75,6 +78,68 @@ add_default_app() ->
             AppId1 = erlang:list_to_binary(AppId),
             AppSecret1 = erlang:list_to_binary(AppSecret),
             add_app(AppId1, <<"Default">>, AppSecret1, <<"Application user">>, true, undefined)
+    end.
+
+init_bootstrap_apps() ->
+    Bootstrap = application:get_env(emqx_management, bootstrap_apps_file, undefined),
+    Size = mnesia:table_info(mqtt_app, size),
+    init_bootstrap_apps(Bootstrap, Size).
+
+init_bootstrap_apps(undefined, _) -> ok;
+init_bootstrap_apps(_File, Size)when Size > 0 -> ok;
+init_bootstrap_apps(File, 0) ->
+    case file:open(File, [read, binary]) of
+        {ok, Dev} ->
+            {ok, MP} = re:compile(<<"(\.+):(\.+$)">>, [ungreedy]),
+            case init_bootstrap_apps(File, Dev, MP) of
+                ok -> ok;
+                Error ->
+                    %% if failed add bootstrap users, we should clear all bootstrap apps
+                    {atomic, ok} = mnesia:clear_table(mqtt_app),
+                    Error
+            end;
+        {error, Reason} = Error ->
+            ?LOG(error,
+                "failed to open the mgmt bootstrap apps file(~s) for ~p",
+                [File, Reason]
+            ),
+            Error
+    end.
+
+init_bootstrap_apps(File, Dev, MP) ->
+    try
+        add_bootstrap_app(File, Dev, MP, 1)
+    catch
+        throw:Error -> {error, Error};
+        Type:Reason:Stacktrace ->
+            {error, {Type, Reason, Stacktrace}}
+    after
+        file:close(Dev)
+    end.
+
+add_bootstrap_app(File, Dev, MP, Line) ->
+    case file:read_line(Dev) of
+        {ok, Bin} ->
+            case re:run(Bin, MP, [global, {capture, all_but_first, binary}]) of
+                {match, [[AppId, AppSecret]]} ->
+                    Name = <<"bootstraped">>,
+                    case add_app(AppId, Name, AppSecret, ?BOOTSTRAP_TAG, true, undefined) of
+                        {ok, _} ->
+                            add_bootstrap_app(File, Dev, MP, Line + 1);
+                        {error, Reason} ->
+                            throw(#{file => File, line => Line, content => Bin, reason => Reason})
+                    end;
+                _ ->
+                    ?LOG(error,
+                        "failed to bootstrap apps file(~s) for Line(~w): ~ts",
+                        [File, Line, Bin]
+                    ),
+                    throw(#{file => File, line => Line, content => Bin, reason => "invalid format"})
+            end;
+        eof ->
+            ok;
+        {error, Error} ->
+            throw(#{file => File, line => Line, reason => Error})
     end.
 
 -spec(add_app(appid(), binary()) -> {ok, appsecret()} | {error, term()}).

@@ -45,7 +45,7 @@ jobs:
       with:
         # dialyzer PLTs
         path: ~/.cache/rebar3/
-        key: dialyer-${{ matrix.otp }}
+        key: dialyzer-${{ matrix.otp }}
     - name: make xref
       run: make xref
     - name: make dialyzer
