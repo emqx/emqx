@@ -16,6 +16,7 @@
 
 -module(emqx_quic_connection).
 
+-include("logger.hrl").
 -ifndef(BUILD_WITHOUT_QUIC).
 -include_lib("quicer/include/quicer.hrl").
 -else.
@@ -40,37 +41,50 @@
     new_stream/3
 ]).
 
--type cb_state() :: map().
--type cb_ret() :: ok.
+-type cb_state() :: #{
+    ctrl_pid := undefined | pid(),
+    conn := undefined | quicer:conneciton_hanlder(),
+    stream_opts := map(),
+    is_resumed => boolean(),
+    _ => _
+}.
+-type cb_ret() :: quicer_lib:cb_ret().
 
--spec init(map() | list()) -> cb_state().
-
+-spec init(map() | list()) -> {ok, cb_state()}.
 init(ConnOpts) when is_list(ConnOpts) ->
     init(maps:from_list(ConnOpts));
 init(#{stream_opts := SOpts} = S) when is_list(SOpts) ->
     init(S#{stream_opts := maps:from_list(SOpts)});
 init(ConnOpts) when is_map(ConnOpts) ->
-    {ok, ConnOpts}.
+    {ok, init_cb_state(ConnOpts)}.
 
 -spec closed(quicer:conneciton_hanlder(), quicer:conn_closed_props(), cb_state()) ->
-    {ok, cb_state()} | {error, any()}.
-closed(_Conn, #{is_peer_acked := true}, S) ->
-    {stop, normal, S};
-closed(_Conn, #{is_peer_acked := false}, S) ->
-    {stop, abnorml, S}.
+    {stop, normal, cb_state()}.
+closed(_Conn, #{is_peer_acked := _} = Prop, S) ->
+    ?SLOG(debug, Prop),
+    {stop, normal, S}.
 
 -spec new_conn(quicer:connection_handler(), quicer:new_conn_props(), cb_state()) ->
     {ok, cb_state()} | {error, any()}.
-new_conn(Conn, #{version := _Vsn}, #{zone := Zone} = S) ->
+new_conn(
+    Conn,
+    #{version := _Vsn} = ConnInfo,
+    #{zone := Zone, conn := undefined, ctrl_pid := undefined} = S
+) ->
     process_flag(trap_exit, true),
+    ?SLOG(debug, ConnInfo),
     case emqx_olp:is_overloaded() andalso is_zone_olp_enabled(Zone) of
         false ->
-            {ok, Pid} = emqx_connection:start_link(emqx_quic_stream, {self(), Conn}, S),
+            {ok, Pid} = emqx_connection:start_link(
+                emqx_quic_stream,
+                {self(), Conn, maps:without([crypto_buffer], ConnInfo)},
+                S
+            ),
             receive
                 {Pid, stream_acceptor_ready} ->
                     ok = quicer:async_handshake(Conn),
-                    {ok, S#{conn => Conn}};
-                {'EXIT', Pid, _Reason} ->
+                    {ok, S#{conn := Conn, ctrl_pid := Pid}};
+                {'EXIT', _Pid, _Reason} ->
                     {error, stream_accept_error}
             end;
         true ->
@@ -80,10 +94,12 @@ new_conn(Conn, #{version := _Vsn}, #{zone := Zone} = S) ->
 
 -spec connected(quicer:connection_handler(), quicer:connected_props(), cb_state()) ->
     {ok, cb_state()} | {error, any()}.
-connected(Conn, _Props, #{slow_start := false} = S) ->
+connected(Conn, Props, #{slow_start := false} = S) ->
+    ?SLOG(debug, Props),
     {ok, _Pid} = emqx_connection:start_link(emqx_quic_stream, Conn, S),
     {ok, S};
-connected(_Conn, _Props, S) ->
+connected(_Conn, Props, S) ->
+    ?SLOG(debug, Props),
     {ok, S}.
 
 -spec resumed(quicer:connection_handle(), SessionData :: binary() | false, cb_state()) -> cb_ret().
@@ -92,10 +108,11 @@ resumed(Conn, Data, #{resumed_callback := ResumeFun} = S) when
 ->
     ResumeFun(Conn, Data, S);
 resumed(_Conn, _Data, S) ->
-    {ok, S}.
+    {ok, S#{is_resumed := true}}.
 
 -spec nst_received(quicer:connection_handle(), TicketBin :: binary(), cb_state()) -> cb_ret().
 nst_received(_Conn, _Data, S) ->
+    %% As server we should not recv NST!
     {stop, no_nst_for_server, S}.
 
 -spec new_stream(quicer:stream_handle(), quicer:new_stream_props(), cb_state()) -> cb_ret().
@@ -116,14 +133,17 @@ new_stream(
         Other ->
             Other
     end.
+
 -spec shutdown(quicer:connection_handle(), quicer:error_code(), cb_state()) -> cb_ret().
 shutdown(Conn, _ErrorCode, S) ->
+    %% @TODO check spec what to do with the ErrorCode?
     quicer:async_shutdown_connection(Conn, ?QUIC_CONNECTION_SHUTDOWN_FLAG_NONE, 0),
     {ok, S}.
 
 -spec transport_shutdown(quicer:connection_handle(), quicer:transport_shutdown_props(), cb_state()) ->
     cb_ret().
 transport_shutdown(_C, _DownInfo, S) ->
+    %% @TODO some counter
     {ok, S}.
 
 -spec peer_address_changed(quicer:connection_handle(), quicer:quicer_addr(), cb_state) -> cb_ret().
@@ -140,14 +160,21 @@ local_address_changed(_C, _NewAddr, S) ->
     {BidirStreams :: non_neg_integer(), UnidirStreams :: non_neg_integer()},
     cb_state()
 ) -> cb_ret().
-streams_available(_C, {_BidirCnt, _UnidirCnt}, S) ->
-    {ok, S}.
+streams_available(_C, {BidirCnt, UnidirCnt}, S) ->
+    {ok, S#{
+        peer_bidi_stream_count => BidirCnt,
+        peer_unidi_stream_count => UnidirCnt
+    }}.
 
 -spec peer_needs_streams(quicer:connection_handle(), undefined, cb_state()) -> cb_ret().
+%% @TODO this is not going to get triggered.
 %% for https://github.com/microsoft/msquic/issues/3120
 peer_needs_streams(_C, undefined, S) ->
     {ok, S}.
 
+%%%
+%%%  Internals
+%%%
 -spec is_zone_olp_enabled(emqx_types:zone()) -> boolean().
 is_zone_olp_enabled(Zone) ->
     case emqx_config:get_zone_conf(Zone, [overload_protection]) of
@@ -156,3 +183,10 @@ is_zone_olp_enabled(Zone) ->
         _ ->
             false
     end.
+
+-spec init_cb_state(map()) -> cb_state().
+init_cb_state(Map) ->
+    Map#{
+        ctrl_pid => undefined,
+        conn => undefined
+    }.
