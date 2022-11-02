@@ -32,11 +32,11 @@
 all() -> emqx_ct:all(?MODULE).
 
 init_per_suite(Config) ->
-    emqx_ct_helpers:start_apps([]),
+    emqx_ct_helpers:start_apps([emqx]),
     Config.
 
 end_per_suite(_Config) ->
-    emqx_ct_helpers:stop_apps([]),
+    emqx_ct_helpers:stop_apps([emqx]),
     ok.
 %%--------------------------------------------------------------------
 %% Testcases
@@ -45,10 +45,14 @@ t_takeover(_) ->
     process_flag(trap_exit, true),
     AllMsgs = messages(?CNT),
     Pos = rand:uniform(?CNT),
-
     ClientId = <<"clientid">>,
-    {ok, C1} = emqtt:start_link([{clientid, ClientId}, {clean_start, false}]),
-    {ok, _} = emqtt:connect(C1),
+    C1 =
+        with_retry(
+          fun() ->
+              {ok, C} = emqtt:start_link([{clientid, ClientId}, {clean_start, false}]),
+              {ok, _} = emqtt:connect(C),
+              C
+          end, 5),
     emqtt:subscribe(C1, <<"t">>, 1),
 
     spawn(fun() ->
@@ -78,11 +82,18 @@ t_takeover(_) ->
     emqtt:disconnect(C2),
     unload_meck(ClientId).
 
-t_takover_in_cluster(_) ->
-    todo.
-
 %%--------------------------------------------------------------------
 %% Helpers
+
+with_retry(Fun, 1) -> Fun();
+with_retry(Fun, N) when N > 1 ->
+    try
+        Fun()
+    catch
+        _ : _ ->
+            ct:sleep(1000),
+            with_retry(Fun, N - 1)
+    end.
 
 load_meck(ClientId) ->
     meck:new(fake_conn_mod, [non_strict]),
