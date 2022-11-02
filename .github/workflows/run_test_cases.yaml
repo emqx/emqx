@@ -30,8 +30,9 @@ jobs:
         working-directory: source
         id: run_find_apps
         # emqx_plugin_libs doesn't have a test suite -> excluded from app list
+        # emqx ct is run independently -> exclude it from the app list
         run: |
-          ct_apps="$(./scripts/find-apps.sh --json | jq -c 'del (.[] | select (. == "apps/emqx_plugin_libs"))')"
+          ct_apps="$(./scripts/find-apps.sh --json | jq -c 'del (.[] | select (. == "apps/emqx_plugin_libs" or . ==  "emqx"))')"
           echo "ct-apps: $ct_apps"
           echo "ct_apps=$ct_apps" >> $GITHUB_OUTPUT
       - name: get_all_deps
@@ -71,6 +72,28 @@ jobs:
       - uses: actions/upload-artifact@v3
         with:
           name: cover-${{ matrix.task }}
+          path: source/_build/test/cover
+
+  emqx_ct:
+    needs: prepare
+    runs-on: ubuntu-20.04
+    container: emqx/build-env:erl23.3.4.9-3-ubuntu20.04
+    strategy:
+      fail-fast: false
+    steps:
+      - uses: AutoModality/action-clean@v1
+      - uses: actions/download-artifact@v3
+        with:
+          name: source
+          path: .
+      - name: unzip source code
+        run: unzip -o -q source.zip
+      - name: emqx-ct-pipeline
+        working-directory: source
+        run: make emqx-ct-pipeline
+      - uses: actions/upload-artifact@v3
+        with:
+          name: cover-emqx-ct-pipeline
           path: source/_build/test/cover
 
   ct:
@@ -201,6 +224,7 @@ jobs:
   make_cover:
     needs:
       - eunit_and_proper
+      - emqx_ct
       - ct
     runs-on: ubuntu-20.04
     container: emqx/build-env:erl23.3.4.9-3-ubuntu20.04
