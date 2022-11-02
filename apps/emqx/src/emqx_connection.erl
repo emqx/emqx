@@ -14,7 +14,7 @@
 %% limitations under the License.
 %%--------------------------------------------------------------------
 
-%% MQTT/TCP|TLS Connection
+%% MQTT/TCP|TLS Connection|QUIC Stream
 -module(emqx_connection).
 
 -include("emqx.hrl").
@@ -189,12 +189,16 @@
     ]}
 ).
 
--spec start_link(
-    esockd:transport(),
-    esockd:socket() | {pid(), quicer:connection_handler()},
-    emqx_channel:opts()
-) ->
-    {ok, pid()}.
+-spec start_link
+    (esockd:transport(), esockd:socket(), emqx_channel:opts()) ->
+        {ok, pid()};
+    (
+        emqx_quic_stream,
+        {ConnOwner :: pid(), quicer:connection_handler(), quicer:new_conn_props()},
+        emqx_quic_connection:cb_state()
+    ) ->
+        {ok, pid()}.
+
 start_link(Transport, Socket, Options) ->
     Args = [self(), Transport, Socket, Options],
     CPid = proc_lib:spawn_link(?MODULE, init, Args),
@@ -324,6 +328,7 @@ init_state(
     Limiter = emqx_limiter_container:get_limiter_by_types(Listener, LimiterTypes, LimiterCfg),
 
     FrameOpts = #{
+        %% @TODO:q what is strict_mode?
         strict_mode => emqx_config:get_zone_conf(Zone, [mqtt, strict_mode]),
         max_size => emqx_config:get_zone_conf(Zone, [mqtt, max_packet_size])
     },
@@ -476,7 +481,9 @@ process_msg([Msg | More], State) ->
             {ok, Msgs, NState} ->
                 process_msg(append_msg(More, Msgs), NState);
             {stop, Reason, NState} ->
-                {stop, Reason, NState}
+                {stop, Reason, NState};
+            {stop, Reason} ->
+                {stop, Reason, State}
         end
     catch
         exit:normal ->
@@ -507,7 +514,6 @@ append_msg(Q, Msg) ->
 
 %%--------------------------------------------------------------------
 %% Handle a Msg
-
 handle_msg({'$gen_call', From, Req}, State) ->
     case handle_call(From, Req, State) of
         {reply, Reply, NState} ->
@@ -747,6 +753,7 @@ when_bytes_in(Oct, Data, State) ->
         NState
     ).
 
+%% @doc: return a reversed Msg list
 -compile({inline, [next_incoming_msgs/3]}).
 next_incoming_msgs([Packet], Msgs, State) ->
     {ok, [{incoming, Packet} | Msgs], State};
@@ -892,6 +899,8 @@ handle_info({sock_error, Reason}, State) ->
         false -> ok
     end,
     handle_info({sock_closed, Reason}, close_socket(State));
+handle_info({quic, Event, Handle, Prop}, State) ->
+    emqx_quic_stream:Event(Handle, Prop, State);
 %% handle_info({quic, peer_send_shutdown, _Stream}, State) ->
 %%     handle_info({sock_closed, force}, close_socket(State));
 %% handle_info({quic, closed, _Channel, ReasonFlag}, State) ->
