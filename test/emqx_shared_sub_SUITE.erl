@@ -51,7 +51,7 @@ init_per_suite(Config) ->
     PortDiscovery = application:get_env(gen_rpc, port_discovery),
     application:set_env(gen_rpc, port_discovery, stateless),
     application:ensure_all_started(gen_rpc),
-    %% ensure emqx_moduels' app modules are loaded
+    %% ensure emqx_modules app modules are loaded
     %% so the mnesia tables are created
     ok = load_app(emqx_modules),
     emqx_ct_helpers:start_apps([]),
