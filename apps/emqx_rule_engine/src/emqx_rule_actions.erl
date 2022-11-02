@@ -163,7 +163,7 @@ on_action_create_republish(Id, Params = #{
        }) ->
     TargetRetain = to_retain(maps:get(<<"target_retain">>, Params, <<"false">>)),
     TargetQoS = to_qos(TargetQoS0),
-    TopicTks = emqx_rule_utils:preproc_tmpl(TargetTopic),
+    TopicTks = emqx_rule_utils:preproc_tmpl(topic(TargetTopic)),
     PayloadTks = emqx_rule_utils:preproc_tmpl(PayloadTmpl),
     Params.
 
@@ -269,6 +269,12 @@ to_qos(TargetQoS) ->
 get_qos(-1, _Data, Default) -> Default;
 get_qos(TargetQoS, Data, _Default) ->
     qos(emqx_rule_utils:replace_var(TargetQoS, Data)).
+
+topic(T) ->
+    case emqx_topic:wildcard(T) of
+        true -> error({bad_topic, T});
+        false -> T
+    end.
 
 qos(<<"0">>) ->  0;
 qos(<<"1">>) ->  1;

@@ -494,7 +494,7 @@ on_action_create_data_to_mqtt_broker(ActId, Opts = #{<<"pool">> := PoolName,
     PayloadTks = emqx_rule_utils:preproc_tmpl(PayloadTmpl),
     TopicTks = case ForwardTopic == <<"">> of
         true -> undefined;
-        false -> emqx_rule_utils:preproc_tmpl(ForwardTopic)
+        false -> emqx_rule_utils:preproc_tmpl(topic(ForwardTopic))
     end,
     Opts.
 
@@ -506,7 +506,7 @@ on_action_data_to_mqtt_broker(Msg, _Env =
                                     'PoolName' := PoolName,
                                     'TopicTks' := TopicTks,
                                     'PayloadTks' := PayloadTks
-                                }}) ->
+                                }, metadata := Metadata}) ->
     Topic1 = case TopicTks =:= undefined of
         true -> Topic;
         false -> emqx_rule_utils:proc_tmpl(TopicTks, Msg)
@@ -518,11 +518,21 @@ on_action_data_to_mqtt_broker(Msg, _Env =
                          topic = Topic1,
                          payload = format_data(PayloadTks, Msg),
                          timestamp = TimeStamp},
-    ecpool:with_client(PoolName,
-      fun(BridgePid) ->
-        BridgePid ! {deliver, rule_engine, BrokerMsg}
-      end),
-    emqx_rule_metrics:inc_actions_success(ActId).
+    case emqx_topic:wildcard(Topic1) of
+        true ->
+            ?LOG_RULE_ACTION(
+               warning,
+               Metadata,
+               "[bridge_mqtt] invalid target topic: ~p",
+               [Topic1]),
+            emqx_rule_metrics:inc_actions_error(ActId);
+        false ->
+            ecpool:with_client(PoolName,
+                fun(BridgePid) ->
+                        BridgePid ! {deliver, rule_engine, BrokerMsg}
+                end),
+            emqx_rule_metrics:inc_actions_success(ActId)
+    end.
 
 format_data([], Msg) ->
     emqx_json:encode(Msg);
@@ -582,8 +592,8 @@ options(Options, PoolName, ResId) ->
     GetD = fun(Key, Default) -> maps:get(Key, Options, Default) end,
     Get = fun(Key) -> GetD(Key, undefined) end,
     Address = Get(<<"address">>),
+    Mountpoint = Get(<<"mountpoint">>),
     [{max_inflight_batches, 32},
-     {forward_mountpoint, str(Get(<<"mountpoint">>))},
      {disk_cache, cuttlefish_flag:parse(str(GetD(<<"disk_cache">>, "off")))},
      {start_type, auto},
      {reconnect_delay_ms, cuttlefish_duration:parse(str(Get(<<"reconnect_interval">>)), ms)},
@@ -608,7 +618,19 @@ options(Options, PoolName, ResId) ->
                   {proto_ver, mqtt_ver(Get(<<"proto_ver">>))},
                   {retry_interval, cuttlefish_duration:parse(str(GetD(<<"retry_interval">>, "30s")), s)}
                   | maybe_ssl(Options, Get(<<"ssl">>), ResId)]
-         end.
+         end ++
+        case emqx_topic:wildcard(Mountpoint) of
+            false ->
+                [{forward_mountpoint, str(Mountpoint)}];
+            true ->
+                error({{?RESOURCE_TYPE_MQTT, ResId}, mountpoint_contains_wildcard})
+        end.
+
+topic(T) ->
+    case emqx_topic:wildcard(T) of
+        true -> error({bad_topic, T});
+        false -> T
+    end.
 
 maybe_ssl(_Options, false, _ResId) ->
     [];

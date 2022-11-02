@@ -88,5 +88,3 @@ cli(_) ->
                     {"bridges subscriptions <Name>", "Show a bridge subscriptions topic"},
                     {"bridges add-subscription <Name> <Topic> <Qos>", "Add bridge subscriptions topic"},
                     {"bridges del-subscription <Name> <Topic>", "Delete bridge subscriptions topic"}]).
-
-
