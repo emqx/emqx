@@ -196,12 +196,6 @@ jobs:
           done
       - name: run common test
         run: docker exec -i erlang bash -c "make ${{ matrix.app_name }}-ct-pipeline"
-      - name: run cover
-        run: |
-          printenv > .env
-          docker exec -i erlang bash -c "git config --global --add safe.directory /emqx"
-          docker exec -i erlang bash -c "make cover"
-          docker exec --env-file .env -i erlang bash -c "make coveralls"
       - name: cat rebar.crashdump
         if: failure()
         working-directory: source
