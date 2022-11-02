@@ -40,8 +40,10 @@
     new_stream/3
 ]).
 
--type cb_state() :: map() | proplists:proplist().
+-type cb_state() :: map().
 -type cb_ret() :: ok.
+
+-spec init(map() | list()) -> cb_state().
 
 init(ConnOpts) when is_list(ConnOpts) ->
     init(maps:from_list(ConnOpts));
@@ -50,6 +52,8 @@ init(#{stream_opts := SOpts} = S) when is_list(SOpts) ->
 init(ConnOpts) when is_map(ConnOpts) ->
     {ok, ConnOpts}.
 
+-spec closed(quicer:conneciton_hanlder(), quicer:conn_closed_props(), cb_state()) ->
+    {ok, cb_state()} | {error, any()}.
 closed(_Conn, #{is_peer_acked := true}, S) ->
     {stop, normal, S};
 closed(_Conn, #{is_peer_acked := false}, S) ->
