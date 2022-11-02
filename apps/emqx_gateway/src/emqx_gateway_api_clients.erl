@@ -115,15 +115,19 @@ clients(get, #{
                         ?QUERY_FUN
                     );
                 Node0 ->
-                    Node1 = binary_to_atom(Node0, utf8),
-                    QStringWithoutNode = maps:without([<<"node">>], QString),
-                    emqx_mgmt_api:node_query(
-                        Node1,
-                        QStringWithoutNode,
-                        TabName,
-                        ?CLIENT_QSCHEMA,
-                        ?QUERY_FUN
-                    )
+                    case emqx_misc:safe_to_existing_atom(Node0) of
+                        {ok, Node1} ->
+                            QStringWithoutNode = maps:without([<<"node">>], QString),
+                            emqx_mgmt_api:node_query(
+                                Node1,
+                                QStringWithoutNode,
+                                TabName,
+                                ?CLIENT_QSCHEMA,
+                                ?QUERY_FUN
+                            );
+                        {error, _} ->
+                            {error, Node0, {badrpc, <<"invalid node">>}}
+                    end
             end,
         case Result of
             {error, page_limit_invalid} ->

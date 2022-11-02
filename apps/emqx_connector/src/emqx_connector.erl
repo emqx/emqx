@@ -78,9 +78,10 @@ connector_id(Type0, Name0) ->
     Name = bin(Name0),
     <<Type/binary, ":", Name/binary>>.
 
+-spec parse_connector_id(binary() | list() | atom()) -> {atom(), binary()}.
 parse_connector_id(ConnectorId) ->
     case string:split(bin(ConnectorId), ":", all) of
-        [Type, Name] -> {binary_to_atom(Type, utf8), binary_to_atom(Name, utf8)};
+        [Type, Name] -> {binary_to_atom(Type, utf8), Name};
         _ -> error({invalid_connector_id, ConnectorId})
     end.
 
