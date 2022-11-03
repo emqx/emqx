@@ -277,7 +277,7 @@ create_resource(#{type := Type, config := Config0} = Params, Retry) ->
                     _ = try ?CLUSTER_CALL(init_resource_with_retrier, InitArgs, ok,
                                           init_resource, InitArgs)
                     catch throw : Reason ->
-                        ?LOG(error, "create_resource failed: ~0p", [Reason])
+                        ?LOG_SENSITIVE(warning, "create_resource failed: ~0p", [Reason])
                     end,
                     {ok, Resource};
                 no_retry ->
@@ -285,6 +285,7 @@ create_resource(#{type := Type, config := Config0} = Params, Retry) ->
                         _ = ?CLUSTER_CALL(init_resource, InitArgs),
                         {ok, Resource}
                     catch throw : Reason ->
+                        ?LOG_SENSITIVE(error, "create_resource failed: ~0p", [Reason]),
                         {error, Reason}
                     end
             end;
