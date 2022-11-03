@@ -40,7 +40,8 @@
 -export([
     api_spec/0,
     paths/0,
-    schema/1
+    schema/1,
+    fields/1
 ]).
 
 -export([
@@ -63,6 +64,9 @@ paths() ->
         "/authorization/sources/:type/move"
     ].
 
+fields(sources) ->
+    [{sources, mk(array(hoconsc:union(authz_sources_type_refs())), #{desc => ?DESC(sources)})}].
+
 %%--------------------------------------------------------------------
 %% Schema for each URI
 %%--------------------------------------------------------------------
@@ -75,10 +79,7 @@ schema("/authorization/sources") ->
                 tags => ?TAGS,
                 responses =>
                     #{
-                        200 => mk(
-                            array(hoconsc:union(authz_sources_type_refs())),
-                            #{desc => ?DESC(sources)}
-                        )
+                        200 => ref(?MODULE, sources)
                     }
             },
         post =>
