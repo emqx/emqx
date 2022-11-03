@@ -105,11 +105,20 @@ set_special_auth_module() ->
         Mod ->
             case erlang:function_exported(Mod, check_authn, 2) of
                 true ->
+                    Priority = authn_module_priority(Mod),
                     persistent_term:put(special_auth_module, Mod),
-                    emqx:hook('client.authenticate', fun Mod:check_authn/2, []);
+                    emqx:hook('client.authenticate', fun Mod:check_authn/2, Priority);
                 false ->
                     ok
             end
+    end.
+
+authn_module_priority(Mod) ->
+    try
+        Mod:authn_priority()
+    catch
+        _:_ ->
+            10_000
     end.
 
 %%--------------------------------------------------------------------
