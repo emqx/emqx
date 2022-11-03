@@ -46,11 +46,30 @@ reload_components() ->
     ?INFO("reloading module providers ..."),
     emqx_modules:load_providers(),
     ?INFO("loading plugins ..."),
-    emqx_plugins:load().
+    _ = load_plugins(),
+    %% upgrade from e4.3.0~4.3.4 to >=4.3.5 requires persistent default modules after upgrade.
+    %% because the emqx_modules' env is lost when pre_upgrade.
+    %% must after emqx_modules plugin load(for loading emqx_modules' env)
+    case erlang:function_exported(emqx_modules, persistent_default_modules, 0) of
+        true ->
+            ?INFO("persistent default modules ..."),
+            emqx_modules:persistent_default_modules();
+        false -> ok
+    end,
+    ok.
+
 -else.
 reload_components() ->
     ?INFO("reloading resource providers ..."),
     emqx_rule_engine:load_providers(),
     ?INFO("loading plugins ..."),
-    emqx_plugins:load().
+    load_plugins(),
+    ok.
+
 -endif.
+
+load_plugins() ->
+    case erlang:function_exported(emqx_plugins, force_load, 0) of
+        true -> emqx_plugins:force_load();
+        false -> emqx_plugins:load()
+    end.
