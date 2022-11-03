@@ -73,9 +73,11 @@ is_expired(JWT) ->
 %%-----------------------------------------------------------------------------
 
 t_create_success(_Config) ->
-    Ref = alias([reply]),
     Config = generate_config(),
-    ?assertMatch({ok, _}, emqx_rule_engine_jwt_worker:start_link(Config, Ref)),
+    Res = emqx_rule_engine_jwt_worker:start_link(Config),
+    ?assertMatch({ok, _}, Res),
+    {ok, Worker} = Res,
+    Ref = emqx_rule_engine_jwt_worker:ensure_jwt(Worker),
     receive
         {Ref, token_created} ->
             ok
@@ -87,41 +89,40 @@ t_create_success(_Config) ->
     ok.
 
 t_empty_key(_Config) ->
-    Ref = alias([reply]),
     Config0 = generate_config(),
     Config = Config0#{private_key := <<>>},
     process_flag(trap_exit, true),
-    ?assertMatch({ok, _}, emqx_rule_engine_jwt_worker:start_link(Config, Ref)),
-    receive
-        {Ref, {error, {invalid_private_key, empty_key}}} ->
-            ok
-    after
-        1_000 ->
-            ct:fail("should have errored; msgs: ~0p",
-                    [process_info(self(), messages)])
-    end,
+    ?check_trace(
+      ?wait_async_action(
+         ?assertMatch({ok, _}, emqx_rule_engine_jwt_worker:start_link(Config)),
+         #{?snk_kind := rule_engine_jwt_worker_startup_error},
+         1_000),
+       fun(Trace) ->
+         ?assertMatch([#{error := empty_key}],
+                      ?of_kind(rule_engine_jwt_worker_startup_error, Trace)),
+         ok
+       end),
     ok.
 
 t_invalid_pem(_Config) ->
-    Ref = alias([reply]),
     Config0 = generate_config(),
     InvalidPEM = public_key:pem_encode([{'PrivateKeyInfo', <<"xxxxxx">>, not_encrypted},
                                         {'PrivateKeyInfo', <<"xxxxxx">>, not_encrypted}]),
     Config = Config0#{private_key := InvalidPEM},
     process_flag(trap_exit, true),
-    ?assertMatch({ok, _}, emqx_rule_engine_jwt_worker:start_link(Config, Ref)),
-    receive
-        {Ref, {error, {invalid_private_key, _}}} ->
-            ok
-    after
-        1_000 ->
-            ct:fail("should have errored; msgs: ~0p",
-                    [process_info(self(), messages)])
-    end,
+    ?check_trace(
+      ?wait_async_action(
+         ?assertMatch({ok, _}, emqx_rule_engine_jwt_worker:start_link(Config)),
+         #{?snk_kind := rule_engine_jwt_worker_startup_error},
+         1_000),
+       fun(Trace) ->
+         ?assertMatch([#{error := {invalid_private_key, _}}],
+                      ?of_kind(rule_engine_jwt_worker_startup_error, Trace)),
+         ok
+       end),
     ok.
 
 t_refresh(_Config) ->
-    Ref = alias([reply]),
     Config0 = #{ table := Table
                , resource_id := ResourceId
                } = generate_config(),
@@ -130,11 +131,12 @@ t_refresh(_Config) ->
        begin
          {{ok, _Pid}, {ok, _Event}} =
            ?wait_async_action(
-              emqx_rule_engine_jwt_worker:start_link(Config, Ref),
-              #{?snk_kind := jwt_worker_token_stored},
+              emqx_rule_engine_jwt_worker:start_link(Config),
+              #{?snk_kind := rule_engine_jwt_worker_token_stored},
               5_000),
          {ok, FirstJWT} = emqx_rule_engine_jwt:lookup_jwt(Table, ResourceId),
-         ?block_until(#{?snk_kind := rule_engine_jwt_worker_refresh}, 15_000),
+         ?block_until(#{?snk_kind := rule_engine_jwt_worker_refresh,
+                        jwt := JWT0} when JWT0 =/= FirstJWT, 15_000),
          {ok, SecondJWT} = emqx_rule_engine_jwt:lookup_jwt(Table, ResourceId),
          ?assertNot(is_expired(SecondJWT)),
          ?assert(is_expired(FirstJWT)),
@@ -142,16 +144,15 @@ t_refresh(_Config) ->
        end,
        fun({FirstJWT, SecondJWT}, Trace) ->
          ?assertMatch([_, _ | _],
-                      ?of_kind(jwt_worker_token_stored, Trace)),
+                      ?of_kind(rule_engine_jwt_worker_token_stored, Trace)),
          ?assertNotEqual(FirstJWT, SecondJWT),
          ok
        end),
     ok.
 
 t_format_status(_Config) ->
-    Ref = alias([reply]),
     Config = generate_config(),
-    {ok, Pid} = emqx_rule_engine_jwt_worker:start_link(Config, Ref),
+    {ok, Pid} = emqx_rule_engine_jwt_worker:start_link(Config),
     {status, _, _, Props} = sys:get_status(Pid),
     [State] = [State
                || Info = [_ | _] <- Props,
@@ -165,7 +166,6 @@ t_format_status(_Config) ->
     ok.
 
 t_lookup_ok(_Config) ->
-    Ref = alias([reply]),
     Config = #{ table := Table
               , resource_id := ResourceId
               , private_key := PrivateKeyPEM
@@ -174,7 +174,8 @@ t_lookup_ok(_Config) ->
               , sub := Sub
               , kid := KId
               } = generate_config(),
-    {ok, _} = emqx_rule_engine_jwt_worker:start_link(Config, Ref),
+    {ok, Worker} = emqx_rule_engine_jwt_worker:start_link(Config),
+    Ref = emqx_rule_engine_jwt_worker:ensure_jwt(Worker),
     receive
         {Ref, token_created} ->
             ok
@@ -225,7 +226,8 @@ t_lookup_badarg(_Config) ->
 t_start_supervised_worker(_Config) ->
     {ok, _} = emqx_rule_engine_jwt_sup:start_link(),
     Config = #{resource_id := ResourceId} = generate_config(),
-    {ok, {Ref, Pid}} = emqx_rule_engine_jwt_sup:start_worker(ResourceId, Config),
+    {ok, Pid} = emqx_rule_engine_jwt_sup:ensure_worker_present(ResourceId, Config),
+    Ref = emqx_rule_engine_jwt_worker:ensure_jwt(Pid),
     receive
         {Ref, token_created} ->
             ok
@@ -235,7 +237,7 @@ t_start_supervised_worker(_Config) ->
     end,
     MRef = monitor(process, Pid),
     ?assert(is_process_alive(Pid)),
-    ok = emqx_rule_engine_jwt_sup:stop_worker(ResourceId),
+    ok = emqx_rule_engine_jwt_sup:ensure_worker_deleted(ResourceId),
     receive
         {'DOWN', MRef, process, Pid, _} ->
             ok

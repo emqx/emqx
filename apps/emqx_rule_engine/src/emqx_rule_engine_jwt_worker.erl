@@ -19,7 +19,8 @@
 -behaviour(gen_server).
 
 %% API
--export([ start_link/2
+-export([ start_link/1
+        , ensure_jwt/1
         ]).
 
 %% gen_server API
@@ -68,7 +69,7 @@
 %% API
 %%-----------------------------------------------------------------------------------------
 
--spec start_link(config(), reference()) -> gen_server:start_ret().
+-spec start_link(config()) -> gen_server:start_ret().
 start_link(#{ private_key := _
             , expiration := _
             , resource_id := _
@@ -78,60 +79,68 @@ start_link(#{ private_key := _
             , aud := _
             , kid := _
             , alg := _
-            } = Config,
-           Ref) ->
-    gen_server:start_link(?MODULE, {Config, Ref}, []).
+            } = Config) ->
+    gen_server:start_link(?MODULE, Config, []).
+
+-spec ensure_jwt(pid()) -> reference().
+ensure_jwt(Worker) ->
+    Ref = alias([reply]),
+    gen_server:cast(Worker, {ensure_jwt, Ref}),
+    Ref.
 
 %%-----------------------------------------------------------------------------------------
 %% gen_server API
 %%-----------------------------------------------------------------------------------------
 
--spec init({config(), Ref}) -> {ok, state(), {continue, {make_key, binary(), Ref}}}
-                               | {stop, {error, term()}}
-              when Ref :: reference().
-init({#{private_key := PrivateKeyPEM} = Config, Ref}) ->
+-spec init(config()) -> {ok, state(), {continue, {make_key, binary()}}}
+                        | {stop, {error, term()}}.
+init(#{private_key := PrivateKeyPEM} = Config) ->
     State0 = maps:without([private_key], Config),
     State = State0#{ jwk => undefined
                    , jwt => undefined
                    , refresh_timer => undefined
                    },
-    {ok, State, {continue, {make_key, PrivateKeyPEM, Ref}}}.
+    {ok, State, {continue, {make_key, PrivateKeyPEM}}}.
 
-handle_continue({make_key, PrivateKeyPEM, Ref}, State0) ->
+handle_continue({make_key, PrivateKeyPEM}, State0) ->
     case jose_jwk:from_pem(PrivateKeyPEM) of
         JWK = #jose_jwk{} ->
             State = State0#{jwk := JWK},
-            {noreply, State, {continue, {create_token, Ref}}};
+            {noreply, State, {continue, create_token}};
         [] ->
-            Ref ! {Ref, {error, {invalid_private_key, empty_key}}},
-            {stop, {error, empty_key}, State0};
+            ?tp(rule_engine_jwt_worker_startup_error, #{error => empty_key}),
+            {stop, {shutdown, {error, empty_key}}, State0};
         {error, Reason} ->
-            Ref ! {Ref, {error, {invalid_private_key, Reason}}},
-            {stop, {error, Reason}, State0};
-        Error ->
-            Ref ! {Ref, {error, {invalid_private_key, Error}}},
-            {stop, {error, Error}, State0}
+            Error = {invalid_private_key, Reason},
+            ?tp(rule_engine_jwt_worker_startup_error, #{error => Error}),
+            {stop, {shutdown, {error, Error}}, State0};
+        Error0 ->
+            Error = {invalid_private_key, Error0},
+            ?tp(rule_engine_jwt_worker_startup_error, #{error => Error}),
+            {stop, {shutdown, {error, Error}}, State0}
     end;
-handle_continue({create_token, Ref}, State0) ->
-    JWT = do_generate_jwt(State0),
-    store_jwt(State0, JWT),
-    State1 = State0#{jwt := JWT},
-    State = ensure_timer(State1),
-    Ref ! {Ref, token_created},
+handle_continue(create_token, State0) ->
+    State = generate_and_store_jwt(State0),
     {noreply, State}.
 
 handle_call(_Req, _From, State) ->
     {reply, {error, bad_call}, State}.
 
+handle_cast({ensure_jwt, From}, State0 = #{jwt := JWT}) ->
+    State =
+        case JWT of
+            undefined ->
+                generate_and_store_jwt(State0);
+            _ ->
+                State0
+        end,
+    From ! {From, token_created},
+    {noreply, State};
 handle_cast(_Req, State) ->
     {noreply, State}.
 
 handle_info({timeout, TRef, ?refresh_jwt}, State0 = #{refresh_timer := TRef}) ->
-    JWT = do_generate_jwt(State0),
-    store_jwt(State0, JWT),
-    ?tp(rule_engine_jwt_worker_refresh, #{}),
-    State1 = State0#{jwt := JWT},
-    State = ensure_timer(State1#{refresh_timer := undefined}),
+    State = generate_and_store_jwt(State0),
     {noreply, State};
 handle_info(_Msg, State) ->
     {noreply, State}.
@@ -171,10 +180,18 @@ do_generate_jwt(#{ expiration := ExpirationMS
     {_, JWT} = jose_jws:compact(JWT0),
     JWT.
 
+-spec generate_and_store_jwt(state()) -> state().
+generate_and_store_jwt(State0) ->
+    JWT = do_generate_jwt(State0),
+    store_jwt(State0, JWT),
+    ?tp(rule_engine_jwt_worker_refresh, #{jwt => JWT}),
+    State1 = State0#{jwt := JWT},
+    ensure_timer(State1).
+
 -spec store_jwt(state(), jwt()) -> ok.
 store_jwt(#{resource_id := ResourceId, table := TId}, JWT) ->
     true = ets:insert(TId, {{ResourceId, jwt}, JWT}),
-    ?tp(jwt_worker_token_stored, #{resource_id => ResourceId}),
+    ?tp(rule_engine_jwt_worker_token_stored, #{resource_id => ResourceId}),
     ok.
 
 -spec ensure_timer(state()) -> state().

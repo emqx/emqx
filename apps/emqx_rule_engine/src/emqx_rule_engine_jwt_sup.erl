@@ -19,8 +19,8 @@
 -behaviour(supervisor).
 
 -export([ start_link/0
-        , start_worker/2
-        , stop_worker/1
+        , ensure_worker_present/2
+        , ensure_worker_deleted/1
         ]).
 
 -export([init/1]).
@@ -45,32 +45,31 @@ init([]) ->
 %% @doc Starts a new JWT worker.  The worker will send the caller a
 %% message when it creates and stores its first JWT, or if it fails to
 %% do so, using a generated reference.
--spec start_worker(worker_id(), map()) ->
-          {ok, {reference(), supervisor:child()}}
-              | {error, already_present}
-              | {error, {already_started, supervisor:child()}}.
-start_worker(Id, Config) ->
-    Ref = erlang:alias([reply]),
-    ChildSpec = jwt_worker_child_spec(Id, Config, Ref),
+-spec ensure_worker_present(worker_id(), map()) ->
+          {ok, supervisor:child()}.
+ensure_worker_present(Id, Config) ->
+    ChildSpec = jwt_worker_child_spec(Id, Config),
     case supervisor:start_child(?MODULE, ChildSpec) of
         {ok, Pid} ->
-            {ok, {Ref, Pid}};
-        Error ->
-            Error
+            {ok, Pid};
+        {error, {already_started, Pid}} ->
+            {ok, Pid};
+        {error, already_present} ->
+            supervisor:restart_child(?MODULE, Id)
     end.
 
 %% @doc Stops a given JWT worker by its id.
--spec stop_worker(worker_id()) -> ok.
-stop_worker(Id) ->
+-spec ensure_worker_deleted(worker_id()) -> ok.
+ensure_worker_deleted(Id) ->
     case supervisor:terminate_child(?MODULE, Id) of
         ok -> ok;
         {error, not_found} -> ok
     end.
 
-jwt_worker_child_spec(Id, Config, Ref) ->
+jwt_worker_child_spec(Id, Config) ->
     #{ id => Id
-     , start => {emqx_rule_engine_jwt_worker, start_link, [Config, Ref]}
-     , restart => permanent
+     , start => {emqx_rule_engine_jwt_worker, start_link, [Config]}
+     , restart => transient
      , type => worker
      , significant => false
      , shutdown => brutal_kill
