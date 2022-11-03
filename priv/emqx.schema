@@ -804,6 +804,19 @@ end}.
 %% Authentication/ACL
 %%--------------------------------------------------------------------
 
+%% @doc Define a determined authentication plugin/module check order.
+%% see detailed doc in emqx.conf
+{mapping, "auth_order", "emqx.auth_order", [
+  {default, "none"},
+  {datatype, string}
+]}.
+
+%% @doc Same as auth_order, but for ACL.
+{mapping, "acl_order", "emqx.acl_order", [
+  {default, "none"},
+  {datatype, string}
+]}.
+
 %% @doc Allow anonymous authentication.
 {mapping, "allow_anonymous", "emqx.allow_anonymous", [
   {default, false},
