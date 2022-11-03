@@ -16,8 +16,8 @@
 
 -module(emqx_rule_engine_jwt).
 
--include_lib("emqx_rule_engine/include/rule_engine.hrl").
--include_lib("emqx_rule_engine/include/rule_actions.hrl").
+-include("rule_engine.hrl").
+-include("rule_actions.hrl").
 
 %% API
 -export([ lookup_jwt/1
