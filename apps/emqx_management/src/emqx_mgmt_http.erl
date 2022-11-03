@@ -124,6 +124,11 @@ handle_request(_Method, _Path, Req) ->
     cowboy_req:reply(400, #{<<"content-type">> => <<"text/plain">>}, <<"Not found.">>, Req).
 
 authorize_appid(Req) ->
+    authorize_appid(cowboy_req:method(Req), cowboy_req:path(Req), Req).
+
+authorize_appid(<<"GET">>, <<"/api/v4/emqx_prometheus">>, _Req) ->
+    true;
+authorize_appid(_Method, _Path, Req) ->
     try
         {basic, AppId, AppSecret} = cowboy_req:parse_header(<<"authorization">>, Req),
         emqx_mgmt_auth:is_authorized(AppId, AppSecret)
