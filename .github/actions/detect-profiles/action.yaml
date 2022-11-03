@@ -10,7 +10,15 @@ runs:
     - id: detect-profiles
       shell: bash
       run: |
-        if make emqx-ee --dry-run > /dev/null 2>&1; then
+        if [ -d source ]; then
+          ## source code downloaded
+          cd source
+        fi
+        if [ ! -d .git ]; then
+          echo "Not git dir, $(pwd)"
+          exit 1
+        fi
+        if [ -f 'EMQX_ENTERPRISE' ]; then
           echo "profiles=[\"emqx-ee\"]" >> $GITHUB_OUTPUT
           echo "EMQX_NAME=emqx-ee" >> $GITHUB_ENV
         else
