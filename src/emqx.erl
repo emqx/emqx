@@ -264,6 +264,7 @@ default_started_applications() ->
 on_reboot() ->
     try
         _ = emqx_license_api:bootstrap_license(),
+        _ = emqx_license:load_dynamic_license(),
         ok
     catch
         Kind:Reason:Stack ->
