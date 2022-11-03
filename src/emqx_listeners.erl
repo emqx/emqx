@@ -45,6 +45,7 @@
                      , proto := esockd:proto()
                      , listen_on := esockd:listen_on()
                      , opts := [esockd:option()]
+                     , any() => term()
                      }).
 
 %% @doc Find listener identifier by listen-on.
@@ -104,8 +105,9 @@ ensure_all_started([L | Rest], Results) ->
 format_listen_on(ListenOn) -> format(ListenOn).
 
 -spec(start_listener(listener()) -> ok).
-start_listener(#{proto := Proto, name := Name, listen_on := ListenOn, opts := Options}) ->
+start_listener(Listener = #{proto := Proto, name := Name, listen_on := ListenOn}) ->
     ID = identifier(Proto, Name),
+    Options = emqx_ocsp_cache:inject_sni_fun(Listener),
     case start_listener(Proto, ListenOn, Options) of
         {ok, _} ->
             console_print("Start ~s listener on ~s successfully.~n", [ID, format(ListenOn)]);

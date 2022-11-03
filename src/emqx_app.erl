@@ -49,6 +49,8 @@ start(_Type, _Args) ->
     ok = emqx_plugins:init(),
     _ = emqx_plugins:load(),
     _ = start_ce_modules(),
+    set_clientid_enrichment_module(),
+    _ = set_special_auth_module(),
     register(emqx, self()),
     print_vsn(),
     {ok, Sup}.
@@ -77,6 +79,33 @@ load_ce_modules() ->
 start_ce_modules() ->
     ok.
 -endif.
+
+set_clientid_enrichment_module() ->
+    case emqx:get_env(clientid_enrichment_module) of
+        undefined ->
+            ok;
+        Mod ->
+            case erlang:function_exported(Mod, enrich_clientid_alias, 2) of
+                true ->
+                    persistent_term:put(clientid_enrichment_module, Mod);
+                false ->
+                    ok
+            end
+    end.
+
+set_special_auth_module() ->
+    case emqx:get_env(special_auth_module) of
+        undefined ->
+            ok;
+        Mod ->
+            case erlang:function_exported(Mod, check_authn, 2) of
+                true ->
+                    persistent_term:put(special_auth_module, Mod),
+                    emqx:hook('client.authenticate', fun Mod:check_authn/2, []);
+                false ->
+                    ok
+            end
+    end.
 
 %%--------------------------------------------------------------------
 %% Print Banner

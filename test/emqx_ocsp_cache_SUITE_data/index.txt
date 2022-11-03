@@ -1,0 +1,4 @@
+V	230616165600Z		1000	unknown	/C=SE/ST=Stockholm/L=Stockholm/O=MyOrgName/OU=MyIntermediateCA/CN=localhost
+V	230616165600Z		1001	unknown	/C=SE/ST=Stockholm/L=Stockholm/O=MyOrgName/OU=MyIntermediateCA/CN=MyClient
+V	230616165601Z		1002	unknown	/C=SE/ST=Stockholm/L=Stockholm/O=MyOrgName/OU=MyIntermediateCA/CN=ocsp.server
+V	230616165601Z		1003	unknown	/C=SE/ST=Stockholm/L=Stockholm/O=MyOrgName/OU=MyIntermediateCA/CN=ocsp.client

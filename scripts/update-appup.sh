@@ -48,7 +48,7 @@ esac
 ##  e4.3.11
 ##  rel-v4.4.3
 ##  rel-e4.4.3
-PREV_TAG="${PREV_TAG:-$(git describe --tag --abbrev=0 --match "[${TAG_PREFIX}|rel-]*" --exclude '*rc*' --exclude '*alpha*' --exclude '*beta*')}"
+PREV_TAG="${PREV_TAG:-$(git describe --tag --abbrev=0 --match "[${TAG_PREFIX}|rel-]*" --exclude '*rc*' --exclude '*alpha*' --exclude '*beta*' --exclude '*gocsp*')}"
 
 shift 1
 # bash 3.2 treat empty array as unbound, so we can't use 'ESCRIPT_ARGS=()' here,

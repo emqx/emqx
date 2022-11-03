@@ -852,6 +852,14 @@ end}.
   {datatype, string}
 ]}.
 
+{mapping, "clientid_enrichment_module", "emqx.clientid_enrichment_module", [
+  {datatype, atom}
+]}.
+
+{mapping, "special_auth_module", "emqx.special_auth_module", [
+  {datatype, atom}
+]}.
+
 %% @doc Allow anonymous authentication.
 {mapping, "allow_anonymous", "emqx.allow_anonymous", [
   {default, false},
@@ -1664,6 +1672,49 @@ end}.
   {datatype, {duration, ms}}
 ]}.
 
+{mapping, "listener.ssl.$name.ocsp_responder_url", "emqx.listeners", [
+  {datatype, string}
+]}.
+
+{mapping, "listener.ssl.$name.ocsp_issuer_pem", "emqx.listeners", [
+  {datatype, file}
+]}.
+
+{mapping, "listener.ssl.$name.ocsp_refresh_interval", "emqx.listeners", [
+  {default, "5m"},
+  {datatype, {duration, ms}}
+]}.
+
+{mapping, "listener.ssl.$name.ocsp_refresh_http_timeout", "emqx.listeners", [
+  {default, "15000ms"},
+  {datatype, {duration, ms}}
+]}.
+
+{mapping, "listener.ssl.$name.enable_crl_cache", "emqx.listeners", [
+  {default, false},
+  {datatype, {enum, [true, false]}}
+]}.
+
+{mapping, "listener.ssl.$name.crl_cache_http_timeout", "emqx.listeners", [
+  {default, "15s"},
+  {datatype, {duration, ms}}
+]}.
+
+{mapping, "crl_cache.refresh_interval", "emqx.crl_cache_refresh_interval", [
+  {default, "15m"},
+  {datatype, {duration, ms}}
+]}.
+
+{mapping, "crl_cache.urls", "emqx.crl_cache_urls", [
+  {default, ""},
+  {datatype, string}
+]}.
+
+{translation, "emqx.crl_cache_urls", fun(Conf) ->
+  Val = cuttlefish:conf_get("crl_cache.urls", Conf),
+  string:tokens(Val, ", ")
+end}.
+
 %%--------------------------------------------------------------------
 %% MQTT/WebSocket Listeners
 
@@ -2184,6 +2235,10 @@ end}.
                           {supported_subprotocols, string:tokens(cuttlefish:conf_get(Prefix ++ ".supported_subprotocols", Conf, ""), ", ")},
                           {peer_cert_as_username, cuttlefish:conf_get(Prefix ++ ".peer_cert_as_username", Conf, undefined)},
                           {peer_cert_as_clientid, cuttlefish:conf_get(Prefix ++ ".peer_cert_as_clientid", Conf, undefined)},
+                          {ocsp_responder_url, cuttlefish:conf_get(Prefix ++ ".ocsp_responder_url", Conf, undefined)},
+                          {ocsp_issuer_pem, cuttlefish:conf_get(Prefix ++ ".ocsp_issuer_pem", Conf, undefined)},
+                          {ocsp_refresh_interval, cuttlefish:conf_get(Prefix ++ ".ocsp_refresh_interval", Conf, undefined)},
+                          {ocsp_refresh_http_timeout, cuttlefish:conf_get(Prefix ++ ".ocsp_refresh_http_timeout", Conf, undefined)},
                           {compress, cuttlefish:conf_get(Prefix ++ ".compress", Conf, undefined)},
                           {idle_timeout, cuttlefish:conf_get(Prefix ++ ".idle_timeout", Conf, undefined)},
                           {max_frame_size, cuttlefish:conf_get(Prefix ++ ".max_frame_size", Conf, undefined)},
@@ -2271,7 +2326,18 @@ end}.
                       undefined -> undefined;
                       _ -> {fun emqx_psk:lookup/3, <<>>}
                     end,
-                  Filter([{versions, Versions},
+                  CRLCheck = case cuttlefish:conf_get(Prefix ++ ".enable_crl_cache", Conf, false) of
+                               true ->
+                                 HTTPTimeout = cuttlefish:conf_get(Prefix ++ ".crl_cache_http_timeout", Conf, timer:seconds(15)),
+                                 %% {crl_check, true} doesn't work
+                                 [ {crl_check, peer}
+                                 , {crl_cache, {ssl_crl_cache, {internal, [{http, HTTPTimeout}]}}}
+                                 ];
+                               false ->
+                                 []
+                             end,
+                  Filter(CRLCheck ++
+                         [{versions, Versions},
                           {ciphers, Ciphers},
                           {user_lookup_fun, UserLookupFun},
                           {handshake_timeout, cuttlefish:conf_get(Prefix ++ ".handshake_timeout", Conf, undefined)},
