@@ -71,8 +71,9 @@ jobs:
         run: make ${{ matrix.task }}
       - uses: actions/upload-artifact@v3
         with:
-          name: cover-${{ matrix.task }}
+          name: cover
           path: source/_build/test/cover
+          if-no-files-found: warn
 
   emqx_ct:
     needs: prepare
@@ -88,13 +89,15 @@ jobs:
           path: .
       - name: unzip source code
         run: unzip -o -q source.zip
+      # produces emqx-emqx.coverdata
       - name: emqx-ct-pipeline
         working-directory: source
         run: make emqx-ct-pipeline
       - uses: actions/upload-artifact@v3
         with:
-          name: cover-emqx-ct-pipeline
+          name: cover
           path: source/_build/test/cover
+          if-no-files-found: warn
 
   ct:
     needs: prepare
