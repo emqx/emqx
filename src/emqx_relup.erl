@@ -63,7 +63,7 @@ reload_components() ->
     ?INFO("reloading resource providers ..."),
     emqx_rule_engine:load_providers(),
     ?INFO("loading plugins ..."),
-    load_plugins(),
+    _ = load_plugins(),
     ok.
 
 -endif.
