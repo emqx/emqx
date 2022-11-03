@@ -57,24 +57,6 @@ jobs:
                -X POST \
                -d "{\"repo\":\"emqx/emqx\", \"tag\": \"${{ github.ref_name }}\" }" \
                ${{ secrets.EMQX_IO_RELEASE_API }}
-      - uses: emqx/push-helm-action@v1
-        if: github.event_name == 'release' && startsWith(github.ref_name, 'v')
-        with:
-          charts_dir: "${{ github.workspace }}/deploy/charts/emqx"
-          version: ${{ github.ref_name }}
-          aws_access_key_id: ${{ secrets.AWS_ACCESS_KEY_ID }}
-          aws_secret_access_key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
-          aws_region: "us-west-2"
-          aws_bucket_name: "repos-emqx-io"
-      - uses: emqx/push-helm-action@v1
-        if: github.event_name == 'release' && startsWith(github.ref_name, 'e')
-        with:
-          charts_dir: "${{ github.workspace }}/deploy/charts/emqx-enterprise"
-          version: ${{ github.ref_name }}
-          aws_access_key_id: ${{ secrets.AWS_ACCESS_KEY_ID }}
-          aws_secret_access_key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
-          aws_region: "us-west-2"
-          aws_bucket_name: "repos-emqx-io"
       - name: update homebrew packages
         if: github.event_name == 'release'
         run: |
@@ -96,3 +78,31 @@ jobs:
                 -d "{\"ref\":\"v1.0.4\",\"inputs\":{\"version\": \"${{ github.ref_name }}\"}}" \
                 "https://api.github.com/repos/emqx/emqx-ci-helper/actions/workflows/update_emqx_homebrew.yaml/dispatches"
           fi
+
+  upload-helm:
+    runs-on: ubuntu-20.04
+    if: github.event_name == 'release'
+    strategy:
+      fail-fast: false
+    steps:
+      - uses: actions/checkout@v3
+        with:
+          ref: ${{ github.ref }
+      - uses: emqx/push-helm-action@v1
+        if: startsWith(github.ref_name, 'v')
+        with:
+          charts_dir: "${{ github.workspace }}/deploy/charts/emqx"
+          version: ${{ github.ref_name }}
+          aws_access_key_id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws_secret_access_key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws_region: "us-west-2"
+          aws_bucket_name: "repos-emqx-io"
+      - uses: emqx/push-helm-action@v1
+        if: startsWith(github.ref_name, 'e')
+        with:
+          charts_dir: "${{ github.workspace }}/deploy/charts/emqx-enterprise"
+          version: ${{ github.ref_name }}
+          aws_access_key_id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws_secret_access_key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws_region: "us-west-2"
+          aws_bucket_name: "repos-emqx-io"
