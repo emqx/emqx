@@ -120,10 +120,13 @@ get_release() ->
     case lists:keyfind(emqx_vsn, 1, ?MODULE:module_info(compile)) of
         false ->    %% For TEST build or depedency build.
             release_in_macro();
-        {_, Vsn} -> %% For emqx release build
-            VsnStr = release_in_macro(),
-            1 = string:str(Vsn, VsnStr), %% assert
-            Vsn
+        {_, VsnCompile} -> %% For emqx release build
+            VsnMacro = release_in_macro(),
+            case string:str(VsnCompile, VsnMacro) of
+                1 -> ok;
+                _ -> error({version_not_match, VsnCompile, VsnMacro})
+            end,
+            VsnCompile
     end.
 
 release_in_macro() ->
