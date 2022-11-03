@@ -25,6 +25,11 @@
         , get_release/0
         ]).
 
+%% internal exports for ad-hoc debugging.
+-export([ set_clientid_enrichment_module/0
+        , set_special_auth_module/0
+        ]).
+
 -define(APP, emqx).
 
 -include("emqx_release.hrl").
