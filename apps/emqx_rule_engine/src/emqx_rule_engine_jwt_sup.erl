@@ -42,9 +42,9 @@ init([]) ->
     ChildSpecs = [],
     {ok, {SupFlags, ChildSpecs}}.
 
-%% @doc Starts a new JWT worker.  The worker will send the caller a
-%% message when it creates and stores its first JWT, or if it fails to
-%% do so, using a generated reference.
+%% @doc Starts a new JWT worker.  The caller should use
+%% `emqx_rule_engine_jwt_sup:ensure_jwt/1' to ensure that a JWT has
+%% been stored, if synchronization is needed.
 -spec ensure_worker_present(worker_id(), map()) ->
           {ok, supervisor:child()}.
 ensure_worker_present(Id, Config) ->
