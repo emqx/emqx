@@ -67,7 +67,14 @@ make_rel() {
 }
 
 relup_db() {
-    ./scripts/relup-base-vsns.escript "$@" ./data/relup-paths.eterm
+    case "$PROFILE" in
+        *-ee*)
+            ./scripts/relup-base-vsns.escript "$@" ./data/relup-paths-ee.eterm
+            ;;
+        *)
+            ./scripts/relup-base-vsns.escript "$@" ./data/relup-paths.eterm
+            ;;
+    esac
 }
 
 ## unzip previous version .zip files to _build/$PROFILE/rel/emqx/releases before making relup
@@ -84,7 +91,6 @@ make_relup() {
             if [[ "$OTP_BASE" != "$OTP_VSN" ]]; then
               OTP_CHANGED='yes'
             fi
-            OTP_BASE=$(relup_db otp-vsn-for "$PKG_VSN")
             zip_file="_upgrade_base/${PROFILE}-$(env OTP_VSN="$OTP_BASE" PKG_VSN="$BASE_VSN" ./scripts/pkg-full-vsn.sh 'vsn_exact').zip"
             if [ ! -d "$releases_dir/$BASE_VSN" ]; then
                 local tmp_dir
