@@ -30,7 +30,7 @@
 -include("emqx_trace.hrl").
 
 %%================================================================================
-%% API funcions
+%% API functions
 %%================================================================================
 
 %% Introduced in 5.0
@@ -43,7 +43,7 @@ update(Name, Enable) ->
         [#?TRACE{enable = Enable}] ->
             ok;
         [Rec] ->
-            case erlang:system_time(second) >= Rec#?TRACE.end_at of
+            case emqx_trace:now_second() >= Rec#?TRACE.end_at of
                 false -> mnesia:write(?TRACE, Rec#?TRACE{enable = Enable}, write);
                 true -> mnesia:abort(finished)
             end
