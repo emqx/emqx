@@ -22,6 +22,8 @@
 -include_lib("emqx/include/emqx.hrl").
 -include_lib("emqx/include/logger.hrl").
 
+-define(BAD_TOPIC_WITH_WILDCARD, wildcard_topic_not_allowed_for_publish).
+
 -define(REPUBLISH_PARAMS_SPEC, #{
             target_topic => #{
                 order => 1,
@@ -163,7 +165,7 @@ on_action_create_republish(Id, Params = #{
        }) ->
     TargetRetain = to_retain(maps:get(<<"target_retain">>, Params, <<"false">>)),
     TargetQoS = to_qos(TargetQoS0),
-    TopicTks = emqx_rule_utils:preproc_tmpl(TargetTopic),
+    TopicTks = emqx_rule_utils:preproc_tmpl(assert_topic_valid(TargetTopic)),
     PayloadTks = emqx_rule_utils:preproc_tmpl(PayloadTmpl),
     Params.
 
@@ -201,7 +203,7 @@ on_action_republish(Selected, _Envs = #{
             from = ActId,
             flags = Flags#{retain => get_retain(TargetRetain, Selected)},
             headers = #{republish_by => ActId},
-            topic = emqx_rule_utils:proc_tmpl(TopicTks, Selected),
+            topic = assert_topic_valid(emqx_rule_utils:proc_tmpl(TopicTks, Selected)),
             payload = format_msg(PayloadTks, Selected),
             timestamp = Timestamp
         },
@@ -226,7 +228,7 @@ on_action_republish(Selected, _Envs = #{
             from = ActId,
             flags = #{dup => false, retain => get_retain(TargetRetain, Selected)},
             headers = #{republish_by => ActId},
-            topic = emqx_rule_utils:proc_tmpl(TopicTks, Selected),
+            topic = assert_topic_valid(emqx_rule_utils:proc_tmpl(TopicTks, Selected)),
             payload = format_msg(PayloadTks, Selected),
             timestamp = erlang:system_time(millisecond)
         },
@@ -269,6 +271,12 @@ to_qos(TargetQoS) ->
 get_qos(-1, _Data, Default) -> Default;
 get_qos(TargetQoS, Data, _Default) ->
     qos(emqx_rule_utils:replace_var(TargetQoS, Data)).
+
+assert_topic_valid(T) ->
+    case emqx_topic:wildcard(T) of
+        true -> throw({?BAD_TOPIC_WITH_WILDCARD, T});
+        false -> T
+    end.
 
 qos(<<"0">>) ->  0;
 qos(<<"1">>) ->  1;

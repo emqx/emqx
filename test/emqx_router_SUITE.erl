@@ -32,6 +32,7 @@ init_per_suite(Config) ->
     Config.
 
 end_per_suite(_Config) ->
+    emqx_ct_helpers:boot_modules(all),
     emqx_ct_helpers:stop_apps([]).
 
 init_per_testcase(_TestCase, Config) ->
