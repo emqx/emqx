@@ -10,7 +10,8 @@ Please convert it to a draft if any of the following conditions are not met. Rev
 - [ ] Changed lines covered in coverage report
 - [ ] Change log has been added to `changes/` dir
 - [ ] For EMQX 4.x: `appup` files updated (execute `scripts/update-appup.sh emqx`)
-- [ ] For internal contributor: there is a jira ticket to track this change, and another jira tickt to track doc updates (if any)
+- [ ] For internal contributor: there is a jira ticket to track this change
+- [ ] If there should be document changes, a PR to emqx-docs.git is sent, or a jira ticket is created to follow up
 - [ ] In case of non-backward compatible changes, reviewer should check this item as a write-off, and add details in **Backward Compatibility** section
 
 ## Backward Compatibility
