@@ -41,7 +41,7 @@ jobs:
             echo "$fname -> $default_fname"
             mv -f "$fname" "$default_fname"
           done < <(find . -maxdepth 1 -type f | grep -E "emqx(-enterprise)?-5\.[0-9]+\.[0-9]+.*-${DEFAULT_BEAM_PLATFORM}" | grep -v elixir)
-      - uses: alexellis/upload-assets@0.2.2
+      - uses: alexellis/upload-assets@0.4.0
         env:
           GITHUB_TOKEN: ${{ github.token }}
         with:
