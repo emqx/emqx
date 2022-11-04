@@ -20,6 +20,7 @@
 -compile(nowarn_export_all).
 
 -include_lib("eunit/include/eunit.hrl").
+-include_lib("common_test/include/ct.hrl").
 
 -include_lib("emqx/include/emqx.hrl").
 -include_lib("emqx/include/emqx_mqtt.hrl").
@@ -39,11 +40,14 @@ all() ->
 
 init_per_suite(Config) ->
     application:load(emqx_modules),
-    emqx_ct_helpers:start_apps([emqx_management]),
+    application:load(emqx_modules_spec),
+    application:stop(emqx_rule_engine),
+    ekka_mnesia:start(),
+    emqx_ct_helpers:start_apps([emqx_management, emqx_modules]),
     Config.
 
 end_per_suite(Config) ->
-    emqx_ct_helpers:stop_apps([emqx_management]),
+    emqx_ct_helpers:stop_apps([emqx_modules, emqx_management]),
     Config.
 
 init_per_testcase(t_status_ok, Config) ->
@@ -71,8 +75,15 @@ end_per_testcase(t_status_not_ok, _Config) ->
     application:stop(emqx_dashboard),
     application:ensure_all_started(emqx),
     ok;
-end_per_testcase(_, Config) ->
-    Config.
+end_per_testcase(TestCase, _Config)
+  when TestCase =:= t_data_import_content;
+       TestCase =:= t_data ->
+    application:stop(emqx_rule_engine),
+    application:stop(emqx_dashboard),
+    mnesia:clear_table(emqx_rule),
+    ok;
+end_per_testcase(_TestCase, _Config) ->
+    ok.
 
 get(Key, ResponseBody) ->
    maps:get(Key, jiffy:decode(list_to_binary(ResponseBody), [return_maps])).
@@ -655,6 +666,7 @@ t_data(_) ->
     ok = emqx_dashboard_admin:mnesia(boot),
     application:ensure_all_started(emqx_rule_engine),
     application:ensure_all_started(emqx_dashboard),
+    emqx_modules:load_providers(),
     {ok, Data} = request_api(post, api_path(["data","export"]), [], auth_header_(), [#{}]),
     #{<<"filename">> := Filename, <<"node">> := Node} = emqx_ct_http:get_http_data(Data),
     {ok, DataList} = request_api(get, api_path(["data","export"]), auth_header_()),
@@ -662,8 +674,6 @@ t_data(_) ->
 
     ?assertMatch({ok, _}, request_api(post, api_path(["data","import"]), [], auth_header_(), #{<<"filename">> => Filename, <<"node">> => Node})),
     ?assertMatch({ok, _}, request_api(post, api_path(["data","import"]), [], auth_header_(), #{<<"filename">> => Filename})),
-    application:stop(emqx_rule_engine),
-    application:stop(emqx_dashboard),
     ok.
 
 t_data_import_content(_) ->
@@ -671,14 +681,18 @@ t_data_import_content(_) ->
     ok = emqx_dashboard_admin:mnesia(boot),
     application:ensure_all_started(emqx_rule_engine),
     application:ensure_all_started(emqx_dashboard),
+    emqx_modules:load_providers(),
     {ok, Data} = request_api(post, api_path(["data","export"]), [], auth_header_(), [#{}]),
     #{<<"filename">> := Filename} = emqx_ct_http:get_http_data(Data),
     Dir = emqx:get_env(data_dir),
     {ok, Bin} = file:read_file(filename:join(Dir, Filename)),
     Content = emqx_json:decode(Bin),
     ?assertMatch({ok, "{\"code\":0}"}, request_api(post, api_path(["data","import"]), [], auth_header_(), Content)),
-    application:stop(emqx_rule_engine),
-    application:stop(emqx_dashboard).
+    ok.
+
+%% ------------------------------------------------------------------------------
+%% Internal helpers
+%% ------------------------------------------------------------------------------
 
 t_status_ok(_Config) ->
     {ok, #{ body := Resp
