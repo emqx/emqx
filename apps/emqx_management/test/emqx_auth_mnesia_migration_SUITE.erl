@@ -39,9 +39,12 @@ cases() ->
     [t_import].
 
 init_per_suite(Config) ->
-    emqx_ct_helpers:start_apps([emqx_management, emqx_auth_mnesia]),
+    _ = application:load(emqx_modules_spec),
     ekka_mnesia:start(),
     emqx_mgmt_auth:mnesia(boot),
+    emqx_ct_helpers:boot_modules(all),
+    emqx_ct_helpers:start_apps([emqx_management, emqx_auth_mnesia, emqx_modules]),
+    ok = emqx_modules:load_providers(),
     Config.
 
 end_per_suite(_Config) ->
@@ -84,6 +87,7 @@ t_import_4_1(Config) ->
     test_import(clientid, {<<"emqx_clientid">>, <<"public">>}).
 
 t_import_4_2(Config) ->
+    ok = file:write_file("./acl.conf", <<>>),
     ?assertMatch(ok, do_import("e4.2.9.json", Config, "{}")),
     timer:sleep(100),
     test_import(username, {<<"emqx_c">>, <<"public">>}),
