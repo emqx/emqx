@@ -136,16 +136,22 @@ t_preproc_sql5(_) ->
                  emqx_rule_utils:proc_cql_param_str(ParamsTokens, Selected)).
 
 t_if_contains_placeholder(_) ->
-    ?assert(emqx_rule_utils:if_contains_placeholder(<<"${a}">>)),
-    ?assert(emqx_rule_utils:if_contains_placeholder(<<"${a}${b}">>)),
-    ?assert(emqx_rule_utils:if_contains_placeholder(<<"${a},${b},${c}">>)),
-    ?assert(emqx_rule_utils:if_contains_placeholder(<<"a:${a}">>)),
-    ?assert(emqx_rule_utils:if_contains_placeholder(<<"a:${a},b:${b}">>)),
-    ?assert(emqx_rule_utils:if_contains_placeholder(<<"abc${ab}">>)),
-    ?assertNot(emqx_rule_utils:if_contains_placeholder(<<"a">>)),
-    ?assertNot(emqx_rule_utils:if_contains_placeholder(<<"abc$">>)),
-    ?assertNot(emqx_rule_utils:if_contains_placeholder(<<"abc${">>)),
-    ?assertNot(emqx_rule_utils:if_contains_placeholder(<<"abc${a">>)),
-    ?assertNot(emqx_rule_utils:if_contains_placeholder(<<"abc${ab">>)),
-    ?assertNot(emqx_rule_utils:if_contains_placeholder(<<"a${ab${c${e">>)),
-    ok.
+    TestTab =
+        [ {true, "${a}"}
+        , {true, "${a}${b}"}
+        , {true, "${a},${b},${c}"}
+        , {true, "a:${a}"}
+        , {true, "a:${a},b:${b}"}
+        , {true, "abc${ab}"}
+        , {true, "a${ab${c}${e"}
+        , {false, "a"}
+        , {false, "abc$"}
+        , {false, "abc${"}
+        , {false, "abc${a"}
+        , {false, "abc${ab"}
+        , {false, "a${ab${c${e"}
+        ],
+    lists:foreach(fun({Expected, InputStr}) ->
+            ?assert(Expected =:= emqx_rule_utils:if_contains_placeholder(InputStr)),
+            ?assert(Expected =:= emqx_rule_utils:if_contains_placeholder(iolist_to_binary(InputStr)))
+        end, TestTab).

@@ -41,7 +41,7 @@ check(ClientInfo = #{password := Password}, AuthResult,
                     {ok, _Columns, []} ->
                         {error, not_found};
                     {error, Reason} ->
-                        ?LOG(error, "[MySQL] query '~p' failed: ~p", [AuthSql, Reason]),
+                        ?LOG_SENSITIVE(error, "[MySQL] query '~p' failed: ~p", [AuthSql, Reason]),
                         {error, Reason}
                 end,
     case CheckPass of
@@ -52,7 +52,7 @@ check(ClientInfo = #{password := Password}, AuthResult,
         {error, not_found} ->
             ok;
         {error, ResultCode} ->
-            ?LOG(error, "[MySQL] Auth from mysql failed: ~p", [ResultCode]),
+            ?LOG_SENSITIVE(error, "[MySQL] Auth from mysql failed: ~p", [ResultCode]),
             {stop, AuthResult#{auth_result => ResultCode, anonymous => false}}
     end.
 

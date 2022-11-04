@@ -40,6 +40,7 @@
 
 -define(RESOURCE_TYPE_MQTT, 'bridge_mqtt').
 -define(RESOURCE_TYPE_RPC, 'bridge_rpc').
+-define(BAD_TOPIC_WITH_WILDCARD, wildcard_topic_not_allowed_for_publish).
 
 -define(RESOURCE_CONFIG_SPEC_MQTT, #{
         address => #{
@@ -494,7 +495,7 @@ on_action_create_data_to_mqtt_broker(ActId, Opts = #{<<"pool">> := PoolName,
     PayloadTks = emqx_rule_utils:preproc_tmpl(PayloadTmpl),
     TopicTks = case ForwardTopic == <<"">> of
         true -> undefined;
-        false -> emqx_rule_utils:preproc_tmpl(ForwardTopic)
+        false -> emqx_rule_utils:preproc_tmpl(assert_topic_valid(ForwardTopic))
     end,
     Opts.
 
@@ -515,7 +516,7 @@ on_action_data_to_mqtt_broker(Msg, _Env =
                          qos = QoS,
                          from = From,
                          flags = Flags,
-                         topic = Topic1,
+                         topic = assert_topic_valid(Topic1),
                          payload = format_data(PayloadTks, Msg),
                          timestamp = TimeStamp},
     ecpool:with_client(PoolName,
@@ -583,7 +584,7 @@ options(Options, PoolName, ResId) ->
     Get = fun(Key) -> GetD(Key, undefined) end,
     Address = Get(<<"address">>),
     [{max_inflight_batches, 32},
-     {forward_mountpoint, str(Get(<<"mountpoint">>))},
+     {forward_mountpoint, str(assert_topic_valid(Get(<<"mountpoint">>)))},
      {disk_cache, cuttlefish_flag:parse(str(GetD(<<"disk_cache">>, "off")))},
      {start_type, auto},
      {reconnect_delay_ms, cuttlefish_duration:parse(str(Get(<<"reconnect_interval">>)), ms)},
@@ -609,6 +610,12 @@ options(Options, PoolName, ResId) ->
                   {retry_interval, cuttlefish_duration:parse(str(GetD(<<"retry_interval">>, "30s")), s)}
                   | maybe_ssl(Options, Get(<<"ssl">>), ResId)]
          end.
+
+assert_topic_valid(T) ->
+    case emqx_topic:wildcard(T) of
+        true -> throw({?BAD_TOPIC_WITH_WILDCARD, T});
+        false -> T
+    end.
 
 maybe_ssl(_Options, false, _ResId) ->
     [];

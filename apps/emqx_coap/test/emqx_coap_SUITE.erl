@@ -91,7 +91,7 @@ t_observe(_Config) ->
     Topic = <<"abc">>, TopicStr = binary_to_list(Topic),
     Payload = <<"123">>,
     Uri = "coap://127.0.0.1/mqtt/"++TopicStr++"?c=client1&u=tom&p=secret",
-    {ok, Pid, N, Code, Content} = er_coap_observer:observe(Uri), 
+    {ok, Pid, N, Code, Content} = er_coap_observer:observe(Uri),
     ?LOGT("observer Pid=~p, N=~p, Code=~p, Content=~p", [Pid, N, Code, Content]),
 
     [SubPid] = emqx:subscribers(Topic),
@@ -195,12 +195,16 @@ t_one_clientid_sub_2_topics(_Config) ->
     [SubPid] = emqx:subscribers(Topic2),
     ?assert(is_pid(SubPid)),
 
+    CntrAcked1 = emqx_metrics:val('messages.acked'),
     emqx:publish(emqx_message:make(Topic1, Payload1)),
 
     Notif1 = receive_notification(),
     ?LOGT("observer 1 get Notif=~p", [Notif1]),
     {coap_notify, _, _, {ok,content}, #coap_content{payload = PayloadRecv1}} = Notif1,
     ?assertEqual(Payload1, PayloadRecv1),
+    timer:sleep(100),
+    CntrAcked2 = emqx_metrics:val('messages.acked'),
+    ?assertEqual(CntrAcked2, CntrAcked1 + 1),
 
     emqx:publish(emqx_message:make(Topic2, Payload2)),
 
@@ -208,6 +212,9 @@ t_one_clientid_sub_2_topics(_Config) ->
     ?LOGT("observer 2 get Notif=~p", [Notif2]),
     {coap_notify, _, _, {ok,content}, #coap_content{payload = PayloadRecv2}} = Notif2,
     ?assertEqual(Payload2, PayloadRecv2),
+    timer:sleep(100),
+    CntrAcked3 = emqx_metrics:val('messages.acked'),
+    ?assertEqual(CntrAcked3, CntrAcked2 + 1),
 
     er_coap_observer:stop(Pid1),
     er_coap_observer:stop(Pid2).

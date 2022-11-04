@@ -23,21 +23,13 @@
 
 all() -> emqx_ct:all(?MODULE).
 
-% t_lookup(_) ->
-%     error('TODO').
+init_per_testcase(_Test, Config) ->
+    Config.
 
-% t_run_fold(_) ->
-%     error('TODO').
+end_per_testcase(_Test, _Config) ->
+    _ = (catch emqx_hooks:stop()),
+    _ = clear_orders().
 
-% t_run(_) ->
-%     error('TODO').
-
-% t_del(_) ->
-%     error('TODO').
-
-% t_add(_) ->
-%     error('TODO').
-    
 t_add_del_hook(_) ->
     {ok, _} = emqx_hooks:start_link(),
     ok = emqx:hook(test_hook, fun ?MODULE:hook_fun1/1, []),
@@ -107,6 +99,80 @@ t_uncovered_func(_) ->
     Pid ! test,
     ok = emqx_hooks:stop().
 
+t_explicit_order_acl(_) ->
+    HookPoint = 'client.check_acl',
+    test_explicit_order(acl_order, HookPoint).
+
+t_explicit_order_auth(_) ->
+    HookPoint = 'client.authenticate',
+    test_explicit_order(auth_order, HookPoint).
+
+test_explicit_order(ConfigKey, HookPoint) ->
+    {ok, _} = emqx_hooks:start_link(),
+
+    ok = set_orders(ConfigKey, "mod_a, mod_b"),
+
+    ok = emqx:hook(HookPoint, {mod_c, cb, []}, 5),
+    ok = emqx:hook(HookPoint, {mod_d, cb, []}, 0),
+    ok = emqx:hook(HookPoint, {mod_b, cb, []}, 0),
+    ok = emqx:hook(HookPoint, {mod_a, cb, []}, -1),
+    ok = emqx:hook(HookPoint, {mod_e, cb, []}, -1),
+
+    ?assertEqual(
+       [
+        {mod_a, cb, []},
+        {mod_b, cb, []},
+        {mod_c, cb, []},
+        {mod_d, cb, []},
+        {mod_e, cb, []}
+       ],
+       get_hookpoint_callbacks(HookPoint)).
+
+t_reorder_callbacks_acl(_) ->
+    F = fun emqx_hooks:reorder_acl_callbacks/0,
+    ok = emqx_hooks:reorder_auth_callbacks(),
+    test_reorder_callbacks(acl_order, 'client.check_acl', F).
+
+t_reorder_callbacks_auth(_) ->
+    F = fun emqx_hooks:reorder_auth_callbacks/0,
+    test_reorder_callbacks(auth_order, 'client.authenticate', F).
+
+test_reorder_callbacks(ConfigKey, HookPoint, ReorderFun) ->
+    {ok, _} = emqx_hooks:start_link(),
+    ok = set_orders(ConfigKey, "mod_a,mod_b,mod_c"),
+    ok = emqx:hook(HookPoint, fun mod_c:foo/1),
+    ok = emqx:hook(HookPoint, fun mod_a:foo/1),
+    ok = emqx:hook(HookPoint, fun mod_b:foo/1),
+    ok = emqx:hook(HookPoint, fun mod_y:foo/1),
+    ok = emqx:hook(HookPoint, fun mod_x:foo/1),
+    ?assertEqual(
+       [fun mod_a:foo/1, fun mod_b:foo/1, fun mod_c:foo/1,
+        fun mod_y:foo/1, fun mod_x:foo/1
+       ],
+       get_hookpoint_callbacks(HookPoint)),
+    ok = set_orders(ConfigKey, "mod_x,mod_a,mod_c,mod_b"),
+    ReorderFun(),
+    ignored = gen_server:call(emqx_hooks, x),
+    ?assertEqual(
+       [fun mod_x:foo/1, fun mod_a:foo/1, fun mod_c:foo/1,
+        fun mod_b:foo/1, fun mod_y:foo/1
+       ],
+       get_hookpoint_callbacks(HookPoint)),
+    ok.
+
+%%--------------------------------------------------------------------
+%% Helpers
+%%--------------------------------------------------------------------
+
+set_orders(Key, OrderString) ->
+    application:set_env(emqx, Key, OrderString).
+
+clear_orders() ->
+    application:set_env(emqx, acl_order, "none").
+
+get_hookpoint_callbacks(HookPoint) ->
+    [emqx_hooks:callback_action(C) || C <- emqx_hooks:lookup(HookPoint)].
+
 %%--------------------------------------------------------------------
 %% Hook fun
 %%--------------------------------------------------------------------
@@ -140,4 +206,3 @@ hook_filter2(_, _Acc, _IntArg) -> false.
 hook_filter2_1(arg, _Acc, init_arg)  -> true;
 hook_filter2_1(arg1, _Acc, init_arg) -> true;
 hook_filter2_1(_, _Acc, _IntArg)     -> false.
-

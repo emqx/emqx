@@ -52,13 +52,15 @@ t_check_sub(_) ->
                 wildcard_subscription => false
                },
     emqx_zone:set_env(zone, '$mqtt_sub_caps', SubCaps),
-    timer:sleep(50),
-    ClientInfo = #{zone => zone},
-    ok = emqx_mqtt_caps:check_sub(ClientInfo, <<"topic">>, SubOpts),
-    ?assertEqual({error, ?RC_TOPIC_FILTER_INVALID},
-                 emqx_mqtt_caps:check_sub(ClientInfo, <<"a/b/c/d">>, SubOpts)),
-    ?assertEqual({error, ?RC_WILDCARD_SUBSCRIPTIONS_NOT_SUPPORTED},
-                 emqx_mqtt_caps:check_sub(ClientInfo, <<"+/#">>, SubOpts)),
-    ?assertEqual({error, ?RC_SHARED_SUBSCRIPTIONS_NOT_SUPPORTED},
-                 emqx_mqtt_caps:check_sub(ClientInfo, <<"topic">>, SubOpts#{share => true})),
-    emqx_zone:unset_env(zone, '$mqtt_pub_caps').
+    try
+        ClientInfo = #{zone => zone},
+        ok = emqx_mqtt_caps:check_sub(ClientInfo, <<"topic">>, SubOpts),
+        ?assertEqual({error, ?RC_TOPIC_FILTER_INVALID},
+                    emqx_mqtt_caps:check_sub(ClientInfo, <<"a/b/c/d">>, SubOpts)),
+        ?assertEqual({error, ?RC_WILDCARD_SUBSCRIPTIONS_NOT_SUPPORTED},
+                    emqx_mqtt_caps:check_sub(ClientInfo, <<"+/#">>, SubOpts)),
+        ?assertEqual({error, ?RC_SHARED_SUBSCRIPTIONS_NOT_SUPPORTED},
+                    emqx_mqtt_caps:check_sub(ClientInfo, <<"topic">>, SubOpts#{share => true}))
+    after
+        emqx_zone:unset_env(zone, '$mqtt_pub_caps')
+    end.

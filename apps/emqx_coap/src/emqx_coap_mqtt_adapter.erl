@@ -31,6 +31,9 @@
 -export([ subscribe/2
         , unsubscribe/2
         , publish/3
+        , received_puback/2
+        , message_payload/1
+        , message_topic/1
         ]).
 
 -export([ client_pid/4
@@ -94,6 +97,15 @@ unsubscribe(Pid, Topic) ->
 
 publish(Pid, Topic, Payload) ->
     gen_server:call(Pid, {publish, Topic, Payload}).
+
+received_puback(Pid, Msg) ->
+    gen_server:cast(Pid, {received_puback, Msg}).
+
+message_payload(#message{payload = Payload}) ->
+    Payload.
+
+message_topic(#message{topic = Topic}) ->
+    Topic.
 
 %% For emqx_management plugin
 call(Pid, Msg) ->
@@ -172,13 +184,19 @@ handle_call(Request, _From, State) ->
     ?LOG(error, "adapter unexpected call ~p", [Request]),
     {reply, ignored, State, hibernate}.
 
+handle_cast({received_puback, Msg}, State) ->
+    %% NOTE: the counter named 'messages.acked', but the hook named 'message.acked'!
+    ok = emqx_metrics:inc('messages.acked'),
+    _ = emqx_hooks:run('message.acked', [conninfo(State), Msg]),
+    {noreply, State, hibernate};
+
 handle_cast(Msg, State) ->
     ?LOG(error, "broker_api unexpected cast ~p", [Msg]),
     {noreply, State, hibernate}.
 
-handle_info({deliver, _Topic, #message{topic = Topic, payload = Payload}},
+handle_info({deliver, _Topic, #message{} = Msg},
             State = #state{sub_topics = Subscribers}) ->
-    deliver([{Topic, Payload}], Subscribers),
+    deliver([Msg], Subscribers),
     {noreply, State, hibernate};
 
 handle_info(check_alive, State = #state{sub_topics = []}) ->
@@ -271,27 +289,25 @@ packet_to_message(Topic, Payload,
 %% Deliver
 
 deliver([], _) -> ok;
-deliver([Pub | More], Subscribers) ->
-    ok = do_deliver(Pub, Subscribers),
+deliver([Msg | More], Subscribers) ->
+    ok = do_deliver(Msg, Subscribers),
     deliver(More, Subscribers).
 
-do_deliver({Topic, Payload}, Subscribers) ->
+do_deliver(Msg, Subscribers) ->
     %% handle PUBLISH packet from broker
-    ?LOG(debug, "deliver message from broker Topic=~p, Payload=~p", [Topic, Payload]),
-    deliver_to_coap(Topic, Payload, Subscribers),
+    ?LOG(debug, "deliver message from broker, msg: ~p", [Msg]),
+    deliver_to_coap(Msg, Subscribers),
     ok.
 
-deliver_to_coap(_TopicName, _Payload, []) ->
+deliver_to_coap(_Msg, []) ->
     ok;
-deliver_to_coap(TopicName, Payload, [{TopicFilter, {IsWild, CoapPid}} | T]) ->
+deliver_to_coap(#message{topic = TopicName} = Msg, [{TopicFilter, {IsWild, CoapPid}} | T]) ->
     Matched =   case IsWild of
                     true  -> emqx_topic:match(TopicName, TopicFilter);
                     false -> TopicName =:= TopicFilter
                 end,
-    %?LOG(debug, "deliver_to_coap Matched=~p, CoapPid=~p, TopicName=~p, Payload=~p, T=~p",
-    %     [Matched, CoapPid, TopicName, Payload, T]),
-    Matched andalso (CoapPid ! {dispatch, TopicName, Payload}),
-    deliver_to_coap(TopicName, Payload, T).
+    Matched andalso (CoapPid ! {dispatch, Msg}),
+    deliver_to_coap(Msg, T).
 
 %%--------------------------------------------------------------------
 %% Helper funcs
@@ -328,12 +344,13 @@ chann_info(State) ->
       will_msg => undefined
      }.
 
-conninfo(#state{peername = Peername,
+conninfo(#state{peername = {PeerHost, _} = Peername,
                 clientid = ClientId,
                 connected_at = ConnectedAt}) ->
     #{socktype => udp,
       sockname => {{127, 0, 0, 1}, 5683},
       peername => Peername,
+      peerhost => PeerHost,
       peercert => nossl,        %% TODO: dtls
       conn_mod => ?MODULE,
       proto_name => <<"CoAP">>,
