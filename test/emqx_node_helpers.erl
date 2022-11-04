@@ -31,12 +31,23 @@ start_slave(Name) ->
     start_slave(Name, #{}).
 
 start_slave(Name, Opts) ->
+    SlaveMod = maps:get(slave_mod, Opts, ct_slave),
     Node = make_node_name(Name),
-    case ct_slave:start(Node, [{kill_if_fail, true},
-                               {monitor_master, true},
-                               {init_timeout, 10000},
-                               {startup_timeout, 10000},
-                               {erl_flags, ebin_path()}]) of
+    DoStart =
+        fun() ->
+          case SlaveMod of
+              ct_slave ->
+                  ct_slave:start(Node,
+                                 [{kill_if_fail, true},
+                                  {monitor_master, true},
+                                  {init_timeout, 10000},
+                                  {startup_timeout, 10000},
+                                  {erl_flags, ebin_path()}]);
+              slave ->
+                  slave:start_link(host(), Name, ebin_path())
+          end
+        end,
+    case DoStart() of
         {ok, _} ->
             ok;
         {error, started_not_connected, _} ->
@@ -115,6 +126,9 @@ setup_node(Node, #{} = Opts) ->
     ?assertEqual( node()
                 , gen_rpc:call(Node, gen_rpc, call, [node(), erlang, node, []])
                 ),
+
+    ok = snabbkaffe:forward_trace(Node),
+
     ok.
 
 %% Routes are replicated async.
