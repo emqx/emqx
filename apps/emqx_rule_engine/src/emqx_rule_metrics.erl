@@ -19,6 +19,7 @@
 -behaviour(gen_server).
 
 -include("rule_engine.hrl").
+-include_lib("snabbkaffe/include/snabbkaffe.hrl").
 
 %% API functions
 -export([ start_link/0
@@ -222,7 +223,9 @@ inc(Id, Metric, Val) ->
             counters:add(couters_ref(Id), metrics_idx(Metric), Val);
         Ref ->
             counters:add(Ref, metrics_idx(Metric), Val)
-    end.
+    end,
+    ?tp(rule_metrics_inc, #{id => Id, metric => Metric, value => Val}),
+    ok.
 
 inc_actions_taken(Id) ->
     inc_actions_taken(Id, 1).
