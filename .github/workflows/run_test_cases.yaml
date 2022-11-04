@@ -10,140 +10,255 @@ on:
   pull_request:
 
 jobs:
-    run_proper_test:
-        runs-on: ubuntu-20.04
-        container: emqx/build-env:erl23.3.4.9-3-ubuntu20.04
+  prepare:
+    runs-on: ubuntu-20.04
+    container: emqx/build-env:erl23.3.4.9-3-ubuntu20.04
+    outputs:
+      ct_apps: ${{ steps.run_find_apps.outputs.ct_apps }}
+    steps:
+      - uses: actions/checkout@v3
+        with:
+          path: source
+          fetch-depth: 0
+      - name: git credentials
+        run: |
+          if make emqx-ee --dry-run > /dev/null 2>&1; then
+            echo "https://ci%40emqx.io:${{ secrets.CI_GIT_TOKEN }}@github.com" > $HOME/.git-credentials
+            git config --global credential.helper store
+          fi
+      - name: find_ct_apps
+        working-directory: source
+        id: run_find_apps
+        # emqx_plugin_libs doesn't have a test suite -> excluded from app list
+        # emqx ct is run independently -> exclude it from the app list
+        run: |
+          ct_apps="$(./scripts/find-apps.sh --json | jq -c 'del (.[] | select (. == "apps/emqx_plugin_libs" or . ==  "emqx"))')"
+          echo "ct-apps: $ct_apps"
+          echo "ct_apps=$ct_apps" >> $GITHUB_OUTPUT
+      - name: get_all_deps
+        working-directory: source
+        run: |
+          make deps-all
+          ./rebar3 as test compile
+          cd ..
+          zip -ryq source.zip source/* source/.[^.]*
+      - uses: actions/upload-artifact@v3
+        with:
+          name: source
+          path: source.zip
 
-        steps:
-        - uses: actions/checkout@v2
-        - name: set git credentials
-          run: |
-            if make emqx-ee --dry-run > /dev/null 2>&1; then
-              echo "https://ci%40emqx.io:${{ secrets.CI_GIT_TOKEN }}@github.com" > $HOME/.git-credentials
-              git config --global credential.helper store
-            fi
-        - name: proper
-          run: make proper
+  eunit_and_proper:
+    needs: prepare
+    runs-on: ubuntu-20.04
+    container: emqx/build-env:erl23.3.4.9-3-ubuntu20.04
+    strategy:
+      fail-fast: false
+      matrix:
+        task:
+          - eunit
+          - proper
+    steps:
+      - uses: AutoModality/action-clean@v1
+      - uses: actions/download-artifact@v3
+        with:
+          name: source
+          path: .
+      - name: unzip source code
+        run: unzip -o -q source.zip
+      # produces eunit.coverdata and proper.coverdata
+      - name: eunit and proper
+        working-directory: source
+        run: make ${{ matrix.task }}
+      - uses: actions/upload-artifact@v3
+        with:
+          name: cover
+          path: source/_build/test/cover
+          if-no-files-found: warn
 
-    run_common_test:
-        runs-on: ${{ matrix.runs-on }}
-        strategy:
-          fail-fast: false
-          matrix:
-            runs-on:
-              - aws-amd64
-              - ubuntu-20.04
-            use-self-hosted:
-              - ${{ github.repository_owner == 'emqx' }}
-            exclude:
-              - runs-on: ubuntu-20.04
-                use-self-hosted: true
-              - runs-on: aws-amd64
-                use-self-hosted: false
-        steps:
-        - uses: actions/checkout@v2
-          # to avoid dirty self-hosted runners
-        - name: stop containers
-          run: |
-            docker rm -f $(docker ps -qa) || true
-            docker network rm $(docker network ls -q) || true
-        - name: docker compose up
-          if: endsWith(github.repository, 'emqx')
-          env:
-            MYSQL_TAG: 8
-            REDIS_TAG: 6
-            MONGO_TAG: 4
-            PGSQL_TAG: 13
-            LDAP_TAG: 2.4.50
-            GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          run: |
-            docker-compose \
-                -f .ci/docker-compose-file/docker-compose.yaml \
-                -f .ci/docker-compose-file/docker-compose-toxiproxy.yaml \
-                -f .ci/docker-compose-file/docker-compose-ldap-tcp.yaml \
-                -f .ci/docker-compose-file/docker-compose-mongo-tcp.yaml \
-                -f .ci/docker-compose-file/docker-compose-mysql-tcp.yaml \
-                -f .ci/docker-compose-file/docker-compose-pgsql-tcp.yaml \
-                -f .ci/docker-compose-file/docker-compose-redis-single-tcp.yaml \
-                up -d --build
-        - name: docker compose up
-          if: endsWith(github.repository, 'emqx-enterprise')
-          env:
-            MYSQL_TAG: 8
-            REDIS_TAG: 6
-            MONGO_TAG: 4
-            PGSQL_TAG: 13
-            LDAP_TAG: 2.4.50
-            OPENTSDB_TAG: latest
-            INFLUXDB_TAG: 1.7.6
-            DYNAMODB_TAG: 1.11.477
-            TIMESCALE_TAG: latest-pg11
-            CASSANDRA_TAG: 3.11.6
-            RABBITMQ_TAG: 3.7
-            KAFKA_TAG: 2.5.0
-            PULSAR_TAG: 2.3.2
-            GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          timeout-minutes: 20
-          run: |
-            docker-compose \
-                -f .ci/docker-compose-file/docker-compose.yaml \
-                -f .ci/docker-compose-file/docker-compose-toxiproxy.yaml \
-                -f .ci/docker-compose-file/docker-compose-ldap-tcp.yaml \
-                -f .ci/docker-compose-file/docker-compose-mongo-tcp.yaml \
-                -f .ci/docker-compose-file/docker-compose-mysql-tcp.yaml \
-                -f .ci/docker-compose-file/docker-compose-pgsql-tcp.yaml \
-                -f .ci/docker-compose-file/docker-compose-redis-single-tcp.yaml \
-                -f .ci/docker-compose-file/docker-compose-enterprise.yaml \
-                -f .ci/docker-compose-file/docker-compose-enterprise-cassandra-tcp.yaml \
-                -f .ci/docker-compose-file/docker-compose-enterprise-dynamodb-tcp.yaml \
-                -f .ci/docker-compose-file/docker-compose-enterprise-influxdb-tcp.yaml \
-                -f .ci/docker-compose-file/docker-compose-enterprise-kafka-tcp.yaml \
-                -f .ci/docker-compose-file/docker-compose-enterprise-opentsdb-tcp.yaml \
-                -f .ci/docker-compose-file/docker-compose-enterprise-pulsar-tcp.yaml \
-                -f .ci/docker-compose-file/docker-compose-enterprise-rabbit-tcp.yaml \
-                -f .ci/docker-compose-file/docker-compose-enterprise-timescale-tcp.yaml \
-                -f .ci/docker-compose-file/docker-compose-enterprise-mysql-client.yaml \
-                -f .ci/docker-compose-file/docker-compose-enterprise-pgsql-and-timescale-client.yaml \
-                up -d --build
-            docker exec -i erlang bash -c "echo \"https://ci%40emqx.io:${{ secrets.CI_GIT_TOKEN }}@github.com\" > /root/.git-credentials && git config --global credential.helper store"
-            docker exec -i erlang bash -c "git config --global --add safe.directory /emqx"
-            while [ $(docker ps -a --filter name=client --filter exited=0 | wc -l) \
-                 != $(docker ps -a --filter name=client | wc -l) ]; do
-              sleep 5
-            done
-        - name: run eunit
-          run: |
-            docker exec -i erlang bash -c "make eunit"
-        - name: run common test
-          run: |
-            docker exec -i erlang bash -c "make ct"
-        - name: run cover
-          run: |
-            printenv > .env
-            docker exec -i erlang bash -c "git config --global --add safe.directory /emqx"
-            docker exec -i erlang bash -c "make cover"
-            docker exec --env-file .env -i erlang bash -c "make coveralls"
-        - name: cat rebar.crashdump
-          if: failure()
-          run: if [ -f 'rebar3.crashdump' ];then cat 'rebar3.crashdump'; fi
-        - uses: actions/upload-artifact@v1
-          if: failure()
-          with:
-            name: logs
-            path: _build/test/logs
-        - uses: actions/upload-artifact@v1
-          with:
-            name: cover
-            path: _build/test/cover
+  emqx_ct:
+    needs: prepare
+    runs-on: ubuntu-20.04
+    container: emqx/build-env:erl23.3.4.9-3-ubuntu20.04
+    strategy:
+      fail-fast: false
+    steps:
+      - uses: AutoModality/action-clean@v1
+      - uses: actions/download-artifact@v3
+        with:
+          name: source
+          path: .
+      - name: unzip source code
+        run: unzip -o -q source.zip
+      # produces emqx-emqx.coverdata
+      - name: emqx-ct-pipeline
+        working-directory: source
+        run: make emqx-ct-pipeline
+      - uses: actions/upload-artifact@v3
+        with:
+          name: cover
+          path: source/_build/test/cover
+          if-no-files-found: warn
 
-    finish:
-      needs: run_common_test
-      runs-on: ubuntu-20.04
-      steps:
-        - name: Coveralls Finished
-          env:
-            GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          run: |
-            curl -v -k https://coveralls.io/webhook \
-                 --header "Content-Type: application/json" \
-                 --data "{\"repo_name\":\"$GITHUB_REPOSITORY\",\"repo_token\":\"$GITHUB_TOKEN\",\"payload\":{\"build_num\":$GITHUB_RUN_ID,\"status\":\"done\"}}" || true
+  ct:
+    needs: prepare
+    runs-on: ${{ matrix.runs-on }}
+    strategy:
+      max-parallel: 12
+      fail-fast: false
+      matrix:
+        app_name: ${{ fromJson(needs.prepare.outputs.ct_apps) }}
+        runs-on:
+          - aws-amd64
+          - ubuntu-20.04
+        use-self-hosted:
+          - ${{ github.repository_owner == 'emqx' }}
+        exclude:
+          - runs-on: ubuntu-20.04
+            use-self-hosted: true
+          - runs-on: aws-amd64
+            use-self-hosted: false
+    steps:
+      - uses: AutoModality/action-clean@v1
+      - uses: actions/download-artifact@v3
+        with:
+          name: source
+          path: .
+      - name: unzip source code
+        run: unzip -q source.zip
+        # to avoid dirty self-hosted runners
+      - name: stop containers
+        run: |
+          docker rm -f $(docker ps -qa) || true
+          docker network rm $(docker network ls -q) || true
+      - name: docker compose up
+        working-directory: source
+        if: endsWith(github.repository, 'emqx')
+        env:
+          MYSQL_TAG: 8
+          REDIS_TAG: 6
+          MONGO_TAG: 4
+          PGSQL_TAG: 13
+          LDAP_TAG: 2.4.50
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          docker-compose \
+              -f .ci/docker-compose-file/docker-compose.yaml \
+              -f .ci/docker-compose-file/docker-compose-toxiproxy.yaml \
+              -f .ci/docker-compose-file/docker-compose-ldap-tcp.yaml \
+              -f .ci/docker-compose-file/docker-compose-mongo-tcp.yaml \
+              -f .ci/docker-compose-file/docker-compose-mysql-tcp.yaml \
+              -f .ci/docker-compose-file/docker-compose-pgsql-tcp.yaml \
+              -f .ci/docker-compose-file/docker-compose-redis-single-tcp.yaml \
+              up -d --build
+          docker exec -i erlang bash -c "git config --global --add safe.directory /emqx"
+      - name: docker compose up
+        working-directory: source
+        if: endsWith(github.repository, 'emqx-enterprise')
+        env:
+          MYSQL_TAG: 8
+          REDIS_TAG: 6
+          MONGO_TAG: 4
+          PGSQL_TAG: 13
+          LDAP_TAG: 2.4.50
+          OPENTSDB_TAG: latest
+          INFLUXDB_TAG: 1.7.6
+          DYNAMODB_TAG: 1.11.477
+          TIMESCALE_TAG: latest-pg11
+          CASSANDRA_TAG: 3.11.6
+          RABBITMQ_TAG: 3.7
+          KAFKA_TAG: 2.5.0
+          PULSAR_TAG: 2.3.2
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        timeout-minutes: 20
+        run: |
+          docker-compose \
+              -f .ci/docker-compose-file/docker-compose.yaml \
+              -f .ci/docker-compose-file/docker-compose-toxiproxy.yaml \
+              -f .ci/docker-compose-file/docker-compose-ldap-tcp.yaml \
+              -f .ci/docker-compose-file/docker-compose-mongo-tcp.yaml \
+              -f .ci/docker-compose-file/docker-compose-mysql-tcp.yaml \
+              -f .ci/docker-compose-file/docker-compose-pgsql-tcp.yaml \
+              -f .ci/docker-compose-file/docker-compose-redis-single-tcp.yaml \
+              -f .ci/docker-compose-file/docker-compose-enterprise.yaml \
+              -f .ci/docker-compose-file/docker-compose-enterprise-cassandra-tcp.yaml \
+              -f .ci/docker-compose-file/docker-compose-enterprise-dynamodb-tcp.yaml \
+              -f .ci/docker-compose-file/docker-compose-enterprise-influxdb-tcp.yaml \
+              -f .ci/docker-compose-file/docker-compose-enterprise-kafka-tcp.yaml \
+              -f .ci/docker-compose-file/docker-compose-enterprise-opentsdb-tcp.yaml \
+              -f .ci/docker-compose-file/docker-compose-enterprise-pulsar-tcp.yaml \
+              -f .ci/docker-compose-file/docker-compose-enterprise-rabbit-tcp.yaml \
+              -f .ci/docker-compose-file/docker-compose-enterprise-timescale-tcp.yaml \
+              -f .ci/docker-compose-file/docker-compose-enterprise-mysql-client.yaml \
+              -f .ci/docker-compose-file/docker-compose-enterprise-pgsql-and-timescale-client.yaml \
+              up -d --build
+          docker exec -i erlang bash -c "echo \"https://ci%40emqx.io:${{ secrets.CI_GIT_TOKEN }}@github.com\" > /root/.git-credentials && git config --global credential.helper store"
+          docker exec -i erlang bash -c "git config --global --add safe.directory /emqx"
+          while [ $(docker ps -a --filter name=client --filter exited=0 | wc -l) \
+               != $(docker ps -a --filter name=client | wc -l) ]; do
+            sleep 5
+          done
+      - name: run common test
+        run: docker exec -i erlang bash -c "make ${{ matrix.app_name }}-ct-pipeline"
+      - name: cat rebar.crashdump
+        if: failure()
+        working-directory: source
+        run: if [ -f 'rebar3.crashdump' ];then cat 'rebar3.crashdump'; fi
+      - name: set log file name
+        if: failure()
+        run: echo "LOGFILENAME=logs-$(echo ${{ matrix.app_name }} | tr '/' '_')" >> $GITHUB_ENV
+      - uses: actions/upload-artifact@v3
+        if: failure()
+        with:
+          name: ${{ env.LOGFILENAME }}
+          path: source/_build/test/logs
+          if-no-files-found: warn
+      - uses: actions/upload-artifact@v3
+        with:
+          name: cover
+          path: source/_build/test/cover
+          if-no-files-found: warn
+
+  make_cover:
+    needs:
+      - eunit_and_proper
+      - emqx_ct
+      - ct
+    runs-on: ubuntu-20.04
+    container: emqx/build-env:erl23.3.4.9-3-ubuntu20.04
+    steps:
+      - uses: AutoModality/action-clean@v1
+      - uses: actions/download-artifact@v3
+        with:
+          name: source
+          path: .
+      - name: unzip source code
+        run: unzip -q source.zip
+      - uses: actions/download-artifact@v3
+        name: download cover data
+        with:
+          name: cover
+          path: source/_build/test/cover
+      - name: make cover
+        working-directory: source
+        run: make cover
+      - name: send to coveralls
+        working-directory: source
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: make coveralls
+      - name: get coveralls logs
+        working-directory: source
+        if: failure()
+        run: cat rebar3.crashdump
+
+  finish:
+    needs: make_cover
+    runs-on: ubuntu-20.04
+    steps:
+      - name: Coveralls Finished
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          curl -v -k https://coveralls.io/webhook \
+               --header "Content-Type: application/json" \
+               --data "{\"repo_name\":\"$GITHUB_REPOSITORY\",\"repo_token\":\"$GITHUB_TOKEN\",\"payload\":{\"build_num\":$GITHUB_RUN_ID,\"status\":\"done\"}}" || true
