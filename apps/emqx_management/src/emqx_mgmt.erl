@@ -499,7 +499,7 @@ delete_all_deactivated_alarms() ->
 delete_all_deactivated_alarms(Node) when Node =:= node() ->
     emqx_alarm:delete_all_deactivated_alarms();
 delete_all_deactivated_alarms(Node) ->
-    rpc_call(Node, delete_deactivated_alarms, [Node]).
+    rpc_call(Node, emqx_alarm, delete_all_deactivated_alarms, []).
 
 add_duration_field(Alarms) ->
     Now = erlang:system_time(microsecond),
@@ -574,7 +574,10 @@ item(route, {Topic, Node}) ->
 %%--------------------------------------------------------------------
 
 rpc_call(Node, Fun, Args) ->
-    case rpc:call(Node, ?MODULE, Fun, Args) of
+    rpc_call(Node, ?MODULE, Fun, Args).
+
+rpc_call(Node, Mod, Fun, Args) ->
+    case rpc:call(Node, Mod, Fun, Args) of
         {badrpc, Reason} -> {error, Reason};
         Res -> Res
     end.
