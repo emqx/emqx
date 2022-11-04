@@ -356,15 +356,26 @@ mnesia(_) ->
 %% @doc Logger Command
 
 log(["set-level", Level]) ->
-    case emqx_logger:set_log_level(list_to_atom(Level)) of
-        ok -> emqx_ctl:print("~ts~n", [Level]);
-        Error -> emqx_ctl:print("[error] set overall log level failed: ~p~n", [Error])
+    case emqx_misc:safe_to_existing_atom(Level) of
+        {ok, Level1} ->
+            case emqx_logger:set_log_level(Level1) of
+                ok -> emqx_ctl:print("~ts~n", [Level]);
+                Error -> emqx_ctl:print("[error] set overall log level failed: ~p~n", [Error])
+            end;
+        _ ->
+            emqx_ctl:print("[error] invalid level: ~p~n", [Level])
     end;
 log(["primary-level"]) ->
     Level = emqx_logger:get_primary_log_level(),
     emqx_ctl:print("~ts~n", [Level]);
 log(["primary-level", Level]) ->
-    _ = emqx_logger:set_primary_log_level(list_to_atom(Level)),
+    case emqx_misc:safe_to_existing_atom(Level) of
+        {ok, Level1} ->
+            _ = emqx_logger:set_primary_log_level(Level1),
+            ok;
+        _ ->
+            emqx_ctl:print("[error] invalid level: ~p~n", [Level])
+    end,
     emqx_ctl:print("~ts~n", [emqx_logger:get_primary_log_level()]);
 log(["handlers", "list"]) ->
     _ = [
@@ -381,26 +392,50 @@ log(["handlers", "list"]) ->
     ],
     ok;
 log(["handlers", "start", HandlerId]) ->
-    case emqx_logger:start_log_handler(list_to_atom(HandlerId)) of
-        ok ->
-            emqx_ctl:print("log handler ~ts started~n", [HandlerId]);
-        {error, Reason} ->
-            emqx_ctl:print("[error] failed to start log handler ~ts: ~p~n", [HandlerId, Reason])
+    case emqx_misc:safe_to_existing_atom(HandlerId) of
+        {ok, HandlerId1} ->
+            case emqx_logger:start_log_handler(HandlerId1) of
+                ok ->
+                    emqx_ctl:print("log handler ~ts started~n", [HandlerId]);
+                {error, Reason} ->
+                    emqx_ctl:print("[error] failed to start log handler ~ts: ~p~n", [
+                        HandlerId, Reason
+                    ])
+            end;
+        _ ->
+            emqx_ctl:print("[error] invalid handler:~ts~n", [HandlerId])
     end;
 log(["handlers", "stop", HandlerId]) ->
-    case emqx_logger:stop_log_handler(list_to_atom(HandlerId)) of
-        ok ->
-            emqx_ctl:print("log handler ~ts stopped~n", [HandlerId]);
-        {error, Reason} ->
-            emqx_ctl:print("[error] failed to stop log handler ~ts: ~p~n", [HandlerId, Reason])
+    case emqx_misc:safe_to_existing_atom(HandlerId) of
+        {ok, HandlerId1} ->
+            case emqx_logger:stop_log_handler(HandlerId1) of
+                ok ->
+                    emqx_ctl:print("log handler ~ts stopped~n", [HandlerId1]);
+                {error, Reason} ->
+                    emqx_ctl:print("[error] failed to stop log handler ~ts: ~p~n", [
+                        HandlerId1, Reason
+                    ])
+            end;
+        _ ->
+            emqx_ctl:print("[error] invalid handler:~ts~n", [HandlerId])
     end;
 log(["handlers", "set-level", HandlerId, Level]) ->
-    case emqx_logger:set_log_handler_level(list_to_atom(HandlerId), list_to_atom(Level)) of
-        ok ->
-            #{level := NewLevel} = emqx_logger:get_log_handler(list_to_atom(HandlerId)),
-            emqx_ctl:print("~ts~n", [NewLevel]);
-        {error, Error} ->
-            emqx_ctl:print("[error] ~p~n", [Error])
+    case emqx_misc:safe_to_existing_atom(HandlerId) of
+        {ok, HandlerId1} ->
+            case emqx_misc:safe_to_existing_atom(Level) of
+                {ok, Level1} ->
+                    case emqx_logger:set_log_handler_level(HandlerId1, Level1) of
+                        ok ->
+                            #{level := NewLevel} = emqx_logger:get_log_handler(HandlerId1),
+                            emqx_ctl:print("~ts~n", [NewLevel]);
+                        {error, Error} ->
+                            emqx_ctl:print("[error] ~p~n", [Error])
+                    end;
+                _ ->
+                    emqx_ctl:print("[error] invalid level:~p~n", [Level])
+            end;
+        _ ->
+            emqx_ctl:print("[error] invalid handler:~ts~n", [HandlerId])
     end;
 log(_) ->
     emqx_ctl:usage(
@@ -593,25 +628,40 @@ listeners([]) ->
         emqx_listeners:list()
     );
 listeners(["stop", ListenerId]) ->
-    case emqx_listeners:stop_listener(list_to_atom(ListenerId)) of
-        ok ->
-            emqx_ctl:print("Stop ~ts listener successfully.~n", [ListenerId]);
-        {error, Error} ->
-            emqx_ctl:print("Failed to stop ~ts listener: ~0p~n", [ListenerId, Error])
+    case emqx_misc:safe_to_existing_atom(ListenerId) of
+        {ok, ListenerId1} ->
+            case emqx_listeners:stop_listener(ListenerId1) of
+                ok ->
+                    emqx_ctl:print("Stop ~ts listener successfully.~n", [ListenerId]);
+                {error, Error} ->
+                    emqx_ctl:print("Failed to stop ~ts listener: ~0p~n", [ListenerId, Error])
+            end;
+        _ ->
+            emqx_ctl:print("Invalid listener: ~0p~n", [ListenerId])
     end;
 listeners(["start", ListenerId]) ->
-    case emqx_listeners:start_listener(list_to_atom(ListenerId)) of
-        ok ->
-            emqx_ctl:print("Started ~ts listener successfully.~n", [ListenerId]);
-        {error, Error} ->
-            emqx_ctl:print("Failed to start ~ts listener: ~0p~n", [ListenerId, Error])
+    case emqx_misc:safe_to_existing_atom(ListenerId) of
+        {ok, ListenerId1} ->
+            case emqx_listeners:start_listener(ListenerId1) of
+                ok ->
+                    emqx_ctl:print("Started ~ts listener successfully.~n", [ListenerId]);
+                {error, Error} ->
+                    emqx_ctl:print("Failed to start ~ts listener: ~0p~n", [ListenerId, Error])
+            end;
+        _ ->
+            emqx_ctl:print("Invalid listener: ~0p~n", [ListenerId])
     end;
 listeners(["restart", ListenerId]) ->
-    case emqx_listeners:restart_listener(list_to_atom(ListenerId)) of
-        ok ->
-            emqx_ctl:print("Restarted ~ts listener successfully.~n", [ListenerId]);
-        {error, Error} ->
-            emqx_ctl:print("Failed to restart ~ts listener: ~0p~n", [ListenerId, Error])
+    case emqx_misc:safe_to_existing_atom(ListenerId) of
+        {ok, ListenerId1} ->
+            case emqx_listeners:restart_listener(ListenerId1) of
+                ok ->
+                    emqx_ctl:print("Restarted ~ts listener successfully.~n", [ListenerId]);
+                {error, Error} ->
+                    emqx_ctl:print("Failed to restart ~ts listener: ~0p~n", [ListenerId, Error])
+            end;
+        _ ->
+            emqx_ctl:print("Invalid listener: ~0p~n", [ListenerId])
     end;
 listeners(_) ->
     emqx_ctl:usage([

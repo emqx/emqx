@@ -49,7 +49,8 @@
 -export([
     listener_id/2,
     parse_listener_id/1,
-    ensure_override_limiter_conf/2
+    ensure_override_limiter_conf/2,
+    esockd_access_rules/1
 ]).
 
 -export([pre_config_update/3, post_config_update/5]).
@@ -497,17 +498,28 @@ ip_port({Addr, Port}) ->
     [{ip, Addr}, {port, Port}].
 
 esockd_access_rules(StrRules) ->
-    Access = fun(S) ->
+    Access = fun(S, Acc) ->
         [A, CIDR] = string:tokens(S, " "),
-        {
-            list_to_atom(A),
-            case CIDR of
-                "all" -> all;
-                _ -> CIDR
-            end
-        }
+        %% esockd rules only use words 'allow' and 'deny', both are existing
+        %% comparison of strings may be better, but there is a loss of backward compatibility
+        case emqx_misc:safe_to_existing_atom(A) of
+            {ok, Action} ->
+                [
+                    {
+                        Action,
+                        case CIDR of
+                            "all" -> all;
+                            _ -> CIDR
+                        end
+                    }
+                    | Acc
+                ];
+            _ ->
+                ?SLOG(warning, #{msg => "invalid esockd access rule", rule => S}),
+                Acc
+        end
     end,
-    [Access(R) || R <- StrRules].
+    lists:foldr(Access, [], StrRules).
 
 merge_default(Options) ->
     case lists:keytake(tcp_options, 1, Options) of
