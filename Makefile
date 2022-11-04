@@ -62,6 +62,14 @@ $1-ct: $(REBAR)
 endef
 $(foreach app,$(APPS),$(eval $(call gen-app-ct-target,$(app))))
 
+## app/name-ct-pipeline targets are used in pipeline -> make cover data for each app
+.PHONY: $(APPS:%=%-ct-pipeline)
+define gen-app-ct-target-pipeline
+$1-ct-pipeline: $(REBAR)
+	$(REBAR) ct --name 'test@127.0.0.1' -c -v --cover_export_name $(PROFILE)-$(subst /,-,$1) --suite $(shell $(CURDIR)/scripts/find-suites.sh $1)
+endef
+$(foreach app,$(APPS),$(eval $(call gen-app-ct-target-pipeline,$(app))))
+
 ## apps/name-prop targets
 .PHONY: $(APPS:%=%-prop)
 define gen-app-prop-target

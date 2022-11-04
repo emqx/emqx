@@ -32,8 +32,11 @@ init_per_suite(Cfg) ->
     ok = emqx_dashboard_admin:mnesia(boot),
     application:load(emqx_modules),
     application:load(emqx_bridge_mqtt),
+    ekka_mnesia:start(),
+    emqx_dashboard_admin:mnesia(boot),
     emqx_ct_helpers:start_apps([emqx_rule_engine, emqx_management]),
     application:ensure_all_started(emqx_dashboard),
+    ok = emqx_rule_engine:load_providers(),
     Cfg.
 
 end_per_suite(Cfg) ->

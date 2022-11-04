@@ -98,7 +98,7 @@ jobs:
     - uses: actions/upload-artifact@v3
       with:
         name: ${{ matrix.profile }}-windows
-        path: source/_packages/${{ matrix.profile }}/.
+        path: source/_packages/${{ matrix.profile }}/
 
   mac:
     needs: prepare
@@ -133,7 +133,7 @@ jobs:
     - uses: actions/upload-artifact@v3
       with:
         name: ${EMQX_NAME}-${{ matrix.otp }}
-        path: _packages/${EMQX_NAME}/.
+        path: _packages/${EMQX_NAME}/
 
   linux:
     runs-on: ubuntu-20.04
@@ -209,7 +209,7 @@ jobs:
     - uses: actions/upload-artifact@v1
       with:
         name: ${{ matrix.profile }}-${{ matrix.otp }}
-        path: source/_packages/${{ matrix.profile }}/.
+        path: source/_packages/${{ matrix.profile }}/
 
   docker:
     runs-on: ubuntu-20.04
