@@ -20,6 +20,8 @@ REL_PROFILES := emqx emqx-edge
 PKG_PROFILES := emqx-pkg emqx-edge-pkg
 PROFILES := $(REL_PROFILES) $(PKG_PROFILES) default
 
+CT_READABLE ?= false
+
 export REBAR_GIT_CLONE_OPTIONS += --depth=1
 
 .PHONY: default
@@ -57,7 +59,7 @@ APPS=$(shell $(CURDIR)/scripts/find-apps.sh)
 .PHONY: $(APPS:%=%-ct)
 define gen-app-ct-target
 $1-ct: $(REBAR)
-	$(REBAR) ct --name 'test@127.0.0.1' -v --suite $(shell $(CURDIR)/scripts/find-suites.sh $1)
+	$(REBAR) ct --name 'test@127.0.0.1' -v --readable $(CT_READABLE) --suite $(shell $(CURDIR)/scripts/find-suites.sh $1)
 endef
 $(foreach app,$(APPS),$(eval $(call gen-app-ct-target,$(app))))
 
@@ -65,7 +67,7 @@ $(foreach app,$(APPS),$(eval $(call gen-app-ct-target,$(app))))
 .PHONY: $(APPS:%=%-ct-pipeline)
 define gen-app-ct-target-pipeline
 $1-ct-pipeline: $(REBAR)
-	$(REBAR) ct --name 'test@127.0.0.1' -c -v --cover_export_name $(PROFILE)-$(subst /,-,$1) --suite $(shell $(CURDIR)/scripts/find-suites.sh $1)
+	$(REBAR) ct --name 'test@127.0.0.1' -c -v --readable $(CT_READABLE) --cover_export_name $(PROFILE)-$(subst /,-,$1) --suite $(shell $(CURDIR)/scripts/find-suites.sh $1)
 endef
 $(foreach app,$(APPS),$(eval $(call gen-app-ct-target-pipeline,$(app))))
 
@@ -86,6 +88,7 @@ coveralls: $(REBAR)
 	@ENABLE_COVER_COMPILE=1 $(REBAR) as test coveralls send
 
 .PHONY: $(REL_PROFILES)
+
 $(REL_PROFILES:%=%): $(REBAR) get-dashboard
 	@$(REBAR) as $(@) do compile,release
 

@@ -14,31 +14,37 @@ jobs:
     runs-on: ubuntu-20.04
     container: emqx/build-env:erl23.3.4.9-3-ubuntu20.04
     outputs:
-      ct_apps: ${{ steps.run_find_apps.outputs.ct_apps }}
+      fast_ct_apps: ${{ steps.run_find_apps.outputs.fast_ct_apps }}
+      docker_ct_apps: ${{ steps.run_find_apps.outputs.docker_ct_apps }}
     steps:
       - uses: actions/checkout@v3
         with:
           path: source
           fetch-depth: 0
       - name: git credentials
+        if: endsWith(github.repository, 'emqx-enterprise')
         run: |
-          if make emqx-ee --dry-run > /dev/null 2>&1; then
-            echo "https://ci%40emqx.io:${{ secrets.CI_GIT_TOKEN }}@github.com" > $HOME/.git-credentials
-            git config --global credential.helper store
-          fi
+          echo "https://ci%40emqx.io:${{ secrets.CI_GIT_TOKEN }}@github.com" > $HOME/.git-credentials
+          git config --global credential.helper store
       - name: find_ct_apps
         working-directory: source
         id: run_find_apps
         # emqx_plugin_libs doesn't have a test suite -> excluded from app list
-        # emqx ct is run independently -> exclude it from the app list
+        # emqx ct is run independently -> exclude it from the app list (regular ct)
+        # lib-ee/emqx_node_rebalance -> exclude it from app list (regular ct)
         run: |
-          ct_apps="$(./scripts/find-apps.sh --json | jq -c 'del (.[] | select (. == "apps/emqx_plugin_libs" or . ==  "emqx"))')"
-          echo "ct-apps: $ct_apps"
-          echo "ct_apps=$ct_apps" >> $GITHUB_OUTPUT
+          fast_ct_apps="$(./scripts/find-apps.sh --ct fast --json)"
+          docker_ct_apps="$(./scripts/find-apps.sh --ct docker --json)"
+          echo "fast_ct_apps=$fast_ct_apps" | tee -a $GITHUB_OUTPUT
+          echo "docker_ct_apps=$docker_ct_apps" | tee -a $GITHUB_OUTPUT
       - name: get_all_deps
         working-directory: source
         run: |
-          make deps-all
+          # build the default profile for two purposes
+          # 1. download all dependencies (so the individual app runs do not depend on github credentials)
+          # 2. some of the files such as segmented config files are not created when compiling only the test profile
+          make
+          # compile test profile to speed up the individual runs
           ./rebar3 as test compile
           cd ..
           zip -ryq source.zip source/* source/.[^.]*
@@ -75,12 +81,24 @@ jobs:
           path: source/_build/test/cover
           if-no-files-found: warn
 
-  emqx_ct:
+  fast_ct:
     needs: prepare
     runs-on: ubuntu-20.04
     container: emqx/build-env:erl23.3.4.9-3-ubuntu20.04
     strategy:
       fail-fast: false
+      matrix:
+        app_name: ${{ fromJson(needs.prepare.outputs.fast_ct_apps) }}
+        runs-on:
+          - aws-amd64
+          - ubuntu-20.04
+        use-self-hosted:
+          - ${{ github.repository_owner == 'emqx' }}
+        exclude:
+          - runs-on: ubuntu-20.04
+            use-self-hosted: true
+          - runs-on: aws-amd64
+            use-self-hosted: false
     steps:
       - uses: AutoModality/action-clean@v1
       - uses: actions/download-artifact@v3
@@ -89,24 +107,26 @@ jobs:
           path: .
       - name: unzip source code
         run: unzip -o -q source.zip
-      # produces emqx-emqx.coverdata
-      - name: emqx-ct-pipeline
+      # produces emqx-<appname>.coverdata
+      - name: make-app-ct-pipeline
         working-directory: source
-        run: make emqx-ct-pipeline
+        run: |
+          export CT_READABLE=true
+          make ${{ matrix.app_name }}-ct-pipeline
       - uses: actions/upload-artifact@v3
         with:
           name: cover
           path: source/_build/test/cover
           if-no-files-found: warn
 
-  ct:
+  docker_ct:
     needs: prepare
     runs-on: ${{ matrix.runs-on }}
     strategy:
       max-parallel: 12
       fail-fast: false
       matrix:
-        app_name: ${{ fromJson(needs.prepare.outputs.ct_apps) }}
+        app_name: ${{ fromJson(needs.prepare.outputs.docker_ct_apps) }}
         runs-on:
           - aws-amd64
           - ubuntu-20.04
@@ -132,28 +152,6 @@ jobs:
           docker network rm $(docker network ls -q) || true
       - name: docker compose up
         working-directory: source
-        if: endsWith(github.repository, 'emqx')
-        env:
-          MYSQL_TAG: 8
-          REDIS_TAG: 6
-          MONGO_TAG: 4
-          PGSQL_TAG: 13
-          LDAP_TAG: 2.4.50
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: |
-          docker-compose \
-              -f .ci/docker-compose-file/docker-compose.yaml \
-              -f .ci/docker-compose-file/docker-compose-toxiproxy.yaml \
-              -f .ci/docker-compose-file/docker-compose-ldap-tcp.yaml \
-              -f .ci/docker-compose-file/docker-compose-mongo-tcp.yaml \
-              -f .ci/docker-compose-file/docker-compose-mysql-tcp.yaml \
-              -f .ci/docker-compose-file/docker-compose-pgsql-tcp.yaml \
-              -f .ci/docker-compose-file/docker-compose-redis-single-tcp.yaml \
-              up -d --build
-          docker exec -i erlang bash -c "git config --global --add safe.directory /emqx"
-      - name: docker compose up
-        working-directory: source
-        if: endsWith(github.repository, 'emqx-enterprise')
         env:
           MYSQL_TAG: 8
           REDIS_TAG: 6
@@ -169,16 +167,19 @@ jobs:
           KAFKA_TAG: 2.5.0
           PULSAR_TAG: 2.3.2
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        timeout-minutes: 20
+        timeout-minutes: 40
         run: |
-          docker-compose \
+          ulimit -n
+          docker_compose_files="\
               -f .ci/docker-compose-file/docker-compose.yaml \
               -f .ci/docker-compose-file/docker-compose-toxiproxy.yaml \
-              -f .ci/docker-compose-file/docker-compose-ldap-tcp.yaml \
               -f .ci/docker-compose-file/docker-compose-mongo-tcp.yaml \
+              -f .ci/docker-compose-file/docker-compose-mongo-replicaset-tcp.yaml \
+              -f .ci/docker-compose-file/docker-compose-mongo-sharded-tcp.yaml \
               -f .ci/docker-compose-file/docker-compose-mysql-tcp.yaml \
               -f .ci/docker-compose-file/docker-compose-pgsql-tcp.yaml \
-              -f .ci/docker-compose-file/docker-compose-redis-single-tcp.yaml \
+              -f .ci/docker-compose-file/docker-compose-redis-single-tcp.yaml"
+          ee_docker_compose_files="\
               -f .ci/docker-compose-file/docker-compose-enterprise.yaml \
               -f .ci/docker-compose-file/docker-compose-enterprise-cassandra-tcp.yaml \
               -f .ci/docker-compose-file/docker-compose-enterprise-dynamodb-tcp.yaml \
@@ -189,16 +190,30 @@ jobs:
               -f .ci/docker-compose-file/docker-compose-enterprise-rabbit-tcp.yaml \
               -f .ci/docker-compose-file/docker-compose-enterprise-timescale-tcp.yaml \
               -f .ci/docker-compose-file/docker-compose-enterprise-mysql-client.yaml \
-              -f .ci/docker-compose-file/docker-compose-enterprise-pgsql-and-timescale-client.yaml \
-              up -d --build
-          docker exec -i erlang bash -c "echo \"https://ci%40emqx.io:${{ secrets.CI_GIT_TOKEN }}@github.com\" > /root/.git-credentials && git config --global credential.helper store"
+              -f .ci/docker-compose-file/docker-compose-enterprise-pgsql-and-timescale-client.yaml"
+          if [ -f EMQX_ENTERPRISE ]; then
+            docker_compose_files="${docker_compose_files} ${ee_docker_compose_files}"
+          fi
+          # only build ldap docker image when necessary, it takes 9 minutes
+          if [[ ${{ matrix.app_name }} == *ldap ]]; then
+            docker_compose_files="${docker_compose_files} -f .ci/docker-compose-file/docker-compose-ldap-tcp.yaml"
+          fi
+          docker-compose $docker_compose_files up -d --build
+          if [ -f EMQX_ENTERPRISE ]; then
+            docker exec -i erlang bash -c "echo \"https://ci%40emqx.io:${{ secrets.CI_GIT_TOKEN }}@github.com\" > /root/.git-credentials && git config --global credential.helper store"
+          fi
           docker exec -i erlang bash -c "git config --global --add safe.directory /emqx"
-          while [ $(docker ps -a --filter name=client --filter exited=0 | wc -l) \
-               != $(docker ps -a --filter name=client | wc -l) ]; do
-            sleep 5
+          clients="$(docker ps -q --filter name=client)"
+          for client in ${clients}; do
+            docker ps -a --filter name=client
+            echo "waiting for docker ${client} to exit"
+            if ! timeout 60 docker wait "${client}"; then
+              docker-compose $docker_compose_files logs | tee docker-compose.log
+              exit 1
+            fi
           done
       - name: run common test
-        run: docker exec -i erlang bash -c "make ${{ matrix.app_name }}-ct-pipeline"
+        run: docker exec -i erlang bash -c "env CT_READABLE=true make ${{ matrix.app_name }}-ct-pipeline"
       - name: cat rebar.crashdump
         if: failure()
         working-directory: source
@@ -210,7 +225,9 @@ jobs:
         if: failure()
         with:
           name: ${{ env.LOGFILENAME }}
-          path: source/_build/test/logs
+          path: |
+            docker-compose.log
+            source/_build/test/logs
           if-no-files-found: warn
       - uses: actions/upload-artifact@v3
         with:
@@ -221,8 +238,8 @@ jobs:
   make_cover:
     needs:
       - eunit_and_proper
-      - emqx_ct
-      - ct
+      - fast_ct
+      - docker_ct
     runs-on: ubuntu-20.04
     container: emqx/build-env:erl23.3.4.9-3-ubuntu20.04
     steps:
