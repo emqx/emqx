@@ -174,13 +174,13 @@ jobs:
               -f .ci/docker-compose-file/docker-compose.yaml \
               -f .ci/docker-compose-file/docker-compose-toxiproxy.yaml \
               -f .ci/docker-compose-file/docker-compose-mongo-tcp.yaml \
-              -f .ci/docker-compose-file/docker-compose-mongo-replicaset-tcp.yaml \
-              -f .ci/docker-compose-file/docker-compose-mongo-sharded-tcp.yaml \
               -f .ci/docker-compose-file/docker-compose-mysql-tcp.yaml \
               -f .ci/docker-compose-file/docker-compose-pgsql-tcp.yaml \
               -f .ci/docker-compose-file/docker-compose-redis-single-tcp.yaml"
           ee_docker_compose_files="\
               -f .ci/docker-compose-file/docker-compose-enterprise.yaml \
+              -f .ci/docker-compose-file/docker-compose-mongo-replicaset-tcp.yaml \
+              -f .ci/docker-compose-file/docker-compose-mongo-sharded-tcp.yaml \
               -f .ci/docker-compose-file/docker-compose-enterprise-cassandra-tcp.yaml \
               -f .ci/docker-compose-file/docker-compose-enterprise-dynamodb-tcp.yaml \
               -f .ci/docker-compose-file/docker-compose-enterprise-influxdb-tcp.yaml \
