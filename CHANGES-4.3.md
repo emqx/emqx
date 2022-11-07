@@ -30,7 +30,7 @@ File format:
 - TLS listener default buffer size to 4KB [#9007](https://github.com/emqx/emqx/pull/9007)
   Eliminate uncertainty that the buffer size is set by OS default.
 
-- Disable authorization for `api/v4/emqx_prometheus` endpoint. [8955](https://github.com/emqx/emqx/pull/8955)
+- Disable authorization for `api/v4/emqx_prometheus` endpoint. [#8955](https://github.com/emqx/emqx/pull/8955)
 
 - Added a test to prevent a last will testament message to be
   published when a client is denied connection. [#8894](https://github.com/emqx/emqx/pull/8894)
