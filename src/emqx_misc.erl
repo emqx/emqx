@@ -54,6 +54,8 @@
 -export([ bin2hexstr_A_F/1
         , bin2hexstr_a_f/1
         , hexstr2bin/1
+        , filename_join_safely/1
+        , filename_join_safely/2
         ]).
 
 -export([ is_sane_id/1
@@ -529,6 +531,54 @@ redact(K, V) ->
 redact_v(V) when is_binary(V) -> <<?REDACT_VAL>>;
 redact_v(_V) -> ?REDACT_VAL.
 
+filename_join_safely([Abs | Path]) ->
+    filename_join_safely(Abs, Path).
+
+-spec filename_join_safely(file:name_all(), list(file:name_all())) -> _;
+                          (file:name_all(), file:name_all()) -> _.
+filename_join_safely(Abs, Path) ->
+    Abs2 = to_str(Abs),
+    Path2 = to_str(ensure_to_path(Path)),
+    Path3 = case filename:pathtype(Path2) of
+                relative ->
+                    Path2;
+                _ ->
+                    case is_safe_absolute(Abs2, Path2) of
+                        {true, Realtive} ->
+                            Realtive;
+                        _ ->
+                            Path2
+                    end
+            end,
+    case filelib:safe_relative_path(Path3, Abs2) of
+        unsafe ->
+            {error, unsafe};
+        Safe ->
+            {ok, filename:join(Abs2, Safe)}
+    end.
+
+to_str(Bin) when is_binary(Bin) ->
+    unicode:characters_to_list(Bin, utf8);
+to_str(List) ->
+    List.
+
+is_safe_absolute(Cwd, Path) ->
+    is_safe_absolute2(filename:split(Cwd), filename:split(Path)).
+
+is_safe_absolute2([H|Cwd], [H|Path]) ->
+    is_safe_absolute2(Cwd, Path);
+is_safe_absolute2([], Path) ->
+    {true, filename:join(Path)};
+is_safe_absolute2(_, _) ->
+    false.
+
+ensure_to_path(Path) when not is_list(Path) ->
+    Path;
+ensure_to_path([H|_] = Path) when is_integer(H) ->
+    Path;
+ensure_to_path(List) ->
+    filename:join(List).
+
 -ifdef(TEST).
 -include_lib("eunit/include/eunit.hrl").
 
@@ -609,5 +659,17 @@ redact_test_() ->
 
 case_name(Type, Key) ->
     lists:concat([Type, "-", Key]).
+
+filename_join_safely_test() ->
+    ?assertEqual({ok, "/tmp/foo"}, filename_join_safely(["/tmp", "foo"])),
+    ?assertEqual({ok, "/tmp/foo"}, filename_join_safely("/tmp", "foo")),
+    ?assertEqual({ok, "/tmp/foo"}, filename_join_safely("/tmp", <<"foo">>)),
+    ?assertEqual({ok, "/tmp/foo"}, filename_join_safely(["/tmp", <<"foo">>])),
+    ?assertEqual({error, unsafe}, filename_join_safely(["/tmp", <<"/foo">>, "/boo"])),
+    ?assertEqual({ok, "/bin/bar/boo"}, filename_join_safely(["/bin/bar", "foo/..", "boo"])),
+    ?assertEqual({error, unsafe}, filename_join_safely(["/bin/bar", "foo/../../", "boo"])),
+    ?assertEqual({ok, "/bin/foo/boo"}, filename_join_safely(["/bin", "/bin/foo/", "boo"])),
+    ?assertEqual({error, unsafe}, filename_join_safely(["/bin/boo", "/bin/foo/", "boo"])),
+    ok.
 
 -endif.

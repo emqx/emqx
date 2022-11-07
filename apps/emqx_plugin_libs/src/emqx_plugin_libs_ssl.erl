@@ -44,8 +44,9 @@
 %% Returns ssl options for Erlang's ssl application.
 -spec save_files_return_opts(opts_input(), atom() | string() | binary(),
                              string() | binary()) -> opts().
+
 save_files_return_opts(Options, SubDir, ResId) ->
-    Dir = filename:join([emqx:get_env(data_dir), SubDir, ResId]),
+    Dir = fullname(emqx:get_env(data_dir), [SubDir, ResId]),
     save_files_return_opts(Options, Dir).
 
 %% @doc Parse ssl options input.
@@ -89,7 +90,7 @@ save_files_return_opts(Options, Dir) ->
 %% empty string is returned if the input is empty.
 -spec save_file(file_input(), atom() | string() | binary()) -> string().
 save_file(Param, SubDir) ->
-   Dir = filename:join([emqx:get_env(data_dir), SubDir]),
+   Dir = fullname(emqx:get_env(data_dir), SubDir),
    maybe_save_file(Param, Dir).
 
 filter([]) -> [];
@@ -109,12 +110,11 @@ maybe_save_file(_, _) -> "".
 maybe_save_file("", _, _Dir) -> ""; %% no filename, ignore
 maybe_save_file(FileName, <<>>, Dir) ->  %% no content, see if file exists
     {ok, Cwd} = file:get_cwd(),
-    %% NOTE: when FileName is an absolute path, filename:join has no effect
-    CwdFile = ensure_str(filename:join([Cwd, FileName])),
-    DataDirFile = ensure_str(filename:join([Dir, FileName])),
+    CwdFile = ensure_str(fullname(Cwd, FileName)),
+    DataDirFile = ensure_str(filename:join(Dir, FileName)),
     Possibles0 = case CwdFile =:= DataDirFile of
                     true -> [CwdFile];
-                    false -> [CwdFile, DataDirFile]
+                    false -> fullname(CwdFile, DataDirFile)
                 end,
     Possibles = Possibles0 ++
                  case FileName of
@@ -131,15 +131,23 @@ maybe_save_file(FileName, <<>>, Dir) ->  %% no content, see if file exists
         Found -> Found
     end;
 maybe_save_file(FileName, Content, Dir) ->
-     FullFilename = filename:join([Dir, FileName]),
-     ok = filelib:ensure_dir(FullFilename),
-     case file:write_file(FullFilename, Content) of
-          ok ->
-               ensure_str(FullFilename);
-          {error, Reason} ->
-               logger:error("failed_to_save_ssl_file ~s: ~0p", [FullFilename, Reason]),
-               error({"failed_to_save_ssl_file", FullFilename, Reason})
-     end.
+    FullFilename = case filename:pathtype(Dir) of
+                       relative ->
+                           {ok, Cwd} = file:get_cwd(),
+                           fullname([Cwd, Dir, FileName]);
+                       _ ->
+                           fullname(Dir, FileName)
+
+                   end,
+    ok = filelib:ensure_dir(FullFilename),
+
+    case file:write_file(FullFilename, Content) of
+        ok ->
+            ensure_str(FullFilename);
+        {error, Reason} ->
+            logger:error("failed_to_save_ssl_file ~s: ~0p", [FullFilename, Reason]),
+            error({"failed_to_save_ssl_file", FullFilename, Reason})
+    end.
 
 ensure_str(L) when is_list(L) -> L;
 ensure_str(B) when is_binary(B) -> unicode:characters_to_list(B, utf8).
@@ -149,4 +157,15 @@ find_exist_file(Name, [F | Rest]) ->
     case filelib:is_regular(F) of
         true -> F;
         false -> find_exist_file(Name, Rest)
+    end.
+
+fullname(Cwd, FileName) ->
+    fullname([Cwd, FileName]).
+
+fullname(Path) ->
+    case emqx_misc:filename_join_safely(Path) of
+        {ok, Name} ->
+            Name;
+        _ ->
+            erlang:throw({unsafe_file_path, Path})
     end.

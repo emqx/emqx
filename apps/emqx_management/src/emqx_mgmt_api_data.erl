@@ -128,17 +128,25 @@ import(_Bindings, Params) ->
     end.
 
 do_import(Filename) ->
-    FullFilename = fullname(Filename),
-    emqx_mgmt_data_backup:import(FullFilename, "{}").
+    case fullname(Filename) of
+        {ok, FullFilename} ->
+            emqx_mgmt_data_backup:import(FullFilename, "{}");
+        _ ->
+            {error, unsafe_filename}
+    end.
 
 download(#{filename := Filename}, _Params) ->
-    FullFilename = fullname(Filename),
-    case file:read_file(FullFilename) of
-        {ok, Bin} ->
-            {ok, #{filename => unicode:characters_to_binary(filename:basename(FullFilename)),
-                   file => Bin}};
-        {error, Reason} ->
-            minirest:return({error, Reason})
+    case fullname(Filename) of
+        {ok, FullFilename} ->
+            case file:read_file(FullFilename) of
+                {ok, Bin} ->
+                    {ok, #{filename => unicode:characters_to_binary(filename:basename(FullFilename)),
+                           file => Bin}};
+                {error, Reason} ->
+                    minirest:return({error, Reason})
+            end;
+        _ ->
+            minirest:return({error, unsafe_filename})
     end.
 
 upload(Bindings, Params) ->
@@ -146,13 +154,19 @@ upload(Bindings, Params) ->
 
 do_upload(_Bindings, #{<<"filename">> := Filename,
                        <<"file">> := Bin}) ->
-    FullFilename = fullname(Filename),
-    ok = filelib:ensure_dir(FullFilename),
-    case file:write_file(FullFilename, Bin) of
-        ok ->
-            minirest:return({ok, [{node, node()}]});
-        {error, Reason} ->
-            minirest:return({error, Reason})
+    ct:pal("do upload, Filename:~p~n", [Filename]),
+    case fullname(Filename) of
+        {ok, FullFilename} ->
+            ct:pal("do upload, FullFilename:~p~n", [FullFilename]),
+            ok = filelib:ensure_dir(FullFilename),
+            case file:write_file(FullFilename, Bin) of
+                ok ->
+                    minirest:return({ok, [{node, node()}]});
+                {error, Reason} ->
+                    minirest:return({error, Reason})
+            end;
+        _ ->
+            minirest:return({error, unsafe_filename})
     end;
 do_upload(Bindings, Params = #{<<"file">> := _}) ->
     do_upload(Bindings, Params#{<<"filename">> => tmp_filename()});
@@ -160,12 +174,16 @@ do_upload(_Bindings, _Params) ->
     minirest:return({error, missing_required_params}).
 
 delete(#{filename := Filename}, _Params) ->
-    FullFilename = fullname(Filename),
-    case file:delete(FullFilename) of
-        ok ->
-            minirest:return();
-        {error, Reason} ->
-            minirest:return({error, Reason})
+    case fullname(Filename) of
+        {ok, FullFilename} ->
+            case file:delete(FullFilename) of
+                ok ->
+                    minirest:return();
+                {error, Reason} ->
+                    minirest:return({error, Reason})
+            end;
+        _ ->
+            minirest:return({error, unsafe_filename})
     end.
 
 import_content(Content) ->
@@ -175,10 +193,14 @@ import_content(Content) ->
 dump_to_tmp_file(Content) ->
     Bin = emqx_json:encode(Content),
     Filename = tmp_filename(),
-    ok = file:write_file(fullname(Filename), Bin),
+    ok = file:write_file(unsafe_fullname(Filename), Bin),
     Filename.
 
 fullname(Name0) ->
+    Name = uri_string:percent_decode(Name0),
+    emqx_misc:filename_join_safely(emqx:get_env(data_dir), Name).
+
+unsafe_fullname(Name0) ->
     Name = uri_string:percent_decode(Name0),
     filename:join(emqx:get_env(data_dir), Name).
 

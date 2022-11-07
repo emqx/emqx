@@ -28,6 +28,14 @@
 -define(PRINT_CMD(Cmd, Descr), io:format("~-48s# ~s~n", [Cmd, Descr])).
 -define(USAGE(CmdList), [?PRINT_CMD(Cmd, Descr) || {Cmd, Descr} <- CmdList]).
 
+-define(WITH_SCRIPT(Script, Cont),
+        case emqx_misc:filename_join_safely(emqx_lua_hook:lua_dir(), Script) of
+            {ok, FullName} ->
+                Cont;
+            {error, unsafe} ->
+                emqx_ctl:print("Unsafed script path: ~p~n", [Script])
+        end).
+
 load() ->
     emqx_ctl:register_command(luahook, {?MODULE, cmd}, []).
 
@@ -35,45 +43,53 @@ unload() ->
     emqx_ctl:unregister_command(luahook).
 
 cmd(["load", Script]) ->
-    case emqx_lua_hook:load_script(fullname(Script)) of
-        ok -> emqx_ctl:print("Load ~p successfully~n", [Script]);
-        error -> emqx_ctl:print("Load ~p error~n", [Script])
-    end;
+    ?WITH_SCRIPT(Script,
+                 case emqx_lua_hook:load_script(FullName) of
+                     ok -> emqx_ctl:print("Load ~p successfully~n", [Script]);
+                     error -> emqx_ctl:print("Load ~p error~n", [Script])
+                 end);
 
 cmd(["reload", Script]) ->
-    FullName = fullname(Script),
-    emqx_lua_hook:unload_script(FullName),
-    case emqx_lua_hook:load_script(FullName) of
-        ok -> emqx_ctl:print("Reload ~p successfully~n", [Script]);
-        error -> emqx_ctl:print("Reload ~p error~n", [Script])
-    end;
+    ?WITH_SCRIPT(Script,
+                 begin
+                     emqx_lua_hook:unload_script(FullName),
+                     case emqx_lua_hook:load_script(FullName) of
+                         ok -> emqx_ctl:print("Reload ~p successfully~n", [Script]);
+                         error -> emqx_ctl:print("Reload ~p error~n", [Script])
+                     end
+                 end);
 
 cmd(["unload", Script]) ->
-    emqx_lua_hook:unload_script(fullname(Script)),
-    emqx_ctl:print("Unload ~p successfully~n", [Script]);
+    ?WITH_SCRIPT(Script,
+                 begin
+                     emqx_lua_hook:unload_script(FullName),
+                     emqx_ctl:print("Unload ~p successfully~n", [Script])
+                 end);
 
 cmd(["enable", Script]) ->
-    FullName = fullname(Script),
-    case file:rename(fullnamedisable(Script), FullName) of
-        ok -> case emqx_lua_hook:load_script(FullName) of
-                  ok ->
-                      emqx_ctl:print("Enable ~p successfully~n", [Script]);
-                  error ->
-                      emqx_ctl:print("Fail to enable ~p~n", [Script])
-              end;
-        {error, Reason} ->
-            emqx_ctl:print("Fail to enable ~p due to ~p~n", [Script, Reason])
-    end;
+    ?WITH_SCRIPT(Script,
+                 case file:rename(fullnamedisable(FullName), FullName) of
+                     ok -> case emqx_lua_hook:load_script(FullName) of
+                               ok ->
+                                   emqx_ctl:print("Enable ~p successfully~n", [Script]);
+                               error ->
+                                   emqx_ctl:print("Fail to enable ~p~n", [Script])
+                           end;
+                     {error, Reason} ->
+                         emqx_ctl:print("Fail to enable ~p due to ~p~n", [Script, Reason])
+                 end);
 
 cmd(["disable", Script]) ->
-    FullName = fullname(Script),
-    emqx_lua_hook:unload_script(FullName),
-    case file:rename(FullName, fullnamedisable(Script)) of
-        ok ->
-            emqx_ctl:print("Disable ~p successfully~n", [Script]);
-        {error, Reason} ->
-            emqx_ctl:print("Fail to disable ~p due to ~p~n", [Script, Reason])
-    end;
+    ?WITH_SCRIPT(Script,
+                 begin
+                     emqx_lua_hook:unload_script(FullName),
+                     case file:rename(FullName, fullnamedisable(FullName)) of
+                         ok ->
+                             emqx_ctl:print("Disable ~p successfully~n", [Script]);
+                         {error, Reason} ->
+                             emqx_ctl:print("Fail to disable ~p due to ~p~n", [Script, Reason])
+                     end
+                 end);
 
 cmd(_) ->
     emqx_ctl:usage([{"luahook load <Script>",    "load lua script into hook"},
@@ -82,7 +98,5 @@ cmd(_) ->
                     {"luahook enable <Script>",  "enable lua script and load it into hook"},
                     {"luahook disable <Script>", "unload lua script out of hook and disable it"}]).
 
-fullname(Script) ->
-    filename:join([emqx_lua_hook:lua_dir(), Script]).
-fullnamedisable(Script) ->
-    fullname(Script)++".x".
+fullnamedisable(FullName) ->
+    FullName ++".x".
