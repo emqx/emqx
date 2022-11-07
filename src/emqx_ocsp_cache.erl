@@ -48,6 +48,11 @@
 -define(CALL_TIMEOUT, 20_000).
 -define(RETRY_TIMEOUT, 5_000).
 -define(REFRESH_TIMER(LID), {refresh_timer, LID}).
+-ifdef(TEST).
+-define(MIN_REFRESH_INTERVAL, timer:seconds(5)).
+-else.
+-define(MIN_REFRESH_INTERVAL, timer:minutes(1)).
+-endif.
 
 %%--------------------------------------------------------------------
 %% API
@@ -93,10 +98,10 @@ inject_sni_fun(Listener = #{proto := Proto, name := Name, opts := Options0}) ->
     %% because otherwise an anonymous function will end up in
     %% `app.*.config'...
     ListenerID = emqx_listeners:identifier(Listener),
-    case proplists:get_value(ocsp_responder_url, Options0, undefined) of
-        undefined ->
+    case proplists:get_bool(ocsp_enabled, Options0) of
+        false ->
             Options0;
-        _URL ->
+        true ->
             SSLOpts0 = proplists:get_value(ssl_options, Options0, []),
             SNIFun = fun(SN) -> emqx_ocsp_cache:sni_fun(SN, ListenerID) end,
             Options1 = proplists:delete(ssl_options, Options0),
@@ -142,8 +147,7 @@ handle_call({register_listener, ListenerID}, _From, State0) ->
     ?LOG(debug, "registering ocsp cache for ~p", [ListenerID]),
     #{opts := Opts} = emqx_listeners:find_by_id(ListenerID),
     RefreshInterval0 = proplists:get_value(ocsp_refresh_interval, Opts),
-    MinimumRefrshInterval = timer:minutes(1),
-    RefreshInterval = max(RefreshInterval0, MinimumRefrshInterval),
+    RefreshInterval = max(RefreshInterval0, ?MIN_REFRESH_INTERVAL),
     State = State0#{{refresh_interval, ListenerID} => RefreshInterval},
     {reply, ok, ensure_timer(ListenerID, State, 0)};
 handle_call(Call, _From, State) ->
@@ -177,7 +181,8 @@ code_change(_Vsn, State, _Extra) ->
     ListenersToPatch =
         lists:filter(
           fun(#{opts := Opts}) ->
-                  undefined =/= proplists:get_value(ocsp_responder_url, Opts)
+                  undefined =/= proplists:get_value(ocsp_responder_url, Opts) andalso
+                      false =/= proplists:get_bool(ocsp_enabled, Opts)
           end,
           emqx:get_env(listeners, [])),
     PatchedListeners = [L#{opts => ?MODULE:inject_sni_fun(L)} || L <- ListenersToPatch],

@@ -96,10 +96,10 @@ init_per_testcase(t_openssl_client, Config) ->
                             , {cacertfile, CACert}
                             ]),
                 Opts1 = proplists:delete(ssl_options, Opts0),
-                Opts2 = [ {ocsp_responder_url, "http://127.0.0.1:9877"}
-                        , {ocsp_issuer_pem, IssuerPem}
-                        , {ssl_options, SSLOpts2}
-                        | Opts1],
+                Opts2 = emqx_misc:merge_opts(Opts1, [ {ocsp_enabled, true}
+                                                    , {ocsp_responder_url, "http://127.0.0.1:9877"}
+                                                    , {ocsp_issuer_pem, IssuerPem}
+                                                    , {ssl_options, SSLOpts2}]),
                 Listeners = [ SSLListener0#{opts => Opts2}
                             | Listeners1],
                 application:set_env(emqx, listeners, Listeners),
@@ -109,7 +109,18 @@ init_per_testcase(t_openssl_client, Config) ->
         end,
     OCSPResponderPort = spawn_openssl_ocsp_responder(Config),
     {os_pid, OCSPOSPid} = erlang:port_info(OCSPResponderPort, os_pid),
-    ensure_port_open(9877),
+    %%%%%%%%  Warning!!!
+    %% Apparently, openssl 3.0.7 introduced a bug in the responder
+    %% that makes it hang forever if one probes the port with
+    %% `gen_tcp:open' / `gen_tcp:close'...  Comment this out if
+    %% openssl gets updated in CI or in your local machine.
+    case openssl_version() of
+        "3." ++ _ ->
+            %% hope that the responder has started...
+            ok;
+        _ ->
+            ensure_port_open(9877)
+    end,
     ct:sleep(1_000),
     emqx_ct_helpers:start_apps([], Handler),
     ct:sleep(1_000),
@@ -134,6 +145,7 @@ init_per_testcase(_TestCase, Config) ->
         , name => "test_ocsp"
         , opts => [ {ssl_options, [{certfile,
                                     filename:join(DataDir, "server.pem")}]}
+                  , {ocsp_enabled, true}
                   , {ocsp_responder_url, "http://localhost:9877"}
                   , {ocsp_issuer_pem,
                      filename:join(DataDir, "ocsp-issuer.pem")}
@@ -291,6 +303,11 @@ get_sni_fun(ListenerID) ->
     SSLOpts = proplists:get_value(ssl_options, Opts),
     proplists:get_value(sni_fun, SSLOpts).
 
+openssl_version() ->
+    "OpenSSL " ++ Res = os:cmd("openssl version"),
+    {match, [Version]} = re:run(Res, "^([^ ]+)", [{capture, first, list}]),
+    Version.
+
 %%--------------------------------------------------------------------
 %% Test cases
 %%--------------------------------------------------------------------
@@ -417,7 +434,7 @@ t_refresh_periodically(_Config) ->
                  false
          end,
          _NEvents = 2,
-         _Timeout = 5_000),
+         _Timeout = 10_000),
     ok = emqx_ocsp_cache:register_listener(ListenerID),
     ?assertMatch({ok, [_, _]}, snabbkaffe:receive_events(SubRef)),
     assert_http_get(2),
