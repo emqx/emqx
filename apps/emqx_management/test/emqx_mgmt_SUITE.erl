@@ -34,7 +34,7 @@ all() ->
      {group, check_cli}] ++ OtherTCs.
 
 manage_apps_tests() ->
-    [t_app].
+    [t_app, t_alarms].
 
 check_cli_tests() ->
     [t_cli,
@@ -99,6 +99,13 @@ init_per_testcase(t_backup_file, Config) ->
               file:delete(filename:join(BackupDir, F))
       end, Files),
     Config;
+init_per_testcase(Case, Config) when Case =:= t_alarms ->
+    try
+        ?MODULE:Case({'init', Config})
+    catch
+        error : function_clause ->
+            Config
+    end;
 init_per_testcase(_Case, Config) ->
     mock_print(),
     Config.
@@ -124,6 +131,13 @@ end_per_testcase(t_backup_file, _Config) ->
               file:delete(filename:join(BackupDir, F))
       end, Files),
     ok;
+end_per_testcase(Case, Config) when Case =:= t_alarms ->
+    try
+        ?MODULE:Case({'end', Config})
+    catch
+        error : function_clause ->
+            ok
+    end;
 end_per_testcase(_Case, _Config) ->
     unmock_print().
 
@@ -157,6 +171,16 @@ t_app(_Config) ->
                  lists:keyfind(<<"app_id">>, 1, emqx_mgmt_auth:list_apps())),
     emqx_mgmt_auth:del_app(<<"app_id">>),
     ok.
+
+t_alarms({'init', Config}) ->
+    meck:new(rpc, [unstick]),
+    meck:expect(rpc, call, 4, ok),
+    Config;
+t_alarms({'end', _}) ->
+    meck:unload(rpc);
+t_alarms(_) ->
+    ok = emqx_mgmt:delete_all_deactivated_alarms(remote_node),
+    ?assert(meck:called(rpc, call, [remote_node, emqx_alarm, delete_all_deactivated_alarms, []])).
 
 t_log_cmd(_) ->
     lists:foreach(fun(Level) ->
