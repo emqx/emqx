@@ -41,6 +41,8 @@ init_per_suite(Config) ->
     Config.
 
 end_per_suite(_) ->
+    ok = application:unset_env(emqx_management, bootstrap_apps_file),
+    _ = mnesia:clear_table(mqtt_app),
     emqx_ct_helpers:stop_apps([]),
     ok.
 

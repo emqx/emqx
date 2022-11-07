@@ -23,6 +23,18 @@
 
 all() -> emqx_ct:all(?MODULE).
 
+init_per_suite(Config) ->
+    %% do not start the application
+    %% only testing the root supervisor in this suite
+    application:stop(emqx_modules),
+    {ok, Pid} = emqx_mod_sup:start_link(),
+    unlink(Pid),
+    Config.
+
+end_per_suite(_Config) ->
+    exit(whereis(emqx_mod_sup), kill),
+    ok.
+
 %%--------------------------------------------------------------------
 %% Test cases
 %%--------------------------------------------------------------------

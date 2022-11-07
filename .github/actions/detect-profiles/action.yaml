@@ -1,8 +1,4 @@
 name: 'Detect profiles'
-inputs:
-  ci_git_token:
-    required: true
-    type: string
 outputs:
   profiles:
     description: 'Detected profiles'
@@ -14,13 +10,18 @@ runs:
     - id: detect-profiles
       shell: bash
       run: |
-        git config --global --add safe.directory "$GITHUB_WORKSPACE"
-        if make emqx-ee --dry-run > /dev/null 2>&1; then
-          echo "::set-output name=profiles::[\"emqx-ee\"]"
-          echo "https://ci%40emqx.io:${{ inputs.ci_git_token }}@github.com" > $HOME/.git-credentials
-          git config --global credential.helper store
+        if [ -d source ]; then
+          ## source code downloaded
+          cd source
+        fi
+        if [ ! -d .git ]; then
+          echo "Not git dir, $(pwd)"
+          exit 1
+        fi
+        if [ -f 'EMQX_ENTERPRISE' ]; then
+          echo "profiles=[\"emqx-ee\"]" >> $GITHUB_OUTPUT
           echo "EMQX_NAME=emqx-ee" >> $GITHUB_ENV
         else
-          echo "::set-output name=profiles::[\"emqx\", \"emqx-edge\"]"
+          echo "profiles=[\"emqx\", \"emqx-edge\"]" >> $GITHUB_OUTPUT
           echo "EMQX_NAME=emqx" >> $GITHUB_ENV
         fi

@@ -468,8 +468,8 @@ t_connack_max_qos_allowed(_) ->
 
     %% max_qos_allowed = 0
     emqx_zone:set_env(external, max_qos_allowed, 0),
-    persistent_term:erase({emqx_zone, external, '$mqtt_caps'}),
-    persistent_term:erase({emqx_zone, external, '$mqtt_pub_caps'}),
+    emqx_zone:unset_env(external, '$mqtt_caps'),
+    emqx_zone:unset_env(external, '$mqtt_pub_caps'),
 
     {ok, Client1} = emqtt:start_link([{proto_ver, v5}]),
     {ok, Connack1} = emqtt:connect(Client1),
@@ -496,8 +496,8 @@ t_connack_max_qos_allowed(_) ->
 
     %% max_qos_allowed = 1
     emqx_zone:set_env(external, max_qos_allowed, 1),
-    persistent_term:erase({emqx_zone, external, '$mqtt_caps'}),
-    persistent_term:erase({emqx_zone, external, '$mqtt_pub_caps'}),
+    emqx_zone:unset_env(external, '$mqtt_caps'),
+    emqx_zone:unset_env(external, '$mqtt_pub_caps'),
 
     {ok, Client3} = emqtt:start_link([{proto_ver, v5}]),
     {ok, Connack3} = emqtt:connect(Client3),
@@ -524,8 +524,8 @@ t_connack_max_qos_allowed(_) ->
 
     %% max_qos_allowed = 2
     emqx_zone:set_env(external, max_qos_allowed, 2),
-    persistent_term:erase({emqx_zone, external, '$mqtt_caps'}),
-    persistent_term:erase({emqx_zone, external, '$mqtt_pub_caps'}),
+    emqx_zone:unset_env(external, '$mqtt_caps'),
+    emqx_zone:unset_env(external, '$mqtt_pub_caps'),
 
     {ok, Client5} = emqtt:start_link([{proto_ver, v5}]),
     {ok, Connack5} = emqtt:connect(Client5),

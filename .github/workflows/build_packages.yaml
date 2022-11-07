@@ -26,14 +26,12 @@ jobs:
       profiles: ${{ steps.detect-profiles.outputs.profiles}}
 
     steps:
-      - uses: actions/checkout@v2
+      - uses: actions/checkout@v3
         with:
           path: source
-          fetch-depth: 0
-      - id: detect-profiles
+      - name: detect-profiles
+        id: detect-profiles
         uses: ./source/.github/actions/detect-profiles
-        with:
-          ci_git_token: ${{ secrets.CI_GIT_TOKEN }}
       - name: get_all_deps
         if: endsWith(github.repository, 'emqx')
         run: |
@@ -97,10 +95,10 @@ jobs:
         echo "EQMX installed"
         ./_build/${{ matrix.profile }}/rel/emqx/bin/emqx uninstall
         echo "EQMX uninstaled"
-    - uses: actions/upload-artifact@v1
+    - uses: actions/upload-artifact@v3
       with:
         name: ${{ matrix.profile }}-windows
-        path: source/_packages/${{ matrix.profile }}/.
+        path: source/_packages/${{ matrix.profile }}/
 
   mac:
     needs: prepare
@@ -114,7 +112,7 @@ jobs:
     runs-on: ${{ matrix.os }}
 
     steps:
-    - uses: actions/download-artifact@v2
+    - uses: actions/download-artifact@v3
       with:
         name: source
         path: .
@@ -123,10 +121,7 @@ jobs:
         ln -s . source
         unzip -q source.zip
         rm source source.zip
-    - id: detect-profiles
-      uses: ./.github/actions/detect-profiles
-      with:
-        ci_git_token: ${{ secrets.CI_GIT_TOKEN }}
+    - uses: ./.github/actions/detect-profiles
     - uses: ./.github/actions/package-macos
       with:
         otp: ${{ matrix.otp }}
@@ -135,10 +130,10 @@ jobs:
         apple_developer_identity: ${{ secrets.APPLE_DEVELOPER_IDENTITY }}
         apple_developer_id_bundle: ${{ secrets.APPLE_DEVELOPER_ID_BUNDLE }}
         apple_developer_id_bundle_password: ${{ secrets.APPLE_DEVELOPER_ID_BUNDLE_PASSWORD }}
-    - uses: actions/upload-artifact@v1
+    - uses: actions/upload-artifact@v3
       with:
         name: ${EMQX_NAME}-${{ matrix.otp }}
-        path: _packages/${EMQX_NAME}/.
+        path: _packages/${EMQX_NAME}/
 
   linux:
     runs-on: ubuntu-20.04
@@ -214,7 +209,7 @@ jobs:
     - uses: actions/upload-artifact@v1
       with:
         name: ${{ matrix.profile }}-${{ matrix.otp }}
-        path: source/_packages/${{ matrix.profile }}/.
+        path: source/_packages/${{ matrix.profile }}/
 
   docker:
     runs-on: ubuntu-20.04

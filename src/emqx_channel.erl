@@ -998,7 +998,13 @@ handle_call(discard, Channel) ->
     disconnect_and_shutdown(discarded, ok, Channel);
 
 %% Session Takeover
-handle_call({takeover, 'begin'}, Channel = #channel{session = Session}) ->
+handle_call({takeover, 'begin'}, Channel = #channel{
+                                              session = Session,
+                                              conninfo = #{clientid := ClientId}
+                                             }) ->
+    ?tp(debug,
+        emqx_channel_takeover_begin,
+        #{clientid => ClientId}),
     reply(Session, Channel#channel{takeover = true});
 
 handle_call({takeover, 'end'}, Channel = #channel{session  = Session,
@@ -1748,7 +1754,16 @@ parse_topic_filters(TopicFilters) ->
     lists:map(fun emqx_topic:parse/1, TopicFilters).
 
 %%--------------------------------------------------------------------
-%% Ensure disconnected
+%% Maybe & Ensure disconnected
+
+ensure_disconnected(connected, Reason, Channel)
+  when Reason =:= discarded orelse Reason =:= takeovered ->
+    case is_disconnect_event_enabled(Reason) of
+        true -> ensure_disconnected(Reason, Channel);
+        false -> Channel
+    end;
+ensure_disconnected(_, _, Channel) ->
+    Channel.
 
 ensure_disconnected(Reason, Channel = #channel{conninfo = ConnInfo,
                                                clientinfo = ClientInfo}) ->
@@ -1845,18 +1860,26 @@ shutdown(Reason, Reply, Channel) ->
 shutdown(Reason, Reply, Packet, Channel) ->
     {shutdown, Reason, Reply, Packet, Channel}.
 
+%% mqtt v5 connected sessions
 disconnect_and_shutdown(Reason, Reply, Channel = ?IS_MQTT_V5
                                                = #channel{conn_state = connected}) ->
-    shutdown(Reason, Reply, ?DISCONNECT_PACKET(reason_code(Reason)), Channel);
-
-disconnect_and_shutdown(Reason, Reply, Channel) ->
-    shutdown(Reason, Reply, Channel).
+    NChannel = ensure_disconnected(connected, Reason, Channel),
+    shutdown(Reason, Reply, ?DISCONNECT_PACKET(reason_code(Reason)), NChannel);
+%% mqtt v3/v4 sessions, mqtt v5 other conn_state sessions
+disconnect_and_shutdown(Reason, Reply, Channel= #channel{conn_state = ConnState}) ->
+    NChannel = ensure_disconnected(ConnState, Reason, Channel),
+    shutdown(Reason, Reply, NChannel).
 
 sp(true)  -> 1;
 sp(false) -> 0.
 
 flag(true)  -> 1;
 flag(false) -> 0.
+
+is_disconnect_event_enabled(discarded) ->
+    emqx:get_env(client_disconnect_discarded, false);
+is_disconnect_event_enabled(takeovered) ->
+    emqx:get_env(client_disconnect_takeovered, false).
 
 %%--------------------------------------------------------------------
 %% For CT tests

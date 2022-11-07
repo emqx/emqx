@@ -22,7 +22,9 @@
 
 -export([start_link/0]).
 
--export([start_locker/0]).
+-export([ start_locker/0
+        , start_jwt_sup/0
+        ]).
 
 -export([init/1]).
 
@@ -31,8 +33,12 @@ start_link() ->
 
 init([]) ->
     Opts = [public, named_table, set, {read_concurrency, true}],
-    _ = ets:new(?ACTION_INST_PARAMS_TAB, [{keypos, #action_instance_params.id}|Opts]),
-    _ = ets:new(?RES_PARAMS_TAB, [{keypos, #resource_params.id}|Opts]),
+    ensure_table(?ACTION_INST_PARAMS_TAB, [{keypos, #action_instance_params.id}|Opts]),
+    ensure_table(?RES_PARAMS_TAB, [{keypos, #resource_params.id}|Opts]),
+    SupFlags = #{ strategy => one_for_one
+                , intensity => 10
+                , period => 10
+                },
     Registry = #{id => emqx_rule_registry,
                  start => {emqx_rule_registry, start_link, []},
                  restart => permanent,
@@ -51,7 +57,8 @@ init([]) ->
                 shutdown => 5000,
                 type => worker,
                 modules => [emqx_rule_monitor]},
-    {ok, {{one_for_one, 10, 10}, [Registry, Metrics, Monitor]}}.
+    JWTSup = jwt_sup_child_spec(),
+    {ok, {SupFlags, [Registry, Metrics, Monitor, JWTSup]}}.
 
 start_locker() ->
     Locker = #{id => emqx_rule_locker,
@@ -61,3 +68,32 @@ start_locker() ->
                type => worker,
                modules => [emqx_rule_locker]},
     supervisor:start_child(?MODULE, Locker).
+
+start_jwt_sup() ->
+    JWTSup = jwt_sup_child_spec(),
+    supervisor:start_child(?MODULE, JWTSup).
+
+jwt_sup_child_spec() ->
+    #{ id => emqx_rule_engine_jwt_sup
+     , start => {emqx_rule_engine_jwt_sup, start_link, []}
+     , type => supervisor
+     , restart => permanent
+     , shutdown => 5_000
+     , modules => [emqx_rule_engine_jwt_sup]
+     }.
+
+ensure_table(Name, Opts) ->
+    try
+        case ets:whereis(name) of
+            undefined ->
+                _ = ets:new(Name, Opts),
+                ok;
+            _ ->
+                ok
+        end
+    catch
+        %% stil the table exists (somehow can happen in hot-upgrade,
+        %% it seems).
+        error:badarg ->
+            ok
+    end.
