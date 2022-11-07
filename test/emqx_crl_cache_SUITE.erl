@@ -79,13 +79,21 @@ end_per_testcase(TestCase, Config)
     ServerPid = ?config(http_server, Config),
     emqx_crl_cache_http_server:stop(ServerPid),
     emqx_ct_helpers:stop_apps([]),
-    application:set_env(emqx, crl_cache_urls, []),
+    emqx_ct_helpers:change_emqx_opts(
+      ssl_twoway, [ {crl_options, [ {crl_cache_enabled, false}
+                                  , {crl_cache_urls, []}
+                                  ]}
+                  ]),
     application:stop(cowboy),
     clear_crl_cache(),
     ok;
 end_per_testcase(t_not_cached_and_unreachable, _Config) ->
     emqx_ct_helpers:stop_apps([]),
-    application:set_env(emqx, crl_cache_urls, []),
+    emqx_ct_helpers:change_emqx_opts(
+      ssl_twoway, [ {crl_options, [ {crl_cache_enabled, false}
+                                  , {crl_cache_urls, []}
+                                  ]}
+                  ]),
     clear_crl_cache(),
     ok;
 end_per_testcase(_TestCase, _Config) ->
@@ -177,16 +185,19 @@ setup_crl_options(Config, #{is_cached := IsCached}) ->
            end,
     Handler =
         fun(emqx) ->
-                application:set_env(emqx, crl_cache_urls, URLs),
                 emqx_ct_helpers:change_emqx_opts(
-                  ssl_twoway, [{ssl_options, [ {certfile, Certfile}
-                                             , {keyfile, Keyfile}
-                                             , {verify, verify_peer}
-                                               %% {crl_check, true} does not work; probably bug in OTP
-                                             , {crl_check, peer}
-                                             , {crl_cache,
-                                                {ssl_crl_cache, {internal, [{http, timer:seconds(15)}]}}}
-                                             ]}]),
+                  ssl_twoway, [ {ssl_options, [ {certfile, Certfile}
+                                              , {keyfile, Keyfile}
+                                              , {verify, verify_peer}
+                                                %% {crl_check, true} does not work; probably bug in OTP
+                                              , {crl_check, peer}
+                                              , {crl_cache,
+                                                 {ssl_crl_cache, {internal, [{http, timer:seconds(15)}]}}}
+                                              ]}
+                              , {crl_options, [ {crl_cache_enabled, true}
+                                              , {crl_cache_urls, URLs}
+                                              ]}
+                              ]),
                 %% emqx_ct_helpers:change_emqx_opts has cacertfile hardcoded....
                 ok = force_cacertfile(Cacertfile),
                 ok;

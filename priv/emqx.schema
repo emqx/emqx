@@ -1702,6 +1702,11 @@ end}.
   {datatype, {enum, [true, false]}}
 ]}.
 
+{mapping, "listener.ssl.$name.crl_cache_urls", "emqx.listeners", [
+  {default, ""},
+  {datatype, string}
+]}.
+
 {mapping, "listener.ssl.$name.crl_cache_http_timeout", "emqx.listeners", [
   {default, "15s"},
   {datatype, {duration, ms}}
@@ -1711,16 +1716,6 @@ end}.
   {default, "15m"},
   {datatype, {duration, ms}}
 ]}.
-
-{mapping, "crl_cache.urls", "emqx.crl_cache_urls", [
-  {default, ""},
-  {datatype, string}
-]}.
-
-{translation, "emqx.crl_cache_urls", fun(Conf) ->
-  Val = cuttlefish:conf_get("crl_cache.urls", Conf),
-  string:tokens(Val, ", ")
-end}.
 
 %%--------------------------------------------------------------------
 %% MQTT/WebSocket Listeners
@@ -2364,7 +2359,16 @@ end}.
                           {hibernate_after, cuttlefish:conf_get(Prefix ++ ".hibernate_after", Conf, undefined)}
                          ])
               end,
-
+    CRLOpts =
+      fun(Prefix) ->
+        CRLURLs = case cuttlefish:conf_get(Prefix ++ ".crl_cache_urls", Conf, undefined) of
+                    undefined -> undefined;
+                    URLs -> string:tokens(URLs, ", ")
+                  end,
+        Filter([ {crl_cache_enabled, cuttlefish:conf_get(Prefix ++ ".enable_crl_cache", Conf, false)}
+               , {crl_cache_urls, CRLURLs}
+               ])
+      end,
     Listen_fix = fun({Ip, Port}) -> case inet:parse_address(Ip) of
                                       {ok, R} -> {R, Port};
                                             _ -> {Ip, Port}
@@ -2400,6 +2404,7 @@ end}.
                                  , opts => [ {deflate_options, DeflateOpts(Prefix)}
                                            , {tcp_options, TcpOpts(Prefix)}
                                            , {ssl_options, SslOpts(Prefix)}
+                                           , {crl_options, CRLOpts(Prefix)}
                                            | LisOpts(Prefix)
                                            ]
                                  }

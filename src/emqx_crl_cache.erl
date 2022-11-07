@@ -54,7 +54,8 @@
 %%--------------------------------------------------------------------
 
 start_link() ->
-    URLs = emqx:get_env(crl_cache_urls, []),
+    Listeners = emqx:get_env(listeners, []),
+    URLs = collect_urls(Listeners),
     RefreshIntervalMS0 = emqx:get_env(crl_cache_refresh_interval,
                                       timer:minutes(15)),
     MinimumRefreshInverval = timer:minutes(1),
@@ -177,3 +178,11 @@ ensure_timer(URL, State = #state{refresh_timers = RefreshTimers0}, Timeout) ->
                                              Timeout,
                                              {refresh, URL})},
     State#state{refresh_timers = RefreshTimers}.
+
+collect_urls(Listeners) ->
+    lists:usort([URL
+                 || #{proto := ssl, opts := Opts} <- Listeners,
+                    {crl_options, CRLOpts} <- Opts,
+                    proplists:get_bool(crl_cache_enabled, CRLOpts),
+                    {crl_cache_urls, URLs} <- CRLOpts,
+                    URL <- URLs]).
