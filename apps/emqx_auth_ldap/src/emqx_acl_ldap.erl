@@ -19,7 +19,7 @@
 -include("emqx_auth_ldap.hrl").
 
 -include_lib("emqx/include/emqx.hrl").
--include_lib("eldap/include/eldap.hrl").
+-include_lib("eldap2/include/eldap.hrl").
 -include_lib("emqx/include/logger.hrl").
 
 -export([ check_acl/5

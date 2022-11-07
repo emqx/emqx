@@ -25,6 +25,11 @@
         , get_release/0
         ]).
 
+%% internal exports for ad-hoc debugging.
+-export([ set_clientid_enrichment_module/0
+        , set_special_auth_module/0
+        ]).
+
 -define(APP, emqx).
 
 -include("emqx_release.hrl").
@@ -49,6 +54,8 @@ start(_Type, _Args) ->
     ok = emqx_plugins:init(),
     _ = emqx_plugins:load(),
     _ = start_ce_modules(),
+    set_clientid_enrichment_module(),
+    _ = set_special_auth_module(),
     register(emqx, self()),
     print_vsn(),
     {ok, Sup}.
@@ -77,6 +84,42 @@ load_ce_modules() ->
 start_ce_modules() ->
     ok.
 -endif.
+
+set_clientid_enrichment_module() ->
+    case emqx:get_env(clientid_enrichment_module) of
+        undefined ->
+            ok;
+        Mod ->
+            case erlang:function_exported(Mod, enrich_clientid_alias, 2) of
+                true ->
+                    persistent_term:put(clientid_enrichment_module, Mod);
+                false ->
+                    ok
+            end
+    end.
+
+set_special_auth_module() ->
+    case emqx:get_env(special_auth_module) of
+        undefined ->
+            ok;
+        Mod ->
+            case erlang:function_exported(Mod, check_authn, 2) of
+                true ->
+                    Priority = authn_module_priority(Mod),
+                    persistent_term:put(special_auth_module, Mod),
+                    emqx:hook('client.authenticate', fun Mod:check_authn/2, Priority);
+                false ->
+                    ok
+            end
+    end.
+
+authn_module_priority(Mod) ->
+    try
+        Mod:authn_priority()
+    catch
+        _:_ ->
+            10_000
+    end.
 
 %%--------------------------------------------------------------------
 %% Print Banner

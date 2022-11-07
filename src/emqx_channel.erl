@@ -313,6 +313,7 @@ handle_in(?CONNECT_PACKET(ConnPkt) = Packet, Channel) ->
                    fun set_log_meta/2,
                    fun check_banned/2,
                    fun count_flapping_event/2,
+                   fun enrich_clientid_alias/2,
                    fun auth_connect/2
                   ], ConnPkt, Channel#channel{conn_state = connecting}) of
         {ok, NConnPkt, NChannel = #channel{clientinfo = ClientInfo}} ->
@@ -1357,6 +1358,17 @@ check_banned(_ConnPkt, #channel{clientinfo = ClientInfo = #{zone := Zone}}) ->
     case emqx_zone:enable_ban(Zone) andalso emqx_banned:check(ClientInfo) of
         true  -> {error, ?RC_BANNED};
         false -> ok
+    end.
+
+%%--------------------------------------------------------------------
+%% Enrich ClientID Alias
+
+enrich_clientid_alias(Packet, Channel) ->
+    case persistent_term:get(clientid_enrichment_module, undefined) of
+        undefined ->
+            {ok, Channel};
+        Mod ->
+            Mod:enrich_clientid_alias(Packet, Channel)
     end.
 
 %%--------------------------------------------------------------------

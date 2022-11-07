@@ -79,7 +79,10 @@ compile(topic, Topic) ->
     end.
 
 pattern(Words) ->
-    lists:member(<<"%u">>, Words) orelse lists:member(<<"%c">>, Words).
+    lists:member(<<"%u">>, Words)
+        orelse lists:member(<<"%c">>, Words)
+        orelse lists:member(<<"%cida">>, Words)
+        orelse lists:member(<<"%cna">>, Words).
 
 bin(L) when is_list(L) ->
     list_to_binary(L);
@@ -165,5 +168,13 @@ feed_var(#{username := undefined}, [<<"%u">>|_Words], _Acc) ->
     nomatch;
 feed_var(ClientInfo = #{username := Username}, [<<"%u">>|Words], Acc) ->
     feed_var(ClientInfo, Words, [Username|Acc]);
+feed_var(#{clientid_alias := undefined}, [<<"%cida">>|_Words], _Acc) ->
+    nomatch;
+feed_var(ClientInfo = #{clientid_alias := Alias}, [<<"%cida">>|Words], Acc) ->
+    feed_var(ClientInfo, Words, [Alias|Acc]);
+feed_var(#{common_name_alias := undefined}, [<<"%cna">>|_Words], _Acc) ->
+    nomatch;
+feed_var(ClientInfo = #{common_name_alias := Alias}, [<<"%cna">>|Words], Acc) ->
+    feed_var(ClientInfo, Words, [Alias|Acc]);
 feed_var(ClientInfo, [W|Words], Acc) ->
     feed_var(ClientInfo, Words, [W|Acc]).
