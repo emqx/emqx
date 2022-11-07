@@ -79,8 +79,6 @@
              , action_instance_params/0
              ]).
 
--define(T_RETRY, 60000).
-
 %% redefine this macro to confine the appup scope
 -undef(RAISE).
 -define(RAISE(_EXP_, _ERROR_CONTEXT_),
@@ -684,8 +682,7 @@ init_resource_with_retrier(Module, OnCreate, ResId, Config) ->
                                     status = #{is_alive => true}},
         emqx_rule_registry:add_resource_params(ResParams)
     catch Class:Reason:ST ->
-        Interval = persistent_term:get({emqx_rule_engine, resource_restart_interval}, ?T_RETRY),
-        emqx_rule_monitor:ensure_resource_retrier(ResId, Interval),
+        emqx_rule_monitor:ensure_resource_retrier(ResId),
         erlang:raise(Class, {init_resource, Reason}, ST)
     end.
 

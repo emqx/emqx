@@ -48,7 +48,7 @@ end_per_suite(_Config) ->
     ok.
 
 init_per_testcase(t_restart_resource, Config) ->
-    persistent_term:put({emqx_rule_engine, resource_restart_interval}, 100),
+    emqx_rule_monitor:put_retry_interval(100),
     Opts = [public, named_table, set, {read_concurrency, true}],
     _ = ets:new(?RES_PARAMS_TAB, [{keypos, #resource_params.id}|Opts]),
     ets:new(t_restart_resource, [named_table, public]),
@@ -77,7 +77,6 @@ init_per_testcase(_, Config) ->
     Config.
 
 end_per_testcase(t_restart_resource, Config) ->
-    persistent_term:put({emqx_rule_engine, resource_restart_interval}, 60000),
     ets:delete(t_restart_resource),
     common_end_per_testcases(),
     Config;
@@ -91,7 +90,9 @@ end_per_testcase(_, Config) ->
 
 common_init_per_testcase() ->
     {ok, _} = emqx_rule_monitor:start_link().
+
 common_end_per_testcases() ->
+    emqx_rule_monitor:erase_retry_interval(),
     emqx_rule_monitor:stop().
 
 t_restart_resource(_) ->
