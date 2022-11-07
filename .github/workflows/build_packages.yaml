@@ -94,8 +94,8 @@ jobs:
         }
         make ensure-rebar3
         make ${{ matrix.profile }}
-        ## Delete outdated cert store
-        $Cert = "_build/${{ matrix.profile }}/rel/emqx/lib/certifi-2.9.0/priv/cacerts.pem"
+        ## Delete certifi cert store
+        $Cert = Get-ChildItem "_build/${{ matrix.profile }}/rel/emqx/lib/certifi*/priv/cacerts.pem"
         if (Test-Path $Cert) {
             Remove-Item $Cert
         }

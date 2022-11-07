@@ -74,7 +74,7 @@ make_rel() {
     # shellcheck disable=SC1010
     ./rebar3 as "$PROFILE" do release
     # delete outdated cert store
-    delete_unwanted_files _build/"${PROFILE}"/rel/emqx/lib/certifi-2.9.0/priv/cacerts.pem
+    delete_unwanted_files _build/"${PROFILE}"/rel/emqx/lib/certifi*/priv/cacerts.pem
     # shellcheck disable=SC1010
     ./rebar3 as "$PROFILE" do tar
 }
