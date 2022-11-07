@@ -55,8 +55,10 @@
 
 start_link() ->
     URLs = emqx:get_env(crl_cache_urls, []),
-    RefreshIntervalMS = emqx:get_env(crl_cache_refresh_interval,
-                                     timer:minutes(15)),
+    RefreshIntervalMS0 = emqx:get_env(crl_cache_refresh_interval,
+                                      timer:minutes(15)),
+    MinimumRefreshInverval = timer:minutes(1),
+    RefreshIntervalMS = max(RefreshIntervalMS0, MinimumRefreshInverval),
     start_link(#{urls => URLs, refresh_interval => RefreshIntervalMS}).
 
 start_link(Opts = #{urls := _, refresh_interval := _}) ->

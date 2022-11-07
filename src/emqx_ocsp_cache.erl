@@ -141,7 +141,9 @@ handle_call({http_fetch, ListenerID}, _From, State) ->
 handle_call({register_listener, ListenerID}, _From, State0) ->
     ?LOG(debug, "registering ocsp cache for ~p", [ListenerID]),
     #{opts := Opts} = emqx_listeners:find_by_id(ListenerID),
-    RefreshInterval = proplists:get_value(ocsp_refresh_interval, Opts),
+    RefreshInterval0 = proplists:get_value(ocsp_refresh_interval, Opts),
+    MinimumRefrshInterval = timer:minutes(1),
+    RefreshInterval = max(RefreshInterval0, MinimumRefrshInterval),
     State = State0#{{refresh_interval, ListenerID} => RefreshInterval},
     {reply, ok, ensure_timer(ListenerID, State, 0)};
 handle_call(Call, _From, State) ->
