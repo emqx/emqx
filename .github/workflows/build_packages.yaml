@@ -144,8 +144,8 @@ jobs:
         apple_developer_id_bundle_password: ${{ secrets.APPLE_DEVELOPER_ID_BUNDLE_PASSWORD }}
     - uses: actions/upload-artifact@v3
       with:
-        name: ${EMQX_NAME}-${{ matrix.otp }}
-        path: _packages/${EMQX_NAME}/
+        name: ${{ env.EMQX_NAME }}-${{ matrix.otp }}
+        path: _packages/${{ env.EMQX_NAME }}/
 
   linux:
     runs-on: ubuntu-20.04
