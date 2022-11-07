@@ -87,5 +87,5 @@ fi
 if [ "$WANT_JSON" = 'yes' ]; then
     echo "${RESULT}" | xargs | tr -d '\n' | jq -R -s -c 'split(" ")'
 else
-    echo "${RESULT}" | xargs
+    echo "${RESULT}"
 fi

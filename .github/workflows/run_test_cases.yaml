@@ -150,6 +150,7 @@ jobs:
         run: |
           docker rm -f $(docker ps -qa) || true
           docker network rm $(docker network ls -q) || true
+          docker system prune --volumes -f
       - name: docker compose up
         working-directory: source
         env:
@@ -221,6 +222,11 @@ jobs:
       - name: set log file name
         if: failure()
         run: echo "LOGFILENAME=logs-$(echo ${{ matrix.app_name }} | tr '/' '_')" >> $GITHUB_ENV
+      - name: stop containers
+        run: |
+          docker rm -f $(docker ps -qa) || true
+          docker network rm $(docker network ls -q) || true
+          docker system prune --volumes -f
       - uses: actions/upload-artifact@v3
         if: failure()
         with:

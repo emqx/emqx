@@ -9,6 +9,7 @@ jobs:
     runs-on: ${{ matrix.runs-on }}
 
     strategy:
+      fail-fast: false
       matrix:
         otp:
           - erl23.3.4.9-3
@@ -29,6 +30,9 @@ jobs:
     container: emqx/build-env:${{ matrix.otp }}-${{ matrix.os }}
 
     steps:
+    - uses: AutoModality/action-clean@v1
+      # keep using v1 for now as the otp-23 image has an old version git
+      # TODO: change to v3 after OTP is upgraded to 23.3.4.18-1
     - uses: actions/checkout@v1
     - name: fix-git-unsafe-repository
       run: git config --global --add safe.directory /__w/emqx/emqx
