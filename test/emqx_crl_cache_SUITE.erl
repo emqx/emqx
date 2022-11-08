@@ -280,7 +280,12 @@ t_manual_refresh(Config) ->
     ?assertEqual([], ets:tab2list(Ref)),
     {ok, _} = emqx_crl_cache:start_link(),
     URL = "http://localhost/crl.pem",
-    ?assertEqual({ok, [CRLDer]}, emqx_crl_cache:refresh(URL)),
+    ok = snabbkaffe:start_trace(),
+    ?wait_async_action(
+       ?assertEqual(ok, emqx_crl_cache:refresh(URL)),
+       #{?snk_kind := crl_cache_insert},
+       5_000),
+    ok = snabbkaffe:stop(),
     ?assertEqual(
        [{"crl.pem", [CRLDer]}],
        ets:tab2list(Ref)),
@@ -293,7 +298,18 @@ t_refresh_request_error(_Config) ->
                 end),
     {ok, _} = emqx_crl_cache:start_link(),
     URL = "http://localhost/crl.pem",
-    ?assertEqual(error, emqx_crl_cache:refresh(URL)),
+    ?check_trace(
+       ?wait_async_action(
+          ?assertEqual(ok, emqx_crl_cache:refresh(URL)),
+          #{?snk_kind := crl_cache_insert},
+          5_000),
+       fun(Trace) ->
+         ?assertMatch(
+            [#{error := {bad_response, #{code := 404}}}],
+            ?of_kind(crl_refresh_failure, Trace)),
+         ok
+       end),
+    ok = snabbkaffe:stop(),
     ok.
 
 t_refresh_invalid_response(_Config) ->
@@ -303,7 +319,18 @@ t_refresh_invalid_response(_Config) ->
                 end),
     {ok, _} = emqx_crl_cache:start_link(),
     URL = "http://localhost/crl.pem",
-    ?assertEqual({ok, []}, emqx_crl_cache:refresh(URL)),
+    ?check_trace(
+       ?wait_async_action(
+          ?assertEqual(ok, emqx_crl_cache:refresh(URL)),
+          #{?snk_kind := crl_cache_insert},
+          5_000),
+       fun(Trace) ->
+         ?assertMatch(
+            [#{crls := []}],
+            ?of_kind(crl_cache_insert, Trace)),
+         ok
+       end),
+    ok = snabbkaffe:stop(),
     ok.
 
 t_refresh_http_error(_Config) ->
@@ -313,7 +340,18 @@ t_refresh_http_error(_Config) ->
                 end),
     {ok, _} = emqx_crl_cache:start_link(),
     URL = "http://localhost/crl.pem",
-    ?assertEqual(error, emqx_crl_cache:refresh(URL)),
+    ?check_trace(
+       ?wait_async_action(
+          ?assertEqual(ok, emqx_crl_cache:refresh(URL)),
+          #{?snk_kind := crl_cache_insert},
+          5_000),
+       fun(Trace) ->
+         ?assertMatch(
+            [#{error := {http_error, timeout}}],
+            ?of_kind(crl_refresh_failure, Trace)),
+         ok
+       end),
+    ok = snabbkaffe:stop(),
     ok.
 
 t_unknown_messages(_Config) ->
@@ -326,7 +364,12 @@ t_unknown_messages(_Config) ->
 t_evict(_Config) ->
     {ok, _} = emqx_crl_cache:start_link(),
     URL = "http://localhost/crl.pem",
-    {ok, [_]} = emqx_crl_cache:refresh(URL),
+    ok = snabbkaffe:start_trace(),
+    ?wait_async_action(
+       ?assertEqual(ok, emqx_crl_cache:refresh(URL)),
+       #{?snk_kind := crl_cache_insert},
+       5_000),
+    ok = snabbkaffe:stop(),
     Ref = get_crl_cache_table(),
     ?assertMatch([{"crl.pem", _}], ets:tab2list(Ref)),
     snabbkaffe:start_trace(),
