@@ -308,7 +308,8 @@ get_sni_fun(ListenerID) ->
     proplists:get_value(sni_fun, SSLOpts).
 
 openssl_version() ->
-    "OpenSSL " ++ Res = os:cmd("openssl version"),
+    Res0 = os:cmd("openssl version"),
+    [_, Res] = string:split(Res0, " "),
     {match, [Version]} = re:run(Res, "^([^ ]+)", [{capture, first, list}]),
     Version.
 
