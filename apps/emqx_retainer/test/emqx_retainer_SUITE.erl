@@ -626,66 +626,6 @@ t_get_basic_usage_info(_Config) ->
     ?assertEqual(#{retained_messages => 5}, emqx_retainer:get_basic_usage_info()),
     ok.
 
-t_banned_clean(_) ->
-    ClientId1 = <<"bc1">>,
-    ClientId2 = <<"bc2">>,
-    {ok, C1} = emqtt:start_link([{clientid, ClientId1}, {clean_start, true}, {proto_ver, v5}]),
-    {ok, _} = emqtt:connect(C1),
-
-    {ok, C2} = emqtt:start_link([{clientid, ClientId2}, {clean_start, true}, {proto_ver, v5}]),
-    {ok, _} = emqtt:connect(C2),
-
-    [
-        begin
-            emqtt:publish(
-                Conn,
-                <<"bc/0/", ClientId/binary>>,
-                <<"this is a retained message 0">>,
-                [{qos, 0}, {retain, true}]
-            ),
-            emqtt:publish(
-                Conn,
-                <<"bc/1/", ClientId/binary>>,
-                <<"this is a retained message 1">>,
-                [{qos, 0}, {retain, true}]
-            )
-        end
-     || {ClientId, Conn} <- lists:zip([ClientId1, ClientId2], [C1, C2])
-    ],
-
-    emqtt:publish(
-        C2,
-        <<"bc/2/", ClientId2/binary>>,
-        <<"this is a retained message 2">>,
-        [{qos, 0}, {retain, true}]
-    ),
-
-    timer:sleep(500),
-    {ok, List} = emqx_retainer:page_read(<<"bc/+/+">>, 1, 10),
-    ?assertEqual(5, length(List)),
-
-    Now = erlang:system_time(second),
-    Who = {clientid, ClientId2},
-    emqx_banned:create(#{
-        who => Who,
-        by => <<"test">>,
-        reason => <<"test">>,
-        at => Now,
-        until => Now + 120,
-        clean => true
-    }),
-
-    timer:sleep(500),
-
-    {ok, List2} = emqx_retainer:page_read(<<"bc/#">>, 1, 10),
-    ?assertEqual(2, length(List2)),
-
-    emqx_banned:delete(Who),
-    emqx_retainer:clean(),
-    timer:sleep(500),
-    ok = emqtt:disconnect(C1),
-    ok = emqtt:disconnect(C2).
-
 %% test whether the app can start normally after disabling emqx_retainer
 %% fix: https://github.com/emqx/emqx/pull/8911
 test_disable_then_start(_Config) ->

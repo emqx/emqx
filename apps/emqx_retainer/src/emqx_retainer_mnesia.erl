@@ -33,14 +33,13 @@
     match_messages/3,
     clear_expired/1,
     clean/1,
-    clean_by_clientid/2,
     size/1
 ]).
 
 %% Internal exports (RPC)
 -export([
     do_store_retained/1,
-    do_clear/1,
+    do_clear_expired/0,
     do_delete_message/1,
     do_populate_index_meta/1,
     do_reindex_batch/2
@@ -61,8 +60,6 @@
 -record(retained_message, {topic, msg, expiry_time}).
 -record(retained_index, {key, expiry_time}).
 -record(retained_index_meta, {key, read_indices, write_indices, reindexing, extra}).
-
--type retained_message() :: #retained_message{}.
 
 -define(META_KEY, index_meta).
 
@@ -167,22 +164,18 @@ do_store_retained(#message{topic = Topic} = Msg) ->
     end.
 
 clear_expired(_) ->
-    NowMs = erlang:system_time(millisecond),
-    {atomic, _} = mria:transaction(?RETAINER_SHARD, fun ?MODULE:do_clear/1, [
-        fun(
-            #retained_message{expiry_time = ExpiryTime}
-        ) ->
-            (ExpiryTime =/= 0) and (ExpiryTime < NowMs)
-        end
-    ]),
+    {atomic, _} = mria:transaction(?RETAINER_SHARD, fun ?MODULE:do_clear_expired/0),
     ok.
 
--spec do_clear(fun((retained_message()) -> boolean())) -> ok.
-do_clear(Pred) ->
+do_clear_expired() ->
+    NowMs = erlang:system_time(millisecond),
     QH = qlc:q([
         TopicTokens
-     || #retained_message{topic = TopicTokens} = Data <- mnesia:table(?TAB_MESSAGE, [{lock, write}]),
-        Pred(Data)
+     || #retained_message{
+            topic = TopicTokens,
+            expiry_time = ExpiryTime
+        } <- mnesia:table(?TAB_MESSAGE, [{lock, write}]),
+        (ExpiryTime =/= 0) and (ExpiryTime < NowMs)
     ]),
     QC = qlc:cursor(QH),
     clear_batch(db_indices(write), QC).
@@ -268,14 +261,6 @@ page_read(_, Topic, Page, Limit) ->
 clean(_) ->
     _ = mria:clear_table(?TAB_MESSAGE),
     _ = mria:clear_table(?TAB_INDEX),
-    ok.
-
-clean_by_clientid(_, ClientId) ->
-    {atomic, _} = mria:transaction(?RETAINER_SHARD, fun ?MODULE:do_clear/1, [
-        fun(Msg) ->
-            Msg#retained_message.msg#message.from =:= ClientId
-        end
-    ]),
     ok.
 
 size(_) ->
