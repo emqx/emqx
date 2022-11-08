@@ -90,7 +90,7 @@ for file in "${FILES[@]}"; do
 done
 
 # shellcheck disable=2086 # no quotes for F_OPTIONS
-docker-compose $F_OPTIONS up -d --build
+UID_GID="$(id -u):$(id -g)" docker-compose $F_OPTIONS up -d --build
 
 # /emqx is where the source dir is mounted to the Erlang container
 # in .ci/docker-compose-file/docker-compose.yaml
@@ -98,7 +98,6 @@ TTY=''
 if [[ -t 1 ]]; then
     TTY='-t'
 fi
-docker exec -i $TTY "$ERLANG_CONTAINER" bash -c 'git config --global --add safe.directory /emqx'
 
 if [ "$CONSOLE" = 'yes' ]; then
     docker exec -i $TTY "$ERLANG_CONTAINER" bash -c "make run"
@@ -107,6 +106,6 @@ else
     docker exec -i $TTY "$ERLANG_CONTAINER" bash -c "make ${WHICH_APP}-ct"
     RESULT=$?
     # shellcheck disable=2086 # no quotes for F_OPTIONS
-    docker-compose $F_OPTIONS down
+    UID_GID="$(id -u):$(id -g)" docker-compose $F_OPTIONS down
     exit $RESULT
 fi
