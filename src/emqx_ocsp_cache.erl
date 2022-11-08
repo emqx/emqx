@@ -98,7 +98,8 @@ inject_sni_fun(Listener = #{proto := Proto, name := Name, opts := Options0}) ->
     %% because otherwise an anonymous function will end up in
     %% `app.*.config'...
     ListenerID = emqx_listeners:identifier(Listener),
-    case proplists:get_bool(ocsp_stapling_enabled, Options0) of
+    OCSPOpts = proplists:get_value(ocsp_options, Options0, []),
+    case proplists:get_bool(ocsp_stapling_enabled, OCSPOpts) of
         false ->
             Options0;
         true ->
@@ -146,7 +147,8 @@ handle_call({http_fetch, ListenerID}, _From, State) ->
 handle_call({register_listener, ListenerID}, _From, State0) ->
     ?LOG(debug, "registering ocsp cache for ~p", [ListenerID]),
     #{opts := Opts} = emqx_listeners:find_by_id(ListenerID),
-    RefreshInterval0 = proplists:get_value(ocsp_refresh_interval, Opts),
+    OCSPOpts = proplists:get_value(ocsp_options, Opts),
+    RefreshInterval0 = proplists:get_value(ocsp_refresh_interval, OCSPOpts),
     RefreshInterval = max(RefreshInterval0, ?MIN_REFRESH_INTERVAL),
     State = State0#{{refresh_interval, ListenerID} => RefreshInterval},
     {reply, ok, ensure_timer(ListenerID, State, 0)};
@@ -181,8 +183,9 @@ code_change(_Vsn, State, _Extra) ->
     ListenersToPatch =
         lists:filter(
           fun(#{opts := Opts}) ->
-                  undefined =/= proplists:get_value(ocsp_responder_url, Opts) andalso
-                      false =/= proplists:get_bool(ocsp_stapling_enabled, Opts)
+                  OCSPOpts = proplists:get_value(ocsp_options, Opts),
+                  undefined =/= proplists:get_value(ocsp_responder_url, OCSPOpts, undefined) andalso
+                      false =/= proplists:get_bool(ocsp_stapling_enabled, OCSPOpts)
           end,
           emqx:get_env(listeners, [])),
     PatchedListeners = [L#{opts => ?MODULE:inject_sni_fun(L)} || L <- ListenersToPatch],
@@ -229,9 +232,10 @@ read_server_cert(ServerCertPemPath0) ->
 
 do_http_fetch_and_cache(ListenerID) ->
     #{opts := Options} = emqx_listeners:find_by_id(ListenerID),
-    ResponderURL0 = proplists:get_value(ocsp_responder_url, Options, undefined),
+    OCSPOpts = proplists:get_value(ocsp_options, Options),
+    ResponderURL0 = proplists:get_value(ocsp_responder_url, OCSPOpts, undefined),
     ResponderURL = uri_string:normalize(ResponderURL0),
-    IssuerPemPath = proplists:get_value(ocsp_issuer_pem, Options, undefined),
+    IssuerPemPath = proplists:get_value(ocsp_issuer_pem, OCSPOpts, undefined),
     SSLOpts = proplists:get_value(ssl_options, Options, undefined),
     ServerCertPemPath = proplists:get_value(certfile, SSLOpts, undefined),
     IssuerPem = case file:read_file(IssuerPemPath) of
@@ -240,7 +244,7 @@ do_http_fetch_and_cache(ListenerID) ->
                 end,
     ServerCert = read_server_cert(ServerCertPemPath),
     Request = build_ocsp_request(IssuerPem, ServerCert),
-    HTTPTimeout = proplists:get_value(ocsp_refresh_http_timeout, Options),
+    HTTPTimeout = proplists:get_value(ocsp_refresh_http_timeout, OCSPOpts),
     ?tp(ocsp_http_fetch, #{ listener_id => ListenerID
                           , responder_url => ResponderURL
                           , timeout => HTTPTimeout

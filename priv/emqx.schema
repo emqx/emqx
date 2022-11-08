@@ -2224,6 +2224,14 @@ end}.
                                     lists:flatten(OriginList)
                           end
                       end,
+    OCSPOpts = fun(Prefix) ->
+                 Filter([ {ocsp_stapling_enabled, cuttlefish:conf_get(Prefix ++ ".enable_ocsp_stapling", Conf, undefined)}
+                        , {ocsp_responder_url, cuttlefish:conf_get(Prefix ++ ".ocsp_responder_url", Conf, undefined)}
+                        , {ocsp_issuer_pem, cuttlefish:conf_get(Prefix ++ ".ocsp_issuer_pem", Conf, undefined)}
+                        , {ocsp_refresh_interval, cuttlefish:conf_get(Prefix ++ ".ocsp_refresh_interval", Conf, undefined)}
+                        , {ocsp_refresh_http_timeout, cuttlefish:conf_get(Prefix ++ ".ocsp_refresh_http_timeout", Conf, undefined)}
+                        ])
+               end,
 
     LisOpts = fun(Prefix) ->
                   Filter([{acceptors, cuttlefish:conf_get(Prefix ++ ".acceptors", Conf)},
@@ -2242,11 +2250,6 @@ end}.
                           {supported_subprotocols, string:tokens(cuttlefish:conf_get(Prefix ++ ".supported_subprotocols", Conf, ""), ", ")},
                           {peer_cert_as_username, cuttlefish:conf_get(Prefix ++ ".peer_cert_as_username", Conf, undefined)},
                           {peer_cert_as_clientid, cuttlefish:conf_get(Prefix ++ ".peer_cert_as_clientid", Conf, undefined)},
-                          {ocsp_stapling_enabled, cuttlefish:conf_get(Prefix ++ ".enable_ocsp_stapling", Conf, undefined)},
-                          {ocsp_responder_url, cuttlefish:conf_get(Prefix ++ ".ocsp_responder_url", Conf, undefined)},
-                          {ocsp_issuer_pem, cuttlefish:conf_get(Prefix ++ ".ocsp_issuer_pem", Conf, undefined)},
-                          {ocsp_refresh_interval, cuttlefish:conf_get(Prefix ++ ".ocsp_refresh_interval", Conf, undefined)},
-                          {ocsp_refresh_http_timeout, cuttlefish:conf_get(Prefix ++ ".ocsp_refresh_http_timeout", Conf, undefined)},
                           {compress, cuttlefish:conf_get(Prefix ++ ".compress", Conf, undefined)},
                           {idle_timeout, cuttlefish:conf_get(Prefix ++ ".idle_timeout", Conf, undefined)},
                           {max_frame_size, cuttlefish:conf_get(Prefix ++ ".max_frame_size", Conf, undefined)},
@@ -2411,6 +2414,7 @@ end}.
                                            , {tcp_options, TcpOpts(Prefix)}
                                            , {ssl_options, SslOpts(Prefix)}
                                            , {crl_options, CRLOpts(Prefix)}
+                                           , {ocsp_options, OCSPOpts(Prefix)}
                                            | LisOpts(Prefix)
                                            ]
                                  }

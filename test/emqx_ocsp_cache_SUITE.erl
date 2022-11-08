@@ -96,9 +96,11 @@ init_per_testcase(t_openssl_client, Config) ->
                             , {cacertfile, CACert}
                             ]),
                 Opts1 = proplists:delete(ssl_options, Opts0),
-                Opts2 = emqx_misc:merge_opts(Opts1, [ {ocsp_stapling_enabled, true}
-                                                    , {ocsp_responder_url, "http://127.0.0.1:9877"}
-                                                    , {ocsp_issuer_pem, IssuerPem}
+                OCSPOpts = [ {ocsp_stapling_enabled, true}
+                           , {ocsp_responder_url, "http://127.0.0.1:9877"}
+                           , {ocsp_issuer_pem, IssuerPem}
+                           ],
+                Opts2 = emqx_misc:merge_opts(Opts1, [ {ocsp_options, OCSPOpts}
                                                     , {ssl_options, SSLOpts2}]),
                 Listeners = [ SSLListener0#{opts => Opts2}
                             | Listeners1],
@@ -139,18 +141,20 @@ init_per_testcase(_TestCase, Config) ->
                 end),
     {ok, CachePid} = emqx_ocsp_cache:start_link(),
     DataDir = ?config(data_dir, Config),
+    OCSPOpts = [ {ocsp_stapling_enabled, true}
+               , {ocsp_responder_url, "http://localhost:9877"}
+               , {ocsp_issuer_pem,
+                  filename:join(DataDir, "ocsp-issuer.pem")}
+               , {ocsp_refresh_http_timeout, 15_000}
+               , {ocsp_refresh_interval, 1_000}
+               ],
     application:set_env(
       emqx, listeners,
       [#{ proto => ssl
         , name => "test_ocsp"
         , opts => [ {ssl_options, [{certfile,
                                     filename:join(DataDir, "server.pem")}]}
-                  , {ocsp_stapling_enabled, true}
-                  , {ocsp_responder_url, "http://localhost:9877"}
-                  , {ocsp_issuer_pem,
-                     filename:join(DataDir, "ocsp-issuer.pem")}
-                  , {ocsp_refresh_http_timeout, 15_000}
-                  , {ocsp_refresh_interval, 1_000}
+                  , {ocsp_options, OCSPOpts}
                   ]
         }]),
     snabbkaffe:start_trace(),
