@@ -485,13 +485,6 @@ t_sni_fun_http_error(_Config) ->
       emqx_ocsp_cache:sni_fun(ServerName, ListenerID)),
     ok.
 
-t_code_change(_Config) ->
-    ListenerID = <<"mqtt:ssl:test_ocsp">>,
-    SNIFun0 = get_sni_fun(ListenerID),
-    ?assertMatch({ok, _}, emqx_ocsp_cache:code_change(vsn, state, extra)),
-    SNIFun1 = get_sni_fun(ListenerID),
-    ?assertNotEqual(SNIFun0, SNIFun1).
-
 t_openssl_client(Config) ->
     TLSVsn = ?config(tls_vsn, Config),
     WithStatusRequest = ?config(status_request, Config),
