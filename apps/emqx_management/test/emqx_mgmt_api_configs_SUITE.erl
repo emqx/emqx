@@ -30,6 +30,16 @@ init_per_suite(Config) ->
 end_per_suite(_) ->
     emqx_mgmt_api_test_util:end_suite([emqx_conf]).
 
+init_per_testcase(TestCase = t_configs_node, Config) ->
+    ?MODULE:TestCase({'init', Config});
+init_per_testcase(_TestCase, Config) ->
+    Config.
+
+end_per_testcase(TestCase = t_configs_node, Config) ->
+    ?MODULE:TestCase({'end', Config});
+end_per_testcase(_TestCase, Config) ->
+    Config.
+
 t_get(_Config) ->
     {ok, Configs} = get_configs(),
     maps:map(
@@ -188,6 +198,37 @@ t_dashboard(_Config) ->
     timer:sleep(1000),
     ok.
 
+t_configs_node({'init', Config}) ->
+    Node = node(),
+    meck:expect(mria_mnesia, running_nodes, fun() -> [Node, bad_node, other_node] end),
+    meck:expect(
+        emqx_management_proto_v2,
+        get_full_config,
+        fun
+            (Node0) when Node0 =:= Node -> <<"\"self\"">>;
+            (other_node) -> <<"\"other\"">>;
+            (bad_node) -> {badrpc, bad}
+        end
+    ),
+    Config;
+t_configs_node({'end', _}) ->
+    meck:unload([mria_mnesia, emqx_management_proto_v2]);
+t_configs_node(_) ->
+    Node = atom_to_list(node()),
+
+    ?assertEqual({ok, <<"self">>}, get_configs(Node, #{return_body => true})),
+    ?assertEqual({ok, <<"other">>}, get_configs("other_node", #{return_body => true})),
+
+    {ExpType, ExpRes} = get_configs("unknown_node", #{return_body => true}),
+    ?assertEqual(error, ExpType),
+    ?assertMatch({{_, 404, _}, _, _}, ExpRes),
+    {_, _, Body} = ExpRes,
+    ?assertMatch(#{<<"code">> := <<"NOT_FOUND">>}, emqx_json:decode(Body, [return_maps])),
+
+    ?assertMatch({error, {_, 500, _}}, get_configs("bad_node")).
+
+%% Helpers
+
 get_config(Name) ->
     Path = emqx_mgmt_api_test_util:api_path(["configs", Name]),
     case emqx_mgmt_api_test_util:request_api(get, Path) of
@@ -198,8 +239,19 @@ get_config(Name) ->
     end.
 
 get_configs() ->
-    Path = emqx_mgmt_api_test_util:api_path(["configs"]),
-    case emqx_mgmt_api_test_util:request_api(get, Path) of
+    get_configs([], #{}).
+
+get_configs(Node) ->
+    get_configs(Node, #{}).
+
+get_configs(Node, Opts) ->
+    Path =
+        case Node of
+            [] -> ["configs"];
+            _ -> ["configs?node=" ++ Node]
+        end,
+    URI = emqx_mgmt_api_test_util:api_path(Path),
+    case emqx_mgmt_api_test_util:request_api(get, URI, [], [], [], Opts) of
         {ok, Res} -> {ok, emqx_json:decode(Res, [return_maps])};
         Error -> Error
     end.
