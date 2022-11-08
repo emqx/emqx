@@ -26,6 +26,7 @@
 -include_lib("common_test/include/ct.hrl").
 -include_lib("eunit/include/eunit.hrl").
 -include_lib("emqx/include/emqx.hrl").
+-include_lib("snabbkaffe/include/snabbkaffe.hrl").
 
 %%--------------------------------------------------------------------
 %% Setups
@@ -36,7 +37,8 @@
 }).
 
 all() ->
-    emqx_common_test_helpers:all(?MODULE).
+    [t_banned_delayed].
+%%    emqx_common_test_helpers:all(?MODULE).
 
 init_per_suite(Config) ->
     ok = emqx_common_test_helpers:load_config(emqx_modules_schema, ?BASE_CONF, #{
@@ -211,6 +213,38 @@ t_delayed_precision(_) ->
     ),
     _ = on_message_publish(DelayedMsg0),
     ?assert(FutureDiff() =< MaxSpan).
+
+t_banned_delayed(_) ->
+    emqx:update_config([delayed, max_delayed_messages], 10000),
+    ClientId1 = <<"bc1">>,
+    ClientId2 = <<"bc2">>,
+
+    Now = erlang:system_time(second),
+    Who = {clientid, ClientId2},
+    emqx_banned:create(#{
+        who => Who,
+        by => <<"test">>,
+        reason => <<"test">>,
+        at => Now,
+        until => Now + 120
+    }),
+
+    snabbkaffe:start_trace(),
+    lists:foreach(
+        fun(ClientId) ->
+            Msg = emqx_message:make(ClientId, <<"$delayed/1/bc">>, <<"payload">>),
+            emqx_delayed:on_message_publish(Msg)
+        end,
+        [ClientId1, ClientId1, ClientId1, ClientId2, ClientId2]
+    ),
+
+    timer:sleep(2000),
+    Trace = snabbkaffe:collect_trace(),
+    snabbkaffe:stop(),
+    emqx_banned:delete(Who),
+    mnesia:clear_table(emqx_delayed),
+
+    ?assertEqual(2, length(?of_kind(ignore_delayed_message_publish, Trace))).
 
 subscribe_proc() ->
     Self = self(),
