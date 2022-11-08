@@ -28,7 +28,7 @@
         , sni_fun/2
         , fetch_response/1
         , register_listener/1
-        , inject_sni_fun/1
+        , inject_sni_fun/2
         ]).
 
 %% gen_server API
@@ -92,12 +92,11 @@ fetch_response(ListenerID) ->
 register_listener(ListenerID) ->
     gen_server:call(?MODULE, {register_listener, ListenerID}, ?CALL_TIMEOUT).
 
--spec inject_sni_fun(emqx_listeners:listener()) -> [esockd:option()].
-inject_sni_fun(Listener = #{proto := Proto, name := Name, opts := Options0}) ->
+-spec inject_sni_fun(emqx_listeners:listener_id(), [esockd:option()]) -> [esockd:option()].
+inject_sni_fun(ListenerID, Options0) ->
     %% We need to patch `sni_fun' here and not in `emqx.schema'
     %% because otherwise an anonymous function will end up in
     %% `app.*.config'...
-    ListenerID = emqx_listeners:identifier(Listener),
     OCSPOpts = proplists:get_value(ocsp_options, Options0, []),
     case proplists:get_bool(ocsp_stapling_enabled, OCSPOpts) of
         false ->
@@ -110,8 +109,8 @@ inject_sni_fun(Listener = #{proto := Proto, name := Name, opts := Options0}) ->
             %% save to env
             {[ThisListener0], Listeners} =
                 lists:partition(
-                  fun(#{name := N, proto := P}) ->
-                          N =:= Name andalso P =:= Proto
+                  fun(L) ->
+                    emqx_listeners:identifier(L) =:= ListenerID
                   end,
                   emqx:get_env(listeners)),
             ThisListener = ThisListener0#{opts => Options},
@@ -188,7 +187,10 @@ code_change(_Vsn, State, _Extra) ->
                       false =/= proplists:get_bool(ocsp_stapling_enabled, OCSPOpts)
           end,
           emqx:get_env(listeners, [])),
-    PatchedListeners = [L#{opts => ?MODULE:inject_sni_fun(L)} || L <- ListenersToPatch],
+    PatchedListeners = [L#{opts => ?MODULE:inject_sni_fun(
+                                      emqx_listeners:identifier(L),
+                                      Opts)}
+                        || L = #{opts := Opts} <- ListenersToPatch],
     lists:foreach(
       fun(L) ->
               emqx_listeners:update_listeners_env(update, L)
