@@ -90,7 +90,8 @@ ensure_all_started() ->
 ensure_all_started([], []) -> ok;
 ensure_all_started([], Failed) -> error(Failed);
 ensure_all_started([L | Rest], Results) ->
-    #{proto := Proto, listen_on := ListenOn, opts := Options} = L,
+    #{proto := Proto, listen_on := ListenOn, opts := Options0} = L,
+    Options = [{listener_id, identifier(L)} | Options0],
     NewResults =
         case start_listener(Proto, ListenOn, Options) of
             {ok, _Pid} ->
@@ -135,7 +136,7 @@ start_listener(tcp, ListenOn, Options) ->
 
 %% Start MQTT/TLS listener
 start_listener(Proto, ListenOn, Options0) when Proto == ssl; Proto == tls ->
-    ListenerID = proplists:get_value(listener_id, Options0, <<"mqtt:ssl:external">>),
+    ListenerID = proplists:get_value(listener_id, Options0),
     Options1 = proplists:delete(listener_id, Options0),
     Options = emqx_ocsp_cache:inject_sni_fun(ListenerID, Options1),
     start_mqtt_listener('mqtt:ssl', ListenOn, Options);
