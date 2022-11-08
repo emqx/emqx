@@ -242,7 +242,7 @@ source(Method, #{bindings := #{type := Type} = Bindings} = Req) when
 source(get, #{bindings := #{type := Type}}) ->
     case get_raw_source(Type) of
         [] ->
-            {404, #{code => <<"NOT_FOUND">>, message => <<"Not found ", Type/binary>>}};
+            {404, #{code => <<"NOT_FOUND">>, message => <<"Not found: ", Type/binary>>}};
         [#{<<"type">> := <<"file">>, <<"enable">> := Enable, <<"path">> := Path}] ->
             case file:read_file(Path) of
                 {ok, Rules} ->

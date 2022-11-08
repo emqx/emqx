@@ -183,7 +183,7 @@ t_api(_) ->
 
     {ok, 404, ErrResult} = request(get, uri(["authorization", "sources", "http"]), []),
     ?assertMatch(
-        #{<<"code">> := <<"NOT_FOUND">>, <<"message">> := <<"Not found http">>},
+        #{<<"code">> := <<"NOT_FOUND">>, <<"message">> := <<"Not found: http">>},
         jsx:decode(ErrResult)
     ),
 
