@@ -180,9 +180,18 @@ ensure_timer(URL, State = #state{refresh_timers = RefreshTimers0}, Timeout) ->
     State#state{refresh_timers = RefreshTimers}.
 
 collect_urls(Listeners) ->
-    lists:usort([URL
-                 || #{proto := ssl, opts := Opts} <- Listeners,
-                    {crl_options, CRLOpts} <- Opts,
-                    proplists:get_bool(crl_cache_enabled, CRLOpts),
-                    {crl_cache_urls, URLs} <- CRLOpts,
-                    URL <- URLs]).
+    CRLOpts0 = [CRLOpts || #{proto := ssl, opts := Opts} <- Listeners,
+                           {crl_options, CRLOpts} <- Opts],
+    CRLOpts1 =
+        lists:filter(
+          fun(CRLOpts) ->
+            proplists:get_bool(crl_cache_enabled, CRLOpts)
+          end,
+          CRLOpts0),
+    CRLURLs =
+        lists:flatmap(
+          fun(CRLOpts) ->
+            proplists:get_value(crl_cache_urls, CRLOpts, [])
+          end,
+          CRLOpts1),
+    lists:usort(CRLURLs).
