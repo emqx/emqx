@@ -103,7 +103,9 @@ schema("/configs") ->
                     )}
             ],
             responses => #{
-                200 => lists:map(fun({_, Schema}) -> Schema end, config_list())
+                200 => lists:map(fun({_, Schema}) -> Schema end, config_list()),
+                404 => emqx_dashboard_swagger:error_codes(['NOT_FOUND']),
+                500 => emqx_dashboard_swagger:error_codes(['BAD_NODE'])
             }
         }
     };
@@ -311,14 +313,15 @@ config_reset(post, _Params, Req) ->
     end.
 
 configs(get, Params, _Req) ->
-    Node = maps:get(node, Params, node()),
+    QS = maps:get(query_string, Params, #{}),
+    Node = maps:get(<<"node">>, QS, node()),
     case
         lists:member(Node, mria_mnesia:running_nodes()) andalso
             emqx_management_proto_v2:get_full_config(Node)
     of
         false ->
             Message = list_to_binary(io_lib:format("Bad node ~p, reason not found", [Node])),
-            {500, #{code => 'BAD_NODE', message => Message}};
+            {404, #{code => 'NOT_FOUND', message => Message}};
         {badrpc, R} ->
             Message = list_to_binary(io_lib:format("Bad node ~p, reason ~p", [Node, R])),
             {500, #{code => 'BAD_NODE', message => Message}};

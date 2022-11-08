@@ -44,15 +44,20 @@ set_special_configs(_App) ->
     ok.
 
 request_api(Method, Url) ->
-    request_api(Method, Url, [], auth_header_(), []).
+    request_api(Method, Url, [], [], [], #{}).
 
 request_api(Method, Url, AuthOrHeaders) ->
-    request_api(Method, Url, [], AuthOrHeaders, []).
+    request_api(Method, Url, [], AuthOrHeaders, [], #{}).
 
 request_api(Method, Url, QueryParams, AuthOrHeaders) ->
-    request_api(Method, Url, QueryParams, AuthOrHeaders, []).
+    request_api(Method, Url, QueryParams, AuthOrHeaders, [], #{}).
 
-request_api(Method, Url, QueryParams, AuthOrHeaders, []) when
+request_api(Method, Url, QueryParams, AuthOrHeaders, Body) ->
+    request_api(Method, Url, QueryParams, AuthOrHeaders, Body, #{}).
+
+request_api(Method, Url, QueryParams, [], Body, Opts) ->
+    request_api(Method, Url, QueryParams, auth_header_(), Body, Opts);
+request_api(Method, Url, QueryParams, AuthOrHeaders, [], Opts) when
     (Method =:= options) orelse
         (Method =:= get) orelse
         (Method =:= put) orelse
@@ -65,10 +70,7 @@ request_api(Method, Url, QueryParams, AuthOrHeaders, []) when
             "" -> Url;
             _ -> Url ++ "?" ++ QueryParams
         end,
-    do_request_api(Method, {NewUrl, build_http_header(AuthOrHeaders)}, #{});
-request_api(Method, Url, QueryParams, AuthOrHeaders, Body) ->
-    request_api(Method, Url, QueryParams, AuthOrHeaders, Body, #{}).
-
+    do_request_api(Method, {NewUrl, build_http_header(AuthOrHeaders)}, Opts);
 request_api(Method, Url, QueryParams, AuthOrHeaders, Body, Opts) when
     (Method =:= post) orelse
         (Method =:= patch) orelse
