@@ -103,7 +103,7 @@ inject_sni_fun(ListenerID, Options0) ->
             Options0;
         true ->
             SSLOpts0 = proplists:get_value(ssl_options, Options0, []),
-            SNIFun = fun(SN) -> emqx_ocsp_cache:sni_fun(SN, ListenerID) end,
+            SNIFun = emqx_const_v1:make_sni_fun(ListenerID),
             Options1 = proplists:delete(ssl_options, Options0),
             Options = [{ssl_options, [{sni_fun, SNIFun} | SSLOpts0]} | Options1],
             %% save to env
@@ -177,25 +177,6 @@ handle_info(_Info, State) ->
     {noreply, State}.
 
 code_change(_Vsn, State, _Extra) ->
-    %% we need to re-create the `sni_fun' lambda that the SSL
-    %% listeners are holding onto to avoid them becoming `badfun''s.
-    ListenersToPatch =
-        lists:filter(
-          fun(#{opts := Opts}) ->
-                  OCSPOpts = proplists:get_value(ocsp_options, Opts),
-                  undefined =/= proplists:get_value(ocsp_responder_url, OCSPOpts, undefined) andalso
-                      false =/= proplists:get_bool(ocsp_stapling_enabled, OCSPOpts)
-          end,
-          emqx:get_env(listeners, [])),
-    PatchedListeners = [L#{opts => ?MODULE:inject_sni_fun(
-                                      emqx_listeners:identifier(L),
-                                      Opts)}
-                        || L = #{opts := Opts} <- ListenersToPatch],
-    lists:foreach(
-      fun(L) ->
-              emqx_listeners:update_listeners_env(update, L)
-      end,
-     PatchedListeners),
     {ok, State}.
 
 %%--------------------------------------------------------------------
