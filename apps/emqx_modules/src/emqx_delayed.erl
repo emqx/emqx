@@ -23,7 +23,6 @@
 -include_lib("emqx/include/logger.hrl").
 -include_lib("snabbkaffe/include/snabbkaffe.hrl").
 -include_lib("emqx/include/emqx_hooks.hrl").
--include_lib("stdlib/include/ms_transform.hrl").
 
 %% Mnesia bootstrap
 -export([mnesia/1]).
@@ -32,8 +31,7 @@
 
 -export([
     start_link/0,
-    on_message_publish/1,
-    on_client_banned/1
+    on_message_publish/1
 ]).
 
 %% gen_server callbacks
@@ -46,7 +44,7 @@
     code_change/3
 ]).
 
-%% API
+%% gen_server callbacks
 -export([
     load/0,
     unload/0,
@@ -59,9 +57,7 @@
     delete_delayed_message/1,
     delete_delayed_message/2,
     cluster_list/1,
-    cluster_query/4,
-    clean_by_clientid/1,
-    do_clean_by_clientid/1
+    cluster_query/4
 ]).
 
 -export([
@@ -141,11 +137,6 @@ on_message_publish(
     {stop, PubMsg#message{headers = Headers#{allow_publish => false}}};
 on_message_publish(Msg) ->
     {ok, Msg}.
-
-on_client_banned(#banned{who = {clientid, ClientId}}) ->
-    clean_by_clientid(ClientId);
-on_client_banned(_) ->
-    ok.
 
 %%--------------------------------------------------------------------
 %% Start delayed publish server
@@ -237,7 +228,7 @@ get_delayed_message(Id) ->
 get_delayed_message(Node, Id) when Node =:= node() ->
     get_delayed_message(Id);
 get_delayed_message(Node, Id) ->
-    emqx_delayed_proto_v2:get_delayed_message(Node, Id).
+    emqx_delayed_proto_v1:get_delayed_message(Node, Id).
 
 -spec delete_delayed_message(binary()) -> with_id_return().
 delete_delayed_message(Id) ->
@@ -252,7 +243,7 @@ delete_delayed_message(Id) ->
 delete_delayed_message(Node, Id) when Node =:= node() ->
     delete_delayed_message(Id);
 delete_delayed_message(Node, Id) ->
-    emqx_delayed_proto_v2:delete_delayed_message(Node, Id).
+    emqx_delayed_proto_v1:delete_delayed_message(Node, Id).
 
 update_config(Config) ->
     emqx_conf:update([delayed], Config, #{rawconf_with_defaults => true, override_to => cluster}).
@@ -260,15 +251,6 @@ update_config(Config) ->
 post_config_update(_KeyPath, _ConfigReq, NewConf, _OldConf, _AppEnvs) ->
     Enable = maps:get(enable, NewConf, undefined),
     load_or_unload(Enable).
-
-clean_by_clientid(ClientId) ->
-    Nodes = mria_mnesia:running_nodes(),
-    emqx_delayed_proto_v2:clean_by_clientid(Nodes, ClientId).
-
-do_clean_by_clientid(ClientId) ->
-    ets:select_delete(
-        ?TAB, ets:fun2ms(fun(#delayed_message{msg = Msg}) -> Msg#message.from =:= ClientId end)
-    ).
 
 %%--------------------------------------------------------------------
 %% gen_server callback
@@ -401,11 +383,9 @@ delayed_count() -> mnesia:table_info(?TAB, size).
 
 do_load_or_unload(true, State) ->
     emqx_hooks:put('message.publish', {?MODULE, on_message_publish, []}, ?HP_DELAY_PUB),
-    ok = emqx_hooks:put('client.banned', {?MODULE, on_client_banned, []}, ?HP_LOWEST),
     State;
 do_load_or_unload(false, #{publish_timer := PubTimer} = State) ->
     emqx_hooks:del('message.publish', {?MODULE, on_message_publish}),
-    ok = emqx_hooks:del('client.banned', {?MODULE, on_client_banned}),
     emqx_misc:cancel_timer(PubTimer),
     ets:delete_all_objects(?TAB),
     State#{publish_timer := undefined, publish_at := 0};
