@@ -98,7 +98,7 @@ inject_sni_fun(Listener = #{proto := Proto, name := Name, opts := Options0}) ->
     %% because otherwise an anonymous function will end up in
     %% `app.*.config'...
     ListenerID = emqx_listeners:identifier(Listener),
-    case proplists:get_bool(ocsp_enabled, Options0) of
+    case proplists:get_bool(ocsp_stapling_enabled, Options0) of
         false ->
             Options0;
         true ->
@@ -182,7 +182,7 @@ code_change(_Vsn, State, _Extra) ->
         lists:filter(
           fun(#{opts := Opts}) ->
                   undefined =/= proplists:get_value(ocsp_responder_url, Opts) andalso
-                      false =/= proplists:get_bool(ocsp_enabled, Opts)
+                      false =/= proplists:get_bool(ocsp_stapling_enabled, Opts)
           end,
           emqx:get_env(listeners, [])),
     PatchedListeners = [L#{opts => ?MODULE:inject_sni_fun(L)} || L <- ListenersToPatch],

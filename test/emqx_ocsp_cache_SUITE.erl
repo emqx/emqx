@@ -96,7 +96,7 @@ init_per_testcase(t_openssl_client, Config) ->
                             , {cacertfile, CACert}
                             ]),
                 Opts1 = proplists:delete(ssl_options, Opts0),
-                Opts2 = emqx_misc:merge_opts(Opts1, [ {ocsp_enabled, true}
+                Opts2 = emqx_misc:merge_opts(Opts1, [ {ocsp_stapling_enabled, true}
                                                     , {ocsp_responder_url, "http://127.0.0.1:9877"}
                                                     , {ocsp_issuer_pem, IssuerPem}
                                                     , {ssl_options, SSLOpts2}]),
@@ -145,7 +145,7 @@ init_per_testcase(_TestCase, Config) ->
         , name => "test_ocsp"
         , opts => [ {ssl_options, [{certfile,
                                     filename:join(DataDir, "server.pem")}]}
-                  , {ocsp_enabled, true}
+                  , {ocsp_stapling_enabled, true}
                   , {ocsp_responder_url, "http://localhost:9877"}
                   , {ocsp_issuer_pem,
                      filename:join(DataDir, "ocsp-issuer.pem")}
