@@ -41,7 +41,8 @@
         , format_listen_on/1
         ]).
 
--type(listener() :: #{ name := binary()
+-type(listener_name() :: binary()).
+-type(listener() :: #{ name := listener_name()
                      , proto := esockd:proto()
                      , listen_on := esockd:listen_on()
                      , opts := [esockd:option()]
@@ -105,10 +106,10 @@ ensure_all_started([L | Rest], Results) ->
 format_listen_on(ListenOn) -> format(ListenOn).
 
 -spec(start_listener(listener()) -> ok).
-start_listener(Listener = #{proto := Proto, name := Name, listen_on := ListenOn}) ->
+start_listener(#{proto := Proto, name := Name, listen_on := ListenOn, opts := Opts0}) ->
     ID = identifier(Proto, Name),
-    Options = emqx_ocsp_cache:inject_sni_fun(Listener),
-    case start_listener(Proto, ListenOn, Options) of
+    Opts = [{listener_name, Name} | Opts0],
+    case start_listener(Proto, ListenOn, Opts) of
         {ok, _} ->
             console_print("Start ~s listener on ~s successfully.~n", [ID, format(ListenOn)]);
         {error, Reason} ->
@@ -125,13 +126,22 @@ console_print(_Fmt, _Args) -> ok.
 -endif.
 
 %% Start MQTT/TCP listener
--spec(start_listener(esockd:proto(), esockd:listen_on(), [esockd:option()])
+-spec(start_listener(esockd:proto(), esockd:listen_on(), [ esockd:option()
+                                                         | {listener_name, listener_name()}])
       -> {ok, pid()} | {error, term()}).
 start_listener(tcp, ListenOn, Options) ->
     start_mqtt_listener('mqtt:tcp', ListenOn, Options);
 
 %% Start MQTT/TLS listener
-start_listener(Proto, ListenOn, Options) when Proto == ssl; Proto == tls ->
+start_listener(Proto, ListenOn, Options0) when Proto == ssl; Proto == tls ->
+    Name = proplists:get_value(listener_name, Options0, <<"mqtt:ssl:external">>),
+    Options1 = proplists:delete(listener_name, Options0),
+    Listener = #{ name => Name
+                , proto => Proto
+                , listen_on => ListenOn
+                , opts => Options1
+                },
+    Options = emqx_ocsp_cache:inject_sni_fun(Listener),
     start_mqtt_listener('mqtt:ssl', ListenOn, Options);
 
 %% Start MQTT/WS listener
