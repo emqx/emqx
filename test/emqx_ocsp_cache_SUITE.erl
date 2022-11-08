@@ -427,6 +427,22 @@ t_register_listener(_Config) ->
     ?assertMatch([{_, <<"ocsp response">>}], ets:tab2list(?CACHE_TAB)),
     ok.
 
+t_register_twice(_Config) ->
+    ListenerID = <<"mqtt:ssl:test_ocsp">>,
+    {ok, {ok, _}} =
+        ?wait_async_action(
+           emqx_ocsp_cache:register_listener(ListenerID),
+           #{?snk_kind := ocsp_http_fetch_and_cache, listener_id := ListenerID}),
+    assert_http_get(1),
+    ?assertMatch([{_, <<"ocsp response">>}], ets:tab2list(?CACHE_TAB)),
+    %% should have no problem in registering the same listener again.
+    %% this prompts an immediate refresh.
+    {ok, {ok, _}} =
+        ?wait_async_action(
+           emqx_ocsp_cache:register_listener(ListenerID),
+           #{?snk_kind := ocsp_http_fetch_and_cache, listener_id := ListenerID}),
+    ok.
+
 t_refresh_periodically(_Config) ->
     ListenerID = <<"mqtt:ssl:test_ocsp">>,
     %% should refresh periodically
