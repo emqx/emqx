@@ -90,8 +90,8 @@ for file in "${FILES[@]}"; do
 done
 
 # shellcheck disable=2086 # no quotes for F_OPTIONS
-mkdir -p ./.cache && chmod a+rwx ./.cache
-UID_GID="$(id -u):$(id -g)" docker-compose $F_OPTIONS up -d --build
+UID_GID="$(id -u):$(id -g)"
+UID_GID=$UID_GID docker-compose $F_OPTIONS up -d --build
 
 # /emqx is where the source dir is mounted to the Erlang container
 # in .ci/docker-compose-file/docker-compose.yaml
@@ -100,6 +100,8 @@ if [[ -t 1 ]]; then
     TTY='-t'
 fi
 
+docker exec -i $TTY -u root:root "$ERLANG_CONTAINER" bash -c "mkdir /.cache && chown $UID_GID /.cache"
+docker exec -i $TTY -u root:root "$ERLANG_CONTAINER" bash -c "touch /.erlang.cookie && chown $UID_GID /.erlang.cookie"
 if [ "$CONSOLE" = 'yes' ]; then
     docker exec -i $TTY "$ERLANG_CONTAINER" bash -c "make run"
 else
@@ -107,6 +109,6 @@ else
     docker exec -i $TTY "$ERLANG_CONTAINER" bash -c "make ${WHICH_APP}-ct"
     RESULT=$?
     # shellcheck disable=2086 # no quotes for F_OPTIONS
-    UID_GID="$(id -u):$(id -g)" docker-compose $F_OPTIONS down
+    UID_GID=$UID_GID docker-compose $F_OPTIONS down
     exit $RESULT
 fi

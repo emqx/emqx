@@ -18,7 +18,6 @@ services:
       - emqx_bridge
     volumes:
       - ../..:/emqx
-      - ./.cache:/.cache
     working_dir: /emqx
     tty: true
     user: "${UID_GID}"
