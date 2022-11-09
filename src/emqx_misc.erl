@@ -534,8 +534,7 @@ redact_v(_V) -> ?REDACT_VAL.
 filename_join_safely([Abs | Path]) ->
     filename_join_safely(Abs, Path).
 
--spec filename_join_safely(file:name_all(), list(file:name_all())) -> _;
-                          (file:name_all(), file:name_all()) -> _.
+-spec filename_join_safely(file:name_all(), file:name_all()) -> _.
 filename_join_safely(Abs, Path) ->
     Abs2 = to_str(Abs),
     Path2 = to_str(ensure_to_path(Path)),
