@@ -89,8 +89,13 @@ for file in "${FILES[@]}"; do
     F_OPTIONS="$F_OPTIONS -f $file"
 done
 
+# Passing $UID to docker-compose to be used in erlang container
+# as owner of the main process to avoid git repo permissions issue.
+# Permissions issue happens because we are mounting local filesystem
+# where files are owned by $UID to docker container where it's using
+# root (UID=0) by default, and git is not happy about it.
 # shellcheck disable=2086 # no quotes for F_OPTIONS
-docker-compose $F_OPTIONS up -d --build
+UID_GID="$UID:$UID" docker-compose $F_OPTIONS up -d --build
 
 # /emqx is where the source dir is mounted to the Erlang container
 # in .ci/docker-compose-file/docker-compose.yaml
@@ -98,8 +103,11 @@ TTY=''
 if [[ -t 1 ]]; then
     TTY='-t'
 fi
-docker exec -i $TTY "$ERLANG_CONTAINER" bash -c 'git config --global --add safe.directory /emqx'
 
+# rebar and hex cache directory need to be writable by $UID
+docker exec -i $TTY -u root:root "$ERLANG_CONTAINER" bash -c "mkdir /.cache && chown $UID:$UID /.cache"
+# need to initialize .erlang.cookie manually here because / is not writable by $UID
+docker exec -i $TTY -u root:root "$ERLANG_CONTAINER" bash -c "openssl rand -base64 16 > /.erlang.cookie && chown $UID:$UID /.erlang.cookie && chmod 0400 /.erlang.cookie"
 if [ "$CONSOLE" = 'yes' ]; then
     docker exec -i $TTY "$ERLANG_CONTAINER" bash -c "make run"
 else
@@ -107,6 +115,6 @@ else
     docker exec -i $TTY "$ERLANG_CONTAINER" bash -c "make ${WHICH_APP}-ct"
     RESULT=$?
     # shellcheck disable=2086 # no quotes for F_OPTIONS
-    docker-compose $F_OPTIONS down
+    UID_GID="$UID:$UID" docker-compose $F_OPTIONS down
     exit $RESULT
 fi
