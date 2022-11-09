@@ -39,6 +39,9 @@ all() ->
 groups() ->
     [].
 
+init_per_testcase(t_authenticator_fail, Config) ->
+    meck:expect(emqx_authn_proto_v1, lookup_from_all_nodes, 3, [{error, {exception, badarg}}]),
+    init_per_testcase(default, Config);
 init_per_testcase(_, Config) ->
     {ok, _} = emqx_cluster_rpc:start_link(node(), emqx_cluster_rpc, 1000),
     emqx_authn_test_lib:delete_authenticators(
@@ -52,6 +55,12 @@ init_per_testcase(_, Config) ->
     ),
 
     {atomic, ok} = mria:clear_table(emqx_authn_mnesia),
+    Config.
+
+end_per_testcase(t_authenticator_fail, Config) ->
+    meck:unload(emqx_authn_proto_v1),
+    Config;
+end_per_testcase(_, Config) ->
     Config.
 
 init_per_suite(Config) ->
@@ -89,6 +98,21 @@ t_authenticators(_) ->
 
 t_authenticator(_) ->
     test_authenticator([]).
+
+t_authenticator_fail(_) ->
+    ValidConfig0 = emqx_authn_test_lib:http_example(),
+    {ok, 200, _} = request(
+        post,
+        uri([?CONF_NS]),
+        ValidConfig0
+    ),
+    ?assertMatch(
+        {ok, 500, _},
+        request(
+            get,
+            uri([?CONF_NS, "password_based:http", "status"])
+        )
+    ).
 
 t_authenticator_users(_) ->
     test_authenticator_users([]).
@@ -247,6 +271,15 @@ test_authenticator(PathPrefix) ->
         <<"connected">>,
         LookFun([<<"status">>])
     ),
+
+    ?assertMatch(
+        {ok, 404, _},
+        request(
+            get,
+            uri(PathPrefix ++ [?CONF_NS, "unknown_auth_chain", "status"])
+        )
+    ),
+
     {ok, 404, _} = request(
         get,
         uri(PathPrefix ++ [?CONF_NS, "password_based:redis"])
