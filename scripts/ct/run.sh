@@ -90,6 +90,7 @@ for file in "${FILES[@]}"; do
 done
 
 # shellcheck disable=2086 # no quotes for F_OPTIONS
+mkdir -p ./.cache && chmod a+rwx ./.cache
 UID_GID="$(id -u):$(id -g)" docker-compose $F_OPTIONS up -d --build
 
 # /emqx is where the source dir is mounted to the Erlang container
