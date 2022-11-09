@@ -41,7 +41,9 @@
         , format_listen_on/1
         ]).
 
--type(listener() :: #{ name := binary()
+-type(listener_name() :: binary()).
+-type(listener_id() :: binary()).
+-type(listener() :: #{ name := listener_name()
                      , proto := esockd:proto()
                      , listen_on := esockd:listen_on()
                      , opts := [esockd:option()]
@@ -70,7 +72,7 @@ find_by_id(Id) ->
     find_by_id(iolist_to_binary(Id), emqx:get_env(listeners, [])).
 
 %% @doc Return the ID of the given listener.
--spec identifier(listener()) -> binary().
+-spec identifier(listener()) -> listener_id().
 identifier(#{proto := Proto, name := Name}) ->
     identifier(Proto, Name).
 
@@ -88,7 +90,8 @@ ensure_all_started() ->
 ensure_all_started([], []) -> ok;
 ensure_all_started([], Failed) -> error(Failed);
 ensure_all_started([L | Rest], Results) ->
-    #{proto := Proto, listen_on := ListenOn, opts := Options} = L,
+    #{proto := Proto, listen_on := ListenOn, opts := Options0} = L,
+    Options = [{listener_id, identifier(L)} | Options0],
     NewResults =
         case start_listener(Proto, ListenOn, Options) of
             {ok, _Pid} ->
@@ -105,10 +108,10 @@ ensure_all_started([L | Rest], Results) ->
 format_listen_on(ListenOn) -> format(ListenOn).
 
 -spec(start_listener(listener()) -> ok).
-start_listener(Listener = #{proto := Proto, name := Name, listen_on := ListenOn}) ->
+start_listener(#{proto := Proto, name := Name, listen_on := ListenOn, opts := Opts0}) ->
     ID = identifier(Proto, Name),
-    Options = emqx_ocsp_cache:inject_sni_fun(Listener),
-    case start_listener(Proto, ListenOn, Options) of
+    Opts = [{listener_id, ID} | Opts0],
+    case start_listener(Proto, ListenOn, Opts) of
         {ok, _} ->
             console_print("Start ~s listener on ~s successfully.~n", [ID, format(ListenOn)]);
         {error, Reason} ->
@@ -125,13 +128,17 @@ console_print(_Fmt, _Args) -> ok.
 -endif.
 
 %% Start MQTT/TCP listener
--spec(start_listener(esockd:proto(), esockd:listen_on(), [esockd:option()])
+-spec(start_listener(esockd:proto(), esockd:listen_on(), [ esockd:option()
+                                                         | {listener_id, binary()}])
       -> {ok, pid()} | {error, term()}).
 start_listener(tcp, ListenOn, Options) ->
     start_mqtt_listener('mqtt:tcp', ListenOn, Options);
 
 %% Start MQTT/TLS listener
-start_listener(Proto, ListenOn, Options) when Proto == ssl; Proto == tls ->
+start_listener(Proto, ListenOn, Options0) when Proto == ssl; Proto == tls ->
+    ListenerID = proplists:get_value(listener_id, Options0),
+    Options1 = proplists:delete(listener_id, Options0),
+    Options = emqx_ocsp_cache:inject_sni_fun(ListenerID, Options1),
     start_mqtt_listener('mqtt:ssl', ListenOn, Options);
 
 %% Start MQTT/WS listener

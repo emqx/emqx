@@ -54,16 +54,19 @@
 %%--------------------------------------------------------------------
 
 start_link() ->
-    URLs = emqx:get_env(crl_cache_urls, []),
-    RefreshIntervalMS = emqx:get_env(crl_cache_refresh_interval,
-                                     timer:minutes(15)),
+    Listeners = emqx:get_env(listeners, []),
+    URLs = collect_urls(Listeners),
+    RefreshIntervalMS0 = emqx:get_env(crl_cache_refresh_interval,
+                                      timer:minutes(15)),
+    MinimumRefreshInverval = timer:minutes(1),
+    RefreshIntervalMS = max(RefreshIntervalMS0, MinimumRefreshInverval),
     start_link(#{urls => URLs, refresh_interval => RefreshIntervalMS}).
 
 start_link(Opts = #{urls := _, refresh_interval := _}) ->
     gen_server:start_link({local, ?MODULE}, ?MODULE, Opts, []).
 
 refresh(URL) ->
-    gen_server:call(?MODULE, {refresh, URL}, ?HTTP_TIMEOUT + 2_000).
+    gen_server:cast(?MODULE, {refresh, URL}).
 
 evict(URL) ->
     gen_server:cast(?MODULE, {evict, URL}).
@@ -78,16 +81,6 @@ init(#{urls := URLs, refresh_interval := RefreshIntervalMS}) ->
                         URLs),
     {ok, State}.
 
-handle_call({refresh, URL}, _From, State0) ->
-    case do_http_fetch_and_cache(URL) of
-        {error, Error} ->
-            ?LOG(error, "failed to fetch crl response for ~p; error: ~p",
-                 [URL, Error]),
-            {reply, error, ensure_timer(URL, State0, ?RETRY_TIMEOUT)};
-        {ok, CRLs} ->
-            ?LOG(debug, "fetched crl response for ~p", [URL]),
-            {reply, {ok, CRLs}, ensure_timer(URL, State0)}
-    end;
 handle_call(Call, _From, State) ->
     {reply, {error, {bad_call, Call}}, State}.
 
@@ -101,6 +94,17 @@ handle_cast({evict, URL}, State0 = #state{refresh_timers = RefreshTimers0}) ->
         #{ url => URL
          }),
     {noreply, State};
+handle_cast({refresh, URL}, State0) ->
+    case do_http_fetch_and_cache(URL) of
+        {error, Error} ->
+            ?tp(crl_refresh_failure, #{error => Error, url => URL}),
+            ?LOG(error, "failed to fetch crl response for ~p; error: ~p",
+                 [URL, Error]),
+            {noreply, ensure_timer(URL, State0, ?RETRY_TIMEOUT)};
+        {ok, _CRLs} ->
+            ?LOG(debug, "fetched crl response for ~p", [URL]),
+            {noreply, ensure_timer(URL, State0)}
+    end;
 handle_cast(_Cast, State) ->
     {noreply, State}.
 
@@ -148,7 +152,7 @@ do_http_fetch_and_cache(URL) ->
                     {error, invalid_crl};
                 CRLs ->
                     ssl_crl_cache:insert(URL, {der, CRLs}),
-                    ?tp(crl_cache_insert, #{url => URL}),
+                    ?tp(crl_cache_insert, #{url => URL, crls => CRLs}),
                     {ok, CRLs}
             end;
         {ok, {{_, Code, _}, _, Body}} ->
@@ -175,3 +179,20 @@ ensure_timer(URL, State = #state{refresh_timers = RefreshTimers0}, Timeout) ->
                                              Timeout,
                                              {refresh, URL})},
     State#state{refresh_timers = RefreshTimers}.
+
+collect_urls(Listeners) ->
+    CRLOpts0 = [CRLOpts || #{proto := ssl, opts := Opts} <- Listeners,
+                           {crl_options, CRLOpts} <- Opts],
+    CRLOpts1 =
+        lists:filter(
+          fun(CRLOpts) ->
+            proplists:get_bool(crl_cache_enabled, CRLOpts)
+          end,
+          CRLOpts0),
+    CRLURLs =
+        lists:flatmap(
+          fun(CRLOpts) ->
+            proplists:get_value(crl_cache_urls, CRLOpts, [])
+          end,
+          CRLOpts1),
+    lists:usort(CRLURLs).
