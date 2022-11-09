@@ -87,7 +87,7 @@ jobs:
     steps:
       - uses: actions/checkout@v3
         with:
-          ref: ${{ github.ref }
+          ref: ${{ github.ref }}
       - uses: emqx/push-helm-action@v1
         if: startsWith(github.ref_name, 'v')
         with:
