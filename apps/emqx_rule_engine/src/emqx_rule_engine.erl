@@ -88,7 +88,7 @@
                 throw : Reason ->
                     throw({_ERROR_CONTEXT_, Reason});
                 _EXCLASS_:_EXCPTION_:_ST_ ->
-                    throw({_ERROR_CONTEXT_, {_EXCPTION_, _EXCPTION_, _ST_}})
+                    throw({_ERROR_CONTEXT_, {_EXCLASS_, _EXCPTION_, _ST_}})
             end
         end()).
 
