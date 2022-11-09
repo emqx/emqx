@@ -32,14 +32,14 @@ jobs:
         - emqx
         - emqx-enterprise
         otp:
-        - 24.2.1-1
+        - 24.3.4.2-1
         elixir:
         - 1.13.4
         os:
         - ubuntu20.04
         - el8
 
-    container: "ghcr.io/emqx/emqx-builder/5.0-17:${{ matrix.elixir }}-${{ matrix.otp }}-${{ matrix.os }}"
+    container: "ghcr.io/emqx/emqx-builder/5.0-18:${{ matrix.elixir }}-${{ matrix.otp }}-${{ matrix.os }}"
 
     steps:
     - uses: AutoModality/action-clean@v1
@@ -132,7 +132,7 @@ jobs:
         - emqx
         - emqx-enterprise
         otp:
-        - 24.2.1-1
+        - 24.3.4.2-1
         os:
         - macos-11
 
