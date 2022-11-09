@@ -639,6 +639,47 @@ test_disable_then_start(_Config) ->
     ?assertNotEqual([], gproc_pool:active_workers(emqx_retainer_dispatcher)),
     ok.
 
+t_deliver_when_banned(_) ->
+    ClientId = <<"c1">>,
+
+    {ok, C1} = emqtt:start_link([{clientid, ClientId}, {clean_start, true}, {proto_ver, v5}]),
+    {ok, _} = emqtt:connect(C1),
+
+    lists:foreach(
+        fun(I) ->
+            Topic = erlang:list_to_binary(io_lib:format("retained/~p", [I])),
+            emqtt:publish(
+                C1,
+                Topic,
+                <<"this is a retained message">>,
+                [{qos, 0}, {retain, true}]
+            )
+        end,
+        lists:seq(1, 3)
+    ),
+
+    Now = erlang:system_time(second),
+    Who = {clientid, ClientId},
+    emqx_banned:create(#{
+        who => Who,
+        by => <<"test">>,
+        reason => <<"test">>,
+        at => Now,
+        until => Now + 120
+    }),
+
+    timer:sleep(100),
+    snabbkaffe:start_trace(),
+    {ok, #{}, [0]} = emqtt:subscribe(C1, <<"retained/+">>, [{qos, 0}, {rh, 0}]),
+    timer:sleep(500),
+
+    Trace = snabbkaffe:collect_trace(),
+    ?assertEqual(3, length(?of_kind(ignore_retained_message_deliver, Trace))),
+    snabbkaffe:stop(),
+    emqx_banned:delete(Who),
+    {ok, #{}, [0]} = emqtt:unsubscribe(C1, <<"retained/+">>),
+    ok = emqtt:disconnect(C1).
+
 %%--------------------------------------------------------------------
 %% Helper functions
 %%--------------------------------------------------------------------
