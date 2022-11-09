@@ -130,7 +130,7 @@ jobs:
     - uses: actions/upload-artifact@v3
       with:
         name: ${{ matrix.profile }}-windows
-        path: source/_packages/${{ matrix.profile }}/.
+        path: source/_packages/${{ matrix.profile }}/
 
   mac:
     needs: prepare
@@ -169,7 +169,7 @@ jobs:
     - uses: actions/upload-artifact@v3
       with:
         name: ${{ matrix.profile }}-${{ matrix.otp }}
-        path: _packages/${{ matrix.profile }}/.
+        path: _packages/${{ matrix.profile }}/
 
   linux:
     needs: prepare
