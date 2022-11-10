@@ -96,10 +96,12 @@ init_per_testcase(t_openssl_client, Config) ->
                             , {cacertfile, CACert}
                             ]),
                 Opts1 = proplists:delete(ssl_options, Opts0),
-                Opts2 = [ {ocsp_responder_url, "http://127.0.0.1:9877"}
-                        , {ocsp_issuer_pem, IssuerPem}
-                        , {ssl_options, SSLOpts2}
-                        | Opts1],
+                OCSPOpts = [ {ocsp_stapling_enabled, true}
+                           , {ocsp_responder_url, "http://127.0.0.1:9877"}
+                           , {ocsp_issuer_pem, IssuerPem}
+                           ],
+                Opts2 = emqx_misc:merge_opts(Opts1, [ {ocsp_options, OCSPOpts}
+                                                    , {ssl_options, SSLOpts2}]),
                 Listeners = [ SSLListener0#{opts => Opts2}
                             | Listeners1],
                 application:set_env(emqx, listeners, Listeners),
@@ -109,7 +111,18 @@ init_per_testcase(t_openssl_client, Config) ->
         end,
     OCSPResponderPort = spawn_openssl_ocsp_responder(Config),
     {os_pid, OCSPOSPid} = erlang:port_info(OCSPResponderPort, os_pid),
-    ensure_port_open(9877),
+    %%%%%%%%  Warning!!!
+    %% Apparently, openssl 3.0.7 introduced a bug in the responder
+    %% that makes it hang forever if one probes the port with
+    %% `gen_tcp:open' / `gen_tcp:close'...  Comment this out if
+    %% openssl gets updated in CI or in your local machine.
+    case openssl_version() of
+        "3." ++ _ ->
+            %% hope that the responder has started...
+            ok;
+        _ ->
+            ensure_port_open(9877)
+    end,
     ct:sleep(1_000),
     emqx_ct_helpers:start_apps([], Handler),
     ct:sleep(1_000),
@@ -128,17 +141,20 @@ init_per_testcase(_TestCase, Config) ->
                 end),
     {ok, CachePid} = emqx_ocsp_cache:start_link(),
     DataDir = ?config(data_dir, Config),
+    OCSPOpts = [ {ocsp_stapling_enabled, true}
+               , {ocsp_responder_url, "http://localhost:9877"}
+               , {ocsp_issuer_pem,
+                  filename:join(DataDir, "ocsp-issuer.pem")}
+               , {ocsp_refresh_http_timeout, 15_000}
+               , {ocsp_refresh_interval, 1_000}
+               ],
     application:set_env(
       emqx, listeners,
       [#{ proto => ssl
         , name => "test_ocsp"
         , opts => [ {ssl_options, [{certfile,
                                     filename:join(DataDir, "server.pem")}]}
-                  , {ocsp_responder_url, "http://localhost:9877"}
-                  , {ocsp_issuer_pem,
-                     filename:join(DataDir, "ocsp-issuer.pem")}
-                  , {ocsp_refresh_http_timeout, 15_000}
-                  , {ocsp_refresh_interval, 1_000}
+                  , {ocsp_options, OCSPOpts}
                   ]
         }]),
     snabbkaffe:start_trace(),
@@ -291,6 +307,12 @@ get_sni_fun(ListenerID) ->
     SSLOpts = proplists:get_value(ssl_options, Opts),
     proplists:get_value(sni_fun, SSLOpts).
 
+openssl_version() ->
+    Res0 = string:trim(os:cmd("openssl version"), trailing),
+    [_, Res] = string:split(Res0, " "),
+    {match, [Version]} = re:run(Res, "^([^ ]+)", [{capture, first, list}]),
+    Version.
+
 %%--------------------------------------------------------------------
 %% Test cases
 %%--------------------------------------------------------------------
@@ -406,6 +428,22 @@ t_register_listener(_Config) ->
     ?assertMatch([{_, <<"ocsp response">>}], ets:tab2list(?CACHE_TAB)),
     ok.
 
+t_register_twice(_Config) ->
+    ListenerID = <<"mqtt:ssl:test_ocsp">>,
+    {ok, {ok, _}} =
+        ?wait_async_action(
+           emqx_ocsp_cache:register_listener(ListenerID),
+           #{?snk_kind := ocsp_http_fetch_and_cache, listener_id := ListenerID}),
+    assert_http_get(1),
+    ?assertMatch([{_, <<"ocsp response">>}], ets:tab2list(?CACHE_TAB)),
+    %% should have no problem in registering the same listener again.
+    %% this prompts an immediate refresh.
+    {ok, {ok, _}} =
+        ?wait_async_action(
+           emqx_ocsp_cache:register_listener(ListenerID),
+           #{?snk_kind := ocsp_http_fetch_and_cache, listener_id := ListenerID}),
+    ok.
+
 t_refresh_periodically(_Config) ->
     ListenerID = <<"mqtt:ssl:test_ocsp">>,
     %% should refresh periodically
@@ -417,7 +455,7 @@ t_refresh_periodically(_Config) ->
                  false
          end,
          _NEvents = 2,
-         _Timeout = 5_000),
+         _Timeout = 10_000),
     ok = emqx_ocsp_cache:register_listener(ListenerID),
     ?assertMatch({ok, [_, _]}, snabbkaffe:receive_events(SubRef)),
     assert_http_get(2),
@@ -446,13 +484,6 @@ t_sni_fun_http_error(_Config) ->
       [],
       emqx_ocsp_cache:sni_fun(ServerName, ListenerID)),
     ok.
-
-t_code_change(_Config) ->
-    ListenerID = <<"mqtt:ssl:test_ocsp">>,
-    SNIFun0 = get_sni_fun(ListenerID),
-    ?assertMatch({ok, _}, emqx_ocsp_cache:code_change(vsn, state, extra)),
-    SNIFun1 = get_sni_fun(ListenerID),
-    ?assertNotEqual(SNIFun0, SNIFun1).
 
 t_openssl_client(Config) ->
     TLSVsn = ?config(tls_vsn, Config),

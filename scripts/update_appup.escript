@@ -313,7 +313,7 @@ do_merge_update_actions(App, {New0, Changed0, Deleted0}, OldActions) ->
             true ->
                 [];
             false ->
-                [{load_module, M, brutal_purge, soft_purge, []} || M <- Changed, not is_secret_module(M)] ++
+                [{load_module, M, brutal_purge, soft_purge, []} || M <- Changed, not is_const_module(M)] ++
                 [{add_module, M} || M <- New]
         end,
     {OldActionsWithStop, OldActionsAfterStop} =
@@ -325,14 +325,17 @@ do_merge_update_actions(App, {New0, Changed0, Deleted0}, OldActions) ->
             true ->
                 [];
             false ->
-                [{delete_module, M} || M <- Deleted, not is_secret_module(M)]
+                [{delete_module, M} || M <- Deleted, not is_const_module(M)]
         end ++
         AppSpecific.
 
-%% Do not reload or delet _secret modules
-is_secret_module(Module) ->
+is_const_module(Module) when is_atom(Module) ->
+    is_const_module(atom_to_list(Module));
+is_const_module("emqx_const_" ++ _) ->
+    true;
+is_const_module(Module) ->
     Suffix = "_secret",
-    case string:right(atom_to_list(Module), length(Suffix)) of
+    case string:right(Module, length(Suffix)) of
         Suffix -> true;
         _ -> false
     end.

@@ -79,13 +79,21 @@ end_per_testcase(TestCase, Config)
     ServerPid = ?config(http_server, Config),
     emqx_crl_cache_http_server:stop(ServerPid),
     emqx_ct_helpers:stop_apps([]),
-    application:set_env(emqx, crl_cache_urls, []),
+    emqx_ct_helpers:change_emqx_opts(
+      ssl_twoway, [ {crl_options, [ {crl_cache_enabled, false}
+                                  , {crl_cache_urls, []}
+                                  ]}
+                  ]),
     application:stop(cowboy),
     clear_crl_cache(),
     ok;
 end_per_testcase(t_not_cached_and_unreachable, _Config) ->
     emqx_ct_helpers:stop_apps([]),
-    application:set_env(emqx, crl_cache_urls, []),
+    emqx_ct_helpers:change_emqx_opts(
+      ssl_twoway, [ {crl_options, [ {crl_cache_enabled, false}
+                                  , {crl_cache_urls, []}
+                                  ]}
+                  ]),
     clear_crl_cache(),
     ok;
 end_per_testcase(_TestCase, _Config) ->
@@ -177,16 +185,19 @@ setup_crl_options(Config, #{is_cached := IsCached}) ->
            end,
     Handler =
         fun(emqx) ->
-                application:set_env(emqx, crl_cache_urls, URLs),
                 emqx_ct_helpers:change_emqx_opts(
-                  ssl_twoway, [{ssl_options, [ {certfile, Certfile}
-                                             , {keyfile, Keyfile}
-                                             , {verify, verify_peer}
-                                               %% {crl_check, true} does not work; probably bug in OTP
-                                             , {crl_check, peer}
-                                             , {crl_cache,
-                                                {ssl_crl_cache, {internal, [{http, timer:seconds(15)}]}}}
-                                             ]}]),
+                  ssl_twoway, [ {ssl_options, [ {certfile, Certfile}
+                                              , {keyfile, Keyfile}
+                                              , {verify, verify_peer}
+                                                %% {crl_check, true} does not work; probably bug in OTP
+                                              , {crl_check, peer}
+                                              , {crl_cache,
+                                                 {ssl_crl_cache, {internal, [{http, timer:seconds(15)}]}}}
+                                              ]}
+                              , {crl_options, [ {crl_cache_enabled, true}
+                                              , {crl_cache_urls, URLs}
+                                              ]}
+                              ]),
                 %% emqx_ct_helpers:change_emqx_opts has cacertfile hardcoded....
                 ok = force_cacertfile(Cacertfile),
                 ok;
@@ -269,7 +280,12 @@ t_manual_refresh(Config) ->
     ?assertEqual([], ets:tab2list(Ref)),
     {ok, _} = emqx_crl_cache:start_link(),
     URL = "http://localhost/crl.pem",
-    ?assertEqual({ok, [CRLDer]}, emqx_crl_cache:refresh(URL)),
+    ok = snabbkaffe:start_trace(),
+    ?wait_async_action(
+       ?assertEqual(ok, emqx_crl_cache:refresh(URL)),
+       #{?snk_kind := crl_cache_insert},
+       5_000),
+    ok = snabbkaffe:stop(),
     ?assertEqual(
        [{"crl.pem", [CRLDer]}],
        ets:tab2list(Ref)),
@@ -282,7 +298,18 @@ t_refresh_request_error(_Config) ->
                 end),
     {ok, _} = emqx_crl_cache:start_link(),
     URL = "http://localhost/crl.pem",
-    ?assertEqual(error, emqx_crl_cache:refresh(URL)),
+    ?check_trace(
+       ?wait_async_action(
+          ?assertEqual(ok, emqx_crl_cache:refresh(URL)),
+          #{?snk_kind := crl_cache_insert},
+          5_000),
+       fun(Trace) ->
+         ?assertMatch(
+            [#{error := {bad_response, #{code := 404}}}],
+            ?of_kind(crl_refresh_failure, Trace)),
+         ok
+       end),
+    ok = snabbkaffe:stop(),
     ok.
 
 t_refresh_invalid_response(_Config) ->
@@ -292,7 +319,18 @@ t_refresh_invalid_response(_Config) ->
                 end),
     {ok, _} = emqx_crl_cache:start_link(),
     URL = "http://localhost/crl.pem",
-    ?assertEqual({ok, []}, emqx_crl_cache:refresh(URL)),
+    ?check_trace(
+       ?wait_async_action(
+          ?assertEqual(ok, emqx_crl_cache:refresh(URL)),
+          #{?snk_kind := crl_cache_insert},
+          5_000),
+       fun(Trace) ->
+         ?assertMatch(
+            [#{crls := []}],
+            ?of_kind(crl_cache_insert, Trace)),
+         ok
+       end),
+    ok = snabbkaffe:stop(),
     ok.
 
 t_refresh_http_error(_Config) ->
@@ -302,7 +340,18 @@ t_refresh_http_error(_Config) ->
                 end),
     {ok, _} = emqx_crl_cache:start_link(),
     URL = "http://localhost/crl.pem",
-    ?assertEqual(error, emqx_crl_cache:refresh(URL)),
+    ?check_trace(
+       ?wait_async_action(
+          ?assertEqual(ok, emqx_crl_cache:refresh(URL)),
+          #{?snk_kind := crl_cache_insert},
+          5_000),
+       fun(Trace) ->
+         ?assertMatch(
+            [#{error := {http_error, timeout}}],
+            ?of_kind(crl_refresh_failure, Trace)),
+         ok
+       end),
+    ok = snabbkaffe:stop(),
     ok.
 
 t_unknown_messages(_Config) ->
@@ -315,7 +364,12 @@ t_unknown_messages(_Config) ->
 t_evict(_Config) ->
     {ok, _} = emqx_crl_cache:start_link(),
     URL = "http://localhost/crl.pem",
-    {ok, [_]} = emqx_crl_cache:refresh(URL),
+    ok = snabbkaffe:start_trace(),
+    ?wait_async_action(
+       ?assertEqual(ok, emqx_crl_cache:refresh(URL)),
+       #{?snk_kind := crl_cache_insert},
+       5_000),
+    ok = snabbkaffe:stop(),
     Ref = get_crl_cache_table(),
     ?assertMatch([{"crl.pem", _}], ets:tab2list(Ref)),
     snabbkaffe:start_trace(),
