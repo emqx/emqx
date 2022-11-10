@@ -297,7 +297,7 @@ do_deliver([Msg | T], Pid, Topic) ->
                 ignore_retained_message_deliver,
                 #{
                     reason => "client is banned",
-                    clienid => Msg#message.from
+                    clientid => Msg#message.from
                 }
             )
     end,
