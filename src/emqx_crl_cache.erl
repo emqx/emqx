@@ -187,7 +187,7 @@ collect_urls(Listeners) ->
     CRLOpts1 =
         lists:filter(
           fun(CRLOpts) ->
-            proplists:get_bool(crl_cache_enabled, CRLOpts)
+            proplists:get_bool(crl_check_enabled, CRLOpts)
           end,
           CRLOpts0),
     CRLURLs =
