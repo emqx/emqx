@@ -109,7 +109,12 @@ topic(get, #{bindings := Bindings}) ->
 do_list(Params) ->
     case
         emqx_mgmt_api:node_query(
-            node(), Params, emqx_route, ?TOPICS_QUERY_SCHEMA, {?MODULE, query}
+            node(),
+            Params,
+            emqx_route,
+            ?TOPICS_QUERY_SCHEMA,
+            {?MODULE, query},
+            fun ?MODULE:format/1
         )
     of
         {error, page_limit_invalid} ->

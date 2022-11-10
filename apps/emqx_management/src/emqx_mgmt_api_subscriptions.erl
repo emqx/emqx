@@ -33,7 +33,7 @@
 
 -export([
     query/4,
-    format/1
+    format/2
 ]).
 
 -define(SUBS_QTABLE, emqx_suboption).
@@ -142,7 +142,8 @@ subscriptions(get, #{query_string := QString}) ->
                     QString,
                     ?SUBS_QTABLE,
                     ?SUBS_QSCHEMA,
-                    ?QUERY_FUN
+                    ?QUERY_FUN,
+                    fun ?MODULE:format/2
                 );
             Node0 ->
                 case emqx_misc:safe_to_existing_atom(Node0) of
@@ -152,7 +153,8 @@ subscriptions(get, #{query_string := QString}) ->
                             QString,
                             ?SUBS_QTABLE,
                             ?SUBS_QSCHEMA,
-                            ?QUERY_FUN
+                            ?QUERY_FUN,
+                            fun ?MODULE:format/2
                         );
                     {error, _} ->
                         {error, Node0, {badrpc, <<"invalid node">>}}
@@ -168,16 +170,12 @@ subscriptions(get, #{query_string := QString}) ->
             {200, Result}
     end.
 
-format(Items) when is_list(Items) ->
-    [format(Item) || Item <- Items];
-format({{Subscriber, Topic}, Options}) ->
-    format({Subscriber, Topic, Options});
-format({_Subscriber, Topic, Options}) ->
+format(WhichNode, {{_Subscriber, Topic}, Options}) ->
     maps:merge(
         #{
             topic => get_topic(Topic, Options),
             clientid => maps:get(subid, Options),
-            node => node()
+            node => WhichNode
         },
         maps:with([qos, nl, rap, rh], Options)
     ).
@@ -199,8 +197,7 @@ query(Tab, {Qs, []}, Continuation, Limit) ->
         Tab,
         Ms,
         Continuation,
-        Limit,
-        fun format/1
+        Limit
     );
 query(Tab, {Qs, Fuzzy}, Continuation, Limit) ->
     Ms = qs2ms(Qs),
@@ -209,8 +206,7 @@ query(Tab, {Qs, Fuzzy}, Continuation, Limit) ->
         Tab,
         {Ms, FuzzyFilterFun},
         Continuation,
-        Limit,
-        fun format/1
+        Limit
     ).
 
 fuzzy_filter_fun(Fuzzy) ->

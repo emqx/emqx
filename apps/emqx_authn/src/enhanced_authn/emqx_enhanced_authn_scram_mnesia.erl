@@ -262,7 +262,14 @@ lookup_user(UserID, #{user_group := UserGroup}) ->
 
 list_users(QueryString, #{user_group := UserGroup}) ->
     NQueryString = QueryString#{<<"user_group">> => UserGroup},
-    emqx_mgmt_api:node_query(node(), NQueryString, ?TAB, ?AUTHN_QSCHEMA, ?QUERY_FUN).
+    emqx_mgmt_api:node_query(
+        node(),
+        NQueryString,
+        ?TAB,
+        ?AUTHN_QSCHEMA,
+        ?QUERY_FUN,
+        fun ?MODULE:format_user_info/1
+    ).
 
 %%--------------------------------------------------------------------
 %% Query Functions
@@ -273,8 +280,7 @@ query(Tab, {QString, []}, Continuation, Limit) ->
         Tab,
         Ms,
         Continuation,
-        Limit,
-        fun format_user_info/1
+        Limit
     );
 query(Tab, {QString, FuzzyQString}, Continuation, Limit) ->
     Ms = ms_from_qstring(QString),
@@ -283,8 +289,7 @@ query(Tab, {QString, FuzzyQString}, Continuation, Limit) ->
         Tab,
         {Ms, FuzzyFilterFun},
         Continuation,
-        Limit,
-        fun format_user_info/1
+        Limit
     ).
 
 %%--------------------------------------------------------------------

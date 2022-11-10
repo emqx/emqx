@@ -56,7 +56,8 @@
 %% internal exports (for client query)
 -export([
     query/4,
-    format_channel_info/1
+    format_channel_info/1,
+    format_channel_info/2
 ]).
 
 -define(TAGS, [<<"Gateway Clients">>]).
@@ -112,7 +113,8 @@ clients(get, #{
                         QString,
                         TabName,
                         ?CLIENT_QSCHEMA,
-                        ?QUERY_FUN
+                        ?QUERY_FUN,
+                        fun ?MODULE:format_channel_info/2
                     );
                 Node0 ->
                     case emqx_misc:safe_to_existing_atom(Node0) of
@@ -123,7 +125,8 @@ clients(get, #{
                                 QStringWithoutNode,
                                 TabName,
                                 ?CLIENT_QSCHEMA,
-                                ?QUERY_FUN
+                                ?QUERY_FUN,
+                                fun ?MODULE:format_channel_info/2
                             );
                         {error, _} ->
                             {error, Node0, {badrpc, <<"invalid node">>}}
@@ -272,8 +275,7 @@ query(Tab, {Qs, []}, Continuation, Limit) ->
         Tab,
         Ms,
         Continuation,
-        Limit,
-        fun format_channel_info/1
+        Limit
     );
 query(Tab, {Qs, Fuzzy}, Continuation, Limit) ->
     Ms = qs2ms(Qs),
@@ -282,8 +284,7 @@ query(Tab, {Qs, Fuzzy}, Continuation, Limit) ->
         Tab,
         {Ms, FuzzyFilterFun},
         Continuation,
-        Limit,
-        fun format_channel_info/1
+        Limit
     ).
 
 qs2ms(Qs) ->
@@ -363,8 +364,11 @@ run_fuzzy_filter(
 %%--------------------------------------------------------------------
 %% format funcs
 
-format_channel_info({_, Infos, Stats} = R) ->
-    Node = maps:get(node, Infos, node()),
+format_channel_info(ChannInfo) ->
+    format_channel_info(node(), ChannInfo).
+
+format_channel_info(WhichNode, {_, Infos, Stats} = R) ->
+    Node = maps:get(node, Infos, WhichNode),
     ClientInfo = maps:get(clientinfo, Infos, #{}),
     ConnInfo = maps:get(conninfo, Infos, #{}),
     SessInfo = maps:get(session, Infos, #{}),

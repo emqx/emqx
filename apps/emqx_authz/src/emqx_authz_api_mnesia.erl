@@ -408,7 +408,8 @@ users(get, #{query_string := QueryString}) ->
             QueryString,
             ?ACL_TABLE,
             ?ACL_USERNAME_QSCHEMA,
-            ?QUERY_USERNAME_FUN
+            ?QUERY_USERNAME_FUN,
+            fun ?MODULE:format_result/1
         )
     of
         {error, page_limit_invalid} ->
@@ -443,7 +444,8 @@ clients(get, #{query_string := QueryString}) ->
             QueryString,
             ?ACL_TABLE,
             ?ACL_CLIENTID_QSCHEMA,
-            ?QUERY_CLIENTID_FUN
+            ?QUERY_CLIENTID_FUN,
+            fun ?MODULE:format_result/1
         )
     of
         {error, page_limit_invalid} ->
@@ -582,8 +584,7 @@ query_username(Tab, {_QString, []}, Continuation, Limit) ->
         Tab,
         Ms,
         Continuation,
-        Limit,
-        fun format_result/1
+        Limit
     );
 query_username(Tab, {_QString, FuzzyQString}, Continuation, Limit) ->
     Ms = emqx_authz_mnesia:list_username_rules(),
@@ -592,8 +593,7 @@ query_username(Tab, {_QString, FuzzyQString}, Continuation, Limit) ->
         Tab,
         {Ms, FuzzyFilterFun},
         Continuation,
-        Limit,
-        fun format_result/1
+        Limit
     ).
 
 query_clientid(Tab, {_QString, []}, Continuation, Limit) ->
@@ -602,8 +602,7 @@ query_clientid(Tab, {_QString, []}, Continuation, Limit) ->
         Tab,
         Ms,
         Continuation,
-        Limit,
-        fun format_result/1
+        Limit
     );
 query_clientid(Tab, {_QString, FuzzyQString}, Continuation, Limit) ->
     Ms = emqx_authz_mnesia:list_clientid_rules(),
@@ -612,8 +611,7 @@ query_clientid(Tab, {_QString, FuzzyQString}, Continuation, Limit) ->
         Tab,
         {Ms, FuzzyFilterFun},
         Continuation,
-        Limit,
-        fun format_result/1
+        Limit
     ).
 
 %%--------------------------------------------------------------------

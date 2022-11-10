@@ -277,7 +277,8 @@ param_path_id() ->
             QueryString,
             ?RULE_TAB,
             ?RULE_QS_SCHEMA,
-            {?MODULE, query}
+            {?MODULE, query},
+            fun ?MODULE:format_rule_resp/1
         )
     of
         {error, page_limit_invalid} ->
@@ -556,7 +557,7 @@ query(Tab, {Qs, Fuzzy}, Start, Limit) ->
     Ms = qs2ms(),
     FuzzyFun = fuzzy_match_fun(Qs, Ms, Fuzzy),
     emqx_mgmt_api:select_table_with_count(
-        Tab, {Ms, FuzzyFun}, Start, Limit, fun format_rule_resp/1
+        Tab, {Ms, FuzzyFun}, Start, Limit
     ).
 
 %% rule is not a record, so everything is fuzzy filter.

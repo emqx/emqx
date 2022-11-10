@@ -24,7 +24,7 @@
 
 -export([api_spec/0, paths/0, schema/1, fields/1]).
 
--export([alarms/2]).
+-export([alarms/2, format_alarm/2]).
 
 -define(TAGS, [<<"Alarms">>]).
 
@@ -112,7 +112,15 @@ alarms(get, #{query_string := QString}) ->
             true -> ?ACTIVATED_ALARM;
             false -> ?DEACTIVATED_ALARM
         end,
-    case emqx_mgmt_api:cluster_query(QString, Table, [], {?MODULE, query}) of
+    case
+        emqx_mgmt_api:cluster_query(
+            QString,
+            Table,
+            [],
+            {?MODULE, query},
+            fun ?MODULE:format_alarm/2
+        )
+    of
         {error, page_limit_invalid} ->
             {400, #{code => <<"INVALID_PARAMETER">>, message => <<"page_limit_invalid">>}};
         {error, Node, {badrpc, R}} ->
@@ -130,9 +138,7 @@ alarms(delete, _Params) ->
 
 query(Table, _QsSpec, Continuation, Limit) ->
     Ms = [{'$1', [], ['$1']}],
-    emqx_mgmt_api:select_table_with_count(Table, Ms, Continuation, Limit, fun format_alarm/1).
+    emqx_mgmt_api:select_table_with_count(Table, Ms, Continuation, Limit).
 
-format_alarm(Alarms) when is_list(Alarms) ->
-    [emqx_alarm:format(Alarm) || Alarm <- Alarms];
-format_alarm(Alarm) ->
-    emqx_alarm:format(Alarm).
+format_alarm(WhichNode, Alarm) ->
+    emqx_alarm:format(WhichNode, Alarm).

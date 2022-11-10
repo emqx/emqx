@@ -47,7 +47,8 @@
 
 -export([
     query/4,
-    format_channel_info/1
+    format_channel_info/1,
+    format_channel_info/2
 ]).
 
 %% for batch operation
@@ -645,7 +646,8 @@ list_clients(QString) ->
                     QString,
                     ?CLIENT_QTAB,
                     ?CLIENT_QSCHEMA,
-                    ?QUERY_FUN
+                    ?QUERY_FUN,
+                    fun ?MODULE:format_channel_info/2
                 );
             Node0 ->
                 case emqx_misc:safe_to_existing_atom(Node0) of
@@ -656,7 +658,8 @@ list_clients(QString) ->
                             QStringWithoutNode,
                             ?CLIENT_QTAB,
                             ?CLIENT_QSCHEMA,
-                            ?QUERY_FUN
+                            ?QUERY_FUN,
+                            fun ?MODULE:format_channel_info/2
                         );
                     {error, _} ->
                         {error, Node0, {badrpc, <<"invalid node">>}}
@@ -789,8 +792,7 @@ query(Tab, {QString, []}, Continuation, Limit) ->
         Tab,
         Ms,
         Continuation,
-        Limit,
-        fun format_channel_info/1
+        Limit
     );
 query(Tab, {QString, FuzzyQString}, Continuation, Limit) ->
     Ms = qs2ms(QString),
@@ -799,8 +801,7 @@ query(Tab, {QString, FuzzyQString}, Continuation, Limit) ->
         Tab,
         {Ms, FuzzyFilterFun},
         Continuation,
-        Limit,
-        fun format_channel_info/1
+        Limit
     ).
 
 %%--------------------------------------------------------------------
@@ -876,12 +877,11 @@ run_fuzzy_filter(E = {_, #{clientinfo := ClientInfo}, _}, [{Key, like, SubStr} |
 %%--------------------------------------------------------------------
 %% format funcs
 
-format_channel_info({_, ClientInfo0, ClientStats}) ->
-    Node =
-        case ClientInfo0 of
-            #{node := N} -> N;
-            _ -> node()
-        end,
+format_channel_info(ChannInfo = {_, _ClientInfo, _ClientStats}) ->
+    format_channel_info(node(), ChannInfo).
+
+format_channel_info(WhichNode, {_, ClientInfo0, ClientStats}) ->
+    Node = maps:get(node, ClientInfo0, WhichNode),
     ClientInfo1 = emqx_map_lib:deep_remove([conninfo, clientid], ClientInfo0),
     ClientInfo2 = emqx_map_lib:deep_remove([conninfo, username], ClientInfo1),
     StatsMap = maps:without(

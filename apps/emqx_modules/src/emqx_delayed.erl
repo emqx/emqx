@@ -166,11 +166,14 @@ list(Params) ->
     emqx_mgmt_api:paginate(?TAB, Params, ?FORMAT_FUN).
 
 cluster_list(Params) ->
-    emqx_mgmt_api:cluster_query(Params, ?TAB, [], {?MODULE, cluster_query}).
+    %% FIXME: why cluster_query???
+    emqx_mgmt_api:cluster_query(
+        Params, ?TAB, [], {?MODULE, cluster_query}, fun ?MODULE:format_delayed/1
+    ).
 
 cluster_query(Table, _QsSpec, Continuation, Limit) ->
     Ms = [{'$1', [], ['$1']}],
-    emqx_mgmt_api:select_table_with_count(Table, Ms, Continuation, Limit, fun format_delayed/1).
+    emqx_mgmt_api:select_table_with_count(Table, Ms, Continuation, Limit).
 
 format_delayed(Delayed) ->
     format_delayed(Delayed, false).
