@@ -143,7 +143,8 @@ http_get(URL, HTTPTimeout) ->
      ).
 
 do_http_fetch_and_cache(URL) ->
-    %% FIXME
+    ?tp(crl_http_fetch, #{crl_url => URL}),
+    %% FIXME: read from config
     Resp = ?MODULE:http_get(URL, ?HTTP_TIMEOUT),
     case Resp of
         {ok, {{_, 200, _}, _, Body}} ->

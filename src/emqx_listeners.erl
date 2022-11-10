@@ -139,6 +139,7 @@ start_listener(Proto, ListenOn, Options0) when Proto == ssl; Proto == tls ->
     ListenerID = proplists:get_value(listener_id, Options0),
     Options1 = proplists:delete(listener_id, Options0),
     Options = emqx_ocsp_cache:inject_sni_fun(ListenerID, Options1),
+    ok = maybe_register_crl_urls(Options),
     start_mqtt_listener('mqtt:ssl', ListenOn, Options);
 
 %% Start MQTT/WS listener
@@ -299,4 +300,23 @@ find_by_id(Id, [L | Rest]) ->
     case identifier(L) =:= Id of
         true -> L;
         false -> find_by_id(Id, Rest)
+    end.
+
+%% @doc Called by Enterprise edition to dynamically reload configs.
+-spec maybe_register_crl_urls([esockd:option()]) -> ok.
+maybe_register_crl_urls(Options) ->
+    CRLOptions = proplists:get_value(crl_options, Options, []),
+    case proplists:get_bool(crl_cache_enabled, CRLOptions) of
+        false ->
+            ok;
+        true ->
+            URLs =
+                lists:usort(
+                  [URL
+                   || URL <- proplists:get_value(crl_cache_urls, CRLOptions, [])]),
+            lists:foreach(
+              fun(URL) ->
+                emqx_crl_cache:refresh(URL)
+              end,
+              URLs)
     end.
