@@ -82,12 +82,15 @@
 %% redefine this macro to confine the appup scope
 -undef(RAISE).
 -define(RAISE(_EXP_, _ERROR_CONTEXT_),
+        ?RAISE(_EXP_, do_nothing, _ERROR_CONTEXT_)).
+-define(RAISE(_EXP_, _EXP_ON_FAIL_, _ERROR_CONTEXT_),
         fun() ->
             try (_EXP_)
             catch
                 throw : Reason ->
                     throw({_ERROR_CONTEXT_, Reason});
                 _EXCLASS_:_EXCPTION_:_ST_ ->
+                    _EXP_ON_FAIL_,
                     throw({_ERROR_CONTEXT_, {_EXCLASS_, _EXCPTION_, _ST_}})
             end
         end()).
@@ -496,7 +499,12 @@ refresh_resource(Type) when is_atom(Type) ->
 refresh_resource(#resource{id = ResId, type = Type, config = Config}) ->
     {ok, #resource_type{on_create = {M, F}}} =
         emqx_rule_registry:find_resource_type(Type),
-    ok = emqx_rule_engine:init_resource_with_retrier(M, F, ResId, Config).
+    try
+        init_resource_with_retrier(M, F, ResId, Config)
+    catch
+        throw:Reason ->
+            ?LOG_SENSITIVE(warning, "refresh_resource failed: ~0p", [Reason])
+    end.
 
 -spec(refresh_rules_when_boot() -> ok).
 refresh_rules_when_boot() ->
@@ -675,16 +683,12 @@ init_resource(Module, OnCreate, ResId, Config) ->
     emqx_rule_registry:add_resource_params(ResParams).
 
 init_resource_with_retrier(Module, OnCreate, ResId, Config) ->
-    try
-        Params = Module:OnCreate(ResId, Config),
-        ResParams = #resource_params{id = ResId,
-                                    params = Params,
-                                    status = #{is_alive => true}},
-        emqx_rule_registry:add_resource_params(ResParams)
-    catch Class:Reason:ST ->
-        emqx_rule_monitor:ensure_resource_retrier(ResId),
-        erlang:raise(Class, {init_resource, Reason}, ST)
-    end.
+    Params = ?RAISE(Module:OnCreate(ResId, Config),
+                emqx_rule_monitor:ensure_resource_retrier(ResId), {Module, OnCreate}),
+    ResParams = #resource_params{id = ResId,
+                                 params = Params,
+                                 status = #{is_alive => true}},
+    emqx_rule_registry:add_resource_params(ResParams).
 
 init_action(Module, OnCreate, ActionInstId, Params) ->
     ok = emqx_rule_metrics:create_metrics(ActionInstId),
