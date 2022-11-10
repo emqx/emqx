@@ -62,7 +62,18 @@ log() {
     echo "===< $msg"
 }
 
+delete_unwanted_file() {
+    if [ -e "${1}" ]; then
+        log "Deleting file: ${1}"
+        rm -f "${1}"
+    else
+        log "Cannot delete file: ${1} -- file not found"
+    fi
+}
+
 make_rel() {
+    ./rebar3 as "$PROFILE" release
+    delete_unwanted_file _build/"${PROFILE}"/rel/emqx/lib/certifi*/priv/cacerts.pem
     ./rebar3 as "$PROFILE" tar
 }
 

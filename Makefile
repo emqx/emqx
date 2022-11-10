@@ -21,7 +21,7 @@ REL_PROFILES := emqx emqx-edge
 PKG_PROFILES := emqx-pkg emqx-edge-pkg
 PROFILES := $(REL_PROFILES) $(PKG_PROFILES) default
 
-CT_READABLE ?= false
+CT_READABLE ?= true
 
 export REBAR_GIT_CLONE_OPTIONS += --depth=1
 
