@@ -302,6 +302,7 @@ find_by_id(Id, [L | Rest]) ->
         false -> find_by_id(Id, Rest)
     end.
 
+%% @doc Called by Enterprise edition to dynamically reload configs.
 -spec maybe_register_crl_urls([esockd:option()]) -> ok.
 maybe_register_crl_urls(Options) ->
     CRLOptions = proplists:get_value(crl_options, Options, []),
