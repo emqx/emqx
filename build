@@ -73,6 +73,7 @@ delete_unwanted_file() {
 
 make_rel() {
     ./rebar3 as "$PROFILE" release
+    # delete outdated cert store
     delete_unwanted_file _build/"${PROFILE}"/rel/emqx/lib/certifi*/priv/cacerts.pem
     ./rebar3 as "$PROFILE" tar
 }
