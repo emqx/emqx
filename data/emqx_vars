@@ -14,6 +14,10 @@ RUNNER_DATA_DIR="{{ runner_data_dir }}"
 RUNNER_USER="{{ runner_user }}"
 EMQX_DESCRIPTION='{{ emqx_description }}'
 
+## Do not change EMQX_DEFAULT_ERLANG_COOKIE.
+## Configure EMQX_NODE_COOKIE instead
+EMQX_DEFAULT_ERLANG_COOKIE='{{ emqx_default_erlang_cookie }}'
+
 ## Warning: DO NOT create new variables using the above vars in this file,
 ## as the vars above can be overwritten by the relup scripts later, like:
 ## REL_VSN="new_version"
