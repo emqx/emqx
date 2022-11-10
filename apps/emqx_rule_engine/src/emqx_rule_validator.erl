@@ -32,7 +32,7 @@
     schema => spec()
 }.
 
--type data_type() :: string | password | number | boolean
+-type data_type() :: string | password | number | integer | boolean
     | object | array | file | binary_file | cfgselect.
 
 -type params_spec() :: #{name() => spec()} | any.
@@ -42,6 +42,7 @@
         [ string
         , password %% TODO: [5.0] remove this, use string instead
         , number
+        , integer
         , boolean
         , object
         , array
@@ -115,6 +116,8 @@ validate_type(Val, String, Spec) when String =:= string;
     validate_string(Val, reg_exp(maps:get(format, Spec, any)));
 validate_type(Val, number, Spec) ->
     validate_number(Val, maps:get(range, Spec, any));
+validate_type(Val, integer, Spec) ->
+    validate_integer(Val, maps:get(range, Spec, any));
 validate_type(Val, boolean, _Spec) ->
     validate_boolean(Val);
 validate_type(Val, array, Spec) ->
@@ -142,12 +145,20 @@ validate_string(Val, RegExp) ->
 
 validate_number(Val, any) when is_integer(Val); is_float(Val) ->
     Val;
-validate_number(Val, _Range = [Min, Max])
-        when (is_integer(Val) orelse is_float(Val)),
-             (Val >= Min andalso Val =< Max) ->
-    Val;
+validate_number(Val, Range)
+  when (is_integer(Val) orelse is_float(Val)) ->
+    validate_range(Val, Range);
 validate_number(Val, Range) ->
     throw({invalid_data_type, {number, {Val, Range}}}).
+
+validate_integer(Val, any)
+  when is_integer(Val) ->
+    Val;
+validate_integer(Val, Range)
+  when is_integer(Val) ->
+    validate_range(Val, Range);
+validate_integer(Val, Range) ->
+    throw({invalid_data_type, {integer, {Val, Range}}}).
 
 validate_boolean(true) -> true;
 validate_boolean(<<"true">>) -> true;
@@ -163,6 +174,30 @@ validate_file(Val) when is_map(Val) -> Val;
 validate_file(Val) when is_list(Val) -> Val;
 validate_file(Val) when is_binary(Val) -> Val;
 validate_file(Val) -> throw({invalid_data_type, {file, Val}}).
+
+validate_range(Val, #{min := Min, max := Max}) ->
+    Val = min_(Min, Val),
+    Val = max_(Val, Max);
+validate_range(Val, #{min := Min}) ->
+    validate_range(Val, #{min => Min, max => any});
+validate_range(Val, #{max := Max}) ->
+    validate_range(Val, #{min => any, max => Max}).
+
+min_(any, Val) -> Val;
+min_(Min, Val) when is_number(Min) andalso Min =< Val -> Val;
+min_(#{open := any}, Val) -> Val;
+min_(#{open := Min}, Val) when Min < Val -> Val;
+min_(#{closed := Min}, Val) when Min =< Val -> Val;
+min_(Interval, Val) ->
+    throw({invalid_range, {min, {Val, Interval}}}).
+
+max_(Val, any) -> Val;
+max_(Val, Max) when is_number(Max) andalso Val =< Max -> Val;
+max_(Val, #{open := any}) -> Val;
+max_(Val, #{open := Max}) when Val < Max -> Val;
+max_(Val, #{closed := Max}) when Val =< Max -> Val;
+max_(Val, Interval) ->
+    throw({invalid_range, {max, {Val, Interval}}}).
 
 reg_exp(url) -> "^https?://\\w+(\.\\w+)*(:[0-9]+)?";
 reg_exp(topic) -> "^/?(\\w|\\#|\\+)+(/?(\\w|\\#|\\+))*/?$";
