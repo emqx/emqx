@@ -23,7 +23,7 @@ PKG_PROFILES := emqx-pkg emqx-enterprise-pkg
 PROFILES := $(REL_PROFILES) $(PKG_PROFILES) default
 
 CT_NODE_NAME ?= 'test@127.0.0.1'
-CT_READABLE ?= false
+CT_READABLE ?= true
 
 export REBAR_GIT_CLONE_OPTIONS += --depth=1
 
