@@ -2203,7 +2203,16 @@ end}.
     SslOpts = fun(Prefix) ->
                   Versions = case SplitFun(cuttlefish:conf_get(Prefix ++ ".tls_versions", Conf, undefined)) of
                                 undefined -> undefined;
-                                L -> [list_to_atom(V) || V <- L]
+                                L ->
+                                  Versions0 = [list_to_atom(V) || V <- L],
+                                  SupportVersions = ['tlsv1', 'tlsv1.1', 'tlsv1.2', 'tlsv1.3'],
+                                  case lists:all(fun(V) -> lists:member(V, SupportVersions) end, Versions0) of
+                                     false ->
+                                        cuttlefish:invalid(
+                                        lists:flatten(io_lib:format("tls_versions: only support ~p", [SupportVersions])));
+                                      true ->
+                                        Versions0
+                                  end
                             end,
                   TLSCiphers = cuttlefish:conf_get(Prefix++".ciphers", Conf, undefined),
                   PSKCiphers = cuttlefish:conf_get(Prefix++".psk_ciphers", Conf, undefined),
