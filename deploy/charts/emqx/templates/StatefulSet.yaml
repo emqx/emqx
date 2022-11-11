@@ -56,7 +56,7 @@ spec:
       {{- if .Values.ssl.enabled }}
       - name: ssl-cert
         secret:
-          secretName: {{ include "emqx.fullname" . }}-tls
+          secretName: {{ include "emqx.ssl.secretName" . }}
       {{- end }}
       {{- if not .Values.persistence.enabled }}
       - name: emqx-data
