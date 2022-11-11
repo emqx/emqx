@@ -232,6 +232,7 @@ init_per_testcase(_Testcase, Config) ->
 end_per_testcase(_Testcase, Config) ->
     ProxyHost = ?config(proxy_host, Config),
     ProxyPort = ?config(proxy_port, Config),
+    ok = snabbkaffe:stop(),
     emqx_common_test_helpers:reset_proxy(ProxyHost, ProxyPort),
     %% catch clear_db(Config),
     %% delete_bridge(Config),
@@ -509,7 +510,6 @@ t_start_ok(Config) ->
             ok
         end
     ),
-    ok = snabbkaffe:stop(),
     ok.
 
 t_start_already_started(Config) ->
@@ -534,7 +534,6 @@ t_start_already_started(Config) ->
             ok
         end
     ),
-    ok = snabbkaffe:stop(),
     ok.
 
 t_start_ok_timestamp_write_syntax(Config) ->
@@ -735,7 +734,6 @@ t_bad_timestamp(Config) ->
             ok
         end
     ),
-    ok = snabbkaffe:stop(),
     ok.
 
 t_get_status(Config) ->
@@ -766,7 +764,6 @@ t_create_disconnected(Config) ->
             ok
         end
     ),
-    ok = snabbkaffe:stop(),
     ok.
 
 t_start_error(Config) ->
@@ -792,7 +789,6 @@ t_start_error(Config) ->
             ok
         end
     ),
-    ok = snabbkaffe:stop(),
     ok.
 
 t_start_exception(Config) ->
@@ -818,7 +814,6 @@ t_start_exception(Config) ->
             ok
         end
     ),
-    ok = snabbkaffe:stop(),
     ok.
 
 t_write_failure(Config) ->
@@ -859,5 +854,4 @@ t_write_failure(Config) ->
             ok
         end
     ),
-    ok = snabbkaffe:stop(),
     ok.
