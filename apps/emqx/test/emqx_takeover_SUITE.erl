@@ -33,6 +33,7 @@
 all() -> emqx_common_test_helpers:all(?MODULE).
 
 init_per_suite(Config) ->
+    emqx_common_test_helpers:boot_modules(all),
     emqx_channel_SUITE:set_test_listener_confs(),
     ?check_trace(
         ?wait_async_action(

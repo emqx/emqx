@@ -2098,7 +2098,7 @@ parse_topic_filters(TopicFilters) ->
     lists:map(fun emqx_topic:parse/1, TopicFilters).
 
 %%--------------------------------------------------------------------
-%% Ensure disconnected
+%% Maybe & Ensure disconnected
 
 ensure_disconnected(
     Reason,
@@ -2205,6 +2205,7 @@ shutdown(success, Reply, Packet, Channel) ->
 shutdown(Reason, Reply, Packet, Channel) ->
     {shutdown, Reason, Reply, Packet, Channel}.
 
+%% mqtt v5 connected sessions
 disconnect_and_shutdown(
     Reason,
     Reply,
@@ -2214,9 +2215,12 @@ disconnect_and_shutdown(
 ) when
     ConnState =:= connected orelse ConnState =:= reauthenticating
 ->
-    shutdown(Reason, Reply, ?DISCONNECT_PACKET(reason_code(Reason)), Channel);
+    NChannel = ensure_disconnected(Reason, Channel),
+    shutdown(Reason, Reply, ?DISCONNECT_PACKET(reason_code(Reason)), NChannel);
+%% mqtt v3/v4 sessions, mqtt v5 other conn_state sessions
 disconnect_and_shutdown(Reason, Reply, Channel) ->
-    shutdown(Reason, Reply, Channel).
+    NChannel = ensure_disconnected(Reason, Channel),
+    shutdown(Reason, Reply, NChannel).
 
 sp(true) -> 1;
 sp(false) -> 0.

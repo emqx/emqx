@@ -32,7 +32,7 @@ jobs:
           esac
           aws s3 cp --recursive s3://${{ secrets.AWS_S3_BUCKET }}/$s3dir/${{ github.ref_name }} packages
           cd packages
-          DEFAULT_BEAM_PLATFORM='otp24.2.1-1'
+          DEFAULT_BEAM_PLATFORM='otp24.3.4.2-1'
           # all packages including full-name and default-name are uploaded to s3
           # but we only upload default-name packages (and elixir) as github artifacts
           # so we rename (overwrite) non-default packages before uploading
@@ -87,7 +87,7 @@ jobs:
     steps:
       - uses: actions/checkout@v3
         with:
-          ref: ${{ github.ref }
+          ref: ${{ github.ref }}
       - uses: emqx/push-helm-action@v1
         if: startsWith(github.ref_name, 'v')
         with:
