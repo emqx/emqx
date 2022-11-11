@@ -93,9 +93,9 @@ for dep in ${CT_DEPS}; do
             FILES+=( '.ci/docker-compose-file/docker-compose.yaml' )
             ;;
         influxdb)
-          FILES+=( '.ci/docker-compose-file/docker-compose-toxiproxy.yaml'
-                   '.ci/docker-compose-file/docker-compose-influxdb-tcp.yaml'
-                   '.ci/docker-compose-file/docker-compose-influxdb-tls.yaml' )
+            FILES+=( '.ci/docker-compose-file/docker-compose-toxiproxy.yaml'
+                     '.ci/docker-compose-file/docker-compose-influxdb-tcp.yaml'
+                     '.ci/docker-compose-file/docker-compose-influxdb-tls.yaml' )
             ;;
         mongo)
             FILES+=( '.ci/docker-compose-file/docker-compose-mongo-single-tcp.yaml'
