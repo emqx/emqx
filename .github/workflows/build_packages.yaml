@@ -94,11 +94,6 @@ jobs:
         }
         make ensure-rebar3
         make ${{ matrix.profile }}
-        ## Delete certifi cert store
-        $Cert = Get-ChildItem "_build/${{ matrix.profile }}/rel/emqx/lib/certifi*/priv/cacerts.pem"
-        if (Test-Path $Cert) {
-            Remove-Item $Cert
-        }
         mkdir -p _packages/${{ matrix.profile }}
         Compress-Archive -Path _build/${{ matrix.profile }}/rel/emqx -DestinationPath _build/${{ matrix.profile }}/rel/$pkg_name
         mv _build/${{ matrix.profile }}/rel/$pkg_name _packages/${{ matrix.profile }}
