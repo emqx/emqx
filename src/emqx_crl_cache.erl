@@ -23,6 +23,7 @@
         , start_link/1
         , refresh/1
         , evict/1
+        , refresh_config/0
         ]).
 
 %% gen_server callbacks
@@ -48,6 +49,7 @@
         { refresh_timers   = #{}               :: #{binary() => timer:tref()}
         , refresh_interval = timer:minutes(15) :: timer:time()
         , http_timeout = ?HTTP_TIMEOUT :: timer:time()
+        , extra = #{} :: map() %% for future use
         }).
 
 %%--------------------------------------------------------------------
@@ -55,26 +57,22 @@
 %%--------------------------------------------------------------------
 
 start_link() ->
-    Listeners = emqx:get_env(listeners, []),
-    URLs = collect_urls(Listeners),
-    RefreshIntervalMS0 = emqx:get_env(crl_cache_refresh_interval,
-                                      timer:minutes(15)),
-    MinimumRefreshInverval = timer:minutes(1),
-    RefreshIntervalMS = max(RefreshIntervalMS0, MinimumRefreshInverval),
-    HTTPTimeoutMS = emqx:get_env(crl_cache_http_timeout, ?HTTP_TIMEOUT),
-    start_link(#{ urls => URLs
-                , refresh_interval => RefreshIntervalMS
-                , http_timeout => HTTPTimeoutMS
-                }).
+    Config = gather_config(),
+    start_link(Config).
 
-start_link(Opts = #{urls := _, refresh_interval := _, http_timeout := _}) ->
-    gen_server:start_link({local, ?MODULE}, ?MODULE, Opts, []).
+start_link(Config = #{urls := _, refresh_interval := _, http_timeout := _}) ->
+    gen_server:start_link({local, ?MODULE}, ?MODULE, Config, []).
 
 refresh(URL) ->
     gen_server:cast(?MODULE, {refresh, URL}).
 
 evict(URL) ->
     gen_server:cast(?MODULE, {evict, URL}).
+
+%% to pick up changes from the config
+-spec refresh_config() -> ok.
+refresh_config() ->
+    gen_server:cast(?MODULE, refresh_config).
 
 %%--------------------------------------------------------------------
 %% gen_server behaviour
@@ -116,6 +114,21 @@ handle_cast({refresh, URL}, State0) ->
             ?LOG(debug, "fetched crl response for ~p", [URL]),
             {noreply, ensure_timer(URL, State0)}
     end;
+handle_cast(refresh_config, State0) ->
+    #{ urls := URLs
+     , http_timeout := HTTPTimeoutMS
+     , refresh_interval := RefreshIntervalMS
+     } = gather_config(),
+    State = lists:foldl(fun(URL, Acc) -> ensure_timer(URL, Acc, 0) end,
+                        State0#state{ refresh_interval = RefreshIntervalMS
+                                    , http_timeout = HTTPTimeoutMS
+                                    },
+                        URLs),
+    ?tp(crl_cache_refresh_config, #{ refresh_interval => RefreshIntervalMS
+                                   , http_timeout => HTTPTimeoutMS
+                                   , urls => URLs
+                                   }),
+    State;
 handle_cast(_Cast, State) ->
     {noreply, State}.
 
@@ -186,6 +199,7 @@ ensure_timer(URL, State = #state{refresh_interval = Timeout}) ->
     ensure_timer(URL, State, Timeout).
 
 ensure_timer(URL, State = #state{refresh_timers = RefreshTimers0}, Timeout) ->
+    ?tp(crl_cache_ensure_timer, #{url => URL, timeout => Timeout}),
     MTimer = maps:get(URL, RefreshTimers0, undefined),
     emqx_misc:cancel_timer(MTimer),
     RefreshTimers = RefreshTimers0#{URL => emqx_misc:start_timer(
@@ -209,3 +223,20 @@ collect_urls(Listeners) ->
           end,
           CRLOpts1),
     lists:usort(CRLURLs).
+
+-spec gather_config() -> #{ urls := [string()]
+                          , refresh_interval := timer:time()
+                          , http_timeout := timer:time()
+                          }.
+gather_config() ->
+    Listeners = emqx:get_env(listeners, []),
+    URLs = collect_urls(Listeners),
+    RefreshIntervalMS0 = emqx:get_env(crl_cache_refresh_interval,
+                                      timer:minutes(15)),
+    MinimumRefreshInverval = timer:minutes(1),
+    RefreshIntervalMS = max(RefreshIntervalMS0, MinimumRefreshInverval),
+    HTTPTimeoutMS = emqx:get_env(crl_cache_http_timeout, ?HTTP_TIMEOUT),
+    #{ urls => URLs
+     , refresh_interval => RefreshIntervalMS
+     , http_timeout => HTTPTimeoutMS
+     }.

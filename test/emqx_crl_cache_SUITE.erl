@@ -56,6 +56,29 @@ init_per_testcase(t_not_cached_and_unreachable, Config) ->
     [ {crl_pem, CRLPem}
     , {crl_der, CRLDer}
     | Config];
+init_per_testcase(t_refresh_config, Config) ->
+    DataDir = ?config(data_dir, Config),
+    CRLFile = filename:join([DataDir, "crl.pem"]),
+    {ok, CRLPem} = file:read_file(CRLFile),
+    [{'CertificateList', CRLDer, not_encrypted}] = public_key:pem_decode(CRLPem),
+    TestPid = self(),
+    ok = meck:new(emqx_crl_cache, [non_strict, passthrough, no_history, no_link]),
+    meck:expect(emqx_crl_cache, http_get,
+                fun(URL, _HTTPTimeout) ->
+                  TestPid ! {http_get, URL},
+                  {ok, {{"HTTP/1.0", 200, 'OK'}, [], CRLPem}}
+                end),
+    OldListeners = emqx:get_env(listeners),
+    OldRefreshInterval = emqx:get_env(crl_cache_refresh_interval),
+    OldHTTPTimeout = emqx:get_env(crl_cache_http_timeout),
+    ok = setup_crl_options(Config, #{is_cached => false}),
+    [ {crl_pem, CRLPem}
+    , {crl_der, CRLDer}
+    , {old_configs, [ {listeners, OldListeners}
+                    , {crl_cache_refresh_interval, OldRefreshInterval}
+                    , {crl_cache_http_timeout, OldHTTPTimeout}
+                    ]}
+    | Config];
 init_per_testcase(_TestCase, Config) ->
     DataDir = ?config(data_dir, Config),
     CRLFile = filename:join([DataDir, "crl.pem"]),
@@ -86,6 +109,7 @@ end_per_testcase(TestCase, Config)
                   ]),
     application:stop(cowboy),
     clear_crl_cache(),
+    ok = snabbkaffe:stop(),
     ok;
 end_per_testcase(t_not_cached_and_unreachable, _Config) ->
     emqx_ct_helpers:stop_apps([]),
@@ -95,10 +119,34 @@ end_per_testcase(t_not_cached_and_unreachable, _Config) ->
                                   ]}
                   ]),
     clear_crl_cache(),
+    ok = snabbkaffe:stop(),
+    ok;
+end_per_testcase(t_refresh_config, Config) ->
+    OldConfigs = ?config(old_configs, Config),
+    meck:unload([emqx_crl_cache]),
+    emqx_ct_helpers:stop_apps([]),
+    emqx_ct_helpers:change_emqx_opts(
+      ssl_twoway, [ {crl_options, [ {crl_check_enabled, false}
+                                  , {crl_cache_urls, []}
+                                  ]}
+                  ]),
+    clear_crl_cache(),
+    lists:foreach(
+      fun({Key, MValue}) ->
+        case MValue of
+            undefined -> ok;
+            Value -> application:set_env(emqx, Key, Value)
+        end
+      end,
+      OldConfigs),
+    application:stop(cowboy),
+    clear_crl_cache(),
+    ok = snabbkaffe:stop(),
     ok;
 end_per_testcase(_TestCase, _Config) ->
     meck:unload([emqx_crl_cache]),
     clear_crl_cache(),
+    ok = snabbkaffe:stop(),
     ok.
 
 %%--------------------------------------------------------------------
@@ -420,6 +468,44 @@ t_filled_cache(Config) ->
         2_000 -> ok
     end,
     emqtt:disconnect(C),
+    ok.
+
+t_refresh_config(_Config) ->
+    URLs = [ "http://localhost:9878/some.crl.pem"
+           , "http://localhost:9878/another.crl.pem"
+           ],
+    SortedURLs = lists:sort(URLs),
+    emqx_ct_helpers:change_emqx_opts(
+      ssl_twoway, [ {crl_options, [ {crl_check_enabled, true}
+                                  , {crl_cache_urls, URLs}
+                                  ]}
+                  ]),
+    %% has to be more than 1 minute
+    NewRefreshInterval = timer:seconds(64),
+    NewHTTPTimeout = timer:seconds(7),
+    application:set_env(emqx, crl_cache_refresh_interval, NewRefreshInterval),
+    application:set_env(emqx, crl_cache_http_timeout, NewHTTPTimeout),
+    ?check_trace(
+       ?wait_async_action(
+          emqx_crl_cache:refresh_config(),
+          #{?snk_kind := crl_cache_refresh_config},
+          _Timeout = 10_000),
+       fun(Res, Trace) ->
+         ?assertMatch({ok, {ok, _}}, Res),
+         ?assertMatch(
+            [#{ urls := SortedURLs
+              , refresh_interval := NewRefreshInterval
+              , http_timeout := NewHTTPTimeout
+              }],
+            ?of_kind(crl_cache_refresh_config, Trace),
+            #{ expected => #{ urls => SortedURLs
+                            , refresh_interval => NewRefreshInterval
+                            , http_timeout => NewHTTPTimeout
+                            }
+             }),
+         ?assertEqual(SortedURLs, ?projection(url, ?of_kind(crl_cache_ensure_timer, Trace))),
+         ok
+       end),
     ok.
 
 %% If the CRL is not cached when the client tries to connect and the
