@@ -1702,7 +1702,7 @@ end}.
   {datatype, {duration, ms}}
 ]}.
 
-{mapping, "listener.ssl.$name.enable_crl_cache", "emqx.listeners", [
+{mapping, "listener.ssl.$name.enable_crl_check", "emqx.listeners", [
   {default, false},
   {datatype, {enum, [true, false]}}
 ]}.
@@ -2337,7 +2337,7 @@ end}.
                       undefined -> undefined;
                       _ -> {fun emqx_psk:lookup/3, <<>>}
                     end,
-                  CRLCheck = case cuttlefish:conf_get(Prefix ++ ".enable_crl_cache", Conf, false) of
+                  CRLCheck = case cuttlefish:conf_get(Prefix ++ ".enable_crl_check", Conf, false) of
                                true ->
                                  HTTPTimeout = cuttlefish:conf_get(Prefix ++ ".crl_cache_http_timeout", Conf, timer:seconds(15)),
                                  %% {crl_check, true} doesn't work
@@ -2374,7 +2374,7 @@ end}.
                     undefined -> undefined;
                     URLs -> string:tokens(URLs, ", ")
                   end,
-        Filter([ {crl_cache_enabled, cuttlefish:conf_get(Prefix ++ ".enable_crl_cache", Conf, false)}
+        Filter([ {crl_check_enabled, cuttlefish:conf_get(Prefix ++ ".enable_crl_check", Conf, false)}
                , {crl_cache_urls, CRLURLs}
                ])
       end,

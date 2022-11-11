@@ -80,7 +80,7 @@ end_per_testcase(TestCase, Config)
     emqx_crl_cache_http_server:stop(ServerPid),
     emqx_ct_helpers:stop_apps([]),
     emqx_ct_helpers:change_emqx_opts(
-      ssl_twoway, [ {crl_options, [ {crl_cache_enabled, false}
+      ssl_twoway, [ {crl_options, [ {crl_check_enabled, false}
                                   , {crl_cache_urls, []}
                                   ]}
                   ]),
@@ -90,7 +90,7 @@ end_per_testcase(TestCase, Config)
 end_per_testcase(t_not_cached_and_unreachable, _Config) ->
     emqx_ct_helpers:stop_apps([]),
     emqx_ct_helpers:change_emqx_opts(
-      ssl_twoway, [ {crl_options, [ {crl_cache_enabled, false}
+      ssl_twoway, [ {crl_options, [ {crl_check_enabled, false}
                                   , {crl_cache_urls, []}
                                   ]}
                   ]),
@@ -194,7 +194,7 @@ setup_crl_options(Config, #{is_cached := IsCached}) ->
                                               , {crl_cache,
                                                  {ssl_crl_cache, {internal, [{http, timer:seconds(15)}]}}}
                                               ]}
-                              , {crl_options, [ {crl_cache_enabled, true}
+                              , {crl_options, [ {crl_check_enabled, true}
                                               , {crl_cache_urls, URLs}
                                               ]}
                               ]),

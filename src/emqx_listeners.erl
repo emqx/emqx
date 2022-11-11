@@ -306,7 +306,7 @@ find_by_id(Id, [L | Rest]) ->
 -spec maybe_register_crl_urls([esockd:option()]) -> ok.
 maybe_register_crl_urls(Options) ->
     CRLOptions = proplists:get_value(crl_options, Options, []),
-    case proplists:get_bool(crl_cache_enabled, CRLOptions) of
+    case proplists:get_bool(crl_check_enabled, CRLOptions) of
         false ->
             ok;
         true ->
