@@ -257,6 +257,7 @@ t_init_refresh(Config) ->
     URL2 = "http://localhost/crl2.pem",
     Opts = #{ urls => [URL1, URL2]
             , refresh_interval => timer:minutes(15)
+            , http_timeout => timer:seconds(15)
             },
     ok = snabbkaffe:start_trace(),
     {ok, SubRef} = snabbkaffe:subscribe(

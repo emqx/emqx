@@ -1712,7 +1712,7 @@ end}.
   {datatype, string}
 ]}.
 
-{mapping, "listener.ssl.$name.crl_cache_http_timeout", "emqx.listeners", [
+{mapping, "crl_cache.http_timeout", "emqx.crl_cache_http_timeout", [
   {default, "15s"},
   {datatype, {duration, ms}}
 ]}.
@@ -2339,7 +2339,7 @@ end}.
                     end,
                   CRLCheck = case cuttlefish:conf_get(Prefix ++ ".enable_crl_check", Conf, false) of
                                true ->
-                                 HTTPTimeout = cuttlefish:conf_get(Prefix ++ ".crl_cache_http_timeout", Conf, timer:seconds(15)),
+                                 HTTPTimeout = cuttlefish:conf_get("crl_cache.http_timeout", Conf, timer:seconds(15)),
                                  %% {crl_check, true} doesn't work
                                  [ {crl_check, peer}
                                  , {crl_cache, {ssl_crl_cache, {internal, [{http, HTTPTimeout}]}}}

@@ -41,12 +41,13 @@
 
 -define(LOG(Level, Format, Args),
         logger:log(Level, "[~p] " ++ Format, [?MODULE | Args])).
--define(HTTP_TIMEOUT, timer:seconds(10)).
+-define(HTTP_TIMEOUT, timer:seconds(15)).
 -define(RETRY_TIMEOUT, 5_000).
 
 -record(state,
         { refresh_timers   = #{}               :: #{binary() => timer:tref()}
         , refresh_interval = timer:minutes(15) :: timer:time()
+        , http_timeout = ?HTTP_TIMEOUT :: timer:time()
         }).
 
 %%--------------------------------------------------------------------
@@ -60,9 +61,13 @@ start_link() ->
                                       timer:minutes(15)),
     MinimumRefreshInverval = timer:minutes(1),
     RefreshIntervalMS = max(RefreshIntervalMS0, MinimumRefreshInverval),
-    start_link(#{urls => URLs, refresh_interval => RefreshIntervalMS}).
+    HTTPTimeoutMS = emqx:get_env(crl_cache_http_timeout, ?HTTP_TIMEOUT),
+    start_link(#{ urls => URLs
+                , refresh_interval => RefreshIntervalMS
+                , http_timeout => HTTPTimeoutMS
+                }).
 
-start_link(Opts = #{urls := _, refresh_interval := _}) ->
+start_link(Opts = #{urls := _, refresh_interval := _, http_timeout := _}) ->
     gen_server:start_link({local, ?MODULE}, ?MODULE, Opts, []).
 
 refresh(URL) ->
@@ -75,9 +80,15 @@ evict(URL) ->
 %% gen_server behaviour
 %%--------------------------------------------------------------------
 
-init(#{urls := URLs, refresh_interval := RefreshIntervalMS}) ->
+init(Config) ->
+    #{ urls := URLs
+     , refresh_interval := RefreshIntervalMS
+     , http_timeout := HTTPTimeoutMS
+     } = Config,
     State = lists:foldl(fun(URL, Acc) -> ensure_timer(URL, Acc, 0) end,
-                        #state{refresh_interval = RefreshIntervalMS},
+                        #state{ refresh_interval = RefreshIntervalMS
+                              , http_timeout = HTTPTimeoutMS
+                              },
                         URLs),
     {ok, State}.
 
@@ -95,7 +106,7 @@ handle_cast({evict, URL}, State0 = #state{refresh_timers = RefreshTimers0}) ->
          }),
     {noreply, State};
 handle_cast({refresh, URL}, State0) ->
-    case do_http_fetch_and_cache(URL) of
+    case do_http_fetch_and_cache(URL, State0#state.http_timeout) of
         {error, Error} ->
             ?tp(crl_refresh_failure, #{error => Error, url => URL}),
             ?LOG(error, "failed to fetch crl response for ~p; error: ~p",
@@ -109,12 +120,14 @@ handle_cast(_Cast, State) ->
     {noreply, State}.
 
 handle_info({timeout, TRef, {refresh, URL}},
-            State = #state{refresh_timers = RefreshTimers}) ->
+            State = #state{ refresh_timers = RefreshTimers
+                          , http_timeout = HTTPTimeoutMS
+                          }) ->
     case maps:get(URL, RefreshTimers, undefined) of
         TRef ->
             ?tp(crl_refresh_timer, #{url => URL}),
             ?LOG(debug, "refreshing crl response for ~p", [URL]),
-            case do_http_fetch_and_cache(URL) of
+            case do_http_fetch_and_cache(URL, HTTPTimeoutMS) of
                 {error, Error} ->
                     ?LOG(error, "failed to fetch crl response for ~p; error: ~p",
                          [URL, Error]),
@@ -142,10 +155,9 @@ http_get(URL, HTTPTimeout) ->
       [{body_format, binary}]
      ).
 
-do_http_fetch_and_cache(URL) ->
+do_http_fetch_and_cache(URL, HTTPTimeoutMS) ->
     ?tp(crl_http_fetch, #{crl_url => URL}),
-    %% FIXME: read from config
-    Resp = ?MODULE:http_get(URL, ?HTTP_TIMEOUT),
+    Resp = ?MODULE:http_get(URL, HTTPTimeoutMS),
     case Resp of
         {ok, {{_, 200, _}, _, Body}} ->
             case parse_crls(Body) of
