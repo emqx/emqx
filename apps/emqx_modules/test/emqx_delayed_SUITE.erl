@@ -37,8 +37,7 @@
 }).
 
 all() ->
-    [t_banned_delayed].
-%%    emqx_common_test_helpers:all(?MODULE).
+    emqx_common_test_helpers:all(?MODULE).
 
 init_per_suite(Config) ->
     ok = emqx_common_test_helpers:load_config(emqx_modules_schema, ?BASE_CONF, #{
