@@ -1,4 +1,5 @@
 ARG BUILD_FROM=emqx/build-env:erl23.3.4.9-3-ubuntu20.04
+# This Dockerfile is only used for EMQX 4.3, no need to update for 4.4 or later
 FROM ${BUILD_FROM}
 
 ARG EMQX_NAME=emqx
