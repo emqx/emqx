@@ -39,6 +39,8 @@ jobs:
       # keep using v1 for now as the otp-23 image has an old version git
       # TODO: change to v3 after OTP is upgraded to 23.3.4.18-1
     - uses: actions/checkout@v1
+      with:
+          fetch-depth: 0 # clone full git history
     - name: fix-git-unsafe-repository
       run: git config --global --add safe.directory /__w/emqx/emqx
     - uses: ./.github/actions/detect-profiles
@@ -123,6 +125,8 @@ jobs:
     runs-on: ${{ matrix.os }}
     steps:
     - uses: actions/checkout@v3
+      with:
+          fetch-depth: 0 # clone full git history
     - name: ensure access to github
       if: endsWith(github.repository, 'enterprise')
       run: |
