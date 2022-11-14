@@ -124,6 +124,7 @@ end_per_testcase(t_not_cached_and_unreachable, _Config) ->
 end_per_testcase(t_refresh_config, Config) ->
     OldConfigs = ?config(old_configs, Config),
     meck:unload([emqx_crl_cache]),
+    clear_crl_cache(),
     emqx_ct_helpers:stop_apps([]),
     emqx_ct_helpers:change_emqx_opts(
       ssl_twoway, [ {crl_options, [ {crl_check_enabled, false}
@@ -140,7 +141,6 @@ end_per_testcase(t_refresh_config, Config) ->
       end,
       OldConfigs),
     application:stop(cowboy),
-    clear_crl_cache(),
     ok = snabbkaffe:stop(),
     ok;
 end_per_testcase(_TestCase, _Config) ->
