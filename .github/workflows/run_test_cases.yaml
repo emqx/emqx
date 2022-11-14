@@ -11,12 +11,13 @@ on:
 
 jobs:
   prepare:
-    runs-on: ubuntu-20.04
+    runs-on: aws-amd64
     container: emqx/build-env:erl23.3.4.9-3-ubuntu20.04
     outputs:
       fast_ct_apps: ${{ steps.run_find_apps.outputs.fast_ct_apps }}
       docker_ct_apps: ${{ steps.run_find_apps.outputs.docker_ct_apps }}
     steps:
+      - uses: AutoModality/action-clean@v1
       - uses: actions/checkout@v3
         with:
           path: source
@@ -40,6 +41,7 @@ jobs:
       - name: get_all_deps
         working-directory: source
         run: |
+          git config --global --add safe.directory $(pwd)
           # build the default profile for two purposes
           # 1. download all dependencies (so the individual app runs do not depend on github credentials)
           # 2. some of the files such as segmented config files are not created when compiling only the test profile
@@ -55,7 +57,7 @@ jobs:
 
   eunit_and_proper:
     needs: prepare
-    runs-on: ubuntu-20.04
+    runs-on: aws-amd64
     container: emqx/build-env:erl23.3.4.9-3-ubuntu20.04
     strategy:
       fail-fast: false
@@ -83,7 +85,7 @@ jobs:
 
   fast_ct:
     needs: prepare
-    runs-on: ubuntu-20.04
+    runs-on: ${{ matrix.runs-on }}
     container: emqx/build-env:erl23.3.4.9-3-ubuntu20.04
     strategy:
       fail-fast: false
@@ -246,7 +248,7 @@ jobs:
       - eunit_and_proper
       - fast_ct
       - docker_ct
-    runs-on: ubuntu-20.04
+    runs-on: aws-amd64
     container: emqx/build-env:erl23.3.4.9-3-ubuntu20.04
     steps:
       - uses: AutoModality/action-clean@v1
@@ -276,7 +278,7 @@ jobs:
 
   finish:
     needs: make_cover
-    runs-on: ubuntu-20.04
+    runs-on: aws-amd64
     steps:
       - name: Coveralls Finished
         env:
