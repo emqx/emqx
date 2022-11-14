@@ -82,7 +82,7 @@ t_mod_rewrite(_Config) ->
     ok = emqx_mod_rewrite:unload(?RULES).
 
 t_rewrite_rule(_Config) ->
-    {PubRules, SubRules} = emqx_mod_rewrite:compile(?RULES),
+    {PubRules, SubRules} = emqx_mod_rewrite:compile_rules(?RULES),
     ?assertEqual(<<"z/y/2">>, emqx_mod_rewrite:match_and_rewrite(<<"x/y/2">>, PubRules, [])),
     ?assertEqual(<<"x/1/2">>, emqx_mod_rewrite:match_and_rewrite(<<"x/1/2">>, PubRules, [])),
     ?assertEqual(<<"y/z/b">>, emqx_mod_rewrite:match_and_rewrite(<<"y/a/z/b">>, SubRules, [])),
