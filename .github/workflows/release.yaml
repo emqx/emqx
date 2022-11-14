@@ -14,6 +14,8 @@ jobs:
 
     steps:
       - uses: actions/checkout@v3
+        with:
+          fetch-depth: 0 # clone full git history
       - id: detect-profiles
         uses: ./.github/actions/detect-profiles
 
@@ -55,6 +57,8 @@ jobs:
                -d "{\"repo\":\"emqx/emqx\", \"tag\": \"${{ github.ref_name }}\" }" \
                ${{ secrets.EMQX_IO_RELEASE_API }}
       - uses: actions/checkout@v3
+        with:
+          fetch-depth: 0 # clone full git history
       - name: get version
         id: version
         run: echo "version=$(./pkg-vsn.sh)" >> $GITHUB_OUTPUT
