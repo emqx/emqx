@@ -128,7 +128,7 @@ handle_cast(refresh_config, State0) ->
                                    , http_timeout => HTTPTimeoutMS
                                    , urls => URLs
                                    }),
-    State;
+    {noreply, State};
 handle_cast(_Cast, State) ->
     {noreply, State}.
 
