@@ -1,5 +1,2 @@
 -define(APP, emqx_statsd).
--define(DEFAULT_SAMPLE_TIME_INTERVAL, 10000).
--define(DEFAULT_FLUSH_TIME_INTERVAL, 10000).
--define(DEFAULT_HOST, "127.0.0.1").
--define(DEFAULT_PORT, 8125).
+-define(STATSD, [statsd]).
