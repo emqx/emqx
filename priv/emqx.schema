@@ -807,13 +807,13 @@ end}.
 %% @doc Define a determined authentication plugin/module check order.
 %% see detailed doc in emqx.conf
 {mapping, "auth_order", "emqx.auth_order", [
-  {default, "none"},
+  {default, "none"}, % keep default value in sync with emqx_conf.erl
   {datatype, string}
 ]}.
 
 %% @doc Same as auth_order, but for ACL.
 {mapping, "acl_order", "emqx.acl_order", [
-  {default, "none"},
+  {default, "none"}, % keep default value in sync with emqx_conf.erl
   {datatype, string}
 ]}.
 
