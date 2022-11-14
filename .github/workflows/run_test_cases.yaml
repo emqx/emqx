@@ -17,6 +17,7 @@ jobs:
       fast_ct_apps: ${{ steps.run_find_apps.outputs.fast_ct_apps }}
       docker_ct_apps: ${{ steps.run_find_apps.outputs.docker_ct_apps }}
     steps:
+      - uses: AutoModality/action-clean@v1
       - uses: actions/checkout@v3
         with:
           path: source
