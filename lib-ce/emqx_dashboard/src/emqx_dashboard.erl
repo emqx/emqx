@@ -107,7 +107,10 @@ http_handlers() ->
 %%--------------------------------------------------------------------
 
 is_authorized(Req) ->
-    is_authorized(cowboy_req:method(Req), cowboy_req:path(Req), Req).
+    is_authorized(
+      iolist_to_binary(string:uppercase(cowboy_req:method(Req))),
+      iolist_to_binary(cowboy_req:path(Req)),
+      Req).
 
 is_authorized(<<"GET">>, <<"/api/v4/emqx_prometheus">>, _Req) ->
     true;
