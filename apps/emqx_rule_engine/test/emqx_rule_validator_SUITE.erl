@@ -43,6 +43,11 @@
             type => number,
             required => true
         },
+        type_integer => #{
+            type => integer,
+            required => true,
+            range => #{min => #{closed => 0}, max => #{open => 100}}
+        },
         type_boolean => #{
             type => boolean,
             required => true
@@ -196,6 +201,83 @@ t_validate_params_fill_default(_) ->
     ?assertMatch(#{<<"abc">> := 1, <<"eee">> := <<"hello">>},
         emqx_rule_validator:validate_params(Params, Specs)).
 
+t_validate_params_number_ranger(_) ->
+    Params1 = #{<<"type_number">> => -0.3},
+    Params2 = #{<<"type_number">> => 0},
+    Params3 = #{<<"type_number">> => 1},
+    Params4 = #{<<"type_number">> => 19.99},
+    Params5 = #{<<"type_number">> => 20.00},
+    Params6 = #{<<"type_number">> => 20.01},
+    Specs1 = #{<<"type_number">> => #{
+                 type => number,
+                 range => #{min => #{closed => 0}, max => #{open => 20}}
+             }},
+    ?assertThrow({invalid_range, {min, {-0.3, _}}},
+        emqx_rule_validator:validate_params(Params1, Specs1)),
+    ?assertMatch(#{<<"type_number">> := 0},
+        emqx_rule_validator:validate_params(Params2, Specs1)),
+    ?assertMatch(#{<<"type_number">> := 1},
+        emqx_rule_validator:validate_params(Params3, Specs1)),
+    ?assertMatch(#{<<"type_number">> := 19.99},
+        emqx_rule_validator:validate_params(Params4, Specs1)),
+    ?assertThrow({invalid_range, {max, {20.00, _}}},
+        emqx_rule_validator:validate_params(Params5, Specs1)),
+    ?assertThrow({invalid_range, {max, {20.01, _}}},
+        emqx_rule_validator:validate_params(Params6, Specs1)),
+
+    Specs2 = #{<<"type_number">> => #{
+                 type => number,
+                 range => #{min => 0, max => 20}
+             }},
+    ?assertThrow({invalid_range, {min, {-0.3, _}}},
+        emqx_rule_validator:validate_params(Params1, Specs2)),
+    ?assertMatch(#{<<"type_number">> := 0},
+        emqx_rule_validator:validate_params(Params2, Specs2)),
+    ?assertMatch(#{<<"type_number">> := 1},
+        emqx_rule_validator:validate_params(Params3, Specs2)),
+    ?assertMatch(#{<<"type_number">> := 19.99},
+        emqx_rule_validator:validate_params(Params4, Specs2)),
+    ?assertMatch(#{<<"type_number">> := 20.00},
+        emqx_rule_validator:validate_params(Params5, Specs2)),
+    ?assertThrow({invalid_range, {max, {20.01, _}}},
+        emqx_rule_validator:validate_params(Params6, Specs2)).
+
+t_validate_params_integer_ranger(_) ->
+    Params1 = #{<<"type_number">> => -1},
+    Params2 = #{<<"type_number">> => 0},
+    Params3 = #{<<"type_number">> => 19},
+    Params4 = #{<<"type_number">> => 20},
+    Params5 = #{<<"type_number">> => 21},
+    Specs1 = #{<<"type_number">> => #{
+                 type => integer,
+                 range => #{min => #{closed => 0}, max => #{open => 20}}
+             }},
+    ?assertThrow({invalid_range, {min, {-1, _}}},
+        emqx_rule_validator:validate_params(Params1, Specs1)),
+    ?assertMatch(#{<<"type_number">> := 0},
+        emqx_rule_validator:validate_params(Params2, Specs1)),
+    ?assertMatch(#{<<"type_number">> := 19},
+        emqx_rule_validator:validate_params(Params3, Specs1)),
+    ?assertThrow({invalid_range, {max, {20, _}}},
+        emqx_rule_validator:validate_params(Params4, Specs1)),
+    ?assertThrow({invalid_range, {max, {21, _}}},
+        emqx_rule_validator:validate_params(Params5, Specs1)),
+
+    Specs2 = #{<<"type_number">> => #{
+                 type => integer,
+                 range => #{min => 0, max => 20}
+             }},
+    ?assertThrow({invalid_range, {min, {-1, _}}},
+        emqx_rule_validator:validate_params(Params1, Specs2)),
+    ?assertMatch(#{<<"type_number">> := 0},
+        emqx_rule_validator:validate_params(Params2, Specs2)),
+    ?assertMatch(#{<<"type_number">> := 19},
+        emqx_rule_validator:validate_params(Params3, Specs2)),
+    ?assertMatch(#{<<"type_number">> := 20},
+        emqx_rule_validator:validate_params(Params4, Specs2)),
+    ?assertThrow({invalid_range, {max, {21, _}}},
+        emqx_rule_validator:validate_params(Params5, Specs2)).
+
 t_validate_params_binary_file(_) ->
     Params = #{<<"kfile">> => #{<<"file">> => <<"foo">>, <<"filename">> => <<"foo.key">>}},
     Specs = #{<<"kfile">> => #{
@@ -216,6 +298,7 @@ t_validate_params_the_complex(_) ->
     Params = #{
         <<"string_required">> => <<"hello">>,
         <<"type_number">> => 1,
+        <<"type_integer">> => 66,
         <<"type_boolean">> => true,
         <<"type_enum_number">> => 2,
         <<"type_file">> => <<"">>,
@@ -231,6 +314,7 @@ t_validate_params_the_complex(_) ->
         #{  <<"string_required">> := <<"hello">>,
             <<"string_optional_with_default">> := <<"a/b">>,
             <<"type_number">> := 1,
+            <<"type_integer">> := 66,
             <<"type_boolean">> := true,
             <<"type_enum_number">> := 2,
             <<"type_file">> := <<"">>,
