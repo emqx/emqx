@@ -537,9 +537,13 @@ if [ -z "$COOKIE" ]; then
     fi
 fi
 
-if [ -z "$COOKIE" ]; then
+[ -z "$COOKIE" ] && COOKIE="$EMQX_DEFAULT_ERLANG_COOKIE"
+if [ $IS_BOOT_COMMAND = 'yes' ] && [ "$COOKIE" = "$EMQX_DEFAULT_ERLANG_COOKIE" ]; then
+    echoerr "!!!!!!"
+    echoerr "WARNING: Default (insecure) Erlang cookie is in use."
     echoerr "Please set node.cookie in $RUNNER_ETC_DIR/emqx.conf or override from environment variable EMQX_NODE_COOKIE"
-    exit 1
+    echoerr "NOTE: Use the same config value for all nodes in the cluster."
+    echoerr "!!!!!!"
 fi
 
 cd "$ROOTDIR"
