@@ -21,18 +21,20 @@
 
 -include_lib("emqx/include/emqx.hrl").
 -include_lib("eunit/include/eunit.hrl").
+-include_lib("snabbkaffe/include/snabbkaffe.hrl").
 
 all() -> emqx_common_test_helpers:all(?MODULE).
 
 init_per_suite(Config) ->
-    application:load(emqx),
+    emqx_common_test_helpers:start_apps([]),
     ok = ekka:start(),
     Config.
 
 end_per_suite(_Config) ->
     ekka:stop(),
     mria:stop(),
-    mria_mnesia:delete_schema().
+    mria_mnesia:delete_schema(),
+    emqx_common_test_helpers:stop_apps([]).
 
 t_add_delete(_) ->
     Banned = #banned{
@@ -111,3 +113,23 @@ t_unused(_) ->
     %% expiry timer
     timer:sleep(500),
     ok = emqx_banned:stop().
+
+t_kick(_) ->
+    ClientId = <<"client">>,
+    snabbkaffe:start_trace(),
+
+    Now = erlang:system_time(second),
+    Who = {clientid, ClientId},
+
+    emqx_banned:create(#{
+        who => Who,
+        by => <<"test">>,
+        reason => <<"test">>,
+        at => Now,
+        until => Now + 120
+    }),
+
+    Trace = snabbkaffe:collect_trace(),
+    snabbkaffe:stop(),
+    emqx_banned:delete(Who),
+    ?assertEqual(1, length(?of_kind(kick_session_due_to_banned, Trace))).

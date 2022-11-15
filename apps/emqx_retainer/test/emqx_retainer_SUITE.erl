@@ -640,26 +640,25 @@ test_disable_then_start(_Config) ->
     ok.
 
 t_deliver_when_banned(_) ->
-    ClientId = <<"c1">>,
+    Client1 = <<"c1">>,
+    Client2 = <<"c2">>,
 
-    {ok, C1} = emqtt:start_link([{clientid, ClientId}, {clean_start, true}, {proto_ver, v5}]),
+    {ok, C1} = emqtt:start_link([{clientid, Client1}, {clean_start, true}, {proto_ver, v5}]),
     {ok, _} = emqtt:connect(C1),
 
     lists:foreach(
         fun(I) ->
             Topic = erlang:list_to_binary(io_lib:format("retained/~p", [I])),
-            emqtt:publish(
-                C1,
-                Topic,
-                <<"this is a retained message">>,
-                [{qos, 0}, {retain, true}]
-            )
+            Msg = emqx_message:make(Client2, 0, Topic, <<"this is a retained message">>),
+            Msg2 = emqx_message:set_flag(retain, Msg),
+            emqx:publish(Msg2)
         end,
         lists:seq(1, 3)
     ),
 
     Now = erlang:system_time(second),
-    Who = {clientid, ClientId},
+    Who = {clientid, Client2},
+
     emqx_banned:create(#{
         who => Who,
         by => <<"test">>,
