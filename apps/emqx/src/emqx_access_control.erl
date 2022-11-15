@@ -56,7 +56,7 @@ authorize(ClientInfo, PubSub, <<"$delayed/", Data/binary>> = RawTopic) ->
             authorize(ClientInfo, PubSub, Topic);
         _ ->
             ?SLOG(warning, #{
-                msg => "invalid_dealyed_topic_format",
+                msg => "invalid_delayed_topic_format",
                 expected_example => "$delayed/1/t/foo",
                 got => RawTopic
             }),
