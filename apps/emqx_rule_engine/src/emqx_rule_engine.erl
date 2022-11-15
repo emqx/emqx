@@ -96,6 +96,7 @@
         end()).
 
 -define(GET_RES_ALIVE_TIMEOUT, 60000).
+-define(PROBE_RES_PREFIX, "__probe__:").
 
 %%------------------------------------------------------------------------------
 %% Load resource/action providers from all available applications
@@ -365,7 +366,7 @@ test_resource(#{type := Type} = Params) ->
         {ok, #resource_type{}} ->
             %% Resource will be deleted after test.
             %% Use random resource id, ensure test func will not delete the resource in used.
-            ResId = resource_id(),
+            ResId = probe_resource_id(),
             try
                 case create_resource(maps:put(id, ResId, Params), no_retry) of
                     {ok, _} ->
@@ -534,10 +535,15 @@ refresh_rule(#rule{id = RuleId, for = Topics, actions = Actions}) ->
 refresh_resource_status() ->
     lists:foreach(
         fun(#resource{id = ResId, type = ResType}) ->
-            case emqx_rule_registry:find_resource_type(ResType) of
-                {ok, #resource_type{on_status = {Mod, OnStatus}}} ->
-                    fetch_resource_status(Mod, OnStatus, ResId);
-                _ -> ok
+            case is_prober(ResId) of
+                false ->
+                    case emqx_rule_registry:find_resource_type(ResType) of
+                        {ok, #resource_type{on_status = {Mod, OnStatus}}} ->
+                            fetch_resource_status(Mod, OnStatus, ResId);
+                        _ -> ok
+                    end;
+                true ->
+                    ok
             end
         end, emqx_rule_registry:get_resources()).
 
@@ -663,6 +669,9 @@ ignore_lib_apps(Apps) ->
 
 resource_id() ->
     gen_id("resource:", fun emqx_rule_registry:find_resource/1).
+
+probe_resource_id() ->
+    gen_id(?PROBE_RES_PREFIX, fun emqx_rule_registry:find_resource/1).
 
 rule_id() ->
     gen_id("rule:", fun emqx_rule_registry:get_rule/1).
@@ -814,3 +823,8 @@ find_type(ResId) ->
 
 alarm_name_of_resource_down(Type, ResId) ->
     list_to_binary(io_lib:format("resource/~s/~s/down", [Type, ResId])).
+
+is_prober(<<?PROBE_RES_PREFIX, _/binary>>) ->
+    true;
+is_prober(_ResId) ->
+    false.
