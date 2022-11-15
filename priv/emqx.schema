@@ -1698,7 +1698,7 @@ end}.
 ]}.
 
 {mapping, "listener.ssl.$name.ocsp_refresh_http_timeout", "emqx.listeners", [
-  {default, "15000ms"},
+  {default, "15s"},
   {datatype, {duration, ms}}
 ]}.
 
