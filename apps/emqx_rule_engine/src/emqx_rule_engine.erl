@@ -95,6 +95,8 @@
             end
         end()).
 
+-define(GET_RES_ALIVE_TIMEOUT, 60000).
+
 %%------------------------------------------------------------------------------
 %% Load resource/action providers from all available applications
 %%------------------------------------------------------------------------------
@@ -405,7 +407,7 @@ is_resource_alive(Nodes, ResId, _Opts = #{fetch := true}) ->
                 {ok, #resource_type{on_status = {Mod, OnStatus}}}
                     = emqx_rule_registry:find_resource_type(ResType),
                 case rpc:multicall(Nodes,
-                         ?MODULE, fetch_resource_status, [Mod, OnStatus, ResId], 5000) of
+                         ?MODULE, fetch_resource_status, [Mod, OnStatus, ResId], ?GET_RES_ALIVE_TIMEOUT) of
                     {ResL, []} ->
                         is_resource_alive_(ResL);
                     {_, _Error} ->
@@ -420,7 +422,7 @@ is_resource_alive(Nodes, ResId, _Opts = #{fetch := true}) ->
     end;
 is_resource_alive(Nodes, ResId, _Opts = #{fetch := false}) ->
     try
-        case rpc:multicall(Nodes, ?MODULE, get_resource_status, [ResId], 5000) of
+        case rpc:multicall(Nodes, ?MODULE, get_resource_status, [ResId], ?GET_RES_ALIVE_TIMEOUT) of
             {ResL, []} ->
                 is_resource_alive_(ResL);
             {_, _Errors} ->
