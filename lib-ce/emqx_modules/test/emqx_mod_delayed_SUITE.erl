@@ -42,7 +42,9 @@ end_per_suite(_) ->
     emqx_ct_helpers:stop_apps([emqx_modules]).
 
 set_special_configs(emqx) ->
-    application:set_env(emqx, modules, [{emqx_mod_delayed, []}]),
+    AclFilePath = filename:join(["test", "emqx_SUITE_data", "acl.conf"]),
+    application:set_env(emqx, modules, [{emqx_mod_delayed, []},
+                                        {emqx_mod_acl_internal, [{acl_file, AclFilePath}]}]),
     application:set_env(emqx, allow_anonymous, false),
     application:set_env(emqx, enable_acl_cache, false);
 set_special_configs(_App) ->
