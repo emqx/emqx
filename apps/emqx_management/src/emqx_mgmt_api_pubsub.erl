@@ -201,8 +201,21 @@ parse_publish_params(Params) ->
     Qos        = proplists:get_value(<<"qos">>, Params, 0),
     Retain     = proplists:get_value(<<"retain">>, Params, false),
     Payload1   = maybe_maps_to_binary(Payload),
-    Properties = proplists:get_value(<<"properties">>, Params, []),
+    Properties = to_properties(proplists:get_value(<<"properties">>, Params, [])),
     {ClientId, Topics, Qos, Retain, Payload1, Properties}.
+
+to_properties(Props) ->
+    lists:foldl(
+      fun to_property/2, #{}, Props
+     ).
+
+to_property({<<"payload_format_indicator">>, V}, M) when is_integer(V) -> M#{'Payload-Format-Indicator' => V};
+to_property({<<"message_expiry_interval">>, V}, M) when is_integer(V)  -> M#{'Message-Expiry-Interval' => V};
+to_property({<<"response_topic">>, V}, M) when is_binary(V)            -> M#{'Response-Topic' => V};
+to_property({<<"correlation_data">>, V}, M) when is_binary(V)          -> M#{'Correlation-Data' => V};
+to_property({<<"user_properties">>, V}, M) when is_list(V)             -> M#{'User-Property' => maps:from_list(V)};
+to_property({<<"subscription_identifier">>, V}, M) when is_integer(V)  -> M#{'Subscription-Identifier' => V};
+to_property({<<"content_type">>, V}, M) when is_binary(V)              -> M#{'Content-Type' => V}.
 
 parse_unsubscribe_params(Params) ->
     ClientId = proplists:get_value(<<"clientid">>, Params),
