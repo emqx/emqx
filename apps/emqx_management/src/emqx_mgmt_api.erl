@@ -31,11 +31,10 @@
 -export([
     node_query/6,
     cluster_query/5,
-    select_table_with_count/4,
     b2i/1
 ]).
 
--export([do_query/6]).
+-export([do_query/5]).
 
 paginate(Tables, Params, {Module, FormatFun}) ->
     Qh = query_handle(Tables),
@@ -121,15 +120,37 @@ limit(Params) ->
 %% Node Query
 %%--------------------------------------------------------------------
 
-node_query(Node, QString, Tab, QSchema, QueryFun, FmtFun) ->
+-type query_params() :: list() | map().
+
+-type query_schema() :: [{Key :: binary(), Type :: atom | integer | timestamp | ip | ip_port}].
+
+-type query_to_match_spec_fun() ::
+    fun((list(), list()) -> {ets:match_spec(), fun()}).
+
+-type format_result_fun() ::
+    fun((node(), term()) -> term())
+    | fun((term()) -> term()).
+
+-type query_return() :: #{meta := map(), data := [term()]}.
+
+-spec node_query(
+    node(),
+    atom(),
+    query_params(),
+    query_schema(),
+    query_to_match_spec_fun(),
+    format_result_fun()
+) -> {error, page_limit_invalid} | {error, atom(), term()} | query_return().
+node_query(Node, Tab, QString, QSchema, MsFun, FmtFun) ->
     case parse_pager_params(QString) of
         false ->
             {error, page_limit_invalid};
         Meta ->
             {_CodCnt, NQString} = parse_qstring(QString, QSchema),
             ResultAcc = #{cursor => 0, count => 0, rows => []},
+            QueryState = init_query_state(Meta),
             NResultAcc = do_node_query(
-                Node, Tab, NQString, QueryFun, ?FRESH_SELECT, Meta, ResultAcc
+                Node, Tab, NQString, MsFun, QueryState, ResultAcc
             ),
             format_query_result(FmtFun, Meta, NResultAcc)
     end.
@@ -139,31 +160,36 @@ do_node_query(
     Node,
     Tab,
     QString,
-    QueryFun,
-    Continuation,
-    Meta = #{limit := Limit},
+    MsFun,
+    QueryState,
     ResultAcc
 ) ->
-    case do_query(Node, Tab, QString, QueryFun, Continuation, Limit) of
+    case do_query(Node, Tab, QString, MsFun, QueryState) of
         {error, {badrpc, R}} ->
             {error, Node, {badrpc, R}};
-        {Rows, ?FRESH_SELECT} ->
-            {_, NResultAcc} = accumulate_query_rows(Node, Rows, ResultAcc, Meta),
+        {Rows, NQueryState = #{continuation := ?FRESH_SELECT}} ->
+            {_, NResultAcc} = accumulate_query_rows(Node, Rows, NQueryState, ResultAcc),
             NResultAcc;
-        {Rows, NContinuation} ->
-            case accumulate_query_rows(Node, Rows, ResultAcc, Meta) of
+        {Rows, NQueryState} ->
+            case accumulate_query_rows(Node, Rows, NQueryState, ResultAcc) of
                 {enough, NResultAcc} ->
                     NResultAcc;
                 {more, NResultAcc} ->
-                    do_node_query(Node, Tab, QString, QueryFun, NContinuation, Meta, NResultAcc)
+                    do_node_query(Node, Tab, QString, MsFun, NQueryState, NResultAcc)
             end
     end.
 
 %%--------------------------------------------------------------------
 %% Cluster Query
 %%--------------------------------------------------------------------
-
-cluster_query(QString, Tab, QSchema, QueryFun, FmtFun) ->
+-spec cluster_query(
+    atom(),
+    query_params(),
+    query_schema(),
+    query_to_match_spec_fun(),
+    format_result_fun()
+) -> {error, page_limit_invalid} | {error, atom(), term()} | query_return().
+cluster_query(Tab, QString, QSchema, MsFun, FmtFun) ->
     case parse_pager_params(QString) of
         false ->
             {error, page_limit_invalid};
@@ -171,42 +197,38 @@ cluster_query(QString, Tab, QSchema, QueryFun, FmtFun) ->
             {_CodCnt, NQString} = parse_qstring(QString, QSchema),
             Nodes = mria_mnesia:running_nodes(),
             ResultAcc = #{cursor => 0, count => 0, rows => []},
+            QueryState = init_query_state(Meta),
             NResultAcc = do_cluster_query(
-                Nodes, Tab, NQString, QueryFun, ?FRESH_SELECT, Meta, ResultAcc
+                Nodes, Tab, NQString, MsFun, QueryState, ResultAcc
             ),
             format_query_result(FmtFun, Meta, NResultAcc)
     end.
 
 %% @private
-do_cluster_query([], _Tab, _QString, _QueryFun, _Continuation, _Meta, ResultAcc) ->
+do_cluster_query([], _Tab, _QString, _QueryFun, _QueryState, ResultAcc) ->
     ResultAcc;
 do_cluster_query(
     [Node | Tail] = Nodes,
     Tab,
     QString,
-    QueryFun,
-    Continuation,
-    Meta = #{limit := Limit},
+    MsFun,
+    QueryState,
     ResultAcc
 ) ->
-    case do_query(Node, Tab, QString, QueryFun, Continuation, Limit) of
+    case do_query(Node, Tab, QString, MsFun, QueryState) of
         {error, {badrpc, R}} ->
             {error, Node, {badrpc, R}};
-        {Rows, NContinuation} ->
-            case accumulate_query_rows(Node, Rows, ResultAcc, Meta) of
+        {Rows, NQueryState} ->
+            case accumulate_query_rows(Node, Rows, NQueryState, ResultAcc) of
                 {enough, NResultAcc} ->
                     NResultAcc;
                 {more, NResultAcc} ->
-                    case NContinuation of
-                        ?FRESH_SELECT ->
-                            do_cluster_query(
-                                Tail, Tab, QString, QueryFun, ?FRESH_SELECT, Meta, NResultAcc
-                            );
-                        _ ->
-                            do_cluster_query(
-                                Nodes, Tab, QString, QueryFun, NContinuation, Meta, NResultAcc
-                            )
-                    end
+                    NextNodes =
+                        case NQueryState of
+                            #{continuation := ?FRESH_SELECT} -> Tail;
+                            _ -> Nodes
+                        end,
+                    do_cluster_query(NextNodes, Tab, QString, MsFun, NQueryState, NResultAcc)
             end
     end.
 
@@ -214,21 +236,61 @@ do_cluster_query(
 %% Do Query (or rpc query)
 %%--------------------------------------------------------------------
 
+%% QueryState ::
+%%  #{continuation := ets:continuation(),
+%%    page := pos_integer(),
+%%    limit := pos_integer(),
+%%    total := #{node() := non_neg_integer()}
+%%    }
+init_query_state(_Meta = #{page := Page, limit := Limit}) ->
+    #{
+        continuation => ?FRESH_SELECT,
+        page => Page,
+        limit => Limit,
+        total => []
+    }.
+
 %% @private This function is exempt from BPAPI
-do_query(Node, Tab, QString, {M, F}, Continuation, Limit) when Node =:= node() ->
-    erlang:apply(M, F, [Tab, QString, Continuation, Limit]);
-do_query(Node, Tab, QString, QueryFun, Continuation, Limit) ->
+do_query(Node, Tab, QString, MsFun, QueryState) when Node =:= node(), is_function(MsFun) ->
+    {Ms, FuzzyFun} = erlang:apply(MsFun, [Tab, QString]),
+    do_select(Tab, Ms, FuzzyFun, QueryState);
+do_query(Node, Tab, QString, MsFun, QueryState) when is_function(MsFun) ->
     case
         rpc:call(
             Node,
             ?MODULE,
             do_query,
-            [Node, Tab, QString, QueryFun, Continuation, Limit],
+            [Node, Tab, QString, MsFun, QueryState],
             50000
         )
     of
         {badrpc, _} = R -> {error, R};
         Ret -> Ret
+    end.
+
+do_select(
+    Tab,
+    Ms,
+    FuzzyFun,
+    QueryState = #{continuation := Continuation, limit := Limit}
+) ->
+    Result =
+        case Continuation of
+            ?FRESH_SELECT ->
+                ets:select(Tab, Ms, Limit);
+            _ ->
+                ets:select(ets:repair_continuation(Continuation, Ms))
+        end,
+    case Result of
+        '$end_of_table' ->
+            {[], QueryState#{continuation => ?FRESH_SELECT}};
+        {Rows, NContinuation} ->
+            NRows =
+                case is_function(FuzzyFun) of
+                    true -> FuzzyFun(Rows);
+                    false -> Rows
+                end,
+            {NRows, QueryState#{continuation => NContinuation}}
     end.
 
 %% ResultAcc :: #{count := integer(),
@@ -238,8 +300,8 @@ do_query(Node, Tab, QString, QueryFun, Continuation, Limit) ->
 accumulate_query_rows(
     Node,
     Rows,
-    ResultAcc = #{cursor := Cursor, count := Count, rows := RowsAcc},
-    _Meta = #{page := Page, limit := Limit}
+    _QueryState = #{page := Page, limit := Limit},
+    ResultAcc = #{cursor := Cursor, count := Count, rows := RowsAcc}
 ) ->
     PageStart = (Page - 1) * Limit + 1,
     PageEnd = Page * Limit,
@@ -265,43 +327,6 @@ accumulate_query_rows(
 %%--------------------------------------------------------------------
 %% Table Select
 %%--------------------------------------------------------------------
-
-select_table_with_count(Tab, {Ms, FuzzyFilterFun}, ?FRESH_SELECT, Limit) when
-    is_function(FuzzyFilterFun) andalso Limit > 0
-->
-    case ets:select(Tab, Ms, Limit) of
-        '$end_of_table' ->
-            {[], ?FRESH_SELECT};
-        {RawResult, NContinuation} ->
-            Rows = FuzzyFilterFun(RawResult),
-            {Rows, NContinuation}
-    end;
-select_table_with_count(_Tab, {Ms, FuzzyFilterFun}, Continuation, _Limit) when
-    is_function(FuzzyFilterFun)
-->
-    case ets:select(ets:repair_continuation(Continuation, Ms)) of
-        '$end_of_table' ->
-            {[], ?FRESH_SELECT};
-        {RawResult, NContinuation} ->
-            Rows = FuzzyFilterFun(RawResult),
-            {Rows, NContinuation}
-    end;
-select_table_with_count(Tab, Ms, ?FRESH_SELECT, Limit) when
-    Limit > 0
-->
-    case ets:select(Tab, Ms, Limit) of
-        '$end_of_table' ->
-            {[], ?FRESH_SELECT};
-        {RawResult, NContinuation} ->
-            {RawResult, NContinuation}
-    end;
-select_table_with_count(_Tab, Ms, Continuation, _Limit) ->
-    case ets:select(ets:repair_continuation(Continuation, Ms)) of
-        '$end_of_table' ->
-            {[], ?FRESH_SELECT};
-        {RawResult, NContinuation} ->
-            {RawResult, NContinuation}
-    end.
 
 %%--------------------------------------------------------------------
 %% Internal Functions

@@ -55,7 +55,7 @@
 
 %% internal exports (for client query)
 -export([
-    query/4,
+    qs2ms/2,
     format_channel_info/1,
     format_channel_info/2
 ]).
@@ -98,8 +98,6 @@ paths() ->
     {<<"lte_lifetime">>, integer}
 ]).
 
--define(QUERY_FUN, {?MODULE, query}).
-
 clients(get, #{
     bindings := #{name := Name0},
     query_string := QString
@@ -110,10 +108,10 @@ clients(get, #{
             case maps:get(<<"node">>, QString, undefined) of
                 undefined ->
                     emqx_mgmt_api:cluster_query(
-                        QString,
                         TabName,
+                        QString,
                         ?CLIENT_QSCHEMA,
-                        ?QUERY_FUN,
+                        fun ?MODULE:qs2ms/2,
                         fun ?MODULE:format_channel_info/2
                     );
                 Node0 ->
@@ -122,10 +120,10 @@ clients(get, #{
                             QStringWithoutNode = maps:without([<<"node">>], QString),
                             emqx_mgmt_api:node_query(
                                 Node1,
-                                QStringWithoutNode,
                                 TabName,
+                                QStringWithoutNode,
                                 ?CLIENT_QSCHEMA,
-                                ?QUERY_FUN,
+                                fun ?MODULE:qs2ms/2,
                                 fun ?MODULE:format_channel_info/2
                             );
                         {error, _} ->
@@ -267,25 +265,11 @@ extra_sub_props(Props) ->
     ).
 
 %%--------------------------------------------------------------------
-%% query funcs
+%% QueryString to MatchSpec
 
-query(Tab, {Qs, []}, Continuation, Limit) ->
-    Ms = qs2ms(Qs),
-    emqx_mgmt_api:select_table_with_count(
-        Tab,
-        Ms,
-        Continuation,
-        Limit
-    );
-query(Tab, {Qs, Fuzzy}, Continuation, Limit) ->
-    Ms = qs2ms(Qs),
-    FuzzyFilterFun = fuzzy_filter_fun(Fuzzy),
-    emqx_mgmt_api:select_table_with_count(
-        Tab,
-        {Ms, FuzzyFilterFun},
-        Continuation,
-        Limit
-    ).
+-spec qs2ms(atom(), {list(), list()}) -> {ets:match_spec(), fun() | undefined}.
+qs2ms(_Tab, {Qs, Fuzzy}) ->
+    {qs2ms(Qs), fuzzy_filter_fun(Fuzzy)}.
 
 qs2ms(Qs) ->
     {MtchHead, Conds} = qs2ms(Qs, 2, {#{}, []}),
@@ -340,6 +324,8 @@ ms(lifetime, X) ->
 %%--------------------------------------------------------------------
 %% Fuzzy filter funcs
 
+fuzzy_filter_fun([]) ->
+    undefined;
 fuzzy_filter_fun(Fuzzy) ->
     fun(MsRaws) when is_list(MsRaws) ->
         lists:filter(

@@ -56,9 +56,11 @@
     get_delayed_message/2,
     delete_delayed_message/1,
     delete_delayed_message/2,
-    cluster_list/1,
-    cluster_query/4
+    cluster_list/1
 ]).
+
+%% internal exports
+-export([qs2ms/2]).
 
 -export([
     post_config_update/5
@@ -168,12 +170,16 @@ list(Params) ->
 cluster_list(Params) ->
     %% FIXME: why cluster_query???
     emqx_mgmt_api:cluster_query(
-        Params, ?TAB, [], {?MODULE, cluster_query}, fun ?MODULE:format_delayed/1
+        ?TAB,
+        Params,
+        [],
+        fun ?MODULE:qs2ms/2,
+        fun ?MODULE:format_delayed/1
     ).
 
-cluster_query(Table, _QsSpec, Continuation, Limit) ->
-    Ms = [{'$1', [], ['$1']}],
-    emqx_mgmt_api:select_table_with_count(Table, Ms, Continuation, Limit).
+-spec qs2ms(atom(), {list(), list()}) -> {ets:match_spec(), fun() | undefined}.
+qs2ms(_Table, {_Qs, _Fuzzy}) ->
+    {[{'$1', [], ['$1']}], undefined}.
 
 format_delayed(Delayed) ->
     format_delayed(Delayed, false).

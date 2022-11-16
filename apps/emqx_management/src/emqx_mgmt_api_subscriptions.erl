@@ -32,7 +32,7 @@
 -export([subscriptions/2]).
 
 -export([
-    query/4,
+    qs2ms/2,
     format/2
 ]).
 
@@ -46,8 +46,6 @@
     {<<"qos">>, integer},
     {<<"match_topic">>, binary}
 ]).
-
--define(QUERY_FUN, {?MODULE, query}).
 
 api_spec() ->
     emqx_dashboard_swagger:spec(?MODULE, #{check_schema => true}).
@@ -139,10 +137,10 @@ subscriptions(get, #{query_string := QString}) ->
         case maps:get(<<"node">>, QString, undefined) of
             undefined ->
                 emqx_mgmt_api:cluster_query(
-                    QString,
                     ?SUBS_QTABLE,
+                    QString,
                     ?SUBS_QSCHEMA,
-                    ?QUERY_FUN,
+                    fun ?MODULE:qs2ms/2,
                     fun ?MODULE:format/2
                 );
             Node0 ->
@@ -150,10 +148,10 @@ subscriptions(get, #{query_string := QString}) ->
                     {ok, Node1} ->
                         emqx_mgmt_api:node_query(
                             Node1,
-                            QString,
                             ?SUBS_QTABLE,
+                            QString,
                             ?SUBS_QSCHEMA,
-                            ?QUERY_FUN,
+                            fun ?MODULE:qs2ms/2,
                             fun ?MODULE:format/2
                         );
                     {error, _} ->
@@ -188,26 +186,30 @@ get_topic(Topic, _) ->
     Topic.
 
 %%--------------------------------------------------------------------
-%% Query Function
+%% QueryString to MatchSpec
 %%--------------------------------------------------------------------
 
-query(Tab, {Qs, []}, Continuation, Limit) ->
-    Ms = qs2ms(Qs),
-    emqx_mgmt_api:select_table_with_count(
-        Tab,
-        Ms,
-        Continuation,
-        Limit
-    );
-query(Tab, {Qs, Fuzzy}, Continuation, Limit) ->
-    Ms = qs2ms(Qs),
-    FuzzyFilterFun = fuzzy_filter_fun(Fuzzy),
-    emqx_mgmt_api:select_table_with_count(
-        Tab,
-        {Ms, FuzzyFilterFun},
-        Continuation,
-        Limit
-    ).
+-spec qs2ms(atom(), {list(), list()}) -> {ets:match_spec(), fun() | undefined}.
+qs2ms(_Tab, {Qs, Fuzzy}) ->
+    {gen_match_spec(Qs), fuzzy_filter_fun(Fuzzy)}.
+
+gen_match_spec(Qs) ->
+    MtchHead = gen_match_spec(Qs, {{'_', '_'}, #{}}),
+    [{MtchHead, [], ['$_']}].
+
+gen_match_spec([], MtchHead) ->
+    MtchHead;
+gen_match_spec([{Key, '=:=', Value} | More], MtchHead) ->
+    gen_match_spec(More, update_ms(Key, Value, MtchHead)).
+
+update_ms(clientid, X, {{Pid, Topic}, Opts}) ->
+    {{Pid, Topic}, Opts#{subid => X}};
+update_ms(topic, X, {{Pid, _Topic}, Opts}) ->
+    {{Pid, X}, Opts};
+update_ms(share_group, X, {{Pid, Topic}, Opts}) ->
+    {{Pid, Topic}, Opts#{share => X}};
+update_ms(qos, X, {{Pid, Topic}, Opts}) ->
+    {{Pid, Topic}, Opts#{qos => X}}.
 
 fuzzy_filter_fun(Fuzzy) ->
     fun(MsRaws) when is_list(MsRaws) ->
@@ -221,24 +223,3 @@ run_fuzzy_filter(_, []) ->
     true;
 run_fuzzy_filter(E = {{_, Topic}, _}, [{topic, match, TopicFilter} | Fuzzy]) ->
     emqx_topic:match(Topic, TopicFilter) andalso run_fuzzy_filter(E, Fuzzy).
-
-%%--------------------------------------------------------------------
-%% Query String to Match Spec
-
-qs2ms(Qs) ->
-    MtchHead = qs2ms(Qs, {{'_', '_'}, #{}}),
-    [{MtchHead, [], ['$_']}].
-
-qs2ms([], MtchHead) ->
-    MtchHead;
-qs2ms([{Key, '=:=', Value} | More], MtchHead) ->
-    qs2ms(More, update_ms(Key, Value, MtchHead)).
-
-update_ms(clientid, X, {{Pid, Topic}, Opts}) ->
-    {{Pid, Topic}, Opts#{subid => X}};
-update_ms(topic, X, {{Pid, _Topic}, Opts}) ->
-    {{Pid, X}, Opts};
-update_ms(share_group, X, {{Pid, Topic}, Opts}) ->
-    {{Pid, Topic}, Opts#{share => X}};
-update_ms(qos, X, {{Pid, Topic}, Opts}) ->
-    {{Pid, Topic}, Opts#{qos => X}}.

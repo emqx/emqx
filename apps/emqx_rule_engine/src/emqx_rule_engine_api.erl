@@ -34,7 +34,7 @@
 -export(['/rule_events'/2, '/rule_test'/2, '/rules'/2, '/rules/:id'/2, '/rules/:id/reset_metrics'/2]).
 
 %% query callback
--export([query/4]).
+-export([qs2ms/2, format_rule_resp/1]).
 
 -define(ERR_NO_RULE(ID), list_to_binary(io_lib:format("Rule ~ts Not Found", [(ID)]))).
 -define(ERR_BADARGS(REASON), begin
@@ -274,10 +274,10 @@ param_path_id() ->
     case
         emqx_mgmt_api:node_query(
             node(),
-            QueryString,
             ?RULE_TAB,
+            QueryString,
             ?RULE_QS_SCHEMA,
-            {?MODULE, query},
+            fun ?MODULE:qs2ms/2,
             fun ?MODULE:format_rule_resp/1
         )
     of
@@ -553,12 +553,9 @@ filter_out_request_body(Conf) ->
     ],
     maps:without(ExtraConfs, Conf).
 
-query(Tab, {Qs, Fuzzy}, Start, Limit) ->
+qs2ms(_Tab, {Qs, Fuzzy}) ->
     Ms = qs2ms(),
-    FuzzyFun = fuzzy_match_fun(Qs, Ms, Fuzzy),
-    emqx_mgmt_api:select_table_with_count(
-        Tab, {Ms, FuzzyFun}, Start, Limit
-    ).
+    {Ms, fuzzy_match_fun(Qs, Ms, Fuzzy)}.
 
 %% rule is not a record, so everything is fuzzy filter.
 qs2ms() ->

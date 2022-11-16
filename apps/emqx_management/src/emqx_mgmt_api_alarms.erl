@@ -29,7 +29,7 @@
 -define(TAGS, [<<"Alarms">>]).
 
 %% internal export (for query)
--export([query/4]).
+-export([qs2ms/2]).
 
 api_spec() ->
     emqx_dashboard_swagger:spec(?MODULE, #{check_schema => true}).
@@ -114,10 +114,10 @@ alarms(get, #{query_string := QString}) ->
         end,
     case
         emqx_mgmt_api:cluster_query(
-            QString,
             Table,
+            QString,
             [],
-            {?MODULE, query},
+            fun ?MODULE:qs2ms/2,
             fun ?MODULE:format_alarm/2
         )
     of
@@ -136,9 +136,9 @@ alarms(delete, _Params) ->
 %%%==============================================================================================
 %% internal
 
-query(Table, _QsSpec, Continuation, Limit) ->
-    Ms = [{'$1', [], ['$1']}],
-    emqx_mgmt_api:select_table_with_count(Table, Ms, Continuation, Limit).
+-spec qs2ms(atom(), {list(), list()}) -> {ets:match_spec(), fun() | undefined}.
+qs2ms(_Tab, {_Qs, _Fuzzy}) ->
+    {[{'$1', [], ['$1']}], undefined}.
 
 format_alarm(WhichNode, Alarm) ->
     emqx_alarm:format(WhichNode, Alarm).

@@ -49,7 +49,7 @@
 ]).
 
 -export([
-    query/4,
+    qs2ms/2,
     format_user_info/1,
     group_match_spec/1
 ]).
@@ -84,7 +84,6 @@
     {<<"user_group">>, binary},
     {<<"is_superuser">>, atom}
 ]).
--define(QUERY_FUN, {?MODULE, query}).
 
 %%------------------------------------------------------------------------------
 %% Mnesia bootstrap
@@ -290,38 +289,23 @@ list_users(QueryString, #{user_group := UserGroup}) ->
     NQueryString = QueryString#{<<"user_group">> => UserGroup},
     emqx_mgmt_api:node_query(
         node(),
-        NQueryString,
         ?TAB,
+        NQueryString,
         ?AUTHN_QSCHEMA,
-        ?QUERY_FUN,
+        fun ?MODULE:qs2ms/2,
         fun ?MODULE:format_user_info/1
     ).
 
 %%--------------------------------------------------------------------
-%% Query Functions
+%% QueryString to MatchSpec
 
-query(Tab, {QString, []}, Continuation, Limit) ->
-    Ms = ms_from_qstring(QString),
-    emqx_mgmt_api:select_table_with_count(
-        Tab,
-        Ms,
-        Continuation,
-        Limit
-    );
-query(Tab, {QString, FuzzyQString}, Continuation, Limit) ->
-    Ms = ms_from_qstring(QString),
-    FuzzyFilterFun = fuzzy_filter_fun(FuzzyQString),
-    emqx_mgmt_api:select_table_with_count(
-        Tab,
-        {Ms, FuzzyFilterFun},
-        Continuation,
-        Limit
-    ).
-
-%%--------------------------------------------------------------------
-%% Match funcs
+-spec qs2ms(atom(), {list(), list()}) -> {ets:match_spec(), fun() | undefined}.
+qs2ms(_Tab, {QString, FuzzyQString}) ->
+    {ms_from_qstring(QString), fuzzy_filter_fun(FuzzyQString)}.
 
 %% Fuzzy username funcs
+fuzzy_filter_fun([]) ->
+    undefined;
 fuzzy_filter_fun(Fuzzy) ->
     fun(MsRaws) when is_list(MsRaws) ->
         lists:filter(
