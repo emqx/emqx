@@ -120,6 +120,7 @@ jobs:
             MYSQL_TAG: 8
             PGSQL_TAG: 13
             REDIS_TAG: 6
+            INFLUXDB_TAG: 2.5.0
           run: |
             ./scripts/ct/run.sh --app ${{ matrix.app_name }}
         - uses: actions/upload-artifact@v1
