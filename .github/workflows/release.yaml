@@ -3,6 +3,15 @@ on:
   release:
     types:
       - published
+  workflow_dispatch:
+    inputs:
+      tag:
+        type: string
+        required: true
+      publish_release_artefacts:
+        type: boolean
+        required: true
+        default: false
 
 jobs:
   upload:
@@ -17,25 +26,26 @@ jobs:
           aws-region: ${{ secrets.AWS_DEFAULT_REGION }}
       - uses: actions/checkout@v3
         with:
-          ref: ${{ github.ref }}
+          ref: ${{ github.event.inputs.tag }}
       - name: Detect profile
         id: profile
         run: |
-          REF=${{ github.ref_name }}
+          if git describe --tags --match '[v|e]*' --exact; then
+            REF=$(git describe --tags --match '[v|e]*' --exact)
+          else
+            echo "Only release tags matching '[v|e]*' are supported"
+            exit 1
+          fi
           case "$REF" in
             v*)
               echo "profile=emqx" >> $GITHUB_OUTPUT
-              echo "s3dir=emqx-ce" >> $GITHUB_OUTPUT
               echo "version=$(./pkg-vsn.sh emqx)" >> $GITHUB_OUTPUT
+              echo "s3dir=emqx-ce" >> $GITHUB_OUTPUT
               ;;
             e*)
               echo "profile=emqx-enterprise" >> $GITHUB_OUTPUT
-              echo "s3dir=emqx-ee" >> $GITHUB_OUTPUT
               echo "version=$(./pkg-vsn.sh emqx-enterprise)" >> $GITHUB_OUTPUT
-              ;;
-            *)
-              echo "tag $REF is not supported"
-              exit 1
+              echo "s3dir=emqx-ee" >> $GITHUB_OUTPUT
               ;;
           esac
       - name: Get packages
@@ -59,7 +69,7 @@ jobs:
         with:
           asset_paths: '["packages/*"]'
       - name: update to emqx.io
-        if: github.event_name == 'release'
+        if: github.event_name == 'release' || inputs.publish_release_artefacts
         run: |
           set -e -x -u
           curl -w %{http_code} \
@@ -70,7 +80,7 @@ jobs:
                -d "{\"repo\":\"emqx/emqx\", \"tag\": \"${{ github.ref_name }}\" }" \
                ${{ secrets.EMQX_IO_RELEASE_API }}
       - name: update homebrew packages
-        if: github.event_name == 'release' && startsWith(github.ref_name, 'v')
+        if: steps.profile.outputs.profile == 'emqx' && (github.event_name == 'release' || inputs.publish_release_artefacts)
         run: |
           if [ -z $(echo $version | grep -oE "(alpha|beta|rc)\.[0-9]") ]; then
               curl --silent --show-error \
@@ -81,7 +91,7 @@ jobs:
                 "https://api.github.com/repos/emqx/emqx-ci-helper/actions/workflows/update_emqx_homebrew.yaml/dispatches"
           fi
       - uses: emqx/push-helm-action@v1
-        if: github.event_name == 'release'
+        if: github.event_name == 'release' || inputs.publish_release_artefacts
         with:
           charts_dir: "${{ github.workspace }}/deploy/charts/${{ steps.profile.outputs.profile }}"
           version: ${{ steps.profile.outputs.version }}
