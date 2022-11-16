@@ -15,22 +15,34 @@ jobs:
           aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
           aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
           aws-region: ${{ secrets.AWS_DEFAULT_REGION }}
-      - name: Get packages
+      - uses: actions/checkout@v3
+        with:
+          ref: ${{ github.ref }}
+      - name: Detect profile
+        id: profile
         run: |
           REF=${{ github.ref_name }}
           case "$REF" in
             v*)
-              s3dir='emqx-ce'
+              echo "profile=emqx" >> $GITHUB_OUTPUT
+              echo "s3dir=emqx-ce" >> $GITHUB_OUTPUT
+              echo "version=$(./pkg-vsn.sh emqx)" >> $GITHUB_OUTPUT
               ;;
             e*)
-              s3dir='emqx-ee'
+              echo "profile=emqx-enterprise" >> $GITHUB_OUTPUT
+              echo "s3dir=emqx-ee" >> $GITHUB_OUTPUT
+              echo "version=$(./pkg-vsn.sh emqx-enterprise)" >> $GITHUB_OUTPUT
               ;;
             *)
               echo "tag $REF is not supported"
               exit 1
               ;;
           esac
-          aws s3 cp --recursive s3://${{ secrets.AWS_S3_BUCKET }}/$s3dir/${{ github.ref_name }} packages
+      - name: Get packages
+        run: |
+          BUCKET=${{ secrets.AWS_S3_BUCKET }}
+          OUTPUT_DIR=${{ steps.profile.outputs.s3dir }}
+          aws s3 cp --recursive s3://$BUCKET/$OUTPUT_DIR/${{ github.ref_name }} packages
           cd packages
           DEFAULT_BEAM_PLATFORM='otp24.3.4.2-1'
           # all packages including full-name and default-name are uploaded to s3
@@ -58,18 +70,8 @@ jobs:
                -d "{\"repo\":\"emqx/emqx\", \"tag\": \"${{ github.ref_name }}\" }" \
                ${{ secrets.EMQX_IO_RELEASE_API }}
       - name: update homebrew packages
-        if: github.event_name == 'release'
+        if: github.event_name == 'release' && startsWith(github.ref_name, 'v')
         run: |
-          REF=${{ github.ref_name }}
-          case "$REF" in
-            v*)
-              BOOL_FLAG_NAME="emqx_ce"
-              ;;
-            e*)
-              echo "Not updating homebrew for enterprise eidition"
-              exit 0
-              ;;
-          esac
           if [ -z $(echo $version | grep -oE "(alpha|beta|rc)\.[0-9]") ]; then
               curl --silent --show-error \
                 -H "Authorization: token ${{ secrets.CI_GIT_TOKEN }}" \
@@ -78,30 +80,11 @@ jobs:
                 -d "{\"ref\":\"v1.0.4\",\"inputs\":{\"version\": \"${{ github.ref_name }}\"}}" \
                 "https://api.github.com/repos/emqx/emqx-ci-helper/actions/workflows/update_emqx_homebrew.yaml/dispatches"
           fi
-
-  upload-helm:
-    runs-on: ubuntu-20.04
-    if: github.event_name == 'release'
-    strategy:
-      fail-fast: false
-    steps:
-      - uses: actions/checkout@v3
-        with:
-          ref: ${{ github.ref }}
       - uses: emqx/push-helm-action@v1
-        if: startsWith(github.ref_name, 'v')
+        if: github.event_name == 'release'
         with:
-          charts_dir: "${{ github.workspace }}/deploy/charts/emqx"
-          version: ${{ github.ref_name }}
-          aws_access_key_id: ${{ secrets.AWS_ACCESS_KEY_ID }}
-          aws_secret_access_key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
-          aws_region: "us-west-2"
-          aws_bucket_name: "repos-emqx-io"
-      - uses: emqx/push-helm-action@v1
-        if: startsWith(github.ref_name, 'e')
-        with:
-          charts_dir: "${{ github.workspace }}/deploy/charts/emqx-enterprise"
-          version: ${{ github.ref_name }}
+          charts_dir: "${{ github.workspace }}/deploy/charts/${{ steps.profile.outputs.profile }}"
+          version: ${{ steps.profile.outputs.version }}
           aws_access_key_id: ${{ secrets.AWS_ACCESS_KEY_ID }}
           aws_secret_access_key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
           aws_region: "us-west-2"
