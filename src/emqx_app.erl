@@ -26,7 +26,7 @@
         ]).
 
 %% internal exports for ad-hoc debugging.
--export([ set_clientid_enrichment_module/0
+-export([ set_alias_enrichment_module/0
         , set_special_auth_module/0
         ]).
 
@@ -54,7 +54,7 @@ start(_Type, _Args) ->
     ok = emqx_plugins:init(),
     _ = emqx_plugins:load(),
     _ = start_ce_modules(),
-    set_clientid_enrichment_module(),
+    set_alias_enrichment_module(),
     _ = set_special_auth_module(),
     register(emqx, self()),
     print_vsn(),
@@ -85,14 +85,14 @@ start_ce_modules() ->
     ok.
 -endif.
 
-set_clientid_enrichment_module() ->
-    case emqx:get_env(clientid_enrichment_module) of
+set_alias_enrichment_module() ->
+    case emqx:get_env(alias_enrichment_module) of
         undefined ->
             ok;
         Mod ->
-            case erlang:function_exported(Mod, enrich_clientid_alias, 2) of
+            case erlang:function_exported(Mod, enrich_with_aliases, 2) of
                 true ->
-                    persistent_term:put(clientid_enrichment_module, Mod);
+                    persistent_term:put(alias_enrichment_module, Mod);
                 false ->
                     ok
             end
