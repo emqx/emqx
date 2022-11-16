@@ -837,12 +837,13 @@ switch_proxy(Switch, Name, ProxyHost, ProxyPort) ->
     Url = "http://" ++ ProxyHost ++ ":" ++ integer_to_list(ProxyPort) ++ "/proxies/" ++ Name,
     Body =
         case Switch of
-            off -> <<"{\"enabled\":false}">>;
-            on -> <<"{\"enabled\":true}">>
+            off -> #{<<"enabled">> => false};
+            on -> #{<<"enabled">> => true}
         end,
+    BodyBin = emqx_json:encode(Body),
     {ok, {{_, 200, _}, _, _}} = httpc:request(
         post,
-        {Url, [], "application/json", Body},
+        {Url, [], "application/json", BodyBin},
         [],
         [{body_format, binary}]
     ).
@@ -852,14 +853,17 @@ timeout_proxy(on, Name, ProxyHost, ProxyPort) ->
         "http://" ++ ProxyHost ++ ":" ++ integer_to_list(ProxyPort) ++ "/proxies/" ++ Name ++
             "/toxics",
     NameBin = list_to_binary(Name),
-    Body =
-        <<"{\"name\":\"", NameBin/binary,
-            "_timeout\",\"type\":\"timeout\","
-            "\"stream\":\"upstream\",\"toxicity\":1.0,"
-            "\"attributes\":{\"timeout\":0}}">>,
+    Body = #{
+        <<"name">> => <<NameBin/binary, "_timeout">>,
+        <<"type">> => <<"timeout">>,
+        <<"stream">> => <<"upstream">>,
+        <<"toxicity">> => 1.0,
+        <<"attributes">> => #{<<"timeout">> => 0}
+    },
+    BodyBin = emqx_json:encode(Body),
     {ok, {{_, 200, _}, _, _}} = httpc:request(
         post,
-        {Url, [], "application/json", Body},
+        {Url, [], "application/json", BodyBin},
         [],
         [{body_format, binary}]
     );
@@ -881,14 +885,20 @@ latency_up_proxy(on, Name, ProxyHost, ProxyPort) ->
         "http://" ++ ProxyHost ++ ":" ++ integer_to_list(ProxyPort) ++ "/proxies/" ++ Name ++
             "/toxics",
     NameBin = list_to_binary(Name),
-    Body =
-        <<"{\"name\":\"", NameBin/binary,
-            "_latency_up\",\"type\":\"latency\","
-            "\"stream\":\"upstream\",\"toxicity\":1.0,"
-            "\"attributes\":{\"latency\":20000,\"jitter\":3000}}">>,
+    Body = #{
+        <<"name">> => <<NameBin/binary, "_latency_up">>,
+        <<"type">> => <<"latency">>,
+        <<"stream">> => <<"upstream">>,
+        <<"toxicity">> => 1.0,
+        <<"attributes">> => #{
+            <<"latency">> => 20_000,
+            <<"jitter">> => 3_000
+        }
+    },
+    BodyBin = emqx_json:encode(Body),
     {ok, {{_, 200, _}, _, _}} = httpc:request(
         post,
-        {Url, [], "application/json", Body},
+        {Url, [], "application/json", BodyBin},
         [],
         [{body_format, binary}]
     );
