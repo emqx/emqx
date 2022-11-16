@@ -852,11 +852,11 @@ end}.
   {datatype, string}
 ]}.
 
-%% @doc Specify a module that defines the `enrich_clientid_alias/2'
+%% @doc Specify a module that defines the `enrich_with_aliases/2'
 %% function.  This function will be used to enrich the client/channel
 %% information with clientid and/or common name aliases (or other
 %% enrichments the module may implement).
-{mapping, "clientid_enrichment_module", "emqx.clientid_enrichment_module", [
+{mapping, "alias_enrichment_module", "emqx.alias_enrichment_module", [
   {datatype, atom}
 ]}.
 
