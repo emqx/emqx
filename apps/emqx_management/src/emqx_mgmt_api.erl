@@ -122,7 +122,9 @@ limit(Params) ->
 
 -type query_params() :: list() | map().
 
--type query_schema() :: [{Key :: binary(), Type :: atom | integer | timestamp | ip | ip_port}].
+-type query_schema() :: [
+    {Key :: binary(), Type :: atom | binary | integer | timestamp | ip | ip_port}
+].
 
 -type query_to_match_spec_fun() ::
     fun((list(), list()) -> {ets:match_spec(), fun()}).
