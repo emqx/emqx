@@ -488,10 +488,15 @@ t_pubsub(_) ->
                              #{<<"clientid">> => ClientId,
                                <<"topic">> => <<"mytopic">>,
                                <<"qos">> => 1,
+                               <<"properties">> => #{content_type => <<"application/json">>,
+                                                     user_properties => #{foo => bar}},
                                <<"payload">> => #{body => "hello world"}}),
     Payload = emqx_json:encode(#{body => "hello world"}),
     ?assert(receive
-                {publish, #{payload := Payload}} ->
+                {publish, #{payload := Payload, properties := Props} = Msg} ->
+                    ct:pal("props: ~p", [Props]),
+                    ct:pal("msg: ~p", [Msg]),
+                    error(1),
                     true
             after 100 ->
                     false

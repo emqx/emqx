@@ -271,6 +271,7 @@ to_packet(PacketId, Msg = #message{qos = QoS, headers = Headers,
                 }.
 
 filter_pub_props(Props) ->
+    Props1 =
     maps:with(['Payload-Format-Indicator',
                'Message-Expiry-Interval',
                'Response-Topic',
@@ -278,7 +279,9 @@ filter_pub_props(Props) ->
                'User-Property',
                'Subscription-Identifier',
                'Content-Type'
-              ], Props).
+              ], Props),
+    ct:pal("got props ~p", [Props1]),
+    Props1.
 
 %% @doc Message to map
 -spec(to_map(emqx_types:message()) -> message_map()).
