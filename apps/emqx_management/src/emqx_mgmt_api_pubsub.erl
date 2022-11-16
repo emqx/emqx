@@ -71,8 +71,8 @@ subscribe(_Bindings, Params) ->
 
 publish(_Bindings, Params) ->
     logger:debug("API publish Params:~p", [Params]),
-    {ClientId, Topic, Qos, Retain, Payload} = parse_publish_params(Params),
-    case do_publish(ClientId, Topic, Qos, Retain, Payload) of
+    {ClientId, Topic, Qos, Retain, Payload, Properties} = parse_publish_params(Params),
+    case do_publish(ClientId, Topic, Qos, Retain, Payload, Properties) of
         {ok, MsgIds} ->
             case proplists:get_value(<<"return">>, Params, undefined) of
                 undefined -> minirest:return(ok);
@@ -123,8 +123,8 @@ loop_publish(Params) ->
 loop_publish([], Result) ->
     lists:reverse(Result);
 loop_publish([Params | ParamsN], Acc) ->
-    {ClientId, Topic, Qos, Retain, Payload} = parse_publish_params(Params),
-    Code = case do_publish(ClientId, Topic, Qos, Retain, Payload) of
+    {ClientId, Topic, Qos, Retain, Payload, Properties} = parse_publish_params(Params),
+    Code = case do_publish(ClientId, Topic, Qos, Retain, Payload, Properties) of
         {ok, _} -> 0;
         {_, Code0, _} -> Code0
     end,
@@ -160,14 +160,16 @@ do_subscribe(ClientId, Topics, QoS) ->
         _ -> ok
     end.
 
-do_publish(ClientId, _Topics, _Qos, _Retain, _Payload) when not (is_binary(ClientId) or (ClientId =:= undefined)) ->
+do_publish(ClientId, _Topics, _Qos, _Retain, _Payload, _Properties) when not (is_binary(ClientId) or (ClientId =:= undefined)) ->
     {ok, ?ERROR8, <<"bad clientid: must be string">>};
-do_publish(_ClientId, [], _Qos, _Retain, _Payload) ->
+do_publish(_ClientId, [], _Qos, _Retain, _Payload, _Properties) ->
     {ok, ?ERROR15, bad_topic};
-do_publish(ClientId, Topics, Qos, Retain, Payload) ->
+do_publish(ClientId, Topics, Qos, Retain, Payload, Properties) ->
     MsgIds = lists:map(fun(Topic) ->
-        Msg = emqx_message:make(ClientId, Qos, Topic, Payload),
-        _ = emqx_mgmt:publish(Msg#message{flags = #{retain => Retain}}),
+        Flags   = #{retain => Retain},
+        Headers = #{properties => Properties},
+        Msg     = emqx_message:make(ClientId, Qos, Topic, Payload, Flags, Headers),
+        _       = emqx_mgmt:publish(Msg),
         emqx_guid:to_hexstr(Msg#message.id)
     end, Topics),
     {ok, MsgIds}.
@@ -192,14 +194,15 @@ parse_subscribe_params(Params) ->
     {ClientId, Topics, QoS}.
 
 parse_publish_params(Params) ->
-    Topics   = topics(name, proplists:get_value(<<"topic">>, Params), proplists:get_value(<<"topics">>, Params, <<"">>)),
-    ClientId = proplists:get_value(<<"clientid">>, Params),
-    Payload  = decode_payload(proplists:get_value(<<"payload">>, Params, <<>>),
-                              proplists:get_value(<<"encoding">>, Params, <<"plain">>)),
-    Qos      = proplists:get_value(<<"qos">>, Params, 0),
-    Retain   = proplists:get_value(<<"retain">>, Params, false),
-    Payload1 = maybe_maps_to_binary(Payload),
-    {ClientId, Topics, Qos, Retain, Payload1}.
+    Topics     = topics(name, proplists:get_value(<<"topic">>, Params), proplists:get_value(<<"topics">>, Params, <<"">>)),
+    ClientId   = proplists:get_value(<<"clientid">>, Params),
+    Payload    = decode_payload(proplists:get_value(<<"payload">>, Params, <<>>),
+                                proplists:get_value(<<"encoding">>, Params, <<"plain">>)),
+    Qos        = proplists:get_value(<<"qos">>, Params, 0),
+    Retain     = proplists:get_value(<<"retain">>, Params, false),
+    Payload1   = maybe_maps_to_binary(Payload),
+    Properties = proplists:get_value(<<"properties">>, Params, []),
+    {ClientId, Topics, Qos, Retain, Payload1, Properties}.
 
 parse_unsubscribe_params(Params) ->
     ClientId = proplists:get_value(<<"clientid">>, Params),
