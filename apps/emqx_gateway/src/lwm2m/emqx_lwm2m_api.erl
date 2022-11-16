@@ -27,6 +27,7 @@
 
 -define(PATH(Suffix), "/gateways/lwm2m/clients/:clientid" Suffix).
 -define(DATA_TYPE, ['Integer', 'Float', 'Time', 'String', 'Boolean', 'Opaque', 'Objlnk']).
+-define(TAGS, [<<"LwM2M Gateways">>]).
 
 -import(hoconsc, [mk/2, ref/1, ref/2]).
 -import(emqx_dashboard_swagger, [error_codes/2]).
@@ -45,8 +46,9 @@ schema(?PATH("/lookup")) ->
     #{
         'operationId' => lookup,
         get => #{
-            tags => [<<"LwM2M">>],
+            tags => ?TAGS,
             desc => ?DESC(lookup_resource),
+            summary => <<"List Client's Resources">>,
             parameters => [
                 {clientid, mk(binary(), #{in => path, example => "urn:oma:lwm2m:oma:2"})},
                 {path, mk(binary(), #{in => query, required => true, example => "/3/0/7"})},
@@ -69,8 +71,9 @@ schema(?PATH("/observe")) ->
     #{
         'operationId' => observe,
         post => #{
-            tags => [<<"LwM2M">>],
+            tags => ?TAGS,
             desc => ?DESC(observe_resource),
+            summary => <<"Observe a Resource">>,
             parameters => [
                 {clientid, mk(binary(), #{in => path, example => "urn:oma:lwm2m:oma:2"})},
                 {path, mk(binary(), #{in => query, required => true, example => "/3/0/7"})},
@@ -87,8 +90,9 @@ schema(?PATH("/read")) ->
     #{
         'operationId' => read,
         post => #{
-            tags => [<<"LwM2M">>],
+            tags => ?TAGS,
             desc => ?DESC(read_resource),
+            summary => <<"Read Value from a Resource Path">>,
             parameters => [
                 {clientid, mk(binary(), #{in => path, example => "urn:oma:lwm2m:oma:2"})},
                 {path, mk(binary(), #{in => query, required => true, example => "/3/0/7"})}
@@ -103,8 +107,9 @@ schema(?PATH("/write")) ->
     #{
         'operationId' => write,
         post => #{
+            tags => ?TAGS,
             desc => ?DESC(write_resource),
-            tags => [<<"LwM2M">>],
+            summary => <<"Write a Value to Resource Path">>,
             parameters => [
                 {clientid, mk(binary(), #{in => path, example => "urn:oma:lwm2m:oma:2"})},
                 {path, mk(binary(), #{in => query, required => true, example => "/3/0/7"})},

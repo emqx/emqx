@@ -29,6 +29,7 @@
 -export([request/2]).
 
 -define(PREFIX, "/gateways/coap/clients/:clientid").
+-define(TAGS, [<<"CoAP Gateways">>]).
 
 -import(hoconsc, [mk/2, enum/1]).
 -import(emqx_dashboard_swagger, [error_codes/2]).
@@ -48,8 +49,9 @@ schema(?PREFIX ++ "/request") ->
     #{
         operationId => request,
         post => #{
-            tags => [<<"CoAP">>],
+            tags => ?TAGS,
             desc => ?DESC(send_coap_request),
+            summary => <<"Send a Request to a Client">>,
             parameters => request_parameters(),
             requestBody => request_body(),
             responses => #{

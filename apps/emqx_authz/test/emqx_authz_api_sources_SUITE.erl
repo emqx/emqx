@@ -181,6 +181,12 @@ t_api(_) ->
     {ok, 200, Result1} = request(get, uri(["authorization", "sources"]), []),
     ?assertEqual([], get_sources(Result1)),
 
+    {ok, 404, ErrResult} = request(get, uri(["authorization", "sources", "http"]), []),
+    ?assertMatch(
+        #{<<"code">> := <<"NOT_FOUND">>, <<"message">> := <<"Not found: http">>},
+        jsx:decode(ErrResult)
+    ),
+
     [
         begin
             {ok, 204, _} = request(post, uri(["authorization", "sources"]), Source)

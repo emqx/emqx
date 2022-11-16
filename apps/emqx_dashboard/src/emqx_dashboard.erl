@@ -235,7 +235,7 @@ authorize(Req) ->
                             )
                     end;
                 {error, _} ->
-                    return_unauthorized(<<"WORNG_USERNAME_OR_PWD">>, <<"Check username/password">>)
+                    return_unauthorized(?WRONG_USERNAME_OR_PWD, <<"Check username/password">>)
             end;
         {bearer, Token} ->
             case emqx_dashboard_admin:verify_token(Token) of

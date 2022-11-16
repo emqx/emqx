@@ -671,8 +671,8 @@ event_info_client_connack() ->
 event_info_client_check_authz_complete() ->
     event_info_common(
         'client.check_authz_complete',
-        {<<"client check authz complete">>, <<"鉴权结果"/utf8>>},
-        {<<"client check authz complete">>, <<"鉴权结果"/utf8>>},
+        {<<"client check authz complete">>, <<"授权结果"/utf8>>},
+        {<<"client check authz complete">>, <<"授权结果"/utf8>>},
         <<"SELECT * FROM \"$events/client_check_authz_complete\"">>
     ).
 event_info_session_subscribed() ->
@@ -1054,8 +1054,11 @@ printable_maps(Headers) ->
                      || {Key, Value} <- V0
                     ]
                 };
-            (K, V0, AccIn) ->
-                AccIn#{K => V0}
+            (_K, V, AccIn) when is_tuple(V) ->
+                %% internal headers
+                AccIn;
+            (K, V, AccIn) ->
+                AccIn#{K => V}
         end,
         #{},
         Headers

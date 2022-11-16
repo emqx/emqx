@@ -22,7 +22,7 @@
 -export([api_spec/0, fields/1, paths/0, schema/1, namespace/0]).
 -export([api_key/2, api_key_by_name/2]).
 -export([validate_name/1]).
--define(TAGS, [<<"API keys">>]).
+-define(TAGS, [<<"API Keys">>]).
 
 namespace() -> "api_key".
 

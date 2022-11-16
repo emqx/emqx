@@ -6,7 +6,7 @@ export EMQX_DEFAULT_BUILDER = ghcr.io/emqx/emqx-builder/5.0-17:1.13.4-24.2.1-1-d
 export EMQX_DEFAULT_RUNNER = debian:11-slim
 export OTP_VSN ?= $(shell $(CURDIR)/scripts/get-otp-vsn.sh)
 export ELIXIR_VSN ?= $(shell $(CURDIR)/scripts/get-elixir-vsn.sh)
-export EMQX_DASHBOARD_VERSION ?= v1.0.9
+export EMQX_DASHBOARD_VERSION ?= v1.1.1
 export EMQX_EE_DASHBOARD_VERSION ?= e1.0.1-beta.5
 export EMQX_REL_FORM ?= tgz
 export QUICER_DOWNLOAD_FROM_RELEASE = 1
@@ -30,12 +30,10 @@ export REBAR_GIT_CLONE_OPTIONS += --depth=1
 .PHONY: default
 default: $(REBAR) $(PROFILE)
 
-.PHONY: prepare
-prepare: FORCE
+.prepare:
 	@$(SCRIPTS)/git-hooks-init.sh # this is no longer needed since 5.0 but we keep it anyway
 	@$(SCRIPTS)/prepare-build-deps.sh
-
-FORCE:
+	@touch .prepare
 
 .PHONY: all
 all: $(REBAR) $(PROFILES)
@@ -44,7 +42,23 @@ all: $(REBAR) $(PROFILES)
 ensure-rebar3:
 	@$(SCRIPTS)/ensure-rebar3.sh
 
-$(REBAR): prepare ensure-rebar3
+$(REBAR): .prepare ensure-rebar3
+
+.PHONY: ensure-hex
+ensure-hex:
+	@mix local.hex --if-missing --force
+
+.PHONY: ensure-mix-rebar3
+ensure-mix-rebar3: $(REBAR)
+	@mix local.rebar rebar3 $(CURDIR)/rebar3 --if-missing --force
+
+.PHONY: ensure-mix-rebar
+ensure-mix-rebar: $(REBAR)
+	@mix local.rebar --if-missing --force
+
+.PHONY: mix-deps-get
+mix-deps-get: $(ELIXIR_COMMON_DEPS)
+	@mix deps.get
 
 .PHONY: eunit
 eunit: $(REBAR) conf-segs

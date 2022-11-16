@@ -13,6 +13,9 @@ nl_at_eof() {
         *.png|*rebar3)
             return
             ;;
+        scripts/erlfmt)
+            return
+            ;;
     esac
     local lastbyte
     lastbyte="$(tail -c 1 "$file" 2>&1)"

@@ -32,12 +32,40 @@ init_per_suite(Config) ->
 end_per_suite(_Config) ->
     emqx_common_test_helpers:stop_apps([]).
 
+end_per_testcase(t_delayed_authorize, Config) ->
+    meck:unload(emqx_access_control),
+    Config;
+end_per_testcase(_, Config) ->
+    Config.
+
 t_authenticate(_) ->
     ?assertMatch({ok, _}, emqx_access_control:authenticate(clientinfo())).
 
 t_authorize(_) ->
     Publish = ?PUBLISH_PACKET(?QOS_0, <<"t">>, 1, <<"payload">>),
     ?assertEqual(allow, emqx_access_control:authorize(clientinfo(), Publish, <<"t">>)).
+
+t_delayed_authorize(_) ->
+    RawTopic = "$dealyed/1/foo/2",
+    InvalidTopic = "$dealyed/1/foo/3",
+    Topic = "foo/2",
+
+    ok = meck:new(emqx_access_control, [passthrough, no_history, no_link]),
+    ok = meck:expect(
+        emqx_access_control,
+        do_authorize,
+        fun
+            (_, _, Topic) -> allow;
+            (_, _, _) -> deny
+        end
+    ),
+
+    Publish1 = ?PUBLISH_PACKET(?QOS_0, RawTopic, 1, <<"payload">>),
+    ?assertEqual(allow, emqx_access_control:authorize(clientinfo(), Publish1, RawTopic)),
+
+    Publish2 = ?PUBLISH_PACKET(?QOS_0, InvalidTopic, 1, <<"payload">>),
+    ?assertEqual(allow, emqx_access_control:authorize(clientinfo(), Publish2, InvalidTopic)),
+    ok.
 
 %%--------------------------------------------------------------------
 %% Helper functions

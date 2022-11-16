@@ -71,9 +71,10 @@ bridge_id(BridgeType, BridgeName) ->
     Type = bin(BridgeType),
     <<Type/binary, ":", Name/binary>>.
 
+-spec parse_bridge_id(list() | binary() | atom()) -> {atom(), binary()}.
 parse_bridge_id(BridgeId) ->
     case string:split(bin(BridgeId), ":", all) of
-        [Type, Name] -> {binary_to_atom(Type, utf8), binary_to_atom(Name, utf8)};
+        [Type, Name] -> {binary_to_atom(Type, utf8), Name};
         _ -> error({invalid_bridge_id, BridgeId})
     end.
 

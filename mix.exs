@@ -52,7 +52,7 @@ defmodule EMQXUmbrella.MixProject do
       {:jiffy, github: "emqx/jiffy", tag: "1.0.5", override: true},
       {:cowboy, github: "emqx/cowboy", tag: "2.9.0", override: true},
       {:esockd, github: "emqx/esockd", tag: "5.9.4", override: true},
-      {:ekka, github: "emqx/ekka", tag: "0.13.5", override: true},
+      {:ekka, github: "emqx/ekka", tag: "0.13.6", override: true},
       {:gen_rpc, github: "emqx/gen_rpc", tag: "2.8.1", override: true},
       {:grpc, github: "emqx/grpc-erl", tag: "0.6.7", override: true},
       {:minirest, github: "emqx/minirest", tag: "1.3.7", override: true},
@@ -72,7 +72,7 @@ defmodule EMQXUmbrella.MixProject do
       {:esasl, github: "emqx/esasl", tag: "0.2.0"},
       {:jose, github: "potatosalad/erlang-jose", tag: "1.11.2"},
       # in conflict by ehttpc and emqtt
-      {:gun, github: "emqx/gun", tag: "1.3.7", override: true},
+      {:gun, github: "emqx/gun", tag: "1.3.9", override: true},
       # in conflict by emqx_connectior and system_monitor
       {:epgsql, github: "emqx/epgsql", tag: "4.7-emqx.2", override: true},
       # in conflict by mongodb and eredis_cluster
@@ -639,7 +639,7 @@ defmodule EMQXUmbrella.MixProject do
 
   defp jq_dep() do
     if enable_jq?(),
-      do: [{:jq, github: "emqx/jq", tag: "v0.3.6", override: true}],
+      do: [{:jq, github: "emqx/jq", tag: "v0.3.8", override: true}],
       else: []
   end
 

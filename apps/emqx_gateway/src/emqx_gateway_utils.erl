@@ -70,6 +70,8 @@
     default_subopts/0
 ]).
 
+-import(emqx_listeners, [esockd_access_rules/1]).
+
 -define(ACTIVE_N, 100).
 -define(DEFAULT_IDLE_TIMEOUT, 30000).
 -define(DEFAULT_GC_OPTS, #{count => 1000, bytes => 1024 * 1024}).
@@ -442,19 +444,6 @@ esockd_opts(Type, Opts0) ->
                 }
         end
     ).
-
-esockd_access_rules(StrRules) ->
-    Access = fun(S) ->
-        [A, CIDR] = string:tokens(S, " "),
-        {
-            list_to_atom(A),
-            case CIDR of
-                "all" -> all;
-                _ -> CIDR
-            end
-        }
-    end,
-    [Access(R) || R <- StrRules].
 
 ssl_opts(Name, Opts) ->
     Type =

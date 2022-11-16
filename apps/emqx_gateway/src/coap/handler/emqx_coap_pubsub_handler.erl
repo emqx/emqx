@@ -121,7 +121,7 @@ apply_publish_opts(Msg, MQTTMsg) ->
             maps:fold(
                 fun
                     (<<"retain">>, V, Acc) ->
-                        Val = erlang:binary_to_atom(V),
+                        Val = V =:= <<"true">>,
                         emqx_message:set_flag(retain, Val, Acc);
                     (<<"expiry">>, V, Acc) ->
                         Val = erlang:binary_to_integer(V),

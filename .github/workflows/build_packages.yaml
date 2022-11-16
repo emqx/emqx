@@ -23,13 +23,13 @@ on:
 jobs:
   prepare:
     runs-on: ubuntu-20.04
-    container: ghcr.io/emqx/emqx-builder/5.0-17:1.13.4-24.2.1-1-ubuntu20.04
+    container: ghcr.io/emqx/emqx-builder/5.0-18:1.13.4-24.3.4.2-1-ubuntu20.04
     outputs:
       BUILD_PROFILE: ${{ steps.get_profile.outputs.BUILD_PROFILE }}
       IS_EXACT_TAG: ${{ steps.get_profile.outputs.IS_EXACT_TAG }}
 
     steps:
-      - uses: actions/checkout@v2
+      - uses: actions/checkout@v3
         with:
           ref: ${{ github.event.inputs.branch_or_tag }} # when input is not given, the event tag is used
           path: source
@@ -79,7 +79,7 @@ jobs:
         run: |
           make -C source deps-all
           zip -ryq source.zip source/* source/.[^.]*
-      - uses: actions/upload-artifact@v2
+      - uses: actions/upload-artifact@v3
         with:
           name: source
           path: source.zip
@@ -95,13 +95,13 @@ jobs:
         otp:
           - 24.2.1
     steps:
-    - uses: actions/download-artifact@v2
+    - uses: actions/download-artifact@v3
       with:
         name: source
         path: .
     - name: unzip source code
       run: Expand-Archive -Path source.zip -DestinationPath ./
-    - uses: ilammy/msvc-dev-cmd@v1
+    - uses: ilammy/msvc-dev-cmd@v1.12.0
     - uses: erlef/setup-beam@v1
       with:
         otp-version: ${{ matrix.otp }}
@@ -127,10 +127,10 @@ jobs:
         echo "EMQX installed"
         ./_build/${{ matrix.profile }}/rel/emqx/bin/emqx uninstall
         echo "EMQX uninstalled"
-    - uses: actions/upload-artifact@v1
+    - uses: actions/upload-artifact@v3
       with:
         name: ${{ matrix.profile }}-windows
-        path: source/_packages/${{ matrix.profile }}/.
+        path: source/_packages/${{ matrix.profile }}/
 
   mac:
     needs: prepare
@@ -140,12 +140,12 @@ jobs:
         profile:
           - ${{ needs.prepare.outputs.BUILD_PROFILE }}
         otp:
-          - 24.2.1-1
+          - 24.3.4.2-1
         os:
           - macos-11
     runs-on: ${{ matrix.os }}
     steps:
-    - uses: actions/download-artifact@v2
+    - uses: actions/download-artifact@v3
       with:
         name: source
         path: .
@@ -166,16 +166,16 @@ jobs:
         apple_developer_identity: ${{ secrets.APPLE_DEVELOPER_IDENTITY }}
         apple_developer_id_bundle: ${{ secrets.APPLE_DEVELOPER_ID_BUNDLE }}
         apple_developer_id_bundle_password: ${{ secrets.APPLE_DEVELOPER_ID_BUNDLE_PASSWORD }}
-    - uses: actions/upload-artifact@v1
+    - uses: actions/upload-artifact@v3
       with:
         name: ${{ matrix.profile }}-${{ matrix.otp }}
-        path: _packages/${{ matrix.profile }}/.
+        path: _packages/${{ matrix.profile }}/
 
   linux:
     needs: prepare
     runs-on: ${{ matrix.build_machine }}
     container:
-      image: "ghcr.io/emqx/emqx-builder/5.0-17:${{ matrix.elixir }}-${{ matrix.otp }}-${{ matrix.os }}"
+      image: "ghcr.io/emqx/emqx-builder/5.0-18:${{ matrix.elixir }}-${{ matrix.otp }}-${{ matrix.os }}"
 
     strategy:
       fail-fast: false
@@ -183,7 +183,7 @@ jobs:
         profile:
           - ${{ needs.prepare.outputs.BUILD_PROFILE }}
         otp:
-          - 24.2.1-1 # we test with OTP 23, but only build package on OTP 24 versions
+          - 24.3.4.2-1 # we test with OTP 23, but only build package on OTP 24 versions
         elixir:
           - 1.13.4
         # used to split elixir packages into a separate job, since the
@@ -232,14 +232,14 @@ jobs:
           profile: emqx-enterprise
         include:
           - profile: emqx
-            otp: 24.2.1-1
+            otp: 24.3.4.2-1
             elixir: 1.13.4
             build_elixir: with_elixir
             arch: amd64
             os: ubuntu20.04
             build_machine: ubuntu-20.04
           - profile: emqx
-            otp: 24.2.1-1
+            otp: 24.3.4.2-1
             elixir: 1.13.4
             build_elixir: with_elixir
             arch: amd64
@@ -253,7 +253,7 @@ jobs:
     steps:
     - uses: AutoModality/action-clean@v1
       if: matrix.build_machine == 'aws-arm64'
-    - uses: actions/download-artifact@v2
+    - uses: actions/download-artifact@v3
       with:
         name: source
         path: .
@@ -290,12 +290,12 @@ jobs:
             --pkgtype "${PKGTYPE}" \
             --arch "${ARCH}" \
             --elixir "${IsElixir}" \
-            --builder "ghcr.io/emqx/emqx-builder/5.0-17:${ELIXIR}-${OTP}-${SYSTEM}"
+            --builder "ghcr.io/emqx/emqx-builder/5.0-18:${ELIXIR}-${OTP}-${SYSTEM}"
         done
-    - uses: actions/upload-artifact@v1
+    - uses: actions/upload-artifact@v3
       with:
         name: ${{ matrix.profile }}-${{ matrix.otp }}
-        path: source/_packages/${{ matrix.profile }}/.
+        path: source/_packages/${{ matrix.profile }}/
 
   publish_artifacts:
     runs-on: ubuntu-20.04
@@ -307,12 +307,12 @@ jobs:
         profile:
           - ${{ needs.prepare.outputs.BUILD_PROFILE }}
         otp:
-          - 24.2.1-1
+          - 24.3.4.2-1
         include:
           - profile: emqx
             otp: windows # otp version on windows is rather fixed
     steps:
-    - uses: actions/download-artifact@v2
+    - uses: actions/download-artifact@v3
       with:
         name: ${{ matrix.profile }}-${{ matrix.otp }}
         path: packages/${{ matrix.profile }}
@@ -320,7 +320,7 @@ jobs:
       run: sudo apt-get update && sudo apt install -y dos2unix
     - name: get packages
       run: |
-        DEFAULT_BEAM_PLATFORM='otp24.2.1-1'
+        DEFAULT_BEAM_PLATFORM='otp24.3.4.2-1'
         set -e -u
         cd packages/${{ matrix.profile }}
         # Make a copy of the default OTP version package to a file without OTP version infix
@@ -334,7 +334,7 @@ jobs:
           echo "$(cat $var.sha256) $var" | sha256sum -c || exit 1
         done
         cd -
-    - uses: aws-actions/configure-aws-credentials@v1
+    - uses: aws-actions/configure-aws-credentials@v1-node16
       with:
         aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
         aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}

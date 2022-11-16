@@ -1,0 +1,81 @@
+name: 'Docker meta'
+inputs:
+  profile:
+    required: true
+    type: string
+  registry:
+    required: true
+    type: string
+  arch:
+    required: true
+    type: string
+  otp:
+    required: true
+    type: string
+  elixir:
+    required: false
+    type: string
+    default: ''
+  builder_base:
+    required: true
+    type: string
+  owner:
+    required: true
+    type: string
+  docker_tags:
+    required: true
+    type: string
+
+outputs:
+  emqx_name:
+    description: "EMQX name"
+    value: ${{ steps.pre-meta.outputs.emqx_name }}
+  version:
+    description: "docker image version"
+    value: ${{ steps.meta.outputs.version }}
+  tags:
+    description: "docker image tags"
+    value: ${{ steps.meta.outputs.tags }}
+  labels:
+    description: "docker image labels"
+    value: ${{ steps.meta.outputs.labels }}
+
+runs:
+  using: composite
+  steps:
+    - name: prepare for docker/metadata-action
+      id: pre-meta
+      shell: bash
+      run: |
+        emqx_name=${{ inputs.profile }}
+        img_suffix=${{ inputs.arch }}
+        img_labels="org.opencontainers.image.otp.version=${{ inputs.otp }}"
+        if [ -n "${{ inputs.elixir }}" ]; then
+          emqx_name="emqx-elixir"
+          img_suffix="elixir-${{ inputs.arch }}"
+          img_labels="org.opencontainers.image.elixir.version=${{ inputs.elixir }}\n${img_labels}"
+        fi
+        if [ "${{ inputs.profile }}" = "emqx" ]; then
+          img_labels="org.opencontainers.image.edition=Opensource\n${img_labels}"
+        fi
+        if [ "${{ inputs.profile }}" = "emqx-enterprise" ]; then
+          img_labels="org.opencontainers.image.edition=Enterprise\n${img_labels}"
+        fi
+        if [[ "${{ inputs.builder_base }}" =~ "alpine" ]]; then
+          img_suffix="${img_suffix}-alpine"
+        fi
+        echo "emqx_name=${emqx_name}" >> $GITHUB_OUTPUT
+        echo "img_suffix=${img_suffix}" >> $GITHUB_OUTPUT
+        echo "img_labels=${img_labels}" >> $GITHUB_OUTPUT
+        echo "img_name=${{ inputs.registry }}/${{ inputs.owner }}/${{ inputs.profile }}" >> $GITHUB_OUTPUT
+    - uses: docker/metadata-action@v4
+      id: meta
+      with:
+        images:
+          ${{ steps.pre-meta.outputs.img_name }}
+        flavor: |
+          suffix=-${{ steps.pre-meta.outputs.img_suffix }}
+        tags: |
+          type=raw,value=${{ inputs.docker_tags }}
+        labels:
+          ${{ steps.pre-meta.outputs.img_labels }}

@@ -25,7 +25,7 @@
 -export([api_spec/0, paths/0, schema/1, fields/1, namespace/0]).
 
 -export([slow_subs/2, get_history/0, settings/2]).
--define(TAGS, [<<"Slow subscriptions">>]).
+-define(TAGS, [<<"Slow Subscriptions">>]).
 
 -import(hoconsc, [mk/2, ref/1, ref/2]).
 -import(emqx_mgmt_util, [bad_request/0]).

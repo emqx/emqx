@@ -24,12 +24,13 @@
     namespace/0,
     roots/0,
     fields/1,
-    desc/1
+    desc/1,
+    translation/1
 ]).
 
 namespace() -> "prometheus".
 
-roots() -> ["prometheus"].
+roots() -> [{"prometheus", ?HOCON(?R_REF("prometheus"), #{translate_to => ["prometheus"]})}].
 
 fields("prometheus") ->
     [
@@ -59,8 +60,72 @@ fields("prometheus") ->
                     required => true,
                     desc => ?DESC(enable)
                 }
+            )},
+        {vm_dist_collector,
+            ?HOCON(
+                hoconsc:enum([enabled, disabled]),
+                #{
+                    default => enabled,
+                    required => true,
+                    hidden => true,
+                    desc => ?DESC(vm_dist_collector)
+                }
+            )},
+        {mnesia_collector,
+            ?HOCON(
+                hoconsc:enum([enabled, disabled]),
+                #{
+                    default => enabled,
+                    required => true,
+                    hidden => true,
+                    desc => ?DESC(mnesia_collector)
+                }
+            )},
+        {vm_statistics_collector,
+            ?HOCON(
+                hoconsc:enum([enabled, disabled]),
+                #{
+                    default => enabled,
+                    required => true,
+                    hidden => true,
+                    desc => ?DESC(vm_statistics_collector)
+                }
+            )},
+        {vm_system_info_collector,
+            ?HOCON(
+                hoconsc:enum([enabled, disabled]),
+                #{
+                    default => enabled,
+                    required => true,
+                    hidden => true,
+                    desc => ?DESC(vm_system_info_collector)
+                }
+            )},
+        {vm_memory_collector,
+            ?HOCON(
+                hoconsc:enum([enabled, disabled]),
+                #{
+                    default => enabled,
+                    required => true,
+                    hidden => true,
+                    desc => ?DESC(vm_memory_collector)
+                }
+            )},
+        {vm_msacc_collector,
+            ?HOCON(
+                hoconsc:enum([enabled, disabled]),
+                #{
+                    default => enabled,
+                    required => true,
+                    hidden => true,
+                    desc => ?DESC(vm_msacc_collector)
+                }
             )}
     ].
 
 desc("prometheus") -> ?DESC(prometheus);
 desc(_) -> undefined.
+
+%% for CI test, CI don't load the whole emqx_conf_schema.
+translation(Name) ->
+    emqx_conf_schema:translation(Name).

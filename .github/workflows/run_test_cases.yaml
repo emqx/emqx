@@ -17,12 +17,12 @@ jobs:
     prepare:
         runs-on: ubuntu-20.04
         # prepare source with any OTP version, no need for a matrix
-        container: "ghcr.io/emqx/emqx-builder/5.0-17:1.13.4-24.2.1-1-ubuntu20.04"
+        container: "ghcr.io/emqx/emqx-builder/5.0-18:1.13.4-24.3.4.2-1-ubuntu20.04"
         outputs:
           fast_ct_apps: ${{ steps.run_find_apps.outputs.fast_ct_apps }}
           docker_ct_apps: ${{ steps.run_find_apps.outputs.docker_ct_apps }}
         steps:
-        - uses: actions/checkout@v2
+        - uses: actions/checkout@v3
           with:
             path: source
             fetch-depth: 0
@@ -43,7 +43,7 @@ jobs:
             ./rebar3 as test compile
             cd ..
             zip -ryq source.zip source/* source/.[^.]*
-        - uses: actions/upload-artifact@v2
+        - uses: actions/upload-artifact@v3
           with:
             name: source
             path: source.zip
@@ -60,11 +60,11 @@ jobs:
         defaults:
           run:
             shell: bash
-        container: "ghcr.io/emqx/emqx-builder/5.0-17:1.13.4-24.2.1-1-ubuntu20.04"
+        container: "ghcr.io/emqx/emqx-builder/5.0-18:1.13.4-24.3.4.2-1-ubuntu20.04"
 
         steps:
         - uses: AutoModality/action-clean@v1
-        - uses: actions/download-artifact@v2
+        - uses: actions/download-artifact@v3
           with:
             name: source
             path: .
@@ -86,7 +86,7 @@ jobs:
           working-directory: source
           run: make proper
 
-        - uses: actions/upload-artifact@v2
+        - uses: actions/upload-artifact@v3
           with:
             name: coverdata
             path: source/_build/test/cover
@@ -107,7 +107,7 @@ jobs:
 
         steps:
         - uses: AutoModality/action-clean@v1
-        - uses: actions/download-artifact@v2
+        - uses: actions/download-artifact@v3
           with:
             name: source
             path: .
@@ -121,12 +121,13 @@ jobs:
             PGSQL_TAG: 13
             REDIS_TAG: 6
           run: |
+            rm _build/default/lib/rocksdb/_build/cmake/CMakeCache.txt
             ./scripts/ct/run.sh --app ${{ matrix.app_name }}
-        - uses: actions/upload-artifact@v1
+        - uses: actions/upload-artifact@v3
           with:
             name: coverdata
             path: source/_build/test/cover
-        - uses: actions/upload-artifact@v1
+        - uses: actions/upload-artifact@v3
           if: failure()
           with:
             name: logs_${{ matrix.otp_release }}-${{ matrix.profile }}
@@ -143,14 +144,14 @@ jobs:
               - emqx-enterprise
 
         runs-on: aws-amd64
-        container: "ghcr.io/emqx/emqx-builder/5.0-17:1.13.4-24.2.1-1-ubuntu20.04"
+        container: "ghcr.io/emqx/emqx-builder/5.0-18:1.13.4-24.3.4.2-1-ubuntu20.04"
         defaults:
           run:
             shell: bash
 
         steps:
         - uses: AutoModality/action-clean@v1
-        - uses: actions/download-artifact@v2
+        - uses: actions/download-artifact@v3
           with:
             name: source
             path: .
@@ -200,17 +201,17 @@ jobs:
         - ct
         - ct_docker
       runs-on: ubuntu-20.04
-      container: "ghcr.io/emqx/emqx-builder/5.0-17:1.13.4-24.2.1-1-ubuntu20.04"
+      container: "ghcr.io/emqx/emqx-builder/5.0-18:1.13.4-24.3.4.2-1-ubuntu20.04"
       steps:
       - uses: AutoModality/action-clean@v1
-      - uses: actions/download-artifact@v2
+      - uses: actions/download-artifact@v3
         with:
           name: source
           path: .
       - name: unzip source code
         run: unzip -q source.zip
 
-      - uses: actions/download-artifact@v2
+      - uses: actions/download-artifact@v3
         name: download coverdata
         with:
           name: coverdata
