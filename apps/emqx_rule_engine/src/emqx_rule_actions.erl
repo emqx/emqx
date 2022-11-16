@@ -33,8 +33,6 @@
     republish/3
 ]).
 
--import(emqx_misc, [pub_props_to_packet/1]).
-
 -optional_callbacks([pre_process_action_args/2]).
 
 -callback pre_process_action_args(FuncName :: atom(), action_fun_args()) -> action_fun_args().
@@ -180,7 +178,7 @@ safe_publish(RuleId, Topic, QoS, Flags, Payload, PubProps) ->
         flags = Flags,
         headers = #{
             republish_by => RuleId,
-            properties => pub_props_to_packet(PubProps)
+            properties => emqx_misc:pub_props_to_packet(PubProps)
         },
         topic = Topic,
         payload = Payload,
