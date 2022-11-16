@@ -18,7 +18,7 @@
 -behaviour(emqx_config_handler).
 
 %% API
--export([add_handler/0, remove_handler/0]).
+-export([add_handler/0, remove_handler/0, refresh_config/0]).
 -export([post_config_update/5]).
 
 -define(LOG, [log]).
@@ -29,6 +29,16 @@ add_handler() ->
 
 remove_handler() ->
     ok = emqx_config_handler:remove_handler(?LOG),
+    ok.
+
+%% refresh logger config when booting, the override config may have changed after node start.
+%% Kernel's app env is confirmed before the node starts,
+%% but we only copy cluster-override.conf from other node after this node starts,
+%% so we need to refresh the logger config after this node starts.
+%% It will not affect the logger config when cluster-override.conf is unchanged.
+refresh_config() ->
+    Log = emqx:get_raw_config(?LOG),
+    {ok, _} = emqx:update_config(?LOG, Log),
     ok.
 
 post_config_update(?LOG, _Req, _NewConf, _OldConf, AppEnvs) ->
