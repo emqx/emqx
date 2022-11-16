@@ -19,8 +19,6 @@
 -include("emqx_gateway_http.hrl").
 -include_lib("typerefl/include/types.hrl").
 -include_lib("hocon/include/hoconsc.hrl").
--include_lib("emqx/include/emqx_placeholder.hrl").
--include_lib("emqx/include/emqx_authentication.hrl").
 
 -behaviour(minirest_api).
 
@@ -34,7 +32,7 @@
     ]
 ).
 
-%% minirest/dashbaord_swagger behaviour callbacks
+%% minirest/dashboard_swagger behaviour callbacks
 -export([
     api_spec/0,
     paths/0,
@@ -49,8 +47,9 @@
 
 %% http handlers
 -export([
+    gateways/2,
     gateway/2,
-    gateway_insta/2
+    gateway_enable/2
 ]).
 
 -define(KNOWN_GATEWAY_STATUSES, [<<"running">>, <<"stopped">>, <<"unloaded">>]).
@@ -66,13 +65,14 @@ api_spec() ->
 paths() ->
     emqx_gateway_utils:make_deprecated_paths([
         "/gateways",
-        "/gateways/:name"
+        "/gateways/:name",
+        "/gateways/:name/enable/:enable"
     ]).
 
 %%--------------------------------------------------------------------
 %% http handlers
 
-gateway(get, Request) ->
+gateways(get, Request) ->
     Params = maps:get(query_string, Request, #{}),
     Status = maps:get(<<"status">>, Params, <<"all">>),
     case lists:member(Status, [<<"all">> | ?KNOWN_GATEWAY_STATUSES]) of
@@ -89,84 +89,85 @@ gateway(get, Request) ->
                     lists:join(", ", ?KNOWN_GATEWAY_STATUSES)
                 ]
             )
-    end;
-gateway(post, Request) ->
-    Body = maps:get(body, Request, #{}),
-    try
-        Name0 = maps:get(<<"name">>, Body),
-        GwName = binary_to_existing_atom(Name0),
-        case emqx_gateway_registry:lookup(GwName) of
-            undefined ->
-                error(badarg);
-            _ ->
-                GwConf = maps:without([<<"name">>], Body),
-                case emqx_gateway_conf:load_gateway(GwName, GwConf) of
-                    {ok, NGwConf} ->
-                        {201, NGwConf};
-                    {error, Reason} ->
-                        emqx_gateway_http:reason2resp(Reason)
-                end
-        end
-    catch
-        error:{badkey, K} ->
-            return_http_error(400, [K, " is required"]);
-        error:{badconf, _} = Reason1 ->
-            emqx_gateway_http:reason2resp(Reason1);
-        error:badarg ->
-            return_http_error(404, "Bad gateway name")
     end.
 
-gateway_insta(delete, #{bindings := #{name := Name0}}) ->
-    with_gateway(Name0, fun(GwName, _) ->
-        case emqx_gateway_conf:unload_gateway(GwName) of
-            ok ->
+gateway(get, #{bindings := #{name := Name}}) ->
+    try
+        GwName = gw_name(Name),
+        case emqx_gateway:lookup(GwName) of
+            undefined ->
+                {200, #{name => GwName, status => unloaded}};
+            Gateway ->
+                GwConf = emqx_gateway_conf:gateway(Name),
+                GwInfo0 = emqx_gateway_utils:unix_ts_to_rfc3339(
+                    [created_at, started_at, stopped_at],
+                    Gateway
+                ),
+                GwInfo1 = maps:with(
+                    [
+                        name,
+                        status,
+                        created_at,
+                        started_at,
+                        stopped_at
+                    ],
+                    GwInfo0
+                ),
+                {200, maps:merge(GwConf, GwInfo1)}
+        end
+    catch
+        throw:not_found ->
+            return_http_error(404, <<"NOT FOUND">>)
+    end;
+gateway(put, #{
+    body := GwConf0,
+    bindings := #{name := Name}
+}) ->
+    GwConf = maps:without([<<"name">>], GwConf0),
+    try
+        GwName = gw_name(Name),
+        LoadOrUpdateF =
+            case emqx_gateway:lookup(GwName) of
+                undefined ->
+                    fun emqx_gateway_conf:load_gateway/2;
+                _ ->
+                    fun emqx_gateway_conf:update_gateway/2
+            end,
+        case LoadOrUpdateF(GwName, GwConf) of
+            {ok, _} ->
                 {204};
             {error, Reason} ->
                 emqx_gateway_http:reason2resp(Reason)
         end
-    end);
-gateway_insta(get, #{bindings := #{name := Name0}}) ->
-    try binary_to_existing_atom(Name0) of
-        GwName ->
-            case emqx_gateway:lookup(GwName) of
-                undefined ->
-                    {200, #{name => GwName, status => unloaded}};
-                Gateway ->
-                    GwConf = emqx_gateway_conf:gateway(Name0),
-                    GwInfo0 = emqx_gateway_utils:unix_ts_to_rfc3339(
-                        [created_at, started_at, stopped_at],
-                        Gateway
-                    ),
-                    GwInfo1 = maps:with(
-                        [
-                            name,
-                            status,
-                            created_at,
-                            started_at,
-                            stopped_at
-                        ],
-                        GwInfo0
-                    ),
-                    {200, maps:merge(GwConf, GwInfo1)}
-            end
     catch
-        error:badarg ->
-            return_http_error(404, "Bad gateway name")
-    end;
-gateway_insta(put, #{
-    body := GwConf0,
-    bindings := #{name := Name0}
-}) ->
-    with_gateway(Name0, fun(GwName, _) ->
-        %% XXX: Clear the unused fields
-        GwConf = maps:without([<<"name">>], GwConf0),
-        case emqx_gateway_conf:update_gateway(GwName, GwConf) of
-            {ok, Gateway} ->
-                {200, Gateway};
-            {error, Reason} ->
-                emqx_gateway_http:reason2resp(Reason)
+        error:{badconf, _} = Reason1 ->
+            emqx_gateway_http:reason2resp(Reason1);
+        throw:not_found ->
+            return_http_error(404, <<"NOT FOUND">>)
+    end.
+
+gateway_enable(put, #{bindings := #{name := Name, enable := Enable}}) ->
+    try
+        GwName = gw_name(Name),
+        case emqx_gateway:lookup(GwName) of
+            undefined ->
+                return_http_error(404, <<"NOT FOUND">>);
+            _Gateway ->
+                {ok, _} = emqx_gateway_conf:update_gateway(GwName, #{<<"enable">> => Enable}),
+                {204}
         end
-    end).
+    catch
+        throw:not_found ->
+            return_http_error(404, <<"NOT FOUND">>)
+    end.
+
+-spec gw_name(binary()) -> stomp | coap | lwm2m | mqttsn | exproto | no_return().
+gw_name(<<"stomp">>) -> stomp;
+gw_name(<<"coap">>) -> coap;
+gw_name(<<"lwm2m">>) -> lwm2m;
+gw_name(<<"mqttsn">>) -> mqttsn;
+gw_name(<<"exproto">>) -> exproto;
+gw_name(_Else) -> throw(not_found).
 
 %%--------------------------------------------------------------------
 %% Swagger defines
@@ -174,7 +175,7 @@ gateway_insta(put, #{
 
 schema("/gateways") ->
     #{
-        'operationId' => gateway,
+        'operationId' => gateways,
         get =>
             #{
                 tags => ?TAGS,
@@ -182,29 +183,20 @@ schema("/gateways") ->
                 summary => <<"List All Gateways">>,
                 parameters => params_gateway_status_in_qs(),
                 responses =>
-                    ?STANDARD_RESP(
-                        #{
-                            200 => emqx_dashboard_swagger:schema_with_example(
-                                hoconsc:array(ref(gateway_overview)),
-                                examples_gateway_overview()
-                            )
-                        }
-                    )
-            },
-        post =>
-            #{
-                tags => ?TAGS,
-                desc => ?DESC(enable_gateway),
-                summary => <<"Enable a Gateway">>,
-                %% TODO: distinguish create & response swagger schema
-                'requestBody' => schema_gateways_conf(),
-                responses =>
-                    ?STANDARD_RESP(#{201 => schema_gateways_conf()})
+                    #{
+                        200 => emqx_dashboard_swagger:schema_with_example(
+                            hoconsc:array(ref(gateway_overview)),
+                            examples_gateway_overview()
+                        ),
+                        400 => emqx_dashboard_swagger:error_codes(
+                            [?BAD_REQUEST], <<"Bad request">>
+                        )
+                    }
             }
     };
 schema("/gateways/:name") ->
     #{
-        'operationId' => gateway_insta,
+        'operationId' => gateway,
         get =>
             #{
                 tags => ?TAGS,
@@ -212,26 +204,41 @@ schema("/gateways/:name") ->
                 summary => <<"Get the Gateway">>,
                 parameters => params_gateway_name_in_path(),
                 responses =>
-                    ?STANDARD_RESP(#{200 => schema_gateways_conf()})
-            },
-        delete =>
-            #{
-                tags => ?TAGS,
-                desc => ?DESC(delete_gateway),
-                summary => <<"Unload the gateway">>,
-                parameters => params_gateway_name_in_path(),
-                responses =>
-                    ?STANDARD_RESP(#{204 => <<"Deleted">>})
+                    #{
+                        200 => schema_gateways_conf(),
+                        404 => emqx_dashboard_swagger:error_codes(
+                            [?NOT_FOUND, ?RESOURCE_NOT_FOUND], <<"Not Found">>
+                        )
+                    }
             },
         put =>
             #{
                 tags => ?TAGS,
                 desc => ?DESC(update_gateway),
-                summary => <<"Update the gateway confs">>,
+                % [FIXME] add proper desc
+                summary => <<"Load or update the gateway confs">>,
                 parameters => params_gateway_name_in_path(),
-                'requestBody' => schema_update_gateways_conf(),
+                'requestBody' => schema_load_or_update_gateways_conf(),
                 responses =>
-                    ?STANDARD_RESP(#{200 => schema_gateways_conf()})
+                    ?STANDARD_RESP(#{204 => <<"Gateway configuration updated">>})
+            }
+    };
+schema("/gateways/:name/enable/:enable") ->
+    #{
+        'operationId' => gateway_enable,
+        put =>
+            #{
+                tags => ?TAGS,
+                desc => ?DESC(update_gateway),
+                summary => <<"Enable or disable gateway">>,
+                parameters => params_gateway_name_in_path() ++ params_gateway_enable_in_path(),
+                responses =>
+                    #{
+                        204 => <<"Gateway configuration updated">>,
+                        404 => emqx_dashboard_swagger:error_codes(
+                            [?NOT_FOUND, ?RESOURCE_NOT_FOUND], <<"Not Found">>
+                        )
+                    }
             }
     };
 schema(Path) ->
@@ -268,6 +275,18 @@ params_gateway_status_in_qs() ->
             )}
     ].
 
+params_gateway_enable_in_path() ->
+    [
+        {enable,
+            mk(
+                boolean(),
+                #{
+                    in => path,
+                    desc => ?DESC(gateway_enable_in_path),
+                    example => true
+                }
+            )}
+    ].
 %%--------------------------------------------------------------------
 %% schemas
 
@@ -377,8 +396,6 @@ fields(Gw) when
 ->
     [{name, mk(Gw, #{desc => ?DESC(gateway_name)})}] ++
         convert_listener_struct(emqx_gateway_schema:fields(Gw));
-fields(update_disable_enable_only) ->
-    [{enable, mk(boolean(), #{desc => <<"Enable/Disable the gateway">>})}];
 fields(Gw) when
     Gw == update_stomp;
     Gw == update_mqttsn;
@@ -431,15 +448,19 @@ fields(Listener) when
 fields(gateway_stats) ->
     [{key, mk(binary(), #{})}].
 
-schema_update_gateways_conf() ->
+schema_load_or_update_gateways_conf() ->
     emqx_dashboard_swagger:schema_with_examples(
         hoconsc:union([
+            ref(?MODULE, stomp),
+            ref(?MODULE, mqttsn),
+            ref(?MODULE, coap),
+            ref(?MODULE, lwm2m),
+            ref(?MODULE, exproto),
             ref(?MODULE, update_stomp),
             ref(?MODULE, update_mqttsn),
             ref(?MODULE, update_coap),
             ref(?MODULE, update_lwm2m),
-            ref(?MODULE, update_exproto),
-            ref(?MODULE, update_disable_enable_only)
+            ref(?MODULE, update_exproto)
         ]),
         examples_update_gateway_confs()
     ).
