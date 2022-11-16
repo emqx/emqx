@@ -572,7 +572,8 @@ ipv6_probe_test() ->
 
 pub_props_to_packet(Properties) ->
     F = fun
-        ('User-Property', Val) -> {true, maps:to_list(Val)};
+        ('User-Property', #{}) -> false;
+        ('User-Property', M) -> {true, maps:to_list(M)};
         ('User-Property-Pairs', _) -> false;
         (_, _) -> true
     end,
