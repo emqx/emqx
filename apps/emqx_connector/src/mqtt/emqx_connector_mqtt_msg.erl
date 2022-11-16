@@ -82,7 +82,7 @@ to_remote_msg(MapMsg, #{
         qos = QoS,
         retain = Retain,
         topic = topic(Mountpoint, Topic),
-        props = emqx_mist:pub_props_to_packet(PubProps),
+        props = emqx_misc:pub_props_to_packet(PubProps),
         payload = Payload
     };
 to_remote_msg(#message{topic = Topic} = Msg, #{mountpoint := Mountpoint}) ->
