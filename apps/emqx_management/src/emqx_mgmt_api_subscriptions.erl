@@ -211,6 +211,8 @@ update_ms(share_group, X, {{Pid, Topic}, Opts}) ->
 update_ms(qos, X, {{Pid, Topic}, Opts}) ->
     {{Pid, Topic}, Opts#{qos => X}}.
 
+fuzzy_filter_fun([]) ->
+    undefined;
 fuzzy_filter_fun(Fuzzy) ->
     fun(MsRaws) when is_list(MsRaws) ->
         lists:filter(
