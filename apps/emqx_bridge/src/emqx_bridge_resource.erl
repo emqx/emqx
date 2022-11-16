@@ -96,6 +96,7 @@ validate_name(Name0) ->
             invalid_bridge_id(<<"only 0-9a-zA-Z_-. is allowed in name: ", Name0/binary>>)
     end.
 
+-spec invalid_bridge_id(binary()) -> no_return().
 invalid_bridge_id(Reason) -> throw({?FUNCTION_NAME, Reason}).
 
 is_id_char(C) when C >= $0 andalso C =< $9 -> true;
