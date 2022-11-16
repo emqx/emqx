@@ -582,6 +582,7 @@ save_to_override_conf(RawConf, Opts) ->
 add_handlers() ->
     ok = emqx_config_logger:add_handler(),
     emqx_sys_mon:add_handler(),
+    emqx_config_logger:refresh_config(),
     ok.
 
 remove_handlers() ->
