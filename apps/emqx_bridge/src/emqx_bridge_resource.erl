@@ -74,8 +74,44 @@ bridge_id(BridgeType, BridgeName) ->
 -spec parse_bridge_id(list() | binary() | atom()) -> {atom(), binary()}.
 parse_bridge_id(BridgeId) ->
     case string:split(bin(BridgeId), ":", all) of
-        [Type, Name] -> {binary_to_atom(Type, utf8), Name};
-        _ -> error({invalid_bridge_id, BridgeId})
+        [Type, Name] ->
+            {to_type_atom(Type), validate_name(Name)};
+        _ ->
+            invalid_bridge_id(
+                <<"should be of forst {type}:{name}, but got ", BridgeId/binary>>
+            )
+    end.
+
+validate_name(Name0) ->
+    Name = unicode:characters_to_list(Name0, utf8),
+    case is_list(Name) andalso Name =/= [] of
+        true ->
+            case lists:all(fun is_id_char/1, Name) of
+                true ->
+                    Name0;
+                false ->
+                    invalid_bridge_id(<<"bad name: ", Name0/binary>>)
+            end;
+        false ->
+            invalid_bridge_id(<<"only 0-9a-zA-Z_-. is allowed in name: ", Name0/binary>>)
+    end.
+
+invalid_bridge_id(Reason) -> throw({?FUNCTION_NAME, Reason}).
+
+is_id_char(C) when C >= $0 andalso C =< $9 -> true;
+is_id_char(C) when C >= $a andalso C =< $z -> true;
+is_id_char(C) when C >= $A andalso C =< $Z -> true;
+is_id_char($_) -> true;
+is_id_char($-) -> true;
+is_id_char($.) -> true;
+is_id_char(_) -> false.
+
+to_type_atom(Type) ->
+    try
+        erlang:binary_to_existing_atom(Type, utf8)
+    catch
+        _:_ ->
+            invalid_bridge_id(<<"unknown type: ", Type/binary>>)
     end.
 
 reset_metrics(ResourceId) ->

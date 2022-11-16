@@ -48,12 +48,11 @@
         {BridgeType, BridgeName} ->
             EXPR
     catch
-        error:{invalid_bridge_id, Id0} ->
+        throw:{invalid_bridge_id, Reason} ->
             {400,
                 error_msg(
                     'INVALID_ID',
-                    <<"invalid_bridge_id: ", Id0/binary,
-                        ". Bridge Ids must be of format {type}:{name}">>
+                    <<"Invalid bride ID, ", Reason/binary>>
                 )}
     end
 ).
