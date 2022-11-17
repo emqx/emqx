@@ -822,7 +822,7 @@ find_type(ResId) ->
     {ok, Type}.
 
 alarm_name_of_resource_down(Type, ResId) ->
-    list_to_binary(io_lib:format("resource/~s/~s/down", [Type, ResId])).
+    unicode:characters_to_binary(io_lib:format("resource/~ts/~ts/down", [Type, ResId])).
 
 is_prober(<<?PROBE_RES_PREFIX, _/binary>>) ->
     true;
