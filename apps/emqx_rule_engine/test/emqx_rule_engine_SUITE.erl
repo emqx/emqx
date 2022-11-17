@@ -62,7 +62,8 @@ groups() ->
        t_create_rule,
        t_reset_metrics,
        t_reset_metrics_fallbacks,
-       t_create_resource
+       t_create_resource,
+       t_clean_resource_alarms
       ]},
      {actions, [],
       [t_inspect_action
@@ -309,21 +310,29 @@ t_create_resource(_Config) ->
     ok.
 
 t_clean_resource_alarms(_Config) ->
+    lists:foreach(fun(ResId) ->
+            clean_resource_alarms(ResId)
+        end, [<<"abc">>, <<"哈喽"/utf8>>]).
+
+clean_resource_alarms(ResId) ->
+    emqx_rule_registry:register_resource_types(
+            [make_simple_debug_resource_type()]),
     ok = emqx_rule_engine:load_providers(),
     {ok, #resource{id = ResId}} = emqx_rule_engine:create_resource(
-            #{type => built_in,
+            #{id => ResId,
+              type => built_in,
               config => #{},
               description => <<"debug resource">>}),
-    ?assert(true, is_binary(ResId)),
     Name = emqx_rule_engine:alarm_name_of_resource_down(ResId, built_in),
     _ = emqx_alarm:activate(Name, #{id => ResId, type => built_in}),
     AlarmExist = fun(#{name := AName}) -> AName == Name end,
-    Len = length(lists:filter(AlarmExist, emqx_alarm:get_alarms())),
-    ?assert(Len == 1),
+    Len = length(lists:filter(AlarmExist, emqx_alarm:get_alarms(activated))),
+    ?assertEqual(1, Len),
+    emqx_rule_engine:ensure_resource_deleted(ResId),
+    emqx_alarm:deactivate(Name),
+    LenAfterRemove = length(lists:filter(AlarmExist, emqx_alarm:get_alarms(activated))),
+    ?assertEqual(0, LenAfterRemove),
     ok = emqx_rule_engine:unload_providers(),
-    emqx_rule_registry:remove_resource(ResId),
-    LenAfterRemove = length(lists:filter(AlarmExist, emqx_alarm:get_alarms())),
-    ?assert(LenAfterRemove == 0),
     ok.
 
 %%------------------------------------------------------------------------------
