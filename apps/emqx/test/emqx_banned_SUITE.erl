@@ -97,22 +97,30 @@ t_check(_) ->
     ?assertEqual(0, emqx_banned:info(size)).
 
 t_unused(_) ->
-    catch emqx_banned:stop(),
-    {ok, Banned} = emqx_banned:start_link(),
-    {ok, _} = emqx_banned:create(#banned{
-        who = {clientid, <<"BannedClient1">>},
-        until = erlang:system_time(second)
-    }),
-    {ok, _} = emqx_banned:create(#banned{
-        who = {clientid, <<"BannedClient2">>},
-        until = erlang:system_time(second) - 1
-    }),
-    ?assertEqual(ignored, gen_server:call(Banned, unexpected_req)),
-    ?assertEqual(ok, gen_server:cast(Banned, unexpected_msg)),
-    ?assertEqual(ok, Banned ! ok),
+    Who1 = {clientid, <<"BannedClient1">>},
+    Who2 = {clientid, <<"BannedClient2">>},
+
+    ?assertMatch(
+        {ok, _},
+        emqx_banned:create(#banned{
+            who = Who1,
+            until = erlang:system_time(second)
+        })
+    ),
+    ?assertMatch(
+        {ok, _},
+        emqx_banned:create(#banned{
+            who = Who2,
+            until = erlang:system_time(second) - 1
+        })
+    ),
+    ?assertEqual(ignored, gen_server:call(emqx_banned, unexpected_req)),
+    ?assertEqual(ok, gen_server:cast(emqx_banned, unexpected_msg)),
     %% expiry timer
     timer:sleep(500),
-    ok = emqx_banned:stop().
+
+    ok = emqx_banned:delete(Who1),
+    ok = emqx_banned:delete(Who2).
 
 t_kick(_) ->
     ClientId = <<"client">>,
