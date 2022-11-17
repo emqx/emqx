@@ -554,34 +554,46 @@ filter_out_request_body(Conf) ->
     maps:without(ExtraConfs, Conf).
 
 qs2ms(_Tab, {Qs, Fuzzy}) ->
-    Ms = qs2ms(),
-    {Ms, fuzzy_match_fun(Qs, Ms, Fuzzy)}.
-
-%% rule is not a record, so everything is fuzzy filter.
-qs2ms() ->
-    [{'_', [], ['$_']}].
-
-fuzzy_match_fun(Qs, Ms, Fuzzy) ->
-    MsC = ets:match_spec_compile(Ms),
-    fun(Rows) ->
-        Ls = ets:match_spec_run(Rows, MsC),
-        lists:filter(
-            fun(E) ->
-                run_qs_match(E, Qs) andalso
-                    run_fuzzy_match(E, Fuzzy)
-            end,
-            Ls
-        )
+    case lists:keytake(from, 1, Qs) of
+        false ->
+            {generate_match_spec(Qs), fuzzy_match_fun(Fuzzy)};
+        {value, {from, '=:=', From}, Ls} ->
+            {generate_match_spec(Ls), fuzzy_match_fun([{from, '=:=', From} | Fuzzy])}
     end.
 
-run_qs_match(_, []) ->
-    true;
-run_qs_match(E = {_Id, #{enable := Enable}}, [{enable, '=:=', Pattern} | Qs]) ->
-    Enable =:= Pattern andalso run_qs_match(E, Qs);
-run_qs_match(E = {_Id, #{from := From}}, [{from, '=:=', Pattern} | Qs]) ->
-    lists:member(Pattern, From) andalso run_qs_match(E, Qs);
-run_qs_match(E, [_ | Qs]) ->
-    run_qs_match(E, Qs).
+generate_match_spec(Qs) ->
+    {MtchHead, Conds} = generate_match_spec(Qs, 2, {#{}, []}),
+    [{{'_', MtchHead}, Conds, ['$_']}].
+
+generate_match_spec([], _, {MtchHead, Conds}) ->
+    {MtchHead, lists:reverse(Conds)};
+generate_match_spec([Qs | Rest], N, {MtchHead, Conds}) ->
+    Holder = binary_to_atom(iolist_to_binary(["$", integer_to_list(N)]), utf8),
+    NMtchHead = emqx_mgmt_util:merge_maps(MtchHead, ms(element(1, Qs), Holder)),
+    NConds = put_conds(Qs, Holder, Conds),
+    generate_match_spec(Rest, N + 1, {NMtchHead, NConds}).
+
+put_conds({_, Op, V}, Holder, Conds) ->
+    [{Op, Holder, V} | Conds];
+put_conds({_, Op1, V1, Op2, V2}, Holder, Conds) ->
+    [
+        {Op2, Holder, V2},
+        {Op1, Holder, V1}
+        | Conds
+    ].
+
+ms(enable, X) ->
+    #{enable => X}.
+
+fuzzy_match_fun([]) ->
+    undefined;
+fuzzy_match_fun(Fuzzy) ->
+    fun(MsRaws) when is_list(MsRaws) ->
+        lists:filter(
+            fun(E) -> run_fuzzy_match(E, Fuzzy) end,
+            MsRaws
+        )
+    end.
 
 run_fuzzy_match(_, []) ->
     true;
@@ -589,6 +601,8 @@ run_fuzzy_match(E = {Id, _}, [{id, like, Pattern} | Fuzzy]) ->
     binary:match(Id, Pattern) /= nomatch andalso run_fuzzy_match(E, Fuzzy);
 run_fuzzy_match(E = {_Id, #{description := Desc}}, [{description, like, Pattern} | Fuzzy]) ->
     binary:match(Desc, Pattern) /= nomatch andalso run_fuzzy_match(E, Fuzzy);
+run_fuzzy_match(E = {_, #{from := Topics}}, [{from, '=:=', Pattern} | Fuzzy]) ->
+    lists:member(Pattern, Topics) /= false andalso run_fuzzy_match(E, Fuzzy);
 run_fuzzy_match(E = {_Id, #{from := Topics}}, [{from, match, Pattern} | Fuzzy]) ->
     lists:any(fun(For) -> emqx_topic:match(For, Pattern) end, Topics) andalso
         run_fuzzy_match(E, Fuzzy);

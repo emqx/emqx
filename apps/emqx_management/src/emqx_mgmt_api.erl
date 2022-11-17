@@ -21,6 +21,7 @@
 -elvis([{elvis_style, dont_repeat_yourself, #{min_complexity => 100}}]).
 
 -define(FRESH_SELECT, fresh_select).
+-define(LONG_QUERY_TIMEOUT, 50000).
 
 -export([
     paginate/3,
@@ -35,6 +36,7 @@
 ]).
 
 -export([do_query/5]).
+-export([parse_qstring/2]).
 
 paginate(Tables, Params, {Module, FormatFun}) ->
     Qh = query_handle(Tables),
@@ -236,25 +238,30 @@ do_cluster_query(
 
 maybe_collect_total_from_tail_nodes([], _Tab, _QString, _MsFun, ResultAcc) ->
     ResultAcc;
-maybe_collect_total_from_tail_nodes(Nodes, Tab, QString, MsFun, ResultAcc = #{total := TotalAcc}) ->
+maybe_collect_total_from_tail_nodes(Nodes, Tab, QString, MsFun, ResultAcc) ->
     {Ms, FuzzyFun} = erlang:apply(MsFun, [Tab, QString]),
-    case is_countable_total(Ms, FuzzyFun) of
-        true ->
-            %% XXX: badfun risk? if the FuzzyFun is an anonumous func in local node
-            case rpc:multicall(Nodes, ?MODULE, apply_total_query, [Tab, Ms, FuzzyFun]) of
-                {_, [Node | _]} ->
-                    {error, Node, {badrpc, badnode}};
-                {ResL0, []} ->
-                    ResL = lists:zip(Nodes, ResL0),
-                    case lists:filter(fun({_, I}) -> not is_integer(I) end, ResL) of
-                        [{Node, {badrpc, Reason}} | _] ->
-                            {error, Node, {badrpc, Reason}};
-                        [] ->
-                            ResultAcc#{total => ResL ++ TotalAcc}
-                    end
-            end;
+    case counting_total_fun(Ms, FuzzyFun) of
         false ->
-            ResultAcc
+            ResultAcc;
+        _Fun ->
+            collect_total_from_tail_nodes(Nodes, Tab, Ms, FuzzyFun, ResultAcc)
+    end.
+
+collect_total_from_tail_nodes(Nodes, Tab, Ms, FuzzyFun, ResultAcc = #{total := TotalAcc}) ->
+    %% XXX: badfun risk? if the FuzzyFun is an anonumous func in local node
+    case
+        rpc:multicall(Nodes, ?MODULE, apply_total_query, [Tab, Ms, FuzzyFun], ?LONG_QUERY_TIMEOUT)
+    of
+        {_, [Node | _]} ->
+            {error, Node, {badrpc, badnode}};
+        {ResL0, []} ->
+            ResL = lists:zip(Nodes, ResL0),
+            case lists:filter(fun({_, I}) -> not is_integer(I) end, ResL) of
+                [{Node, {badrpc, Reason}} | _] ->
+                    {error, Node, {badrpc, Reason}};
+                [] ->
+                    ResultAcc#{total => ResL ++ TotalAcc}
+            end
     end.
 
 %%--------------------------------------------------------------------
@@ -286,7 +293,7 @@ do_query(Node, Tab, QString, MsFun, QueryState) when is_function(MsFun) ->
             ?MODULE,
             do_query,
             [Node, Tab, QString, MsFun, QueryState],
-            50000
+            ?LONG_QUERY_TIMEOUT
         )
     of
         {badrpc, _} = R -> {error, R};
@@ -329,26 +336,31 @@ maybe_apply_total_query(Node, Tab, Ms, FuzzyFun, QueryState = #{total := TotalAc
             QueryState
     end.
 
-%% XXX: Calculating the total number of data that match a certain condition under a large table
-%% is very expensive because the entire ETS table needs to be scanned.
 apply_total_query(Tab, Ms, FuzzyFun) ->
-    case is_countable_total(Ms, FuzzyFun) of
-        true ->
-            ets:info(Tab, size);
+    case counting_total_fun(Ms, FuzzyFun) of
         false ->
             %% return a fake total number if the query have any conditions
-            0
+            0;
+        Fun ->
+            Fun(Tab)
     end.
 
-is_countable_total(Ms, FuzzyFun) ->
-    FuzzyFun =:= undefined andalso is_non_conditions_match_spec(Ms).
-
-is_non_conditions_match_spec([{_MatchHead, _Conds = [], _Return} | More]) ->
-    is_non_conditions_match_spec(More);
-is_non_conditions_match_spec([{_MatchHead, Conds, _Return} | _More]) when length(Conds) =/= 0 ->
-    false;
-is_non_conditions_match_spec([]) ->
-    true.
+counting_total_fun(Ms, undefined) ->
+    %% XXX: Calculating the total number of data that match a certain
+    %% condition under a large table is very expensive because the
+    %% entire ETS table needs to be scanned.
+    %%
+    %% XXX: How to optimize it? i.e, using:
+    %% `fun(Tab) -> ets:info(Tab, size) end`
+    [{MatchHead, Conditions, _Return}] = Ms,
+    CountingMs = [{MatchHead, Conditions, [true]}],
+    fun(Tab) ->
+        ets:select_count(Tab, CountingMs)
+    end;
+counting_total_fun(_Ms, FuzzyFun) when is_function(FuzzyFun) ->
+    %% XXX: Calculating the total number for a fuzzy searching is very very expensive
+    %% so it is not supported now
+    false.
 
 %% ResultAcc :: #{count := integer(),
 %%                cursor := integer(),
@@ -388,10 +400,6 @@ accumulate_query_rows(
     end.
 
 %%--------------------------------------------------------------------
-%% Table Select
-%%--------------------------------------------------------------------
-
-%%--------------------------------------------------------------------
 %% Internal Functions
 %%--------------------------------------------------------------------
 
@@ -402,6 +410,7 @@ parse_qstring(QString, QSchema) ->
     {length(NQString) + length(FuzzyQString), {NQString, FuzzyQString}}.
 
 do_parse_qstring([], _, Acc1, Acc2) ->
+    %% remove fuzzy keys if present in accurate query
     NAcc2 = [E || E <- Acc2, not lists:keymember(element(1, E), 1, Acc1)],
     {lists:reverse(Acc1), lists:reverse(NAcc2)};
 do_parse_qstring([{Key, Value} | RestQString], QSchema, Acc1, Acc2) ->
