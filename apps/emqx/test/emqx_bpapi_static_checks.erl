@@ -62,7 +62,7 @@
 %% List of business-layer functions that are exempt from the checks:
 %% erlfmt-ignore
 -define(EXEMPTIONS,
-    "emqx_mgmt_api:do_query/6"  % Reason: legacy code. A fun and a QC query are
+    "emqx_mgmt_api:do_query/2"  % Reason: legacy code. A fun and a QC query are
                                 % passed in the args, it's futile to try to statically
                                 % check it
 ).
