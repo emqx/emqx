@@ -574,13 +574,7 @@ generate_match_spec([Qs | Rest], N, {MtchHead, Conds}) ->
     generate_match_spec(Rest, N + 1, {NMtchHead, NConds}).
 
 put_conds({_, Op, V}, Holder, Conds) ->
-    [{Op, Holder, V} | Conds];
-put_conds({_, Op1, V1, Op2, V2}, Holder, Conds) ->
-    [
-        {Op2, Holder, V2},
-        {Op1, Holder, V1}
-        | Conds
-    ].
+    [{Op, Holder, V} | Conds].
 
 ms(enable, X) ->
     #{enable => X}.
