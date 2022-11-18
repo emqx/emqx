@@ -71,6 +71,8 @@ init_per_suite(Config) ->
         [emqx_conf, emqx_rule_engine, emqx_bridge, emqx_management, emqx_dashboard],
         fun set_special_configs/1
     ),
+    application:load(system_monitor),
+    application:set_env(system_monitor, db_hostname, undefined),
     application:set_env(emqx_machine, applications, [
         emqx_prometheus,
         emqx_modules,

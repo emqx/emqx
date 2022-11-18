@@ -1,4 +1,4 @@
-#!/usr/bin/bash
+#!/usr/bin/env bash
 
 set -euo pipefail
 
@@ -10,10 +10,10 @@ HOST="*."
 DAYS=3650
 PASS="password"
 
-cd /var/lib/secret/
+cd /var/lib/secret
 
 # Delete old files
-(rm ca.key ca.crt server.key server.csr server.crt client.key client.csr client.crt server.p12 kafka.keystore.jks kafka.truststore.jks 2>/dev/null || true)
+rm -f ca.key ca.crt server.key server.csr server.crt client.key client.csr client.crt server.p12 kafka.keystore.jks kafka.truststore.jks
 
 ls
 
@@ -44,3 +44,4 @@ echo $PASS | keytool -importkeystore -destkeystore kafka.keystore.jks -srckeysto
 echo '= Import CA into java truststore'
 
 echo yes | keytool -keystore kafka.truststore.jks -alias CARoot -import -file ca.crt -storepass "$PASS"
+chmod g+r /var/lib/secret/*

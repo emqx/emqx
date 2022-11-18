@@ -14,32 +14,31 @@ on:
   pull_request:
 
 jobs:
-    prepare_ce:
+    prepare:
         runs-on: aws-amd64
         # prepare source with any OTP version, no need for a matrix
         container: "ghcr.io/emqx/emqx-builder/5.0-18:1.13.4-24.3.4.2-1-ubuntu20.04"
         outputs:
-          fast_ct_apps: ${{ steps.run_find_apps.outputs.fast_ct_apps }}
-          docker_ct_apps: ${{ steps.run_find_apps.outputs.docker_ct_apps }}
+          fast_ct_apps: ${{ steps.find_ct_apps.outputs.fast_ct_apps }}
+          docker_ct_apps: ${{ steps.find_ct_apps.outputs.docker_ct_apps }}
         steps:
         - uses: actions/checkout@v3
           with:
             path: source
-        - name: find_ct_apps
+        - name: Find CT Apps
           working-directory: source
-          id: run_find_apps
+          id: find_ct_apps
           run: |
-            fast_ct_apps="$(./scripts/find-apps.sh --ct fast --json)"
-            docker_ct_apps="$(./scripts/find-apps.sh --ct docker --json)"
-            echo "fast-ct-apps: $fast_ct_apps"
-            echo "docer-ct-apps: $docker_ct_apps"
-            echo "::set-output name=fast_ct_apps_ce::$fast_ct_apps"
-            echo "::set-output name=docker_ct_apps_ce::$docker_ct_apps"
+            fast_ct_apps="$(./scripts/find-apps.sh --ci fast)"
+            docker_ct_apps="$(./scripts/find-apps.sh --ci docker)"
+            echo "fast: $fast_ct_apps"
+            echo "docker: $docker_ct_apps"
+            echo "fast_ct_apps=${fast_ct_apps}" >> $GITHUB_OUTPUT
+            echo "docker_ct_apps=${docker_ct_apps}" >> $GITHUB_OUTPUT
         - name: get_all_deps
           working-directory: source
           env:
             PROFILE: emqx
-            DIAGNOSTIC: 1
           run: |
             make ensure-rebar3
             # this will fetch all deps and compile
@@ -55,23 +54,10 @@ jobs:
         runs-on: aws-amd64
         # prepare source with any OTP version, no need for a matrix
         container: "ghcr.io/emqx/emqx-builder/5.0-18:1.13.4-24.3.4.2-1-ubuntu20.04"
-        outputs:
-          fast_ct_apps: ${{ steps.run_find_apps.outputs.fast_ct_apps }}
-          docker_ct_apps: ${{ steps.run_find_apps.outputs.docker_ct_apps }}
         steps:
         - uses: actions/checkout@v3
           with:
             path: source
-        - name: find_ct_apps
-          working-directory: source
-          id: run_find_apps
-          run: |
-            fast_ct_apps="$(./scripts/find-apps.sh --ct fast --json)"
-            docker_ct_apps="$(./scripts/find-apps.sh --ct docker --json)"
-            echo "fast-ct-apps: $fast_ct_apps"
-            echo "docer-ct-apps: $docker_ct_apps"
-            echo "::set-output name=fast_ct_apps_ee::$fast_ct_apps"
-            echo "::set-output name=docker_ct_apps_ee::$docker_ct_apps"
         - name: get_all_deps
           working-directory: source
           env:
@@ -90,8 +76,8 @@ jobs:
 
     eunit_and_proper:
         needs:
+          - prepare
           - prepare_ee
-          - prepare_ce
         runs-on: aws-amd64
         strategy:
           fail-fast: false
@@ -105,14 +91,12 @@ jobs:
         container: "ghcr.io/emqx/emqx-builder/5.0-18:1.13.4-24.3.4.2-1-ubuntu20.04"
 
         steps:
-        - uses: AutoModality/action-clean@v1
+        - uses: emqx/self-hosted-cleanup-action@v1.0.3
         - uses: actions/download-artifact@v3
           with:
             name: source-${{ matrix.profile }}
             path: .
         - name: unzip source code
-          env:
-            PROFILE: ${{ matrix.profile }}
           run: unzip -o -q source.zip
           # produces eunit.coverdata
         - name: eunit
@@ -135,15 +119,12 @@ jobs:
 
     ct_docker:
         needs:
+          - prepare
           - prepare_ee
-          - prepare_ce
         strategy:
           fail-fast: false
           matrix:
-            profile:
-              - emqx
-              - emqx-enterprise
-            app_name: ${{ fromJson(needs.prepare.outputs.docker_ct_apps) }}
+            app: ${{ fromJson(needs.prepare.outputs.docker_ct_apps) }}
             otp_release:
               - "erlang24"
 
@@ -153,10 +134,10 @@ jobs:
             shell: bash
 
         steps:
-        - uses: AutoModality/action-clean@v1
+        - uses: emqx/self-hosted-cleanup-action@v1.0.3
         - uses: actions/download-artifact@v3
           with:
-            name: source-${{ matrix.profile }}
+            name: source-${{ matrix.app[1] }}
             path: .
         - name: unzip source code
           run: unzip -q source.zip
@@ -167,9 +148,12 @@ jobs:
             MYSQL_TAG: 8
             PGSQL_TAG: 13
             REDIS_TAG: 6
+            WHICH_APP: ${{ matrix.app[0] }}
+            PROFILE: ${{ matrix.app[1] }}
           run: |
+            echo $PROFILE
             rm _build/default/lib/rocksdb/_build/cmake/CMakeCache.txt
-            ./scripts/ct/run.sh --app ${{ matrix.app_name }}
+            ./scripts/ct/run.sh --app $WHICH_APP
         - uses: actions/upload-artifact@v3
           with:
             name: coverdata
@@ -177,21 +161,17 @@ jobs:
         - uses: actions/upload-artifact@v3
           if: failure()
           with:
-            name: logs_${{ matrix.otp_release }}-${{ matrix.profile }}
+            name: logs_${{ matrix.otp_release }}-${{ matrix.app[0] }}-${{ matrix.app[1] }}
             path: source/_build/test/logs
 
     ct:
         needs:
+          - prepare
           - prepare_ee
-          - prepare_ce
         strategy:
           fail-fast: false
           matrix:
-            app_name: ${{ fromJson(needs.prepare.outputs.fast_ct_apps) }}
-            profile:
-              - emqx
-              - emqx-enterprise
-
+            app: ${{ fromJson(needs.prepare.outputs.fast_ct_apps) }}
         runs-on: aws-amd64
         container: "ghcr.io/emqx/emqx-builder/5.0-18:1.13.4-24.3.4.2-1-ubuntu20.04"
         defaults:
@@ -199,31 +179,22 @@ jobs:
             shell: bash
 
         steps:
-        - uses: AutoModality/action-clean@v1
+        - uses: emqx/self-hosted-cleanup-action@v1.0.3
         - uses: actions/download-artifact@v3
           with:
-            name: source-${{ matrix.profile }}
+            name: source-${{ matrix.app[1] }}
             path: .
         - name: unzip source code
           run: unzip -q source.zip
 
-          # produces <app-name>.coverdata
+          # produces $PROFILE-<app-name>.coverdata
         - name: run common test
           working-directory: source
           env:
-            PROFILE: ${{ matrix.profile }}
-            WHICH_APP: ${{ matrix.app_name }}
+            WHICH_APP: ${{ matrix.app[0] }}
+            PROFILE: ${{ matrix.app[1] }}
           run: |
-            if [[ "$PROFILE" != 'emqx-enterprise' ]]; then
-              case "$WHICH_APP" in
-                lib-ee/*)
-                  echo "skip_opensource_edition_test_for_lib-ee"
-                  ;;
-                *)
-                  make "${WHICH_APP}-ct"
-                  ;;
-              esac
-            fi
+            make "${WHICH_APP}-ct"
         - uses: actions/upload-artifact@v3
           with:
             name: coverdata
@@ -232,7 +203,7 @@ jobs:
         - uses: actions/upload-artifact@v3
           if: failure()
           with:
-            name: logs_${{ matrix.otp_release }}-${{ matrix.profile }}
+            name: logs_${{ matrix.otp_release }}-${{ matrix.app[0] }}-${{ matrix.app[1] }}
             path: source/_build/test/logs
 
     make_cover:
@@ -243,10 +214,10 @@ jobs:
       runs-on: ubuntu-20.04
       container: "ghcr.io/emqx/emqx-builder/5.0-18:1.13.4-24.3.4.2-1-ubuntu20.04"
       steps:
-      - uses: AutoModality/action-clean@v1
+      - uses: emqx/self-hosted-cleanup-action@v1.0.3
       - uses: actions/download-artifact@v3
         with:
-          name: source
+          name: source-emqx
           path: .
       - name: unzip source code
         run: unzip -q source.zip

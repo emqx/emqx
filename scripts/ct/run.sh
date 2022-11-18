@@ -79,6 +79,7 @@ case "${WHICH_APP}" in
         ;;
 esac
 
+CT_DEPS=
 if [ -f "$DOCKER_CT_ENVS_FILE" ]; then
     # shellcheck disable=SC2002
     CT_DEPS="$(cat "$DOCKER_CT_ENVS_FILE" | xargs)"
@@ -115,9 +116,6 @@ for dep in ${CT_DEPS}; do
                      '.ci/docker-compose-file/docker-compose-pgsql-tls.yaml' )
             ;;
         kafka)
-            # Kafka container generates root owned ssl files
-            # the files are shared with EMQX (with a docker volume)
-            NEED_ROOT=yes
             FILES+=( '.ci/docker-compose-file/docker-compose-kafka.yaml' )
             ;;
         *)
@@ -133,44 +131,34 @@ for file in "${FILES[@]}"; do
     F_OPTIONS="$F_OPTIONS -f $file"
 done
 
-if [[ "${NEED_ROOT:-}" == 'yes' ]]; then
-    export UID_GID='root:root'
-else
-    # Passing $UID to docker-compose to be used in erlang container
-    # as owner of the main process to avoid git repo permissions issue.
-    # Permissions issue happens because we are mounting local filesystem
-    # where files are owned by $UID to docker container where it's using
-    # root (UID=0) by default, and git is not happy about it.
-    export UID_GID="$UID:$UID"
-fi
-
+DOCKER_USER="$(id -u):root"
+export DOCKER_USER
 # shellcheck disable=2086 # no quotes for F_OPTIONS
 docker-compose $F_OPTIONS up -d --build
 
-# /emqx is where the source dir is mounted to the Erlang container
-# in .ci/docker-compose-file/docker-compose.yaml
 TTY=''
 if [[ -t 1 ]]; then
     TTY='-t'
 fi
 
-echo "Fixing file owners and permissions for $UID_GID"
-# rebar and hex cache directory need to be writable by $UID
-docker exec -i $TTY -u root:root "$ERLANG_CONTAINER" bash -c "mkdir -p /.cache && chown $UID_GID /.cache && chown -R $UID_GID /emqx"
-# need to initialize .erlang.cookie manually here because / is not writable by $UID
-docker exec -i $TTY -u root:root "$ERLANG_CONTAINER" bash -c "openssl rand -base64 16 > /.erlang.cookie && chown $UID_GID /.erlang.cookie && chmod 0400 /.erlang.cookie"
+echo "Fixing file owners and permissions in $ERLANG_CONTAINER"
+# rebar and hex cache directory need to be writable by $DOCKER_USER
+docker exec -i $TTY -u root "$ERLANG_CONTAINER" bash -c "mkdir -p /.cache && chown $DOCKER_USER /.cache"
+# need to initialize .erlang.cookie manually here because / is not writable by $DOCKER_USER
+docker exec -i $TTY -u root "$ERLANG_CONTAINER" bash -c "openssl rand -base64 16 > /.erlang.cookie && chown $DOCKER_USER /.erlang.cookie && chmod 0400 /.erlang.cookie"
 
 if [ "$ONLY_UP" = 'yes' ]; then
     exit 0
 fi
 
 if [ "$ATTACH" = 'yes' ]; then
-    docker exec -it "$ERLANG_CONTAINER" bash
+    docker exec -u "$DOCKER_USER" -it "$ERLANG_CONTAINER" bash
 elif [ "$CONSOLE" = 'yes' ]; then
-    docker exec -e PROFILE="$PROFILE" -i $TTY "$ERLANG_CONTAINER" bash -c "make run"
+    docker exec -u "$DOCKER_USER" -e PROFILE="$PROFILE" -i $TTY "$ERLANG_CONTAINER" bash -c "make run"
 else
     set +e
-    docker exec -e PROFILE="$PROFILE" -i $TTY -e EMQX_CT_SUITES="$SUITES" "$ERLANG_CONTAINER" bash -c "BUILD_WITHOUT_QUIC=1 make ${WHICH_APP}-ct"
+    docker exec -i $TTY "$ERLANG_CONTAINER" bash -c "rm -f _build/default/lib/rocksdb/_build/cmake/CMakeCache.txt"
+    docker exec -u "$DOCKER_USER" -e PROFILE="$PROFILE" -i $TTY -e EMQX_CT_SUITES="$SUITES" "$ERLANG_CONTAINER" bash -c "BUILD_WITHOUT_QUIC=1 make ${WHICH_APP}-ct"
     RESULT=$?
     if [ "$KEEP_UP" = 'yes' ]; then
         exit $RESULT
