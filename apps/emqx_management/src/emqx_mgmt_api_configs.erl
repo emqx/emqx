@@ -268,7 +268,7 @@ config(put, #{body := Body}, Req) ->
 global_zone_configs(get, _Params, _Req) ->
     Paths = global_zone_roots(),
     Zones = lists:foldl(
-        fun(Path, Acc) -> Acc#{Path => get_config_with_default([Path])} end,
+        fun(Path, Acc) -> maps:merge(Acc, get_config_with_default(Path)) end,
         #{},
         Paths
     ),
@@ -343,7 +343,7 @@ get_full_config() ->
     ).
 
 get_config_with_default(Path) ->
-    emqx_config:fill_defaults(emqx:get_raw_config(Path)).
+    emqx_config:fill_defaults(#{Path => emqx:get_raw_config([Path])}).
 
 conf_path_from_querystr(Req) ->
     case proplists:get_value(<<"conf_path">>, cowboy_req:parse_qs(Req)) of
