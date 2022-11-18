@@ -14,7 +14,7 @@ on:
   pull_request:
 
 jobs:
-    prepare:
+    prepare_ce:
         runs-on: aws-amd64
         # prepare source with any OTP version, no need for a matrix
         container: "ghcr.io/emqx/emqx-builder/5.0-18:1.13.4-24.3.4.2-1-ubuntu20.04"
@@ -25,7 +25,6 @@ jobs:
         - uses: actions/checkout@v3
           with:
             path: source
-            fetch-depth: 0
         - name: find_ct_apps
           working-directory: source
           id: run_find_apps
@@ -34,23 +33,65 @@ jobs:
             docker_ct_apps="$(./scripts/find-apps.sh --ct docker --json)"
             echo "fast-ct-apps: $fast_ct_apps"
             echo "docer-ct-apps: $docker_ct_apps"
-            echo "::set-output name=fast_ct_apps::$fast_ct_apps"
-            echo "::set-output name=docker_ct_apps::$docker_ct_apps"
+            echo "::set-output name=fast_ct_apps_ce::$fast_ct_apps"
+            echo "::set-output name=docker_ct_apps_ce::$docker_ct_apps"
         - name: get_all_deps
           working-directory: source
+          env:
+            PROFILE: emqx
+            DIAGNOSTIC: 1
           run: |
-            export DIAGNOSTIC=1
-            make deps-all
+            make ensure-rebar3
+            # this will fetch all deps and compile
             ./rebar3 as test compile
             cd ..
             zip -ryq source.zip source/* source/.[^.]*
         - uses: actions/upload-artifact@v3
           with:
-            name: source
+            name: source-emqx
+            path: source.zip
+
+    prepare_ee:
+        runs-on: aws-amd64
+        # prepare source with any OTP version, no need for a matrix
+        container: "ghcr.io/emqx/emqx-builder/5.0-18:1.13.4-24.3.4.2-1-ubuntu20.04"
+        outputs:
+          fast_ct_apps: ${{ steps.run_find_apps.outputs.fast_ct_apps }}
+          docker_ct_apps: ${{ steps.run_find_apps.outputs.docker_ct_apps }}
+        steps:
+        - uses: actions/checkout@v3
+          with:
+            path: source
+        - name: find_ct_apps
+          working-directory: source
+          id: run_find_apps
+          run: |
+            fast_ct_apps="$(./scripts/find-apps.sh --ct fast --json)"
+            docker_ct_apps="$(./scripts/find-apps.sh --ct docker --json)"
+            echo "fast-ct-apps: $fast_ct_apps"
+            echo "docer-ct-apps: $docker_ct_apps"
+            echo "::set-output name=fast_ct_apps_ee::$fast_ct_apps"
+            echo "::set-output name=docker_ct_apps_ee::$docker_ct_apps"
+        - name: get_all_deps
+          working-directory: source
+          env:
+            PROFILE: emqx-enterprise
+            DIAGNOSTIC: 1
+          run: |
+            make ensure-rebar3
+            # this will fetch all deps and compile
+            ./rebar3 as test compile
+            cd ..
+            zip -ryq source.zip source/* source/.[^.]*
+        - uses: actions/upload-artifact@v3
+          with:
+            name: source-emqx-enterprise
             path: source.zip
 
     eunit_and_proper:
-        needs: prepare
+        needs:
+          - prepare_ee
+          - prepare_ce
         runs-on: aws-amd64
         strategy:
           fail-fast: false
@@ -67,7 +108,7 @@ jobs:
         - uses: AutoModality/action-clean@v1
         - uses: actions/download-artifact@v3
           with:
-            name: source
+            name: source-${{ matrix.profile }}
             path: .
         - name: unzip source code
           env:
@@ -93,10 +134,15 @@ jobs:
             path: source/_build/test/cover
 
     ct_docker:
-        needs: prepare
+        needs:
+          - prepare_ee
+          - prepare_ce
         strategy:
           fail-fast: false
           matrix:
+            profile:
+              - emqx
+              - emqx-enterprise
             app_name: ${{ fromJson(needs.prepare.outputs.docker_ct_apps) }}
             otp_release:
               - "erlang24"
@@ -110,7 +156,7 @@ jobs:
         - uses: AutoModality/action-clean@v1
         - uses: actions/download-artifact@v3
           with:
-            name: source
+            name: source-${{ matrix.profile }}
             path: .
         - name: unzip source code
           run: unzip -q source.zip
@@ -135,7 +181,9 @@ jobs:
             path: source/_build/test/logs
 
     ct:
-        needs: prepare
+        needs:
+          - prepare_ee
+          - prepare_ce
         strategy:
           fail-fast: false
           matrix:
@@ -154,7 +202,7 @@ jobs:
         - uses: AutoModality/action-clean@v1
         - uses: actions/download-artifact@v3
           with:
-            name: source
+            name: source-${{ matrix.profile }}
             path: .
         - name: unzip source code
           run: unzip -q source.zip
@@ -166,16 +214,7 @@ jobs:
             PROFILE: ${{ matrix.profile }}
             WHICH_APP: ${{ matrix.app_name }}
           run: |
-            if [ "$PROFILE" = 'emqx-enterprise' ]; then
-              COMPILE_FLAGS="$(grep -R "EMQX_RELEASE_EDITION" "$WHICH_APP" | wc -l || true)"
-              if [ "$COMPILE_FLAGS" -gt 0 ]; then
-                # need to clean first because the default profile was
-                make clean
-                make "${WHICH_APP}-ct"
-              else
-                echo "skip_common_test_run_for_app ${WHICH_APP}-ct"
-              fi
-            else
+            if [[ "$PROFILE" != 'emqx-enterprise' ]]; then
               case "$WHICH_APP" in
                 lib-ee/*)
                   echo "skip_opensource_edition_test_for_lib-ee"
@@ -245,17 +284,3 @@ jobs:
             curl -v -k https://coveralls.io/webhook \
                  --header "Content-Type: application/json" \
                  --data "{\"repo_name\":\"$GITHUB_REPOSITORY\",\"repo_token\":\"$GITHUB_TOKEN\",\"payload\":{\"build_num\":$GITHUB_RUN_ID,\"status\":\"done\"}}" || true
-
-    allgood_functional_tests:
-      runs-on: ubuntu-20.04
-      needs:
-        - eunit_and_proper
-        - ct_docker
-        - ct
-      steps:
-      - name: Check if all functional tests succeeded
-        uses: re-actors/alls-green@release/v1
-        with:
-          #allowed-failures:
-          #allowed-skips:
-          jobs: ${{ toJSON(needs) }}
