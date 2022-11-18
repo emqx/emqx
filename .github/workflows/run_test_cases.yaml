@@ -148,6 +148,7 @@ jobs:
             MYSQL_TAG: 8
             PGSQL_TAG: 13
             REDIS_TAG: 6
+            INFLUXDB_TAG: 2.5.0
             WHICH_APP: ${{ matrix.app[0] }}
             PROFILE: ${{ matrix.app[1] }}
           run: |

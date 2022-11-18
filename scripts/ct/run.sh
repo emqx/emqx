@@ -93,6 +93,11 @@ for dep in ${CT_DEPS}; do
         erlang24)
             FILES+=( '.ci/docker-compose-file/docker-compose.yaml' )
             ;;
+        influxdb)
+            FILES+=( '.ci/docker-compose-file/docker-compose-toxiproxy.yaml'
+                     '.ci/docker-compose-file/docker-compose-influxdb-tcp.yaml'
+                     '.ci/docker-compose-file/docker-compose-influxdb-tls.yaml' )
+            ;;
         mongo)
             FILES+=( '.ci/docker-compose-file/docker-compose-mongo-single-tcp.yaml'
                      '.ci/docker-compose-file/docker-compose-mongo-single-tls.yaml' )

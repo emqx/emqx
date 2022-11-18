@@ -1,3 +1,4 @@
+influxdb
+kafka
 mongo
 mongo_rs_sharded
-kafka
