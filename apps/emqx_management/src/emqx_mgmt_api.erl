@@ -314,7 +314,9 @@ do_select(
             ?FRESH_SELECT ->
                 ets:select(Tab, Ms, Limit);
             _ ->
-                ets:select(Continuation)
+                %% XXX: Repair is necessary because we pass Continuation back
+                %% and forth through the nodes in the `do_cluster_query`
+                ets:select(ets:repair_continuation(Continuation, Ms))
         end,
     case Result of
         '$end_of_table' ->
@@ -508,7 +510,7 @@ format_query_result(
         %% queries that can be read
         meta => Meta#{count => Total},
         data => lists:flatten(
-            lists:foldr(
+            lists:foldl(
                 fun({Node, Rows}, Acc) ->
                     [lists:map(fun(Row) -> exec_format_fun(FmtFun, Node, Row) end, Rows) | Acc]
                 end,
