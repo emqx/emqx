@@ -65,6 +65,15 @@
     stop_slave/1
 ]).
 
+-export([clear_screen/0]).
+-export([with_mock/4]).
+
+%% Toxiproxy API
+-export([
+    with_failure/5,
+    reset_proxy/2
+]).
+
 -define(CERTS_PATH(CertName), filename:join(["etc", "certs", CertName])).
 
 -define(MQTT_SSL_TWOWAY, [
@@ -768,4 +777,140 @@ expand_node_specs(Specs, CommonOpts) ->
             }
         end,
         Specs
+    ).
+
+%% is useful when iterating on the tests in a loop, to get rid of all
+%% the garbaged printed before the test itself beings.
+clear_screen() ->
+    io:format(standard_io, "\033[H\033[2J", []),
+    io:format(standard_error, "\033[H\033[2J", []),
+    io:format(standard_io, "\033[H\033[3J", []),
+    io:format(standard_error, "\033[H\033[3J", []),
+    ok.
+
+with_mock(Mod, FnName, MockedFn, Fun) ->
+    ok = meck:new(Mod, [non_strict, no_link, no_history, passthrough]),
+    ok = meck:expect(Mod, FnName, MockedFn),
+    try
+        Fun()
+    after
+        ok = meck:unload(Mod)
+    end.
+
+%%-------------------------------------------------------------------------------
+%% Toxiproxy utils
+%%-------------------------------------------------------------------------------
+
+reset_proxy(ProxyHost, ProxyPort) ->
+    Url = "http://" ++ ProxyHost ++ ":" ++ integer_to_list(ProxyPort) ++ "/reset",
+    Body = <<>>,
+    {ok, {{_, 204, _}, _, _}} = httpc:request(
+        post,
+        {Url, [], "application/json", Body},
+        [],
+        [{body_format, binary}]
+    ).
+
+with_failure(FailureType, Name, ProxyHost, ProxyPort, Fun) ->
+    enable_failure(FailureType, Name, ProxyHost, ProxyPort),
+    try
+        Fun()
+    after
+        heal_failure(FailureType, Name, ProxyHost, ProxyPort)
+    end.
+
+enable_failure(FailureType, Name, ProxyHost, ProxyPort) ->
+    case FailureType of
+        down -> switch_proxy(off, Name, ProxyHost, ProxyPort);
+        timeout -> timeout_proxy(on, Name, ProxyHost, ProxyPort);
+        latency_up -> latency_up_proxy(on, Name, ProxyHost, ProxyPort)
+    end.
+
+heal_failure(FailureType, Name, ProxyHost, ProxyPort) ->
+    case FailureType of
+        down -> switch_proxy(on, Name, ProxyHost, ProxyPort);
+        timeout -> timeout_proxy(off, Name, ProxyHost, ProxyPort);
+        latency_up -> latency_up_proxy(off, Name, ProxyHost, ProxyPort)
+    end.
+
+switch_proxy(Switch, Name, ProxyHost, ProxyPort) ->
+    Url = "http://" ++ ProxyHost ++ ":" ++ integer_to_list(ProxyPort) ++ "/proxies/" ++ Name,
+    Body =
+        case Switch of
+            off -> #{<<"enabled">> => false};
+            on -> #{<<"enabled">> => true}
+        end,
+    BodyBin = emqx_json:encode(Body),
+    {ok, {{_, 200, _}, _, _}} = httpc:request(
+        post,
+        {Url, [], "application/json", BodyBin},
+        [],
+        [{body_format, binary}]
+    ).
+
+timeout_proxy(on, Name, ProxyHost, ProxyPort) ->
+    Url =
+        "http://" ++ ProxyHost ++ ":" ++ integer_to_list(ProxyPort) ++ "/proxies/" ++ Name ++
+            "/toxics",
+    NameBin = list_to_binary(Name),
+    Body = #{
+        <<"name">> => <<NameBin/binary, "_timeout">>,
+        <<"type">> => <<"timeout">>,
+        <<"stream">> => <<"upstream">>,
+        <<"toxicity">> => 1.0,
+        <<"attributes">> => #{<<"timeout">> => 0}
+    },
+    BodyBin = emqx_json:encode(Body),
+    {ok, {{_, 200, _}, _, _}} = httpc:request(
+        post,
+        {Url, [], "application/json", BodyBin},
+        [],
+        [{body_format, binary}]
+    );
+timeout_proxy(off, Name, ProxyHost, ProxyPort) ->
+    ToxicName = Name ++ "_timeout",
+    Url =
+        "http://" ++ ProxyHost ++ ":" ++ integer_to_list(ProxyPort) ++ "/proxies/" ++ Name ++
+            "/toxics/" ++ ToxicName,
+    Body = <<>>,
+    {ok, {{_, 204, _}, _, _}} = httpc:request(
+        delete,
+        {Url, [], "application/json", Body},
+        [],
+        [{body_format, binary}]
+    ).
+
+latency_up_proxy(on, Name, ProxyHost, ProxyPort) ->
+    Url =
+        "http://" ++ ProxyHost ++ ":" ++ integer_to_list(ProxyPort) ++ "/proxies/" ++ Name ++
+            "/toxics",
+    NameBin = list_to_binary(Name),
+    Body = #{
+        <<"name">> => <<NameBin/binary, "_latency_up">>,
+        <<"type">> => <<"latency">>,
+        <<"stream">> => <<"upstream">>,
+        <<"toxicity">> => 1.0,
+        <<"attributes">> => #{
+            <<"latency">> => 20_000,
+            <<"jitter">> => 3_000
+        }
+    },
+    BodyBin = emqx_json:encode(Body),
+    {ok, {{_, 200, _}, _, _}} = httpc:request(
+        post,
+        {Url, [], "application/json", BodyBin},
+        [],
+        [{body_format, binary}]
+    );
+latency_up_proxy(off, Name, ProxyHost, ProxyPort) ->
+    ToxicName = Name ++ "_latency_up",
+    Url =
+        "http://" ++ ProxyHost ++ ":" ++ integer_to_list(ProxyPort) ++ "/proxies/" ++ Name ++
+            "/toxics/" ++ ToxicName,
+    Body = <<>>,
+    {ok, {{_, 204, _}, _, _}} = httpc:request(
+        delete,
+        {Url, [], "application/json", Body},
+        [],
+        [{body_format, binary}]
     ).
