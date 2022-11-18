@@ -11,7 +11,7 @@ help() {
     echo "--ci fast|docker: Print apps in json format for github ci mtrix"
 }
 
-CI='fast'
+CI='novalue'
 while [ "$#" -gt 0 ]; do
     case $1 in
         -h|--help)
@@ -45,7 +45,7 @@ CE="$(find_app 'apps')"
 EE="$(find_app 'lib-ee')"
 APPS_ALL="$(echo -e "${CE}\n${EE}")"
 
-if [ "$CI" = 'no' ]; then
+if [ "$CI" = 'novalue' ]; then
     echo "${APPS_ALL}"
     exit 0
 fi
@@ -77,7 +77,8 @@ dimensions() {
             exit 1
             ;;
     esac
-    echo -n "$app $profile" | jq -R -s -c 'split(" ")'
+    ## poor-man's json formatter
+    echo -n -e "[\"$app\", \"$profile\"]"
 }
 
 matrix() {

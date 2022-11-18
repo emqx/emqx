@@ -39,7 +39,7 @@ jobs:
           working-directory: source
           env:
             PROFILE: emqx
-            DIAGNOSTIC: 1
+              #DIAGNOSTIC: 1
           run: |
             make ensure-rebar3
             # this will fetch all deps and compile
@@ -63,7 +63,7 @@ jobs:
           working-directory: source
           env:
             PROFILE: emqx-enterprise
-            DIAGNOSTIC: 1
+              #DIAGNOSTIC: 1
           run: |
             make ensure-rebar3
             # this will fetch all deps and compile
@@ -221,7 +221,7 @@ jobs:
       - uses: AutoModality/action-clean@v1
       - uses: actions/download-artifact@v3
         with:
-          name: source
+          name: source-emqx-enterprise
           path: .
       - name: unzip source code
         run: unzip -q source.zip
@@ -234,12 +234,15 @@ jobs:
 
       - name: make cover
         working-directory: source
+        env:
+          PROFILE: emqx-enterprise
         run: make cover
 
       - name: send to coveralls
         working-directory: source
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          PROFILE: emqx-enterprise
         run: make coveralls
 
       - name: get coveralls logs
