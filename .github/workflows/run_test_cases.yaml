@@ -39,6 +39,7 @@ jobs:
         - name: get_all_deps
           working-directory: source
           run: |
+            export DIAGNOSTIC=1
             make deps-all
             ./rebar3 as test compile
             cd ..
