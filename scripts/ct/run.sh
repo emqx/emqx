@@ -75,7 +75,7 @@ case "${WHICH_APP}" in
         export PROFILE='emqx-enterprise'
         ;;
     *)
-        true
+        export PROFILE="${PROFILE:-emqx}"
         ;;
 esac
 
@@ -167,10 +167,10 @@ fi
 if [ "$ATTACH" = 'yes' ]; then
     docker exec -it "$ERLANG_CONTAINER" bash
 elif [ "$CONSOLE" = 'yes' ]; then
-    docker exec -i $TTY "$ERLANG_CONTAINER" bash -c "make run"
+    docker exec -e PROFILE="$PROFILE" -i $TTY "$ERLANG_CONTAINER" bash -c "make run"
 else
     set +e
-    docker exec -i $TTY -e EMQX_CT_SUITES="$SUITES" "$ERLANG_CONTAINER" bash -c "BUILD_WITHOUT_QUIC=1 make ${WHICH_APP}-ct"
+    docker exec -e PROFILE="$PROFILE" -i $TTY -e EMQX_CT_SUITES="$SUITES" "$ERLANG_CONTAINER" bash -c "BUILD_WITHOUT_QUIC=1 make ${WHICH_APP}-ct"
     RESULT=$?
     if [ "$KEEP_UP" = 'yes' ]; then
         exit $RESULT
