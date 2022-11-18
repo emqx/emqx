@@ -11,11 +11,10 @@ help() {
     echo "$0 PROFILE [options]"
     echo
     echo "-h|--help:       To display this usage information"
-    echo "--default:       Print default vsn number. e.g. e.g. 5.0.0-ubuntu20.04-amd64"
-    echo "--long:          Print long vsn number. e.g. 5.0.0-otp24.2.1-1-ubuntu20.04-amd64"
+    echo "--long:          Print long vsn number. e.g. 5.0.0-ubuntu20.04-amd64"
     echo "                 Otherwise short e.g. 5.0.0"
     echo "--elixir:        Include elixir version in the long version string"
-    echo "                 e.g. 5.0.0-elixir1.13.4-otp24.2.1-1-ubuntu20.04-amd64"
+    echo "                 e.g. 5.0.0-elixir-ubuntu20.04-amd64"
     echo "--vsn_matcher:   For --long option, replace the EMQX version with '*'"
     echo "                 so it can be used in find commands"
 }
@@ -33,10 +32,6 @@ while [ "$#" -gt 0 ]; do
     -h|--help)
         help
         exit 0
-        ;;
-    --default)
-        IS_DEFAULT_RELEASE='yes'
-        shift 1
         ;;
     --long)
         LONG_VERSION='yes'
@@ -123,18 +118,7 @@ if [ "${IS_MATCHER:-}" = 'yes' ]; then
     PKG_VSN='*'
 fi
 
-OTP_VSN="${OTP_VSN:-$(./scripts/get-otp-vsn.sh)}"
 SYSTEM="$(./scripts/get-distro.sh)"
-
-case "$SYSTEM" in
-    windows*)
-        # directly build the default package for windows
-        IS_DEFAULT_RELEASE='yes'
-        ;;
-    *)
-        true
-        ;;
-esac
 
 UNAME_M="$(uname -m)"
 case "$UNAME_M" in
@@ -149,15 +133,10 @@ case "$UNAME_M" in
         ;;
 esac
 
-if [ "${IS_DEFAULT_RELEASE:-not-default-release}" = 'yes' ]; then
-    # when it's the default release, we do not add elixir or otp version
-    infix=''
+if [ "${IS_ELIXIR:-}" = "yes" ]; then
+    infix='-elixir'
 else
-    infix="-otp${OTP_VSN}"
-    if [ "${IS_ELIXIR:-}" = "yes" ]; then
-        ELIXIR_VSN="${ELIXIR_VSN:-$(./scripts/get-elixir-vsn.sh)}"
-        infix="-elixir${ELIXIR_VSN}${infix}"
-    fi
+    infix=''
 fi
 
 echo "${PKG_VSN}${infix}-${SYSTEM}-${ARCH}"
