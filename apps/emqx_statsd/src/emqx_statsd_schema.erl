@@ -21,16 +21,12 @@
 
 -behaviour(hocon_schema).
 
--export([to_ip_port/1]).
-
 -export([
     namespace/0,
     roots/0,
     fields/1,
     desc/1
 ]).
-
--typerefl_from_string({ip_port/0, emqx_statsd_schema, to_ip_port}).
 
 namespace() -> "statsd".
 
@@ -55,7 +51,7 @@ fields("statsd") ->
 desc("statsd") -> ?DESC(statsd);
 desc(_) -> undefined.
 
-server(type) -> emqx_schema:ip_port();
+server(type) -> emqx_schema:host_port();
 server(required) -> true;
 server(default) -> "127.0.0.1:8125";
 server(desc) -> ?DESC(?FUNCTION_NAME);
@@ -72,14 +68,3 @@ flush_interval(required) -> true;
 flush_interval(default) -> "10s";
 flush_interval(desc) -> ?DESC(?FUNCTION_NAME);
 flush_interval(_) -> undefined.
-
-to_ip_port(Str) ->
-    case string:tokens(Str, ":") of
-        [Ip, Port] ->
-            case inet:parse_address(Ip) of
-                {ok, R} -> {ok, {R, list_to_integer(Port)}};
-                _ -> {error, Str}
-            end;
-        _ ->
-            {error, Str}
-    end.

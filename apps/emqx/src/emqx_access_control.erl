@@ -24,6 +24,11 @@
     authorize/3
 ]).
 
+-ifdef(TEST).
+-compile(export_all).
+-compile(nowarn_export_all).
+-endif.
+
 %%--------------------------------------------------------------------
 %% APIs
 %%--------------------------------------------------------------------
@@ -45,6 +50,19 @@ authenticate(Credential) ->
 %% @doc Check Authorization
 -spec authorize(emqx_types:clientinfo(), emqx_types:pubsub(), emqx_types:topic()) ->
     allow | deny.
+authorize(ClientInfo, PubSub, <<"$delayed/", Data/binary>> = RawTopic) ->
+    case binary:split(Data, <<"/">>) of
+        [_, Topic] ->
+            authorize(ClientInfo, PubSub, Topic);
+        _ ->
+            ?SLOG(warning, #{
+                msg => "invalid_dealyed_topic_format",
+                expected_example => "$delayed/1/t/foo",
+                got => RawTopic
+            }),
+            inc_authz_metrics(deny),
+            deny
+    end;
 authorize(ClientInfo, PubSub, Topic) ->
     Result =
         case emqx_authz_cache:is_enabled() of

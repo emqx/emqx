@@ -70,7 +70,9 @@ do_check_config(#{<<"mechanism">> := Mec} = Config, Opts) ->
                 #{?CONF_NS_BINARY => Config},
                 Opts#{atom_key => true}
             )
-    end.
+    end;
+do_check_config(_Config, _Opts) ->
+    throw({invalid_config, "mechanism_field_required"}).
 
 atom(Bin) ->
     try

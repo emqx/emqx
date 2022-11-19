@@ -16,7 +16,15 @@
 -module(emqx_mgmt_api_publish).
 
 -include_lib("emqx/include/emqx.hrl").
+-include_lib("emqx/include/emqx_mqtt.hrl").
 -include_lib("typerefl/include/types.hrl").
+-include_lib("emqx/include/logger.hrl").
+-include_lib("hocon/include/hoconsc.hrl").
+
+-define(ALL_IS_WELL, 200).
+-define(PARTIALLY_OK, 202).
+-define(BAD_REQUEST, 400).
+-define(DISPATCH_ERROR, 503).
 
 -behaviour(minirest_api).
 
@@ -42,11 +50,14 @@ schema("/publish") ->
     #{
         'operationId' => publish,
         post => #{
-            description => <<"Publish Message">>,
+            description => ?DESC(publish_api),
             tags => [<<"Publish">>],
             'requestBody' => hoconsc:mk(hoconsc:ref(?MODULE, publish_message)),
             responses => #{
-                200 => hoconsc:mk(hoconsc:ref(?MODULE, publish_message_info))
+                ?ALL_IS_WELL => hoconsc:mk(hoconsc:ref(?MODULE, publish_ok)),
+                ?PARTIALLY_OK => hoconsc:mk(hoconsc:ref(?MODULE, publish_error)),
+                ?BAD_REQUEST => bad_request_schema(),
+                ?DISPATCH_ERROR => hoconsc:mk(hoconsc:ref(?MODULE, publish_error))
             }
         }
     };
@@ -54,44 +65,58 @@ schema("/publish/bulk") ->
     #{
         'operationId' => publish_batch,
         post => #{
-            description => <<"Publish Messages">>,
+            description => ?DESC(publish_bulk_api),
             tags => [<<"Publish">>],
             'requestBody' => hoconsc:mk(hoconsc:array(hoconsc:ref(?MODULE, publish_message)), #{}),
             responses => #{
-                200 => hoconsc:mk(hoconsc:array(hoconsc:ref(?MODULE, publish_message_info)), #{})
+                ?ALL_IS_WELL => hoconsc:mk(hoconsc:array(hoconsc:ref(?MODULE, publish_ok)), #{}),
+                ?PARTIALLY_OK => hoconsc:mk(
+                    hoconsc:array(hoconsc:ref(?MODULE, publish_error)), #{}
+                ),
+                ?BAD_REQUEST => bad_request_schema(),
+                ?DISPATCH_ERROR => hoconsc:mk(
+                    hoconsc:array(hoconsc:ref(?MODULE, publish_error)), #{}
+                )
             }
         }
     }.
+
+bad_request_schema() ->
+    Union = hoconsc:union([
+        hoconsc:ref(?MODULE, bad_request),
+        hoconsc:array(hoconsc:ref(?MODULE, publish_error))
+    ]),
+    hoconsc:mk(Union, #{}).
 
 fields(message) ->
     [
         {topic,
             hoconsc:mk(binary(), #{
-                desc => <<"Topic Name">>,
+                desc => ?DESC(topic_name),
                 required => true,
                 example => <<"api/example/topic">>
             })},
         {qos,
             hoconsc:mk(emqx_schema:qos(), #{
-                desc => <<"MQTT QoS">>,
+                desc => ?DESC(qos),
                 required => false,
                 default => 0
             })},
         {clientid,
             hoconsc:mk(binary(), #{
-                desc => <<"From client ID">>,
+                desc => ?DESC(clientid),
                 required => false,
                 example => <<"api_example_client">>
             })},
         {payload,
             hoconsc:mk(binary(), #{
-                desc => <<"MQTT Payload">>,
+                desc => ?DESC(payload),
                 required => true,
                 example => <<"hello emqx api">>
             })},
         {retain,
             hoconsc:mk(boolean(), #{
-                desc => <<"MQTT Retain Message">>,
+                desc => ?DESC(retain),
                 required => false,
                 default => false
             })}
@@ -100,53 +125,196 @@ fields(publish_message) ->
     [
         {payload_encoding,
             hoconsc:mk(hoconsc:enum([plain, base64]), #{
-                desc => <<"MQTT Payload Encoding, base64 or plain">>,
+                desc => ?DESC(payload_encoding),
                 required => false,
                 default => plain
             })}
     ] ++ fields(message);
-fields(publish_message_info) ->
+fields(publish_ok) ->
     [
         {id,
             hoconsc:mk(binary(), #{
-                desc => <<"Internal Message ID">>
+                desc => ?DESC(message_id)
             })}
-    ] ++ fields(message).
+    ];
+fields(publish_error) ->
+    [
+        {reason_code,
+            hoconsc:mk(integer(), #{
+                desc => ?DESC(reason_code),
+                example => 16
+            })},
+        {message,
+            hoconsc:mk(binary(), #{
+                desc => ?DESC(error_message),
+                example => <<"no_matching_subscribers">>
+            })}
+    ];
+fields(bad_request) ->
+    [
+        {code,
+            hoconsc:mk(string(), #{
+                desc => <<"BAD_REQUEST">>
+            })},
+        {message,
+            hoconsc:mk(binary(), #{
+                desc => ?DESC(error_message)
+            })}
+    ].
 
 publish(post, #{body := Body}) ->
     case message(Body) of
         {ok, Message} ->
-            _ = emqx_mgmt:publish(Message),
-            {200, format_message(Message)};
-        {error, R} ->
-            {400, 'BAD_REQUEST', to_binary(R)}
+            Res = emqx_mgmt:publish(Message),
+            publish_result_to_http_reply(Message, Res);
+        {error, Reason} ->
+            {?BAD_REQUEST, make_bad_req_reply(Reason)}
     end.
 
 publish_batch(post, #{body := Body}) ->
     case messages(Body) of
         {ok, Messages} ->
-            _ = [emqx_mgmt:publish(Message) || Message <- Messages],
-            {200, format_message(Messages)};
-        {error, R} ->
-            {400, 'BAD_REQUEST', to_binary(R)}
+            ResList = lists:map(
+                fun(Message) ->
+                    Res = emqx_mgmt:publish(Message),
+                    publish_result_to_http_reply(Message, Res)
+                end,
+                Messages
+            ),
+            publish_results_to_http_reply(ResList);
+        {error, Reason} ->
+            {?BAD_REQUEST, make_bad_req_reply(Reason)}
     end.
 
+make_bad_req_reply(invalid_topic_name) ->
+    make_publish_error_response(?RC_TOPIC_NAME_INVALID);
+make_bad_req_reply(packet_too_large) ->
+    %% 0x95 RC_PACKET_TOO_LARGE is not a PUBACK reason code
+    %% This is why we use RC_QUOTA_EXCEEDED instead
+    make_publish_error_response(?RC_QUOTA_EXCEEDED, packet_too_large);
+make_bad_req_reply(Reason) ->
+    make_publish_error_response(?RC_IMPLEMENTATION_SPECIFIC_ERROR, to_binary(Reason)).
+
+-spec is_ok_deliver({_NodeOrShare, _MatchedTopic, emqx_types:deliver_result()}) -> boolean().
+is_ok_deliver({_NodeOrShare, _MatchedTopic, ok}) -> true;
+is_ok_deliver({_NodeOrShare, _MatchedTopic, {ok, _}}) -> true;
+is_ok_deliver({_NodeOrShare, _MatchedTopic, {error, _}}) -> false.
+
+%% @hidden Map MQTT publish result reason code to HTTP status code.
+%% MQTT reason code | Description                           | HTTP status code
+%% 0                  Success                                 200
+%% 16                 No matching subscribers                 202
+%% 128                Unspecified error                       406
+%% 131                Implementation specific error           406
+%% 144                Topic Name invalid                      400
+%% 151                Quota exceeded                          400
+%%
+%% %%%%%% Below error codes are not implemented so far %%%%
+%%
+%% If HTTP request passes HTTP authentication, it is considered trusted.
+%% In the future, we may choose to check ACL for the provided MQTT Client ID
+%% 135                Not authorized                          401
+%%
+%% %%%%%% Below error codes are not applicable %%%%%%%
+%%
+%% No user specified packet ID, so there should be no packet ID error
+%% 145                Packet identifier is in use             400
+%%
+%% No preceding payload format indicator to compare against.
+%% Content-Type check should be done at HTTP layer but not here.
+%% 153                Payload format invalid                  400
+publish_result_to_http_reply(_Message, []) ->
+    %% matched no subscriber
+    {?PARTIALLY_OK, make_publish_error_response(?RC_NO_MATCHING_SUBSCRIBERS)};
+publish_result_to_http_reply(Message, PublishResult) ->
+    case lists:any(fun is_ok_deliver/1, PublishResult) of
+        true ->
+            %% delivered to at least one subscriber
+            OkBody = make_publish_response(Message),
+            {?ALL_IS_WELL, OkBody};
+        false ->
+            %% this is quite unusual, matched, but failed to deliver
+            %% if this happens, the publish result log can be helpful
+            %% to idnetify the reason why publish failed
+            %% e.g. during emqx restart
+            ReasonString = <<"failed_to_dispatch">>,
+            ErrorBody = make_publish_error_response(
+                ?RC_IMPLEMENTATION_SPECIFIC_ERROR, ReasonString
+            ),
+            ?SLOG(warning, #{
+                msg => ReasonString,
+                message_id => emqx_message:id(Message),
+                results => PublishResult
+            }),
+            {?DISPATCH_ERROR, ErrorBody}
+    end.
+
+%% @hidden Reply batch publish result.
+%% 200 if all published OK.
+%% 202 if at least one message matched no subscribers.
+%% 503 for temp errors duing EMQX restart
+publish_results_to_http_reply([_ | _] = ResList) ->
+    {Codes0, BodyL} = lists:unzip(ResList),
+    Codes = lists:usort(Codes0),
+    HasFailure = lists:member(?DISPATCH_ERROR, Codes),
+    All200 = (Codes =:= [?ALL_IS_WELL]),
+    Code =
+        case All200 of
+            true ->
+                %% All OK
+                ?ALL_IS_WELL;
+            false when not HasFailure ->
+                %% Partially OK
+                ?PARTIALLY_OK;
+            false ->
+                %% At least one failed
+                ?DISPATCH_ERROR
+        end,
+    {Code, BodyL}.
+
 message(Map) ->
+    try
+        make_message(Map)
+    catch
+        throw:Reason ->
+            {error, Reason}
+    end.
+
+make_message(Map) ->
     Encoding = maps:get(<<"payload_encoding">>, Map, plain),
-    case encode_payload(Encoding, maps:get(<<"payload">>, Map)) of
+    case decode_payload(Encoding, maps:get(<<"payload">>, Map)) of
         {ok, Payload} ->
             From = maps:get(<<"clientid">>, Map, http_api),
             QoS = maps:get(<<"qos">>, Map, 0),
             Topic = maps:get(<<"topic">>, Map),
             Retain = maps:get(<<"retain">>, Map, false),
-            {ok, emqx_message:make(From, QoS, Topic, Payload, #{retain => Retain}, #{})};
+            try
+                _ = emqx_topic:validate(name, Topic)
+            catch
+                error:_Reason ->
+                    throw(invalid_topic_name)
+            end,
+            Message = emqx_message:make(From, QoS, Topic, Payload, #{retain => Retain}, #{}),
+            Size = emqx_message:estimate_size(Message),
+            (Size > size_limit()) andalso throw(packet_too_large),
+            {ok, Message};
         {error, R} ->
             {error, R}
     end.
 
-encode_payload(plain, Payload) ->
+%% get the global packet size limit since HTTP API does not belong to any zone.
+size_limit() ->
+    try
+        emqx_config:get([mqtt, max_packet_size])
+    catch
+        _:_ ->
+            %% leave 1000 bytes for topic name etc.
+            ?MAX_PACKET_SIZE
+    end.
+
+decode_payload(plain, Payload) ->
     {ok, Payload};
-encode_payload(base64, Payload) ->
+decode_payload(base64, Payload) ->
     try
         {ok, base64:decode(Payload)}
     catch
@@ -154,6 +322,8 @@ encode_payload(base64, Payload) ->
             {error, {decode_base64_payload_failed, Payload}}
     end.
 
+messages([]) ->
+    {errror, <<"empty_batch">>};
 messages(List) ->
     messages(List, []).
 
@@ -167,21 +337,23 @@ messages([MessageMap | List], Res) ->
             {error, R}
     end.
 
-format_message(Messages) when is_list(Messages) ->
-    [format_message(Message) || Message <- Messages];
-format_message(#message{
-    id = ID, qos = Qos, from = From, topic = Topic, payload = Payload, flags = Flags
-}) ->
+make_publish_response(#message{id = ID}) ->
     #{
-        id => emqx_guid:to_hexstr(ID),
-        qos => Qos,
-        topic => Topic,
-        payload => Payload,
-        retain => maps:get(retain, Flags, false),
-        clientid => to_binary(From)
+        id => emqx_guid:to_hexstr(ID)
     }.
 
-to_binary(Data) when is_binary(Data) ->
-    Data;
-to_binary(Data) ->
-    list_to_binary(io_lib:format("~p", [Data])).
+make_publish_error_response(ReasonCode) ->
+    make_publish_error_response(ReasonCode, emqx_reason_codes:name(ReasonCode)).
+
+make_publish_error_response(ReasonCode, Msg) ->
+    #{
+        reason_code => ReasonCode,
+        message => to_binary(Msg)
+    }.
+
+to_binary(Atom) when is_atom(Atom) ->
+    atom_to_binary(Atom);
+to_binary(Msg) when is_binary(Msg) ->
+    Msg;
+to_binary(Term) ->
+    list_to_binary(io_lib:format("~0p", [Term])).

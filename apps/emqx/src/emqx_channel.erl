@@ -345,7 +345,8 @@ handle_in(?CONNECT_PACKET(ConnPkt) = Packet, Channel) ->
                 fun check_connect/2,
                 fun enrich_client/2,
                 fun set_log_meta/2,
-                fun check_banned/2
+                fun check_banned/2,
+                fun count_flapping_event/2
             ],
             ConnPkt,
             Channel#channel{conn_state = connecting}
@@ -997,8 +998,13 @@ maybe_nack(Delivers) ->
     lists:filter(fun not_nacked/1, Delivers).
 
 not_nacked({deliver, _Topic, Msg}) ->
-    not (emqx_shared_sub:is_ack_required(Msg) andalso
-        (ok == emqx_shared_sub:nack_no_connection(Msg))).
+    case emqx_shared_sub:is_ack_required(Msg) of
+        true ->
+            ok = emqx_shared_sub:nack_no_connection(Msg),
+            false;
+        false ->
+            true
+    end.
 
 maybe_mark_as_delivered(Session, Delivers) ->
     case emqx_session:info(is_persistent, Session) of
@@ -1222,6 +1228,8 @@ handle_call(
     ChanInfo1 = info(NChannel),
     emqx_cm:set_chan_info(ClientId, ChanInfo1#{sockinfo => SockInfo}),
     reply(ok, reset_timer(alive_timer, NChannel));
+handle_call(get_mqueue, Channel) ->
+    reply({ok, get_mqueue(Channel)}, Channel);
 handle_call(Req, Channel) ->
     ?SLOG(error, #{msg => "unexpected_call", call => Req}),
     reply(ignored, Channel).
@@ -1253,14 +1261,11 @@ handle_info(
     {sock_closed, Reason},
     Channel =
         #channel{
-            conn_state = ConnState,
-            clientinfo = ClientInfo = #{zone := Zone}
+            conn_state = ConnState
         }
 ) when
     ConnState =:= connected orelse ConnState =:= reauthenticating
 ->
-    emqx_config:get_zone_conf(Zone, [flapping_detect, enable]) andalso
-        emqx_flapping:detect(ClientInfo),
     Channel1 = ensure_disconnected(Reason, maybe_publish_will_msg(Channel)),
     case maybe_shutdown(Reason, Channel1) of
         {ok, Channel2} -> {ok, {event, disconnected}, Channel2};
@@ -1628,6 +1633,14 @@ check_banned(_ConnPkt, #channel{clientinfo = ClientInfo}) ->
         true -> {error, ?RC_BANNED};
         false -> ok
     end.
+
+%%--------------------------------------------------------------------
+%% Flapping
+
+count_flapping_event(_ConnPkt, Channel = #channel{clientinfo = ClientInfo = #{zone := Zone}}) ->
+    emqx_config:get_zone_conf(Zone, [flapping_detect, enable]) andalso
+        emqx_flapping:detect(ClientInfo),
+    {ok, Channel}.
 
 %%--------------------------------------------------------------------
 %% Authenticate
@@ -2085,7 +2098,7 @@ parse_topic_filters(TopicFilters) ->
     lists:map(fun emqx_topic:parse/1, TopicFilters).
 
 %%--------------------------------------------------------------------
-%% Ensure disconnected
+%% Maybe & Ensure disconnected
 
 ensure_disconnected(
     Reason,
@@ -2130,11 +2143,7 @@ publish_will_msg(ClientInfo, Msg = #message{topic = Topic}) ->
             ?tp(
                 warning,
                 last_will_testament_publish_denied,
-                #{
-                    client_info => ClientInfo,
-                    topic => Topic,
-                    message => Msg
-                }
+                #{topic => Topic}
             ),
             ok
     end.
@@ -2196,6 +2205,7 @@ shutdown(success, Reply, Packet, Channel) ->
 shutdown(Reason, Reply, Packet, Channel) ->
     {shutdown, Reason, Reply, Packet, Channel}.
 
+%% mqtt v5 connected sessions
 disconnect_and_shutdown(
     Reason,
     Reply,
@@ -2205,9 +2215,12 @@ disconnect_and_shutdown(
 ) when
     ConnState =:= connected orelse ConnState =:= reauthenticating
 ->
-    shutdown(Reason, Reply, ?DISCONNECT_PACKET(reason_code(Reason)), Channel);
+    NChannel = ensure_disconnected(Reason, Channel),
+    shutdown(Reason, Reply, ?DISCONNECT_PACKET(reason_code(Reason)), NChannel);
+%% mqtt v3/v4 sessions, mqtt v5 other conn_state sessions
 disconnect_and_shutdown(Reason, Reply, Channel) ->
-    shutdown(Reason, Reply, Channel).
+    NChannel = ensure_disconnected(Reason, Channel),
+    shutdown(Reason, Reply, NChannel).
 
 sp(true) -> 1;
 sp(false) -> 0.
@@ -2228,3 +2241,6 @@ get_mqtt_conf(Zone, Key, Default) ->
 set_field(Name, Value, Channel) ->
     Pos = emqx_misc:index_of(Name, record_info(fields, channel)),
     setelement(Pos + 1, Channel, Value).
+
+get_mqueue(#channel{session = Session}) ->
+    emqx_session:get_mqueue(Session).

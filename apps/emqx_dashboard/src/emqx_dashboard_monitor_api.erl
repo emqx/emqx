@@ -131,12 +131,20 @@ monitor(get, #{query_string := QS, bindings := Bindings}) ->
     end.
 
 monitor_current(get, #{bindings := Bindings}) ->
-    NodeOrCluster = binary_to_atom(maps:get(node, Bindings, <<"all">>), utf8),
-    case emqx_dashboard_monitor:current_rate(NodeOrCluster) of
-        {ok, CurrentRate} ->
-            {200, CurrentRate};
-        {badrpc, {Node, Reason}} ->
-            Message = list_to_binary(io_lib:format("Bad node ~p, rpc failed ~p", [Node, Reason])),
+    RawNode = maps:get(node, Bindings, all),
+    case emqx_misc:safe_to_existing_atom(RawNode, utf8) of
+        {ok, NodeOrCluster} ->
+            case emqx_dashboard_monitor:current_rate(NodeOrCluster) of
+                {ok, CurrentRate} ->
+                    {200, CurrentRate};
+                {badrpc, {Node, Reason}} ->
+                    Message = list_to_binary(
+                        io_lib:format("Bad node ~p, rpc failed ~p", [Node, Reason])
+                    ),
+                    {400, 'BAD_RPC', Message}
+            end;
+        {error, _} ->
+            Message = list_to_binary(io_lib:format("Bad node ~p", [RawNode])),
             {400, 'BAD_RPC', Message}
     end.
 

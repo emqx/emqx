@@ -25,14 +25,13 @@
 -define(PGSQL_DEFAULT_PORT, 5432).
 
 -define(SERVERS_DESC,
-    "A Node list for Cluster to connect to. The nodes should be separated with commas, such as: `Node[,Node].`\n"
+    "A Node list for Cluster to connect to. The nodes should be separated with commas, such as: `Node[,Node].`<br/>"
     "For each Node should be: "
 ).
 
 -define(SERVER_DESC(TYPE, DEFAULT_PORT),
-    "\n"
-    "The IPv4 or IPv6 address or the hostname to connect to.</br>\n"
-    "A host entry has the following form: `Host[:Port]`.</br>\n"
+    "The IPv4 or IPv6 address or the hostname to connect to.<br/>"
+    "A host entry has the following form: `Host[:Port]`.<br/>"
     "The " ++ TYPE ++ " default port " ++ DEFAULT_PORT ++ " is used if `[:Port]` is not specified."
 ).
 

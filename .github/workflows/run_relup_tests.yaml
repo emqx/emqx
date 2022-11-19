@@ -16,7 +16,7 @@ on:
 jobs:
   relup_test_plan:
     runs-on: ubuntu-20.04
-    container: "ghcr.io/emqx/emqx-builder/5.0-17:1.13.4-24.2.1-1-ubuntu20.04"
+    container: "ghcr.io/emqx/emqx-builder/5.0-18:1.13.4-24.3.4.2-1-ubuntu20.04"
     outputs:
       CUR_EE_VSN: ${{ steps.find-versions.outputs.CUR_EE_VSN }}
       OLD_VERSIONS: ${{ steps.find-versions.outputs.OLD_VERSIONS }}
@@ -24,7 +24,7 @@ jobs:
       run:
         shell: bash
     steps:
-    - uses: actions/checkout@v2
+    - uses: actions/checkout@v3
       name: Checkout
       with:
         path: emqx
@@ -45,7 +45,7 @@ jobs:
         cd emqx
         make emqx-tgz
         make emqx-enterprise-tgz
-    - uses: actions/upload-artifact@v2
+    - uses: actions/upload-artifact@v3
       name: Upload built emqx and test scenario
       with:
         name: emqx_built
@@ -75,7 +75,7 @@ jobs:
     - uses: erlef/setup-beam@v1
       with:
         otp-version: "24.2"
-    - uses: actions/checkout@v2
+    - uses: actions/checkout@v3
       with:
         repository: hawk/lux
         ref: lux-2.8.1
@@ -88,7 +88,7 @@ jobs:
         ./configure
         make
         echo "$(pwd)/bin" >> $GITHUB_PATH
-    - uses: actions/download-artifact@v2
+    - uses: actions/download-artifact@v3
       name: Download built emqx and test scenario
       with:
         name: emqx_built
@@ -114,7 +114,7 @@ jobs:
           docker logs node2.emqx.io | tee lux_logs/emqx2.log
           exit 1
         fi
-    - uses: actions/upload-artifact@v2
+    - uses: actions/upload-artifact@v3
       name: Save debug data
       if: failure()
       with:

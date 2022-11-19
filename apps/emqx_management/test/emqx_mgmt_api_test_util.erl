@@ -44,15 +44,20 @@ set_special_configs(_App) ->
     ok.
 
 request_api(Method, Url) ->
-    request_api(Method, Url, [], auth_header_(), []).
+    request_api(Method, Url, [], [], [], #{}).
 
 request_api(Method, Url, AuthOrHeaders) ->
-    request_api(Method, Url, [], AuthOrHeaders, []).
+    request_api(Method, Url, [], AuthOrHeaders, [], #{}).
 
 request_api(Method, Url, QueryParams, AuthOrHeaders) ->
-    request_api(Method, Url, QueryParams, AuthOrHeaders, []).
+    request_api(Method, Url, QueryParams, AuthOrHeaders, [], #{}).
 
-request_api(Method, Url, QueryParams, AuthOrHeaders, []) when
+request_api(Method, Url, QueryParams, AuthOrHeaders, Body) ->
+    request_api(Method, Url, QueryParams, AuthOrHeaders, Body, #{}).
+
+request_api(Method, Url, QueryParams, [], Body, Opts) ->
+    request_api(Method, Url, QueryParams, auth_header_(), Body, Opts);
+request_api(Method, Url, QueryParams, AuthOrHeaders, [], Opts) when
     (Method =:= options) orelse
         (Method =:= get) orelse
         (Method =:= put) orelse
@@ -65,8 +70,8 @@ request_api(Method, Url, QueryParams, AuthOrHeaders, []) when
             "" -> Url;
             _ -> Url ++ "?" ++ QueryParams
         end,
-    do_request_api(Method, {NewUrl, build_http_header(AuthOrHeaders)});
-request_api(Method, Url, QueryParams, AuthOrHeaders, Body) when
+    do_request_api(Method, {NewUrl, build_http_header(AuthOrHeaders)}, Opts);
+request_api(Method, Url, QueryParams, AuthOrHeaders, Body, Opts) when
     (Method =:= post) orelse
         (Method =:= patch) orelse
         (Method =:= put) orelse
@@ -79,10 +84,12 @@ request_api(Method, Url, QueryParams, AuthOrHeaders, Body) when
         end,
     do_request_api(
         Method,
-        {NewUrl, build_http_header(AuthOrHeaders), "application/json", emqx_json:encode(Body)}
+        {NewUrl, build_http_header(AuthOrHeaders), "application/json", emqx_json:encode(Body)},
+        Opts
     ).
 
-do_request_api(Method, Request) ->
+do_request_api(Method, Request, Opts) ->
+    ReturnBody = maps:get(return_body, Opts, false),
     ct:pal("Method: ~p, Request: ~p", [Method, Request]),
     case httpc:request(Method, Request, [], []) of
         {error, socket_closed_remotely} ->
@@ -91,8 +98,9 @@ do_request_api(Method, Request) ->
             Code >= 200 andalso Code =< 299
         ->
             {ok, Return};
-        {ok, {Reason, _, _} = Error} ->
-            ct:pal("error: ~p~n", [Error]),
+        {ok, {Reason, Headers, Body}} when ReturnBody ->
+            {error, {Reason, Headers, Body}};
+        {ok, {Reason, _Headers, _Body}} ->
             {error, Reason}
     end.
 

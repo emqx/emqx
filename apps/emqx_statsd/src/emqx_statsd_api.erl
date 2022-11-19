@@ -20,6 +20,7 @@
 
 -include("emqx_statsd.hrl").
 
+-include_lib("hocon/include/hoconsc.hrl").
 -include_lib("typerefl/include/types.hrl").
 
 -import(hoconsc, [mk/2, ref/2]).
@@ -48,14 +49,14 @@ schema("/statsd") ->
         'operationId' => statsd,
         get =>
             #{
-                description => <<"Get statsd config">>,
+                description => ?DESC(get_statsd_config_api),
                 tags => ?API_TAG_STATSD,
                 responses =>
                     #{200 => statsd_config_schema()}
             },
         put =>
             #{
-                description => <<"Set statsd config">>,
+                description => ?DESC(update_statsd_config_api),
                 tags => ?API_TAG_STATSD,
                 'requestBody' => statsd_config_schema(),
                 responses =>

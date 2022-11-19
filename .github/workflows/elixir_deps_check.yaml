@@ -7,11 +7,11 @@ on: [pull_request, push]
 jobs:
   elixir_deps_check:
     runs-on: ubuntu-20.04
-    container: ghcr.io/emqx/emqx-builder/5.0-17:1.13.4-24.2.1-1-ubuntu20.04
+    container: ghcr.io/emqx/emqx-builder/5.0-18:1.13.4-24.3.4.2-1-ubuntu20.04
 
     steps:
       - name: Checkout
-        uses: actions/checkout@v2
+        uses: actions/checkout@v3
       - name: ensure rebar
         run: ./scripts/ensure-rebar3.sh
       - name: Work around https://github.com/actions/checkout/issues/766

@@ -32,18 +32,18 @@ jobs:
         - emqx
         - emqx-enterprise
         otp:
-        - 24.2.1-1
+        - 24.3.4.2-1
         elixir:
         - 1.13.4
         os:
         - ubuntu20.04
         - el8
 
-    container: "ghcr.io/emqx/emqx-builder/5.0-17:${{ matrix.elixir }}-${{ matrix.otp }}-${{ matrix.os }}"
+    container: "ghcr.io/emqx/emqx-builder/5.0-18:${{ matrix.elixir }}-${{ matrix.otp }}-${{ matrix.os }}"
 
     steps:
     - uses: AutoModality/action-clean@v1
-    - uses: actions/checkout@v2
+    - uses: actions/checkout@v3
       with:
         fetch-depth: 0
     - name: prepare
@@ -73,11 +73,11 @@ jobs:
       run: |
         make ${EMQX_NAME}-elixir-pkg
         ./scripts/pkg-tests.sh ${EMQX_NAME}-elixir-pkg
-    - uses: actions/upload-artifact@v2
+    - uses: actions/upload-artifact@v3
       with:
         name: ${{ matrix.profile}}-${{ matrix.otp }}-${{ matrix.os }}
         path: _packages/${{ matrix.profile}}/*
-    - uses: actions/upload-artifact@v2
+    - uses: actions/upload-artifact@v3
       with:
         name: "${{ matrix.profile }}_schema_dump"
         path: |
@@ -94,8 +94,8 @@ jobs:
         otp:
           - 24.2.1
     steps:
-    - uses: actions/checkout@v2
-    - uses: ilammy/msvc-dev-cmd@v1
+    - uses: actions/checkout@v3
+    - uses: ilammy/msvc-dev-cmd@v1.12.0
     - uses: erlef/setup-beam@v1
       with:
         otp-version: ${{ matrix.otp }}
@@ -119,7 +119,7 @@ jobs:
         echo "EMQX installed"
         ./_build/${{ matrix.profile }}/rel/emqx/bin/emqx uninstall
         echo "EMQX uninstalled"
-    - uses: actions/upload-artifact@v2
+    - uses: actions/upload-artifact@v3
       with:
         name: windows
         path: _packages/${{ matrix.profile}}/*
@@ -132,14 +132,14 @@ jobs:
         - emqx
         - emqx-enterprise
         otp:
-        - 24.2.1-1
+        - 24.3.4.2-1
         os:
         - macos-11
 
     runs-on: ${{ matrix.os }}
 
     steps:
-    - uses: actions/checkout@v2
+    - uses: actions/checkout@v3
     - name: prepare
       run: |
         echo "EMQX_NAME=${{ matrix.profile }}" >> $GITHUB_ENV
@@ -153,7 +153,7 @@ jobs:
         apple_developer_identity: ${{ secrets.APPLE_DEVELOPER_IDENTITY }}
         apple_developer_id_bundle: ${{ secrets.APPLE_DEVELOPER_ID_BUNDLE }}
         apple_developer_id_bundle_password: ${{ secrets.APPLE_DEVELOPER_ID_BUNDLE_PASSWORD }}
-    - uses: actions/upload-artifact@v2
+    - uses: actions/upload-artifact@v3
       with:
         name: macos
         path: _packages/**/*
@@ -167,7 +167,7 @@ jobs:
         - emqx-enterprise
     runs-on: aws-amd64
     steps:
-    - uses: actions/download-artifact@v2
+    - uses: actions/download-artifact@v3
       name: Download schema dump
       with:
         name: "${{ matrix.profile }}_schema_dump"

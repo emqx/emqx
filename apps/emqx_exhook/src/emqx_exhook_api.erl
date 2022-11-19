@@ -41,7 +41,7 @@
 -import(hoconsc, [mk/1, mk/2, ref/1, enum/1, array/1, map/2]).
 -import(emqx_dashboard_swagger, [schema_with_example/2, error_codes/2]).
 
--define(TAGS, [<<"exhooks">>]).
+-define(TAGS, [<<"ExHook">>]).
 -define(NOT_FOURD, 'NOT_FOUND').
 -define(BAD_REQUEST, 'BAD_REQUEST').
 -define(BAD_RPC, 'BAD_RPC').
@@ -219,9 +219,9 @@ params_server_name_in_path() ->
 server_conf_schema() ->
     SSL = #{
         enable => false,
-        cacertfile => emqx:cert_file(<<"cacert.pem">>),
-        certfile => emqx:cert_file(<<"cert.pem">>),
-        keyfile => emqx:cert_file(<<"key.pem">>)
+        cacertfile => <<"/etc/emqx/certs/cacert.pem">>,
+        certfile => <<"/etc/emqx/certs/cert.pem">>,
+        keyfile => <<"/etc/emqx/certs/key.pem">>
     },
     schema_with_example(
         ref(server_config),

@@ -1,1 +1,2 @@
 -define(APP, emqx_prometheus).
+-define(PROMETHEUS, [prometheus]).

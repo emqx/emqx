@@ -37,18 +37,8 @@
     ]
 ).
 
--export([
-    update/1,
-    start/0,
-    stop/0,
-    restart/0,
-    % for rpc
-    do_start/0,
-    do_stop/0
-]).
-
 %% APIs
--export([start_link/1]).
+-export([start_link/1, info/0]).
 
 %% gen_server callbacks
 -export([
@@ -69,87 +59,69 @@
 
 -export([collect/1]).
 
+-export([
+    %% For bpapi, deprecated_since 5.0.10, remove this when 5.1.x
+    do_start/0,
+    do_stop/0
+]).
+
 -define(C(K, L), proplists:get_value(K, L, 0)).
 
 -define(TIMER_MSG, '#interval').
 
--record(state, {push_gateway, timer, interval}).
-
-%%--------------------------------------------------------------------
-%% update new config
-update(Config) ->
-    case
-        emqx_conf:update(
-            [prometheus],
-            Config,
-            #{rawconf_with_defaults => true, override_to => cluster}
-        )
-    of
-        {ok, #{raw_config := NewConfigRows}} ->
-            case maps:get(<<"enable">>, Config, true) of
-                true ->
-                    ok = restart();
-                false ->
-                    ok = stop()
-            end,
-            {ok, NewConfigRows};
-        {error, Reason} ->
-            {error, Reason}
-    end.
-
-start() ->
-    {_, []} = emqx_prometheus_proto_v1:start(mria_mnesia:running_nodes()),
-    ok.
-
-stop() ->
-    {_, []} = emqx_prometheus_proto_v1:stop(mria_mnesia:running_nodes()),
-    ok.
-
-restart() ->
-    ok = stop(),
-    ok = start().
-
-do_start() ->
-    emqx_prometheus_sup:start_child(?APP, emqx_conf:get([prometheus])).
-
-do_stop() ->
-    case emqx_prometheus_sup:stop_child(?APP) of
-        ok ->
-            ok;
-        {error, not_found} ->
-            ok
-    end.
+-define(HTTP_OPTIONS, [{autoredirect, true}, {timeout, 60000}]).
 
 %%--------------------------------------------------------------------
 %% APIs
 %%--------------------------------------------------------------------
 
-start_link(Opts) ->
-    gen_server:start_link({local, ?MODULE}, ?MODULE, [Opts], []).
+start_link([]) ->
+    gen_server:start_link({local, ?MODULE}, ?MODULE, [], []).
+
+info() ->
+    gen_server:call(?MODULE, info).
 
 %%--------------------------------------------------------------------
 %% gen_server callbacks
 %%--------------------------------------------------------------------
 
-init([Opts]) ->
-    Interval = maps:get(interval, Opts),
-    PushGateway = maps:get(push_gateway_server, Opts),
-    {ok, ensure_timer(#state{push_gateway = PushGateway, interval = Interval})}.
+init([]) ->
+    #{interval := Interval} = opts(),
+    {ok, #{timer => ensure_timer(Interval), ok => 0, failed => 0}}.
 
+handle_call(info, _From, State = #{timer := Timer}) ->
+    {reply, State#{opts => opts(), next_push_ms => erlang:read_timer(Timer)}, State};
 handle_call(_Msg, _From, State) ->
-    {noreply, State}.
+    {reply, ok, State}.
 
 handle_cast(_Msg, State) ->
     {noreply, State}.
 
-handle_info({timeout, R, ?TIMER_MSG}, State = #state{timer = R, push_gateway = Uri}) ->
+handle_info({timeout, Timer, ?TIMER_MSG}, State = #{timer := Timer}) ->
+    #{interval := Interval, push_gateway_server := Server} = opts(),
+    PushRes = push_to_push_gateway(Server),
+    NewTimer = ensure_timer(Interval),
+    NewState = maps:update_with(PushRes, fun(C) -> C + 1 end, 1, State#{timer => NewTimer}),
+    %% Data is too big, hibernate for saving memory and stop system monitor warning.
+    {noreply, NewState, hibernate};
+handle_info(_Msg, State) ->
+    {noreply, State}.
+
+push_to_push_gateway(Uri) ->
     [Name, Ip] = string:tokens(atom_to_list(node()), "@"),
     Url = lists:concat([Uri, "/metrics/job/", Name, "/instance/", Name, "~", Ip]),
     Data = prometheus_text_format:format(),
-    httpc:request(post, {Url, [], "text/plain", Data}, [{autoredirect, true}], []),
-    {noreply, ensure_timer(State)};
-handle_info(_Msg, State) ->
-    {noreply, State}.
+    case httpc:request(post, {Url, [], "text/plain", Data}, ?HTTP_OPTIONS, []) of
+        {ok, {{"HTTP/1.1", 200, "OK"}, _Headers, _Body}} ->
+            ok;
+        Error ->
+            ?SLOG(error, #{
+                msg => "post_to_push_gateway_failed",
+                error => Error,
+                url => Url
+            }),
+            failed
+    end.
 
 code_change(_OldVsn, State, _Extra) ->
     {ok, State}.
@@ -157,11 +129,14 @@ code_change(_OldVsn, State, _Extra) ->
 terminate(_Reason, _State) ->
     ok.
 
-ensure_timer(State = #state{interval = Interval}) ->
-    State#state{timer = emqx_misc:start_timer(Interval, ?TIMER_MSG)}.
+ensure_timer(Interval) ->
+    emqx_misc:start_timer(Interval, ?TIMER_MSG).
+
 %%--------------------------------------------------------------------
 %% prometheus callbacks
 %%--------------------------------------------------------------------
+opts() ->
+    emqx_conf:get(?PROMETHEUS).
 
 deregister_cleanup(_Registry) ->
     ok.
@@ -622,3 +597,11 @@ emqx_cluster_data() ->
         {nodes_running, length(Running)},
         {nodes_stopped, length(Stopped)}
     ].
+
+%% deprecated_since 5.0.10, remove this when 5.1.x
+do_start() ->
+    emqx_prometheus_sup:start_child(?APP).
+
+%% deprecated_since 5.0.10, remove this when 5.1.x
+do_stop() ->
+    emqx_prometheus_sup:stop_child(?APP).

@@ -16,10 +16,10 @@ jobs:
   prepare:
     runs-on: ubuntu-20.04
     # prepare source with any OTP version, no need for a matrix
-    container: ghcr.io/emqx/emqx-builder/5.0-17:1.13.4-24.2.1-1-alpine3.15.1
+    container: ghcr.io/emqx/emqx-builder/5.0-18:1.13.4-24.3.4.2-1-alpine3.15.1
 
     steps:
-      - uses: actions/checkout@v2
+      - uses: actions/checkout@v3
         with:
           path: source
           fetch-depth: 0
@@ -27,7 +27,7 @@ jobs:
         run: |
           make -C source deps-all
           zip -ryq source.zip source/* source/.[^.]*
-      - uses: actions/upload-artifact@v2
+      - uses: actions/upload-artifact@v3
         with:
           name: source
           path: source.zip
@@ -49,7 +49,7 @@ jobs:
         os:
           - ["alpine3.15.1", "alpine:3.15.1"]
         otp:
-          - 24.2.1-1
+          - 24.3.4.2-1
         elixir:
           - 1.13.4
         arch:
@@ -58,7 +58,7 @@ jobs:
     - uses: erlef/setup-beam@v1
       with:
         otp-version: "24.2"
-    - uses: actions/download-artifact@v2
+    - uses: actions/download-artifact@v3
       with:
         name: source
         path: .
@@ -68,7 +68,7 @@ jobs:
     - name: make docker image
       working-directory: source
       env:
-        EMQX_BUILDER: ghcr.io/emqx/emqx-builder/5.0-17:${{ matrix.elixir }}-${{ matrix.otp }}-${{ matrix.os[0] }}
+        EMQX_BUILDER: ghcr.io/emqx/emqx-builder/5.0-18:${{ matrix.elixir }}-${{ matrix.otp }}-${{ matrix.os[0] }}
         EMQX_RUNNER: ${{ matrix.os[1] }}
       run: |
         make ${{ matrix.profile }}-docker
@@ -120,7 +120,7 @@ jobs:
         os:
         - ["debian11", "debian:11-slim"]
         otp:
-        - 24.2.1-1
+        - 24.3.4.2-1
         elixir:
         - 1.13.4
         arch:
@@ -131,7 +131,7 @@ jobs:
     - uses: erlef/setup-beam@v1
       with:
         otp-version: "24.2"
-    - uses: actions/download-artifact@v2
+    - uses: actions/download-artifact@v3
       with:
         name: source
         path: .
@@ -141,7 +141,7 @@ jobs:
     - name: make docker image
       working-directory: source
       env:
-        EMQX_BUILDER: ghcr.io/emqx/emqx-builder/5.0-17:${{ matrix.elixir }}-${{ matrix.otp }}-${{ matrix.os[0] }}
+        EMQX_BUILDER: ghcr.io/emqx/emqx-builder/5.0-18:${{ matrix.elixir }}-${{ matrix.otp }}-${{ matrix.os[0] }}
         EMQX_RUNNER: ${{ matrix.os[1] }}
       run: |
         make ${{ matrix.profile }}-docker
@@ -207,7 +207,7 @@ jobs:
           echo "waiting ${{ matrix.profile }} cluster scale"
           sleep 1
         done
-    - uses: actions/checkout@v2
+    - uses: actions/checkout@v3
       with:
         repository: emqx/paho.mqtt.testing
         ref: develop-4.0

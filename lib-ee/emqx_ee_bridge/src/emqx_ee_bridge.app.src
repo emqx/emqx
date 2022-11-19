@@ -1,5 +1,5 @@
 {application, emqx_ee_bridge, [
-    {vsn, "0.1.1"},
+    {vsn, "0.1.0"},
     {registered, []},
     {applications, [
         kernel,

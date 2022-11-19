@@ -367,11 +367,13 @@ parameters(Params, Module) ->
                         Required = hocon_schema:field_schema(Type, required),
                         Default = hocon_schema:field_schema(Type, default),
                         HoconType = hocon_schema:field_schema(Type, type),
+                        SchemaExtras = hocon_extract_map([enum, default], Type),
                         Meta = init_meta(Default),
                         {ParamType, Refs} = hocon_schema_to_spec(HoconType, Module),
+                        Schema = maps:merge(maps:merge(ParamType, Meta), SchemaExtras),
                         Spec0 = init_prop(
                             [required | ?DEFAULT_FIELDS],
-                            #{schema => maps:merge(ParamType, Meta), name => Name, in => In},
+                            #{schema => Schema, name => Name, in => In},
                             Type
                         ),
                         Spec1 = trans_required(Spec0, Required, In),
@@ -383,6 +385,18 @@ parameters(Params, Module) ->
             Params
         ),
     {lists:reverse(SpecList), AllRefs}.
+
+hocon_extract_map(Keys, Type) ->
+    lists:foldl(
+        fun(K, M) ->
+            case hocon_schema:field_schema(Type, K) of
+                undefined -> M;
+                V -> M#{K => V}
+            end
+        end,
+        #{},
+        Keys
+    ).
 
 init_meta(undefined) -> #{};
 init_meta(Default) -> #{default => Default}.
@@ -427,7 +441,7 @@ trans_description(Spec, Hocon) ->
         undefined ->
             Spec;
         Desc ->
-            Desc1 = binary:replace(Desc, [<<"</br>\n">>, <<"\n">>], <<"</br>">>, [global]),
+            Desc1 = binary:replace(Desc, [<<"\n">>], <<"<br/>">>, [global]),
             Spec#{description => Desc1}
     end.
 
@@ -656,6 +670,8 @@ typename_to_spec("file()", _Mod) ->
     #{type => string, example => <<"/path/to/file">>};
 typename_to_spec("ip_port()", _Mod) ->
     #{type => string, example => <<"127.0.0.1:80">>};
+typename_to_spec("host_port()", _Mod) ->
+    #{type => string, example => <<"example.host.domain:80">>};
 typename_to_spec("write_syntax()", _Mod) ->
     #{
         type => string,
@@ -663,8 +679,6 @@ typename_to_spec("write_syntax()", _Mod) ->
             <<"${topic},clientid=${clientid}", " ", "payload=${payload},",
                 "${clientid}_int_value=${payload.int_key}i,", "bool=${payload.bool}">>
     };
-typename_to_spec("ip_ports()", _Mod) ->
-    #{type => string, example => <<"127.0.0.1:80, 127.0.0.2:80">>};
 typename_to_spec("url()", _Mod) ->
     #{type => string, example => <<"http://127.0.0.1">>};
 typename_to_spec("connect_timeout()", Mod) ->

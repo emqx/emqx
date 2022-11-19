@@ -28,6 +28,12 @@
     "  push_gateway_server = \"http://127.0.0.1:9091\"\n"
     "  interval = \"1s\"\n"
     "  enable = true\n"
+    "  vm_dist_collector = enabled\n"
+    "  mnesia_collector = enabled\n"
+    "  vm_statistics_collector = disabled\n"
+    "  vm_system_info_collector = disabled\n"
+    "  vm_memory_collector = enabled\n"
+    "  vm_msacc_collector = enabled\n"
     "}\n"
 >>).
 
@@ -65,13 +71,18 @@ load_config() ->
 %%--------------------------------------------------------------------
 
 t_start_stop(_) ->
-    ?assertMatch(ok, emqx_prometheus:start()),
-    ?assertMatch(ok, emqx_prometheus:stop()),
-    ?assertMatch(ok, emqx_prometheus:restart()),
-    %% wait the interval timer tigger
+    App = emqx_prometheus,
+    ?assertMatch(ok, emqx_prometheus_sup:start_child(App)),
+    %% start twice return ok.
+    ?assertMatch(ok, emqx_prometheus_sup:start_child(App)),
+    ?assertMatch(ok, emqx_prometheus_sup:stop_child(App)),
+    %% stop twice return ok.
+    ?assertMatch(ok, emqx_prometheus_sup:stop_child(App)),
+    %% wait the interval timer trigger
     timer:sleep(2000).
 
-t_test(_) ->
+t_collector_no_crash_test(_) ->
+    prometheus_text_format:format(),
     ok.
 
 t_only_for_coverage(_) ->

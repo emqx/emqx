@@ -34,7 +34,8 @@
     delete_trace/2,
     update_trace/2,
     download_trace_log/2,
-    stream_log_file/2
+    stream_log_file/2,
+    log_file_detail/2
 ]).
 
 -export([validate_name/1]).
@@ -55,7 +56,14 @@ api_spec() ->
     emqx_dashboard_swagger:spec(?MODULE, #{check_schema => true, translate_body => true}).
 
 paths() ->
-    ["/trace", "/trace/:name/stop", "/trace/:name/download", "/trace/:name/log", "/trace/:name"].
+    [
+        "/trace",
+        "/trace/:name/stop",
+        "/trace/:name/download",
+        "/trace/:name/log",
+        "/trace/:name/log_detail",
+        "/trace/:name"
+    ].
 
 schema("/trace") ->
     #{
@@ -95,7 +103,7 @@ schema("/trace/:name") ->
     #{
         'operationId' => delete_trace,
         delete => #{
-            description => "Delete trace by name",
+            description => "Delete specified trace",
             tags => ?TAGS,
             parameters => [hoconsc:ref(name)],
             responses => #{
@@ -136,6 +144,19 @@ schema("/trace/:name/download") ->
             }
         }
     };
+schema("/trace/:name/log_detail") ->
+    #{
+        'operationId' => log_file_detail,
+        get => #{
+            description => "get trace log file's metadata, such as size, last update time",
+            tags => ?TAGS,
+            parameters => [hoconsc:ref(name)],
+            responses => #{
+                200 => hoconsc:array(hoconsc:ref(log_file_detail)),
+                404 => emqx_dashboard_swagger:error_codes(['NOT_FOUND'], <<"Trace Name Not Found">>)
+            }
+        }
+    };
 schema("/trace/:name/log") ->
     #{
         'operationId' => stream_log_file,
@@ -158,6 +179,13 @@ schema("/trace/:name/log") ->
         }
     }.
 
+fields(log_file_detail) ->
+    fields(node) ++
+        [
+            {size, hoconsc:mk(integer(), #{desc => "file size"})},
+            {mtime,
+                hoconsc:mk(integer(), #{desc => "the modification and last access times of a file"})}
+        ];
 fields(trace) ->
     [
         {name,
@@ -265,7 +293,8 @@ fields(node) ->
                 #{
                     desc => "Node name",
                     in => query,
-                    required => false
+                    required => false,
+                    example => "emqx@127.0.0.1"
                 }
             )}
     ];
@@ -323,7 +352,7 @@ trace(get, _Params) ->
                 emqx_trace:format(List0)
             ),
             Nodes = mria_mnesia:running_nodes(),
-            TraceSize = wrap_rpc(emqx_mgmt_trace_proto_v1:get_trace_size(Nodes)),
+            TraceSize = wrap_rpc(emqx_mgmt_trace_proto_v2:get_trace_size(Nodes)),
             AllFileSize = lists:foldl(fun(F, Acc) -> maps:merge(Acc, F) end, #{}, TraceSize),
             Now = erlang:system_time(second),
             Traces =
@@ -471,19 +500,43 @@ group_trace_file(ZipDir, TraceLog, TraceFiles) ->
     ).
 
 collect_trace_file(Nodes, TraceLog) ->
-    wrap_rpc(emqx_mgmt_trace_proto_v1:trace_file(Nodes, TraceLog)).
+    wrap_rpc(emqx_mgmt_trace_proto_v2:trace_file(Nodes, TraceLog)).
+
+collect_trace_file_detail(TraceLog) ->
+    Nodes = mria_mnesia:running_nodes(),
+    wrap_rpc(emqx_mgmt_trace_proto_v2:trace_file_detail(Nodes, TraceLog)).
 
 wrap_rpc({GoodRes, BadNodes}) ->
     BadNodes =/= [] andalso
         ?SLOG(error, #{msg => "rpc_call_failed", bad_nodes => BadNodes}),
     GoodRes.
 
+log_file_detail(get, #{bindings := #{name := Name}}) ->
+    case emqx_trace:get_trace_filename(Name) of
+        {ok, TraceLog} ->
+            TraceFiles = collect_trace_file_detail(TraceLog),
+            {200, group_trace_file_detail(TraceFiles)};
+        {error, not_found} ->
+            ?NOT_FOUND(Name)
+    end.
+
+group_trace_file_detail(TraceLogDetail) ->
+    GroupFun =
+        fun
+            ({ok, Info}, Acc) ->
+                [Info | Acc];
+            ({error, Error}, Acc) ->
+                ?SLOG(error, Error#{msg => "read_trace_file_failed"}),
+                Acc
+        end,
+    lists:foldl(GroupFun, [], TraceLogDetail).
+
 stream_log_file(get, #{bindings := #{name := Name}, query_string := Query}) ->
     Position = maps:get(<<"position">>, Query, 0),
     Bytes = maps:get(<<"bytes">>, Query, 1000),
     case parse_node(Query, node()) of
         {ok, Node} ->
-            case emqx_mgmt_trace_proto_v1:read_trace_file(Node, Name, Position, Bytes) of
+            case emqx_mgmt_trace_proto_v2:read_trace_file(Node, Name, Position, Bytes) of
                 {ok, Bin} ->
                     Meta = #{<<"position">> => Position + byte_size(Bin), <<"bytes">> => Bytes},
                     {200, #{meta => Meta, items => Bin}};

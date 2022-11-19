@@ -6,7 +6,7 @@
 -export([paths/0, api_spec/0, schema/1, fields/1]).
 -export([init_per_suite/1, end_per_suite/1]).
 -export([t_in_path/1, t_in_query/1, t_in_mix/1, t_without_in/1, t_ref/1, t_public_ref/1]).
--export([t_require/1, t_nullable/1, t_method/1, t_api_spec/1]).
+-export([t_require/1, t_query_enum/1, t_nullable/1, t_method/1, t_api_spec/1]).
 -export([t_in_path_trans/1, t_in_query_trans/1, t_in_mix_trans/1, t_ref_trans/1]).
 -export([t_in_path_trans_error/1, t_in_query_trans_error/1, t_in_mix_trans_error/1]).
 -export([all/0, suite/0, groups/0]).
@@ -30,6 +30,7 @@ groups() ->
             t_in_mix,
             t_without_in,
             t_require,
+            t_query_enum,
             t_nullable,
             t_method,
             t_public_ref
@@ -224,6 +225,17 @@ t_require(_Config) ->
         }
     ],
     validate("/required/false", ExpectSpec),
+    ok.
+
+t_query_enum(_Config) ->
+    ExpectSpec = [
+        #{
+            in => query,
+            name => userid,
+            schema => #{type => string, enum => [<<"a">>], default => <<"a">>}
+        }
+    ],
+    validate("/query/enum", ExpectSpec),
     ok.
 
 t_nullable(_Config) ->
@@ -528,6 +540,8 @@ schema("/test/without/in") ->
     };
 schema("/required/false") ->
     to_schema([{'userid', mk(binary(), #{in => query, required => false})}]);
+schema("/query/enum") ->
+    to_schema([{'userid', mk(binary(), #{in => query, enum => [<<"a">>], default => <<"a">>})}]);
 schema("/nullable/false") ->
     to_schema([{'userid', mk(binary(), #{in => query, required => true})}]);
 schema("/nullable/true") ->

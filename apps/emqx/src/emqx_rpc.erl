@@ -124,7 +124,10 @@ filter_result(Delivery) ->
 max_client_num() ->
     emqx:get_config([rpc, tcp_client_num], ?DefaultClientNum).
 
--spec unwrap_erpc(emqx_rpc:erpc(A)) -> A | {error, _Err}.
+-spec unwrap_erpc(emqx_rpc:erpc(A) | [emqx_rpc:erpc(A)]) -> A | {error, _Err} | list().
+
+unwrap_erpc(Res) when is_list(Res) ->
+    [unwrap_erpc(R) || R <- Res];
 unwrap_erpc({ok, A}) ->
     A;
 unwrap_erpc({throw, A}) ->

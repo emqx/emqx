@@ -20,7 +20,7 @@ jobs:
   prepare:
     runs-on: ubuntu-20.04
     # prepare source with any OTP version, no need for a matrix
-    container: "ghcr.io/emqx/emqx-builder/5.0-17:1.13.4-24.2.1-1-ubuntu20.04"
+    container: "ghcr.io/emqx/emqx-builder/5.0-18:1.13.4-24.3.4.2-1-ubuntu20.04"
 
     outputs:
       BUILD_PROFILE: ${{ steps.get_profile.outputs.BUILD_PROFILE }}
@@ -29,7 +29,7 @@ jobs:
       DOCKER_TAG_VERSION: ${{ steps.get_profile.outputs.DOCKER_TAG_VERSION }}
 
     steps:
-      - uses: actions/checkout@v2
+      - uses: actions/checkout@v3
         with:
           ref: ${{ github.event.inputs.branch_or_tag }} # when input is not given, the event tag is used
           path: source
@@ -46,7 +46,6 @@ jobs:
           else
             docker_latest=false
           fi
-          echo "::set-output name=IS_DOCKER_LATEST::${docker_latest}"
           if git describe --tags --match "[v|e]*" --exact; then
             echo "This is an exact git tag, will publish images"
             is_exact='true'
@@ -54,7 +53,6 @@ jobs:
             echo "This is NOT an exact git tag, will not publish images"
             is_exact='false'
           fi
-          echo "::set-output name=IS_EXACT_TAG::${is_exact}"
           case $tag in
             refs/tags/v*)
               PROFILE='emqx'
@@ -78,94 +76,69 @@ jobs:
               esac
               ;;
           esac
-          echo "::set-output name=BUILD_PROFILE::$PROFILE"
           VSN="$(./pkg-vsn.sh "$PROFILE")"
           echo "Building $PROFILE image with tag $VSN (latest=$docker_latest)"
-          echo "::set-output name=DOCKER_TAG_VERSION::$VSN"
+          echo "IS_DOCKER_LATEST=$docker_latest" >> $GITHUB_OUTPUT
+          echo "IS_EXACT_TAG=$is_exact" >> $GITHUB_OUTPUT
+          echo "BUILD_PROFILE=$PROFILE" >> $GITHUB_OUTPUT
+          echo "DOCKER_TAG_VERSION=$VSN" >> $GITHUB_OUTPUT
       - name: get_all_deps
         run: |
           make -C source deps-all
           zip -ryq source.zip source/* source/.[^.]*
-      - uses: actions/upload-artifact@v2
+      - uses: actions/upload-artifact@v3
         with:
           name: source
           path: source.zip
 
   docker:
-    runs-on: ${{ matrix.build_machine }}
+    runs-on: ${{ matrix.arch[1] }}
     needs: prepare
 
     strategy:
       fail-fast: false
       matrix:
         arch:
-          - amd64
-          - arm64
+          - [amd64, ubuntu-20.04]
+          - [arm64, aws-arm64]
         profile:
           - ${{ needs.prepare.outputs.BUILD_PROFILE }}
-        build_elixir:
-          - no_elixir
         registry:
           - 'docker.io'
           - 'public.ecr.aws'
         os:
           - [alpine3.15.1, "alpine:3.15.1", "deploy/docker/Dockerfile.alpine"]
           - [debian11, "debian:11-slim", "deploy/docker/Dockerfile"]
-        # NOTE: for docker, only support latest otp and elixir
-        # versions, not a matrix
+        # NOTE: 'otp' and 'elixir' are to configure emqx-builder image
+        #       only support latest otp and elixir, not a matrix
         otp:
-          - 24.2.1-1 # update to latest
+          - 24.3.4.2-1 # update to latest
         elixir:
           - 1.13.4 # update to latest
-        build_machine:
-          - aws-arm64
-          - ubuntu-20.04
-        exclude:
+        exclude: # TODO: publish enterprise to ecr too?
           - registry: 'public.ecr.aws'
             profile: emqx-enterprise
-          - arch: arm64
-            build_machine: ubuntu-20.04
-          - arch: amd64
-            build_machine: aws-arm64
-        include:
-          - arch: amd64
-            profile: emqx
-            build_elixir: with_elixir
-            registry: 'docker.io'
-            os: [debian11, "debian:11-slim", "deploy/docker/Dockerfile"]
-            otp: 24.2.1-1
-            elixir: 1.13.4
-            build_machine: ubuntu-20.04
-          - arch: arm64
-            profile: emqx
-            build_elixir: with_elixir
-            registry: 'docker.io'
-            os: [debian11, "debian:11-slim", "deploy/docker/Dockerfile"]
-            otp: 24.2.1-1
-            elixir: 1.13.4
-            build_machine: aws-arm64
-
     steps:
     - uses: AutoModality/action-clean@v1
-      if: matrix.build_machine == 'aws-arm64'
-    - uses: actions/download-artifact@v2
+      if: matrix.arch[1] == 'aws-arm64'
+    - uses: actions/download-artifact@v3
       with:
         name: source
         path: .
     - name: unzip source code
       run: unzip -q source.zip
 
-    - uses: docker/setup-buildx-action@v1
+    - uses: docker/setup-buildx-action@v2
 
     - name: Login for docker.
-      uses: docker/login-action@v1
+      uses: docker/login-action@v2
       if: matrix.registry == 'docker.io'
       with:
         username: ${{ secrets.DOCKER_HUB_USER }}
         password: ${{ secrets.DOCKER_HUB_TOKEN }}
 
     - name: Login for AWS ECR
-      uses: docker/login-action@v1
+      uses: docker/login-action@v2
       if: matrix.registry == 'public.ecr.aws'
       with:
         registry: public.ecr.aws
@@ -173,113 +146,129 @@ jobs:
         password: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
         ecr: true
 
-    - name: prepare for docker-action-parms
-      id: pre-meta
-      run: |
-        emqx_name=${{ matrix.profile }}
-        img_suffix=${{ matrix.arch }}
-        img_labels="org.opencontainers.image.otp.version=${{ matrix.otp }}"
-
-        if [ ${{ matrix.build_elixir }} = "with_elixir" ]; then
-          emqx_name="emqx-elixir"
-          img_suffix="elixir-${{ matrix.arch }}"
-          img_labels="org.opencontainers.image.elixir.version=${{ matrix.elixir }}\n${img_labels}"
-        fi
-
-        if [ ${{ matrix.profile }} = "emqx" ]; then
-          img_labels="org.opencontainers.image.edition=Opensource\n${img_labels}"
-        fi
-
-        if [ ${{ matrix.profile }} = "emqx-enterprise" ]; then
-          img_labels="org.opencontainers.image.edition=Enterprise\n${img_labels}"
-        fi
-
-        if [[ ${{ matrix.os[0] }} =~ "alpine" ]]; then
-          img_suffix="${img_suffix}-alpine"
-        fi
-
-        echo "::set-output name=emqx_name::${emqx_name}"
-        echo "::set-output name=img_suffix::${img_suffix}"
-        echo "::set-output name=img_labels::${img_labels}"
-
-    # NOTE, Pls make sure this is identical as the one in job 'docker-push-multi-arch-manifest'
-    - uses: docker/metadata-action@v3
+    - uses: ./source/.github/actions/docker-meta
       id: meta
       with:
-        images: ${{ matrix.registry }}/${{ github.repository_owner }}/${{ matrix.profile }}
-        flavor: |
-          suffix=-${{ steps.pre-meta.outputs.img_suffix }}
-        tags: |
-          type=raw,value=${{ needs.prepare.outputs.DOCKER_TAG_VERSION }}
-        labels:
-          ${{ steps.pre-meta.outputs.img_labels }}
+        profile: ${{ matrix.profile }}
+        registry: ${{ matrix.registry }}
+        arch: ${{ matrix.arch[0] }}
+        otp: ${{ matrix.otp }}
+        builder_base: ${{ matrix.os[0] }}
+        owner: ${{ github.repository_owner }}
+        docker_tags: ${{ needs.prepare.outputs.DOCKER_TAG_VERSION }}
 
-    - uses: docker/build-push-action@v2
+    - uses: docker/build-push-action@v3
       with:
         push: ${{ needs.prepare.outputs.IS_EXACT_TAG }}
         pull: true
         no-cache: true
-        platforms: linux/${{ matrix.arch }}
+        platforms: linux/${{ matrix.arch[0] }}
         tags: ${{ steps.meta.outputs.tags }}
         labels: ${{ steps.meta.outputs.labels }}
         build-args: |
-          BUILD_FROM=ghcr.io/emqx/emqx-builder/5.0-17:${{ matrix.elixir }}-${{ matrix.otp }}-${{ matrix.os[0] }}
+          BUILD_FROM=ghcr.io/emqx/emqx-builder/5.0-18:${{ matrix.elixir }}-${{ matrix.otp }}-${{ matrix.os[0] }}
           RUN_FROM=${{ matrix.os[1] }}
-          EMQX_NAME=${{ steps.pre-meta.outputs.emqx_name }}
+          EMQX_NAME=${{ steps.meta.outputs.emqx_name }}
+        file: source/${{ matrix.os[2] }}
+        context: source
+
+  docker-elixir:
+    runs-on: ${{ matrix.arch[1] }}
+    needs: prepare
+    # do not build elixir images for ee for now
+    if: needs.prepare.outputs.BUILD_PROFILE == 'emqx'
+
+    strategy:
+      fail-fast: false
+      matrix:
+        arch:
+          - [amd64, ubuntu-20.04]
+          - [arm64, aws-arm64]
+        profile:
+          - ${{ needs.prepare.outputs.BUILD_PROFILE }}
+        registry:
+          - 'docker.io'
+        os:
+          - [debian11, "debian:11-slim", "deploy/docker/Dockerfile"]
+        otp:
+          - 24.3.4.2-1 # update to latest
+        elixir:
+          - 1.13.4 # update to latest
+
+    steps:
+    - uses: AutoModality/action-clean@v1
+      if: matrix.arch[1] == 'aws-arm64'
+    - uses: actions/download-artifact@v3
+      with:
+        name: source
+        path: .
+    - name: unzip source code
+      run: unzip -q source.zip
+
+    - uses: docker/setup-buildx-action@v2
+
+    - name: Login for docker.
+      uses: docker/login-action@v2
+      with:
+        username: ${{ secrets.DOCKER_HUB_USER }}
+        password: ${{ secrets.DOCKER_HUB_TOKEN }}
+
+    - uses: ./source/.github/actions/docker-meta
+      id: meta
+      with:
+        profile: ${{ matrix.profile }}
+        registry: ${{ matrix.registry }}
+        arch: ${{ matrix.arch[0] }}
+        otp: ${{ matrix.otp }}
+        elixir: ${{ matrix.elixir }}
+        builder_base: ${{ matrix.os[0] }}
+        owner: ${{ github.repository_owner }}
+        docker_tags: ${{ needs.prepare.outputs.DOCKER_TAG_VERSION }}
+
+    - uses: docker/build-push-action@v3
+      with:
+        push: ${{ needs.prepare.outputs.IS_EXACT_TAG }}
+        pull: true
+        no-cache: true
+        platforms: linux/${{ matrix.arch[0] }}
+        tags: ${{ steps.meta.outputs.tags }}
+        labels: ${{ steps.meta.outputs.labels }}
+        build-args: |
+          BUILD_FROM=ghcr.io/emqx/emqx-builder/5.0-18:${{ matrix.elixir }}-${{ matrix.otp }}-${{ matrix.os[0] }}
+          RUN_FROM=${{ matrix.os[1] }}
+          EMQX_NAME=${{ steps.meta.outputs.emqx_name }}
         file: source/${{ matrix.os[2] }}
         context: source
 
   docker-push-multi-arch-manifest:
     # note, we only run on amd64
-    if: needs.prepare.outputs.IS_EXACT_TAG == 'true'
+    if: needs.prepare.outputs.IS_EXACT_TAG
     needs:
       - prepare
       - docker
-    runs-on: ubuntu-latest
+    runs-on: ${{ matrix.arch[1] }}
     strategy:
       fail-fast: false
       matrix:
+        arch:
+          - [amd64, ubuntu-20.04]
         profile:
           - ${{ needs.prepare.outputs.BUILD_PROFILE }}
-        build_elixir:
-          - no_elixir
         os:
           - [alpine3.15.1, "alpine:3.15.1", "deploy/docker/Dockerfile.alpine"]
           - [debian11, "debian:11-slim", "deploy/docker/Dockerfile"]
-        # NOTE: for docker, only support latest otp version, not a matrix
+        # NOTE: only support latest otp version, not a matrix
         otp:
-          - 24.2.1-1 # update to latest
-          #
-        elixir:
-          - 1.13.4 # update to latest
-        arch:
-          - amd64
-            #- arm64
-        build_machine:
-          - aws-arm64
-          - ubuntu-20.04
+          - 24.3.4.2-1 # update to latest
         registry:
           - 'docker.io'
           - 'public.ecr.aws'
         exclude:
           - registry: 'public.ecr.aws'
             profile: emqx-enterprise
-          - arch: arm64
-            build_machine: ubuntu-20.04
-          - arch: amd64
-            build_machine: aws-arm64
-        include:
-          - arch: amd64
-            profile: emqx
-            build_elixir: with_elixir
-            os: [debian11, "debian:11-slim", "deploy/docker/Dockerfile"]
-            otp: 24.2.1-1
-            elixir: 1.13.4
-            build_machine: ubuntu-20.04
-            registry: docker.io
 
     steps:
-      - uses: actions/download-artifact@v2
+      - uses: actions/download-artifact@v3
         with:
           name: source
           path: .
@@ -287,13 +276,13 @@ jobs:
       - name: unzip source code
         run: unzip -q source.zip
 
-      - uses: docker/login-action@v1
+      - uses: docker/login-action@v2
         if: matrix.registry == 'docker.io'
         with:
           username: ${{ secrets.DOCKER_HUB_USER }}
           password: ${{ secrets.DOCKER_HUB_TOKEN }}
 
-      - uses: docker/login-action@v1
+      - uses: docker/login-action@v2
         if: matrix.registry == 'public.ecr.aws'
         with:
           registry: public.ecr.aws
@@ -301,54 +290,73 @@ jobs:
           password: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
           ecr: true
 
-      - name: prepare for docker-action-parms
-        id: pre-meta
-        run: |
-          emqx_name=${{ matrix.profile }}
-          img_suffix=${{ matrix.arch }}
-          img_labels="org.opencontainers.image.otp.version=${{ matrix.otp }}"
-
-          if [ ${{ matrix.build_elixir }} = 'with_elixir' ]; then
-            emqx_name="emqx-elixir"
-            img_suffix="elixir-${{ matrix.arch }}"
-            img_labels="org.opencontainers.image.elixir.version=${{ matrix.elixir }}\n$img_labels"
-          fi
-
-          if [ ${{ matrix.profile }} = "emqx" ]; then
-            img_labels="org.opencontainers.image.edition=Opensource\n${img_labels}"
-          fi
-
-          if [ ${{ matrix.profile }} = "emqx-enterprise" ]; then
-            img_labels="org.opencontainers.image.edition=Enterprise\n${img_labels}"
-          fi
-
-          if [[ ${{ matrix.os[0] }} =~ "alpine" ]]; then
-            img_suffix="${img_suffix}-alpine"
-          fi
-
-          echo "::set-output name=emqx_name::${emqx_name}"
-          echo "::set-output name=img_suffix::${img_suffix}"
-          echo "::set-output name=img_labels::${img_labels}"
-
-      # NOTE, Pls make sure this is identical as the one in job 'docker'
-      - uses: docker/metadata-action@v3
+      - uses: ./source/.github/actions/docker-meta
         id: meta
         with:
-          images: ${{ matrix.registry }}/${{ github.repository_owner }}/${{ matrix.profile }}
-          flavor: |
-            suffix=-${{ steps.pre-meta.outputs.img_suffix }}
-          tags: |
-            type=raw,value=${{ needs.prepare.outputs.DOCKER_TAG_VERSION }}
-          labels:
-            ${{ steps.pre-meta.outputs.img_labels }}
+          profile: ${{ matrix.profile }}
+          registry: ${{ matrix.registry }}
+          arch: ${{ matrix.arch[0] }}
+          otp: ${{ matrix.otp }}
+          builder_base: ${{ matrix.os[0] }}
+          owner: ${{ github.repository_owner }}
+          docker_tags: ${{ needs.prepare.outputs.DOCKER_TAG_VERSION }}
 
       - name: update manifest for multiarch image
-        if: needs.prepare.outputs.IS_EXACT_TAG == 'true'
         working-directory: source
         run: |
-          if [ ${{ matrix.build_elixir }} = 'with_elixir' ]; then
-            is_latest=false
-          else
-            is_latest="${{ needs.prepare.outputs.IS_DOCKER_LATEST }}"
-          fi
+          is_latest="${{ needs.prepare.outputs.IS_DOCKER_LATEST }}"
           scripts/docker-create-push-manifests.sh "${{ steps.meta.outputs.tags }}" "$is_latest"
+
+  docker-elixir-push-multi-arch-manifest:
+    # note, we only run on amd64
+    # do not build enterprise elixir images for now
+    if: needs.prepare.outputs.IS_EXACT_TAG && needs.prepare.outputs.BUILD_PROFILE == 'emqx'
+    needs:
+      - prepare
+      - docker-elixir
+    runs-on: ${{ matrix.arch[1] }}
+    strategy:
+      fail-fast: false
+      matrix:
+        arch:
+          - [amd64, ubuntu-20.04]
+        profile:
+          - ${{ needs.prepare.outputs.BUILD_PROFILE }}
+        # NOTE: for docker, only support latest otp version, not a matrix
+        otp:
+          - 24.3.4.2-1 # update to latest
+        elixir:
+          - 1.13.4 # update to latest
+        registry:
+          - 'docker.io'
+
+    steps:
+      - uses: actions/download-artifact@v3
+        with:
+          name: source
+          path: .
+
+      - name: unzip source code
+        run: unzip -q source.zip
+
+      - uses: docker/login-action@v2
+        with:
+          username: ${{ secrets.DOCKER_HUB_USER }}
+          password: ${{ secrets.DOCKER_HUB_TOKEN }}
+
+      - uses: ./source/.github/actions/docker-meta
+        id: meta
+        with:
+          profile: ${{ matrix.profile }}
+          registry: ${{ matrix.registry }}
+          arch: ${{ matrix.arch[0] }}
+          otp: ${{ matrix.otp }}
+          elixir: ${{ matrix.elixir }}
+          builder_base: ${{ matrix.os[0] }}
+          owner: ${{ github.repository_owner }}
+          docker_tags: ${{ needs.prepare.outputs.DOCKER_TAG_VERSION }}
+
+      - name: update manifest for multiarch image
+        working-directory: source
+        run: |
+          scripts/docker-create-push-manifests.sh "${{ steps.meta.outputs.tags }}" false

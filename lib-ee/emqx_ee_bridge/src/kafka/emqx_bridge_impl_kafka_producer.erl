@@ -266,7 +266,9 @@ make_client_id(BridgeName) ->
 make_producer_name(BridgeName) when is_atom(BridgeName) ->
     make_producer_name(atom_to_list(BridgeName));
 make_producer_name(BridgeName) ->
-    list_to_atom("kafka_producer_" ++ BridgeName).
+    %% Woff needs atom for ets table name registration
+    %% The assumption here is bridge is not often re-created
+    binary_to_atom(iolist_to_binary(["kafka_producer_", BridgeName])).
 
 with_log_at_error(Fun, Log) ->
     try
