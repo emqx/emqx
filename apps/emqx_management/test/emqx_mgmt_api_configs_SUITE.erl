@@ -133,6 +133,18 @@ t_global_zone(_Config) ->
 
     BadZones = emqx_map_lib:deep_put([<<"mqtt">>, <<"max_qos_allowed">>], Zones, 3),
     ?assertMatch({error, {"HTTP/1.1", 400, _}}, update_global_zone(BadZones)),
+
+    %% Remove max_qos_allowed from raw config, but we still get default value(2).
+    Mqtt0 = emqx_conf:get_raw([<<"mqtt">>]),
+    ?assertEqual(1, emqx_map_lib:deep_get([<<"max_qos_allowed">>], Mqtt0)),
+    Mqtt1 = maps:remove(<<"max_qos_allowed">>, Mqtt0),
+    ok = emqx_config:put_raw([<<"mqtt">>], Mqtt1),
+    Mqtt2 = emqx_conf:get_raw([<<"mqtt">>]),
+    ?assertNot(maps:is_key(<<"max_qos_allowed">>, Mqtt2), Mqtt2),
+    {ok, #{<<"mqtt">> := Mqtt3}} = get_global_zone(),
+    %% the default value is 2
+    ?assertEqual(2, emqx_map_lib:deep_get([<<"max_qos_allowed">>], Mqtt3)),
+    ok = emqx_config:put_raw([<<"mqtt">>], Mqtt0),
     ok.
 
 get_global_zone() ->
