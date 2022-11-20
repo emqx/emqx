@@ -208,7 +208,6 @@ jobs:
           - debian9
           - el8
           - el7
-          - raspbian10
         build_machine:
           - aws-arm64
           - ubuntu-20.04
@@ -217,20 +216,6 @@ jobs:
           build_machine: ubuntu-20.04
         - arch: amd64
           build_machine: aws-arm64
-        - os: raspbian9
-          arch: amd64
-        - os: raspbian10
-          arch: amd64
-        - os: raspbian10 # we only have arm32 image
-          arch: arm64
-        - os: raspbian9
-          profile: emqx
-        - os: raspbian10
-          profile: emqx
-        - os: raspbian9
-          profile: emqx-enterprise
-        - os: raspbian10
-          profile: emqx-enterprise
         include:
           - profile: emqx
             otp: 24.3.4.2-1
