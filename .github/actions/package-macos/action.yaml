@@ -31,14 +31,15 @@ runs:
       run: |
         brew update
         brew install curl zip unzip coreutils openssl@1.1
+        mkdir -p $HOME/src $HOME/otp
         echo "/usr/local/opt/bison/bin" >> $GITHUB_PATH
         echo "/usr/local/bin" >> $GITHUB_PATH
-        echo "OTP_SOURCE_PATH=$HOME/otp-${{ inputs.otp }}" >> $GITHUB_ENV
-        echo "OTP_INSTALL_PATH=/opt/erlang/${{ inputs.otp }}" >> $GITHUB_ENV
+        echo "OTP_SOURCE_PATH=$HOME/src/otp-${{ inputs.otp }}" >> $GITHUB_ENV
+        echo "OTP_INSTALL_PATH=$HOME/otp/${{ inputs.otp }}" >> $GITHUB_ENV
     - uses: actions/cache@v3
       id: cache
       with:
-        path: /opt/erlang/${{ inputs.otp }}
+        path: $HOME/otp/${{ inputs.otp }}
         key: otp-install-${{ inputs.otp }}-${{ inputs.os }}-static-ssl-disable-hipe-disable-jit
     - name: build erlang
       if: steps.cache.outputs.cache-hit != 'true'
