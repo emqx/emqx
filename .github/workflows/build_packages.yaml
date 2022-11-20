@@ -86,6 +86,7 @@ jobs:
 
   windows:
     runs-on: windows-2019
+    if: ! startsWith(github.ref_name, 'e')
     needs: prepare
     strategy:
       fail-fast: false
