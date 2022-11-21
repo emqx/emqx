@@ -319,7 +319,7 @@ relx_rem_sh() {
 
 # Generate a random id
 relx_gen_id() {
-    od -t x -N 4 /dev/urandom | head -n1 | awk '{print $2}'
+    od -t u -N 4 /dev/urandom | head -n1 | awk '{print $2 % 1000}'
 }
 
 # Control a node
