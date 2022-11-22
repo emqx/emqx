@@ -48,7 +48,7 @@ coap_discover(_Prefix, _Args) ->
     [{absolute, [<<"mqtt">>], []}].
 
 coap_get(ChId, ?MQTT_PREFIX, Path, Query, _Content) ->
-    ?LOG(debug, "coap_get() Path=~p, Query=~p~n", [Path, Query]),
+    ?LOG(debug, "coap_get() Path=~p, Query=~p~n", [Path, redact_query(Query)]),
     #coap_mqtt_auth{clientid = Clientid, username = Usr, password = Passwd} = get_auth(Query),
     case emqx_coap_mqtt_adapter:client_pid(Clientid, Usr, Passwd, ChId) of
         {ok, Pid} ->
@@ -65,7 +65,8 @@ coap_get(ChId, ?MQTT_PREFIX, Path, Query, _Content) ->
             {error, internal_server_error}
     end;
 coap_get(ChId, Prefix, Path, Query, _Content) ->
-    ?LOG(error, "ignore bad get request ChId=~p, Prefix=~p, Path=~p, Query=~p", [ChId, Prefix, Path, Query]),
+    ?LOG(error, "ignore bad get request ChId=~p, Prefix=~p, Path=~p, Query=~p",
+         [ChId, Prefix, Path, redact_query(Query)]),
     {error, bad_request}.
 
 coap_post(_ChId, _Prefix, _Topic, _Content) ->
@@ -149,3 +150,10 @@ topic([Path | TopicPath]) ->
             <<Path/binary, $/, RemTopic/binary>>
     end.
 
+redact_query(Auths) ->
+    lists:map(fun(<<$p, $=, _Rest/binary>>) ->
+                      <<$p, $=, "******">>;
+                 (E) ->
+                      E
+              end,
+              Auths).

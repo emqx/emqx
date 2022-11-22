@@ -60,7 +60,7 @@ close(Req = #{conn := Conn}, Md) ->
 authenticate(Req = #{conn := Conn,
                      password := Password,
                      clientinfo := ClientInfo}, Md) ->
-    ?LOG(debug, "Recv ~p function with request ~0p", [?FUNCTION_NAME, Req]),
+    ?LOG_SENSITIVE(debug, "Recv ~p function with request ~0p", [?FUNCTION_NAME, Req]),
     case validate(clientinfo, ClientInfo) of
         false ->
             {ok, response({error, ?RESP_REQUIRED_PARAMS_MISSED}), Md};
