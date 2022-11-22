@@ -793,7 +793,6 @@
               "mode": "off"
             }
           },
-          "decimals": 0,
           "links": [],
           "mappings": [],
           "min": 0,
@@ -810,7 +809,7 @@
               }
             ]
           },
-          "unit": "short"
+          "unit": "mps"
         },
         "overrides": []
       },
@@ -841,11 +840,13 @@
             "type": "prometheus",
             "uid": "${datasource}"
           },
+          "editorMode": "code",
           "exemplar": true,
           "expr": "sum(rate(emqx_messages_received{job=~\"$job\", instance=\"$instance\"}[$__rate_interval]) or irate(emqx_messages_received{job=~\"$job\", instance=\"$instance\"}[$__rate_interval]))",
           "format": "time_series",
           "intervalFactor": 2,
           "legendFormat": "Received",
+          "range": true,
           "refId": "A"
         },
         {
@@ -953,7 +954,6 @@
               "mode": "off"
             }
           },
-          "decimals": 0,
           "links": [],
           "mappings": [],
           "min": 0,
@@ -970,7 +970,7 @@
               }
             ]
           },
-          "unit": "short"
+          "unit": "mps"
         },
         "overrides": []
       },
@@ -1149,7 +1149,6 @@
               "mode": "off"
             }
           },
-          "decimals": 0,
           "links": [],
           "mappings": [],
           "min": 0,
@@ -1166,7 +1165,7 @@
               }
             ]
           },
-          "unit": "short"
+          "unit": "mps"
         },
         "overrides": []
       },
@@ -1434,7 +1433,7 @@
               }
             ]
           },
-          "unit": "decbytes"
+          "unit": "Bps"
         },
         "overrides": []
       },
@@ -1528,7 +1527,6 @@
               "mode": "off"
             }
           },
-          "decimals": 0,
           "links": [],
           "mappings": [],
           "min": 0,
@@ -1545,7 +1543,7 @@
               }
             ]
           },
-          "unit": "none"
+          "unit": "pps"
         },
         "overrides": []
       },
@@ -1704,7 +1702,6 @@
               "mode": "off"
             }
           },
-          "decimals": 0,
           "links": [],
           "mappings": [],
           "min": 0,
@@ -1721,7 +1718,7 @@
               }
             ]
           },
-          "unit": "none"
+          "unit": "pps"
         },
         "overrides": []
       },
@@ -1882,7 +1879,6 @@
               "mode": "off"
             }
           },
-          "decimals": 0,
           "links": [],
           "mappings": [],
           "min": 0,
@@ -1899,7 +1895,7 @@
               }
             ]
           },
-          "unit": "short"
+          "unit": "pps"
         },
         "overrides": []
       },
@@ -1995,7 +1991,6 @@
               "mode": "off"
             }
           },
-          "decimals": 0,
           "links": [],
           "mappings": [],
           "min": 0,
@@ -2012,7 +2007,7 @@
               }
             ]
           },
-          "unit": "short"
+          "unit": "pps"
         },
         "overrides": []
       },
@@ -2259,6 +2254,6 @@
   "timezone": "browser",
   "title": "EMQ details",
   "uid": "tjRlQw6Zk",
-  "version": 11,
+  "version": 12,
   "weekStart": ""
 }
