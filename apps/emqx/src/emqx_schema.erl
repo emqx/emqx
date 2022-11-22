@@ -399,7 +399,7 @@ fields("mqtt") ->
             sc(
                 range(1, 65535),
                 #{
-                    default => 65535,
+                    default => 128,
                     desc => ?DESC(mqtt_max_topic_levels)
                 }
             )},
