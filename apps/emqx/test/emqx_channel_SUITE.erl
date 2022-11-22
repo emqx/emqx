@@ -728,6 +728,22 @@ t_quota_qos2(_) ->
     del_bucket(),
     esockd_limiter:stop().
 
+t_mount_will_msg(_) ->
+    Self = self(),
+    ClientInfo = clientinfo(#{mountpoint => <<"prefix/">>}),
+    Msg = emqx_message:make(test, <<"will_topic">>, <<"will_payload">>),
+    Channel = channel(#{clientinfo => ClientInfo, will_msg => Msg}),
+
+    ok = meck:expect(emqx_broker, publish, fun(M) -> Self ! {pub, M} end),
+
+    {shutdown, kicked, ok, ?DISCONNECT_PACKET(?RC_ADMINISTRATIVE_ACTION), _} = emqx_channel:handle_call(
+        kick, Channel
+    ),
+    receive
+        {pub, #message{topic = <<"prefix/will_topic">>}} -> ok
+    after 200 -> exit(will_message_not_published_or_not_correct)
+    end.
+
 %%--------------------------------------------------------------------
 %% Test cases for handle_deliver
 %%--------------------------------------------------------------------
