@@ -47,6 +47,7 @@
 
 -export([
     qs2ms/2,
+    run_fuzzy_filter/2,
     format_channel_info/1,
     format_channel_info/2
 ]).
@@ -841,12 +842,7 @@ ms(created_at, X) ->
 fuzzy_filter_fun([]) ->
     undefined;
 fuzzy_filter_fun(Fuzzy) ->
-    fun(MsRaws) when is_list(MsRaws) ->
-        lists:filter(
-            fun(E) -> run_fuzzy_filter(E, Fuzzy) end,
-            MsRaws
-        )
-    end.
+    {fun ?MODULE:run_fuzzy_filter/2, [Fuzzy]}.
 
 run_fuzzy_filter(_, []) ->
     true;

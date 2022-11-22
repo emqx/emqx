@@ -34,7 +34,7 @@
 -export(['/rule_events'/2, '/rule_test'/2, '/rules'/2, '/rules/:id'/2, '/rules/:id/reset_metrics'/2]).
 
 %% query callback
--export([qs2ms/2, format_rule_resp/1]).
+-export([qs2ms/2, run_fuzzy_match/2, format_rule_resp/1]).
 
 -define(ERR_NO_RULE(ID), list_to_binary(io_lib:format("Rule ~ts Not Found", [(ID)]))).
 -define(ERR_BADARGS(REASON), begin
@@ -582,12 +582,7 @@ ms(enable, X) ->
 fuzzy_match_fun([]) ->
     undefined;
 fuzzy_match_fun(Fuzzy) ->
-    fun(MsRaws) when is_list(MsRaws) ->
-        lists:filter(
-            fun(E) -> run_fuzzy_match(E, Fuzzy) end,
-            MsRaws
-        )
-    end.
+    {fun ?MODULE:run_fuzzy_match/2, [Fuzzy]}.
 
 run_fuzzy_match(_, []) ->
     true;

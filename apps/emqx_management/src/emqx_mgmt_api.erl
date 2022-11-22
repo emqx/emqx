@@ -128,7 +128,9 @@ limit(Params) ->
 ].
 
 -type query_to_match_spec_fun() ::
-    fun((list(), list()) -> {ets:match_spec(), fun()}).
+    fun((list(), list()) -> {ets:match_spec(), fuzzy_filter_fun()}).
+
+-type fuzzy_filter_fun() :: undefined | {fun(), list()}.
 
 -type format_result_fun() ::
     fun((node(), term()) -> term())
@@ -269,6 +271,15 @@ collect_total_from_tail_nodes(Nodes, QueryState, ResultAcc = #{total := TotalAcc
 %%    }
 init_query_state(Tab, QString, MsFun, _Meta = #{page := Page, limit := Limit}) ->
     {Ms, FuzzyFun} = erlang:apply(MsFun, [Tab, QString]),
+    %% assert FuzzyFun type
+    _ =
+        case FuzzyFun of
+            undefined ->
+                ok;
+            {NamedFun, Args} ->
+                true = is_list(Args),
+                {type, external} = erlang:fun_info(NamedFun, type)
+        end,
     #{
         page => Page,
         limit => Limit,
@@ -323,9 +334,14 @@ do_select(
             {[], QueryState#{continuation => ?FRESH_SELECT}};
         {Rows, NContinuation} ->
             NRows =
-                case is_function(FuzzyFun) of
-                    true -> FuzzyFun(Rows);
-                    false -> Rows
+                case FuzzyFun of
+                    undefined ->
+                        Rows;
+                    {FilterFun, Args0} when is_function(FilterFun), is_list(Args0) ->
+                        lists:filter(
+                            fun(E) -> erlang:apply(FilterFun, [E | Args0]) end,
+                            Rows
+                        )
                 end,
             {NRows, QueryState#{continuation => NContinuation}}
     end.
@@ -361,7 +377,7 @@ counting_total_fun(_QueryState = #{mactch_spec := Ms, fuzzy_fun := undefined}) -
     fun(Tab) ->
         ets:select_count(Tab, CountingMs)
     end;
-counting_total_fun(_QueryState = #{fuzzy_fun := FuzzyFun}) when is_function(FuzzyFun) ->
+counting_total_fun(_QueryState = #{fuzzy_fun := FuzzyFun}) when FuzzyFun =/= undefined ->
     %% XXX: Calculating the total number for a fuzzy searching is very very expensive
     %% so it is not supported now
     false.
