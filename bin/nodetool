@@ -226,9 +226,14 @@ nodename(Name) ->
 
 this_node_name(longnames, Name) ->
     [Node, Host] = re:split(Name, "@", [{return, list}, unicode]),
-    list_to_atom(lists:concat(["remsh_maint_", Node, os:getpid(), "@", Host]));
+    list_to_atom(lists:concat(["remsh_maint_", Node, node_name_suffix_id(), "@", Host]));
 this_node_name(shortnames, Name) ->
-    list_to_atom(lists:concat(["remsh_maint_", Name, os:getpid()])).
+    list_to_atom(lists:concat(["remsh_maint_", Name, node_name_suffix_id()])).
+
+%% use the reversed value that from pid mod 1000 as the node name suffix
+node_name_suffix_id() ->
+    Pid = os:getpid(),
+    string:slice(string:reverse(Pid), 0, 3).
 
 %% For windows???
 create_mnesia_dir(DataDir, NodeName) ->

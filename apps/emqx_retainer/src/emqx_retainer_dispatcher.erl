@@ -20,6 +20,7 @@
 
 -include("emqx_retainer.hrl").
 -include_lib("emqx/include/logger.hrl").
+-include_lib("snabbkaffe/include/snabbkaffe.hrl").
 
 %% API
 -export([
@@ -286,7 +287,20 @@ do_deliver(Msgs, DeliverNum, Pid, Topic, Limiter) ->
     end.
 
 do_deliver([Msg | T], Pid, Topic) ->
-    Pid ! {deliver, Topic, Msg},
+    case emqx_banned:look_up({clientid, Msg#message.from}) of
+        [] ->
+            Pid ! {deliver, Topic, Msg},
+            ok;
+        _ ->
+            ?tp(
+                notice,
+                ignore_retained_message_deliver,
+                #{
+                    reason => "client is banned",
+                    clientid => Msg#message.from
+                }
+            )
+    end,
     do_deliver(T, Pid, Topic);
 do_deliver([], _, _) ->
     ok.

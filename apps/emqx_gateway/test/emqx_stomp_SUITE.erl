@@ -25,7 +25,7 @@
 -import(
     emqx_gateway_test_utils,
     [
-        assert_feilds_apperence/2,
+        assert_fields_exist/2,
         request/2,
         request/3
     ]
@@ -730,7 +730,7 @@ t_rest_clienit_info(_) ->
                 binary_to_list(ClientId),
         {200, StompClient1} = request(get, ClientPath),
         ?assertEqual(StompClient, StompClient1),
-        assert_feilds_apperence(
+        assert_fields_exist(
             [
                 proto_name,
                 awaiting_rel_max,
@@ -787,7 +787,7 @@ t_rest_clienit_info(_) ->
 
         {200, Subs} = request(get, ClientPath ++ "/subscriptions"),
         ?assertEqual(1, length(Subs)),
-        assert_feilds_apperence([topic, qos], lists:nth(1, Subs)),
+        assert_fields_exist([topic, qos], lists:nth(1, Subs)),
 
         {201, _} = request(
             post,

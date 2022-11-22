@@ -25,7 +25,8 @@
     namespace/0,
     roots/0,
     fields/1,
-    desc/1
+    desc/1,
+    validations/0
 ]).
 
 namespace() -> "statsd".
@@ -45,7 +46,8 @@ fields("statsd") ->
             )},
         {server, fun server/1},
         {sample_time_interval, fun sample_interval/1},
-        {flush_time_interval, fun flush_interval/1}
+        {flush_time_interval, fun flush_interval/1},
+        {tags, fun tags/1}
     ].
 
 desc("statsd") -> ?DESC(statsd);
@@ -59,12 +61,37 @@ server(_) -> undefined.
 
 sample_interval(type) -> emqx_schema:duration_ms();
 sample_interval(required) -> true;
-sample_interval(default) -> "10s";
+sample_interval(default) -> "30s";
 sample_interval(desc) -> ?DESC(?FUNCTION_NAME);
 sample_interval(_) -> undefined.
 
 flush_interval(type) -> emqx_schema:duration_ms();
 flush_interval(required) -> true;
-flush_interval(default) -> "10s";
+flush_interval(default) -> "30s";
 flush_interval(desc) -> ?DESC(?FUNCTION_NAME);
 flush_interval(_) -> undefined.
+
+tags(type) -> map();
+tags(required) -> false;
+tags(default) -> #{};
+tags(desc) -> ?DESC(?FUNCTION_NAME);
+tags(_) -> undefined.
+
+validations() ->
+    [
+        {check_interval, fun check_interval/1}
+    ].
+
+check_interval(Conf) ->
+    case hocon_maps:get("statsd.sample_time_interval", Conf) of
+        undefined ->
+            ok;
+        Sample ->
+            Flush = hocon_maps:get("statsd.flush_time_interval", Conf),
+            case Sample =< Flush of
+                true ->
+                    true;
+                false ->
+                    {bad_interval, #{sample_time_interval => Sample, flush_time_interval => Flush}}
+            end
+    end.

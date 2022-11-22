@@ -77,15 +77,16 @@ statsd_config_schema() ->
 statsd_example() ->
     #{
         enable => true,
-        flush_time_interval => "32s",
-        sample_time_interval => "32s",
-        server => "127.0.0.1:8125"
+        flush_time_interval => "30s",
+        sample_time_interval => "30s",
+        server => "127.0.0.1:8125",
+        tags => #{}
     }.
 
 statsd(get, _Params) ->
     {200, emqx:get_raw_config([<<"statsd">>], #{})};
 statsd(put, #{body := Body}) ->
-    case emqx_statsd:update(Body) of
+    case emqx_statsd_config:update(Body) of
         {ok, NewConfig} ->
             {200, NewConfig};
         {error, Reason} ->

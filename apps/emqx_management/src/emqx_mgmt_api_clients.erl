@@ -584,13 +584,13 @@ authz_cache(delete, #{bindings := Bindings}) ->
     clean_authz_cache(Bindings).
 
 subscribe(post, #{bindings := #{clientid := ClientID}, body := TopicInfo}) ->
-    Opts = emqx_map_lib:unsafe_atom_key_map(TopicInfo),
+    Opts = to_topic_info(TopicInfo),
     subscribe(Opts#{clientid => ClientID}).
 
 subscribe_batch(post, #{bindings := #{clientid := ClientID}, body := TopicInfos}) ->
     Topics =
         [
-            emqx_map_lib:unsafe_atom_key_map(TopicInfo)
+            to_topic_info(TopicInfo)
          || TopicInfo <- TopicInfos
         ],
     subscribe_batch(#{clientid => ClientID, topics => Topics}).
@@ -973,3 +973,7 @@ format_authz_cache({{PubSub, Topic}, {AuthzResult, Timestamp}}) ->
         result => AuthzResult,
         updated_time => Timestamp
     }.
+
+to_topic_info(Data) ->
+    M = maps:with([<<"topic">>, <<"qos">>, <<"nl">>, <<"rap">>, <<"rh">>], Data),
+    emqx_map_lib:safe_atom_key_map(M).
