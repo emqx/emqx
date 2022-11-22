@@ -26,25 +26,30 @@ inputs:
 runs:
   using: composite
   steps:
-    - name: prepare
+    - id: prepare
       shell: bash
       run: |
         brew update
         brew install curl zip unzip coreutils openssl@1.1
-        mkdir -p $HOME/src $HOME/otp
         echo "/usr/local/opt/bison/bin" >> $GITHUB_PATH
         echo "/usr/local/bin" >> $GITHUB_PATH
-        echo "OTP_SOURCE_PATH=$HOME/src/otp-${{ inputs.otp }}" >> $GITHUB_ENV
-        echo "OTP_INSTALL_PATH=$HOME/otp/${{ inputs.otp }}" >> $GITHUB_ENV
+        echo "emqx_name=${emqx_name}" >> $GITHUB_OUTPUT
+        OTP_SOURCE_PATH="$HOME/src/otp-${{ inputs.otp }}"
+        OTP_INSTALL_PATH="$HOME/otp/${{ inputs.otp }}"
+        echo "OTP_SOURCE_PATH=$OTP_SOURCE_PATH" >> $GITHUB_OUTPUT
+        echo "OTP_INSTALL_PATH=$OTP_INSTALL_PATH" >> $GITHUB_OUTPUT
+        mkdir -p "$OTP_SOURCE_PATH" "$OTP_INSTALL_PATH"
     - uses: actions/cache@v3
       id: cache
       with:
-        path: $HOME/otp/${{ inputs.otp }}
+        path: ${{ steps.prepare.outputs.OTP_INSTALL_PATH }}
         key: otp-install-${{ inputs.otp }}-${{ inputs.os }}-static-ssl-disable-hipe-disable-jit
     - name: build erlang
       if: steps.cache.outputs.cache-hit != 'true'
       shell: bash
       run: |
+        OTP_SOURCE_PATH="${{ steps.prepare.outputs.OTP_SOURCE_PATH }}"
+        OTP_INSTALL_PATH="${{ steps.prepare.outputs.OTP_INSTALL_PATH }}"
         if [ -d "$OTP_SOURCE_PATH" ]; then
           rm -rf "$OTP_SOURCE_PATH"
         fi
@@ -66,7 +71,7 @@ runs:
         APPLE_DEVELOPER_ID_BUNDLE_PASSWORD: ${{ inputs.apple_developer_id_bundle_password }}
       shell: bash
       run: |
-        export PATH="$OTP_INSTALL_PATH/bin:$PATH"
+        export PATH="${{ steps.prepare.outputs.OTP_INSTALL_PATH }}/bin:$PATH"
         make ensure-rebar3
         mkdir -p $HOME/bin
         cp rebar3 $HOME/bin/rebar3
@@ -75,7 +80,7 @@ runs:
     - name: test ${{ inputs.profile }}
       shell: bash
       run: |
-        export PATH="$OTP_INSTALL_PATH/bin:$PATH"
+        export PATH="${{ steps.prepare.outputs.OTP_INSTALL_PATH }}/bin:$PATH"
         pkg_name=$(find _packages/${{ inputs.profile }} -mindepth 1 -maxdepth 1 -iname \*.zip)
         mkdir emqx
         unzip -d emqx $pkg_name > /dev/null
